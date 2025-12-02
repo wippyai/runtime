@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/wippyai/runtime/api/service/tokenstore"
+	"github.com/wippyai/runtime/api/service/security/tokenstore"
 
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"

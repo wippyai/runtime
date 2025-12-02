@@ -6,8 +6,8 @@ import (
 
 	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/vm"
+	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	lru "github.com/wippyai/runtime/internal/cache"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	luavm "github.com/yuin/gopher-lua"

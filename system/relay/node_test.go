@@ -155,7 +155,7 @@ func TestNodeAttachNonLocal(t *testing.T) {
 	cancel, err := node.Attach(pid, ch)
 	assert.Nil(t, cancel)
 	if assert.Error(t, err) {
-		assert.Contains(t, err.Error(), "cannot attach to external node remoteNode")
+		assert.Contains(t, err.Error(), "cannot route to external node remoteNode")
 	}
 }
 

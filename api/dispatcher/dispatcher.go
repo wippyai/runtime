@@ -1,52 +1,52 @@
-// Package dispatcher re-exports command dispatch interfaces from api/process2.
+// Package dispatcher re-exports command dispatch interfaces from api/process.
 package dispatcher
 
 import (
 	"context"
 
-	"github.com/wippyai/runtime/api/process2"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 )
 
 // Type aliases - use process2 directly in new code.
 type (
-	CommandID      = process2.CommandID
-	Command        = process2.Command
-	Emitter        = process2.Emitter
-	Handler        = process2.Handler
-	HandlerFunc    = process2.HandlerFunc
-	Callable       = process2.Callable
-	Dispatcher     = process2.Dispatcher
-	AsyncScheduler = process2.AsyncScheduler
-	Registry       = process2.Registry
-	Registrar      = process2.Registrar
-	Freezer        = process2.Freezer
+	CommandID      = process.CommandID
+	Command        = process.Command
+	Emitter        = process.Emitter
+	Handler        = process.Handler
+	HandlerFunc    = process.HandlerFunc
+	Callable       = process.Callable
+	Dispatcher     = process.Dispatcher
+	AsyncScheduler = process.AsyncScheduler
+	Registry       = process.Registry
+	Registrar      = process.Registrar
+	Freezer        = process.Freezer
 )
 
 // Re-export constants
-const KindHandler registry.Kind = process2.KindHandler
+const KindHandler registry.Kind = process.KindHandler
 
-// MustRegisterCommands delegates to process2.
+// MustRegisterCommands delegates to process.
 func MustRegisterCommands(module string, ids ...CommandID) {
-	process2.MustRegisterCommands(module, ids...)
+	process.MustRegisterCommands(module, ids...)
 }
 
-// GetRegistry delegates to process2.
+// GetRegistry delegates to process.
 func GetRegistry(ctx context.Context) Registry {
-	return process2.GetRegistry(ctx)
+	return process.GetRegistry(ctx)
 }
 
-// GetRegistrar delegates to process2.
+// GetRegistrar delegates to process.
 func GetRegistrar(ctx context.Context) Registrar {
-	return process2.GetRegistrar(ctx)
+	return process.GetRegistrar(ctx)
 }
 
-// GetDispatcher delegates to process2.
+// GetDispatcher delegates to process.
 func GetDispatcher(ctx context.Context) Dispatcher {
-	return process2.GetDispatcher(ctx)
+	return process.GetDispatcher(ctx)
 }
 
-// WithRegistry delegates to process2.
+// WithRegistry delegates to process.
 func WithRegistry(ctx context.Context, r Registry) error {
-	return process2.WithRegistry(ctx, r)
+	return process.WithRegistry(ctx, r)
 }

@@ -7,7 +7,7 @@ import (
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
-	"github.com/wippyai/runtime/api/process2"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/system/clock"
 	funcpool "github.com/wippyai/runtime/system/scheduler/pool"
 	lua "github.com/yuin/gopher-lua"
@@ -38,7 +38,7 @@ func (d *poolTestDispatcher) Stop() {
 }
 
 func newLuaFactory(script string) funcpool.Factory {
-	return func() (process2.Process, error) {
+	return func() (process.Process, error) {
 		proto, err := lua.CompileString(script, "test.lua")
 		if err != nil {
 			return nil, err

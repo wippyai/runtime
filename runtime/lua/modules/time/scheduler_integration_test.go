@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
+	clockapi "github.com/wippyai/runtime/api/clock"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
-	"github.com/wippyai/runtime/api/process2"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	apiruntime "github.com/wippyai/runtime/api/runtime"
-	"github.com/wippyai/runtime/api/workflow"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/system/clock"
 	scheduler "github.com/wippyai/runtime/system/scheduler/actor"
@@ -923,18 +923,18 @@ func TestTimerWithSpawn(t *testing.T) {
 // in service/dispatcher/clock/handler_test.go at the handler level.
 // When context propagation is added, a scheduler integration test can be added here.
 
-// Placeholder to verify workflow.TimeReference exists and interface is correct
+// Placeholder to verify clockapi.TimeReference exists and interface is correct
 func TestTimeReferenceInterface(t *testing.T) {
 	fixedTime := time.Date(2020, 6, 15, 10, 30, 0, 0, time.UTC)
 	mockRef := &mockTimeRef{now: fixedTime}
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	err := workflow.WithTimeReference(ctx, mockRef)
+	err := clockapi.WithTimeReference(ctx, mockRef)
 	if err != nil {
 		t.Fatalf("failed to set time reference: %v", err)
 	}
 
-	ref := workflow.GetTimeReference(ctx)
+	ref := clockapi.GetTimeReference(ctx)
 	if ref == nil {
 		t.Fatal("failed to get time reference")
 	}
@@ -970,7 +970,7 @@ func TestFuncPoolWithSleep(t *testing.T) {
 		return disp.handlers[cmd.CmdID()]
 	})
 
-	factory := func() (process2.Process, error) {
+	factory := func() (process.Process, error) {
 		script := `
 			time.sleep(50 * time.MILLISECOND)
 			return "done"
@@ -1031,7 +1031,7 @@ func TestWorkStealingPoolWithSleep(t *testing.T) {
 		return disp.handlers[cmd.CmdID()]
 	})
 
-	factory := func() (process2.Process, error) {
+	factory := func() (process.Process, error) {
 		script := `
 			time.sleep(50 * time.MILLISECOND)
 			return "done"

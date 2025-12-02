@@ -582,7 +582,10 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 		return fmt.Errorf("close pack file: %w", err)
 	}
 
-	fileInfo, _ := os.Stat(outputFile)
+	fileInfo, err := os.Stat(outputFile)
+	if err != nil {
+		return fmt.Errorf("stat output file: %w", err)
+	}
 	p.Send(completedMsg{
 		fileSize: fileInfo.Size(),
 		metadata: metadata,

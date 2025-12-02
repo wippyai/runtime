@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/boot"
 	logapi "github.com/wippyai/runtime/api/logs"
-	"github.com/wippyai/runtime/api/process2"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	supervisorapi "github.com/wippyai/runtime/api/supervisor"
@@ -354,14 +354,14 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, method
 		return fmt.Errorf("invalid exec spec: %w", err)
 	}
 
-	manager := process2.GetManager(ctx)
+	manager := process.GetManager(ctx)
 	if manager == nil {
 		return fmt.Errorf("process manager not available")
 	}
 
 	source := registry.NewID(namespace, entry)
 
-	start := &process2.Start{
+	start := &process.Start{
 		HostID: hostID,
 		Source: source,
 	}

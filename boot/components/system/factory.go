@@ -7,8 +7,8 @@ import (
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
-	api "github.com/wippyai/runtime/api/process2"
-	"github.com/wippyai/runtime/system/process2"
+	api "github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/system/process"
 )
 
 const FactoryName = "system.factory"
@@ -27,7 +27,7 @@ func Factory() boot.Component {
 				return ctx, fmt.Errorf("event bus not available")
 			}
 
-			registry := process2.NewFactoryRegistry(bus, logger)
+			registry := process.NewFactoryRegistry(bus, logger)
 			if err := registry.Start(ctx); err != nil {
 				return ctx, fmt.Errorf("failed to start factory registry: %w", err)
 			}

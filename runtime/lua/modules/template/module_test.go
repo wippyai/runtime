@@ -10,7 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
+	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	templatecfg "github.com/wippyai/runtime/api/service/template"
 	lua2payload "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/service/template/jet"

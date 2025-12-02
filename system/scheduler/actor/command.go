@@ -1,29 +1,29 @@
 package actor
 
 import (
-	"github.com/wippyai/runtime/api/process2"
+	"github.com/wippyai/runtime/api/process"
 )
 
-// Re-export types from api/process2 for backward compatibility.
-// New code should import api/process2 directly.
+// Re-export types from api/process for backward compatibility.
+// New code should import api/process directly.
 type (
-	StepStatus     = process2.StepStatus
-	StepResult     = process2.StepResult
-	YieldResults   = process2.YieldResults
-	Process        = process2.Process
-	ProcessFactory = process2.ProcessFactory
+	StepStatus     = process.StepStatus
+	StepResult     = process.StepResult
+	YieldResults   = process.YieldResults
+	Process        = process.Process
+	ProcessFactory = process.ProcessFactory
 )
 
-// Re-export constants from api/process2.
+// Re-export constants from api/process.
 const (
-	StepContinue = process2.StepContinue
-	StepIdle     = process2.StepIdle
-	StepDone     = process2.StepDone
-	MaxYields    = process2.MaxYields
+	StepContinue = process.StepContinue
+	StepIdle     = process.StepIdle
+	StepDone     = process.StepDone
+	MaxYields    = process.MaxYields
 )
 
-// Re-export pool functions from api/process2.
+// Re-export pool functions from api/process.
 var (
-	AcquireYieldResults = process2.AcquireYieldResults
-	ReleaseYieldResults = process2.ReleaseYieldResults
+	AcquireYieldResults = process.AcquireYieldResults
+	ReleaseYieldResults = process.ReleaseYieldResults
 )

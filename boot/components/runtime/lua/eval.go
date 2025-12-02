@@ -7,8 +7,8 @@ import (
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
 	logapi "github.com/wippyai/runtime/api/logs"
-	"github.com/wippyai/runtime/api/process2"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
+	"github.com/wippyai/runtime/api/process"
+	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/boot/components/dispatchers"
 	"github.com/wippyai/runtime/runtime/lua/evalhost"
 	envlua "github.com/wippyai/runtime/runtime/lua/modules/env"
@@ -33,10 +33,10 @@ func Eval() boot.Component {
 			}
 
 			// Get process factory from context for ID-based sandbox creation
-			factory := process2.GetFactory(ctx)
+			factory := process.GetFactory(ctx)
 
 			// Modules available for eval'd code (safe, class-filtered subset)
-			modules := []lua2api.Module{
+			modules := []lua2api.ModuleV2{
 				json.Module,
 				timemod.Module,
 				payloadmod.Module,

@@ -3,8 +3,8 @@ package pack
 import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
-	dirapi "github.com/wippyai/runtime/api/service/directory"
-	embedapi "github.com/wippyai/runtime/api/service/embed"
+	dirapi "github.com/wippyai/runtime/api/service/fs/directory"
+	embedapi "github.com/wippyai/runtime/api/service/fs/embed"
 )
 
 // TransformToEmbed transforms a fs.directory entry to fs.embed entry.

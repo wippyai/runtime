@@ -14,7 +14,7 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/process2"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/internal/uniqid"
@@ -24,7 +24,7 @@ func setupTestContext() context.Context {
 	ctx := ctxapi.NewRootContext()
 	uniqGen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
-	return process2.WithPIDGenerator(ctx, pidGen)
+	return process.WithPIDGenerator(ctx, pidGen)
 }
 
 type mockRegistry struct {
@@ -131,8 +131,9 @@ func TestAsyncCallRegistry_ContextGet(t *testing.T) {
 	r1 := GetAsyncCallRegistry(ctx)
 	assert.Nil(t, r1)
 
-	r2 := GetOrCreateAsyncCallRegistry(ctx)
-	assert.NotNil(t, r2)
+	r2 := NewAsyncCallRegistry()
+	err := SetAsyncCallRegistry(ctx, r2)
+	assert.NoError(t, err)
 
 	r3 := GetAsyncCallRegistry(ctx)
 	assert.Equal(t, r2, r3)

@@ -41,7 +41,7 @@ func (m *NodeManager) Start(ctx context.Context) error {
 		m.handleEvent,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create subscriber: %w", err)
+		return NewSubscriberError(err)
 	}
 	m.subscriber = sub
 

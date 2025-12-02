@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
-	policyapi "github.com/wippyai/runtime/api/service/policy"
+	policyapi "github.com/wippyai/runtime/api/service/security/policy"
 )
 
 // mockTranscoder implements payload.Transcoder for testing

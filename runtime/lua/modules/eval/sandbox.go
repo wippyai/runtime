@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/process2"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
@@ -18,7 +18,7 @@ import (
 type Sandbox struct {
 	sourceOrID    string
 	modules       []string
-	process       process2.Process
+	process       process.Process
 	ctx           context.Context
 	started       bool
 	transcoder    *CommandTranscoder
@@ -65,7 +65,7 @@ func sandboxExecute(l *lua.LState) int {
 	}
 
 	// Create the process
-	var proc process2.Process
+	var proc process.Process
 	var err error
 
 	// Check if sourceOrID looks like a registry ID (contains ":")
@@ -141,10 +141,10 @@ func sandboxStep(l *lua.LState) int {
 	}
 
 	// Get results from previous yields (if any)
-	var results *process2.YieldResults
+	var results *process.YieldResults
 	if l.GetTop() >= 2 && l.Get(2).Type() == lua.LTTable {
 		resultsTable := l.CheckTable(2)
-		results = process2.AcquireYieldResults()
+		results = process.AcquireYieldResults()
 
 		// Extract data and error from table
 		if dataVal := resultsTable.RawGetString("data"); dataVal != lua.LNil {
@@ -160,7 +160,7 @@ func sandboxStep(l *lua.LState) int {
 	// Step the process
 	stepResult, err := sb.process.Step(results)
 	if results != nil {
-		process2.ReleaseYieldResults(results)
+		process.ReleaseYieldResults(results)
 	}
 
 	if err != nil {
@@ -176,7 +176,7 @@ func sandboxStep(l *lua.LState) int {
 	t := l.CreateTable(0, 3)
 
 	switch stepResult.Status {
-	case process2.StepDone:
+	case process.StepDone:
 		t.RawSetString("status", lua.LString("done"))
 		if stepResult.Result != nil {
 			luaVal := transcodeToLua(sb.ctx, stepResult.Result)
@@ -185,10 +185,10 @@ func sandboxStep(l *lua.LState) int {
 			t.RawSetString("value", lua.LNil)
 		}
 
-	case process2.StepIdle:
+	case process.StepIdle:
 		t.RawSetString("status", lua.LString("idle"))
 
-	case process2.StepContinue:
+	case process.StepContinue:
 		t.RawSetString("status", lua.LString("continue"))
 
 		// Transcode yields to Lua tables

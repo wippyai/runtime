@@ -9,7 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
-	policyapi "github.com/wippyai/runtime/api/service/policy"
+	policyapi "github.com/wippyai/runtime/api/service/security/policy"
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )

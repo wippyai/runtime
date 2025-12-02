@@ -3,7 +3,6 @@ package function
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"unsafe"
 
@@ -13,11 +12,6 @@ import (
 )
 
 var AsyncCallRegistryKey = &ctxapi.Key{Name: "func.async_calls", Inherit: false}
-
-var (
-	ErrCallNotFound  = errors.New("async call not found")
-	ErrCallCancelled = errors.New("async call cancelled")
-)
 
 // resultChanPool reduces allocations for result channels in hot path.
 var resultChanPool = sync.Pool{
@@ -161,14 +155,10 @@ func SetAsyncCallRegistry(ctx context.Context, r *AsyncCallRegistry) error {
 	return fc.Set(AsyncCallRegistryKey, r)
 }
 
-// GetOrCreateAsyncCallRegistry gets or creates an async call registry in context.
+// GetOrCreateAsyncCallRegistry returns the async call registry from context.
+// The registry must be set up by the caller before async operations.
 func GetOrCreateAsyncCallRegistry(ctx context.Context) *AsyncCallRegistry {
-	if r := GetAsyncCallRegistry(ctx); r != nil {
-		return r
-	}
-	r := NewAsyncCallRegistry()
-	_ = SetAsyncCallRegistry(ctx, r)
-	return r
+	return GetAsyncCallRegistry(ctx)
 }
 
 // CallAsync executes a function call asynchronously using pooled channels.
@@ -177,12 +167,12 @@ func GetOrCreateAsyncCallRegistry(ctx context.Context) *AsyncCallRegistry {
 func (f *Registry) CallAsync(ctx context.Context, task runtime.Task) (<-chan *CallResult, error) {
 	handler, exists := f.handlers.Load(task.ID)
 	if !exists {
-		return nil, fmt.Errorf("no handler registered for target: %s", task.ID)
+		return nil, NewHandlerNotFoundError(task.ID)
 	}
 
 	_, ok := handler.(function.Func)
 	if !ok {
-		return nil, fmt.Errorf("invalid handler type for target: %s", task.ID)
+		return nil, NewInvalidHandlerError(task.ID)
 	}
 
 	ch := resultChanPool.Get().(chan *CallResult)
@@ -201,12 +191,12 @@ func (f *Registry) CallAsync(ctx context.Context, task runtime.Task) (<-chan *Ca
 func (f *Registry) CallAsyncCallback(ctx context.Context, task runtime.Task, callback func(*runtime.Result, error)) error {
 	handler, exists := f.handlers.Load(task.ID)
 	if !exists {
-		return fmt.Errorf("no handler registered for target: %s", task.ID)
+		return NewHandlerNotFoundError(task.ID)
 	}
 
 	_, ok := handler.(function.Func)
 	if !ok {
-		return fmt.Errorf("invalid handler type for target: %s", task.ID)
+		return NewInvalidHandlerError(task.ID)
 	}
 
 	go func() {

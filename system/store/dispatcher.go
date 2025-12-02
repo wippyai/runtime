@@ -4,6 +4,7 @@ package store
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	storeapi "github.com/wippyai/runtime/api/dispatcher/store"
@@ -16,6 +17,7 @@ type Dispatcher struct {
 	wg      sync.WaitGroup
 	ctx     context.Context
 	cancel  context.CancelFunc
+	stopped atomic.Bool
 }
 
 type job struct {
@@ -46,6 +48,7 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 
 // Stop shuts down the dispatcher and drains pending jobs.
 func (d *Dispatcher) Stop(_ context.Context) error {
+	d.stopped.Store(true)
 	d.cancel()
 	close(d.jobs)
 	d.wg.Wait()
@@ -60,6 +63,9 @@ func (d *Dispatcher) worker() {
 }
 
 func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) {
+	if d.stopped.Load() {
+		return
+	}
 	select {
 	case d.jobs <- job{ctx: ctx, cmd: cmd, emit: emit}:
 	case <-d.ctx.Done():

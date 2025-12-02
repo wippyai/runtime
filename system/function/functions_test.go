@@ -9,7 +9,7 @@ import (
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/function"
-	"github.com/wippyai/runtime/api/process2"
+	"github.com/wippyai/runtime/api/process"
 	relayapi "github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/internal/uniqid"
@@ -225,7 +225,7 @@ func TestFunctions_Execute(t *testing.T) {
 	// Add PID generator
 	uniqGen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
-	ctx = process2.WithPIDGenerator(ctx, pidGen)
+	ctx = process.WithPIDGenerator(ctx, pidGen)
 
 	executor, bus := setupTest()
 	require.NoError(t, executor.Start(ctx))
@@ -346,7 +346,7 @@ func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
 
 	uniqGen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
-	ctx = process2.WithPIDGenerator(ctx, pidGen)
+	ctx = process.WithPIDGenerator(ctx, pidGen)
 
 	executor, bus := setupTest()
 	require.NoError(t, executor.Start(ctx))
@@ -441,7 +441,7 @@ func TestFunctions_CallErrorHandling(t *testing.T) {
 
 	uniqGen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
-	ctx = process2.WithPIDGenerator(ctx, pidGen)
+	ctx = process.WithPIDGenerator(ctx, pidGen)
 
 	executor, _ := setupTest()
 	require.NoError(t, executor.Start(ctx))
@@ -486,7 +486,7 @@ func TestFunctions_FrameContextHandling(t *testing.T) {
 	// Add PID generator to context
 	uniqGen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
-	ctx = process2.WithPIDGenerator(ctx, pidGen)
+	ctx = process.WithPIDGenerator(ctx, pidGen)
 
 	executor, _ := setupTest()
 	require.NoError(t, executor.Start(ctx))
@@ -524,7 +524,7 @@ func TestFunctions_EdgeCases(t *testing.T) {
 
 	uniqGen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
-	ctx = process2.WithPIDGenerator(ctx, pidGen)
+	ctx = process.WithPIDGenerator(ctx, pidGen)
 
 	executor, bus := setupTest()
 	require.NoError(t, executor.Start(ctx))
@@ -591,7 +591,7 @@ func TestFunctions_ConcurrentExecution(t *testing.T) {
 
 	uniqGen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
-	ctx = process2.WithPIDGenerator(ctx, pidGen)
+	ctx = process.WithPIDGenerator(ctx, pidGen)
 
 	executor, _ := setupTest()
 	require.NoError(t, executor.Start(ctx))

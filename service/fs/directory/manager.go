@@ -9,7 +9,7 @@ import (
 	fsapi "github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
-	dirapi "github.com/wippyai/runtime/api/service/directory"
+	dirapi "github.com/wippyai/runtime/api/service/fs/directory"
 	entryutil "github.com/wippyai/runtime/internal/entry"
 	"go.uber.org/zap"
 )

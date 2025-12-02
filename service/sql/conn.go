@@ -117,17 +117,18 @@ func (p *ConnPool) Acquire(
 	_ registry.ID,
 	mode resource.AccessMode,
 ) (resource.Resource[any], error) {
-	if p.closed.Load() {
-		return nil, fmt.Errorf("connection pool is closed")
-	}
-
 	// Only support normal mode for now
 	if mode != resource.ModeNormal {
 		return nil, fmt.Errorf("unsupported access mode: %v", mode)
 	}
 
-	// Track resource usage
+	// Track resource usage before checking closed state to avoid race with Stop()
 	p.wg.Add(1)
+
+	if p.closed.Load() {
+		p.wg.Done()
+		return nil, fmt.Errorf("connection pool is closed")
+	}
 
 	return newDBConn(p, p.db, p.kind), nil
 }

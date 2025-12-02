@@ -106,7 +106,7 @@ func (q *Queue) PopN(dst []*Processor) int {
 		q.head = (q.head + 1) % len(q.items)
 	}
 	q.count -= n
-	q.atomicLen.Add(int32(-n))
+	q.atomicLen.Add(int32(-n)) //nolint:gosec // n is bounded by batch size
 
 	q.mu.Unlock()
 	return n

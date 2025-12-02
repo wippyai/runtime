@@ -2,12 +2,11 @@ package pool
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/process2"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/runtime"
 )
 
@@ -49,7 +48,7 @@ func releaseRequest(req *request) {
 
 // staticWorker owns one process and pulls from shared queue.
 type staticWorker struct {
-	process  process2.Process
+	process  process.Process
 	executor *Executor
 	tasks    <-chan *request
 	done     <-chan struct{}
@@ -137,7 +136,7 @@ func (s *Static) Stop() {
 // Call executes a function call using an available worker.
 func (s *Static) Call(ctx context.Context, method string, input payload.Payloads) (*runtime.Result, error) {
 	if s.closed.Load() {
-		return nil, fmt.Errorf("pool is closed")
+		return nil, ErrPoolClosed
 	}
 
 	req := acquireRequest(ctx, method, input)
@@ -149,7 +148,7 @@ func (s *Static) Call(ctx context.Context, method string, input payload.Payloads
 		return nil, ctx.Err()
 	case <-s.done:
 		releaseRequest(req)
-		return nil, fmt.Errorf("pool is closed")
+		return nil, ErrPoolClosed
 	}
 
 	select {

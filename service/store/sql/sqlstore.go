@@ -10,7 +10,7 @@ import (
 
 	sq "github.com/Masterminds/squirrel"
 	sqlconfig "github.com/wippyai/runtime/api/service/sql"
-	"github.com/wippyai/runtime/api/service/sqlstore"
+	sqlstore "github.com/wippyai/runtime/api/service/store/sql"
 	"github.com/wippyai/runtime/api/supervisor"
 	servicesql "github.com/wippyai/runtime/service/sql"
 
@@ -51,6 +51,13 @@ func NewSQLStore(id registry.ID, config *sqlstore.SQLConfig, log *zap.Logger) *S
 // Get retrieves a value by key
 // Returns the payload associated with the given registry.ID or ErrKeyNotFound if not present
 func (s *SQLStore) Get(ctx context.Context, key registry.ID) (payload.Payload, error) {
+	s.mu.RLock()
+	if s.closed {
+		s.mu.RUnlock()
+		return nil, store.ErrStoreClosed
+	}
+	s.mu.RUnlock()
+
 	reg := resource.GetRegistry(ctx)
 	res, err := reg.Acquire(ctx, s.config.Database, resource.ModeNormal)
 	if err != nil {
@@ -215,17 +222,6 @@ func (s *SQLStore) Set(ctx context.Context, entry store.Entry) error {
 // Delete removes a value with the given key
 // Returns ErrKeyNotFound if the key doesn't exist
 func (s *SQLStore) Delete(ctx context.Context, key registry.ID) error {
-	// First, check if the key exists
-	has, err := s.Has(ctx, key)
-	if has {
-		if err != nil {
-			s.log.Error("failed to check if key exists",
-				zap.String("error", err.Error()),
-				zap.String("resource", s.config.Database.Name))
-			return err
-		}
-	}
-
 	reg := resource.GetRegistry(ctx)
 	res, err := reg.Acquire(ctx, s.config.Database, resource.ModeNormal)
 	if err != nil {
@@ -261,12 +257,20 @@ func (s *SQLStore) Delete(ctx context.Context, key registry.ID) error {
 		return err
 	}
 
-	_, err = db.ExecContext(ctx, querySQL, args...)
+	result, err := db.ExecContext(ctx, querySQL, args...)
 	if err != nil {
 		s.log.Error("failed to execute delete query",
 			zap.String("error", err.Error()),
 			zap.String("key", key.String()))
 		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return store.ErrKeyNotFound
 	}
 
 	return nil

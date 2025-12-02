@@ -229,7 +229,7 @@ func TestCompiler_PreloadedDependencies(t *testing.T) {
 	assert.Equal(t, "preloaded", dep.Node.Module.Info().Name)
 }
 
-// testModule implements lua.Module interface for testing
+// testModule implements lua.ModuleV2 interface for testing
 type testModule struct {
 	name string
 }

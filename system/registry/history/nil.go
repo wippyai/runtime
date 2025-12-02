@@ -1,7 +1,6 @@
 package history
 
 import (
-	"fmt"
 	"sync"
 
 	"github.com/wippyai/runtime/api/registry"
@@ -38,12 +37,12 @@ func (n *NilHistory) Save(newVersion registry.Version, _ registry.ChangeSet, hea
 
 // Get returns an error as version history is not available with NilHistory.
 func (n *NilHistory) Get(_ registry.Version) (registry.ChangeSet, error) {
-	return nil, fmt.Errorf("version history not available: registry configured with history disabled (enable_history=false)")
+	return nil, ErrHistoryNotAvailable
 }
 
 // Versions returns an error as version history is not available with NilHistory.
 func (n *NilHistory) Versions() ([]registry.Version, error) {
-	return nil, fmt.Errorf("version history not available: registry configured with history disabled (enable_history=false)")
+	return nil, ErrHistoryNotAvailable
 }
 
 // Head returns the current head version.
@@ -52,7 +51,7 @@ func (n *NilHistory) Head() (registry.Version, error) {
 	defer n.mu.RUnlock()
 
 	if n.head == nil {
-		return nil, fmt.Errorf("no head version set")
+		return nil, ErrNoHeadVersion
 	}
 
 	return n.head, nil
@@ -60,5 +59,5 @@ func (n *NilHistory) Head() (registry.Version, error) {
 
 // SetHead returns an error as rewinding is not supported with NilHistory.
 func (n *NilHistory) SetHead(_ registry.Version) error {
-	return fmt.Errorf("version rollback not supported: registry configured with history disabled (enable_history=false)")
+	return ErrRollbackNotSupported
 }

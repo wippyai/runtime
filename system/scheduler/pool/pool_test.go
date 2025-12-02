@@ -10,7 +10,7 @@ import (
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/process2"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 )
 
@@ -30,7 +30,7 @@ func (p *mockProcess) Execute(ctx context.Context, method string, input payload.
 	return nil
 }
 
-func (p *mockProcess) Step(results *process2.YieldResults) (process2.StepResult, error) {
+func (p *mockProcess) Step(results *process.YieldResults) (process.StepResult, error) {
 	p.mu.Lock()
 	p.stepCount++
 	latency := p.latency
@@ -40,7 +40,7 @@ func (p *mockProcess) Step(results *process2.YieldResults) (process2.StepResult,
 		time.Sleep(latency)
 	}
 
-	return process2.StepResult{Status: process2.StepDone}, nil
+	return process.StepResult{Status: process.StepDone}, nil
 }
 
 func (p *mockProcess) Close() {
@@ -65,21 +65,21 @@ func (d *mockDispatcher) Dispatch(cmd dispatcher.Command) dispatcher.Handler { r
 // factories
 
 func newMockFactory(latency time.Duration) Factory {
-	return func() (process2.Process, error) {
+	return func() (process.Process, error) {
 		return &mockProcess{latency: latency}, nil
 	}
 }
 
 func newCountingFactory() (Factory, *atomic.Int32) {
 	count := &atomic.Int32{}
-	return func() (process2.Process, error) {
+	return func() (process.Process, error) {
 		count.Add(1)
 		return &mockProcess{}, nil
 	}, count
 }
 
 func newErrorFactory() Factory {
-	return func() (process2.Process, error) {
+	return func() (process.Process, error) {
 		return nil, fmt.Errorf("factory error")
 	}
 }
@@ -129,7 +129,7 @@ func TestInlineFactoryError(t *testing.T) {
 
 // Test that StepResult.Result is properly propagated to runtime.Result.Value
 func TestInlineResultPropagation(t *testing.T) {
-	factory := func() (process2.Process, error) {
+	factory := func() (process.Process, error) {
 		return &resultProcess{result: payload.New("hello world")}, nil
 	}
 	pool, err := NewInline(factory, &mockDispatcher{})
@@ -167,8 +167,8 @@ func (p *resultProcess) Execute(ctx context.Context, method string, input payloa
 	return nil
 }
 
-func (p *resultProcess) Step(results *process2.YieldResults) (process2.StepResult, error) {
-	return process2.StepResult{Status: process2.StepDone, Result: p.result}, nil
+func (p *resultProcess) Step(results *process.YieldResults) (process.StepResult, error) {
+	return process.StepResult{Status: process.StepDone, Result: p.result}, nil
 }
 
 func (p *resultProcess) Close()                        {}
@@ -324,7 +324,7 @@ func TestLazyMaxWorkers(t *testing.T) {
 
 	// Simulate concurrent calls exceeding max workers
 	blockCh := make(chan struct{})
-	blockingFactory := func() (process2.Process, error) {
+	blockingFactory := func() (process.Process, error) {
 		return &blockingProcess{blockCh: blockCh}, nil
 	}
 
@@ -366,9 +366,9 @@ func (p *blockingProcess) Execute(ctx context.Context, method string, input payl
 	return nil
 }
 
-func (p *blockingProcess) Step(results *process2.YieldResults) (process2.StepResult, error) {
+func (p *blockingProcess) Step(results *process.YieldResults) (process.StepResult, error) {
 	<-p.blockCh
-	return process2.StepResult{Status: process2.StepDone}, nil
+	return process.StepResult{Status: process.StepDone}, nil
 }
 
 func (p *blockingProcess) Close()                        {}
@@ -421,7 +421,7 @@ func BenchmarkLazyCall(b *testing.B) {
 func TestHooksOnStartCalled(t *testing.T) {
 	var startCount atomic.Int32
 	hooks := Hooks{
-		OnStart: func(proc process2.Process) {
+		OnStart: func(proc process.Process) {
 			startCount.Add(1)
 		},
 	}
@@ -442,10 +442,10 @@ func TestHooksOnStartCalled(t *testing.T) {
 func TestHooksOnStopCalled(t *testing.T) {
 	var startCount, stopCount atomic.Int32
 	hooks := Hooks{
-		OnStart: func(proc process2.Process) {
+		OnStart: func(proc process.Process) {
 			startCount.Add(1)
 		},
-		OnStop: func(proc process2.Process) {
+		OnStop: func(proc process.Process) {
 			stopCount.Add(1)
 		},
 	}

@@ -10,7 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	"github.com/wippyai/runtime/api/security"
-	"github.com/wippyai/runtime/api/service/tokenstore"
+	"github.com/wippyai/runtime/api/service/security/tokenstore"
 	entryutil "github.com/wippyai/runtime/internal/entry"
 	"go.uber.org/zap"
 )

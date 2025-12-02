@@ -8,7 +8,7 @@ import (
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/process2"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 )
@@ -31,7 +31,7 @@ func WithWorkers(n int) Option {
 }
 
 // WithLifecycle sets the lifecycle handler.
-func WithLifecycle(l process2.Lifecycle) Option {
+func WithLifecycle(l process.Lifecycle) Option {
 	return func(s *Scheduler) {
 		s.lifecycle = l
 	}
@@ -47,8 +47,8 @@ func WithQueueSize(size int) Option {
 }
 
 // WithLocalQueueSize is deprecated - kept for compatibility but ignored.
-func WithLocalQueueSize(size int) Option {
-	return func(s *Scheduler) {}
+func WithLocalQueueSize(_ int) Option {
+	return func(_ *Scheduler) {}
 }
 
 // Dispatcher routes commands to handlers.
@@ -82,7 +82,7 @@ type Scheduler struct {
 	numWorkers int
 	queueSize  int
 	dispatcher Dispatcher
-	lifecycle  process2.Lifecycle
+	lifecycle  process.Lifecycle
 
 	// Process lookup (for Send() routing)
 	byPID sync.Map // map[relay.PID]Process
@@ -327,7 +327,7 @@ func (s *Scheduler) Stats() map[string]uint64 {
 	s.idle.Range(func(_, _ any) bool { idleCount++; return true })
 
 	stats["executed"] = executed
-	stats["global_queue"] = uint64(s.global.Len())
+	stats["global_queue"] = uint64(s.global.Len()) //nolint:gosec // queue length is bounded
 	stats["workers"] = uint64(len(s.workers))
 	stats["by_pid"] = byPIDCount
 	stats["idle"] = idleCount

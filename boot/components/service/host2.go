@@ -9,10 +9,10 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/process2"
+	"github.com/wippyai/runtime/api/process"
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/components/system"
-	"github.com/wippyai/runtime/service/host2"
+	"github.com/wippyai/runtime/service/host"
 )
 
 func Host2() boot.Component {
@@ -40,7 +40,7 @@ func Host2() boot.Component {
 				return ctx, fmt.Errorf("handler registry not available")
 			}
 
-			factory := process2.GetFactory(ctx)
+			factory := process.GetFactory(ctx)
 			if factory == nil {
 				return ctx, fmt.Errorf("process factory not available")
 			}
@@ -51,7 +51,7 @@ func Host2() boot.Component {
 				return ctx, fmt.Errorf("dispatcher registry not available")
 			}
 
-			manager := host2.NewManager(bus, dtt, registry, factory, logger)
+			manager := host.NewManager(bus, dtt, registry, factory, logger)
 			handlers.RegisterListener("process.host", manager)
 
 			logger.Info("host2 manager registered")

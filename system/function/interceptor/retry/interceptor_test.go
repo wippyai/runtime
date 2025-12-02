@@ -12,7 +12,6 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
-	retryapi "github.com/wippyai/runtime/api/service/interceptor/retry"
 )
 
 type testError struct {
@@ -84,7 +83,7 @@ func TestInterceptor_MaxAttemptsZero(t *testing.T) {
 	ctx := context.Background()
 
 	opts := runtime.Bag{}
-	opts.Set("retry", &retryapi.Options{MaxAttempts: 0})
+	opts.Set("retry", map[string]any{"max_attempts": 0})
 	task := makeTask(opts)
 
 	called := false
@@ -104,7 +103,7 @@ func TestInterceptor_SuccessFirstAttempt(t *testing.T) {
 	ctx := context.Background()
 
 	opts := runtime.Bag{}
-	opts.Set("retry", &retryapi.Options{MaxAttempts: 3})
+	opts.Set("retry", map[string]any{"max_attempts": 3})
 	task := makeTask(opts)
 
 	attempts := 0
@@ -125,7 +124,7 @@ func TestInterceptor_RetryableError(t *testing.T) {
 	ctx := context.Background()
 
 	opts := runtime.Bag{}
-	opts.Set("retry", &retryapi.Options{MaxAttempts: 3, BackoffMs: 1})
+	opts.Set("retry", map[string]any{"max_attempts": 3, "backoff_ms": 1})
 	task := makeTask(opts)
 
 	attempts := 0
@@ -149,7 +148,7 @@ func TestInterceptor_MaxAttemptsReached(t *testing.T) {
 	ctx := context.Background()
 
 	opts := runtime.Bag{}
-	opts.Set("retry", &retryapi.Options{MaxAttempts: 3, BackoffMs: 1})
+	opts.Set("retry", map[string]any{"max_attempts": 3, "backoff_ms": 1})
 	task := makeTask(opts)
 
 	attempts := 0
@@ -182,7 +181,7 @@ func TestInterceptor_NonRetryableErrorKind(t *testing.T) {
 			ctx := context.Background()
 
 			opts := runtime.Bag{}
-			opts.Set("retry", &retryapi.Options{MaxAttempts: 3, BackoffMs: 1})
+			opts.Set("retry", map[string]any{"max_attempts": 3, "backoff_ms": 1})
 			task := makeTask(opts)
 
 			attempts := 0
@@ -206,7 +205,7 @@ func TestInterceptor_RetryableFlagFalse(t *testing.T) {
 	ctx := context.Background()
 
 	opts := runtime.Bag{}
-	opts.Set("retry", &retryapi.Options{MaxAttempts: 3, BackoffMs: 1})
+	opts.Set("retry", map[string]any{"max_attempts": 3, "backoff_ms": 1})
 	task := makeTask(opts)
 
 	attempts := 0
@@ -228,7 +227,7 @@ func TestInterceptor_UnknownError(t *testing.T) {
 	ctx := context.Background()
 
 	opts := runtime.Bag{}
-	opts.Set("retry", &retryapi.Options{MaxAttempts: 3, BackoffMs: 1})
+	opts.Set("retry", map[string]any{"max_attempts": 3, "backoff_ms": 1})
 	task := makeTask(opts)
 
 	attempts := 0
@@ -253,7 +252,7 @@ func TestInterceptor_FixedBackoff(t *testing.T) {
 	ctx := context.Background()
 
 	opts := runtime.Bag{}
-	opts.Set("retry", &retryapi.Options{MaxAttempts: 3, BackoffMs: 50})
+	opts.Set("retry", map[string]any{"max_attempts": 3, "backoff_ms": 50})
 	task := makeTask(opts)
 
 	attempts := 0
@@ -286,7 +285,7 @@ func TestInterceptor_DefaultBackoff(t *testing.T) {
 	ctx := context.Background()
 
 	opts := runtime.Bag{}
-	opts.Set("retry", &retryapi.Options{MaxAttempts: 2, BackoffMs: 0})
+	opts.Set("retry", map[string]any{"max_attempts": 2, "backoff_ms": 0})
 	task := makeTask(opts)
 
 	attempts := 0
@@ -312,7 +311,7 @@ func TestInterceptor_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	opts := runtime.Bag{}
-	opts.Set("retry", &retryapi.Options{MaxAttempts: 10, BackoffMs: 100})
+	opts.Set("retry", map[string]any{"max_attempts": 10, "backoff_ms": 100})
 	task := makeTask(opts)
 
 	attempts := 0
@@ -338,7 +337,7 @@ func TestInterceptor_ContextCancelledBeforeStart(t *testing.T) {
 	cancel()
 
 	opts := runtime.Bag{}
-	opts.Set("retry", &retryapi.Options{MaxAttempts: 3})
+	opts.Set("retry", map[string]any{"max_attempts": 3})
 	task := makeTask(opts)
 
 	attempts := 0

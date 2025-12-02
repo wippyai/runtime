@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	lua "github.com/yuin/gopher-lua"
 	"github.com/yuin/gopher-lua/parse"
 )
@@ -42,7 +42,7 @@ func (p *Program) Proto() *lua.FunctionProto { return p.proto }
 
 // Compiler compiles Lua source with module constraints.
 type Compiler struct {
-	availableModules map[string]lua2api.Module
+	availableModules map[string]lua2api.ModuleV2
 	forbiddenClasses []string
 	allowedClasses   []string
 }
@@ -65,8 +65,8 @@ func WithAllowedClasses(classes ...string) CompilerOption {
 }
 
 // NewCompiler creates a compiler with available modules.
-func NewCompiler(modules []lua2api.Module, opts ...CompilerOption) *Compiler {
-	available := make(map[string]lua2api.Module)
+func NewCompiler(modules []lua2api.ModuleV2, opts ...CompilerOption) *Compiler {
+	available := make(map[string]lua2api.ModuleV2)
 	for _, m := range modules {
 		info := m.Info()
 		available[info.Name] = m
@@ -186,7 +186,7 @@ func (c *Compiler) GetModuleBinder(modules []string) func(*lua.LState) {
 }
 
 // GetAvailableModule returns a module by name.
-func (c *Compiler) GetAvailableModule(name string) (lua2api.Module, bool) {
+func (c *Compiler) GetAvailableModule(name string) (lua2api.ModuleV2, bool) {
 	m, ok := c.availableModules[name]
 	return m, ok
 }

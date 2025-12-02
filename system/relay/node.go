@@ -2,7 +2,6 @@ package relay
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	api "github.com/wippyai/runtime/api/relay"
@@ -36,7 +35,7 @@ func (n *Node) ID() api.NodeID {
 func (n *Node) RegisterHost(hostID api.HostID, host api.Host) error {
 	_, loaded := n.hosts.LoadOrStore(hostID, host)
 	if loaded {
-		return fmt.Errorf("host %s already exists in node %s", hostID, n.nodeID)
+		return NewHostExistsError(hostID, n.nodeID)
 	}
 	return nil
 }
@@ -66,33 +65,31 @@ func (n *Node) Send(pkg *api.Package) error {
 		if h, ok := n.hosts.Load(pkg.Target.Host); ok {
 			host, ok := h.(api.Host)
 			if !ok {
-				// This indicates a programming error where a non-Host type was stored.
-				return fmt.Errorf("host %s in node %s has invalid type", pkg.Target.Host, n.nodeID)
+				return NewInvalidHostTypeError(pkg.Target.Host, n.nodeID)
 			}
 			return host.Send(pkg)
 		}
-		return fmt.Errorf("host %s not found in node %s", pkg.Target.Host, n.nodeID)
+		return NewHostNotFoundError(pkg.Target.Host, n.nodeID)
 	}
 
-	// This node does not route messages to other nodes.
-	return fmt.Errorf("cannot route to external node %s", pkg.Target.Node)
+	return NewExternalNodeError(pkg.Target.Node)
 }
 
 // Attach connects a process ID to a channel for receiving packages.
 // Only works with hosts that implement AttachableHost.
 func (n *Node) Attach(pid api.PID, ch chan *api.Package) (context.CancelFunc, error) {
 	if pid.Node != "" && pid.Node != n.nodeID {
-		return nil, fmt.Errorf("cannot attach to external node %s", pid.Node)
+		return nil, NewExternalNodeError(pid.Node)
 	}
 
 	h, ok := n.hosts.Load(pid.Host)
 	if !ok {
-		return nil, fmt.Errorf("host %s not found in node %s", pid.Host, n.nodeID)
+		return nil, NewHostNotFoundError(pid.Host, n.nodeID)
 	}
 
 	attachable, ok := h.(api.AttachableHost)
 	if !ok {
-		return nil, fmt.Errorf("host %s does not support attachment", pid.Host)
+		return nil, NewHostNotAttachableError(pid.Host)
 	}
 
 	return attachable.Attach(pid, ch)

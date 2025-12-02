@@ -11,7 +11,7 @@ import (
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
-	embedapi "github.com/wippyai/runtime/api/service/embed"
+	embedapi "github.com/wippyai/runtime/api/service/fs/embed"
 	supervisorapi "github.com/wippyai/runtime/api/supervisor"
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/pack"

@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/wippyai/runtime/api/process2"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
+	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"go.uber.org/zap"
 )
@@ -15,11 +15,11 @@ import (
 type Host struct {
 	log            *zap.Logger
 	compiler       *Compiler
-	processFactory process2.Factory
+	processFactory process.Factory
 }
 
 // NewHost creates a new eval host.
-func NewHost(log *zap.Logger, modules []lua2api.Module, processFactory process2.Factory) *Host {
+func NewHost(log *zap.Logger, modules []lua2api.ModuleV2, processFactory process.Factory) *Host {
 	return &Host{
 		log:            log,
 		compiler:       NewCompiler(modules),
@@ -37,7 +37,7 @@ func (h *Host) Compile(ctx context.Context, cmd CompileCmd) (*Program, error) {
 }
 
 // CreateProcess creates a process from a Program for sandbox use.
-func (h *Host) CreateProcess(ctx context.Context, program *Program) (process2.Process, error) {
+func (h *Host) CreateProcess(ctx context.Context, program *Program) (process.Process, error) {
 	// Get module binder for the allowed modules
 	binder := h.compiler.GetModuleBinder(program.Modules())
 
@@ -52,7 +52,7 @@ func (h *Host) CreateProcess(ctx context.Context, program *Program) (process2.Pr
 }
 
 // CreateProcessFromID creates a process from a prototype ID.
-func (h *Host) CreateProcessFromID(ctx context.Context, id registry.ID) (process2.Process, error) {
+func (h *Host) CreateProcessFromID(ctx context.Context, id registry.ID) (process.Process, error) {
 	if h.processFactory == nil {
 		return nil, fmt.Errorf("process factory not available")
 	}

@@ -12,7 +12,7 @@ import (
 	apiruntime "github.com/wippyai/runtime/api/runtime"
 )
 
-// edgeTestLifecycle implements process2.Lifecycle for edge tests
+// edgeTestLifecycle implements process.Lifecycle for edge tests
 type edgeTestLifecycle struct {
 	onComplete func(context.Context, relay.PID, *apiruntime.Result)
 }

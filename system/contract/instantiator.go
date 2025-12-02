@@ -2,7 +2,6 @@ package contract
 
 import (
 	"context"
-	"fmt"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/contract"
@@ -37,7 +36,7 @@ func (i *Instantiator) Instantiate(ctx context.Context, bindingID registry.ID, s
 	for _, bc := range binding.Contracts {
 		contractObj, err := i.registry.GetContract(ctx, bc.Contract)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load contract '%s': %w", bc.Contract, err)
+			return nil, NewContractLoadError(bc.Contract, err)
 		}
 		contracts = append(contracts, contractObj)
 	}
@@ -84,14 +83,21 @@ func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Pay
 	}
 
 	if !found {
-		return nil, fmt.Errorf("method '%s' not bound", method)
+		return nil, NewMethodNotBoundError(method)
 	}
 
 	// Validate required context keys - now checks BOTH scope and Go context
 	if err := i.validateContext(ctx, boundContract.ContextRequired); err != nil {
 		return nil, err
 	}
-	// todo: this are new!
+
+	// Create task with payloads
+	task := runtime.Task{
+		ID:       funcID,
+		Payloads: args,
+	}
+
+	// Merge context values and pass via task.Context
 	if len(i.context) > 0 {
 		// Get existing values from FrameContext or create new
 		values := ctxapi.GetValues(ctx)
@@ -102,21 +108,13 @@ func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Pay
 			values = ctxapi.NewValues()
 		}
 
-		// Merge context values
+		// Merge scope context values (scope wins over existing)
 		for k, v := range i.context {
 			values.Set(k, v)
 		}
 
-		if err := ctxapi.SetValues(ctx, values); err != nil {
-			return nil, fmt.Errorf("failed to set context values: %w", err)
-		}
-	}
-
-	// Create task with payloads
-	task := runtime.Task{
-		ID:       funcID,
-		Payloads: args,
-		// todo: set new values here!
+		// Pass merged values via task.Context so they propagate through AcquireFrameContext
+		task.Context = []ctxapi.Pair{ctxapi.ValuesPair(values)}
 	}
 
 	// Call the function with context
@@ -156,7 +154,7 @@ func (i *instanceImpl) validateContext(ctx context.Context, requiredKeys []strin
 	}
 
 	if len(missing) > 0 {
-		return fmt.Errorf("missing required context keys: %v", missing)
+		return NewMissingContextKeysError(missing)
 	}
 
 	return nil

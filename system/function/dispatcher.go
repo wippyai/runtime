@@ -10,9 +10,6 @@ import (
 	"github.com/wippyai/runtime/api/function"
 )
 
-// ErrRegistryNotFound is returned when the function registry is not in context.
-var ErrRegistryNotFound = errors.New("function registry not found in context")
-
 // Dispatcher handles function call commands.
 type Dispatcher struct {
 	call        dispatcher.HandlerFunc

@@ -8,13 +8,13 @@ import (
 	"github.com/tetratelabs/wazero/api"
 
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/process2"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	wasmengine "github.com/wippyai/wasm-runtime/engine"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
 )
 
-// Process implements process2.Process for WASM execution with asyncify support.
+// Process implements process.Process for WASM execution with asyncify support.
 type Process struct {
 	runtime   *wasmrt.Runtime
 	module    *wasmrt.Module
@@ -107,13 +107,13 @@ func (p *Process) Execute(ctx context.Context, method string, input payload.Payl
 }
 
 // Step advances the process by one iteration.
-func (p *Process) Step(results *process2.YieldResults) (process2.StepResult, error) {
-	var result process2.StepResult
+func (p *Process) Step(results *process.YieldResults) (process.StepResult, error) {
+	var result process.StepResult
 
 	// No asyncify support - simple call
 	if p.scheduler == nil {
 		if p.started {
-			result.Status = process2.StepDone
+			result.Status = process.StepDone
 			if p.result != nil {
 				result.Result = payload.New(p.result)
 			}
@@ -121,7 +121,7 @@ func (p *Process) Step(results *process2.YieldResults) (process2.StepResult, err
 		}
 		p.started = true
 		p.result, p.err = p.instance.Call(p.ctx, p.method, p.args...)
-		result.Status = process2.StepDone
+		result.Status = process.StepDone
 		if p.result != nil {
 			result.Result = payload.New(p.result)
 		}
@@ -138,19 +138,19 @@ func (p *Process) Step(results *process2.YieldResults) (process2.StepResult, err
 		rawFn := p.instance.GetExportedFunction(p.method)
 		if rawFn == nil {
 			p.err = fmt.Errorf("function %q not found", p.method)
-			result.Status = process2.StepDone
+			result.Status = process.StepDone
 			return result, p.err
 		}
 		fn, ok := rawFn.(api.Function)
 		if !ok {
 			p.err = fmt.Errorf("function %q has unexpected type", p.method)
-			result.Status = process2.StepDone
+			result.Status = process.StepDone
 			return result, p.err
 		}
 		p.fn = fn
 		if err := p.scheduler.Execute(ctx, fn, p.fnArgs...); err != nil {
 			p.err = err
-			result.Status = process2.StepDone
+			result.Status = process.StepDone
 			return result, err
 		}
 	}
@@ -175,13 +175,13 @@ func (p *Process) Step(results *process2.YieldResults) (process2.StepResult, err
 	sr, err := p.scheduler.Step(ctx, yr)
 	if err != nil {
 		p.err = err
-		result.Status = process2.StepDone
+		result.Status = process.StepDone
 		return result, err
 	}
 
 	switch sr.Status {
 	case SchedulerDone:
-		result.Status = process2.StepDone
+		result.Status = process.StepDone
 		if len(sr.Results) > 0 {
 			p.result = sr.Results[0]
 			result.Result = payload.New(p.result)
@@ -189,12 +189,12 @@ func (p *Process) Step(results *process2.YieldResults) (process2.StepResult, err
 		return result, nil
 
 	case SchedulerContinue:
-		result.Status = process2.StepContinue
+		result.Status = process.StepContinue
 		result.AddYield(sr.Command)
 		return result, nil
 	}
 
-	result.Status = process2.StepDone
+	result.Status = process.StepDone
 	return result, nil
 }
 
@@ -218,4 +218,4 @@ func (p *Process) Result() any {
 }
 
 // compile-time check
-var _ process2.Process = (*Process)(nil)
+var _ process.Process = (*Process)(nil)

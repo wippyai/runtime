@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
-	policyapi "github.com/wippyai/runtime/api/service/policy"
+	policyapi "github.com/wippyai/runtime/api/service/security/policy"
 )
 
 func TestExprPolicy_SimpleExpression(t *testing.T) {

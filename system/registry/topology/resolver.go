@@ -1,7 +1,6 @@
 package topology
 
 import (
-	"fmt"
 	"strings"
 	"sync"
 
@@ -38,7 +37,7 @@ func NewResolver() *Resolver {
 // Implements registry.DependencyResolver interface.
 func (r *Resolver) RegisterPattern(pattern registry.DependencyPattern) error {
 	if pattern.Path == "" {
-		return fmt.Errorf("pattern path cannot be empty")
+		return ErrEmptyPatternPath
 	}
 
 	r.mu.Lock()

@@ -9,7 +9,7 @@ import (
 	fsapi "github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
-	embedapi "github.com/wippyai/runtime/api/service/embed"
+	embedapi "github.com/wippyai/runtime/api/service/fs/embed"
 	entryutil "github.com/wippyai/runtime/internal/entry"
 	"go.uber.org/zap"
 )

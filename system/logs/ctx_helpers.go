@@ -14,6 +14,8 @@ import (
 	"github.com/wippyai/runtime/system/eventbus"
 )
 
+// Note: fmt kept for Sprintf in path generation
+
 // ConfigurationManager is a helper for managing logging configuration at runtime.
 type ConfigurationManager struct {
 	opCounter      atomic.Uint64
@@ -45,7 +47,7 @@ func (c *ConfigurationManager) GetConfig(ctx context.Context, bus event.Bus) (ap
 		}
 	})
 	if err != nil {
-		return api.Config{}, fmt.Errorf("failed to create subscriber: %w", err)
+		return api.Config{}, NewSubscriberError(err)
 	}
 	defer sub.Close()
 
@@ -61,9 +63,9 @@ func (c *ConfigurationManager) GetConfig(ctx context.Context, bus event.Bus) (ap
 	case cfg := <-configCh:
 		return cfg, nil
 	case <-time.After(c.defaultTimeout):
-		return api.Config{}, fmt.Errorf("timeout waiting for log config")
+		return api.Config{}, ErrGetConfigTimeout
 	case <-ctx.Done():
-		return api.Config{}, fmt.Errorf("context canceled: %w", ctx.Err())
+		return api.Config{}, NewContextCanceledError(ctx.Err())
 	}
 }
 
@@ -85,7 +87,7 @@ func (c *ConfigurationManager) SetConfig(ctx context.Context, bus event.Bus, cfg
 		}
 	})
 	if err != nil {
-		return fmt.Errorf("failed to create subscriber: %w", err)
+		return NewSubscriberError(err)
 	}
 	defer sub.Close()
 
@@ -101,12 +103,12 @@ func (c *ConfigurationManager) SetConfig(ctx context.Context, bus event.Bus, cfg
 	select {
 	case confirm := <-confirmCh:
 		if confirm != cfg {
-			return fmt.Errorf("config mismatch - requested: %+v, got: %+v", cfg, confirm)
+			return NewConfigMismatchError(fmt.Sprintf("%+v", cfg), fmt.Sprintf("%+v", confirm))
 		}
 		return nil
 	case <-time.After(c.defaultTimeout):
-		return fmt.Errorf("timeout waiting for config confirmation")
+		return ErrSetConfigTimeout
 	case <-ctx.Done():
-		return fmt.Errorf("context canceled: %w", ctx.Err())
+		return NewContextCanceledError(ctx.Err())
 	}
 }

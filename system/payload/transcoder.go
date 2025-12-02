@@ -1,17 +1,10 @@
 package payload
 
 import (
-	"errors"
-	"fmt"
 	"sync"
 
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/internal/graph"
-)
-
-// Pre-defined errors to avoid allocations in hot paths
-var (
-	errEmptyFormat = errors.New("payload format is empty")
 )
 
 // pathKey is a cache key for transcoding paths (avoids string concatenation)
@@ -87,7 +80,7 @@ func (t *Transcoder) getTranscodePath(from, to string) (*graph.Path[string], err
 	// Slow path: compute path and cache it
 	path, err := t.graph.ShortestPath(from, to)
 	if err != nil {
-		return nil, fmt.Errorf("no transcoding path found from %s to %s", from, to)
+		return nil, NewNoTranscodingPathError(payload.Format(from), payload.Format(to))
 	}
 
 	// Store computed path in cache
@@ -116,12 +109,12 @@ func (t *Transcoder) Transcode(p payload.Payload, to payload.Format) (payload.Pa
 
 		tt, ok := t.transcoders[currentFrom][currentTo]
 		if !ok || tt == nil {
-			return nil, fmt.Errorf("no transcoder registered for %s to %s", currentFrom, currentTo)
+			return nil, NewNoTranscoderError(currentFrom, currentTo)
 		}
 
 		currentPayload, err = tt.Transcode(currentPayload)
 		if err != nil {
-			return nil, fmt.Errorf("error transcoding from %s to %s: %w", currentFrom, currentTo, err)
+			return nil, NewTranscodeError(currentFrom, currentTo, err)
 		}
 	}
 
@@ -150,7 +143,7 @@ func (t *Transcoder) findUnmarshalPath(from string) (*graph.Path[string], error)
 	}
 
 	if unmarshalPath == nil {
-		return nil, fmt.Errorf("no unmarshaling path found for format %s", from)
+		return nil, NewNoUnmarshalPathError(payload.Format(from))
 	}
 
 	// Store computed path in cache
@@ -161,7 +154,7 @@ func (t *Transcoder) findUnmarshalPath(from string) (*graph.Path[string], error)
 // Unmarshal unmarshals a payload into a given struct.
 func (t *Transcoder) Unmarshal(p payload.Payload, v interface{}) error {
 	if p.Format() == "" {
-		return errEmptyFormat
+		return ErrEmptyFormat
 	}
 
 	fromStr := string(p.Format())
@@ -179,15 +172,12 @@ func (t *Transcoder) Unmarshal(p payload.Payload, v interface{}) error {
 
 	transcodedPayload, err := t.Transcode(p, payload.Format(path.Nodes[len(path.Nodes)-1]))
 	if err != nil {
-		return fmt.Errorf("error transcoding payload for unmarshaling: %w", err)
+		return NewUnmarshalTranscodeError(err)
 	}
 
 	unmarshaler, ok = t.unmarshalers[path.Nodes[len(path.Nodes)-1]]
 	if !ok {
-		return fmt.Errorf(
-			"unmarshaler not found for format %s, even though a path was found",
-			path.Nodes[len(path.Nodes)-1],
-		)
+		return NewUnmarshalerNotFoundError(path.Nodes[len(path.Nodes)-1])
 	}
 
 	return unmarshaler.Unmarshal(transcodedPayload, v)

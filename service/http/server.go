@@ -234,10 +234,9 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 		defer contextapi.ReleaseFrameContext(fc)
 
 		// Set all HTTP-specific metadata in FrameContext in one place
-		_ = fc.SetMultiple(
-			contextapi.Pair{Key: config.ContextServerID, Value: s.id},
-			contextapi.Pair{Key: config.ContextHost, Value: s},
-		)
+		_ = config.SetServerID(ctx, s.id.String())
+		_ = config.SetServerHost(ctx, s.config.Addr)
+		_ = fc.Set(config.ServerCtxKey(), s)
 
 		baseHandler.ServeHTTP(w, r.WithContext(ctx))
 	})

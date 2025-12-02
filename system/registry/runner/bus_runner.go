@@ -3,8 +3,6 @@ package runner
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"slices"
 	"time"
 
@@ -79,7 +77,7 @@ func (br *BusRunner) Transition(
 				Data:   err,
 			})
 
-			return newState.ToSlice(), fmt.Errorf("operation failed: %w", err)
+			return newState.ToSlice(), NewOperationFailedError(err)
 		}
 
 		currentState = newState
@@ -99,14 +97,14 @@ func (br *BusRunner) applyOperation(
 	op registry.Operation,
 ) (topology.StateMap, error) {
 	if err := br.builder.ValidateOperation(state, op); err != nil {
-		return state, fmt.Errorf("invalid operation: %w", err)
+		return state, NewInvalidOperationError(err)
 	}
 
 	if op.Entry.Kind == "" {
 		// resolve from reg or fail
 		entry, ok := state[op.Entry.ID]
 		if !ok {
-			return state, fmt.Errorf("entry kind not found: %s", op.Entry.ID)
+			return state, NewEntryKindNotFoundError(op.Entry.ID)
 		}
 
 		op.Entry.Kind = entry.Kind
@@ -123,7 +121,7 @@ func (br *BusRunner) applyOperation(
 		// use registry.entry for dynamic configs
 		newState, err := br.builder.ApplyOperation(state, op)
 		if err != nil {
-			return state, fmt.Errorf("applying change to state: %w", err)
+			return state, NewApplyChangeError(err)
 		}
 
 		return newState, nil
@@ -149,13 +147,13 @@ func (br *BusRunner) applyOperation(
 				zap.String("expected", op.Entry.ID.String()))
 
 			if id != op.Entry.ID {
-				return state, errors.New("unrelated accept event")
+				return state, ErrUnrelatedAcceptEvent
 			}
 
 			// Apply the change to the state
 			newState, err := br.builder.ApplyOperation(state, op)
 			if err != nil {
-				return state, fmt.Errorf("applying change to state: %w", err)
+				return state, NewApplyChangeError(err)
 			}
 
 			return newState, nil
@@ -168,27 +166,26 @@ func (br *BusRunner) applyOperation(
 				zap.Any("data", rejection.Data))
 
 			if id != op.Entry.ID {
-				return state, errors.New("unrelated reject event")
+				return state, ErrUnrelatedRejectEvent
 			}
 
 			err, ok := rejection.Data.(error)
 			if !ok {
-				return state, fmt.Errorf("operation rejected for entry %s, no details", op.Entry.ID.String())
+				return state, NewOperationRejectedError(op.Entry.ID, nil)
 			}
-			return state, fmt.Errorf("operation failed for entry %s: %w", op.Entry.ID.String(), err)
+			return state, NewOperationRejectedError(op.Entry.ID, err)
 
 		case <-timeoutCtx.Done():
 			if ctx.Err() != nil {
-				return state, fmt.Errorf("operation context canceled for %s (%s): %w", op.Entry.ID, op.Entry.Kind, ctx.Err())
+				return state, NewOperationCanceledError(op.Entry.ID, op.Entry.Kind, ctx.Err())
 			}
 			br.log.Error("event handler timeout - no listener responded",
 				zap.String("id", op.Entry.ID.String()),
-				zap.String("kind", string(op.Entry.Kind)),
-				zap.String("operation", string(op.Kind)),
+				zap.String("kind", op.Entry.Kind),
+				zap.String("operation", op.Kind),
 				zap.Duration("timeout", eventWaitTimeout),
 				zap.String("hint", "check if a listener is registered for this entry kind"))
-			return state, fmt.Errorf("event handler timeout after %v for entry %s (kind: %s): no listener responded - check if listener is registered for this kind",
-				eventWaitTimeout, op.Entry.ID, op.Entry.Kind)
+			return state, NewEventHandlerTimeoutError(eventWaitTimeout, op.Entry.ID, op.Entry.Kind)
 		}
 	}
 }
@@ -237,13 +234,13 @@ func (br *BusRunner) subscribeToEvents(ctx context.Context) error {
 	var err error
 	br.acceptSubID, err = br.bus.SubscribeP(ctx, registry.System, registry.Accept, br.acceptChan)
 	if err != nil {
-		return fmt.Errorf("listening events: %w", err)
+		return NewListenEventsError(err)
 	}
 
 	br.rejectSubID, err = br.bus.SubscribeP(ctx, registry.System, registry.Reject, br.rejectChan)
 	if err != nil {
 		br.bus.Unsubscribe(ctx, br.acceptSubID) // Clean up accept subscription if reject subscription fails
-		return fmt.Errorf("listening events: %w", err)
+		return NewListenEventsError(err)
 	}
 
 	return nil

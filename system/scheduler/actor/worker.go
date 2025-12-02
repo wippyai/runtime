@@ -129,14 +129,14 @@ func (w *Worker) executeOne(proc *Processor) {
 					return
 				}
 			}
-			go w.handleMultipleYields(proc, ctx, yields, handlers)
+			go w.handleMultipleYields(ctx, proc, yields, handlers)
 		}
 	}
 }
 
 // handleMultipleYields executes multiple handlers in parallel and waits for all.
 // Uses embedded emitters for zero allocation when yields <= MaxYields.
-func (w *Worker) handleMultipleYields(proc *Processor, ctx context.Context, yields []dispatcher.Command, handlers []dispatcher.Handler) {
+func (w *Worker) handleMultipleYields(ctx context.Context, proc *Processor, yields []dispatcher.Command, handlers []dispatcher.Handler) {
 	n := len(yields)
 	proc.initMultiYield(n)
 

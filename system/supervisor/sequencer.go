@@ -2,7 +2,6 @@ package supervisor
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/wippyai/runtime/internal/graph"
@@ -64,14 +63,14 @@ func (sp *Sequencer) Transition(ctx context.Context, operations ...Operation) er
 	// Process stops first (in reverse dependency order)
 	if len(stopOps) > 0 {
 		if err := sp.processStopOperations(ctx, stopOps); err != nil {
-			return fmt.Errorf("stop sequence failed: %w", err)
+			return NewStopSequenceError(err)
 		}
 	}
 
 	// Then process starts (in dependency order)
 	if len(startOps) > 0 {
 		if err := sp.processStartOperations(ctx, startOps); err != nil {
-			return fmt.Errorf("start sequence failed: %w", err)
+			return NewStartSequenceError(err)
 		}
 	}
 
@@ -98,7 +97,7 @@ func (sp *Sequencer) processStartOperations(_ context.Context, operations []Oper
 	// Spawn dependency levels
 	levels, err := g.DependencyLevels()
 	if err != nil {
-		return fmt.Errorf("failed to determine start dependency levels: %w", err)
+		return NewDependencyLevelsError("start", err)
 	}
 
 	// Spawn operation lookup map
@@ -125,7 +124,7 @@ func (sp *Sequencer) processStartOperations(_ context.Context, operations []Oper
 						zap.Int("level", i))
 
 					if err := op.Controller.Start(); err != nil {
-						errChan <- fmt.Errorf("failed to start service %s: %w", op.ID, err)
+						errChan <- NewServiceStartError(op.ID, err)
 					}
 				}(op)
 			}
@@ -170,7 +169,7 @@ func (sp *Sequencer) processStopOperations(_ context.Context, operations []Opera
 
 	levels, err := g.DependencyLevels()
 	if err != nil {
-		return fmt.Errorf("failed to determine stop dependency levels: %w", err)
+		return NewDependencyLevelsError("stop", err)
 	}
 
 	allErrors := make([]error, 0)
@@ -193,7 +192,7 @@ func (sp *Sequencer) processStopOperations(_ context.Context, operations []Opera
 						zap.Int("level", i))
 
 					if err := op.Controller.Stop(); err != nil {
-						errChan <- fmt.Errorf("failed to stop service %s: %w", op.ID, err)
+						errChan <- NewServiceStopError(op.ID, err)
 					}
 				}(op)
 			}
@@ -217,5 +216,5 @@ func (sp *Sequencer) processStopOperations(_ context.Context, operations []Opera
 		return allErrors[0]
 	}
 
-	return fmt.Errorf("stop failed for %d services: %w", len(allErrors), allErrors[0])
+	return NewMultiStopError(len(allErrors), allErrors[0])
 }

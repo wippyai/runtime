@@ -10,12 +10,11 @@ package pool
 
 import (
 	"context"
-	"fmt"
 	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/process2"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 )
@@ -96,18 +95,18 @@ func DefaultConfig() Config {
 }
 
 // Factory creates new Process instances.
-type Factory = process2.ProcessFactory
+type Factory = process.ProcessFactory
 
 // Dispatcher routes commands to handlers.
 type Dispatcher = dispatcher.Dispatcher
 
 // OnStart is called when a pool process is created.
 // Use this for resource initialization (DB connections, etc.).
-type OnStart func(proc process2.Process)
+type OnStart func(proc process.Process)
 
 // OnStop is called when a pool process is destroyed.
 // Use this for resource cleanup.
-type OnStop func(proc process2.Process)
+type OnStop func(proc process.Process)
 
 // Hooks contains lifecycle callbacks for pool processes.
 type Hooks struct {
@@ -121,7 +120,7 @@ func WrapFactoryWithHooks(factory Factory, hooks Hooks) Factory {
 	if hooks.OnStart == nil && hooks.OnStop == nil {
 		return factory
 	}
-	return func() (process2.Process, error) {
+	return func() (process.Process, error) {
 		proc, err := factory()
 		if err != nil {
 			return nil, err
@@ -138,7 +137,7 @@ func WrapFactoryWithHooks(factory Factory, hooks Hooks) Factory {
 
 // hookedProcess wraps a process to call OnStop before Close.
 type hookedProcess struct {
-	proc   process2.Process
+	proc   process.Process
 	onStop OnStop
 }
 
@@ -146,7 +145,7 @@ func (h *hookedProcess) Execute(ctx context.Context, method string, input payloa
 	return h.proc.Execute(ctx, method, input)
 }
 
-func (h *hookedProcess) Step(results *process2.YieldResults) (process2.StepResult, error) {
+func (h *hookedProcess) Step(results *process.YieldResults) (process.StepResult, error) {
 	return h.proc.Step(results)
 }
 
@@ -160,7 +159,7 @@ func (h *hookedProcess) Send(pkg *relay.Package) error {
 }
 
 // OnExecutionStart is called before each execution with context and process.
-type OnExecutionStart func(ctx context.Context, proc process2.Process)
+type OnExecutionStart func(ctx context.Context, proc process.Process)
 
 // OnExecutionComplete is called after each execution with context and result.
 type OnExecutionComplete func(ctx context.Context, result *runtime.Result)
@@ -191,7 +190,7 @@ func (e *Executor) WithExecutionHooks(hooks ExecutionHooks) *Executor {
 }
 
 // Run executes a process to completion, handling all yields.
-func (e *Executor) Run(ctx context.Context, proc process2.Process, method string, input payload.Payloads) *runtime.Result {
+func (e *Executor) Run(ctx context.Context, proc process.Process, method string, input payload.Payloads) *runtime.Result {
 	if e.hooks.OnStart != nil {
 		e.hooks.OnStart(ctx, proc)
 	}
@@ -204,12 +203,12 @@ func (e *Executor) Run(ctx context.Context, proc process2.Process, method string
 		return result
 	}
 
-	var yieldResults *process2.YieldResults
+	var yieldResults *process.YieldResults
 	for {
 		stepResult, err := proc.Step(yieldResults)
 
 		if yieldResults != nil {
-			process2.ReleaseYieldResults(yieldResults)
+			process.ReleaseYieldResults(yieldResults)
 			yieldResults = nil
 		}
 
@@ -222,21 +221,21 @@ func (e *Executor) Run(ctx context.Context, proc process2.Process, method string
 		}
 
 		switch stepResult.Status {
-		case process2.StepDone:
+		case process.StepDone:
 			ret := runtime.Result{Value: stepResult.Result}
 			if e.hooks.OnComplete != nil {
 				e.hooks.OnComplete(ctx, &ret)
 			}
 			return &ret
 
-		case process2.StepIdle:
+		case process.StepIdle:
 			result := &runtime.Result{Error: ErrIdleNotSupported}
 			if e.hooks.OnComplete != nil {
 				e.hooks.OnComplete(ctx, result)
 			}
 			return result
 
-		case process2.StepContinue:
+		case process.StepContinue:
 			yields := stepResult.GetYields()
 			if len(yields) == 0 {
 				continue
@@ -256,8 +255,8 @@ func (e *Executor) Run(ctx context.Context, proc process2.Process, method string
 
 // handleYields executes all command handlers and waits for emit to be called.
 // Handlers are async - they call emit.Emit() when done, possibly from another goroutine.
-func (e *Executor) handleYields(ctx context.Context, yields []dispatcher.Command) *process2.YieldResults {
-	res := process2.AcquireYieldResults()
+func (e *Executor) handleYields(ctx context.Context, yields []dispatcher.Command) *process.YieldResults {
+	res := process.AcquireYieldResults()
 
 	if len(yields) == 1 {
 		cmd := yields[0]
@@ -304,7 +303,7 @@ func (e *Executor) handleYields(ctx context.Context, yields []dispatcher.Command
 	}
 
 	// Initialize multi-yield context
-	e.multiCtx.pending.Store(int32(n))
+	e.multiCtx.pending.Store(int32(n)) //nolint:gosec // n is bounded by MaxPoolYields (4)
 	if e.multiCtx.wakeup == nil {
 		e.multiCtx.wakeup = make(chan struct{}, 1)
 	}
@@ -343,18 +342,4 @@ func (e *Executor) handleYields(ctx context.Context, yields []dispatcher.Command
 
 	res.Data = results
 	return res
-}
-
-// Errors
-
-// ErrIdleNotSupported is returned when a process yields idle in a function pool.
-var ErrIdleNotSupported = fmt.Errorf("idle yield not supported in function pool")
-
-// UnknownCommandError indicates an unregistered command.
-type UnknownCommandError struct {
-	CmdID dispatcher.CommandID
-}
-
-func (e *UnknownCommandError) Error() string {
-	return fmt.Sprintf("unknown command: %d", e.CmdID)
 }

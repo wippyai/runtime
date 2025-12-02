@@ -183,15 +183,10 @@ func TestEndpointFactory_CreateHandler(t *testing.T) {
 		// Register test function
 		registry.Register(cfg.Func, func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
 			// Get request context from FrameContext
-			fc := ctxapi.FrameFromContext(ctx)
-			if fc == nil {
-				panic("FrameContext not found")
-			}
-			val, ok := fc.Get(config.RequestCtx)
+			rctx, ok := config.GetRequestContext(ctx)
 			if !ok {
-				panic("RequestCtx not found in FrameContext")
+				panic("RequestContext not found")
 			}
-			rctx := val.(*config.RequestContext)
 
 			// send response
 			rctx.MarkHandled()

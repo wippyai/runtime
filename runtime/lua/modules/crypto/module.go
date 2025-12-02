@@ -13,8 +13,8 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	lua "github.com/yuin/gopher-lua"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/pbkdf2"

@@ -2,7 +2,6 @@ package component
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
@@ -55,17 +54,17 @@ func (h *Handler) Handle(ctx context.Context, evt event.Event) error {
 func UnpackConfig[T any](ctx context.Context, entry registry.Entry) (*T, error) {
 	dtt := payload.GetTranscoder(ctx)
 	if dtt == nil {
-		return nil, fmt.Errorf("transcoder not found in context")
+		return nil, ErrTranscoderNotFound
 	}
 
 	cfg := new(T)
 	if err := dtt.Unmarshal(entry.Data, cfg); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+		return nil, NewUnmarshalError(err)
 	}
 
 	if validator, ok := interface{}(cfg).(interface{ Validate() error }); ok {
 		if err := validator.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid configuration: %w", err)
+			return nil, NewValidationError(err)
 		}
 	}
 

@@ -9,7 +9,7 @@ import (
 
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
-	"github.com/wippyai/runtime/api/service/policy"
+	"github.com/wippyai/runtime/api/service/security/policy"
 )
 
 func newMockActor(id string, meta registry.Metadata) security.Actor {

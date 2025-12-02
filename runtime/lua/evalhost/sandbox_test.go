@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 	clockapi "github.com/wippyai/runtime/api/clock"
 	ctxapi "github.com/wippyai/runtime/api/context"
-	"github.com/wippyai/runtime/api/process2"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
+	"github.com/wippyai/runtime/api/process"
+	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/modules/json"
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
 	"go.uber.org/zap"
@@ -19,7 +19,7 @@ import (
 // TestSandbox_ManualStepping demonstrates how to manually step through a Lua process
 // and see the yields from the Lua perspective.
 func TestSandbox_ManualStepping(t *testing.T) {
-	modules := []lua2api.Module{
+	modules := []lua2api.ModuleV2{
 		json.Module,
 		timemod.Module,
 	}
@@ -62,7 +62,7 @@ func TestSandbox_ManualStepping(t *testing.T) {
 	t.Logf("Step 1 yields: %d", step1.YieldCount())
 
 	// Should be continuing with a yield
-	assert.Equal(t, process2.StepContinue, step1.Status)
+	assert.Equal(t, process.StepContinue, step1.Status)
 	assert.Equal(t, 1, step1.YieldCount())
 
 	// Get the yielded command
@@ -81,9 +81,9 @@ func TestSandbox_ManualStepping(t *testing.T) {
 	assert.Equal(t, 50*time.Millisecond, sleepCmd.Duration)
 
 	// Simulate time passing and provide result
-	results := process2.AcquireYieldResults()
+	results := process.AcquireYieldResults()
 	results.Data = []any{time.Now().UnixNano()} // Return wakeup time as result
-	defer process2.ReleaseYieldResults(results)
+	defer process.ReleaseYieldResults(results)
 
 	// Step 2: Resume with sleep result
 	step2, err := proc.Step(results)
@@ -93,12 +93,12 @@ func TestSandbox_ManualStepping(t *testing.T) {
 	t.Logf("Step 2 yields: %d", step2.YieldCount())
 
 	// Should be done now
-	assert.Equal(t, process2.StepDone, step2.Status)
+	assert.Equal(t, process.StepDone, step2.Status)
 }
 
 // TestSandbox_MultipleSleeps tests stepping through multiple sleep calls
 func TestSandbox_MultipleSleeps(t *testing.T) {
-	modules := []lua2api.Module{
+	modules := []lua2api.ModuleV2{
 		json.Module,
 		timemod.Module,
 	}
@@ -138,23 +138,23 @@ func TestSandbox_MultipleSleeps(t *testing.T) {
 		30 * time.Millisecond,
 	}
 
-	var results *process2.YieldResults
+	var results *process.YieldResults
 	for i, expected := range expectedDurations {
 		step, err := proc.Step(results)
 		if results != nil {
-			process2.ReleaseYieldResults(results)
+			process.ReleaseYieldResults(results)
 			results = nil
 		}
 		require.NoError(t, err)
 
 		t.Logf("Step %d: status=%v, yields=%d", i+1, step.Status, step.YieldCount())
 
-		if step.Status == process2.StepDone {
+		if step.Status == process.StepDone {
 			t.Logf("Process completed at step %d", i+1)
 			break
 		}
 
-		assert.Equal(t, process2.StepContinue, step.Status)
+		assert.Equal(t, process.StepContinue, step.Status)
 		assert.Equal(t, 1, step.YieldCount())
 
 		yields := step.GetYields()
@@ -163,22 +163,22 @@ func TestSandbox_MultipleSleeps(t *testing.T) {
 		assert.Equal(t, expected, sleepCmd.Duration)
 
 		// Prepare result for next iteration
-		results = process2.AcquireYieldResults()
+		results = process.AcquireYieldResults()
 		results.Data = []any{time.Now().UnixNano()}
 	}
 
 	// Final step to complete
 	if results != nil {
 		step, err := proc.Step(results)
-		process2.ReleaseYieldResults(results)
+		process.ReleaseYieldResults(results)
 		require.NoError(t, err)
-		assert.Equal(t, process2.StepDone, step.Status)
+		assert.Equal(t, process.StepDone, step.Status)
 	}
 }
 
 // TestSandbox_ErrorHandling tests error handling during stepping
 func TestSandbox_ErrorHandling(t *testing.T) {
-	modules := []lua2api.Module{
+	modules := []lua2api.ModuleV2{
 		json.Module,
 		timemod.Module,
 	}
@@ -212,12 +212,12 @@ func TestSandbox_ErrorHandling(t *testing.T) {
 	// Error should be returned
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "intentional error")
-	assert.Equal(t, process2.StepDone, step.Status)
+	assert.Equal(t, process.StepDone, step.Status)
 }
 
 // TestSandbox_NoYields tests process that completes without yields
 func TestSandbox_NoYields(t *testing.T) {
-	modules := []lua2api.Module{
+	modules := []lua2api.ModuleV2{
 		json.Module,
 		timemod.Module,
 	}
@@ -252,13 +252,13 @@ func TestSandbox_NoYields(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should complete immediately with no yields
-	assert.Equal(t, process2.StepDone, step.Status)
+	assert.Equal(t, process.StepDone, step.Status)
 	assert.Equal(t, 0, step.YieldCount())
 }
 
 // TestSandbox_TimerYields tests timer operations yield correctly
 func TestSandbox_TimerYields(t *testing.T) {
-	modules := []lua2api.Module{
+	modules := []lua2api.ModuleV2{
 		json.Module,
 		timemod.Module,
 	}

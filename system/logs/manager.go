@@ -2,7 +2,6 @@ package logs
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	api "github.com/wippyai/runtime/api/logs"
@@ -45,7 +44,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	// Subscribe to log configuration events and config requests
 	sub, err := eventbus.NewSubscriber(ctx, m.bus, api.System, "logs.config.(set|get)", m.handleEvent)
 	if err != nil {
-		return fmt.Errorf("failed to subscribe to events: %w", err)
+		return NewSubscribeEventsError(err)
 	}
 	m.sub = sub
 

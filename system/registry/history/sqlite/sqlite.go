@@ -49,18 +49,18 @@ func newMsgpackHandle() *codec.MsgpackHandle {
 func NewSQLite(dbPath string, log *zap.Logger) (*History, error) {
 	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000", dbPath))
 	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
+		return nil, NewOpenDatabaseError(err)
 	}
 
 	ctx := context.Background()
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("failed to connect to database: %w", err)
+		return nil, NewConnectError(err)
 	}
 
 	if err := runMigrations(db); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("failed to run migrations: %w", err)
+		return nil, NewMigrationError(err)
 	}
 
 	h := &History{
@@ -71,7 +71,7 @@ func NewSQLite(dbPath string, log *zap.Logger) (*History, error) {
 
 	if err := h.ensureRootVersion(); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("failed to ensure root version: %w", err)
+		return nil, NewEnsureRootVersionError(err)
 	}
 
 	return h, nil
@@ -85,25 +85,25 @@ func (h *History) ensureRootVersion() error {
 	var exists bool
 	err := h.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM versions WHERE id = 0)").Scan(&exists)
 	if err != nil {
-		return fmt.Errorf("failed to check root version: %w", err)
+		return NewCheckRootVersionError(err)
 	}
 
 	if !exists {
 		_, err := h.db.ExecContext(ctx, "INSERT INTO versions (id, parent_id) VALUES (0, NULL)")
 		if err != nil {
-			return fmt.Errorf("failed to insert root version: %w", err)
+			return NewInsertRootVersionError(err)
 		}
 
 		// Create an empty changeset for v0
 		emptyChangesetData := []byte{0x90} // MessagePack empty array
 		_, err = h.db.ExecContext(ctx, "INSERT INTO changesets (version_id, data) VALUES (0, ?)", emptyChangesetData)
 		if err != nil {
-			return fmt.Errorf("failed to insert empty changeset for v0: %w", err)
+			return NewInsertChangesetError(err)
 		}
 
 		_, err = h.db.ExecContext(ctx, "INSERT OR REPLACE INTO metadata (key, value) VALUES ('head', '0')")
 		if err != nil {
-			return fmt.Errorf("failed to set initial head: %w", err)
+			return NewSetInitialHeadError(err)
 		}
 	}
 
@@ -117,7 +117,7 @@ func (h *History) Versions() ([]registry.Version, error) {
 	ctx := context.Background()
 	rows, err := h.db.QueryContext(ctx, "SELECT id, parent_id FROM versions ORDER BY id ASC")
 	if err != nil {
-		return nil, fmt.Errorf("failed to query versions: %w", err)
+		return nil, NewQueryVersionsError(err)
 	}
 	defer func() { _ = rows.Close() }()
 
@@ -129,17 +129,17 @@ func (h *History) Versions() ([]registry.Version, error) {
 		var parentID sql.NullInt64
 
 		if err := rows.Scan(&id, &parentID); err != nil {
-			return nil, fmt.Errorf("failed to scan version: %w", err)
+			return nil, NewScanVersionError(err)
 		}
 
 		var v registry.Version
 		if parentID.Valid {
 			if parentID.Int64 < 0 {
-				return nil, fmt.Errorf("invalid negative parent version ID: %d", parentID.Int64)
+				return nil, NewInvalidParentVersionError(parentID.Int64)
 			}
 			parent, ok := versionMap[uint(parentID.Int64)]
 			if !ok {
-				return nil, fmt.Errorf("parent version %d not found for version %d", parentID.Int64, id)
+				return nil, NewParentVersionNotFoundError(uint(parentID.Int64), id)
 			}
 			v = version.FromParent(parent, id)
 		} else {
@@ -151,7 +151,7 @@ func (h *History) Versions() ([]registry.Version, error) {
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating versions: %w", err)
+		return nil, NewIterateVersionsError(err)
 	}
 
 	return versionList, nil
@@ -165,10 +165,10 @@ func (h *History) Get(v registry.Version) (registry.ChangeSet, error) {
 	var data []byte
 	err := h.db.QueryRowContext(ctx, "SELECT data FROM changesets WHERE version_id = ?", v.ID()).Scan(&data)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("changeset not found for version %d", v.ID())
+		return nil, NewChangesetNotFoundError(v.ID())
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to query changeset: %w", err)
+		return nil, NewQueryChangesetError(err)
 	}
 
 	var encodedOps []struct {
@@ -179,7 +179,7 @@ func (h *History) Get(v registry.Version) (registry.ChangeSet, error) {
 
 	decoder := codec.NewDecoder(bytes.NewReader(data), h.handle)
 	if err := decoder.Decode(&encodedOps); err != nil {
-		return nil, fmt.Errorf("failed to decode changeset: %w", err)
+		return nil, NewDecodeChangesetError(err)
 	}
 
 	cs := make(registry.ChangeSet, len(encodedOps))
@@ -226,7 +226,7 @@ func (h *History) Save(v registry.Version, cs registry.ChangeSet, head bool) err
 	ctx := context.Background()
 	tx, err := h.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
+		return NewBeginTransactionError(err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
@@ -235,14 +235,14 @@ func (h *History) Save(v registry.Version, cs registry.ChangeSet, head bool) err
 		prevID := v.Previous().ID()
 		const maxInt64 = uint(1<<63 - 1)
 		if prevID > maxInt64 {
-			return fmt.Errorf("parent version ID too large: %d", prevID)
+			return NewParentVersionIDTooLargeError(prevID)
 		}
 		parentID = sql.NullInt64{Int64: int64(prevID), Valid: true}
 	}
 
 	_, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO versions (id, parent_id) VALUES (?, ?)", v.ID(), parentID)
 	if err != nil {
-		return fmt.Errorf("failed to insert version: %w", err)
+		return NewInsertVersionError(err)
 	}
 
 	encodedOps := make([]struct {
@@ -297,23 +297,23 @@ func (h *History) Save(v registry.Version, cs registry.ChangeSet, head bool) err
 	var buf bytes.Buffer
 	encoder := codec.NewEncoder(&buf, h.handle)
 	if err := encoder.Encode(encodedOps); err != nil {
-		return fmt.Errorf("failed to encode changeset: %w", err)
+		return NewEncodeChangesetError(err)
 	}
 
 	_, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO changesets (version_id, data) VALUES (?, ?)", v.ID(), buf.Bytes())
 	if err != nil {
-		return fmt.Errorf("failed to insert changeset: %w", err)
+		return NewInsertChangesetError(err)
 	}
 
 	if head {
 		_, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO metadata (key, value) VALUES ('head', ?)", v.ID())
 		if err != nil {
-			return fmt.Errorf("failed to update head: %w", err)
+			return NewUpdateHeadError(err)
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
+		return NewCommitTransactionError(err)
 	}
 
 	return nil
@@ -330,12 +330,12 @@ func (h *History) Head() (registry.Version, error) {
 		return version.New(0), nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to query head: %w", err)
+		return nil, NewQueryHeadError(err)
 	}
 
 	versions, err := h.Versions()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get versions: %w", err)
+		return nil, NewGetVersionsError(err)
 	}
 
 	for _, v := range versions {
@@ -344,7 +344,7 @@ func (h *History) Head() (registry.Version, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("head version %d not found", headID)
+	return nil, NewHeadVersionNotFoundError(headID)
 }
 
 func (h *History) SetHead(v registry.Version) error {
@@ -354,7 +354,7 @@ func (h *History) SetHead(v registry.Version) error {
 	ctx := context.Background()
 	_, err := h.db.ExecContext(ctx, "INSERT OR REPLACE INTO metadata (key, value) VALUES ('head', ?)", v.ID())
 	if err != nil {
-		return fmt.Errorf("failed to set head: %w", err)
+		return NewSetHeadError(err)
 	}
 
 	return nil
@@ -370,7 +370,7 @@ func (h *History) Close() error {
 		err := h.db.Close()
 		if err != nil {
 			h.log.Error("failed to close SQLite database", zap.Error(err))
-			return fmt.Errorf("failed to close database: %w", err)
+			return NewCloseDatabaseError(err)
 		}
 		h.log.Debug("SQLite history closed successfully")
 		return nil

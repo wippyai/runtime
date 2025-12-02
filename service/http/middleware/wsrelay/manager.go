@@ -100,7 +100,7 @@ func extractDeps(r *http.Request) (*wsDeps, error) {
 		return nil, fmt.Errorf("FrameContext not found")
 	}
 
-	hostVal, ok := fc.Get(httpapi.ContextHost)
+	hostVal, ok := fc.Get(httpapi.ServerCtxKey())
 	if !ok {
 		return nil, fmt.Errorf("HTTP server host not found in context")
 	}
@@ -125,7 +125,7 @@ func extractDeps(r *http.Request) (*wsDeps, error) {
 		return nil, fmt.Errorf("Topology not found in context")
 	}
 
-	serverIDVal, ok := fc.Get(httpapi.ContextServerID)
+	serverIDVal, ok := fc.Get(httpapi.ServerIDCtxKey())
 	if !ok {
 		return nil, fmt.Errorf("Server ID not found in context")
 	}
@@ -195,7 +195,7 @@ func (m *RelayManager) middlewareWithOrigins(h http.Handler, originPatterns []st
 		}
 
 		wsCtx, wsFC := contextapi.OpenFrameContext(m.appCtx)
-		if err := wsFC.Set(httpapi.ContextServerID, deps.serverID); err != nil {
+		if err := wsFC.Set(httpapi.ServerIDCtxKey(), deps.serverID); err != nil {
 			logger.Error("Failed to set server ID in frame context", zap.Error(err))
 			_ = conn.Close(websocket.StatusInternalError, "Failed to set server ID")
 			return

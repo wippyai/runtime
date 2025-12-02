@@ -17,9 +17,46 @@ var (
 	routeLabelCtx      = &ctxapi.Key{Name: "http.route_label"}
 	serverIDCtx        = &ctxapi.Key{Name: "http.server_id"}
 	serverHostCtx      = &ctxapi.Key{Name: "http.server.host"}
+	serverCtx          = &ctxapi.Key{Name: "http.server"} // The HTTP server object itself
 	endpointConfigCtx  = &ctxapi.Key{Name: "http.endpoint_config"}
 	middlewareRegistry = &ctxapi.Key{Name: "http.middleware_registry"}
 )
+
+// RequestCtxKey returns the context key for HTTP request context.
+// Used when passing request context via Task.Context pairs.
+func RequestCtxKey() *ctxapi.Key {
+	return requestCtx
+}
+
+// RouteCtxKey returns the context key for route info.
+// Used when passing route info via Task.Context pairs.
+func RouteCtxKey() *ctxapi.Key {
+	return routeCtx
+}
+
+// RouteLabelCtxKey returns the context key for route label.
+// Used when passing route label via Task.Context pairs.
+func RouteLabelCtxKey() *ctxapi.Key {
+	return routeLabelCtx
+}
+
+// ServerIDCtxKey returns the context key for server ID.
+// Used when passing server ID via Task.Context pairs.
+func ServerIDCtxKey() *ctxapi.Key {
+	return serverIDCtx
+}
+
+// ServerHostCtxKey returns the context key for server host.
+// Used when passing server host via Task.Context pairs.
+func ServerHostCtxKey() *ctxapi.Key {
+	return serverHostCtx
+}
+
+// ServerCtxKey returns the context key for the HTTP server object.
+// Used for WebSocket relay attachment.
+func ServerCtxKey() *ctxapi.Key {
+	return serverCtx
+}
 
 // RouteInfo contains information about the matched route for the current request.
 // It includes routing parameters, endpoint configuration, and matching details.
@@ -107,6 +144,52 @@ func SetRouteLabel(ctx context.Context, label string) error {
 		return nil
 	}
 	return fc.Set(routeLabelCtx, label)
+}
+
+// GetServerID retrieves the server ID from FrameContext.
+func GetServerID(ctx context.Context) (string, bool) {
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return "", false
+	}
+	val, ok := fc.Get(serverIDCtx)
+	if !ok {
+		return "", false
+	}
+	id, ok := val.(string)
+	return id, ok
+}
+
+// SetServerID stores the server ID in FrameContext.
+func SetServerID(ctx context.Context, serverID string) error {
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return nil
+	}
+	return fc.Set(serverIDCtx, serverID)
+}
+
+// GetServerHost retrieves the server host from FrameContext.
+func GetServerHost(ctx context.Context) (string, bool) {
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return "", false
+	}
+	val, ok := fc.Get(serverHostCtx)
+	if !ok {
+		return "", false
+	}
+	host, ok := val.(string)
+	return host, ok
+}
+
+// SetServerHost stores the server host in FrameContext.
+func SetServerHost(ctx context.Context, host string) error {
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return nil
+	}
+	return fc.Set(serverHostCtx, host)
 }
 
 // NewRequestContext creates a new RequestContext instance with the provided

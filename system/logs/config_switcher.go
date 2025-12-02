@@ -2,7 +2,6 @@ package logs
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	logsapi "github.com/wippyai/runtime/api/logs"
@@ -41,7 +40,7 @@ func (c *ConfigSwitcher) EnableTemporaryConfig(ctx context.Context, tempConfig l
 		// Spawn current config
 		cfg, err := c.cfgManager.GetConfig(ctx, c.bus)
 		if err != nil {
-			return fmt.Errorf("failed to get logging config: %w", err)
+			return NewGetLoggingConfigError(err)
 		}
 		c.baseConfig = &cfg
 	}
@@ -49,7 +48,7 @@ func (c *ConfigSwitcher) EnableTemporaryConfig(ctx context.Context, tempConfig l
 	// Apply temporary config
 	err := c.cfgManager.SetConfig(ctx, c.bus, tempConfig)
 	if err != nil {
-		return fmt.Errorf("failed to set temporary config: %w", err)
+		return NewSetTempConfigError(err)
 	}
 
 	c.log.Debug("temporary logging config enabled")

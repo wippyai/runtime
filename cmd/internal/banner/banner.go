@@ -3,16 +3,11 @@ package banner
 
 import (
 	"fmt"
-	"math/rand"
-	"time"
+	"math/rand/v2"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/wippyai/runtime/cmd/wippy/version"
 )
-
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
 
 // GradientTheme defines a 3-step gradient color theme.
 type GradientTheme struct {
@@ -161,6 +156,6 @@ func PrintWithTheme(silent bool, theme GradientTheme) {
 // Print displays the wippy ASCII banner with a random gradient from the curated collection.
 // If silent is true, no output is produced.
 func Print(silent bool) {
-	theme := allThemes[rand.Intn(len(allThemes))]
+	theme := allThemes[rand.IntN(len(allThemes))]
 	PrintWithTheme(silent, theme)
 }

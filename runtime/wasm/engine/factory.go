@@ -6,7 +6,7 @@ import (
 
 	"github.com/tetratelabs/wazero/api"
 
-	"github.com/wippyai/runtime/api/process2"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/wasm-runtime/asyncify"
 	wasmengine "github.com/wippyai/wasm-runtime/engine"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
@@ -38,16 +38,16 @@ func NewAsyncFactory(runtime *wasmrt.Runtime, module *wasmrt.Module, asyncified 
 
 // Create returns a ProcessFactory function that creates new Process instances.
 // Instance is created lazily on first Execute call with proper context.
-func (f *Factory) Create() process2.ProcessFactory {
-	return func() (process2.Process, error) {
+func (f *Factory) Create() process.ProcessFactory {
+	return func() (process.Process, error) {
 		return NewProcess(f.runtime, f.module), nil
 	}
 }
 
 // CreateWithContext returns a ProcessFactory that pre-initializes instances.
 // Use when you have a startup context available.
-func (f *Factory) CreateWithContext(ctx context.Context) process2.ProcessFactory {
-	return func() (process2.Process, error) {
+func (f *Factory) CreateWithContext(ctx context.Context) process.ProcessFactory {
+	return func() (process.Process, error) {
 		p := NewProcess(f.runtime, f.module)
 		if err := p.Init(ctx); err != nil {
 			return nil, err

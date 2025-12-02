@@ -117,23 +117,57 @@ func (m *Manager) handleStandardDBAdd(ctx context.Context, entry registry.Entry)
 	}
 
 	if cfg.HostEnv != "" {
-		cfg.Host, _ = m.env.Get(ctx, cfg.HostEnv)
+		val, found, err := m.env.Lookup(ctx, cfg.HostEnv)
+		if err != nil {
+			m.log.Warn("failed to lookup host env var", zap.String("var", cfg.HostEnv), zap.Error(err))
+		} else if found {
+			cfg.Host = val
+		} else {
+			m.log.Warn("host env var not found", zap.String("var", cfg.HostEnv))
+		}
 	}
 	if cfg.PortEnv != "" {
-		val, _ := m.env.Get(ctx, cfg.PortEnv)
-		cfg.Port, err = strconv.Atoi(val)
+		val, found, err := m.env.Lookup(ctx, cfg.PortEnv)
 		if err != nil {
-			return fmt.Errorf("invalid port value: %w", err)
+			m.log.Warn("failed to lookup port env var", zap.String("var", cfg.PortEnv), zap.Error(err))
+		} else if found {
+			cfg.Port, err = strconv.Atoi(val)
+			if err != nil {
+				return fmt.Errorf("invalid port value from env %s: %w", cfg.PortEnv, err)
+			}
+		} else {
+			m.log.Warn("port env var not found", zap.String("var", cfg.PortEnv))
 		}
 	}
 	if cfg.DatabaseEnv != "" {
-		cfg.Database, _ = m.env.Get(ctx, cfg.DatabaseEnv)
+		val, found, err := m.env.Lookup(ctx, cfg.DatabaseEnv)
+		if err != nil {
+			m.log.Warn("failed to lookup database env var", zap.String("var", cfg.DatabaseEnv), zap.Error(err))
+		} else if found {
+			cfg.Database = val
+		} else {
+			m.log.Warn("database env var not found", zap.String("var", cfg.DatabaseEnv))
+		}
 	}
 	if cfg.UsernameEnv != "" {
-		cfg.Username, _ = m.env.Get(ctx, cfg.UsernameEnv)
+		val, found, err := m.env.Lookup(ctx, cfg.UsernameEnv)
+		if err != nil {
+			m.log.Warn("failed to lookup username env var", zap.String("var", cfg.UsernameEnv), zap.Error(err))
+		} else if found {
+			cfg.Username = val
+		} else {
+			m.log.Warn("username env var not found", zap.String("var", cfg.UsernameEnv))
+		}
 	}
 	if cfg.PasswordEnv != "" {
-		cfg.Password, _ = m.env.Get(ctx, cfg.PasswordEnv)
+		val, found, err := m.env.Lookup(ctx, cfg.PasswordEnv)
+		if err != nil {
+			m.log.Warn("failed to lookup password env var", zap.String("var", cfg.PasswordEnv), zap.Error(err))
+		} else if found {
+			cfg.Password = val
+		} else {
+			m.log.Warn("password env var not found", zap.String("var", cfg.PasswordEnv))
+		}
 	}
 
 	pool, err := m.factory.CreateStandardPool(entry.Kind, cfg)

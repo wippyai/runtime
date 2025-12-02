@@ -1,7 +1,6 @@
 package topology
 
 import (
-	"fmt"
 	"reflect"
 
 	"github.com/wippyai/runtime/api/registry"
@@ -47,29 +46,25 @@ func (b *StateBuilder) ValidateOperation(state StateMap, op registry.Operation) 
 	switch op.Kind {
 	case registry.Create:
 		if _, exists := state[op.Entry.ID]; exists {
-			return fmt.Errorf("entry already exists: {ns: %s, name: %s}",
-				op.Entry.ID.NS, op.Entry.ID.Name)
+			return NewEntryExistsError(op.Entry.ID.NS, op.Entry.ID.Name)
 		}
 
 	case registry.Update:
 		existingEntry, exists := state[op.Entry.ID]
 		if !exists {
-			return fmt.Errorf("entry does not exist: {ns: %s, name: %s}",
-				op.Entry.ID.NS, op.Entry.ID.Name)
+			return NewEntryNotExistsError(op.Entry.ID.NS, op.Entry.ID.Name)
 		}
 		// Prevent kind changes during update
 		if existingEntry.Kind != op.Entry.Kind {
-			return fmt.Errorf("cannot change entry kind from %s to %s for {ns: %s, name: %s}",
-				existingEntry.Kind, op.Entry.Kind, op.Entry.ID.NS, op.Entry.ID.Name)
+			return NewKindChangeError(op.Entry.ID.NS, op.Entry.ID.Name, existingEntry.Kind, op.Entry.Kind)
 		}
 
 	case registry.Delete:
 		if _, exists := state[op.Entry.ID]; !exists {
-			return fmt.Errorf("cannot delete non-existent entry: {ns: %s, name: %s}",
-				op.Entry.ID.NS, op.Entry.ID.Name)
+			return NewDeleteNonExistentError(op.Entry.ID.NS, op.Entry.ID.Name)
 		}
 	default:
-		return fmt.Errorf("unknown operation kind: %s", op.Kind)
+		return NewUnknownOperationKindError(op.Kind)
 	}
 
 	return nil
@@ -78,7 +73,7 @@ func (b *StateBuilder) ValidateOperation(state StateMap, op registry.Operation) 
 // ApplyOperation applies a single operation to the state and returns the new state
 func (b *StateBuilder) ApplyOperation(state StateMap, op registry.Operation) (StateMap, error) {
 	if err := b.ValidateOperation(state, op); err != nil {
-		return state, fmt.Errorf("invalid operation: %w", err)
+		return state, NewInvalidOperationError(err)
 	}
 
 	newState := state.Copy() // Spawn a copy of the state
@@ -97,7 +92,7 @@ func (b *StateBuilder) ApplyOperation(state StateMap, op registry.Operation) (St
 				zap.String("name", op.Entry.ID.Name))
 		}
 	default:
-		return nil, fmt.Errorf("unknown operation kind: %s", op.Kind)
+		return nil, NewUnknownOperationKindError(op.Kind)
 	}
 
 	return newState, nil
@@ -114,8 +109,7 @@ func (b *StateBuilder) GetInverseOperation(op registry.Operation) (registry.Oper
 			b.log.Warn("OriginalEntry not found for update operation, cannot create inverse",
 				zap.String("namespace", op.Entry.ID.NS),
 				zap.String("name", op.Entry.ID.Name))
-			return registry.Operation{}, fmt.Errorf("original entry not found for Process {ns: %s, name: %s}",
-				op.Entry.ID.NS, op.Entry.ID.Name)
+			return registry.Operation{}, NewOriginalEntryNotFoundError(op.Entry.ID.NS, op.Entry.ID.Name)
 		}
 		return registry.Operation{Kind: registry.Update, Entry: *op.OriginalEntry}, nil
 
@@ -124,13 +118,12 @@ func (b *StateBuilder) GetInverseOperation(op registry.Operation) (registry.Oper
 			b.log.Warn("OriginalEntry not found for delete operation, cannot create inverse",
 				zap.String("namespace", op.Entry.ID.NS),
 				zap.String("name", op.Entry.ID.Name))
-			return registry.Operation{}, fmt.Errorf("original entry not found for Process {ns: %s, name: %s}",
-				op.Entry.ID.NS, op.Entry.ID.Name)
+			return registry.Operation{}, NewOriginalEntryNotFoundError(op.Entry.ID.NS, op.Entry.ID.Name)
 		}
 		return registry.Operation{Kind: registry.Create, Entry: *op.OriginalEntry}, nil
 
 	default:
-		return registry.Operation{}, fmt.Errorf("unknown operation kind: %s", op.Kind)
+		return registry.Operation{}, NewUnknownOperationKindError(op.Kind)
 	}
 }
 
@@ -139,7 +132,7 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 	vm := version.NewVersionMap()
 	versions, err := history.Versions()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get versions from history: %w", err)
+		return nil, NewGetVersionsError(err)
 	}
 
 	b.log.Debug("building state", zap.Uint("target_version", targetVersion.ID()), zap.Int("total_versions", len(versions)))
@@ -163,7 +156,7 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 	}
 
 	if first == nil {
-		return nil, fmt.Errorf("no versions found in history")
+		return nil, NewNoVersionsFoundError()
 	}
 
 	b.log.Debug("computing path", zap.Uint("from", first.ID()), zap.Uint("to", targetVersion.ID()))
@@ -175,7 +168,7 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 			zap.Uint("to", targetVersion.ID()),
 			zap.Int("version_map_size", vm.Len()),
 			zap.Error(err))
-		return nil, fmt.Errorf("failed to get path from root to version %v: %w", targetVersion, err)
+		return nil, NewComputePathError(targetVersion.String(), err)
 	}
 
 	b.log.Debug("path computed", zap.Int("path_length", len(path)))
@@ -187,7 +180,7 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 
 		changeSet, err := history.Get(ver)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get changeset for version %v: %w", ver, err)
+			return nil, NewGetChangesetError(ver.String(), err)
 		}
 
 		for _, operation := range changeSet {

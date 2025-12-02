@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wippyai/runtime/api/service/memstore"
+	memstore "github.com/wippyai/runtime/api/service/store/memory"
 
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -111,8 +111,8 @@ func (m *MemoryStore) Stop(ctx context.Context) error {
 
 // Get retrieves a value by key
 func (m *MemoryStore) Get(_ context.Context, key registry.ID) (payload.Payload, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	if m.closed {
 		return nil, store.ErrStoreClosed
@@ -126,25 +126,11 @@ func (m *MemoryStore) Get(_ context.Context, key registry.ID) (payload.Payload, 
 
 	// Check if entry has expired
 	if entry.expiration != nil && time.Now().After(*entry.expiration) {
-		// Remove expired entry (need to unlock and relock)
-		m.mu.RUnlock()
-		m.mu.Lock()
 		delete(m.data, keyStr)
-		m.mu.Unlock()
-		m.mu.RLock()
-
 		return nil, store.ErrKeyNotFound
 	}
 
-	// Update last access time (requires write lock)
-	m.mu.RUnlock()
-	m.mu.Lock()
-	if entry, exists = m.data[keyStr]; exists {
-		entry.lastAccess = time.Now()
-	}
-	m.mu.Unlock()
-	m.mu.RLock()
-
+	entry.lastAccess = time.Now()
 	return entry.value, nil
 }
 
@@ -201,8 +187,8 @@ func (m *MemoryStore) Delete(_ context.Context, key registry.ID) error {
 
 // Has checks if a key exists without retrieving the value
 func (m *MemoryStore) Has(_ context.Context, key registry.ID) (bool, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	if m.closed {
 		return false, store.ErrStoreClosed
@@ -216,13 +202,7 @@ func (m *MemoryStore) Has(_ context.Context, key registry.ID) (bool, error) {
 
 	// Check if entry has expired
 	if entry.expiration != nil && time.Now().After(*entry.expiration) {
-		// Remove expired entry (need to unlock and relock)
-		m.mu.RUnlock()
-		m.mu.Lock()
 		delete(m.data, keyStr)
-		m.mu.Unlock()
-		m.mu.RLock()
-
 		return false, nil
 	}
 

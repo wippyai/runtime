@@ -158,7 +158,7 @@ func (p *Processor) CompleteAt(idx int, data any, err error) {
 
 // initMultiYield prepares the multi-yield context for n yields.
 func (p *Processor) initMultiYield(n int) {
-	p.multiYield.pending.Store(int32(n))
+	p.multiYield.pending.Store(int32(n)) //nolint:gosec // n is bounded by MaxYields
 	if p.multiYield.wakeup == nil {
 		p.multiYield.wakeup = make(chan struct{}, 1)
 	}

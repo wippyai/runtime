@@ -7,7 +7,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	contextapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/registry"
 	httpapi "github.com/wippyai/runtime/api/service/http"
 )
@@ -323,11 +322,8 @@ func (rm *RouteManager) createRouteHandler(routeID registry.ID, route *RouteEntr
 		}
 
 		// Add route info and label to FrameContext
-		fc := contextapi.FrameFromContext(r.Context())
-		if fc != nil {
-			_ = fc.Set(httpapi.RouteCtx, routeInfo)
-			_ = fc.Set(httpapi.RouteLabelCtx, routeLabel)
-		}
+		_ = httpapi.SetRouteInfo(r.Context(), routeInfo)
+		_ = httpapi.SetRouteLabel(r.Context(), routeLabel)
 
 		// Apply post-match middleware and call endpoint handler
 		finalHandler := route.handler

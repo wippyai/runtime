@@ -14,6 +14,8 @@ import (
 	"go.uber.org/zap"
 )
 
+// Note: fmt kept for Sprintf in logging
+
 // Registry manages resource registration and access
 type Registry struct {
 	ctx         context.Context
@@ -46,7 +48,7 @@ func (s *Registry) Start(ctx context.Context) error {
 		s.handleEvent,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create subscriber: %w", err)
+		return NewSubscriberError(err)
 	}
 	s.subscriber = sub
 

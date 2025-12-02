@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
-	embedapi "github.com/wippyai/runtime/api/service/embed"
+	embedapi "github.com/wippyai/runtime/api/service/fs/embed"
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )

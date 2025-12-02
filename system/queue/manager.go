@@ -12,6 +12,8 @@ import (
 	"go.uber.org/zap"
 )
 
+// Note: fmt kept for Sprintf in logging
+
 type Manager struct {
 	ctx        context.Context
 	bus        event.Bus
@@ -41,7 +43,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		m.handleEvent,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create queue event subscriber: %w", err)
+		return NewSubscriberError(err)
 	}
 	m.subscriber = sub
 
@@ -120,7 +122,7 @@ func (m *Manager) handleQueueDeclare(e event.Event) {
 		m.logger.Error("driver not found for queue",
 			zap.String("path", e.Path),
 			zap.String("driver", queueEntry.DriverID.String()))
-		m.sendReject(e.Path, fmt.Sprintf("driver not found: %s", queueEntry.DriverID))
+		m.sendReject(e.Path, NewDriverNotFoundError(queueEntry.DriverID).Error())
 		return
 	}
 
@@ -137,7 +139,7 @@ func (m *Manager) handleQueueDeclare(e event.Event) {
 		m.logger.Error("failed to declare queue on driver",
 			zap.String("path", e.Path),
 			zap.Error(err))
-		m.sendReject(e.Path, fmt.Sprintf("failed to declare queue: %v", err))
+		m.sendReject(e.Path, NewDeclareQueueError(err).Error())
 		return
 	}
 
@@ -176,7 +178,7 @@ func (m *Manager) PublishDirect(ctx context.Context, q registry.ID, msgs ...*que
 		m.logger.Error("queue has invalid type",
 			zap.String("queue", q.String()),
 			zap.String("type", fmt.Sprintf("%T", queueVal)))
-		return fmt.Errorf("queue has invalid type: %T", queueVal)
+		return NewInvalidQueueTypeError(q, fmt.Sprintf("%T", queueVal))
 	}
 
 	driverVal, ok := m.drivers.Load(queue.DriverID)
@@ -189,7 +191,7 @@ func (m *Manager) PublishDirect(ctx context.Context, q registry.ID, msgs ...*que
 		m.logger.Error("driver has invalid type",
 			zap.String("driver", queue.DriverID.String()),
 			zap.String("type", fmt.Sprintf("%T", driverVal)))
-		return fmt.Errorf("driver has invalid type: %T", driverVal)
+		return NewInvalidDriverTypeError(queue.DriverID, fmt.Sprintf("%T", driverVal))
 	}
 
 	return driver.Publish(ctx, q, msgs...)

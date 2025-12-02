@@ -12,7 +12,7 @@ import (
 	logapi "github.com/wippyai/runtime/api/logs"
 	metricsapi "github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/process2"
+	"github.com/wippyai/runtime/api/process"
 	regapi "github.com/wippyai/runtime/api/registry"
 	httpapi "github.com/wippyai/runtime/api/service/http"
 	bootpkg "github.com/wippyai/runtime/boot"
@@ -71,7 +71,7 @@ func HTTP() boot.Component {
 				return ctx, fmt.Errorf("registry not available in context")
 			}
 
-			pidGen := process2.GetPIDGenerator(ctx)
+			pidGen := process.GetPIDGenerator(ctx)
 
 			// Register HTTP dependency patterns
 			httpPatterns := []regapi.DependencyPattern{

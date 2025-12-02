@@ -2,13 +2,12 @@ package pool
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/process2"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/runtime"
 )
 
@@ -33,7 +32,7 @@ type Lazy struct {
 	idleTimeout time.Duration
 
 	mu       sync.Mutex
-	idle     []process2.Process
+	idle     []process.Process
 	waiters  []chan struct{}
 	active   int
 	lastUsed time.Time
@@ -70,7 +69,7 @@ func NewLazy(factory Factory, dispatcher Dispatcher, cfg LazyConfig, hooks ...Ex
 		executor:    executor,
 		maxWorkers:  cfg.MaxWorkers,
 		idleTimeout: cfg.IdleTimeout,
-		idle:        make([]process2.Process, 0, cfg.MaxWorkers),
+		idle:        make([]process.Process, 0, cfg.MaxWorkers),
 		done:        make(chan struct{}),
 		reaperDone:  make(chan struct{}),
 	}, nil
@@ -105,7 +104,7 @@ func (l *Lazy) Stop() {
 // Call executes using an idle or newly created process.
 func (l *Lazy) Call(ctx context.Context, method string, input payload.Payloads) (*runtime.Result, error) {
 	if l.closed.Load() {
-		return nil, fmt.Errorf("pool is closed")
+		return nil, ErrPoolClosed
 	}
 
 	proc, err := l.acquire(ctx)
@@ -121,14 +120,14 @@ func (l *Lazy) Call(ctx context.Context, method string, input payload.Payloads) 
 
 // acquire gets an idle process or creates a new one.
 // Waits if at max workers until one becomes available or ctx is cancelled.
-func (l *Lazy) acquire(ctx context.Context) (process2.Process, error) {
+func (l *Lazy) acquire(ctx context.Context) (process.Process, error) {
 	for {
 		// Check context first
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-l.done:
-			return nil, fmt.Errorf("pool is closed")
+			return nil, ErrPoolClosed
 		default:
 		}
 
@@ -192,13 +191,13 @@ func (l *Lazy) acquire(ctx context.Context) (process2.Process, error) {
 			l.mu.Unlock()
 			return nil, ctx.Err()
 		case <-l.done:
-			return nil, fmt.Errorf("pool is closed")
+			return nil, ErrPoolClosed
 		}
 	}
 }
 
 // release returns process to idle pool.
-func (l *Lazy) release(proc process2.Process) {
+func (l *Lazy) release(proc process.Process) {
 	l.mu.Lock()
 
 	l.active--

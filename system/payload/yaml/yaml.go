@@ -7,6 +7,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Note: fmt kept for Sprintf with %T
+
 // Register registers the YAML transcoders.
 func Register(transcoder payload.TranscoderRegister) {
 	to := &ToGolang{}
@@ -24,7 +26,7 @@ type ToGolang struct{}
 // Transcode implements the payload.FormatTranscoder interface.
 func (t *ToGolang) Transcode(p payload.Payload) (payload.Payload, error) {
 	if p.Format() != payload.YAML {
-		return nil, fmt.Errorf("YAML=>Golang can only transcode from YAML format, got %s", p.Format())
+		return nil, NewInvalidFormatError("YAML=>Golang", payload.YAML, p.Format())
 	}
 
 	var data interface{}
@@ -32,15 +34,15 @@ func (t *ToGolang) Transcode(p payload.Payload) (payload.Payload, error) {
 	case string:
 		err := yaml.Unmarshal([]byte(v), &data)
 		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal YAML string: %w", err)
+			return nil, NewUnmarshalError("string", err)
 		}
 	case []byte:
 		err := yaml.Unmarshal(v, &data)
 		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal YAML bytes: %w", err)
+			return nil, NewUnmarshalError("bytes", err)
 		}
 	default:
-		return nil, fmt.Errorf("YAML=>Golang can only handle string or []byte, got %T", p.Data())
+		return nil, NewInvalidDataTypeError("YAML=>Golang", fmt.Sprintf("%T", p.Data()))
 	}
 	return payload.NewPayload(data, payload.Golang), nil
 }
@@ -48,7 +50,7 @@ func (t *ToGolang) Transcode(p payload.Payload) (payload.Payload, error) {
 // Unmarshal implements the payload.Unmarshaler interface.
 func (t *ToGolang) Unmarshal(p payload.Payload, v interface{}) error {
 	if p.Format() != payload.YAML {
-		return fmt.Errorf("YAML=>Golang can only unmarshal from YAML format, got %s", p.Format())
+		return NewInvalidFormatError("YAML=>Golang", payload.YAML, p.Format())
 	}
 
 	var data []byte
@@ -58,7 +60,7 @@ func (t *ToGolang) Unmarshal(p payload.Payload, v interface{}) error {
 	case []byte:
 		data = d
 	default:
-		return fmt.Errorf("YAML=>Golang can only unmarshal string or []byte, got %T", p.Data())
+		return NewInvalidDataTypeError("YAML=>Golang", fmt.Sprintf("%T", p.Data()))
 	}
 
 	return yaml.Unmarshal(data, v)
@@ -70,12 +72,12 @@ type FromGolang struct{}
 // Transcode implements the payload.FormatTranscoder interface.
 func (t *FromGolang) Transcode(p payload.Payload) (payload.Payload, error) {
 	if p.Format() != payload.Golang {
-		return nil, fmt.Errorf("Golang=>YAML can only transcode from Golang format, got %s", p.Format())
+		return nil, NewInvalidFormatError("Golang=>YAML", payload.Golang, p.Format())
 	}
 
 	yamlData, err := yaml.Marshal(p.Data())
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal to YAML: %w", err)
+		return nil, NewMarshalError(err)
 	}
 
 	return payload.NewPayload(string(yamlData), payload.YAML), nil

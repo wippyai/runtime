@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,7 +19,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	sqlconfig "github.com/wippyai/runtime/api/service/sql"
-	"github.com/wippyai/runtime/api/service/sqlstore"
+	sqlstore "github.com/wippyai/runtime/api/service/store/sql"
 	"github.com/wippyai/runtime/api/store"
 	sqlsvc "github.com/wippyai/runtime/service/sql"
 	"go.uber.org/zap"
@@ -223,21 +225,21 @@ func TestSQLStore_Delete(t *testing.T) {
 	err := ss.Set(ctx, createTestEntry("test:key1", testValue))
 	require.NoError(t, err)
 
-	result, err := ss.Has(ctx, testKey)
+	exists, err := ss.Has(ctx, testKey)
 	require.NoError(t, err)
-	require.True(t, result)
+	require.True(t, exists)
 
-	testKey = registry.ParseID("test:key2")
-	result, err = ss.Has(ctx, testKey)
-	require.NoError(t, err)
-	require.False(t, result)
-
+	// Delete existing key
 	err = ss.Delete(ctx, testKey)
 	require.NoError(t, err)
 
-	result, err = ss.Has(ctx, testKey)
+	exists, err = ss.Has(ctx, testKey)
 	require.NoError(t, err)
-	require.False(t, result)
+	require.False(t, exists)
+
+	// Delete non-existent key should return ErrKeyNotFound
+	err = ss.Delete(ctx, registry.ParseID("test:nonexistent"))
+	assert.Equal(t, store.ErrKeyNotFound, err)
 }
 
 func TestSQLStore_Has(t *testing.T) {
@@ -423,4 +425,669 @@ func TestSQLStore_sanitizeTCNames(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestSQLStore_StartStop(t *testing.T) {
+	ss, db, ctx := MakeStore(t)
+	defer db.Close()
+
+	// Start the store
+	statusChan, err := ss.Start(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, statusChan)
+
+	// Set some data
+	err = ss.Set(ctx, createTestEntry("test:key1", "value1"))
+	require.NoError(t, err)
+
+	// Stop the store
+	err = ss.Stop(ctx)
+	require.NoError(t, err)
+
+	// Stop again should be no-op
+	err = ss.Stop(ctx)
+	require.NoError(t, err)
+}
+
+func TestSQLStore_SetUpdate(t *testing.T) {
+	ss, db, ctx := MakeStore(t)
+	defer db.Close()
+
+	key := registry.ParseID("test:updatekey")
+
+	// First set
+	err := ss.Set(ctx, createTestEntry("test:updatekey", "original"))
+	require.NoError(t, err)
+
+	val, err := ss.Get(ctx, key)
+	require.NoError(t, err)
+	assert.Equal(t, "original", string(val.Data().([]byte)))
+
+	// Update
+	err = ss.Set(ctx, createTestEntry("test:updatekey", "updated"))
+	require.NoError(t, err)
+
+	val, err = ss.Get(ctx, key)
+	require.NoError(t, err)
+	assert.Equal(t, "updated", string(val.Data().([]byte)))
+}
+
+func TestSQLStore_SetWithTTL(t *testing.T) {
+	ss, db, ctx := MakeStore(t)
+	defer db.Close()
+
+	key := registry.ParseID("test:ttlkey")
+	entry := store.Entry{
+		Key:   key,
+		Value: payload.New("ttl value"),
+		TTL:   50 * time.Millisecond,
+	}
+
+	err := ss.Set(ctx, entry)
+	require.NoError(t, err)
+
+	// Should exist immediately
+	exists, err := ss.Has(ctx, key)
+	require.NoError(t, err)
+	assert.True(t, exists)
+
+	// Wait for expiration
+	time.Sleep(100 * time.Millisecond)
+
+	// Should be gone (TTL expired)
+	exists, err = ss.Has(ctx, key)
+	require.NoError(t, err)
+	assert.False(t, exists)
+}
+
+func TestSQLStore_Cleanup(t *testing.T) {
+	config := &sqlstore.SQLConfig{
+		Database:          registry.ID{NS: "test", Name: "db"},
+		TableName:         "kv_cleanup",
+		IDColumnName:      "key_id",
+		PayloadColumnName: "value",
+		ExpireColumnName:  "expires_at",
+		CleanupInterval:   50 * time.Millisecond,
+	}
+
+	db := setupTestDB(t)
+	defer db.Close()
+	setupSQLStoreTable(t, db, config)
+
+	mockReg := NewMockRegistry()
+	mockReg.resources[config.Database] = &MockResource{
+		value: sqlsvc.DBResource{
+			DB:   db,
+			Type: sqlconfig.KindSQLite,
+		},
+		err: nil,
+	}
+
+	ctx := createContext(mockReg)
+	ctx = createTranscoderContext(ctx)
+
+	logger := zap.NewNop()
+	ss := NewSQLStore(registry.ID{NS: "test", Name: "cleanup-store"}, config, logger)
+
+	_, err := ss.Start(ctx)
+	require.NoError(t, err)
+
+	// Set a key with short TTL
+	entry := store.Entry{
+		Key:   registry.ParseID("test:expiring"),
+		Value: payload.New("will expire"),
+		TTL:   20 * time.Millisecond,
+	}
+	err = ss.Set(ctx, entry)
+	require.NoError(t, err)
+
+	// Wait for cleanup
+	time.Sleep(150 * time.Millisecond)
+
+	// Should be cleaned up
+	exists, err := ss.Has(ctx, registry.ParseID("test:expiring"))
+	require.NoError(t, err)
+	assert.False(t, exists)
+
+	err = ss.Stop(ctx)
+	require.NoError(t, err)
+}
+
+func TestSQLStore_Acquire(t *testing.T) {
+	ss, db, ctx := MakeStore(t)
+	defer db.Close()
+
+	// Acquire in normal mode
+	res, err := ss.Acquire(ctx, registry.ParseID("test:resource"), resource.ModeNormal)
+	require.NoError(t, err)
+	require.NotNil(t, res)
+
+	// Get store from resource
+	storeInterface, err := res.Get()
+	require.NoError(t, err)
+	_, ok := storeInterface.(store.Store)
+	assert.True(t, ok)
+
+	// Release
+	res.Release()
+
+	// Get after release should fail
+	_, err = res.Get()
+	assert.Equal(t, resource.ErrResourceReleased, err)
+
+	// Exclusive mode not supported
+	_, err = ss.Acquire(ctx, registry.ParseID("test:resource"), resource.ModeExclusive)
+	assert.Equal(t, resource.ErrResourceLocked, err)
+}
+
+func TestSQLStore_ConcurrentReads(t *testing.T) {
+	ss, db, ctx := MakeStore(t)
+	defer db.Close()
+
+	// Pre-populate with data
+	for i := 0; i < 50; i++ {
+		key := fmt.Sprintf("test:key%d", i)
+		err := ss.Set(ctx, createTestEntry(key, fmt.Sprintf("value%d", i)))
+		require.NoError(t, err)
+	}
+
+	const numReaders = 10
+	var wg sync.WaitGroup
+	errChan := make(chan error, numReaders*50)
+
+	// Concurrent reads should work fine with SQLite
+	for r := 0; r < numReaders; r++ {
+		wg.Add(1)
+		go func(rid int) {
+			defer wg.Done()
+			for i := 0; i < 50; i++ {
+				keyID := registry.ParseID(fmt.Sprintf("test:key%d", i))
+				val, err := ss.Get(ctx, keyID)
+				if err != nil {
+					errChan <- fmt.Errorf("get error: %w", err)
+					continue
+				}
+				expected := fmt.Sprintf("value%d", i)
+				if string(val.Data().([]byte)) != expected {
+					errChan <- fmt.Errorf("value mismatch: got %s, want %s", val.Data(), expected)
+				}
+
+				_, err = ss.Has(ctx, keyID)
+				if err != nil {
+					errChan <- fmt.Errorf("has error: %w", err)
+				}
+			}
+		}(r)
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	var errs []error
+	for err := range errChan {
+		errs = append(errs, err)
+	}
+	require.Empty(t, errs, "unexpected errors: %v", errs)
+}
+
+func TestSQLStore_SequentialOperations(t *testing.T) {
+	ss, db, ctx := MakeStore(t)
+	defer db.Close()
+
+	// Sequential Set/Get/Delete cycle to ensure correctness
+	for i := 0; i < 100; i++ {
+		key := fmt.Sprintf("test:seq%d", i)
+		keyID := registry.ParseID(key)
+		value := fmt.Sprintf("value-%d", i)
+
+		err := ss.Set(ctx, createTestEntry(key, value))
+		require.NoError(t, err)
+
+		val, err := ss.Get(ctx, keyID)
+		require.NoError(t, err)
+		assert.Equal(t, value, string(val.Data().([]byte)))
+
+		exists, err := ss.Has(ctx, keyID)
+		require.NoError(t, err)
+		assert.True(t, exists)
+
+		if i%3 == 0 {
+			err = ss.Delete(ctx, keyID)
+			require.NoError(t, err)
+
+			exists, err = ss.Has(ctx, keyID)
+			require.NoError(t, err)
+			assert.False(t, exists)
+		}
+	}
+}
+
+// Benchmarks
+
+func BenchmarkSQLStore_Set(b *testing.B) {
+	config := createDefaultConfig()
+	db, err := sql.Open("sqlite3", ":memory:")
+	require.NoError(b, err)
+	defer db.Close()
+
+	ctx := context.Background()
+	createTable := `CREATE TABLE IF NOT EXISTS ` + config.TableName + ` (
+		` + config.IDColumnName + ` TEXT PRIMARY KEY,
+		` + config.PayloadColumnName + ` BLOB NOT NULL,
+		` + config.ExpireColumnName + ` TIMESTAMP NULL
+	)`
+	_, err = db.ExecContext(ctx, createTable)
+	require.NoError(b, err)
+
+	mockReg := NewMockRegistry()
+	mockReg.resources[config.Database] = &MockResource{
+		value: sqlsvc.DBResource{
+			DB:   db,
+			Type: sqlconfig.KindSQLite,
+		},
+	}
+
+	ctx = createContext(mockReg)
+	ctx = createTranscoderContext(ctx)
+
+	logger := zap.NewNop()
+	ss := NewSQLStore(registry.ID{NS: "bench", Name: "store"}, config, logger)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		key := fmt.Sprintf("test:key%d", i)
+		_ = ss.Set(ctx, createTestEntry(key, i))
+	}
+}
+
+func BenchmarkSQLStore_Get(b *testing.B) {
+	config := createDefaultConfig()
+	db, err := sql.Open("sqlite3", ":memory:")
+	require.NoError(b, err)
+	defer db.Close()
+
+	ctx := context.Background()
+	createTable := `CREATE TABLE IF NOT EXISTS ` + config.TableName + ` (
+		` + config.IDColumnName + ` TEXT PRIMARY KEY,
+		` + config.PayloadColumnName + ` BLOB NOT NULL,
+		` + config.ExpireColumnName + ` TIMESTAMP NULL
+	)`
+	_, err = db.ExecContext(ctx, createTable)
+	require.NoError(b, err)
+
+	mockReg := NewMockRegistry()
+	mockReg.resources[config.Database] = &MockResource{
+		value: sqlsvc.DBResource{
+			DB:   db,
+			Type: sqlconfig.KindSQLite,
+		},
+	}
+
+	ctx = createContext(mockReg)
+	ctx = createTranscoderContext(ctx)
+
+	logger := zap.NewNop()
+	ss := NewSQLStore(registry.ID{NS: "bench", Name: "store"}, config, logger)
+
+	// Pre-populate
+	for i := 0; i < 1000; i++ {
+		key := fmt.Sprintf("test:key%d", i)
+		_ = ss.Set(ctx, createTestEntry(key, i))
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		key := registry.ParseID(fmt.Sprintf("test:key%d", i%1000))
+		_, _ = ss.Get(ctx, key)
+	}
+}
+
+func BenchmarkSQLStore_Has(b *testing.B) {
+	config := createDefaultConfig()
+	db, err := sql.Open("sqlite3", ":memory:")
+	require.NoError(b, err)
+	defer db.Close()
+
+	ctx := context.Background()
+	createTable := `CREATE TABLE IF NOT EXISTS ` + config.TableName + ` (
+		` + config.IDColumnName + ` TEXT PRIMARY KEY,
+		` + config.PayloadColumnName + ` BLOB NOT NULL,
+		` + config.ExpireColumnName + ` TIMESTAMP NULL
+	)`
+	_, err = db.ExecContext(ctx, createTable)
+	require.NoError(b, err)
+
+	mockReg := NewMockRegistry()
+	mockReg.resources[config.Database] = &MockResource{
+		value: sqlsvc.DBResource{
+			DB:   db,
+			Type: sqlconfig.KindSQLite,
+		},
+	}
+
+	ctx = createContext(mockReg)
+	ctx = createTranscoderContext(ctx)
+
+	logger := zap.NewNop()
+	ss := NewSQLStore(registry.ID{NS: "bench", Name: "store"}, config, logger)
+
+	// Pre-populate
+	for i := 0; i < 1000; i++ {
+		key := fmt.Sprintf("test:key%d", i)
+		_ = ss.Set(ctx, createTestEntry(key, i))
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		key := registry.ParseID(fmt.Sprintf("test:key%d", i%1000))
+		_, _ = ss.Has(ctx, key)
+	}
+}
+
+func BenchmarkSQLStore_Delete(b *testing.B) {
+	config := createDefaultConfig()
+	db, err := sql.Open("sqlite3", ":memory:")
+	require.NoError(b, err)
+	defer db.Close()
+
+	ctx := context.Background()
+	createTable := `CREATE TABLE IF NOT EXISTS ` + config.TableName + ` (
+		` + config.IDColumnName + ` TEXT PRIMARY KEY,
+		` + config.PayloadColumnName + ` BLOB NOT NULL,
+		` + config.ExpireColumnName + ` TIMESTAMP NULL
+	)`
+	_, err = db.ExecContext(ctx, createTable)
+	require.NoError(b, err)
+
+	mockReg := NewMockRegistry()
+	mockReg.resources[config.Database] = &MockResource{
+		value: sqlsvc.DBResource{
+			DB:   db,
+			Type: sqlconfig.KindSQLite,
+		},
+	}
+
+	ctx = createContext(mockReg)
+	ctx = createTranscoderContext(ctx)
+
+	logger := zap.NewNop()
+	ss := NewSQLStore(registry.ID{NS: "bench", Name: "store"}, config, logger)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		key := fmt.Sprintf("test:key%d", i)
+		_ = ss.Set(ctx, createTestEntry(key, i))
+		b.StartTimer()
+
+		_ = ss.Delete(ctx, registry.ParseID(key))
+	}
+}
+
+// Correctness tests for API contracts
+
+func TestSQLStore_GetReturnsCorrectPayloadFormat(t *testing.T) {
+	ss, db, ctx := MakeStore(t)
+	defer db.Close()
+
+	// Use a simple string value that the transcoder handles
+	testValue := "test value"
+
+	err := ss.Set(ctx, store.Entry{
+		Key:   registry.ParseID("test:structured"),
+		Value: payload.New(testValue),
+	})
+	require.NoError(t, err)
+
+	result, err := ss.Get(ctx, registry.ParseID("test:structured"))
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Verify it's JSON format
+	assert.Equal(t, payload.JSON, result.Format())
+
+	// Verify data can be unmarshaled
+	data, ok := result.Data().([]byte)
+	require.True(t, ok)
+	assert.Equal(t, testValue, string(data))
+}
+
+func TestSQLStore_HasDoesNotModifyData(t *testing.T) {
+	ss, db, ctx := MakeStore(t)
+	defer db.Close()
+
+	key := registry.ParseID("test:immutable")
+	value := "original value"
+
+	err := ss.Set(ctx, createTestEntry("test:immutable", value))
+	require.NoError(t, err)
+
+	// Call Has multiple times
+	for i := 0; i < 10; i++ {
+		exists, err := ss.Has(ctx, key)
+		require.NoError(t, err)
+		assert.True(t, exists)
+	}
+
+	// Verify value unchanged
+	result, err := ss.Get(ctx, key)
+	require.NoError(t, err)
+	assert.Equal(t, value, string(result.Data().([]byte)))
+}
+
+func TestSQLStore_DeleteIsIdempotent(t *testing.T) {
+	ss, db, ctx := MakeStore(t)
+	defer db.Close()
+
+	key := registry.ParseID("test:deleteme")
+
+	err := ss.Set(ctx, createTestEntry("test:deleteme", "value"))
+	require.NoError(t, err)
+
+	// First delete should succeed
+	err = ss.Delete(ctx, key)
+	require.NoError(t, err)
+
+	// Second delete should return ErrKeyNotFound
+	err = ss.Delete(ctx, key)
+	assert.Equal(t, store.ErrKeyNotFound, err)
+
+	// Third delete should also return ErrKeyNotFound
+	err = ss.Delete(ctx, key)
+	assert.Equal(t, store.ErrKeyNotFound, err)
+}
+
+func TestSQLStore_SetOverwritesExistingValue(t *testing.T) {
+	ss, db, ctx := MakeStore(t)
+	defer db.Close()
+
+	key := registry.ParseID("test:overwrite")
+
+	// Set initial value
+	err := ss.Set(ctx, createTestEntry("test:overwrite", "initial"))
+	require.NoError(t, err)
+
+	val, err := ss.Get(ctx, key)
+	require.NoError(t, err)
+	assert.Equal(t, "initial", string(val.Data().([]byte)))
+
+	// Overwrite with new value
+	err = ss.Set(ctx, createTestEntry("test:overwrite", "overwritten"))
+	require.NoError(t, err)
+
+	val, err = ss.Get(ctx, key)
+	require.NoError(t, err)
+	assert.Equal(t, "overwritten", string(val.Data().([]byte)))
+}
+
+func TestSQLStore_TTLExpirationIsRespected(t *testing.T) {
+	ss, db, ctx := MakeStore(t)
+	defer db.Close()
+
+	key := registry.ParseID("test:ttl")
+	entry := store.Entry{
+		Key:   key,
+		Value: payload.New("expires soon"),
+		TTL:   30 * time.Millisecond,
+	}
+
+	err := ss.Set(ctx, entry)
+	require.NoError(t, err)
+
+	// Immediately should exist
+	exists, err := ss.Has(ctx, key)
+	require.NoError(t, err)
+	assert.True(t, exists)
+
+	val, err := ss.Get(ctx, key)
+	require.NoError(t, err)
+	assert.NotNil(t, val)
+
+	// Wait for expiration
+	time.Sleep(50 * time.Millisecond)
+
+	// Should not exist
+	exists, err = ss.Has(ctx, key)
+	require.NoError(t, err)
+	assert.False(t, exists)
+
+	_, err = ss.Get(ctx, key)
+	assert.Equal(t, store.ErrKeyNotFound, err)
+}
+
+func TestSQLStore_EmptyKeyBehavior(t *testing.T) {
+	ss, db, ctx := MakeStore(t)
+	defer db.Close()
+
+	// Empty key
+	emptyKey := registry.ID{}
+
+	// Set with empty key
+	err := ss.Set(ctx, store.Entry{
+		Key:   emptyKey,
+		Value: payload.New("empty key value"),
+	})
+	require.NoError(t, err)
+
+	// Get with empty key
+	val, err := ss.Get(ctx, emptyKey)
+	require.NoError(t, err)
+	assert.Equal(t, "empty key value", string(val.Data().([]byte)))
+
+	// Has with empty key
+	exists, err := ss.Has(ctx, emptyKey)
+	require.NoError(t, err)
+	assert.True(t, exists)
+
+	// Delete with empty key
+	err = ss.Delete(ctx, emptyKey)
+	require.NoError(t, err)
+
+	exists, err = ss.Has(ctx, emptyKey)
+	require.NoError(t, err)
+	assert.False(t, exists)
+}
+
+func TestSQLStore_LargePayload(t *testing.T) {
+	ss, db, ctx := MakeStore(t)
+	defer db.Close()
+
+	// Create a large string payload (100KB)
+	largeString := make([]byte, 100*1024)
+	for i := range largeString {
+		largeString[i] = byte('a' + (i % 26))
+	}
+
+	key := registry.ParseID("test:large")
+	err := ss.Set(ctx, store.Entry{
+		Key:   key,
+		Value: payload.New(string(largeString)),
+	})
+	require.NoError(t, err)
+
+	val, err := ss.Get(ctx, key)
+	require.NoError(t, err)
+
+	resultData, ok := val.Data().([]byte)
+	require.True(t, ok)
+
+	// Verify the data integrity
+	assert.Equal(t, len(largeString), len(resultData))
+	assert.Equal(t, string(largeString), string(resultData))
+}
+
+func TestSQLStore_SpecialCharactersInKey(t *testing.T) {
+	ss, db, ctx := MakeStore(t)
+	defer db.Close()
+
+	specialKeys := []string{
+		"test:with spaces",
+		"test:with/slashes",
+		"test:with:colons",
+		"test:with.dots",
+		"test:with-dashes",
+		"test:with_underscores",
+		"test:unicode:日本語",
+	}
+
+	for _, keyStr := range specialKeys {
+		t.Run(keyStr, func(t *testing.T) {
+			key := registry.ParseID(keyStr)
+			value := "value for " + keyStr
+
+			err := ss.Set(ctx, createTestEntry(keyStr, value))
+			require.NoError(t, err)
+
+			exists, err := ss.Has(ctx, key)
+			require.NoError(t, err)
+			assert.True(t, exists)
+
+			val, err := ss.Get(ctx, key)
+			require.NoError(t, err)
+			assert.Equal(t, value, string(val.Data().([]byte)))
+
+			err = ss.Delete(ctx, key)
+			require.NoError(t, err)
+
+			exists, err = ss.Has(ctx, key)
+			require.NoError(t, err)
+			assert.False(t, exists)
+		})
+	}
+}
+
+func TestSQLStore_ResourceInterface(t *testing.T) {
+	ss, db, ctx := MakeStore(t)
+	defer db.Close()
+
+	// Test Acquire returns correct type
+	res, err := ss.Acquire(ctx, registry.ParseID("test:resource"), resource.ModeNormal)
+	require.NoError(t, err)
+	require.NotNil(t, res)
+
+	// Get should return store.Store
+	storeInterface, err := res.Get()
+	require.NoError(t, err)
+
+	// Type assert to store.Store
+	s, ok := storeInterface.(store.Store)
+	require.True(t, ok, "expected store.Store interface")
+
+	// Should be able to use the store through the interface
+	err = s.Set(ctx, createTestEntry("test:via-interface", "value"))
+	require.NoError(t, err)
+
+	val, err := s.Get(ctx, registry.ParseID("test:via-interface"))
+	require.NoError(t, err)
+	assert.NotNil(t, val)
+
+	// Release and verify Get fails
+	res.Release()
+	_, err = res.Get()
+	assert.Equal(t, resource.ErrResourceReleased, err)
+
+	// Double release should be safe
+	res.Release()
 }

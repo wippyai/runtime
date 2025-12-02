@@ -1,7 +1,6 @@
 package relay
 
 import (
-	"fmt"
 	"sync"
 
 	api "github.com/wippyai/runtime/api/relay"
@@ -29,14 +28,14 @@ func NewRouter(localNode api.Node, internode api.Receiver) *Router {
 // This is an internal method called by VirtualNodeManager only.
 func (r *Router) RegisterVirtualNode(nodeID api.NodeID, receiver api.Receiver) error {
 	if nodeID == "" {
-		return fmt.Errorf("nodeID cannot be empty")
+		return ErrEmptyNodeID
 	}
 	if nodeID == r.localNode.ID() {
-		return fmt.Errorf("nodeID conflicts with local node: %s", nodeID)
+		return NewVirtualNodeConflictError(nodeID)
 	}
 
-	if _, loaded := r.virtualNodes.LoadOrStore(string(nodeID), receiver); loaded {
-		return fmt.Errorf("virtual node already registered: %s", nodeID)
+	if _, loaded := r.virtualNodes.LoadOrStore(nodeID, receiver); loaded {
+		return NewVirtualNodeExistsError(nodeID)
 	}
 
 	return nil
@@ -46,7 +45,7 @@ func (r *Router) RegisterVirtualNode(nodeID api.NodeID, receiver api.Receiver) e
 // This is an internal method called by VirtualNodeManager only.
 // Returns true if the node existed and was removed, false if it didn't exist.
 func (r *Router) UnregisterVirtualNode(nodeID api.NodeID) bool {
-	_, existed := r.virtualNodes.LoadAndDelete(string(nodeID))
+	_, existed := r.virtualNodes.LoadAndDelete(nodeID)
 	return existed
 }
 
@@ -56,7 +55,7 @@ func (r *Router) UnregisterVirtualNode(nodeID api.NodeID) bool {
 // Otherwise, it's forwarded to the internode receiver.
 func (r *Router) Send(pkg *api.Package) error {
 	if pkg == nil {
-		return fmt.Errorf("cannot send nil package")
+		return ErrNilPackage
 	}
 
 	// Route to local node if target node is empty or matches the local node's ID.
@@ -65,7 +64,7 @@ func (r *Router) Send(pkg *api.Package) error {
 	}
 
 	// Check if it's for a virtual node.
-	if receiver, ok := r.virtualNodes.Load(string(pkg.Target.Node)); ok {
+	if receiver, ok := r.virtualNodes.Load(pkg.Target.Node); ok {
 		return receiver.(api.Receiver).Send(pkg)
 	}
 
@@ -74,6 +73,5 @@ func (r *Router) Send(pkg *api.Package) error {
 		return r.internode.Send(pkg)
 	}
 
-	// Otherwise, we can't route it.
-	return fmt.Errorf("cannot route to node %s: not found", pkg.Target.Node)
+	return NewNodeNotFoundError(pkg.Target.Node)
 }

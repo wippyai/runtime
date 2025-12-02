@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/wippyai/runtime/api/registry"
-	dirapi "github.com/wippyai/runtime/api/service/directory"
+	dirapi "github.com/wippyai/runtime/api/service/fs/directory"
 	"go.uber.org/zap"
 )
 

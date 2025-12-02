@@ -17,7 +17,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
-	memcfg "github.com/wippyai/runtime/api/service/memstore"
+	memcfg "github.com/wippyai/runtime/api/service/store/memory"
 	"github.com/wippyai/runtime/api/store"
 	"go.uber.org/zap"
 )
@@ -418,6 +418,209 @@ func TestMemoryStore_ConcurrentAccess(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestMemoryStore_ConcurrentReadWrite tests concurrent read/write stress
+func TestMemoryStore_ConcurrentReadWrite(t *testing.T) {
+	logger := zap.NewNop()
+	config := &memcfg.MemoryConfig{
+		MaxSize:         10000,
+		CleanupInterval: 100 * time.Millisecond,
+	}
+	ms := memorystore.NewMemoryStore(registry.ID{NS: "test", Name: "stress"}, config, logger)
+	ctx := ctxapi.NewRootContext()
+
+	_, err := ms.Start(ctx)
+	require.NoError(t, err)
+	defer ms.Stop(ctx)
+
+	const (
+		numWriters = 10
+		numReaders = 20
+		numOps     = 500
+		keySpace   = 100
+	)
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, (numWriters+numReaders)*numOps)
+
+	// Writers
+	for w := 0; w < numWriters; w++ {
+		wg.Add(1)
+		go func(writerID int) {
+			defer wg.Done()
+			for i := 0; i < numOps; i++ {
+				keyIdx := (writerID*numOps + i) % keySpace
+				key := fmt.Sprintf("test:key%d", keyIdx)
+				value := fmt.Sprintf("value-%d-%d", writerID, i)
+
+				if err := ms.Set(ctx, createTestEntry(key, value)); err != nil {
+					if !errors.Is(err, store.ErrStoreFull) {
+						errChan <- fmt.Errorf("set error: %w", err)
+					}
+				}
+
+				if i%7 == 0 {
+					_ = ms.Delete(ctx, registry.ParseID(key))
+				}
+			}
+		}(w)
+	}
+
+	// Readers
+	for r := 0; r < numReaders; r++ {
+		wg.Add(1)
+		go func(readerID int) {
+			defer wg.Done()
+			for i := 0; i < numOps; i++ {
+				keyIdx := (readerID*numOps + i) % keySpace
+				key := registry.ParseID(fmt.Sprintf("test:key%d", keyIdx))
+
+				_, err := ms.Get(ctx, key)
+				if err != nil && !errors.Is(err, store.ErrKeyNotFound) {
+					errChan <- fmt.Errorf("get error: %w", err)
+				}
+
+				_, err = ms.Has(ctx, key)
+				if err != nil {
+					errChan <- fmt.Errorf("has error: %w", err)
+				}
+			}
+		}(r)
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	var errs []error
+	for err := range errChan {
+		errs = append(errs, err)
+	}
+	require.Empty(t, errs, "unexpected errors during stress test: %v", errs)
+}
+
+// TestMemoryStore_TTLStress tests TTL expiration under concurrent load
+func TestMemoryStore_TTLStress(t *testing.T) {
+	logger := zap.NewNop()
+	config := &memcfg.MemoryConfig{
+		MaxSize:         5000,
+		CleanupInterval: 10 * time.Millisecond,
+	}
+	ms := memorystore.NewMemoryStore(registry.ID{NS: "test", Name: "ttl-stress"}, config, logger)
+	ctx := ctxapi.NewRootContext()
+
+	_, err := ms.Start(ctx)
+	require.NoError(t, err)
+	defer ms.Stop(ctx)
+
+	const numKeys = 200
+	var wg sync.WaitGroup
+
+	// Set keys with varying TTLs
+	for i := 0; i < numKeys; i++ {
+		key := fmt.Sprintf("test:ttl%d", i)
+		ttl := time.Duration(20+i%50) * time.Millisecond
+
+		err := ms.Set(ctx, createTestEntryWithTTL(key, i, ttl))
+		require.NoError(t, err)
+	}
+
+	// Concurrent reads while TTLs expire
+	for r := 0; r < 5; r++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				for i := 0; i < numKeys; i++ {
+					key := registry.ParseID(fmt.Sprintf("test:ttl%d", i))
+					_, _ = ms.Get(ctx, key)
+					_, _ = ms.Has(ctx, key)
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	// After enough time, all TTL keys should be gone
+	time.Sleep(100 * time.Millisecond)
+
+	for i := 0; i < numKeys; i++ {
+		key := registry.ParseID(fmt.Sprintf("test:ttl%d", i))
+		exists, err := ms.Has(ctx, key)
+		require.NoError(t, err)
+		assert.False(t, exists, "key %d should have expired", i)
+	}
+}
+
+// TestMemoryStore_RapidStartStop tests rapid start/stop cycles
+func TestMemoryStore_RapidStartStop(t *testing.T) {
+	for i := 0; i < 10; i++ {
+		logger := zap.NewNop()
+		config := &memcfg.MemoryConfig{
+			MaxSize:         100,
+			CleanupInterval: 10 * time.Millisecond,
+		}
+		ms := memorystore.NewMemoryStore(registry.ID{NS: "test", Name: fmt.Sprintf("rapid-%d", i)}, config, logger)
+		ctx := ctxapi.NewRootContext()
+
+		_, err := ms.Start(ctx)
+		require.NoError(t, err)
+
+		// Do some operations
+		for j := 0; j < 10; j++ {
+			key := fmt.Sprintf("test:key%d", j)
+			_ = ms.Set(ctx, createTestEntry(key, j))
+		}
+
+		err = ms.Stop(ctx)
+		require.NoError(t, err)
+
+		// Verify store is properly closed
+		_, err = ms.Get(ctx, registry.ParseID("test:key0"))
+		assert.Equal(t, store.ErrStoreClosed, err)
+	}
+}
+
+// TestMemoryStore_CapacityBoundary tests behavior at capacity boundaries
+func TestMemoryStore_CapacityBoundary(t *testing.T) {
+	logger := zap.NewNop()
+	config := &memcfg.MemoryConfig{
+		MaxSize:         10,
+		CleanupInterval: 50 * time.Millisecond,
+	}
+	ms := memorystore.NewMemoryStore(registry.ID{NS: "test", Name: "capacity"}, config, logger)
+	ctx := ctxapi.NewRootContext()
+
+	_, err := ms.Start(ctx)
+	require.NoError(t, err)
+	defer ms.Stop(ctx)
+
+	// Fill to capacity
+	for i := 0; i < 10; i++ {
+		err := ms.Set(ctx, createTestEntry(fmt.Sprintf("test:key%d", i), i))
+		require.NoError(t, err)
+	}
+
+	// Next set should fail
+	err = ms.Set(ctx, createTestEntry("test:key10", 10))
+	assert.Equal(t, store.ErrStoreFull, err)
+
+	// Update existing should succeed
+	err = ms.Set(ctx, createTestEntry("test:key5", "updated"))
+	require.NoError(t, err)
+
+	val, err := ms.Get(ctx, registry.ParseID("test:key5"))
+	require.NoError(t, err)
+	assert.Equal(t, "updated", val.Data())
+
+	// Delete one, then new set should succeed
+	err = ms.Delete(ctx, registry.ParseID("test:key0"))
+	require.NoError(t, err)
+
+	err = ms.Set(ctx, createTestEntry("test:key10", 10))
+	require.NoError(t, err)
+}
+
 // TestMemoryStore_CleanupBehavior tests the cleanup routine's behavior
 func TestMemoryStore_CleanupBehavior(t *testing.T) {
 	logger := zap.NewNop()
@@ -509,4 +712,165 @@ func TestMemoryStore_CleanupBehavior(t *testing.T) {
 	// Clean up
 	err = ms.Stop(ctx)
 	require.NoError(t, err)
+}
+
+// Benchmarks
+
+func createBenchStore(b *testing.B) (*memorystore.MemoryStore, context.Context) {
+	logger := zap.NewNop()
+	config := &memcfg.MemoryConfig{
+		MaxSize:         1000000,
+		CleanupInterval: time.Hour, // Disable cleanup during benchmarks
+	}
+	ms := memorystore.NewMemoryStore(registry.ID{NS: "bench", Name: "store"}, config, logger)
+	ctx := ctxapi.NewRootContext()
+	_, _ = ms.Start(ctx)
+	return ms, ctx
+}
+
+func BenchmarkMemoryStore_Set(b *testing.B) {
+	ms, ctx := createBenchStore(b)
+	defer ms.Stop(ctx)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		key := fmt.Sprintf("test:key%d", i)
+		_ = ms.Set(ctx, createTestEntry(key, i))
+	}
+}
+
+func BenchmarkMemoryStore_Get(b *testing.B) {
+	ms, ctx := createBenchStore(b)
+	defer ms.Stop(ctx)
+
+	// Pre-populate
+	for i := 0; i < 10000; i++ {
+		key := fmt.Sprintf("test:key%d", i)
+		_ = ms.Set(ctx, createTestEntry(key, i))
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		key := registry.ParseID(fmt.Sprintf("test:key%d", i%10000))
+		_, _ = ms.Get(ctx, key)
+	}
+}
+
+func BenchmarkMemoryStore_Has(b *testing.B) {
+	ms, ctx := createBenchStore(b)
+	defer ms.Stop(ctx)
+
+	// Pre-populate
+	for i := 0; i < 10000; i++ {
+		key := fmt.Sprintf("test:key%d", i)
+		_ = ms.Set(ctx, createTestEntry(key, i))
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		key := registry.ParseID(fmt.Sprintf("test:key%d", i%10000))
+		_, _ = ms.Has(ctx, key)
+	}
+}
+
+func BenchmarkMemoryStore_Delete(b *testing.B) {
+	ms, ctx := createBenchStore(b)
+	defer ms.Stop(ctx)
+
+	// Pre-populate
+	for i := 0; i < b.N; i++ {
+		key := fmt.Sprintf("test:key%d", i)
+		_ = ms.Set(ctx, createTestEntry(key, i))
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		key := registry.ParseID(fmt.Sprintf("test:key%d", i))
+		_ = ms.Delete(ctx, key)
+	}
+}
+
+func BenchmarkMemoryStore_SetWithTTL(b *testing.B) {
+	ms, ctx := createBenchStore(b)
+	defer ms.Stop(ctx)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		key := fmt.Sprintf("test:key%d", i)
+		_ = ms.Set(ctx, createTestEntryWithTTL(key, i, time.Hour))
+	}
+}
+
+func BenchmarkMemoryStore_ConcurrentGet(b *testing.B) {
+	ms, ctx := createBenchStore(b)
+	defer ms.Stop(ctx)
+
+	// Pre-populate
+	for i := 0; i < 10000; i++ {
+		key := fmt.Sprintf("test:key%d", i)
+		_ = ms.Set(ctx, createTestEntry(key, i))
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			key := registry.ParseID(fmt.Sprintf("test:key%d", i%10000))
+			_, _ = ms.Get(ctx, key)
+			i++
+		}
+	})
+}
+
+func BenchmarkMemoryStore_ConcurrentSet(b *testing.B) {
+	ms, ctx := createBenchStore(b)
+	defer ms.Stop(ctx)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			key := fmt.Sprintf("test:key%d", i)
+			_ = ms.Set(ctx, createTestEntry(key, i))
+			i++
+		}
+	})
+}
+
+func BenchmarkMemoryStore_ConcurrentMixed(b *testing.B) {
+	ms, ctx := createBenchStore(b)
+	defer ms.Stop(ctx)
+
+	// Pre-populate
+	for i := 0; i < 10000; i++ {
+		key := fmt.Sprintf("test:key%d", i)
+		_ = ms.Set(ctx, createTestEntry(key, i))
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			key := fmt.Sprintf("test:key%d", i%10000)
+			keyID := registry.ParseID(key)
+
+			switch i % 4 {
+			case 0:
+				_ = ms.Set(ctx, createTestEntry(key, i))
+			case 1, 2:
+				_, _ = ms.Get(ctx, keyID)
+			case 3:
+				_, _ = ms.Has(ctx, keyID)
+			}
+			i++
+		}
+	})
 }

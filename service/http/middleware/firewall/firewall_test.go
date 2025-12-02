@@ -314,7 +314,7 @@ func TestEndpointFirewallWithActorAndScope(t *testing.T) {
 		}))
 
 		req := httptest.NewRequest("GET", "http://example.com/test", nil)
-		ctx, fc := ctxapi.OpenFrameContext(req.Context())
+		ctx, _ := ctxapi.OpenFrameContext(req.Context())
 
 		actor := security.Actor{ID: "user123", Meta: nil}
 		routeInfo := &httpapi.RouteInfo{
@@ -323,7 +323,7 @@ func TestEndpointFirewallWithActorAndScope(t *testing.T) {
 
 		_ = security.SetActor(ctx, actor)
 		_ = security.SetScope(ctx, &mockScope{result: security.Allow})
-		_ = fc.Set(httpapi.RouteCtx, routeInfo)
+		_ = httpapi.SetRouteInfo(ctx, routeInfo)
 
 		req = req.WithContext(ctx)
 		w := httptest.NewRecorder()
@@ -365,7 +365,7 @@ func TestEndpointFirewallWithActorAndScope(t *testing.T) {
 		}))
 
 		req := httptest.NewRequest("GET", "http://example.com/test", nil)
-		ctx, fc := ctxapi.OpenFrameContext(req.Context())
+		ctx, _ := ctxapi.OpenFrameContext(req.Context())
 
 		actor := security.Actor{ID: "user123", Meta: nil}
 		routeInfo := &httpapi.RouteInfo{
@@ -374,7 +374,7 @@ func TestEndpointFirewallWithActorAndScope(t *testing.T) {
 
 		_ = security.SetActor(ctx, actor)
 		_ = security.SetScope(ctx, &mockScope{result: security.Deny})
-		_ = fc.Set(httpapi.RouteCtx, routeInfo)
+		_ = httpapi.SetRouteInfo(ctx, routeInfo)
 
 		req = req.WithContext(ctx)
 		w := httptest.NewRecorder()

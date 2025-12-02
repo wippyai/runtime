@@ -140,7 +140,7 @@ func (p *SleepProcess) Send(pkg *relay.Package) error {
 
 func (p *SleepProcess) Close() {}
 
-// testLifecycle implements process2.Lifecycle for tests
+// testLifecycle implements process.Lifecycle for tests
 type testLifecycle struct {
 	onStart    func(context.Context, relay.PID, Process)
 	onComplete func(context.Context, relay.PID, *runtime.Result)

@@ -8,7 +8,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/function"
-	"github.com/wippyai/runtime/api/process2"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/system/eventbus"
@@ -50,7 +50,7 @@ func (f *Registry) Start(ctx context.Context) error {
 		f.handleEvent,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create subscriber: %w", err)
+		return NewSubscriberError(err)
 	}
 	f.subscriber = sub
 
@@ -149,17 +149,17 @@ func (f *Registry) sendReject(path event.Path, reason string) {
 // Blocks until execution completes or context is canceled.
 func (f *Registry) Call(ctx context.Context, task runtimeapi.Task) (*runtimeapi.Result, error) {
 	if ctx == nil {
-		return nil, fmt.Errorf("nil context")
+		return nil, ErrNilContext
 	}
 
 	handler, exists := f.handlers.Load(task.ID)
 	if !exists {
-		return nil, fmt.Errorf("no handler registered for target: %s", task.ID)
+		return nil, NewHandlerNotFoundError(task.ID)
 	}
 
 	execHandler, ok := handler.(function.Func)
 	if !ok {
-		return nil, fmt.Errorf("invalid handler type for target: %s", task.ID)
+		return nil, NewInvalidHandlerError(task.ID)
 	}
 
 	// Merge preset and runtime options into task.Options before calling interceptors
@@ -214,7 +214,7 @@ func (f *Registry) executor(ctx context.Context, handler function.Func, task run
 	ctx, fc := ctxapi.AcquireFrameContext(ctx)
 
 	// Generate PID for this function call
-	gen := process2.GetPIDGenerator(ctx)
+	gen := process.GetPIDGenerator(ctx)
 	pid := gen.Generate(function.HostID)
 
 	// Fast path: no task context overrides (most common case)
@@ -233,7 +233,7 @@ func (f *Registry) executor(ctx context.Context, handler function.Func, task run
 
 		if err := fc.SetMultiple(pairs...); err != nil {
 			ctxapi.ReleaseFrameContext(fc)
-			return nil, fmt.Errorf("failed to set frame context: %w", err)
+			return nil, NewFrameContextError(err)
 		}
 	}
 

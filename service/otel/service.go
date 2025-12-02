@@ -6,7 +6,7 @@ import (
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	apiinterceptor "github.com/wippyai/runtime/api/function"
-	"github.com/wippyai/runtime/api/process2"
+	"github.com/wippyai/runtime/api/process"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
@@ -88,7 +88,7 @@ func (s *Service) HTTPMiddleware() func(http.Handler) http.Handler {
 }
 
 // OnStart implements scheduler.Lifecycle.
-func (s *Service) OnStart(ctx stdcontext.Context, pid relay.PID, _ process2.Process) {
+func (s *Service) OnStart(ctx stdcontext.Context, pid relay.PID, _ process.Process) {
 	if !s.cfg.Process.Enabled || !s.cfg.Process.TraceLifecycle {
 		return
 	}

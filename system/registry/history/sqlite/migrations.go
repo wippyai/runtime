@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 )
 
 const currentSchemaVersion = 1
@@ -47,7 +46,7 @@ func runMigrations(db *sql.DB) error {
 	var tableExists bool
 	err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='metadata')").Scan(&tableExists)
 	if err != nil {
-		return fmt.Errorf("failed to check metadata table: %w", err)
+		return NewCheckMetadataTableError(err)
 	}
 
 	if tableExists {
@@ -55,14 +54,14 @@ func runMigrations(db *sql.DB) error {
 		if errors.Is(err, sql.ErrNoRows) {
 			schemaVersion = 0
 		} else if err != nil {
-			return fmt.Errorf("failed to read schema version: %w", err)
+			return NewReadSchemaVersionError(err)
 		}
 	} else {
 		schemaVersion = 0
 	}
 
 	if schemaVersion > currentSchemaVersion {
-		return fmt.Errorf("database schema version %d is newer than supported version %d", schemaVersion, currentSchemaVersion)
+		return NewSchemaVersionTooNewError(schemaVersion, currentSchemaVersion)
 	}
 
 	for _, m := range migrations {
@@ -71,11 +70,11 @@ func runMigrations(db *sql.DB) error {
 		}
 
 		if _, err := db.ExecContext(ctx, m.up); err != nil {
-			return fmt.Errorf("failed to apply migration %d: %w", m.version, err)
+			return NewApplyMigrationError(m.version, err)
 		}
 
 		if _, err := db.ExecContext(ctx, "INSERT OR REPLACE INTO metadata (key, value) VALUES ('schema_version', ?)", m.version); err != nil {
-			return fmt.Errorf("failed to update schema version to %d: %w", m.version, err)
+			return NewUpdateSchemaVersionError(m.version, err)
 		}
 
 		schemaVersion = m.version

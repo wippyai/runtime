@@ -157,8 +157,8 @@ func TestCreateHTTPMetricsMiddleware(t *testing.T) {
 		}))
 
 		req := httptest.NewRequest("GET", "/api/users/123", nil)
-		ctx, fc := ctxapi.OpenFrameContext(req.Context())
-		_ = fc.Set(httpapi.RouteLabelCtx, "/api/users/{id}")
+		ctx, _ := ctxapi.OpenFrameContext(req.Context())
+		_ = httpapi.SetRouteLabel(ctx, "/api/users/{id}")
 		req = req.WithContext(ctx)
 		w := httptest.NewRecorder()
 

@@ -118,14 +118,14 @@ func (c *Controller) runCommand(op controlOp) error {
 		select {
 		case err := <-op.result:
 			if err != nil && !errors.Is(err, context.Canceled) {
-				return fmt.Errorf("failed to stop service: %w", err)
+				return NewStopError(err)
 			}
 			return err
 		case <-c.ctx.Done():
-			return fmt.Errorf("supervisor is stopped: %w", c.ctx.Err())
+			return NewSupervisorStoppedError(c.ctx.Err())
 		}
 	case <-c.ctx.Done():
-		return fmt.Errorf("supervisor is stopped: %w", c.ctx.Err())
+		return NewSupervisorStoppedError(c.ctx.Err())
 	}
 }
 
@@ -323,7 +323,7 @@ func (c *Controller) tryStart(ctx context.Context, cancel context.CancelFunc) (<
 	case <-time.After(c.config.StartTimeout):
 		cancel()
 		c.updateState(supervisor.Failed, "start timeout")
-		return nil, errors.New("service start timed out")
+		return nil, ErrStartTimeout
 	case <-c.ctx.Done():
 		c.updateState(supervisor.Exited, "controller exited")
 		return nil, supervisor.ErrExit
@@ -350,8 +350,8 @@ func (c *Controller) tryStop(ctx context.Context) error {
 		c.updateState(supervisor.Stopped, err)
 		return err
 	case <-stopCtx.Done():
-		c.updateState(supervisor.Failed, fmt.Sprintf("stop timeout after %v", c.config.StopTimeout))
-		return fmt.Errorf("service stop timed out after %v", c.config.StopTimeout)
+		c.updateState(supervisor.Failed, "stop timeout after "+c.config.StopTimeout.String())
+		return NewStopTimeoutError(c.config.StopTimeout)
 	}
 }
 

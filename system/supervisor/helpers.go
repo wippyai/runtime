@@ -3,7 +3,6 @@ package supervisor
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -188,13 +187,13 @@ func (th *registryTX) commit(removeFn func(string) error, registerFn func(string
 	// Apply all tx changes
 	for id := range th.remove {
 		if err := removeFn(id); err != nil {
-			return fmt.Errorf("failed to remove service %s during commit: %w", id, err)
+			return NewCommitRemoveError(id, err)
 		}
 	}
 
 	for id, entry := range th.register {
 		if err := registerFn(id, entry); err != nil {
-			return fmt.Errorf("failed to register service %s during commit: %w", id, err)
+			return NewCommitRegisterError(id, err)
 		}
 	}
 
@@ -217,7 +216,7 @@ func (th *registryTX) discard() {
 
 func (th *registryTX) registerService(id string, entry *supervisor.Entry) error {
 	if !th.open {
-		return fmt.Errorf("received register action outside of transaction")
+		return ErrOutsideTransaction
 	}
 
 	delete(th.remove, id)
@@ -227,7 +226,7 @@ func (th *registryTX) registerService(id string, entry *supervisor.Entry) error 
 
 func (th *registryTX) removeService(id string) error {
 	if !th.open {
-		return fmt.Errorf("received remove action outside of transaction")
+		return ErrOutsideTransaction
 	}
 
 	// duplicate check

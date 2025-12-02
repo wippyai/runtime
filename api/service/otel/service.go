@@ -6,7 +6,7 @@ import (
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	apiinterceptor "github.com/wippyai/runtime/api/function"
-	"github.com/wippyai/runtime/api/process2"
+	"github.com/wippyai/runtime/api/process"
 	queueapi "github.com/wippyai/runtime/api/queue"
 )
 
@@ -14,7 +14,7 @@ var serviceCtx = &ctxapi.Key{Name: "otel.service"}
 
 // Service provides OpenTelemetry tracing capabilities
 type Service interface {
-	process2.Lifecycle
+	process.Lifecycle
 
 	// HTTPMiddleware returns HTTP middleware for W3C trace context propagation
 	HTTPMiddleware() func(http.Handler) http.Handler

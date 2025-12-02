@@ -10,8 +10,8 @@ import (
 	clockapi "github.com/wippyai/runtime/api/clock"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
-	"github.com/wippyai/runtime/api/process2"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
+	"github.com/wippyai/runtime/api/process"
+	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/evalhost"
 	"github.com/wippyai/runtime/runtime/lua/modules/json"
@@ -24,7 +24,7 @@ import (
 // a child process that sleeps. This is the key integration test.
 func TestEvalModule_SandboxWithSleep(t *testing.T) {
 	// Setup: Create eval host with modules
-	modules := []lua2api.Module{
+	modules := []lua2api.ModuleV2{
 		json.Module,
 		timemod.Module,
 	}
@@ -123,7 +123,7 @@ func TestEvalModule_SandboxWithSleep(t *testing.T) {
 
 // TestEvalModule_SandboxYieldTranscoding tests that yields are properly transcoded to Lua tables
 func TestEvalModule_SandboxYieldTranscoding(t *testing.T) {
-	modules := []lua2api.Module{
+	modules := []lua2api.ModuleV2{
 		json.Module,
 		timemod.Module,
 	}
@@ -258,7 +258,7 @@ func TestEvalModule_RunYield(t *testing.T) {
 
 // TestEvalModule_SandboxMethods tests sandbox userdata methods
 func TestEvalModule_SandboxMethods(t *testing.T) {
-	modules := []lua2api.Module{
+	modules := []lua2api.ModuleV2{
 		json.Module,
 		timemod.Module,
 	}
@@ -313,12 +313,12 @@ func TestEvalModule_SandboxMethods(t *testing.T) {
 
 	step, err := proc.Step(nil)
 	require.NoError(t, err)
-	assert.Equal(t, process2.StepDone, step.Status)
+	assert.Equal(t, process.StepDone, step.Status)
 }
 
 // TestEvalModule_SandboxManualDispatch tests sandbox with manual dispatch of yields
 func TestEvalModule_SandboxManualDispatch(t *testing.T) {
-	modules := []lua2api.Module{
+	modules := []lua2api.ModuleV2{
 		json.Module,
 		timemod.Module,
 	}
@@ -406,7 +406,7 @@ func TestEvalModule_SandboxManualDispatch(t *testing.T) {
 
 // TestEvalModule_ProgramMethods tests Program userdata methods
 func TestEvalModule_ProgramMethods(t *testing.T) {
-	modules := []lua2api.Module{
+	modules := []lua2api.ModuleV2{
 		json.Module,
 		timemod.Module,
 	}
@@ -457,7 +457,7 @@ func TestEvalModule_ProgramMethods(t *testing.T) {
 
 // TestEvalModule_ErrorCases tests various error conditions
 func TestEvalModule_ErrorCases(t *testing.T) {
-	modules := []lua2api.Module{
+	modules := []lua2api.ModuleV2{
 		json.Module,
 		timemod.Module,
 	}
@@ -494,7 +494,7 @@ func TestEvalModule_ErrorCases(t *testing.T) {
 
 		step, _ := proc.Step(nil)
 		// Should complete but with error in result
-		assert.Equal(t, process2.StepDone, step.Status)
+		assert.Equal(t, process.StepDone, step.Status)
 	})
 
 	t.Run("sandbox_execute_twice", func(t *testing.T) {
@@ -520,7 +520,7 @@ func TestEvalModule_ErrorCases(t *testing.T) {
 		require.NoError(t, err)
 
 		step, _ := proc.Step(nil)
-		assert.Equal(t, process2.StepDone, step.Status)
+		assert.Equal(t, process.StepDone, step.Status)
 	})
 
 	t.Run("sandbox_step_before_execute", func(t *testing.T) {
@@ -545,7 +545,7 @@ func TestEvalModule_ErrorCases(t *testing.T) {
 		require.NoError(t, err)
 
 		step, _ := proc.Step(nil)
-		assert.Equal(t, process2.StepDone, step.Status)
+		assert.Equal(t, process.StepDone, step.Status)
 	})
 }
 
@@ -578,7 +578,7 @@ func (r *testRegistry) Dispatch(cmd dispatcher.Command) dispatcher.Handler {
 // 3. Tests multiple yield types (sleep, now)
 // 4. Verifies resource cleanup
 func TestEvalModule_ComprehensiveIntegration(t *testing.T) {
-	modules := []lua2api.Module{
+	modules := []lua2api.ModuleV2{
 		json.Module,
 		timemod.Module,
 	}
@@ -722,7 +722,7 @@ func TestEvalModule_ComprehensiveIntegration(t *testing.T) {
 
 	step, err := proc.Step(nil)
 	require.NoError(t, err)
-	assert.Equal(t, process2.StepDone, step.Status)
+	assert.Equal(t, process.StepDone, step.Status)
 
 	// Process completed successfully - the Lua script internally verifies
 	// the sandbox worked correctly with multiple modules and yields
@@ -733,7 +733,7 @@ func TestEvalModule_ComprehensiveIntegration(t *testing.T) {
 
 // TestEvalModule_SandboxResourceCleanup verifies sandbox resources are cleaned when parent exits
 func TestEvalModule_SandboxResourceCleanup(t *testing.T) {
-	modules := []lua2api.Module{
+	modules := []lua2api.ModuleV2{
 		json.Module,
 		timemod.Module,
 	}
@@ -786,7 +786,7 @@ func TestEvalModule_SandboxResourceCleanup(t *testing.T) {
 
 // TestEvalModule_MultipleModulesLoaded verifies all requested modules are available
 func TestEvalModule_MultipleModulesLoaded(t *testing.T) {
-	modules := []lua2api.Module{
+	modules := []lua2api.ModuleV2{
 		json.Module,
 		timemod.Module,
 	}
@@ -850,7 +850,7 @@ func TestEvalModule_MultipleModulesLoaded(t *testing.T) {
 
 	step, err := proc.Step(nil)
 	require.NoError(t, err)
-	assert.Equal(t, process2.StepDone, step.Status)
+	assert.Equal(t, process.StepDone, step.Status)
 
 	// If we get StepDone without errors, the sandbox successfully loaded
 	// and executed code using both time and json modules
@@ -861,7 +861,7 @@ func TestEvalModule_MultipleModulesLoaded(t *testing.T) {
 
 // TestEvalModule_YieldObservation tests that we can observe yields in detail
 func TestEvalModule_YieldObservation(t *testing.T) {
-	modules := []lua2api.Module{
+	modules := []lua2api.ModuleV2{
 		json.Module,
 		timemod.Module,
 	}
@@ -933,7 +933,7 @@ func TestEvalModule_YieldObservation(t *testing.T) {
 
 	step, err := proc.Step(nil)
 	require.NoError(t, err)
-	assert.Equal(t, process2.StepDone, step.Status)
+	assert.Equal(t, process.StepDone, step.Status)
 
 	// Process completed - the Lua script internally observes and counts 3 sleep yields
 	// If there were issues with yield observation, the script would error/hang
@@ -944,7 +944,7 @@ func TestEvalModule_YieldObservation(t *testing.T) {
 
 // BenchmarkSandboxCreateExecuteStep benchmarks sandbox creation, execute, and step cycle
 func BenchmarkSandboxCreateExecuteStep(b *testing.B) {
-	modules := []lua2api.Module{
+	modules := []lua2api.ModuleV2{
 		json.Module,
 		timemod.Module,
 	}

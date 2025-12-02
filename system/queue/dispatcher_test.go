@@ -12,6 +12,10 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 )
 
+type emitFunc func(data any, err error)
+
+func (f emitFunc) Emit(data any, err error) { f(data, err) }
+
 type mockPayload struct {
 	data []byte
 }
@@ -55,9 +59,9 @@ func TestDispatcher_Publish(t *testing.T) {
 		Manager: mgr,
 		QueueID: registry.NewID("test", "queue1"),
 		Message: msg,
-	}, func(data any) {
+	}, emitFunc(func(data any, _ error) {
 		done <- data.(queueapi.QueuePublishResponse)
-	})
+	}))
 
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
@@ -92,9 +96,9 @@ func TestDispatcher_PublishError(t *testing.T) {
 		Manager: mgr,
 		QueueID: registry.NewID("test", "queue1"),
 		Message: msg,
-	}, func(data any) {
+	}, emitFunc(func(data any, _ error) {
 		done <- data.(queueapi.QueuePublishResponse)
-	})
+	}))
 
 	if err != nil {
 		t.Fatalf("handler error: %v", err)

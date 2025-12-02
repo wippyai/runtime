@@ -1,7 +1,6 @@
 package topology
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
@@ -59,7 +58,7 @@ func (t *Topology) Wait(caller, pid relay.PID) error {
 
 	// Local monitoring
 	if _, ok := t.registry.Load(pid.String()); !ok {
-		return fmt.Errorf("cannot monitor unregistered pid: %s", pid)
+		return NewUnregisteredPIDError("monitor", pid)
 	}
 
 	value, _ := t.monitors.LoadOrStore(pid.String(), &sync.Map{})
@@ -67,7 +66,7 @@ func (t *Topology) Wait(caller, pid relay.PID) error {
 
 	_, loaded := watchers.LoadOrStore(caller.String(), true)
 	if loaded {
-		return fmt.Errorf("already monitoring pid: %s", pid)
+		return NewAlreadyMonitoringError(pid)
 	}
 
 	return nil
@@ -112,7 +111,7 @@ func (t *Topology) Release(caller, pid relay.PID) error {
 func (t *Topology) Link(from, to relay.PID) error {
 	// Verify from PID is registered locally
 	if _, ok := t.registry.Load(from.String()); !ok {
-		return fmt.Errorf("cannot link unregistered pid: %s", from)
+		return NewUnregisteredPIDError("link", from)
 	}
 
 	// Check if to PID is on remote node
@@ -137,7 +136,7 @@ func (t *Topology) Link(from, to relay.PID) error {
 
 	// Local linking (both PIDs on same node)
 	if _, ok := t.registry.Load(to.String()); !ok {
-		return fmt.Errorf("cannot link unregistered pid: %s", to)
+		return NewUnregisteredPIDError("link", to)
 	}
 
 	// Use a global lock to ensure atomic bidirectional linking
@@ -336,7 +335,7 @@ func (t *Topology) Remove(pid relay.PID) {
 // Adds the caller to the watchers list for the target PID.
 func (t *Topology) HandleMonitorRequest(caller, target relay.PID) error {
 	if _, ok := t.registry.Load(target.String()); !ok {
-		return fmt.Errorf("cannot monitor unregistered pid: %s", target)
+		return NewUnregisteredPIDError("monitor", target)
 	}
 
 	value, _ := t.monitors.LoadOrStore(target.String(), &sync.Map{})
@@ -374,7 +373,7 @@ func (t *Topology) HandleMonitorRelease(caller, target relay.PID) error {
 func (t *Topology) HandleLinkRequest(from, to relay.PID) error {
 	// Verify to PID is registered locally
 	if _, ok := t.registry.Load(to.String()); !ok {
-		return fmt.Errorf("cannot link unregistered pid: %s", to)
+		return NewUnregisteredPIDError("link", to)
 	}
 
 	// Establish bidirectional link (to is local, from is remote)

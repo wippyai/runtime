@@ -2,7 +2,6 @@ package registry
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -66,7 +65,7 @@ func (r *Reg) GetEntry(path registry.ID) (registry.Entry, error) {
 		}
 	}
 
-	return registry.Entry{}, fmt.Errorf("entry not found: %s", path)
+	return registry.Entry{}, NewEntryNotFoundError(path)
 }
 
 // --- StateWriter Interface Implementation ---
@@ -85,11 +84,11 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 		r.log.Error("failed to apply changes", zap.Error(err))
 		if newState != nil && ctx.Err() == nil {
 			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
-				return nil, fmt.Errorf("failed to apply changes: %w, failed to rollback: %w", err, rerr)
+				return nil, NewApplyChangesError(err, rerr)
 			}
 		}
 
-		return nil, fmt.Errorf("failed to apply changes: %w", err)
+		return nil, NewApplyChangesError(err, nil)
 	}
 
 	r.log.Debug("saving new version", zap.Any("new_version", newVersion))
@@ -99,10 +98,10 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	if err != nil {
 		r.log.Error("failed to save new version", zap.Error(err))
 		if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
-			return nil, fmt.Errorf("failed to save new version: %w, failed to rollback: %w", err, rerr)
+			return nil, NewSaveVersionError(err, rerr)
 		}
 
-		return nil, fmt.Errorf("failed to save new version: %w, recovered", err)
+		return nil, NewSaveVersionError(err, nil)
 	}
 
 	r.state = newState
@@ -124,7 +123,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	// Lookup the version from history by ID to ensure we use the correct instance
 	versions, err := r.history.Versions()
 	if err != nil {
-		return fmt.Errorf("failed to get versions from history: %w", err)
+		return NewGetVersionsError(err)
 	}
 
 	var targetVersion registry.Version
@@ -136,7 +135,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	}
 
 	if targetVersion == nil {
-		return fmt.Errorf("version %d not found in history", v.ID())
+		return NewVersionNotFoundError(v.ID())
 	}
 
 	// Build version map to compute path
@@ -150,8 +149,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	// Compute path from current version to target version
 	path, err := vm.Path(r.currentVersion, targetVersion)
 	if err != nil {
-		return fmt.Errorf("failed to compute path from v%d to v%d: %w",
-			r.currentVersion.ID(), targetVersion.ID(), err)
+		return NewComputePathError(r.currentVersion.ID(), targetVersion.ID(), err)
 	}
 
 	r.log.Debug("computed version path",
@@ -170,7 +168,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		for _, ver := range path {
 			cs, err := r.history.Get(ver)
 			if err != nil {
-				return fmt.Errorf("failed to get changeset for version v%d: %w", ver.ID(), err)
+				return NewGetChangesetError(ver.ID(), err)
 			}
 			changesets = append(changesets, cs)
 		}
@@ -202,11 +200,11 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			for current != nil && current.ID() > path[commonAncestorIdx].ID() {
 				cs, err := r.history.Get(current)
 				if err != nil {
-					return fmt.Errorf("failed to get changeset for version v%d: %w", current.ID(), err)
+					return NewGetChangesetError(current.ID(), err)
 				}
 				rev, err := sb.ReverseChangeset(cs)
 				if err != nil {
-					return fmt.Errorf("failed to reverse changeset: %w", err)
+					return NewReverseChangesetError(err)
 				}
 				reversedChangesets = append(reversedChangesets, rev)
 				current = current.Previous()
@@ -218,7 +216,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 				if path[i].ID() > path[commonAncestorIdx].ID() {
 					cs, err := r.history.Get(path[i])
 					if err != nil {
-						return fmt.Errorf("failed to get changeset for version v%d: %w", path[i].ID(), err)
+						return NewGetChangesetError(path[i].ID(), err)
 					}
 					forwardChangesets = append(forwardChangesets, cs)
 				}
@@ -228,7 +226,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			reversedChangesets = append(reversedChangesets, forwardChangesets...)
 			changeset = sb.SquashChangesets(reversedChangesets)
 		} else {
-			return fmt.Errorf("builder does not support changeset reversal")
+			return ErrBuilderNoChangesetReversal
 		}
 	}
 
@@ -238,14 +236,14 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		r.log.Error("failed to apply squashed changeset", zap.Error(err))
 		if newState != nil && ctx.Err() == nil {
 			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
-				return fmt.Errorf("failed to apply version changes: %w, failed to rollback: %w", err, rerr)
+				return NewApplyVersionChangesError(err, rerr)
 			}
 		}
-		return fmt.Errorf("failed to apply version changes: %w", err)
+		return NewApplyVersionChangesError(err, nil)
 	}
 
 	if err := r.history.SetHead(targetVersion); err != nil {
-		return fmt.Errorf("history set head to %d: %w", targetVersion.ID(), err)
+		return NewSetHeadError(targetVersion.ID(), err)
 	}
 
 	r.state = newState
@@ -282,7 +280,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 		for _, ver := range versions {
 			cs, err := r.history.Get(ver)
 			if err != nil {
-				return fmt.Errorf("failed to get changeset for version v%d: %w", ver.ID(), err)
+				return NewGetChangesetError(ver.ID(), err)
 			}
 
 			for _, op := range cs {
@@ -296,10 +294,10 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 		r.log.Error("failed to load state", zap.String("version", targetVersion.String()), zap.Error(err))
 		if newState != nil && ctx.Err() == nil {
 			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
-				return fmt.Errorf("failed to load state: %w, failed to rollback: %w", err, rerr)
+				return NewLoadStateError(err, rerr)
 			}
 		}
-		return fmt.Errorf("failed to load state: %w", err)
+		return NewLoadStateError(err, nil)
 	}
 
 	r.state = newState
@@ -352,7 +350,7 @@ func (r *Reg) transitionState(ctx context.Context, from, to registry.State) (reg
 
 	cs, terr := r.builder.BuildDelta(from, to)
 	if terr != nil {
-		return nil, fmt.Errorf("failed to compute transition: %w", terr)
+		return nil, NewComputeTransitionError(terr)
 	}
 
 	if len(cs) == 0 {
@@ -367,7 +365,7 @@ func (r *Reg) Current() (registry.Version, error) {
 	defer r.mu.RUnlock()
 
 	if r.currentVersion == nil {
-		return nil, fmt.Errorf("no current version")
+		return nil, ErrNoCurrentVersion
 	}
 
 	return r.currentVersion, nil
@@ -381,7 +379,7 @@ func (r *Reg) History() registry.History {
 // Implements registry.Registry interface.
 func (r *Reg) RegisterDependencyPattern(pattern registry.DependencyPattern) error {
 	if r.resolver == nil {
-		return fmt.Errorf("dependency resolver not initialized")
+		return ErrDependencyResolverNotInit
 	}
 	return r.resolver.RegisterPattern(pattern)
 }

@@ -7,7 +7,7 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
-	embedapi "github.com/wippyai/runtime/api/service/embed"
+	embedapi "github.com/wippyai/runtime/api/service/fs/embed"
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/service/fs/embed"
 )

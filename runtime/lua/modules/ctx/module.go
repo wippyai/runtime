@@ -4,8 +4,8 @@ import (
 	"sync"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	lua "github.com/yuin/gopher-lua"
 )
 

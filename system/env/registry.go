@@ -2,6 +2,7 @@ package env
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -13,6 +14,8 @@ import (
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
+
+// Note: fmt kept for Sprintf in logging
 
 type Registry struct {
 	ctx             context.Context
@@ -35,7 +38,7 @@ func (r *Registry) Start(ctx context.Context) error {
 	r.ctx = ctx
 	subscriber, err := eventbus.NewSubscriber(ctx, r.bus, env.System, "(storage|variable).*", r.handleEvent)
 	if err != nil {
-		return fmt.Errorf("failed to create subscriber: %w", err)
+		return NewSubscriberError(err)
 	}
 	r.subscriber = subscriber
 	return nil
@@ -124,7 +127,7 @@ func (r *Registry) registerVariable(e event.Event) {
 
 	if err := variable.Validate(); err != nil {
 		r.log.Error("invalid variable", zap.String("path", e.Path), zap.Error(err))
-		r.sendReject(e.Path, fmt.Sprintf("invalid variable: %v", err))
+		r.sendReject(e.Path, NewInvalidVariableError(err).Error())
 		return
 	}
 
@@ -138,7 +141,7 @@ func (r *Registry) registerVariable(e event.Event) {
 
 	if _, exists := r.variablesByName.Load(envName); exists {
 		r.log.Error("variable name already exists", zap.String("path", e.Path), zap.String("base_name", envName))
-		r.sendReject(e.Path, fmt.Sprintf("variable name already exists: %s", envName))
+		r.sendReject(e.Path, NewVariableNameExistsError(envName).Error())
 		return
 	}
 
@@ -158,7 +161,7 @@ func (r *Registry) updateVariable(e event.Event) {
 
 	if err := variable.Validate(); err != nil {
 		r.log.Error("invalid variable", zap.String("path", e.Path), zap.Error(err))
-		r.sendReject(e.Path, fmt.Sprintf("invalid variable: %v", err))
+		r.sendReject(e.Path, NewInvalidVariableError(err).Error())
 		return
 	}
 
@@ -173,7 +176,7 @@ func (r *Registry) updateVariable(e event.Event) {
 	if existingID, exists := r.variablesByName.Load(envName); exists {
 		if existingVarID, ok := existingID.(registry.ID); ok && existingVarID != variable.ID {
 			r.log.Error("variable name already exists", zap.String("path", e.Path), zap.String("base_name", envName))
-			r.sendReject(e.Path, fmt.Sprintf("variable name already exists: %s", envName))
+			r.sendReject(e.Path, NewVariableNameExistsError(envName).Error())
 			return
 		}
 	}
@@ -260,7 +263,7 @@ func (r *Registry) getStorage(_ context.Context, id registry.ID) (env.Storage, e
 	}
 	storage, ok := stored.(env.Storage)
 	if !ok {
-		return nil, fmt.Errorf("invalid storage type for %s", id.String())
+		return nil, NewInvalidStorageTypeError(id)
 	}
 	return storage, nil
 }
@@ -309,7 +312,7 @@ func (r *Registry) lookupValue(ctx context.Context, variable *env.Variable) (str
 	envName := r.getEnvName(variable)
 	value, err := storage.Get(ctx, envName)
 	if err != nil {
-		if err == env.ErrVariableNotFound {
+		if errors.Is(err, env.ErrVariableNotFound) {
 			return "", false, nil
 		}
 		return "", false, err

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/wippyai/runtime/api/service/memstore"
+	memstore "github.com/wippyai/runtime/api/service/store/memory"
 
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"

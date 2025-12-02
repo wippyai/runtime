@@ -12,6 +12,8 @@ import (
 	"go.uber.org/zap"
 )
 
+// Note: fmt is kept for Sprintf in logging
+
 // bindingWithMeta wraps a binding with its ID and metadata for runtime use
 type bindingWithMeta struct {
 	ID      registry.ID
@@ -56,7 +58,7 @@ func (r *Registry) Start(ctx context.Context) error {
 		r.handleEvent,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create subscriber: %w", err)
+		return NewSubscriberError(err)
 	}
 	r.subscriber = sub
 
@@ -273,7 +275,7 @@ func (r *Registry) GetContract(_ context.Context, id registry.ID) (contract.Cont
 	r.mu.RUnlock()
 
 	if !exists {
-		return nil, fmt.Errorf("contract definition '%s' not found", id)
+		return nil, NewContractNotFoundError(id)
 	}
 
 	return &contractImpl{
@@ -289,7 +291,7 @@ func (r *Registry) GetBinding(_ context.Context, id registry.ID) (*contract.Bind
 	r.mu.RUnlock()
 
 	if !exists {
-		return nil, fmt.Errorf("contract binding '%s' not found", id)
+		return nil, NewBindingNotFoundError(id)
 	}
 
 	return bindingWithMeta.Binding, nil
@@ -320,7 +322,7 @@ func (r *Registry) GetDefaultBinding(_ context.Context, contractID registry.ID) 
 	r.mu.RUnlock()
 
 	if !exists {
-		return registry.NewID("", ""), fmt.Errorf("no default binding for contract '%s'", contractID)
+		return registry.NewID("", ""), NewNoDefaultBindingError(contractID)
 	}
 
 	return bindingID, nil
@@ -350,7 +352,7 @@ func (c *contractImpl) Method(name string) (*contract.MethodDef, error) {
 			return &method, nil
 		}
 	}
-	return nil, fmt.Errorf("method '%s' not found in contract '%s'", name, c.id)
+	return nil, NewMethodNotFoundError(name, c.id)
 }
 
 // Ensure Registry implements contract.Registry interface

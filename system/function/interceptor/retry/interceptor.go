@@ -7,7 +7,6 @@ import (
 
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/runtime"
-	retryapi "github.com/wippyai/runtime/api/service/interceptor/retry"
 	"go.uber.org/zap"
 )
 
@@ -59,19 +58,6 @@ func (i *Interceptor) Handle(ctx context.Context, task runtime.Task, next func(c
 	var skipKinds []string
 
 	switch v := val.(type) {
-	case *retryapi.Options:
-		maxAttempts = v.MaxAttempts
-		if maxAttempts == 0 {
-			return next(ctx, task)
-		}
-		backoffMs := v.BackoffMs
-		if backoffMs == 0 {
-			backoffMs = defaultBackoffMs
-		}
-		backoff = time.Duration(backoffMs) * time.Millisecond
-		retryKinds = v.RetryKinds
-		skipKinds = v.SkipKinds
-
 	case map[string]any:
 		if ma, ok := v[optionKeyMaxAttempts]; ok {
 			if maInt, ok := ma.(int); ok {
@@ -85,9 +71,9 @@ func (i *Interceptor) Handle(ctx context.Context, task runtime.Task, next func(c
 		}
 		backoffMs := defaultBackoffMs
 		if bm, ok := v[optionKeyBackoffMs]; ok {
-			if bmInt, ok := bm.(int); ok {
+			if bmInt, ok := bm.(int); ok && bmInt > 0 {
 				backoffMs = bmInt
-			} else if bmFloat, ok := bm.(float64); ok {
+			} else if bmFloat, ok := bm.(float64); ok && bmFloat > 0 {
 				backoffMs = int(bmFloat)
 			}
 		}

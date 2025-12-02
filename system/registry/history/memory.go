@@ -1,7 +1,6 @@
 package history
 
 import (
-	"fmt"
 	"sync"
 
 	"github.com/wippyai/runtime/api/registry"
@@ -52,7 +51,7 @@ func (m *MemoryStorage) Get(version registry.Version) (registry.ChangeSet, error
 
 	actions, ok := m.actions[version.ID()]
 	if !ok {
-		return nil, fmt.Errorf("version not found: %s", version)
+		return nil, NewVersionNotFoundError(version.String())
 	}
 
 	actionsCopy := make(registry.ChangeSet, len(actions))
@@ -106,7 +105,7 @@ func (m *MemoryStorage) Head() (registry.Version, error) {
 	defer m.mutex.RUnlock()
 
 	if m.head == nil {
-		return nil, fmt.Errorf("no head version set")
+		return nil, ErrNoHeadVersion
 	}
 
 	return m.head, nil
@@ -118,7 +117,7 @@ func (m *MemoryStorage) SetHead(v registry.Version) error {
 	defer m.mutex.Unlock()
 
 	if _, ok := m.versions[v.ID()]; !ok {
-		return fmt.Errorf("version not found: %s", v)
+		return NewVersionNotFoundError(v.String())
 	}
 	m.head = v
 	return nil

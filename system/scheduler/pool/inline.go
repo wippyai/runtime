@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/process2"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/runtime"
 )
 
@@ -21,7 +21,7 @@ type Inline struct {
 	factory    Factory
 	dispatcher Dispatcher
 	executor   *Executor
-	process    process2.Process
+	process    process.Process
 	mu         sync.Mutex
 }
 

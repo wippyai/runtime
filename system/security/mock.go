@@ -27,7 +27,7 @@ func NewMockTokenStore() *MockTokenStore {
 	}
 }
 
-func (s *MockTokenStore) Validate(ctx context.Context, token secapi.Token) (secapi.Actor, secapi.Scope, error) {
+func (s *MockTokenStore) Validate(_ context.Context, token secapi.Token) (secapi.Actor, secapi.Scope, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if t, ok := s.tokens[token]; ok {
@@ -36,7 +36,7 @@ func (s *MockTokenStore) Validate(ctx context.Context, token secapi.Token) (seca
 	return secapi.Actor{}, nil, secapi.ErrTokenInvalid
 }
 
-func (s *MockTokenStore) Create(ctx context.Context, actor secapi.Actor, scope secapi.Scope, details secapi.TokenDetails) (secapi.Token, error) {
+func (s *MockTokenStore) Create(_ context.Context, actor secapi.Actor, scope secapi.Scope, _ secapi.TokenDetails) (secapi.Token, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	token := secapi.Token("mock-token-" + actor.ID)
@@ -44,7 +44,7 @@ func (s *MockTokenStore) Create(ctx context.Context, actor secapi.Actor, scope s
 	return token, nil
 }
 
-func (s *MockTokenStore) Revoke(ctx context.Context, token secapi.Token) error {
+func (s *MockTokenStore) Revoke(_ context.Context, token secapi.Token) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.tokens, token)

@@ -13,6 +13,8 @@ import (
 	"go.uber.org/zap"
 )
 
+// Note: fmt kept for Sprintf in logging
+
 // PolicyRegistry implements the Registry interface to manage security policies
 type PolicyRegistry struct {
 	ctx        context.Context
@@ -44,7 +46,7 @@ func (r *PolicyRegistry) Start(ctx context.Context) error {
 		r.handleEvent,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create policy subscriber: %w", err)
+		return NewSubscriberError(err)
 	}
 	r.subscriber = sub
 

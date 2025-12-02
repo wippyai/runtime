@@ -6,9 +6,9 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	logapi "github.com/wippyai/runtime/api/logs"
-	api "github.com/wippyai/runtime/api/process2"
+	api "github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
-	"github.com/wippyai/runtime/system/process2"
+	"github.com/wippyai/runtime/system/process"
 )
 
 const ProcessManagerName = "system.process_manager"
@@ -27,7 +27,7 @@ func ProcessManager() boot.Component {
 				return ctx, fmt.Errorf("relay node not available")
 			}
 
-			manager := process2.NewManager(node, logger)
+			manager := process.NewManager(node, logger)
 			api.WithManager(ctx, manager)
 
 			logger.Info("process manager started")

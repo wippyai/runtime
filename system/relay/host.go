@@ -9,6 +9,8 @@ import (
 	"go.uber.org/zap"
 )
 
+// Note: fmt kept for Sprintf with %T in logging
+
 // HostConfig holds configuration for a Host.
 type HostConfig struct {
 	BufferSize  int         // Internal job channel buffer size.
@@ -80,7 +82,7 @@ func (h *Host) Attach(pid api.PID, ch chan *api.Package) (context.CancelFunc, er
 			zap.String("pid", pid.String()),
 			zap.String("host", pid.Host),
 			zap.String("uniq_id", pid.UniqID))
-		return nil, fmt.Errorf("%w: pid=%s", api.ErrAlreadyAttached, pid.String())
+		return nil, NewAlreadyAttachedError(pid)
 	}
 
 	cancel := func() {

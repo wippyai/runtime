@@ -9,7 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
-	"github.com/wippyai/runtime/api/service/sqlstore"
+	sqlstore "github.com/wippyai/runtime/api/service/store/sql"
 	"github.com/wippyai/runtime/api/supervisor"
 	entryutil "github.com/wippyai/runtime/internal/entry"
 	"go.uber.org/zap"

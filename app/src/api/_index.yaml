@@ -24,7 +24,7 @@ entries:
     method: handler
     pool:
       type: static
-      size: 16
+      size: 64
       buffer: 1024
 
   # app.api:hello.endpoint - HTTP endpoint
@@ -84,10 +84,18 @@ entries:
       - system
       - time
 
-  # Commented out WASM components for now
-  # - name: add
-  #   kind: function.wat
-  #   ...
-  # - name: transform
-  #   kind: function.wasm
-  #   ...
+  - name: add
+    kind: function.wat
+    meta:
+      comment: Add two integers (WASM)
+    source: file://add.wat
+    wit: |
+      package app:math;
+      world calculator {
+        export add: func(a: s32, b: s32) -> s32;
+      }
+    method: add
+    pool:
+      type: static
+      size: 64
+      buffer: 1024

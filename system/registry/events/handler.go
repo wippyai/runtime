@@ -3,7 +3,6 @@ package events
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
@@ -55,7 +54,7 @@ func NewRegistryHandler(kinds registry.Kind, listener registry.EntryListener) ev
 
 			// Validate data for non-delete operations
 			if evt.Kind != registry.Delete && entry.Data == nil {
-				reject(ctx, bus, entry.ID, fmt.Errorf("configuration data is required for create/update operations"))
+				reject(ctx, bus, entry.ID, NewConfigDataRequiredError())
 				return nil
 			}
 
@@ -68,7 +67,7 @@ func NewRegistryHandler(kinds registry.Kind, listener registry.EntryListener) ev
 			case registry.Delete:
 				err = listener.Delete(ctx, entry)
 			default:
-				err = fmt.Errorf("unknown event kind: %s", evt.Kind)
+				err = NewUnknownEventKindError(evt.Kind)
 			}
 
 			if err != nil {

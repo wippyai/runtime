@@ -101,7 +101,7 @@ func (s *Supervisor) GetState(id string) (State, error) {
 
 	controller, exists := s.controllers[id]
 	if !exists {
-		return State{}, fmt.Errorf("service %s not found", id)
+		return State{}, NewServiceNotFoundError(id)
 	}
 
 	return controller.State(), nil
@@ -134,7 +134,7 @@ func (s *Supervisor) Start(ctx context.Context) error {
 	)
 
 	if err != nil {
-		return fmt.Errorf("failed to create event subscriber: %w", err)
+		return NewSubscriberError(err)
 	}
 	s.subscriber = sub
 
@@ -358,7 +358,7 @@ func (s *Supervisor) createStateHandler(id string) func(supervisor.Status, any) 
 func (s *Supervisor) resolveDependencies(serviceID string) ([]string, error) {
 	ctrl, exists := s.controllers[serviceID]
 	if !exists {
-		return nil, fmt.Errorf("service %s not found", serviceID)
+		return nil, NewServiceNotFoundError(serviceID)
 	}
 
 	// Start with lifecycle dependencies
@@ -372,7 +372,7 @@ func (s *Supervisor) resolveDependencies(serviceID string) ([]string, error) {
 		id := registry.ParseID(serviceID)
 		registryDeps, err := s.dependencyResolver(id)
 		if err != nil {
-			return nil, fmt.Errorf("failed to resolve dependencies for %s: %w", serviceID, err)
+			return nil, NewDependencyResolveError(serviceID, err)
 		}
 
 		for _, dep := range registryDeps {
@@ -410,7 +410,7 @@ func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
 		if ctrl, exists := s.controllers[id]; exists {
 			deps, err := s.resolveDependencies(id)
 			if err != nil {
-				return fmt.Errorf("failed to resolve dependencies for %s during stop: %w", id, err)
+				return NewDependencyResolveError(id, err)
 			}
 			operations = append(operations, Operation{
 				Type:         OperationStop,
@@ -432,7 +432,7 @@ func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
 
 		ctrl, exists := s.controllers[id]
 		if !exists {
-			return fmt.Errorf("service %s not found", id)
+			return NewServiceNotFoundError(id)
 		}
 
 		// Resolve all dependencies (lifecycle + registry-extracted)
@@ -472,14 +472,14 @@ func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
 	for id, entry := range tx.register {
 		if entry.Config.AutoStart {
 			if err := buildStartOps(id); err != nil {
-				return fmt.Errorf("failed to build start operations: %w", err)
+				return NewStartOperationsError(err)
 			}
 		}
 	}
 
 	// Spawn transitions in dependency order
 	if err := s.sequencer.Transition(ctx, operations...); err != nil {
-		return fmt.Errorf("failed to execute transitions: %w", err)
+		return NewTransitionError(err)
 	}
 
 	// Done stopped services

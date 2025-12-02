@@ -13,7 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/function"
-	"github.com/wippyai/runtime/api/process2"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/supervisor"
@@ -338,13 +338,13 @@ func (m *Manager) removePool(id registry.ID) {
 
 // createFactory creates a ProcessFactory from compiled code.
 func (m *Manager) createFactory(compiled *code.CompiledMain) funcpool.Factory {
-	return func() (process2.Process, error) {
+	return func() (process.Process, error) {
 		return createProcess(compiled)
 	}
 }
 
 // createProcess creates a new process with standard bindings.
-func createProcess(compiled *code.CompiledMain) (process2.Process, error) {
+func createProcess(compiled *code.CompiledMain) (process.Process, error) {
 	binders := engine.CoreBinders()
 	binders = append(binders, stream.BindStream, http.Bind, timeyields.BindYields, processmod.BindGlobal)
 
@@ -442,7 +442,7 @@ func (m *Manager) createExecutionHooks() funcpool.ExecutionHooks {
 		return funcpool.ExecutionHooks{}
 	}
 
-	onStart := func(ctx context.Context, _ process2.Process) {
+	onStart := func(ctx context.Context, _ process.Process) {
 		pid, ok := runtime.GetFramePID(ctx)
 		if !ok || pid.String() == "" {
 			return

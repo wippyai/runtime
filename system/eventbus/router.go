@@ -3,7 +3,6 @@ package eventbus
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/wippyai/runtime/api/event"
@@ -159,7 +158,7 @@ func (r *EventRouter) addHandler(h EventHandler) error {
 
 	// Check context before proceeding
 	if r.ctx.Err() != nil {
-		return fmt.Errorf("router context canceled: %w", r.ctx.Err())
+		return NewRouterCanceledError(r.ctx.Err())
 	}
 
 	pattern := h.Pattern()
@@ -172,7 +171,7 @@ func (r *EventRouter) addHandler(h EventHandler) error {
 	)
 
 	if err != nil {
-		return fmt.Errorf("failed to create subscriber: %w", err)
+		return NewSubscriberError(err)
 	}
 
 	r.subscribers = append(r.subscribers, handlerSubscription{

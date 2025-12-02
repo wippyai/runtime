@@ -67,8 +67,7 @@ func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, emit di
 }
 
 func (d *Dispatcher) execute(j job) {
-	switch c := j.cmd.(type) {
-	case *queueapi.QueuePublishCmd:
+	if c, ok := j.cmd.(*queueapi.QueuePublishCmd); ok {
 		err := c.Manager.Publish(j.ctx, c.QueueID, c.Message)
 		j.emit.Emit(queueapi.QueuePublishResponse{Error: err}, nil)
 	}

@@ -5,7 +5,7 @@ import (
 	"testing"
 	stdtime "time"
 
-	"github.com/wippyai/runtime/api/workflow"
+	clockapi "github.com/wippyai/runtime/api/clock"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -106,7 +106,7 @@ func TestNowWithTimeReference(t *testing.T) {
 	mockRef := &mockTimeReference{now: fixedTime}
 
 	ctx := context.Background()
-	workflow.WithTimeReference(ctx, mockRef)
+	clockapi.WithTimeReference(ctx, mockRef)
 	l.SetContext(ctx)
 
 	err := l.DoString(`

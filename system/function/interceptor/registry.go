@@ -2,7 +2,6 @@ package interceptor
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"sync"
 
@@ -42,7 +41,7 @@ func (r *Registry) Register(name string, interceptor function.Interceptor, order
 
 	for _, e := range r.entries {
 		if e.name == name {
-			return fmt.Errorf("interceptor %q already registered", name)
+			return NewInterceptorExistsError(name)
 		}
 	}
 
@@ -78,7 +77,7 @@ func (r *Registry) Unregister(name string) error {
 		}
 	}
 
-	return fmt.Errorf("interceptor %q not found", name)
+	return NewInterceptorNotFoundError(name)
 }
 
 // rebuild recalculates the interceptor chain (must be called with lock held)
