@@ -10,6 +10,8 @@ import (
 )
 
 func Queue() boot.Component {
+	var svc *queue.Dispatcher
+
 	return boot.New(boot.P{
 		Name:      QueueDispatcherName,
 		DependsOn: []boot.ComponentName{DispatcherName},
@@ -18,9 +20,21 @@ func Queue() boot.Component {
 			if reg == nil {
 				return ctx, fmt.Errorf("dispatcher registrar not found in context")
 			}
-			svc := queue.NewService()
+			svc = queue.NewDispatcher(4)
 			svc.RegisterAll(reg.Register)
 			return ctx, nil
+		},
+		Start: func(ctx context.Context) error {
+			if svc != nil {
+				return svc.Start(ctx)
+			}
+			return nil
+		},
+		Stop: func(ctx context.Context) error {
+			if svc != nil {
+				return svc.Stop(ctx)
+			}
+			return nil
 		},
 	})
 }

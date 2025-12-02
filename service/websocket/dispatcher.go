@@ -1,5 +1,4 @@
 // Package websocket provides WebSocket command handlers for the dispatcher system.
-// Uses background read goroutines for non-blocking message delivery via channels.
 package websocket
 
 import (
@@ -38,7 +37,7 @@ var (
 // connEntry holds an active WebSocket connection with its message channel.
 type connEntry struct {
 	conn      *websocket.Conn
-	msgCh     chan wsapi.WsMessage // Channel for received messages
+	msgCh     chan wsapi.WsMessage
 	ctx       context.Context
 	cancel    context.CancelFunc
 	closed    atomic.Bool
@@ -56,13 +55,10 @@ func (e *connEntry) Close(code websocket.StatusCode, reason string) {
 		e.closed.Store(true)
 		e.cancel()
 		_ = e.conn.Close(code, reason)
-		// Channel is closed by readLoop defer, not here
-		// This prevents race between cancel() and close()
 	})
 }
 
 // readLoop continuously reads messages from the websocket and sends to channel.
-// Runs until connection closes or context is cancelled.
 func (e *connEntry) readLoop() {
 	defer func() {
 		close(e.msgCh)
@@ -80,7 +76,6 @@ func (e *connEntry) readLoop() {
 		if err != nil {
 			closeStatus := websocket.CloseStatus(err)
 			if closeStatus >= 0 || e.ctx.Err() != nil {
-				// Send EOF message before closing - block until delivered or context cancelled
 				select {
 				case e.msgCh <- wsapi.WsMessage{EOF: true}:
 				case <-e.ctx.Done():
@@ -134,7 +129,6 @@ func (r *Registry) Register(ctx context.Context, conn *websocket.Conn, bufferSiz
 		cancel: cancel,
 	}
 
-	// Start background read loop
 	go entry.readLoop()
 
 	handle := r.conns.Insert(entry)
@@ -154,7 +148,6 @@ func (r *Registry) Get(id uint64) (*connEntry, error) {
 }
 
 // GetMessageChan returns the message channel for the given connection ID.
-// This channel can be used in select{} for non-blocking message receipt.
 func (r *Registry) GetMessageChan(id uint64) (<-chan wsapi.WsMessage, error) {
 	entry, err := r.Get(id)
 	if err != nil {
@@ -175,21 +168,15 @@ func (r *Registry) Close(id uint64, code int, reason string) error {
 		statusCode = websocket.StatusCode(code)
 	}
 
-	// Close with custom code before Remove() calls Drop()
 	entry.Close(statusCode, reason)
-
-	// Remove from table (Drop() is no-op due to closeOnce)
 	r.conns.Remove(resource.Handle(id))
 	return nil
 }
 
 // GetRegistry returns a Registry backed by the Table from context.
-// Returns nil if no Table is available in the context.
-// The Registry is cached in the FrameContext for efficiency.
 func GetRegistry(ctx context.Context) *Registry {
 	fc := ctxapi.FrameFromContext(ctx)
 	if fc == nil {
-		// Fallback for non-frame contexts
 		table := resource.GetTable(ctx)
 		if table == nil {
 			return nil
@@ -197,12 +184,10 @@ func GetRegistry(ctx context.Context) *Registry {
 		return NewRegistry(table)
 	}
 
-	// Check cache first
 	if val, ok := fc.Get(registryKey); ok {
 		return val.(*Registry)
 	}
 
-	// Create and cache
 	table := resource.GetTable(ctx)
 	if table == nil {
 		return nil
@@ -213,7 +198,6 @@ func GetRegistry(ctx context.Context) *Registry {
 }
 
 // GetOrCreateRegistry returns a Registry for the context.
-// Panics if no Store is available - engines must set resource.Store during initialization.
 func GetOrCreateRegistry(ctx context.Context) *Registry {
 	registry := GetRegistry(ctx)
 	if registry == nil {
@@ -222,14 +206,7 @@ func GetOrCreateRegistry(ctx context.Context) *Registry {
 	return registry
 }
 
-// job represents a unit of work for the async dispatcher.
-type job struct {
-	ctx  context.Context
-	cmd  dispatcher.Command
-	emit dispatcher.EmitFunc
-}
-
-// Dispatcher handles WebSocket commands with configurable execution mode.
+// Dispatcher handles WebSocket commands via async worker pool.
 type Dispatcher struct {
 	workers int
 	jobs    chan job
@@ -238,39 +215,22 @@ type Dispatcher struct {
 	cancel  context.CancelFunc
 }
 
-// Config holds dispatcher configuration.
-type Config struct {
-	// Workers is the number of worker goroutines for async mode.
-	// If 0, dispatcher runs in blocking mode (synchronous execution).
-	Workers int
+type job struct {
+	ctx  context.Context
+	cmd  dispatcher.Command
+	emit dispatcher.Emitter
 }
 
-// NewDispatcher creates a new WebSocket dispatcher with the given configuration.
-func NewDispatcher(cfg Config) *Dispatcher {
-	return &Dispatcher{
-		workers: cfg.Workers,
-	}
-}
-
-// NewBlockingDispatcher creates a dispatcher that executes synchronously.
-func NewBlockingDispatcher() *Dispatcher {
-	return &Dispatcher{workers: 0}
-}
-
-// NewAsyncDispatcher creates a dispatcher with a worker pool.
-func NewAsyncDispatcher(workers int) *Dispatcher {
+// NewDispatcher creates a WebSocket dispatcher with the specified worker count.
+func NewDispatcher(workers int) *Dispatcher {
 	if workers <= 0 {
 		workers = 4
 	}
 	return &Dispatcher{workers: workers}
 }
 
-// Start initializes the dispatcher. For async mode, starts worker goroutines.
+// Start initializes the worker pool.
 func (d *Dispatcher) Start(ctx context.Context) error {
-	if d.workers <= 0 {
-		return nil
-	}
-
 	d.ctx, d.cancel = context.WithCancel(ctx)
 	d.jobs = make(chan job, d.workers*2)
 
@@ -278,63 +238,49 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 		d.wg.Add(1)
 		go d.worker()
 	}
-
 	return nil
 }
 
-// Stop shuts down the dispatcher and waits for workers to finish.
+// Stop shuts down the dispatcher and drains pending jobs.
 func (d *Dispatcher) Stop(_ context.Context) error {
-	if d.workers <= 0 {
-		return nil
-	}
-
 	d.cancel()
 	close(d.jobs)
 	d.wg.Wait()
 	return nil
 }
 
-// worker processes jobs from the queue.
 func (d *Dispatcher) worker() {
 	defer d.wg.Done()
-
 	for j := range d.jobs {
-		execute(j.ctx, j.cmd, j.emit)
+		d.execute(j)
 	}
 }
 
-// submit sends a job to the worker pool.
-func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) {
+func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) {
 	select {
 	case d.jobs <- job{ctx: ctx, cmd: cmd, emit: emit}:
 	case <-d.ctx.Done():
 	}
 }
 
-// isAsync returns true if dispatcher is in async mode.
-func (d *Dispatcher) isAsync() bool {
-	return d.workers > 0 && d.jobs != nil
-}
-
-// execute runs the WebSocket operation and emits the result.
-func execute(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) {
-	switch c := cmd.(type) {
+func (d *Dispatcher) execute(j job) {
+	switch c := j.cmd.(type) {
 	case wsapi.WsConnectCmd:
-		executeConnect(ctx, c, emit)
+		d.executeConnect(j.ctx, c, j.emit)
 	case wsapi.WsSendCmd:
-		executeSend(ctx, c, emit)
+		d.executeSend(j.ctx, c, j.emit)
 	case wsapi.WsReceiveCmd:
-		executeReceive(ctx, c, emit)
+		d.executeReceive(j.ctx, c, j.emit)
 	case wsapi.WsCloseCmd:
-		executeClose(ctx, c, emit)
+		d.executeClose(j.ctx, c, j.emit)
 	case wsapi.WsPingCmd:
-		executePing(ctx, c, emit)
+		d.executePing(j.ctx, c, j.emit)
 	case wsapi.WsSubscribeCmd:
-		executeSubscribe(ctx, c, emit)
+		d.executeSubscribe(j.ctx, c, j.emit)
 	}
 }
 
-func executeConnect(ctx context.Context, cmd wsapi.WsConnectCmd, emit dispatcher.EmitFunc) {
+func (d *Dispatcher) executeConnect(ctx context.Context, cmd wsapi.WsConnectCmd, emit dispatcher.Emitter) {
 	opts := &websocket.DialOptions{}
 
 	if len(cmd.Headers) > 0 {
@@ -373,11 +319,11 @@ func executeConnect(ctx context.Context, cmd wsapi.WsConnectCmd, emit dispatcher
 	}
 
 	registry := GetOrCreateRegistry(ctx)
-	id := registry.Register(ctx, conn, 16) // Buffer 16 messages
-	emit(id)
+	id := registry.Register(ctx, conn, 16)
+	emit.Emit(id, nil)
 }
 
-func executeSend(ctx context.Context, cmd wsapi.WsSendCmd, emit dispatcher.EmitFunc) {
+func (d *Dispatcher) executeSend(ctx context.Context, cmd wsapi.WsSendCmd, emit dispatcher.Emitter) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
 		return
@@ -396,10 +342,10 @@ func executeSend(ctx context.Context, cmd wsapi.WsSendCmd, emit dispatcher.EmitF
 	if err := entry.conn.Write(ctx, msgType, cmd.Data); err != nil {
 		return
 	}
-	emit(nil)
+	emit.Emit(nil, nil)
 }
 
-func executeReceive(ctx context.Context, cmd wsapi.WsReceiveCmd, emit dispatcher.EmitFunc) {
+func (d *Dispatcher) executeReceive(ctx context.Context, cmd wsapi.WsReceiveCmd, emit dispatcher.Emitter) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
 		return
@@ -410,20 +356,19 @@ func executeReceive(ctx context.Context, cmd wsapi.WsReceiveCmd, emit dispatcher
 		return
 	}
 
-	// Non-blocking receive from channel
 	select {
 	case msg, ok := <-msgCh:
 		if !ok {
-			emit(wsapi.WsMessage{EOF: true})
+			emit.Emit(wsapi.WsMessage{EOF: true}, nil)
 			return
 		}
-		emit(msg)
+		emit.Emit(msg, nil)
 	case <-ctx.Done():
 		return
 	}
 }
 
-func executeClose(ctx context.Context, cmd wsapi.WsCloseCmd, emit dispatcher.EmitFunc) {
+func (d *Dispatcher) executeClose(ctx context.Context, cmd wsapi.WsCloseCmd, emit dispatcher.Emitter) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
 		return
@@ -432,10 +377,10 @@ func executeClose(ctx context.Context, cmd wsapi.WsCloseCmd, emit dispatcher.Emi
 	if err := registry.Close(cmd.ConnID, cmd.Code, cmd.Reason); err != nil {
 		return
 	}
-	emit(nil)
+	emit.Emit(nil, nil)
 }
 
-func executePing(ctx context.Context, cmd wsapi.WsPingCmd, emit dispatcher.EmitFunc) {
+func (d *Dispatcher) executePing(ctx context.Context, cmd wsapi.WsPingCmd, emit dispatcher.Emitter) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
 		return
@@ -449,10 +394,10 @@ func executePing(ctx context.Context, cmd wsapi.WsPingCmd, emit dispatcher.EmitF
 	if err := entry.conn.Ping(ctx); err != nil {
 		return
 	}
-	emit(nil)
+	emit.Emit(nil, nil)
 }
 
-func executeSubscribe(ctx context.Context, cmd wsapi.WsSubscribeCmd, emit dispatcher.EmitFunc) {
+func (d *Dispatcher) executeSubscribe(ctx context.Context, cmd wsapi.WsSubscribeCmd, emit dispatcher.Emitter) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
 		return
@@ -473,8 +418,6 @@ func executeSubscribe(ctx context.Context, cmd wsapi.WsSubscribeCmd, emit dispat
 		return
 	}
 
-	// Spawn goroutine that reads from channel and sends to process via relay.
-	// Exits when: msgCh closes, EOF received, or connection context cancelled.
 	go func() {
 		for {
 			select {
@@ -503,107 +446,21 @@ func executeSubscribe(ctx context.Context, cmd wsapi.WsSubscribeCmd, emit dispat
 		}
 	}()
 
-	emit(wsapi.WsSubscription{ConnID: cmd.ConnID})
+	emit.Emit(wsapi.WsSubscription{ConnID: cmd.ConnID}, nil)
 }
 
-// ConnectHandler handles WebSocket connect commands.
-type ConnectHandler struct {
-	d *Dispatcher
-}
-
-func (h *ConnectHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
-	if h.d.isAsync() {
-		h.d.submit(ctx, cmd, emit)
-		return nil
-	}
-	execute(ctx, cmd, emit)
+func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
+	d.submit(ctx, cmd, emit)
 	return nil
 }
 
-// SendHandler handles WebSocket send commands.
-type SendHandler struct {
-	d *Dispatcher
-}
-
-func (h *SendHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
-	if h.d.isAsync() {
-		h.d.submit(ctx, cmd, emit)
-		return nil
-	}
-	execute(ctx, cmd, emit)
-	return nil
-}
-
-// ReceiveHandler handles WebSocket receive commands.
-type ReceiveHandler struct {
-	d *Dispatcher
-}
-
-func (h *ReceiveHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
-	if h.d.isAsync() {
-		h.d.submit(ctx, cmd, emit)
-		return nil
-	}
-	execute(ctx, cmd, emit)
-	return nil
-}
-
-// CloseHandler handles WebSocket close commands.
-type CloseHandler struct {
-	d *Dispatcher
-}
-
-func (h *CloseHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
-	if h.d.isAsync() {
-		h.d.submit(ctx, cmd, emit)
-		return nil
-	}
-	execute(ctx, cmd, emit)
-	return nil
-}
-
-// PingHandler handles WebSocket ping commands.
-type PingHandler struct {
-	d *Dispatcher
-}
-
-func (h *PingHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
-	if h.d.isAsync() {
-		h.d.submit(ctx, cmd, emit)
-		return nil
-	}
-	execute(ctx, cmd, emit)
-	return nil
-}
-
-// SubscribeHandler handles WebSocket subscribe commands.
-type SubscribeHandler struct {
-	d *Dispatcher
-}
-
-func (h *SubscribeHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
-	if h.d.isAsync() {
-		h.d.submit(ctx, cmd, emit)
-		return nil
-	}
-	execute(ctx, cmd, emit)
-	return nil
-}
-
-// RegisterAll registers all WebSocket handlers with the given registry function.
+// RegisterAll registers all WebSocket handlers.
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
-	register(wsapi.CmdWsConnect, &ConnectHandler{d: d})
-	register(wsapi.CmdWsSend, &SendHandler{d: d})
-	register(wsapi.CmdWsReceive, &ReceiveHandler{d: d})
-	register(wsapi.CmdWsClose, &CloseHandler{d: d})
-	register(wsapi.CmdWsPing, &PingHandler{d: d})
-	register(wsapi.CmdWsSubscribe, &SubscribeHandler{d: d})
-}
-
-// Service is an alias for Dispatcher for backward compatibility.
-type Service = Dispatcher
-
-// NewService creates a blocking dispatcher for backward compatibility.
-func NewService() *Dispatcher {
-	return NewBlockingDispatcher()
+	h := dispatcher.HandlerFunc(d.handle)
+	register(wsapi.CmdWsConnect, h)
+	register(wsapi.CmdWsSend, h)
+	register(wsapi.CmdWsReceive, h)
+	register(wsapi.CmdWsClose, h)
+	register(wsapi.CmdWsPing, h)
+	register(wsapi.CmdWsSubscribe, h)
 }

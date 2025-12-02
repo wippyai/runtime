@@ -1,213 +1,61 @@
 package actor
 
 import (
-	"math/rand"
-	"runtime"
+	"context"
 	"sync/atomic"
-	"time"
-	_ "unsafe"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 )
 
-// Worker is a goroutine that processes Processors from queues.
-//
-// Work finding priority:
-//  1. LIFO slot (hot task from message passing)
-//  2. Local deque (Pop) - fast, cache-friendly, no contention
-//  3. Global queue (checked every globalCheckInterval) - new/returning work
-//  4. Steal from random victim - load balancing
-//
-// Each worker owns its local deque exclusively for Push/Pop.
-// Other workers can only Steal from it.
+// Worker processes Processors from the global queue.
+// Simplified design for async dispatchers - no work-stealing needed.
 type Worker struct {
 	id        int
-	local     *Deque // Local work-stealing deque (owned by this worker)
 	scheduler *Scheduler
-	rng       *rand.Rand // Per-worker RNG to avoid lock contention
 
-	// LIFO slot for message-passing optimization (Tokio-style)
-	// Last scheduled task gets priority - hot cache locality
-	lifoSlot atomic.Pointer[Processor]
-
-	// Pre-allocated buffer for batch operations
-	batchBuf [32]*Processor
-
-	// Metrics (atomic for safe concurrent reads)
-	executed atomic.Uint64 // Total processors executed
-	stolen   atomic.Uint64 // Total processors stolen from others
-
-	// Backoff state for idle workers
-	spins int
+	// Metrics
+	executed atomic.Uint64
 }
 
-// newWorker creates a worker with its own local deque.
+// newWorker creates a worker.
 func newWorker(id int, s *Scheduler) *Worker {
 	return &Worker{
 		id:        id,
-		local:     NewDeque(s.localQueueSize),
 		scheduler: s,
-		rng:       rand.New(rand.NewSource(time.Now().UnixNano() + int64(id))),
 	}
 }
 
-const (
-	spinLimit  = 4  // Tight spins before yielding
-	yieldLimit = 16 // Gosched before waiting on Cond
-)
-
-// run is the worker's main loop. Exits when scheduler.stopping is set.
-// Uses Go runtime's spinning pattern for efficient parking.
+// run is the worker's main loop.
+// Simple: pop from queue, execute, park if empty.
 func (w *Worker) run() {
-	spinning := false
+	s := w.scheduler
 
 	for {
-		proc := w.findWork()
+		// Try to get work from global queue
+		proc := s.global.Pop()
 		if proc != nil {
-			// Found work - if we were spinning, stop and maybe wake another
-			if spinning {
-				spinning = false
-				// If we were the last spinner and found work, wake another worker
-				// to ensure work continues to be processed
-				if w.scheduler.nspinning.Add(-1) == 0 {
-					w.scheduler.wakeWorker()
-				}
-			}
-			w.spins = 0
 			w.executeOne(proc)
 			w.executed.Add(1)
 			continue
 		}
 
 		// No work - check if stopping
-		if w.scheduler.stopping.Load() {
-			if spinning {
-				w.scheduler.nspinning.Add(-1)
-			}
+		if s.stopping.Load() {
 			return
 		}
 
-		// Start spinning if not already
-		if !spinning {
-			spinning = true
-			w.scheduler.nspinning.Add(1)
+		// Park until work arrives or shutdown
+		s.wakeMu.Lock()
+		for s.global.IsEmpty() && !s.stopping.Load() {
+			s.wakeCond.Wait()
 		}
-
-		// Adaptive backoff: spin -> gosched -> park
-		w.spins++
-		if w.spins < spinLimit {
-			continue
-		}
-		if w.spins < yieldLimit {
-			runtime.Gosched()
-			continue
-		}
-
-		// Stop spinning before parking
-		spinning = false
-		w.scheduler.nspinning.Add(-1)
-
-		// Park: wait for work signal
-		w.scheduler.wakeMu.Lock()
-		w.scheduler.nparked.Add(1)
-
-		for {
-			if w.scheduler.stopping.Load() {
-				w.scheduler.nparked.Add(-1)
-				w.scheduler.wakeMu.Unlock()
-				return
-			}
-			// Check for work while holding lock
-			if proc := w.findWork(); proc != nil {
-				w.scheduler.nparked.Add(-1)
-				w.scheduler.wakeMu.Unlock()
-				w.spins = 0
-				w.executeOne(proc)
-				w.executed.Add(1)
-				break
-			}
-			// No work - wait for signal
-			w.scheduler.wakeCond.Wait()
-		}
+		s.wakeMu.Unlock()
 	}
-}
-
-// procyield spins for cycles iterations.
-//
-//go:linkname procyield runtime.procyield
-func procyield(cycles uint32)
-
-// findWork searches for work in priority order.
-func (w *Worker) findWork() *Processor {
-	// 1. LIFO slot (hot task, best cache locality)
-	if p := w.lifoSlot.Swap(nil); p != nil {
-		return p
-	}
-
-	// 2. Local deque (fast path, no contention)
-	if p := w.local.Pop(); p != nil {
-		return p
-	}
-
-	// 3. Global queue - always check (new work arrives here)
-	if p := w.scheduler.global.Pop(); p != nil {
-		// Batch fetch additional items to reduce contention
-		n := w.scheduler.global.PopN(w.batchBuf[:16])
-		for i := 0; i < n; i++ {
-			if w.batchBuf[i] != nil {
-				w.local.Push(w.batchBuf[i])
-				w.batchBuf[i] = nil
-			}
-		}
-		return p
-	}
-
-	// 4. Steal from a random victim
-	return w.steal()
-}
-
-// steal attempts to take work from another worker's deque.
-// Uses random victim selection to distribute load.
-func (w *Worker) steal() *Processor {
-	workers := w.scheduler.workers
-	n := len(workers)
-	if n <= 1 {
-		return nil
-	}
-
-	// Random starting point to avoid thundering herd
-	start := w.rng.Intn(n)
-
-	for i := 0; i < n; i++ {
-		victim := (start + i) % n
-		if victim == w.id {
-			continue
-		}
-
-		// Try to steal half of victim's work
-		count := workers[victim].local.StealHalfInto(w.batchBuf[:])
-		if count > 0 {
-			w.stolen.Add(uint64(count))
-
-			// Push all but first to local queue
-			for j := 1; j < count; j++ {
-				w.local.Push(w.batchBuf[j])
-				w.batchBuf[j] = nil
-			}
-
-			first := w.batchBuf[0]
-			w.batchBuf[0] = nil
-			return first
-		}
-	}
-
-	return nil
 }
 
 // executeOne runs a single processor through one step cycle.
 func (w *Worker) executeOne(proc *Processor) {
 	if proc.Process == nil {
-		// Safeguard: processor was released, skip it
 		return
 	}
 	proc.State = StateRunning
@@ -248,59 +96,72 @@ func (w *Worker) executeOne(proc *Processor) {
 	case StepContinue:
 		yields := result.GetYields()
 		if len(yields) == 0 {
-			// Continue without yields - use LIFO slot for hot path
+			// Continue without yields - re-queue immediately
 			proc.State = StateReady
-			if old := w.lifoSlot.Swap(proc); old != nil {
-				w.local.Push(old)
-			}
+			w.scheduler.global.Push(proc)
+			w.scheduler.wakeWorker()
 			return
-		}
-
-		// Validate all handlers exist before starting
-		handlers := make([]dispatcher.Handler, len(yields))
-		for i, cmd := range yields {
-			handlers[i] = w.scheduler.getHandler(cmd)
-			if handlers[i] == nil {
-				proc.State = StateComplete
-				w.scheduler.completeProcessor(proc, nil, &UnknownCommandError{ID: cmd.CmdID()})
-				return
-			}
 		}
 
 		proc.State = StateBlocked
 		ctx := proc.Context()
 
 		if len(yields) == 1 {
-			// Single yield - simple path
-			go func() {
-				var emittedData any
-				emit := func(data any) {
-					if emittedData == nil {
-						emittedData = data
-					}
-				}
-				err := handlers[0].Handle(ctx, yields[0], emit)
-				proc.Complete(emittedData, err)
-			}()
+			// Single yield - fast path, pass Processor as Emitter (zero allocation)
+			cmd := yields[0]
+			handler := w.scheduler.getHandler(cmd)
+			if handler == nil {
+				proc.State = StateComplete
+				w.scheduler.completeProcessor(proc, nil, &UnknownCommandError{ID: cmd.CmdID()})
+				return
+			}
+			if err := handler.Handle(ctx, cmd, proc); err != nil {
+				proc.Emit(nil, err)
+			}
 		} else {
-			// Multiple yields - handle sequentially, collect results
-			go func() {
-				results := make([]any, len(yields))
-				for i, cmd := range yields {
-					var emittedData any
-					emit := func(data any) {
-						if emittedData == nil {
-							emittedData = data
-						}
-					}
-					if err := handlers[i].Handle(ctx, cmd, emit); err != nil {
-						proc.Complete(nil, err)
-						return
-					}
-					results[i] = emittedData
+			// Multiple yields - validate and run in parallel
+			handlers := make([]dispatcher.Handler, len(yields))
+			for i, cmd := range yields {
+				handlers[i] = w.scheduler.getHandler(cmd)
+				if handlers[i] == nil {
+					proc.State = StateComplete
+					w.scheduler.completeProcessor(proc, nil, &UnknownCommandError{ID: cmd.CmdID()})
+					return
 				}
-				proc.Complete(results, nil)
-			}()
+			}
+			go w.handleMultipleYields(proc, ctx, yields, handlers)
 		}
 	}
+}
+
+// handleMultipleYields executes multiple handlers in parallel and waits for all.
+// Uses embedded emitters for zero allocation when yields <= MaxYields.
+func (w *Worker) handleMultipleYields(proc *Processor, ctx context.Context, yields []dispatcher.Command, handlers []dispatcher.Handler) {
+	n := len(yields)
+	proc.initMultiYield(n)
+
+	for i, cmd := range yields {
+		emitter := proc.getEmitter(i)
+		if err := handlers[i].Handle(ctx, cmd, emitter); err != nil {
+			emitter.Emit(nil, err)
+		}
+	}
+
+	// Wait for all to complete
+	if err := proc.waitMultiYield(ctx); err != nil {
+		proc.Emit(nil, err)
+		return
+	}
+
+	// Check for errors, collect results
+	results := make([]any, n)
+	for i := 0; i < n; i++ {
+		slot := proc.getSlot(i)
+		if slot.Error != nil {
+			proc.Emit(nil, slot.Error)
+			return
+		}
+		results[i] = slot.Data
+	}
+	proc.Emit(results, nil)
 }

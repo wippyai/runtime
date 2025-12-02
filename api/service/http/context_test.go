@@ -107,15 +107,15 @@ func TestRouteInfo(t *testing.T) {
 
 func TestContextKeys(t *testing.T) {
 	t.Run("request context key is unique", func(t *testing.T) {
-		assert.Equal(t, "http.request", RequestCtx.Name)
+		assert.Equal(t, "http.request", requestCtx.Name)
 	})
 
 	t.Run("route context key is unique", func(t *testing.T) {
-		assert.Equal(t, "http.route", RouteCtx.Name)
+		assert.Equal(t, "http.route", routeCtx.Name)
 	})
 
 	t.Run("context keys are different", func(t *testing.T) {
-		assert.NotEqual(t, RequestCtx, RouteCtx)
+		assert.NotEqual(t, requestCtx, routeCtx)
 	})
 }
 
@@ -140,8 +140,8 @@ func TestContextIntegration(t *testing.T) {
 		require.NotNil(t, fc)
 
 		err := fc.SetMultiple(
-			ctxapi.Pair{Key: RequestCtx, Value: reqCtx},
-			ctxapi.Pair{Key: RouteCtx, Value: routeInfo},
+			ctxapi.Pair{Key: requestCtx, Value: reqCtx},
+			ctxapi.Pair{Key: routeCtx, Value: routeInfo},
 		)
 		require.NoError(t, err)
 

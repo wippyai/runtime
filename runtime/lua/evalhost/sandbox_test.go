@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 	clockapi "github.com/wippyai/runtime/api/clock"
 	ctxapi "github.com/wippyai/runtime/api/context"
-	"github.com/wippyai/runtime/api/eval"
 	"github.com/wippyai/runtime/api/process2"
 	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	"github.com/wippyai/runtime/runtime/lua/modules/json"
@@ -29,7 +28,7 @@ func TestSandbox_ManualStepping(t *testing.T) {
 	host := NewHost(log, modules, nil)
 
 	// Compile a simple program that sleeps
-	program, err := host.Compile(context.Background(), eval.CompileCmd{
+	program, err := host.Compile(context.Background(), CompileCmd{
 		Source: `
 			local time = require("time")
 
@@ -107,7 +106,7 @@ func TestSandbox_MultipleSleeps(t *testing.T) {
 	log := zap.NewNop()
 	host := NewHost(log, modules, nil)
 
-	program, err := host.Compile(context.Background(), eval.CompileCmd{
+	program, err := host.Compile(context.Background(), CompileCmd{
 		Source: `
 			local time = require("time")
 
@@ -187,7 +186,7 @@ func TestSandbox_ErrorHandling(t *testing.T) {
 	log := zap.NewNop()
 	host := NewHost(log, modules, nil)
 
-	program, err := host.Compile(context.Background(), eval.CompileCmd{
+	program, err := host.Compile(context.Background(), CompileCmd{
 		Source: `
 			local function handle()
 				error("intentional error")
@@ -226,7 +225,7 @@ func TestSandbox_NoYields(t *testing.T) {
 	log := zap.NewNop()
 	host := NewHost(log, modules, nil)
 
-	program, err := host.Compile(context.Background(), eval.CompileCmd{
+	program, err := host.Compile(context.Background(), CompileCmd{
 		Source: `
 			local json = require("json")
 
@@ -267,7 +266,7 @@ func TestSandbox_TimerYields(t *testing.T) {
 	log := zap.NewNop()
 	host := NewHost(log, modules, nil)
 
-	program, err := host.Compile(context.Background(), eval.CompileCmd{
+	program, err := host.Compile(context.Background(), CompileCmd{
 		Source: `
 			local time = require("time")
 

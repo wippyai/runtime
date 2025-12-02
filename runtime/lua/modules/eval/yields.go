@@ -5,8 +5,8 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/dispatcher"
-	evalapi "github.com/wippyai/runtime/api/eval"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/evalhost"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -37,9 +37,9 @@ func ReleaseCompileYield(y *CompileYield) {
 func (y *CompileYield) Release()                    { ReleaseCompileYield(y) }
 func (y *CompileYield) String() string              { return "<compile_yield>" }
 func (y *CompileYield) Type() lua.LValueType        { return lua.LTUserData }
-func (y *CompileYield) CmdID() dispatcher.CommandID { return evalapi.CmdCompile }
+func (y *CompileYield) CmdID() dispatcher.CommandID { return evalhost.CmdCompile }
 func (y *CompileYield) ToCommand() dispatcher.Command {
-	return evalapi.CompileCmd{
+	return evalhost.CompileCmd{
 		Source:  y.Source,
 		Method:  y.Method,
 		Modules: y.Modules,
@@ -56,7 +56,7 @@ func (y *CompileYield) HandleResult(l *lua.LState, data any, err error) []lua.LV
 		return []lua.LValue{lua.LNil, lua.LString("compilation returned nil")}
 	}
 
-	program, ok := data.(evalapi.Program)
+	program, ok := data.(*evalhost.Program)
 	if !ok {
 		return []lua.LValue{lua.LNil, lua.LString("invalid program type")}
 	}
@@ -100,9 +100,9 @@ func ReleaseRunYield(y *RunYield) {
 func (y *RunYield) Release()                    { ReleaseRunYield(y) }
 func (y *RunYield) String() string              { return "<run_yield>" }
 func (y *RunYield) Type() lua.LValueType        { return lua.LTUserData }
-func (y *RunYield) CmdID() dispatcher.CommandID { return evalapi.CmdRun }
+func (y *RunYield) CmdID() dispatcher.CommandID { return evalhost.CmdRun }
 func (y *RunYield) ToCommand() dispatcher.Command {
-	return evalapi.RunCmd{
+	return evalhost.RunCmd{
 		Source:  y.Source,
 		Method:  y.Method,
 		Args:    y.Args,

@@ -6,7 +6,7 @@ import (
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
-	"github.com/wippyai/runtime/api/pidgen"
+	"github.com/wippyai/runtime/api/process2"
 	"github.com/wippyai/runtime/internal/uniqid"
 	"github.com/wippyai/runtime/system/dispatcher"
 	"github.com/wippyai/runtime/system/eventbus"
@@ -28,7 +28,7 @@ func PIDGen() boot.Component {
 		Load: func(ctx context.Context) (context.Context, error) {
 			uniqGen := uniqid.NewGenerator()
 			gen := uniqid.NewPIDGenerator(uniqGen, "local")
-			return pidgen.WithGenerator(ctx, gen), nil
+			return process2.WithPIDGenerator(ctx, gen), nil
 		},
 	})
 }

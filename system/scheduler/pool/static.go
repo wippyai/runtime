@@ -19,6 +19,34 @@ type request struct {
 	resultCh chan *runtime.Result
 }
 
+// requestPool pools request structs to reduce allocations.
+var requestPool = sync.Pool{
+	New: func() any {
+		return &request{
+			resultCh: make(chan *runtime.Result, 1),
+		}
+	},
+}
+
+func acquireRequest(ctx context.Context, method string, input payload.Payloads) *request {
+	req := requestPool.Get().(*request)
+	req.ctx = ctx
+	req.method = method
+	req.input = input
+	return req
+}
+
+func releaseRequest(req *request) {
+	req.ctx = nil
+	req.method = ""
+	req.input = nil
+	select {
+	case <-req.resultCh:
+	default:
+	}
+	requestPool.Put(req)
+}
+
 // staticWorker owns one process and pulls from shared queue.
 type staticWorker struct {
 	process  process2.Process
@@ -112,23 +140,21 @@ func (s *Static) Call(ctx context.Context, method string, input payload.Payloads
 		return nil, fmt.Errorf("pool is closed")
 	}
 
-	req := &request{
-		ctx:      ctx,
-		method:   method,
-		input:    input,
-		resultCh: make(chan *runtime.Result, 1),
-	}
+	req := acquireRequest(ctx, method, input)
 
 	select {
 	case s.tasks <- req:
 	case <-ctx.Done():
+		releaseRequest(req)
 		return nil, ctx.Err()
 	case <-s.done:
+		releaseRequest(req)
 		return nil, fmt.Errorf("pool is closed")
 	}
 
 	select {
 	case result := <-req.resultCh:
+		releaseRequest(req)
 		return result, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()

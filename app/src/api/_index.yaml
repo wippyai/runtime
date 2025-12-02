@@ -23,7 +23,7 @@ entries:
       - funcs
     method: handler
     pool:
-      type: workstealing
+      type: static
       size: 16
       buffer: 1024
 
@@ -70,6 +70,19 @@ entries:
     modules:
       - io
       - system
+
+  # app.api:spawn_test - Spawn 10k processes test
+  - name: spawn_test
+    kind: process.lua
+    meta:
+      comment: Memory leak test - spawns 10k processes
+    source: file://spawn_test.lua
+    method: main
+    modules:
+      - io
+      - process
+      - system
+      - time
 
   # Commented out WASM components for now
   # - name: add

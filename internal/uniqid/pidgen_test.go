@@ -3,7 +3,6 @@ package uniqid_test
 import (
 	"testing"
 
-	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/internal/uniqid"
 )
@@ -22,9 +21,8 @@ func TestPIDGenerator_Generate(t *testing.T) {
 	pidGen := uniqid.NewPIDGenerator(gen, "")
 
 	host := relay.HostID("functions")
-	id := registry.ID{NS: "process", Name: "worker"}
 
-	pid := pidGen.Generate(host, id)
+	pid := pidGen.Generate(host)
 
 	if pid.Host != host {
 		t.Errorf("Expected host %q, got %q", host, pid.Host)
@@ -45,10 +43,9 @@ func TestPIDGenerator_GenerateWithConfiguredNode(t *testing.T) {
 
 	node := relay.NodeID("node1")
 	host := relay.HostID("functions")
-	id := registry.ID{NS: "process", Name: "worker"}
 
 	pidGen := uniqid.NewPIDGenerator(gen, node)
-	pid := pidGen.Generate(host, id)
+	pid := pidGen.Generate(host)
 
 	if pid.Node != node {
 		t.Errorf("Expected node %q, got %q", node, pid.Node)
@@ -69,12 +66,11 @@ func TestPIDGenerator_SequentialUniqID(t *testing.T) {
 	pidGen := uniqid.NewPIDGenerator(gen, "")
 
 	host := relay.HostID("functions")
-	id := registry.ID{NS: "process", Name: "worker"}
 
 	expected := []string{"0x00001", "0x00002", "0x00003", "0x00004", "0x00005"}
 
 	for i, expectedUniqID := range expected {
-		pid := pidGen.Generate(host, id)
+		pid := pidGen.Generate(host)
 		if pid.UniqID != expectedUniqID {
 			t.Errorf("Iteration %d: expected UniqID %q, got %q", i, expectedUniqID, pid.UniqID)
 		}
@@ -86,14 +82,12 @@ func TestPIDGenerator_StringFormat(t *testing.T) {
 		name        string
 		node        relay.NodeID
 		host        relay.HostID
-		id          registry.ID
 		expectedFmt string
 		useNode     bool
 	}{
 		{
 			name:        "without node",
 			host:        relay.HostID("functions"),
-			id:          registry.ID{NS: "process", Name: "worker"},
 			expectedFmt: "{functions|0x00001}",
 			useNode:     false,
 		},
@@ -101,7 +95,6 @@ func TestPIDGenerator_StringFormat(t *testing.T) {
 			name:        "with node",
 			node:        relay.NodeID("node1"),
 			host:        relay.HostID("functions"),
-			id:          registry.ID{NS: "process", Name: "worker"},
 			expectedFmt: "{node1@functions|0x00001}",
 			useNode:     true,
 		},
@@ -113,10 +106,10 @@ func TestPIDGenerator_StringFormat(t *testing.T) {
 			var pid relay.PID
 			if tt.useNode {
 				pidGenWithNode := uniqid.NewPIDGenerator(gen, tt.node)
-				pid = pidGenWithNode.Generate(tt.host, tt.id)
+				pid = pidGenWithNode.Generate(tt.host)
 			} else {
 				pidGen := uniqid.NewPIDGenerator(gen, "")
-				pid = pidGen.Generate(tt.host, tt.id)
+				pid = pidGen.Generate(tt.host)
 			}
 
 			pidStr := pid.String()

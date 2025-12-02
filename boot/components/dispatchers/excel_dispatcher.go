@@ -9,7 +9,11 @@ import (
 	"github.com/wippyai/runtime/service/excel"
 )
 
+const ExcelDefaultWorkers = 4
+
 func Excel() boot.Component {
+	var d *excel.Dispatcher
+
 	return boot.New(boot.P{
 		Name:      ExcelDispatcherName,
 		DependsOn: []boot.ComponentName{DispatcherName},
@@ -18,9 +22,17 @@ func Excel() boot.Component {
 			if reg == nil {
 				return ctx, fmt.Errorf("dispatcher registrar not found in context")
 			}
-			svc := excel.NewService()
-			svc.RegisterAll(reg.Register)
+
+			d = excel.NewDispatcher(ExcelDefaultWorkers)
+			d.RegisterAll(reg.Register)
+
 			return ctx, nil
+		},
+		Start: func(ctx context.Context) error {
+			return d.Start(ctx)
+		},
+		Stop: func(ctx context.Context) error {
+			return d.Stop(ctx)
 		},
 	})
 }

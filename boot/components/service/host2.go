@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/wippyai/runtime/api/boot"
+	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
@@ -12,7 +13,6 @@ import (
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/components/system"
 	"github.com/wippyai/runtime/service/host2"
-	"github.com/wippyai/runtime/system/scheduler/actor"
 )
 
 func Host2() boot.Component {
@@ -45,8 +45,11 @@ func Host2() boot.Component {
 				return ctx, fmt.Errorf("process factory not available")
 			}
 
-			// Create shared actor registry for all hosts
-			registry := actor.NewRegistry()
+			// Get shared dispatcher registry (contains all registered handlers)
+			registry := dispatcherapi.GetRegistry(ctx)
+			if registry == nil {
+				return ctx, fmt.Errorf("dispatcher registry not available")
+			}
 
 			manager := host2.NewManager(bus, dtt, registry, factory, logger)
 			handlers.RegisterListener("process.host", manager)

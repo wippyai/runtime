@@ -1,23 +1,31 @@
 package payload
 
 import (
-	"context"
+	"errors"
 	"fmt"
 	"sync"
 
-	"github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/internal/graph"
-	"go.uber.org/zap"
 )
 
-// Transcoder is the global instance of the json service.
+// Pre-defined errors to avoid allocations in hot paths
+var (
+	errEmptyFormat = errors.New("payload format is empty")
+)
+
+// pathKey is a cache key for transcoding paths (avoids string concatenation)
+type pathKey struct {
+	from, to string
+}
+
+// Transcoder handles payload format conversions using a graph-based routing system.
 type Transcoder struct {
 	graph           *graph.Graph[string, any]
 	transcoders     map[string]map[string]payload.FormatTranscoder
 	unmarshalers    map[string]payload.Unmarshaler
-	unmarshalerPath *sync.Map // thread-safe cache for unmarshaler paths
-	transcodePath   *sync.Map // thread-safe cache for transcoder paths
+	unmarshalerPath *sync.Map // map[string]*graph.Path[string]
+	transcodePath   *sync.Map // map[pathKey]*graph.Path[string]
 }
 
 var globalTranscoder *Transcoder
@@ -69,10 +77,10 @@ func (t *Transcoder) RegisterUnmarshaler(from payload.Format, unmarshaler payloa
 
 // getTranscodePath returns the cached path or computes and caches a new path
 func (t *Transcoder) getTranscodePath(from, to string) (*graph.Path[string], error) {
-	cacheKey := fmt.Sprintf("%s:%s", from, to)
+	key := pathKey{from, to}
 
 	// Fast path: check if path is already cached
-	if path, ok := t.transcodePath.Load(cacheKey); ok {
+	if path, ok := t.transcodePath.Load(key); ok {
 		return path.(*graph.Path[string]), nil
 	}
 
@@ -83,103 +91,39 @@ func (t *Transcoder) getTranscodePath(from, to string) (*graph.Path[string], err
 	}
 
 	// Store computed path in cache
-	t.transcodePath.Store(cacheKey, path)
+	t.transcodePath.Store(key, path)
 	return path, nil
 }
 
 // Transcode transcodes a payload to a different format.
 func (t *Transcoder) Transcode(p payload.Payload, to payload.Format) (payload.Payload, error) {
-	// Get logger from context if available
-	logger := logs.GetLogger(context.Background())
-
 	if p.Format() == to {
-		logger.Info("Transcoder.Transcode - same format, no transcoding needed",
-			zap.String("format", string(p.Format())),
-		)
 		return p, nil
 	}
 
 	fromStr := string(p.Format())
 	toStr := string(to)
 
-	// TODO-CLD: Remove The logger from this file entirely
-	logger.Info("Transcoder.Transcode - starting transcoding",
-		zap.String("from_format", fromStr),
-		zap.String("to_format", toStr),
-		zap.String("payload_data_type", fmt.Sprintf("%T", p.Data())),
-	)
-
 	path, err := t.getTranscodePath(fromStr, toStr)
 	if err != nil {
-		logger.Error("Transcoder.Transcode - no transcoding path found",
-			zap.String("from_format", fromStr),
-			zap.String("to_format", toStr),
-			zap.Error(err),
-		)
 		return nil, err
 	}
-
-	logger.Info("Transcoder.Transcode - found transcoding path",
-		zap.String("from_format", fromStr),
-		zap.String("to_format", toStr),
-		zap.Int("path_length", len(path.Nodes)),
-		zap.Int("path_cost", path.Cost),
-		zap.Strings("path_nodes", path.Nodes),
-	)
 
 	currentPayload := p
 	for i := 0; i < len(path.Nodes)-1; i++ {
 		currentFrom := path.Nodes[i]
 		currentTo := path.Nodes[i+1]
 
-		logger.Info("Transcoder.Transcode - transcoding step",
-			zap.Int("step", i+1),
-			zap.String("from", currentFrom),
-			zap.String("to", currentTo),
-		)
-
 		tt, ok := t.transcoders[currentFrom][currentTo]
 		if !ok || tt == nil {
-			logger.Error("Transcoder.Transcode - no transcoder registered for step",
-				zap.Int("step", i+1),
-				zap.String("from", currentFrom),
-				zap.String("to", currentTo),
-			)
 			return nil, fmt.Errorf("no transcoder registered for %s to %s", currentFrom, currentTo)
 		}
 
-		logger.Info("Transcoder.Transcode - using transcoder",
-			zap.Int("step", i+1),
-			zap.String("from", currentFrom),
-			zap.String("to", currentTo),
-			zap.String("transcoder_type", fmt.Sprintf("%T", tt)),
-		)
-
-		var err error
 		currentPayload, err = tt.Transcode(currentPayload)
 		if err != nil {
-			logger.Error("Transcoder.Transcode - transcoding step failed",
-				zap.Int("step", i+1),
-				zap.String("from", currentFrom),
-				zap.String("to", currentTo),
-				zap.Error(err),
-			)
 			return nil, fmt.Errorf("error transcoding from %s to %s: %w", currentFrom, currentTo, err)
 		}
-
-		logger.Info("Transcoder.Transcode - transcoding step successful",
-			zap.Int("step", i+1),
-			zap.String("from", currentFrom),
-			zap.String("to", currentTo),
-			zap.String("result_format", string(currentPayload.Format())),
-		)
 	}
-
-	logger.Info("Transcoder.Transcode - transcoding completed successfully",
-		zap.String("from_format", fromStr),
-		zap.String("to_format", toStr),
-		zap.String("final_format", string(currentPayload.Format())),
-	)
 
 	return currentPayload, nil
 }
@@ -217,7 +161,7 @@ func (t *Transcoder) findUnmarshalPath(from string) (*graph.Path[string], error)
 // Unmarshal unmarshals a payload into a given struct.
 func (t *Transcoder) Unmarshal(p payload.Payload, v interface{}) error {
 	if p.Format() == "" {
-		return fmt.Errorf("payload format is empty")
+		return errEmptyFormat
 	}
 
 	fromStr := string(p.Format())

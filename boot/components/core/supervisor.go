@@ -9,7 +9,6 @@ import (
 	logapi "github.com/wippyai/runtime/api/logs"
 	regapi "github.com/wippyai/runtime/api/registry"
 	supervisorapi "github.com/wippyai/runtime/api/supervisor"
-	systemapi "github.com/wippyai/runtime/api/system"
 	sysreg "github.com/wippyai/runtime/system/registry"
 	"github.com/wippyai/runtime/system/supervisor"
 	"go.uber.org/zap"
@@ -55,9 +54,9 @@ func Supervisor() boot.Component {
 			// Store supervisor in context for access by other components
 			ctx = supervisorapi.WithSupervisor(ctx, sup)
 
-			// Expose service info through system API
+			// Expose service info through supervisor API
 			serviceInfo := supervisor.NewServiceInfoAdapter(sup)
-			ctx = systemapi.WithServiceInfo(ctx, serviceInfo)
+			ctx = supervisorapi.WithServiceInfo(ctx, serviceInfo)
 
 			return ctx, nil
 		},

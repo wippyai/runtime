@@ -225,6 +225,13 @@ func (m *MockEnvRegistry) All(_ context.Context) (map[string]string, error) {
 	return m.variables, nil
 }
 
+func (m *MockEnvRegistry) Lookup(_ context.Context, name string) (string, bool, error) {
+	if value, exists := m.variables[name]; exists {
+		return value, true, nil
+	}
+	return "", false, nil
+}
+
 // Helper to create a test manager with mock components
 func newTestManager(t *testing.T) (*Manager, event.Bus, *TestPoolFactory) {
 	logger := zap.NewNop()

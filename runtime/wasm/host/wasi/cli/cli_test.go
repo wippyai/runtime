@@ -95,6 +95,13 @@ func (m *mockEnvRegistry) Set(_ context.Context, name, value string) error {
 	return nil
 }
 
+func (m *mockEnvRegistry) Lookup(_ context.Context, name string) (string, bool, error) {
+	if v, ok := m.vars[name]; ok {
+		return v, true, nil
+	}
+	return "", false, nil
+}
+
 func (m *mockEnvRegistry) All(_ context.Context) (map[string]string, error) {
 	result := make(map[string]string, len(m.vars))
 	for k, v := range m.vars {

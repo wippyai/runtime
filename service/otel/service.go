@@ -6,7 +6,7 @@ import (
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	apiinterceptor "github.com/wippyai/runtime/api/function"
-	apiprocess "github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/process2"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
@@ -87,151 +87,78 @@ func (s *Service) HTTPMiddleware() func(http.Handler) http.Handler {
 	}
 }
 
-// ProcessMutator returns a StartMutator for process lifecycle tracing
-func (s *Service) ProcessMutator() apiprocess.StartMutator {
-	if !s.cfg.Process.Enabled {
-		return func(ctx stdcontext.Context, _ *apiprocess.Start) (stdcontext.Context, error) {
-			return ctx, nil
-		}
+// OnStart implements scheduler.Lifecycle.
+func (s *Service) OnStart(ctx stdcontext.Context, pid relay.PID, _ process2.Process) {
+	if !s.cfg.Process.Enabled || !s.cfg.Process.TraceLifecycle {
+		return
 	}
 
-	return func(ctx stdcontext.Context, start *apiprocess.Start) (stdcontext.Context, error) {
-		if !s.cfg.Process.TraceLifecycle {
-			return ctx, nil
-		}
-
-		// Extract parent SpanContext (not the span itself)
-		var parentSpanContext trace.SpanContext
-		if parentSpan, hasParent := otelapi.GetSpan(ctx); hasParent {
-			parentSpanContext = parentSpan.SpanContext()
-		} else {
-			parentSpanContext = trace.SpanContextFromContext(ctx)
-		}
-
-		// Create process wrapper span and close it immediately (Temporal pattern)
-		spanName := "process:" + start.Source.String()
-		var processSpan trace.Span
-
-		if parentSpanContext.IsValid() {
-			ctxWithParent := trace.ContextWithRemoteSpanContext(ctx, parentSpanContext)
-			_, processSpan = s.tracer.Start(ctxWithParent, spanName,
-				trace.WithSpanKind(trace.SpanKindInternal))
-		} else {
-			_, processSpan = s.tracer.Start(ctx, spanName,
-				trace.WithSpanKind(trace.SpanKindServer))
-		}
-
-		processSpan.SetAttributes(
-			attribute.String("process.source", start.Source.String()),
-		)
-		processSpan.End()
-
-		// Store process's own SpanContext for child processes/functions to use
-		start.Context = append(start.Context, ctxapi.Pair{
-			Key:   otelapi.GetRemoteSpanContextKey(),
-			Value: processSpan.SpanContext(),
-		})
-
-		// Add OnStart hook for process start tracing
-		if hook := s.ProcessStartHook(); hook != nil {
-			start.OnStart = append(start.OnStart, hook)
-		}
-
-		// Add OnComplete hook for process termination tracing
-		if hook := s.ProcessCompleteHook(); hook != nil {
-			start.OnComplete = append(start.OnComplete, hook)
-		}
-
-		return ctx, nil
+	processSpanCtx, hasSpan := otelapi.GetRemoteSpanContext(ctx)
+	if !hasSpan || !processSpanCtx.IsValid() {
+		return
 	}
+
+	sourceID, hasSource := runtime.GetFrameID(ctx)
+	startEventName := "process.started"
+	if hasSource {
+		startEventName = sourceID.String() + ".started"
+	}
+
+	ctxWithProcess := trace.ContextWithRemoteSpanContext(ctx, processSpanCtx)
+	_, startSpan := s.tracer.Start(ctxWithProcess, startEventName,
+		trace.WithSpanKind(trace.SpanKindInternal))
+
+	startSpan.SetAttributes(
+		attribute.String("process.pid", pid.String()),
+		attribute.String("lifecycle.event", "started"),
+	)
+	if hasSource {
+		startSpan.SetAttributes(attribute.String("process.source", sourceID.String()))
+	}
+	startSpan.End()
 }
 
-// ProcessStartHook returns an OnStart hook for process start tracing events
-func (s *Service) ProcessStartHook() apiprocess.OnStart {
-	if !s.cfg.Process.Enabled {
-		return nil
+// OnComplete implements scheduler.Lifecycle.
+func (s *Service) OnComplete(ctx stdcontext.Context, pid relay.PID, result *runtime.Result) {
+	if !s.cfg.Process.Enabled || !s.cfg.Process.TraceLifecycle {
+		return
 	}
 
-	return func(ctx stdcontext.Context, pid relay.PID, _ apiprocess.Process) {
-		if !s.cfg.Process.TraceLifecycle {
-			return
-		}
-
-		// Get the process's SpanContext from frame
-		processSpanCtx, hasSpan := otelapi.GetRemoteSpanContext(ctx)
-		if !hasSpan || !processSpanCtx.IsValid() {
-			return
-		}
-
-		sourceID, hasSource := runtime.GetFrameID(ctx)
-		startEventName := "process.started"
-		if hasSource {
-			startEventName = sourceID.String() + ".started"
-		}
-
-		ctxWithProcess := trace.ContextWithRemoteSpanContext(ctx, processSpanCtx)
-		_, startSpan := s.tracer.Start(ctxWithProcess, startEventName,
-			trace.WithSpanKind(trace.SpanKindInternal))
-
-		startSpan.SetAttributes(
-			attribute.String("process.pid", pid.String()),
-			attribute.String("lifecycle.event", "started"),
-		)
-		if hasSource {
-			startSpan.SetAttributes(attribute.String("process.source", sourceID.String()))
-		}
-		startSpan.End()
-	}
-}
-
-// ProcessCompleteHook returns an OnComplete hook for process termination tracing
-func (s *Service) ProcessCompleteHook() apiprocess.OnComplete {
-	if !s.cfg.Process.Enabled {
-		return nil
+	remoteSpanCtx, hasRemote := otelapi.GetRemoteSpanContext(ctx)
+	if !hasRemote || !remoteSpanCtx.IsValid() {
+		return
 	}
 
-	return func(ctx stdcontext.Context, pid relay.PID, result *runtime.Result) {
-		if !s.cfg.Process.TraceLifecycle {
-			return
-		}
-
-		// Try to get the remote SpanContext from process context
-		remoteSpanCtx, hasRemote := otelapi.GetRemoteSpanContext(ctx)
-		if !hasRemote || !remoteSpanCtx.IsValid() {
-			return
-		}
-
-		sourceID, hasSource := runtime.GetFrameID(ctx)
-		spanName := "process.terminated"
-		if hasSource {
-			spanName = sourceID.String() + ".terminated"
-		}
-
-		ctxWithRemote := trace.ContextWithRemoteSpanContext(ctx, remoteSpanCtx)
-		_, span := s.tracer.Start(ctxWithRemote, spanName,
-			trace.WithSpanKind(trace.SpanKindInternal))
-
-		attrs := []attribute.KeyValue{
-			attribute.String("process.pid", pid.String()),
-			attribute.String("lifecycle.event", "terminated"),
-		}
-
-		if hasSource {
-			attrs = append(attrs, attribute.String("process.source", sourceID.String()))
-		}
-
-		if result != nil && result.Error != nil {
-			span.RecordError(result.Error)
-			span.SetStatus(codes.Error, result.Error.Error())
-			attrs = append(attrs, attribute.String("termination.reason", "error"))
-		} else {
-			span.SetStatus(codes.Ok, "")
-			attrs = append(attrs, attribute.String("termination.reason", "completed"))
-		}
-
-		span.SetAttributes(attrs...)
-		span.End()
+	sourceID, hasSource := runtime.GetFrameID(ctx)
+	spanName := "process.terminated"
+	if hasSource {
+		spanName = sourceID.String() + ".terminated"
 	}
+
+	ctxWithRemote := trace.ContextWithRemoteSpanContext(ctx, remoteSpanCtx)
+	_, span := s.tracer.Start(ctxWithRemote, spanName,
+		trace.WithSpanKind(trace.SpanKindInternal))
+
+	attrs := []attribute.KeyValue{
+		attribute.String("process.pid", pid.String()),
+		attribute.String("lifecycle.event", "terminated"),
+	}
+
+	if hasSource {
+		attrs = append(attrs, attribute.String("process.source", sourceID.String()))
+	}
+
+	if result != nil && result.Error != nil {
+		span.RecordError(result.Error)
+		span.SetStatus(codes.Error, result.Error.Error())
+		attrs = append(attrs, attribute.String("termination.reason", "error"))
+	} else {
+		span.SetStatus(codes.Ok, "")
+		attrs = append(attrs, attribute.String("termination.reason", "completed"))
+	}
+
+	span.SetAttributes(attrs...)
+	span.End()
 }
 
 // Interceptor returns the function call interceptor

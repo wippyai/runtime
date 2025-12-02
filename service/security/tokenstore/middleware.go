@@ -18,7 +18,7 @@ const (
 	MiddlewareName = "token_auth"
 
 	// Option keys (dot-separated, preferred)
-	OptionTokenStore   = "token_auth.store"
+	OptionTokenStore   = "token_auth.store" //nolint:gosec // config key, not credentials
 	OptionHeaderName   = "token_auth.header.name"
 	OptionHeaderPrefix = "token_auth.header.prefix"
 	OptionQueryParam   = "token_auth.query.param"

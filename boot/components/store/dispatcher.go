@@ -9,28 +9,15 @@ import (
 	storesystem "github.com/wippyai/runtime/system/store"
 )
 
-// DispatcherConfig holds store dispatcher configuration.
-type DispatcherConfig struct {
-	// Workers is the number of worker goroutines for async mode.
-	// If 0, dispatcher runs in blocking mode (synchronous execution).
-	// Default: 0 (blocking mode for testing).
-	Workers int
-}
+// DefaultWorkers is the default number of workers for the store dispatcher.
+const DefaultWorkers = 4
 
-// Dispatcher creates the store dispatcher boot component with default config.
-// Uses blocking mode by default.
-func Dispatcher() boot.Component {
-	return DispatcherWithConfig(DispatcherConfig{Workers: 0})
-}
+// Dispatcher creates the store dispatcher boot component.
+func Dispatcher(workers int) boot.Component {
+	if workers <= 0 {
+		workers = DefaultWorkers
+	}
 
-// AsyncDispatcher creates the store dispatcher boot component with async mode.
-// Use for production to avoid blocking the scheduler.
-func AsyncDispatcher(workers int) boot.Component {
-	return DispatcherWithConfig(DispatcherConfig{Workers: workers})
-}
-
-// DispatcherWithConfig creates the store dispatcher boot component with custom config.
-func DispatcherWithConfig(cfg DispatcherConfig) boot.Component {
 	var d *storesystem.Dispatcher
 
 	return boot.New(boot.P{
@@ -42,9 +29,7 @@ func DispatcherWithConfig(cfg DispatcherConfig) boot.Component {
 				return ctx, fmt.Errorf("dispatcher registrar not found in context")
 			}
 
-			d = storesystem.NewDispatcher(storesystem.Config{
-				Workers: cfg.Workers,
-			})
+			d = storesystem.NewDispatcher(workers)
 			d.RegisterAll(reg.Register)
 
 			return ctx, nil

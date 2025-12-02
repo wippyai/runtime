@@ -6,7 +6,6 @@ import (
 	"context"
 	"sync"
 
-	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
@@ -34,12 +33,12 @@ type StepResult struct {
 	Status     StepStatus
 	Result     payload.Payload // Final result on StepDone (optional)
 	yieldCount int
-	yieldsBuf  [MaxYields]dispatcher.Command
-	yields     []dispatcher.Command
+	yieldsBuf  [MaxYields]Command
+	yields     []Command
 }
 
 // GetYields returns the yielded commands.
-func (r *StepResult) GetYields() []dispatcher.Command {
+func (r *StepResult) GetYields() []Command {
 	if r.yields != nil {
 		return r.yields
 	}
@@ -47,13 +46,13 @@ func (r *StepResult) GetYields() []dispatcher.Command {
 }
 
 // AddYield appends a command to the result.
-func (r *StepResult) AddYield(cmd dispatcher.Command) {
+func (r *StepResult) AddYield(cmd Command) {
 	if r.yieldCount < MaxYields {
 		r.yieldsBuf[r.yieldCount] = cmd
 		r.yieldCount++
 	} else {
 		if r.yields == nil {
-			r.yields = make([]dispatcher.Command, MaxYields, MaxYields*2)
+			r.yields = make([]Command, MaxYields, MaxYields*2)
 			copy(r.yields, r.yieldsBuf[:])
 		}
 		r.yields = append(r.yields, cmd)
@@ -123,4 +122,10 @@ type ProcessFactory func() (Process, error)
 // Executor provides blocking process execution.
 type Executor interface {
 	Execute(ctx context.Context, pid relay.PID, p Process, method string, input payload.Payloads) (*runtime.Result, error)
+}
+
+// Lifecycle handles process lifecycle events for schedulers.
+type Lifecycle interface {
+	OnStart(ctx context.Context, pid relay.PID, proc Process)
+	OnComplete(ctx context.Context, pid relay.PID, result *runtime.Result)
 }

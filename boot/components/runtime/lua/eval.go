@@ -6,7 +6,6 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
-	"github.com/wippyai/runtime/api/eval"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/process2"
 	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
@@ -53,11 +52,11 @@ func Eval() boot.Component {
 			)
 
 			// Register eval host in context
-			eval.WithHost(ctx, host)
+			evalhost.WithHost(ctx, host)
 
 			// Register dispatcher handlers
-			svc := evalhost.NewService(host)
-			svc.RegisterAll(reg.Register)
+			d := evalhost.NewDispatcher(host)
+			d.RegisterAll(reg.Register)
 
 			return ctx, nil
 		},

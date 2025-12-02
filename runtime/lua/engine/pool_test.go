@@ -15,12 +15,13 @@ import (
 
 type poolTestDispatcher struct {
 	handlers map[dispatcher.CommandID]dispatcher.Handler
+	clock    *clock.Dispatcher
 }
 
 func newPoolTestDispatcher() *poolTestDispatcher {
 	d := &poolTestDispatcher{handlers: make(map[dispatcher.CommandID]dispatcher.Handler)}
-	clockSvc := clock.NewService()
-	clockSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+	d.clock = clock.NewDispatcher()
+	d.clock.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		d.handlers[id] = h
 	})
 	return d
@@ -28,6 +29,12 @@ func newPoolTestDispatcher() *poolTestDispatcher {
 
 func (d *poolTestDispatcher) Dispatch(cmd dispatcher.Command) dispatcher.Handler {
 	return d.handlers[cmd.CmdID()]
+}
+
+func (d *poolTestDispatcher) Stop() {
+	if d.clock != nil {
+		d.clock.Stop(context.Background())
+	}
 }
 
 func newLuaFactory(script string) funcpool.Factory {
@@ -49,6 +56,7 @@ func newLuaFactory(script string) funcpool.Factory {
 func TestPoolBasicCall(t *testing.T) {
 	factory := newLuaFactory(`return 1 + 2`)
 	disp := newPoolTestDispatcher()
+	defer disp.Stop()
 
 	ps, err := funcpool.NewStatic(factory, disp, funcpool.Config{Workers: 2})
 	if err != nil {
@@ -76,6 +84,7 @@ func TestPoolStateReuse(t *testing.T) {
 		return counter
 	`)
 	disp := newPoolTestDispatcher()
+	defer disp.Stop()
 
 	ps, err := funcpool.NewStatic(factory, disp, funcpool.Config{Workers: 1})
 	if err != nil {
@@ -103,6 +112,7 @@ func TestPoolStateReuse(t *testing.T) {
 func Benchmark8x8NoYield(b *testing.B) {
 	factory := newLuaFactory(`return 1 + 2`)
 	disp := newPoolTestDispatcher()
+	defer disp.Stop()
 
 	ps, err := funcpool.NewStatic(factory, disp, funcpool.Config{Workers: 8, QueueSize: 256})
 	if err != nil {
@@ -128,6 +138,7 @@ func Benchmark8x8NoYield(b *testing.B) {
 func BenchmarkSingleWorker(b *testing.B) {
 	factory := newLuaFactory(`return 1`)
 	disp := newPoolTestDispatcher()
+	defer disp.Stop()
 
 	ps, err := funcpool.NewStatic(factory, disp, funcpool.Config{
 		Workers:   1,
@@ -156,6 +167,7 @@ func BenchmarkWorkerScalingLua(b *testing.B) {
 		b.Run(fmt.Sprintf("W%d", workers), func(b *testing.B) {
 			factory := newLuaFactory(`return 1`)
 			disp := newPoolTestDispatcher()
+			defer disp.Stop()
 
 			ps, err := funcpool.NewStatic(factory, disp, funcpool.Config{
 				Workers:   workers,

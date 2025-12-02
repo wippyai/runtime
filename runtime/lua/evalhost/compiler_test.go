@@ -5,7 +5,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wippyai/runtime/api/eval"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	"github.com/wippyai/runtime/runtime/lua/modules/json"
@@ -24,7 +23,7 @@ func safeModules() []lua2api.Module {
 func TestCompiler_Compile_Basic(t *testing.T) {
 	compiler := NewCompiler(safeModules())
 
-	program, err := compiler.Compile(eval.CompileCmd{
+	program, err := compiler.Compile(CompileCmd{
 		Source: `
 			local function handle(x)
 				return x * 2
@@ -45,7 +44,7 @@ func TestCompiler_Compile_Basic(t *testing.T) {
 func TestCompiler_Compile_SyntaxError(t *testing.T) {
 	compiler := NewCompiler(safeModules())
 
-	program, err := compiler.Compile(eval.CompileCmd{
+	program, err := compiler.Compile(CompileCmd{
 		Source:  `this is not valid lua syntax!!!`,
 		Method:  "handle",
 		Modules: []string{"json"},
@@ -70,7 +69,7 @@ func TestCompiler_Compile_ForbiddenClass(t *testing.T) {
 	compiler := NewCompiler(modules)
 
 	// Requesting a module with forbidden class should fail
-	program, err := compiler.Compile(eval.CompileCmd{
+	program, err := compiler.Compile(CompileCmd{
 		Source:  `return {}`,
 		Method:  "handle",
 		Modules: []string{"badmodule"},
@@ -84,7 +83,7 @@ func TestCompiler_Compile_ForbiddenClass(t *testing.T) {
 func TestCompiler_Compile_UnavailableModule(t *testing.T) {
 	compiler := NewCompiler(safeModules())
 
-	program, err := compiler.Compile(eval.CompileCmd{
+	program, err := compiler.Compile(CompileCmd{
 		Source:  `return {}`,
 		Method:  "handle",
 		Modules: []string{"nonexistent"},
@@ -98,7 +97,7 @@ func TestCompiler_Compile_UnavailableModule(t *testing.T) {
 func TestCompiler_Compile_DefaultModules(t *testing.T) {
 	compiler := NewCompiler(safeModules())
 
-	program, err := compiler.Compile(eval.CompileCmd{
+	program, err := compiler.Compile(CompileCmd{
 		Source: `return {}`,
 		Method: "handle",
 	})
@@ -185,7 +184,7 @@ func TestCompiler_CustomForbiddenClasses(t *testing.T) {
 func TestCompiler_Compile_MultipleModules(t *testing.T) {
 	compiler := NewCompiler(safeModules())
 
-	program, err := compiler.Compile(eval.CompileCmd{
+	program, err := compiler.Compile(CompileCmd{
 		Source: `
 			local json = require("json")
 			local time = require("time")
@@ -203,7 +202,7 @@ func TestCompiler_Compile_MultipleModules(t *testing.T) {
 func TestCompiler_Compile_EmptySource(t *testing.T) {
 	compiler := NewCompiler(safeModules())
 
-	program, err := compiler.Compile(eval.CompileCmd{
+	program, err := compiler.Compile(CompileCmd{
 		Source:  ``,
 		Method:  "handle",
 		Modules: []string{"json"},
@@ -216,7 +215,7 @@ func TestCompiler_Compile_EmptySource(t *testing.T) {
 func TestCompiler_Compile_ReturnTable(t *testing.T) {
 	compiler := NewCompiler(safeModules())
 
-	program, err := compiler.Compile(eval.CompileCmd{
+	program, err := compiler.Compile(CompileCmd{
 		Source: `
 			local M = {}
 			function M.add(a, b) return a + b end

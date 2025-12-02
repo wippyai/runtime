@@ -263,7 +263,7 @@ func (m *Manager) createPool(id registry.ID, cfg *api.ComponentFunctionConfig, m
 	}
 
 	factory := engine.NewFactory(m.runtime, module)
-	poolCfg := cfg.Pool.ToFuncpoolConfig()
+	poolCfg := cfg.Pool.ToPoolConfig()
 	poolType := cfg.Pool.Type
 	if poolType == "" {
 		poolType = api.PoolTypeStatic
@@ -278,23 +278,6 @@ func (m *Manager) createPool(id registry.ID, cfg *api.ComponentFunctionConfig, m
 
 	case api.PoolTypeStatic:
 		pool, err = funcpool.NewStatic(factory.Create(), m.dispatcher, funcpool.Config{
-			Workers:   poolCfg.Workers,
-			QueueSize: poolCfg.QueueSize,
-		})
-
-	case api.PoolTypeElastic:
-		maxWorkers := cfg.Pool.MaxSize
-		if maxWorkers <= 0 {
-			maxWorkers = poolCfg.Workers * 4
-		}
-		pool, err = funcpool.NewElastic(factory.Create(), m.dispatcher, funcpool.ElasticConfig{
-			MinWorkers: poolCfg.Workers,
-			MaxWorkers: maxWorkers,
-			QueueSize:  poolCfg.QueueSize,
-		})
-
-	case api.PoolTypeWorkStealing:
-		pool, err = funcpool.NewWorkStealing(factory.Create(), m.dispatcher, funcpool.WorkStealingConfig{
 			Workers:   poolCfg.Workers,
 			QueueSize: poolCfg.QueueSize,
 		})

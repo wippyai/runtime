@@ -5,13 +5,13 @@
 //
 //   - Inline: Synchronous execution in caller's goroutine, for eval/embedded actors
 //   - Static: Fixed-size channel-based pool, optimized for steady high load
-//   - Elastic: Grows/shrinks based on demand, for spiking workloads
-//   - WorkStealing: Work-stealing scheduler, for long-running tasks with varying times
+//   - Lazy: Zero processes at idle, creates on demand, ideal for low-traffic functions
 package pool
 
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
@@ -19,6 +19,40 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 )
+
+// MaxPoolYields is the maximum yields that fit in embedded slots.
+const MaxPoolYields = 4
+
+// yieldSlot stores result for one yield.
+type yieldSlot struct {
+	Data  any
+	Error error
+}
+
+// poolEmitter implements dispatcher.Emitter for pool multi-yield.
+type poolEmitter struct {
+	ctx *multiYieldCtx
+	idx int
+}
+
+func (e *poolEmitter) Emit(data any, err error) {
+	e.ctx.slots[e.idx].Data = data
+	e.ctx.slots[e.idx].Error = err
+	if e.ctx.pending.Add(-1) == 0 {
+		select {
+		case e.ctx.wakeup <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// multiYieldCtx supports zero-allocation multi-yield completion.
+type multiYieldCtx struct {
+	slots    [MaxPoolYields]yieldSlot
+	emitters [MaxPoolYields]poolEmitter
+	pending  atomic.Int32
+	wakeup   chan struct{}
+}
 
 // Pool executes function calls using managed processes.
 // Implementations must be safe for concurrent use.
@@ -142,6 +176,7 @@ type ExecutionHooks struct {
 type Executor struct {
 	dispatcher Dispatcher
 	hooks      ExecutionHooks
+	multiCtx   multiYieldCtx // embedded for zero-alloc multi-yield
 }
 
 // NewExecutor creates an executor with the given dispatcher.
@@ -219,8 +254,8 @@ func (e *Executor) Run(ctx context.Context, proc process2.Process, method string
 	}
 }
 
-// handleYields executes all command handlers sequentially.
-// For multiple yields, data is collected into a slice.
+// handleYields executes all command handlers and waits for emit to be called.
+// Handlers are async - they call emit.Emit() when done, possibly from another goroutine.
 func (e *Executor) handleYields(ctx context.Context, yields []dispatcher.Command) *process2.YieldResults {
 	res := process2.AcquireYieldResults()
 
@@ -232,39 +267,78 @@ func (e *Executor) handleYields(ctx context.Context, yields []dispatcher.Command
 			return res
 		}
 
-		var emittedData any
-		emit := func(data any) {
-			if emittedData == nil {
-				emittedData = data
-			}
+		// Single yield - use embedded emitter for zero allocation
+		e.multiCtx.pending.Store(1)
+		if e.multiCtx.wakeup == nil {
+			e.multiCtx.wakeup = make(chan struct{}, 1)
 		}
+		e.multiCtx.slots[0].Data = nil
+		e.multiCtx.slots[0].Error = nil
+		e.multiCtx.emitters[0].ctx = &e.multiCtx
+		e.multiCtx.emitters[0].idx = 0
 
-		res.Error = handler.Handle(ctx, cmd, emit)
-		res.Data = emittedData
-		return res
-	}
-
-	// Multiple yields - handle all sequentially, collect results
-	results := make([]any, len(yields))
-	for i, cmd := range yields {
-		handler := e.dispatcher.Dispatch(cmd)
-		if handler == nil {
-			res.Error = &UnknownCommandError{CmdID: cmd.CmdID()}
-			return res
-		}
-
-		var emittedData any
-		emit := func(data any) {
-			if emittedData == nil {
-				emittedData = data
-			}
-		}
-
-		if err := handler.Handle(ctx, cmd, emit); err != nil {
+		if err := handler.Handle(ctx, cmd, &e.multiCtx.emitters[0]); err != nil {
 			res.Error = err
 			return res
 		}
-		results[i] = emittedData
+
+		select {
+		case <-e.multiCtx.wakeup:
+			res.Data = e.multiCtx.slots[0].Data
+			res.Error = e.multiCtx.slots[0].Error
+		case <-ctx.Done():
+			res.Error = ctx.Err()
+		}
+		return res
+	}
+
+	// Multiple yields - validate handlers first
+	n := len(yields)
+	handlers := make([]dispatcher.Handler, n)
+	for i, cmd := range yields {
+		handlers[i] = e.dispatcher.Dispatch(cmd)
+		if handlers[i] == nil {
+			res.Error = &UnknownCommandError{CmdID: cmd.CmdID()}
+			return res
+		}
+	}
+
+	// Initialize multi-yield context
+	e.multiCtx.pending.Store(int32(n))
+	if e.multiCtx.wakeup == nil {
+		e.multiCtx.wakeup = make(chan struct{}, 1)
+	}
+	for i := 0; i < n && i < MaxPoolYields; i++ {
+		e.multiCtx.slots[i].Data = nil
+		e.multiCtx.slots[i].Error = nil
+		e.multiCtx.emitters[i].ctx = &e.multiCtx
+		e.multiCtx.emitters[i].idx = i
+	}
+
+	// Start all handlers in parallel using embedded emitters
+	for i, cmd := range yields {
+		emitter := &e.multiCtx.emitters[i]
+		if err := handlers[i].Handle(ctx, cmd, emitter); err != nil {
+			emitter.Emit(nil, err)
+		}
+	}
+
+	// Wait for all to complete
+	select {
+	case <-e.multiCtx.wakeup:
+	case <-ctx.Done():
+		res.Error = ctx.Err()
+		return res
+	}
+
+	// Check for errors, collect results
+	results := make([]any, n)
+	for i := 0; i < n; i++ {
+		if e.multiCtx.slots[i].Error != nil {
+			res.Error = e.multiCtx.slots[i].Error
+			return res
+		}
+		results[i] = e.multiCtx.slots[i].Data
 	}
 
 	res.Data = results

@@ -4,12 +4,9 @@ package security
 import (
 	"context"
 	"errors"
-	"runtime/debug"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
-	"github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/registry"
-	"go.uber.org/zap"
 )
 
 // Context keys
@@ -41,31 +38,7 @@ func SetActor(ctx context.Context, actor Actor) error {
 		return errors.New("no frame context available")
 	}
 
-	err := fc.Set(actorCtx, actor)
-	if err != nil {
-		// TODO: REMOVE
-		logger := logs.GetLogger(ctx)
-		if logger != nil {
-			logger.Error("SetActor failed - frame is sealed",
-				zap.String("actor_id", actor.ID),
-				zap.Bool("frame_sealed", fc.IsSealed()),
-				zap.Error(err),
-				zap.String("stack_trace", string(debug.Stack())))
-
-			// Log parent chain
-			parent := fc.Parent()
-			depth := 0
-			for parent != nil && depth < 5 {
-				logger.Debug("SetActor - parent frame chain",
-					zap.Int("depth", depth),
-					zap.Bool("parent_sealed", parent.IsSealed()))
-				parent = parent.Parent()
-				depth++
-			}
-		}
-	}
-
-	return err
+	return fc.Set(actorCtx, actor)
 }
 
 // GetActor retrieves the actor from the FrameContext.
@@ -89,37 +62,7 @@ func SetScope(ctx context.Context, scope Scope) error {
 	if fc == nil {
 		return errors.New("no frame context available")
 	}
-
-	err := fc.Set(scopeCtx, scope)
-	if err != nil {
-		// TODO: REMOVE
-		logger := logs.GetLogger(ctx)
-		if logger != nil {
-			policyCount := 0
-			if scope != nil {
-				policyCount = len(scope.Policies())
-			}
-
-			logger.Error("SetScope failed - frame is sealed",
-				zap.Int("policies", policyCount),
-				zap.Bool("frame_sealed", fc.IsSealed()),
-				zap.Error(err),
-				zap.String("stack_trace", string(debug.Stack())))
-
-			// Log parent chain
-			parent := fc.Parent()
-			depth := 0
-			for parent != nil && depth < 5 {
-				logger.Debug("SetScope - parent frame chain",
-					zap.Int("depth", depth),
-					zap.Bool("parent_sealed", parent.IsSealed()))
-				parent = parent.Parent()
-				depth++
-			}
-		}
-	}
-
-	return err
+	return fc.Set(scopeCtx, scope)
 }
 
 // GetScope retrieves the scope from the FrameContext.

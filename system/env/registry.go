@@ -273,6 +273,14 @@ func (r *Registry) Get(ctx context.Context, name string) (string, error) {
 	return r.getValue(ctx, variable)
 }
 
+func (r *Registry) Lookup(ctx context.Context, name string) (string, bool, error) {
+	variable, err := r.findVariable(ctx, name)
+	if err != nil {
+		return "", false, err
+	}
+	return r.lookupValue(ctx, variable)
+}
+
 func (r *Registry) Set(ctx context.Context, name string, value string) error {
 	variable, err := r.findVariable(ctx, name)
 	if err != nil {
@@ -282,19 +290,31 @@ func (r *Registry) Set(ctx context.Context, name string, value string) error {
 }
 
 func (r *Registry) getValue(ctx context.Context, variable *env.Variable) (string, error) {
-	storage, err := r.getStorage(ctx, variable.StorageID)
+	value, found, err := r.lookupValue(ctx, variable)
 	if err != nil {
 		return "", err
+	}
+	if !found {
+		return variable.DefaultValue, nil
+	}
+	return value, nil
+}
+
+func (r *Registry) lookupValue(ctx context.Context, variable *env.Variable) (string, bool, error) {
+	storage, err := r.getStorage(ctx, variable.StorageID)
+	if err != nil {
+		return "", false, err
 	}
 
 	envName := r.getEnvName(variable)
 	value, err := storage.Get(ctx, envName)
 	if err != nil {
-		// NotFound is normal - variable not in storage, use default
-		// Other errors (IO, permission) are unexpected but we still fallback for compatibility
-		return variable.DefaultValue, nil
+		if err == env.ErrVariableNotFound {
+			return "", false, nil
+		}
+		return "", false, err
 	}
-	return value, nil
+	return value, true, nil
 }
 
 func (r *Registry) setValue(ctx context.Context, variable *env.Variable, value string) error {

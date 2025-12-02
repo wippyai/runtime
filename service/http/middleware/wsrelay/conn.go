@@ -95,7 +95,7 @@ func NewConnection(
 	}
 
 	// Create a unique PID for this WebSocket connection
-	wsPID := pidGen.Generate(serverID.String(), serverID)
+	wsPID := pidGen.Generate(serverID.String())
 
 	// Parse heartbeat interval
 	heartbeatInterval := DefaultHeartbeatInterval

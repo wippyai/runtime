@@ -147,7 +147,7 @@ func BenchmarkAfterCreateParallel(b *testing.B) {
 // Dispatcher Benchmarks
 
 func BenchmarkDispatcherSleep(b *testing.B) {
-	d := NewBlockingDispatcher()
+	d := NewDispatcher()
 	defer d.Stop(context.Background())
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
@@ -167,7 +167,7 @@ func BenchmarkDispatcherSleep(b *testing.B) {
 }
 
 func BenchmarkDispatcherSleepZero(b *testing.B) {
-	d := NewBlockingDispatcher()
+	d := NewDispatcher()
 	defer d.Stop(context.Background())
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
@@ -183,7 +183,7 @@ func BenchmarkDispatcherSleepZero(b *testing.B) {
 }
 
 func BenchmarkDispatcherNow(b *testing.B) {
-	d := NewBlockingDispatcher()
+	d := NewDispatcher()
 	defer d.Stop(context.Background())
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
@@ -199,7 +199,7 @@ func BenchmarkDispatcherNow(b *testing.B) {
 }
 
 func BenchmarkDispatcherTimerStartWait(b *testing.B) {
-	d := NewBlockingDispatcher()
+	d := NewDispatcher()
 	defer d.Stop(context.Background())
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
@@ -224,7 +224,7 @@ func BenchmarkDispatcherTimerStartWait(b *testing.B) {
 }
 
 func BenchmarkDispatcherTimerStartStop(b *testing.B) {
-	d := NewBlockingDispatcher()
+	d := NewDispatcher()
 	defer d.Stop(context.Background())
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
@@ -245,7 +245,7 @@ func BenchmarkDispatcherTimerStartStop(b *testing.B) {
 }
 
 func BenchmarkDispatcherTickerStartNext(b *testing.B) {
-	d := NewBlockingDispatcher()
+	d := NewDispatcher()
 	defer d.Stop(context.Background())
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
@@ -275,7 +275,7 @@ func BenchmarkDispatcherTickerStartNext(b *testing.B) {
 }
 
 func BenchmarkDispatcherAfter(b *testing.B) {
-	d := NewBlockingDispatcher()
+	d := NewDispatcher()
 	defer d.Stop(context.Background())
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)

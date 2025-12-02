@@ -310,3 +310,100 @@ func TestTranscoder_InvalidUnmarshalTarget(t *testing.T) {
 		t.Error("Expected error for non-pointer target, got nil")
 	}
 }
+
+func TestTranscoder_SameFormat(t *testing.T) {
+	transcoder := NewTranscoder()
+	formatA := payload.Format("format/A")
+
+	p := payload.NewPayload("test", formatA)
+	result, err := transcoder.Transcode(p, formatA)
+	if err != nil {
+		t.Errorf("Transcode same format should not error: %v", err)
+	}
+	if result != p {
+		t.Error("Transcode same format should return same payload")
+	}
+}
+
+func TestTranscoder_EmptyPayloadFormat(t *testing.T) {
+	transcoder := NewTranscoder()
+
+	p := payload.NewPayload("test", "")
+	var result string
+	err := transcoder.Unmarshal(p, &result)
+	if err == nil {
+		t.Error("Expected error for empty format, got nil")
+	}
+}
+
+func TestTranscoder_GlobalTranscoder(t *testing.T) {
+	t1 := GlobalTranscoder()
+	t2 := GlobalTranscoder()
+	if t1 != t2 {
+		t.Error("GlobalTranscoder should return same instance")
+	}
+}
+
+// Benchmarks
+
+func BenchmarkTranscode_SingleStep(b *testing.B) {
+	transcoder := NewTranscoder()
+	formatA := payload.Format("format/A")
+	formatB := payload.Format("format/B")
+
+	transcoderAB := &MockFormatTranscoder{
+		From: formatA,
+		To:   formatB,
+	}
+	transcoder.RegisterTranscoder(formatA, formatB, 1, transcoderAB)
+
+	p := payload.NewPayload("test", formatA)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = transcoder.Transcode(p, formatB)
+	}
+}
+
+func BenchmarkTranscode_MultiStep(b *testing.B) {
+	transcoder := NewTranscoder()
+	formatA := payload.Format("format/A")
+	formatB := payload.Format("format/B")
+	formatC := payload.Format("format/C")
+
+	transcoder.RegisterTranscoder(formatA, formatB, 1, &MockFormatTranscoder{From: formatA, To: formatB})
+	transcoder.RegisterTranscoder(formatB, formatC, 1, &MockFormatTranscoder{From: formatB, To: formatC})
+
+	p := payload.NewPayload("test", formatA)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = transcoder.Transcode(p, formatC)
+	}
+}
+
+func BenchmarkTranscode_SameFormat(b *testing.B) {
+	transcoder := NewTranscoder()
+	formatA := payload.Format("format/A")
+	p := payload.NewPayload("test", formatA)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = transcoder.Transcode(p, formatA)
+	}
+}
+
+func BenchmarkUnmarshal_Direct(b *testing.B) {
+	transcoder := NewTranscoder()
+	formatA := payload.Format("format/A")
+
+	transcoder.RegisterUnmarshaler(formatA, &MockUnmarshaler{Format: formatA})
+
+	p := payload.NewPayload("test", formatA)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var result string
+		_ = transcoder.Unmarshal(p, &result)
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"io"
 	osexec "os/exec"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,7 +32,12 @@ func (m *mockProcess) Wait() error {
 }
 
 func TestProcessWaitHandler_Handle_Success(t *testing.T) {
-	handler := NewProcessWaitHandler()
+	d := NewDispatcher()
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
 
 	proc := &mockProcess{waitErr: nil}
 
@@ -40,17 +46,31 @@ func TestProcessWaitHandler_Handle_Success(t *testing.T) {
 	}
 
 	var response execapi.ProcessWaitResponse
-	err := handler.Handle(context.Background(), cmd, func(data any) {
+	done := make(chan struct{})
+	err := handlers[execapi.CmdProcessWait].Handle(context.Background(), cmd, func(data any) {
 		response = data.(execapi.ProcessWaitResponse)
+		close(done)
 	})
 
 	require.NoError(t, err)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for response")
+	}
+
 	assert.Equal(t, 0, response.ExitCode)
 	assert.NoError(t, response.Error)
 }
 
 func TestProcessWaitHandler_Handle_ExitError(t *testing.T) {
-	handler := NewProcessWaitHandler()
+	d := NewDispatcher()
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
 
 	exitErr := &osexec.ExitError{}
 	proc := &mockProcess{waitErr: exitErr}
@@ -60,16 +80,30 @@ func TestProcessWaitHandler_Handle_ExitError(t *testing.T) {
 	}
 
 	var response execapi.ProcessWaitResponse
-	err := handler.Handle(context.Background(), cmd, func(data any) {
+	done := make(chan struct{})
+	err := handlers[execapi.CmdProcessWait].Handle(context.Background(), cmd, func(data any) {
 		response = data.(execapi.ProcessWaitResponse)
+		close(done)
 	})
 
 	require.NoError(t, err)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for response")
+	}
+
 	assert.NoError(t, response.Error)
 }
 
 func TestProcessWaitHandler_Handle_OtherError(t *testing.T) {
-	handler := NewProcessWaitHandler()
+	d := NewDispatcher()
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
 
 	expectedErr := errors.New("some unexpected error")
 	proc := &mockProcess{waitErr: expectedErr}
@@ -79,21 +113,25 @@ func TestProcessWaitHandler_Handle_OtherError(t *testing.T) {
 	}
 
 	var response execapi.ProcessWaitResponse
-	err := handler.Handle(context.Background(), cmd, func(data any) {
+	done := make(chan struct{})
+	err := handlers[execapi.CmdProcessWait].Handle(context.Background(), cmd, func(data any) {
 		response = data.(execapi.ProcessWaitResponse)
+		close(done)
 	})
 
 	require.NoError(t, err)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for response")
+	}
+
 	assert.ErrorIs(t, response.Error, expectedErr)
 }
 
-func TestNewDispatcherService(t *testing.T) {
-	svc := NewDispatcherService()
-	assert.NotNil(t, svc.Wait)
-}
-
-func TestDispatcherService_RegisterAll(t *testing.T) {
-	svc := NewDispatcherService()
+func TestDispatcher_RegisterAll(t *testing.T) {
+	d := NewDispatcher()
 
 	var registered []dispatcher.CommandID
 	register := func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -101,7 +139,7 @@ func TestDispatcherService_RegisterAll(t *testing.T) {
 		assert.NotNil(t, h)
 	}
 
-	svc.RegisterAll(register)
+	d.RegisterAll(register)
 
 	assert.Len(t, registered, 1)
 	assert.Contains(t, registered, execapi.CmdProcessWait)

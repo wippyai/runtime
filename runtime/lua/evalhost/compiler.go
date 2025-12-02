@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/wippyai/runtime/api/eval"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	lua "github.com/yuin/gopher-lua"
@@ -84,7 +83,7 @@ func NewCompiler(modules []lua2api.Module, opts ...CompilerOption) *Compiler {
 }
 
 // Compile compiles Lua source into a Program.
-func (c *Compiler) Compile(cmd eval.CompileCmd) (eval.Program, error) {
+func (c *Compiler) Compile(cmd CompileCmd) (*Program, error) {
 	// Determine modules to use
 	modules := cmd.Modules
 	if len(modules) == 0 {

@@ -147,40 +147,6 @@ func TestFrameContext_ScopeInheritance(t *testing.T) {
 		t.Errorf("child.Get(inheritKey) = %v, %v, want inherit_value, true", got, ok)
 	}
 
-	// Verify parent reference
-	if child.Parent() != parent {
-		t.Error("child.Parent() != parent")
-	}
-}
-
-func TestFrameContext_Parent(t *testing.T) {
-	parentCtx, parent := newFrameContext(context.Background())
-	parentKey := &Key{Name: "parent.key"}
-	_ = parent.Set(parentKey, "parent_value")
-
-	_, child := newFrameContext(parentCtx)
-	childKey := &Key{Name: "child.key"}
-	_ = child.Set(childKey, "child_value")
-
-	// Verify parent reference
-	if child.Parent() == nil {
-		t.Fatal("child.Parent() = nil, want parent")
-	}
-
-	// Verify parent has its values
-	if got, ok := child.Parent().Get(parentKey); !ok || got != "parent_value" {
-		t.Errorf("child.Parent().Get(parentKey) = %v, %v, want parent_value, true", got, ok)
-	}
-
-	// Child should NOT have parent's value (no auto-inheritance via newFrameContext)
-	if got, ok := child.Get(parentKey); ok {
-		t.Errorf("child.Get(parentKey) = %v, %v, want nil, false (not inherited)", got, ok)
-	}
-
-	// Verify child has its own values
-	if got, ok := child.Get(childKey); !ok || got != "child_value" {
-		t.Errorf("child.Get(childKey) = %v, %v, want child_value, true", got, ok)
-	}
 }
 
 func TestFrameContext_ConcurrentAccess(t *testing.T) {

@@ -4,10 +4,10 @@ package eval
 import (
 	"sync"
 
-	evalapi "github.com/wippyai/runtime/api/eval"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/evalhost"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -45,8 +45,8 @@ func (m *evalModule) Register(l *lua.LState) *lua2api.Registration {
 		registration = &lua2api.Registration{
 			Table: moduleTable,
 			YieldTypes: []lua2api.YieldType{
-				{Sample: &CompileYield{}, CmdID: evalapi.CmdCompile},
-				{Sample: &RunYield{}, CmdID: evalapi.CmdRun},
+				{Sample: &CompileYield{}, CmdID: evalhost.CmdCompile},
+				{Sample: &RunYield{}, CmdID: evalhost.CmdRun},
 			},
 		}
 	})

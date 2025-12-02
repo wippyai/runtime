@@ -16,6 +16,11 @@ import (
 	"github.com/wippyai/runtime/api/store"
 )
 
+// emitFunc adapts a function to dispatcher.Emitter for tests.
+type emitFunc func(data any, err error)
+
+func (f emitFunc) Emit(data any, err error) { f(data, err) }
+
 type mockStore struct {
 	data  map[string]payload.Payload
 	mu    sync.RWMutex
@@ -69,22 +74,16 @@ func (s *mockStore) Has(_ context.Context, key registry.ID) (bool, error) {
 	return ok, nil
 }
 
-// getHandler returns a handler for the dispatcher.
-func getHandler(d *Dispatcher) *handler {
-	return &handler{d: d}
-}
-
-func TestBlockingDispatcher(t *testing.T) {
-	d := NewBlockingDispatcher()
+func TestDispatcher(t *testing.T) {
+	d := NewDispatcher(2)
 	require.NoError(t, d.Start(context.Background()))
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	ms := newMockStore()
 	ctx := context.Background()
-	h := getHandler(d)
 
 	// Test Set
-	var setResp storeapi.StoreSetResponse
+	setDone := make(chan storeapi.StoreSetResponse, 1)
 	setCmd := &storeapi.StoreSetCmd{
 		Store: ms,
 		Entry: store.Entry{
@@ -93,68 +92,90 @@ func TestBlockingDispatcher(t *testing.T) {
 		},
 	}
 
-	err := h.Handle(ctx, setCmd, func(data any) {
-		setResp = data.(storeapi.StoreSetResponse)
-	})
+	err := d.handle(ctx, setCmd, emitFunc(func(data any, _ error) {
+		setDone <- data.(storeapi.StoreSetResponse)
+	}))
 	require.NoError(t, err)
-	assert.NoError(t, setResp.Error)
+
+	select {
+	case resp := <-setDone:
+		assert.NoError(t, resp.Error)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for set response")
+	}
 
 	// Test Get
-	var getResp storeapi.StoreGetResponse
+	getDone := make(chan storeapi.StoreGetResponse, 1)
 	getCmd := &storeapi.StoreGetCmd{
 		Store: ms,
 		Key:   registry.ID{NS: "test", Name: "key1"},
 	}
 
-	err = h.Handle(ctx, getCmd, func(data any) {
-		getResp = data.(storeapi.StoreGetResponse)
-	})
+	err = d.handle(ctx, getCmd, emitFunc(func(data any, _ error) {
+		getDone <- data.(storeapi.StoreGetResponse)
+	}))
 	require.NoError(t, err)
-	assert.NoError(t, getResp.Error)
-	assert.NotNil(t, getResp.Value)
+
+	select {
+	case resp := <-getDone:
+		assert.NoError(t, resp.Error)
+		assert.NotNil(t, resp.Value)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for get response")
+	}
 
 	// Test Has
-	var hasResp storeapi.StoreHasResponse
+	hasDone := make(chan storeapi.StoreHasResponse, 1)
 	hasCmd := &storeapi.StoreHasCmd{
 		Store: ms,
 		Key:   registry.ID{NS: "test", Name: "key1"},
 	}
 
-	err = h.Handle(ctx, hasCmd, func(data any) {
-		hasResp = data.(storeapi.StoreHasResponse)
-	})
+	err = d.handle(ctx, hasCmd, emitFunc(func(data any, _ error) {
+		hasDone <- data.(storeapi.StoreHasResponse)
+	}))
 	require.NoError(t, err)
-	assert.NoError(t, hasResp.Error)
-	assert.True(t, hasResp.Exists)
+
+	select {
+	case resp := <-hasDone:
+		assert.NoError(t, resp.Error)
+		assert.True(t, resp.Exists)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for has response")
+	}
 
 	// Test Delete
-	var delResp storeapi.StoreDeleteResponse
+	delDone := make(chan storeapi.StoreDeleteResponse, 1)
 	delCmd := &storeapi.StoreDeleteCmd{
 		Store: ms,
 		Key:   registry.ID{NS: "test", Name: "key1"},
 	}
 
-	err = h.Handle(ctx, delCmd, func(data any) {
-		delResp = data.(storeapi.StoreDeleteResponse)
-	})
+	err = d.handle(ctx, delCmd, emitFunc(func(data any, _ error) {
+		delDone <- data.(storeapi.StoreDeleteResponse)
+	}))
 	require.NoError(t, err)
-	assert.NoError(t, delResp.Error)
+
+	select {
+	case resp := <-delDone:
+		assert.NoError(t, resp.Error)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for delete response")
+	}
 }
 
-func TestAsyncDispatcher(t *testing.T) {
-	d := NewAsyncDispatcher(2)
+func TestDispatcher_Concurrent(t *testing.T) {
+	d := NewDispatcher(4)
 	require.NoError(t, d.Start(context.Background()))
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	ms := newMockStore()
 	ms.delay = 10 * time.Millisecond
 	ctx := context.Background()
-	h := getHandler(d)
 
 	var wg sync.WaitGroup
 	results := make(chan storeapi.StoreSetResponse, 10)
 
-	// Submit multiple operations concurrently
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func() {
@@ -166,15 +187,14 @@ func TestAsyncDispatcher(t *testing.T) {
 					Value: payload.New("value"),
 				},
 			}
-			_ = h.Handle(ctx, cmd, func(data any) {
+			_ = d.handle(ctx, cmd, emitFunc(func(data any, _ error) {
 				results <- data.(storeapi.StoreSetResponse)
-			})
+			}))
 		}()
 	}
 
 	wg.Wait()
 
-	// Wait for all results
 	timeout := time.After(2 * time.Second)
 	for i := 0; i < 10; i++ {
 		select {
@@ -187,7 +207,7 @@ func TestAsyncDispatcher(t *testing.T) {
 }
 
 func TestRegisterAll(t *testing.T) {
-	d := NewBlockingDispatcher()
+	d := NewDispatcher(4)
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -202,89 +222,79 @@ func TestRegisterAll(t *testing.T) {
 }
 
 func TestDispatcher_Lifecycle(t *testing.T) {
-	t.Run("blocking mode - no workers", func(t *testing.T) {
-		d := NewBlockingDispatcher()
-		assert.Equal(t, 0, d.workers)
-		assert.False(t, d.isAsync())
-
-		// Start should be no-op
-		require.NoError(t, d.Start(context.Background()))
-		assert.False(t, d.isAsync())
-
-		// Stop should be no-op
-		require.NoError(t, d.Stop(context.Background()))
+	t.Run("default workers", func(t *testing.T) {
+		d := NewDispatcher(0)
+		assert.Equal(t, 4, d.workers)
 	})
 
-	t.Run("async mode - starts workers", func(t *testing.T) {
-		d := NewAsyncDispatcher(4)
-		assert.Equal(t, 4, d.workers)
+	t.Run("custom workers", func(t *testing.T) {
+		d := NewDispatcher(8)
+		assert.Equal(t, 8, d.workers)
 
 		require.NoError(t, d.Start(context.Background()))
-		assert.True(t, d.isAsync())
 		assert.NotNil(t, d.jobs)
 
 		require.NoError(t, d.Stop(context.Background()))
 	})
-
-	t.Run("config constructor", func(t *testing.T) {
-		d := NewDispatcher(Config{Workers: 8})
-		assert.Equal(t, 8, d.workers)
-	})
-
-	t.Run("async with zero workers defaults to 4", func(t *testing.T) {
-		d := NewAsyncDispatcher(0)
-		assert.Equal(t, 4, d.workers)
-	})
 }
 
 func TestDispatcher_ErrorHandling(t *testing.T) {
-	d := NewBlockingDispatcher()
+	d := NewDispatcher(2)
 	require.NoError(t, d.Start(context.Background()))
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	ms := newMockStore()
 	ctx := context.Background()
-	h := getHandler(d)
 
 	// Test Get on non-existent key
-	var getResp storeapi.StoreGetResponse
+	getDone := make(chan storeapi.StoreGetResponse, 1)
 	getCmd := &storeapi.StoreGetCmd{
 		Store: ms,
 		Key:   registry.ID{NS: "test", Name: "nonexistent"},
 	}
 
-	err := h.Handle(ctx, getCmd, func(data any) {
-		getResp = data.(storeapi.StoreGetResponse)
-	})
+	err := d.handle(ctx, getCmd, emitFunc(func(data any, _ error) {
+		getDone <- data.(storeapi.StoreGetResponse)
+	}))
 	require.NoError(t, err)
-	assert.ErrorIs(t, getResp.Error, store.ErrKeyNotFound)
-	assert.Nil(t, getResp.Value)
+
+	select {
+	case resp := <-getDone:
+		assert.ErrorIs(t, resp.Error, store.ErrKeyNotFound)
+		assert.Nil(t, resp.Value)
+	case <-time.After(time.Second):
+		t.Fatal("timeout")
+	}
 
 	// Test Has on non-existent key
-	var hasResp storeapi.StoreHasResponse
+	hasDone := make(chan storeapi.StoreHasResponse, 1)
 	hasCmd := &storeapi.StoreHasCmd{
 		Store: ms,
 		Key:   registry.ID{NS: "test", Name: "nonexistent"},
 	}
 
-	err = h.Handle(ctx, hasCmd, func(data any) {
-		hasResp = data.(storeapi.StoreHasResponse)
-	})
+	err = d.handle(ctx, hasCmd, emitFunc(func(data any, _ error) {
+		hasDone <- data.(storeapi.StoreHasResponse)
+	}))
 	require.NoError(t, err)
-	assert.NoError(t, hasResp.Error)
-	assert.False(t, hasResp.Exists)
+
+	select {
+	case resp := <-hasDone:
+		assert.NoError(t, resp.Error)
+		assert.False(t, resp.Exists)
+	case <-time.After(time.Second):
+		t.Fatal("timeout")
+	}
 }
 
-func TestAsyncDispatcher_GracefulShutdown(t *testing.T) {
-	d := NewAsyncDispatcher(2)
+func TestDispatcher_GracefulShutdown(t *testing.T) {
+	d := NewDispatcher(2)
 	require.NoError(t, d.Start(context.Background()))
 
 	ms := newMockStore()
 	ms.delay = 50 * time.Millisecond
 	ctx := context.Background()
-	h := getHandler(d)
 
-	// Submit a slow operation
 	done := make(chan struct{})
 	cmd := &storeapi.StoreSetCmd{
 		Store: ms,
@@ -293,32 +303,25 @@ func TestAsyncDispatcher_GracefulShutdown(t *testing.T) {
 			Value: payload.New("value"),
 		},
 	}
-	_ = h.Handle(ctx, cmd, func(_ any) {
+	_ = d.handle(ctx, cmd, emitFunc(func(_ any, _ error) {
 		close(done)
-	})
+	}))
 
-	// Stop should wait for in-flight operations
 	require.NoError(t, d.Stop(context.Background()))
 
-	// Operation should have completed
 	select {
 	case <-done:
-		// Good - operation completed before shutdown
 	case <-time.After(200 * time.Millisecond):
-		// Also acceptable - operation may have been cancelled
 	}
 }
 
-func TestAsyncDispatcher_AllOperations(t *testing.T) {
-	d := NewAsyncDispatcher(2)
+func TestDispatcher_AllOperations(t *testing.T) {
+	d := NewDispatcher(2)
 	require.NoError(t, d.Start(context.Background()))
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	ms := newMockStore()
 	ctx := context.Background()
-
-	// Test all operations through async dispatcher
-	h := getHandler(d)
 
 	t.Run("Set", func(t *testing.T) {
 		done := make(chan storeapi.StoreSetResponse, 1)
@@ -329,9 +332,9 @@ func TestAsyncDispatcher_AllOperations(t *testing.T) {
 				Value: payload.New("async-value"),
 			},
 		}
-		require.NoError(t, h.Handle(ctx, cmd, func(data any) {
+		require.NoError(t, d.handle(ctx, cmd, emitFunc(func(data any, _ error) {
 			done <- data.(storeapi.StoreSetResponse)
-		}))
+		})))
 
 		select {
 		case resp := <-done:
@@ -347,9 +350,9 @@ func TestAsyncDispatcher_AllOperations(t *testing.T) {
 			Store: ms,
 			Key:   registry.ID{NS: "test", Name: "async-key"},
 		}
-		require.NoError(t, h.Handle(ctx, cmd, func(data any) {
+		require.NoError(t, d.handle(ctx, cmd, emitFunc(func(data any, _ error) {
 			done <- data.(storeapi.StoreGetResponse)
-		}))
+		})))
 
 		select {
 		case resp := <-done:
@@ -366,9 +369,9 @@ func TestAsyncDispatcher_AllOperations(t *testing.T) {
 			Store: ms,
 			Key:   registry.ID{NS: "test", Name: "async-key"},
 		}
-		require.NoError(t, h.Handle(ctx, cmd, func(data any) {
+		require.NoError(t, d.handle(ctx, cmd, emitFunc(func(data any, _ error) {
 			done <- data.(storeapi.StoreHasResponse)
-		}))
+		})))
 
 		select {
 		case resp := <-done:
@@ -385,9 +388,9 @@ func TestAsyncDispatcher_AllOperations(t *testing.T) {
 			Store: ms,
 			Key:   registry.ID{NS: "test", Name: "async-key"},
 		}
-		require.NoError(t, h.Handle(ctx, cmd, func(data any) {
+		require.NoError(t, d.handle(ctx, cmd, emitFunc(func(data any, _ error) {
 			done <- data.(storeapi.StoreDeleteResponse)
-		}))
+		})))
 
 		select {
 		case resp := <-done:
@@ -398,65 +401,42 @@ func TestAsyncDispatcher_AllOperations(t *testing.T) {
 	})
 }
 
-func BenchmarkDispatcher_Blocking(b *testing.B) {
-	d := NewBlockingDispatcher()
+func BenchmarkDispatcher(b *testing.B) {
+	d := NewDispatcher(4)
 	_ = d.Start(context.Background())
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	ms := newMockStore()
 	ctx := context.Background()
 	key := registry.ID{NS: "bench", Name: "key"}
-	h := getHandler(d)
-
-	// Pre-populate
-	ms.data[key.String()] = payload.New("value")
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		cmd := &storeapi.StoreGetCmd{Store: ms, Key: key}
-		_ = h.Handle(ctx, cmd, func(_ any) {})
-	}
-}
-
-func BenchmarkDispatcher_Async(b *testing.B) {
-	d := NewAsyncDispatcher(4)
-	_ = d.Start(context.Background())
-	defer func() { _ = d.Stop(context.Background()) }()
-
-	ms := newMockStore()
-	ctx := context.Background()
-	key := registry.ID{NS: "bench", Name: "key"}
-	h := getHandler(d)
-
-	// Pre-populate
 	ms.data[key.String()] = payload.New("value")
 
 	var wg sync.WaitGroup
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		wg.Add(1)
-		cmd := &storeapi.StoreGetCmd{Store: ms, Key: key}
-		_ = h.Handle(ctx, cmd, func(_ any) {
-			wg.Done()
-		})
-	}
+
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			wg.Add(1)
+			cmd := &storeapi.StoreGetCmd{Store: ms, Key: key}
+			_ = d.handle(ctx, cmd, emitFunc(func(_ any, _ error) {
+				wg.Done()
+			}))
+		}
+	})
 	wg.Wait()
 }
-
-// Stress tests
 
 func TestStress_HighConcurrency(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping stress test in short mode")
 	}
 
-	d := NewAsyncDispatcher(8)
+	d := NewDispatcher(8)
 	require.NoError(t, d.Start(context.Background()))
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	ms := newMockStore()
 	ctx := context.Background()
-	h := getHandler(d)
 
 	const (
 		numGoroutines   = 100
@@ -474,33 +454,31 @@ func TestStress_HighConcurrency(t *testing.T) {
 			for i := 0; i < opsPerGoroutine; i++ {
 				key := registry.ID{NS: "stress", Name: fmt.Sprintf("key-%d-%d", goroutineID, i)}
 
-				// Set
 				setDone := make(chan struct{})
 				setCmd := &storeapi.StoreSetCmd{
 					Store: ms,
 					Entry: store.Entry{Key: key, Value: payload.New("value")},
 				}
-				if err := h.Handle(ctx, setCmd, func(data any) {
+				if err := d.handle(ctx, setCmd, emitFunc(func(data any, _ error) {
 					resp := data.(storeapi.StoreSetResponse)
 					if resp.Error != nil {
 						errors <- resp.Error
 					}
 					close(setDone)
-				}); err != nil {
+				})); err != nil {
 					errors <- err
 				}
 				<-setDone
 
-				// Get
 				getDone := make(chan struct{})
 				getCmd := &storeapi.StoreGetCmd{Store: ms, Key: key}
-				if err := h.Handle(ctx, getCmd, func(data any) {
+				if err := d.handle(ctx, getCmd, emitFunc(func(data any, _ error) {
 					resp := data.(storeapi.StoreGetResponse)
 					if resp.Error != nil {
 						errors <- resp.Error
 					}
 					close(getDone)
-				}); err != nil {
+				})); err != nil {
 					errors <- err
 				}
 				<-getDone
@@ -525,11 +503,9 @@ func TestStress_RapidStartStop(t *testing.T) {
 	}
 
 	for i := 0; i < 100; i++ {
-		d := NewAsyncDispatcher(4)
+		d := NewDispatcher(4)
 		require.NoError(t, d.Start(context.Background()))
-		h := getHandler(d)
 
-		// Submit some work
 		ms := newMockStore()
 		done := make(chan struct{})
 		cmd := &storeapi.StoreSetCmd{
@@ -539,11 +515,10 @@ func TestStress_RapidStartStop(t *testing.T) {
 				Value: payload.New("value"),
 			},
 		}
-		_ = h.Handle(context.Background(), cmd, func(_ any) {
+		_ = d.handle(context.Background(), cmd, emitFunc(func(_ any, _ error) {
 			close(done)
-		})
+		}))
 
-		// Stop immediately
 		require.NoError(t, d.Stop(context.Background()))
 	}
 }
@@ -553,13 +528,12 @@ func TestStress_MixedOperations(t *testing.T) {
 		t.Skip("skipping stress test in short mode")
 	}
 
-	d := NewAsyncDispatcher(4)
+	d := NewDispatcher(4)
 	require.NoError(t, d.Start(context.Background()))
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	ms := newMockStore()
 	ctx := context.Background()
-	h := getHandler(d)
 
 	const numOps = 10000
 	var wg sync.WaitGroup
@@ -572,21 +546,21 @@ func TestStress_MixedOperations(t *testing.T) {
 			key := registry.ID{NS: "mixed", Name: fmt.Sprintf("key-%d", i%100)}
 
 			switch i % 4 {
-			case 0: // Set
+			case 0:
 				cmd := &storeapi.StoreSetCmd{
 					Store: ms,
 					Entry: store.Entry{Key: key, Value: payload.New(fmt.Sprintf("value-%d", i))},
 				}
-				_ = h.Handle(ctx, cmd, func(_ any) {})
-			case 1: // Get
+				_ = d.handle(ctx, cmd, emitFunc(func(_ any, _ error) {}))
+			case 1:
 				cmd := &storeapi.StoreGetCmd{Store: ms, Key: key}
-				_ = h.Handle(ctx, cmd, func(_ any) {})
-			case 2: // Has
+				_ = d.handle(ctx, cmd, emitFunc(func(_ any, _ error) {}))
+			case 2:
 				cmd := &storeapi.StoreHasCmd{Store: ms, Key: key}
-				_ = h.Handle(ctx, cmd, func(_ any) {})
-			case 3: // Delete
+				_ = d.handle(ctx, cmd, emitFunc(func(_ any, _ error) {}))
+			case 3:
 				cmd := &storeapi.StoreDeleteCmd{Store: ms, Key: key}
-				_ = h.Handle(ctx, cmd, func(_ any) {})
+				_ = d.handle(ctx, cmd, emitFunc(func(_ any, _ error) {}))
 			}
 		}(i)
 	}
@@ -594,16 +568,13 @@ func TestStress_MixedOperations(t *testing.T) {
 	wg.Wait()
 }
 
-// Race condition tests - these are designed to be run with -race flag
-
 func TestRace_ConcurrentSubmit(t *testing.T) {
-	d := NewAsyncDispatcher(2)
+	d := NewDispatcher(2)
 	require.NoError(t, d.Start(context.Background()))
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	ms := newMockStore()
 	ctx := context.Background()
-	h := getHandler(d)
 
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
@@ -616,9 +587,9 @@ func TestRace_ConcurrentSubmit(t *testing.T) {
 				Entry: store.Entry{Key: key, Value: payload.New("value")},
 			}
 			done := make(chan struct{})
-			_ = h.Handle(ctx, cmd, func(_ any) {
+			_ = d.handle(ctx, cmd, emitFunc(func(_ any, _ error) {
 				close(done)
-			})
+			}))
 			<-done
 		}(i)
 	}
@@ -627,14 +598,12 @@ func TestRace_ConcurrentSubmit(t *testing.T) {
 
 func TestRace_SubmitDuringShutdown(t *testing.T) {
 	for i := 0; i < 10; i++ {
-		d := NewAsyncDispatcher(2)
+		d := NewDispatcher(2)
 		require.NoError(t, d.Start(context.Background()))
-		h := getHandler(d)
 
 		ms := newMockStore()
 		ctx := context.Background()
 
-		// Start submitting
 		var submitWg sync.WaitGroup
 		stopSubmit := make(chan struct{})
 
@@ -653,22 +622,18 @@ func TestRace_SubmitDuringShutdown(t *testing.T) {
 							Value: payload.New("value"),
 						},
 					}
-					_ = h.Handle(ctx, cmd, func(_ any) {})
+					_ = d.handle(ctx, cmd, emitFunc(func(_ any, _ error) {}))
 				}
 			}
 		}()
 
-		// Let it run briefly then stop
 		time.Sleep(time.Millisecond)
 		close(stopSubmit)
 
-		// Stop dispatcher while submissions might still be in flight
 		require.NoError(t, d.Stop(context.Background()))
 		submitWg.Wait()
 	}
 }
-
-// Benchmark with different worker counts
 
 func BenchmarkDispatcher_Workers1(b *testing.B) {
 	benchmarkWithWorkers(b, 1)
@@ -691,7 +656,7 @@ func BenchmarkDispatcher_Workers16(b *testing.B) {
 }
 
 func benchmarkWithWorkers(b *testing.B, workers int) {
-	d := NewAsyncDispatcher(workers)
+	d := NewDispatcher(workers)
 	_ = d.Start(context.Background())
 	defer func() { _ = d.Stop(context.Background()) }()
 
@@ -699,7 +664,6 @@ func benchmarkWithWorkers(b *testing.B, workers int) {
 	ctx := context.Background()
 	key := registry.ID{NS: "bench", Name: "key"}
 	ms.data[key.String()] = payload.New("value")
-	h := getHandler(d)
 
 	var wg sync.WaitGroup
 	b.ResetTimer()
@@ -708,27 +672,24 @@ func benchmarkWithWorkers(b *testing.B, workers int) {
 		for pb.Next() {
 			wg.Add(1)
 			cmd := &storeapi.StoreGetCmd{Store: ms, Key: key}
-			_ = h.Handle(ctx, cmd, func(_ any) {
+			_ = d.handle(ctx, cmd, emitFunc(func(_ any, _ error) {
 				wg.Done()
-			})
+			}))
 		}
 	})
 	wg.Wait()
 }
 
-// Benchmark simulating real I/O latency
-
 func BenchmarkDispatcher_WithLatency(b *testing.B) {
-	d := NewAsyncDispatcher(8)
+	d := NewDispatcher(8)
 	_ = d.Start(context.Background())
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	ms := newMockStore()
-	ms.delay = 100 * time.Microsecond // Simulate fast I/O
+	ms.delay = 100 * time.Microsecond
 	ctx := context.Background()
 	key := registry.ID{NS: "bench", Name: "key"}
 	ms.data[key.String()] = payload.New("value")
-	h := getHandler(d)
 
 	var wg sync.WaitGroup
 	b.ResetTimer()
@@ -736,9 +697,9 @@ func BenchmarkDispatcher_WithLatency(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		wg.Add(1)
 		cmd := &storeapi.StoreGetCmd{Store: ms, Key: key}
-		_ = h.Handle(ctx, cmd, func(_ any) {
+		_ = d.handle(ctx, cmd, emitFunc(func(_ any, _ error) {
 			wg.Done()
-		})
+		}))
 	}
 	wg.Wait()
 }

@@ -10,6 +10,8 @@ import (
 )
 
 func Security() boot.Component {
+	var svc *security.Dispatcher
+
 	return boot.New(boot.P{
 		Name:      SecurityDispatcherName,
 		DependsOn: []boot.ComponentName{DispatcherName},
@@ -18,9 +20,21 @@ func Security() boot.Component {
 			if reg == nil {
 				return ctx, fmt.Errorf("dispatcher registrar not found in context")
 			}
-			svc := security.NewService()
+			svc = security.NewDispatcher(4)
 			svc.RegisterAll(reg.Register)
 			return ctx, nil
+		},
+		Start: func(ctx context.Context) error {
+			if svc != nil {
+				return svc.Start(ctx)
+			}
+			return nil
+		},
+		Stop: func(ctx context.Context) error {
+			if svc != nil {
+				return svc.Stop(ctx)
+			}
+			return nil
 		},
 	})
 }

@@ -117,7 +117,7 @@ func TestClientPoolNoResourceExhaustion(t *testing.T) {
 	}
 }
 
-func TestRequestHandler(t *testing.T) {
+func TestDispatcher_Request(t *testing.T) {
 	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
 		w.Header().Set("X-Custom", "test")
 		gohttp.SetCookie(w, &gohttp.Cookie{Name: "session", Value: "abc123"})
@@ -126,37 +126,43 @@ func TestRequestHandler(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	h := NewRequestHandler()
-	var resp httpapi.Response
+	d := NewDispatcher()
+	done := make(chan httpapi.Response, 1)
 
-	err := h.Handle(context.Background(), &httpapi.RequestCmd{
+	err := d.handleRequest(context.Background(), &httpapi.RequestCmd{
 		Method: "GET",
 		URL:    ts.URL,
 	}, func(data any) {
-		resp = data.(httpapi.Response)
+		done <- data.(httpapi.Response)
 	})
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Error != "" {
-		t.Fatalf("unexpected response error: %s", resp.Error)
-	}
-	if resp.StatusCode != 200 {
-		t.Errorf("expected 200, got %d", resp.StatusCode)
-	}
-	if string(resp.Body) != "hello" {
-		t.Errorf("expected 'hello', got %q", resp.Body)
-	}
-	if resp.Headers["X-Custom"] != "test" {
-		t.Errorf("missing custom header")
-	}
-	if resp.Cookies["session"] != "abc123" {
-		t.Errorf("missing cookie")
+
+	select {
+	case resp := <-done:
+		if resp.Error != "" {
+			t.Fatalf("unexpected response error: %s", resp.Error)
+		}
+		if resp.StatusCode != 200 {
+			t.Errorf("expected 200, got %d", resp.StatusCode)
+		}
+		if string(resp.Body) != "hello" {
+			t.Errorf("expected 'hello', got %q", resp.Body)
+		}
+		if resp.Headers["X-Custom"] != "test" {
+			t.Errorf("missing custom header")
+		}
+		if resp.Cookies["session"] != "abc123" {
+			t.Errorf("missing cookie")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout")
 	}
 }
 
-func TestRequestHandlerPost(t *testing.T) {
+func TestDispatcher_RequestPost(t *testing.T) {
 	var receivedBody []byte
 	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
 		receivedBody, _ = io.ReadAll(r.Body)
@@ -164,136 +170,166 @@ func TestRequestHandlerPost(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	h := NewRequestHandler()
-	var resp httpapi.Response
+	d := NewDispatcher()
+	done := make(chan httpapi.Response, 1)
 
-	err := h.Handle(context.Background(), &httpapi.RequestCmd{
+	err := d.handleRequest(context.Background(), &httpapi.RequestCmd{
 		Method:  "POST",
 		URL:     ts.URL,
 		Body:    []byte(`{"key":"value"}`),
 		Headers: map[string]string{"Content-Type": "application/json"},
 	}, func(data any) {
-		resp = data.(httpapi.Response)
+		done <- data.(httpapi.Response)
 	})
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Error != "" {
-		t.Fatalf("unexpected response error: %s", resp.Error)
-	}
-	if string(receivedBody) != `{"key":"value"}` {
-		t.Errorf("body mismatch: %s", receivedBody)
+
+	select {
+	case resp := <-done:
+		if resp.Error != "" {
+			t.Fatalf("unexpected response error: %s", resp.Error)
+		}
+		if string(receivedBody) != `{"key":"value"}` {
+			t.Errorf("body mismatch: %s", receivedBody)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout")
 	}
 }
 
-func TestRequestHandlerTimeout(t *testing.T) {
+func TestDispatcher_RequestTimeout(t *testing.T) {
 	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
 		time.Sleep(200 * time.Millisecond)
 		w.WriteHeader(gohttp.StatusOK)
 	}))
 	defer ts.Close()
 
-	h := NewRequestHandler()
-	var resp httpapi.Response
+	d := NewDispatcher()
+	done := make(chan httpapi.Response, 1)
 
 	start := time.Now()
-	err := h.Handle(context.Background(), &httpapi.RequestCmd{
+	err := d.handleRequest(context.Background(), &httpapi.RequestCmd{
 		Method:  "GET",
 		URL:     ts.URL,
 		Timeout: 50 * time.Millisecond,
 	}, func(data any) {
-		resp = data.(httpapi.Response)
+		done <- data.(httpapi.Response)
 	})
-	elapsed := time.Since(start)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Error == "" {
-		t.Error("expected timeout error")
-	}
-	if elapsed > 150*time.Millisecond {
-		t.Errorf("timeout took too long: %v", elapsed)
+
+	select {
+	case resp := <-done:
+		elapsed := time.Since(start)
+		if resp.Error == "" {
+			t.Error("expected timeout error")
+		}
+		if elapsed > 150*time.Millisecond {
+			t.Errorf("timeout took too long: %v", elapsed)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for response")
 	}
 }
 
-func TestRequestHandlerContextCancellation(t *testing.T) {
+func TestDispatcher_RequestContextCancellation(t *testing.T) {
 	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
 		time.Sleep(time.Second)
 		w.WriteHeader(gohttp.StatusOK)
 	}))
 	defer ts.Close()
 
-	h := NewRequestHandler()
+	d := NewDispatcher()
 	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan httpapi.Response, 1)
 
 	go func() {
 		time.Sleep(20 * time.Millisecond)
 		cancel()
 	}()
 
-	var resp httpapi.Response
 	start := time.Now()
-	err := h.Handle(ctx, &httpapi.RequestCmd{
+	err := d.handleRequest(ctx, &httpapi.RequestCmd{
 		Method: "GET",
 		URL:    ts.URL,
 	}, func(data any) {
-		resp = data.(httpapi.Response)
+		done <- data.(httpapi.Response)
 	})
-	elapsed := time.Since(start)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Error == "" {
-		t.Error("expected cancellation error")
-	}
-	if elapsed > 200*time.Millisecond {
-		t.Errorf("cancellation took too long: %v", elapsed)
+
+	select {
+	case resp := <-done:
+		elapsed := time.Since(start)
+		if resp.Error == "" {
+			t.Error("expected cancellation error")
+		}
+		if elapsed > 200*time.Millisecond {
+			t.Errorf("cancellation took too long: %v", elapsed)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for response")
 	}
 }
 
-func TestRequestHandlerInvalidURL(t *testing.T) {
-	h := NewRequestHandler()
-	var resp httpapi.Response
+func TestDispatcher_RequestInvalidURL(t *testing.T) {
+	d := NewDispatcher()
+	done := make(chan httpapi.Response, 1)
 
-	err := h.Handle(context.Background(), &httpapi.RequestCmd{
+	err := d.handleRequest(context.Background(), &httpapi.RequestCmd{
 		Method: "GET",
 		URL:    "://invalid",
 	}, func(data any) {
-		resp = data.(httpapi.Response)
+		done <- data.(httpapi.Response)
 	})
 
 	if err != nil {
 		t.Fatalf("handler should not return error: %v", err)
 	}
-	if resp.Error == "" {
-		t.Error("expected error in response")
+
+	select {
+	case resp := <-done:
+		if resp.Error == "" {
+			t.Error("expected error in response")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout")
 	}
 }
 
-func TestRequestHandlerConnectionError(t *testing.T) {
-	h := NewRequestHandler()
-	var resp httpapi.Response
+func TestDispatcher_RequestConnectionError(t *testing.T) {
+	d := NewDispatcher()
+	done := make(chan httpapi.Response, 1)
 
-	err := h.Handle(context.Background(), &httpapi.RequestCmd{
+	err := d.handleRequest(context.Background(), &httpapi.RequestCmd{
 		Method:  "GET",
 		URL:     "http://localhost:59999",
 		Timeout: 100 * time.Millisecond,
 	}, func(data any) {
-		resp = data.(httpapi.Response)
+		done <- data.(httpapi.Response)
 	})
 
 	if err != nil {
 		t.Fatalf("handler should not return error: %v", err)
 	}
-	if resp.Error == "" {
-		t.Error("expected connection error in response")
+
+	select {
+	case resp := <-done:
+		if resp.Error == "" {
+			t.Error("expected connection error in response")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout")
 	}
 }
 
-func TestRequestHandlerConcurrent(t *testing.T) {
+func TestDispatcher_RequestConcurrent(t *testing.T) {
 	var reqCount atomic.Int64
 	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
 		reqCount.Add(1)
@@ -302,7 +338,7 @@ func TestRequestHandlerConcurrent(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	h := NewRequestHandler()
+	d := NewDispatcher()
 	const concurrency = 50
 	const requests = 20
 
@@ -314,14 +350,24 @@ func TestRequestHandlerConcurrent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < requests; j++ {
-				var resp httpapi.Response
-				err := h.Handle(context.Background(), &httpapi.RequestCmd{
+				done := make(chan httpapi.Response, 1)
+				err := d.handleRequest(context.Background(), &httpapi.RequestCmd{
 					Method: "GET",
 					URL:    ts.URL,
 				}, func(data any) {
-					resp = data.(httpapi.Response)
+					done <- data.(httpapi.Response)
 				})
-				if err != nil || resp.Error != "" || resp.StatusCode != 200 {
+				if err != nil {
+					errCount.Add(1)
+					continue
+				}
+
+				select {
+				case resp := <-done:
+					if resp.Error != "" || resp.StatusCode != 200 {
+						errCount.Add(1)
+					}
+				case <-time.After(5 * time.Second):
 					errCount.Add(1)
 				}
 			}
@@ -339,7 +385,7 @@ func TestRequestHandlerConcurrent(t *testing.T) {
 	}
 }
 
-func TestRequestHandlerLargeResponse(t *testing.T) {
+func TestDispatcher_RequestLargeResponse(t *testing.T) {
 	const size = 10 * 1024 * 1024
 	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
 		data := make([]byte, size)
@@ -350,32 +396,38 @@ func TestRequestHandlerLargeResponse(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	h := NewRequestHandler()
-	var resp httpapi.Response
+	d := NewDispatcher()
+	done := make(chan httpapi.Response, 1)
 
-	err := h.Handle(context.Background(), &httpapi.RequestCmd{
+	err := d.handleRequest(context.Background(), &httpapi.RequestCmd{
 		Method: "GET",
 		URL:    ts.URL,
 	}, func(data any) {
-		resp = data.(httpapi.Response)
+		done <- data.(httpapi.Response)
 	})
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Error != "" {
-		t.Fatalf("unexpected response error: %s", resp.Error)
-	}
-	if len(resp.Body) != size {
-		t.Errorf("expected %d bytes, got %d", size, len(resp.Body))
+
+	select {
+	case resp := <-done:
+		if resp.Error != "" {
+			t.Fatalf("unexpected response error: %s", resp.Error)
+		}
+		if len(resp.Body) != size {
+			t.Errorf("expected %d bytes, got %d", size, len(resp.Body))
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("timeout")
 	}
 }
 
-func TestServiceRegisterAll(t *testing.T) {
-	svc := NewService()
+func TestDispatcher_RegisterAll(t *testing.T) {
+	d := NewDispatcher()
 	handlers := make(map[dispatcher.CommandID]bool)
 
-	svc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		handlers[id] = true
 	})
 
@@ -387,51 +439,56 @@ func TestServiceRegisterAll(t *testing.T) {
 	}
 }
 
-func TestRequestBatchHandler(t *testing.T) {
+func TestDispatcher_RequestBatch(t *testing.T) {
 	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
 		w.Header().Set("X-Path", r.URL.Path)
 		w.Write([]byte("ok"))
 	}))
 	defer ts.Close()
 
-	h := NewRequestBatchHandler()
-	var resp httpapi.BatchResponse
+	d := NewDispatcher()
+	done := make(chan httpapi.BatchResponse, 1)
 
-	err := h.Handle(context.Background(), &httpapi.RequestBatchCmd{
+	err := d.handleRequestBatch(context.Background(), &httpapi.RequestBatchCmd{
 		Requests: []*httpapi.RequestCmd{
 			{Method: "GET", URL: ts.URL + "/one"},
 			{Method: "GET", URL: ts.URL + "/two"},
 			{Method: "GET", URL: ts.URL + "/three"},
 		},
 	}, func(data any) {
-		resp = data.(httpapi.BatchResponse)
+		done <- data.(httpapi.BatchResponse)
 	})
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(resp.Responses) != 3 {
-		t.Fatalf("expected 3 responses, got %d", len(resp.Responses))
-	}
 
-	for i, r := range resp.Responses {
-		if r.Error != "" {
-			t.Errorf("response %d error: %s", i, r.Error)
+	select {
+	case resp := <-done:
+		if len(resp.Responses) != 3 {
+			t.Fatalf("expected 3 responses, got %d", len(resp.Responses))
 		}
-		if r.StatusCode != 200 {
-			t.Errorf("response %d status: %d", i, r.StatusCode)
+		for i, r := range resp.Responses {
+			if r.Error != "" {
+				t.Errorf("response %d error: %s", i, r.Error)
+			}
+			if r.StatusCode != 200 {
+				t.Errorf("response %d status: %d", i, r.StatusCode)
+			}
+			if string(r.Body) != "ok" {
+				t.Errorf("response %d body: %s", i, r.Body)
+			}
 		}
-		if string(r.Body) != "ok" {
-			t.Errorf("response %d body: %s", i, r.Body)
-		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
 	}
 }
 
-func TestRequestBatchHandlerEmpty(t *testing.T) {
-	h := NewRequestBatchHandler()
+func TestDispatcher_RequestBatchEmpty(t *testing.T) {
+	d := NewDispatcher()
 	var resp httpapi.BatchResponse
 
-	err := h.Handle(context.Background(), &httpapi.RequestBatchCmd{
+	err := d.handleRequestBatch(context.Background(), &httpapi.RequestBatchCmd{
 		Requests: nil,
 	}, func(data any) {
 		resp = data.(httpapi.BatchResponse)
@@ -445,44 +502,49 @@ func TestRequestBatchHandlerEmpty(t *testing.T) {
 	}
 }
 
-func TestRequestBatchHandlerPartialFailure(t *testing.T) {
+func TestDispatcher_RequestBatchPartialFailure(t *testing.T) {
 	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
 		w.Write([]byte("ok"))
 	}))
 	defer ts.Close()
 
-	h := NewRequestBatchHandler()
-	var resp httpapi.BatchResponse
+	d := NewDispatcher()
+	done := make(chan httpapi.BatchResponse, 1)
 
-	err := h.Handle(context.Background(), &httpapi.RequestBatchCmd{
+	err := d.handleRequestBatch(context.Background(), &httpapi.RequestBatchCmd{
 		Requests: []*httpapi.RequestCmd{
 			{Method: "GET", URL: ts.URL},
 			{Method: "GET", URL: "http://localhost:59998", Timeout: 50 * time.Millisecond},
 			{Method: "GET", URL: ts.URL},
 		},
 	}, func(data any) {
-		resp = data.(httpapi.BatchResponse)
+		done <- data.(httpapi.BatchResponse)
 	})
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(resp.Responses) != 3 {
-		t.Fatalf("expected 3 responses, got %d", len(resp.Responses))
-	}
 
-	if resp.Responses[0].Error != "" {
-		t.Errorf("response 0 should succeed: %s", resp.Responses[0].Error)
-	}
-	if resp.Responses[1].Error == "" {
-		t.Error("response 1 should fail")
-	}
-	if resp.Responses[2].Error != "" {
-		t.Errorf("response 2 should succeed: %s", resp.Responses[2].Error)
+	select {
+	case resp := <-done:
+		if len(resp.Responses) != 3 {
+			t.Fatalf("expected 3 responses, got %d", len(resp.Responses))
+		}
+		if resp.Responses[0].Error != "" {
+			t.Errorf("response 0 should succeed: %s", resp.Responses[0].Error)
+		}
+		if resp.Responses[1].Error == "" {
+			t.Error("response 1 should fail")
+		}
+		if resp.Responses[2].Error != "" {
+			t.Errorf("response 2 should succeed: %s", resp.Responses[2].Error)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
 	}
 }
 
-func TestRequestBatchHandlerConcurrent(t *testing.T) {
+func TestDispatcher_RequestBatchConcurrent(t *testing.T) {
 	var reqCount atomic.Int64
 	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
 		reqCount.Add(1)
@@ -491,8 +553,8 @@ func TestRequestBatchHandlerConcurrent(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	h := NewRequestBatchHandler()
-	var resp httpapi.BatchResponse
+	d := NewDispatcher()
+	done := make(chan httpapi.BatchResponse, 1)
 
 	requests := make([]*httpapi.RequestCmd, 10)
 	for i := range requests {
@@ -500,23 +562,28 @@ func TestRequestBatchHandlerConcurrent(t *testing.T) {
 	}
 
 	start := time.Now()
-	err := h.Handle(context.Background(), &httpapi.RequestBatchCmd{
+	err := d.handleRequestBatch(context.Background(), &httpapi.RequestBatchCmd{
 		Requests: requests,
 	}, func(data any) {
-		resp = data.(httpapi.BatchResponse)
+		done <- data.(httpapi.BatchResponse)
 	})
-	elapsed := time.Since(start)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(resp.Responses) != 10 {
-		t.Fatalf("expected 10 responses, got %d", len(resp.Responses))
-	}
 
-	// All requests should run concurrently, so total time should be ~20-50ms, not 200ms
-	if elapsed > 150*time.Millisecond {
-		t.Errorf("batch not concurrent: took %v", elapsed)
+	select {
+	case resp := <-done:
+		elapsed := time.Since(start)
+		if len(resp.Responses) != 10 {
+			t.Fatalf("expected 10 responses, got %d", len(resp.Responses))
+		}
+		// All requests should run concurrently
+		if elapsed > 150*time.Millisecond {
+			t.Errorf("batch not concurrent: took %v", elapsed)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
 	}
 }
 
@@ -543,32 +610,36 @@ func BenchmarkClientPoolGetCustom(b *testing.B) {
 	})
 }
 
-func BenchmarkRequestHandler(b *testing.B) {
+func BenchmarkDispatcher_Request(b *testing.B) {
 	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
 		w.WriteHeader(gohttp.StatusOK)
 		w.Write([]byte("ok"))
 	}))
 	defer ts.Close()
 
-	h := NewRequestHandler()
+	d := NewDispatcher()
 	ctx := context.Background()
 	cmd := &httpapi.RequestCmd{Method: "GET", URL: ts.URL}
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			h.Handle(ctx, cmd, func(data any) {})
+			done := make(chan struct{})
+			d.handleRequest(ctx, cmd, func(data any) {
+				close(done)
+			})
+			<-done
 		}
 	})
 }
 
-func BenchmarkRequestHandlerWithTimeout(b *testing.B) {
+func BenchmarkDispatcher_RequestWithTimeout(b *testing.B) {
 	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
 		w.WriteHeader(gohttp.StatusOK)
 	}))
 	defer ts.Close()
 
-	h := NewRequestHandler()
+	d := NewDispatcher()
 	ctx := context.Background()
 
 	b.ResetTimer()
@@ -579,7 +650,11 @@ func BenchmarkRequestHandlerWithTimeout(b *testing.B) {
 				URL:     ts.URL,
 				Timeout: 5 * time.Second,
 			}
-			h.Handle(ctx, cmd, func(data any) {})
+			done := make(chan struct{})
+			d.handleRequest(ctx, cmd, func(data any) {
+				close(done)
+			})
+			<-done
 		}
 	})
 }

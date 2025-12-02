@@ -7,7 +7,6 @@ import (
 	"sync/atomic"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
-	"github.com/wippyai/runtime/api/pidgen"
 	"github.com/wippyai/runtime/api/process2"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
@@ -49,34 +48,20 @@ func (h *Host) Run(ctx context.Context, start *process2.Start) (relay.PID, error
 		return relay.PID{}, errors.New("host is shutting down")
 	}
 
-	// Create process from factory (includes metadata with method)
 	proc, meta, err := h.factory.Create(start.Source)
 	if err != nil {
 		return relay.PID{}, err
 	}
 
-	// Generate or use provided PID
 	pid := h.preparePID(ctx, start)
-
-	// Prepare context with hooks
 	frameCtx := h.prepareContext(ctx, pid, start)
 
-	// Get method from metadata, default to "main"
 	method := "main"
 	if meta != nil && meta.Method != "" {
 		method = meta.Method
 	}
 
-	// Execute OnStart hooks before scheduler submission
-	if len(start.OnStart) > 0 {
-		for _, hook := range start.OnStart {
-			hook(frameCtx, pid, proc)
-		}
-	}
-
-	// Submit to scheduler
-	_, err = h.scheduler.Submit(frameCtx, pid, proc, method, start.Input)
-	if err != nil {
+	if _, err = h.scheduler.Submit(frameCtx, pid, proc, method, start.Input); err != nil {
 		return relay.PID{}, err
 	}
 
@@ -95,7 +80,6 @@ func (h *Host) Terminate(ctx context.Context, pid relay.PID) error {
 }
 
 // Send implements relay.Receiver.
-// Delegates to scheduler which routes directly to Process.Send().
 func (h *Host) Send(pkg *relay.Package) error {
 	if h.shutdown.Load() {
 		return errors.New("host is shutting down")
@@ -135,7 +119,6 @@ func (h *Host) Stop(ctx context.Context) error {
 
 // preparePID generates a PID or uses one from options.
 func (h *Host) preparePID(ctx context.Context, start *process2.Start) relay.PID {
-	// Check if caller specified a PID
 	if start.Options != nil {
 		if pidVal, ok := start.Options.Get(process2.OptionPID); ok {
 			if pid, ok := pidVal.(relay.PID); ok {
@@ -144,16 +127,14 @@ func (h *Host) preparePID(ctx context.Context, start *process2.Start) relay.PID 
 		}
 	}
 
-	// Generate new PID
-	gen := pidgen.GetGenerator(ctx)
-	return gen.Generate(h.id.String(), start.Source)
+	gen := process2.GetPIDGenerator(ctx)
+	return gen.Generate(h.id.String())
 }
 
 // prepareContext creates a frame context for the process.
 func (h *Host) prepareContext(ctx context.Context, pid relay.PID, start *process2.Start) context.Context {
 	pCtx, fc := ctxapi.OpenFrameContextOn(h.ctx, ctx)
 
-	// Set standard frame keys and apply context overrides
 	pairsLen := 3 + len(start.Context)
 	pairs := make([]ctxapi.Pair, pairsLen)
 	pairs[0] = ctxapi.Pair{Key: runtime.FrameIDKey, Value: start.Source}
@@ -165,21 +146,17 @@ func (h *Host) prepareContext(ctx context.Context, pid relay.PID, start *process
 		h.log.Error("failed to set frame context", zap.Error(err))
 	}
 
-	// Store OnStart hooks from Start
-	if len(start.OnStart) > 0 {
-		// ???
-		if err := process2.SetOnStartHooks(pCtx, start.OnStart); err != nil {
-			h.log.Error("failed to set onStart hooks", zap.Error(err))
-		}
-	}
-
-	// Store OnComplete hooks from Start if any (frame cleanup is handled by scheduler)
-	if len(start.OnComplete) > 0 {
-		if err := process2.SetOnCompleteHooks(pCtx, start.OnComplete); err != nil {
-			h.log.Error("failed to set onComplete hooks", zap.Error(err))
-		}
-	}
-
-	// Frame is sealed by Process.Execute after setting up resource store
 	return pCtx
 }
+
+// OnStart implements scheduler.Lifecycle.
+func (h *Host) OnStart(ctx context.Context, pid relay.PID, proc process2.Process) {}
+
+// OnComplete implements scheduler.Lifecycle.
+func (h *Host) OnComplete(ctx context.Context, pid relay.PID, result *runtime.Result) {
+	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
+		ctxapi.ReleaseFrameContext(fc)
+	}
+}
+
+var _ process2.Host = (*Host)(nil)

@@ -1,13 +1,13 @@
 package eval
 
 import (
-	evalapi "github.com/wippyai/runtime/api/eval"
+	"github.com/wippyai/runtime/runtime/lua/evalhost"
 	lua "github.com/yuin/gopher-lua"
 )
 
-// Program wraps an eval.Program for Lua.
+// Program wraps an evalhost.Program for Lua.
 type Program struct {
-	program evalapi.Program
+	program *evalhost.Program
 }
 
 var programMethods = map[string]lua.LGFunction{
@@ -50,7 +50,7 @@ func programModules(l *lua.LState) int {
 	return 1
 }
 
-// GetProgram returns the underlying evalapi.Program.
-func (p *Program) GetProgram() evalapi.Program {
+// GetProgram returns the underlying evalhost.Program.
+func (p *Program) GetProgram() *evalhost.Program {
 	return p.program
 }

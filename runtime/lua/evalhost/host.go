@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/wippyai/runtime/api/eval"
 	"github.com/wippyai/runtime/api/process2"
 	"github.com/wippyai/runtime/api/registry"
 	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
@@ -29,7 +28,7 @@ func NewHost(log *zap.Logger, modules []lua2api.Module, processFactory process2.
 }
 
 // Compile compiles Lua source into a reusable Program.
-func (h *Host) Compile(ctx context.Context, cmd eval.CompileCmd) (eval.Program, error) {
+func (h *Host) Compile(ctx context.Context, cmd CompileCmd) (*Program, error) {
 	program, err := h.compiler.Compile(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("compile failed: %w", err)
@@ -37,30 +36,16 @@ func (h *Host) Compile(ctx context.Context, cmd eval.CompileCmd) (eval.Program, 
 	return program, nil
 }
 
-// Run compiles and executes Lua code.
-// This is a placeholder - actual execution happens through the dispatcher.
-func (h *Host) Run(ctx context.Context, cmd eval.RunCmd) (any, error) {
-	return nil, fmt.Errorf("Run must be called through dispatcher")
-}
-
 // CreateProcess creates a process from a Program for sandbox use.
-func (h *Host) CreateProcess(ctx context.Context, program eval.Program) (process2.Process, error) {
-	prog, ok := program.(*Program)
-	if !ok {
-		return nil, fmt.Errorf("invalid program type")
-	}
-
+func (h *Host) CreateProcess(ctx context.Context, program *Program) (process2.Process, error) {
 	// Get module binder for the allowed modules
-	binder := h.compiler.GetModuleBinder(prog.Modules())
+	binder := h.compiler.GetModuleBinder(program.Modules())
 
-	// Create process with proto and module binder
-	proc := engine.NewProcess(
-		engine.WithProto(prog.Proto()),
-		engine.WithModuleBinder(binder),
-	)
-
-	if err := proc.Init(); err != nil {
-		return nil, fmt.Errorf("failed to init process: %w", err)
+	// Create factory for this program and use it to create process
+	factory := engine.NewFactoryFromProto(program.Proto(), binder)
+	proc, err := factory()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create process: %w", err)
 	}
 
 	return proc, nil

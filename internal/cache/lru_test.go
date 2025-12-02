@@ -335,4 +335,25 @@ func TestCleanup(t *testing.T) {
 		// This should not panic
 		cache.Close() // Test double-close safety
 	})
+
+	t.Run("operations after close", func(t *testing.T) {
+		cache := New[string, int]()
+
+		cache.Set("key1", 100)
+		cache.Close()
+
+		// Get should return false after close
+		_, exists := cache.Get("key1")
+		if exists {
+			t.Error("expected Get to return false after Close")
+		}
+
+		// Set should be no-op after close
+		cache.Set("key2", 200)
+		// Re-check by looking at internal state indirectly
+		// Len should return 0 after close
+		if cache.Len() != 0 {
+			t.Error("expected Len to return 0 after Close")
+		}
+	})
 }

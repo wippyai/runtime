@@ -8,7 +8,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/function"
-	"github.com/wippyai/runtime/api/pidgen"
+	"github.com/wippyai/runtime/api/process2"
 	"github.com/wippyai/runtime/api/registry"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/system/eventbus"
@@ -214,8 +214,8 @@ func (f *Registry) executor(ctx context.Context, handler function.Func, task run
 	ctx, fc := ctxapi.AcquireFrameContext(ctx)
 
 	// Generate PID for this function call
-	gen := pidgen.GetGenerator(ctx)
-	pid := gen.Generate(function.HostID, task.ID)
+	gen := process2.GetPIDGenerator(ctx)
+	pid := gen.Generate(function.HostID)
 
 	// Fast path: no task context overrides (most common case)
 	if len(task.Context) == 0 {

@@ -61,15 +61,15 @@ func NewMockTokenValidateHandler(store *MockTokenStore) *MockTokenValidateHandle
 	return &MockTokenValidateHandler{store: store}
 }
 
-func (h *MockTokenValidateHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
+func (h *MockTokenValidateHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
 	h.count.Add(1)
 	validateCmd := cmd.(*securityapi.TokenValidateCmd)
 	actor, scope, err := h.store.Validate(ctx, validateCmd.Token)
-	emit(securityapi.TokenValidateResponse{
+	emit.Emit(securityapi.TokenValidateResponse{
 		Actor: actor,
 		Scope: scope,
 		Error: err,
-	})
+	}, nil)
 	return nil
 }
 
@@ -85,14 +85,14 @@ func NewMockTokenCreateHandler(store *MockTokenStore) *MockTokenCreateHandler {
 	return &MockTokenCreateHandler{store: store}
 }
 
-func (h *MockTokenCreateHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
+func (h *MockTokenCreateHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
 	h.count.Add(1)
 	createCmd := cmd.(*securityapi.TokenCreateCmd)
 	token, err := h.store.Create(ctx, createCmd.Actor, createCmd.Scope, createCmd.Details)
-	emit(securityapi.TokenCreateResponse{
+	emit.Emit(securityapi.TokenCreateResponse{
 		Token: token,
 		Error: err,
-	})
+	}, nil)
 	return nil
 }
 
@@ -108,13 +108,13 @@ func NewMockTokenRevokeHandler(store *MockTokenStore) *MockTokenRevokeHandler {
 	return &MockTokenRevokeHandler{store: store}
 }
 
-func (h *MockTokenRevokeHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
+func (h *MockTokenRevokeHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
 	h.count.Add(1)
 	revokeCmd := cmd.(*securityapi.TokenRevokeCmd)
 	err := h.store.Revoke(ctx, revokeCmd.Token)
-	emit(securityapi.TokenRevokeResponse{
+	emit.Emit(securityapi.TokenRevokeResponse{
 		Error: err,
-	})
+	}, nil)
 	return nil
 }
 

@@ -10,6 +10,8 @@ import (
 )
 
 func HTTP() boot.Component {
+	var d *httpclient.Dispatcher
+
 	return boot.New(boot.P{
 		Name:      HTTPDispatcherName,
 		DependsOn: []boot.ComponentName{DispatcherName},
@@ -18,9 +20,17 @@ func HTTP() boot.Component {
 			if reg == nil {
 				return ctx, fmt.Errorf("dispatcher registrar not found in context")
 			}
-			svc := httpclient.NewService()
-			svc.RegisterAll(reg.Register)
+
+			d = httpclient.NewDispatcher()
+			d.RegisterAll(reg.Register)
+
 			return ctx, nil
+		},
+		Start: func(ctx context.Context) error {
+			return d.Start(ctx)
+		},
+		Stop: func(ctx context.Context) error {
+			return d.Stop(ctx)
 		},
 	})
 }

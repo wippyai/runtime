@@ -4,7 +4,7 @@ import (
 	"container/list"
 	"context"
 	"errors"
-	"fmt"
+	"strconv"
 	"sync"
 	"sync/atomic"
 
@@ -209,14 +209,13 @@ func (b *Bus) Stop() {
 	b.wg.Wait()
 }
 
-// enqueueAction adds an action to the queue and signals the dispatcher
-// Returns error if bus is closed
+// enqueueAction adds an action to the queue and signals the dispatcher.
+// Returns error if bus is closed.
 func (b *Bus) enqueueAction(a action) error {
-	// Atomically check closed and enqueue to prevent TOCTOU race
 	b.actionMu.Lock()
-	defer b.actionMu.Unlock()
 
 	if b.closed.Load() {
+		b.actionMu.Unlock()
 		// Respond to control operations immediately
 		switch a.actionType {
 		case actionSubscribe:
@@ -232,16 +231,14 @@ func (b *Bus) enqueueAction(a action) error {
 	}
 
 	b.actionQueue.PushBack(a)
+	b.actionMu.Unlock()
 
 	// Signal dispatcher (non-blocking due to buffered channel)
-	// Release lock before signaling to avoid holding lock during channel operation
-	b.actionMu.Unlock()
 	select {
 	case b.actionReady <- struct{}{}:
 	default:
 		// Signal already pending, dispatcher will process all queued actions
 	}
-	b.actionMu.Lock() // Re-acquire for defer unlock
 
 	return nil
 }
@@ -364,5 +361,5 @@ func (b *Bus) drainQueue() {
 }
 
 func (b *Bus) generateSubscriberID() event.SubscriberID {
-	return fmt.Sprintf("sub.%d", atomic.AddUint64(&b.subscriberCounter, 1))
+	return "sub." + strconv.FormatUint(atomic.AddUint64(&b.subscriberCounter, 1), 10)
 }

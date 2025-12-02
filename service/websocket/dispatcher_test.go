@@ -212,17 +212,32 @@ func TestConnectHandler(t *testing.T) {
 	ctx, store := setupTestContext()
 	defer store.Close()
 
-	d := NewBlockingDispatcher()
-	h := &ConnectHandler{d: d}
+	d := NewDispatcher(4)
+	d.Start(ctx)
+	defer d.Stop(ctx)
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
 
 	var connID uint64
-	err := h.Handle(ctx, wsapi.WsConnectCmd{URL: wsURL}, func(data any) {
+	done := make(chan struct{})
+	err := handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{URL: wsURL}, func(data any) {
 		connID = data.(uint64)
+		close(done)
 	})
 
 	if err != nil {
 		t.Fatalf("connect failed: %v", err)
 	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for connect")
+	}
+
 	if connID == 0 {
 		t.Error("expected non-zero connection ID")
 	}
@@ -263,16 +278,31 @@ func TestConnectHandlerWithHeaders(t *testing.T) {
 	ctx, store := setupTestContext()
 	defer store.Close()
 
-	d := NewBlockingDispatcher()
-	h := &ConnectHandler{d: d}
+	d := NewDispatcher(4)
+	d.Start(ctx)
+	defer d.Stop(ctx)
 
-	err := h.Handle(ctx, wsapi.WsConnectCmd{
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
+
+	done := make(chan struct{})
+	err := handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{
 		URL:     wsURL,
 		Headers: map[string]string{"X-Custom": "test-value"},
-	}, func(data any) {})
+	}, func(data any) {
+		close(done)
+	})
 
 	if err != nil {
 		t.Fatalf("connect failed: %v", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for connect")
 	}
 
 	if receivedHeaders.Get("X-Custom") != "test-value" {
@@ -312,16 +342,32 @@ func TestSendHandler(t *testing.T) {
 	registry := GetOrCreateRegistry(ctx)
 	connID := registry.Register(ctx, conn, 16)
 
-	d := NewBlockingDispatcher()
-	h := &SendHandler{d: d}
-	err = h.Handle(ctx, wsapi.WsSendCmd{
+	d := NewDispatcher(4)
+	d.Start(ctx)
+	defer d.Stop(ctx)
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
+
+	done := make(chan struct{})
+	err = handlers[wsapi.CmdWsSend].Handle(ctx, wsapi.WsSendCmd{
 		ConnID:      connID,
 		Data:        []byte("hello"),
 		MessageType: wsapi.MessageText,
-	}, func(data any) {})
+	}, func(data any) {
+		close(done)
+	})
 
 	if err != nil {
 		t.Fatalf("send failed: %v", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for send")
 	}
 
 	wg.Wait()
@@ -363,16 +409,32 @@ func TestReceiveHandler(t *testing.T) {
 	// Wait for message to arrive in channel
 	time.Sleep(50 * time.Millisecond)
 
-	d := NewBlockingDispatcher()
-	h := &ReceiveHandler{d: d}
+	d := NewDispatcher(4)
+	d.Start(ctx)
+	defer d.Stop(ctx)
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
+
 	var msg wsapi.WsMessage
-	err = h.Handle(ctx, wsapi.WsReceiveCmd{ConnID: connID}, func(data any) {
+	done := make(chan struct{})
+	err = handlers[wsapi.CmdWsReceive].Handle(ctx, wsapi.WsReceiveCmd{ConnID: connID}, func(data any) {
 		msg = data.(wsapi.WsMessage)
+		close(done)
 	})
 
 	if err != nil {
 		t.Fatalf("receive failed: %v", err)
 	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for receive")
+	}
+
 	if string(msg.Data) != "server message" {
 		t.Errorf("expected 'server message', got '%s'", msg.Data)
 	}
@@ -416,16 +478,32 @@ func TestReceiveHandlerBinary(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	d := NewBlockingDispatcher()
-	h := &ReceiveHandler{d: d}
+	d := NewDispatcher(4)
+	d.Start(ctx)
+	defer d.Stop(ctx)
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
+
 	var msg wsapi.WsMessage
-	err = h.Handle(ctx, wsapi.WsReceiveCmd{ConnID: connID}, func(data any) {
+	done := make(chan struct{})
+	err = handlers[wsapi.CmdWsReceive].Handle(ctx, wsapi.WsReceiveCmd{ConnID: connID}, func(data any) {
 		msg = data.(wsapi.WsMessage)
+		close(done)
 	})
 
 	if err != nil {
 		t.Fatalf("receive failed: %v", err)
 	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for receive")
+	}
+
 	if msg.MessageType != wsapi.MessageBinary {
 		t.Errorf("expected binary message type, got %d", msg.MessageType)
 	}
@@ -489,16 +567,32 @@ func TestCloseHandler(t *testing.T) {
 	registry := GetOrCreateRegistry(ctx)
 	connID := registry.Register(ctx, conn, 16)
 
-	d := NewBlockingDispatcher()
-	h := &CloseHandler{d: d}
-	err = h.Handle(ctx, wsapi.WsCloseCmd{
+	d := NewDispatcher(4)
+	d.Start(ctx)
+	defer d.Stop(ctx)
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
+
+	done := make(chan struct{})
+	err = handlers[wsapi.CmdWsClose].Handle(ctx, wsapi.WsCloseCmd{
 		ConnID: connID,
 		Code:   1000,
 		Reason: "normal close",
-	}, func(data any) {})
+	}, func(data any) {
+		close(done)
+	})
 
 	if err != nil {
 		t.Fatalf("close failed: %v", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for close")
 	}
 
 	_, err = registry.Get(connID)
@@ -526,12 +620,28 @@ func TestPingHandler(t *testing.T) {
 	pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
-	d := NewBlockingDispatcher()
-	h := &PingHandler{d: d}
-	err = h.Handle(pingCtx, wsapi.WsPingCmd{ConnID: connID}, func(data any) {})
+	d := NewDispatcher(4)
+	d.Start(pingCtx)
+	defer d.Stop(pingCtx)
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
+
+	done := make(chan struct{})
+	err = handlers[wsapi.CmdWsPing].Handle(pingCtx, wsapi.WsPingCmd{ConnID: connID}, func(data any) {
+		close(done)
+	})
 
 	if err != nil {
 		t.Fatalf("ping failed: %v", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for ping")
 	}
 }
 
@@ -540,11 +650,17 @@ func TestSendHandlerNotFound(t *testing.T) {
 	defer store.Close()
 	GetOrCreateRegistry(ctx)
 
-	d := NewBlockingDispatcher()
-	h := &SendHandler{d: d}
+	d := NewDispatcher(4)
+	d.Start(ctx)
+	defer d.Stop(ctx)
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
 
 	var emitted bool
-	err := h.Handle(ctx, wsapi.WsSendCmd{
+	err := handlers[wsapi.CmdWsSend].Handle(ctx, wsapi.WsSendCmd{
 		ConnID: 99999,
 		Data:   []byte("test"),
 	}, func(data any) {
@@ -554,6 +670,10 @@ func TestSendHandlerNotFound(t *testing.T) {
 	if err != nil {
 		t.Errorf("expected no error (silent failure), got %v", err)
 	}
+
+	// Give time for async execution
+	time.Sleep(50 * time.Millisecond)
+
 	if emitted {
 		t.Error("should not emit on not found")
 	}
@@ -564,17 +684,27 @@ func TestReceiveHandlerNotFound(t *testing.T) {
 	defer store.Close()
 	GetOrCreateRegistry(ctx)
 
-	d := NewBlockingDispatcher()
-	h := &ReceiveHandler{d: d}
+	d := NewDispatcher(4)
+	d.Start(ctx)
+	defer d.Stop(ctx)
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
 
 	var emitted bool
-	err := h.Handle(ctx, wsapi.WsReceiveCmd{ConnID: 99999}, func(data any) {
+	err := handlers[wsapi.CmdWsReceive].Handle(ctx, wsapi.WsReceiveCmd{ConnID: 99999}, func(data any) {
 		emitted = true
 	})
 
 	if err != nil {
 		t.Errorf("expected no error (silent failure), got %v", err)
 	}
+
+	// Give time for async execution
+	time.Sleep(50 * time.Millisecond)
+
 	if emitted {
 		t.Error("should not emit on not found")
 	}
@@ -618,15 +748,21 @@ func TestConcurrentSends(t *testing.T) {
 	registry := GetOrCreateRegistry(ctx)
 	connID := registry.Register(ctx, conn, 16)
 
-	d := NewBlockingDispatcher()
-	h := &SendHandler{d: d}
+	d := NewDispatcher(4)
+	d.Start(ctx)
+	defer d.Stop(ctx)
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
 
 	var sendWg sync.WaitGroup
 	for i := 0; i < numMessages; i++ {
 		sendWg.Add(1)
 		go func(i int) {
 			defer sendWg.Done()
-			h.Handle(ctx, wsapi.WsSendCmd{
+			handlers[wsapi.CmdWsSend].Handle(ctx, wsapi.WsSendCmd{
 				ConnID:      connID,
 				Data:        []byte("msg"),
 				MessageType: wsapi.MessageText,
@@ -650,51 +786,68 @@ func TestFullCycle(t *testing.T) {
 	ctx, store := setupTestContext()
 	defer store.Close()
 
-	d := NewBlockingDispatcher()
-	connectH := &ConnectHandler{d: d}
-	sendH := &SendHandler{d: d}
-	receiveH := &ReceiveHandler{d: d}
-	closeH := &CloseHandler{d: d}
+	d := NewDispatcher(4)
+	d.Start(ctx)
+	defer d.Stop(ctx)
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
 
 	var connID uint64
-	err := connectH.Handle(ctx, wsapi.WsConnectCmd{URL: wsURL}, func(data any) {
+	done := make(chan struct{})
+	err := handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{URL: wsURL}, func(data any) {
 		connID = data.(uint64)
+		close(done)
 	})
 	if err != nil {
 		t.Fatalf("connect failed: %v", err)
 	}
+	<-done
 
-	err = sendH.Handle(ctx, wsapi.WsSendCmd{
+	done = make(chan struct{})
+	err = handlers[wsapi.CmdWsSend].Handle(ctx, wsapi.WsSendCmd{
 		ConnID:      connID,
 		Data:        []byte("hello"),
 		MessageType: wsapi.MessageText,
-	}, func(data any) {})
+	}, func(data any) {
+		close(done)
+	})
 	if err != nil {
 		t.Fatalf("send failed: %v", err)
 	}
+	<-done
 
 	// Wait for echo
 	time.Sleep(50 * time.Millisecond)
 
 	var msg wsapi.WsMessage
-	err = receiveH.Handle(ctx, wsapi.WsReceiveCmd{ConnID: connID}, func(data any) {
+	done = make(chan struct{})
+	err = handlers[wsapi.CmdWsReceive].Handle(ctx, wsapi.WsReceiveCmd{ConnID: connID}, func(data any) {
 		msg = data.(wsapi.WsMessage)
+		close(done)
 	})
 	if err != nil {
 		t.Fatalf("receive failed: %v", err)
 	}
+	<-done
 	if string(msg.Data) != "hello" {
 		t.Errorf("expected 'hello', got '%s'", msg.Data)
 	}
 
-	err = closeH.Handle(ctx, wsapi.WsCloseCmd{
+	done = make(chan struct{})
+	err = handlers[wsapi.CmdWsClose].Handle(ctx, wsapi.WsCloseCmd{
 		ConnID: connID,
 		Code:   1000,
 		Reason: "done",
-	}, func(data any) {})
+	}, func(data any) {
+		close(done)
+	})
 	if err != nil {
 		t.Fatalf("close failed: %v", err)
 	}
+	<-done
 }
 
 func TestChannelReceiveMultipleMessages(t *testing.T) {
@@ -831,16 +984,25 @@ func TestCleanupOnStoreClose(t *testing.T) {
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := setupTestContext()
 
-	d := NewBlockingDispatcher()
-	h := &ConnectHandler{d: d}
+	d := NewDispatcher(4)
+	d.Start(ctx)
+	defer d.Stop(ctx)
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
 
 	var connID uint64
-	err := h.Handle(ctx, wsapi.WsConnectCmd{URL: wsURL}, func(data any) {
+	done := make(chan struct{})
+	err := handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{URL: wsURL}, func(data any) {
 		connID = data.(uint64)
+		close(done)
 	})
 	if err != nil {
 		t.Fatalf("connect failed: %v", err)
 	}
+	<-done
 
 	registry := GetRegistry(ctx)
 	if registry == nil {
@@ -882,14 +1044,24 @@ func TestCleanupMultipleConnections(t *testing.T) {
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := setupTestContext()
 
-	d := NewBlockingDispatcher()
-	h := &ConnectHandler{d: d}
+	d := NewDispatcher(4)
+	d.Start(ctx)
+	defer d.Stop(ctx)
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
 
 	for i := 0; i < 5; i++ {
-		err := h.Handle(ctx, wsapi.WsConnectCmd{URL: wsURL}, func(data any) {})
+		done := make(chan struct{})
+		err := handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{URL: wsURL}, func(data any) {
+			close(done)
+		})
 		if err != nil {
 			t.Fatalf("connect %d failed: %v", i, err)
 		}
+		<-done
 	}
 
 	if store.Table().Len() != 5 {
@@ -905,8 +1077,8 @@ func TestCleanupMultipleConnections(t *testing.T) {
 	}
 }
 
-func TestDispatcherService(t *testing.T) {
-	d := NewService()
+func TestDispatcher_RegisterAll(t *testing.T) {
+	d := NewDispatcher(4)
 
 	handlers := make(map[dispatcher.CommandID]bool)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -929,7 +1101,7 @@ func TestDispatcherService(t *testing.T) {
 	}
 }
 
-func TestAsyncDispatcher(t *testing.T) {
+func TestDispatcherWithWorkers(t *testing.T) {
 	ts := echoServer(t)
 	defer ts.Close()
 
@@ -937,20 +1109,22 @@ func TestAsyncDispatcher(t *testing.T) {
 	ctx, store := setupTestContext()
 	defer store.Close()
 
-	d := NewAsyncDispatcher(2)
+	d := NewDispatcher(2)
 	err := d.Start(ctx)
 	if err != nil {
 		t.Fatalf("start failed: %v", err)
 	}
 	defer d.Stop(ctx)
 
-	connectH := &ConnectHandler{d: d}
-	sendH := &SendHandler{d: d}
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
 
 	var connID uint64
 	var wg sync.WaitGroup
 	wg.Add(1)
-	err = connectH.Handle(ctx, wsapi.WsConnectCmd{URL: wsURL}, func(data any) {
+	err = handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{URL: wsURL}, func(data any) {
 		connID = data.(uint64)
 		wg.Done()
 	})
@@ -968,7 +1142,7 @@ func TestAsyncDispatcher(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			sendH.Handle(ctx, wsapi.WsSendCmd{
+			handlers[wsapi.CmdWsSend].Handle(ctx, wsapi.WsSendCmd{
 				ConnID:      connID,
 				Data:        []byte("async"),
 				MessageType: wsapi.MessageText,
@@ -1077,13 +1251,19 @@ func BenchmarkSend(b *testing.B) {
 	registry := GetOrCreateRegistry(ctx)
 	connID := registry.Register(ctx, conn, 16)
 
-	d := NewBlockingDispatcher()
-	h := &SendHandler{d: d}
+	d := NewDispatcher(4)
+	d.Start(ctx)
+	defer d.Stop(ctx)
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			h.Handle(ctx, wsapi.WsSendCmd{
+			handlers[wsapi.CmdWsSend].Handle(ctx, wsapi.WsSendCmd{
 				ConnID:      connID,
 				Data:        []byte("benchmark"),
 				MessageType: wsapi.MessageText,
@@ -1126,12 +1306,18 @@ func BenchmarkReceive(b *testing.B) {
 	// Wait for buffer to fill
 	time.Sleep(100 * time.Millisecond)
 
-	d := NewBlockingDispatcher()
-	h := &ReceiveHandler{d: d}
+	d := NewDispatcher(4)
+	d.Start(ctx)
+	defer d.Stop(ctx)
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		h.Handle(ctx, wsapi.WsReceiveCmd{ConnID: connID}, func(data any) {})
+		handlers[wsapi.CmdWsReceive].Handle(ctx, wsapi.WsReceiveCmd{ConnID: connID}, func(data any) {})
 	}
 }
 

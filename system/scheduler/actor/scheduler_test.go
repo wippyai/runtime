@@ -38,30 +38,33 @@ func (SleepCmd) CmdID() dispatcher.CommandID { return CmdSleep }
 // Test handlers
 
 func CompleteHandler() dispatcher.Handler {
-	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
+	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
 		c := cmd.(CompleteCmd)
-		emit(c.Value)
+		emit.Emit(c.Value, nil)
 		return nil
 	})
 }
 
 func YieldHandler() dispatcher.Handler {
-	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
+	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
+		emit.Emit(nil, nil)
 		return nil
 	})
 }
 
 func SleepHandler() dispatcher.Handler {
-	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
+	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
 		s := cmd.(SleepCmd)
 		timer := time.NewTimer(s.Duration)
-		defer timer.Stop()
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-timer.C:
-			return nil
-		}
+		go func() {
+			defer timer.Stop()
+			select {
+			case <-ctx.Done():
+			case <-timer.C:
+				emit.Emit(nil, nil)
+			}
+		}()
+		return nil
 	})
 }
 
@@ -137,14 +140,39 @@ func (p *SleepProcess) Send(pkg *relay.Package) error {
 
 func (p *SleepProcess) Close() {}
 
-// Helper to create test scheduler
+// testLifecycle implements process2.Lifecycle for tests
+type testLifecycle struct {
+	onStart    func(context.Context, relay.PID, Process)
+	onComplete func(context.Context, relay.PID, *runtime.Result)
+}
 
+func (l *testLifecycle) OnStart(ctx context.Context, pid relay.PID, proc Process) {
+	if l.onStart != nil {
+		l.onStart(ctx, pid, proc)
+	}
+}
+
+func (l *testLifecycle) OnComplete(ctx context.Context, pid relay.PID, result *runtime.Result) {
+	if l.onComplete != nil {
+		l.onComplete(ctx, pid, result)
+	}
+}
+
+// Helper to create test scheduler
 func newTestScheduler(workers int) *Scheduler {
 	registry := NewRegistry()
 	registry.Register(CmdComplete, CompleteHandler())
 	registry.Register(CmdYield, YieldHandler())
 	registry.Register(CmdSleep, SleepHandler())
 	return NewScheduler(registry, WithWorkers(workers))
+}
+
+func newTestSchedulerWithLifecycle(workers int, lc *testLifecycle) *Scheduler {
+	registry := NewRegistry()
+	registry.Register(CmdComplete, CompleteHandler())
+	registry.Register(CmdYield, YieldHandler())
+	registry.Register(CmdSleep, SleepHandler())
+	return NewScheduler(registry, WithWorkers(workers), WithLifecycle(lc))
 }
 
 func testPID() relay.PID {
@@ -161,11 +189,13 @@ func TestSchedulerBasic(t *testing.T) {
 	var completed atomic.Bool
 	var result *runtime.Result
 
-	sched := newTestScheduler(2)
-	sched.onComplete = func(ctx context.Context, pid relay.PID, res *runtime.Result) {
-		result = res
-		completed.Store(true)
+	lc := &testLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, res *runtime.Result) {
+			result = res
+			completed.Store(true)
+		},
 	}
+	sched := newTestSchedulerWithLifecycle(2, lc)
 
 	sched.Start()
 	defer sched.Stop()
@@ -192,14 +222,16 @@ func TestSchedulerBasic(t *testing.T) {
 func TestSchedulerMultipleProcesses(t *testing.T) {
 	var completedCount atomic.Int32
 
-	sched := newTestScheduler(2)
-	sched.onComplete = func(ctx context.Context, pid relay.PID, result *runtime.Result) {
-		if result.Error != nil {
-			t.Errorf("process error: %v", result.Error)
-			return
-		}
-		completedCount.Add(1)
+	lc := &testLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+			if result.Error != nil {
+				t.Errorf("process error: %v", result.Error)
+				return
+			}
+			completedCount.Add(1)
+		},
 	}
+	sched := newTestSchedulerWithLifecycle(2, lc)
 
 	sched.Start()
 	defer sched.Stop()
@@ -225,13 +257,15 @@ func TestSchedulerMultipleProcesses(t *testing.T) {
 func TestSchedulerSleep(t *testing.T) {
 	var completed atomic.Bool
 
-	sched := newTestScheduler(2)
-	sched.onComplete = func(ctx context.Context, pid relay.PID, result *runtime.Result) {
-		if result.Error != nil {
-			t.Errorf("error: %v", result.Error)
-		}
-		completed.Store(true)
+	lc := &testLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+			if result.Error != nil {
+				t.Errorf("error: %v", result.Error)
+			}
+			completed.Store(true)
+		},
 	}
+	sched := newTestSchedulerWithLifecycle(2, lc)
 
 	sched.Start()
 	defer sched.Stop()
@@ -257,13 +291,15 @@ func TestSchedulerSleep(t *testing.T) {
 	}
 }
 
-func TestSchedulerWorkStealing(t *testing.T) {
+func TestSchedulerWorkDistribution(t *testing.T) {
 	var completed atomic.Int32
 
-	sched := newTestScheduler(4)
-	sched.onComplete = func(ctx context.Context, pid relay.PID, result *runtime.Result) {
-		completed.Add(1)
+	lc := &testLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+			completed.Add(1)
+		},
 	}
+	sched := newTestSchedulerWithLifecycle(4, lc)
 
 	sched.Start()
 	defer sched.Stop()
@@ -282,11 +318,7 @@ func TestSchedulerWorkStealing(t *testing.T) {
 	}
 
 	stats := sched.Stats()
-	t.Logf("Work stealing stats: executed=%d stolen=%d", stats["executed"], stats["stolen"])
-
-	if stats["stolen"] == 0 {
-		t.Log("Warning: no work stealing occurred")
-	}
+	t.Logf("Scheduler stats: executed=%d", stats["executed"])
 }
 
 func TestSchedulerWakeTime(t *testing.T) {
@@ -313,10 +345,12 @@ func TestSchedulerWakeTime(t *testing.T) {
 func TestSchedulerStats(t *testing.T) {
 	var completed atomic.Int32
 
-	sched := newTestScheduler(2)
-	sched.onComplete = func(ctx context.Context, pid relay.PID, result *runtime.Result) {
-		completed.Add(1)
+	lc := &testLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+			completed.Add(1)
+		},
 	}
+	sched := newTestSchedulerWithLifecycle(2, lc)
 
 	sched.Start()
 	defer sched.Stop()
@@ -422,19 +456,15 @@ func TestOnStartCallback(t *testing.T) {
 	var startPIDs []relay.PID
 	var mu sync.Mutex
 
-	registry := NewRegistry()
-	registry.Register(CmdComplete, CompleteHandler())
-	registry.Register(CmdYield, YieldHandler())
-
-	sched := NewScheduler(registry,
-		WithWorkers(2),
-		WithOnStart(func(ctx context.Context, pid relay.PID, proc Process) {
+	lc := &testLifecycle{
+		onStart: func(ctx context.Context, pid relay.PID, proc Process) {
 			startCalls.Add(1)
 			mu.Lock()
 			startPIDs = append(startPIDs, pid)
 			mu.Unlock()
-		}),
-	)
+		},
+	}
+	sched := newTestSchedulerWithLifecycle(2, lc)
 
 	sched.Start()
 	defer sched.Stop()
@@ -468,20 +498,16 @@ func TestOnCompleteCallback(t *testing.T) {
 	var completeResults []*runtime.Result
 	var mu sync.Mutex
 
-	registry := NewRegistry()
-	registry.Register(CmdComplete, CompleteHandler())
-	registry.Register(CmdYield, YieldHandler())
-
-	sched := NewScheduler(registry,
-		WithWorkers(2),
-		WithOnComplete(func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+	lc := &testLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
 			completeCalls.Add(1)
 			mu.Lock()
 			completePIDs = append(completePIDs, pid)
 			completeResults = append(completeResults, result)
 			mu.Unlock()
-		}),
-	)
+		},
+	}
+	sched := newTestSchedulerWithLifecycle(2, lc)
 
 	sched.Start()
 	defer sched.Stop()
@@ -514,15 +540,12 @@ func TestOnCompleteCallback(t *testing.T) {
 func TestSendByPID(t *testing.T) {
 	var completed atomic.Bool
 
-	registry := NewRegistry()
-	registry.Register(CmdComplete, CompleteHandler())
-	registry.Register(CmdYield, YieldHandler())
-	registry.Register(CmdSleep, SleepHandler())
-
-	sched := NewScheduler(registry, WithWorkers(1))
-	sched.onComplete = func(ctx context.Context, pid relay.PID, result *runtime.Result) {
-		completed.Store(true)
+	lc := &testLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+			completed.Store(true)
+		},
 	}
+	sched := newTestSchedulerWithLifecycle(1, lc)
 
 	// Don't start scheduler yet - this ensures process won't complete before Send()
 	pid := relay.PID{UniqID: "send-test"}
@@ -563,10 +586,12 @@ func TestSendByPID(t *testing.T) {
 func TestSchedulerSubmitAlloc(t *testing.T) {
 	var completed atomic.Int32
 
-	sched := newTestScheduler(1)
-	sched.onComplete = func(ctx context.Context, pid relay.PID, result *runtime.Result) {
-		completed.Add(1)
+	lc := &testLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+			completed.Add(1)
+		},
 	}
+	sched := newTestSchedulerWithLifecycle(1, lc)
 
 	sched.Start()
 	defer sched.Stop()
@@ -602,10 +627,12 @@ func TestSchedulerSubmitAlloc(t *testing.T) {
 func BenchmarkSchedulerSubmit(b *testing.B) {
 	var completed atomic.Int64
 
-	sched := newTestScheduler(goruntime.GOMAXPROCS(0))
-	sched.onComplete = func(ctx context.Context, pid relay.PID, result *runtime.Result) {
-		completed.Add(1)
+	lc := &testLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+			completed.Add(1)
+		},
 	}
+	sched := newTestSchedulerWithLifecycle(goruntime.GOMAXPROCS(0), lc)
 
 	sched.Start()
 	defer sched.Stop()
@@ -627,10 +654,12 @@ func BenchmarkSchedulerSubmit(b *testing.B) {
 func BenchmarkSchedulerThroughput(b *testing.B) {
 	var completed atomic.Int64
 
-	sched := newTestScheduler(goruntime.GOMAXPROCS(0))
-	sched.onComplete = func(ctx context.Context, pid relay.PID, result *runtime.Result) {
-		completed.Add(1)
+	lc := &testLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+			completed.Add(1)
+		},
 	}
+	sched := newTestSchedulerWithLifecycle(goruntime.GOMAXPROCS(0), lc)
 
 	sched.Start()
 	defer sched.Stop()
@@ -653,10 +682,12 @@ func BenchmarkSchedulerThroughput(b *testing.B) {
 func BenchmarkSchedulerParallelSubmit(b *testing.B) {
 	var completed atomic.Int64
 
-	sched := newTestScheduler(goruntime.GOMAXPROCS(0))
-	sched.onComplete = func(ctx context.Context, pid relay.PID, result *runtime.Result) {
-		completed.Add(1)
+	lc := &testLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+			completed.Add(1)
+		},
 	}
+	sched := newTestSchedulerWithLifecycle(goruntime.GOMAXPROCS(0), lc)
 
 	sched.Start()
 	defer sched.Stop()
@@ -743,10 +774,12 @@ func TestSchedulerReleasesProcesses(t *testing.T) {
 	var closeCalls atomic.Int32
 	var completed atomic.Int32
 
-	sched := newTestScheduler(2)
-	sched.onComplete = func(ctx context.Context, pid relay.PID, result *runtime.Result) {
-		completed.Add(1)
+	lc := &testLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+			completed.Add(1)
+		},
 	}
+	sched := newTestSchedulerWithLifecycle(2, lc)
 
 	sched.Start()
 	defer sched.Stop()
@@ -781,11 +814,7 @@ func TestSchedulerReleasesProcesses(t *testing.T) {
 	}
 
 	// Check maps are empty
-	var byIDCount, byPIDCount, idleCount int
-	sched.byID.Range(func(k, v any) bool {
-		byIDCount++
-		return true
-	})
+	var byPIDCount, idleCount int
 	sched.byPID.Range(func(k, v any) bool {
 		byPIDCount++
 		return true
@@ -795,9 +824,6 @@ func TestSchedulerReleasesProcesses(t *testing.T) {
 		return true
 	})
 
-	if byIDCount != 0 {
-		t.Errorf("byID map has %d entries, expected 0", byIDCount)
-	}
 	if byPIDCount != 0 {
 		t.Errorf("byPID map has %d entries, expected 0", byPIDCount)
 	}

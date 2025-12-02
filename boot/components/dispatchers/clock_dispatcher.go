@@ -10,6 +10,8 @@ import (
 )
 
 func Clock() boot.Component {
+	var svc *clock.Dispatcher
+
 	return boot.New(boot.P{
 		Name:      ClockDispatcherName,
 		DependsOn: []boot.ComponentName{DispatcherName},
@@ -18,9 +20,21 @@ func Clock() boot.Component {
 			if reg == nil {
 				return ctx, fmt.Errorf("dispatcher registrar not found in context")
 			}
-			svc := clock.NewService()
+			svc = clock.NewDispatcher()
 			svc.RegisterAll(reg.Register)
 			return ctx, nil
+		},
+		Start: func(ctx context.Context) error {
+			if svc != nil {
+				return svc.Start(ctx)
+			}
+			return nil
+		},
+		Stop: func(ctx context.Context) error {
+			if svc != nil {
+				return svc.Stop(ctx)
+			}
+			return nil
 		},
 	})
 }

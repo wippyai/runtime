@@ -45,8 +45,19 @@ type Storage interface {
 
 // Registry provides the interface for managing environment variables across registered storages.
 type Registry interface {
+	// Get returns the value of the variable, or its default if not found in storage.
+	// Returns error only for actual failures (storage not found, etc.).
 	Get(ctx context.Context, name string) (string, error)
+
+	// Lookup returns the value and whether it was found in storage.
+	// Unlike Get, it does not fall back to default values.
+	// Use this when you need to distinguish "not set" from "set to empty".
+	Lookup(ctx context.Context, name string) (value string, found bool, err error)
+
+	// Set stores the value for the variable.
 	Set(ctx context.Context, name string, value string) error
+
+	// All returns all variables from all storages.
 	All(ctx context.Context) (map[string]string, error)
 }
 

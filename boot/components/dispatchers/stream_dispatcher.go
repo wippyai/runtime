@@ -10,6 +10,8 @@ import (
 )
 
 func Stream() boot.Component {
+	var svc *stream.Dispatcher
+
 	return boot.New(boot.P{
 		Name:      StreamDispatcherName,
 		DependsOn: []boot.ComponentName{DispatcherName},
@@ -18,9 +20,21 @@ func Stream() boot.Component {
 			if reg == nil {
 				return ctx, fmt.Errorf("dispatcher registrar not found in context")
 			}
-			svc := stream.NewService()
+			svc = stream.NewDispatcher(4)
 			svc.RegisterAll(reg.Register)
 			return ctx, nil
+		},
+		Start: func(ctx context.Context) error {
+			if svc != nil {
+				return svc.Start(ctx)
+			}
+			return nil
+		},
+		Stop: func(ctx context.Context) error {
+			if svc != nil {
+				return svc.Stop(ctx)
+			}
+			return nil
 		},
 	})
 }

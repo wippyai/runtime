@@ -1,3 +1,4 @@
+// Package exec provides process execution command handlers for the dispatcher system.
 package exec
 
 import (
@@ -9,46 +10,48 @@ import (
 	execapi "github.com/wippyai/runtime/api/dispatcher/exec"
 )
 
-// ProcessWaitHandler handles process wait commands.
-type ProcessWaitHandler struct{}
+// Dispatcher handles exec commands.
+type Dispatcher struct{}
 
-func NewProcessWaitHandler() *ProcessWaitHandler {
-	return &ProcessWaitHandler{}
+// NewDispatcher creates a new exec dispatcher.
+func NewDispatcher() *Dispatcher {
+	return &Dispatcher{}
 }
 
-func (h *ProcessWaitHandler) Handle(_ context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
-	waitCmd := cmd.(*execapi.ProcessWaitCmd)
-
-	err := waitCmd.Process.Wait()
-
-	var exitCode int
-	if err == nil {
-		exitCode = 0
-	} else {
-		var exitErr *osexec.ExitError
-		if errors.As(err, &exitErr) {
-			exitCode = exitErr.ExitCode()
-			err = nil
-		}
-	}
-
-	emit(execapi.ProcessWaitResponse{ExitCode: exitCode, Error: err})
+// Start is a no-op for exec dispatcher.
+func (d *Dispatcher) Start(_ context.Context) error {
 	return nil
 }
 
-// DispatcherService bundles all exec dispatcher handlers.
-type DispatcherService struct {
-	Wait *ProcessWaitHandler
+// Stop is a no-op for exec dispatcher.
+func (d *Dispatcher) Stop(_ context.Context) error {
+	return nil
 }
 
-// NewDispatcherService creates a new exec dispatcher service with all handlers initialized.
-func NewDispatcherService() *DispatcherService {
-	return &DispatcherService{
-		Wait: NewProcessWaitHandler(),
-	}
+// RegisterAll registers all exec handlers.
+func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
+	register(execapi.CmdProcessWait, dispatcher.HandlerFunc(d.handleProcessWait))
 }
 
-// RegisterAll registers all exec handlers with the given registry function.
-func (s *DispatcherService) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
-	register(execapi.CmdProcessWait, s.Wait)
+func (d *Dispatcher) handleProcessWait(_ context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
+	waitCmd := cmd.(*execapi.ProcessWaitCmd)
+
+	go func() {
+		err := waitCmd.Process.Wait()
+
+		var exitCode int
+		if err == nil {
+			exitCode = 0
+		} else {
+			var exitErr *osexec.ExitError
+			if errors.As(err, &exitErr) {
+				exitCode = exitErr.ExitCode()
+				err = nil
+			}
+		}
+
+		emit.Emit(execapi.ProcessWaitResponse{ExitCode: exitCode, Error: err}, nil)
+	}()
+
+	return nil
 }

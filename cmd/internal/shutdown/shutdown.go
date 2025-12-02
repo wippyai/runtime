@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/boot"
-	systemapi "github.com/wippyai/runtime/api/system"
+	supervisorapi "github.com/wippyai/runtime/api/supervisor"
 	bootloader "github.com/wippyai/runtime/boot"
 	"go.uber.org/zap"
 )
@@ -47,5 +47,5 @@ func Perform(ctx context.Context, loader *bootloader.Loader, logger *zap.Logger,
 	}
 
 	// Check for programmatic exit code
-	return systemapi.GetExitCode(ctx)
+	return supervisorapi.GetExitCode(ctx)
 }

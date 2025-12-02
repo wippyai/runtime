@@ -8,8 +8,8 @@ import (
 
 	"github.com/tetratelabs/wazero/api"
 
+	clockapi "github.com/wippyai/runtime/api/clock"
 	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
-	"github.com/wippyai/runtime/api/workflow"
 	"github.com/wippyai/runtime/runtime/wasm/resource"
 )
 
@@ -129,7 +129,7 @@ func (h *MonotonicClockHost) Register() *wasmapi.HostRegistration {
 // Stack: [] -> [instant: u64]
 func (h *MonotonicClockHost) now(ctx context.Context, _ api.Module, stack []uint64) {
 	if len(stack) > 0 {
-		if ref := workflow.GetTimeReference(ctx); ref != nil {
+		if ref := clockapi.GetTimeReference(ctx); ref != nil {
 			stack[0] = uint64(ref.Now().UnixNano())
 		} else {
 			stack[0] = uint64(time.Since(monotonicStart).Nanoseconds())
@@ -194,7 +194,7 @@ func (h *MonotonicClockHost) subscribeDuration(_ context.Context, _ api.Module, 
 
 // wallNow returns current time from TimeReference if available, else system time.
 func wallNow(ctx context.Context) time.Time {
-	if ref := workflow.GetTimeReference(ctx); ref != nil {
+	if ref := clockapi.GetTimeReference(ctx); ref != nil {
 		return ref.Now()
 	}
 	return time.Now()

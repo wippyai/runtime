@@ -7,7 +7,6 @@ import (
 	"time"
 
 	clockapi "github.com/wippyai/runtime/api/clock"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 )
 
@@ -105,7 +104,7 @@ func TestTickerRegistryContextCancel(t *testing.T) {
 }
 
 func getTickerHandlers(t *testing.T) (start, next, stop dispatcher.Handler, cleanup func()) {
-	d := NewBlockingDispatcher()
+	d := NewDispatcher()
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		handlers[id] = h
@@ -117,7 +116,7 @@ func getTickerHandlers(t *testing.T) (start, next, stop dispatcher.Handler, clea
 }
 
 func TestTickerStartHandler(t *testing.T) {
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx := context.Background()
 	startH, _, _, cleanup := getTickerHandlers(t)
 	defer cleanup()
 
@@ -137,16 +136,10 @@ func TestTickerStartHandler(t *testing.T) {
 	if id != 1 {
 		t.Errorf("expected ID 1, got %d", id)
 	}
-
-	r := GetTickerRegistry(ctx)
-	if r == nil {
-		t.Fatal("registry should be created")
-	}
-	r.Close()
 }
 
 func TestTickerNextHandler(t *testing.T) {
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx := context.Background()
 	startH, nextH, _, cleanup := getTickerHandlers(t)
 	defer cleanup()
 
@@ -174,12 +167,10 @@ func TestTickerNextHandler(t *testing.T) {
 	if nanos <= 0 {
 		t.Error("expected positive nanoseconds")
 	}
-
-	GetTickerRegistry(ctx).Close()
 }
 
 func TestTickerStopHandler(t *testing.T) {
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx := context.Background()
 	startH, _, stopH, cleanup := getTickerHandlers(t)
 	defer cleanup()
 
@@ -199,12 +190,10 @@ func TestTickerStopHandler(t *testing.T) {
 	if !emitted {
 		t.Error("expected emit on stop")
 	}
-
-	GetTickerRegistry(ctx).Close()
 }
 
 func TestTickerFullCycle(t *testing.T) {
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx := context.Background()
 	startH, nextH, stopH, cleanup := getTickerHandlers(t)
 	defer cleanup()
 
@@ -238,12 +227,10 @@ func TestTickerFullCycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stop error: %v", err)
 	}
-
-	GetTickerRegistry(ctx).Close()
 }
 
 func TestTickerStartHandlerInvalidDuration(t *testing.T) {
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx := context.Background()
 	startH, _, _, cleanup := getTickerHandlers(t)
 	defer cleanup()
 
@@ -272,10 +259,8 @@ func TestTickerStartHandlerInvalidDuration(t *testing.T) {
 func TestTickerRegistryScalability(t *testing.T) {
 	const numTickers = 10000
 
-	ctx, fc := ctxapi.OpenFrameContext(context.Background())
-	defer fc.Close()
-
-	registry := GetOrCreateTickerRegistry(ctx)
+	registry := NewTickerRegistry()
+	defer registry.Close()
 
 	ids := make([]uint64, numTickers)
 	start := time.Now()
@@ -311,10 +296,8 @@ func TestTickerRegistryConcurrentOperations(t *testing.T) {
 	const goroutines = 100
 	const opsPerGoroutine = 100
 
-	ctx, fc := ctxapi.OpenFrameContext(context.Background())
-	defer fc.Close()
-
-	registry := GetOrCreateTickerRegistry(ctx)
+	registry := NewTickerRegistry()
+	defer registry.Close()
 
 	var wg sync.WaitGroup
 	for g := 0; g < goroutines; g++ {

@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
@@ -132,21 +133,33 @@ func TestStreamRegistryTableClose(t *testing.T) {
 }
 
 func TestStreamReadHandler(t *testing.T) {
-	ctx, _ := setupTestContext()
-	registry := GetOrCreateStreamRegistry(ctx)
+	ctx, store := setupTestContext()
+	defer store.Close()
 
+	registry := GetOrCreateStreamRegistry(ctx)
 	data := "hello world"
 	id := registry.Register(io.NopCloser(strings.NewReader(data)))
 
-	h := NewStreamReadHandler()
+	d := NewDispatcher(4)
+	d.Start(ctx)
+	defer d.Stop(ctx)
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
 
 	var emitted any
-	err := h.Handle(ctx, streamapi.StreamReadCmd{StreamID: id, Size: 5}, func(d any) {
+	done := make(chan struct{})
+	err := handlers[streamapi.CmdStreamRead].Handle(ctx, streamapi.StreamReadCmd{StreamID: id, Size: 5}, func(d any) {
 		emitted = d
+		close(done)
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
+	<-done
 
 	chunk, ok := emitted.([]byte)
 	if !ok {
@@ -158,20 +171,32 @@ func TestStreamReadHandler(t *testing.T) {
 }
 
 func TestStreamReadHandlerEOF(t *testing.T) {
-	ctx, _ := setupTestContext()
-	registry := GetOrCreateStreamRegistry(ctx)
+	ctx, store := setupTestContext()
+	defer store.Close()
 
+	registry := GetOrCreateStreamRegistry(ctx)
 	id := registry.Register(io.NopCloser(bytes.NewReader(nil)))
 
-	h := NewStreamReadHandler()
+	d := NewDispatcher(4)
+	d.Start(ctx)
+	defer d.Stop(ctx)
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
 
 	var emitted any
-	err := h.Handle(ctx, streamapi.StreamReadCmd{StreamID: id, Size: 10}, func(d any) {
+	done := make(chan struct{})
+	err := handlers[streamapi.CmdStreamRead].Handle(ctx, streamapi.StreamReadCmd{StreamID: id, Size: 10}, func(d any) {
 		emitted = d
+		close(done)
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
+	<-done
 
 	// nil signals EOF
 	if emitted != nil {
@@ -180,43 +205,77 @@ func TestStreamReadHandlerEOF(t *testing.T) {
 }
 
 func TestStreamCloseHandler(t *testing.T) {
-	ctx, _ := setupTestContext()
-	registry := GetOrCreateStreamRegistry(ctx)
+	ctx, store := setupTestContext()
+	defer store.Close()
 
+	registry := GetOrCreateStreamRegistry(ctx)
 	id := registry.Register(io.NopCloser(strings.NewReader("test")))
 
-	h := NewStreamCloseHandler()
+	d := NewDispatcher(4)
+	d.Start(ctx)
+	defer d.Stop(ctx)
 
-	err := h.Handle(ctx, streamapi.StreamCloseCmd{StreamID: id}, func(d any) {})
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(cmdID dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[cmdID] = h
+	})
+
+	done := make(chan struct{})
+	err := handlers[streamapi.CmdStreamClose].Handle(ctx, streamapi.StreamCloseCmd{StreamID: id}, func(d any) {
+		close(done)
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	err = h.Handle(ctx, streamapi.StreamCloseCmd{StreamID: id}, func(d any) {})
-	if err != ErrStreamNotFound {
-		t.Errorf("expected ErrStreamNotFound on second close, got %v", err)
+	<-done
+
+	// Second close should not emit
+	var emitted bool
+	err = handlers[streamapi.CmdStreamClose].Handle(ctx, streamapi.StreamCloseCmd{StreamID: id}, func(d any) {
+		emitted = true
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Give time for async not to emit
+	time.Sleep(50 * time.Millisecond)
+
+	if emitted {
+		t.Error("should not emit on second close")
 	}
 }
 
 func TestStreamFullCycle(t *testing.T) {
-	ctx, _ := setupTestContext()
-	registry := GetOrCreateStreamRegistry(ctx)
+	ctx, store := setupTestContext()
+	defer store.Close()
 
+	registry := GetOrCreateStreamRegistry(ctx)
 	data := "chunk1chunk2chunk3"
 	id := registry.Register(io.NopCloser(strings.NewReader(data)))
 
-	readH := NewStreamReadHandler()
-	closeH := NewStreamCloseHandler()
+	d := NewDispatcher(4)
+	d.Start(ctx)
+	defer d.Stop(ctx)
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(cmdID dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[cmdID] = h
+	})
 
 	chunks := make([]string, 0, 3)
 	for i := 0; i < 3; i++ {
 		var emitted any
-		err := readH.Handle(ctx, streamapi.StreamReadCmd{StreamID: id, Size: 6}, func(d any) {
+		done := make(chan struct{})
+		err := handlers[streamapi.CmdStreamRead].Handle(ctx, streamapi.StreamReadCmd{StreamID: id, Size: 6}, func(d any) {
 			emitted = d
+			close(done)
 		})
 		if err != nil {
 			t.Fatalf("read %d error: %v", i, err)
 		}
+		<-done
 		if chunk, ok := emitted.([]byte); ok {
 			chunks = append(chunks, string(chunk))
 		}
@@ -229,20 +288,21 @@ func TestStreamFullCycle(t *testing.T) {
 		t.Errorf("unexpected chunks: %v", chunks)
 	}
 
-	err := closeH.Handle(ctx, streamapi.StreamCloseCmd{StreamID: id}, func(d any) {})
+	done := make(chan struct{})
+	err := handlers[streamapi.CmdStreamClose].Handle(ctx, streamapi.StreamCloseCmd{StreamID: id}, func(d any) {
+		close(done)
+	})
 	if err != nil {
 		t.Fatalf("close error: %v", err)
 	}
+	<-done
 }
 
-func TestStreamService(t *testing.T) {
-	s := NewService()
-	if s.Read == nil || s.Close == nil || s.Write == nil || s.Seek == nil || s.Flush == nil || s.Stat == nil {
-		t.Error("service handlers not initialized")
-	}
+func TestDispatcher_RegisterAll(t *testing.T) {
+	d := NewDispatcher(4)
 
 	count := 0
-	s.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		count++
 	})
 	if count != 6 {

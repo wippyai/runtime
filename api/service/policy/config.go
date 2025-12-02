@@ -2,10 +2,14 @@
 package policy
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/wippyai/runtime/api/registry"
 )
+
+// ErrFieldNotFound is returned when a field path cannot be resolved.
+var ErrFieldNotFound = errors.New("field not found")
 
 const (
 	// Kind represents the kind of policy entries in the registry

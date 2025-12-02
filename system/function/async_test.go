@@ -14,7 +14,7 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/pidgen"
+	"github.com/wippyai/runtime/api/process2"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/internal/uniqid"
@@ -24,7 +24,7 @@ func setupTestContext() context.Context {
 	ctx := ctxapi.NewRootContext()
 	uniqGen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
-	return pidgen.WithGenerator(ctx, pidGen)
+	return process2.WithPIDGenerator(ctx, pidGen)
 }
 
 type mockRegistry struct {

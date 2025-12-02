@@ -9,7 +9,6 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
-	"github.com/wippyai/runtime/api/workflow"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
@@ -748,7 +747,7 @@ func afterFunc(l *lua.LState) int {
 func nowFunc(l *lua.LState) int {
 	var t stdtime.Time
 
-	if ref := workflow.GetTimeReference(l.Context()); ref != nil {
+	if ref := clockapi.GetTimeReference(l.Context()); ref != nil {
 		t = ref.Now()
 	} else {
 		t = stdtime.Now()

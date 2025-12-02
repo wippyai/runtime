@@ -5,12 +5,22 @@ import (
 	"context"
 	"io"
 	"testing"
+	"time"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/dispatcher"
 	excelapi "github.com/wippyai/runtime/api/dispatcher/excel"
+	"github.com/wippyai/runtime/api/resource"
 	streamhandler "github.com/wippyai/runtime/service/fs/stream"
 	"github.com/xuri/excelize/v2"
 )
+
+func setupTestContext() (context.Context, *resource.Store) {
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	store := resource.NewStore()
+	_ = resource.SetStore(ctx, store)
+	return ctx, store
+}
 
 func TestExcelOpenStreamHandler(t *testing.T) {
 	// Create a simple Excel file in memory
@@ -25,25 +35,42 @@ func TestExcelOpenStreamHandler(t *testing.T) {
 	f.Close()
 
 	// Setup context with stream registry
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx, store := setupTestContext()
+	defer store.Close()
 	registry := streamhandler.GetOrCreateStreamRegistry(ctx)
 
 	// Register the buffer as a stream
 	streamID := registry.RegisterStream(io.NopCloser(bytes.NewReader(buf.Bytes())))
 
-	// Test the handler
-	h := NewExcelOpenStreamHandler()
-	var resp excelapi.ExcelOpenStreamResponse
+	d := NewDispatcher(4)
+	d.Start(ctx)
+	defer d.Stop(ctx)
 
-	err := h.Handle(ctx, &excelapi.ExcelOpenStreamCmd{
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
+
+	var resp excelapi.ExcelOpenStreamResponse
+	done := make(chan struct{})
+
+	err := handlers[excelapi.CmdExcelOpenStream].Handle(ctx, &excelapi.ExcelOpenStreamCmd{
 		StreamID: streamID,
 	}, func(data any) {
 		resp = data.(excelapi.ExcelOpenStreamResponse)
+		close(done)
 	})
 
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for response")
+	}
+
 	if resp.Error != nil {
 		t.Fatalf("response error: %v", resp.Error)
 	}
@@ -66,25 +93,43 @@ func TestExcelOpenStreamHandler(t *testing.T) {
 func TestExcelOpenStreamHandlerNoRegistry(t *testing.T) {
 	ctx := context.Background()
 
-	h := NewExcelOpenStreamHandler()
-	var resp excelapi.ExcelOpenStreamResponse
+	d := NewDispatcher(4)
+	d.Start(ctx)
+	defer d.Stop(ctx)
 
-	err := h.Handle(ctx, &excelapi.ExcelOpenStreamCmd{
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
+
+	var resp excelapi.ExcelOpenStreamResponse
+	done := make(chan struct{})
+
+	err := handlers[excelapi.CmdExcelOpenStream].Handle(ctx, &excelapi.ExcelOpenStreamCmd{
 		StreamID: 1,
 	}, func(data any) {
 		resp = data.(excelapi.ExcelOpenStreamResponse)
+		close(done)
 	})
 
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for response")
+	}
+
 	if resp.Error == nil {
 		t.Error("expected error for missing registry")
 	}
 }
 
 func TestExcelOpenStreamHandlerInvalidStream(t *testing.T) {
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx, store := setupTestContext()
+	defer store.Close()
 	streamhandler.GetOrCreateStreamRegistry(ctx)
 
 	// Register invalid data as a stream
@@ -92,18 +137,35 @@ func TestExcelOpenStreamHandlerInvalidStream(t *testing.T) {
 	registry := streamhandler.GetStreamRegistry(ctx)
 	streamID := registry.RegisterStream(io.NopCloser(bytes.NewReader(invalidData)))
 
-	h := NewExcelOpenStreamHandler()
-	var resp excelapi.ExcelOpenStreamResponse
+	d := NewDispatcher(4)
+	d.Start(ctx)
+	defer d.Stop(ctx)
 
-	err := h.Handle(ctx, &excelapi.ExcelOpenStreamCmd{
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
+
+	var resp excelapi.ExcelOpenStreamResponse
+	done := make(chan struct{})
+
+	err := handlers[excelapi.CmdExcelOpenStream].Handle(ctx, &excelapi.ExcelOpenStreamCmd{
 		StreamID: streamID,
 	}, func(data any) {
 		resp = data.(excelapi.ExcelOpenStreamResponse)
+		close(done)
 	})
 
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for response")
+	}
+
 	if resp.Error == nil {
 		t.Error("expected error for invalid excel data")
 	}
@@ -131,7 +193,8 @@ func TestExcelWriteStreamHandler(t *testing.T) {
 	f.SetCellValue("Sheet1", "B1", 456)
 
 	// Setup context with stream registry
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx, store := setupTestContext()
+	defer store.Close()
 	registry := streamhandler.GetOrCreateStreamRegistry(ctx)
 
 	// Register a write buffer as a stream
@@ -139,20 +202,36 @@ func TestExcelWriteStreamHandler(t *testing.T) {
 	writeCloser := &mockWriteCloser{buf: buf}
 	streamID := registry.RegisterStream(writeCloser)
 
-	// Test the handler
-	h := NewExcelWriteStreamHandler()
-	var resp excelapi.ExcelWriteStreamResponse
+	d := NewDispatcher(4)
+	d.Start(ctx)
+	defer d.Stop(ctx)
 
-	err := h.Handle(ctx, &excelapi.ExcelWriteStreamCmd{
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
+
+	var resp excelapi.ExcelWriteStreamResponse
+	done := make(chan struct{})
+
+	err := handlers[excelapi.CmdExcelWriteStream].Handle(ctx, &excelapi.ExcelWriteStreamCmd{
 		File:     f,
 		StreamID: streamID,
 	}, func(data any) {
 		resp = data.(excelapi.ExcelWriteStreamResponse)
+		close(done)
 	})
 
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for response")
+	}
+
 	if resp.Error != nil {
 		t.Fatalf("response error: %v", resp.Error)
 	}
@@ -186,30 +265,50 @@ func TestExcelWriteStreamHandlerNoRegistry(t *testing.T) {
 
 	ctx := context.Background()
 
-	h := NewExcelWriteStreamHandler()
-	var resp excelapi.ExcelWriteStreamResponse
+	d := NewDispatcher(4)
+	d.Start(ctx)
+	defer d.Stop(ctx)
 
-	err := h.Handle(ctx, &excelapi.ExcelWriteStreamCmd{
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
+
+	var resp excelapi.ExcelWriteStreamResponse
+	done := make(chan struct{})
+
+	err := handlers[excelapi.CmdExcelWriteStream].Handle(ctx, &excelapi.ExcelWriteStreamCmd{
 		File:     f,
 		StreamID: 1,
 	}, func(data any) {
 		resp = data.(excelapi.ExcelWriteStreamResponse)
+		close(done)
 	})
 
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for response")
+	}
+
 	if resp.Error == nil {
 		t.Error("expected error for missing registry")
 	}
 }
 
-func TestExcelService(t *testing.T) {
-	svc := NewService()
-	if svc.OpenStream == nil {
-		t.Error("OpenStream handler not initialized")
-	}
-	if svc.WriteStream == nil {
-		t.Error("WriteStream handler not initialized")
+func TestDispatcher_RegisterAll(t *testing.T) {
+	d := NewDispatcher(4)
+
+	count := 0
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		count++
+	})
+
+	if count != 2 {
+		t.Errorf("expected 2 handlers registered, got %d", count)
 	}
 }

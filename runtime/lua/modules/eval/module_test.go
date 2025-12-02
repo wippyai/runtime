@@ -10,7 +10,6 @@ import (
 	clockapi "github.com/wippyai/runtime/api/clock"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
-	evalapi "github.com/wippyai/runtime/api/eval"
 	"github.com/wippyai/runtime/api/process2"
 	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	"github.com/wippyai/runtime/runtime/lua/engine"
@@ -34,7 +33,7 @@ func TestEvalModule_SandboxWithSleep(t *testing.T) {
 
 	// Create context with AppContext, then attach eval host
 	rootCtx := ctxapi.NewRootContext()
-	evalapi.WithHost(rootCtx, host)
+	evalhost.WithHost(rootCtx, host)
 	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
 
 	// Parent Lua script that creates sandbox and steps through child
@@ -132,7 +131,7 @@ func TestEvalModule_SandboxYieldTranscoding(t *testing.T) {
 	host := evalhost.NewHost(log, modules, nil)
 
 	rootCtx := ctxapi.NewRootContext()
-	evalapi.WithHost(rootCtx, host)
+	evalhost.WithHost(rootCtx, host)
 	_, _ = ctxapi.OpenFrameContext(rootCtx)
 
 	// Test transcoding of different command types
@@ -182,11 +181,11 @@ func TestEvalModule_CompileYield(t *testing.T) {
 	yield.Modules = []string{"json", "time"}
 
 	// Test CmdID
-	assert.Equal(t, evalapi.CmdCompile, yield.CmdID())
+	assert.Equal(t, evalhost.CmdCompile, yield.CmdID())
 
 	// Test ToCommand
 	cmd := yield.ToCommand()
-	compileCmd, ok := cmd.(evalapi.CompileCmd)
+	compileCmd, ok := cmd.(evalhost.CompileCmd)
 	require.True(t, ok)
 	assert.Equal(t, "return 42", compileCmd.Source)
 	assert.Equal(t, "handle", compileCmd.Method)
@@ -227,11 +226,11 @@ func TestEvalModule_RunYield(t *testing.T) {
 	yield.Context = map[string]any{"key": "value"}
 
 	// Test CmdID
-	assert.Equal(t, evalapi.CmdRun, yield.CmdID())
+	assert.Equal(t, evalhost.CmdRun, yield.CmdID())
 
 	// Test ToCommand
 	cmd := yield.ToCommand()
-	runCmd, ok := cmd.(evalapi.RunCmd)
+	runCmd, ok := cmd.(evalhost.RunCmd)
 	require.True(t, ok)
 	assert.Equal(t, "return x + 1", runCmd.Source)
 	assert.Equal(t, "handle", runCmd.Method)
@@ -267,7 +266,7 @@ func TestEvalModule_SandboxMethods(t *testing.T) {
 	host := evalhost.NewHost(log, modules, nil)
 
 	rootCtx := ctxapi.NewRootContext()
-	evalapi.WithHost(rootCtx, host)
+	evalhost.WithHost(rootCtx, host)
 	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
 
 	// Test sandbox creation and methods via Lua
@@ -327,7 +326,7 @@ func TestEvalModule_SandboxManualDispatch(t *testing.T) {
 	host := evalhost.NewHost(log, modules, nil)
 
 	rootCtx := ctxapi.NewRootContext()
-	evalapi.WithHost(rootCtx, host)
+	evalhost.WithHost(rootCtx, host)
 	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
 
 	// Parent code that creates sandbox with sleep, then manually dispatches
@@ -415,11 +414,11 @@ func TestEvalModule_ProgramMethods(t *testing.T) {
 	host := evalhost.NewHost(log, modules, nil)
 
 	rootCtx := ctxapi.NewRootContext()
-	evalapi.WithHost(rootCtx, host)
+	evalhost.WithHost(rootCtx, host)
 	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
 
 	// Compile a program and test its methods
-	program, err := host.Compile(ctx, evalapi.CompileCmd{
+	program, err := host.Compile(ctx, evalhost.CompileCmd{
 		Source:  "return {}",
 		Method:  "handle",
 		Modules: []string{"json", "time"},
@@ -466,7 +465,7 @@ func TestEvalModule_ErrorCases(t *testing.T) {
 	host := evalhost.NewHost(log, modules, nil)
 
 	rootCtx := ctxapi.NewRootContext()
-	evalapi.WithHost(rootCtx, host)
+	evalhost.WithHost(rootCtx, host)
 	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
 
 	t.Run("sandbox_without_host", func(t *testing.T) {
@@ -550,7 +549,7 @@ func TestEvalModule_ErrorCases(t *testing.T) {
 	})
 }
 
-// mockProgram implements evalapi.Program for testing
+// mockProgram implements evalhost.Program for testing
 type mockProgram struct {
 	method  string
 	modules []string
@@ -587,7 +586,7 @@ func TestEvalModule_ComprehensiveIntegration(t *testing.T) {
 	host := evalhost.NewHost(log, modules, nil)
 
 	rootCtx := ctxapi.NewRootContext()
-	evalapi.WithHost(rootCtx, host)
+	evalhost.WithHost(rootCtx, host)
 	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
 
 	// Parent orchestrates a child that uses multiple modules and yields
@@ -742,7 +741,7 @@ func TestEvalModule_SandboxResourceCleanup(t *testing.T) {
 	host := evalhost.NewHost(log, modules, nil)
 
 	rootCtx := ctxapi.NewRootContext()
-	evalapi.WithHost(rootCtx, host)
+	evalhost.WithHost(rootCtx, host)
 	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
 
 	// Parent creates sandbox but doesn't close it - resource cleanup should handle it
@@ -795,7 +794,7 @@ func TestEvalModule_MultipleModulesLoaded(t *testing.T) {
 	host := evalhost.NewHost(log, modules, nil)
 
 	rootCtx := ctxapi.NewRootContext()
-	evalapi.WithHost(rootCtx, host)
+	evalhost.WithHost(rootCtx, host)
 	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
 
 	// Test that child can use both json and time modules
@@ -870,7 +869,7 @@ func TestEvalModule_YieldObservation(t *testing.T) {
 	host := evalhost.NewHost(log, modules, nil)
 
 	rootCtx := ctxapi.NewRootContext()
-	evalapi.WithHost(rootCtx, host)
+	evalhost.WithHost(rootCtx, host)
 	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
 
 	// Child yields multiple times with different commands
@@ -953,7 +952,7 @@ func BenchmarkSandboxCreateExecuteStep(b *testing.B) {
 	host := evalhost.NewHost(log, modules, nil)
 
 	rootCtx := ctxapi.NewRootContext()
-	evalapi.WithHost(rootCtx, host)
+	evalhost.WithHost(rootCtx, host)
 	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
 
 	// Simple script that creates sandbox and runs to completion

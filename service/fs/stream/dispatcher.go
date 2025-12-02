@@ -1,5 +1,4 @@
 // Package stream provides stream command handlers for the dispatcher system.
-// Supports both blocking (for testing) and async (for production) execution modes.
 package stream
 
 import (
@@ -96,7 +95,6 @@ func (r *StreamRegistry) RegisterStream(stream io.Closer) uint64 {
 		closed: false,
 	}
 
-	// Detect capabilities
 	if rd, ok := stream.(io.Reader); ok {
 		entry.reader = rd
 		entry.caps.Readable = true
@@ -270,8 +268,6 @@ type TableProvider interface {
 }
 
 // GetStreamRegistry returns a StreamRegistry backed by the Table from context.
-// Checks resource.StoreKey first (set by Lua engine), then falls back to legacy lookup.
-// Returns nil if no Table is available in the context.
 func GetStreamRegistry(ctx context.Context) *StreamRegistry {
 	table := resource.GetTable(ctx)
 	if table == nil {
@@ -281,7 +277,6 @@ func GetStreamRegistry(ctx context.Context) *StreamRegistry {
 }
 
 // GetOrCreateStreamRegistry returns a StreamRegistry for the context.
-// Panics if no Store is available - engines must set resource.Store during initialization.
 func GetOrCreateStreamRegistry(ctx context.Context) *StreamRegistry {
 	registry := GetStreamRegistry(ctx)
 	if registry == nil {
@@ -290,14 +285,7 @@ func GetOrCreateStreamRegistry(ctx context.Context) *StreamRegistry {
 	return registry
 }
 
-// job represents a unit of work for the async dispatcher.
-type job struct {
-	ctx  context.Context
-	cmd  dispatcher.Command
-	emit dispatcher.EmitFunc
-}
-
-// Dispatcher handles stream commands with configurable execution mode.
+// Dispatcher handles stream commands via async worker pool.
 type Dispatcher struct {
 	workers int
 	jobs    chan job
@@ -306,41 +294,22 @@ type Dispatcher struct {
 	cancel  context.CancelFunc
 }
 
-// Config holds dispatcher configuration.
-type Config struct {
-	// Workers is the number of worker goroutines for async mode.
-	// If 0, dispatcher runs in blocking mode (synchronous execution).
-	Workers int
+type job struct {
+	ctx  context.Context
+	cmd  dispatcher.Command
+	emit dispatcher.Emitter
 }
 
-// NewDispatcher creates a new stream dispatcher with the given configuration.
-func NewDispatcher(cfg Config) *Dispatcher {
-	return &Dispatcher{
-		workers: cfg.Workers,
-	}
-}
-
-// NewBlockingDispatcher creates a dispatcher that executes synchronously.
-// Use for testing or when async execution is not needed.
-func NewBlockingDispatcher() *Dispatcher {
-	return &Dispatcher{workers: 0}
-}
-
-// NewAsyncDispatcher creates a dispatcher with a worker pool.
-// Use for production to avoid blocking the scheduler.
-func NewAsyncDispatcher(workers int) *Dispatcher {
+// NewDispatcher creates a stream dispatcher with the specified worker count.
+func NewDispatcher(workers int) *Dispatcher {
 	if workers <= 0 {
 		workers = 4
 	}
 	return &Dispatcher{workers: workers}
 }
 
-// Start initializes the dispatcher. For async mode, starts worker goroutines.
+// Start initializes the worker pool.
 func (d *Dispatcher) Start(ctx context.Context) error {
-	if d.workers <= 0 {
-		return nil
-	}
-
 	d.ctx, d.cancel = context.WithCancel(ctx)
 	d.jobs = make(chan job, d.workers*2)
 
@@ -348,202 +317,102 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 		d.wg.Add(1)
 		go d.worker()
 	}
-
 	return nil
 }
 
-// Stop shuts down the dispatcher and waits for workers to finish.
+// Stop shuts down the dispatcher and drains pending jobs.
 func (d *Dispatcher) Stop(_ context.Context) error {
-	if d.workers <= 0 {
-		return nil
-	}
-
 	d.cancel()
 	close(d.jobs)
 	d.wg.Wait()
 	return nil
 }
 
-// worker processes jobs from the queue.
 func (d *Dispatcher) worker() {
 	defer d.wg.Done()
-
 	for j := range d.jobs {
-		execute(j.ctx, j.cmd, j.emit)
+		d.execute(j)
 	}
 }
 
-// submit sends a job to the worker pool.
-func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) {
+func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) {
 	select {
 	case d.jobs <- job{ctx: ctx, cmd: cmd, emit: emit}:
 	case <-d.ctx.Done():
 	}
 }
 
-// isAsync returns true if dispatcher is in async mode.
-func (d *Dispatcher) isAsync() bool {
-	return d.workers > 0 && d.jobs != nil
-}
-
-// execute runs the stream operation and emits the result.
-func execute(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) {
-	registry := GetStreamRegistry(ctx)
+func (d *Dispatcher) execute(j job) {
+	registry := GetStreamRegistry(j.ctx)
 	if registry == nil {
 		return
 	}
 
-	switch c := cmd.(type) {
+	switch c := j.cmd.(type) {
 	case streamapi.StreamReadCmd:
 		data, err := registry.Read(c.StreamID, c.Size)
 		if err == io.EOF {
-			emit(nil)
+			j.emit.Emit(nil, nil)
 			return
 		}
 		if err != nil {
 			return
 		}
-		emit(data)
+		j.emit.Emit(data, nil)
 
 	case streamapi.StreamWriteCmd:
 		n, err := registry.Write(c.StreamID, c.Data)
 		if err != nil {
 			return
 		}
-		emit(int64(n))
+		j.emit.Emit(int64(n), nil)
 
 	case streamapi.StreamCloseCmd:
 		if err := registry.Close(c.StreamID); err != nil {
 			return
 		}
-		emit(nil)
+		j.emit.Emit(nil, nil)
 
 	case streamapi.StreamSeekCmd:
 		pos, err := registry.Seek(c.StreamID, c.Offset, c.Whence)
 		if err != nil {
 			return
 		}
-		emit(pos)
+		j.emit.Emit(pos, nil)
 
 	case streamapi.StreamFlushCmd:
 		if err := registry.Flush(c.StreamID); err != nil {
 			return
 		}
-		emit(nil)
+		j.emit.Emit(nil, nil)
 
 	case streamapi.StreamStatCmd:
 		size, pos, caps, err := registry.Stat(c.StreamID)
 		if err != nil {
 			return
 		}
-		emit(streamapi.StreamInfo{
+		j.emit.Emit(streamapi.StreamInfo{
 			Size:     size,
 			Position: pos,
 			Readable: caps.Readable,
 			Writable: caps.Writable,
 			Seekable: caps.Seekable,
-		})
+		}, nil)
 	}
 }
 
-// ReadHandler handles stream read commands.
-type ReadHandler struct {
-	d *Dispatcher
-}
-
-func (h *ReadHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
-	if h.d.isAsync() {
-		h.d.submit(ctx, cmd, emit)
-		return nil
-	}
-	execute(ctx, cmd, emit)
+func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
+	d.submit(ctx, cmd, emit)
 	return nil
 }
 
-// WriteHandler handles stream write commands.
-type WriteHandler struct {
-	d *Dispatcher
-}
-
-func (h *WriteHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
-	if h.d.isAsync() {
-		h.d.submit(ctx, cmd, emit)
-		return nil
-	}
-	execute(ctx, cmd, emit)
-	return nil
-}
-
-// CloseHandler handles stream close commands.
-type CloseHandler struct {
-	d *Dispatcher
-}
-
-func (h *CloseHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
-	if h.d.isAsync() {
-		h.d.submit(ctx, cmd, emit)
-		return nil
-	}
-	execute(ctx, cmd, emit)
-	return nil
-}
-
-// SeekHandler handles stream seek commands.
-type SeekHandler struct {
-	d *Dispatcher
-}
-
-func (h *SeekHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
-	if h.d.isAsync() {
-		h.d.submit(ctx, cmd, emit)
-		return nil
-	}
-	execute(ctx, cmd, emit)
-	return nil
-}
-
-// FlushHandler handles stream flush commands.
-type FlushHandler struct {
-	d *Dispatcher
-}
-
-func (h *FlushHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
-	if h.d.isAsync() {
-		h.d.submit(ctx, cmd, emit)
-		return nil
-	}
-	execute(ctx, cmd, emit)
-	return nil
-}
-
-// StatHandler handles stream stat commands.
-type StatHandler struct {
-	d *Dispatcher
-}
-
-func (h *StatHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
-	if h.d.isAsync() {
-		h.d.submit(ctx, cmd, emit)
-		return nil
-	}
-	execute(ctx, cmd, emit)
-	return nil
-}
-
-// RegisterAll registers all stream handlers with the given registry function.
+// RegisterAll registers all stream handlers.
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
-	register(streamapi.CmdStreamRead, &ReadHandler{d: d})
-	register(streamapi.CmdStreamWrite, &WriteHandler{d: d})
-	register(streamapi.CmdStreamClose, &CloseHandler{d: d})
-	register(streamapi.CmdStreamSeek, &SeekHandler{d: d})
-	register(streamapi.CmdStreamFlush, &FlushHandler{d: d})
-	register(streamapi.CmdStreamStat, &StatHandler{d: d})
-}
-
-// Service is an alias for Dispatcher for backward compatibility.
-type Service = Dispatcher
-
-// NewService creates a blocking dispatcher for backward compatibility.
-func NewService() *Dispatcher {
-	return NewBlockingDispatcher()
+	h := dispatcher.HandlerFunc(d.handle)
+	register(streamapi.CmdStreamRead, h)
+	register(streamapi.CmdStreamWrite, h)
+	register(streamapi.CmdStreamClose, h)
+	register(streamapi.CmdStreamSeek, h)
+	register(streamapi.CmdStreamFlush, h)
+	register(streamapi.CmdStreamStat, h)
 }

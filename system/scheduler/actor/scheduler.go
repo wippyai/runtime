@@ -8,15 +8,10 @@ import (
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/process2"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 )
-
-// OnStart is called after a process starts.
-type OnStart func(ctx context.Context, pid relay.PID, proc Process)
-
-// OnComplete is called when a process completes.
-type OnComplete func(ctx context.Context, pid relay.PID, result *runtime.Result)
 
 // Pool for result channels (blocking Execute)
 var resultChPool = sync.Pool{
@@ -35,17 +30,10 @@ func WithWorkers(n int) Option {
 	}
 }
 
-// WithOnStart sets the start callback.
-func WithOnStart(fn OnStart) Option {
+// WithLifecycle sets the lifecycle handler.
+func WithLifecycle(l process2.Lifecycle) Option {
 	return func(s *Scheduler) {
-		s.onStart = fn
-	}
-}
-
-// WithOnComplete sets the completion callback.
-func WithOnComplete(fn OnComplete) Option {
-	return func(s *Scheduler) {
-		s.onComplete = fn
+		s.lifecycle = l
 	}
 }
 
@@ -58,16 +46,12 @@ func WithQueueSize(size int) Option {
 	}
 }
 
-// WithLocalQueueSize sets the worker local deque capacity.
+// WithLocalQueueSize is deprecated - kept for compatibility but ignored.
 func WithLocalQueueSize(size int) Option {
-	return func(s *Scheduler) {
-		if size > 0 {
-			s.localQueueSize = size
-		}
-	}
+	return func(s *Scheduler) {}
 }
 
-// Dispatcher routes commands to handlers. Default uses Registry.
+// Dispatcher routes commands to handlers.
 type Dispatcher interface {
 	Dispatch(cmd dispatcher.Command) dispatcher.Handler
 }
@@ -80,60 +64,39 @@ func WithDispatcher(d Dispatcher) Option {
 }
 
 // Scheduler coordinates workers and manages processor lifecycle.
-//
-// Architecture:
-//   - Global queue: receives new submissions and async completions
-//   - Worker local deques: per-worker queues for cache locality
-//   - Work stealing: idle workers steal from busy workers
-//
-// Work distribution:
-//  1. Submit() pushes to global queue
-//  2. Workers pop from local deque first (fast path)
-//  3. If empty, pop from global queue
-//  4. If still empty, steal from random victim
+// Simplified design for async dispatchers - global queue only, no work-stealing.
 type Scheduler struct {
-	registry *Registry
+	registry dispatcher.Registry
 	workers  []*Worker
 	global   *Queue
 
 	nextID atomic.Uint64
 	wg     sync.WaitGroup
 
-	// Worker stop signaling
+	// Worker lifecycle
 	stopping atomic.Bool
+	wakeMu   sync.Mutex
+	wakeCond *sync.Cond
 
-	// Event-based worker waking (zero idle CPU)
-	// Uses Go runtime's spinning pattern to avoid thundering herd
-	wakeMu    sync.Mutex
-	wakeCond  *sync.Cond
-	nspinning atomic.Int32 // Number of spinning workers (looking for work)
-	nparked   atomic.Int32 // Number of parked workers (in Cond.Wait)
-
-	// Configuration (set via options before Start)
-	numWorkers     int
-	queueSize      int
-	localQueueSize int
-	dispatcher     Dispatcher
-
-	// Lifecycle callbacks
-	onStart    OnStart
-	onComplete OnComplete
+	// Configuration
+	numWorkers int
+	queueSize  int
+	dispatcher Dispatcher
+	lifecycle  process2.Lifecycle
 
 	// Process lookup (for Send() routing)
-	byPID sync.Map // map[relay.PID]uint64 (PID -> internal ID)
-	byID  sync.Map // map[uint64]Process (internal ID -> Process for Send)
+	byPID sync.Map // map[relay.PID]Process
 
 	// Idle process storage (waiting for Send)
 	idle sync.Map // map[uint64]*Processor
 }
 
 // NewScheduler creates a scheduler with the given registry and options.
-func NewScheduler(registry *Registry, opts ...Option) *Scheduler {
+func NewScheduler(registry dispatcher.Registry, opts ...Option) *Scheduler {
 	s := &Scheduler{
-		registry:       registry,
-		numWorkers:     goruntime.GOMAXPROCS(0),
-		queueSize:      1024,
-		localQueueSize: 256,
+		registry:   registry,
+		numWorkers: goruntime.GOMAXPROCS(0),
+		queueSize:  1024,
 	}
 
 	for _, opt := range opts {
@@ -150,7 +113,7 @@ func NewScheduler(registry *Registry, opts ...Option) *Scheduler {
 	return s
 }
 
-// getHandler returns the handler for a command, using dispatcher if set.
+// getHandler returns the handler for a command.
 func (s *Scheduler) getHandler(cmd dispatcher.Command) dispatcher.Handler {
 	if s.dispatcher != nil {
 		return s.dispatcher.Dispatch(cmd)
@@ -172,35 +135,20 @@ func (s *Scheduler) Start() {
 // Stop signals workers to stop and waits for them to finish.
 func (s *Scheduler) Stop() {
 	s.stopping.Store(true)
-	s.wakeAllWorkers()
+	s.wakeMu.Lock()
+	s.wakeCond.Broadcast()
+	s.wakeMu.Unlock()
 	s.wg.Wait()
 }
 
-// wakeWorker signals an idle worker to check for work.
-// Only wakes if there are no spinning workers (Go runtime pattern).
+// wakeWorker signals a parked worker to check for work.
 func (s *Scheduler) wakeWorker() {
-	// If there are spinning workers, they will find the work
-	if s.nspinning.Load() > 0 {
-		return
-	}
-	// Must hold mutex while signaling to prevent race with Wait()
-	// Worker: Lock -> check work -> Wait (atomic unlock+wait)
-	// Producer: Lock -> Signal -> Unlock
-	// This ensures signal is never lost between check and wait
 	s.wakeMu.Lock()
 	s.wakeCond.Signal()
 	s.wakeMu.Unlock()
 }
 
-// wakeAllWorkers wakes all idle workers (used for shutdown).
-func (s *Scheduler) wakeAllWorkers() {
-	s.wakeMu.Lock()
-	s.wakeCond.Broadcast()
-	s.wakeMu.Unlock()
-}
-
 // Submit adds a new process to the scheduler (fire-and-forget).
-// The process is initialized with Execute() and queued for execution.
 func (s *Scheduler) Submit(ctx context.Context, pid relay.PID, p Process, method string, input payload.Payloads) (*Processor, error) {
 	if err := p.Execute(ctx, method, input); err != nil {
 		return nil, err
@@ -215,22 +163,19 @@ func (s *Scheduler) Submit(ctx context.Context, pid relay.PID, p Process, method
 	proc.scheduler = s
 	proc.WakeNano = nanotime()
 
-	s.byID.Store(proc.ID, p)
-	s.byPID.Store(pid, proc.ID)
+	s.byPID.Store(pid, p)
 
-	// Push to global queue and wake a worker
 	s.global.Push(proc)
 	s.wakeWorker()
 
-	if s.onStart != nil {
-		s.onStart(ctx, pid, p)
+	if s.lifecycle != nil {
+		s.lifecycle.OnStart(ctx, pid, p)
 	}
 
 	return proc, nil
 }
 
 // Execute runs a process and blocks until completion.
-// Returns the final result. Uses pooled channels.
 func (s *Scheduler) Execute(ctx context.Context, pid relay.PID, p Process, method string, input payload.Payloads) (*runtime.Result, error) {
 	if err := p.Execute(ctx, method, input); err != nil {
 		return nil, err
@@ -248,15 +193,13 @@ func (s *Scheduler) Execute(ctx context.Context, pid relay.PID, p Process, metho
 	resultCh := resultChPool.Get().(chan *runtime.Result)
 	proc.resultCh = resultCh
 
-	s.byID.Store(proc.ID, p)
-	s.byPID.Store(pid, proc.ID)
+	s.byPID.Store(pid, p)
 
-	// Push to global queue and wake a worker
 	s.global.Push(proc)
 	s.wakeWorker()
 
-	if s.onStart != nil {
-		s.onStart(ctx, pid, p)
+	if s.lifecycle != nil {
+		s.lifecycle.OnStart(ctx, pid, p)
 	}
 
 	result := <-resultCh
@@ -266,7 +209,6 @@ func (s *Scheduler) Execute(ctx context.Context, pid relay.PID, p Process, metho
 }
 
 // SendTo delivers a message to an idle process.
-// Returns error if the process is not in idle state.
 func (s *Scheduler) SendTo(procID uint64, pkg *relay.Package) error {
 	val, ok := s.idle.LoadAndDelete(procID)
 	if !ok {
@@ -294,68 +236,49 @@ func (s *Scheduler) Cancel(procID uint64) {
 func (s *Scheduler) completeProcessor(proc *Processor, result *StepResult, err error) {
 	res := &runtime.Result{Error: err}
 
-	// Use explicit Result field from StepResult
 	if result != nil && result.Result != nil {
 		res.Value = result.Result
 	}
 
-	// Notify blocking Execute()/Requeue() caller
 	if proc.resultCh != nil {
 		proc.resultCh <- res
 	}
 
-	// Invoke completion callback
-	if s.onComplete != nil {
-		s.onComplete(proc.ctx, proc.PID, res)
+	if s.lifecycle != nil {
+		s.lifecycle.OnComplete(proc.ctx, proc.PID, res)
 	}
 
-	// Pooled processors are managed externally - don't release or unregister
 	if proc.pooled {
 		return
 	}
 
-	// Close the process to release resources (e.g., Lua state)
 	proc.Process.Close()
 
-	// Unregister from lookups and release processor
-	s.byID.Delete(proc.ID)
 	s.byPID.Delete(proc.PID)
 	s.idle.Delete(proc.ID)
 	releaseProcessor(proc)
 }
 
 // Requeue executes an existing processor and blocks until completion.
-// Unlike Execute, this reuses an existing Processor without registration.
-// Used by funcpool for pooled process reuse where Processor is persistent.
-//
-// The caller must:
-// 1. Call SetupCall() on the process before Requeue
-// 2. Ensure the process state is ready for execution
 func (s *Scheduler) Requeue(ctx context.Context, proc *Processor) (*runtime.Result, error) {
 	proc.ctx = ctx
 	proc.State = StateReady
 	proc.WakeNano = nanotime()
 
-	// Reuse pooled processor's result channel if available
 	resultCh := proc.resultCh
 	if resultCh == nil {
 		resultCh = resultChPool.Get().(chan *runtime.Result)
 		proc.resultCh = resultCh
 	}
 
-	// Push to global queue and wake a worker
 	s.global.Push(proc)
 	s.wakeWorker()
 
 	result := <-resultCh
-	// Don't return channel to pool - keep for reuse
-
 	return result, nil
 }
 
 // CreateProcessor creates a persistent Processor for a process.
-// Used by funcpool to pre-create Processors at warmup time.
-// The returned Processor can be reused via Requeue().
 func (s *Scheduler) CreateProcessor(pid relay.PID, p Process) *Processor {
 	proc := acquireProcessor()
 	proc.ID = s.nextID.Add(1)
@@ -366,40 +289,22 @@ func (s *Scheduler) CreateProcessor(pid relay.PID, p Process) *Processor {
 	proc.pooled = true
 	proc.resultCh = make(chan *runtime.Result, 1)
 
-	// Register for Send() routing
-	s.byID.Store(proc.ID, p)
-	s.byPID.Store(pid, proc.ID)
+	s.byPID.Store(pid, p)
 
 	return proc
 }
 
 // ReleaseProcessor removes a persistent Processor from the scheduler.
-// Called when a pooled process is destroyed.
-// Note: Pooled processors are NOT returned to the processor pool to avoid
-// races with completeProcessor which may still be reading proc.pooled.
-// The Processor struct will be GC'd when no longer referenced.
 func (s *Scheduler) ReleaseProcessor(proc *Processor) {
-	s.byID.Delete(proc.ID)
 	s.byPID.Delete(proc.PID)
 }
 
 // Send routes a package to a process by PID.
-// The package is delivered to the process via Process.Send().
-// Returns error if process not found or not in a state to receive.
 func (s *Scheduler) Send(pid relay.PID, pkg *relay.Package) error {
-	// Lookup PID -> internal ID
-	idVal, ok := s.byPID.Load(pid)
+	procVal, ok := s.byPID.Load(pid)
 	if !ok {
 		return &ProcessNotFoundError{PID: pid}
 	}
-	id := idVal.(uint64)
-
-	// Lookup ID -> Process
-	procVal, ok := s.byID.Load(id)
-	if !ok {
-		return &ProcessNotFoundError{PID: pid}
-	}
-
 	return procVal.(Process).Send(pkg)
 }
 
@@ -412,16 +317,20 @@ func (s *Scheduler) parkIdle(proc *Processor) {
 func (s *Scheduler) Stats() map[string]uint64 {
 	stats := make(map[string]uint64)
 
-	var executed, stolen uint64
+	var executed uint64
 	for _, w := range s.workers {
 		executed += w.executed.Load()
-		stolen += w.stolen.Load()
 	}
 
+	var byPIDCount, idleCount uint64
+	s.byPID.Range(func(_, _ any) bool { byPIDCount++; return true })
+	s.idle.Range(func(_, _ any) bool { idleCount++; return true })
+
 	stats["executed"] = executed
-	stats["stolen"] = stolen
 	stats["global_queue"] = uint64(s.global.Len())
 	stats["workers"] = uint64(len(s.workers))
+	stats["by_pid"] = byPIDCount
+	stats["idle"] = idleCount
 
 	return stats
 }
@@ -431,9 +340,7 @@ func (s *Scheduler) WorkerStats() []map[string]uint64 {
 	result := make([]map[string]uint64, len(s.workers))
 	for i, w := range s.workers {
 		result[i] = map[string]uint64{
-			"executed":    w.executed.Load(),
-			"stolen":      w.stolen.Load(),
-			"local_queue": uint64(w.local.Len()),
+			"executed": w.executed.Load(),
 		}
 	}
 	return result

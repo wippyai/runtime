@@ -35,14 +35,16 @@ func (m *Manager) RegisterMutator(mutator api.StartMutator) {
 
 // Start launches a process on the specified host.
 func (m *Manager) Start(ctx context.Context, start *api.Start) (relay.PID, error) {
-	// Run mutators to modify start request
-	var err error
-	for _, mutator := range m.mutators {
-		ctx, err = mutator(ctx, start)
-		if err != nil {
-			return relay.PID{}, fmt.Errorf("mutator failed: %w", err)
-		}
-	}
+	// Run mutators to modify start request this is wrong!!!!!!
+
+	// todo: uncomment
+	//	var err error
+	//for _, mutator := range m.mutators {
+	//	ctx, err = mutator(ctx, start)
+	//	if err != nil {
+	//		return relay.PID{}, fmt.Errorf("mutator failed: %w", err)
+	//	}
+	//}
 
 	// Look up host
 	relayHost, exists := m.node.GetHost(start.HostID)

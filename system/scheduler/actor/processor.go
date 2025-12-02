@@ -6,9 +6,39 @@ import (
 	"sync/atomic"
 	_ "unsafe" // for nanotime linkname
 
+	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 )
+
+// YieldSlot stores result for one yield in multi-yield execution.
+type YieldSlot struct {
+	Data  any
+	Error error
+}
+
+// IndexedEmitter implements dispatcher.Emitter for multi-yield.
+// Embedded in Processor to avoid allocation.
+type IndexedEmitter struct {
+	proc *Processor
+	idx  int
+}
+
+// Emit implements dispatcher.Emitter.
+func (e *IndexedEmitter) Emit(data any, err error) {
+	e.proc.CompleteAt(e.idx, data, err)
+}
+
+// MultiYieldContext supports zero-allocation multi-yield completion.
+// Embedded in Processor to avoid allocation per multi-yield call.
+type MultiYieldContext struct {
+	slots         [MaxYields]YieldSlot
+	emitters      [MaxYields]IndexedEmitter
+	overflowSlots []YieldSlot      // for yields > MaxYields
+	overflowEmit  []IndexedEmitter // for yields > MaxYields
+	pending       atomic.Int32
+	wakeup        chan struct{}
+}
 
 // nanotime returns monotonic time in nanoseconds.
 // Uses runtime.nanotime which is faster than time.Now().UnixNano()
@@ -60,10 +90,8 @@ type Processor struct {
 	yieldResult    YieldResults
 	hasYieldResult bool
 
-	// Executing worker ID for sync handler detection (-1 = not executing)
-	// Set by worker before Handle(), cleared after
-	// Complete() uses this to determine sync vs async re-queue
-	executingWorker int32
+	// Multi-yield context (embedded to avoid allocation)
+	multiYield MultiYieldContext
 
 	// Back-reference for zero-alloc Complete() callback
 	scheduler *Scheduler
@@ -82,13 +110,12 @@ type Processor struct {
 	pooled bool
 }
 
-// Complete is called by handlers when async work finishes.
+// Emit implements dispatcher.Emitter for single-yield path.
 // Stores the result and re-queues the processor for execution.
 //
 // Thread-safe: can be called from any goroutine.
 // Must be called exactly once per blocked yield.
-func (p *Processor) Complete(data any, err error) {
-	// Capture scheduler reference first - may be nil if processor was released
+func (p *Processor) Emit(data any, err error) {
 	sched := p.scheduler
 	if sched == nil {
 		return
@@ -98,22 +125,95 @@ func (p *Processor) Complete(data any, err error) {
 	p.yieldResult.Error = err
 	p.hasYieldResult = true
 	p.State = StateReady
+	p.WakeNano = nanotime()
 
-	// Check if sync handler (executingWorker > 0 means worker is still in Handle())
-	workerID := atomic.LoadInt32(&p.executingWorker)
-	if workerID > 0 && atomic.CompareAndSwapInt32(&p.executingWorker, workerID, -1) {
-		// Sync handler - worker will re-queue locally after Handle() returns
-		return
-	}
-
-	// Async handler or worker already moved on - push to global queue and wake worker
 	sched.global.Push(p)
 	sched.wakeWorker()
+}
+
+// Complete is an alias for Emit (backwards compatibility).
+func (p *Processor) Complete(data any, err error) {
+	p.Emit(data, err)
 }
 
 // Context returns the processor's context for cancellation checking.
 func (p *Processor) Context() context.Context {
 	return p.ctx
+}
+
+// CompleteAt is called by handlers for multi-yield completion.
+// Stores result at index and signals when all yields complete.
+// Thread-safe: can be called from any goroutine.
+func (p *Processor) CompleteAt(idx int, data any, err error) {
+	slot := p.getSlot(idx)
+	slot.Data = data
+	slot.Error = err
+	if p.multiYield.pending.Add(-1) == 0 {
+		select {
+		case p.multiYield.wakeup <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// initMultiYield prepares the multi-yield context for n yields.
+func (p *Processor) initMultiYield(n int) {
+	p.multiYield.pending.Store(int32(n))
+	if p.multiYield.wakeup == nil {
+		p.multiYield.wakeup = make(chan struct{}, 1)
+	}
+
+	// Initialize embedded emitters (common case: n <= MaxYields)
+	for i := 0; i < n && i < MaxYields; i++ {
+		p.multiYield.slots[i].Data = nil
+		p.multiYield.slots[i].Error = nil
+		p.multiYield.emitters[i].proc = p
+		p.multiYield.emitters[i].idx = i
+	}
+
+	// Handle overflow beyond MaxYields (rare case)
+	if n > MaxYields {
+		overflow := n - MaxYields
+		if cap(p.multiYield.overflowSlots) < overflow {
+			p.multiYield.overflowSlots = make([]YieldSlot, overflow)
+			p.multiYield.overflowEmit = make([]IndexedEmitter, overflow)
+		} else {
+			p.multiYield.overflowSlots = p.multiYield.overflowSlots[:overflow]
+			p.multiYield.overflowEmit = p.multiYield.overflowEmit[:overflow]
+		}
+		for i := 0; i < overflow; i++ {
+			p.multiYield.overflowSlots[i].Data = nil
+			p.multiYield.overflowSlots[i].Error = nil
+			p.multiYield.overflowEmit[i].proc = p
+			p.multiYield.overflowEmit[i].idx = MaxYields + i
+		}
+	}
+}
+
+// getEmitter returns the emitter for the given yield index.
+func (p *Processor) getEmitter(idx int) dispatcher.Emitter {
+	if idx < MaxYields {
+		return &p.multiYield.emitters[idx]
+	}
+	return &p.multiYield.overflowEmit[idx-MaxYields]
+}
+
+// getSlot returns the result slot for the given yield index.
+func (p *Processor) getSlot(idx int) *YieldSlot {
+	if idx < MaxYields {
+		return &p.multiYield.slots[idx]
+	}
+	return &p.multiYield.overflowSlots[idx-MaxYields]
+}
+
+// waitMultiYield blocks until all yields complete or context cancels.
+func (p *Processor) waitMultiYield(ctx context.Context) error {
+	select {
+	case <-p.multiYield.wakeup:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // Pool for processor reuse to reduce allocations.
@@ -139,7 +239,11 @@ func releaseProcessor(p *Processor) {
 	p.yieldResult.Data = nil
 	p.yieldResult.Error = nil
 	p.hasYieldResult = false
-	p.executingWorker = 0
+	// Keep multiYield.wakeup channel for reuse (don't nil it)
+	for i := range p.multiYield.slots {
+		p.multiYield.slots[i].Data = nil
+		p.multiYield.slots[i].Error = nil
+	}
 	p.scheduler = nil
 	p.resultCh = nil
 	p.WakeNano = 0

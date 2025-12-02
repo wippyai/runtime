@@ -9,7 +9,6 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
-	"github.com/wippyai/runtime/api/runtime"
 )
 
 // Lifecycle option keys for process supervision
@@ -19,17 +18,8 @@ const (
 	LifecycleLinkKey    = "lifecycle.link"
 )
 
-type (
-	// OnStart is a lifecycle hook called after a process starts.
-	OnStart func(ctx context.Context, pid relay.PID, proc Process)
-
-	// OnComplete is a lifecycle hook called when a process completes.
-	OnComplete func(ctx context.Context, pid relay.PID, result *runtime.Result)
-
-	// StartMutator modifies a Start request before process launch.
-	// Mutators can add context pairs, options, or lifecycle hooks.
-	StartMutator func(ctx context.Context, start *Start) (context.Context, error)
-)
+// StartMutator modifies a Start request before process launch.
+type StartMutator func(ctx context.Context, start *Start) (context.Context, error)
 
 // Option keys for special cases
 const (
@@ -54,12 +44,6 @@ type Start struct {
 	// Options contains runtime configuration options for the process.
 	// Special keys: OptionPID to specify desired PID.
 	Options attrs.Attributes
-
-	// OnStart contains lifecycle hooks to execute after the process starts
-	OnStart []OnStart
-
-	// OnComplete contains lifecycle hooks to execute when the process completes
-	OnComplete []OnComplete
 }
 
 // Host is a unified interface for process execution environments.

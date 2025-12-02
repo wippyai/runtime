@@ -3,6 +3,7 @@ package version
 import (
 	"fmt"
 	"sort"
+	"sync"
 
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/internal/graph"
@@ -37,6 +38,7 @@ type (
 )
 
 type versionHistory struct {
+	mu       sync.RWMutex
 	versions map[string]registry.Version
 }
 
@@ -50,6 +52,9 @@ func NewVersionMap() Map {
 }
 
 func (vm *versionHistory) Path(from, to registry.Version) ([]registry.Version, error) {
+	vm.mu.RLock()
+	defer vm.mu.RUnlock()
+
 	if _, ok := vm.versions[from.String()]; !ok {
 		return nil, fmt.Errorf("version %v not found", from.ID())
 	}
@@ -62,14 +67,12 @@ func (vm *versionHistory) Path(from, to registry.Version) ([]registry.Version, e
 		return []registry.Version{}, nil
 	}
 
-	// todo: can be optimized as `typically` we always event source from root
-
 	// Construct the graph on demand
 	g := graph.New[string, any]()
 	for _, v := range vm.versions {
 		g.AddNode(v.String())
 		if prev := v.Previous(); prev != nil {
-			// AddCleanup bidirectional edges with different weights
+			// Add bidirectional edges with different weights
 			g.AddEdge(prev.String(), v.String(), 1, nil) // Forward edge
 			g.AddEdge(v.String(), prev.String(), 2, nil) // Backward edge
 		}
@@ -97,6 +100,9 @@ func (vm *versionHistory) Path(from, to registry.Version) ([]registry.Version, e
 }
 
 func (vm *versionHistory) Add(v registry.Version) error {
+	vm.mu.Lock()
+	defer vm.mu.Unlock()
+
 	if _, ok := vm.versions[v.String()]; ok {
 		return fmt.Errorf("version %v already exists", v.ID())
 	}
@@ -106,15 +112,19 @@ func (vm *versionHistory) Add(v registry.Version) error {
 }
 
 func (vm *versionHistory) Len() int {
+	vm.mu.RLock()
+	defer vm.mu.RUnlock()
 	return len(vm.versions)
 }
 
 func (vm *versionHistory) Range(f func(uint, registry.Version) bool) {
+	vm.mu.RLock()
 	// Collect versions into a slice for sorting
 	versions := make([]registry.Version, 0, len(vm.versions))
 	for _, v := range vm.versions {
 		versions = append(versions, v)
 	}
+	vm.mu.RUnlock()
 
 	// Sort the versions
 	sort.Slice(versions, func(i, j int) bool {

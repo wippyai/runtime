@@ -13,7 +13,7 @@ import (
 	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
 	templatecfg "github.com/wippyai/runtime/api/service/template"
 	lua2payload "github.com/wippyai/runtime/runtime/lua/engine/payload"
-	templatesvc "github.com/wippyai/runtime/service/template"
+	"github.com/wippyai/runtime/service/template/jet"
 	payloadSystem "github.com/wippyai/runtime/system/payload"
 	"github.com/wippyai/runtime/system/payload/json"
 	lua "github.com/yuin/gopher-lua"
@@ -64,7 +64,7 @@ func (m *mockResourceRegistry) Exists(id registry.ID) bool {
 }
 
 // createTestTemplateSet creates a template set for testing
-func createTestTemplateSet(t *testing.T) *templatesvc.TemplateSet {
+func createTestTemplateSet(t *testing.T) *jet.Set {
 	cfg := &templatecfg.SetConfig{
 		Engine: templatecfg.EngineConfig{
 			DevelopmentMode: true,
@@ -83,7 +83,7 @@ func createTestTemplateSet(t *testing.T) *templatesvc.TemplateSet {
 	json.Register(transcoder)
 
 	id := registry.ID{Name: "test-templates"}
-	set, err := templatesvc.NewTemplateSet(id, cfg, transcoder)
+	set, err := jet.NewSet(id, cfg, transcoder)
 	require.NoError(t, err)
 
 	err = set.AddTemplate("welcome", "Hello, {{ name }}!")

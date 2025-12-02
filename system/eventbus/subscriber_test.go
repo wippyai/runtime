@@ -261,3 +261,18 @@ func TestSubscriberHandlerTimeout(t *testing.T) {
 	mu.Unlock()
 	require.True(t, wasCalled, "Handler should have been called")
 }
+
+func TestSubscriber_ID(t *testing.T) {
+	b := newTestBusForEvents(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	handler, err := NewSubscriber(ctx, b, "test-system", "", func(_ event.Event) {})
+	require.NoError(t, err)
+	defer handler.Close()
+
+	id := handler.ID()
+	require.NotEmpty(t, id)
+	require.Contains(t, id, "sub.")
+}

@@ -74,7 +74,7 @@ func Bind(l *lua.LState) {
 }
 
 // BindGlobal sets the process module as a global variable.
-func BindGlobal(l *lua.LState) {
+func BindGlobal(l *lua.LState) { // todo: we dont allow global stuff, has to be removed!!
 	Module.Register(l)
 	l.SetGlobal("process", moduleTable)
 }
@@ -216,7 +216,7 @@ func resolvePID(l *lua.LState, pidOrName string, permission string) (relay.PID, 
 }
 
 func createPayloadsFromArgs(l *lua.LState, startIndex int) payload.Payloads {
-	var payloads payload.Payloads
+	var payloads payload.Payloads // todo: properly presize!
 	for i := startIndex; i <= l.GetTop(); i++ {
 		payloads = append(payloads, luaconv.ExportPayload(l.Get(i)))
 	}
@@ -320,7 +320,8 @@ func send(l *lua.LState) int {
 	return 1
 }
 
-// TODO: spawn should be converted to a yield-based command instead of a direct Go call.
+// TODO: spawn should be converted to a yield-based command instead of a direct Go call!!!!!!!!!!!!!!!!!!!!!!!!!!
+// todo: this is wrong approach!
 // Currently spawn() calls manager.Start() synchronously which runs on the caller's goroutine.
 // This prevents proper context isolation and can cause memory leaks when spawning from
 // function pools, as the spawned process context inherits references from the pool worker.

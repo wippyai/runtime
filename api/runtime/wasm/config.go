@@ -3,23 +3,21 @@ package wasm
 import (
 	"fmt"
 
-	"github.com/wippyai/runtime/api/funcpool"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/system/scheduler/pool"
 )
 
 // Pool type constants for selecting scheduler implementation.
 const (
-	PoolTypeLazy         = "lazy"
-	PoolTypeStatic       = "static"
-	PoolTypeElastic      = "elastic"
-	PoolTypeWorkStealing = "workstealing"
-	PoolTypeInline       = "inline"
+	PoolTypeLazy   = "lazy"
+	PoolTypeStatic = "static"
+	PoolTypeInline = "inline"
 )
 
 type (
 	// PoolConfig defines settings for a pool of WASM instances.
 	PoolConfig struct {
-		Type    string `json:"type"`     // Pool type: static, elastic, workstealing, inline
+		Type    string `json:"type"`     // Pool type: static, lazy, inline
 		Size    int    `json:"size"`     // Number of workers
 		Buffer  int    `json:"buffer"`   // Task queue buffer size
 		MaxSize int    `json:"max_size"` // Maximum workers for elastic pool
@@ -35,15 +33,15 @@ type (
 	}
 )
 
-// ToFuncpoolConfig converts PoolConfig to funcpool.PoolConfig.
-func (c *PoolConfig) ToFuncpoolConfig() funcpool.PoolConfig {
+// ToPoolConfig converts PoolConfig to pool.Config.
+func (c *PoolConfig) ToPoolConfig() pool.Config {
 	workers := c.Size
 	queueSize := c.Buffer
 	if queueSize == 0 && workers > 0 {
 		queueSize = workers * 64
 	}
 
-	return funcpool.PoolConfig{
+	return pool.Config{
 		Workers:   workers,
 		QueueSize: queueSize,
 	}

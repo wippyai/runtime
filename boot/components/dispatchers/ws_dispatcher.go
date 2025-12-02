@@ -9,7 +9,11 @@ import (
 	"github.com/wippyai/runtime/service/websocket"
 )
 
+const WSDefaultWorkers = 4
+
 func WS() boot.Component {
+	var d *websocket.Dispatcher
+
 	return boot.New(boot.P{
 		Name:      WSDispatcherName,
 		DependsOn: []boot.ComponentName{DispatcherName},
@@ -18,9 +22,17 @@ func WS() boot.Component {
 			if reg == nil {
 				return ctx, fmt.Errorf("dispatcher registrar not found in context")
 			}
-			svc := websocket.NewService()
-			svc.RegisterAll(reg.Register)
+
+			d = websocket.NewDispatcher(WSDefaultWorkers)
+			d.RegisterAll(reg.Register)
+
 			return ctx, nil
+		},
+		Start: func(ctx context.Context) error {
+			return d.Start(ctx)
+		},
+		Stop: func(ctx context.Context) error {
+			return d.Stop(ctx)
 		},
 	})
 }

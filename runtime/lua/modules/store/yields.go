@@ -1,11 +1,12 @@
 package store
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	storeapi "github.com/wippyai/runtime/api/dispatcher/store"
-	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/api/payload"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -47,7 +48,36 @@ func (y *GetYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue
 	if resp.Error != nil {
 		return []lua.LValue{lua.LNil, lua.LString(resp.Error.Error())}
 	}
-	return []lua.LValue{engine.PayloadToLua(l, resp.Value), lua.LNil}
+	return []lua.LValue{transcodeToLua(l, resp.Value), lua.LNil}
+}
+
+// transcodeToLua converts a payload to Lua value using context transcoder.
+func transcodeToLua(l *lua.LState, pl payload.Payload) lua.LValue {
+	if pl == nil {
+		return lua.LNil
+	}
+
+	// Already a Lua value
+	if pl.Format() == payload.Lua {
+		if lv, ok := pl.Data().(lua.LValue); ok {
+			return lv
+		}
+	}
+
+	// Try transcoding via context transcoder
+	ctx := l.Context()
+	dtt := payload.GetTranscoder(ctx)
+	if dtt != nil {
+		transcoded, err := dtt.Transcode(pl, payload.Lua)
+		if err == nil {
+			if lv, ok := transcoded.Data().(lua.LValue); ok {
+				return lv
+			}
+		}
+	}
+
+	// Fallback: return as string representation
+	return lua.LString(fmt.Sprintf("%v", pl.Data()))
 }
 
 // SetYield wraps StoreSetCmd for Lua.

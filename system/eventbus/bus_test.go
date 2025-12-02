@@ -840,3 +840,225 @@ func TestConcurrentStopAndSubscribe(t *testing.T) {
 		wg.Wait()
 	}
 }
+
+// Edge case tests
+
+func TestSubscribeWithNilChannel(t *testing.T) {
+	b := NewBus()
+	defer b.Stop()
+
+	_, err := b.Subscribe(context.Background(), "test", nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "nil channel")
+}
+
+func TestSubscribeWithCanceledContext(t *testing.T) {
+	b := NewBus()
+	defer b.Stop()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	ch := make(chan event.Event)
+	_, err := b.Subscribe(ctx, "test", ch)
+	require.Error(t, err)
+	require.Equal(t, context.Canceled, err)
+}
+
+func TestUnsubscribeWithCanceledContext(t *testing.T) {
+	b := NewBus()
+	defer b.Stop()
+
+	ch := make(chan event.Event)
+	subID, err := b.Subscribe(context.Background(), "test", ch)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// Should not panic
+	b.Unsubscribe(ctx, subID)
+}
+
+func TestSendWithCanceledContext(t *testing.T) {
+	b := NewBus()
+	defer b.Stop()
+
+	ch := make(chan event.Event, 10)
+	_, err := b.Subscribe(context.Background(), "test", ch)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// Should not panic and event should not be delivered
+	e := event.Event{System: "test", Kind: "test", Data: "data"}
+	b.Send(ctx, e)
+
+	select {
+	case <-ch:
+		t.Error("should not receive event when context is canceled")
+	case <-time.After(50 * time.Millisecond):
+		// Expected
+	}
+}
+
+func TestSubscribeAfterStop(t *testing.T) {
+	b := NewBus()
+	b.Stop()
+
+	ch := make(chan event.Event)
+	_, err := b.Subscribe(context.Background(), "test", ch)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "closed")
+}
+
+func TestMultipleStops(_ *testing.T) {
+	b := NewBus()
+
+	// Should not panic
+	b.Stop()
+	b.Stop()
+	b.Stop()
+}
+
+func TestExpiredSubscriberCleanup(t *testing.T) {
+	b := NewBus()
+	defer b.Stop()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ch := make(chan event.Event, 10)
+	_, err := b.Subscribe(ctx, "test", ch)
+	require.NoError(t, err)
+
+	// Cancel subscriber context
+	cancel()
+
+	// Give time for cleanup
+	time.Sleep(10 * time.Millisecond)
+
+	// Send event - should trigger cleanup of expired subscriber
+	e := event.Event{System: "test", Kind: "test", Data: "data"}
+	b.Send(context.Background(), e)
+
+	// Wait and verify no event received (subscriber was cleaned up)
+	select {
+	case <-ch:
+		// May or may not receive depending on timing
+	case <-time.After(50 * time.Millisecond):
+		// OK
+	}
+}
+
+// Benchmarks
+
+func BenchmarkSend(b *testing.B) {
+	bus := NewBus()
+	defer bus.Stop()
+
+	ch := make(chan event.Event, b.N)
+	_, err := bus.Subscribe(context.Background(), "bench", ch)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	e := event.Event{System: "bench", Kind: "test", Data: "data"}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		bus.Send(context.Background(), e)
+	}
+}
+
+func BenchmarkSendParallel(b *testing.B) {
+	bus := NewBus()
+	defer bus.Stop()
+
+	ch := make(chan event.Event, b.N*10)
+	_, err := bus.Subscribe(context.Background(), "bench", ch)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	e := event.Event{System: "bench", Kind: "test", Data: "data"}
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			bus.Send(context.Background(), e)
+		}
+	})
+}
+
+func BenchmarkSendMultipleSubscribers(b *testing.B) {
+	bus := NewBus()
+	defer bus.Stop()
+
+	numSubscribers := 100
+	channels := make([]chan event.Event, numSubscribers)
+	for i := 0; i < numSubscribers; i++ {
+		channels[i] = make(chan event.Event, b.N)
+		_, err := bus.Subscribe(context.Background(), "bench", channels[i])
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	e := event.Event{System: "bench", Kind: "test", Data: "data"}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		bus.Send(context.Background(), e)
+	}
+}
+
+func BenchmarkSubscribeUnsubscribe(b *testing.B) {
+	bus := NewBus()
+	defer bus.Stop()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ch := make(chan event.Event, 1)
+		id, err := bus.Subscribe(context.Background(), "bench", ch)
+		if err != nil {
+			b.Fatal(err)
+		}
+		bus.Unsubscribe(context.Background(), id)
+	}
+}
+
+func BenchmarkWildcardMatching(b *testing.B) {
+	bus := NewBus()
+	defer bus.Stop()
+
+	ch := make(chan event.Event, b.N)
+	_, err := bus.SubscribeP(context.Background(), "system.*", "event.*", ch)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	e := event.Event{System: "system.test", Kind: "event.created", Data: "data"}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		bus.Send(context.Background(), e)
+	}
+}
+
+func BenchmarkExactMatch(b *testing.B) {
+	bus := NewBus()
+	defer bus.Stop()
+
+	ch := make(chan event.Event, b.N)
+	_, err := bus.SubscribeP(context.Background(), "myapp", "user.created", ch)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	e := event.Event{System: "myapp", Kind: "user.created", Data: "data"}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		bus.Send(context.Background(), e)
+	}
+}

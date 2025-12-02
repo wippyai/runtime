@@ -1,5 +1,4 @@
 // Package excel provides excel command handlers for the dispatcher system.
-// Supports both blocking (for testing) and async (for production) execution modes.
 package excel
 
 import (
@@ -52,14 +51,7 @@ func (w *streamRegistryWriter) Write(p []byte) (n int, err error) {
 	return w.registry.Write(w.streamID, p)
 }
 
-// job represents a unit of work for the async dispatcher.
-type job struct {
-	ctx  context.Context
-	cmd  dispatcher.Command
-	emit dispatcher.EmitFunc
-}
-
-// Dispatcher handles excel commands with configurable execution mode.
+// Dispatcher handles excel commands via async worker pool.
 type Dispatcher struct {
 	workers int
 	jobs    chan job
@@ -68,39 +60,22 @@ type Dispatcher struct {
 	cancel  context.CancelFunc
 }
 
-// Config holds dispatcher configuration.
-type Config struct {
-	// Workers is the number of worker goroutines for async mode.
-	// If 0, dispatcher runs in blocking mode (synchronous execution).
-	Workers int
+type job struct {
+	ctx  context.Context
+	cmd  dispatcher.Command
+	emit dispatcher.Emitter
 }
 
-// NewDispatcher creates a new excel dispatcher with the given configuration.
-func NewDispatcher(cfg Config) *Dispatcher {
-	return &Dispatcher{
-		workers: cfg.Workers,
-	}
-}
-
-// NewBlockingDispatcher creates a dispatcher that executes synchronously.
-func NewBlockingDispatcher() *Dispatcher {
-	return &Dispatcher{workers: 0}
-}
-
-// NewAsyncDispatcher creates a dispatcher with a worker pool.
-func NewAsyncDispatcher(workers int) *Dispatcher {
+// NewDispatcher creates an excel dispatcher with the specified worker count.
+func NewDispatcher(workers int) *Dispatcher {
 	if workers <= 0 {
 		workers = 4
 	}
 	return &Dispatcher{workers: workers}
 }
 
-// Start initializes the dispatcher. For async mode, starts worker goroutines.
+// Start initializes the worker pool.
 func (d *Dispatcher) Start(ctx context.Context) error {
-	if d.workers <= 0 {
-		return nil
-	}
-
 	d.ctx, d.cancel = context.WithCancel(ctx)
 	d.jobs = make(chan job, d.workers*2)
 
@@ -108,53 +83,44 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 		d.wg.Add(1)
 		go d.worker()
 	}
-
 	return nil
 }
 
-// Stop shuts down the dispatcher and waits for workers to finish.
+// Stop shuts down the dispatcher and drains pending jobs.
 func (d *Dispatcher) Stop(_ context.Context) error {
-	if d.workers <= 0 {
-		return nil
-	}
-
 	d.cancel()
 	close(d.jobs)
 	d.wg.Wait()
 	return nil
 }
 
-// worker processes jobs from the queue.
 func (d *Dispatcher) worker() {
 	defer d.wg.Done()
-
 	for j := range d.jobs {
-		execute(j.ctx, j.cmd, j.emit)
+		d.execute(j)
 	}
 }
 
-// submit sends a job to the worker pool.
-func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) {
+func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) {
 	select {
 	case d.jobs <- job{ctx: ctx, cmd: cmd, emit: emit}:
 	case <-d.ctx.Done():
 	}
 }
 
-// isAsync returns true if dispatcher is in async mode.
-func (d *Dispatcher) isAsync() bool {
-	return d.workers > 0 && d.jobs != nil
-}
-
-// execute runs the excel operation and emits the result.
-func execute(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) {
-	registry := streamhandler.GetStreamRegistry(ctx)
+func (d *Dispatcher) execute(j job) {
+	registry := streamhandler.GetStreamRegistry(j.ctx)
 	if registry == nil {
-		emit(excelapi.ExcelOpenStreamResponse{Error: streamhandler.ErrStreamNotFound})
+		switch j.cmd.(type) {
+		case *excelapi.ExcelOpenStreamCmd:
+			j.emit.Emit(excelapi.ExcelOpenStreamResponse{Error: streamhandler.ErrStreamNotFound}, nil)
+		case *excelapi.ExcelWriteStreamCmd:
+			j.emit.Emit(excelapi.ExcelWriteStreamResponse{Error: streamhandler.ErrStreamNotFound}, nil)
+		}
 		return
 	}
 
-	switch c := cmd.(type) {
+	switch c := j.cmd.(type) {
 	case *excelapi.ExcelOpenStreamCmd:
 		reader := &streamRegistryReader{
 			registry: registry,
@@ -162,10 +128,10 @@ func execute(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFu
 		}
 		file, err := excelize.OpenReader(reader)
 		if err != nil {
-			emit(excelapi.ExcelOpenStreamResponse{Error: err})
+			j.emit.Emit(excelapi.ExcelOpenStreamResponse{Error: err}, nil)
 			return
 		}
-		emit(excelapi.ExcelOpenStreamResponse{File: file})
+		j.emit.Emit(excelapi.ExcelOpenStreamResponse{File: file}, nil)
 
 	case *excelapi.ExcelWriteStreamCmd:
 		writer := &streamRegistryWriter{
@@ -173,48 +139,18 @@ func execute(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFu
 			streamID: c.StreamID,
 		}
 		err := c.File.Write(writer)
-		emit(excelapi.ExcelWriteStreamResponse{Error: err})
+		j.emit.Emit(excelapi.ExcelWriteStreamResponse{Error: err}, nil)
 	}
 }
 
-// OpenStreamHandler handles excel open stream commands.
-type OpenStreamHandler struct {
-	d *Dispatcher
-}
-
-func (h *OpenStreamHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
-	if h.d.isAsync() {
-		h.d.submit(ctx, cmd, emit)
-		return nil
-	}
-	execute(ctx, cmd, emit)
+func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
+	d.submit(ctx, cmd, emit)
 	return nil
 }
 
-// WriteStreamHandler handles excel write stream commands.
-type WriteStreamHandler struct {
-	d *Dispatcher
-}
-
-func (h *WriteStreamHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
-	if h.d.isAsync() {
-		h.d.submit(ctx, cmd, emit)
-		return nil
-	}
-	execute(ctx, cmd, emit)
-	return nil
-}
-
-// RegisterAll registers all excel handlers with the given registry function.
+// RegisterAll registers all excel handlers.
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
-	register(excelapi.CmdExcelOpenStream, &OpenStreamHandler{d: d})
-	register(excelapi.CmdExcelWriteStream, &WriteStreamHandler{d: d})
-}
-
-// Service is an alias for Dispatcher for backward compatibility.
-type Service = Dispatcher
-
-// NewService creates a blocking dispatcher for backward compatibility.
-func NewService() *Dispatcher {
-	return NewBlockingDispatcher()
+	h := dispatcher.HandlerFunc(d.handle)
+	register(excelapi.CmdExcelOpenStream, h)
+	register(excelapi.CmdExcelWriteStream, h)
 }

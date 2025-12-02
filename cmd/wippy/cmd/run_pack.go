@@ -12,7 +12,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	embedapi "github.com/wippyai/runtime/api/service/embed"
-	systemapi "github.com/wippyai/runtime/api/system"
+	supervisorapi "github.com/wippyai/runtime/api/supervisor"
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/pack"
 	"github.com/wippyai/runtime/cmd/internal/banner"
@@ -221,7 +221,7 @@ func runFromPack(_ *cobra.Command, args []string) error {
 	}
 
 	// Store signal channel for system.exit()
-	systemapi.SetSignalChannel(ctx, sigChan)
+	supervisorapi.SetSignalChannel(ctx, sigChan)
 
 	sig := <-sigChan
 	logger.Info("received shutdown signal", zap.String("signal", sig.String()))

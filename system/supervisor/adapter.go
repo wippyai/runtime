@@ -4,27 +4,27 @@ import (
 	"sort"
 
 	"github.com/wippyai/runtime/api/registry"
-	systemapi "github.com/wippyai/runtime/api/system"
+	supervisorapi "github.com/wippyai/runtime/api/supervisor"
 )
 
-// serviceInfoAdapter adapts Supervisor to implement system.ServiceInfo interface.
+// serviceInfoAdapter adapts Supervisor to implement supervisorapi.ServiceInfo interface.
 type serviceInfoAdapter struct {
 	sup *Supervisor
 }
 
-// NewServiceInfoAdapter creates an adapter that exposes supervisor state as system.ServiceInfo.
-func NewServiceInfoAdapter(sup *Supervisor) systemapi.ServiceInfo {
+// NewServiceInfoAdapter creates an adapter that exposes supervisor state as supervisorapi.ServiceInfo.
+func NewServiceInfoAdapter(sup *Supervisor) supervisorapi.ServiceInfo {
 	return &serviceInfoAdapter{sup: sup}
 }
 
-// GetState implements system.ServiceInfo.
-func (a *serviceInfoAdapter) GetState(id registry.ID) (systemapi.ServiceState, error) {
+// GetState implements supervisorapi.ServiceInfo.
+func (a *serviceInfoAdapter) GetState(id registry.ID) (supervisorapi.ServiceState, error) {
 	state, err := a.sup.GetState(id.String())
 	if err != nil {
-		return systemapi.ServiceState{}, err
+		return supervisorapi.ServiceState{}, err
 	}
 
-	return systemapi.ServiceState{
+	return supervisorapi.ServiceState{
 		ID:         id,
 		Status:     state.Status,
 		Details:    state.Details,
@@ -35,13 +35,13 @@ func (a *serviceInfoAdapter) GetState(id registry.ID) (systemapi.ServiceState, e
 	}, nil
 }
 
-// GetAllStates implements system.ServiceInfo.
-func (a *serviceInfoAdapter) GetAllStates() []systemapi.ServiceState {
+// GetAllStates implements supervisorapi.ServiceInfo.
+func (a *serviceInfoAdapter) GetAllStates() []supervisorapi.ServiceState {
 	states := a.sup.GetAllStates()
-	result := make([]systemapi.ServiceState, 0, len(states))
+	result := make([]supervisorapi.ServiceState, 0, len(states))
 
 	for idStr, state := range states {
-		result = append(result, systemapi.ServiceState{
+		result = append(result, supervisorapi.ServiceState{
 			ID:         registry.ParseID(idStr),
 			Status:     state.Status,
 			Details:    state.Details,

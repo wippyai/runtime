@@ -349,6 +349,15 @@ func TestDependencyLevelsMethodsExtended(t *testing.T) {
 		}
 	})
 
+	t.Run("LevelCount method", func(t *testing.T) {
+		if levels.LevelCount() != 3 {
+			t.Errorf("expected LevelCount() = 3, got %d", levels.LevelCount())
+		}
+		if levels.LevelCount() != len(levels.AllLevels()) {
+			t.Errorf("LevelCount() %d != len(AllLevels()) %d", levels.LevelCount(), len(levels.AllLevels()))
+		}
+	})
+
 	t.Run("non-existent node level", func(t *testing.T) {
 		if level := levels.GetNodeLevel("NonExistent"); level != -1 {
 			t.Errorf("expected level -1 for non-existent node, got %d", level)

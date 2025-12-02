@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 
-	evalapi "github.com/wippyai/runtime/api/eval"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process2"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/evalhost"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -57,7 +57,7 @@ func sandboxExecute(l *lua.LState) int {
 
 	// Get eval host from context to create the process
 	ctx := l.Context()
-	host := evalapi.GetHost(ctx)
+	host := evalhost.GetHost(ctx)
 	if host == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("eval host not available"))
@@ -74,7 +74,7 @@ func sandboxExecute(l *lua.LState) int {
 		proc, err = host.CreateProcessFromID(ctx, id)
 	} else {
 		// Compile and create process from source
-		program, compileErr := host.Compile(ctx, evalapi.CompileCmd{
+		program, compileErr := host.Compile(ctx, evalhost.CompileCmd{
 			Source:  sb.sourceOrID,
 			Method:  method,
 			Modules: sb.modules,

@@ -6,20 +6,18 @@ import (
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	apiinterceptor "github.com/wippyai/runtime/api/function"
-	apiprocess "github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/process2"
 	queueapi "github.com/wippyai/runtime/api/queue"
 )
 
-// Context key for storing OTEL service
 var serviceCtx = &ctxapi.Key{Name: "otel.service"}
 
 // Service provides OpenTelemetry tracing capabilities
 type Service interface {
+	process2.Lifecycle
+
 	// HTTPMiddleware returns HTTP middleware for W3C trace context propagation
 	HTTPMiddleware() func(http.Handler) http.Handler
-
-	// ProcessMutator returns StartMutator for process lifecycle tracing
-	ProcessMutator() apiprocess.StartMutator
 
 	// Interceptor returns function call interceptor for tracing
 	Interceptor() apiinterceptor.Interceptor

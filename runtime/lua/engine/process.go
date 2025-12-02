@@ -16,30 +16,11 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// ChannelLayerKey is the context key for channel layer state in FrameContext.
-var ChannelLayerKey = &ctxapi.Key{Name: "engine.channel_layer", Inherit: false}
-
-// SubscribeLayerKey is the context key for subscribe layer state.
-var SubscribeLayerKey = &ctxapi.Key{Name: "engine.subscribe_layer", Inherit: false}
-
-// channelLayerContext holds per-process channel layer state.
-type channelLayerContext struct {
-	queue    *TaskQueue
-	channels map[*Channel]int
-}
-
 // subscribeContext manages topic-to-channel mappings.
 type subscribeContext struct {
 	byTopic   map[string]*subscription
 	byChannel map[*Channel]string
 	mu        sync.RWMutex
-}
-
-func newSubscribeContext() *subscribeContext {
-	return &subscribeContext{
-		byTopic:   make(map[string]*subscription),
-		byChannel: make(map[*Channel]string),
-	}
 }
 
 func (m *subscribeContext) add(topic string, ch *Channel) (*subscription, error) {
@@ -85,11 +66,6 @@ type subscription struct {
 	channel *Channel
 }
 
-// subscribeLayerContext holds per-process subscribe state.
-type subscribeLayerContext struct {
-	subs *subscribeContext
-}
-
 // SubscribeRequest is yielded to request a topic subscription.
 type SubscribeRequest struct {
 	Topic   string
@@ -116,19 +92,14 @@ type ActiveChannel struct {
 
 // GetActiveChannels returns channels currently blocking execution.
 func GetActiveChannels(proc *Process) []ActiveChannel {
-	fc := ctxapi.FrameFromContext(proc.ctx)
-	if fc == nil {
+	pc := GetProcessContext(proc.ctx)
+	if pc == nil {
 		return nil
 	}
 
-	val, ok := fc.Get(ChannelLayerKey)
-	if !ok {
-		return nil
-	}
-
-	lctx := val.(*channelLayerContext)
-	result := make([]ActiveChannel, 0, len(lctx.channels))
-	for ch, refs := range lctx.channels {
+	channels := pc.Channels()
+	result := make([]ActiveChannel, 0, len(channels))
+	for ch, refs := range channels {
 		result = append(result, ActiveChannel{
 			Name:  ch.Name(),
 			Slots: ch.Slots(),
@@ -141,23 +112,11 @@ func GetActiveChannels(proc *Process) []ActiveChannel {
 
 // HasSubscriptions returns true if the process has any active subscriptions.
 func HasSubscriptions(proc *Process) bool {
-	if proc.ctx == nil {
+	pc := GetProcessContext(proc.ctx)
+	if pc == nil {
 		return false
 	}
-	fc := ctxapi.FrameFromContext(proc.ctx)
-	if fc == nil {
-		return false
-	}
-
-	val, ok := fc.Get(SubscribeLayerKey)
-	if !ok {
-		return false
-	}
-
-	lctx := val.(*subscribeLayerContext)
-	lctx.subs.mu.RLock()
-	defer lctx.subs.mu.RUnlock()
-	return len(lctx.subs.byTopic) > 0
+	return pc.HasSubscriptions()
 }
 
 // HandledYield is implemented by yields that know how to convert
@@ -197,34 +156,45 @@ func WithProto(proto *lua.FunctionProto) ProcessOption {
 // ModuleBinder is a function that binds modules to a Lua state.
 type ModuleBinder func(*lua.LState)
 
-// WithModuleBinder adds module binders to be called after state creation.
+// WithModuleBinder adds module binders via inline factory.
+// For high-performance use cases, prefer creating a Factory directly.
 func WithModuleBinder(binder ModuleBinder) ProcessOption {
 	return func(p *Process) {
-		p.moduleBinders = append(p.moduleBinders, binder)
+		if p.factory == nil {
+			p.factory = &Factory{}
+		}
+		p.factory.moduleBinders = append(p.factory.moduleBinders, binder)
 	}
 }
 
-// WithStateOptions sets custom Lua state options for memory/performance tuning.
+// WithStateOptions sets custom Lua state options via inline factory.
+// For high-performance use cases, prefer creating a Factory directly.
 func WithStateOptions(opts lua.Options) ProcessOption {
 	return func(p *Process) {
-		p.stateOpts = &opts
+		if p.factory == nil {
+			p.factory = &Factory{}
+		}
+		p.factory.stateOpts = &opts
 	}
 }
 
 // Process implements scheduler.Process for Lua execution.
 // Combines VM + CVM + Runner into a single unit.
+// Request-specific state is stored in ProcessContext (via FrameContext), not here.
+// Module binders and state options are stored in Factory for sharing across processes.
 type Process struct {
 	state   *lua.LState
 	threads []*Task
 	queue   *TaskQueue
 
-	script        string
-	scriptName    string
-	proto         *lua.FunctionProto
-	mainTask      *Task
-	ctx           context.Context
-	moduleBinders []ModuleBinder
-	stateOpts     *lua.Options
+	script     string
+	scriptName string
+	proto      *lua.FunctionProto
+	mainTask   *Task
+	ctx        context.Context
+
+	// factory holds shared config (binders, state options)
+	factory *Factory
 
 	// reusable buffer for yielded tasks
 	yieldBuf []*Task
@@ -236,66 +206,45 @@ type Process struct {
 
 	// exported caches method functions extracted from module table
 	exported map[string]*lua.LFunction
-
-	// inbox holds incoming relay messages for this process
-	inboxMu sync.Mutex
-	inbox   []*relay.Package
 }
 
 // NewProcess creates a new Lua process with options.
+// Uses Factory internally to ensure state is properly initialized.
 func NewProcess(opts ...ProcessOption) *Process {
-	p := &Process{
-		threads:  make([]*Task, 0, 4),
-		queue:    NewTaskQueue(),
-		yieldBuf: make([]*Task, 0, 4),
-	}
+	// Create a temporary process to extract options
+	tmp := &Process{factory: &Factory{}}
 	for _, opt := range opts {
-		opt(p)
-	}
-	return p
-}
-
-// Init initializes the Lua state without creating execution threads.
-// Does not take context - context is set in Execute.
-func (p *Process) Init() error {
-	opts := lua.Options{
-		RegistrySize:        128,
-		RegistryMaxSize:     256 * 256,
-		RegistryGrowStep:    16,
-		SkipOpenLibs:        true,
-		CallStackSize:       128,
-		MinimizeStackMemory: true,
-	}
-	if p.stateOpts != nil {
-		opts = *p.stateOpts
-	}
-	p.state = lua.NewState(opts)
-
-	loadCoreLibs(p.state)
-
-	for _, binder := range p.moduleBinders {
-		binder(p.state)
+		opt(tmp)
 	}
 
-	return nil
+	// Merge options into factory
+	tmp.factory.proto = tmp.proto
+	tmp.factory.script = tmp.script
+	tmp.factory.scriptName = tmp.scriptName
+
+	// Initialize state via factory
+	tmp.threads = make([]*Task, 0, 4)
+	tmp.queue = NewTaskQueue()
+	tmp.yieldBuf = make([]*Task, 0, 4)
+	tmp.state = tmp.factory.CreateState()
+
+	return tmp
 }
 
 // Execute starts execution of a method with context and input payloads.
-// If not initialized, calls Init first. For pooled processes, reuses existing state.
+// State must be initialized by Factory - processes are created via Factory.Create().
 // Only one Execute can run at a time per process - results come from Step(StepDone).
 // If method is specified, the script is run once to get module table, then the method is called.
 func (p *Process) Execute(ctx context.Context, method string, input payload.Payloads) error {
 	if p.state == nil {
-		if err := p.Init(); err != nil {
-			return err
-		}
-	} else {
-		// Clear state from previous execution
-		p.threads = p.threads[:0]
-		p.queue.Drain()
-		p.mainTask = nil
-		p.pendingYields = nil
+		return fmt.Errorf("process state not initialized - use Factory.Create()")
 	}
+
+	// Clear state from previous execution (for pooled processes)
+	p.threads = p.threads[:0]
+	p.queue.Drain()
+	p.mainTask = nil
+	p.pendingYields = nil
 
 	// Set context for this execution
 	p.ctx = ctx
@@ -310,7 +259,14 @@ func (p *Process) Execute(ctx context.Context, method string, input payload.Payl
 		return fmt.Errorf("failed to store resources: %w", err)
 	}
 
-	// Seal the frame to finalize context and break any parent references
+	// Create and store ProcessContext for request-specific state
+	pc := acquireProcessContext()
+	if err := setProcessContext(ctx, pc); err != nil {
+		ReleaseProcessContext(pc)
+		return fmt.Errorf("failed to store process context: %w", err)
+	}
+
+	// Seal the frame - no more modifications allowed after this
 	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
 		fc.Seal()
 	}
@@ -357,7 +313,7 @@ func (p *Process) Execute(ctx context.Context, method string, input payload.Payl
 	if len(input) > 0 {
 		args := make([]lua.LValue, 0, len(input))
 		for _, pl := range input {
-			args = append(args, PayloadToLua(p.state, pl))
+			args = append(args, transcodeToLua(ctx, pl))
 		}
 		p.mainTask.Resumed = args
 	}
@@ -503,21 +459,14 @@ func (p *Process) Step(results *scheduler.YieldResults) (scheduler.StepResult, e
 	return result, nil
 }
 
-// Send delivers an external message to the process.
+// Send delivers an external message to the process via ProcessContext.
 func (p *Process) Send(pkg *relay.Package) error {
-	p.inboxMu.Lock()
-	p.inbox = append(p.inbox, pkg)
-	p.inboxMu.Unlock()
+	pc := GetProcessContext(p.ctx)
+	if pc == nil {
+		return fmt.Errorf("process context not available")
+	}
+	pc.QueueMessage(pkg)
 	return nil
-}
-
-// DrainInbox returns and clears all incoming messages.
-func (p *Process) DrainInbox() []*relay.Package {
-	p.inboxMu.Lock()
-	msgs := p.inbox
-	p.inbox = p.inbox[:0]
-	p.inboxMu.Unlock()
-	return msgs
 }
 
 // State returns the underlying Lua state.
@@ -547,22 +496,29 @@ func (p *Process) Queue() *TaskQueue {
 
 // processChannelYields handles channel operations internally.
 func (p *Process) processChannelYields() ([]*Task, error) {
-	lctx := p.ensureChannelContext()
-	if lctx == nil {
-		// No FrameContext - just run vmStep without channel handling
+	pc := GetProcessContext(p.ctx)
+	if pc == nil {
+		// No ProcessContext - just run vmStep without channel handling
 		tasks := p.queue.Drain()
 		return p.vmStep(tasks...)
 	}
 
+	channelQueue := pc.ChannelQueue()
+	channels := pc.Channels()
 	externalTasks := make([]*Task, 0)
+
+	// Transfer tasks from process queue to channel queue on first call
+	for _, task := range p.queue.Drain() {
+		channelQueue.Push(task)
+	}
 
 	// Process all queued tasks
 	boot := true
-	for !lctx.queue.IsEmpty() || boot {
+	for !channelQueue.IsEmpty() || boot {
 		boot = false
 
 		// Drain to batch
-		batch := lctx.queue.Drain()
+		batch := channelQueue.Drain()
 
 		// Run through VM step
 		vmTasks, err := p.vmStep(batch...)
@@ -585,7 +541,7 @@ func (p *Process) processChannelYields() ([]*Task, error) {
 			}
 
 			// Update channel references
-			p.updateChannelRefs(lctx, result.Block, result.Release)
+			p.updateChannelRefs(channels, result.Block, result.Release)
 
 			// Process updates from channel operation
 			updates := result.GetUpdates()
@@ -607,7 +563,7 @@ func (p *Process) processChannelYields() ([]*Task, error) {
 						t.ResumeWith(upd.GetResult()...)
 					}
 
-					lctx.queue.Push(t)
+					channelQueue.Push(t)
 				}
 			}
 
@@ -618,48 +574,20 @@ func (p *Process) processChannelYields() ([]*Task, error) {
 	return externalTasks, nil
 }
 
-// ensureChannelContext gets or creates the channel layer context.
-func (p *Process) ensureChannelContext() *channelLayerContext {
-	if p.ctx == nil {
-		return nil
-	}
-	fc := ctxapi.FrameFromContext(p.ctx)
-	if fc == nil {
-		return nil
-	}
-
-	if val, ok := fc.Get(ChannelLayerKey); ok {
-		return val.(*channelLayerContext)
-	}
-
-	lctx := &channelLayerContext{
-		queue:    NewTaskQueue(),
-		channels: make(map[*Channel]int),
-	}
-
-	// Transfer any existing tasks from process queue to layer queue
-	for _, task := range p.queue.Drain() {
-		lctx.queue.Push(task)
-	}
-
-	fc.Set(ChannelLayerKey, lctx)
-	return lctx
-}
-
 // updateChannelRefs handles reference counting for channels.
-func (p *Process) updateChannelRefs(lctx *channelLayerContext, blocks, releases []*Channel) {
+func (p *Process) updateChannelRefs(channels map[*Channel]int, blocks, releases []*Channel) {
 	for _, ch := range blocks {
-		if _, exists := lctx.channels[ch]; !exists {
-			lctx.channels[ch] = 0
+		if _, exists := channels[ch]; !exists {
+			channels[ch] = 0
 		}
-		lctx.channels[ch]++
+		channels[ch]++
 	}
 
 	for _, ch := range releases {
-		if _, exists := lctx.channels[ch]; exists {
-			lctx.channels[ch]--
-			if lctx.channels[ch] == 0 {
-				delete(lctx.channels, ch)
+		if _, exists := channels[ch]; exists {
+			channels[ch]--
+			if channels[ch] == 0 {
+				delete(channels, ch)
 			}
 		}
 	}
@@ -667,17 +595,19 @@ func (p *Process) updateChannelRefs(lctx *channelLayerContext, blocks, releases 
 
 // processSubscribeYields routes incoming messages and handles subscribe/unsubscribe.
 func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, error) {
-	lctx := p.ensureSubscribeContext()
-	if lctx == nil {
+	pc := GetProcessContext(p.ctx)
+	if pc == nil {
 		return tasks, nil
 	}
 
+	subs := pc.Subscriptions()
+
 	// Route incoming messages to subscribed channels
-	for _, pkg := range p.DrainInbox() {
+	for _, pkg := range pc.DrainInbox() {
 		for _, msg := range pkg.Messages {
 			topic := string(msg.Topic)
-			if sub, exists := lctx.subs.get(topic); exists {
-				value := messageToLua(p.state, msg)
+			if sub, exists := subs.get(topic); exists {
+				value := messageToLua(p.ctx, p.state, msg)
 				result := sub.channel.Send(nil, value, nil)
 
 				// Wake any blocked receivers
@@ -712,7 +642,7 @@ func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, error) {
 
 		// Handle subscribe request
 		if req, ok := lastYield.(*SubscribeRequest); ok {
-			sub, err := lctx.subs.add(req.Topic, req.Channel)
+			sub, err := subs.add(req.Topic, req.Channel)
 			if err != nil {
 				task.ResumeWith(lua.LNil, lua.LString(err.Error()))
 			} else {
@@ -724,7 +654,7 @@ func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, error) {
 
 		// Handle unsubscribe request
 		if req, ok := lastYield.(*UnsubscribeRequest); ok {
-			err := lctx.subs.remove(req.Channel)
+			err := subs.remove(req.Channel)
 			if err != nil {
 				task.ResumeWith(lua.LFalse, lua.LString(err.Error()))
 			} else {
@@ -741,40 +671,19 @@ func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, error) {
 	return outTasks, nil
 }
 
-// ensureSubscribeContext gets or creates the subscribe layer context.
-func (p *Process) ensureSubscribeContext() *subscribeLayerContext {
-	if p.ctx == nil {
-		return nil
-	}
-	fc := ctxapi.FrameFromContext(p.ctx)
-	if fc == nil {
-		return nil
-	}
-
-	if val, ok := fc.Get(SubscribeLayerKey); ok {
-		return val.(*subscribeLayerContext)
-	}
-
-	lctx := &subscribeLayerContext{
-		subs: newSubscribeContext(),
-	}
-	fc.Set(SubscribeLayerKey, lctx)
-	return lctx
-}
-
 // messageToLua converts a relay.Message to Lua value.
-func messageToLua(l *lua.LState, msg *relay.Message) lua.LValue {
+func messageToLua(ctx context.Context, l *lua.LState, msg *relay.Message) lua.LValue {
 	if len(msg.Payloads) == 0 {
 		return lua.LString(msg.Topic)
 	}
 
 	if len(msg.Payloads) == 1 {
-		return PayloadToLua(l, msg.Payloads[0])
+		return transcodeToLua(ctx, msg.Payloads[0])
 	}
 
 	tbl := l.CreateTable(len(msg.Payloads), 0)
 	for i, pl := range msg.Payloads {
-		tbl.RawSetInt(i+1, PayloadToLua(l, pl))
+		tbl.RawSetInt(i+1, transcodeToLua(ctx, pl))
 	}
 	return tbl
 }
@@ -896,18 +805,18 @@ func (p *Process) yieldToCommand(task *Task) dispatcher.Command {
 }
 
 // Close releases all process resources.
+// Called by scheduler when process completes.
 func (p *Process) Close() {
-	// Close resource store via context if available
 	if p.ctx != nil {
+		// Close resource store
 		if store := resource.GetStore(p.ctx); store != nil {
 			store.Close()
 		}
+		// Release ProcessContext back to pool
+		if pc := GetProcessContext(p.ctx); pc != nil {
+			ReleaseProcessContext(pc)
+		}
 	}
-
-	// Clear inbox
-	p.inboxMu.Lock()
-	p.inbox = p.inbox[:0]
-	p.inboxMu.Unlock()
 
 	// Close all threads
 	for _, task := range p.threads {
@@ -1020,19 +929,9 @@ func (p *Process) resumeTaskWithResult(task *Task, data any, err error) {
 // clearExecution clears coroutine tracking after execution completes.
 // Called automatically by Step when returning StepDone.
 // The Lua state is preserved for reuse.
+// Note: ProcessContext and resource.Store are NOT released here -
+// they are owned by the scheduler/host and released via OnComplete callback.
 func (p *Process) clearExecution() {
-	// Close resource store for this execution
-	if p.ctx != nil {
-		if store := resource.GetStore(p.ctx); store != nil {
-			store.Close()
-		}
-	}
-
-	// Clear inbox
-	p.inboxMu.Lock()
-	p.inbox = p.inbox[:0]
-	p.inboxMu.Unlock()
-
 	// Close all spawned threads but keep them referenced for GC
 	for _, task := range p.threads {
 		task.Close()
@@ -1054,56 +953,36 @@ func (p *Process) clearExecution() {
 		p.state.RemoveContext()
 	}
 
-	// Clear context
+	// Clear context reference (but don't release ProcessContext - scheduler owns it)
 	p.ctx = nil
 }
 
-// PayloadToLua converts a payload to Lua value.
-func PayloadToLua(l *lua.LState, pl payload.Payload) lua.LValue {
+// transcodeToLua converts a payload to Lua value using context transcoder.
+func transcodeToLua(ctx context.Context, pl payload.Payload) lua.LValue {
 	if pl == nil {
 		return lua.LNil
 	}
 
-	data := pl.Data()
-	switch v := data.(type) {
-	case string:
-		return lua.LString(v)
-	case float64:
-		return lua.LNumber(v)
-	case int:
-		return lua.LNumber(v)
-	case int64:
-		return lua.LNumber(v)
-	case bool:
-		return lua.LBool(v)
-	case nil:
-		return lua.LNil
+	// Already a Lua value
+	if pl.Format() == payload.Lua {
+		if lv, ok := pl.Data().(lua.LValue); ok {
+			return lv
+		}
 	}
 
-	// Fallback: convert via fmt
-	return lua.LString(fmt.Sprintf("%v", data))
-}
-
-// loadCoreLibs loads core Lua libraries (no OS/IO for security).
-// Uses restricted package loader that only supports preload table.
-func loadCoreLibs(state *lua.LState) {
-	libs := []struct {
-		name string
-		fn   lua.LGFunction
-	}{
-		{lua.BaseLibName, lua.OpenBase},
-		{lua.TabLibName, lua.OpenTable},
-		{lua.StringLibName, lua.OpenString},
-		{lua.MathLibName, lua.OpenMath},
-		{lua.CoroutineLibName, lua.OpenCoroutine},
-		{lua.LoadLibName, OpenRestrictedPackage},
+	// Try transcoding via context transcoder
+	dtt := payload.GetTranscoder(ctx)
+	if dtt != nil {
+		transcoded, err := dtt.Transcode(pl, payload.Lua)
+		if err == nil {
+			if lv, ok := transcoded.Data().(lua.LValue); ok {
+				return lv
+			}
+		}
 	}
 
-	for _, lib := range libs {
-		state.Push(state.NewFunction(lib.fn))
-		state.Push(lua.LString(lib.name))
-		state.Call(1, 0)
-	}
+	// Fallback: return as string representation
+	return lua.LString(fmt.Sprintf("%v", pl.Data()))
 }
 
 // wrapError wraps an error with Lua stack trace and metadata.

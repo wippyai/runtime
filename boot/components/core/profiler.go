@@ -3,11 +3,14 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	httpbase "net/http"
 	"net/http/pprof"
+	"runtime"
 	"time"
 
 	"github.com/wippyai/runtime/api/boot"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"go.uber.org/zap"
 )
@@ -52,6 +55,20 @@ func Profiler() boot.Component {
 			mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
 			mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 			mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+			mux.HandleFunc("/debug/gc", func(w httpbase.ResponseWriter, r *httpbase.Request) {
+				runtime.GC()
+				runtime.GC()
+				var m runtime.MemStats
+				runtime.ReadMemStats(&m)
+				fmt.Fprintf(w, "GC done. HeapAlloc=%dMB HeapObjects=%d LiveFrames=%d\n",
+					m.HeapAlloc/1024/1024, m.HeapObjects, ctxapi.LiveFrameContexts())
+			})
+			mux.HandleFunc("/debug/stats", func(w httpbase.ResponseWriter, r *httpbase.Request) {
+				var m runtime.MemStats
+				runtime.ReadMemStats(&m)
+				fmt.Fprintf(w, "HeapAlloc=%dMB HeapObjects=%d LiveFrames=%d\n",
+					m.HeapAlloc/1024/1024, m.HeapObjects, ctxapi.LiveFrameContexts())
+			})
 
 			server = &httpbase.Server{
 				Addr:         addr,

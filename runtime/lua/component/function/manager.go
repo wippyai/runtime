@@ -295,20 +295,6 @@ func (m *Manager) createPool(id registry.ID, cfg *api.FunctionConfig) error {
 			QueueSize: queueSize,
 		}, execHooks)
 
-	case api.PoolTypeElastic:
-		pool, err = funcpool.NewElastic(factory, m.dispatcher, funcpool.ElasticConfig{
-			MinWorkers:  workers,
-			MaxWorkers:  maxWorkers,
-			QueueSize:   queueSize,
-			IdleTimeout: 30 * time.Second,
-		}, execHooks)
-
-	case api.PoolTypeWorkStealing:
-		pool, err = funcpool.NewWorkStealing(factory, m.dispatcher, funcpool.WorkStealingConfig{
-			Workers:   workers,
-			QueueSize: queueSize,
-		}, execHooks)
-
 	default:
 		return fmt.Errorf("unknown pool type: %s", poolType)
 	}

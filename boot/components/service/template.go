@@ -11,7 +11,7 @@ import (
 	regapi "github.com/wippyai/runtime/api/registry"
 	bootpkg "github.com/wippyai/runtime/boot"
 	bootcore "github.com/wippyai/runtime/boot/components/core"
-	"github.com/wippyai/runtime/service/template"
+	"github.com/wippyai/runtime/service/template/jet"
 	"go.uber.org/zap"
 )
 
@@ -53,7 +53,7 @@ func Template() boot.Component {
 				logger.Warn("failed to register template dependency pattern", zap.Error(err))
 			}
 
-			manager := template.NewManager(
+			manager := jet.NewManager(
 				bus,
 				dtt,
 				logger.Named("tmpl"),

@@ -11,9 +11,10 @@ import (
 	"github.com/wippyai/runtime/api/resource"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua2api "github.com/wippyai/runtime/api/runtime/lua2"
+	templateapi "github.com/wippyai/runtime/api/service/template"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"
-	"github.com/wippyai/runtime/service/template"
+	"github.com/wippyai/runtime/service/template/jet"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -70,16 +71,16 @@ func Bind(l *lua.LState) {
 	lua2api.LoadModule(l, Module)
 }
 
-// TemplateSet wraps template.TemplateSet with cleanup tracking.
+// TemplateSet wraps jet.Set with cleanup tracking.
 type TemplateSet struct {
 	resource      resource.Resource[any]
-	templates     *template.TemplateSet
+	templates     *jet.Set
 	released      bool
 	mu            sync.Mutex
 	cancelCleanup func()
 }
 
-func NewTemplateSet(ctx context.Context, res resource.Resource[any], templates *template.TemplateSet) *TemplateSet {
+func NewTemplateSet(ctx context.Context, res resource.Resource[any], templates *jet.Set) *TemplateSet {
 	ts := &TemplateSet{
 		resource:  res,
 		templates: templates,
@@ -159,7 +160,7 @@ func templateGet(l *lua.LState) int {
 		return 2
 	}
 
-	templateSet, ok := templateRes.(*template.TemplateSet)
+	templateSet, ok := templateRes.(*jet.Set)
 	if !ok {
 		res.Release()
 		l.Push(lua.LNil)
@@ -200,7 +201,7 @@ func templateSetRender(l *lua.LState) int {
 
 	result, err := templates.RenderPayload(name, payload.NewPayload(args, payload.Lua))
 	if err != nil {
-		if errors.Is(err, template.ErrTemplateNotFound) {
+		if errors.Is(err, templateapi.ErrTemplateNotFound) {
 			l.Push(lua.LNil)
 			l.Push(lua.LString("template not found"))
 			return 2

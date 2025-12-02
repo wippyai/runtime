@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 )
 
 // Pair represents a key-value pair for batch operations.
@@ -40,10 +41,6 @@ type FrameContext interface {
 	// Iterate calls fn for each key-value pair in this context.
 	Iterate(fn func(key any, value any))
 
-	// Parent returns the parent FrameContext, or nil if none.
-	// For metadata/tracing only - values are NOT inherited via Get().
-	Parent() FrameContext
-
 	// Seal marks this frame as immutable. No more Set() calls allowed.
 	Seal()
 
@@ -60,7 +57,6 @@ type FrameContext interface {
 type frameContext struct {
 	mu     sync.RWMutex
 	values map[any]any
-	parent FrameContext
 	sealed bool
 	closed bool
 }
@@ -74,49 +70,51 @@ var frameContextPool = sync.Pool{
 	},
 }
 
-// AcquireFrameContext gets a frame context from the pool and wraps it with the parent context.
-// Call ReleaseFrameContext when done to return it to the pool.
+// Debug counter for live frame contexts
+var liveFrameContexts atomic.Int64
+
+// LiveFrameContexts returns the current count of allocated frame contexts.
+func LiveFrameContexts() int64 {
+	return liveFrameContexts.Load()
+}
+
+// AcquireFrameContext gets a frame context and wraps it with the parent context.
+// Call ReleaseFrameContext when done.
 func AcquireFrameContext(parent context.Context) (context.Context, FrameContext) {
-	fc := frameContextPool.Get().(*frameContext)
-	fc.sealed = false
-	fc.closed = false
-	fc.parent = nil
-	if parentFC := FrameFromContext(parent); parentFC != nil {
-		fc.parent = parentFC
+	// Pooling disabled for leak investigation
+	fc := &frameContext{
+		values: make(map[any]any, 4),
+		sealed: false,
+		closed: false,
 	}
+	liveFrameContexts.Add(1)
 	return WithFrameContext(parent, fc), fc
 }
 
-// ReleaseFrameContext returns a frame context to the pool after clearing its values.
+// ReleaseFrameContext clears frame context values.
 func ReleaseFrameContext(fc FrameContext) {
 	if f, ok := fc.(*frameContext); ok {
 		f.mu.Lock()
 		for k := range f.values {
 			delete(f.values, k)
 		}
-		f.parent = nil
 		f.sealed = false
 		f.closed = false
 		f.mu.Unlock()
-		frameContextPool.Put(f)
+		liveFrameContexts.Add(-1)
+		// Pooling disabled for leak investigation
 	}
 }
 
-// newFrameContext creates a new FrameContext with optional parent.
+// newFrameContext creates a new FrameContext.
 // No values are inherited from parent by default.
-// Parent link is kept for debugging/tracing only.
 // Use OpenFrameContext instead - it handles automatic inheritance of keys marked with Inherit: true.
 func newFrameContext(parent context.Context) (context.Context, FrameContext) {
 	fc := &frameContext{
 		values: make(map[any]any, 4),
 		sealed: false,
 	}
-
-	// Link to parent FrameContext if exists (for debugging/tracing only)
-	if parentFC := FrameFromContext(parent); parentFC != nil {
-		fc.parent = parentFC
-	}
-
+	liveFrameContexts.Add(1)
 	return WithFrameContext(parent, fc), fc
 }
 
@@ -225,12 +223,6 @@ func (f *frameContext) Iterate(fn func(key any, value any)) {
 	for k, v := range f.values {
 		fn(k, v)
 	}
-}
-
-func (f *frameContext) Parent() FrameContext {
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	return f.parent
 }
 
 func (f *frameContext) Seal() {

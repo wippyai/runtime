@@ -11,7 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/pidgen"
+	"github.com/wippyai/runtime/api/process2"
 	"github.com/wippyai/runtime/api/registry"
 	relayapi "github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
@@ -34,7 +34,7 @@ func setupInstantiatorTest() (*Instantiator, event.Bus, *Registry, *functionSys.
 
 	uniqGen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
-	ctx = pidgen.WithGenerator(ctx, pidGen)
+	ctx = process2.WithPIDGenerator(ctx, pidGen)
 
 	host := relay.NewHost(ctx, relay.HostConfig{BufferSize: 100})
 	functionRegistry := functionSys.NewFunctionRegistry(bus, host, logger)
@@ -246,7 +246,7 @@ func TestInstanceImpl_Call_Integration(t *testing.T) {
 
 	uniqGen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
-	ctx = pidgen.WithGenerator(ctx, pidGen)
+	ctx = process2.WithPIDGenerator(ctx, pidGen)
 
 	instantiator, bus, contractRegistry, functionRegistry := setupInstantiatorTest()
 
@@ -354,7 +354,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 
 	uniqGen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
-	ctx = pidgen.WithGenerator(ctx, pidGen)
+	ctx = process2.WithPIDGenerator(ctx, pidGen)
 
 	instantiator, bus, contractRegistry, functionRegistry := setupInstantiatorTest()
 
@@ -489,7 +489,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 
 	uniqGen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
-	ctx = pidgen.WithGenerator(ctx, pidGen)
+	ctx = process2.WithPIDGenerator(ctx, pidGen)
 
 	instantiator, bus, contractRegistry, functionRegistry := setupInstantiatorTest()
 
@@ -646,7 +646,7 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 
 	uniqGen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
-	ctx = pidgen.WithGenerator(ctx, pidGen)
+	ctx = process2.WithPIDGenerator(ctx, pidGen)
 
 	instantiator, bus, contractRegistry, functionRegistry := setupInstantiatorTest()
 

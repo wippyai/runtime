@@ -7,7 +7,6 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	funcapi "github.com/wippyai/runtime/api/dispatcher/func"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -20,7 +19,7 @@ func anyToLua(l *lua.LState, v any) lua.LValue {
 	case lua.LValue:
 		return val
 	case payload.Payload:
-		return engine.PayloadToLua(l, val)
+		return transcodeToLua(l, val)
 	case string:
 		return lua.LString(val)
 	case []byte:
@@ -38,6 +37,35 @@ func anyToLua(l *lua.LState, v any) lua.LValue {
 	default:
 		return lua.LString(fmt.Sprintf("%v", val))
 	}
+}
+
+// transcodeToLua converts a payload to Lua value using context transcoder.
+func transcodeToLua(l *lua.LState, pl payload.Payload) lua.LValue {
+	if pl == nil {
+		return lua.LNil
+	}
+
+	// Already a Lua value
+	if pl.Format() == payload.Lua {
+		if lv, ok := pl.Data().(lua.LValue); ok {
+			return lv
+		}
+	}
+
+	// Try transcoding via context transcoder
+	ctx := l.Context()
+	dtt := payload.GetTranscoder(ctx)
+	if dtt != nil {
+		transcoded, err := dtt.Transcode(pl, payload.Lua)
+		if err == nil {
+			if lv, ok := transcoded.Data().(lua.LValue); ok {
+				return lv
+			}
+		}
+	}
+
+	// Fallback: return as string representation
+	return lua.LString(fmt.Sprintf("%v", pl.Data()))
 }
 
 // CallYield wraps CallCmd for Lua.

@@ -4,8 +4,8 @@ package lua
 import (
 	"fmt"
 
-	"github.com/wippyai/runtime/api/funcpool"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/system/scheduler/pool"
 )
 
 // Registry kind constants for different Lua component types.
@@ -30,18 +30,16 @@ const (
 
 // Pool type constants for selecting scheduler implementation.
 const (
-	PoolTypeLazy         = "lazy"         // Zero processes at idle, creates on demand (default)
-	PoolTypeStatic       = "static"       // Fixed-size channel-based pool
-	PoolTypeElastic      = "elastic"      // Growing/shrinking pool for spiking workloads
-	PoolTypeWorkStealing = "workstealing" // Work-stealing scheduler for varying execution times
-	PoolTypeInline       = "inline"       // Synchronous inline execution
+	PoolTypeLazy   = "lazy"   // Zero processes at idle, creates on demand
+	PoolTypeStatic = "static" // Fixed-size channel-based pool (default for high load)
+	PoolTypeInline = "inline" // Synchronous inline execution
 )
 
 type (
 	// PoolConfig defines settings for a pool of Lua VMs.
 	// It manages the number of VMs and workers available for executing Lua code.
 	PoolConfig struct {
-		Type    string `json:"type"`    // Pool type: static, elastic, workstealing, inline
+		Type    string `json:"type"`    // Pool type: static, lazy, inline
 		Size    int    `json:"size"`    // Total number of VMs in the pool / workers for engine2
 		Workers int    `json:"workers"` // Number of worker threads
 		Buffer  int    `json:"buffer"`  // Task queue buffer size (default: workers * 64)
@@ -100,9 +98,9 @@ type (
 	}
 )
 
-// ToFuncpoolConfig converts PoolConfig to funcpool.PoolConfig for engine2.
+// ToPoolConfig converts PoolConfig to pool.Config for scheduler pool.
 // Uses Workers directly if set, otherwise falls back to Size.
-func (c *PoolConfig) ToFuncpoolConfig() funcpool.PoolConfig {
+func (c *PoolConfig) ToPoolConfig() pool.Config {
 	workers := c.Workers
 	if workers == 0 {
 		workers = c.Size
@@ -113,7 +111,7 @@ func (c *PoolConfig) ToFuncpoolConfig() funcpool.PoolConfig {
 		queueSize = workers * 64
 	}
 
-	return funcpool.PoolConfig{
+	return pool.Config{
 		Workers:   workers,
 		QueueSize: queueSize,
 	}

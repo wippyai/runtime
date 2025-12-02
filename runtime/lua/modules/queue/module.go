@@ -211,7 +211,7 @@ func messageHeaders(l *lua.LState) int {
 	}
 	tbl := lua.CreateTable(0, 10)
 	if msg.message.Headers != nil {
-		for key, value := range msg.message.Headers {
+		for key, value := range msg.message.Headers { // todo: collisiton
 			tbl.RawSetString(key, toLuaValue(l, value))
 		}
 	}

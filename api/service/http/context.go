@@ -12,13 +12,12 @@ import (
 
 // Context keys for storing HTTP-specific values in the request context
 var (
-	// todo: privatize
-	RequestCtx         = &ctxapi.Key{Name: "http.request"}
-	RouteCtx           = &ctxapi.Key{Name: "http.route"}
-	RouteLabelCtx      = &ctxapi.Key{Name: "http.route_label"}
-	ContextServerID    = &ctxapi.Key{Name: "http.server_id"}
-	ContextHost        = &ctxapi.Key{Name: "http.server.host"}
-	EndpointConfigCtx  = &ctxapi.Key{Name: "http.endpoint_config"}
+	requestCtx         = &ctxapi.Key{Name: "http.request"}
+	routeCtx           = &ctxapi.Key{Name: "http.route"}
+	routeLabelCtx      = &ctxapi.Key{Name: "http.route_label"}
+	serverIDCtx        = &ctxapi.Key{Name: "http.server_id"}
+	serverHostCtx      = &ctxapi.Key{Name: "http.server.host"}
+	endpointConfigCtx  = &ctxapi.Key{Name: "http.endpoint_config"}
 	middlewareRegistry = &ctxapi.Key{Name: "http.middleware_registry"}
 )
 
@@ -45,7 +44,7 @@ func GetRequestContext(ctx context.Context) (*RequestContext, bool) {
 	if fc == nil {
 		return nil, false
 	}
-	val, ok := fc.Get(RequestCtx)
+	val, ok := fc.Get(requestCtx)
 	if !ok {
 		return nil, false
 	}
@@ -59,7 +58,7 @@ func GetRouteInfo(ctx context.Context) (*RouteInfo, bool) {
 	if fc == nil {
 		return nil, false
 	}
-	val, ok := fc.Get(RouteCtx)
+	val, ok := fc.Get(routeCtx)
 	if !ok {
 		return nil, false
 	}
@@ -75,12 +74,39 @@ func GetRouteLabel(ctx context.Context) (string, bool) {
 	if fc == nil {
 		return "", false
 	}
-	val, ok := fc.Get(RouteLabelCtx)
+	val, ok := fc.Get(routeLabelCtx)
 	if !ok {
 		return "", false
 	}
 	label, ok := val.(string)
 	return label, ok
+}
+
+// SetRequestContext stores HTTP request context in FrameContext.
+func SetRequestContext(ctx context.Context, reqCtx *RequestContext) error {
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return nil
+	}
+	return fc.Set(requestCtx, reqCtx)
+}
+
+// SetRouteInfo stores route information in FrameContext.
+func SetRouteInfo(ctx context.Context, info *RouteInfo) error {
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return nil
+	}
+	return fc.Set(routeCtx, info)
+}
+
+// SetRouteLabel stores the route label string in FrameContext.
+func SetRouteLabel(ctx context.Context, label string) error {
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return nil
+	}
+	return fc.Set(routeLabelCtx, label)
 }
 
 // NewRequestContext creates a new RequestContext instance with the provided

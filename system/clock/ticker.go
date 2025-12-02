@@ -7,12 +7,7 @@ import (
 	"time"
 
 	clockapi "github.com/wippyai/runtime/api/clock"
-	ctxapi "github.com/wippyai/runtime/api/context"
-	"github.com/wippyai/runtime/api/resource"
 )
-
-// TickerRegistryKey is the context key for TickerRegistry.
-var TickerRegistryKey = &ctxapi.Key{Name: "clock.tickers", Inherit: false}
 
 // ErrTickerNotFound is an alias for the API error.
 var ErrTickerNotFound = clockapi.ErrTickerNotFound
@@ -184,44 +179,4 @@ func (r *TickerRegistry) Count() int {
 		shard.mu.Unlock()
 	}
 	return count
-}
-
-// GetTickerRegistry retrieves TickerRegistry from FrameContext.
-func GetTickerRegistry(ctx context.Context) *TickerRegistry {
-	fc := ctxapi.FrameFromContext(ctx)
-	if fc == nil {
-		return nil
-	}
-	if val, ok := fc.Get(TickerRegistryKey); ok {
-		return val.(*TickerRegistry)
-	}
-	return nil
-}
-
-// SetTickerRegistry stores TickerRegistry in FrameContext.
-func SetTickerRegistry(ctx context.Context, r *TickerRegistry) error {
-	fc := ctxapi.FrameFromContext(ctx)
-	if fc == nil {
-		return ctxapi.ErrNoFrameContext
-	}
-	return fc.Set(TickerRegistryKey, r)
-}
-
-// GetOrCreateTickerRegistry returns existing registry or creates a new one.
-// Registers cleanup with resource.Store to stop all tickers on process termination.
-func GetOrCreateTickerRegistry(ctx context.Context) *TickerRegistry {
-	if r := GetTickerRegistry(ctx); r != nil {
-		return r
-	}
-	r := NewTickerRegistry()
-	_ = SetTickerRegistry(ctx, r)
-
-	if store := resource.GetStore(ctx); store != nil {
-		store.AddCleanup(func() error {
-			r.Close()
-			return nil
-		})
-	}
-
-	return r
 }

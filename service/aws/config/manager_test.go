@@ -132,6 +132,13 @@ func (m *MockEnvRegistry) All(_ context.Context) (map[string]string, error) {
 	return m.variables, nil
 }
 
+func (m *MockEnvRegistry) Lookup(_ context.Context, name string) (string, bool, error) {
+	if value, exists := m.variables[name]; exists {
+		return value, true, nil
+	}
+	return "", false, nil
+}
+
 // setupTestEnvironment creates a test environment with mocked dependencies
 func setupTestEnvironment(t *testing.T) (*Manager, event.Bus, context.Context) {
 	logger := zap.NewNop()

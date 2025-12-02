@@ -15,14 +15,29 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-func newTestScheduler(numWorkers int, opts ...scheduler.Option) *scheduler.Scheduler {
+type testScheduler struct {
+	*scheduler.Scheduler
+	clock *clock.Dispatcher
+}
+
+func (ts *testScheduler) Stop() {
+	ts.Scheduler.Stop()
+	if ts.clock != nil {
+		ts.clock.Stop(context.Background())
+	}
+}
+
+func newTestScheduler(numWorkers int, opts ...scheduler.Option) *testScheduler {
 	registry := scheduler.NewRegistry()
-	clockSvc := clock.NewService()
+	clockSvc := clock.NewDispatcher()
 	clockSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		registry.Register(id, h)
 	})
 	opts = append([]scheduler.Option{scheduler.WithWorkers(numWorkers)}, opts...)
-	return scheduler.NewScheduler(registry, opts...)
+	return &testScheduler{
+		Scheduler: scheduler.NewScheduler(registry, opts...),
+		clock:     clockSvc,
+	}
 }
 
 func testPID() relay.PID {

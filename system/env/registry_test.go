@@ -297,6 +297,81 @@ func TestRegistry_DefaultValue(t *testing.T) {
 	assert.Equal(t, "storage_value", value)
 }
 
+func TestRegistry_Lookup(t *testing.T) {
+	reg, _, ctx := setupTestRegistry()
+	require.NoError(t, reg.Start(ctx))
+	defer safeStop(t, reg)
+
+	storage := newMockStorage(map[string]string{
+		"existing_var": "existing_value",
+		"empty_var":    "",
+	})
+	storageID := registry.ParseID("app:storage")
+	reg.storages.Store(storageID, storage)
+
+	// Register variables with unique IDs
+	existingVar := env.Variable{
+		ID:        registry.ParseID("app:existing_var"),
+		Name:      "existing_var",
+		StorageID: storageID,
+	}
+	reg.variablesByID.Store(existingVar.ID, existingVar)
+	reg.variablesByName.Store("existing_var", existingVar.ID)
+
+	emptyVar := env.Variable{
+		ID:           registry.ParseID("app:empty_var"),
+		Name:         "empty_var",
+		StorageID:    storageID,
+		DefaultValue: "should_not_use",
+	}
+	reg.variablesByID.Store(emptyVar.ID, emptyVar)
+	reg.variablesByName.Store("empty_var", emptyVar.ID)
+
+	missingVar := env.Variable{
+		ID:           registry.ParseID("app:missing_var"),
+		Name:         "missing_var",
+		StorageID:    storageID,
+		DefaultValue: "default_for_missing",
+	}
+	reg.variablesByID.Store(missingVar.ID, missingVar)
+	reg.variablesByName.Store("missing_var", missingVar.ID)
+
+	t.Run("found with value", func(t *testing.T) {
+		value, found, err := reg.Lookup(ctx, "existing_var")
+		require.NoError(t, err)
+		assert.True(t, found)
+		assert.Equal(t, "existing_value", value)
+	})
+
+	t.Run("found with empty value", func(t *testing.T) {
+		value, found, err := reg.Lookup(ctx, "empty_var")
+		require.NoError(t, err)
+		assert.True(t, found)
+		assert.Equal(t, "", value) // Empty string is valid
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		value, found, err := reg.Lookup(ctx, "missing_var")
+		require.NoError(t, err)
+		assert.False(t, found)
+		assert.Equal(t, "", value) // No default returned by Lookup
+	})
+
+	t.Run("Get uses default for missing", func(t *testing.T) {
+		// Get should return default when not found
+		value, err := reg.Get(ctx, "missing_var")
+		require.NoError(t, err)
+		assert.Equal(t, "default_for_missing", value)
+	})
+
+	t.Run("variable not registered", func(t *testing.T) {
+		_, found, err := reg.Lookup(ctx, "unregistered")
+		require.Error(t, err)
+		assert.Equal(t, env.ErrVariableNotFound, err)
+		assert.False(t, found)
+	})
+}
+
 func TestRegistry_ErrorCases(t *testing.T) {
 	reg, _, ctx := setupTestRegistry()
 	require.NoError(t, reg.Start(ctx))

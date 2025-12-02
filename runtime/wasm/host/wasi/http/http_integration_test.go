@@ -93,7 +93,7 @@ func newMockHTTPHandler(statusCode int, body []byte) *mockHTTPHandler {
 	}
 }
 
-func (h *mockHTTPHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.EmitFunc) error {
+func (h *mockHTTPHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
 	h.called = true
 	h.lastCmd = cmd.(*httpapi.RequestCmd)
 

@@ -5,7 +5,7 @@ import (
 
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
-	"github.com/wippyai/runtime/api/pidgen"
+	"github.com/wippyai/runtime/api/process2"
 	bootpkg "github.com/wippyai/runtime/boot"
 	"go.uber.org/zap"
 )
@@ -35,7 +35,7 @@ func TestCorePlugins(t *testing.T) {
 		t.Error("event bus not available in context")
 	}
 
-	if pidgen.GetGenerator(ctx) == nil {
+	if process2.GetPIDGenerator(ctx) == nil {
 		t.Error("PID generator not available in context")
 	}
 }

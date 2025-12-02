@@ -2,9 +2,13 @@ package lru
 
 import (
 	"container/list"
+	"errors"
 	"sync"
 	"time"
 )
+
+// ErrCacheClosed is returned when operations are attempted on a closed cache.
+var ErrCacheClosed = errors.New("cache is closed")
 
 // Cache is a simple LRU cache
 type Cache[K comparable, V any] struct {
@@ -64,6 +68,11 @@ func New[K comparable, V any](opts ...Option) *Cache[K, V] {
 		opt(cfg)
 	}
 
+	// Ensure capacity is at least 1
+	if cfg.capacity < 1 {
+		cfg.capacity = 1
+	}
+
 	cache := &Cache[K, V]{
 		capacity:    cfg.capacity,
 		ttl:         cfg.ttl,
@@ -117,12 +126,17 @@ func (c *Cache[K, V]) cleanup() {
 	}
 }
 
-// Get retrieves a value from the cache
+// Get retrieves a value from the cache.
+// Returns zero value and false if the cache is closed.
 func (c *Cache[K, V]) Get(key K) (V, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	var zero V
+	if c.closed {
+		return zero, false
+	}
+
 	element, exists := c.items[key]
 	if !exists {
 		return zero, false
@@ -138,10 +152,15 @@ func (c *Cache[K, V]) Get(key K) (V, bool) {
 	return e.value, true
 }
 
-// Set adds or updates a value in the cache
+// Set adds or updates a value in the cache.
+// No-op if the cache is closed.
 func (c *Cache[K, V]) Set(key K, value V) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if c.closed {
+		return
+	}
 
 	if element, exists := c.items[key]; exists {
 		c.evictList.MoveToFront(element)
@@ -169,20 +188,30 @@ func (c *Cache[K, V]) Set(key K, value V) {
 	}
 }
 
-// Delete removes a key from the cache
+// Delete removes a key from the cache.
+// No-op if the cache is closed.
 func (c *Cache[K, V]) Delete(key K) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if c.closed {
+		return
+	}
 
 	if element, exists := c.items[key]; exists {
 		c.removeElement(element)
 	}
 }
 
-// Len returns the number of items in the cache
+// Len returns the number of items in the cache.
+// Returns 0 if the cache is closed.
 func (c *Cache[K, V]) Len() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
+	if c.closed {
+		return 0
+	}
 	return c.evictList.Len()
 }
 

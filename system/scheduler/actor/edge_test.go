@@ -12,14 +12,37 @@ import (
 	apiruntime "github.com/wippyai/runtime/api/runtime"
 )
 
+// edgeTestLifecycle implements process2.Lifecycle for edge tests
+type edgeTestLifecycle struct {
+	onComplete func(context.Context, relay.PID, *apiruntime.Result)
+}
+
+func (l *edgeTestLifecycle) OnStart(ctx context.Context, pid relay.PID, proc Process) {}
+
+func (l *edgeTestLifecycle) OnComplete(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
+	if l.onComplete != nil {
+		l.onComplete(ctx, pid, result)
+	}
+}
+
+func newEdgeTestScheduler(workers int, lc *edgeTestLifecycle) *Scheduler {
+	registry := NewRegistry()
+	registry.Register(CmdComplete, CompleteHandler())
+	registry.Register(CmdYield, YieldHandler())
+	registry.Register(CmdSleep, SleepHandler())
+	return NewScheduler(registry, WithWorkers(workers), WithLifecycle(lc))
+}
+
 // Edge case: Single worker
 func TestSingleWorker(t *testing.T) {
-	sched := newTestScheduler(1)
 	var completed atomic.Int32
 
-	sched.onComplete = func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
-		completed.Add(1)
+	lc := &edgeTestLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
+			completed.Add(1)
+		},
 	}
+	sched := newEdgeTestScheduler(1, lc)
 
 	sched.Start()
 	defer sched.Stop()
@@ -41,13 +64,18 @@ func TestSingleWorker(t *testing.T) {
 
 // Edge case: Queue overflow - submit more than queue capacity
 func TestQueueOverflow(t *testing.T) {
-	// Small queue size
-	sched := NewScheduler(NewRegistry(), WithWorkers(2), WithQueueSize(16))
 	var completed atomic.Int32
 
-	sched.onComplete = func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
-		completed.Add(1)
+	lc := &edgeTestLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
+			completed.Add(1)
+		},
 	}
+	// Small queue size
+	registry := NewRegistry()
+	registry.Register(CmdComplete, CompleteHandler())
+	registry.Register(CmdYield, YieldHandler())
+	sched := NewScheduler(registry, WithWorkers(2), WithQueueSize(16), WithLifecycle(lc))
 
 	sched.Start()
 	defer sched.Stop()
@@ -70,13 +98,18 @@ func TestQueueOverflow(t *testing.T) {
 
 // Edge case: Burst submission at queue boundary
 func TestQueueBoundary(t *testing.T) {
-	queueSize := 64
-	sched := NewScheduler(NewRegistry(), WithWorkers(4), WithQueueSize(queueSize))
 	var completed atomic.Int32
 
-	sched.onComplete = func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
-		completed.Add(1)
+	lc := &edgeTestLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
+			completed.Add(1)
+		},
 	}
+	queueSize := 64
+	registry := NewRegistry()
+	registry.Register(CmdComplete, CompleteHandler())
+	registry.Register(CmdYield, YieldHandler())
+	sched := NewScheduler(registry, WithWorkers(4), WithQueueSize(queueSize), WithLifecycle(lc))
 
 	sched.Start()
 	defer sched.Stop()
@@ -103,12 +136,14 @@ func TestQueueBoundary(t *testing.T) {
 
 // Edge case: Many workers, few processes
 func TestManyWorkersFewerProcesses(t *testing.T) {
-	sched := newTestScheduler(32)
 	var completed atomic.Int32
 
-	sched.onComplete = func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
-		completed.Add(1)
+	lc := &edgeTestLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
+			completed.Add(1)
+		},
 	}
+	sched := newEdgeTestScheduler(32, lc)
 
 	sched.Start()
 	defer sched.Stop()
@@ -131,12 +166,14 @@ func TestManyWorkersFewerProcesses(t *testing.T) {
 
 // Edge case: Massive parallel submission
 func TestMassiveParallelSubmission(t *testing.T) {
-	sched := newTestScheduler(runtime.GOMAXPROCS(0))
 	var completed atomic.Int64
 
-	sched.onComplete = func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
-		completed.Add(1)
+	lc := &edgeTestLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
+			completed.Add(1)
+		},
 	}
+	sched := newEdgeTestScheduler(runtime.GOMAXPROCS(0), lc)
 
 	sched.Start()
 	defer sched.Stop()
@@ -211,19 +248,21 @@ func TestConcurrentExecute(t *testing.T) {
 	}
 }
 
-// Edge case: Work stealing under imbalanced load
-func TestWorkStealingImbalanced(t *testing.T) {
-	sched := newTestScheduler(4)
+// Edge case: Work distribution under imbalanced load
+func TestWorkDistributionImbalanced(t *testing.T) {
 	var completed atomic.Int32
 
-	sched.onComplete = func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
-		completed.Add(1)
+	lc := &edgeTestLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
+			completed.Add(1)
+		},
 	}
+	sched := newEdgeTestScheduler(4, lc)
 
 	sched.Start()
 	defer sched.Stop()
 
-	// Submit all to be picked up by one worker initially
+	// Submit batch of work
 	const n = 100
 	for i := 0; i < n; i++ {
 		sched.Submit(context.Background(), testPID(), &CounterProcess{}, "", testInput(5))
@@ -238,7 +277,7 @@ func TestWorkStealingImbalanced(t *testing.T) {
 		t.Fatalf("expected %d completed, got %d", n, completed.Load())
 	}
 
-	// Verify work was distributed (not all executed by one worker)
+	// Verify work was distributed across workers
 	stats := sched.WorkerStats()
 	nonZeroWorkers := 0
 	for _, s := range stats {
@@ -247,9 +286,9 @@ func TestWorkStealingImbalanced(t *testing.T) {
 		}
 	}
 
-	// At least 2 workers should have done work (work stealing working)
+	// Multiple workers should have processed work
 	if nonZeroWorkers < 2 {
-		t.Logf("Warning: only %d workers executed tasks, work stealing may not be effective", nonZeroWorkers)
+		t.Logf("Warning: only %d workers executed tasks", nonZeroWorkers)
 	}
 }
 
@@ -362,13 +401,14 @@ func benchmarkWithQueueSize(b *testing.B, queueSize int) {
 // Stress test: Rapid start/stop cycles
 func TestRapidStartStop(t *testing.T) {
 	for i := 0; i < 50; i++ {
-		sched := newTestScheduler(4)
-		sched.Start()
-
 		var completed atomic.Int32
-		sched.onComplete = func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
-			completed.Add(1)
+		lc := &edgeTestLifecycle{
+			onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
+				completed.Add(1)
+			},
 		}
+		sched := newEdgeTestScheduler(4, lc)
+		sched.Start()
 
 		// Submit some work
 		for j := 0; j < 10; j++ {
@@ -391,15 +431,16 @@ func TestRapidStartStop(t *testing.T) {
 
 // Stress test: Burst load after idle period
 func TestBurstAfterIdle(t *testing.T) {
-	sched := newTestScheduler(4)
-	sched.Start()
-	defer sched.Stop()
-
 	var completed atomic.Int64
 
-	sched.onComplete = func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
-		completed.Add(1)
+	lc := &edgeTestLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
+			completed.Add(1)
+		},
 	}
+	sched := newEdgeTestScheduler(4, lc)
+	sched.Start()
+	defer sched.Stop()
 
 	for burst := 0; burst < 10; burst++ {
 		// Let workers go idle
@@ -425,15 +466,16 @@ func TestBurstAfterIdle(t *testing.T) {
 
 // Stress test: Single worker under sustained load
 func TestSingleWorkerSustained(t *testing.T) {
-	sched := newTestScheduler(1)
-	sched.Start()
-	defer sched.Stop()
-
 	var completed atomic.Int64
 
-	sched.onComplete = func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
-		completed.Add(1)
+	lc := &edgeTestLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
+			completed.Add(1)
+		},
 	}
+	sched := newEdgeTestScheduler(1, lc)
+	sched.Start()
+	defer sched.Stop()
 
 	const total = 1000
 	for i := 0; i < total; i++ {
@@ -452,14 +494,16 @@ func TestSingleWorkerSustained(t *testing.T) {
 
 // Stress test: Concurrent Execute and Submit
 func TestMixedExecuteSubmit(t *testing.T) {
-	sched := newTestScheduler(4)
+	var submits atomic.Int64
+
+	lc := &edgeTestLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
+			submits.Add(1)
+		},
+	}
+	sched := newEdgeTestScheduler(4, lc)
 	sched.Start()
 	defer sched.Stop()
-
-	var submits atomic.Int64
-	sched.onComplete = func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
-		submits.Add(1)
-	}
 
 	var wg sync.WaitGroup
 	const n = 100
@@ -510,14 +554,16 @@ func TestSequentialExecuteSingleWorker(t *testing.T) {
 
 // Stress test: Many workers competing for few tasks
 func TestHighContentionFewTasks(t *testing.T) {
-	sched := newTestScheduler(32)
+	var completed atomic.Int32
+
+	lc := &edgeTestLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
+			completed.Add(1)
+		},
+	}
+	sched := newEdgeTestScheduler(32, lc)
 	sched.Start()
 	defer sched.Stop()
-
-	var completed atomic.Int32
-	sched.onComplete = func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
-		completed.Add(1)
-	}
 
 	// Only 10 tasks for 32 workers
 	for i := 0; i < 10; i++ {

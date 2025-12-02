@@ -231,6 +231,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Create unsealed FrameContext for each HTTP request
 		ctx, fc := contextapi.OpenFrameContext(r.Context())
+		defer contextapi.ReleaseFrameContext(fc)
 
 		// Set all HTTP-specific metadata in FrameContext in one place
 		_ = fc.SetMultiple(

@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"sync"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -14,9 +13,8 @@ import (
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/process2"
 	"github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
-	systemapi "github.com/wippyai/runtime/api/system"
+	supervisorapi "github.com/wippyai/runtime/api/supervisor"
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/deps/client"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
@@ -136,7 +134,7 @@ func runApp(cmd *cobra.Command, _ []string) error {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	// Store signal channel for system.exit()
-	systemapi.SetSignalChannel(ctx, sigChan)
+	supervisorapi.SetSignalChannel(ctx, sigChan)
 
 	// Handle --exec flag: launch process and wait for completion
 	execSpec, _ := cmd.Flags().GetString("exec")
@@ -363,23 +361,9 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, method
 
 	source := registry.NewID(namespace, entry)
 
-	// Use sync.Once to ensure we only trigger shutdown once
-	var shutdownOnce sync.Once
-
 	start := &process2.Start{
 		HostID: hostID,
 		Source: source,
-		OnComplete: []process2.OnComplete{
-			func(_ context.Context, pid relay.PID, result *runtime.Result) {
-				shutdownOnce.Do(func() {
-					exitCode := interpretExitCode(result)
-					logger.Debug("exec process completed",
-						zap.String("pid", pid.String()),
-						zap.Int("exit_code", exitCode))
-					systemapi.TriggerShutdown(ctx, exitCode)
-				})
-			},
-		},
 	}
 
 	pid, err := manager.Start(ctx, start)

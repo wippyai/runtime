@@ -2,9 +2,24 @@
 package template
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/wippyai/runtime/api/registry"
+)
+
+var (
+	// ErrTemplateNotFound is returned when a template cannot be found
+	ErrTemplateNotFound = errors.New("template not found")
+
+	// ErrSetNotFound is returned when a template set cannot be found
+	ErrSetNotFound = errors.New("template set not found")
+
+	// ErrRenderFailed is returned when template rendering fails
+	ErrRenderFailed = errors.New("template rendering failed")
+
+	// ErrSetNotEmpty is returned when attempting to delete a set with templates
+	ErrSetNotEmpty = errors.New("template set is not empty")
 )
 
 // Registry kind constants for Template components

@@ -18,7 +18,7 @@ func Exec() boot.Component {
 			if reg == nil {
 				return ctx, fmt.Errorf("dispatcher registrar not found in context")
 			}
-			svc := exec.NewDispatcherService()
+			svc := exec.NewDispatcher()
 			svc.RegisterAll(reg.Register)
 			return ctx, nil
 		},
