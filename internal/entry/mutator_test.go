@@ -290,7 +290,7 @@ func TestMutator_Set_Meta(t *testing.T) {
 	t.Run("overwrite existing meta", func(t *testing.T) {
 		entry := &registry.Entry{
 			ID: registry.NewID("test", "entry"),
-			Meta: registry.Metadata{
+			Meta: attrs.Bag{
 				"field": "old",
 			},
 		}
@@ -640,7 +640,7 @@ func TestMutator_Set_Meta_Advanced(t *testing.T) {
 	t.Run("set nested meta with existing data", func(t *testing.T) {
 		entry := &registry.Entry{
 			ID: registry.NewID("test", "entry"),
-			Meta: registry.Metadata{
+			Meta: attrs.Bag{
 				"config": map[string]any{
 					"existing": "value",
 				},

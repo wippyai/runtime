@@ -13,56 +13,71 @@ import (
 type PIDRegistry struct {
 	parent   topology.PIDRegistry
 	nameToID sync.Map // Maps from name (string) to PID
-	idToName sync.Map // Maps from PID to name (string) - for efficient removal by PID
+	idToName sync.Map // Maps from PID string to *pidNames
 	logger   *zap.Logger
 }
 
-// PIDRegistryConfig holds configuration for a PIDRegistry.
-type PIDRegistryConfig struct {
-	Parent topology.PIDRegistry
-	Logger *zap.Logger
+// pidNames holds names for a PID with its own mutex for atomic updates.
+type pidNames struct {
+	mu    sync.Mutex
+	names []string
 }
 
-// NewPIDRegistry creates a new empty PID registry
-func NewPIDRegistry(config PIDRegistryConfig) *PIDRegistry {
-	// If no logger provided, use noop logger
-	if config.Logger == nil {
-		config.Logger = zap.NewNop()
-	}
+// PIDRegistryOption configures a PIDRegistry.
+type PIDRegistryOption func(*PIDRegistry)
 
-	return &PIDRegistry{
-		parent: config.Parent,
-		logger: config.Logger,
+// WithParent sets a parent registry for fallback lookups.
+func WithParent(parent topology.PIDRegistry) PIDRegistryOption {
+	return func(r *PIDRegistry) {
+		r.parent = parent
 	}
 }
 
-// Register associates a name with a PID
-// Returns error if name is already taken
+// WithLogger sets the logger for the registry.
+func WithLogger(logger *zap.Logger) PIDRegistryOption {
+	return func(r *PIDRegistry) {
+		r.logger = logger
+	}
+}
+
+// NewPIDRegistry creates a new empty PID registry.
+func NewPIDRegistry(opts ...PIDRegistryOption) *PIDRegistry {
+	r := &PIDRegistry{
+		logger: zap.NewNop(),
+	}
+
+	for _, opt := range opts {
+		opt(r)
+	}
+
+	return r
+}
+
+// Register associates a name with a PID.
+// Overwrites if the name is already registered.
 func (r *PIDRegistry) Register(name string, pid relay.PID) error {
-	// Store name → PID mapping
 	r.nameToID.Store(name, pid)
 
-	// Store reverse mapping for efficient removal by PID
-	// Using a sync.Map to store a slice of names for each PID
-	var names []string
-	if existingNames, ok := r.idToName.Load(pid); ok {
-		names = existingNames.([]string)
-	}
-	names = append(names, name)
-	r.idToName.Store(pid, names)
+	// Get or create pidNames for this PID
+	pidKey := pid.String()
+	val, _ := r.idToName.LoadOrStore(pidKey, &pidNames{})
+	pn := val.(*pidNames)
+
+	pn.mu.Lock()
+	pn.names = append(pn.names, name)
+	pn.mu.Unlock()
 
 	r.logger.Debug("registered name to PID mapping",
 		zap.String("name", name),
-		zap.String("pid", pid.String()))
+		zap.String("pid", pidKey))
 
 	return nil
 }
 
-// Unregister removes a name registration
-// Returns true if the name was registered and has been removed
+// Unregister removes a name registration.
+// Returns true if the name was registered and has been removed.
 func (r *PIDRegistry) Unregister(name string) bool {
-	// Load the PID for this name
-	pidVal, exists := r.nameToID.Load(name)
+	pidVal, exists := r.nameToID.LoadAndDelete(name)
 	if !exists {
 		if r.parent != nil {
 			released := r.parent.Unregister(name)
@@ -78,96 +93,75 @@ func (r *PIDRegistry) Unregister(name string) bool {
 	}
 
 	pid := pidVal.(relay.PID)
+	pidKey := pid.String()
 
-	// Remove from nameToID map
-	r.nameToID.Delete(name)
-
-	// Update the reverse mapping in idToName
-	if namesVal, ok := r.idToName.Load(pid); ok {
-		names := namesVal.([]string)
-		// Filter out the name we're removing
-		updatedNames := make([]string, 0, len(names)-1)
-		for _, n := range names {
+	// Update the reverse mapping
+	if val, ok := r.idToName.Load(pidKey); ok {
+		pn := val.(*pidNames)
+		pn.mu.Lock()
+		updatedNames := make([]string, 0, len(pn.names)-1)
+		for _, n := range pn.names {
 			if n != name {
 				updatedNames = append(updatedNames, n)
 			}
 		}
+		pn.names = updatedNames
+		empty := len(pn.names) == 0
+		pn.mu.Unlock()
 
-		// If there are still names, update the map
-		// Otherwise, remove the PID entry entirely
-		if len(updatedNames) > 0 {
-			r.idToName.Store(pid, updatedNames)
-		} else {
-			r.idToName.Delete(pid)
+		if empty {
+			r.idToName.Delete(pidKey)
 		}
 	}
 
 	r.logger.Debug("unregistered name",
 		zap.String("name", name),
-		zap.String("pid", pid.String()))
+		zap.String("pid", pidKey))
 
 	return true
 }
 
-// Lookup finds the PID registered with a given name
-// Returns the PID and true if found, empty PID and false if not found
+// Lookup finds the PID registered with a given name.
+// Returns the PID and true if found, empty PID and false if not found.
 func (r *PIDRegistry) Lookup(name string) (relay.PID, bool) {
-	pidVal, exists := r.nameToID.Load(name)
-	if !exists {
-		if r.parent != nil {
-			pid, found := r.parent.Lookup(name)
-			if found {
-				r.logger.Debug("looked up name from parent registry",
-					zap.String("name", name),
-					zap.String("pid", pid.String()))
-				return pid, true
-			}
-		}
-
-		r.logger.Debug("failed to lookup name",
-			zap.String("name", name))
-		return relay.PID{}, false
+	if pidVal, exists := r.nameToID.Load(name); exists {
+		return pidVal.(relay.PID), true
 	}
 
-	pid := pidVal.(relay.PID)
+	if r.parent != nil {
+		return r.parent.Lookup(name)
+	}
 
-	// no log in hot operation, can be handled on app level
-
-	return pid, true
+	return relay.PID{}, false
 }
 
 // Remove completely removes a PID from the registry,
-// removing all name associations for that PID
+// removing all name associations for that PID.
 func (r *PIDRegistry) Remove(pid relay.PID) {
-	// Get all names associated with this PID
-	namesVal, exists := r.idToName.Load(pid)
+	pidKey := pid.String()
+
+	val, exists := r.idToName.LoadAndDelete(pidKey)
 	if !exists {
-		// If no names found in this registry, try parent
 		if r.parent != nil {
 			r.parent.Remove(pid)
 		}
 		return
 	}
 
-	names := namesVal.([]string)
+	pn := val.(*pidNames)
+	pn.mu.Lock()
+	names := pn.names
+	pn.names = nil
+	pn.mu.Unlock()
 
-	// Remove each name from the nameToID map
 	for _, name := range names {
 		r.nameToID.Delete(name)
-
-		r.logger.Debug("removed name during PID removal",
-			zap.String("name", name),
-			zap.String("pid", pid.String()))
 	}
 
-	// Remove the PID from the idToName map
-	r.idToName.Delete(pid)
-
 	r.logger.Debug("removed PID from registry",
-		zap.String("pid", pid.String()),
+		zap.String("pid", pidKey),
 		zap.Int("names_removed", len(names)))
 
-	// Propagate to parent if exists
 	if r.parent != nil {
 		r.parent.Remove(pid)
 	}

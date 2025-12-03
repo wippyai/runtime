@@ -2,7 +2,6 @@ package topology
 
 import (
 	"errors"
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -204,12 +203,7 @@ func TestTopology_HandleMonitorRequest(t *testing.T) {
 		err = topo.HandleMonitorRequest(remotePID, localPID)
 		require.NoError(t, err)
 
-		value, ok := topo.monitors.Load(localPID.String())
-		require.True(t, ok, "should have monitors for localPID")
-
-		watchers := value.(*sync.Map)
-		_, ok = watchers.Load(remotePID.String())
-		assert.True(t, ok, "remotePID should be in watchers")
+		assert.True(t, topo.hasWatcher(localPID, remotePID), "remotePID should be in watchers")
 	})
 
 	t.Run("HandleMonitorRequest on unregistered PID fails", func(t *testing.T) {
@@ -224,14 +218,7 @@ func TestTopology_HandleMonitorRequest(t *testing.T) {
 		err := topo.HandleMonitorRequest(remotePID, localPID)
 		require.NoError(t, err)
 
-		value, _ := topo.monitors.Load(localPID.String())
-		watchers := value.(*sync.Map)
-		count := 0
-		watchers.Range(func(_, _ interface{}) bool {
-			count++
-			return true
-		})
-
+		count := topo.watcherCount(localPID)
 		assert.Equal(t, 1, count, "should not add duplicate watchers")
 	})
 }
@@ -253,8 +240,8 @@ func TestTopology_HandleMonitorRelease(t *testing.T) {
 		err := topo.HandleMonitorRelease(remotePID, localPID)
 		require.NoError(t, err)
 
-		_, ok := topo.monitors.Load(localPID.String())
-		assert.False(t, ok, "should cleanup monitors when no watchers left")
+		count := topo.watcherCount(localPID)
+		assert.Equal(t, 0, count, "should have no watchers after release")
 	})
 
 	t.Run("HandleMonitorRelease on non-monitored PID is safe", func(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/boot/build"
@@ -77,7 +78,7 @@ type packModel struct {
 	embedPatterns []string
 	outputFile    string
 	fileSize      int64
-	metadata      regapi.Metadata
+	metadata      attrs.Bag
 	err           error
 	done          bool
 	verbose       bool
@@ -105,7 +106,7 @@ type statsMsg struct {
 
 type completedMsg struct {
 	fileSize int64
-	metadata regapi.Metadata
+	metadata attrs.Bag
 }
 
 type errorMsg struct {
@@ -527,7 +528,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	tags, _ := cmd.Flags().GetStringSlice("tags")
 	metaFlags, _ := cmd.Flags().GetStringArray("meta")
 
-	metadata := regapi.Metadata{
+	metadata := attrs.Bag{
 		"wippy_version": version.Version,
 		"wippy_commit":  version.Commit,
 		"wippy_date":    version.Date,
@@ -594,7 +595,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	return nil
 }
 
-func parseMetadataFlags(metaFlags []string, metadata regapi.Metadata, logger *zap.Logger) error {
+func parseMetadataFlags(metaFlags []string, metadata attrs.Bag, logger *zap.Logger) error {
 	for _, flag := range metaFlags {
 		parts := strings.SplitN(flag, "=", 2)
 		if len(parts) != 2 {

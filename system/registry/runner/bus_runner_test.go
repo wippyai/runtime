@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -546,7 +547,7 @@ func TestBusRunner_RollbackOrder(t *testing.T) {
 				ID:   lib1ID,
 				Kind: "listener",
 				Data: payload.NewString("lib-data"),
-				Meta: registry.Metadata{},
+				Meta: attrs.Bag{},
 			},
 		},
 		{
@@ -555,7 +556,7 @@ func TestBusRunner_RollbackOrder(t *testing.T) {
 				ID:   app1ID,
 				Kind: "listener",
 				Data: payload.NewString("app-data"),
-				Meta: registry.Metadata{
+				Meta: attrs.Bag{
 					registry.TagDependsOn: []string{lib1ID.String()},
 				},
 			},
@@ -566,7 +567,7 @@ func TestBusRunner_RollbackOrder(t *testing.T) {
 				ID:   endpoint1ID,
 				Kind: "listener",
 				Data: payload.NewString("reject_this"), // This will trigger rejection
-				Meta: registry.Metadata{
+				Meta: attrs.Bag{
 					registry.TagDependsOn: []string{app1ID.String()},
 				},
 			},

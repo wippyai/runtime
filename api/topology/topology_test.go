@@ -39,8 +39,10 @@ func TestKindConstants(t *testing.T) {
 		{"cancel", KindCancel, "pid.cancel"},
 		{"exit", KindExit, "pid.exit"},
 		{"link down", KindLinkDown, "pid.link.down"},
-		{"link established", KindLinkEstablished, "pid.link.established"},
-		{"link removed", KindLinkRemoved, "pid.link.removed"},
+		{"monitor request", KindMonitorRequest, "pid.monitor.request"},
+		{"monitor release", KindMonitorRelease, "pid.monitor.release"},
+		{"link request", KindLinkRequest, "pid.link.request"},
+		{"unlink request", KindUnlinkRequest, "pid.unlink.request"},
 	}
 
 	for _, tt := range tests {

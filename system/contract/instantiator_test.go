@@ -89,7 +89,7 @@ func TestInstantiator_Instantiate(t *testing.T) {
 	// Register binding
 	bindingID := registry.NewID("test", "my_binding")
 	testBinding := &contract.Binding{
-		Meta: registry.Metadata{"version": "1.0"},
+		Meta: attrs.Bag{"version": "1.0"},
 		Contracts: []contract.BoundContract{
 			{
 				Contract:        contractID,
@@ -454,7 +454,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 	assert.False(t, values["has_context"].(bool))
 
 	// Test context merging - context values should be merged with existing context
-	scope := registry.Metadata{
+	scope := attrs.Bag{
 		"context":  "from_scope",
 		"override": "from_scope",
 	}

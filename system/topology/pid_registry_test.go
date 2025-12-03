@@ -9,10 +9,7 @@ import (
 )
 
 func TestPIDRegistry_Register(t *testing.T) {
-	logger := zap.NewNop()
-	reg := NewPIDRegistry(PIDRegistryConfig{
-		Logger: logger,
-	})
+	reg := NewPIDRegistry(WithLogger(zap.NewNop()))
 
 	// Create test PIDs
 	pid1 := relay.PID{
@@ -49,10 +46,7 @@ func TestPIDRegistry_Register(t *testing.T) {
 	assert.NoError(t, err)
 }
 func TestPIDRegistry_Lookup(t *testing.T) {
-	logger := zap.NewNop()
-	reg := NewPIDRegistry(PIDRegistryConfig{
-		Logger: logger,
-	})
+	reg := NewPIDRegistry(WithLogger(zap.NewNop()))
 
 	pid := relay.PID{
 		Node:   "node1",
@@ -75,10 +69,7 @@ func TestPIDRegistry_Lookup(t *testing.T) {
 }
 
 func TestPIDRegistry_Unregister(t *testing.T) {
-	logger := zap.NewNop()
-	reg := NewPIDRegistry(PIDRegistryConfig{
-		Logger: logger,
-	})
+	reg := NewPIDRegistry(WithLogger(zap.NewNop()))
 
 	pid := relay.PID{
 		Node:   "node1",
@@ -107,15 +98,10 @@ func TestPIDRegistry_WithParent(t *testing.T) {
 	logger := zap.NewNop()
 
 	// Create parent registry
-	parentReg := NewPIDRegistry(PIDRegistryConfig{
-		Logger: logger,
-	})
+	parentReg := NewPIDRegistry(WithLogger(logger))
 
 	// Create child registry with parent
-	childReg := NewPIDRegistry(PIDRegistryConfig{
-		Parent: parentReg,
-		Logger: logger,
-	})
+	childReg := NewPIDRegistry(WithParent(parentReg), WithLogger(logger))
 
 	// Create test PIDs
 	parentPID := relay.PID{
@@ -158,10 +144,7 @@ func TestPIDRegistry_WithParent(t *testing.T) {
 }
 
 func TestPIDRegistry_ThreadSafety(t *testing.T) {
-	logger := zap.NewNop()
-	reg := NewPIDRegistry(PIDRegistryConfig{
-		Logger: logger,
-	})
+	reg := NewPIDRegistry(WithLogger(zap.NewNop()))
 
 	const numRoutines = 100
 
@@ -233,4 +216,54 @@ func TestPIDRegistry_ThreadSafety(t *testing.T) {
 		_, found := reg.Lookup(names[i])
 		assert.False(t, found)
 	}
+}
+
+func TestPIDRegistry_Remove(t *testing.T) {
+	reg := NewPIDRegistry(WithLogger(zap.NewNop()))
+
+	pid := relay.PID{Node: "node1", Host: "host1", UniqID: "uniq1"}
+
+	// Register multiple names for the same PID
+	_ = reg.Register("name1", pid)
+	_ = reg.Register("name2", pid)
+	_ = reg.Register("name3", pid)
+
+	// Verify all names resolve
+	_, found := reg.Lookup("name1")
+	assert.True(t, found)
+	_, found = reg.Lookup("name2")
+	assert.True(t, found)
+	_, found = reg.Lookup("name3")
+	assert.True(t, found)
+
+	// Remove the PID entirely
+	reg.Remove(pid)
+
+	// All names should be gone
+	_, found = reg.Lookup("name1")
+	assert.False(t, found)
+	_, found = reg.Lookup("name2")
+	assert.False(t, found)
+	_, found = reg.Lookup("name3")
+	assert.False(t, found)
+}
+
+func TestPIDRegistry_RemoveWithParent(t *testing.T) {
+	parent := NewPIDRegistry(WithLogger(zap.NewNop()))
+	child := NewPIDRegistry(WithParent(parent), WithLogger(zap.NewNop()))
+
+	pid := relay.PID{Node: "node1", Host: "host1", UniqID: "uniq1"}
+
+	// Register in both
+	_ = parent.Register("parent-name", pid)
+	_ = child.Register("child-name", pid)
+
+	// Remove from child should propagate to parent
+	child.Remove(pid)
+
+	// Both should be gone
+	_, found := child.Lookup("child-name")
+	assert.False(t, found)
+	_, found = parent.Lookup("parent-name")
+	assert.False(t, found)
 }

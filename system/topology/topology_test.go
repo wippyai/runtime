@@ -596,33 +596,20 @@ func TestTopology_ConcurrentOperations(t *testing.T) {
 			// Wait for operations to settle
 		}
 
-		// Verify that the final state is consistent
+		// Verify that the final state is consistent.
 		// Since we have equal numbers of Wait and Release operations,
-		// the final state is indeterminate, but we can verify the data structure integrity
-		value, ok := topo.monitors.Load(pid1.String())
-		if ok {
-			watchers := value.(*sync.Map)
-			// Count how many watchers exist for pid1
-			watcherCount := 0
-			watchers.Range(func(_, _ interface{}) bool {
-				watcherCount++
-				return true
-			})
+		// the final state is indeterminate, but we can verify the data structure integrity.
+		watcherCount := topo.watcherCount(pid1)
+		stillMonitoring := topo.hasWatcher(pid1, pid2)
 
-			// Check if pid2 is monitoring pid1
-			_, stillMonitoring := watchers.Load(pid2.String())
-
-			// The final state should be consistent - either pid2 is monitoring pid1
-			// (in which case there should be exactly 1 watcher) or it's not
-			// (in which case there should be 0 watchers or pid2 should not be in the watchers)
-			if stillMonitoring {
-				assert.Equal(t, 1, watcherCount, "if pid2 is monitoring pid1, there should be exactly 1 watcher")
-			} else {
-				assert.Equal(t, 0, watcherCount, "if pid2 is not monitoring pid1, there should be no watchers")
-			}
+		// The final state should be consistent - either pid2 is monitoring pid1
+		// (in which case there should be exactly 1 watcher) or it's not
+		// (in which case there should be 0 watchers).
+		if stillMonitoring {
+			assert.Equal(t, 1, watcherCount, "if pid2 is monitoring pid1, there should be exactly 1 watcher")
+		} else {
+			assert.Equal(t, 0, watcherCount, "if pid2 is not monitoring pid1, there should be no watchers")
 		}
-		// No monitors for pid1, which is a valid final state
-		// This means all Release operations completed after all Wait operations
 	})
 }
 

@@ -10,7 +10,7 @@ import (
 func TestTreeResourceStructure(t *testing.T) {
 	tree := &TreeResource{
 		ID:   registry.NewID("test", "tree1"),
-		Meta: registry.NewMetadata(),
+		Meta: attrs.NewBag(),
 		Files: map[string]FileEntry{
 			"file1.txt": {
 				Size:    100,
@@ -161,7 +161,7 @@ func TestChunkSizeConstant(t *testing.T) {
 func TestBlobResourceSmall(t *testing.T) {
 	blob := &BlobResource{
 		ID:     registry.NewID("test", "blob1"),
-		Meta:   registry.NewMetadata(),
+		Meta:   attrs.NewBag(),
 		Size:   5000,
 		Hash:   "small-blob-hash",
 		Chunks: nil,
@@ -221,7 +221,7 @@ func TestBlobResourceLarge(t *testing.T) {
 
 	blob := &BlobResource{
 		ID:     registry.NewID("test", "blob2"),
-		Meta:   registry.NewMetadata(),
+		Meta:   attrs.NewBag(),
 		Size:   blobSize,
 		Hash:   "large-blob-hash",
 		Chunks: chunks,
@@ -253,7 +253,7 @@ func TestBlobResourceLarge(t *testing.T) {
 func TestTreeResourceEmptyDir(t *testing.T) {
 	tree := &TreeResource{
 		ID:   registry.NewID("test", "tree2"),
-		Meta: registry.NewMetadata(),
+		Meta: attrs.NewBag(),
 		Files: map[string]FileEntry{
 			"file.txt": {
 				Size:    100,
@@ -285,7 +285,7 @@ func TestTreeResourceEmptyDir(t *testing.T) {
 func TestTreeResourceNestedDirs(t *testing.T) {
 	tree := &TreeResource{
 		ID:   registry.NewID("test", "tree3"),
-		Meta: registry.NewMetadata(),
+		Meta: attrs.NewBag(),
 		Files: map[string]FileEntry{
 			"a/b/c/file.txt": {
 				Size:    100,

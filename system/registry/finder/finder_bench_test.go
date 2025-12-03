@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 )
 
@@ -65,7 +66,7 @@ func generateEntries(count int) []registry.Entry {
 		entries[i] = registry.Entry{
 			ID:   registry.ID{NS: fmt.Sprintf("ns%d", i%10), Name: fmt.Sprintf("entry-%d", i)},
 			Kind: kinds[kindIdx],
-			Meta: registry.Metadata{
+			Meta: attrs.Bag{
 				"enabled":     i%2 == 0,
 				"port":        8000 + i,
 				"description": fmt.Sprintf("Test %s service number %d", kinds[kindIdx], i),
@@ -89,7 +90,7 @@ func BenchmarkFinder_CacheHit(b *testing.B) {
 			finder := NewFinder(mockReg, nil)
 
 			// Warm up cache
-			criteria := registry.Metadata{"meta.enabled": true}
+			criteria := attrs.Bag{"meta.enabled": true}
 			_, _ = finder.Find(criteria)
 
 			b.ResetTimer()
@@ -120,7 +121,7 @@ func BenchmarkFinder_CacheMiss(b *testing.B) {
 
 			for i := 0; i < b.N; i++ {
 				// Different query each time to force cache miss
-				criteria := registry.Metadata{"meta.port": 8000 + (i % size)}
+				criteria := attrs.Bag{"meta.port": 8000 + (i % size)}
 				_, err := finder.Find(criteria)
 				if err != nil {
 					b.Fatal(err)
@@ -138,12 +139,12 @@ func BenchmarkFinder_RootFieldMatching(b *testing.B) {
 
 	benchmarks := []struct {
 		name     string
-		criteria registry.Metadata
+		criteria attrs.Bag
 	}{
-		{"kind", registry.Metadata{".kind": "service"}},
-		{"namespace", registry.Metadata{".ns": "ns5"}},
-		{"name", registry.Metadata{".name": "entry-500"}},
-		{"combined", registry.Metadata{".kind": "service", ".ns": "ns5"}},
+		{"kind", attrs.Bag{".kind": "service"}},
+		{"namespace", attrs.Bag{".ns": "ns5"}},
+		{"name", attrs.Bag{".name": "entry-500"}},
+		{"combined", attrs.Bag{".kind": "service", ".ns": "ns5"}},
 	}
 
 	for _, bm := range benchmarks {
@@ -167,12 +168,12 @@ func BenchmarkFinder_MetadataEquality(b *testing.B) {
 
 	benchmarks := []struct {
 		name     string
-		criteria registry.Metadata
+		criteria attrs.Bag
 	}{
-		{"boolean", registry.Metadata{"meta.enabled": true}},
-		{"integer", registry.Metadata{"meta.port": 8500}},
-		{"string", registry.Metadata{"meta.version": "v5.0.0"}},
-		{"combined", registry.Metadata{"meta.enabled": true, "meta.priority": 3}},
+		{"boolean", attrs.Bag{"meta.enabled": true}},
+		{"integer", attrs.Bag{"meta.port": 8500}},
+		{"string", attrs.Bag{"meta.version": "v5.0.0"}},
+		{"combined", attrs.Bag{"meta.enabled": true, "meta.priority": 3}},
 	}
 
 	for _, bm := range benchmarks {
@@ -196,11 +197,11 @@ func BenchmarkFinder_RegexMatching(b *testing.B) {
 
 	benchmarks := []struct {
 		name     string
-		criteria registry.Metadata
+		criteria attrs.Bag
 	}{
-		{"simple", registry.Metadata{"~meta.description": ".*service.*"}},
-		{"version", registry.Metadata{"~meta.version": `^v5\.`}},
-		{"complex", registry.Metadata{"~meta.description": ".*service.*", ".kind": "service"}},
+		{"simple", attrs.Bag{"~meta.description": ".*service.*"}},
+		{"version", attrs.Bag{"~meta.version": `^v5\.`}},
+		{"complex", attrs.Bag{"~meta.description": ".*service.*", ".kind": "service"}},
 	}
 
 	for _, bm := range benchmarks {
@@ -227,7 +228,7 @@ func BenchmarkFinder_RegexCaching(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			// Create new finder each time to measure regex compilation cost
 			f := NewFinder(mockReg, nil)
-			_, err := f.Find(registry.Metadata{"~meta.description": ".*service.*"})
+			_, err := f.Find(attrs.Bag{"~meta.description": ".*service.*"})
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -236,12 +237,12 @@ func BenchmarkFinder_RegexCaching(b *testing.B) {
 
 	b.Run("cached", func(b *testing.B) {
 		// Warm up regex cache
-		_, _ = finder.Find(registry.Metadata{"~meta.description": ".*service.*"})
+		_, _ = finder.Find(attrs.Bag{"~meta.description": ".*service.*"})
 
 		b.ResetTimer()
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			_, err := finder.Find(registry.Metadata{"~meta.description": ".*service.*"})
+			_, err := finder.Find(attrs.Bag{"~meta.description": ".*service.*"})
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -257,11 +258,11 @@ func BenchmarkFinder_ContainsMatching(b *testing.B) {
 
 	benchmarks := []struct {
 		name     string
-		criteria registry.Metadata
+		criteria attrs.Bag
 	}{
-		{"string", registry.Metadata{"*meta.description": "service"}},
-		{"array", registry.Metadata{"*meta.tags": "backend"}},
-		{"combined", registry.Metadata{"*meta.description": "service", ".kind": "service"}},
+		{"string", attrs.Bag{"*meta.description": "service"}},
+		{"array", attrs.Bag{"*meta.tags": "backend"}},
+		{"combined", attrs.Bag{"*meta.description": "service", ".kind": "service"}},
 	}
 
 	for _, bm := range benchmarks {
@@ -285,10 +286,10 @@ func BenchmarkFinder_ArrayMatching(b *testing.B) {
 
 	benchmarks := []struct {
 		name     string
-		criteria registry.Metadata
+		criteria attrs.Bag
 	}{
-		{"single_tag", registry.Metadata{"meta.tags": []string{"api"}}},
-		{"multiple_tags", registry.Metadata{"meta.tags": []string{"api", "rest"}}},
+		{"single_tag", attrs.Bag{"meta.tags": []string{"api"}}},
+		{"multiple_tags", attrs.Bag{"meta.tags": []string{"api", "rest"}}},
 	}
 
 	for _, bm := range benchmarks {
@@ -309,7 +310,7 @@ func BenchmarkFinder_VersionInvalidation(b *testing.B) {
 	entries := generateEntries(1000)
 	mockReg := &benchMockRegistry{entries: entries, version: 1}
 	finder := NewFinder(mockReg, nil)
-	criteria := registry.Metadata{"meta.enabled": true}
+	criteria := attrs.Bag{"meta.enabled": true}
 
 	// Warm up cache
 	_, _ = finder.Find(criteria)
@@ -333,7 +334,7 @@ func BenchmarkFinder_Fork(b *testing.B) {
 	mainFinder := NewFinder(mainReg, nil)
 
 	// Warm up regex cache in main finder
-	_, _ = mainFinder.Find(registry.Metadata{"~meta.description": ".*service.*"})
+	_, _ = mainFinder.Find(attrs.Bag{"~meta.description": ".*service.*"})
 
 	snapshotEntries := generateEntries(500)
 	snapshotReg := &benchMockRegistry{entries: snapshotEntries, version: 1}
@@ -342,7 +343,7 @@ func BenchmarkFinder_Fork(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			forked := Fork(mainFinder, snapshotReg, nil)
-			_, err := forked.Find(registry.Metadata{"~meta.description": ".*service.*"})
+			_, err := forked.Find(attrs.Bag{"~meta.description": ".*service.*"})
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -353,7 +354,7 @@ func BenchmarkFinder_Fork(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			newFinder := NewFinder(snapshotReg, nil)
-			_, err := newFinder.Find(registry.Metadata{"~meta.description": ".*service.*"})
+			_, err := newFinder.Find(attrs.Bag{"~meta.description": ".*service.*"})
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -367,7 +368,7 @@ func BenchmarkFinder_ComplexQuery(b *testing.B) {
 	mockReg := &benchMockRegistry{entries: entries, version: 1}
 	finder := NewFinder(mockReg, nil)
 
-	criteria := registry.Metadata{
+	criteria := attrs.Bag{
 		".kind":             "service",
 		"meta.enabled":      true,
 		"~meta.description": ".*service.*",
@@ -398,7 +399,7 @@ func BenchmarkFinder_EmptyCriteria(b *testing.B) {
 			b.ReportAllocs()
 
 			for i := 0; i < b.N; i++ {
-				results, err := finder.Find(registry.Metadata{})
+				results, err := finder.Find(attrs.Bag{})
 				if err != nil {
 					b.Fatal(err)
 				}

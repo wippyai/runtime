@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/wippyai/runtime/api/attrs"
 	regapi "github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -218,8 +219,8 @@ func simpleEntryToLuaTable(l *lua.LState, entry regapi.Entry) *lua.LTable {
 	return t
 }
 
-func simpleConvertFilterToMetadata(filterTable *lua.LTable) regapi.Metadata {
-	meta := regapi.Metadata{}
+func simpleConvertFilterToMetadata(filterTable *lua.LTable) attrs.Bag {
+	meta := attrs.Bag{}
 	filterTable.ForEach(func(k, v lua.LValue) {
 		if ks, ok := k.(lua.LString); ok {
 			meta[string(ks)] = toGoValue(v)

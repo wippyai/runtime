@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
@@ -43,7 +44,7 @@ func luaTableToEntry(l *lua.LState, table *lua.LTable) (regapi.Entry, error) {
 	// Extract metadata
 	metaVal := table.RawGetString("meta")
 	if metaVal.Type() == lua.LTTable {
-		meta := regapi.Metadata{}
+		meta := attrs.Bag{}
 		metaTable := metaVal.(*lua.LTable)
 
 		metaTable.ForEach(func(k, v lua.LValue) {
@@ -54,7 +55,7 @@ func luaTableToEntry(l *lua.LState, table *lua.LTable) (regapi.Entry, error) {
 
 		entry.Meta = meta
 	} else {
-		entry.Meta = regapi.Metadata{}
+		entry.Meta = attrs.Bag{}
 	}
 
 	// Extract data
@@ -107,8 +108,8 @@ func entryToLuaTable(l *lua.LState, entry regapi.Entry) (*lua.LTable, error) {
 }
 
 // convertFilterToMetadata converts a Lua filter table to registry metadata
-func convertFilterToMetadata(_ *lua.LState, filterTable *lua.LTable) regapi.Metadata {
-	meta := regapi.Metadata{}
+func convertFilterToMetadata(_ *lua.LState, filterTable *lua.LTable) attrs.Bag {
+	meta := attrs.Bag{}
 
 	filterTable.ForEach(func(k, v lua.LValue) {
 		if kStr, ok := k.(lua.LString); ok {

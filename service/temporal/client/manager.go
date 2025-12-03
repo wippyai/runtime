@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
@@ -173,7 +174,7 @@ func (m *Manager) AddClient(ctx context.Context, id registry.ID, cfg *api.Client
 	})
 
 	// Register as resource provider
-	meta := registry.NewMetadata()
+	meta := attrs.NewBag()
 	meta.Set("type", "temporal.client")
 
 	m.bus.Send(ctx, event.Event{

@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 )
 
@@ -48,17 +49,17 @@ func TestFinder_RootFieldMatching(t *testing.T) {
 		{
 			ID:   registry.NewID("app", "service-api"),
 			Kind: "service",
-			Meta: registry.Metadata{"meta.enabled": true},
+			Meta: attrs.Bag{"meta.enabled": true},
 		},
 		{
 			ID:   registry.NewID("app", "service-queue"),
 			Kind: "service",
-			Meta: registry.Metadata{"meta.enabled": true},
+			Meta: attrs.Bag{"meta.enabled": true},
 		},
 		{
 			ID:   registry.NewID("storage", "database-users"),
 			Kind: "database",
-			Meta: registry.Metadata{"meta.enabled": true},
+			Meta: attrs.Bag{"meta.enabled": true},
 		},
 	}
 
@@ -67,32 +68,32 @@ func TestFinder_RootFieldMatching(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		criteria registry.Metadata
+		criteria attrs.Bag
 		wantIDs  []string
 	}{
 		{
 			name:     "Find by .kind",
-			criteria: registry.Metadata{".kind": "service"},
+			criteria: attrs.Bag{".kind": "service"},
 			wantIDs:  []string{"service-api", "service-queue"},
 		},
 		{
 			name:     "Find by .name",
-			criteria: registry.Metadata{".name": "service-api"},
+			criteria: attrs.Bag{".name": "service-api"},
 			wantIDs:  []string{"service-api"},
 		},
 		{
 			name:     "Find by .ns",
-			criteria: registry.Metadata{".ns": "app"},
+			criteria: attrs.Bag{".ns": "app"},
 			wantIDs:  []string{"service-api", "service-queue"},
 		},
 		{
 			name:     "Find by .id (full ID)",
-			criteria: registry.Metadata{".id": "app:service-api"},
+			criteria: attrs.Bag{".id": "app:service-api"},
 			wantIDs:  []string{"service-api"},
 		},
 		{
 			name: "Combine .kind and .ns",
-			criteria: registry.Metadata{
+			criteria: attrs.Bag{
 				".kind": "service",
 				".ns":   "app",
 			},
@@ -121,7 +122,7 @@ func TestFinder_MetadataEquality(t *testing.T) {
 		{
 			ID:   registry.NewID("", "entry-1"),
 			Kind: "test",
-			Meta: registry.Metadata{
+			Meta: attrs.Bag{
 				"enabled": true,
 				"port":    8080,
 				"env":     "production",
@@ -130,7 +131,7 @@ func TestFinder_MetadataEquality(t *testing.T) {
 		{
 			ID:   registry.NewID("", "entry-2"),
 			Kind: "test",
-			Meta: registry.Metadata{
+			Meta: attrs.Bag{
 				"enabled": false,
 				"port":    9000,
 				"env":     "staging",
@@ -139,7 +140,7 @@ func TestFinder_MetadataEquality(t *testing.T) {
 		{
 			ID:   registry.NewID("", "entry-3"),
 			Kind: "test",
-			Meta: registry.Metadata{
+			Meta: attrs.Bag{
 				"enabled": true,
 				"port":    8080,
 				"env":     "staging",
@@ -152,27 +153,27 @@ func TestFinder_MetadataEquality(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		criteria registry.Metadata
+		criteria attrs.Bag
 		wantIDs  []string
 	}{
 		{
 			name:     "Boolean equality",
-			criteria: registry.Metadata{"meta.enabled": true},
+			criteria: attrs.Bag{"meta.enabled": true},
 			wantIDs:  []string{"entry-1", "entry-3"},
 		},
 		{
 			name:     "Integer equality",
-			criteria: registry.Metadata{"meta.port": 8080},
+			criteria: attrs.Bag{"meta.port": 8080},
 			wantIDs:  []string{"entry-1", "entry-3"},
 		},
 		{
 			name:     "String equality",
-			criteria: registry.Metadata{"meta.env": "production"},
+			criteria: attrs.Bag{"meta.env": "production"},
 			wantIDs:  []string{"entry-1"},
 		},
 		{
 			name: "Multiple field AND logic",
-			criteria: registry.Metadata{
+			criteria: attrs.Bag{
 				"meta.enabled": true,
 				"meta.env":     "staging",
 			},
@@ -201,21 +202,21 @@ func TestFinder_ArrayMatching(t *testing.T) {
 		{
 			ID:   registry.NewID("", "service-api"),
 			Kind: "service",
-			Meta: registry.Metadata{
+			Meta: attrs.Bag{
 				"tags": []string{"api", "rest", "users"},
 			},
 		},
 		{
 			ID:   registry.NewID("", "service-queue"),
 			Kind: "service",
-			Meta: registry.Metadata{
+			Meta: attrs.Bag{
 				"tags": []string{"queue", "background", "jobs"},
 			},
 		},
 		{
 			ID:   registry.NewID("", "service-mixed"),
 			Kind: "service",
-			Meta: registry.Metadata{
+			Meta: attrs.Bag{
 				"tags": []string{"api", "queue"},
 			},
 		},
@@ -226,22 +227,22 @@ func TestFinder_ArrayMatching(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		criteria registry.Metadata
+		criteria attrs.Bag
 		wantIDs  []string
 	}{
 		{
 			name:     "Single tag match (ALL must be present)",
-			criteria: registry.Metadata{"meta.tags": []string{"api"}},
+			criteria: attrs.Bag{"meta.tags": []string{"api"}},
 			wantIDs:  []string{"service-api", "service-mixed"},
 		},
 		{
 			name:     "Multiple tags match (ALL must be present)",
-			criteria: registry.Metadata{"meta.tags": []string{"api", "rest"}},
+			criteria: attrs.Bag{"meta.tags": []string{"api", "rest"}},
 			wantIDs:  []string{"service-api"},
 		},
 		{
 			name:     "No match when not all tags present",
-			criteria: registry.Metadata{"meta.tags": []string{"api", "jobs"}},
+			criteria: attrs.Bag{"meta.tags": []string{"api", "jobs"}},
 			wantIDs:  []string{},
 		},
 	}
@@ -267,7 +268,7 @@ func TestFinder_RegexMatching(t *testing.T) {
 		{
 			ID:   registry.NewID("", "service-1"),
 			Kind: "service",
-			Meta: registry.Metadata{
+			Meta: attrs.Bag{
 				"description": "RESTful API service for user management",
 				"version":     "v1.2.3",
 			},
@@ -275,7 +276,7 @@ func TestFinder_RegexMatching(t *testing.T) {
 		{
 			ID:   registry.NewID("", "service-2"),
 			Kind: "service",
-			Meta: registry.Metadata{
+			Meta: attrs.Bag{
 				"description": "Background job processing queue",
 				"version":     "v2.0.1",
 			},
@@ -283,7 +284,7 @@ func TestFinder_RegexMatching(t *testing.T) {
 		{
 			ID:   registry.NewID("", "database-1"),
 			Kind: "database",
-			Meta: registry.Metadata{
+			Meta: attrs.Bag{
 				"description": "User database with profiles",
 				"version":     "14.5",
 			},
@@ -295,27 +296,27 @@ func TestFinder_RegexMatching(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		criteria registry.Metadata
+		criteria attrs.Bag
 		wantIDs  []string
 	}{
 		{
 			name:     "Regex on description",
-			criteria: registry.Metadata{"~meta.description": ".*database.*"},
+			criteria: attrs.Bag{"~meta.description": ".*database.*"},
 			wantIDs:  []string{"database-1"},
 		},
 		{
 			name:     "Regex version pattern v1.x.x",
-			criteria: registry.Metadata{"~meta.version": `^v1\.`},
+			criteria: attrs.Bag{"~meta.version": `^v1\.`},
 			wantIDs:  []string{"service-1"},
 		},
 		{
 			name:     "Regex version pattern v2.x.x",
-			criteria: registry.Metadata{"~meta.version": `^v2\.`},
+			criteria: attrs.Bag{"~meta.version": `^v2\.`},
 			wantIDs:  []string{"service-2"},
 		},
 		{
 			name: "Combine regex with root field",
-			criteria: registry.Metadata{
+			criteria: attrs.Bag{
 				".kind":             "service",
 				"~meta.description": ".*API.*",
 			},
@@ -344,7 +345,7 @@ func TestFinder_ContainsMatching(t *testing.T) {
 		{
 			ID:   registry.NewID("", "entry-1"),
 			Kind: "test",
-			Meta: registry.Metadata{
+			Meta: attrs.Bag{
 				"description": "This is an API service",
 				"tags":        []string{"production", "api", "backend"},
 			},
@@ -352,7 +353,7 @@ func TestFinder_ContainsMatching(t *testing.T) {
 		{
 			ID:   registry.NewID("", "entry-2"),
 			Kind: "test",
-			Meta: registry.Metadata{
+			Meta: attrs.Bag{
 				"description": "Frontend application",
 				"tags":        []string{"production", "frontend"},
 			},
@@ -364,22 +365,22 @@ func TestFinder_ContainsMatching(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		criteria registry.Metadata
+		criteria attrs.Bag
 		wantIDs  []string
 	}{
 		{
 			name:     "Contains in string field",
-			criteria: registry.Metadata{"*meta.description": "API"},
+			criteria: attrs.Bag{"*meta.description": "API"},
 			wantIDs:  []string{"entry-1"},
 		},
 		{
 			name:     "Contains in array field",
-			criteria: registry.Metadata{"*meta.tags": "backend"},
+			criteria: attrs.Bag{"*meta.tags": "backend"},
 			wantIDs:  []string{"entry-1"},
 		},
 		{
 			name:     "Partial match in array",
-			criteria: registry.Metadata{"*meta.tags": "prod"},
+			criteria: attrs.Bag{"*meta.tags": "prod"},
 			wantIDs:  []string{"entry-1", "entry-2"},
 		},
 	}
@@ -405,7 +406,7 @@ func TestFinder_PrefixSuffixMatching(t *testing.T) {
 		{
 			ID:   registry.NewID("", "entry-1"),
 			Kind: "test",
-			Meta: registry.Metadata{
+			Meta: attrs.Bag{
 				"version":  "v1.2.3",
 				"filename": "service.json",
 			},
@@ -413,7 +414,7 @@ func TestFinder_PrefixSuffixMatching(t *testing.T) {
 		{
 			ID:   registry.NewID("", "entry-2"),
 			Kind: "test",
-			Meta: registry.Metadata{
+			Meta: attrs.Bag{
 				"version":  "v2.0.1",
 				"filename": "config.yaml",
 			},
@@ -421,7 +422,7 @@ func TestFinder_PrefixSuffixMatching(t *testing.T) {
 		{
 			ID:   registry.NewID("", "entry-3"),
 			Kind: "test",
-			Meta: registry.Metadata{
+			Meta: attrs.Bag{
 				"version":  "1.0.0",
 				"filename": "data.json",
 			},
@@ -433,22 +434,22 @@ func TestFinder_PrefixSuffixMatching(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		criteria registry.Metadata
+		criteria attrs.Bag
 		wantIDs  []string
 	}{
 		{
 			name:     "Prefix match on version",
-			criteria: registry.Metadata{"^meta.version": "v1"},
+			criteria: attrs.Bag{"^meta.version": "v1"},
 			wantIDs:  []string{"entry-1"},
 		},
 		{
 			name:     "Suffix match on filename",
-			criteria: registry.Metadata{"$meta.filename": ".json"},
+			criteria: attrs.Bag{"$meta.filename": ".json"},
 			wantIDs:  []string{"entry-1", "entry-3"},
 		},
 		{
 			name: "Combine prefix and suffix",
-			criteria: registry.Metadata{
+			criteria: attrs.Bag{
 				"^meta.version":  "v",
 				"$meta.filename": ".json",
 			},
@@ -482,19 +483,19 @@ func TestFinder_EmptyAndEdgeCases(t *testing.T) {
 	finder := NewFinder(mockReg, nil)
 
 	t.Run("Empty criteria matches all", func(t *testing.T) {
-		results, err := finder.Find(registry.Metadata{})
+		results, err := finder.Find(attrs.Bag{})
 		require.NoError(t, err)
 		assert.Equal(t, 2, len(results))
 	})
 
 	t.Run("No matches", func(t *testing.T) {
-		results, err := finder.Find(registry.Metadata{".kind": "nonexistent"})
+		results, err := finder.Find(attrs.Bag{".kind": "nonexistent"})
 		require.NoError(t, err)
 		assert.Equal(t, 0, len(results))
 	})
 
 	t.Run("Malformed regex is handled gracefully", func(t *testing.T) {
-		results, err := finder.Find(registry.Metadata{
+		results, err := finder.Find(attrs.Bag{
 			"~meta.field": "[invalid(regex",
 			".kind":       "test",
 		})
@@ -515,7 +516,7 @@ func TestFinder_VersionAwareCaching(t *testing.T) {
 	vm := &versionedMock{
 		mockRegistry: &mockRegistry{
 			entries: []registry.Entry{
-				{ID: registry.NewID("", "entry-1"), Kind: "test", Meta: registry.Metadata{"enabled": true}},
+				{ID: registry.NewID("", "entry-1"), Kind: "test", Meta: attrs.Bag{"enabled": true}},
 			},
 		},
 		version: 1,
@@ -528,12 +529,12 @@ func TestFinder_VersionAwareCaching(t *testing.T) {
 	finder := NewFinder(vm.mockRegistry, nil)
 
 	// First query - cache miss
-	results1, err := finder.Find(registry.Metadata{"meta.enabled": true})
+	results1, err := finder.Find(attrs.Bag{"meta.enabled": true})
 	require.NoError(t, err)
 	assert.Equal(t, 1, len(results1))
 
 	// Same query - should hit cache
-	results2, err := finder.Find(registry.Metadata{"meta.enabled": true})
+	results2, err := finder.Find(attrs.Bag{"meta.enabled": true})
 	require.NoError(t, err)
 	assert.Equal(t, 1, len(results2))
 
@@ -542,12 +543,12 @@ func TestFinder_VersionAwareCaching(t *testing.T) {
 
 	// Update entries
 	vm.entries = []registry.Entry{
-		{ID: registry.NewID("", "entry-1"), Kind: "test", Meta: registry.Metadata{"enabled": true}},
-		{ID: registry.NewID("", "entry-2"), Kind: "test", Meta: registry.Metadata{"enabled": true}},
+		{ID: registry.NewID("", "entry-1"), Kind: "test", Meta: attrs.Bag{"enabled": true}},
+		{ID: registry.NewID("", "entry-2"), Kind: "test", Meta: attrs.Bag{"enabled": true}},
 	}
 
 	// Same query after version change - should get new results
-	results3, err := finder.Find(registry.Metadata{"meta.enabled": true})
+	results3, err := finder.Find(attrs.Bag{"meta.enabled": true})
 	require.NoError(t, err)
 	assert.Equal(t, 2, len(results3), "Cache should be invalidated on version change")
 }
@@ -562,7 +563,7 @@ func TestFinder_RegexCachePersistence(t *testing.T) {
 	vm := &versionedMock{
 		mockRegistry: &mockRegistry{
 			entries: []registry.Entry{
-				{ID: registry.NewID("", "entry-1"), Kind: "test", Meta: registry.Metadata{"desc": "test"}},
+				{ID: registry.NewID("", "entry-1"), Kind: "test", Meta: attrs.Bag{"desc": "test"}},
 			},
 		},
 		version: 1,
@@ -575,7 +576,7 @@ func TestFinder_RegexCachePersistence(t *testing.T) {
 	finder := NewFinder(vm.mockRegistry, nil).(*memoryFinder)
 
 	// First query with regex
-	_, err := finder.Find(registry.Metadata{"~meta.desc": ".*test.*"})
+	_, err := finder.Find(attrs.Bag{"~meta.desc": ".*test.*"})
 	require.NoError(t, err)
 
 	// Check regex was cached
@@ -586,7 +587,7 @@ func TestFinder_RegexCachePersistence(t *testing.T) {
 	vm.version = 2
 
 	// Query again
-	_, err = finder.Find(registry.Metadata{"~meta.desc": ".*test.*"})
+	_, err = finder.Find(attrs.Bag{"~meta.desc": ".*test.*"})
 	require.NoError(t, err)
 
 	// Regex cache should still exist
@@ -607,9 +608,9 @@ func (m *mockVersion) String() string                 { return "" }
 // TestFinder_CacheEviction tests that LRU cache properly evicts old entries
 func TestFinder_CacheEviction(t *testing.T) {
 	entries := []registry.Entry{
-		{ID: registry.NewID("", "entry-1"), Kind: "test", Meta: registry.Metadata{"value": 1}},
-		{ID: registry.NewID("", "entry-2"), Kind: "test", Meta: registry.Metadata{"value": 2}},
-		{ID: registry.NewID("", "entry-3"), Kind: "test", Meta: registry.Metadata{"value": 3}},
+		{ID: registry.NewID("", "entry-1"), Kind: "test", Meta: attrs.Bag{"value": 1}},
+		{ID: registry.NewID("", "entry-2"), Kind: "test", Meta: attrs.Bag{"value": 2}},
+		{ID: registry.NewID("", "entry-3"), Kind: "test", Meta: attrs.Bag{"value": 3}},
 	}
 
 	mockReg := &mockRegistry{entries: entries}
@@ -618,28 +619,28 @@ func TestFinder_CacheEviction(t *testing.T) {
 	finder := NewFinder(mockReg, nil, WithQueryCacheSize(2))
 
 	// Query 1 - should be cached
-	_, err := finder.Find(registry.Metadata{"meta.value": 1})
+	_, err := finder.Find(attrs.Bag{"meta.value": 1})
 	require.NoError(t, err)
 
 	// Query 2 - should be cached
-	_, err = finder.Find(registry.Metadata{"meta.value": 2})
+	_, err = finder.Find(attrs.Bag{"meta.value": 2})
 	require.NoError(t, err)
 
 	// Query 3 - should evict query 1 (oldest)
-	_, err = finder.Find(registry.Metadata{"meta.value": 3})
+	_, err = finder.Find(attrs.Bag{"meta.value": 3})
 	require.NoError(t, err)
 
 	// At this point, cache should have queries 2 and 3, query 1 should be evicted
 	// We can't directly inspect the cache, but we can verify it doesn't crash
 	// and behaves correctly
-	_, err = finder.Find(registry.Metadata{"meta.value": 1})
+	_, err = finder.Find(attrs.Bag{"meta.value": 1})
 	require.NoError(t, err)
 }
 
 // TestFinder_RegexCacheEviction tests regex cache LRU eviction
 func TestFinder_RegexCacheEviction(t *testing.T) {
 	entries := []registry.Entry{
-		{ID: registry.NewID("", "entry-1"), Kind: "test", Meta: registry.Metadata{"desc": "pattern1"}},
+		{ID: registry.NewID("", "entry-1"), Kind: "test", Meta: attrs.Bag{"desc": "pattern1"}},
 	}
 
 	mockReg := &mockRegistry{entries: entries}
@@ -648,38 +649,38 @@ func TestFinder_RegexCacheEviction(t *testing.T) {
 	finder := NewFinder(mockReg, nil, WithRegexCacheSize(2))
 
 	// Use 3 different regex patterns
-	_, err := finder.Find(registry.Metadata{"~meta.desc": ".*pattern1.*"})
+	_, err := finder.Find(attrs.Bag{"~meta.desc": ".*pattern1.*"})
 	require.NoError(t, err)
 
-	_, err = finder.Find(registry.Metadata{"~meta.desc": ".*pattern2.*"})
+	_, err = finder.Find(attrs.Bag{"~meta.desc": ".*pattern2.*"})
 	require.NoError(t, err)
 
 	// This should evict the first pattern
-	_, err = finder.Find(registry.Metadata{"~meta.desc": ".*pattern3.*"})
+	_, err = finder.Find(attrs.Bag{"~meta.desc": ".*pattern3.*"})
 	require.NoError(t, err)
 
 	// Reusing first pattern should recompile it (but still work)
-	_, err = finder.Find(registry.Metadata{"~meta.desc": ".*pattern1.*"})
+	_, err = finder.Find(attrs.Bag{"~meta.desc": ".*pattern1.*"})
 	require.NoError(t, err)
 }
 
 // TestFinder_UnprefixedFieldsAreSkipped tests v2 behavior: fields without meta. prefix are skipped
 func TestFinder_UnprefixedFieldsAreSkipped(t *testing.T) {
 	entries := []registry.Entry{
-		{ID: registry.NewID("", "entry-1"), Kind: "test", Meta: registry.Metadata{"enabled": true}},
-		{ID: registry.NewID("", "entry-2"), Kind: "test", Meta: registry.Metadata{"enabled": false}},
+		{ID: registry.NewID("", "entry-1"), Kind: "test", Meta: attrs.Bag{"enabled": true}},
+		{ID: registry.NewID("", "entry-2"), Kind: "test", Meta: attrs.Bag{"enabled": false}},
 	}
 
 	mockReg := &mockRegistry{entries: entries}
 	finder := NewFinder(mockReg, nil)
 
 	// Unprefixed field should be skipped (with warning)
-	results, err := finder.Find(registry.Metadata{"enabled": true})
+	results, err := finder.Find(attrs.Bag{"enabled": true})
 	require.NoError(t, err)
 	assert.Equal(t, 2, len(results), "Unprefixed fields should be skipped, matching all entries")
 
 	// With proper prefix should work
-	results, err = finder.Find(registry.Metadata{"meta.enabled": true})
+	results, err = finder.Find(attrs.Bag{"meta.enabled": true})
 	require.NoError(t, err)
 	assert.Equal(t, 1, len(results), "Prefixed fields should match correctly")
 }

@@ -4,6 +4,7 @@ package registry
 import (
 	"context"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 )
@@ -87,7 +88,7 @@ type (
 		// Kind is the type/category of the entry
 		Kind Kind `json:"kind"`
 		// Meta contains any additional metadata about the entry
-		Meta Metadata `json:"meta"`
+		Meta attrs.Bag `json:"meta"`
 		// Data is the actual payload associated with the entry
 		Data payload.Payload `json:"data"`
 	}
@@ -188,7 +189,7 @@ type (
 	Finder interface {
 		// Find retrieves all entries with metadata matching the provided criteria
 		// and returns them as a slice of entries.
-		Find(meta Metadata) ([]Entry, error)
+		Find(meta attrs.Bag) ([]Entry, error)
 	}
 
 	// EntryListener is an interface for components that want to listen to changes in the registry

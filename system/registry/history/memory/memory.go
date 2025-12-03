@@ -3,6 +3,7 @@ package memory
 import (
 	"sync"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/internal/version"
 )
@@ -69,9 +70,9 @@ func (m *Storage) Get(version registry.Version) (registry.ChangeSet, error) {
 }
 
 func cloneEntry(e registry.Entry) registry.Entry {
-	var meta registry.Metadata
+	var meta attrs.Bag
 	if e.Meta != nil {
-		meta = make(registry.Metadata, len(e.Meta))
+		meta = make(attrs.Bag, len(e.Meta))
 		for k, v := range e.Meta {
 			meta[k] = v
 		}

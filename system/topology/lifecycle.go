@@ -85,13 +85,12 @@ func (t *Lifecycle) OnStart(ctx context.Context, pid relay.PID, _ process.Proces
 
 // OnComplete notifies watchers and linked processes, then cleans up topology.
 func (t *Lifecycle) OnComplete(_ context.Context, pid relay.PID, result *runtime.Result) {
-	if result.Error != nil {
-		if errors.Is(result.Error, supervisor.ErrExit) {
-			result.Error = nil
-		}
+	notifyResult := result
+	if result.Error != nil && errors.Is(result.Error, supervisor.ErrExit) {
+		notifyResult = &runtime.Result{Value: result.Value}
 	}
 
-	t.topo.Notify(pid, result)
+	t.topo.Notify(pid, notifyResult)
 
 	if t.pidReg != nil {
 		t.pidReg.Remove(pid)

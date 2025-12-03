@@ -32,9 +32,7 @@ func Topology() boot.Component {
 			}
 
 			topo := topology.NewTopology(node, router, node.ID())
-			pidReg := topology.NewPIDRegistry(topology.PIDRegistryConfig{
-				Logger: logger.Named("pid"),
-			})
+			pidReg := topology.NewPIDRegistry(topology.WithLogger(logger.Named("pid")))
 
 			ctx = topapi.WithTopology(ctx, topo)
 			ctx = topapi.WithRegistry(ctx, pidReg)

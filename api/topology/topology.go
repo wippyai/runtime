@@ -20,28 +20,21 @@ const (
 	TopicEvents relay.Topic = "@pid/events"
 )
 
-// Event kind constants for process lifecycle events
+// Event kind constants for process lifecycle events.
 const (
-	// KindCancel indicates a cancellation request
+	// KindCancel indicates a cancellation request.
 	KindCancel Kind = "pid.cancel"
-	// KindExit indicates a process has exited
+	// KindExit indicates a process has exited.
 	KindExit Kind = "pid.exit"
-
-	// KindLinkDown indicates a linked process is down
+	// KindLinkDown indicates a linked process is down.
 	KindLinkDown Kind = "pid.link.down"
-	// KindLinkEstablished indicates a link has been established
-	KindLinkEstablished Kind = "pid.link.established"
-	// KindLinkRemoved indicates a link has been removed
-	KindLinkRemoved Kind = "pid.link.removed"
-
-	// KindMonitorRequest requests monitoring of a remote PID
+	// KindMonitorRequest requests monitoring of a remote PID.
 	KindMonitorRequest Kind = "pid.monitor.request"
-	// KindMonitorRelease releases monitoring of a remote PID
+	// KindMonitorRelease releases monitoring of a remote PID.
 	KindMonitorRelease Kind = "pid.monitor.release"
-
-	// KindLinkRequest requests linking with a remote PID
+	// KindLinkRequest requests linking with a remote PID.
 	KindLinkRequest Kind = "pid.link.request"
-	// KindUnlinkRequest requests unlinking from a remote PID
+	// KindUnlinkRequest requests unlinking from a remote PID.
 	KindUnlinkRequest Kind = "pid.unlink.request"
 )
 

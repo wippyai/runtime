@@ -11,6 +11,7 @@ import (
 
 	"github.com/hashicorp/go-msgpack/v2/codec"
 	_ "github.com/mattn/go-sqlite3" // Register SQLite3 database driver
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/internal/version"
@@ -32,7 +33,7 @@ type encodedPayload struct {
 type encodedEntry struct {
 	ID   registry.ID
 	Kind string
-	Meta registry.Metadata
+	Meta attrs.Bag
 	Data *encodedPayload
 }
 
