@@ -53,7 +53,7 @@ func (s *linkStage) Name() string {
 func (s *linkStage) Execute(ctx context.Context, entries *[]registry.Entry) error {
 	transcoder := payload.GetTranscoder(ctx)
 	if transcoder == nil {
-		return fmt.Errorf("transcoder not found in context")
+		return ErrTranscoderNotFound
 	}
 
 	log := logs.GetLogger(ctx)
@@ -68,7 +68,7 @@ func (s *linkStage) Execute(ctx context.Context, entries *[]registry.Entry) erro
 
 		def, err := entry.DecodeEntryConfig[RequirementDefinition](ctx, transcoder, e)
 		if err != nil {
-			return fmt.Errorf("failed to decode requirement %s: %w", e.ID, err)
+			return NewDecodeRequirementError(e.ID.String(), err)
 		}
 
 		requirements[e.ID.String()] = decodedRequirement{
@@ -86,7 +86,7 @@ func (s *linkStage) Execute(ctx context.Context, entries *[]registry.Entry) erro
 
 		def, err := entry.DecodeEntryConfig[DependencyDefinition](ctx, transcoder, e)
 		if err != nil {
-			return fmt.Errorf("failed to decode dependency %s: %w", e.ID, err)
+			return NewDecodeDependencyError(e.ID.String(), err)
 		}
 
 		dependencies[e.ID.String()] = decodedDependency{
@@ -136,19 +136,18 @@ func (s *linkStage) processRequirement(
 	// Find parameter value from dependencies
 	value, err := s.resolveValue(requirementName, req.definition.Default, dependencies)
 	if err != nil {
-		return fmt.Errorf("requirement %s in namespace %s: %w", requirementName, req.entry.ID.NS, err)
+		return NewRequirementError(requirementName, req.entry.ID.NS, err)
 	}
 
 	// Validate targets exist
 	if len(req.definition.Targets) == 0 {
-		return fmt.Errorf("invalid requirement %s: no targets defined in requirement definition", req.entry.ID)
+		return NewNoTargetsError(req.entry.ID.String())
 	}
 
 	// Apply value to each target
 	for _, target := range req.definition.Targets {
 		if err := s.applyTarget(target, value, req.entry.ID.NS, entries, mutator); err != nil {
-			return fmt.Errorf("requirement %s, target entry=%s path=%s: %w",
-				req.entry.ID, target.Entry, target.Path, err)
+			return NewRequirementTargetError(req.entry.ID.String(), target.Entry, target.Path, err)
 		}
 	}
 
@@ -197,8 +196,7 @@ func (s *linkStage) resolveValue(
 			for _, fv := range foundValues {
 				conflicts = append(conflicts, fmt.Sprintf("%s=%s (from %s)", requirementName, fv.value, fv.depID))
 			}
-			return "", fmt.Errorf("parameter conflict: multiple dependencies define different values: %s",
-				strings.Join(conflicts, ", "))
+			return "", NewParameterConflictError(strings.Join(conflicts, ", "))
 		}
 	}
 
@@ -213,7 +211,7 @@ func (s *linkStage) resolveValue(
 	}
 
 	// No value available
-	return "", fmt.Errorf("no value available: no dependency parameter found and no default value specified")
+	return "", ErrNoValueAvailable
 }
 
 func (s *linkStage) applyTarget(
@@ -226,7 +224,7 @@ func (s *linkStage) applyTarget(
 	// Find target entries
 	targetEntries := s.findTargetEntries(target.Entry, requirementNS, entries)
 	if len(targetEntries) == 0 {
-		return fmt.Errorf("no matching entries found")
+		return ErrNoMatchingEntries
 	}
 
 	// Parse path for append operator
@@ -240,11 +238,11 @@ func (s *linkStage) applyTarget(
 	for _, targetEntry := range targetEntries {
 		if isAppend {
 			if err := mutator.Append(targetEntry, path, value); err != nil {
-				return fmt.Errorf("failed to append to entry %s: %w", targetEntry.ID, err)
+				return NewAppendToEntryError(targetEntry.ID.String(), err)
 			}
 		} else {
 			if err := mutator.Set(targetEntry, path, value); err != nil {
-				return fmt.Errorf("failed to set value in entry %s: %w", targetEntry.ID, err)
+				return NewSetValueInEntryError(targetEntry.ID.String(), err)
 			}
 		}
 	}

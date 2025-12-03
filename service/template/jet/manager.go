@@ -4,7 +4,6 @@ package jet
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 
 	"github.com/wippyai/runtime/api/event"
@@ -15,22 +14,6 @@ import (
 	entryutil "github.com/wippyai/runtime/internal/entry"
 	"go.uber.org/zap"
 )
-
-// Error represents a template-specific error
-type Error struct {
-	Template string
-	Err      error
-}
-
-// Error returns the error message
-func (e *Error) Error() string {
-	return fmt.Sprintf("template error in %s: %v", e.Template, e.Err)
-}
-
-// Unwrap returns the underlying error
-func (e *Error) Unwrap() error {
-	return e.Err
-}
 
 // Manager handles template lifecycle and provisioning
 type Manager struct {
@@ -75,7 +58,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	case template.KindTemplateSet:
 		return m.handleSetAdd(ctx, entry)
 	default:
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return newUnsupportedKindError(string(entry.Kind))
 	}
 }
 
@@ -87,7 +70,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	case template.KindTemplateSet:
 		return m.handleSetUpdate(ctx, entry)
 	default:
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return newUnsupportedKindError(string(entry.Kind))
 	}
 }
 
@@ -99,7 +82,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	case template.KindTemplateSet:
 		return m.handleSetDelete(ctx, entry)
 	default:
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return newUnsupportedKindError(string(entry.Kind))
 	}
 }
 
@@ -110,7 +93,7 @@ func (m *Manager) handleTemplateAdd(ctx context.Context, entry registry.Entry) e
 
 	cfg, err := entryutil.DecodeEntryConfig[template.Config](ctx, m.dtt, entry)
 	if err != nil {
-		return fmt.Errorf("failed to decode template config: %w", err)
+		return newDecodeConfigError(err)
 	}
 	if entry.Meta != nil {
 		cfg.Meta = entry.Meta
@@ -122,7 +105,7 @@ func (m *Manager) handleTemplateAdd(ctx context.Context, entry registry.Entry) e
 	// Get the template set
 	set, exists := m.sets[cfg.Set]
 	if !exists {
-		return fmt.Errorf("%w: %s", template.ErrSetNotFound, cfg.Set)
+		return newSetNotFoundError(cfg.Set.String())
 	}
 
 	// Determine template name (using meta name or ID name as fallback)
@@ -133,12 +116,12 @@ func (m *Manager) handleTemplateAdd(ctx context.Context, entry registry.Entry) e
 
 	// Check if template already exists in the set
 	if _, err := set.GetTemplateSource(templateName); err == nil {
-		return fmt.Errorf("template %s already exists in set %s", templateName, cfg.Set)
+		return newTemplateExistsError(templateName, cfg.Set.String())
 	}
 
 	// Create and add the template to the set
 	if err := set.AddTemplate(templateName, cfg.Source); err != nil {
-		return fmt.Errorf("failed to create template: %w", err)
+		return newCreateTemplateError(err)
 	}
 
 	// Store template entry
@@ -165,12 +148,12 @@ func (m *Manager) handleTemplateUpdate(ctx context.Context, entry registry.Entry
 	// Check if template exists
 	existingTemplate, exists := m.templates[entry.ID]
 	if !exists {
-		return fmt.Errorf("%w: %s", template.ErrTemplateNotFound, entry.ID)
+		return newTemplateNotFoundError(entry.ID.String())
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[template.Config](ctx, m.dtt, entry)
 	if err != nil {
-		return fmt.Errorf("failed to decode template config: %w", err)
+		return newDecodeConfigError(err)
 	}
 
 	if entry.Meta != nil {
@@ -187,13 +170,13 @@ func (m *Manager) handleTemplateUpdate(ctx context.Context, entry registry.Entry
 		// Get the source set
 		sourceSet, exists := m.sets[existingTemplate.SetID]
 		if !exists {
-			return fmt.Errorf("%w: %s", template.ErrSetNotFound, existingTemplate.SetID)
+			return newSetNotFoundError(existingTemplate.SetID.String())
 		}
 
 		// Get the target set
 		targetSet, exists := m.sets[cfg.Set]
 		if !exists {
-			return fmt.Errorf("%w: %s", template.ErrSetNotFound, cfg.Set)
+			return newSetNotFoundError(cfg.Set.String())
 		}
 
 		// Determine template name for the target set (using meta name or ID name as fallback)
@@ -204,19 +187,19 @@ func (m *Manager) handleTemplateUpdate(ctx context.Context, entry registry.Entry
 
 		// Check if template already exists in the target set
 		if _, err := targetSet.GetTemplateSource(newTemplateName); err == nil {
-			return fmt.Errorf("template %s already exists in target set %s", newTemplateName, cfg.Set)
+			return newTemplateExistsError(newTemplateName, cfg.Set.String())
 		}
 
 		// Remove from source set
 		if err := sourceSet.RemoveTemplate(existingTemplate.Name); err != nil {
 			if !errors.Is(err, template.ErrTemplateNotFound) {
-				return fmt.Errorf("failed to remove template from source set: %w", err)
+				return newRemoveTemplateError(err)
 			}
 		}
 
 		// Add to target set
 		if err := targetSet.AddTemplate(newTemplateName, cfg.Source); err != nil {
-			return fmt.Errorf("failed to add template to target set: %w", err)
+			return newAddTemplateError(err)
 		}
 
 		// Update the template entry
@@ -247,24 +230,24 @@ func (m *Manager) handleTemplateUpdate(ctx context.Context, entry registry.Entry
 
 			// Check if new name already exists
 			if _, err := set.GetTemplateSource(newTemplateName); err == nil {
-				return fmt.Errorf("template name %s already exists in set %s", newTemplateName, cfg.Set)
+				return newTemplateNameExistsError(newTemplateName, cfg.Set.String())
 			}
 
 			// Remove old template
 			if err := set.RemoveTemplate(existingTemplate.Name); err != nil {
 				if !errors.Is(err, template.ErrTemplateNotFound) {
-					return fmt.Errorf("failed to remove old template: %w", err)
+					return newRemoveOldTemplateError(err)
 				}
 			}
 
 			// Add with new name
 			if err := set.AddTemplate(newTemplateName, cfg.Source); err != nil {
-				return fmt.Errorf("failed to add template with new name: %w", err)
+				return newAddTemplateWithNewNameError(err)
 			}
 		} else {
 			// Just update the template source
 			if err := set.UpdateTemplate(existingTemplate.Name, cfg.Source); err != nil {
-				return fmt.Errorf("failed to update template: %w", err)
+				return newUpdateTemplateError(err)
 			}
 		}
 
@@ -293,7 +276,7 @@ func (m *Manager) handleTemplateDelete(_ context.Context, entry registry.Entry) 
 	// Find template entry
 	tplEntry, exists := m.templates[entry.ID]
 	if !exists {
-		return fmt.Errorf("%w: %s", template.ErrTemplateNotFound, entry.ID)
+		return newTemplateNotFoundError(entry.ID.String())
 	}
 
 	// Get the set
@@ -307,7 +290,7 @@ func (m *Manager) handleTemplateDelete(_ context.Context, entry registry.Entry) 
 	// Remove the template from the set
 	if err := set.RemoveTemplate(tplEntry.Name); err != nil {
 		if !errors.Is(err, template.ErrTemplateNotFound) {
-			return fmt.Errorf("failed to remove template: %w", err)
+			return newDeleteTemplateError(err)
 		}
 	}
 
@@ -329,18 +312,18 @@ func (m *Manager) handleSetAdd(ctx context.Context, entry registry.Entry) error 
 
 	// Check if set already exists
 	if _, exists := m.sets[entry.ID]; exists {
-		return fmt.Errorf("template set %s already exists", entry.ID)
+		return newSetAlreadyExistsError(entry.ID.String())
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[template.SetConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return fmt.Errorf("failed to decode set config: %w", err)
+		return newSetConfigDecodeError(err)
 	}
 
 	// Create the template set
 	set, err := NewSet(entry.ID, cfg, m.dtt)
 	if err != nil {
-		return fmt.Errorf("failed to create template set: %w", err)
+		return newCreateSetError(err)
 	}
 
 	// Store the set and its configuration
@@ -373,26 +356,26 @@ func (m *Manager) handleSetUpdate(ctx context.Context, entry registry.Entry) err
 	// Check if set exists
 	existingSet, exists := m.sets[entry.ID]
 	if !exists {
-		return fmt.Errorf("%w: %s", template.ErrSetNotFound, entry.ID)
+		return newSetNotFoundError(entry.ID.String())
 	}
 
 	// Decode configuration
 	cfg, err := entryutil.DecodeEntryConfig[template.SetConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return fmt.Errorf("failed to decode set config: %w", err)
+		return newSetConfigDecodeError(err)
 	}
 
 	// Create a new template set with updated configuration
 	set, err := NewSet(entry.ID, cfg, m.dtt)
 	if err != nil {
-		return fmt.Errorf("failed to update template set: %w", err)
+		return newUpdateSetError(err)
 	}
 
 	// Migrate all templates from the existing set to the new one
 	templates := existingSet.GetAllTemplates()
 	for name, source := range templates {
 		if err := set.AddTemplate(name, source); err != nil {
-			return fmt.Errorf("failed to migrate template %s: %w", name, err)
+			return newMigrateTemplateError(name, err)
 		}
 	}
 
@@ -426,14 +409,13 @@ func (m *Manager) handleSetDelete(ctx context.Context, entry registry.Entry) err
 	// Check if set exists
 	set, exists := m.sets[entry.ID]
 	if !exists {
-		return fmt.Errorf("%w: %s", template.ErrSetNotFound, entry.ID)
+		return newSetNotFoundError(entry.ID.String())
 	}
 
 	// Check if the set has any templates
 	templates := set.GetAllTemplates()
 	if len(templates) > 0 {
-		return fmt.Errorf("%w: set %s contains %d templates",
-			template.ErrSetNotEmpty, entry.ID, len(templates))
+		return newSetNotEmptyError(entry.ID.String(), len(templates))
 	}
 
 	// Unregister resource provider
@@ -461,7 +443,7 @@ func (m *Manager) GetTemplateSet(id registry.ID) (*Set, error) {
 
 	set, exists := m.sets[id]
 	if !exists {
-		return nil, fmt.Errorf("%w: %s", template.ErrSetNotFound, id)
+		return nil, newSetNotFoundError(id.String())
 	}
 
 	return set, nil
@@ -485,13 +467,13 @@ func (m *Manager) Acquire(
 	entry, exists := m.templates[id]
 	if !exists {
 		m.mu.RUnlock()
-		return nil, fmt.Errorf("%w: %s", template.ErrTemplateNotFound, id)
+		return nil, newTemplateNotFoundError(id.String())
 	}
 
 	set, exists = m.sets[entry.SetID]
 	if !exists {
 		m.mu.RUnlock()
-		return nil, fmt.Errorf("%w: %s", template.ErrSetNotFound, entry.SetID)
+		return nil, newSetNotFoundError(entry.SetID.String())
 	}
 	m.mu.RUnlock()
 

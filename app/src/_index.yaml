@@ -32,9 +32,17 @@ entries:
 
   # app:terminal - terminal host for CLI apps
   - name: terminal
-    kind: terminal.host2
+    kind: terminal.host
     meta:
       comment: Terminal host for CLI processes
     hide_logs: true
     lifecycle:
       auto_start: true
+
+  # app:wasm.files - filesystem for WASM components
+  - name: wasm.files
+    kind: fs.directory
+    meta:
+      comment: WASM components directory
+    directory: src/wasm
+    mode: "0444"

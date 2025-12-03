@@ -91,7 +91,7 @@ func (s *Service) Start(ctx context.Context) error {
 	if s.config.SecretFile != "" || s.config.SecretString != "" {
 		secretKey, err := s.loadSecretKey()
 		if err != nil {
-			return fmt.Errorf("failed to load cluster secret key: %w", err)
+			return NewLoadSecretKeyError(err)
 		}
 		mlConfig.SecretKey = secretKey
 		s.logger.Info("encryption enabled", zap.Int("key_size", len(secretKey)))
@@ -102,7 +102,7 @@ func (s *Service) Start(ctx context.Context) error {
 	// Create memberlist
 	ml, err := memberlist.Create(mlConfig)
 	if err != nil {
-		return fmt.Errorf("failed to create memberlist: %w", err)
+		return NewCreateMemberlistError(err)
 	}
 	s.memberlist = ml
 
@@ -116,7 +116,7 @@ func (s *Service) Start(ctx context.Context) error {
 			s.logger.Error("failed to join cluster",
 				zap.Error(err),
 				zap.Strings("join_addresses", s.config.JoinAddrs))
-			return fmt.Errorf("failed to join cluster: %w", err)
+			return NewJoinClusterError(err)
 		}
 
 		s.logger.Info("successfully joined cluster",
@@ -198,14 +198,14 @@ func (s *Service) loadSecretKey() ([]byte, error) {
 	case s.config.SecretFile != "":
 		data, err := os.ReadFile(s.config.SecretFile)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read secret file: %w", err)
+			return nil, NewReadSecretFileError(err)
 		}
 		keyStr = strings.TrimSpace(string(data))
 	case s.config.SecretString != "":
 		// Use string directly
 		keyStr = s.config.SecretString
 	default:
-		return nil, fmt.Errorf("no secret key provided")
+		return nil, ErrNoSecretKeyProvided
 	}
 
 	// Decode base64 key

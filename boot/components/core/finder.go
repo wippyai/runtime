@@ -15,7 +15,7 @@ func Finder() boot.Component {
 		Name:      FinderName,
 		DependsOn: []boot.ComponentName{RegistryName},
 		Load: func(ctx context.Context) (context.Context, error) {
-			logger := logapi.GetLogger(ctx)
+			logger := logapi.GetLogger(ctx).Named("finder")
 			if logger == nil {
 				return ctx, ErrLoggerNotAvailable
 			}
@@ -48,7 +48,7 @@ func Finder() boot.Component {
 					zap.Int("regex_cache_size", regexCacheSize))
 			}
 
-			f := finder.NewFinder(reg, logger.Named("finder"), opts...)
+			f := finder.NewFinder(reg, logger, opts...)
 
 			return regapi.WithFinder(ctx, f), nil
 		},

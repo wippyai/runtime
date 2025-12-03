@@ -33,12 +33,12 @@ func (m *mockRegistry) Current() (registry.Version, error) {
 	if m.currentFunc != nil {
 		return m.currentFunc()
 	}
-	return nil, nil
+	return nil, nil //nolint:nilnil // mock stub
 }
 
 func (m *mockRegistry) History() registry.History { return nil }
 func (m *mockRegistry) Apply(_ context.Context, _ registry.ChangeSet) (registry.Version, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil // mock stub
 }
 func (m *mockRegistry) ApplyVersion(_ context.Context, _ registry.Version) error { return nil }
 
@@ -46,17 +46,17 @@ func (m *mockRegistry) ApplyVersion(_ context.Context, _ registry.Version) error
 func TestFinder_RootFieldMatching(t *testing.T) {
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "app", Name: "service-api"},
+			ID:   registry.NewID("app", "service-api"),
 			Kind: "service",
 			Meta: registry.Metadata{"meta.enabled": true},
 		},
 		{
-			ID:   registry.ID{NS: "app", Name: "service-queue"},
+			ID:   registry.NewID("app", "service-queue"),
 			Kind: "service",
 			Meta: registry.Metadata{"meta.enabled": true},
 		},
 		{
-			ID:   registry.ID{NS: "storage", Name: "database-users"},
+			ID:   registry.NewID("storage", "database-users"),
 			Kind: "database",
 			Meta: registry.Metadata{"meta.enabled": true},
 		},
@@ -119,7 +119,7 @@ func TestFinder_RootFieldMatching(t *testing.T) {
 func TestFinder_MetadataEquality(t *testing.T) {
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{Name: "entry-1"},
+			ID:   registry.NewID("", "entry-1"),
 			Kind: "test",
 			Meta: registry.Metadata{
 				"enabled": true,
@@ -128,7 +128,7 @@ func TestFinder_MetadataEquality(t *testing.T) {
 			},
 		},
 		{
-			ID:   registry.ID{Name: "entry-2"},
+			ID:   registry.NewID("", "entry-2"),
 			Kind: "test",
 			Meta: registry.Metadata{
 				"enabled": false,
@@ -137,7 +137,7 @@ func TestFinder_MetadataEquality(t *testing.T) {
 			},
 		},
 		{
-			ID:   registry.ID{Name: "entry-3"},
+			ID:   registry.NewID("", "entry-3"),
 			Kind: "test",
 			Meta: registry.Metadata{
 				"enabled": true,
@@ -199,21 +199,21 @@ func TestFinder_MetadataEquality(t *testing.T) {
 func TestFinder_ArrayMatching(t *testing.T) {
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{Name: "service-api"},
+			ID:   registry.NewID("", "service-api"),
 			Kind: "service",
 			Meta: registry.Metadata{
 				"tags": []string{"api", "rest", "users"},
 			},
 		},
 		{
-			ID:   registry.ID{Name: "service-queue"},
+			ID:   registry.NewID("", "service-queue"),
 			Kind: "service",
 			Meta: registry.Metadata{
 				"tags": []string{"queue", "background", "jobs"},
 			},
 		},
 		{
-			ID:   registry.ID{Name: "service-mixed"},
+			ID:   registry.NewID("", "service-mixed"),
 			Kind: "service",
 			Meta: registry.Metadata{
 				"tags": []string{"api", "queue"},
@@ -265,7 +265,7 @@ func TestFinder_ArrayMatching(t *testing.T) {
 func TestFinder_RegexMatching(t *testing.T) {
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{Name: "service-1"},
+			ID:   registry.NewID("", "service-1"),
 			Kind: "service",
 			Meta: registry.Metadata{
 				"description": "RESTful API service for user management",
@@ -273,7 +273,7 @@ func TestFinder_RegexMatching(t *testing.T) {
 			},
 		},
 		{
-			ID:   registry.ID{Name: "service-2"},
+			ID:   registry.NewID("", "service-2"),
 			Kind: "service",
 			Meta: registry.Metadata{
 				"description": "Background job processing queue",
@@ -281,7 +281,7 @@ func TestFinder_RegexMatching(t *testing.T) {
 			},
 		},
 		{
-			ID:   registry.ID{Name: "database-1"},
+			ID:   registry.NewID("", "database-1"),
 			Kind: "database",
 			Meta: registry.Metadata{
 				"description": "User database with profiles",
@@ -342,7 +342,7 @@ func TestFinder_RegexMatching(t *testing.T) {
 func TestFinder_ContainsMatching(t *testing.T) {
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{Name: "entry-1"},
+			ID:   registry.NewID("", "entry-1"),
 			Kind: "test",
 			Meta: registry.Metadata{
 				"description": "This is an API service",
@@ -350,7 +350,7 @@ func TestFinder_ContainsMatching(t *testing.T) {
 			},
 		},
 		{
-			ID:   registry.ID{Name: "entry-2"},
+			ID:   registry.NewID("", "entry-2"),
 			Kind: "test",
 			Meta: registry.Metadata{
 				"description": "Frontend application",
@@ -403,7 +403,7 @@ func TestFinder_ContainsMatching(t *testing.T) {
 func TestFinder_PrefixSuffixMatching(t *testing.T) {
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{Name: "entry-1"},
+			ID:   registry.NewID("", "entry-1"),
 			Kind: "test",
 			Meta: registry.Metadata{
 				"version":  "v1.2.3",
@@ -411,7 +411,7 @@ func TestFinder_PrefixSuffixMatching(t *testing.T) {
 			},
 		},
 		{
-			ID:   registry.ID{Name: "entry-2"},
+			ID:   registry.NewID("", "entry-2"),
 			Kind: "test",
 			Meta: registry.Metadata{
 				"version":  "v2.0.1",
@@ -419,7 +419,7 @@ func TestFinder_PrefixSuffixMatching(t *testing.T) {
 			},
 		},
 		{
-			ID:   registry.ID{Name: "entry-3"},
+			ID:   registry.NewID("", "entry-3"),
 			Kind: "test",
 			Meta: registry.Metadata{
 				"version":  "1.0.0",
@@ -474,8 +474,8 @@ func TestFinder_PrefixSuffixMatching(t *testing.T) {
 // TestFinder_EmptyAndEdgeCases tests empty criteria and edge cases
 func TestFinder_EmptyAndEdgeCases(t *testing.T) {
 	entries := []registry.Entry{
-		{ID: registry.ID{Name: "entry-1"}, Kind: "test"},
-		{ID: registry.ID{Name: "entry-2"}, Kind: "test"},
+		{ID: registry.NewID("", "entry-1"), Kind: "test"},
+		{ID: registry.NewID("", "entry-2"), Kind: "test"},
 	}
 
 	mockReg := &mockRegistry{entries: entries}
@@ -515,7 +515,7 @@ func TestFinder_VersionAwareCaching(t *testing.T) {
 	vm := &versionedMock{
 		mockRegistry: &mockRegistry{
 			entries: []registry.Entry{
-				{ID: registry.ID{Name: "entry-1"}, Kind: "test", Meta: registry.Metadata{"enabled": true}},
+				{ID: registry.NewID("", "entry-1"), Kind: "test", Meta: registry.Metadata{"enabled": true}},
 			},
 		},
 		version: 1,
@@ -542,8 +542,8 @@ func TestFinder_VersionAwareCaching(t *testing.T) {
 
 	// Update entries
 	vm.entries = []registry.Entry{
-		{ID: registry.ID{Name: "entry-1"}, Kind: "test", Meta: registry.Metadata{"enabled": true}},
-		{ID: registry.ID{Name: "entry-2"}, Kind: "test", Meta: registry.Metadata{"enabled": true}},
+		{ID: registry.NewID("", "entry-1"), Kind: "test", Meta: registry.Metadata{"enabled": true}},
+		{ID: registry.NewID("", "entry-2"), Kind: "test", Meta: registry.Metadata{"enabled": true}},
 	}
 
 	// Same query after version change - should get new results
@@ -562,7 +562,7 @@ func TestFinder_RegexCachePersistence(t *testing.T) {
 	vm := &versionedMock{
 		mockRegistry: &mockRegistry{
 			entries: []registry.Entry{
-				{ID: registry.ID{Name: "entry-1"}, Kind: "test", Meta: registry.Metadata{"desc": "test"}},
+				{ID: registry.NewID("", "entry-1"), Kind: "test", Meta: registry.Metadata{"desc": "test"}},
 			},
 		},
 		version: 1,
@@ -607,9 +607,9 @@ func (m *mockVersion) String() string                 { return "" }
 // TestFinder_CacheEviction tests that LRU cache properly evicts old entries
 func TestFinder_CacheEviction(t *testing.T) {
 	entries := []registry.Entry{
-		{ID: registry.ID{Name: "entry-1"}, Kind: "test", Meta: registry.Metadata{"value": 1}},
-		{ID: registry.ID{Name: "entry-2"}, Kind: "test", Meta: registry.Metadata{"value": 2}},
-		{ID: registry.ID{Name: "entry-3"}, Kind: "test", Meta: registry.Metadata{"value": 3}},
+		{ID: registry.NewID("", "entry-1"), Kind: "test", Meta: registry.Metadata{"value": 1}},
+		{ID: registry.NewID("", "entry-2"), Kind: "test", Meta: registry.Metadata{"value": 2}},
+		{ID: registry.NewID("", "entry-3"), Kind: "test", Meta: registry.Metadata{"value": 3}},
 	}
 
 	mockReg := &mockRegistry{entries: entries}
@@ -639,7 +639,7 @@ func TestFinder_CacheEviction(t *testing.T) {
 // TestFinder_RegexCacheEviction tests regex cache LRU eviction
 func TestFinder_RegexCacheEviction(t *testing.T) {
 	entries := []registry.Entry{
-		{ID: registry.ID{Name: "entry-1"}, Kind: "test", Meta: registry.Metadata{"desc": "pattern1"}},
+		{ID: registry.NewID("", "entry-1"), Kind: "test", Meta: registry.Metadata{"desc": "pattern1"}},
 	}
 
 	mockReg := &mockRegistry{entries: entries}
@@ -666,8 +666,8 @@ func TestFinder_RegexCacheEviction(t *testing.T) {
 // TestFinder_UnprefixedFieldsAreSkipped tests v2 behavior: fields without meta. prefix are skipped
 func TestFinder_UnprefixedFieldsAreSkipped(t *testing.T) {
 	entries := []registry.Entry{
-		{ID: registry.ID{Name: "entry-1"}, Kind: "test", Meta: registry.Metadata{"enabled": true}},
-		{ID: registry.ID{Name: "entry-2"}, Kind: "test", Meta: registry.Metadata{"enabled": false}},
+		{ID: registry.NewID("", "entry-1"), Kind: "test", Meta: registry.Metadata{"enabled": true}},
+		{ID: registry.NewID("", "entry-2"), Kind: "test", Meta: registry.Metadata{"enabled": false}},
 	}
 
 	mockReg := &mockRegistry{entries: entries}

@@ -2,7 +2,6 @@ package temporal
 
 import (
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/wippyai/runtime/api/registry"
@@ -107,28 +106,28 @@ func (c *ClientConfig) UnmarshalJSON(data []byte) error {
 	if aux.ConnectionTimeout != "" {
 		c.ConnectionTimeout, err = time.ParseDuration(aux.ConnectionTimeout)
 		if err != nil {
-			return fmt.Errorf("invalid connection_timeout duration format: %w", err)
+			return NewInvalidConnectionTimeoutError(err)
 		}
 	}
 
 	if aux.KeepAliveTime != "" {
 		c.KeepAliveTime, err = time.ParseDuration(aux.KeepAliveTime)
 		if err != nil {
-			return fmt.Errorf("invalid keep_alive_time duration format: %w", err)
+			return NewInvalidKeepAliveTimeError(err)
 		}
 	}
 
 	if aux.KeepAliveTimeout != "" {
 		c.KeepAliveTimeout, err = time.ParseDuration(aux.KeepAliveTimeout)
 		if err != nil {
-			return fmt.Errorf("invalid keep_alive_timeout duration format: %w", err)
+			return NewInvalidKeepAliveTimeoutError(err)
 		}
 	}
 
 	if aux.HealthCheck != nil && aux.HealthCheck.Interval != "" {
 		c.HealthCheck.Interval, err = time.ParseDuration(aux.HealthCheck.Interval)
 		if err != nil {
-			return fmt.Errorf("invalid health_check.interval duration format: %w", err)
+			return NewInvalidHealthCheckIntervalError(err)
 		}
 	}
 
@@ -165,7 +164,7 @@ func (c *ClientConfig) InitDefaults() {
 // Validate checks if the configuration is valid
 func (c *ClientConfig) Validate() error {
 	if c.Address == "" {
-		return fmt.Errorf("address is required")
+		return ErrAddressRequired
 	}
 
 	// Validate auth configuration
@@ -186,10 +185,10 @@ func (c *ClientConfig) Validate() error {
 			sources++
 		}
 		if sources == 0 {
-			return fmt.Errorf("api_key auth requires one of: api_key, api_key_env, or api_key_file")
+			return ErrAPIKeySourceRequired
 		}
 		if sources > 1 {
-			return fmt.Errorf("api_key auth: only one of api_key, api_key_env, or api_key_file should be specified")
+			return ErrAPIKeySourceConflict
 		}
 
 	case AuthTypeMTLS:
@@ -198,15 +197,15 @@ func (c *ClientConfig) Validate() error {
 		hasKey := c.Auth.KeyFile != "" || c.Auth.KeyPEM != "" || c.Auth.KeyPEMEnv != ""
 
 		if !hasCert {
-			return fmt.Errorf("mtls auth requires certificate (cert_file or cert_pem)")
+			return ErrMTLSCertRequired
 		}
 		if !hasKey {
-			return fmt.Errorf("mtls auth requires private key (key_file, key_pem, or key_pem_env)")
+			return ErrMTLSKeyRequired
 		}
 
 		// Check for conflicting sources
 		if c.Auth.CertFile != "" && c.Auth.CertPEM != "" {
-			return fmt.Errorf("mtls auth: specify either cert_file or cert_pem, not both")
+			return ErrMTLSCertConflict
 		}
 
 		keySources := 0
@@ -220,33 +219,33 @@ func (c *ClientConfig) Validate() error {
 			keySources++
 		}
 		if keySources > 1 {
-			return fmt.Errorf("mtls auth: specify only one of key_file, key_pem, or key_pem_env")
+			return ErrMTLSKeyConflict
 		}
 
 	default:
-		return fmt.Errorf("invalid auth type: %s (must be none, api_key, or mtls)", c.Auth.Type)
+		return NewInvalidAuthTypeError(c.Auth.Type)
 	}
 
 	// Validate TLS config
 	if c.TLS != nil && c.TLS.Enabled {
 		if c.TLS.InsecureSkipVerify && c.TLS.ServerName != "" {
-			return fmt.Errorf("tls: insecure_skip_verify and server_name are mutually exclusive")
+			return ErrTLSConfigConflict
 		}
 	}
 
 	// Validate timeouts
 	if c.ConnectionTimeout < 0 {
-		return fmt.Errorf("connection_timeout must be positive")
+		return ErrConnectionTimeoutInvalid
 	}
 	if c.KeepAliveTime < 0 {
-		return fmt.Errorf("keep_alive_time must be positive")
+		return ErrKeepAliveTimeInvalid
 	}
 	if c.KeepAliveTimeout < 0 {
-		return fmt.Errorf("keep_alive_timeout must be positive")
+		return ErrKeepAliveTimeoutInvalid
 	}
 
 	if c.HealthCheck.Enabled && c.HealthCheck.Interval <= 0 {
-		return fmt.Errorf("health_check interval must be positive when enabled")
+		return ErrHealthCheckIntervalInvalid
 	}
 
 	return nil

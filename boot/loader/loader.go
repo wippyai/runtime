@@ -2,7 +2,6 @@ package loader
 
 import (
 	"context"
-	"fmt"
 	iofs "io/fs"
 
 	"github.com/wippyai/runtime/api/payload"
@@ -39,7 +38,7 @@ func NewLoader(dtt payload.Transcoder, log *zap.Logger, interpolator *interpolat
 func (l *Loader) LoadFS(ctx context.Context, fs iofs.FS) ([]registry.Entry, error) {
 	payloads, err := l.fileLoader.LoadFS(fs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load files: %w", err)
+		return nil, NewLoadFilesError(err)
 	}
 
 	var entries []registry.Entry
@@ -60,7 +59,7 @@ func (l *Loader) LoadFS(ctx context.Context, fs iofs.FS) ([]registry.Entry, erro
 func (l *Loader) LoadDir(ctx context.Context, fs iofs.FS, dirPath string) ([]registry.Entry, error) {
 	payloads, err := l.fileLoader.LoadDir(fs, dirPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load files from directory %s: %w", dirPath, err)
+		return nil, NewLoadDirectoryFilesError(dirPath, err)
 	}
 
 	var entries []registry.Entry
@@ -81,12 +80,12 @@ func (l *Loader) LoadDir(ctx context.Context, fs iofs.FS, dirPath string) ([]reg
 func (l *Loader) LoadFile(ctx context.Context, fs iofs.FS, filePath string) ([]registry.Entry, error) {
 	filePayload, err := l.fileLoader.LoadFile(fs, filePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load file %s: %w", filePath, err)
+		return nil, NewLoadFileError(filePath, err)
 	}
 
 	entries, err := l.processFile(ctx, fs, filePayload)
 	if err != nil {
-		return nil, fmt.Errorf("failed to process file %s: %w", filePath, err)
+		return nil, NewProcessFileError(filePath, err)
 	}
 
 	return entries, nil
@@ -101,19 +100,19 @@ func (l *Loader) processFile(ctx context.Context, fSys iofs.FS, p *FilePayload) 
 		Context:  ctx,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("interpolation failed: %w", err)
+		return nil, NewInterpolationError(err)
 	}
 
 	// Extract entries
 	newEntries, err := ExtractDependenciesToEntries(interpolated, l.dtt)
 	if err != nil {
-		return nil, fmt.Errorf("extract entries: %w", err)
+		return nil, NewExtractEntriesError(err)
 	}
 
 	// Validate entries
 	for _, entry := range newEntries {
 		if err := validateEntry(entry); err != nil {
-			return nil, fmt.Errorf("invalid entry in %s: %w", p.Source(), err)
+			return nil, NewInvalidEntryError(p.Source(), err)
 		}
 	}
 
@@ -122,13 +121,13 @@ func (l *Loader) processFile(ctx context.Context, fSys iofs.FS, p *FilePayload) 
 
 func validateEntry(entry registry.Entry) error {
 	if entry.ID.NS == "" {
-		return fmt.Errorf("missing namespace")
+		return ErrMissingNamespace
 	}
 	if entry.ID.Name == "" {
-		return fmt.Errorf("missing name")
+		return ErrMissingName
 	}
 	if entry.Kind == "" {
-		return fmt.Errorf("missing kind")
+		return ErrMissingKind
 	}
 	return nil
 }

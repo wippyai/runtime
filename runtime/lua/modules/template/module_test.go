@@ -10,7 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	templatecfg "github.com/wippyai/runtime/api/service/template"
 	lua2payload "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/service/template/jet"
@@ -82,7 +82,7 @@ func createTestTemplateSet(t *testing.T) *jet.Set {
 	transcoder := payloadSystem.GlobalTranscoder()
 	json.Register(transcoder)
 
-	id := registry.ID{Name: "test-templates"}
+	id := registry.NewID("", "test-templates")
 	set, err := jet.NewSet(id, cfg, transcoder)
 	require.NoError(t, err)
 
@@ -118,7 +118,7 @@ func setupTestState(t *testing.T, mockRes *mockResource) *lua.LState {
 
 	l := lua.NewState()
 	l.SetContext(ctx)
-	lua2api.LoadModule(l, Module)
+	luaapi.LoadModule(l, Module)
 
 	return l
 }

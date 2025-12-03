@@ -3,14 +3,13 @@ package json
 import (
 	"sync"
 
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
 var (
 	moduleTable  *lua.LTable
-	registration *lua2api.Registration
+	registration *luaapi.Registration
 	initOnce     sync.Once
 )
 
@@ -27,7 +26,7 @@ func (m *jsonModule) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *jsonModule) Register(l *lua.LState) *lua2api.Registration {
+func (m *jsonModule) Register(l *lua.LState) *luaapi.Registration {
 	initOnce.Do(func() {
 		mod := &lua.LTable{}
 		mod.RawSetString("encode", lua.LGoFunc(encodeFunc))
@@ -35,7 +34,7 @@ func (m *jsonModule) Register(l *lua.LState) *lua2api.Registration {
 		mod.Immutable = true
 		moduleTable = mod
 
-		registration = &lua2api.Registration{
+		registration = &luaapi.Registration{
 			Table:      moduleTable,
 			YieldTypes: nil,
 		}
@@ -49,9 +48,9 @@ func (m *jsonModule) Loader(l *lua.LState) int {
 	return 1
 }
 
-// Bind is deprecated. Use lua2api.LoadModule(l, Module) instead.
+// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
 func Bind(l *lua.LState) {
-	lua2api.LoadModule(l, Module)
+	luaapi.LoadModule(l, Module)
 }
 
 func encodeFunc(l *lua.LState) int {

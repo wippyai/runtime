@@ -12,7 +12,8 @@ import (
 	logapi "github.com/wippyai/runtime/api/logs"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/system/registry"
-	"github.com/wippyai/runtime/system/registry/history"
+	historymem "github.com/wippyai/runtime/system/registry/history/memory"
+	historynil "github.com/wippyai/runtime/system/registry/history/nil"
 	"github.com/wippyai/runtime/system/registry/history/sqlite"
 	"github.com/wippyai/runtime/system/registry/runner"
 	regtop "github.com/wippyai/runtime/system/registry/topology"
@@ -49,7 +50,7 @@ func Registry() boot.Component {
 				enableHistory := registryCfg.GetBool(string(RegistryEnableHistory), true)
 
 				if !enableHistory {
-					hist = history.NewNil()
+					hist = historynil.New()
 				} else {
 					historyType := registryCfg.GetString(string(RegistryHistoryType), "memory")
 
@@ -69,18 +70,18 @@ func Registry() boot.Component {
 						histCloser = sqliteHist
 
 					case "nil":
-						hist = history.NewNil()
+						hist = historynil.New()
 
 					case "memory":
-						hist = history.NewMemory()
+						hist = historymem.New()
 
 					default:
 						logger.Warn("unknown history type, defaulting to memory", zap.String("type", historyType))
-						hist = history.NewMemory()
+						hist = historymem.New()
 					}
 				}
 			} else {
-				hist = history.NewMemory()
+				hist = historymem.New()
 			}
 
 			// Create registry with resolver

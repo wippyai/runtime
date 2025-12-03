@@ -3,7 +3,6 @@ package template
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/wippyai/runtime/api/registry"
 )
@@ -107,12 +106,11 @@ func (e *EngineConfig) initDefaults() {
 // Validate checks if the Config is valid
 func (c *Config) Validate() error {
 	if c.Source == "" {
-		return fmt.Errorf("template source cannot be empty")
+		return ErrEmptySource
 	}
 
-	// Validate template set
 	if c.Set.Name == "" {
-		return fmt.Errorf("template set name cannot be empty")
+		return ErrEmptySetName
 	}
 
 	return nil
@@ -122,24 +120,21 @@ func (c *Config) Validate() error {
 func (e *EngineConfig) Validate() error {
 	e.initDefaults()
 
-	// Validate delimiters
 	if e.Delimiters.Left == "" || e.Delimiters.Right == "" {
-		return fmt.Errorf("template delimiters cannot be empty")
+		return ErrEmptyDelimiters
 	}
 
 	if e.Delimiters.CommentLeft == "" || e.Delimiters.CommentRight == "" {
-		return fmt.Errorf("comment delimiters cannot be empty")
+		return ErrEmptyCommentDelimiters
 	}
 
-	// Ensure delimiters don't conflict
 	if e.Delimiters.Left == e.Delimiters.CommentLeft ||
 		e.Delimiters.Right == e.Delimiters.CommentRight {
-		return fmt.Errorf("template and comment delimiters must be different")
+		return ErrConflictingDelimiters
 	}
 
-	// Validate extensions
 	if len(e.Extensions) == 0 {
-		return fmt.Errorf("template extensions cannot be empty")
+		return ErrEmptyExtensions
 	}
 
 	return nil

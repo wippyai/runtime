@@ -2,6 +2,7 @@ package actor
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -207,11 +208,11 @@ func TestMassiveParallelSubmission(t *testing.T) {
 
 // Edge case: Execute blocking with various worker counts
 func TestExecuteWithSingleWorker(t *testing.T) {
-	sched := newTestScheduler(1)
-	sched.Start()
-	defer sched.Stop()
+	te := newTestExecutor(1)
+	te.Start()
+	defer te.Stop()
 
-	result, err := sched.Execute(context.Background(), testPID(), &CounterProcess{}, "", testInput(5))
+	result, err := te.Execute(context.Background(), testPID(), &CounterProcess{}, "", testInput(5))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,9 +223,9 @@ func TestExecuteWithSingleWorker(t *testing.T) {
 
 // Edge case: Concurrent Execute calls
 func TestConcurrentExecute(t *testing.T) {
-	sched := newTestScheduler(runtime.GOMAXPROCS(0))
-	sched.Start()
-	defer sched.Stop()
+	te := newTestExecutor(runtime.GOMAXPROCS(0))
+	te.Start()
+	defer te.Stop()
 
 	const n = 100
 	var wg sync.WaitGroup
@@ -232,13 +233,14 @@ func TestConcurrentExecute(t *testing.T) {
 
 	wg.Add(n)
 	for i := 0; i < n; i++ {
-		go func() {
+		go func(id int) {
 			defer wg.Done()
-			result, err := sched.Execute(context.Background(), testPID(), &CounterProcess{}, "", testInput(3))
+			pid := relay.PID{UniqID: fmt.Sprintf("test-%d", id)}
+			result, err := te.Execute(context.Background(), pid, &CounterProcess{}, "", testInput(3))
 			if err != nil || result == nil {
 				errors.Add(1)
 			}
-		}()
+		}(i)
 	}
 
 	wg.Wait()
@@ -294,34 +296,36 @@ func TestWorkDistributionImbalanced(t *testing.T) {
 
 // Benchmark: Execute throughput (blocking call)
 func BenchmarkExecuteThroughput(b *testing.B) {
-	sched := newTestScheduler(runtime.GOMAXPROCS(0))
-	sched.Start()
-	defer sched.Stop()
+	te := newTestExecutor(runtime.GOMAXPROCS(0))
+	te.Start()
+	defer te.Stop()
 
 	ctx := context.Background()
-	pid := testPID()
 	input := testInput(10)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sched.Execute(ctx, pid, &CounterProcess{}, "", input)
+		pid := relay.PID{UniqID: fmt.Sprintf("bench-%d", i)}
+		te.Execute(ctx, pid, &CounterProcess{}, "", input)
 	}
 }
 
 // Benchmark: Execute parallel throughput
 func BenchmarkExecuteParallelThroughput(b *testing.B) {
-	sched := newTestScheduler(runtime.GOMAXPROCS(0))
-	sched.Start()
-	defer sched.Stop()
+	te := newTestExecutor(runtime.GOMAXPROCS(0))
+	te.Start()
+	defer te.Stop()
 
 	input := testInput(10)
+	var counter atomic.Int64
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		ctx := context.Background()
-		pid := testPID()
 		for pb.Next() {
-			sched.Execute(ctx, pid, &CounterProcess{}, "", input)
+			i := counter.Add(1)
+			pid := relay.PID{UniqID: fmt.Sprintf("bench-%d", i)}
+			te.Execute(ctx, pid, &CounterProcess{}, "", input)
 		}
 	})
 }
@@ -352,17 +356,17 @@ func BenchmarkWorkerScaling32(b *testing.B) {
 }
 
 func benchmarkWithWorkers(b *testing.B, workers int) {
-	sched := newTestScheduler(workers)
-	sched.Start()
-	defer sched.Stop()
+	te := newTestExecutor(workers)
+	te.Start()
+	defer te.Stop()
 
 	ctx := context.Background()
-	pid := testPID()
 	input := testInput(10)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sched.Execute(ctx, pid, &CounterProcess{}, "", input)
+		pid := relay.PID{UniqID: fmt.Sprintf("bench-%d", i)}
+		te.Execute(ctx, pid, &CounterProcess{}, "", input)
 	}
 }
 
@@ -384,17 +388,17 @@ func BenchmarkQueueSize1024(b *testing.B) {
 }
 
 func benchmarkWithQueueSize(b *testing.B, queueSize int) {
-	sched := NewScheduler(NewRegistry(), WithWorkers(4), WithQueueSize(queueSize))
-	sched.Start()
-	defer sched.Stop()
+	te := newTestExecutorWithOptions(4, WithQueueSize(queueSize))
+	te.Start()
+	defer te.Stop()
 
 	ctx := context.Background()
-	pid := testPID()
 	input := testInput(10)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sched.Execute(ctx, pid, &CounterProcess{}, "", input)
+		pid := relay.PID{UniqID: fmt.Sprintf("bench-%d", i)}
+		te.Execute(ctx, pid, &CounterProcess{}, "", input)
 	}
 }
 
@@ -492,57 +496,45 @@ func TestSingleWorkerSustained(t *testing.T) {
 	}
 }
 
-// Stress test: Concurrent Execute and Submit
-func TestMixedExecuteSubmit(t *testing.T) {
-	var submits atomic.Int64
+// Stress test: All processes complete
+func TestAllProcessesComplete(t *testing.T) {
+	var completed atomic.Int64
 
 	lc := &edgeTestLifecycle{
 		onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
-			submits.Add(1)
+			completed.Add(1)
 		},
 	}
 	sched := newEdgeTestScheduler(4, lc)
 	sched.Start()
 	defer sched.Stop()
 
-	var wg sync.WaitGroup
 	const n = 100
 
-	// Half do Execute (blocking)
-	for i := 0; i < n/2; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			sched.Execute(context.Background(), testPID(), &CounterProcess{}, "", testInput(2))
-		}()
-	}
-
-	// Half do Submit (fire-and-forget)
-	for i := 0; i < n/2; i++ {
+	for i := 0; i < n; i++ {
 		sched.Submit(context.Background(), testPID(), &CounterProcess{}, "", testInput(2))
 	}
 
-	wg.Wait()
-
-	// Wait for submits to complete
+	// Wait for all to complete
 	deadline := time.Now().Add(10 * time.Second)
-	for submits.Load() < n/2 && time.Now().Before(deadline) {
+	for completed.Load() < n && time.Now().Before(deadline) {
 		runtime.Gosched()
 	}
 
-	if submits.Load() < n/2 {
-		t.Fatalf("expected at least %d submits completed, got %d", n/2, submits.Load())
+	if completed.Load() != n {
+		t.Fatalf("expected %d completed, got %d", n, completed.Load())
 	}
 }
 
 // Stress test: Rapid sequential Execute calls with single worker
 func TestSequentialExecuteSingleWorker(t *testing.T) {
-	sched := newTestScheduler(1)
-	sched.Start()
-	defer sched.Stop()
+	te := newTestExecutor(1)
+	te.Start()
+	defer te.Stop()
 
 	for i := 0; i < 100; i++ {
-		result, err := sched.Execute(context.Background(), testPID(), &CounterProcess{}, "", testInput(3))
+		pid := relay.PID{UniqID: fmt.Sprintf("seq-%d", i)}
+		result, err := te.Execute(context.Background(), pid, &CounterProcess{}, "", testInput(3))
 		if err != nil {
 			t.Fatalf("iteration %d: execute error: %v", i, err)
 		}
@@ -582,9 +574,9 @@ func TestHighContentionFewTasks(t *testing.T) {
 
 // Stress test: Wakeup latency after idle
 func BenchmarkWakeupLatency(b *testing.B) {
-	sched := newTestScheduler(4)
-	sched.Start()
-	defer sched.Stop()
+	te := newTestExecutor(4)
+	te.Start()
+	defer te.Stop()
 
 	// Workers are idle, measure the overhead of idle detection
 	b.ResetTimer()
@@ -592,6 +584,7 @@ func BenchmarkWakeupLatency(b *testing.B) {
 		// Brief idle period
 		time.Sleep(100 * time.Microsecond)
 		// Single task
-		sched.Execute(context.Background(), testPID(), &CounterProcess{}, "", testInput(1))
+		pid := relay.PID{UniqID: fmt.Sprintf("wake-%d", i)}
+		te.Execute(context.Background(), pid, &CounterProcess{}, "", testInput(1))
 	}
 }

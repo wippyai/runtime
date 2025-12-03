@@ -66,6 +66,9 @@ replace github.com/yuin/gopher-lua => ../go-lua
 // Local WASM runtime
 replace github.com/wippyai/wasm-runtime => ../wasmexp
 
+// Patched wazero with debug stats
+replace github.com/tetratelabs/wazero => /tmp/wazero-patched
+
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.6-20250425153114-8976f5be98c1.1 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
@@ -136,6 +139,7 @@ require (
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
+	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
 	github.com/miekg/dns v1.1.26 // indirect
@@ -152,6 +156,8 @@ require (
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/ponyruntime/tree-sitter-markdown v0.0.2 // indirect
+	github.com/ponyruntime/tree-sitter-sql v0.0.3 // indirect
 	github.com/prometheus/client_model v0.2.0 // indirect
 	github.com/prometheus/common v0.26.0 // indirect
 	github.com/prometheus/procfs v0.6.0 // indirect
@@ -162,6 +168,15 @@ require (
 	github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
+	github.com/tree-sitter-grammars/tree-sitter-lua v0.4.0 // indirect
+	github.com/tree-sitter/go-tree-sitter v0.25.0 // indirect
+	github.com/tree-sitter/tree-sitter-c-sharp v0.23.1 // indirect
+	github.com/tree-sitter/tree-sitter-go v0.25.0 // indirect
+	github.com/tree-sitter/tree-sitter-html v0.23.2 // indirect
+	github.com/tree-sitter/tree-sitter-javascript v0.25.0 // indirect
+	github.com/tree-sitter/tree-sitter-php v0.24.2 // indirect
+	github.com/tree-sitter/tree-sitter-python v0.25.0 // indirect
+	github.com/tree-sitter/tree-sitter-typescript v0.23.2 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/xuri/efp v0.0.0-20240408161823-9ad904a10d6d // indirect
 	github.com/xuri/nfp v0.0.0-20240318013403-ab9948c2c4a7 // indirect

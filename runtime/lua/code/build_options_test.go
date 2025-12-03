@@ -38,24 +38,24 @@ func TestBuildOptions_WithMethods(t *testing.T) {
 	assert.Equal(t, AllowListed, opts.Mode)
 
 	// Test WithAllowed
-	fooID := registry.ID{Name: "foo"}
-	barID := registry.ID{Name: "bar"}
+	fooID := registry.NewID("", "foo")
+	barID := registry.NewID("", "bar")
 	opts.WithAllowed(fooID, barID)
 	assert.True(t, contains(opts.Allowed, fooID))
 	assert.True(t, contains(opts.Allowed, barID))
-	assert.False(t, contains(opts.Allowed, registry.ID{Name: "baz"}))
+	assert.False(t, contains(opts.Allowed, registry.NewID("", "baz")))
 
 	// Test WithDenied
-	bazID := registry.ID{Name: "baz"}
-	quxID := registry.ID{Name: "qux"}
+	bazID := registry.NewID("", "baz")
+	quxID := registry.NewID("", "qux")
 	opts.WithDenied(bazID, quxID)
 	assert.True(t, contains(opts.Denied, bazID))
 	assert.True(t, contains(opts.Denied, quxID))
 	assert.False(t, contains(opts.Denied, fooID))
 
 	// Test WithRequired
-	req1ID := registry.ID{Name: "req1"}
-	req2ID := registry.ID{Name: "req2"}
+	req1ID := registry.NewID("", "req1")
+	req2ID := registry.NewID("", "req2")
 	opts.WithRequired(req1ID, req2ID)
 	assert.True(t, contains(opts.Required, req1ID))
 	assert.True(t, contains(opts.Required, req2ID))
@@ -64,11 +64,11 @@ func TestBuildOptions_WithMethods(t *testing.T) {
 	// Test WithPreloaded
 	preload1 := Preload{
 		Name:     "dep1",
-		ModuleID: registry.ID{Name: "node1"},
+		ModuleID: registry.NewID("", "node1"),
 	}
 	preload2 := Preload{
 		Name:     "dep2",
-		ModuleID: registry.ID{Name: "node2"},
+		ModuleID: registry.NewID("", "node2"),
 	}
 	opts.WithPreloaded(preload1, preload2)
 	assert.Len(t, opts.Preloaded, 2)
@@ -116,6 +116,10 @@ func (m *mockModule) Info() luaapi.ModuleInfo {
 
 func (m *mockModule) Loader(_ *lua.LState) int {
 	return 0
+}
+
+func (m *mockModule) Register(_ *lua.LState) *luaapi.Registration {
+	return nil
 }
 
 func TestBuildOptions_ClassFiltering(t *testing.T) {
@@ -206,7 +210,7 @@ func TestBuildOptions_ClassFiltering(t *testing.T) {
 }
 
 func TestBuildOptions_StateConsistency(t *testing.T) {
-	fooID := registry.ID{Name: "foo"}
+	fooID := registry.NewID("", "foo")
 
 	t.Run("same Process in allowed and denied", func(t *testing.T) {
 		opts := NewBuildOptions().
@@ -260,7 +264,7 @@ func TestBuildOptions_PreloadedDependencies(t *testing.T) {
 	createPreload := func(name string) Preload {
 		return Preload{
 			Name:     name,
-			ModuleID: registry.ID{Name: name},
+			ModuleID: registry.NewID("", name),
 		}
 	}
 
@@ -319,7 +323,7 @@ func TestBuildOptions_EmptyNodes(t *testing.T) {
 			name: "empty nodes with required IDs",
 			opts: NewBuildOptions().
 				WithMode(AllowAll).
-				WithRequired(registry.ID{Name: "foo"}),
+				WithRequired(registry.NewID("", "foo")),
 			wantError: true,
 			errorKind: apierror.KindPermissionDenied,
 		},
@@ -333,8 +337,8 @@ func TestBuildOptions_EmptyNodes(t *testing.T) {
 			name: "empty nodes in StrictListed mode",
 			opts: NewBuildOptions().
 				WithMode(StrictListed).
-				WithAllowed(registry.ID{Name: "foo"}).
-				WithRequired(registry.ID{Name: "foo"}),
+				WithAllowed(registry.NewID("", "foo")).
+				WithRequired(registry.NewID("", "foo")),
 			wantError: true,
 			errorKind: apierror.KindPermissionDenied,
 		},
@@ -356,8 +360,8 @@ func TestBuildOptions_EmptyNodes(t *testing.T) {
 }
 
 func TestBuildOptions_ModificationAfterSetup(t *testing.T) {
-	fooID := registry.ID{Name: "foo"}
-	barID := registry.ID{Name: "bar"}
+	fooID := registry.NewID("", "foo")
+	barID := registry.NewID("", "bar")
 
 	opts := NewBuildOptions().
 		WithMode(AllowListed).
@@ -406,8 +410,8 @@ func TestBuildOptions_Validate(t *testing.T) {
 			opts: NewBuildOptions().
 				WithMode(AllowAll),
 			nodes: map[registry.ID]*Node{
-				{Name: "foo"}: createNode("foo"),
-				{Name: "bar"}: createNode("bar"),
+				registry.NewID("", "foo"): createNode("foo"),
+				registry.NewID("", "bar"): createNode("bar"),
 			},
 			wantError: false,
 		},
@@ -415,10 +419,10 @@ func TestBuildOptions_Validate(t *testing.T) {
 			name: "AllowAll mode with denied Process",
 			opts: NewBuildOptions().
 				WithMode(AllowAll).
-				WithDenied(registry.ID{Name: "foo"}),
+				WithDenied(registry.NewID("", "foo")),
 			nodes: map[registry.ID]*Node{
-				{Name: "foo"}: createNode("foo"),
-				{Name: "bar"}: createNode("bar"),
+				registry.NewID("", "foo"): createNode("foo"),
+				registry.NewID("", "bar"): createNode("bar"),
 			},
 			wantError: true,
 			errorKind: apierror.KindPermissionDenied,
@@ -427,10 +431,10 @@ func TestBuildOptions_Validate(t *testing.T) {
 			name: "AllowListed mode - only allow listed",
 			opts: NewBuildOptions().
 				WithMode(AllowListed).
-				WithAllowed(registry.ID{Name: "foo"}, registry.ID{Name: "bar"}),
+				WithAllowed(registry.NewID("", "foo"), registry.NewID("", "bar")),
 			nodes: map[registry.ID]*Node{
-				{Name: "foo"}: createNode("foo"),
-				{Name: "bar"}: createNode("bar"),
+				registry.NewID("", "foo"): createNode("foo"),
+				registry.NewID("", "bar"): createNode("bar"),
 			},
 			wantError: false,
 		},
@@ -438,10 +442,10 @@ func TestBuildOptions_Validate(t *testing.T) {
 			name: "AllowListed mode - reject unlisted",
 			opts: NewBuildOptions().
 				WithMode(AllowListed).
-				WithAllowed(registry.ID{Name: "foo"}),
+				WithAllowed(registry.NewID("", "foo")),
 			nodes: map[registry.ID]*Node{
-				{Name: "foo"}: createNode("foo"),
-				{Name: "bar"}: createNode("bar"),
+				registry.NewID("", "foo"): createNode("foo"),
+				registry.NewID("", "bar"): createNode("bar"),
 			},
 			wantError: true,
 			errorKind: apierror.KindPermissionDenied,
@@ -450,9 +454,9 @@ func TestBuildOptions_Validate(t *testing.T) {
 			name: "DenyAll mode - only allow required",
 			opts: NewBuildOptions().
 				WithMode(DenyAll).
-				WithRequired(registry.ID{Name: "foo"}),
+				WithRequired(registry.NewID("", "foo")),
 			nodes: map[registry.ID]*Node{
-				{Name: "foo"}: createNode("foo"),
+				registry.NewID("", "foo"): createNode("foo"),
 			},
 			wantError: false,
 		},
@@ -460,10 +464,10 @@ func TestBuildOptions_Validate(t *testing.T) {
 			name: "DenyAll mode - reject non-required",
 			opts: NewBuildOptions().
 				WithMode(DenyAll).
-				WithRequired(registry.ID{Name: "foo"}),
+				WithRequired(registry.NewID("", "foo")),
 			nodes: map[registry.ID]*Node{
-				{Name: "foo"}: createNode("foo"),
-				{Name: "bar"}: createNode("bar"),
+				registry.NewID("", "foo"): createNode("foo"),
+				registry.NewID("", "bar"): createNode("bar"),
 			},
 			wantError: true,
 			errorKind: apierror.KindPermissionDenied,
@@ -472,11 +476,11 @@ func TestBuildOptions_Validate(t *testing.T) {
 			name: "StrictListed mode - required must be allowed",
 			opts: NewBuildOptions().
 				WithMode(StrictListed).
-				WithAllowed(registry.ID{Name: "foo"}, registry.ID{Name: "bar"}).
-				WithRequired(registry.ID{Name: "foo"}),
+				WithAllowed(registry.NewID("", "foo"), registry.NewID("", "bar")).
+				WithRequired(registry.NewID("", "foo")),
 			nodes: map[registry.ID]*Node{
-				{Name: "foo"}: createNode("foo"),
-				{Name: "bar"}: createNode("bar"),
+				registry.NewID("", "foo"): createNode("foo"),
+				registry.NewID("", "bar"): createNode("bar"),
 			},
 			wantError: false,
 		},
@@ -484,11 +488,11 @@ func TestBuildOptions_Validate(t *testing.T) {
 			name: "StrictListed mode - fail if required not allowed",
 			opts: NewBuildOptions().
 				WithMode(StrictListed).
-				WithAllowed(registry.ID{Name: "bar"}).
-				WithRequired(registry.ID{Name: "foo"}),
+				WithAllowed(registry.NewID("", "bar")).
+				WithRequired(registry.NewID("", "foo")),
 			nodes: map[registry.ID]*Node{
-				{Name: "foo"}: createNode("foo"),
-				{Name: "bar"}: createNode("bar"),
+				registry.NewID("", "foo"): createNode("foo"),
+				registry.NewID("", "bar"): createNode("bar"),
 			},
 			wantError: true,
 			errorKind: apierror.KindPermissionDenied,
@@ -497,9 +501,9 @@ func TestBuildOptions_Validate(t *testing.T) {
 			name: "Missing required Process",
 			opts: NewBuildOptions().
 				WithMode(AllowAll).
-				WithRequired(registry.ID{Name: "foo"}),
+				WithRequired(registry.NewID("", "foo")),
 			nodes: map[registry.ID]*Node{
-				{Name: "bar"}: createNode("bar"),
+				registry.NewID("", "bar"): createNode("bar"),
 			},
 			wantError: true,
 			errorKind: apierror.KindPermissionDenied,
@@ -508,10 +512,10 @@ func TestBuildOptions_Validate(t *testing.T) {
 			name: "Denied takes precedence over required",
 			opts: NewBuildOptions().
 				WithMode(AllowAll).
-				WithRequired(registry.ID{Name: "foo"}).
-				WithDenied(registry.ID{Name: "foo"}),
+				WithRequired(registry.NewID("", "foo")).
+				WithDenied(registry.NewID("", "foo")),
 			nodes: map[registry.ID]*Node{
-				{Name: "foo"}: createNode("foo"),
+				registry.NewID("", "foo"): createNode("foo"),
 			},
 			wantError: true,
 			errorKind: apierror.KindPermissionDenied,

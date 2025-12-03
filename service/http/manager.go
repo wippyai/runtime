@@ -2,7 +2,6 @@ package http
 
 import (
 	"context"
-	"fmt" // Note: fmt kept for Sprintf in logging
 	"net/http"
 	"sync"
 

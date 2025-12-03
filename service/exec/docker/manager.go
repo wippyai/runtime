@@ -2,7 +2,6 @@ package docker
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/wippyai/runtime/api/event"
@@ -49,24 +48,24 @@ func NewManager(
 // Add implements registry.EntryListener for Docker executors
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != exec.KindDockerExecutor {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return NewUnsupportedEntryKindError(string(entry.Kind))
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, exists := m.executors[entry.ID]; exists {
-		return fmt.Errorf("executor %s already exists", entry.ID)
+		return NewExecutorAlreadyExistsError(entry.ID.String())
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[exec.DockerExecutorConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return fmt.Errorf("failed to decode configuration: %w", err)
+		return NewConfigDecodeError(err)
 	}
 
 	executor, err := m.factory.CreateExecutor(entry.ID, cfg)
 	if err != nil {
-		return fmt.Errorf("failed to create executor: %w", err)
+		return NewExecutorCreateError(err)
 	}
 
 	provider := newExecutorProvider(executor)
@@ -93,7 +92,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update implements registry.EntryListener
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != exec.KindDockerExecutor {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return NewUnsupportedEntryKindError(string(entry.Kind))
 	}
 
 	m.mu.Lock()
@@ -101,17 +100,17 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	oldProvider, exists := m.executors[entry.ID]
 	if !exists {
-		return fmt.Errorf("executor %s not found", entry.ID)
+		return NewExecutorNotFoundError(entry.ID.String())
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[exec.DockerExecutorConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return fmt.Errorf("failed to decode configuration: %w", err)
+		return NewConfigDecodeError(err)
 	}
 
 	executor, err := m.factory.CreateExecutor(entry.ID, cfg)
 	if err != nil {
-		return fmt.Errorf("failed to create executor: %w", err)
+		return NewExecutorCreateError(err)
 	}
 
 	provider := newExecutorProvider(executor)
@@ -144,7 +143,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete implements registry.EntryListener
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != exec.KindDockerExecutor {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return NewUnsupportedEntryKindError(string(entry.Kind))
 	}
 
 	m.mu.Lock()
@@ -152,7 +151,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 
 	provider, exists := m.executors[entry.ID]
 	if !exists {
-		return fmt.Errorf("executor %s not found", entry.ID)
+		return NewExecutorNotFoundError(entry.ID.String())
 	}
 
 	if err := provider.Close(); err != nil {

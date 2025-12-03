@@ -3,6 +3,7 @@ package http
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/tetratelabs/wazero/api"
@@ -16,7 +17,7 @@ import (
 
 const (
 	// IncomingNamespace is the WASI namespace for incoming HTTP types.
-	IncomingNamespace = "wasi:http/types@0.2.0"
+	IncomingNamespace = "wasi:http/types@0.2.8"
 )
 
 // Resource type IDs for incoming HTTP resources
@@ -120,10 +121,13 @@ func (h *IncomingHost) SetupRequest(req *http.Request) (requestHandle, bodyHandl
 // Request accessors
 
 func (h *IncomingHost) requestMethod(ctx context.Context, mod api.Module, stack []uint64) {
+	fmt.Printf("DEBUG HTTP requestMethod called, stack=%v\n", stack)
 	req := h.getRequestFromStackOrContext(ctx, stack)
 	if req == nil {
+		fmt.Printf("DEBUG HTTP requestMethod: req is nil\n")
 		return
 	}
+	fmt.Printf("DEBUG HTTP requestMethod: method=%s\n", req.Request.Method)
 
 	method := req.Request.Method
 	ptr, ok := writeString(mod, ctx, method)
@@ -267,6 +271,7 @@ func (h *IncomingHost) dropIncomingBody(ctx context.Context, mod api.Module, sta
 // Response methods
 
 func (h *IncomingHost) newOutgoingResponse(ctx context.Context, mod api.Module, stack []uint64) {
+	fmt.Printf("DEBUG HTTP newOutgoingResponse called, stack=%v\n", stack)
 	resp := &HTTPOutgoingResponse{
 		StatusCode: 200,
 		Headers:    make(map[string][]string),
@@ -360,20 +365,25 @@ func (h *IncomingHost) bodyWrite(ctx context.Context, mod api.Module, stack []ui
 }
 
 func (h *IncomingHost) bodyFinish(ctx context.Context, mod api.Module, stack []uint64) {
+	fmt.Printf("DEBUG HTTP bodyFinish called, stack=%v\n", stack)
 	if len(stack) == 0 {
+		fmt.Printf("DEBUG HTTP bodyFinish: empty stack\n")
 		return
 	}
 	handle := resource.Handle(stack[0])
 	body, ok := h.outgoingBodies.Get(handle)
 	if !ok || body.Response == nil {
+		fmt.Printf("DEBUG HTTP bodyFinish: body not found or response nil, handle=%d, ok=%v\n", handle, ok)
 		return
 	}
 
 	reqCtx, ok := httpservice.GetRequestContext(ctx)
 	if !ok {
+		fmt.Printf("DEBUG HTTP bodyFinish: no request context\n")
 		return
 	}
 
+	fmt.Printf("DEBUG HTTP bodyFinish: writing response status=%d, body=%d bytes\n", body.Response.StatusCode, len(body.Data))
 	w := reqCtx.ResponseWriter()
 	for k, vals := range body.Response.Headers {
 		for _, v := range vals {

@@ -2,8 +2,6 @@ package lua
 
 import (
 	"context"
-	"fmt"
-
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
@@ -70,25 +68,25 @@ func Engine() boot.Component {
 			// Get dispatcher from context
 			disp := dispatcherapi.GetDispatcher(ctx)
 			if disp == nil {
-				return ctx, fmt.Errorf("dispatcher not found in context")
+				return ctx, ErrDispatcherNotFound
 			}
 
 			// Create function manager with dispatcher
 			funcs = funclua.NewManager(
-				logger.Named("lua.funcs"),
+				logger.Named("lua.func"),
 				codeManager,
 				bus,
 				disp,
 			)
-			libraries := library.NewManager(logger.Named("lua.libs"), codeManager)
+			libraries := library.NewManager(logger.Named("lua.lib"), codeManager)
 
 			handlers.Register(reghandler.NewTransactionHandler(codeManager))
 			handlers.Register(component.NewHandler("function.lua", funcs))
 			handlers.Register(component.NewHandler("library.lua", libraries))
 
-			// Register process2 and workflow2 managers
-			processes := proclua.NewManager(logger.Named("lua.process2"), codeManager, bus)
-			workflows := workflowlua.NewManager(logger.Named("lua.workflow2"), codeManager, bus)
+			// Register process and workflow managers
+			processes := proclua.NewManager(logger.Named("lua.process"), codeManager, bus)
+			workflows := workflowlua.NewManager(logger.Named("lua.workflow"), codeManager, bus)
 			handlers.Register(component.NewHandler("process.lua", processes))
 			handlers.Register(component.NewHandler("workflow.lua", workflows))
 

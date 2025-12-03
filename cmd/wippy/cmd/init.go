@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	clilogger "github.com/wippyai/runtime/cmd/internal/logger"
@@ -39,7 +37,7 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		AppStartTime: appStartTime,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to create logger: %w", err)
+		return NewCreateLoggerError(err)
 	}
 	defer func() {
 		_ = logger.Sync() // Ignore sync errors (typically closed stdout/stderr)
@@ -56,7 +54,7 @@ func runInit(cmd *cobra.Command, _ []string) error {
 
 	lockObj, err := lock.New(lockFile)
 	if err != nil {
-		return fmt.Errorf("create lock: %w", err)
+		return NewLoadLockFileError(err)
 	}
 
 	lockObj.SetDirectories(lock.Directories{
@@ -65,7 +63,7 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	})
 
 	if err := lockObj.Write(); err != nil {
-		return fmt.Errorf("write lock file: %w", err)
+		return NewWriteLockFileError(err)
 	}
 
 	logger.Info("lock file initialized successfully")

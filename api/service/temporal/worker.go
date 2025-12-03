@@ -2,7 +2,6 @@ package temporal
 
 import (
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/wippyai/runtime/api/registry"
@@ -84,35 +83,35 @@ func (c *WorkerOptionsConfig) UnmarshalJSON(data []byte) error {
 	if aux.StickyScheduleToStartTimeout != "" {
 		c.StickyScheduleToStartTimeout, err = time.ParseDuration(aux.StickyScheduleToStartTimeout)
 		if err != nil {
-			return fmt.Errorf("invalid sticky_schedule_to_start_timeout duration format: %w", err)
+			return NewInvalidStickyScheduleToStartTimeoutError(err)
 		}
 	}
 
 	if aux.WorkerStopTimeout != "" {
 		c.WorkerStopTimeout, err = time.ParseDuration(aux.WorkerStopTimeout)
 		if err != nil {
-			return fmt.Errorf("invalid worker_stop_timeout duration format: %w", err)
+			return NewInvalidWorkerStopTimeoutError(err)
 		}
 	}
 
 	if aux.DeadlockDetectionTimeout != "" {
 		c.DeadlockDetectionTimeout, err = time.ParseDuration(aux.DeadlockDetectionTimeout)
 		if err != nil {
-			return fmt.Errorf("invalid deadlock_detection_timeout duration format: %w", err)
+			return NewInvalidDeadlockDetectionTimeoutError(err)
 		}
 	}
 
 	if aux.MaxHeartbeatThrottleInterval != "" {
 		c.MaxHeartbeatThrottleInterval, err = time.ParseDuration(aux.MaxHeartbeatThrottleInterval)
 		if err != nil {
-			return fmt.Errorf("invalid max_heartbeat_throttle_interval duration format: %w", err)
+			return NewInvalidMaxHeartbeatThrottleIntervalError(err)
 		}
 	}
 
 	if aux.DefaultHeartbeatThrottleInterval != "" {
 		c.DefaultHeartbeatThrottleInterval, err = time.ParseDuration(aux.DefaultHeartbeatThrottleInterval)
 		if err != nil {
-			return fmt.Errorf("invalid default_heartbeat_throttle_interval duration format: %w", err)
+			return NewInvalidDefaultHeartbeatThrottleIntervalError(err)
 		}
 	}
 
@@ -149,35 +148,35 @@ func (c *WorkerConfig) InitDefaults() {
 // Validate checks if the worker configuration is valid
 func (c *WorkerConfig) Validate() error {
 	if c.Client.String() == "" {
-		return fmt.Errorf("client reference cannot be empty")
+		return ErrClientReferenceEmpty
 	}
 
 	if c.TaskQueue == "" {
-		return fmt.Errorf("task queue name cannot be empty")
+		return ErrTaskQueueEmpty
 	}
 
 	if c.WorkerOptions.MaxConcurrentActivityExecutionSize <= 0 {
-		return fmt.Errorf("max concurrent activity execution must be positive")
+		return ErrMaxConcurrentActivityInvalid
 	}
 	if c.WorkerOptions.MaxConcurrentWorkflowTaskExecutionSize <= 0 {
-		return fmt.Errorf("max concurrent workflow execution must be positive")
+		return ErrMaxConcurrentWorkflowInvalid
 	}
 	if c.WorkerOptions.MaxConcurrentWorkflowTaskPollers == 1 {
-		return fmt.Errorf("max concurrent workflow task pollers cannot be 1 due to sticky/non-sticky queue logic")
+		return ErrMaxConcurrentWorkflowTaskPollersInvalid
 	}
 
 	if c.WorkerOptions.WorkerActivitiesPerSecond < 0 {
-		return fmt.Errorf("worker activities per second cannot be negative")
+		return ErrWorkerActivitiesPerSecondInvalid
 	}
 	if c.WorkerOptions.WorkerLocalActivitiesPerSecond < 0 {
-		return fmt.Errorf("worker local activities per second cannot be negative")
+		return ErrWorkerLocalActivitiesPerSecondInvalid
 	}
 	if c.WorkerOptions.TaskQueueActivitiesPerSecond < 0 {
-		return fmt.Errorf("task queue activities per second cannot be negative")
+		return ErrTaskQueueActivitiesPerSecondInvalid
 	}
 
 	if c.WorkerOptions.DisableWorkflowWorker && c.WorkerOptions.LocalActivityWorkerOnly {
-		return fmt.Errorf("cannot set both disable_workflow_worker and local_activity_worker_only")
+		return ErrDisableWorkflowWorkerConflict
 	}
 
 	return nil

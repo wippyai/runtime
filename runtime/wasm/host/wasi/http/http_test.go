@@ -165,7 +165,7 @@ func TestIncomingHost(t *testing.T) {
 
 		req := httptest.NewRequest("GET", "/", nil)
 		h1, _ := host1.SetupRequest(req)
-		h2, _ := host.SetupRequest(req)
+		h2, _ := host2.SetupRequest(req)
 
 		// Same handle values but different tables
 		if h1 != h2 {

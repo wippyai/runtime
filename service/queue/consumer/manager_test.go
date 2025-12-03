@@ -26,8 +26,8 @@ func TestManager_Add(t *testing.T) {
 	manager := NewManager(bus, queueMgr, funcReg, dtt, zap.NewNop())
 
 	config := &consumerapi.Config{
-		Queue:       registry.ID{NS: "test", Name: "queue"},
-		Func:        registry.ID{NS: "test", Name: "func"},
+		Queue:       registry.NewID("test", "queue"),
+		Func:        registry.NewID("test", "func"),
 		Concurrency: 5,
 		Prefetch:    10,
 		Lifecycle: supervisor.LifecycleConfig{
@@ -36,7 +36,7 @@ func TestManager_Add(t *testing.T) {
 	}
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "consumer"},
+		ID:   registry.NewID("test", "consumer"),
 		Kind: "queue.consumer",
 		Data: payload.New(config),
 	}
@@ -62,14 +62,14 @@ func TestManager_Add_QueueNotFound(t *testing.T) {
 	manager := NewManager(bus, queueMgr, funcReg, dtt, zap.NewNop())
 
 	config := &consumerapi.Config{
-		Queue:       registry.ID{NS: "test", Name: "queue"},
-		Func:        registry.ID{NS: "test", Name: "func"},
+		Queue:       registry.NewID("test", "queue"),
+		Func:        registry.NewID("test", "func"),
 		Concurrency: 5,
 		Prefetch:    10,
 	}
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "consumer"},
+		ID:   registry.NewID("test", "consumer"),
 		Kind: "queue.consumer",
 		Data: payload.New(config),
 	}
@@ -91,14 +91,14 @@ func TestManager_Add_DriverNotFound(t *testing.T) {
 	manager := NewManager(bus, queueMgr, funcReg, dtt, zap.NewNop())
 
 	config := &consumerapi.Config{
-		Queue:       registry.ID{NS: "test", Name: "queue"},
-		Func:        registry.ID{NS: "test", Name: "func"},
+		Queue:       registry.NewID("test", "queue"),
+		Func:        registry.NewID("test", "func"),
 		Concurrency: 5,
 		Prefetch:    10,
 	}
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "consumer"},
+		ID:   registry.NewID("test", "consumer"),
 		Kind: "queue.consumer",
 		Data: payload.New(config),
 	}
@@ -117,11 +117,11 @@ func TestManager_Update(t *testing.T) {
 
 	manager := NewManager(bus, queueMgr, funcReg, dtt, zap.NewNop())
 
-	consumerID := registry.ID{NS: "test", Name: "consumer"}
+	consumerID := registry.NewID("test", "consumer")
 
 	oldConfig := &consumerapi.Config{
-		Queue:       registry.ID{NS: "test", Name: "queue"},
-		Func:        registry.ID{NS: "test", Name: "func"},
+		Queue:       registry.NewID("test", "queue"),
+		Func:        registry.NewID("test", "func"),
 		Concurrency: 5,
 		Prefetch:    10,
 		Lifecycle: supervisor.LifecycleConfig{
@@ -139,8 +139,8 @@ func TestManager_Update(t *testing.T) {
 	require.NoError(t, err)
 
 	newConfig := &consumerapi.Config{
-		Queue:       registry.ID{NS: "test", Name: "queue"},
-		Func:        registry.ID{NS: "test", Name: "func"},
+		Queue:       registry.NewID("test", "queue"),
+		Func:        registry.NewID("test", "func"),
 		Concurrency: 10,
 		Prefetch:    20,
 		Lifecycle: supervisor.LifecycleConfig{
@@ -174,7 +174,7 @@ func TestManager_Delete(t *testing.T) {
 
 	manager := NewManager(bus, queueMgr, funcReg, dtt, zap.NewNop())
 
-	consumerID := registry.ID{NS: "test", Name: "consumer"}
+	consumerID := registry.NewID("test", "consumer")
 
 	// Add consumer first
 	manager.consumers.Store(consumerID, &Consumer{})
@@ -214,7 +214,7 @@ func (m *mockQueueManager) GetQueue(id registry.ID) (*queueapi.Queue, bool) {
 	}
 	return &queueapi.Queue{
 		ID:       id,
-		DriverID: registry.ID{NS: "test", Name: "driver"},
+		DriverID: registry.NewID("test", "driver"),
 		Name:     "test-queue",
 		Options:  attrs.NewBag(),
 	}, true

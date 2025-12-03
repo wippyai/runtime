@@ -4,7 +4,6 @@ package eval
 import (
 	"sync"
 
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/evalhost"
@@ -13,7 +12,7 @@ import (
 
 var (
 	moduleTable      *lua.LTable
-	registration     *lua2api.Registration
+	registration     *luaapi.Registration
 	programMetatable *lua.LTable
 	sandboxMetatable *lua.LTable
 	initOnce         sync.Once
@@ -37,14 +36,23 @@ func (m *evalModule) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *evalModule) Register(l *lua.LState) *lua2api.Registration {
+func (m *evalModule) Loader(l *lua.LState) int {
+	reg := m.Register(l)
+	if reg != nil && reg.Table != nil {
+		l.Push(reg.Table)
+		return 1
+	}
+	return 0
+}
+
+func (m *evalModule) Register(l *lua.LState) *luaapi.Registration {
 	initOnce.Do(func() {
 		moduleTable = createModuleTable()
 		programMetatable = value.RegisterTypeMethods(nil, programTypeName, nil, programMethods)
 		sandboxMetatable = value.RegisterTypeMethods(nil, sandboxTypeName, nil, sandboxMethods)
-		registration = &lua2api.Registration{
+		registration = &luaapi.Registration{
 			Table: moduleTable,
-			YieldTypes: []lua2api.YieldType{
+			YieldTypes: []luaapi.YieldType{
 				{Sample: &CompileYield{}, CmdID: evalhost.CmdCompile},
 				{Sample: &RunYield{}, CmdID: evalhost.CmdRun},
 			},

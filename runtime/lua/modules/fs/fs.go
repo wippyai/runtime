@@ -18,6 +18,12 @@ type FS struct {
 	cwd string
 }
 
+// dirIterator is a userdata-based iterator for directory entries
+type dirIterator struct {
+	entries []os.DirEntry
+	index   int
+}
+
 func NewFS(fs fsapi.FS, cwd string) *FS {
 	if cwd == "" {
 		cwd = "."
@@ -259,27 +265,43 @@ func fsReaddir(l *lua.LState) int {
 		l.Push(lua.LString(fmt.Sprintf("readdir failed: %v", err)))
 		return 2
 	}
-	index := 0
-	iter := func(l *lua.LState) int {
-		if index >= len(entries) {
-			l.Push(lua.LNil)
-			return 1
-		}
-		entry := entries[index]
-		index++
-		entryTbl := l.CreateTable(0, 2)
-		entryTbl.RawSetString("name", lua.LString(entry.Name()))
-		if entry.IsDir() {
-			entryTbl.RawSetString("type", lua.LString(typeDir))
-		} else {
-			entryTbl.RawSetString("type", lua.LString(typeFile))
-		}
-		l.Push(entryTbl)
+
+	// Create iterator userdata
+	it := &dirIterator{entries: entries, index: 0}
+	ud := l.NewUserData()
+	ud.Value = it
+	ud.Metatable = value.GetTypeMetatable(nil, "fs.DirIterator")
+
+	l.Push(lua.LGoFunc(dirIteratorNext))
+	l.Push(ud)
+	return 2
+}
+
+func dirIteratorNext(l *lua.LState) int {
+	ud := l.CheckUserData(1)
+	it, ok := ud.Value.(*dirIterator)
+	if !ok {
+		l.Push(lua.LNil)
 		return 1
 	}
-	l.Push(l.NewFunction(iter))
-	l.Push(lua.LNil)
-	return 2
+
+	if it.index >= len(it.entries) {
+		l.Push(lua.LNil)
+		return 1
+	}
+
+	entry := it.entries[it.index]
+	it.index++
+
+	entryTbl := l.CreateTable(0, 2)
+	entryTbl.RawSetString("name", lua.LString(entry.Name()))
+	if entry.IsDir() {
+		entryTbl.RawSetString("type", lua.LString(typeDir))
+	} else {
+		entryTbl.RawSetString("type", lua.LString(typeFile))
+	}
+	l.Push(entryTbl)
+	return 1
 }
 
 func fsExists(l *lua.LState) int {

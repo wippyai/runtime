@@ -11,6 +11,27 @@ import (
 	api "github.com/wippyai/runtime/api/metrics"
 )
 
+var (
+	// Pool for label key slices (most metrics have 1-3 labels)
+	labelKeysPool = sync.Pool{
+		New: func() any {
+			return make([]string, 0, 4)
+		},
+	}
+	// Pool for label value slices
+	labelValsPool = sync.Pool{
+		New: func() any {
+			return make([]string, 0, 4)
+		},
+	}
+	// Pool for strings.Builder used in metricKey
+	builderPool = sync.Pool{
+		New: func() any {
+			return &strings.Builder{}
+		},
+	}
+)
+
 type Exporter struct {
 	registry   *prometheus.Registry
 	counters   map[string]*prometheus.CounterVec
@@ -33,9 +54,9 @@ func (e *Exporter) Name() string {
 }
 
 func (e *Exporter) Record(name string, typ api.MetricType, value float64, labels api.Labels) error {
-	labelNames := sortedLabelKeys(labels)
-	labelValues := labelVals(labels, labelNames)
-	key := metricKey(name, labelNames)
+	labelNames := acquireSortedLabelKeys(labels)
+	labelValues := acquireLabelVals(labels, labelNames)
+	key := buildMetricKey(name, labelNames)
 
 	switch typ {
 	case api.TypeCounter:
@@ -50,6 +71,9 @@ func (e *Exporter) Record(name string, typ api.MetricType, value float64, labels
 		histo := e.getOrCreateHistogram(key, name, labelNames)
 		histo.WithLabelValues(labelValues...).Observe(value)
 	}
+
+	releaseLabelSlice(labelNames)
+	releaseLabelSlice(labelValues)
 
 	return nil
 }
@@ -128,11 +152,12 @@ func (e *Exporter) Close() error {
 	return nil
 }
 
-func sortedLabelKeys(labels api.Labels) []string {
+func acquireSortedLabelKeys(labels api.Labels) []string {
 	if len(labels) == 0 {
 		return nil
 	}
-	keys := make([]string, 0, len(labels))
+	keys := labelKeysPool.Get().([]string)
+	keys = keys[:0]
 	for k := range labels {
 		keys = append(keys, k)
 	}
@@ -140,20 +165,43 @@ func sortedLabelKeys(labels api.Labels) []string {
 	return keys
 }
 
-func labelVals(labels api.Labels, keys []string) []string {
+func acquireLabelVals(labels api.Labels, keys []string) []string {
 	if len(keys) == 0 {
 		return nil
 	}
-	vals := make([]string, len(keys))
-	for i, k := range keys {
-		vals[i] = labels[k]
+	vals := labelValsPool.Get().([]string)
+	vals = vals[:0]
+	for _, k := range keys {
+		vals = append(vals, labels[k])
 	}
 	return vals
 }
 
-func metricKey(name string, labelNames []string) string {
+func releaseLabelSlice(s []string) {
+	if s == nil {
+		return
+	}
+	if cap(s) <= 8 {
+		labelKeysPool.Put(s[:0])
+	}
+}
+
+func buildMetricKey(name string, labelNames []string) string {
 	if len(labelNames) == 0 {
 		return name
 	}
-	return name + "{" + strings.Join(labelNames, ",") + "}"
+	b := builderPool.Get().(*strings.Builder)
+	b.Reset()
+	b.WriteString(name)
+	b.WriteByte('{')
+	for i, ln := range labelNames {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(ln)
+	}
+	b.WriteByte('}')
+	key := b.String()
+	builderPool.Put(b)
+	return key
 }

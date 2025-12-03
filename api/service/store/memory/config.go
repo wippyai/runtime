@@ -3,7 +3,6 @@ package memory
 
 import (
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/wippyai/runtime/api/registry"
@@ -37,12 +36,12 @@ type MemoryConfig struct {
 func (c *MemoryConfig) Validate() error {
 	// MaxSize must be non-negative (0 means unlimited)
 	if c.MaxSize < 0 {
-		return fmt.Errorf("max_size must be greater than or equal to 0")
+		return ErrInvalidMaxSize
 	}
 
 	// CleanupInterval must be non-negative (0 means no cleanup)
 	if c.CleanupInterval < 0 {
-		return fmt.Errorf("cleanup_interval must be greater than or equal to 0")
+		return ErrInvalidCleanupInterval
 	}
 
 	return nil
@@ -83,7 +82,7 @@ func (c *MemoryConfig) UnmarshalJSON(data []byte) error {
 	if aux.CleanupInterval != "" {
 		c.CleanupInterval, err = time.ParseDuration(aux.CleanupInterval)
 		if err != nil {
-			return fmt.Errorf("invalid CleanupInterval duration format: %w", err)
+			return NewInvalidDurationError(err)
 		}
 	}
 

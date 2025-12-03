@@ -62,7 +62,7 @@ func (s *Scheduler) ClearPending() {
 // Execute initializes execution of a function. Call Step() to advance.
 func (s *Scheduler) Execute(ctx context.Context, fn api.Function, args ...uint64) error {
 	if !s.asyncify.IsNormal(ctx) {
-		return fmt.Errorf("scheduler: asyncify not in normal state")
+		return NewSchedulerStateError("asyncify not in normal state")
 	}
 	s.fn = fn
 	s.args = args
@@ -110,49 +110,58 @@ func (s *Scheduler) Step(ctx context.Context, yr *YieldResult) (SchedulerResult,
 		return SchedulerResult{}, err
 	}
 	if !s.initialized {
-		return SchedulerResult{}, fmt.Errorf("scheduler: call Execute first")
+		return SchedulerResult{}, NewSchedulerStateError("call Execute first")
 	}
 
 	// If resuming with results, set them and start rewind
 	if yr != nil {
+		fmt.Printf("DEBUG scheduler.Step: resuming with result=%d, err=%v\n", yr.Value, yr.Error)
 		s.result = yr.Value
 		s.err = yr.Error
 		if s.err != nil {
 			return SchedulerResult{}, s.err
 		}
 		if err := s.asyncify.StartRewind(ctx); err != nil {
-			return SchedulerResult{}, fmt.Errorf("scheduler: start rewind: %w", err)
+			return SchedulerResult{}, NewSchedulerRewindError(err)
 		}
 		// Note: keep s.args - wazero requires the correct parameter count
 		// even though asyncify restores actual values from stack
 	}
 
 	// Call the function
+	fmt.Printf("DEBUG scheduler.Step: calling fn with args=%v\n", s.args)
 	results, callErr := s.fn.Call(ctx, s.args...)
+	fmt.Printf("DEBUG scheduler.Step: fn.Call returned results=%v, err=%v\n", results, callErr)
 
 	// Check if we're unwinding (handler triggered suspend)
-	if s.asyncify.IsUnwinding(ctx) {
+	isUnwinding := s.asyncify.IsUnwinding(ctx)
+	fmt.Printf("DEBUG scheduler.Step: isUnwinding=%v, pendingCmd=%v\n", isUnwinding, s.pendingCmd != nil)
+
+	if isUnwinding {
 		if err := s.asyncify.StopUnwind(ctx); err != nil {
-			return SchedulerResult{}, fmt.Errorf("scheduler: stop unwind: %w", err)
+			return SchedulerResult{}, NewSchedulerUnwindError(err)
 		}
 		if s.pendingCmd == nil {
-			return SchedulerResult{}, fmt.Errorf("scheduler: no pending command after unwind")
+			return SchedulerResult{}, NewSchedulerStateError("no pending command after unwind")
 		}
 		cmd := s.pendingCmd
 		s.pendingCmd = nil
+		fmt.Printf("DEBUG scheduler.Step: yielding command type=%T\n", cmd)
 		return SchedulerResult{Status: SchedulerContinue, Command: cmd}, nil
 	}
 
 	// Normal completion or real error
 	if callErr != nil {
+		fmt.Printf("DEBUG scheduler.Step: call error=%v\n", callErr)
 		return SchedulerResult{}, callErr
 	}
 
 	// Verify we're back to normal state
 	if !s.asyncify.IsNormal(ctx) {
-		return SchedulerResult{}, fmt.Errorf("scheduler: unexpected state after call")
+		return SchedulerResult{}, NewSchedulerStateError("unexpected state after call")
 	}
 
+	fmt.Printf("DEBUG scheduler.Step: done, results=%v\n", results)
 	s.initialized = false
 	return SchedulerResult{Status: SchedulerDone, Results: results}, nil
 }

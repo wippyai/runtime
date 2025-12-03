@@ -1,7 +1,6 @@
 package embed
 
 import (
-	"fmt"
 	"io/fs"
 	"sync"
 
@@ -26,10 +25,10 @@ func NewRegistry() *Registry {
 // The pack path is used as a key for later lookup.
 func (r *Registry) Register(packPath string, reader *pack.Reader) error {
 	if packPath == "" {
-		return fmt.Errorf("packPath cannot be empty")
+		return newPackPathCannotBeEmptyError()
 	}
 	if reader == nil {
-		return fmt.Errorf("reader cannot be nil")
+		return newReaderCannotBeNilError()
 	}
 
 	r.mu.Lock()
@@ -53,7 +52,7 @@ func (r *Registry) GetFS(id registry.ID) (fs.ReadDirFS, error) {
 		// Continue searching if not found in this pack
 	}
 
-	return nil, fmt.Errorf("embedded filesystem not found: %s: %w", id, fs.ErrNotExist)
+	return nil, newEmbeddedFilesystemNotFoundInRegistryError(id.String(), fs.ErrNotExist)
 }
 
 // Close implements embedapi.Registry.Close.

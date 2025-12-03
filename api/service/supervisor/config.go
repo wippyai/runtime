@@ -2,8 +2,6 @@
 package supervisor
 
 import (
-	"fmt"
-
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/supervisor"
@@ -30,15 +28,15 @@ type ServiceConfig struct {
 // Validate checks if the configuration is valid
 func (c *ServiceConfig) Validate() error {
 	if c.Process.Name == "" {
-		return fmt.Errorf("process Process is required")
+		return ErrProcessRequired
 	}
 
 	if c.HostID == "" {
-		return fmt.Errorf("host Process is required")
+		return ErrHostRequired
 	}
 
 	if c.HostID == topology.ControlHost {
-		return fmt.Errorf("host Process cannot be %s", topology.ControlHost)
+		return NewInvalidHostError(c.HostID)
 	}
 
 	return nil

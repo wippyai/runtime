@@ -129,7 +129,7 @@ func TestManagerAddFunction(t *testing.T) {
 		"source": "` + escapeJSON(testWAT) + `",
 		"wit": "` + escapeJSON(testWIT) + `",
 		"method": "add",
-		"pool": {"type": "workstealing", "size": 2, "buffer": 16}
+		"pool": {"type": "static", "size": 2, "buffer": 16}
 	}`
 
 	// Add function
@@ -164,7 +164,7 @@ func TestManagerUpdateFunction(t *testing.T) {
 		"source": "` + escapeJSON(testWAT) + `",
 		"wit": "` + escapeJSON(testWIT) + `",
 		"method": "add",
-		"pool": {"type": "workstealing", "size": 2, "buffer": 16}
+		"pool": {"type": "static", "size": 2, "buffer": 16}
 	}`
 
 	entry := registry.Entry{
@@ -199,7 +199,7 @@ func TestManagerDeleteFunction(t *testing.T) {
 		"source": "` + escapeJSON(testWAT) + `",
 		"wit": "` + escapeJSON(testWIT) + `",
 		"method": "add",
-		"pool": {"type": "workstealing", "size": 2, "buffer": 16}
+		"pool": {"type": "static", "size": 2, "buffer": 16}
 	}`
 
 	entry := registry.Entry{

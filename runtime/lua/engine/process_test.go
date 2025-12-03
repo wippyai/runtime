@@ -75,7 +75,7 @@ func TestProcessMultipleCoroutines(t *testing.T) {
 
 func TestResourceStoreInContext(t *testing.T) {
 	// Create frame context
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx, fc := ctxapi.AcquireFrameContext(context.Background())
 
 	// No store yet
 	store := resource.GetStore(ctx)
@@ -104,8 +104,8 @@ func TestResourceStoreInContext(t *testing.T) {
 		return nil
 	})
 
-	// Close and verify cleanup was called
-	proc.Close()
+	// Release frame context - this triggers cleanup of all Closer values
+	ctxapi.ReleaseFrameContext(fc)
 	if !cleanupCalled {
 		t.Error("Cleanup function was not called")
 	}

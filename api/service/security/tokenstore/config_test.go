@@ -31,7 +31,7 @@ func TestConfig_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "complete config",
 			config: Config{
-				Store:             registry.ID{NS: "stores", Name: "tokens"},
+				Store:             registry.NewID("stores", "tokens"),
 				TokenLength:       32,
 				TokenKey:          "secret-key",
 				DefaultExpiration: 24 * time.Hour,
@@ -41,7 +41,7 @@ func TestConfig_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "minimal config",
 			config: Config{
-				Store:       registry.ID{NS: "s", Name: "t"},
+				Store:       registry.NewID("s", "t"),
 				TokenLength: 16,
 			},
 			wantErr: false,
@@ -76,7 +76,7 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "valid config",
 			config: Config{
-				Store:       registry.ID{NS: "s", Name: "tokens"},
+				Store:       registry.NewID("s", "tokens"),
 				TokenLength: 32,
 			},
 			wantErr: false,
@@ -92,7 +92,7 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "zero token length",
 			config: Config{
-				Store:       registry.ID{NS: "s", Name: "t"},
+				Store:       registry.NewID("s", "t"),
 				TokenLength: 0,
 			},
 			wantErr: true,
@@ -101,7 +101,7 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "negative token length",
 			config: Config{
-				Store:       registry.ID{NS: "s", Name: "t"},
+				Store:       registry.NewID("s", "t"),
 				TokenLength: -1,
 			},
 			wantErr: true,
@@ -131,10 +131,10 @@ func TestConfig_InitDefaults(t *testing.T) {
 		{
 			name: "zero values get defaults",
 			config: Config{
-				Store: registry.ID{NS: "s", Name: "t"},
+				Store: registry.NewID("s", "t"),
 			},
 			expected: Config{
-				Store:             registry.ID{NS: "s", Name: "t"},
+				Store:             registry.NewID("s", "t"),
 				TokenLength:       32,
 				DefaultExpiration: 24 * time.Hour,
 			},
@@ -142,12 +142,12 @@ func TestConfig_InitDefaults(t *testing.T) {
 		{
 			name: "existing values preserved",
 			config: Config{
-				Store:             registry.ID{NS: "s", Name: "t"},
+				Store:             registry.NewID("s", "t"),
 				TokenLength:       64,
 				DefaultExpiration: 48 * time.Hour,
 			},
 			expected: Config{
-				Store:             registry.ID{NS: "s", Name: "t"},
+				Store:             registry.NewID("s", "t"),
 				TokenLength:       64,
 				DefaultExpiration: 48 * time.Hour,
 			},

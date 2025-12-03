@@ -2,11 +2,11 @@ package engine
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/tetratelabs/wazero/api"
 
 	"github.com/wippyai/runtime/api/process"
+	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
 	"github.com/wippyai/wasm-runtime/asyncify"
 	wasmengine "github.com/wippyai/wasm-runtime/engine"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
@@ -16,6 +16,7 @@ import (
 type Factory struct {
 	runtime    *wasmrt.Runtime
 	module     *wasmrt.Module
+	transport  wasmapi.Transport
 	asyncified bool
 }
 
@@ -24,6 +25,15 @@ func NewFactory(runtime *wasmrt.Runtime, module *wasmrt.Module) *Factory {
 	return &Factory{
 		runtime: runtime,
 		module:  module,
+	}
+}
+
+// NewFactoryWithTransport creates a factory with a specific transport.
+func NewFactoryWithTransport(runtime *wasmrt.Runtime, module *wasmrt.Module, transport wasmapi.Transport) *Factory {
+	return &Factory{
+		runtime:   runtime,
+		module:    module,
+		transport: transport,
 	}
 }
 
@@ -40,7 +50,7 @@ func NewAsyncFactory(runtime *wasmrt.Runtime, module *wasmrt.Module, asyncified 
 // Instance is created lazily on first Execute call with proper context.
 func (f *Factory) Create() process.ProcessFactory {
 	return func() (process.Process, error) {
-		return NewProcess(f.runtime, f.module), nil
+		return NewProcessWithTransport(f.runtime, f.module, f.transport), nil
 	}
 }
 
@@ -48,7 +58,7 @@ func (f *Factory) Create() process.ProcessFactory {
 // Use when you have a startup context available.
 func (f *Factory) CreateWithContext(ctx context.Context) process.ProcessFactory {
 	return func() (process.Process, error) {
-		p := NewProcess(f.runtime, f.module)
+		p := NewProcessWithTransport(f.runtime, f.module, f.transport)
 		if err := p.Init(ctx); err != nil {
 			return nil, err
 		}
@@ -74,7 +84,7 @@ func CompileWATWithOptions(ctx context.Context, runtime *wasmrt.Runtime, watSour
 	// Compile WAT to WASM binary
 	wasmBytes, err := wasmrt.CompileWAT(watSource)
 	if err != nil {
-		return nil, fmt.Errorf("compile WAT: %w", err)
+		return nil, NewCompileWATError(err)
 	}
 
 	// Apply asyncify transform if async imports specified
@@ -83,14 +93,14 @@ func CompileWATWithOptions(ctx context.Context, runtime *wasmrt.Runtime, watSour
 			AsyncImports: opts.AsyncImports,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("asyncify transform: %w", err)
+			return nil, NewAsyncifyTransformError(err)
 		}
 	}
 
 	// Load as WASM module
 	module, err := runtime.LoadWASM(ctx, wasmBytes, witText)
 	if err != nil {
-		return nil, fmt.Errorf("load WASM: %w", err)
+		return nil, NewLoadWASMError(err)
 	}
 	return module, nil
 }
@@ -105,13 +115,13 @@ func CompileWASM(ctx context.Context, runtime *wasmrt.Runtime, wasmBytes []byte,
 			AsyncImports: opts.AsyncImports,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("asyncify transform: %w", err)
+			return nil, NewAsyncifyTransformError(err)
 		}
 	}
 
 	module, err := runtime.LoadWASM(ctx, wasmBytes, witText)
 	if err != nil {
-		return nil, fmt.Errorf("load WASM: %w", err)
+		return nil, NewLoadWASMError(err)
 	}
 	return module, nil
 }

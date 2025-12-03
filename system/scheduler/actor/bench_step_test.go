@@ -2,11 +2,14 @@ package actor
 
 import (
 	"context"
+	"fmt"
+	"sync/atomic"
 	"testing"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
 )
 
 // Minimal process - single step, immediate complete
@@ -59,32 +62,54 @@ func ImmediateHandler() dispatcher.Handler {
 }
 
 func BenchmarkSingleStep(b *testing.B) {
+	var completed atomic.Int64
+	lc := &testLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+			completed.Add(1)
+		},
+	}
+
 	registry := NewRegistry()
-	sched := NewScheduler(registry, WithWorkers(1))
+	sched := NewScheduler(registry, WithWorkers(1), WithLifecycle(lc))
 	sched.Start()
 	defer sched.Stop()
 
 	ctx := context.Background()
-	pid := relay.PID{UniqID: "test"}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sched.Execute(ctx, pid, &SingleStepProcess{}, "", nil)
+		pid := relay.PID{UniqID: fmt.Sprintf("test-%d", i)}
+		sched.Submit(ctx, pid, &SingleStepProcess{}, "", nil)
+	}
+
+	// Wait for completion
+	for completed.Load() < int64(b.N) {
 	}
 }
 
 func BenchmarkOneYield(b *testing.B) {
+	var completed atomic.Int64
+	lc := &testLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+			completed.Add(1)
+		},
+	}
+
 	registry := NewRegistry()
 	registry.Register(CmdYield, ImmediateHandler())
-	sched := NewScheduler(registry, WithWorkers(1))
+	sched := NewScheduler(registry, WithWorkers(1), WithLifecycle(lc))
 	sched.Start()
 	defer sched.Stop()
 
 	ctx := context.Background()
-	pid := relay.PID{UniqID: "test"}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sched.Execute(ctx, pid, &OneYieldProcess{}, "", nil)
+		pid := relay.PID{UniqID: fmt.Sprintf("test-%d", i)}
+		sched.Submit(ctx, pid, &OneYieldProcess{}, "", nil)
+	}
+
+	// Wait for completion
+	for completed.Load() < int64(b.N) {
 	}
 }

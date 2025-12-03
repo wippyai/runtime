@@ -1,7 +1,6 @@
 package pack
 
 import (
-	"fmt"
 	"io/fs"
 	"os"
 
@@ -113,11 +112,11 @@ func FilterEmbeddableEntries(entries []registry.Entry, embedPatterns []string) [
 // ValidateResourceSpec validates a resource specification.
 func ValidateResourceSpec(spec ResourceSpec) error {
 	if spec.ID.NS == "" || spec.ID.Name == "" {
-		return fmt.Errorf("resource ID is invalid: %v", spec.ID)
+		return NewInvalidResourceIDError(spec.ID)
 	}
 
 	if spec.FS == nil {
-		return fmt.Errorf("resource filesystem is nil for ID: %s", spec.ID)
+		return NewResourceFilesystemNilError(spec.ID.String())
 	}
 
 	return nil

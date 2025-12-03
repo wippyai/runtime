@@ -87,8 +87,8 @@ func (m *MockManager) GetQueue(id registry.ID) (*queue.Queue, bool) {
 
 func TestQueueTypes(t *testing.T) {
 	t.Run("Queue struct", func(t *testing.T) {
-		queueID := registry.ID{NS: "test", Name: "my-queue"}
-		driverID := registry.ID{NS: "test", Name: "redis-driver"}
+		queueID := registry.NewID("test", "my-queue")
+		driverID := registry.NewID("test", "redis-driver")
 		opts := attrs.NewBag()
 		opts.Set(queue.OptionQueueName, "custom-queue-name")
 		opts.Set(queue.OptionDurable, true)
@@ -176,7 +176,7 @@ func TestErrors(t *testing.T) {
 func TestDriverInterface(t *testing.T) {
 	driver := new(MockDriver)
 	ctx := context.Background()
-	queueID := registry.ID{NS: "test", Name: "my-queue"}
+	queueID := registry.NewID("test", "my-queue")
 	opts := attrs.NewBag()
 	msgs := []*queue.Message{
 		queue.NewMessage(payload.New("msg1")),
@@ -226,8 +226,8 @@ func TestDriverInterface(t *testing.T) {
 func TestManagerInterface(t *testing.T) {
 	manager := new(MockManager)
 	ctx := context.Background()
-	queueID := registry.ID{NS: "test", Name: "my-queue"}
-	driverID := registry.ID{NS: "test", Name: "redis-driver"}
+	queueID := registry.NewID("test", "my-queue")
+	driverID := registry.NewID("test", "redis-driver")
 	opts := attrs.NewBag()
 	msgs := []*queue.Message{
 		queue.NewMessage(payload.New("msg1")),
@@ -269,7 +269,7 @@ func TestManagerInterface(t *testing.T) {
 
 func TestInterceptorInterface(t *testing.T) {
 	ctx := context.Background()
-	queueID := registry.ID{NS: "test", Name: "my-queue"}
+	queueID := registry.NewID("test", "my-queue")
 	msgs := []*queue.Message{
 		queue.NewMessage(payload.New("msg1")),
 	}
@@ -314,7 +314,7 @@ func TestQueueDeclarationFlow(t *testing.T) {
 	manager := new(MockManager)
 
 	// Step 1: Register a driver (kind would be defined in service layer, e.g., "queue.redis")
-	driverID := registry.ID{NS: "app", Name: "redis-driver"}
+	driverID := registry.NewID("app", "redis-driver")
 	driverEntry := registry.Entry{
 		ID:   driverID,
 		Kind: "queue.redis", // This kind would be defined in service layer
@@ -328,7 +328,7 @@ func TestQueueDeclarationFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// Step 2: Declare a queue
-	queueID := registry.ID{NS: "app", Name: "my-queue"}
+	queueID := registry.NewID("app", "my-queue")
 	queueOpts := attrs.NewBag()
 	queueOpts.Set(queue.OptionQueueName, "custom-name")
 	queueOpts.Set(queue.OptionDurable, true)

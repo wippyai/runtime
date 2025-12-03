@@ -29,7 +29,7 @@ func TestManager_Add(t *testing.T) {
 
 	config := &embedapi.Config{}
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "fs"},
+		ID:   registry.NewID("test", "fs"),
 		Kind: embedapi.Kind,
 		Data: payload.New(config),
 	}
@@ -57,7 +57,7 @@ func TestManager_Add_DuplicateID(t *testing.T) {
 
 	config := &embedapi.Config{}
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "fs"},
+		ID:   registry.NewID("test", "fs"),
 		Kind: embedapi.Kind,
 		Data: payload.New(config),
 	}
@@ -81,7 +81,7 @@ func TestManager_Add_InvalidKind(t *testing.T) {
 	manager := NewManager(bus, dtt, embedReg, zap.NewNop())
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "embed"},
+		ID:   registry.NewID("test", "embed"),
 		Kind: "invalid.kind",
 		Data: payload.New(&embedapi.Config{}),
 	}
@@ -100,7 +100,7 @@ func TestManager_Add_DecodeFailure(t *testing.T) {
 	manager := NewManager(bus, dtt, embedReg, zap.NewNop())
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "embed"},
+		ID:   registry.NewID("test", "embed"),
 		Kind: embedapi.Kind,
 		Data: payload.New(&embedapi.Config{}),
 	}
@@ -120,7 +120,7 @@ func TestManager_Add_FSNotFound(t *testing.T) {
 
 	config := &embedapi.Config{}
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "notfound"},
+		ID:   registry.NewID("test", "notfound"),
 		Kind: embedapi.Kind,
 		Data: payload.New(config),
 	}
@@ -144,7 +144,7 @@ func TestManager_Update(t *testing.T) {
 
 	config := &embedapi.Config{}
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "fs"},
+		ID:   registry.NewID("test", "fs"),
 		Kind: embedapi.Kind,
 		Data: payload.New(config),
 	}
@@ -172,7 +172,7 @@ func TestManager_Update_NotFound(t *testing.T) {
 	manager := NewManager(bus, dtt, embedReg, zap.NewNop())
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "notfound"},
+		ID:   registry.NewID("test", "notfound"),
 		Kind: embedapi.Kind,
 		Data: payload.New(&embedapi.Config{}),
 	}
@@ -196,7 +196,7 @@ func TestManager_Delete(t *testing.T) {
 
 	config := &embedapi.Config{}
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "fs"},
+		ID:   registry.NewID("test", "fs"),
 		Kind: embedapi.Kind,
 		Data: payload.New(config),
 	}
@@ -223,7 +223,7 @@ func TestManager_Delete_NotFound(t *testing.T) {
 	manager := NewManager(bus, dtt, embedReg, zap.NewNop())
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "notfound"},
+		ID:   registry.NewID("test", "notfound"),
 		Kind: embedapi.Kind,
 		Data: payload.New(&embedapi.Config{}),
 	}

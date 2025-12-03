@@ -2,11 +2,6 @@ package system
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"strconv"
-	"strings"
-
 	"github.com/wippyai/runtime/api/boot"
 	clusterapi "github.com/wippyai/runtime/api/cluster"
 	ctxapi "github.com/wippyai/runtime/api/context"
@@ -18,6 +13,9 @@ import (
 	"github.com/wippyai/runtime/cluster/membership"
 	"github.com/wippyai/runtime/system/relay"
 	"go.uber.org/zap"
+	"os"
+	"strconv"
+	"strings"
 )
 
 // Context keys for cluster components
@@ -87,7 +85,7 @@ func Cluster() boot.Component {
 	return boot.New(boot.P{
 		Name: ClusterName,
 		Load: func(ctx context.Context) (context.Context, error) {
-			logger = logapi.GetLogger(ctx)
+			logger = logapi.GetLogger(ctx).Named("cluster")
 			cfg := boot.GetConfig(ctx)
 
 			if cfg == nil {
@@ -105,7 +103,7 @@ func Cluster() boot.Component {
 			if nodeName == "" {
 				hostname, err := os.Hostname()
 				if err != nil {
-					return ctx, fmt.Errorf("failed to get hostname for cluster node name: %w", err)
+					return ctx, NewHostnameError(err)
 				}
 				nodeName = hostname
 			}
@@ -113,17 +111,17 @@ func Cluster() boot.Component {
 			// Get dependencies from context
 			bus := event.GetBus(ctx)
 			if bus == nil {
-				return ctx, fmt.Errorf("event bus not available for cluster")
+				return ctx, ErrEventBusNotAvailableForCluster
 			}
 
 			dtt := payload.GetTranscoder(ctx)
 			if dtt == nil {
-				return ctx, fmt.Errorf("transcoder not available for cluster")
+				return ctx, ErrTranscoderNotAvailableForCluster
 			}
 
 			node := relayapi.GetNode(ctx)
 			if node == nil {
-				return ctx, fmt.Errorf("relay node not available for cluster")
+				return ctx, ErrRelayNotAvailableForCluster
 			}
 
 			// Parse join addresses
@@ -154,14 +152,14 @@ func Cluster() boot.Component {
 
 			if err := connMgr.Start(tempCtx, dummyCallback); err != nil {
 				tempCancel()
-				return ctx, fmt.Errorf("failed to pre-start connection manager: %w", err)
+				return ctx, NewConnectionManagerPreStartError(err)
 			}
 
 			actualPort := connMgr.GetListenPort()
 
 			if err := connMgr.Stop(); err != nil {
 				tempCancel()
-				return ctx, fmt.Errorf("failed to stop connection manager after port allocation: %w", err)
+				return ctx, NewConnectionManagerStopError(err)
 			}
 			tempCancel()
 
@@ -205,7 +203,7 @@ func Cluster() boot.Component {
 			// Replace router with cluster-enabled router
 			router := relayapi.GetRouter(ctx)
 			if router == nil {
-				return ctx, fmt.Errorf("router not available in context")
+				return ctx, ErrRouterNotAvailable
 			}
 
 			// Create new router with internode service for cluster
@@ -229,14 +227,14 @@ func Cluster() boot.Component {
 			if membershipSvc != nil {
 				logger.Info("starting cluster membership service")
 				if err := membershipSvc.Start(ctx); err != nil {
-					return fmt.Errorf("failed to start membership service: %w", err)
+					return NewMembershipStartError(err)
 				}
 			}
 
 			if internodeSvc != nil {
 				logger.Info("starting cluster internode service")
 				if err := internodeSvc.Start(ctx); err != nil {
-					return fmt.Errorf("failed to start internode service: %w", err)
+					return NewInternodeStartError(err)
 				}
 			}
 

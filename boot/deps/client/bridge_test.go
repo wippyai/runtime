@@ -20,7 +20,7 @@ func TestExtractDependenciesFromEntries(t *testing.T) {
 	t.Run("extracts dependencies from ns.dependency entries", func(t *testing.T) {
 		entries := []registry.Entry{
 			{
-				ID:   registry.ID{NS: "test", Name: "dep1"},
+				ID:   registry.NewID("test", "dep1"),
 				Kind: "ns.dependency",
 				Data: payload.New(map[string]any{
 					"component": "acme/http",
@@ -28,7 +28,7 @@ func TestExtractDependenciesFromEntries(t *testing.T) {
 				}),
 			},
 			{
-				ID:   registry.ID{NS: "test", Name: "dep2"},
+				ID:   registry.NewID("test", "dep2"),
 				Kind: "ns.dependency",
 				Data: payload.New(map[string]any{
 					"component": "demo/sql",
@@ -68,12 +68,12 @@ func TestExtractDependenciesFromEntries(t *testing.T) {
 	t.Run("ignores non-dependency entries", func(t *testing.T) {
 		entries := []registry.Entry{
 			{
-				ID:   registry.ID{NS: "test", Name: "service"},
+				ID:   registry.NewID("test", "service"),
 				Kind: "service",
 				Data: payload.New(map[string]any{"component": "acme/http"}),
 			},
 			{
-				ID:   registry.ID{NS: "test", Name: "dep1"},
+				ID:   registry.NewID("test", "dep1"),
 				Kind: "ns.dependency",
 				Data: payload.New(map[string]any{"component": "acme/http", "version": "^1.0.0"}),
 			},
@@ -92,7 +92,7 @@ func TestExtractDependenciesFromEntries(t *testing.T) {
 	t.Run("skips entries with empty component", func(t *testing.T) {
 		entries := []registry.Entry{
 			{
-				ID:   registry.ID{NS: "test", Name: "dep1"},
+				ID:   registry.NewID("test", "dep1"),
 				Kind: "ns.dependency",
 				Data: payload.New(map[string]any{"version": "^1.0.0"}),
 			},
@@ -111,12 +111,12 @@ func TestExtractDependenciesFromEntries(t *testing.T) {
 	t.Run("skips entries with invalid component format", func(t *testing.T) {
 		entries := []registry.Entry{
 			{
-				ID:   registry.ID{NS: "test", Name: "dep1"},
+				ID:   registry.NewID("test", "dep1"),
 				Kind: "ns.dependency",
 				Data: payload.New(map[string]any{"component": "invalid", "version": "^1.0.0"}),
 			},
 			{
-				ID:   registry.ID{NS: "test", Name: "dep2"},
+				ID:   registry.NewID("test", "dep2"),
 				Kind: "ns.dependency",
 				Data: payload.New(map[string]any{"component": "acme/http", "version": "^1.0.0"}),
 			},

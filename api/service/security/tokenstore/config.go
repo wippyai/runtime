@@ -3,7 +3,6 @@ package tokenstore
 
 import (
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/wippyai/runtime/api/registry"
@@ -42,11 +41,11 @@ type Config struct {
 // Validate checks if the configuration is valid
 func (c *Config) Validate() error {
 	if c.Store.Name == "" {
-		return fmt.Errorf("store ID is required")
+		return ErrStoreIDRequired
 	}
 
 	if c.TokenLength <= 0 {
-		return fmt.Errorf("token length must be positive")
+		return ErrTokenLengthMustBePositive
 	}
 
 	return nil
@@ -81,7 +80,7 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		var err error
 		c.DefaultExpiration, err = time.ParseDuration(aux.DefaultExpiration)
 		if err != nil {
-			return fmt.Errorf("invalid default_expiration duration format: %w", err)
+			return NewInvalidDefaultExpirationError(err)
 		}
 	}
 

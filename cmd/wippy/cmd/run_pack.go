@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -44,6 +43,9 @@ func init() {
 }
 
 func runFromPack(_ *cobra.Command, args []string) error {
+	// Set memory limit early, before any significant allocations
+	memLimit := initMemoryLimit()
+
 	banner.Print(silentLogs)
 
 	logger, err := clilogger.CreateLogger(clilogger.Config{
@@ -54,13 +56,13 @@ func runFromPack(_ *cobra.Command, args []string) error {
 		AppStartTime: appStartTime,
 	})
 	if err != nil {
-		return fmt.Errorf("create logger: %w", err)
+		return NewCreateLoggerError(err)
 	}
 	defer func() {
 		_ = logger.Sync() // Ignore sync errors (typically closed stdout/stderr)
 	}()
 
-	logger.Info("loading pack files", zap.Int("count", len(args)))
+	logger.Info("loading pack files", zap.Int("count", len(args)), zap.String("memory_limit", formatBytes(memLimit)))
 
 	cfg, err := loadBootConfig()
 	if err != nil {
@@ -75,7 +77,7 @@ func runFromPack(_ *cobra.Command, args []string) error {
 	ctx, err := bootpkg.NewBootstrapContext(logger, cfg)
 	if err != nil {
 		logger.Error("failed to initialize bootstrap context", zap.Error(err))
-		return fmt.Errorf("initialize bootstrap context: %w", err)
+		return NewInitializeBootstrapContextError(err)
 	}
 
 	logger = logapi.GetLogger(ctx).Named("run-pack")
@@ -91,19 +93,19 @@ func runFromPack(_ *cobra.Command, args []string) error {
 	loader, err := bootpkg.NewLoader(components...)
 	if err != nil {
 		logger.Error("failed to create loader", zap.Error(err))
-		return fmt.Errorf("create loader: %w", err)
+		return NewCreateLoaderError(err)
 	}
 
 	ctx, err = loader.Load(ctx)
 	if err != nil {
 		logger.Error("load failed", zap.Error(err))
-		return fmt.Errorf("load components: %w", err)
+		return NewLoadComponentsError(err)
 	}
 	logger.Info("components loaded successfully")
 
 	transcoder := payload.GetTranscoder(ctx)
 	if transcoder == nil {
-		return fmt.Errorf("transcoder not found")
+		return ErrTranscoderNotFound
 	}
 
 	var allEntries []regapi.Entry
@@ -120,18 +122,18 @@ func runFromPack(_ *cobra.Command, args []string) error {
 
 		file, err := os.Open(packFile)
 		if err != nil {
-			return fmt.Errorf("open pack file %s: %w", packFile, err)
+			return NewOpenPackFileError(packFile, err)
 		}
 		openFiles = append(openFiles, file)
 
 		reader, err := pack.NewReader(file, transcoder)
 		if err != nil {
-			return fmt.Errorf("create pack reader for %s: %w", packFile, err)
+			return NewCreatePackReaderError(packFile, err)
 		}
 
 		entries, err := reader.GetEntries()
 		if err != nil {
-			return fmt.Errorf("read entries from %s: %w", packFile, err)
+			return NewReadEntriesError(packFile, err)
 		}
 
 		metadata, err := reader.GetMetadata()
@@ -164,7 +166,7 @@ func runFromPack(_ *cobra.Command, args []string) error {
 
 		if err := embedReg.Register(packFile, reader); err != nil {
 			logger.Error("failed to register pack", zap.String("pack", packFile), zap.Error(err))
-			return fmt.Errorf("register pack %s: %w", packFile, err)
+			return NewRegisterPackError(packFile, err)
 		}
 		allEntries = append(allEntries, entries...)
 	}
@@ -180,30 +182,30 @@ func runFromPack(_ *cobra.Command, args []string) error {
 	err = bootpkg.StartRuntimeServices(appCtx)
 	if err != nil {
 		logger.Error("failed to start runtime services", zap.Error(err))
-		return fmt.Errorf("start runtime services: %w", err)
+		return NewStartRuntimeServicesError(err)
 	}
 
 	err = loader.Start(appCtx)
 	if err != nil {
 		logger.Error("start failed", zap.Error(err))
-		return fmt.Errorf("start components: %w", err)
+		return NewStartComponentsError(err)
 	}
 
 	reg := regapi.GetRegistry(appCtx)
 	if reg == nil {
-		return fmt.Errorf("registry not found")
+		return ErrRegistryNotFound
 	}
 
 	resolver := regapi.GetResolver(appCtx)
 	if resolver == nil {
-		return fmt.Errorf("dependency resolver not found")
+		return ErrDependencyResolverNotFound
 	}
 
 	logger.Debug("building change set from entries")
 	// Use CreateChangeSetFromEntries which properly sorts by dependencies
 	changeSet, err := regtop.CreateChangeSetFromEntries(allEntries, resolver)
 	if err != nil {
-		return fmt.Errorf("build change set: %w", err)
+		return NewBuildChangeSetError(err)
 	}
 	logger.Debug("change set built")
 
@@ -211,7 +213,7 @@ func runFromPack(_ *cobra.Command, args []string) error {
 	version, err := reg.Apply(appCtx, changeSet)
 	if err != nil {
 		logger.Error("apply failed", zap.Error(err))
-		return fmt.Errorf("apply entries: %w", err)
+		return NewApplyEntriesError(err)
 	}
 
 	logger.Info("entries applied to registry", zap.Any("version", version))

@@ -2,11 +2,14 @@ package actor
 
 import (
 	"context"
+	"fmt"
+	"sync/atomic"
 	"testing"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
 )
 
 // Process that does N yields before completing
@@ -46,18 +49,29 @@ func ImmediateHandler2() dispatcher.Handler {
 
 // Benchmark: 1 execute with 100 yields = amortize execute cost
 func BenchmarkManyYieldsPerExecute(b *testing.B) {
+	var completed atomic.Int64
+	lc := &testLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+			completed.Add(1)
+		},
+	}
+
 	registry := NewRegistry()
 	registry.Register(CmdYield, ImmediateHandler2())
-	sched := NewScheduler(registry, WithWorkers(1))
+	sched := NewScheduler(registry, WithWorkers(1), WithLifecycle(lc))
 	sched.Start()
 	defer sched.Stop()
 
 	ctx := context.Background()
-	pid := relay.PID{UniqID: "test"}
 	input := payload.Payloads{payload.New(100)} // 100 yields per execute
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sched.Execute(ctx, pid, &NYieldProcess{}, "", input)
+		pid := relay.PID{UniqID: fmt.Sprintf("test-%d", i)}
+		sched.Submit(ctx, pid, &NYieldProcess{}, "", input)
+	}
+
+	// Wait for completion
+	for completed.Load() < int64(b.N) {
 	}
 }

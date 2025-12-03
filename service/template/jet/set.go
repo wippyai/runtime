@@ -4,7 +4,6 @@ package jet
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/CloudyKit/jet/v6"
@@ -84,7 +83,7 @@ func (s *Set) AddTemplate(name string, source string) error {
 
 	// Check if template already exists
 	if _, exists := s.sources[name]; exists {
-		return fmt.Errorf("template %s already exists in set", name)
+		return newTemplateExistsInSetError(name)
 	}
 
 	// Register the template with Jet's InMemLoader
@@ -171,7 +170,7 @@ func (s *Set) RenderTemplate(name string, vars map[string]any) (string, error) {
 	// Get the Jet template
 	jetTemplate, err := s.jetSet.GetTemplate(name)
 	if err != nil {
-		return "", fmt.Errorf("failed to get compiled template: %w", err)
+		return "", newGetCompiledTemplateError(err)
 	}
 
 	// Create a buffer for the output
@@ -185,7 +184,7 @@ func (s *Set) RenderTemplate(name string, vars map[string]any) (string, error) {
 
 	// Render the template
 	if err := jetTemplate.Execute(&buf, jetVars, nil); err != nil {
-		return "", fmt.Errorf("%w: %w", template.ErrRenderFailed, err)
+		return "", newRenderFailedError(err)
 	}
 
 	return buf.String(), nil
@@ -196,7 +195,7 @@ func (s *Set) RenderPayload(name string, data payload.Payload) (string, error) {
 	// Extract data from payload using transcoder
 	var vars any
 	if err := s.dtt.Unmarshal(data, &vars); err != nil {
-		return "", fmt.Errorf("failed to unmarshal payload: %w", err)
+		return "", newUnmarshalPayloadError(err)
 	}
 
 	mvars, ok := vars.(map[string]any)
@@ -222,7 +221,7 @@ func (s *Set) Acquire(
 ) (resource.Resource[any], error) {
 	// Only support normal mode for now
 	if mode != resource.ModeNormal {
-		return nil, fmt.Errorf("unsupported access mode: %v", mode)
+		return nil, newUnsupportedAccessModeError(string(mode))
 	}
 
 	s.mu.RLock()

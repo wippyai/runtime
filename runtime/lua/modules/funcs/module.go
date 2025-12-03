@@ -9,7 +9,6 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	secapi "github.com/wippyai/runtime/api/security"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
@@ -20,7 +19,7 @@ import (
 
 var (
 	moduleTable       *lua.LTable
-	registration      *lua2api.Registration
+	registration      *luaapi.Registration
 	futureMetatable   *lua.LTable
 	executorMetatable *lua.LTable
 	initOnce          sync.Once
@@ -44,12 +43,12 @@ func (m *funcsModule) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *funcsModule) Register(l *lua.LState) *lua2api.Registration {
+func (m *funcsModule) Register(l *lua.LState) *luaapi.Registration {
 	initOnce.Do(func() {
 		moduleTable = createModuleTable()
 		futureMetatable = value.RegisterTypeMethods(nil, futureTypeName, nil, futureMethods)
 		executorMetatable = value.RegisterTypeMethods(nil, executorTypeName, nil, executorMethods)
-		registration = &lua2api.Registration{
+		registration = &luaapi.Registration{
 			Table:      moduleTable,
 			YieldTypes: nil,
 		}
@@ -411,9 +410,9 @@ func executorAsync(l *lua.LState) int {
 	return 1
 }
 
-// Bind is deprecated. Use lua2api.LoadModule(l, Module) instead.
+// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
 func Bind(l *lua.LState) {
-	lua2api.LoadModule(l, Module)
+	luaapi.LoadModule(l, Module)
 }
 
 func createModuleTable() *lua.LTable {

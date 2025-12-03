@@ -2,7 +2,7 @@ package policy
 
 import (
 	"errors"
-	"fmt"
+	"fmt" // Note: fmt kept for Sprintf in logging
 	"regexp"
 	"strconv"
 	"strings"
@@ -25,7 +25,7 @@ func NewConditionEvaluator(conditions []policy.Condition) (*ConditionEvaluator, 
 				if _, exists := patterns[patternStr]; !exists {
 					compiled, err := regexp.Compile(patternStr)
 					if err != nil {
-						return nil, fmt.Errorf("invalid regex pattern %q: %w", patternStr, err)
+						return nil, NewInvalidRegexPatternError(patternStr, err)
 					}
 					patterns[patternStr] = compiled
 				}
@@ -68,18 +68,18 @@ func (e *ConditionEvaluator) extractField(
 ) (any, error) {
 	parts := strings.Split(fieldPath, ".")
 	if len(parts) == 0 {
-		return nil, fmt.Errorf("empty field path")
+		return nil, ErrEmptyFieldPath
 	}
 
 	switch parts[0] {
 	case "actor":
 		if len(parts) < 2 {
-			return nil, fmt.Errorf("invalid actor field path: %s", fieldPath)
+			return nil, NewInvalidActorFieldPathError(fieldPath)
 		}
 		return e.extractActorField(actor, parts[1:])
 	case "meta":
 		if len(parts) < 2 {
-			return nil, fmt.Errorf("invalid meta field path: %s", fieldPath)
+			return nil, NewInvalidMetaFieldPathError(fieldPath)
 		}
 		return e.extractMetaField(meta, parts[1:])
 	case "action":
@@ -93,11 +93,11 @@ func (e *ConditionEvaluator) extractField(
 
 func (e *ConditionEvaluator) extractActorField(actor security.Actor, parts []string) (any, error) {
 	if actor.ID == "" && actor.Meta == nil {
-		return nil, fmt.Errorf("nil or empty actor")
+		return nil, ErrNilOrEmptyActor
 	}
 
 	if len(parts) == 0 {
-		return nil, fmt.Errorf("no actor field specified")
+		return nil, ErrNoActorFieldSpecified
 	}
 
 	switch parts[0] {
@@ -128,7 +128,7 @@ func (e *ConditionEvaluator) extractActorField(actor security.Actor, parts []str
 
 		return nil, policy.ErrFieldNotFound
 	default:
-		return nil, fmt.Errorf("unknown actor field: %s", parts[0])
+		return nil, NewUnknownActorFieldError(parts[0])
 	}
 }
 
@@ -138,7 +138,7 @@ func (e *ConditionEvaluator) extractMetaField(meta registry.Metadata, parts []st
 	}
 
 	if len(parts) == 0 {
-		return nil, fmt.Errorf("no metadata field specified")
+		return nil, ErrNoMetadataFieldSpecified
 	}
 
 	key := parts[0]
@@ -236,7 +236,7 @@ func (e *ConditionEvaluator) compare(fieldValue, compareValue any, operator stri
 		return !result, err
 
 	default:
-		return false, fmt.Errorf("unsupported operator: %s", operator)
+		return false, NewUnsupportedOperatorError(operator)
 	}
 }
 
@@ -264,7 +264,7 @@ func (e *ConditionEvaluator) compareNumeric(fieldValue, compareValue any, operat
 	fieldNum, fieldOk := e.toFloat64(fieldValue)
 	compareNum, compareOk := e.toFloat64(compareValue)
 	if !fieldOk || !compareOk {
-		return false, fmt.Errorf("numeric comparison requires numeric values")
+		return false, ErrNumericComparisonRequired
 	}
 
 	switch operator {
@@ -277,7 +277,7 @@ func (e *ConditionEvaluator) compareNumeric(fieldValue, compareValue any, operat
 	case "gte":
 		return fieldNum >= compareNum, nil
 	default:
-		return false, fmt.Errorf("unknown numeric operator: %s", operator)
+		return false, NewUnknownNumericOperatorError(operator)
 	}
 }
 
@@ -301,7 +301,7 @@ func (e *ConditionEvaluator) isIn(fieldValue, compareValue any) (bool, error) {
 		equal, _ := e.equals(fieldValue, cv)
 		return equal, nil
 	default:
-		return false, fmt.Errorf("'in' operator requires slice or array for comparison")
+		return false, ErrInOperatorRequiresSlice
 	}
 
 	for _, item := range slice {
@@ -331,19 +331,19 @@ func (e *ConditionEvaluator) contains(fieldValue, compareValue any) (bool, error
 		return false, nil
 	}
 
-	return false, fmt.Errorf("'contains' operator requires string or slice field value")
+	return false, ErrContainsRequiresString
 }
 
 func (e *ConditionEvaluator) matches(fieldValue, compareValue any) (bool, error) {
 	fieldStr, isFieldStr := toString(fieldValue)
 	patternStr, isPatternStr := toString(compareValue)
 	if !isFieldStr || !isPatternStr {
-		return false, fmt.Errorf("'matches' operator requires string values")
+		return false, ErrMatchesRequiresString
 	}
 
 	pattern, exists := e.compiledPatterns[patternStr]
 	if !exists {
-		return false, fmt.Errorf("regex pattern %q not pre-compiled", patternStr)
+		return false, NewRegexPatternNotCompiledError(patternStr)
 	}
 
 	return pattern.MatchString(fieldStr), nil

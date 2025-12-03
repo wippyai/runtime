@@ -3,6 +3,7 @@ package logger
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
@@ -40,22 +41,30 @@ func (m *LoggerModule) Info() luaapi.ModuleInfo {
 	}
 }
 
+// Global logger methods (registered once)
+var loggerMethodsOnce sync.Once
+
+func initLoggerMethods() {
+	loggerMethodsOnce.Do(func() {
+		value.RegisterMethods(nil, "logger.Logger", map[string]lua.LGFunction{
+			"debug": loggerDebug,
+			"info":  loggerInfo,
+			"warn":  loggerWarn,
+			"error": loggerError,
+			"with":  loggerWith,
+			"named": loggerNamed,
+		})
+	})
+}
+
 // Loader is the entry point for loading the plugin
 func (m *LoggerModule) Loader(l *lua.LState) int {
-	// Register all methods at once using the efficient method from util.go
-	methods := map[string]lua.LGFunction{
-		"debug": loggerDebug,
-		"info":  loggerInfo,
-		"warn":  loggerWarn,
-		"error": loggerError,
-		"with":  loggerWith,
-		"named": loggerNamed,
-	}
+	initLoggerMethods()
 
 	// Base logger is our module entry
 	ud := l.NewUserData()
 	ud.Value = &Logger{logger: m.baseLogger}
-	ud.Metatable = value.RegisterMethods(l, "logger.Logger", methods)
+	ud.Metatable = value.GetTypeMetatable(nil, "logger.Logger")
 
 	l.Push(ud)
 	return 1

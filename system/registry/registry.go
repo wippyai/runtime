@@ -18,6 +18,7 @@ type Reg struct {
 	builder        registry.StateBuilder
 	resolver       registry.DependencyResolver
 	state          registry.State
+	stateIndex     map[registry.ID]int // index into state slice for O(1) lookup
 	mu             sync.RWMutex
 	currentVersion registry.Version
 	versionNum     atomic.Uint64
@@ -38,6 +39,7 @@ func NewRegistry(
 		builder:        builder,
 		resolver:       resolver,
 		state:          registry.State{},
+		stateIndex:     make(map[registry.ID]int),
 		log:            log,
 		currentVersion: version.FromParent(nil, 0), // initial version
 	}
@@ -45,6 +47,15 @@ func NewRegistry(
 	reg.versionNum.Store(0)
 
 	return reg
+}
+
+// rebuildIndex rebuilds the stateIndex from the current state.
+// Must be called with write lock held.
+func (r *Reg) rebuildIndex() {
+	r.stateIndex = make(map[registry.ID]int, len(r.state))
+	for i, entry := range r.state {
+		r.stateIndex[entry.ID] = i
+	}
 }
 
 // --- EntryReader Interface Implementation ---
@@ -59,10 +70,8 @@ func (r *Reg) GetEntry(path registry.ID) (registry.Entry, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	for _, entry := range r.state {
-		if entry.ID == path {
-			return entry, nil
-		}
+	if idx, ok := r.stateIndex[path]; ok {
+		return r.state[idx], nil
 	}
 
 	return registry.Entry{}, NewEntryNotFoundError(path)
@@ -105,6 +114,7 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	}
 
 	r.state = newState
+	r.rebuildIndex()
 	r.currentVersion = newVersion
 
 	return newVersion, nil
@@ -247,6 +257,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	}
 
 	r.state = newState
+	r.rebuildIndex()
 	r.currentVersion = targetVersion
 
 	r.log.Debug("version applied successfully", zap.Uint("version", targetVersion.ID()))
@@ -262,7 +273,11 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	finalState := baseline
+	// Build state map once from baseline
+	stateMap := make(map[registry.ID]registry.Entry, len(baseline))
+	for _, entry := range baseline {
+		stateMap[entry.ID] = entry
+	}
 
 	if targetVersion.ID() > 0 {
 		current := targetVersion
@@ -277,6 +292,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 			zap.Uint("target_version", targetVersion.ID()),
 			zap.Int("changeset_count", len(versions)))
 
+		// Apply all operations directly to the map
 		for _, ver := range versions {
 			cs, err := r.history.Get(ver)
 			if err != nil {
@@ -284,9 +300,20 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 			}
 
 			for _, op := range cs {
-				finalState = r.applyOperationToState(finalState, op)
+				switch op.Kind {
+				case registry.Create, registry.Update:
+					stateMap[op.Entry.ID] = op.Entry
+				case registry.Delete:
+					delete(stateMap, op.Entry.ID)
+				}
 			}
 		}
+	}
+
+	// Convert map to slice once at the end
+	finalState := make(registry.State, 0, len(stateMap))
+	for _, entry := range stateMap {
+		finalState = append(finalState, entry)
 	}
 
 	newState, err := r.transitionState(ctx, r.state, finalState)
@@ -301,34 +328,11 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	}
 
 	r.state = newState
+	r.rebuildIndex()
 	r.currentVersion = targetVersion
 	r.versionNum.Store(uint64(targetVersion.ID()))
 
 	return nil
-}
-
-// applyOperationToState applies a single operation to a state, used during restoration
-func (r *Reg) applyOperationToState(state registry.State, op registry.Operation) registry.State {
-	stateMap := make(map[registry.ID]registry.Entry, len(state))
-	for _, entry := range state {
-		stateMap[entry.ID] = entry
-	}
-
-	switch op.Kind {
-	case registry.Create:
-		stateMap[op.Entry.ID] = op.Entry
-	case registry.Update:
-		stateMap[op.Entry.ID] = op.Entry
-	case registry.Delete:
-		delete(stateMap, op.Entry.ID)
-	}
-
-	result := make(registry.State, 0, len(stateMap))
-	for _, entry := range stateMap {
-		result = append(result, entry)
-	}
-
-	return result
 }
 
 // rollback state desync between actual state in system and state in history
@@ -341,6 +345,7 @@ func (r *Reg) rollback(ctx context.Context, from, to registry.State) error {
 	}
 
 	r.state = partial // we remain in a desynced state
+	r.rebuildIndex()
 
 	return err
 }

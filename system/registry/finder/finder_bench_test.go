@@ -35,7 +35,7 @@ func (m *benchMockRegistry) Current() (registry.Version, error) {
 
 func (m *benchMockRegistry) History() registry.History { return nil }
 func (m *benchMockRegistry) Apply(_ context.Context, _ registry.ChangeSet) (registry.Version, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil // mock stub
 }
 func (m *benchMockRegistry) ApplyVersion(_ context.Context, _ registry.Version) error { return nil }
 

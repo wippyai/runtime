@@ -253,3 +253,325 @@ func TestLibraryConfig_Validate(t *testing.T) {
 		})
 	}
 }
+
+func TestBytecodeFunctionConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  BytecodeFunctionConfig
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid config",
+			config: BytecodeFunctionConfig{
+				FS:     "app:bytecode",
+				Path:   "/functions/handler.luac",
+				Hash:   "sha256:abc123",
+				Method: "handle",
+				Pool:   PoolConfig{Size: 4},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid flex pool",
+			config: BytecodeFunctionConfig{
+				FS:     "app:bytecode",
+				Path:   "/functions/handler.luac",
+				Hash:   "sha256:abc123",
+				Method: "handle",
+				Pool:   PoolConfig{MaxSize: 16},
+			},
+			wantErr: false,
+		},
+		{
+			name: "missing fs",
+			config: BytecodeFunctionConfig{
+				Path:   "/functions/handler.luac",
+				Hash:   "sha256:abc123",
+				Method: "handle",
+				Pool:   PoolConfig{Size: 4},
+			},
+			wantErr: true,
+			errMsg:  "fs is required",
+		},
+		{
+			name: "missing path",
+			config: BytecodeFunctionConfig{
+				FS:     "app:bytecode",
+				Hash:   "sha256:abc123",
+				Method: "handle",
+				Pool:   PoolConfig{Size: 4},
+			},
+			wantErr: true,
+			errMsg:  "path is required",
+		},
+		{
+			name: "missing hash",
+			config: BytecodeFunctionConfig{
+				FS:     "app:bytecode",
+				Path:   "/functions/handler.luac",
+				Method: "handle",
+				Pool:   PoolConfig{Size: 4},
+			},
+			wantErr: true,
+			errMsg:  "hash is required",
+		},
+		{
+			name: "missing method",
+			config: BytecodeFunctionConfig{
+				FS:   "app:bytecode",
+				Path: "/functions/handler.luac",
+				Hash: "sha256:abc123",
+				Pool: PoolConfig{Size: 4},
+			},
+			wantErr: true,
+			errMsg:  "method is required",
+		},
+		{
+			name: "empty import alias",
+			config: BytecodeFunctionConfig{
+				FS:     "app:bytecode",
+				Path:   "/functions/handler.luac",
+				Hash:   "sha256:abc123",
+				Method: "handle",
+				Pool:   PoolConfig{Size: 4},
+				Imports: map[string]registry.ID{
+					"": {Name: "lib"},
+				},
+			},
+			wantErr: true,
+			errMsg:  "import alias cannot be empty",
+		},
+		{
+			name: "empty module",
+			config: BytecodeFunctionConfig{
+				FS:      "app:bytecode",
+				Path:    "/functions/handler.luac",
+				Hash:    "sha256:abc123",
+				Method:  "handle",
+				Pool:    PoolConfig{Size: 4},
+				Modules: []string{""},
+			},
+			wantErr: true,
+			errMsg:  "module cannot be empty",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestBytecodeLibraryConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  BytecodeLibraryConfig
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid config",
+			config: BytecodeLibraryConfig{
+				FS:   "app:bytecode",
+				Path: "/libs/utils.luac",
+				Hash: "sha256:def456",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid config with imports",
+			config: BytecodeLibraryConfig{
+				FS:   "app:bytecode",
+				Path: "/libs/utils.luac",
+				Hash: "sha256:def456",
+				Imports: map[string]registry.ID{
+					"helper": {Name: "helper-lib"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "missing fs",
+			config: BytecodeLibraryConfig{
+				Path: "/libs/utils.luac",
+				Hash: "sha256:def456",
+			},
+			wantErr: true,
+			errMsg:  "fs is required",
+		},
+		{
+			name: "missing path",
+			config: BytecodeLibraryConfig{
+				FS:   "app:bytecode",
+				Hash: "sha256:def456",
+			},
+			wantErr: true,
+			errMsg:  "path is required",
+		},
+		{
+			name: "missing hash",
+			config: BytecodeLibraryConfig{
+				FS:   "app:bytecode",
+				Path: "/libs/utils.luac",
+			},
+			wantErr: true,
+			errMsg:  "hash is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestBytecodeProcessConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  BytecodeProcessConfig
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid config",
+			config: BytecodeProcessConfig{
+				FS:     "app:bytecode",
+				Path:   "/processes/worker.luac",
+				Hash:   "sha256:ghi789",
+				Method: "run",
+			},
+			wantErr: false,
+		},
+		{
+			name: "missing fs",
+			config: BytecodeProcessConfig{
+				Path:   "/processes/worker.luac",
+				Hash:   "sha256:ghi789",
+				Method: "run",
+			},
+			wantErr: true,
+			errMsg:  "fs is required",
+		},
+		{
+			name: "missing method",
+			config: BytecodeProcessConfig{
+				FS:   "app:bytecode",
+				Path: "/processes/worker.luac",
+				Hash: "sha256:ghi789",
+			},
+			wantErr: true,
+			errMsg:  "method is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestBytecodeWorkflowConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  BytecodeWorkflowConfig
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid config",
+			config: BytecodeWorkflowConfig{
+				FS:     "app:bytecode",
+				Path:   "/workflows/order.luac",
+				Hash:   "sha256:jkl012",
+				Method: "execute",
+			},
+			wantErr: false,
+		},
+		{
+			name: "missing method",
+			config: BytecodeWorkflowConfig{
+				FS:   "app:bytecode",
+				Path: "/workflows/order.luac",
+				Hash: "sha256:jkl012",
+			},
+			wantErr: true,
+			errMsg:  "method is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestBytecodeBteaConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  BytecodeBteaConfig
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid config",
+			config: BytecodeBteaConfig{
+				FS:     "app:bytecode",
+				Path:   "/apps/terminal.luac",
+				Hash:   "sha256:mno345",
+				Method: "init",
+			},
+			wantErr: false,
+		},
+		{
+			name: "missing method",
+			config: BytecodeBteaConfig{
+				FS:   "app:bytecode",
+				Path: "/apps/terminal.luac",
+				Hash: "sha256:mno345",
+			},
+			wantErr: true,
+			errMsg:  "method is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}

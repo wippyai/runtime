@@ -1,8 +1,6 @@
 package consumer
 
 import (
-	"fmt"
-
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/supervisor"
 )
@@ -35,25 +33,25 @@ type Config struct {
 // Validate validates the consumer configuration and sets defaults
 func (c *Config) Validate() error {
 	if c.Queue.Name == "" {
-		return fmt.Errorf("queue ID is required")
+		return ErrQueueIDRequired
 	}
 
 	if c.Func.Name == "" {
-		return fmt.Errorf("function ID is required")
+		return ErrFunctionIDRequired
 	}
 
 	if c.Concurrency <= 0 {
 		c.Concurrency = DefaultConcurrency
 	}
 	if c.Concurrency > MaxConcurrency {
-		return fmt.Errorf("concurrency %d exceeds maximum %d", c.Concurrency, MaxConcurrency)
+		return NewConcurrencyExceededError(c.Concurrency, MaxConcurrency)
 	}
 
 	if c.Prefetch <= 0 {
 		c.Prefetch = DefaultPrefetch
 	}
 	if c.Prefetch > MaxPrefetch {
-		return fmt.Errorf("prefetch %d exceeds maximum %d", c.Prefetch, MaxPrefetch)
+		return NewPrefetchExceededError(c.Prefetch, MaxPrefetch)
 	}
 
 	return nil

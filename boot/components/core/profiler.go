@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/boot"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	logapi "github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/wasm-runtime/engine"
 	"go.uber.org/zap"
 )
 
@@ -30,7 +30,7 @@ func Profiler() boot.Component {
 	return boot.New(boot.P{
 		Name: ProfilerName,
 		Load: func(ctx context.Context) (context.Context, error) {
-			logger = logapi.GetLogger(ctx)
+			logger = logapi.GetLogger(ctx).Named("pprof")
 			return ctx, nil
 		},
 		Start: func(ctx context.Context) error {
@@ -60,14 +60,26 @@ func Profiler() boot.Component {
 				runtime.GC()
 				var m runtime.MemStats
 				runtime.ReadMemStats(&m)
-				fmt.Fprintf(w, "GC done. HeapAlloc=%dMB HeapObjects=%d LiveFrames=%d\n",
-					m.HeapAlloc/1024/1024, m.HeapObjects, ctxapi.LiveFrameContexts())
+				fmt.Fprintf(w, "GC done. HeapAlloc=%dMB HeapObjects=%d\n",
+					m.HeapAlloc/1024/1024, m.HeapObjects)
 			})
 			mux.HandleFunc("/debug/stats", func(w httpbase.ResponseWriter, r *httpbase.Request) {
 				var m runtime.MemStats
 				runtime.ReadMemStats(&m)
-				fmt.Fprintf(w, "HeapAlloc=%dMB HeapObjects=%d LiveFrames=%d\n",
-					m.HeapAlloc/1024/1024, m.HeapObjects, ctxapi.LiveFrameContexts())
+				fmt.Fprintf(w, "HeapAlloc=%dMB HeapObjects=%d\n",
+					m.HeapAlloc/1024/1024, m.HeapObjects)
+			})
+			mux.HandleFunc("/debug/wazevo", func(w httpbase.ResponseWriter, r *httpbase.Request) {
+				compiles, deletes, cacheHits, mapSize := engine.GetWazevoStats()
+				linkerCompiled, linkerClosed, linkersCreated, linkersClosed := engine.GetLinkerStats()
+				fmt.Fprintf(w, "wazevo_compiles=%d\n", compiles)
+				fmt.Fprintf(w, "wazevo_deletes=%d\n", deletes)
+				fmt.Fprintf(w, "wazevo_cache_hits=%d\n", cacheHits)
+				fmt.Fprintf(w, "wazevo_map_size=%d\n", mapSize)
+				fmt.Fprintf(w, "linker_modules_compiled=%d\n", linkerCompiled)
+				fmt.Fprintf(w, "linker_modules_closed=%d\n", linkerClosed)
+				fmt.Fprintf(w, "linkers_created=%d\n", linkersCreated)
+				fmt.Fprintf(w, "linkers_closed=%d\n", linkersClosed)
 			})
 
 			server = &httpbase.Server{

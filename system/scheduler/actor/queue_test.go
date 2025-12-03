@@ -26,7 +26,7 @@ func TestQueuePushPop(t *testing.T) {
 
 	// Push 5 items
 	for i := 0; i < 5; i++ {
-		q.Push(&Processor{ID: uint64(i)})
+		q.Push(&Processor{id: uint64(i)})
 	}
 
 	if q.Len() != 5 {
@@ -39,8 +39,8 @@ func TestQueuePushPop(t *testing.T) {
 		if p == nil {
 			t.Fatalf("unexpected nil at position %d", i)
 		}
-		if p.ID != uint64(i) {
-			t.Fatalf("expected ID %d, got %d", i, p.ID)
+		if p.ID() != uint64(i) {
+			t.Fatalf("expected ID %d, got %d", i, p.ID())
 		}
 	}
 
@@ -58,7 +58,7 @@ func TestQueuePopN(t *testing.T) {
 	q := NewQueue(32)
 
 	for i := 0; i < 10; i++ {
-		q.Push(&Processor{ID: uint64(i)})
+		q.Push(&Processor{id: uint64(i)})
 	}
 
 	buf := make([]*Processor, 4)
@@ -70,8 +70,8 @@ func TestQueuePopN(t *testing.T) {
 
 	// Should be FIFO
 	for i := 0; i < n; i++ {
-		if buf[i].ID != uint64(i) {
-			t.Fatalf("buf[%d] expected ID %d, got %d", i, i, buf[i].ID)
+		if buf[i].ID() != uint64(i) {
+			t.Fatalf("buf[%d] expected ID %d, got %d", i, i, buf[i].ID())
 		}
 	}
 
@@ -84,7 +84,7 @@ func TestQueuePopNMoreThanAvailable(t *testing.T) {
 	q := NewQueue(16)
 
 	for i := 0; i < 3; i++ {
-		q.Push(&Processor{ID: uint64(i)})
+		q.Push(&Processor{id: uint64(i)})
 	}
 
 	buf := make([]*Processor, 10)
@@ -104,7 +104,7 @@ func TestQueueGrow(t *testing.T) {
 
 	// Push more than initial capacity
 	for i := 0; i < 50; i++ {
-		q.Push(&Processor{ID: uint64(i)})
+		q.Push(&Processor{id: uint64(i)})
 	}
 
 	if q.Len() != 50 {
@@ -114,7 +114,7 @@ func TestQueueGrow(t *testing.T) {
 	// Verify all items in FIFO order
 	for i := 0; i < 50; i++ {
 		p := q.Pop()
-		if p == nil || p.ID != uint64(i) {
+		if p == nil || p.ID() != uint64(i) {
 			t.Fatalf("expected ID %d, got %v", i, p)
 		}
 	}
@@ -126,12 +126,12 @@ func TestQueueWrapAround(t *testing.T) {
 	// Push and pop to move head/tail
 	for round := 0; round < 5; round++ {
 		for i := 0; i < 10; i++ {
-			q.Push(&Processor{ID: uint64(round*10 + i)})
+			q.Push(&Processor{id: uint64(round*10 + i)})
 		}
 		for i := 0; i < 10; i++ {
 			p := q.Pop()
-			if p.ID != uint64(round*10+i) {
-				t.Fatalf("round %d, expected ID %d, got %d", round, round*10+i, p.ID)
+			if p.ID() != uint64(round*10+i) {
+				t.Fatalf("round %d, expected ID %d, got %d", round, round*10+i, p.ID())
 			}
 		}
 	}
@@ -144,7 +144,7 @@ func TestQueueIsEmpty(t *testing.T) {
 		t.Fatal("new queue should be empty")
 	}
 
-	q.Push(&Processor{ID: 1})
+	q.Push(&Processor{id: 1})
 	if q.IsEmpty() {
 		t.Fatal("queue with item should not be empty")
 	}
@@ -170,7 +170,7 @@ func TestQueueConcurrentPushPop(t *testing.T) {
 		go func(base int) {
 			defer wg.Done()
 			for j := 0; j < numOps/4; j++ {
-				q.Push(&Processor{ID: uint64(base*numOps + j)})
+				q.Push(&Processor{id: uint64(base*numOps + j)})
 				pushed.Add(1)
 			}
 		}(i)
@@ -210,7 +210,7 @@ func TestQueueConcurrentPopN(t *testing.T) {
 
 	const numItems = 1000
 	for i := 0; i < numItems; i++ {
-		q.Push(&Processor{ID: uint64(i)})
+		q.Push(&Processor{id: uint64(i)})
 	}
 
 	var popped atomic.Int64
@@ -247,7 +247,7 @@ func TestQueueNoDataRace(t *testing.T) {
 	// Writer
 	go func() {
 		for i := 0; i < 10000; i++ {
-			q.Push(&Processor{ID: uint64(i)})
+			q.Push(&Processor{id: uint64(i)})
 		}
 		close(done)
 	}()
@@ -284,13 +284,13 @@ func TestQueueZeroAllocPushPop(t *testing.T) {
 
 	// Pre-warm
 	for i := 0; i < 32; i++ {
-		q.Push(&Processor{ID: uint64(i)})
+		q.Push(&Processor{id: uint64(i)})
 	}
 	for i := 0; i < 32; i++ {
 		q.Pop()
 	}
 
-	p := &Processor{ID: 999}
+	p := &Processor{id: 999}
 	allocs := testing.AllocsPerRun(1000, func() {
 		q.Push(p)
 		q.Pop()
@@ -304,7 +304,7 @@ func TestQueueZeroAllocPushPop(t *testing.T) {
 func TestQueueZeroAllocPopN(t *testing.T) {
 	q := NewQueue(64)
 	buf := make([]*Processor, 8)
-	p := &Processor{ID: 1}
+	p := &Processor{id: 1}
 
 	// Pre-fill
 	for i := 0; i < 32; i++ {
@@ -328,7 +328,7 @@ func TestQueueZeroAllocPopN(t *testing.T) {
 
 func BenchmarkQueuePush(b *testing.B) {
 	q := NewQueue(1024)
-	p := &Processor{ID: 1}
+	p := &Processor{id: 1}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -338,7 +338,7 @@ func BenchmarkQueuePush(b *testing.B) {
 
 func BenchmarkQueuePop(b *testing.B) {
 	q := NewQueue(1024)
-	p := &Processor{ID: 1}
+	p := &Processor{id: 1}
 
 	// Fill
 	for i := 0; i < 512; i++ {
@@ -358,7 +358,7 @@ func BenchmarkQueuePop(b *testing.B) {
 
 func BenchmarkQueuePushPop(b *testing.B) {
 	q := NewQueue(64)
-	p := &Processor{ID: 1}
+	p := &Processor{id: 1}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -369,7 +369,7 @@ func BenchmarkQueuePushPop(b *testing.B) {
 
 func BenchmarkQueuePopN(b *testing.B) {
 	q := NewQueue(256)
-	p := &Processor{ID: 1}
+	p := &Processor{id: 1}
 	buf := make([]*Processor, 16)
 
 	// Fill
@@ -389,7 +389,7 @@ func BenchmarkQueuePopN(b *testing.B) {
 
 func BenchmarkQueueConcurrentPushPop(b *testing.B) {
 	q := NewQueue(1024)
-	p := &Processor{ID: 1}
+	p := &Processor{id: 1}
 
 	// Pre-fill
 	for i := 0; i < 512; i++ {

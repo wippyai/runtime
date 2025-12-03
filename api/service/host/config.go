@@ -2,7 +2,6 @@
 package host
 
 import (
-	"fmt"
 	"runtime"
 
 	"github.com/wippyai/runtime/api/registry"
@@ -60,15 +59,15 @@ func (cfg *EntryConfig) Validate() error {
 	c := cfg.HostConfig
 
 	if c.Workers <= 0 {
-		return fmt.Errorf("workers must be greater than 0")
+		return ErrInvalidWorkers
 	}
 
 	if c.QueueSize <= 0 {
-		return fmt.Errorf("queue_size must be greater than 0")
+		return ErrInvalidQueueSize
 	}
 
 	if c.LocalQueueSize <= 0 {
-		return fmt.Errorf("local_queue_size must be greater than 0")
+		return ErrInvalidLocalQueueSize
 	}
 
 	return nil

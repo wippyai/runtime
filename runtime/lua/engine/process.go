@@ -11,7 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/resource"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	scheduler "github.com/wippyai/runtime/system/scheduler/actor"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -129,7 +129,7 @@ type HandledYield interface {
 
 // ConvertYieldToCommand attempts to convert a Lua yield value to a scheduler command.
 func ConvertYieldToCommand(value lua.LValue) dispatcher.Command {
-	if converter, ok := value.(lua2api.YieldConverter); ok {
+	if converter, ok := value.(luaapi.YieldConverter); ok {
 		return converter.ToCommand()
 	}
 	return nil
@@ -204,6 +204,12 @@ type Process struct {
 	pendingYieldsBuf [4]*Task
 	pendingYields    []*Task
 
+	// externalTasks reusable slice for non-channel tasks in processChannelYields
+	externalTasks []*Task
+
+	// outTasks reusable slice for output tasks in processSubscribeYields
+	outTasks []*Task
+
 	// exported caches method functions extracted from module table
 	exported map[string]*lua.LFunction
 }
@@ -226,6 +232,8 @@ func NewProcess(opts ...ProcessOption) *Process {
 	tmp.threads = make([]*Task, 0, 4)
 	tmp.queue = NewTaskQueue()
 	tmp.yieldBuf = make([]*Task, 0, 4)
+	tmp.externalTasks = make([]*Task, 0, 8)
+	tmp.outTasks = make([]*Task, 0, 8)
 	tmp.state = tmp.factory.CreateState()
 
 	return tmp
@@ -262,7 +270,7 @@ func (p *Process) Execute(ctx context.Context, method string, input payload.Payl
 	// Create and store ProcessContext for request-specific state
 	pc := acquireProcessContext()
 	if err := setProcessContext(ctx, pc); err != nil {
-		ReleaseProcessContext(pc)
+		_ = pc.Close()
 		return NewStoreProcessContextError(err)
 	}
 
@@ -505,7 +513,7 @@ func (p *Process) processChannelYields() ([]*Task, error) {
 
 	channelQueue := pc.ChannelQueue()
 	channels := pc.Channels()
-	externalTasks := make([]*Task, 0)
+	p.externalTasks = p.externalTasks[:0]
 
 	// Transfer tasks from process queue to channel queue on first call
 	for _, task := range p.queue.Drain() {
@@ -536,7 +544,7 @@ func (p *Process) processChannelYields() ([]*Task, error) {
 			value := task.Yielded[len(task.Yielded)-1]
 			result, ok := value.(*ChannelResult)
 			if !ok {
-				externalTasks = append(externalTasks, task)
+				p.externalTasks = append(p.externalTasks, task)
 				continue
 			}
 
@@ -554,7 +562,7 @@ func (p *Process) processChannelYields() ([]*Task, error) {
 					t, err := p.GetTask(upd.State)
 					if err != nil {
 						ReleaseResult(result)
-						return nil, fmt.Errorf("task not found for channel result: %w", err)
+						return nil, NewTaskNotFoundForChannelError(err)
 					}
 
 					if upd.Error != nil {
@@ -571,7 +579,7 @@ func (p *Process) processChannelYields() ([]*Task, error) {
 		}
 	}
 
-	return externalTasks, nil
+	return p.externalTasks, nil
 }
 
 // updateChannelRefs handles reference counting for channels.
@@ -631,10 +639,10 @@ func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, error) {
 	}
 
 	// Handle subscribe/unsubscribe yields from incoming tasks
-	var outTasks []*Task
+	p.outTasks = p.outTasks[:0]
 	for _, task := range tasks {
 		if len(task.Yielded) == 0 {
-			outTasks = append(outTasks, task)
+			p.outTasks = append(p.outTasks, task)
 			continue
 		}
 
@@ -665,10 +673,10 @@ func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, error) {
 			continue
 		}
 
-		outTasks = append(outTasks, task)
+		p.outTasks = append(p.outTasks, task)
 	}
 
-	return outTasks, nil
+	return p.outTasks, nil
 }
 
 // messageToLua converts a relay.Message to Lua value.
@@ -707,10 +715,14 @@ func (p *Process) vmStep(tasks ...*Task) ([]*Task, error) {
 			continue
 		}
 
-		state, err, values := p.state.ResumeInto(task.Thread(), task.Function(), task.retBuf, task.Resumed...)
+		thread := task.Thread()
+		state, err, values := p.state.ResumeInto(thread, task.Function(), task.retBuf, task.Resumed...)
 		if err != nil {
+			// Wrap error BEFORE removing task - removeTask closes the thread
+			// which returns it to pool, causing race if another goroutine reuses it
+			wrapped := p.wrapError(thread, err)
 			p.removeTask(task)
-			return nil, p.wrapError(task.Thread(), err)
+			return nil, wrapped
 		}
 
 		task.State = state
@@ -805,19 +817,10 @@ func (p *Process) yieldToCommand(task *Task) dispatcher.Command {
 }
 
 // Close releases all process resources.
-// Called by scheduler when process completes.
+// Called by scheduler when process completes or pool shuts down.
+// Note: Per-execution resources (Store, ProcessContext) are automatically
+// released when FrameContext is released - they implement ctxapi.Closer.
 func (p *Process) Close() {
-	if p.ctx != nil {
-		// Close resource store
-		if store := resource.GetStore(p.ctx); store != nil {
-			store.Close()
-		}
-		// Release ProcessContext back to pool
-		if pc := GetProcessContext(p.ctx); pc != nil {
-			ReleaseProcessContext(pc)
-		}
-	}
-
 	// Close all threads
 	for _, task := range p.threads {
 		task.Close()
@@ -911,7 +914,7 @@ func (p *Process) resumeTaskWithResult(task *Task, data any, err error) {
 			if hy, ok := lastYield.(HandledYield); ok {
 				task.Resumed = hy.HandleResult(p.state, data, err)
 				// Release the yield object now that the handler is done
-				if releasable, ok := lastYield.(lua2api.Releasable); ok {
+				if releasable, ok := lastYield.(luaapi.Releasable); ok {
 					releasable.Release()
 				}
 			} else if luaVals, ok := data.([]lua.LValue); ok {

@@ -1,7 +1,6 @@
 package interpolate
 
 import (
-	"fmt"
 	"io/fs"
 	"path/filepath"
 	"strings"
@@ -42,7 +41,7 @@ func LoadFile(s string, ctx interface{}) (string, error) {
 	}
 
 	if filePath == "" {
-		return s, fmt.Errorf("empty file path in file:// URL")
+		return s, ErrEmptyFilePath
 	}
 
 	var cleanPath string
@@ -50,7 +49,7 @@ func LoadFile(s string, ctx interface{}) (string, error) {
 	if isRelative {
 		// For relative paths, resolve relative to the current config file's directory
 		if rCtx.Filename == "" {
-			return s, fmt.Errorf("cannot resolve relative file path without context filename")
+			return s, NewRelativePathWithoutContextError()
 		}
 
 		// Get directory of current config file
@@ -75,18 +74,18 @@ func LoadFile(s string, ctx interface{}) (string, error) {
 	// Security check: ensure the cleaned path doesn't try to escape the FS root
 	// This is particularly important for relative paths
 	if strings.HasPrefix(cleanPath, "../") || cleanPath == ".." || strings.Contains(cleanPath, "/../") {
-		return s, fmt.Errorf("path traversal detected in file path: %s", filePath)
+		return s, NewPathTraversalError(filePath)
 	}
 
 	// Validate that the path is not empty after cleaning
 	if cleanPath == "" || cleanPath == "." {
-		return s, fmt.Errorf("invalid file path: %s", filePath)
+		return s, NewInvalidFilePathError(filePath)
 	}
 
 	// Read the file using the provided filesystem
 	content, err := fs.ReadFile(rCtx.FS, cleanPath)
 	if err != nil {
-		return s, fmt.Errorf("failed to read file %s: %w", cleanPath, err)
+		return s, NewReadFileError(cleanPath, err)
 	}
 
 	return string(content), nil

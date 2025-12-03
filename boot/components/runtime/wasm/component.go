@@ -2,7 +2,6 @@ package wasm
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
@@ -14,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/boot/components/dispatchers"
 	"github.com/wippyai/runtime/boot/components/system"
 	"github.com/wippyai/runtime/runtime/wasm/component/component"
+	"github.com/wippyai/runtime/runtime/wasm/transport"
 	reghandler "github.com/wippyai/runtime/system/registry/events"
 )
 
@@ -29,22 +29,38 @@ func Component() boot.Component {
 			logger := logapi.GetLogger(ctx)
 			bus := event.GetBus(ctx)
 			handlers := bootpkg.GetHandlerRegistry(ctx)
+			cfg := boot.GetConfig(ctx)
 
 			disp := dispatcherapi.GetDispatcher(ctx)
 			if disp == nil {
-				return ctx, fmt.Errorf("dispatcher not found in context")
+				return ctx, ErrDispatcherNotFound
 			}
 
 			fsReg := fsapi.GetRegistry(ctx)
 			if fsReg == nil {
-				return ctx, fmt.Errorf("filesystem registry not found in context")
+				return ctx, ErrFilesystemNotFound
 			}
 
-			manager = component.NewManager(
+			// Get WASM config with defaults
+			wasmCfg := component.DefaultConfig()
+			if cfg != nil {
+				wasmSub := cfg.Sub("wasm")
+				if wasmSub != nil {
+					wasmCfg.StrictMode = wasmSub.GetBool("strict_mode", wasmCfg.StrictMode)
+				}
+			}
+
+			// Create transport registry and register built-in transports
+			transports := wasmapi.NewTransportRegistry()
+			transports.Register(transport.NewWASIHTTPTransport())
+
+			manager = component.NewManagerWithConfig(
 				logger.Named("wasm.component"),
 				bus,
 				disp,
 				fsReg,
+				transports,
+				wasmCfg,
 			)
 
 			handlers.Register(reghandler.NewRegistryHandler(wasmapi.KindComponentFunction, manager))

@@ -51,7 +51,7 @@ func newMockScope(allowActions []string, allowHosts []string) *mockScope {
 	}
 	return &mockScope{
 		policies: []security.Policy{&mockPolicy{
-			id:           registry.ID{NS: "test", Name: "policy"},
+			id:           registry.NewID("test", "policy"),
 			allowActions: actionMap,
 			allowHosts:   hostMap,
 		}},

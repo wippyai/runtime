@@ -2,7 +2,6 @@ package native
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/wippyai/runtime/api/event"
@@ -57,29 +56,25 @@ func (m *Manager) RegisterFactory(factory ExecutorFactoryAPI) {
 
 // Add implements registry.EntryListener for native executors only
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	// Only handle native executors
 	if entry.Kind != exec.KindNativeExecutor {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return NewUnsupportedEntryKindError(string(entry.Kind))
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check if executor already exists
 	if _, exists := m.executors[entry.ID]; exists {
-		return fmt.Errorf("executor %s already exists", entry.ID)
+		return NewExecutorAlreadyExistsError(entry.ID.String())
 	}
 
-	// Decode the configuration
 	cfg, err := entryutil.DecodeEntryConfig[exec.NativeExecutorConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return fmt.Errorf("failed to decode configuration: %w", err)
+		return NewConfigDecodeError(err)
 	}
 
-	// Create executor using factory
 	executor, err := m.factory.CreateExecutor(entry.ID, cfg)
 	if err != nil {
-		return fmt.Errorf("failed to create executor: %w", err)
+		return NewExecutorCreateError(err)
 	}
 
 	// Create resource provider
@@ -109,28 +104,25 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update implements registry.EntryListener
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != exec.KindNativeExecutor {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return NewUnsupportedEntryKindError(string(entry.Kind))
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check if executor exists
 	oldProvider, exists := m.executors[entry.ID]
 	if !exists {
-		return fmt.Errorf("executor %s not found", entry.ID)
+		return NewExecutorNotFoundError(entry.ID.String())
 	}
 
-	// Decode the configuration
 	cfg, err := entryutil.DecodeEntryConfig[exec.NativeExecutorConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return fmt.Errorf("failed to decode configuration: %w", err)
+		return NewConfigDecodeError(err)
 	}
 
-	// Create executor using factory
 	executor, err := m.factory.CreateExecutor(entry.ID, cfg)
 	if err != nil {
-		return fmt.Errorf("failed to create executor: %w", err)
+		return NewExecutorCreateError(err)
 	}
 
 	// Create resource provider
@@ -167,16 +159,15 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete implements registry.EntryListener
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != exec.KindNativeExecutor {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return NewUnsupportedEntryKindError(string(entry.Kind))
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check if executor exists
 	provider, exists := m.executors[entry.ID]
 	if !exists {
-		return fmt.Errorf("executor %s not found", entry.ID)
+		return NewExecutorNotFoundError(entry.ID.String())
 	}
 
 	// Close provider

@@ -1,8 +1,6 @@
 package version
 
 import (
-	"errors"
-	"fmt"
 	"reflect"
 	"testing"
 
@@ -151,7 +149,7 @@ func TestVersionMap(t *testing.T) {
 			from:        v2,
 			to:          v1,
 			expected:    nil,
-			expectError: fmt.Errorf("version %v not found", v2.ID()),
+			expectError: NewVersionNotFoundError(v2.ID()),
 		},
 		{
 			name: "To version not found",
@@ -161,7 +159,7 @@ func TestVersionMap(t *testing.T) {
 			from:        v1,
 			to:          v2,
 			expected:    nil,
-			expectError: fmt.Errorf("version %v not found", v2.ID()),
+			expectError: NewVersionNotFoundError(v2.ID()),
 		},
 		{
 			name: "No path exists",
@@ -172,7 +170,7 @@ func TestVersionMap(t *testing.T) {
 			from:        v1,
 			to:          New(2),
 			expected:    nil,
-			expectError: errors.New("no path exists from v1 to v2"),
+			expectError: NewNoPathError(v1, New(2)),
 		},
 		{
 			name: "AddCleanup and Spawn version",
@@ -191,7 +189,7 @@ func TestVersionMap(t *testing.T) {
 			from:        v1,
 			to:          v1,
 			expected:    nil,
-			expectError: fmt.Errorf("version %v not found", v1.ID()),
+			expectError: NewVersionNotFoundError(v1.ID()),
 		},
 		{
 			name: "Len of empty version map",

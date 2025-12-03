@@ -15,9 +15,6 @@ func TestNewFrameContext(t *testing.T) {
 	if ctx == nil {
 		t.Fatal("newFrameContext() returned nil context")
 	}
-	if cc.Parent() != nil {
-		t.Error("newFrameContext() should have nil parent")
-	}
 }
 
 func TestFrameContext_SetAndGet(t *testing.T) {

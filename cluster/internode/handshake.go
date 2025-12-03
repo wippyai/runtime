@@ -1,7 +1,6 @@
 package internode
 
 import (
-	"fmt"
 	"io"
 	"net"
 	"time"
@@ -16,7 +15,7 @@ const maxNodeIDLength = 255 // Maximum length for a node ID.
 // The prefix is a single byte representing the length of the data.
 func writePrefixedBytes(w io.Writer, data []byte) error {
 	if len(data) > maxNodeIDLength {
-		return fmt.Errorf("data size %d exceeds max %d", len(data), maxNodeIDLength)
+		return ErrDataSizeExceedsMax
 	}
 	if _, err := w.Write([]byte{byte(len(data))}); err != nil {
 		return err
@@ -38,7 +37,7 @@ func readPrefixedBytes(r io.Reader, maxSize int) ([]byte, error) {
 
 	length := int(lengthByte[0])
 	if length > maxSize {
-		return nil, fmt.Errorf("advertised size %d exceeds max %d", length, maxSize)
+		return nil, ErrAdvertisedSizeExceedsMax
 	}
 	if length == 0 {
 		return []byte{}, nil
@@ -57,27 +56,27 @@ func readPrefixedBytes(r io.Reader, maxSize int) ([]byte, error) {
 func PerformClientHandshake(conn net.Conn, config NodeConnectionConfig, logger *zap.Logger, selfID, expectedRemoteNodeID cluster.NodeID) (*NodeConnection, error) {
 	if err := conn.SetDeadline(time.Now().Add(config.HandshakeTimeout)); err != nil {
 		_ = conn.Close()
-		return nil, &ConnectionError{Reason: ExitNetworkError, Err: fmt.Errorf("failed to set deadline: %w", err)}
+		return nil, &ConnectionError{Reason: ExitNetworkError, Err: NewSetDeadlineError(err)}
 	}
 
 	// 1. Client writes its Node ID
 	if err := writePrefixedBytes(conn, []byte(selfID)); err != nil {
 		_ = conn.Close()
-		return nil, &ConnectionError{Reason: ExitNetworkError, Err: fmt.Errorf("failed to write self node ID: %w", err)}
+		return nil, &ConnectionError{Reason: ExitNetworkError, Err: NewWriteNodeIDError(err)}
 	}
 
 	// 2. Client reads the server's Node ID
 	serverIDBytes, err := readPrefixedBytes(conn, maxNodeIDLength)
 	if err != nil {
 		_ = conn.Close()
-		return nil, &ConnectionError{Reason: ExitNetworkError, Err: fmt.Errorf("failed to read remote node ID: %w", err)}
+		return nil, &ConnectionError{Reason: ExitNetworkError, Err: NewReadNodeIDError(err)}
 	}
 
 	// 3. Client verifies the server's Node ID
 	remoteNodeID := cluster.NodeID(serverIDBytes)
 	if remoteNodeID != expectedRemoteNodeID {
 		_ = conn.Close()
-		err := fmt.Errorf("expected remote node ID '%s' but got '%s'", expectedRemoteNodeID, remoteNodeID)
+		err := NewNodeIDMismatchError(string(expectedRemoteNodeID), string(remoteNodeID))
 		return nil, &ConnectionError{Reason: ExitProtocolError, Err: err}
 	}
 
@@ -91,21 +90,21 @@ func PerformClientHandshake(conn net.Conn, config NodeConnectionConfig, logger *
 func PerformServerHandshake(conn net.Conn, config NodeConnectionConfig, logger *zap.Logger, selfID cluster.NodeID) (*NodeConnection, error) {
 	if err := conn.SetDeadline(time.Now().Add(config.HandshakeTimeout)); err != nil {
 		_ = conn.Close()
-		return nil, &ConnectionError{Reason: ExitNetworkError, Err: fmt.Errorf("failed to set deadline: %w", err)}
+		return nil, &ConnectionError{Reason: ExitNetworkError, Err: NewSetDeadlineError(err)}
 	}
 
 	// 1. Server reads the client's Node ID
 	clientIDBytes, err := readPrefixedBytes(conn, maxNodeIDLength)
 	if err != nil {
 		_ = conn.Close()
-		return nil, &ConnectionError{Reason: ExitNetworkError, Err: fmt.Errorf("failed to read client node ID: %w", err)}
+		return nil, &ConnectionError{Reason: ExitNetworkError, Err: NewReadNodeIDError(err)}
 	}
 	remoteNodeID := cluster.NodeID(clientIDBytes)
 
 	// 2. Server writes its own Node ID
 	if err := writePrefixedBytes(conn, []byte(selfID)); err != nil {
 		_ = conn.Close()
-		return nil, &ConnectionError{Reason: ExitNetworkError, Err: fmt.Errorf("failed to write self node ID: %w", err)}
+		return nil, &ConnectionError{Reason: ExitNetworkError, Err: NewWriteNodeIDError(err)}
 	}
 
 	// Handshake successful, clear deadline and return connection object

@@ -49,7 +49,7 @@ func TestDefaultFactory_CreateConditionPolicy(t *testing.T) {
 	}
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "policy1"},
+		ID:   registry.NewID("test", "policy1"),
 		Kind: policyapi.Kind,
 		Data: payload.New(config),
 	}
@@ -60,7 +60,7 @@ func TestDefaultFactory_CreateConditionPolicy(t *testing.T) {
 	assert.NotNil(t, policyEntry.Policy)
 	assert.Equal(t, entry.ID, policyEntry.Policy.ID())
 	assert.Len(t, policyEntry.Groups, 1)
-	assert.Equal(t, registry.ID{NS: "test", Name: "admin"}, policyEntry.Groups[0])
+	assert.Equal(t, registry.NewID("test", "admin"), policyEntry.Groups[0])
 }
 
 func TestDefaultFactory_CreateExprPolicy(t *testing.T) {
@@ -79,7 +79,7 @@ func TestDefaultFactory_CreateExprPolicy(t *testing.T) {
 	}
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "expr1"},
+		ID:   registry.NewID("test", "expr1"),
 		Kind: policyapi.ExprKind,
 		Data: payload.New(config),
 	}
@@ -90,7 +90,7 @@ func TestDefaultFactory_CreateExprPolicy(t *testing.T) {
 	assert.NotNil(t, policyEntry.Policy)
 	assert.Equal(t, entry.ID, policyEntry.Policy.ID())
 	assert.Len(t, policyEntry.Groups, 1)
-	assert.Equal(t, registry.ID{NS: "test", Name: "user"}, policyEntry.Groups[0])
+	assert.Equal(t, registry.NewID("test", "user"), policyEntry.Groups[0])
 }
 
 func TestDefaultFactory_UnsupportedKind(t *testing.T) {
@@ -99,7 +99,7 @@ func TestDefaultFactory_UnsupportedKind(t *testing.T) {
 	factory := NewDefaultFactory(dtt)
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "other"},
+		ID:   registry.NewID("test", "other"),
 		Kind: "unsupported.kind",
 		Data: payload.New(map[string]any{}),
 	}
@@ -124,7 +124,7 @@ func TestDefaultFactory_InvalidConditionPolicyConfig(t *testing.T) {
 	}
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "invalid"},
+		ID:   registry.NewID("test", "invalid"),
 		Kind: policyapi.Kind,
 		Data: payload.New(config),
 	}
@@ -149,7 +149,7 @@ func TestDefaultFactory_InvalidExprPolicyConfig(t *testing.T) {
 	}
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "invalid-expr"},
+		ID:   registry.NewID("test", "invalid-expr"),
 		Kind: policyapi.ExprKind,
 		Data: payload.New(config),
 	}
@@ -175,7 +175,7 @@ func TestDefaultFactory_MultipleGroups(t *testing.T) {
 	}
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "multi-group"},
+		ID:   registry.NewID("test", "multi-group"),
 		Kind: policyapi.Kind,
 		Data: payload.New(config),
 	}
@@ -184,7 +184,7 @@ func TestDefaultFactory_MultipleGroups(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, policyEntry)
 	assert.Len(t, policyEntry.Groups, 3)
-	assert.Equal(t, registry.ID{NS: "test", Name: "admin"}, policyEntry.Groups[0])
-	assert.Equal(t, registry.ID{NS: "test", Name: "moderator"}, policyEntry.Groups[1])
-	assert.Equal(t, registry.ID{NS: "test", Name: "user"}, policyEntry.Groups[2])
+	assert.Equal(t, registry.NewID("test", "admin"), policyEntry.Groups[0])
+	assert.Equal(t, registry.NewID("test", "moderator"), policyEntry.Groups[1])
+	assert.Equal(t, registry.NewID("test", "user"), policyEntry.Groups[2])
 }

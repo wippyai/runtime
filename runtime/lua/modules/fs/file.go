@@ -3,7 +3,6 @@ package fs
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	basefs "io/fs"
 	"sync"
@@ -48,7 +47,7 @@ func (f *File) Read(p []byte) (int, error) {
 	defer f.mu.Unlock()
 
 	if f.closed {
-		return 0, fmt.Errorf("file already closed")
+		return 0, ErrFileAlreadyClosed
 	}
 
 	n, err := f.file.Read(p)
@@ -57,9 +56,9 @@ func (f *File) Read(p []byte) (int, error) {
 			return n, err
 		}
 		if errors.Is(err, basefs.ErrClosed) {
-			return n, fmt.Errorf("file already closed")
+			return n, ErrFileAlreadyClosed
 		}
-		return n, fmt.Errorf("failed to read: %w", err)
+		return n, NewReadError(err)
 	}
 	return n, nil
 }
@@ -69,12 +68,12 @@ func (f *File) Write(p []byte) (int, error) {
 	defer f.mu.Unlock()
 
 	if f.closed {
-		return 0, fmt.Errorf("file already closed")
+		return 0, ErrFileAlreadyClosed
 	}
 
 	n, err := f.file.Write(p)
 	if err != nil {
-		return n, fmt.Errorf("failed to write: %w", err)
+		return n, NewWriteError(err)
 	}
 	return n, nil
 }
@@ -84,12 +83,12 @@ func (f *File) Seek(offset int64, whence int) (int64, error) {
 	defer f.mu.Unlock()
 
 	if f.closed {
-		return 0, fmt.Errorf("file already closed")
+		return 0, ErrFileAlreadyClosed
 	}
 
 	pos, err := f.file.Seek(offset, whence)
 	if err != nil {
-		return pos, fmt.Errorf("failed to seek: %w", err)
+		return pos, NewSeekError(err)
 	}
 	return pos, nil
 }
@@ -99,12 +98,12 @@ func (f *File) Stat() (basefs.FileInfo, error) {
 	defer f.mu.Unlock()
 
 	if f.closed {
-		return nil, fmt.Errorf("file already closed")
+		return nil, ErrFileAlreadyClosed
 	}
 
 	info, err := f.file.Stat()
 	if err != nil {
-		return nil, fmt.Errorf("failed to stat: %w", err)
+		return nil, NewStatError(err)
 	}
 	return info, nil
 }
@@ -114,11 +113,11 @@ func (f *File) Sync() error {
 	defer f.mu.Unlock()
 
 	if f.closed {
-		return fmt.Errorf("file already closed")
+		return ErrFileAlreadyClosed
 	}
 
 	if err := f.file.Sync(); err != nil {
-		return fmt.Errorf("failed to sync: %w", err)
+		return NewSyncError(err)
 	}
 	return nil
 }

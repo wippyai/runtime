@@ -9,7 +9,6 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	templateapi "github.com/wippyai/runtime/api/service/template"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -22,7 +21,7 @@ const templateSetTypeName = "template.Set"
 
 var (
 	moduleTable          *lua.LTable
-	registration         *lua2api.Registration
+	registration         *luaapi.Registration
 	templateSetMetatable *lua.LTable
 	initOnce             sync.Once
 )
@@ -40,7 +39,7 @@ func (m *templateModule) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *templateModule) Register(l *lua.LState) *lua2api.Registration {
+func (m *templateModule) Register(l *lua.LState) *luaapi.Registration {
 	initOnce.Do(func() {
 		mod := lua.CreateTable(0, 1)
 		mod.RawSetString("get", lua.LGoFunc(templateGet))
@@ -51,7 +50,7 @@ func (m *templateModule) Register(l *lua.LState) *lua2api.Registration {
 			map[string]lua.LGFunction{"__tostring": templateSetToString},
 			templateSetMethods)
 
-		registration = &lua2api.Registration{
+		registration = &luaapi.Registration{
 			Table:      moduleTable,
 			YieldTypes: nil,
 		}
@@ -66,9 +65,9 @@ func (m *templateModule) Loader(l *lua.LState) int {
 	return 1
 }
 
-// Bind is deprecated. Use lua2api.LoadModule(l, Module) instead.
+// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
 func Bind(l *lua.LState) {
-	lua2api.LoadModule(l, Module)
+	luaapi.LoadModule(l, Module)
 }
 
 // TemplateSet wraps jet.Set with cleanup tracking.

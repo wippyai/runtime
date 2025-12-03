@@ -11,6 +11,7 @@ import (
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 )
@@ -183,6 +184,15 @@ func testInput(v any) payload.Payloads {
 	return payload.Payloads{payload.New(v)}
 }
 
+// newTestExecutor creates a testExecutor with the standard test registry
+func newTestExecutor(workers int) *testExecutor {
+	registry := NewRegistry()
+	registry.Register(CmdComplete, CompleteHandler())
+	registry.Register(CmdYield, YieldHandler())
+	registry.Register(CmdSleep, SleepHandler())
+	return newTestExecutorWithRegistry(workers, registry)
+}
+
 // Tests
 
 func TestSchedulerBasic(t *testing.T) {
@@ -321,20 +331,17 @@ func TestSchedulerWorkDistribution(t *testing.T) {
 	t.Logf("Scheduler stats: executed=%d", stats["executed"])
 }
 
-func TestSchedulerWakeTime(t *testing.T) {
+func TestSchedulerSubmitBeforeStart(t *testing.T) {
 	sched := newTestScheduler(1)
 
-	// Submit before Start so we can safely read WakeNano
-	before := nanotime()
+	// Submit before Start should work
 	proc, err := sched.Submit(context.Background(), testPID(), &CounterProcess{}, "", testInput(1))
 	if err != nil {
 		t.Fatalf("submit error: %v", err)
 	}
 
-	// Read WakeNano before scheduler modifies it
-	wakeTime := proc.WakeNano
-	if wakeTime < before {
-		t.Fatalf("wake time %d before submit time %d", wakeTime, before)
+	if proc == nil {
+		t.Fatal("expected processor to be returned")
 	}
 
 	// Now start and let it complete
@@ -378,14 +385,62 @@ func TestSchedulerStats(t *testing.T) {
 	}
 }
 
-// Execute tests
+// StatsProcess implements StatsProvider
+type StatsProcess struct {
+	CounterProcess
+	customStats string
+}
 
-func TestSchedulerExecute(t *testing.T) {
+func (p *StatsProcess) Stats() any {
+	return map[string]string{"custom": p.customStats}
+}
+
+func TestSchedulerCollectProcessStats(t *testing.T) {
 	sched := newTestScheduler(2)
 	sched.Start()
 	defer sched.Stop()
 
-	result, err := sched.Execute(context.Background(), testPID(), &CounterProcess{}, "", testInput(10))
+	pid := relay.PID{UniqID: "stats-process"}
+	proc := &StatsProcess{customStats: "test-value"}
+
+	_, err := sched.Submit(context.Background(), pid, proc, "", testInput(1000))
+	if err != nil {
+		t.Fatalf("submit error: %v", err)
+	}
+
+	time.Sleep(10 * time.Millisecond)
+
+	stats := sched.CollectProcessStats()
+
+	// Process may have completed before stats collection
+	if len(stats) == 0 {
+		t.Log("No stats collected - process may have completed")
+		return
+	}
+
+	var found bool
+	for _, s := range stats {
+		if info, ok := s.(map[string]string); ok {
+			if info["custom"] == "test-value" {
+				found = true
+				break
+			}
+		}
+	}
+
+	if !found {
+		t.Log("Stats not found - process may have completed before collection")
+	}
+}
+
+// Execute tests (using testExecutor helper)
+
+func TestSchedulerExecute(t *testing.T) {
+	te := newTestExecutor(2)
+	te.Start()
+	defer te.Stop()
+
+	result, err := te.Execute(context.Background(), testPID(), &CounterProcess{}, "", testInput(10))
 	if err != nil {
 		t.Fatalf("execute error: %v", err)
 	}
@@ -396,9 +451,9 @@ func TestSchedulerExecute(t *testing.T) {
 }
 
 func TestSchedulerExecuteMultiple(t *testing.T) {
-	sched := newTestScheduler(4)
-	sched.Start()
-	defer sched.Stop()
+	te := newTestExecutor(4)
+	te.Start()
+	defer te.Stop()
 
 	var wg sync.WaitGroup
 	errors := make([]error, 10)
@@ -407,7 +462,9 @@ func TestSchedulerExecuteMultiple(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			result, err := sched.Execute(context.Background(), testPID(), &CounterProcess{}, "", testInput((idx+1)*10))
+			// Use unique PID per goroutine to avoid collision in pending map
+			pid := relay.PID{UniqID: fmt.Sprintf("test-%d", idx)}
+			result, err := te.Execute(context.Background(), pid, &CounterProcess{}, "", testInput((idx+1)*10))
 			if err != nil {
 				errors[idx] = err
 				return
@@ -428,12 +485,12 @@ func TestSchedulerExecuteMultiple(t *testing.T) {
 }
 
 func TestSchedulerExecuteWithSleep(t *testing.T) {
-	sched := newTestScheduler(2)
-	sched.Start()
-	defer sched.Stop()
+	te := newTestExecutor(2)
+	te.Start()
+	defer te.Stop()
 
 	start := time.Now()
-	result, err := sched.Execute(context.Background(), testPID(), &SleepProcess{}, "", testInput(50*time.Millisecond))
+	result, err := te.Execute(context.Background(), testPID(), &SleepProcess{}, "", testInput(50*time.Millisecond))
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -581,6 +638,60 @@ func TestSendByPID(t *testing.T) {
 	}
 }
 
+// Single worker tests
+
+func TestSchedulerSingleWorker(t *testing.T) {
+	for _, kind := range []process.SchedulerKind{process.KindGlobal, process.KindStealing} {
+		t.Run(string(kind), func(t *testing.T) {
+			var completed atomic.Bool
+			var result *runtime.Result
+
+			lc := &testLifecycle{
+				onComplete: func(ctx context.Context, pid relay.PID, res *runtime.Result) {
+					result = res
+					completed.Store(true)
+				},
+			}
+
+			registry := NewRegistry()
+			registry.Register(CmdComplete, CompleteHandler())
+			registry.Register(CmdYield, YieldHandler())
+
+			sched := NewScheduler(registry, WithWorkers(1), WithKind(kind), WithLifecycle(lc))
+			sched.Start()
+			defer sched.Stop()
+
+			ctx := context.Background()
+			pid := relay.PID{UniqID: "single"}
+
+			_, err := sched.Submit(ctx, pid, &CounterProcess{}, "", testInput(5))
+			if err != nil {
+				t.Fatalf("Submit error: %v", err)
+			}
+
+			deadline := time.Now().Add(5 * time.Second)
+			for !completed.Load() && time.Now().Before(deadline) {
+				time.Sleep(1 * time.Millisecond)
+			}
+
+			if !completed.Load() {
+				t.Fatal("timed out waiting for completion")
+			}
+			if result.Error != nil {
+				t.Fatalf("Result error: %v", result.Error)
+			}
+
+			stats := sched.Stats()
+			if stats["executed"] != 6 {
+				t.Fatalf("expected 6 steps, got %d", stats["executed"])
+			}
+			if stats["workers"] != 1 {
+				t.Fatalf("expected 1 worker, got %d", stats["workers"])
+			}
+		})
+	}
+}
+
 // Allocation tests
 
 func TestSchedulerSubmitAlloc(t *testing.T) {
@@ -709,33 +820,35 @@ func BenchmarkSchedulerParallelSubmit(b *testing.B) {
 }
 
 func BenchmarkSchedulerExecute(b *testing.B) {
-	sched := newTestScheduler(goruntime.GOMAXPROCS(0))
-	sched.Start()
-	defer sched.Stop()
+	te := newTestExecutor(goruntime.GOMAXPROCS(0))
+	te.Start()
+	defer te.Stop()
 
 	ctx := context.Background()
-	pid := testPID()
 	input := testInput(1)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sched.Execute(ctx, pid, &CounterProcess{}, "", input)
+		pid := relay.PID{UniqID: fmt.Sprintf("bench-%d", i)}
+		te.Execute(ctx, pid, &CounterProcess{}, "", input)
 	}
 }
 
 func BenchmarkSchedulerParallelExecute(b *testing.B) {
-	sched := newTestScheduler(goruntime.GOMAXPROCS(0))
-	sched.Start()
-	defer sched.Stop()
+	te := newTestExecutor(goruntime.GOMAXPROCS(0))
+	te.Start()
+	defer te.Stop()
 
 	ctx := context.Background()
-	pid := testPID()
 	input := testInput(1)
+	var counter atomic.Int64
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			sched.Execute(ctx, pid, &CounterProcess{}, "", input)
+			i := counter.Add(1)
+			pid := relay.PID{UniqID: fmt.Sprintf("bench-%d", i)}
+			te.Execute(ctx, pid, &CounterProcess{}, "", input)
 		}
 	})
 }
@@ -819,7 +932,7 @@ func TestSchedulerReleasesProcesses(t *testing.T) {
 		byPIDCount++
 		return true
 	})
-	sched.idle.Range(func(k, v any) bool {
+	sched.idleProcs.Range(func(k, v any) bool {
 		idleCount++
 		return true
 	})

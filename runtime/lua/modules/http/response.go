@@ -62,6 +62,7 @@ func responseSetStatus(l *lua.LState) int {
 	}
 	code := l.CheckInt(2)
 	res.writer.WriteHeader(code)
+	res.rCtx.MarkHandled()
 	return 0
 }
 

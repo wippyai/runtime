@@ -3,7 +3,7 @@ package wsrelay
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"fmt" // Note: fmt kept for Sprintf in logging
 	"net/http"
 	"strings"
 
@@ -97,42 +97,42 @@ type wsDeps struct {
 func extractDeps(r *http.Request) (*wsDeps, error) {
 	fc := contextapi.FrameFromContext(r.Context())
 	if fc == nil {
-		return nil, fmt.Errorf("FrameContext not found")
+		return nil, ErrFrameContextNotFound
 	}
 
 	hostVal, ok := fc.Get(httpapi.ServerCtxKey())
 	if !ok {
-		return nil, fmt.Errorf("HTTP server host not found in context")
+		return nil, ErrServerHostNotFound
 	}
 
 	relayHost, ok := hostVal.(relay.AttachableHost)
 	if !ok {
-		return nil, fmt.Errorf("host does not support attachment: %T", hostVal)
+		return nil, NewHostAttachmentError(fmt.Sprintf("%T", hostVal))
 	}
 
 	node := relay.GetNode(r.Context())
 	if node == nil {
-		return nil, fmt.Errorf("Node not found in context")
+		return nil, ErrNodeNotFound
 	}
 
 	transcoder := payload.GetTranscoder(r.Context())
 	if transcoder == nil {
-		return nil, fmt.Errorf("Transcoder not found in context")
+		return nil, ErrTranscoderNotFound
 	}
 
 	topo := topology.GetTopology(r.Context())
 	if topo == nil {
-		return nil, fmt.Errorf("Topology not found in context")
+		return nil, ErrTopologyNotFound
 	}
 
 	serverIDVal, ok := fc.Get(httpapi.ServerIDCtxKey())
 	if !ok {
-		return nil, fmt.Errorf("Server ID not found in context")
+		return nil, ErrServerIDNotFound
 	}
 
 	serverID, ok := serverIDVal.(registry.ID)
 	if !ok || serverID.String() == "" {
-		return nil, fmt.Errorf("invalid server ID in context")
+		return nil, ErrInvalidServerID
 	}
 
 	return &wsDeps{

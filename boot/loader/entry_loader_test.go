@@ -731,8 +731,8 @@ func assertEntriesEqual(t *testing.T, got, want []registry.Entry) {
 	}
 
 	for i := range got {
-		// Check ID
-		if !reflect.DeepEqual(got[i].ID, want[i].ID) {
+		// Check ID (compare NS and Name only, ignore cached str field)
+		if got[i].ID.NS != want[i].ID.NS || got[i].ID.Name != want[i].ID.Name {
 			t.Errorf("Entry[%d].ID = %v, want %v", i, got[i].ID, want[i].ID)
 		}
 

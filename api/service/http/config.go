@@ -137,21 +137,21 @@ func (c *TimeoutConfig) UnmarshalJSON(data []byte) error {
 	if aux.ReadTimeout != "" {
 		c.ReadTimeout, err = time.ParseDuration(aux.ReadTimeout)
 		if err != nil {
-			return fmt.Errorf("invalid ReadTimeout duration format: %w", err)
+			return NewInvalidDurationError("ReadTimeout", err)
 		}
 	}
 
 	if aux.WriteTimeout != "" {
 		c.WriteTimeout, err = time.ParseDuration(aux.WriteTimeout)
 		if err != nil {
-			return fmt.Errorf("invalid WriteTimeout duration format: %w", err)
+			return NewInvalidDurationError("WriteTimeout", err)
 		}
 	}
 
 	if aux.IdleTimeout != "" {
 		c.IdleTimeout, err = time.ParseDuration(aux.IdleTimeout)
 		if err != nil {
-			return fmt.Errorf("invalid IdleTimeout duration format: %w", err)
+			return NewInvalidDurationError("IdleTimeout", err)
 		}
 	}
 
@@ -161,29 +161,27 @@ func (c *TimeoutConfig) UnmarshalJSON(data []byte) error {
 // Validate checks if the server configuration is valid
 func (c *ServerConfig) Validate() error {
 	if c.Addr == "" {
-		return fmt.Errorf("server address cannot be empty")
+		return ErrEmptyAddr
 	}
 
-	// Validate timeouts
 	if err := c.Timeouts.Validate(); err != nil {
-		return fmt.Errorf("invalid timeout configuration: %w", err)
+		return NewInvalidTimeoutConfigError(err)
 	}
 
-	// Validate lifecycle config
 	if c.Lifecycle.StartTimeout < 0 {
-		return fmt.Errorf("start timeout must be positive or zero (default)")
+		return NewInvalidTimeoutError("start timeout")
 	}
 
 	if c.Lifecycle.StopTimeout < 0 {
-		return fmt.Errorf("stop timeout must be positive or zero (default)")
+		return NewInvalidTimeoutError("stop timeout")
 	}
 
 	if c.Host.BufferSize < 0 {
-		return fmt.Errorf("host buffer size must be positive or zero (default)")
+		return NewNegativeConfigError("buffer size")
 	}
 
 	if c.Host.WorkerCount < 0 {
-		return fmt.Errorf("host worker count must be positive or zero (default)")
+		return NewNegativeConfigError("worker count")
 	}
 
 	return nil
@@ -192,13 +190,13 @@ func (c *ServerConfig) Validate() error {
 // Validate checks if the timeout configuration is valid
 func (c *TimeoutConfig) Validate() error {
 	if c.ReadTimeout < 0 {
-		return fmt.Errorf("read timeout must be positive or zero (default)")
+		return NewInvalidTimeoutError("read timeout")
 	}
 	if c.WriteTimeout < 0 {
-		return fmt.Errorf("write timeout must be positive or zero (default)")
+		return NewInvalidTimeoutError("write timeout")
 	}
 	if c.IdleTimeout < 0 {
-		return fmt.Errorf("idle timeout must be positive or zero (default)")
+		return NewInvalidTimeoutError("idle timeout")
 	}
 	return nil
 }
@@ -206,12 +204,12 @@ func (c *TimeoutConfig) Validate() error {
 // Validate checks if the router configuration is valid
 func (c *RouterConfig) Validate() error {
 	if c.Meta == nil {
-		return fmt.Errorf("metadata cannot be nil")
+		return ErrNilMetadata
 	}
 
 	serverID := c.Meta.GetString(ServerID, "")
 	if serverID == "" {
-		return fmt.Errorf("server in metadata cannot be empty")
+		return NewMissingMetadataError("server")
 	}
 
 	return nil
@@ -220,38 +218,35 @@ func (c *RouterConfig) Validate() error {
 // Validate checks if the endpoint configuration is valid
 func (c *EndpointConfig) Validate() error {
 	if c.Func.Name == "" {
-		return fmt.Errorf("func name cannot be empty")
+		return ErrEmptyFuncName
 	}
 
 	if c.Path == "" {
-		return fmt.Errorf("endpoint path cannot be empty")
+		return ErrEmptyPath
 	}
 
 	if !strings.HasPrefix(c.Path, "/") {
-		return fmt.Errorf("endpoint path must start with /")
+		return NewPathMustStartWithSlashError()
 	}
 
 	if c.Method == "" {
-		return fmt.Errorf("endpoint method cannot be empty")
+		return ErrEmptyMethod
 	}
 
-	// Validate HTTP method
 	switch c.Method {
 	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete,
 		http.MethodPatch, http.MethodHead, http.MethodOptions, http.MethodTrace:
-		// Valid HTTP methods
 	default:
-		return fmt.Errorf("invalid HTTP method: %s", c.Method)
+		return NewInvalidHTTPMethodError(c.Method)
 	}
 
 	if c.Meta == nil {
-		return fmt.Errorf("metadata cannot be nil")
+		return ErrNilMetadata
 	}
 
-	// Verify required metadata
 	routerID := c.Meta.GetString(RouterID, "")
 	if routerID == "" {
-		return fmt.Errorf("router in metadata cannot be empty")
+		return NewMissingMetadataError("router")
 	}
 
 	return nil
@@ -260,21 +255,20 @@ func (c *EndpointConfig) Validate() error {
 // Validate checks if the endpoint configuration is valid
 func (c *StaticConfig) Validate() error {
 	if c.Path == "" {
-		return fmt.Errorf("endpoint path cannot be empty")
+		return ErrEmptyPath
 	}
 
 	if !strings.HasPrefix(c.Path, "/") {
-		return fmt.Errorf("endpoint path must start with /")
+		return NewPathMustStartWithSlashError()
 	}
 
 	if c.Meta == nil {
-		return fmt.Errorf("metadata cannot be nil")
+		return ErrNilMetadata
 	}
 
-	// Verify required metadata
 	serverID := c.Meta.GetString(ServerID, "")
 	if serverID == "" {
-		return fmt.Errorf("server in metadata cannot be empty")
+		return NewMissingMetadataError("server")
 	}
 
 	return nil
@@ -342,11 +336,15 @@ func (c *StaticConfig) UnmarshalJSON(data []byte) error {
 				if strVal, ok := val.(string); ok {
 					c.Options[key] = strVal
 				} else {
-					c.Options[key] = fmt.Sprintf("%v", val)
+					c.Options[key] = anyToString(val)
 				}
 			}
 		}
 	}
 
 	return nil
+}
+
+func anyToString(val any) string {
+	return fmt.Sprintf("%v", val)
 }

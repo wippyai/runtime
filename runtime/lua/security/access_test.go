@@ -117,7 +117,7 @@ func TestIsAllowed_WithCompleteContext_Allow(t *testing.T) {
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	_ = secapi.SetActor(ctx, actor)
 
-	policy := newMockPolicy(registry.ID{NS: "test", Name: "policy"})
+	policy := newMockPolicy(registry.NewID("test", "policy"))
 	policy.Allow("read", "test-resource")
 
 	scope := newMockScope()
@@ -141,7 +141,7 @@ func TestIsAllowed_WithCompleteContext_Deny(t *testing.T) {
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	_ = secapi.SetActor(ctx, actor)
 
-	policy := newMockPolicy(registry.ID{NS: "test", Name: "policy"})
+	policy := newMockPolicy(registry.NewID("test", "policy"))
 	policy.Deny("read", "test-resource")
 
 	scope := newMockScope()
@@ -166,11 +166,11 @@ func TestIsAllowed_WithCompleteContext_MultiplePolicies(t *testing.T) {
 	_ = secapi.SetActor(ctx, actor)
 
 	// First policy denies
-	policy1 := newMockPolicy(registry.ID{NS: "test", Name: "policy-1"})
+	policy1 := newMockPolicy(registry.NewID("test", "policy-1"))
 	policy1.Deny("read", "test-resource")
 
 	// Second policy allows
-	policy2 := newMockPolicy(registry.ID{NS: "test", Name: "policy-2"})
+	policy2 := newMockPolicy(registry.NewID("test", "policy-2"))
 	policy2.Allow("read", "test-resource")
 
 	scope := newMockScope()
@@ -195,7 +195,7 @@ func TestIsAllowed_WithCompleteContext_WithMetadata(t *testing.T) {
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	_ = secapi.SetActor(ctx, actor)
 
-	policy := newMockPolicy(registry.ID{NS: "test", Name: "policy"})
+	policy := newMockPolicy(registry.NewID("test", "policy"))
 	policy.Allow("read", "test-resource")
 
 	scope := newMockScope()
@@ -217,7 +217,7 @@ func TestIsAllowed_WithoutActor_NonStrictMode(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 	ctx = logs.WithLogger(ctx, logger)
 
-	policy := newMockPolicy(registry.ID{NS: "test", Name: "policy"})
+	policy := newMockPolicy(registry.NewID("test", "policy"))
 	scope := newMockScope()
 	scope.AddPolicy(policy)
 	_ = secapi.SetScope(ctx, scope)
@@ -269,7 +269,7 @@ func TestIsAllowed_WithEmptyActionAndResource(t *testing.T) {
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	_ = secapi.SetActor(ctx, actor)
 
-	policy := newMockPolicy(registry.ID{NS: "test", Name: "policy"})
+	policy := newMockPolicy(registry.NewID("test", "policy"))
 	policy.Allow("", "")
 
 	scope := newMockScope()
@@ -293,7 +293,7 @@ func TestIsAllowed_WithComplexMetadata(t *testing.T) {
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	_ = secapi.SetActor(ctx, actor)
 
-	policy := newMockPolicy(registry.ID{NS: "test", Name: "policy"})
+	policy := newMockPolicy(registry.NewID("test", "policy"))
 	policy.Allow("read", "test-resource")
 
 	scope := newMockScope()
@@ -326,7 +326,7 @@ func TestIsAllowed_ConcurrentAccess(t *testing.T) {
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	_ = secapi.SetActor(ctx, actor)
 
-	policy := newMockPolicy(registry.ID{NS: "test", Name: "policy"})
+	policy := newMockPolicy(registry.NewID("test", "policy"))
 	policy.Allow("read", "test-resource")
 
 	scope := newMockScope()

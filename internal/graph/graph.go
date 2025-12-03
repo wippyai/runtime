@@ -51,7 +51,7 @@ func (g *Graph[T, E]) RemoveNode(n T) error {
 	defer g.mu.Unlock()
 
 	if !g.nodes[n] {
-		return fmt.Errorf("node %v does not exist", n)
+		return NewNodeDoesNotExistError(n)
 	}
 
 	delete(g.nodes, n)
@@ -101,19 +101,19 @@ func (g *Graph[T, E]) RemoveEdge(from, to T) error {
 	defer g.mu.Unlock()
 
 	if !g.nodes[from] {
-		return fmt.Errorf("source node %v does not exist", from)
+		return NewNodeDoesNotExistError(from)
 	}
 	if !g.nodes[to] {
-		return fmt.Errorf("destination node %v does not exist", to)
+		return NewNodeDoesNotExistError(to)
 	}
 
 	edges, exists := g.edges[from]
 	if !exists {
-		return fmt.Errorf("no edges exist from node %v", from)
+		return NewNoEdgesFromNodeError(from)
 	}
 
 	if _, hasEdge := edges[to]; !hasEdge {
-		return fmt.Errorf("edge from %v to %v does not exist", from, to)
+		return NewEdgeDoesNotExistError(from, to)
 	}
 
 	delete(g.edges[from], to)
@@ -165,7 +165,7 @@ func (g *Graph[T, E]) GetNeighbors(n T) ([]T, error) {
 	defer g.mu.RUnlock()
 
 	if !g.nodes[n] {
-		return nil, fmt.Errorf("node %v does not exist", n)
+		return nil, NewNodeDoesNotExistError(n)
 	}
 
 	edges, exists := g.edges[n]
@@ -262,7 +262,7 @@ func (g *Graph[T, E]) DependencyLevels() (*DependencyLevels[T], error) {
 
 		if !foundNodes && len(inDegree) > 0 {
 			if cycle, found := g.findCycle(); found {
-				return nil, fmt.Errorf("cycle detected: %v", cycle)
+				return nil, NewCycleDetectedError(cycle)
 			}
 
 			// Build detailed error with stuck nodes and their dependencies
@@ -288,7 +288,7 @@ func (g *Graph[T, E]) DependencyLevels() (*DependencyLevels[T], error) {
 				depsInfo = append(depsInfo, fmt.Sprintf("%v (degree=%d, depends on: %v)", node, inDegree[node], deps))
 			}
 
-			return nil, fmt.Errorf("cycle detected but could not identify path - stuck nodes: %s", depsInfo)
+			return nil, NewCycleDetectedWithStuckNodesError(fmt.Sprintf("%v", depsInfo))
 		}
 
 		for _, node := range currentLevel {
@@ -317,10 +317,10 @@ func (g *Graph[T, E]) ShortestPath(from, to T) (*Path[T], error) {
 	defer g.mu.RUnlock()
 
 	if !g.HasNode(from) {
-		return nil, fmt.Errorf("start node %v does not exist", from)
+		return nil, NewNodeDoesNotExistError(from)
 	}
 	if !g.HasNode(to) {
-		return nil, fmt.Errorf("end node %v does not exist", to)
+		return nil, NewNodeDoesNotExistError(to)
 	}
 
 	distances := make(map[T]int)
@@ -359,7 +359,7 @@ func (g *Graph[T, E]) ShortestPath(from, to T) (*Path[T], error) {
 	}
 
 	if distances[to] == -1 {
-		return nil, fmt.Errorf("no path exists from %v to %v", from, to)
+		return nil, NewNoPathExistsError(from, to)
 	}
 
 	path := &Path[T]{

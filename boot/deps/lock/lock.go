@@ -1,7 +1,6 @@
 package lock
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -21,7 +20,7 @@ type Lock struct {
 func New(path string) (*Lock, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
-		return nil, fmt.Errorf("resolve absolute path: %w", err)
+		return nil, NewResolveAbsolutePathError(err)
 	}
 
 	lock := &Lock{
@@ -38,10 +37,10 @@ func New(path string) (*Lock, error) {
 
 	if _, err := os.Stat(absPath); err == nil {
 		if err := lock.Read(); err != nil {
-			return nil, fmt.Errorf("read lock file: %w", err)
+			return nil, NewReadLockFileError(err)
 		}
 	} else if !os.IsNotExist(err) {
-		return nil, fmt.Errorf("stat lock file: %w", err)
+		return nil, NewStatLockFileError(err)
 	}
 
 	return lock, nil
@@ -51,11 +50,11 @@ func New(path string) (*Lock, error) {
 func (l *Lock) Read() error {
 	data, err := os.ReadFile(l.path)
 	if err != nil {
-		return fmt.Errorf("read file: %w", err)
+		return NewReadFileError(err)
 	}
 
 	if err := yaml.Unmarshal(data, &l.data); err != nil {
-		return fmt.Errorf("unmarshal yaml: %w", err)
+		return NewUnmarshalYAMLError(err)
 	}
 
 	return nil
@@ -70,11 +69,11 @@ func (l *Lock) Write() error {
 
 	data, err := yaml.Marshal(&l.data)
 	if err != nil {
-		return fmt.Errorf("marshal yaml: %w", err)
+		return NewMarshalYAMLError(err)
 	}
 
 	if err := os.WriteFile(l.path, data, 0600); err != nil {
-		return fmt.Errorf("write file: %w", err)
+		return NewWriteFileError(err)
 	}
 
 	return nil

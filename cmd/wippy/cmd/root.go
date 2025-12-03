@@ -1,6 +1,10 @@
 package cmd
 
 import (
+	"os"
+	"runtime/debug"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -15,8 +19,11 @@ var (
 	eventStreams bool
 	profiler     bool
 	configFile   string
+	memoryLimit  string
 	appStartTime = time.Now()
 )
+
+const defaultMemoryLimit = 1 << 30 // 1GB
 
 var rootCmd = &cobra.Command{
 	Use:           "wippy",
@@ -47,4 +54,101 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&silentLogs, "silent", "s", false, "disable console logging entirely")
 	rootCmd.PersistentFlags().BoolVarP(&eventStreams, "event-streams", "e", false, "stream logs to event bus instead of console")
 	rootCmd.PersistentFlags().BoolVarP(&profiler, "profiler", "p", false, "enable pprof profiler on localhost:6060")
+	rootCmd.PersistentFlags().StringVarP(&memoryLimit, "memory-limit", "m", "", "set memory limit (e.g., 1G, 512M, 2048M). Default: 1G if GOMEMLIMIT not set")
+}
+
+// initMemoryLimit sets the Go runtime memory limit.
+// Priority: --memory-limit flag > GOMEMLIMIT env > default 1GB
+func initMemoryLimit() int64 {
+	// If flag is provided, use it
+	if memoryLimit != "" {
+		limit, err := parseMemorySize(memoryLimit)
+		if err == nil && limit > 0 {
+			debug.SetMemoryLimit(limit)
+			return limit
+		}
+	}
+
+	// Check GOMEMLIMIT env var (Go respects this automatically, but we check for logging)
+	if envLimit := os.Getenv("GOMEMLIMIT"); envLimit != "" {
+		limit, err := parseMemorySize(envLimit)
+		if err == nil && limit > 0 {
+			return limit
+		}
+	}
+
+	// Apply default 1GB
+	debug.SetMemoryLimit(defaultMemoryLimit)
+	return defaultMemoryLimit
+}
+
+// parseMemorySize parses memory size strings like "1G", "512M", "1024K", "1073741824"
+func parseMemorySize(s string) (int64, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, nil
+	}
+
+	// Check for suffix
+	multiplier := int64(1)
+	lastChar := s[len(s)-1]
+
+	switch lastChar {
+	case 'K', 'k':
+		multiplier = 1 << 10
+		s = s[:len(s)-1]
+	case 'M', 'm':
+		multiplier = 1 << 20
+		s = s[:len(s)-1]
+	case 'G', 'g':
+		multiplier = 1 << 30
+		s = s[:len(s)-1]
+	case 'T', 't':
+		multiplier = 1 << 40
+		s = s[:len(s)-1]
+	case 'B', 'b':
+		// Handle "1GB", "512MB" style
+		if len(s) >= 2 {
+			switch s[len(s)-2] {
+			case 'K', 'k':
+				multiplier = 1 << 10
+				s = s[:len(s)-2]
+			case 'M', 'm':
+				multiplier = 1 << 20
+				s = s[:len(s)-2]
+			case 'G', 'g':
+				multiplier = 1 << 30
+				s = s[:len(s)-2]
+			case 'T', 't':
+				multiplier = 1 << 40
+				s = s[:len(s)-2]
+			default:
+				s = s[:len(s)-1]
+			}
+		} else {
+			s = s[:len(s)-1]
+		}
+	}
+
+	s = strings.TrimSpace(s)
+	val, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+
+	return val * multiplier, nil
+}
+
+// formatBytes formats bytes into human-readable format
+func formatBytes(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return strconv.FormatInt(b, 10) + "B"
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return strconv.FormatFloat(float64(b)/float64(div), 'f', 1, 64) + string("KMGTPE"[exp]) + "B"
 }

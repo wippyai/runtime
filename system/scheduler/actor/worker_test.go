@@ -27,7 +27,7 @@ func TestWorkerExecuteSimple(t *testing.T) {
 	p.Execute(context.Background(), "", testInput(1))
 
 	proc := &Processor{
-		ID:        1,
+		id:        1,
 		Process:   p,
 		State:     StateReady,
 		scheduler: sched,
@@ -35,9 +35,10 @@ func TestWorkerExecuteSimple(t *testing.T) {
 
 	worker.executeOne(proc)
 
-	// Should have stepped once
-	if proc.StepCount != 1 {
-		t.Fatalf("expected 1 step, got %d", proc.StepCount)
+	// After executeOne with sync handler (YieldHandler calls Emit immediately),
+	// state should be StateReady (re-queued for next step)
+	if proc.State != StateReady {
+		t.Fatalf("expected StateReady after sync handler, got %v", proc.State)
 	}
 }
 
@@ -59,8 +60,8 @@ func TestWorkerExecuteToCompletion(t *testing.T) {
 	p.Execute(context.Background(), "", testInput(1))
 
 	proc := &Processor{
-		ID:        1,
-		PID:       testPID(),
+		id:        1,
+		pid:       testPID(),
 		Process:   p,
 		State:     StateReady,
 		scheduler: sched,
@@ -86,9 +87,11 @@ func TestWorkerExecuteToCompletion(t *testing.T) {
 
 func TestWorkerExecuteWithBlocking(t *testing.T) {
 	var completed atomic.Bool
+	var finalResult *runtime.Result
 
 	lc := &testLifecycle{
 		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+			finalResult = result
 			completed.Store(true)
 		},
 	}
@@ -97,14 +100,24 @@ func TestWorkerExecuteWithBlocking(t *testing.T) {
 	sched.Start()
 	defer sched.Stop()
 
-	// Use Execute to wait for async handler
-	result, err := sched.Execute(context.Background(), testPID(), &SleepProcess{}, "", testInput(10*time.Millisecond))
+	// Use Submit and wait for completion via lifecycle
+	_, err := sched.Submit(context.Background(), testPID(), &SleepProcess{}, "", testInput(10*time.Millisecond))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if result.Error != nil {
-		t.Fatalf("unexpected result error: %v", result.Error)
+	// Wait for completion
+	deadline := time.Now().Add(5 * time.Second)
+	for !completed.Load() && time.Now().Before(deadline) {
+		time.Sleep(1 * time.Millisecond)
+	}
+
+	if !completed.Load() {
+		t.Fatal("timed out waiting for completion")
+	}
+
+	if finalResult.Error != nil {
+		t.Fatalf("unexpected result error: %v", finalResult.Error)
 	}
 }
 
@@ -159,8 +172,8 @@ func TestWorkerUnknownCommand(t *testing.T) {
 	p.Execute(context.Background(), "", testInput(1))
 
 	proc := &Processor{
-		ID:        1,
-		PID:       testPID(),
+		id:        1,
+		pid:       testPID(),
 		Process:   p,
 		State:     StateReady,
 		scheduler: sched,
@@ -189,7 +202,7 @@ func BenchmarkWorkerExecute(b *testing.B) {
 		p.Execute(context.Background(), "", testInput(0))
 
 		proc := &Processor{
-			ID:        uint64(i),
+			id:        uint64(i),
 			Process:   p,
 			State:     StateReady,
 			scheduler: sched,

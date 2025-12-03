@@ -9,7 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/internal/version"
-	"github.com/wippyai/runtime/system/registry/history"
+	historymem "github.com/wippyai/runtime/system/registry/history/memory"
 	"github.com/wippyai/runtime/system/registry/topology"
 	"go.uber.org/zap"
 )
@@ -18,7 +18,7 @@ func TestRollbackToV0(t *testing.T) {
 	ctx := context.Background()
 	logger := zap.NewNop()
 
-	hist := history.NewMemory()
+	hist := historymem.New()
 	runner := &MockRunner{
 		RunFunc: func(state registry.State, changes registry.ChangeSet) (registry.State, error) {
 			stateMap := make(map[registry.ID]registry.Entry, len(state))
@@ -47,7 +47,7 @@ func TestRollbackToV0(t *testing.T) {
 
 	baseline := registry.State{
 		{
-			ID:   registry.ID{NS: "base", Name: "config"},
+			ID:   registry.NewID("base", "config"),
 			Kind: "config",
 			Data: payload.NewString("baseline"),
 		},
@@ -56,7 +56,7 @@ func TestRollbackToV0(t *testing.T) {
 	err := reg.LoadState(ctx, baseline, version.FromParent(nil, 0))
 	require.NoError(t, err)
 
-	entryID := registry.ID{NS: "test", Name: "entry1"}
+	entryID := registry.NewID("test", "entry1")
 
 	v1, err := reg.Apply(ctx, registry.ChangeSet{
 		{Kind: registry.Create, Entry: registry.Entry{

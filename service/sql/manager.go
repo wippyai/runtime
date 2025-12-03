@@ -2,7 +2,6 @@ package sql
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"sync"
 
@@ -49,13 +48,13 @@ func NewManagerWithFactory(
 	factory PoolFactoryAPI,
 ) (*Manager, error) {
 	if dtt == nil {
-		return nil, fmt.Errorf("transcoder is required")
+		return nil, ErrTranscoderRequired
 	}
 	if bus == nil {
-		return nil, fmt.Errorf("event bus is required")
+		return nil, ErrEventBusRequired
 	}
 	if factory == nil {
-		return nil, fmt.Errorf("pool factory is required")
+		return nil, ErrPoolFactoryRequired
 	}
 
 	return &Manager{
@@ -79,7 +78,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	case config.KindSQLite:
 		return m.handleSQLiteAdd(ctx, entry)
 	default:
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return NewUnsupportedEntryKindError(entry.Kind)
 	}
 }
 
@@ -94,7 +93,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	case config.KindSQLite:
 		return m.handleSQLiteUpdate(ctx, entry)
 	default:
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return NewUnsupportedEntryKindError(entry.Kind)
 	}
 }
 
@@ -108,7 +107,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 
 func (m *Manager) handleStandardDBAdd(ctx context.Context, entry registry.Entry) error {
 	if _, exists := m.services[entry.ID]; exists {
-		return fmt.Errorf("service %s already exists", entry.ID)
+		return NewServiceExistsError(entry.ID)
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[config.DBConfig](ctx, m.dtt, entry)
@@ -133,7 +132,7 @@ func (m *Manager) handleStandardDBAdd(ctx context.Context, entry registry.Entry)
 		} else if found {
 			cfg.Port, err = strconv.Atoi(val)
 			if err != nil {
-				return fmt.Errorf("invalid port value from env %s: %w", cfg.PortEnv, err)
+				return NewInvalidPortError(cfg.PortEnv, err)
 			}
 		} else {
 			m.log.Warn("port env var not found", zap.String("var", cfg.PortEnv))
@@ -172,7 +171,7 @@ func (m *Manager) handleStandardDBAdd(ctx context.Context, entry registry.Entry)
 
 	pool, err := m.factory.CreateStandardPool(entry.Kind, cfg)
 	if err != nil {
-		return fmt.Errorf("failed to create connection pool: %w", err)
+		return NewConnectionPoolCreationError(err)
 	}
 
 	return m.registerService(ctx, entry, pool, cfg.Lifecycle)
@@ -180,7 +179,7 @@ func (m *Manager) handleStandardDBAdd(ctx context.Context, entry registry.Entry)
 
 func (m *Manager) handleSQLiteAdd(ctx context.Context, entry registry.Entry) error {
 	if _, exists := m.services[entry.ID]; exists {
-		return fmt.Errorf("service %s already exists", entry.ID)
+		return NewServiceExistsError(entry.ID)
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[config.SQLiteConfig](ctx, m.dtt, entry)
@@ -190,7 +189,7 @@ func (m *Manager) handleSQLiteAdd(ctx context.Context, entry registry.Entry) err
 
 	pool, err := m.factory.CreateSQLitePool(cfg)
 	if err != nil {
-		return fmt.Errorf("failed to create SQLite connection: %w", err)
+		return NewSQLiteConnectionCreationError(err)
 	}
 
 	return m.registerService(ctx, entry, pool, cfg.Lifecycle)
@@ -199,7 +198,7 @@ func (m *Manager) handleSQLiteAdd(ctx context.Context, entry registry.Entry) err
 func (m *Manager) handleStandardDBUpdate(ctx context.Context, entry registry.Entry) error {
 	pool, exists := m.services[entry.ID]
 	if !exists {
-		return fmt.Errorf("service %s not found", entry.ID)
+		return NewServiceNotFoundError(entry.ID)
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[config.DBConfig](ctx, m.dtt, entry)
@@ -208,7 +207,7 @@ func (m *Manager) handleStandardDBUpdate(ctx context.Context, entry registry.Ent
 	}
 
 	if err := pool.UpdateConfig(cfg); err != nil {
-		return fmt.Errorf("failed to update pool config: %w", err)
+		return NewPoolUpdateError(err)
 	}
 
 	m.updateService(ctx, entry, cfg.Lifecycle)
@@ -218,7 +217,7 @@ func (m *Manager) handleStandardDBUpdate(ctx context.Context, entry registry.Ent
 func (m *Manager) handleSQLiteUpdate(ctx context.Context, entry registry.Entry) error {
 	pool, exists := m.services[entry.ID]
 	if !exists {
-		return fmt.Errorf("service %s not found", entry.ID)
+		return NewServiceNotFoundError(entry.ID)
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[config.SQLiteConfig](ctx, m.dtt, entry)
@@ -227,7 +226,7 @@ func (m *Manager) handleSQLiteUpdate(ctx context.Context, entry registry.Entry) 
 	}
 
 	if err := pool.UpdateConfig(cfg); err != nil {
-		return fmt.Errorf("failed to update SQLite config: %w", err)
+		return NewSQLiteUpdateError(err)
 	}
 
 	m.updateService(ctx, entry, cfg.Lifecycle)
@@ -237,7 +236,7 @@ func (m *Manager) handleSQLiteUpdate(ctx context.Context, entry registry.Entry) 
 func (m *Manager) handleDBDelete(ctx context.Context, entry registry.Entry) error {
 	_, exists := m.services[entry.ID]
 	if !exists {
-		return fmt.Errorf("service %s not found", entry.ID)
+		return NewServiceNotFoundError(entry.ID)
 	}
 
 	m.unregisterService(ctx, entry)

@@ -40,7 +40,7 @@ func TestManager_DriverRegister(t *testing.T) {
 	require.NoError(t, mgr.Start(ctx))
 	defer func() { _ = mgr.Stop() }()
 
-	driverID := registry.ID{NS: "test", Name: "mock-driver"}
+	driverID := registry.NewID("test", "mock-driver")
 	driver := &mockDriver{}
 
 	bus.Send(ctx, event.Event{
@@ -69,7 +69,7 @@ func TestManager_DriverRegister_InvalidType(t *testing.T) {
 	require.NoError(t, mgr.Start(ctx))
 	defer func() { _ = mgr.Stop() }()
 
-	driverID := registry.ID{NS: "test", Name: "bad-driver"}
+	driverID := registry.NewID("test", "bad-driver")
 
 	bus.Send(ctx, event.Event{
 		System: queueapi.System,
@@ -91,12 +91,12 @@ func TestManager_QueueDeclare(t *testing.T) {
 	require.NoError(t, mgr.Start(ctx))
 	defer func() { _ = mgr.Stop() }()
 
-	driverID := registry.ID{NS: "test", Name: "mock-driver"}
+	driverID := registry.NewID("test", "mock-driver")
 	driver := &mockDriver{}
 
 	mgr.drivers.Store(driverID, driver)
 
-	queueID := registry.ID{NS: "test", Name: "my-queue"}
+	queueID := registry.NewID("test", "my-queue")
 	queueEntry := &queueapi.Queue{
 		ID:       queueID,
 		DriverID: driverID,
@@ -129,8 +129,8 @@ func TestManager_QueueDeclare_DriverNotFound(t *testing.T) {
 	require.NoError(t, mgr.Start(ctx))
 	defer func() { _ = mgr.Stop() }()
 
-	queueID := registry.ID{NS: "test", Name: "my-queue"}
-	driverID := registry.ID{NS: "test", Name: "nonexistent-driver"}
+	queueID := registry.NewID("test", "my-queue")
+	driverID := registry.NewID("test", "nonexistent-driver")
 	queueEntry := &queueapi.Queue{
 		ID:       queueID,
 		DriverID: driverID,
@@ -158,11 +158,11 @@ func TestManager_Publish(t *testing.T) {
 	require.NoError(t, mgr.Start(ctx))
 	defer func() { _ = mgr.Stop() }()
 
-	driverID := registry.ID{NS: "test", Name: "mock-driver"}
+	driverID := registry.NewID("test", "mock-driver")
 	driver := &mockDriver{}
 	mgr.drivers.Store(driverID, driver)
 
-	queueID := registry.ID{NS: "test", Name: "my-queue"}
+	queueID := registry.NewID("test", "my-queue")
 	queueEntry := &queueapi.Queue{
 		ID:       queueID,
 		DriverID: driverID,
@@ -184,7 +184,7 @@ func TestManager_Publish_QueueNotFound(t *testing.T) {
 	require.NoError(t, mgr.Start(ctx))
 	defer func() { _ = mgr.Stop() }()
 
-	queueID := registry.ID{NS: "test", Name: "nonexistent"}
+	queueID := registry.NewID("test", "nonexistent")
 	msg := queueapi.NewMessage(payload.New("test"))
 
 	err := mgr.PublishDirect(ctx, queueID, msg)
@@ -197,8 +197,8 @@ func TestManager_Publish_DriverNotFound(t *testing.T) {
 	require.NoError(t, mgr.Start(ctx))
 	defer func() { _ = mgr.Stop() }()
 
-	queueID := registry.ID{NS: "test", Name: "my-queue"}
-	driverID := registry.ID{NS: "test", Name: "nonexistent-driver"}
+	queueID := registry.NewID("test", "my-queue")
+	driverID := registry.NewID("test", "nonexistent-driver")
 	queueEntry := &queueapi.Queue{
 		ID:       queueID,
 		DriverID: driverID,

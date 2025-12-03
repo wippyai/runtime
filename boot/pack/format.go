@@ -4,7 +4,6 @@ package pack
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"io"
 	"reflect"
 	"sync"
@@ -50,15 +49,15 @@ type Footer struct {
 func ReadHeader(r io.Reader) (*Header, error) {
 	h := &Header{}
 	if err := binary.Read(r, binary.LittleEndian, h); err != nil {
-		return nil, fmt.Errorf("read header: %w", err)
+		return nil, NewReadHeaderError(err)
 	}
 
 	if string(h.Magic[:]) != magic {
-		return nil, fmt.Errorf("invalid magic: %q", h.Magic)
+		return nil, NewInvalidMagicError(string(h.Magic[:]))
 	}
 
 	if h.Version != version1 {
-		return nil, fmt.Errorf("unsupported version: %d", h.Version)
+		return nil, NewUnsupportedVersionError(uint32(h.Version))
 	}
 
 	return h, nil
@@ -70,7 +69,7 @@ func WriteHeader(w io.Writer, h *Header) error {
 	h.Version = version1
 
 	if err := binary.Write(w, binary.LittleEndian, h); err != nil {
-		return fmt.Errorf("write header: %w", err)
+		return NewWriteHeaderError(err)
 	}
 
 	return nil
@@ -80,12 +79,12 @@ func WriteHeader(w io.Writer, h *Header) error {
 func ReadFooter(r io.ReadSeeker) (*Footer, error) {
 	// Seek to footer position (end - footerSize)
 	if _, err := r.Seek(-footerSize, io.SeekEnd); err != nil {
-		return nil, fmt.Errorf("seek to footer: %w", err)
+		return nil, NewSeekToFooterError(err)
 	}
 
 	f := &Footer{}
 	if err := binary.Read(r, binary.LittleEndian, f); err != nil {
-		return nil, fmt.Errorf("read footer: %w", err)
+		return nil, NewReadFooterError(err)
 	}
 
 	return f, nil
@@ -94,7 +93,7 @@ func ReadFooter(r io.ReadSeeker) (*Footer, error) {
 // WriteFooter writes a pack footer.
 func WriteFooter(w io.Writer, f *Footer) error {
 	if err := binary.Write(w, binary.LittleEndian, f); err != nil {
-		return fmt.Errorf("write footer: %w", err)
+		return NewWriteFooterError(err)
 	}
 
 	return nil
@@ -159,7 +158,7 @@ func decompressZstd(compressed []byte) ([]byte, error) {
 
 	err := decoder.Reset(bytes.NewReader(compressed))
 	if err != nil {
-		return nil, fmt.Errorf("reset zstd decoder: %w", err)
+		return nil, NewResetZstdDecoderError(err)
 	}
 
 	return io.ReadAll(decoder)

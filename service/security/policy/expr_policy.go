@@ -1,8 +1,6 @@
 package policy
 
 import (
-	"fmt"
-
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
 	policyapi "github.com/wippyai/runtime/api/service/security/policy"
@@ -18,13 +16,13 @@ type ExprPolicy struct {
 // NewExprPolicy creates a new expression-based policy
 func NewExprPolicy(id registry.ID, config *policyapi.ExprConfig) (*ExprPolicy, error) {
 	if config == nil {
-		return nil, fmt.Errorf("config cannot be nil")
+		return nil, ErrConfigNil
 	}
 
 	// Create evaluator with pre-compiled expression
 	evaluator, err := NewExprEvaluator(config.Policy.Expression)
 	if err != nil {
-		return nil, fmt.Errorf("failed to compile expression: %w", err)
+		return nil, NewCompileExpressionError(err)
 	}
 
 	return &ExprPolicy{

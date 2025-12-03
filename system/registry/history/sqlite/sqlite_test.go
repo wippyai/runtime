@@ -38,7 +38,7 @@ func TestHistory_SaveAndGet(t *testing.T) {
 
 	v1 := version.FromParent(v0, 1)
 	cs := registry.ChangeSet{
-		{Kind: registry.Create, Entry: registry.Entry{ID: registry.ID{NS: "test", Name: "entry1"}}},
+		{Kind: registry.Create, Entry: registry.Entry{ID: registry.NewID("test", "entry1")}},
 	}
 
 	err = hist.Save(v1, cs, true)
@@ -67,7 +67,7 @@ func TestHistory_Persistence(t *testing.T) {
 
 	v1 := version.FromParent(v0, 1)
 	cs := registry.ChangeSet{
-		{Kind: registry.Create, Entry: registry.Entry{ID: registry.ID{NS: "test", Name: "entry1"}}},
+		{Kind: registry.Create, Entry: registry.Entry{ID: registry.NewID("test", "entry1")}},
 	}
 
 	err = hist1.Save(v1, cs, true)
@@ -100,14 +100,14 @@ func TestHistory_Versions(t *testing.T) {
 
 	v1 := version.FromParent(v0, 1)
 	cs1 := registry.ChangeSet{
-		{Kind: registry.Create, Entry: registry.Entry{ID: registry.ID{NS: "test", Name: "entry1"}}},
+		{Kind: registry.Create, Entry: registry.Entry{ID: registry.NewID("test", "entry1")}},
 	}
 	err = hist.Save(v1, cs1, true)
 	require.NoError(t, err)
 
 	v2 := version.FromParent(v1, 2)
 	cs2 := registry.ChangeSet{
-		{Kind: registry.Create, Entry: registry.Entry{ID: registry.ID{NS: "test", Name: "entry2"}}},
+		{Kind: registry.Create, Entry: registry.Entry{ID: registry.NewID("test", "entry2")}},
 	}
 	err = hist.Save(v2, cs2, true)
 	require.NoError(t, err)
@@ -133,14 +133,14 @@ func TestHistory_SetHead(t *testing.T) {
 
 	v1 := version.FromParent(v0, 1)
 	cs1 := registry.ChangeSet{
-		{Kind: registry.Create, Entry: registry.Entry{ID: registry.ID{NS: "test", Name: "entry1"}}},
+		{Kind: registry.Create, Entry: registry.Entry{ID: registry.NewID("test", "entry1")}},
 	}
 	err = hist.Save(v1, cs1, false)
 	require.NoError(t, err)
 
 	v2 := version.FromParent(v1, 2)
 	cs2 := registry.ChangeSet{
-		{Kind: registry.Create, Entry: registry.Entry{ID: registry.ID{NS: "test", Name: "entry2"}}},
+		{Kind: registry.Create, Entry: registry.Entry{ID: registry.NewID("test", "entry2")}},
 	}
 	err = hist.Save(v2, cs2, true)
 	require.NoError(t, err)

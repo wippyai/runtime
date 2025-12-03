@@ -13,17 +13,17 @@ func TestDisable_ByExactNamespace(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "app", Name: "gateway"},
+			ID:   registry.NewID("app", "gateway"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
 		{
-			ID:   registry.ID{NS: "db", Name: "main"},
+			ID:   registry.NewID("db", "main"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
 		{
-			ID:   registry.ID{NS: "test", Name: "fixture"},
+			ID:   registry.NewID("test", "fixture"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
@@ -58,22 +58,22 @@ func TestDisable_ByNamespaceWildcard(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "app", Name: "gateway"},
+			ID:   registry.NewID("app", "gateway"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
 		{
-			ID:   registry.ID{NS: "app.v1", Name: "worker"},
+			ID:   registry.NewID("app.v1", "worker"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
 		{
-			ID:   registry.ID{NS: "app.v2", Name: "cache"},
+			ID:   registry.NewID("app.v2", "cache"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
 		{
-			ID:   registry.ID{NS: "db", Name: "main"},
+			ID:   registry.NewID("db", "main"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
@@ -106,17 +106,17 @@ func TestDisable_ByExactEntryID(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "app", Name: "gateway"},
+			ID:   registry.NewID("app", "gateway"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
 		{
-			ID:   registry.ID{NS: "app", Name: "worker"},
+			ID:   registry.NewID("app", "worker"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
 		{
-			ID:   registry.ID{NS: "db", Name: "main"},
+			ID:   registry.NewID("db", "main"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
@@ -151,17 +151,17 @@ func TestDisable_ByEntryWildcard(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "app", Name: "gateway.v1"},
+			ID:   registry.NewID("app", "gateway.v1"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
 		{
-			ID:   registry.ID{NS: "app", Name: "gateway.v2"},
+			ID:   registry.NewID("app", "gateway.v2"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
 		{
-			ID:   registry.ID{NS: "app", Name: "worker"},
+			ID:   registry.NewID("app", "worker"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
@@ -194,17 +194,17 @@ func TestDisable_ByEntryWildcardNamespace(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "app.v1", Name: "gateway"},
+			ID:   registry.NewID("app.v1", "gateway"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
 		{
-			ID:   registry.ID{NS: "db.v1", Name: "gateway"},
+			ID:   registry.NewID("db.v1", "gateway"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
 		{
-			ID:   registry.ID{NS: "app.v2", Name: "gateway"},
+			ID:   registry.NewID("app.v2", "gateway"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
@@ -237,22 +237,22 @@ func TestDisable_MultipleNamespaces(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "app", Name: "gateway"},
+			ID:   registry.NewID("app", "gateway"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
 		{
-			ID:   registry.ID{NS: "db", Name: "main"},
+			ID:   registry.NewID("db", "main"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
 		{
-			ID:   registry.ID{NS: "cache", Name: "redis"},
+			ID:   registry.NewID("cache", "redis"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
 		{
-			ID:   registry.ID{NS: "queue", Name: "worker"},
+			ID:   registry.NewID("queue", "worker"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
@@ -285,22 +285,22 @@ func TestDisable_MultipleEntries(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "app", Name: "gateway"},
+			ID:   registry.NewID("app", "gateway"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
 		{
-			ID:   registry.ID{NS: "app", Name: "worker"},
+			ID:   registry.NewID("app", "worker"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
 		{
-			ID:   registry.ID{NS: "db", Name: "main"},
+			ID:   registry.NewID("db", "main"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
 		{
-			ID:   registry.ID{NS: "db", Name: "cache"},
+			ID:   registry.NewID("db", "cache"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
@@ -335,22 +335,22 @@ func TestDisable_BothNamespacesAndEntries(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "app", Name: "gateway"},
+			ID:   registry.NewID("app", "gateway"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
 		{
-			ID:   registry.ID{NS: "app", Name: "worker"},
+			ID:   registry.NewID("app", "worker"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
 		{
-			ID:   registry.ID{NS: "db", Name: "main"},
+			ID:   registry.NewID("db", "main"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
 		{
-			ID:   registry.ID{NS: "cache", Name: "redis"},
+			ID:   registry.NewID("cache", "redis"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
@@ -384,7 +384,7 @@ func TestDisable_NoConfig(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "app", Name: "gateway"},
+			ID:   registry.NewID("app", "gateway"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
@@ -406,7 +406,7 @@ func TestDisable_EmptyPatterns(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "app", Name: "gateway"},
+			ID:   registry.NewID("app", "gateway"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
@@ -436,7 +436,7 @@ func TestDisable_PatternMatchesNothing(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "app", Name: "gateway"},
+			ID:   registry.NewID("app", "gateway"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
@@ -466,12 +466,12 @@ func TestDisable_AllEntriesDisabled(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "app", Name: "gateway"},
+			ID:   registry.NewID("app", "gateway"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
 		{
-			ID:   registry.ID{NS: "app", Name: "worker"},
+			ID:   registry.NewID("app", "worker"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
@@ -500,7 +500,7 @@ func TestDisable_InvalidEntryPattern(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "app", Name: "gateway"},
+			ID:   registry.NewID("app", "gateway"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
@@ -520,7 +520,7 @@ func TestDisable_InvalidEntryPattern(t *testing.T) {
 		t.Fatal("Expected error for invalid entry pattern, got nil")
 	}
 
-	if !containsString(err.Error(), "missing ':'") {
-		t.Errorf("Expected error about missing colon, got %v", err)
+	if !containsString(err.Error(), "invalid entry pattern") {
+		t.Errorf("Expected error about invalid entry pattern, got %v", err)
 	}
 }

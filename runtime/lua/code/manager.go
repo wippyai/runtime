@@ -2,7 +2,6 @@ package code
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
@@ -52,12 +51,12 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 			func(node *Node) (*glua.FunctionProto, error) {
 				chunk, err := parse.Parse(strings.NewReader(node.Source), node.ID.String())
 				if err != nil {
-					return nil, fmt.Errorf("parse error: %w", err)
+					return nil, NewParseError(err)
 				}
 
 				fnProto, err := glua.Compile(chunk, node.ID.String())
 				if err != nil {
-					return nil, fmt.Errorf("compile error: %w", err)
+					return nil, NewCompileError(node.ID, err)
 				}
 
 				return fnProto, nil
@@ -80,7 +79,7 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 		cm.log.Debug("adding built-in module", zap.String("name", info.Name))
 
 		if err := cm.memGraph.AddNode(node); err != nil {
-			return nil, fmt.Errorf("failed to add module node: %w", err)
+			return nil, NewAddModuleNodeError(err)
 		}
 	}
 
@@ -166,14 +165,13 @@ func (cm *Manager) AddNode(_ context.Context, node Node, deps []Import) error {
 	}
 
 	if err := cm.memGraph.AddNode(nodePtr); err != nil {
-		return fmt.Errorf("failed to add node: %w", err)
+		return NewAddNodeErrorWithCause(err)
 	}
 
 	for _, dep := range deps {
 		if err := cm.memGraph.AddDependency(node.ID, dep.ID, dep.Alias); err != nil {
 			_ = cm.memGraph.RemoveNode(node.ID)
-			return fmt.Errorf("failed to add dependency %s -> %s: %w",
-				node.ID, dep.ID, err)
+			return NewAddDependencyError(node.ID, dep.ID, err)
 		}
 	}
 
@@ -185,10 +183,9 @@ func (cm *Manager) AddNode(_ context.Context, node Node, deps []Import) error {
 
 // UpdateNode updates an existing node with new content and dependencies
 func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error {
-	// Get existing node
 	existing, err := cm.memGraph.GetNode(node.ID)
 	if err != nil {
-		return fmt.Errorf("node not found: %w", err)
+		return NewNodeNotFoundError(node.ID)
 	}
 
 	// Update fields
@@ -199,22 +196,20 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 		Created: time.Now(),
 	}
 
-	// Done old dependencies
 	oldDeps, err := cm.memGraph.GetDirectDependencies(node.ID)
 	if err != nil {
-		return fmt.Errorf("failed to get old dependencies: %w", err)
+		return NewGetOldDependenciesError(err)
 	}
 
 	for _, dep := range oldDeps {
 		if err := cm.memGraph.RemoveDependency(node.ID, dep.ID); err != nil {
-			return fmt.Errorf("failed to remove old dependency: %w", err)
+			return NewRemoveOldDependencyError(err)
 		}
 	}
 
-	// Add new dependencies
 	for _, dep := range deps {
 		if err := cm.memGraph.AddDependency(node.ID, dep.ID, dep.Alias); err != nil {
-			return fmt.Errorf("failed to add new dependency: %w", err)
+			return NewAddNewDependencyError(err)
 		}
 	}
 
@@ -254,14 +249,12 @@ func (cm *Manager) GetDirectDependencies(id registry.ID) ([]*Node, error) {
 
 // DeleteNode removes a node and its dependencies from the graph
 func (cm *Manager) DeleteNode(_ context.Context, id registry.ID) error {
-	// Get node to verify it exists
 	if _, err := cm.memGraph.GetNode(id); err != nil {
-		return fmt.Errorf("node not found: %w", err)
+		return NewNodeNotFoundError(id)
 	}
 
-	// Done node (MemoryGraph handles dependency cleanup)
 	if err := cm.memGraph.RemoveNode(id); err != nil {
-		return fmt.Errorf("failed to remove node: %w", err)
+		return NewRemoveNodeError(err)
 	}
 
 	// Mark node for transaction
@@ -279,4 +272,94 @@ func (cm *Manager) GetModules() []api.ModuleInfo {
 		}
 	}
 	return modules
+}
+
+// AddNodeWithProto adds a node with a precompiled prototype (for bytecode entries).
+// The proto is injected directly into the compiler cache, bypassing source compilation.
+func (cm *Manager) AddNodeWithProto(_ context.Context, node Node, deps []Import, proto *glua.FunctionProto) error {
+	nodePtr := &Node{
+		ID:     node.ID,
+		Kind:   node.Kind,
+		Source: node.Source,
+		Method: node.Method,
+		Module: node.Module,
+		Version: Version{
+			Hash:    HashNode(&node),
+			Created: time.Now(),
+		},
+	}
+
+	if err := cm.memGraph.AddNode(nodePtr); err != nil {
+		return NewAddNodeErrorWithCause(err)
+	}
+
+	for _, dep := range deps {
+		if err := cm.memGraph.AddDependency(node.ID, dep.ID, dep.Alias); err != nil {
+			_ = cm.memGraph.RemoveNode(node.ID)
+			return NewAddDependencyError(node.ID, dep.ID, err)
+		}
+	}
+
+	// Inject proto into compiler cache
+	if proto != nil {
+		cm.compiler.SetProto(node.ID, proto)
+	}
+
+	cm.txNodes[node.ID] = true
+	return nil
+}
+
+// UpdateNodeWithProto updates an existing node with a precompiled prototype.
+func (cm *Manager) UpdateNodeWithProto(_ context.Context, node Node, deps []Import, proto *glua.FunctionProto) error {
+	existing, err := cm.memGraph.GetNode(node.ID)
+	if err != nil {
+		return NewNodeNotFoundError(node.ID)
+	}
+
+	existing.Source = node.Source
+	existing.Method = node.Method
+	existing.Version = Version{
+		Hash:    HashNode(&node),
+		Created: time.Now(),
+	}
+
+	oldDeps, err := cm.memGraph.GetDirectDependencies(node.ID)
+	if err != nil {
+		return NewGetOldDependenciesError(err)
+	}
+
+	for _, dep := range oldDeps {
+		if err := cm.memGraph.RemoveDependency(node.ID, dep.ID); err != nil {
+			return NewRemoveOldDependencyError(err)
+		}
+	}
+
+	for _, dep := range deps {
+		if err := cm.memGraph.AddDependency(node.ID, dep.ID, dep.Alias); err != nil {
+			return NewAddNewDependencyError(err)
+		}
+	}
+
+	cm.txNodes[node.ID] = true
+
+	dependents, err := cm.memGraph.GetAllDependents(node.ID)
+	if err != nil {
+		cm.log.Warn("failed to get dependents for cache invalidation",
+			zap.Stringer("node", node.ID),
+			zap.Error(err))
+	}
+
+	invalidateIDs := make([]registry.ID, 0, len(dependents)+1)
+	invalidateIDs = append(invalidateIDs, node.ID)
+	for _, dep := range dependents {
+		invalidateIDs = append(invalidateIDs, dep.ID)
+	}
+	cm.compiler.Invalidate(invalidateIDs)
+
+	// Inject updated proto into compiler cache
+	if proto != nil {
+		cm.compiler.SetProto(node.ID, proto)
+	}
+
+	return nil
 }

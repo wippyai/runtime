@@ -87,9 +87,9 @@ func NewStatic(factory Factory, dispatcher Dispatcher, cfg Config, hooks ...Exec
 		done:       make(chan struct{}),
 	}
 
-	executor := NewExecutor(dispatcher)
+	var hooksCfg ExecutionHooks
 	if len(hooks) > 0 {
-		executor = executor.WithExecutionHooks(hooks[0])
+		hooksCfg = hooks[0]
 	}
 
 	for i := 0; i < cfg.Workers; i++ {
@@ -100,6 +100,9 @@ func NewStatic(factory Factory, dispatcher Dispatcher, cfg Config, hooks ...Exec
 			}
 			return nil, err
 		}
+
+		// Each worker needs its own Executor to avoid races on multiCtx
+		executor := NewExecutor(dispatcher).WithExecutionHooks(hooksCfg)
 
 		s.workers[i] = &staticWorker{
 			process:  proc,
@@ -141,6 +144,7 @@ func (s *Static) Call(ctx context.Context, method string, input payload.Payloads
 
 	req := acquireRequest(ctx, method, input)
 
+	// Try to submit request to worker queue
 	select {
 	case s.tasks <- req:
 	case <-ctx.Done():
@@ -151,13 +155,29 @@ func (s *Static) Call(ctx context.Context, method string, input payload.Payloads
 		return nil, ErrPoolClosed
 	}
 
+	// Wait for worker to complete. We must always wait for the result
+	// before releasing the request, even if context is cancelled or pool stops.
+	// Worker checks ctx.Done() in yield handling and returns early.
+	// We cannot return until worker is done to prevent races with ResponseWriter.
+	var result *runtime.Result
+	var poolStopped bool
 	select {
-	case result := <-req.resultCh:
-		releaseRequest(req)
-		return result, nil
-	case <-ctx.Done():
+	case result = <-req.resultCh:
+	case <-s.done:
+		poolStopped = true
+		result = <-req.resultCh
+	}
+
+	releaseRequest(req)
+
+	// Return appropriate error based on what happened
+	if poolStopped {
+		return nil, ErrPoolClosed
+	}
+	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
+	return result, nil
 }
 
 // run is the worker's main loop.

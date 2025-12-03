@@ -185,14 +185,14 @@ func (m *manager) Start(ctx context.Context, onMessage func(nodeID cluster.NodeI
 	if m.config.TLS.Enabled {
 		tlsConfig, err := loadTLSConfig(m.config.TLS)
 		if err != nil {
-			return fmt.Errorf("failed to load TLS configuration: %w", err)
+			return NewLoadTLSError(err)
 		}
 		m.tlsConfig = tlsConfig
 	}
 
 	listener, actualPort, err := m.startListener()
 	if err != nil {
-		return fmt.Errorf("failed to start listener: %w", err)
+		return NewStartListenerError(err)
 	}
 
 	m.listener = listener
@@ -655,16 +655,16 @@ func (m *manager) shouldDropInbound(remoteNodeID cluster.NodeID) bool {
 func loadTLSConfig(cfg ManagerTLSConfig) (*tls.Config, error) {
 	cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
 	if err != nil {
-		return nil, fmt.Errorf("could not load key pair: %w", err)
+		return nil, NewLoadKeyPairError(err)
 	}
 
 	caCertPool := x509.NewCertPool()
 	caCert, err := os.ReadFile(cfg.CAFile)
 	if err != nil {
-		return nil, fmt.Errorf("could not read ca certificate: %w", err)
+		return nil, NewReadCACertError(err)
 	}
 	if ok := caCertPool.AppendCertsFromPEM(caCert); !ok {
-		return nil, fmt.Errorf("failed to append ca certs")
+		return nil, ErrFailedToAppendCACerts
 	}
 
 	return &tls.Config{

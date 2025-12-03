@@ -5,14 +5,13 @@ import (
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	streamapi "github.com/wippyai/runtime/api/dispatcher/stream"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
 var (
 	moduleTable  *lua.LTable
-	registration *lua2api.Registration
+	registration *luaapi.Registration
 	initOnce     sync.Once
 )
 
@@ -29,7 +28,7 @@ func (m *streamModule) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *streamModule) Register(l *lua.LState) *lua2api.Registration {
+func (m *streamModule) Register(l *lua.LState) *luaapi.Registration {
 	initOnce.Do(func() {
 		registerStreamMetatable()
 
@@ -37,9 +36,9 @@ func (m *streamModule) Register(l *lua.LState) *lua2api.Registration {
 		mod.Immutable = true
 		moduleTable = mod
 
-		registration = &lua2api.Registration{
+		registration = &luaapi.Registration{
 			Table: moduleTable,
-			YieldTypes: []lua2api.YieldType{
+			YieldTypes: []luaapi.YieldType{
 				{Sample: &StreamReadYield{}, CmdID: dispatcher.CommandID(streamapi.CmdStreamRead)},
 				{Sample: &StreamWriteYield{}, CmdID: dispatcher.CommandID(streamapi.CmdStreamWrite)},
 				{Sample: &StreamSeekYield{}, CmdID: dispatcher.CommandID(streamapi.CmdStreamSeek)},

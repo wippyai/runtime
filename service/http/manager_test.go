@@ -220,7 +220,7 @@ func TestManager_ServerOperations(t *testing.T) {
 	manager, ctx := setupManager(t)
 
 	// Create server config
-	serverID := apiregistry.ID{NS: "test", Name: "server1"}
+	serverID := apiregistry.NewID("test", "server1")
 	serverCfg := &config.ServerConfig{
 		Addr: ":0", // Dynamic port
 		Meta: map[string]interface{}{},
@@ -306,7 +306,7 @@ func TestManager_RouterOperations(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 
 	// First add a server with a unique Source
-	serverID := apiregistry.ID{NS: "test", Name: testID + "_server"}
+	serverID := apiregistry.NewID("test", testID+"_server")
 	serverCfg := &config.ServerConfig{
 		Addr: ":0", // Dynamic port
 		Meta: map[string]interface{}{},
@@ -322,7 +322,7 @@ func TestManager_RouterOperations(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add router with a unique Source
-	routerID := apiregistry.ID{NS: "test", Name: testID + "_router"}
+	routerID := apiregistry.NewID("test", testID+"_router")
 	routerCfg := &config.RouterConfig{
 		Prefix: "/api",
 		Meta: map[string]interface{}{
@@ -376,7 +376,7 @@ func TestManager_EndpointOperations(t *testing.T) {
 	manager, ctx := setupManager(t)
 
 	// Add a server
-	serverID := apiregistry.ID{NS: "test", Name: "server1"}
+	serverID := apiregistry.NewID("test", "server1")
 	serverCfg := &config.ServerConfig{
 		Addr: ":0", // Dynamic port
 		Meta: map[string]interface{}{},
@@ -392,7 +392,7 @@ func TestManager_EndpointOperations(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add a router
-	routerID := apiregistry.ID{NS: "test", Name: "router1"}
+	routerID := apiregistry.NewID("test", "router1")
 	routerCfg := &config.RouterConfig{
 		Prefix: "/api",
 		Meta: map[string]interface{}{
@@ -410,11 +410,11 @@ func TestManager_EndpointOperations(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add an endpoint
-	endpointID := apiregistry.ID{NS: "test", Name: "endpoint1"}
+	endpointID := apiregistry.NewID("test", "endpoint1")
 	endpointCfg := &config.EndpointConfig{
 		Path:   "/test",
 		Method: "GET",
-		Func:   apiregistry.ID{NS: "test", Name: "func1"},
+		Func:   apiregistry.NewID("test", "func1"),
 		Meta: map[string]interface{}{
 			config.RouterID: routerID.String(),
 		},
@@ -441,7 +441,7 @@ func TestManager_StaticOperations(t *testing.T) {
 	manager, ctx := setupManager(t)
 
 	// Add a server
-	serverID := apiregistry.ID{NS: "test", Name: "server1"}
+	serverID := apiregistry.NewID("test", "server1")
 	serverCfg := &config.ServerConfig{
 		Addr: ":0", // Dynamic port
 		Meta: map[string]interface{}{},
@@ -457,10 +457,10 @@ func TestManager_StaticOperations(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add a static handler
-	staticID := apiregistry.ID{NS: "test", Name: "static1"}
+	staticID := apiregistry.NewID("test", "static1")
 	staticCfg := &config.StaticConfig{
 		Path: "/static",
-		FS:   apiregistry.ID{NS: "test", Name: "files"},
+		FS:   apiregistry.NewID("test", "files"),
 		Meta: map[string]interface{}{
 			config.ServerID: serverID.String(),
 		},
@@ -487,7 +487,7 @@ func TestManager_TransactionOperations(t *testing.T) {
 	manager, ctx := setupManager(t)
 
 	// Add a server and mark it pending
-	serverID := apiregistry.ID{NS: "test", Name: "server1"}
+	serverID := apiregistry.NewID("test", "server1")
 	serverCfg := &config.ServerConfig{
 		Addr: ":0", // Dynamic port
 		Meta: map[string]interface{}{},
@@ -503,7 +503,7 @@ func TestManager_TransactionOperations(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add a router to create a pending rebuild
-	routerID := apiregistry.ID{NS: "test", Name: "router1"}
+	routerID := apiregistry.NewID("test", "router1")
 	routerCfg := &config.RouterConfig{
 		Prefix: "/api",
 		Meta: map[string]interface{}{
@@ -546,7 +546,7 @@ func TestManager_UnsupportedKinds(t *testing.T) {
 	manager, ctx := setupManager(t)
 
 	unsupportedEntry := apiregistry.Entry{
-		ID:   apiregistry.ID{NS: "test", Name: "unsupported"},
+		ID:   apiregistry.NewID("test", "unsupported"),
 		Kind: "unsupported.kind",
 		Data: payload.New("test"),
 	}
@@ -571,7 +571,7 @@ func TestManager_ErrorHandling(t *testing.T) {
 	manager, ctx := setupManager(t)
 
 	// Test server not found for router
-	routerID := apiregistry.ID{NS: "test", Name: "router1"}
+	routerID := apiregistry.NewID("test", "router1")
 	routerCfg := &config.RouterConfig{
 		Prefix: "/api",
 		Meta: map[string]interface{}{
@@ -590,11 +590,11 @@ func TestManager_ErrorHandling(t *testing.T) {
 	assert.Contains(t, err.Error(), "server test:nonexistent not found")
 
 	// Test router not found for endpoint
-	endpointID := apiregistry.ID{NS: "test", Name: "endpoint1"}
+	endpointID := apiregistry.NewID("test", "endpoint1")
 	endpointCfg := &config.EndpointConfig{
 		Path:   "/test",
 		Method: "GET",
-		Func:   apiregistry.ID{NS: "test", Name: "func1"},
+		Func:   apiregistry.NewID("test", "func1"),
 		Meta: map[string]interface{}{
 			config.RouterID: "test:nonexistent",
 		},

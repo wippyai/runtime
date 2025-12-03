@@ -5,7 +5,6 @@ package function
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -58,7 +57,7 @@ type Manager struct {
 // NewManager creates a new function manager.
 func NewManager(log *zap.Logger, code *code.Manager, bus event.Bus, disp dispatcher.Dispatcher) *Manager {
 	return &Manager{
-		log:        log.Named("func"),
+		log:        log,
 		code:       code,
 		bus:        bus,
 		dispatcher: disp,
@@ -96,12 +95,12 @@ func (m *Manager) Stop() {
 // Add creates and registers a new function.
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindFunction {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindFunction)
+		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindFunction))
 	}
 
 	cfg, err := component.UnpackConfig[api.FunctionConfig](ctx, entry)
 	if err != nil {
-		return fmt.Errorf("failed to unpack function config: %w", err)
+		return NewUnpackConfigError(err)
 	}
 
 	// Add to code manager
@@ -113,13 +112,12 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 	imports := component.BuildImports(cfg.Imports, cfg.Modules)
 	if err := m.code.AddNode(ctx, node, imports); err != nil {
-		return fmt.Errorf("failed to add function: %w", err)
+		return NewAddFunctionError(err)
 	}
 
-	// Create pool
 	if err := m.createPool(entry.ID, cfg); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
-		return fmt.Errorf("failed to create pool: %w", err)
+		return NewCreatePoolError(err)
 	}
 
 	// Store config for invalidation
@@ -140,12 +138,12 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update updates an existing function.
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindFunction {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindFunction)
+		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindFunction))
 	}
 
 	cfg, err := component.UnpackConfig[api.FunctionConfig](ctx, entry)
 	if err != nil {
-		return fmt.Errorf("failed to unpack function config: %w", err)
+		return NewUnpackConfigError(err)
 	}
 
 	// Update code manager
@@ -157,12 +155,11 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 	imports := component.BuildImports(cfg.Imports, cfg.Modules)
 	if err := m.code.UpdateNode(ctx, node, imports); err != nil {
-		return fmt.Errorf("failed to update function node: %w", err)
+		return NewUpdateFunctionNodeError(err)
 	}
 
-	// Replace pool
 	if err := m.replacePool(entry.ID, cfg); err != nil {
-		return fmt.Errorf("failed to replace pool: %w", err)
+		return NewReplacePoolError(err)
 	}
 
 	// Update config
@@ -179,12 +176,11 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete removes a function.
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindFunction {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindFunction)
+		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindFunction))
 	}
 
-	// Delete from code manager
 	if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
-		return fmt.Errorf("failed to delete function node: %w", err)
+		return NewDeleteFunctionNodeError(err)
 	}
 
 	// Stop and remove pool
@@ -224,7 +220,7 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Resu
 	m.mu.RUnlock()
 
 	if !exists {
-		return nil, fmt.Errorf("pool not found: %s", task.ID)
+		return nil, NewPoolNotFoundError(task.ID.String())
 	}
 
 	// Add task.Context pairs to the frame context
@@ -237,15 +233,15 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Resu
 		}
 	}
 
-	return entry.pool.Call(ctx, entry.method, task.Payloads)
+	result, err := entry.pool.Call(ctx, entry.method, task.Payloads)
+	return result, err
 }
 
 // createPool creates a new pool for a function.
 func (m *Manager) createPool(id registry.ID, cfg *api.FunctionConfig) error {
-	// Compile the function
 	compiled, err := m.code.Compile(id, functionBuildOptions())
 	if err != nil {
-		return fmt.Errorf("failed to compile: %w", err)
+		return NewCompileError(err)
 	}
 
 	// Create process factory
@@ -296,11 +292,11 @@ func (m *Manager) createPool(id registry.ID, cfg *api.FunctionConfig) error {
 		}, execHooks)
 
 	default:
-		return fmt.Errorf("unknown pool type: %s", poolType)
+		return NewUnknownPoolTypeError(string(poolType))
 	}
 
 	if err != nil {
-		return fmt.Errorf("failed to create pool: %w", err)
+		return NewCreatePoolError(err)
 	}
 
 	m.mu.Lock()

@@ -35,15 +35,15 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger, verbose bool) err
 
 	lockObj, err := lock.New(lockPath)
 	if err != nil {
-		return fmt.Errorf("load lock file: %w", err)
+		return NewLoadLockFileError(err)
 	}
 
 	if err := lock.Validate(lockObj); err != nil {
-		return fmt.Errorf("invalid lock file: %w", err)
+		return NewInvalidLockFileError(err)
 	}
 
 	if err := EnsureModulesInstalled(ctx, lockPath, logger); err != nil {
-		return fmt.Errorf("ensure modules installed: %w", err)
+		return NewEnsureModulesInstalledError(err)
 	}
 
 	paths := lockObj.GetLoadPaths()
@@ -51,13 +51,13 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger, verbose bool) err
 
 	entries, err := loadEntriesFromPaths(ctx, paths, logger)
 	if err != nil {
-		return fmt.Errorf("load entries from paths: %w", err)
+		return NewLoadEntriesFromPathsError(err)
 	}
 
 	logger.Info("loaded entries", zap.Int("count", len(entries)))
 
 	if err := loadEntriesToRegistry(ctx, entries, logger, verbose); err != nil {
-		return fmt.Errorf("load entries to registry: %w", err)
+		return NewLoadEntriesToRegistryError(err)
 	}
 
 	logger.Info("entries loaded to registry successfully")
@@ -69,11 +69,11 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger, verbose bool) err
 func EnsureModulesInstalled(ctx context.Context, lockPath string, logger *zap.Logger) error {
 	lockObj, err := lock.New(lockPath)
 	if err != nil {
-		return fmt.Errorf("load lock file: %w", err)
+		return NewLoadLockFileError(err)
 	}
 
 	if err := lock.Validate(lockObj); err != nil {
-		return fmt.Errorf("invalid lock file: %w", err)
+		return NewInvalidLockFileError(err)
 	}
 
 	modules := lockObj.GetModules()
@@ -111,7 +111,7 @@ func EnsureModulesInstalled(ctx context.Context, lockPath string, logger *zap.Lo
 
 	registryClient := appinit.GetRegistryClient(ctx)
 	if registryClient == nil {
-		return fmt.Errorf("registry client not found in context")
+		return ErrRegistryClientNotFound
 	}
 
 	storageImpl := storage.NewFileSystemStorage(vendorPath)
@@ -140,20 +140,20 @@ func EnsureModulesInstalled(ctx context.Context, lockPath string, logger *zap.Lo
 			zap.String("version", mod.Version))
 
 		if mod.Hash == "" {
-			return fmt.Errorf("module %s has no hash in lock file", mod.Name)
+			return ErrModuleMissingHash
 		}
 
 		results, err := registryClient.Download(ctx, []string{mod.Hash})
 		if err != nil {
-			return fmt.Errorf("download module %s: %w", mod.Name, err)
+			return NewDownloadModuleError(mod.Name, err)
 		}
 
 		if len(results) == 0 {
-			return fmt.Errorf("no content downloaded for module %s", mod.Name)
+			return ErrNoContentDownloaded
 		}
 
 		if err := storageImpl.StoreProtoFiles(modulePath, results[0].Files); err != nil {
-			return fmt.Errorf("store module %s: %w", mod.Name, err)
+			return NewStoreModuleError(mod.Name, err)
 		}
 	}
 
@@ -165,12 +165,12 @@ func EnsureModulesInstalled(ctx context.Context, lockPath string, logger *zap.Lo
 func loadEntriesFromPaths(ctx context.Context, paths []string, logger *zap.Logger) ([]regapi.Entry, error) {
 	dtt := payload.GetTranscoder(ctx)
 	if dtt == nil {
-		return nil, fmt.Errorf("transcoder not found in context")
+		return nil, ErrTranscoderNotFound
 	}
 
 	ldr := boot.GetLoader(ctx)
 	if ldr == nil {
-		return nil, fmt.Errorf("loader not found in context")
+		return nil, ErrLoaderNotFound
 	}
 
 	var entries []regapi.Entry
@@ -184,7 +184,7 @@ func loadEntriesFromPaths(ctx context.Context, paths []string, logger *zap.Logge
 		dirFS := os.DirFS(path)
 		loadedEntries, err := ldr.LoadFS(ctx, dirFS)
 		if err != nil {
-			return nil, fmt.Errorf("load from %s: %w", path, err)
+			return nil, NewLoadFromPathError(path, err)
 		}
 
 		entries = append(entries, loadedEntries...)
@@ -197,7 +197,7 @@ func loadEntriesFromPaths(ctx context.Context, paths []string, logger *zap.Logge
 	)
 
 	if err := pipeline.Execute(ctx, &entries); err != nil {
-		return nil, fmt.Errorf("execute pipeline: %w", err)
+		return nil, NewExecutePipelineError(err)
 	}
 
 	return entries, nil
@@ -207,12 +207,12 @@ func loadEntriesFromPaths(ctx context.Context, paths []string, logger *zap.Logge
 func loadEntriesToRegistry(ctx context.Context, entries []regapi.Entry, logger *zap.Logger, verbose bool) error {
 	reg := regapi.GetRegistry(ctx)
 	if reg == nil {
-		return fmt.Errorf("registry not found in context")
+		return ErrRegistryNotFound
 	}
 
 	resolver := regapi.GetResolver(ctx)
 	if resolver == nil {
-		return fmt.Errorf("dependency resolver not found in context")
+		return ErrResolverNotFound
 	}
 
 	// Check for duplicate entry IDs
@@ -252,7 +252,7 @@ func loadEntriesToRegistry(ctx context.Context, entries []regapi.Entry, logger *
 		logger.Info("no history found, initializing registry with baseline state at v0")
 		currentVer, err := reg.Current()
 		if err != nil {
-			return fmt.Errorf("failed to get current version: %w", err)
+			return NewGetCurrentVersionError(err)
 		}
 		head = currentVer
 	case head.ID() > 0:
@@ -262,7 +262,7 @@ func loadEntriesToRegistry(ctx context.Context, entries []regapi.Entry, logger *
 	}
 
 	if err := reg.LoadState(ctx, baselineState, head); err != nil {
-		return fmt.Errorf("load state: %w", err)
+		return NewLoadStateError(err)
 	}
 
 	logger.Debug("registry state loaded", zap.Uint("version", head.ID()))

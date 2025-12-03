@@ -3,7 +3,6 @@ package pack
 import (
 	"bytes"
 	"crypto/sha256"
-	"fmt"
 	"io"
 	"io/fs"
 	"sync"
@@ -56,7 +55,7 @@ func NewReader(r io.ReaderAt, transcoder payload.Transcoder) (*Reader, error) {
 	// Read header
 	headerBuf := make([]byte, headerSize)
 	if _, err := r.ReadAt(headerBuf, 0); err != nil {
-		return nil, fmt.Errorf("read header: %w", err)
+		return nil, NewReadHeaderError(err)
 	}
 
 	header, err := ReadHeader(bytes.NewReader(headerBuf))
@@ -68,18 +67,18 @@ func NewReader(r io.ReaderAt, transcoder payload.Transcoder) (*Reader, error) {
 	// Validate data size to prevent memory exhaustion (max 1GB)
 	const maxDataSize = 1 << 30
 	if header.DataSize > maxDataSize {
-		return nil, fmt.Errorf("data size %d exceeds maximum %d", header.DataSize, maxDataSize)
+		return nil, NewDataSizeExceedsMaxError(header.DataSize, maxDataSize)
 	}
 
 	// Validate data hash
 	dataBuf := make([]byte, header.DataSize)
 	if _, err := r.ReadAt(dataBuf, int64(header.DataOffset)); err != nil { //nolint:gosec // Offset is validated by header structure
-		return nil, fmt.Errorf("read data for validation: %w", err)
+		return nil, NewReadDataError(err)
 	}
 
 	dataHash := sha256.Sum256(dataBuf)
 	if !bytes.Equal(dataHash[:], header.DataHash[:]) {
-		return nil, fmt.Errorf("data hash mismatch: data corrupted")
+		return nil, ErrDataCorrupted
 	}
 
 	// Read footer (need io.ReadSeeker)
@@ -91,25 +90,25 @@ func NewReader(r io.ReaderAt, transcoder payload.Transcoder) (*Reader, error) {
 	}
 	footer, err := ReadFooter(rs)
 	if err != nil {
-		return nil, fmt.Errorf("read footer: %w", err)
+		return nil, NewReadFooterError(err)
 	}
 	pr.footer = footer
 
 	// Read and decompress TOC from footer location
 	tocBuf := make([]byte, footer.TOCSize)
 	if _, err := r.ReadAt(tocBuf, int64(footer.TOCOffset)); err != nil { //nolint:gosec // Offset is validated by footer structure
-		return nil, fmt.Errorf("read TOC: %w", err)
+		return nil, NewReadTOCError(err)
 	}
 
 	toc, err := pr.decompressFrame(tocBuf)
 	if err != nil {
-		return nil, fmt.Errorf("decompress TOC: %w", err)
+		return nil, NewDecompressTOCError(err)
 	}
 
 	pr.toc = &TOC{}
 	decoder := codec.NewDecoder(bytes.NewReader(toc), pr.handle)
 	if err := decoder.Decode(pr.toc); err != nil {
-		return nil, fmt.Errorf("decode TOC: %w", err)
+		return nil, NewDecodeTOCError(err)
 	}
 
 	return pr, nil
@@ -120,13 +119,13 @@ func (pr *Reader) GetMetadata() (registry.Metadata, error) {
 	pr.metadataOnce.Do(func() {
 		data, err := pr.readFrame(pr.toc.Metadata)
 		if err != nil {
-			pr.metadataErr = fmt.Errorf("read metadata frame: %w", err)
+			pr.metadataErr = NewReadMetadataFrameError(err)
 			return
 		}
 
 		decoder := codec.NewDecoder(bytes.NewReader(data), pr.handle)
 		if err := decoder.Decode(&pr.metadata); err != nil {
-			pr.metadataErr = fmt.Errorf("decode metadata: %w", err)
+			pr.metadataErr = NewDecodeMetadataError(err)
 			return
 		}
 	})
@@ -139,7 +138,7 @@ func (pr *Reader) GetEntries() ([]registry.Entry, error) {
 	pr.entriesOnce.Do(func() {
 		data, err := pr.readFrame(pr.toc.Entries)
 		if err != nil {
-			pr.entriesErr = fmt.Errorf("read entries frame: %w", err)
+			pr.entriesErr = NewReadEntriesFrameError(err)
 			return
 		}
 
@@ -147,7 +146,7 @@ func (pr *Reader) GetEntries() ([]registry.Entry, error) {
 		var encodedEntries []any
 		decoder := codec.NewDecoder(bytes.NewReader(data), pr.handle)
 		if err := decoder.Decode(&encodedEntries); err != nil {
-			pr.entriesErr = fmt.Errorf("decode entries: %w", err)
+			pr.entriesErr = NewDecodeEntriesError(err)
 			return
 		}
 
@@ -156,7 +155,7 @@ func (pr *Reader) GetEntries() ([]registry.Entry, error) {
 		for i, encEntryData := range encodedEntries {
 			encEntryMap, ok := encEntryData.(map[string]any)
 			if !ok {
-				pr.entriesErr = fmt.Errorf("invalid entry format at index %d", i)
+				pr.entriesErr = NewInvalidEntryFormatError(i)
 				return
 			}
 
@@ -225,7 +224,7 @@ func (pr *Reader) GetFS(id registry.ID) (fs.ReadDirFS, error) {
 
 	tree, ok := res.(*TreeResource)
 	if !ok {
-		return nil, fmt.Errorf("resource %s is not a tree", id)
+		return nil, NewResourceNotTreeError(id.String())
 	}
 
 	return newPackFS(tree, pr), nil
@@ -240,7 +239,7 @@ func (pr *Reader) GetBlob(id registry.ID) (apipack.BlobReader, error) {
 
 	blob, ok := res.(*BlobResource)
 	if !ok {
-		return nil, fmt.Errorf("resource %s is not a blob", id)
+		return nil, NewResourceNotBlobError(id.String())
 	}
 
 	return newBlobReader(blob, pr), nil
@@ -260,20 +259,20 @@ func (pr *Reader) loadResource(id registry.ID) (interface{}, error) {
 	// Find resource in TOC
 	var resInfo *ResourceInfo
 	for i := range pr.toc.Resources {
-		if pr.toc.Resources[i].ID == id {
+		if pr.toc.Resources[i].ID.Equal(id) {
 			resInfo = &pr.toc.Resources[i]
 			break
 		}
 	}
 
 	if resInfo == nil {
-		return nil, fmt.Errorf("resource not found: %s", id)
+		return nil, NewResourceNotFoundError(id.String())
 	}
 
 	// Read and decode resource
 	data, err := pr.readFrame(resInfo.Frame)
 	if err != nil {
-		return nil, fmt.Errorf("read resource frame: %w", err)
+		return nil, NewReadResourceFrameError(err)
 	}
 
 	var res interface{}
@@ -283,17 +282,17 @@ func (pr *Reader) loadResource(id registry.ID) (interface{}, error) {
 	case "tree":
 		tree := &TreeResource{}
 		if err := decoder.Decode(tree); err != nil {
-			return nil, fmt.Errorf("decode tree resource: %w", err)
+			return nil, NewDecodeTreeResourceError(err)
 		}
 		res = tree
 	case "blob":
 		blob := &BlobResource{}
 		if err := decoder.Decode(blob); err != nil {
-			return nil, fmt.Errorf("decode blob resource: %w", err)
+			return nil, NewDecodeBlobResourceError(err)
 		}
 		res = blob
 	default:
-		return nil, fmt.Errorf("unknown resource type: %s", resInfo.Type)
+		return nil, NewUnknownResourceTypeError(resInfo.Type)
 	}
 
 	// Cache it
@@ -308,7 +307,7 @@ func (pr *Reader) loadResource(id registry.ID) (interface{}, error) {
 func (pr *Reader) readFrame(info FrameInfo) ([]byte, error) {
 	buf := make([]byte, info.Size)
 	if _, err := pr.reader.ReadAt(buf, int64(info.Offset)); err != nil { //nolint:gosec // Offset is validated by frame structure
-		return nil, fmt.Errorf("read frame: %w", err)
+		return nil, NewReadFrameError(err)
 	}
 
 	return pr.decompressFrame(buf)
@@ -342,7 +341,7 @@ func (pr *Reader) readFrameData(frameInfo FrameInfo, offset, size uint64) ([]byt
 
 		poolBuf := (*bufPtr)[:size]
 		if _, err := pr.reader.ReadAt(poolBuf, fileOffset); err != nil {
-			return nil, fmt.Errorf("read frame data: %w", err)
+			return nil, NewReadFrameDataError(err)
 		}
 
 		// Copy to result buffer
@@ -354,7 +353,7 @@ func (pr *Reader) readFrameData(frameInfo FrameInfo, offset, size uint64) ([]byt
 	// Large reads allocate directly
 	buf := make([]byte, size)
 	if _, err := pr.reader.ReadAt(buf, fileOffset); err != nil {
-		return nil, fmt.Errorf("read frame data: %w", err)
+		return nil, NewReadFrameDataError(err)
 	}
 
 	return buf, nil
@@ -386,7 +385,7 @@ func (p *Packer) Unpack(r io.ReadSeeker) ([]registry.Entry, registry.Metadata, e
 		}); ok {
 			readerAt = io.NewSectionReader(rs, 0, 1<<63-1)
 		} else {
-			return nil, nil, fmt.Errorf("reader must implement io.ReaderAt or both io.ReadSeeker and io.ReaderAt")
+			return nil, nil, ErrReaderMustImplementInterfaces
 		}
 	}
 
@@ -397,12 +396,12 @@ func (p *Packer) Unpack(r io.ReadSeeker) ([]registry.Entry, registry.Metadata, e
 
 	metadata, err := pr.GetMetadata()
 	if err != nil {
-		return nil, nil, fmt.Errorf("get metadata: %w", err)
+		return nil, nil, NewGetMetadataError(err)
 	}
 
 	entries, err := pr.GetEntries()
 	if err != nil {
-		return nil, nil, fmt.Errorf("get entries: %w", err)
+		return nil, nil, NewGetEntriesError(err)
 	}
 
 	return entries, metadata, nil

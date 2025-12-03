@@ -2,8 +2,6 @@ package storage
 
 import (
 	"context"
-	"fmt"
-
 	"github.com/wippyai/runtime/api/boot"
 	envapi "github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/event"
@@ -32,7 +30,7 @@ func SQL() boot.Component {
 				envRegistry,
 			)
 			if err != nil {
-				return ctx, fmt.Errorf("failed to create sql manager: %w", err)
+				return ctx, NewSQLManagerError(err)
 			}
 
 			handlers.RegisterListener("db.sql.*", manager)

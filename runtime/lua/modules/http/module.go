@@ -3,7 +3,6 @@ package http
 import (
 	"sync"
 
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
@@ -11,7 +10,7 @@ import (
 
 var (
 	moduleTable       *lua.LTable
-	registration      *lua2api.Registration
+	registration      *luaapi.Registration
 	requestMetatable  *lua.LTable
 	responseMetatable *lua.LTable
 	initOnce          sync.Once
@@ -35,7 +34,7 @@ func (m *httpModule) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *httpModule) Register(l *lua.LState) *lua2api.Registration {
+func (m *httpModule) Register(l *lua.LState) *luaapi.Registration {
 	initOnce.Do(func() {
 		moduleTable = createModuleTable()
 
@@ -47,7 +46,7 @@ func (m *httpModule) Register(l *lua.LState) *lua2api.Registration {
 			map[string]lua.LGFunction{"__tostring": responseToString},
 			responseMethods)
 
-		registration = &lua2api.Registration{
+		registration = &luaapi.Registration{
 			Table:      moduleTable,
 			YieldTypes: nil,
 		}
@@ -63,7 +62,7 @@ func (m *httpModule) Loader(l *lua.LState) int {
 
 // Bind binds the http module to the Lua state.
 func Bind(l *lua.LState) {
-	lua2api.LoadModule(l, Module)
+	luaapi.LoadModule(l, Module)
 }
 
 func createModuleTable() *lua.LTable {

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	httpapi "github.com/wippyai/runtime/api/dispatcher/http"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
@@ -15,7 +14,7 @@ import (
 
 var (
 	moduleTable       *lua.LTable
-	registration      *lua2api.Registration
+	registration      *luaapi.Registration
 	responseMetatable *lua.LTable
 	initOnce          sync.Once
 )
@@ -33,7 +32,7 @@ func (m *httpclientModule) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *httpclientModule) Register(l *lua.LState) *lua2api.Registration {
+func (m *httpclientModule) Register(l *lua.LState) *luaapi.Registration {
 	initOnce.Do(func() {
 		moduleTable = createModuleTable()
 
@@ -43,7 +42,7 @@ func (m *httpclientModule) Register(l *lua.LState) *lua2api.Registration {
 		responseMetatable.RawSetString("__tostring", lua.LGoFunc(responseToString))
 		responseMetatable.Immutable = true
 
-		registration = &lua2api.Registration{
+		registration = &luaapi.Registration{
 			Table:      moduleTable,
 			YieldTypes: nil,
 		}
@@ -58,9 +57,9 @@ func (m *httpclientModule) Loader(l *lua.LState) int {
 	return 1
 }
 
-// Bind is deprecated. Use lua2api.LoadModule(l, Module) instead.
+// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
 func Bind(l *lua.LState) {
-	lua2api.LoadModule(l, Module)
+	luaapi.LoadModule(l, Module)
 }
 
 func createModuleTable() *lua.LTable {

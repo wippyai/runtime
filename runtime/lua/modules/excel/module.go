@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/resource"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/modules/stream"
@@ -19,7 +18,7 @@ const workbookTypeName = "Workbook"
 
 var (
 	moduleTable       *lua.LTable
-	registration      *lua2api.Registration
+	registration      *luaapi.Registration
 	workbookMetatable *lua.LTable
 	initOnce          sync.Once
 )
@@ -37,7 +36,7 @@ func (m *excelModule) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *excelModule) Register(l *lua.LState) *lua2api.Registration {
+func (m *excelModule) Register(l *lua.LState) *luaapi.Registration {
 	initOnce.Do(func() {
 		mod := lua.CreateTable(0, 2)
 		mod.RawSetString("new", lua.LGoFunc(excelNew))
@@ -49,7 +48,7 @@ func (m *excelModule) Register(l *lua.LState) *lua2api.Registration {
 			map[string]lua.LGFunction{"__tostring": workbookToString},
 			workbookMethods)
 
-		registration = &lua2api.Registration{
+		registration = &luaapi.Registration{
 			Table:      moduleTable,
 			YieldTypes: nil,
 		}
@@ -118,9 +117,9 @@ func WrapFile(ctx context.Context, file *excelize.File) *Workbook {
 	return wb
 }
 
-// Bind is deprecated. Use lua2api.LoadModule(l, Module) instead.
+// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
 func Bind(l *lua.LState) {
-	lua2api.LoadModule(l, Module)
+	luaapi.LoadModule(l, Module)
 }
 
 var workbookMethods = map[string]lua.LGFunction{

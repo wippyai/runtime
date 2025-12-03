@@ -24,7 +24,7 @@ func TestTask_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "complete task",
 			task: Task{
-				ID:       registry.ID{NS: "functions", Name: "process"},
+				ID:       registry.NewID("functions", "process"),
 				Payloads: payload.Payloads{payload.New("test data")},
 				Options: func() attrs.Attributes {
 					bag := attrs.NewBag()
@@ -41,14 +41,14 @@ func TestTask_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "minimal task",
 			task: Task{
-				ID: registry.ID{NS: "f", Name: "test"},
+				ID: registry.NewID("f", "test"),
 			},
 			wantErr: false,
 		},
 		{
 			name: "with payloads only",
 			task: Task{
-				ID:       registry.ID{NS: "funcs", Name: "handler"},
+				ID:       registry.NewID("funcs", "handler"),
 				Payloads: payload.Payloads{payload.New(map[string]any{"key": "value"})},
 			},
 			wantErr: false,
@@ -56,7 +56,7 @@ func TestTask_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "with context only",
 			task: Task{
-				ID: registry.ID{NS: "funcs", Name: "handler"},
+				ID: registry.NewID("funcs", "handler"),
 				Context: []ctxapi.Pair{
 					{Key: &ctxapi.Key{Name: "env"}, Value: "production"},
 				},
@@ -135,9 +135,9 @@ func TestContext_FrameID(t *testing.T) {
 
 		id, ok := GetFrameID(ctx)
 		assert.False(t, ok)
-		assert.Equal(t, registry.ID{}, id)
+		assert.Equal(t, registry.NewID("", ""), id)
 
-		testID := registry.ID{NS: "test", Name: "function"}
+		testID := registry.NewID("test", "function")
 		err := SetFrameID(ctx, testID)
 		require.NoError(t, err)
 
@@ -151,9 +151,9 @@ func TestContext_FrameID(t *testing.T) {
 
 		id, ok := GetFrameID(ctx)
 		assert.False(t, ok)
-		assert.Equal(t, registry.ID{}, id)
+		assert.Equal(t, registry.NewID("", ""), id)
 
-		testID := registry.ID{NS: "test", Name: "function"}
+		testID := registry.NewID("test", "function")
 		err := SetFrameID(ctx, testID)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no frame context available")

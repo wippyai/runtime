@@ -2,7 +2,6 @@ package memory
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/wippyai/runtime/api/env"
@@ -11,7 +10,6 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	envsvc "github.com/wippyai/runtime/api/service/env"
 	entryutil "github.com/wippyai/runtime/internal/entry"
-	enverr "github.com/wippyai/runtime/service/env"
 	"go.uber.org/zap"
 )
 
@@ -41,16 +39,16 @@ func NewManager(
 // Add registers a new memory storage from registry entry.
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != envsvc.KindStorageMemory {
-		return fmt.Errorf("%w: %s", enverr.ErrUnsupportedKind, entry.Kind)
+		return errUnsupportedKind(entry.Kind)
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[envsvc.MemoryStorageConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return fmt.Errorf("%w: %w", enverr.ErrDecodeConfig, err)
+		return errDecodeConfig(err)
 	}
 
 	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("%w: %w", enverr.ErrInvalidConfig, err)
+		return errInvalidConfig(err)
 	}
 
 	storage := NewStorage(nil)
@@ -80,14 +78,14 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete removes a memory storage.
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != envsvc.KindStorageMemory {
-		return fmt.Errorf("%w: %s", enverr.ErrUnsupportedKind, entry.Kind)
+		return errUnsupportedKind(entry.Kind)
 	}
 
 	m.mu.Lock()
 	_, exists := m.storages[entry.ID]
 	if !exists {
 		m.mu.Unlock()
-		return fmt.Errorf("%w: %s", enverr.ErrStorageNotExists, entry.ID)
+		return errStorageNotExists(entry.ID)
 	}
 	delete(m.storages, entry.ID)
 	m.mu.Unlock()

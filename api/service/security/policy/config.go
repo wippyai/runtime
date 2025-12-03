@@ -3,7 +3,6 @@ package policy
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/wippyai/runtime/api/registry"
 )
@@ -72,7 +71,7 @@ type Config struct {
 func (c *Config) Validate() error {
 	// Validate policy effect
 	if c.Policy.Effect != Allow && c.Policy.Effect != Deny {
-		return fmt.Errorf("invalid policy effect: %s", c.Policy.Effect)
+		return NewInvalidPolicyEffectError(c.Policy.Effect)
 	}
 
 	// Validate actions
@@ -80,14 +79,14 @@ func (c *Config) Validate() error {
 	case string:
 		// Allow any non-empty string (including "*" or pattern wildcards)
 		if actions == "" {
-			return fmt.Errorf("actions string cannot be empty")
+			return ErrActionsStringEmpty
 		}
 	case []any:
 		if len(actions) == 0 {
-			return fmt.Errorf("actions list cannot be empty")
+			return ErrActionsListEmpty
 		}
 	default:
-		return fmt.Errorf("actions must be either a string or a list of strings")
+		return ErrActionsInvalidType
 	}
 
 	// Validate resources - similar changes
@@ -95,28 +94,28 @@ func (c *Config) Validate() error {
 	case string:
 		// Allow any non-empty string (including "*" or pattern wildcards)
 		if resources == "" {
-			return fmt.Errorf("resources string cannot be empty")
+			return ErrResourcesStringEmpty
 		}
 	case []any:
 		if len(resources) == 0 {
-			return fmt.Errorf("resources list cannot be empty")
+			return ErrResourcesListEmpty
 		}
 	default:
-		return fmt.Errorf("resources must be either a string or a list of strings")
+		return ErrResourcesInvalidType
 	}
 
 	// Validate conditions
 	for i, condition := range c.Policy.Conditions {
 		if condition.Field == "" {
-			return fmt.Errorf("condition[%d]: field cannot be empty", i)
+			return NewConditionFieldEmptyError(i)
 		}
 
 		if condition.Operator == "" {
-			return fmt.Errorf("condition[%d]: operator cannot be empty", i)
+			return NewConditionOperatorEmptyError(i)
 		}
 
 		if condition.Value == nil && condition.ValueFrom == "" {
-			return fmt.Errorf("condition[%d]: either value or value_from must be provided", i)
+			return NewConditionValueRequiredError(i)
 		}
 
 		// Validate operators
@@ -128,7 +127,7 @@ func (c *Config) Validate() error {
 			"matches", "nmatches":
 			// Valid operators
 		default:
-			return fmt.Errorf("condition[%d]: invalid operator: %s", i, condition.Operator)
+			return NewConditionInvalidOperatorError(i, condition.Operator)
 		}
 	}
 
@@ -180,10 +179,11 @@ func (c *Config) GetGroupIDs(defaultNS registry.Namespace) []registry.ID {
 	result := make([]registry.ID, 0, len(c.Groups))
 	for _, group := range c.Groups {
 		id := registry.ParseID(group)
-		if id.NS == "" {
-			id.NS = defaultNS
+		ns := id.NS
+		if ns == "" {
+			ns = defaultNS
 		}
-		result = append(result, id)
+		result = append(result, registry.NewID(ns, id.Name))
 	}
 	return result
 }

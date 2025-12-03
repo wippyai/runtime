@@ -2,7 +2,6 @@ package stages
 
 import (
 	"context"
-	"fmt"
 	"os"
 
 	"github.com/wippyai/runtime/api/boot"
@@ -37,7 +36,7 @@ func (s *loadDirsStage) Execute(ctx context.Context, entries *[]registry.Entry) 
 
 	dtt := payload.GetTranscoder(ctx)
 	if dtt == nil {
-		return fmt.Errorf("transcoder not found in context")
+		return ErrTranscoderNotFound
 	}
 
 	interpolator := interpolate.NewEntryInterpolator(dtt)
@@ -52,7 +51,7 @@ func (s *loadDirsStage) Execute(ctx context.Context, entries *[]registry.Entry) 
 		dirFS := os.DirFS(dir)
 		loadedEntries, err := ldr.LoadFS(ctx, dirFS)
 		if err != nil {
-			return fmt.Errorf("load directory %s: %w", dir, err)
+			return NewLoadDirectoryError(dir, err)
 		}
 
 		*entries = append(*entries, loadedEntries...)

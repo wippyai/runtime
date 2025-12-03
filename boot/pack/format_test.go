@@ -93,7 +93,7 @@ func TestTOCStructure(t *testing.T) {
 		},
 		Resources: []ResourceInfo{
 			{
-				ID:   registry.ID{NS: "test", Name: "resource1"},
+				ID:   registry.NewID("test", "resource1"),
 				Type: "tree",
 				Meta: registry.NewMetadata(),
 				Frame: FrameInfo{
@@ -106,7 +106,7 @@ func TestTOCStructure(t *testing.T) {
 				TotalSize: 50000,
 			},
 			{
-				ID:   registry.ID{NS: "test", Name: "blob1"},
+				ID:   registry.NewID("test", "blob1"),
 				Type: "blob",
 				Meta: registry.NewMetadata(),
 				Frame: FrameInfo{
@@ -169,7 +169,7 @@ func TestResourceInfoValidation(t *testing.T) {
 		{
 			name: "tree resource",
 			resInfo: ResourceInfo{
-				ID:        registry.ID{NS: "test", Name: "tree1"},
+				ID:        registry.NewID("test", "tree1"),
 				Type:      "tree",
 				Meta:      registry.NewMetadata(),
 				FileCount: 5,
@@ -180,7 +180,7 @@ func TestResourceInfoValidation(t *testing.T) {
 		{
 			name: "blob resource",
 			resInfo: ResourceInfo{
-				ID:        registry.ID{NS: "test", Name: "blob1"},
+				ID:        registry.NewID("test", "blob1"),
 				Type:      "blob",
 				Meta:      registry.NewMetadata(),
 				FileCount: 0,

@@ -37,7 +37,7 @@ func (e *testError) Details() attrs.Attributes {
 
 func makeTask(options runtime.Options) runtime.Task {
 	return runtime.Task{
-		ID:      registry.ID{Name: "test"},
+		ID:      registry.NewID("", "test"),
 		Options: options,
 	}
 }

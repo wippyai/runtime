@@ -2,7 +2,6 @@ package s3
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -43,7 +42,7 @@ func NewManager(
 // Add implements registry.EntryListener
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != services3.Kind {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return newUnsupportedKindError(string(entry.Kind))
 	}
 
 	m.mu.Lock()
@@ -51,12 +50,12 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	// Check if storage already exists
 	if _, exists := m.storages[entry.ID]; exists {
-		return fmt.Errorf("storage %s already exists", entry.ID)
+		return newStorageAlreadyExistsError(entry.ID.String())
 	}
 
 	meta, err := m.set(ctx, entry)
 	if err != nil {
-		return fmt.Errorf("add entry: %w", err)
+		return newAddEntryError(err)
 	}
 
 	// Register Manager as resource provider
@@ -82,7 +81,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update implements registry.EntryListener
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != services3.Kind {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return newUnsupportedKindError(string(entry.Kind))
 	}
 
 	m.mu.Lock()
@@ -90,12 +89,12 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	// Check if storage already exists
 	if _, exists := m.storages[entry.ID]; !exists {
-		return fmt.Errorf("storage %s not found", entry.ID)
+		return newStorageNotFoundError(entry.ID.String())
 	}
 
 	meta, err := m.set(ctx, entry)
 	if err != nil {
-		return fmt.Errorf("update entry: %w", err)
+		return newUpdateEntryError(err)
 	}
 
 	// Update resource provider metadata (provider remains the same)
@@ -121,7 +120,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete implements registry.EntryListener
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != services3.Kind {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return newUnsupportedKindError(string(entry.Kind))
 	}
 
 	m.mu.Lock()
@@ -130,7 +129,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	// Check if storage exists
 	_, exists := m.storages[entry.ID]
 	if !exists {
-		return fmt.Errorf("storage %s not found", entry.ID)
+		return newStorageNotFoundError(entry.ID.String())
 	}
 
 	// Unregister resource provider
@@ -156,7 +155,7 @@ func (m *Manager) Acquire(_ context.Context, id registry.ID, mode resource.Acces
 
 	_, exists := m.storages[id]
 	if !exists {
-		return nil, fmt.Errorf("storage %s not found", id)
+		return nil, newStorageNotFoundError(id.String())
 	}
 
 	// Only support normal mode for now
@@ -174,22 +173,22 @@ func (m *Manager) set(ctx context.Context, entry registry.Entry) (registry.Metad
 	// Decode and initialize configuration
 	cfg, err := entryutil.DecodeEntryConfig[services3.Config](ctx, m.dtt, entry)
 	if err != nil {
-		return nil, fmt.Errorf("decode config: %w", err)
+		return nil, newDecodeConfigError(err)
 	}
 
 	resourceRegistry := resource.GetRegistry(ctx)
 	rsc, err := resourceRegistry.Acquire(ctx, registry.ParseID(cfg.AWSConfig), resource.ModeNormal)
 	if err != nil {
-		return nil, fmt.Errorf("acquire resource: %w", err)
+		return nil, newAcquireResourceError(err)
 	}
 
 	gotConfig, err := rsc.Get()
 	if err != nil {
-		return nil, fmt.Errorf("get config: %w", err)
+		return nil, newGetConfigError(err)
 	}
 	awsCfg, ok := gotConfig.(aws.Config)
 	if !ok {
-		return nil, fmt.Errorf("aws config not config")
+		return nil, newAWSConfigNotConfigError()
 	}
 
 	// Create S3 client

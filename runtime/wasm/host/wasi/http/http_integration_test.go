@@ -76,6 +76,17 @@ func (d *mockDispatcher) Dispatch(cmd dispatcher.Command) dispatcher.Handler {
 	return d.handlers[cmd.CmdID()]
 }
 
+// testEmitter implements dispatcher.Emitter for tests
+type testEmitter struct {
+	result any
+	err    error
+}
+
+func (e *testEmitter) Emit(data any, err error) {
+	e.result = data
+	e.err = err
+}
+
 // mockHTTPHandler returns a mock HTTP response without making real requests.
 type mockHTTPHandler struct {
 	statusCode int
@@ -97,12 +108,12 @@ func (h *mockHTTPHandler) Handle(ctx context.Context, cmd dispatcher.Command, em
 	h.called = true
 	h.lastCmd = cmd.(*httpapi.RequestCmd)
 
-	emit(httpapi.Response{
+	emit.Emit(httpapi.Response{
 		StatusCode: h.statusCode,
 		Headers:    h.headers,
 		Body:       h.body,
 		URL:        h.lastCmd.URL,
-	})
+	}, nil)
 	return nil
 }
 
@@ -218,13 +229,11 @@ func TestHTTPOutgoingWithScheduler(t *testing.T) {
 			require.NotNil(t, handler, "No handler for command ID %d", cmd.CmdID())
 
 			// Execute handler with emit callback
-			var emittedResponse httpapi.Response
-			emit := func(result any) {
-				emittedResponse = result.(httpapi.Response)
-				capturedResponse = &emittedResponse
-			}
-
+			emit := &testEmitter{}
 			err := handler.Handle(ctx, cmd, emit)
+			require.NoError(t, err)
+			emittedResponse := emit.result.(httpapi.Response)
+			capturedResponse = &emittedResponse
 			require.NoError(t, err)
 
 			t.Logf("Mock handler returned: status=%d, body=%s",
@@ -275,10 +284,10 @@ func TestHTTPIncomingWithRequestContext(t *testing.T) {
 
 	// Setup context with frame and HTTP request context
 	ctx := ctxapi.NewRootContext()
-	ctx, fc := ctxapi.OpenFrameContext(ctx)
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
 	reqCtx := httpservice.NewRequestContext(httpReq, recorder)
-	fc.Set(httpservice.RequestCtx, reqCtx)
+	_ = httpservice.SetRequestContext(ctx, reqCtx)
 
 	// Simulate what WASM would do: create response -> set status -> get body -> finish
 	// 1. Create outgoing response

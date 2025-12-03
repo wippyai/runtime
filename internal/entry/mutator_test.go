@@ -117,7 +117,7 @@ func TestMutator_Set_Data(t *testing.T) {
 
 	t.Run("set simple field", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "entry"},
+			ID:   registry.NewID("test", "entry"),
 			Data: payload.New(map[string]any{}),
 		}
 
@@ -130,7 +130,7 @@ func TestMutator_Set_Data(t *testing.T) {
 
 	t.Run("set nested field", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "entry"},
+			ID:   registry.NewID("test", "entry"),
 			Data: payload.New(map[string]any{}),
 		}
 
@@ -145,7 +145,7 @@ func TestMutator_Set_Data(t *testing.T) {
 
 	t.Run("set with leading dot", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "entry"},
+			ID:   registry.NewID("test", "entry"),
 			Data: payload.New(map[string]any{}),
 		}
 
@@ -158,7 +158,7 @@ func TestMutator_Set_Data(t *testing.T) {
 
 	t.Run("overwrite existing field", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID: registry.ID{NS: "test", Name: "entry"},
+			ID: registry.NewID("test", "entry"),
 			Data: payload.New(map[string]any{
 				"host": "old-host",
 			}),
@@ -173,7 +173,7 @@ func TestMutator_Set_Data(t *testing.T) {
 
 	t.Run("create nested path in existing structure", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID: registry.ID{NS: "test", Name: "entry"},
+			ID: registry.NewID("test", "entry"),
 			Data: payload.New(map[string]any{
 				"config": map[string]any{
 					"existing": "value",
@@ -193,7 +193,7 @@ func TestMutator_Set_Data(t *testing.T) {
 
 	t.Run("nil data", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "entry"},
+			ID:   registry.NewID("test", "entry"),
 			Data: nil,
 		}
 
@@ -206,7 +206,7 @@ func TestMutator_Set_Data(t *testing.T) {
 
 	t.Run("bare path without prefix", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "entry"},
+			ID:   registry.NewID("test", "entry"),
 			Data: payload.New(map[string]any{}),
 		}
 
@@ -219,7 +219,7 @@ func TestMutator_Set_Data(t *testing.T) {
 
 	t.Run("bare path with leading dot", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "entry"},
+			ID:   registry.NewID("test", "entry"),
 			Data: payload.New(map[string]any{}),
 		}
 
@@ -232,7 +232,7 @@ func TestMutator_Set_Data(t *testing.T) {
 
 	t.Run("nested bare path", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "entry"},
+			ID:   registry.NewID("test", "entry"),
 			Data: payload.New(map[string]any{}),
 		}
 
@@ -251,7 +251,7 @@ func TestMutator_Set_Meta(t *testing.T) {
 
 	t.Run("set simple meta field", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "entry"},
+			ID:   registry.NewID("test", "entry"),
 			Meta: registry.Metadata{},
 		}
 
@@ -263,7 +263,7 @@ func TestMutator_Set_Meta(t *testing.T) {
 
 	t.Run("set with leading dot", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "entry"},
+			ID:   registry.NewID("test", "entry"),
 			Meta: registry.Metadata{},
 		}
 
@@ -275,7 +275,7 @@ func TestMutator_Set_Meta(t *testing.T) {
 
 	t.Run("nil meta", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "entry"},
+			ID:   registry.NewID("test", "entry"),
 			Meta: nil,
 		}
 
@@ -288,7 +288,7 @@ func TestMutator_Set_Meta(t *testing.T) {
 
 	t.Run("overwrite existing meta", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID: registry.ID{NS: "test", Name: "entry"},
+			ID: registry.NewID("test", "entry"),
 			Meta: registry.Metadata{
 				"field": "old",
 			},
@@ -306,7 +306,7 @@ func TestMutator_Append(t *testing.T) {
 
 	t.Run("append to new array in data", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "entry"},
+			ID:   registry.NewID("test", "entry"),
 			Data: payload.New(map[string]any{}),
 		}
 
@@ -320,7 +320,7 @@ func TestMutator_Append(t *testing.T) {
 
 	t.Run("append to existing array", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID: registry.ID{NS: "test", Name: "entry"},
+			ID: registry.NewID("test", "entry"),
 			Data: payload.New(map[string]any{
 				"depends_on": []any{"existing"},
 			}),
@@ -336,7 +336,7 @@ func TestMutator_Append(t *testing.T) {
 
 	t.Run("append with deduplication", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID: registry.ID{NS: "test", Name: "entry"},
+			ID: registry.NewID("test", "entry"),
 			Data: payload.New(map[string]any{
 				"depends_on": []any{"dep1", "dep2"},
 			}),
@@ -352,7 +352,7 @@ func TestMutator_Append(t *testing.T) {
 
 	t.Run("append to meta array", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID: registry.ID{NS: "test", Name: "entry"},
+			ID: registry.NewID("test", "entry"),
 			Meta: registry.Metadata{
 				"groups": []any{"group1"},
 			},
@@ -367,7 +367,7 @@ func TestMutator_Append(t *testing.T) {
 
 	t.Run("append to meta with leading dot", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "entry"},
+			ID:   registry.NewID("test", "entry"),
 			Meta: registry.Metadata{},
 		}
 
@@ -380,7 +380,7 @@ func TestMutator_Append(t *testing.T) {
 
 	t.Run("error on non-array field", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID: registry.ID{NS: "test", Name: "entry"},
+			ID: registry.NewID("test", "entry"),
 			Data: payload.New(map[string]any{
 				"field": "not-an-array",
 			}),
@@ -393,7 +393,7 @@ func TestMutator_Append(t *testing.T) {
 
 	t.Run("append to bare path", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "entry"},
+			ID:   registry.NewID("test", "entry"),
 			Data: payload.New(map[string]any{}),
 		}
 
@@ -407,7 +407,7 @@ func TestMutator_Append(t *testing.T) {
 
 	t.Run("append to bare path with leading dot", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID: registry.ID{NS: "test", Name: "entry"},
+			ID: registry.NewID("test", "entry"),
 			Data: payload.New(map[string]any{
 				"tags": []any{"existing"},
 			}),
@@ -427,7 +427,7 @@ func TestMutator_Delete(t *testing.T) {
 
 	t.Run("delete from data", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID: registry.ID{NS: "test", Name: "entry"},
+			ID: registry.NewID("test", "entry"),
 			Data: payload.New(map[string]any{
 				"field1": "value1",
 				"field2": "value2",
@@ -444,7 +444,7 @@ func TestMutator_Delete(t *testing.T) {
 
 	t.Run("delete nested field", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID: registry.ID{NS: "test", Name: "entry"},
+			ID: registry.NewID("test", "entry"),
 			Data: payload.New(map[string]any{
 				"config": map[string]any{
 					"field1": "value1",
@@ -464,7 +464,7 @@ func TestMutator_Delete(t *testing.T) {
 
 	t.Run("delete from meta", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID: registry.ID{NS: "test", Name: "entry"},
+			ID: registry.NewID("test", "entry"),
 			Meta: registry.Metadata{
 				"field1": "value1",
 				"field2": "value2",
@@ -480,7 +480,7 @@ func TestMutator_Delete(t *testing.T) {
 
 	t.Run("delete with leading dot", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID: registry.ID{NS: "test", Name: "entry"},
+			ID: registry.NewID("test", "entry"),
 			Data: payload.New(map[string]any{
 				"field": "value",
 			}),
@@ -495,7 +495,7 @@ func TestMutator_Delete(t *testing.T) {
 
 	t.Run("delete non-existent field", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "entry"},
+			ID:   registry.NewID("test", "entry"),
 			Data: payload.New(map[string]any{}),
 		}
 
@@ -505,7 +505,7 @@ func TestMutator_Delete(t *testing.T) {
 
 	t.Run("delete from nil meta", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "entry"},
+			ID:   registry.NewID("test", "entry"),
 			Meta: nil,
 		}
 
@@ -519,7 +519,7 @@ func TestMutator_FormatHandling(t *testing.T) {
 
 	t.Run("golang format stays golang", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "entry"},
+			ID:   registry.NewID("test", "entry"),
 			Data: payload.NewPayload(map[string]any{"field": "value"}, payload.Golang),
 		}
 
@@ -531,7 +531,7 @@ func TestMutator_FormatHandling(t *testing.T) {
 
 	t.Run("non-golang format transcodes to golang", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "entry"},
+			ID:   registry.NewID("test", "entry"),
 			Data: payload.NewPayload(map[string]any{"field": "value"}, payload.JSON),
 		}
 
@@ -549,7 +549,7 @@ func TestMutator_RealWorldScenarios(t *testing.T) {
 	t.Run("dependency resolution scenario", func(t *testing.T) {
 		// Simulate resolving a dependency and updating entry
 		entry := &registry.Entry{
-			ID: registry.ID{NS: "app.local", Name: "service"},
+			ID: registry.NewID("app.local", "service"),
 			Data: payload.New(map[string]any{
 				"config": map[string]any{
 					"name": "my-service",
@@ -584,7 +584,7 @@ func TestMutator_RealWorldScenarios(t *testing.T) {
 	t.Run("runtime config override scenario", func(t *testing.T) {
 		// Simulate runtime config override from command line
 		entry := &registry.Entry{
-			ID: registry.ID{NS: "app", Name: "database"},
+			ID: registry.NewID("app", "database"),
 			Data: payload.New(map[string]any{
 				"host": "prod-host",
 				"port": 5432,
@@ -607,7 +607,7 @@ func TestMutator_RealWorldScenarios(t *testing.T) {
 	t.Run("migration target database scenario", func(t *testing.T) {
 		// Real example from codebase
 		entry := &registry.Entry{
-			ID:   registry.ID{NS: "wippy.session.migration", Name: "05_create_artifacts_table"},
+			ID:   registry.NewID("wippy.session.migration", "05_create_artifacts_table"),
 			Meta: registry.Metadata{},
 		}
 
@@ -624,7 +624,7 @@ func TestMutator_Set_Meta_Advanced(t *testing.T) {
 
 	t.Run("set nested meta field", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "entry"},
+			ID:   registry.NewID("test", "entry"),
 			Meta: registry.Metadata{},
 		}
 
@@ -638,7 +638,7 @@ func TestMutator_Set_Meta_Advanced(t *testing.T) {
 
 	t.Run("set nested meta with existing data", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID: registry.ID{NS: "test", Name: "entry"},
+			ID: registry.NewID("test", "entry"),
 			Meta: registry.Metadata{
 				"config": map[string]any{
 					"existing": "value",
@@ -661,7 +661,7 @@ func TestMutator_Delete_Advanced(t *testing.T) {
 
 	t.Run("delete nested meta field", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID: registry.ID{NS: "test", Name: "entry"},
+			ID: registry.NewID("test", "entry"),
 			Meta: registry.Metadata{
 				"config": map[string]any{
 					"field1": "value1",
@@ -680,7 +680,7 @@ func TestMutator_Delete_Advanced(t *testing.T) {
 
 	t.Run("delete deeply nested meta field", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID: registry.ID{NS: "test", Name: "entry"},
+			ID: registry.NewID("test", "entry"),
 			Meta: registry.Metadata{
 				"level1": map[string]any{
 					"level2": map[string]any{
@@ -704,7 +704,7 @@ func TestMutator_Append_Meta_Advanced(t *testing.T) {
 
 	t.Run("append to nested meta array", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID: registry.ID{NS: "test", Name: "entry"},
+			ID: registry.NewID("test", "entry"),
 			Meta: registry.Metadata{
 				"config": map[string]any{
 					"tags": []any{"tag1"},
@@ -722,7 +722,7 @@ func TestMutator_Append_Meta_Advanced(t *testing.T) {
 
 	t.Run("error on append to non-array meta field", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID: registry.ID{NS: "test", Name: "entry"},
+			ID: registry.NewID("test", "entry"),
 			Meta: registry.Metadata{
 				"field": "not-an-array",
 			},
@@ -739,7 +739,7 @@ func TestMutator_Append_Data_Advanced(t *testing.T) {
 
 	t.Run("append to nested data array", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID: registry.ID{NS: "test", Name: "entry"},
+			ID: registry.NewID("test", "entry"),
 			Data: payload.New(map[string]any{
 				"config": map[string]any{
 					"servers": []any{"server1"},
@@ -758,7 +758,7 @@ func TestMutator_Append_Data_Advanced(t *testing.T) {
 
 	t.Run("append creates nested structure if missing", func(t *testing.T) {
 		entry := &registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "entry"},
+			ID:   registry.NewID("test", "entry"),
 			Data: payload.New(map[string]any{}),
 		}
 

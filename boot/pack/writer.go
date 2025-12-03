@@ -11,7 +11,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"io"
 	"io/fs"
 	"path"
@@ -152,7 +151,7 @@ func (pw *Writer) PackEntries(
 	for i, entry := range entries {
 		encoded, err := pw.normalizeEntry(entry)
 		if err != nil {
-			return fmt.Errorf("normalize entry %d: %w", i, err)
+			return NewNormalizeEntryError(i, err)
 		}
 		encodedEntries[i] = encoded
 	}
@@ -160,12 +159,12 @@ func (pw *Writer) PackEntries(
 	// Create metadata and entries frames (compressed)
 	metaFrame, metaInfo, err := pw.createMetadataFrame(metadata)
 	if err != nil {
-		return fmt.Errorf("create metadata frame: %w", err)
+		return NewCreateMetadataFrameError(err)
 	}
 
 	entriesFrame, entriesInfo, err := pw.createEntriesFrame(encodedEntries)
 	if err != nil {
-		return fmt.Errorf("create entries frame: %w", err)
+		return NewCreateEntriesFrameError(err)
 	}
 
 	// Build TOC with no resources
@@ -195,7 +194,7 @@ func (pw *Writer) Pack(
 	for i, entry := range entries {
 		encoded, err := pw.normalizeEntry(entry)
 		if err != nil {
-			return fmt.Errorf("normalize entry %d: %w", i, err)
+			return NewNormalizeEntryError(i, err)
 		}
 		encodedEntries[i] = encoded
 	}
@@ -203,24 +202,24 @@ func (pw *Writer) Pack(
 	// Create metadata and entries frames (compressed)
 	metaFrame, metaInfo, err := pw.createMetadataFrame(metadata)
 	if err != nil {
-		return fmt.Errorf("create metadata frame: %w", err)
+		return NewCreateMetadataFrameError(err)
 	}
 
 	entriesFrame, entriesInfo, err := pw.createEntriesFrame(encodedEntries)
 	if err != nil {
-		return fmt.Errorf("create entries frame: %w", err)
+		return NewCreateEntriesFrameError(err)
 	}
 
 	// Process filesystem and create tree resource with data frames
 	tree, dataFrames, err := pw.processFilesystem(fsys, resourceID, resourceMeta)
 	if err != nil {
-		return fmt.Errorf("process filesystem: %w", err)
+		return NewProcessFilesystemError(err)
 	}
 
 	// Create resource frame (compressed TOC of tree structure)
 	resourceFrame, resourceInfo, err := pw.createResourceFrame(tree)
 	if err != nil {
-		return fmt.Errorf("create resource frame: %w", err)
+		return NewCreateResourceFrameError("", err)
 	}
 
 	// Build TOC
@@ -251,7 +250,7 @@ func (pw *Writer) PackWithResources(
 	for i, entry := range entries {
 		encoded, err := pw.normalizeEntry(entry)
 		if err != nil {
-			return fmt.Errorf("normalize entry %d: %w", i, err)
+			return NewNormalizeEntryError(i, err)
 		}
 		encodedEntries[i] = encoded
 	}
@@ -259,12 +258,12 @@ func (pw *Writer) PackWithResources(
 	// Create metadata and entries frames (compressed)
 	metaFrame, metaInfo, err := pw.createMetadataFrame(metadata)
 	if err != nil {
-		return fmt.Errorf("create metadata frame: %w", err)
+		return NewCreateMetadataFrameError(err)
 	}
 
 	entriesFrame, entriesInfo, err := pw.createEntriesFrame(encodedEntries)
 	if err != nil {
-		return fmt.Errorf("create entries frame: %w", err)
+		return NewCreateEntriesFrameError(err)
 	}
 
 	// Process all filesystem resources
@@ -275,13 +274,13 @@ func (pw *Writer) PackWithResources(
 	for _, spec := range resources {
 		tree, dataFrames, err := pw.processFilesystem(spec.FS, spec.ID, spec.Meta)
 		if err != nil {
-			return fmt.Errorf("process filesystem %s: %w", spec.ID, err)
+			return NewProcessResourceFilesystemError(spec.ID.String(), err)
 		}
 
 		// Create resource frame for this tree
 		resourceFrame, resourceInfo, err := pw.createResourceFrame(tree)
 		if err != nil {
-			return fmt.Errorf("create resource frame for %s: %w", spec.ID, err)
+			return NewCreateResourceFrameError(spec.ID.String(), err)
 		}
 
 		// Store resource info and frames separately
@@ -364,18 +363,18 @@ func (pw *Writer) processFilesystem(
 		// Read file
 		fileInfo, err := d.Info()
 		if err != nil {
-			return fmt.Errorf("stat %s: %w", filePath, err)
+			return NewStatFileError(filePath, err)
 		}
 
 		file, err := fsys.Open(filePath)
 		if err != nil {
-			return fmt.Errorf("open %s: %w", filePath, err)
+			return NewOpenFileError(filePath, err)
 		}
 
 		fileData, err := io.ReadAll(file)
 		_ = file.Close()
 		if err != nil {
-			return fmt.Errorf("read %s: %w", filePath, err)
+			return NewReadFileError(filePath, err)
 		}
 
 		// Compute hash of original data
@@ -393,16 +392,16 @@ func (pw *Writer) processFilesystem(
 			var buf bytes.Buffer
 			zw, err := zstd.NewWriter(&buf, zstd.WithEncoderLevel(zstd.SpeedDefault))
 			if err != nil {
-				return fmt.Errorf("create zstd writer for %s: %w", filePath, err)
+				return NewCreateZstdWriterError(filePath, err)
 			}
 			defer func() { _ = zw.Close() }()
 
 			if _, err := zw.Write(fileData); err != nil {
-				return fmt.Errorf("compress %s: %w", filePath, err)
+				return NewCompressFileError(filePath, err)
 			}
 
 			if err := zw.Close(); err != nil {
-				return fmt.Errorf("close zstd writer for %s: %w", filePath, err)
+				return NewCloseZstdWriterError(filePath, err)
 			}
 
 			finalData = buf.Bytes()
@@ -581,7 +580,7 @@ func (pw *Writer) createCompressedFrame(data interface{}, level zstd.EncoderLeve
 	var buf bytes.Buffer
 	encoder := codec.NewEncoder(&buf, pw.handle)
 	if err := encoder.Encode(data); err != nil {
-		return rawFrame{}, FrameInfo{}, fmt.Errorf("msgpack encode: %w", err)
+		return rawFrame{}, FrameInfo{}, NewMsgpackEncodeError(err)
 	}
 
 	uncompData := buf.Bytes()
@@ -591,16 +590,16 @@ func (pw *Writer) createCompressedFrame(data interface{}, level zstd.EncoderLeve
 	var compBuf bytes.Buffer
 	zw, err := zstd.NewWriter(&compBuf, zstd.WithEncoderLevel(level))
 	if err != nil {
-		return rawFrame{}, FrameInfo{}, fmt.Errorf("create zstd writer: %w", err)
+		return rawFrame{}, FrameInfo{}, NewCreateZstdWriterError("", err)
 	}
 	defer func() { _ = zw.Close() }()
 
 	if _, err := zw.Write(uncompData); err != nil {
-		return rawFrame{}, FrameInfo{}, fmt.Errorf("zstd compress: %w", err)
+		return rawFrame{}, FrameInfo{}, NewZstdCompressError(err)
 	}
 
 	if err := zw.Close(); err != nil {
-		return rawFrame{}, FrameInfo{}, fmt.Errorf("close zstd writer: %w", err)
+		return rawFrame{}, FrameInfo{}, NewCloseZstdWriterError("", err)
 	}
 
 	compData := compBuf.Bytes()
@@ -644,7 +643,7 @@ func (pw *Writer) writePack(w io.Writer, toc *TOC, frames []rawFrame) error {
 	// Validate frame count
 	expectedMinFrames := 2 + numResources // metadata + entries + resources
 	if len(frames) < expectedMinFrames {
-		return fmt.Errorf("insufficient frames: got %d, need at least %d", len(frames), expectedMinFrames)
+		return NewInsufficientFramesError(len(frames), expectedMinFrames)
 	}
 
 	// Process all resource frames
@@ -693,13 +692,13 @@ func (pw *Writer) writePack(w io.Writer, toc *TOC, frames []rawFrame) error {
 
 	// Write header
 	if err := WriteHeader(w, header); err != nil {
-		return fmt.Errorf("write header: %w", err)
+		return NewWriteHeaderError(err)
 	}
 
 	// Write all data frames
 	for i, frame := range frames {
 		if _, err := w.Write(frame.data); err != nil {
-			return fmt.Errorf("write frame %d: %w", i, err)
+			return NewWriteFrameError(i, err)
 		}
 	}
 
@@ -709,12 +708,12 @@ func (pw *Writer) writePack(w io.Writer, toc *TOC, frames []rawFrame) error {
 	// Serialize and compress TOC
 	tocData, tocInfo, err := pw.createCompressedFrame(toc, pw.tocLevel)
 	if err != nil {
-		return fmt.Errorf("create TOC frame: %w", err)
+		return NewCreateTOCFrameError(err)
 	}
 
 	// Write TOC frame
 	if _, err := w.Write(tocData.data); err != nil {
-		return fmt.Errorf("write TOC: %w", err)
+		return NewWriteTOCError(err)
 	}
 
 	// Write footer
@@ -724,7 +723,7 @@ func (pw *Writer) writePack(w io.Writer, toc *TOC, frames []rawFrame) error {
 	}
 
 	if err := WriteFooter(w, footer); err != nil {
-		return fmt.Errorf("write footer: %w", err)
+		return NewWriteFooterError(err)
 	}
 
 	return nil
@@ -744,7 +743,7 @@ func (pw *Writer) normalizeEntry(entry registry.Entry) (encodedEntry, error) {
 			entry.Data.Format() != payload.Golang {
 			normalized, err = pw.transcoder.Transcode(entry.Data, payload.Golang)
 			if err != nil {
-				return encodedEntry{}, fmt.Errorf("transcode payload: %w", err)
+				return encodedEntry{}, NewTranscodePayloadError(err)
 			}
 		}
 

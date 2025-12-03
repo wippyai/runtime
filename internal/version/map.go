@@ -1,7 +1,6 @@
 package version
 
 import (
-	"fmt"
 	"sort"
 	"sync"
 
@@ -56,10 +55,10 @@ func (vm *versionHistory) Path(from, to registry.Version) ([]registry.Version, e
 	defer vm.mu.RUnlock()
 
 	if _, ok := vm.versions[from.String()]; !ok {
-		return nil, fmt.Errorf("version %v not found", from.ID())
+		return nil, NewVersionNotFoundError(from.ID())
 	}
 	if _, ok := vm.versions[to.String()]; !ok {
-		return nil, fmt.Errorf("version %v not found", to.ID())
+		return nil, NewVersionNotFoundError(to.ID())
 	}
 
 	if from.ID() == to.ID() {
@@ -104,7 +103,7 @@ func (vm *versionHistory) Add(v registry.Version) error {
 	defer vm.mu.Unlock()
 
 	if _, ok := vm.versions[v.String()]; ok {
-		return fmt.Errorf("version %v already exists", v.ID())
+		return NewVersionAlreadyExistsError(v.ID())
 	}
 
 	vm.versions[v.String()] = v

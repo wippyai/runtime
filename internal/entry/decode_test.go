@@ -97,7 +97,7 @@ func TestDecodeEntryConfig_NilData(t *testing.T) {
 	ctx := context.Background()
 	dtt := &mockTranscoder{}
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "config"},
+		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
 		Data: nil,
 	}
@@ -117,7 +117,7 @@ func TestDecodeEntryConfig_UnmarshalError(t *testing.T) {
 		},
 	}
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "config"},
+		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
 		Data: payload.New(map[string]interface{}{"name": "test"}),
 	}
@@ -140,7 +140,7 @@ func TestDecodeEntryConfig_BasicConfig(t *testing.T) {
 		},
 	}
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "config"},
+		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
 		Data: payload.New(map[string]interface{}{"name": "test-name", "value": 42}),
 	}
@@ -167,7 +167,7 @@ func TestDecodeEntryConfig_WithMeta(t *testing.T) {
 		"port":   8080,
 	}
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "config"},
+		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
 		Data: payload.New(map[string]interface{}{"name": "test-name"}),
 		Meta: meta,
@@ -193,7 +193,7 @@ func TestDecodeEntryConfig_WithDefaults(t *testing.T) {
 		},
 	}
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "config"},
+		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
 		Data: payload.New(map[string]interface{}{"name": "test-name"}),
 	}
@@ -216,7 +216,7 @@ func TestDecodeEntryConfig_ValidationSuccess(t *testing.T) {
 		},
 	}
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "config"},
+		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
 		Data: payload.New(map[string]interface{}{"name": "valid-name"}),
 	}
@@ -236,7 +236,7 @@ func TestDecodeEntryConfig_ValidationFailure(t *testing.T) {
 		},
 	}
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "config"},
+		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
 		Data: payload.New(map[string]interface{}{}),
 	}
@@ -246,7 +246,11 @@ func TestDecodeEntryConfig_ValidationFailure(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, cfg)
 	assert.Contains(t, err.Error(), "invalid configuration")
-	assert.Contains(t, err.Error(), "name is required")
+	// Validation error is wrapped as cause
+	var entryErr *Error
+	if errors.As(err, &entryErr) && entryErr.Unwrap() != nil {
+		assert.Contains(t, entryErr.Unwrap().Error(), "name is required")
+	}
 }
 
 func TestDecodeEntryConfig_AllFeatures(t *testing.T) {
@@ -263,7 +267,7 @@ func TestDecodeEntryConfig_AllFeatures(t *testing.T) {
 		"region":      "us-east-1",
 	}
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "config"},
+		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
 		Data: payload.New(map[string]interface{}{"name": "complete-config"}),
 		Meta: meta,
@@ -293,7 +297,7 @@ func TestDecodeEntryConfig_SetMetaDoesNotOverwriteExisting(t *testing.T) {
 
 	meta := registry.Metadata{"new": "data"}
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "config"},
+		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
 		Data: payload.New(map[string]interface{}{"name": "test"}),
 		Meta: meta,
@@ -318,7 +322,7 @@ func TestDecodeEntryConfig_EmptyMeta(t *testing.T) {
 		},
 	}
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "config"},
+		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
 		Data: payload.New(map[string]interface{}{"name": "test-name"}),
 		Meta: nil,
@@ -366,7 +370,7 @@ func TestDecodeEntryConfig_ReflectionID(t *testing.T) {
 		},
 	}
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "config"},
+		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
 		Data: payload.New(map[string]interface{}{"name": "test-name"}),
 	}
@@ -376,7 +380,7 @@ func TestDecodeEntryConfig_ReflectionID(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	assert.Equal(t, "test-name", cfg.Name)
-	assert.Equal(t, registry.ID{NS: "test", Name: "config"}, cfg.ID)
+	assert.Equal(t, registry.NewID("test", "config"), cfg.ID)
 }
 
 func TestDecodeEntryConfig_ReflectionIDAndMeta(t *testing.T) {
@@ -393,7 +397,7 @@ func TestDecodeEntryConfig_ReflectionIDAndMeta(t *testing.T) {
 		"port":   8080,
 	}
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "config"},
+		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
 		Data: payload.New(map[string]interface{}{"name": "test-name"}),
 		Meta: meta,
@@ -404,7 +408,7 @@ func TestDecodeEntryConfig_ReflectionIDAndMeta(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	assert.Equal(t, "test-name", cfg.Name)
-	assert.Equal(t, registry.ID{NS: "test", Name: "config"}, cfg.ID)
+	assert.Equal(t, registry.NewID("test", "config"), cfg.ID)
 	assert.NotNil(t, cfg.Meta)
 	assert.Equal(t, "test-server", cfg.Meta.GetString("server", ""))
 	assert.Equal(t, 8080, cfg.Meta["port"])
@@ -423,7 +427,7 @@ func TestDecodeEntryConfig_ReflectionMetaNoMethod(t *testing.T) {
 		"key": "value",
 	}
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "config"},
+		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
 		Data: payload.New(map[string]interface{}{"name": "test-name"}),
 		Meta: meta,
@@ -444,14 +448,14 @@ func TestDecodeEntryConfig_ReflectionDoesNotOverwriteExisting(t *testing.T) {
 		unmarshalFunc: func(_ payload.Payload, v interface{}) error {
 			cfg := v.(*ConfigWithIDAndMeta)
 			cfg.Name = "test-name"
-			cfg.ID = registry.ID{NS: "existing", Name: "id"}
+			cfg.ID = registry.NewID("existing", "id")
 			cfg.Meta = registry.Metadata{"existing": "data"}
 			return nil
 		},
 	}
 	meta := registry.Metadata{"new": "data"}
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "config"},
+		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
 		Data: payload.New(map[string]interface{}{"name": "test-name"}),
 		Meta: meta,
@@ -461,7 +465,7 @@ func TestDecodeEntryConfig_ReflectionDoesNotOverwriteExisting(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
-	assert.Equal(t, registry.ID{NS: "existing", Name: "id"}, cfg.ID)
+	assert.Equal(t, registry.NewID("existing", "id"), cfg.ID)
 	assert.Equal(t, "data", cfg.Meta["existing"])
 	assert.Nil(t, cfg.Meta["new"])
 }
@@ -476,7 +480,7 @@ func TestDecodeEntryConfig_ReflectionUnexportedFields(t *testing.T) {
 		},
 	}
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "config"},
+		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
 		Data: payload.New(map[string]interface{}{"name": "test-name"}),
 		Meta: registry.Metadata{"key": "value"},
@@ -499,7 +503,7 @@ func TestDecodeEntryConfig_ReflectionCachingPerformance(t *testing.T) {
 		},
 	}
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "config"},
+		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
 		Data: payload.New(map[string]interface{}{"name": "test"}),
 		Meta: registry.Metadata{"key": "value"},

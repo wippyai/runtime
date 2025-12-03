@@ -2,7 +2,6 @@ package interpolate
 
 import (
 	"context"
-	"fmt"
 	"io/fs"
 
 	"github.com/wippyai/runtime/api/payload"
@@ -54,7 +53,7 @@ func NewEntryInterpolator(dtt payload.Transcoder, opts ...Option) *Helper {
 func (h *Helper) Interpolate(p payload.Payload, ctx EntryContext) (payload.Payload, error) {
 	var data interface{}
 	if err := h.dtt.Unmarshal(p, &data); err != nil {
-		return p, fmt.Errorf("failed to unmarshal payload for interpolation: %w", err)
+		return p, NewUnmarshalPayloadError(err)
 	}
 
 	interpolated, err := h.interpolateValue(data, ctx)
@@ -85,7 +84,7 @@ func (h *Helper) interpolateString(s string, ctx EntryContext) (string, error) {
 		var err error
 		result, err = interpolator(result, ctx)
 		if err != nil {
-			return "", fmt.Errorf("interpolation error: %w", err)
+			return "", NewInterpolationError(err)
 		}
 	}
 	return result, nil

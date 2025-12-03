@@ -2,8 +2,6 @@ package system
 
 import (
 	"context"
-	"fmt"
-
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
@@ -17,19 +15,19 @@ func Factory() boot.Component {
 	return boot.New(boot.P{
 		Name: FactoryName,
 		Load: func(ctx context.Context) (context.Context, error) {
-			logger := logapi.GetLogger(ctx)
+			logger := logapi.GetLogger(ctx).Named("factory")
 			if logger == nil {
-				return ctx, fmt.Errorf("logger not available")
+				return ctx, ErrLoggerNotAvailable
 			}
 
 			bus := event.GetBus(ctx)
 			if bus == nil {
-				return ctx, fmt.Errorf("event bus not available")
+				return ctx, ErrEventBusNotAvailable
 			}
 
 			registry := process.NewFactoryRegistry(bus, logger)
 			if err := registry.Start(ctx); err != nil {
-				return ctx, fmt.Errorf("failed to start factory registry: %w", err)
+				return ctx, NewFactoryStartError(err)
 			}
 
 			api.WithFactory(ctx, registry)

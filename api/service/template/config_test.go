@@ -38,7 +38,7 @@ func TestConfig_MarshalUnmarshal(t *testing.T) {
 			config: Config{
 				Meta:   registry.Metadata{"type": "template"},
 				Source: "template content",
-				Set:    registry.ID{NS: "templates", Name: "main"},
+				Set:    registry.NewID("templates", "main"),
 			},
 			wantErr: false,
 		},
@@ -72,14 +72,14 @@ func TestConfig_Validate(t *testing.T) {
 			name: "valid config",
 			config: Config{
 				Source: "template",
-				Set:    registry.ID{NS: "t", Name: "main"},
+				Set:    registry.NewID("t", "main"),
 			},
 			wantErr: false,
 		},
 		{
 			name: "empty source",
 			config: Config{
-				Set: registry.ID{NS: "t", Name: "main"},
+				Set: registry.NewID("t", "main"),
 			},
 			wantErr: true,
 			errMsg:  "source cannot be empty",

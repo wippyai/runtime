@@ -197,7 +197,7 @@ func TestTokenStoreCreateValidateRevoke(t *testing.T) {
 	logger := zap.NewNop()
 
 	// Create and configure MemoryStore
-	storeID := registry.ID{Name: "test-store"}
+	storeID := registry.NewID("", "test-store")
 	memConfig := &memstore.MemoryConfig{
 		MaxSize:         1000,
 		CleanupInterval: time.Second,
@@ -228,7 +228,7 @@ func TestTokenStoreCreateValidateRevoke(t *testing.T) {
 	secRegistry := newTestSecurityRegistry()
 
 	// Add some test policies
-	policyID := registry.ID{Name: "test-policy"}
+	policyID := registry.NewID("", "test-policy")
 	secRegistry.AddPolicy(policyID, security.Allow)
 
 	// Configure token store
@@ -294,7 +294,7 @@ func TestTokenExpiration(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 	logger := zap.NewNop()
 
-	storeID := registry.ID{Name: "test-store"}
+	storeID := registry.NewID("", "test-store")
 	memConfig := &memstore.MemoryConfig{
 		MaxSize:         1000,
 		CleanupInterval: 100 * time.Millisecond, // Short cleanup for testing
@@ -352,7 +352,7 @@ func TestTokenSignature(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 	logger := zap.NewNop()
 
-	storeID := registry.ID{Name: "test-store"}
+	storeID := registry.NewID("", "test-store")
 	memStore := memorystore.NewMemoryStore(storeID, nil, logger)
 
 	statusChan, err := memStore.Start(ctx)
@@ -416,7 +416,7 @@ func TestEdgeCases(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 	logger := zap.NewNop()
 
-	storeID := registry.ID{Name: "test-store"}
+	storeID := registry.NewID("", "test-store")
 	memStore := memorystore.NewMemoryStore(storeID, nil, logger)
 
 	statusChan, err := memStore.Start(ctx)
@@ -488,7 +488,7 @@ func TestTokenStoreWithoutSigningKey(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 	logger := zap.NewNop()
 
-	storeID := registry.ID{Name: "test-store"}
+	storeID := registry.NewID("", "test-store")
 	memStore := memorystore.NewMemoryStore(storeID, nil, logger)
 
 	statusChan, err := memStore.Start(ctx)
@@ -546,7 +546,7 @@ func TestConcurrentAccess(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 	logger := zap.NewNop()
 
-	storeID := registry.ID{Name: "test-store"}
+	storeID := registry.NewID("", "test-store")
 	memStore := memorystore.NewMemoryStore(storeID, nil, logger)
 
 	statusChan, err := memStore.Start(ctx)
@@ -671,7 +671,7 @@ func TestStoreResourceCleanup(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 	logger := zap.NewNop()
 
-	storeID := registry.ID{Name: "test-store"}
+	storeID := registry.NewID("", "test-store")
 	memStore := memorystore.NewMemoryStore(storeID, nil, logger)
 
 	statusChan, err := memStore.Start(ctx)
@@ -752,7 +752,7 @@ func TestInvalidTokenStore(t *testing.T) {
 
 	// Test with invalid config (invalid token length)
 	invalidConfig = &tokenstore.Config{
-		Store:             registry.ID{Name: "test-store"},
+		Store:             registry.NewID("", "test-store"),
 		TokenLength:       0, // Invalid
 		DefaultExpiration: time.Hour,
 	}

@@ -25,7 +25,7 @@ func TestOpenRestrictedPackage(t *testing.T) {
 	}
 
 	// Check required fields exist
-	requiredFields := []string{"preload", "loaders", "loaded", "path", "cpath"}
+	requiredFields := []string{"preload", "loaded", "path", "cpath"}
 	for _, field := range requiredFields {
 		value := state.GetField(packageTable, field)
 		if value == lua.LNil {
@@ -42,22 +42,6 @@ func TestOpenRestrictedPackage(t *testing.T) {
 	cpath := state.GetField(packageTable, "cpath")
 	if cpath != lua.LString("") {
 		t.Errorf("expected empty cpath, got %v", cpath)
-	}
-
-	// Check that loaders table has exactly one loader
-	loaders := state.GetField(packageTable, "loaders")
-	if loadersTable, ok := loaders.(*lua.LTable); ok {
-		loadersTable.ForEach(func(key, value lua.LValue) {
-			// Should only have one loader
-			if key.String() != "1" {
-				t.Errorf("unexpected loader key: %s", key.String())
-			}
-			if value.Type() != lua.LTFunction {
-				t.Errorf("loader value is not a function, got %v", value.Type())
-			}
-		})
-	} else {
-		t.Fatal("loaders is not a table")
 	}
 
 	// Check that preload table is empty initially

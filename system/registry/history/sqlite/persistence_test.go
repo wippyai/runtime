@@ -64,7 +64,7 @@ func TestSQLitePersistence_OriginalEntry(t *testing.T) {
 	// Load baseline at v0
 	baseline := registry.State{
 		{
-			ID:   registry.ID{NS: "base", Name: "config"},
+			ID:   registry.NewID("base", "config"),
 			Kind: "config",
 			Data: payload.NewString("baseline"),
 		},
@@ -72,7 +72,7 @@ func TestSQLitePersistence_OriginalEntry(t *testing.T) {
 	err = reg.LoadState(ctx, baseline, version.FromParent(nil, 0))
 	require.NoError(t, err)
 
-	entryID := registry.ID{NS: "test", Name: "entry1"}
+	entryID := registry.NewID("test", "entry1")
 
 	// v1: Create entry
 	v1, err := reg.Apply(ctx, registry.ChangeSet{
@@ -147,7 +147,7 @@ func TestSQLitePersistence_OriginalEntry(t *testing.T) {
 
 	var found bool
 	for _, e := range entries {
-		if e.ID == entryID {
+		if e.ID.Equal(entryID) {
 			found = true
 			assert.Equal(t, "v1", e.Data.Data().(string), "Entry should have v1 value after rollback")
 		}

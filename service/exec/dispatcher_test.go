@@ -14,6 +14,19 @@ import (
 	execapi "github.com/wippyai/runtime/api/dispatcher/exec"
 )
 
+// testEmitter wraps a callback function to implement dispatcher.Emitter
+type testEmitter struct {
+	fn func(data any)
+}
+
+func (e *testEmitter) Emit(data any, _ error) {
+	e.fn(data)
+}
+
+func newTestEmitter(fn func(data any)) dispatcher.Emitter {
+	return &testEmitter{fn: fn}
+}
+
 type mockProcess struct {
 	waitErr error
 }
@@ -47,10 +60,10 @@ func TestProcessWaitHandler_Handle_Success(t *testing.T) {
 
 	var response execapi.ProcessWaitResponse
 	done := make(chan struct{})
-	err := handlers[execapi.CmdProcessWait].Handle(context.Background(), cmd, func(data any) {
+	err := handlers[execapi.CmdProcessWait].Handle(context.Background(), cmd, newTestEmitter(func(data any) {
 		response = data.(execapi.ProcessWaitResponse)
 		close(done)
-	})
+	}))
 
 	require.NoError(t, err)
 
@@ -81,10 +94,10 @@ func TestProcessWaitHandler_Handle_ExitError(t *testing.T) {
 
 	var response execapi.ProcessWaitResponse
 	done := make(chan struct{})
-	err := handlers[execapi.CmdProcessWait].Handle(context.Background(), cmd, func(data any) {
+	err := handlers[execapi.CmdProcessWait].Handle(context.Background(), cmd, newTestEmitter(func(data any) {
 		response = data.(execapi.ProcessWaitResponse)
 		close(done)
-	})
+	}))
 
 	require.NoError(t, err)
 
@@ -114,10 +127,10 @@ func TestProcessWaitHandler_Handle_OtherError(t *testing.T) {
 
 	var response execapi.ProcessWaitResponse
 	done := make(chan struct{})
-	err := handlers[execapi.CmdProcessWait].Handle(context.Background(), cmd, func(data any) {
+	err := handlers[execapi.CmdProcessWait].Handle(context.Background(), cmd, newTestEmitter(func(data any) {
 		response = data.(execapi.ProcessWaitResponse)
 		close(done)
-	})
+	}))
 
 	require.NoError(t, err)
 

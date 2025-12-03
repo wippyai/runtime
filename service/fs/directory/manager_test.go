@@ -156,7 +156,7 @@ func TestManager_Add(t *testing.T) {
 	require.NoError(t, err)
 	defer sub.Close()
 
-	testID := registry.ID{NS: "test", Name: "dir1"}
+	testID := registry.NewID("test", "dir1")
 
 	t.Run("successful directory addition", func(t *testing.T) {
 		entry := registry.Entry{
@@ -223,7 +223,7 @@ func TestManager_Add(t *testing.T) {
 
 		err := manager.Add(ctx, entry)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to unmarshal config")
+		assert.Contains(t, err.Error(), "failed to decode config")
 
 		// Reset transcoder for other tests
 		manager.dtt = &MockTranscoder{mockData: []byte(`{"directory":"/tmp/test","mode":"0755"}`)}
@@ -263,7 +263,7 @@ func TestManager_Update(t *testing.T) {
 	require.NoError(t, err)
 	defer sub.Close()
 
-	testID := registry.ID{NS: "test", Name: "dir1"}
+	testID := registry.NewID("test", "dir1")
 
 	// First add a directory
 	entry := registry.Entry{
@@ -343,7 +343,7 @@ func TestManager_Update(t *testing.T) {
 
 		err := manager.Update(ctx, entry)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to unmarshal config")
+		assert.Contains(t, err.Error(), "failed to decode config")
 
 		// Reset transcoder for other tests
 		manager.dtt = &MockTranscoder{mockData: []byte(`{"directory":"/tmp/test","mode":"0755"}`)}
@@ -368,7 +368,7 @@ func TestManager_Delete(t *testing.T) {
 	require.NoError(t, err)
 	defer sub.Close()
 
-	testID := registry.ID{NS: "test", Name: "dir1"}
+	testID := registry.NewID("test", "dir1")
 
 	// First add a directory
 	entry := registry.Entry{
@@ -448,7 +448,7 @@ func TestManager_RegisterFS(t *testing.T) {
 	require.NoError(t, err)
 	defer sub.Close()
 
-	testID := registry.ID{NS: "test", Name: "dir1"}
+	testID := registry.NewID("test", "dir1")
 	cfg := &dirapi.Config{
 		Directory: "/tmp/test",
 		Mode:      "0755",
@@ -485,7 +485,7 @@ func TestManager_FactoryError(t *testing.T) {
 
 	manager := NewDirectoryManager(bus, transcoder, factory, logger)
 
-	testID := registry.ID{NS: "test", Name: "error"}
+	testID := registry.NewID("test", "error")
 	cfg := &dirapi.Config{
 		Directory: "/tmp/test",
 		Mode:      "0755",
@@ -493,5 +493,5 @@ func TestManager_FactoryError(t *testing.T) {
 
 	err := manager.registerFS(ctx, testID, cfg)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), expectedErr.Error())
+	assert.Contains(t, err.Error(), "failed to create filesystem")
 }

@@ -152,7 +152,7 @@ func sandboxStep(l *lua.LState) int {
 		}
 		if errVal := resultsTable.RawGetString("error"); errVal != lua.LNil {
 			if errStr, ok := errVal.(lua.LString); ok {
-				results.Error = fmt.Errorf("%s", string(errStr))
+				results.Error = NewEvalError(string(errStr))
 			}
 		}
 	}

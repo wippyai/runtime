@@ -136,7 +136,7 @@ func CreateLogger(cfg Config) (*zap.Logger, error) {
 
 	logger, err := zapCfg.Build()
 	if err != nil {
-		return nil, fmt.Errorf("failed to build logger: %w", err)
+		return nil, NewBuildLoggerError(err)
 	}
 
 	return logger, nil

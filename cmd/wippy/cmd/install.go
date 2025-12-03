@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 
@@ -40,7 +39,7 @@ func init() {
 func runInstall(cmd *cobra.Command, args []string) error {
 	app, err := appinit.Init(cmd.Context(), verbose, veryVerbose, console, silentLogs, appStartTime)
 	if err != nil {
-		return fmt.Errorf("init app: %w", err)
+		return NewInitAppError(err)
 	}
 
 	logger := app.Logger.Named("install")
@@ -56,7 +55,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		logger.Info("lock file not found, running init and update")
 
 		if err := runInit(cmd, args); err != nil {
-			return fmt.Errorf("init failed: %w", err)
+			return NewInitFailedError(err)
 		}
 
 		return runUpdate(cmd, args)
@@ -66,11 +65,11 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 	lockObj, err := lock.New(lockPath)
 	if err != nil {
-		return fmt.Errorf("load lock file: %w", err)
+		return NewLoadLockFileError(err)
 	}
 
 	if err := lock.Validate(lockObj); err != nil {
-		return fmt.Errorf("invalid lock file: %w", err)
+		return NewInvalidLockFileError(err)
 	}
 
 	modules := lockObj.GetModules()
@@ -119,7 +118,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	for _, module := range modules {
 		name, err := graph.ParseName(module.Name)
 		if err != nil {
-			return fmt.Errorf("parse module name %s: %w", module.Name, err)
+			return NewParseModuleNameError(module.Name, err)
 		}
 
 		modulePath := lock.ModulePath(name, module.Version)
@@ -128,7 +127,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		if !force {
 			exists, err = storageImpl.Exists(modulePath)
 			if err != nil {
-				return fmt.Errorf("check module %s: %w", module.Name, err)
+				return NewCheckModuleError(module.Name, err)
 			}
 		}
 
@@ -168,20 +167,20 @@ func runInstall(cmd *cobra.Command, args []string) error {
 			zap.String("version", module.Version))
 
 		if module.Hash == "" {
-			return fmt.Errorf("module %s has no hash in lock file", module.Name)
+			return NewModuleMissingHashError(module.Name)
 		}
 
 		results, err := app.RegistryClient.Download(app.Ctx, []string{module.Hash})
 		if err != nil {
-			return fmt.Errorf("download module %s: %w", module.Name, err)
+			return NewDownloadModuleError(module.Name, err)
 		}
 
 		if len(results) == 0 {
-			return fmt.Errorf("no content downloaded for module %s", module.Name)
+			return NewNoContentDownloadedError(module.Name)
 		}
 
 		if err := storageImpl.StoreProtoFiles(modulePath, results[0].Files); err != nil {
-			return fmt.Errorf("store module %s: %w", module.Name, err)
+			return NewStoreModuleError(module.Name, err)
 		}
 
 		// Compute local hash from loaded entries

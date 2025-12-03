@@ -2,7 +2,6 @@ package boot
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/wippyai/runtime/api/boot"
 	contextapi "github.com/wippyai/runtime/api/context"
@@ -45,7 +44,7 @@ func NewLoader(components ...boot.Component) (*Loader, error) {
 func (l *Loader) Register(c boot.Component) error {
 	name := c.Name()
 	if _, exists := l.components[name]; exists {
-		return fmt.Errorf("component %q already registered", name)
+		return NewComponentAlreadyRegisteredError(name)
 	}
 
 	l.components[name] = c
@@ -64,15 +63,15 @@ func (l *Loader) Register(c boot.Component) error {
 func (l *Loader) Load(ctx context.Context) (context.Context, error) {
 	// Verify AppContext and logger are present
 	if contextapi.AppFromContext(ctx) == nil {
-		return ctx, fmt.Errorf("AppContext not initialized - call NewInfrastructure first")
+		return ctx, ErrAppContextNotInitialized
 	}
 	if logapi.GetLogger(ctx) == nil {
-		return ctx, fmt.Errorf("logger not initialized - call NewInfrastructure first")
+		return ctx, ErrLoggerNotInitialized
 	}
 
 	levels, err := l.graph.DependencyLevels()
 	if err != nil {
-		return ctx, fmt.Errorf("dependency resolution: %w", err)
+		return ctx, NewDependencyResolutionError(err)
 	}
 
 	for i := 0; i < levels.LevelCount(); i++ {
@@ -81,12 +80,12 @@ func (l *Loader) Load(ctx context.Context) (context.Context, error) {
 		for _, name := range names {
 			c, ok := l.components[name]
 			if !ok {
-				return ctx, fmt.Errorf("component %q not found", name)
+				return ctx, NewComponentNotFoundError(name)
 			}
 
 			ctx, err = c.Load(ctx)
 			if err != nil {
-				return ctx, fmt.Errorf("component %q load: %w", name, err)
+				return ctx, NewComponentLoadError(name, err)
 			}
 
 			l.loaded = append(l.loaded, c)
@@ -100,7 +99,7 @@ func (l *Loader) Load(ctx context.Context) (context.Context, error) {
 // Start activates runtime services and all components with Start() method in dependency order.
 func (l *Loader) Start(ctx context.Context) error {
 	if err := StartRuntimeServices(ctx); err != nil {
-		return fmt.Errorf("start runtime services: %w", err)
+		return NewRuntimeServicesStartError(err)
 	}
 
 	// Freeze dispatcher registry for lock-free lookups
@@ -114,7 +113,7 @@ func (l *Loader) Start(ctx context.Context) error {
 	for _, c := range l.loaded {
 		if starter, ok := c.(boot.Starter); ok {
 			if err := starter.Start(ctx); err != nil {
-				return fmt.Errorf("component %q start: %w", c.Name(), err)
+				return NewComponentStartError(c.Name(), err)
 			}
 		}
 	}
@@ -131,7 +130,7 @@ func (l *Loader) Shutdown(ctx context.Context) error {
 
 		if stopper, ok := c.(boot.Stopper); ok {
 			if err := stopper.Stop(ctx); err != nil {
-				errors = append(errors, fmt.Errorf("component %q stop: %w", c.Name(), err))
+				errors = append(errors, NewComponentStopError(c.Name(), err))
 			}
 		}
 	}
@@ -144,7 +143,7 @@ func (l *Loader) Shutdown(ctx context.Context) error {
 		return errors[0]
 	}
 
-	return fmt.Errorf("shutdown errors (%d components): %w", len(errors), errors[0])
+	return NewShutdownError(len(errors), errors[0])
 }
 
 // Handlers returns all handlers registered via HandlerRegistry during component loading.

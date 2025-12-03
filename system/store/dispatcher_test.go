@@ -87,7 +87,7 @@ func TestDispatcher(t *testing.T) {
 	setCmd := &storeapi.StoreSetCmd{
 		Store: ms,
 		Entry: store.Entry{
-			Key:   registry.ID{NS: "test", Name: "key1"},
+			Key:   registry.NewID("test", "key1"),
 			Value: payload.New("value1"),
 		},
 	}
@@ -108,7 +108,7 @@ func TestDispatcher(t *testing.T) {
 	getDone := make(chan storeapi.StoreGetResponse, 1)
 	getCmd := &storeapi.StoreGetCmd{
 		Store: ms,
-		Key:   registry.ID{NS: "test", Name: "key1"},
+		Key:   registry.NewID("test", "key1"),
 	}
 
 	err = d.handle(ctx, getCmd, emitFunc(func(data any, _ error) {
@@ -128,7 +128,7 @@ func TestDispatcher(t *testing.T) {
 	hasDone := make(chan storeapi.StoreHasResponse, 1)
 	hasCmd := &storeapi.StoreHasCmd{
 		Store: ms,
-		Key:   registry.ID{NS: "test", Name: "key1"},
+		Key:   registry.NewID("test", "key1"),
 	}
 
 	err = d.handle(ctx, hasCmd, emitFunc(func(data any, _ error) {
@@ -148,7 +148,7 @@ func TestDispatcher(t *testing.T) {
 	delDone := make(chan storeapi.StoreDeleteResponse, 1)
 	delCmd := &storeapi.StoreDeleteCmd{
 		Store: ms,
-		Key:   registry.ID{NS: "test", Name: "key1"},
+		Key:   registry.NewID("test", "key1"),
 	}
 
 	err = d.handle(ctx, delCmd, emitFunc(func(data any, _ error) {
@@ -183,7 +183,7 @@ func TestDispatcher_Concurrent(t *testing.T) {
 			cmd := &storeapi.StoreSetCmd{
 				Store: ms,
 				Entry: store.Entry{
-					Key:   registry.ID{NS: "test", Name: "key"},
+					Key:   registry.NewID("test", "key"),
 					Value: payload.New("value"),
 				},
 			}
@@ -250,7 +250,7 @@ func TestDispatcher_ErrorHandling(t *testing.T) {
 	getDone := make(chan storeapi.StoreGetResponse, 1)
 	getCmd := &storeapi.StoreGetCmd{
 		Store: ms,
-		Key:   registry.ID{NS: "test", Name: "nonexistent"},
+		Key:   registry.NewID("test", "nonexistent"),
 	}
 
 	err := d.handle(ctx, getCmd, emitFunc(func(data any, _ error) {
@@ -270,7 +270,7 @@ func TestDispatcher_ErrorHandling(t *testing.T) {
 	hasDone := make(chan storeapi.StoreHasResponse, 1)
 	hasCmd := &storeapi.StoreHasCmd{
 		Store: ms,
-		Key:   registry.ID{NS: "test", Name: "nonexistent"},
+		Key:   registry.NewID("test", "nonexistent"),
 	}
 
 	err = d.handle(ctx, hasCmd, emitFunc(func(data any, _ error) {
@@ -299,7 +299,7 @@ func TestDispatcher_GracefulShutdown(t *testing.T) {
 	cmd := &storeapi.StoreSetCmd{
 		Store: ms,
 		Entry: store.Entry{
-			Key:   registry.ID{NS: "test", Name: "key"},
+			Key:   registry.NewID("test", "key"),
 			Value: payload.New("value"),
 		},
 	}
@@ -328,7 +328,7 @@ func TestDispatcher_AllOperations(t *testing.T) {
 		cmd := &storeapi.StoreSetCmd{
 			Store: ms,
 			Entry: store.Entry{
-				Key:   registry.ID{NS: "test", Name: "async-key"},
+				Key:   registry.NewID("test", "async-key"),
 				Value: payload.New("async-value"),
 			},
 		}
@@ -348,7 +348,7 @@ func TestDispatcher_AllOperations(t *testing.T) {
 		done := make(chan storeapi.StoreGetResponse, 1)
 		cmd := &storeapi.StoreGetCmd{
 			Store: ms,
-			Key:   registry.ID{NS: "test", Name: "async-key"},
+			Key:   registry.NewID("test", "async-key"),
 		}
 		require.NoError(t, d.handle(ctx, cmd, emitFunc(func(data any, _ error) {
 			done <- data.(storeapi.StoreGetResponse)
@@ -367,7 +367,7 @@ func TestDispatcher_AllOperations(t *testing.T) {
 		done := make(chan storeapi.StoreHasResponse, 1)
 		cmd := &storeapi.StoreHasCmd{
 			Store: ms,
-			Key:   registry.ID{NS: "test", Name: "async-key"},
+			Key:   registry.NewID("test", "async-key"),
 		}
 		require.NoError(t, d.handle(ctx, cmd, emitFunc(func(data any, _ error) {
 			done <- data.(storeapi.StoreHasResponse)
@@ -386,7 +386,7 @@ func TestDispatcher_AllOperations(t *testing.T) {
 		done := make(chan storeapi.StoreDeleteResponse, 1)
 		cmd := &storeapi.StoreDeleteCmd{
 			Store: ms,
-			Key:   registry.ID{NS: "test", Name: "async-key"},
+			Key:   registry.NewID("test", "async-key"),
 		}
 		require.NoError(t, d.handle(ctx, cmd, emitFunc(func(data any, _ error) {
 			done <- data.(storeapi.StoreDeleteResponse)
@@ -408,7 +408,7 @@ func BenchmarkDispatcher(b *testing.B) {
 
 	ms := newMockStore()
 	ctx := context.Background()
-	key := registry.ID{NS: "bench", Name: "key"}
+	key := registry.NewID("bench", "key")
 	ms.data[key.String()] = payload.New("value")
 
 	var wg sync.WaitGroup
@@ -511,7 +511,7 @@ func TestStress_RapidStartStop(t *testing.T) {
 		cmd := &storeapi.StoreSetCmd{
 			Store: ms,
 			Entry: store.Entry{
-				Key:   registry.ID{NS: "test", Name: "key"},
+				Key:   registry.NewID("test", "key"),
 				Value: payload.New("value"),
 			},
 		}
@@ -618,7 +618,7 @@ func TestRace_SubmitDuringShutdown(t *testing.T) {
 					cmd := &storeapi.StoreSetCmd{
 						Store: ms,
 						Entry: store.Entry{
-							Key:   registry.ID{NS: "race", Name: "key"},
+							Key:   registry.NewID("race", "key"),
 							Value: payload.New("value"),
 						},
 					}
@@ -662,7 +662,7 @@ func benchmarkWithWorkers(b *testing.B, workers int) {
 
 	ms := newMockStore()
 	ctx := context.Background()
-	key := registry.ID{NS: "bench", Name: "key"}
+	key := registry.NewID("bench", "key")
 	ms.data[key.String()] = payload.New("value")
 
 	var wg sync.WaitGroup
@@ -688,7 +688,7 @@ func BenchmarkDispatcher_WithLatency(b *testing.B) {
 	ms := newMockStore()
 	ms.delay = 100 * time.Microsecond
 	ctx := context.Background()
-	key := registry.ID{NS: "bench", Name: "key"}
+	key := registry.NewID("bench", "key")
 	ms.data[key.String()] = payload.New("value")
 
 	var wg sync.WaitGroup

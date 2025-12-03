@@ -126,7 +126,7 @@ func TestService_ResourceLifecycle(t *testing.T) {
 	}()
 
 	provider := newMockResourceProvider()
-	id := registry.ID{NS: "test", Name: "resource1"}
+	id := registry.NewID("test", "resource1")
 
 	// Test registration
 	entry := resource.Entry{
@@ -201,7 +201,7 @@ func TestService_ResourceAccess(t *testing.T) {
 	}()
 
 	provider := newMockResourceProvider()
-	id := registry.ID{NS: "test", Name: "resource1"}
+	id := registry.NewID("test", "resource1")
 
 	// Initialize the provider with the resource
 	provider.resources[id] = "test-data"
@@ -280,7 +280,7 @@ func TestService_ContextCancellation(t *testing.T) {
 	}()
 
 	provider := newMockResourceProvider()
-	id := registry.ID{NS: "test", Name: "resource1"}
+	id := registry.NewID("test", "resource1")
 
 	// Initialize the provider with the resource
 	provider.resources[id] = "test-data"
@@ -392,7 +392,7 @@ func TestService_UpdateResource(t *testing.T) {
 	defer func() { assert.NoError(t, service.Stop()) }()
 
 	provider := newMockResourceProvider()
-	id := registry.ID{NS: "test", Name: "resource1"}
+	id := registry.NewID("test", "resource1")
 	provider.resources[id] = "initial-data"
 
 	// Register initial resource
@@ -430,7 +430,7 @@ func TestService_UpdateResource(t *testing.T) {
 	})
 
 	t.Run("update non-existent resource", func(_ *testing.T) {
-		nonExistentID := registry.ID{NS: "test", Name: "nonexistent"}
+		nonExistentID := registry.NewID("test", "nonexistent")
 		updatedEntry := resource.Entry{
 			ID:       nonExistentID,
 			Provider: provider,
@@ -554,7 +554,7 @@ func TestService_ResourceUpdateScenarios(t *testing.T) {
 	}()
 
 	provider := newMockResourceProvider()
-	id := registry.ID{NS: "test", Name: "resource1"}
+	id := registry.NewID("test", "resource1")
 
 	// Initialize the provider with the resource
 	provider.resources[id] = "initial-data"
@@ -576,7 +576,7 @@ func TestService_ResourceUpdateScenarios(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	// Test updating non-existent resource
-	nonExistentID := registry.ID{NS: "test", Name: "nonexistent"}
+	nonExistentID := registry.NewID("test", "nonexistent")
 	bus.Send(ctx, event.Event{
 		System: resource.System,
 		Kind:   resource.Update,
@@ -617,7 +617,7 @@ func TestService_ResourceAcquisitionEdgeCases(t *testing.T) {
 	}()
 
 	provider := newMockResourceProvider()
-	id := registry.ID{NS: "test", Name: "resource1"}
+	id := registry.NewID("test", "resource1")
 
 	// Test acquiring non-existent resource
 	_, err := service.Acquire(ctx, id, resource.ModeNormal)

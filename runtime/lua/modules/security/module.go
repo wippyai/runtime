@@ -5,7 +5,6 @@ import (
 
 	securityapi "github.com/wippyai/runtime/api/dispatcher/security"
 	"github.com/wippyai/runtime/api/registry"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	secapi "github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -16,7 +15,7 @@ import (
 
 var (
 	moduleTable         *lua.LTable
-	registration        *lua2api.Registration
+	registration        *luaapi.Registration
 	actorMetatable      *lua.LTable
 	scopeMetatable      *lua.LTable
 	policyMetatable     *lua.LTable
@@ -37,7 +36,7 @@ func (m *securityModule) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *securityModule) Register(l *lua.LState) *lua2api.Registration {
+func (m *securityModule) Register(l *lua.LState) *luaapi.Registration {
 	initOnce.Do(func() {
 		moduleTable = createModuleTable()
 
@@ -57,9 +56,9 @@ func (m *securityModule) Register(l *lua.LState) *lua2api.Registration {
 			map[string]lua.LGFunction{"__tostring": tokenStoreToString},
 			tokenStoreMethods)
 
-		registration = &lua2api.Registration{
+		registration = &luaapi.Registration{
 			Table: moduleTable,
-			YieldTypes: []lua2api.YieldType{
+			YieldTypes: []luaapi.YieldType{
 				{Sample: &ValidateYield{}, CmdID: securityapi.CmdTokenValidate},
 				{Sample: &CreateYield{}, CmdID: securityapi.CmdTokenCreate},
 				{Sample: &RevokeYield{}, CmdID: securityapi.CmdTokenRevoke},
@@ -76,9 +75,9 @@ func (m *securityModule) Loader(l *lua.LState) int {
 	return 1
 }
 
-// Bind is deprecated. Use lua2api.LoadModule(l, Module) instead.
+// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
 func Bind(l *lua.LState) {
-	lua2api.LoadModule(l, Module)
+	luaapi.LoadModule(l, Module)
 }
 
 func createModuleTable() *lua.LTable {

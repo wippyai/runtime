@@ -62,21 +62,18 @@ const (
 // This is the unit that flows through queues.
 //
 // Separation of concerns:
-//   - Process: the user's state machine (pure logic)
-//   - Processor: scheduler's tracking wrapper (execution state)
+//   - Process: the user's state machine (pure logic, owns its own stats)
+//   - Processor: scheduler's tracking wrapper (execution state only)
 //
 // Lifecycle:
 //  1. Acquired from pool on Submit()
 //  2. Flows through global queue -> worker local deque
 //  3. Executed by worker, may block waiting for handler
 //  4. Released back to pool on completion
-//
-// Note: Scheduler owns full process lifecycle. Context cancellation
-// is caller's responsibility (frame context set up before Submit).
 type Processor struct {
 	// Identity
-	ID  uint64    // Internal fast routing ID (for maps, queues)
-	PID relay.PID // External identity (for messages, logs, callbacks)
+	id  uint64    // Internal fast routing ID (for maps, queues)
+	pid relay.PID // External identity (for messages, logs, callbacks)
 
 	Process  Process      // The wrapped user process
 	State    ProcessState // Current scheduler state
@@ -86,7 +83,6 @@ type Processor struct {
 	ctx context.Context
 
 	// Yield results storage (embedded to avoid allocation)
-	// Handler calls Complete() which stores here, next Step() consumes
 	yieldResult    YieldResults
 	hasYieldResult bool
 
@@ -98,12 +94,6 @@ type Processor struct {
 
 	// Result channel for blocking Execute (nil for fire-and-forget Submit)
 	resultCh chan *runtime.Result
-
-	// Timing (monotonic nanoseconds for minimal overhead)
-	WakeNano int64 // Last time processor was queued for execution
-
-	// Metrics
-	StepCount uint64 // Number of Step() calls
 
 	// Pooled flag indicates this processor is managed externally (funcpool).
 	// Pooled processors are NOT released or unregistered on completion.
@@ -125,15 +115,24 @@ func (p *Processor) Emit(data any, err error) {
 	p.yieldResult.Error = err
 	p.hasYieldResult = true
 	p.State = StateReady
-	p.WakeNano = nanotime()
 
 	sched.global.Push(p)
-	sched.wakeWorker()
+	sched.wake()
 }
 
 // Complete is an alias for Emit (backwards compatibility).
 func (p *Processor) Complete(data any, err error) {
 	p.Emit(data, err)
+}
+
+// ID returns the internal processor ID.
+func (p *Processor) ID() uint64 {
+	return p.id
+}
+
+// PID returns the external process ID.
+func (p *Processor) PID() relay.PID {
+	return p.pid
 }
 
 // Context returns the processor's context for cancellation checking.
@@ -227,11 +226,9 @@ func acquireProcessor() *Processor {
 }
 
 // releaseProcessor returns a processor to the pool after clearing all fields.
-// Critical: must clear all references to avoid memory leaks.
 func releaseProcessor(p *Processor) {
-	// Clear all fields
-	p.ID = 0
-	p.PID = relay.PID{}
+	p.id = 0
+	p.pid = relay.PID{}
 	p.Process = nil
 	p.State = 0
 	p.Priority = 0
@@ -239,15 +236,12 @@ func releaseProcessor(p *Processor) {
 	p.yieldResult.Data = nil
 	p.yieldResult.Error = nil
 	p.hasYieldResult = false
-	// Keep multiYield.wakeup channel for reuse (don't nil it)
 	for i := range p.multiYield.slots {
 		p.multiYield.slots[i].Data = nil
 		p.multiYield.slots[i].Error = nil
 	}
 	p.scheduler = nil
 	p.resultCh = nil
-	p.WakeNano = 0
-	p.StepCount = 0
 	p.pooled = false
 
 	processorPool.Put(p)

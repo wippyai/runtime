@@ -16,7 +16,7 @@ func TestLink_WithDefault(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "test", Name: "req1"},
+			ID:   registry.NewID("test", "req1"),
 			Kind: registry.KindNamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"default": "default_value",
@@ -29,7 +29,7 @@ func TestLink_WithDefault(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.ID{NS: "test", Name: "target1"},
+			ID:   registry.NewID("test", "target1"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
@@ -51,7 +51,7 @@ func TestLink_FromDependency(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "app", Name: "__dependency.module"},
+			ID:   registry.NewID("app", "__dependency.module"),
 			Kind: registry.KindNamespaceDependency,
 			Data: payload.New(map[string]any{
 				"component": "vendor/module",
@@ -64,7 +64,7 @@ func TestLink_FromDependency(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.ID{NS: "test", Name: "db_url"},
+			ID:   registry.NewID("test", "db_url"),
 			Kind: registry.KindNamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"targets": []any{
@@ -76,7 +76,7 @@ func TestLink_FromDependency(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.ID{NS: "test", Name: "service"},
+			ID:   registry.NewID("test", "service"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
@@ -99,7 +99,7 @@ func TestLink_ConflictError(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "app", Name: "__dependency.module1"},
+			ID:   registry.NewID("app", "__dependency.module1"),
 			Kind: registry.KindNamespaceDependency,
 			Data: payload.New(map[string]any{
 				"component": "vendor/module",
@@ -112,7 +112,7 @@ func TestLink_ConflictError(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.ID{NS: "app", Name: "__dependency.module2"},
+			ID:   registry.NewID("app", "__dependency.module2"),
 			Kind: registry.KindNamespaceDependency,
 			Data: payload.New(map[string]any{
 				"component": "vendor/module",
@@ -125,7 +125,7 @@ func TestLink_ConflictError(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.ID{NS: "test", Name: "api_key"},
+			ID:   registry.NewID("test", "api_key"),
 			Kind: registry.KindNamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"targets": []any{
@@ -137,7 +137,7 @@ func TestLink_ConflictError(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.ID{NS: "test", Name: "service"},
+			ID:   registry.NewID("test", "service"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
@@ -154,7 +154,7 @@ func TestLink_NoValueError(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "test", Name: "missing_param"},
+			ID:   registry.NewID("test", "missing_param"),
 			Kind: registry.KindNamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"targets": []any{
@@ -166,7 +166,7 @@ func TestLink_NoValueError(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.ID{NS: "test", Name: "service"},
+			ID:   registry.NewID("test", "service"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
@@ -183,7 +183,7 @@ func TestLink_AppendOperator(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "test", Name: "dep_req"},
+			ID:   registry.NewID("test", "dep_req"),
 			Kind: registry.KindNamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"default": "new_dep",
@@ -196,7 +196,7 @@ func TestLink_AppendOperator(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.ID{NS: "test", Name: "service"},
+			ID:   registry.NewID("test", "service"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{
 				"depends_on": []any{"existing_dep"},
@@ -221,7 +221,7 @@ func TestLink_SetValue(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "test", Name: "host_req"},
+			ID:   registry.NewID("test", "host_req"),
 			Kind: registry.KindNamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"default": "localhost",
@@ -234,7 +234,7 @@ func TestLink_SetValue(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.ID{NS: "test", Name: "service"},
+			ID:   registry.NewID("test", "service"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
@@ -256,7 +256,7 @@ func TestLink_EmptyEntryError(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "test", Name: "global_config"},
+			ID:   registry.NewID("test", "global_config"),
 			Kind: registry.KindNamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"default": "shared_value",
@@ -269,7 +269,7 @@ func TestLink_EmptyEntryError(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.ID{NS: "test", Name: "service1"},
+			ID:   registry.NewID("test", "service1"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
@@ -286,7 +286,7 @@ func TestLink_CrossNamespace(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "app", Name: "api_url"},
+			ID:   registry.NewID("app", "api_url"),
 			Kind: registry.KindNamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"default": "https://api.example.com",
@@ -299,7 +299,7 @@ func TestLink_CrossNamespace(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.ID{NS: "other", Name: "service"},
+			ID:   registry.NewID("other", "service"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
@@ -322,7 +322,7 @@ func TestLink_MultipleTargets(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "test", Name: "db_url"},
+			ID:   registry.NewID("test", "db_url"),
 			Kind: registry.KindNamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"default": "postgres://db",
@@ -339,12 +339,12 @@ func TestLink_MultipleTargets(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.ID{NS: "test", Name: "service1"},
+			ID:   registry.NewID("test", "service1"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
 		{
-			ID:   registry.ID{NS: "test", Name: "service2"},
+			ID:   registry.NewID("test", "service2"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
@@ -372,7 +372,7 @@ func TestLink_BarePath(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "test", Name: "storage_req"},
+			ID:   registry.NewID("test", "storage_req"),
 			Kind: registry.KindNamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"default": "/tmp/storage",
@@ -385,7 +385,7 @@ func TestLink_BarePath(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.ID{NS: "test", Name: "service"},
+			ID:   registry.NewID("test", "service"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
@@ -407,7 +407,7 @@ func TestLink_MetaPath(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "test", Name: "router_req"},
+			ID:   registry.NewID("test", "router_req"),
 			Kind: registry.KindNamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"default": "app:api",
@@ -420,7 +420,7 @@ func TestLink_MetaPath(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.ID{NS: "test", Name: "endpoint"},
+			ID:   registry.NewID("test", "endpoint"),
 			Kind: "http.endpoint",
 			Meta: registry.Metadata{},
 			Data: payload.New(map[string]any{}),
@@ -442,7 +442,7 @@ func TestLink_MultipleRequirements(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "test", Name: "host"},
+			ID:   registry.NewID("test", "host"),
 			Kind: registry.KindNamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"default": "localhost",
@@ -455,7 +455,7 @@ func TestLink_MultipleRequirements(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.ID{NS: "test", Name: "port"},
+			ID:   registry.NewID("test", "port"),
 			Kind: registry.KindNamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"default": "8080",
@@ -468,7 +468,7 @@ func TestLink_MultipleRequirements(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.ID{NS: "test", Name: "service"},
+			ID:   registry.NewID("test", "service"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},

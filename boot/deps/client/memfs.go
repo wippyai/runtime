@@ -1,7 +1,6 @@
 package client
 
 import (
-	"fmt"
 	"io"
 	"io/fs"
 	"path/filepath"
@@ -31,11 +30,11 @@ func NewMemFS(files []*modulev1.File) (fs.FS, error) {
 		}
 
 		if filepath.IsAbs(path) {
-			return nil, fmt.Errorf("absolute path not allowed: %q", path)
+			return nil, NewAbsolutePathNotAllowedError(path)
 		}
 
 		if !fs.ValidPath(path) {
-			return nil, fmt.Errorf("invalid path: %q", path)
+			return nil, NewInvalidPathError(path)
 		}
 
 		fileMap[path] = file.GetContent()

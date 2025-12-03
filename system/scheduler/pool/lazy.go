@@ -27,7 +27,7 @@ import (
 type Lazy struct {
 	factory     Factory
 	dispatcher  Dispatcher
-	executor    *Executor
+	hooks       ExecutionHooks
 	maxWorkers  int
 	idleTimeout time.Duration
 
@@ -58,15 +58,15 @@ func NewLazy(factory Factory, dispatcher Dispatcher, cfg LazyConfig, hooks ...Ex
 		cfg.IdleTimeout = 30 * time.Second
 	}
 
-	executor := NewExecutor(dispatcher)
+	var hooksCfg ExecutionHooks
 	if len(hooks) > 0 {
-		executor = executor.WithExecutionHooks(hooks[0])
+		hooksCfg = hooks[0]
 	}
 
 	return &Lazy{
 		factory:     factory,
 		dispatcher:  dispatcher,
-		executor:    executor,
+		hooks:       hooksCfg,
 		maxWorkers:  cfg.MaxWorkers,
 		idleTimeout: cfg.IdleTimeout,
 		idle:        make([]process.Process, 0, cfg.MaxWorkers),
@@ -112,7 +112,9 @@ func (l *Lazy) Call(ctx context.Context, method string, input payload.Payloads) 
 		return nil, err
 	}
 
-	result := l.executor.Run(ctx, proc, method, input)
+	// Create executor per-call to avoid races on multiCtx
+	executor := NewExecutor(l.dispatcher).WithExecutionHooks(l.hooks)
+	result := executor.Run(ctx, proc, method, input)
 
 	l.release(proc)
 	return result, nil

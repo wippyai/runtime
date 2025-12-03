@@ -13,7 +13,7 @@ import (
 func TestInterceptorInterfaces(t *testing.T) {
 	t.Run("PublishInterceptor interface", func(t *testing.T) {
 		ctx := context.Background()
-		queueID := registry.ID{NS: "test", Name: "my-queue"}
+		queueID := registry.NewID("test", "my-queue")
 		var msgs []*queue.Message
 		msgs = append(msgs, queue.NewMessage(payload.New("test")))
 

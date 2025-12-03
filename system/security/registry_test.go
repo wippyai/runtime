@@ -55,7 +55,7 @@ func TestPolicyRegistry_ListGroupsAndPolicies(t *testing.T) {
 
 	policy1 := NewMockPolicy("test", "policy1", security.Allow)
 	policy2 := NewMockPolicy("test", "policy2", security.Deny)
-	groupID := registry.ID{NS: "test", Name: "group1"}
+	groupID := registry.NewID("test", "group1")
 
 	reg.handleEvent(event.Event{
 		Kind: security.PolicyRegister,
@@ -96,7 +96,7 @@ func TestPolicyRegistry_GetPolicyAndGroup(t *testing.T) {
 	reg := NewPolicyRegistry(bus, logger)
 
 	policy := NewMockPolicy("test", "policy1", security.Allow)
-	groupID := registry.ID{NS: "test", Name: "group1"}
+	groupID := registry.NewID("test", "group1")
 
 	reg.handleEvent(event.Event{
 		Kind: security.PolicyRegister,
@@ -110,7 +110,7 @@ func TestPolicyRegistry_GetPolicyAndGroup(t *testing.T) {
 	_, err := reg.GetPolicy(policy.ID())
 	assert.NoError(t, err)
 
-	nonExistentID := registry.ID{NS: "test", Name: "nonexistent"}
+	nonExistentID := registry.NewID("test", "nonexistent")
 	_, err = reg.GetPolicy(nonExistentID)
 	assert.Error(t, err)
 	assert.Equal(t, security.ErrPolicyNotFound, err)
@@ -121,7 +121,7 @@ func TestPolicyRegistry_GetPolicyAndGroup(t *testing.T) {
 	policies := scope.Policies()
 	assert.Len(t, policies, 1)
 
-	nonExistentGroup := registry.ID{NS: "test", Name: "nonexistent"}
+	nonExistentGroup := registry.NewID("test", "nonexistent")
 	_, err = reg.GetPolicyGroup(nonExistentGroup)
 	assert.Error(t, err)
 	assert.Equal(t, security.ErrGroupNotFound, err)
@@ -133,7 +133,7 @@ func TestPolicyRegistry_EventHandling(t *testing.T) {
 	reg := NewPolicyRegistry(bus, logger)
 
 	policy := NewMockPolicy("test", "policy1", security.Allow)
-	groupID := registry.ID{NS: "test", Name: "group1"}
+	groupID := registry.NewID("test", "group1")
 
 	reg.handleEvent(event.Event{
 		Kind: security.PolicyRegister,

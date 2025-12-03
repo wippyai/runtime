@@ -1,29 +1,59 @@
 package json
 
 import (
-	lua "github.com/yuin/gopher-lua"
+	"github.com/wippyai/runtime/api/attrs"
+	apierror "github.com/wippyai/runtime/api/error"
 )
 
-// newJSONError creates a new JSON error with metadata.
-func newJSONError(l *lua.LState, kind lua.Kind, retryable bool, msg string, details map[string]any) lua.LValue {
-	e := lua.NewError(msg).
-		WithKind(kind).
-		WithRetryable(retryable).
-		WithDetails(details)
-	return e
+type Error struct {
+	kind      apierror.Kind
+	message   string
+	retryable apierror.Ternary
+	details   attrs.Attributes
+	cause     error
 }
 
-// newJSONInvalidError creates an error for invalid input.
-func newJSONInvalidError(l *lua.LState, msg string, operation string) lua.LValue {
-	details := make(map[string]any)
-	if operation != "" {
-		details["operation"] = operation
+func (e *Error) Error() string               { return e.message }
+func (e *Error) Kind() apierror.Kind         { return e.kind }
+func (e *Error) Retryable() apierror.Ternary { return e.retryable }
+func (e *Error) Details() attrs.Attributes   { return e.details }
+func (e *Error) Unwrap() error               { return e.cause }
+
+func NewMaxDepthExceededError(maxDepth int) *Error {
+	return &Error{
+		kind:      apierror.KindInvalid,
+		message:   "exceeded maximum depth",
+		retryable: apierror.False,
+		details:   attrs.NewBagFrom(map[string]any{"max_depth": maxDepth}),
 	}
-	return newJSONError(l, lua.KindInvalid, false, msg, details)
 }
 
-// newJSONDecodeError creates an error for JSON decoding failures.
-func newJSONDecodeError(l *lua.LState, err error) lua.LValue {
-	details := map[string]any{"operation": "decode"}
-	return newJSONError(l, lua.KindInvalid, false, err.Error(), details)
+func NewSparseArrayError(maxKey, actualCount int) *Error {
+	return &Error{
+		kind:      apierror.KindInvalid,
+		message:   "sparse array detected",
+		retryable: apierror.False,
+		details: attrs.NewBagFrom(map[string]any{
+			"max_key":      maxKey,
+			"actual_count": actualCount,
+		}),
+	}
+}
+
+func NewCompileSchemaError(cause error) *Error {
+	return &Error{
+		kind:      apierror.KindInvalid,
+		message:   "compile schema",
+		retryable: apierror.False,
+		cause:     cause,
+	}
+}
+
+func NewConvertDataError(cause error) *Error {
+	return &Error{
+		kind:      apierror.KindInvalid,
+		message:   "convert data",
+		retryable: apierror.False,
+		cause:     cause,
+	}
 }

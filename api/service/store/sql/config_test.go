@@ -17,7 +17,7 @@ func TestKindConstant(t *testing.T) {
 
 func TestSQLConfig_Marshal(t *testing.T) {
 	config := SQLConfig{
-		Database:          registry.ID{NS: "db", Name: "main"},
+		Database:          registry.NewID("db", "main"),
 		TableName:         "kv_store",
 		IDColumnName:      "key",
 		PayloadColumnName: "value",
@@ -40,7 +40,7 @@ func TestSQLConfig_Validate(t *testing.T) {
 		{
 			name: "valid config",
 			config: SQLConfig{
-				Database:          registry.ID{NS: "db", Name: "main"},
+				Database:          registry.NewID("db", "main"),
 				TableName:         "kv_store",
 				IDColumnName:      "key",
 				PayloadColumnName: "value",
@@ -57,7 +57,7 @@ func TestSQLConfig_Validate(t *testing.T) {
 		{
 			name: "missing table name",
 			config: SQLConfig{
-				Database: registry.ID{NS: "db", Name: "main"},
+				Database: registry.NewID("db", "main"),
 			},
 			wantErr: true,
 			errMsg:  "table_name is required",
@@ -65,7 +65,7 @@ func TestSQLConfig_Validate(t *testing.T) {
 		{
 			name: "invalid table name with SQL keywords",
 			config: SQLConfig{
-				Database:          registry.ID{NS: "db", Name: "main"},
+				Database:          registry.NewID("db", "main"),
 				TableName:         "select",
 				IDColumnName:      "key",
 				PayloadColumnName: "value",
@@ -77,7 +77,7 @@ func TestSQLConfig_Validate(t *testing.T) {
 		{
 			name: "negative cleanup interval",
 			config: SQLConfig{
-				Database:          registry.ID{NS: "db", Name: "main"},
+				Database:          registry.NewID("db", "main"),
 				TableName:         "kv_store",
 				IDColumnName:      "key",
 				PayloadColumnName: "value",
@@ -208,7 +208,7 @@ func TestSQLConfig_Validate_MissingColumns(t *testing.T) {
 		{
 			name: "missing id column",
 			config: SQLConfig{
-				Database:          registry.ID{NS: "db", Name: "main"},
+				Database:          registry.NewID("db", "main"),
 				TableName:         "kv_store",
 				PayloadColumnName: "value",
 				ExpireColumnName:  "expires_at",
@@ -218,7 +218,7 @@ func TestSQLConfig_Validate_MissingColumns(t *testing.T) {
 		{
 			name: "missing payload column",
 			config: SQLConfig{
-				Database:         registry.ID{NS: "db", Name: "main"},
+				Database:         registry.NewID("db", "main"),
 				TableName:        "kv_store",
 				IDColumnName:     "key",
 				ExpireColumnName: "expires_at",
@@ -228,7 +228,7 @@ func TestSQLConfig_Validate_MissingColumns(t *testing.T) {
 		{
 			name: "missing expire column",
 			config: SQLConfig{
-				Database:          registry.ID{NS: "db", Name: "main"},
+				Database:          registry.NewID("db", "main"),
 				TableName:         "kv_store",
 				IDColumnName:      "key",
 				PayloadColumnName: "value",
@@ -255,7 +255,7 @@ func TestSQLConfig_Validate_InvalidIdentifiers(t *testing.T) {
 		{
 			name: "invalid database name",
 			config: SQLConfig{
-				Database:          registry.ID{NS: "db", Name: "main; DROP TABLE"},
+				Database:          registry.NewID("db", "main; DROP TABLE"),
 				TableName:         "kv_store",
 				IDColumnName:      "key",
 				PayloadColumnName: "value",
@@ -266,7 +266,7 @@ func TestSQLConfig_Validate_InvalidIdentifiers(t *testing.T) {
 		{
 			name: "invalid id column name",
 			config: SQLConfig{
-				Database:          registry.ID{NS: "db", Name: "main"},
+				Database:          registry.NewID("db", "main"),
 				TableName:         "kv_store",
 				IDColumnName:      "key; DROP TABLE",
 				PayloadColumnName: "value",
@@ -277,7 +277,7 @@ func TestSQLConfig_Validate_InvalidIdentifiers(t *testing.T) {
 		{
 			name: "invalid payload column name",
 			config: SQLConfig{
-				Database:          registry.ID{NS: "db", Name: "main"},
+				Database:          registry.NewID("db", "main"),
 				TableName:         "kv_store",
 				IDColumnName:      "key",
 				PayloadColumnName: "value; DROP",
@@ -288,7 +288,7 @@ func TestSQLConfig_Validate_InvalidIdentifiers(t *testing.T) {
 		{
 			name: "invalid expire column name",
 			config: SQLConfig{
-				Database:          registry.ID{NS: "db", Name: "main"},
+				Database:          registry.NewID("db", "main"),
 				TableName:         "kv_store",
 				IDColumnName:      "key",
 				PayloadColumnName: "value",

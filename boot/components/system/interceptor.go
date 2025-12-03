@@ -17,7 +17,7 @@ func Interceptor() boot.Component {
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 
-			registry = interceptor.NewInterceptorRegistry(logger.Named("interceptor"))
+			registry = interceptor.NewInterceptorRegistry(logger.Named("func.interceptor"))
 			ctx = function.WithInterceptorChain(ctx, registry)
 			ctx = function.WithInterceptorRegistry(ctx, registry)
 

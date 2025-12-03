@@ -70,7 +70,7 @@ func (b *StateBuilder) sortDeleteOperations(fromState registry.State, deleteOps 
 	for i := len(sortedEntries) - 1; i >= 0; i-- {
 		entry := sortedEntries[i]
 		for _, operation := range deleteOps {
-			if operation.Entry.ID == entry.ID {
+			if operation.Entry.ID.Equal(entry.ID) {
 				result = append(result, operation)
 				break
 			}
@@ -95,7 +95,7 @@ func (b *StateBuilder) sortCreateUpdateOperations(createUpdateOps []registry.Ope
 	result := make([]registry.Operation, 0, len(createUpdateOps))
 	for _, entry := range sortedEntries {
 		for _, operation := range createUpdateOps {
-			if operation.Entry.ID == entry.ID {
+			if operation.Entry.ID.Equal(entry.ID) {
 				result = append(result, operation)
 				break
 			}

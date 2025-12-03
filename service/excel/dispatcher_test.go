@@ -15,6 +15,19 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
+// testEmitter wraps a callback function to implement dispatcher.Emitter
+type testEmitter struct {
+	fn func(data any)
+}
+
+func (e *testEmitter) Emit(data any, _ error) {
+	e.fn(data)
+}
+
+func newTestEmitter(fn func(data any)) dispatcher.Emitter {
+	return &testEmitter{fn: fn}
+}
+
 func setupTestContext() (context.Context, *resource.Store) {
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	store := resource.NewStore()
@@ -56,10 +69,10 @@ func TestExcelOpenStreamHandler(t *testing.T) {
 
 	err := handlers[excelapi.CmdExcelOpenStream].Handle(ctx, &excelapi.ExcelOpenStreamCmd{
 		StreamID: streamID,
-	}, func(data any) {
+	}, newTestEmitter(func(data any) {
 		resp = data.(excelapi.ExcelOpenStreamResponse)
 		close(done)
-	})
+	}))
 
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
@@ -107,10 +120,10 @@ func TestExcelOpenStreamHandlerNoRegistry(t *testing.T) {
 
 	err := handlers[excelapi.CmdExcelOpenStream].Handle(ctx, &excelapi.ExcelOpenStreamCmd{
 		StreamID: 1,
-	}, func(data any) {
+	}, newTestEmitter(func(data any) {
 		resp = data.(excelapi.ExcelOpenStreamResponse)
 		close(done)
-	})
+	}))
 
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
@@ -151,10 +164,10 @@ func TestExcelOpenStreamHandlerInvalidStream(t *testing.T) {
 
 	err := handlers[excelapi.CmdExcelOpenStream].Handle(ctx, &excelapi.ExcelOpenStreamCmd{
 		StreamID: streamID,
-	}, func(data any) {
+	}, newTestEmitter(func(data any) {
 		resp = data.(excelapi.ExcelOpenStreamResponse)
 		close(done)
-	})
+	}))
 
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
@@ -217,10 +230,10 @@ func TestExcelWriteStreamHandler(t *testing.T) {
 	err := handlers[excelapi.CmdExcelWriteStream].Handle(ctx, &excelapi.ExcelWriteStreamCmd{
 		File:     f,
 		StreamID: streamID,
-	}, func(data any) {
+	}, newTestEmitter(func(data any) {
 		resp = data.(excelapi.ExcelWriteStreamResponse)
 		close(done)
-	})
+	}))
 
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
@@ -280,10 +293,10 @@ func TestExcelWriteStreamHandlerNoRegistry(t *testing.T) {
 	err := handlers[excelapi.CmdExcelWriteStream].Handle(ctx, &excelapi.ExcelWriteStreamCmd{
 		File:     f,
 		StreamID: 1,
-	}, func(data any) {
+	}, newTestEmitter(func(data any) {
 		resp = data.(excelapi.ExcelWriteStreamResponse)
 		close(done)
-	})
+	}))
 
 	if err != nil {
 		t.Fatalf("handler error: %v", err)

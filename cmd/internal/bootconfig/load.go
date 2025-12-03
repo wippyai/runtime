@@ -1,7 +1,6 @@
 package bootconfig
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/wippyai/runtime/api/boot"
@@ -23,12 +22,12 @@ func Load(path string) (boot.Config, error) {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+		return nil, NewReadConfigFileError(err)
 	}
 
 	var cfg config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse YAML: %w", err)
+		return nil, NewParseYAMLError(err)
 	}
 
 	if err := validateVersion(cfg.Version); err != nil {
@@ -40,7 +39,7 @@ func Load(path string) (boot.Config, error) {
 
 func validateVersion(version string) error {
 	if version == "" {
-		return fmt.Errorf("missing 'version' field in config file")
+		return ErrMissingVersionField
 	}
 
 	supported := []string{"1.0"}
@@ -50,7 +49,7 @@ func validateVersion(version string) error {
 		}
 	}
 
-	return fmt.Errorf("unsupported config version: %s (supported: %v)", version, supported)
+	return NewUnsupportedVersionError(version, supported)
 }
 
 func buildBootConfig(sections map[string]map[string]any) (boot.Config, error) {

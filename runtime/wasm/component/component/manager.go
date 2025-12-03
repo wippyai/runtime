@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -22,6 +21,8 @@ import (
 	"github.com/wippyai/runtime/runtime/wasm/host/clock"
 	funcpool "github.com/wippyai/runtime/system/scheduler/pool"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
+	"github.com/wippyai/wasm-runtime/wasi/preview2"
+	wasihttp "github.com/wippyai/wasm-runtime/wasi/preview2/http"
 	"go.uber.org/zap"
 )
 
@@ -32,13 +33,29 @@ type poolEntry struct {
 	module *wasmrt.Module
 }
 
+// Config holds configuration for the WASM component manager.
+type Config struct {
+	// StrictMode fails on missing imports instead of creating stubs.
+	// Default is true.
+	StrictMode bool
+}
+
+// DefaultConfig returns the default manager configuration.
+func DefaultConfig() Config {
+	return Config{
+		StrictMode: true,
+	}
+}
+
 // Manager handles precompiled WASM component loading, pooling and execution.
 type Manager struct {
 	log        *zap.Logger
 	bus        event.Bus
 	dispatcher dispatcher.Dispatcher
 	fsRegistry fsapi.Registry
+	transports api.TransportRegistry
 	runtime    *wasmrt.Runtime
+	config     Config
 
 	mu      sync.RWMutex
 	pools   map[registry.ID]*poolEntry
@@ -46,13 +63,20 @@ type Manager struct {
 	started bool
 }
 
-// NewManager creates a new WASM component manager.
-func NewManager(log *zap.Logger, bus event.Bus, disp dispatcher.Dispatcher, fsReg fsapi.Registry) *Manager {
+// NewManager creates a new WASM component manager with default config (strict mode enabled).
+func NewManager(log *zap.Logger, bus event.Bus, disp dispatcher.Dispatcher, fsReg fsapi.Registry, transports api.TransportRegistry) *Manager {
+	return NewManagerWithConfig(log, bus, disp, fsReg, transports, DefaultConfig())
+}
+
+// NewManagerWithConfig creates a new WASM component manager with custom config.
+func NewManagerWithConfig(log *zap.Logger, bus event.Bus, disp dispatcher.Dispatcher, fsReg fsapi.Registry, transports api.TransportRegistry, cfg Config) *Manager {
 	return &Manager{
-		log:        log.Named("wasm.component"),
+		log:        log,
 		bus:        bus,
 		dispatcher: disp,
 		fsRegistry: fsReg,
+		transports: transports,
+		config:     cfg,
 		pools:      make(map[registry.ID]*poolEntry),
 	}
 }
@@ -62,19 +86,36 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	rt, err := wasmrt.New(ctx)
+	rt, err := wasmrt.NewWithConfig(ctx, wasmrt.Config{
+		StrictMode: m.config.StrictMode,
+	})
 	if err != nil {
-		return fmt.Errorf("create WASM runtime: %w", err)
+		return NewRuntimeError(err)
 	}
 
+	// Register wippy clock host
 	if err := rt.RegisterHost(clock.New()); err != nil {
 		rt.Close(ctx)
-		return fmt.Errorf("register clock host: %w", err)
+		return NewRegisterHostError(err)
+	}
+
+	// Register WASI Preview2 hosts
+	wasi := preview2.New()
+	if err := rt.RegisterWASI(wasi); err != nil {
+		rt.Close(ctx)
+		return NewRegisterHostError(err)
+	}
+
+	// Register HTTP types host
+	httpHost := wasihttp.NewTypesHost(wasi.Resources())
+	if err := rt.RegisterHost(httpHost); err != nil {
+		rt.Close(ctx)
+		return NewRegisterHostError(err)
 	}
 
 	m.runtime = rt
 	m.started = true
-	m.log.Info("WASM component manager started")
+	m.log.Info("WASM component manager started", zap.Bool("strict_mode", m.config.StrictMode))
 	return nil
 }
 
@@ -101,34 +142,39 @@ func (m *Manager) Stop(ctx context.Context) {
 // Add loads and registers a new WASM component.
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindComponentFunction {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindComponentFunction)
+		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindComponentFunction))
 	}
 
 	cfg, err := unpackConfig(ctx, entry)
 	if err != nil {
-		return fmt.Errorf("unpack config: %w", err)
+		return NewUnpackConfigError(err)
 	}
 
 	// Load WASM bytes from filesystem
 	wasmBytes, err := m.loadWASM(cfg.FS, cfg.Path)
 	if err != nil {
-		return fmt.Errorf("load WASM from fs: %w", err)
+		return NewLoadWASMError(err)
 	}
 
 	// Verify hash
 	if err := verifyHash(wasmBytes, cfg.Hash); err != nil {
-		return fmt.Errorf("hash verification failed: %w", err)
+		return NewHashVerificationError(err)
 	}
 
 	// Load as component (WIT is embedded in component binary)
 	module, err := m.runtime.LoadComponent(ctx, wasmBytes)
 	if err != nil {
-		return fmt.Errorf("load component: %w", err)
+		return NewLoadComponentError(err)
+	}
+
+	// Pre-compile at registration time to fail fast on missing imports
+	if err := module.Compile(ctx); err != nil {
+		return NewCompileError(err)
 	}
 
 	// Create pool
 	if err := m.createPool(entry.ID, cfg, module); err != nil {
-		return fmt.Errorf("create pool: %w", err)
+		return NewCreatePoolError(err)
 	}
 
 	// Store config
@@ -150,30 +196,35 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update updates an existing WASM component.
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindComponentFunction {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindComponentFunction)
+		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindComponentFunction))
 	}
 
 	cfg, err := unpackConfig(ctx, entry)
 	if err != nil {
-		return fmt.Errorf("unpack config: %w", err)
+		return NewUnpackConfigError(err)
 	}
 
 	wasmBytes, err := m.loadWASM(cfg.FS, cfg.Path)
 	if err != nil {
-		return fmt.Errorf("load WASM from fs: %w", err)
+		return NewLoadWASMError(err)
 	}
 
 	if err := verifyHash(wasmBytes, cfg.Hash); err != nil {
-		return fmt.Errorf("hash verification failed: %w", err)
+		return NewHashVerificationError(err)
 	}
 
 	module, err := m.runtime.LoadComponent(ctx, wasmBytes)
 	if err != nil {
-		return fmt.Errorf("load component: %w", err)
+		return NewLoadComponentError(err)
+	}
+
+	// Pre-compile at registration time to fail fast on missing imports
+	if err := module.Compile(ctx); err != nil {
+		return NewCompileError(err)
 	}
 
 	if err := m.replacePool(entry.ID, cfg, module); err != nil {
-		return fmt.Errorf("replace pool: %w", err)
+		return NewReplacePoolError(err)
 	}
 
 	m.configs.Store(entry.ID, cfg)
@@ -186,7 +237,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete removes a WASM component.
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindComponentFunction {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindComponentFunction)
+		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindComponentFunction))
 	}
 
 	m.removePool(entry.ID)
@@ -204,7 +255,7 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Resu
 	m.mu.RUnlock()
 
 	if !exists {
-		return nil, fmt.Errorf("component %s not found", task.ID)
+		return nil, NewComponentNotFoundError(task.ID)
 	}
 
 	return entry.pool.Call(ctx, entry.config.Method, task.Payloads)
@@ -214,12 +265,12 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Resu
 func (m *Manager) loadWASM(fsID, path string) ([]byte, error) {
 	fs, ok := m.fsRegistry.GetFS(fsID)
 	if !ok {
-		return nil, fmt.Errorf("filesystem %s not found", fsID)
+		return nil, NewFilesystemNotFoundError(fsID)
 	}
 
 	file, err := fs.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("open %s: %w", path, err)
+		return nil, NewOpenFileError(path, err)
 	}
 	defer file.Close()
 
@@ -231,7 +282,7 @@ func verifyHash(data []byte, expected string) error {
 	// Expected format: "sha256:hexstring"
 	parts := strings.SplitN(expected, ":", 2)
 	if len(parts) != 2 {
-		return fmt.Errorf("invalid hash format, expected 'algorithm:hash', got %q", expected)
+		return NewInvalidHashFormatError(expected)
 	}
 
 	algorithm := parts[0]
@@ -243,11 +294,11 @@ func verifyHash(data []byte, expected string) error {
 		h := sha256.Sum256(data)
 		actualHash = hex.EncodeToString(h[:])
 	default:
-		return fmt.Errorf("unsupported hash algorithm: %s", algorithm)
+		return NewUnsupportedHashAlgorithmError(algorithm)
 	}
 
 	if actualHash != expectedHash {
-		return fmt.Errorf("hash mismatch: expected %s, got %s", expectedHash, actualHash)
+		return NewHashMismatchError(expectedHash, actualHash)
 	}
 
 	return nil
@@ -259,10 +310,16 @@ func (m *Manager) createPool(id registry.ID, cfg *api.ComponentFunctionConfig, m
 	defer m.mu.Unlock()
 
 	if !m.started {
-		return fmt.Errorf("manager not started")
+		return ErrManagerNotStarted
 	}
 
-	factory := engine.NewFactory(m.runtime, module)
+	// Look up transport if specified
+	var transport api.Transport
+	if cfg.Transport != "" && m.transports != nil {
+		transport = m.transports.Get(cfg.Transport)
+	}
+
+	factory := engine.NewFactoryWithTransport(m.runtime, module, transport)
 	poolCfg := cfg.Pool.ToPoolConfig()
 	poolType := cfg.Pool.Type
 	if poolType == "" {
@@ -283,11 +340,11 @@ func (m *Manager) createPool(id registry.ID, cfg *api.ComponentFunctionConfig, m
 		})
 
 	default:
-		return fmt.Errorf("unknown pool type: %s", poolType)
+		return NewUnknownPoolTypeError(poolType)
 	}
 
 	if err != nil {
-		return fmt.Errorf("create pool: %w", err)
+		return NewCreatePoolError(err)
 	}
 
 	m.pools[id] = &poolEntry{
@@ -348,12 +405,12 @@ func (m *Manager) unregisterCaller(ctx context.Context, id registry.ID) {
 func unpackConfig(ctx context.Context, entry registry.Entry) (*api.ComponentFunctionConfig, error) {
 	dtt := payload.GetTranscoder(ctx)
 	if dtt == nil {
-		return nil, fmt.Errorf("transcoder not found in context")
+		return nil, NewTranscoderNotFoundError()
 	}
 
 	cfg := &api.ComponentFunctionConfig{}
 	if err := dtt.Unmarshal(entry.Data, cfg); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+		return nil, NewUnmarshalConfigError(err)
 	}
 
 	if err := cfg.Validate(); err != nil {

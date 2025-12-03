@@ -60,7 +60,7 @@ func TestManager_Add_ConditionPolicy(t *testing.T) {
 	defer bus.Unsubscribe(ctx, subID)
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "policy1"},
+		ID:   registry.NewID("test", "policy1"),
 		Kind: policyapi.Kind,
 	}
 
@@ -88,7 +88,7 @@ func TestManager_Add_ExprPolicy(t *testing.T) {
 	defer bus.Unsubscribe(ctx, subID)
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "expr1"},
+		ID:   registry.NewID("test", "expr1"),
 		Kind: policyapi.ExprKind,
 	}
 
@@ -114,7 +114,7 @@ func TestManager_Add_UnsupportedKind(t *testing.T) {
 	defer bus.Unsubscribe(ctx, subID)
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "other"},
+		ID:   registry.NewID("test", "other"),
 		Kind: "other.kind",
 	}
 
@@ -139,7 +139,7 @@ func TestManager_Update_ConditionPolicy(t *testing.T) {
 	defer bus.Unsubscribe(ctx, subID)
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "policy1"},
+		ID:   registry.NewID("test", "policy1"),
 		Kind: policyapi.Kind,
 	}
 
@@ -165,7 +165,7 @@ func TestManager_Update_ExprPolicy(t *testing.T) {
 	defer bus.Unsubscribe(ctx, subID)
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "expr1"},
+		ID:   registry.NewID("test", "expr1"),
 		Kind: policyapi.ExprKind,
 	}
 
@@ -191,7 +191,7 @@ func TestManager_Delete_ConditionPolicy(t *testing.T) {
 	defer bus.Unsubscribe(ctx, subID)
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "policy1"},
+		ID:   registry.NewID("test", "policy1"),
 		Kind: policyapi.Kind,
 	}
 
@@ -218,7 +218,7 @@ func TestManager_Delete_ExprPolicy(t *testing.T) {
 	defer bus.Unsubscribe(ctx, subID)
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "expr1"},
+		ID:   registry.NewID("test", "expr1"),
 		Kind: policyapi.ExprKind,
 	}
 
@@ -251,7 +251,7 @@ func TestManager_Add_FactoryError(t *testing.T) {
 	defer bus.Unsubscribe(ctx, subID)
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "policy1"},
+		ID:   registry.NewID("test", "policy1"),
 		Kind: policyapi.Kind,
 	}
 
@@ -283,7 +283,7 @@ func TestManager_Update_FactoryError(t *testing.T) {
 	defer bus.Unsubscribe(ctx, subID)
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "policy1"},
+		ID:   registry.NewID("test", "policy1"),
 		Kind: policyapi.Kind,
 	}
 

@@ -3,7 +3,6 @@ package function
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/wippyai/runtime/api/dispatcher"
@@ -43,7 +42,7 @@ type Manager struct {
 // NewManager creates a new WASM function manager.
 func NewManager(log *zap.Logger, bus event.Bus, disp dispatcher.Dispatcher) *Manager {
 	return &Manager{
-		log:        log.Named("wasm"),
+		log:        log,
 		bus:        bus,
 		dispatcher: disp,
 		pools:      make(map[registry.ID]*poolEntry),
@@ -57,13 +56,13 @@ func (m *Manager) Start(ctx context.Context) error {
 
 	rt, err := wasmrt.New(ctx)
 	if err != nil {
-		return fmt.Errorf("create WASM runtime: %w", err)
+		return NewRuntimeError(err)
 	}
 
 	// Register clock host
 	if err := rt.RegisterHost(clock.New()); err != nil {
 		rt.Close(ctx)
-		return fmt.Errorf("register clock host: %w", err)
+		return NewRegisterHostError(err)
 	}
 
 	m.runtime = rt
@@ -95,23 +94,23 @@ func (m *Manager) Stop(ctx context.Context) {
 // Add creates and registers a new WASM function.
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindFunction {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindFunction)
+		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindFunction))
 	}
 
 	cfg, err := unpackConfig(ctx, entry)
 	if err != nil {
-		return fmt.Errorf("unpack config: %w", err)
+		return NewUnpackConfigError(err)
 	}
 
 	// Compile WAT to WASM module
 	module, err := engine.CompileWAT(ctx, m.runtime, cfg.Source, cfg.Wit)
 	if err != nil {
-		return fmt.Errorf("compile WAT: %w", err)
+		return NewCompileWATError(err)
 	}
 
 	// Create pool
 	if err := m.createPool(entry.ID, cfg, module); err != nil {
-		return fmt.Errorf("create pool: %w", err)
+		return NewCreatePoolError(err)
 	}
 
 	// Store config
@@ -131,23 +130,23 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update updates an existing WASM function.
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindFunction {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindFunction)
+		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindFunction))
 	}
 
 	cfg, err := unpackConfig(ctx, entry)
 	if err != nil {
-		return fmt.Errorf("unpack config: %w", err)
+		return NewUnpackConfigError(err)
 	}
 
 	// Compile new WAT
 	module, err := engine.CompileWAT(ctx, m.runtime, cfg.Source, cfg.Wit)
 	if err != nil {
-		return fmt.Errorf("compile WAT: %w", err)
+		return NewCompileWATError(err)
 	}
 
 	// Replace pool
 	if err := m.replacePool(entry.ID, cfg, module); err != nil {
-		return fmt.Errorf("replace pool: %w", err)
+		return NewReplacePoolError(err)
 	}
 
 	// Update config
@@ -163,7 +162,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete removes a WASM function.
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindFunction {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindFunction)
+		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindFunction))
 	}
 
 	// Stop and remove pool
@@ -186,7 +185,7 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Resu
 	m.mu.RUnlock()
 
 	if !exists {
-		return nil, fmt.Errorf("function %s not found", task.ID)
+		return nil, NewFunctionNotFoundError(task.ID)
 	}
 
 	return entry.pool.Call(ctx, entry.config.Method, task.Payloads)
@@ -198,7 +197,7 @@ func (m *Manager) createPool(id registry.ID, cfg *api.FunctionConfig, module *wa
 	defer m.mu.Unlock()
 
 	if !m.started {
-		return fmt.Errorf("manager not started")
+		return ErrManagerNotStarted
 	}
 
 	factory := engine.NewFactory(m.runtime, module)
@@ -222,11 +221,11 @@ func (m *Manager) createPool(id registry.ID, cfg *api.FunctionConfig, module *wa
 		})
 
 	default:
-		return fmt.Errorf("unknown pool type: %s", poolType)
+		return NewUnknownPoolTypeError(poolType)
 	}
 
 	if err != nil {
-		return fmt.Errorf("create pool: %w", err)
+		return NewCreatePoolError(err)
 	}
 
 	m.pools[id] = &poolEntry{
@@ -290,12 +289,12 @@ func (m *Manager) unregisterCaller(ctx context.Context, id registry.ID) {
 func unpackConfig(ctx context.Context, entry registry.Entry) (*api.FunctionConfig, error) {
 	dtt := payload.GetTranscoder(ctx)
 	if dtt == nil {
-		return nil, fmt.Errorf("transcoder not found in context")
+		return nil, NewTranscoderNotFoundError()
 	}
 
 	cfg := &api.FunctionConfig{}
 	if err := dtt.Unmarshal(entry.Data, cfg); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+		return nil, NewUnmarshalConfigError(err)
 	}
 
 	if err := cfg.Validate(); err != nil {

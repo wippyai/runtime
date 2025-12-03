@@ -187,17 +187,17 @@ func TestGetOption(t *testing.T) {
 
 func TestEndpointResourceFormatting(t *testing.T) {
 	t.Run("format endpoint ID correctly", func(t *testing.T) {
-		id := registry.ID{NS: "api", Name: "create_user"}
+		id := registry.NewID("api", "create_user")
 		assert.Equal(t, "api:create_user", id.String())
 	})
 
 	t.Run("handle empty namespace", func(t *testing.T) {
-		id := registry.ID{NS: "", Name: "simple_endpoint"}
+		id := registry.NewID("", "simple_endpoint")
 		assert.Equal(t, ":simple_endpoint", id.String())
 	})
 
 	t.Run("handle empty name", func(t *testing.T) {
-		id := registry.ID{NS: "api", Name: ""}
+		id := registry.NewID("api", "")
 		assert.Equal(t, "api:", id.String())
 	})
 }
@@ -318,7 +318,7 @@ func TestEndpointFirewallWithActorAndScope(t *testing.T) {
 
 		actor := security.Actor{ID: "user123", Meta: nil}
 		routeInfo := &httpapi.RouteInfo{
-			Endpoint: registry.ID{NS: "api", Name: "test"},
+			Endpoint: registry.NewID("api", "test"),
 		}
 
 		_ = security.SetActor(ctx, actor)
@@ -369,7 +369,7 @@ func TestEndpointFirewallWithActorAndScope(t *testing.T) {
 
 		actor := security.Actor{ID: "user123", Meta: nil}
 		routeInfo := &httpapi.RouteInfo{
-			Endpoint: registry.ID{NS: "api", Name: "test"},
+			Endpoint: registry.NewID("api", "test"),
 		}
 
 		_ = security.SetActor(ctx, actor)

@@ -193,7 +193,7 @@ func TestWrapListener(t *testing.T) {
 		ctx = event.WithBus(ctx, bus)
 
 		testEntry := registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "entry"},
+			ID:   registry.NewID("test", "entry"),
 			Kind: "process.lua",
 		}
 
@@ -219,7 +219,7 @@ func TestWrapListener(t *testing.T) {
 		ctx = event.WithBus(ctx, bus)
 
 		testEntry := registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "entry"},
+			ID:   registry.NewID("test", "entry"),
 			Kind: "process.lua",
 		}
 
@@ -245,7 +245,7 @@ func TestWrapListener(t *testing.T) {
 		ctx = event.WithBus(ctx, bus)
 
 		testEntry := registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "entry"},
+			ID:   registry.NewID("test", "entry"),
 			Kind: "process.lua",
 		}
 
@@ -272,7 +272,7 @@ func TestWrapListener(t *testing.T) {
 
 		// Non-matching kind
 		nonMatchEntry := registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "entry"},
+			ID:   registry.NewID("test", "entry"),
 			Kind: "http.endpoint",
 		}
 
@@ -313,11 +313,11 @@ func TestHandlerRegistryIntegration(t *testing.T) {
 
 		// Execute handlers with matching entries
 		processEntry := registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "proc"},
+			ID:   registry.NewID("test", "proc"),
 			Kind: "process.lua",
 		}
 		httpEntry := registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "endpoint"},
+			ID:   registry.NewID("test", "endpoint"),
 			Kind: "http.endpoint",
 		}
 

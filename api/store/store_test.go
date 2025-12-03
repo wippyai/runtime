@@ -43,7 +43,7 @@ func TestEntry_Marshal(t *testing.T) {
 		{
 			name: "complete entry",
 			entry: Entry{
-				Key:   registry.ID{NS: "cache", Name: "user-123"},
+				Key:   registry.NewID("cache", "user-123"),
 				Value: payload.New(map[string]any{"name": "John Doe"}),
 				TTL:   5 * time.Minute,
 			},
@@ -52,7 +52,7 @@ func TestEntry_Marshal(t *testing.T) {
 		{
 			name: "entry without TTL",
 			entry: Entry{
-				Key:   registry.ID{NS: "data", Name: "config"},
+				Key:   registry.NewID("data", "config"),
 				Value: payload.New("configuration data"),
 				TTL:   0,
 			},
@@ -61,7 +61,7 @@ func TestEntry_Marshal(t *testing.T) {
 		{
 			name: "minimal entry",
 			entry: Entry{
-				Key:   registry.ID{NS: "store", Name: "item"},
+				Key:   registry.NewID("store", "item"),
 				Value: payload.New("item"),
 			},
 			wantErr: false,
@@ -69,7 +69,7 @@ func TestEntry_Marshal(t *testing.T) {
 		{
 			name: "entry with long TTL",
 			entry: Entry{
-				Key:   registry.ID{NS: "persistent", Name: "data"},
+				Key:   registry.NewID("persistent", "data"),
 				Value: payload.New([]int{1, 2, 3, 4, 5}),
 				TTL:   24 * time.Hour,
 			},

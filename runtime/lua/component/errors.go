@@ -46,3 +46,59 @@ func NewValidationError(err error) *Error {
 		details:   attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
 	}
 }
+
+// NewFilesystemNotFoundError creates an error for missing filesystem
+func NewFilesystemNotFoundError(fsID string) *Error {
+	return &Error{
+		kind:      apierror.KindNotFound,
+		message:   "filesystem not found: " + fsID,
+		retryable: apierror.False,
+	}
+}
+
+// NewOpenFileError creates an error for file open failures
+func NewOpenFileError(path string, err error) *Error {
+	return &Error{
+		kind:      apierror.KindNotFound,
+		message:   "failed to open file: " + path,
+		retryable: apierror.False,
+		details:   attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
+	}
+}
+
+// NewInvalidHashFormatError creates an error for invalid hash format
+func NewInvalidHashFormatError(hash string) *Error {
+	return &Error{
+		kind:      apierror.KindInvalid,
+		message:   "invalid hash format: " + hash,
+		retryable: apierror.False,
+	}
+}
+
+// NewUnsupportedHashAlgorithmError creates an error for unsupported hash algorithms
+func NewUnsupportedHashAlgorithmError(algorithm string) *Error {
+	return &Error{
+		kind:      apierror.KindInvalid,
+		message:   "unsupported hash algorithm: " + algorithm,
+		retryable: apierror.False,
+	}
+}
+
+// NewHashMismatchError creates an error for hash verification failures
+func NewHashMismatchError(expected, actual string) *Error {
+	return &Error{
+		kind:      apierror.KindInvalid,
+		message:   "hash mismatch: expected " + expected + ", got " + actual,
+		retryable: apierror.False,
+	}
+}
+
+// NewUndumpBytecodeError creates an error for bytecode undump failures
+func NewUndumpBytecodeError(err error) *Error {
+	return &Error{
+		kind:      apierror.KindInternal,
+		message:   "failed to undump bytecode: " + err.Error(),
+		retryable: apierror.False,
+		details:   attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
+	}
+}

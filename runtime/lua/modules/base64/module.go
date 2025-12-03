@@ -4,14 +4,13 @@ import (
 	"encoding/base64"
 	"sync"
 
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
 var (
 	moduleTable  *lua.LTable
-	registration *lua2api.Registration
+	registration *luaapi.Registration
 	initOnce     sync.Once
 )
 
@@ -28,7 +27,7 @@ func (m *base64Module) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *base64Module) Register(l *lua.LState) *lua2api.Registration {
+func (m *base64Module) Register(l *lua.LState) *luaapi.Registration {
 	initOnce.Do(func() {
 		mod := &lua.LTable{}
 		mod.RawSetString("encode", lua.LGoFunc(encode))
@@ -36,7 +35,7 @@ func (m *base64Module) Register(l *lua.LState) *lua2api.Registration {
 		mod.Immutable = true
 		moduleTable = mod
 
-		registration = &lua2api.Registration{
+		registration = &luaapi.Registration{
 			Table:      moduleTable,
 			YieldTypes: nil,
 		}
@@ -52,7 +51,7 @@ func (m *base64Module) Loader(l *lua.LState) int {
 
 // Bind binds the base64 module to the Lua state.
 func Bind(l *lua.LState) {
-	lua2api.LoadModule(l, Module)
+	luaapi.LoadModule(l, Module)
 }
 
 func encode(l *lua.LState) int {

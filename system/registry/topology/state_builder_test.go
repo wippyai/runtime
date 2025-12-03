@@ -34,10 +34,7 @@ func (te testEntry) toEntry() registry.Entry {
 	}
 
 	return registry.Entry{
-		ID: registry.ID{
-			NS:   te.ns,
-			Name: te.name,
-		},
+		ID:   registry.NewID(te.ns, te.name),
 		Kind: te.kind,
 		Data: payload.NewString(te.data),
 		Meta: meta,

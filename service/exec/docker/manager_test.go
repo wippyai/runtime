@@ -72,7 +72,7 @@ func TestManager_Add(t *testing.T) {
 	}
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "executor"},
+		ID:   registry.NewID("test", "executor"),
 		Kind: exec.KindDockerExecutor,
 		Data: payload.New(config),
 	}
@@ -98,7 +98,7 @@ func TestManager_Add_DuplicateExecutor(t *testing.T) {
 	}
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "executor"},
+		ID:   registry.NewID("test", "executor"),
 		Kind: exec.KindDockerExecutor,
 		Data: payload.New(config),
 	}
@@ -119,7 +119,7 @@ func TestManager_Add_InvalidKind(t *testing.T) {
 	manager := NewManager(bus, &mockTranscoder{}, zap.NewNop())
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "executor"},
+		ID:   registry.NewID("test", "executor"),
 		Kind: "invalid.kind",
 		Data: payload.New(&exec.DockerExecutorConfig{}),
 	}
@@ -142,7 +142,7 @@ func TestManager_Add_FactoryError(t *testing.T) {
 	}
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "executor"},
+		ID:   registry.NewID("test", "executor"),
 		Kind: exec.KindDockerExecutor,
 		Data: payload.New(config),
 	}
@@ -165,7 +165,7 @@ func TestManager_Update(t *testing.T) {
 	}
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "executor"},
+		ID:   registry.NewID("test", "executor"),
 		Kind: exec.KindDockerExecutor,
 		Data: payload.New(config),
 	}
@@ -178,7 +178,7 @@ func TestManager_Update(t *testing.T) {
 	}
 
 	updatedEntry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "executor"},
+		ID:   registry.NewID("test", "executor"),
 		Kind: exec.KindDockerExecutor,
 		Data: payload.New(newConfig),
 	}
@@ -203,7 +203,7 @@ func TestManager_Update_ExecutorNotFound(t *testing.T) {
 	}
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "executor"},
+		ID:   registry.NewID("test", "executor"),
 		Kind: exec.KindDockerExecutor,
 		Data: payload.New(config),
 	}
@@ -221,7 +221,7 @@ func TestManager_Update_InvalidKind(t *testing.T) {
 	manager := NewManager(bus, &mockTranscoder{}, zap.NewNop())
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "executor"},
+		ID:   registry.NewID("test", "executor"),
 		Kind: "invalid.kind",
 		Data: payload.New(&exec.DockerExecutorConfig{}),
 	}
@@ -244,7 +244,7 @@ func TestManager_Delete(t *testing.T) {
 	}
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "executor"},
+		ID:   registry.NewID("test", "executor"),
 		Kind: exec.KindDockerExecutor,
 		Data: payload.New(config),
 	}
@@ -267,7 +267,7 @@ func TestManager_Delete_ExecutorNotFound(t *testing.T) {
 	manager := NewManager(bus, &mockTranscoder{}, zap.NewNop())
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "executor"},
+		ID:   registry.NewID("test", "executor"),
 		Kind: exec.KindDockerExecutor,
 		Data: payload.New(&exec.DockerExecutorConfig{}),
 	}
@@ -285,7 +285,7 @@ func TestManager_Delete_InvalidKind(t *testing.T) {
 	manager := NewManager(bus, &mockTranscoder{}, zap.NewNop())
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "executor"},
+		ID:   registry.NewID("test", "executor"),
 		Kind: "invalid.kind",
 		Data: payload.New(&exec.DockerExecutorConfig{}),
 	}

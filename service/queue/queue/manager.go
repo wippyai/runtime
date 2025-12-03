@@ -2,7 +2,6 @@ package queue
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/wippyai/runtime/api/event"
@@ -57,21 +56,21 @@ func (m *Manager) addOrUpdateQueue(ctx context.Context, entry registry.Entry, ac
 		m.logger.Error("failed to decode queue config",
 			zap.String("id", entry.ID.String()),
 			zap.Error(err))
-		return fmt.Errorf("failed to decode queue config: %w", err)
+		return newConfigDecodeError(err)
 	}
 
 	if err := cfg.Validate(); err != nil {
 		m.logger.Error("invalid queue config",
 			zap.String("id", entry.ID.String()),
 			zap.Error(err))
-		return fmt.Errorf("invalid queue config: %w", err)
+		return newConfigValidationError(err)
 	}
 
 	if _, ok := m.queueMgr.GetDriver(cfg.Driver); !ok {
 		m.logger.Error("driver not found for queue",
 			zap.String("id", entry.ID.String()),
 			zap.String("driver", cfg.Driver.String()))
-		return fmt.Errorf("driver not found: %s", cfg.Driver)
+		return newDriverNotFoundError(cfg.Driver)
 	}
 
 	queue := &queueapi.Queue{

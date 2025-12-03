@@ -5,8 +5,7 @@ import (
 	"testing"
 )
 
-// Test that verifies the error message contains detailed node information
-// This tests the actual error formatting logic
+// Test that verifies the error contains detailed node information via Details()
 func TestCycleErrorContainsNodeDetails(t *testing.T) {
 	g := New[string, string]()
 
@@ -33,19 +32,28 @@ func TestCycleErrorContainsNodeDetails(t *testing.T) {
 		t.Errorf("error should start with 'cycle detected', got: %s", errMsg)
 	}
 
-	// Error should mention at least one of the nodes involved
-	hasNodeInfo := strings.Contains(errMsg, "service-http") ||
-		strings.Contains(errMsg, "service-storage") ||
-		strings.Contains(errMsg, "service-otel")
-
-	if !hasNodeInfo {
-		t.Errorf("error should contain node names, got: %s", errMsg)
+	// Check that details contain cycle information
+	graphErr, ok := err.(*Error)
+	if !ok {
+		t.Fatalf("expected *Error, got %T", err)
 	}
 
-	t.Logf("Error message: %s", errMsg)
+	details := graphErr.Details()
+	if details == nil {
+		t.Fatal("expected error details")
+	}
+
+	// Check for cycle or stuck_nodes in details
+	_, hasCycle := details.Get("cycle")
+	_, hasStuck := details.Get("stuck_nodes")
+	if !hasCycle && !hasStuck {
+		t.Errorf("error details should contain cycle info, got: %v", details)
+	}
+
+	t.Logf("Error message: %s, details: %v", errMsg, details)
 }
 
-// Test to verify detailed error message format when cycle path is shown
+// Test to verify error format and details when cycle is detected
 func TestCycleErrorFormat(t *testing.T) {
 	g := New[string, string]()
 
@@ -67,20 +75,26 @@ func TestCycleErrorFormat(t *testing.T) {
 
 	errMsg := err.Error()
 
-	// Verify the error is informative
-	if len(errMsg) < 20 {
-		t.Errorf("error message seems too short to be useful: %s", errMsg)
-	}
-
 	// Should contain "cycle detected"
 	if !strings.Contains(errMsg, "cycle detected") {
 		t.Errorf("error should contain 'cycle detected', got: %s", errMsg)
 	}
 
-	t.Logf("Cycle error format: %s", errMsg)
+	// Check details contain cycle information
+	graphErr, ok := err.(*Error)
+	if !ok {
+		t.Fatalf("expected *Error, got %T", err)
+	}
+
+	details := graphErr.Details()
+	if details == nil {
+		t.Fatal("expected error details")
+	}
+
+	t.Logf("Cycle error format: %s, details: %v", errMsg, details)
 }
 
-// Verify that errors for different cycle patterns are distinguishable
+// Verify that errors for different cycle patterns are detected correctly
 func TestMultipleCyclePatterns(t *testing.T) {
 	testCases := []struct {
 		name  string
@@ -130,12 +144,14 @@ func TestMultipleCyclePatterns(t *testing.T) {
 				t.Errorf("error should mention cycle, got: %s", errMsg)
 			}
 
-			// Error should be specific enough to identify the problem
-			if len(errMsg) < 15 {
-				t.Errorf("error message too generic: %s", errMsg)
+			// Check error has details
+			graphErr, ok := err.(*Error)
+			if ok {
+				details := graphErr.Details()
+				t.Logf("[%s] Error: %s, details: %v", tc.name, errMsg, details)
+			} else {
+				t.Logf("[%s] Error: %s", tc.name, errMsg)
 			}
-
-			t.Logf("[%s] Error: %s", tc.name, errMsg)
 		})
 	}
 }

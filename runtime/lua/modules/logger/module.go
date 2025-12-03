@@ -3,7 +3,6 @@ package logger
 import (
 	"sync"
 
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -29,7 +28,7 @@ func (m *loggerModule) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *loggerModule) Register(l *lua.LState) *lua2api.Registration {
+func (m *loggerModule) Register(l *lua.LState) *luaapi.Registration {
 	initOnce.Do(func() {
 		if defaultLogger == nil {
 			defaultLogger = zap.NewNop()
@@ -41,7 +40,7 @@ func (m *loggerModule) Register(l *lua.LState) *lua2api.Registration {
 	moduleTable = l.Get(-1)
 	l.Pop(1)
 
-	return &lua2api.Registration{
+	return &luaapi.Registration{
 		Table:      moduleTable.(*lua.LTable),
 		YieldTypes: nil,
 	}
@@ -59,7 +58,7 @@ func (m *loggerModule) Loader(l *lua.LState) int {
 	return 1
 }
 
-// Bind is deprecated. Use lua2api.LoadModule(l, Module) instead.
+// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
 func Bind(l *lua.LState) {
-	lua2api.LoadModule(l, Module)
+	luaapi.LoadModule(l, Module)
 }

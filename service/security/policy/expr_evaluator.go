@@ -1,7 +1,7 @@
 package policy
 
 import (
-	"fmt"
+	"fmt" // Note: fmt kept for Sprintf in logging
 
 	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/vm"
@@ -16,7 +16,7 @@ type ExprEvaluator struct {
 // NewExprEvaluator creates a new evaluator with a pre-compiled expression
 func NewExprEvaluator(expression string) (*ExprEvaluator, error) {
 	if expression == "" {
-		return nil, fmt.Errorf("expression cannot be empty")
+		return nil, ErrExpressionEmpty
 	}
 
 	// Compile expression with AsBool to ensure boolean result
@@ -26,7 +26,7 @@ func NewExprEvaluator(expression string) (*ExprEvaluator, error) {
 		expr.AllowUndefinedVariables(), // Allow dynamic field access
 	)
 	if err != nil {
-		return nil, fmt.Errorf("expression compilation failed: %w", err)
+		return nil, NewExprCompilationError(err)
 	}
 
 	return &ExprEvaluator{
@@ -41,13 +41,13 @@ func (e *ExprEvaluator) Evaluate(env map[string]any) (bool, error) {
 	// Run the compiled program
 	output, err := vm.Run(e.program, env)
 	if err != nil {
-		return false, fmt.Errorf("expression evaluation failed: %w", err)
+		return false, NewExprEvaluationError(err)
 	}
 
 	// Type assert to bool
 	result, ok := output.(bool)
 	if !ok {
-		return false, fmt.Errorf("expression did not return boolean, got %T", output)
+		return false, NewExprNotBooleanError(fmt.Sprintf("%T", output))
 	}
 
 	return result, nil

@@ -3,7 +3,6 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/wippyai/runtime/api/boot"
@@ -42,7 +41,7 @@ func Init(ctx context.Context, verbose, veryVerbose, console, silent bool, appSt
 		AppStartTime: appStartTime,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("create logger: %w", err)
+		return nil, NewCreateLoggerError(err)
 	}
 
 	// Create AppContext for storing global singletons

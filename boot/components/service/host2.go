@@ -2,8 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
-
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
@@ -22,39 +20,39 @@ func Host2() boot.Component {
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			if logger == nil {
-				return ctx, fmt.Errorf("logger not available")
+				return ctx, ErrLoggerNotAvailable
 			}
 
 			bus := event.GetBus(ctx)
 			if bus == nil {
-				return ctx, fmt.Errorf("event bus not available")
+				return ctx, ErrEventBusNotAvailable
 			}
 
 			dtt := payload.GetTranscoder(ctx)
 			if dtt == nil {
-				return ctx, fmt.Errorf("transcoder not available")
+				return ctx, ErrTranscoderNotAvailable
 			}
 
 			handlers := bootpkg.GetHandlerRegistry(ctx)
 			if handlers == nil {
-				return ctx, fmt.Errorf("handler registry not available")
+				return ctx, ErrHandlerRegistryNotAvailable
 			}
 
 			factory := process.GetFactory(ctx)
 			if factory == nil {
-				return ctx, fmt.Errorf("process factory not available")
+				return ctx, ErrProcessFactoryNotAvailable
 			}
 
 			// Get shared dispatcher registry (contains all registered handlers)
 			registry := dispatcherapi.GetRegistry(ctx)
 			if registry == nil {
-				return ctx, fmt.Errorf("dispatcher registry not available")
+				return ctx, ErrDispatcherRegistryNotAvailable
 			}
 
-			manager := host.NewManager(bus, dtt, registry, factory, logger)
+			manager := host.NewManager(bus, dtt, registry, factory, logger.Named("host"))
 			handlers.RegisterListener("process.host", manager)
 
-			logger.Info("host2 manager registered")
+			logger.Info("host manager registered")
 			return ctx, nil
 		},
 	})

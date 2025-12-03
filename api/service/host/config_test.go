@@ -23,11 +23,9 @@ func TestConfig_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "complete config",
 			config: Config{
-				MaxProcesses:       1000,
-				Workers:            4,
-				BufferSize:         512,
-				WorkerCount:        8,
-				MessageWorkerCount: 8,
+				Workers:        4,
+				QueueSize:      512,
+				LocalQueueSize: 128,
 			},
 			wantErr: false,
 		},
@@ -65,8 +63,8 @@ func TestEntryConfig_MarshalUnmarshal(t *testing.T) {
 			name: "complete config",
 			config: EntryConfig{
 				HostConfig: Config{
-					MaxProcesses: 100,
-					Workers:      2,
+					Workers:   2,
+					QueueSize: 1024,
 				},
 				Lifecycle: supervisor.LifecycleConfig{
 					AutoStart: true,
@@ -93,7 +91,7 @@ func TestEntryConfig_MarshalUnmarshal(t *testing.T) {
 			var decoded EntryConfig
 			err = json.Unmarshal(data, &decoded)
 			require.NoError(t, err)
-			assert.Equal(t, tt.config.HostConfig.MaxProcesses, decoded.HostConfig.MaxProcesses)
+			assert.Equal(t, tt.config.HostConfig.Workers, decoded.HostConfig.Workers)
 		})
 	}
 }
@@ -109,28 +107,18 @@ func TestEntryConfig_Validate(t *testing.T) {
 			name: "valid config",
 			config: EntryConfig{
 				HostConfig: Config{
-					MaxProcesses: 100,
-					Workers:      4,
+					Workers:        4,
+					QueueSize:      1024,
+					LocalQueueSize: 256,
 				},
 			},
 			wantErr: false,
 		},
 		{
-			name: "negative max processes",
+			name: "zero workers defaults to NumCPU",
 			config: EntryConfig{
 				HostConfig: Config{
-					MaxProcesses: -1,
-				},
-			},
-			wantErr: true,
-			errMsg:  "max_processes must be greater or equal 0",
-		},
-		{
-			name: "zero workers after init",
-			config: EntryConfig{
-				HostConfig: Config{
-					MaxProcesses: 100,
-					Workers:      0,
+					Workers: 0,
 				},
 			},
 			wantErr: false,
@@ -139,37 +127,34 @@ func TestEntryConfig_Validate(t *testing.T) {
 			name: "negative workers",
 			config: EntryConfig{
 				HostConfig: Config{
-					MaxProcesses: 100,
-					Workers:      -1,
+					Workers: -1,
 				},
 			},
 			wantErr: true,
 			errMsg:  "workers must be greater than 0",
 		},
 		{
-			name: "negative buffer size",
+			name: "negative queue size",
 			config: EntryConfig{
 				HostConfig: Config{
-					MaxProcesses: 100,
-					Workers:      2,
-					BufferSize:   -1,
+					Workers:   2,
+					QueueSize: -1,
 				},
 			},
 			wantErr: true,
-			errMsg:  "buffer_size must be greater than 0",
+			errMsg:  "queue_size must be greater than 0",
 		},
 		{
-			name: "negative worker count",
+			name: "negative local queue size",
 			config: EntryConfig{
 				HostConfig: Config{
-					MaxProcesses: 100,
-					Workers:      2,
-					BufferSize:   1024,
-					WorkerCount:  -1,
+					Workers:        2,
+					QueueSize:      1024,
+					LocalQueueSize: -1,
 				},
 			},
 			wantErr: true,
-			errMsg:  "worker_count must be greater than 0",
+			errMsg:  "local_queue_size must be greater than 0",
 		},
 	}
 

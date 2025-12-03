@@ -2,7 +2,6 @@ package embed
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/wippyai/runtime/api/event"
@@ -37,12 +36,12 @@ func NewManager(bus event.Bus, dtt payload.Transcoder, embedReg embedapi.Registr
 // Add creates and registers a new embedded filesystem.
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != embedapi.Kind {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return newUnsupportedEntryKindError(entry.Kind)
 	}
 
 	// Validate config can be decoded (embed doesn't use config content, filesystem comes from embedReg)
 	if _, err := entryutil.DecodeEntryConfig[embedapi.Config](ctx, m.dtt, entry); err != nil {
-		return fmt.Errorf("failed to decode config: %w", err)
+		return newFailedToDecodeConfigError(err)
 	}
 
 	m.mu.Lock()
@@ -50,7 +49,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	// Check for duplicates
 	if _, exists := m.filesystems.Load(entry.ID.String()); exists {
-		return fmt.Errorf("embedded filesystem %s already exists", entry.ID)
+		return newEmbeddedFilesystemAlreadyExistsError(entry.ID.String())
 	}
 
 	if err := m.registerFS(ctx, entry.ID); err != nil {
@@ -64,14 +63,14 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update updates an existing embedded filesystem.
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != embedapi.Kind {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return newUnsupportedEntryKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, exists := m.filesystems.Load(entry.ID.String()); !exists {
-		return fmt.Errorf("embedded filesystem %s not found", entry.ID)
+		return newEmbeddedFilesystemNotFoundError(entry.ID.String())
 	}
 
 	// Remove old, register new
@@ -87,14 +86,14 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete removes an embedded filesystem.
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != embedapi.Kind {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return newUnsupportedEntryKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, exists := m.filesystems.LoadAndDelete(entry.ID.String()); !exists {
-		return fmt.Errorf("embedded filesystem %s not found", entry.ID)
+		return newEmbeddedFilesystemNotFoundError(entry.ID.String())
 	}
 
 	m.removeFS(ctx, entry.ID)
@@ -111,7 +110,7 @@ func (m *Manager) registerFS(ctx context.Context, id registry.ID) error {
 		m.log.Error("failed to get embedded filesystem",
 			zap.String("id", id.String()),
 			zap.Error(err))
-		return fmt.Errorf("failed to get embedded filesystem: %w", err)
+		return newFailedToGetEmbeddedFilesystemError(err)
 	}
 
 	// Wrap in read-only adapter

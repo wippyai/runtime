@@ -110,6 +110,9 @@ func (d *Dispatcher) handleTickerNext(ctx context.Context, cmd dispatcher.Comman
 	c := cmd.(clockapi.TickerNextCmd)
 	go func() {
 		t, err := d.tickers.Next(ctx, c.TickerID)
+		if ctx.Err() != nil {
+			return
+		}
 		if err != nil {
 			emit.Emit(nil, err)
 			return
@@ -143,6 +146,9 @@ func (d *Dispatcher) handleTimerWait(ctx context.Context, cmd dispatcher.Command
 	c := cmd.(clockapi.TimerWaitCmd)
 	go func() {
 		t, err := d.wheel.Wait(ctx, c.TimerID)
+		if ctx.Err() != nil {
+			return
+		}
 		if err != nil {
 			emit.Emit(nil, err)
 			return

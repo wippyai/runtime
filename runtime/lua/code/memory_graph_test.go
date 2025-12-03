@@ -41,6 +41,11 @@ func (d *dummyModule) Info() runtime.ModuleInfo {
 	}
 }
 
+// Register returns nil for test purposes.
+func (d *dummyModule) Register(_ *lua.LState) *runtime.Registration {
+	return nil
+}
+
 // TestMemoryGraph_AddNode tests node addition, including duplicate and nil cases.
 func TestMemoryGraph_AddNode(t *testing.T) {
 	mg := NewMemoryGraph()
@@ -94,7 +99,7 @@ func TestMemoryGraph_RemoveNode(t *testing.T) {
 	})
 
 	t.Run("NonExistentRemoval", func(t *testing.T) {
-		err := mg.RemoveNode(registry.ID{Name: "non-existent"})
+		err := mg.RemoveNode(registry.NewID("", "non-existent"))
 		if err == nil {
 			t.Errorf("expected error when removing non-existent node, got nil")
 		}
@@ -127,14 +132,14 @@ func TestMemoryGraph_AddDependency(t *testing.T) {
 	})
 
 	t.Run("MissingFromNode", func(t *testing.T) {
-		err := mg.AddDependency(registry.ID{Name: "NonExistent"}, nodeB.ID, "alias")
+		err := mg.AddDependency(registry.NewID("", "NonExistent"), nodeB.ID, "alias")
 		if err == nil {
 			t.Errorf("expected error when 'from' node is missing, got nil")
 		}
 	})
 
 	t.Run("MissingToNode", func(t *testing.T) {
-		err := mg.AddDependency(nodeA.ID, registry.ID{Name: "NonExistent"}, "alias")
+		err := mg.AddDependency(nodeA.ID, registry.NewID("", "NonExistent"), "alias")
 		if err == nil {
 			t.Errorf("expected error when 'to' node is missing, got nil")
 		}
@@ -229,7 +234,7 @@ func TestMemoryGraph_GetDirectDependencies(t *testing.T) {
 	})
 
 	t.Run("NonExistentNode", func(t *testing.T) {
-		_, err := mg.GetDirectDependencies(registry.ID{Name: "NonExistent"})
+		_, err := mg.GetDirectDependencies(registry.NewID("", "NonExistent"))
 		if err == nil {
 			t.Errorf("expected error for non-existent node, got nil")
 		}
@@ -272,7 +277,7 @@ func TestMemoryGraph_GetDirectDependents(t *testing.T) {
 	})
 
 	t.Run("NonExistentNode", func(t *testing.T) {
-		_, err := mg.GetDirectDependents(registry.ID{Name: "NonExistent"})
+		_, err := mg.GetDirectDependents(registry.NewID("", "NonExistent"))
 		if err == nil {
 			t.Errorf("expected error for non-existent node, got nil")
 		}
@@ -404,7 +409,7 @@ func TestMemoryGraph_BuildRuntime(t *testing.T) {
 	})
 
 	t.Run("InvalidEntrypoint", func(t *testing.T) {
-		_, err := mg.Build(registry.ID{Name: "NonExistent"})
+		_, err := mg.Build(registry.NewID("", "NonExistent"))
 		if err == nil {
 			t.Errorf("expected error for non-existent entrypoint, got nil")
 		}
@@ -729,13 +734,13 @@ func TestMemoryGraph_Build_AliasCollision(t *testing.T) {
 		"lib1": createTestNode("Lib1"),
 		"lib2": createTestNode("Lib2"),
 		"mod1": {
-			ID:     registry.ID{Name: "mod1"},
+			ID:     registry.NewID("", "mod1"),
 			Kind:   "module.lua",
 			Source: "module1 source",
 			Module: mod1,
 		},
 		"mod2": {
-			ID:     registry.ID{Name: "mod2"},
+			ID:     registry.NewID("", "mod2"),
 			Kind:   "module.lua",
 			Source: "module2 source",
 			Module: mod2,
@@ -793,13 +798,13 @@ func TestMemoryGraph_Build_SharedDependency(t *testing.T) {
 		"lib1": createTestNode("Lib1"),
 		"lib2": createTestNode("Lib2"),
 		"mod1": {
-			ID:     registry.ID{Name: "mod1"},
+			ID:     registry.NewID("", "mod1"),
 			Kind:   "module.lua",
 			Source: "module1 source",
 			Module: mod1,
 		},
 		"shared": {
-			ID:     registry.ID{Name: "shared"},
+			ID:     registry.NewID("", "shared"),
 			Kind:   "module.lua",
 			Source: "shared module source",
 			Module: sharedMod,
@@ -1031,7 +1036,7 @@ func TestMemoryGraph_GetAllDependents(t *testing.T) {
 	}
 
 	t.Run("nonexistent node", func(t *testing.T) {
-		_, err := mg.GetAllDependents(registry.ID{Name: "nonexistent"})
+		_, err := mg.GetAllDependents(registry.NewID("", "nonexistent"))
 		if err == nil {
 			t.Error("expected error for nonexistent node, got nil")
 		}
@@ -1126,19 +1131,19 @@ func TestMemoryGraph_Build_TransitiveAliasCollision(t *testing.T) {
 	nodes := map[string]*Node{
 		"main": createTestNode("MainFunc"),
 		"const-x": {
-			ID:     registry.ID{NS: "lib", Name: "const-x"},
+			ID:     registry.NewID("lib", "const-x"),
 			Kind:   "module.lua",
 			Source: "const-x source",
 			Module: modConstX,
 		},
 		"const-y": {
-			ID:     registry.ID{NS: "lib", Name: "const-y"},
+			ID:     registry.NewID("lib", "const-y"),
 			Kind:   "module.lua",
 			Source: "const-y source",
 			Module: modConstY,
 		},
 		"library-a": {
-			ID:     registry.ID{NS: "lib", Name: "library-a"},
+			ID:     registry.NewID("lib", "library-a"),
 			Kind:   "module.lua",
 			Source: "library-a source",
 			Module: modLibA,

@@ -1,7 +1,6 @@
 package loader
 
 import (
-	"fmt"
 	"io"
 	"io/fs"
 	"path/filepath"
@@ -44,7 +43,7 @@ func (l *FileLoader) LoadFile(fSys fs.FS, path string) (*FilePayload, error) {
 	ext := filepath.Ext(path)
 	format, ok := l.ext[ext]
 	if !ok {
-		return nil, fmt.Errorf("unsupported file format for file %s", path)
+		return nil, NewUnsupportedFileFormatError(path)
 	}
 
 	return l.loadFileAsPayload(fSys, path, format)
@@ -80,7 +79,7 @@ func (l *FileLoader) LoadFS(fSys fs.FS) ([]*FilePayload, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("walking filesystem: %w", err)
+		return nil, NewWalkFilesystemError(err)
 	}
 
 	return payloads, nil
@@ -117,7 +116,7 @@ func (l *FileLoader) LoadDir(fSys fs.FS, dirPath string) ([]*FilePayload, error)
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("walking directory %s: %w", dirPath, err)
+		return nil, NewWalkDirectoryError(dirPath, err)
 	}
 
 	return payloads, nil
@@ -127,7 +126,7 @@ func (l *FileLoader) LoadDir(fSys fs.FS, dirPath string) ([]*FilePayload, error)
 func (l *FileLoader) loadFileAsPayload(fSys fs.FS, path string, format payload.Format) (*FilePayload, error) {
 	file, err := fSys.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("open file %s: %w", path, err)
+		return nil, NewOpenFileError(path, err)
 	}
 	defer func() {
 		if closeErr := file.Close(); closeErr != nil {
@@ -137,7 +136,7 @@ func (l *FileLoader) loadFileAsPayload(fSys fs.FS, path string, format payload.F
 
 	data, err := io.ReadAll(file)
 	if err != nil {
-		return nil, fmt.Errorf("read file %s: %w", path, err)
+		return nil, NewReadFileError(path, err)
 	}
 
 	var p payload.Payload
@@ -149,7 +148,7 @@ func (l *FileLoader) loadFileAsPayload(fSys fs.FS, path string, format payload.F
 	case payload.String, payload.Golang, payload.Lua, payload.Bytes, payload.Error:
 		// FIXME implement
 	default:
-		return nil, fmt.Errorf("unsupported file format: %s", format)
+		return nil, NewUnsupportedFormatError(string(format))
 	}
 
 	return &FilePayload{

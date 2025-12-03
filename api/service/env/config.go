@@ -3,10 +3,8 @@ package env
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/wippyai/runtime/api/env"
-
 	"github.com/wippyai/runtime/api/registry"
 )
 
@@ -72,7 +70,7 @@ func (c *OSStorageConfig) Validate() error {
 
 func (c *RouterStorageConfig) Validate() error {
 	if len(c.Storages) == 0 {
-		return fmt.Errorf("router storage must have at least one storage")
+		return ErrEmptyStorageList
 	}
 	return nil
 }

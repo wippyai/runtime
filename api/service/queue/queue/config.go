@@ -1,8 +1,6 @@
 package queue
 
 import (
-	"fmt"
-
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 )
@@ -16,7 +14,7 @@ type Config struct {
 
 func (c *Config) Validate() error {
 	if c.Driver.Name == "" {
-		return fmt.Errorf("driver ID is required")
+		return ErrDriverIDRequired
 	}
 	return nil
 }

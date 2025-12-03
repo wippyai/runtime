@@ -3,7 +3,6 @@ package sql
 import (
 	"context"
 	"database/sql"
-	"fmt"
 
 	"github.com/wippyai/runtime/api/registry"
 	config "github.com/wippyai/runtime/api/service/sql"
@@ -29,17 +28,17 @@ func NewDefaultPoolFactory() PoolFactoryAPI {
 // CreateStandardPool implements PoolFactoryAPI.CreateStandardPool
 func (f *DefaultPoolFactory) CreateStandardPool(kind registry.Kind, cfg *config.DBConfig) (*ConnPool, error) {
 	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid configuration: %w", err)
+		return nil, NewInvalidConfigError(err)
 	}
 
 	dsn, err := buildDSN(kind, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("invalid connection config: %w", err)
+		return nil, NewInvalidDSNError(err)
 	}
 
 	db, err := sql.Open(getDriver(kind), dsn)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create connection pool: %w", err)
+		return nil, NewConnectionPoolCreationError(err)
 	}
 
 	// Configure pool settings
@@ -62,7 +61,7 @@ func (f *DefaultPoolFactory) CreateStandardPool(kind registry.Kind, cfg *config.
 // CreateSQLitePool implements PoolFactoryAPI.CreateSQLitePool
 func (f *DefaultPoolFactory) CreateSQLitePool(cfg *config.SQLiteConfig) (*ConnPool, error) {
 	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid configuration: %w", err)
+		return nil, NewInvalidConfigError(err)
 	}
 
 	var dsn string
@@ -72,18 +71,18 @@ func (f *DefaultPoolFactory) CreateSQLitePool(cfg *config.SQLiteConfig) (*ConnPo
 		dsn = ":memory:"
 	} else {
 		// Use the file path directly
-		dsn = fmt.Sprintf("file:%s?mode=rwc", cfg.File)
+		dsn = "file:" + cfg.File + "?mode=rwc"
 	}
 
 	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create SQLite connection: %w", err)
+		return nil, NewSQLiteConnectionCreationError(err)
 	}
 
 	// Enable WAL mode for better concurrency
 	if _, err := db.ExecContext(context.Background(), "PRAGMA journal_mode=WAL;"); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
+		return nil, NewWALModeError(err)
 	}
 
 	// SQLite specific settings

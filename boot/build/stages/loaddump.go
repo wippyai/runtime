@@ -3,7 +3,6 @@ package stages
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 
 	"github.com/wippyai/runtime/api/boot"
@@ -42,19 +41,19 @@ func (s *loadDumpStage) Execute(ctx context.Context, entries *[]registry.Entry) 
 	dtt := payload.GetTranscoder(ctx)
 
 	if dtt == nil {
-		return fmt.Errorf("transcoder not found in context")
+		return ErrTranscoderNotFound
 	}
 
 	log.Info("loading state from dump file", zap.String("file", s.dumpFile))
 
 	dumpData, err := os.ReadFile(s.dumpFile)
 	if err != nil {
-		return fmt.Errorf("read dump file: %w", err)
+		return NewReadDumpFileError(err)
 	}
 
 	var serializable SerializableState
 	if err := json.Unmarshal(dumpData, &serializable); err != nil {
-		return fmt.Errorf("unmarshal dump file: %w", err)
+		return NewUnmarshalDumpFileError(err)
 	}
 
 	log.Info("unmarshaled dump file",
@@ -65,7 +64,7 @@ func (s *loadDumpStage) Execute(ctx context.Context, entries *[]registry.Entry) 
 	for i, se := range serializable.Entries {
 		entry, err := convertFromSerializableEntry(se, dtt)
 		if err != nil {
-			return fmt.Errorf("convert entry %s: %w", se.ID, err)
+			return NewConvertEntryError(se.ID, err)
 		}
 		loadedEntries[i] = entry
 	}

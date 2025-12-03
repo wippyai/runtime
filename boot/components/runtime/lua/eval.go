@@ -2,13 +2,11 @@ package lua
 
 import (
 	"context"
-	"fmt"
-
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/process"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/boot/components/dispatchers"
 	"github.com/wippyai/runtime/runtime/lua/evalhost"
 	envlua "github.com/wippyai/runtime/runtime/lua/modules/env"
@@ -29,14 +27,14 @@ func Eval() boot.Component {
 			logger := logapi.GetLogger(ctx)
 			reg := dispatcherapi.GetRegistrar(ctx)
 			if reg == nil {
-				return ctx, fmt.Errorf("dispatcher registrar not found in context")
+				return ctx, ErrDispatcherRegistrarNotFound
 			}
 
 			// Get process factory from context for ID-based sandbox creation
 			factory := process.GetFactory(ctx)
 
 			// Modules available for eval'd code (safe, class-filtered subset)
-			modules := []lua2api.ModuleV2{
+			modules := []luaapi.ModuleV2{
 				json.Module,
 				timemod.Module,
 				payloadmod.Module,

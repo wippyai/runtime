@@ -2,7 +2,6 @@ package wasm
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
@@ -30,7 +29,7 @@ func Engine() boot.Component {
 
 			disp := dispatcherapi.GetDispatcher(ctx)
 			if disp == nil {
-				return ctx, fmt.Errorf("dispatcher not found in context")
+				return ctx, ErrDispatcherNotFound
 			}
 
 			manager = function.NewManager(

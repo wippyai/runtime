@@ -9,6 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
 	api "github.com/wippyai/runtime/api/runtime/lua"
+	glua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 
@@ -100,7 +101,7 @@ func TestManager_Transaction(t *testing.T) {
 
 	// Add a node during transaction
 	node := Node{
-		ID:     registry.ID{Name: "testTx"},
+		ID:     registry.NewID("", "testTx"),
 		Kind:   api.KindFunction,
 		Source: "function test() return 'hello' end",
 		Method: "test",
@@ -135,7 +136,7 @@ func TestManager_AddNode(t *testing.T) {
 		{
 			name: "Add node without dependencies",
 			node: Node{
-				ID:     registry.ID{Name: "test1"},
+				ID:     registry.NewID("", "test1"),
 				Kind:   api.KindFunction,
 				Source: "function test1() return 'hello' end",
 				Method: "test1",
@@ -146,14 +147,14 @@ func TestManager_AddNode(t *testing.T) {
 		{
 			name: "Add node with dependencies",
 			node: Node{
-				ID:     registry.ID{Name: "test2"},
+				ID:     registry.NewID("", "test2"),
 				Kind:   api.KindFunction,
 				Source: "function test2() return 'hello' end",
 				Method: "test2",
 			},
 			deps: []Import{
 				{
-					ID:    registry.ID{Name: "test1"},
+					ID:    registry.NewID("", "test1"),
 					Alias: "dep1",
 				},
 			},
@@ -162,7 +163,7 @@ func TestManager_AddNode(t *testing.T) {
 		{
 			name: "Add duplicate node",
 			node: Node{
-				ID:     registry.ID{Name: "test1"},
+				ID:     registry.NewID("", "test1"),
 				Kind:   api.KindFunction,
 				Source: "function test1() return 'hello' end",
 				Method: "test1",
@@ -173,14 +174,14 @@ func TestManager_AddNode(t *testing.T) {
 		{
 			name: "Add node with non-existent dependency",
 			node: Node{
-				ID:     registry.ID{Name: "test3"},
+				ID:     registry.NewID("", "test3"),
 				Kind:   api.KindFunction,
 				Source: "function test3() return 'hello' end",
 				Method: "test3",
 			},
 			deps: []Import{
 				{
-					ID:    registry.ID{Name: "nonExistent"},
+					ID:    registry.NewID("", "nonExistent"),
 					Alias: "dep",
 				},
 			},
@@ -217,7 +218,7 @@ func TestManager_UpdateNode(t *testing.T) {
 
 	// Add initial node
 	node := Node{
-		ID:     registry.ID{Name: "testUpdate"},
+		ID:     registry.NewID("", "testUpdate"),
 		Kind:   api.KindFunction,
 		Source: "function test() return 'hello' end",
 		Method: "test",
@@ -234,7 +235,7 @@ func TestManager_UpdateNode(t *testing.T) {
 		{
 			name: "Update node content",
 			node: Node{
-				ID:     registry.ID{Name: "testUpdate"},
+				ID:     registry.NewID("", "testUpdate"),
 				Kind:   api.KindFunction,
 				Source: "function test() return 'world' end",
 				Method: "test",
@@ -245,14 +246,14 @@ func TestManager_UpdateNode(t *testing.T) {
 		{
 			name: "Update node dependencies",
 			node: Node{
-				ID:     registry.ID{Name: "testUpdate"},
+				ID:     registry.NewID("", "testUpdate"),
 				Kind:   api.KindFunction,
 				Source: "function test() return 'world' end",
 				Method: "test",
 			},
 			deps: []Import{
 				{
-					ID:    registry.ID{Name: "nonExistentDep"},
+					ID:    registry.NewID("", "nonExistentDep"),
 					Alias: "dep",
 				},
 			},
@@ -261,7 +262,7 @@ func TestManager_UpdateNode(t *testing.T) {
 		{
 			name: "Update non-existent node",
 			node: Node{
-				ID:     registry.ID{Name: "nonExistentUpdate"},
+				ID:     registry.NewID("", "nonExistentUpdate"),
 				Kind:   api.KindFunction,
 				Source: "function test() return 'world' end",
 				Method: "test",
@@ -296,7 +297,7 @@ func TestManager_DeleteNode(t *testing.T) {
 
 	// Add a node
 	node := Node{
-		ID:     registry.ID{Name: "testDelete"},
+		ID:     registry.NewID("", "testDelete"),
 		Kind:   api.KindFunction,
 		Source: "function test() return 'hello' end",
 		Method: "test",
@@ -316,7 +317,7 @@ func TestManager_DeleteNode(t *testing.T) {
 		},
 		{
 			name:      "Delete non-existent node",
-			id:        registry.ID{NS: "test", Name: "non-existent"},
+			id:        registry.NewID("test", "non-existent"),
 			expectErr: true,
 		},
 	}
@@ -344,7 +345,7 @@ func TestManager_Compile(t *testing.T) {
 
 	// Add a node
 	node := Node{
-		ID:     registry.ID{Name: "testCompile"},
+		ID:     registry.NewID("", "testCompile"),
 		Kind:   api.KindFunction,
 		Source: "function test() return 'hello' end",
 		Method: "test",
@@ -366,7 +367,7 @@ func TestManager_Compile(t *testing.T) {
 		},
 		{
 			name:      "Compile non-existent node",
-			id:        registry.ID{NS: "test", Name: "non-existent"},
+			id:        registry.NewID("test", "non-existent"),
 			options:   &BuildOptions{},
 			expectErr: true,
 		},
@@ -385,4 +386,180 @@ func TestManager_Compile(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestManager_AddNodeWithProto(t *testing.T) {
+	logger := zap.NewNop()
+	bus := &testEventBus{}
+	cm, err := NewCodeManager(logger, bus, Config{})
+	require.NoError(t, err)
+
+	// Create a simple proto for testing
+	proto := &glua.FunctionProto{
+		NumParameters:    0,
+		IsVarArg:         0,
+		NumUpvalues:      0,
+		NumUsedRegisters: 2,
+	}
+
+	tests := []struct {
+		name      string
+		node      Node
+		deps      []Import
+		proto     *glua.FunctionProto
+		expectErr bool
+	}{
+		{
+			name: "Add node with proto",
+			node: Node{
+				ID:     registry.NewID("", "bytecodeTest1"),
+				Kind:   api.KindFunctionBytecode,
+				Method: "handler",
+			},
+			deps:      nil,
+			proto:     proto,
+			expectErr: false,
+		},
+		{
+			name: "Add node with proto and nil proto",
+			node: Node{
+				ID:     registry.NewID("", "bytecodeTest2"),
+				Kind:   api.KindFunctionBytecode,
+				Method: "handler",
+			},
+			deps:      nil,
+			proto:     nil,
+			expectErr: false,
+		},
+		{
+			name: "Add duplicate node fails",
+			node: Node{
+				ID:     registry.NewID("", "bytecodeTest1"),
+				Kind:   api.KindFunctionBytecode,
+				Method: "handler",
+			},
+			deps:      nil,
+			proto:     proto,
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := cm.AddNodeWithProto(context.Background(), tt.node, tt.deps, tt.proto)
+			if tt.expectErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				// Verify node exists
+				node, err := cm.memGraph.GetNode(tt.node.ID)
+				assert.NoError(t, err)
+				assert.Equal(t, tt.node.Kind, node.Kind)
+				assert.Equal(t, tt.node.Method, node.Method)
+			}
+		})
+	}
+}
+
+func TestManager_UpdateNodeWithProto(t *testing.T) {
+	logger := zap.NewNop()
+	bus := &testEventBus{}
+	cm, err := NewCodeManager(logger, bus, Config{})
+	require.NoError(t, err)
+
+	proto := &glua.FunctionProto{
+		NumParameters:    0,
+		IsVarArg:         0,
+		NumUpvalues:      0,
+		NumUsedRegisters: 2,
+	}
+
+	// Add initial node
+	node := Node{
+		ID:     registry.NewID("", "bytecodeUpdate"),
+		Kind:   api.KindFunctionBytecode,
+		Method: "handler",
+	}
+	err = cm.AddNodeWithProto(context.Background(), node, nil, proto)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name      string
+		node      Node
+		deps      []Import
+		proto     *glua.FunctionProto
+		expectErr bool
+	}{
+		{
+			name: "Update node with new proto",
+			node: Node{
+				ID:     registry.NewID("", "bytecodeUpdate"),
+				Kind:   api.KindFunctionBytecode,
+				Method: "newHandler",
+			},
+			deps:      nil,
+			proto:     proto,
+			expectErr: false,
+		},
+		{
+			name: "Update non-existent node fails",
+			node: Node{
+				ID:     registry.NewID("", "nonExistentBytecode"),
+				Kind:   api.KindFunctionBytecode,
+				Method: "handler",
+			},
+			deps:      nil,
+			proto:     proto,
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := cm.UpdateNodeWithProto(context.Background(), tt.node, tt.deps, tt.proto)
+			if tt.expectErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				// Verify node was updated
+				updated, err := cm.memGraph.GetNode(tt.node.ID)
+				assert.NoError(t, err)
+				assert.Equal(t, tt.node.Method, updated.Method)
+			}
+		})
+	}
+}
+
+func TestManager_AddNodeWithProto_CompileUsesProto(t *testing.T) {
+	logger := zap.NewNop()
+	bus := &testEventBus{}
+	cm, err := NewCodeManager(logger, bus, Config{})
+	require.NoError(t, err)
+
+	// Create a proto that we can identify
+	proto := &glua.FunctionProto{
+		NumParameters:    1,
+		IsVarArg:         0,
+		NumUpvalues:      0,
+		NumUsedRegisters: 3,
+	}
+
+	node := Node{
+		ID:     registry.NewID("", "bytecodeCompileTest"),
+		Kind:   api.KindFunctionBytecode,
+		Method: "execute",
+	}
+
+	err = cm.AddNodeWithProto(context.Background(), node, nil, proto)
+	require.NoError(t, err)
+
+	// Compile the node - should use the injected proto
+	compiled, err := cm.Compile(node.ID, nil)
+	require.NoError(t, err)
+	require.NotNil(t, compiled)
+	require.NotNil(t, compiled.Main)
+
+	// Verify it's our injected proto
+	assert.Equal(t, uint8(1), compiled.Main.NumParameters)
+	assert.Equal(t, uint8(3), compiled.Main.NumUsedRegisters)
 }

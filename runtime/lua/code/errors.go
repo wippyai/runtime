@@ -1,7 +1,7 @@
 package code
 
 import (
-	"fmt"
+	"fmt" // Note: fmt kept for Sprintf in logging
 
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
@@ -14,6 +14,7 @@ type Error struct {
 	message   string
 	retryable apierror.Ternary
 	details   attrs.Attributes
+	cause     error
 }
 
 // Error implements error interface
@@ -34,6 +35,11 @@ func (e *Error) Retryable() apierror.Ternary {
 // Details implements apierror.Error
 func (e *Error) Details() attrs.Attributes {
 	return e.details
+}
+
+// Unwrap implements error unwrapping
+func (e *Error) Unwrap() error {
+	return e.cause
 }
 
 // Sentinel errors
@@ -155,5 +161,78 @@ func WrapError(kind apierror.Kind, err error, retryable apierror.Ternary) *Error
 		kind:      kind,
 		message:   err.Error(),
 		retryable: retryable,
+		cause:     err,
+	}
+}
+
+func NewParseError(cause error) *Error {
+	return &Error{
+		kind:      apierror.KindInvalid,
+		message:   "parse error",
+		retryable: apierror.False,
+		cause:     cause,
+	}
+}
+
+func NewAddModuleNodeError(cause error) *Error {
+	return &Error{
+		kind:      apierror.KindInternal,
+		message:   "failed to add module node",
+		retryable: apierror.False,
+		cause:     cause,
+	}
+}
+
+func NewAddNodeErrorWithCause(cause error) *Error {
+	return &Error{
+		kind:      apierror.KindInternal,
+		message:   "failed to add node",
+		retryable: apierror.False,
+		cause:     cause,
+	}
+}
+
+func NewAddDependencyError(from, to registry.ID, cause error) *Error {
+	return &Error{
+		kind:      apierror.KindInternal,
+		message:   fmt.Sprintf("failed to add dependency %s -> %s", from, to),
+		retryable: apierror.False,
+		cause:     cause,
+	}
+}
+
+func NewGetOldDependenciesError(cause error) *Error {
+	return &Error{
+		kind:      apierror.KindInternal,
+		message:   "failed to get old dependencies",
+		retryable: apierror.False,
+		cause:     cause,
+	}
+}
+
+func NewRemoveOldDependencyError(cause error) *Error {
+	return &Error{
+		kind:      apierror.KindInternal,
+		message:   "failed to remove old dependency",
+		retryable: apierror.False,
+		cause:     cause,
+	}
+}
+
+func NewAddNewDependencyError(cause error) *Error {
+	return &Error{
+		kind:      apierror.KindInternal,
+		message:   "failed to add new dependency",
+		retryable: apierror.False,
+		cause:     cause,
+	}
+}
+
+func NewRemoveNodeError(cause error) *Error {
+	return &Error{
+		kind:      apierror.KindInternal,
+		message:   "failed to remove node",
+		retryable: apierror.False,
+		cause:     cause,
 	}
 }

@@ -13,6 +13,7 @@ type Error struct {
 	message   string
 	retryable apierror.Ternary
 	details   attrs.Attributes
+	cause     error
 }
 
 // Error implements error interface
@@ -33,6 +34,11 @@ func (e *Error) Retryable() apierror.Ternary {
 // Details implements apierror.Error
 func (e *Error) Details() attrs.Attributes {
 	return e.details
+}
+
+// Unwrap implements error unwrapping
+func (e *Error) Unwrap() error {
+	return e.cause
 }
 
 // Sentinel errors
@@ -110,5 +116,56 @@ func WrapError(kind apierror.Kind, err error, retryable apierror.Ternary) *Error
 		kind:      kind,
 		message:   err.Error(),
 		retryable: retryable,
+		cause:     err,
+	}
+}
+
+// NewUnsupportedEntryKindError creates an error for unsupported entry kinds
+func NewUnsupportedEntryKindError(kind string) *Error {
+	return &Error{
+		kind:      apierror.KindInvalid,
+		message:   fmt.Sprintf("unsupported entry kind: %s", kind),
+		retryable: apierror.False,
+		details:   attrs.NewBagFrom(map[string]any{"kind": kind}),
+	}
+}
+
+// NewExecutorAlreadyExistsError creates an error when executor already exists
+func NewExecutorAlreadyExistsError(id string) *Error {
+	return &Error{
+		kind:      apierror.KindAlreadyExists,
+		message:   fmt.Sprintf("executor %s already exists", id),
+		retryable: apierror.False,
+		details:   attrs.NewBagFrom(map[string]any{"executor_id": id}),
+	}
+}
+
+// NewExecutorNotFoundError creates an error when executor is not found
+func NewExecutorNotFoundError(id string) *Error {
+	return &Error{
+		kind:      apierror.KindNotFound,
+		message:   fmt.Sprintf("executor %s not found", id),
+		retryable: apierror.False,
+		details:   attrs.NewBagFrom(map[string]any{"executor_id": id}),
+	}
+}
+
+// NewConfigDecodeError creates an error for configuration decode failures
+func NewConfigDecodeError(err error) *Error {
+	return &Error{
+		kind:      apierror.KindInvalid,
+		message:   fmt.Sprintf("failed to decode configuration: %v", err),
+		retryable: apierror.False,
+		cause:     err,
+	}
+}
+
+// NewExecutorCreateError creates an error for executor creation failures
+func NewExecutorCreateError(err error) *Error {
+	return &Error{
+		kind:      apierror.KindInternal,
+		message:   fmt.Sprintf("failed to create executor: %v", err),
+		retryable: apierror.True,
+		cause:     err,
 	}
 }

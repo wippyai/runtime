@@ -2,7 +2,6 @@ package config
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	envapi "github.com/wippyai/runtime/api/env"
@@ -48,7 +47,7 @@ func NewManager(
 // Add implements registry.EntryListener
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != serviceaws.Kind {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return newUnsupportedKindError(string(entry.Kind))
 	}
 
 	m.mu.Lock()
@@ -56,19 +55,19 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	// Check if storage already exists
 	if _, exists := m.configs[entry.ID]; exists {
-		return fmt.Errorf("storage %s already exists", entry.ID)
+		return newStorageAlreadyExistsError(entry.ID.String())
 	}
 
 	// Decode and initialize configuration
 	cfg, err := entryutil.DecodeEntryConfig[serviceaws.Config](ctx, m.dtt, entry)
 	if err != nil {
-		return fmt.Errorf("decode config: %w", err)
+		return newDecodeConfigError(err)
 	}
 
 	// Create AWS config
 	awsCfg, err := m.createAWSConfig(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("create AWS config: %w", err)
+		return newCreateAWSConfigError(err)
 	}
 
 	m.configs[entry.ID] = awsCfg
@@ -97,7 +96,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update implements registry.EntryListener
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != serviceaws.Kind {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return newUnsupportedKindError(string(entry.Kind))
 	}
 
 	m.mu.Lock()
@@ -106,7 +105,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	// Check if storage exists
 	_, exists := m.configs[entry.ID]
 	if !exists {
-		return fmt.Errorf("storage %s not found", entry.ID)
+		return newStorageNotFoundError(entry.ID.String())
 	}
 
 	// Decode and initialize updated configuration
@@ -118,7 +117,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	// Create new AWS config
 	awsCfg, err := m.createAWSConfig(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("create AWS config: %w", err)
+		return newCreateAWSConfigError(err)
 	}
 
 	m.configs[entry.ID] = awsCfg
@@ -147,7 +146,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete implements registry.EntryListener
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != serviceaws.Kind {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return newUnsupportedKindError(string(entry.Kind))
 	}
 
 	m.mu.Lock()
@@ -156,7 +155,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	// Check if config exists
 	_, exists := m.configs[entry.ID]
 	if !exists {
-		return fmt.Errorf("config %s not found", entry.ID)
+		return newConfigNotFoundError(entry.ID.String())
 	}
 
 	// Unregister resource provider
@@ -182,7 +181,7 @@ func (m *Manager) Acquire(_ context.Context, id registry.ID, mode resource.Acces
 
 	_, exists := m.configs[id]
 	if !exists {
-		return nil, fmt.Errorf("config %s not found", id)
+		return nil, newConfigNotFoundError(id.String())
 	}
 
 	// Only support normal mode for now

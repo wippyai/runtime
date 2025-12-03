@@ -3,7 +3,6 @@ package sql
 
 import (
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/wippyai/runtime/api/registry"
@@ -92,7 +91,7 @@ func (c *PoolConfig) UnmarshalJSON(data []byte) error {
 	if aux.MaxLifetime != "" {
 		duration, err := time.ParseDuration(aux.MaxLifetime)
 		if err != nil {
-			return fmt.Errorf("invalid max_lifetime duration format: %w", err)
+			return NewInvalidDurationError(err)
 		}
 		c.MaxLifetime = duration
 	}
@@ -156,35 +155,35 @@ func (c *SQLiteConfig) InitDefaults() {
 // Validate checks if the DBConfig has all required fields set to valid values
 func (c *DBConfig) Validate() error {
 	if c.Host == "" && c.HostEnv == "" {
-		return fmt.Errorf("host is required")
+		return ErrHostRequired
 	}
 
 	if c.Port <= 0 && c.PortEnv == "" {
-		return fmt.Errorf("port must be greater than 0")
+		return ErrInvalidPort
 	}
 
 	if c.Database == "" && c.DatabaseEnv == "" {
-		return fmt.Errorf("database is required")
+		return ErrDatabaseRequired
 	}
 
 	if c.Username == "" && c.UsernameEnv == "" {
-		return fmt.Errorf("username is required")
+		return ErrUsernameRequired
 	}
 
 	if c.Password == "" && c.PasswordEnv == "" {
-		return fmt.Errorf("password is required")
+		return ErrPasswordRequired
 	}
 
 	if c.Pool.MaxOpen < 0 {
-		return fmt.Errorf("pool.max_open must be greater or equal to 0")
+		return ErrInvalidMaxOpen
 	}
 
 	if c.Pool.MaxIdle < 0 {
-		return fmt.Errorf("pool.max_idle must be greater than or equal to 0")
+		return ErrInvalidMaxIdle
 	}
 
 	if c.Pool.MaxLifetime <= 0 {
-		return fmt.Errorf("pool.max_lifetime must be greater than 0")
+		return ErrInvalidMaxLifetime
 	}
 
 	return nil
@@ -193,11 +192,11 @@ func (c *DBConfig) Validate() error {
 // Validate checks if the SQLiteConfig has all required fields set to valid values
 func (c *SQLiteConfig) Validate() error {
 	if c.File == "" {
-		return fmt.Errorf("file is required")
+		return ErrFileRequired
 	}
 
 	if c.Pool.MaxLifetime <= 0 {
-		return fmt.Errorf("pool.max_lifetime must be greater than 0")
+		return ErrInvalidMaxLifetime
 	}
 
 	return nil

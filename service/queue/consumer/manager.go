@@ -2,7 +2,6 @@ package consumer
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/wippyai/runtime/api/event"
@@ -55,7 +54,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		m.logger.Error("failed to decode consumer config",
 			zap.String("id", entry.ID.String()),
 			zap.Error(err))
-		return fmt.Errorf("failed to decode consumer config: %w", err)
+		return newConfigDecodeError(err)
 	}
 
 	// Validate config
@@ -63,7 +62,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		m.logger.Error("invalid consumer config",
 			zap.String("id", entry.ID.String()),
 			zap.Error(err))
-		return fmt.Errorf("invalid consumer config: %w", err)
+		return newConfigValidationError(err)
 	}
 
 	// Validate queue exists
@@ -72,7 +71,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		m.logger.Error("queue not found for consumer",
 			zap.String("id", entry.ID.String()),
 			zap.String("queue", cfg.Queue.String()))
-		return fmt.Errorf("queue not found: %s", cfg.Queue)
+		return newQueueNotFoundError(cfg.Queue)
 	}
 
 	// Get driver from queue
@@ -82,7 +81,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 			zap.String("id", entry.ID.String()),
 			zap.String("queue", cfg.Queue.String()),
 			zap.String("driver", queue.DriverID.String()))
-		return fmt.Errorf("driver not found: %s", queue.DriverID)
+		return newDriverNotFoundError(queue.DriverID)
 	}
 
 	// Validate function exists (basic check - registry will validate fully)
@@ -133,7 +132,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		m.logger.Error("failed to decode consumer config",
 			zap.String("id", entry.ID.String()),
 			zap.Error(err))
-		return fmt.Errorf("failed to decode consumer config: %w", err)
+		return newConfigDecodeError(err)
 	}
 
 	// Validate config
@@ -141,7 +140,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		m.logger.Error("invalid consumer config",
 			zap.String("id", entry.ID.String()),
 			zap.Error(err))
-		return fmt.Errorf("invalid consumer config: %w", err)
+		return newConfigValidationError(err)
 	}
 
 	// Validate queue exists
@@ -150,7 +149,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		m.logger.Error("queue not found for consumer",
 			zap.String("id", entry.ID.String()),
 			zap.String("queue", cfg.Queue.String()))
-		return fmt.Errorf("queue not found: %s", cfg.Queue)
+		return newQueueNotFoundError(cfg.Queue)
 	}
 
 	// Get driver from queue
@@ -160,7 +159,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 			zap.String("id", entry.ID.String()),
 			zap.String("queue", cfg.Queue.String()),
 			zap.String("driver", queue.DriverID.String()))
-		return fmt.Errorf("driver not found: %s", queue.DriverID)
+		return newDriverNotFoundError(queue.DriverID)
 	}
 
 	// Create consumer instance

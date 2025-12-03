@@ -33,7 +33,7 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(execapi.CmdProcessWait, dispatcher.HandlerFunc(d.handleProcessWait))
 }
 
-func (d *Dispatcher) handleProcessWait(_ context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
+func (d *Dispatcher) handleProcessWait(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
 	waitCmd := cmd.(*execapi.ProcessWaitCmd)
 
 	go func() {
@@ -50,7 +50,9 @@ func (d *Dispatcher) handleProcessWait(_ context.Context, cmd dispatcher.Command
 			}
 		}
 
-		emit.Emit(execapi.ProcessWaitResponse{ExitCode: exitCode, Error: err}, nil)
+		if ctx.Err() == nil {
+			emit.Emit(execapi.ProcessWaitResponse{ExitCode: exitCode, Error: err}, nil)
+		}
 	}()
 
 	return nil

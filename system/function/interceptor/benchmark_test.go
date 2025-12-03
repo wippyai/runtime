@@ -19,7 +19,7 @@ func BenchmarkChainExecuteNoInterceptors(b *testing.B) {
 	}
 
 	ctx := context.Background()
-	task := runtime.Task{ID: registry.ID{NS: "bench", Name: "func"}}
+	task := runtime.Task{ID: registry.NewID("bench", "func")}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -37,7 +37,7 @@ func BenchmarkChainExecuteOneInterceptor(b *testing.B) {
 	}
 
 	ctx := context.Background()
-	task := runtime.Task{ID: registry.ID{NS: "bench", Name: "func"}}
+	task := runtime.Task{ID: registry.NewID("bench", "func")}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -57,7 +57,7 @@ func BenchmarkChainExecuteThreeInterceptors(b *testing.B) {
 	}
 
 	ctx := context.Background()
-	task := runtime.Task{ID: registry.ID{NS: "bench", Name: "func"}}
+	task := runtime.Task{ID: registry.NewID("bench", "func")}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -78,7 +78,7 @@ func BenchmarkChainExecuteTenInterceptors(b *testing.B) {
 	}
 
 	ctx := context.Background()
-	task := runtime.Task{ID: registry.ID{NS: "bench", Name: "func"}}
+	task := runtime.Task{ID: registry.NewID("bench", "func")}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -103,7 +103,7 @@ func BenchmarkRegistryGetChain(b *testing.B) {
 	}
 
 	ctx := context.Background()
-	task := runtime.Task{ID: registry.ID{NS: "bench", Name: "func"}}
+	task := runtime.Task{ID: registry.NewID("bench", "func")}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -126,7 +126,7 @@ func BenchmarkContextValuePropagation(b *testing.B) {
 	}
 
 	ctx := context.Background()
-	task := runtime.Task{ID: registry.ID{NS: "bench", Name: "func"}}
+	task := runtime.Task{ID: registry.NewID("bench", "func")}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -145,7 +145,7 @@ func BenchmarkParallelChainExecution(b *testing.B) {
 	}
 
 	ctx := context.Background()
-	task := runtime.Task{ID: registry.ID{NS: "bench", Name: "func"}}
+	task := runtime.Task{ID: registry.NewID("bench", "func")}
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {

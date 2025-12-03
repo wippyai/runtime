@@ -3,7 +3,6 @@ package process
 import (
 	"testing"
 
-	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 )
 
@@ -80,7 +79,7 @@ func TestStepResult_AddYield(t *testing.T) {
 	sr := StepResult{}
 
 	for i := 0; i < MaxYields+2; i++ {
-		sr.AddYield(&mockCommand{id: dispatcher.CommandID(i)})
+		sr.AddYield(&mockCommand{id: CommandID(i)})
 	}
 
 	if sr.YieldCount() != MaxYields+2 {
@@ -94,7 +93,7 @@ func TestStepResult_AddYield(t *testing.T) {
 }
 
 type mockCommand struct {
-	id dispatcher.CommandID
+	id CommandID
 }
 
-func (c *mockCommand) CmdID() dispatcher.CommandID { return c.id }
+func (c *mockCommand) CmdID() CommandID { return c.id }

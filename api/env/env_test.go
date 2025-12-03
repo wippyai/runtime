@@ -120,29 +120,31 @@ func TestVariable_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "complete variable",
 			v: Variable{
-				ID:           registry.ID{NS: "env", Name: "var1"},
+				ID:           registry.NewID("env", "var1"),
 				Meta:         registry.Metadata{"source": "config"},
 				Name:         "DATABASE_URL",
 				DefaultValue: "localhost:5432",
 				ReadOnly:     true,
-				StorageID:    registry.ID{NS: "storage", Name: "file"},
+				StorageID:    registry.NewID("storage", "file"),
 			},
 			wantErr: false,
 		},
 		{
 			name: "minimal variable",
 			v: Variable{
+				ID:        registry.NewID("", ""),
 				Name:      "API_KEY",
-				StorageID: registry.ID{NS: "storage", Name: "env"},
+				StorageID: registry.NewID("storage", "env"),
 			},
 			wantErr: false,
 		},
 		{
 			name: "with default value only",
 			v: Variable{
+				ID:           registry.NewID("", ""),
 				Name:         "LOG_LEVEL",
 				DefaultValue: "info",
-				StorageID:    registry.ID{NS: "storage", Name: "mem"},
+				StorageID:    registry.NewID("storage", "mem"),
 			},
 			wantErr: false,
 		},
@@ -209,7 +211,7 @@ func TestVariable_Validate(t *testing.T) {
 			name: "valid variable",
 			v: Variable{
 				Name:      "VALID_NAME",
-				StorageID: registry.ID{NS: "storage", Name: "file"},
+				StorageID: registry.NewID("storage", "file"),
 			},
 			wantErr: false,
 		},
@@ -217,7 +219,7 @@ func TestVariable_Validate(t *testing.T) {
 			name: "valid with numbers",
 			v: Variable{
 				Name:      "VAR_123",
-				StorageID: registry.ID{NS: "storage", Name: "file"},
+				StorageID: registry.NewID("storage", "file"),
 			},
 			wantErr: false,
 		},
@@ -225,7 +227,7 @@ func TestVariable_Validate(t *testing.T) {
 			name: "valid with underscores",
 			v: Variable{
 				Name:      "MY_VAR_NAME",
-				StorageID: registry.ID{NS: "storage", Name: "file"},
+				StorageID: registry.NewID("storage", "file"),
 			},
 			wantErr: false,
 		},
@@ -233,7 +235,7 @@ func TestVariable_Validate(t *testing.T) {
 			name: "invalid character dash",
 			v: Variable{
 				Name:      "INVALID-NAME",
-				StorageID: registry.ID{NS: "storage", Name: "file"},
+				StorageID: registry.NewID("storage", "file"),
 			},
 			wantErr: true,
 			errMsg:  "must only contain alphanumeric characters",
@@ -242,7 +244,7 @@ func TestVariable_Validate(t *testing.T) {
 			name: "invalid character dot",
 			v: Variable{
 				Name:      "INVALID.NAME",
-				StorageID: registry.ID{NS: "storage", Name: "file"},
+				StorageID: registry.NewID("storage", "file"),
 			},
 			wantErr: true,
 			errMsg:  "must only contain alphanumeric characters",
@@ -251,7 +253,7 @@ func TestVariable_Validate(t *testing.T) {
 			name: "invalid character space",
 			v: Variable{
 				Name:      "INVALID NAME",
-				StorageID: registry.ID{NS: "storage", Name: "file"},
+				StorageID: registry.NewID("storage", "file"),
 			},
 			wantErr: true,
 			errMsg:  "must only contain alphanumeric characters",
@@ -260,7 +262,7 @@ func TestVariable_Validate(t *testing.T) {
 			name: "missing storage namespace",
 			v: Variable{
 				Name:      "VALID_NAME",
-				StorageID: registry.ID{NS: "", Name: "file"},
+				StorageID: registry.NewID("", "file"),
 			},
 			wantErr: true,
 			errMsg:  "must have both namespace and name",
@@ -269,7 +271,7 @@ func TestVariable_Validate(t *testing.T) {
 			name: "missing storage name",
 			v: Variable{
 				Name:      "VALID_NAME",
-				StorageID: registry.ID{NS: "storage", Name: ""},
+				StorageID: registry.NewID("storage", ""),
 			},
 			wantErr: true,
 			errMsg:  "must have both namespace and name",
@@ -278,7 +280,7 @@ func TestVariable_Validate(t *testing.T) {
 			name: "empty storage ID",
 			v: Variable{
 				Name:      "VALID_NAME",
-				StorageID: registry.ID{},
+				StorageID: registry.NewID("", ""),
 			},
 			wantErr: true,
 			errMsg:  "must have both namespace and name",

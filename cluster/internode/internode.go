@@ -2,7 +2,6 @@ package internode
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 
 	"github.com/wippyai/runtime/api/cluster"
@@ -63,13 +62,13 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 
 	if err := s.connMan.Start(ctx, onMessage); err != nil {
-		return fmt.Errorf("failed to start connection manager: %w", err)
+		return NewStartConnectionManagerError(err)
 	}
 
 	sub, err := eventbus.NewSubscriber(ctx, s.bus, cluster.System, "node.(joined|left)", s.handleMembershipEvent)
 	if err != nil {
 		_ = s.connMan.Stop()
-		return fmt.Errorf("failed to subscribe to membership events: %w", err)
+		return NewSubscribeMembershipError(err)
 	}
 	s.subscriber = sub
 
@@ -99,7 +98,7 @@ func (s *Service) Send(pkg *relay.Package) error {
 	targetNode := pkg.Target
 	relay.ReleasePackage(pkg)
 	if err != nil {
-		return fmt.Errorf("failed to encode package for node %s: %w", targetNode, err)
+		return NewEncodePackageError(targetNode.Node, err)
 	}
 	return s.connMan.SendToNode(targetNode.Node, data)
 }

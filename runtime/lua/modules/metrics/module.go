@@ -4,14 +4,13 @@ import (
 	"sync"
 
 	api "github.com/wippyai/runtime/api/metrics"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
 var (
 	moduleTable  *lua.LTable
-	registration *lua2api.Registration
+	registration *luaapi.Registration
 	initOnce     sync.Once
 )
 
@@ -28,10 +27,10 @@ func (m *metricsModule) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *metricsModule) Register(l *lua.LState) *lua2api.Registration {
+func (m *metricsModule) Register(l *lua.LState) *luaapi.Registration {
 	initOnce.Do(func() {
 		moduleTable = createModuleTable()
-		registration = &lua2api.Registration{
+		registration = &luaapi.Registration{
 			Table:      moduleTable,
 			YieldTypes: nil,
 		}
@@ -45,9 +44,9 @@ func (m *metricsModule) Loader(l *lua.LState) int {
 	return 1
 }
 
-// Bind is deprecated. Use lua2api.LoadModule(l, Module) instead.
+// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
 func Bind(l *lua.LState) {
-	lua2api.LoadModule(l, Module)
+	luaapi.LoadModule(l, Module)
 }
 
 func createModuleTable() *lua.LTable {

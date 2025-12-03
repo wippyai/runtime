@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"sync"
 
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/service/terminal"
 	lua "github.com/yuin/gopher-lua"
@@ -14,7 +13,7 @@ import (
 
 var (
 	moduleTable  *lua.LTable
-	registration *lua2api.Registration
+	registration *luaapi.Registration
 	initOnce     sync.Once
 )
 
@@ -31,10 +30,10 @@ func (m *ioModule) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *ioModule) Register(l *lua.LState) *lua2api.Registration {
+func (m *ioModule) Register(l *lua.LState) *luaapi.Registration {
 	initOnce.Do(func() {
 		moduleTable = createModuleTable()
-		registration = &lua2api.Registration{
+		registration = &luaapi.Registration{
 			Table:      moduleTable,
 			YieldTypes: nil,
 		}

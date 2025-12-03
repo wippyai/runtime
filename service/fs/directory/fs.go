@@ -2,12 +2,13 @@ package directory
 
 import (
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sync/atomic"
 
+	"github.com/wippyai/runtime/api/attrs"
+	apierror "github.com/wippyai/runtime/api/error"
 	fsapi "github.com/wippyai/runtime/api/fs"
 )
 
@@ -43,7 +44,7 @@ type FS struct {
 func NewDirectoryFS(dirPath string, mode fs.FileMode, autoInit bool) (*FS, error) {
 	absPath, err := filepath.Abs(dirPath)
 	if err != nil {
-		return nil, fmt.Errorf("invalid directory path: %w", err)
+		return nil, newInvalidDirectoryPathError(err)
 	}
 
 	// Automatically add execute permissions if read bits are present but exec bits are missing.
@@ -53,13 +54,13 @@ func NewDirectoryFS(dirPath string, mode fs.FileMode, autoInit bool) (*FS, error
 
 	if autoInit {
 		if err := os.MkdirAll(dirPath, mode); err != nil {
-			return nil, fmt.Errorf("create directory (auto_init=true): %w", err)
+			return nil, newCreateDirectoryError(err)
 		}
 	}
 
 	root, err := os.OpenRoot(absPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open directory: %w", err)
+		return nil, newFailedToOpenDirectoryError(err)
 	}
 
 	return &FS{
@@ -109,7 +110,13 @@ func (d *FS) checkPermissions(op, displayPath string, check permCheck) error {
 		return &fs.PathError{
 			Op:   op,
 			Path: displayPath,
-			Err:  fmt.Errorf("%w: required owner bits %o, but FS has %o", ErrPermissionDenied, required, ownerMode),
+			Err: &Error{
+				kind:      apierror.KindPermissionDenied,
+				message:   "permission denied",
+				retryable: apierror.False,
+				details:   attrs.NewBagFrom(map[string]any{"required": required, "ownerMode": ownerMode}),
+				cause:     ErrPermissionDenied,
+			},
 		}
 	}
 	return nil

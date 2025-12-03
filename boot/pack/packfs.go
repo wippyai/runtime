@@ -1,7 +1,6 @@
 package pack
 
 import (
-	"fmt"
 	"io"
 	"io/fs"
 	"path"
@@ -137,7 +136,7 @@ func (pf *packFile) Read(p []byte) (n int, err error) {
 			frameIdx := pf.entry.Location.FrameIndex
 			frameInfo := pf.getFrameInfo(frameIdx)
 			if frameInfo == nil {
-				return 0, fmt.Errorf("frame not found: %d", frameIdx)
+				return 0, NewFrameNotFoundError(int(frameIdx))
 			}
 
 			compressedData, err := pf.reader.ReadFrameData(*frameInfo, pf.entry.Location.Offset, pf.entry.CompressedSize)
@@ -147,7 +146,7 @@ func (pf *packFile) Read(p []byte) (n int, err error) {
 
 			pf.decompressedData, err = decompressFileData(compressedData)
 			if err != nil {
-				return 0, fmt.Errorf("decompress file data: %w", err)
+				return 0, NewDecompressError(err)
 			}
 		} else {
 			// Large file with chunks
@@ -159,7 +158,7 @@ func (pf *packFile) Read(p []byte) (n int, err error) {
 
 			pf.decompressedData, err = decompressFileData(compressedData)
 			if err != nil {
-				return 0, fmt.Errorf("decompress file data: %w", err)
+				return 0, NewDecompressError(err)
 			}
 		}
 	}
@@ -180,7 +179,7 @@ func (pf *packFile) Read(p []byte) (n int, err error) {
 		frameIdx := pf.entry.Location.FrameIndex
 		frameInfo := pf.getFrameInfo(frameIdx)
 		if frameInfo == nil {
-			return 0, fmt.Errorf("frame not found: %d", frameIdx)
+			return 0, NewFrameNotFoundError(int(frameIdx))
 		}
 
 		data, err = pf.reader.ReadFrameData(*frameInfo, pf.entry.Location.Offset+uint64(pf.offset), toRead) //nolint:gosec // Offset is bounded by file size
@@ -216,11 +215,11 @@ func (pf *packFile) Seek(offset int64, whence int) (int64, error) {
 	case io.SeekEnd:
 		newOffset = int64(pf.entry.Size) + offset //nolint:gosec // Size is bounded by pack format
 	default:
-		return 0, fmt.Errorf("invalid whence: %d", whence)
+		return 0, NewInvalidWhenceError(whence)
 	}
 
 	if newOffset < 0 {
-		return 0, fmt.Errorf("negative position")
+		return 0, ErrNegativePosition
 	}
 
 	pf.offset = newOffset
@@ -261,7 +260,7 @@ func (pd *packDir) Stat() (fs.FileInfo, error) {
 
 // Read implements fs.File (directories return error).
 func (pd *packDir) Read(_ []byte) (n int, err error) {
-	return 0, &fs.PathError{Op: "read", Path: pd.name, Err: fmt.Errorf("is a directory")}
+	return 0, &fs.PathError{Op: "read", Path: pd.name, Err: ErrIsDirectory}
 }
 
 // Close implements fs.File.
@@ -368,7 +367,7 @@ func newBlobReader(blob *BlobResource, reader *Reader) apipack.BlobReader {
 // ReadAt implements apipack.BlobReader.
 func (br *blobReader) ReadAt(p []byte, offset int64) (n int, err error) {
 	if offset < 0 {
-		return 0, fmt.Errorf("negative offset")
+		return 0, NewNegativeOffsetError()
 	}
 
 	if offset >= int64(br.blob.Size) { //nolint:gosec // Size is bounded by pack format
@@ -389,7 +388,7 @@ func (br *blobReader) ReadAt(p []byte, offset int64) (n int, err error) {
 		// For now, non-chunked blobs are not created by writer, but implement reading logic anyway
 		// Non-chunked blobs would need to store data inline in BlobResource or similar
 		// Since current writer doesn't create blobs, return meaningful error
-		return 0, fmt.Errorf("blob has no chunks: non-chunked blob format not supported by current writer")
+		return 0, ErrNonChunkedBlobUnsupported
 	}
 
 	data, readErr := br.readChunked(uint64(offset), toRead)
@@ -478,7 +477,7 @@ func readChunkedData[C chunkInfo](chunks []C, offset, size uint64, reader FrameR
 
 		frameInfo := getFrame(chunk.getFrameIndex())
 		if frameInfo == nil {
-			return nil, fmt.Errorf("chunk frame not found: %d", chunk.getFrameIndex())
+			return nil, NewChunkFrameNotFoundError(int(chunk.getFrameIndex()))
 		}
 
 		data, err := reader.ReadFrameData(*frameInfo, chunk.getFrameOffset()+chunkReadOffset, chunkReadSize)

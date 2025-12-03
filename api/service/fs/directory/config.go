@@ -66,7 +66,7 @@ func (c *Config) Validate() error {
 func parseFileMode(s string) (fs.FileMode, error) {
 	var mode uint32
 	if _, err := fmt.Sscanf(s, "%o", &mode); err != nil {
-		return 0, fmt.Errorf("invalid mode format: %w", err)
+		return 0, NewInvalidModeFormatError(err)
 	}
 	return fs.FileMode(mode), nil
 }

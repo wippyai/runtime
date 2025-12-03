@@ -323,6 +323,26 @@ func (t *Table) Close() error {
 	return nil
 }
 
+// Reset clears all resources and prepares the table for reuse.
+// Unlike Close, allows the table to be used again.
+func (t *Table) Reset() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	for i := range t.entries {
+		if t.entries[i].valid {
+			if d, ok := t.entries[i].value.(Dropper); ok {
+				d.Drop()
+			}
+			t.entries[i].valid = false
+			t.entries[i].value = nil
+		}
+	}
+	t.entries = t.entries[:0]
+	t.freeList = t.freeList[:0]
+	t.closed = false
+}
+
 // IsClosed returns true if the table has been closed.
 func (t *Table) IsClosed() bool {
 	t.mu.RLock()
@@ -404,12 +424,24 @@ type Store struct {
 	closed   bool
 }
 
-// NewStore creates a new resource store.
+// storePool reuses Store instances to reduce allocations.
+var storePool = sync.Pool{
+	New: func() any {
+		return &Store{
+			table: &Table{
+				entries:  make([]entry, 0, 32),
+				freeList: make([]Handle, 0, 8),
+			},
+			cleanups: make([]func() error, 0, 8),
+		}
+	},
+}
+
+// NewStore creates a new resource store from the pool.
 func NewStore() *Store {
-	return &Store{
-		table:    NewTable(),
-		cleanups: make([]func() error, 0, 8),
-	}
+	s := storePool.Get().(*Store)
+	s.closed = false
+	return s
 }
 
 // Table returns the underlying resource table for handle-based access.
@@ -440,7 +472,7 @@ func (s *Store) AddCleanup(fn func() error) func() {
 	}
 }
 
-// Close runs all cleanup functions in LIFO order and closes the table.
+// Close runs all cleanup functions in LIFO order and returns store to pool.
 func (s *Store) Close() error {
 	s.mu.Lock()
 	if s.closed {
@@ -449,7 +481,7 @@ func (s *Store) Close() error {
 	}
 	s.closed = true
 	cleanups := s.cleanups
-	s.cleanups = nil
+	s.cleanups = s.cleanups[:0] // Keep slice, clear contents
 	s.mu.Unlock()
 
 	var firstErr error
@@ -461,9 +493,11 @@ func (s *Store) Close() error {
 		}
 	}
 
-	if err := s.table.Close(); err != nil && firstErr == nil {
-		firstErr = err
-	}
+	// Reset table instead of closing it
+	s.table.Reset()
+
+	// Return to pool
+	storePool.Put(s)
 
 	return firstErr
 }

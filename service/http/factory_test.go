@@ -174,7 +174,7 @@ func TestEndpointFactory_CreateHandler(t *testing.T) {
 		},
 		Method: "GET",
 		Path:   "/test",
-		Func:   apiregistry.ID{NS: "test", Name: "func1"},
+		Func:   apiregistry.NewID("test", "func1"),
 	}
 
 	t.Run("successful handler creation", func(t *testing.T) {
@@ -298,7 +298,7 @@ func TestStaticFactory_CreateHandler(t *testing.T) {
 			},
 			Path:      "/static",
 			Directory: "/static", // Add Directory field to match Path
-			FS:        apiregistry.ID{NS: "test", Name: "files"},
+			FS:        apiregistry.NewID("test", "files"),
 		}
 
 		handler, err := factory.CreateHandler(context.Background(), cfg)
@@ -320,7 +320,7 @@ func TestStaticFactory_CreateHandler(t *testing.T) {
 				config.ServerID: "test:server1",
 			},
 			Path: "/app",
-			FS:   apiregistry.ID{NS: "test", Name: "files"},
+			FS:   apiregistry.NewID("test", "files"),
 			StaticOptions: config.StaticOptions{
 				SPA:       true,
 				IndexFile: "index.html",
@@ -357,7 +357,7 @@ func TestStaticFactory_CreateHandler(t *testing.T) {
 				config.ServerID: "test:server1",
 			},
 			Path: "/static",
-			FS:   apiregistry.ID{NS: "test", Name: "nonexistent"},
+			FS:   apiregistry.NewID("test", "nonexistent"),
 		}
 
 		_, err := factory.CreateHandler(context.Background(), cfg)
@@ -371,7 +371,7 @@ func TestStaticFactory_CreateHandler(t *testing.T) {
 				config.ServerID: "test:server1",
 			},
 			Path: "/app",
-			FS:   apiregistry.ID{NS: "test", Name: "files"},
+			FS:   apiregistry.NewID("test", "files"),
 			StaticOptions: config.StaticOptions{
 				SPA: true,
 				// No index file specified
@@ -492,7 +492,7 @@ func TestServerFactory(t *testing.T) {
 	}
 
 	// Create server with ID
-	serverID := apiregistry.ID{NS: "test", Name: "server1"}
+	serverID := apiregistry.NewID("test", "server1")
 	server, err := factory.CreateServer(serverID, cfg)
 	require.NoError(t, err)
 	assert.NotNil(t, server)

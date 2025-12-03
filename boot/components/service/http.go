@@ -2,9 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
-	nethttp "net/http"
-
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/event"
 	fsapi "github.com/wippyai/runtime/api/fs"
@@ -29,6 +26,7 @@ import (
 	"github.com/wippyai/runtime/service/http/middleware/wsrelay"
 	tokenstore "github.com/wippyai/runtime/service/security/tokenstore"
 	"go.uber.org/zap"
+	nethttp "net/http"
 )
 
 func HTTP() boot.Component {
@@ -38,37 +36,37 @@ func HTTP() boot.Component {
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			if logger == nil {
-				return ctx, fmt.Errorf("logger not available in context")
+				return ctx, ErrLoggerNotAvailable
 			}
 
 			dtt := payload.GetTranscoder(ctx)
 			if dtt == nil {
-				return ctx, fmt.Errorf("transcoder not available in context")
+				return ctx, ErrTranscoderNotAvailable
 			}
 
 			bus := event.GetBus(ctx)
 			if bus == nil {
-				return ctx, fmt.Errorf("event bus not available in context")
+				return ctx, ErrEventBusNotAvailable
 			}
 
 			funcs := funcapi.GetRegistry(ctx)
 			if funcs == nil {
-				return ctx, fmt.Errorf("function registry not available in context")
+				return ctx, ErrFunctionRegistryNotAvailable
 			}
 
 			fsRegistry := fsapi.GetRegistry(ctx)
 			if fsRegistry == nil {
-				return ctx, fmt.Errorf("filesystem registry not available in context")
+				return ctx, ErrFilesystemRegistryNotAvailable
 			}
 
 			handlers := bootpkg.GetHandlerRegistry(ctx)
 			if handlers == nil {
-				return ctx, fmt.Errorf("handler registry not available in context")
+				return ctx, ErrHandlerRegistryNotAvailable
 			}
 
 			reg := regapi.GetRegistry(ctx)
 			if reg == nil {
-				return ctx, fmt.Errorf("registry not available in context")
+				return ctx, ErrRegistryNotAvailable
 			}
 
 			pidGen := process.GetPIDGenerator(ctx)
@@ -89,12 +87,12 @@ func HTTP() boot.Component {
 
 			endpointFactory, err := http.NewEndpointFactory(funcs)
 			if err != nil {
-				return ctx, fmt.Errorf("failed to create endpoint factory: %w", err)
+				return ctx, NewEndpointFactoryError(err)
 			}
 
 			relayManager := wsrelay.NewWebSocketRelay(ctx, logger.Named("ws"), pidGen)
 
-			midRegistry := http.NewMiddlewareRegistry(logger.Named("http.md"))
+			midRegistry := http.NewMiddlewareRegistry(logger.Named("http.mw"))
 
 			// Register built-in middleware
 			_ = midRegistry.Register(cors.MiddlewareName, cors.CreateCORSMiddleware)
@@ -123,7 +121,7 @@ func HTTP() boot.Component {
 			// Create static factory with middleware support (after middleware registry is set up)
 			staticFactory, err := http.NewStaticFactory(fsRegistry, midRegistry)
 			if err != nil {
-				return ctx, fmt.Errorf("failed to create static factory: %w", err)
+				return ctx, NewStaticFactoryError(err)
 			}
 
 			manager, err := http.NewManager(
@@ -135,7 +133,7 @@ func HTTP() boot.Component {
 				logger.Named("http"),
 			)
 			if err != nil {
-				return ctx, fmt.Errorf("failed to create http manager: %w", err)
+				return ctx, NewHTTPManagerError(err)
 			}
 
 			handlers.RegisterListener("http.*", manager)

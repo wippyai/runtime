@@ -308,14 +308,17 @@ func (b *StateBuilder) SquashChangesets(changesets []registry.ChangeSet) registr
 		return result
 	}
 
-	// Rebuild changeset in dependency order
+	// Build map for O(1) lookup
+	opByID := make(map[registry.ID]registry.Operation, len(operations))
+	for _, op := range result {
+		opByID[op.Entry.ID] = op
+	}
+
+	// Rebuild changeset in dependency order using map lookup
 	sorted := make(registry.ChangeSet, 0, len(operations))
 	for _, entry := range sortedEntries {
-		for _, op := range result {
-			if op.Entry.ID == entry.ID {
-				sorted = append(sorted, op)
-				break
-			}
+		if op, ok := opByID[entry.ID]; ok {
+			sorted = append(sorted, op)
 		}
 	}
 
@@ -414,19 +417,22 @@ func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, 
 		return nil, err
 	}
 
+	// Build map for O(1) lookup of operations by ID
+	opByID := make(map[registry.ID]registry.Operation, len(operations))
+	for _, op := range operations {
+		opByID[op.Entry.ID] = op
+	}
+
 	// Map back to operations maintaining the sorted order
 	result := make(registry.ChangeSet, 0, len(operations))
-	processed := make(map[registry.ID]bool)
+	processed := make(map[registry.ID]bool, len(operations))
 
 	// First pass: handle deletes in reverse dependency order
 	for i := len(sortedEntries) - 1; i >= 0; i-- {
 		entry := sortedEntries[i]
-		for _, op := range operations {
-			if op.Kind == registry.Delete && op.Entry.ID == entry.ID {
-				result = append(result, op)
-				processed[op.Entry.ID] = true
-				break
-			}
+		if op, ok := opByID[entry.ID]; ok && op.Kind == registry.Delete {
+			result = append(result, op)
+			processed[op.Entry.ID] = true
 		}
 	}
 
@@ -435,12 +441,9 @@ func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, 
 		if processed[entry.ID] {
 			continue
 		}
-		for _, op := range operations {
-			if op.Entry.ID == entry.ID {
-				result = append(result, op)
-				processed[op.Entry.ID] = true
-				break
-			}
+		if op, ok := opByID[entry.ID]; ok {
+			result = append(result, op)
+			processed[op.Entry.ID] = true
 		}
 	}
 

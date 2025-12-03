@@ -43,7 +43,7 @@ func (h *Hasher) Hash(entries []registry.Entry) (string, error) {
 	for i, entry := range sorted {
 		stable, err := h.toStable(entry)
 		if err != nil {
-			return "", fmt.Errorf("entry %s: %w", entry.ID, err)
+			return "", NewEntryHashError(entry.ID.String(), err)
 		}
 		stableEntries[i] = stable
 	}
@@ -51,7 +51,7 @@ func (h *Hasher) Hash(entries []registry.Entry) (string, error) {
 	// Serialize to JSON with sorted keys
 	data, err := json.Marshal(stableEntries)
 	if err != nil {
-		return "", fmt.Errorf("marshal entries: %w", err)
+		return "", NewMarshalError(err)
 	}
 
 	// Compute SHA-256 hash

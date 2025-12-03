@@ -2,8 +2,6 @@ package client
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"slices"
 
 	"connectrpc.com/connect"
@@ -57,7 +55,7 @@ func (c *RegistryClient) GetOrganizations(ctx context.Context, names []string) (
 
 	resp, err := c.organizationClient.ListOrganizations(ctx, connect.NewRequest(&identityv1.ListOrganizationsRequest{Refs: refs}))
 	if err != nil {
-		return nil, fmt.Errorf("list organizations: %w", err)
+		return nil, NewListOrganizationsError(err)
 	}
 
 	result := make([]OrganizationInfo, 0, len(names))
@@ -68,7 +66,7 @@ func (c *RegistryClient) GetOrganizations(ctx context.Context, names []string) (
 			return o.GetName() == name
 		})
 		if i == -1 {
-			return nil, fmt.Errorf("organization %q not found", name)
+			return nil, NewOrganizationNotFoundError(name)
 		}
 		result = append(result, OrganizationInfo{
 			Name:         name,
@@ -104,7 +102,7 @@ func (c *RegistryClient) GetModules(ctx context.Context, requests []ModuleInfo) 
 
 	resp, err := c.moduleClient.ListModules(ctx, connect.NewRequest(&modulev1.ListModulesRequest{Refs: refs}))
 	if err != nil {
-		return nil, fmt.Errorf("list modules: %w", err)
+		return nil, NewListModulesError(err)
 	}
 
 	result := make([]ModuleInfo, 0, len(requests))
@@ -115,7 +113,7 @@ func (c *RegistryClient) GetModules(ctx context.Context, requests []ModuleInfo) 
 			return m.GetName() == req.Name
 		})
 		if i == -1 {
-			return nil, fmt.Errorf("module %q not found", req.Name)
+			return nil, NewModuleNotFoundError(req.Name)
 		}
 		result = append(result, ModuleInfo{
 			OrganizationID: req.OrganizationID,
@@ -141,7 +139,7 @@ func (c *RegistryClient) GetLabels(ctx context.Context, moduleIDs []string) ([]L
 
 	resp, err := c.labelClient.ListModuleLabels(ctx, connect.NewRequest(&modulev1.ListModuleLabelsRequest{ModuleIds: moduleIDs}))
 	if err != nil {
-		return nil, fmt.Errorf("list module labels: %w", err)
+		return nil, NewListModuleLabelsError(err)
 	}
 
 	labelsMap := make(map[string][]*modulev1.Label)
@@ -154,7 +152,7 @@ func (c *RegistryClient) GetLabels(ctx context.Context, moduleIDs []string) ([]L
 	for _, moduleID := range moduleIDs {
 		labels, ok := labelsMap[moduleID]
 		if !ok {
-			return nil, fmt.Errorf("no labels found for module ID %q", moduleID)
+			return nil, NewNoLabelsFoundError(moduleID)
 		}
 		result = append(result, LabelInfo{
 			ModuleID: moduleID,
@@ -179,12 +177,12 @@ func (c *RegistryClient) Download(ctx context.Context, commitIDs []string) ([]Do
 
 	resp, err := c.downloadClient.Download(ctx, connect.NewRequest(&modulev1.DownloadRequest{CommitIds: commitIDs}))
 	if err != nil {
-		return nil, fmt.Errorf("download commits: %w", err)
+		return nil, NewDownloadCommitsError(err)
 	}
 
 	contents := resp.Msg.GetContents()
 	if len(contents) == 0 {
-		return nil, errors.New("no content downloaded")
+		return nil, ErrNoContentDownloaded
 	}
 
 	result := make([]DownloadResult, 0, len(contents))

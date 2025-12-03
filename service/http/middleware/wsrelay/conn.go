@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
+	"fmt" // Note: fmt kept for Sprintf in logging
 	"sync"
 	"sync/atomic"
 	"time"
@@ -81,17 +81,17 @@ func NewConnection(
 	// Validate dependencies
 	if host == nil {
 		cancel()
-		return nil, fmt.Errorf("host is required")
+		return nil, ErrHostRequired
 	}
 
 	if node == nil {
 		cancel()
-		return nil, fmt.Errorf("node is required")
+		return nil, ErrNodeRequired
 	}
 
 	if transcoder == nil {
 		cancel()
-		return nil, fmt.Errorf("transcoder is required")
+		return nil, ErrTranscoderRequired
 	}
 
 	// Create a unique PID for this WebSocket connection
@@ -131,7 +131,7 @@ func NewConnection(
 	if err != nil {
 		logger.Error("Failed to attach to host", zap.Error(err))
 		cancel()
-		return nil, fmt.Errorf("failed to attach to relay: %w", err)
+		return nil, NewAttachToRelayError(err)
 	}
 
 	return conn, nil
@@ -464,7 +464,7 @@ func (c *Connection) forwardPayloadToWebSocket(topic relay.Topic, payloads ...pa
 			if bytes, ok := p.Data().([]byte); ok {
 				wrapper.Data = base64.StdEncoding.EncodeToString(bytes)
 			} else {
-				return fmt.Errorf("expected bytes payload but got different type")
+				return ErrExpectedBytesPayload
 			}
 		case payload.YAML, payload.Golang, payload.Error:
 			fallthrough
@@ -472,7 +472,7 @@ func (c *Connection) forwardPayloadToWebSocket(topic relay.Topic, payloads ...pa
 			// Try to transcode to JSON for all other formats
 			pj, err := c.transcoder.Transcode(p, payload.JSON)
 			if err != nil {
-				return fmt.Errorf("failed to transcode payload to JSON: %w", err)
+				return NewTranscodeError(err)
 			}
 
 			// Use the transcoded JSON data directly as a RawMessage
@@ -486,12 +486,12 @@ func (c *Connection) forwardPayloadToWebSocket(topic relay.Topic, payloads ...pa
 		// Marshal the wrapper to JSON and send it
 		jsonData, err := json.Marshal(wrapper)
 		if err != nil {
-			return fmt.Errorf("error marshaling message wrapper: %w", err)
+			return NewMarshalError("message wrapper", err)
 		}
 
 		// Write to WebSocket as text message
 		if err := c.conn.Write(c.ctx, websocket.MessageText, jsonData); err != nil {
-			return fmt.Errorf("error writing to WebSocket: %w", err)
+			return NewWebSocketWriteError(err)
 		}
 	}
 
@@ -513,7 +513,7 @@ func (c *Connection) sendJoinNotification(targetPID relay.PID) error {
 	// Marshal the join info to JSON
 	joinData, err := json.Marshal(joinInfo)
 	if err != nil {
-		return fmt.Errorf("failed to marshal join info: %w", err)
+		return NewMarshalJoinInfoError(err)
 	}
 
 	// Create and send a single package containing both the client PID and metadata
@@ -542,7 +542,7 @@ func (c *Connection) sendLeaveNotification(targetPID relay.PID) error {
 	// Marshal the leave info to JSON
 	leaveData, err := json.Marshal(leaveInfo)
 	if err != nil {
-		return fmt.Errorf("failed to marshal leave info: %w", err)
+		return NewMarshalLeaveInfoError(err)
 	}
 
 	// Create and send a single package containing both the client PID and metadata

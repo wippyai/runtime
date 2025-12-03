@@ -13,6 +13,8 @@ type ID struct {
 	NS Namespace `json:"ns"`
 	// Name is the unique identifier within the namespace
 	Name Name `json:"name"`
+	// str is the cached string representation (interned with the ID)
+	str string
 }
 
 // NewID creates a new interned ID with the given namespace and name.
@@ -21,12 +23,21 @@ func NewID(ns, name string) ID {
 	id := ID{
 		NS:   ns,
 		Name: name,
+		str:  ns + ":" + name,
 	}
 	return unique.Make(id).Value()
 }
 
 func (t ID) String() string {
+	if t.str != "" {
+		return t.str
+	}
 	return t.NS + ":" + t.Name
+}
+
+// Equal returns true if both IDs have the same namespace and name.
+func (t ID) Equal(other ID) bool {
+	return t.NS == other.NS && t.Name == other.Name
 }
 
 // MarshalJSON implements the json.Marshaler interface.
@@ -50,6 +61,7 @@ func (t ID) WithDefaultNS(defaultNS Namespace) ID {
 	id := ID{
 		NS:   defaultNS,
 		Name: t.Name,
+		str:  defaultNS + ":" + t.Name,
 	}
 	return unique.Make(id).Value()
 }
@@ -64,12 +76,14 @@ func ParseID(s string) ID {
 		id = ID{
 			NS:   s[:idx],
 			Name: s[idx+1:],
+			str:  s,
 		}
 	} else {
 		// Name-only format
 		id = ID{
 			NS:   "",
 			Name: s,
+			str:  ":" + s,
 		}
 	}
 
@@ -94,12 +108,14 @@ func (t *ID) UnmarshalJSON(data []byte) error {
 			id = ID{
 				NS:   s[:idx],
 				Name: s[idx+1:],
+				str:  s,
 			}
 		} else {
 			// Name-only format
 			id = ID{
 				NS:   "",
 				Name: s,
+				str:  ":" + s,
 			}
 		}
 	} else {
@@ -114,6 +130,7 @@ func (t *ID) UnmarshalJSON(data []byte) error {
 		id = ID{
 			NS:   obj.NS,
 			Name: obj.Name,
+			str:  obj.NS + ":" + obj.Name,
 		}
 	}
 

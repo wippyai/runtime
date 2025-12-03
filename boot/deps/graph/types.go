@@ -1,7 +1,6 @@
 package graph
 
 import (
-	"fmt"
 	"strings"
 
 	identityv1 "github.com/wippyai/module-registry-proto-go/registry/identity/v1"
@@ -19,10 +18,10 @@ type Name struct {
 func ParseName(s string) (Name, error) {
 	parts := strings.Split(s, "/")
 	if len(parts) != 2 {
-		return Name{}, fmt.Errorf("invalid module name format: %q (expected org/module)", s)
+		return Name{}, NewInvalidModuleNameError(s)
 	}
 	if parts[0] == "" || parts[1] == "" {
-		return Name{}, fmt.Errorf("empty organization or module name: %q", s)
+		return Name{}, NewEmptyModuleNameError(s)
 	}
 	return Name{
 		Organization: parts[0],

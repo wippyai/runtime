@@ -2,10 +2,8 @@
 package evalhost
 
 import (
-	"fmt"
 	"strings"
 
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 	"github.com/yuin/gopher-lua/parse"
@@ -42,7 +40,7 @@ func (p *Program) Proto() *lua.FunctionProto { return p.proto }
 
 // Compiler compiles Lua source with module constraints.
 type Compiler struct {
-	availableModules map[string]lua2api.ModuleV2
+	availableModules map[string]luaapi.ModuleV2
 	forbiddenClasses []string
 	allowedClasses   []string
 }
@@ -65,8 +63,8 @@ func WithAllowedClasses(classes ...string) CompilerOption {
 }
 
 // NewCompiler creates a compiler with available modules.
-func NewCompiler(modules []lua2api.ModuleV2, opts ...CompilerOption) *Compiler {
-	available := make(map[string]lua2api.ModuleV2)
+func NewCompiler(modules []luaapi.ModuleV2, opts ...CompilerOption) *Compiler {
+	available := make(map[string]luaapi.ModuleV2)
 	for _, m := range modules {
 		info := m.Info()
 		available[info.Name] = m
@@ -95,7 +93,7 @@ func (c *Compiler) Compile(cmd CompileCmd) (*Program, error) {
 	for _, name := range modules {
 		m, ok := c.availableModules[name]
 		if !ok {
-			return nil, fmt.Errorf("module %q is not available", name)
+			return nil, NewModuleNotAvailableError(name)
 		}
 
 		// Check class-based restrictions
@@ -108,12 +106,12 @@ func (c *Compiler) Compile(cmd CompileCmd) (*Program, error) {
 	// Parse and compile
 	chunk, err := parse.Parse(strings.NewReader(cmd.Source), "eval")
 	if err != nil {
-		return nil, fmt.Errorf("parse error: %w", err)
+		return nil, NewParseError(err)
 	}
 
 	proto, err := lua.Compile(chunk, "eval")
 	if err != nil {
-		return nil, fmt.Errorf("compile error: %w", err)
+		return nil, NewCompileScriptError(err)
 	}
 
 	return &Program{
@@ -129,7 +127,7 @@ func (c *Compiler) validateModuleClasses(name string, classes []string) error {
 	// Check for forbidden classes
 	for _, class := range classes {
 		if containsString(c.forbiddenClasses, class) {
-			return fmt.Errorf("module %q has forbidden class %q", name, class)
+			return NewForbiddenClassError(name, class)
 		}
 	}
 
@@ -180,13 +178,13 @@ func (c *Compiler) GetModuleBinder(modules []string) func(*lua.LState) {
 			if !ok {
 				continue
 			}
-			lua2api.LoadModule(l, m)
+			luaapi.LoadModule(l, m)
 		}
 	}
 }
 
 // GetAvailableModule returns a module by name.
-func (c *Compiler) GetAvailableModule(name string) (lua2api.ModuleV2, bool) {
+func (c *Compiler) GetAvailableModule(name string) (luaapi.ModuleV2, bool) {
 	m, ok := c.availableModules[name]
 	return m, ok
 }

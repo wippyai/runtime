@@ -323,7 +323,7 @@ func runPack(cmd *cobra.Command, args []string) error {
 
 	app, err := appinit.Init(cmd.Context(), verbose, veryVerbose, console, silentLogs, appStartTime)
 	if err != nil {
-		return fmt.Errorf("init app: %w", err)
+		return NewInitAppError(err)
 	}
 
 	outputFile := args[0]
@@ -334,11 +334,11 @@ func runPack(cmd *cobra.Command, args []string) error {
 	// Install modules BEFORE starting TUI to avoid log pollution
 	lockPath, err := lock.Find(folderPath, lockFile)
 	if err != nil {
-		return fmt.Errorf("lock file not found: %w", err)
+		return NewLockFileNotFoundError(err)
 	}
 
 	if err := entries.EnsureModulesInstalled(app.Ctx, lockPath, app.Logger.Named("pack")); err != nil {
-		return fmt.Errorf("ensure modules installed: %w", err)
+		return NewEnsureModulesInstalledError(err)
 	}
 
 	// If list mode, just load entries and display fs.directory entries
@@ -394,16 +394,16 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 
 	lockPath, err := lock.Find(folderPath, lockFile)
 	if err != nil {
-		return fmt.Errorf("lock file not found: %w", err)
+		return NewLockFileNotFoundError(err)
 	}
 
 	lockObj, err := lock.New(lockPath)
 	if err != nil {
-		return fmt.Errorf("load lock file: %w", err)
+		return NewLoadLockFileError(err)
 	}
 
 	if err := lock.Validate(lockObj); err != nil {
-		return fmt.Errorf("invalid lock file: %w", err)
+		return NewInvalidLockFileError(err)
 	}
 
 	paths := lockObj.GetLoadPaths()
@@ -424,7 +424,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 		dirFS := os.DirFS(path)
 		loadedEntries, err := app.Loader.LoadFS(app.Ctx, dirFS)
 		if err != nil {
-			return fmt.Errorf("load from %s: %w", path, err)
+			return NewLoadEntriesError(path, err)
 		}
 
 		entries = append(entries, loadedEntries...)
@@ -468,7 +468,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	pipeline := build.New(pipelineStages...)
 
 	if err := pipeline.Execute(app.Ctx, &entries); err != nil {
-		return fmt.Errorf("execute pipeline: %w", err)
+		return NewExecutePipelineError(err)
 	}
 
 	resources := stages.GetResources(app.Ctx)
@@ -546,7 +546,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	}
 
 	if err := parseMetadataFlags(metaFlags, metadata, logger); err != nil {
-		return fmt.Errorf("parse metadata: %w", err)
+		return NewParseMetadataError(err)
 	}
 
 	p.Send(progressMsg{stage: stageWrite, percent: 0.8, status: "Writing pack file..."})
@@ -564,27 +564,27 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 
 	file, err := os.Create(outputFile)
 	if err != nil {
-		return fmt.Errorf("create pack file: %w", err)
+		return NewCreatePackFileError(err)
 	}
 	defer func() { _ = file.Close() }()
 
 	if len(resources) > 0 {
 		if err := packWriter.PackWithResources(metadata, entries, resources, file); err != nil {
-			return fmt.Errorf("pack with resources: %w", err)
+			return NewPackWithResourcesError(err)
 		}
 	} else {
 		if err := packWriter.PackEntries(metadata, entries, file); err != nil {
-			return fmt.Errorf("pack entries: %w", err)
+			return NewPackEntriesError(err)
 		}
 	}
 
 	if err := file.Close(); err != nil {
-		return fmt.Errorf("close pack file: %w", err)
+		return NewClosePackFileError(err)
 	}
 
 	fileInfo, err := os.Stat(outputFile)
 	if err != nil {
-		return fmt.Errorf("stat output file: %w", err)
+		return NewStatOutputFileError(err)
 	}
 	p.Send(completedMsg{
 		fileSize: fileInfo.Size(),
@@ -598,18 +598,18 @@ func parseMetadataFlags(metaFlags []string, metadata regapi.Metadata, logger *za
 	for _, flag := range metaFlags {
 		parts := strings.SplitN(flag, "=", 2)
 		if len(parts) != 2 {
-			return fmt.Errorf("invalid metadata format %q, expected key=value", flag)
+			return NewInvalidMetadataFormatError(flag)
 		}
 
 		key := strings.TrimSpace(parts[0])
 		value := strings.TrimSpace(parts[1])
 
 		if key == "" {
-			return fmt.Errorf("empty metadata key in %q", flag)
+			return NewEmptyMetadataKeyError(flag)
 		}
 
 		if strings.HasPrefix(key, "wippy.") || strings.HasPrefix(key, "system.") {
-			return fmt.Errorf("reserved metadata namespace: %s", key)
+			return NewReservedMetadataNamespaceError(key)
 		}
 
 		parsedValue := parseMetadataValue(value)
@@ -645,11 +645,11 @@ func parseMetadataValue(value string) any {
 func runListMode(app *appinit.Context, lockPath, _ string) error {
 	lockObj, err := lock.New(lockPath)
 	if err != nil {
-		return fmt.Errorf("load lock file: %w", err)
+		return NewLoadLockFileError(err)
 	}
 
 	if err := lock.Validate(lockObj); err != nil {
-		return fmt.Errorf("invalid lock file: %w", err)
+		return NewInvalidLockFileError(err)
 	}
 
 	paths := lockObj.GetLoadPaths()
@@ -663,7 +663,7 @@ func runListMode(app *appinit.Context, lockPath, _ string) error {
 		dirFS := os.DirFS(path)
 		loadedEntries, err := app.Loader.LoadFS(app.Ctx, dirFS)
 		if err != nil {
-			return fmt.Errorf("load from %s: %w", path, err)
+			return NewLoadEntriesError(path, err)
 		}
 
 		entries = append(entries, loadedEntries...)

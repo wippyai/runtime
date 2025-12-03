@@ -51,7 +51,7 @@ func TestDefinition_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "complete definition",
 			def: Definition{
-				ID:   registry.ID{NS: "contracts", Name: "payment"},
+				ID:   registry.NewID("contracts", "payment"),
 				Meta: registry.Metadata{"version": "1.0"},
 				Methods: []MethodDef{
 					{
@@ -71,6 +71,7 @@ func TestDefinition_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "minimal definition",
 			def: Definition{
+				ID: registry.NewID("", ""),
 				Methods: []MethodDef{
 					{Name: "execute"},
 				},
@@ -80,7 +81,7 @@ func TestDefinition_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "empty methods",
 			def: Definition{
-				ID:      registry.ID{NS: "test", Name: "contract"},
+				ID:      registry.NewID("test", "contract"),
 				Methods: []MethodDef{},
 			},
 			wantErr: false,
@@ -200,13 +201,13 @@ func TestBinding_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "complete binding",
 			binding: Binding{
-				ID:   registry.ID{NS: "bindings", Name: "impl1"},
+				ID:   registry.NewID("bindings", "impl1"),
 				Meta: registry.Metadata{"env": "production"},
 				Contracts: []BoundContract{
 					{
-						Contract: registry.ID{NS: "contracts", Name: "payment"},
+						Contract: registry.NewID("contracts", "payment"),
 						Methods: map[string]registry.ID{
-							"process": {NS: "functions", Name: "process_payment"},
+							"process": registry.NewID("functions", "process_payment"),
 						},
 						ContextRequired: []string{"user", "session"},
 						Default:         true,
@@ -218,9 +219,10 @@ func TestBinding_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "minimal binding",
 			binding: Binding{
+				ID: registry.NewID("", ""),
 				Contracts: []BoundContract{
 					{
-						Contract: registry.ID{NS: "c", Name: "test"},
+						Contract: registry.NewID("c", "test"),
 						Methods:  map[string]registry.ID{},
 					},
 				},
@@ -255,11 +257,11 @@ func TestBoundContract_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "complete bound contract",
 			contract: BoundContract{
-				Contract: registry.ID{NS: "contracts", Name: "api"},
+				Contract: registry.NewID("contracts", "api"),
 				Methods: map[string]registry.ID{
-					"get":    {NS: "funcs", Name: "get_handler"},
-					"post":   {NS: "funcs", Name: "post_handler"},
-					"delete": {NS: "funcs", Name: "delete_handler"},
+					"get":    registry.NewID("funcs", "get_handler"),
+					"post":   registry.NewID("funcs", "post_handler"),
+					"delete": registry.NewID("funcs", "delete_handler"),
 				},
 				ContextRequired: []string{"auth", "scope"},
 				Default:         true,
@@ -269,8 +271,8 @@ func TestBoundContract_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "non-default binding",
 			contract: BoundContract{
-				Contract:        registry.ID{NS: "c", Name: "test"},
-				Methods:         map[string]registry.ID{"test": {NS: "f", Name: "t"}},
+				Contract:        registry.NewID("c", "test"),
+				Methods:         map[string]registry.ID{"test": registry.NewID("f", "t")},
 				ContextRequired: nil,
 				Default:         false,
 			},

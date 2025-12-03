@@ -2,7 +2,6 @@ package entry
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"sync"
 
@@ -59,12 +58,12 @@ func getFieldInfo(t reflect.Type) *fieldInfo {
 // DecodeEntryConfig decodes a registry entry into a configuration struct
 func DecodeEntryConfig[T any](_ context.Context, dtt payload.Transcoder, entry registry.Entry) (*T, error) {
 	if entry.Data == nil {
-		return nil, fmt.Errorf("configuration data is required")
+		return nil, ErrConfigurationDataRequired
 	}
 
 	cfg := new(T)
 	if err := dtt.Unmarshal(entry.Data, cfg); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+		return nil, NewUnmarshalConfigError(err)
 	}
 
 	// Use reflection to automatically set ID and Meta fields if they exist
@@ -97,7 +96,7 @@ func DecodeEntryConfig[T any](_ context.Context, dtt payload.Transcoder, entry r
 	// Validate if the config implements Validate
 	if validator, ok := interface{}(cfg).(interface{ Validate() error }); ok {
 		if err := validator.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid configuration: %w", err)
+			return nil, NewInvalidConfigurationError(err)
 		}
 	}
 

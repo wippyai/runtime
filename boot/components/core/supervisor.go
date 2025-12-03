@@ -20,7 +20,7 @@ func Supervisor() boot.Component {
 		Name:      SupervisorName,
 		DependsOn: []boot.ComponentName{RegistryName},
 		Load: func(ctx context.Context) (context.Context, error) {
-			logger := logapi.GetLogger(ctx)
+			logger := logapi.GetLogger(ctx).Named("core")
 			if logger == nil {
 				return ctx, ErrLoggerNotAvailable
 			}
@@ -47,7 +47,7 @@ func Supervisor() boot.Component {
 			// Create dependency resolver that extracts dependencies from registry entries
 			depResolver := createDependencyResolver(reg, logger.Named("deps"))
 
-			sup = supervisor.NewSupervisor(bus, logger.Named("core"), supervisor.WithDependencyResolver(depResolver))
+			sup = supervisor.NewSupervisor(bus, logger, supervisor.WithDependencyResolver(depResolver))
 			logger.Info("supervisor created with registry dependency resolver")
 
 			// Store supervisor in context for access by other components

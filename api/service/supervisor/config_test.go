@@ -24,7 +24,7 @@ func TestServiceConfig_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "complete config",
 			config: ServiceConfig{
-				Process: registry.ID{NS: "proc", Name: "worker"},
+				Process: registry.NewID("proc", "worker"),
 				HostID:  "node:worker1",
 				Input:   []any{"arg1", "arg2"},
 			},
@@ -33,7 +33,7 @@ func TestServiceConfig_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "minimal config",
 			config: ServiceConfig{
-				Process: registry.ID{NS: "p", Name: "test"},
+				Process: registry.NewID("p", "test"),
 				HostID:  "node:host",
 			},
 			wantErr: false,
@@ -68,7 +68,7 @@ func TestServiceConfig_Validate(t *testing.T) {
 		{
 			name: "valid config",
 			config: ServiceConfig{
-				Process: registry.ID{NS: "proc", Name: "worker"},
+				Process: registry.NewID("proc", "worker"),
 				HostID:  "node:worker1",
 			},
 			wantErr: false,
@@ -85,7 +85,7 @@ func TestServiceConfig_Validate(t *testing.T) {
 		{
 			name: "missing host ID",
 			config: ServiceConfig{
-				Process: registry.ID{NS: "proc", Name: "worker"},
+				Process: registry.NewID("proc", "worker"),
 			},
 			wantErr: true,
 			errMsg:  "host Process is required",
@@ -93,7 +93,7 @@ func TestServiceConfig_Validate(t *testing.T) {
 		{
 			name: "control host not allowed",
 			config: ServiceConfig{
-				Process: registry.ID{NS: "proc", Name: "worker"},
+				Process: registry.NewID("proc", "worker"),
 				HostID:  topology.ControlHost,
 			},
 			wantErr: true,

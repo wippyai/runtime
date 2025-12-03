@@ -2,7 +2,6 @@ package tokenstore
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/wippyai/runtime/api/event"
@@ -49,14 +48,14 @@ func NewManager(
 // Add implements registry.EntryListener - registers token store configuration
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != tokenstore.KindTokenStore {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return NewUnsupportedEntryKindError(string(entry.Kind))
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, exists := m.configs[entry.ID]; exists {
-		return fmt.Errorf("token store %s already exists", entry.ID)
+		return NewTokenStoreAlreadyExistsError(entry.ID.String())
 	}
 
 	// Decode and initialize configuration
@@ -92,14 +91,14 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update implements registry.EntryListener - updates token store configuration
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != tokenstore.KindTokenStore {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return NewUnsupportedEntryKindError(string(entry.Kind))
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, exists := m.configs[entry.ID]; !exists {
-		return fmt.Errorf("token store %s not found", entry.ID)
+		return NewTokenStoreNotFoundError(entry.ID.String())
 	}
 
 	// Decode and initialize updated configuration
@@ -139,14 +138,14 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete implements registry.EntryListener - removes token store configuration
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != tokenstore.KindTokenStore {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return NewUnsupportedEntryKindError(string(entry.Kind))
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, exists := m.configs[entry.ID]; !exists {
-		return fmt.Errorf("token store %s not found", entry.ID)
+		return NewTokenStoreNotFoundError(entry.ID.String())
 	}
 
 	// Remove configuration and any cached store
@@ -177,7 +176,7 @@ func (m *Manager) Acquire(_ context.Context, id registry.ID, mode resource.Acces
 	m.mu.RUnlock()
 
 	if !exists {
-		return nil, fmt.Errorf("token store %s not found", id)
+		return nil, NewTokenStoreNotFoundError(id.String())
 	}
 
 	// Only support normal mode
@@ -195,7 +194,7 @@ func (m *Manager) Acquire(_ context.Context, id registry.ID, mode resource.Acces
 			store, err = NewStoreTokenStore(cfg, m.dtt, m.resources, m.secRegistry)
 			if err != nil {
 				m.mu.Unlock()
-				return nil, fmt.Errorf("failed to create token store: %w", err)
+				return nil, NewCreateTokenStoreError(err)
 			}
 			m.stores[id] = store
 		}

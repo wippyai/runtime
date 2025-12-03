@@ -1,8 +1,6 @@
 package client
 
 import (
-	"fmt"
-
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/boot/deps/graph"
@@ -29,7 +27,7 @@ func extractDependenciesFromEntries(entries []registry.Entry, dtt payload.Transc
 		}
 
 		if err := dtt.Unmarshal(entry.Data, &entryData); err != nil {
-			return nil, fmt.Errorf("unmarshal dependency entry %s: %w", entry.ID, err)
+			return nil, NewUnmarshalDependencyError(entry.ID.String(), err)
 		}
 
 		if entryData.Component == "" {

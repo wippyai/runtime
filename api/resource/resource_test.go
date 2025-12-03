@@ -85,7 +85,7 @@ func TestEntry_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "complete entry",
 			entry: Entry{
-				ID:       registry.ID{NS: "resources", Name: "db"},
+				ID:       registry.NewID("resources", "db"),
 				Meta:     registry.Metadata{"type": "database"},
 				Provider: nil,
 			},
@@ -94,7 +94,7 @@ func TestEntry_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "minimal entry",
 			entry: Entry{
-				ID: registry.ID{NS: "r", Name: "test"},
+				ID: registry.NewID("r", "test"),
 			},
 			wantErr: false,
 		},

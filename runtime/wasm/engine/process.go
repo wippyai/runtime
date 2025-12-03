@@ -10,6 +10,8 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/resource"
+	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
 	wasmengine "github.com/wippyai/wasm-runtime/engine"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
 )
@@ -19,6 +21,8 @@ type Process struct {
 	runtime   *wasmrt.Runtime
 	module    *wasmrt.Module
 	instance  *wasmrt.Instance
+	transport wasmapi.Transport
+	store     *resource.Store
 	method    string
 	args      []any
 	ctx       context.Context
@@ -39,21 +43,34 @@ func NewProcess(runtime *wasmrt.Runtime, module *wasmrt.Module) *Process {
 	}
 }
 
+// NewProcessWithTransport creates a new WASM process with a specific transport.
+func NewProcessWithTransport(runtime *wasmrt.Runtime, module *wasmrt.Module, transport wasmapi.Transport) *Process {
+	return &Process{
+		runtime:   runtime,
+		module:    module,
+		transport: transport,
+	}
+}
+
 // Init pre-instantiates the WASM module for reuse across calls.
 // Called once per worker - instance is reused for all subsequent Execute calls.
 func (p *Process) Init(ctx context.Context) error {
-	inst, err := p.module.Instantiate(ctx)
+	// Use InstantiateWithAsyncify to enable automatic asyncify transformation
+	// for component model binaries that aren't pre-asyncified
+	inst, err := p.module.InstantiateWithAsyncify(ctx)
 	if err != nil {
-		return fmt.Errorf("instantiate module: %w", err)
+		return NewInstantiateModuleError(err)
 	}
 	p.instance = inst
 
-	// Try to enable asyncify
-	if err := inst.EnableAsyncify(wasmengine.AsyncifyConfig{
-		StackSize: wasmengine.AsyncifyDefaultStackSize,
-		DataAddr:  wasmengine.AsyncifyDataAddr,
-	}); err == nil {
-		p.asyncify = inst.Asyncify()
+	// Create resource store for transport
+	if p.transport != nil {
+		p.store = resource.NewStore()
+	}
+
+	// Get asyncify/scheduler from instance (set by InstantiateWithAsyncify)
+	p.asyncify = inst.Asyncify()
+	if p.asyncify != nil {
 		p.scheduler = NewScheduler(p.asyncify)
 	}
 
@@ -81,9 +98,24 @@ func (p *Process) Execute(ctx context.Context, method string, input payload.Payl
 		if p.scheduler != nil {
 			p.scheduler.Reset()
 		}
+		// Reset resource table for reuse
+		if p.store != nil {
+			p.store.Table().Reset()
+		}
 	}
 
-	// Convert input payloads to Go args using transcoder
+	// Use transport if configured
+	if p.transport != nil {
+		args, err := p.transport.Prepare(ctx, p.store, input, p.fnArgs[:0])
+		if err != nil {
+			return NewTransportPrepareError(err)
+		}
+		p.fnArgs = args
+		fmt.Printf("DEBUG transport.Prepare returned %d args: %v\n", len(args), args)
+		return nil
+	}
+
+	// Default: convert input payloads to Go args using transcoder
 	dtt := payload.GetTranscoder(ctx)
 	p.args = make([]any, 0, len(input))
 	for _, pl := range input {
@@ -94,7 +126,7 @@ func (p *Process) Execute(ctx context.Context, method string, input payload.Payl
 		if pl.Format() != payload.Golang && dtt != nil {
 			transcoded, err := dtt.Transcode(pl, payload.Golang)
 			if err != nil {
-				return fmt.Errorf("transcode payload: %w", err)
+				return NewTranscodePayloadError(err)
 			}
 			pl = transcoded
 		}
@@ -110,6 +142,8 @@ func (p *Process) Execute(ctx context.Context, method string, input payload.Payl
 func (p *Process) Step(results *process.YieldResults) (process.StepResult, error) {
 	var result process.StepResult
 
+	fmt.Printf("DEBUG Step: scheduler=%v, started=%v, transport=%v, fnArgs=%v\n", p.scheduler != nil, p.started, p.transport != nil, p.fnArgs)
+
 	// No asyncify support - simple call
 	if p.scheduler == nil {
 		if p.started {
@@ -120,7 +154,32 @@ func (p *Process) Step(results *process.YieldResults) (process.StepResult, error
 			return result, p.err
 		}
 		p.started = true
-		p.result, p.err = p.instance.Call(p.ctx, p.method, p.args...)
+
+		// Transport provides raw uint64 args - use direct function call
+		if p.transport != nil {
+			rawFn := p.instance.GetExportedFunction(p.method)
+			if rawFn == nil {
+				p.err = NewFunctionNotFoundError(p.method)
+				result.Status = process.StepDone
+				return result, p.err
+			}
+			fn, ok := rawFn.(api.Function)
+			if !ok {
+				p.err = NewFunctionTypeError(p.method)
+				result.Status = process.StepDone
+				return result, p.err
+			}
+			fmt.Printf("DEBUG calling fn.Call with fnArgs: %v\n", p.fnArgs)
+			results, callErr := fn.Call(p.ctx, p.fnArgs...)
+			fmt.Printf("DEBUG fn.Call returned: results=%v, err=%v\n", results, callErr)
+			p.err = callErr
+			if len(results) > 0 {
+				p.result = results[0]
+			}
+		} else {
+			p.result, p.err = p.instance.Call(p.ctx, p.method, p.args...)
+		}
+
 		result.Status = process.StepDone
 		if p.result != nil {
 			result.Result = payload.New(p.result)
@@ -137,18 +196,20 @@ func (p *Process) Step(results *process.YieldResults) (process.StepResult, error
 		p.started = true
 		rawFn := p.instance.GetExportedFunction(p.method)
 		if rawFn == nil {
-			p.err = fmt.Errorf("function %q not found", p.method)
+			p.err = NewFunctionNotFoundError(p.method)
 			result.Status = process.StepDone
 			return result, p.err
 		}
 		fn, ok := rawFn.(api.Function)
 		if !ok {
-			p.err = fmt.Errorf("function %q has unexpected type", p.method)
+			p.err = NewFunctionTypeError(p.method)
 			result.Status = process.StepDone
 			return result, p.err
 		}
 		p.fn = fn
+		fmt.Printf("DEBUG scheduler.Execute with fnArgs: %v\n", p.fnArgs)
 		if err := p.scheduler.Execute(ctx, fn, p.fnArgs...); err != nil {
+			fmt.Printf("DEBUG scheduler.Execute error: %v\n", err)
 			p.err = err
 			result.Status = process.StepDone
 			return result, err
@@ -200,7 +261,7 @@ func (p *Process) Step(results *process.YieldResults) (process.StepResult, error
 
 // Send delivers external messages to the process.
 func (p *Process) Send(_ *relay.Package) error {
-	return fmt.Errorf("WASM processes do not support external messages")
+	return ErrExternalMessagesNotSupported
 }
 
 // Close releases process resources.

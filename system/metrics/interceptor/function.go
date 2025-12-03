@@ -31,22 +31,25 @@ func (i *FunctionInterceptor) Handle(ctx context.Context, task runtime.Task, nex
 		return next(ctx, task)
 	}
 
-	labels := metrics.Labels{"function_id": task.ID.String()}
+	funcID := task.ID.String()
+	baseLabels := metrics.Labels{"function_id": funcID}
 
-	i.collector.GaugeInc(FunctionInFlight, labels)
+	i.collector.GaugeInc(FunctionInFlight, baseLabels)
 	start := time.Now()
 
 	result, err := next(ctx, task)
 
 	duration := time.Since(start).Seconds()
-	i.collector.GaugeDec(FunctionInFlight, labels)
-	i.collector.HistogramObserve(FunctionDuration, duration, labels)
+	i.collector.GaugeDec(FunctionInFlight, baseLabels)
+	i.collector.HistogramObserve(FunctionDuration, duration, baseLabels)
 
-	status := "success"
+	var status string
 	if err != nil || (result != nil && result.Error != nil) {
 		status = "error"
+	} else {
+		status = "success"
 	}
-	i.collector.CounterInc(FunctionCalls, metrics.Labels{"function_id": task.ID.String(), "status": status})
+	i.collector.CounterInc(FunctionCalls, metrics.Labels{"function_id": funcID, "status": status})
 
 	return result, err
 }

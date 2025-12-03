@@ -6,18 +6,26 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// Module is the unified interface for engine2 modules.
+// Module is the unified interface for Lua modules.
 // Modules provide metadata for filtering and registration for runtime setup.
-type ModuleV2 interface {
+type Module interface {
 	// Info returns module metadata including name, description, and class tags.
 	// Used for module filtering (DeniedClasses, AllowedClasses) and discovery.
 	Info() ModuleInfo
+
+	// Loader initializes the module in the given Lua state and returns the number of
+	// values pushed onto the stack. Used for require() support.
+	Loader(l *lua.LState) int
 
 	// Register initializes the module and returns its configuration.
 	// Called once per LState. The returned Registration contains
 	// everything the process needs to set up the module.
 	Register(l *lua.LState) *Registration
 }
+
+// ModuleV2 is an alias for Module for backward compatibility.
+// Deprecated: Use Module instead.
+type ModuleV2 = Module
 
 // Registration contains all module configuration returned by Register.
 type Registration struct {
@@ -51,19 +59,26 @@ type Releasable interface {
 }
 
 // LoadModule loads a module into the LState.
-// Sets the global, adds to package.preload, and returns yield types.
-func LoadModule(l *lua.LState, m ModuleV2) []YieldType {
+// Sets the global, adds to package.preload (if available), and returns yield types.
+// Zero allocation for preload when storing tables directly.
+func LoadModule(l *lua.LState, m Module) []YieldType {
 	info := m.Info()
 	reg := m.Register(l)
 
 	// Set global
 	l.SetGlobal(info.Name, reg.Table)
 
-	// Add to package.preload for require() support
-	l.PreloadModule(info.Name, func(l *lua.LState) int {
-		l.Push(reg.Table)
-		return 1
-	})
+	// Add to package.preload if package module is loaded
+	// Store table directly (no closure) - our loRequire handles tables
+	if pkg := l.GetGlobal("package"); pkg != lua.LNil {
+		if pkgTbl, ok := pkg.(*lua.LTable); ok {
+			if preload := pkgTbl.RawGetString("preload"); preload != lua.LNil {
+				if preloadTbl, ok := preload.(*lua.LTable); ok {
+					preloadTbl.RawSetString(info.Name, reg.Table)
+				}
+			}
+		}
+	}
 
 	return reg.YieldTypes
 }

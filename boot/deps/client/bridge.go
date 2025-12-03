@@ -2,8 +2,6 @@ package client
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"slices"
 
 	"github.com/Masterminds/semver/v3"
@@ -76,7 +74,7 @@ func (b *ManifestBridge) FetchManifests(ctx context.Context, requests []graph.Ma
 
 	orgs, err := b.client.GetOrganizations(ctx, orgNames)
 	if err != nil {
-		return nil, fmt.Errorf("get organizations: %w", err)
+		return nil, NewGetOrganizationsError(err)
 	}
 
 	orgMap := make(map[string]string)
@@ -94,7 +92,7 @@ func (b *ManifestBridge) FetchManifests(ctx context.Context, requests []graph.Ma
 
 	modules, err := b.client.GetModules(ctx, moduleRequests)
 	if err != nil {
-		return nil, fmt.Errorf("get modules: %w", err)
+		return nil, NewGetModulesError(err)
 	}
 
 	moduleIDs := make([]string, len(modules))
@@ -104,7 +102,7 @@ func (b *ManifestBridge) FetchManifests(ctx context.Context, requests []graph.Ma
 
 	labels, err := b.client.GetLabels(ctx, moduleIDs)
 	if err != nil {
-		return nil, fmt.Errorf("get labels: %w", err)
+		return nil, NewGetLabelsError(err)
 	}
 
 	responses := make([]graph.ManifestResponse, len(requests))
@@ -127,7 +125,7 @@ func (b *ManifestBridge) processRequest(
 	if err != nil {
 		return graph.ManifestResponse{
 			Request: req,
-			Error:   fmt.Errorf("parse constraint %q: %w", req.Constraint, err),
+			Error:   NewParseConstraintError(req.Constraint, err),
 		}
 	}
 
@@ -155,7 +153,7 @@ func (b *ManifestBridge) processRequest(
 	if err != nil {
 		return graph.ManifestResponse{
 			Request: req,
-			Error:   fmt.Errorf("fetch manifest: %w", err),
+			Error:   NewFetchManifestError(err),
 		}
 	}
 
@@ -188,7 +186,7 @@ func (b *ManifestBridge) findMatchingLabel(allLabels []*modulev1.Label, constrai
 	}
 
 	if len(matchingLabels) == 0 {
-		return nil, errors.New("no matching version found")
+		return nil, ErrNoMatchingVersion
 	}
 
 	slices.SortFunc(matchingLabels, func(a, b *modulev1.Label) int {
@@ -203,26 +201,26 @@ func (b *ManifestBridge) findMatchingLabel(allLabels []*modulev1.Label, constrai
 func (b *ManifestBridge) fetchManifest(ctx context.Context, commitID string) (*graph.Manifest, error) {
 	downloads, err := b.client.Download(ctx, []string{commitID})
 	if err != nil {
-		return nil, fmt.Errorf("download commit %s: %w", commitID, err)
+		return nil, NewDownloadCommitError(commitID, err)
 	}
 
 	if len(downloads) == 0 {
-		return nil, errors.New("no content downloaded")
+		return nil, ErrNoContentDownloaded
 	}
 
 	memfs, err := NewMemFS(downloads[0].Files)
 	if err != nil {
-		return nil, fmt.Errorf("create in-memory fs: %w", err)
+		return nil, NewCreateInMemoryFSError(err)
 	}
 
 	entries, err := b.loader.LoadFS(ctx, memfs)
 	if err != nil {
-		return nil, fmt.Errorf("load entries from fs: %w", err)
+		return nil, NewLoadEntriesFromFSError(err)
 	}
 
 	deps, err := extractDependenciesFromEntries(entries, b.dtt)
 	if err != nil {
-		return nil, fmt.Errorf("extract dependencies: %w", err)
+		return nil, NewExtractDependenciesError(err)
 	}
 
 	if len(deps) == 0 {

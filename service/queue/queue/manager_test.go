@@ -24,14 +24,14 @@ func TestManager_Add(t *testing.T) {
 	manager := NewManager(bus, queueMgr, dtt, zap.NewNop())
 
 	config := &queuecfg.Config{
-		Driver: registry.ID{NS: "test", Name: "driver"},
+		Driver: registry.NewID("test", "driver"),
 		Options: attrs.Bag{
 			queueapi.OptionMaxLength: 1000,
 		},
 	}
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "app", Name: "tasks"},
+		ID:   registry.NewID("app", "tasks"),
 		Kind: queuecfg.Kind,
 		Data: payload.New(config),
 	}
@@ -55,14 +55,14 @@ func TestManager_Add_DriverNotFound(t *testing.T) {
 	manager := NewManager(bus, queueMgr, dtt, zap.NewNop())
 
 	config := &queuecfg.Config{
-		Driver: registry.ID{NS: "test", Name: "driver"},
+		Driver: registry.NewID("test", "driver"),
 		Options: attrs.Bag{
 			queueapi.OptionMaxLength: 1000,
 		},
 	}
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "app", Name: "tasks"},
+		ID:   registry.NewID("app", "tasks"),
 		Kind: queuecfg.Kind,
 		Data: payload.New(config),
 	}
@@ -80,11 +80,11 @@ func TestManager_Delete(t *testing.T) {
 
 	manager := NewManager(bus, queueMgr, dtt, zap.NewNop())
 
-	queueID := registry.ID{NS: "app", Name: "tasks"}
+	queueID := registry.NewID("app", "tasks")
 
 	queue := &queueapi.Queue{
 		ID:       queueID,
-		DriverID: registry.ID{NS: "test", Name: "driver"},
+		DriverID: registry.NewID("test", "driver"),
 		Name:     "tasks",
 		Options:  attrs.NewBag(),
 	}
@@ -110,18 +110,18 @@ func TestManager_Update(t *testing.T) {
 
 	manager := NewManager(bus, queueMgr, dtt, zap.NewNop())
 
-	queueID := registry.ID{NS: "app", Name: "tasks"}
+	queueID := registry.NewID("app", "tasks")
 
 	oldQueue := &queueapi.Queue{
 		ID:       queueID,
-		DriverID: registry.ID{NS: "test", Name: "old-driver"},
+		DriverID: registry.NewID("test", "old-driver"),
 		Name:     "tasks",
 		Options:  attrs.NewBag(),
 	}
 	manager.queues.Store(queueID, oldQueue)
 
 	newConfig := &queuecfg.Config{
-		Driver: registry.ID{NS: "test", Name: "new-driver"},
+		Driver: registry.NewID("test", "new-driver"),
 		Options: attrs.Bag{
 			queueapi.OptionMaxLength: 2000,
 		},
@@ -140,7 +140,7 @@ func TestManager_Update(t *testing.T) {
 	assert.True(t, ok)
 	queue, ok := val.(*queueapi.Queue)
 	assert.True(t, ok)
-	assert.Equal(t, registry.ID{NS: "test", Name: "new-driver"}, queue.DriverID)
+	assert.Equal(t, registry.NewID("test", "new-driver"), queue.DriverID)
 }
 
 type mockQueueManager struct {

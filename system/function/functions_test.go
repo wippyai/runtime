@@ -259,7 +259,7 @@ func TestFunctions_Execute(t *testing.T) {
 		{
 			name: "successful execution",
 			setupHandler: func(bus event.Bus, wg *sync.WaitGroup) {
-				target := registry.ID{NS: "test", Name: "handler"}
+				target := registry.NewID("test", "handler")
 				handler := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 					return &runtime.Result{
 						Value: payload.New("success"),
@@ -278,7 +278,7 @@ func TestFunctions_Execute(t *testing.T) {
 				})
 			},
 			task: runtime.Task{
-				ID:       registry.ID{NS: "test", Name: "handler"},
+				ID:       registry.NewID("test", "handler"),
 				Payloads: []payload.Payload{payload.New("test input")},
 			},
 			expectedValue: "success",
@@ -286,7 +286,7 @@ func TestFunctions_Execute(t *testing.T) {
 		{
 			name: "handler not found",
 			task: runtime.Task{
-				ID:       registry.ID{NS: "nonexistent", Name: "handler"},
+				ID:       registry.NewID("nonexistent", "handler"),
 				Payloads: []payload.Payload{payload.New("test input")},
 			},
 			expectedErr: "no handler registered for target: nonexistent:handler",
@@ -294,7 +294,7 @@ func TestFunctions_Execute(t *testing.T) {
 		{
 			name: "handler returns error",
 			setupHandler: func(bus event.Bus, wg *sync.WaitGroup) {
-				target := registry.ID{NS: "error", Name: "handler"}
+				target := registry.NewID("error", "handler")
 				handler := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 					return nil, fmt.Errorf("handler error")
 				}
@@ -311,7 +311,7 @@ func TestFunctions_Execute(t *testing.T) {
 				})
 			},
 			task: runtime.Task{
-				ID:       registry.ID{NS: "error", Name: "handler"},
+				ID:       registry.NewID("error", "handler"),
 				Payloads: []payload.Payload{payload.New("test input")},
 			},
 			expectedErr: "handler error",
@@ -376,10 +376,7 @@ func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
 	for i := 0; i < numHandlers; i++ {
 		wg.Add(1) // AddCleanup before launching goroutine
 		go func(idx int) {
-			target := registry.ID{
-				NS:   "test",
-				Name: fmt.Sprintf("handler.%d", idx),
-			}
+			target := registry.NewID("test", fmt.Sprintf("handler.%d", idx))
 
 			handler := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 				return &runtime.Result{
@@ -422,10 +419,7 @@ func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
 
 	// Test executing all handlers
 	for i := 0; i < numHandlers; i++ {
-		target := registry.ID{
-			NS:   "test",
-			Name: fmt.Sprintf("handler.%d", i),
-		}
+		target := registry.NewID("test", fmt.Sprintf("handler.%d", i))
 		result, err := executor.Call(ctx, runtime.Task{
 			ID:       target,
 			Payloads: []payload.Payload{payload.New("test")},

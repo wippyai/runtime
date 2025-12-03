@@ -66,7 +66,7 @@ func TestMatchesPattern(t *testing.T) {
 }
 
 func TestPolicy(t *testing.T) {
-	policyID := registry.ID{NS: "test", Name: "admin-policy"}
+	policyID := registry.NewID("test", "admin-policy")
 	policyConfig := &policy.Config{
 		Policy: policy.Definition{
 			Actions:   "*",
@@ -111,7 +111,7 @@ func TestPolicy(t *testing.T) {
 }
 
 func TestPolicyWithRegexConditions(t *testing.T) {
-	policyID := registry.ID{NS: "test", Name: "regex-policy"}
+	policyID := registry.NewID("test", "regex-policy")
 	policyConfig := &policy.Config{
 		Policy: policy.Definition{
 			Actions:   "*",
@@ -146,7 +146,7 @@ func TestPolicyWithRegexConditions(t *testing.T) {
 }
 
 func TestPolicyWithInvalidRegex(t *testing.T) {
-	policyID := registry.ID{NS: "test", Name: "invalid-regex-policy"}
+	policyID := registry.NewID("test", "invalid-regex-policy")
 	policyConfig := &policy.Config{
 		Policy: policy.Definition{
 			Actions:   "*",
@@ -236,7 +236,7 @@ func TestPolicyWithWildcards(t *testing.T) {
 
 	for _, tt := range actionWildcardTests {
 		t.Run(tt.name, func(t *testing.T) {
-			p, err := NewPolicy(registry.ID{NS: "test", Name: "wildcard-test"}, tt.config)
+			p, err := NewPolicy(registry.NewID("test", "wildcard-test"), tt.config)
 			if err != nil {
 				t.Fatalf("Failed to create policy: %v", err)
 			}
@@ -311,7 +311,7 @@ func TestPolicyWithWildcards(t *testing.T) {
 
 	for _, tt := range resourceWildcardTests {
 		t.Run(tt.name, func(t *testing.T) {
-			p, err := NewPolicy(registry.ID{NS: "test", Name: "wildcard-test"}, tt.config)
+			p, err := NewPolicy(registry.NewID("test", "wildcard-test"), tt.config)
 			if err != nil {
 				t.Fatalf("Failed to create policy: %v", err)
 			}
@@ -325,7 +325,7 @@ func TestPolicyWithWildcards(t *testing.T) {
 }
 
 func TestPolicyWithComplexRegexConditions(t *testing.T) {
-	policyID := registry.ID{NS: "test", Name: "complex-regex-policy"}
+	policyID := registry.NewID("test", "complex-regex-policy")
 	policyConfig := &policy.Config{
 		Policy: policy.Definition{
 			Actions:   "*",
@@ -434,7 +434,7 @@ func TestPolicyPrecompilationEfficiency(t *testing.T) {
 		},
 	}
 
-	p, err := NewPolicy(registry.ID{NS: "test", Name: "efficiency-test"}, policyConfig)
+	p, err := NewPolicy(registry.NewID("test", "efficiency-test"), policyConfig)
 	if err != nil {
 		t.Fatalf("Failed to create policy: %v", err)
 	}

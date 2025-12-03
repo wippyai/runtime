@@ -39,7 +39,7 @@ func TestCompiler_CompileLuaFunction(t *testing.T) {
 	compiler := NewCompiler(mock.compile, 10, 10)
 
 	node := &Node{
-		ID:     registry.ID{Name: "test"},
+		ID:     registry.NewID("", "test"),
 		Kind:   "function.lua",
 		Source: "function test() return 'hello' end",
 		Method: "test",
@@ -62,7 +62,7 @@ func TestCompiler_ModuleNotCompiled(t *testing.T) {
 	compiler := NewCompiler(mock.compile, 10, 10)
 
 	moduleNode := &Node{
-		ID:     registry.ID{Name: "moduleNotCompiled"},
+		ID:     registry.NewID("", "moduleNotCompiled"),
 		Kind:   lua.KindModule,
 		Module: &dummyModule{name: "test"},
 	}
@@ -80,19 +80,19 @@ func TestCompiler_MixedDependencies(t *testing.T) {
 	memGraph := NewMemoryGraph()
 
 	mainNode := &Node{
-		ID:     registry.ID{Name: "main"},
+		ID:     registry.NewID("", "main"),
 		Kind:   "function.lua",
 		Source: "function main() return dep() end",
 		Method: "test",
 	}
 	luaDepNode := &Node{
-		ID:     registry.ID{Name: "luaDep"},
+		ID:     registry.NewID("", "luaDep"),
 		Kind:   "function.lua",
 		Source: "function dep() return 'hello' end",
 		Method: "test",
 	}
 	moduleNode := &Node{
-		ID:     registry.ID{Name: "module"},
+		ID:     registry.NewID("", "module"),
 		Kind:   lua.KindModule,
 		Module: &dummyModule{name: "test"},
 	}
@@ -133,13 +133,13 @@ func TestCompiler_Invalidation(t *testing.T) {
 	memGraph := NewMemoryGraph()
 
 	mainNode := &Node{
-		ID:     registry.ID{Name: "mainInvalidation"},
+		ID:     registry.NewID("", "mainInvalidation"),
 		Kind:   "function.lua",
 		Source: "function main() end",
 		Method: "test",
 	}
 	depNode := &Node{
-		ID:     registry.ID{Name: "depInvalidation"},
+		ID:     registry.NewID("", "depInvalidation"),
 		Kind:   "function.lua",
 		Source: "function dep() end",
 		Method: "test",
@@ -185,14 +185,14 @@ func TestCompiler_PreloadedDependencies(t *testing.T) {
 
 	// Spawn test nodes
 	mainNode := &Node{
-		ID:     registry.ID{Name: "mainPreload"},
+		ID:     registry.NewID("", "mainPreload"),
 		Kind:   "function.lua",
 		Source: "function main() end",
 		Method: "test",
 	}
 
 	preloadedModule := &Node{
-		ID:     registry.ID{Name: "preloadedModule"},
+		ID:     registry.NewID("", "preloadedModule"),
 		Kind:   lua.KindModule,
 		Module: &dummyModule{name: "preloaded"},
 	}
@@ -252,6 +252,10 @@ func (m *testModule) Info() lua.ModuleInfo {
 	}
 }
 
+func (m *testModule) Register(_ *glua.LState) *lua.Registration {
+	return nil
+}
+
 func TestNewCompiler(t *testing.T) {
 	compileFn := func(*Node) (*glua.FunctionProto, error) { return &glua.FunctionProto{}, nil }
 	compiler := NewCompiler(compileFn, 100, 200)
@@ -273,7 +277,7 @@ func TestCompiler_GetCompiledProto(t *testing.T) {
 		{
 			name: "Module node should return error",
 			node: &Node{
-				ID:   registry.ID{Name: "moduleNode"},
+				ID:   registry.NewID("", "moduleNode"),
 				Kind: lua.KindModule,
 			},
 			compileFn:     func(*Node) (*glua.FunctionProto, error) { return &glua.FunctionProto{}, nil },
@@ -283,7 +287,7 @@ func TestCompiler_GetCompiledProto(t *testing.T) {
 		{
 			name: "Cached proto should be returned",
 			node: &Node{
-				ID:   registry.ID{Name: "cachedNode"},
+				ID:   registry.NewID("", "cachedNode"),
 				Kind: lua.KindFunction,
 			},
 			compileFn: func(*Node) (*glua.FunctionProto, error) {
@@ -317,7 +321,7 @@ func TestCompiler_Invalidate(t *testing.T) {
 	compiler := NewCompiler(func(*Node) (*glua.FunctionProto, error) { return &glua.FunctionProto{}, nil }, 100, 200)
 
 	// Add some test data
-	testID := registry.ID{NS: "test", Name: "id"}
+	testID := registry.NewID("test", "id")
 	compiler.protoCache.Set(testID, &glua.FunctionProto{})
 	compiler.mainCache.Set(testID, &CompiledMain{})
 
@@ -342,7 +346,7 @@ func TestCompiler_Compile(t *testing.T) {
 			name: "Simple function compilation",
 			setup: func(mg *MemoryGraph) registry.ID {
 				node := &Node{
-					ID:     registry.ID{Name: "simpleFunc"},
+					ID:     registry.NewID("", "simpleFunc"),
 					Kind:   lua.KindFunction,
 					Source: "return function() end",
 					Method: "test",
@@ -358,7 +362,7 @@ func TestCompiler_Compile(t *testing.T) {
 			setup: func(mg *MemoryGraph) registry.ID {
 				// Add dependency
 				dep := &Node{
-					ID:     registry.ID{Name: "depFunc"},
+					ID:     registry.NewID("", "depFunc"),
 					Kind:   lua.KindFunction,
 					Source: "return function() end",
 					Method: "dep",
@@ -367,7 +371,7 @@ func TestCompiler_Compile(t *testing.T) {
 
 				// Add main function
 				main := &Node{
-					ID:     registry.ID{Name: "mainFunc"},
+					ID:     registry.NewID("", "mainFunc"),
 					Kind:   lua.KindFunction,
 					Source: "return function() end",
 					Method: "main",
@@ -383,7 +387,7 @@ func TestCompiler_Compile(t *testing.T) {
 		{
 			name: "Invalid entrypoint",
 			setup: func(_ *MemoryGraph) registry.ID {
-				return registry.ID{NS: "test", Name: "non-existent"}
+				return registry.NewID("test", "non-existent")
 			},
 			options:     NewBuildOptions(),
 			expectError: true,
@@ -417,7 +421,7 @@ func TestCompiler_PreloadModule(t *testing.T) {
 
 	// Add a module node
 	module := &Node{
-		ID:     registry.ID{Name: "testModulePreload"},
+		ID:     registry.NewID("", "testModulePreload"),
 		Kind:   lua.KindModule,
 		Module: &testModule{name: "test"},
 	}
@@ -441,8 +445,59 @@ func TestCompiler_PreloadModule(t *testing.T) {
 	// Test preloading non-existent module
 	badPreload := Preload{
 		Name:     "bad",
-		ModuleID: registry.ID{NS: "test", Name: "non-existent"},
+		ModuleID: registry.NewID("test", "non-existent"),
 	}
 	err = compiler.preloadModule(mg, badPreload, compiled)
 	assert.Error(t, err)
+}
+
+func TestCompiler_SetProto(t *testing.T) {
+	compiler := NewCompiler(func(*Node) (*glua.FunctionProto, error) {
+		return nil, assert.AnError
+	}, 100, 200)
+
+	testID := registry.NewID("", "bytecodeNode")
+	proto := &glua.FunctionProto{
+		NumParameters:    2,
+		NumUsedRegisters: 5,
+	}
+
+	// Set proto directly
+	compiler.SetProto(testID, proto)
+
+	// Verify proto is in cache
+	cached, ok := compiler.protoCache.Get(testID)
+	assert.True(t, ok)
+	assert.Equal(t, proto, cached)
+	assert.Equal(t, uint8(2), cached.NumParameters)
+	assert.Equal(t, uint8(5), cached.NumUsedRegisters)
+}
+
+func TestCompiler_SetProto_OverridesCompileFn(t *testing.T) {
+	compileCalls := 0
+	compiler := NewCompiler(func(*Node) (*glua.FunctionProto, error) {
+		compileCalls++
+		return &glua.FunctionProto{NumParameters: 99}, nil
+	}, 100, 200)
+
+	testID := registry.NewID("", "bytecodeOverride")
+	injectedProto := &glua.FunctionProto{
+		NumParameters: 3,
+	}
+
+	// Set proto before any compilation
+	compiler.SetProto(testID, injectedProto)
+
+	// Create a node for getCompiledProto
+	node := &Node{
+		ID:     testID,
+		Kind:   lua.KindFunctionBytecode,
+		Method: "handler",
+	}
+
+	// Get compiled proto should return injected one
+	result, err := compiler.getCompiledProto(node)
+	assert.NoError(t, err)
+	assert.Equal(t, uint8(3), result.NumParameters)
+	assert.Equal(t, 0, compileCalls, "compile function should not be called when proto is cached")
 }

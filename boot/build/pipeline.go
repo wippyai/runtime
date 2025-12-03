@@ -2,7 +2,6 @@ package build
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/registry"
@@ -27,7 +26,7 @@ func New(stages ...boot.Stage) boot.Pipeline {
 func (p *pipeline) Execute(ctx context.Context, entries *[]registry.Entry) error {
 	for _, s := range p.stages {
 		if err := s.Execute(ctx, entries); err != nil {
-			return fmt.Errorf("stage '%s': %w", s.Name(), err)
+			return NewStageError(s.Name(), err)
 		}
 	}
 	return nil

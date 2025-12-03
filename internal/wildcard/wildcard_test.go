@@ -161,3 +161,22 @@ func BenchmarkNewWildcard(b *testing.B) {
 		NewWildcard("system.events.*.created")
 	}
 }
+
+func TestAlternation(t *testing.T) {
+	w := NewWildcard("function.(register|delete)")
+
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"function.register", true},
+		{"function.delete", true},
+		{"function.accept", false},
+	}
+
+	for _, tt := range tests {
+		if got := w.Match(tt.input); got != tt.want {
+			t.Errorf("Match(%q) = %v, want %v", tt.input, got, tt.want)
+		}
+	}
+}

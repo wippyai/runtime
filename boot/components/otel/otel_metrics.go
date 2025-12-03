@@ -19,7 +19,7 @@ func OTelMetrics() boot.Component {
 		Name:      OTelMetricsName,
 		DependsOn: []boot.ComponentName{OTelName, metricsName},
 		Load: func(ctx context.Context) (context.Context, error) {
-			logger := logapi.GetLogger(ctx)
+			logger := logapi.GetLogger(ctx).Named("otel.metrics")
 			if logger == nil {
 				return ctx, nil
 			}
@@ -42,7 +42,7 @@ func OTelMetrics() boot.Component {
 			}
 
 			var err error
-			mp, err = otel.InitializeMeterProvider(ctx, cfg, logger.Named("otel"))
+			mp, err = otel.InitializeMeterProvider(ctx, cfg, logger)
 			if err != nil {
 				logger.Error("failed to initialize OTEL meter provider", zap.Error(err))
 				return ctx, nil

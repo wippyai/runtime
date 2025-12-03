@@ -2,7 +2,6 @@ package library
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/wippyai/runtime/api/registry"
 	api "github.com/wippyai/runtime/api/runtime/lua"
@@ -22,12 +21,12 @@ func NewManager(log *zap.Logger, code *lua.Manager) *Manager {
 
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindLibrary {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindLibrary)
+		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindLibrary))
 	}
 
 	cfg, err := component.UnpackConfig[api.LibraryConfig](ctx, entry)
 	if err != nil {
-		return fmt.Errorf("failed to unpack library config: %w", err)
+		return NewUnpackConfigError(err)
 	}
 
 	node := lua.Node{
@@ -38,7 +37,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	if err := m.code.AddNode(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules)); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
-		return fmt.Errorf("failed to add library node: %w", err)
+		return NewAddLibraryNodeError(err)
 	}
 
 	return nil
@@ -46,12 +45,12 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindLibrary {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindLibrary)
+		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindLibrary))
 	}
 
 	cfg, err := component.UnpackConfig[api.LibraryConfig](ctx, entry)
 	if err != nil {
-		return fmt.Errorf("failed to unpack library config: %w", err)
+		return NewUnpackConfigError(err)
 	}
 
 	node := lua.Node{
@@ -61,7 +60,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	if err := m.code.UpdateNode(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules)); err != nil {
-		return fmt.Errorf("failed to update library node: %w", err)
+		return NewUpdateLibraryNodeError(err)
 	}
 
 	return nil
@@ -69,11 +68,11 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindLibrary {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindLibrary)
+		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindLibrary))
 	}
 
 	if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
-		return fmt.Errorf("failed to delete library node: %w", err)
+		return NewDeleteLibraryNodeError(err)
 	}
 
 	return nil

@@ -38,6 +38,9 @@ func (d *Dispatcher) handleCompile(ctx context.Context, cmd dispatcher.Command, 
 
 	go func() {
 		program, err := d.host.Compile(ctx, compileCmd)
+		if ctx.Err() != nil {
+			return
+		}
 		if err != nil {
 			emit.Emit(nil, err)
 			return

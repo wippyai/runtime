@@ -3,7 +3,6 @@ package sql
 
 import (
 	"encoding/json"
-	"fmt"
 	"regexp"
 	"strings"
 	"time"
@@ -48,57 +47,57 @@ type SQLConfig struct {
 func (c *SQLConfig) Validate() error {
 	// Database ID must be valid
 	if c.Database.Name == "" {
-		return fmt.Errorf("database ID is required")
+		return ErrDatabaseIDRequired
 	}
 
 	// Table name must be specified
 	if c.TableName == "" {
-		return fmt.Errorf("table_name is required")
+		return ErrTableNameRequired
 	}
 
 	// ID column name must be specified
 	if c.IDColumnName == "" {
-		return fmt.Errorf("id_column_name is required")
+		return ErrIDColumnNameRequired
 	}
 
 	// Payload column name must be specified
 	if c.PayloadColumnName == "" {
-		return fmt.Errorf("payload_column_name is required")
+		return ErrPayloadColumnNameRequired
 	}
 
 	// Expire column name must be specified
 	if c.ExpireColumnName == "" {
-		return fmt.Errorf("expire_column_name is required")
+		return ErrExpireColumnNameRequired
 	}
 
 	// CleanupInterval must be non-negative (0 means no cleanup)
 	if c.CleanupInterval < 0 {
-		return fmt.Errorf("cleanup_interval must be greater than or equal to 0")
+		return ErrCleanupIntervalInvalid
 	}
 
 	// Validate the database ID and table name for SQL injection prevention
 	if !c.IsSafe(c.Database.Name) {
-		return fmt.Errorf("database ID is invalid")
+		return ErrDatabaseIDInvalid
 	}
 
 	// Validate the table name and column names for SQL injection prevention
 	if !c.IsSafe(c.TableName) {
-		return fmt.Errorf("table_name is invalid")
+		return ErrTableNameInvalid
 	}
 
 	// Validate the column names for SQL injection prevention
 	if !c.IsSafe(c.IDColumnName) {
-		return fmt.Errorf("id_column_name is invalid")
+		return ErrIDColumnNameInvalid
 	}
 
 	// Validate the column names for SQL injection prevention
 	if !c.IsSafe(c.PayloadColumnName) {
-		return fmt.Errorf("payload_column_name is invalid")
+		return ErrPayloadColumnNameInvalid
 	}
 
 	// Validate the column names for SQL injection prevention
 	if !c.IsSafe(c.ExpireColumnName) {
-		return fmt.Errorf("expire_column_name is invalid")
+		return ErrExpireColumnNameInvalid
 	}
 
 	return nil
@@ -140,7 +139,7 @@ func (c *SQLConfig) UnmarshalJSON(data []byte) error {
 	if aux.CleanupInterval != "" {
 		c.CleanupInterval, err = time.ParseDuration(aux.CleanupInterval)
 		if err != nil {
-			return fmt.Errorf("invalid CleanupInterval duration format: %w", err)
+			return NewInvalidCleanupIntervalError(err)
 		}
 	}
 

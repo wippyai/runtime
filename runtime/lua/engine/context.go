@@ -39,21 +39,33 @@ type ProcessContext struct {
 	// Incoming messages from relay
 	inboxMu sync.Mutex
 	inbox   []*relay.Package
+
+	// closed prevents double-release to pool
+	closed bool
 }
 
 // acquireProcessContext gets a ProcessContext from the pool.
 func acquireProcessContext() *ProcessContext {
-	return processContextPool.Get().(*ProcessContext)
+	pc := processContextPool.Get().(*ProcessContext)
+	pc.closed = false
+	return pc
 }
 
-// ReleaseProcessContext returns a ProcessContext to the pool after reset.
-// Called by scheduler/host via OnComplete callback when execution finishes.
-func ReleaseProcessContext(pc *ProcessContext) {
-	if pc == nil {
-		return
+// Close releases the ProcessContext back to the pool.
+// Implements ctxapi.Closer for automatic cleanup when FrameContext is released.
+// Safe to call multiple times - subsequent calls are no-ops.
+func (pc *ProcessContext) Close() error {
+	pc.inboxMu.Lock()
+	if pc.closed {
+		pc.inboxMu.Unlock()
+		return nil
 	}
+	pc.closed = true
+	pc.inboxMu.Unlock()
+
 	pc.reset()
 	processContextPool.Put(pc)
+	return nil
 }
 
 // reset clears the ProcessContext for reuse.

@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	fsapi "github.com/wippyai/runtime/api/fs"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"
@@ -26,7 +25,7 @@ const (
 
 var (
 	moduleTable   *lua.LTable
-	registration  *lua2api.Registration
+	registration  *luaapi.Registration
 	fsMetatable   *lua.LTable
 	fileMetatable *lua.LTable
 	initOnce      sync.Once
@@ -45,7 +44,7 @@ func (m *fsModule) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *fsModule) Register(l *lua.LState) *lua2api.Registration {
+func (m *fsModule) Register(l *lua.LState) *luaapi.Registration {
 	initOnce.Do(func() {
 		moduleTable = createModuleTable()
 		fsMetatable = value.RegisterTypeMethods(nil, fsTypeName,
@@ -54,7 +53,7 @@ func (m *fsModule) Register(l *lua.LState) *lua2api.Registration {
 		fileMetatable = value.RegisterTypeMethods(nil, fileTypeName,
 			map[string]lua.LGFunction{"__tostring": fileToString},
 			fileMethods)
-		registration = &lua2api.Registration{
+		registration = &luaapi.Registration{
 			Table:      moduleTable,
 			YieldTypes: nil,
 		}
@@ -69,9 +68,9 @@ func (m *fsModule) Loader(l *lua.LState) int {
 	return 1
 }
 
-// Bind is deprecated. Use lua2api.LoadModule(l, Module) instead.
+// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
 func Bind(l *lua.LState) {
-	lua2api.LoadModule(l, Module)
+	luaapi.LoadModule(l, Module)
 }
 
 func createModuleTable() *lua.LTable {

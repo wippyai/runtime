@@ -2,7 +2,6 @@ package sql
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/wippyai/runtime/api/event"
@@ -41,14 +40,14 @@ func NewManager(
 // Add implements registry.EntryListener
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != sqlstore.KindSQLKV {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return newUnsupportedKindError(string(entry.Kind))
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, exists := m.stores[entry.ID]; exists {
-		return fmt.Errorf("store %s already exists", entry.ID)
+		return newStoreAlreadyExistsError(entry.ID.String())
 	}
 
 	// Decode and initialize configuration
@@ -97,7 +96,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update implements registry.EntryListener
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != sqlstore.KindSQLKV {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return newUnsupportedKindError(string(entry.Kind))
 	}
 
 	m.mu.Lock()
@@ -105,7 +104,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	_, exists := m.stores[entry.ID]
 	if !exists {
-		return fmt.Errorf("store %s not found", entry.ID)
+		return newStoreNotFoundError(entry.ID.String())
 	}
 
 	// Decode and initialize updated configuration
@@ -139,7 +138,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete implements registry.EntryListener
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != sqlstore.KindSQLKV {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return newUnsupportedKindError(string(entry.Kind))
 	}
 
 	m.mu.Lock()
@@ -147,7 +146,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 
 	_, exists := m.stores[entry.ID]
 	if !exists {
-		return fmt.Errorf("store %s not found", entry.ID)
+		return newStoreNotFoundError(entry.ID.String())
 	}
 
 	// Unregister from supervisor

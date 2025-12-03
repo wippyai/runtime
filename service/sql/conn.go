@@ -3,7 +3,6 @@ package sql
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,12 +29,12 @@ type ConnPool struct {
 // Start implements supervisor.Service
 func (p *ConnPool) Start(ctx context.Context) (<-chan any, error) {
 	if p.closed.Load() {
-		return nil, fmt.Errorf("connection pool is closed")
+		return nil, ErrPoolClosed
 	}
 
 	// Test connection
 	if err := p.db.PingContext(ctx); err != nil {
-		return nil, fmt.Errorf("failed to ping database: %w", err)
+		return nil, NewPingError(err)
 	}
 
 	// Signal ready status
@@ -72,17 +71,17 @@ func (p *ConnPool) Stop(ctx context.Context) error {
 // UpdateConfig updates the pool configuration
 func (p *ConnPool) UpdateConfig(cfg interface{}) error {
 	if p.closed.Load() {
-		return fmt.Errorf("connection pool is closed")
+		return ErrPoolClosed
 	}
 
 	switch c := cfg.(type) {
 	case *config.DBConfig:
 		if p.kind == config.KindSQLite {
-			return fmt.Errorf("invalid config type for SQLite")
+			return NewInvalidConfigTypeError("DBConfig", config.KindSQLite)
 		}
 
 		if err := c.Validate(); err != nil {
-			return fmt.Errorf("invalid configuration: %w", err)
+			return NewInvalidConfigError(err)
 		}
 
 		p.db.SetMaxOpenConns(c.Pool.MaxOpen)
@@ -94,11 +93,11 @@ func (p *ConnPool) UpdateConfig(cfg interface{}) error {
 
 	case *config.SQLiteConfig:
 		if p.kind != config.KindSQLite {
-			return fmt.Errorf("invalid config type for non-SQLite database")
+			return NewInvalidConfigTypeError("SQLiteConfig", p.kind)
 		}
 
 		if err := c.Validate(); err != nil {
-			return fmt.Errorf("invalid configuration: %w", err)
+			return NewInvalidConfigError(err)
 		}
 
 		p.db.SetConnMaxLifetime(c.Pool.MaxLifetime)
@@ -107,7 +106,7 @@ func (p *ConnPool) UpdateConfig(cfg interface{}) error {
 		p.config.Store(&cfg)
 
 	default:
-		return fmt.Errorf("unsupported config type: %T", cfg)
+		return NewUnsupportedConfigTypeError(string(p.kind))
 	}
 
 	return nil
@@ -121,7 +120,7 @@ func (p *ConnPool) Acquire(
 ) (resource.Resource[any], error) {
 	// Only support normal mode for now
 	if mode != resource.ModeNormal {
-		return nil, fmt.Errorf("unsupported access mode: %v", mode)
+		return nil, NewUnsupportedAccessModeError(string(mode))
 	}
 
 	// Track resource usage before checking closed state to avoid race with Stop()
@@ -129,7 +128,7 @@ func (p *ConnPool) Acquire(
 
 	if p.closed.Load() {
 		p.wg.Done()
-		return nil, fmt.Errorf("connection pool is closed")
+		return nil, ErrPoolClosed
 	}
 
 	return newDBConn(p, p.db, p.kind), nil
@@ -178,7 +177,7 @@ func buildDSN(kind registry.Kind, cfg *config.DBConfig) (string, error) {
 		return b.String(), nil
 
 	default:
-		return "", fmt.Errorf("unsupported database type: %s", kind)
+		return "", NewUnsupportedDatabaseTypeError(kind)
 	}
 }
 

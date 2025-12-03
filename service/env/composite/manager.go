@@ -2,7 +2,6 @@ package composite
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/wippyai/runtime/api/env"
@@ -11,7 +10,6 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	envsvc "github.com/wippyai/runtime/api/service/env"
 	entryutil "github.com/wippyai/runtime/internal/entry"
-	enverr "github.com/wippyai/runtime/service/env"
 	"go.uber.org/zap"
 )
 
@@ -46,16 +44,16 @@ func NewManager(
 
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != envsvc.KindStorageRouter {
-		return fmt.Errorf("%w: %s", enverr.ErrUnsupportedKind, entry.Kind)
+		return errUnsupportedKind(entry.Kind)
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[envsvc.RouterStorageConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return fmt.Errorf("%w: %w", enverr.ErrDecodeConfig, err)
+		return errDecodeConfig(err)
 	}
 
 	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("%w: %w", enverr.ErrInvalidConfig, err)
+		return errInvalidConfig(err)
 	}
 
 	selectedStorages := make([]env.Storage, 0, len(cfg.Storages))
@@ -63,14 +61,14 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		storageID := registry.ParseID(storageName)
 		storage, found := m.findStorage(storageID)
 		if !found {
-			return fmt.Errorf("%w: %s", enverr.ErrStorageNotFound, storageName)
+			return errStorageNotFound(storageName)
 		}
 		selectedStorages = append(selectedStorages, storage)
 	}
 
 	storage, err := NewStorage(selectedStorages)
 	if err != nil {
-		return fmt.Errorf("%w: %w", enverr.ErrCreateStorage, err)
+		return errCreateStorage(err)
 	}
 
 	m.mu.Lock()
@@ -113,7 +111,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != envsvc.KindStorageRouter {
-		return fmt.Errorf("%w: %s", enverr.ErrUnsupportedKind, entry.Kind)
+		return errUnsupportedKind(entry.Kind)
 	}
 
 	m.mu.Lock()

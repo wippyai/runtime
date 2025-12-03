@@ -44,7 +44,7 @@ func TestManager_Add(t *testing.T) {
 	}
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "driver"},
+		ID:   registry.NewID("test", "driver"),
 		Kind: memoryapi.Kind,
 		Data: payload.New(config),
 	}
@@ -72,7 +72,7 @@ func TestManager_Add_DuplicateDriver(t *testing.T) {
 	}
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "driver"},
+		ID:   registry.NewID("test", "driver"),
 		Kind: memoryapi.Kind,
 		Data: payload.New(config),
 	}
@@ -93,7 +93,7 @@ func TestManager_Add_InvalidKind(t *testing.T) {
 	manager := NewManager(bus, &mockTranscoder{}, zap.NewNop())
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "driver"},
+		ID:   registry.NewID("test", "driver"),
 		Kind: "invalid.kind",
 		Data: payload.New(&memoryapi.Config{}),
 	}
@@ -117,7 +117,7 @@ func TestManager_Update(t *testing.T) {
 	}
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "driver"},
+		ID:   registry.NewID("test", "driver"),
 		Kind: memoryapi.Kind,
 		Data: payload.New(config),
 	}
@@ -132,7 +132,7 @@ func TestManager_Update(t *testing.T) {
 	}
 
 	updatedEntry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "driver"},
+		ID:   registry.NewID("test", "driver"),
 		Kind: memoryapi.Kind,
 		Data: payload.New(newConfig),
 	}
@@ -159,7 +159,7 @@ func TestManager_Update_DriverNotFound(t *testing.T) {
 	}
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "driver"},
+		ID:   registry.NewID("test", "driver"),
 		Kind: memoryapi.Kind,
 		Data: payload.New(config),
 	}
@@ -177,7 +177,7 @@ func TestManager_Update_InvalidKind(t *testing.T) {
 	manager := NewManager(bus, &mockTranscoder{}, zap.NewNop())
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "driver"},
+		ID:   registry.NewID("test", "driver"),
 		Kind: "invalid.kind",
 		Data: payload.New(&memoryapi.Config{}),
 	}
@@ -201,7 +201,7 @@ func TestManager_Delete(t *testing.T) {
 	}
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "driver"},
+		ID:   registry.NewID("test", "driver"),
 		Kind: memoryapi.Kind,
 		Data: payload.New(config),
 	}
@@ -224,7 +224,7 @@ func TestManager_Delete_DriverNotFound(t *testing.T) {
 	manager := NewManager(bus, &mockTranscoder{}, zap.NewNop())
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "driver"},
+		ID:   registry.NewID("test", "driver"),
 		Kind: memoryapi.Kind,
 		Data: payload.New(&memoryapi.Config{}),
 	}
@@ -242,7 +242,7 @@ func TestManager_Delete_InvalidKind(t *testing.T) {
 	manager := NewManager(bus, &mockTranscoder{}, zap.NewNop())
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "driver"},
+		ID:   registry.NewID("test", "driver"),
 		Kind: "invalid.kind",
 		Data: payload.New(&memoryapi.Config{}),
 	}

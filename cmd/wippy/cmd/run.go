@@ -49,6 +49,9 @@ func init() {
 }
 
 func runApp(cmd *cobra.Command, _ []string) error {
+	// Set memory limit early, before any significant allocations
+	memLimit := initMemoryLimit()
+
 	banner.Print(silentLogs)
 
 	logger, err := clilogger.CreateLogger(clilogger.Config{
@@ -59,13 +62,13 @@ func runApp(cmd *cobra.Command, _ []string) error {
 		AppStartTime: appStartTime,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to create logger: %w", err)
+		return NewCreateLoggerError(err)
 	}
 	defer func() {
 		_ = logger.Sync() // Ignore sync errors (typically closed stdout/stderr)
 	}()
 
-	logger.Info("initializing runtime")
+	logger.Info("initializing runtime", zap.String("memory_limit", formatBytes(memLimit)))
 
 	cfg, err := loadBootConfig()
 	if err != nil {
@@ -89,7 +92,7 @@ func runApp(cmd *cobra.Command, _ []string) error {
 	ctx, err := bootpkg.NewBootstrapContext(logger, cfg)
 	if err != nil {
 		logger.Error("failed to initialize bootstrap context", zap.Error(err))
-		return fmt.Errorf("initialize bootstrap context: %w", err)
+		return NewInitializeBootstrapContextError(err)
 	}
 
 	// Initialize registry client for module installation
@@ -105,25 +108,25 @@ func runApp(cmd *cobra.Command, _ []string) error {
 	loader, err := bootpkg.NewLoader(components...)
 	if err != nil {
 		logger.Error("failed to create loader", zap.Error(err))
-		return fmt.Errorf("failed to create loader: %w", err)
+		return NewCreateLoaderError(err)
 	}
 
 	ctx, err = loader.Load(ctx)
 	if err != nil {
 		logger.Error("load failed", zap.Error(err))
-		return fmt.Errorf("failed to load components: %w", err)
+		return NewLoadComponentsError(err)
 	}
 	logger.Info("components loaded successfully")
 
 	err = loader.Start(ctx)
 	if err != nil {
 		logger.Error("start failed", zap.Error(err))
-		return fmt.Errorf("failed to start components: %w", err)
+		return NewStartComponentsError(err)
 	}
 
 	if err := entries.LoadFromLockFile(ctx, logger, verbose); err != nil {
 		logger.Error("entry loading failed", zap.Error(err))
-		return fmt.Errorf("failed to load entries: %w", err)
+		return NewLoadEntriesError("lock file", err)
 	}
 
 	if !silentLogs {
@@ -242,7 +245,7 @@ func applyOverrideFlags(cfg boot.Config, overrides []string, logger *zap.Logger)
 	for _, override := range overrides {
 		namespace, entry, field, value, err := parseOverride(override)
 		if err != nil {
-			return nil, fmt.Errorf("invalid override '%s': %w", override, err)
+			return nil, NewInvalidOverrideError(override, err)
 		}
 
 		// Format: namespace:entry:field
@@ -272,7 +275,7 @@ func parseOverride(input string) (namespace, entry, field, value string, err err
 	// Find equals sign to split key=value
 	eqIdx := strings.Index(input, "=")
 	if eqIdx == -1 {
-		return "", "", "", "", fmt.Errorf("missing '=' separator (expected namespace:entry:field=value)")
+		return "", "", "", "", NewMissingSeparatorError("=", "namespace:entry:field=value")
 	}
 
 	keyPart := input[:eqIdx]
@@ -281,31 +284,31 @@ func parseOverride(input string) (namespace, entry, field, value string, err err
 	// Find first colon to separate namespace
 	firstColonIdx := strings.Index(keyPart, ":")
 	if firstColonIdx == -1 {
-		return "", "", "", "", fmt.Errorf("missing first ':' separator (expected namespace:entry:field=value)")
+		return "", "", "", "", NewMissingSeparatorError(":", "namespace:entry:field=value")
 	}
 
 	namespace = strings.TrimSpace(keyPart[:firstColonIdx])
 	remainder := keyPart[firstColonIdx+1:]
 
 	if namespace == "" {
-		return "", "", "", "", fmt.Errorf("empty namespace")
+		return "", "", "", "", NewEmptyFieldError("namespace")
 	}
 
 	// Find second colon to separate entry from field
 	secondColonIdx := strings.Index(remainder, ":")
 	if secondColonIdx == -1 {
-		return "", "", "", "", fmt.Errorf("missing second ':' separator (expected namespace:entry:field=value)")
+		return "", "", "", "", NewMissingSeparatorError(":", "namespace:entry:field=value")
 	}
 
 	entry = strings.TrimSpace(remainder[:secondColonIdx])
 	field = strings.TrimSpace(remainder[secondColonIdx+1:])
 
 	if entry == "" {
-		return "", "", "", "", fmt.Errorf("empty entry name")
+		return "", "", "", "", NewEmptyFieldError("entry name")
 	}
 
 	if field == "" {
-		return "", "", "", "", fmt.Errorf("empty field")
+		return "", "", "", "", NewEmptyFieldError("field")
 	}
 
 	return namespace, entry, field, value, nil
@@ -317,31 +320,31 @@ func parseExecSpec(spec string) (hostID, namespace, entry string, err error) {
 	// Find slash to separate host from source
 	slashIdx := strings.Index(spec, "/")
 	if slashIdx == -1 {
-		return "", "", "", fmt.Errorf("missing '/' separator (expected host/namespace:entry)")
+		return "", "", "", NewMissingSeparatorError("/", "host/namespace:entry")
 	}
 
 	hostID = strings.TrimSpace(spec[:slashIdx])
 	remainder := spec[slashIdx+1:]
 
 	if hostID == "" {
-		return "", "", "", fmt.Errorf("empty host ID")
+		return "", "", "", NewEmptyFieldError("host ID")
 	}
 
 	// Find colon to separate namespace from entry
 	colonIdx := strings.Index(remainder, ":")
 	if colonIdx == -1 {
-		return "", "", "", fmt.Errorf("missing ':' separator (expected host/namespace:entry)")
+		return "", "", "", NewMissingSeparatorError(":", "host/namespace:entry")
 	}
 
 	namespace = strings.TrimSpace(remainder[:colonIdx])
 	entry = strings.TrimSpace(remainder[colonIdx+1:])
 
 	if namespace == "" {
-		return "", "", "", fmt.Errorf("empty namespace")
+		return "", "", "", NewEmptyFieldError("namespace")
 	}
 
 	if entry == "" {
-		return "", "", "", fmt.Errorf("empty entry name")
+		return "", "", "", NewEmptyFieldError("entry name")
 	}
 
 	return hostID, namespace, entry, nil
@@ -351,12 +354,12 @@ func parseExecSpec(spec string) (hostID, namespace, entry string, err error) {
 func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, method string) error {
 	hostID, namespace, entry, err := parseExecSpec(execSpec)
 	if err != nil {
-		return fmt.Errorf("invalid exec spec: %w", err)
+		return NewInvalidExecSpecError(err)
 	}
 
 	manager := process.GetManager(ctx)
 	if manager == nil {
-		return fmt.Errorf("process manager not available")
+		return ErrProcessManagerNotAvailable
 	}
 
 	source := registry.NewID(namespace, entry)
@@ -368,7 +371,7 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, method
 
 	pid, err := manager.Start(ctx, start)
 	if err != nil {
-		return fmt.Errorf("failed to start process on host %s: %w", hostID, err)
+		return NewStartProcessError(hostID, err)
 	}
 
 	logger.Debug("exec process started",

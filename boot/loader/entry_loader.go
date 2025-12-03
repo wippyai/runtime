@@ -90,7 +90,7 @@ func NewEntryProcessor(transcoder payload.Transcoder) *EntryProcessor {
 func (ep *EntryProcessor) ExtractDependenciesToEntries(ctx context.Context, p payload.Payload) ([]registry.Entry, error) {
 	content, err := ep.unmarshalContent(p)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal content: %w", err)
+		return nil, NewUnmarshalContentError(err)
 	}
 
 	if err := ep.validator.ValidateFileContent(content); err != nil {
@@ -99,7 +99,7 @@ func (ep *EntryProcessor) ExtractDependenciesToEntries(ctx context.Context, p pa
 		if errors.As(err, &skipErr) {
 			return []registry.Entry{}, nil
 		}
-		return nil, fmt.Errorf("validation failed: %w", err)
+		return nil, NewValidationFailedError(err)
 	}
 
 	entries := make([]registry.Entry, 0)
@@ -127,7 +127,7 @@ func (ep *EntryProcessor) ExtractDependenciesToEntries(ctx context.Context, p pa
 func (ep *EntryProcessor) unmarshalContent(p payload.Payload) (*FileContent, error) {
 	var content FileContent
 	if err := ep.transcoder.Unmarshal(p, &content); err != nil {
-		return nil, fmt.Errorf("unmarshal content: %w", err)
+		return nil, NewUnmarshalContentError(err)
 	}
 	return &content, nil
 }

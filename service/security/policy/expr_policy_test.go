@@ -20,7 +20,7 @@ func TestExprPolicy_SimpleExpression(t *testing.T) {
 		},
 	}
 
-	policy, err := NewExprPolicy(registry.ID{NS: "test", Name: "admin"}, config)
+	policy, err := NewExprPolicy(registry.NewID("test", "admin"), config)
 	require.NoError(t, err)
 
 	// Admin user should be allowed
@@ -50,7 +50,7 @@ func TestExprPolicy_ComplexBooleanLogic(t *testing.T) {
 		},
 	}
 
-	policy, err := NewExprPolicy(registry.ID{NS: "test", Name: "complex"}, config)
+	policy, err := NewExprPolicy(registry.NewID("test", "complex"), config)
 	require.NoError(t, err)
 
 	actor := security.Actor{
@@ -81,7 +81,7 @@ func TestExprPolicy_ResourceAccess(t *testing.T) {
 		},
 	}
 
-	policy, err := NewExprPolicy(registry.ID{NS: "test", Name: "doc-read"}, config)
+	policy, err := NewExprPolicy(registry.NewID("test", "doc-read"), config)
 	require.NoError(t, err)
 
 	actor := security.Actor{ID: "user1", Meta: registry.Metadata{}}
@@ -109,7 +109,7 @@ func TestExprPolicy_ActionList(t *testing.T) {
 		},
 	}
 
-	policy, err := NewExprPolicy(registry.ID{NS: "test", Name: "owner"}, config)
+	policy, err := NewExprPolicy(registry.NewID("test", "owner"), config)
 	require.NoError(t, err)
 
 	actor := security.Actor{ID: "user123", Meta: registry.Metadata{}}
@@ -137,7 +137,7 @@ func TestExprPolicy_DenyEffect(t *testing.T) {
 		},
 	}
 
-	policy, err := NewExprPolicy(registry.ID{NS: "test", Name: "deny"}, config)
+	policy, err := NewExprPolicy(registry.NewID("test", "deny"), config)
 	require.NoError(t, err)
 
 	actor := security.Actor{ID: "user1", Meta: registry.Metadata{}}
@@ -161,9 +161,9 @@ func TestExprPolicy_InvalidExpression(t *testing.T) {
 		},
 	}
 
-	_, err := NewExprPolicy(registry.ID{NS: "test", Name: "invalid"}, config)
+	_, err := NewExprPolicy(registry.NewID("test", "invalid"), config)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "expression compilation failed")
+	assert.Contains(t, err.Error(), "failed to compile expression")
 }
 
 func TestExprPolicy_EmptyExpression(t *testing.T) {
@@ -176,9 +176,9 @@ func TestExprPolicy_EmptyExpression(t *testing.T) {
 		},
 	}
 
-	_, err := NewExprPolicy(registry.ID{NS: "test", Name: "empty"}, config)
+	_, err := NewExprPolicy(registry.NewID("test", "empty"), config)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "expression cannot be empty")
+	assert.Contains(t, err.Error(), "failed to compile expression")
 }
 
 func TestExprPolicy_ArrayOperations(t *testing.T) {
@@ -191,7 +191,7 @@ func TestExprPolicy_ArrayOperations(t *testing.T) {
 		},
 	}
 
-	policy, err := NewExprPolicy(registry.ID{NS: "test", Name: "arrays"}, config)
+	policy, err := NewExprPolicy(registry.NewID("test", "arrays"), config)
 	require.NoError(t, err)
 
 	actor := security.Actor{ID: "user1", Meta: registry.Metadata{}}
@@ -216,13 +216,13 @@ func TestExprPolicy_ArrayOperations(t *testing.T) {
 }
 
 func TestExprPolicy_NilConfig(t *testing.T) {
-	_, err := NewExprPolicy(registry.ID{NS: "test", Name: "nil"}, nil)
+	_, err := NewExprPolicy(registry.NewID("test", "nil"), nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "config cannot be nil")
 }
 
 func TestExprPolicy_ID(t *testing.T) {
-	id := registry.ID{NS: "test", Name: "policy1"}
+	id := registry.NewID("test", "policy1")
 	config := &policyapi.ExprConfig{
 		Policy: policyapi.ExprDefinition{
 			Actions:    "*",

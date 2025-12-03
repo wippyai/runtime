@@ -418,8 +418,8 @@ func TestConfig_GetGroupIDs(t *testing.T) {
 			},
 			defaultNS: "default",
 			expected: []registry.ID{
-				{NS: "ns", Name: "group1"},
-				{NS: "ns", Name: "group2"},
+				registry.NewID("ns", "group1"),
+				registry.NewID("ns", "group2"),
 			},
 		},
 		{
@@ -429,8 +429,8 @@ func TestConfig_GetGroupIDs(t *testing.T) {
 			},
 			defaultNS: "policies",
 			expected: []registry.ID{
-				{NS: "policies", Name: "group1"},
-				{NS: "policies", Name: "group2"},
+				registry.NewID("policies", "group1"),
+				registry.NewID("policies", "group2"),
 			},
 		},
 	}

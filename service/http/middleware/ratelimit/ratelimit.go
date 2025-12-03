@@ -1,7 +1,6 @@
 package ratelimit
 
 import (
-	"fmt"
 	"net"
 	"net/http"
 	"strconv"
@@ -292,7 +291,7 @@ func extractIP(r *http.Request) string {
 func parseDuration(s string) (time.Duration, error) {
 	s = strings.TrimSpace(s)
 	if len(s) < 2 {
-		return 0, fmt.Errorf("invalid duration: %s", s)
+		return 0, NewInvalidDurationError(s)
 	}
 
 	valueStr := s[:len(s)-1]
@@ -300,7 +299,7 @@ func parseDuration(s string) (time.Duration, error) {
 
 	value, err := strconv.Atoi(valueStr)
 	if err != nil {
-		return 0, fmt.Errorf("invalid duration value: %s", s)
+		return 0, NewInvalidDurationValueError(s)
 	}
 
 	switch unit {
@@ -311,6 +310,6 @@ func parseDuration(s string) (time.Duration, error) {
 	case "h":
 		return time.Duration(value) * time.Hour, nil
 	default:
-		return 0, fmt.Errorf("invalid duration unit: %s (use s, m, or h)", unit)
+		return 0, NewInvalidDurationUnitError(unit)
 	}
 }

@@ -13,7 +13,6 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/runtime/lua/engine"
@@ -27,7 +26,7 @@ const defaultCancelTimeout = "30s"
 
 var (
 	moduleTable      *lua.LTable
-	registration     *lua2api.Registration
+	registration     *luaapi.Registration
 	messageMetatable *lua.LTable
 	initOnce         sync.Once
 )
@@ -45,7 +44,7 @@ func (m *processModule) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *processModule) Register(l *lua.LState) *lua2api.Registration {
+func (m *processModule) Register(l *lua.LState) *luaapi.Registration {
 	initOnce.Do(func() {
 		moduleTable = createModuleTable()
 
@@ -53,7 +52,7 @@ func (m *processModule) Register(l *lua.LState) *lua2api.Registration {
 			map[string]lua.LGFunction{"__tostring": messageToString},
 			messageMethods)
 
-		registration = &lua2api.Registration{
+		registration = &luaapi.Registration{
 			Table:      moduleTable,
 			YieldTypes: nil,
 		}
@@ -68,9 +67,9 @@ func (m *processModule) Loader(l *lua.LState) int {
 	return 1
 }
 
-// Bind is deprecated. Use lua2api.LoadModule(l, Module) instead.
+// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
 func Bind(l *lua.LState) {
-	lua2api.LoadModule(l, Module)
+	luaapi.LoadModule(l, Module)
 }
 
 // BindGlobal sets the process module as a global variable.
@@ -191,7 +190,7 @@ func resolvePID(l *lua.LState, pidOrName string, permission string) (relay.PID, 
 	pid, err := relay.ParsePID(pidOrName)
 	if err == nil {
 		if !security.IsAllowed(l.Context(), permission, pid.String(), nil) {
-			return relay.PID{}, fmt.Errorf("not allowed to %s: %s",
+			return relay.PID{}, NewNotAllowedError(
 				strings.TrimPrefix(permission, "process."), pidOrName)
 		}
 		return pid, nil
@@ -199,16 +198,16 @@ func resolvePID(l *lua.LState, pidOrName string, permission string) (relay.PID, 
 
 	reg, ok := getRegistry(l)
 	if !ok {
-		return relay.PID{}, fmt.Errorf("could not access registry")
+		return relay.PID{}, ErrCouldNotAccessRegistry
 	}
 
 	pid, found := reg.Lookup(pidOrName)
 	if !found {
-		return relay.PID{}, fmt.Errorf("could not resolve '%s' as PID or registered name", pidOrName)
+		return relay.PID{}, NewCouldNotResolveError(pidOrName)
 	}
 
 	if !security.IsAllowed(l.Context(), permission, pid.String(), nil) {
-		return relay.PID{}, fmt.Errorf("not allowed to %s: %s",
+		return relay.PID{}, NewNotAllowedError(
 			strings.TrimPrefix(permission, "process."), pidOrName)
 	}
 

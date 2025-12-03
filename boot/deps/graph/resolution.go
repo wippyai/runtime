@@ -11,12 +11,12 @@ import (
 // resolveVersion finds the highest version from labels that matches the constraint.
 func resolveVersion(constraint string, labels []*modulev1.Label) (*modulev1.Label, error) {
 	if len(labels) == 0 {
-		return nil, fmt.Errorf("no labels available")
+		return nil, ErrNoLabelsAvailable
 	}
 
 	c, err := parseConstraint(constraint)
 	if err != nil {
-		return nil, fmt.Errorf("parse constraint %q: %w", constraint, err)
+		return nil, NewParseConstraintError(constraint, err)
 	}
 
 	var best *modulev1.Label
@@ -37,7 +37,7 @@ func resolveVersion(constraint string, labels []*modulev1.Label) (*modulev1.Labe
 	}
 
 	if best == nil {
-		return nil, fmt.Errorf("no version matches constraint %q", constraint)
+		return nil, NewNoMatchingVersionError(constraint)
 	}
 
 	return best, nil
@@ -95,7 +95,7 @@ func checkConstraintCompatibility(c1, c2 *semver.Constraints) bool {
 //nolint:unparam // first return value used when successful
 func mergeConstraints(constraints []string) (*semver.Constraints, error) {
 	if len(constraints) == 0 {
-		return nil, fmt.Errorf("no constraints to merge")
+		return nil, ErrNoConstraints
 	}
 
 	if len(constraints) == 1 {
@@ -107,7 +107,7 @@ func mergeConstraints(constraints []string) (*semver.Constraints, error) {
 	for _, c := range constraints {
 		p, err := parseConstraint(c)
 		if err != nil {
-			return nil, fmt.Errorf("parse constraint %q: %w", c, err)
+			return nil, NewParseConstraintError(c, err)
 		}
 		parsed = append(parsed, p)
 	}
@@ -116,8 +116,7 @@ func mergeConstraints(constraints []string) (*semver.Constraints, error) {
 	for i := 0; i < len(parsed); i++ {
 		for j := i + 1; j < len(parsed); j++ {
 			if !checkConstraintCompatibility(parsed[i], parsed[j]) {
-				return nil, fmt.Errorf("constraints %q and %q are incompatible",
-					constraints[i], constraints[j])
+				return nil, NewIncompatibleConstraintsError(constraints[i], constraints[j])
 			}
 		}
 	}

@@ -29,6 +29,7 @@ func All() []boot.Component {
 		Template(),
 		Text(),
 		Time(),
+		TreeSitter(),
 		UUID(),
 		WebSocket(),
 		YAML(),

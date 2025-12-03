@@ -2,11 +2,10 @@ package evalhost
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"go.uber.org/zap"
 )
@@ -19,7 +18,7 @@ type Host struct {
 }
 
 // NewHost creates a new eval host.
-func NewHost(log *zap.Logger, modules []lua2api.ModuleV2, processFactory process.Factory) *Host {
+func NewHost(log *zap.Logger, modules []luaapi.ModuleV2, processFactory process.Factory) *Host {
 	return &Host{
 		log:            log,
 		compiler:       NewCompiler(modules),
@@ -31,7 +30,7 @@ func NewHost(log *zap.Logger, modules []lua2api.ModuleV2, processFactory process
 func (h *Host) Compile(ctx context.Context, cmd CompileCmd) (*Program, error) {
 	program, err := h.compiler.Compile(cmd)
 	if err != nil {
-		return nil, fmt.Errorf("compile failed: %w", err)
+		return nil, NewCompileError(err)
 	}
 	return program, nil
 }
@@ -45,7 +44,7 @@ func (h *Host) CreateProcess(ctx context.Context, program *Program) (process.Pro
 	factory := engine.NewFactoryFromProto(program.Proto(), binder)
 	proc, err := factory()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create process: %w", err)
+		return nil, NewCreateProcessError(err)
 	}
 
 	return proc, nil
@@ -54,12 +53,12 @@ func (h *Host) CreateProcess(ctx context.Context, program *Program) (process.Pro
 // CreateProcessFromID creates a process from a prototype ID.
 func (h *Host) CreateProcessFromID(ctx context.Context, id registry.ID) (process.Process, error) {
 	if h.processFactory == nil {
-		return nil, fmt.Errorf("process factory not available")
+		return nil, ErrProcessFactoryNotAvailable
 	}
 
 	proc, _, err := h.processFactory.Create(id)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create process from ID %s: %w", id, err)
+		return nil, NewCreateProcessFromIDError(id.String(), err)
 	}
 
 	return proc, nil

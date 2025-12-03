@@ -2,7 +2,6 @@ package graph
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/wippyai/runtime/internal/graph"
 )
@@ -42,7 +41,7 @@ func (b *Builder) buildGraph(ctx context.Context, input BuildInput) (*BuildResul
 		// Batch fetch manifests
 		manifests, err := b.provider.FetchManifests(ctx, manifestReqs)
 		if err != nil {
-			return nil, fmt.Errorf("fetch manifests level %d: %w", level, err)
+			return nil, NewFetchManifestsError(level, err)
 		}
 
 		stats.ManifestsFetched += len(manifests)
@@ -55,14 +54,13 @@ func (b *Builder) buildGraph(ctx context.Context, input BuildInput) (*BuildResul
 
 			// Check for fetch error
 			if manifest.Error != nil {
-				return nil, fmt.Errorf("fetch manifest %s: %w", pm.Request.Name, manifest.Error)
+				return nil, NewFetchManifestError(pm.Request.Name, manifest.Error)
 			}
 
 			// Resolve version
 			selectedLabel := manifest.SelectedLabel
 			if selectedLabel == nil {
-				return nil, fmt.Errorf("no matching version for %s with constraint %s",
-					pm.Request.Name, pm.Request.Constraint)
+				return nil, NewNoMatchingVersionForModuleError(pm.Request.Name, pm.Request.Constraint)
 			}
 
 			moduleKey := ModuleKey{

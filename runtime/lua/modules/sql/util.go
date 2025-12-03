@@ -1,8 +1,6 @@
 package sql
 
 import (
-	"fmt"
-
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -14,7 +12,7 @@ func checkParams(l *lua.LState, index int) ([]any, error) {
 	}
 
 	if params.Type() != lua.LTTable {
-		return nil, fmt.Errorf("parameters must be a table, got %s", params.Type().String())
+		return nil, NewInvalidParametersTypeError(params.Type().String())
 	}
 
 	tbl := params.(*lua.LTable)

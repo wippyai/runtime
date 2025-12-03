@@ -419,8 +419,8 @@ func TestManager_Update(t *testing.T) {
 	defer supervisorSub.Close()
 
 	// First add services to update
-	postgresID := registry.ID{NS: "test", Name: "postgres-db"}
-	sqliteID := registry.ID{NS: "test", Name: "sqlite-db"}
+	postgresID := registry.NewID("test", "postgres-db")
+	sqliteID := registry.NewID("test", "sqlite-db")
 
 	// Add PostgreSQL service
 	require.NoError(t, manager.Add(ctx, registry.Entry{
@@ -461,7 +461,7 @@ func TestManager_Update(t *testing.T) {
 		{
 			name:          "Update non-existent service",
 			kind:          apiconfig.KindPostgres,
-			id:            registry.ID{NS: "test", Name: "nonexistent-db"},
+			id:            registry.NewID("test", "nonexistent-db"),
 			expectSuccess: false,
 		},
 		{
@@ -540,7 +540,7 @@ func TestManager_Delete(t *testing.T) {
 	defer resourceSub.Close()
 
 	// Add a service to delete
-	dbID := registry.ID{NS: "test", Name: "db-to-delete"}
+	dbID := registry.NewID("test", "db-to-delete")
 	require.NoError(t, manager.Add(ctx, registry.Entry{
 		ID:   dbID,
 		Kind: apiconfig.KindPostgres,
@@ -573,7 +573,7 @@ func TestManager_Delete(t *testing.T) {
 		},
 		{
 			name:          "Delete non-existent service",
-			id:            registry.ID{NS: "test", Name: "nonexistent-db"},
+			id:            registry.NewID("test", "nonexistent-db"),
 			expectSuccess: false,
 		},
 	}

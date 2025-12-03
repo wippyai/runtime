@@ -14,7 +14,7 @@ func OTel() boot.Component {
 	return boot.New(boot.P{
 		Name: OTelName,
 		Load: func(ctx context.Context) (context.Context, error) {
-			logger := logapi.GetLogger(ctx)
+			logger := logapi.GetLogger(ctx).Named("otel")
 			if logger == nil {
 				return ctx, ErrLoggerNotAvailable
 			}
@@ -33,7 +33,7 @@ func OTel() boot.Component {
 				return ctx, nil
 			}
 
-			tp, err := otel.InitializeProvider(ctx, cfg, logger.Named("otel"))
+			tp, err := otel.InitializeProvider(ctx, cfg, logger)
 			if err != nil {
 				return ctx, NewOTELInitError(err)
 			}
@@ -41,7 +41,7 @@ func OTel() boot.Component {
 			tracer := tp.Tracer("wippy-runtime")
 			ctx = otelapi.WithTracer(ctx, tracer)
 
-			svc := otel.NewService(cfg, logger.Named("otel"), tp)
+			svc := otel.NewService(cfg, logger, tp)
 			ctx = otelapi.WithService(ctx, svc)
 
 			logger.Info("OTEL service initialized", zap.Bool("enabled", cfg.Enabled))

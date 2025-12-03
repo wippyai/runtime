@@ -29,8 +29,8 @@ func TestWithSecurityConfig(t *testing.T) {
 
 	policyConfig := &security.Config{
 		Actor:        security.Actor{ID: "test-user"},
-		Policies:     []registry.ID{{NS: "test", Name: "policy1"}},
-		PolicyGroups: []registry.ID{{NS: "test", Name: "group1"}},
+		Policies:     []registry.ID{registry.NewID("test", "policy1")},
+		PolicyGroups: []registry.ID{registry.NewID("test", "group1")},
 	}
 	result = WithSecurityConfig(ctx, policyConfig)
 	_, ok = security.GetActor(result)

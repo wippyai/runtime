@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/sergi/go-diff/diffmatchpatch"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -27,7 +26,7 @@ var (
 	moduleTable  *lua.LTable
 	regexpMT     *lua.LTable
 	differMT     *lua.LTable
-	registration *lua2api.Registration
+	registration *luaapi.Registration
 	initOnce     sync.Once
 )
 
@@ -44,7 +43,7 @@ func (m *textModule) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *textModule) Register(l *lua.LState) *lua2api.Registration {
+func (m *textModule) Register(l *lua.LState) *luaapi.Registration {
 	initOnce.Do(func() {
 		regexpMT = createRegexpMetatable(l)
 		differMT = createDifferMetatable(l)
@@ -64,7 +63,7 @@ func (m *textModule) Register(l *lua.LState) *lua2api.Registration {
 		mod.Immutable = true
 		moduleTable = mod
 
-		registration = &lua2api.Registration{
+		registration = &luaapi.Registration{
 			Table:      moduleTable,
 			YieldTypes: nil,
 		}
@@ -82,9 +81,9 @@ func (m *textModule) Loader(l *lua.LState) int {
 	return 1
 }
 
-// Bind is deprecated. Use lua2api.LoadModule(l, Module) instead.
+// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
 func Bind(l *lua.LState) {
-	lua2api.LoadModule(l, Module)
+	luaapi.LoadModule(l, Module)
 }
 
 type RegexpWrapper struct {

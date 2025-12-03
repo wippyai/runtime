@@ -208,7 +208,7 @@ func TestManager_Add(t *testing.T) {
 	require.NoError(t, err)
 	defer cleanup()
 
-	testID := registry.ID{NS: "test", Name: "awsconfig"}
+	testID := registry.NewID("test", "awsconfig")
 
 	t.Run("successful config addition", func(t *testing.T) {
 		entry := registry.Entry{
@@ -297,7 +297,7 @@ func TestManager_Update(t *testing.T) {
 	require.NoError(t, err)
 	defer cleanup()
 
-	testID := registry.ID{NS: "test", Name: "awsconfig"}
+	testID := registry.NewID("test", "awsconfig")
 
 	// First add a config
 	addEntry := registry.Entry{
@@ -365,7 +365,7 @@ func TestManager_Update(t *testing.T) {
 	})
 
 	t.Run("config not found", func(t *testing.T) {
-		nonExistentID := registry.ID{NS: "test", Name: "nonexistent"}
+		nonExistentID := registry.NewID("test", "nonexistent")
 		entry := registry.Entry{
 			ID:   nonExistentID,
 			Kind: serviceaws.Kind,
@@ -403,7 +403,7 @@ func TestManager_Update(t *testing.T) {
 
 		err := manager.Update(ctx, entry)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "unmarshal error")
+		assert.Contains(t, err.Error(), "failed to unmarshal")
 
 		// Reset transcoder for other tests
 		manager.dtt = NewMockTranscoder()
@@ -418,7 +418,7 @@ func TestManager_Delete(t *testing.T) {
 	require.NoError(t, err)
 	defer cleanup()
 
-	testID := registry.ID{NS: "test", Name: "awsconfig"}
+	testID := registry.NewID("test", "awsconfig")
 
 	// First add a config
 	addEntry := registry.Entry{
@@ -481,7 +481,7 @@ func TestManager_Delete(t *testing.T) {
 func TestManager_Acquire(t *testing.T) {
 	manager, _, ctx := setupTestEnvironment(t)
 
-	testID := registry.ID{NS: "test", Name: "awsconfig"}
+	testID := registry.NewID("test", "awsconfig")
 
 	// Add a config first
 	addEntry := registry.Entry{
@@ -514,7 +514,7 @@ func TestManager_Acquire(t *testing.T) {
 	})
 
 	t.Run("resource not found", func(t *testing.T) {
-		nonExistentID := registry.ID{NS: "test", Name: "nonexistent"}
+		nonExistentID := registry.NewID("test", "nonexistent")
 
 		// Try to acquire a non-existent resource
 		res, err := manager.Acquire(ctx, nonExistentID, resource.ModeNormal)
@@ -535,7 +535,7 @@ func TestManager_Acquire(t *testing.T) {
 func TestConfigResource(t *testing.T) {
 	manager, _, ctx := setupTestEnvironment(t)
 
-	testID := registry.ID{NS: "test", Name: "awsconfig"}
+	testID := registry.NewID("test", "awsconfig")
 
 	// Add a config first
 	addEntry := registry.Entry{

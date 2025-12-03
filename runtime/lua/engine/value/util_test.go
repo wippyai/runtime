@@ -195,17 +195,13 @@ func TestGetField_Userdata(t *testing.T) {
 	defer L.Close()
 
 	t.Run("userdata with __index table", func(t *testing.T) {
-		// Spawn test userdata with metatable
-		assert.NoError(t, L.DoString(`
-            local ud = newproxy(true)  -- creates userdata with empty metatable
-            local mt = getmetatable(ud)
-            mt.__index = {
-                test = "userdata_value"
-            }
-            return ud
-        `))
-		ud := L.Get(-1)
-		L.Pop(1)
+		// Create userdata via Go since newproxy is not available in gopher-lua
+		ud := L.NewUserData()
+		mt := L.NewTable()
+		index := L.NewTable()
+		index.RawSetString("test", lua.LString("userdata_value"))
+		mt.RawSetString("__index", index)
+		L.SetMetatable(ud, mt)
 
 		if value, ok := GetField(L, ud, "test"); !ok || value != lua.LString("userdata_value") {
 			t.Errorf("GetField(userdata, \"test\") = %v, %v, want userdata_value, true", value, ok)
@@ -213,16 +209,16 @@ func TestGetField_Userdata(t *testing.T) {
 	})
 
 	t.Run("userdata with __index function", func(t *testing.T) {
-		assert.NoError(t, L.DoString(`
-            local ud = newproxy(true)
-            local mt = getmetatable(ud)
-            mt.__index = function(t, k)
-                return "userdata_" .. k
-            end
-            return ud
-        `))
-		ud := L.Get(-1)
-		L.Pop(1)
+		// Create userdata with __index function
+		ud := L.NewUserData()
+		mt := L.NewTable()
+		indexFn := L.NewFunction(func(ls *lua.LState) int {
+			key := ls.CheckString(2)
+			ls.Push(lua.LString("userdata_" + key))
+			return 1
+		})
+		mt.RawSetString("__index", indexFn)
+		L.SetMetatable(ud, mt)
 
 		if value, ok := GetField(L, ud, "test"); !ok || value != lua.LString("userdata_test") {
 			t.Errorf("GetField(userdata, \"test\") = %v, %v, want userdata_test, true", value, ok)

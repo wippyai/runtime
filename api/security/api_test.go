@@ -89,11 +89,11 @@ func TestConfig_MarshalUnmarshal(t *testing.T) {
 					Meta: registry.Metadata{"type": "api"},
 				},
 				PolicyGroups: []registry.ID{
-					{NS: "policies", Name: "admin"},
-					{NS: "policies", Name: "readonly"},
+					registry.NewID("policies", "admin"),
+					registry.NewID("policies", "readonly"),
 				},
 				Policies: []registry.ID{
-					{NS: "policies", Name: "custom"},
+					registry.NewID("policies", "custom"),
 				},
 			},
 			wantErr: false,
@@ -110,7 +110,7 @@ func TestConfig_MarshalUnmarshal(t *testing.T) {
 			config: Config{
 				Actor: Actor{ID: "service-789"},
 				PolicyGroups: []registry.ID{
-					{NS: "groups", Name: "viewers"},
+					registry.NewID("groups", "viewers"),
 				},
 			},
 			wantErr: false,
@@ -188,7 +188,7 @@ func TestPolicyEntry_MarshalUnmarshal(t *testing.T) {
 			entry: PolicyEntry{
 				Policy: nil,
 				Groups: []registry.ID{
-					{NS: "groups", Name: "admin"},
+					registry.NewID("groups", "admin"),
 				},
 			},
 			wantErr: false,

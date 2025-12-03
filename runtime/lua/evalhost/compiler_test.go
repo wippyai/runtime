@@ -5,7 +5,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/modules/json"
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
@@ -13,8 +12,8 @@ import (
 )
 
 // safeModules returns modules safe for eval testing
-func safeModules() []lua2api.ModuleV2 {
-	return []lua2api.ModuleV2{
+func safeModules() []luaapi.ModuleV2 {
+	return []luaapi.ModuleV2{
 		json.Module,
 		timemod.Module,
 	}
@@ -62,7 +61,7 @@ func TestCompiler_Compile_ForbiddenClass(t *testing.T) {
 		classes: []string{luaapi.ClassProcess},
 	}
 
-	modules := []lua2api.ModuleV2{
+	modules := []luaapi.ModuleV2{
 		json.Module,
 		mockMod,
 	}
@@ -145,7 +144,7 @@ func TestCompiler_ClassBasedFiltering(t *testing.T) {
 		classes: []string{luaapi.ClassNetwork},
 	}
 
-	modules := []lua2api.ModuleV2{
+	modules := []luaapi.ModuleV2{
 		safeModule,
 		processModule,
 		storageModule,
@@ -168,7 +167,7 @@ func TestCompiler_CustomForbiddenClasses(t *testing.T) {
 		classes: []string{luaapi.ClassIO},
 	}
 
-	modules := []lua2api.ModuleV2{ioModule}
+	modules := []luaapi.ModuleV2{ioModule}
 
 	// With default settings, IO is allowed
 	compilerDefault := NewCompiler(modules)
@@ -241,7 +240,7 @@ func TestCompiler_ForbiddenClasses(t *testing.T) {
 	assert.Contains(t, forbidden, luaapi.ClassNetwork)
 }
 
-// mockModule implements lua2api.ModuleV2 for testing
+// mockModule implements luaapi.ModuleV2 for testing
 type mockModule struct {
 	name    string
 	classes []string
@@ -255,8 +254,8 @@ func (m *mockModule) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *mockModule) Register(l *lua.LState) *lua2api.Registration {
-	return &lua2api.Registration{}
+func (m *mockModule) Register(l *lua.LState) *luaapi.Registration {
+	return &luaapi.Registration{}
 }
 
 func (m *mockModule) Loader(l *lua.LState) int {

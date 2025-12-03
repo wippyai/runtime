@@ -3,7 +3,6 @@ package internode
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"reflect"
 	"sync"
@@ -44,7 +43,7 @@ func NewMessageCodec(transcoder payload.Transcoder) *MessageCodec {
 	mh.SliceType = reflect.TypeOf([]any(nil))
 
 	if err := registerPIDExtension(mh); err != nil {
-		panic(fmt.Errorf("failed to register relay.PID extension: %w", err))
+		panic(NewRegisterPIDExtensionError(err))
 	}
 
 	return &MessageCodec{
@@ -98,7 +97,7 @@ func (c *MessageCodec) Encode(pkg *relay.Package) ([]byte, error) {
 		for j, p := range msg.Payloads {
 			normalizedPayload, err := c.normalizePayload(p)
 			if err != nil {
-				return nil, fmt.Errorf("failed to transcode payload at message %d, payload %d: %w", i, j, err)
+				return nil, NewEncodePayloadError(j, err)
 			}
 			encMsg.Payloads[j] = encodedPayload{
 				Format: normalizedPayload.Format(),
@@ -114,7 +113,7 @@ func (c *MessageCodec) Encode(pkg *relay.Package) ([]byte, error) {
 
 	encoder := codec.NewEncoder(buf, c.handle)
 	if err := encoder.Encode(encPkg); err != nil {
-		return nil, fmt.Errorf("failed to msgpack encode package: %w", err)
+		return nil, NewMsgpackEncodeError(err)
 	}
 
 	result := make([]byte, buf.Len())
@@ -131,10 +130,8 @@ func (c *MessageCodec) Decode(data []byte) (*relay.Package, error) {
 
 	decoder := codec.NewDecoder(bytes.NewReader(data), c.handle)
 	if err := decoder.Decode(encPkg); err != nil {
-		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-			return nil, fmt.Errorf("failed to msgpack decode package: buffer is empty or incomplete")
-		}
-		return nil, fmt.Errorf("failed to msgpack decode package: %w", err)
+		isEmptyOrIncomplete := errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
+		return nil, NewMsgpackDecodeError(err, isEmptyOrIncomplete)
 	}
 
 	finalPkg := relay.AcquirePackage()
@@ -163,15 +160,15 @@ func (c *MessageCodec) Decode(data []byte) (*relay.Package, error) {
 	return finalPkg, nil
 }
 
-// Keep your existing normalization logic exactly as-is
+// normalizePayload converts payloads to formats that msgpack can encode directly.
+// Pass-through: JSON (bytes), Bytes, String, Error, Golang, MsgPack
+// Transcode to Golang: Lua, YAML, and other formats
 func (c *MessageCodec) normalizePayload(p payload.Payload) (payload.Payload, error) {
 	switch p.Format() {
-	case payload.Golang, payload.String, payload.Bytes, payload.Error:
+	case payload.JSON, payload.Bytes, payload.String, payload.Error, payload.Golang, payload.MsgPack:
 		return p, nil
-	case payload.JSON, payload.YAML, payload.Lua:
-		return c.transcoder.Transcode(p, payload.JSON)
 	default:
-		return c.transcoder.Transcode(p, payload.JSON)
+		return c.transcoder.Transcode(p, payload.Golang)
 	}
 }
 

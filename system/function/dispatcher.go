@@ -57,6 +57,9 @@ func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, emi
 
 	go func() {
 		result, err := registry.Call(ctx, callCmd.Task)
+		if ctx.Err() != nil {
+			return
+		}
 		if err != nil {
 			emit.Emit(funcapi.Response{Error: err}, nil)
 			return
@@ -97,6 +100,9 @@ func (d *Dispatcher) handleAsyncAwait(ctx context.Context, cmd dispatcher.Comman
 
 	go func() {
 		result, err := callRegistry.Await(ctx, awaitCmd.CallID)
+		if ctx.Err() != nil {
+			return
+		}
 		if err != nil {
 			cancelled := errors.Is(err, ErrCallCancelled)
 			emit.Emit(funcapi.AsyncAwaitResponse{Error: err, Cancelled: cancelled}, nil)

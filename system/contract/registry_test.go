@@ -212,8 +212,8 @@ func TestContractRegistry_BindingEvents(t *testing.T) {
 	testBinding := &contract.Binding{
 		Contracts: []contract.BoundContract{
 			{
-				Contract:        registry.ID{NS: "test", Name: "contract"},
-				Methods:         map[string]registry.ID{"method1": {NS: "test", Name: "func1"}},
+				Contract:        registry.NewID("test", "contract"),
+				Methods:         map[string]registry.ID{"method1": registry.NewID("test", "func1")},
 				ContextRequired: []string{"scope1"},
 			},
 		},
@@ -352,7 +352,7 @@ func TestContractRegistry_GetContract(t *testing.T) {
 		},
 	}
 
-	contractID := registry.ID{NS: "test", Name: "contract"}
+	contractID := registry.NewID("test", "contract")
 	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: contract.System,
@@ -380,7 +380,7 @@ func TestContractRegistry_GetContract(t *testing.T) {
 	assert.Contains(t, err.Error(), "method 'nonExistent' not found")
 
 	// Test non-existent contract
-	_, err = contractRegistry.GetContract(ctx, registry.ID{NS: "test", Name: "missing"})
+	_, err = contractRegistry.GetContract(ctx, registry.NewID("test", "missing"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "contract definition 'test:missing' not found")
 }
@@ -410,13 +410,13 @@ func TestContractRegistry_GetBinding(t *testing.T) {
 	defer sub.Close()
 
 	// Register a test binding
-	bindingID := registry.ID{NS: "test", Name: "binding"}
+	bindingID := registry.NewID("test", "binding")
 	testBinding := &contract.Binding{
 		Meta: registry.Metadata{"key": "value"},
 		Contracts: []contract.BoundContract{
 			{
-				Contract: registry.ID{NS: "test", Name: "contract"},
-				Methods:  map[string]registry.ID{"method1": {NS: "test", Name: "func1"}},
+				Contract: registry.NewID("test", "contract"),
+				Methods:  map[string]registry.ID{"method1": registry.NewID("test", "func1")},
 			},
 		},
 	}
@@ -438,7 +438,7 @@ func TestContractRegistry_GetBinding(t *testing.T) {
 	assert.Len(t, binding.Contracts, 1)
 
 	// Test non-existent binding
-	_, err = contractRegistry.GetBinding(ctx, registry.ID{NS: "test", Name: "missing"})
+	_, err = contractRegistry.GetBinding(ctx, registry.NewID("test", "missing"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "contract binding 'test:missing' not found")
 }
@@ -467,17 +467,17 @@ func TestContractRegistry_GetBindingsForContract(t *testing.T) {
 	require.NoError(t, err)
 	defer sub.Close()
 
-	contractID := registry.ID{NS: "test", Name: "contract"}
-	binding1ID := registry.ID{NS: "test", Name: "binding1"}
-	binding2ID := registry.ID{NS: "test", Name: "binding2"}
-	binding3ID := registry.ID{NS: "test", Name: "binding3"}
+	contractID := registry.NewID("test", "contract")
+	binding1ID := registry.NewID("test", "binding1")
+	binding2ID := registry.NewID("test", "binding2")
+	binding3ID := registry.NewID("test", "binding3")
 
 	// Register bindings
 	testBinding1 := &contract.Binding{
 		Contracts: []contract.BoundContract{
 			{
 				Contract: contractID,
-				Methods:  map[string]registry.ID{"method1": {NS: "test", Name: "func1"}},
+				Methods:  map[string]registry.ID{"method1": registry.NewID("test", "func1")},
 			},
 		},
 	}
@@ -486,7 +486,7 @@ func TestContractRegistry_GetBindingsForContract(t *testing.T) {
 		Contracts: []contract.BoundContract{
 			{
 				Contract: contractID,
-				Methods:  map[string]registry.ID{"method2": {NS: "test", Name: "func2"}},
+				Methods:  map[string]registry.ID{"method2": registry.NewID("test", "func2")},
 			},
 		},
 	}
@@ -494,8 +494,8 @@ func TestContractRegistry_GetBindingsForContract(t *testing.T) {
 	testBinding3 := &contract.Binding{
 		Contracts: []contract.BoundContract{
 			{
-				Contract: registry.ID{NS: "other", Name: "contract"}, // Different contract
-				Methods:  map[string]registry.ID{"method3": {NS: "test", Name: "func3"}},
+				Contract: registry.NewID("other", "contract"), // Different contract
+				Methods:  map[string]registry.ID{"method3": registry.NewID("test", "func3")},
 			},
 		},
 	}
@@ -542,7 +542,7 @@ func TestContractRegistry_GetBindingsForContract(t *testing.T) {
 	assert.True(t, foundBinding2)
 
 	// Test with non-existent contract
-	bindingIDs, err = contractRegistry.GetBindingsForContract(ctx, registry.ID{NS: "missing", Name: "contract"})
+	bindingIDs, err = contractRegistry.GetBindingsForContract(ctx, registry.NewID("missing", "contract"))
 	require.NoError(t, err)
 	assert.Empty(t, bindingIDs)
 }
@@ -571,9 +571,9 @@ func TestContractRegistry_GetDefaultBinding(t *testing.T) {
 	require.NoError(t, err)
 	defer sub.Close()
 
-	contractID := registry.ID{NS: "test", Name: "contract"}
-	defaultBindingID := registry.ID{NS: "test", Name: "default_binding"}
-	nonDefaultBindingID := registry.ID{NS: "test", Name: "non_default_binding"}
+	contractID := registry.NewID("test", "contract")
+	defaultBindingID := registry.NewID("test", "default_binding")
+	nonDefaultBindingID := registry.NewID("test", "non_default_binding")
 
 	t.Run("no default binding exists", func(t *testing.T) {
 		// Test getting default for non-existent contract
@@ -587,7 +587,7 @@ func TestContractRegistry_GetDefaultBinding(t *testing.T) {
 			Contracts: []contract.BoundContract{
 				{
 					Contract: contractID,
-					Methods:  map[string]registry.ID{"method1": {NS: "test", Name: "func1"}},
+					Methods:  map[string]registry.ID{"method1": registry.NewID("test", "func1")},
 					Default:  true, // Mark as default
 				},
 			},
@@ -613,7 +613,7 @@ func TestContractRegistry_GetDefaultBinding(t *testing.T) {
 			Contracts: []contract.BoundContract{
 				{
 					Contract: contractID,
-					Methods:  map[string]registry.ID{"method2": {NS: "test", Name: "func2"}},
+					Methods:  map[string]registry.ID{"method2": registry.NewID("test", "func2")},
 					Default:  false, // Explicitly non-default
 				},
 			},
@@ -639,7 +639,7 @@ func TestContractRegistry_GetDefaultBinding(t *testing.T) {
 			Contracts: []contract.BoundContract{
 				{
 					Contract: contractID,
-					Methods:  map[string]registry.ID{"method1": {NS: "test", Name: "func1"}},
+					Methods:  map[string]registry.ID{"method1": registry.NewID("test", "func1")},
 					Default:  false, // Remove default
 				},
 			},
@@ -665,7 +665,7 @@ func TestContractRegistry_GetDefaultBinding(t *testing.T) {
 			Contracts: []contract.BoundContract{
 				{
 					Contract: contractID,
-					Methods:  map[string]registry.ID{"method2": {NS: "test", Name: "func2"}},
+					Methods:  map[string]registry.ID{"method2": registry.NewID("test", "func2")},
 					Default:  true, // Make this the default
 				},
 			},
@@ -726,8 +726,8 @@ func TestContractRegistry_DefaultBindingCleanupOnContractDelete(t *testing.T) {
 	require.NoError(t, err)
 	defer sub.Close()
 
-	contractID := registry.ID{NS: "test", Name: "contract"}
-	bindingID := registry.ID{NS: "test", Name: "binding"}
+	contractID := registry.NewID("test", "contract")
+	bindingID := registry.NewID("test", "binding")
 
 	// Register a definition
 	testDef := &contract.Definition{
@@ -748,7 +748,7 @@ func TestContractRegistry_DefaultBindingCleanupOnContractDelete(t *testing.T) {
 		Contracts: []contract.BoundContract{
 			{
 				Contract: contractID,
-				Methods:  map[string]registry.ID{"method1": {NS: "test", Name: "func1"}},
+				Methods:  map[string]registry.ID{"method1": registry.NewID("test", "func1")},
 				Default:  true,
 			},
 		},
@@ -807,21 +807,21 @@ func TestContractRegistry_MultipleContractsInBinding(t *testing.T) {
 	require.NoError(t, err)
 	defer sub.Close()
 
-	contract1ID := registry.ID{NS: "test", Name: "contract1"}
-	contract2ID := registry.ID{NS: "test", Name: "contract2"}
-	bindingID := registry.ID{NS: "test", Name: "multi_binding"}
+	contract1ID := registry.NewID("test", "contract1")
+	contract2ID := registry.NewID("test", "contract2")
+	bindingID := registry.NewID("test", "multi_binding")
 
 	// Register a binding that implements multiple contracts with one as default
 	multiBinding := &contract.Binding{
 		Contracts: []contract.BoundContract{
 			{
 				Contract: contract1ID,
-				Methods:  map[string]registry.ID{"method1": {NS: "test", Name: "func1"}},
+				Methods:  map[string]registry.ID{"method1": registry.NewID("test", "func1")},
 				Default:  true, // This contract is default
 			},
 			{
 				Contract: contract2ID,
-				Methods:  map[string]registry.ID{"method2": {NS: "test", Name: "func2"}},
+				Methods:  map[string]registry.ID{"method2": registry.NewID("test", "func2")},
 				Default:  false, // This contract is not default
 			},
 		},
@@ -851,12 +851,12 @@ func TestContractRegistry_MultipleContractsInBinding(t *testing.T) {
 		Contracts: []contract.BoundContract{
 			{
 				Contract: contract1ID,
-				Methods:  map[string]registry.ID{"method1": {NS: "test", Name: "func1"}},
+				Methods:  map[string]registry.ID{"method1": registry.NewID("test", "func1")},
 				Default:  false, // No longer default
 			},
 			{
 				Contract: contract2ID,
-				Methods:  map[string]registry.ID{"method2": {NS: "test", Name: "func2"}},
+				Methods:  map[string]registry.ID{"method2": registry.NewID("test", "func2")},
 				Default:  true, // Now default
 			},
 		},

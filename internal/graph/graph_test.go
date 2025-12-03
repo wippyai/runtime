@@ -405,14 +405,22 @@ func TestGraphDependencyLevels(t *testing.T) {
 			t.Errorf("error should mention 'cycle detected', got: %s", errMsg)
 		}
 
-		// If findCycle fails, error should contain stuck nodes with details
-		// Either we get the cycle path, or we get stuck nodes with degree info
-		hasDetails := contains(errMsg, "Component-A") ||
-			contains(errMsg, "degree=") ||
-			contains(errMsg, "depends on:")
+		// Check error has details via Details() method
+		graphErr, ok := err.(*Error)
+		if !ok {
+			t.Fatalf("expected *Error, got %T", err)
+		}
 
-		if !hasDetails {
-			t.Errorf("error should contain node details or cycle path, got: %s", errMsg)
+		details := graphErr.Details()
+		if details == nil {
+			t.Fatal("expected error details")
+		}
+
+		// Details should contain cycle or stuck_nodes
+		_, hasCycle := details.Get("cycle")
+		_, hasStuck := details.Get("stuck_nodes")
+		if !hasCycle && !hasStuck {
+			t.Errorf("error details should contain cycle info, got: %v", details)
 		}
 	})
 }

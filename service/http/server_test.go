@@ -78,7 +78,7 @@ func TestServerService_Basic(t *testing.T) {
 			},
 		}
 
-		id := registry.ID{NS: "test", Name: "server1"}
+		id := registry.NewID("test", "server1")
 		middleware := NewMiddlewareRegistry(zap.NewNop())
 		server, err := NewServerService(id, cfg, middleware)
 		require.NoError(t, err)
@@ -99,7 +99,7 @@ func TestServerService_Basic(t *testing.T) {
 			},
 		}
 
-		id := registry.ID{NS: "test", Name: "server1"}
+		id := registry.NewID("test", "server1")
 		middleware := NewMiddlewareRegistry(zap.NewNop())
 		server, err := NewServerService(id, cfg, middleware)
 		require.NoError(t, err)
@@ -166,13 +166,13 @@ func TestServerService_RouterOperations(t *testing.T) {
 		Addr: fmt.Sprintf(":%d", port),
 	}
 
-	id := registry.ID{NS: "test", Name: "server1"}
+	id := registry.NewID("test", "server1")
 	middleware := NewMiddlewareRegistry(zap.NewNop())
 	server, err := NewServerService(id, cfg, middleware)
 	require.NoError(t, err)
 
 	t.Run("add and delete router", func(t *testing.T) {
-		routerID := registry.ID{NS: "test", Name: "router1"}
+		routerID := registry.NewID("test", "router1")
 		routerCfg := &config.RouterConfig{
 			Prefix: "/api/v1",
 		}
@@ -190,7 +190,7 @@ func TestServerService_RouterOperations(t *testing.T) {
 
 	t.Run("add and remove endpoint", func(t *testing.T) {
 		// Use a different router ID to avoid conflicts
-		routerID := registry.ID{NS: "test", Name: "router2"}
+		routerID := registry.NewID("test", "router2")
 		routerCfg := &config.RouterConfig{
 			Prefix: "/api/v2",
 		}
@@ -198,7 +198,7 @@ func TestServerService_RouterOperations(t *testing.T) {
 		err := server.UpsertRouter(routerID, routerCfg)
 		require.NoError(t, err)
 
-		endpointID := registry.ID{NS: "test", Name: "endpoint1"}
+		endpointID := registry.NewID("test", "endpoint1")
 
 		// Add endpoint
 		err = server.UpsertEndpoint(routerID, endpointID, "/test", "GET", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -220,7 +220,7 @@ func TestServerService_RouterOperations(t *testing.T) {
 	})
 
 	t.Run("mount and unmount", func(t *testing.T) {
-		mountID := registry.ID{NS: "test", Name: "static1"}
+		mountID := registry.NewID("test", "static1")
 
 		// Create a temporary directory with files
 		tempDir, cleanup := createServerTempDir(t, map[string]string{
@@ -252,7 +252,7 @@ func TestServerService_RouterOperations(t *testing.T) {
 
 	t.Run("rebuild", func(t *testing.T) {
 		// Add a router and endpoint before rebuild
-		routerID := registry.ID{NS: "test", Name: "router3"}
+		routerID := registry.NewID("test", "router3")
 		routerCfg := &config.RouterConfig{
 			Prefix: "/api/v3",
 		}
@@ -260,7 +260,7 @@ func TestServerService_RouterOperations(t *testing.T) {
 		err := server.UpsertRouter(routerID, routerCfg)
 		require.NoError(t, err)
 
-		endpointID := registry.ID{NS: "test", Name: "endpoint3"}
+		endpointID := registry.NewID("test", "endpoint3")
 
 		err = server.UpsertEndpoint(routerID, endpointID, "/test", "GET", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
@@ -292,13 +292,13 @@ func TestServerService_StartStop(t *testing.T) {
 		},
 	}
 
-	id := registry.ID{NS: "test", Name: "server1"}
+	id := registry.NewID("test", "server1")
 	middleware := NewMiddlewareRegistry(zap.NewNop())
 	server, err := NewServerService(id, cfg, middleware)
 	require.NoError(t, err)
 
 	// Add router and endpoint
-	routerID := registry.ID{NS: "test", Name: "router4"}
+	routerID := registry.NewID("test", "router4")
 	routerCfg := &config.RouterConfig{
 		Prefix: "/api",
 	}
@@ -306,7 +306,7 @@ func TestServerService_StartStop(t *testing.T) {
 	err = server.UpsertRouter(routerID, routerCfg)
 	require.NoError(t, err)
 
-	endpointID := registry.ID{NS: "test", Name: "endpoint4"}
+	endpointID := registry.NewID("test", "endpoint4")
 
 	err = server.UpsertEndpoint(routerID, endpointID, "/test", "GET", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -390,7 +390,7 @@ func TestServerService_Middleware(t *testing.T) {
 		Addr: fmt.Sprintf("127.0.0.1:%d", port),
 	}
 
-	id := registry.ID{NS: "test", Name: "server1"}
+	id := registry.NewID("test", "server1")
 
 	// Create middleware factory for the test
 	middlewareFactory := NewMiddlewareRegistry(zap.NewNop())
@@ -422,7 +422,7 @@ func TestServerService_Middleware(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add router with middleware
-	routerID := registry.ID{NS: "test", Name: "router5"}
+	routerID := registry.NewID("test", "router5")
 	routerCfg := &config.RouterConfig{
 		Prefix:     "/api",
 		Middleware: []string{"request_id", "real_ip"},
@@ -433,7 +433,7 @@ func TestServerService_Middleware(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add test endpoint that checks request ID middleware
-	endpointID := registry.ID{NS: "test", Name: "endpoint5"}
+	endpointID := registry.NewID("test", "endpoint5")
 
 	err = server.UpsertEndpoint(routerID, endpointID, "/test", "GET", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check if request ID was set by middleware
@@ -519,7 +519,7 @@ func TestEnsureRunning(t *testing.T) {
 		Addr: fmt.Sprintf("127.0.0.1:%d", port),
 	}
 
-	id := registry.ID{NS: "test", Name: "server1"}
+	id := registry.NewID("test", "server1")
 	middleware := NewMiddlewareRegistry(zap.NewNop())
 	server, err := NewServerService(id, cfg, middleware)
 	require.NoError(t, err)
@@ -575,13 +575,13 @@ func TestContextListener(t *testing.T) {
 		Addr: fmt.Sprintf("127.0.0.1:%d", port),
 	}
 
-	id := registry.ID{NS: "test", Name: "server1"}
+	id := registry.NewID("test", "server1")
 	middleware := NewMiddlewareRegistry(zap.NewNop())
 	server, err := NewServerService(id, cfg, middleware)
 	require.NoError(t, err)
 
 	// Add a test endpoint that verifies the listener context is set
-	routerID := registry.ID{NS: "test", Name: "router6"}
+	routerID := registry.NewID("test", "router6")
 	routerCfg := &config.RouterConfig{
 		Prefix: "/api",
 	}
@@ -589,7 +589,7 @@ func TestContextListener(t *testing.T) {
 	err = server.UpsertRouter(routerID, routerCfg)
 	require.NoError(t, err)
 
-	endpointID := registry.ID{NS: "test", Name: "endpoint6"}
+	endpointID := registry.NewID("test", "endpoint6")
 
 	err = server.UpsertEndpoint(routerID, endpointID, "/test", "GET", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		// ContextListener is no longer set - HTTP metadata now in FrameContext

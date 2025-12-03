@@ -160,7 +160,7 @@ func insertTestData(t *testing.T, db *sql.DB, config *sqlstore.SQLConfig, key st
 // createDefaultConfig creates a default SQLStore config for testing
 func createDefaultConfig() *sqlstore.SQLConfig {
 	return &sqlstore.SQLConfig{
-		Database:          registry.ID{NS: "test", Name: "db"},
+		Database:          registry.NewID("test", "db"),
 		TableName:         "kv_store",
 		IDColumnName:      "key_id",
 		PayloadColumnName: "value",
@@ -212,7 +212,7 @@ func MakeStore(t *testing.T) (*SQLStore, *sql.DB, context.Context) {
 	// Create store
 	logger := zap.NewNop()
 
-	return NewSQLStore(registry.ID{NS: "test", Name: "store"}, config, logger), db, ctx
+	return NewSQLStore(registry.NewID("test", "store"), config, logger), db, ctx
 }
 
 func TestSQLStore_Delete(t *testing.T) {
@@ -297,7 +297,7 @@ func TestSQLStore_Get_ExpiredKey(t *testing.T) {
 	setupSQLStoreTable(t, db, config)
 
 	// Create test data
-	testKey := registry.ID{NS: "test", Name: "expired_key"}
+	testKey := registry.NewID("test", "expired_key")
 	testData := map[string]string{"value": "expired_value"}
 	jsonData, err := json.Marshal(testData)
 	require.NoError(t, err)
@@ -323,7 +323,7 @@ func TestSQLStore_Get_ExpiredKey(t *testing.T) {
 
 	// Create store
 	logger := zap.NewNop()
-	ss := NewSQLStore(registry.ID{NS: "test", Name: "store"}, config, logger)
+	ss := NewSQLStore(registry.NewID("test", "store"), config, logger)
 	ss.cleanup(ctx)
 
 	// Test Get with expired key
@@ -347,10 +347,10 @@ func TestSQLStore_Get_ResourceAcquisitionError(t *testing.T) {
 
 	// Create store
 	logger := zap.NewNop()
-	store := NewSQLStore(registry.ID{NS: "test", Name: "store"}, config, logger)
+	store := NewSQLStore(registry.NewID("test", "store"), config, logger)
 
 	// Test Get
-	result, err := store.Get(ctx, registry.ID{NS: "test", Name: "key"})
+	result, err := store.Get(ctx, registry.NewID("test", "key"))
 
 	// Verify results
 	assert.Error(t, err)
@@ -375,10 +375,10 @@ func TestSQLStore_Get_ResourceGetError(t *testing.T) {
 
 	// Create store
 	logger := zap.NewNop()
-	ss := NewSQLStore(registry.ID{NS: "test", Name: "store"}, config, logger)
+	ss := NewSQLStore(registry.NewID("test", "store"), config, logger)
 
 	// Test Get
-	result, err := ss.Get(ctx, registry.ID{NS: "test", Name: "key"})
+	result, err := ss.Get(ctx, registry.NewID("test", "key"))
 
 	// Verify results
 	assert.Error(t, err)
@@ -502,7 +502,7 @@ func TestSQLStore_SetWithTTL(t *testing.T) {
 
 func TestSQLStore_Cleanup(t *testing.T) {
 	config := &sqlstore.SQLConfig{
-		Database:          registry.ID{NS: "test", Name: "db"},
+		Database:          registry.NewID("test", "db"),
 		TableName:         "kv_cleanup",
 		IDColumnName:      "key_id",
 		PayloadColumnName: "value",
@@ -527,7 +527,7 @@ func TestSQLStore_Cleanup(t *testing.T) {
 	ctx = createTranscoderContext(ctx)
 
 	logger := zap.NewNop()
-	ss := NewSQLStore(registry.ID{NS: "test", Name: "cleanup-store"}, config, logger)
+	ss := NewSQLStore(registry.NewID("test", "cleanup-store"), config, logger)
 
 	_, err := ss.Start(ctx)
 	require.NoError(t, err)
@@ -691,7 +691,7 @@ func BenchmarkSQLStore_Set(b *testing.B) {
 	ctx = createTranscoderContext(ctx)
 
 	logger := zap.NewNop()
-	ss := NewSQLStore(registry.ID{NS: "bench", Name: "store"}, config, logger)
+	ss := NewSQLStore(registry.NewID("bench", "store"), config, logger)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -727,7 +727,7 @@ func BenchmarkSQLStore_Get(b *testing.B) {
 	ctx = createTranscoderContext(ctx)
 
 	logger := zap.NewNop()
-	ss := NewSQLStore(registry.ID{NS: "bench", Name: "store"}, config, logger)
+	ss := NewSQLStore(registry.NewID("bench", "store"), config, logger)
 
 	// Pre-populate
 	for i := 0; i < 1000; i++ {
@@ -769,7 +769,7 @@ func BenchmarkSQLStore_Has(b *testing.B) {
 	ctx = createTranscoderContext(ctx)
 
 	logger := zap.NewNop()
-	ss := NewSQLStore(registry.ID{NS: "bench", Name: "store"}, config, logger)
+	ss := NewSQLStore(registry.NewID("bench", "store"), config, logger)
 
 	// Pre-populate
 	for i := 0; i < 1000; i++ {
@@ -812,7 +812,7 @@ func BenchmarkSQLStore_Delete(b *testing.B) {
 	ctx = createTranscoderContext(ctx)
 
 	logger := zap.NewNop()
-	ss := NewSQLStore(registry.ID{NS: "bench", Name: "store"}, config, logger)
+	ss := NewSQLStore(registry.NewID("bench", "store"), config, logger)
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -1090,4 +1090,64 @@ func TestSQLStore_ResourceInterface(t *testing.T) {
 
 	// Double release should be safe
 	res.Release()
+}
+
+func TestSQLStore_OperationsAfterClose(t *testing.T) {
+	ss, db, ctx := MakeStore(t)
+	defer db.Close()
+
+	// Start store
+	_, err := ss.Start(ctx)
+	require.NoError(t, err)
+
+	// Set a value while open
+	key := registry.ParseID("test:before-close")
+	err = ss.Set(ctx, createTestEntry("test:before-close", "value"))
+	require.NoError(t, err)
+
+	// Stop store
+	err = ss.Stop(ctx)
+	require.NoError(t, err)
+
+	// All operations should return ErrStoreClosed
+
+	// Get after close
+	_, err = ss.Get(ctx, key)
+	assert.Equal(t, store.ErrStoreClosed, err)
+
+	// Set after close
+	err = ss.Set(ctx, createTestEntry("test:after-close", "value"))
+	assert.Equal(t, store.ErrStoreClosed, err)
+
+	// Has after close
+	_, err = ss.Has(ctx, key)
+	assert.Equal(t, store.ErrStoreClosed, err)
+
+	// Delete after close
+	err = ss.Delete(ctx, key)
+	assert.Equal(t, store.ErrStoreClosed, err)
+
+	// Start after close should fail
+	_, err = ss.Start(ctx)
+	assert.Equal(t, store.ErrStoreClosed, err)
+}
+
+func TestSQLStore_DoubleStop(t *testing.T) {
+	ss, db, ctx := MakeStore(t)
+	defer db.Close()
+
+	_, err := ss.Start(ctx)
+	require.NoError(t, err)
+
+	// First stop
+	err = ss.Stop(ctx)
+	assert.NoError(t, err)
+
+	// Second stop should be no-op
+	err = ss.Stop(ctx)
+	assert.NoError(t, err)
+
+	// Third stop should also be no-op
+	err = ss.Stop(ctx)
+	assert.NoError(t, err)
 }

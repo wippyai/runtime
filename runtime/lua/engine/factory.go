@@ -107,25 +107,26 @@ func (f *Factory) CreateState() *lua.LState {
 	}
 
 	state := lua.NewState(opts)
+	global := state.G.Global
 
-	// Load core libs
-	libs := []struct {
-		name string
-		fn   lua.LGFunction
-	}{
-		{lua.BaseLibName, lua.OpenBase},
-		{lua.TabLibName, lua.OpenTable},
-		{lua.StringLibName, lua.OpenString},
-		{lua.MathLibName, lua.OpenMath},
-		{lua.CoroutineLibName, lua.OpenCoroutine},
-		{lua.LoadLibName, OpenRestrictedPackage},
-	}
+	// Use global singleton tables (zero allocation)
+	global.RawSetString(lua.TabLibName, lua.GetGlobalTableMod())
+	global.RawSetString(lua.StringLibName, lua.GetGlobalStringMod())
+	global.RawSetString(lua.MathLibName, lua.GetGlobalMathMod())
+	global.RawSetString(lua.CoroutineLibName, lua.GetGlobalCoroutineMod())
 
-	for _, lib := range libs {
-		state.Push(state.NewFunction(lib.fn))
-		state.Push(lua.LString(lib.name))
-		state.Call(1, 0)
-	}
+	// String metatable
+	state.G.SetBuiltinMt(lua.LTString, lua.GetGlobalStringMod())
+
+	// Base functions (must be set on global)
+	state.Push(lua.LGoFunc(lua.OpenBase))
+	state.Push(lua.LString(lua.BaseLibName))
+	state.Call(1, 0)
+
+	// Restricted package loader (wippy-specific)
+	state.Push(lua.LGoFunc(OpenRestrictedPackage))
+	state.Push(lua.LString(lua.LoadLibName))
+	state.Call(1, 0)
 
 	// Load os module (time, date, clock)
 	ostime.Bind(state)

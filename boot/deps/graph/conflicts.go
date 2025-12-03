@@ -146,7 +146,7 @@ func checkCycles(g *graph.Graph[ModuleKey, DependencyEdge]) error {
 	// Use DependencyLevels which detects cycles via Kahn's algorithm
 	_, err := g.DependencyLevels()
 	if err != nil {
-		return fmt.Errorf("circular dependency detected: %w", err)
+		return NewCircularDependencyError(err)
 	}
 	return nil
 }

@@ -1,0 +1,113 @@
+package registry
+
+import (
+	"fmt"
+
+	"github.com/wippyai/runtime/api/payload"
+	regapi "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/system/registry/topology"
+	lua "github.com/yuin/gopher-lua"
+	"go.uber.org/zap"
+)
+
+// buildDelta creates a changeset for transitioning from one state to another
+func buildDelta(l *lua.LState, log *zap.Logger) int {
+	fromTable := l.CheckTable(1)
+	if fromTable == nil {
+		l.Push(lua.LNil)
+		l.Push(newRegistryOperationError(l, fmt.Errorf("from_entries table required"), "build_delta"))
+		return 2
+	}
+
+	toTable := l.CheckTable(2)
+	if toTable == nil {
+		l.Push(lua.LNil)
+		l.Push(newRegistryOperationError(l, fmt.Errorf("to_entries table required"), "build_delta"))
+		return 2
+	}
+
+	fromEntries := make(regapi.State, 0)
+	toEntries := make(regapi.State, 0)
+
+	fromTable.ForEach(func(_, v lua.LValue) {
+		if entryTable, ok := v.(*lua.LTable); ok {
+			entry, err := luaTableToEntry(l, entryTable)
+			if err == nil {
+				fromEntries = append(fromEntries, entry)
+			} else if log != nil {
+				log.Debug("error converting entry", zap.Error(err))
+			}
+		}
+	})
+
+	toTable.ForEach(func(_, v lua.LValue) {
+		if entryTable, ok := v.(*lua.LTable); ok {
+			entry, err := luaTableToEntry(l, entryTable)
+			if err == nil {
+				toEntries = append(toEntries, entry)
+			} else if log != nil {
+				log.Debug("error converting entry", zap.Error(err))
+			}
+		}
+	})
+
+	dtt := payload.GetTranscoder(l.Context())
+	if dtt == nil {
+		l.Push(lua.LNil)
+		l.Push(newRegistryOperationError(l, fmt.Errorf("transcoder not available"), "build_delta"))
+		return 2
+	}
+
+	resolver := regapi.GetResolver(l.Context())
+	stateBuilder := topology.NewStateBuilder(log, resolver, topology.WithCompareFunc(func(a, b regapi.Entry) bool {
+		if a.ID.NS != b.ID.NS || a.ID.Name != b.ID.Name || a.Kind != b.Kind {
+			return false
+		}
+
+		aMap := make(map[string]any)
+		bMap := make(map[string]any)
+
+		if err := dtt.Unmarshal(a.Data, &aMap); err != nil {
+			if log != nil {
+				log.Debug("error unmarshaling entry a data", zap.Error(err))
+			}
+			return false
+		}
+
+		if err := dtt.Unmarshal(b.Data, &bMap); err != nil {
+			if log != nil {
+				log.Debug("error unmarshaling entry b data", zap.Error(err))
+			}
+			return false
+		}
+
+		return mapsEqual(aMap, bMap)
+	}))
+
+	changeSet, err := stateBuilder.BuildDelta(fromEntries, toEntries)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(newRegistryOperationError(l, err, "build_delta"))
+		return 2
+	}
+
+	resultTable := l.NewTable()
+	for i, op := range changeSet {
+		opTable := l.NewTable()
+		opTable.RawSetString("kind", lua.LString(op.Kind))
+
+		entryTable, err := entryToLuaTable(l, op.Entry)
+		if err != nil {
+			l.Push(lua.LNil)
+			l.Push(newRegistryOperationError(l, fmt.Errorf("failed to convert entry: %w", err), "build_delta"))
+			return 2
+		}
+
+		opTable.RawSetString("entry", entryTable)
+		resultTable.RawSetInt(i+1, opTable)
+	}
+
+	l.Push(resultTable)
+	l.Push(lua.LNil)
+	return 2
+}

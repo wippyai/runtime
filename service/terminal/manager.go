@@ -2,7 +2,6 @@ package terminal
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
@@ -19,7 +18,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// Manager manages terminal2 host instances.
+// Manager manages terminal host instances.
 type Manager struct {
 	log             *zap.Logger
 	bus             event.Bus
@@ -31,7 +30,7 @@ type Manager struct {
 	hosts map[registry.ID]*Host
 }
 
-// NewManager creates a new terminal2 manager.
+// NewManager creates a new terminal manager.
 func NewManager(
 	bus event.Bus,
 	dtt payload.Transcoder,
@@ -40,7 +39,7 @@ func NewManager(
 	logger *zap.Logger,
 ) *Manager {
 	return &Manager{
-		log:             logger.Named("terminal2"),
+		log:             logger,
 		bus:             bus,
 		dtt:             dtt,
 		commandRegistry: cmdRegistry,
@@ -53,7 +52,7 @@ func NewManager(
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	cfg, err := entryutil.DecodeEntryConfig[terminal.HostConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return fmt.Errorf("decode config: %w", err)
+		return newDecodeConfigError(err)
 	}
 
 	logCtrl := logs.NewConfigSwitcher(m.bus, m.log)

@@ -30,7 +30,7 @@ func Prometheus() boot.Component {
 		Name:      PrometheusName,
 		DependsOn: []boot.ComponentName{metricsName},
 		Load: func(ctx context.Context) (context.Context, error) {
-			logger = logapi.GetLogger(ctx)
+			logger = logapi.GetLogger(ctx).Named("prometheus")
 			if logger == nil {
 				return ctx, nil
 			}

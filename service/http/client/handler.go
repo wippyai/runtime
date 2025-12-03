@@ -53,7 +53,11 @@ func (d *Dispatcher) handleRequest(ctx context.Context, cmd dispatcher.Command, 
 	req := cmd.(*httpapi.RequestCmd)
 
 	go func() {
-		emit.Emit(executeRequest(ctx, d.pool, req, true), nil)
+		result := executeRequest(ctx, d.pool, req, true)
+		// Don't emit if context was cancelled - executor has already moved on
+		if ctx.Err() == nil {
+			emit.Emit(result, nil)
+		}
 	}()
 
 	return nil
@@ -80,7 +84,10 @@ func (d *Dispatcher) handleRequestBatch(ctx context.Context, cmd dispatcher.Comm
 		}
 
 		wg.Wait()
-		emit.Emit(httpapi.BatchResponse{Responses: responses}, nil)
+		// Don't emit if context was cancelled - executor has already moved on
+		if ctx.Err() == nil {
+			emit.Emit(httpapi.BatchResponse{Responses: responses}, nil)
+		}
 	}()
 
 	return nil

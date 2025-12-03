@@ -29,7 +29,7 @@ func createTestStore(_ *testing.T) *memorystore.MemoryStore {
 		MaxSize:         100,
 		CleanupInterval: 50 * time.Millisecond,
 	}
-	return memorystore.NewMemoryStore(registry.ID{NS: "test", Name: "store"}, config, logger)
+	return memorystore.NewMemoryStore(registry.NewID("test", "store"), config, logger)
 }
 
 // createTestEntry is a helper function to create a store entry with the given key and value
@@ -126,7 +126,7 @@ func TestMemoryStore_Set(t *testing.T) {
 		MaxSize:         2,
 		CleanupInterval: 50 * time.Millisecond,
 	}
-	limitedStore := memorystore.NewMemoryStore(registry.ID{NS: "test", Name: "limited"}, config, logger)
+	limitedStore := memorystore.NewMemoryStore(registry.NewID("test", "limited"), config, logger)
 
 	// Fill the store to capacity
 	err = limitedStore.Set(ctx, createTestEntry("test:key1", "value1"))
@@ -346,7 +346,7 @@ func TestMemoryStore_ConcurrentAccess(t *testing.T) {
 		MaxSize:         1000, // Increased to handle concurrent operations
 		CleanupInterval: 50 * time.Millisecond,
 	}
-	ms := memorystore.NewMemoryStore(registry.ID{NS: "test", Name: "store"}, config, logger)
+	ms := memorystore.NewMemoryStore(registry.NewID("test", "store"), config, logger)
 	ctx := ctxapi.NewRootContext()
 
 	// Start the service
@@ -425,7 +425,7 @@ func TestMemoryStore_ConcurrentReadWrite(t *testing.T) {
 		MaxSize:         10000,
 		CleanupInterval: 100 * time.Millisecond,
 	}
-	ms := memorystore.NewMemoryStore(registry.ID{NS: "test", Name: "stress"}, config, logger)
+	ms := memorystore.NewMemoryStore(registry.NewID("test", "stress"), config, logger)
 	ctx := ctxapi.NewRootContext()
 
 	_, err := ms.Start(ctx)
@@ -504,7 +504,7 @@ func TestMemoryStore_TTLStress(t *testing.T) {
 		MaxSize:         5000,
 		CleanupInterval: 10 * time.Millisecond,
 	}
-	ms := memorystore.NewMemoryStore(registry.ID{NS: "test", Name: "ttl-stress"}, config, logger)
+	ms := memorystore.NewMemoryStore(registry.NewID("test", "ttl-stress"), config, logger)
 	ctx := ctxapi.NewRootContext()
 
 	_, err := ms.Start(ctx)
@@ -588,7 +588,7 @@ func TestMemoryStore_CapacityBoundary(t *testing.T) {
 		MaxSize:         10,
 		CleanupInterval: 50 * time.Millisecond,
 	}
-	ms := memorystore.NewMemoryStore(registry.ID{NS: "test", Name: "capacity"}, config, logger)
+	ms := memorystore.NewMemoryStore(registry.NewID("test", "capacity"), config, logger)
 	ctx := ctxapi.NewRootContext()
 
 	_, err := ms.Start(ctx)
@@ -628,7 +628,7 @@ func TestMemoryStore_CleanupBehavior(t *testing.T) {
 		MaxSize:         100,
 		CleanupInterval: 50 * time.Millisecond, // Short interval for testing
 	}
-	ms := memorystore.NewMemoryStore(registry.ID{NS: "test", Name: "cleanup-test"}, config, logger)
+	ms := memorystore.NewMemoryStore(registry.NewID("test", "cleanup-test"), config, logger)
 	ctx := ctxapi.NewRootContext()
 
 	// Start the service
@@ -722,7 +722,7 @@ func createBenchStore(b *testing.B) (*memorystore.MemoryStore, context.Context) 
 		MaxSize:         1000000,
 		CleanupInterval: time.Hour, // Disable cleanup during benchmarks
 	}
-	ms := memorystore.NewMemoryStore(registry.ID{NS: "bench", Name: "store"}, config, logger)
+	ms := memorystore.NewMemoryStore(registry.NewID("bench", "store"), config, logger)
 	ctx := ctxapi.NewRootContext()
 	_, _ = ms.Start(ctx)
 	return ms, ctx

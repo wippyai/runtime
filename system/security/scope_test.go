@@ -24,10 +24,7 @@ func (m *MockPolicy) Evaluate(_ security.Actor, _, _ string, _ registry.Metadata
 
 func NewMockPolicy(ns, name string, decision security.Result) security.Policy {
 	return &MockPolicy{
-		id: registry.ID{
-			NS:   ns,
-			Name: name,
-		},
+		id:       registry.NewID(ns, name),
 		decision: decision,
 	}
 }
@@ -91,7 +88,7 @@ func TestScopeWithout(t *testing.T) {
 	assert.False(t, newScope.Contains(policy1.ID()))
 	assert.True(t, newScope.Contains(policy2.ID()))
 
-	nonExistentID := registry.ID{NS: "test", Name: "nonexistent"}
+	nonExistentID := registry.NewID("test", "nonexistent")
 	sameScope := newScope.Without(nonExistentID)
 	assert.Equal(t, newScope, sameScope)
 }
@@ -185,7 +182,7 @@ func TestScopeContains(t *testing.T) {
 	assert.True(t, scope.Contains(policy1.ID()))
 	assert.True(t, scope.Contains(policy2.ID()))
 
-	nonExistentID := registry.ID{NS: "test", Name: "nonexistent"}
+	nonExistentID := registry.NewID("test", "nonexistent")
 	assert.False(t, scope.Contains(nonExistentID))
 }
 

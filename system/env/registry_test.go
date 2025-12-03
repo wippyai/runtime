@@ -485,7 +485,7 @@ func TestRegistry_Variable_Validation(t *testing.T) {
 			name: "invalid_storage_id_empty_ns",
 			variable: env.Variable{
 				Name:      "valid_name",
-				StorageID: registry.ID{NS: "", Name: "storage"},
+				StorageID: registry.NewID("", "storage"),
 			},
 			wantError: "invalid storage ID format",
 		},
@@ -493,7 +493,7 @@ func TestRegistry_Variable_Validation(t *testing.T) {
 			name: "invalid_storage_id_empty_name",
 			variable: env.Variable{
 				Name:      "valid_name",
-				StorageID: registry.ID{NS: "app", Name: ""},
+				StorageID: registry.NewID("app", ""),
 			},
 			wantError: "invalid storage ID format",
 		},

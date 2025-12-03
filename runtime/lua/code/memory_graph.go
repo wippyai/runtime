@@ -419,7 +419,7 @@ func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 	// Build alias map efficiently using pre-built edge map
 	aliasMap := make(map[registry.ID]map[string]bool)
 	for _, node := range ordered {
-		if node.ID == entrypoint {
+		if node.ID.Equal(entrypoint) {
 			continue
 		}
 		aliasMap[node.ID] = make(map[string]bool)
@@ -438,7 +438,7 @@ func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 	// Build dependency nodes in correct order
 	depNodes := make([]Dependency, 0, len(ordered)) // Pre-allocate capacity
 	for _, node := range ordered {
-		if node.ID == entrypoint {
+		if node.ID.Equal(entrypoint) {
 			continue
 		}
 

@@ -8,10 +8,17 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/system/registry/history"
+	historymem "github.com/wippyai/runtime/system/registry/history/memory"
 	"github.com/wippyai/runtime/system/registry/topology"
 	"go.uber.org/zap"
 )
+
+// Alias for history package
+var history = struct {
+	NewMemory func() *historymem.Storage
+}{
+	NewMemory: historymem.New,
+}
 
 func TestRegistry_LoadState_V0(t *testing.T) {
 	ctx := context.Background()
@@ -49,8 +56,8 @@ func TestRegistry_LoadState_V0(t *testing.T) {
 	)
 
 	baseline := registry.State{
-		{ID: registry.ID{NS: "test", Name: "entry1"}, Kind: "service"},
-		{ID: registry.ID{NS: "test", Name: "entry2"}, Kind: "service"},
+		{ID: registry.NewID("test", "entry1"), Kind: "service"},
+		{ID: registry.NewID("test", "entry2"), Kind: "service"},
 	}
 
 	// When history is empty, Head() returns error, so use Current() as fallback
@@ -107,13 +114,13 @@ func TestRegistry_LoadState_WithHistory(t *testing.T) {
 	)
 
 	baseline := registry.State{
-		{ID: registry.ID{NS: "test", Name: "entry1"}, Kind: "service", Data: payload.New("initial")},
-		{ID: registry.ID{NS: "test", Name: "entry2"}, Kind: "service", Data: payload.New("initial")},
+		{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("initial")},
+		{ID: registry.NewID("test", "entry2"), Kind: "service", Data: payload.New("initial")},
 	}
 
 	cs1 := registry.ChangeSet{
-		{Kind: registry.Update, Entry: registry.Entry{ID: registry.ID{NS: "test", Name: "entry1"}, Kind: "service", Data: payload.New("updated")}},
-		{Kind: registry.Create, Entry: registry.Entry{ID: registry.ID{NS: "test", Name: "entry3"}, Kind: "service", Data: payload.New("new")}},
+		{Kind: registry.Update, Entry: registry.Entry{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("updated")}},
+		{Kind: registry.Create, Entry: registry.Entry{ID: registry.NewID("test", "entry3"), Kind: "service", Data: payload.New("new")}},
 	}
 
 	v1, err := reg.Apply(ctx, cs1)
@@ -190,23 +197,23 @@ func TestRegistry_LoadState_MultipleVersions(t *testing.T) {
 	)
 
 	baseline := registry.State{
-		{ID: registry.ID{NS: "test", Name: "entry1"}, Kind: "service", Data: payload.New("v0")},
+		{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("v0")},
 	}
 
 	cs1 := registry.ChangeSet{
-		{Kind: registry.Update, Entry: registry.Entry{ID: registry.ID{NS: "test", Name: "entry1"}, Kind: "service", Data: payload.New("v1")}},
+		{Kind: registry.Update, Entry: registry.Entry{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("v1")}},
 	}
 	_, err := reg.Apply(ctx, cs1)
 	require.NoError(t, err)
 
 	cs2 := registry.ChangeSet{
-		{Kind: registry.Update, Entry: registry.Entry{ID: registry.ID{NS: "test", Name: "entry1"}, Kind: "service", Data: payload.New("v2")}},
+		{Kind: registry.Update, Entry: registry.Entry{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("v2")}},
 	}
 	_, err = reg.Apply(ctx, cs2)
 	require.NoError(t, err)
 
 	cs3 := registry.ChangeSet{
-		{Kind: registry.Update, Entry: registry.Entry{ID: registry.ID{NS: "test", Name: "entry1"}, Kind: "service", Data: payload.New("v3")}},
+		{Kind: registry.Update, Entry: registry.Entry{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("v3")}},
 	}
 	v3, err := reg.Apply(ctx, cs3)
 	require.NoError(t, err)
@@ -276,7 +283,7 @@ func TestRegistry_LoadState_ThenApplyVersion(t *testing.T) {
 	)
 
 	baseline := registry.State{
-		{ID: registry.ID{NS: "test", Name: "entry1"}, Kind: "service", Data: payload.New("v0")},
+		{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("v0")},
 	}
 
 	// Create initial version with baseline
@@ -287,14 +294,14 @@ func TestRegistry_LoadState_ThenApplyVersion(t *testing.T) {
 	require.Equal(t, uint(1), v1.ID())
 
 	cs2 := registry.ChangeSet{
-		{Kind: registry.Update, Entry: registry.Entry{ID: registry.ID{NS: "test", Name: "entry1"}, Kind: "service", Data: payload.New("v2")}},
+		{Kind: registry.Update, Entry: registry.Entry{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("v2")}},
 	}
 	v2, err := reg.Apply(ctx, cs2)
 	require.NoError(t, err)
 	require.Equal(t, uint(2), v2.ID())
 
 	cs3 := registry.ChangeSet{
-		{Kind: registry.Update, Entry: registry.Entry{ID: registry.ID{NS: "test", Name: "entry1"}, Kind: "service", Data: payload.New("v3")}},
+		{Kind: registry.Update, Entry: registry.Entry{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("v3")}},
 	}
 	v3, err := reg.Apply(ctx, cs3)
 	require.NoError(t, err)

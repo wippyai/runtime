@@ -71,7 +71,7 @@ func TestInstantiator_Instantiate(t *testing.T) {
 	defer sub.Close()
 
 	// Register contract definition
-	contractID := registry.ID{NS: "test", Name: "my_contract"}
+	contractID := registry.NewID("test", "my_contract")
 	testDef := &contract.Definition{
 		Methods: []contract.MethodDef{{Name: "testMethod"}},
 	}
@@ -86,13 +86,13 @@ func TestInstantiator_Instantiate(t *testing.T) {
 	wg.Wait()
 
 	// Register binding
-	bindingID := registry.ID{NS: "test", Name: "my_binding"}
+	bindingID := registry.NewID("test", "my_binding")
 	testBinding := &contract.Binding{
 		Meta: registry.Metadata{"version": "1.0"},
 		Contracts: []contract.BoundContract{
 			{
 				Contract:        contractID,
-				Methods:         map[string]registry.ID{"testMethod": {NS: "test", Name: "test_func"}},
+				Methods:         map[string]registry.ID{"testMethod": registry.NewID("test", "test_func")},
 				ContextRequired: []string{"required_key"},
 			},
 		},
@@ -114,7 +114,7 @@ func TestInstantiator_Instantiate(t *testing.T) {
 	assert.Len(t, instance.Implements(), 1)
 
 	// Test with non-existent binding
-	_, err = instantiator.Instantiate(ctx, registry.ID{NS: "test", Name: "missing"}, registry.Metadata{})
+	_, err = instantiator.Instantiate(ctx, registry.NewID("test", "missing"), registry.Metadata{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "contract binding 'test:missing' not found")
 
@@ -150,7 +150,7 @@ func TestInstanceImpl_ScopeValidation(t *testing.T) {
 	defer sub.Close()
 
 	// Register contract
-	contractID := registry.ID{NS: "test", Name: "scope_contract"}
+	contractID := registry.NewID("test", "scope_contract")
 	testDef := &contract.Definition{
 		Methods: []contract.MethodDef{{Name: "validateMethod"}},
 	}
@@ -207,7 +207,7 @@ func TestInstanceImpl_ScopeValidation(t *testing.T) {
 				Contracts: []contract.BoundContract{
 					{
 						Contract:        contractID,
-						Methods:         map[string]registry.ID{"validateMethod": {NS: "test", Name: "dummy_func"}},
+						Methods:         map[string]registry.ID{"validateMethod": registry.NewID("test", "dummy_func")},
 						ContextRequired: tt.scopeRequired,
 					},
 				},
@@ -279,7 +279,7 @@ func TestInstanceImpl_Call_Integration(t *testing.T) {
 	defer functionSub.Close()
 
 	// Register function
-	funcID := registry.ID{NS: "test", Name: "test_func"}
+	funcID := registry.NewID("test", "test_func")
 	testFunc := function.Func(func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		return &runtime.Result{Value: payload.New("function_result")}, nil
 	})
@@ -297,7 +297,7 @@ func TestInstanceImpl_Call_Integration(t *testing.T) {
 	wg.Wait()
 
 	// Register contract
-	contractID := registry.ID{NS: "test", Name: "my_contract"}
+	contractID := registry.NewID("test", "my_contract")
 	testDef := &contract.Definition{
 		Methods: []contract.MethodDef{{Name: "testMethod"}},
 	}
@@ -312,7 +312,7 @@ func TestInstanceImpl_Call_Integration(t *testing.T) {
 	wg.Wait()
 
 	// Register binding
-	bindingID := registry.ID{NS: "test", Name: "my_binding"}
+	bindingID := registry.NewID("test", "my_binding")
 	testBinding := &contract.Binding{
 		Contracts: []contract.BoundContract{
 			{
@@ -376,7 +376,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 	defer sub.Close()
 
 	// Function that checks context values
-	funcID := registry.ID{NS: "test", Name: "context_func"}
+	funcID := registry.NewID("test", "context_func")
 	testFunc := function.Func(func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
 		result := map[string]interface{}{"has_context": false}
 		if values := ctxapi.GetValues(ctx); values != nil {
@@ -409,7 +409,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 	})
 
 	// Register contract and binding
-	contractID := registry.ID{NS: "test", Name: "context_contract"}
+	contractID := registry.NewID("test", "context_contract")
 	testDef := &contract.Definition{
 		Methods: []contract.MethodDef{{Name: "contextMethod"}},
 	}
@@ -423,7 +423,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 	})
 	wg.Wait()
 
-	bindingID := registry.ID{NS: "test", Name: "context_binding"}
+	bindingID := registry.NewID("test", "context_binding")
 	testBinding := &contract.Binding{
 		Contracts: []contract.BoundContract{
 			{
@@ -511,7 +511,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 	defer sub.Close()
 
 	// Function that captures and returns all context values it receives
-	funcID := registry.ID{NS: "test", Name: "capture_context_func"}
+	funcID := registry.NewID("test", "capture_context_func")
 	testFunc := function.Func(func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
 		captured := map[string]interface{}{}
 		if values := ctxapi.GetValues(ctx); values != nil {
@@ -535,7 +535,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 	})
 
 	// Register contract and binding
-	contractID := registry.ID{NS: "test", Name: "capture_contract"}
+	contractID := registry.NewID("test", "capture_contract")
 	testDef := &contract.Definition{
 		Methods: []contract.MethodDef{{Name: "captureMethod"}},
 	}
@@ -549,7 +549,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 	})
 	wg.Wait()
 
-	bindingID := registry.ID{NS: "test", Name: "capture_binding"}
+	bindingID := registry.NewID("test", "capture_binding")
 	testBinding := &contract.Binding{
 		Contracts: []contract.BoundContract{
 			{
@@ -668,7 +668,7 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 	defer sub.Close()
 
 	// Register function that returns a test result
-	funcID := registry.ID{NS: "test", Name: "context_test_func"}
+	funcID := registry.NewID("test", "context_test_func")
 	testFunc := function.Func(func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		return &runtime.Result{Value: payload.New("validation_and_execution_success")}, nil
 	})
@@ -684,7 +684,7 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 	})
 
 	// Register contract that requires origin_id
-	contractID := registry.ID{NS: "test", Name: "context_validation_contract"}
+	contractID := registry.NewID("test", "context_validation_contract")
 	testDef := &contract.Definition{
 		Methods: []contract.MethodDef{{Name: "requiresOriginId"}},
 	}
@@ -699,7 +699,7 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 	wg.Wait()
 
 	// Register binding that requires origin_id in context
-	bindingID := registry.ID{NS: "test", Name: "context_validation_binding"}
+	bindingID := registry.NewID("test", "context_validation_binding")
 	testBinding := &contract.Binding{
 		Contracts: []contract.BoundContract{
 			{

@@ -10,7 +10,9 @@ func TestBind(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Bind(l)
+	// Directly register the module
+	reg := Module.Register(l)
+	l.SetGlobal("json", reg.Table)
 
 	mod := l.GetGlobal("json")
 	if mod.Type() != lua.LTTable {
@@ -26,10 +28,15 @@ func TestBind(t *testing.T) {
 	}
 }
 
+func bindJSON(l *lua.LState) {
+	reg := Module.Register(l)
+	l.SetGlobal("json", reg.Table)
+}
+
 func TestEncodeTable(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	bindJSON(l)
 
 	err := l.DoString(`
 		local result = json.encode({name = "test", value = 123})
@@ -43,7 +50,7 @@ func TestEncodeTable(t *testing.T) {
 func TestEncodeArray(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	bindJSON(l)
 
 	err := l.DoString(`
 		local result = json.encode({1, 2, 3})
@@ -57,7 +64,7 @@ func TestEncodeArray(t *testing.T) {
 func TestEncodeNil(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	bindJSON(l)
 
 	err := l.DoString(`
 		local result = json.encode(nil)
@@ -71,7 +78,7 @@ func TestEncodeNil(t *testing.T) {
 func TestEncodeString(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	bindJSON(l)
 
 	err := l.DoString(`
 		local result = json.encode("hello")
@@ -85,7 +92,7 @@ func TestEncodeString(t *testing.T) {
 func TestEncodeNumber(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	bindJSON(l)
 
 	err := l.DoString(`
 		local result = json.encode(42)
@@ -99,7 +106,7 @@ func TestEncodeNumber(t *testing.T) {
 func TestEncodeBool(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	bindJSON(l)
 
 	err := l.DoString(`
 		local result = json.encode(true)
@@ -113,7 +120,7 @@ func TestEncodeBool(t *testing.T) {
 func TestDecodeObject(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	bindJSON(l)
 
 	err := l.DoString(`
 		local result, err = json.decode('{"name":"test","value":123}')
@@ -129,7 +136,7 @@ func TestDecodeObject(t *testing.T) {
 func TestDecodeArray(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	bindJSON(l)
 
 	err := l.DoString(`
 		local result, err = json.decode('[1, 2, 3]')
@@ -146,7 +153,7 @@ func TestDecodeArray(t *testing.T) {
 func TestDecodeInvalidInput(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	bindJSON(l)
 
 	err := l.DoString(`
 		local result, err = json.decode(123)
@@ -161,7 +168,7 @@ func TestDecodeInvalidInput(t *testing.T) {
 func TestDecodeEmpty(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	bindJSON(l)
 
 	err := l.DoString(`
 		local result, err = json.decode("")
@@ -176,7 +183,7 @@ func TestDecodeEmpty(t *testing.T) {
 func TestDecodeInvalidJSON(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	bindJSON(l)
 
 	err := l.DoString(`
 		local result, err = json.decode("not json")
@@ -191,7 +198,7 @@ func TestDecodeInvalidJSON(t *testing.T) {
 func TestRoundTrip(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	bindJSON(l)
 
 	err := l.DoString(`
 		local original = {name = "test", numbers = {1, 2, 3}, nested = {a = 1}}

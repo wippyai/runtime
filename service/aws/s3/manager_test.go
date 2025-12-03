@@ -250,7 +250,7 @@ func TestManager_Add(t *testing.T) {
 	require.NoError(t, err)
 	defer cleanup()
 
-	testID := registry.ID{NS: "test", Name: "s3storage"}
+	testID := registry.NewID("test", "s3storage")
 
 	t.Run("successful storage addition", func(t *testing.T) {
 		entry := registry.Entry{
@@ -314,7 +314,7 @@ func TestManager_Add(t *testing.T) {
 
 		err := manager.Add(ctx, entry)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "decode config")
+		assert.Contains(t, err.Error(), "add entry")
 
 		// Reset transcoder for other tests
 		manager.dtt = NewMockTranscoder()
@@ -352,7 +352,7 @@ func TestManager_Add(t *testing.T) {
 
 		err := manager.Add(ctx, entry)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "acquire resource")
+		assert.Contains(t, err.Error(), "add entry")
 
 		// Reset transcoder
 		manager.dtt = originalTranscoder
@@ -367,7 +367,7 @@ func TestManager_Update(t *testing.T) {
 	require.NoError(t, err)
 	defer cleanup()
 
-	testID := registry.ID{NS: "test", Name: "s3storage"}
+	testID := registry.NewID("test", "s3storage")
 
 	// First add a storage
 	addEntry := registry.Entry{
@@ -428,7 +428,7 @@ func TestManager_Update(t *testing.T) {
 	})
 
 	t.Run("storage not found", func(t *testing.T) {
-		nonExistentID := registry.ID{NS: "test", Name: "nonexistent"}
+		nonExistentID := registry.NewID("test", "nonexistent")
 		entry := registry.Entry{
 			ID:   nonExistentID,
 			Kind: services3.Kind,
@@ -468,7 +468,7 @@ func TestManager_Update(t *testing.T) {
 
 		err := manager.Update(ctx, entry)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "decode config")
+		assert.Contains(t, err.Error(), "update entry")
 
 		// Reset transcoder for other tests
 		manager.dtt = NewMockTranscoder()
@@ -483,7 +483,7 @@ func TestManager_Delete(t *testing.T) {
 	require.NoError(t, err)
 	defer cleanup()
 
-	testID := registry.ID{NS: "test", Name: "s3storage"}
+	testID := registry.NewID("test", "s3storage")
 
 	// First add a storage
 	addEntry := registry.Entry{
@@ -546,7 +546,7 @@ func TestManager_Delete(t *testing.T) {
 func TestManager_Acquire(t *testing.T) {
 	manager, _, _, ctx := setupTestEnvironment()
 
-	testID := registry.ID{NS: "test", Name: "s3storage"}
+	testID := registry.NewID("test", "s3storage")
 
 	// Add a storage first
 	addEntry := registry.Entry{
@@ -579,7 +579,7 @@ func TestManager_Acquire(t *testing.T) {
 	})
 
 	t.Run("resource not found", func(t *testing.T) {
-		nonExistentID := registry.ID{NS: "test", Name: "nonexistent"}
+		nonExistentID := registry.NewID("test", "nonexistent")
 
 		// Try to acquire a non-existent resource
 		res, err := manager.Acquire(ctx, nonExistentID, resource.ModeNormal)
@@ -600,7 +600,7 @@ func TestManager_Acquire(t *testing.T) {
 func TestS3Resource(t *testing.T) {
 	manager, _, _, ctx := setupTestEnvironment()
 
-	testID := registry.ID{NS: "test", Name: "s3storage"}
+	testID := registry.NewID("test", "s3storage")
 
 	// Add a storage first
 	addEntry := registry.Entry{

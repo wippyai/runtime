@@ -14,6 +14,19 @@ import (
 	httpapi "github.com/wippyai/runtime/api/dispatcher/http"
 )
 
+// testEmitter wraps a callback function to implement dispatcher.Emitter
+type testEmitter struct {
+	fn func(data any)
+}
+
+func (e *testEmitter) Emit(data any, _ error) {
+	e.fn(data)
+}
+
+func newTestEmitter(fn func(data any)) dispatcher.Emitter {
+	return &testEmitter{fn: fn}
+}
+
 func TestClientPoolDefaultClient(t *testing.T) {
 	pool := NewClientPool()
 
@@ -132,9 +145,9 @@ func TestDispatcher_Request(t *testing.T) {
 	err := d.handleRequest(context.Background(), &httpapi.RequestCmd{
 		Method: "GET",
 		URL:    ts.URL,
-	}, func(data any) {
+	}, newTestEmitter(func(data any) {
 		done <- data.(httpapi.Response)
-	})
+	}))
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -178,9 +191,9 @@ func TestDispatcher_RequestPost(t *testing.T) {
 		URL:     ts.URL,
 		Body:    []byte(`{"key":"value"}`),
 		Headers: map[string]string{"Content-Type": "application/json"},
-	}, func(data any) {
+	}, newTestEmitter(func(data any) {
 		done <- data.(httpapi.Response)
-	})
+	}))
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -214,9 +227,9 @@ func TestDispatcher_RequestTimeout(t *testing.T) {
 		Method:  "GET",
 		URL:     ts.URL,
 		Timeout: 50 * time.Millisecond,
-	}, func(data any) {
+	}, newTestEmitter(func(data any) {
 		done <- data.(httpapi.Response)
-	})
+	}))
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -245,7 +258,7 @@ func TestDispatcher_RequestContextCancellation(t *testing.T) {
 
 	d := NewDispatcher()
 	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan httpapi.Response, 1)
+	emitted := make(chan bool, 1)
 
 	go func() {
 		time.Sleep(20 * time.Millisecond)
@@ -256,25 +269,25 @@ func TestDispatcher_RequestContextCancellation(t *testing.T) {
 	err := d.handleRequest(ctx, &httpapi.RequestCmd{
 		Method: "GET",
 		URL:    ts.URL,
-	}, func(data any) {
-		done <- data.(httpapi.Response)
-	})
+	}, newTestEmitter(func(data any) {
+		emitted <- true
+	}))
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
+	// When context is cancelled, emit should NOT be called to avoid races
+	// with the executor that has already moved on
 	select {
-	case resp := <-done:
+	case <-emitted:
+		t.Fatal("emit should not be called after context cancellation")
+	case <-time.After(300 * time.Millisecond):
+		// Expected: no emit after cancellation
 		elapsed := time.Since(start)
-		if resp.Error == "" {
-			t.Error("expected cancellation error")
+		if elapsed > 500*time.Millisecond {
+			t.Errorf("test took too long: %v", elapsed)
 		}
-		if elapsed > 200*time.Millisecond {
-			t.Errorf("cancellation took too long: %v", elapsed)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for response")
 	}
 }
 
@@ -285,9 +298,9 @@ func TestDispatcher_RequestInvalidURL(t *testing.T) {
 	err := d.handleRequest(context.Background(), &httpapi.RequestCmd{
 		Method: "GET",
 		URL:    "://invalid",
-	}, func(data any) {
+	}, newTestEmitter(func(data any) {
 		done <- data.(httpapi.Response)
-	})
+	}))
 
 	if err != nil {
 		t.Fatalf("handler should not return error: %v", err)
@@ -311,9 +324,9 @@ func TestDispatcher_RequestConnectionError(t *testing.T) {
 		Method:  "GET",
 		URL:     "http://localhost:59999",
 		Timeout: 100 * time.Millisecond,
-	}, func(data any) {
+	}, newTestEmitter(func(data any) {
 		done <- data.(httpapi.Response)
-	})
+	}))
 
 	if err != nil {
 		t.Fatalf("handler should not return error: %v", err)
@@ -354,9 +367,9 @@ func TestDispatcher_RequestConcurrent(t *testing.T) {
 				err := d.handleRequest(context.Background(), &httpapi.RequestCmd{
 					Method: "GET",
 					URL:    ts.URL,
-				}, func(data any) {
+				}, newTestEmitter(func(data any) {
 					done <- data.(httpapi.Response)
-				})
+				}))
 				if err != nil {
 					errCount.Add(1)
 					continue
@@ -402,9 +415,9 @@ func TestDispatcher_RequestLargeResponse(t *testing.T) {
 	err := d.handleRequest(context.Background(), &httpapi.RequestCmd{
 		Method: "GET",
 		URL:    ts.URL,
-	}, func(data any) {
+	}, newTestEmitter(func(data any) {
 		done <- data.(httpapi.Response)
-	})
+	}))
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -455,9 +468,9 @@ func TestDispatcher_RequestBatch(t *testing.T) {
 			{Method: "GET", URL: ts.URL + "/two"},
 			{Method: "GET", URL: ts.URL + "/three"},
 		},
-	}, func(data any) {
+	}, newTestEmitter(func(data any) {
 		done <- data.(httpapi.BatchResponse)
-	})
+	}))
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -490,9 +503,9 @@ func TestDispatcher_RequestBatchEmpty(t *testing.T) {
 
 	err := d.handleRequestBatch(context.Background(), &httpapi.RequestBatchCmd{
 		Requests: nil,
-	}, func(data any) {
+	}, newTestEmitter(func(data any) {
 		resp = data.(httpapi.BatchResponse)
-	})
+	}))
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -517,9 +530,9 @@ func TestDispatcher_RequestBatchPartialFailure(t *testing.T) {
 			{Method: "GET", URL: "http://localhost:59998", Timeout: 50 * time.Millisecond},
 			{Method: "GET", URL: ts.URL},
 		},
-	}, func(data any) {
+	}, newTestEmitter(func(data any) {
 		done <- data.(httpapi.BatchResponse)
-	})
+	}))
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -564,9 +577,9 @@ func TestDispatcher_RequestBatchConcurrent(t *testing.T) {
 	start := time.Now()
 	err := d.handleRequestBatch(context.Background(), &httpapi.RequestBatchCmd{
 		Requests: requests,
-	}, func(data any) {
+	}, newTestEmitter(func(data any) {
 		done <- data.(httpapi.BatchResponse)
-	})
+	}))
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -625,9 +638,9 @@ func BenchmarkDispatcher_Request(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			done := make(chan struct{})
-			d.handleRequest(ctx, cmd, func(data any) {
+			d.handleRequest(ctx, cmd, newTestEmitter(func(data any) {
 				close(done)
-			})
+			}))
 			<-done
 		}
 	})
@@ -651,9 +664,9 @@ func BenchmarkDispatcher_RequestWithTimeout(b *testing.B) {
 				Timeout: 5 * time.Second,
 			}
 			done := make(chan struct{})
-			d.handleRequest(ctx, cmd, func(data any) {
+			d.handleRequest(ctx, cmd, newTestEmitter(func(data any) {
 				close(done)
-			})
+			}))
 			<-done
 		}
 	})

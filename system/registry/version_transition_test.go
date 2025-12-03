@@ -10,7 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/internal/version"
-	"github.com/wippyai/runtime/system/registry/history"
+	historymem "github.com/wippyai/runtime/system/registry/history/memory"
 	"github.com/wippyai/runtime/system/registry/topology"
 	"go.uber.org/zap"
 )
@@ -73,7 +73,7 @@ func TestApplyVersion_ForwardWithSquashing(t *testing.T) {
 	logger := zap.NewNop()
 
 	// Setup
-	hist := history.NewMemory()
+	hist := historymem.New()
 	runner := NewTestRunner()
 	builder := topology.NewStateBuilder(logger, nil)
 	reg := NewRegistry(hist, runner, builder, nil, logger)
@@ -81,7 +81,7 @@ func TestApplyVersion_ForwardWithSquashing(t *testing.T) {
 	// Create baseline entries
 	baseline := registry.State{
 		{
-			ID:   registry.ID{NS: "base", Name: "config"},
+			ID:   registry.NewID("base", "config"),
 			Kind: "config",
 			Data: payload.NewString("base-config"),
 		},
@@ -92,7 +92,7 @@ func TestApplyVersion_ForwardWithSquashing(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test entry that will be modified multiple times
-	entryID := registry.ID{NS: "test", Name: "entry1"}
+	entryID := registry.NewID("test", "entry1")
 
 	// v1: Create entry
 	_, err = reg.Apply(ctx, registry.ChangeSet{
@@ -169,7 +169,7 @@ func TestApplyVersion_BackwardWithSquashing(t *testing.T) {
 	logger := zap.NewNop()
 
 	// Setup
-	hist := history.NewMemory()
+	hist := historymem.New()
 	runner := NewTestRunner()
 	builder := topology.NewStateBuilder(logger, nil)
 	reg := NewRegistry(hist, runner, builder, nil, logger)
@@ -177,7 +177,7 @@ func TestApplyVersion_BackwardWithSquashing(t *testing.T) {
 	// Create baseline
 	baseline := registry.State{
 		{
-			ID:   registry.ID{NS: "base", Name: "config"},
+			ID:   registry.NewID("base", "config"),
 			Kind: "config",
 			Data: payload.NewString("base-config"),
 		},
@@ -188,9 +188,9 @@ func TestApplyVersion_BackwardWithSquashing(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create entries across versions
-	entry1ID := registry.ID{NS: "test", Name: "entry1"}
-	entry2ID := registry.ID{NS: "test", Name: "entry2"}
-	entry3ID := registry.ID{NS: "test", Name: "entry3"}
+	entry1ID := registry.NewID("test", "entry1")
+	entry2ID := registry.NewID("test", "entry2")
+	entry3ID := registry.NewID("test", "entry3")
 
 	// v1: Create entry1
 	v1, err := reg.Apply(ctx, registry.ChangeSet{
@@ -271,7 +271,7 @@ func TestApplyVersion_CrossBranchWithSquashing(t *testing.T) {
 	logger := zap.NewNop()
 
 	// Setup
-	hist := history.NewMemory()
+	hist := historymem.New()
 	runner := NewTestRunner()
 	builder := topology.NewStateBuilder(logger, nil)
 	reg := NewRegistry(hist, runner, builder, nil, logger)
@@ -279,7 +279,7 @@ func TestApplyVersion_CrossBranchWithSquashing(t *testing.T) {
 	// Create baseline
 	baseline := registry.State{
 		{
-			ID:   registry.ID{NS: "base", Name: "config"},
+			ID:   registry.NewID("base", "config"),
 			Kind: "config",
 			Data: payload.NewString("base-config"),
 		},
@@ -289,7 +289,7 @@ func TestApplyVersion_CrossBranchWithSquashing(t *testing.T) {
 	err := reg.LoadState(ctx, baseline, version.FromParent(nil, 0))
 	require.NoError(t, err)
 
-	entryID := registry.ID{NS: "test", Name: "shared"}
+	entryID := registry.NewID("test", "shared")
 
 	// v1: Create shared entry
 	v1, err := reg.Apply(ctx, registry.ChangeSet{
@@ -363,7 +363,7 @@ func TestApplyVersion_PreservesBaseline(t *testing.T) {
 	logger := zap.NewNop()
 
 	// Setup with SQLite to test the original bug scenario
-	hist := history.NewMemory()
+	hist := historymem.New()
 	runner := NewTestRunner()
 	builder := topology.NewStateBuilder(logger, nil)
 	reg := NewRegistry(hist, runner, builder, nil, logger)
@@ -384,7 +384,7 @@ func TestApplyVersion_PreservesBaseline(t *testing.T) {
 
 	// v1: Add one new entry
 	newEntry := registry.Entry{
-		ID:   registry.ID{NS: "app", Name: "feature1"},
+		ID:   registry.NewID("app", "feature1"),
 		Kind: "component",
 		Data: payload.NewString("feature1-data"),
 	}

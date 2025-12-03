@@ -3,7 +3,6 @@ package yaml
 import (
 	"sync"
 
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -13,7 +12,7 @@ import (
 
 var (
 	moduleTable  *lua.LTable
-	registration *lua2api.Registration
+	registration *luaapi.Registration
 	initOnce     sync.Once
 )
 
@@ -30,7 +29,7 @@ func (m *yamlModule) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *yamlModule) Register(l *lua.LState) *lua2api.Registration {
+func (m *yamlModule) Register(l *lua.LState) *luaapi.Registration {
 	initOnce.Do(func() {
 		mod := &lua.LTable{}
 		mod.RawSetString("encode", lua.LGoFunc(encode))
@@ -38,7 +37,7 @@ func (m *yamlModule) Register(l *lua.LState) *lua2api.Registration {
 		mod.Immutable = true
 		moduleTable = mod
 
-		registration = &lua2api.Registration{
+		registration = &luaapi.Registration{
 			Table:      moduleTable,
 			YieldTypes: nil,
 		}
@@ -52,9 +51,9 @@ func (m *yamlModule) Loader(l *lua.LState) int {
 	return 1
 }
 
-// Bind is deprecated. Use lua2api.LoadModule(l, Module) instead.
+// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
 func Bind(l *lua.LState) {
-	lua2api.LoadModule(l, Module)
+	luaapi.LoadModule(l, Module)
 }
 
 func encode(l *lua.LState) int {

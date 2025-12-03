@@ -7,7 +7,6 @@ import (
 
 	clockapi "github.com/wippyai/runtime/api/clock"
 	"github.com/wippyai/runtime/api/dispatcher"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -17,7 +16,7 @@ import (
 // Module initialization - cached with sync.Once
 var (
 	moduleTable  *lua.LTable
-	registration *lua2api.Registration
+	registration *luaapi.Registration
 	initOnce     sync.Once
 )
 
@@ -48,7 +47,7 @@ func (m *timeModule) Info() luaapi.ModuleInfo {
 
 // Register implements engine.Module interface.
 // Returns the module table and yield types in a single call.
-func (m *timeModule) Register(l *lua.LState) *lua2api.Registration {
+func (m *timeModule) Register(l *lua.LState) *luaapi.Registration {
 	initOnce.Do(doInit)
 	return registration
 }
@@ -67,9 +66,9 @@ func doInit() {
 	initModuleTable()
 
 	// Create registration with table and yield types
-	registration = &lua2api.Registration{
+	registration = &luaapi.Registration{
 		Table: moduleTable,
-		YieldTypes: []lua2api.YieldType{
+		YieldTypes: []luaapi.YieldType{
 			{Sample: &SleepYield{}, CmdID: clockapi.CmdSleep},
 			{Sample: &TimerStartYield{}, CmdID: clockapi.CmdTimerStart},
 			{Sample: &TimerWaitYield{}, CmdID: clockapi.CmdTimerWait},
@@ -90,9 +89,9 @@ func (m *timeModule) Loader(l *lua.LState) int {
 }
 
 // BindYields sets global AND adds to package.preload for require() compatibility.
-// Deprecated: Use lua2api.LoadModule(l, Module) instead.
+// Deprecated: Use luaapi.LoadModule(l, Module) instead.
 func BindYields(l *lua.LState) {
-	lua2api.LoadModule(l, Module)
+	luaapi.LoadModule(l, Module)
 }
 
 // initModuleTable creates the immutable module table.
@@ -1469,7 +1468,7 @@ func ParseDuration(l *lua.LState, idx int) (stdtime.Duration, error) {
 	case lua.LString:
 		return stdtime.ParseDuration(string(v))
 	default:
-		return 0, fmt.Errorf("duration: number or string expected")
+		return 0, ErrDurationNumberOrStringExpected
 	}
 }
 
@@ -1479,7 +1478,7 @@ func parseDurationValue(value lua.LValue) (stdtime.Duration, error) {
 		if d, ok := v.Value.(*Duration); ok {
 			return d.duration, nil
 		}
-		return 0, fmt.Errorf("duration expected, got %T", v.Value)
+		return 0, NewInvalidDurationType(fmt.Sprintf("%T", v.Value))
 	case lua.LString:
 		return stdtime.ParseDuration(string(v))
 	case lua.LNumber:
@@ -1487,7 +1486,7 @@ func parseDurationValue(value lua.LValue) (stdtime.Duration, error) {
 	case lua.LInteger:
 		return stdtime.Duration(v), nil
 	}
-	return 0, fmt.Errorf("duration, string, or number expected, got %T", value)
+	return 0, NewInvalidValueType(fmt.Sprintf("%T", value))
 }
 
 func isTime(l *lua.LState, n int) (*Time, bool) {

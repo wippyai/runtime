@@ -3,7 +3,6 @@ package process
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/wippyai/runtime/api/event"
@@ -32,7 +31,7 @@ type Manager struct {
 // NewManager creates a new process manager.
 func NewManager(log *zap.Logger, code *code.Manager, bus event.Bus) *Manager {
 	return &Manager{
-		log:  log.Named("process2"),
+		log:  log,
 		code: code,
 		bus:  bus,
 	}
@@ -41,12 +40,12 @@ func NewManager(log *zap.Logger, code *code.Manager, bus event.Bus) *Manager {
 // Add implements registry.EntryListener.
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindProcess {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindProcess)
+		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindProcess))
 	}
 
 	cfg, err := component.UnpackConfig[api.ProcessConfig](ctx, entry)
 	if err != nil {
-		return fmt.Errorf("failed to unpack process config: %w", err)
+		return NewUnpackConfigError(err)
 	}
 
 	node := code.Node{
@@ -57,14 +56,14 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	if err := m.code.AddNode(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules)); err != nil {
-		return fmt.Errorf("failed to add process node: %w", err)
+		return NewAddProcessNodeError(err)
 	}
 
 	m.configs.Store(entry.ID, cfg)
 
 	if err := m.registerFactory(ctx, entry.ID, cfg.Method); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
-		return fmt.Errorf("failed to register factory: %w", err)
+		return NewRegisterFactoryError(err)
 	}
 
 	m.log.Debug("added process", zap.String("id", entry.ID.String()))
@@ -74,12 +73,12 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update implements registry.EntryListener.
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindProcess {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindProcess)
+		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindProcess))
 	}
 
 	cfg, err := component.UnpackConfig[api.ProcessConfig](ctx, entry)
 	if err != nil {
-		return fmt.Errorf("failed to unpack process config: %w", err)
+		return NewUnpackConfigError(err)
 	}
 
 	node := code.Node{
@@ -90,13 +89,13 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	if err := m.code.UpdateNode(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules)); err != nil {
-		return fmt.Errorf("failed to update process node: %w", err)
+		return NewUpdateProcessNodeError(err)
 	}
 
 	m.configs.Store(entry.ID, cfg)
 
 	if err := m.registerFactory(ctx, entry.ID, cfg.Method); err != nil {
-		return fmt.Errorf("failed to update factory: %w", err)
+		return NewUpdateFactoryError(err)
 	}
 
 	m.log.Debug("updated process", zap.String("id", entry.ID.String()))
@@ -106,11 +105,11 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete implements registry.EntryListener.
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindProcess {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindProcess)
+		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindProcess))
 	}
 
 	if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
-		return fmt.Errorf("failed to delete process node: %w", err)
+		return NewDeleteProcessNodeError(err)
 	}
 
 	m.configs.Delete(entry.ID)
@@ -142,7 +141,7 @@ func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method st
 	// Verify compilation works
 	_, err := m.code.Compile(id, processBuildOptions())
 	if err != nil {
-		return fmt.Errorf("failed to compile: %w", err)
+		return NewCompileError(err)
 	}
 
 	// Default method
@@ -180,7 +179,7 @@ func (m *Manager) unregisterFactory(ctx context.Context, id registry.ID) {
 func (m *Manager) createProcess(id registry.ID) (process.Process, error) {
 	compiled, err := m.code.Compile(id, processBuildOptions())
 	if err != nil {
-		return nil, fmt.Errorf("failed to compile: %w", err)
+		return nil, NewCompileError(err)
 	}
 
 	return createProcess(compiled)

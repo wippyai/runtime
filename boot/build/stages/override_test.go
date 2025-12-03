@@ -13,7 +13,7 @@ func TestOverride_BasicSet(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "app", Name: "gateway"},
+			ID:   registry.NewID("app", "gateway"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{
 				"addr": ":8080",
@@ -53,7 +53,7 @@ func TestOverride_NestedPath(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "db", Name: "main"},
+			ID:   registry.NewID("db", "main"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{
 				"connection": map[string]any{
@@ -100,7 +100,7 @@ func TestOverride_MetaPath(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "app", Name: "worker"},
+			ID:   registry.NewID("app", "worker"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{
 				"count": 2,
@@ -136,7 +136,7 @@ func TestOverride_DataPrefix(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "app", Name: "cache"},
+			ID:   registry.NewID("app", "cache"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{
 				"ttl": 300,
@@ -170,21 +170,21 @@ func TestOverride_MultipleEntries(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "app", Name: "gateway"},
+			ID:   registry.NewID("app", "gateway"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{
 				"addr": ":8080",
 			}),
 		},
 		{
-			ID:   registry.ID{NS: "app", Name: "worker"},
+			ID:   registry.NewID("app", "worker"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{
 				"count": 2,
 			}),
 		},
 		{
-			ID:   registry.ID{NS: "db", Name: "main"},
+			ID:   registry.NewID("db", "main"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{
 				"host": "localhost",
@@ -228,7 +228,7 @@ func TestOverride_NoConfig(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "app", Name: "gateway"},
+			ID:   registry.NewID("app", "gateway"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{
 				"addr": ":8080",
@@ -254,7 +254,7 @@ func TestOverride_EmptySection(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "app", Name: "gateway"},
+			ID:   registry.NewID("app", "gateway"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{
 				"addr": ":8080",
@@ -287,7 +287,7 @@ func TestOverride_EntryNotFound(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.ID{NS: "app", Name: "gateway"},
+			ID:   registry.NewID("app", "gateway"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{
 				"addr": ":8080",

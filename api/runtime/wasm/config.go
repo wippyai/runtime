@@ -1,8 +1,6 @@
 package wasm
 
 import (
-	"fmt"
-
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/system/scheduler/pool"
 )
@@ -50,50 +48,57 @@ func (c *PoolConfig) ToPoolConfig() pool.Config {
 // Validate checks if the FunctionConfig has all required fields.
 func (c *FunctionConfig) Validate() error {
 	if c.Source == "" {
-		return fmt.Errorf("source is required")
+		return ErrSourceRequired
 	}
 
 	if c.Method == "" {
-		return fmt.Errorf("method is required")
+		return ErrMethodRequired
 	}
 
 	if c.Pool.Size <= 0 && c.Pool.Type != PoolTypeInline && c.Pool.Type != PoolTypeLazy {
-		return fmt.Errorf("pool.size must be greater than 0 for non-lazy/inline pools")
+		return ErrInvalidPoolSize
 	}
 
 	return nil
 }
 
+// Transport type constants for WASM function invocation.
+const (
+	TransportPayload  = "payload"   // Default: transcode payloads to Go types
+	TransportWASIHTTP = "wasi-http" // WASI HTTP: pass request/response handles
+)
+
 // ComponentFunctionConfig defines configuration for a precompiled WASM component.
 type ComponentFunctionConfig struct {
-	FS     string            `json:"fs"`     // Filesystem entry ID (e.g., "app:wasm.files")
-	Path   string            `json:"path"`   // Path within filesystem to .wasm file
-	Hash   string            `json:"hash"`   // Required SHA256 hash (e.g., "sha256:abc123...")
-	Method string            `json:"method"` // Exported function name
-	Pool   PoolConfig        `json:"pool,omitempty"`
-	Meta   registry.Metadata `json:"meta,omitempty"`
+	FS        string            `json:"fs"`                  // Filesystem entry ID (e.g., "app:wasm.files")
+	Path      string            `json:"path"`                // Path within filesystem to .wasm file
+	Hash      string            `json:"hash"`                // Required SHA256 hash (e.g., "sha256:abc123...")
+	Method    string            `json:"method"`              // Exported function name
+	Transport string            `json:"transport,omitempty"` // Transport type: payload (default), wasi-http
+	Pool      PoolConfig        `json:"pool,omitempty"`
+	Meta      registry.Metadata `json:"meta,omitempty"`
 }
 
 // Validate checks if the ComponentFunctionConfig has all required fields.
 func (c *ComponentFunctionConfig) Validate() error {
 	if c.FS == "" {
-		return fmt.Errorf("fs is required")
+		return ErrFSRequired
 	}
 
 	if c.Path == "" {
-		return fmt.Errorf("path is required")
+		return ErrPathRequired
 	}
 
 	if c.Hash == "" {
-		return fmt.Errorf("hash is required")
+		return ErrHashRequired
 	}
 
 	if c.Method == "" {
-		return fmt.Errorf("method is required")
+		return ErrMethodRequired
 	}
 
 	if c.Pool.Size <= 0 && c.Pool.Type != PoolTypeInline && c.Pool.Type != PoolTypeLazy {
-		return fmt.Errorf("pool.size must be greater than 0 for non-lazy/inline pools")
+		return ErrInvalidPoolSize
 	}
 
 	return nil

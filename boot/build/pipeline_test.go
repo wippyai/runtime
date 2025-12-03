@@ -28,7 +28,7 @@ func TestPipeline_Execute_SingleStage(t *testing.T) {
 	stageFn := func(_ context.Context, entries *[]registry.Entry) error {
 		called = true
 		*entries = append(*entries, registry.Entry{
-			ID: registry.ID{NS: "test", Name: "entry1"},
+			ID: registry.NewID("test", "entry1"),
 		})
 		return nil
 	}
@@ -69,21 +69,21 @@ func newTestStage(name string, fn func(context.Context, *[]registry.Entry) error
 func TestPipeline_Execute_MultipleStages(t *testing.T) {
 	stage1 := func(_ context.Context, entries *[]registry.Entry) error {
 		*entries = append(*entries, registry.Entry{
-			ID: registry.ID{NS: "test", Name: "entry1"},
+			ID: registry.NewID("test", "entry1"),
 		})
 		return nil
 	}
 
 	stage2 := func(_ context.Context, entries *[]registry.Entry) error {
 		*entries = append(*entries, registry.Entry{
-			ID: registry.ID{NS: "test", Name: "entry2"},
+			ID: registry.NewID("test", "entry2"),
 		})
 		return nil
 	}
 
 	stage3 := func(_ context.Context, entries *[]registry.Entry) error {
 		*entries = append(*entries, registry.Entry{
-			ID: registry.ID{NS: "test", Name: "entry3"},
+			ID: registry.NewID("test", "entry3"),
 		})
 		return nil
 	}
@@ -113,7 +113,7 @@ func TestPipeline_Execute_MultipleStages(t *testing.T) {
 func TestPipeline_Execute_StageModifiesEntries(t *testing.T) {
 	addStage := func(_ context.Context, entries *[]registry.Entry) error {
 		*entries = append(*entries, registry.Entry{
-			ID: registry.ID{NS: "test", Name: "entry1"},
+			ID: registry.NewID("test", "entry1"),
 		})
 		return nil
 	}
@@ -251,7 +251,7 @@ func TestPipeline_Execute_ContextCancellation(t *testing.T) {
 func TestPipeline_Execute_PreservesPointerReference(t *testing.T) {
 	stage := func(_ context.Context, entries *[]registry.Entry) error {
 		*entries = append(*entries, registry.Entry{
-			ID: registry.ID{NS: "test", Name: "entry1"},
+			ID: registry.NewID("test", "entry1"),
 		})
 		return nil
 	}

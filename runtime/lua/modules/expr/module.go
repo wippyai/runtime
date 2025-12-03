@@ -6,7 +6,6 @@ import (
 
 	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/vm"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lru "github.com/wippyai/runtime/internal/cache"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
@@ -19,7 +18,7 @@ var (
 	cache        *lru.Cache[string, *vm.Program]
 	moduleTable  *luavm.LTable
 	programMT    *luavm.LTable
-	registration *lua2api.Registration
+	registration *luaapi.Registration
 	initOnce     sync.Once
 )
 
@@ -36,7 +35,7 @@ func (m *exprModule) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *exprModule) Register(l *luavm.LState) *lua2api.Registration {
+func (m *exprModule) Register(l *luavm.LState) *luaapi.Registration {
 	initOnce.Do(func() {
 		cache = lru.New[string, *vm.Program](
 			lru.WithCapacity(1000),
@@ -50,7 +49,7 @@ func (m *exprModule) Register(l *luavm.LState) *lua2api.Registration {
 		mod.Immutable = true
 		moduleTable = mod
 
-		registration = &lua2api.Registration{
+		registration = &luaapi.Registration{
 			Table:      moduleTable,
 			YieldTypes: nil,
 		}
@@ -67,9 +66,9 @@ func (m *exprModule) Loader(l *luavm.LState) int {
 	return 1
 }
 
-// Bind is deprecated. Use lua2api.LoadModule(l, Module) instead.
+// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
 func Bind(l *luavm.LState) {
-	lua2api.LoadModule(l, Module)
+	luaapi.LoadModule(l, Module)
 }
 
 type Program struct {

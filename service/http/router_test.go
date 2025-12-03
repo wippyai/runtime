@@ -17,7 +17,7 @@ func TestRouteManager_BasicOperations(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("add and update router", func(t *testing.T) {
-		routerID := registry.ID{NS: "test", Name: "router1"}
+		routerID := registry.NewID("test", "router1")
 
 		// Add initial router
 		err := rm.AddRouter(routerID, "/api/v1", nil, nil)
@@ -32,9 +32,9 @@ func TestRouteManager_BasicOperations(t *testing.T) {
 	})
 
 	t.Run("add and remove route", func(t *testing.T) {
-		routerID := registry.ID{NS: "test", Name: "router1"}
-		funcID := registry.ID{NS: "test", Name: "func1"}
-		endpointID := registry.ID{NS: "test", Name: "endpoint1"}
+		routerID := registry.NewID("test", "router1")
+		funcID := registry.NewID("test", "func1")
+		endpointID := registry.NewID("test", "endpoint1")
 
 		// Add route to router
 		err := rm.AddRoute(routerID, endpointID, "GET", "/test", funcID, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -47,7 +47,7 @@ func TestRouteManager_BasicOperations(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Add different endpoint with same path and method is allowed
-		endpointID2 := registry.ID{NS: "test", Name: "endpoint2"}
+		endpointID2 := registry.NewID("test", "endpoint2")
 		err = rm.AddRoute(routerID, endpointID2, "GET", "/test", funcID, nil)
 		assert.NoError(t, err)
 
@@ -78,7 +78,7 @@ func TestRouteManager_BasicOperations(t *testing.T) {
 	})
 
 	t.Run("remove router", func(t *testing.T) {
-		routerID := registry.ID{NS: "test", Name: "router1"}
+		routerID := registry.NewID("test", "router1")
 		err := rm.RemoveRouter(routerID)
 		require.NoError(t, err)
 
@@ -93,13 +93,13 @@ func TestRouteManager_ServeHTTP(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add test router
-	routerID := registry.ID{NS: "test", Name: "router1"}
+	routerID := registry.NewID("test", "router1")
 	err = rm.AddRouter(routerID, "/api", nil, nil)
 	require.NoError(t, err)
 
 	// Add test endpoint
-	funcID := registry.ID{NS: "test", Name: "func1"}
-	endpointID := registry.ID{NS: "test", Name: "endpoint1"}
+	funcID := registry.NewID("test", "func1")
+	endpointID := registry.NewID("test", "endpoint1")
 
 	// Create a handler that checks for request context values
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -157,8 +157,8 @@ func TestRouteManager_MultipleRouters(t *testing.T) {
 		prefix string
 		name   string
 	}{
-		{registry.ID{NS: "test", Name: "router1"}, "/api/v1", "router1"},
-		{registry.ID{NS: "test", Name: "router2"}, "/api/v2", "router2"},
+		{registry.NewID("test", "router1"), "/api/v1", "router1"},
+		{registry.NewID("test", "router2"), "/api/v2", "router2"},
 	}
 
 	for _, r := range routerIDs {
@@ -166,7 +166,7 @@ func TestRouteManager_MultipleRouters(t *testing.T) {
 		require.NoError(t, err)
 
 		// Add a test endpoint to each router
-		funcID := registry.ID{NS: "test", Name: "func1"}
+		funcID := registry.NewID("test", "func1")
 		endpointID := registry.ID{NS: "test", Name: r.id.Name + "-endpoint"}
 
 		// Save router name in a closure variable to avoid sharing across iterations
@@ -219,14 +219,14 @@ func TestRouteManager_Middleware(t *testing.T) {
 	}
 
 	// Add router with middleware
-	routerID := registry.ID{NS: "test", Name: "router1"}
+	routerID := registry.NewID("test", "router1")
 	middleware := []func(http.Handler) http.Handler{testMiddleware}
 	err = rm.AddRouter(routerID, "/api", middleware, nil)
 	require.NoError(t, err)
 
 	// Add test endpoint
-	funcID := registry.ID{NS: "test", Name: "func1"}
-	endpointID := registry.ID{NS: "test", Name: "endpoint1"}
+	funcID := registry.NewID("test", "func1")
+	endpointID := registry.NewID("test", "endpoint1")
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -264,13 +264,13 @@ func TestRouteManager_RouteUpdates(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add router
-	routerID := registry.ID{NS: "test", Name: "router1"}
+	routerID := registry.NewID("test", "router1")
 	err = rm.AddRouter(routerID, "/api", nil, nil)
 	require.NoError(t, err)
 
 	// Add first test endpoint
-	funcID1 := registry.ID{NS: "test", Name: "func1"}
-	endpointID1 := registry.ID{NS: "test", Name: "endpoint1"}
+	funcID1 := registry.NewID("test", "func1")
+	endpointID1 := registry.NewID("test", "endpoint1")
 	handler1 := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -284,7 +284,7 @@ func TestRouteManager_RouteUpdates(t *testing.T) {
 	require.NoError(t, err)
 
 	// Try to add duplicate router prefix - should still error
-	routerID2 := registry.ID{NS: "test", Name: "router2"}
+	routerID2 := registry.NewID("test", "router2")
 	err = rm.AddRouter(routerID2, "/api", nil, nil)
 	require.ErrorContains(t, err, "router with prefix /api already exists")
 

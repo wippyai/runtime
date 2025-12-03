@@ -13,7 +13,6 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
-	apierror "github.com/wippyai/runtime/api/error"
 	execapi "github.com/wippyai/runtime/api/service/exec"
 	"go.uber.org/zap"
 )
@@ -54,7 +53,7 @@ func NewDockerExecutor(log *zap.Logger, config *execapi.DockerExecutorConfig) (*
 
 	cli, err := client.NewClientWithOpts(opts...)
 	if err != nil {
-		return nil, WrapError(apierror.KindUnavailable, fmt.Errorf("failed to create docker client: %w", err), apierror.True)
+		return nil, NewDockerClientError(err)
 	}
 
 	return &Executor{
@@ -230,7 +229,7 @@ func (p *Process) Start() error {
 
 	resp, err := p.cli.ContainerCreate(ctx, config, hostConfig, &network.NetworkingConfig{}, nil, "")
 	if err != nil {
-		return WrapError(apierror.KindUnavailable, fmt.Errorf("failed to create container: %w", err), apierror.True)
+		return NewContainerCreateError(err)
 	}
 
 	p.containerID = resp.ID
@@ -244,7 +243,7 @@ func (p *Process) Start() error {
 	})
 	if err != nil {
 		_ = p.cli.ContainerRemove(ctx, p.containerID, container.RemoveOptions{Force: true})
-		return WrapError(apierror.KindUnavailable, fmt.Errorf("failed to attach to container: %w", err), apierror.True)
+		return NewContainerAttachError(err)
 	}
 
 	p.stdinWriter = attachResp.Conn
@@ -266,7 +265,7 @@ func (p *Process) Start() error {
 	if err := p.cli.ContainerStart(ctx, p.containerID, container.StartOptions{}); err != nil {
 		attachResp.Close()
 		_ = p.cli.ContainerRemove(ctx, p.containerID, container.RemoveOptions{Force: true})
-		return WrapError(apierror.KindUnavailable, fmt.Errorf("failed to start container: %w", err), apierror.True)
+		return NewContainerStartError(err)
 	}
 
 	p.started = true
@@ -294,7 +293,7 @@ func (p *Process) Signal(sig int) error {
 		if strings.Contains(err.Error(), "is not running") {
 			return ErrContainerStopped
 		}
-		return WrapError(apierror.KindUnavailable, fmt.Errorf("failed to send signal: %w", err), apierror.False)
+		return NewSignalError(err)
 	}
 
 	p.log.Debug("signal sent", zap.String("id", containerID), zap.String("signal", sigName))

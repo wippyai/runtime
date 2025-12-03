@@ -18,6 +18,8 @@ const (
 	Bytes Format = "application/octet-stream"
 	// Error represents a Go error payload
 	Error Format = "golang/error"
+	// MsgPack represents a MessagePack-encoded binary payload
+	MsgPack Format = "application/msgpack"
 )
 
 type (

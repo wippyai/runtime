@@ -44,7 +44,7 @@ func init() {
 func runUpdate(cmd *cobra.Command, args []string) error {
 	app, err := appinit.Init(cmd.Context(), verbose, veryVerbose, console, silentLogs, appStartTime)
 	if err != nil {
-		return fmt.Errorf("init app: %w", err)
+		return NewInitAppError(err)
 	}
 
 	logger := app.Logger.Named("update")
@@ -67,7 +67,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		oldLockObj, _ = lock.New(lockFilePath)
 		if oldLockObj != nil {
 			if err := lock.Validate(oldLockObj); err != nil {
-				return fmt.Errorf("invalid existing lock file: %w", err)
+				return NewInvalidExistingLockFileError(err)
 			}
 		}
 	}
@@ -78,7 +78,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	dirFS := os.DirFS(srcDir)
 	entries, err := app.Loader.LoadFS(app.Ctx, dirFS)
 	if err != nil {
-		return fmt.Errorf("load entries from source: %w", err)
+		return NewLoadEntriesFromSourceError(err)
 	}
 
 	// Extract root dependencies from entries
@@ -93,7 +93,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	// Build dependency graph using graph builder
 	manifestBridge, err := client.NewManifestBridge(app.RegistryClient, app.Transcoder, logger.Named("manifest"), 100)
 	if err != nil {
-		return fmt.Errorf("create manifest bridge: %w", err)
+		return NewCreateManifestBridgeError(err)
 	}
 
 	builder := graph.NewBuilder(manifestBridge)
@@ -103,7 +103,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		RootDependencies: rootDeps,
 	})
 	if err != nil {
-		return fmt.Errorf("build dependency graph: %w", err)
+		return NewBuildDependencyGraphError(err)
 	}
 
 	if len(result.Conflicts) > 0 {
@@ -114,7 +114,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 				zap.String("reason", conflict.Reason.String()),
 				zap.String("message", conflict.Message))
 		}
-		return fmt.Errorf("dependency conflicts detected: %d conflicts", len(result.Conflicts))
+		return NewDependencyConflictsError(len(result.Conflicts))
 	}
 
 	logger.Info("dependency graph resolved",
@@ -134,7 +134,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	// Save lock file
 	if err := newLockObj.Write(); err != nil {
-		return fmt.Errorf("write lock file: %w", err)
+		return NewWriteLockFileError(err)
 	}
 
 	logger.Info("lock file updated")
@@ -148,7 +148,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	// Run install to download modules
 	logger.Info("running install to download modules")
 	if err := runInstall(cmd, []string{}); err != nil {
-		return fmt.Errorf("install failed: %w", err)
+		return NewInstallFailedError(err)
 	}
 
 	logger.Info("update completed successfully")
@@ -223,11 +223,11 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 	// Load current lock file
 	lockObj, err := lock.New(lockFilePath)
 	if err != nil {
-		return fmt.Errorf("load lock file: %w", err)
+		return NewLoadLockFileError(err)
 	}
 
 	if err := lock.Validate(lockObj); err != nil {
-		return fmt.Errorf("invalid lock file: %w", err)
+		return NewInvalidLockFileError(err)
 	}
 
 	oldLockObj, _ := lock.New(lockFilePath)
@@ -236,7 +236,7 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 	dirFS := os.DirFS(srcDir)
 	entries, err := app.Loader.LoadFS(app.Ctx, dirFS)
 	if err != nil {
-		return fmt.Errorf("load entries from source: %w", err)
+		return NewLoadEntriesFromSourceError(err)
 	}
 
 	// Extract source constraints
@@ -278,7 +278,7 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 
 		name, err := graph.ParseName(moduleName)
 		if err != nil {
-			return fmt.Errorf("parse module name %s: %w", moduleName, err)
+			return NewParseModuleNameError(moduleName, err)
 		}
 
 		frozenDeps = append(frozenDeps, graph.DependencyRequest{
@@ -290,7 +290,7 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 	// Setup registry client
 	manifestBridge, err := client.NewManifestBridge(app.RegistryClient, app.Transcoder, logger.Named("manifest"), 100)
 	if err != nil {
-		return fmt.Errorf("create manifest bridge: %w", err)
+		return NewCreateManifestBridgeError(err)
 	}
 
 	builder := graph.NewBuilder(manifestBridge)
@@ -300,7 +300,7 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 		RootDependencies: frozenDeps,
 	})
 	if err != nil {
-		return fmt.Errorf("build dependency graph: %w", err)
+		return NewBuildDependencyGraphError(err)
 	}
 
 	if len(result.Conflicts) > 0 {
@@ -311,7 +311,7 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 				zap.String("reason", conflict.Reason.String()),
 				zap.String("message", conflict.Message))
 		}
-		return fmt.Errorf("update not possible: %d conflicts detected", len(result.Conflicts))
+		return NewUpdateConflictsError(len(result.Conflicts))
 	}
 
 	// Build new lock file
@@ -368,7 +368,7 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 
 	// Save lock file
 	if err := newLockObj.Write(); err != nil {
-		return fmt.Errorf("write lock file: %w", err)
+		return NewWriteLockFileError(err)
 	}
 
 	logger.Info("lock file updated")
@@ -377,7 +377,7 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 	// Run install
 	logger.Info("running install to download modules")
 	if err := runInstall(cmd, []string{}); err != nil {
-		return fmt.Errorf("install failed: %w", err)
+		return NewInstallFailedError(err)
 	}
 
 	logger.Info("update completed successfully")

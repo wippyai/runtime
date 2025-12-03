@@ -86,7 +86,7 @@ func TestHandshake_Client_UnexpectedRemoteID(t *testing.T) {
 	ok := errors.As(clientErr, &clientConnErr)
 	require.True(t, ok)
 	require.Equal(t, ExitProtocolError, clientConnErr.Reason)
-	require.Contains(t, clientConnErr.Error(), "expected remote node ID 'node-B' but got 'node-C'")
+	require.Contains(t, clientConnErr.Error(), "node ID mismatch")
 
 	// The server should succeed - it completed its handshake correctly
 	// Server doesn't know what the client expected

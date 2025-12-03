@@ -42,7 +42,7 @@ func BenchmarkMemoryGraph_AddDependency(b *testing.B) {
 
 	b.ResetTimer()
 
-	mainID := registry.ID{NS: "bench", Name: "node_0"}
+	mainID := registry.NewID("bench", "node_0")
 	for i := 1; i <= b.N; i++ {
 		depID := registry.ID{NS: "bench", Name: fmt.Sprintf("node_%d", i)}
 		_ = mg.AddDependency(mainID, depID, fmt.Sprintf("dep_%d", i))
@@ -54,7 +54,7 @@ func BenchmarkMemoryGraph_GetDirectDependencies(b *testing.B) {
 
 	// Create a node with 100 dependencies
 	mainNode := &Node{
-		ID:     registry.ID{NS: "bench", Name: "main"},
+		ID:     registry.NewID("bench", "main"),
 		Kind:   luaapi.KindFunction,
 		Source: "return 1",
 	}
@@ -82,7 +82,7 @@ func BenchmarkMemoryGraph_GetAllDependents(b *testing.B) {
 
 	// Create a dependency tree: root -> level1 (10 nodes) -> level2 (100 nodes)
 	root := &Node{
-		ID:     registry.ID{NS: "bench", Name: "root"},
+		ID:     registry.NewID("bench", "root"),
 		Kind:   luaapi.KindFunction,
 		Source: "return 1",
 	}
@@ -120,7 +120,7 @@ func BenchmarkMemoryGraph_Build(b *testing.B) {
 
 	// Create a typical dependency graph: main -> 5 direct deps -> 3 transitive deps each
 	main := &Node{
-		ID:     registry.ID{NS: "bench", Name: "main"},
+		ID:     registry.NewID("bench", "main"),
 		Kind:   luaapi.KindFunction,
 		Source: "return 1",
 	}
@@ -197,8 +197,8 @@ func BenchmarkMemoryGraph_CycleDetection(b *testing.B) {
 		}
 	}
 
-	firstID := registry.ID{NS: "bench", Name: "node_0"}
-	lastID := registry.ID{NS: "bench", Name: "node_49"}
+	firstID := registry.NewID("bench", "node_0")
+	lastID := registry.NewID("bench", "node_49")
 
 	b.ResetTimer()
 
@@ -215,7 +215,7 @@ func BenchmarkCompiler_Compile(b *testing.B) {
 	mg := NewMemoryGraph()
 
 	main := &Node{
-		ID:     registry.ID{NS: "bench", Name: "main"},
+		ID:     registry.NewID("bench", "main"),
 		Kind:   luaapi.KindFunction,
 		Source: "local x = 1; return x + 1",
 		Method: "main",
@@ -242,7 +242,7 @@ func BenchmarkCompiler_CompileCacheHit(b *testing.B) {
 	mg := NewMemoryGraph()
 
 	main := &Node{
-		ID:     registry.ID{NS: "bench", Name: "main"},
+		ID:     registry.NewID("bench", "main"),
 		Kind:   luaapi.KindFunction,
 		Source: "local x = 1; return x + 1",
 		Method: "main",
@@ -271,7 +271,7 @@ func BenchmarkCompiler_CompileWithDependencies(b *testing.B) {
 	mg := NewMemoryGraph()
 
 	main := &Node{
-		ID:     registry.ID{NS: "bench", Name: "main"},
+		ID:     registry.NewID("bench", "main"),
 		Kind:   luaapi.KindFunction,
 		Source: "return lib1() + lib2()",
 		Method: "main",
@@ -312,15 +312,15 @@ func BenchmarkBuildOptions_Validate_Small(b *testing.B) {
 	opts := NewBuildOptions().
 		WithMode(AllowListed).
 		WithAllowed(
-			registry.ID{NS: "test", Name: "node1"},
-			registry.ID{NS: "test", Name: "node2"},
-			registry.ID{NS: "test", Name: "node3"},
+			registry.NewID("test", "node1"),
+			registry.NewID("test", "node2"),
+			registry.NewID("test", "node3"),
 		)
 
 	nodes := map[registry.ID]*Node{
-		{NS: "test", Name: "node1"}: {ID: registry.ID{NS: "test", Name: "node1"}},
-		{NS: "test", Name: "node2"}: {ID: registry.ID{NS: "test", Name: "node2"}},
-		{NS: "test", Name: "node3"}: {ID: registry.ID{NS: "test", Name: "node3"}},
+		{NS: "test", Name: "node1"}: {ID: registry.NewID("test", "node1")},
+		{NS: "test", Name: "node2"}: {ID: registry.NewID("test", "node2")},
+		{NS: "test", Name: "node3"}: {ID: registry.NewID("test", "node3")},
 	}
 
 	b.ResetTimer()
@@ -387,7 +387,7 @@ func BenchmarkMemoryGraph_Build_Allocations(b *testing.B) {
 
 	// Create a typical dependency graph
 	main := &Node{
-		ID:     registry.ID{NS: "bench", Name: "main"},
+		ID:     registry.NewID("bench", "main"),
 		Kind:   luaapi.KindFunction,
 		Source: "return 1",
 	}
@@ -413,7 +413,7 @@ func BenchmarkMemoryGraph_Build_Allocations(b *testing.B) {
 
 func BenchmarkHashNode(b *testing.B) {
 	node := &Node{
-		ID:     registry.ID{NS: "bench", Name: "test"},
+		ID:     registry.NewID("bench", "test"),
 		Source: "local x = 1; local y = 2; return x + y",
 		Method: "main",
 	}
@@ -574,7 +574,7 @@ func TestMemoryGraph_Build_ZeroAllocOnCacheHit(t *testing.T) {
 	mg := NewMemoryGraph()
 
 	main := &Node{
-		ID:     registry.ID{NS: "alloc", Name: "main"},
+		ID:     registry.NewID("alloc", "main"),
 		Kind:   luaapi.KindFunction,
 		Source: "return 1",
 	}
@@ -603,7 +603,7 @@ func TestCompiler_CacheHit_NoCompilation(t *testing.T) {
 	mg := NewMemoryGraph()
 
 	node := &Node{
-		ID:     registry.ID{NS: "cache", Name: "test"},
+		ID:     registry.NewID("cache", "test"),
 		Kind:   luaapi.KindFunction,
 		Source: "return 1",
 		Method: "main",

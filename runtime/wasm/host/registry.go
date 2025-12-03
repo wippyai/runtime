@@ -3,7 +3,6 @@ package host
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/tetratelabs/wazero"
@@ -37,11 +36,11 @@ func (r *Registry) Register(host wasmapi.Host) error {
 
 	info := host.Info()
 	if info.Namespace == "" {
-		return fmt.Errorf("host namespace cannot be empty")
+		return ErrEmptyNamespace
 	}
 
 	if _, exists := r.hosts[info.Namespace]; exists {
-		return fmt.Errorf("host %q already registered", info.Namespace)
+		return NewHostAlreadyRegisteredError(info.Namespace)
 	}
 
 	// Register yield types
@@ -129,7 +128,7 @@ func (r *Registry) InstantiateHosts(ctx context.Context, rt wazero.Runtime) erro
 		}
 
 		if _, err := builder.Instantiate(ctx); err != nil {
-			return fmt.Errorf("instantiate host %s: %w", namespace, err)
+			return NewInstantiateHostError(namespace, err)
 		}
 	}
 	return nil

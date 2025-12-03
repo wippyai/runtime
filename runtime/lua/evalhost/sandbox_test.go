@@ -10,7 +10,7 @@ import (
 	clockapi "github.com/wippyai/runtime/api/clock"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/process"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/modules/json"
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
 	"go.uber.org/zap"
@@ -19,7 +19,7 @@ import (
 // TestSandbox_ManualStepping demonstrates how to manually step through a Lua process
 // and see the yields from the Lua perspective.
 func TestSandbox_ManualStepping(t *testing.T) {
-	modules := []lua2api.ModuleV2{
+	modules := []luaapi.ModuleV2{
 		json.Module,
 		timemod.Module,
 	}
@@ -98,7 +98,7 @@ func TestSandbox_ManualStepping(t *testing.T) {
 
 // TestSandbox_MultipleSleeps tests stepping through multiple sleep calls
 func TestSandbox_MultipleSleeps(t *testing.T) {
-	modules := []lua2api.ModuleV2{
+	modules := []luaapi.ModuleV2{
 		json.Module,
 		timemod.Module,
 	}
@@ -178,7 +178,7 @@ func TestSandbox_MultipleSleeps(t *testing.T) {
 
 // TestSandbox_ErrorHandling tests error handling during stepping
 func TestSandbox_ErrorHandling(t *testing.T) {
-	modules := []lua2api.ModuleV2{
+	modules := []luaapi.ModuleV2{
 		json.Module,
 		timemod.Module,
 	}
@@ -217,7 +217,7 @@ func TestSandbox_ErrorHandling(t *testing.T) {
 
 // TestSandbox_NoYields tests process that completes without yields
 func TestSandbox_NoYields(t *testing.T) {
-	modules := []lua2api.ModuleV2{
+	modules := []luaapi.ModuleV2{
 		json.Module,
 		timemod.Module,
 	}
@@ -258,7 +258,7 @@ func TestSandbox_NoYields(t *testing.T) {
 
 // TestSandbox_TimerYields tests timer operations yield correctly
 func TestSandbox_TimerYields(t *testing.T) {
-	modules := []lua2api.ModuleV2{
+	modules := []luaapi.ModuleV2{
 		json.Module,
 		timemod.Module,
 	}

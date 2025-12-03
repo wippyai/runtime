@@ -16,7 +16,7 @@ import (
 	apiconfig "github.com/wippyai/runtime/api/service/sql"
 )
 
-var testID = registry.ID{NS: "test", Name: "db"}
+var testID = registry.NewID("test", "db")
 
 func newTestPool(t *testing.T) *ConnPool {
 	db, err := sql.Open("sqlite3", ":memory:")

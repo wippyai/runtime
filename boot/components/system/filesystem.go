@@ -2,8 +2,6 @@ package system
 
 import (
 	"context"
-	"fmt"
-
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/event"
 	fsapi "github.com/wippyai/runtime/api/fs"
@@ -23,17 +21,17 @@ func Filesystem() boot.Component {
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			if logger == nil {
-				return ctx, fmt.Errorf("logger not available in context")
+				return ctx, ErrLoggerNotAvailable
 			}
 
 			bus := event.GetBus(ctx)
 			if bus == nil {
-				return ctx, fmt.Errorf("event bus not available in context")
+				return ctx, ErrEventBusNotAvailable
 			}
 
 			reg := regapi.GetRegistry(ctx)
 			if reg == nil {
-				return ctx, fmt.Errorf("registry not available in context")
+				return ctx, ErrRegistryNotAvailable
 			}
 
 			// Register filesystem dependency pattern

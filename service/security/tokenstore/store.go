@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -58,7 +57,9 @@ func NewStoreTokenStore(
 	securityRegistry security.Registry,
 ) (*TokenStore, error) {
 	if err := config.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid token store config: %w", err)
+		e := ErrInvalidTokenStoreConfig
+		e.cause = err
+		return nil, e
 	}
 
 	return &TokenStore{
@@ -74,21 +75,21 @@ func (s *TokenStore) acquireStore(ctx context.Context) (store.Store, resource.Re
 	// Acquire the backing store
 	storeRes, err := s.resources.Acquire(ctx, s.config.Store, resource.ModeNormal)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to acquire backing store '%s': %w", s.config.Store, err)
+		return nil, nil, NewAcquireBackingStoreError(s.config.Store.String(), err)
 	}
 
 	// Get the store implementation
 	storeImpl, err := storeRes.Get()
 	if err != nil {
 		storeRes.Release()
-		return nil, nil, fmt.Errorf("failed to get store implementation: %w", err)
+		return nil, nil, NewGetStoreImplementationError(err)
 	}
 
 	// Ensure it's a store.Store
 	kvStore, ok := storeImpl.(store.Store)
 	if !ok {
 		storeRes.Release()
-		return nil, nil, fmt.Errorf("resource '%s' is not a key-value store", s.config.Store)
+		return nil, nil, NewResourceNotKVStoreError(s.config.Store.String())
 	}
 
 	return kvStore, storeRes, nil
@@ -111,7 +112,7 @@ func (s *TokenStore) Create(
 	// Generate token string
 	tokenStr, err := s.generateToken()
 	if err != nil {
-		return "", fmt.Errorf("failed to generate token: %w", err)
+		return "", NewGenerateTokenError(err)
 	}
 
 	// Extract the base token (without signature) for storage key
@@ -158,7 +159,7 @@ func (s *TokenStore) Create(
 	})
 
 	if err != nil {
-		return "", fmt.Errorf("failed to store token: %w", err)
+		return "", NewStoreTokenError(err)
 	}
 
 	return security.Token(tokenStr), nil
@@ -202,13 +203,13 @@ func (s *TokenStore) Validate(ctx context.Context, token security.Token) (securi
 		if errors.Is(err, store.ErrKeyNotFound) {
 			return security.Actor{}, nil, security.ErrTokenNotFound
 		}
-		return security.Actor{}, nil, fmt.Errorf("failed to retrieve token: %w", err)
+		return security.Actor{}, nil, NewRetrieveTokenError(err)
 	}
 
 	// Unmarshal token data
 	var data tokenData
 	if err := s.dtt.Unmarshal(value, &data); err != nil {
-		return security.Actor{}, nil, fmt.Errorf("failed to unmarshal token data: %w", err)
+		return security.Actor{}, nil, NewUnmarshalTokenDataError(err)
 	}
 
 	// Reconstruct actor
@@ -263,7 +264,7 @@ func (s *TokenStore) Revoke(ctx context.Context, token security.Token) error {
 		if errors.Is(err, store.ErrKeyNotFound) {
 			return security.ErrTokenNotFound
 		}
-		return fmt.Errorf("failed to delete token: %w", err)
+		return NewDeleteTokenError(err)
 	}
 
 	return nil
@@ -274,7 +275,7 @@ func (s *TokenStore) generateToken() (string, error) {
 	// Generate random bytes
 	tokenBytes := make([]byte, s.config.TokenLength)
 	if _, err := rand.Read(tokenBytes); err != nil {
-		return "", fmt.Errorf("failed to generate random token: %w", err)
+		return "", NewGenerateRandomTokenError(err)
 	}
 
 	// Base64-encode the token

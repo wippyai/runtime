@@ -117,6 +117,13 @@ func (s *SQLStore) Get(ctx context.Context, key registry.ID) (payload.Payload, e
 // Set stores or updates a value with the given key
 // Overwrites any existing value if the key already exists
 func (s *SQLStore) Set(ctx context.Context, entry store.Entry) error {
+	s.mu.RLock()
+	if s.closed {
+		s.mu.RUnlock()
+		return store.ErrStoreClosed
+	}
+	s.mu.RUnlock()
+
 	reg := resource.GetRegistry(ctx)
 	res, err := reg.Acquire(ctx, s.config.Database, resource.ModeNormal)
 	if err != nil {
@@ -222,6 +229,13 @@ func (s *SQLStore) Set(ctx context.Context, entry store.Entry) error {
 // Delete removes a value with the given key
 // Returns ErrKeyNotFound if the key doesn't exist
 func (s *SQLStore) Delete(ctx context.Context, key registry.ID) error {
+	s.mu.RLock()
+	if s.closed {
+		s.mu.RUnlock()
+		return store.ErrStoreClosed
+	}
+	s.mu.RUnlock()
+
 	reg := resource.GetRegistry(ctx)
 	res, err := reg.Acquire(ctx, s.config.Database, resource.ModeNormal)
 	if err != nil {
@@ -279,6 +293,13 @@ func (s *SQLStore) Delete(ctx context.Context, key registry.ID) error {
 // Has checks if a key exists without retrieving the value
 // Returns true if the key exists, false otherwise
 func (s *SQLStore) Has(ctx context.Context, key registry.ID) (bool, error) {
+	s.mu.RLock()
+	if s.closed {
+		s.mu.RUnlock()
+		return false, store.ErrStoreClosed
+	}
+	s.mu.RUnlock()
+
 	reg := resource.GetRegistry(ctx)
 	res, err := reg.Acquire(ctx, s.config.Database, resource.ModeNormal)
 	if err != nil {

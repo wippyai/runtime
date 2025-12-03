@@ -2,7 +2,6 @@ package memory
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/google/uuid"
@@ -66,7 +65,7 @@ func (q *queue) send(ctx context.Context, driverDone <-chan struct{}, msg *queue
 	defer q.mu.RUnlock()
 
 	if q.closed {
-		return fmt.Errorf("queue %s is closed", q.id)
+		return newQueueClosedError(q.id)
 	}
 
 	select {
@@ -75,7 +74,7 @@ func (q *queue) send(ctx context.Context, driverDone <-chan struct{}, msg *queue
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-driverDone:
-		return fmt.Errorf("driver is stopped")
+		return newDriverStoppedError()
 	}
 }
 
@@ -85,7 +84,7 @@ func (q *queue) requeue(ctx context.Context, msg *queueapi.Message) error {
 	defer q.mu.RUnlock()
 
 	if q.closed {
-		return fmt.Errorf("queue is closed, cannot requeue message")
+		return newQueueClosedRequeueError()
 	}
 
 	select {
@@ -94,7 +93,7 @@ func (q *queue) requeue(ctx context.Context, msg *queueapi.Message) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
-		return fmt.Errorf("queue is full, cannot requeue message")
+		return newQueueFullError()
 	}
 }
 

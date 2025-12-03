@@ -3,8 +3,10 @@ package engine
 import (
 	"context"
 	"fmt"
+	"os"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,8 +15,16 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+// skipUnlessStress skips the test unless WIPPY_STRESS_TESTS=1
+func skipUnlessStress(t *testing.T) {
+	if os.Getenv("WIPPY_STRESS_TESTS") != "1" {
+		t.Skip("Skipping stress test (set WIPPY_STRESS_TESTS=1 to run)")
+	}
+}
+
 // TestStress10KProcesses tests creating and running 10,000 processes.
 func TestStress10KProcesses(t *testing.T) {
+	skipUnlessStress(t)
 	const processCount = 10000
 	script := `
 		local sum = 0
@@ -113,6 +123,7 @@ func TestStress10KProcesses(t *testing.T) {
 
 // TestStress10KWithCoroutines tests 10,000 processes each spawning coroutines.
 func TestStress10KWithCoroutines(t *testing.T) {
+	skipUnlessStress(t)
 	const processCount = 10000
 	const coroutinesPerProcess = 5
 	script := `
@@ -191,6 +202,7 @@ func TestStress10KWithCoroutines(t *testing.T) {
 
 // TestStressParallelProcessCreation tests concurrent process creation.
 func TestStressParallelProcessCreation(t *testing.T) {
+	skipUnlessStress(t)
 	const processCount = 10000
 	const workers = 16
 
@@ -290,6 +302,7 @@ func BenchmarkStress10K(b *testing.B) {
 
 // TestStressMemoryLeak runs multiple iterations to detect gradual leaks.
 func TestStressMemoryLeak(t *testing.T) {
+	skipUnlessStress(t)
 	const iterations = 5
 	const processCount = 5000
 
@@ -349,6 +362,7 @@ func TestStressMemoryLeak(t *testing.T) {
 
 // TestStressStringConcat tests string operations under load.
 func TestStressStringConcat(t *testing.T) {
+	skipUnlessStress(t)
 	const processCount = 1000
 	script := `
 		local s = ""
@@ -399,6 +413,7 @@ func TestStressStringConcat(t *testing.T) {
 
 // TestStressTableOperations tests table-heavy operations.
 func TestStressTableOperations(t *testing.T) {
+	skipUnlessStress(t)
 	const processCount = 1000
 	script := `
 		local tbl = {}
@@ -571,6 +586,169 @@ func TestSpawnMultiple(t *testing.T) {
 		}
 	}
 	t.Fatalf("Did not complete in %d steps, threads=%d", maxSteps, len(proc.threads))
+}
+
+// TestHighConcurrencyMemoryPressure tests sustained high-concurrency load
+// to match production workload: 1000 concurrent workers creating processes.
+func TestHighConcurrencyMemoryPressure(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping memory pressure test in short mode")
+	}
+
+	concurrency := 1000
+	duration := 5 * time.Second
+	var wg sync.WaitGroup
+	var created int64
+	stop := make(chan struct{})
+
+	proto, err := lua.CompileString(`return 1`, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runtime.GC()
+	var baseline runtime.MemStats
+	runtime.ReadMemStats(&baseline)
+
+	start := time.Now()
+
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+
+				ctx, _ := ctxapi.OpenFrameContext(context.Background())
+				proc := NewProcess(WithProto(proto))
+				proc.Execute(ctx, "", nil)
+				proc.Step(nil)
+				proc.Close()
+
+				atomic.AddInt64(&created, 1)
+			}
+		}()
+	}
+
+	time.Sleep(duration)
+	close(stop)
+	wg.Wait()
+
+	elapsed := time.Since(start)
+	totalCreated := atomic.LoadInt64(&created)
+	rps := float64(totalCreated) / elapsed.Seconds()
+
+	var peak runtime.MemStats
+	runtime.ReadMemStats(&peak)
+
+	runtime.GC()
+	time.Sleep(100 * time.Millisecond)
+	runtime.GC()
+
+	var afterGC runtime.MemStats
+	runtime.ReadMemStats(&afterGC)
+
+	t.Logf("Duration: %v", elapsed)
+	t.Logf("Total created: %d", totalCreated)
+	t.Logf("Rate: %.0f processes/sec", rps)
+	t.Logf("Concurrency: %d", concurrency)
+	t.Logf("")
+	t.Logf("Baseline HeapAlloc: %d MB", baseline.HeapAlloc/1024/1024)
+	t.Logf("Peak HeapAlloc: %d MB", peak.HeapAlloc/1024/1024)
+	t.Logf("After GC HeapAlloc: %d MB", afterGC.HeapAlloc/1024/1024)
+	t.Logf("Peak HeapInuse: %d MB", peak.HeapInuse/1024/1024)
+	t.Logf("Peak HeapSys: %d MB", peak.HeapSys/1024/1024)
+	t.Logf("Total GC cycles: %d", afterGC.NumGC-baseline.NumGC)
+}
+
+// TestHighConcurrencyWithBindings tests with core module binders like production.
+func TestHighConcurrencyWithBindings(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping memory pressure test in short mode")
+	}
+
+	concurrency := 1000
+	duration := 5 * time.Second
+	var wg sync.WaitGroup
+	var created int64
+	stop := make(chan struct{})
+
+	proto, err := lua.CompileString(`return 1 + 2`, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Factory with core binders - like production
+	factory := NewFactory(FactoryConfig{
+		Proto:         proto,
+		ModuleBinders: CoreBinders(),
+	})
+
+	runtime.GC()
+	var baseline runtime.MemStats
+	runtime.ReadMemStats(&baseline)
+
+	start := time.Now()
+
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+
+				proc, err := factory()
+				if err != nil {
+					continue
+				}
+
+				ctx, _ := ctxapi.OpenFrameContext(context.Background())
+				proc.Execute(ctx, "", nil)
+				proc.(*Process).Step(nil)
+				proc.Close()
+
+				atomic.AddInt64(&created, 1)
+			}
+		}()
+	}
+
+	time.Sleep(duration)
+	close(stop)
+	wg.Wait()
+
+	elapsed := time.Since(start)
+	totalCreated := atomic.LoadInt64(&created)
+	rps := float64(totalCreated) / elapsed.Seconds()
+
+	var peak runtime.MemStats
+	runtime.ReadMemStats(&peak)
+
+	runtime.GC()
+	time.Sleep(100 * time.Millisecond)
+	runtime.GC()
+
+	var afterGC runtime.MemStats
+	runtime.ReadMemStats(&afterGC)
+
+	t.Logf("Duration: %v", elapsed)
+	t.Logf("Total created: %d (with CoreBinders)", totalCreated)
+	t.Logf("Rate: %.0f processes/sec", rps)
+	t.Logf("Concurrency: %d", concurrency)
+	t.Logf("")
+	t.Logf("Baseline HeapAlloc: %d MB", baseline.HeapAlloc/1024/1024)
+	t.Logf("Peak HeapAlloc: %d MB", peak.HeapAlloc/1024/1024)
+	t.Logf("After GC HeapAlloc: %d MB", afterGC.HeapAlloc/1024/1024)
+	t.Logf("Peak HeapInuse: %d MB", peak.HeapInuse/1024/1024)
+	t.Logf("Peak HeapSys: %d MB", peak.HeapSys/1024/1024)
+	t.Logf("Total GC cycles: %d", afterGC.NumGC-baseline.NumGC)
 }
 
 func TestSpawnWithCompute(t *testing.T) {

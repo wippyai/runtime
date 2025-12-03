@@ -2,12 +2,10 @@ package http
 
 import (
 	"context"
-	"fmt" // Note: fmt kept for Sprintf in logging
 	"io"
 	"net/http"
 	"path"
 	"strings"
-	"sync"
 
 	contextapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/fs"
@@ -18,35 +16,16 @@ import (
 	config "github.com/wippyai/runtime/api/service/http"
 )
 
-// RequestContext pool to reduce allocations
-var requestContextPool = sync.Pool{
-	New: func() interface{} {
-		return &config.RequestContext{}
-	},
-}
-
-// getRequestContext gets a RequestContext from pool and initializes it
-func getRequestContext(r *http.Request, w http.ResponseWriter) *config.RequestContext {
-	ctx := requestContextPool.Get().(*config.RequestContext)
-
-	// Initialize with new request/response
+// newRequestContext creates a RequestContext for the request.
+// Note: We don't pool RequestContext because the Lua worker may still be
+// accessing it after the HTTP handler returns (e.g., when request is cancelled
+// but the pool worker is still executing). Pooling would cause races.
+func newRequestContext(r *http.Request, w http.ResponseWriter) *config.RequestContext {
+	ctx := &config.RequestContext{}
 	ctx.SetRequest(r)
 	ctx.SetResponseWriter(w)
 	ctx.ResetHandled()
-
 	return ctx
-}
-
-// putRequestContext returns RequestContext to pool
-func putRequestContext(ctx *config.RequestContext) {
-	if ctx != nil {
-		// Clear references for GC
-		ctx.SetRequest(nil)
-		ctx.SetResponseWriter(nil)
-		ctx.ResetHandled()
-
-		requestContextPool.Put(ctx)
-	}
 }
 
 // EndpointFactory creates HTTP handlers for function endpoints
@@ -74,11 +53,8 @@ func (f *EndpointFactory) CreateHandler(_ context.Context, cfg *config.EndpointC
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Get pooled RequestContext
-		rCtx := getRequestContext(r, w)
-
-		// Return to pool when request is done
-		defer putRequestContext(rCtx)
+		// Create RequestContext for this request
+		rCtx := newRequestContext(r, w)
 
 		// Use existing context (FrameContext already created in handler wrapper)
 		execCtx := r.Context()

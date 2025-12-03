@@ -3,6 +3,7 @@ package payload
 import (
 	"encoding/json"
 	"math"
+	"os"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -15,6 +16,13 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
+
+// skipUnlessStress skips the test unless WIPPY_STRESS_TESTS=1
+func skipUnlessStress(t *testing.T) {
+	if os.Getenv("WIPPY_STRESS_TESTS") != "1" {
+		t.Skip("Skipping stress test (set WIPPY_STRESS_TESTS=1 to run)")
+	}
+}
 
 // =============================================================================
 // UNIT TESTS - GoToLua
@@ -854,7 +862,7 @@ func TestGoToLua_EdgeCases(t *testing.T) {
 	t.Run("special float values", func(t *testing.T) {
 		tests := []float64{
 			0.0,
-			-0.0,
+			math.Copysign(0, -1),
 			math.Inf(1),
 			math.Inf(-1),
 			// NaN is tricky to test because NaN != NaN
@@ -882,6 +890,7 @@ func TestGoToLua_EdgeCases(t *testing.T) {
 // =============================================================================
 
 func TestStress_ConcurrentGoToLua(t *testing.T) {
+	skipUnlessStress(t)
 	const (
 		goroutines = 100
 		iterations = 1000
@@ -922,6 +931,7 @@ func TestStress_ConcurrentGoToLua(t *testing.T) {
 }
 
 func TestStress_ConcurrentExportPayload(t *testing.T) {
+	skipUnlessStress(t)
 	const (
 		goroutines = 100
 		iterations = 1000
@@ -964,6 +974,7 @@ func TestStress_ConcurrentExportPayload(t *testing.T) {
 }
 
 func TestStress_ConcurrentJSONTranscode(t *testing.T) {
+	skipUnlessStress(t)
 	const (
 		goroutines = 50
 		iterations = 500
@@ -999,6 +1010,7 @@ func TestStress_ConcurrentJSONTranscode(t *testing.T) {
 }
 
 func TestStress_StructFieldCache(t *testing.T) {
+	skipUnlessStress(t)
 	const (
 		goroutines = 100
 		iterations = 1000
@@ -1432,9 +1444,7 @@ func TestGoToLua_JSONUnmarshaledData(t *testing.T) {
 
 // Memory pressure test
 func TestStress_MemoryPressure(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping memory pressure test in short mode")
-	}
+	skipUnlessStress(t)
 
 	// Force GC before starting
 	runtime.GC()

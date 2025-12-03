@@ -3,7 +3,6 @@ package store
 import (
 	"sync"
 
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
@@ -13,7 +12,7 @@ const storeTypeName = "store.Store"
 
 var (
 	moduleTable    *lua.LTable
-	registration   *lua2api.Registration
+	registration   *luaapi.Registration
 	storeMetatable *lua.LTable
 	initOnce       sync.Once
 )
@@ -31,13 +30,13 @@ func (m *storeModule) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *storeModule) Register(_ *lua.LState) *lua2api.Registration {
+func (m *storeModule) Register(_ *lua.LState) *luaapi.Registration {
 	initOnce.Do(func() {
 		moduleTable = createModuleTable()
 		storeMetatable = value.RegisterTypeMethods(nil, storeTypeName,
 			map[string]lua.LGFunction{"__tostring": storeToString},
 			storeMethods)
-		registration = &lua2api.Registration{
+		registration = &luaapi.Registration{
 			Table:      moduleTable,
 			YieldTypes: nil,
 		}
@@ -52,9 +51,9 @@ func (m *storeModule) Loader(l *lua.LState) int {
 	return 1
 }
 
-// Bind is deprecated. Use lua2api.LoadModule(l, Module) instead.
+// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
 func Bind(l *lua.LState) {
-	lua2api.LoadModule(l, Module)
+	luaapi.LoadModule(l, Module)
 }
 
 func createModuleTable() *lua.LTable {

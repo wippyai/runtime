@@ -2,7 +2,6 @@ package memory
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/wippyai/runtime/api/event"
@@ -38,14 +37,14 @@ func NewManager(
 
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != memoryapi.Kind {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return newUnsupportedEntryKindError(string(entry.Kind))
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, exists := m.drivers[entry.ID]; exists {
-		return fmt.Errorf("driver %s already exists", entry.ID)
+		return newDriverExistsError(entry.ID)
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[memoryapi.Config](ctx, m.dtt, entry)
@@ -80,7 +79,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != memoryapi.Kind {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return newUnsupportedEntryKindError(string(entry.Kind))
 	}
 
 	m.mu.RLock()
@@ -88,7 +87,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	m.mu.RUnlock()
 
 	if !exists {
-		return fmt.Errorf("driver %s does not exist", entry.ID)
+		return newDriverNotFoundError(entry.ID)
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[memoryapi.Config](ctx, m.dtt, entry)
@@ -113,14 +112,14 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != memoryapi.Kind {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return newUnsupportedEntryKindError(string(entry.Kind))
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, exists := m.drivers[entry.ID]; !exists {
-		return fmt.Errorf("driver %s does not exist", entry.ID)
+		return newDriverNotFoundError(entry.ID)
 	}
 
 	delete(m.drivers, entry.ID)

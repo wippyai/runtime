@@ -8,6 +8,13 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// assertIDEqual compares IDs by their NS and Name fields only (ignoring cached str)
+func assertIDEqual(t *testing.T, expected, actual ID) {
+	t.Helper()
+	assert.Equal(t, expected.NS, actual.NS, "NS mismatch")
+	assert.Equal(t, expected.Name, actual.Name, "Name mismatch")
+}
+
 func TestID_UnmarshalJSON(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -86,7 +93,7 @@ func TestID_UnmarshalJSON(t *testing.T) {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, tt.expected, id)
+				assertIDEqual(t, tt.expected, id)
 			}
 		})
 	}
@@ -153,7 +160,7 @@ func TestID_UnmarshalJSON_RealWorld(t *testing.T) {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, tt.expected, id)
+				assertIDEqual(t, tt.expected, id)
 			}
 		})
 	}
@@ -210,7 +217,7 @@ func TestParseID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := ParseID(tt.input)
-			assert.Equal(t, tt.expected, result)
+			assertIDEqual(t, tt.expected, result)
 		})
 	}
 }
@@ -318,7 +325,7 @@ func TestID_WithDefaultNS(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := tt.id.WithDefaultNS(tt.defaultNS)
-			assert.Equal(t, tt.expected, result)
+			assertIDEqual(t, tt.expected, result)
 		})
 	}
 }

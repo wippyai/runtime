@@ -2,7 +2,6 @@ package otel
 
 import (
 	"context"
-	"fmt"
 
 	otelapi "github.com/wippyai/runtime/api/service/otel"
 	"go.opentelemetry.io/otel"
@@ -38,12 +37,12 @@ func InitializeProvider(ctx context.Context, cfg otelapi.Config, logger *zap.Log
 
 	exporter, err := createExporter(ctx, cfg, logger)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
+		return nil, newCreateExporterError(err)
 	}
 
 	res, err := createResource(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create resource: %w", err)
+		return nil, newCreateResourceError(err)
 	}
 
 	sampler := createSampler(cfg)
@@ -92,7 +91,7 @@ func createExporter(ctx context.Context, cfg otelapi.Config, logger *zap.Logger)
 	case "http/protobuf", "http":
 		return createHTTPExporter(ctx, cfg, logger)
 	default:
-		return nil, fmt.Errorf("unsupported protocol: %s", cfg.Protocol)
+		return nil, newUnsupportedProtocolError(cfg.Protocol)
 	}
 }
 
@@ -194,7 +193,7 @@ func ShutdownProvider(ctx context.Context, tp trace.TracerProvider, logger *zap.
 	if sdkTP, ok := tp.(*sdktrace.TracerProvider); ok {
 		logger.Debug("shutting down OTEL provider")
 		if err := sdkTP.Shutdown(ctx); err != nil {
-			return fmt.Errorf("failed to shutdown tracer provider: %w", err)
+			return newShutdownTracerProviderError(err)
 		}
 		logger.Debug("OTEL provider shutdown complete")
 	}
@@ -210,12 +209,12 @@ func InitializeMeterProvider(ctx context.Context, cfg otelapi.Config, logger *za
 
 	exporter, err := createMetricExporter(ctx, cfg, logger)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create OTLP metric exporter: %w", err)
+		return nil, newCreateMetricExporterError(err)
 	}
 
 	res, err := createResource(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create resource: %w", err)
+		return nil, newCreateResourceError(err)
 	}
 
 	mp := sdkmetric.NewMeterProvider(
@@ -239,7 +238,7 @@ func createMetricExporter(ctx context.Context, cfg otelapi.Config, logger *zap.L
 	case "http/protobuf", "http":
 		return createHTTPMetricExporter(ctx, cfg, logger)
 	default:
-		return nil, fmt.Errorf("unsupported protocol: %s", cfg.Protocol)
+		return nil, newUnsupportedProtocolError(cfg.Protocol)
 	}
 }
 
@@ -276,7 +275,7 @@ func ShutdownMeterProvider(ctx context.Context, mp metric.MeterProvider, logger 
 	if sdkMP, ok := mp.(*sdkmetric.MeterProvider); ok {
 		logger.Debug("shutting down OTEL meter provider")
 		if err := sdkMP.Shutdown(ctx); err != nil {
-			return fmt.Errorf("failed to shutdown meter provider: %w", err)
+			return newShutdownMeterProviderError(err)
 		}
 		logger.Debug("OTEL meter provider shutdown complete")
 	}

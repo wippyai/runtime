@@ -2,12 +2,17 @@ package time_test
 
 import (
 	"context"
+	"sync"
+	"sync/atomic"
 	"testing"
 	stdtime "time"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	timeyields "github.com/wippyai/runtime/runtime/lua/modules/time"
 	"github.com/wippyai/runtime/system/clock"
@@ -17,7 +22,9 @@ import (
 
 type testScheduler struct {
 	*scheduler.Scheduler
-	clock *clock.Dispatcher
+	clock   *clock.Dispatcher
+	mu      sync.Mutex
+	pending map[string]chan *runtime.Result
 }
 
 func (ts *testScheduler) Stop() {
@@ -27,17 +34,68 @@ func (ts *testScheduler) Stop() {
 	}
 }
 
+func (ts *testScheduler) OnStart(ctx context.Context, pid relay.PID, p process.Process) {}
+
+func (ts *testScheduler) OnComplete(ctx context.Context, pid relay.PID, result *runtime.Result) {
+	ts.mu.Lock()
+	ch, ok := ts.pending[pid.UniqID]
+	if ok {
+		delete(ts.pending, pid.UniqID)
+	}
+	ts.mu.Unlock()
+	if ok {
+		ch <- result
+	}
+}
+
+func (ts *testScheduler) Execute(ctx context.Context, pid relay.PID, p scheduler.Process, method string, input payload.Payloads) (*runtime.Result, error) {
+	resultCh := make(chan *runtime.Result, 1)
+
+	ts.mu.Lock()
+	ts.pending[pid.UniqID] = resultCh
+	ts.mu.Unlock()
+
+	_, err := ts.Scheduler.Submit(ctx, pid, p, method, input)
+	if err != nil {
+		ts.mu.Lock()
+		delete(ts.pending, pid.UniqID)
+		ts.mu.Unlock()
+		return nil, err
+	}
+
+	select {
+	case result := <-resultCh:
+		return result, nil
+	case <-ctx.Done():
+		ts.mu.Lock()
+		delete(ts.pending, pid.UniqID)
+		ts.mu.Unlock()
+		return nil, ctx.Err()
+	}
+}
+
+var testPIDCounter atomic.Int64
+
+func uniqueTestPID() relay.PID {
+	return relay.PID{UniqID: stdtime.Now().Format("20060102150405.000000000") + "-" + string(rune(testPIDCounter.Add(1)))}
+}
+
 func newTestScheduler(numWorkers int, opts ...scheduler.Option) *testScheduler {
+	ts := &testScheduler{
+		pending: make(map[string]chan *runtime.Result),
+	}
 	registry := scheduler.NewRegistry()
 	clockSvc := clock.NewDispatcher()
 	clockSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		registry.Register(id, h)
 	})
-	opts = append([]scheduler.Option{scheduler.WithWorkers(numWorkers)}, opts...)
-	return &testScheduler{
-		Scheduler: scheduler.NewScheduler(registry, opts...),
-		clock:     clockSvc,
-	}
+	ts.clock = clockSvc
+	opts = append([]scheduler.Option{
+		scheduler.WithWorkers(numWorkers),
+		scheduler.WithLifecycle(ts),
+	}, opts...)
+	ts.Scheduler = scheduler.NewScheduler(registry, opts...)
+	return ts
 }
 
 func testPID() relay.PID {

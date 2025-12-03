@@ -2,7 +2,6 @@ package stages
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/wippyai/runtime/api/boot"
@@ -88,12 +87,12 @@ func (s *disableStage) Execute(ctx context.Context, entries *[]registry.Entry) e
 
 	nsMatchers, err := compileWildcards(nsPatterns)
 	if err != nil {
-		return fmt.Errorf("invalid namespace pattern: %w", err)
+		return NewInvalidNamespacePatternError(err)
 	}
 
 	entryMatchers, err := compileEntryWildcards(entryPatterns)
 	if err != nil {
-		return fmt.Errorf("invalid entry pattern: %w", err)
+		return NewInvalidEntryPatternError(err)
 	}
 
 	originalCount := len(*entries)
@@ -179,17 +178,17 @@ func compileEntryWildcards(patterns []string) ([]*entryWildcard, error) {
 
 		colonIdx := strings.Index(pattern, ":")
 		if colonIdx == -1 {
-			return nil, fmt.Errorf("invalid entry pattern '%s': missing ':' separator (expected namespace:name)", pattern)
+			return nil, NewInvalidEntryPatternFormatError(pattern, "missing ':' separator (expected namespace:name)")
 		}
 
 		nsPattern := pattern[:colonIdx]
 		namePattern := pattern[colonIdx+1:]
 
 		if nsPattern == "" {
-			return nil, fmt.Errorf("invalid entry pattern '%s': empty namespace", pattern)
+			return nil, NewInvalidEntryPatternFormatError(pattern, "empty namespace")
 		}
 		if namePattern == "" {
-			return nil, fmt.Errorf("invalid entry pattern '%s': empty name", pattern)
+			return nil, NewInvalidEntryPatternFormatError(pattern, "empty name")
 		}
 
 		matchers = append(matchers, &entryWildcard{

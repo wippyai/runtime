@@ -33,7 +33,7 @@ func (m *Mutator) Set(entry *registry.Entry, path string, value any) error {
 	case "meta":
 		return m.setInMeta(entry, segments, value)
 	default:
-		return fmt.Errorf("invalid target: %s (must be 'data' or 'meta')", target)
+		return NewInvalidTargetError(target)
 	}
 }
 
@@ -52,7 +52,7 @@ func (m *Mutator) Append(entry *registry.Entry, path string, values ...any) erro
 	case "meta":
 		return m.appendInMeta(entry, segments, values...)
 	default:
-		return fmt.Errorf("invalid target: %s (must be 'data' or 'meta')", target)
+		return NewInvalidTargetError(target)
 	}
 }
 
@@ -69,7 +69,7 @@ func (m *Mutator) Delete(entry *registry.Entry, path string) error {
 	case "meta":
 		return m.deleteInMeta(entry, segments)
 	default:
-		return fmt.Errorf("invalid target: %s (must be 'data' or 'meta')", target)
+		return NewInvalidTargetError(target)
 	}
 }
 
@@ -81,13 +81,13 @@ func parsePath(path string) (target string, segments []string, err error) {
 	path = strings.TrimPrefix(path, ".")
 
 	if path == "" {
-		return "", nil, fmt.Errorf("empty path")
+		return "", nil, ErrEmptyPath
 	}
 
 	// Split by dot
 	parts := strings.Split(path, ".")
 	if len(parts) == 0 {
-		return "", nil, fmt.Errorf("empty path after split")
+		return "", nil, ErrEmptyPath
 	}
 
 	// Check if first part is explicit target
@@ -113,7 +113,7 @@ func (m *Mutator) setInData(entry *registry.Entry, segments []string, value any)
 
 	if len(segments) == 0 {
 		// Setting entire data is not supported for safety
-		return fmt.Errorf("cannot replace entire data field")
+		return ErrCannotReplaceEntireDataField
 	}
 
 	if err := setValueAtPath(data, segments, value); err != nil {
@@ -131,7 +131,7 @@ func (m *Mutator) setInMeta(entry *registry.Entry, segments []string, value any)
 	}
 
 	if len(segments) == 0 {
-		return fmt.Errorf("cannot replace entire meta field")
+		return ErrCannotReplaceEntireMetaField
 	}
 
 	// For single segment, set directly in Meta map
@@ -166,7 +166,7 @@ func (m *Mutator) appendInData(entry *registry.Entry, segments []string, values 
 	}
 
 	if len(segments) == 0 {
-		return fmt.Errorf("cannot append to entire data field")
+		return ErrCannotAppendToEntireDataField
 	}
 
 	if err := appendToArrayAtPath(data, segments, values...); err != nil {
@@ -184,7 +184,7 @@ func (m *Mutator) appendInMeta(entry *registry.Entry, segments []string, values 
 	}
 
 	if len(segments) == 0 {
-		return fmt.Errorf("cannot append to entire meta field")
+		return ErrCannotAppendToEntireMetaField
 	}
 
 	// Convert Meta to map[string]any for manipulation
@@ -213,7 +213,7 @@ func (m *Mutator) deleteInData(entry *registry.Entry, segments []string) error {
 	}
 
 	if len(segments) == 0 {
-		return fmt.Errorf("cannot delete entire data field")
+		return ErrCannotDeleteEntireDataField
 	}
 
 	if err := deleteAtPath(data, segments); err != nil {
@@ -231,7 +231,7 @@ func (m *Mutator) deleteInMeta(entry *registry.Entry, segments []string) error {
 	}
 
 	if len(segments) == 0 {
-		return fmt.Errorf("cannot delete entire meta field")
+		return ErrCannotDeleteEntireMetaField
 	}
 
 	// For single segment, delete directly
@@ -276,7 +276,7 @@ func (m *Mutator) ensureDataAsMap(entry *registry.Entry) (map[string]any, error)
 	// Transcode to Golang format
 	golangPayload, err := m.dtt.Transcode(entry.Data, payload.Golang)
 	if err != nil {
-		return nil, fmt.Errorf("failed to transcode to golang format: %w", err)
+		return nil, NewTranscodeToGolangError(err)
 	}
 
 	if data, ok := golangPayload.Data().(map[string]any); ok {
@@ -289,7 +289,7 @@ func (m *Mutator) ensureDataAsMap(entry *registry.Entry) (map[string]any, error)
 // setValueAtPath sets a value at the given path in a nested map structure
 func setValueAtPath(data map[string]any, segments []string, value any) error {
 	if len(segments) == 0 {
-		return fmt.Errorf("empty path segments")
+		return ErrEmptyPathSegments
 	}
 
 	current := data
@@ -320,7 +320,7 @@ func setValueAtPath(data map[string]any, segments []string, value any) error {
 // appendToArrayAtPath appends values to an array at the given path with deduplication
 func appendToArrayAtPath(data map[string]any, segments []string, values ...any) error {
 	if len(segments) == 0 {
-		return fmt.Errorf("empty path segments")
+		return ErrEmptyPathSegments
 	}
 
 	// Navigate to parent
@@ -355,7 +355,7 @@ func appendToArrayAtPath(data map[string]any, segments []string, values ...any) 
 		} else if existingArray, ok := existingVal.([]interface{}); ok {
 			existing = existingArray
 		} else {
-			return fmt.Errorf("cannot append to non-array field at path %s", strings.Join(segments, "."))
+			return NewCannotAppendToNonArrayError(strings.Join(segments, "."))
 		}
 	}
 
@@ -382,7 +382,7 @@ func appendToArrayAtPath(data map[string]any, segments []string, values ...any) 
 // deleteAtPath deletes a field at the given path
 func deleteAtPath(data map[string]any, segments []string) error {
 	if len(segments) == 0 {
-		return fmt.Errorf("empty path segments")
+		return ErrEmptyPathSegments
 	}
 
 	// Navigate to parent

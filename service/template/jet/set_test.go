@@ -40,7 +40,7 @@ func createTestSet(t *testing.T) *Set {
 	transcoder := payloadSystem.GlobalTranscoder()
 	json.Register(transcoder)
 
-	id := registry.ID{Name: "test-set"}
+	id := registry.NewID("", "test-set")
 	set, err := NewSet(id, cfg, transcoder)
 	require.NoError(t, err)
 	return set
@@ -66,7 +66,7 @@ func createTestSetDefault(t *testing.T) *Set {
 	transcoder := payloadSystem.GlobalTranscoder()
 	json.Register(transcoder)
 
-	id := registry.ID{Name: "test-set"}
+	id := registry.NewID("", "test-set")
 	set, err := NewSet(id, cfg, transcoder)
 	require.NoError(t, err)
 	return set
@@ -93,7 +93,7 @@ func TestNewSet(t *testing.T) {
 	json.Register(transcoder)
 
 	// Create a template set
-	id := registry.ID{Name: "test-set"}
+	id := registry.NewID("", "test-set")
 	set, err := NewSet(id, cfg, transcoder)
 	require.NoError(t, err)
 	require.NotNil(t, set)
@@ -346,7 +346,7 @@ func TestCustomFunctions(t *testing.T) {
 	transcoder := payloadSystem.GlobalTranscoder()
 	json.Register(transcoder)
 
-	id := registry.ID{Name: "test-set"}
+	id := registry.NewID("", "test-set")
 	set, err := NewSet(id, cfg, transcoder)
 	require.NoError(t, err)
 
@@ -950,6 +950,6 @@ func TestErrorPropagation(t *testing.T) {
 	_, err = set.RenderTemplate(nested1, nil)
 	assert.Error(t, err)
 
-	// The error should contain a trace of the template hierarchy
-	assert.Contains(t, err.Error(), "nested")
+	// The error should indicate template render failure
+	assert.Contains(t, err.Error(), "template render failed")
 }

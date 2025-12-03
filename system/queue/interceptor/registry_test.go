@@ -67,7 +67,7 @@ func TestRegistry_Publish_NoInterceptors(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	queueID := registry.ID{NS: "test", Name: "queue"}
+	queueID := registry.NewID("test", "queue")
 	msg := queueapi.NewMessage(payload.New("test"))
 
 	err := reg.Publish(ctx, queueID, msg)
@@ -93,7 +93,7 @@ func TestRegistry_Publish_WithInterceptors(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	queueID := registry.ID{NS: "test", Name: "queue"}
+	queueID := registry.NewID("test", "queue")
 	msg := queueapi.NewMessage(payload.New("test"))
 
 	err := reg.Publish(ctx, queueID, msg)
@@ -124,7 +124,7 @@ func TestRegistry_Publish_InterceptorOrder(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	queueID := registry.ID{NS: "test", Name: "queue"}
+	queueID := registry.NewID("test", "queue")
 	msg := queueapi.NewMessage(payload.New("test"))
 
 	err := reg.Publish(ctx, queueID, msg)
@@ -149,7 +149,7 @@ func TestRegistry_Unregister_Rebuilds(t *testing.T) {
 	reg.Unregister("int1")
 
 	ctx := context.Background()
-	queueID := registry.ID{NS: "test", Name: "queue"}
+	queueID := registry.NewID("test", "queue")
 	msg := queueapi.NewMessage(payload.New("test"))
 
 	err := reg.Publish(ctx, queueID, msg)

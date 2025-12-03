@@ -4,7 +4,6 @@ package context
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 )
 
 // Pair represents a key-value pair for batch operations.
@@ -17,6 +16,13 @@ type Pair struct {
 // Used during frame inheritance to prevent shared mutable state.
 type Cloner interface {
 	Clone() any
+}
+
+// Closer is implemented by values that need cleanup when frame is released.
+// Values stored in FrameContext that implement this interface will have
+// Close() called automatically during ReleaseFrameContext.
+type Closer interface {
+	Close() error
 }
 
 // FrameContext stores execution-level key-value pairs.
@@ -64,56 +70,55 @@ type frameContext struct {
 var frameContextPool = sync.Pool{
 	New: func() any {
 		return &frameContext{
-			values: make(map[any]any, 4),
+			values: make(map[any]any, 8),
 		}
 	},
-}
-
-// Debug counter for live frame contexts
-var liveFrameContexts atomic.Int64
-
-// LiveFrameContexts returns the current count of allocated frame contexts.
-func LiveFrameContexts() int64 {
-	return liveFrameContexts.Load()
 }
 
 // AcquireFrameContext gets a frame context and wraps it with the parent context.
 // Call ReleaseFrameContext when done.
 func AcquireFrameContext(parent context.Context) (context.Context, FrameContext) {
-	// Pooling disabled for leak investigation
-	fc := &frameContext{
-		values: make(map[any]any, 4),
-		sealed: false,
-		closed: false,
-	}
-	liveFrameContexts.Add(1)
+	fc := frameContextPool.Get().(*frameContext)
+	fc.sealed = false
+	fc.closed = false
 	return WithFrameContext(parent, fc), fc
 }
 
-// ReleaseFrameContext clears frame context values.
+// ReleaseFrameContext closes any Closer values, clears the map, and returns to pool.
 func ReleaseFrameContext(fc FrameContext) {
 	if f, ok := fc.(*frameContext); ok {
 		f.mu.Lock()
+		// Collect closers to close outside the lock
+		var closers []Closer
+		for _, v := range f.values {
+			if closer, ok := v.(Closer); ok {
+				closers = append(closers, closer)
+			}
+		}
+		// Clear the map
 		for k := range f.values {
 			delete(f.values, k)
 		}
 		f.sealed = false
 		f.closed = false
 		f.mu.Unlock()
-		liveFrameContexts.Add(-1)
-		// Pooling disabled for leak investigation
+
+		// Close values outside the lock to prevent deadlocks
+		for _, closer := range closers {
+			_ = closer.Close()
+		}
+
+		frameContextPool.Put(f)
 	}
 }
 
-// newFrameContext creates a new FrameContext.
+// newFrameContext creates a new FrameContext from the pool.
 // No values are inherited from parent by default.
 // Use OpenFrameContext instead - it handles automatic inheritance of keys marked with Inherit: true.
 func newFrameContext(parent context.Context) (context.Context, FrameContext) {
-	fc := &frameContext{
-		values: make(map[any]any, 4),
-		sealed: false,
-	}
-	liveFrameContexts.Add(1)
+	fc := frameContextPool.Get().(*frameContext)
+	fc.sealed = false
+	fc.closed = false
 	return WithFrameContext(parent, fc), fc
 }
 

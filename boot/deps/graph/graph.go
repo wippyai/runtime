@@ -13,7 +13,6 @@ package graph
 
 import (
 	"context"
-	"fmt"
 )
 
 // Builder builds dependency graphs from root dependencies.
@@ -49,7 +48,7 @@ func NewBuilder(provider ManifestProvider) *Builder {
 // it will produce deterministic output with no side effects.
 func (b *Builder) Build(ctx context.Context, input BuildInput) (*BuildResult, error) {
 	if b.provider == nil {
-		return nil, fmt.Errorf("manifest provider is required")
+		return nil, ErrManifestProviderRequired
 	}
 
 	if len(input.RootDependencies) == 0 {

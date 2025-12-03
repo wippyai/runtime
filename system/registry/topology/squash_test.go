@@ -13,7 +13,7 @@ import (
 func TestSquashChangesets_CreateUpdate(t *testing.T) {
 	builder := NewStateBuilder(zap.NewNop(), nil)
 
-	entryID := registry.ID{NS: "test", Name: "entry1"}
+	entryID := registry.NewID("test", "entry1")
 	entry1 := registry.Entry{
 		ID:   entryID,
 		Kind: "service",
@@ -43,7 +43,7 @@ func TestSquashChangesets_CreateUpdate(t *testing.T) {
 func TestSquashChangesets_CreateDelete(t *testing.T) {
 	builder := NewStateBuilder(zap.NewNop(), nil)
 
-	entryID := registry.ID{NS: "test", Name: "entry1"}
+	entryID := registry.NewID("test", "entry1")
 	entry := registry.Entry{
 		ID:   entryID,
 		Kind: "service",
@@ -65,7 +65,7 @@ func TestSquashChangesets_CreateDelete(t *testing.T) {
 func TestSquashChangesets_UpdateUpdate(t *testing.T) {
 	builder := NewStateBuilder(zap.NewNop(), nil)
 
-	entryID := registry.ID{NS: "test", Name: "entry1"}
+	entryID := registry.NewID("test", "entry1")
 	entry1 := registry.Entry{
 		ID:   entryID,
 		Kind: "service",
@@ -102,7 +102,7 @@ func TestSquashChangesets_UpdateUpdate(t *testing.T) {
 func TestSquashChangesets_UpdateDelete(t *testing.T) {
 	builder := NewStateBuilder(zap.NewNop(), nil)
 
-	entryID := registry.ID{NS: "test", Name: "entry1"}
+	entryID := registry.NewID("test", "entry1")
 	entry := registry.Entry{
 		ID:   entryID,
 		Kind: "service",
@@ -126,7 +126,7 @@ func TestSquashChangesets_UpdateDelete(t *testing.T) {
 func TestSquashChangesets_DeleteCreate(t *testing.T) {
 	builder := NewStateBuilder(zap.NewNop(), nil)
 
-	entryID := registry.ID{NS: "test", Name: "entry1"}
+	entryID := registry.NewID("test", "entry1")
 
 	// Same kind - should become Update
 	entry1 := registry.Entry{
@@ -158,7 +158,7 @@ func TestSquashChangesets_DeleteCreate(t *testing.T) {
 func TestSquashChangesets_DeleteCreateDifferentKind(t *testing.T) {
 	builder := NewStateBuilder(zap.NewNop(), nil)
 
-	entryID := registry.ID{NS: "test", Name: "entry1"}
+	entryID := registry.NewID("test", "entry1")
 
 	// Different kinds - should remain as Create
 	entry1 := registry.Entry{
@@ -190,9 +190,9 @@ func TestSquashChangesets_DeleteCreateDifferentKind(t *testing.T) {
 func TestSquashChangesets_ComplexSequence(t *testing.T) {
 	builder := NewStateBuilder(zap.NewNop(), nil)
 
-	entry1ID := registry.ID{NS: "test", Name: "entry1"}
-	entry2ID := registry.ID{NS: "test", Name: "entry2"}
-	entry3ID := registry.ID{NS: "test", Name: "entry3"}
+	entry1ID := registry.NewID("test", "entry1")
+	entry2ID := registry.NewID("test", "entry2")
+	entry3ID := registry.NewID("test", "entry3")
 
 	// Entry 1: Create -> Update -> Update -> Delete -> Create
 	// Expected: Create (initial Create canceled by Delete, then new Create)
@@ -310,7 +310,7 @@ func TestSquashChangesets_SingleOperation(t *testing.T) {
 	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "entry1"},
+		ID:   registry.NewID("test", "entry1"),
 		Kind: "service",
 		Data: payload.NewString("data"),
 	}
@@ -331,17 +331,17 @@ func TestSquashChangesets_MultipleEntries(t *testing.T) {
 
 	// Test that operations on different entries don't interfere
 	entry1 := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "entry1"},
+		ID:   registry.NewID("test", "entry1"),
 		Kind: "service",
 		Data: payload.NewString("data1"),
 	}
 	entry2 := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "entry2"},
+		ID:   registry.NewID("test", "entry2"),
 		Kind: "service",
 		Data: payload.NewString("data2"),
 	}
 	entry3 := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "entry3"},
+		ID:   registry.NewID("test", "entry3"),
 		Kind: "service",
 		Data: payload.NewString("data3"),
 	}
@@ -388,17 +388,17 @@ func TestReverseChangeset(t *testing.T) {
 	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	entry1 := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "entry1"},
+		ID:   registry.NewID("test", "entry1"),
 		Kind: "service",
 		Data: payload.NewString("original"),
 	}
 	entry1Updated := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "entry1"},
+		ID:   registry.NewID("test", "entry1"),
 		Kind: "service",
 		Data: payload.NewString("updated"),
 	}
 	entry2 := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "entry2"},
+		ID:   registry.NewID("test", "entry2"),
 		Kind: "component",
 		Data: payload.NewString("data"),
 	}
@@ -427,7 +427,7 @@ func TestReverseChangeset_Delete(t *testing.T) {
 	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "entry1"},
+		ID:   registry.NewID("test", "entry1"),
 		Kind: "service",
 		Data: payload.NewString("data"),
 	}

@@ -14,6 +14,19 @@ import (
 	"github.com/wippyai/runtime/api/resource"
 )
 
+// testEmitter wraps a callback function to implement dispatcher.Emitter
+type testEmitter struct {
+	fn func(data any)
+}
+
+func (e *testEmitter) Emit(data any, _ error) {
+	e.fn(data)
+}
+
+func newTestEmitter(fn func(data any)) dispatcher.Emitter {
+	return &testEmitter{fn: fn}
+}
+
 func setupTestContext() (context.Context, *resource.Store) {
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	store := resource.NewStore()
@@ -151,10 +164,10 @@ func TestStreamReadHandler(t *testing.T) {
 
 	var emitted any
 	done := make(chan struct{})
-	err := handlers[streamapi.CmdStreamRead].Handle(ctx, streamapi.StreamReadCmd{StreamID: id, Size: 5}, func(d any) {
+	err := handlers[streamapi.CmdStreamRead].Handle(ctx, streamapi.StreamReadCmd{StreamID: id, Size: 5}, newTestEmitter(func(d any) {
 		emitted = d
 		close(done)
-	})
+	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -188,10 +201,10 @@ func TestStreamReadHandlerEOF(t *testing.T) {
 
 	var emitted any
 	done := make(chan struct{})
-	err := handlers[streamapi.CmdStreamRead].Handle(ctx, streamapi.StreamReadCmd{StreamID: id, Size: 10}, func(d any) {
+	err := handlers[streamapi.CmdStreamRead].Handle(ctx, streamapi.StreamReadCmd{StreamID: id, Size: 10}, newTestEmitter(func(d any) {
 		emitted = d
 		close(done)
-	})
+	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -221,9 +234,9 @@ func TestStreamCloseHandler(t *testing.T) {
 	})
 
 	done := make(chan struct{})
-	err := handlers[streamapi.CmdStreamClose].Handle(ctx, streamapi.StreamCloseCmd{StreamID: id}, func(d any) {
+	err := handlers[streamapi.CmdStreamClose].Handle(ctx, streamapi.StreamCloseCmd{StreamID: id}, newTestEmitter(func(d any) {
 		close(done)
-	})
+	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -232,9 +245,9 @@ func TestStreamCloseHandler(t *testing.T) {
 
 	// Second close should not emit
 	var emitted bool
-	err = handlers[streamapi.CmdStreamClose].Handle(ctx, streamapi.StreamCloseCmd{StreamID: id}, func(d any) {
+	err = handlers[streamapi.CmdStreamClose].Handle(ctx, streamapi.StreamCloseCmd{StreamID: id}, newTestEmitter(func(d any) {
 		emitted = true
-	})
+	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -268,10 +281,10 @@ func TestStreamFullCycle(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		var emitted any
 		done := make(chan struct{})
-		err := handlers[streamapi.CmdStreamRead].Handle(ctx, streamapi.StreamReadCmd{StreamID: id, Size: 6}, func(d any) {
+		err := handlers[streamapi.CmdStreamRead].Handle(ctx, streamapi.StreamReadCmd{StreamID: id, Size: 6}, newTestEmitter(func(d any) {
 			emitted = d
 			close(done)
-		})
+		}))
 		if err != nil {
 			t.Fatalf("read %d error: %v", i, err)
 		}
@@ -289,9 +302,9 @@ func TestStreamFullCycle(t *testing.T) {
 	}
 
 	done := make(chan struct{})
-	err := handlers[streamapi.CmdStreamClose].Handle(ctx, streamapi.StreamCloseCmd{StreamID: id}, func(d any) {
+	err := handlers[streamapi.CmdStreamClose].Handle(ctx, streamapi.StreamCloseCmd{StreamID: id}, newTestEmitter(func(d any) {
 		close(done)
-	})
+	}))
 	if err != nil {
 		t.Fatalf("close error: %v", err)
 	}

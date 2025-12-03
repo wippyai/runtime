@@ -3,7 +3,6 @@ package runtime
 
 import (
 	"context"
-	"fmt"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/registry"
@@ -27,7 +26,7 @@ var (
 func SetFrameID(ctx context.Context, id registry.ID) error {
 	fc := ctxapi.FrameFromContext(ctx)
 	if fc == nil {
-		return fmt.Errorf("no frame context available")
+		return ErrNoFrameContext
 	}
 	return fc.Set(FrameIDKey, id)
 }
@@ -52,7 +51,7 @@ func GetFrameID(ctx context.Context) (registry.ID, bool) {
 func SetFramePID(ctx context.Context, pid relay.PID) error {
 	fc := ctxapi.FrameFromContext(ctx)
 	if fc == nil {
-		return fmt.Errorf("no frame context available")
+		return ErrNoFrameContext
 	}
 	return fc.Set(FramePIDKey, pid)
 }
@@ -77,7 +76,7 @@ func GetFramePID(ctx context.Context) (relay.PID, bool) {
 func SetFrameHost(ctx context.Context, host relay.Host) error {
 	fc := ctxapi.FrameFromContext(ctx)
 	if fc == nil {
-		return fmt.Errorf("no frame context available")
+		return ErrNoFrameContext
 	}
 	return fc.Set(FrameHostKey, host)
 }

@@ -350,7 +350,7 @@ func writeFrame(w io.Writer, data []byte) error {
 	// Check for potential integer overflow before casting to uint32
 	dataLen := len(data)
 	if dataLen > math.MaxUint32 {
-		return fmt.Errorf("message too large: %d bytes exceeds maximum uint32", dataLen)
+		return NewMessageTooLargeError(dataLen)
 	}
 
 	binary.LittleEndian.PutUint32(header[1:], uint32(dataLen))
@@ -376,7 +376,7 @@ func readFrame(r io.Reader, maxMessageSize uint32) ([]byte, error) {
 	}
 	size := binary.LittleEndian.Uint32(header[1:])
 	if size > maxMessageSize {
-		return nil, fmt.Errorf("%w: message size %d exceeds max %d", ErrMessageTooLarge, size, maxMessageSize)
+		return nil, NewMessageSizeExceedsMaxError(int(size), int(maxMessageSize))
 	}
 
 	if size == 0 {

@@ -2,7 +2,6 @@ package stages
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/wippyai/runtime/api/boot"
@@ -37,7 +36,7 @@ func (s *overrideStage) Execute(ctx context.Context, entries *[]registry.Entry) 
 
 	transcoder := payload.GetTranscoder(ctx)
 	if transcoder == nil {
-		return fmt.Errorf("transcoder not found in context")
+		return ErrTranscoderNotFound
 	}
 
 	mutator := entry.NewMutator(transcoder)
@@ -60,20 +59,19 @@ func (s *overrideStage) Execute(ctx context.Context, entries *[]registry.Entry) 
 
 		namespace, entryName, path, err := parseOverrideKey(key)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("invalid key %s: %w", key, err))
+			errs = append(errs, NewInvalidKeyError(key, err))
 			continue
 		}
 
 		targetEntries := findEntries(*entries, namespace, entryName)
 		if len(targetEntries) == 0 {
-			errs = append(errs, fmt.Errorf("no entry found for %s:%s", namespace, entryName))
+			errs = append(errs, NewEntryNotFoundError(namespace, entryName))
 			continue
 		}
 
 		for _, targetEntry := range targetEntries {
 			if err := mutator.Set(targetEntry, path, value); err != nil {
-				errs = append(errs, fmt.Errorf("failed to set %s:%s at %s: %w",
-					namespace, entryName, path, err))
+				errs = append(errs, NewSetValueError(namespace, entryName, path, err))
 				continue
 			}
 			modifiedCount++
@@ -81,7 +79,7 @@ func (s *overrideStage) Execute(ctx context.Context, entries *[]registry.Entry) 
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("override errors: %v", errs)
+		return NewOverrideErrors(errs)
 	}
 
 	return nil
@@ -96,33 +94,33 @@ func (s *overrideStage) Execute(ctx context.Context, entries *[]registry.Entry) 
 //   - "db:main:meta.priority" -> ("db", "main", "meta.priority", nil)
 func parseOverrideKey(key string) (namespace, entryName, path string, err error) {
 	if key == "" {
-		return "", "", "", fmt.Errorf("empty key")
+		return "", "", "", ErrEmptyKey
 	}
 
 	firstColonIdx := strings.Index(key, ":")
 	if firstColonIdx == -1 {
-		return "", "", "", fmt.Errorf("missing first ':' separator (expected namespace:entry:path)")
+		return "", "", "", NewMissingSeparatorError("first ':'", "namespace:entry:path")
 	}
 
 	namespace = key[:firstColonIdx]
 	remainder := key[firstColonIdx+1:]
 
 	if namespace == "" {
-		return "", "", "", fmt.Errorf("empty namespace")
+		return "", "", "", ErrEmptyNamespace
 	}
 
 	if remainder == "" {
-		return "", "", "", fmt.Errorf("missing entry name and path")
+		return "", "", "", NewMissingFieldError("entry name and path")
 	}
 
 	entryName, path, _ = strings.Cut(remainder, ":")
 
 	if entryName == "" {
-		return "", "", "", fmt.Errorf("empty entry name")
+		return "", "", "", ErrEmptyEntryName
 	}
 
 	if path == "" {
-		return "", "", "", fmt.Errorf("empty path")
+		return "", "", "", ErrEmptyPath
 	}
 
 	return namespace, entryName, path, nil

@@ -11,12 +11,12 @@ import (
 
 // Helper function to create an Process with just a name (no namespace)
 func id(name string) registry.ID {
-	return registry.ID{Name: name}
+	return registry.NewID("", name)
 }
 
 // Helper function to create an Process with both namespace and name
 func nsID(namespace, name string) registry.ID {
-	return registry.ID{NS: namespace, Name: name}
+	return registry.NewID(namespace, name)
 }
 
 // deepEqualPayloads compares two payloads, assuming the Data field is always a string.

@@ -185,7 +185,7 @@ metrics:
 		cfg, err := Load(configPath)
 		assert.Error(t, err)
 		assert.Nil(t, cfg)
-		assert.Contains(t, err.Error(), "unsupported config version: 2.0")
+		assert.Contains(t, err.Error(), "unsupported config version")
 	})
 
 	t.Run("returns error for invalid yaml", func(t *testing.T) {

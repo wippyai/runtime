@@ -141,7 +141,7 @@ func TestContext_GetPolicy(t *testing.T) {
 	t.Run("without registry", func(t *testing.T) {
 		ctx := ctxapi.NewRootContext()
 
-		testID := registry.ID{NS: "policies", Name: "admin"}
+		testID := registry.NewID("policies", "admin")
 		_, err := GetPolicy(ctx, testID)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "security registry not found in context")
@@ -152,7 +152,7 @@ func TestContext_GetPolicyGroup(t *testing.T) {
 	t.Run("without registry", func(t *testing.T) {
 		ctx := ctxapi.NewRootContext()
 
-		testID := registry.ID{NS: "groups", Name: "admins"}
+		testID := registry.NewID("groups", "admins")
 		_, err := GetPolicyGroup(ctx, testID)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "security registry not found in context")

@@ -17,7 +17,7 @@ func Embed() boot.Component {
 		Name:      EmbedName,
 		DependsOn: nil,
 		Load: func(ctx context.Context) (context.Context, error) {
-			logger := logapi.GetLogger(ctx)
+			logger := logapi.GetLogger(ctx).Named("fs.embed")
 			dtt := payload.GetTranscoder(ctx)
 			bus := event.GetBus(ctx)
 			handlers := bootpkg.GetHandlerRegistry(ctx)
@@ -35,7 +35,7 @@ func Embed() boot.Component {
 				bus,
 				dtt,
 				embedReg,
-				logger.Named("fs.embed"),
+				logger,
 			)
 
 			handlers.RegisterListener("fs.embed", manager)

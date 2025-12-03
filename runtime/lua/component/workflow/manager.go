@@ -4,7 +4,6 @@ package workflow
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/wippyai/runtime/api/event"
@@ -30,7 +29,7 @@ type Manager struct {
 // NewManager creates a new workflow manager.
 func NewManager(log *zap.Logger, code *code.Manager, bus event.Bus) *Manager {
 	return &Manager{
-		log:  log.Named("workflow2"),
+		log:  log,
 		code: code,
 		bus:  bus,
 	}
@@ -39,12 +38,12 @@ func NewManager(log *zap.Logger, code *code.Manager, bus event.Bus) *Manager {
 // Add implements registry.EntryListener.
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindWorkflow {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindWorkflow)
+		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindWorkflow))
 	}
 
 	cfg, err := component.UnpackConfig[api.WorkflowConfig](ctx, entry)
 	if err != nil {
-		return fmt.Errorf("failed to unpack workflow config: %w", err)
+		return NewUnpackConfigError(err)
 	}
 
 	node := code.Node{
@@ -55,14 +54,14 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	if err := m.code.AddNode(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules)); err != nil {
-		return fmt.Errorf("failed to add workflow node: %w", err)
+		return NewAddWorkflowNodeError(err)
 	}
 
 	m.configs.Store(entry.ID, cfg)
 
 	if err := m.registerFactory(ctx, entry.ID, cfg.Method); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
-		return fmt.Errorf("failed to register factory: %w", err)
+		return NewRegisterFactoryError(err)
 	}
 
 	m.log.Debug("added workflow", zap.String("id", entry.ID.String()))
@@ -72,12 +71,12 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update implements registry.EntryListener.
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindWorkflow {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindWorkflow)
+		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindWorkflow))
 	}
 
 	cfg, err := component.UnpackConfig[api.WorkflowConfig](ctx, entry)
 	if err != nil {
-		return fmt.Errorf("failed to unpack workflow config: %w", err)
+		return NewUnpackConfigError(err)
 	}
 
 	node := code.Node{
@@ -88,13 +87,13 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	if err := m.code.UpdateNode(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules)); err != nil {
-		return fmt.Errorf("failed to update workflow node: %w", err)
+		return NewUpdateWorkflowNodeError(err)
 	}
 
 	m.configs.Store(entry.ID, cfg)
 
 	if err := m.registerFactory(ctx, entry.ID, cfg.Method); err != nil {
-		return fmt.Errorf("failed to update factory: %w", err)
+		return NewUpdateFactoryError(err)
 	}
 
 	m.log.Debug("updated workflow", zap.String("id", entry.ID.String()))
@@ -104,11 +103,11 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete implements registry.EntryListener.
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindWorkflow {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindWorkflow)
+		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindWorkflow))
 	}
 
 	if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
-		return fmt.Errorf("failed to delete workflow node: %w", err)
+		return NewDeleteWorkflowNodeError(err)
 	}
 
 	m.configs.Delete(entry.ID)
@@ -140,7 +139,7 @@ func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method st
 	// Verify compilation works
 	_, err := m.code.Compile(id, workflowBuildOptions())
 	if err != nil {
-		return fmt.Errorf("failed to compile: %w", err)
+		return NewCompileError(err)
 	}
 
 	// Default method
@@ -178,7 +177,7 @@ func (m *Manager) unregisterFactory(ctx context.Context, id registry.ID) {
 func (m *Manager) createProcess(id registry.ID) (process.Process, error) {
 	compiled, err := m.code.Compile(id, workflowBuildOptions())
 	if err != nil {
-		return nil, fmt.Errorf("failed to compile: %w", err)
+		return nil, NewCompileError(err)
 	}
 
 	return createProcess(compiled)

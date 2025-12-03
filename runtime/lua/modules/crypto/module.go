@@ -13,7 +13,6 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
-	lua2api "github.com/wippyai/runtime/api/runtime/lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 	"golang.org/x/crypto/chacha20poly1305"
@@ -22,7 +21,7 @@ import (
 
 var (
 	moduleTable  *lua.LTable
-	registration *lua2api.Registration
+	registration *luaapi.Registration
 	initOnce     sync.Once
 )
 
@@ -39,7 +38,7 @@ func (m *cryptoModule) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *cryptoModule) Register(l *lua.LState) *lua2api.Registration {
+func (m *cryptoModule) Register(l *lua.LState) *luaapi.Registration {
 	initOnce.Do(func() {
 		mod := &lua.LTable{}
 
@@ -72,7 +71,7 @@ func (m *cryptoModule) Register(l *lua.LState) *lua2api.Registration {
 		mod.Immutable = true
 		moduleTable = mod
 
-		registration = &lua2api.Registration{
+		registration = &luaapi.Registration{
 			Table:      moduleTable,
 			YieldTypes: nil,
 		}
@@ -86,9 +85,9 @@ func (m *cryptoModule) Loader(l *lua.LState) int {
 	return 1
 }
 
-// Bind is deprecated. Use lua2api.LoadModule(l, Module) instead.
+// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
 func Bind(l *lua.LState) {
-	lua2api.LoadModule(l, Module)
+	luaapi.LoadModule(l, Module)
 }
 
 func randomBytes(l *lua.LState) int {
