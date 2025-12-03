@@ -17,7 +17,7 @@ func OTelMetrics() boot.Component {
 
 	return boot.New(boot.P{
 		Name:      OTelMetricsName,
-		DependsOn: []boot.ComponentName{OTelName, metricsName},
+		DependsOn: []boot.Name{OTelName, metricsName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx).Named("otel.metrics")
 			if logger == nil {

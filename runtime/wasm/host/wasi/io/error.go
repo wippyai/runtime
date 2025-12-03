@@ -5,7 +5,7 @@ import (
 
 	"github.com/tetratelabs/wazero/api"
 
-	apiresource "github.com/wippyai/runtime/api/resource"
+	apiresource "github.com/wippyai/runtime/api/runtime/resource"
 	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
 	"github.com/wippyai/runtime/runtime/wasm/resource"
 )

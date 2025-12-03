@@ -43,7 +43,7 @@ func IsAllowed(ctx context.Context, action, resource string, meta registry.Metad
 	}
 
 	// In strict mode, deny access when security context is incomplete
-	if STRICT {
+	if STRICT { // todo: move to boot config option
 		return false
 	}
 

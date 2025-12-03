@@ -7,6 +7,7 @@ import (
 
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
+	rtresource "github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"
 	sqlres "github.com/wippyai/runtime/service/sql"
@@ -37,7 +38,7 @@ func NewDB(ctx context.Context, res resource.Resource[any], db *sql.DB, dbType s
 		released: false,
 	}
 
-	store := resource.GetStore(ctx)
+	store := rtresource.GetStore(ctx)
 	if store != nil {
 		dbWrapper.cancelCleanup = store.AddCleanup(func() error {
 			if !dbWrapper.released && dbWrapper.resource != nil {

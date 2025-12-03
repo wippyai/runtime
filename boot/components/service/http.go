@@ -32,7 +32,7 @@ import (
 func HTTP() boot.Component {
 	return boot.New(boot.P{
 		Name:      HTTPName,
-		DependsOn: []boot.ComponentName{bootcore.RegistryName, bootsystem.FunctionsName, bootsystem.FilesystemName},
+		DependsOn: []boot.Name{bootcore.RegistryName, bootsystem.FunctionsName, bootsystem.FilesystemName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			if logger == nil {

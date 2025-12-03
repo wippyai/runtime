@@ -9,6 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
+	rtresource "github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/api/store"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"
@@ -30,7 +31,7 @@ func NewStore(ctx context.Context, res resource.Resource[any], s store.Store) *S
 		released: false,
 	}
 
-	resStore := resource.GetStore(ctx)
+	resStore := rtresource.GetStore(ctx)
 	if resStore != nil {
 		storeWrapper.cancelCleanup = resStore.AddCleanup(func() error {
 			storeWrapper.mu.Lock()

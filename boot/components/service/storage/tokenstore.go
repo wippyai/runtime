@@ -19,7 +19,7 @@ import (
 func TokenStore() boot.Component {
 	return boot.New(boot.P{
 		Name:      TokenStoreName,
-		DependsOn: []boot.ComponentName{bootcore.RegistryName, bootsystem.ResourcesName, bootcore.SecurityName},
+		DependsOn: []string{bootcore.RegistryName, bootsystem.ResourcesName, bootcore.SecurityName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			if logger == nil {

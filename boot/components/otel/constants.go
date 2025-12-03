@@ -3,16 +3,16 @@ package otel
 import "github.com/wippyai/runtime/api/boot"
 
 const (
-	OTelName            boot.ComponentName = "otel"
-	OTelHTTPName        boot.ComponentName = "otel-http"
-	OTelProcessName     boot.ComponentName = "otel-process"
-	OTelInterceptorName boot.ComponentName = "otel-interceptor"
-	OTelQueueName       boot.ComponentName = "otel-queue"
-	OTelMetricsName     boot.ComponentName = "otel-metrics"
+	OTelName            boot.Name = "otel"
+	OTelHTTPName        boot.Name = "otel-http"
+	OTelProcessName     boot.Name = "otel-process"
+	OTelInterceptorName boot.Name = "otel-interceptor"
+	OTelQueueName       boot.Name = "otel-queue"
+	OTelMetricsName     boot.Name = "otel-metrics"
 
-	httpName         boot.ComponentName = "http"
-	processName      boot.ComponentName = "process"
-	interceptorName  boot.ComponentName = "interceptor"
-	queueManagerName boot.ComponentName = "queues"
-	metricsName      boot.ComponentName = "metrics"
+	httpName         boot.Name = "http"
+	processName      boot.Name = "process"
+	interceptorName  boot.Name = "interceptor"
+	queueManagerName boot.Name = "queues"
+	metricsName      boot.Name = "metrics"
 )

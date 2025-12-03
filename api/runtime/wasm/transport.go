@@ -5,7 +5,7 @@ import (
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/api/runtime/resource"
 )
 
 var transportRegistryCtx = &ctxapi.Key{Name: "wasm.transports"}

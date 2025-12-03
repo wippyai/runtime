@@ -7,6 +7,7 @@ import (
 
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
+	rtresource "github.com/wippyai/runtime/api/runtime/resource"
 	apiexec "github.com/wippyai/runtime/api/service/exec"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"
@@ -28,7 +29,7 @@ func NewExecutor(ctx context.Context, res resource.Resource[any], factory apiexe
 		released: false,
 	}
 
-	store := resource.GetStore(ctx)
+	store := rtresource.GetStore(ctx)
 	if store != nil {
 		e.cancelCleanup = store.AddCleanup(func() error {
 			e.mu.Lock()

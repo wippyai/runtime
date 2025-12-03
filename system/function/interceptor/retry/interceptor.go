@@ -181,7 +181,7 @@ func (i *Interceptor) isRetryable(err error, retryKinds, skipKinds []string) boo
 
 // containsKind checks if a kind is in the list
 func (i *Interceptor) containsKind(kinds []string, target apierror.Kind) bool {
-	targetStr := target.String()
+	targetStr := string(target)
 	for _, k := range kinds {
 		if k == targetStr {
 			return true

@@ -1,4 +1,3 @@
-// Package env provides access to environment variables with flexible storage backends.
 package env
 
 import (
@@ -9,7 +8,7 @@ import (
 
 var registryCtxKey = &ctxapi.Key{Name: "env.registry"}
 
-// WithRegistry returns a new context with the provided Registry attached
+// WithRegistry attaches the provided Registry to the context.
 func WithRegistry(ctx context.Context, reg Registry) context.Context {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
@@ -21,7 +20,7 @@ func WithRegistry(ctx context.Context, reg Registry) context.Context {
 	return ctx
 }
 
-// GetRegistry retrieves the environment registry from the context
+// GetRegistry retrieves the environment registry from the context.
 func GetRegistry(ctx context.Context) Registry {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {

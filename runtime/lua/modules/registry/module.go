@@ -1,12 +1,21 @@
 package registry
 
 import (
+	"errors"
 	"sync"
 
 	regapi "github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
+)
+
+const (
+	snapshotMetatable = "registry.Snapshot"
+	changesMetatable  = "registry.Changes"
+	versionMetatable  = "registry.Version"
+	historyMetatable  = "registry.History"
 )
 
 var (
@@ -14,6 +23,29 @@ var (
 	registration *luaapi.Registration
 	initOnce     sync.Once
 )
+
+// wrapVersion wraps a registry.Version in a Lua userdata.
+func wrapVersion(l *lua.LState, version regapi.Version) *lua.LUserData {
+	ud := l.NewUserData()
+	ud.Value = version
+	ud.Metatable = value.GetTypeMetatable(l, versionMetatable)
+	return ud
+}
+
+// tableToID converts a Lua table to a registry ID.
+func tableToID(_ *lua.LState, table *lua.LTable) (regapi.ID, error) {
+	ns := table.RawGetString("ns")
+	name := table.RawGetString("name")
+
+	if ns == lua.LNil || name == lua.LNil {
+		return regapi.ID{}, errors.New("id table must have ns and name fields")
+	}
+
+	return regapi.ID{
+		NS:   ns.String(),
+		Name: name.String(),
+	}, nil
+}
 
 // Module is the singleton registry module instance.
 var Module = &registryModule{}
@@ -105,7 +137,7 @@ func registryGet(l *lua.LState) int {
 		return 2
 	}
 
-	entryTable := entryToLuaTable(l, entry)
+	entryTable := simpleEntryToLuaTable(l, entry)
 	l.Push(entryTable)
 	l.Push(lua.LNil)
 	return 2
@@ -133,7 +165,7 @@ func registryFind(l *lua.LState) int {
 		return 2
 	}
 
-	meta := convertFilterToMetadata(filterTable)
+	meta := simpleConvertFilterToMetadata(filterTable)
 
 	finder := regapi.GetFinder(ctx)
 	if finder == nil {
@@ -154,7 +186,7 @@ func registryFind(l *lua.LState) int {
 		if !security.IsAllowed(ctx, "registry.get", entry.ID.String(), nil) {
 			continue
 		}
-		entryTable := entryToLuaTable(l, entry)
+		entryTable := simpleEntryToLuaTable(l, entry)
 		entriesTable.Append(entryTable)
 	}
 
@@ -163,13 +195,11 @@ func registryFind(l *lua.LState) int {
 	return 2
 }
 
-func entryToLuaTable(l *lua.LState, entry regapi.Entry) *lua.LTable {
+func simpleEntryToLuaTable(l *lua.LState, entry regapi.Entry) *lua.LTable {
 	t := l.CreateTable(0, 4)
 
-	idTable := l.CreateTable(0, 2)
-	idTable.RawSetString("ns", lua.LString(entry.ID.NS))
-	idTable.RawSetString("name", lua.LString(entry.ID.Name))
-	t.RawSetString("id", idTable)
+	// Use string format for ID to maintain backward compatibility
+	t.RawSetString("id", lua.LString(entry.ID.String()))
 
 	t.RawSetString("kind", lua.LString(entry.Kind))
 
@@ -188,7 +218,7 @@ func entryToLuaTable(l *lua.LState, entry regapi.Entry) *lua.LTable {
 	return t
 }
 
-func convertFilterToMetadata(filterTable *lua.LTable) regapi.Metadata {
+func simpleConvertFilterToMetadata(filterTable *lua.LTable) regapi.Metadata {
 	meta := regapi.Metadata{}
 	filterTable.ForEach(func(k, v lua.LValue) {
 		if ks, ok := k.(lua.LString); ok {

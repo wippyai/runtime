@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	PrometheusName boot.ComponentName = "prometheus"
+	PrometheusName boot.Name = "prometheus"
 
-	metricsName boot.ComponentName = "metrics"
+	metricsName boot.Name = "metrics"
 )
 
 var prometheusHandlerKey = &ctxapi.Key{Name: "prometheus.handler"}
@@ -28,7 +28,7 @@ func Prometheus() boot.Component {
 
 	return boot.New(boot.P{
 		Name:      PrometheusName,
-		DependsOn: []boot.ComponentName{metricsName},
+		DependsOn: []boot.Name{metricsName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger = logapi.GetLogger(ctx).Named("prometheus")
 			if logger == nil {

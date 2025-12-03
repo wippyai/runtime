@@ -3,10 +3,10 @@ package store
 import "github.com/wippyai/runtime/api/boot"
 
 const (
-	DispatcherName boot.ComponentName = "store.dispatcher"
-	MemStoreName   boot.ComponentName = "store.memory"
-	SQLStoreName   boot.ComponentName = "store.sql"
-	TokenStoreName boot.ComponentName = "store.token"
+	DispatcherName boot.Name = "store.dispatcher"
+	MemStoreName   boot.Name = "store.memory"
+	SQLStoreName   boot.Name = "store.sql"
+	TokenStoreName boot.Name = "store.token"
 
-	DispatcherDeps boot.ComponentName = "dispatcher"
+	DispatcherDeps boot.Name = "dispatcher"
 )

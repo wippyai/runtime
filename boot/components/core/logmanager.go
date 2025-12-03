@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	ConfigPropagateDownstream boot.ConfigKey = "propagate_downstream"
-	ConfigStreamToEvents      boot.ConfigKey = "stream_to_events"
-	ConfigMinLevel            boot.ConfigKey = "min_level"
+	ConfigPropagateDownstream boot.Name = "propagate_downstream"
+	ConfigStreamToEvents      boot.Name = "stream_to_events"
+	ConfigMinLevel            boot.Name = "min_level"
 )
 
 func LogManager() boot.Component {
@@ -23,7 +23,7 @@ func LogManager() boot.Component {
 
 	return boot.New(boot.P{
 		Name:      LogManagerName,
-		DependsOn: []boot.ComponentName{EventBusName},
+		DependsOn: []boot.Name{EventBusName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			bus := event.GetBus(ctx)

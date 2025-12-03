@@ -12,7 +12,7 @@ func Stream() boot.Component {
 
 	return boot.New(boot.P{
 		Name:      StreamDispatcherName,
-		DependsOn: []boot.ComponentName{DispatcherName},
+		DependsOn: []boot.Name{DispatcherName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			reg := dispatcherapi.GetRegistrar(ctx)
 			if reg == nil {

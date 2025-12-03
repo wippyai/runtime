@@ -33,7 +33,7 @@ func (m *mockExporter) count() int {
 
 func TestCollector_Counter(t *testing.T) {
 	c := NewCollector(api.Config{Buffer: struct {
-		Size int `mapstructure:"size"`
+		Size int
 	}{Size: 1000}})
 	defer c.Close()
 
@@ -49,7 +49,7 @@ func TestCollector_Counter(t *testing.T) {
 
 func TestCollector_Gauge(t *testing.T) {
 	c := NewCollector(api.Config{Buffer: struct {
-		Size int `mapstructure:"size"`
+		Size int
 	}{Size: 1000}})
 	defer c.Close()
 
@@ -66,7 +66,7 @@ func TestCollector_Gauge(t *testing.T) {
 
 func TestCollector_Histogram(t *testing.T) {
 	c := NewCollector(api.Config{Buffer: struct {
-		Size int `mapstructure:"size"`
+		Size int
 	}{Size: 1000}})
 	defer c.Close()
 
@@ -81,7 +81,7 @@ func TestCollector_Histogram(t *testing.T) {
 
 func TestCollector_ExporterFanout(t *testing.T) {
 	c := NewCollector(api.Config{Buffer: struct {
-		Size int `mapstructure:"size"`
+		Size int
 	}{Size: 1000}})
 	defer c.Close()
 
@@ -98,7 +98,7 @@ func TestCollector_ExporterFanout(t *testing.T) {
 
 func TestCollector_GracefulShutdown(t *testing.T) {
 	c := NewCollector(api.Config{Buffer: struct {
-		Size int `mapstructure:"size"`
+		Size int
 	}{Size: 1000}})
 	mock := &mockExporter{}
 	c.RegisterExporter(mock)
@@ -125,7 +125,7 @@ func TestCollector_DefaultBufferSize(t *testing.T) {
 
 func TestCollector_BatchFlush(t *testing.T) {
 	c := NewCollector(api.Config{Buffer: struct {
-		Size int `mapstructure:"size"`
+		Size int
 	}{Size: 10000}})
 	mock := &mockExporter{}
 	c.RegisterExporter(mock)

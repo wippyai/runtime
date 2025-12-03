@@ -10,7 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
-	"github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/api/runtime/resource"
 	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
 	wasmengine "github.com/wippyai/wasm-runtime/engine"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"

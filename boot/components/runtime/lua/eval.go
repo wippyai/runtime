@@ -16,13 +16,13 @@ import (
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
 )
 
-const EvalHostName boot.ComponentName = "runtime.lua.eval"
+const EvalHostName boot.Name = "runtime.lua.eval"
 
 // Eval creates the eval host boot component.
 func Eval() boot.Component {
 	return boot.New(boot.P{
 		Name:      EvalHostName,
-		DependsOn: []boot.ComponentName{dispatchers.ClockDispatcherName, LuaEngineName},
+		DependsOn: []boot.Name{dispatchers.ClockDispatcherName, LuaEngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			reg := dispatcherapi.GetRegistrar(ctx)

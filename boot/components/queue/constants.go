@@ -3,8 +3,8 @@ package queue
 import "github.com/wippyai/runtime/api/boot"
 
 const (
-	ManagerName      boot.ComponentName = "queues"
-	QueuesName       boot.ComponentName = "queue-declarations"
-	ConsumersName    boot.ComponentName = "queue-consumers"
-	MemoryDriverName boot.ComponentName = "queue-memory"
+	ManagerName      boot.Name = "queues"
+	QueuesName       boot.Name = "queue-declarations"
+	ConsumersName    boot.Name = "queue-consumers"
+	MemoryDriverName boot.Name = "queue-memory"
 )

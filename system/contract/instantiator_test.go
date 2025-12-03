@@ -720,11 +720,12 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 	wg.Wait()
 
 	t.Run("FIXED: validation now passes when origin_id is in Go context but not scope", func(t *testing.T) {
-		// Create Go context with origin_id present
-		ctxr := ctxapi.NewContexter[any]()
-		ctxr.SetValue("origin_id", "test-uuid-123")
-		ctxr.SetValue("other_key", "other_value")
-		callCtx := context.WithValue(ctx, ctxapi.ValuesCtx, ctxr)
+		// Create Go context with origin_id present using Values
+		callCtx, fc := ctxapi.OpenFrameContext(ctx)
+		values := ctxapi.NewValues()
+		values.Set("origin_id", "test-uuid-123")
+		values.Set("other_key", "other_value")
+		_ = fc.Set(ctxapi.ValuesCtx, values)
 
 		// Create instance with EMPTY scope (no origin_id in scope parameter)
 		instance, err := instantiator.Instantiate(callCtx, bindingID, registry.Metadata{})
@@ -756,10 +757,11 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 	})
 
 	t.Run("validation passes when origin_id is in both Go context AND scope", func(t *testing.T) {
-		// Create Go context with origin_id
-		ctxr := ctxapi.NewContexter[any]()
-		ctxr.SetValue("origin_id", "from-go-context")
-		callCtx := context.WithValue(ctx, ctxapi.ValuesCtx, ctxr)
+		// Create Go context with origin_id using Values
+		callCtx, fc := ctxapi.OpenFrameContext(ctx)
+		values := ctxapi.NewValues()
+		values.Set("origin_id", "from-go-context")
+		_ = fc.Set(ctxapi.ValuesCtx, values)
 
 		// Create instance with origin_id in scope (should override Go context value)
 		scope := registry.Metadata{"origin_id": "from-scope"}
@@ -775,8 +777,9 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 	})
 
 	t.Run("validation still fails when origin_id is missing from both scope and Go context", func(t *testing.T) {
-		// Create Go context without origin_id
-		callCtx := ctx
+		// Create fresh Go context without origin_id (don't reuse ctx which may have values)
+		freshCtx := ctxapi.NewRootContext()
+		callCtx, _ := ctxapi.AcquireFrameContext(freshCtx)
 
 		// Create instance with empty scope
 		instance, err := instantiator.Instantiate(callCtx, bindingID, registry.Metadata{})

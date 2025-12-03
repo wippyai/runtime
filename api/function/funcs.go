@@ -1,4 +1,4 @@
-// Package function provides abstractions for managing and executing asynchronous functions.
+// Package function provides abstractions for managing and executing functions.
 package function
 
 import (
@@ -9,38 +9,22 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 )
 
+// HostID identifies the function node in the pub/sub system.
+const HostID relay.HostID = "node:functions"
+
+// System identifies the function system in the event bus.
+const System event.System = "function"
+
+// Event kinds for function operations.
 const (
-	// HostID identifies the function node in the pub/sub system
-	HostID relay.HostID = "node:functions"
-
-	// System identifies the executor system in the event bus
-	System event.System = "function"
-
-	// Register is sent TO function nodes to request registration of a new handler
 	Register event.Kind = "function.register"
-	// Delete is sent TO function nodes to request removal of an existing handler
-	Delete event.Kind = "function.delete"
-
-	// Accept is sent FROM function nodes when a handler registration is accepted
-	Accept event.Kind = "function.accept"
-	// Reject is sent FROM function nodes when a handler registration is rejected
-	Reject event.Kind = "function.reject"
-
-	// InterceptorOptionsKey reserved for future use
+	Delete   event.Kind = "function.delete"
+	Accept   event.Kind = "function.accept"
+	Reject   event.Kind = "function.reject"
 )
 
 type (
-	// Func represents a core function type that processes tasks synchronously.
-	// It takes a context and task as input and returns the result directly.
-	// The function blocks until execution completes or the context is canceled.
-	//
-	// Parameters:
-	//   - ctx: Context for cancellation and value propagation
-	//   - task: The task to be executed
-	//
-	// Returns:
-	//   - *runtime.Result: The execution result
-	//   - error: Any execution or validation errors
+	// Func processes tasks synchronously and returns the result.
 	Func func(context.Context, runtime.Task) (*runtime.Result, error)
 
 	// FuncEntry holds both the function handler and its options for registration.
@@ -50,11 +34,20 @@ type (
 	}
 
 	// Registry defines the interface for managing and executing functions.
-	// It abstracts the function lookup and execution process, providing a
-	// unified interface for function calls.
 	Registry interface {
-		// Call executes a function identified by the task synchronously and returns
-		// the result directly. Blocks until execution completes or context is canceled.
+		// Call executes a function identified by the task synchronously.
 		Call(context.Context, runtime.Task) (*runtime.Result, error)
+	}
+
+	// Interceptor defines the interface for function execution interceptors.
+	Interceptor interface {
+		Handle(ctx context.Context, task runtime.Task, next func(context.Context, runtime.Task) (*runtime.Result, error)) (*runtime.Result, error)
+	}
+
+	// InterceptorRegistry manages interceptor registration and execution.
+	InterceptorRegistry interface {
+		Execute(ctx context.Context, f Func, task runtime.Task) (*runtime.Result, error)
+		Register(name string, interceptor Interceptor, order int) error
+		Unregister(name string) error
 	}
 )

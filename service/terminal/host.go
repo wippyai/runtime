@@ -14,6 +14,7 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/service/terminal"
+	supervisorapi "github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/system/logs"
 	"github.com/wippyai/runtime/system/scheduler/actor"
 	"go.uber.org/zap"
@@ -66,6 +67,13 @@ func (h *Host) OnComplete(ctx context.Context, pid relay.PID, result *runtime.Re
 		_ = fc.Close()
 	}
 	close(h.doneCh)
+
+	// Determine exit code from result
+	exitCode := 0
+	if result != nil && result.Error != nil {
+		exitCode = 1
+	}
+	supervisorapi.TriggerShutdown(h.ctx, exitCode)
 }
 
 // Done returns a channel that is closed when the terminal process completes.
@@ -73,8 +81,14 @@ func (h *Host) Done() <-chan struct{} {
 	return h.doneCh
 }
 
+// ErrHostNotRunning is returned when Run is called before Start.
+var ErrHostNotRunning = errors.New("host is not running")
+
 // Run implements process.Host.
 func (h *Host) Run(ctx context.Context, start *process.Start) (relay.PID, error) {
+	if !h.running.Load() {
+		return relay.PID{}, ErrHostNotRunning
+	}
 	if h.shutdown.Load() {
 		return relay.PID{}, errors.New("host is shutting down")
 	}

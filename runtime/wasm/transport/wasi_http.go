@@ -6,7 +6,7 @@ import (
 	"net/http"
 
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/api/runtime/resource"
 	api "github.com/wippyai/runtime/api/runtime/wasm"
 	httpservice "github.com/wippyai/runtime/api/service/http"
 )

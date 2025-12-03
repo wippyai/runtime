@@ -3,9 +3,9 @@ package env
 import "github.com/wippyai/runtime/api/boot"
 
 const (
-	MemoryName    boot.ComponentName = "env.memory"
-	FileName      boot.ComponentName = "env.file"
-	OSName        boot.ComponentName = "env.os"
-	CompositeName boot.ComponentName = "env.composite"
-	VariableName  boot.ComponentName = "env.variable"
+	MemoryName    boot.Name = "env.memory"
+	FileName      boot.Name = "env.file"
+	OSName        boot.Name = "env.os"
+	CompositeName boot.Name = "env.composite"
+	VariableName  boot.Name = "env.variable"
 )

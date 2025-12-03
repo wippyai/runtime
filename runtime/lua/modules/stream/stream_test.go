@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
-	"github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/api/runtime/resource"
 	streamsvc "github.com/wippyai/runtime/service/fs/stream"
 	lua "github.com/yuin/gopher-lua"
 )

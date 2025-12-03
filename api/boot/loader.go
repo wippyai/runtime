@@ -9,21 +9,87 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 )
 
-// Loader provides filesystem loading and entry extraction.
-// This is an interface to avoid circular dependencies between api and boot/loader.
-type Loader interface {
-	// LoadFS loads all entries from a filesystem recursively.
-	LoadFS(ctx context.Context, filesystem fs.FS) ([]registry.Entry, error)
+type (
+	// Loader provides filesystem loading and entry extraction.
+	// This is an interface to avoid circular dependencies between api and boot/loader.
+	Loader interface {
+		// LoadFS loads all entries from a filesystem recursively.
+		LoadFS(ctx context.Context, filesystem fs.FS) ([]registry.Entry, error)
 
-	// LoadDir loads entries from a specific directory.
-	LoadDir(ctx context.Context, filesystem fs.FS, dirPath string) ([]registry.Entry, error)
+		// LoadDir loads entries from a specific directory.
+		LoadDir(ctx context.Context, filesystem fs.FS, dirPath string) ([]registry.Entry, error)
 
-	// LoadFile loads entries from a single file.
-	LoadFile(ctx context.Context, filesystem fs.FS, filePath string) ([]registry.Entry, error)
+		// LoadFile loads entries from a single file.
+		LoadFile(ctx context.Context, filesystem fs.FS, filePath string) ([]registry.Entry, error)
+	}
+
+	// LoadFunc is the function signature for component Load.
+	LoadFunc func(context.Context) (context.Context, error)
+
+	// StartFunc is the function signature for component Start.
+	StartFunc func(context.Context) error
+
+	// StopFunc is the function signature for component Stop.
+	StopFunc func(context.Context) error
+
+	// P defines a functional component using callbacks.
+	P struct {
+		Name      string
+		DependsOn []string
+		Load      LoadFunc
+		Start     StartFunc
+		Stop      StopFunc
+	}
+
+	// funcComponent implements Component using function callbacks.
+	funcComponent struct {
+		name      string
+		deps      []string
+		loadFunc  LoadFunc
+		startFunc StartFunc
+		stopFunc  StopFunc
+	}
+
+	// loaderKey is the context key for the loader component.
+	loaderKey struct{}
+)
+
+func (p *funcComponent) Name() string { return p.name }
+func (p *funcComponent) DependsOn() []string {
+	return p.deps
 }
 
-// loaderKey is the context key for the loader component.
-type loaderKey struct{}
+func (p *funcComponent) Load(ctx context.Context) (context.Context, error) {
+	if p.loadFunc == nil {
+		return ctx, nil
+	}
+	return p.loadFunc(ctx)
+}
+
+func (p *funcComponent) Start(ctx context.Context) error {
+	if p.startFunc == nil {
+		return nil
+	}
+	return p.startFunc(ctx)
+}
+
+func (p *funcComponent) Stop(ctx context.Context) error {
+	if p.stopFunc == nil {
+		return nil
+	}
+	return p.stopFunc(ctx)
+}
+
+// New creates a functional component.
+func New(p P) Component {
+	return &funcComponent{
+		name:      p.Name,
+		deps:      p.DependsOn,
+		loadFunc:  p.Load,
+		startFunc: p.Start,
+		stopFunc:  p.Stop,
+	}
+}
 
 // WithLoader attaches Loader to AppContext.
 func WithLoader(ctx context.Context, ldr Loader) context.Context {

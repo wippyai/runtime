@@ -7,7 +7,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 
 	treesitter "github.com/tree-sitter/go-tree-sitter"

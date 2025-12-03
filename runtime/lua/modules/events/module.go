@@ -6,8 +6,8 @@ import (
 
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/resource"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"

@@ -15,7 +15,7 @@ func Resources() boot.Component {
 
 	return boot.New(boot.P{
 		Name:      ResourcesName,
-		DependsOn: []boot.ComponentName{},
+		DependsOn: []string{},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			bus := event.GetBus(ctx)

@@ -6,7 +6,7 @@ import (
 	"time"
 
 	treesitter "github.com/tree-sitter/go-tree-sitter"
-	"github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )

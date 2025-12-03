@@ -142,3 +142,12 @@ func NewTaskNotFoundForChannelError(cause error) *Error {
 		cause:     cause,
 	}
 }
+
+func NewOperationError(operation string, cause error) *Error {
+	return &Error{
+		kind:      apierror.KindInternal,
+		message:   operation,
+		retryable: apierror.False,
+		cause:     cause,
+	}
+}

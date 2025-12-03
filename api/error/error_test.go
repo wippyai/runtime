@@ -19,7 +19,7 @@ func TestKind_String(t *testing.T) {
 		{KindConflict, "Conflict"},
 		{KindTimeout, "Timeout"},
 		{KindRateLimited, "RateLimited"},
-		{Kind("made_up_kind"), "Unknown"},
+		{Kind("custom_kind"), "custom_kind"},
 	}
 
 	for _, tt := range tests {

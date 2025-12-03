@@ -18,7 +18,7 @@ import (
 func Consumers() boot.Component {
 	return boot.New(boot.P{
 		Name: ConsumersName,
-		DependsOn: []boot.ComponentName{
+		DependsOn: []boot.Name{
 			bootcore.RegistryName,
 			ManagerName,
 			bootsystem.FunctionsName,

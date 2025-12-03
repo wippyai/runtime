@@ -63,7 +63,7 @@ func TestNewBootstrapContext(t *testing.T) {
 		assert.NotNil(t, pidReg, "PID Registry should be available")
 
 		// Verify LogManager
-		logManager := logapi.GetLogManager(ctx)
+		logManager := logapi.GetManager(ctx)
 		assert.NotNil(t, logManager, "LogManager should be available")
 
 		// Verify HandlerRegistry
@@ -147,7 +147,7 @@ func TestStartRuntimeServices(t *testing.T) {
 		require.NoError(t, err)
 
 		// Services should be running (no errors)
-		logManager := logapi.GetLogManager(ctx)
+		logManager := logapi.GetManager(ctx)
 		assert.NotNil(t, logManager)
 
 		nodeManager := relayapi.GetNodeManager(ctx)

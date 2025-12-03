@@ -14,7 +14,7 @@ import (
 func Composite(providers ...composite.StorageProvider) boot.Component {
 	return boot.New(boot.P{
 		Name:      CompositeName,
-		DependsOn: []boot.ComponentName{MemoryName, FileName, OSName},
+		DependsOn: []boot.Name{MemoryName, FileName, OSName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			dtt := payload.GetTranscoder(ctx)

@@ -46,3 +46,15 @@ entries:
       comment: WASM components directory
     directory: src/wasm
     mode: "0444"
+
+  # app:test_runner - Test runner process
+  - name: test_runner
+    kind: process.lua
+    meta:
+      comment: Runs all tests with meta.type=test
+    source: file://runner.lua
+    method: main
+    modules:
+      - io
+      - registry
+      - funcs

@@ -4,18 +4,18 @@ import "github.com/wippyai/runtime/api/boot"
 
 const (
 	// Dispatcher parent dependency
-	DispatcherName boot.ComponentName = "dispatcher"
+	DispatcherName boot.Name = "dispatcher"
 
 	// System dispatchers
-	ClockDispatcherName    boot.ComponentName = "dispatcher.clock"
-	FuncDispatcherName     boot.ComponentName = "dispatcher.func"
-	SecurityDispatcherName boot.ComponentName = "dispatcher.security"
-	QueueDispatcherName    boot.ComponentName = "dispatcher.queue"
+	ClockDispatcherName    boot.Name = "dispatcher.clock"
+	FuncDispatcherName     boot.Name = "dispatcher.func"
+	SecurityDispatcherName boot.Name = "dispatcher.security"
+	QueueDispatcherName    boot.Name = "dispatcher.queue"
 
 	// Service dispatchers
-	HTTPDispatcherName   boot.ComponentName = "dispatcher.http"
-	WSDispatcherName     boot.ComponentName = "dispatcher.ws"
-	ExecDispatcherName   boot.ComponentName = "dispatcher.exec"
-	StreamDispatcherName boot.ComponentName = "dispatcher.stream"
-	ExcelDispatcherName  boot.ComponentName = "dispatcher.excel"
+	HTTPDispatcherName   boot.Name = "dispatcher.http"
+	WSDispatcherName     boot.Name = "dispatcher.ws"
+	ExecDispatcherName   boot.Name = "dispatcher.exec"
+	StreamDispatcherName boot.Name = "dispatcher.stream"
+	ExcelDispatcherName  boot.Name = "dispatcher.excel"
 )

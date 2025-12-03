@@ -11,7 +11,7 @@ import (
 func HTTP() boot.Component {
 	return boot.New(boot.P{
 		Name:      LuaHTTPName,
-		DependsOn: []boot.ComponentName{LuaEngineName},
+		DependsOn: []boot.Name{LuaEngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			cm := GetCodeManager(ctx)
 			if cm == nil {

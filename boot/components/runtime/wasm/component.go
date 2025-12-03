@@ -17,14 +17,14 @@ import (
 	reghandler "github.com/wippyai/runtime/system/registry/events"
 )
 
-const WasmComponentName boot.ComponentName = "runtime.wasm.component"
+const WasmComponentName boot.Name = "runtime.wasm.component"
 
 func Component() boot.Component {
 	var manager *component.Manager
 
 	return boot.New(boot.P{
 		Name:      WasmComponentName,
-		DependsOn: []boot.ComponentName{dispatchers.ClockDispatcherName, system.FilesystemName},
+		DependsOn: []boot.Name{dispatchers.ClockDispatcherName, system.FilesystemName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			bus := event.GetBus(ctx)

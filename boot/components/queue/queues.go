@@ -18,7 +18,7 @@ import (
 func Queues() boot.Component {
 	return boot.New(boot.P{
 		Name: QueuesName,
-		DependsOn: []boot.ComponentName{
+		DependsOn: []boot.Name{
 			bootcore.RegistryName,
 			ManagerName,
 		},

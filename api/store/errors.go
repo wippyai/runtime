@@ -6,20 +6,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 )
 
-// Error implements apierror.Error for store errors
-type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-}
-
-func (e *Error) Error() string               { return e.message }
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-
-// Sentinel errors
+// Sentinel errors.
 var (
 	ErrKeyNotFound = &Error{
 		kind:      apierror.KindNotFound,
@@ -58,7 +45,20 @@ var (
 	}
 )
 
-// NewKeyNotFoundError creates a key not found error with details
+// Error implements apierror.Error for store errors.
+type Error struct {
+	kind      apierror.Kind
+	message   string
+	retryable apierror.Ternary
+	details   attrs.Attributes
+}
+
+func (e *Error) Error() string               { return e.message }
+func (e *Error) Kind() apierror.Kind         { return e.kind }
+func (e *Error) Retryable() apierror.Ternary { return e.retryable }
+func (e *Error) Details() attrs.Attributes   { return e.details }
+
+// NewKeyNotFoundError creates a key not found error with details.
 func NewKeyNotFoundError(key registry.ID) *Error {
 	return &Error{
 		kind:      apierror.KindNotFound,
@@ -68,7 +68,7 @@ func NewKeyNotFoundError(key registry.ID) *Error {
 	}
 }
 
-// NewKeyExistsError creates a key exists error with details
+// NewKeyExistsError creates a key exists error with details.
 func NewKeyExistsError(key registry.ID) *Error {
 	return &Error{
 		kind:      apierror.KindAlreadyExists,
@@ -78,7 +78,7 @@ func NewKeyExistsError(key registry.ID) *Error {
 	}
 }
 
-// NewInvalidKeyError creates an invalid key error with details
+// NewInvalidKeyError creates an invalid key error with details.
 func NewInvalidKeyError(key string, reason string) *Error {
 	return &Error{
 		kind:      apierror.KindInvalid,

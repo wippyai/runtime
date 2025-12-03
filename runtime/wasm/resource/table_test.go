@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	apiresource "github.com/wippyai/runtime/api/resource"
+	apiresource "github.com/wippyai/runtime/api/runtime/resource"
 )
 
 func TestTable(t *testing.T) {

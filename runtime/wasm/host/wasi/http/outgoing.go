@@ -12,7 +12,7 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	httpapi "github.com/wippyai/runtime/api/dispatcher/http"
 	"github.com/wippyai/runtime/api/registry"
-	apiresource "github.com/wippyai/runtime/api/resource"
+	apiresource "github.com/wippyai/runtime/api/runtime/resource"
 	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
 	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/wasm/host"

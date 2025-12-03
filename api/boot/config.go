@@ -2,83 +2,49 @@
 package boot
 
 import (
-	"context"
 	"strings"
 	"time"
-
-	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
 // ConfigSep is the separator used for hierarchical config keys.
 const ConfigSep = "."
 
-// ConfigKey is a string alias for typed config key declarations in plugins.
-type ConfigKey string
+type (
+	// Name is a string alias for typed identifiers (component names, config keys, etc).
+	Name = string
+	// Config provides typed access to configuration values with prefix-based scoping.
+	Config interface {
+		// Get retrieves a raw value by key. Returns the value and true if found, nil and false otherwise.
+		Get(key string) (any, bool)
 
-// ComponentName is a string alias for component identifiers.
-type ComponentName string
+		// GetString retrieves a string value by key, returning def if not found.
+		GetString(key string, def string) string
 
-var configCtxKey = &ctxapi.Key{Name: "boot.config"}
+		// GetInt retrieves an int value by key, returning def if not found or type mismatch.
+		GetInt(key string, def int) int
 
-// WithConfig attaches Config to AppContext.
-func WithConfig(ctx context.Context, cfg Config) context.Context {
-	ac := ctxapi.AppFromContext(ctx)
-	if ac == nil {
-		return ctx
+		// GetBool retrieves a bool value by key, returning def if not found or type mismatch.
+		GetBool(key string, def bool) bool
+
+		// GetDuration retrieves a time.Duration value by key, returning def if not found or type mismatch.
+		GetDuration(key string, def time.Duration) time.Duration
+
+		// Keys returns all keys in this config scope.
+		Keys() []string
+
+		// Sub returns a new Config scoped to the given prefix.
+		// The separator is automatically appended.
+		Sub(prefix string) Config
 	}
-	if ac.Get(configCtxKey) == nil {
-		ac.With(configCtxKey, cfg)
+
+	// ConfigOption is a functional option for configuring Config.
+	ConfigOption func(*config)
+
+	config struct {
+		prefix  string
+		buckets map[string]map[string]any
 	}
-	return ctx
-}
-
-// GetConfig retrieves Config from AppContext.
-// Returns nil if no Config is found.
-func GetConfig(ctx context.Context) Config {
-	ac := ctxapi.AppFromContext(ctx)
-	if ac == nil {
-		return nil
-	}
-	if cfg := ac.Get(configCtxKey); cfg != nil {
-		if c, ok := cfg.(Config); ok {
-			return c
-		}
-	}
-	return nil
-}
-
-// Config provides typed access to configuration values with prefix-based scoping.
-type Config interface {
-	// Get retrieves a raw value by key. Returns the value and true if found, nil and false otherwise.
-	Get(key string) (any, bool)
-
-	// GetString retrieves a string value by key, returning def if not found.
-	GetString(key string, def string) string
-
-	// GetInt retrieves an int value by key, returning def if not found or type mismatch.
-	GetInt(key string, def int) int
-
-	// GetBool retrieves a bool value by key, returning def if not found or type mismatch.
-	GetBool(key string, def bool) bool
-
-	// GetDuration retrieves a time.Duration value by key, returning def if not found or type mismatch.
-	GetDuration(key string, def time.Duration) time.Duration
-
-	// Keys returns all keys in this config scope.
-	Keys() []string
-
-	// Sub returns a new Config scoped to the given prefix.
-	// The separator is automatically appended.
-	Sub(prefix string) Config
-}
-
-type config struct {
-	prefix  string
-	buckets map[string]map[string]any
-}
-
-// ConfigOption is a functional option for configuring Config.
-type ConfigOption func(*config)
+)
 
 // WithSection adds a configuration section with the given name and values.
 func WithSection(name string, values map[string]any) ConfigOption {

@@ -139,10 +139,10 @@ func (i *instanceImpl) validateContext(ctx context.Context, requiredKeys []strin
 			}
 		}
 
-		// If not found in scope, check Go context
+		// If not found in scope, check Go context values
 		if !found {
-			if ctxr, ok := ctx.Value(ctxapi.ValuesCtx).(*ctxapi.Contexter[any]); ok {
-				if _, exists := ctxr.Value(key); exists {
+			if values := ctxapi.GetValues(ctx); values != nil {
+				if _, exists := values.Get(key); exists {
 					found = true
 				}
 			}

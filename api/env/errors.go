@@ -5,22 +5,7 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
-// Error implements apierror.Error for env errors
-type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
-}
-
-func (e *Error) Error() string               { return e.message }
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
-
-// Sentinel errors
+// Errors returned by env operations.
 var (
 	ErrVariableNotFound = &Error{
 		kind:      apierror.KindNotFound,
@@ -53,7 +38,22 @@ var (
 	}
 )
 
-// NewVariableNotFoundError creates a variable not found error with details
+// Error represents an env error with additional metadata.
+type Error struct {
+	kind      apierror.Kind
+	message   string
+	retryable apierror.Ternary
+	details   attrs.Attributes
+	cause     error
+}
+
+func (e *Error) Error() string               { return e.message }
+func (e *Error) Kind() apierror.Kind         { return e.kind }
+func (e *Error) Retryable() apierror.Ternary { return e.retryable }
+func (e *Error) Details() attrs.Attributes   { return e.details }
+func (e *Error) Unwrap() error               { return e.cause }
+
+// NewVariableNotFoundError creates a variable not found error with details.
 func NewVariableNotFoundError(name string) *Error {
 	return &Error{
 		kind:      apierror.KindNotFound,
@@ -63,7 +63,7 @@ func NewVariableNotFoundError(name string) *Error {
 	}
 }
 
-// NewStorageNotFoundError creates a storage not found error with details
+// NewStorageNotFoundError creates a storage not found error with details.
 func NewStorageNotFoundError(storageID string) *Error {
 	return &Error{
 		kind:      apierror.KindNotFound,
@@ -73,7 +73,7 @@ func NewStorageNotFoundError(storageID string) *Error {
 	}
 }
 
-// NewInvalidVariableNameError creates an invalid variable name error with details
+// NewInvalidVariableNameError creates an invalid variable name error with details.
 func NewInvalidVariableNameError(name string, reason string) *Error {
 	return &Error{
 		kind:      apierror.KindInvalid,

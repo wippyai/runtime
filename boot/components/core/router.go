@@ -14,7 +14,7 @@ import (
 func EventRouter() boot.Component {
 	return boot.New(boot.P{
 		Name:      EventRouterName,
-		DependsOn: []boot.ComponentName{RegistryName},
+		DependsOn: []boot.Name{RegistryName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			return ctx, nil
 		},

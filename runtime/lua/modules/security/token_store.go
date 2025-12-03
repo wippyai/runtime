@@ -10,6 +10,7 @@ import (
 	securityapi "github.com/wippyai/runtime/api/dispatcher/security"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
+	rtresource "github.com/wippyai/runtime/api/runtime/resource"
 	secapi "github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	luasec "github.com/wippyai/runtime/runtime/lua/security"
@@ -37,7 +38,7 @@ func NewTokenStore(ctx context.Context, id registry.ID, res resource.Resource[an
 		released:   false,
 	}
 
-	store := resource.GetStore(ctx)
+	store := rtresource.GetStore(ctx)
 	if store != nil {
 		wrapper.cancelCleanup = store.AddCleanup(func() error {
 			wrapper.mu.Lock()

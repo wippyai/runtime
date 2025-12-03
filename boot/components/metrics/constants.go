@@ -3,8 +3,8 @@ package metrics
 import "github.com/wippyai/runtime/api/boot"
 
 const (
-	MetricsName            boot.ComponentName = "metrics"
-	MetricsInterceptorName boot.ComponentName = "metrics-interceptor"
+	MetricsName            boot.Name = "metrics"
+	MetricsInterceptorName boot.Name = "metrics-interceptor"
 
-	interceptorName boot.ComponentName = "interceptor"
+	interceptorName boot.Name = "interceptor"
 )

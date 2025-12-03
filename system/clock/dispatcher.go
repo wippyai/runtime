@@ -90,7 +90,7 @@ func (d *Dispatcher) handleAfter(ctx context.Context, cmd dispatcher.Command, em
 	if c.Duration <= 0 {
 		return nil
 	}
-	registry := GetOrCreateAfterRegistry(ctx)
+	registry := GetOrCreateAfterRegistry(ctx) // todo: this is wrong dcelete it
 	id := registry.Create(ctx, c.Duration)
 	emit.Emit(&AfterResult{ChannelID: id}, nil)
 	return nil

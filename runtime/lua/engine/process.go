@@ -10,8 +10,8 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/relay"
-	"github.com/wippyai/runtime/api/resource"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/api/runtime/resource"
 	scheduler "github.com/wippyai/runtime/system/scheduler/actor"
 	lua "github.com/yuin/gopher-lua"
 )

@@ -3,6 +3,6 @@ package fs
 import "github.com/wippyai/runtime/api/boot"
 
 const (
-	DirectoryName boot.ComponentName = "fs.directory"
-	EmbedName     boot.ComponentName = "fs.embed"
+	DirectoryName boot.Name = "fs.directory"
+	EmbedName     boot.Name = "fs.embed"
 )

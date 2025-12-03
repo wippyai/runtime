@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	fsapi "github.com/wippyai/runtime/api/fs"
-	"github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/api/runtime/resource"
 	lua "github.com/yuin/gopher-lua"
 )
 

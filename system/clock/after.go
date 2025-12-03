@@ -7,9 +7,10 @@ import (
 	"time"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
-	"github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/api/runtime/resource"
 )
 
+// tyodO: why and where we ned it?
 // AfterRegistryKey is the context key for AfterRegistry.
 var AfterRegistryKey = &ctxapi.Key{Name: "clock.after", Inherit: false}
 

@@ -65,7 +65,7 @@ func NewBootstrapContext(logger *zap.Logger, cfg boot.Config) (context.Context, 
 	ctx = WithHandlerRegistry(ctx, handlerRegistry)
 
 	// Store managers in AppContext for later Start/Stop
-	ctx = logapi.WithLogManager(ctx, logManager)
+	ctx = logapi.WithManager(ctx, logManager)
 	ctx = relayapi.WithNodeManager(ctx, nodeManager)
 
 	return ctx, nil
@@ -204,7 +204,7 @@ func wrapLogger(logger *zap.Logger, bus event.Bus, cfg boot.Config) (*zap.Logger
 
 // StartRuntimeServices starts infrastructure services (log manager, node manager)
 func StartRuntimeServices(ctx context.Context) error {
-	if logManager := logapi.GetLogManager(ctx); logManager != nil {
+	if logManager := logapi.GetManager(ctx); logManager != nil {
 		if err := logManager.Start(ctx); err != nil {
 			return err
 		}
@@ -227,7 +227,7 @@ func StopRuntimeServices(ctx context.Context) error {
 		}
 	}
 
-	if logManager := logapi.GetLogManager(ctx); logManager != nil {
+	if logManager := logapi.GetManager(ctx); logManager != nil {
 		return logManager.Stop()
 	}
 

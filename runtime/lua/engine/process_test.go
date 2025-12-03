@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
-	"github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/api/runtime/resource"
 	scheduler "github.com/wippyai/runtime/system/scheduler/actor"
 	lua "github.com/yuin/gopher-lua"
 )

@@ -13,8 +13,8 @@ import (
 	wsapi "github.com/wippyai/runtime/api/dispatcher/ws"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/relay"
-	"github.com/wippyai/runtime/api/resource"
 	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/runtime/resource"
 
 	"github.com/coder/websocket"
 )

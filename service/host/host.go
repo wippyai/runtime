@@ -42,8 +42,14 @@ func NewHost(id registry.ID, cfg *host.EntryConfig, scheduler *actor.Scheduler, 
 	}
 }
 
+// ErrHostNotRunning is returned when Run is called before Start.
+var ErrHostNotRunning = errors.New("host is not running")
+
 // Run implements process.Host.
 func (h *Host) Run(ctx context.Context, start *process.Start) (relay.PID, error) {
+	if !h.running.Load() {
+		return relay.PID{}, ErrHostNotRunning
+	}
 	if h.shutdown.Load() {
 		return relay.PID{}, errors.New("host is shutting down")
 	}

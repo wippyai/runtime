@@ -16,7 +16,7 @@ import (
 func Terminal2() boot.Component {
 	return boot.New(boot.P{
 		Name:      Terminal2Name,
-		DependsOn: []boot.ComponentName{system.FactoryName},
+		DependsOn: []boot.Name{system.FactoryName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			if logger == nil {

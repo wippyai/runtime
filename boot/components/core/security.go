@@ -15,7 +15,7 @@ func Security() boot.Component {
 
 	return boot.New(boot.P{
 		Name:      SecurityName,
-		DependsOn: []boot.ComponentName{},
+		DependsOn: []boot.Name{},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			bus := event.GetBus(ctx)

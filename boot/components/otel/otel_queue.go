@@ -11,7 +11,7 @@ import (
 func OTelQueue() boot.Component {
 	return boot.New(boot.P{
 		Name:      OTelQueueName,
-		DependsOn: []boot.ComponentName{OTelName, queueManagerName},
+		DependsOn: []boot.Name{OTelName, queueManagerName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			// Get OTEL service
 			svc := otelapi.GetService(ctx)

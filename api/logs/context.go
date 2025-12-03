@@ -1,4 +1,3 @@
-// Package logs provides a structured logging system with context integration.
 package logs
 
 import (
@@ -8,12 +7,12 @@ import (
 	"go.uber.org/zap"
 )
 
-// loggerCtx is the context key used to store and retrieve the logger instance
-var loggerCtx = &ctxapi.Key{Name: "logger"}
+var (
+	loggerCtx  = &ctxapi.Key{Name: "logger"}
+	managerCtx = &ctxapi.Key{Name: "logs.manager"}
+)
 
-// WithLogger creates a new context with the provided logger instance.
-// This function is used to inject a logger into the context for later retrieval.
-// Defensive: returns ctx unchanged if AppContext is nil or logger already exists.
+// WithLogger attaches a logger to the context.
 func WithLogger(ctx context.Context, logger *zap.Logger) context.Context {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
@@ -25,9 +24,7 @@ func WithLogger(ctx context.Context, logger *zap.Logger) context.Context {
 	return ctx
 }
 
-// UpdateLogger replaces the logger in the context with a new instance.
-// This is used when wrapping the logger with additional functionality (e.g., event streaming).
-// Defensive: returns ctx unchanged if AppContext is nil.
+// UpdateLogger replaces the logger in the context.
 func UpdateLogger(ctx context.Context, logger *zap.Logger) context.Context {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
@@ -37,10 +34,7 @@ func UpdateLogger(ctx context.Context, logger *zap.Logger) context.Context {
 	return ctx
 }
 
-// GetLogger retrieves the logger instance from the provided context.
-// If no logger is found in the context, it returns a no-op logger.
-// This ensures that logging calls will not panic when no logger is configured.
-// Defensive: returns no-op logger if AppContext is nil.
+// GetLogger retrieves the logger from the context. Returns a no-op logger if not found.
 func GetLogger(ctx context.Context) *zap.Logger {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
@@ -50,4 +44,30 @@ func GetLogger(ctx context.Context) *zap.Logger {
 		return l.(*zap.Logger)
 	}
 	return zap.NewNop()
+}
+
+// WithManager attaches a Manager to the context.
+func WithManager(ctx context.Context, mgr Manager) context.Context {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return ctx
+	}
+	if ac.Get(managerCtx) == nil {
+		ac.With(managerCtx, mgr)
+	}
+	return ctx
+}
+
+// GetManager retrieves the Manager from the context.
+func GetManager(ctx context.Context) Manager {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil
+	}
+	if val := ac.Get(managerCtx); val != nil {
+		if mgr, ok := val.(Manager); ok {
+			return mgr
+		}
+	}
+	return nil
 }

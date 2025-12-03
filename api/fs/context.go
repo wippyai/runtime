@@ -1,5 +1,3 @@
-// Package fs provides filesystem abstractions and a registry for managing
-// multiple filesystem instances.
 package fs
 
 import (

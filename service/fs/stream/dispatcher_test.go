@@ -11,7 +11,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	streamapi "github.com/wippyai/runtime/api/dispatcher/stream"
-	"github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/api/runtime/resource"
 )
 
 // testEmitter wraps a callback function to implement dispatcher.Emitter

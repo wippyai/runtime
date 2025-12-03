@@ -15,7 +15,7 @@ import (
 func Memory() boot.Component {
 	return boot.New(boot.P{
 		Name:      MemoryDriverName,
-		DependsOn: []boot.ComponentName{ManagerName},
+		DependsOn: []boot.Name{ManagerName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			dtt := payload.GetTranscoder(ctx)

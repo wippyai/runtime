@@ -6,7 +6,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 )
 
-// Error implements apierror.Error for process errors
+// Error implements apierror.Error for process errors ;; todo: use erros from api?
 type Error struct {
 	kind      apierror.Kind
 	message   string

@@ -46,7 +46,7 @@ func (c RunCmd) CmdID() dispatcher.CommandID {
 
 // Context helpers
 
-var evalHostKey = &ctxapi.Key{Name: "eval.host"}
+var evalHostKey = &ctxapi.Key{Name: "eval.host"} // todO: why we need it on context if we have dispatcher?
 
 // WithHost attaches an eval Host to the application context.
 func WithHost(ctx context.Context, host *Host) context.Context {

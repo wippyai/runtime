@@ -30,8 +30,8 @@ func (m *base64Module) Info() luaapi.ModuleInfo {
 func (m *base64Module) Register(l *lua.LState) *luaapi.Registration {
 	initOnce.Do(func() {
 		mod := &lua.LTable{}
-		mod.RawSetString("encode", lua.LGoFunc(encode))
-		mod.RawSetString("decode", lua.LGoFunc(decode))
+		mod.RawSetString("encode", lua.LGoFunc(encodeFunc))
+		mod.RawSetString("decode", lua.LGoFunc(decodeFunc))
 		mod.Immutable = true
 		moduleTable = mod
 
@@ -54,13 +54,17 @@ func Bind(l *lua.LState) {
 	luaapi.LoadModule(l, Module)
 }
 
-func encode(l *lua.LState) int {
-	if l.Get(1).Type() != lua.LTString {
-		l.ArgError(1, "string expected")
-		return 0
+func encodeFunc(l *lua.LState) int {
+	str, ok := l.Get(1).(lua.LString)
+	if !ok {
+		err := lua.NewLuaError(l, "string expected").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
-	str := l.ToString(1)
 	if str == "" {
 		l.Push(lua.LString(""))
 		return 1
@@ -71,22 +75,30 @@ func encode(l *lua.LState) int {
 	return 1
 }
 
-func decode(l *lua.LState) int {
-	if l.Get(1).Type() != lua.LTString {
-		l.ArgError(1, "string expected")
-		return 0
+func decodeFunc(l *lua.LState) int {
+	str, ok := l.Get(1).(lua.LString)
+	if !ok {
+		err := lua.NewLuaError(l, "string expected").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
-	str := l.ToString(1)
 	if str == "" {
 		l.Push(lua.LString(""))
 		return 1
 	}
 
-	decoded, err := base64.StdEncoding.DecodeString(str)
-	if err != nil {
+	decoded, decErr := base64.StdEncoding.DecodeString(string(str))
+	if decErr != nil {
+		err := lua.WrapErrorWithLua(l, decErr, "decode failed").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(err)
 		return 2
 	}
 

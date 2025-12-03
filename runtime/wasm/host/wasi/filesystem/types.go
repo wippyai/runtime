@@ -13,7 +13,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	fsapi "github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/registry"
-	apiresource "github.com/wippyai/runtime/api/resource"
+	apiresource "github.com/wippyai/runtime/api/runtime/resource"
 	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
 	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/wasm/resource"

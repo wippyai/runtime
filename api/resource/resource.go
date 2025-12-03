@@ -11,99 +11,71 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 )
 
-// System constants define event types and identifiers for the resource system
-const (
-	// System identifies the resource management system in the event context
-	System event.System = "resource"
+// System identifies the resource system in the event bus.
+const System event.System = "resource"
 
-	// Register is emitted when a new resource is registered
+// Event kinds for resource operations.
+const (
 	Register event.Kind = "resource.register"
-	// Update is emitted when a resource is updated
-	Update event.Kind = "resource.update"
-	// Delete is emitted when a resource is removed
-	Delete event.Kind = "resource.delete"
+	Update   event.Kind = "resource.update"
+	Delete   event.Kind = "resource.delete"
 )
 
-// Common errors returned by the resource system
-var (
-	// ErrResourceNotFound indicates the requested resource doesn't exist
-	ErrResourceNotFound = errors.New("resource not found")
-	// ErrResourceLocked indicates the resource is currently locked for exclusive access
-	ErrResourceLocked = errors.New("resource is locked")
-	// ErrResourceReleased indicates an attempt to use a resource that has been released
-	ErrResourceReleased = errors.New("resource has been released")
-	// ErrResourceClosed indicates an attempt to use a closed resource provider
-	ErrResourceClosed = errors.New("resource provider is closed")
-	// ErrResourceInUse indicates the resource cannot be deleted while borrowed
-	ErrResourceInUse = errors.New("resource is in use")
-)
-
-// AccessMode defines the type of access requested for a resource
-type AccessMode uint8
-
-// AccessMode constants define different resource access patterns
+// AccessMode constants.
 const (
-	// ModeNormal indicates the resource can only be read
-	ModeNormal AccessMode = 1 << iota
-	// ModeExclusive indicates the resource is locked for exclusive access
-	ModeExclusive
+	ModeNormal    AccessMode = 1 << iota // Normal read access.
+	ModeExclusive                        // Exclusive locked access.
+)
+
+// Errors returned by the resource system.
+var (
+	ErrResourceNotFound = errors.New("resource not found")
+	ErrResourceLocked   = errors.New("resource is locked")
+	ErrResourceReleased = errors.New("resource has been released")
+	ErrResourceClosed   = errors.New("resource provider is closed")
+	ErrResourceInUse    = errors.New("resource is in use")
 )
 
 type (
-	// Entry represents a registered resource with its metadata
+	// AccessMode defines the type of access requested for a resource.
+	AccessMode uint8
+
+	// Entry represents a registered resource with its metadata.
 	Entry struct {
-		// ID uniquely identifies the resource
-		ID registry.ID
-		// Meta contains additional resource metadata
-		Meta registry.Metadata
-		// Provider is responsible for managing access to the resource
-		Provider Provider
+		ID       registry.ID       // Unique resource identifier.
+		Meta     registry.Metadata // Additional metadata.
+		Provider Provider          // Manages access to the resource.
 	}
 
-	// Resource provides controlled access to a resource instance
+	// Resource provides controlled access to a resource instance.
 	Resource[T any] interface {
 		// Get returns the managed resource instance.
-		// The returned resource is valid until Release is called.
 		Get() (T, error)
 
-		// Release frees the resource and invalidates the access grant.
-		// After Release is called, subsequent Get() calls will fail.
-		// It's safe to call Release multiple times.
+		// Release frees the resource and invalidates access.
 		Release()
 	}
 
-	// Provider defines an interface for components that can provide access to resources.
-	// Implementations are responsible for managing resource lifecycle and access control.
+	// Provider manages resource lifecycle and access control.
 	Provider interface {
-		// Acquire attempts to obtain access to a resource identified by id with the specified access mode.
-		//
-		// The context can be used to cancel long-running acquire operations or pass deadlines.
-		// The id uniquely identifies the resource being requested.
-		// The mode specifies the type of access being requested (normal, exclusive).
-		//
-		// Returns a Resource providing controlled access to the resource or an error.
-		// Common errors include:
-		// - ErrResourceNotFound if the requested resource doesn't exist
-		// - ErrResourceLocked if the resource is currently locked for exclusive access
+		// Acquire obtains access to a resource with the specified mode.
 		Acquire(ctx context.Context, id registry.ID, mode AccessMode) (Resource[any], error)
 	}
 
-	// Registry manages resources and provides a centralized access point for resource acquisition.
+	// Registry manages resources and provides centralized access.
 	Registry interface {
-		// Acquire attempts to acquire a resource with the specified access mode.
-		// Returns a Resource providing controlled access or an error.
+		// Acquire obtains a resource with the specified access mode.
 		Acquire(ctx context.Context, id registry.ID, mode AccessMode) (Resource[any], error)
 
 		// List returns all registered resource IDs.
 		List() ([]registry.ID, error)
 
-		// Exists checks if a resource is registered without acquiring it.
+		// Exists checks if a resource is registered.
 		Exists(id registry.ID) bool
 	}
 )
 
 // TrackedResource wraps a Resource with borrow tracking.
-// Release is idempotent - safe to call multiple times.
 type TrackedResource struct {
 	inner     Resource[any]
 	onRelease func()
@@ -117,7 +89,6 @@ var trackedResourcePool = sync.Pool{
 }
 
 // NewTrackedResource creates a tracked wrapper around a resource.
-// onRelease is called once when Release() is first invoked.
 func NewTrackedResource(inner Resource[any], onRelease func()) *TrackedResource {
 	tr := trackedResourcePool.Get().(*TrackedResource)
 	tr.inner = inner
@@ -126,6 +97,7 @@ func NewTrackedResource(inner Resource[any], onRelease func()) *TrackedResource 
 	return tr
 }
 
+// Get returns the managed resource instance.
 func (t *TrackedResource) Get() (any, error) {
 	if t.released.Load() {
 		return nil, ErrResourceReleased
@@ -133,6 +105,7 @@ func (t *TrackedResource) Get() (any, error) {
 	return t.inner.Get()
 }
 
+// Release frees the resource and invalidates access.
 func (t *TrackedResource) Release() {
 	if t.released.CompareAndSwap(false, true) {
 		t.inner.Release()

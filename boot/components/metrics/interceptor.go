@@ -14,7 +14,7 @@ import (
 func MetricsInterceptor() boot.Component {
 	return boot.New(boot.P{
 		Name:      MetricsInterceptorName,
-		DependsOn: []boot.ComponentName{MetricsName, interceptorName},
+		DependsOn: []boot.Name{MetricsName, interceptorName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx).Named("metrics.interceptor")
 

@@ -6,39 +6,32 @@ import (
 )
 
 type (
-	// SubscriberID represents a unique identifier for a subscriber.
+	// SubscriberID is a unique identifier for a subscriber.
 	SubscriberID = string
 
-	// System represents a system or module that eventbus belong to
+	// System is a system or module that events belong to.
 	System = string
 
-	// Kind represents the specific type of an event within a system
+	// Kind is the specific type of an event within a system.
 	Kind = string
 
-	// Path contains unique Alias of related entity or system.
+	// Path contains unique alias of related entity or system.
 	Path = string
 
 	// Event is the fundamental structure representing an event.
 	Event struct {
-		// System is the system or module the event originates from.
-		System System
-		// Kind is the specific type of the event.
-		Kind Kind
-		// Path is the path of the event.
-		Path Path
-		// Data is the payload of the event, which can be any relevant data associated with the event.
-		Data any
+		System System // System or module the event originates from.
+		Kind   Kind   // Specific type of the event.
+		Path   Path   // Path of the event.
+		Data   any    // Payload associated with the event.
 	}
 
-	// Bus is an interface defining the functionality of an event bus.
-	// It allows subscribers to listen for events and publishers to send events.
+	// Bus defines the functionality of an event bus.
 	Bus interface {
 		// Subscribe subscribes a channel to events from a specific system.
-		// Returns a unique subscriber ID and an error if the subscription fails.
 		Subscribe(context.Context, System, chan<- Event) (SubscriberID, error)
 
-		// SubscribeP subscribes a channel to events from a specific system and matching a specific pattern.
-		// Returns a unique subscriber ID and an error if the subscription fails.
+		// SubscribeP subscribes a channel to events matching a specific system and kind.
 		SubscribeP(context.Context, System, Kind, chan<- Event) (SubscriberID, error)
 
 		// Unsubscribe removes a subscription using its SubscriberID.

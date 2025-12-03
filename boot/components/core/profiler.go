@@ -16,11 +16,11 @@ import (
 )
 
 const (
-	ProfilerEnabled      boot.ConfigKey = "enabled"
-	ProfilerAddress      boot.ConfigKey = "address"
-	ProfilerReadTimeout  boot.ConfigKey = "read_timeout"
-	ProfilerWriteTimeout boot.ConfigKey = "write_timeout"
-	ProfilerIdleTimeout  boot.ConfigKey = "idle_timeout"
+	ProfilerEnabled      boot.Name = "enabled"
+	ProfilerAddress      boot.Name = "address"
+	ProfilerReadTimeout  boot.Name = "read_timeout"
+	ProfilerWriteTimeout boot.Name = "write_timeout"
+	ProfilerIdleTimeout  boot.Name = "idle_timeout"
 )
 
 func Profiler() boot.Component {

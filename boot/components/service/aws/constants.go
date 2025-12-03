@@ -3,6 +3,6 @@ package aws
 import "github.com/wippyai/runtime/api/boot"
 
 const (
-	AWSConfigName boot.ComponentName = "aws_config"
-	S3Name        boot.ComponentName = "s3"
+	AWSConfigName boot.Name = "aws_config"
+	S3Name        boot.Name = "s3"
 )

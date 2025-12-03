@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	"github.com/hashicorp/go-msgpack/v2/codec"
-	apipack "github.com/wippyai/runtime/api/pack"
+	apipack "github.com/wippyai/runtime/api/boot/pack"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 )

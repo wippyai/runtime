@@ -12,7 +12,7 @@ import (
 func OTelHTTP() boot.Component {
 	return boot.New(boot.P{
 		Name:      OTelHTTPName,
-		DependsOn: []boot.ComponentName{OTelName, httpName},
+		DependsOn: []boot.Name{OTelName, httpName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			middlewareRegistry := httpapi.GetMiddlewareRegistry(ctx)
 			if middlewareRegistry == nil {

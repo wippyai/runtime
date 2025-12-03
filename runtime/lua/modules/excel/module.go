@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/wippyai/runtime/api/resource"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/modules/stream"
 	"github.com/xuri/excelize/v2"

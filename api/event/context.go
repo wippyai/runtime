@@ -1,4 +1,3 @@
-// Package event provides event bus abstractions.
 package event
 
 import (

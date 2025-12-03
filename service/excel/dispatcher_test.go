@@ -10,7 +10,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	excelapi "github.com/wippyai/runtime/api/dispatcher/excel"
-	"github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/api/runtime/resource"
 	streamhandler "github.com/wippyai/runtime/service/fs/stream"
 	"github.com/xuri/excelize/v2"
 )

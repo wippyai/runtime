@@ -13,7 +13,7 @@ import (
 func InterceptorRetry() boot.Component {
 	return boot.New(boot.P{
 		Name:      InterceptorRetryName,
-		DependsOn: []boot.ComponentName{bootsystem.InterceptorName},
+		DependsOn: []boot.Name{bootsystem.InterceptorName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logs.GetLogger(ctx).Named("interceptor.retry")
 			registry := apiinterceptor.GetInterceptorRegistry(ctx)

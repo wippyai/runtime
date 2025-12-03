@@ -6,7 +6,7 @@ import (
 	"path"
 	"time"
 
-	apipack "github.com/wippyai/runtime/api/pack"
+	apipack "github.com/wippyai/runtime/api/boot/pack"
 )
 
 // packFS implements fs.ReadDirFS for tree resources.

@@ -4,25 +4,25 @@ import "github.com/wippyai/runtime/api/boot"
 
 const (
 	// Core component names
-	EventBusName    boot.ComponentName = "eventbus"
-	PIDGenName      boot.ComponentName = "pidgen"
-	TranscoderName  boot.ComponentName = "transcoder"
-	LogManagerName  boot.ComponentName = "logmanager"
-	SecurityName    boot.ComponentName = "security"
-	RegistryName    boot.ComponentName = "registry"
-	FinderName      boot.ComponentName = "finder"
-	SupervisorName  boot.ComponentName = "supervisor"
-	ProfilerName    boot.ComponentName = "profiler"
-	LoaderName      boot.ComponentName = "loader"
-	EventRouterName boot.ComponentName = "eventrouter"
-	DispatcherName  boot.ComponentName = "dispatcher"
+	EventBusName    boot.Name = "eventbus"
+	PIDGenName      boot.Name = "pidgen"
+	TranscoderName  boot.Name = "transcoder"
+	LogManagerName  boot.Name = "logmanager"
+	SecurityName    boot.Name = "security"
+	RegistryName    boot.Name = "registry"
+	FinderName      boot.Name = "finder"
+	SupervisorName  boot.Name = "supervisor"
+	ProfilerName    boot.Name = "profiler"
+	LoaderName      boot.Name = "loader"
+	EventRouterName boot.Name = "eventrouter"
+	DispatcherName  boot.Name = "dispatcher"
 
 	// Finder configuration keys
-	FinderQueryCacheSize boot.ConfigKey = "query_cache_size"
-	FinderRegexCacheSize boot.ConfigKey = "regex_cache_size"
+	FinderQueryCacheSize boot.Name = "query_cache_size"
+	FinderRegexCacheSize boot.Name = "regex_cache_size"
 
 	// Registry configuration keys
-	RegistryEnableHistory boot.ConfigKey = "enable_history"
-	RegistryHistoryType   boot.ConfigKey = "history_type"
-	RegistryHistoryPath   boot.ConfigKey = "history_path"
+	RegistryEnableHistory boot.Name = "enable_history"
+	RegistryHistoryType   boot.Name = "history_type"
+	RegistryHistoryPath   boot.Name = "history_path"
 )

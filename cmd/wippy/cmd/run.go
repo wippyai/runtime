@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/boot"
@@ -23,6 +24,7 @@ import (
 	"github.com/wippyai/runtime/cmd/internal/entries"
 	clilogger "github.com/wippyai/runtime/cmd/internal/logger"
 	"github.com/wippyai/runtime/cmd/internal/shutdown"
+	supervisorpkg "github.com/wippyai/runtime/system/supervisor"
 	"go.uber.org/zap"
 )
 
@@ -362,6 +364,11 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, method
 		return ErrProcessManagerNotAvailable
 	}
 
+	// Wait for the host service to be running before starting the process
+	if err := waitForHostRunning(ctx, logger, hostID); err != nil {
+		return err
+	}
+
 	source := registry.NewID(namespace, entry)
 
 	start := &process.Start{
@@ -381,6 +388,40 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, method
 		zap.String("method", method))
 
 	return nil
+}
+
+// waitForHostRunning polls the supervisor until the host service is running.
+func waitForHostRunning(ctx context.Context, logger *zap.Logger, hostID string) error {
+	sup, ok := supervisorapi.GetSupervisor(ctx).(*supervisorpkg.Supervisor)
+	if !ok || sup == nil {
+		return fmt.Errorf("supervisor not available")
+	}
+
+	const (
+		pollInterval = 10 * time.Millisecond
+		timeout      = 5 * time.Second
+	)
+
+	deadline := time.Now().Add(timeout)
+	for {
+		state, err := sup.GetState(hostID)
+		if err == nil && state.Status == supervisorapi.Running {
+			return nil
+		}
+
+		if time.Now().After(deadline) {
+			if err != nil {
+				return fmt.Errorf("host %s not found: %w", hostID, err)
+			}
+			return fmt.Errorf("timeout waiting for host %s to start (status: %s)", hostID, state.Status)
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(pollInterval):
+		}
+	}
 }
 
 // interpretExitCode extracts an exit code from a process result

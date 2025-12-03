@@ -19,7 +19,7 @@ func Manager() boot.Component {
 
 	return boot.New(boot.P{
 		Name:      ManagerName,
-		DependsOn: []boot.ComponentName{bootcore.RegistryName},
+		DependsOn: []boot.Name{bootcore.RegistryName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			if logger == nil {

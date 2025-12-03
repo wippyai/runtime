@@ -18,7 +18,7 @@ func Contracts() boot.Component {
 
 	return boot.New(boot.P{
 		Name:      ContractsName,
-		DependsOn: []boot.ComponentName{bootcore.RegistryName, FunctionsName},
+		DependsOn: []boot.Name{bootcore.RegistryName, FunctionsName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			if logger == nil {

@@ -3,20 +3,22 @@ package attrs
 
 import "time"
 
-// Attributes provides a type-safe interface for accessing key-value pairs.
-type Attributes interface {
-	Get(key string) (any, bool)
-	GetString(key string, def string) string
-	GetInt(key string, def int) int
-	GetFloat(key string, def float64) float64
-	GetBool(key string, def bool) bool
-	GetDuration(key string, def time.Duration) time.Duration
-	GetSlice(key string) []string
-	GetBag(key string) (Bag, bool)
-}
+type (
+	// Attributes provides a type-safe interface for accessing key-value pairs.
+	Attributes interface {
+		Get(key string) (any, bool)
+		GetString(key string, def string) string
+		GetInt(key string, def int) int
+		GetFloat(key string, def float64) float64
+		GetBool(key string, def bool) bool
+		GetDuration(key string, def time.Duration) time.Duration
+		GetSlice(key string) []string
+		GetBag(key string) (Bag, bool)
+	}
 
-// Bag is a map-based implementation of Attributes.
-type Bag map[string]any
+	// Bag is a map-based implementation of Attributes.
+	Bag map[string]any
+)
 
 // NewBag creates a new empty Bag.
 func NewBag() Bag {

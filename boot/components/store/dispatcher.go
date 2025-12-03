@@ -21,7 +21,7 @@ func Dispatcher(workers int) boot.Component {
 
 	return boot.New(boot.P{
 		Name:      DispatcherName,
-		DependsOn: []boot.ComponentName{DispatcherDeps},
+		DependsOn: []boot.Name{DispatcherDeps},
 		Load: func(ctx context.Context) (context.Context, error) {
 			reg := dispatcherapi.GetRegistrar(ctx)
 			if reg == nil {

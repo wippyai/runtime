@@ -11,7 +11,7 @@ import (
 func OTelInterceptor() boot.Component {
 	return boot.New(boot.P{
 		Name:      OTelInterceptorName,
-		DependsOn: []boot.ComponentName{OTelName, interceptorName},
+		DependsOn: []boot.Name{OTelName, interceptorName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			svc := otelapi.GetService(ctx)
 			if svc == nil {

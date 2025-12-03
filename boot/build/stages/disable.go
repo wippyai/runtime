@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	sectionDisable boot.ComponentName = "disable"
+	sectionDisable boot.Name = "disable"
 )
 
 const (

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	apiresource "github.com/wippyai/runtime/api/resource"
+	apiresource "github.com/wippyai/runtime/api/runtime/resource"
 )
 
 // Re-export core types from api/resource for convenience.
