@@ -6,6 +6,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/registry"
 	secapi "github.com/wippyai/runtime/api/security"
@@ -32,7 +33,7 @@ func (m *mockPolicy) ID() registry.ID {
 	return m.id
 }
 
-func (m *mockPolicy) Evaluate(_ secapi.Actor, action, resource string, _ registry.Metadata) secapi.Result {
+func (m *mockPolicy) Evaluate(_ secapi.Actor, action, resource string, _ attrs.Bag) secapi.Result {
 	key := action + ":" + resource
 	if m.allowed[key] {
 		return secapi.Allow
@@ -63,7 +64,7 @@ func newMockScope() *mockScope {
 	}
 }
 
-func (m *mockScope) Evaluate(actor secapi.Actor, action, resource string, metadata registry.Metadata) secapi.Result {
+func (m *mockScope) Evaluate(actor secapi.Actor, action, resource string, metadata attrs.Bag) secapi.Result {
 	for _, policy := range m.policies {
 		result := policy.Evaluate(actor, action, resource, metadata)
 		if result == secapi.Allow {
@@ -202,7 +203,7 @@ func TestIsAllowed_WithCompleteContext_WithMetadata(t *testing.T) {
 	scope.AddPolicy(policy)
 	_ = secapi.SetScope(ctx, scope)
 
-	metadata := registry.Metadata{"key": "value"}
+	metadata := attrs.Bag{"key": "value"}
 
 	// Execute
 	result := IsAllowed(ctx, "read", "test-resource", metadata)
@@ -300,7 +301,7 @@ func TestIsAllowed_WithComplexMetadata(t *testing.T) {
 	scope.AddPolicy(policy)
 	_ = secapi.SetScope(ctx, scope)
 
-	metadata := registry.Metadata{
+	metadata := attrs.Bag{
 		"user_id":     123,
 		"role":        "admin",
 		"permissions": []string{"read", "write"},

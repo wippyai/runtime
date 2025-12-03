@@ -20,7 +20,6 @@ entries:
     source: file://hello.lua
     modules:
       - http
-      - funcs
     method: handler
     pool:
       type: static
@@ -83,45 +82,4 @@ entries:
       - process
       - system
       - time
-
-  - name: add
-    kind: function.wat
-    meta:
-      comment: Add two integers (WASM)
-    source: file://add.wat
-    wit: |
-      package app:math;
-      world calculator {
-        export add: func(a: s32, b: s32) -> s32;
-      }
-    method: add
-    pool:
-      type: static
-      size: 128
-      buffer: 1024
-
-  # app.api:rust_hello - WASI HTTP component (Rust)
-  - name: rust_hello
-    kind: function.wasm
-    meta:
-      comment: WASI HTTP handler written in Rust
-    fs: app:wasm.files
-    path: hello_http.wasm
-    hash: sha256:aaa61b3b694bf06ca5d8a625d3f5ea4589dd5650d5fa587da663705cf0593d1f
-    method: wasi:http/incoming-handler@0.2.8#handle
-    transport: wasi-http
-    pool:
-      type: static
-      size: 16
-      buffer: 256
-
-  # app.api:rust_hello.endpoint - HTTP endpoint
-  - name: rust_hello.endpoint
-    kind: http.endpoint
-    meta:
-      comment: Rust WASI HTTP hello endpoint
-      router: app:api.public
-    method: GET
-    func: rust_hello
-    path: /rust-hello
 

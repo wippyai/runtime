@@ -4,6 +4,7 @@ package pack
 import (
 	"io/fs"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 )
 
@@ -23,17 +24,17 @@ type (
 		GetEntries() ([]registry.Entry, error)
 
 		// GetMetadata returns pack metadata.
-		GetMetadata() (registry.Metadata, error)
+		GetMetadata() (attrs.Bag, error)
 	}
 
 	// ResourceInfo contains lightweight resource metadata.
 	ResourceInfo struct {
-		ID        registry.ID       `json:"id"`
-		Type      string            `json:"type"`
-		Meta      registry.Metadata `json:"meta"`
-		Hash      string            `json:"hash"`
-		Size      uint64            `json:"size"`
-		FileCount uint32            `json:"file_count"`
+		ID        registry.ID `json:"id"`
+		Type      string      `json:"type"`
+		Meta      attrs.Bag   `json:"meta"`
+		Hash      string      `json:"hash"`
+		Size      uint64      `json:"size"`
+		FileCount uint32      `json:"file_count"`
 	}
 
 	// BlobReader provides access to blob data.

@@ -59,9 +59,15 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	// Create host first, then scheduler with host as lifecycle
 	h := NewHost(entry.ID, cfg, nil, m.factory, logCtrl, m.log)
+
+	lifecycle := process.GetLifecycleRegistry(ctx)
+	if lifecycle != nil {
+		lifecycle.Register(entry.ID.String(), h)
+	}
+
 	scheduler := actor.NewScheduler(m.commandRegistry,
 		actor.WithWorkers(1),
-		actor.WithLifecycle(h),
+		actor.WithLifecycle(lifecycle),
 	)
 	h.scheduler = scheduler
 
@@ -80,7 +86,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	// Register with supervisor
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Register,
+		Kind:   supervisor.ServiceRegister,
 		Path:   entry.ID.String(),
 		Data: &supervisor.Entry{
 			Service: h,
@@ -111,10 +117,14 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	delete(m.hosts, entry.ID)
 	m.mu.Unlock()
 
+	if lifecycle := process.GetLifecycleRegistry(ctx); lifecycle != nil {
+		lifecycle.Unregister(entry.ID.String())
+	}
+
 	// Unregister from supervisor
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Remove,
+		Kind:   supervisor.ServiceRemove,
 		Path:   entry.ID.String(),
 	})
 

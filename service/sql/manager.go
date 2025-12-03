@@ -251,7 +251,7 @@ func (m *Manager) registerService(ctx context.Context, entry registry.Entry, poo
 	// Register with supervisor
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Register,
+		Kind:   supervisor.ServiceRegister,
 		Path:   entry.ID.String(),
 		Data: &supervisor.Entry{
 			Service: pool,
@@ -282,7 +282,7 @@ func (m *Manager) registerService(ctx context.Context, entry registry.Entry, poo
 func (m *Manager) updateService(ctx context.Context, entry registry.Entry, lifecycle supervisor.LifecycleConfig) {
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Update,
+		Kind:   supervisor.ServiceUpdate,
 		Path:   entry.ID.String(),
 		Data: &supervisor.Entry{
 			Config: lifecycle,
@@ -299,7 +299,7 @@ func (m *Manager) unregisterService(ctx context.Context, entry registry.Entry) {
 	// Delete from supervisor
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Remove,
+		Kind:   supervisor.ServiceRemove,
 		Path:   entry.ID.String(),
 	})
 

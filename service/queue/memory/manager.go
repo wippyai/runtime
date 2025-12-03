@@ -57,7 +57,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Register,
+		Kind:   supervisor.ServiceRegister,
 		Path:   entry.ID.String(),
 		Data: &supervisor.Entry{
 			Service: driver,
@@ -97,7 +97,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Update,
+		Kind:   supervisor.ServiceUpdate,
 		Path:   entry.ID.String(),
 		Data: &supervisor.Entry{
 			Service: driver,
@@ -126,7 +126,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Remove,
+		Kind:   supervisor.ServiceRemove,
 		Path:   entry.ID.String(),
 	})
 

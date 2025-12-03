@@ -19,6 +19,9 @@ var (
 
 	// FrameHostKey stores the Host instance
 	FrameHostKey = &ctxapi.Key{Name: "runtime.frame_host"}
+
+	// FrameLifecycleOptionsKey stores lifecycle options (attrs.Attributes)
+	FrameLifecycleOptionsKey = &ctxapi.Key{Name: "runtime.frame_lifecycle_options"}
 )
 
 // SetFrameID sets the registry ID in the FrameContext.
@@ -94,4 +97,17 @@ func GetFrameHost(ctx context.Context) (relay.Host, bool) {
 		}
 	}
 	return nil, false
+}
+
+// GetFrameLifecycleOptions retrieves lifecycle options from the FrameContext.
+// Returns nil if not found.
+func GetFrameLifecycleOptions(ctx context.Context) any {
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return nil
+	}
+	if val, ok := fc.Get(FrameLifecycleOptionsKey); ok {
+		return val
+	}
+	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/contract"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
@@ -17,7 +18,7 @@ import (
 // bindingWithMeta wraps a binding with its ID and metadata for runtime use
 type bindingWithMeta struct {
 	ID      registry.ID
-	Meta    registry.Metadata
+	Meta    attrs.Bag
 	Binding *contract.Binding
 }
 
@@ -108,7 +109,7 @@ func (r *Registry) registerDefinition(e event.Event) {
 	defID := registry.ParseID(e.Path)
 	def.ID = defID
 	if def.Meta == nil {
-		def.Meta = make(registry.Metadata)
+		def.Meta = make(attrs.Bag)
 	}
 
 	r.mu.Lock()
@@ -130,7 +131,7 @@ func (r *Registry) updateDefinition(e event.Event) {
 	defID := registry.ParseID(e.Path)
 	def.ID = defID
 	if def.Meta == nil {
-		def.Meta = make(registry.Metadata)
+		def.Meta = make(attrs.Bag)
 	}
 
 	r.mu.Lock()
@@ -167,7 +168,7 @@ func (r *Registry) registerBinding(e event.Event) {
 	// Populate runtime fields
 	binding.ID = bindingID
 	if binding.Meta == nil {
-		binding.Meta = make(registry.Metadata)
+		binding.Meta = make(attrs.Bag)
 	}
 
 	r.mu.Lock()
@@ -197,7 +198,7 @@ func (r *Registry) updateBinding(e event.Event) {
 	// Populate runtime fields
 	binding.ID = bindingID
 	if binding.Meta == nil {
-		binding.Meta = make(registry.Metadata)
+		binding.Meta = make(attrs.Bag)
 	}
 
 	r.mu.Lock()
@@ -338,7 +339,7 @@ func (c *contractImpl) ID() registry.ID {
 	return c.id
 }
 
-func (c *contractImpl) Meta() registry.Metadata {
+func (c *contractImpl) Meta() attrs.Bag {
 	return c.def.Meta
 }
 

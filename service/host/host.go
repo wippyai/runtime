@@ -141,12 +141,13 @@ func (h *Host) preparePID(ctx context.Context, start *process.Start) relay.PID {
 func (h *Host) prepareContext(ctx context.Context, pid relay.PID, start *process.Start) context.Context {
 	pCtx, fc := ctxapi.OpenFrameContextOn(h.ctx, ctx)
 
-	pairsLen := 3 + len(start.Context)
+	pairsLen := 4 + len(start.Context)
 	pairs := make([]ctxapi.Pair, pairsLen)
 	pairs[0] = ctxapi.Pair{Key: runtime.FrameIDKey, Value: start.Source}
 	pairs[1] = ctxapi.Pair{Key: runtime.FramePIDKey, Value: pid}
 	pairs[2] = ctxapi.Pair{Key: runtime.FrameHostKey, Value: h.id}
-	copy(pairs[3:], start.Context)
+	pairs[3] = ctxapi.Pair{Key: runtime.FrameLifecycleOptionsKey, Value: start.Options}
+	copy(pairs[4:], start.Context)
 
 	if err := fc.SetMultiple(pairs...); err != nil {
 		h.log.Error("failed to set frame context", zap.Error(err))

@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 )
 
@@ -36,7 +37,7 @@ func TestConfig_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "complete config",
 			config: Config{
-				Meta:   registry.Metadata{"type": "template"},
+				Meta:   attrs.Bag{"type": "template"},
 				Source: "template content",
 				Set:    registry.NewID("templates", "main"),
 			},

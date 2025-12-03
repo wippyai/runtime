@@ -8,19 +8,17 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 )
 
-// Type aliases - use process2 directly in new code.
+// Type aliases - use process directly in new code.
 type (
-	CommandID      = process.CommandID
-	Command        = process.Command
-	Emitter        = process.Emitter
-	Handler        = process.Handler
-	HandlerFunc    = process.HandlerFunc
-	Callable       = process.Callable
-	Dispatcher     = process.Dispatcher
-	AsyncScheduler = process.AsyncScheduler
-	Registry       = process.Registry
-	Registrar      = process.Registrar
-	Freezer        = process.Freezer
+	CommandID   = process.CommandID
+	Command     = process.Command
+	Emitter     = process.Emitter
+	Handler     = process.Handler
+	HandlerFunc = process.HandlerFunc
+	Dispatcher  = process.Dispatcher
+	Registry    = process.Registry
+	Registrar   = process.Registrar
+	Freezer     = process.Freezer
 )
 
 // Re-export constants

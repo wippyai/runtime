@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
@@ -38,7 +39,7 @@ func (m *mockPolicy) ID() registry.ID {
 	return m.id
 }
 
-func (m *mockPolicy) Evaluate(_ security.Actor, _, _ string, _ registry.Metadata) security.Result {
+func (m *mockPolicy) Evaluate(_ security.Actor, _, _ string, _ attrs.Bag) security.Result {
 	return security.Allow
 }
 

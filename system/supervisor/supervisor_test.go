@@ -176,7 +176,7 @@ func (h *testSupervisorHarness) registerServices(services map[string]bool) {
 		svc := h.service(serviceID)
 		h.sup.handleEvent(event.Event{
 			System: supervisor.System,
-			Kind:   supervisor.Register,
+			Kind:   supervisor.ServiceRegister,
 			Path:   serviceID,
 			Data: &supervisor.Entry{
 				Service: svc,
@@ -199,7 +199,7 @@ func (h *testSupervisorHarness) registerServices(services map[string]bool) {
 func (h *testSupervisorHarness) registerServiceWithDeps(serviceID string, autoStart bool, dependencies []string) {
 	h.sup.handleEvent(event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Register,
+		Kind:   supervisor.ServiceRegister,
 		Path:   serviceID,
 		Data: &supervisor.Entry{
 			Service: h.service(serviceID),
@@ -221,13 +221,13 @@ func (h *testSupervisorHarness) waitForAllServices(state supervisor.Status) {
 	h.t.Helper()
 	for id, svc := range h.services {
 		switch state {
-		case supervisor.Running:
+		case supervisor.StatusRunning:
 			svc.WaitForStart(h.t)
 			require.True(h.t, svc.IsStarted(), "Topology %s should be started", id)
-		case supervisor.Stopped:
+		case supervisor.StatusStopped:
 			svc.WaitForStop(h.t)
 			require.True(h.t, svc.IsStopped(), "Topology %s should be stopped", id)
-		case supervisor.Unknown, supervisor.Starting, supervisor.Stopping, supervisor.Exited, supervisor.Failed:
+		case supervisor.StatusUnknown, supervisor.StatusStarting, supervisor.StatusStopping, supervisor.StatusExited, supervisor.StatusFailed:
 			panic("not implemented")
 		}
 	}
@@ -246,7 +246,7 @@ func (h *testSupervisorHarness) assertLog(message string) {
 func (h *testSupervisorHarness) removeService(serviceID string) {
 	h.sup.handleEvent(event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Remove,
+		Kind:   supervisor.ServiceRemove,
 		Path:   serviceID,
 	})
 }
@@ -318,11 +318,11 @@ func TestSupervisor_MultipleServices(t *testing.T) {
 	}
 
 	// Both services should be running
-	h.waitForAllServices(supervisor.Running)
+	h.waitForAllServices(supervisor.StatusRunning)
 
 	// stop and verify shutdown
 	h.stop()
-	h.waitForAllServices(supervisor.Stopped)
+	h.waitForAllServices(supervisor.StatusStopped)
 }
 
 func TestSupervisor_ServiceRemoval(t *testing.T) {
@@ -359,7 +359,7 @@ func TestSupervisor_TransactionValidation(t *testing.T) {
 	svc := h.service("test-service")
 	h.sup.handleEvent(event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Register,
+		Kind:   supervisor.ServiceRegister,
 		Path:   "test-service",
 		Data: &supervisor.Entry{
 			Service: svc,
@@ -380,7 +380,7 @@ func TestSupervisor_TransactionValidation(t *testing.T) {
 	time.Sleep(100 * time.Millisecond) // wait for event processing
 	state, err := h.sup.GetState("test-service")
 	require.NoError(t, err)
-	require.Equal(t, supervisor.Unknown, state.Status)
+	require.Equal(t, supervisor.StatusUnknown, state.Status)
 }
 
 func TestSupervisor_TargetedServiceControl(t *testing.T) {
@@ -445,7 +445,7 @@ func TestSupervisor_ServiceFailureAndRetry(t *testing.T) {
 	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
 	h.sup.handleEvent(event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Register,
+		Kind:   supervisor.ServiceRegister,
 		Path:   "failing-service",
 		Data: &supervisor.Entry{
 			Service: svc,
@@ -467,7 +467,7 @@ func TestSupervisor_ServiceFailureAndRetry(t *testing.T) {
 	// Verify service state
 	state, err := h.sup.GetState("failing-service")
 	require.NoError(t, err)
-	require.Equal(t, supervisor.Failed, state.Status)
+	require.Equal(t, supervisor.StatusFailed, state.Status)
 	require.True(t, atomic.LoadInt32(&startAttempts) <= 2, "Should not exceed max retry attempts")
 }
 
@@ -492,7 +492,7 @@ func TestSupervisor_TransactionDiscard(t *testing.T) {
 	svc2 := h.service("service-2")
 	h.sup.handleEvent(event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Register,
+		Kind:   supervisor.ServiceRegister,
 		Path:   "service-2",
 		Data: &supervisor.Entry{
 			Service: svc2,
@@ -579,7 +579,7 @@ func TestSupervisor_ServiceStoppingStates(t *testing.T) {
 
 	// wait for service to start and reach Running state
 	svc.WaitForStart(t)
-	h.assertServiceState("slow-stop", supervisor.Running)
+	h.assertServiceState("slow-stop", supervisor.StatusRunning)
 
 	// Introduce a small delay to allow service's helpers state to update
 	time.Sleep(50 * time.Millisecond)
@@ -593,7 +593,7 @@ func TestSupervisor_ServiceStoppingStates(t *testing.T) {
 	// wait for full stop
 	svc.WaitForStop(t)
 	time.Sleep(100 * time.Millisecond) // wait for stop to propagate
-	h.assertServiceState("slow-stop", supervisor.Stopped)
+	h.assertServiceState("slow-stop", supervisor.StatusStopped)
 }
 
 func TestSupervisor_InvalidRegistrationPayload(t *testing.T) {
@@ -616,7 +616,7 @@ func TestSupervisor_InvalidRegistrationPayload(t *testing.T) {
 		t.Run(tc.name, func(_ *testing.T) {
 			h.sup.handleEvent(event.Event{
 				System: supervisor.System,
-				Kind:   supervisor.Register,
+				Kind:   supervisor.ServiceRegister,
 				Path:   "test-service",
 				Data:   tc.data,
 			})
@@ -662,13 +662,13 @@ func TestSupervisor_GetAllStates(t *testing.T) {
 	require.Len(t, states, 3)
 
 	// Auto-start service should be running
-	require.Equal(t, supervisor.Running, states["auto-start"].Status)
+	require.Equal(t, supervisor.StatusRunning, states["auto-start"].Status)
 
 	// Manual start service should be running
-	require.Equal(t, supervisor.Running, states["manual-start"].Status)
+	require.Equal(t, supervisor.StatusRunning, states["manual-start"].Status)
 
 	// Failing service should be in failed state
-	require.Equal(t, supervisor.Failed, states["failing-service"].Status)
+	require.Equal(t, supervisor.StatusFailed, states["failing-service"].Status)
 }
 
 func TestSupervisor_BusEventControl(t *testing.T) {
@@ -688,7 +688,7 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 
 	h.sup.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Register,
+		Kind:   supervisor.ServiceRegister,
 		Path:   serviceID,
 		Data: &supervisor.Entry{
 			Service: svc,
@@ -715,13 +715,13 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 	// Verify service is registered but not started
 	state, err := h.sup.GetState(serviceID)
 	require.NoError(t, err, "Topology should be registered")
-	require.Equal(t, supervisor.Unknown, state.Status, "Topology should be in Unknown state")
+	require.Equal(t, supervisor.StatusUnknown, state.Status, "Topology should be in Unknown state")
 	require.False(t, svc.IsStarted(), "Topology should not be started")
 
 	// Launch the service via bus event
 	h.sup.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Start,
+		Kind:   supervisor.ServiceStart,
 		Path:   serviceID,
 	})
 
@@ -732,12 +732,12 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 	// Verify running state
 	state, err = h.sup.GetState(serviceID)
 	require.NoError(t, err)
-	require.Equal(t, supervisor.Running, state.Status, "Topology should be in Running state")
+	require.Equal(t, supervisor.StatusRunning, state.Status, "Topology should be in Running state")
 
 	// stop the service via bus event
 	h.sup.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Stop,
+		Kind:   supervisor.ServiceStop,
 		Path:   serviceID,
 	})
 
@@ -748,7 +748,7 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 	// Verify stopped state
 	state, err = h.sup.GetState(serviceID)
 	require.NoError(t, err)
-	require.Equal(t, supervisor.Stopped, state.Status, "Topology should be in Stopped state")
+	require.Equal(t, supervisor.StatusStopped, state.Status, "Topology should be in Stopped state")
 
 	// Done the service via bus event
 	h.sup.bus.Send(ctx, event.Event{
@@ -758,7 +758,7 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 
 	h.sup.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Remove,
+		Kind:   supervisor.ServiceRemove,
 		Path:   serviceID,
 	})
 
@@ -827,7 +827,7 @@ func TestSupervisor_ServiceTimeout(t *testing.T) {
 			t.Fatal("Timeout waiting for service to fail")
 		case <-ticker.C:
 			state, err := h.sup.GetState("timeout-service")
-			if err == nil && state.Status == supervisor.Failed {
+			if err == nil && state.Status == supervisor.StatusFailed {
 				// Service failed as expected
 				goto verifyState
 			}
@@ -839,7 +839,7 @@ verifyState:
 	// Verify service state
 	state, err := h.sup.GetState("timeout-service")
 	require.NoError(t, err)
-	require.Equal(t, supervisor.Failed, state.Status, "Service should be in Failed state due to timeout")
+	require.Equal(t, supervisor.StatusFailed, state.Status, "Service should be in Failed state due to timeout")
 
 	h.stop()
 }
@@ -875,7 +875,7 @@ func TestSupervisor_DependencyCycle(t *testing.T) {
 	// Trigger dependency cycle detection by attempting to start one of the services
 	h.sup.handleEvent(event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Start,
+		Kind:   supervisor.ServiceStart,
 		Path:   "service-a",
 	})
 
@@ -896,9 +896,9 @@ func TestSupervisor_DependencyCycle(t *testing.T) {
 	for _, id := range []string{"service-a", "service-b", "service-c"} {
 		state, err := h.sup.GetState(id)
 		require.NoError(t, err)
-		require.NotEqual(t, supervisor.Running, state.Status, "Service %s should not be in Running state due to dependency cycle", id)
+		require.NotEqual(t, supervisor.StatusRunning, state.Status, "Service %s should not be in Running state due to dependency cycle", id)
 		// Services should either be in Unknown (not started) or Failed (if cycle detection is implemented)
-		require.Contains(t, []supervisor.Status{supervisor.Unknown, supervisor.Failed}, state.Status,
+		require.Contains(t, []supervisor.Status{supervisor.StatusUnknown, supervisor.StatusFailed}, state.Status,
 			"Service %s should be in Unknown or Failed state due to dependency cycle", id)
 	}
 
@@ -929,13 +929,13 @@ func TestSupervisor_ConcurrentServiceOperations(t *testing.T) {
 				if rand.Float32() < 0.5 { //nolint:gosec // math/rand is fine for test concurrency
 					h.sup.handleEvent(event.Event{
 						System: supervisor.System,
-						Kind:   supervisor.Start,
+						Kind:   supervisor.ServiceStart,
 						Path:   id,
 					})
 				} else {
 					h.sup.handleEvent(event.Event{
 						System: supervisor.System,
-						Kind:   supervisor.Stop,
+						Kind:   supervisor.ServiceStop,
 						Path:   id,
 					})
 				}
@@ -967,7 +967,7 @@ func TestSupervisor_ServiceStatusUpdates(t *testing.T) {
 	// Start the service
 	h.sup.handleEvent(event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Start,
+		Kind:   supervisor.ServiceStart,
 		Path:   "status-service",
 	})
 

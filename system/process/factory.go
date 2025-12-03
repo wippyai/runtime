@@ -14,8 +14,8 @@ import (
 
 // factoryEntry stores factory and its metadata.
 type factoryEntry struct {
-	factory api.ProcessFactory
-	meta    api.ProcessMeta
+	factory api.NewFunc
+	meta    api.Meta
 }
 
 // FactoryRegistry manages process factories.
@@ -43,7 +43,7 @@ func (r *FactoryRegistry) Start(ctx context.Context) error {
 	sub, err := eventbus.NewSubscriber(
 		ctx,
 		r.bus,
-		api.FactorySystem,
+		api.System,
 		"factory.(register|delete)",
 		r.handleEvent,
 	)
@@ -118,7 +118,7 @@ func (r *FactoryRegistry) deleteFactory(e event.Event) {
 
 func (r *FactoryRegistry) sendAccept(path event.Path) {
 	r.bus.Send(r.ctx, event.Event{
-		System: api.FactorySystem,
+		System: api.System,
 		Kind:   api.FactoryAccept,
 		Path:   path,
 	})
@@ -126,7 +126,7 @@ func (r *FactoryRegistry) sendAccept(path event.Path) {
 
 func (r *FactoryRegistry) sendReject(path event.Path, reason string) {
 	r.bus.Send(r.ctx, event.Event{
-		System: api.FactorySystem,
+		System: api.System,
 		Kind:   api.FactoryReject,
 		Path:   path,
 		Data:   reason,
@@ -134,7 +134,7 @@ func (r *FactoryRegistry) sendReject(path event.Path, reason string) {
 }
 
 // Create implements process.Factory.
-func (r *FactoryRegistry) Create(id registry.ID) (api.Process, *api.ProcessMeta, error) {
+func (r *FactoryRegistry) Create(id registry.ID) (api.Process, *api.Meta, error) {
 	val, ok := r.factories.Load(id)
 	if !ok {
 		return nil, nil, NewFactoryNotFoundError(id)

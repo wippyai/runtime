@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/hashicorp/go-msgpack/v2/codec"
+	"github.com/wippyai/runtime/api/attrs"
 	apipack "github.com/wippyai/runtime/api/boot/pack"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -33,7 +34,7 @@ type Reader struct {
 	transcoder payload.Transcoder
 
 	// Lazy loaded data
-	metadata       registry.Metadata
+	metadata       attrs.Bag
 	metadataOnce   sync.Once
 	metadataErr    error
 	entries        []registry.Entry
@@ -115,7 +116,7 @@ func NewReader(r io.ReaderAt, transcoder payload.Transcoder) (*Reader, error) {
 }
 
 // GetMetadata returns pack metadata (lazy loaded).
-func (pr *Reader) GetMetadata() (registry.Metadata, error) {
+func (pr *Reader) GetMetadata() (attrs.Bag, error) {
 	pr.metadataOnce.Do(func() {
 		data, err := pr.readFrame(pr.toc.Metadata)
 		if err != nil {
@@ -177,7 +178,7 @@ func (pr *Reader) GetEntries() ([]registry.Entry, error) {
 
 			// Extract Meta
 			if metaData, ok := encEntryMap["Meta"].(map[string]any); ok {
-				entry.Meta = registry.Metadata(metaData)
+				entry.Meta = attrs.Bag(metaData)
 			}
 
 			// Extract Data
@@ -372,7 +373,7 @@ func New(transcoder payload.Transcoder) *Packer {
 }
 
 // Unpack reads a pack file and returns its entries and metadata.
-func (p *Packer) Unpack(r io.ReadSeeker) ([]registry.Entry, registry.Metadata, error) {
+func (p *Packer) Unpack(r io.ReadSeeker) ([]registry.Entry, attrs.Bag, error) {
 	var readerAt io.ReaderAt
 
 	if ra, ok := r.(io.ReaderAt); ok {

@@ -77,7 +77,7 @@ type CounterProcess struct {
 	ctx     context.Context
 }
 
-func (p *CounterProcess) Execute(ctx context.Context, method string, input payload.Payloads) error {
+func (p *CounterProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
 	p.ctx = ctx
 	if len(input) > 0 {
 		p.target = input[0].Data().(int)
@@ -112,7 +112,7 @@ type SleepProcess struct {
 	ctx      context.Context
 }
 
-func (p *SleepProcess) Execute(ctx context.Context, method string, input payload.Payloads) error {
+func (p *SleepProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
 	p.ctx = ctx
 	if len(input) > 0 {
 		p.duration = input[0].Data().(time.Duration)
@@ -861,7 +861,7 @@ type TrackingProcess struct {
 	ctx         context.Context
 }
 
-func (p *TrackingProcess) Execute(ctx context.Context, method string, input payload.Payloads) error {
+func (p *TrackingProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
 	p.ctx = ctx
 	return nil
 }

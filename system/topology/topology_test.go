@@ -11,6 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/topology"
 )
 
 type mockUpstream struct {
@@ -63,12 +64,8 @@ func TestTopology_BasicFunctionality(t *testing.T) {
 
 	t.Run("cannot monitor unregistered process", func(t *testing.T) {
 		err := topo.Wait(pid2, pid1)
-		if err == nil {
-			t.Error("expected error when monitoring unregistered process")
-		}
-		if err != nil && err.Error() != "cannot monitor unregistered pid: {host1|1}" {
-			t.Errorf("unexpected error: %v", err)
-		}
+		assert.Error(t, err, "expected error when monitoring unregistered process")
+		assert.True(t, errors.Is(err, topology.ErrPIDNotRegistered), "expected ErrPIDNotRegistered")
 	})
 
 	t.Run("can register process", func(t *testing.T) {
@@ -159,7 +156,7 @@ func TestTopology_LinkFunctionality(t *testing.T) {
 
 		err := topo.Link(pid1, unregisteredPid)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "cannot link unregistered pid")
+		assert.True(t, errors.Is(err, topology.ErrPIDNotRegistered), "expected ErrPIDNotRegistered")
 	})
 
 	t.Run("can link registered processes", func(t *testing.T) {

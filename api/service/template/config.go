@@ -4,6 +4,7 @@ package template
 import (
 	"errors"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 )
 
@@ -31,7 +32,7 @@ const (
 
 // Config represents configuration for a template entry
 type Config struct {
-	Meta registry.Metadata `json:"meta"`
+	Meta attrs.Bag `json:"meta"`
 
 	// Source defines the template content or location
 	Source string `json:"source"`

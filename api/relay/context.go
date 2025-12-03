@@ -1,4 +1,3 @@
-// Package relay provides message relay and routing system for inter-component communication.
 package relay
 
 import (
@@ -7,43 +6,32 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
-// Context keys for storing pubsub-related data in context
 var (
-	// nodeCtx is used to store the Node instance in context (ScopeThread: inherited, mutable)
-	nodeCtx        = &ctxapi.Key{Name: "relay.node"}
-	routerCtx      = &ctxapi.Key{Name: "relay.router"}
-	nodeManagerCtx = &ctxapi.Key{Name: "relay.nodemanager"}
-	hostCtx        = &ctxapi.Key{Name: "relay.host"}
+	nodeCtxKey        = &ctxapi.Key{Name: "relay.nodeCtxKey"}
+	routerCtxKey      = &ctxapi.Key{Name: "relay.routerCtxKey"}
+	nodeManagerCtxKey = &ctxapi.Key{Name: "relay.nodeManagerCtxKey"}
+	hostCtxKey        = &ctxapi.Key{Name: "relay.hostCtxKey"}
 )
 
-// NodeManager manages relay nodes and hosts.
-type NodeManager interface {
-	Node() Node
-	Start(ctx context.Context) error
-	Stop() error
-}
-
-// WithNode attaches a Node instance to the provided context.
-// This allows the Node to be retrieved later using the GetNode function.
+// WithNode attaches a Node to the context.
 func WithNode(ctx context.Context, node Node) context.Context {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(nodeCtx) == nil {
-		ac.With(nodeCtx, node)
+	if ac.Get(nodeCtxKey) == nil {
+		ac.With(nodeCtxKey, node)
 	}
 	return ctx
 }
 
-// GetNode retrieves the Node instance from the provided context.
-// Returns nil if no Node is found in the context.
+// GetNode retrieves the Node from the context.
 func GetNode(ctx context.Context) Node {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return nil
 	}
-	if val := ac.Get(nodeCtx); val != nil {
+	if val := ac.Get(nodeCtxKey); val != nil {
 		if n, ok := val.(Node); ok {
 			return n
 		}
@@ -51,27 +39,25 @@ func GetNode(ctx context.Context) Node {
 	return nil
 }
 
-// WithRouter attaches a Receiver instance to the provided context.
-// This allows the Router to be retrieved later using the GetRouter function.
+// WithRouter attaches a Receiver to the context.
 func WithRouter(ctx context.Context, r Receiver) context.Context {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(routerCtx) == nil {
-		ac.With(routerCtx, r)
+	if ac.Get(routerCtxKey) == nil {
+		ac.With(routerCtxKey, r)
 	}
 	return ctx
 }
 
-// GetRouter retrieves the Receiver (router) from the provided context.
-// Returns nil if no Router is found in the context.
+// GetRouter retrieves the Receiver from the context.
 func GetRouter(ctx context.Context) Receiver {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return nil
 	}
-	if val := ac.Get(routerCtx); val != nil {
+	if val := ac.Get(routerCtxKey); val != nil {
 		if r, ok := val.(Receiver); ok {
 			return r
 		}
@@ -79,25 +65,25 @@ func GetRouter(ctx context.Context) Receiver {
 	return nil
 }
 
-// WithNodeManager attaches a NodeManager instance to the provided context.
+// WithNodeManager attaches a NodeManager to the context.
 func WithNodeManager(ctx context.Context, nm NodeManager) context.Context {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(nodeManagerCtx) == nil {
-		ac.With(nodeManagerCtx, nm)
+	if ac.Get(nodeManagerCtxKey) == nil {
+		ac.With(nodeManagerCtxKey, nm)
 	}
 	return ctx
 }
 
-// GetNodeManager retrieves the NodeManager instance from the provided context.
+// GetNodeManager retrieves the NodeManager from the context.
 func GetNodeManager(ctx context.Context) NodeManager {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return nil
 	}
-	if val := ac.Get(nodeManagerCtx); val != nil {
+	if val := ac.Get(nodeManagerCtxKey); val != nil {
 		if nm, ok := val.(NodeManager); ok {
 			return nm
 		}
@@ -105,26 +91,25 @@ func GetNodeManager(ctx context.Context) NodeManager {
 	return nil
 }
 
-// WithHost attaches a Host instance to the provided context at app level.
-// This is for storing service-level hosts, not frame-level hosts.
+// WithHost attaches a Host to the context.
 func WithHost(ctx context.Context, host Host) context.Context {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(hostCtx) == nil {
-		ac.With(hostCtx, host)
+	if ac.Get(hostCtxKey) == nil {
+		ac.With(hostCtxKey, host)
 	}
 	return ctx
 }
 
-// GetHost retrieves the Host instance from the provided context at app level.
+// GetHost retrieves the Host from the context.
 func GetHost(ctx context.Context) Host {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return nil
 	}
-	if val := ac.Get(hostCtx); val != nil {
+	if val := ac.Get(hostCtxKey); val != nil {
 		if h, ok := val.(Host); ok {
 			return h
 		}

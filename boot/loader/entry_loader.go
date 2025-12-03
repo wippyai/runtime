@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -59,9 +60,9 @@ type Export struct {
 // It supports both single entry and batch entries formats, with common
 // metadata that can be applied to all entries in a file.
 type FileContent struct {
-	Version   string            `json:"version,omitempty" yaml:"version,omitempty"`
-	Namespace string            `json:"namespace"`
-	Meta      registry.Metadata `json:"meta,omitempty" yaml:"meta,omitempty"`
+	Version   string    `json:"version,omitempty" yaml:"version,omitempty"`
+	Namespace string    `json:"namespace"`
+	Meta      attrs.Bag `json:"meta,omitempty" yaml:"meta,omitempty"`
 
 	// Store raw entries as map slice
 	RawEntries []map[string]interface{} `json:"entries,omitempty" yaml:"entries,omitempty"`
@@ -206,7 +207,7 @@ func (ep *EntryProcessor) processSingleEntry(_ context.Context, content *FileCon
 }
 
 // extractMetadata extracts metadata from a raw entry
-func (ep *EntryProcessor) extractMetadata(rawEntry map[string]interface{}) registry.Metadata {
+func (ep *EntryProcessor) extractMetadata(rawEntry map[string]interface{}) attrs.Bag {
 	if metaRaw, ok := rawEntry["meta"]; ok && metaRaw != nil {
 		if metaMap, ok := metaRaw.(map[string]any); ok {
 			return metaMap
@@ -257,7 +258,7 @@ func (ep *EntryProcessor) extractCustomFields(data map[string]interface{}) map[s
 }
 
 // mergeMetadata merges base and override metadata with proper handling of different types
-func (ep *EntryProcessor) mergeMetadata(baseMeta, overrideMeta registry.Metadata) registry.Metadata {
+func (ep *EntryProcessor) mergeMetadata(baseMeta, overrideMeta attrs.Bag) attrs.Bag {
 	if baseMeta == nil {
 		return overrideMeta
 	}
@@ -265,7 +266,7 @@ func (ep *EntryProcessor) mergeMetadata(baseMeta, overrideMeta registry.Metadata
 		return baseMeta
 	}
 
-	merged := make(registry.Metadata)
+	merged := make(attrs.Bag)
 
 	// Copy base metadata
 	for k, v := range baseMeta {
@@ -349,7 +350,7 @@ func ExtractDependenciesToEntries(p payload.Payload, dtt payload.Transcoder) ([]
 }
 
 // mergeMeta merges base and override metadata (legacy function for backward compatibility)
-func mergeMeta(baseMeta, overrideMeta registry.Metadata) registry.Metadata {
+func mergeMeta(baseMeta, overrideMeta attrs.Bag) attrs.Bag {
 	processor := NewEntryProcessor(nil)
 	return processor.mergeMetadata(baseMeta, overrideMeta)
 }

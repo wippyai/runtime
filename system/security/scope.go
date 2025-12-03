@@ -1,6 +1,7 @@
 package security
 
 import (
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
 )
@@ -56,7 +57,7 @@ func (s *scopeImpl) Without(policyID registry.ID) security.Scope {
 	return newScope
 }
 
-func (s *scopeImpl) Evaluate(actor security.Actor, action, resource string, meta registry.Metadata) security.Result {
+func (s *scopeImpl) Evaluate(actor security.Actor, action, resource string, meta attrs.Bag) security.Result {
 	if len(s.policies) == 0 {
 		return security.Undefined
 	}

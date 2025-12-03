@@ -1,0 +1,280 @@
+package topology
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/supervisor"
+	"github.com/wippyai/runtime/api/topology"
+	"go.uber.org/zap"
+)
+
+type mockTopology struct {
+	mu          sync.Mutex
+	registered  map[string]bool
+	monitors    map[string][]string
+	links       map[string][]string
+	notified    map[string]*runtime.Result
+	removed     []string
+	registerErr error
+	waitErr     error
+	linkErr     error
+}
+
+func newMockTopology() *mockTopology {
+	return &mockTopology{
+		registered: make(map[string]bool),
+		monitors:   make(map[string][]string),
+		links:      make(map[string][]string),
+		notified:   make(map[string]*runtime.Result),
+	}
+}
+
+func (m *mockTopology) Register(pid relay.PID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.registerErr != nil {
+		return m.registerErr
+	}
+	m.registered[pid.String()] = true
+	return nil
+}
+
+func (m *mockTopology) Wait(caller, pid relay.PID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.waitErr != nil {
+		return m.waitErr
+	}
+	m.monitors[pid.String()] = append(m.monitors[pid.String()], caller.String())
+	return nil
+}
+
+func (m *mockTopology) Release(_, _ relay.PID) error {
+	return nil
+}
+
+func (m *mockTopology) Link(from, to relay.PID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.linkErr != nil {
+		return m.linkErr
+	}
+	m.links[from.String()] = append(m.links[from.String()], to.String())
+	return nil
+}
+
+func (m *mockTopology) Unlink(_, _ relay.PID) error {
+	return nil
+}
+
+func (m *mockTopology) GetLinks(_ relay.PID) []relay.PID {
+	return nil
+}
+
+func (m *mockTopology) Notify(pid relay.PID, result *runtime.Result) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.notified[pid.String()] = result
+}
+
+func (m *mockTopology) Remove(pid relay.PID) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.removed = append(m.removed, pid.String())
+	delete(m.registered, pid.String())
+}
+
+type mockPIDRegistry struct {
+	mu      sync.Mutex
+	removed []string
+}
+
+func (m *mockPIDRegistry) Register(_ string, _ relay.PID) error {
+	return nil
+}
+
+func (m *mockPIDRegistry) Unregister(_ string) bool {
+	return true
+}
+
+func (m *mockPIDRegistry) Lookup(_ string) (relay.PID, bool) {
+	return relay.PID{}, false
+}
+
+func (m *mockPIDRegistry) Remove(pid relay.PID) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.removed = append(m.removed, pid.String())
+}
+
+func createContextWithOptions(parent relay.PID, monitor, link bool) context.Context {
+	appCtx := ctxapi.NewAppContext()
+	ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+	ctx, fc := ctxapi.OpenFrameContext(ctx)
+
+	options := attrs.NewBag()
+	if parent.UniqID != "" {
+		options.Set(process.LifecycleParentKey, parent)
+	}
+	if monitor {
+		options.Set(process.LifecycleMonitorKey, true)
+	}
+	if link {
+		options.Set(process.LifecycleLinkKey, true)
+	}
+
+	_ = fc.Set(runtime.FrameLifecycleOptionsKey, options)
+	return ctx
+}
+
+func TestLifecycle_OnStart_RegistersProcess(t *testing.T) {
+	topo := newMockTopology()
+	logger := zap.NewNop()
+
+	lc := NewLifecycle(topo, nil, logger)
+
+	pid := relay.PID{UniqID: "test-process"}
+	ctx := createContextWithOptions(relay.PID{}, false, false)
+
+	lc.OnStart(ctx, pid, nil)
+
+	assert.True(t, topo.registered[pid.String()])
+}
+
+func TestLifecycle_OnStart_SetsUpMonitoring(t *testing.T) {
+	topo := newMockTopology()
+	logger := zap.NewNop()
+
+	lc := NewLifecycle(topo, nil, logger)
+
+	parentPID := relay.PID{UniqID: "parent"}
+	childPID := relay.PID{UniqID: "child"}
+	ctx := createContextWithOptions(parentPID, true, false)
+
+	lc.OnStart(ctx, childPID, nil)
+
+	assert.True(t, topo.registered[childPID.String()])
+	require.Contains(t, topo.monitors[childPID.String()], parentPID.String())
+}
+
+func TestLifecycle_OnStart_SetsUpLink(t *testing.T) {
+	topo := newMockTopology()
+	logger := zap.NewNop()
+
+	lc := NewLifecycle(topo, nil, logger)
+
+	parentPID := relay.PID{UniqID: "parent"}
+	childPID := relay.PID{UniqID: "child"}
+	ctx := createContextWithOptions(parentPID, false, true)
+
+	lc.OnStart(ctx, childPID, nil)
+
+	assert.True(t, topo.registered[childPID.String()])
+	require.Contains(t, topo.links[parentPID.String()], childPID.String())
+}
+
+func TestLifecycle_OnStart_MonitorAndLink(t *testing.T) {
+	topo := newMockTopology()
+	logger := zap.NewNop()
+
+	lc := NewLifecycle(topo, nil, logger)
+
+	parentPID := relay.PID{UniqID: "parent"}
+	childPID := relay.PID{UniqID: "child"}
+	ctx := createContextWithOptions(parentPID, true, true)
+
+	lc.OnStart(ctx, childPID, nil)
+
+	assert.True(t, topo.registered[childPID.String()])
+	require.Contains(t, topo.monitors[childPID.String()], parentPID.String())
+	require.Contains(t, topo.links[parentPID.String()], childPID.String())
+}
+
+func TestLifecycle_OnStart_NoParent(t *testing.T) {
+	topo := newMockTopology()
+	logger := zap.NewNop()
+
+	lc := NewLifecycle(topo, nil, logger)
+
+	childPID := relay.PID{UniqID: "child"}
+	ctx := createContextWithOptions(relay.PID{}, true, true)
+
+	lc.OnStart(ctx, childPID, nil)
+
+	assert.True(t, topo.registered[childPID.String()])
+	assert.Empty(t, topo.monitors)
+	assert.Empty(t, topo.links)
+}
+
+func TestLifecycle_OnComplete_NotifiesAndRemoves(t *testing.T) {
+	topo := newMockTopology()
+	pidReg := &mockPIDRegistry{}
+	logger := zap.NewNop()
+
+	lc := NewLifecycle(topo, pidReg, logger)
+
+	pid := relay.PID{UniqID: "test-process"}
+	result := &runtime.Result{Value: nil, Error: nil}
+
+	lc.OnComplete(context.Background(), pid, result)
+
+	assert.Contains(t, topo.notified, pid.String())
+	assert.Equal(t, result, topo.notified[pid.String()])
+	assert.Contains(t, topo.removed, pid.String())
+	assert.Contains(t, pidReg.removed, pid.String())
+}
+
+func TestLifecycle_OnComplete_ConvertsErrExit(t *testing.T) {
+	topo := newMockTopology()
+	logger := zap.NewNop()
+
+	lc := NewLifecycle(topo, nil, logger)
+
+	pid := relay.PID{UniqID: "test-process"}
+	result := &runtime.Result{Error: supervisor.ErrExit}
+
+	lc.OnComplete(context.Background(), pid, result)
+
+	assert.Nil(t, topo.notified[pid.String()].Error)
+}
+
+func TestLifecycle_OnComplete_PreservesOtherErrors(t *testing.T) {
+	topo := newMockTopology()
+	logger := zap.NewNop()
+
+	lc := NewLifecycle(topo, nil, logger)
+
+	pid := relay.PID{UniqID: "test-process"}
+	customErr := errors.New("custom error")
+	result := &runtime.Result{Error: customErr}
+
+	lc.OnComplete(context.Background(), pid, result)
+
+	assert.Equal(t, customErr, topo.notified[pid.String()].Error)
+}
+
+func TestLifecycle_OnStart_NoContext(t *testing.T) {
+	topo := newMockTopology()
+	logger := zap.NewNop()
+
+	lc := NewLifecycle(topo, nil, logger)
+
+	pid := relay.PID{UniqID: "test-process"}
+
+	lc.OnStart(context.Background(), pid, nil)
+
+	assert.True(t, topo.registered[pid.String()])
+}
+
+var _ topology.Topology = (*mockTopology)(nil)
+var _ topology.PIDRegistry = (*mockPIDRegistry)(nil)

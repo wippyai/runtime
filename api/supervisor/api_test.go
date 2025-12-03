@@ -19,11 +19,11 @@ func TestEventConstants(t *testing.T) {
 		expected string
 	}{
 		{"system", System, "", "supervisor"},
-		{"register", "", Register, "supervisor.service.register"},
-		{"remove", "", Remove, "supervisor.service.remove"},
-		{"update", "", Update, "supervisor.service.status"},
-		{"start", "", Start, "supervisor.service.start"},
-		{"stop", "", Stop, "supervisor.service.stop"},
+		{"register", "", ServiceRegister, "service.register"},
+		{"remove", "", ServiceRemove, "service.remove"},
+		{"update", "", ServiceUpdate, "service.update"},
+		{"start", "", ServiceStart, "service.start"},
+		{"stop", "", ServiceStop, "service.stop"},
 	}
 
 	for _, tt := range tests {
@@ -44,13 +44,13 @@ func TestStatusConstants(t *testing.T) {
 		status   Status
 		expected string
 	}{
-		{"unknown", Unknown, "unknown"},
-		{"starting", Starting, "starting"},
-		{"running", Running, "running"},
-		{"stopping", Stopping, "stopping"},
-		{"stopped", Stopped, "stopped"},
-		{"exited", Exited, "exited"},
-		{"failed", Failed, "failed"},
+		{"unknown", StatusUnknown, "unknown"},
+		{"starting", StatusStarting, "starting"},
+		{"running", StatusRunning, "running"},
+		{"stopping", StatusStopping, "stopping"},
+		{"stopped", StatusStopped, "stopped"},
+		{"exited", StatusExited, "exited"},
+		{"failed", StatusFailed, "failed"},
 	}
 
 	for _, tt := range tests {

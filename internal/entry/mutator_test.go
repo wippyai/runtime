@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 )
@@ -252,7 +253,7 @@ func TestMutator_Set_Meta(t *testing.T) {
 	t.Run("set simple meta field", func(t *testing.T) {
 		entry := &registry.Entry{
 			ID:   registry.NewID("test", "entry"),
-			Meta: registry.Metadata{},
+			Meta: attrs.Bag{},
 		}
 
 		err := mutator.Set(entry, "meta.parent", "parent:id")
@@ -264,7 +265,7 @@ func TestMutator_Set_Meta(t *testing.T) {
 	t.Run("set with leading dot", func(t *testing.T) {
 		entry := &registry.Entry{
 			ID:   registry.NewID("test", "entry"),
-			Meta: registry.Metadata{},
+			Meta: attrs.Bag{},
 		}
 
 		err := mutator.Set(entry, ".meta.target_db", "main_db")
@@ -353,7 +354,7 @@ func TestMutator_Append(t *testing.T) {
 	t.Run("append to meta array", func(t *testing.T) {
 		entry := &registry.Entry{
 			ID: registry.NewID("test", "entry"),
-			Meta: registry.Metadata{
+			Meta: attrs.Bag{
 				"groups": []any{"group1"},
 			},
 		}
@@ -368,7 +369,7 @@ func TestMutator_Append(t *testing.T) {
 	t.Run("append to meta with leading dot", func(t *testing.T) {
 		entry := &registry.Entry{
 			ID:   registry.NewID("test", "entry"),
-			Meta: registry.Metadata{},
+			Meta: attrs.Bag{},
 		}
 
 		err := mutator.Append(entry, ".meta.depends_on", "dep1")
@@ -465,7 +466,7 @@ func TestMutator_Delete(t *testing.T) {
 	t.Run("delete from meta", func(t *testing.T) {
 		entry := &registry.Entry{
 			ID: registry.NewID("test", "entry"),
-			Meta: registry.Metadata{
+			Meta: attrs.Bag{
 				"field1": "value1",
 				"field2": "value2",
 			},
@@ -555,7 +556,7 @@ func TestMutator_RealWorldScenarios(t *testing.T) {
 					"name": "my-service",
 				},
 			}),
-			Meta: registry.Metadata{},
+			Meta: attrs.Bag{},
 		}
 
 		// Set resolved API URL from dependency
@@ -608,7 +609,7 @@ func TestMutator_RealWorldScenarios(t *testing.T) {
 		// Real example from codebase
 		entry := &registry.Entry{
 			ID:   registry.NewID("wippy.session.migration", "05_create_artifacts_table"),
-			Meta: registry.Metadata{},
+			Meta: attrs.Bag{},
 		}
 
 		// Set target database as shown in user's example
@@ -625,7 +626,7 @@ func TestMutator_Set_Meta_Advanced(t *testing.T) {
 	t.Run("set nested meta field", func(t *testing.T) {
 		entry := &registry.Entry{
 			ID:   registry.NewID("test", "entry"),
-			Meta: registry.Metadata{},
+			Meta: attrs.Bag{},
 		}
 
 		err := mutator.Set(entry, "meta.config.database.host", "localhost")
@@ -662,7 +663,7 @@ func TestMutator_Delete_Advanced(t *testing.T) {
 	t.Run("delete nested meta field", func(t *testing.T) {
 		entry := &registry.Entry{
 			ID: registry.NewID("test", "entry"),
-			Meta: registry.Metadata{
+			Meta: attrs.Bag{
 				"config": map[string]any{
 					"field1": "value1",
 					"field2": "value2",
@@ -681,7 +682,7 @@ func TestMutator_Delete_Advanced(t *testing.T) {
 	t.Run("delete deeply nested meta field", func(t *testing.T) {
 		entry := &registry.Entry{
 			ID: registry.NewID("test", "entry"),
-			Meta: registry.Metadata{
+			Meta: attrs.Bag{
 				"level1": map[string]any{
 					"level2": map[string]any{
 						"field": "value",
@@ -705,7 +706,7 @@ func TestMutator_Append_Meta_Advanced(t *testing.T) {
 	t.Run("append to nested meta array", func(t *testing.T) {
 		entry := &registry.Entry{
 			ID: registry.NewID("test", "entry"),
-			Meta: registry.Metadata{
+			Meta: attrs.Bag{
 				"config": map[string]any{
 					"tags": []any{"tag1"},
 				},
@@ -723,7 +724,7 @@ func TestMutator_Append_Meta_Advanced(t *testing.T) {
 	t.Run("error on append to non-array meta field", func(t *testing.T) {
 		entry := &registry.Entry{
 			ID: registry.NewID("test", "entry"),
-			Meta: registry.Metadata{
+			Meta: attrs.Bag{
 				"field": "not-an-array",
 			},
 		}

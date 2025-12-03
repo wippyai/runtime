@@ -115,7 +115,7 @@ func sandboxExecute(l *lua.LState) int {
 	}
 
 	// Start execution
-	if err := proc.Execute(ctx, method, input); err != nil {
+	if err := proc.Init(ctx, method, input); err != nil {
 		proc.Close()
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("execute error: %v", err)))

@@ -17,7 +17,7 @@ type NYieldProcess struct {
 	remaining int
 }
 
-func (p *NYieldProcess) Execute(ctx context.Context, method string, input payload.Payloads) error {
+func (p *NYieldProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
 	if len(input) > 0 {
 		p.remaining = input[0].Data().(int)
 	}

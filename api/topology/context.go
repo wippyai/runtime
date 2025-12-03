@@ -7,13 +7,9 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
-// Context keys for storing topology-related data
 var (
-	// topologyCtx is used to store the topology instance
-	topologyCtx = &ctxapi.Key{Name: "topology.topology"}
-
-	// registryCtx is used to store the Target registry
-	registryCtx = &ctxapi.Key{Name: "topology.registry"}
+	topologyCtxKey = &ctxapi.Key{Name: "topology.topologyCtxKey"}
+	registryCtxKey = &ctxapi.Key{Name: "topology.registryCtxKey"}
 )
 
 // WithRegistry attaches a Target registry to the provided context.
@@ -23,8 +19,8 @@ func WithRegistry(ctx context.Context, registry PIDRegistry) context.Context {
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(registryCtx) == nil {
-		ac.With(registryCtx, registry)
+	if ac.Get(registryCtxKey) == nil {
+		ac.With(registryCtxKey, registry)
 	}
 	return ctx
 }
@@ -36,7 +32,7 @@ func GetRegistry(ctx context.Context) PIDRegistry {
 	if ac == nil {
 		return nil
 	}
-	if val := ac.Get(registryCtx); val != nil {
+	if val := ac.Get(registryCtxKey); val != nil {
 		if reg, ok := val.(PIDRegistry); ok {
 			return reg
 		}
@@ -51,8 +47,8 @@ func WithTopology(ctx context.Context, topology Topology) context.Context {
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(topologyCtx) == nil {
-		ac.With(topologyCtx, topology)
+	if ac.Get(topologyCtxKey) == nil {
+		ac.With(topologyCtxKey, topology)
 	}
 	return ctx
 }
@@ -64,7 +60,7 @@ func GetTopology(ctx context.Context) Topology {
 	if ac == nil {
 		return nil
 	}
-	if val := ac.Get(topologyCtx); val != nil {
+	if val := ac.Get(topologyCtxKey); val != nil {
 		if top, ok := val.(Topology); ok {
 			return top
 		}

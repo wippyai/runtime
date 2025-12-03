@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -241,7 +242,7 @@ func (m *Manager) handleServerCreate(ctx context.Context, entry registry.Entry) 
 	// Register with supervisor
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Register,
+		Kind:   supervisor.ServiceRegister,
 		Path:   entry.ID.String(),
 		Data:   &supervisor.Entry{Service: server, Config: cfg.Lifecycle},
 	})
@@ -276,7 +277,7 @@ func (m *Manager) handleServerUpdate(ctx context.Context, entry registry.Entry) 
 	// Update supervisor
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Update,
+		Kind:   supervisor.ServiceUpdate,
 		Path:   entry.ID.String(),
 		Data: &supervisor.Entry{
 			Config: cfg.Lifecycle,
@@ -296,7 +297,7 @@ func (m *Manager) handleServerDelete(ctx context.Context, entry registry.Entry) 
 	// Done from supervisor
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Remove,
+		Kind:   supervisor.ServiceRemove,
 		Path:   entry.ID.String(),
 	})
 
@@ -621,7 +622,7 @@ func decodeEntity[T any](entry registry.Entry, transcoder payload.Transcoder) (*
 	}
 
 	// set meta if applicable
-	if metaHolder, ok := interface{}(cfg).(interface{ SetMeta(registry.Metadata) }); ok {
+	if metaHolder, ok := interface{}(cfg).(interface{ SetMeta(attrs.Bag) }); ok {
 		metaHolder.SetMeta(entry.Meta)
 	}
 

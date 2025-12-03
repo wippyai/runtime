@@ -154,7 +154,7 @@ func (s *Scheduler) Submit(ctx context.Context, pid relay.PID, p Process, method
 		return nil, process.ErrMaxProcessesExceeded
 	}
 
-	if err := p.Execute(ctx, method, input); err != nil {
+	if err := p.Init(ctx, method, input); err != nil {
 		return nil, err
 	}
 

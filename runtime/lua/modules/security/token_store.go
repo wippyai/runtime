@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/dispatcher"
 	securityapi "github.com/wippyai/runtime/api/dispatcher/security"
 	"github.com/wippyai/runtime/api/registry"
@@ -153,7 +154,7 @@ func tokenStoreValidate(l *lua.LState) int {
 	tokenStr := l.CheckString(2)
 	token := secapi.Token(tokenStr)
 
-	meta := registry.Metadata{"token": tokenStr}
+	meta := attrs.Bag{"token": tokenStr}
 	if !luasec.IsAllowed(l.Context(), "security.token.validate", storeID, meta) {
 		l.Push(lua.LNil)
 		l.Push(lua.LNil)
@@ -200,7 +201,7 @@ func tokenStoreCreate(l *lua.LState) int {
 		return 0
 	}
 
-	meta := registry.Metadata{"actor": actor.ID}
+	meta := attrs.Bag{"actor": actor.ID}
 	if !luasec.IsAllowed(l.Context(), "security.token.create", storeID, meta) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("not allowed to create token"))
@@ -209,7 +210,7 @@ func tokenStoreCreate(l *lua.LState) int {
 
 	// Parse options
 	var expiration time.Duration
-	var tokenMeta registry.Metadata
+	var tokenMeta attrs.Bag
 	if l.GetTop() >= 4 {
 		optionsTable := l.CheckTable(4)
 
@@ -268,7 +269,7 @@ func tokenStoreRevoke(l *lua.LState) int {
 	tokenStr := l.CheckString(2)
 	token := secapi.Token(tokenStr)
 
-	meta := registry.Metadata{"token": tokenStr}
+	meta := attrs.Bag{"token": tokenStr}
 	if !luasec.IsAllowed(l.Context(), "security.token.revoke", storeID, meta) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("not allowed to revoke token"))

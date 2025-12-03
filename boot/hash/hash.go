@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 )
@@ -83,7 +84,7 @@ func (h *Hasher) toStable(entry registry.Entry) (stableEntry, error) {
 }
 
 // normalizeMeta normalizes metadata values.
-func (h *Hasher) normalizeMeta(meta registry.Metadata) map[string]any {
+func (h *Hasher) normalizeMeta(meta attrs.Bag) map[string]any {
 	if len(meta) == 0 {
 		return nil
 	}

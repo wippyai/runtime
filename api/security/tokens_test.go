@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/attrs"
 )
 
 func TestTokenErrors(t *testing.T) {
@@ -60,7 +60,7 @@ func TestTokenDetails_MarshalUnmarshal(t *testing.T) {
 			name: "complete details",
 			details: TokenDetails{
 				Expiration: 1 * time.Hour,
-				Meta: registry.Metadata{
+				Meta: attrs.Bag{
 					"issuer": "auth-service",
 					"scope":  "read:write",
 				},
@@ -77,7 +77,7 @@ func TestTokenDetails_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "with meta only",
 			details: TokenDetails{
-				Meta: registry.Metadata{
+				Meta: attrs.Bag{
 					"custom": "value",
 				},
 			},

@@ -30,6 +30,7 @@ var (
 	ErrTranscoderNotAvailableForCluster = &Error{kind: apierror.KindInternal, message: "transcoder not available for cluster"}
 	ErrRelayNotAvailableForCluster      = &Error{kind: apierror.KindInternal, message: "relay node not available for cluster"}
 	ErrRouterNotAvailable               = &Error{kind: apierror.KindInternal, message: "router not available in context"}
+	ErrTopologyNotAvailable             = &Error{kind: apierror.KindInternal, message: "topology not available in context"}
 )
 
 func NewHostnameError(cause error) *Error {

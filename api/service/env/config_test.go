@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 )
 
@@ -39,7 +40,7 @@ func TestMemoryStorageConfig_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "with metadata",
 			config: MemoryStorageConfig{
-				Meta: registry.Metadata{"type": "memory"},
+				Meta: attrs.Bag{"type": "memory"},
 			},
 			wantErr: false,
 		},
@@ -81,7 +82,7 @@ func TestFileStorageConfig_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "complete config",
 			config: FileStorageConfig{
-				Meta:       registry.Metadata{"type": "file"},
+				Meta:       attrs.Bag{"type": "file"},
 				FilePath:   "/etc/env.json",
 				AutoCreate: true,
 				FileMode:   0644,
@@ -154,7 +155,7 @@ func TestOSStorageConfig_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "with metadata",
 			config: OSStorageConfig{
-				Meta: registry.Metadata{"type": "os"},
+				Meta: attrs.Bag{"type": "os"},
 			},
 			wantErr: false,
 		},
@@ -196,7 +197,7 @@ func TestRouterStorageConfig_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "with storages",
 			config: RouterStorageConfig{
-				Meta:     registry.Metadata{"type": "router"},
+				Meta:     attrs.Bag{"type": "router"},
 				Storages: []string{"storage1", "storage2"},
 			},
 			wantErr: false,

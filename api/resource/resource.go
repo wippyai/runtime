@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
 )
@@ -42,9 +43,9 @@ type (
 
 	// Entry represents a registered resource with its metadata.
 	Entry struct {
-		ID       registry.ID       // Unique resource identifier.
-		Meta     registry.Metadata // Additional metadata.
-		Provider Provider          // Manages access to the resource.
+		ID       registry.ID // Unique resource identifier.
+		Meta     attrs.Bag   // Additional metadata.
+		Provider Provider    // Manages access to the resource.
 	}
 
 	// Resource provides controlled access to a resource instance.

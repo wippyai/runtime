@@ -1,6 +1,7 @@
 package topology
 
 import (
+	"errors"
 	"sync"
 	"testing"
 
@@ -185,7 +186,7 @@ func TestTopology_RemoteLinking(t *testing.T) {
 
 		err := topo.Link(unregisteredPID, remotePID2)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "cannot link unregistered pid")
+		assert.True(t, errors.Is(err, topology.ErrPIDNotRegistered), "expected ErrPIDNotRegistered")
 	})
 }
 
@@ -216,7 +217,7 @@ func TestTopology_HandleMonitorRequest(t *testing.T) {
 
 		err := topo.HandleMonitorRequest(remotePID, unregisteredPID)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "cannot monitor unregistered pid")
+		assert.True(t, errors.Is(err, topology.ErrPIDNotRegistered), "expected ErrPIDNotRegistered")
 	})
 
 	t.Run("HandleMonitorRequest is idempotent", func(t *testing.T) {
@@ -288,7 +289,7 @@ func TestTopology_HandleLinkRequest(t *testing.T) {
 
 		err := topo.HandleLinkRequest(remotePID, unregisteredPID)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "cannot link unregistered pid")
+		assert.True(t, errors.Is(err, topology.ErrPIDNotRegistered), "expected ErrPIDNotRegistered")
 	})
 
 	t.Run("HandleLinkRequest is idempotent", func(t *testing.T) {

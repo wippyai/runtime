@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/supervisor"
 )
@@ -24,7 +25,7 @@ const (
 
 // ClientConfig defines the configuration for a Temporal client connection
 type ClientConfig struct {
-	Meta registry.Metadata `json:"meta"`
+	Meta attrs.Bag `json:"meta"`
 
 	// Connection settings
 	Address   string `json:"address"`             // Temporal server address (host:port)

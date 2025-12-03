@@ -163,7 +163,7 @@ type resultProcess struct {
 	result payload.Payload
 }
 
-func (p *resultProcess) Execute(ctx context.Context, method string, input payload.Payloads) error {
+func (p *resultProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
 	return nil
 }
 
@@ -362,7 +362,7 @@ type blockingProcess struct {
 	blockCh <-chan struct{}
 }
 
-func (p *blockingProcess) Execute(ctx context.Context, method string, input payload.Payloads) error {
+func (p *blockingProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
 	return nil
 }
 

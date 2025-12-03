@@ -7,11 +7,10 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
-// Context keys for storing registry-related data
 var (
-	registryCtx = &ctxapi.Key{Name: "registry.registry"}
-	finderCtx   = &ctxapi.Key{Name: "registry.finder"}
-	resolverCtx = &ctxapi.Key{Name: "registry.resolver"}
+	registryCtxKey = &ctxapi.Key{Name: "registry.registryCtxKey"}
+	finderCtxKey   = &ctxapi.Key{Name: "registry.finderCtxKey"}
+	resolverCtxKey = &ctxapi.Key{Name: "registry.resolverCtxKey"}
 )
 
 // WithRegistry attaches a Registry instance to the provided context.
@@ -21,72 +20,67 @@ func WithRegistry(ctx context.Context, registry Registry) context.Context {
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(registryCtx) == nil {
-		ac.With(registryCtx, registry)
+	if ac.Get(registryCtxKey) == nil {
+		ac.With(registryCtxKey, registry)
 	}
 	return ctx
 }
 
 // GetRegistry retrieves the Registry instance from the provided context.
-// Returns nil if no Registry is found in the context.
 func GetRegistry(ctx context.Context) Registry {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return nil
 	}
-	if reg := ac.Get(registryCtx); reg != nil {
+	if reg := ac.Get(registryCtxKey); reg != nil {
 		return reg.(Registry)
 	}
 	return nil
 }
 
 // WithFinder attaches a Finder instance to the provided context.
-// This allows the Finder to be retrieved later using the GetFinder function.
 func WithFinder(ctx context.Context, finder Finder) context.Context {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(finderCtx) == nil {
-		ac.With(finderCtx, finder)
+	if ac.Get(finderCtxKey) == nil {
+		ac.With(finderCtxKey, finder)
 	}
 	return ctx
 }
 
 // GetFinder retrieves the Finder instance from the provided context.
-// Returns nil if no Finder is found in the context.
 func GetFinder(ctx context.Context) Finder {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return nil
 	}
-	if f := ac.Get(finderCtx); f != nil {
+	if f := ac.Get(finderCtxKey); f != nil {
 		return f.(Finder)
 	}
 	return nil
 }
 
 // WithResolver attaches a DependencyResolver instance to the provided context.
-// This allows the DependencyResolver to be retrieved later using the GetResolver function.
 func WithResolver(ctx context.Context, resolver DependencyResolver) context.Context {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(resolverCtx) == nil {
-		ac.With(resolverCtx, resolver)
+	if ac.Get(resolverCtxKey) == nil {
+		ac.With(resolverCtxKey, resolver)
 	}
 	return ctx
 }
 
 // GetResolver retrieves the DependencyResolver instance from the provided context.
-// Returns nil if no DependencyResolver is found in the context.
 func GetResolver(ctx context.Context) DependencyResolver {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return nil
 	}
-	if r := ac.Get(resolverCtx); r != nil {
+	if r := ac.Get(resolverCtxKey); r != nil {
 		return r.(DependencyResolver)
 	}
 	return nil

@@ -12,6 +12,7 @@ import (
 
 	securitysys "github.com/wippyai/runtime/system/security"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
@@ -26,7 +27,7 @@ type tokenData struct {
 	ActorID string `json:"actor_id"`
 
 	// ActorMeta contains the actor's metadata
-	ActorMeta registry.Metadata `json:"actor_meta,omitempty"`
+	ActorMeta attrs.Bag `json:"actor_meta,omitempty"`
 
 	// ScopePolicies contains the IDs of policies in the scope
 	ScopePolicies []registry.ID `json:"scope_policies,omitempty"`
@@ -38,7 +39,7 @@ type tokenData struct {
 	Expires *time.Time `json:"expires,omitempty"`
 
 	// Meta contains additional metadata provided at creation time
-	Meta registry.Metadata `json:"meta,omitempty"`
+	Meta attrs.Bag `json:"meta,omitempty"`
 }
 
 // TokenStore implements security.TokenStore using a key-value store

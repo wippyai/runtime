@@ -6,6 +6,7 @@ import (
 
 	"github.com/wippyai/runtime/api/contract"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 )
 
@@ -21,9 +22,9 @@ const (
 // DefinitionConfig represents the configuration for a contract definition entry
 // This is what gets unmarshaled from the YAML data field
 type DefinitionConfig struct {
-	ID      string            `json:"id,omitempty"` // ID for the definition, if specified within the data block
-	Meta    registry.Metadata `json:"meta,omitempty"`
-	Methods []MethodConfig    `json:"methods"`
+	ID      string         `json:"id,omitempty"` // ID for the definition, if specified within the data block
+	Meta    attrs.Bag      `json:"meta,omitempty"`
+	Methods []MethodConfig `json:"methods"`
 }
 
 // MethodConfig defines a single method in a contract
@@ -43,7 +44,7 @@ type SchemaConfig struct {
 // BindingConfig represents the configuration for a contract binding entry
 // This is what gets unmarshaled from the YAML data field
 type BindingConfig struct {
-	Meta      registry.Metadata     `json:"meta"`
+	Meta      attrs.Bag             `json:"meta"`
 	Contracts []BoundContractConfig `json:"contracts"`
 }
 

@@ -34,7 +34,7 @@ func TestDeterministicEncoding(t *testing.T) {
 			{
 				ID:   registry.ParseID("test:order"),
 				Kind: "test.kind",
-				Meta: registry.Metadata{"z": "last", "a": "first", "m": "middle"},
+				Meta: map[string]interface{}{"z": "last", "a": "first", "m": "middle"},
 				Data: payload.New(map1),
 			},
 		}
@@ -43,7 +43,7 @@ func TestDeterministicEncoding(t *testing.T) {
 			{
 				ID:   registry.ParseID("test:order"),
 				Kind: "test.kind",
-				Meta: registry.Metadata{"a": "first", "m": "middle", "z": "last"},
+				Meta: map[string]interface{}{"a": "first", "m": "middle", "z": "last"},
 				Data: payload.New(map2),
 			},
 		}
@@ -77,7 +77,7 @@ func TestDeterministicEncoding(t *testing.T) {
 			{
 				ID:   registry.ParseID("test:repeat"),
 				Kind: "test.kind",
-				Meta: registry.Metadata{"key": "value"},
+				Meta: map[string]interface{}{"key": "value"},
 				Data: payload.New(map[string]any{"field": "data"}),
 			},
 		}
@@ -108,7 +108,7 @@ func TestDeterministicEncoding(t *testing.T) {
 			{
 				ID:   registry.ParseID("test:nested"),
 				Kind: "test.kind",
-				Meta: registry.Metadata{},
+				Meta: map[string]interface{}{},
 				Data: payload.New(map[string]any{
 					"outer": map[string]any{
 						"z": "last",
@@ -127,7 +127,7 @@ func TestDeterministicEncoding(t *testing.T) {
 			{
 				ID:   registry.ParseID("test:nested"),
 				Kind: "test.kind",
-				Meta: registry.Metadata{},
+				Meta: map[string]interface{}{},
 				Data: payload.New(map[string]any{
 					"outer": map[string]any{
 						"a": "first",

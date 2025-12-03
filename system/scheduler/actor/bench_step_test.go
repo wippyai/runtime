@@ -15,7 +15,7 @@ import (
 // Minimal process - single step, immediate complete
 type SingleStepProcess struct{}
 
-func (p *SingleStepProcess) Execute(ctx context.Context, method string, input payload.Payloads) error {
+func (p *SingleStepProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
 	return nil
 }
 
@@ -33,7 +33,7 @@ type OneYieldProcess struct {
 	done bool
 }
 
-func (p *OneYieldProcess) Execute(ctx context.Context, method string, input payload.Payloads) error {
+func (p *OneYieldProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
 	return nil
 }
 

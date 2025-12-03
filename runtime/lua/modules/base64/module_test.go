@@ -78,9 +78,23 @@ func TestEncodeInvalidInput(t *testing.T) {
 	defer l.Close()
 	Bind(l)
 
-	err := l.DoString(`base64.encode(123)`)
-	if err == nil {
-		t.Error("expected error for non-string input")
+	err := l.DoString(`
+		local result, err = base64.encode(123)
+		if result ~= nil then
+			error("expected nil result")
+		end
+		if err == nil then
+			error("expected error")
+		end
+		if err:kind() ~= "Invalid" then
+			error("expected Invalid kind, got: " .. tostring(err:kind()))
+		end
+		if err:retryable() ~= false then
+			error("expected retryable to be false")
+		end
+	`)
+	if err != nil {
+		t.Errorf("test failed: %v", err)
 	}
 }
 
@@ -118,9 +132,23 @@ func TestDecodeInvalidInput(t *testing.T) {
 	defer l.Close()
 	Bind(l)
 
-	err := l.DoString(`base64.decode(123)`)
-	if err == nil {
-		t.Error("expected error for non-string input")
+	err := l.DoString(`
+		local result, err = base64.decode(123)
+		if result ~= nil then
+			error("expected nil result")
+		end
+		if err == nil then
+			error("expected error")
+		end
+		if err:kind() ~= "Invalid" then
+			error("expected Invalid kind, got: " .. tostring(err:kind()))
+		end
+		if err:retryable() ~= false then
+			error("expected retryable to be false")
+		end
+	`)
+	if err != nil {
+		t.Errorf("test failed: %v", err)
 	}
 }
 
@@ -135,7 +163,18 @@ func TestDecodeInvalidBase64(t *testing.T) {
 			error("expected nil result")
 		end
 		if err == nil then
-			error("expected error message")
+			error("expected error")
+		end
+		if err:kind() ~= "Invalid" then
+			error("expected Invalid kind, got: " .. tostring(err:kind()))
+		end
+		if err:retryable() ~= false then
+			error("expected retryable to be false")
+		end
+		-- Verify error can be converted to string
+		local str = tostring(err)
+		if not str or str == "" then
+			error("error should have string representation")
 		end
 	`)
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 )
 
@@ -37,7 +38,7 @@ func TestDefinitionConfig_MarshalUnmarshal(t *testing.T) {
 			name: "complete definition config",
 			config: DefinitionConfig{
 				ID:   "payment-contract",
-				Meta: registry.Metadata{"version": "1.0"},
+				Meta: attrs.Bag{"version": "1.0"},
 				Methods: []MethodConfig{
 					{
 						Name:        "process",
@@ -178,7 +179,7 @@ func TestBindingConfig_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "complete binding config",
 			config: BindingConfig{
-				Meta: registry.Metadata{"env": "production"},
+				Meta: attrs.Bag{"env": "production"},
 				Contracts: []BoundContractConfig{
 					{
 						Contract: "contracts:payment",

@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	contextapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
@@ -121,7 +122,7 @@ func TestVariable_MarshalUnmarshal(t *testing.T) {
 			name: "complete variable",
 			v: Variable{
 				ID:           registry.NewID("env", "var1"),
-				Meta:         registry.Metadata{"source": "config"},
+				Meta:         attrs.Bag{"source": "config"},
 				Name:         "DATABASE_URL",
 				DefaultValue: "localhost:5432",
 				ReadOnly:     true,

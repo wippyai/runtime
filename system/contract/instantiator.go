@@ -3,6 +3,7 @@ package contract
 import (
 	"context"
 
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/contract"
 	"github.com/wippyai/runtime/api/function"
@@ -26,7 +27,7 @@ func NewContractInstantiator(registry contract.Registry, funcReg function.Regist
 }
 
 // Instantiate implements contract.Instantiator interface
-func (i *Instantiator) Instantiate(ctx context.Context, bindingID registry.ID, scope registry.Metadata) (contract.Instance, error) {
+func (i *Instantiator) Instantiate(ctx context.Context, bindingID registry.ID, scope attrs.Bag) (contract.Instance, error) {
 	binding, err := i.registry.GetBinding(ctx, bindingID)
 	if err != nil {
 		return nil, err
@@ -55,7 +56,7 @@ type instanceImpl struct {
 	id        registry.ID
 	binding   *contract.Binding
 	contracts []contract.Contract
-	context   registry.Metadata
+	context   attrs.Bag
 	funcReg   function.Registry
 }
 

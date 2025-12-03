@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/contract"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
@@ -412,7 +413,7 @@ func TestContractRegistry_GetBinding(t *testing.T) {
 	// Register a test binding
 	bindingID := registry.NewID("test", "binding")
 	testBinding := &contract.Binding{
-		Meta: registry.Metadata{"key": "value"},
+		Meta: attrs.Bag{"key": "value"},
 		Contracts: []contract.BoundContract{
 			{
 				Contract: registry.NewID("test", "contract"),

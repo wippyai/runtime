@@ -39,14 +39,6 @@ entries:
     lifecycle:
       auto_start: true
 
-  # app:wasm.files - filesystem for WASM components
-  - name: wasm.files
-    kind: fs.directory
-    meta:
-      comment: WASM components directory
-    directory: src/wasm
-    mode: "0444"
-
   # app:test_runner - Test runner process
   - name: test_runner
     kind: process.lua

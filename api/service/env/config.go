@@ -4,6 +4,7 @@ package env
 import (
 	"context"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/registry"
 )
@@ -18,27 +19,27 @@ const (
 
 // MemoryStorageConfig provides configuration for in-memory environment variable storage.
 type MemoryStorageConfig struct {
-	Meta registry.Metadata `json:"meta"`
+	Meta attrs.Bag `json:"meta"`
 }
 
 // FileStorageConfig provides configuration for file-based environment variable storage.
 type FileStorageConfig struct {
-	Meta       registry.Metadata `json:"meta"`
-	FilePath   string            `json:"file_path"`
-	AutoCreate bool              `json:"auto_create"`
-	FileMode   uint32            `json:"file_mode,omitempty"`
-	DirMode    uint32            `json:"dir_mode,omitempty"`
+	Meta       attrs.Bag `json:"meta"`
+	FilePath   string    `json:"file_path"`
+	AutoCreate bool      `json:"auto_create"`
+	FileMode   uint32    `json:"file_mode,omitempty"`
+	DirMode    uint32    `json:"dir_mode,omitempty"`
 }
 
 // OSStorageConfig provides configuration for OS environment variable storage.
 type OSStorageConfig struct {
-	Meta registry.Metadata `json:"meta"`
+	Meta attrs.Bag `json:"meta"`
 }
 
 // RouterStorageConfig provides configuration for routing environment variable requests across multiple storages.
 type RouterStorageConfig struct {
-	Meta     registry.Metadata `json:"meta"`
-	Storages []string          `json:"storages"`
+	Meta     attrs.Bag `json:"meta"`
+	Storages []string  `json:"storages"`
 }
 
 type Service interface {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/internal/version"
@@ -48,7 +49,7 @@ func setupBenchRegistry(b *testing.B, entryCount int) *Reg {
 			ID:   registry.ID{NS: "bench", Name: fmt.Sprintf("entry-%d", i)},
 			Kind: "service",
 			Data: payload.NewString(fmt.Sprintf("data-%d", i)),
-			Meta: registry.Metadata{
+			Meta: attrs.Bag{
 				"index": i,
 				"type":  "benchmark",
 			},

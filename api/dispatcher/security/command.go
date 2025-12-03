@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/dispatcher"
-	"github.com/wippyai/runtime/api/registry"
 	secapi "github.com/wippyai/runtime/api/security"
 )
 
@@ -97,7 +97,7 @@ type TokenRevokeResponse struct {
 }
 
 // TokenDetails helper for creating token details.
-func NewTokenDetails(expiration time.Duration, meta registry.Metadata) secapi.TokenDetails {
+func NewTokenDetails(expiration time.Duration, meta attrs.Bag) secapi.TokenDetails {
 	return secapi.TokenDetails{
 		Expiration: expiration,
 		Meta:       meta,

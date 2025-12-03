@@ -25,13 +25,13 @@ func TestConcurrentReadSamePack(t *testing.T) {
 		entries[i] = registry.Entry{
 			ID:   registry.ParseID("test:entry"),
 			Kind: "test.kind",
-			Meta: registry.Metadata{"index": i},
+			Meta: map[string]interface{}{"index": i},
 			Data: payload.New(map[string]any{"value": i}),
 		}
 	}
 
 	var buf bytes.Buffer
-	err := pw.PackEntries(registry.Metadata{"test": "concurrent"}, entries, &buf)
+	err := pw.PackEntries(map[string]interface{}{"test": "concurrent"}, entries, &buf)
 	require.NoError(t, err)
 
 	packData := buf.Bytes()
@@ -158,8 +158,8 @@ func TestConcurrentFSAccess(t *testing.T) {
 	fsys := os.DirFS(tmpDir)
 
 	var buf bytes.Buffer
-	err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-		registry.ParseID("test:concurrent-fs"), registry.Metadata{}, &buf)
+	err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+		registry.ParseID("test:concurrent-fs"), map[string]interface{}{}, &buf)
 	require.NoError(t, err)
 
 	packData := buf.Bytes()
@@ -345,7 +345,7 @@ func TestConcurrentEntryReads(t *testing.T) {
 		entries[i] = registry.Entry{
 			ID:   registry.ParseID("test:entry"),
 			Kind: "test.kind",
-			Meta: registry.Metadata{"index": i},
+			Meta: map[string]interface{}{"index": i},
 			Data: payload.New(map[string]any{
 				"value": i,
 				"data":  "some test data",
@@ -354,7 +354,7 @@ func TestConcurrentEntryReads(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	err := pw.PackEntries(registry.Metadata{}, entries, &buf)
+	err := pw.PackEntries(map[string]interface{}{}, entries, &buf)
 	require.NoError(t, err)
 
 	packData := buf.Bytes()
@@ -417,8 +417,8 @@ func TestConcurrentResourceLoading(t *testing.T) {
 	fsys := os.DirFS(tmpDir)
 
 	var buf bytes.Buffer
-	err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-		registry.ParseID("test:resource"), registry.Metadata{}, &buf)
+	err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+		registry.ParseID("test:resource"), map[string]interface{}{}, &buf)
 	require.NoError(t, err)
 
 	packData := buf.Bytes()

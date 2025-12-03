@@ -38,7 +38,7 @@ func BenchmarkInternalStateUpdate(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		state.updateState(supervisor.Running, "details")
+		state.updateState(supervisor.StatusRunning, "details")
 	}
 }
 
@@ -49,14 +49,14 @@ func BenchmarkInternalStateUpdateParallel(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			state.updateState(supervisor.Running, "details")
+			state.updateState(supervisor.StatusRunning, "details")
 		}
 	})
 }
 
 func BenchmarkInternalStateSnapshot(b *testing.B) {
 	state := newServiceState()
-	state.updateState(supervisor.Running, "test details")
+	state.updateState(supervisor.StatusRunning, "test details")
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -67,7 +67,7 @@ func BenchmarkInternalStateSnapshot(b *testing.B) {
 
 func BenchmarkInternalStateSnapshotParallel(b *testing.B) {
 	state := newServiceState()
-	state.updateState(supervisor.Running, "test details")
+	state.updateState(supervisor.StatusRunning, "test details")
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -84,7 +84,7 @@ func BenchmarkStateAllocations(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		state.updateState(supervisor.Running, nil)
+		state.updateState(supervisor.StatusRunning, nil)
 		_ = state.publicState()
 	}
 }

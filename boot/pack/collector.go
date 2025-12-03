@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 	dirapi "github.com/wippyai/runtime/api/service/fs/directory"
 	"go.uber.org/zap"
@@ -11,9 +12,9 @@ import (
 
 // ResourceSpec specifies a filesystem resource to be packed.
 type ResourceSpec struct {
-	ID   registry.ID       // Resource ID (matches entry ID)
-	FS   fs.FS             // Filesystem to pack
-	Meta registry.Metadata // Resource metadata
+	ID   registry.ID // Resource ID (matches entry ID)
+	FS   fs.FS       // Filesystem to pack
+	Meta attrs.Bag   // Resource metadata
 }
 
 // CollectResources scans entries for fs.directory entries and collects their filesystems.

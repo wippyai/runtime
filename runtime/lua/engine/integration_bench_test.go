@@ -61,8 +61,8 @@ type mockProcess struct {
 	*Process
 }
 
-func (m *mockProcess) Execute(ctx context.Context, method string, input payload.Payloads) error {
-	return m.Process.Execute(ctx, method, input)
+func (m *mockProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
+	return m.Process.Init(ctx, method, input)
 }
 
 func (m *mockProcess) Step(results *process.YieldResults) (process.StepResult, error) {

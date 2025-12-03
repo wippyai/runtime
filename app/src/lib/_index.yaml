@@ -1,0 +1,9 @@
+version: "1.0"
+namespace: app.lib
+
+entries:
+  - name: assert
+    kind: library.lua
+    meta:
+      comment: Test assertion library
+    source: file://assert.lua

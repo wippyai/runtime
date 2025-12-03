@@ -3,6 +3,7 @@ package policy
 import (
 	"testing"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/service/security/policy"
 
 	"github.com/wippyai/runtime/api/registry"
@@ -91,13 +92,13 @@ func TestPolicy(t *testing.T) {
 		t.Errorf("Expected policy ID to be 'test:admin-policy', got %s", p.ID().String())
 	}
 
-	adminActor := newMockActor("admin-user", registry.Metadata{"role": "admin"})
+	adminActor := newMockActor("admin-user", attrs.Bag{"role": "admin"})
 	result := p.Evaluate(adminActor, "read", "document", nil)
 	if result != security.Allow {
 		t.Errorf("Expected Allow result for admin user, got %v", result)
 	}
 
-	userActor := newMockActor("regular-user", registry.Metadata{"role": "user"})
+	userActor := newMockActor("regular-user", attrs.Bag{"role": "user"})
 	result = p.Evaluate(userActor, "read", "document", nil)
 	if result != security.Undefined {
 		t.Errorf("Expected Undefined result for regular user, got %v", result)
@@ -169,7 +170,7 @@ func TestPolicyWithInvalidRegex(t *testing.T) {
 }
 
 func TestPolicyWithWildcards(t *testing.T) {
-	actor := newMockActor("test-user", registry.Metadata{
+	actor := newMockActor("test-user", attrs.Bag{
 		"role": "editor",
 	})
 
@@ -360,7 +361,7 @@ func TestPolicyWithComplexRegexConditions(t *testing.T) {
 	}{
 		{
 			name: "valid email and resource",
-			actor: newMockActor("user123", registry.Metadata{
+			actor: newMockActor("user123", attrs.Bag{
 				"email": "user@example.com",
 			}),
 			action:   "read",
@@ -369,7 +370,7 @@ func TestPolicyWithComplexRegexConditions(t *testing.T) {
 		},
 		{
 			name: "invalid email format",
-			actor: newMockActor("user123", registry.Metadata{
+			actor: newMockActor("user123", attrs.Bag{
 				"email": "invalid-email",
 			}),
 			action:   "read",
@@ -378,7 +379,7 @@ func TestPolicyWithComplexRegexConditions(t *testing.T) {
 		},
 		{
 			name: "valid email but invalid resource",
-			actor: newMockActor("user123", registry.Metadata{
+			actor: newMockActor("user123", attrs.Bag{
 				"email": "user@example.com",
 			}),
 			action:   "read",
@@ -387,7 +388,7 @@ func TestPolicyWithComplexRegexConditions(t *testing.T) {
 		},
 		{
 			name: "file resource matches",
-			actor: newMockActor("user123", registry.Metadata{
+			actor: newMockActor("user123", attrs.Bag{
 				"email": "user@example.com",
 			}),
 			action:   "read",

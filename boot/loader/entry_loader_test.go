@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -67,7 +68,7 @@ func TestExtractDependenciesToEntries(t *testing.T) {
 						Name: "single-entry",
 					},
 					Kind: "service",
-					Meta: registry.Metadata{
+					Meta: attrs.Bag{
 						"version": "1.0",
 						"tags":    []interface{}{"test", "service"},
 					},
@@ -124,7 +125,7 @@ func TestExtractDependenciesToEntries(t *testing.T) {
 						Name: "entry1",
 					},
 					Kind: "service",
-					Meta: registry.Metadata{
+					Meta: attrs.Bag{
 						"version": "1.0",
 						"shared":  "value",
 					},
@@ -146,7 +147,7 @@ func TestExtractDependenciesToEntries(t *testing.T) {
 						Name: "entry2",
 					},
 					Kind: "endpoint",
-					Meta: registry.Metadata{
+					Meta: attrs.Bag{
 						"version": "2.0",
 						"shared":  "value",
 					},
@@ -225,7 +226,7 @@ entries:
 						Name: "service1",
 					},
 					Kind: "service",
-					Meta: registry.Metadata{
+					Meta: attrs.Bag{
 						"version": "1.0",
 					},
 					Data: payload.New(map[string]interface{}{
@@ -245,7 +246,7 @@ entries:
 						Name: "service2",
 					},
 					Kind: "service",
-					Meta: registry.Metadata{
+					Meta: attrs.Bag{
 						"version": "2.0",
 					},
 					Data: payload.New(map[string]interface{}{
@@ -299,7 +300,7 @@ func TestEntryProcessor(t *testing.T) {
 	t.Run("ProcessBatchEntries", func(t *testing.T) {
 		content := &FileContent{
 			Namespace: "test",
-			Meta: registry.Metadata{
+			Meta: attrs.Bag{
 				"shared": "value",
 			},
 			RawEntries: []map[string]interface{}{
@@ -339,7 +340,7 @@ func TestEntryProcessor(t *testing.T) {
 			Namespace: "test",
 			Name:      "single-entry",
 			Kind:      "service",
-			Meta: registry.Metadata{
+			Meta: attrs.Bag{
 				"version": "1.0",
 			},
 			Data: map[string]interface{}{
@@ -610,21 +611,21 @@ func TestMergeMeta(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		base     registry.Metadata
-		override registry.Metadata
-		want     registry.Metadata
+		base     attrs.Bag
+		override attrs.Bag
+		want     attrs.Bag
 	}{
 		{
 			name: "override string slices",
-			base: registry.Metadata{
+			base: attrs.Bag{
 				"tags":    []string{"base1", "base2"},
 				"version": "1.0",
 			},
-			override: registry.Metadata{
+			override: attrs.Bag{
 				"tags": []string{"override1", "base1"},
 				"env":  "prod",
 			},
-			want: registry.Metadata{
+			want: attrs.Bag{
 				"tags":    []string{"override1", "base1"}, // Override completely
 				"version": "1.0",
 				"env":     "prod",
@@ -632,33 +633,33 @@ func TestMergeMeta(t *testing.T) {
 		},
 		{
 			name: "merge with nil values",
-			base: registry.Metadata{
+			base: attrs.Bag{
 				"key": "value",
 			},
 			override: nil,
-			want: registry.Metadata{
+			want: attrs.Bag{
 				"key": "value",
 			},
 		},
 		{
 			name: "merge empty override",
 			base: nil,
-			override: registry.Metadata{
+			override: attrs.Bag{
 				"key": "value",
 			},
-			want: registry.Metadata{
+			want: attrs.Bag{
 				"key": "value",
 			},
 		},
 		{
 			name: "merge with interface slices",
-			base: registry.Metadata{
+			base: attrs.Bag{
 				"tags": []interface{}{"base1", "base2"},
 			},
-			override: registry.Metadata{
+			override: attrs.Bag{
 				"tags": []interface{}{"override1"},
 			},
-			want: registry.Metadata{
+			want: attrs.Bag{
 				"tags": []interface{}{"override1"}, // Notify replacement
 			},
 		},
@@ -705,8 +706,8 @@ func TestLegacyFunctions(t *testing.T) {
 	})
 
 	t.Run("Legacy mergeMeta", func(t *testing.T) {
-		base := registry.Metadata{"key": "value"}
-		override := registry.Metadata{"key": "override"}
+		base := attrs.Bag{"key": "value"}
+		override := attrs.Bag{"key": "override"}
 
 		result := mergeMeta(base, override)
 		if result["key"] != "override" {

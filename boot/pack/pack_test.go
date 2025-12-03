@@ -15,8 +15,8 @@ import (
 	systempayload "github.com/wippyai/runtime/system/payload"
 )
 
-func testMetadata(entryCount int) registry.Metadata {
-	return registry.Metadata{
+func testMetadata(entryCount int) map[string]interface{} {
+	return map[string]interface{}{
 		"wippy_version": "test",
 		"wippy_commit":  "abc123",
 		"wippy_date":    "2024-01-01",
@@ -34,13 +34,13 @@ func TestPackUnpack(t *testing.T) {
 			{
 				ID:   registry.ParseID("test:entry1"),
 				Kind: "test.kind",
-				Meta: registry.Metadata{"key": "value"},
+				Meta: map[string]interface{}{"key": "value"},
 				Data: payload.New(map[string]any{"field": "data"}),
 			},
 			{
 				ID:   registry.ParseID("test:entry2"),
 				Kind: "test.kind",
-				Meta: registry.Metadata{},
+				Meta: map[string]interface{}{},
 				Data: payload.New([]any{"a", "b", "c"}),
 			},
 		}
@@ -112,7 +112,7 @@ func TestPackUnpack(t *testing.T) {
 			entries[i] = registry.Entry{
 				ID:   registry.ParseID("test:" + string(rune('a'+i%26))),
 				Kind: "test.kind",
-				Meta: registry.Metadata{"index": i},
+				Meta: map[string]interface{}{"index": i},
 				Data: payload.New(map[string]any{
 					"value": i,
 					"data":  "some longer data to test compression",
@@ -180,7 +180,7 @@ func TestPackUnpack(t *testing.T) {
 			{
 				ID:   registry.ParseID("ns:dependency"),
 				Kind: registry.KindNamespaceDependency,
-				Meta: registry.Metadata{"parent": "root"},
+				Meta: map[string]interface{}{"parent": "root"},
 				Data: payload.New(map[string]any{
 					"component": "wippy/actor",
 					"parameters": []any{
@@ -292,7 +292,7 @@ func TestUnpackErrors(t *testing.T) {
 			{
 				ID:   registry.ParseID("test:entry"),
 				Kind: "test.kind",
-				Meta: registry.Metadata{},
+				Meta: map[string]interface{}{},
 				Data: payload.New(map[string]any{"original": "data"}),
 			},
 		}
@@ -359,7 +359,7 @@ func TestCompression(t *testing.T) {
 			entries[i] = registry.Entry{
 				ID:   registry.ParseID("test:entry"),
 				Kind: "test.kind",
-				Meta: registry.Metadata{
+				Meta: map[string]interface{}{
 					"repeated": "this is repeated data that should compress well",
 				},
 				Data: payload.New(map[string]any{
@@ -395,7 +395,7 @@ func TestUnpackBytes(t *testing.T) {
 			{
 				ID:   registry.ParseID("test:entry1"),
 				Kind: "process.lua",
-				Meta: registry.Metadata{"version": "1.0"},
+				Meta: map[string]interface{}{"version": "1.0"},
 				Data: payload.New(map[string]any{"code": "return 42"}),
 			},
 		}
@@ -595,6 +595,7 @@ func TestPackEdgeCases(t *testing.T) {
 			entries[i] = registry.Entry{
 				ID:   registry.ParseID(fmt.Sprintf("test:entry%d", i)),
 				Kind: "test.kind",
+				Meta: map[string]interface{}{},
 				Data: payload.New(map[string]any{"index": i}),
 			}
 		}
@@ -614,12 +615,12 @@ func TestPackEdgeCases(t *testing.T) {
 		entry := registry.Entry{
 			ID:   registry.ParseID("test:entry"),
 			Kind: "test.kind",
-			Meta: registry.Metadata{},
+			Meta: map[string]interface{}{},
 			Data: payload.New(map[string]any{"value": 42}),
 		}
 
 		var buf bytes.Buffer
-		err := packer.PackEntries(registry.Metadata{}, []registry.Entry{entry}, &buf)
+		err := packer.PackEntries(map[string]interface{}{}, []registry.Entry{entry}, &buf)
 		require.NoError(t, err)
 
 		reader, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)

@@ -33,8 +33,8 @@ func TestLargeFileChunking(t *testing.T) {
 		fsys := os.DirFS(tmpDir)
 
 		var buf bytes.Buffer
-		err = pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:large"), registry.Metadata{}, &buf)
+		err = pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:large"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -68,8 +68,8 @@ func TestLargeFileChunking(t *testing.T) {
 		fsys := os.DirFS(tmpDir)
 
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:exact"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:exact"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -103,8 +103,8 @@ func TestLargeFileChunking(t *testing.T) {
 		fsys := os.DirFS(tmpDir)
 
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:verylarge"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:verylarge"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -140,8 +140,8 @@ func TestLargeFileChunking(t *testing.T) {
 		fsys := os.DirFS(tmpDir)
 
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:multi"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:multi"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -176,8 +176,8 @@ func TestLargeFileChunking(t *testing.T) {
 		fsys := os.DirFS(tmpDir)
 
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:chunked"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:chunked"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -233,8 +233,8 @@ func TestLargeFileChunking(t *testing.T) {
 		fsys := os.DirFS(tmpDir)
 
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:mixed"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:mixed"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -289,8 +289,8 @@ func TestLargeFileEdgeCases(t *testing.T) {
 		fsys := os.DirFS(tmpDir)
 
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:under"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:under"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -325,8 +325,8 @@ func TestLargeFileEdgeCases(t *testing.T) {
 		fsys := os.DirFS(tmpDir)
 
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:over"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:over"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -361,8 +361,8 @@ func TestLargeFileEdgeCases(t *testing.T) {
 		fsys := os.DirFS(tmpDir)
 
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:partial"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:partial"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -415,8 +415,8 @@ func TestLargeFileEdgeCases(t *testing.T) {
 		fsys := os.DirFS(tmpDir)
 
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:seek"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:seek"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -453,8 +453,8 @@ func TestLargeFileEdgeCases(t *testing.T) {
 		fsys := os.DirFS(tmpDir)
 
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:compressed"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:compressed"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		// Verify the pack is smaller than the original due to compression
@@ -499,8 +499,8 @@ func TestMultipleLargeFiles(t *testing.T) {
 		fsys := os.DirFS(tmpDir)
 
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:multiple"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:multiple"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)

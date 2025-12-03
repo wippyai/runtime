@@ -422,7 +422,7 @@ func TestLink_MetaPath(t *testing.T) {
 		{
 			ID:   registry.NewID("test", "endpoint"),
 			Kind: "http.endpoint",
-			Meta: registry.Metadata{},
+			Meta: map[string]interface{}{},
 			Data: payload.New(map[string]any{}),
 		},
 	}

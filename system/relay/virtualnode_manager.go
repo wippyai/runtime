@@ -37,8 +37,8 @@ func (m *VirtualNodeManager) Start(ctx context.Context) error {
 	sub, err := eventbus.NewSubscriber(
 		ctx,
 		m.bus,
-		api.VirtualNodeSystem,
-		"virtual_nodes.(register|delete)",
+		api.System,
+		"vnode.(register|delete)",
 		m.handleEvent,
 	)
 	if err != nil {
@@ -109,7 +109,7 @@ func (m *VirtualNodeManager) handleDelete(e event.Event) {
 
 func (m *VirtualNodeManager) sendAccept(path event.Path) {
 	m.bus.Send(m.ctx, event.Event{
-		System: api.VirtualNodeSystem,
+		System: api.System,
 		Kind:   api.VirtualNodeAccept,
 		Path:   path,
 	})
@@ -117,7 +117,7 @@ func (m *VirtualNodeManager) sendAccept(path event.Path) {
 
 func (m *VirtualNodeManager) sendReject(path event.Path, reason string) {
 	m.bus.Send(m.ctx, event.Event{
-		System: api.VirtualNodeSystem,
+		System: api.System,
 		Kind:   api.VirtualNodeReject,
 		Path:   path,
 		Data:   reason,

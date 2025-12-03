@@ -2,7 +2,6 @@
 package topology
 
 import (
-	"errors"
 	"time"
 
 	"github.com/wippyai/runtime/api/payload"
@@ -44,12 +43,6 @@ const (
 	KindLinkRequest Kind = "pid.link.request"
 	// KindUnlinkRequest requests unlinking from a remote PID
 	KindUnlinkRequest Kind = "pid.unlink.request"
-)
-
-// PIDRegistry errors that can occur during name registration operations
-var (
-	// ErrNameAlreadyRegistered indicates a name is already associated with a Target
-	ErrNameAlreadyRegistered = errors.New("name already registered")
 )
 
 type (

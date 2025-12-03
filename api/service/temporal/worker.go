@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/supervisor"
 )
@@ -14,7 +15,7 @@ const (
 
 // WorkerConfig represents the configuration for a Temporal worker
 type WorkerConfig struct {
-	Meta          registry.Metadata          `json:"meta"`
+	Meta          attrs.Bag                  `json:"meta"`
 	Client        registry.ID                `json:"client"`         // Reference to Temporal client
 	TaskQueue     string                     `json:"task_queue"`     // Task queue name
 	WorkerOptions WorkerOptionsConfig        `json:"worker_options"` // Temporal worker options

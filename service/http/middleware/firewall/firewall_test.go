@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
@@ -27,7 +28,7 @@ func (m *mockScope) Without(_ registry.ID) security.Scope {
 	return m
 }
 
-func (m *mockScope) Evaluate(_ security.Actor, _, _ string, _ registry.Metadata) security.Result {
+func (m *mockScope) Evaluate(_ security.Actor, _, _ string, _ attrs.Bag) security.Result {
 	return m.result
 }
 

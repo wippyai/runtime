@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	systempayload "github.com/wippyai/runtime/system/payload"
@@ -29,7 +30,7 @@ func TestHashEntries(t *testing.T) {
 			{
 				ID:   registry.ParseID("test:entry1"),
 				Kind: "test.kind",
-				Meta: registry.Metadata{"key": "value"},
+				Meta: attrs.Bag{"key": "value"},
 				Data: payload.New(map[string]any{"field": "data"}),
 			},
 		}
@@ -45,7 +46,7 @@ func TestHashEntries(t *testing.T) {
 			{
 				ID:   registry.ParseID("test:entry1"),
 				Kind: "test.kind",
-				Meta: registry.Metadata{"key": "value"},
+				Meta: attrs.Bag{"key": "value"},
 				Data: payload.New(map[string]any{"field": "data"}),
 			},
 		}
@@ -54,7 +55,7 @@ func TestHashEntries(t *testing.T) {
 			{
 				ID:   registry.ParseID("test:entry1"),
 				Kind: "test.kind",
-				Meta: registry.Metadata{"key": "value"},
+				Meta: attrs.Bag{"key": "value"},
 				Data: payload.New(map[string]any{"field": "data"}),
 			},
 		}
@@ -73,19 +74,19 @@ func TestHashEntries(t *testing.T) {
 			{
 				ID:   registry.ParseID("test:b"),
 				Kind: "test.kind",
-				Meta: registry.Metadata{},
+				Meta: attrs.Bag{},
 				Data: payload.New(map[string]any{"val": "2"}),
 			},
 			{
 				ID:   registry.ParseID("test:a"),
 				Kind: "test.kind",
-				Meta: registry.Metadata{},
+				Meta: attrs.Bag{},
 				Data: payload.New(map[string]any{"val": "1"}),
 			},
 			{
 				ID:   registry.ParseID("test:c"),
 				Kind: "test.kind",
-				Meta: registry.Metadata{},
+				Meta: attrs.Bag{},
 				Data: payload.New(map[string]any{"val": "3"}),
 			},
 		}
@@ -94,19 +95,19 @@ func TestHashEntries(t *testing.T) {
 			{
 				ID:   registry.ParseID("test:a"),
 				Kind: "test.kind",
-				Meta: registry.Metadata{},
+				Meta: attrs.Bag{},
 				Data: payload.New(map[string]any{"val": "1"}),
 			},
 			{
 				ID:   registry.ParseID("test:c"),
 				Kind: "test.kind",
-				Meta: registry.Metadata{},
+				Meta: attrs.Bag{},
 				Data: payload.New(map[string]any{"val": "3"}),
 			},
 			{
 				ID:   registry.ParseID("test:b"),
 				Kind: "test.kind",
-				Meta: registry.Metadata{},
+				Meta: attrs.Bag{},
 				Data: payload.New(map[string]any{"val": "2"}),
 			},
 		}
@@ -125,7 +126,7 @@ func TestHashEntries(t *testing.T) {
 			{
 				ID:   registry.ParseID("test:entry"),
 				Kind: "test.kind",
-				Meta: registry.Metadata{"a": "1", "b": "2", "c": "3"},
+				Meta: attrs.Bag{"a": "1", "b": "2", "c": "3"},
 				Data: payload.New(map[string]any{"x": "1", "y": "2", "z": "3"}),
 			},
 		}
@@ -134,7 +135,7 @@ func TestHashEntries(t *testing.T) {
 			{
 				ID:   registry.ParseID("test:entry"),
 				Kind: "test.kind",
-				Meta: registry.Metadata{"c": "3", "a": "1", "b": "2"},
+				Meta: attrs.Bag{"c": "3", "a": "1", "b": "2"},
 				Data: payload.New(map[string]any{"z": "3", "x": "1", "y": "2"}),
 			},
 		}
@@ -153,7 +154,7 @@ func TestHashEntries(t *testing.T) {
 			{
 				ID:   registry.ParseID("test:entry"),
 				Kind: "test.kind",
-				Meta: registry.Metadata{},
+				Meta: attrs.Bag{},
 				Data: payload.New(map[string]any{"val": "1"}),
 			},
 		}
@@ -162,7 +163,7 @@ func TestHashEntries(t *testing.T) {
 			{
 				ID:   registry.ParseID("test:entry"),
 				Kind: "test.kind",
-				Meta: registry.Metadata{},
+				Meta: attrs.Bag{},
 				Data: payload.New(map[string]any{"val": "2"}),
 			},
 		}
@@ -181,7 +182,7 @@ func TestHashEntries(t *testing.T) {
 			{
 				ID:   registry.ParseID("test:entry"),
 				Kind: "test.kind",
-				Meta: registry.Metadata{},
+				Meta: attrs.Bag{},
 				Data: payload.New(map[string]any{
 					"outer": map[string]any{
 						"b": "2",
@@ -196,7 +197,7 @@ func TestHashEntries(t *testing.T) {
 			{
 				ID:   registry.ParseID("test:entry"),
 				Kind: "test.kind",
-				Meta: registry.Metadata{},
+				Meta: attrs.Bag{},
 				Data: payload.New(map[string]any{
 					"outer": map[string]any{
 						"c": "3",
@@ -221,7 +222,7 @@ func TestHashEntries(t *testing.T) {
 			{
 				ID:   registry.ParseID("test:entry"),
 				Kind: "test.kind",
-				Meta: registry.Metadata{},
+				Meta: attrs.Bag{},
 				Data: payload.New([]any{"a", "b", "c"}),
 			},
 		}
@@ -230,7 +231,7 @@ func TestHashEntries(t *testing.T) {
 			{
 				ID:   registry.ParseID("test:entry"),
 				Kind: "test.kind",
-				Meta: registry.Metadata{},
+				Meta: attrs.Bag{},
 				Data: payload.New([]any{"c", "b", "a"}),
 			},
 		}
@@ -249,7 +250,7 @@ func TestHashEntries(t *testing.T) {
 			{
 				ID:   registry.ParseID("test:entry"),
 				Kind: "test.kind",
-				Meta: registry.Metadata{"key": "value"},
+				Meta: attrs.Bag{"key": "value"},
 				Data: nil,
 			},
 		}
@@ -283,7 +284,7 @@ func TestDependencyEntries(t *testing.T) {
 			{
 				ID:   registry.ParseID("ns:my-dependency"),
 				Kind: registry.KindNamespaceDependency,
-				Meta: registry.Metadata{"parent": "some-parent"},
+				Meta: attrs.Bag{"parent": "some-parent"},
 				Data: payload.New(map[string]any{
 					"component": "wippy/actor",
 					"parameters": []any{
@@ -307,7 +308,7 @@ func TestDependencyEntries(t *testing.T) {
 			{
 				ID:   registry.ParseID("ns:my-requirement"),
 				Kind: registry.KindNamespaceRequirement,
-				Meta: registry.Metadata{"parent": "ns:my-dependency"},
+				Meta: attrs.Bag{"parent": "ns:my-dependency"},
 				Data: payload.New(map[string]any{
 					"targets": []any{
 						map[string]any{
@@ -331,7 +332,7 @@ func TestDependencyEntries(t *testing.T) {
 			{
 				ID:   registry.ParseID("ns:dep-a"),
 				Kind: registry.KindNamespaceDependency,
-				Meta: registry.Metadata{},
+				Meta: attrs.Bag{},
 				Data: payload.New(map[string]any{
 					"component":  "wippy/actor",
 					"parameters": []any{},
@@ -340,7 +341,7 @@ func TestDependencyEntries(t *testing.T) {
 			{
 				ID:   registry.ParseID("ns:dep-b"),
 				Kind: registry.KindNamespaceDependency,
-				Meta: registry.Metadata{},
+				Meta: attrs.Bag{},
 				Data: payload.New(map[string]any{
 					"component":  "wippy/logger",
 					"parameters": []any{},

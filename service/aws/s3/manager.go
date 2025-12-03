@@ -6,6 +6,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/cloudstorage"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
@@ -169,7 +170,7 @@ func (m *Manager) Acquire(_ context.Context, id registry.ID, mode resource.Acces
 	}, nil
 }
 
-func (m *Manager) set(ctx context.Context, entry registry.Entry) (registry.Metadata, error) {
+func (m *Manager) set(ctx context.Context, entry registry.Entry) (attrs.Bag, error) {
 	// Decode and initialize configuration
 	cfg, err := entryutil.DecodeEntryConfig[services3.Config](ctx, m.dtt, entry)
 	if err != nil {

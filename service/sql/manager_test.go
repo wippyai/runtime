@@ -369,7 +369,7 @@ func TestManager_Add(t *testing.T) {
 				select {
 				case evt := <-supervisorEvents:
 					assert.Equal(t, supervisor.System, evt.System)
-					assert.Equal(t, supervisor.Register, evt.Kind)
+					assert.Equal(t, supervisor.ServiceRegister, evt.Kind)
 				case <-time.After(time.Second):
 					t.Fatal("timeout waiting for supervisor event")
 				}
@@ -489,7 +489,7 @@ func TestManager_Update(t *testing.T) {
 				select {
 				case evt := <-supervisorEvents:
 					assert.Equal(t, supervisor.System, evt.System)
-					assert.Equal(t, supervisor.Update, evt.Kind)
+					assert.Equal(t, supervisor.ServiceUpdate, evt.Kind)
 				case <-time.After(time.Second):
 					t.Fatal("timeout waiting for supervisor event")
 				}

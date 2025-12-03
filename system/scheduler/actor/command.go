@@ -11,7 +11,7 @@ type (
 	StepResult     = process.StepResult
 	YieldResults   = process.YieldResults
 	Process        = process.Process
-	ProcessFactory = process.ProcessFactory
+	ProcessFactory = process.NewFunc
 )
 
 // Re-export constants from api/process.

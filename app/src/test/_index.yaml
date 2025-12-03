@@ -1,0 +1,21 @@
+version: "1.0"
+namespace: app.test
+
+entries:
+  - name: base64
+    kind: function.lua
+    meta:
+      comment: Base64 module tests
+      type: test
+    source: file://base64.lua
+    method: main
+    modules:
+      - base64
+
+  - name: errors
+    kind: function.lua
+    meta:
+      comment: Structured errors tests
+      type: test
+    source: file://errors.lua
+    method: main

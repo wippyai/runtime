@@ -3,8 +3,8 @@ package security
 import (
 	"context"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/logs"
-	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
 	"go.uber.org/zap"
 )
@@ -16,7 +16,7 @@ const (
 )
 
 // IsAllowed checks if the action on the resource is allowed based on security context
-func IsAllowed(ctx context.Context, action, resource string, meta registry.Metadata) bool {
+func IsAllowed(ctx context.Context, action, resource string, meta attrs.Bag) bool {
 	actor, hasActor := security.GetActor(ctx)
 	scope, hasScope := security.GetScope(ctx)
 

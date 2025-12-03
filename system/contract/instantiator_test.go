@@ -6,6 +6,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/contract"
 	"github.com/wippyai/runtime/api/event"
@@ -108,13 +109,13 @@ func TestInstantiator_Instantiate(t *testing.T) {
 	wg.Wait()
 
 	// Test successful instantiation
-	scope := registry.Metadata{"required_key": "value"}
+	scope := attrs.Bag{"required_key": "value"}
 	instance, err := instantiator.Instantiate(ctx, bindingID, scope)
 	require.NoError(t, err)
 	assert.Len(t, instance.Implements(), 1)
 
 	// Test with non-existent binding
-	_, err = instantiator.Instantiate(ctx, registry.NewID("test", "missing"), registry.Metadata{})
+	_, err = instantiator.Instantiate(ctx, registry.NewID("test", "missing"), attrs.Bag{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "contract binding 'test:missing' not found")
 
@@ -124,7 +125,7 @@ func TestInstantiator_Instantiate(t *testing.T) {
 	assert.NotNil(t, instanceNil)
 
 	// Test with empty context - should succeed
-	instanceEmpty, err := instantiator.Instantiate(ctx, bindingID, registry.Metadata{})
+	instanceEmpty, err := instantiator.Instantiate(ctx, bindingID, attrs.Bag{})
 	require.NoError(t, err)
 	assert.NotNil(t, instanceEmpty)
 }
@@ -167,29 +168,29 @@ func TestInstanceImpl_ScopeValidation(t *testing.T) {
 	tests := []struct {
 		name          string
 		scopeRequired []string
-		instanceScope registry.Metadata
+		instanceScope attrs.Bag
 		expectedError string
 	}{
 		{
 			name:          "no context required",
 			scopeRequired: []string{},
-			instanceScope: registry.Metadata{},
+			instanceScope: attrs.Bag{},
 		},
 		{
 			name:          "required context present",
 			scopeRequired: []string{"key1", "key2"},
-			instanceScope: registry.Metadata{"key1": "value1", "key2": "value2"},
+			instanceScope: attrs.Bag{"key1": "value1", "key2": "value2"},
 		},
 		{
 			name:          "missing one required key",
 			scopeRequired: []string{"key1", "key2"},
-			instanceScope: registry.Metadata{"key1": "value1"},
+			instanceScope: attrs.Bag{"key1": "value1"},
 			expectedError: "missing required context keys: [key2]",
 		},
 		{
 			name:          "missing all required keys",
 			scopeRequired: []string{"key1", "key2"},
-			instanceScope: registry.Metadata{},
+			instanceScope: attrs.Bag{},
 			expectedError: "missing required context keys: [key1, key2]",
 		},
 		{
@@ -332,7 +333,7 @@ func TestInstanceImpl_Call_Integration(t *testing.T) {
 	wg.Wait()
 
 	// Create instance and call method
-	instance, err := instantiator.Instantiate(ctx, bindingID, registry.Metadata{})
+	instance, err := instantiator.Instantiate(ctx, bindingID, attrs.Bag{})
 	require.NoError(t, err)
 
 	result, err := instance.Call(ctx, "testMethod", payload.Payloads{payload.New("test_input")})
@@ -569,7 +570,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 	wg.Wait()
 
 	t.Run("empty context produces no context", func(t *testing.T) {
-		instance, err := instantiator.Instantiate(ctx, bindingID, registry.Metadata{})
+		instance, err := instantiator.Instantiate(ctx, bindingID, attrs.Bag{})
 		require.NoError(t, err)
 
 		result, err := instance.Call(ctx, "captureMethod", payload.Payloads{})
@@ -582,7 +583,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 	})
 
 	t.Run("context values are properly passed to function", func(t *testing.T) {
-		scope := registry.Metadata{
+		scope := attrs.Bag{
 			"app_name":    "test_app",
 			"version":     "1.0.0",
 			"environment": "test",
@@ -608,7 +609,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 	})
 
 	t.Run("context merges with existing context", func(t *testing.T) {
-		scope := registry.Metadata{
+		scope := attrs.Bag{
 			"from_scope": "scope_value",
 			"override":   "scope_wins",
 		}
@@ -728,7 +729,7 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 		_ = fc.Set(ctxapi.ValuesCtx, values)
 
 		// Create instance with EMPTY scope (no origin_id in scope parameter)
-		instance, err := instantiator.Instantiate(callCtx, bindingID, registry.Metadata{})
+		instance, err := instantiator.Instantiate(callCtx, bindingID, attrs.Bag{})
 		require.NoError(t, err, "Instantiation should succeed")
 
 		// Try to call method - this should NOW SUCCEED validation with the fix
@@ -744,7 +745,7 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 		callCtx := ctx
 
 		// Create instance with origin_id in scope parameter
-		scope := registry.Metadata{"origin_id": "test-uuid-456"}
+		scope := attrs.Bag{"origin_id": "test-uuid-456"}
 		instance, err := instantiator.Instantiate(callCtx, bindingID, scope)
 		require.NoError(t, err, "Instantiation should succeed")
 
@@ -764,7 +765,7 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 		_ = fc.Set(ctxapi.ValuesCtx, values)
 
 		// Create instance with origin_id in scope (should override Go context value)
-		scope := registry.Metadata{"origin_id": "from-scope"}
+		scope := attrs.Bag{"origin_id": "from-scope"}
 		instance, err := instantiator.Instantiate(callCtx, bindingID, scope)
 		require.NoError(t, err, "Instantiation should succeed")
 
@@ -782,7 +783,7 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 		callCtx, _ := ctxapi.AcquireFrameContext(freshCtx)
 
 		// Create instance with empty scope
-		instance, err := instantiator.Instantiate(callCtx, bindingID, registry.Metadata{})
+		instance, err := instantiator.Instantiate(callCtx, bindingID, attrs.Bag{})
 		require.NoError(t, err, "Instantiation should succeed")
 
 		// Try to call method - should fail validation

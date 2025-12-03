@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/supervisor"
 )
@@ -273,7 +274,7 @@ func TestRouterConfig_Validate(t *testing.T) {
 		{
 			name: "valid config",
 			config: RouterConfig{
-				Meta:       registry.Metadata{ServerID: "test-server"},
+				Meta:       attrs.Bag{ServerID: "test-server"},
 				Prefix:     "/api",
 				Middleware: []string{"timeout", "recoverer"},
 				Options: map[string]string{
@@ -293,7 +294,7 @@ func TestRouterConfig_Validate(t *testing.T) {
 		{
 			name: "missing server alias",
 			config: RouterConfig{
-				Meta:   registry.Metadata{},
+				Meta:   attrs.Bag{},
 				Prefix: "/api",
 			},
 			wantErr: true,
@@ -321,7 +322,7 @@ func TestEndpointConfig_Validate(t *testing.T) {
 		{
 			name: "valid config",
 			config: EndpointConfig{
-				Meta: registry.Metadata{
+				Meta: attrs.Bag{
 					RouterID: "test-router", // Added required RouterID
 				},
 				Path:   "/test",
@@ -333,7 +334,7 @@ func TestEndpointConfig_Validate(t *testing.T) {
 		{
 			name: "empty path",
 			config: EndpointConfig{
-				Meta: registry.Metadata{
+				Meta: attrs.Bag{
 					RouterID: "test-router",
 				},
 				Method: "GET",
@@ -344,7 +345,7 @@ func TestEndpointConfig_Validate(t *testing.T) {
 		{
 			name: "path without leading slash",
 			config: EndpointConfig{
-				Meta: registry.Metadata{
+				Meta: attrs.Bag{
 					RouterID: "test-router",
 				},
 				Path:   "test",
@@ -356,7 +357,7 @@ func TestEndpointConfig_Validate(t *testing.T) {
 		{
 			name: "empty method",
 			config: EndpointConfig{
-				Meta: registry.Metadata{
+				Meta: attrs.Bag{
 					RouterID: "test-router",
 				},
 				Path: "/test",
@@ -367,7 +368,7 @@ func TestEndpointConfig_Validate(t *testing.T) {
 		{
 			name: "invalid method",
 			config: EndpointConfig{
-				Meta: registry.Metadata{
+				Meta: attrs.Bag{
 					RouterID: "test-router",
 				},
 				Path:   "/test",
@@ -388,7 +389,7 @@ func TestEndpointConfig_Validate(t *testing.T) {
 		{
 			name: "missing router Source",
 			config: EndpointConfig{
-				Meta:   registry.Metadata{},
+				Meta:   attrs.Bag{},
 				Path:   "/test",
 				Method: "GET",
 				Func:   registry.NewID("default", "test_handler"),
@@ -398,7 +399,7 @@ func TestEndpointConfig_Validate(t *testing.T) {
 		{
 			name: "empty function name",
 			config: EndpointConfig{
-				Meta: registry.Metadata{
+				Meta: attrs.Bag{
 					RouterID: "test-router",
 				},
 				Path:   "/test",
@@ -566,15 +567,15 @@ func TestServerConfig_UnmarshalJSON(t *testing.T) {
 func TestServerConfig_SetMeta(t *testing.T) {
 	t.Run("sets meta when nil", func(t *testing.T) {
 		config := &ServerConfig{}
-		meta := registry.Metadata{"key": "value"}
+		meta := attrs.Bag{"key": "value"}
 		config.SetMeta(meta)
 		assert.Equal(t, meta, config.Meta)
 	})
 
 	t.Run("does not override existing meta", func(t *testing.T) {
-		existingMeta := registry.Metadata{"existing": "value"}
+		existingMeta := attrs.Bag{"existing": "value"}
 		config := &ServerConfig{Meta: existingMeta}
-		newMeta := registry.Metadata{"new": "value"}
+		newMeta := attrs.Bag{"new": "value"}
 		config.SetMeta(newMeta)
 		assert.Equal(t, existingMeta, config.Meta)
 	})
@@ -583,15 +584,15 @@ func TestServerConfig_SetMeta(t *testing.T) {
 func TestRouterConfig_SetMeta(t *testing.T) {
 	t.Run("sets meta when nil", func(t *testing.T) {
 		config := &RouterConfig{}
-		meta := registry.Metadata{"key": "value"}
+		meta := attrs.Bag{"key": "value"}
 		config.SetMeta(meta)
 		assert.Equal(t, meta, config.Meta)
 	})
 
 	t.Run("does not override existing meta", func(t *testing.T) {
-		existingMeta := registry.Metadata{"existing": "value"}
+		existingMeta := attrs.Bag{"existing": "value"}
 		config := &RouterConfig{Meta: existingMeta}
-		newMeta := registry.Metadata{"new": "value"}
+		newMeta := attrs.Bag{"new": "value"}
 		config.SetMeta(newMeta)
 		assert.Equal(t, existingMeta, config.Meta)
 	})
@@ -600,15 +601,15 @@ func TestRouterConfig_SetMeta(t *testing.T) {
 func TestEndpointConfig_SetMeta(t *testing.T) {
 	t.Run("sets meta when nil", func(t *testing.T) {
 		config := &EndpointConfig{}
-		meta := registry.Metadata{"key": "value"}
+		meta := attrs.Bag{"key": "value"}
 		config.SetMeta(meta)
 		assert.Equal(t, meta, config.Meta)
 	})
 
 	t.Run("does not override existing meta", func(t *testing.T) {
-		existingMeta := registry.Metadata{"existing": "value"}
+		existingMeta := attrs.Bag{"existing": "value"}
 		config := &EndpointConfig{Meta: existingMeta}
-		newMeta := registry.Metadata{"new": "value"}
+		newMeta := attrs.Bag{"new": "value"}
 		config.SetMeta(newMeta)
 		assert.Equal(t, existingMeta, config.Meta)
 	})
@@ -617,15 +618,15 @@ func TestEndpointConfig_SetMeta(t *testing.T) {
 func TestStaticConfig_SetMeta(t *testing.T) {
 	t.Run("sets meta when nil", func(t *testing.T) {
 		config := &StaticConfig{}
-		meta := registry.Metadata{"key": "value"}
+		meta := attrs.Bag{"key": "value"}
 		config.SetMeta(meta)
 		assert.Equal(t, meta, config.Meta)
 	})
 
 	t.Run("does not override existing meta", func(t *testing.T) {
-		existingMeta := registry.Metadata{"existing": "value"}
+		existingMeta := attrs.Bag{"existing": "value"}
 		config := &StaticConfig{Meta: existingMeta}
-		newMeta := registry.Metadata{"new": "value"}
+		newMeta := attrs.Bag{"new": "value"}
 		config.SetMeta(newMeta)
 		assert.Equal(t, existingMeta, config.Meta)
 	})
@@ -635,7 +636,7 @@ func TestStaticConfig_Validate(t *testing.T) {
 	t.Run("valid config", func(t *testing.T) {
 		config := &StaticConfig{
 			Path: "/static",
-			Meta: registry.Metadata{
+			Meta: attrs.Bag{
 				ServerID: "server1",
 			},
 		}
@@ -646,7 +647,7 @@ func TestStaticConfig_Validate(t *testing.T) {
 	t.Run("empty path", func(t *testing.T) {
 		config := &StaticConfig{
 			Path: "",
-			Meta: registry.Metadata{ServerID: "server1"},
+			Meta: attrs.Bag{ServerID: "server1"},
 		}
 		err := config.Validate()
 		require.Error(t, err)
@@ -656,7 +657,7 @@ func TestStaticConfig_Validate(t *testing.T) {
 	t.Run("path without leading slash", func(t *testing.T) {
 		config := &StaticConfig{
 			Path: "static",
-			Meta: registry.Metadata{ServerID: "server1"},
+			Meta: attrs.Bag{ServerID: "server1"},
 		}
 		err := config.Validate()
 		require.Error(t, err)
@@ -676,7 +677,7 @@ func TestStaticConfig_Validate(t *testing.T) {
 	t.Run("missing server in metadata", func(t *testing.T) {
 		config := &StaticConfig{
 			Path: "/static",
-			Meta: registry.Metadata{},
+			Meta: attrs.Bag{},
 		}
 		err := config.Validate()
 		require.Error(t, err)

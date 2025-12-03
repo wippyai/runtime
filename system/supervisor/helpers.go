@@ -45,8 +45,8 @@ func isTerminalError(err error) bool {
 // newServiceState creates a new internalState instance
 func newServiceState() *internalState {
 	return &internalState{
-		status:     supervisor.Unknown,
-		desired:    supervisor.Unknown,
+		status:     supervisor.StatusUnknown,
+		desired:    supervisor.StatusUnknown,
 		lastUpdate: time.Now(),
 		startedAt:  time.Time{},
 	}
@@ -86,7 +86,7 @@ func (s *internalState) updateState(status supervisor.Status, details any) (supe
 	s.mu.Lock()
 	prevStatus := s.status
 	s.status = status
-	if status == supervisor.Running && prevStatus != supervisor.Running {
+	if status == supervisor.StatusRunning && prevStatus != supervisor.StatusRunning {
 		s.startedAt = time.Now()
 	}
 	s.mu.Unlock()

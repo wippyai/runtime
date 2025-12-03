@@ -243,7 +243,7 @@ func NewProcess(opts ...ProcessOption) *Process {
 // State must be initialized by Factory - processes are created via Factory.Create().
 // Only one Execute can run at a time per process - results come from Step(StepDone).
 // If method is specified, the script is run once to get module table, then the method is called.
-func (p *Process) Execute(ctx context.Context, method string, input payload.Payloads) error {
+func (p *Process) Init(ctx context.Context, method string, input payload.Payloads) error {
 	if p.state == nil {
 		return ErrStateNotInitialized
 	}

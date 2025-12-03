@@ -74,7 +74,7 @@ func TestController_BasicLifecycle(t *testing.T) {
 	)
 
 	// Test initial state
-	if state := ctr.state.getSnapshot(); state.status != supervisor.Unknown {
+	if state := ctr.state.getSnapshot(); state.status != supervisor.StatusUnknown {
 		t.Errorf("Expected initial Status Unknown, got %v", state.status)
 	}
 
@@ -83,7 +83,7 @@ func TestController_BasicLifecycle(t *testing.T) {
 		t.Fatalf("Failed to start supervisor: %v", err)
 	}
 
-	if state := ctr.state.getSnapshot(); state.status != supervisor.Running {
+	if state := ctr.state.getSnapshot(); state.status != supervisor.StatusRunning {
 		t.Errorf("Expected Status Running, got %v", state.status)
 	}
 
@@ -94,7 +94,7 @@ func TestController_BasicLifecycle(t *testing.T) {
 		t.Fatalf("Failed to transition to Stopped: %v", err)
 	}
 
-	if state := ctr.state.getSnapshot(); state.status != supervisor.Stopped {
+	if state := ctr.state.getSnapshot(); state.status != supervisor.StatusStopped {
 		t.Errorf("Expected Status Stopped, got %v", state.status)
 	}
 
@@ -108,11 +108,11 @@ func TestController_BasicLifecycle(t *testing.T) {
 	statesMutex.Unlock()
 
 	expectedStates := []supervisor.Status{
-		supervisor.Starting,
-		supervisor.Running,
-		supervisor.Running, // updated by service details
-		supervisor.Stopping,
-		supervisor.Stopped,
+		supervisor.StatusStarting,
+		supervisor.StatusRunning,
+		supervisor.StatusRunning, // updated by service details
+		supervisor.StatusStopping,
+		supervisor.StatusStopped,
 	}
 
 	if len(finalStates) != len(expectedStates) {
@@ -159,7 +159,7 @@ func TestController_ServiceFailure(t *testing.T) {
 			},
 		},
 		func(status supervisor.Status, _ any) {
-			if status == supervisor.Running {
+			if status == supervisor.StatusRunning {
 				select {
 				case stateReached <- struct{}{}:
 				default:
@@ -176,7 +176,7 @@ func TestController_ServiceFailure(t *testing.T) {
 	// wait for service to reach Running state after recovery
 	<-stateReached
 
-	if state := ctr.state.getSnapshot(); state.status != supervisor.Running {
+	if state := ctr.state.getSnapshot(); state.status != supervisor.StatusRunning {
 		t.Errorf("Expected Status Running after recovery, got %v", state.status)
 	}
 
@@ -210,7 +210,7 @@ func TestController_StartupError(t *testing.T) {
 			RetryPolicy:  supervisor.RetryPolicy{MaxAttempts: 1},
 		},
 		func(status supervisor.Status, _ any) {
-			if status == supervisor.Failed {
+			if status == supervisor.StatusFailed {
 				select {
 				case stateReached <- struct{}{}:
 				default:
@@ -227,7 +227,7 @@ func TestController_StartupError(t *testing.T) {
 	<-stateReached
 
 	state := ctr.state.getSnapshot()
-	if state.status != supervisor.Failed {
+	if state.status != supervisor.StatusFailed {
 		t.Errorf("Expected Failed Status, got %v", state.status)
 	}
 }
@@ -284,7 +284,7 @@ func TestController_ServiceRecoveryAfterFailure(t *testing.T) {
 
 	// Verify service is running
 	state := ctr.state.getSnapshot()
-	if state.status != supervisor.Running {
+	if state.status != supervisor.StatusRunning {
 		t.Fatalf("Expected service to be Running, got %v", state.status)
 	}
 
@@ -300,7 +300,7 @@ func TestController_ServiceRecoveryAfterFailure(t *testing.T) {
 
 	// Verify service recovered
 	state = ctr.state.getSnapshot()
-	if state.status != supervisor.Running {
+	if state.status != supervisor.StatusRunning {
 		t.Fatalf("Expected service to be Running after recovery, got %v", state.status)
 	}
 
@@ -319,15 +319,15 @@ func TestController_ServiceRecoveryAfterFailure(t *testing.T) {
 
 	// Verify the state transition sequence
 	expectedTransitions := []supervisor.Status{
-		supervisor.Starting, // Initial start
-		supervisor.Running,  // First successful start
-		supervisor.Running,  // Topology Details received
-		supervisor.Failed,   // Topology death
-		supervisor.Starting, // Recovery attempt
-		supervisor.Running,  // Recovery successful
-		supervisor.Running,  // Topology Details received after recovery
-		supervisor.Stopping, // Clean shutdown
-		supervisor.Stopped,  // Final state
+		supervisor.StatusStarting, // Initial start
+		supervisor.StatusRunning,  // First successful start
+		supervisor.StatusRunning,  // Topology Details received
+		supervisor.StatusFailed,   // Topology death
+		supervisor.StatusStarting, // Recovery attempt
+		supervisor.StatusRunning,  // Recovery successful
+		supervisor.StatusRunning,  // Topology Details received after recovery
+		supervisor.StatusStopping, // Clean shutdown
+		supervisor.StatusStopped,  // Final state
 	}
 
 	if len(transitions) != len(expectedTransitions) {
@@ -397,7 +397,7 @@ func TestController_ServiceFailedRecovery(t *testing.T) {
 				return
 			default:
 				stateTransitions = append(stateTransitions, status)
-				if status == supervisor.Failed {
+				if status == supervisor.StatusFailed {
 					if attempts > maxRetries {
 						once.Do(func() {
 							close(stateChan)
@@ -419,7 +419,7 @@ func TestController_ServiceFailedRecovery(t *testing.T) {
 
 	// Verify service is initially running
 	state := ctr.state.getSnapshot()
-	if state.status != supervisor.Running {
+	if state.status != supervisor.StatusRunning {
 		cancel()
 		t.Fatalf("Expected service to be Running initially, got %v", state.status)
 	}
@@ -452,14 +452,14 @@ func TestController_ServiceFailedRecovery(t *testing.T) {
 
 	// Verify the complete state transition sequence
 	expectedTransitions := []supervisor.Status{
-		supervisor.Starting, // Initial start
-		supervisor.Running,  // First successful start
-		supervisor.Running,  // Topology Details received
-		supervisor.Failed,   // Topology death
-		supervisor.Starting, // First recovery attempt
-		supervisor.Failed,   // First recovery failure
-		supervisor.Starting, // Second recovery attempt
-		supervisor.Failed,   // Recovery failure
+		supervisor.StatusStarting, // Initial start
+		supervisor.StatusRunning,  // First successful start
+		supervisor.StatusRunning,  // Topology Details received
+		supervisor.StatusFailed,   // Topology death
+		supervisor.StatusStarting, // First recovery attempt
+		supervisor.StatusFailed,   // First recovery failure
+		supervisor.StatusStarting, // Second recovery attempt
+		supervisor.StatusFailed,   // Recovery failure
 	}
 
 	if len(transitions) != len(expectedTransitions) {
@@ -486,8 +486,8 @@ func TestController_ServiceFailedRecovery(t *testing.T) {
 
 func TestController_ServiceStateSnapshot(t *testing.T) {
 	state := newServiceState()
-	state.status = supervisor.Running
-	state.desired = supervisor.Running
+	state.status = supervisor.StatusRunning
+	state.desired = supervisor.StatusRunning
 	state.retryCount = 5
 	state.lastUpdate = time.Now()
 	state.details = "test Details"
@@ -513,7 +513,7 @@ func TestController_ServiceStateSnapshot(t *testing.T) {
 
 func TestController_ServiceDetailsUpdate(t *testing.T) {
 	state := newServiceState()
-	initialStatus := supervisor.Running
+	initialStatus := supervisor.StatusRunning
 	state.status = initialStatus
 
 	testCases := []struct {
@@ -720,14 +720,14 @@ func TestController_StopAndRestart(t *testing.T) {
 	}
 
 	// wait for first running state (need two Running signals due to details update)
-	if err := waitForState(supervisor.Running, time.Second); err != nil {
+	if err := waitForState(supervisor.StatusRunning, time.Second); err != nil {
 		t.Fatal(err)
 	}
-	if err := waitForState(supervisor.Running, time.Second); err != nil {
+	if err := waitForState(supervisor.StatusRunning, time.Second); err != nil {
 		t.Fatal(err)
 	}
 
-	if state := ctr.state.getSnapshot(); state.status != supervisor.Running {
+	if state := ctr.state.getSnapshot(); state.status != supervisor.StatusRunning {
 		t.Fatalf("Expected service to be Running after start, got %v", state.status)
 	}
 
@@ -737,14 +737,14 @@ func TestController_StopAndRestart(t *testing.T) {
 	}
 
 	// wait for service to stop
-	if err := waitForState(supervisor.Stopping, time.Second); err != nil {
+	if err := waitForState(supervisor.StatusStopping, time.Second); err != nil {
 		t.Fatal(err)
 	}
-	if err := waitForState(supervisor.Stopped, time.Second); err != nil {
+	if err := waitForState(supervisor.StatusStopped, time.Second); err != nil {
 		t.Fatal(err)
 	}
 
-	if state := ctr.state.getSnapshot(); state.status != supervisor.Stopped {
+	if state := ctr.state.getSnapshot(); state.status != supervisor.StatusStopped {
 		t.Fatalf("Expected service to be Stopped after stop, got %v", state.status)
 	}
 
@@ -754,17 +754,17 @@ func TestController_StopAndRestart(t *testing.T) {
 	}
 
 	// wait for second running state
-	if err := waitForState(supervisor.Starting, time.Second); err != nil {
+	if err := waitForState(supervisor.StatusStarting, time.Second); err != nil {
 		t.Fatal(err)
 	}
-	if err := waitForState(supervisor.Running, time.Second); err != nil {
+	if err := waitForState(supervisor.StatusRunning, time.Second); err != nil {
 		t.Fatal(err)
 	}
-	if err := waitForState(supervisor.Running, time.Second); err != nil {
+	if err := waitForState(supervisor.StatusRunning, time.Second); err != nil {
 		t.Fatal(err)
 	}
 
-	if state := ctr.state.getSnapshot(); state.status != supervisor.Running {
+	if state := ctr.state.getSnapshot(); state.status != supervisor.StatusRunning {
 		t.Fatalf("Expected service to be Running after restart, got %v", state.status)
 	}
 
@@ -774,10 +774,10 @@ func TestController_StopAndRestart(t *testing.T) {
 	}
 
 	// wait for final stopped state
-	if err := waitForState(supervisor.Stopping, time.Second); err != nil {
+	if err := waitForState(supervisor.StatusStopping, time.Second); err != nil {
 		t.Fatal(err)
 	}
-	if err := waitForState(supervisor.Stopped, time.Second); err != nil {
+	if err := waitForState(supervisor.StatusStopped, time.Second); err != nil {
 		t.Fatal(err)
 	}
 
@@ -794,16 +794,16 @@ func TestController_StopAndRestart(t *testing.T) {
 
 	// Expected state transition sequence
 	expectedTransitions := []supervisor.Status{
-		supervisor.Starting, // Initial start
-		supervisor.Running,  // First running state
-		supervisor.Running,  // Topology details received
-		supervisor.Stopping, // First stop
-		supervisor.Stopped,  // Stopped state
-		supervisor.Starting, // Restart
-		supervisor.Running,  // Second running state
-		supervisor.Running,  // Topology details received
-		supervisor.Stopping, // Final stop
-		supervisor.Stopped,  // Final state
+		supervisor.StatusStarting, // Initial start
+		supervisor.StatusRunning,  // First running state
+		supervisor.StatusRunning,  // Topology details received
+		supervisor.StatusStopping, // First stop
+		supervisor.StatusStopped,  // Stopped state
+		supervisor.StatusStarting, // Restart
+		supervisor.StatusRunning,  // Second running state
+		supervisor.StatusRunning,  // Topology details received
+		supervisor.StatusStopping, // Final stop
+		supervisor.StatusStopped,  // Final state
 	}
 
 	if len(transitions) != len(expectedTransitions) {
@@ -898,7 +898,7 @@ func TestController_GracefulShutdown(t *testing.T) {
 
 	// wait for service to be running
 	time.Sleep(100 * time.Millisecond)
-	if state := ctr.State(); state.Status != supervisor.Running {
+	if state := ctr.State(); state.Status != supervisor.StatusRunning {
 		t.Fatalf("Expected service to be Running, got %v", state.Status)
 	}
 
@@ -937,13 +937,13 @@ func TestController_GracefulShutdown(t *testing.T) {
 		status  supervisor.Status
 		details any
 	}{
-		{supervisor.Starting, "attempt 1"},
-		{supervisor.Running, nil},
-		{supervisor.Running, "service running"},
-		{supervisor.Stopping, nil},
-		{supervisor.Stopping, "cleaning up resources"},
-		{supervisor.Stopping, "closing connections"},
-		{supervisor.Stopped, nil},
+		{supervisor.StatusStarting, "attempt 1"},
+		{supervisor.StatusRunning, nil},
+		{supervisor.StatusRunning, "service running"},
+		{supervisor.StatusStopping, nil},
+		{supervisor.StatusStopping, "cleaning up resources"},
+		{supervisor.StatusStopping, "closing connections"},
+		{supervisor.StatusStopped, nil},
 	}
 
 	if len(transitions) != len(expectedTransitions) {
@@ -1031,7 +1031,7 @@ func TestController_ShutdownTimeout(t *testing.T) {
 
 	// Verify service ended up in a stopped state
 	finalState := ctr.State()
-	if finalState.Status != supervisor.Failed {
+	if finalState.Status != supervisor.StatusFailed {
 		t.Errorf("Expected final state to be Failed (since context was canceled), got %v", finalState.Status)
 	}
 }
@@ -1112,7 +1112,7 @@ func TestController_StopDuringFailedStart(t *testing.T) {
 
 	// Verify final state
 	state := ctr.State()
-	if state.Status != supervisor.Failed {
+	if state.Status != supervisor.StatusFailed {
 		t.Errorf("Expected final status Failed, got: %v", state.Status)
 	}
 
@@ -1192,8 +1192,8 @@ func TestController_StartTimeout(t *testing.T) {
 	statesMutex.Unlock()
 
 	expectedTransitions := []supervisor.Status{
-		supervisor.Starting,
-		supervisor.Failed,
+		supervisor.StatusStarting,
+		supervisor.StatusFailed,
 	}
 
 	if !reflect.DeepEqual(transitions, expectedTransitions) {
@@ -1202,7 +1202,7 @@ func TestController_StartTimeout(t *testing.T) {
 
 	// Verify final state
 	state := ctr.State()
-	if state.Status != supervisor.Failed {
+	if state.Status != supervisor.StatusFailed {
 		t.Errorf("Expected final status Failed, got: %v", state.Status)
 	}
 
@@ -1259,8 +1259,8 @@ func TestController_ServiceExitError(t *testing.T) {
 
 	// Expected state transition sequence
 	expectedTransitions := []supervisor.Status{
-		supervisor.Starting,
-		supervisor.Exited, // Should go directly to Exited on ErrExit
+		supervisor.StatusStarting,
+		supervisor.StatusExited, // Should go directly to Exited on ErrExit
 	}
 
 	if len(transitions) != len(expectedTransitions) {
@@ -1277,7 +1277,7 @@ func TestController_ServiceExitError(t *testing.T) {
 
 	// Verify final state
 	state := ctr.State()
-	if state.Status != supervisor.Exited {
+	if state.Status != supervisor.StatusExited {
 		t.Errorf("Expected final status Exited, got: %v", state.Status)
 	}
 }
@@ -1333,9 +1333,9 @@ func TestController_ServiceExitDuringOperation(t *testing.T) {
 
 	// Expected state transition sequence
 	expectedTransitions := []supervisor.Status{
-		supervisor.Starting,
-		supervisor.Running,
-		supervisor.Exited, // Should transition to Exited on ErrExit
+		supervisor.StatusStarting,
+		supervisor.StatusRunning,
+		supervisor.StatusExited, // Should transition to Exited on ErrExit
 	}
 
 	if len(transitions) != len(expectedTransitions) {
@@ -1352,7 +1352,7 @@ func TestController_ServiceExitDuringOperation(t *testing.T) {
 
 	// Verify final state
 	state := ctr.State()
-	if state.Status != supervisor.Exited {
+	if state.Status != supervisor.StatusExited {
 		t.Errorf("Expected final status Exited, got: %v", state.Status)
 	}
 }
@@ -1430,7 +1430,7 @@ func TestController_StressTestStartLast(t *testing.T) {
 
 	// Verify the final state is Running
 	state := ctr.State()
-	if state.Status != supervisor.Running {
+	if state.Status != supervisor.StatusRunning {
 		t.Errorf("Expected final status Running, got: %v", state.Status)
 	}
 

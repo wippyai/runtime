@@ -14,6 +14,7 @@ import (
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	supervisorapi "github.com/wippyai/runtime/api/supervisor"
 	bootpkg "github.com/wippyai/runtime/boot"
@@ -390,12 +391,15 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, method
 	return nil
 }
 
-// waitForHostRunning polls the supervisor until the host service is running.
+// waitForHostRunning polls the supervisor until the host service is running
+// and the host is registered in the relay node.
 func waitForHostRunning(ctx context.Context, logger *zap.Logger, hostID string) error {
 	sup, ok := supervisorapi.GetSupervisor(ctx).(*supervisorpkg.Supervisor)
 	if !ok || sup == nil {
 		return fmt.Errorf("supervisor not available")
 	}
+
+	node := relay.GetNode(ctx)
 
 	const (
 		pollInterval = 10 * time.Millisecond
@@ -405,13 +409,24 @@ func waitForHostRunning(ctx context.Context, logger *zap.Logger, hostID string) 
 	deadline := time.Now().Add(timeout)
 	for {
 		state, err := sup.GetState(hostID)
-		if err == nil && state.Status == supervisorapi.Running {
+		supervisorReady := err == nil && state.Status == supervisorapi.StatusRunning
+
+		// Also check that the host is registered in the relay node
+		nodeReady := node == nil // skip check if node not available
+		if node != nil {
+			_, nodeReady = node.GetHost(hostID)
+		}
+
+		if supervisorReady && nodeReady {
 			return nil
 		}
 
 		if time.Now().After(deadline) {
 			if err != nil {
-				return fmt.Errorf("host %s not found: %w", hostID, err)
+				return fmt.Errorf("host %s not found in supervisor: %w", hostID, err)
+			}
+			if !nodeReady {
+				return fmt.Errorf("timeout waiting for host %s to register in node", hostID)
 			}
 			return fmt.Errorf("timeout waiting for host %s to start (status: %s)", hostID, state.Status)
 		}

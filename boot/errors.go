@@ -15,7 +15,12 @@ type Error struct {
 	cause     error
 }
 
-func (e *Error) Error() string               { return e.message }
+func (e *Error) Error() string {
+	if e.cause != nil {
+		return fmt.Sprintf("%s: %v", e.message, e.cause)
+	}
+	return e.message
+}
 func (e *Error) Kind() apierror.Kind         { return e.kind }
 func (e *Error) Retryable() apierror.Ternary { return e.retryable }
 func (e *Error) Details() attrs.Attributes   { return e.details }

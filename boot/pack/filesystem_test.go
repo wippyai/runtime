@@ -32,10 +32,10 @@ func TestFilesystemPack(t *testing.T) {
 
 		fsys := os.DirFS(tmpDir)
 
-		metadata := registry.Metadata{"test": "filesystem"}
+		metadata := map[string]interface{}{"test": "filesystem"}
 		var entries []registry.Entry
 		resourceID := registry.ParseID("test:filesystem")
-		resourceMeta := registry.Metadata{"type": "mixed"}
+		resourceMeta := map[string]interface{}{"type": "mixed"}
 
 		var buf bytes.Buffer
 		err := pw.Pack(metadata, entries, fsys, resourceID, resourceMeta, &buf)
@@ -66,10 +66,10 @@ func TestFilesystemPack(t *testing.T) {
 
 		fsys := os.DirFS(tmpDir)
 
-		metadata := registry.Metadata{}
+		metadata := map[string]interface{}{}
 		var entries []registry.Entry
 		resourceID := registry.ParseID("test:read")
-		resourceMeta := registry.Metadata{}
+		resourceMeta := map[string]interface{}{}
 
 		var buf bytes.Buffer
 		err := pw.Pack(metadata, entries, fsys, resourceID, resourceMeta, &buf)
@@ -98,8 +98,8 @@ func TestFilesystemPack(t *testing.T) {
 		fsys := os.DirFS(tmpDir)
 
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:dir"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:dir"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -128,8 +128,8 @@ func TestFilesystemPack(t *testing.T) {
 		fsys := os.DirFS(tmpDir)
 
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:compress"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:compress"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -167,8 +167,8 @@ func TestFilesystemPack(t *testing.T) {
 		fsys := os.DirFS(tmpDir)
 
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:nested"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:nested"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -211,8 +211,8 @@ func TestFilesystemPack(t *testing.T) {
 		fsys := os.DirFS(tmpDir)
 
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:empty"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:empty"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -239,8 +239,8 @@ func TestFilesystemPack(t *testing.T) {
 		fsys := os.DirFS(tmpDir)
 
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:mode"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:mode"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -273,8 +273,8 @@ func TestFilesystemPack(t *testing.T) {
 		fsys := os.DirFS(tmpDir)
 
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:spaces"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:spaces"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -309,8 +309,8 @@ func TestFilesystemPack(t *testing.T) {
 		fsys := os.DirFS(tmpDir)
 
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:symlink"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:symlink"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -336,8 +336,8 @@ func TestFilesystemPack(t *testing.T) {
 		fsys := os.DirFS(tmpDir)
 
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:empty-file"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:empty-file"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -372,8 +372,8 @@ func TestFilesystemPack(t *testing.T) {
 		fsys := os.DirFS(tmpDir)
 
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:extensions"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:extensions"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -405,8 +405,8 @@ func TestPackFSErrors(t *testing.T) {
 	fsys := os.DirFS(tmpDir)
 
 	var buf bytes.Buffer
-	err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-		registry.ParseID("test:errors"), registry.Metadata{}, &buf)
+	err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+		registry.ParseID("test:errors"), map[string]interface{}{}, &buf)
 	require.NoError(t, err)
 
 	pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -435,8 +435,8 @@ func TestPackFSErrors(t *testing.T) {
 		fsys := os.DirFS(tmpDir)
 
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:dirread"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:dirread"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -470,8 +470,8 @@ func TestPackFileSeek(t *testing.T) {
 
 		fsys := os.DirFS(tmpDir)
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:seek"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:seek"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -505,8 +505,8 @@ func TestPackFileSeek(t *testing.T) {
 
 		fsys := os.DirFS(tmpDir)
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:seek-cur"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:seek-cur"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -542,8 +542,8 @@ func TestPackFileSeek(t *testing.T) {
 
 		fsys := os.DirFS(tmpDir)
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:seek-end"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:seek-end"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -578,8 +578,8 @@ func TestPackFileSeek(t *testing.T) {
 
 		fsys := os.DirFS(tmpDir)
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:seek-start"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:seek-start"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -614,8 +614,8 @@ func TestPackFileSeek(t *testing.T) {
 
 		fsys := os.DirFS(tmpDir)
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:seek-beyond"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:seek-beyond"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -646,8 +646,8 @@ func TestPackFileSeek(t *testing.T) {
 
 		fsys := os.DirFS(tmpDir)
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:seek-neg"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:seek-neg"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -673,8 +673,8 @@ func TestPackFileSeek(t *testing.T) {
 
 		fsys := os.DirFS(tmpDir)
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:seek-whence"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:seek-whence"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
@@ -701,8 +701,8 @@ func TestPackFileSeek(t *testing.T) {
 
 		fsys := os.DirFS(tmpDir)
 		var buf bytes.Buffer
-		err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-			registry.ParseID("test:seek-compressed"), registry.Metadata{}, &buf)
+		err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+			registry.ParseID("test:seek-compressed"), map[string]interface{}{}, &buf)
 		require.NoError(t, err)
 
 		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)

@@ -1,12 +1,12 @@
 package security
 
 import (
-	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/attrs"
 	lua "github.com/yuin/gopher-lua"
 )
 
-func luaTableToMetadata(l *lua.LState, table *lua.LTable) registry.Metadata {
-	meta := registry.Metadata{}
+func luaTableToMetadata(l *lua.LState, table *lua.LTable) attrs.Bag {
+	meta := attrs.Bag{}
 	table.ForEach(func(k, v lua.LValue) {
 		if ks, ok := k.(lua.LString); ok {
 			meta[string(ks)] = toGoValue(v)
@@ -15,11 +15,11 @@ func luaTableToMetadata(l *lua.LState, table *lua.LTable) registry.Metadata {
 	return meta
 }
 
-func optMetadataFromLuaTable(l *lua.LState, pos int) (registry.Metadata, error) {
+func optMetadataFromLuaTable(l *lua.LState, pos int) (attrs.Bag, error) {
 	if metaTable := l.OptTable(pos, nil); metaTable != nil {
 		return luaTableToMetadata(l, metaTable), nil
 	}
-	return registry.Metadata{}, nil
+	return attrs.Bag{}, nil
 }
 
 func toLuaValue(l *lua.LState, val any) lua.LValue {

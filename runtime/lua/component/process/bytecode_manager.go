@@ -165,14 +165,14 @@ func (m *BytecodeManager) registerFactory(ctx context.Context, id registry.ID, m
 	}
 
 	m.bus.Send(ctx, event.Event{
-		System: process.FactorySystem,
+		System: process.System,
 		Kind:   process.FactoryRegister,
 		Path:   id.String(),
 		Data: &process.FactoryEntry{
 			Factory: func() (process.Process, error) {
 				return m.createProcess(id)
 			},
-			Meta: process.ProcessMeta{
+			Meta: process.Meta{
 				Method: method,
 			},
 		},
@@ -184,7 +184,7 @@ func (m *BytecodeManager) registerFactory(ctx context.Context, id registry.ID, m
 // unregisterFactory removes a factory registration.
 func (m *BytecodeManager) unregisterFactory(ctx context.Context, id registry.ID) {
 	m.bus.Send(ctx, event.Event{
-		System: process.FactorySystem,
+		System: process.System,
 		Kind:   process.FactoryDelete,
 		Path:   id.String(),
 	})

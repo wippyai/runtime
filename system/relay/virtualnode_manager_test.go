@@ -65,7 +65,7 @@ func TestVirtualNodeManager_Register(t *testing.T) {
 
 	collector := &testEventCollector{}
 	eventCh := make(chan event.Event, 10)
-	_, err := bus.Subscribe(ctx, api.VirtualNodeSystem, eventCh)
+	_, err := bus.Subscribe(ctx, api.System, eventCh)
 	require.NoError(t, err)
 
 	go func() {
@@ -81,7 +81,7 @@ func TestVirtualNodeManager_Register(t *testing.T) {
 
 	virtualReceiver := &mockVirtualNodeReceiver{}
 	bus.Send(ctx, event.Event{
-		System: api.VirtualNodeSystem,
+		System: api.System,
 		Kind:   api.VirtualNodeRegister,
 		Path:   "virtual1",
 		Data: api.VirtualNodeInfo{
@@ -94,7 +94,7 @@ func TestVirtualNodeManager_Register(t *testing.T) {
 
 	acceptEvent := collector.findEvent(api.VirtualNodeAccept)
 	require.NotNil(t, acceptEvent, "VirtualNodeAccept event should be sent")
-	assert.Equal(t, api.VirtualNodeSystem, acceptEvent.System)
+	assert.Equal(t, api.System, acceptEvent.System)
 	assert.Equal(t, "virtual1", string(acceptEvent.Path))
 
 	pkg := &api.Package{Target: api.PID{Node: "virtual1", Host: "test", UniqID: "test"}}
@@ -114,7 +114,7 @@ func TestVirtualNodeManager_RegisterInvalidPayload(t *testing.T) {
 
 	collector := &testEventCollector{}
 	eventCh := make(chan event.Event, 10)
-	_, err := bus.Subscribe(ctx, api.VirtualNodeSystem, eventCh)
+	_, err := bus.Subscribe(ctx, api.System, eventCh)
 	require.NoError(t, err)
 
 	go func() {
@@ -129,7 +129,7 @@ func TestVirtualNodeManager_RegisterInvalidPayload(t *testing.T) {
 	defer manager.Stop()
 
 	bus.Send(ctx, event.Event{
-		System: api.VirtualNodeSystem,
+		System: api.System,
 		Kind:   api.VirtualNodeRegister,
 		Path:   "virtual1",
 		Data:   "invalid payload",
@@ -139,7 +139,7 @@ func TestVirtualNodeManager_RegisterInvalidPayload(t *testing.T) {
 
 	rejectEvent := collector.findEvent(api.VirtualNodeReject)
 	require.NotNil(t, rejectEvent, "VirtualNodeReject event should be sent")
-	assert.Equal(t, api.VirtualNodeSystem, rejectEvent.System)
+	assert.Equal(t, api.System, rejectEvent.System)
 	assert.Equal(t, "virtual1", string(rejectEvent.Path))
 	assert.Contains(t, rejectEvent.Data.(string), "invalid payload")
 }
@@ -155,7 +155,7 @@ func TestVirtualNodeManager_RegisterDuplicate(t *testing.T) {
 
 	collector := &testEventCollector{}
 	eventCh := make(chan event.Event, 10)
-	_, err := bus.Subscribe(ctx, api.VirtualNodeSystem, eventCh)
+	_, err := bus.Subscribe(ctx, api.System, eventCh)
 	require.NoError(t, err)
 
 	go func() {
@@ -171,7 +171,7 @@ func TestVirtualNodeManager_RegisterDuplicate(t *testing.T) {
 
 	virtualReceiver1 := &mockVirtualNodeReceiver{}
 	bus.Send(ctx, event.Event{
-		System: api.VirtualNodeSystem,
+		System: api.System,
 		Kind:   api.VirtualNodeRegister,
 		Path:   "virtual1",
 		Data: api.VirtualNodeInfo{
@@ -185,7 +185,7 @@ func TestVirtualNodeManager_RegisterDuplicate(t *testing.T) {
 
 	virtualReceiver2 := &mockVirtualNodeReceiver{}
 	bus.Send(ctx, event.Event{
-		System: api.VirtualNodeSystem,
+		System: api.System,
 		Kind:   api.VirtualNodeRegister,
 		Path:   "virtual1",
 		Data: api.VirtualNodeInfo{
@@ -213,7 +213,7 @@ func TestVirtualNodeManager_RegisterConflictWithLocalNode(t *testing.T) {
 
 	collector := &testEventCollector{}
 	eventCh := make(chan event.Event, 10)
-	_, err := bus.Subscribe(ctx, api.VirtualNodeSystem, eventCh)
+	_, err := bus.Subscribe(ctx, api.System, eventCh)
 	require.NoError(t, err)
 
 	go func() {
@@ -229,7 +229,7 @@ func TestVirtualNodeManager_RegisterConflictWithLocalNode(t *testing.T) {
 
 	virtualReceiver := &mockVirtualNodeReceiver{}
 	bus.Send(ctx, event.Event{
-		System: api.VirtualNodeSystem,
+		System: api.System,
 		Kind:   api.VirtualNodeRegister,
 		Path:   "local",
 		Data: api.VirtualNodeInfo{
@@ -257,7 +257,7 @@ func TestVirtualNodeManager_Unregister(t *testing.T) {
 
 	collector := &testEventCollector{}
 	eventCh := make(chan event.Event, 10)
-	_, err := bus.Subscribe(ctx, api.VirtualNodeSystem, eventCh)
+	_, err := bus.Subscribe(ctx, api.System, eventCh)
 	require.NoError(t, err)
 
 	go func() {
@@ -273,7 +273,7 @@ func TestVirtualNodeManager_Unregister(t *testing.T) {
 
 	virtualReceiver := &mockVirtualNodeReceiver{}
 	bus.Send(ctx, event.Event{
-		System: api.VirtualNodeSystem,
+		System: api.System,
 		Kind:   api.VirtualNodeRegister,
 		Path:   "virtual1",
 		Data: api.VirtualNodeInfo{
@@ -286,7 +286,7 @@ func TestVirtualNodeManager_Unregister(t *testing.T) {
 	collector.reset()
 
 	bus.Send(ctx, event.Event{
-		System: api.VirtualNodeSystem,
+		System: api.System,
 		Kind:   api.VirtualNodeDelete,
 		Path:   "virtual1",
 	})
@@ -314,7 +314,7 @@ func TestVirtualNodeManager_UnregisterNonexistent(t *testing.T) {
 
 	collector := &testEventCollector{}
 	eventCh := make(chan event.Event, 10)
-	_, err := bus.Subscribe(ctx, api.VirtualNodeSystem, eventCh)
+	_, err := bus.Subscribe(ctx, api.System, eventCh)
 	require.NoError(t, err)
 
 	go func() {
@@ -329,7 +329,7 @@ func TestVirtualNodeManager_UnregisterNonexistent(t *testing.T) {
 	defer manager.Stop()
 
 	bus.Send(ctx, event.Event{
-		System: api.VirtualNodeSystem,
+		System: api.System,
 		Kind:   api.VirtualNodeDelete,
 		Path:   "nonexistent",
 	})

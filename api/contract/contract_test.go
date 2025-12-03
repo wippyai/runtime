@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
@@ -52,7 +53,7 @@ func TestDefinition_MarshalUnmarshal(t *testing.T) {
 			name: "complete definition",
 			def: Definition{
 				ID:   registry.NewID("contracts", "payment"),
-				Meta: registry.Metadata{"version": "1.0"},
+				Meta: attrs.Bag{"version": "1.0"},
 				Methods: []MethodDef{
 					{
 						Name:        "process",
@@ -202,7 +203,7 @@ func TestBinding_MarshalUnmarshal(t *testing.T) {
 			name: "complete binding",
 			binding: Binding{
 				ID:   registry.NewID("bindings", "impl1"),
-				Meta: registry.Metadata{"env": "production"},
+				Meta: attrs.Bag{"env": "production"},
 				Contracts: []BoundContract{
 					{
 						Contract: registry.NewID("contracts", "payment"),

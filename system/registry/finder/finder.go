@@ -10,6 +10,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 	lru "github.com/wippyai/runtime/internal/cache"
 )
@@ -126,7 +127,7 @@ func Fork(source registry.Finder, r registry.EntryReader, log *zap.Logger) regis
 //
 //	Find({"~meta.description": ".*api.*", "*meta.tags": "backend"})
 //	  -> Find entries with description matching regex ".*api.*" and tags containing "backend"
-func (f *memoryFinder) Find(meta registry.Metadata) ([]registry.Entry, error) {
+func (f *memoryFinder) Find(meta attrs.Bag) ([]registry.Entry, error) {
 	// Get current version from registry
 	var currentVersion uint64
 	if versionedReg, ok := f.reg.(interface {
@@ -177,7 +178,7 @@ func (f *memoryFinder) Find(meta registry.Metadata) ([]registry.Entry, error) {
 	suffixMatchers := make(map[string]string)
 
 	// Regular metadata for standard matching
-	standardMeta := make(registry.Metadata)
+	standardMeta := make(attrs.Bag)
 
 	// Process search criteria
 	for key, value := range meta {
@@ -291,7 +292,7 @@ func matchesAllCriteria(
 	containsMatchers map[string]string,
 	prefixMatchers map[string]string,
 	suffixMatchers map[string]string,
-	standardMeta registry.Metadata,
+	standardMeta attrs.Bag,
 ) bool {
 	// Check root field matchers
 	for field, value := range rootMatchers {
@@ -441,7 +442,7 @@ func matchArrayContainsAll(actual interface{}, expected []string) bool {
 }
 
 // hashMetadata generates a consistent hash for metadata search criteria
-func hashMetadata(meta registry.Metadata) uint64 {
+func hashMetadata(meta attrs.Bag) uint64 {
 	h := fnv.New64a()
 
 	// Sort keys for consistent hashing

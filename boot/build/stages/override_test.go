@@ -105,7 +105,7 @@ func TestOverride_MetaPath(t *testing.T) {
 			Data: payload.New(map[string]any{
 				"count": 2,
 			}),
-			Meta: registry.Metadata{
+			Meta: map[string]interface{}{
 				"priority": "low",
 			},
 		},

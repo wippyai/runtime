@@ -8,25 +8,25 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
-var exitCodeKey = &ctxapi.Key{Name: "supervisor.exitcode"}
-var signalChannelKey = &ctxapi.Key{Name: "supervisor.sigchan"}
+var (
+	exitCodeCtxKey      = &ctxapi.Key{Name: "supervisor.exitCodeCtxKey"}
+	signalChannelCtxKey = &ctxapi.Key{Name: "supervisor.signalChannelCtxKey"}
+)
 
-// setExitCode stores the exit code in the application context.
 func setExitCode(ctx context.Context, code int) {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac != nil {
-		ac.Update(exitCodeKey, code)
+		ac.Update(exitCodeCtxKey, code)
 	}
 }
 
 // GetExitCode retrieves the exit code from the application context.
-// Returns 0 if no exit code has been set.
 func GetExitCode(ctx context.Context) int {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return 0
 	}
-	if code := ac.Get(exitCodeKey); code != nil {
+	if code := ac.Get(exitCodeCtxKey); code != nil {
 		if c, ok := code.(int); ok {
 			return c
 		}
@@ -35,21 +35,19 @@ func GetExitCode(ctx context.Context) int {
 }
 
 // SetSignalChannel stores the signal channel in the application context.
-// This allows services to trigger shutdown programmatically.
 func SetSignalChannel(ctx context.Context, ch chan<- os.Signal) {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac != nil {
-		ac.Update(signalChannelKey, ch)
+		ac.Update(signalChannelCtxKey, ch)
 	}
 }
 
-// getSignalChannel retrieves the signal channel from the application context.
 func getSignalChannel(ctx context.Context) chan<- os.Signal {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return nil
 	}
-	if ch := ac.Get(signalChannelKey); ch != nil {
+	if ch := ac.Get(signalChannelCtxKey); ch != nil {
 		if c, ok := ch.(chan<- os.Signal); ok {
 			return c
 		}

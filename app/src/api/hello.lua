@@ -1,6 +1,5 @@
 local http = require("http")
 local time = require("time")
-local funcs = require("funcs")
 
 local function handler()
     local res, res_err = http.response()
@@ -10,17 +9,11 @@ local function handler()
         return nil, "Failed to get HTTP context"
     end
 
-    -- Sleep for 10ms to test dispatcher
-    time.sleep("1ms") -- todo: profile overhead
-
-    -- Call WASM add function (2 + 3 = 5)
-    local sum, err = funcs.new():call("app.api:add", 2, 3)
+    -- Sleep for 1ms
+    time.sleep("1ms")
 
     local data = {
-         message = "hello world",
-    --     slept = "10ms",
-         wasm_add = sum,
-         wasm_err = err
+         message = "hello world"
      }
 
     ---- Spawn a monitored worker process

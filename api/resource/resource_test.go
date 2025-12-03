@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
@@ -86,7 +87,7 @@ func TestEntry_MarshalUnmarshal(t *testing.T) {
 			name: "complete entry",
 			entry: Entry{
 				ID:       registry.NewID("resources", "db"),
-				Meta:     registry.Metadata{"type": "database"},
+				Meta:     attrs.Bag{"type": "database"},
 				Provider: nil,
 			},
 			wantErr: false,

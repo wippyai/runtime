@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 )
@@ -22,8 +23,8 @@ type BasicConfig struct {
 }
 
 type ConfigWithMeta struct {
-	Name string            `json:"name"`
-	Meta registry.Metadata `json:"-"`
+	Name string    `json:"name"`
+	Meta attrs.Bag `json:"-"`
 }
 
 type ConfigWithDefaults struct {
@@ -49,9 +50,9 @@ func (c *ConfigWithValidation) Validate() error {
 }
 
 type ConfigWithAll struct {
-	Name    string            `json:"name"`
-	Timeout int               `json:"timeout"`
-	Meta    registry.Metadata `json:"-"`
+	Name    string    `json:"name"`
+	Timeout int       `json:"timeout"`
+	Meta    attrs.Bag `json:"-"`
 }
 
 func (c *ConfigWithAll) InitDefaults() {
@@ -162,7 +163,7 @@ func TestDecodeEntryConfig_WithMeta(t *testing.T) {
 			return nil
 		},
 	}
-	meta := registry.Metadata{
+	meta := attrs.Bag{
 		"server": "test-server",
 		"port":   8080,
 	}
@@ -262,7 +263,7 @@ func TestDecodeEntryConfig_AllFeatures(t *testing.T) {
 			return nil
 		},
 	}
-	meta := registry.Metadata{
+	meta := attrs.Bag{
 		"environment": "production",
 		"region":      "us-east-1",
 	}
@@ -290,12 +291,12 @@ func TestDecodeEntryConfig_SetMetaDoesNotOverwriteExisting(t *testing.T) {
 		unmarshalFunc: func(_ payload.Payload, v interface{}) error {
 			cfg := v.(*ConfigWithMeta)
 			cfg.Name = "test"
-			cfg.Meta = registry.Metadata{"existing": "data"}
+			cfg.Meta = attrs.Bag{"existing": "data"}
 			return nil
 		},
 	}
 
-	meta := registry.Metadata{"new": "data"}
+	meta := attrs.Bag{"new": "data"}
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
@@ -344,14 +345,14 @@ type ConfigWithID struct {
 }
 
 type ConfigWithIDAndMeta struct {
-	ID   registry.ID       `json:"-"`
-	Meta registry.Metadata `json:"-"`
-	Name string            `json:"name"`
+	ID   registry.ID `json:"-"`
+	Meta attrs.Bag   `json:"-"`
+	Name string      `json:"name"`
 }
 
 type ConfigWithMetaNoMethod struct {
-	Name string            `json:"name"`
-	Meta registry.Metadata `json:"-"`
+	Name string    `json:"name"`
+	Meta attrs.Bag `json:"-"`
 }
 
 type ConfigWithUnexportedFields struct {
@@ -392,7 +393,7 @@ func TestDecodeEntryConfig_ReflectionIDAndMeta(t *testing.T) {
 			return nil
 		},
 	}
-	meta := registry.Metadata{
+	meta := attrs.Bag{
 		"server": "test-server",
 		"port":   8080,
 	}
@@ -423,7 +424,7 @@ func TestDecodeEntryConfig_ReflectionMetaNoMethod(t *testing.T) {
 			return nil
 		},
 	}
-	meta := registry.Metadata{
+	meta := attrs.Bag{
 		"key": "value",
 	}
 	entry := registry.Entry{
@@ -449,11 +450,11 @@ func TestDecodeEntryConfig_ReflectionDoesNotOverwriteExisting(t *testing.T) {
 			cfg := v.(*ConfigWithIDAndMeta)
 			cfg.Name = "test-name"
 			cfg.ID = registry.NewID("existing", "id")
-			cfg.Meta = registry.Metadata{"existing": "data"}
+			cfg.Meta = attrs.Bag{"existing": "data"}
 			return nil
 		},
 	}
-	meta := registry.Metadata{"new": "data"}
+	meta := attrs.Bag{"new": "data"}
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
@@ -483,7 +484,7 @@ func TestDecodeEntryConfig_ReflectionUnexportedFields(t *testing.T) {
 		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
 		Data: payload.New(map[string]interface{}{"name": "test-name"}),
-		Meta: registry.Metadata{"key": "value"},
+		Meta: attrs.Bag{"key": "value"},
 	}
 
 	cfg, err := DecodeEntryConfig[ConfigWithUnexportedFields](ctx, dtt, entry)
@@ -506,7 +507,7 @@ func TestDecodeEntryConfig_ReflectionCachingPerformance(t *testing.T) {
 		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
 		Data: payload.New(map[string]interface{}{"name": "test"}),
-		Meta: registry.Metadata{"key": "value"},
+		Meta: attrs.Bag{"key": "value"},
 	}
 
 	fieldCache = sync.Map{}

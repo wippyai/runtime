@@ -18,7 +18,6 @@ import (
 	"github.com/wippyai/runtime/system/payload/json"
 	"github.com/wippyai/runtime/system/payload/yaml"
 	"github.com/wippyai/runtime/system/relay"
-	"github.com/wippyai/runtime/system/topology"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -51,9 +50,6 @@ func NewBootstrapContext(logger *zap.Logger, cfg boot.Config) (context.Context, 
 
 	// Setup relay infrastructure (node, router, managers)
 	ctx, nodeManager := createRelayInfrastructure(ctx, bus, cfg)
-
-	// Setup topology infrastructure
-	ctx = createTopologyInfrastructure(ctx)
 
 	// Setup hosts for message handling
 	if err := createHosts(ctx, cfg); err != nil {
@@ -97,23 +93,6 @@ func createRelayInfrastructure(ctx context.Context, bus event.Bus, cfg boot.Conf
 	ctx = relayapi.WithRouter(ctx, router)
 
 	return ctx, nodeManager
-}
-
-// createTopologyInfrastructure sets up topology and PID registry
-func createTopologyInfrastructure(ctx context.Context) context.Context {
-	logger := logapi.GetLogger(ctx)
-	node := relayapi.GetNode(ctx)
-	router := relayapi.GetRouter(ctx)
-
-	topo := topology.NewTopology(node, router, node.ID())
-	pidReg := topology.NewPIDRegistry(topology.PIDRegistryConfig{
-		Logger: logger.Named("pid"),
-	})
-
-	ctx = topapi.WithTopology(ctx, topo)
-	ctx = topapi.WithRegistry(ctx, pidReg)
-
-	return ctx
 }
 
 // createHosts sets up control and function hosts

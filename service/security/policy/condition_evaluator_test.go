@@ -7,12 +7,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/api/service/security/policy"
 )
 
-func newMockActor(id string, meta registry.Metadata) security.Actor {
+func newMockActor(id string, meta attrs.Bag) security.Actor {
 	return security.Actor{ID: id, Meta: meta}
 }
 
@@ -28,7 +29,7 @@ func TestEvaluateCondition(t *testing.T) {
 		actor     security.Actor
 		action    string
 		resource  string
-		meta      registry.Metadata
+		meta      attrs.Bag
 		want      bool
 		wantErr   bool
 	}{
@@ -81,7 +82,7 @@ func TestEvaluateCondition(t *testing.T) {
 				Operator: "eq",
 				Value:    "admin",
 			},
-			actor:    newMockActor("user123", registry.Metadata{"role": "admin"}),
+			actor:    newMockActor("user123", attrs.Bag{"role": "admin"}),
 			action:   "read",
 			resource: "document",
 			meta:     nil,
@@ -98,7 +99,7 @@ func TestEvaluateCondition(t *testing.T) {
 			actor:    newMockActor("user123", nil),
 			action:   "read",
 			resource: "document",
-			meta:     registry.Metadata{"owner": "user123"},
+			meta:     attrs.Bag{"owner": "user123"},
 			want:     true,
 			wantErr:  false,
 		},
@@ -112,7 +113,7 @@ func TestEvaluateCondition(t *testing.T) {
 			actor:    newMockActor("user123", nil),
 			action:   "read",
 			resource: "document",
-			meta:     registry.Metadata{"document": map[string]any{"owner": "user123"}},
+			meta:     attrs.Bag{"document": map[string]any{"owner": "user123"}},
 			want:     true,
 			wantErr:  false,
 		},
@@ -126,7 +127,7 @@ func TestEvaluateCondition(t *testing.T) {
 			actor:    newMockActor("user123", nil),
 			action:   "read",
 			resource: "document",
-			meta:     registry.Metadata{"document": map[string]any{"permissions": map[string]any{"read": true}}},
+			meta:     attrs.Bag{"document": map[string]any{"permissions": map[string]any{"read": true}}},
 			want:     true,
 			wantErr:  false,
 		},
@@ -140,7 +141,7 @@ func TestEvaluateCondition(t *testing.T) {
 			actor:    newMockActor("user123", nil),
 			action:   "read",
 			resource: "document",
-			meta:     registry.Metadata{"owner": "user123"},
+			meta:     attrs.Bag{"owner": "user123"},
 			want:     true,
 			wantErr:  false,
 		},
@@ -154,7 +155,7 @@ func TestEvaluateCondition(t *testing.T) {
 			actor:    newMockActor("user123", nil),
 			action:   "read",
 			resource: "document",
-			meta:     registry.Metadata{"owner": "user123"},
+			meta:     attrs.Bag{"owner": "user123"},
 			want:     true,
 			wantErr:  false,
 		},
@@ -168,7 +169,7 @@ func TestEvaluateCondition(t *testing.T) {
 			actor:    newMockActor("user123", nil),
 			action:   "read",
 			resource: "document",
-			meta:     registry.Metadata{},
+			meta:     attrs.Bag{},
 			want:     true,
 			wantErr:  false,
 		},
@@ -182,7 +183,7 @@ func TestEvaluateCondition(t *testing.T) {
 			actor:    newMockActor("user123", nil),
 			action:   "read",
 			resource: "document",
-			meta:     registry.Metadata{},
+			meta:     attrs.Bag{},
 			want:     true,
 			wantErr:  false,
 		},
@@ -196,7 +197,7 @@ func TestEvaluateCondition(t *testing.T) {
 			actor:    newMockActor("user123", nil),
 			action:   "read",
 			resource: "document",
-			meta:     registry.Metadata{"owner": "user123"},
+			meta:     attrs.Bag{"owner": "user123"},
 			want:     false,
 			wantErr:  false,
 		},
@@ -224,7 +225,7 @@ func TestEvaluateCondition(t *testing.T) {
 			actor:    newMockActor("user123", nil),
 			action:   "read",
 			resource: "document",
-			meta:     registry.Metadata{"age": 25},
+			meta:     attrs.Bag{"age": 25},
 			want:     true,
 			wantErr:  false,
 		},
@@ -238,7 +239,7 @@ func TestEvaluateCondition(t *testing.T) {
 			actor:    newMockActor("user123", nil),
 			action:   "read",
 			resource: "document",
-			meta:     registry.Metadata{"age": 25},
+			meta:     attrs.Bag{"age": 25},
 			want:     true,
 			wantErr:  false,
 		},
@@ -252,7 +253,7 @@ func TestEvaluateCondition(t *testing.T) {
 			actor:    newMockActor("user123", nil),
 			action:   "read",
 			resource: "document",
-			meta:     registry.Metadata{"age": 25},
+			meta:     attrs.Bag{"age": 25},
 			want:     true,
 			wantErr:  false,
 		},
@@ -266,7 +267,7 @@ func TestEvaluateCondition(t *testing.T) {
 			actor:    newMockActor("user123", nil),
 			action:   "read",
 			resource: "document",
-			meta:     registry.Metadata{"age": 25},
+			meta:     attrs.Bag{"age": 25},
 			want:     true,
 			wantErr:  false,
 		},
@@ -378,7 +379,7 @@ func TestEvaluateCondition(t *testing.T) {
 			actor:    newMockActor("user123", nil),
 			action:   "read",
 			resource: "document",
-			meta:     registry.Metadata{"tags": []string{"public", "important", "archived"}},
+			meta:     attrs.Bag{"tags": []string{"public", "important", "archived"}},
 			want:     true,
 			wantErr:  false,
 		},
@@ -406,7 +407,7 @@ func TestEvaluateCondition(t *testing.T) {
 			actor:    newMockActor("user123", nil),
 			action:   "read",
 			resource: "document",
-			meta:     registry.Metadata{"tags": []string{"public", "important", "archived"}},
+			meta:     attrs.Bag{"tags": []string{"public", "important", "archived"}},
 			want:     true,
 			wantErr:  false,
 		},
@@ -504,7 +505,7 @@ func TestRegexPrecompilation(t *testing.T) {
 		actor     security.Actor
 		action    string
 		resource  string
-		meta      registry.Metadata
+		meta      attrs.Bag
 		want      bool
 		wantErr   bool
 	}{
@@ -601,11 +602,11 @@ func TestExtractField(t *testing.T) {
 		t.Fatalf("Failed to create evaluator: %v", err)
 	}
 
-	actor := newMockActor("user123", registry.Metadata{
+	actor := newMockActor("user123", attrs.Bag{
 		"role":    "admin",
 		"profile": map[string]any{"name": "John", "email": "john@example.com"},
 	})
-	meta := registry.Metadata{
+	meta := attrs.Bag{
 		"owner":   "user456",
 		"created": 1635724800,
 		"tags":    []string{"public", "important"},
@@ -622,7 +623,7 @@ func TestExtractField(t *testing.T) {
 		actor     security.Actor
 		action    string
 		resource  string
-		meta      registry.Metadata
+		meta      attrs.Bag
 		want      any
 		wantErr   bool
 	}{
@@ -1113,7 +1114,7 @@ func TestTypeConversions(t *testing.T) {
 	})
 
 	t.Run("extractActorField empty parts", func(t *testing.T) {
-		testActor := newMockActor("test-user", registry.Metadata{})
+		testActor := newMockActor("test-user", attrs.Bag{})
 		_, err := evaluator.extractActorField(testActor, []string{})
 		if err == nil {
 			t.Errorf("extractActorField() should return error for empty parts")
@@ -1131,7 +1132,7 @@ func TestTypeConversions(t *testing.T) {
 	})
 
 	t.Run("extractMetaField empty parts", func(t *testing.T) {
-		testMeta := registry.Metadata{"key": "value"}
+		testMeta := attrs.Bag{"key": "value"}
 		_, err := evaluator.extractMetaField(testMeta, []string{})
 		if err == nil {
 			t.Errorf("extractMetaField() should return error for empty parts")
@@ -1161,7 +1162,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 			name      string
 			field     string
 			value     any
-			actorMeta registry.Metadata
+			actorMeta attrs.Bag
 			want      bool
 			assertErr assert.ErrorAssertionFunc
 		}{
@@ -1169,7 +1170,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				name:      "exact match found in array",
 				field:     "actor.meta.roles",
 				value:     "distributor-admin",
-				actorMeta: registry.Metadata{"roles": []string{"distributor-admin", "super-admin"}},
+				actorMeta: attrs.Bag{"roles": []string{"distributor-admin", "super-admin"}},
 				want:      true,
 				assertErr: assert.NoError,
 			},
@@ -1177,7 +1178,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				name:      "exact match not found - substring in array element not matched",
 				field:     "actor.meta.roles",
 				value:     "admin",
-				actorMeta: registry.Metadata{"roles": []string{"distributor-admin", "super-admin"}},
+				actorMeta: attrs.Bag{"roles": []string{"distributor-admin", "super-admin"}},
 				want:      false,
 				assertErr: assert.NoError,
 			},
@@ -1185,7 +1186,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				name:      "match found in multi-element array",
 				field:     "actor.meta.roles",
 				value:     "super-admin",
-				actorMeta: registry.Metadata{"roles": []string{"distributor-admin", "super-admin", "viewer"}},
+				actorMeta: attrs.Bag{"roles": []string{"distributor-admin", "super-admin", "viewer"}},
 				want:      true,
 				assertErr: assert.NoError,
 			},
@@ -1193,7 +1194,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				name:      "no match in single-element array",
 				field:     "actor.meta.roles",
 				value:     "admin",
-				actorMeta: registry.Metadata{"roles": []string{"viewer"}},
+				actorMeta: attrs.Bag{"roles": []string{"viewer"}},
 				want:      false,
 				assertErr: assert.NoError,
 			},
@@ -1201,7 +1202,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				name:      "empty array returns false",
 				field:     "actor.meta.roles",
 				value:     "admin",
-				actorMeta: registry.Metadata{"roles": []string{}},
+				actorMeta: attrs.Bag{"roles": []string{}},
 				want:      false,
 				assertErr: assert.NoError,
 			},
@@ -1233,7 +1234,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 			name      string
 			field     string
 			value     any
-			actorMeta registry.Metadata
+			actorMeta attrs.Bag
 			want      bool
 			assertErr assert.ErrorAssertionFunc
 		}{
@@ -1241,7 +1242,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				name:      "exact match not in array returns true",
 				field:     "actor.meta.roles",
 				value:     "admin",
-				actorMeta: registry.Metadata{"roles": []string{"distributor-admin", "super-admin"}},
+				actorMeta: attrs.Bag{"roles": []string{"distributor-admin", "super-admin"}},
 				want:      true,
 				assertErr: assert.NoError,
 			},
@@ -1249,7 +1250,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				name:      "exact match found in array returns false",
 				field:     "actor.meta.roles",
 				value:     "distributor-admin",
-				actorMeta: registry.Metadata{"roles": []string{"distributor-admin", "super-admin"}},
+				actorMeta: attrs.Bag{"roles": []string{"distributor-admin", "super-admin"}},
 				want:      false,
 				assertErr: assert.NoError,
 			},
@@ -1257,7 +1258,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				name:      "value not in single-element array returns true",
 				field:     "actor.meta.roles",
 				value:     "admin",
-				actorMeta: registry.Metadata{"roles": []string{"viewer"}},
+				actorMeta: attrs.Bag{"roles": []string{"viewer"}},
 				want:      true,
 				assertErr: assert.NoError,
 			},
@@ -1265,7 +1266,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				name:      "empty array returns true - value not contained",
 				field:     "actor.meta.roles",
 				value:     "admin",
-				actorMeta: registry.Metadata{"roles": []string{}},
+				actorMeta: attrs.Bag{"roles": []string{}},
 				want:      true,
 				assertErr: assert.NoError,
 			},
@@ -1297,7 +1298,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 			name      string
 			field     string
 			value     any
-			actorMeta registry.Metadata
+			actorMeta attrs.Bag
 			want      bool
 			assertErr assert.ErrorAssertionFunc
 		}{
@@ -1305,7 +1306,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				name:      "substring match found",
 				field:     "actor.meta.role",
 				value:     "admin",
-				actorMeta: registry.Metadata{"role": "distributor-admin"},
+				actorMeta: attrs.Bag{"role": "distributor-admin"},
 				want:      true,
 				assertErr: assert.NoError,
 			},
@@ -1313,7 +1314,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				name:      "exact match found",
 				field:     "actor.meta.role",
 				value:     "admin",
-				actorMeta: registry.Metadata{"role": "admin"},
+				actorMeta: attrs.Bag{"role": "admin"},
 				want:      true,
 				assertErr: assert.NoError,
 			},
@@ -1321,7 +1322,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				name:      "substring not found",
 				field:     "actor.meta.role",
 				value:     "admin",
-				actorMeta: registry.Metadata{"role": "viewer"},
+				actorMeta: attrs.Bag{"role": "viewer"},
 				want:      false,
 				assertErr: assert.NoError,
 			},
@@ -1329,7 +1330,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				name:      "empty string field returns false",
 				field:     "actor.meta.role",
 				value:     "admin",
-				actorMeta: registry.Metadata{"role": ""},
+				actorMeta: attrs.Bag{"role": ""},
 				want:      false,
 				assertErr: assert.NoError,
 			},
@@ -1361,7 +1362,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 			name      string
 			field     string
 			value     any
-			actorMeta registry.Metadata
+			actorMeta attrs.Bag
 			want      bool
 			assertErr assert.ErrorAssertionFunc
 		}{
@@ -1369,7 +1370,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				name:      "substring found returns false",
 				field:     "actor.meta.role",
 				value:     "admin",
-				actorMeta: registry.Metadata{"role": "distributor-admin"},
+				actorMeta: attrs.Bag{"role": "distributor-admin"},
 				want:      false,
 				assertErr: assert.NoError,
 			},
@@ -1377,7 +1378,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				name:      "substring not found returns true",
 				field:     "actor.meta.role",
 				value:     "admin",
-				actorMeta: registry.Metadata{"role": "viewer"},
+				actorMeta: attrs.Bag{"role": "viewer"},
 				want:      true,
 				assertErr: assert.NoError,
 			},
@@ -1385,7 +1386,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				name:      "empty string returns true - value not contained",
 				field:     "actor.meta.role",
 				value:     "admin",
-				actorMeta: registry.Metadata{"role": ""},
+				actorMeta: attrs.Bag{"role": ""},
 				want:      true,
 				assertErr: assert.NoError,
 			},
@@ -1417,7 +1418,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 			name      string
 			field     string
 			value     any
-			actorMeta registry.Metadata
+			actorMeta attrs.Bag
 			want      bool
 			assertErr assert.ErrorAssertionFunc
 		}{
@@ -1425,7 +1426,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				name:      "single value not in list",
 				field:     "actor.meta.role",
 				value:     []string{"admin", "distributor-admin", "super-admin"},
-				actorMeta: registry.Metadata{"role": "viewer"},
+				actorMeta: attrs.Bag{"role": "viewer"},
 				want:      true,
 				assertErr: assert.NoError,
 			},
@@ -1433,7 +1434,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				name:      "single value found in list",
 				field:     "actor.meta.role",
 				value:     []string{"admin", "distributor-admin", "super-admin"},
-				actorMeta: registry.Metadata{"role": "distributor-admin"},
+				actorMeta: attrs.Bag{"role": "distributor-admin"},
 				want:      false,
 				assertErr: assert.NoError,
 			},
@@ -1441,7 +1442,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				name:      "empty string not in list",
 				field:     "actor.meta.role",
 				value:     []string{"admin", "viewer"},
-				actorMeta: registry.Metadata{"role": ""},
+				actorMeta: attrs.Bag{"role": ""},
 				want:      true,
 				assertErr: assert.NoError,
 			},
@@ -1473,7 +1474,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 			name      string
 			field     string
 			value     any
-			actorMeta registry.Metadata
+			actorMeta attrs.Bag
 			want      bool
 			assertErr assert.ErrorAssertionFunc
 		}{
@@ -1481,7 +1482,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				name:      "single value found in list",
 				field:     "actor.meta.role",
 				value:     []string{"admin", "distributor-admin", "super-admin"},
-				actorMeta: registry.Metadata{"role": "distributor-admin"},
+				actorMeta: attrs.Bag{"role": "distributor-admin"},
 				want:      true,
 				assertErr: assert.NoError,
 			},
@@ -1489,7 +1490,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				name:      "single value not in list",
 				field:     "actor.meta.role",
 				value:     []string{"admin", "distributor-admin", "super-admin"},
-				actorMeta: registry.Metadata{"role": "viewer"},
+				actorMeta: attrs.Bag{"role": "viewer"},
 				want:      false,
 				assertErr: assert.NoError,
 			},
@@ -1528,7 +1529,7 @@ func TestConditionEvaluator_OperatorBehaviorOnRoles(t *testing.T) {
 				Operator: "nin",
 				Value:    []string{"admin", "distributor-admin", "super-admin"},
 			}
-			actor := newMockActor(testActorID, registry.Metadata{
+			actor := newMockActor(testActorID, attrs.Bag{
 				"roles": []string{"distributor-admin"},
 			})
 
@@ -1557,7 +1558,7 @@ func TestComplexNestedConditions(t *testing.T) {
 		t.Fatalf("Failed to create evaluator: %v", err)
 	}
 
-	actor := newMockActor("user123", registry.Metadata{
+	actor := newMockActor("user123", attrs.Bag{
 		"role": "admin",
 		"permissions": map[string]any{
 			"documents": map[string]any{
@@ -1578,7 +1579,7 @@ func TestComplexNestedConditions(t *testing.T) {
 		},
 	})
 
-	meta := registry.Metadata{
+	meta := attrs.Bag{
 		"document": map[string]any{
 			"id":      "doc123",
 			"version": 2,

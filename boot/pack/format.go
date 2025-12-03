@@ -10,6 +10,7 @@ import (
 
 	"github.com/hashicorp/go-msgpack/v2/codec"
 	"github.com/klauspost/compress/zstd"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 )
 
@@ -124,12 +125,12 @@ type FrameInfo struct {
 
 // ResourceInfo describes a resource in the pack.
 type ResourceInfo struct {
-	ID        registry.ID       `msgpack:"id"`
-	Type      string            `msgpack:"type"` // "tree" or "blob"
-	Meta      registry.Metadata `msgpack:"meta"`
-	Frame     FrameInfo         `msgpack:"frame"`
-	FileCount uint32            `msgpack:"file_count,omitempty"`
-	TotalSize uint64            `msgpack:"total_size,omitempty"`
+	ID        registry.ID `msgpack:"id"`
+	Type      string      `msgpack:"type"` // "tree" or "blob"
+	Meta      attrs.Bag   `msgpack:"meta"`
+	Frame     FrameInfo   `msgpack:"frame"`
+	FileCount uint32      `msgpack:"file_count,omitempty"`
+	TotalSize uint64      `msgpack:"total_size,omitempty"`
 }
 
 // newMsgpackHandle creates a msgpack handle with standard pack configuration.

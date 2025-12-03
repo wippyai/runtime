@@ -49,11 +49,17 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	h := NewHost(entry.ID, cfg, nil, m.factory, m.log)
+
+	lifecycle := process.GetLifecycleRegistry(ctx)
+	if lifecycle != nil {
+		lifecycle.Register(entry.ID.String(), h)
+	}
+
 	scheduler := actor.NewScheduler(m.commandRegistry,
 		actor.WithWorkers(cfg.HostConfig.Workers),
 		actor.WithQueueSize(cfg.HostConfig.QueueSize),
 		actor.WithLocalQueueSize(cfg.HostConfig.LocalQueueSize),
-		actor.WithLifecycle(h),
+		actor.WithLifecycle(lifecycle),
 	)
 	h.scheduler = scheduler
 
@@ -70,7 +76,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Register,
+		Kind:   supervisor.ServiceRegister,
 		Path:   entry.ID.String(),
 		Data: &supervisor.Entry{
 			Service: h,
@@ -101,9 +107,13 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	delete(m.hosts, entry.ID)
 	m.mu.Unlock()
 
+	if lifecycle := process.GetLifecycleRegistry(ctx); lifecycle != nil {
+		lifecycle.Unregister(entry.ID.String())
+	}
+
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Remove,
+		Kind:   supervisor.ServiceRemove,
 		Path:   entry.ID.String(),
 	})
 

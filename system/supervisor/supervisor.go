@@ -200,7 +200,7 @@ func (s *Supervisor) handleEvent(e event.Event) {
 	}
 
 	switch e.Kind {
-	case supervisor.Register:
+	case supervisor.ServiceRegister:
 		entry, ok := e.Data.(*supervisor.Entry)
 		if !ok {
 			s.logger.Error(
@@ -216,13 +216,13 @@ func (s *Supervisor) handleEvent(e event.Event) {
 			entry:     entry,
 		}
 
-	case supervisor.Remove:
+	case supervisor.ServiceRemove:
 		s.actions <- action{serviceID: e.Path, kind: actionRemove}
 
-	case supervisor.Start:
+	case supervisor.ServiceStart:
 		s.actions <- action{serviceID: e.Path, kind: actionStart}
 
-	case supervisor.Stop:
+	case supervisor.ServiceStop:
 		s.actions <- action{serviceID: e.Path, kind: actionStop}
 	}
 }
@@ -341,7 +341,7 @@ func (s *Supervisor) createStateHandler(id string) func(supervisor.Status, any) 
 		s.bus.Send(s.ctx, event.Event{
 			System: supervisor.System,
 			Path:   id,
-			Kind:   supervisor.Update,
+			Kind:   supervisor.ServiceUpdate,
 			Data: State{
 				Status:     status,
 				Details:    details,

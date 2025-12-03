@@ -2,6 +2,7 @@
 package lua
 
 import (
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/system/scheduler/pool"
 )
@@ -62,13 +63,13 @@ type (
 		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
 		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules
 		Pool    PoolConfig             `json:"pool,omitempty"`    // VM pool configuration
-		Meta    registry.Metadata      `json:"meta,omitempty"`    // Metadata including options
+		Meta    attrs.Bag              `json:"meta,omitempty"`    // Metadata including options
 	}
 
 	// LibraryConfig defines the configuration for a Lua library component.
 	// It includes the library source code and required modules.
 	LibraryConfig struct {
-		Meta    registry.Metadata      `json:"meta"`              // Metadata for the library
+		Meta    attrs.Bag              `json:"meta"`              // Metadata for the library
 		Source  string                 `json:"source"`            // Library source code
 		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
 		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules
@@ -76,7 +77,7 @@ type (
 
 	// ProcessConfig defines the configuration for a Lua processes.
 	ProcessConfig struct {
-		Meta    registry.Metadata      `json:"meta"`              // Metadata for the terminal
+		Meta    attrs.Bag              `json:"meta"`              // Metadata for the terminal
 		Source  string                 `json:"source"`            // Lua source code
 		Method  string                 `json:"method"`            // Alias of the Lua method to execute
 		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
@@ -86,7 +87,7 @@ type (
 	// WorkflowConfig defines the configuration for a Lua workflow.
 	// Workflows have restricted module access for deterministic execution.
 	WorkflowConfig struct {
-		Meta    registry.Metadata      `json:"meta"`              // Metadata for the workflow
+		Meta    attrs.Bag              `json:"meta"`              // Metadata for the workflow
 		Source  string                 `json:"source"`            // Lua source code
 		Method  string                 `json:"method"`            // Alias of the Lua method to execute
 		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
@@ -95,7 +96,7 @@ type (
 
 	// BteaConfig defines the configuration for a Lua terminal app, this is custom process with host expectations.
 	BteaConfig struct {
-		Meta    registry.Metadata      `json:"meta"`              // Metadata for the terminal
+		Meta    attrs.Bag              `json:"meta"`              // Metadata for the terminal
 		Source  string                 `json:"source"`            // Lua source code
 		Method  string                 `json:"method"`            // Alias of the Lua method to execute
 		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
@@ -112,7 +113,7 @@ type (
 		Imports map[string]registry.ID `json:"imports,omitempty"` // Import aliases for libraries
 		Modules []string               `json:"modules,omitempty"` // Built-in modules to load
 		Pool    PoolConfig             `json:"pool,omitempty"`    // VM pool configuration
-		Meta    registry.Metadata      `json:"meta,omitempty"`
+		Meta    attrs.Bag              `json:"meta,omitempty"`
 	}
 
 	// BytecodeLibraryConfig defines configuration for a precompiled Lua library.
@@ -122,7 +123,7 @@ type (
 		Hash    string                 `json:"hash"`              // Required SHA256 hash
 		Imports map[string]registry.ID `json:"imports,omitempty"` // Import aliases for libraries
 		Modules []string               `json:"modules,omitempty"` // Built-in modules to load
-		Meta    registry.Metadata      `json:"meta,omitempty"`
+		Meta    attrs.Bag              `json:"meta,omitempty"`
 	}
 
 	// BytecodeProcessConfig defines configuration for a precompiled Lua process.
@@ -133,7 +134,7 @@ type (
 		Method  string                 `json:"method"`            // Lua method to execute
 		Imports map[string]registry.ID `json:"imports,omitempty"` // Import aliases for libraries
 		Modules []string               `json:"modules,omitempty"` // Built-in modules to load
-		Meta    registry.Metadata      `json:"meta,omitempty"`
+		Meta    attrs.Bag              `json:"meta,omitempty"`
 	}
 
 	// BytecodeWorkflowConfig defines configuration for a precompiled Lua workflow.
@@ -144,7 +145,7 @@ type (
 		Method  string                 `json:"method"`            // Lua method to execute
 		Imports map[string]registry.ID `json:"imports,omitempty"` // Import aliases for libraries
 		Modules []string               `json:"modules,omitempty"` // Built-in modules to load
-		Meta    registry.Metadata      `json:"meta,omitempty"`
+		Meta    attrs.Bag              `json:"meta,omitempty"`
 	}
 
 	// BytecodeBteaConfig defines configuration for a precompiled Lua terminal app.
@@ -155,7 +156,7 @@ type (
 		Method  string                 `json:"method"`            // Lua method to execute
 		Imports map[string]registry.ID `json:"imports,omitempty"` // Import aliases for libraries
 		Modules []string               `json:"modules,omitempty"` // Built-in modules to load
-		Meta    registry.Metadata      `json:"meta,omitempty"`
+		Meta    attrs.Bag              `json:"meta,omitempty"`
 	}
 )
 

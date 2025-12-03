@@ -121,7 +121,7 @@ func TestStressControllerRapidStartStop(t *testing.T) {
 		}
 
 		state := ctrl.State()
-		if state.Status != supervisor.Running {
+		if state.Status != supervisor.StatusRunning {
 			t.Fatalf("cycle %d: expected Running, got %v", i, state.Status)
 		}
 
@@ -284,7 +284,7 @@ func TestStressSupervisorManyServices(t *testing.T) {
 
 		sup.handleEvent(event.Event{
 			System: supervisor.System,
-			Kind:   supervisor.Register,
+			Kind:   supervisor.ServiceRegister,
 			Path:   id,
 			Data: &supervisor.Entry{
 				Service: svc,
@@ -307,7 +307,7 @@ func TestStressSupervisorManyServices(t *testing.T) {
 
 	runningCount := 0
 	for _, state := range states {
-		if state.Status == supervisor.Running {
+		if state.Status == supervisor.StatusRunning {
 			runningCount++
 		}
 	}
@@ -339,7 +339,7 @@ func TestStressSupervisorConcurrentEvents(t *testing.T) {
 		svc := newStressService()
 		sup.handleEvent(event.Event{
 			System: supervisor.System,
-			Kind:   supervisor.Register,
+			Kind:   supervisor.ServiceRegister,
 			Path:   id,
 			Data: &supervisor.Entry{
 				Service: svc,
@@ -369,13 +369,13 @@ func TestStressSupervisorConcurrentEvents(t *testing.T) {
 				if rand.Float32() < 0.5 {                                 //nolint:gosec
 					sup.handleEvent(event.Event{
 						System: supervisor.System,
-						Kind:   supervisor.Start,
+						Kind:   supervisor.ServiceStart,
 						Path:   id,
 					})
 				} else {
 					sup.handleEvent(event.Event{
 						System: supervisor.System,
-						Kind:   supervisor.Stop,
+						Kind:   supervisor.ServiceStop,
 						Path:   id,
 					})
 				}
@@ -415,7 +415,7 @@ func TestStressInternalStateConcurrentAccess(t *testing.T) {
 				op := i % 6
 				switch op {
 				case 0:
-					state.updateState(supervisor.Running, "details")
+					state.updateState(supervisor.StatusRunning, "details")
 				case 1:
 					state.updateDetails("new details")
 				case 2:
@@ -550,7 +550,7 @@ func TestStressControllerRetryUnderLoad(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	state := ctrl.State()
-	require.Equal(t, supervisor.Running, state.Status)
+	require.Equal(t, supervisor.StatusRunning, state.Status)
 	require.GreaterOrEqual(t, svc.StartAttempts(), failUntil)
 
 	_ = ctrl.Stop()

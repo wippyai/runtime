@@ -1,131 +1,80 @@
-// Package process2 provides engine2 process abstractions.
-// This is the successor to api/process for new-style process execution.
+// Package process provides process abstractions for schedulable execution.
 package process
 
 import (
 	"context"
-	"sync"
 
+	"github.com/wippyai/runtime/api/attrs"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 )
 
-// StepStatus indicates the process state after Step() returns.
-type StepStatus int
+// System identifies the process system in the event bus.
+const System event.System = "process"
 
+// Event kinds for factory operations.
 const (
-	// StepContinue means the process yielded commands and expects to resume.
-	StepContinue StepStatus = iota
-
-	// StepIdle means the process is waiting for external input via Send().
-	StepIdle
-
-	// StepDone means the process has completed execution.
-	StepDone
+	FactoryRegister event.Kind = "factory.register"
+	FactoryDelete   event.Kind = "factory.delete"
+	FactoryAccept   event.Kind = "factory.accept"
+	FactoryReject   event.Kind = "factory.reject"
 )
 
-// MaxYields is the maximum yields per step that fit in the fixed buffer.
-const MaxYields = 4
+// Registry kind for dispatcher handlers.
+const KindHandler registry.Kind = "dispatcher.handler"
 
-// StepResult is returned by Process.Step() containing status and yields.
-type StepResult struct {
-	Status     StepStatus
-	Result     payload.Payload // Final result on StepDone (optional)
-	yieldCount int
-	yieldsBuf  [MaxYields]Command
-	yields     []Command
-}
+// Payload is an alias for payload.Payload used in process results.
+type Payload = payload.Payload
 
-// GetYields returns the yielded commands.
-func (r *StepResult) GetYields() []Command {
-	if r.yields != nil {
-		return r.yields
+type (
+	// Meta contains metadata about a process type.
+	Meta struct {
+		Method string
 	}
-	return r.yieldsBuf[:r.yieldCount]
-}
 
-// AddYield appends a command to the result.
-func (r *StepResult) AddYield(cmd Command) {
-	if r.yieldCount < MaxYields {
-		r.yieldsBuf[r.yieldCount] = cmd
-		r.yieldCount++
-	} else {
-		if r.yields == nil {
-			r.yields = make([]Command, MaxYields, MaxYields*2)
-			copy(r.yields, r.yieldsBuf[:])
-		}
-		r.yields = append(r.yields, cmd)
+	// Start contains the configuration needed to start a new process.
+	Start struct {
+		HostID  relay.HostID
+		Source  registry.ID
+		Input   payload.Payloads
+		Context []ctxapi.Pair
+		Options attrs.Attributes
 	}
-}
 
-// YieldCount returns the number of yielded commands.
-func (r *StepResult) YieldCount() int {
-	if r.yields != nil {
-		return len(r.yields)
+	// FactoryEntry is sent via event bus to register a factory.
+	FactoryEntry struct {
+		Factory NewFunc
+		Meta    Meta
 	}
-	return r.yieldCount
-}
+)
 
-// Reset clears the result for reuse.
-func (r *StepResult) Reset() {
-	r.Status = StepContinue
-	r.Result = nil
-	for i := 0; i < r.yieldCount; i++ {
-		r.yieldsBuf[i] = nil
+type (
+	// Process is a schedulable unit of work implemented as a state machine.
+	Process interface {
+		// Init prepares the process for execution with method and input.
+		Init(ctx context.Context, method string, input payload.Payloads) error
+		// Step advances the process state machine by one iteration.
+		Step(results *YieldResults) (StepResult, error)
+		// Close releases process resources.
+		Close()
+		relay.Receiver
 	}
-	r.yieldCount = 0
-	r.yields = nil
-}
 
-// YieldResults carries results from handler execution back to the process.
-type YieldResults struct {
-	Data  any
-	Error error
-}
+	// NewFunc creates new Process instances.
+	NewFunc func() (Process, error)
 
-var yieldResultsPool = sync.Pool{
-	New: func() any { return &YieldResults{} },
-}
+	// Factory creates Process instances from registry IDs.
+	Factory interface {
+		Create(id registry.ID) (Process, *Meta, error)
+	}
 
-// AcquireYieldResults gets a YieldResults from pool.
-func AcquireYieldResults() *YieldResults {
-	return yieldResultsPool.Get().(*YieldResults)
-}
-
-// ReleaseYieldResults returns a YieldResults to pool.
-func ReleaseYieldResults(yr *YieldResults) {
-	yr.Data = nil
-	yr.Error = nil
-	yieldResultsPool.Put(yr)
-}
-
-// Process is a schedulable unit of work implemented as a state machine.
-// Processes are DATA, not goroutines. Workers call Step() to advance them.
-type Process interface {
-	// Execute starts execution with context, method and input.
-	Execute(ctx context.Context, method string, input payload.Payloads) error
-
-	// Step advances the process by one iteration.
-	Step(results *YieldResults) (StepResult, error)
-
-	// Close releases process resources.
-	Close()
-
-	// Receiver allows external messages to be sent to the process.
-	relay.Receiver
-}
-
-// ProcessFactory creates new Process instances.
-type ProcessFactory func() (Process, error)
-
-// Executor provides blocking process execution.
-type Executor interface {
-	Execute(ctx context.Context, pid relay.PID, p Process, method string, input payload.Payloads) (*runtime.Result, error)
-}
-
-// Lifecycle handles process lifecycle events for schedulers.
-type Lifecycle interface {
-	OnStart(ctx context.Context, pid relay.PID, proc Process)
-	OnComplete(ctx context.Context, pid relay.PID, result *runtime.Result)
-}
+	// Lifecycle handles process lifecycle events for schedulers.
+	Lifecycle interface {
+		OnStart(ctx context.Context, pid relay.PID, proc Process)
+		OnComplete(ctx context.Context, pid relay.PID, result *runtime.Result)
+	}
+)

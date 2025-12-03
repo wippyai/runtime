@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"sync"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 )
@@ -19,7 +20,7 @@ type fieldInfo struct {
 
 var (
 	fieldCache sync.Map // map[reflect.Type]*fieldInfo
-	metaType   = reflect.TypeOf((*registry.Metadata)(nil)).Elem()
+	metaType   = reflect.TypeOf((*attrs.Bag)(nil)).Elem()
 	idType     = reflect.TypeOf(registry.ID{})
 )
 

@@ -56,7 +56,7 @@ func TestManager_HandleRegisterHost(t *testing.T) {
 		ctx,
 		bus,
 		api.System,
-		"node.(accept_host|reject_host)",
+		"host.(accept|reject)",
 		func(e event.Event) {
 			responses <- e
 		},
@@ -144,7 +144,7 @@ func TestManager_HandleDeleteHost(t *testing.T) {
 		ctx,
 		bus,
 		api.System,
-		"node.accept_host",
+		"host.accept",
 		func(e event.Event) {
 			responses <- e
 		},

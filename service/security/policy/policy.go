@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/api/service/security/policy"
@@ -33,7 +34,7 @@ func (p *Policy) ID() registry.ID {
 	return p.id
 }
 
-func (p *Policy) Evaluate(actor security.Actor, action, resource string, meta registry.Metadata) security.Result {
+func (p *Policy) Evaluate(actor security.Actor, action, resource string, meta attrs.Bag) security.Result {
 	if !p.matchesAction(action) {
 		return security.Undefined
 	}

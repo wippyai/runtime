@@ -37,7 +37,7 @@ func (m *NodeManager) Start(ctx context.Context) error {
 		ctx,
 		m.bus,
 		api.System,
-		"node.(register_host|remove_host)",
+		"host.(register|delete)",
 		m.handleEvent,
 	)
 	if err != nil {

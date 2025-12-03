@@ -32,7 +32,7 @@ func BenchmarkPackEntries(b *testing.B) {
 				entries[i] = registry.Entry{
 					ID:   registry.ParseID("test:entry"),
 					Kind: "test.kind",
-					Meta: registry.Metadata{"index": i},
+					Meta: map[string]interface{}{"index": i},
 					Data: payload.New(map[string]any{
 						"value": i,
 						"data":  "benchmark data content",
@@ -40,7 +40,7 @@ func BenchmarkPackEntries(b *testing.B) {
 				}
 			}
 
-			metadata := registry.Metadata{"benchmark": "true"}
+			metadata := map[string]interface{}{"benchmark": "true"}
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
@@ -86,10 +86,10 @@ func BenchmarkPackFilesystem(b *testing.B) {
 			}
 
 			fsys := os.DirFS(tmpDir)
-			metadata := registry.Metadata{}
+			metadata := map[string]interface{}{}
 			var entries []registry.Entry
 			resourceID := registry.ParseID("bench:fs")
-			resourceMeta := registry.Metadata{}
+			resourceMeta := map[string]interface{}{}
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
@@ -123,7 +123,7 @@ func BenchmarkReadEntries(b *testing.B) {
 				entries[i] = registry.Entry{
 					ID:   registry.ParseID("test:entry"),
 					Kind: "test.kind",
-					Meta: registry.Metadata{"index": i},
+					Meta: map[string]interface{}{"index": i},
 					Data: payload.New(map[string]any{
 						"value": i,
 						"data":  "benchmark data content",
@@ -132,7 +132,7 @@ func BenchmarkReadEntries(b *testing.B) {
 			}
 
 			var buf bytes.Buffer
-			err := pw.PackEntries(registry.Metadata{}, entries, &buf)
+			err := pw.PackEntries(map[string]interface{}{}, entries, &buf)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -187,8 +187,8 @@ func BenchmarkReadFiles(b *testing.B) {
 			fsys := os.DirFS(tmpDir)
 
 			var buf bytes.Buffer
-			err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-				registry.ParseID("bench:file"), registry.Metadata{}, &buf)
+			err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+				registry.ParseID("bench:file"), map[string]interface{}{}, &buf)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -246,8 +246,8 @@ func BenchmarkCompression(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			var buf bytes.Buffer
-			err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-				registry.ParseID("bench:text"), registry.Metadata{}, &buf)
+			err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+				registry.ParseID("bench:text"), map[string]interface{}{}, &buf)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -273,8 +273,8 @@ func BenchmarkCompression(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			var buf bytes.Buffer
-			err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-				registry.ParseID("bench:binary"), registry.Metadata{}, &buf)
+			err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+				registry.ParseID("bench:binary"), map[string]interface{}{}, &buf)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -307,8 +307,8 @@ func BenchmarkCompression(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			var buf bytes.Buffer
-			err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-				registry.ParseID("bench:mixed"), registry.Metadata{}, &buf)
+			err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+				registry.ParseID("bench:mixed"), map[string]interface{}{}, &buf)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -330,7 +330,7 @@ func BenchmarkReaderInit(b *testing.B) {
 	}
 
 	var buf bytes.Buffer
-	err := pw.PackEntries(registry.Metadata{}, entries, &buf)
+	err := pw.PackEntries(map[string]interface{}{}, entries, &buf)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -351,7 +351,7 @@ func BenchmarkGetMetadata(b *testing.B) {
 	transcoder := systempayload.NewTranscoder()
 	pw := NewWriter(transcoder)
 
-	metadata := registry.Metadata{
+	metadata := map[string]interface{}{
 		"version": "1.0.0",
 		"name":    "benchmark",
 		"extra":   "metadata content",
@@ -396,8 +396,8 @@ func BenchmarkReadDir(b *testing.B) {
 	fsys := os.DirFS(tmpDir)
 
 	var buf bytes.Buffer
-	err := pw.Pack(registry.Metadata{}, []registry.Entry{}, fsys,
-		registry.ParseID("bench:readdir"), registry.Metadata{}, &buf)
+	err := pw.Pack(map[string]interface{}{}, []registry.Entry{}, fsys,
+		registry.ParseID("bench:readdir"), map[string]interface{}{}, &buf)
 	if err != nil {
 		b.Fatal(err)
 	}

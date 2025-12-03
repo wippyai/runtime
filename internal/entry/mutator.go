@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 )
@@ -127,7 +128,7 @@ func (m *Mutator) setInData(entry *registry.Entry, segments []string, value any)
 // setInMeta sets a value in entry.Meta at the given path segments
 func (m *Mutator) setInMeta(entry *registry.Entry, segments []string, value any) error {
 	if entry.Meta == nil {
-		entry.Meta = make(registry.Metadata)
+		entry.Meta = make(attrs.Bag)
 	}
 
 	if len(segments) == 0 {
@@ -180,7 +181,7 @@ func (m *Mutator) appendInData(entry *registry.Entry, segments []string, values 
 // appendInMeta appends values to an array in entry.Meta with deduplication
 func (m *Mutator) appendInMeta(entry *registry.Entry, segments []string, values ...any) error {
 	if entry.Meta == nil {
-		entry.Meta = make(registry.Metadata)
+		entry.Meta = make(attrs.Bag)
 	}
 
 	if len(segments) == 0 {
@@ -251,7 +252,7 @@ func (m *Mutator) deleteInMeta(entry *registry.Entry, segments []string) error {
 	}
 
 	// Copy back to Meta
-	entry.Meta = make(registry.Metadata)
+	entry.Meta = make(attrs.Bag)
 	for k, v := range current {
 		entry.Meta[k] = v
 	}

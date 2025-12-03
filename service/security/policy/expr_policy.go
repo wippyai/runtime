@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
 	policyapi "github.com/wippyai/runtime/api/service/security/policy"
@@ -38,7 +39,7 @@ func (p *ExprPolicy) ID() registry.ID {
 }
 
 // Evaluate determines if the action on resource is allowed/denied
-func (p *ExprPolicy) Evaluate(actor security.Actor, action, resource string, meta registry.Metadata) security.Result {
+func (p *ExprPolicy) Evaluate(actor security.Actor, action, resource string, meta attrs.Bag) security.Result {
 	// Check if policy applies to this action
 	if !p.matchesActions(action) {
 		return security.Undefined

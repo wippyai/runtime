@@ -34,7 +34,7 @@ type Factory struct {
 
 // NewFactory creates a ProcessFactory for Lua processes.
 // The factory returns processes that are already initialized.
-func NewFactory(cfg FactoryConfig) process.ProcessFactory {
+func NewFactory(cfg FactoryConfig) process.NewFunc {
 	f := &Factory{
 		proto:         cfg.Proto,
 		script:        cfg.Script,
@@ -66,7 +66,7 @@ func (f *Factory) Create() (process.Process, error) {
 }
 
 // NewFactoryFromProto creates a factory from a precompiled proto with default module bindings.
-func NewFactoryFromProto(proto *lua.FunctionProto, binders ...ModuleBinder) process.ProcessFactory {
+func NewFactoryFromProto(proto *lua.FunctionProto, binders ...ModuleBinder) process.NewFunc {
 	return NewFactory(FactoryConfig{
 		Proto:         proto,
 		ModuleBinders: binders,
@@ -74,7 +74,7 @@ func NewFactoryFromProto(proto *lua.FunctionProto, binders ...ModuleBinder) proc
 }
 
 // NewFactoryFromScript creates a factory from a script string.
-func NewFactoryFromScript(script, name string, binders ...ModuleBinder) process.ProcessFactory {
+func NewFactoryFromScript(script, name string, binders ...ModuleBinder) process.NewFunc {
 	return NewFactory(FactoryConfig{
 		Script:        script,
 		ScriptName:    name,
@@ -84,7 +84,7 @@ func NewFactoryFromScript(script, name string, binders ...ModuleBinder) process.
 
 // CompileFactory compiles a script and returns a factory using the compiled proto.
 // Returns error if compilation fails.
-func CompileFactory(script, name string, binders ...ModuleBinder) (process.ProcessFactory, error) {
+func CompileFactory(script, name string, binders ...ModuleBinder) (process.NewFunc, error) {
 	proto, err := lua.CompileString(script, name)
 	if err != nil {
 		return nil, err

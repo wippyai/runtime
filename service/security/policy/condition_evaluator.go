@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/api/service/security/policy"
 )
@@ -40,7 +40,7 @@ func (e *ConditionEvaluator) EvaluateCondition(
 	condition policy.Condition,
 	actor security.Actor,
 	action, resource string,
-	meta registry.Metadata,
+	meta attrs.Bag,
 ) (bool, error) {
 	fieldValue, err := e.extractField(condition.Field, actor, action, resource, meta)
 	if err != nil && !errors.Is(err, policy.ErrFieldNotFound) {
@@ -64,7 +64,7 @@ func (e *ConditionEvaluator) extractField(
 	fieldPath string,
 	actor security.Actor,
 	action, resource string,
-	meta registry.Metadata,
+	meta attrs.Bag,
 ) (any, error) {
 	parts := strings.Split(fieldPath, ".")
 	if len(parts) == 0 {
@@ -132,7 +132,7 @@ func (e *ConditionEvaluator) extractActorField(actor security.Actor, parts []str
 	}
 }
 
-func (e *ConditionEvaluator) extractMetaField(meta registry.Metadata, parts []string) (any, error) {
+func (e *ConditionEvaluator) extractMetaField(meta attrs.Bag, parts []string) (any, error) {
 	if meta == nil {
 		return nil, policy.ErrFieldNotFound
 	}

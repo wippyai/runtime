@@ -4,6 +4,7 @@ package contract
 import (
 	"context"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -28,9 +29,9 @@ const (
 type (
 	// Definition represents a contract stored in the registry.
 	Definition struct {
-		ID      registry.ID       `json:"id,omitempty"`
-		Meta    registry.Metadata `json:"meta,omitempty"`
-		Methods []MethodDef       `json:"methods"`
+		ID      registry.ID `json:"id,omitempty"`
+		Meta    attrs.Bag   `json:"meta,omitempty"`
+		Methods []MethodDef `json:"methods"`
 	}
 
 	// MethodDef defines a single method in a contract.
@@ -49,9 +50,9 @@ type (
 
 	// Binding represents an implementation binding stored in the registry.
 	Binding struct {
-		ID        registry.ID       `json:"id,omitempty"`
-		Meta      registry.Metadata `json:"meta,omitempty"`
-		Contracts []BoundContract   `json:"contracts"`
+		ID        registry.ID     `json:"id,omitempty"`
+		Meta      attrs.Bag       `json:"meta,omitempty"`
+		Contracts []BoundContract `json:"contracts"`
 	}
 
 	// BoundContract maps a contract to its implementation.
@@ -80,7 +81,7 @@ type (
 	// Instantiator handles creating contract instances from bindings.
 	Instantiator interface {
 		// Instantiate creates a new contract instance with the given binding ID and scope.
-		Instantiate(ctx context.Context, bindingID registry.ID, bindContext registry.Metadata) (Instance, error)
+		Instantiate(ctx context.Context, bindingID registry.ID, bindContext attrs.Bag) (Instance, error)
 	}
 
 	// Contract represents a loaded contract definition at runtime.
@@ -89,7 +90,7 @@ type (
 		ID() registry.ID
 
 		// Meta returns the contract's metadata.
-		Meta() registry.Metadata
+		Meta() attrs.Bag
 
 		// Methods returns all method definitions.
 		Methods() []MethodDef

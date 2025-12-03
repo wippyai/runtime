@@ -19,6 +19,7 @@ import (
 
 	"github.com/hashicorp/go-msgpack/v2/codec"
 	"github.com/klauspost/compress/zstd"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 )
@@ -63,7 +64,7 @@ type encodedPayload struct {
 type encodedEntry struct {
 	ID   registry.ID
 	Kind string
-	Meta registry.Metadata
+	Meta attrs.Bag
 	Data *encodedPayload
 }
 
@@ -142,7 +143,7 @@ func NewWriter(transcoder payload.Transcoder, opts ...WriterOption) *Writer {
 
 // PackEntries creates a pack file with only metadata and entries (no resources).
 func (pw *Writer) PackEntries(
-	metadata registry.Metadata,
+	metadata attrs.Bag,
 	entries []registry.Entry,
 	w io.Writer,
 ) error {
@@ -182,11 +183,11 @@ func (pw *Writer) PackEntries(
 
 // Pack creates a pack file from filesystem and registry entries.
 func (pw *Writer) Pack(
-	metadata registry.Metadata,
+	metadata attrs.Bag,
 	entries []registry.Entry,
 	fsys fs.FS,
 	resourceID registry.ID,
-	resourceMeta registry.Metadata,
+	resourceMeta attrs.Bag,
 	w io.Writer,
 ) error {
 	// Convert entries to encoded format
@@ -240,7 +241,7 @@ func (pw *Writer) Pack(
 // PackWithResources creates a pack file with multiple filesystem resources.
 // This is used by the pack command to embed multiple directories.
 func (pw *Writer) PackWithResources(
-	metadata registry.Metadata,
+	metadata attrs.Bag,
 	entries []registry.Entry,
 	resources []ResourceSpec,
 	w io.Writer,
@@ -316,7 +317,7 @@ type rawFrame struct {
 func (pw *Writer) processFilesystem(
 	fsys fs.FS,
 	id registry.ID,
-	meta registry.Metadata,
+	meta attrs.Bag,
 ) (*TreeResource, []rawFrame, error) {
 	tree := &TreeResource{
 		ID:    id,
@@ -543,7 +544,7 @@ func (pw *Writer) shouldCompressFile(filename string) bool {
 }
 
 // createMetadataFrame creates compressed metadata frame
-func (pw *Writer) createMetadataFrame(metadata registry.Metadata) (rawFrame, FrameInfo, error) {
+func (pw *Writer) createMetadataFrame(metadata attrs.Bag) (rawFrame, FrameInfo, error) {
 	return pw.createCompressedFrame(metadata, pw.metadataLevel)
 }
 

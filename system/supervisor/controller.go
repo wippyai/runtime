@@ -94,13 +94,13 @@ func NewController(
 
 // Start initiates the service and transitions it to the running state.
 func (c *Controller) Start() error {
-	c.state.setDesiredStatus(supervisor.Running)
+	c.state.setDesiredStatus(supervisor.StatusRunning)
 	return c.runCommand(controlOp{kind: controlStart})
 }
 
 // Stop gracefully stops the service and transitions it to the stopped state.
 func (c *Controller) Stop() error {
-	c.state.setDesiredStatus(supervisor.Stopped)
+	c.state.setDesiredStatus(supervisor.StatusStopped)
 	return c.runCommand(controlOp{kind: controlStop})
 }
 
@@ -108,7 +108,7 @@ func (c *Controller) Stop() error {
 // current state. A service can be restarted if it has not been explicitly
 // marked as exited.
 func (c *Controller) CanRestart() bool {
-	return c.state.getDesiredStatus() != supervisor.Exited
+	return c.state.getDesiredStatus() != supervisor.StatusExited
 }
 
 func (c *Controller) runCommand(op controlOp) error {
@@ -190,7 +190,7 @@ func (c *Controller) supervise() {
 				respondAndCancel(context.Canceled)
 
 			case controlExit:
-				c.updateState(supervisor.Exited, nil)
+				c.updateState(supervisor.StatusExited, nil)
 				respondAndCancel(context.Canceled)
 				if cancel != nil {
 					cancel()
@@ -199,8 +199,8 @@ func (c *Controller) supervise() {
 
 			case controlFailed:
 				attempt := c.state.incRetryCount()
-				c.updateState(supervisor.Failed, c.state.details)
-				if c.state.getDesiredStatus() == supervisor.Running {
+				c.updateState(supervisor.StatusFailed, c.state.details)
+				if c.state.getDesiredStatus() == supervisor.StatusRunning {
 					if !c.runStart.IsZero() && time.Since(c.runStart) >= c.config.StableThreshold {
 						c.state.resetRetryCount()
 						attempt = 1
@@ -213,7 +213,7 @@ func (c *Controller) supervise() {
 				continue
 
 			case controlStart:
-				if c.state.getCurrentStatus() == supervisor.Running {
+				if c.state.getCurrentStatus() == supervisor.StatusRunning {
 					break
 				}
 				ctx, cancel = context.WithCancel(c.ctx)
@@ -224,11 +224,11 @@ func (c *Controller) supervise() {
 						op.result = nil
 					}
 					if isTerminalError(sErr) {
-						c.updateState(supervisor.Exited, sErr)
+						c.updateState(supervisor.StatusExited, sErr)
 						respondAndCancel(sErr)
 						break
 					}
-					if c.state.getDesiredStatus() != supervisor.Running {
+					if c.state.getDesiredStatus() != supervisor.StatusRunning {
 						respondStart(context.Canceled)
 						break
 					}
@@ -264,7 +264,7 @@ func (c *Controller) monitor(ctx context.Context, exitCh chan<- any, detailsCh <
 			return
 		case details, ok := <-detailsCh:
 			if !ok {
-				if c.state.getDesiredStatus() == supervisor.Running {
+				if c.state.getDesiredStatus() == supervisor.StatusRunning {
 					select {
 					case c.ops <- controlOp{kind: controlFailed}:
 					case <-ctx.Done():
@@ -289,7 +289,7 @@ func (c *Controller) monitor(ctx context.Context, exitCh chan<- any, detailsCh <
 
 func (c *Controller) tryStart(ctx context.Context, cancel context.CancelFunc) (<-chan any, error) {
 	c.updateState(
-		supervisor.Starting,
+		supervisor.StatusStarting,
 		fmt.Sprintf("attempt %d", c.state.getRetryCount()+1),
 	)
 	resultCh := make(chan struct {
@@ -314,27 +314,27 @@ func (c *Controller) tryStart(ctx context.Context, cancel context.CancelFunc) (<
 			if isTerminalError(result.err) {
 				return nil, result.err
 			}
-			c.updateState(supervisor.Failed, result.err)
+			c.updateState(supervisor.StatusFailed, result.err)
 			return nil, result.err
 		}
 		c.runStart = time.Now()
-		c.updateState(supervisor.Running, nil)
+		c.updateState(supervisor.StatusRunning, nil)
 		return result.ch, nil
 	case <-time.After(c.config.StartTimeout):
 		cancel()
-		c.updateState(supervisor.Failed, "start timeout")
+		c.updateState(supervisor.StatusFailed, "start timeout")
 		return nil, ErrStartTimeout
 	case <-c.ctx.Done():
-		c.updateState(supervisor.Exited, "controller exited")
+		c.updateState(supervisor.StatusExited, "controller exited")
 		return nil, supervisor.ErrExit
 	}
 }
 
 func (c *Controller) tryStop(ctx context.Context) error {
-	if c.state.getCurrentStatus() == supervisor.Stopped || c.state.getCurrentStatus() == supervisor.Exited {
+	if c.state.getCurrentStatus() == supervisor.StatusStopped || c.state.getCurrentStatus() == supervisor.StatusExited {
 		return nil
 	}
-	c.updateState(supervisor.Stopping, nil)
+	c.updateState(supervisor.StatusStopping, nil)
 	resultCh := make(chan error, 1)
 	stopCtx, cancel := context.WithTimeout(ctx, c.config.StopTimeout)
 	defer cancel()
@@ -347,10 +347,10 @@ func (c *Controller) tryStop(ctx context.Context) error {
 	}()
 	select {
 	case err := <-resultCh:
-		c.updateState(supervisor.Stopped, err)
+		c.updateState(supervisor.StatusStopped, err)
 		return err
 	case <-stopCtx.Done():
-		c.updateState(supervisor.Failed, "stop timeout after "+c.config.StopTimeout.String())
+		c.updateState(supervisor.StatusFailed, "stop timeout after "+c.config.StopTimeout.String())
 		return NewStopTimeoutError(c.config.StopTimeout)
 	}
 }

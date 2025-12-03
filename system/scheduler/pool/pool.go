@@ -95,7 +95,7 @@ func DefaultConfig() Config {
 }
 
 // Factory creates new Process instances.
-type Factory = process.ProcessFactory
+type Factory = process.NewFunc
 
 // Dispatcher routes commands to handlers.
 type Dispatcher = dispatcher.Dispatcher
@@ -141,8 +141,8 @@ type hookedProcess struct {
 	onStop OnStop
 }
 
-func (h *hookedProcess) Execute(ctx context.Context, method string, input payload.Payloads) error {
-	return h.proc.Execute(ctx, method, input)
+func (h *hookedProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
+	return h.proc.Init(ctx, method, input)
 }
 
 func (h *hookedProcess) Step(results *process.YieldResults) (process.StepResult, error) {
@@ -195,7 +195,7 @@ func (e *Executor) Run(ctx context.Context, proc process.Process, method string,
 		e.hooks.OnStart(ctx, proc)
 	}
 
-	if err := proc.Execute(ctx, method, input); err != nil {
+	if err := proc.Init(ctx, method, input); err != nil {
 		result := &runtime.Result{Error: err}
 		if e.hooks.OnComplete != nil {
 			e.hooks.OnComplete(ctx, result)

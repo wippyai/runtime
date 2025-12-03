@@ -1,44 +1,36 @@
-// Package security provides security and authentication abstractions.
 package security
 
 import (
 	"context"
-	"errors"
 
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/registry"
 )
 
-// Context keys
 var (
-	actorCtx = &ctxapi.Key{Name: "security.actor", Inherit: true}
-
-	scopeCtx = &ctxapi.Key{Name: "security.scope", Inherit: true}
-
-	registryCtx = &ctxapi.Key{Name: "security.registry"}
+	actorCtxKey    = &ctxapi.Key{Name: "security.actor", Inherit: true}
+	scopeCtxKey    = &ctxapi.Key{Name: "security.scope", Inherit: true}
+	registryCtxKey = &ctxapi.Key{Name: "security.registry"}
 )
 
 // ActorPair creates a context.Pair for setting an actor.
-// Use this to build context override pairs for Task/Launch.
 func ActorPair(actor Actor) ctxapi.Pair {
-	return ctxapi.Pair{Key: actorCtx, Value: actor}
+	return ctxapi.Pair{Key: actorCtxKey, Value: actor}
 }
 
 // ScopePair creates a context.Pair for setting a scope.
-// Use this to build context override pairs for Task/Launch.
 func ScopePair(scope Scope) ctxapi.Pair {
-	return ctxapi.Pair{Key: scopeCtx, Value: scope}
+	return ctxapi.Pair{Key: scopeCtxKey, Value: scope}
 }
 
 // SetActor sets the actor in the FrameContext.
-// Returns error if no frame context or frame is sealed.
 func SetActor(ctx context.Context, actor Actor) error {
 	fc := ctxapi.FrameFromContext(ctx)
 	if fc == nil {
-		return errors.New("no frame context available")
+		return ErrNoFrameContext
 	}
-
-	return fc.Set(actorCtx, actor)
+	return fc.Set(actorCtxKey, actor)
 }
 
 // GetActor retrieves the actor from the FrameContext.
@@ -47,7 +39,7 @@ func GetActor(ctx context.Context) (Actor, bool) {
 	if fc == nil {
 		return Actor{}, false
 	}
-	if val, ok := fc.Get(actorCtx); ok {
+	if val, ok := fc.Get(actorCtxKey); ok {
 		if actor, ok := val.(Actor); ok {
 			return actor, true
 		}
@@ -56,13 +48,12 @@ func GetActor(ctx context.Context) (Actor, bool) {
 }
 
 // SetScope sets the scope in the FrameContext.
-// Returns error if no frame context or frame is sealed.
 func SetScope(ctx context.Context, scope Scope) error {
 	fc := ctxapi.FrameFromContext(ctx)
 	if fc == nil {
-		return errors.New("no frame context available")
+		return ErrNoFrameContext
 	}
-	return fc.Set(scopeCtx, scope)
+	return fc.Set(scopeCtxKey, scope)
 }
 
 // GetScope retrieves the scope from the FrameContext.
@@ -71,7 +62,7 @@ func GetScope(ctx context.Context) (Scope, bool) {
 	if fc == nil {
 		return nil, false
 	}
-	if val, ok := fc.Get(scopeCtx); ok {
+	if val, ok := fc.Get(scopeCtxKey); ok {
 		if scope, ok := val.(Scope); ok {
 			return scope, true
 		}
@@ -80,35 +71,33 @@ func GetScope(ctx context.Context) (Scope, bool) {
 }
 
 // WithPolicy adds a policy to the current scope in the FrameContext.
-// Returns error if no scope found or frame is sealed.
 func WithPolicy(ctx context.Context, policy Policy) error {
 	scope, ok := GetScope(ctx)
 	if !ok {
-		return errors.New("security scope not found in context")
+		return ErrScopeNotFound
 	}
-
 	return SetScope(ctx, scope.With(policy))
 }
 
-// WithRegistry attaches a security registry to the context
-func WithRegistry(ctx context.Context, registry Registry) context.Context {
+// WithRegistry attaches a security registry to the context.
+func WithRegistry(ctx context.Context, reg Registry) context.Context {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(registryCtx) == nil {
-		ac.With(registryCtx, registry)
+	if ac.Get(registryCtxKey) == nil {
+		ac.With(registryCtxKey, reg)
 	}
 	return ctx
 }
 
-// GetRegistry retrieves the security registry from the context
+// GetRegistry retrieves the security registry from the context.
 func GetRegistry(ctx context.Context) (Registry, bool) {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return nil, false
 	}
-	if val := ac.Get(registryCtx); val != nil {
+	if val := ac.Get(registryCtxKey); val != nil {
 		if reg, ok := val.(Registry); ok {
 			return reg, true
 		}
@@ -116,26 +105,26 @@ func GetRegistry(ctx context.Context) (Registry, bool) {
 	return nil, false
 }
 
-// GetPolicy retrieves a policy by ID using the registry from context
+// GetPolicy retrieves a policy by ID using the registry from context.
 func GetPolicy(ctx context.Context, id registry.ID) (Policy, error) {
 	reg, ok := GetRegistry(ctx)
 	if !ok {
-		return nil, errors.New("security registry not found in context")
+		return nil, ErrRegistryNotFound
 	}
 	return reg.GetPolicy(id)
 }
 
-// GetPolicyGroup retrieves a policy group by ID using the registry from context
+// GetPolicyGroup retrieves a policy group by ID using the registry from context.
 func GetPolicyGroup(ctx context.Context, id registry.ID) (Scope, error) {
 	reg, ok := GetRegistry(ctx)
 	if !ok {
-		return nil, errors.New("security registry not found in context")
+		return nil, ErrRegistryNotFound
 	}
 	return reg.GetPolicyGroup(id)
 }
 
-// IsAllowed checks if the current actor is allowed to perform an action
-func IsAllowed(ctx context.Context, action, resource string, meta registry.Metadata) bool {
+// IsAllowed checks if the current actor is allowed to perform an action.
+func IsAllowed(ctx context.Context, action, resource string, meta attrs.Bag) bool {
 	actor, hasActor := GetActor(ctx)
 	scope, hasScope := GetScope(ctx)
 

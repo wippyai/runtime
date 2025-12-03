@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
 )
@@ -18,7 +19,7 @@ func (m *MockPolicy) ID() registry.ID {
 	return m.id
 }
 
-func (m *MockPolicy) Evaluate(_ security.Actor, _, _ string, _ registry.Metadata) security.Result {
+func (m *MockPolicy) Evaluate(_ security.Actor, _, _ string, _ attrs.Bag) security.Result {
 	return m.decision
 }
 
@@ -95,7 +96,7 @@ func TestScopeWithout(t *testing.T) {
 
 func TestScopeEvaluate(t *testing.T) {
 	actor := security.Actor{ID: "user1"}
-	meta := registry.Metadata{}
+	meta := attrs.Bag{}
 
 	tests := []struct {
 		name     string

@@ -4,6 +4,7 @@ package env
 import (
 	"context"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
 )
@@ -34,12 +35,12 @@ const (
 type (
 	// Variable represents an environment variable with optional default value and access control.
 	Variable struct {
-		ID           registry.ID       `json:"id"`
-		Meta         registry.Metadata `json:"meta,omitempty"`
-		Name         string            `json:"variable"`
-		DefaultValue string            `json:"default,omitempty"`
-		ReadOnly     bool              `json:"readonly,omitempty"`
-		StorageID    registry.ID       `json:"storage"`
+		ID           registry.ID `json:"id"`
+		Meta         attrs.Bag   `json:"meta,omitempty"`
+		Name         string      `json:"variable"`
+		DefaultValue string      `json:"default,omitempty"`
+		ReadOnly     bool        `json:"readonly,omitempty"`
+		StorageID    registry.ID `json:"storage"`
 	}
 
 	// Storage provides the interface for environment variable storage backends.

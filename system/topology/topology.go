@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
@@ -58,7 +59,10 @@ func (t *Topology) Wait(caller, pid relay.PID) error {
 
 	// Local monitoring
 	if _, ok := t.registry.Load(pid.String()); !ok {
-		return NewUnregisteredPIDError("monitor", pid)
+		return topology.ErrPIDNotRegistered.WithDetails(attrs.Bag{
+			"pid":       pid.String(),
+			"operation": "monitor",
+		})
 	}
 
 	value, _ := t.monitors.LoadOrStore(pid.String(), &sync.Map{})
@@ -66,7 +70,10 @@ func (t *Topology) Wait(caller, pid relay.PID) error {
 
 	_, loaded := watchers.LoadOrStore(caller.String(), true)
 	if loaded {
-		return NewAlreadyMonitoringError(pid)
+		return topology.ErrAlreadyMonitoring.WithDetails(attrs.Bag{
+			"pid":    pid.String(),
+			"caller": caller.String(),
+		})
 	}
 
 	return nil
@@ -111,7 +118,11 @@ func (t *Topology) Release(caller, pid relay.PID) error {
 func (t *Topology) Link(from, to relay.PID) error {
 	// Verify from PID is registered locally
 	if _, ok := t.registry.Load(from.String()); !ok {
-		return NewUnregisteredPIDError("link", from)
+		return topology.ErrPIDNotRegistered.WithDetails(attrs.Bag{
+			"pid":       from.String(),
+			"operation": "link",
+			"role":      "from",
+		})
 	}
 
 	// Check if to PID is on remote node
@@ -136,7 +147,11 @@ func (t *Topology) Link(from, to relay.PID) error {
 
 	// Local linking (both PIDs on same node)
 	if _, ok := t.registry.Load(to.String()); !ok {
-		return NewUnregisteredPIDError("link", to)
+		return topology.ErrPIDNotRegistered.WithDetails(attrs.Bag{
+			"pid":       to.String(),
+			"operation": "link",
+			"role":      "to",
+		})
 	}
 
 	// Use a global lock to ensure atomic bidirectional linking
@@ -335,7 +350,11 @@ func (t *Topology) Remove(pid relay.PID) {
 // Adds the caller to the watchers list for the target PID.
 func (t *Topology) HandleMonitorRequest(caller, target relay.PID) error {
 	if _, ok := t.registry.Load(target.String()); !ok {
-		return NewUnregisteredPIDError("monitor", target)
+		return topology.ErrPIDNotRegistered.WithDetails(attrs.Bag{
+			"pid":       target.String(),
+			"operation": "monitor",
+			"caller":    caller.String(),
+		})
 	}
 
 	value, _ := t.monitors.LoadOrStore(target.String(), &sync.Map{})
@@ -373,7 +392,11 @@ func (t *Topology) HandleMonitorRelease(caller, target relay.PID) error {
 func (t *Topology) HandleLinkRequest(from, to relay.PID) error {
 	// Verify to PID is registered locally
 	if _, ok := t.registry.Load(to.String()); !ok {
-		return NewUnregisteredPIDError("link", to)
+		return topology.ErrPIDNotRegistered.WithDetails(attrs.Bag{
+			"pid":       to.String(),
+			"operation": "link",
+			"from":      from.String(),
+		})
 	}
 
 	// Establish bidirectional link (to is local, from is remote)

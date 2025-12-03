@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
@@ -88,7 +89,7 @@ func (p *testPolicy) ID() registry.ID {
 	return p.id
 }
 
-func (p *testPolicy) Evaluate(_ security.Actor, _, _ string, _ registry.Metadata) security.Result {
+func (p *testPolicy) Evaluate(_ security.Actor, _, _ string, _ attrs.Bag) security.Result {
 	return p.decision
 }
 
@@ -246,7 +247,7 @@ func TestTokenStoreCreateValidateRevoke(t *testing.T) {
 	// Test token creation
 	actor := security.Actor{
 		ID:   "test-user",
-		Meta: registry.Metadata{"role": "admin"},
+		Meta: attrs.Bag{"role": "admin"},
 	}
 
 	// Create a scope with the test policy
@@ -257,7 +258,7 @@ func TestTokenStoreCreateValidateRevoke(t *testing.T) {
 	// Create token with details
 	details := security.TokenDetails{
 		Expiration: 30 * time.Minute,
-		Meta:       registry.Metadata{"purpose": "testing"},
+		Meta:       attrs.Bag{"purpose": "testing"},
 	}
 
 	token, err := ts.Create(ctx, actor, scope, details)
@@ -595,7 +596,7 @@ func TestConcurrentAccess(t *testing.T) {
 			// Create unique actor for each goroutine
 			actor := security.Actor{
 				ID:   fmt.Sprintf("user-%d", idx),
-				Meta: registry.Metadata{"index": idx},
+				Meta: attrs.Bag{"index": idx},
 			}
 
 			// Create token
@@ -640,7 +641,7 @@ func TestConcurrentAccess(t *testing.T) {
 	for i := 0; i < 10; i++ { // Much smaller number
 		actor := security.Actor{
 			ID:   fmt.Sprintf("concurrent-user-%d", i),
-			Meta: registry.Metadata{"index": i},
+			Meta: attrs.Bag{"index": i},
 		}
 
 		token, err := ts.Create(ctx, actor, nil, security.TokenDetails{})

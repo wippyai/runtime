@@ -14,37 +14,18 @@ import (
 type Manager struct {
 	node   relay.Node
 	logger *zap.Logger
-
-	mutators []api.StartMutator
 }
 
 // NewManager creates a new process manager.
 func NewManager(node relay.Node, logger *zap.Logger) *Manager {
 	return &Manager{
-		node:     node,
-		logger:   logger,
-		mutators: make([]api.StartMutator, 0),
+		node:   node,
+		logger: logger,
 	}
-}
-
-// RegisterMutator adds a StartMutator to be executed during Start().
-func (m *Manager) RegisterMutator(mutator api.StartMutator) {
-	m.mutators = append(m.mutators, mutator)
 }
 
 // Start launches a process on the specified host.
 func (m *Manager) Start(ctx context.Context, start *api.Start) (relay.PID, error) {
-	// Run mutators to modify start request this is wrong!!!!!!
-
-	// todo: uncomment
-	//	var err error
-	// for _, mutator := range m.mutators {
-	//	ctx, err = mutator(ctx, start)
-	//	if err != nil {
-	//		return relay.PID{}, fmt.Errorf("mutator failed: %w", err)
-	//	}
-	//}
-
 	// Look up host
 	relayHost, exists := m.node.GetHost(start.HostID)
 	if !exists {
