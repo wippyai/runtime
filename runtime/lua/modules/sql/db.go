@@ -123,7 +123,7 @@ func sqlGet(l *lua.LState) int {
 
 	db := NewDB(ctx, res, sqlDBRes.DB, sqlDBRes.Type)
 
-	value.NewUserData(l, db, dbMetatable)
+	value.PushUserData(l, db, dbMetatable)
 	l.Push(lua.LNil)
 	return 2
 }

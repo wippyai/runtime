@@ -41,7 +41,7 @@ func newResponse(l *lua.LState) int {
 		return 2
 	}
 
-	value.NewUserData(l, &Response{writer: reqCtx.ResponseWriter(), rCtx: reqCtx}, responseMetatable)
+	value.PushUserData(l, &Response{writer: reqCtx.ResponseWriter(), rCtx: reqCtx}, responseMetatable)
 	l.Push(lua.LNil)
 	return 2
 }

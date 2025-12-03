@@ -29,13 +29,13 @@ func (r ReadOnlyFS) Open(name string) (fs.File, error) {
 func (r ReadOnlyFS) Stat(name string) (fs.FileInfo, error) {
 	open, err := r.embed.Open(name)
 	if err != nil {
-		return nil, newReadOnlyFSStatError(err)
+		return nil, fsapi.NewStatError(err)
 	}
 	defer func() { _ = open.Close() }()
 
 	info, err := open.Stat()
 	if err != nil {
-		return nil, newReadOnlyFSStatError(err)
+		return nil, fsapi.NewStatError(err)
 	}
 	return info, nil
 }
@@ -53,7 +53,7 @@ func (r ReadOnlyFS) ReadDir(name string) ([]fs.DirEntry, error) {
 func (r ReadOnlyFS) OpenFile(name string, _ int, _ fs.FileMode) (fsapi.File, error) {
 	file, err := r.embed.Open(name)
 	if err != nil {
-		return nil, newReadOnlyFSOpenError(err)
+		return nil, fsapi.NewOpenError(err)
 	}
 	return readOnlyFile{file}, nil
 }
@@ -61,13 +61,13 @@ func (r ReadOnlyFS) OpenFile(name string, _ int, _ fs.FileMode) (fsapi.File, err
 // Remove always returns an error as it's not supported in a read-only filesystem.
 // It implements part of the fsapi.FS interface.
 func (r ReadOnlyFS) Remove(_ string) error {
-	return newUnsupportedOperationError("Remove")
+	return fsapi.NewReadOnlyOperationError("Remove")
 }
 
 // Mkdir always returns an error as it's not supported in a read-only filesystem.
 // It implements part of the fsapi.FS interface.
 func (r ReadOnlyFS) Mkdir(_ string, _ fs.FileMode) error {
-	return newUnsupportedOperationError("Mkdir")
+	return fsapi.NewReadOnlyOperationError("Mkdir")
 }
 
 // readOnlyFile wraps an fs.File to block write operations.
@@ -77,15 +77,15 @@ type readOnlyFile struct {
 
 // Write always returns an error as it's not supported in a read-only file.
 func (readOnlyFile) Write([]byte) (int, error) {
-	return 0, newReadOnlyFileOperationError("Write")
+	return 0, fsapi.NewReadOnlyOperationError("Write")
 }
 
 // Seek always returns an error as seeking is not supported in this implementation.
 func (readOnlyFile) Seek(int64, int) (int64, error) {
-	return 0, newReadOnlyFileOperationError("Seek")
+	return 0, fsapi.NewReadOnlyOperationError("Seek")
 }
 
 // Sync always returns an error as it's not supported in a read-only file.
 func (readOnlyFile) Sync() error {
-	return newReadOnlyFileOperationError("Sync")
+	return fsapi.NewReadOnlyOperationError("Sync")
 }

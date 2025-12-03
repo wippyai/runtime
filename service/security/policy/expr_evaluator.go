@@ -1,7 +1,7 @@
 package policy
 
 import (
-	"fmt" // Note: fmt kept for Sprintf in logging
+	"fmt"
 
 	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/vm"

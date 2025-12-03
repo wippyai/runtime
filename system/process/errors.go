@@ -6,6 +6,8 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 )
 
+// todo why here? where is host reg? do we even need it?
+
 // Error implements apierror.Error for process errors ;; todo: use erros from api?
 type Error struct {
 	kind      apierror.Kind

@@ -2,9 +2,68 @@
 package lua
 
 import (
+	"sync"
+
 	"github.com/wippyai/runtime/api/dispatcher"
 	lua "github.com/yuin/gopher-lua"
 )
+
+// ModuleDef is the complete module definition.
+// All fields are required.
+type ModuleDef struct {
+	Name        string
+	Description string
+	Class       []string
+	Build       func() (*lua.LTable, []YieldType)
+
+	once   sync.Once
+	table  *lua.LTable
+	yields []YieldType
+}
+
+// Load loads the module into LState. Returns yields.
+func (m *ModuleDef) Load(l *lua.LState) []YieldType {
+	m.once.Do(func() {
+		m.table, m.yields = m.Build()
+	})
+
+	l.SetGlobal(m.Name, m.table)
+
+	if pkg := l.GetGlobal("package"); pkg != lua.LNil {
+		if pkgTbl, ok := pkg.(*lua.LTable); ok {
+			if preload := pkgTbl.RawGetString("preload"); preload != lua.LNil {
+				if preloadTbl, ok := preload.(*lua.LTable); ok {
+					preloadTbl.RawSetString(m.Name, m.table)
+				}
+			}
+		}
+	}
+
+	return m.yields
+}
+
+// Info returns module metadata. Implements Module interface for transition period.
+func (m *ModuleDef) Info() ModuleInfo {
+	return ModuleInfo{Name: m.Name, Description: m.Description, Class: m.Class}
+}
+
+// Register implements Module interface for transition period.
+func (m *ModuleDef) Register(l *lua.LState) *Registration {
+	m.once.Do(func() {
+		m.table, m.yields = m.Build()
+	})
+	return &Registration{Table: m.table, YieldTypes: m.yields}
+}
+
+// Loader implements Module interface for transition period.
+func (m *ModuleDef) Loader(l *lua.LState) int {
+	reg := m.Register(l)
+	l.Push(reg.Table)
+	return 1
+}
+
+// TODO: Remove Module interface, Registration struct, LoadModule, LoadModules
+// once all modules are transitioned to ModuleDef
 
 // Module is the unified interface for Lua modules.
 // Modules provide metadata for filtering and registration for runtime setup.

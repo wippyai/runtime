@@ -56,21 +56,21 @@ func (m *Manager) addOrUpdateQueue(ctx context.Context, entry registry.Entry, ac
 		m.logger.Error("failed to decode queue config",
 			zap.String("id", entry.ID.String()),
 			zap.Error(err))
-		return newConfigDecodeError(err)
+		return queueapi.NewConfigError("failed to decode queue config", err)
 	}
 
 	if err := cfg.Validate(); err != nil {
 		m.logger.Error("invalid queue config",
 			zap.String("id", entry.ID.String()),
 			zap.Error(err))
-		return newConfigValidationError(err)
+		return queueapi.NewConfigError("invalid queue config", err)
 	}
 
 	if _, ok := m.queueMgr.GetDriver(cfg.Driver); !ok {
 		m.logger.Error("driver not found for queue",
 			zap.String("id", entry.ID.String()),
 			zap.String("driver", cfg.Driver.String()))
-		return newDriverNotFoundError(cfg.Driver)
+		return queueapi.NewDriverNotFoundError(cfg.Driver)
 	}
 
 	queue := &queueapi.Queue{

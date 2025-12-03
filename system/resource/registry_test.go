@@ -50,7 +50,7 @@ func (m *mockResource) Get() (any, error) {
 	defer m.mu.RUnlock()
 
 	if m.released {
-		return nil, resource.ErrResourceReleased
+		return nil, resource.ErrReleased
 	}
 	return m.data, nil
 }
@@ -84,12 +84,12 @@ func (m *mockResourceProvider) Acquire(ctx context.Context, id registry.ID, mode
 	// Check if resource exists
 	data, exists := m.resources[id]
 	if !exists {
-		return nil, resource.ErrResourceNotFound
+		return nil, resource.ErrNotFound
 	}
 
 	// Check for exclusive lock
 	if _, locked := m.lockedResources[id]; locked {
-		return nil, resource.ErrResourceLocked
+		return nil, resource.ErrLocked
 	}
 
 	// If requesting exclusive access, lock the resource
@@ -170,7 +170,7 @@ func TestService_ResourceLifecycle(t *testing.T) {
 
 	// Verify other acquires fail while exclusive lock is held
 	_, err = service.Acquire(ctx, id, resource.ModeNormal)
-	assert.Equal(t, resource.ErrResourceLocked, err)
+	assert.Equal(t, resource.ErrLocked, err)
 
 	// Release exclusive lock
 	res.Release()
@@ -261,7 +261,7 @@ func TestService_ResourceAccess(t *testing.T) {
 
 					// Verify can't Get after Release
 					_, err = res.Get()
-					assert.Equal(t, resource.ErrResourceReleased, err)
+					assert.Equal(t, resource.ErrReleased, err)
 
 					// Verify multiple Release calls are safe
 					res.Release()
@@ -621,7 +621,7 @@ func TestService_ResourceAcquisitionEdgeCases(t *testing.T) {
 
 	// Test acquiring non-existent resource
 	_, err := service.Acquire(ctx, id, resource.ModeNormal)
-	assert.Equal(t, resource.ErrResourceNotFound, err)
+	assert.Equal(t, resource.ErrNotFound, err)
 
 	// Register resource
 	entry := resource.Entry{

@@ -501,3 +501,182 @@ func TestChaCha20DecryptInvalidKeyLength(t *testing.T) {
 		t.Errorf("ChaCha20 decrypt invalid key test failed: %v", err)
 	}
 }
+
+func TestHMACSubmodule(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	mod := l.GetGlobal("crypto").(*lua.LTable)
+	hmacMod := mod.RawGetString("hmac")
+	if hmacMod.Type() != lua.LTTable {
+		t.Fatal("hmac submodule not registered")
+	}
+
+	tbl := hmacMod.(*lua.LTable)
+	if tbl.RawGetString("sha256").Type() != lua.LTFunction {
+		t.Error("hmac.sha256 function not registered")
+	}
+	if tbl.RawGetString("sha512").Type() != lua.LTFunction {
+		t.Error("hmac.sha512 function not registered")
+	}
+}
+
+func TestHMACSha256(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local digest, err = crypto.hmac.sha256("secret", "data")
+		if not digest then error(err) end
+		if #digest ~= 64 then error("expected 64 char hex digest") end
+	`)
+	if err != nil {
+		t.Errorf("HMAC SHA256 test failed: %v", err)
+	}
+}
+
+func TestHMACSha512(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local digest, err = crypto.hmac.sha512("secret", "data")
+		if not digest then error(err) end
+		if #digest ~= 128 then error("expected 128 char hex digest") end
+	`)
+	if err != nil {
+		t.Errorf("HMAC SHA512 test failed: %v", err)
+	}
+}
+
+func TestHMACEmptyKey(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local _, err = crypto.hmac.sha256("", "data")
+		if err == nil then error("expected error for empty key") end
+	`)
+	if err != nil {
+		t.Errorf("HMAC empty key test failed: %v", err)
+	}
+}
+
+func TestHMACEmptyData(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local digest, err = crypto.hmac.sha256("secret", "")
+		if not digest then error(err) end
+	`)
+	if err != nil {
+		t.Errorf("HMAC empty data test failed: %v", err)
+	}
+}
+
+func TestJWTSubmodule(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	mod := l.GetGlobal("crypto").(*lua.LTable)
+	jwtMod := mod.RawGetString("jwt")
+	if jwtMod.Type() != lua.LTTable {
+		t.Fatal("jwt submodule not registered")
+	}
+
+	tbl := jwtMod.(*lua.LTable)
+	if tbl.RawGetString("encode").Type() != lua.LTFunction {
+		t.Error("jwt.encode function not registered")
+	}
+	if tbl.RawGetString("verify").Type() != lua.LTFunction {
+		t.Error("jwt.verify function not registered")
+	}
+}
+
+func TestJWTEncodeVerify(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local payload = { sub = "user123", name = "Test User" }
+		local token, err = crypto.jwt.encode(payload, "secret")
+		if not token then error(err) end
+
+		local decoded, err = crypto.jwt.verify(token, "secret")
+		if not decoded then error(err) end
+		if decoded.sub ~= "user123" then error("sub mismatch") end
+		if decoded.name ~= "Test User" then error("name mismatch") end
+	`)
+	if err != nil {
+		t.Errorf("JWT encode/verify test failed: %v", err)
+	}
+}
+
+func TestJWTVerifyInvalidToken(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local _, err = crypto.jwt.verify("invalid.token.here", "secret")
+		if err == nil then error("expected error for invalid token") end
+	`)
+	if err != nil {
+		t.Errorf("JWT invalid token test failed: %v", err)
+	}
+}
+
+func TestJWTVerifyWrongKey(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local payload = { sub = "user123" }
+		local token, _ = crypto.jwt.encode(payload, "secret1")
+		local _, err = crypto.jwt.verify(token, "secret2")
+		if err == nil then error("expected error for wrong key") end
+	`)
+	if err != nil {
+		t.Errorf("JWT wrong key test failed: %v", err)
+	}
+}
+
+func TestJWTAlgorithms(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	err := l.DoString(`
+		local payload = { sub = "test" }
+
+		-- HS256 (default)
+		local t1, e1 = crypto.jwt.encode(payload, "secret")
+		if not t1 then error(e1) end
+		local d1, e1 = crypto.jwt.verify(t1, "secret")
+		if not d1 then error(e1) end
+
+		-- HS384
+		local t2, e2 = crypto.jwt.encode(payload, "secret", "HS384")
+		if not t2 then error(e2) end
+		local d2, e2 = crypto.jwt.verify(t2, "secret", "HS384")
+		if not d2 then error(e2) end
+
+		-- HS512
+		local t3, e3 = crypto.jwt.encode(payload, "secret", "HS512")
+		if not t3 then error(e3) end
+		local d3, e3 = crypto.jwt.verify(t3, "secret", "HS512")
+		if not d3 then error(e3) end
+	`)
+	if err != nil {
+		t.Errorf("JWT algorithms test failed: %v", err)
+	}
+}

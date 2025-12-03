@@ -193,7 +193,7 @@ func subscribe(l *lua.LState) int {
 		})
 	}
 
-	value.NewUserData(l, sub, subscriptionMetatable)
+	value.PushUserData(l, sub, subscriptionMetatable)
 	return 1
 }
 
@@ -272,7 +272,7 @@ func subscriptionChannel(l *lua.LState) int {
 		return 0
 	}
 
-	ud := value.NewTypedUserData(l, sub.channel, "channel")
+	ud := value.PushTypedUserData(l, sub.channel, "channel")
 	if ud == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("channel type not registered"))

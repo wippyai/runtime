@@ -41,7 +41,7 @@ func (m *NodeManager) Start(ctx context.Context) error {
 		m.handleEvent,
 	)
 	if err != nil {
-		return NewSubscriberError(err)
+		return api.NewSubscriberError(err)
 	}
 	m.subscriber = sub
 

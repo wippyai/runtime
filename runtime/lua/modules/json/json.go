@@ -11,7 +11,6 @@ import (
 	"sync"
 
 	"github.com/kaptinlin/jsonschema"
-	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lru "github.com/wippyai/runtime/internal/cache"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
@@ -110,96 +109,27 @@ func writeSimpleASCIIString(buf *bytes.Buffer, s string) {
 	buf.WriteByte('"')
 }
 
-// Global schema cache and module table for SchemaModule
 var (
-	globalSchemaCache  *lru.Cache[string, *jsonschema.Schema]
-	schemaModuleTable  *lua.LTable
-	schemaModuleOnce   sync.Once
-	schemaRegistration *luaapi.Registration
+	globalSchemaCache *lru.Cache[string, *jsonschema.Schema]
+	schemaCacheOnce   sync.Once
 )
 
 const defaultSchemaCacheSize = 100
 
-// SchemaModule is the singleton json module with schema validation.
-var SchemaModule = &schemaModule{}
-
-type schemaModule struct{}
-
-func (m *schemaModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        "json",
-		Description: "JSON encoding and decoding with schema validation",
-		Class:       []string{luaapi.ClassEncoding, luaapi.ClassDeterministic},
-	}
-}
-
-func (m *schemaModule) Register(_ *lua.LState) *luaapi.Registration {
-	schemaModuleOnce.Do(func() {
+func initSchemaCache() {
+	schemaCacheOnce.Do(func() {
 		globalSchemaCache = lru.New[string, *jsonschema.Schema](lru.WithCapacity(defaultSchemaCacheSize))
-
-		mod := &lua.LTable{}
-		mod.RawSetString("decode", lua.LGoFunc(schemaDecodeFunc))
-		mod.RawSetString("encode", lua.LGoFunc(schemaEncodeFunc))
-		mod.RawSetString("validate", lua.LGoFunc(schemaValidateFunc))
-		mod.RawSetString("validate_string", lua.LGoFunc(schemaValidateStringFunc))
-		mod.Immutable = true
-		schemaModuleTable = mod
-
-		schemaRegistration = &luaapi.Registration{
-			Table:      schemaModuleTable,
-			YieldTypes: nil,
-		}
 	})
-	return schemaRegistration
 }
 
-func (m *schemaModule) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	l.Push(reg.Table)
-	return 1
-}
-
-func schemaDecodeFunc(l *lua.LState) int {
-	arg1 := l.Get(1)
-
-	str, ok := arg1.(lua.LString)
-	if !ok {
-		l.Push(lua.LNil)
-		l.Push(newJSONInvalidError(l, "string expected", "decode"))
-		return 2
-	}
-
-	if str == "" {
-		l.Push(lua.LNil)
-		l.Push(newJSONInvalidError(l, "empty string is not valid JSON", "decode"))
-		return 2
-	}
-
-	value, err := Decode([]byte(str))
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(newJSONDecodeError(l, err))
-		return 2
-	}
-	l.Push(value)
-	return 1
-}
-
-func schemaEncodeFunc(l *lua.LState) int {
-	value := l.Get(1)
-	if value == lua.LNil {
-		l.Push(lua.LString("null"))
-		return 1
-	}
-
-	data, err := Encode(value)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(newJSONDecodeError(l, err))
-		return 2
-	}
-	l.Push(lua.LString(data))
-	return 1
+func validationError(l *lua.LState, goErr error, context string) int {
+	err := lua.WrapErrorWithLua(l, goErr, context).
+		WithKind(lua.KindInvalid).
+		WithRetryable(false)
+	lua.SetErrorMetatable(l, err)
+	l.Push(lua.LFalse)
+	l.Push(err)
+	return 2
 }
 
 func Encode(value lua.LValue) ([]byte, error) {
@@ -232,7 +162,7 @@ type jsonValue struct {
 
 func (j *jsonValue) MarshalJSON() ([]byte, error) {
 	if j.depth > j.options.MaxDepth {
-		return nil, NewMaxDepthExceededError(j.options.MaxDepth)
+		return nil, errMaxDepth
 	}
 
 	switch converted := j.LValue.(type) {
@@ -369,7 +299,7 @@ func (j *jsonValue) marshalTableDirect(table *lua.LTable) ([]byte, error) {
 			}
 		}
 		if actualCount != maxNumericKey {
-			return nil, NewSparseArrayError(maxNumericKey, actualCount)
+			return nil, errSparseArray
 		}
 	}
 
@@ -577,34 +507,35 @@ func (j *jsonValue) writeValueOptimized(buf *bytes.Buffer, value lua.LValue) err
 // Decode and DecodeValue are defined in decode_v1.go or decode_v2.go
 // depending on build tags (goexperiment.jsonv2)
 
+func validationInputError(l *lua.LState, msg string) int {
+	err := lua.NewLuaError(l, msg).
+		WithKind(lua.KindInvalid).
+		WithRetryable(false)
+	l.Push(lua.LFalse)
+	l.Push(err)
+	return 2
+}
+
 func schemaValidateFunc(l *lua.LState) int {
 	schemaArg := l.Get(1)
 	dataArg := l.Get(2)
 
 	if schemaArg == lua.LNil {
-		l.Push(lua.LFalse)
-		l.Push(newJSONInvalidError(l, "schema is required", "validate"))
-		return 2
+		return validationInputError(l, "schema is required")
 	}
 
 	if dataArg == lua.LNil {
-		l.Push(lua.LFalse)
-		l.Push(newJSONInvalidError(l, "data is required", "validate"))
-		return 2
+		return validationInputError(l, "data is required")
 	}
 
 	schemaJSON, err := getSchemaJSON(schemaArg)
 	if err != nil {
-		l.Push(lua.LFalse)
-		l.Push(newJSONValidationError(l, err))
-		return 2
+		return validationError(l, err, "schema error")
 	}
 
 	schema, err := compileSchema(schemaJSON)
 	if err != nil {
-		l.Push(lua.LFalse)
-		l.Push(newJSONValidationError(l, NewCompileSchemaError(err)))
-		return 2
+		return validationError(l, err, "compile schema")
 	}
 
 	// Convert Lua value directly to Go value
@@ -617,17 +548,13 @@ func schemaValidateFunc(l *lua.LState) int {
 	} else {
 		dataJSON, err := Encode(dataArg)
 		if err != nil {
-			l.Push(lua.LFalse)
-			l.Push(newJSONValidationError(l, NewConvertDataError(err)))
-			return 2
+			return validationError(l, err, "convert data")
 		}
 		result = schema.Validate(dataJSON)
 	}
 
 	if !result.IsValid() {
-		l.Push(lua.LFalse)
-		l.Push(newJSONValidationError(l, result))
-		return 2
+		return validationError(l, result, "validation failed")
 	}
 
 	l.Push(lua.LTrue)
@@ -639,36 +566,26 @@ func schemaValidateStringFunc(l *lua.LState) int {
 	jsonStr, ok := l.Get(2).(lua.LString)
 
 	if schemaArg == lua.LNil {
-		l.Push(lua.LFalse)
-		l.Push(newJSONInvalidError(l, "schema is required", "validate_string"))
-		return 2
+		return validationInputError(l, "schema is required")
 	}
 
 	if !ok {
-		l.Push(lua.LFalse)
-		l.Push(newJSONInvalidError(l, "data must be a JSON string", "validate_string"))
-		return 2
+		return validationInputError(l, "data must be a JSON string")
 	}
 
 	schemaJSON, err := getSchemaJSON(schemaArg)
 	if err != nil {
-		l.Push(lua.LFalse)
-		l.Push(newJSONValidationError(l, err))
-		return 2
+		return validationError(l, err, "schema error")
 	}
 
 	schema, err := compileSchema(schemaJSON)
 	if err != nil {
-		l.Push(lua.LFalse)
-		l.Push(newJSONValidationError(l, NewCompileSchemaError(err)))
-		return 2
+		return validationError(l, err, "compile schema")
 	}
 
 	result := schema.Validate([]byte(jsonStr))
 	if !result.IsValid() {
-		l.Push(lua.LFalse)
-		l.Push(newJSONValidationError(l, result))
-		return 2
+		return validationError(l, result, "validation failed")
 	}
 
 	l.Push(lua.LTrue)
@@ -705,26 +622,4 @@ func compileSchema(schemaJSON []byte) (*jsonschema.Schema, error) {
 func hashSchemaJSON(data []byte) string {
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:])
-}
-
-func newJSONValidationError(l *lua.LState, err error) lua.LValue {
-	tbl := l.NewTable()
-	tbl.RawSetString("message", lua.LString(err.Error()))
-	tbl.RawSetString("type", lua.LString("validation_error"))
-	return tbl
-}
-
-func newJSONInvalidError(l *lua.LState, message, operation string) lua.LValue {
-	tbl := l.NewTable()
-	tbl.RawSetString("message", lua.LString(message))
-	tbl.RawSetString("type", lua.LString("invalid_error"))
-	tbl.RawSetString("operation", lua.LString(operation))
-	return tbl
-}
-
-func newJSONDecodeError(l *lua.LState, err error) lua.LValue {
-	tbl := l.NewTable()
-	tbl.RawSetString("message", lua.LString(err.Error()))
-	tbl.RawSetString("type", lua.LString("decode_error"))
-	return tbl
 }

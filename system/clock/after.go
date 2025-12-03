@@ -10,7 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/runtime/resource"
 )
 
-// tyodO: why and where we ned it?
+// todO: why and where we ned it? we have timer and slepp!!! one or another, i asusme it's timer actually, do we even need sleep....
 // AfterRegistryKey is the context key for AfterRegistry.
 var AfterRegistryKey = &ctxapi.Key{Name: "clock.after", Inherit: false}
 

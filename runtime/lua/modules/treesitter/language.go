@@ -1,31 +1,15 @@
 package treesitter
 
-import "C"
 import (
 	treesitter "github.com/tree-sitter/go-tree-sitter"
-	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
+
+const typeLanguage = "treesitter.Language"
 
 // LanguageWrapper wraps a tree-sitter Language for Lua integration
 type LanguageWrapper struct {
 	lang *treesitter.Language
-}
-
-// Register the Language type to Lua
-func registerLanguage(l *lua.LState) {
-	methods := map[string]lua.LGFunction{
-		"version":            languageVersion,
-		"node_kind_count":    languageNodeKindCount,
-		"parse_state_count":  languageParseStateCount,
-		"node_kind_for_id":   languageNodeKindForID,
-		"id_for_node_kind":   languageIDForNodeKind,
-		"node_kind_is_named": languageNodeKindIsNamed,
-		"field_count":        languageFieldCount,
-		"field_name_for_id":  languageFieldNameForID,
-		"field_id_for_name":  languageFieldIDForName,
-	}
-	value.RegisterMethods(l, "treesitter.Language", methods)
 }
 
 func checkLanguage(l *lua.LState) *LanguageWrapper {

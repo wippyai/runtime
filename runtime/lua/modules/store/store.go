@@ -121,7 +121,7 @@ func storeGet(l *lua.LState) int {
 
 	s := NewStore(ctx, res, storeImpl)
 
-	value.NewUserData(l, s, storeMetatable)
+	value.PushUserData(l, s, storeMetatable)
 	return 1
 }
 

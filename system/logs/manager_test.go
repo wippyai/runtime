@@ -88,9 +88,9 @@ func TestManager_ConfigFlow(t *testing.T) {
 	defer cancel()
 
 	require.NoError(t, manager.Start(ctx))
-	cfgm := NewConfigurationManager()
+	cfgm := NewConfigurator(bus, zap.NewNop())
 	// Spawn initial config using helper
-	initialConfig, err := cfgm.GetConfig(ctx, bus)
+	initialConfig, err := cfgm.GetConfig(ctx)
 	require.NoError(t, err)
 	require.Equal(t, manager.GetConfig(), initialConfig)
 
@@ -100,7 +100,7 @@ func TestManager_ConfigFlow(t *testing.T) {
 		StreamToEvents:      true,
 		MinLevel:            zapcore.WarnLevel,
 	}
-	err = cfgm.SetConfig(ctx, bus, newConfig)
+	err = cfgm.SetConfig(ctx, newConfig)
 	require.NoError(t, err)
 
 	// Verify config was updated in manager
@@ -108,7 +108,7 @@ func TestManager_ConfigFlow(t *testing.T) {
 	require.Equal(t, newConfig, managerConfig)
 
 	// Spawn config again using helper
-	updatedConfig, err := cfgm.GetConfig(ctx, bus)
+	updatedConfig, err := cfgm.GetConfig(ctx)
 	require.NoError(t, err)
 	require.Equal(t, newConfig, updatedConfig)
 }
@@ -193,16 +193,16 @@ func TestManager_MultipleConfigUpdates(t *testing.T) {
 		},
 	}
 
-	cfgm := NewConfigurationManager()
+	cfgm := NewConfigurator(bus, zap.NewNop())
 
 	for i, cfg := range configs {
-		err := cfgm.SetConfig(ctx, bus, cfg)
+		err := cfgm.SetConfig(ctx, cfg)
 		require.NoError(t, err, "Failed to set config %d", i)
 
 		managerConfig := manager.GetConfig()
 		require.Equal(t, cfg, managerConfig, "Manager config should match set config %d", i)
 
-		fetchedConfig, err := cfgm.GetConfig(ctx, bus)
+		fetchedConfig, err := cfgm.GetConfig(ctx)
 		require.NoError(t, err, "Failed to get config %d", i)
 		require.Equal(t, cfg, fetchedConfig, "Fetched config should match set config %d", i)
 	}
@@ -218,13 +218,13 @@ func TestManager_StopBehavior(t *testing.T) {
 
 	// close the manager
 	require.NoError(t, manager.Stop())
-	cfgm := NewConfigurationManager()
+	cfgm := NewConfigurator(bus, zap.NewNop())
 
 	// Verify get/set operations fail after stop
-	_, err := cfgm.GetConfig(ctx, bus)
+	_, err := cfgm.GetConfig(ctx)
 	require.Error(t, err, "GetConfig should fail after manager is stopped")
 
-	err = cfgm.SetConfig(ctx, bus, api.Config{})
+	err = cfgm.SetConfig(ctx, api.Config{})
 	require.Error(t, err, "SetConfig should fail after manager is stopped")
 }
 

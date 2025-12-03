@@ -6,7 +6,6 @@ import (
 	"compress/gzip"
 	"compress/zlib"
 	"io"
-	"sync"
 
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
@@ -24,79 +23,66 @@ const (
 	zstdDefaultLevel = 3
 )
 
-var (
-	moduleTable  *lua.LTable
-	registration *luaapi.Registration
-	initOnce     sync.Once
-)
+// Module is the compress module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "compress",
+	Description: "Data compression (gzip, deflate, zlib, brotli, zstd)",
+	Class:       []string{luaapi.ClassEncoding, luaapi.ClassDeterministic},
+	Build: func() (*lua.LTable, []luaapi.YieldType) {
+		mod := lua.CreateTable(0, 5)
 
-// Module is the singleton compress module instance.
-var Module = &compressModule{}
-
-type compressModule struct{}
-
-func (m *compressModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        "compress",
-		Description: "Data compression (gzip, deflate, zlib, brotli, zstd)",
-		Class:       []string{luaapi.ClassEncoding, luaapi.ClassDeterministic},
-	}
-}
-
-func (m *compressModule) Register(l *lua.LState) *luaapi.Registration {
-	initOnce.Do(func() {
-		mod := &lua.LTable{}
-
-		gzipTable := &lua.LTable{}
+		gzipTable := lua.CreateTable(0, 2)
 		gzipTable.RawSetString("encode", lua.LGoFunc(gzipEncode))
 		gzipTable.RawSetString("decode", lua.LGoFunc(gzipDecode))
 		gzipTable.Immutable = true
 		mod.RawSetString("gzip", gzipTable)
 
-		deflateTable := &lua.LTable{}
+		deflateTable := lua.CreateTable(0, 2)
 		deflateTable.RawSetString("encode", lua.LGoFunc(deflateEncode))
 		deflateTable.RawSetString("decode", lua.LGoFunc(deflateDecode))
 		deflateTable.Immutable = true
 		mod.RawSetString("deflate", deflateTable)
 
-		zlibTable := &lua.LTable{}
+		zlibTable := lua.CreateTable(0, 2)
 		zlibTable.RawSetString("encode", lua.LGoFunc(zlibEncode))
 		zlibTable.RawSetString("decode", lua.LGoFunc(zlibDecode))
 		zlibTable.Immutable = true
 		mod.RawSetString("zlib", zlibTable)
 
-		brotliTable := &lua.LTable{}
+		brotliTable := lua.CreateTable(0, 2)
 		brotliTable.RawSetString("encode", lua.LGoFunc(brotliEncode))
 		brotliTable.RawSetString("decode", lua.LGoFunc(brotliDecode))
 		brotliTable.Immutable = true
 		mod.RawSetString("brotli", brotliTable)
 
-		zstdTable := &lua.LTable{}
+		zstdTable := lua.CreateTable(0, 2)
 		zstdTable.RawSetString("encode", lua.LGoFunc(zstdEncode))
 		zstdTable.RawSetString("decode", lua.LGoFunc(zstdDecode))
 		zstdTable.Immutable = true
 		mod.RawSetString("zstd", zstdTable)
 
 		mod.Immutable = true
-		moduleTable = mod
-
-		registration = &luaapi.Registration{
-			Table:      moduleTable,
-			YieldTypes: nil,
-		}
-	})
-	return registration
+		return mod, nil
+	},
 }
 
-func (m *compressModule) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	l.Push(reg.Table)
-	return 1
+func invalidInputError(l *lua.LState, msg string) int {
+	err := lua.NewLuaError(l, msg).
+		WithKind(lua.KindInvalid).
+		WithRetryable(false)
+	l.Push(lua.LNil)
+	l.Push(err)
+	return 2
 }
 
-// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
-func Bind(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
+func internalError(l *lua.LState, goErr error, context string) int {
+	err := lua.WrapErrorWithLua(l, goErr, context).
+		WithKind(lua.KindInternal).
+		WithRetryable(false)
+	lua.SetErrorMetatable(l, err)
+	l.Push(lua.LNil)
+	l.Push(err)
+	return 2
 }
 
 func getLevel(l *lua.LState, defaultVal, minVal, maxVal int) int {
@@ -104,7 +90,6 @@ func getLevel(l *lua.LState, defaultVal, minVal, maxVal int) int {
 	if l.GetTop() >= 2 && l.Get(2).Type() == lua.LTTable {
 		opts := l.ToTable(2)
 		lv := opts.RawGetString("level")
-		// Check for both LNumber and LInteger (100 is parsed as integer)
 		if lv.Type() == lua.LTNumber || lv.Type() == lua.LTInteger {
 			level = int(lua.LVAsNumber(lv))
 			if level < minVal || level > maxVal {
@@ -117,44 +102,32 @@ func getLevel(l *lua.LState, defaultVal, minVal, maxVal int) int {
 
 func gzipEncode(l *lua.LState) int {
 	if l.Get(1).Type() != lua.LTString {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("string expected"))
-		return 2
+		return invalidInputError(l, "string expected")
 	}
 
 	data := l.ToString(1)
 	if data == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("input data cannot be empty"))
-		return 2
+		return invalidInputError(l, "input data cannot be empty")
 	}
 
 	level := getLevel(l, defaultLevel, minLevel, maxLevel)
 	if level < 0 {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("compression level must be between 1 and 9"))
-		return 2
+		return invalidInputError(l, "compression level must be between 1 and 9")
 	}
 
 	var buf bytes.Buffer
 	writer, err := gzip.NewWriterLevel(&buf, level)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return internalError(l, err, "gzip encode failed")
 	}
 
 	if _, err := writer.Write([]byte(data)); err != nil {
-		writer.Close()
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		_ = writer.Close()
+		return internalError(l, err, "gzip encode failed")
 	}
 
 	if err := writer.Close(); err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return internalError(l, err, "gzip encode failed")
 	}
 
 	l.Push(lua.LString(buf.String()))
@@ -164,31 +137,23 @@ func gzipEncode(l *lua.LState) int {
 
 func gzipDecode(l *lua.LState) int {
 	if l.Get(1).Type() != lua.LTString {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("string expected"))
-		return 2
+		return invalidInputError(l, "string expected")
 	}
 
 	data := l.ToString(1)
 	if data == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("input data cannot be empty"))
-		return 2
+		return invalidInputError(l, "input data cannot be empty")
 	}
 
 	reader, err := gzip.NewReader(bytes.NewReader([]byte(data)))
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return invalidInputError(l, "invalid gzip data")
 	}
 	defer reader.Close()
 
 	decompressed, err := io.ReadAll(reader)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return internalError(l, err, "gzip decode failed")
 	}
 
 	l.Push(lua.LString(decompressed))
@@ -198,44 +163,32 @@ func gzipDecode(l *lua.LState) int {
 
 func deflateEncode(l *lua.LState) int {
 	if l.Get(1).Type() != lua.LTString {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("string expected"))
-		return 2
+		return invalidInputError(l, "string expected")
 	}
 
 	data := l.ToString(1)
 	if data == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("input data cannot be empty"))
-		return 2
+		return invalidInputError(l, "input data cannot be empty")
 	}
 
 	level := getLevel(l, defaultLevel, minLevel, maxLevel)
 	if level < 0 {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("compression level must be between 1 and 9"))
-		return 2
+		return invalidInputError(l, "compression level must be between 1 and 9")
 	}
 
 	var buf bytes.Buffer
 	writer, err := flate.NewWriter(&buf, level)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return internalError(l, err, "deflate encode failed")
 	}
 
 	if _, err := writer.Write([]byte(data)); err != nil {
-		writer.Close()
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		_ = writer.Close()
+		return internalError(l, err, "deflate encode failed")
 	}
 
 	if err := writer.Close(); err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return internalError(l, err, "deflate encode failed")
 	}
 
 	l.Push(lua.LString(buf.String()))
@@ -245,16 +198,12 @@ func deflateEncode(l *lua.LState) int {
 
 func deflateDecode(l *lua.LState) int {
 	if l.Get(1).Type() != lua.LTString {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("string expected"))
-		return 2
+		return invalidInputError(l, "string expected")
 	}
 
 	data := l.ToString(1)
 	if data == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("input data cannot be empty"))
-		return 2
+		return invalidInputError(l, "input data cannot be empty")
 	}
 
 	reader := flate.NewReader(bytes.NewReader([]byte(data)))
@@ -262,9 +211,7 @@ func deflateDecode(l *lua.LState) int {
 
 	decompressed, err := io.ReadAll(reader)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return invalidInputError(l, "invalid deflate data")
 	}
 
 	l.Push(lua.LString(decompressed))
@@ -274,44 +221,32 @@ func deflateDecode(l *lua.LState) int {
 
 func zlibEncode(l *lua.LState) int {
 	if l.Get(1).Type() != lua.LTString {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("string expected"))
-		return 2
+		return invalidInputError(l, "string expected")
 	}
 
 	data := l.ToString(1)
 	if data == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("input data cannot be empty"))
-		return 2
+		return invalidInputError(l, "input data cannot be empty")
 	}
 
 	level := getLevel(l, defaultLevel, minLevel, maxLevel)
 	if level < 0 {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("compression level must be between 1 and 9"))
-		return 2
+		return invalidInputError(l, "compression level must be between 1 and 9")
 	}
 
 	var buf bytes.Buffer
 	writer, err := zlib.NewWriterLevel(&buf, level)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return internalError(l, err, "zlib encode failed")
 	}
 
 	if _, err := writer.Write([]byte(data)); err != nil {
-		writer.Close()
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		_ = writer.Close()
+		return internalError(l, err, "zlib encode failed")
 	}
 
 	if err := writer.Close(); err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return internalError(l, err, "zlib encode failed")
 	}
 
 	l.Push(lua.LString(buf.String()))
@@ -321,31 +256,23 @@ func zlibEncode(l *lua.LState) int {
 
 func zlibDecode(l *lua.LState) int {
 	if l.Get(1).Type() != lua.LTString {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("string expected"))
-		return 2
+		return invalidInputError(l, "string expected")
 	}
 
 	data := l.ToString(1)
 	if data == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("input data cannot be empty"))
-		return 2
+		return invalidInputError(l, "input data cannot be empty")
 	}
 
 	reader, err := zlib.NewReader(bytes.NewReader([]byte(data)))
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return invalidInputError(l, "invalid zlib data")
 	}
 	defer reader.Close()
 
 	decompressed, err := io.ReadAll(reader)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return internalError(l, err, "zlib decode failed")
 	}
 
 	l.Push(lua.LString(decompressed))
@@ -355,39 +282,29 @@ func zlibDecode(l *lua.LState) int {
 
 func brotliEncode(l *lua.LState) int {
 	if l.Get(1).Type() != lua.LTString {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("string expected"))
-		return 2
+		return invalidInputError(l, "string expected")
 	}
 
 	data := l.ToString(1)
 	if data == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("input data cannot be empty"))
-		return 2
+		return invalidInputError(l, "input data cannot be empty")
 	}
 
 	level := getLevel(l, defaultLevel, brotliMinLevel, brotliMaxLevel)
 	if level < 0 {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("brotli quality must be between 0 and 11"))
-		return 2
+		return invalidInputError(l, "brotli quality must be between 0 and 11")
 	}
 
 	var buf bytes.Buffer
 	writer := brotli.NewWriterLevel(&buf, level)
 
 	if _, err := writer.Write([]byte(data)); err != nil {
-		writer.Close()
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		_ = writer.Close()
+		return internalError(l, err, "brotli encode failed")
 	}
 
 	if err := writer.Close(); err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return internalError(l, err, "brotli encode failed")
 	}
 
 	l.Push(lua.LString(buf.String()))
@@ -397,24 +314,18 @@ func brotliEncode(l *lua.LState) int {
 
 func brotliDecode(l *lua.LState) int {
 	if l.Get(1).Type() != lua.LTString {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("string expected"))
-		return 2
+		return invalidInputError(l, "string expected")
 	}
 
 	data := l.ToString(1)
 	if data == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("input data cannot be empty"))
-		return 2
+		return invalidInputError(l, "input data cannot be empty")
 	}
 
 	reader := brotli.NewReader(bytes.NewReader([]byte(data)))
 	decompressed, err := io.ReadAll(reader)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return invalidInputError(l, "invalid brotli data")
 	}
 
 	l.Push(lua.LString(decompressed))
@@ -424,23 +335,17 @@ func brotliDecode(l *lua.LState) int {
 
 func zstdEncode(l *lua.LState) int {
 	if l.Get(1).Type() != lua.LTString {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("string expected"))
-		return 2
+		return invalidInputError(l, "string expected")
 	}
 
 	data := l.ToString(1)
 	if data == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("input data cannot be empty"))
-		return 2
+		return invalidInputError(l, "input data cannot be empty")
 	}
 
 	level := getLevel(l, zstdDefaultLevel, minLevel, zstdMaxLevel)
 	if level < 0 {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("zstd level must be between 1 and 22"))
-		return 2
+		return invalidInputError(l, "zstd level must be between 1 and 22")
 	}
 
 	var encoderLevel zstd.EncoderLevel
@@ -458,22 +363,16 @@ func zstdEncode(l *lua.LState) int {
 	var buf bytes.Buffer
 	writer, err := zstd.NewWriter(&buf, zstd.WithEncoderLevel(encoderLevel))
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return internalError(l, err, "zstd encode failed")
 	}
 
 	if _, err := writer.Write([]byte(data)); err != nil {
-		writer.Close()
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		_ = writer.Close()
+		return internalError(l, err, "zstd encode failed")
 	}
 
 	if err := writer.Close(); err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return internalError(l, err, "zstd encode failed")
 	}
 
 	l.Push(lua.LString(buf.String()))
@@ -483,31 +382,23 @@ func zstdEncode(l *lua.LState) int {
 
 func zstdDecode(l *lua.LState) int {
 	if l.Get(1).Type() != lua.LTString {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("string expected"))
-		return 2
+		return invalidInputError(l, "string expected")
 	}
 
 	data := l.ToString(1)
 	if data == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("input data cannot be empty"))
-		return 2
+		return invalidInputError(l, "input data cannot be empty")
 	}
 
 	reader, err := zstd.NewReader(bytes.NewReader([]byte(data)))
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return invalidInputError(l, "invalid zstd data")
 	}
 	defer reader.Close()
 
 	decompressed, err := io.ReadAll(reader)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return internalError(l, err, "zstd decode failed")
 	}
 
 	l.Push(lua.LString(decompressed))

@@ -50,7 +50,7 @@ func (f *Registry) Start(ctx context.Context) error {
 		f.handleEvent,
 	)
 	if err != nil {
-		return NewSubscriberError(err)
+		return function.NewSubscriberError(err)
 	}
 	f.subscriber = sub
 
@@ -149,17 +149,17 @@ func (f *Registry) sendReject(path event.Path, reason string) {
 // Blocks until execution completes or context is canceled.
 func (f *Registry) Call(ctx context.Context, task runtimeapi.Task) (*runtimeapi.Result, error) {
 	if ctx == nil {
-		return nil, ErrNilContext
+		return nil, function.ErrNilContext
 	}
 
 	handler, exists := f.handlers.Load(task.ID)
 	if !exists {
-		return nil, NewHandlerNotFoundError(task.ID)
+		return nil, function.NewHandlerNotFoundError(task.ID)
 	}
 
 	execHandler, ok := handler.(function.Func)
 	if !ok {
-		return nil, NewInvalidHandlerError(task.ID)
+		return nil, function.NewInvalidHandlerError(task.ID)
 	}
 
 	// Merge preset and runtime options into task.Options before calling interceptors
@@ -232,7 +232,7 @@ func (f *Registry) executor(ctx context.Context, handler function.Func, task run
 
 		if err := fc.SetMultiple(pairs...); err != nil {
 			ctxapi.ReleaseFrameContext(fc)
-			return nil, NewFrameContextError(err)
+			return nil, function.NewFrameContextError(err)
 		}
 	}
 

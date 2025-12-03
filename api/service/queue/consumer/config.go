@@ -5,6 +5,8 @@ import (
 	"github.com/wippyai/runtime/api/supervisor"
 )
 
+const Kind registry.Kind = "queue.consumer"
+
 const (
 	DefaultConcurrency = 1
 	DefaultPrefetch    = 10

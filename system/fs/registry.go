@@ -11,8 +11,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// Note: fmt kept for Sprintf in logging
-
 // Registry manages filesystem mounts and their registration
 type Registry struct {
 	ctx         context.Context
@@ -36,7 +34,7 @@ func (r *Registry) Start(ctx context.Context) error {
 
 	sub, err := eventbus.NewSubscriber(r.ctx, r.bus, fsapi.System, "fs.*", r.handleEvent)
 	if err != nil {
-		return NewSubscriberError(err)
+		return fsapi.NewSubscriberError(err)
 	}
 	r.subscriber = sub
 

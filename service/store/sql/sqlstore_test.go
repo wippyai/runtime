@@ -573,11 +573,11 @@ func TestSQLStore_Acquire(t *testing.T) {
 
 	// Get after release should fail
 	_, err = res.Get()
-	assert.Equal(t, resource.ErrResourceReleased, err)
+	assert.Equal(t, resource.ErrReleased, err)
 
 	// Exclusive mode not supported
 	_, err = ss.Acquire(ctx, registry.ParseID("test:resource"), resource.ModeExclusive)
-	assert.Equal(t, resource.ErrResourceLocked, err)
+	assert.Equal(t, resource.ErrLocked, err)
 }
 
 func TestSQLStore_ConcurrentReads(t *testing.T) {
@@ -1086,7 +1086,7 @@ func TestSQLStore_ResourceInterface(t *testing.T) {
 	// Release and verify Get fails
 	res.Release()
 	_, err = res.Get()
-	assert.Equal(t, resource.ErrResourceReleased, err)
+	assert.Equal(t, resource.ErrReleased, err)
 
 	// Double release should be safe
 	res.Release()

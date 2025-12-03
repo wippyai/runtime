@@ -118,14 +118,14 @@ func (c *Controller) runCommand(op controlOp) error {
 		select {
 		case err := <-op.result:
 			if err != nil && !errors.Is(err, context.Canceled) {
-				return NewStopError(err)
+				return supervisor.NewStopError(err)
 			}
 			return err
 		case <-c.ctx.Done():
-			return NewSupervisorStoppedError(c.ctx.Err())
+			return supervisor.NewSupervisorStoppedError(c.ctx.Err())
 		}
 	case <-c.ctx.Done():
-		return NewSupervisorStoppedError(c.ctx.Err())
+		return supervisor.NewSupervisorStoppedError(c.ctx.Err())
 	}
 }
 
@@ -323,7 +323,7 @@ func (c *Controller) tryStart(ctx context.Context, cancel context.CancelFunc) (<
 	case <-time.After(c.config.StartTimeout):
 		cancel()
 		c.updateState(supervisor.StatusFailed, "start timeout")
-		return nil, ErrStartTimeout
+		return nil, supervisor.ErrStartTimeout
 	case <-c.ctx.Done():
 		c.updateState(supervisor.StatusExited, "controller exited")
 		return nil, supervisor.ErrExit
@@ -351,7 +351,7 @@ func (c *Controller) tryStop(ctx context.Context) error {
 		return err
 	case <-stopCtx.Done():
 		c.updateState(supervisor.StatusFailed, "stop timeout after "+c.config.StopTimeout.String())
-		return NewStopTimeoutError(c.config.StopTimeout)
+		return supervisor.NewStopTimeoutError(c.config.StopTimeout)
 	}
 }
 

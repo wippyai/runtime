@@ -188,7 +188,7 @@ func TestManager_Publish_QueueNotFound(t *testing.T) {
 	msg := queueapi.NewMessage(payload.New("test"))
 
 	err := mgr.PublishDirect(ctx, queueID, msg)
-	assert.ErrorIs(t, err, queueapi.ErrNoQueue)
+	assert.ErrorIs(t, err, queueapi.ErrQueueNotFound)
 }
 
 func TestManager_Publish_DriverNotFound(t *testing.T) {
@@ -209,7 +209,7 @@ func TestManager_Publish_DriverNotFound(t *testing.T) {
 
 	msg := queueapi.NewMessage(payload.New("test"))
 	err := mgr.PublishDirect(ctx, queueID, msg)
-	assert.ErrorIs(t, err, queueapi.ErrNoDriver)
+	assert.ErrorIs(t, err, queueapi.ErrDriverNotFound)
 }
 
 type mockDriver struct {

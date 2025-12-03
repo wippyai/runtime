@@ -103,7 +103,7 @@ func (r *Registry) Publish(ctx context.Context, queue registry.ID, msgs ...*queu
 		if r.publishFunc != nil {
 			return r.publishFunc(ctx, queue, msgs...)
 		}
-		return ErrNoPublishFunc
+		return queueapi.ErrNoPublishFunc
 	}
 
 	return chain.Publish(ctx, queue, msgs...)

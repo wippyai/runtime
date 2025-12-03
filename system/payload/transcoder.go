@@ -80,7 +80,7 @@ func (t *Transcoder) getTranscodePath(from, to string) (*graph.Path[string], err
 	// Slow path: compute path and cache it
 	path, err := t.graph.ShortestPath(from, to)
 	if err != nil {
-		return nil, NewNoTranscodingPathError(payload.Format(from), payload.Format(to))
+		return nil, payload.NewNoTranscodingPathError(payload.Format(from), payload.Format(to))
 	}
 
 	// Store computed path in cache
@@ -109,12 +109,12 @@ func (t *Transcoder) Transcode(p payload.Payload, to payload.Format) (payload.Pa
 
 		tt, ok := t.transcoders[currentFrom][currentTo]
 		if !ok || tt == nil {
-			return nil, NewNoTranscoderError(currentFrom, currentTo)
+			return nil, payload.NewNoTranscoderError(currentFrom, currentTo)
 		}
 
 		currentPayload, err = tt.Transcode(currentPayload)
 		if err != nil {
-			return nil, NewTranscodeError(currentFrom, currentTo, err)
+			return nil, payload.NewTranscodeError(currentFrom, currentTo, err)
 		}
 	}
 
@@ -143,7 +143,7 @@ func (t *Transcoder) findUnmarshalPath(from string) (*graph.Path[string], error)
 	}
 
 	if unmarshalPath == nil {
-		return nil, NewNoUnmarshalPathError(payload.Format(from))
+		return nil, payload.NewNoUnmarshalPathError(payload.Format(from))
 	}
 
 	// Store computed path in cache
@@ -154,7 +154,7 @@ func (t *Transcoder) findUnmarshalPath(from string) (*graph.Path[string], error)
 // Unmarshal unmarshals a payload into a given struct.
 func (t *Transcoder) Unmarshal(p payload.Payload, v interface{}) error {
 	if p.Format() == "" {
-		return ErrEmptyFormat
+		return payload.ErrEmptyFormat
 	}
 
 	fromStr := string(p.Format())
@@ -172,12 +172,12 @@ func (t *Transcoder) Unmarshal(p payload.Payload, v interface{}) error {
 
 	transcodedPayload, err := t.Transcode(p, payload.Format(path.Nodes[len(path.Nodes)-1]))
 	if err != nil {
-		return NewUnmarshalTranscodeError(err)
+		return payload.NewUnmarshalTranscodeError(err)
 	}
 
 	unmarshaler, ok = t.unmarshalers[path.Nodes[len(path.Nodes)-1]]
 	if !ok {
-		return NewUnmarshalerNotFoundError(path.Nodes[len(path.Nodes)-1])
+		return payload.NewUnmarshalerNotFoundError(path.Nodes[len(path.Nodes)-1])
 	}
 
 	return unmarshaler.Unmarshal(transcodedPayload, v)

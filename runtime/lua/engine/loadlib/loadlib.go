@@ -52,7 +52,12 @@ func loRequire(l *lua.LState) int {
 	preload := reg.RawGetString("_PRELOAD").(*lua.LTable)
 	value := preload.RawGetString(name)
 	if value == lua.LNil {
-		l.RaiseError("module '%s' not found", name)
+		// Debug: list all preloaded modules
+		var keys []string
+		preload.ForEach(func(k, v lua.LValue) {
+			keys = append(keys, k.String())
+		})
+		l.RaiseError("module '%s' not found (preloaded: %v)", name, keys)
 	}
 
 	var result lua.LValue
@@ -76,7 +81,7 @@ func loRequire(l *lua.LState) int {
 		result = l.Get(-1)
 		l.Pop(1)
 	default:
-		l.RaiseError("invalid preload value for '%s': expected table or function", name)
+		l.RaiseError("invalid preload value for '%s': expected table or function, got %T", name, value)
 	}
 
 	// Cache result (use true if nil)

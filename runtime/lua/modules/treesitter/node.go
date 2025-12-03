@@ -6,55 +6,17 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+const typeNode = "treesitter.Node"
+
 // NodeWrapper wraps a tree-sitter Node for Lua integration
 type NodeWrapper struct {
 	node   *treesitter.Node
 	source *string
 }
 
-// Register the Node type to Lua
-func registerNode(l *lua.LState) {
-	methods := map[string]lua.LGFunction{
-		// Navigation methods
-		"parent":                           nodeParent,
-		"child":                            nodeChild,
-		"child_count":                      nodeChildCount,
-		"next_sibling":                     nodeNextSibling,
-		"prev_sibling":                     nodePrevSibling,
-		"next_named_sibling":               nodeNextNamedSibling,
-		"prev_named_sibling":               nodePrevNamedSibling,
-		"named_child":                      nodeNamedChild,
-		"named_child_count":                nodeNamedChildCount,
-		"named_descendant_for_point_range": nodeNamedDescendantForPointRange,
-		"descendant_count":                 nodeDescendantCount,
-
-		// Field-related methods
-		"child_by_field_name":  nodeChildByFieldName,
-		"field_name_for_child": nodeFieldNameForChild,
-
-		// Inspection methods
-		"kind": nodeKind,
-		"type": nodeKind, // alias for AI
-
-		"is_named":     nodeIsNamed,
-		"grammar_name": nodeGrammarName,
-		"is_extra":     nodeIsExtra,
-		"is_missing":   nodeIsMissing,
-
-		"has_error": nodeHasError,
-		"is_error":  nodeIsError,
-
-		// Position methods
-		"start_byte":  nodeStartByte,
-		"end_byte":    nodeEndByte,
-		"start_point": nodeStartPoint,
-		"end_point":   nodeEndPoint,
-
-		// Text and source methods
-		"text":    nodeText,
-		"to_sexp": nodeToSexp,
-	}
-	value.RegisterMethods(l, "treesitter.Node", methods)
+// pushNode pushes a Node userdata to the stack
+func pushNode(l *lua.LState, node *treesitter.Node, source *string) {
+	value.PushTypedUserData(l, &NodeWrapper{node: node, source: source}, typeNode)
 }
 
 // Navigation methods implementation
@@ -66,12 +28,7 @@ func nodeParent(l *lua.LState) int {
 		l.Push(lua.LNil)
 		return 1
 	}
-
-	ud := l.NewUserData()
-	ud.Value = &NodeWrapper{node: parent, source: node.source}
-	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Node")
-
-	l.Push(ud)
+	pushNode(l, parent, node.source)
 	return 1
 }
 
@@ -83,11 +40,7 @@ func nodeChild(l *lua.LState) int {
 		l.Push(lua.LNil)
 		return 1
 	}
-	ud := l.NewUserData()
-	ud.Value = &NodeWrapper{node: child, source: node.source}
-	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Node")
-
-	l.Push(ud)
+	pushNode(l, child, node.source)
 	return 1
 }
 
@@ -104,11 +57,7 @@ func nodeNextSibling(l *lua.LState) int {
 		l.Push(lua.LNil)
 		return 1
 	}
-	ud := l.NewUserData()
-	ud.Value = &NodeWrapper{node: sibling, source: node.source}
-	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Node")
-
-	l.Push(ud)
+	pushNode(l, sibling, node.source)
 	return 1
 }
 
@@ -119,11 +68,7 @@ func nodePrevSibling(l *lua.LState) int {
 		l.Push(lua.LNil)
 		return 1
 	}
-	ud := l.NewUserData()
-	ud.Value = &NodeWrapper{node: sibling, source: node.source}
-	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Node")
-
-	l.Push(ud)
+	pushNode(l, sibling, node.source)
 	return 1
 }
 
@@ -134,10 +79,7 @@ func nodeNextNamedSibling(l *lua.LState) int {
 		l.Push(lua.LNil)
 		return 1
 	}
-	ud := l.NewUserData()
-	ud.Value = &NodeWrapper{node: sibling, source: node.source}
-	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Node")
-	l.Push(ud)
+	pushNode(l, sibling, node.source)
 	return 1
 }
 
@@ -148,10 +90,7 @@ func nodePrevNamedSibling(l *lua.LState) int {
 		l.Push(lua.LNil)
 		return 1
 	}
-	ud := l.NewUserData()
-	ud.Value = &NodeWrapper{node: sibling, source: node.source}
-	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Node")
-	l.Push(ud)
+	pushNode(l, sibling, node.source)
 	return 1
 }
 
@@ -163,10 +102,7 @@ func nodeNamedChild(l *lua.LState) int {
 		l.Push(lua.LNil)
 		return 1
 	}
-	ud := l.NewUserData()
-	ud.Value = &NodeWrapper{node: child, source: node.source}
-	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Node")
-	l.Push(ud)
+	pushNode(l, child, node.source)
 	return 1
 }
 
@@ -186,10 +122,7 @@ func nodeChildByFieldName(l *lua.LState) int {
 		l.Push(lua.LNil)
 		return 1
 	}
-	ud := l.NewUserData()
-	ud.Value = &NodeWrapper{node: child, source: node.source}
-	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Node")
-	l.Push(ud)
+	pushNode(l, child, node.source)
 	return 1
 }
 
@@ -342,11 +275,7 @@ func nodeNamedDescendantForPointRange(l *lua.LState) int {
 		l.Push(lua.LNil)
 		return 1
 	}
-
-	ud := l.NewUserData()
-	ud.Value = &NodeWrapper{node: descendant, source: node.source}
-	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Node")
-	l.Push(ud)
+	pushNode(l, descendant, node.source)
 	return 1
 }
 

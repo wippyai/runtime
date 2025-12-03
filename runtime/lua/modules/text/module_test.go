@@ -6,11 +6,11 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-func TestBind(t *testing.T) {
+func TestLoad(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Bind(l)
+	Module.Load(l)
 
 	mod := l.GetGlobal("text")
 	if mod.Type() != lua.LTTable {
@@ -33,7 +33,7 @@ func TestBind(t *testing.T) {
 func TestRegexpCompile(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local re, err = text.regexp.compile("[a-z]+")
@@ -52,7 +52,7 @@ func TestRegexpCompile(t *testing.T) {
 func TestRegexpCompileInvalid(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local re, err = text.regexp.compile("[invalid")
@@ -61,6 +61,12 @@ func TestRegexpCompileInvalid(t *testing.T) {
 		end
 		if err == nil then
 			error("expected error for invalid pattern")
+		end
+		if err:kind() ~= "Invalid" then
+			error("expected Invalid kind, got " .. tostring(err:kind()))
+		end
+		if err:retryable() ~= false then
+			error("expected not retryable")
 		end
 	`)
 	if err != nil {
@@ -71,7 +77,7 @@ func TestRegexpCompileInvalid(t *testing.T) {
 func TestRegexpMatchString(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local re, _ = text.regexp.compile("[0-9]+")
@@ -93,7 +99,7 @@ func TestRegexpMatchString(t *testing.T) {
 func TestRegexpFindString(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local re, _ = text.regexp.compile("[0-9]+")
@@ -115,7 +121,7 @@ func TestRegexpFindString(t *testing.T) {
 func TestRegexpFindAllString(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local re, _ = text.regexp.compile("[0-9]+")
@@ -141,7 +147,7 @@ func TestRegexpFindAllString(t *testing.T) {
 func TestRegexpFindStringSubmatch(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local re, _ = text.regexp.compile("([a-z]+)([0-9]+)")
@@ -170,7 +176,7 @@ func TestRegexpFindStringSubmatch(t *testing.T) {
 func TestRegexpFindAllStringSubmatch(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local re, _ = text.regexp.compile('([a-z]+)@([a-z]+)')
@@ -196,7 +202,7 @@ func TestRegexpFindAllStringSubmatch(t *testing.T) {
 func TestRegexpFindStringIndex(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local re, _ = text.regexp.compile("page\\d+")
@@ -224,7 +230,7 @@ func TestRegexpFindStringIndex(t *testing.T) {
 func TestRegexpFindAllStringIndex(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local re, _ = text.regexp.compile("page\\d+")
@@ -245,7 +251,7 @@ func TestRegexpFindAllStringIndex(t *testing.T) {
 func TestRegexpReplaceAllString(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local re, _ = text.regexp.compile("[0-9]+")
@@ -262,7 +268,7 @@ func TestRegexpReplaceAllString(t *testing.T) {
 func TestRegexpSplit(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local re, _ = text.regexp.compile(",")
@@ -296,7 +302,7 @@ func TestRegexpSplit(t *testing.T) {
 func TestRegexpNumSubexp(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local re1, _ = text.regexp.compile("([a-z]+)([0-9]+)")
@@ -317,7 +323,7 @@ func TestRegexpNumSubexp(t *testing.T) {
 func TestRegexpSubexpNames(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local re, _ = text.regexp.compile("(?P<name>[a-z]+)(?P<num>[0-9]+)")
@@ -343,7 +349,7 @@ func TestRegexpSubexpNames(t *testing.T) {
 func TestRegexpString(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local re, _ = text.regexp.compile("[a-z]+")
@@ -360,7 +366,7 @@ func TestRegexpString(t *testing.T) {
 func TestDiffNew(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local diff, err = text.diff.new()
@@ -379,7 +385,7 @@ func TestDiffNew(t *testing.T) {
 func TestDiffNewWithOptions(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local diff, err = text.diff.new({
@@ -401,7 +407,7 @@ func TestDiffNewWithOptions(t *testing.T) {
 func TestDiffCompare(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local diff, _ = text.diff.new()
@@ -439,7 +445,7 @@ func TestDiffCompare(t *testing.T) {
 func TestDiffCompareIdentical(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local diff, _ = text.diff.new()
@@ -462,7 +468,7 @@ func TestDiffCompareIdentical(t *testing.T) {
 func TestDiffPrettyText(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local diff, _ = text.diff.new()
@@ -483,7 +489,7 @@ func TestDiffPrettyText(t *testing.T) {
 func TestDiffPrettyHTML(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local diff, _ = text.diff.new()
@@ -504,7 +510,7 @@ func TestDiffPrettyHTML(t *testing.T) {
 func TestDiffPatchMakeAndApply(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local diff, _ = text.diff.new()
@@ -535,7 +541,7 @@ func TestDiffPatchMakeAndApply(t *testing.T) {
 func TestDiffSummarize(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local diff, _ = text.diff.new()
@@ -562,7 +568,7 @@ func TestDiffSummarize(t *testing.T) {
 func TestDocumentPageExtraction(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local content = [[
@@ -603,7 +609,7 @@ func TestDocumentPageExtraction(t *testing.T) {
 func TestTagStripping(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local html_content = "<h1>Title</h1><p>Some <b>bold</b> text.</p><div>More content</div>"
@@ -626,7 +632,7 @@ func TestTagStripping(t *testing.T) {
 func TestEmailExtraction(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local content = "Email: user@example.com and another: admin@test.org"
@@ -669,7 +675,7 @@ func TestEmailExtraction(t *testing.T) {
 func TestImmutability(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local success = pcall(function()
@@ -678,5 +684,109 @@ func TestImmutability(t *testing.T) {
 	`)
 	if err != nil {
 		t.Errorf("immutability test failed: %v", err)
+	}
+}
+
+func TestLoadReuse(t *testing.T) {
+	l1 := lua.NewState()
+	defer l1.Close()
+	l2 := lua.NewState()
+	defer l2.Close()
+
+	Module.Load(l1)
+	Module.Load(l2)
+
+	mod1 := l1.GetGlobal("text").(*lua.LTable)
+	mod2 := l2.GetGlobal("text").(*lua.LTable)
+
+	if mod1 != mod2 {
+		t.Error("module table should be reused across states")
+	}
+}
+
+func TestSplitterRecursive(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Module.Load(l)
+
+	err := l.DoString(`
+		local splitter, err = text.splitter.recursive({chunk_size = 100, chunk_overlap = 20})
+		if err then
+			error("unexpected error: " .. tostring(err))
+		end
+		if splitter == nil then
+			error("splitter should not be nil")
+		end
+	`)
+	if err != nil {
+		t.Errorf("splitter recursive failed: %v", err)
+	}
+}
+
+func TestSplitterMarkdown(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Module.Load(l)
+
+	err := l.DoString(`
+		local splitter, err = text.splitter.markdown({chunk_size = 200})
+		if err then
+			error("unexpected error: " .. tostring(err))
+		end
+		if splitter == nil then
+			error("splitter should not be nil")
+		end
+	`)
+	if err != nil {
+		t.Errorf("splitter markdown failed: %v", err)
+	}
+}
+
+func TestSplitterSplitText(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Module.Load(l)
+
+	err := l.DoString(`
+		local splitter, _ = text.splitter.recursive({chunk_size = 50, chunk_overlap = 10})
+		local longText = "This is a long text that needs to be split into multiple chunks. Each chunk should be around 50 characters long with some overlap between them."
+		local chunks, err = splitter:split_text(longText)
+		if err then
+			error("unexpected error: " .. tostring(err))
+		end
+		if #chunks == 0 then
+			error("expected at least one chunk")
+		end
+	`)
+	if err != nil {
+		t.Errorf("splitter split_text failed: %v", err)
+	}
+}
+
+func TestSplitterSplitBatch(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Module.Load(l)
+
+	err := l.DoString(`
+		local splitter, _ = text.splitter.recursive({chunk_size = 50})
+		local pages = {
+			{content = "First page content that is long enough to be split", metadata = {page = 1}},
+			{content = "Second page content that is also fairly long", metadata = {page = 2}}
+		}
+		local chunks, err = splitter:split_batch(pages)
+		if err then
+			error("unexpected error: " .. tostring(err))
+		end
+		if #chunks == 0 then
+			error("expected at least one chunk")
+		end
+		-- Check metadata is preserved
+		if chunks[1].metadata == nil then
+			error("metadata should be preserved")
+		end
+	`)
+	if err != nil {
+		t.Errorf("splitter split_batch failed: %v", err)
 	}
 }

@@ -32,12 +32,12 @@ func NewVariableManager(
 
 func (m *VariableManager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != envsvc.KindVariable {
-		return NewUnsupportedKindError(string(entry.Kind))
+		return env.NewUnsupportedKindError(entry.Kind)
 	}
 
 	variable, err := entryutil.DecodeEntryConfig[env.Variable](ctx, m.dtt, entry)
 	if err != nil {
-		return NewDecodeVariableError(err)
+		return env.NewDecodeVariableError(err)
 	}
 
 	m.bus.Send(ctx, event.Event{
@@ -56,12 +56,12 @@ func (m *VariableManager) Add(ctx context.Context, entry registry.Entry) error {
 
 func (m *VariableManager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != envsvc.KindVariable {
-		return NewUnsupportedKindError(string(entry.Kind))
+		return env.NewUnsupportedKindError(entry.Kind)
 	}
 
 	variable, err := entryutil.DecodeEntryConfig[env.Variable](ctx, m.dtt, entry)
 	if err != nil {
-		return NewDecodeVariableError(err)
+		return env.NewDecodeVariableError(err)
 	}
 
 	m.bus.Send(ctx, event.Event{
@@ -80,7 +80,7 @@ func (m *VariableManager) Update(ctx context.Context, entry registry.Entry) erro
 
 func (m *VariableManager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != envsvc.KindVariable {
-		return NewUnsupportedKindError(string(entry.Kind))
+		return env.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.bus.Send(ctx, event.Event{

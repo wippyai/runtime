@@ -35,7 +35,7 @@ func (n *Node) ID() api.NodeID {
 func (n *Node) RegisterHost(hostID api.HostID, host api.Host) error {
 	_, loaded := n.hosts.LoadOrStore(hostID, host)
 	if loaded {
-		return NewHostExistsError(hostID, n.nodeID)
+		return api.NewHostExistsError(hostID, n.nodeID)
 	}
 	return nil
 }
@@ -47,49 +47,48 @@ func (n *Node) UnregisterHost(hostID api.HostID) {
 
 // GetHost returns a host by ID if it exists.
 func (n *Node) GetHost(hostID api.HostID) (api.Host, bool) {
-	if h, ok := n.hosts.Load(hostID); ok {
-		if host, ok := h.(api.Host); ok {
-			return host, true
-		}
+	h, ok := n.hosts.Load(hostID)
+	if !ok {
+		return nil, false
 	}
-	return nil, false
+	return h.(api.Host), true
 }
 
 // Send delivers a package to its destination. The destination must be a host
 // registered within this node.
-// Returns an error if the destination is for an external node or if the local
-// host is not found.
 func (n *Node) Send(pkg *api.Package) error {
-	// A package is local if its target node is this node, or if the node is unspecified.
-	if pkg.Target.Node == "" || pkg.Target.Node == n.nodeID {
-		if h, ok := n.hosts.Load(pkg.Target.Host); ok {
-			host, ok := h.(api.Host)
-			if !ok {
-				return NewInvalidHostTypeError(pkg.Target.Host, n.nodeID)
-			}
-			return host.Send(pkg)
-		}
-		return NewHostNotFoundError(pkg.Target.Host, n.nodeID)
+	if pkg.Target.Node != "" && pkg.Target.Node != n.nodeID {
+		return api.NewExternalNodeError(pkg.Target.Node)
 	}
 
-	return NewExternalNodeError(pkg.Target.Node)
+	h, ok := n.hosts.Load(pkg.Target.Host)
+	if !ok {
+		return api.NewHostNotFoundError(pkg.Target.Host, n.nodeID)
+	}
+
+	host, ok := h.(api.Host)
+	if !ok {
+		return api.NewInvalidHostTypeError(pkg.Target.Host, n.nodeID)
+	}
+
+	return host.Send(pkg)
 }
 
 // Attach connects a process ID to a channel for receiving packages.
 // Only works with hosts that implement AttachableHost.
 func (n *Node) Attach(pid api.PID, ch chan *api.Package) (context.CancelFunc, error) {
 	if pid.Node != "" && pid.Node != n.nodeID {
-		return nil, NewExternalNodeError(pid.Node)
+		return nil, api.NewExternalNodeError(pid.Node)
 	}
 
 	h, ok := n.hosts.Load(pid.Host)
 	if !ok {
-		return nil, NewHostNotFoundError(pid.Host, n.nodeID)
+		return nil, api.NewHostNotFoundError(pid.Host, n.nodeID)
 	}
 
 	attachable, ok := h.(api.AttachableHost)
 	if !ok {
-		return nil, NewHostNotAttachableError(pid.Host)
+		return nil, api.NewHostNotAttachableError(pid.Host)
 	}
 
 	return attachable.Attach(pid, ch)

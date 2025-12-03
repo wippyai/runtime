@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt" // Note: fmt kept for Sprintf in logging
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -466,7 +466,7 @@ func (c *Connection) forwardPayloadToWebSocket(topic relay.Topic, payloads ...pa
 			} else {
 				return ErrExpectedBytesPayload
 			}
-		case payload.YAML, payload.Golang, payload.Error:
+		case payload.YAML, payload.Golang, payload.GoError:
 			fallthrough
 		default:
 			// Try to transcode to JSON for all other formats

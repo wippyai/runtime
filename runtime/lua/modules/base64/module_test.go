@@ -6,11 +6,11 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-func TestBind(t *testing.T) {
+func TestLoad(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Bind(l)
+	Module.Load(l)
 
 	mod := l.GetGlobal("base64")
 	if mod.Type() != lua.LTTable {
@@ -26,14 +26,14 @@ func TestBind(t *testing.T) {
 	}
 }
 
-func TestBindReuse(t *testing.T) {
+func TestLoadReuse(t *testing.T) {
 	l1 := lua.NewState()
 	defer l1.Close()
 	l2 := lua.NewState()
 	defer l2.Close()
 
-	Bind(l1)
-	Bind(l2)
+	Module.Load(l1)
+	Module.Load(l2)
 
 	mod1 := l1.GetGlobal("base64").(*lua.LTable)
 	mod2 := l2.GetGlobal("base64").(*lua.LTable)
@@ -59,7 +59,7 @@ func TestEncode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			l := lua.NewState()
 			defer l.Close()
-			Bind(l)
+			Module.Load(l)
 
 			l.Push(l.GetGlobal("base64").(*lua.LTable).RawGetString("encode"))
 			l.Push(lua.LString(tt.input))
@@ -76,7 +76,8 @@ func TestEncode(t *testing.T) {
 func TestEncodeInvalidInput(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	lua.OpenErrors(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local result, err = base64.encode(123)
@@ -86,7 +87,7 @@ func TestEncodeInvalidInput(t *testing.T) {
 		if err == nil then
 			error("expected error")
 		end
-		if err:kind() ~= "Invalid" then
+		if err:kind() ~= errors.INVALID then
 			error("expected Invalid kind, got: " .. tostring(err:kind()))
 		end
 		if err:retryable() ~= false then
@@ -113,7 +114,7 @@ func TestDecode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			l := lua.NewState()
 			defer l.Close()
-			Bind(l)
+			Module.Load(l)
 
 			l.Push(l.GetGlobal("base64").(*lua.LTable).RawGetString("decode"))
 			l.Push(lua.LString(tt.input))
@@ -130,7 +131,8 @@ func TestDecode(t *testing.T) {
 func TestDecodeInvalidInput(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	lua.OpenErrors(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local result, err = base64.decode(123)
@@ -140,7 +142,7 @@ func TestDecodeInvalidInput(t *testing.T) {
 		if err == nil then
 			error("expected error")
 		end
-		if err:kind() ~= "Invalid" then
+		if err:kind() ~= errors.INVALID then
 			error("expected Invalid kind, got: " .. tostring(err:kind()))
 		end
 		if err:retryable() ~= false then
@@ -155,7 +157,8 @@ func TestDecodeInvalidInput(t *testing.T) {
 func TestDecodeInvalidBase64(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	lua.OpenErrors(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local result, err = base64.decode("!!!invalid!!!")
@@ -165,7 +168,7 @@ func TestDecodeInvalidBase64(t *testing.T) {
 		if err == nil then
 			error("expected error")
 		end
-		if err:kind() ~= "Invalid" then
+		if err:kind() ~= errors.INVALID then
 			error("expected Invalid kind, got: " .. tostring(err:kind()))
 		end
 		if err:retryable() ~= false then
@@ -185,7 +188,7 @@ func TestDecodeInvalidBase64(t *testing.T) {
 func TestRoundTrip(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local original = "Hello, World! 123"

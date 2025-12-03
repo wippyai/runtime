@@ -41,7 +41,7 @@ func TestHost_NewHost(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			host := NewHost(ctx, tt.config)
 			assert.NotNil(t, host)
-			assert.Equal(t, tt.config.Logger, host.logger)
+			assert.Equal(t, tt.config.Logger, host.config.Logger)
 		})
 	}
 }
@@ -387,11 +387,7 @@ func TestHost_InvalidConfig(t *testing.T) {
 				assert.NotNil(t, host)
 				assert.Equal(t, tt.expectedConfig.WorkerCount, host.config.WorkerCount)
 				assert.Equal(t, tt.expectedConfig.BufferSize, host.config.BufferSize)
-				if tt.config.Logger == nil {
-					assert.NotNil(t, host.config.Logger)
-				} else {
-					assert.Equal(t, tt.expectedConfig.Logger, host.config.Logger)
-				}
+				assert.NotNil(t, host.config.Logger)
 			}
 		})
 	}

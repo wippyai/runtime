@@ -9,6 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/runtime/lua/engine/loadlib"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/modules/payload"
 	lua "github.com/yuin/gopher-lua"
 	"github.com/yuin/gopher-lua/inspect"
 	"go.uber.org/zap"
@@ -364,9 +365,15 @@ func printFunc(l *lua.LState) int {
 	return 0
 }
 
+// BindPayloadModule registers the payload module.
+func BindPayloadModule(l *lua.LState) {
+	payload.Module.Load(l)
+}
+
 // coreBinders is the shared slice of stateless binders.
 var coreBinders = []ModuleBinder{
 	BindErrorsModule,
+	BindPayloadModule,
 	BindPrint,
 	BindChannelFunctions,
 	BindSubscribeFunctions,

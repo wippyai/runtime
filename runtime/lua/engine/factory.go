@@ -6,6 +6,8 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+// todo: redo most of it
+
 // FactoryConfig configures a Lua process factory.
 type FactoryConfig struct {
 	// Proto is a precompiled Lua function (faster than Script).

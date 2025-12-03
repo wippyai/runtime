@@ -35,7 +35,7 @@ func NewSubscriber(
 		cancel:      cancel,
 	}
 
-	ch := make(chan event.Event)
+	ch := make(chan event.Event, 16)
 	var err error
 	if kind == "" || kind == "*" {
 		h.subscriberID, err = b.Subscribe(ctx, system, ch)

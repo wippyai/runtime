@@ -2,76 +2,64 @@ package html
 
 import (
 	"regexp"
-	"sync"
 
 	"github.com/microcosm-cc/bluemonday"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 
 const (
-	policyMetatable      = "html.Policy"
-	attrBuilderMetatable = "html.AttrBuilder"
+	typePolicy      = "html.Policy"
+	typeAttrBuilder = "html.AttrBuilder"
 )
 
-var (
-	moduleTable   *lua.LTable
-	policyMT      *lua.LTable
-	attrBuilderMT *lua.LTable
-	registration  *luaapi.Registration
-	initOnce      sync.Once
-)
-
-// Module is the singleton html module instance.
-var Module = &htmlModule{}
-
-type htmlModule struct{}
-
-func (m *htmlModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        "html",
-		Description: "HTML sanitization with policy-based filtering",
-		Class:       []string{luaapi.ClassSecurity, luaapi.ClassDeterministic},
-	}
+// Module is the html module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "html",
+	Description: "HTML sanitization with policy-based filtering",
+	Class:       []string{luaapi.ClassSecurity, luaapi.ClassDeterministic},
+	Build:       buildModule,
 }
 
-func (m *htmlModule) Register(l *lua.LState) *luaapi.Registration {
-	initOnce.Do(func() {
-		policyMT = createPolicyMetatable(l)
-		attrBuilderMT = createAttrBuilderMetatable(l)
-
-		sanitizeMod := &lua.LTable{}
-		sanitizeMod.RawSetString("new_policy", lua.LGoFunc(newPolicy))
-		sanitizeMod.RawSetString("ugc_policy", lua.LGoFunc(ugcPolicy))
-		sanitizeMod.RawSetString("strict_policy", lua.LGoFunc(strictPolicy))
-		sanitizeMod.Immutable = true
-
-		mod := &lua.LTable{}
-		mod.RawSetString("sanitize", sanitizeMod)
-		mod.Immutable = true
-		moduleTable = mod
-
-		registration = &luaapi.Registration{
-			Table:      moduleTable,
-			YieldTypes: nil,
-		}
+func init() {
+	value.RegisterTypeMethods(nil, typePolicy, nil, map[string]lua.LGFunction{
+		"allow_elements":                            policyAllowElements,
+		"allow_attrs":                               policyAllowAttrs,
+		"allow_standard_urls":                       policyAllowStandardURLs,
+		"require_parseable_urls":                    policyRequireParseableURLs,
+		"allow_relative_urls":                       policyAllowRelativeURLs,
+		"allow_url_schemes":                         policyAllowURLSchemes,
+		"require_nofollow_on_links":                 policyRequireNoFollowOnLinks,
+		"require_noreferrer_on_links":               policyRequireNoReferrerOnLinks,
+		"add_target_blank_to_fully_qualified_links": policyAddTargetBlankToFullyQualifiedLinks,
+		"allow_data_uri_images":                     policyAllowDataURIImages,
+		"allow_standard_attributes":                 policyAllowStandardAttributes,
+		"allow_images":                              policyAllowImages,
+		"allow_lists":                               policyAllowLists,
+		"allow_tables":                              policyAllowTables,
+		"sanitize":                                  policySanitize,
 	})
 
-	l.SetField(l.Get(lua.RegistryIndex), policyMetatable, policyMT)
-	l.SetField(l.Get(lua.RegistryIndex), attrBuilderMetatable, attrBuilderMT)
-
-	return registration
+	value.RegisterTypeMethods(nil, typeAttrBuilder, nil, map[string]lua.LGFunction{
+		"on_elements": attrBuilderOnElements,
+		"globally":    attrBuilderGlobally,
+		"matching":    attrBuilderMatching,
+	})
 }
 
-func (m *htmlModule) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	l.Push(reg.Table)
-	return 1
-}
+func buildModule() (*lua.LTable, []luaapi.YieldType) {
+	mod := lua.CreateTable(0, 1)
 
-// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
-func Bind(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
+	sanitizeMod := lua.CreateTable(0, 3)
+	sanitizeMod.RawSetString("new_policy", lua.LGoFunc(newPolicy))
+	sanitizeMod.RawSetString("ugc_policy", lua.LGoFunc(ugcPolicy))
+	sanitizeMod.RawSetString("strict_policy", lua.LGoFunc(strictPolicy))
+	sanitizeMod.Immutable = true
+	mod.RawSetString("sanitize", sanitizeMod)
+
+	mod.Immutable = true
+	return mod, nil
 }
 
 type PolicyWrapper struct {
@@ -85,60 +73,12 @@ type AttrBuilder struct {
 	regex    *regexp.Regexp
 }
 
-func getPolicyMT(l *lua.LState) lua.LValue {
-	return l.GetField(l.Get(lua.RegistryIndex), policyMetatable)
-}
-
-func getAttrBuilderMT(l *lua.LState) lua.LValue {
-	return l.GetField(l.Get(lua.RegistryIndex), attrBuilderMetatable)
-}
-
-func createPolicyMetatable(l *lua.LState) *lua.LTable {
-	mt := l.CreateTable(0, 2)
-
-	index := l.CreateTable(0, 14)
-	index.RawSetString("allow_elements", lua.LGoFunc(policyAllowElements))
-	index.RawSetString("allow_attrs", lua.LGoFunc(policyAllowAttrs))
-	index.RawSetString("allow_standard_urls", lua.LGoFunc(policyAllowStandardURLs))
-	index.RawSetString("require_parseable_urls", lua.LGoFunc(policyRequireParseableURLs))
-	index.RawSetString("allow_relative_urls", lua.LGoFunc(policyAllowRelativeURLs))
-	index.RawSetString("allow_url_schemes", lua.LGoFunc(policyAllowURLSchemes))
-	index.RawSetString("require_nofollow_on_links", lua.LGoFunc(policyRequireNoFollowOnLinks))
-	index.RawSetString("require_noreferrer_on_links", lua.LGoFunc(policyRequireNoReferrerOnLinks))
-	index.RawSetString("add_target_blank_to_fully_qualified_links", lua.LGoFunc(policyAddTargetBlankToFullyQualifiedLinks))
-	index.RawSetString("allow_data_uri_images", lua.LGoFunc(policyAllowDataURIImages))
-	index.RawSetString("allow_standard_attributes", lua.LGoFunc(policyAllowStandardAttributes))
-	index.RawSetString("allow_images", lua.LGoFunc(policyAllowImages))
-	index.RawSetString("allow_lists", lua.LGoFunc(policyAllowLists))
-	index.RawSetString("allow_tables", lua.LGoFunc(policyAllowTables))
-	index.RawSetString("sanitize", lua.LGoFunc(policySanitize))
-	index.Immutable = true
-
-	mt.RawSetString("__index", index)
-	mt.Immutable = true
-	return mt
-}
-
-func createAttrBuilderMetatable(l *lua.LState) *lua.LTable {
-	mt := l.CreateTable(0, 2)
-
-	index := l.CreateTable(0, 3)
-	index.RawSetString("on_elements", lua.LGoFunc(attrBuilderOnElements))
-	index.RawSetString("globally", lua.LGoFunc(attrBuilderGlobally))
-	index.RawSetString("matching", lua.LGoFunc(attrBuilderMatching))
-	index.Immutable = true
-
-	mt.RawSetString("__index", index)
-	mt.Immutable = true
-	return mt
-}
-
 func checkPolicy(l *lua.LState) *PolicyWrapper {
 	ud := l.CheckUserData(1)
 	if wrapper, ok := ud.Value.(*PolicyWrapper); ok {
 		return wrapper
 	}
-	l.ArgError(1, "expected Policy")
+	l.ArgError(1, "expected html.Policy")
 	return nil
 }
 
@@ -147,48 +87,36 @@ func checkAttrBuilder(l *lua.LState) *AttrBuilder {
 	if builder, ok := ud.Value.(*AttrBuilder); ok {
 		return builder
 	}
-	l.ArgError(1, "expected AttrBuilder")
+	l.ArgError(1, "expected html.AttrBuilder")
 	return nil
 }
 
 func newPolicy(l *lua.LState) int {
 	policy := bluemonday.NewPolicy()
-
-	ud := l.NewUserData()
-	ud.Value = &PolicyWrapper{policy: policy}
-	ud.Metatable = getPolicyMT(l)
-
-	l.Push(ud)
+	value.PushTypedUserData(l, &PolicyWrapper{policy: policy}, typePolicy)
 	l.Push(lua.LNil)
 	return 2
 }
 
 func ugcPolicy(l *lua.LState) int {
 	policy := bluemonday.UGCPolicy()
-
-	ud := l.NewUserData()
-	ud.Value = &PolicyWrapper{policy: policy}
-	ud.Metatable = getPolicyMT(l)
-
-	l.Push(ud)
+	value.PushTypedUserData(l, &PolicyWrapper{policy: policy}, typePolicy)
 	l.Push(lua.LNil)
 	return 2
 }
 
 func strictPolicy(l *lua.LState) int {
 	policy := bluemonday.StrictPolicy()
-
-	ud := l.NewUserData()
-	ud.Value = &PolicyWrapper{policy: policy}
-	ud.Metatable = getPolicyMT(l)
-
-	l.Push(ud)
+	value.PushTypedUserData(l, &PolicyWrapper{policy: policy}, typePolicy)
 	l.Push(lua.LNil)
 	return 2
 }
 
 func policyAllowElements(l *lua.LState) int {
 	wrapper := checkPolicy(l)
+	if wrapper == nil {
+		return 0
+	}
 
 	elements := make([]string, 0, l.GetTop()-1)
 	for i := 2; i <= l.GetTop(); i++ {
@@ -196,13 +124,15 @@ func policyAllowElements(l *lua.LState) int {
 	}
 
 	wrapper.policy.AllowElements(elements...)
-
 	l.Push(l.Get(1))
 	return 1
 }
 
 func policyAllowAttrs(l *lua.LState) int {
 	wrapper := checkPolicy(l)
+	if wrapper == nil {
+		return 0
+	}
 
 	attrs := make([]string, 0, l.GetTop()-1)
 	for i := 2; i <= l.GetTop(); i++ {
@@ -215,16 +145,15 @@ func policyAllowAttrs(l *lua.LState) int {
 		attrs:    attrs,
 	}
 
-	ud := l.NewUserData()
-	ud.Value = builder
-	ud.Metatable = getAttrBuilderMT(l)
-
-	l.Push(ud)
+	value.PushTypedUserData(l, builder, typeAttrBuilder)
 	return 1
 }
 
 func policyAllowStandardURLs(l *lua.LState) int {
 	wrapper := checkPolicy(l)
+	if wrapper == nil {
+		return 0
+	}
 	wrapper.policy.AllowStandardURLs()
 	l.Push(l.Get(1))
 	return 1
@@ -232,6 +161,9 @@ func policyAllowStandardURLs(l *lua.LState) int {
 
 func policyRequireParseableURLs(l *lua.LState) int {
 	wrapper := checkPolicy(l)
+	if wrapper == nil {
+		return 0
+	}
 	require := l.CheckBool(2)
 	wrapper.policy.RequireParseableURLs(require)
 	l.Push(l.Get(1))
@@ -240,6 +172,9 @@ func policyRequireParseableURLs(l *lua.LState) int {
 
 func policyAllowRelativeURLs(l *lua.LState) int {
 	wrapper := checkPolicy(l)
+	if wrapper == nil {
+		return 0
+	}
 	allow := l.CheckBool(2)
 	wrapper.policy.AllowRelativeURLs(allow)
 	l.Push(l.Get(1))
@@ -248,6 +183,9 @@ func policyAllowRelativeURLs(l *lua.LState) int {
 
 func policyAllowURLSchemes(l *lua.LState) int {
 	wrapper := checkPolicy(l)
+	if wrapper == nil {
+		return 0
+	}
 
 	schemes := make([]string, 0, l.GetTop()-1)
 	for i := 2; i <= l.GetTop(); i++ {
@@ -261,6 +199,9 @@ func policyAllowURLSchemes(l *lua.LState) int {
 
 func policyRequireNoFollowOnLinks(l *lua.LState) int {
 	wrapper := checkPolicy(l)
+	if wrapper == nil {
+		return 0
+	}
 	require := l.CheckBool(2)
 	wrapper.policy.RequireNoFollowOnLinks(require)
 	l.Push(l.Get(1))
@@ -269,6 +210,9 @@ func policyRequireNoFollowOnLinks(l *lua.LState) int {
 
 func policyRequireNoReferrerOnLinks(l *lua.LState) int {
 	wrapper := checkPolicy(l)
+	if wrapper == nil {
+		return 0
+	}
 	require := l.CheckBool(2)
 	wrapper.policy.RequireNoReferrerOnLinks(require)
 	l.Push(l.Get(1))
@@ -277,6 +221,9 @@ func policyRequireNoReferrerOnLinks(l *lua.LState) int {
 
 func policyAddTargetBlankToFullyQualifiedLinks(l *lua.LState) int {
 	wrapper := checkPolicy(l)
+	if wrapper == nil {
+		return 0
+	}
 	add := l.CheckBool(2)
 	wrapper.policy.AddTargetBlankToFullyQualifiedLinks(add)
 	l.Push(l.Get(1))
@@ -285,6 +232,9 @@ func policyAddTargetBlankToFullyQualifiedLinks(l *lua.LState) int {
 
 func policyAllowDataURIImages(l *lua.LState) int {
 	wrapper := checkPolicy(l)
+	if wrapper == nil {
+		return 0
+	}
 	wrapper.policy.AllowDataURIImages()
 	l.Push(l.Get(1))
 	return 1
@@ -292,6 +242,9 @@ func policyAllowDataURIImages(l *lua.LState) int {
 
 func policyAllowStandardAttributes(l *lua.LState) int {
 	wrapper := checkPolicy(l)
+	if wrapper == nil {
+		return 0
+	}
 	wrapper.policy.AllowStandardAttributes()
 	l.Push(l.Get(1))
 	return 1
@@ -299,6 +252,9 @@ func policyAllowStandardAttributes(l *lua.LState) int {
 
 func policyAllowImages(l *lua.LState) int {
 	wrapper := checkPolicy(l)
+	if wrapper == nil {
+		return 0
+	}
 	wrapper.policy.AllowImages()
 	l.Push(l.Get(1))
 	return 1
@@ -306,6 +262,9 @@ func policyAllowImages(l *lua.LState) int {
 
 func policyAllowLists(l *lua.LState) int {
 	wrapper := checkPolicy(l)
+	if wrapper == nil {
+		return 0
+	}
 	wrapper.policy.AllowLists()
 	l.Push(l.Get(1))
 	return 1
@@ -313,6 +272,9 @@ func policyAllowLists(l *lua.LState) int {
 
 func policyAllowTables(l *lua.LState) int {
 	wrapper := checkPolicy(l)
+	if wrapper == nil {
+		return 0
+	}
 	wrapper.policy.AllowTables()
 	l.Push(l.Get(1))
 	return 1
@@ -320,16 +282,20 @@ func policyAllowTables(l *lua.LState) int {
 
 func policySanitize(l *lua.LState) int {
 	wrapper := checkPolicy(l)
+	if wrapper == nil {
+		return 0
+	}
 	input := l.CheckString(2)
-
 	result := wrapper.policy.Sanitize(input)
-
 	l.Push(lua.LString(result))
 	return 1
 }
 
 func attrBuilderOnElements(l *lua.LState) int {
 	builder := checkAttrBuilder(l)
+	if builder == nil {
+		return 0
+	}
 
 	elements := make([]string, 0, l.GetTop()-1)
 	for i := 2; i <= l.GetTop(); i++ {
@@ -348,6 +314,9 @@ func attrBuilderOnElements(l *lua.LState) int {
 
 func attrBuilderGlobally(l *lua.LState) int {
 	builder := checkAttrBuilder(l)
+	if builder == nil {
+		return 0
+	}
 
 	if builder.regex != nil {
 		builder.policy.AllowAttrs(builder.attrs...).Matching(builder.regex).Globally()
@@ -361,17 +330,23 @@ func attrBuilderGlobally(l *lua.LState) int {
 
 func attrBuilderMatching(l *lua.LState) int {
 	builder := checkAttrBuilder(l)
+	if builder == nil {
+		return 0
+	}
 	pattern := l.CheckString(2)
 
 	regex, err := regexp.Compile(pattern)
 	if err != nil {
+		luaErr := lua.WrapErrorWithLua(l, err, "regex compile error").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(luaErr)
 		return 2
 	}
 
 	builder.regex = regex
-
 	l.Push(l.Get(1))
 	l.Push(lua.LNil)
 	return 2

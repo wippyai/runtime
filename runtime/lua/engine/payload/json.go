@@ -1,7 +1,7 @@
 package payload
 
 import (
-	"fmt" // Note: fmt kept for Sprintf in logging
+	"fmt"
 
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/runtime/lua/modules/json"

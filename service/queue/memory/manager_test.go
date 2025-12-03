@@ -166,7 +166,7 @@ func TestManager_Update_DriverNotFound(t *testing.T) {
 
 	err := manager.Update(ctx, entry)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "does not exist")
+	assert.Contains(t, err.Error(), "driver not found")
 }
 
 func TestManager_Update_InvalidKind(t *testing.T) {
@@ -231,7 +231,7 @@ func TestManager_Delete_DriverNotFound(t *testing.T) {
 
 	err := manager.Delete(ctx, entry)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "does not exist")
+	assert.Contains(t, err.Error(), "driver not found")
 }
 
 func TestManager_Delete_InvalidKind(t *testing.T) {

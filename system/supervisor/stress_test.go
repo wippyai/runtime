@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math/rand"
+	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -16,6 +17,12 @@ import (
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
+
+func skipUnlessStress(t *testing.T) {
+	if os.Getenv("WIPPY_STRESS_TESTS") != "1" {
+		t.Skip("Skipping stress test (set WIPPY_STRESS_TESTS=1 to run)")
+	}
+}
 
 // stressService is a configurable service for stress testing
 type stressService struct {
@@ -96,9 +103,7 @@ func (s *stressService) StopCount() int32  { return atomic.LoadInt32(&s.stopCoun
 
 // TestStressControllerRapidStartStop tests rapid start/stop cycles
 func TestStressControllerRapidStartStop(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping stress test in short mode")
-	}
+	skipUnlessStress(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -137,9 +142,7 @@ func TestStressControllerRapidStartStop(t *testing.T) {
 
 // TestStressConcurrentStateReads tests concurrent state reads during operations
 func TestStressConcurrentStateReads(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping stress test in short mode")
-	}
+	skipUnlessStress(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -179,9 +182,7 @@ func TestStressConcurrentStateReads(t *testing.T) {
 
 // TestStressSequencerManyOperations tests sequencer with many operations
 func TestStressSequencerManyOperations(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping stress test in short mode")
-	}
+	skipUnlessStress(t)
 
 	logger := zap.NewNop()
 	seq := NewSequencer(logger)
@@ -226,9 +227,7 @@ func TestStressSequencerManyOperations(t *testing.T) {
 
 // TestStressSequencerConcurrentTransitions tests concurrent transitions
 func TestStressSequencerConcurrentTransitions(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping stress test in short mode")
-	}
+	skipUnlessStress(t)
 
 	logger := zap.NewNop()
 
@@ -260,9 +259,7 @@ func TestStressSequencerConcurrentTransitions(t *testing.T) {
 
 // TestStressSupervisorManyServices tests supervisor with many services
 func TestStressSupervisorManyServices(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping stress test in short mode")
-	}
+	skipUnlessStress(t)
 
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
@@ -320,9 +317,7 @@ func TestStressSupervisorManyServices(t *testing.T) {
 
 // TestStressSupervisorConcurrentEvents tests concurrent event handling
 func TestStressSupervisorConcurrentEvents(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping stress test in short mode")
-	}
+	skipUnlessStress(t)
 
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
@@ -397,9 +392,7 @@ func TestStressSupervisorConcurrentEvents(t *testing.T) {
 
 // TestStressInternalStateConcurrentAccess tests concurrent state access patterns
 func TestStressInternalStateConcurrentAccess(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping stress test in short mode")
-	}
+	skipUnlessStress(t)
 
 	state := newServiceState()
 
@@ -436,9 +429,7 @@ func TestStressInternalStateConcurrentAccess(t *testing.T) {
 
 // TestStressTransactionManyOperations tests transaction handling many operations sequentially
 func TestStressTransactionManyOperations(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping stress test in short mode")
-	}
+	skipUnlessStress(t)
 
 	logger := zap.NewNop()
 
@@ -517,9 +508,7 @@ func (s *retryableService) StartAttempts() int32 {
 
 // TestStressControllerRetryUnderLoad tests retry behavior under load
 func TestStressControllerRetryUnderLoad(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping stress test in short mode")
-	}
+	skipUnlessStress(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -558,9 +547,7 @@ func TestStressControllerRetryUnderLoad(t *testing.T) {
 
 // TestStressSequencerWithFailures tests sequencer behavior when operations fail
 func TestStressSequencerWithFailures(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping stress test in short mode")
-	}
+	skipUnlessStress(t)
 
 	logger := zap.NewNop()
 	seq := NewSequencer(logger)
@@ -596,4 +583,412 @@ func (c *failingControllable) Stop() error {
 		return errors.New("intentional failure")
 	}
 	return nil
+}
+
+// fastService is a minimal service for benchmarking
+type fastService struct {
+	ch chan any
+}
+
+func newFastService() *fastService {
+	return &fastService{ch: make(chan any, 1)}
+}
+
+func (s *fastService) Start(_ context.Context) (<-chan any, error) {
+	return s.ch, nil
+}
+
+func (s *fastService) Stop(_ context.Context) error {
+	close(s.ch)
+	s.ch = make(chan any, 1)
+	return nil
+}
+
+// benchControllable is a minimal controllable for benchmarking
+type benchControllable struct{}
+
+func (c *benchControllable) Start() error { return nil }
+func (c *benchControllable) Stop() error  { return nil }
+
+// State Benchmarks
+
+func BenchmarkInternalStateUpdate(b *testing.B) {
+	state := newServiceState()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		state.updateState(supervisor.StatusRunning, "details")
+	}
+}
+
+func BenchmarkInternalStateUpdateParallel(b *testing.B) {
+	state := newServiceState()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			state.updateState(supervisor.StatusRunning, "details")
+		}
+	})
+}
+
+func BenchmarkInternalStateSnapshot(b *testing.B) {
+	state := newServiceState()
+	state.updateState(supervisor.StatusRunning, "test details")
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = state.getSnapshot()
+	}
+}
+
+func BenchmarkInternalStateSnapshotParallel(b *testing.B) {
+	state := newServiceState()
+	state.updateState(supervisor.StatusRunning, "test details")
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			_ = state.getSnapshot()
+		}
+	})
+}
+
+func BenchmarkStateAllocations(b *testing.B) {
+	state := newServiceState()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		state.updateState(supervisor.StatusRunning, nil)
+		_ = state.publicState()
+	}
+}
+
+// Transaction Benchmarks
+
+func BenchmarkTransactionRegister(b *testing.B) {
+	logger := zap.NewNop()
+	tx := newTransactionHelper(logger)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		tx.begin()
+		for j := 0; j < 10; j++ {
+			_ = tx.registerService("service", &supervisor.Entry{})
+		}
+		tx.reset()
+	}
+}
+
+func BenchmarkTransactionCommit(b *testing.B) {
+	logger := zap.NewNop()
+	tx := newTransactionHelper(logger)
+
+	removeFn := func(_ string) error { return nil }
+	registerFn := func(_ string, _ *supervisor.Entry) error { return nil }
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		tx.begin()
+		for j := 0; j < 5; j++ {
+			_ = tx.registerService("svc"+string(rune('0'+j)), &supervisor.Entry{})
+		}
+		for j := 0; j < 3; j++ {
+			_ = tx.removeService("old" + string(rune('0'+j)))
+		}
+		_ = tx.commit(removeFn, registerFn)
+	}
+}
+
+// Sequencer Benchmarks
+
+func BenchmarkSequencerLinearChain(b *testing.B) {
+	logger := zap.NewNop()
+	seq := NewSequencer(logger)
+	ctx := context.Background()
+
+	sizes := []int{5, 10, 20}
+	for _, size := range sizes {
+		name := ""
+		if size >= 10 {
+			name = string(rune('0' + size/10))
+		}
+		name += string(rune('0' + size%10))
+
+		b.Run(name+"_services", func(b *testing.B) {
+			ops := make([]Operation, size)
+			for i := 0; i < size; i++ {
+				deps := []string{}
+				if i > 0 {
+					deps = []string{"svc" + string(rune('0'+i-1))}
+				}
+				ops[i] = Operation{
+					Type:         OperationStart,
+					ID:           "svc" + string(rune('0'+i)),
+					Controller:   &benchControllable{},
+					Dependencies: deps,
+				}
+			}
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_ = seq.Transition(ctx, ops...)
+			}
+		})
+	}
+}
+
+func BenchmarkSequencerParallelServices(b *testing.B) {
+	logger := zap.NewNop()
+	seq := NewSequencer(logger)
+	ctx := context.Background()
+
+	sizes := []int{10, 20, 50}
+	for _, size := range sizes {
+		name := ""
+		if size >= 10 {
+			name = string(rune('0' + size/10))
+		}
+		name += string(rune('0' + size%10))
+
+		b.Run(name+"_parallel", func(b *testing.B) {
+			ops := make([]Operation, size)
+			for i := 0; i < size; i++ {
+				ops[i] = Operation{
+					Type:         OperationStart,
+					ID:           "svc" + string(rune('A'+i%26)) + string(rune('0'+i/26)),
+					Controller:   &benchControllable{},
+					Dependencies: nil,
+				}
+			}
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_ = seq.Transition(ctx, ops...)
+			}
+		})
+	}
+}
+
+func BenchmarkSequencerMixedOperations(b *testing.B) {
+	logger := zap.NewNop()
+	seq := NewSequencer(logger)
+	ctx := context.Background()
+
+	ops := []Operation{
+		{Type: OperationStop, ID: "stop1", Controller: &benchControllable{}},
+		{Type: OperationStop, ID: "stop2", Controller: &benchControllable{}},
+		{Type: OperationStart, ID: "start1", Controller: &benchControllable{}},
+		{Type: OperationStart, ID: "start2", Controller: &benchControllable{}, Dependencies: []string{"start1"}},
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = seq.Transition(ctx, ops...)
+	}
+}
+
+// Controller Benchmarks
+
+func BenchmarkControllerStateRead(b *testing.B) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	svc := newFastService()
+	ctrl := NewController(ctx, svc, supervisor.LifecycleConfig{
+		StartTimeout: time.Second,
+		StopTimeout:  time.Second,
+	}, nil)
+	_ = ctrl.Start()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = ctrl.State()
+	}
+	b.StopTimer()
+
+	_ = ctrl.Stop()
+}
+
+func BenchmarkControllerStateReadParallel(b *testing.B) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	svc := newFastService()
+	ctrl := NewController(ctx, svc, supervisor.LifecycleConfig{
+		StartTimeout: time.Second,
+		StopTimeout:  time.Second,
+	}, nil)
+	_ = ctrl.Start()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			_ = ctrl.State()
+		}
+	})
+	b.StopTimer()
+
+	_ = ctrl.Stop()
+}
+
+func BenchmarkControllerStartStop(b *testing.B) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	config := supervisor.LifecycleConfig{
+		StartTimeout: time.Second,
+		StopTimeout:  time.Second,
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		svc := newFastService()
+		ctrl := NewController(ctx, svc, config, nil)
+		_ = ctrl.Start()
+		_ = ctrl.Stop()
+	}
+}
+
+// Supervisor Benchmarks
+
+func BenchmarkSupervisorGetState(b *testing.B) {
+	logger := zap.NewNop()
+	bus := eventbus.NewBus()
+	sup := NewSupervisor(bus, logger)
+
+	ctx := context.Background()
+	_ = sup.Start(ctx)
+
+	sup.mu.Lock()
+	svc := newFastService()
+	sup.controllers["test-service"] = NewController(ctx, svc, supervisor.LifecycleConfig{
+		StartTimeout: time.Second,
+		StopTimeout:  time.Second,
+	}, nil)
+	sup.mu.Unlock()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = sup.GetState("test-service")
+	}
+	b.StopTimer()
+
+	_ = sup.Stop()
+}
+
+func BenchmarkSupervisorGetStateParallel(b *testing.B) {
+	logger := zap.NewNop()
+	bus := eventbus.NewBus()
+	sup := NewSupervisor(bus, logger)
+
+	ctx := context.Background()
+	_ = sup.Start(ctx)
+
+	sup.mu.Lock()
+	svc := newFastService()
+	sup.controllers["test-service"] = NewController(ctx, svc, supervisor.LifecycleConfig{
+		StartTimeout: time.Second,
+		StopTimeout:  time.Second,
+	}, nil)
+	sup.mu.Unlock()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			_, _ = sup.GetState("test-service")
+		}
+	})
+	b.StopTimer()
+
+	_ = sup.Stop()
+}
+
+func BenchmarkSupervisorGetAllStates(b *testing.B) {
+	logger := zap.NewNop()
+	bus := eventbus.NewBus()
+	sup := NewSupervisor(bus, logger)
+
+	ctx := context.Background()
+	_ = sup.Start(ctx)
+
+	sup.mu.Lock()
+	for i := 0; i < 20; i++ {
+		svc := newFastService()
+		id := "service-" + string(rune('A'+i%26)) + string(rune('0'+i/26))
+		sup.controllers[id] = NewController(ctx, svc, supervisor.LifecycleConfig{
+			StartTimeout: time.Second,
+			StopTimeout:  time.Second,
+		}, nil)
+	}
+	sup.mu.Unlock()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = sup.GetAllStates()
+	}
+	b.StopTimer()
+
+	_ = sup.Stop()
+}
+
+func BenchmarkConcurrentControllerOperations(b *testing.B) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	config := supervisor.LifecycleConfig{
+		StartTimeout: time.Second,
+		StopTimeout:  time.Second,
+		RetryPolicy: supervisor.RetryPolicy{
+			MaxAttempts:  1,
+			InitialDelay: time.Millisecond,
+		},
+	}
+
+	const poolSize = 100
+	controllers := make([]*Controller, poolSize)
+	services := make([]*fastService, poolSize)
+	for i := 0; i < poolSize; i++ {
+		services[i] = newFastService()
+		controllers[i] = NewController(ctx, services[i], config, nil)
+	}
+
+	var mu sync.Mutex
+	idx := 0
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			mu.Lock()
+			i := idx % poolSize
+			idx++
+			ctrl := controllers[i]
+			mu.Unlock()
+
+			_ = ctrl.Start()
+			_ = ctrl.State()
+			_ = ctrl.Stop()
+		}
+	})
+
+	b.StopTimer()
+	cancel()
 }

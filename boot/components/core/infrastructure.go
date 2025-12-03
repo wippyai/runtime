@@ -8,8 +8,8 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/internal/uniqid"
-	"github.com/wippyai/runtime/system/dispatcher"
 	"github.com/wippyai/runtime/system/eventbus"
+	"github.com/wippyai/runtime/system/scheduler"
 )
 
 func EventBus() boot.Component {
@@ -38,7 +38,7 @@ func Dispatcher() boot.Component {
 		Name: DispatcherName,
 		Load: func(ctx context.Context) (context.Context, error) {
 			// Create dispatcher registry for this application instance
-			reg := dispatcher.NewRegistry()
+			reg := scheduler.NewRegistry()
 			if err := dispatcherapi.WithRegistry(ctx, reg); err != nil {
 				return ctx, err
 			}

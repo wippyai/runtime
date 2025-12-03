@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/env"
-	enverr "github.com/wippyai/runtime/service/env"
 )
 
 // Storage combines multiple storages with fallback and caching.
@@ -25,7 +24,7 @@ var _ env.Storage = (*Storage)(nil)
 // At least one storage must be provided.
 func NewStorage(storages []env.Storage) (*Storage, error) {
 	if len(storages) == 0 {
-		return nil, enverr.ErrNoStorages
+		return nil, env.ErrNoStorages
 	}
 
 	return &Storage{

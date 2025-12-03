@@ -149,7 +149,7 @@ func fsOpen(l *lua.LState) int {
 		return 2
 	}
 
-	value.NewUserData(l, NewFileWithCleanup(ctx, file), fileMetatable)
+	value.PushUserData(l, NewFileWithCleanup(ctx, file), fileMetatable)
 	l.Push(lua.LNil)
 	return 2
 }

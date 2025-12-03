@@ -71,7 +71,7 @@ func (c *OSStorageConfig) Validate() error {
 
 func (c *RouterStorageConfig) Validate() error {
 	if len(c.Storages) == 0 {
-		return ErrEmptyStorageList
+		return env.ErrEmptyStorageList
 	}
 	return nil
 }

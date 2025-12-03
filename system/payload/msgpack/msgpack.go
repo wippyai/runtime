@@ -48,7 +48,7 @@ type ToMsgPack struct{}
 // Transcode implements payload.FormatTranscoder.
 func (t *ToMsgPack) Transcode(p payload.Payload) (payload.Payload, error) {
 	if p.Format() != payload.Golang {
-		return nil, NewInvalidFormatError("Golang=>MsgPack", payload.Golang, p.Format())
+		return nil, payload.NewInvalidFormatError("Golang=>MsgPack", payload.Golang, p.Format())
 	}
 
 	buf := bufferPool.Get().(*bytes.Buffer)
@@ -57,7 +57,7 @@ func (t *ToMsgPack) Transcode(p payload.Payload) (payload.Payload, error) {
 
 	encoder := codec.NewEncoder(buf, getHandle())
 	if err := encoder.Encode(p.Data()); err != nil {
-		return nil, NewMarshalError(err)
+		return nil, payload.NewMarshalError("MsgPack", err)
 	}
 
 	result := make([]byte, buf.Len())
@@ -72,12 +72,12 @@ type FromMsgPack struct{}
 // Transcode implements payload.FormatTranscoder.
 func (t *FromMsgPack) Transcode(p payload.Payload) (payload.Payload, error) {
 	if p.Format() != payload.MsgPack {
-		return nil, NewInvalidFormatError("MsgPack=>Golang", payload.MsgPack, p.Format())
+		return nil, payload.NewInvalidFormatError("MsgPack=>Golang", payload.MsgPack, p.Format())
 	}
 
 	data, ok := p.Data().([]byte)
 	if !ok {
-		return nil, NewInvalidDataTypeError("MsgPack=>Golang", typeName(p.Data()))
+		return nil, payload.NewInvalidDataTypeError("MsgPack=>Golang", "[]byte", typeName(p.Data()))
 	}
 
 	reader := readerPool.Get().(*bytes.Reader)
@@ -87,7 +87,7 @@ func (t *FromMsgPack) Transcode(p payload.Payload) (payload.Payload, error) {
 	var result any
 	decoder := codec.NewDecoder(reader, getHandle())
 	if err := decoder.Decode(&result); err != nil {
-		return nil, NewUnmarshalError(err)
+		return nil, payload.NewUnmarshalError("MsgPack", err)
 	}
 
 	return payload.NewPayload(result, payload.Golang), nil

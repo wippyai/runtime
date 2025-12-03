@@ -244,7 +244,7 @@ func (r *setResource) Get() (any, error) {
 	defer r.mu.Unlock()
 
 	if r.closed {
-		return nil, resource.ErrResourceReleased
+		return nil, resource.ErrReleased
 	}
 
 	return r.set, nil

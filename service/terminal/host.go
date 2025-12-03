@@ -27,7 +27,7 @@ type Host struct {
 	log       *zap.Logger
 	scheduler *actor.Scheduler
 	factory   process.Factory
-	logCtrl   *logs.ConfigSwitcher
+	logCtrl   *logs.Configurator
 	ctx       context.Context
 	statusCh  chan any
 	doneCh    chan struct{}
@@ -42,7 +42,7 @@ func NewHost(
 	cfg *terminal.HostConfig,
 	scheduler *actor.Scheduler,
 	factory process.Factory,
-	logCtrl *logs.ConfigSwitcher,
+	logCtrl *logs.Configurator,
 	logger *zap.Logger,
 ) *Host {
 	return &Host{

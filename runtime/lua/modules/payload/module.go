@@ -1,8 +1,6 @@
 package payload
 
 import (
-	"sync"
-
 	"github.com/wippyai/runtime/api/payload"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -13,76 +11,44 @@ const (
 	typeName = "payload"
 )
 
-var (
-	moduleTable      *lua.LTable
-	registration     *luaapi.Registration
-	payloadMetatable *lua.LTable
-	initOnce         sync.Once
-)
-
-// Module is the singleton payload module instance.
-var Module = &payloadModule{}
-
-type payloadModule struct{}
-
-func (m *payloadModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        "payload",
-		Description: "Payload transcoding and format conversion",
-		Class:       []string{luaapi.ClassEncoding, luaapi.ClassDeterministic},
-	}
+// Module is the payload module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "payload",
+	Description: "Payload transcoding and format conversion",
+	Class:       []string{luaapi.ClassEncoding, luaapi.ClassDeterministic},
+	Build:       buildModule,
 }
 
-func (m *payloadModule) Register(l *lua.LState) *luaapi.Registration {
-	initOnce.Do(func() {
-		moduleTable = createModuleTable()
-
-		payloadMetatable = value.RegisterTypeMethods(nil, typeName,
-			map[string]lua.LGFunction{"__tostring": payloadToString},
-			payloadMethods)
-
-		registration = &luaapi.Registration{
-			Table:      moduleTable,
-			YieldTypes: nil,
-		}
-	})
-
-	return registration
+func init() {
+	value.RegisterTypeMethods(nil, typeName,
+		map[string]lua.LGFunction{"__tostring": payloadToString},
+		payloadMethods)
 }
 
-type Wrapper struct {
-	Payload payload.Payload
-}
-
-func (m *payloadModule) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	l.Push(reg.Table)
-	return 1
-}
-
-// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
-func Bind(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
-}
-
-func createModuleTable() *lua.LTable {
+func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	mod := lua.CreateTable(0, 2)
 
 	mod.RawSetString("new", lua.LGoFunc(newPayload))
 
-	formats := lua.CreateTable(0, 7)
+	formats := lua.CreateTable(0, 8)
 	formats.RawSetString("JSON", lua.LString(payload.JSON))
 	formats.RawSetString("YAML", lua.LString(payload.YAML))
 	formats.RawSetString("STRING", lua.LString(payload.String))
 	formats.RawSetString("GOLANG", lua.LString(payload.Golang))
 	formats.RawSetString("LUA", lua.LString(payload.Lua))
 	formats.RawSetString("BYTES", lua.LString(payload.Bytes))
-	formats.RawSetString("ERROR", lua.LString(payload.Error))
+	formats.RawSetString("MSGPACK", lua.LString(payload.MsgPack))
+	formats.RawSetString("ERROR", lua.LString(payload.GoError))
 	formats.Immutable = true
 	mod.RawSetString("format", formats)
 
 	mod.Immutable = true
-	return mod
+	return mod, nil
+}
+
+// Wrapper wraps a payload for Lua userdata.
+type Wrapper struct {
+	Payload payload.Payload
 }
 
 var payloadMethods = map[string]lua.LGFunction{
@@ -97,7 +63,7 @@ func newPayload(l *lua.LState) int {
 
 	// Check if the value is an error
 	if err := lua.ExtractError(v); err != nil {
-		p := payload.NewPayload(err, payload.Error)
+		p := payload.NewPayload(err, payload.GoError)
 		return PushPayload(l, p)
 	}
 
@@ -150,8 +116,12 @@ func payloadData(l *lua.LState) int {
 
 	luaPayload, err := tc.Transcode(p.Payload, payload.Lua)
 	if err != nil {
+		luaErr := lua.WrapErrorWithLua(l, err, "transcode failed").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(luaErr)
 		return 2
 	}
 
@@ -185,13 +155,18 @@ func payloadTranscode(l *lua.LState) int {
 
 	result, err := tc.Transcode(p.Payload, format)
 	if err != nil {
+		luaErr := lua.WrapErrorWithLua(l, err, "transcode failed").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(luaErr)
 		return 2
 	}
 
 	PushPayload(l, result)
-	return 1
+	l.Push(lua.LNil)
+	return 2
 }
 
 func payloadUnmarshal(l *lua.LState) int {
@@ -221,8 +196,12 @@ func payloadUnmarshal(l *lua.LState) int {
 
 	luaPayload, err := tc.Transcode(p.Payload, payload.Lua)
 	if err != nil {
+		luaErr := lua.WrapErrorWithLua(l, err, "unmarshal failed").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(luaErr)
 		return 2
 	}
 
@@ -231,8 +210,12 @@ func payloadUnmarshal(l *lua.LState) int {
 		return 1
 	}
 
+	luaErr := lua.NewLuaError(l, "transcoded data is not a valid Lua value").
+		WithKind(lua.KindInternal).
+		WithRetryable(false)
+	lua.SetErrorMetatable(l, luaErr)
 	l.Push(lua.LNil)
-	l.Push(lua.LString("transcoded data is not a valid Lua value"))
+	l.Push(luaErr)
 	return 2
 }
 
@@ -246,13 +229,10 @@ func payloadToString(l *lua.LState) int {
 }
 
 func PushPayload(l *lua.LState, p payload.Payload) int {
-	value.NewUserData(l, &Wrapper{Payload: p}, payloadMetatable)
+	value.PushTypedUserData(l, &Wrapper{Payload: p}, typeName)
 	return 1
 }
 
 func WrapPayload(l *lua.LState, p payload.Payload) lua.LValue {
-	ud := l.NewUserData()
-	ud.Value = &Wrapper{Payload: p}
-	ud.Metatable = payloadMetatable
-	return ud
+	return value.PushTypedUserData(l, &Wrapper{Payload: p}, typeName)
 }

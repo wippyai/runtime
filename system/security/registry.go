@@ -13,8 +13,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// Note: fmt kept for Sprintf in logging
-
 // PolicyRegistry implements the Registry interface to manage security policies
 type PolicyRegistry struct {
 	ctx        context.Context

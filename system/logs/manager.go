@@ -44,7 +44,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	// Subscribe to log configuration events and config requests
 	sub, err := eventbus.NewSubscriber(ctx, m.bus, api.System, "logs.config.(set|get)", m.handleEvent)
 	if err != nil {
-		return NewSubscribeEventsError(err)
+		return api.NewSubscribeEventsError(err)
 	}
 	m.sub = sub
 

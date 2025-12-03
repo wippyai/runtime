@@ -267,7 +267,7 @@ func TestSet_ResourceRelease(t *testing.T) {
 
 	// Try to get after release
 	_, err = res.Get()
-	assert.Equal(t, resource.ErrResourceReleased, err)
+	assert.Equal(t, resource.ErrReleased, err)
 }
 
 func TestTemplateInclusion(t *testing.T) {

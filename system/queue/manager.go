@@ -12,8 +12,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// Note: fmt kept for Sprintf in logging
-
 type Manager struct {
 	ctx        context.Context
 	bus        event.Bus
@@ -43,7 +41,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		m.handleEvent,
 	)
 	if err != nil {
-		return NewSubscriberError(err)
+		return queueapi.NewConfigError("failed to create queue event subscriber", err)
 	}
 	m.subscriber = sub
 
@@ -122,7 +120,7 @@ func (m *Manager) handleQueueDeclare(e event.Event) {
 		m.logger.Error("driver not found for queue",
 			zap.String("path", e.Path),
 			zap.String("driver", queueEntry.DriverID.String()))
-		m.sendReject(e.Path, NewDriverNotFoundError(queueEntry.DriverID).Error())
+		m.sendReject(e.Path, queueapi.NewDriverNotFoundError(queueEntry.DriverID).Error())
 		return
 	}
 
@@ -139,7 +137,7 @@ func (m *Manager) handleQueueDeclare(e event.Event) {
 		m.logger.Error("failed to declare queue on driver",
 			zap.String("path", e.Path),
 			zap.Error(err))
-		m.sendReject(e.Path, NewDeclareQueueError(err).Error())
+		m.sendReject(e.Path, queueapi.NewConfigError("failed to declare queue", err).Error())
 		return
 	}
 
@@ -170,7 +168,7 @@ func (m *Manager) Publish(ctx context.Context, q registry.ID, msgs ...*queueapi.
 func (m *Manager) PublishDirect(ctx context.Context, q registry.ID, msgs ...*queueapi.Message) error {
 	queueVal, ok := m.queues.Load(q)
 	if !ok {
-		return queueapi.ErrNoQueue
+		return queueapi.ErrQueueNotFound
 	}
 
 	queue, ok := queueVal.(*queueapi.Queue)
@@ -178,12 +176,12 @@ func (m *Manager) PublishDirect(ctx context.Context, q registry.ID, msgs ...*que
 		m.logger.Error("queue has invalid type",
 			zap.String("queue", q.String()),
 			zap.String("type", fmt.Sprintf("%T", queueVal)))
-		return NewInvalidQueueTypeError(q, fmt.Sprintf("%T", queueVal))
+		return queueapi.NewConfigError("queue has invalid type: "+fmt.Sprintf("%T", queueVal), nil)
 	}
 
 	driverVal, ok := m.drivers.Load(queue.DriverID)
 	if !ok {
-		return queueapi.ErrNoDriver
+		return queueapi.ErrDriverNotFound
 	}
 
 	driver, ok := driverVal.(queueapi.Driver)
@@ -191,7 +189,7 @@ func (m *Manager) PublishDirect(ctx context.Context, q registry.ID, msgs ...*que
 		m.logger.Error("driver has invalid type",
 			zap.String("driver", queue.DriverID.String()),
 			zap.String("type", fmt.Sprintf("%T", driverVal)))
-		return NewInvalidDriverTypeError(queue.DriverID, fmt.Sprintf("%T", driverVal))
+		return queueapi.NewConfigError("driver has invalid type: "+fmt.Sprintf("%T", driverVal), nil)
 	}
 
 	return driver.Publish(ctx, q, msgs...)

@@ -70,7 +70,7 @@ func TestCallHandler_NoRegistry(t *testing.T) {
 
 	require.NoError(t, err)
 	result := <-done
-	assert.ErrorIs(t, result.Error, ErrRegistryNotFound)
+	assert.ErrorIs(t, result.Error, function.ErrRegistryNotFound)
 }
 
 func TestCallHandler_Error(t *testing.T) {
@@ -159,7 +159,7 @@ func TestAsyncStartHandler_NoRegistry(t *testing.T) {
 
 	require.NoError(t, err)
 	result := <-done
-	assert.ErrorIs(t, result.Error, ErrRegistryNotFound)
+	assert.ErrorIs(t, result.Error, function.ErrRegistryNotFound)
 }
 
 func TestAsyncAwaitHandler(t *testing.T) {
@@ -205,7 +205,7 @@ func TestAsyncAwaitHandler_NotFound(t *testing.T) {
 
 	require.NoError(t, err)
 	result := <-done
-	assert.ErrorIs(t, result.Error, ErrCallNotFound)
+	assert.ErrorIs(t, result.Error, function.ErrCallNotFound)
 }
 
 func TestAsyncAwaitHandler_NoRegistry(t *testing.T) {
@@ -220,7 +220,7 @@ func TestAsyncAwaitHandler_NoRegistry(t *testing.T) {
 
 	require.NoError(t, err)
 	result := <-done
-	assert.ErrorIs(t, result.Error, ErrCallNotFound)
+	assert.ErrorIs(t, result.Error, function.ErrCallNotFound)
 }
 
 func TestAsyncCancelHandler(t *testing.T) {

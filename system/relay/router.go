@@ -9,9 +9,9 @@ import (
 // Router orchestrates message delivery between a local node and external upstreams.
 // It acts as the primary Receiver for the system.
 type Router struct {
-	localNode    api.Node
-	internode    api.Receiver
-	virtualNodes sync.Map
+	localNode api.Node
+	internode api.Receiver
+	peers     sync.Map // NodeID -> Receiver
 }
 
 // NewRouter creates a new router.
@@ -24,38 +24,35 @@ func NewRouter(localNode api.Node, internode api.Receiver) *Router {
 	}
 }
 
-// RegisterVirtualNode registers a virtual node with the router.
-// This is an internal method called by VirtualNodeManager only.
-func (r *Router) RegisterVirtualNode(nodeID api.NodeID, receiver api.Receiver) error {
+// RegisterPeer registers a peer node receiver with the router.
+// Peer nodes are external receivers (e.g., Temporal) that can receive packages.
+func (r *Router) RegisterPeer(nodeID api.NodeID, receiver api.Receiver) error {
 	if nodeID == "" {
-		return ErrEmptyNodeID
+		return api.ErrEmptyNodeID
 	}
 	if nodeID == r.localNode.ID() {
-		return NewVirtualNodeConflictError(nodeID)
+		return api.NewPeerConflictError(nodeID)
 	}
 
-	if _, loaded := r.virtualNodes.LoadOrStore(nodeID, receiver); loaded {
-		return NewVirtualNodeExistsError(nodeID)
+	if _, loaded := r.peers.LoadOrStore(nodeID, receiver); loaded {
+		return api.NewPeerExistsError(nodeID)
 	}
 
 	return nil
 }
 
-// UnregisterVirtualNode removes a virtual node from the router.
-// This is an internal method called by VirtualNodeManager only.
-// Returns true if the node existed and was removed, false if it didn't exist.
-func (r *Router) UnregisterVirtualNode(nodeID api.NodeID) bool {
-	_, existed := r.virtualNodes.LoadAndDelete(nodeID)
+// UnregisterPeer removes a peer node from the router.
+// Returns true if the peer existed and was removed, false if it didn't exist.
+func (r *Router) UnregisterPeer(nodeID api.NodeID) bool {
+	_, existed := r.peers.LoadAndDelete(nodeID)
 	return existed
 }
 
 // Send routes the package to the appropriate destination.
-// If the package is for the local node, it's sent to the localNode.
-// If the package is for a virtual node, it's sent to the virtual node receiver.
-// Otherwise, it's forwarded to the internode receiver.
+// Routing priority: local node → peer nodes → internode fallback.
 func (r *Router) Send(pkg *api.Package) error {
 	if pkg == nil {
-		return ErrNilPackage
+		return api.ErrNilPackage
 	}
 
 	// Route to local node if target node is empty or matches the local node's ID.
@@ -63,15 +60,15 @@ func (r *Router) Send(pkg *api.Package) error {
 		return r.localNode.Send(pkg)
 	}
 
-	// Check if it's for a virtual node.
-	if receiver, ok := r.virtualNodes.Load(pkg.Target.Node); ok {
+	// Check if it's for a registered peer node.
+	if receiver, ok := r.peers.Load(pkg.Target.Node); ok {
 		return receiver.(api.Receiver).Send(pkg)
 	}
 
-	// If it's for an external node, and we have an internode handler, use it.
+	// Fallback to internode for unknown nodes.
 	if r.internode != nil {
 		return r.internode.Send(pkg)
 	}
 
-	return NewNodeNotFoundError(pkg.Target.Node)
+	return api.NewNodeNotFoundError(pkg.Target.Node)
 }

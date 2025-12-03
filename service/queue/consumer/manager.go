@@ -23,7 +23,6 @@ type Manager struct {
 	dtt       payload.Transcoder
 	logger    *zap.Logger
 	consumers sync.Map
-	mu        sync.RWMutex
 }
 
 // NewManager creates a new consumer manager
@@ -45,124 +44,48 @@ func NewManager(
 
 // Add handles new consumer registry entries
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Decode config
-	cfg, err := entryutil.DecodeEntryConfig[consumerapi.Config](ctx, m.dtt, entry)
-	if err != nil {
-		m.logger.Error("failed to decode consumer config",
-			zap.String("id", entry.ID.String()),
-			zap.Error(err))
-		return newConfigDecodeError(err)
-	}
-
-	// Validate config
-	if err := cfg.Validate(); err != nil {
-		m.logger.Error("invalid consumer config",
-			zap.String("id", entry.ID.String()),
-			zap.Error(err))
-		return newConfigValidationError(err)
-	}
-
-	// Validate queue exists
-	queue, ok := m.queueMgr.GetQueue(cfg.Queue)
-	if !ok {
-		m.logger.Error("queue not found for consumer",
-			zap.String("id", entry.ID.String()),
-			zap.String("queue", cfg.Queue.String()))
-		return newQueueNotFoundError(cfg.Queue)
-	}
-
-	// Get driver from queue
-	driver, ok := m.queueMgr.GetDriver(queue.DriverID)
-	if !ok {
-		m.logger.Error("driver not found for queue",
-			zap.String("id", entry.ID.String()),
-			zap.String("queue", cfg.Queue.String()),
-			zap.String("driver", queue.DriverID.String()))
-		return newDriverNotFoundError(queue.DriverID)
-	}
-
-	// Validate function exists (basic check - registry will validate fully)
-	// Function validation happens when consumer actually calls it
-
-	// Create consumer instance
-	consumer := NewConsumer(
-		entry.ID,
-		cfg,
-		driver,
-		m.funcReg,
-		m.logger.Named("consumer"),
-	)
-
-	// Store consumer
-	m.consumers.Store(entry.ID, consumer)
-
-	// Register with supervisor
-	m.bus.Send(ctx, event.Event{
-		System: supervisor.System,
-		Kind:   supervisor.ServiceRegister,
-		Path:   entry.ID.String(),
-		Data: &supervisor.Entry{
-			Service: consumer,
-			Config:  cfg.Lifecycle,
-		},
-	})
-
-	m.logger.Info("consumer registered",
-		zap.String("id", entry.ID.String()),
-		zap.String("queue", cfg.Queue.String()),
-		zap.String("func", cfg.Func.String()))
-
-	return nil
+	return m.addOrUpdate(ctx, entry, "registered")
 }
 
 // Update handles consumer configuration updates
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Delete old consumer
 	m.deleteConsumer(ctx, entry.ID)
+	return m.addOrUpdate(ctx, entry, "updated")
+}
 
-	// Decode config
+func (m *Manager) addOrUpdate(ctx context.Context, entry registry.Entry, action string) error {
 	cfg, err := entryutil.DecodeEntryConfig[consumerapi.Config](ctx, m.dtt, entry)
 	if err != nil {
 		m.logger.Error("failed to decode consumer config",
 			zap.String("id", entry.ID.String()),
 			zap.Error(err))
-		return newConfigDecodeError(err)
+		return queueapi.NewConfigError("failed to decode consumer config", err)
 	}
 
-	// Validate config
 	if err := cfg.Validate(); err != nil {
 		m.logger.Error("invalid consumer config",
 			zap.String("id", entry.ID.String()),
 			zap.Error(err))
-		return newConfigValidationError(err)
+		return queueapi.NewConfigError("invalid consumer config", err)
 	}
 
-	// Validate queue exists
 	queue, ok := m.queueMgr.GetQueue(cfg.Queue)
 	if !ok {
 		m.logger.Error("queue not found for consumer",
 			zap.String("id", entry.ID.String()),
 			zap.String("queue", cfg.Queue.String()))
-		return newQueueNotFoundError(cfg.Queue)
+		return queueapi.NewQueueNotFoundError(cfg.Queue)
 	}
 
-	// Get driver from queue
 	driver, ok := m.queueMgr.GetDriver(queue.DriverID)
 	if !ok {
 		m.logger.Error("driver not found for queue",
 			zap.String("id", entry.ID.String()),
 			zap.String("queue", cfg.Queue.String()),
 			zap.String("driver", queue.DriverID.String()))
-		return newDriverNotFoundError(queue.DriverID)
+		return queueapi.NewDriverNotFoundError(queue.DriverID)
 	}
 
-	// Create consumer instance
 	consumer := NewConsumer(
 		entry.ID,
 		cfg,
@@ -171,10 +94,8 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		m.logger.Named("consumer"),
 	)
 
-	// Store consumer
 	m.consumers.Store(entry.ID, consumer)
 
-	// Register with supervisor
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.ServiceRegister,
@@ -185,7 +106,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		},
 	})
 
-	m.logger.Info("consumer updated",
+	m.logger.Info("consumer "+action,
 		zap.String("id", entry.ID.String()),
 		zap.String("queue", cfg.Queue.String()),
 		zap.String("func", cfg.Func.String()))
@@ -195,19 +116,13 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 // Delete handles consumer removal
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	m.deleteConsumer(ctx, entry.ID)
 	return nil
 }
 
-// deleteConsumer removes a consumer (internal, assumes lock is held)
 func (m *Manager) deleteConsumer(ctx context.Context, id registry.ID) {
-	// Remove from map
 	m.consumers.Delete(id)
 
-	// Unregister from supervisor
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.ServiceRemove,

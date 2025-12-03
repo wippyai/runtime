@@ -53,8 +53,8 @@ func TestPolicyRegistry_ListGroupsAndPolicies(t *testing.T) {
 	logger := zap.NewNop()
 	reg := NewPolicyRegistry(bus, logger)
 
-	policy1 := NewMockPolicy("test", "policy1", security.Allow)
-	policy2 := NewMockPolicy("test", "policy2", security.Deny)
+	policy1 := newMockPolicy("test", "policy1", security.Allow)
+	policy2 := newMockPolicy("test", "policy2", security.Deny)
 	groupID := registry.NewID("test", "group1")
 
 	reg.handleEvent(event.Event{
@@ -95,7 +95,7 @@ func TestPolicyRegistry_GetPolicyAndGroup(t *testing.T) {
 	logger := zap.NewNop()
 	reg := NewPolicyRegistry(bus, logger)
 
-	policy := NewMockPolicy("test", "policy1", security.Allow)
+	policy := newMockPolicy("test", "policy1", security.Allow)
 	groupID := registry.NewID("test", "group1")
 
 	reg.handleEvent(event.Event{
@@ -132,7 +132,7 @@ func TestPolicyRegistry_EventHandling(t *testing.T) {
 	logger := zap.NewNop()
 	reg := NewPolicyRegistry(bus, logger)
 
-	policy := NewMockPolicy("test", "policy1", security.Allow)
+	policy := newMockPolicy("test", "policy1", security.Allow)
 	groupID := registry.NewID("test", "group1")
 
 	reg.handleEvent(event.Event{
@@ -149,7 +149,7 @@ func TestPolicyRegistry_EventHandling(t *testing.T) {
 	initialResult := retrievedPolicy.Evaluate(security.Actor{}, "", "", nil)
 	assert.Equal(t, security.Allow, initialResult)
 
-	updatedPolicy := NewMockPolicy("test", "policy1", security.Deny)
+	updatedPolicy := newMockPolicy("test", "policy1", security.Deny)
 	reg.handleEvent(event.Event{
 		Kind: security.PolicyUpdate,
 		Path: policy.ID().String(),

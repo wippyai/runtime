@@ -207,7 +207,7 @@ func createProcess(compiled *code.CompiledMain) (process.Process, error) {
 				L.PreloadModule(name, func(L *lua.LState) int {
 					fn := L.LoadProto(proto)
 					L.Push(fn)
-					L.Call(1, 1)
+					L.Call(0, 1)
 					return 1
 				})
 			})
@@ -232,7 +232,7 @@ func createProcess(compiled *code.CompiledMain) (process.Process, error) {
 				L.PreloadModule(name, func(L *lua.LState) int {
 					fn := L.LoadProto(proto)
 					L.Push(fn)
-					L.Call(1, 1)
+					L.Call(0, 1)
 					return 1
 				})
 			})

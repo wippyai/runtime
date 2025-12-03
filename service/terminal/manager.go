@@ -55,7 +55,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return newDecodeConfigError(err)
 	}
 
-	logCtrl := logs.NewConfigSwitcher(m.bus, m.log)
+	logCtrl := logs.NewConfigurator(m.bus, m.log)
 
 	// Create host first, then scheduler with host as lifecycle
 	h := NewHost(entry.ID, cfg, nil, m.factory, logCtrl, m.log)

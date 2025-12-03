@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/wippyai/runtime/api/env"
-	enverr "github.com/wippyai/runtime/service/env"
 )
 
 // Storage provides read-only access to OS environment variables.
@@ -34,12 +33,12 @@ func (s *Storage) Get(_ context.Context, key string) (string, error) {
 
 // Set is not supported for OS storage.
 func (s *Storage) Set(_ context.Context, _, _ string) error {
-	return enverr.ErrStorageReadOnly
+	return env.ErrStorageReadOnly
 }
 
 // Delete is not supported for OS storage.
 func (s *Storage) Delete(_ context.Context, _ string) error {
-	return enverr.ErrStorageReadOnly
+	return env.ErrStorageReadOnly
 }
 
 // List returns all OS environment variables.

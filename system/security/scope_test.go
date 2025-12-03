@@ -9,22 +9,21 @@ import (
 	"github.com/wippyai/runtime/api/security"
 )
 
-// MockPolicy implements the security.Policy interface for testing
-type MockPolicy struct {
+type mockPolicy struct {
 	id       registry.ID
 	decision security.Result
 }
 
-func (m *MockPolicy) ID() registry.ID {
+func (m *mockPolicy) ID() registry.ID {
 	return m.id
 }
 
-func (m *MockPolicy) Evaluate(_ security.Actor, _, _ string, _ attrs.Bag) security.Result {
+func (m *mockPolicy) Evaluate(_ security.Actor, _, _ string, _ attrs.Bag) security.Result {
 	return m.decision
 }
 
-func NewMockPolicy(ns, name string, decision security.Result) security.Policy {
-	return &MockPolicy{
+func newMockPolicy(ns, name string, decision security.Result) *mockPolicy {
+	return &mockPolicy{
 		id:       registry.NewID(ns, name),
 		decision: decision,
 	}
@@ -40,8 +39,8 @@ func TestNewScope(t *testing.T) {
 	assert.Empty(t, scope.Policies())
 
 	policies := []security.Policy{
-		NewMockPolicy("test", "policy1", security.Allow),
-		NewMockPolicy("test", "policy2", security.Deny),
+		newMockPolicy("test", "policy1", security.Allow),
+		newMockPolicy("test", "policy2", security.Deny),
 	}
 	scope = NewScope(policies)
 	assert.NotNil(t, scope)
@@ -49,10 +48,10 @@ func TestNewScope(t *testing.T) {
 }
 
 func TestScopeWith(t *testing.T) {
-	policy1 := NewMockPolicy("test", "policy1", security.Allow)
+	policy1 := newMockPolicy("test", "policy1", security.Allow)
 	scope := NewScope([]security.Policy{policy1})
 
-	policy2 := NewMockPolicy("test", "policy2", security.Deny)
+	policy2 := newMockPolicy("test", "policy2", security.Deny)
 	newScope := scope.With(policy2)
 
 	assert.Len(t, scope.Policies(), 1)
@@ -63,7 +62,7 @@ func TestScopeWith(t *testing.T) {
 	assert.True(t, newScope.Contains(policy1.ID()))
 	assert.True(t, newScope.Contains(policy2.ID()))
 
-	policy1Override := NewMockPolicy("test", "policy1", security.Deny)
+	policy1Override := newMockPolicy("test", "policy1", security.Deny)
 	overrideScope := newScope.With(policy1Override)
 	assert.Len(t, overrideScope.Policies(), 2)
 
@@ -73,8 +72,8 @@ func TestScopeWith(t *testing.T) {
 }
 
 func TestScopeWithout(t *testing.T) {
-	policy1 := NewMockPolicy("test", "policy1", security.Allow)
-	policy2 := NewMockPolicy("test", "policy2", security.Deny)
+	policy1 := newMockPolicy("test", "policy1", security.Allow)
+	policy2 := newMockPolicy("test", "policy2", security.Deny)
 	policies := []security.Policy{policy1, policy2}
 	scope := NewScope(policies)
 
@@ -111,55 +110,55 @@ func TestScopeEvaluate(t *testing.T) {
 		{
 			name: "All undefined",
 			policies: []security.Policy{
-				NewMockPolicy("test", "policy1", security.Undefined),
-				NewMockPolicy("test", "policy2", security.Undefined),
+				newMockPolicy("test", "policy1", security.Undefined),
+				newMockPolicy("test", "policy2", security.Undefined),
 			},
 			expected: security.Undefined,
 		},
 		{
 			name: "One allow",
 			policies: []security.Policy{
-				NewMockPolicy("test", "policy1", security.Allow),
+				newMockPolicy("test", "policy1", security.Allow),
 			},
 			expected: security.Allow,
 		},
 		{
 			name: "One deny",
 			policies: []security.Policy{
-				NewMockPolicy("test", "policy1", security.Deny),
+				newMockPolicy("test", "policy1", security.Deny),
 			},
 			expected: security.Deny,
 		},
 		{
 			name: "One allow, one undefined",
 			policies: []security.Policy{
-				NewMockPolicy("test", "policy1", security.Allow),
-				NewMockPolicy("test", "policy2", security.Undefined),
+				newMockPolicy("test", "policy1", security.Allow),
+				newMockPolicy("test", "policy2", security.Undefined),
 			},
 			expected: security.Allow,
 		},
 		{
 			name: "One deny overrides allow",
 			policies: []security.Policy{
-				NewMockPolicy("test", "policy1", security.Allow),
-				NewMockPolicy("test", "policy2", security.Deny),
+				newMockPolicy("test", "policy1", security.Allow),
+				newMockPolicy("test", "policy2", security.Deny),
 			},
 			expected: security.Deny,
 		},
 		{
 			name: "Deny takes precedence regardless of order",
 			policies: []security.Policy{
-				NewMockPolicy("test", "policy1", security.Deny),
-				NewMockPolicy("test", "policy2", security.Allow),
+				newMockPolicy("test", "policy1", security.Deny),
+				newMockPolicy("test", "policy2", security.Allow),
 			},
 			expected: security.Deny,
 		},
 		{
 			name: "Last meaningful result is returned when no deny",
 			policies: []security.Policy{
-				NewMockPolicy("test", "policy1", security.Undefined),
-				NewMockPolicy("test", "policy2", security.Allow),
-				NewMockPolicy("test", "policy3", security.Undefined),
+				newMockPolicy("test", "policy1", security.Undefined),
+				newMockPolicy("test", "policy2", security.Allow),
+				newMockPolicy("test", "policy3", security.Undefined),
 			},
 			expected: security.Allow,
 		},
@@ -175,8 +174,8 @@ func TestScopeEvaluate(t *testing.T) {
 }
 
 func TestScopeContains(t *testing.T) {
-	policy1 := NewMockPolicy("test", "policy1", security.Allow)
-	policy2 := NewMockPolicy("test", "policy2", security.Deny)
+	policy1 := newMockPolicy("test", "policy1", security.Allow)
+	policy2 := newMockPolicy("test", "policy2", security.Deny)
 	policies := []security.Policy{policy1, policy2}
 	scope := NewScope(policies)
 
@@ -191,8 +190,8 @@ func TestScopePolicies(t *testing.T) {
 	emptyScope := NewScope(nil)
 	assert.Empty(t, emptyScope.Policies())
 
-	policy1 := NewMockPolicy("test", "policy1", security.Allow)
-	policy2 := NewMockPolicy("test", "policy2", security.Deny)
+	policy1 := newMockPolicy("test", "policy1", security.Allow)
+	policy2 := newMockPolicy("test", "policy2", security.Deny)
 	policies := []security.Policy{policy1, policy2}
 	scope := NewScope(policies)
 
@@ -214,10 +213,10 @@ func TestScopePolicies(t *testing.T) {
 }
 
 func TestScopeImmutability(t *testing.T) {
-	policy1 := NewMockPolicy("test", "policy1", security.Allow)
+	policy1 := newMockPolicy("test", "policy1", security.Allow)
 	scope := NewScope([]security.Policy{policy1})
 
-	policy2 := NewMockPolicy("test", "policy2", security.Deny)
+	policy2 := newMockPolicy("test", "policy2", security.Deny)
 	scopeWithAdded := scope.With(policy2)
 	scopeWithRemoved := scopeWithAdded.Without(policy1.ID())
 

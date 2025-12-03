@@ -150,7 +150,7 @@ func excelNew(l *lua.LState) int {
 
 	wb := NewWorkbook(ctx)
 
-	value.NewUserData(l, wb, workbookMetatable)
+	value.PushUserData(l, wb, workbookMetatable)
 	l.Push(lua.LNil)
 	return 2
 }

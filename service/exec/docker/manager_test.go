@@ -313,7 +313,7 @@ func TestExecutorProvider_Acquire_Exclusive(t *testing.T) {
 	provider := newExecutorProvider(&mockExecutor{})
 
 	_, err := provider.Acquire(context.Background(), registry.ID{}, resource.ModeExclusive)
-	assert.ErrorIs(t, err, resource.ErrResourceLocked)
+	assert.ErrorIs(t, err, resource.ErrLocked)
 }
 
 func TestExecutorProvider_Acquire_Closed(t *testing.T) {
@@ -321,7 +321,7 @@ func TestExecutorProvider_Acquire_Closed(t *testing.T) {
 	provider.Close()
 
 	_, err := provider.Acquire(context.Background(), registry.ID{}, resource.ModeNormal)
-	assert.ErrorIs(t, err, resource.ErrResourceClosed)
+	assert.ErrorIs(t, err, resource.ErrClosed)
 }
 
 func TestExecutorResource_Released(t *testing.T) {
@@ -329,5 +329,5 @@ func TestExecutorResource_Released(t *testing.T) {
 	res.Release()
 
 	_, err := res.Get()
-	assert.ErrorIs(t, err, resource.ErrResourceReleased)
+	assert.ErrorIs(t, err, resource.ErrReleased)
 }

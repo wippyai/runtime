@@ -37,12 +37,6 @@ var (
 		message:   "store is closed",
 		retryable: apierror.False,
 	}
-
-	ErrCASFailed = &Error{
-		kind:      apierror.KindConflict,
-		message:   "compare-and-swap failed",
-		retryable: apierror.True,
-	}
 )
 
 // Error implements apierror.Error for store errors.

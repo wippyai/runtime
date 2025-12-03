@@ -3,7 +3,6 @@ package queue
 
 import (
 	"context"
-	"errors"
 
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/event"
@@ -30,27 +29,6 @@ const (
 	ConsumerStart    event.Kind = "queue.consumer.start"
 	ConsumerStop     event.Kind = "queue.consumer.stop"
 	ConsumerDelete   event.Kind = "queue.consumer.delete"
-)
-
-// Error definitions for queue operations
-var (
-	// ErrNoDriver indicates that the requested driver is not registered
-	ErrNoDriver = errors.New("queue driver not found")
-
-	// ErrNoQueue indicates that the requested queue is not declared
-	ErrNoQueue = errors.New("queue not found")
-
-	// ErrDriverNotStarted indicates that the driver is not yet started
-	ErrDriverNotStarted = errors.New("queue driver not started")
-
-	// ErrQueueFull indicates that the queue has reached its capacity
-	ErrQueueFull = errors.New("queue is full")
-
-	// ErrMessageExpired indicates that the message TTL has expired
-	ErrMessageExpired = errors.New("message expired")
-
-	// ErrConsumerClosed indicates that the consumer has been closed
-	ErrConsumerClosed = errors.New("consumer closed")
 )
 
 // Queue represents a queue declaration with its configuration

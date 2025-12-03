@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/env"
-	enverr "github.com/wippyai/runtime/service/env"
 	"github.com/wippyai/runtime/service/env/memory"
 	envos "github.com/wippyai/runtime/service/env/os"
 )
@@ -27,12 +26,12 @@ func TestNewStorage(t *testing.T) {
 
 	t.Run("empty storages error", func(t *testing.T) {
 		_, err := NewStorage([]env.Storage{})
-		assert.ErrorIs(t, err, enverr.ErrNoStorages)
+		assert.ErrorIs(t, err, env.ErrNoStorages)
 	})
 
 	t.Run("nil storages error", func(t *testing.T) {
 		_, err := NewStorage(nil)
-		assert.ErrorIs(t, err, enverr.ErrNoStorages)
+		assert.ErrorIs(t, err, env.ErrNoStorages)
 	})
 }
 
@@ -86,7 +85,7 @@ func TestStorage_Get(t *testing.T) {
 
 	t.Run("propagates non-NotFound errors", func(t *testing.T) {
 		// First storage returns an error other than NotFound
-		errStorage := &errorStorage{err: enverr.ErrStorageReadOnly}
+		errStorage := &errorStorage{err: env.ErrStorageReadOnly}
 		mem := memory.NewStorage(map[string]string{"KEY": "value"})
 
 		storage, err := NewStorage([]env.Storage{errStorage, mem})
@@ -94,7 +93,7 @@ func TestStorage_Get(t *testing.T) {
 
 		// Should propagate the error, not fallback
 		_, err = storage.Get(context.Background(), "KEY")
-		assert.ErrorIs(t, err, enverr.ErrStorageReadOnly)
+		assert.ErrorIs(t, err, env.ErrStorageReadOnly)
 	})
 }
 

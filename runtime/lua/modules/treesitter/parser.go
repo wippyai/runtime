@@ -11,25 +11,14 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+const typeParser = "treesitter.Parser"
+
 // ParserWrapper wraps a Tree-sitter parser with language information
 type ParserWrapper struct {
 	parser        *treesitter.Parser
 	lang          *LanguageInfo
 	closed        bool
 	cancelCleanup func()
-}
-
-func registerParser(l *lua.LState) {
-	methods := map[string]lua.LGFunction{
-		"parse":        parserParse,
-		"set_language": parserSetLanguage,
-		"get_language": parserGetLanguage,
-		"reset":        parserReset,
-		"close":        parserClose,
-		"set_timeout":  parserSetTimeout,
-		"set_ranges":   parserSetRanges,
-	}
-	value.RegisterMethods(l, "treesitter.Parser", methods)
 }
 
 // NewParser creates a new parser wrapper with proper resource store integration
@@ -138,10 +127,13 @@ func parserSetLanguage(l *lua.LState) int {
 	}
 
 	lang := langInfo.Language()
-	err := p.parser.SetLanguage(treesitter.NewLanguage(lang))
-	if err != nil {
+	if setErr := p.parser.SetLanguage(treesitter.NewLanguage(lang)); setErr != nil {
+		err := lua.WrapErrorWithLua(l, setErr, "failed to set language").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LFalse)
-		pushError(l, err)
+		l.Push(err)
 		return 2
 	}
 	p.lang = langInfo
@@ -189,20 +181,19 @@ func parserParse(l *lua.LState) int {
 		return 0
 	}
 
-	tree, err := parser.parseWithContext(ctx, []byte(code), oldTree)
-	if err != nil {
+	tree, parseErr := parser.parseWithContext(ctx, []byte(code), oldTree)
+	if parseErr != nil {
+		err := lua.WrapErrorWithLua(l, parseErr, "parse failed").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
-		pushError(l, err)
+		l.Push(err)
 		return 2
 	}
 
 	tw := NewTree(ctx, tree, code)
-
-	ud := l.NewUserData()
-	ud.Value = tw
-	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Tree")
-
-	l.Push(ud)
+	value.PushTypedUserData(l, tw, typeTree)
 	return 1
 }
 
@@ -287,14 +278,21 @@ func parserSetRanges(l *lua.LState) int {
 	})
 
 	if parseError != nil {
+		err := lua.NewLuaError(l, parseError.Error()).
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
 		l.Push(lua.LFalse)
-		pushError(l, parseError)
+		l.Push(err)
 		return 2
 	}
 
-	if err := p.SetIncludedRanges(ranges); err != nil {
+	if setErr := p.SetIncludedRanges(ranges); setErr != nil {
+		err := lua.WrapErrorWithLua(l, setErr, "failed to set ranges").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LFalse)
-		pushError(l, err)
+		l.Push(err)
 		return 2
 	}
 

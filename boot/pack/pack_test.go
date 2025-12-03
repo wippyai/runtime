@@ -518,12 +518,12 @@ func TestNormalizePayload(t *testing.T) {
 		entry := registry.Entry{
 			ID:   registry.ParseID("test:entry"),
 			Kind: "test.kind",
-			Data: payload.NewPayload([]byte("error message"), payload.Error),
+			Data: payload.NewPayload([]byte("error message"), payload.GoError),
 		}
 
 		normalized, err := packer.normalizeEntry(entry)
 		require.NoError(t, err)
-		assert.Equal(t, payload.Error, normalized.Data.Format)
+		assert.Equal(t, payload.GoError, normalized.Data.Format)
 	})
 
 	t.Run("String format unchanged", func(t *testing.T) {

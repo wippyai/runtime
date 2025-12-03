@@ -245,18 +245,18 @@ func TestMemoryStore_Acquire(t *testing.T) {
 
 	// Try to get after release (should fail)
 	_, err = res.Get()
-	assert.Equal(t, resource.ErrResourceReleased, err)
+	assert.Equal(t, resource.ErrReleased, err)
 
 	// Try exclusive mode (should fail since it's not supported)
 	_, err = ms.Acquire(ctx, registry.ParseID("test:resource"), resource.ModeExclusive)
-	assert.Equal(t, resource.ErrResourceLocked, err)
+	assert.Equal(t, resource.ErrLocked, err)
 
 	// Test with closed store
 	err = ms.Stop(ctx)
 	require.NoError(t, err)
 
 	_, err = ms.Acquire(ctx, registry.ParseID("test:resource"), resource.ModeNormal)
-	assert.Equal(t, resource.ErrResourceReleased, err)
+	assert.Equal(t, resource.ErrReleased, err)
 }
 
 // TestMemoryStore_Start tests the Start functionality and cleanup routine

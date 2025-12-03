@@ -2,56 +2,23 @@ package base64
 
 import (
 	"encoding/base64"
-	"sync"
 
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
-var (
-	moduleTable  *lua.LTable
-	registration *luaapi.Registration
-	initOnce     sync.Once
-)
-
-// Module is the singleton base64 module instance.
-var Module = &base64Module{}
-
-type base64Module struct{}
-
-func (m *base64Module) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        "base64",
-		Description: "Base64 encoding and decoding",
-		Class:       []string{luaapi.ClassEncoding, luaapi.ClassDeterministic},
-	}
-}
-
-func (m *base64Module) Register(l *lua.LState) *luaapi.Registration {
-	initOnce.Do(func() {
-		mod := &lua.LTable{}
+// Module is the base64 module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "base64",
+	Description: "Base64 encoding and decoding",
+	Class:       []string{luaapi.ClassEncoding, luaapi.ClassDeterministic},
+	Build: func() (*lua.LTable, []luaapi.YieldType) {
+		mod := lua.CreateTable(0, 2)
 		mod.RawSetString("encode", lua.LGoFunc(encodeFunc))
 		mod.RawSetString("decode", lua.LGoFunc(decodeFunc))
 		mod.Immutable = true
-		moduleTable = mod
-
-		registration = &luaapi.Registration{
-			Table:      moduleTable,
-			YieldTypes: nil,
-		}
-	})
-	return registration
-}
-
-func (m *base64Module) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	l.Push(reg.Table)
-	return 1
-}
-
-// Bind binds the base64 module to the Lua state.
-func Bind(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
+		return mod, nil
+	},
 }
 
 func encodeFunc(l *lua.LState) int {

@@ -50,7 +50,7 @@ func newRequest(l *lua.LState) int {
 		return 2
 	}
 
-	value.NewUserData(l, &Request{request: reqCtx.Request()}, requestMetatable)
+	value.PushUserData(l, &Request{request: reqCtx.Request()}, requestMetatable)
 	l.Push(lua.LNil)
 	return 2
 }

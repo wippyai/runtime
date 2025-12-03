@@ -3,7 +3,6 @@ package resource
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"sync/atomic"
 
@@ -26,15 +25,6 @@ const (
 const (
 	ModeNormal    AccessMode = 1 << iota // Normal read access.
 	ModeExclusive                        // Exclusive locked access.
-)
-
-// Errors returned by the resource system.
-var (
-	ErrResourceNotFound = errors.New("resource not found")
-	ErrResourceLocked   = errors.New("resource is locked")
-	ErrResourceReleased = errors.New("resource has been released")
-	ErrResourceClosed   = errors.New("resource provider is closed")
-	ErrResourceInUse    = errors.New("resource is in use")
 )
 
 type (
@@ -101,7 +91,7 @@ func NewTrackedResource(inner Resource[any], onRelease func()) *TrackedResource 
 // Get returns the managed resource instance.
 func (t *TrackedResource) Get() (any, error) {
 	if t.released.Load() {
-		return nil, ErrResourceReleased
+		return nil, ErrReleased
 	}
 	return t.inner.Get()
 }

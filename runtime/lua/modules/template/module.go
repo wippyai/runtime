@@ -170,7 +170,7 @@ func templateGet(l *lua.LState) int {
 
 	ts := NewTemplateSet(ctx, res, templateSet)
 
-	value.NewUserData(l, ts, templateSetMetatable)
+	value.PushUserData(l, ts, templateSetMetatable)
 	return 1
 }
 

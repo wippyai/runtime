@@ -6,67 +6,9 @@ import (
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	funcapi "github.com/wippyai/runtime/api/dispatcher/func"
-	"github.com/wippyai/runtime/api/payload"
+	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	lua "github.com/yuin/gopher-lua"
 )
-
-// anyToLua converts Go values to Lua values.
-func anyToLua(l *lua.LState, v any) lua.LValue {
-	if v == nil {
-		return lua.LNil
-	}
-	switch val := v.(type) {
-	case lua.LValue:
-		return val
-	case payload.Payload:
-		return transcodeToLua(l, val)
-	case string:
-		return lua.LString(val)
-	case []byte:
-		return lua.LString(val)
-	case int:
-		return lua.LNumber(val)
-	case int64:
-		return lua.LNumber(val)
-	case float64:
-		return lua.LNumber(val)
-	case bool:
-		return lua.LBool(val)
-	case error:
-		return lua.LString(val.Error())
-	default:
-		return lua.LString(fmt.Sprintf("%v", val))
-	}
-}
-
-// transcodeToLua converts a payload to Lua value using context transcoder.
-func transcodeToLua(l *lua.LState, pl payload.Payload) lua.LValue {
-	if pl == nil {
-		return lua.LNil
-	}
-
-	// Already a Lua value
-	if pl.Format() == payload.Lua {
-		if lv, ok := pl.Data().(lua.LValue); ok {
-			return lv
-		}
-	}
-
-	// Try transcoding via context transcoder
-	ctx := l.Context()
-	dtt := payload.GetTranscoder(ctx)
-	if dtt != nil {
-		transcoded, err := dtt.Transcode(pl, payload.Lua)
-		if err == nil {
-			if lv, ok := transcoded.Data().(lua.LValue); ok {
-				return lv
-			}
-		}
-	}
-
-	// Fallback: return as string representation
-	return lua.LString(fmt.Sprintf("%v", pl.Data()))
-}
 
 // CallYield wraps CallCmd for Lua.
 type CallYield struct {
@@ -97,17 +39,44 @@ func (y *CallYield) Release()                      { ReleaseCallYield(y) }
 
 // HandleResult converts function call response to Lua values.
 func (y *CallYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	fmt.Printf("[DEBUG] CallYield.HandleResult called: data=%v, err=%v\n", data, err)
 	if err != nil {
-		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+		luaErr := lua.WrapErrorWithLua(l, err, "call failed").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
+		return []lua.LValue{lua.LNil, luaErr}
+	}
+	if data == nil {
+		luaErr := lua.NewLuaError(l, "no response received").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		return []lua.LValue{lua.LNil, luaErr}
 	}
 	resp, ok := data.(funcapi.Response)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.LString("invalid response type")}
+		fmt.Printf("[DEBUG] type assertion failed: got %T\n", data)
+		luaErr := lua.NewLuaError(l, "invalid response type").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		return []lua.LValue{lua.LNil, luaErr}
 	}
 	if resp.Error != nil {
-		return []lua.LValue{lua.LNil, lua.LString(resp.Error.Error())}
+		luaErr := lua.WrapErrorWithLua(l, resp.Error, "function error").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
+		return []lua.LValue{lua.LNil, luaErr}
 	}
-	return []lua.LValue{anyToLua(l, resp.Value), lua.LNil}
+	lv, convErr := luaconv.GoToLua(resp.Value)
+	if convErr != nil {
+		luaErr := lua.WrapErrorWithLua(l, convErr, "result conversion failed").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
+		return []lua.LValue{lua.LNil, luaErr}
+	}
+	return []lua.LValue{lv, lua.LNil}
 }
 
 // AsyncStartYield wraps AsyncStartCmd for Lua.
@@ -137,19 +106,31 @@ func (y *AsyncStartYield) ToCommand() dispatcher.Command { return y.AsyncStartCm
 func (y *AsyncStartYield) CmdID() dispatcher.CommandID   { return funcapi.CmdAsyncStart }
 func (y *AsyncStartYield) Release()                      { ReleaseAsyncStartYield(y) }
 
-// HandleResult converts async start response to Lua values.
+// HandleResult converts async start response to Future userdata.
 func (y *AsyncStartYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+		luaErr := lua.WrapErrorWithLua(l, err, "async start failed").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
+		return []lua.LValue{lua.LNil, luaErr}
 	}
 	resp, ok := data.(funcapi.AsyncStartResponse)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.LString("invalid response type")}
+		luaErr := lua.NewLuaError(l, "invalid response type").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		return []lua.LValue{lua.LNil, luaErr}
 	}
 	if resp.Error != nil {
-		return []lua.LValue{lua.LNil, lua.LString(resp.Error.Error())}
+		luaErr := lua.WrapErrorWithLua(l, resp.Error, "async start error").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
+		return []lua.LValue{lua.LNil, luaErr}
 	}
-	return []lua.LValue{lua.LNumber(resp.CallID), lua.LNil}
+	// Return Future userdata instead of raw CallID
+	return []lua.LValue{createFuture(l, resp.CallID), lua.LNil}
 }
 
 // AsyncAwaitYield wraps AsyncAwaitCmd for Lua.
@@ -182,19 +163,41 @@ func (y *AsyncAwaitYield) Release()                      { ReleaseAsyncAwaitYiel
 // HandleResult converts async await response to Lua values.
 func (y *AsyncAwaitYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+		luaErr := lua.WrapErrorWithLua(l, err, "async await failed").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
+		return []lua.LValue{lua.LNil, luaErr}
 	}
 	resp, ok := data.(funcapi.AsyncAwaitResponse)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.LString("invalid response type")}
+		luaErr := lua.NewLuaError(l, "invalid response type").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		return []lua.LValue{lua.LNil, luaErr}
 	}
 	if resp.Cancelled {
-		return []lua.LValue{lua.LNil, lua.LString("cancelled")}
+		luaErr := lua.NewLuaError(l, "call cancelled").
+			WithKind(lua.KindCanceled).
+			WithRetryable(false)
+		return []lua.LValue{lua.LNil, luaErr}
 	}
 	if resp.Error != nil {
-		return []lua.LValue{lua.LNil, lua.LString(resp.Error.Error())}
+		luaErr := lua.WrapErrorWithLua(l, resp.Error, "async await error").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
+		return []lua.LValue{lua.LNil, luaErr}
 	}
-	return []lua.LValue{anyToLua(l, resp.Value), lua.LNil}
+	lv, convErr := luaconv.GoToLua(resp.Value)
+	if convErr != nil {
+		luaErr := lua.WrapErrorWithLua(l, convErr, "result conversion failed").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
+		return []lua.LValue{lua.LNil, luaErr}
+	}
+	return []lua.LValue{lv, lua.LNil}
 }
 
 // AsyncCancelYield wraps AsyncCancelCmd for Lua.
@@ -223,3 +226,15 @@ func (y *AsyncCancelYield) Type() lua.LValueType          { return lua.LTUserDat
 func (y *AsyncCancelYield) ToCommand() dispatcher.Command { return y.AsyncCancelCmd }
 func (y *AsyncCancelYield) CmdID() dispatcher.CommandID   { return funcapi.CmdAsyncCancel }
 func (y *AsyncCancelYield) Release()                      { ReleaseAsyncCancelYield(y) }
+
+// HandleResult for cancel - returns nil, nil (no meaningful result).
+func (y *AsyncCancelYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		luaErr := lua.WrapErrorWithLua(l, err, "async cancel failed").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
+		return []lua.LValue{lua.LNil, luaErr}
+	}
+	return []lua.LValue{lua.LTrue, lua.LNil}
+}

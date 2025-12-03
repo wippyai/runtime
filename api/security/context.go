@@ -9,9 +9,9 @@ import (
 )
 
 var (
-	actorCtxKey    = &ctxapi.Key{Name: "security.actor", Inherit: true}
-	scopeCtxKey    = &ctxapi.Key{Name: "security.scope", Inherit: true}
-	registryCtxKey = &ctxapi.Key{Name: "security.registry"}
+	actorCtxKey    = &ctxapi.Key{Name: "security.actor_ctx_key", Inherit: true}
+	scopeCtxKey    = &ctxapi.Key{Name: "security.scope_ctx_key", Inherit: true}
+	registryCtxKey = &ctxapi.Key{Name: "security.registry_ctx_key"}
 )
 
 // ActorPair creates a context.Pair for setting an actor.

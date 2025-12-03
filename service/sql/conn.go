@@ -240,7 +240,7 @@ func newDBConn(pool *ConnPool, db *sql.DB, dbType registry.Kind) *DBConn {
 // Get implements resource.Resource
 func (r *DBConn) Get() (any, error) {
 	if r.released.Load() {
-		return nil, resource.ErrResourceReleased
+		return nil, resource.ErrReleased
 	}
 
 	// Return both the DB and its type

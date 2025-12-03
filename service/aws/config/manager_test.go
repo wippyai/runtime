@@ -527,7 +527,7 @@ func TestManager_Acquire(t *testing.T) {
 		// Try to acquire with an unsupported mode
 		res, err := manager.Acquire(ctx, testID, resource.ModeExclusive)
 		assert.Error(t, err)
-		assert.Equal(t, resource.ErrResourceLocked, err)
+		assert.Equal(t, resource.ErrLocked, err)
 		assert.Nil(t, res)
 	})
 }
@@ -575,7 +575,7 @@ func TestConfigResource(t *testing.T) {
 		// Try to get after release - should fail
 		val, err := res.Get()
 		assert.Error(t, err)
-		assert.Equal(t, resource.ErrResourceReleased, err)
+		assert.Equal(t, resource.ErrReleased, err)
 		assert.Nil(t, val)
 
 		// Release again - should be a no-op

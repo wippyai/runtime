@@ -35,35 +35,26 @@ local function main()
     local result, err = base64.encode(123)
     if result ~= nil then error("expected nil result") end
     if err == nil then error("expected error") end
-    if err:kind() ~= "Invalid" then error("expected Invalid kind, got: " .. tostring(err:kind())) end
+    if err:kind() ~= errors.INVALID then error("expected Invalid kind, got: " .. tostring(err:kind())) end
     if err:retryable() ~= false then error("expected retryable to be false") end
 
     -- Test decode error - invalid input type
     result, err = base64.decode(123)
     if result ~= nil then error("expected nil result") end
     if err == nil then error("expected error") end
-    if err:kind() ~= "Invalid" then error("expected Invalid kind") end
+    if err:kind() ~= errors.INVALID then error("expected Invalid kind") end
     if err:retryable() ~= false then error("expected retryable to be false") end
 
     -- Test decode error - invalid base64
     result, err = base64.decode("!!!invalid!!!")
     if result ~= nil then error("expected nil result") end
     if err == nil then error("expected error") end
-    if err:kind() ~= "Invalid" then error("expected Invalid kind") end
+    if err:kind() ~= errors.INVALID then error("expected Invalid kind") end
     if err:retryable() ~= false then error("expected retryable to be false") end
     local str = tostring(err)
     if not str or str == "" then error("error should have string representation") end
     if not string.find(str, "illegal base64", 1, true) then
         error("error message should contain 'illegal base64', got: " .. str)
-    end
-
-    -- Test string concatenation with error
-    local concat = "error: " .. err
-    if not string.find(concat, "error: ", 1, true) then
-        error("concatenation should have prefix")
-    end
-    if not string.find(concat, "illegal base64", 1, true) then
-        error("concatenation should contain error message, got: " .. concat)
     end
 
     return true

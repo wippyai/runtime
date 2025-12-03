@@ -134,10 +134,9 @@ func RegisterMethods(l *lua.LState, typeName string, methods map[string]lua.LGFu
 	return RegisterTypeMethods(l, typeName, nil, methods)
 }
 
-// NewUserData creates a new userdata with the given value and metatable,
-// pushes it onto the stack, and returns it. This is the preferred way to
-// create typed userdata with shared metatables.
-func NewUserData(l *lua.LState, val any, metatable *lua.LTable) *lua.LUserData {
+// PushUserData creates a new userdata with the given value and metatable,
+// pushes it onto the stack, and returns it.
+func PushUserData(l *lua.LState, val any, metatable *lua.LTable) *lua.LUserData {
 	ud := l.NewUserData()
 	ud.Value = val
 	ud.Metatable = metatable
@@ -145,15 +144,15 @@ func NewUserData(l *lua.LState, val any, metatable *lua.LTable) *lua.LUserData {
 	return ud
 }
 
-// NewTypedUserData creates a new userdata with the given value, looks up
+// PushTypedUserData creates a new userdata with the given value, looks up
 // the metatable by type name from the registry, pushes it onto the stack,
 // and returns it. Returns nil if the type is not registered.
-func NewTypedUserData(l *lua.LState, val any, typeName string) *lua.LUserData {
+func PushTypedUserData(l *lua.LState, val any, typeName string) *lua.LUserData {
 	mt := GetTypeMetatable(l, typeName)
 	if mt == nil {
 		return nil
 	}
-	return NewUserData(l, val, mt)
+	return PushUserData(l, val, mt)
 }
 
 // GetField retrieves a field value from a Lua value following Lua's field access rules.

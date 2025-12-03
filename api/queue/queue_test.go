@@ -165,8 +165,8 @@ func TestEventConstants(t *testing.T) {
 }
 
 func TestErrors(t *testing.T) {
-	assert.EqualError(t, queue.ErrNoDriver, "queue driver not found")
-	assert.EqualError(t, queue.ErrNoQueue, "queue not found")
+	assert.EqualError(t, queue.ErrDriverNotFound, "queue driver not found")
+	assert.EqualError(t, queue.ErrQueueNotFound, "queue not found")
 	assert.EqualError(t, queue.ErrDriverNotStarted, "queue driver not started")
 	assert.EqualError(t, queue.ErrQueueFull, "queue is full")
 	assert.EqualError(t, queue.ErrMessageExpired, "message expired")

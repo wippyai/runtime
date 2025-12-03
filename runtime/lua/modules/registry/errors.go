@@ -8,7 +8,7 @@ import (
 
 func newRegistryOperationError(l *lua.LState, err error, operation string) lua.LValue {
 	engErr := engine.NewOperationError(operation, err)
-	ud := value.NewTypedUserData(l, engErr, "error")
+	ud := value.PushTypedUserData(l, engErr, "error")
 	if ud != nil {
 		return ud
 	}

@@ -9,7 +9,7 @@ const (
 	Golang  Format = "golang/any"
 	Lua     Format = "lua/any"
 	Bytes   Format = "application/octet-stream"
-	Error   Format = "golang/error"
+	GoError Format = "golang/error"
 	MsgPack Format = "application/msgpack"
 )
 
@@ -90,7 +90,7 @@ func NewString(data string) Payload {
 	return NewPayload(data, String)
 }
 
-// NewError creates a new payload wrapping a Go error with the Error format.
+// NewError creates a new payload wrapping a Go error with the GoError format.
 func NewError(data error) Payload {
-	return NewPayload(data, Error)
+	return NewPayload(data, GoError)
 }

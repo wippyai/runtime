@@ -208,7 +208,7 @@ func TestDBConn_GetAfterRelease(t *testing.T) {
 
 	_, err = res.Get()
 	assert.Error(t, err)
-	assert.Equal(t, resource.ErrResourceReleased, err)
+	assert.Equal(t, resource.ErrReleased, err)
 }
 
 func TestConnPool_ConcurrentAcquireRelease(t *testing.T) {

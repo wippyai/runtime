@@ -540,8 +540,8 @@ func TestFSRegistry_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("get non-existent filesystem", func(t *testing.T) {
-		fs, exists := fsRegistry.GetFS("test:non-existent")
+		fsi, exists := fsRegistry.GetFS("test:non-existent")
 		assert.False(t, exists)
-		assert.Nil(t, fs)
+		assert.Nil(t, fsi)
 	})
 }

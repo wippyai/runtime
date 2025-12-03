@@ -362,7 +362,7 @@ func (s *SQLStore) Acquire(_ context.Context, _ registry.ID, mode resource.Acces
 
 	// Only support normal mode for now
 	if mode != resource.ModeNormal {
-		return nil, resource.ErrResourceLocked
+		return nil, resource.ErrLocked
 	}
 
 	return &storeResource{store: s}, nil
@@ -381,7 +381,7 @@ func (r *storeResource) Get() (any, error) {
 	defer r.mu.Unlock()
 
 	if r.closed {
-		return nil, resource.ErrResourceReleased
+		return nil, resource.ErrReleased
 	}
 
 	return store.Store(r.store), nil

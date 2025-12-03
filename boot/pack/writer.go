@@ -740,7 +740,7 @@ func (pw *Writer) normalizeEntry(entry registry.Entry) (encodedEntry, error) {
 
 		if entry.Data.Format() != payload.String &&
 			entry.Data.Format() != payload.Bytes &&
-			entry.Data.Format() != payload.Error &&
+			entry.Data.Format() != payload.GoError &&
 			entry.Data.Format() != payload.Golang {
 			normalized, err = pw.transcoder.Transcode(entry.Data, payload.Golang)
 			if err != nil {

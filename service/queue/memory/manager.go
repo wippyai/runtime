@@ -37,14 +37,14 @@ func NewManager(
 
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != memoryapi.Kind {
-		return newUnsupportedEntryKindError(string(entry.Kind))
+		return queueapi.NewUnsupportedKindError(string(entry.Kind))
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, exists := m.drivers[entry.ID]; exists {
-		return newDriverExistsError(entry.ID)
+		return queueapi.NewDriverExistsError(entry.ID)
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[memoryapi.Config](ctx, m.dtt, entry)
@@ -79,7 +79,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != memoryapi.Kind {
-		return newUnsupportedEntryKindError(string(entry.Kind))
+		return queueapi.NewUnsupportedKindError(string(entry.Kind))
 	}
 
 	m.mu.RLock()
@@ -87,7 +87,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	m.mu.RUnlock()
 
 	if !exists {
-		return newDriverNotFoundError(entry.ID)
+		return queueapi.NewDriverNotFoundError(entry.ID)
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[memoryapi.Config](ctx, m.dtt, entry)
@@ -112,14 +112,14 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != memoryapi.Kind {
-		return newUnsupportedEntryKindError(string(entry.Kind))
+		return queueapi.NewUnsupportedKindError(string(entry.Kind))
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, exists := m.drivers[entry.ID]; !exists {
-		return newDriverNotFoundError(entry.ID)
+		return queueapi.NewDriverNotFoundError(entry.ID)
 	}
 
 	delete(m.drivers, entry.ID)

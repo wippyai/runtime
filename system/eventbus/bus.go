@@ -1,7 +1,6 @@
 package eventbus
 
 import (
-	"container/list"
 	"context"
 	"errors"
 	"strconv"
@@ -21,11 +20,15 @@ const (
 	actionStop
 )
 
+const defaultQueueCap = 64
+
 type action struct {
 	actionType  actionType
 	subscribe   *subscribeRequest
 	unsubscribe *unsubscribeRequest
-	sendEvent   *sendEvent
+	// Inline send event fields to avoid allocation
+	event event.Event
+	ctx   context.Context
 }
 
 type subscribeRequest struct {
@@ -36,11 +39,6 @@ type subscribeRequest struct {
 type unsubscribeRequest struct {
 	subID  event.SubscriberID
 	doneCh chan struct{}
-}
-
-type sendEvent struct {
-	event event.Event
-	ctx   context.Context
 }
 
 type sub struct {
@@ -58,8 +56,9 @@ type Bus struct {
 	subscribers       map[event.SubscriberID]sub
 	subscriberCounter uint64
 
-	// Single queue for all operations - unbounded linked list
-	actionQueue *list.List
+	// Slice-based queue with swap for zero-alloc steady state
+	actionQueue []action
+	spareQueue  []action // reused after processing
 	actionMu    sync.Mutex
 	actionReady chan struct{} // Signal that actions are available
 
@@ -71,7 +70,8 @@ type Bus struct {
 func NewBus() *Bus {
 	b := &Bus{
 		subscribers: make(map[event.SubscriberID]sub),
-		actionQueue: list.New(),
+		actionQueue: make([]action, 0, defaultQueueCap),
+		spareQueue:  make([]action, 0, defaultQueueCap),
 		actionReady: make(chan struct{}, 1), // Buffered so signal never blocks
 	}
 
@@ -180,10 +180,8 @@ func (b *Bus) Send(ctx context.Context, e event.Event) {
 	// Enqueue send event (ignore error if closed)
 	_ = b.enqueueAction(action{
 		actionType: actionSend,
-		sendEvent: &sendEvent{
-			event: e,
-			ctx:   ctx,
-		},
+		event:      e,
+		ctx:        ctx,
 	})
 }
 
@@ -195,7 +193,7 @@ func (b *Bus) Stop() {
 		b.actionMu.Unlock()
 		return // Already closed
 	}
-	b.actionQueue.PushBack(action{
+	b.actionQueue = append(b.actionQueue, action{
 		actionType: actionStop,
 	})
 	b.actionMu.Unlock()
@@ -230,7 +228,7 @@ func (b *Bus) enqueueAction(a action) error {
 		return errors.New("bus is closed")
 	}
 
-	b.actionQueue.PushBack(a)
+	b.actionQueue = append(b.actionQueue, a)
 	b.actionMu.Unlock()
 
 	// Signal dispatcher (non-blocking due to buffered channel)
@@ -261,19 +259,20 @@ func (b *Bus) dispatcher() {
 // processActions drains the action queue and processes all actions
 // Returns false if stop was requested
 func (b *Bus) processActions() bool {
-	// Swap out the queue atomically
+	// Swap queues atomically - reuse spare to avoid allocation
 	b.actionMu.Lock()
-	if b.actionQueue.Len() == 0 {
+	if len(b.actionQueue) == 0 {
 		b.actionMu.Unlock()
 		return true
 	}
 	actions := b.actionQueue
-	b.actionQueue = list.New()
+	b.actionQueue = b.spareQueue[:0] // reuse spare capacity
+	b.spareQueue = nil               // will be set after processing
 	b.actionMu.Unlock()
 
 	// Process all actions
-	for e := actions.Front(); e != nil; e = e.Next() {
-		a := e.Value.(action)
+	for i := range actions {
+		a := actions[i]
 
 		switch a.actionType {
 		case actionSubscribe:
@@ -285,7 +284,7 @@ func (b *Bus) processActions() bool {
 			a.unsubscribe.doneCh <- struct{}{}
 
 		case actionSend:
-			if a.sendEvent.ctx.Err() != nil {
+			if a.ctx.Err() != nil {
 				continue
 			}
 
@@ -293,23 +292,23 @@ func (b *Bus) processActions() bool {
 
 			for id, s := range b.subscribers {
 				// Check filters
-				if s.system != nil && !s.system.Match(a.sendEvent.event.System) {
+				if s.system != nil && !s.system.Match(a.event.System) {
 					continue
 				}
-				if s.kind != nil && !s.kind.Match(a.sendEvent.event.Kind) {
+				if s.kind != nil && !s.kind.Match(a.event.Kind) {
 					continue
 				}
 
 				// Check contexts and deliver
 				select {
-				case <-a.sendEvent.ctx.Done():
+				case <-a.ctx.Done():
 					// Event context canceled
 					goto cleanup
 				case <-s.ctx.Done():
 					// Subscriber context canceled, mark for cleanup
 					expiredSubs = append(expiredSubs, id)
 					continue
-				case s.eventCh <- a.sendEvent.event:
+				case s.eventCh <- a.event:
 					// Delivered successfully
 				}
 			}
@@ -324,12 +323,21 @@ func (b *Bus) processActions() bool {
 			// Clean up all subscribers
 			b.subscribers = make(map[event.SubscriberID]sub)
 
+			// Clear references to prevent memory leaks
+			clear(actions)
+
 			// Drain remaining actions and reject any control requests
 			b.drainQueue()
 
 			return false // Signal to exit dispatcher
 		}
 	}
+
+	// Clear references to prevent memory leaks, then recycle slice
+	clear(actions)
+	b.actionMu.Lock()
+	b.spareQueue = actions[:0]
+	b.actionMu.Unlock()
 
 	return true
 }
@@ -338,12 +346,13 @@ func (b *Bus) processActions() bool {
 func (b *Bus) drainQueue() {
 	b.actionMu.Lock()
 	remaining := b.actionQueue
-	b.actionQueue = list.New()
+	b.actionQueue = nil
+	b.spareQueue = nil
 	b.actionMu.Unlock()
 
 	// Process remaining actions
-	for e := remaining.Front(); e != nil; e = e.Next() {
-		a := e.Value.(action)
+	for i := range remaining {
+		a := remaining[i]
 
 		switch a.actionType {
 		case actionSubscribe:

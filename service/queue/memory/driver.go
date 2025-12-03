@@ -43,7 +43,7 @@ func (d *Driver) Publish(ctx context.Context, queueID registry.ID, msgs ...*queu
 	d.mu.RUnlock()
 
 	if !exists {
-		return queueapi.ErrNoQueue
+		return queueapi.ErrQueueNotFound
 	}
 
 	for _, msg := range msgs {
@@ -65,7 +65,7 @@ func (q *queue) send(ctx context.Context, driverDone <-chan struct{}, msg *queue
 	defer q.mu.RUnlock()
 
 	if q.closed {
-		return newQueueClosedError(q.id)
+		return queueapi.NewQueueClosedError(q.id)
 	}
 
 	select {
@@ -74,7 +74,7 @@ func (q *queue) send(ctx context.Context, driverDone <-chan struct{}, msg *queue
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-driverDone:
-		return newDriverStoppedError()
+		return queueapi.ErrDriverNotStarted
 	}
 }
 
@@ -84,7 +84,7 @@ func (q *queue) requeue(ctx context.Context, msg *queueapi.Message) error {
 	defer q.mu.RUnlock()
 
 	if q.closed {
-		return newQueueClosedRequeueError()
+		return queueapi.ErrQueueClosed
 	}
 
 	select {
@@ -93,7 +93,7 @@ func (q *queue) requeue(ctx context.Context, msg *queueapi.Message) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
-		return newQueueFullError()
+		return queueapi.ErrQueueFull
 	}
 }
 
@@ -103,7 +103,7 @@ func (d *Driver) Attach(ctx context.Context, queueID registry.ID, deliveries cha
 	d.mu.RUnlock()
 
 	if !exists {
-		return nil, queueapi.ErrNoQueue
+		return nil, queueapi.ErrQueueNotFound
 	}
 
 	consumerCtx, cancel := context.WithCancel(ctx)
@@ -177,7 +177,7 @@ func (d *Driver) GetQueueInfo(_ context.Context, queueID registry.ID) (attrs.Att
 	d.mu.RUnlock()
 
 	if !exists {
-		return nil, queueapi.ErrNoQueue
+		return nil, queueapi.ErrQueueNotFound
 	}
 
 	info := attrs.NewBag()

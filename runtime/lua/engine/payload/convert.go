@@ -1,7 +1,7 @@
 package payload
 
 import (
-	"fmt" // Note: fmt kept for Sprintf in logging
+	"fmt"
 	"reflect"
 	"sync"
 	"time"

@@ -89,6 +89,9 @@ func (d *Dispatcher) execute(j job) {
 	case *storeapi.StoreHasCmd:
 		exists, err := c.Store.Has(j.ctx, c.Key)
 		j.emit.Emit(storeapi.StoreHasResponse{Exists: exists, Error: err}, nil)
+
+	default:
+		// unknown command type, ignore
 	}
 }
 

@@ -1,19 +1,20 @@
 package text
 
 import (
-	"fmt"
 	"regexp"
-	"sync"
 	"time"
 
 	"github.com/sergi/go-diff/diffmatchpatch"
+	"github.com/tmc/langchaingo/textsplitter"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 
 const (
-	regexpMetatable = "text.Regexp"
-	differMetatable = "text.Differ"
+	typeRegexp   = "text.Regexp"
+	typeDiffer   = "text.Differ"
+	typeSplitter = "text.Splitter"
 )
 
 const (
@@ -22,78 +23,80 @@ const (
 	DiffOpInsert = "insert"
 )
 
-var (
-	moduleTable  *lua.LTable
-	regexpMT     *lua.LTable
-	differMT     *lua.LTable
-	registration *luaapi.Registration
-	initOnce     sync.Once
-)
-
-// Module is the singleton text module instance.
-var Module = &textModule{}
-
-type textModule struct{}
-
-func (m *textModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        "text",
-		Description: "Text processing: regex, diff, and patch operations",
-		Class:       []string{luaapi.ClassDeterministic},
-	}
+// Module is the text module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "text",
+	Description: "Text processing: regex, diff, and patch operations",
+	Class:       []string{luaapi.ClassDeterministic},
+	Build:       buildModule,
 }
 
-func (m *textModule) Register(l *lua.LState) *luaapi.Registration {
-	initOnce.Do(func() {
-		regexpMT = createRegexpMetatable(l)
-		differMT = createDifferMetatable(l)
-
-		mod := &lua.LTable{}
-
-		regexpMod := &lua.LTable{}
-		regexpMod.RawSetString("compile", lua.LGoFunc(luaRegexpCompile))
-		regexpMod.Immutable = true
-		mod.RawSetString("regexp", regexpMod)
-
-		diffMod := &lua.LTable{}
-		diffMod.RawSetString("new", lua.LGoFunc(luaDiffNew))
-		diffMod.Immutable = true
-		mod.RawSetString("diff", diffMod)
-
-		mod.Immutable = true
-		moduleTable = mod
-
-		registration = &luaapi.Registration{
-			Table:      moduleTable,
-			YieldTypes: nil,
-		}
+func init() {
+	// Register type metatables once at startup
+	value.RegisterTypeMethods(nil, typeRegexp, nil, map[string]lua.LGFunction{
+		"find_all_string_submatch": regexpFindAllStringSubmatch,
+		"find_string_submatch":     regexpFindStringSubmatch,
+		"find_all_string":          regexpFindAllString,
+		"find_string":              regexpFindString,
+		"find_all_string_index":    regexpFindAllStringIndex,
+		"find_string_index":        regexpFindStringIndex,
+		"replace_all_string":       regexpReplaceAllString,
+		"match_string":             regexpMatchString,
+		"split":                    regexpSplit,
+		"num_subexp":               regexpNumSubexp,
+		"subexp_names":             regexpSubexpNames,
+		"string":                   regexpString,
 	})
 
-	l.SetField(l.Get(lua.RegistryIndex), regexpMetatable, regexpMT)
-	l.SetField(l.Get(lua.RegistryIndex), differMetatable, differMT)
+	value.RegisterTypeMethods(nil, typeDiffer, nil, map[string]lua.LGFunction{
+		"compare":     differCompare,
+		"pretty_text": differPrettyText,
+		"pretty_html": differPrettyHTML,
+		"patch_make":  differPatchMake,
+		"patch_apply": differPatchApply,
+		"summarize":   differSummarize,
+	})
 
-	return registration
+	value.RegisterTypeMethods(nil, typeSplitter, nil, map[string]lua.LGFunction{
+		"split_text":  splitterSplitText,
+		"split_batch": splitterSplitBatch,
+	})
 }
 
-func (m *textModule) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	l.Push(reg.Table)
-	return 1
+func buildModule() (*lua.LTable, []luaapi.YieldType) {
+	mod := lua.CreateTable(0, 3)
+
+	regexpMod := lua.CreateTable(0, 1)
+	regexpMod.RawSetString("compile", lua.LGoFunc(luaRegexpCompile))
+	regexpMod.Immutable = true
+	mod.RawSetString("regexp", regexpMod)
+
+	diffMod := lua.CreateTable(0, 1)
+	diffMod.RawSetString("new", lua.LGoFunc(luaDiffNew))
+	diffMod.Immutable = true
+	mod.RawSetString("diff", diffMod)
+
+	splitterMod := lua.CreateTable(0, 2)
+	splitterMod.RawSetString("recursive", lua.LGoFunc(luaSplitterRecursive))
+	splitterMod.RawSetString("markdown", lua.LGoFunc(luaSplitterMarkdown))
+	splitterMod.Immutable = true
+	mod.RawSetString("splitter", splitterMod)
+
+	mod.Immutable = true
+	return mod, nil
 }
 
-// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
-func Bind(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
+// Regexp wraps a compiled regular expression.
+type Regexp struct {
+	re *regexp.Regexp
 }
 
-type RegexpWrapper struct {
-	regexp *regexp.Regexp
-}
-
-type DifferWrapper struct {
+// Differ wraps a diff-match-patch instance.
+type Differ struct {
 	dmp *diffmatchpatch.DiffMatchPatch
 }
 
+// DiffOptions configures diff behavior.
 type DiffOptions struct {
 	DiffTimeout          float64
 	DiffEditCost         int16
@@ -103,69 +106,21 @@ type DiffOptions struct {
 	PatchMargin          int
 }
 
-func getRegexpMT(l *lua.LState) lua.LValue {
-	return l.GetField(l.Get(lua.RegistryIndex), regexpMetatable)
-}
-
-func getDifferMT(l *lua.LState) lua.LValue {
-	return l.GetField(l.Get(lua.RegistryIndex), differMetatable)
-}
-
-func createRegexpMetatable(l *lua.LState) *lua.LTable {
-	mt := l.CreateTable(0, 2)
-
-	index := l.CreateTable(0, 12)
-	index.RawSetString("find_all_string_submatch", lua.LGoFunc(regexpFindAllStringSubmatch))
-	index.RawSetString("find_string_submatch", lua.LGoFunc(regexpFindStringSubmatch))
-	index.RawSetString("find_all_string", lua.LGoFunc(regexpFindAllString))
-	index.RawSetString("find_string", lua.LGoFunc(regexpFindString))
-	index.RawSetString("find_all_string_index", lua.LGoFunc(regexpFindAllStringIndex))
-	index.RawSetString("find_string_index", lua.LGoFunc(regexpFindStringIndex))
-	index.RawSetString("replace_all_string", lua.LGoFunc(regexpReplaceAllString))
-	index.RawSetString("match_string", lua.LGoFunc(regexpMatchString))
-	index.RawSetString("split", lua.LGoFunc(regexpSplit))
-	index.RawSetString("num_subexp", lua.LGoFunc(regexpNumSubexp))
-	index.RawSetString("subexp_names", lua.LGoFunc(regexpSubexpNames))
-	index.RawSetString("string", lua.LGoFunc(regexpString))
-	index.Immutable = true
-
-	mt.RawSetString("__index", index)
-	mt.Immutable = true
-	return mt
-}
-
-func createDifferMetatable(l *lua.LState) *lua.LTable {
-	mt := l.CreateTable(0, 2)
-
-	index := l.CreateTable(0, 6)
-	index.RawSetString("compare", lua.LGoFunc(differCompare))
-	index.RawSetString("pretty_text", lua.LGoFunc(differPrettyText))
-	index.RawSetString("pretty_html", lua.LGoFunc(differPrettyHTML))
-	index.RawSetString("patch_make", lua.LGoFunc(differPatchMake))
-	index.RawSetString("patch_apply", lua.LGoFunc(differPatchApply))
-	index.RawSetString("summarize", lua.LGoFunc(differSummarize))
-	index.Immutable = true
-
-	mt.RawSetString("__index", index)
-	mt.Immutable = true
-	return mt
-}
-
-func checkRegexp(l *lua.LState) *RegexpWrapper {
+func checkRegexp(l *lua.LState) *Regexp {
 	ud := l.CheckUserData(1)
-	if wrapper, ok := ud.Value.(*RegexpWrapper); ok {
-		return wrapper
+	if r, ok := ud.Value.(*Regexp); ok {
+		return r
 	}
-	l.ArgError(1, "expected Regexp")
+	l.ArgError(1, "expected text.Regexp")
 	return nil
 }
 
-func checkDiffer(l *lua.LState) *DifferWrapper {
+func checkDiffer(l *lua.LState) *Differ {
 	ud := l.CheckUserData(1)
-	if wrapper, ok := ud.Value.(*DifferWrapper); ok {
-		return wrapper
+	if d, ok := ud.Value.(*Differ); ok {
+		return d
 	}
-	l.ArgError(1, "expected Differ")
+	l.ArgError(1, "expected text.Differ")
 	return nil
 }
 
@@ -174,17 +129,16 @@ func luaRegexpCompile(l *lua.LState) int {
 
 	re, err := regexp.Compile(pattern)
 	if err != nil {
+		luaErr := lua.WrapErrorWithLua(l, err, "regex compile error").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("regex compile error: %v", err)))
+		l.Push(luaErr)
 		return 2
 	}
 
-	wrapper := &RegexpWrapper{regexp: re}
-	ud := l.NewUserData()
-	ud.Value = wrapper
-	ud.Metatable = getRegexpMT(l)
-
-	l.Push(ud)
+	value.PushTypedUserData(l, &Regexp{re: re}, typeRegexp)
 	l.Push(lua.LNil)
 	return 2
 }
@@ -218,12 +172,7 @@ func luaDiffNew(l *lua.LState) int {
 		}
 	}
 
-	wrapper := &DifferWrapper{dmp: dmp}
-	ud := l.NewUserData()
-	ud.Value = wrapper
-	ud.Metatable = getDifferMT(l)
-
-	l.Push(ud)
+	value.PushTypedUserData(l, &Differ{dmp: dmp}, typeDiffer)
 	l.Push(lua.LNil)
 	return 2
 }
@@ -273,7 +222,7 @@ func regexpFindAllStringSubmatch(l *lua.LState) int {
 		return 0
 	}
 	content := l.CheckString(2)
-	matches := wrapper.regexp.FindAllStringSubmatch(content, -1)
+	matches := wrapper.re.FindAllStringSubmatch(content, -1)
 
 	result := l.CreateTable(len(matches), 0)
 	for i, match := range matches {
@@ -293,7 +242,7 @@ func regexpFindStringSubmatch(l *lua.LState) int {
 		return 0
 	}
 	content := l.CheckString(2)
-	match := wrapper.regexp.FindStringSubmatch(content)
+	match := wrapper.re.FindStringSubmatch(content)
 
 	if match == nil {
 		l.Push(lua.LNil)
@@ -314,7 +263,7 @@ func regexpFindAllString(l *lua.LState) int {
 		return 0
 	}
 	content := l.CheckString(2)
-	matches := wrapper.regexp.FindAllString(content, -1)
+	matches := wrapper.re.FindAllString(content, -1)
 
 	result := l.CreateTable(len(matches), 0)
 	for i, match := range matches {
@@ -330,7 +279,7 @@ func regexpFindString(l *lua.LState) int {
 		return 0
 	}
 	content := l.CheckString(2)
-	match := wrapper.regexp.FindString(content)
+	match := wrapper.re.FindString(content)
 
 	if match == "" {
 		l.Push(lua.LNil)
@@ -346,7 +295,7 @@ func regexpFindAllStringIndex(l *lua.LState) int {
 		return 0
 	}
 	content := l.CheckString(2)
-	indices := wrapper.regexp.FindAllStringIndex(content, -1)
+	indices := wrapper.re.FindAllStringIndex(content, -1)
 
 	if indices == nil {
 		l.Push(lua.LNil)
@@ -370,7 +319,7 @@ func regexpFindStringIndex(l *lua.LState) int {
 		return 0
 	}
 	content := l.CheckString(2)
-	index := wrapper.regexp.FindStringIndex(content)
+	index := wrapper.re.FindStringIndex(content)
 
 	if index == nil {
 		l.Push(lua.LNil)
@@ -391,7 +340,7 @@ func regexpReplaceAllString(l *lua.LState) int {
 	}
 	content := l.CheckString(2)
 	replacement := l.CheckString(3)
-	result := wrapper.regexp.ReplaceAllString(content, replacement)
+	result := wrapper.re.ReplaceAllString(content, replacement)
 	l.Push(lua.LString(result))
 	return 1
 }
@@ -402,7 +351,7 @@ func regexpMatchString(l *lua.LState) int {
 		return 0
 	}
 	content := l.CheckString(2)
-	matches := wrapper.regexp.MatchString(content)
+	matches := wrapper.re.MatchString(content)
 	l.Push(lua.LBool(matches))
 	return 1
 }
@@ -414,7 +363,7 @@ func regexpSplit(l *lua.LState) int {
 	}
 	content := l.CheckString(2)
 	n := int(l.OptNumber(3, -1))
-	parts := wrapper.regexp.Split(content, n)
+	parts := wrapper.re.Split(content, n)
 
 	result := l.CreateTable(len(parts), 0)
 	for i, part := range parts {
@@ -429,7 +378,7 @@ func regexpNumSubexp(l *lua.LState) int {
 	if wrapper == nil {
 		return 0
 	}
-	l.Push(lua.LNumber(wrapper.regexp.NumSubexp()))
+	l.Push(lua.LNumber(wrapper.re.NumSubexp()))
 	return 1
 }
 
@@ -438,7 +387,7 @@ func regexpSubexpNames(l *lua.LState) int {
 	if wrapper == nil {
 		return 0
 	}
-	names := wrapper.regexp.SubexpNames()
+	names := wrapper.re.SubexpNames()
 
 	result := l.CreateTable(len(names), 0)
 	for i, name := range names {
@@ -453,7 +402,7 @@ func regexpString(l *lua.LState) int {
 	if wrapper == nil {
 		return 0
 	}
-	l.Push(lua.LString(wrapper.regexp.String()))
+	l.Push(lua.LString(wrapper.re.String()))
 	return 1
 }
 
@@ -649,4 +598,218 @@ func differSummarize(l *lua.LState) int {
 
 	l.Push(summary)
 	return 1
+}
+
+// Splitter wraps a text splitter.
+type Splitter struct {
+	splitter textsplitter.TextSplitter
+}
+
+func checkSplitter(l *lua.LState) *Splitter {
+	ud := l.CheckUserData(1)
+	if s, ok := ud.Value.(*Splitter); ok {
+		return s
+	}
+	l.ArgError(1, "expected text.Splitter")
+	return nil
+}
+
+func luaSplitterRecursive(l *lua.LState) int {
+	var options []textsplitter.Option
+
+	if l.GetTop() > 0 && l.Get(1).Type() == lua.LTTable {
+		options = parseRecursiveOptions(l.CheckTable(1))
+	}
+
+	splitter := textsplitter.NewRecursiveCharacter(options...)
+	value.PushTypedUserData(l, &Splitter{splitter: splitter}, typeSplitter)
+	l.Push(lua.LNil)
+	return 2
+}
+
+func luaSplitterMarkdown(l *lua.LState) int {
+	var options []textsplitter.Option
+
+	if l.GetTop() > 0 && l.Get(1).Type() == lua.LTTable {
+		options = parseMarkdownOptions(l.CheckTable(1))
+	}
+
+	splitter := textsplitter.NewMarkdownTextSplitter(options...)
+	value.PushTypedUserData(l, &Splitter{splitter: splitter}, typeSplitter)
+	l.Push(lua.LNil)
+	return 2
+}
+
+func parseRecursiveOptions(table *lua.LTable) []textsplitter.Option {
+	var options []textsplitter.Option
+
+	table.ForEach(func(key, val lua.LValue) {
+		switch key.String() {
+		case "chunk_size":
+			if num, ok := val.(lua.LNumber); ok {
+				options = append(options, textsplitter.WithChunkSize(int(num)))
+			}
+		case "chunk_overlap":
+			if num, ok := val.(lua.LNumber); ok {
+				options = append(options, textsplitter.WithChunkOverlap(int(num)))
+			}
+		case "keep_separator":
+			if b, ok := val.(lua.LBool); ok {
+				options = append(options, textsplitter.WithKeepSeparator(bool(b)))
+			}
+		case "separators":
+			if tbl, ok := val.(*lua.LTable); ok {
+				separators := parseSeparatorsTable(tbl)
+				if len(separators) > 0 {
+					options = append(options, textsplitter.WithSeparators(separators))
+				}
+			}
+		}
+	})
+
+	return options
+}
+
+func parseMarkdownOptions(table *lua.LTable) []textsplitter.Option {
+	var options []textsplitter.Option
+
+	table.ForEach(func(key, val lua.LValue) {
+		switch key.String() {
+		case "chunk_size":
+			if num, ok := val.(lua.LNumber); ok {
+				options = append(options, textsplitter.WithChunkSize(int(num)))
+			}
+		case "chunk_overlap":
+			if num, ok := val.(lua.LNumber); ok {
+				options = append(options, textsplitter.WithChunkOverlap(int(num)))
+			}
+		case "code_blocks":
+			if b, ok := val.(lua.LBool); ok {
+				options = append(options, textsplitter.WithCodeBlocks(bool(b)))
+			}
+		case "reference_links":
+			if b, ok := val.(lua.LBool); ok {
+				options = append(options, textsplitter.WithReferenceLinks(bool(b)))
+			}
+		case "heading_hierarchy":
+			if b, ok := val.(lua.LBool); ok {
+				options = append(options, textsplitter.WithHeadingHierarchy(bool(b)))
+			}
+		case "join_table_rows":
+			if b, ok := val.(lua.LBool); ok {
+				options = append(options, textsplitter.WithJoinTableRows(bool(b)))
+			}
+		case "separators":
+			if tbl, ok := val.(*lua.LTable); ok {
+				separators := parseSeparatorsTable(tbl)
+				if len(separators) > 0 {
+					options = append(options, textsplitter.WithSeparators(separators))
+				}
+			}
+		}
+	})
+
+	return options
+}
+
+func parseSeparatorsTable(table *lua.LTable) []string {
+	var separators []string
+	table.ForEach(func(_, val lua.LValue) {
+		if str, ok := val.(lua.LString); ok {
+			separators = append(separators, string(str))
+		}
+	})
+	return separators
+}
+
+func splitterSplitText(l *lua.LState) int {
+	wrapper := checkSplitter(l)
+	if wrapper == nil {
+		return 0
+	}
+	text := l.CheckString(2)
+
+	chunks, err := wrapper.splitter.SplitText(text)
+	if err != nil {
+		luaErr := lua.WrapErrorWithLua(l, err, "split_text").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return 2
+	}
+
+	chunksTable := l.CreateTable(len(chunks), 0)
+	for i, chunk := range chunks {
+		chunksTable.RawSetInt(i+1, lua.LString(chunk))
+	}
+
+	l.Push(chunksTable)
+	l.Push(lua.LNil)
+	return 2
+}
+
+func splitterSplitBatch(l *lua.LState) int {
+	wrapper := checkSplitter(l)
+	if wrapper == nil {
+		return 0
+	}
+	pagesTable := l.CheckTable(2)
+
+	var allChunks []lua.LValue
+
+	pagesTable.ForEach(func(_, val lua.LValue) {
+		pageTable, ok := val.(*lua.LTable)
+		if !ok {
+			return
+		}
+
+		var content string
+		var metaTable *lua.LTable
+
+		pageTable.ForEach(func(key, v lua.LValue) {
+			switch key.String() {
+			case "content":
+				if str, ok := v.(lua.LString); ok {
+					content = string(str)
+				}
+			case "metadata":
+				if mt, ok := v.(*lua.LTable); ok {
+					metaTable = mt
+				}
+			}
+		})
+
+		if content == "" {
+			return
+		}
+
+		chunks, err := wrapper.splitter.SplitText(content)
+		if err != nil {
+			return
+		}
+
+		for _, chunkText := range chunks {
+			chunkTable := l.CreateTable(0, 2)
+			chunkTable.RawSetString("content", lua.LString(chunkText))
+
+			if metaTable != nil {
+				chunkTable.RawSetString("metadata", metaTable)
+			} else {
+				chunkTable.RawSetString("metadata", l.CreateTable(0, 0))
+			}
+
+			allChunks = append(allChunks, chunkTable)
+		}
+	})
+
+	result := l.CreateTable(len(allChunks), 0)
+	for i, chunk := range allChunks {
+		result.RawSetInt(i+1, chunk)
+	}
+
+	l.Push(result)
+	l.Push(lua.LNil)
+	return 2
 }

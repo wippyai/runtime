@@ -101,7 +101,7 @@ func (s *Supervisor) GetState(id string) (State, error) {
 
 	controller, exists := s.controllers[id]
 	if !exists {
-		return State{}, NewServiceNotFoundError(id)
+		return State{}, supervisor.NewServiceNotFoundError(id)
 	}
 
 	return controller.State(), nil
@@ -134,7 +134,7 @@ func (s *Supervisor) Start(ctx context.Context) error {
 	)
 
 	if err != nil {
-		return NewSubscriberError(err)
+		return supervisor.NewSubscriberError(err)
 	}
 	s.subscriber = sub
 
@@ -358,7 +358,7 @@ func (s *Supervisor) createStateHandler(id string) func(supervisor.Status, any) 
 func (s *Supervisor) resolveDependencies(serviceID string) ([]string, error) {
 	ctrl, exists := s.controllers[serviceID]
 	if !exists {
-		return nil, NewServiceNotFoundError(serviceID)
+		return nil, supervisor.NewServiceNotFoundError(serviceID)
 	}
 
 	// Start with lifecycle dependencies
@@ -372,7 +372,7 @@ func (s *Supervisor) resolveDependencies(serviceID string) ([]string, error) {
 		id := registry.ParseID(serviceID)
 		registryDeps, err := s.dependencyResolver(id)
 		if err != nil {
-			return nil, NewDependencyResolveError(serviceID, err)
+			return nil, supervisor.NewDependencyResolveError(serviceID, err)
 		}
 
 		for _, dep := range registryDeps {
@@ -410,7 +410,7 @@ func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
 		if ctrl, exists := s.controllers[id]; exists {
 			deps, err := s.resolveDependencies(id)
 			if err != nil {
-				return NewDependencyResolveError(id, err)
+				return supervisor.NewDependencyResolveError(id, err)
 			}
 			operations = append(operations, Operation{
 				Type:         OperationStop,
@@ -432,7 +432,7 @@ func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
 
 		ctrl, exists := s.controllers[id]
 		if !exists {
-			return NewServiceNotFoundError(id)
+			return supervisor.NewServiceNotFoundError(id)
 		}
 
 		// Resolve all dependencies (lifecycle + registry-extracted)
@@ -472,14 +472,14 @@ func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
 	for id, entry := range tx.register {
 		if entry.Config.AutoStart {
 			if err := buildStartOps(id); err != nil {
-				return NewStartOperationsError(err)
+				return supervisor.NewStartOperationsError(err)
 			}
 		}
 	}
 
 	// Spawn transitions in dependency order
 	if err := s.sequencer.Transition(ctx, operations...); err != nil {
-		return NewTransitionError(err)
+		return supervisor.NewTransitionError(err)
 	}
 
 	// Done stopped services

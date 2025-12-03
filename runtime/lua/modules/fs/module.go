@@ -130,7 +130,7 @@ func fsGet(l *lua.LState) int {
 		return 2
 	}
 
-	value.NewUserData(l, NewFS(f, "."), fsMetatable)
+	value.PushUserData(l, NewFS(f, "."), fsMetatable)
 	l.Push(lua.LNil)
 	return 2
 }

@@ -158,7 +158,7 @@ func (r *EventRouter) addHandler(h EventHandler) error {
 
 	// Check context before proceeding
 	if r.ctx.Err() != nil {
-		return NewRouterCanceledError(r.ctx.Err())
+		return event.NewRouterCanceledError(r.ctx.Err())
 	}
 
 	pattern := h.Pattern()
@@ -171,7 +171,7 @@ func (r *EventRouter) addHandler(h EventHandler) error {
 	)
 
 	if err != nil {
-		return NewSubscriberError(err)
+		return event.NewSubscriberError(err)
 	}
 
 	r.subscribers = append(r.subscribers, handlerSubscription{

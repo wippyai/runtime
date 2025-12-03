@@ -54,7 +54,7 @@ func (s *Statement) Close() error {
 }
 
 func NewStatementUserData(l *lua.LState, stmt *Statement) *lua.LUserData {
-	return value.NewUserData(l, stmt, statementMetatable)
+	return value.PushUserData(l, stmt, statementMetatable)
 }
 
 var statementMethods = map[string]lua.LGFunction{

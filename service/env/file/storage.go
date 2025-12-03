@@ -247,16 +247,16 @@ func (s *Storage) writeAllLines(lines []string) error {
 			if os.IsExist(err) || strings.Contains(err.Error(), "being used by another process") {
 				_ = os.Remove(s.filepath)
 				if renameErr := os.Rename(tempPath, s.filepath); renameErr != nil {
-					return errRenameTempFileAfterRemove(renameErr)
+					return env.NewRenameTempFileAfterRemoveError(renameErr)
 				}
 				return nil
 			}
-			return errRenameTempFile(attempt+1, err)
+			return env.NewRenameTempFileError(attempt+1, err)
 		}
 		return nil
 	}
 
-	return errRenameTempFile(maxRetries+1, nil)
+	return env.NewRenameTempFileError(maxRetries+1, nil)
 }
 
 func (s *Storage) ensureFile() error {

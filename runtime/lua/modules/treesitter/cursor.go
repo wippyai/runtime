@@ -9,37 +9,14 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+const typeCursor = "treesitter.Cursor"
+
 // CursorWrapper wraps a tree-sitter TreeCursor for Lua integration
 type CursorWrapper struct {
 	cursor        *treesitter.TreeCursor
 	source        *string
 	closed        bool
 	cancelCleanup func()
-}
-
-// Register the Cursor type to Lua
-func registerCursor(l *lua.LState) {
-	methods := map[string]lua.LGFunction{
-		"current_node":               cursorCurrentNode,
-		"current_field_id":           cursorCurrentFieldID,
-		"current_field_name":         cursorCurrentFieldName,
-		"current_depth":              cursorCurrentDepth,
-		"current_descendant_index":   cursorCurrentDescendantIndex,
-		"goto_parent":                cursorGotoParent,
-		"goto_first_child":           cursorGotoFirstChild,
-		"goto_last_child":            cursorGotoLastChild,
-		"goto_next_sibling":          cursorGotoNextSibling,
-		"goto_previous_sibling":      cursorGotoPreviousSibling,
-		"goto_descendant":            cursorGotoDescendant,
-		"goto_first_child_for_byte":  cursorGotoFirstChildForByte,
-		"goto_first_child_for_point": cursorGotoFirstChildForPoint,
-		"reset":                      cursorReset,
-		"reset_to":                   cursorResetTo,
-		"copy":                       cursorCopy,
-		"close":                      cursorClose,
-	}
-
-	value.RegisterMethods(l, "treesitter.Cursor", methods)
 }
 
 func NewCursor(ctx context.Context, cursor *treesitter.TreeCursor, source *string) *CursorWrapper {

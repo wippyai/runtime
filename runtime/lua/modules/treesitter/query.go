@@ -11,6 +11,8 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+const typeQuery = "treesitter.Query"
+
 // QueryWrapper wraps a tree-sitter Query and QueryCursor for Lua integration
 type QueryWrapper struct {
 	query         *treesitter.Query
@@ -18,46 +20,6 @@ type QueryWrapper struct {
 	source        string
 	closed        bool
 	cancelCleanup func()
-}
-
-// Register the Query type to Lua
-func registerQuery(l *lua.LState) {
-	methods := map[string]lua.LGFunction{
-		// Core functionality
-		"close":                  queryClose,
-		"matches":                queryMatches,
-		"captures":               queryCaptures,
-		"pattern_count":          queryPatternCount,
-		"capture_count":          queryCaptureCount,
-		"string_count":           queryStringCount,
-		"start_byte_for_pattern": queryStartByteForPattern,
-
-		// Cursor control
-		"set_byte_range":         querySetByteRange,
-		"set_point_range":        querySetPointRange,
-		"set_match_limit":        querySetMatchLimit,
-		"get_match_limit":        queryGetMatchLimit,
-		"did_exceed_match_limit": queryDidExceedMatchLimit,
-		"set_timeout":            querySetTimeout,
-		"get_timeout":            queryGetTimeout,
-
-		// Pattern/capture control
-		"disable_pattern":      queryDisablePattern,
-		"disable_capture":      queryDisableCapture,
-		"is_pattern_rooted":    queryIsPatternRooted,
-		"is_pattern_non_local": queryIsPatternNonLocal,
-		"capture_name_for_id":  queryCaptureNameForID,
-		"capture_quantifier":   queryCaptureQuantifier,
-
-		"set_max_start_depth":     querySetMaxStartDepth,
-		"get_property_predicates": queryGetPropertyPredicates,
-		"get_property_settings":   queryGetPropertySettings,
-		"is_pattern_guaranteed":   queryIsPatternGuaranteed,
-		"capture_index_for_name":  queryCaptureIndexForName,
-		"end_byte_for_pattern":    queryEndByteForPattern,
-		"get_text_predicates":     queryGetTextPredicates,
-	}
-	value.RegisterMethods(l, "treesitter.Query", methods)
 }
 
 // NewQuery creates a new query wrapper with proper resource store integration
@@ -106,22 +68,31 @@ func newQuery(l *lua.LState) int {
 	// Spawn language from string
 	langInfo := languages.GetLanguageInfo(languageStr)
 	if langInfo == nil {
+		err := lua.NewLuaError(l, fmt.Sprintf("unsupported language: %s", languageStr)).
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("unsupported language: %s", languageStr)))
+		l.Push(err)
 		return 2
 	}
 
 	if langInfo.Language == nil {
+		err := lua.NewLuaError(l, fmt.Sprintf("language '%s' does not have a Tree-sitter language binding", languageStr)).
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("language '%s' does not have a Tree-sitter language binding", languageStr)))
+		l.Push(err)
 		return 2
 	}
 
 	lang := treesitter.NewLanguage(langInfo.Language())
-	query, err := treesitter.NewQuery(lang, pattern)
-	if err != nil {
+	query, queryErr := treesitter.NewQuery(lang, pattern)
+	if queryErr != nil {
+		err := lua.NewLuaError(l, formatQueryError(queryErr)).
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(formatQueryError(err)))
+		l.Push(err)
 		return 2
 	}
 

@@ -88,7 +88,7 @@ func (r *AsyncCallRegistry) Await(ctx context.Context, id uint64) (any, error) {
 	r.mu.Unlock()
 
 	if !ok {
-		return nil, ErrCallNotFound
+		return nil, function.ErrCallNotFound
 	}
 
 	select {
@@ -101,7 +101,7 @@ func (r *AsyncCallRegistry) Await(ctx context.Context, id uint64) (any, error) {
 
 		if entry.err != nil {
 			if errors.Is(entry.err, context.Canceled) {
-				return nil, ErrCallCancelled
+				return nil, function.ErrCallCancelled
 			}
 			return nil, entry.err
 		}
@@ -116,7 +116,7 @@ func (r *AsyncCallRegistry) Cancel(id uint64) error {
 	r.mu.Unlock()
 
 	if !ok {
-		return ErrCallNotFound
+		return function.ErrCallNotFound
 	}
 
 	entry.cancel()
@@ -155,10 +155,19 @@ func SetAsyncCallRegistry(ctx context.Context, r *AsyncCallRegistry) error {
 	return fc.Set(AsyncCallRegistryKey, r)
 }
 
-// GetOrCreateAsyncCallRegistry returns the async call registry from context.
-// The registry must be set up by the caller before async operations.
+// GetOrCreateAsyncCallRegistry returns the async call registry from context,
+// creating one if it doesn't exist.
 func GetOrCreateAsyncCallRegistry(ctx context.Context) *AsyncCallRegistry {
-	return GetAsyncCallRegistry(ctx)
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return nil
+	}
+	if val, ok := fc.Get(AsyncCallRegistryKey); ok {
+		return val.(*AsyncCallRegistry)
+	}
+	r := NewAsyncCallRegistry()
+	_ = fc.Set(AsyncCallRegistryKey, r)
+	return r
 }
 
 // CallAsync executes a function call asynchronously using pooled channels.
@@ -167,12 +176,12 @@ func GetOrCreateAsyncCallRegistry(ctx context.Context) *AsyncCallRegistry {
 func (f *Registry) CallAsync(ctx context.Context, task runtime.Task) (<-chan *CallResult, error) {
 	handler, exists := f.handlers.Load(task.ID)
 	if !exists {
-		return nil, NewHandlerNotFoundError(task.ID)
+		return nil, function.NewHandlerNotFoundError(task.ID)
 	}
 
 	_, ok := handler.(function.Func)
 	if !ok {
-		return nil, NewInvalidHandlerError(task.ID)
+		return nil, function.NewInvalidHandlerError(task.ID)
 	}
 
 	ch := resultChanPool.Get().(chan *CallResult)
@@ -189,14 +198,18 @@ func (f *Registry) CallAsync(ctx context.Context, task runtime.Task) (<-chan *Ca
 // This is the most efficient async pattern - no channel allocation.
 // The callback is invoked in the goroutine that executes the function.
 func (f *Registry) CallAsyncCallback(ctx context.Context, task runtime.Task, callback func(*runtime.Result, error)) error {
+	if callback == nil {
+		return function.ErrNilCallback
+	}
+
 	handler, exists := f.handlers.Load(task.ID)
 	if !exists {
-		return NewHandlerNotFoundError(task.ID)
+		return function.NewHandlerNotFoundError(task.ID)
 	}
 
 	_, ok := handler.(function.Func)
 	if !ok {
-		return NewInvalidHandlerError(task.ID)
+		return function.NewInvalidHandlerError(task.ID)
 	}
 
 	go func() {

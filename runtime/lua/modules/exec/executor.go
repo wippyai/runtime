@@ -112,7 +112,7 @@ func execGet(l *lua.LState) int {
 
 	e := NewExecutor(ctx, res, factory)
 
-	value.NewUserData(l, e, executorMetatable)
+	value.PushUserData(l, e, executorMetatable)
 	l.Push(lua.LNil)
 	return 2
 }
@@ -175,7 +175,7 @@ func executorExec(l *lua.LState) int {
 
 	p := NewProcess(ctx, proc)
 
-	value.NewUserData(l, p, processMetatable)
+	value.PushUserData(l, p, processMetatable)
 	l.Push(lua.LNil)
 	return 2
 }

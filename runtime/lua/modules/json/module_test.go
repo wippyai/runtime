@@ -3,16 +3,18 @@ package json
 import (
 	"testing"
 
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 )
+
+func bindJSON(l *lua.LState) {
+	luaapi.LoadModule(l, Module)
+}
 
 func TestBind(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-
-	// Directly register the module
-	reg := Module.Register(l)
-	l.SetGlobal("json", reg.Table)
+	bindJSON(l)
 
 	mod := l.GetGlobal("json")
 	if mod.Type() != lua.LTTable {
@@ -26,11 +28,12 @@ func TestBind(t *testing.T) {
 	if tbl.RawGetString("decode").Type() != lua.LTFunction {
 		t.Error("decode function not registered")
 	}
-}
-
-func bindJSON(l *lua.LState) {
-	reg := Module.Register(l)
-	l.SetGlobal("json", reg.Table)
+	if tbl.RawGetString("validate").Type() != lua.LTFunction {
+		t.Error("validate function not registered")
+	}
+	if tbl.RawGetString("validate_string").Type() != lua.LTFunction {
+		t.Error("validate_string function not registered")
+	}
 }
 
 func TestEncodeTable(t *testing.T) {
@@ -210,5 +213,98 @@ func TestRoundTrip(t *testing.T) {
 	`)
 	if err != nil {
 		t.Errorf("round trip test failed: %v", err)
+	}
+}
+
+func TestValidateSuccess(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	bindJSON(l)
+
+	err := l.DoString(`
+		local schema = {
+			type = "object",
+			properties = {
+				name = {type = "string"},
+				age = {type = "number"}
+			},
+			required = {"name"}
+		}
+		local data = {name = "John", age = 30}
+		local valid, err = json.validate(schema, data)
+		if not valid then error("expected valid: " .. tostring(err)) end
+	`)
+	if err != nil {
+		t.Errorf("validate success test failed: %v", err)
+	}
+}
+
+func TestValidateFailure(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	bindJSON(l)
+
+	err := l.DoString(`
+		local schema = {
+			type = "object",
+			properties = {
+				name = {type = "string"}
+			},
+			required = {"name"}
+		}
+		local data = {age = 30}
+		local valid, err = json.validate(schema, data)
+		if valid then error("expected invalid") end
+		if err == nil then error("expected error") end
+	`)
+	if err != nil {
+		t.Errorf("validate failure test failed: %v", err)
+	}
+}
+
+func TestValidateStringSuccess(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	bindJSON(l)
+
+	err := l.DoString(`
+		local schema = {type = "object", properties = {name = {type = "string"}}}
+		local json_str = '{"name":"John"}'
+		local valid, err = json.validate_string(schema, json_str)
+		if not valid then error("expected valid: " .. tostring(err)) end
+	`)
+	if err != nil {
+		t.Errorf("validate_string success test failed: %v", err)
+	}
+}
+
+func TestValidateMissingSchema(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	bindJSON(l)
+
+	err := l.DoString(`
+		local valid, err = json.validate(nil, {name = "John"})
+		if valid then error("expected invalid") end
+		if err == nil then error("expected error") end
+	`)
+	if err != nil {
+		t.Errorf("validate missing schema test failed: %v", err)
+	}
+}
+
+func TestValidateMissingData(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	bindJSON(l)
+
+	err := l.DoString(`
+		local schema = {type = "object"}
+		local valid, err = json.validate(schema, nil)
+		if valid then error("expected invalid") end
+		if err == nil then error("expected error") end
+	`)
+	if err != nil {
+		t.Errorf("validate missing data test failed: %v", err)
 	}
 }

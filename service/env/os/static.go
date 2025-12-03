@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/env"
-	enverr "github.com/wippyai/runtime/service/env"
 )
 
 // StaticStorage provides a read-only environment storage backed by a predefined map.
@@ -50,12 +49,12 @@ func (s *StaticStorage) Get(_ context.Context, key string) (string, error) {
 
 // Set is not supported for static storage.
 func (s *StaticStorage) Set(_ context.Context, _, _ string) error {
-	return enverr.ErrStorageReadOnly
+	return env.ErrStorageReadOnly
 }
 
 // Delete is not supported for static storage.
 func (s *StaticStorage) Delete(_ context.Context, _ string) error {
-	return enverr.ErrStorageReadOnly
+	return env.ErrStorageReadOnly
 }
 
 // List returns all key-value pairs.

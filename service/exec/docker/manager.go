@@ -191,11 +191,11 @@ func (p *executorProvider) Acquire(_ context.Context, _ registry.ID, mode resour
 	defer p.mu.RUnlock()
 
 	if p.closed {
-		return nil, resource.ErrResourceClosed
+		return nil, resource.ErrClosed
 	}
 
 	if mode == resource.ModeExclusive {
-		return nil, resource.ErrResourceLocked
+		return nil, resource.ErrLocked
 	}
 
 	return &executorResource{executor: p.executor}, nil
@@ -229,7 +229,7 @@ func (r *executorResource) Get() (any, error) {
 	defer r.mu.Unlock()
 
 	if r.released {
-		return nil, resource.ErrResourceReleased
+		return nil, resource.ErrReleased
 	}
 
 	return r.executor, nil

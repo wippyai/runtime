@@ -2,7 +2,6 @@ package treesitter
 
 import (
 	"fmt"
-	"sync"
 
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -33,69 +32,150 @@ func toUint(v lua.LValue) uint {
 	}
 }
 
-var (
-	moduleTable  *lua.LTable
-	registration *luaapi.Registration
-	initOnce     sync.Once
-	languages    *Languages
-)
+var languages *Languages
 
-// Module is the singleton treesitter module instance.
-var Module = &treesitterModule{}
-
-type treesitterModule struct{}
-
-func (m *treesitterModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        "treesitter",
-		Description: "Tree-sitter parsing and syntax analysis",
-		Class:       []string{luaapi.ClassEncoding, luaapi.ClassDeterministic},
-	}
+// Module is the treesitter module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "treesitter",
+	Description: "Tree-sitter parsing and syntax analysis",
+	Class:       []string{luaapi.ClassEncoding, luaapi.ClassDeterministic},
+	Build:       buildModule,
 }
 
-func (m *treesitterModule) Register(l *lua.LState) *luaapi.Registration {
-	initOnce.Do(func() {
-		languages = NewLanguages()
+func init() {
+	languages = NewLanguages()
 
-		registerParser(l)
-		registerTree(l)
-		registerNode(l)
-		registerQuery(l)
-		registerCursor(l)
-		registerLanguage(l)
-
-		mod := lua.CreateTable(0, 5)
-		mod.RawSetString("supported_languages", lua.LGoFunc(supportedLanguages))
-		mod.RawSetString("language", lua.LGoFunc(language))
-		mod.RawSetString("parser", lua.LGoFunc(newParser))
-		mod.RawSetString("parse", lua.LGoFunc(parse))
-		mod.RawSetString("query", lua.LGoFunc(newQuery))
-		mod.Immutable = true
-		moduleTable = mod
-
-		registration = &luaapi.Registration{
-			Table:      moduleTable,
-			YieldTypes: nil,
-		}
+	value.RegisterTypeMethods(nil, typeParser, nil, map[string]lua.LGFunction{
+		"parse":        parserParse,
+		"set_language": parserSetLanguage,
+		"get_language": parserGetLanguage,
+		"reset":        parserReset,
+		"close":        parserClose,
+		"set_timeout":  parserSetTimeout,
+		"set_ranges":   parserSetRanges,
 	})
-	return registration
+
+	value.RegisterTypeMethods(nil, typeTree, nil, map[string]lua.LGFunction{
+		"root_node":             treeRootNode,
+		"root_node_with_offset": treeRootNodeWithOffset,
+		"language":              treeLanguage,
+		"copy":                  treeCopy,
+		"walk":                  treeWalk,
+		"edit":                  treeEdit,
+		"close":                 treeClose,
+		"changed_ranges":        treeChangedRanges,
+		"included_ranges":       treeIncludedRanges,
+		"dot_graph":             treePrintDotGraph,
+	})
+
+	value.RegisterTypeMethods(nil, typeNode, nil, map[string]lua.LGFunction{
+		"parent":                           nodeParent,
+		"child":                            nodeChild,
+		"child_count":                      nodeChildCount,
+		"next_sibling":                     nodeNextSibling,
+		"prev_sibling":                     nodePrevSibling,
+		"next_named_sibling":               nodeNextNamedSibling,
+		"prev_named_sibling":               nodePrevNamedSibling,
+		"named_child":                      nodeNamedChild,
+		"named_child_count":                nodeNamedChildCount,
+		"named_descendant_for_point_range": nodeNamedDescendantForPointRange,
+		"descendant_count":                 nodeDescendantCount,
+		"child_by_field_name":              nodeChildByFieldName,
+		"field_name_for_child":             nodeFieldNameForChild,
+		"kind":                             nodeKind,
+		"type":                             nodeKind,
+		"is_named":                         nodeIsNamed,
+		"grammar_name":                     nodeGrammarName,
+		"is_extra":                         nodeIsExtra,
+		"is_missing":                       nodeIsMissing,
+		"has_error":                        nodeHasError,
+		"is_error":                         nodeIsError,
+		"start_byte":                       nodeStartByte,
+		"end_byte":                         nodeEndByte,
+		"start_point":                      nodeStartPoint,
+		"end_point":                        nodeEndPoint,
+		"text":                             nodeText,
+		"to_sexp":                          nodeToSexp,
+	})
+
+	value.RegisterTypeMethods(nil, typeQuery, nil, map[string]lua.LGFunction{
+		"close":                   queryClose,
+		"matches":                 queryMatches,
+		"captures":                queryCaptures,
+		"pattern_count":           queryPatternCount,
+		"capture_count":           queryCaptureCount,
+		"string_count":            queryStringCount,
+		"start_byte_for_pattern":  queryStartByteForPattern,
+		"set_byte_range":          querySetByteRange,
+		"set_point_range":         querySetPointRange,
+		"set_match_limit":         querySetMatchLimit,
+		"get_match_limit":         queryGetMatchLimit,
+		"did_exceed_match_limit":  queryDidExceedMatchLimit,
+		"set_timeout":             querySetTimeout,
+		"get_timeout":             queryGetTimeout,
+		"disable_pattern":         queryDisablePattern,
+		"disable_capture":         queryDisableCapture,
+		"is_pattern_rooted":       queryIsPatternRooted,
+		"is_pattern_non_local":    queryIsPatternNonLocal,
+		"capture_name_for_id":     queryCaptureNameForID,
+		"capture_quantifier":      queryCaptureQuantifier,
+		"set_max_start_depth":     querySetMaxStartDepth,
+		"get_property_predicates": queryGetPropertyPredicates,
+		"get_property_settings":   queryGetPropertySettings,
+		"is_pattern_guaranteed":   queryIsPatternGuaranteed,
+		"capture_index_for_name":  queryCaptureIndexForName,
+		"end_byte_for_pattern":    queryEndByteForPattern,
+		"get_text_predicates":     queryGetTextPredicates,
+	})
+
+	value.RegisterTypeMethods(nil, typeCursor, nil, map[string]lua.LGFunction{
+		"current_node":               cursorCurrentNode,
+		"current_field_id":           cursorCurrentFieldID,
+		"current_field_name":         cursorCurrentFieldName,
+		"current_depth":              cursorCurrentDepth,
+		"current_descendant_index":   cursorCurrentDescendantIndex,
+		"goto_parent":                cursorGotoParent,
+		"goto_first_child":           cursorGotoFirstChild,
+		"goto_last_child":            cursorGotoLastChild,
+		"goto_next_sibling":          cursorGotoNextSibling,
+		"goto_previous_sibling":      cursorGotoPreviousSibling,
+		"goto_descendant":            cursorGotoDescendant,
+		"goto_first_child_for_byte":  cursorGotoFirstChildForByte,
+		"goto_first_child_for_point": cursorGotoFirstChildForPoint,
+		"reset":                      cursorReset,
+		"reset_to":                   cursorResetTo,
+		"copy":                       cursorCopy,
+		"close":                      cursorClose,
+	})
+
+	value.RegisterTypeMethods(nil, typeLanguage, nil, map[string]lua.LGFunction{
+		"version":            languageVersion,
+		"node_kind_count":    languageNodeKindCount,
+		"parse_state_count":  languageParseStateCount,
+		"node_kind_for_id":   languageNodeKindForID,
+		"id_for_node_kind":   languageIDForNodeKind,
+		"node_kind_is_named": languageNodeKindIsNamed,
+		"field_count":        languageFieldCount,
+		"field_name_for_id":  languageFieldNameForID,
+		"field_id_for_name":  languageFieldIDForName,
+	})
 }
 
-func (m *treesitterModule) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	l.Push(reg.Table)
-	return 1
-}
-
-// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
-func Bind(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
+func buildModule() (*lua.LTable, []luaapi.YieldType) {
+	mod := lua.CreateTable(0, 5)
+	mod.RawSetString("supported_languages", lua.LGoFunc(supportedLanguages))
+	mod.RawSetString("language", lua.LGoFunc(language))
+	mod.RawSetString("parser", lua.LGoFunc(newParser))
+	mod.RawSetString("parse", lua.LGoFunc(parse))
+	mod.RawSetString("query", lua.LGoFunc(newQuery))
+	mod.Immutable = true
+	return mod, nil
 }
 
 // supportedLanguages returns a table of supported languages.
 func supportedLanguages(l *lua.LState) int {
 	langs := languages.GetSupportedLanguages()
-	table := l.NewTable()
+	table := lua.CreateTable(len(langs), 0)
 	for _, lang := range langs {
 		table.RawSetString(lang, lua.LTrue)
 	}
@@ -108,24 +188,25 @@ func language(l *lua.LState) int {
 
 	langInfo := languages.GetLanguageInfo(languageAlias)
 	if langInfo == nil {
+		err := lua.NewLuaError(l, fmt.Sprintf("unsupported language: %s", languageAlias)).
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("unsupported language: %s", languageAlias)))
+		l.Push(err)
 		return 2
 	}
 
 	if langInfo.Language == nil {
+		err := lua.NewLuaError(l, fmt.Sprintf("language '%s' does not have a Tree-sitter language binding", languageAlias)).
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("language '%s' does not have a Tree-sitter language binding", languageAlias)))
+		l.Push(err)
 		return 2
 	}
 
 	lang := treesitter.NewLanguage(langInfo.Language())
-
-	// Spawn and return Language userdata
-	ud := l.NewUserData()
-	ud.Value = &LanguageWrapper{lang: lang}
-	l.SetMetatable(ud, value.GetTypeMetatable(nil, "treesitter.Language"))
-	l.Push(ud)
+	value.PushTypedUserData(l, &LanguageWrapper{lang: lang}, typeLanguage)
 	return 1
 }
 
@@ -139,30 +220,39 @@ func parse(l *lua.LState) int {
 	languageAlias := l.CheckString(1)
 	code := l.CheckString(2)
 
-	// Spawn parser and set language
 	parser := treesitter.NewParser()
 	defer parser.Close()
 
 	langInfo := languages.GetLanguageInfo(languageAlias)
 	if langInfo == nil {
-		l.ArgError(1, fmt.Sprintf("unsupported language: %s", languageAlias))
-		return 0
-	}
-
-	if langInfo.Language == nil {
-		l.ArgError(1, fmt.Sprintf("language '%s' does not have a Tree-sitter language binding", languageAlias))
-		return 0
-	}
-
-	lang := langInfo.Language()
-	err := parser.SetLanguage(treesitter.NewLanguage(lang))
-	if err != nil {
+		err := lua.NewLuaError(l, fmt.Sprintf("unsupported language: %s", languageAlias)).
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to set language: %s", err)))
+		l.Push(err)
 		return 2
 	}
 
-	// Use context from Lua state
+	if langInfo.Language == nil {
+		err := lua.NewLuaError(l, fmt.Sprintf("language '%s' does not have a Tree-sitter language binding", languageAlias)).
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
+	}
+
+	lang := langInfo.Language()
+	if setErr := parser.SetLanguage(treesitter.NewLanguage(lang)); setErr != nil {
+		err := lua.WrapErrorWithLua(l, setErr, "failed to set language").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
+	}
+
 	ctx := l.Context()
 	if ctx == nil {
 		l.RaiseError("no context found")
@@ -172,22 +262,17 @@ func parse(l *lua.LState) int {
 	var cflag uintptr
 	parser.SetCancellationFlag(&cflag)
 
-	// Parse with context
 	tree := parser.ParseCtx(ctx, []byte(code), nil)
 	if tree == nil {
+		err := lua.NewLuaError(l, "failed to parse code").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("failed to parse code"))
+		l.Push(err)
 		return 2
 	}
 
-	// Use the new constructor
 	treeWrapper := NewTree(ctx, tree, code)
-
-	// Return tree userdata
-	ud := l.NewUserData()
-	ud.Value = treeWrapper
-	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Tree")
-
-	l.Push(ud)
+	value.PushTypedUserData(l, treeWrapper, typeTree)
 	return 1
 }

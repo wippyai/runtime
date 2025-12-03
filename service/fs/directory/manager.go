@@ -39,12 +39,12 @@ func NewDirectoryManager(bus event.Bus, dtt payload.Transcoder, factory FSFactor
 // Add creates and registers a new directory filesystem
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != dirapi.Kind {
-		return newUnsupportedEntryKindError(entry.Kind)
+		return fsapi.NewUnsupportedEntryKindError(entry.Kind)
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[dirapi.Config](ctx, m.dtt, entry)
 	if err != nil {
-		return newFailedToDecodeConfigError(err)
+		return fsapi.NewDecodeConfigError(err)
 	}
 
 	m.mu.Lock()
@@ -52,7 +52,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	// Store in directories map
 	if _, loaded := m.directories.LoadOrStore(entry.ID.String(), nil); loaded {
-		return newDirectoryAlreadyExistsError(entry.ID.String())
+		return fsapi.NewFilesystemAlreadyExistsError(entry.ID.String())
 	}
 
 	return m.registerFS(ctx, entry.ID, cfg)
@@ -61,12 +61,12 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update updates an existing directory filesystem
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != dirapi.Kind {
-		return newUnsupportedEntryKindError(entry.Kind)
+		return fsapi.NewUnsupportedEntryKindError(entry.Kind)
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[dirapi.Config](ctx, m.dtt, entry)
 	if err != nil {
-		return newFailedToDecodeConfigError(err)
+		return fsapi.NewDecodeConfigError(err)
 	}
 
 	m.mu.Lock()
@@ -74,7 +74,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	old, exists := m.directories.Load(entry.ID.String())
 	if !exists {
-		return newDirectoryNotFoundError(entry.ID.String())
+		return fsapi.NewFilesystemNotFoundError(entry.ID.String())
 	}
 
 	if err := m.registerFS(ctx, entry.ID, cfg); err != nil {
@@ -99,7 +99,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete removes a directory filesystem
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != dirapi.Kind {
-		return newUnsupportedEntryKindError(entry.Kind)
+		return fsapi.NewUnsupportedEntryKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -107,7 +107,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 
 	old, exists := m.directories.LoadAndDelete(entry.ID.String())
 	if !exists {
-		return newDirectoryNotFoundError(entry.ID.String())
+		return fsapi.NewFilesystemNotFoundError(entry.ID.String())
 	}
 
 	m.removeFS(ctx, entry.ID)
@@ -136,7 +136,7 @@ func (m *Manager) registerFS(ctx context.Context, id registry.ID, cfg *dirapi.Co
 			zap.String("id", id.String()),
 			zap.String("directory", cfg.Directory),
 			zap.Error(err))
-		return newFailedToCreateFilesystemError(err)
+		return fsapi.NewCreateFilesystemError(err)
 	}
 
 	// Store in directories map

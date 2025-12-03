@@ -14,6 +14,8 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+const typeTree = "treesitter.Tree"
+
 // TreeWrapper wraps a tree-sitter Tree for Lua integration
 type TreeWrapper struct {
 	tree          *treesitter.Tree
@@ -52,23 +54,6 @@ func (t *TreeWrapper) Close() {
 		t.cancelCleanup()
 		t.cancelCleanup = nil
 	}
-}
-
-// Register the Tree type to Lua
-func registerTree(l *lua.LState) {
-	methods := map[string]lua.LGFunction{
-		"root_node":             treeRootNode,
-		"root_node_with_offset": treeRootNodeWithOffset,
-		"language":              treeLanguage,
-		"copy":                  treeCopy,
-		"walk":                  treeWalk,
-		"edit":                  treeEdit,
-		"close":                 treeClose,
-		"changed_ranges":        treeChangedRanges,
-		"included_ranges":       treeIncludedRanges,
-		"dot_graph":             treePrintDotGraph,
-	}
-	value.RegisterMethods(l, "treesitter.Tree", methods)
 }
 
 func treeRootNode(l *lua.LState) int {
@@ -332,9 +317,13 @@ func treeEdit(l *lua.LState) int {
 		NewEndPosition: newEndPoint,
 	}
 
-	if err := tree.edit(edit); err != nil {
+	if editErr := tree.edit(edit); editErr != nil {
+		err := lua.WrapErrorWithLua(l, editErr, "edit failed").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LFalse)
-		pushError(l, err)
+		l.Push(err)
 		return 2
 	}
 
@@ -427,10 +416,14 @@ func treePrintDotGraph(l *lua.LState) int {
 	}
 
 	// Spawn a pipe
-	r, w, err := os.Pipe()
-	if err != nil {
+	r, w, pipeErr := os.Pipe()
+	if pipeErr != nil {
+		err := lua.WrapErrorWithLua(l, pipeErr, "failed to create pipe").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
-		pushErrorString(l, "failed to create pipe: "+err.Error())
+		l.Push(err)
 		return 2
 	}
 	defer func() { _ = r.Close(); _ = w.Close() }()
@@ -455,8 +448,12 @@ func treePrintDotGraph(l *lua.LState) int {
 	wg.Wait()
 
 	if readErr != nil {
+		err := lua.WrapErrorWithLua(l, readErr, "failed to read DOT graph").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
-		pushErrorString(l, "failed to read DOT graph: "+readErr.Error())
+		l.Push(err)
 		return 2
 	}
 

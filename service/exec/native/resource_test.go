@@ -37,7 +37,7 @@ func TestExecutorProvider_Acquire(t *testing.T) {
 	res.Release()
 
 	val, err = res.Get()
-	assert.ErrorIs(t, err, resource.ErrResourceReleased)
+	assert.ErrorIs(t, err, resource.ErrReleased)
 	assert.Nil(t, val)
 }
 
@@ -49,7 +49,7 @@ func TestExecutorProvider_AcquireExclusive(t *testing.T) {
 	id := registry.NewID("test", "executor")
 
 	res, err := provider.Acquire(ctx, id, resource.ModeExclusive)
-	assert.ErrorIs(t, err, resource.ErrResourceLocked)
+	assert.ErrorIs(t, err, resource.ErrLocked)
 	assert.Nil(t, res)
 }
 
@@ -64,7 +64,7 @@ func TestExecutorProvider_Close(t *testing.T) {
 	require.NoError(t, err)
 
 	res, err := provider.Acquire(ctx, id, resource.ModeNormal)
-	assert.ErrorIs(t, err, resource.ErrResourceClosed)
+	assert.ErrorIs(t, err, resource.ErrClosed)
 	assert.Nil(t, res)
 
 	err = provider.Close()

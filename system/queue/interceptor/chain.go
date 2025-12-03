@@ -31,7 +31,7 @@ func (c *Chain) Publish(ctx context.Context, queue registry.ID, msgs ...*queueap
 		if c.publishFunc != nil {
 			return c.publishFunc(ctx, queue, msgs...)
 		}
-		return queueapi.ErrNoDriver
+		return queueapi.ErrNoPublishFunc
 	}
 
 	next := c.buildNext(0)
@@ -44,7 +44,7 @@ func (c *Chain) buildNext(index int) func(context.Context, registry.ID, []*queue
 			if c.publishFunc != nil {
 				return c.publishFunc(ctx, q, msgs...)
 			}
-			return queueapi.ErrNoDriver
+			return queueapi.ErrNoPublishFunc
 		}
 	}
 

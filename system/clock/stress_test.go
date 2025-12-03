@@ -14,6 +14,10 @@ import (
 // TestTimerWaveLoad simulates realistic wave-based load patterns.
 // Creates timers in waves with varying intensity over time.
 func TestTimerWaveLoad(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping stress test in short mode")
+	}
+
 	r := NewWheelTimerRegistry()
 	defer r.Close()
 
@@ -100,6 +104,10 @@ func TestTimerWaveLoad(t *testing.T) {
 
 // TestTickerWaveLoad simulates wave-based load patterns for tickers.
 func TestTickerWaveLoad(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping stress test in short mode")
+	}
+
 	r := NewTickerRegistry()
 	defer r.Close()
 
@@ -187,6 +195,10 @@ func TestTickerWaveLoad(t *testing.T) {
 
 // TestTimerBurstSpikes simulates sudden traffic spikes followed by calm periods.
 func TestTimerBurstSpikes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping stress test in short mode")
+	}
+
 	r := NewWheelTimerRegistry()
 	defer r.Close()
 
@@ -257,6 +269,10 @@ func TestTimerBurstSpikes(t *testing.T) {
 
 // TestMixedOperationsChaos performs random mixed operations with realistic patterns.
 func TestMixedOperationsChaos(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping stress test in short mode")
+	}
+
 	r := NewWheelTimerRegistry()
 	defer r.Close()
 
@@ -365,6 +381,10 @@ func TestMixedOperationsChaos(t *testing.T) {
 
 // TestConcurrentResetRace tests concurrent resets on the same timer to find races.
 func TestConcurrentResetRace(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping stress test in short mode")
+	}
+
 	r := NewWheelTimerRegistry()
 	defer r.Close()
 
@@ -405,6 +425,10 @@ func TestConcurrentResetRace(t *testing.T) {
 
 // TestWheelTimerMixedChaos tests timing wheel under chaotic load.
 func TestWheelTimerMixedChaos(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping stress test in short mode")
+	}
+
 	r := NewWheelTimerRegistry()
 	defer r.Close()
 
@@ -500,6 +524,10 @@ func TestWheelTimerMixedChaos(t *testing.T) {
 
 // TestRapidCreateWait rapidly creates and waits for timers.
 func TestRapidCreateWait(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping stress test in short mode")
+	}
+
 	r := NewWheelTimerRegistry()
 	defer r.Close()
 
@@ -535,6 +563,10 @@ func TestRapidCreateWait(t *testing.T) {
 
 // TestRapidCreateCancel rapidly creates and cancels timers.
 func TestRapidCreateCancel(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping stress test in short mode")
+	}
+
 	r := NewWheelTimerRegistry()
 	defer r.Close()
 
@@ -574,6 +606,10 @@ func TestRapidCreateCancel(t *testing.T) {
 
 // TestLeakDetection verifies no resources are leaked.
 func TestLeakDetection(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping stress test in short mode")
+	}
+
 	// Timer registry (wheel-based)
 	tr := NewWheelTimerRegistry()
 	for i := 0; i < 1000; i++ {
@@ -596,6 +632,10 @@ func TestLeakDetection(t *testing.T) {
 
 // TestContextCancellationUnderLoad tests context cancellation with many waiters.
 func TestContextCancellationUnderLoad(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping stress test in short mode")
+	}
+
 	r := NewWheelTimerRegistry()
 	defer r.Close()
 
@@ -636,6 +676,10 @@ func TestContextCancellationUnderLoad(t *testing.T) {
 
 // TestWheelTimerMemoryLeak tests for memory leaks by creating and destroying many timers.
 func TestWheelTimerMemoryLeak(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping stress test in short mode")
+	}
+
 	runtime.GC()
 	var m1 runtime.MemStats
 	runtime.ReadMemStats(&m1)
@@ -777,6 +821,10 @@ func TestWheelTimerLongRunning(t *testing.T) {
 
 // TestWheelTimerBurstMemory tests memory behavior under burst load.
 func TestWheelTimerBurstMemory(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping stress test in short mode")
+	}
+
 	r := NewWheelTimerRegistry()
 	defer r.Close()
 
@@ -830,6 +878,10 @@ func TestWheelTimerBurstMemory(t *testing.T) {
 
 // TestWheelTimerGoroutineLeak tests for goroutine leaks.
 func TestWheelTimerGoroutineLeak(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping stress test in short mode")
+	}
+
 	baseGoroutines := runtime.NumGoroutine()
 
 	const iterations = 5

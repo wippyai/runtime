@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/env"
-	enverr "github.com/wippyai/runtime/service/env"
 )
 
 func TestStorage_ImplementsInterface(_ *testing.T) {
@@ -49,14 +48,14 @@ func TestStorage_Set(t *testing.T) {
 	storage := NewStorage()
 
 	err := storage.Set(context.Background(), "KEY", "VALUE")
-	assert.ErrorIs(t, err, enverr.ErrStorageReadOnly)
+	assert.ErrorIs(t, err, env.ErrStorageReadOnly)
 }
 
 func TestStorage_Delete(t *testing.T) {
 	storage := NewStorage()
 
 	err := storage.Delete(context.Background(), "KEY")
-	assert.ErrorIs(t, err, enverr.ErrStorageReadOnly)
+	assert.ErrorIs(t, err, env.ErrStorageReadOnly)
 }
 
 func TestStorage_List(t *testing.T) {
@@ -100,14 +99,14 @@ func TestStaticStorage_Set(t *testing.T) {
 	storage := NewStaticStorage(nil)
 
 	err := storage.Set(context.Background(), "KEY", "VALUE")
-	assert.ErrorIs(t, err, enverr.ErrStorageReadOnly)
+	assert.ErrorIs(t, err, env.ErrStorageReadOnly)
 }
 
 func TestStaticStorage_Delete(t *testing.T) {
 	storage := NewStaticStorage(nil)
 
 	err := storage.Delete(context.Background(), "KEY")
-	assert.ErrorIs(t, err, enverr.ErrStorageReadOnly)
+	assert.ErrorIs(t, err, env.ErrStorageReadOnly)
 }
 
 func TestStaticStorage_List(t *testing.T) {

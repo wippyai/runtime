@@ -44,9 +44,9 @@ func TestNewPayload(t *testing.T) {
 		{
 			name:         "error with Error format",
 			data:         errors.New("test error"),
-			format:       Error,
+			format:       GoError,
 			expectData:   errors.New("test error"),
-			expectFormat: Error,
+			expectFormat: GoError,
 		},
 	}
 
@@ -142,19 +142,19 @@ func TestNewError(t *testing.T) {
 			name:         "simple error",
 			err:          errors.New("test error"),
 			expectData:   errors.New("test error"),
-			expectFormat: Error,
+			expectFormat: GoError,
 		},
 		{
 			name:         "nil error",
 			err:          nil,
 			expectData:   nil,
-			expectFormat: Error,
+			expectFormat: GoError,
 		},
 		{
 			name:         "wrapped error",
 			err:          fmt.Errorf("wrapped: %w", errors.New("original")),
 			expectData:   fmt.Errorf("wrapped: %w", errors.New("original")),
-			expectFormat: Error,
+			expectFormat: GoError,
 		},
 	}
 

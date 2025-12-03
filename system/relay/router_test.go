@@ -127,116 +127,116 @@ func TestRouter_Send(t *testing.T) {
 	})
 }
 
-func TestRouter_VirtualNodes(t *testing.T) {
+func TestRouter_PeerNodes(t *testing.T) {
 	localNode := &mockNode{id: "local"}
 
-	t.Run("RegisterVirtualNode", func(t *testing.T) {
+	t.Run("RegisterPeer", func(t *testing.T) {
 		router := relay.NewRouter(localNode, nil)
-		virtualReceiver := &mockReceiver{}
+		peerReceiver := &mockReceiver{}
 
-		err := router.RegisterVirtualNode("virtual1", virtualReceiver)
+		err := router.RegisterPeer("peer1", peerReceiver)
 		require.NoError(t, err)
 	})
 
-	t.Run("RegisterVirtualNode with empty nodeID", func(t *testing.T) {
+	t.Run("RegisterPeer with empty nodeID", func(t *testing.T) {
 		router := relay.NewRouter(localNode, nil)
-		virtualReceiver := &mockReceiver{}
+		peerReceiver := &mockReceiver{}
 
-		err := router.RegisterVirtualNode("", virtualReceiver)
+		err := router.RegisterPeer("", peerReceiver)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "nodeID cannot be empty")
 	})
 
-	t.Run("RegisterVirtualNode conflicts with local node", func(t *testing.T) {
+	t.Run("RegisterPeer conflicts with local node", func(t *testing.T) {
 		router := relay.NewRouter(localNode, nil)
-		virtualReceiver := &mockReceiver{}
+		peerReceiver := &mockReceiver{}
 
-		err := router.RegisterVirtualNode("local", virtualReceiver)
+		err := router.RegisterPeer("local", peerReceiver)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "conflicts with local node")
 	})
 
-	t.Run("RegisterVirtualNode duplicate", func(t *testing.T) {
+	t.Run("RegisterPeer duplicate", func(t *testing.T) {
 		router := relay.NewRouter(localNode, nil)
-		virtualReceiver1 := &mockReceiver{}
-		virtualReceiver2 := &mockReceiver{}
+		peerReceiver1 := &mockReceiver{}
+		peerReceiver2 := &mockReceiver{}
 
-		err := router.RegisterVirtualNode("virtual1", virtualReceiver1)
+		err := router.RegisterPeer("peer1", peerReceiver1)
 		require.NoError(t, err)
 
-		err = router.RegisterVirtualNode("virtual1", virtualReceiver2)
+		err = router.RegisterPeer("peer1", peerReceiver2)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "already registered")
 	})
 
-	t.Run("UnregisterVirtualNode", func(t *testing.T) {
+	t.Run("UnregisterPeer", func(t *testing.T) {
 		router := relay.NewRouter(localNode, nil)
-		virtualReceiver := &mockReceiver{}
+		peerReceiver := &mockReceiver{}
 
-		err := router.RegisterVirtualNode("virtual1", virtualReceiver)
+		err := router.RegisterPeer("peer1", peerReceiver)
 		require.NoError(t, err)
 
-		existed := router.UnregisterVirtualNode("virtual1")
+		existed := router.UnregisterPeer("peer1")
 		assert.True(t, existed)
 	})
 
-	t.Run("UnregisterVirtualNode not found", func(t *testing.T) {
+	t.Run("UnregisterPeer not found", func(t *testing.T) {
 		router := relay.NewRouter(localNode, nil)
 
-		existed := router.UnregisterVirtualNode("nonexistent")
+		existed := router.UnregisterPeer("nonexistent")
 		assert.False(t, existed)
 	})
 
-	t.Run("Send to virtual node", func(t *testing.T) {
+	t.Run("Send to peer node", func(t *testing.T) {
 		localNode.sendCalled = 0
 		router := relay.NewRouter(localNode, nil)
-		virtualReceiver := &mockReceiver{}
+		peerReceiver := &mockReceiver{}
 
-		err := router.RegisterVirtualNode("virtual1", virtualReceiver)
+		err := router.RegisterPeer("peer1", peerReceiver)
 		require.NoError(t, err)
 
-		pkgToVirtual := &api.Package{Target: api.PID{Node: "virtual1", Host: "queue", UniqID: "wf-123"}}
-		err = router.Send(pkgToVirtual)
+		pkgToPeer := &api.Package{Target: api.PID{Node: "peer1", Host: "queue", UniqID: "wf-123"}}
+		err = router.Send(pkgToPeer)
 		require.NoError(t, err)
 
 		assert.Equal(t, int32(0), localNode.sendCalled, "localNode.Send should not be called")
-		assert.Equal(t, int32(1), virtualReceiver.sendCalled, "virtualReceiver.Send should be called")
+		assert.Equal(t, int32(1), peerReceiver.sendCalled, "peerReceiver.Send should be called")
 	})
 
-	t.Run("Send to unregistered virtual node", func(t *testing.T) {
+	t.Run("Send to unregistered peer node", func(t *testing.T) {
 		localNode.sendCalled = 0
 		router := relay.NewRouter(localNode, nil)
 
-		pkgToVirtual := &api.Package{Target: api.PID{Node: "nonexistent", Host: "queue", UniqID: "wf-123"}}
-		err := router.Send(pkgToVirtual)
+		pkgToPeer := &api.Package{Target: api.PID{Node: "nonexistent", Host: "queue", UniqID: "wf-123"}}
+		err := router.Send(pkgToPeer)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	})
 
-	t.Run("Virtual node takes priority over internode", func(t *testing.T) {
+	t.Run("Peer node takes priority over internode", func(t *testing.T) {
 		router := relay.NewRouter(localNode, &mockReceiver{})
-		virtualReceiver := &mockReceiver{}
+		peerReceiver := &mockReceiver{}
 
-		err := router.RegisterVirtualNode("virtual1", virtualReceiver)
+		err := router.RegisterPeer("peer1", peerReceiver)
 		require.NoError(t, err)
 
-		pkgToVirtual := &api.Package{Target: api.PID{Node: "virtual1", Host: "queue", UniqID: "wf-123"}}
-		err = router.Send(pkgToVirtual)
+		pkgToPeer := &api.Package{Target: api.PID{Node: "peer1", Host: "queue", UniqID: "wf-123"}}
+		err = router.Send(pkgToPeer)
 		require.NoError(t, err)
 
-		assert.Equal(t, int32(1), virtualReceiver.sendCalled, "virtualReceiver.Send should be called")
+		assert.Equal(t, int32(1), peerReceiver.sendCalled, "peerReceiver.Send should be called")
 	})
 
-	t.Run("Propagate error from virtual node", func(t *testing.T) {
+	t.Run("Propagate error from peer node", func(t *testing.T) {
 		router := relay.NewRouter(localNode, nil)
-		errToSend := errors.New("virtual send failed")
-		virtualReceiver := &mockReceiver{sendErr: errToSend}
+		errToSend := errors.New("peer send failed")
+		peerReceiver := &mockReceiver{sendErr: errToSend}
 
-		err := router.RegisterVirtualNode("virtual1", virtualReceiver)
+		err := router.RegisterPeer("peer1", peerReceiver)
 		require.NoError(t, err)
 
-		pkgToVirtual := &api.Package{Target: api.PID{Node: "virtual1", Host: "queue", UniqID: "wf-123"}}
-		err = router.Send(pkgToVirtual)
+		pkgToPeer := &api.Package{Target: api.PID{Node: "peer1", Host: "queue", UniqID: "wf-123"}}
+		err = router.Send(pkgToPeer)
 		require.Error(t, err)
 		assert.Equal(t, errToSend, err)
 	})

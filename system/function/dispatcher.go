@@ -4,6 +4,7 @@ package function
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	funcapi "github.com/wippyai/runtime/api/dispatcher/func"
@@ -48,26 +49,33 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 
 func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
 	callCmd := cmd.(*funcapi.CallCmd)
+	fmt.Printf("[DISPATCHER] handleCall: task=%v\n", callCmd.Task.ID)
 
 	registry := function.GetRegistry(ctx)
 	if registry == nil {
-		emit.Emit(funcapi.Response{Error: ErrRegistryNotFound}, nil)
+		fmt.Println("[DISPATCHER] registry not found")
+		emit.Emit(funcapi.Response{Error: function.ErrRegistryNotFound}, nil)
 		return nil
 	}
 
 	go func() {
 		result, err := registry.Call(ctx, callCmd.Task)
+		fmt.Printf("[DISPATCHER] registry.Call returned: result=%+v, err=%v\n", result, err)
 		if ctx.Err() != nil {
+			fmt.Println("[DISPATCHER] ctx cancelled, not emitting")
 			return
 		}
 		if err != nil {
+			fmt.Printf("[DISPATCHER] emitting error: %v\n", err)
 			emit.Emit(funcapi.Response{Error: err}, nil)
 			return
 		}
 		if result.Error != nil {
+			fmt.Printf("[DISPATCHER] emitting result.Error: %v\n", result.Error)
 			emit.Emit(funcapi.Response{Error: result.Error}, nil)
 			return
 		}
+		fmt.Printf("[DISPATCHER] emitting result.Value: %v (type %T)\n", result.Value, result.Value)
 		emit.Emit(funcapi.Response{Value: result.Value}, nil)
 	}()
 
@@ -79,11 +87,16 @@ func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Comman
 
 	registry := function.GetRegistry(ctx)
 	if registry == nil {
-		emit.Emit(funcapi.AsyncStartResponse{Error: ErrRegistryNotFound}, nil)
+		emit.Emit(funcapi.AsyncStartResponse{Error: function.ErrRegistryNotFound}, nil)
 		return nil
 	}
 
 	callRegistry := GetOrCreateAsyncCallRegistry(ctx)
+	if callRegistry == nil {
+		emit.Emit(funcapi.AsyncStartResponse{Error: function.ErrCallNotFound}, nil)
+		return nil
+	}
+
 	id := callRegistry.Start(ctx, registry, startCmd.Task)
 	emit.Emit(funcapi.AsyncStartResponse{CallID: id}, nil)
 	return nil
@@ -94,7 +107,7 @@ func (d *Dispatcher) handleAsyncAwait(ctx context.Context, cmd dispatcher.Comman
 
 	callRegistry := GetAsyncCallRegistry(ctx)
 	if callRegistry == nil {
-		emit.Emit(funcapi.AsyncAwaitResponse{Error: ErrCallNotFound}, nil)
+		emit.Emit(funcapi.AsyncAwaitResponse{Error: function.ErrCallNotFound}, nil)
 		return nil
 	}
 
@@ -104,7 +117,7 @@ func (d *Dispatcher) handleAsyncAwait(ctx context.Context, cmd dispatcher.Comman
 			return
 		}
 		if err != nil {
-			cancelled := errors.Is(err, ErrCallCancelled)
+			cancelled := errors.Is(err, function.ErrCallCancelled)
 			emit.Emit(funcapi.AsyncAwaitResponse{Error: err, Cancelled: cancelled}, nil)
 			return
 		}

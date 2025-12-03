@@ -181,7 +181,7 @@ func (m *Manager) Acquire(_ context.Context, id registry.ID, mode resource.Acces
 
 	// Only support normal mode
 	if mode != resource.ModeNormal {
-		return nil, resource.ErrResourceLocked
+		return nil, resource.ErrLocked
 	}
 
 	// Create the store if it doesn't exist yet
@@ -220,7 +220,7 @@ func (r *tokenStoreResource) Get() (any, error) {
 	defer r.mu.Unlock()
 
 	if r.closed {
-		return nil, resource.ErrResourceReleased
+		return nil, resource.ErrReleased
 	}
 
 	return r.store, nil

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
@@ -460,6 +461,10 @@ func TestUnsubscribeAfterStop(t *testing.T) {
 }
 
 func TestHighConcurrencyStress(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping stress test in short mode")
+	}
+
 	b := NewBus()
 	defer b.Stop()
 
@@ -710,6 +715,10 @@ func TestConcurrentBusClosing(t *testing.T) {
 }
 
 func TestStopDuringBackpressure(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping stress test in short mode")
+	}
+
 	b := NewBus()
 
 	// Spawn multiple subscribers with buffered channels to prevent complete blockage
@@ -1061,4 +1070,95 @@ func BenchmarkExactMatch(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		bus.Send(context.Background(), e)
 	}
+}
+
+func TestBurstSend(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping stress test in short mode")
+	}
+
+	b := NewBus()
+	defer b.Stop()
+
+	const (
+		burstSize      = 10000
+		numSubscribers = 10
+	)
+
+	var received atomic.Int64
+	expected := int64(burstSize * numSubscribers)
+
+	channels := make([]chan event.Event, numSubscribers)
+	for i := 0; i < numSubscribers; i++ {
+		channels[i] = make(chan event.Event, burstSize)
+		_, err := b.Subscribe(context.Background(), "burst", channels[i])
+		require.NoError(t, err)
+
+		go func(ch chan event.Event) {
+			for range ch {
+				received.Add(1)
+			}
+		}(channels[i])
+	}
+
+	// Send burst of events as fast as possible
+	for i := 0; i < burstSize; i++ {
+		b.Send(context.Background(), event.Event{
+			System: "burst",
+			Kind:   "test",
+			Data:   i,
+		})
+	}
+
+	// Wait for all events to be delivered (poll with timeout)
+	deadline := time.Now().Add(5 * time.Second)
+	for received.Load() < expected && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Verify all events received by all subscribers
+	assert.Equal(t, expected, received.Load(), "all events should be delivered")
+}
+
+func TestBurstQueueGrowth(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping stress test in short mode")
+	}
+
+	b := NewBus()
+	defer b.Stop()
+
+	const burstSize = 1000
+
+	// Consumer with adequate buffer
+	ch := make(chan event.Event, burstSize)
+	_, err := b.Subscribe(context.Background(), "burst", ch)
+	require.NoError(t, err)
+
+	var received atomic.Int64
+
+	go func() {
+		for range ch {
+			received.Add(1)
+		}
+	}()
+
+	// Send burst - this tests that the queue can grow beyond defaultQueueCap
+	for i := 0; i < burstSize; i++ {
+		b.Send(context.Background(), event.Event{
+			System: "burst",
+			Kind:   "test",
+			Data:   i,
+		})
+	}
+
+	// Wait for delivery (poll with timeout)
+	expected := int64(burstSize)
+	deadline := time.Now().Add(5 * time.Second)
+	for received.Load() < expected && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// All events should be delivered
+	assert.Equal(t, expected, received.Load(), "all events should be delivered")
 }

@@ -2,7 +2,7 @@ package policy
 
 import (
 	"errors"
-	"fmt" // Note: fmt kept for Sprintf in logging
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"

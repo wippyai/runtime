@@ -2,7 +2,7 @@ package engine
 
 import (
 	"errors"
-	"fmt" // Note: fmt kept for Sprintf in logging
+	"fmt"
 
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"

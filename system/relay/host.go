@@ -2,14 +2,11 @@ package relay
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	api "github.com/wippyai/runtime/api/relay"
 	"go.uber.org/zap"
 )
-
-// Note: fmt kept for Sprintf with %T in logging
 
 // HostConfig holds configuration for a Host.
 type HostConfig struct {
@@ -21,48 +18,51 @@ type HostConfig struct {
 // Host implements a local relay for a single host with asynchronous sending.
 type Host struct {
 	ctx       context.Context
-	receivers sync.Map            // key: api.pid -> chan *api.Messages
+	receivers sync.Map            // key: api.PID -> chan *api.Package
 	jobQueues []chan *api.Package // One queue per worker
 	config    HostConfig
-	logger    *zap.Logger
 }
 
 // NewHost creates a new Host instance with the provided configuration and context.
 // The supplied context will cancel all workers when done.
 func NewHost(ctx context.Context, config HostConfig) *Host {
-	// If no logger provided, use noop logger
 	if config.Logger == nil {
 		config.Logger = zap.NewNop()
 	}
 
-	// Ensure at least one worker
 	if config.WorkerCount < 1 {
 		config.WorkerCount = 1
 	}
 
-	// Create one job queue per worker
 	jobQueues := make([]chan *api.Package, config.WorkerCount)
 	for i := 0; i < config.WorkerCount; i++ {
 		jobQueues[i] = make(chan *api.Package, config.BufferSize)
 	}
 
 	h := &Host{
-		config:    config,
 		jobQueues: jobQueues,
 		ctx:       ctx,
-		logger:    config.Logger,
+		config:    config,
 	}
 
-	// Spawn worker goroutines, each with its own queue
 	for i := 0; i < config.WorkerCount; i++ {
 		go h.worker(i)
 	}
+
+	// Close job queues when context is cancelled
+	go func() {
+		<-ctx.Done()
+		for i := range jobQueues {
+			close(jobQueues[i])
+		}
+	}()
+
 	return h
 }
 
-// fnv1a32 is a very fast hash function for string inputs
-// It's simple and provides good distribution
-func fnv1a32(s string) uint32 {
+// hashString computes a fast hash for worker distribution.
+// Uses FNV-1a which is optimal for short strings like UniqIDs.
+func hashString(s string) uint32 {
 	var h uint32 = 2166136261
 	for i := 0; i < len(s); i++ {
 		h ^= uint32(s[i])
@@ -72,96 +72,64 @@ func fnv1a32(s string) uint32 {
 }
 
 // Attach attaches a receiver channel for Package messages.
-// This method is intended for consumers that need both the sender's pid and the pkg payload.
-// It registers the channel to receive messages where each message wraps the pid along with the pkg.
-// Note: Only one Package receiver may be attached per pid; if one already exists, an error is returned.
+// Only one receiver may be attached per PID; if one already exists, an error is returned.
 func (h *Host) Attach(pid api.PID, ch chan *api.Package) (context.CancelFunc, error) {
 	_, loaded := h.receivers.LoadOrStore(pid, ch)
 	if loaded {
-		h.logger.Warn("attempt to attach an already existing package receiver",
+		h.config.Logger.Warn("attempt to attach an already existing package receiver",
 			zap.String("pid", pid.String()),
 			zap.String("host", pid.Host),
 			zap.String("uniq_id", pid.UniqID))
-		return nil, NewAlreadyAttachedError(pid)
+		return nil, api.NewAlreadyAttachedError(pid)
 	}
 
-	cancel := func() {
-		h.receivers.Delete(pid)
-	}
-	return cancel, nil
+	return func() { h.receivers.Delete(pid) }, nil
 }
 
 // Detach removes a receiver channel from a pid.
 func (h *Host) Detach(pid api.PID) {
 	h.receivers.Delete(pid)
-	h.logger.Debug("receiver detached", zap.String("pid", pid.String()))
+	h.config.Logger.Debug("receiver detached", zap.String("pid", pid.String()))
 }
 
-// Send enqueues a send job for the given pid and pkg.
-// Uses hash of Target to route to consistent worker queue.
+// Send enqueues a package for delivery. Messages from the same source
+// are routed to the same worker to preserve per-sender FIFO ordering.
 func (h *Host) Send(pkg *api.Package) error {
 	if err := h.ctx.Err(); err != nil {
-		h.logger.Warn("send after host shutdown", zap.String("pid", pkg.Target.String()))
+		h.config.Logger.Warn("send after host shutdown", zap.String("pid", pkg.Target.String()))
 		return err
 	}
 
-	// Use UniqID for hashing as it's the most specific part of Source
-	hash := fnv1a32(pkg.Source.UniqID)
-	workerIndex := int(hash) % len(h.jobQueues)
+	// Hash by Source.UniqID to preserve per-sender ordering
+	workerIndex := int(hashString(pkg.Source.UniqID)) % h.config.WorkerCount
 
-	// Send to the determined worker queue
-	select {
-	case h.jobQueues[workerIndex] <- pkg:
-		return nil
-	case <-h.ctx.Done():
-		h.logger.Warn("send canceled by host shutdown", zap.String("pid", pkg.Target.String()))
-		return h.ctx.Err()
-	}
+	h.jobQueues[workerIndex] <- pkg
+	return nil
 }
 
-// worker processes send jobs from a specific queue
+// worker processes packages from its dedicated queue.
 func (h *Host) worker(queueIndex int) {
 	queue := h.jobQueues[queueIndex]
 
-	for {
-		select {
-		case <-h.ctx.Done():
-			return
-		case job := <-queue:
-			rec, ok := h.receivers.Load(job.Target)
-			if !ok {
-				var topic string
-				if len(job.Messages) > 0 {
-					topic = job.Messages[0].Topic
-				}
-				h.logger.Debug("No receiver found for target PID",
-					zap.String("target", job.Target.String()),
-					zap.String("source", job.Source.String()),
-					zap.String("topic", topic))
-				continue
-			}
-
-			// Handle both types of channels
-			switch ch := rec.(type) {
-			case chan *api.Package:
-				h.deliverPackage(job, ch)
-			default:
-				h.logger.Error("invalid receiver type",
-					zap.String("pid", job.Target.String()),
-					zap.String("type", fmt.Sprintf("%T", rec)))
-			}
-		}
+	for pkg := range queue {
+		h.deliver(pkg)
 	}
 }
 
-// deliverPackage handles delivery to Package channels
-func (h *Host) deliverPackage(job *api.Package, ch chan *api.Package) {
-	select {
-	case ch <- job:
-		// Successfully sent immediately
+// deliver sends the package to the target's receiver channel.
+func (h *Host) deliver(pkg *api.Package) {
+	rec, ok := h.receivers.Load(pkg.Target)
+	if !ok {
+		var topic string
+		if len(pkg.Messages) > 0 {
+			topic = pkg.Messages[0].Topic
+		}
+		h.config.Logger.Debug("no receiver found for target PID",
+			zap.String("target", pkg.Target.String()),
+			zap.String("source", pkg.Source.String()),
+			zap.String("topic", topic))
 		return
-	case <-h.ctx.Done():
-		h.logger.Info("worker shutting down, dropping Package message",
-			zap.String("pid", job.Target.String()))
 	}
+
+	rec.(chan *api.Package) <- pkg
 }

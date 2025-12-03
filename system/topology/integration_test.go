@@ -44,9 +44,9 @@ func (d *dummyHost) Detach(pid relay.PID) {
 	d.receivers.Delete(pid.String())
 }
 
-// MockVirtualNode simulates a virtual node (like Temporal) for testing.
+// MockPeerNode simulates a peer node (like Temporal) for testing.
 // It can receive packages, handle monitoring/linking requests, and simulate completions.
-type MockVirtualNode struct {
+type MockPeerNode struct {
 	nodeID   relay.NodeID
 	router   relay.Receiver
 	monitors sync.Map // map[workflowID]*monitorState
@@ -64,9 +64,9 @@ type linkState struct {
 	linked    sync.Map // map[remotePID]bool
 }
 
-// NewMockVirtualNode creates a new mock virtual node.
-func NewMockVirtualNode(nodeID relay.NodeID, router relay.Receiver, t *testing.T) *MockVirtualNode {
-	return &MockVirtualNode{
+// NewMockPeerNode creates a new mock peer node.
+func NewMockPeerNode(nodeID relay.NodeID, router relay.Receiver, t *testing.T) *MockPeerNode {
+	return &MockPeerNode{
 		nodeID: nodeID,
 		router: router,
 		logger: t,
@@ -75,7 +75,7 @@ func NewMockVirtualNode(nodeID relay.NodeID, router relay.Receiver, t *testing.T
 
 // Send implements relay.Receiver interface.
 // Handles incoming packages and routes them to appropriate handlers.
-func (n *MockVirtualNode) Send(pkg *relay.Package) error {
+func (n *MockPeerNode) Send(pkg *relay.Package) error {
 	for _, msg := range pkg.Messages {
 		for _, p := range msg.Payloads {
 			switch event := p.Data().(type) {
@@ -94,8 +94,8 @@ func (n *MockVirtualNode) Send(pkg *relay.Package) error {
 	return fmt.Errorf("unknown event type in package")
 }
 
-func (n *MockVirtualNode) handleMonitorRequest(caller, target relay.PID) error {
-	n.logger.Logf("MockVirtualNode %s: received monitor request from %s for %s",
+func (n *MockPeerNode) handleMonitorRequest(caller, target relay.PID) error {
+	n.logger.Logf("MockPeerNode %s: received monitor request from %s for %s",
 		n.nodeID, caller, target)
 
 	value, _ := n.monitors.LoadOrStore(target.UniqID, &monitorState{
@@ -107,8 +107,8 @@ func (n *MockVirtualNode) handleMonitorRequest(caller, target relay.PID) error {
 	return nil
 }
 
-func (n *MockVirtualNode) handleMonitorRelease(caller, target relay.PID) error {
-	n.logger.Logf("MockVirtualNode %s: received release request from %s for %s",
+func (n *MockPeerNode) handleMonitorRelease(caller, target relay.PID) error {
+	n.logger.Logf("MockPeerNode %s: received release request from %s for %s",
 		n.nodeID, caller, target)
 
 	value, ok := n.monitors.Load(target.UniqID)
@@ -131,8 +131,8 @@ func (n *MockVirtualNode) handleMonitorRelease(caller, target relay.PID) error {
 	return nil
 }
 
-func (n *MockVirtualNode) handleLinkRequest(from, to relay.PID) error {
-	n.logger.Logf("MockVirtualNode %s: received link request from %s to %s",
+func (n *MockPeerNode) handleLinkRequest(from, to relay.PID) error {
+	n.logger.Logf("MockPeerNode %s: received link request from %s to %s",
 		n.nodeID, from, to)
 
 	value, _ := n.links.LoadOrStore(to.UniqID, &linkState{
@@ -144,8 +144,8 @@ func (n *MockVirtualNode) handleLinkRequest(from, to relay.PID) error {
 	return nil
 }
 
-func (n *MockVirtualNode) handleUnlinkRequest(from, to relay.PID) error {
-	n.logger.Logf("MockVirtualNode %s: received unlink request from %s to %s",
+func (n *MockPeerNode) handleUnlinkRequest(from, to relay.PID) error {
+	n.logger.Logf("MockPeerNode %s: received unlink request from %s to %s",
 		n.nodeID, from, to)
 
 	value, ok := n.links.Load(to.UniqID)
@@ -168,10 +168,10 @@ func (n *MockVirtualNode) handleUnlinkRequest(from, to relay.PID) error {
 	return nil
 }
 
-// SimulateCompletion simulates a workflow/process completing on the virtual node.
+// SimulateCompletion simulates a workflow/process completing on the peer node.
 // Sends exit events to all watchers.
-func (n *MockVirtualNode) SimulateCompletion(targetPID relay.PID, result interface{}, err error) error {
-	n.logger.Logf("MockVirtualNode %s: simulating completion for %s", n.nodeID, targetPID)
+func (n *MockPeerNode) SimulateCompletion(targetPID relay.PID, result interface{}, err error) error {
+	n.logger.Logf("MockPeerNode %s: simulating completion for %s", n.nodeID, targetPID)
 
 	value, ok := n.monitors.Load(targetPID.UniqID)
 	if !ok {
@@ -184,7 +184,7 @@ func (n *MockVirtualNode) SimulateCompletion(targetPID relay.PID, result interfa
 		callerPIDStr := key.(string)
 		callerPID, parseErr := relay.ParsePID(callerPIDStr)
 		if parseErr != nil {
-			n.logger.Logf("MockVirtualNode %s: failed to parse watcher PID %s: %v",
+			n.logger.Logf("MockPeerNode %s: failed to parse watcher PID %s: %v",
 				n.nodeID, callerPIDStr, parseErr)
 			return true
 		}
@@ -192,11 +192,11 @@ func (n *MockVirtualNode) SimulateCompletion(targetPID relay.PID, result interfa
 		exitPkg := topology.Exit(targetPID, payload.New(result), err)
 		exitPkg.Target = callerPID
 
-		n.logger.Logf("MockVirtualNode %s: sending exit event to watcher %s",
+		n.logger.Logf("MockPeerNode %s: sending exit event to watcher %s",
 			n.nodeID, callerPID)
 
 		if sendErr := n.router.Send(exitPkg); sendErr != nil {
-			n.logger.Logf("MockVirtualNode %s: failed to send exit event: %v",
+			n.logger.Logf("MockPeerNode %s: failed to send exit event: %v",
 				n.nodeID, sendErr)
 		}
 
@@ -209,7 +209,7 @@ func (n *MockVirtualNode) SimulateCompletion(targetPID relay.PID, result interfa
 }
 
 // GetWatchers returns all PIDs monitoring the given target PID.
-func (n *MockVirtualNode) GetWatchers(targetPID relay.PID) []relay.PID {
+func (n *MockPeerNode) GetWatchers(targetPID relay.PID) []relay.PID {
 	var watchers []relay.PID
 
 	value, ok := n.monitors.Load(targetPID.UniqID)
@@ -231,7 +231,7 @@ func (n *MockVirtualNode) GetWatchers(targetPID relay.PID) []relay.PID {
 }
 
 // GetLinkedProcesses returns all PIDs linked to the given target PID.
-func (n *MockVirtualNode) GetLinkedProcesses(targetPID relay.PID) []relay.PID {
+func (n *MockPeerNode) GetLinkedProcesses(targetPID relay.PID) []relay.PID {
 	var linked []relay.PID
 
 	value, ok := n.links.Load(targetPID.UniqID)
@@ -252,10 +252,10 @@ func (n *MockVirtualNode) GetLinkedProcesses(targetPID relay.PID) []relay.PID {
 	return linked
 }
 
-// SimulateFailure simulates a workflow/process failing on the virtual node.
+// SimulateFailure simulates a workflow/process failing on the peer node.
 // Sends link-down events to linked processes (if error is not nil).
-func (n *MockVirtualNode) SimulateFailure(targetPID relay.PID, err error) error {
-	n.logger.Logf("MockVirtualNode %s: simulating failure for %s", n.nodeID, targetPID)
+func (n *MockPeerNode) SimulateFailure(targetPID relay.PID, err error) error {
+	n.logger.Logf("MockPeerNode %s: simulating failure for %s", n.nodeID, targetPID)
 
 	if monValue, ok := n.monitors.Load(targetPID.UniqID); ok {
 		monState := monValue.(*monitorState)
@@ -270,7 +270,7 @@ func (n *MockVirtualNode) SimulateFailure(targetPID relay.PID, err error) error 
 			exitPkg := topology.Exit(targetPID, payload.New(nil), err)
 			exitPkg.Target = callerPID
 
-			n.logger.Logf("MockVirtualNode %s: sending exit event to watcher %s",
+			n.logger.Logf("MockPeerNode %s: sending exit event to watcher %s",
 				n.nodeID, callerPID)
 
 			_ = n.router.Send(exitPkg)
@@ -301,7 +301,7 @@ func (n *MockVirtualNode) SimulateFailure(targetPID relay.PID, err error) error 
 				}),
 			)
 
-			n.logger.Logf("MockVirtualNode %s: sending link-down event to %s",
+			n.logger.Logf("MockPeerNode %s: sending link-down event to %s",
 				n.nodeID, linkedPID)
 
 			_ = n.router.Send(linkDownPkg)
@@ -315,7 +315,7 @@ func (n *MockVirtualNode) SimulateFailure(targetPID relay.PID, err error) error 
 }
 
 // TestIntegration_CrossNodeMonitoring_EndToEnd tests the complete flow of monitoring
-// a workflow on a virtual node from start to completion.
+// a workflow on a peer node from start to completion.
 func TestIntegration_CrossNodeMonitoring_EndToEnd(t *testing.T) {
 	// Setup: Create local node with router and topology
 	localNode := relaysys.NewNode("local")
@@ -326,9 +326,9 @@ func TestIntegration_CrossNodeMonitoring_EndToEnd(t *testing.T) {
 	err := localNode.RegisterHost("myhost", &dummyHost{})
 	require.NoError(t, err)
 
-	// Setup: Create mock virtual node (simulating Temporal)
-	virtualNode := NewMockVirtualNode("temporal-prod", router, t)
-	err = router.RegisterVirtualNode("temporal-prod", virtualNode)
+	// Setup: Create mock peer node (simulating Temporal)
+	peerNode := NewMockPeerNode("temporal-prod", router, t)
+	err = router.RegisterPeer("temporal-prod", peerNode)
 	require.NoError(t, err)
 
 	// Setup PIDs
@@ -362,13 +362,13 @@ func TestIntegration_CrossNodeMonitoring_EndToEnd(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	// ASSERT: Virtual node should have received the monitor request
-	watchers := virtualNode.GetWatchers(workflowPID)
-	require.Len(t, watchers, 1, "virtual node should have 1 watcher")
+	watchers := peerNode.GetWatchers(workflowPID)
+	require.Len(t, watchers, 1, "peer node should have 1 watcher")
 	assert.Equal(t, localProcessPID, watchers[0])
 
 	// ACT: Simulate workflow completion
 	workflowResult := "workflow completed successfully"
-	err = virtualNode.SimulateCompletion(workflowPID, workflowResult, nil)
+	err = peerNode.SimulateCompletion(workflowPID, workflowResult, nil)
 	require.NoError(t, err)
 
 	// ASSERT: Local process should receive exit notification
@@ -394,12 +394,12 @@ func TestIntegration_CrossNodeMonitoring_EndToEnd(t *testing.T) {
 	}
 
 	// ASSERT: Virtual node should have cleaned up monitors after completion
-	watchers = virtualNode.GetWatchers(workflowPID)
-	assert.Len(t, watchers, 0, "virtual node should cleanup monitors after completion")
+	watchers = peerNode.GetWatchers(workflowPID)
+	assert.Len(t, watchers, 0, "peer node should cleanup monitors after completion")
 }
 
 // TestIntegration_CrossNodeLinking_EndToEnd tests the complete flow of linking
-// with a workflow on a virtual node and receiving link-down on failure.
+// with a workflow on a peer node and receiving link-down on failure.
 func TestIntegration_CrossNodeLinking_EndToEnd(t *testing.T) {
 	// Setup
 	localNode := relaysys.NewNode("local")
@@ -410,8 +410,8 @@ func TestIntegration_CrossNodeLinking_EndToEnd(t *testing.T) {
 	err := localNode.RegisterHost("myhost", &dummyHost{})
 	require.NoError(t, err)
 
-	virtualNode := NewMockVirtualNode("temporal-prod", router, t)
-	err = router.RegisterVirtualNode("temporal-prod", virtualNode)
+	peerNode := NewMockPeerNode("temporal-prod", router, t)
+	err = router.RegisterPeer("temporal-prod", peerNode)
 	require.NoError(t, err)
 
 	localProcessPID := relay.PID{
@@ -445,13 +445,13 @@ func TestIntegration_CrossNodeLinking_EndToEnd(t *testing.T) {
 	require.Len(t, localLinks, 1, "local side should have link")
 	assert.Equal(t, workflowPID, localLinks[0])
 
-	virtualLinks := virtualNode.GetLinkedProcesses(workflowPID)
+	virtualLinks := peerNode.GetLinkedProcesses(workflowPID)
 	require.Len(t, virtualLinks, 1, "virtual side should have link")
 	assert.Equal(t, localProcessPID, virtualLinks[0])
 
 	// ACT: Simulate workflow failure
 	workflowErr := fmt.Errorf("workflow failed")
-	err = virtualNode.SimulateFailure(workflowPID, workflowErr)
+	err = peerNode.SimulateFailure(workflowPID, workflowErr)
 	require.NoError(t, err)
 
 	// ASSERT: Local process should receive link-down notification
@@ -490,8 +490,8 @@ func TestIntegration_MultipleWatchers(t *testing.T) {
 	err = localNode.RegisterHost("host3", &dummyHost{})
 	require.NoError(t, err)
 
-	virtualNode := NewMockVirtualNode("temporal-prod", router, t)
-	err = router.RegisterVirtualNode("temporal-prod", virtualNode)
+	peerNode := NewMockPeerNode("temporal-prod", router, t)
+	err = router.RegisterPeer("temporal-prod", peerNode)
 	require.NoError(t, err)
 
 	// Create multiple local processes
@@ -531,11 +531,11 @@ func TestIntegration_MultipleWatchers(t *testing.T) {
 
 	time.Sleep(10 * time.Millisecond)
 
-	watchers := virtualNode.GetWatchers(workflowPID)
-	assert.Len(t, watchers, 3, "virtual node should have 3 watchers")
+	watchers := peerNode.GetWatchers(workflowPID)
+	assert.Len(t, watchers, 3, "peer node should have 3 watchers")
 
 	// ACT: Workflow completes
-	err = virtualNode.SimulateCompletion(workflowPID, "result", nil)
+	err = peerNode.SimulateCompletion(workflowPID, "result", nil)
 	require.NoError(t, err)
 
 	// ASSERT: All three processes should receive exit notification
@@ -581,8 +581,8 @@ func TestIntegration_ReleaseMonitor(t *testing.T) {
 	err := localNode.RegisterHost("host1", &dummyHost{})
 	require.NoError(t, err)
 
-	virtualNode := NewMockVirtualNode("temporal-prod", router, t)
-	err = router.RegisterVirtualNode("temporal-prod", virtualNode)
+	peerNode := NewMockPeerNode("temporal-prod", router, t)
+	err = router.RegisterPeer("temporal-prod", peerNode)
 	require.NoError(t, err)
 
 	localPID := relay.PID{Node: "local", Host: "host1", UniqID: "p1"}.Precomputed()
@@ -596,7 +596,7 @@ func TestIntegration_ReleaseMonitor(t *testing.T) {
 	require.NoError(t, err)
 
 	time.Sleep(10 * time.Millisecond)
-	assert.Len(t, virtualNode.GetWatchers(workflowPID), 1)
+	assert.Len(t, peerNode.GetWatchers(workflowPID), 1)
 
 	err = topo.Release(localPID, workflowPID)
 	require.NoError(t, err)
@@ -604,8 +604,8 @@ func TestIntegration_ReleaseMonitor(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	// ASSERT: Virtual node should have no watchers
-	assert.Len(t, virtualNode.GetWatchers(workflowPID), 0,
-		"virtual node should have no watchers after release")
+	assert.Len(t, peerNode.GetWatchers(workflowPID), 0,
+		"peer node should have no watchers after release")
 }
 
 // TestIntegration_UnlinkBeforeFailure tests unlinking before workflow failure.
@@ -619,8 +619,8 @@ func TestIntegration_UnlinkBeforeFailure(t *testing.T) {
 	err := localNode.RegisterHost("host1", &dummyHost{})
 	require.NoError(t, err)
 
-	virtualNode := NewMockVirtualNode("temporal-prod", router, t)
-	err = router.RegisterVirtualNode("temporal-prod", virtualNode)
+	peerNode := NewMockPeerNode("temporal-prod", router, t)
+	err = router.RegisterPeer("temporal-prod", peerNode)
 	require.NoError(t, err)
 
 	localPID := relay.PID{Node: "local", Host: "host1", UniqID: "p1"}.Precomputed()
@@ -638,7 +638,7 @@ func TestIntegration_UnlinkBeforeFailure(t *testing.T) {
 	require.NoError(t, err)
 
 	time.Sleep(10 * time.Millisecond)
-	assert.Len(t, virtualNode.GetLinkedProcesses(workflowPID), 1)
+	assert.Len(t, peerNode.GetLinkedProcesses(workflowPID), 1)
 
 	err = topo.Unlink(localPID, workflowPID)
 	require.NoError(t, err)
@@ -646,10 +646,10 @@ func TestIntegration_UnlinkBeforeFailure(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	// ASSERT: Virtual node should have no links
-	assert.Len(t, virtualNode.GetLinkedProcesses(workflowPID), 0)
+	assert.Len(t, peerNode.GetLinkedProcesses(workflowPID), 0)
 
 	// ACT: Simulate failure after unlink
-	err = virtualNode.SimulateFailure(workflowPID, fmt.Errorf("failed"))
+	err = peerNode.SimulateFailure(workflowPID, fmt.Errorf("failed"))
 	require.NoError(t, err)
 
 	// ASSERT: No link-down event should be received

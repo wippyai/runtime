@@ -42,11 +42,7 @@ Returns:
 
 ## Error Handling
 
-The module returns structured errors using the `lua.Error` type with the following properties:
-
-- `kind`: Error category (accessible via `error:kind()`)
-- `retryable`: Whether the operation can be retried (accessible via `error:retryable()`)
-- `message`: Error message (accessible via `error:message()` or `tostring(error)`)
+The module returns structured errors using the `lua.Error` type. See [errors.md](../errors.md) for full error specification.
 
 ### Error Types
 
@@ -55,7 +51,7 @@ The module returns structured errors using the `lua.Error` type with the followi
 ```lua
 local result, err = base64.encode(123)
 -- result: nil
--- err:kind() == "Invalid"
+-- err:kind() == errors.INVALID
 -- err:retryable() == false
 -- tostring(err) == "string expected"
 ```
@@ -65,14 +61,27 @@ local result, err = base64.encode(123)
 ```lua
 local result, err = base64.decode("!!!invalid!!!")
 -- result: nil
--- err:kind() == "Invalid"
+-- err:kind() == errors.INVALID
 -- err:retryable() == false
 -- tostring(err) contains "illegal base64"
 ```
 
+### Error Kind Comparison
+
+Always use `errors.*` constants for kind comparison:
+
+```lua
+local result, err = base64.decode(input)
+if err then
+    if err:kind() == errors.INVALID then
+        -- handle invalid input
+    end
+end
+```
+
 ### Error Concatenation
 
-Errors support string concatenation for logging and error messages:
+Errors support string concatenation for logging:
 
 ```lua
 local result, err = base64.decode("invalid")
@@ -126,14 +135,17 @@ local encoded = base64.encode(original)
 local decoded = base64.decode(encoded)
 assert(decoded == original)  -- true
 
--- Error handling
+-- Error handling with kind constants
 local result, err = base64.decode("!!!invalid!!!")
 if err then
     print("Decode failed:", err:message())
-    print("Error kind:", err:kind())        -- "Invalid"
-    print("Retryable:", err:retryable())    -- false
 
-    -- String concatenation works
+    -- Use constants for kind comparison
+    if err:kind() == errors.INVALID then
+        print("Invalid input provided")
+    end
+
+    print("Retryable:", err:retryable())  -- false
     print("Full error: " .. err)
 end
 
@@ -147,5 +159,23 @@ assert(empty_decoded == "")
 ## Implementation Notes
 
 - Uses Go's `encoding/base64.StdEncoding` (standard Base64 alphabet).
-- Module table is created once and shared across all Lua states.
+- Module uses `ModuleDef` struct for definition.
+- Module table is created once and shared across all Lua states via `sync.Once`.
 - Errors include Lua stack traces for debugging.
+
+## Go Implementation
+
+```go
+var Module = &luaapi.ModuleDef{
+    Name:        "base64",
+    Description: "Base64 encoding and decoding",
+    Class:       []string{luaapi.ClassEncoding, luaapi.ClassDeterministic},
+    Build: func() (*lua.LTable, []luaapi.YieldType) {
+        mod := &lua.LTable{}
+        mod.RawSetString("encode", lua.LGoFunc(encodeFunc))
+        mod.RawSetString("decode", lua.LGoFunc(decodeFunc))
+        mod.Immutable = true
+        return mod, []luaapi.YieldType{}
+    },
+}
+```

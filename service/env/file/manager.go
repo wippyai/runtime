@@ -37,16 +37,16 @@ func NewManager(
 
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != envsvc.KindStorageFile {
-		return errUnsupportedKind(entry.Kind)
+		return env.NewUnsupportedKindError(entry.Kind)
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[envsvc.FileStorageConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return errDecodeConfig(err)
+		return env.NewDecodeConfigError(err)
 	}
 
 	if err := cfg.Validate(); err != nil {
-		return errInvalidConfig(err)
+		return env.NewInvalidConfigError(err)
 	}
 
 	fileMode := os.FileMode(0644)
@@ -85,7 +85,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != envsvc.KindStorageFile {
-		return errUnsupportedKind(entry.Kind)
+		return env.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()

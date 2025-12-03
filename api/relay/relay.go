@@ -19,12 +19,13 @@ const (
 	HostReject   event.Kind = "host.reject"
 )
 
-// Event kinds for virtual node operations.
+// Event kinds for peer node operations.
+// Peer nodes are external receivers (e.g., Temporal) that can receive packages.
 const (
-	VirtualNodeRegister event.Kind = "vnode.register"
-	VirtualNodeDelete   event.Kind = "vnode.delete"
-	VirtualNodeAccept   event.Kind = "vnode.accept"
-	VirtualNodeReject   event.Kind = "vnode.reject"
+	PeerRegister event.Kind = "peer.register"
+	PeerDelete   event.Kind = "peer.delete"
+	PeerAccept   event.Kind = "peer.accept"
+	PeerReject   event.Kind = "peer.reject"
 )
 
 type (
@@ -50,8 +51,9 @@ type (
 		Messages []*Message
 	}
 
-	// VirtualNodeInfo contains metadata about a virtual node.
-	VirtualNodeInfo struct {
+	// PeerInfo contains metadata about a peer node.
+	// Peer nodes are external receivers (e.g., Temporal) registered at runtime.
+	PeerInfo struct {
 		NodeID   NodeID
 		Receiver Receiver
 	}

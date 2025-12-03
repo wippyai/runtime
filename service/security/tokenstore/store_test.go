@@ -71,7 +71,7 @@ func (t *jsonTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
 			return err
 		}
 		return json.Unmarshal(data, v)
-	case payload.YAML, payload.String, payload.Lua, payload.Bytes, payload.Error:
+	case payload.YAML, payload.String, payload.Lua, payload.Bytes, payload.GoError:
 		// FIXME rework on demand
 		fallthrough
 	default:
@@ -169,7 +169,7 @@ func newTestResourceRegistry() *testResourceRegistry {
 func (r *testResourceRegistry) Acquire(ctx context.Context, id registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
 	provider, ok := r.resources[id.String()]
 	if !ok {
-		return nil, resource.ErrResourceNotFound
+		return nil, resource.ErrNotFound
 	}
 	return provider.Acquire(ctx, id, mode)
 }

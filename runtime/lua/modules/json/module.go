@@ -1,56 +1,45 @@
 package json
 
 import (
-	"sync"
-
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
-var (
-	moduleTable  *lua.LTable
-	registration *luaapi.Registration
-	initOnce     sync.Once
-)
+// Module is the json module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "json",
+	Description: "JSON encoding and decoding with schema validation",
+	Class:       []string{luaapi.ClassEncoding, luaapi.ClassDeterministic},
+	Build: func() (*lua.LTable, []luaapi.YieldType) {
+		initSchemaCache()
 
-// Module is the singleton json module instance.
-var Module = &jsonModule{}
-
-type jsonModule struct{}
-
-func (m *jsonModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        "json",
-		Description: "JSON encoding and decoding",
-		Class:       []string{luaapi.ClassEncoding, luaapi.ClassDeterministic},
-	}
-}
-
-func (m *jsonModule) Register(l *lua.LState) *luaapi.Registration {
-	initOnce.Do(func() {
-		mod := &lua.LTable{}
+		mod := lua.CreateTable(0, 4)
 		mod.RawSetString("encode", lua.LGoFunc(encodeFunc))
 		mod.RawSetString("decode", lua.LGoFunc(decodeFunc))
+		mod.RawSetString("validate", lua.LGoFunc(validateFunc))
+		mod.RawSetString("validate_string", lua.LGoFunc(validateStringFunc))
 		mod.Immutable = true
-		moduleTable = mod
-
-		registration = &luaapi.Registration{
-			Table:      moduleTable,
-			YieldTypes: nil,
-		}
-	})
-	return registration
+		return mod, nil
+	},
 }
 
-func (m *jsonModule) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	l.Push(reg.Table)
-	return 1
+func invalidInputError(l *lua.LState, msg string) int {
+	err := lua.NewLuaError(l, msg).
+		WithKind(lua.KindInvalid).
+		WithRetryable(false)
+	l.Push(lua.LNil)
+	l.Push(err)
+	return 2
 }
 
-// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
-func Bind(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
+func internalError(l *lua.LState, goErr error, context string) int {
+	err := lua.WrapErrorWithLua(l, goErr, context).
+		WithKind(lua.KindInternal).
+		WithRetryable(false)
+	lua.SetErrorMetatable(l, err)
+	l.Push(lua.LNil)
+	l.Push(err)
+	return 2
 }
 
 func encodeFunc(l *lua.LState) int {
@@ -62,9 +51,7 @@ func encodeFunc(l *lua.LState) int {
 
 	data, err := Encode(value)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return internalError(l, err, "encode failed")
 	}
 	l.Push(lua.LString(data))
 	return 1
@@ -73,23 +60,25 @@ func encodeFunc(l *lua.LState) int {
 func decodeFunc(l *lua.LState) int {
 	str, ok := l.Get(1).(lua.LString)
 	if !ok {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("string expected"))
-		return 2
+		return invalidInputError(l, "string expected")
 	}
 
 	if str == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("empty string is not valid JSON"))
-		return 2
+		return invalidInputError(l, "empty string is not valid JSON")
 	}
 
 	value, err := Decode([]byte(str))
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return internalError(l, err, "decode failed")
 	}
 	l.Push(value)
 	return 1
+}
+
+func validateFunc(l *lua.LState) int {
+	return schemaValidateFunc(l)
+}
+
+func validateStringFunc(l *lua.LState) int {
+	return schemaValidateStringFunc(l)
 }

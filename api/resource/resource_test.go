@@ -46,10 +46,10 @@ func TestErrors(t *testing.T) {
 		err      error
 		expected string
 	}{
-		{"resource not found", ErrResourceNotFound, "resource not found"},
-		{"resource locked", ErrResourceLocked, "resource is locked"},
-		{"resource released", ErrResourceReleased, "resource has been released"},
-		{"resource closed", ErrResourceClosed, "resource provider is closed"},
+		{"resource not found", ErrNotFound, "resource not found"},
+		{"resource locked", ErrLocked, "resource is locked"},
+		{"resource released", ErrReleased, "resource has been released"},
+		{"resource closed", ErrClosed, "resource provider is closed"},
 	}
 
 	for _, tt := range tests {

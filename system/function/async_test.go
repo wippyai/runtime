@@ -73,7 +73,7 @@ func TestAsyncCallRegistry_AwaitNotFound(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := reg.Await(ctx, 999)
-	assert.ErrorIs(t, err, ErrCallNotFound)
+	assert.ErrorIs(t, err, function.ErrCallNotFound)
 }
 
 func TestAsyncCallRegistry_Cancel(t *testing.T) {
@@ -92,14 +92,14 @@ func TestAsyncCallRegistry_Cancel(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = reg.Await(ctx, id)
-	assert.ErrorIs(t, err, ErrCallCancelled)
+	assert.ErrorIs(t, err, function.ErrCallCancelled)
 }
 
 func TestAsyncCallRegistry_CancelNotFound(t *testing.T) {
 	reg := NewAsyncCallRegistry()
 
 	err := reg.Cancel(999)
-	assert.ErrorIs(t, err, ErrCallNotFound)
+	assert.ErrorIs(t, err, function.ErrCallNotFound)
 }
 
 func TestAsyncCallRegistry_Close(t *testing.T) {
@@ -563,7 +563,7 @@ func TestAsyncCallRegistry_StressCancelWhileRunning(t *testing.T) {
 
 	for i := 0; i < numCalls; i++ {
 		_, err := reg.Await(ctx, ids[i])
-		if err != nil && !errors.Is(err, ErrCallCancelled) && !errors.Is(err, ErrCallNotFound) {
+		if err != nil && !errors.Is(err, function.ErrCallCancelled) && !errors.Is(err, function.ErrCallNotFound) {
 			t.Errorf("unexpected error for call %d: %v", i, err)
 		}
 	}

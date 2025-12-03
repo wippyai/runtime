@@ -2,73 +2,59 @@ package uuid
 
 import (
 	"strings"
-	"sync"
 
 	"github.com/google/uuid"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
-var (
-	moduleTable  *lua.LTable
-	registration *luaapi.Registration
-	initOnce     sync.Once
-)
-
-// Module is the singleton uuid module instance.
-var Module = &uuidModule{}
-
-type uuidModule struct{}
-
-func (m *uuidModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        "uuid",
-		Description: "UUID generation and validation",
-		Class:       []string{luaapi.ClassNondeterministic},
-	}
+// Module is the uuid module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "uuid",
+	Description: "UUID generation and validation",
+	Class:       []string{luaapi.ClassNondeterministic},
+	Build:       buildModule,
 }
 
-func (m *uuidModule) Register(l *lua.LState) *luaapi.Registration {
-	initOnce.Do(func() {
-		mod := &lua.LTable{}
-		mod.RawSetString("v1", lua.LGoFunc(uuidV1))
-		mod.RawSetString("v3", lua.LGoFunc(uuidV3))
-		mod.RawSetString("v4", lua.LGoFunc(uuidV4))
-		mod.RawSetString("v5", lua.LGoFunc(uuidV5))
-		mod.RawSetString("v7", lua.LGoFunc(uuidV7))
-		mod.RawSetString("validate", lua.LGoFunc(uuidValidate))
-		mod.RawSetString("version", lua.LGoFunc(uuidVersion))
-		mod.RawSetString("variant", lua.LGoFunc(uuidVariant))
-		mod.RawSetString("parse", lua.LGoFunc(uuidParse))
-		mod.RawSetString("format", lua.LGoFunc(uuidFormat))
-		mod.Immutable = true
-		moduleTable = mod
-
-		registration = &luaapi.Registration{
-			Table:      moduleTable,
-			YieldTypes: nil,
-		}
-	})
-	return registration
+func buildModule() (*lua.LTable, []luaapi.YieldType) {
+	mod := lua.CreateTable(0, 10)
+	mod.RawSetString("v1", lua.LGoFunc(uuidV1))
+	mod.RawSetString("v3", lua.LGoFunc(uuidV3))
+	mod.RawSetString("v4", lua.LGoFunc(uuidV4))
+	mod.RawSetString("v5", lua.LGoFunc(uuidV5))
+	mod.RawSetString("v7", lua.LGoFunc(uuidV7))
+	mod.RawSetString("validate", lua.LGoFunc(uuidValidate))
+	mod.RawSetString("version", lua.LGoFunc(uuidVersion))
+	mod.RawSetString("variant", lua.LGoFunc(uuidVariant))
+	mod.RawSetString("parse", lua.LGoFunc(uuidParse))
+	mod.RawSetString("format", lua.LGoFunc(uuidFormat))
+	mod.Immutable = true
+	return mod, nil
 }
 
-func (m *uuidModule) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	l.Push(reg.Table)
-	return 1
+func invalidError(l *lua.LState, msg string) int {
+	err := lua.NewLuaError(l, msg).
+		WithKind(lua.KindInvalid).
+		WithRetryable(false)
+	l.Push(lua.LNil)
+	l.Push(err)
+	return 2
 }
 
-// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
-func Bind(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
+func internalError(l *lua.LState, goErr error, context string) int {
+	err := lua.WrapErrorWithLua(l, goErr, context).
+		WithKind(lua.KindInternal).
+		WithRetryable(false)
+	lua.SetErrorMetatable(l, err)
+	l.Push(lua.LNil)
+	l.Push(err)
+	return 2
 }
 
 func uuidV1(l *lua.LState) int {
 	id, err := uuid.NewUUID()
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return internalError(l, err, "v1 generation failed")
 	}
 	l.Push(lua.LString(id.String()))
 	l.Push(lua.LNil)
@@ -77,16 +63,12 @@ func uuidV1(l *lua.LState) int {
 
 func uuidV3(l *lua.LState) int {
 	if l.GetTop() < 2 || l.Get(1).Type() != lua.LTString || l.Get(2).Type() != lua.LTString {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("namespace and name must be strings"))
-		return 2
+		return invalidError(l, "namespace and name must be strings")
 	}
 
 	nsID, err := uuid.Parse(l.ToString(1))
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("invalid namespace UUID"))
-		return 2
+		return invalidError(l, "invalid namespace UUID")
 	}
 
 	id := uuid.NewMD5(nsID, []byte(l.ToString(2)))
@@ -98,9 +80,7 @@ func uuidV3(l *lua.LState) int {
 func uuidV4(l *lua.LState) int {
 	id, err := uuid.NewRandom()
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return internalError(l, err, "v4 generation failed")
 	}
 	l.Push(lua.LString(id.String()))
 	l.Push(lua.LNil)
@@ -109,16 +89,12 @@ func uuidV4(l *lua.LState) int {
 
 func uuidV5(l *lua.LState) int {
 	if l.GetTop() < 2 || l.Get(1).Type() != lua.LTString || l.Get(2).Type() != lua.LTString {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("namespace and name must be strings"))
-		return 2
+		return invalidError(l, "namespace and name must be strings")
 	}
 
 	nsID, err := uuid.Parse(l.ToString(1))
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("invalid namespace UUID"))
-		return 2
+		return invalidError(l, "invalid namespace UUID")
 	}
 
 	id := uuid.NewSHA1(nsID, []byte(l.ToString(2)))
@@ -130,9 +106,7 @@ func uuidV5(l *lua.LState) int {
 func uuidV7(l *lua.LState) int {
 	id, err := uuid.NewV7()
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return internalError(l, err, "v7 generation failed")
 	}
 	l.Push(lua.LString(id.String()))
 	l.Push(lua.LNil)
@@ -153,15 +127,11 @@ func uuidValidate(l *lua.LState) int {
 
 func uuidVersion(l *lua.LState) int {
 	if l.Get(1).Type() != lua.LTString {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("input must be a string"))
-		return 2
+		return invalidError(l, "input must be a string")
 	}
 	id, err := uuid.Parse(l.ToString(1))
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("invalid UUID format"))
-		return 2
+		return invalidError(l, "invalid UUID format")
 	}
 	l.Push(lua.LNumber(id.Version()))
 	l.Push(lua.LNil)
@@ -170,15 +140,11 @@ func uuidVersion(l *lua.LState) int {
 
 func uuidVariant(l *lua.LState) int {
 	if l.Get(1).Type() != lua.LTString {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("input must be a string"))
-		return 2
+		return invalidError(l, "input must be a string")
 	}
 	id, err := uuid.Parse(l.ToString(1))
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("invalid UUID format"))
-		return 2
+		return invalidError(l, "invalid UUID format")
 	}
 
 	var variant string
@@ -199,15 +165,11 @@ func uuidVariant(l *lua.LState) int {
 
 func uuidParse(l *lua.LState) int {
 	if l.Get(1).Type() != lua.LTString {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("input must be a string"))
-		return 2
+		return invalidError(l, "input must be a string")
 	}
 	id, err := uuid.Parse(l.ToString(1))
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("invalid UUID format"))
-		return 2
+		return invalidError(l, "invalid UUID format")
 	}
 
 	tbl := l.CreateTable(0, 4)
@@ -243,9 +205,7 @@ func uuidParse(l *lua.LState) int {
 
 func uuidFormat(l *lua.LState) int {
 	if l.Get(1).Type() != lua.LTString {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("input must be a string"))
-		return 2
+		return invalidError(l, "input must be a string")
 	}
 
 	format := "standard"
@@ -255,9 +215,7 @@ func uuidFormat(l *lua.LState) int {
 
 	id, err := uuid.Parse(l.ToString(1))
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("invalid UUID format"))
-		return 2
+		return invalidError(l, "invalid UUID format")
 	}
 
 	var result string
@@ -269,9 +227,7 @@ func uuidFormat(l *lua.LState) int {
 	case "standard":
 		result = id.String()
 	default:
-		l.Push(lua.LNil)
-		l.Push(lua.LString("unsupported format"))
-		return 2
+		return invalidError(l, "unsupported format")
 	}
 
 	l.Push(lua.LString(result))

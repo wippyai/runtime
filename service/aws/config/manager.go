@@ -186,7 +186,7 @@ func (m *Manager) Acquire(_ context.Context, id registry.ID, mode resource.Acces
 
 	// Only support normal mode for now
 	if mode != resource.ModeNormal {
-		return nil, resource.ErrResourceLocked
+		return nil, resource.ErrLocked
 	}
 
 	return &configResource{
@@ -209,7 +209,7 @@ func (r *configResource) Get() (any, error) {
 	defer r.mu.Unlock()
 
 	if r.closed {
-		return nil, resource.ErrResourceReleased
+		return nil, resource.ErrReleased
 	}
 
 	// Ensure storage still exists in manager
@@ -218,7 +218,7 @@ func (r *configResource) Get() (any, error) {
 	r.manager.mu.RUnlock()
 
 	if !exists {
-		return nil, resource.ErrResourceReleased
+		return nil, resource.ErrReleased
 	}
 
 	return c, nil

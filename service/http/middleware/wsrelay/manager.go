@@ -3,7 +3,7 @@ package wsrelay
 import (
 	"context"
 	"encoding/json"
-	"fmt" // Note: fmt kept for Sprintf in logging
+	"fmt"
 	"net/http"
 	"strings"
 

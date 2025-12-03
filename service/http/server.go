@@ -3,7 +3,7 @@ package http
 import (
 	"context"
 	"errors"
-	"fmt" // Note: fmt kept for Sprintf in logging
+	"fmt"
 	"net"
 	"net/http"
 	"runtime"

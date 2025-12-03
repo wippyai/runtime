@@ -14,8 +14,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// Note: fmt kept for Sprintf in logging
-
 // Registry manages resource registration and access
 type Registry struct {
 	ctx         context.Context
@@ -48,7 +46,7 @@ func (s *Registry) Start(ctx context.Context) error {
 		s.handleEvent,
 	)
 	if err != nil {
-		return NewSubscriberError(err)
+		return resource.NewSubscriberError(err)
 	}
 	s.subscriber = sub
 
@@ -158,7 +156,7 @@ func (s *Registry) Acquire(ctx context.Context, id registry.ID, mode resource.Ac
 
 	entryVal, ok := s.resources.Load(id)
 	if !ok {
-		return nil, resource.ErrResourceNotFound
+		return nil, resource.ErrNotFound
 	}
 
 	entry := entryVal.(resource.Entry)

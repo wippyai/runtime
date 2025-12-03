@@ -22,13 +22,13 @@ func (p *executorProvider) Acquire(_ context.Context, _ registry.ID, mode resour
 	defer p.mu.RUnlock()
 
 	if p.closed {
-		return nil, resource.ErrResourceClosed
+		return nil, resource.ErrClosed
 	}
 
 	// Currently we don't implement locking or exclusive mode
 	// Future implementations could support exclusive access
 	if mode == resource.ModeExclusive {
-		return nil, resource.ErrResourceLocked
+		return nil, resource.ErrLocked
 	}
 
 	// Return a resource wrapper for the executor
@@ -63,7 +63,7 @@ func (r *executorResource) Get() (any, error) {
 	defer r.mu.Unlock()
 
 	if r.released {
-		return nil, resource.ErrResourceReleased
+		return nil, resource.ErrReleased
 	}
 
 	return r.executor, nil

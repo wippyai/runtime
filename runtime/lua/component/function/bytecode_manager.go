@@ -374,7 +374,7 @@ func createBytecodeProcess(proto *lua.FunctionProto, compiled *code.CompiledMain
 				L.PreloadModule(name, func(L *lua.LState) int {
 					fn := L.LoadProto(depProto)
 					L.Push(fn)
-					L.Call(1, 1)
+					L.Call(0, 1)
 					return 1
 				})
 			})
@@ -399,7 +399,7 @@ func createBytecodeProcess(proto *lua.FunctionProto, compiled *code.CompiledMain
 				L.PreloadModule(name, func(L *lua.LState) int {
 					fn := L.LoadProto(preProto)
 					L.Push(fn)
-					L.Call(1, 1)
+					L.Call(0, 1)
 					return 1
 				})
 			})

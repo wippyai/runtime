@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"sync/atomic"
 
-	"github.com/wippyai/runtime/api/attrs"
-	apierror "github.com/wippyai/runtime/api/error"
 	fsapi "github.com/wippyai/runtime/api/fs"
 )
 
@@ -44,7 +42,7 @@ type FS struct {
 func NewDirectoryFS(dirPath string, mode fs.FileMode, autoInit bool) (*FS, error) {
 	absPath, err := filepath.Abs(dirPath)
 	if err != nil {
-		return nil, newInvalidDirectoryPathError(err)
+		return nil, fsapi.NewInvalidPathError(err)
 	}
 
 	// Automatically add execute permissions if read bits are present but exec bits are missing.
@@ -54,13 +52,13 @@ func NewDirectoryFS(dirPath string, mode fs.FileMode, autoInit bool) (*FS, error
 
 	if autoInit {
 		if err := os.MkdirAll(dirPath, mode); err != nil {
-			return nil, newCreateDirectoryError(err)
+			return nil, fsapi.NewCreateDirectoryError(err)
 		}
 	}
 
 	root, err := os.OpenRoot(absPath)
 	if err != nil {
-		return nil, newFailedToOpenDirectoryError(err)
+		return nil, fsapi.NewOpenDirectoryError(err)
 	}
 
 	return &FS{
@@ -110,13 +108,7 @@ func (d *FS) checkPermissions(op, displayPath string, check permCheck) error {
 		return &fs.PathError{
 			Op:   op,
 			Path: displayPath,
-			Err: &Error{
-				kind:      apierror.KindPermissionDenied,
-				message:   "permission denied",
-				retryable: apierror.False,
-				details:   attrs.NewBagFrom(map[string]any{"required": required, "ownerMode": ownerMode}),
-				cause:     ErrPermissionDenied,
-			},
+			Err:  fsapi.NewPermissionDeniedError(required, ownerMode, ErrPermissionDenied),
 		}
 	}
 	return nil

@@ -15,8 +15,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// Note: fmt kept for Sprintf in logging
-
 type Registry struct {
 	ctx             context.Context
 	log             *zap.Logger
@@ -38,7 +36,7 @@ func (r *Registry) Start(ctx context.Context) error {
 	r.ctx = ctx
 	subscriber, err := eventbus.NewSubscriber(ctx, r.bus, env.System, "(storage|variable).*", r.handleEvent)
 	if err != nil {
-		return NewSubscriberError(err)
+		return env.NewSubscriberError(err)
 	}
 	r.subscriber = subscriber
 	return nil
@@ -127,7 +125,7 @@ func (r *Registry) registerVariable(e event.Event) {
 
 	if err := variable.Validate(); err != nil {
 		r.log.Error("invalid variable", zap.String("path", e.Path), zap.Error(err))
-		r.sendReject(e.Path, NewInvalidVariableError(err).Error())
+		r.sendReject(e.Path, env.NewInvalidVariableError(err).Error())
 		return
 	}
 
@@ -141,7 +139,7 @@ func (r *Registry) registerVariable(e event.Event) {
 
 	if _, exists := r.variablesByName.Load(envName); exists {
 		r.log.Error("variable name already exists", zap.String("path", e.Path), zap.String("base_name", envName))
-		r.sendReject(e.Path, NewVariableNameExistsError(envName).Error())
+		r.sendReject(e.Path, env.NewVariableNameExistsError(envName).Error())
 		return
 	}
 
@@ -161,7 +159,7 @@ func (r *Registry) updateVariable(e event.Event) {
 
 	if err := variable.Validate(); err != nil {
 		r.log.Error("invalid variable", zap.String("path", e.Path), zap.Error(err))
-		r.sendReject(e.Path, NewInvalidVariableError(err).Error())
+		r.sendReject(e.Path, env.NewInvalidVariableError(err).Error())
 		return
 	}
 
@@ -176,7 +174,7 @@ func (r *Registry) updateVariable(e event.Event) {
 	if existingID, exists := r.variablesByName.Load(envName); exists {
 		if existingVarID, ok := existingID.(registry.ID); ok && existingVarID != variable.ID {
 			r.log.Error("variable name already exists", zap.String("path", e.Path), zap.String("base_name", envName))
-			r.sendReject(e.Path, NewVariableNameExistsError(envName).Error())
+			r.sendReject(e.Path, env.NewVariableNameExistsError(envName).Error())
 			return
 		}
 	}
@@ -263,7 +261,7 @@ func (r *Registry) getStorage(_ context.Context, id registry.ID) (env.Storage, e
 	}
 	storage, ok := stored.(env.Storage)
 	if !ok {
-		return nil, NewInvalidStorageTypeError(id)
+		return nil, env.NewInvalidStorageTypeError(id.String())
 	}
 	return storage, nil
 }

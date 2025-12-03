@@ -308,7 +308,7 @@ func BindStream(l *lua.LState) {
 
 	l.SetGlobal("__stream_new", lua.LGoFunc(func(l *lua.LState) int {
 		id := uint64(l.CheckNumber(1))
-		value.NewUserData(l, &Stream{ID: id}, streamMetatable)
+		value.PushUserData(l, &Stream{ID: id}, streamMetatable)
 		return 1
 	}))
 }

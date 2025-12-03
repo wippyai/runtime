@@ -45,7 +45,7 @@ func (m *mockResourceRegistry) Acquire(
 ) (resource.Resource[any], error) {
 	res, ok := m.resources[id]
 	if !ok {
-		return nil, resource.ErrResourceNotFound
+		return nil, resource.ErrNotFound
 	}
 	return res, nil
 }

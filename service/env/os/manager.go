@@ -57,16 +57,16 @@ func NewManager(
 // Add registers a new OS storage from registry entry.
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != envsvc.KindStorageOS {
-		return errUnsupportedKind(entry.Kind)
+		return env.NewUnsupportedKindError(entry.Kind)
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[envsvc.OSStorageConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return errDecodeConfig(err)
+		return env.NewDecodeConfigError(err)
 	}
 
 	if err := cfg.Validate(); err != nil {
-		return errInvalidConfig(err)
+		return env.NewInvalidConfigError(err)
 	}
 
 	var storage env.Storage
@@ -101,14 +101,14 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete removes an OS storage.
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != envsvc.KindStorageOS {
-		return errUnsupportedKind(entry.Kind)
+		return env.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
 	_, exists := m.storages[entry.ID]
 	if !exists {
 		m.mu.Unlock()
-		return errStorageNotExists(entry.ID)
+		return env.NewStorageNotExistsError(entry.ID.String())
 	}
 	delete(m.storages, entry.ID)
 	m.mu.Unlock()
