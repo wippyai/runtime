@@ -51,7 +51,7 @@ func TestSandbox_ManualStepping(t *testing.T) {
 	defer proc.Close()
 
 	// Start execution with input
-	err = proc.Execute(ctx, "handle", nil)
+	err = proc.Init(ctx, "handle", nil)
 	require.NoError(t, err)
 
 	// Step 1: Process runs until it yields (sleep command)
@@ -129,7 +129,7 @@ func TestSandbox_MultipleSleeps(t *testing.T) {
 	require.NoError(t, err)
 	defer proc.Close()
 
-	err = proc.Execute(ctx, "handle", nil)
+	err = proc.Init(ctx, "handle", nil)
 	require.NoError(t, err)
 
 	expectedDurations := []time.Duration{
@@ -204,7 +204,7 @@ func TestSandbox_ErrorHandling(t *testing.T) {
 	require.NoError(t, err)
 	defer proc.Close()
 
-	err = proc.Execute(ctx, "handle", nil)
+	err = proc.Init(ctx, "handle", nil)
 	require.NoError(t, err)
 
 	step, err := proc.Step(nil)
@@ -245,7 +245,7 @@ func TestSandbox_NoYields(t *testing.T) {
 	require.NoError(t, err)
 	defer proc.Close()
 
-	err = proc.Execute(ctx, "handle", nil)
+	err = proc.Init(ctx, "handle", nil)
 	require.NoError(t, err)
 
 	step, err := proc.Step(nil)
@@ -289,7 +289,7 @@ func TestSandbox_TimerYields(t *testing.T) {
 	require.NoError(t, err)
 	defer proc.Close()
 
-	err = proc.Execute(ctx, "handle", nil)
+	err = proc.Init(ctx, "handle", nil)
 	require.NoError(t, err)
 
 	// First step should yield timer start

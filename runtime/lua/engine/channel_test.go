@@ -18,7 +18,7 @@ func startChannelProcess(t *testing.T, script string) *Process {
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	if err := proc.Execute(ctx, "", nil); err != nil {
+	if err := proc.Init(ctx, "", nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -37,6 +37,119 @@ func runUntilDone(t *testing.T, proc *Process, maxSteps int) error {
 	}
 	t.Fatalf("did not complete in %d steps", maxSteps)
 	return nil
+}
+
+// TestChannelSendReturnValues tests that send returns correct values.
+// OLD behavior: send returns [value, true] when buffered
+// This test verifies compatibility with the old channel semantics.
+func TestChannelSendReturnValues(t *testing.T) {
+	// Test: Buffered send should return (value, true)
+	script := `
+		local ch = channel.new(1)
+		local r1, r2 = ch:send("hello")
+		-- Buffered send: OLD returns [value, true]
+		if r1 ~= "hello" then
+			error("buffered send r1: expected 'hello', got " .. tostring(r1))
+		end
+		if r2 ~= true then
+			error("buffered send r2: expected true, got " .. tostring(r2))
+		end
+		return "ok"
+	`
+	proc := startChannelProcess(t, script)
+	defer proc.Close()
+
+	if err := runUntilDone(t, proc, 20); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestLuaReturnsNothingAssignment tests what happens when a Lua function returns nothing
+func TestLuaReturnsNothingAssignment(t *testing.T) {
+	script := `
+		function returns_nothing()
+			-- deliberately returns nothing
+		end
+
+		local a, b = returns_nothing()
+		local types = type(a) .. "," .. type(b)
+		return types
+	`
+	proc := startChannelProcess(t, script)
+	defer proc.Close()
+
+	if err := runUntilDone(t, proc, 10); err != nil {
+		t.Fatal(err)
+	}
+
+	// After a function that returns nothing, a and b should be nil
+	if proc.result != nil {
+		t.Logf("Result: %v", proc.result)
+	}
+}
+
+// TestSimpleYieldResume tests yield/resume without channels to verify the basic mechanism
+func TestSimpleYieldResume(t *testing.T) {
+	script := `
+		local r1, r2
+
+		-- Function that yields and expects resume values
+		function yielder()
+			r1, r2 = coroutine.yield()
+			return r1, r2
+		end
+
+		-- Create coroutine
+		local co = coroutine.create(yielder)
+
+		-- First resume starts the coroutine, it yields
+		coroutine.resume(co)
+
+		-- Second resume with no values - r1, r2 should be nil
+		local ok, ret1, ret2 = coroutine.resume(co)
+
+		-- Check what we got
+		local t1 = type(ret1)
+		local t2 = type(ret2)
+		return t1 .. "," .. t2
+	`
+	proc := startChannelProcess(t, script)
+	defer proc.Close()
+
+	if err := runUntilDone(t, proc, 10); err != nil {
+		t.Fatal(err)
+	}
+
+	if proc.result != nil {
+		t.Logf("Result: %v", proc.result)
+	}
+}
+
+// TestChannelSendWakesReceiverReturnValues tests send return when waking receiver.
+// OLD behavior: send returns nil (no values) when waking a blocked receiver
+func TestChannelSendWakesReceiverReturnValues(t *testing.T) {
+	script := `
+		local ch = channel.new(0)
+		local send_r1, send_r2
+
+		coroutine.spawn(function()
+			local v, ok = ch:receive()
+		end)
+
+		-- Yield to let spawned coroutine run first and block on receive
+		coroutine.yield()
+
+		send_r1, send_r2 = ch:send("hello")
+
+		-- Simply return the values directly - no function calls on them
+		return send_r1, send_r2
+	`
+	proc := startChannelProcess(t, script)
+	defer proc.Close()
+
+	if err := runUntilDone(t, proc, 100); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // TestChannelUnbuffered tests unbuffered channel send/recv sync
@@ -159,8 +272,11 @@ func TestSelectWithDefault(t *testing.T) {
 	script := `
 		local ch1 = channel.new(0)
 		local ch2 = channel.new(0)
-		local idx = channel.select(ch1:case_receive(), ch2:case_receive(), nil)
-		return idx
+		local result = channel.select{ch1:case_receive(), ch2:case_receive(), default=true}
+		if result.default then
+			return true
+		end
+		return false
 	`
 
 	proc := startChannelProcess(t, script)
@@ -171,9 +287,9 @@ func TestSelectWithDefault(t *testing.T) {
 	}
 
 	if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
-		if n, ok := proc.mainTask.Yielded[0].(lua.LNumber); ok {
-			if int(n) != 0 {
-				t.Errorf("expected default (0), got %d", int(n))
+		if b, ok := proc.mainTask.Yielded[0].(lua.LBool); ok {
+			if !bool(b) {
+				t.Errorf("expected default case to be selected")
 			}
 		}
 	}
@@ -262,8 +378,8 @@ func TestDeadlockMutualWait(t *testing.T) {
 func TestNoDeadlockWithDefault(t *testing.T) {
 	script := `
 		local ch = channel.new(0)
-		local idx = channel.select(ch:case_receive(), nil)
-		if idx == 0 then return "default" end
+		local result = channel.select{ch:case_receive(), default=true}
+		if result.default then return "default" end
 		return "unexpected"
 	`
 
@@ -371,18 +487,18 @@ func TestSelectBlockingThenWake(t *testing.T) {
 	script := `
 		local ch1 = channel.new(0)
 		local ch2 = channel.new(0)
-		local result = nil
+		local result_ch = nil
 
 		coroutine.spawn(function()
-			local idx = channel.select(ch1:case_receive(), ch2:case_receive())
-			result = idx
+			local result = channel.select{ch1:case_receive(), ch2:case_receive()}
+			result_ch = result.channel
 		end)
 
 		for i = 1, 3 do coroutine.yield() end
 		ch2:send("wake")
 		for i = 1, 5 do coroutine.yield() end
 
-		return result
+		return result_ch == ch2
 	`
 
 	proc := startChannelProcess(t, script)
@@ -393,9 +509,9 @@ func TestSelectBlockingThenWake(t *testing.T) {
 	}
 
 	if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
-		if n, ok := proc.mainTask.Yielded[0].(lua.LNumber); ok {
-			if int(n) != 2 {
-				t.Errorf("expected select index 2, got %d", int(n))
+		if b, ok := proc.mainTask.Yielded[0].(lua.LBool); ok {
+			if !bool(b) {
+				t.Error("expected result.channel == ch2")
 			}
 		}
 	}
@@ -406,9 +522,9 @@ func TestSelectBlockingThenWake(t *testing.T) {
 func TestSelectWithCaseSend(t *testing.T) {
 	script := `
 		local ch = channel.new(1)
-		local idx = channel.select(ch:case_send("value"))
+		local result = channel.select{ch:case_send("value")}
 		local v = ch:receive()
-		return idx, v
+		return result.ok, v
 	`
 
 	proc := startChannelProcess(t, script)
@@ -419,8 +535,8 @@ func TestSelectWithCaseSend(t *testing.T) {
 	}
 
 	if proc.mainTask != nil && len(proc.mainTask.Yielded) >= 2 {
-		if n, ok := proc.mainTask.Yielded[0].(lua.LNumber); ok && int(n) != 1 {
-			t.Errorf("expected select index 1, got %d", int(n))
+		if b, ok := proc.mainTask.Yielded[0].(lua.LBool); ok && !bool(b) {
+			t.Error("expected result.ok=true")
 		}
 		if s, ok := proc.mainTask.Yielded[1].(lua.LString); ok && string(s) != "value" {
 			t.Errorf("expected 'value', got %q", s)
@@ -436,12 +552,12 @@ func TestMixedSelect(t *testing.T) {
 		local recvCh = channel.new(1)
 		recvCh:send("ready")
 
-		local idx = channel.select(
+		local result = channel.select{
 			sendCh:case_send("outgoing"),
 			recvCh:case_receive()
-		)
+		}
 
-		return idx
+		return result.ok
 	`
 
 	proc := startChannelProcess(t, script)
@@ -452,9 +568,9 @@ func TestMixedSelect(t *testing.T) {
 	}
 
 	if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
-		if n, ok := proc.mainTask.Yielded[0].(lua.LNumber); ok {
-			if int(n) != 1 && int(n) != 2 {
-				t.Errorf("expected select index 1 or 2, got %d", int(n))
+		if b, ok := proc.mainTask.Yielded[0].(lua.LBool); ok {
+			if !bool(b) {
+				t.Error("expected result.ok=true")
 			}
 		}
 	}
@@ -555,11 +671,11 @@ func TestSelectImmediateBuffered(t *testing.T) {
 		local ch2 = channel.new(1)
 		ch1:send("msg1")
 
-		local idx = channel.select(
+		local result = channel.select{
 			ch1:case_receive(),
 			ch2:case_receive()
-		)
-		return idx
+		}
+		return result.channel == ch1, result.value, result.ok
 	`
 
 	proc := startChannelProcess(t, script)
@@ -569,11 +685,15 @@ func TestSelectImmediateBuffered(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
-		if n, ok := proc.mainTask.Yielded[0].(lua.LNumber); ok {
-			if int(n) != 1 {
-				t.Errorf("expected index 1 (ch1 has value), got %d", int(n))
-			}
+	if proc.mainTask != nil && len(proc.mainTask.Yielded) >= 3 {
+		if b, ok := proc.mainTask.Yielded[0].(lua.LBool); ok && !bool(b) {
+			t.Error("expected result.channel == ch1")
+		}
+		if s, ok := proc.mainTask.Yielded[1].(lua.LString); ok && string(s) != "msg1" {
+			t.Errorf("expected 'msg1', got %q", s)
+		}
+		if b, ok := proc.mainTask.Yielded[2].(lua.LBool); ok && !bool(b) {
+			t.Error("expected result.ok=true")
 		}
 	}
 	t.Log("Select immediate buffered test passed")
@@ -627,10 +747,10 @@ func TestSelectLoopPattern(t *testing.T) {
 
 		coroutine.spawn(function()
 			while count < 3 do
-				local idx = channel.select(
+				local result = channel.select{
 					ch1:case_receive(),
 					ch2:case_receive()
-				)
+				}
 				count = count + 1
 			end
 			done:send(true)
@@ -848,23 +968,23 @@ func TestSelectWakesOnClose(t *testing.T) {
 	script := `
 		local ch1 = channel.new(0)
 		local ch2 = channel.new(0)
-		local result = nil
+		local result_ch = nil
 		local receivedOk = nil
 
 		coroutine.spawn(function()
-			local idx, val, ok = channel.select(
+			local result = channel.select{
 				ch1:case_receive(),
 				ch2:case_receive()
-			)
-			result = idx
-			receivedOk = ok
+			}
+			result_ch = result.channel
+			receivedOk = result.ok
 		end)
 
 		for i = 1, 3 do coroutine.yield() end
 		ch1:close()
 		for i = 1, 5 do coroutine.yield() end
 
-		return result, receivedOk
+		return result_ch == ch1, receivedOk
 	`
 
 	proc := startChannelProcess(t, script)
@@ -874,11 +994,12 @@ func TestSelectWakesOnClose(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
-		if n, ok := proc.mainTask.Yielded[0].(lua.LNumber); ok {
-			if int(n) != 1 {
-				t.Errorf("expected select index 1 (closed channel), got %d", int(n))
-			}
+	if proc.mainTask != nil && len(proc.mainTask.Yielded) >= 2 {
+		if b, ok := proc.mainTask.Yielded[0].(lua.LBool); ok && !bool(b) {
+			t.Error("expected result.channel == ch1")
+		}
+		if b, ok := proc.mainTask.Yielded[1].(lua.LBool); ok && bool(b) {
+			t.Error("expected result.ok=false for closed channel")
 		}
 	}
 	t.Log("Select wakes on close test passed")
@@ -1014,22 +1135,22 @@ func TestSelectMultiChannelCleanup(t *testing.T) {
 		local ch1 = channel.new(0)
 		local ch2 = channel.new(0)
 		local ch3 = channel.new(0)
-		local selected = nil
+		local selected_ch = nil
 
 		coroutine.spawn(function()
-			local idx = channel.select(
+			local result = channel.select{
 				ch1:case_receive(),
 				ch2:case_receive(),
 				ch3:case_receive()
-			)
-			selected = idx
+			}
+			selected_ch = result.channel
 		end)
 
 		for i = 1, 3 do coroutine.yield() end
 		ch2:send("wake via ch2")
 		for i = 1, 5 do coroutine.yield() end
 
-		return selected
+		return selected_ch == ch2
 	`
 
 	proc := startChannelProcess(t, script)
@@ -1040,10 +1161,8 @@ func TestSelectMultiChannelCleanup(t *testing.T) {
 	}
 
 	if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
-		if n, ok := proc.mainTask.Yielded[0].(lua.LNumber); ok {
-			if int(n) != 2 {
-				t.Errorf("expected select index 2, got %d", int(n))
-			}
+		if b, ok := proc.mainTask.Yielded[0].(lua.LBool); ok && !bool(b) {
+			t.Error("expected result.channel == ch2")
 		}
 	}
 	t.Log("Select multi-channel cleanup test passed")
@@ -1120,7 +1239,7 @@ func startSubscribeProcess(t *testing.T, script string) *Process {
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	if err := proc.Execute(ctx, "", nil); err != nil {
+	if err := proc.Init(ctx, "", nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1641,4 +1760,313 @@ func TestSubscribeMultipleTopicsPartialUnsubscribe(t *testing.T) {
 	}
 
 	t.Log("Multiple topics partial unsubscribe test passed")
+}
+
+// V1 Compatibility Select Tests - ported from /runtime/lua/engine/channel/select_test.go
+
+// TestSelectBlockedReceiveThenSend tests select blocking on receive then sender provides value
+func TestSelectBlockedReceiveThenSend(t *testing.T) {
+	script := `
+		local ch1 = channel.new(0)
+		local ch2 = channel.new(0)
+		local result_value = nil
+
+		coroutine.spawn(function()
+			local result = channel.select{
+				ch1:case_receive(),
+				ch2:case_receive()
+			}
+			result_value = result.value
+		end)
+
+		coroutine.yield("select_started")
+		ch2:send("ch2_value")
+		coroutine.yield("send_completed")
+		return result_value
+	`
+
+	proc := startChannelProcess(t, script)
+	defer proc.Close()
+
+	if err := runUntilDone(t, proc, 50); err != nil {
+		t.Fatal(err)
+	}
+
+	if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
+		if s, ok := proc.mainTask.Yielded[0].(lua.LString); ok {
+			if string(s) != "ch2_value" {
+				t.Errorf("expected 'ch2_value', got %q", s)
+			}
+		}
+	}
+	t.Log("Select blocked receive then send test passed")
+}
+
+// TestSelectReadySendBlockedReceive tests select with ready send case
+func TestSelectReadySendBlockedReceive(t *testing.T) {
+	script := `
+		local readyCh = channel.new(1)  -- buffered, will have a value
+		local emptyCh = channel.new(1)  -- buffered, empty
+		local fullCh = channel.new(1)   -- buffered, full
+
+		readyCh:send("ready_value")
+		fullCh:send("full")
+
+		local result = channel.select{
+			fullCh:case_send("blocked"),
+			readyCh:case_receive()
+		}
+
+		return result.channel == readyCh, result.value, result.ok
+	`
+
+	proc := startChannelProcess(t, script)
+	defer proc.Close()
+
+	if err := runUntilDone(t, proc, 20); err != nil {
+		t.Fatal(err)
+	}
+
+	if proc.mainTask != nil && len(proc.mainTask.Yielded) >= 3 {
+		isReadyCh := proc.mainTask.Yielded[0].(lua.LBool)
+		val := proc.mainTask.Yielded[1].(lua.LString)
+		ok := proc.mainTask.Yielded[2].(lua.LBool)
+		if !bool(isReadyCh) {
+			t.Error("expected result.channel == readyCh")
+		}
+		if string(val) != "ready_value" {
+			t.Errorf("expected 'ready_value', got %q", val)
+		}
+		if !bool(ok) {
+			t.Error("expected ok=true")
+		}
+	}
+	t.Log("Select ready send blocked receive test passed")
+}
+
+// TestSelectMixedBlockingBothCases tests select with both send and receive blocking
+func TestSelectMixedBlockingBothCases(t *testing.T) {
+	script := `
+		local ch1 = channel.new(0)
+		local ch2 = channel.new(0)
+		local result_ch = nil
+		local result_val = nil
+
+		coroutine.spawn(function()
+			local result = channel.select{
+				ch1:case_send("value1"),
+				ch2:case_receive()
+			}
+			result_ch = result.channel
+			result_val = result.value
+		end)
+
+		coroutine.yield("select_started")
+
+		coroutine.spawn(function()
+			ch2:send("value2")
+		end)
+
+		for i = 1, 10 do coroutine.yield() end
+
+		return result_ch == ch2, result_val
+	`
+
+	proc := startChannelProcess(t, script)
+	defer proc.Close()
+
+	if err := runUntilDone(t, proc, 50); err != nil {
+		t.Fatal(err)
+	}
+
+	if proc.mainTask != nil && len(proc.mainTask.Yielded) >= 2 {
+		isCh2 := proc.mainTask.Yielded[0].(lua.LBool)
+		val := proc.mainTask.Yielded[1].(lua.LString)
+		if !bool(isCh2) {
+			t.Error("expected result.channel == ch2")
+		}
+		if string(val) != "value2" {
+			t.Errorf("expected 'value2', got %q", val)
+		}
+	}
+	t.Log("Select mixed blocking both cases test passed")
+}
+
+// TestSelectWithDefaultNonBlocking tests select with default doesn't block
+func TestSelectWithDefaultNonBlocking(t *testing.T) {
+	script := `
+		local sendCh = channel.new(0)
+		local recvCh = channel.new(0)
+
+		local result = channel.select{
+			sendCh:case_send("value"),
+			recvCh:case_receive(),
+			default=true
+		}
+
+		return result.default, result.ok
+	`
+
+	proc := startChannelProcess(t, script)
+	defer proc.Close()
+
+	if err := runUntilDone(t, proc, 20); err != nil {
+		t.Fatal(err)
+	}
+
+	if proc.mainTask != nil && len(proc.mainTask.Yielded) >= 2 {
+		isDefault := proc.mainTask.Yielded[0].(lua.LBool)
+		ok := proc.mainTask.Yielded[1].(lua.LBool)
+		if !bool(isDefault) {
+			t.Error("expected result.default=true")
+		}
+		if !bool(ok) {
+			t.Error("expected result.ok=true")
+		}
+	}
+	t.Log("Select with default non-blocking test passed")
+}
+
+// TestSelectSingleCaseWithReadyData tests single case select with ready data
+func TestSelectSingleCaseWithReadyData(t *testing.T) {
+	script := `
+		local ch = channel.new(0)
+		local count = 0
+
+		-- Main task receives
+		coroutine.spawn(function()
+			for i = 1, 3 do
+				local result = channel.select{ch:case_receive()}
+				if result.channel == ch and result.value ~= nil then
+					count = count + 1
+				end
+			end
+		end)
+
+		for i = 1, 3 do coroutine.yield() end
+
+		-- Senders
+		for i = 1, 3 do
+			ch:send("val" .. i)
+			coroutine.yield()
+		end
+
+		for i = 1, 5 do coroutine.yield() end
+		return count
+	`
+
+	proc := startChannelProcess(t, script)
+	defer proc.Close()
+
+	if err := runUntilDone(t, proc, 100); err != nil {
+		t.Fatal(err)
+	}
+
+	if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
+		if n, ok := proc.mainTask.Yielded[0].(lua.LNumber); ok {
+			if int(n) != 3 {
+				t.Errorf("expected count=3, got %d", int(n))
+			}
+		}
+	}
+	t.Log("Select single case with ready data test passed")
+}
+
+// TestSelectIndex1VsIndex2 tests that correct channel is returned for first vs second channel
+func TestSelectIndex1VsIndex2(t *testing.T) {
+	// Test case 1: First channel should be returned when ch1 receives
+	script1 := `
+		local ch1 = channel.new(0)
+		local ch2 = channel.new(0)
+		local result_ch = nil
+
+		coroutine.spawn(function()
+			local result = channel.select{ch1:case_receive(), ch2:case_receive()}
+			result_ch = result.channel
+		end)
+
+		for i = 1, 3 do coroutine.yield() end
+		ch1:send("first")
+		for i = 1, 5 do coroutine.yield() end
+
+		return result_ch == ch1
+	`
+
+	proc1 := startChannelProcess(t, script1)
+	defer proc1.Close()
+
+	if err := runUntilDone(t, proc1, 50); err != nil {
+		t.Fatal(err)
+	}
+
+	if proc1.mainTask != nil && len(proc1.mainTask.Yielded) > 0 {
+		if b, ok := proc1.mainTask.Yielded[0].(lua.LBool); ok && !bool(b) {
+			t.Error("Test1: expected result.channel == ch1")
+		}
+	}
+
+	// Test case 2: Second channel should be returned when ch2 receives
+	script2 := `
+		local ch1 = channel.new(0)
+		local ch2 = channel.new(0)
+		local result_ch = nil
+
+		coroutine.spawn(function()
+			local result = channel.select{ch1:case_receive(), ch2:case_receive()}
+			result_ch = result.channel
+		end)
+
+		for i = 1, 3 do coroutine.yield() end
+		ch2:send("second")
+		for i = 1, 5 do coroutine.yield() end
+
+		return result_ch == ch2
+	`
+
+	proc2 := startChannelProcess(t, script2)
+	defer proc2.Close()
+
+	if err := runUntilDone(t, proc2, 50); err != nil {
+		t.Fatal(err)
+	}
+
+	if proc2.mainTask != nil && len(proc2.mainTask.Yielded) > 0 {
+		if b, ok := proc2.mainTask.Yielded[0].(lua.LBool); ok && !bool(b) {
+			t.Error("Test2: expected result.channel == ch2")
+		}
+	}
+
+	t.Log("Select index 1 vs index 2 test passed")
+}
+
+// TestSelectBufferedImmediateIndex tests immediate select on buffered channels returns correct channel
+func TestSelectBufferedImmediateIndex(t *testing.T) {
+	// Only ch2 has a value
+	script := `
+		local ch1 = channel.new(1)
+		local ch2 = channel.new(1)
+		ch2:send("value")
+
+		local result = channel.select{
+			ch1:case_receive(),
+			ch2:case_receive()
+		}
+
+		return result.channel == ch2, result.value
+	`
+
+	proc := startChannelProcess(t, script)
+	defer proc.Close()
+
+	if err := runUntilDone(t, proc, 20); err != nil {
+		t.Fatal(err)
+	}
+
+	if proc.mainTask != nil && len(proc.mainTask.Yielded) >= 2 {
+		isCh2 := proc.mainTask.Yielded[0].(lua.LBool)
+		if !bool(isCh2) {
+			t.Error("expected result.channel == ch2")
+		}
+	}
+	t.Log("Select buffered immediate index test passed")
 }

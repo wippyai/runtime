@@ -14,17 +14,17 @@ import (
 	httpapi "github.com/wippyai/runtime/api/dispatcher/http"
 )
 
-// testEmitter wraps a callback function to implement dispatcher.Emitter
-type testEmitter struct {
+// testCompleter wraps a callback function to implement dispatcher.Completer
+type testCompleter struct {
 	fn func(data any)
 }
 
-func (e *testEmitter) Emit(data any, _ error) {
+func (e *testCompleter) Complete(data any, _ error) {
 	e.fn(data)
 }
 
-func newTestEmitter(fn func(data any)) dispatcher.Emitter {
-	return &testEmitter{fn: fn}
+func newTestEmitter(fn func(data any)) dispatcher.Completer {
+	return &testCompleter{fn: fn}
 }
 
 func TestClientPoolDefaultClient(t *testing.T) {

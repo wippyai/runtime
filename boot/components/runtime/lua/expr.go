@@ -17,7 +17,8 @@ func Expr() boot.Component {
 				return ctx, nil
 			}
 
-			if err := AddModules(ctx, cm, expr.Module); err != nil {
+			module := expr.NewModule(expr.DefaultOptions())
+			if err := AddModules(ctx, cm, module); err != nil {
 				return ctx, err
 			}
 

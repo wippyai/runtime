@@ -12,21 +12,18 @@ import (
 // Command IDs for clock operations.
 // Range 10-29 is reserved for time commands.
 const (
-	CmdSleep dispatcher.CommandID = 10 // Pause execution for duration (one-shot)
-	CmdNow   dispatcher.CommandID = 13 // Deprecated: Get current time
+	Sleep dispatcher.CommandID = 10 // Pause execution for duration (one-shot)
 
 	// Decomposed ticker pattern (one-shot commands)
-	CmdTickerStart dispatcher.CommandID = 14 // Create ticker, returns ID
-	CmdTickerNext  dispatcher.CommandID = 15 // Wait for next tick, returns time
-	CmdTickerStop  dispatcher.CommandID = 16 // Stop and cleanup ticker
-
-	CmdAfter dispatcher.CommandID = 17 // Deprecated: use TimerStart/TimerWait instead
+	TickerStart dispatcher.CommandID = 14 // Create ticker, returns ID
+	TickerNext  dispatcher.CommandID = 15 // Wait for next tick, returns time
+	TickerStop  dispatcher.CommandID = 16 // Stop and cleanup ticker
 
 	// Decomposed timer pattern (one-shot commands)
-	CmdTimerStart dispatcher.CommandID = 18 // Create timer, returns ID
-	CmdTimerWait  dispatcher.CommandID = 19 // Wait for timer to fire, returns time
-	CmdTimerStop  dispatcher.CommandID = 20 // Stop and cleanup timer
-	CmdTimerReset dispatcher.CommandID = 21 // Reset timer with new duration
+	TimerStart dispatcher.CommandID = 18 // Create timer, returns ID
+	TimerWait  dispatcher.CommandID = 19 // Wait for timer to fire, returns time
+	TimerStop  dispatcher.CommandID = 20 // Stop and cleanup timer
+	TimerReset dispatcher.CommandID = 21 // Reset timer with new duration
 )
 
 // Errors returned by clock handlers.
@@ -38,10 +35,9 @@ var (
 
 func init() {
 	dispatcher.MustRegisterCommands("clock",
-		CmdSleep, CmdNow,
-		CmdTickerStart, CmdTickerNext, CmdTickerStop,
-		CmdAfter,
-		CmdTimerStart, CmdTimerWait, CmdTimerStop, CmdTimerReset,
+		Sleep,
+		TickerStart, TickerNext, TickerStop,
+		TimerStart, TimerWait, TimerStop, TimerReset,
 	)
 }
 
@@ -102,25 +98,25 @@ type (
 )
 
 // CmdID implements dispatcher.Command.
-func (c SleepCmd) CmdID() dispatcher.CommandID { return CmdSleep }
+func (c SleepCmd) CmdID() dispatcher.CommandID { return Sleep }
 
 // CmdID implements dispatcher.Command.
-func (c TickerStartCmd) CmdID() dispatcher.CommandID { return CmdTickerStart }
+func (c TickerStartCmd) CmdID() dispatcher.CommandID { return TickerStart }
 
 // CmdID implements dispatcher.Command.
-func (c TickerNextCmd) CmdID() dispatcher.CommandID { return CmdTickerNext }
+func (c TickerNextCmd) CmdID() dispatcher.CommandID { return TickerNext }
 
 // CmdID implements dispatcher.Command.
-func (c TickerStopCmd) CmdID() dispatcher.CommandID { return CmdTickerStop }
+func (c TickerStopCmd) CmdID() dispatcher.CommandID { return TickerStop }
 
 // CmdID implements dispatcher.Command.
-func (c TimerStartCmd) CmdID() dispatcher.CommandID { return CmdTimerStart }
+func (c TimerStartCmd) CmdID() dispatcher.CommandID { return TimerStart }
 
 // CmdID implements dispatcher.Command.
-func (c TimerWaitCmd) CmdID() dispatcher.CommandID { return CmdTimerWait }
+func (c TimerWaitCmd) CmdID() dispatcher.CommandID { return TimerWait }
 
 // CmdID implements dispatcher.Command.
-func (c TimerStopCmd) CmdID() dispatcher.CommandID { return CmdTimerStop }
+func (c TimerStopCmd) CmdID() dispatcher.CommandID { return TimerStop }
 
 // CmdID implements dispatcher.Command.
-func (c TimerResetCmd) CmdID() dispatcher.CommandID { return CmdTimerReset }
+func (c TimerResetCmd) CmdID() dispatcher.CommandID { return TimerReset }

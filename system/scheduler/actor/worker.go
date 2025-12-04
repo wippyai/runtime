@@ -219,7 +219,7 @@ func (w *Worker) executeOne(proc *Processor) {
 				return
 			}
 			if err := handler.Handle(ctx, cmd, proc); err != nil {
-				proc.Emit(nil, err)
+				proc.Complete(nil, err)
 			}
 		} else {
 			handlers := make([]dispatcher.Handler, len(yields))
@@ -241,14 +241,14 @@ func (w *Worker) handleMultiYields(ctx context.Context, proc *Processor, yields 
 	proc.initMultiYield(n)
 
 	for i, cmd := range yields {
-		emitter := proc.getEmitter(i)
-		if err := handlers[i].Handle(ctx, cmd, emitter); err != nil {
-			emitter.Emit(nil, err)
+		completer := proc.getCompleter(i)
+		if err := handlers[i].Handle(ctx, cmd, completer); err != nil {
+			completer.Complete(nil, err)
 		}
 	}
 
 	if err := proc.waitMultiYield(ctx); err != nil {
-		proc.Emit(nil, err)
+		proc.Complete(nil, err)
 		return
 	}
 
@@ -256,10 +256,10 @@ func (w *Worker) handleMultiYields(ctx context.Context, proc *Processor, yields 
 	for i := 0; i < n; i++ {
 		slot := proc.getSlot(i)
 		if slot.Error != nil {
-			proc.Emit(nil, slot.Error)
+			proc.Complete(nil, slot.Error)
 			return
 		}
 		results[i] = slot.Data
 	}
-	proc.Emit(results, nil)
+	proc.Complete(results, nil)
 }

@@ -16,6 +16,16 @@ import (
 
 const typeTree = "treesitter.Tree"
 
+// pushTree pushes a Tree userdata to the stack
+func pushTree(l *lua.LState, ctx context.Context, tree *treesitter.Tree, source string) {
+	value.PushTypedUserData(l, NewTree(ctx, tree, source), typeTree)
+}
+
+// pushLanguageUD pushes a Language userdata to the stack
+func pushLanguageUD(l *lua.LState, lang *treesitter.Language) {
+	value.PushTypedUserData(l, &LanguageWrapper{lang: lang}, typeLanguage)
+}
+
 // TreeWrapper wraps a tree-sitter Tree for Lua integration
 type TreeWrapper struct {
 	tree          *treesitter.Tree
@@ -59,8 +69,12 @@ func (t *TreeWrapper) Close() {
 func treeRootNode(l *lua.LState) int {
 	tree := checkTree(l)
 	if tree.tree == nil {
-		l.RaiseError("tree is closed")
-		return 0
+		err := lua.NewLuaError(l, "tree is closed").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
 	root := tree.tree.RootNode()
@@ -69,12 +83,7 @@ func treeRootNode(l *lua.LState) int {
 		return 1
 	}
 
-	// Spawn and push new Node userdata
-	ud := l.NewUserData()
-	ud.Value = &NodeWrapper{node: root, source: &tree.source}
-	ud.Metatable = value.GetTypeMetatable(nil, "treesitter.Node")
-
-	l.Push(ud)
+	pushNode(l, root, &tree.source)
 	return 1
 }
 
@@ -82,11 +91,14 @@ func treeRootNode(l *lua.LState) int {
 func treeRootNodeWithOffset(l *lua.LState) int {
 	tree := checkTree(l)
 	if tree.tree == nil {
-		l.RaiseError("tree is closed")
-		return 0
+		err := lua.NewLuaError(l, "tree is closed").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
-	// Spawn offset parameters
 	offsetBytes := int(l.CheckNumber(2))
 	offsetTable := l.CheckTable(3)
 
@@ -101,11 +113,7 @@ func treeRootNodeWithOffset(l *lua.LState) int {
 		return 1
 	}
 
-	ud := l.NewUserData()
-	ud.Value = &NodeWrapper{node: root, source: &tree.source}
-	ud.Metatable = value.GetTypeMetatable(nil, "treesitter.Node")
-
-	l.Push(ud)
+	pushNode(l, root, &tree.source)
 	return 1
 }
 
@@ -113,8 +121,12 @@ func treeRootNodeWithOffset(l *lua.LState) int {
 func treeLanguage(l *lua.LState) int {
 	tree := checkTree(l)
 	if tree.tree == nil {
-		l.RaiseError("tree is closed")
-		return 0
+		err := lua.NewLuaError(l, "tree is closed").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
 	lang := tree.tree.Language()
@@ -123,20 +135,19 @@ func treeLanguage(l *lua.LState) int {
 		return 1
 	}
 
-	// Spawn and return Language userdata
-	ud := l.NewUserData()
-	ud.Value = &LanguageWrapper{lang: lang}
-	ud.Metatable = value.GetTypeMetatable(nil, "treesitter.Language")
-
-	l.Push(ud)
+	pushLanguageUD(l, lang)
 	return 1
 }
 
 func treeCopy(l *lua.LState) int {
 	tree := checkTree(l)
 	if tree.tree == nil {
-		l.RaiseError("tree is closed")
-		return 0
+		err := lua.NewLuaError(l, "tree is closed").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
 	copied := tree.tree.Clone()
@@ -147,23 +158,27 @@ func treeCopy(l *lua.LState) int {
 
 	ctx := l.Context()
 	if ctx == nil {
-		l.RaiseError("no context found")
-		return 0
+		err := lua.NewLuaError(l, "no context found").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
-	ud := l.NewUserData()
-	ud.Value = NewTree(ctx, copied, tree.source)
-	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Tree")
-
-	l.Push(ud)
+	pushTree(l, ctx, copied, tree.source)
 	return 1
 }
 
 func treeWalk(l *lua.LState) int {
 	tree := checkTree(l)
 	if tree.tree == nil {
-		l.RaiseError("tree is closed")
-		return 0
+		err := lua.NewLuaError(l, "tree is closed").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
 	cursor := tree.tree.Walk()
@@ -174,8 +189,12 @@ func treeWalk(l *lua.LState) int {
 
 	ctx := l.Context()
 	if ctx == nil {
-		l.RaiseError("no context found")
-		return 0
+		err := lua.NewLuaError(l, "no context found").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
 	cw := NewCursor(ctx, cursor, &tree.source)
@@ -184,11 +203,7 @@ func treeWalk(l *lua.LState) int {
 		return 1
 	}
 
-	ud := l.NewUserData()
-	ud.Value = cw
-	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Cursor")
-
-	l.Push(ud)
+	pushCursor(l, cw)
 	return 1
 }
 
@@ -216,83 +231,75 @@ func toNumber(v lua.LValue) (float64, bool) {
 func treeEdit(l *lua.LState) int {
 	tree := checkTree(l)
 	if tree.tree == nil {
-		l.RaiseError("tree is closed")
-		return 0
+		err := lua.NewLuaError(l, "tree is closed").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(lua.LFalse)
+		l.Push(err)
+		return 2
 	}
 
 	editTable := l.CheckTable(2)
 
+	// Helper for validation errors
+	validationErr := func(msg string) int {
+		err := lua.NewLuaError(l, msg).
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(lua.LFalse)
+		l.Push(err)
+		return 2
+	}
+
 	// Validate edit parameters
 	startByteVal, ok := toNumber(editTable.RawGetString("start_byte"))
 	if !ok {
-		l.Push(lua.LFalse)
-		l.Push(lua.LString("start_byte must be a number"))
-		return 2
+		return validationErr("start_byte must be a number")
 	}
 	oldEndByteVal, ok := toNumber(editTable.RawGetString("old_end_byte"))
 	if !ok {
-		l.Push(lua.LFalse)
-		l.Push(lua.LString("old_end_byte must be a number"))
-		return 2
+		return validationErr("old_end_byte must be a number")
 	}
 	newEndByteVal, ok := toNumber(editTable.RawGetString("new_end_byte"))
 	if !ok {
-		l.Push(lua.LFalse)
-		l.Push(lua.LString("new_end_byte must be a number"))
-		return 2
+		return validationErr("new_end_byte must be a number")
 	}
 
 	// Basic validation of byte positions
 	if startByteVal < 0 || oldEndByteVal < startByteVal || newEndByteVal < 0 {
-		l.Push(lua.LFalse)
-		l.Push(lua.LString("invalid byte position"))
-		return 2
+		return validationErr("invalid byte position")
 	}
 
 	// Validate row/column positions
 	startRowVal, ok := toNumber(editTable.RawGetString("start_row"))
 	if !ok {
-		l.Push(lua.LFalse)
-		l.Push(lua.LString("start_row must be a number"))
-		return 2
+		return validationErr("start_row must be a number")
 	}
 	startColVal, ok := toNumber(editTable.RawGetString("start_column"))
 	if !ok {
-		l.Push(lua.LFalse)
-		l.Push(lua.LString("start_column must be a number"))
-		return 2
+		return validationErr("start_column must be a number")
 	}
 	oldEndRowVal, ok := toNumber(editTable.RawGetString("old_end_row"))
 	if !ok {
-		l.Push(lua.LFalse)
-		l.Push(lua.LString("old_end_row must be a number"))
-		return 2
+		return validationErr("old_end_row must be a number")
 	}
 	oldEndColVal, ok := toNumber(editTable.RawGetString("old_end_column"))
 	if !ok {
-		l.Push(lua.LFalse)
-		l.Push(lua.LString("old_end_column must be a number"))
-		return 2
+		return validationErr("old_end_column must be a number")
 	}
 	newEndRowVal, ok := toNumber(editTable.RawGetString("new_end_row"))
 	if !ok {
-		l.Push(lua.LFalse)
-		l.Push(lua.LString("new_end_row must be a number"))
-		return 2
+		return validationErr("new_end_row must be a number")
 	}
 	newEndColVal, ok := toNumber(editTable.RawGetString("new_end_column"))
 	if !ok {
-		l.Push(lua.LFalse)
-		l.Push(lua.LString("new_end_column must be a number"))
-		return 2
+		return validationErr("new_end_column must be a number")
 	}
 
 	if startRowVal < 0 || startColVal < 0 || oldEndRowVal < startRowVal ||
 		(oldEndRowVal == startRowVal && oldEndColVal < startColVal) ||
 		newEndRowVal < 0 || newEndColVal < 0 {
-		l.Push(lua.LFalse)
-		l.Push(lua.LString("invalid point position"))
-		return 2
+		return validationErr("invalid point position")
 	}
 
 	startPoint := treesitter.Point{
@@ -410,8 +417,11 @@ func treeIncludedRanges(l *lua.LState) int {
 func treePrintDotGraph(l *lua.LState) int {
 	tree := checkTree(l)
 	if tree.tree == nil {
+		err := lua.NewLuaError(l, "tree is nil").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("tree is nil"))
+		l.Push(err)
 		return 2
 	}
 
@@ -463,8 +473,10 @@ func treePrintDotGraph(l *lua.LState) int {
 }
 
 func treeClose(l *lua.LState) int {
-	tree := checkTree(l)
-	tree.Close()
+	ud := l.CheckUserData(1)
+	if v, ok := ud.Value.(*TreeWrapper); ok {
+		v.Close()
+	}
 	return 0
 }
 

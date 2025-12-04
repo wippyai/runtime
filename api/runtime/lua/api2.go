@@ -14,6 +14,7 @@ type ModuleDef struct {
 	Name        string
 	Description string
 	Class       []string
+	Default     bool // Indicates the module is always loaded
 	Build       func() (*lua.LTable, []YieldType)
 
 	once   sync.Once

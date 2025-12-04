@@ -1,9 +1,6 @@
 package registry
 
 import (
-	"context"
-	"fmt"
-
 	"github.com/wippyai/runtime/system/registry/topology"
 
 	regapi "github.com/wippyai/runtime/api/registry"
@@ -20,17 +17,6 @@ type Changes struct {
 	log      *zap.Logger
 }
 
-// registerChangesType registers the Changes type and methods
-func registerChangesType(l *lua.LState) {
-	value.RegisterMethods(l, changesMetatable, map[string]lua.LGFunction{
-		"ops":    changesOps,
-		"create": changesCreate,
-		"update": changesUpdate,
-		"delete": changesDelete,
-		"apply":  changesApply,
-	})
-}
-
 // changesOps returns the operations in a changeset
 func changesOps(l *lua.LState) int {
 	changes := checkChanges(l)
@@ -44,10 +30,14 @@ func changesOps(l *lua.LState) int {
 		opTable := l.CreateTable(0, 2)
 		opTable.RawSetString("kind", lua.LString(op.Kind))
 
-		entryTable, err := entryToLuaTable(l, op.Entry)
-		if err != nil {
+		entryTable, convErr := entryToLuaTable(l, op.Entry)
+		if convErr != nil {
+			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
+				WithKind(lua.KindInternal).
+				WithRetryable(false)
+			lua.SetErrorMetatable(l, err)
 			l.Push(lua.LNil)
-			l.Push(newRegistryOperationError(l, err, "ops"))
+			l.Push(err)
 			return 2
 		}
 
@@ -68,10 +58,14 @@ func changesCreate(l *lua.LState) int {
 
 	entryTable := l.CheckTable(2)
 
-	entry, err := luaTableToEntry(l, entryTable)
-	if err != nil {
+	entry, convErr := luaTableToEntry(l, entryTable)
+	if convErr != nil {
+		err := lua.WrapErrorWithLua(l, convErr, "convert entry").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, err, "create"))
+		l.Push(err)
 		return 2
 	}
 
@@ -93,10 +87,14 @@ func changesUpdate(l *lua.LState) int {
 
 	entryTable := l.CheckTable(2)
 
-	entry, err := luaTableToEntry(l, entryTable)
-	if err != nil {
+	entry, convErr := luaTableToEntry(l, entryTable)
+	if convErr != nil {
+		err := lua.WrapErrorWithLua(l, convErr, "convert entry").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, err, "update"))
+		l.Push(err)
 		return 2
 	}
 
@@ -130,8 +128,11 @@ func changesDelete(l *lua.LState) int {
 			Name: name.String(),
 		}
 	default:
+		err := lua.NewLuaError(l, "invalid ID format").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, fmt.Errorf("invalid ID format"), "delete"))
+		l.Push(err)
 		return 2
 	}
 
@@ -154,36 +155,48 @@ func changesApply(l *lua.LState) int {
 	}
 
 	if len(changes.ops) == 0 {
+		err := lua.NewLuaError(l, "no changes to apply").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, fmt.Errorf("no changes to apply"), "apply"))
+		l.Push(err)
 		return 2
 	}
 
 	if !security.IsAllowed(l.Context(), "registry.apply", "", nil) {
-		l.RaiseError("not allowed to apply registry changes")
-		return 0
+		err := lua.NewLuaError(l, "not allowed to apply registry changes").
+			WithKind(lua.KindPermissionDenied).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
 	resolver := regapi.GetResolver(l.Context())
 	stateBuilder := topology.NewStateBuilder(changes.log, resolver)
-	sortedOps, err := stateBuilder.SortChangeSet(changes.snapshot.entries, changes.ops)
-	if err != nil {
+	sortedOps, sortErr := stateBuilder.SortChangeSet(changes.snapshot.entries, changes.ops)
+	if sortErr != nil {
+		err := lua.WrapErrorWithLua(l, sortErr, "sort operations").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, fmt.Errorf("failed to sort operations: %w", err), "apply"))
+		l.Push(err)
 		return 2
 	}
 
-	ctx := context.Background()
-
-	version, err := changes.snapshot.reg.Apply(ctx, sortedOps)
-	if err != nil {
+	version, applyErr := changes.snapshot.reg.Apply(l.Context(), sortedOps)
+	if applyErr != nil {
+		err := lua.WrapErrorWithLua(l, applyErr, "apply changes").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, err, "apply"))
+		l.Push(err)
 		return 2
 	}
 
-	ud := wrapVersion(l, version)
-	l.Push(ud)
+	value.PushTypedUserData(l, version, typeVersion)
 	l.Push(lua.LNil)
 	return 2
 }

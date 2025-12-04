@@ -3,14 +3,15 @@ package payload
 
 // Format constants for supported payload formats.
 const (
-	JSON    Format = "json/plain"
-	YAML    Format = "yaml/plain"
-	String  Format = "text/plain"
-	Golang  Format = "golang/any"
-	Lua     Format = "lua/any"
-	Bytes   Format = "application/octet-stream"
-	GoError Format = "golang/error"
-	MsgPack Format = "application/msgpack"
+	JSON     Format = "json/plain"
+	YAML     Format = "yaml/plain"
+	String   Format = "text/plain"
+	Golang   Format = "golang/any"
+	Lua      Format = "lua/any"
+	Bytes    Format = "application/octet-stream"
+	GoError  Format = "golang/error"
+	MsgPack  Format = "application/msgpack"
+	Terminal Format = "channel/terminal" // Signals channel should close after this message
 )
 
 type (
@@ -93,4 +94,17 @@ func NewString(data string) Payload {
 // NewError creates a new payload wrapping a Go error with the GoError format.
 func NewError(data error) Payload {
 	return NewPayload(data, GoError)
+}
+
+// terminalPayload is a singleton for terminal signals.
+var terminalPayload = payload{format: Terminal}
+
+// NewTerminal returns a terminal payload that signals channel closure.
+func NewTerminal() Payload {
+	return terminalPayload
+}
+
+// IsTerminal returns true if the payload is a terminal signal.
+func IsTerminal(p Payload) bool {
+	return p != nil && p.Format() == Terminal
 }

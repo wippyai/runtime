@@ -6,11 +6,17 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-func TestBind(t *testing.T) {
+func setupState() *lua.LState {
 	l := lua.NewState()
-	defer l.Close()
+	lua.OpenErrors(l)
+	module := NewModule(DefaultOptions())
+	module.Load(l)
+	return l
+}
 
-	Bind(l)
+func TestModuleLoads(t *testing.T) {
+	l := setupState()
+	defer l.Close()
 
 	mod := l.GetGlobal("expr")
 	if mod.Type() != lua.LTTable {
@@ -26,15 +32,32 @@ func TestBind(t *testing.T) {
 	}
 }
 
+func TestModuleReuse(t *testing.T) {
+	l1 := lua.NewState()
+	defer l1.Close()
+	l2 := lua.NewState()
+	defer l2.Close()
+
+	module := NewModule(DefaultOptions())
+	module.Load(l1)
+	module.Load(l2)
+
+	mod1 := l1.GetGlobal("expr").(*lua.LTable)
+	mod2 := l2.GetGlobal("expr").(*lua.LTable)
+
+	if mod1 != mod2 {
+		t.Error("module table should be reused across states")
+	}
+}
+
 func TestEvalSimple(t *testing.T) {
-	l := lua.NewState()
+	l := setupState()
 	defer l.Close()
-	Bind(l)
 
 	err := l.DoString(`
 		local result, err = expr.eval("1 + 2")
 		if err then
-			error("unexpected error: " .. err)
+			error("unexpected error: " .. tostring(err))
 		end
 		if result ~= 3 then
 			error("expected 3, got: " .. tostring(result))
@@ -46,14 +69,13 @@ func TestEvalSimple(t *testing.T) {
 }
 
 func TestEvalWithEnv(t *testing.T) {
-	l := lua.NewState()
+	l := setupState()
 	defer l.Close()
-	Bind(l)
 
 	err := l.DoString(`
 		local result, err = expr.eval("x + y", {x = 10, y = 20})
 		if err then
-			error("unexpected error: " .. err)
+			error("unexpected error: " .. tostring(err))
 		end
 		if result ~= 30 then
 			error("expected 30, got: " .. tostring(result))
@@ -65,14 +87,13 @@ func TestEvalWithEnv(t *testing.T) {
 }
 
 func TestEvalBoolean(t *testing.T) {
-	l := lua.NewState()
+	l := setupState()
 	defer l.Close()
-	Bind(l)
 
 	err := l.DoString(`
 		local result, err = expr.eval("true && false")
 		if err then
-			error("unexpected error: " .. err)
+			error("unexpected error: " .. tostring(err))
 		end
 		if result ~= false then
 			error("expected false, got: " .. tostring(result))
@@ -84,14 +105,13 @@ func TestEvalBoolean(t *testing.T) {
 }
 
 func TestEvalString(t *testing.T) {
-	l := lua.NewState()
+	l := setupState()
 	defer l.Close()
-	Bind(l)
 
 	err := l.DoString(`
 		local result, err = expr.eval('"hello" + " " + "world"')
 		if err then
-			error("unexpected error: " .. err)
+			error("unexpected error: " .. tostring(err))
 		end
 		if result ~= "hello world" then
 			error("expected 'hello world', got: " .. tostring(result))
@@ -102,10 +122,9 @@ func TestEvalString(t *testing.T) {
 	}
 }
 
-func TestEvalEmpty(t *testing.T) {
-	l := lua.NewState()
+func TestEvalEmptyError(t *testing.T) {
+	l := setupState()
 	defer l.Close()
-	Bind(l)
 
 	err := l.DoString(`
 		local result, err = expr.eval("")
@@ -115,16 +134,21 @@ func TestEvalEmpty(t *testing.T) {
 		if err == nil then
 			error("expected error for empty expression")
 		end
+		if err:kind() ~= errors.INVALID then
+			error("expected INVALID kind, got: " .. tostring(err:kind()))
+		end
+		if err:retryable() ~= false then
+			error("expected retryable to be false")
+		end
 	`)
 	if err != nil {
-		t.Errorf("eval empty failed: %v", err)
+		t.Errorf("eval empty error failed: %v", err)
 	}
 }
 
-func TestEvalInvalid(t *testing.T) {
-	l := lua.NewState()
+func TestEvalInvalidError(t *testing.T) {
+	l := setupState()
 	defer l.Close()
-	Bind(l)
 
 	err := l.DoString(`
 		local result, err = expr.eval("invalid syntax !!!")
@@ -134,21 +158,26 @@ func TestEvalInvalid(t *testing.T) {
 		if err == nil then
 			error("expected error for invalid expression")
 		end
+		if err:kind() ~= errors.INTERNAL then
+			error("expected INTERNAL kind, got: " .. tostring(err:kind()))
+		end
+		if err:retryable() ~= false then
+			error("expected retryable to be false")
+		end
 	`)
 	if err != nil {
-		t.Errorf("eval invalid failed: %v", err)
+		t.Errorf("eval invalid error failed: %v", err)
 	}
 }
 
 func TestCompileAndRun(t *testing.T) {
-	l := lua.NewState()
+	l := setupState()
 	defer l.Close()
-	Bind(l)
 
 	err := l.DoString(`
 		local program, err = expr.compile("a * b")
 		if err then
-			error("compile failed: " .. err)
+			error("compile failed: " .. tostring(err))
 		end
 		if program == nil then
 			error("program should not be nil")
@@ -156,7 +185,7 @@ func TestCompileAndRun(t *testing.T) {
 
 		local result, err = program:run({a = 5, b = 6})
 		if err then
-			error("run failed: " .. err)
+			error("run failed: " .. tostring(err))
 		end
 		if result ~= 30 then
 			error("expected 30, got: " .. tostring(result))
@@ -167,10 +196,9 @@ func TestCompileAndRun(t *testing.T) {
 	}
 }
 
-func TestCompileEmpty(t *testing.T) {
-	l := lua.NewState()
+func TestCompileEmptyError(t *testing.T) {
+	l := setupState()
 	defer l.Close()
-	Bind(l)
 
 	err := l.DoString(`
 		local program, err = expr.compile("")
@@ -180,16 +208,18 @@ func TestCompileEmpty(t *testing.T) {
 		if err == nil then
 			error("expected error for empty expression")
 		end
+		if err:kind() ~= errors.INVALID then
+			error("expected INVALID kind, got: " .. tostring(err:kind()))
+		end
 	`)
 	if err != nil {
-		t.Errorf("compile empty failed: %v", err)
+		t.Errorf("compile empty error failed: %v", err)
 	}
 }
 
-func TestCompileInvalid(t *testing.T) {
-	l := lua.NewState()
+func TestCompileInvalidError(t *testing.T) {
+	l := setupState()
 	defer l.Close()
-	Bind(l)
 
 	err := l.DoString(`
 		local program, err = expr.compile("(((")
@@ -199,26 +229,28 @@ func TestCompileInvalid(t *testing.T) {
 		if err == nil then
 			error("expected error for invalid expression")
 		end
+		if err:kind() ~= errors.INTERNAL then
+			error("expected INTERNAL kind, got: " .. tostring(err:kind()))
+		end
 	`)
 	if err != nil {
-		t.Errorf("compile invalid failed: %v", err)
+		t.Errorf("compile invalid error failed: %v", err)
 	}
 }
 
 func TestProgramRunWithoutEnv(t *testing.T) {
-	l := lua.NewState()
+	l := setupState()
 	defer l.Close()
-	Bind(l)
 
 	err := l.DoString(`
 		local program, err = expr.compile("2 + 2")
 		if err then
-			error("compile failed: " .. err)
+			error("compile failed: " .. tostring(err))
 		end
 
 		local result, err = program:run()
 		if err then
-			error("run failed: " .. err)
+			error("run failed: " .. tostring(err))
 		end
 		if result ~= 4 then
 			error("expected 4, got: " .. tostring(result))
@@ -229,15 +261,14 @@ func TestProgramRunWithoutEnv(t *testing.T) {
 	}
 }
 
-func TestProgramRunMissingVar(t *testing.T) {
-	l := lua.NewState()
+func TestProgramRunMissingVarError(t *testing.T) {
+	l := setupState()
 	defer l.Close()
-	Bind(l)
 
 	err := l.DoString(`
 		local program, err = expr.compile("x + y")
 		if err then
-			error("compile failed: " .. err)
+			error("compile failed: " .. tostring(err))
 		end
 
 		local result, err = program:run({x = 10})
@@ -247,16 +278,21 @@ func TestProgramRunMissingVar(t *testing.T) {
 		if err == nil then
 			error("expected error for missing variable")
 		end
+		if err:kind() ~= errors.INTERNAL then
+			error("expected INTERNAL kind, got: " .. tostring(err:kind()))
+		end
+		if err:retryable() ~= false then
+			error("expected retryable to be false")
+		end
 	`)
 	if err != nil {
-		t.Errorf("run missing var failed: %v", err)
+		t.Errorf("run missing var error failed: %v", err)
 	}
 }
 
 func TestCaching(t *testing.T) {
-	l := lua.NewState()
+	l := setupState()
 	defer l.Close()
-	Bind(l)
 
 	err := l.DoString(`
 		local result1, err1 = expr.eval("100 + 200")
@@ -276,19 +312,18 @@ func TestCaching(t *testing.T) {
 }
 
 func TestCompileWithEnv(t *testing.T) {
-	l := lua.NewState()
+	l := setupState()
 	defer l.Close()
-	Bind(l)
 
 	err := l.DoString(`
 		local program, err = expr.compile("value * 2", {value = 0})
 		if err then
-			error("compile with env failed: " .. err)
+			error("compile with env failed: " .. tostring(err))
 		end
 
 		local result, err = program:run({value = 50})
 		if err then
-			error("run failed: " .. err)
+			error("run failed: " .. tostring(err))
 		end
 		if result ~= 100 then
 			error("expected 100, got: " .. tostring(result))
@@ -300,14 +335,13 @@ func TestCompileWithEnv(t *testing.T) {
 }
 
 func TestEvalComparison(t *testing.T) {
-	l := lua.NewState()
+	l := setupState()
 	defer l.Close()
-	Bind(l)
 
 	err := l.DoString(`
 		local result, err = expr.eval("x > 5", {x = 10})
 		if err then
-			error("unexpected error: " .. err)
+			error("unexpected error: " .. tostring(err))
 		end
 		if result ~= true then
 			error("expected true, got: " .. tostring(result))
@@ -319,14 +353,13 @@ func TestEvalComparison(t *testing.T) {
 }
 
 func TestEvalTernary(t *testing.T) {
-	l := lua.NewState()
+	l := setupState()
 	defer l.Close()
-	Bind(l)
 
 	err := l.DoString(`
 		local result, err = expr.eval('x > 0 ? "positive" : "negative"', {x = 5})
 		if err then
-			error("unexpected error: " .. err)
+			error("unexpected error: " .. tostring(err))
 		end
 		if result ~= "positive" then
 			error("expected 'positive', got: " .. tostring(result))
@@ -338,14 +371,13 @@ func TestEvalTernary(t *testing.T) {
 }
 
 func TestEvalBuiltinFunctions(t *testing.T) {
-	l := lua.NewState()
+	l := setupState()
 	defer l.Close()
-	Bind(l)
 
 	err := l.DoString(`
 		local result, err = expr.eval("max(1, 5, 3)")
 		if err then
-			error("unexpected error: " .. err)
+			error("unexpected error: " .. tostring(err))
 		end
 		if result ~= 5 then
 			error("expected 5, got: " .. tostring(result))
@@ -357,14 +389,13 @@ func TestEvalBuiltinFunctions(t *testing.T) {
 }
 
 func TestProgramMethods(t *testing.T) {
-	l := lua.NewState()
+	l := setupState()
 	defer l.Close()
-	Bind(l)
 
 	err := l.DoString(`
 		local program, err = expr.compile("1")
 		if err then
-			error("compile failed: " .. err)
+			error("compile failed: " .. tostring(err))
 		end
 		if type(program.run) ~= "function" then
 			error("run method not found")
@@ -376,9 +407,8 @@ func TestProgramMethods(t *testing.T) {
 }
 
 func TestImmutability(t *testing.T) {
-	l := lua.NewState()
+	l := setupState()
 	defer l.Close()
-	Bind(l)
 
 	err := l.DoString(`
 		local success = pcall(function()
@@ -391,14 +421,13 @@ func TestImmutability(t *testing.T) {
 }
 
 func TestEvalNil(t *testing.T) {
-	l := lua.NewState()
+	l := setupState()
 	defer l.Close()
-	Bind(l)
 
 	err := l.DoString(`
 		local result, err = expr.eval("nil")
 		if err then
-			error("unexpected error: " .. err)
+			error("unexpected error: " .. tostring(err))
 		end
 		if result ~= nil then
 			error("expected nil")
@@ -406,5 +435,58 @@ func TestEvalNil(t *testing.T) {
 	`)
 	if err != nil {
 		t.Errorf("eval nil failed: %v", err)
+	}
+}
+
+func TestCustomCacheCapacity(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	lua.OpenErrors(l)
+
+	module := NewModule(Options{CacheCapacity: 10})
+	module.Load(l)
+
+	err := l.DoString(`
+		local result, err = expr.eval("1 + 1")
+		if err then
+			error("unexpected error: " .. tostring(err))
+		end
+		if result ~= 2 then
+			error("expected 2, got: " .. tostring(result))
+		end
+	`)
+	if err != nil {
+		t.Errorf("custom cache capacity failed: %v", err)
+	}
+}
+
+func TestDefaultOptions(t *testing.T) {
+	opts := DefaultOptions()
+	if opts.CacheCapacity != 1000 {
+		t.Errorf("expected default cache capacity 1000, got %d", opts.CacheCapacity)
+	}
+}
+
+func TestErrorStringRepresentation(t *testing.T) {
+	l := setupState()
+	defer l.Close()
+
+	err := l.DoString(`
+		local result, err = expr.eval("")
+		if err == nil then
+			error("expected error")
+		end
+		local str = tostring(err)
+		if str == nil or str == "" then
+			error("error should have string representation")
+		end
+		-- test concatenation
+		local msg = "Error: " .. err
+		if not string.find(msg, "Error:", 1, true) then
+			error("error concatenation failed")
+		end
+	`)
+	if err != nil {
+		t.Errorf("error string representation failed: %v", err)
 	}
 }

@@ -1,209 +1,174 @@
 package expr
 
 import (
-	"fmt"
-	"sync"
-
 	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/vm"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lru "github.com/wippyai/runtime/internal/cache"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
-	luavm "github.com/yuin/gopher-lua"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	lua "github.com/yuin/gopher-lua"
 )
 
-const programMetatable = "expr.Program"
+const typeProgramName = "expr.Program"
 
-var (
-	cache        *lru.Cache[string, *vm.Program]
-	moduleTable  *luavm.LTable
-	programMT    *luavm.LTable
-	registration *luaapi.Registration
-	initOnce     sync.Once
-)
+func init() {
+	value.RegisterTypeMethods(nil, typeProgramName, nil, map[string]lua.LGFunction{
+		"run": programRun,
+	})
+}
 
-// Module is the singleton expr module instance.
-var Module = &exprModule{}
+// Options for expr module configuration.
+type Options struct {
+	CacheCapacity int
+}
 
-type exprModule struct{}
-
-func (m *exprModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        "expr",
-		Description: "Expression language evaluation",
-		Class:       []string{luaapi.ClassDeterministic},
+// DefaultOptions returns default configuration.
+func DefaultOptions() Options {
+	return Options{
+		CacheCapacity: 1000,
 	}
 }
 
-func (m *exprModule) Register(l *luavm.LState) *luaapi.Registration {
-	initOnce.Do(func() {
-		cache = lru.New[string, *vm.Program](
-			lru.WithCapacity(1000),
-		)
+// NewModule creates an expr module with given options.
+func NewModule(opts Options) *luaapi.ModuleDef {
+	if opts.CacheCapacity <= 0 {
+		opts.CacheCapacity = 1000
+	}
 
-		programMT = createProgramMetatable(l)
+	cache := lru.New[string, *vm.Program](lru.WithCapacity(opts.CacheCapacity))
 
-		mod := &luavm.LTable{}
-		mod.RawSetString("compile", luavm.LGoFunc(luaCompile))
-		mod.RawSetString("eval", luavm.LGoFunc(luaEval))
-		mod.Immutable = true
-		moduleTable = mod
-
-		registration = &luaapi.Registration{
-			Table:      moduleTable,
-			YieldTypes: nil,
-		}
-	})
-
-	l.SetField(l.Get(luavm.RegistryIndex), programMetatable, programMT)
-
-	return registration
+	return &luaapi.ModuleDef{
+		Name:        "expr",
+		Description: "Expression language evaluation",
+		Class:       []string{luaapi.ClassDeterministic},
+		Build: func() (*lua.LTable, []luaapi.YieldType) {
+			mod := lua.CreateTable(0, 2)
+			mod.RawSetString("compile", lua.LGoFunc(makeCompileFunc()))
+			mod.RawSetString("eval", lua.LGoFunc(makeEvalFunc(cache)))
+			mod.Immutable = true
+			return mod, nil
+		},
+	}
 }
 
-func (m *exprModule) Loader(l *luavm.LState) int {
-	reg := m.Register(l)
-	l.Push(reg.Table)
-	return 1
-}
-
-// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
-func Bind(l *luavm.LState) {
-	luaapi.LoadModule(l, Module)
-}
-
+// Program wraps a compiled expression.
 type Program struct {
 	program *vm.Program
 }
 
-func getProgramMT(l *luavm.LState) luavm.LValue {
-	return l.GetField(l.Get(luavm.RegistryIndex), programMetatable)
-}
-
-func createProgramMetatable(l *luavm.LState) *luavm.LTable {
-	mt := l.CreateTable(0, 2)
-
-	index := l.CreateTable(0, 1)
-	index.RawSetString("run", luavm.LGoFunc(programRun))
-	index.Immutable = true
-
-	mt.RawSetString("__index", index)
-	mt.Immutable = true
-	return mt
-}
-
-func checkProgram(l *luavm.LState) *Program {
-	ud := l.CheckUserData(1)
+func checkProgram(l *lua.LState, idx int) *Program {
+	ud := l.CheckUserData(idx)
 	if program, ok := ud.Value.(*Program); ok {
 		return program
 	}
-	l.ArgError(1, "expected expr.Program")
+	l.ArgError(idx, "expected expr.Program")
 	return nil
 }
 
-func wrapProgram(l *luavm.LState, program *Program) *luavm.LUserData {
-	ud := l.NewUserData()
-	ud.Value = program
-	ud.Metatable = getProgramMT(l)
-	return ud
-}
-
-func luaCompile(l *luavm.LState) int {
-	expression := l.CheckString(1)
-	if expression == "" {
-		l.Push(luavm.LNil)
-		l.Push(luavm.LString("expression cannot be empty"))
-		return 2
-	}
-
-	var env any
-	if l.GetTop() >= 2 && l.Get(2) != luavm.LNil {
-		env = toGoAny(l.Get(2))
-	}
-
-	program, err := compileExpression(expression, env)
-	if err != nil {
-		l.Push(luavm.LNil)
-		l.Push(luavm.LString(err.Error()))
-		return 2
-	}
-
-	wrappedProgram := &Program{program: program}
-	ud := wrapProgram(l, wrappedProgram)
-	l.Push(ud)
-	l.Push(luavm.LNil)
+func invalidError(l *lua.LState, msg string) int {
+	err := lua.NewLuaError(l, msg).
+		WithKind(lua.KindInvalid).
+		WithRetryable(false)
+	l.Push(lua.LNil)
+	l.Push(err)
 	return 2
 }
 
-func luaEval(l *luavm.LState) int {
-	expression := l.CheckString(1)
-	if expression == "" {
-		l.Push(luavm.LNil)
-		l.Push(luavm.LString("expression cannot be empty"))
-		return 2
-	}
-
-	var env any
-	if l.GetTop() >= 2 && l.Get(2) != luavm.LNil {
-		env = toGoAny(l.Get(2))
-	}
-
-	program, err := getCachedProgram(expression)
-	if err != nil {
-		l.Push(luavm.LNil)
-		l.Push(luavm.LString(err.Error()))
-		return 2
-	}
-
-	result, err := expr.Run(program, env)
-	if err != nil {
-		l.Push(luavm.LNil)
-		l.Push(luavm.LString(err.Error()))
-		return 2
-	}
-
-	luaResult, err := luaconv.GoToLua(result)
-	if err != nil {
-		l.Push(luavm.LNil)
-		l.Push(luavm.LString(fmt.Sprintf("failed to convert result: %s", err.Error())))
-		return 2
-	}
-
-	l.Push(luaResult)
-	l.Push(luavm.LNil)
+func internalError(l *lua.LState, goErr error, context string) int {
+	err := lua.WrapErrorWithLua(l, goErr, context).
+		WithKind(lua.KindInternal).
+		WithRetryable(false)
+	lua.SetErrorMetatable(l, err)
+	l.Push(lua.LNil)
+	l.Push(err)
 	return 2
 }
 
-func programRun(l *luavm.LState) int {
-	program := checkProgram(l)
+func makeCompileFunc() lua.LGFunction {
+	return func(l *lua.LState) int {
+		expression := l.CheckString(1)
+		if expression == "" {
+			return invalidError(l, "expression cannot be empty")
+		}
+
+		var env any
+		if l.GetTop() >= 2 && l.Get(2) != lua.LNil {
+			env = value.ToGoAny(l.Get(2))
+		}
+
+		program, err := compileExpression(expression, env)
+		if err != nil {
+			return internalError(l, err, "compile failed")
+		}
+
+		wrappedProgram := &Program{program: program}
+		value.PushTypedUserData(l, wrappedProgram, typeProgramName)
+		l.Push(lua.LNil)
+		return 2
+	}
+}
+
+func makeEvalFunc(cache *lru.Cache[string, *vm.Program]) lua.LGFunction {
+	return func(l *lua.LState) int {
+		expression := l.CheckString(1)
+		if expression == "" {
+			return invalidError(l, "expression cannot be empty")
+		}
+
+		var env any
+		if l.GetTop() >= 2 && l.Get(2) != lua.LNil {
+			env = value.ToGoAny(l.Get(2))
+		}
+
+		program, err := getCachedProgram(cache, expression)
+		if err != nil {
+			return internalError(l, err, "compile failed")
+		}
+
+		result, err := expr.Run(program, env)
+		if err != nil {
+			return internalError(l, err, "eval failed")
+		}
+
+		luaResult, err := luaconv.GoToLua(result)
+		if err != nil {
+			return internalError(l, err, "failed to convert result")
+		}
+
+		l.Push(luaResult)
+		l.Push(lua.LNil)
+		return 2
+	}
+}
+
+func programRun(l *lua.LState) int {
+	program := checkProgram(l, 1)
 	if program == nil {
 		return 0
 	}
 
 	var env any
-	if l.GetTop() >= 2 && l.Get(2) != luavm.LNil {
-		env = toGoAny(l.Get(2))
+	if l.GetTop() >= 2 && l.Get(2) != lua.LNil {
+		env = value.ToGoAny(l.Get(2))
 	}
 
 	result, err := expr.Run(program.program, env)
 	if err != nil {
-		l.Push(luavm.LNil)
-		l.Push(luavm.LString(err.Error()))
-		return 2
+		return internalError(l, err, "run failed")
 	}
 
 	luaResult, err := luaconv.GoToLua(result)
 	if err != nil {
-		l.Push(luavm.LNil)
-		l.Push(luavm.LString(fmt.Sprintf("failed to convert result: %s", err.Error())))
-		return 2
+		return internalError(l, err, "failed to convert result")
 	}
 
 	l.Push(luaResult)
-	l.Push(luavm.LNil)
+	l.Push(lua.LNil)
 	return 2
 }
 
-func getCachedProgram(expression string) (*vm.Program, error) {
+func getCachedProgram(cache *lru.Cache[string, *vm.Program], expression string) (*vm.Program, error) {
 	if cache == nil {
 		return compileExpression(expression, nil)
 	}
@@ -228,33 +193,4 @@ func compileExpression(expression string, env any) (*vm.Program, error) {
 	}
 
 	return expr.Compile(expression, options...)
-}
-
-func toGoAny(lv luavm.LValue) any {
-	switch v := lv.(type) {
-	case luavm.LBool:
-		return bool(v)
-	case luavm.LNumber:
-		return float64(v)
-	case luavm.LInteger:
-		return int64(v)
-	case luavm.LString:
-		return string(v)
-	case *luavm.LTable:
-		return tableToMap(v)
-	case *luavm.LNilType:
-		return nil
-	default:
-		return nil
-	}
-}
-
-func tableToMap(tbl *luavm.LTable) map[string]any {
-	result := make(map[string]any)
-	tbl.ForEach(func(key luavm.LValue, val luavm.LValue) {
-		if keyStr, ok := key.(luavm.LString); ok {
-			result[string(keyStr)] = toGoAny(val)
-		}
-	})
-	return result
 }

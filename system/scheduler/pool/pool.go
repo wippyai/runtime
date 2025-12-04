@@ -28,13 +28,13 @@ type yieldSlot struct {
 	Error error
 }
 
-// poolEmitter implements dispatcher.Emitter for pool multi-yield.
-type poolEmitter struct {
+// poolCompleter implements dispatcher.Completer for pool multi-yield.
+type poolCompleter struct {
 	ctx *multiYieldCtx
 	idx int
 }
 
-func (e *poolEmitter) Emit(data any, err error) {
+func (e *poolCompleter) Complete(data any, err error) {
 	e.ctx.slots[e.idx].Data = data
 	e.ctx.slots[e.idx].Error = err
 	if e.ctx.pending.Add(-1) == 0 {
@@ -47,15 +47,19 @@ func (e *poolEmitter) Emit(data any, err error) {
 
 // multiYieldCtx supports zero-allocation multi-yield completion.
 type multiYieldCtx struct {
-	slots    [MaxPoolYields]yieldSlot
-	emitters [MaxPoolYields]poolEmitter
-	pending  atomic.Int32
-	wakeup   chan struct{}
+	slots      [MaxPoolYields]yieldSlot
+	completers [MaxPoolYields]poolCompleter
+	handlers   [MaxPoolYields]dispatcher.Handler
+	pending    atomic.Int32
+	wakeup     chan struct{}
 }
 
 // Pool executes function calls using managed processes.
 // Implementations must be safe for concurrent use.
+// Also implements relay.Receiver for message routing.
 type Pool interface {
+	relay.Receiver
+
 	// Call executes a function and blocks until completion.
 	Call(ctx context.Context, method string, input payload.Payloads) (*runtime.Result, error)
 
@@ -172,15 +176,61 @@ type ExecutionHooks struct {
 
 // Executor runs a process to completion with yield handling.
 // This is the core execution logic shared across all pool types.
+// Implements relay.Receiver to handle incoming messages during StepIdle.
 type Executor struct {
 	dispatcher Dispatcher
 	hooks      ExecutionHooks
 	multiCtx   multiYieldCtx // embedded for zero-alloc multi-yield
+
+	// Wake signal for StepIdle - message was delivered to process
+	wake chan struct{}
+
+	// Process for this executor (set at creation, immutable)
+	proc process.Process
+
+	// hasWork is set when messages arrive, checked/cleared at StepIdle
+	hasWork atomic.Bool
 }
 
 // NewExecutor creates an executor with the given dispatcher.
 func NewExecutor(d Dispatcher) *Executor {
-	return &Executor{dispatcher: d}
+	e := &Executor{
+		dispatcher: d,
+		wake:       make(chan struct{}, 1),
+	}
+	e.multiCtx.wakeup = make(chan struct{}, 1)
+	return e
+}
+
+// Reset prepares the executor for reuse. Clears hasWork flag and drains channels.
+// Note: proc is not cleared here - it will be set when executor is reused.
+// This avoids race with concurrent Send that may have looked up this executor.
+func (e *Executor) Reset() {
+	e.hasWork.Store(false)
+	// Drain wake channel
+	select {
+	case <-e.wake:
+	default:
+	}
+	// Drain multiCtx wakeup
+	select {
+	case <-e.multiCtx.wakeup:
+	default:
+	}
+}
+
+// Send implements relay.Receiver. Delivers message to process and signals wake.
+func (e *Executor) Send(pkg *relay.Package) error {
+	if err := e.proc.Send(pkg); err != nil {
+		return err
+	}
+	// Mark that work arrived and signal wake
+	e.hasWork.Store(true)
+	select {
+	case e.wake <- struct{}{}:
+	default:
+	}
+	return nil
 }
 
 // WithExecutionHooks sets execution-level hooks.
@@ -190,6 +240,7 @@ func (e *Executor) WithExecutionHooks(hooks ExecutionHooks) *Executor {
 }
 
 // Run executes a process to completion, handling all yields.
+// Caller must set e.proc before registering executor and clear after unregistering.
 func (e *Executor) Run(ctx context.Context, proc process.Process, method string, input payload.Payloads) *runtime.Result {
 	if e.hooks.OnStart != nil {
 		e.hooks.OnStart(ctx, proc)
@@ -229,11 +280,21 @@ func (e *Executor) Run(ctx context.Context, proc process.Process, method string,
 			return &ret
 
 		case process.StepIdle:
-			result := &runtime.Result{Error: ErrIdleNotSupported}
-			if e.hooks.OnComplete != nil {
-				e.hooks.OnComplete(ctx, result)
+			// Check if messages arrived during step - if so, continue immediately
+			if e.hasWork.Swap(false) {
+				continue
 			}
-			return result
+			// Wait for wake signal or context cancellation
+			select {
+			case <-e.wake:
+				continue
+			case <-ctx.Done():
+				result := &runtime.Result{Error: ctx.Err()}
+				if e.hooks.OnComplete != nil {
+					e.hooks.OnComplete(ctx, result)
+				}
+				return result
+			}
 
 		case process.StepContinue:
 			yields := stepResult.GetYields()
@@ -253,8 +314,8 @@ func (e *Executor) Run(ctx context.Context, proc process.Process, method string,
 	}
 }
 
-// handleYields executes all command handlers and waits for emit to be called.
-// Handlers are async - they call emit.Emit() when done, possibly from another goroutine.
+// handleYields executes all command handlers and waits for complete to be called.
+// Handlers are async - they call complete.Complete() when done, possibly from another goroutine.
 func (e *Executor) handleYields(ctx context.Context, yields []dispatcher.Command) *process.YieldResults {
 	res := process.AcquireYieldResults()
 
@@ -268,15 +329,12 @@ func (e *Executor) handleYields(ctx context.Context, yields []dispatcher.Command
 
 		// Single yield - use embedded emitter for zero allocation
 		e.multiCtx.pending.Store(1)
-		if e.multiCtx.wakeup == nil {
-			e.multiCtx.wakeup = make(chan struct{}, 1)
-		}
 		e.multiCtx.slots[0].Data = nil
 		e.multiCtx.slots[0].Error = nil
-		e.multiCtx.emitters[0].ctx = &e.multiCtx
-		e.multiCtx.emitters[0].idx = 0
+		e.multiCtx.completers[0].ctx = &e.multiCtx
+		e.multiCtx.completers[0].idx = 0
 
-		if err := handler.Handle(ctx, cmd, &e.multiCtx.emitters[0]); err != nil {
+		if err := handler.Handle(ctx, cmd, &e.multiCtx.completers[0]); err != nil {
 			res.Error = err
 			return res
 		}
@@ -291,12 +349,11 @@ func (e *Executor) handleYields(ctx context.Context, yields []dispatcher.Command
 		return res
 	}
 
-	// Multiple yields - validate handlers first
+	// Multiple yields - validate handlers first using embedded array
 	n := len(yields)
-	handlers := make([]dispatcher.Handler, n)
 	for i, cmd := range yields {
-		handlers[i] = e.dispatcher.Dispatch(cmd)
-		if handlers[i] == nil {
+		e.multiCtx.handlers[i] = e.dispatcher.Dispatch(cmd)
+		if e.multiCtx.handlers[i] == nil {
 			res.Error = &UnknownCommandError{CmdID: cmd.CmdID()}
 			return res
 		}
@@ -304,21 +361,18 @@ func (e *Executor) handleYields(ctx context.Context, yields []dispatcher.Command
 
 	// Initialize multi-yield context
 	e.multiCtx.pending.Store(int32(n)) //nolint:gosec // n is bounded by MaxPoolYields (4)
-	if e.multiCtx.wakeup == nil {
-		e.multiCtx.wakeup = make(chan struct{}, 1)
-	}
 	for i := 0; i < n && i < MaxPoolYields; i++ {
 		e.multiCtx.slots[i].Data = nil
 		e.multiCtx.slots[i].Error = nil
-		e.multiCtx.emitters[i].ctx = &e.multiCtx
-		e.multiCtx.emitters[i].idx = i
+		e.multiCtx.completers[i].ctx = &e.multiCtx
+		e.multiCtx.completers[i].idx = i
 	}
 
-	// Start all handlers in parallel using embedded emitters
+	// Start all handlers in parallel using embedded completers
 	for i, cmd := range yields {
-		emitter := &e.multiCtx.emitters[i]
-		if err := handlers[i].Handle(ctx, cmd, emitter); err != nil {
-			emitter.Emit(nil, err)
+		completer := &e.multiCtx.completers[i]
+		if err := e.multiCtx.handlers[i].Handle(ctx, cmd, completer); err != nil {
+			completer.Complete(nil, err)
 		}
 	}
 

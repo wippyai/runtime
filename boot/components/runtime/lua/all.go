@@ -6,6 +6,7 @@ func All() []boot.Component {
 	return []boot.Component{
 		Engine(),
 		Base64(),
+		Channel(),
 		Compress(),
 		Ctx(),
 		Crypto(),

@@ -5,12 +5,8 @@ import (
 	"context"
 
 	"github.com/wippyai/runtime/api/event"
-	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 )
-
-// HostID identifies the function node in the pub/sub system.
-const HostID relay.HostID = "node:functions"
 
 // System identifies the function system in the event bus.
 const System event.System = "function"

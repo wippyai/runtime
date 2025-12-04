@@ -3,68 +3,32 @@ package httpclient
 import (
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/wippyai/runtime/api/dispatcher"
 	httpapi "github.com/wippyai/runtime/api/dispatcher/http"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
 )
 
-var (
-	moduleTable       *lua.LTable
-	registration      *luaapi.Registration
-	responseMetatable *lua.LTable
-	initOnce          sync.Once
-)
+var responseMetatable *lua.LTable
 
-// Module is the singleton httpclient module instance.
-var Module = &httpclientModule{}
-
-type httpclientModule struct{}
-
-func (m *httpclientModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        "http_client",
-		Description: "HTTP client requests (get, post, etc.)",
-		Class:       []string{luaapi.ClassNetwork, luaapi.ClassIO, luaapi.ClassNondeterministic},
-	}
+// Module is the http_client module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "http_client",
+	Description: "HTTP client requests (get, post, etc.)",
+	Class:       []string{luaapi.ClassNetwork, luaapi.ClassIO, luaapi.ClassNondeterministic},
+	Build:       buildModule,
 }
 
-func (m *httpclientModule) Register(l *lua.LState) *luaapi.Registration {
-	initOnce.Do(func() {
-		moduleTable = createModuleTable()
+func buildModule() (*lua.LTable, []luaapi.YieldType) {
+	responseMetatable = lua.CreateTable(0, 2)
+	responseMetatable.RawSetString("__index", lua.LGoFunc(responseIndex))
+	responseMetatable.RawSetString("__tostring", lua.LGoFunc(responseToString))
+	responseMetatable.Immutable = true
 
-		// Response uses property-style access, so __index is a function not a table
-		responseMetatable = lua.CreateTable(0, 2)
-		responseMetatable.RawSetString("__index", lua.LGoFunc(responseIndex))
-		responseMetatable.RawSetString("__tostring", lua.LGoFunc(responseToString))
-		responseMetatable.Immutable = true
-
-		registration = &luaapi.Registration{
-			Table:      moduleTable,
-			YieldTypes: nil,
-		}
-	})
-
-	return registration
-}
-
-func (m *httpclientModule) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	l.Push(reg.Table)
-	return 1
-}
-
-// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
-func Bind(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
-}
-
-func createModuleTable() *lua.LTable {
 	mod := lua.CreateTable(0, 10)
-
 	mod.RawSetString("get", lua.LGoFunc(makeMethod("GET")))
 	mod.RawSetString("post", lua.LGoFunc(makeMethod("POST")))
 	mod.RawSetString("put", lua.LGoFunc(makeMethod("PUT")))
@@ -75,9 +39,14 @@ func createModuleTable() *lua.LTable {
 	mod.RawSetString("request_batch", lua.LGoFunc(requestBatch))
 	mod.RawSetString("encode_uri", lua.LGoFunc(encodeURI))
 	mod.RawSetString("decode_uri", lua.LGoFunc(decodeURI))
-
 	mod.Immutable = true
-	return mod
+
+	yields := []luaapi.YieldType{
+		{Sample: &RequestYield{}, CmdID: dispatcher.CommandID(httpapi.CmdRequest)},
+		{Sample: &RequestBatchYield{}, CmdID: dispatcher.CommandID(httpapi.CmdRequestBatch)},
+	}
+
+	return mod, yields
 }
 
 func makeMethod(method string) lua.LGFunction {

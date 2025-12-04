@@ -14,17 +14,16 @@ import (
 	"github.com/wippyai/runtime/api/runtime/resource"
 )
 
-// testEmitter wraps a callback function to implement dispatcher.Emitter
-type testEmitter struct {
+type testCompleter struct {
 	fn func(data any)
 }
 
-func (e *testEmitter) Emit(data any, _ error) {
+func (e *testCompleter) Complete(data any, _ error) {
 	e.fn(data)
 }
 
-func newTestEmitter(fn func(data any)) dispatcher.Emitter {
-	return &testEmitter{fn: fn}
+func newTestEmitter(fn func(data any)) dispatcher.Completer {
+	return &testCompleter{fn: fn}
 }
 
 func setupTestContext() (context.Context, *resource.Store) {
@@ -34,32 +33,30 @@ func setupTestContext() (context.Context, *resource.Store) {
 	return ctx, store
 }
 
-func TestStreamRegistry(t *testing.T) {
+func TestStreamInsert(t *testing.T) {
 	table := resource.NewTable()
-	r := NewStreamRegistry(table)
 
 	reader := io.NopCloser(strings.NewReader("hello"))
-	id := r.Register(reader)
+	id := Insert(table, reader)
 	if id != 1 {
 		t.Errorf("expected first ID to be 1, got %d", id)
 	}
 
 	reader2 := io.NopCloser(strings.NewReader("world"))
-	id2 := r.Register(reader2)
+	id2 := Insert(table, reader2)
 	if id2 != 2 {
 		t.Errorf("expected second ID to be 2, got %d", id2)
 	}
 }
 
-func TestStreamRegistryRead(t *testing.T) {
+func TestStreamRead(t *testing.T) {
 	table := resource.NewTable()
-	r := NewStreamRegistry(table)
 
 	data := "hello world"
 	reader := io.NopCloser(strings.NewReader(data))
-	id := r.Register(reader)
+	id := Insert(table, reader)
 
-	chunk, err := r.Read(id, 5)
+	chunk, err := Read(table, id, 5)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -67,7 +64,7 @@ func TestStreamRegistryRead(t *testing.T) {
 		t.Errorf("expected 'hello', got '%s'", string(chunk))
 	}
 
-	chunk, err = r.Read(id, 6)
+	chunk, err = Read(table, id, 6)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -75,33 +72,29 @@ func TestStreamRegistryRead(t *testing.T) {
 		t.Errorf("expected ' world', got '%s'", string(chunk))
 	}
 
-	// EOF
-	chunk, err = r.Read(id, 10)
+	chunk, err = Read(table, id, 10)
 	if err != io.EOF {
 		t.Errorf("expected io.EOF, got %v", err)
 	}
 }
 
-func TestStreamRegistryReadNotFound(t *testing.T) {
+func TestStreamReadNotFound(t *testing.T) {
 	table := resource.NewTable()
-	r := NewStreamRegistry(table)
 
-	_, err := r.Read(999, 10)
-	if err != ErrStreamNotFound {
-		t.Errorf("expected ErrStreamNotFound, got %v", err)
+	_, err := Read(table, 999, 10)
+	if err != ErrNotFound {
+		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }
 
-func TestStreamRegistryReadDefaultSize(t *testing.T) {
+func TestStreamReadDefaultSize(t *testing.T) {
 	table := resource.NewTable()
-	r := NewStreamRegistry(table)
 
 	data := strings.Repeat("x", 100)
 	reader := io.NopCloser(strings.NewReader(data))
-	id := r.Register(reader)
+	id := Insert(table, reader)
 
-	// size=0 should use default
-	chunk, err := r.Read(id, 0)
+	chunk, err := Read(table, id, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -110,38 +103,35 @@ func TestStreamRegistryReadDefaultSize(t *testing.T) {
 	}
 }
 
-func TestStreamRegistryClose(t *testing.T) {
+func TestStreamClose(t *testing.T) {
 	table := resource.NewTable()
-	r := NewStreamRegistry(table)
 
 	reader := io.NopCloser(strings.NewReader("test"))
-	id := r.Register(reader)
+	id := Insert(table, reader)
 
-	err := r.Close(id)
+	err := Close(table, id)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	err = r.Close(id)
-	if err != ErrStreamNotFound {
-		t.Errorf("expected ErrStreamNotFound on double close, got %v", err)
+	err = Close(table, id)
+	if err != ErrNotFound {
+		t.Errorf("expected ErrNotFound on double close, got %v", err)
 	}
 }
 
-func TestStreamRegistryTableClose(t *testing.T) {
+func TestStreamTableClose(t *testing.T) {
 	table := resource.NewTable()
-	r := NewStreamRegistry(table)
 
-	r.Register(io.NopCloser(strings.NewReader("a")))
-	r.Register(io.NopCloser(strings.NewReader("b")))
-	r.Register(io.NopCloser(strings.NewReader("c")))
+	Insert(table, io.NopCloser(strings.NewReader("a")))
+	Insert(table, io.NopCloser(strings.NewReader("b")))
+	Insert(table, io.NopCloser(strings.NewReader("c")))
 
-	// Closing the table should clean up all streams
 	table.Close()
 
-	_, err := r.Read(1, 10)
-	if err != ErrStreamNotFound {
-		t.Errorf("expected ErrStreamNotFound after table close, got %v", err)
+	_, err := Read(table, 1, 10)
+	if err != ErrNotFound {
+		t.Errorf("expected ErrNotFound after table close, got %v", err)
 	}
 }
 
@@ -149,11 +139,11 @@ func TestStreamReadHandler(t *testing.T) {
 	ctx, store := setupTestContext()
 	defer store.Close()
 
-	registry := GetOrCreateStreamRegistry(ctx)
+	table := resource.GetTable(ctx)
 	data := "hello world"
-	id := registry.Register(io.NopCloser(strings.NewReader(data)))
+	id := Insert(table, io.NopCloser(strings.NewReader(data)))
 
-	d := NewDispatcher(4)
+	d := NewDispatcher()
 	d.Start(ctx)
 	defer d.Stop(ctx)
 
@@ -164,7 +154,7 @@ func TestStreamReadHandler(t *testing.T) {
 
 	var emitted any
 	done := make(chan struct{})
-	err := handlers[streamapi.CmdStreamRead].Handle(ctx, streamapi.StreamReadCmd{StreamID: id, Size: 5}, newTestEmitter(func(d any) {
+	err := handlers[streamapi.CmdRead].Handle(ctx, streamapi.ReadCmd{StreamID: id, Size: 5}, newTestEmitter(func(d any) {
 		emitted = d
 		close(done)
 	}))
@@ -187,10 +177,10 @@ func TestStreamReadHandlerEOF(t *testing.T) {
 	ctx, store := setupTestContext()
 	defer store.Close()
 
-	registry := GetOrCreateStreamRegistry(ctx)
-	id := registry.Register(io.NopCloser(bytes.NewReader(nil)))
+	table := resource.GetTable(ctx)
+	id := Insert(table, io.NopCloser(bytes.NewReader(nil)))
 
-	d := NewDispatcher(4)
+	d := NewDispatcher()
 	d.Start(ctx)
 	defer d.Stop(ctx)
 
@@ -201,7 +191,7 @@ func TestStreamReadHandlerEOF(t *testing.T) {
 
 	var emitted any
 	done := make(chan struct{})
-	err := handlers[streamapi.CmdStreamRead].Handle(ctx, streamapi.StreamReadCmd{StreamID: id, Size: 10}, newTestEmitter(func(d any) {
+	err := handlers[streamapi.CmdRead].Handle(ctx, streamapi.ReadCmd{StreamID: id, Size: 10}, newTestEmitter(func(d any) {
 		emitted = d
 		close(done)
 	}))
@@ -211,7 +201,6 @@ func TestStreamReadHandlerEOF(t *testing.T) {
 
 	<-done
 
-	// nil signals EOF
 	if emitted != nil {
 		t.Errorf("expected nil for EOF, got %v", emitted)
 	}
@@ -221,10 +210,10 @@ func TestStreamCloseHandler(t *testing.T) {
 	ctx, store := setupTestContext()
 	defer store.Close()
 
-	registry := GetOrCreateStreamRegistry(ctx)
-	id := registry.Register(io.NopCloser(strings.NewReader("test")))
+	table := resource.GetTable(ctx)
+	id := Insert(table, io.NopCloser(strings.NewReader("test")))
 
-	d := NewDispatcher(4)
+	d := NewDispatcher()
 	d.Start(ctx)
 	defer d.Stop(ctx)
 
@@ -234,7 +223,7 @@ func TestStreamCloseHandler(t *testing.T) {
 	})
 
 	done := make(chan struct{})
-	err := handlers[streamapi.CmdStreamClose].Handle(ctx, streamapi.StreamCloseCmd{StreamID: id}, newTestEmitter(func(d any) {
+	err := handlers[streamapi.CmdClose].Handle(ctx, streamapi.CloseCmd{StreamID: id}, newTestEmitter(func(d any) {
 		close(done)
 	}))
 	if err != nil {
@@ -243,20 +232,19 @@ func TestStreamCloseHandler(t *testing.T) {
 
 	<-done
 
-	// Second close should not emit
-	var emitted bool
-	err = handlers[streamapi.CmdStreamClose].Handle(ctx, streamapi.StreamCloseCmd{StreamID: id}, newTestEmitter(func(d any) {
-		emitted = true
+	// Second close should still complete but stream is already gone
+	done2 := make(chan struct{})
+	err = handlers[streamapi.CmdClose].Handle(ctx, streamapi.CloseCmd{StreamID: id}, newTestEmitter(func(d any) {
+		close(done2)
 	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Give time for async not to emit
-	time.Sleep(50 * time.Millisecond)
-
-	if emitted {
-		t.Error("should not emit on second close")
+	select {
+	case <-done2:
+	case <-time.After(100 * time.Millisecond):
+		t.Error("expected completion for second close")
 	}
 }
 
@@ -264,11 +252,11 @@ func TestStreamFullCycle(t *testing.T) {
 	ctx, store := setupTestContext()
 	defer store.Close()
 
-	registry := GetOrCreateStreamRegistry(ctx)
+	table := resource.GetTable(ctx)
 	data := "chunk1chunk2chunk3"
-	id := registry.Register(io.NopCloser(strings.NewReader(data)))
+	id := Insert(table, io.NopCloser(strings.NewReader(data)))
 
-	d := NewDispatcher(4)
+	d := NewDispatcher()
 	d.Start(ctx)
 	defer d.Stop(ctx)
 
@@ -281,7 +269,7 @@ func TestStreamFullCycle(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		var emitted any
 		done := make(chan struct{})
-		err := handlers[streamapi.CmdStreamRead].Handle(ctx, streamapi.StreamReadCmd{StreamID: id, Size: 6}, newTestEmitter(func(d any) {
+		err := handlers[streamapi.CmdRead].Handle(ctx, streamapi.ReadCmd{StreamID: id, Size: 6}, newTestEmitter(func(d any) {
 			emitted = d
 			close(done)
 		}))
@@ -302,7 +290,7 @@ func TestStreamFullCycle(t *testing.T) {
 	}
 
 	done := make(chan struct{})
-	err := handlers[streamapi.CmdStreamClose].Handle(ctx, streamapi.StreamCloseCmd{StreamID: id}, newTestEmitter(func(d any) {
+	err := handlers[streamapi.CmdClose].Handle(ctx, streamapi.CloseCmd{StreamID: id}, newTestEmitter(func(d any) {
 		close(done)
 	}))
 	if err != nil {
@@ -312,7 +300,7 @@ func TestStreamFullCycle(t *testing.T) {
 }
 
 func TestDispatcher_RegisterAll(t *testing.T) {
-	d := NewDispatcher(4)
+	d := NewDispatcher()
 
 	count := 0
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -323,7 +311,18 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 	}
 }
 
-// trackingCloser records whether Close was called.
+func TestDispatcher_WithWorkers(t *testing.T) {
+	d := NewDispatcher(WithWorkers(8))
+	if d.workers != 8 {
+		t.Errorf("expected 8 workers, got %d", d.workers)
+	}
+
+	d2 := NewDispatcher()
+	if d2.workers != 16 {
+		t.Errorf("expected default 16 workers, got %d", d2.workers)
+	}
+}
+
 type trackingCloser struct {
 	io.Reader
 	closed *bool
@@ -339,20 +338,17 @@ func TestStreamCleanupOnStoreClose(t *testing.T) {
 
 	var closed1, closed2, closed3 bool
 
-	registry := GetOrCreateStreamRegistry(ctx)
-	registry.RegisterStream(&trackingCloser{strings.NewReader("a"), &closed1})
-	registry.RegisterStream(&trackingCloser{strings.NewReader("b"), &closed2})
-	registry.RegisterStream(&trackingCloser{strings.NewReader("c"), &closed3})
+	table := resource.GetTable(ctx)
+	Insert(table, &trackingCloser{strings.NewReader("a"), &closed1})
+	Insert(table, &trackingCloser{strings.NewReader("b"), &closed2})
+	Insert(table, &trackingCloser{strings.NewReader("c"), &closed3})
 
-	// Verify streams are registered
-	if _, err := registry.Read(1, 1); err != nil {
+	if _, err := Read(table, 1, 1); err != nil {
 		t.Errorf("stream 1 should be readable: %v", err)
 	}
 
-	// Close store - should cleanup all streams via Table
 	store.Close()
 
-	// Verify all streams were closed via Dropper interface
 	if !closed1 || !closed2 || !closed3 {
 		t.Errorf("expected all streams closed, got: %v %v %v", closed1, closed2, closed3)
 	}
@@ -361,8 +357,8 @@ func TestStreamCleanupOnStoreClose(t *testing.T) {
 func TestStreamCleanupIdempotent(t *testing.T) {
 	ctx, store := setupTestContext()
 
-	registry := GetOrCreateStreamRegistry(ctx)
-	registry.RegisterStream(&trackingCloser{
+	table := resource.GetTable(ctx)
+	Insert(table, &trackingCloser{
 		Reader: strings.NewReader("test"),
 		closed: func() *bool {
 			b := false
@@ -370,7 +366,6 @@ func TestStreamCleanupIdempotent(t *testing.T) {
 		}(),
 	})
 
-	// Close store multiple times - should not panic
 	store.Close()
 	store.Close()
 	store.Close()

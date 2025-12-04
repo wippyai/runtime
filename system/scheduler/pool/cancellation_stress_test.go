@@ -22,7 +22,7 @@ type slowYieldingProcess struct {
 	closed      atomic.Bool
 }
 
-func (p *slowYieldingProcess) Execute(_ context.Context, _ string, input payload.Payloads) error {
+func (p *slowYieldingProcess) Init(_ context.Context, _ string, input payload.Payloads) error {
 	p.maxSteps = 10
 	p.stepLatency = 1 * time.Millisecond
 	return nil
@@ -63,8 +63,8 @@ func (d *yieldingDispatcher) Dispatch(cmd dispatcher.Command) dispatcher.Handler
 
 type instantYieldHandler struct{}
 
-func (h *instantYieldHandler) Handle(_ context.Context, _ dispatcher.Command, emit dispatcher.Emitter) error {
-	emit.Emit(nil, nil)
+func (h *instantYieldHandler) Handle(_ context.Context, _ dispatcher.Command, complete dispatcher.Completer) error {
+	complete.Complete(nil, nil)
 	return nil
 }
 
@@ -295,7 +295,7 @@ type steppingPoolProcess struct {
 	closed   atomic.Bool
 }
 
-func (p *steppingPoolProcess) Execute(_ context.Context, _ string, _ payload.Payloads) error {
+func (p *steppingPoolProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
 	return nil
 }
 

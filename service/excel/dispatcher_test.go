@@ -15,17 +15,16 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
-// testEmitter wraps a callback function to implement dispatcher.Emitter
-type testEmitter struct {
+type testCompleter struct {
 	fn func(data any)
 }
 
-func (e *testEmitter) Emit(data any, _ error) {
+func (e *testCompleter) Complete(data any, _ error) {
 	e.fn(data)
 }
 
-func newTestEmitter(fn func(data any)) dispatcher.Emitter {
-	return &testEmitter{fn: fn}
+func newTestEmitter(fn func(data any)) dispatcher.Completer {
+	return &testCompleter{fn: fn}
 }
 
 func setupTestContext() (context.Context, *resource.Store) {
@@ -36,7 +35,6 @@ func setupTestContext() (context.Context, *resource.Store) {
 }
 
 func TestExcelOpenStreamHandler(t *testing.T) {
-	// Create a simple Excel file in memory
 	f := excelize.NewFile()
 	f.SetCellValue("Sheet1", "A1", "Hello")
 	f.SetCellValue("Sheet1", "B1", 123)
@@ -47,13 +45,11 @@ func TestExcelOpenStreamHandler(t *testing.T) {
 	}
 	f.Close()
 
-	// Setup context with stream registry
 	ctx, store := setupTestContext()
 	defer store.Close()
-	registry := streamhandler.GetOrCreateStreamRegistry(ctx)
+	table := resource.GetTable(ctx)
 
-	// Register the buffer as a stream
-	streamID := registry.RegisterStream(io.NopCloser(bytes.NewReader(buf.Bytes())))
+	streamID := streamhandler.Insert(table, io.NopCloser(bytes.NewReader(buf.Bytes())))
 
 	d := NewDispatcher(4)
 	d.Start(ctx)
@@ -91,7 +87,6 @@ func TestExcelOpenStreamHandler(t *testing.T) {
 		t.Fatal("expected file, got nil")
 	}
 
-	// Verify we can read the data
 	val, err := resp.File.GetCellValue("Sheet1", "A1")
 	if err != nil {
 		t.Fatalf("failed to get cell: %v", err)
@@ -103,7 +98,7 @@ func TestExcelOpenStreamHandler(t *testing.T) {
 	resp.File.Close()
 }
 
-func TestExcelOpenStreamHandlerNoRegistry(t *testing.T) {
+func TestExcelOpenStreamHandlerNoTable(t *testing.T) {
 	ctx := context.Background()
 
 	d := NewDispatcher(4)
@@ -136,19 +131,17 @@ func TestExcelOpenStreamHandlerNoRegistry(t *testing.T) {
 	}
 
 	if resp.Error == nil {
-		t.Error("expected error for missing registry")
+		t.Error("expected error for missing table")
 	}
 }
 
 func TestExcelOpenStreamHandlerInvalidStream(t *testing.T) {
 	ctx, store := setupTestContext()
 	defer store.Close()
-	streamhandler.GetOrCreateStreamRegistry(ctx)
+	table := resource.GetTable(ctx)
 
-	// Register invalid data as a stream
 	invalidData := []byte("not an excel file")
-	registry := streamhandler.GetStreamRegistry(ctx)
-	streamID := registry.RegisterStream(io.NopCloser(bytes.NewReader(invalidData)))
+	streamID := streamhandler.Insert(table, io.NopCloser(bytes.NewReader(invalidData)))
 
 	d := NewDispatcher(4)
 	d.Start(ctx)
@@ -184,7 +177,6 @@ func TestExcelOpenStreamHandlerInvalidStream(t *testing.T) {
 	}
 }
 
-// mockWriteCloser wraps a buffer to implement io.WriteCloser
 type mockWriteCloser struct {
 	buf    *bytes.Buffer
 	closed bool
@@ -200,20 +192,17 @@ func (m *mockWriteCloser) Close() error {
 }
 
 func TestExcelWriteStreamHandler(t *testing.T) {
-	// Create a simple Excel file
 	f := excelize.NewFile()
 	f.SetCellValue("Sheet1", "A1", "Test")
 	f.SetCellValue("Sheet1", "B1", 456)
 
-	// Setup context with stream registry
 	ctx, store := setupTestContext()
 	defer store.Close()
-	registry := streamhandler.GetOrCreateStreamRegistry(ctx)
+	table := resource.GetTable(ctx)
 
-	// Register a write buffer as a stream
 	buf := &bytes.Buffer{}
 	writeCloser := &mockWriteCloser{buf: buf}
-	streamID := registry.RegisterStream(writeCloser)
+	streamID := streamhandler.Insert(table, writeCloser)
 
 	d := NewDispatcher(4)
 	d.Start(ctx)
@@ -249,12 +238,10 @@ func TestExcelWriteStreamHandler(t *testing.T) {
 		t.Fatalf("response error: %v", resp.Error)
 	}
 
-	// Verify data was written
 	if buf.Len() == 0 {
 		t.Error("expected data to be written")
 	}
 
-	// Verify we can read it back
 	readFile, err := excelize.OpenReader(buf)
 	if err != nil {
 		t.Fatalf("failed to reopen: %v", err)
@@ -272,7 +259,7 @@ func TestExcelWriteStreamHandler(t *testing.T) {
 	f.Close()
 }
 
-func TestExcelWriteStreamHandlerNoRegistry(t *testing.T) {
+func TestExcelWriteStreamHandlerNoTable(t *testing.T) {
 	f := excelize.NewFile()
 	defer f.Close()
 
@@ -309,7 +296,7 @@ func TestExcelWriteStreamHandlerNoRegistry(t *testing.T) {
 	}
 
 	if resp.Error == nil {
-		t.Error("expected error for missing registry")
+		t.Error("expected error for missing table")
 	}
 }
 

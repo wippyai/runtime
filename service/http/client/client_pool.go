@@ -40,10 +40,33 @@ const (
 	maxPooledClients       = 64 // prevent unbounded growth
 )
 
-// NewClientPool creates a new HTTP client pool.
+// NewClientPool creates a new HTTP client pool with default settings.
 func NewClientPool() *ClientPool {
 	return &ClientPool{
-		defaultClient: createClient(defaultTimeout, ""),
+		defaultClient: createClient(defaultTimeout, "", defaultMaxIdleConns, defaultMaxIdlePerHost, defaultIdleConnTimeout),
+	}
+}
+
+// NewClientPoolWithConfig creates a pool with custom configuration.
+func NewClientPoolWithConfig(cfg PoolConfig) *ClientPool {
+	timeout := cfg.Timeout
+	if timeout <= 0 {
+		timeout = defaultTimeout
+	}
+	maxIdle := cfg.MaxIdleConns
+	if maxIdle <= 0 {
+		maxIdle = defaultMaxIdleConns
+	}
+	maxPerHost := cfg.MaxIdlePerHost
+	if maxPerHost <= 0 {
+		maxPerHost = defaultMaxIdlePerHost
+	}
+	idleTimeout := cfg.IdleConnTimeout
+	if idleTimeout <= 0 {
+		idleTimeout = defaultIdleConnTimeout
+	}
+	return &ClientPool{
+		defaultClient: createClient(timeout, "", maxIdle, maxPerHost, idleTimeout),
 	}
 }
 
@@ -65,7 +88,7 @@ func (p *ClientPool) GetClient(timeout time.Duration, unixSocket string) *gohttp
 	if v, ok := p.clients.Load(key); ok {
 		co := v.(*clientOnce)
 		co.once.Do(func() {
-			co.client = createClient(timeout, unixSocket)
+			co.client = createClient(timeout, unixSocket, defaultMaxIdleConns, defaultMaxIdlePerHost, defaultIdleConnTimeout)
 		})
 		return co.client
 	}
@@ -78,7 +101,7 @@ func (p *ClientPool) GetClient(timeout time.Duration, unixSocket string) *gohttp
 	}
 
 	co.once.Do(func() {
-		co.client = createClient(timeout, unixSocket)
+		co.client = createClient(timeout, unixSocket, defaultMaxIdleConns, defaultMaxIdlePerHost, defaultIdleConnTimeout)
 	})
 
 	return co.client
@@ -95,7 +118,7 @@ func (p *ClientPool) Size() int {
 }
 
 // createClient builds an HTTP client with proper transport configuration.
-func createClient(timeout time.Duration, unixSocket string) *gohttp.Client {
+func createClient(timeout time.Duration, unixSocket string, maxIdleConns, maxIdlePerHost int, idleConnTimeout time.Duration) *gohttp.Client {
 	dialer := &net.Dialer{
 		Timeout:   defaultDialTimeout,
 		KeepAlive: defaultKeepAlive,
@@ -103,15 +126,14 @@ func createClient(timeout time.Duration, unixSocket string) *gohttp.Client {
 
 	transport := &gohttp.Transport{
 		DialContext:           dialer.DialContext,
-		MaxIdleConns:          defaultMaxIdleConns,
-		MaxIdleConnsPerHost:   defaultMaxIdlePerHost,
-		IdleConnTimeout:       defaultIdleConnTimeout,
+		MaxIdleConns:          maxIdleConns,
+		MaxIdleConnsPerHost:   maxIdlePerHost,
+		IdleConnTimeout:       idleConnTimeout,
 		TLSHandshakeTimeout:   defaultTLSHandshake,
 		ExpectContinueTimeout: defaultExpectContinue,
 		ForceAttemptHTTP2:     true,
 	}
 
-	// Unix socket support
 	if unixSocket != "" {
 		transport.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
 			return dialer.DialContext(ctx, "unix", unixSocket)

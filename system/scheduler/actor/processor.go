@@ -17,27 +17,27 @@ type YieldSlot struct {
 	Error error
 }
 
-// IndexedEmitter implements dispatcher.Emitter for multi-yield.
+// IndexedCompleter implements dispatcher.Completer for multi-yield.
 // Embedded in Processor to avoid allocation.
-type IndexedEmitter struct {
+type IndexedCompleter struct {
 	proc *Processor
 	idx  int
 }
 
-// Emit implements dispatcher.Emitter.
-func (e *IndexedEmitter) Emit(data any, err error) {
+// Complete implements dispatcher.Completer.
+func (e *IndexedCompleter) Complete(data any, err error) {
 	e.proc.CompleteAt(e.idx, data, err)
 }
 
 // MultiYieldContext supports zero-allocation multi-yield completion.
 // Embedded in Processor to avoid allocation per multi-yield call.
 type MultiYieldContext struct {
-	slots         [MaxYields]YieldSlot
-	emitters      [MaxYields]IndexedEmitter
-	overflowSlots []YieldSlot      // for yields > MaxYields
-	overflowEmit  []IndexedEmitter // for yields > MaxYields
-	pending       atomic.Int32
-	wakeup        chan struct{}
+	slots            [MaxYields]YieldSlot
+	completers       [MaxYields]IndexedCompleter
+	overflowSlots    []YieldSlot        // for yields > MaxYields
+	overflowComplete []IndexedCompleter // for yields > MaxYields
+	pending          atomic.Int32
+	wakeup           chan struct{}
 }
 
 // nanotime returns monotonic time in nanoseconds.
@@ -100,12 +100,12 @@ type Processor struct {
 	pooled bool
 }
 
-// Emit implements dispatcher.Emitter for single-yield path.
+// Complete implements dispatcher.Completer for single-yield path.
 // Stores the result and re-queues the processor for execution.
 //
 // Thread-safe: can be called from any goroutine.
 // Must be called exactly once per blocked yield.
-func (p *Processor) Emit(data any, err error) {
+func (p *Processor) Complete(data any, err error) {
 	sched := p.scheduler
 	if sched == nil {
 		return
@@ -118,11 +118,6 @@ func (p *Processor) Emit(data any, err error) {
 
 	sched.global.Push(p)
 	sched.wake()
-}
-
-// Complete is an alias for Emit (backwards compatibility).
-func (p *Processor) Complete(data any, err error) {
-	p.Emit(data, err)
 }
 
 // ID returns the internal processor ID.
@@ -162,12 +157,12 @@ func (p *Processor) initMultiYield(n int) {
 		p.multiYield.wakeup = make(chan struct{}, 1)
 	}
 
-	// Initialize embedded emitters (common case: n <= MaxYields)
+	// Initialize embedded completers (common case: n <= MaxYields)
 	for i := 0; i < n && i < MaxYields; i++ {
 		p.multiYield.slots[i].Data = nil
 		p.multiYield.slots[i].Error = nil
-		p.multiYield.emitters[i].proc = p
-		p.multiYield.emitters[i].idx = i
+		p.multiYield.completers[i].proc = p
+		p.multiYield.completers[i].idx = i
 	}
 
 	// Handle overflow beyond MaxYields (rare case)
@@ -175,26 +170,26 @@ func (p *Processor) initMultiYield(n int) {
 		overflow := n - MaxYields
 		if cap(p.multiYield.overflowSlots) < overflow {
 			p.multiYield.overflowSlots = make([]YieldSlot, overflow)
-			p.multiYield.overflowEmit = make([]IndexedEmitter, overflow)
+			p.multiYield.overflowComplete = make([]IndexedCompleter, overflow)
 		} else {
 			p.multiYield.overflowSlots = p.multiYield.overflowSlots[:overflow]
-			p.multiYield.overflowEmit = p.multiYield.overflowEmit[:overflow]
+			p.multiYield.overflowComplete = p.multiYield.overflowComplete[:overflow]
 		}
 		for i := 0; i < overflow; i++ {
 			p.multiYield.overflowSlots[i].Data = nil
 			p.multiYield.overflowSlots[i].Error = nil
-			p.multiYield.overflowEmit[i].proc = p
-			p.multiYield.overflowEmit[i].idx = MaxYields + i
+			p.multiYield.overflowComplete[i].proc = p
+			p.multiYield.overflowComplete[i].idx = MaxYields + i
 		}
 	}
 }
 
-// getEmitter returns the emitter for the given yield index.
-func (p *Processor) getEmitter(idx int) dispatcher.Emitter {
+// getCompleter returns the completer for the given yield index.
+func (p *Processor) getCompleter(idx int) dispatcher.Completer {
 	if idx < MaxYields {
-		return &p.multiYield.emitters[idx]
+		return &p.multiYield.completers[idx]
 	}
-	return &p.multiYield.overflowEmit[idx-MaxYields]
+	return &p.multiYield.overflowComplete[idx-MaxYields]
 }
 
 // getSlot returns the result slot for the given yield index.

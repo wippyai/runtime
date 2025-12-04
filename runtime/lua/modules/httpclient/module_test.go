@@ -7,11 +7,16 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-func TestBind(t *testing.T) {
+// bind loads the module into the given state for testing.
+func bind(l *lua.LState) {
+	Module.Load(l)
+}
+
+func TestLoader(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Bind(l)
+	bind(l)
 
 	mod := l.GetGlobal("http_client")
 	if mod.Type() != lua.LTTable {
@@ -31,7 +36,7 @@ func TestImmutability(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Bind(l)
+	bind(l)
 
 	err := l.DoString(`
 		local success = pcall(function()
@@ -47,7 +52,7 @@ func TestEncodeURI(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Bind(l)
+	bind(l)
 
 	err := l.DoString(`
 		local encoded = http_client.encode_uri("hello world")
@@ -64,7 +69,7 @@ func TestDecodeURI(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Bind(l)
+	bind(l)
 
 	err := l.DoString(`
 		local decoded, err = http_client.decode_uri("hello+world")
@@ -84,7 +89,7 @@ func TestDecodeURIInvalid(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Bind(l)
+	bind(l)
 
 	err := l.DoString(`
 		local decoded, err = http_client.decode_uri("%ZZ")
@@ -104,7 +109,7 @@ func TestGetNoContext(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Bind(l)
+	bind(l)
 
 	err := l.DoString(`
 		local ok, err = pcall(function()
@@ -121,7 +126,7 @@ func TestGetWithContext(t *testing.T) {
 	defer l.Close()
 	l.SetContext(context.Background())
 
-	Bind(l)
+	bind(l)
 
 	fn := l.GetGlobal("http_client").(*lua.LTable).RawGetString("get")
 	l.Push(fn)
@@ -141,7 +146,7 @@ func TestRequestMethod(t *testing.T) {
 	defer l.Close()
 	l.SetContext(context.Background())
 
-	Bind(l)
+	bind(l)
 
 	fn := l.GetGlobal("http_client").(*lua.LTable).RawGetString("request")
 	l.Push(fn)
@@ -161,15 +166,15 @@ func TestRequestMethod(t *testing.T) {
 	}
 }
 
-func TestBindIdempotent(t *testing.T) {
+func TestLoaderIdempotent(t *testing.T) {
 	l1 := lua.NewState()
 	defer l1.Close()
 
 	l2 := lua.NewState()
 	defer l2.Close()
 
-	Bind(l1)
-	Bind(l2)
+	bind(l1)
+	bind(l2)
 
 	mod1 := l1.GetGlobal("http_client")
 	mod2 := l2.GetGlobal("http_client")
@@ -183,7 +188,7 @@ func TestResponse(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Bind(l)
+	bind(l)
 
 	resp := NewResponse(l, 200, map[string]string{"Content-Type": "text/plain"}, map[string]string{"session": "abc"}, []byte("hello"), "http://example.com")
 	l.SetGlobal("test_response", resp)
@@ -217,7 +222,7 @@ func TestResponseUnknownField(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Bind(l)
+	bind(l)
 
 	resp := NewResponse(l, 200, nil, nil, nil, "")
 	l.SetGlobal("test_response", resp)

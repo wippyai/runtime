@@ -19,9 +19,9 @@ type Dispatcher struct {
 }
 
 type job struct {
-	ctx  context.Context
-	cmd  dispatcher.Command
-	emit dispatcher.Emitter
+	ctx      context.Context
+	cmd      dispatcher.Command
+	complete dispatcher.Completer
 }
 
 // NewDispatcher creates a security dispatcher with the specified worker count.
@@ -59,9 +59,9 @@ func (d *Dispatcher) worker() {
 	}
 }
 
-func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) {
+func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) {
 	select {
-	case d.jobs <- job{ctx: ctx, cmd: cmd, emit: emit}:
+	case d.jobs <- job{ctx: ctx, cmd: cmd, complete: complete}:
 	case <-d.ctx.Done():
 	}
 }
@@ -70,20 +70,20 @@ func (d *Dispatcher) execute(j job) {
 	switch c := j.cmd.(type) {
 	case *securityapi.TokenValidateCmd:
 		actor, scope, err := c.TokenStore.Validate(j.ctx, c.Token)
-		j.emit.Emit(securityapi.TokenValidateResponse{Actor: actor, Scope: scope, Error: err}, nil)
+		j.complete.Complete(securityapi.TokenValidateResponse{Actor: actor, Scope: scope, Error: err}, nil)
 
 	case *securityapi.TokenCreateCmd:
 		token, err := c.TokenStore.Create(j.ctx, c.Actor, c.Scope, c.Details)
-		j.emit.Emit(securityapi.TokenCreateResponse{Token: token, Error: err}, nil)
+		j.complete.Complete(securityapi.TokenCreateResponse{Token: token, Error: err}, nil)
 
 	case *securityapi.TokenRevokeCmd:
 		err := c.TokenStore.Revoke(j.ctx, c.Token)
-		j.emit.Emit(securityapi.TokenRevokeResponse{Error: err}, nil)
+		j.complete.Complete(securityapi.TokenRevokeResponse{Error: err}, nil)
 	}
 }
 
-func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
-	d.submit(ctx, cmd, emit)
+func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
+	d.submit(ctx, cmd, complete)
 	return nil
 }
 

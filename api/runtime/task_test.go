@@ -191,37 +191,3 @@ func TestContext_FramePID(t *testing.T) {
 		assert.Contains(t, err.Error(), "no frame context available")
 	})
 }
-
-func TestContext_FrameHost(t *testing.T) {
-	t.Run("with frame context", func(t *testing.T) {
-		ctx := ctxapi.NewRootContext()
-		ctx, _ = ctxapi.OpenFrameContext(ctx)
-
-		host, ok := GetFrameHost(ctx)
-		assert.False(t, ok)
-		assert.Nil(t, host)
-
-		type mockHost struct{ relay.Host }
-		mockH := &mockHost{}
-		err := SetFrameHost(ctx, mockH)
-		require.NoError(t, err)
-
-		retrieved, ok := GetFrameHost(ctx)
-		assert.True(t, ok)
-		assert.Equal(t, mockH, retrieved)
-	})
-
-	t.Run("without frame context", func(t *testing.T) {
-		ctx := ctxapi.NewRootContext()
-
-		host, ok := GetFrameHost(ctx)
-		assert.False(t, ok)
-		assert.Nil(t, host)
-
-		type mockHost struct{ relay.Host }
-		mockH := &mockHost{}
-		err := SetFrameHost(ctx, mockH)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "no frame context available")
-	})
-}

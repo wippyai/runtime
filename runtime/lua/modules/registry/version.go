@@ -6,16 +6,6 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// registerVersionType registers the Version type and methods
-func registerVersionType(l *lua.LState) {
-	value.RegisterMethods(l, versionMetatable, map[string]lua.LGFunction{
-		"id":       versionID,
-		"previous": versionPrevious,
-		"next":     versionNext,
-		"string":   versionString,
-	})
-}
-
 // versionID returns the ID of a version
 func versionID(l *lua.LState) int {
 	ud := l.CheckUserData(1)
@@ -44,8 +34,7 @@ func versionPrevious(l *lua.LState) int {
 		return 1
 	}
 
-	ud = wrapVersion(l, prev)
-	l.Push(ud)
+	value.PushTypedUserData(l, prev, typeVersion)
 	return 1
 }
 
@@ -64,8 +53,7 @@ func versionNext(l *lua.LState) int {
 		return 1
 	}
 
-	ud = wrapVersion(l, next)
-	l.Push(ud)
+	value.PushTypedUserData(l, next, typeVersion)
 	return 1
 }
 

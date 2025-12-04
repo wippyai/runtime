@@ -12,7 +12,7 @@ import (
 
 type mockHandler struct{}
 
-func (h *mockHandler) Handle(_ context.Context, _ dispatcher.Command, _ dispatcher.Emitter) error {
+func (h *mockHandler) Handle(_ context.Context, _ dispatcher.Command, _ dispatcher.Completer) error {
 	return nil
 }
 

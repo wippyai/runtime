@@ -101,7 +101,7 @@ func createTestTemplateSet(t *testing.T) *jet.Set {
 	return set
 }
 
-func setupTestState(t *testing.T, mockRes *mockResource) *lua.LState {
+func setupTestState(_ *testing.T, mockRes *mockResource) *lua.LState {
 	transcoder := payloadSystem.GlobalTranscoder()
 	json.Register(transcoder)
 	lua2payload.Register(transcoder)
@@ -245,7 +245,10 @@ func TestTemplateRenderNotFound(t *testing.T) {
 		local result, err = tmpl:render("nonexistent", {})
 
 		tmpl:release()
-		if err ~= "template not found" then
+		if not err then
+			error("expected error")
+		end
+		if tostring(err) ~= "template not found" then
 			error("expected 'template not found' got '" .. tostring(err) .. "'")
 		end
 	`)
@@ -265,7 +268,10 @@ func TestTemplateRenderAfterRelease(t *testing.T) {
 		tmpl:release()
 
 		local result, err = tmpl:render("welcome", {name = "Test"})
-		if err ~= "template set is released" then
+		if not err then
+			error("expected error")
+		end
+		if tostring(err) ~= "template set is released" then
 			error("expected 'template set is released' got '" .. tostring(err) .. "'")
 		end
 	`)

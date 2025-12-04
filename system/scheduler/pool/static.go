@@ -7,6 +7,7 @@ import (
 
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 )
 
@@ -48,6 +49,7 @@ func releaseRequest(req *request) {
 
 // staticWorker owns one process and pulls from shared queue.
 type staticWorker struct {
+	pool     *Static
 	process  process.Process
 	executor *Executor
 	tasks    <-chan *request
@@ -57,6 +59,7 @@ type staticWorker struct {
 
 // Static is a fixed-size pool using a channel-based work queue.
 // Workers block on the shared channel - Go runtime handles scheduling.
+// Implements relay.Receiver for message delivery to running processes.
 //
 // Use cases:
 //   - HTTP handlers with steady high load
@@ -69,6 +72,9 @@ type Static struct {
 	done       chan struct{}
 	wg         sync.WaitGroup
 	closed     atomic.Bool
+
+	// Active executions indexed by PID.UniqID for message routing
+	active sync.Map // map[string]*Executor
 }
 
 // NewStatic creates a static pool with the given configuration.
@@ -103,8 +109,10 @@ func NewStatic(factory Factory, dispatcher Dispatcher, cfg Config, hooks ...Exec
 
 		// Each worker needs its own Executor to avoid races on multiCtx
 		executor := NewExecutor(dispatcher).WithExecutionHooks(hooksCfg)
+		executor.proc = proc // Set once, immutable for this worker's lifetime
 
 		s.workers[i] = &staticWorker{
+			pool:     s,
 			process:  proc,
 			executor: executor,
 			tasks:    s.tasks,
@@ -134,6 +142,18 @@ func (s *Static) Stop() {
 	for _, w := range s.workers {
 		w.process.Close()
 	}
+}
+
+// Send implements relay.Receiver. Routes package to target execution.
+func (s *Static) Send(pkg *relay.Package) error {
+	println("[DEBUG] Static.Send: Target.Host=", pkg.Target.Host, "Target.UniqID=", pkg.Target.UniqID)
+	v, ok := s.active.Load(pkg.Target.UniqID)
+	if !ok {
+		println("[DEBUG] Static.Send: NOT FOUND in active map")
+		return ErrProcessNotFound
+	}
+	println("[DEBUG] Static.Send: found executor, forwarding")
+	return v.(*Executor).Send(pkg)
 }
 
 // Call executes a function call using an available worker.
@@ -209,7 +229,16 @@ func (w *staticWorker) drain() {
 
 // execute runs a single request.
 func (w *staticWorker) execute(req *request) {
-	result := w.executor.Run(req.ctx, w.process, req.method, req.input)
+	// Get PID from frame context (set by function registry)
+	ctx := req.ctx
+	pid, _ := runtime.GetFramePID(ctx)
+	w.pool.active.Store(pid.UniqID, w.executor)
+
+	result := w.executor.Run(ctx, w.process, req.method, req.input)
+
+	// Unregister - any Send after this returns ErrProcessNotFound
+	w.pool.active.Delete(pid.UniqID)
+
 	select {
 	case req.resultCh <- result:
 	default:

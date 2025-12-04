@@ -5,7 +5,9 @@ import (
 	"sync"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/relay"
+	lua "github.com/yuin/gopher-lua"
 )
 
 // ProcessContextKey is the context key for ProcessContext in FrameContext.
@@ -26,6 +28,10 @@ var processContextPool = sync.Pool{
 	},
 }
 
+// TopicHandler processes incoming messages for a topic before channel delivery.
+// Return value is what gets sent to the channel. Return nil to skip channel send.
+type TopicHandler func(ctx context.Context, l *lua.LState, payloads []payload.Payload) lua.LValue
+
 // ProcessContext holds all request-specific state for a Lua process execution.
 // Created once per Execute call, stored in FrameContext, released on completion.
 type ProcessContext struct {
@@ -35,6 +41,10 @@ type ProcessContext struct {
 
 	// Subscribe layer state
 	subs *subscribeContext
+
+	// Topic handlers for custom message processing
+	handlers   map[string]TopicHandler
+	handlersMu sync.RWMutex
 
 	// Incoming messages from relay
 	inboxMu sync.Mutex
@@ -92,6 +102,13 @@ func (pc *ProcessContext) reset() {
 	pc.inboxMu.Lock()
 	pc.inbox = pc.inbox[:0]
 	pc.inboxMu.Unlock()
+
+	// Clear handlers
+	pc.handlersMu.Lock()
+	for k := range pc.handlers {
+		delete(pc.handlers, k)
+	}
+	pc.handlersMu.Unlock()
 }
 
 // ChannelQueue returns the channel layer task queue, creating it if needed.
@@ -133,6 +150,42 @@ func (pc *ProcessContext) HasSubscriptions() bool {
 	pc.subs.mu.RLock()
 	defer pc.subs.mu.RUnlock()
 	return len(pc.subs.byTopic) > 0
+}
+
+// Subscribe registers a channel to receive messages for a topic.
+func (pc *ProcessContext) Subscribe(topic string, ch *Channel) error {
+	_, err := pc.subs.add(topic, ch)
+	return err
+}
+
+// Unsubscribe removes a channel's topic subscription.
+func (pc *ProcessContext) Unsubscribe(ch *Channel) error {
+	return pc.subs.remove(ch)
+}
+
+// SetTopicHandler registers a handler for a topic.
+func (pc *ProcessContext) SetTopicHandler(topic string, handler TopicHandler) {
+	pc.handlersMu.Lock()
+	if pc.handlers == nil {
+		pc.handlers = make(map[string]TopicHandler, 4)
+	}
+	pc.handlers[topic] = handler
+	pc.handlersMu.Unlock()
+}
+
+// GetTopicHandler retrieves a handler for a topic.
+func (pc *ProcessContext) GetTopicHandler(topic string) (TopicHandler, bool) {
+	pc.handlersMu.RLock()
+	h, ok := pc.handlers[topic]
+	pc.handlersMu.RUnlock()
+	return h, ok
+}
+
+// RemoveTopicHandler removes a handler for a topic.
+func (pc *ProcessContext) RemoveTopicHandler(topic string) {
+	pc.handlersMu.Lock()
+	delete(pc.handlers, topic)
+	pc.handlersMu.Unlock()
 }
 
 // GetProcessContext retrieves ProcessContext from FrameContext.

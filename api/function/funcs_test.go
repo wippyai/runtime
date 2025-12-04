@@ -8,14 +8,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
-	"github.com/wippyai/runtime/api/relay"
 )
 
 func TestConstants(t *testing.T) {
-	t.Run("HostID", func(t *testing.T) {
-		assert.Equal(t, relay.HostID("node:functions"), HostID)
-	})
-
 	t.Run("System", func(t *testing.T) {
 		assert.Equal(t, event.System("function"), System)
 	})

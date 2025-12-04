@@ -35,22 +35,34 @@ var requestMethods = map[string]lua.LGFunction{
 	"params":          requestParams,
 }
 
+func pushRequest(l *lua.LState, req *Request) {
+	value.PushTypedUserData(l, req, requestTypeName)
+}
+
 func newRequest(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
+		err := lua.NewLuaError(l, "no context available").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no context available"))
+		l.Push(err)
 		return 2
 	}
 
 	reqCtx, ok := httpservice.GetRequestContext(ctx)
 	if !ok {
+		err := lua.NewLuaError(l, "no HTTP request context found").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no HTTP request context found"))
+		l.Push(err)
 		return 2
 	}
 
-	value.PushUserData(l, &Request{request: reqCtx.Request()}, requestMetatable)
+	pushRequest(l, &Request{request: reqCtx.Request()})
 	l.Push(lua.LNil)
 	return 2
 }
@@ -186,15 +198,23 @@ func requestBody(l *lua.LState) int {
 		return 0
 	}
 	if req.request.Body == nil {
+		err := lua.NewLuaError(l, "no body").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no body"))
+		l.Push(err)
 		return 2
 	}
 	body, err := io.ReadAll(req.request.Body)
 	defer func() { _ = req.request.Body.Close() }()
 	if err != nil {
+		luaErr := lua.WrapErrorWithLua(l, err, "failed to read body").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to read body: %v", err)))
+		l.Push(luaErr)
 		return 2
 	}
 	l.Push(lua.LString(body))
@@ -208,21 +228,33 @@ func requestBodyJSON(l *lua.LState) int {
 		return 0
 	}
 	if req.request.Body == nil {
+		err := lua.NewLuaError(l, "no body").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no body"))
+		l.Push(err)
 		return 2
 	}
 	body, err := io.ReadAll(req.request.Body)
 	defer func() { _ = req.request.Body.Close() }()
 	if err != nil {
+		luaErr := lua.WrapErrorWithLua(l, err, "failed to read body").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to read body: %v", err)))
+		l.Push(luaErr)
 		return 2
 	}
 	val, err := jsonmod.Decode(body)
 	if err != nil {
+		luaErr := lua.WrapErrorWithLua(l, err, "invalid JSON").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("invalid JSON: %v", err)))
+		l.Push(luaErr)
 		return 2
 	}
 	l.Push(val)
@@ -286,8 +318,12 @@ func requestParam(l *lua.LState) int {
 	name := l.CheckString(2)
 	routeInfo, ok := httpservice.GetRouteInfo(req.request.Context())
 	if !ok {
+		err := lua.NewLuaError(l, "no route parameters found").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no route parameters found"))
+		l.Push(err)
 		return 2
 	}
 	val, exists := routeInfo.Params[name]
@@ -308,8 +344,12 @@ func requestParams(l *lua.LState) int {
 	}
 	routeInfo, ok := httpservice.GetRouteInfo(req.request.Context())
 	if !ok {
+		err := lua.NewLuaError(l, "no route parameters found").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no route parameters found"))
+		l.Push(err)
 		return 2
 	}
 	params := l.CreateTable(0, len(routeInfo.Params))

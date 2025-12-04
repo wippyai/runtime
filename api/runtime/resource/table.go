@@ -5,7 +5,8 @@ import "sync"
 
 // Handle is an opaque reference to a resource.
 // Handle 0 is reserved and always invalid.
-type Handle uint32
+// Uses uint64 for WASM Component Model compatibility.
+type Handle uint64
 
 // Dropper is implemented by resources that need cleanup when removed.
 type Dropper interface {

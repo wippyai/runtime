@@ -55,8 +55,8 @@ func (p *OneYieldProcess) Close()                        {}
 
 // Immediate sync handler - no goroutine
 func ImmediateHandler() dispatcher.Handler {
-	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
-		emit.Emit(nil, nil)
+	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
+		complete.Complete(nil, nil)
 		return nil
 	})
 }

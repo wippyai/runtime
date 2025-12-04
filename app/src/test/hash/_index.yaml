@@ -1,0 +1,69 @@
+version: "1.0"
+namespace: app.test.hash
+
+entries:
+  - name: md5
+    kind: function.lua
+    meta:
+      type: test
+      suite: hash
+      description: hash.md5 function
+    source: file://md5.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - hash
+
+  - name: sha
+    kind: function.lua
+    meta:
+      type: test
+      suite: hash
+      description: hash.sha1/sha256/sha512 functions
+    source: file://sha.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - hash
+
+  - name: fnv
+    kind: function.lua
+    meta:
+      type: test
+      suite: hash
+      description: hash.fnv32/fnv64 functions
+    source: file://fnv.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - hash
+
+  - name: hmac
+    kind: function.lua
+    meta:
+      type: test
+      suite: hash
+      description: hash.hmac_* functions
+    source: file://hmac.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - hash
+
+  - name: errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: hash
+      description: hash error handling
+    source: file://errors.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - hash
+

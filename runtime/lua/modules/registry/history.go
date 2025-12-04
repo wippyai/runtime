@@ -1,8 +1,6 @@
 package registry
 
 import (
-	"fmt"
-
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/system/registry/topology"
@@ -17,15 +15,6 @@ type History struct {
 	log  *zap.Logger
 }
 
-// registerHistoryType registers the History type and methods
-func registerHistoryType(l *lua.LState) {
-	value.RegisterMethods(l, historyMetatable, map[string]lua.LGFunction{
-		"versions":    historyVersions,
-		"get_version": historyGetVersion,
-		"snapshot_at": historySnapshotAt,
-	})
-}
-
 // historyVersions returns all available versions in the registry history
 func historyVersions(l *lua.LState) int {
 	history := checkHistory(l)
@@ -33,17 +22,22 @@ func historyVersions(l *lua.LState) int {
 		return 0
 	}
 
-	versions, err := history.hist.Versions()
-	if err != nil {
+	versions, versErr := history.hist.Versions()
+	if versErr != nil {
+		err := lua.WrapErrorWithLua(l, versErr, "get versions").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, err, "versions"))
+		l.Push(err)
 		return 2
 	}
 
-	versionsTable := l.NewTable()
+	versionsTable := l.CreateTable(len(versions), 0)
 	for i, ver := range versions {
-		ud := wrapVersion(l, ver)
-		versionsTable.RawSetInt(i+1, ud)
+		value.PushTypedUserData(l, ver, typeVersion)
+		versionsTable.RawSetInt(i+1, l.Get(-1))
+		l.Pop(1)
 	}
 
 	l.Push(versionsTable)
@@ -60,15 +54,22 @@ func historyGetVersion(l *lua.LState) int {
 
 	vID := l.CheckNumber(2)
 	if vID < 0 {
+		err := lua.NewLuaError(l, "invalid version ID").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, fmt.Errorf("invalid version ID"), "get_version"))
+		l.Push(err)
 		return 2
 	}
 
-	versions, err := history.hist.Versions()
-	if err != nil {
+	versions, versErr := history.hist.Versions()
+	if versErr != nil {
+		err := lua.WrapErrorWithLua(l, versErr, "get versions").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, err, "get_version"))
+		l.Push(err)
 		return 2
 	}
 
@@ -81,13 +82,15 @@ func historyGetVersion(l *lua.LState) int {
 	}
 
 	if foundVersion == nil {
+		err := lua.NewLuaError(l, "version not found").
+			WithKind(lua.KindNotFound).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, fmt.Errorf("version not found"), "get_version"))
+		l.Push(err)
 		return 2
 	}
 
-	ud := wrapVersion(l, foundVersion)
-	l.Push(ud)
+	value.PushTypedUserData(l, foundVersion, typeVersion)
 	l.Push(lua.LNil)
 	return 2
 }
@@ -102,18 +105,25 @@ func historySnapshotAt(l *lua.LState) int {
 	ud := l.CheckUserData(2)
 	version, ok := ud.Value.(regapi.Version)
 	if !ok {
+		err := lua.NewLuaError(l, "expected version object").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, fmt.Errorf("expected version object"), "snapshot_at"))
+		l.Push(err)
 		return 2
 	}
 
 	resolver := regapi.GetResolver(l.Context())
 	stateBuilder := topology.NewStateBuilder(history.log, resolver)
 
-	state, err := stateBuilder.BuildState(history.hist, version)
-	if err != nil {
+	state, buildErr := stateBuilder.BuildState(history.hist, version)
+	if buildErr != nil {
+		err := lua.WrapErrorWithLua(l, buildErr, "build snapshot state").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, err, "snapshot_at"))
+		l.Push(err)
 		return 2
 	}
 
@@ -124,11 +134,7 @@ func historySnapshotAt(l *lua.LState) int {
 		log:     history.log,
 	}
 
-	snapUD := l.NewUserData()
-	snapUD.Value = snap
-	l.SetMetatable(snapUD, l.GetTypeMetatable(snapshotMetatable))
-
-	l.Push(snapUD)
+	value.PushTypedUserData(l, snap, typeSnapshot)
 	l.Push(lua.LNil)
 	return 2
 }

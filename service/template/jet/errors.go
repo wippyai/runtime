@@ -1,8 +1,11 @@
 package jet
 
 import (
+	"fmt"
+
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
+	template "github.com/wippyai/runtime/api/service/template"
 )
 
 type StructuredError struct {
@@ -22,7 +25,7 @@ func (e *StructuredError) Unwrap() error               { return e.cause }
 func newUnsupportedKindError(kind string) error {
 	return &StructuredError{
 		kind:      apierror.KindInvalid,
-		message:   "unsupported entry kind: " + kind,
+		message:   fmt.Sprintf("unsupported entry kind: %s", kind),
 		retryable: apierror.False,
 		details:   attrs.NewBagFrom(map[string]any{"kind": kind}),
 	}
@@ -49,7 +52,7 @@ func newSetConfigDecodeError(cause error) error {
 func newTemplateExistsError(name, set string) error {
 	return &StructuredError{
 		kind:      apierror.KindAlreadyExists,
-		message:   "template " + name + " already exists in set " + set,
+		message:   fmt.Sprintf("template %s already exists in set %s", name, set),
 		retryable: apierror.False,
 		details:   attrs.NewBagFrom(map[string]any{"template": name, "set": set}),
 	}
@@ -67,7 +70,7 @@ func newCreateTemplateError(cause error) error {
 func newSetAlreadyExistsError(id string) error {
 	return &StructuredError{
 		kind:      apierror.KindAlreadyExists,
-		message:   "template set " + id + " already exists",
+		message:   fmt.Sprintf("template set %s already exists", id),
 		retryable: apierror.False,
 		details:   attrs.NewBagFrom(map[string]any{"id": id}),
 	}
@@ -103,7 +106,7 @@ func newAddTemplateError(cause error) error {
 func newTemplateNameExistsError(name, set string) error {
 	return &StructuredError{
 		kind:      apierror.KindAlreadyExists,
-		message:   "template name " + name + " already exists in set " + set,
+		message:   fmt.Sprintf("template name %s already exists in set %s", name, set),
 		retryable: apierror.False,
 		details:   attrs.NewBagFrom(map[string]any{"template": name, "set": set}),
 	}
@@ -157,7 +160,7 @@ func newUpdateSetError(cause error) error {
 func newMigrateTemplateError(name string, cause error) error {
 	return &StructuredError{
 		kind:      apierror.KindInternal,
-		message:   "failed to migrate template " + name,
+		message:   fmt.Sprintf("failed to migrate template %s", name),
 		retryable: apierror.Unknown,
 		details:   attrs.NewBagFrom(map[string]any{"template": name}),
 		cause:     cause,
@@ -167,7 +170,7 @@ func newMigrateTemplateError(name string, cause error) error {
 func newTemplateExistsInSetError(name string) error {
 	return &StructuredError{
 		kind:      apierror.KindAlreadyExists,
-		message:   "template " + name + " already exists in set",
+		message:   fmt.Sprintf("template %s already exists in set", name),
 		retryable: apierror.False,
 		details:   attrs.NewBagFrom(map[string]any{"template": name}),
 	}
@@ -194,7 +197,7 @@ func newUnmarshalPayloadError(cause error) error {
 func newUnsupportedAccessModeError(mode string) error {
 	return &StructuredError{
 		kind:      apierror.KindInvalid,
-		message:   "unsupported access mode: " + mode,
+		message:   fmt.Sprintf("unsupported access mode: %s", mode),
 		retryable: apierror.False,
 		details:   attrs.NewBagFrom(map[string]any{"mode": mode}),
 	}
@@ -203,27 +206,30 @@ func newUnsupportedAccessModeError(mode string) error {
 func newSetNotFoundError(setID string) error {
 	return &StructuredError{
 		kind:      apierror.KindNotFound,
-		message:   "template set not found: " + setID,
+		message:   fmt.Sprintf("template set not found: %s", setID),
 		retryable: apierror.False,
 		details:   attrs.NewBagFrom(map[string]any{"set": setID}),
+		cause:     template.ErrSetNotFound,
 	}
 }
 
 func newTemplateNotFoundError(templateID string) error {
 	return &StructuredError{
 		kind:      apierror.KindNotFound,
-		message:   "template not found: " + templateID,
+		message:   fmt.Sprintf("template not found: %s", templateID),
 		retryable: apierror.False,
 		details:   attrs.NewBagFrom(map[string]any{"template": templateID}),
+		cause:     template.ErrTemplateNotFound,
 	}
 }
 
 func newSetNotEmptyError(setID string, count int) error {
 	return &StructuredError{
 		kind:      apierror.KindInvalid,
-		message:   "set " + setID + " is not empty",
+		message:   fmt.Sprintf("set %s is not empty", setID),
 		retryable: apierror.False,
 		details:   attrs.NewBagFrom(map[string]any{"set": setID, "template_count": count}),
+		cause:     template.ErrSetNotEmpty,
 	}
 }
 
@@ -232,6 +238,6 @@ func newRenderFailedError(cause error) error {
 		kind:      apierror.KindInternal,
 		message:   "template render failed",
 		retryable: apierror.Unknown,
-		cause:     cause,
+		cause:     fmt.Errorf("%w: %w", template.ErrRenderFailed, cause),
 	}
 }

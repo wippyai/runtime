@@ -13,6 +13,11 @@ import (
 
 const typeQuery = "treesitter.Query"
 
+// pushQuery pushes a Query userdata to the stack
+func pushQuery(l *lua.LState, q *QueryWrapper) {
+	value.PushTypedUserData(l, q, typeQuery)
+}
+
 // QueryWrapper wraps a tree-sitter Query and QueryCursor for Lua integration
 type QueryWrapper struct {
 	query         *treesitter.Query
@@ -98,40 +103,37 @@ func newQuery(l *lua.LState) int {
 
 	ctx := l.Context()
 	if ctx == nil {
-		l.RaiseError("no context found")
-		return 0
+		err := lua.NewLuaError(l, "no context found").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
-	// Use the new constructor
 	queryWrapper := NewQuery(ctx, query, treesitter.NewQueryCursor())
-	queryWrapper.source = pattern // Store the source
+	queryWrapper.source = pattern
 
-	ud := l.NewUserData()
-	ud.Value = queryWrapper
-	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Query")
-
-	l.Push(ud)
+	pushQuery(l, queryWrapper)
 	return 1
 }
 
 func matchToLuaTable(l *lua.LState, query *treesitter.Query, match *treesitter.QueryMatch, source *string) *lua.LTable {
-	matchTable := l.NewTable()
+	matchTable := l.CreateTable(0, 3)
 	matchTable.RawSetString("id", lua.LNumber(match.Id()))
 	matchTable.RawSetString("pattern", lua.LNumber(match.PatternIndex))
 
-	capturesTable := l.NewTable()
+	capturesTable := l.CreateTable(len(match.Captures), 0)
 	for _, capture := range match.Captures {
-		captureTable := l.NewTable()
+		captureTable := l.CreateTable(0, 3)
 
-		// Spawn Node wrapper for the specific capture's node
-		nodeUD := l.NewUserData()
-		nodeUD.Value = &NodeWrapper{node: &capture.Node, source: source}
-		l.SetMetatable(nodeUD, value.GetTypeMetatable(nil, "treesitter.Node"))
+		pushNode(l, &capture.Node, source)
+		nodeUD := l.Get(-1)
+		l.Pop(1)
 
 		captureTable.RawSetString("node", nodeUD)
 		captureTable.RawSetString("index", lua.LNumber(capture.Index))
 
-		// Spawn capture name from query pattern
 		name := query.CaptureNames()[capture.Index]
 		if name != "" {
 			captureTable.RawSetString("name", lua.LString(name))
@@ -151,8 +153,12 @@ func queryMatches(l *lua.LState) int {
 
 	node, ok := nodeUD.Value.(*NodeWrapper)
 	if !ok {
-		l.ArgError(2, "Node expected")
-		return 0
+		err := lua.NewLuaError(l, "Node expected").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
 	query.source = source
@@ -177,8 +183,12 @@ func queryCaptures(l *lua.LState) int {
 
 	node, ok := nodeUD.Value.(*NodeWrapper)
 	if !ok {
-		l.ArgError(2, "Node expected")
-		return 0
+		err := lua.NewLuaError(l, "Node expected").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
 	query.source = source
@@ -191,23 +201,20 @@ func queryCaptures(l *lua.LState) int {
 		}
 
 		capture := match.Captures[index]
-		captureTable := l.NewTable()
+		captureTable := l.CreateTable(0, 4)
 
-		// Spawn Node wrapper
-		nodeUD := l.NewUserData()
-		nodeUD.Value = &NodeWrapper{node: &capture.Node, source: &query.source}
-		nodeUD.Metatable = value.GetTypeMetatable(nil, "treesitter.Node")
+		pushNode(l, &capture.Node, &query.source)
+		capturedNodeUD := l.Get(-1)
+		l.Pop(1)
 
-		captureTable.RawSetString("node", nodeUD)
+		captureTable.RawSetString("node", capturedNodeUD)
 		captureTable.RawSetString("index", lua.LNumber(capture.Index))
 
-		// AddCleanup capture name
 		name := query.query.CaptureNames()[capture.Index]
 		if name != "" {
 			captureTable.RawSetString("name", lua.LString(name))
 		}
 
-		// Spawn the text of the captured node
 		start := capture.Node.StartByte()
 		end := capture.Node.EndByte()
 		if end <= uint(len(source)) {
@@ -366,14 +373,9 @@ func queryStartByteForPattern(l *lua.LState) int {
 
 // Garbage collection
 func queryClose(l *lua.LState) int {
-	query := checkQuery(l)
-	if query.cursor != nil {
-		query.cursor.Close()
-		query.cursor = nil
-	}
-	if query.query != nil {
-		query.query.Close()
-		query.query = nil
+	ud := l.CheckUserData(1)
+	if v, ok := ud.Value.(*QueryWrapper); ok {
+		v.Close()
 	}
 	return 0
 }

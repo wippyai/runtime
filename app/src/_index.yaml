@@ -39,6 +39,14 @@ entries:
     lifecycle:
       auto_start: true
 
+  # app:temp - Temp filesystem for tests
+  - name: temp
+    kind: fs.directory
+    meta:
+      comment: Temporary filesystem for testing
+    directory: /tmp/wippy-test
+    auto_init: true
+
   # app:test_runner - Test runner process
   - name: test_runner
     kind: process.lua

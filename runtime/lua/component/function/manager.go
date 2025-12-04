@@ -14,15 +14,14 @@ import (
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/component"
 	"github.com/wippyai/runtime/runtime/lua/engine"
-	"github.com/wippyai/runtime/runtime/lua/modules/http"
 	processmod "github.com/wippyai/runtime/runtime/lua/modules/process"
-	"github.com/wippyai/runtime/runtime/lua/modules/stream"
 	timeyields "github.com/wippyai/runtime/runtime/lua/modules/time"
 	funcpool "github.com/wippyai/runtime/system/scheduler/pool"
 	lua "github.com/yuin/gopher-lua"
@@ -47,6 +46,7 @@ type Manager struct {
 	dispatcher dispatcher.Dispatcher
 	topo       topology.Topology
 	pidReg     topology.PIDRegistry
+	node       relay.Node
 
 	mu      sync.RWMutex
 	pools   map[registry.ID]*poolEntry
@@ -70,6 +70,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.ctx = ctx
 	m.topo = topology.GetTopology(ctx)
 	m.pidReg = topology.GetRegistry(ctx)
+	m.node = relay.GetNode(ctx)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -85,6 +86,10 @@ func (m *Manager) Stop() {
 
 	for id, entry := range m.pools {
 		entry.pool.Stop()
+		// Unregister pool from relay
+		if m.node != nil {
+			m.node.UnregisterHost(id.String())
+		}
 		m.log.Debug("pool stopped", zap.String("id", id.String()))
 	}
 	m.pools = make(map[registry.ID]*poolEntry)
@@ -308,6 +313,13 @@ func (m *Manager) createPool(id registry.ID, cfg *api.FunctionConfig) error {
 		method: cfg.Method,
 	}
 
+	// Register pool as relay host using function ID
+	if m.node != nil {
+		if err := m.node.RegisterHost(id.String(), pool); err != nil {
+			m.log.Warn("failed to register pool as host", zap.String("id", id.String()), zap.Error(err))
+		}
+	}
+
 	if m.started {
 		pool.Start()
 	}
@@ -329,6 +341,11 @@ func (m *Manager) removePool(id registry.ID) {
 	if entry, exists := m.pools[id]; exists {
 		entry.pool.Stop()
 		delete(m.pools, id)
+
+		// Unregister pool from relay
+		if m.node != nil {
+			m.node.UnregisterHost(id.String())
+		}
 	}
 }
 
@@ -342,7 +359,7 @@ func (m *Manager) createFactory(compiled *code.CompiledMain) funcpool.Factory {
 // createProcess creates a new process with standard bindings.
 func createProcess(compiled *code.CompiledMain) (process.Process, error) {
 	binders := engine.CoreBinders()
-	binders = append(binders, stream.BindStream, http.Bind, timeyields.BindYields, processmod.BindGlobal)
+	binders = append(binders, timeyields.BindYields, processmod.BindGlobal)
 
 	// Add module binders for dependencies
 	for _, dep := range compiled.Dependencies {

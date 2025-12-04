@@ -68,11 +68,6 @@ func (m *fsModule) Loader(l *lua.LState) int {
 	return 1
 }
 
-// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
-func Bind(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
-}
-
 func createModuleTable() *lua.LTable {
 	mod := lua.CreateTable(0, 4)
 

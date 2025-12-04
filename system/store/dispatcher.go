@@ -21,9 +21,9 @@ type Dispatcher struct {
 }
 
 type job struct {
-	ctx  context.Context
-	cmd  dispatcher.Command
-	emit dispatcher.Emitter
+	ctx      context.Context
+	cmd      dispatcher.Command
+	complete dispatcher.Completer
 }
 
 // NewDispatcher creates a store dispatcher with the specified worker count.
@@ -62,12 +62,12 @@ func (d *Dispatcher) worker() {
 	}
 }
 
-func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) {
+func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) {
 	if d.stopped.Load() {
 		return
 	}
 	select {
-	case d.jobs <- job{ctx: ctx, cmd: cmd, emit: emit}:
+	case d.jobs <- job{ctx: ctx, cmd: cmd, complete: complete}:
 	case <-d.ctx.Done():
 	}
 }
@@ -76,27 +76,27 @@ func (d *Dispatcher) execute(j job) {
 	switch c := j.cmd.(type) {
 	case *storeapi.StoreGetCmd:
 		value, err := c.Store.Get(j.ctx, c.Key)
-		j.emit.Emit(storeapi.StoreGetResponse{Value: value, Error: err}, nil)
+		j.complete.Complete(storeapi.StoreGetResponse{Value: value, Error: err}, nil)
 
 	case *storeapi.StoreSetCmd:
 		err := c.Store.Set(j.ctx, c.Entry)
-		j.emit.Emit(storeapi.StoreSetResponse{Error: err}, nil)
+		j.complete.Complete(storeapi.StoreSetResponse{Error: err}, nil)
 
 	case *storeapi.StoreDeleteCmd:
 		err := c.Store.Delete(j.ctx, c.Key)
-		j.emit.Emit(storeapi.StoreDeleteResponse{Error: err}, nil)
+		j.complete.Complete(storeapi.StoreDeleteResponse{Error: err}, nil)
 
 	case *storeapi.StoreHasCmd:
 		exists, err := c.Store.Has(j.ctx, c.Key)
-		j.emit.Emit(storeapi.StoreHasResponse{Exists: exists, Error: err}, nil)
+		j.complete.Complete(storeapi.StoreHasResponse{Exists: exists, Error: err}, nil)
 
 	default:
 		// unknown command type, ignore
 	}
 }
 
-func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
-	d.submit(ctx, cmd, emit)
+func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
+	d.submit(ctx, cmd, complete)
 	return nil
 }
 

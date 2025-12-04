@@ -15,14 +15,15 @@ type (
 		CmdID() CommandID
 	}
 
-	// Emitter signals yield completion to the scheduler.
-	Emitter interface {
-		Emit(data any, err error)
+	// Completer signals yield completion to the scheduler.
+	// Complete is called exactly once per command to return the result.
+	Completer interface {
+		Complete(data any, err error)
 	}
 
 	// Handler processes commands yielded by processes.
 	Handler interface {
-		Handle(ctx context.Context, cmd Command, emit Emitter) error
+		Handle(ctx context.Context, cmd Command, complete Completer) error
 	}
 
 	// Dispatcher routes commands to handlers.
@@ -49,11 +50,11 @@ type (
 )
 
 // HandlerFunc adapts a function to the Handler interface.
-type HandlerFunc func(ctx context.Context, cmd Command, emit Emitter) error
+type HandlerFunc func(ctx context.Context, cmd Command, complete Completer) error
 
 // Handle implements Handler.
-func (f HandlerFunc) Handle(ctx context.Context, cmd Command, emit Emitter) error {
-	return f(ctx, cmd, emit)
+func (f HandlerFunc) Handle(ctx context.Context, cmd Command, complete Completer) error {
+	return f(ctx, cmd, complete)
 }
 
 var (

@@ -490,12 +490,13 @@ func TestFunctions_FrameContextHandling(t *testing.T) {
 
 	// Register a handler that checks context
 	handlerID := registry.ParseID("test:context-handler")
-	executor.handlers.Store(handlerID, function.Func(func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
+	executor.handlers.Store(handlerID, function.Func(func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 		// Verify context has required values
 		pid, exists := runtime.GetFramePID(ctx)
 		require.True(t, exists)
 		require.NotEmpty(t, pid.UniqID)
-		assert.Equal(t, function.HostID, pid.Host)
+		// Host should be the function ID (each function is its own mini-host)
+		assert.Equal(t, task.ID.String(), pid.Host)
 		return &runtime.Result{}, nil
 	}))
 

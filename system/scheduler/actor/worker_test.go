@@ -24,7 +24,7 @@ func TestWorkerExecuteSimple(t *testing.T) {
 
 	// Create a simple processor
 	p := &CounterProcess{}
-	p.Execute(context.Background(), "", testInput(1))
+	p.Init(context.Background(), "", testInput(1))
 
 	proc := &Processor{
 		id:        1,
@@ -57,7 +57,7 @@ func TestWorkerExecuteToCompletion(t *testing.T) {
 
 	// Create a simple processor that completes in 2 steps
 	p := &CounterProcess{}
-	p.Execute(context.Background(), "", testInput(1))
+	p.Init(context.Background(), "", testInput(1))
 
 	proc := &Processor{
 		id:        1,
@@ -169,7 +169,7 @@ func TestWorkerUnknownCommand(t *testing.T) {
 	worker := sched.workers[0]
 
 	p := &CounterProcess{}
-	p.Execute(context.Background(), "", testInput(1))
+	p.Init(context.Background(), "", testInput(1))
 
 	proc := &Processor{
 		id:        1,
@@ -199,7 +199,7 @@ func BenchmarkWorkerExecute(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		p := &CounterProcess{}
-		p.Execute(context.Background(), "", testInput(0))
+		p.Init(context.Background(), "", testInput(0))
 
 		proc := &Processor{
 			id:        uint64(i),

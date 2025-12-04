@@ -4,6 +4,7 @@ package stream
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 
@@ -17,43 +18,38 @@ const DefaultChunkSize = 32 * 1024 // 32KB
 // TypeStream is the type ID for stream entries in the resource table.
 const TypeStream uint32 = 0x10
 
-// ErrStreamNotFound is returned when stream ID doesn't exist.
-var ErrStreamNotFound = errors.New("stream not found")
+// Errors
+var (
+	ErrNotFound    = errors.New("stream not found")
+	ErrClosed      = errors.New("stream closed")
+	ErrNotReadable = errors.New("stream is not readable")
+	ErrNotWritable = errors.New("stream is not writable")
+	ErrNotSeekable = errors.New("stream is not seekable")
+	ErrNoTable     = errors.New("resource table not available")
+)
 
-// ErrStreamClosed is returned when stream was already closed.
-var ErrStreamClosed = errors.New("stream closed")
-
-// ErrNotReadable is returned when trying to read from a write-only stream.
-var ErrNotReadable = errors.New("stream is not readable")
-
-// ErrNotWritable is returned when trying to write to a read-only stream.
-var ErrNotWritable = errors.New("stream is not writable")
-
-// ErrNotSeekable is returned when trying to seek in a non-seekable stream.
-var ErrNotSeekable = errors.New("stream is not seekable")
-
-// StreamCapabilities describes what a stream can do.
-type StreamCapabilities struct {
+// Capabilities describes what a stream can do.
+type Capabilities struct {
 	Readable bool
 	Writable bool
 	Seekable bool
 }
 
-// streamEntry holds an active stream with its capabilities.
-type streamEntry struct {
+// Entry holds an active stream with its capabilities.
+type Entry struct {
 	closer  io.Closer
 	reader  io.Reader
 	writer  io.Writer
 	seeker  io.Seeker
 	flusher Flusher
 	stater  Stater
-	caps    StreamCapabilities
-	size    int64 // -1 if unknown
+	caps    Capabilities
+	size    int64
 	closed  bool
 }
 
 // Drop implements resource.Dropper for automatic cleanup.
-func (e *streamEntry) Drop() {
+func (e *Entry) Drop() {
 	if !e.closed && e.closer != nil {
 		e.closed = true
 		e.closer.Close()
@@ -70,28 +66,17 @@ type Stater interface {
 	Stat() (size int64, err error)
 }
 
-// StreamRegistry manages active streams using the resource table.
-type StreamRegistry struct {
-	streams *resource.TypedTable[*streamEntry]
+// Insert adds a stream to the table, detecting its capabilities.
+// Returns the handle as uint64.
+func Insert(table *resource.Table, stream io.Closer) uint64 {
+	return InsertWithSize(table, stream, -1)
 }
 
-// NewStreamRegistry creates a stream registry backed by the given table.
-func NewStreamRegistry(table *resource.Table) *StreamRegistry {
-	return &StreamRegistry{
-		streams: resource.NewTypedTable[*streamEntry](table, TypeStream),
-	}
-}
-
-// Register adds a read-only stream to the registry (backward compatible).
-func (r *StreamRegistry) Register(reader io.ReadCloser) uint64 {
-	return r.RegisterStream(reader)
-}
-
-// RegisterStream adds any stream to the registry, detecting its capabilities.
-func (r *StreamRegistry) RegisterStream(stream io.Closer) uint64 {
-	entry := &streamEntry{
+// InsertWithSize adds a stream with known size to the table.
+func InsertWithSize(table *resource.Table, stream io.Closer, size int64) uint64 {
+	entry := &Entry{
 		closer: stream,
-		size:   -1,
+		size:   size,
 		closed: false,
 	}
 
@@ -114,39 +99,30 @@ func (r *StreamRegistry) RegisterStream(stream io.Closer) uint64 {
 		entry.stater = st
 	}
 
-	handle := r.streams.Insert(entry)
-	return uint64(handle)
+	return uint64(table.Insert(TypeStream, entry))
 }
 
-// RegisterWithSize adds a stream with known size.
-func (r *StreamRegistry) RegisterWithSize(stream io.Closer, size int64) uint64 {
-	id := r.RegisterStream(stream)
-	if entry, ok := r.streams.Get(resource.Handle(id)); ok {
-		entry.size = size
-	}
-	return id
-}
-
-// Capabilities returns the capabilities of a stream.
-func (r *StreamRegistry) Capabilities(id uint64) (StreamCapabilities, error) {
-	entry, ok := r.streams.Get(resource.Handle(id))
+// Get retrieves a stream entry by handle.
+func Get(table *resource.Table, id uint64) (*Entry, error) {
+	val, ok := table.GetTyped(resource.Handle(id), TypeStream)
 	if !ok {
-		return StreamCapabilities{}, ErrStreamNotFound
+		if v, exists := table.Get(resource.Handle(id)); exists {
+			return nil, fmt.Errorf("stream %d exists but wrong type: %T", id, v)
+		}
+		return nil, ErrNotFound
 	}
+	entry := val.(*Entry)
 	if entry.closed {
-		return StreamCapabilities{}, ErrStreamClosed
+		return nil, ErrClosed
 	}
-	return entry.caps, nil
+	return entry, nil
 }
 
 // Read reads a chunk from stream with given ID.
-func (r *StreamRegistry) Read(id uint64, size int64) ([]byte, error) {
-	entry, ok := r.streams.Get(resource.Handle(id))
-	if !ok {
-		return nil, ErrStreamNotFound
-	}
-	if entry.closed {
-		return nil, ErrStreamClosed
+func Read(table *resource.Table, id uint64, size int64) ([]byte, error) {
+	entry, err := Get(table, id)
+	if err != nil {
+		return nil, err
 	}
 	if entry.reader == nil {
 		return nil, ErrNotReadable
@@ -160,7 +136,6 @@ func (r *StreamRegistry) Read(id uint64, size int64) ([]byte, error) {
 	n, err := entry.reader.Read(buf)
 
 	if err == io.EOF {
-		r.Close(id)
 		if n > 0 {
 			return buf[:n], nil
 		}
@@ -175,13 +150,10 @@ func (r *StreamRegistry) Read(id uint64, size int64) ([]byte, error) {
 }
 
 // Write writes data to stream with given ID.
-func (r *StreamRegistry) Write(id uint64, data []byte) (int, error) {
-	entry, ok := r.streams.Get(resource.Handle(id))
-	if !ok {
-		return 0, ErrStreamNotFound
-	}
-	if entry.closed {
-		return 0, ErrStreamClosed
+func Write(table *resource.Table, id uint64, data []byte) (int, error) {
+	entry, err := Get(table, id)
+	if err != nil {
+		return 0, err
 	}
 	if entry.writer == nil {
 		return 0, ErrNotWritable
@@ -191,13 +163,10 @@ func (r *StreamRegistry) Write(id uint64, data []byte) (int, error) {
 }
 
 // Seek seeks to a position in the stream.
-func (r *StreamRegistry) Seek(id uint64, offset int64, whence int) (int64, error) {
-	entry, ok := r.streams.Get(resource.Handle(id))
-	if !ok {
-		return 0, ErrStreamNotFound
-	}
-	if entry.closed {
-		return 0, ErrStreamClosed
+func Seek(table *resource.Table, id uint64, offset int64, whence int) (int64, error) {
+	entry, err := Get(table, id)
+	if err != nil {
+		return 0, err
 	}
 	if entry.seeker == nil {
 		return 0, ErrNotSeekable
@@ -207,13 +176,10 @@ func (r *StreamRegistry) Seek(id uint64, offset int64, whence int) (int64, error
 }
 
 // Flush flushes any buffered data to the underlying stream.
-func (r *StreamRegistry) Flush(id uint64) error {
-	entry, ok := r.streams.Get(resource.Handle(id))
-	if !ok {
-		return ErrStreamNotFound
-	}
-	if entry.closed {
-		return ErrStreamClosed
+func Flush(table *resource.Table, id uint64) error {
+	entry, err := Get(table, id)
+	if err != nil {
+		return err
 	}
 	if entry.flusher == nil {
 		return nil
@@ -223,13 +189,10 @@ func (r *StreamRegistry) Flush(id uint64) error {
 }
 
 // Stat returns information about the stream.
-func (r *StreamRegistry) Stat(id uint64) (size int64, position int64, caps StreamCapabilities, err error) {
-	entry, ok := r.streams.Get(resource.Handle(id))
-	if !ok {
-		return -1, -1, StreamCapabilities{}, ErrStreamNotFound
-	}
-	if entry.closed {
-		return -1, -1, StreamCapabilities{}, ErrStreamClosed
+func Stat(table *resource.Table, id uint64) (size int64, position int64, caps Capabilities, err error) {
+	entry, err := Get(table, id)
+	if err != nil {
+		return -1, -1, Capabilities{}, err
 	}
 
 	size = entry.size
@@ -247,11 +210,12 @@ func (r *StreamRegistry) Stat(id uint64) (size int64, position int64, caps Strea
 }
 
 // Close closes stream with given ID.
-func (r *StreamRegistry) Close(id uint64) error {
-	entry, ok := r.streams.Remove(resource.Handle(id))
+func Close(table *resource.Table, id uint64) error {
+	val, ok := table.Remove(resource.Handle(id))
 	if !ok {
-		return ErrStreamNotFound
+		return ErrNotFound
 	}
+	entry := val.(*Entry)
 	if entry.closed {
 		return nil
 	}
@@ -262,27 +226,23 @@ func (r *StreamRegistry) Close(id uint64) error {
 	return nil
 }
 
-// TableProvider is implemented by types that provide a resource table.
-type TableProvider interface {
-	Table() *resource.Table
+// Option configures a Dispatcher.
+type Option func(*Dispatcher)
+
+// WithWorkers sets the number of worker goroutines.
+func WithWorkers(n int) Option {
+	return func(d *Dispatcher) {
+		if n > 0 {
+			d.workers = n
+		}
+	}
 }
 
-// GetStreamRegistry returns a StreamRegistry backed by the Table from context.
-func GetStreamRegistry(ctx context.Context) *StreamRegistry {
-	table := resource.GetTable(ctx)
-	if table == nil {
-		return nil
+// WithDebug enables debug output to the given writer.
+func WithDebug(w io.Writer) Option {
+	return func(d *Dispatcher) {
+		d.debug = w
 	}
-	return NewStreamRegistry(table)
-}
-
-// GetOrCreateStreamRegistry returns a StreamRegistry for the context.
-func GetOrCreateStreamRegistry(ctx context.Context) *StreamRegistry {
-	registry := GetStreamRegistry(ctx)
-	if registry == nil {
-		panic("stream: no resource.Store in context - engine must set it during initialization")
-	}
-	return registry
 }
 
 // Dispatcher handles stream commands via async worker pool.
@@ -292,20 +252,22 @@ type Dispatcher struct {
 	wg      sync.WaitGroup
 	ctx     context.Context
 	cancel  context.CancelFunc
+	debug   io.Writer
 }
 
 type job struct {
-	ctx  context.Context
-	cmd  dispatcher.Command
-	emit dispatcher.Emitter
+	ctx      context.Context
+	cmd      dispatcher.Command
+	complete dispatcher.Completer
 }
 
-// NewDispatcher creates a stream dispatcher with the specified worker count.
-func NewDispatcher(workers int) *Dispatcher {
-	if workers <= 0 {
-		workers = 4
+// NewDispatcher creates a stream dispatcher with default 16 workers.
+func NewDispatcher(opts ...Option) *Dispatcher {
+	d := &Dispatcher{workers: 16}
+	for _, opt := range opts {
+		opt(d)
 	}
-	return &Dispatcher{workers: workers}
+	return d
 }
 
 // Start initializes the worker pool.
@@ -317,14 +279,24 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 		d.wg.Add(1)
 		go d.worker()
 	}
+
+	if d.debug != nil {
+		fmt.Fprintf(d.debug, "[stream] dispatcher started workers=%d\n", d.workers)
+	}
 	return nil
 }
 
 // Stop shuts down the dispatcher and drains pending jobs.
 func (d *Dispatcher) Stop(_ context.Context) error {
+	if d.debug != nil {
+		fmt.Fprintf(d.debug, "[stream] dispatcher stopping\n")
+	}
 	d.cancel()
 	close(d.jobs)
 	d.wg.Wait()
+	if d.debug != nil {
+		fmt.Fprintf(d.debug, "[stream] dispatcher stopped\n")
+	}
 	return nil
 }
 
@@ -335,84 +307,149 @@ func (d *Dispatcher) worker() {
 	}
 }
 
-func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) {
+func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) {
 	select {
-	case d.jobs <- job{ctx: ctx, cmd: cmd, emit: emit}:
+	case d.jobs <- job{ctx: ctx, cmd: cmd, complete: complete}:
 	case <-d.ctx.Done():
 	}
 }
 
 func (d *Dispatcher) execute(j job) {
-	registry := GetStreamRegistry(j.ctx)
-	if registry == nil {
+	table := resource.GetTable(j.ctx)
+	if table == nil {
+		if d.debug != nil {
+			fmt.Fprintf(d.debug, "[stream] execute error: no table\n")
+		}
+		j.complete.Complete(nil, ErrNoTable)
 		return
 	}
 
 	switch c := j.cmd.(type) {
-	case streamapi.StreamReadCmd:
-		data, err := registry.Read(c.StreamID, c.Size)
+	case streamapi.ReadCmd:
+		if d.debug != nil {
+			fmt.Fprintf(d.debug, "[stream] read id=%d size=%d\n", c.StreamID, c.Size)
+		}
+		data, err := Read(table, c.StreamID, c.Size)
 		if err == io.EOF {
-			j.emit.Emit(nil, nil)
+			if d.debug != nil {
+				fmt.Fprintf(d.debug, "[stream] read id=%d EOF\n", c.StreamID)
+			}
+			j.complete.Complete(nil, nil)
 			return
 		}
 		if err != nil {
+			if d.debug != nil {
+				fmt.Fprintf(d.debug, "[stream] read id=%d error=%v\n", c.StreamID, err)
+			}
+			j.complete.Complete(nil, err)
 			return
 		}
-		j.emit.Emit(data, nil)
+		if d.debug != nil {
+			fmt.Fprintf(d.debug, "[stream] read id=%d bytes=%d\n", c.StreamID, len(data))
+		}
+		j.complete.Complete(data, nil)
 
-	case streamapi.StreamWriteCmd:
-		n, err := registry.Write(c.StreamID, c.Data)
+	case streamapi.WriteCmd:
+		if d.debug != nil {
+			fmt.Fprintf(d.debug, "[stream] write id=%d len=%d\n", c.StreamID, len(c.Data))
+		}
+		n, err := Write(table, c.StreamID, c.Data)
 		if err != nil {
+			if d.debug != nil {
+				fmt.Fprintf(d.debug, "[stream] write id=%d error=%v\n", c.StreamID, err)
+			}
+			j.complete.Complete(nil, err)
 			return
 		}
-		j.emit.Emit(int64(n), nil)
+		if d.debug != nil {
+			fmt.Fprintf(d.debug, "[stream] write id=%d written=%d\n", c.StreamID, n)
+		}
+		j.complete.Complete(int64(n), nil)
 
-	case streamapi.StreamCloseCmd:
-		if err := registry.Close(c.StreamID); err != nil {
+	case streamapi.CloseCmd:
+		if d.debug != nil {
+			fmt.Fprintf(d.debug, "[stream] close id=%d\n", c.StreamID)
+		}
+		if err := Close(table, c.StreamID); err != nil {
+			if d.debug != nil {
+				fmt.Fprintf(d.debug, "[stream] close id=%d error=%v\n", c.StreamID, err)
+			}
+			j.complete.Complete(nil, err)
 			return
 		}
-		j.emit.Emit(nil, nil)
+		j.complete.Complete(nil, nil)
 
-	case streamapi.StreamSeekCmd:
-		pos, err := registry.Seek(c.StreamID, c.Offset, c.Whence)
+	case streamapi.SeekCmd:
+		if d.debug != nil {
+			fmt.Fprintf(d.debug, "[stream] seek id=%d offset=%d whence=%d\n", c.StreamID, c.Offset, c.Whence)
+		}
+		pos, err := Seek(table, c.StreamID, c.Offset, c.Whence)
 		if err != nil {
+			if d.debug != nil {
+				fmt.Fprintf(d.debug, "[stream] seek id=%d error=%v\n", c.StreamID, err)
+			}
+			j.complete.Complete(nil, err)
 			return
 		}
-		j.emit.Emit(pos, nil)
+		if d.debug != nil {
+			fmt.Fprintf(d.debug, "[stream] seek id=%d pos=%d\n", c.StreamID, pos)
+		}
+		j.complete.Complete(pos, nil)
 
-	case streamapi.StreamFlushCmd:
-		if err := registry.Flush(c.StreamID); err != nil {
+	case streamapi.FlushCmd:
+		if d.debug != nil {
+			fmt.Fprintf(d.debug, "[stream] flush id=%d\n", c.StreamID)
+		}
+		if err := Flush(table, c.StreamID); err != nil {
+			if d.debug != nil {
+				fmt.Fprintf(d.debug, "[stream] flush id=%d error=%v\n", c.StreamID, err)
+			}
+			j.complete.Complete(nil, err)
 			return
 		}
-		j.emit.Emit(nil, nil)
+		j.complete.Complete(nil, nil)
 
-	case streamapi.StreamStatCmd:
-		size, pos, caps, err := registry.Stat(c.StreamID)
+	case streamapi.StatCmd:
+		if d.debug != nil {
+			fmt.Fprintf(d.debug, "[stream] stat id=%d\n", c.StreamID)
+		}
+		size, pos, caps, err := Stat(table, c.StreamID)
 		if err != nil {
+			if d.debug != nil {
+				fmt.Fprintf(d.debug, "[stream] stat id=%d error=%v\n", c.StreamID, err)
+			}
+			j.complete.Complete(nil, err)
 			return
 		}
-		j.emit.Emit(streamapi.StreamInfo{
+		if d.debug != nil {
+			fmt.Fprintf(d.debug, "[stream] stat id=%d size=%d pos=%d readable=%v writable=%v seekable=%v\n",
+				c.StreamID, size, pos, caps.Readable, caps.Writable, caps.Seekable)
+		}
+		j.complete.Complete(streamapi.Info{
 			Size:     size,
 			Position: pos,
 			Readable: caps.Readable,
 			Writable: caps.Writable,
 			Seekable: caps.Seekable,
 		}, nil)
+
+	default:
+		j.complete.Complete(nil, fmt.Errorf("unknown stream command: %T", j.cmd))
 	}
 }
 
-func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
-	d.submit(ctx, cmd, emit)
+func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
+	d.submit(ctx, cmd, complete)
 	return nil
 }
 
 // RegisterAll registers all stream handlers.
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
 	h := dispatcher.HandlerFunc(d.handle)
-	register(streamapi.CmdStreamRead, h)
-	register(streamapi.CmdStreamWrite, h)
-	register(streamapi.CmdStreamClose, h)
-	register(streamapi.CmdStreamSeek, h)
-	register(streamapi.CmdStreamFlush, h)
-	register(streamapi.CmdStreamStat, h)
+	register(streamapi.CmdRead, h)
+	register(streamapi.CmdWrite, h)
+	register(streamapi.CmdClose, h)
+	register(streamapi.CmdSeek, h)
+	register(streamapi.CmdFlush, h)
+	register(streamapi.CmdStat, h)
 }

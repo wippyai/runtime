@@ -255,10 +255,11 @@ func (s *Scheduler) ReleaseProcessor(proc *Processor) {
 	s.byPID.Delete(proc.pid)
 }
 
-func (s *Scheduler) Send(pid relay.PID, pkg *relay.Package) error {
-	v, ok := s.byPID.Load(pid)
+// Send implements relay.Receiver. Routes package to target process.
+func (s *Scheduler) Send(pkg *relay.Package) error {
+	v, ok := s.byPID.Load(pkg.Target)
 	if !ok {
-		return &ProcessNotFoundError{PID: pid}
+		return &ProcessNotFoundError{PID: pkg.Target}
 	}
 	return v.(Process).Send(pkg)
 }

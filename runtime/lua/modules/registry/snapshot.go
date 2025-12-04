@@ -34,18 +34,6 @@ func (s *Snapshot) GetEntry(id regapi.ID) (regapi.Entry, error) {
 	return regapi.Entry{}, fmt.Errorf("entry not found: %s", id)
 }
 
-// registerSnapshotType registers the Snapshot type and methods
-func registerSnapshotType(l *lua.LState) {
-	value.RegisterMethods(l, snapshotMetatable, map[string]lua.LGFunction{
-		"entries":   snapshotEntries,
-		"get":       snapshotGet,
-		"namespace": snapshotNamespace,
-		"find":      snapshotFind,
-		"changes":   snapshotChanges,
-		"version":   snapshotVersion,
-	})
-}
-
 // snapshotEntries returns all entries in the snapshot
 func snapshotEntries(l *lua.LState) int {
 	snap := checkSnapshot(l)
@@ -53,10 +41,14 @@ func snapshotEntries(l *lua.LState) int {
 		return 0
 	}
 
-	entries, err := snap.GetAllEntries()
-	if err != nil {
+	entries, getErr := snap.GetAllEntries()
+	if getErr != nil {
+		err := lua.WrapErrorWithLua(l, getErr, "get entries").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, err, "entries"))
+		l.Push(err)
 		return 2
 	}
 
@@ -67,10 +59,14 @@ func snapshotEntries(l *lua.LState) int {
 			continue
 		}
 
-		entryTable, err := entryToLuaTable(l, entry)
-		if err != nil {
+		entryTable, convErr := entryToLuaTable(l, entry)
+		if convErr != nil {
+			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
+				WithKind(lua.KindInternal).
+				WithRetryable(false)
+			lua.SetErrorMetatable(l, err)
 			l.Push(lua.LNil)
-			l.Push(newRegistryOperationError(l, err, "entries"))
+			l.Push(err)
 			return 2
 		}
 		entriesTable.RawSetInt(idx, entryTable)
@@ -78,7 +74,8 @@ func snapshotEntries(l *lua.LState) int {
 	}
 
 	l.Push(entriesTable)
-	return 1
+	l.Push(lua.LNil)
+	return 2
 }
 
 // snapshotGet retrieves a specific entry by ID
@@ -92,21 +89,32 @@ func snapshotGet(l *lua.LState) int {
 	id := regapi.ParseID(idStr)
 
 	if !security.IsAllowed(l.Context(), "registry.get", id.String(), nil) {
-		l.RaiseError("not allowed to access entry: %s", id.String())
-		return 0
-	}
-
-	entry, err := snap.GetEntry(id)
-	if err != nil {
+		err := lua.NewLuaError(l, "not allowed to access entry: "+id.String()).
+			WithKind(lua.KindPermissionDenied).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, err, "get"))
+		l.Push(err)
 		return 2
 	}
 
-	entryTable, err := entryToLuaTable(l, entry)
-	if err != nil {
+	entry, getErr := snap.GetEntry(id)
+	if getErr != nil {
+		err := lua.NewLuaError(l, "entry not found: "+id.String()).
+			WithKind(lua.KindNotFound).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, err, "get"))
+		l.Push(err)
+		return 2
+	}
+
+	entryTable, convErr := entryToLuaTable(l, entry)
+	if convErr != nil {
+		err := lua.WrapErrorWithLua(l, convErr, "convert entry").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
+		l.Push(lua.LNil)
+		l.Push(err)
 		return 2
 	}
 
@@ -133,12 +141,16 @@ func snapshotNamespace(l *lua.LState) int {
 		}
 	}
 
-	entriesTable := l.NewTable()
+	entriesTable := l.CreateTable(len(result), 0)
 	for i, entry := range result {
-		entryTable, err := entryToLuaTable(l, entry)
-		if err != nil {
+		entryTable, convErr := entryToLuaTable(l, entry)
+		if convErr != nil {
+			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
+				WithKind(lua.KindInternal).
+				WithRetryable(false)
+			lua.SetErrorMetatable(l, err)
 			l.Push(lua.LNil)
-			l.Push(newRegistryOperationError(l, err, "namespace"))
+			l.Push(err)
 			return 2
 		}
 		entriesTable.RawSetInt(i+1, entryTable)
@@ -160,19 +172,23 @@ func snapshotFind(l *lua.LState) int {
 
 	mainFinder := regapi.GetFinder(l.Context())
 	var entries []regapi.Entry
-	var err error
+	var findErr error
 
 	if mainFinder != nil {
 		f := finder.Fork(mainFinder, snap, snap.log)
-		entries, err = f.Find(meta)
+		entries, findErr = f.Find(meta)
 	} else {
 		f := finder.NewFinder(snap, snap.log)
-		entries, err = f.Find(meta)
+		entries, findErr = f.Find(meta)
 	}
 
-	if err != nil {
+	if findErr != nil {
+		err := lua.WrapErrorWithLua(l, findErr, "find entries").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
-		l.Push(newRegistryOperationError(l, err, "find"))
+		l.Push(err)
 		return 2
 	}
 
@@ -183,10 +199,14 @@ func snapshotFind(l *lua.LState) int {
 			continue
 		}
 
-		entryTable, err := entryToLuaTable(l, entry)
-		if err != nil {
+		entryTable, convErr := entryToLuaTable(l, entry)
+		if convErr != nil {
+			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
+				WithKind(lua.KindInternal).
+				WithRetryable(false)
+			lua.SetErrorMetatable(l, err)
 			l.Push(lua.LNil)
-			l.Push(newRegistryOperationError(l, err, "find"))
+			l.Push(err)
 			return 2
 		}
 		entriesTable.RawSetInt(idx, entryTable)
@@ -210,11 +230,7 @@ func snapshotChanges(l *lua.LState) int {
 		log:      snap.log,
 	}
 
-	ud := l.NewUserData()
-	ud.Value = changes
-	ud.Metatable = value.GetTypeMetatable(l, changesMetatable)
-
-	l.Push(ud)
+	value.PushTypedUserData(l, changes, typeChanges)
 	return 1
 }
 
@@ -225,8 +241,7 @@ func snapshotVersion(l *lua.LState) int {
 		return 0
 	}
 
-	ud := wrapVersion(l, snap.version)
-	l.Push(ud)
+	value.PushTypedUserData(l, snap.version, typeVersion)
 	return 1
 }
 

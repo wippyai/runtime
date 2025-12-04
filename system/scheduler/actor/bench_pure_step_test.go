@@ -41,8 +41,8 @@ func (p *NYieldProcess) Send(pkg *relay.Package) error { return nil }
 func (p *NYieldProcess) Close()                        {}
 
 func ImmediateHandler2() dispatcher.Handler {
-	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
-		emit.Emit(nil, nil)
+	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
+		complete.Complete(nil, nil)
 		return nil
 	})
 }

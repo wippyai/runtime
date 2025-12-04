@@ -14,6 +14,12 @@ var (
 		retryable: apierror.False,
 	}
 
+	ErrProcessContextNotFound = &Error{
+		kind:      apierror.KindNotFound,
+		message:   "process context not found",
+		retryable: apierror.False,
+	}
+
 	ErrCallNotFound = &Error{
 		kind:      apierror.KindNotFound,
 		message:   "async call not found",
@@ -35,6 +41,18 @@ var (
 	ErrNilCallback = &Error{
 		kind:      apierror.KindInvalid,
 		message:   "nil callback",
+		retryable: apierror.False,
+	}
+
+	ErrNodeNotFound = &Error{
+		kind:      apierror.KindNotFound,
+		message:   "relay node not configured",
+		retryable: apierror.False,
+	}
+
+	ErrPIDNotFound = &Error{
+		kind:      apierror.KindNotFound,
+		message:   "frame PID not found in context",
 		retryable: apierror.False,
 	}
 )

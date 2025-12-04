@@ -58,7 +58,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	case template.KindTemplateSet:
 		return m.handleSetAdd(ctx, entry)
 	default:
-		return newUnsupportedKindError(string(entry.Kind))
+		return newUnsupportedKindError(entry.Kind)
 	}
 }
 
@@ -70,7 +70,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	case template.KindTemplateSet:
 		return m.handleSetUpdate(ctx, entry)
 	default:
-		return newUnsupportedKindError(string(entry.Kind))
+		return newUnsupportedKindError(entry.Kind)
 	}
 }
 
@@ -82,7 +82,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	case template.KindTemplateSet:
 		return m.handleSetDelete(ctx, entry)
 	default:
-		return newUnsupportedKindError(string(entry.Kind))
+		return newUnsupportedKindError(entry.Kind)
 	}
 }
 

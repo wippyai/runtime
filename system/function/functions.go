@@ -205,30 +205,26 @@ func (f *Registry) Call(ctx context.Context, task runtimeapi.Task) (*runtimeapi.
 
 // executor creates frame context and executes the function handler.
 // This is called as the final step in the interceptor chain or directly if no chain exists.
+// PID is generated with Host set to the function ID - each function is its own mini-host.
 func (f *Registry) executor(ctx context.Context, handler function.Func, task runtimeapi.Task) (*runtimeapi.Result, error) {
-	// Get host from caller's frame context
-	host, _ := runtimeapi.GetFrameHost(ctx)
-
 	// Acquire pooled frame context
 	ctx, fc := ctxapi.AcquireFrameContext(ctx)
 
-	// Generate PID for this function call
+	// Generate PID with function ID as Host - function is its own host for message routing
 	gen := process.GetPIDGenerator(ctx)
-	pid := gen.Generate(function.HostID)
+	pid := gen.Generate(task.ID.String())
 
 	// Fast path: no task context overrides (most common case)
 	if len(task.Context) == 0 {
 		_ = fc.Set(runtimeapi.FrameIDKey, task.ID)
 		_ = fc.Set(runtimeapi.FramePIDKey, pid)
-		_ = fc.Set(runtimeapi.FrameHostKey, host)
 	} else {
 		// Slow path: has task context overrides
-		pairsLen := 3 + len(task.Context)
+		pairsLen := 2 + len(task.Context)
 		pairs := make([]ctxapi.Pair, pairsLen)
 		pairs[0] = ctxapi.Pair{Key: runtimeapi.FrameIDKey, Value: task.ID}
 		pairs[1] = ctxapi.Pair{Key: runtimeapi.FramePIDKey, Value: pid}
-		pairs[2] = ctxapi.Pair{Key: runtimeapi.FrameHostKey, Value: host}
-		copy(pairs[3:], task.Context)
+		copy(pairs[2:], task.Context)
 
 		if err := fc.SetMultiple(pairs...); err != nil {
 			ctxapi.ReleaseFrameContext(fc)

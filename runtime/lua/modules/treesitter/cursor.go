@@ -11,6 +11,11 @@ import (
 
 const typeCursor = "treesitter.Cursor"
 
+// pushCursor pushes a Cursor userdata to the stack
+func pushCursor(l *lua.LState, cw *CursorWrapper) {
+	value.PushTypedUserData(l, cw, typeCursor)
+}
+
 // CursorWrapper wraps a tree-sitter TreeCursor for Lua integration
 type CursorWrapper struct {
 	cursor        *treesitter.TreeCursor
@@ -57,11 +62,7 @@ func cursorCurrentNode(l *lua.LState) int {
 		return 1
 	}
 
-	ud := l.NewUserData()
-	ud.Value = &NodeWrapper{node: node, source: cursor.source}
-	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Node")
-
-	l.Push(ud)
+	pushNode(l, node, cursor.source)
 	return 1
 }
 
@@ -191,21 +192,23 @@ func cursorCopy(l *lua.LState) int {
 
 	ctx := l.Context()
 	if ctx == nil {
-		l.RaiseError("no context found")
-		return 0
+		err := lua.NewLuaError(l, "no context found").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
-	ud := l.NewUserData()
-	ud.Value = NewCursor(ctx, copied, cursor.source)
-	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Cursor")
-
-	l.Push(ud)
+	pushCursor(l, NewCursor(ctx, copied, cursor.source))
 	return 1
 }
 
 func cursorClose(l *lua.LState) int {
-	c := checkCursor(l)
-	c.Close()
+	ud := l.CheckUserData(1)
+	if v, ok := ud.Value.(*CursorWrapper); ok {
+		v.Close()
+	}
 	return 0
 }
 

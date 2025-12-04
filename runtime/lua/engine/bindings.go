@@ -75,82 +75,114 @@ func channelNewFunc(l *lua.LState) int {
 	ud := l.NewUserData()
 	ud.Value = ch
 	ud.Metatable = value.GetTypeMetatable(nil, channelTypeName)
+	ch.SetValue(ud) // for select conditions
 	l.Push(ud)
 	return 1
 }
 
-// channelSelectFunc selects over multiple channel operations.
+// channelSelectFunc implements channel.select{cases...} matching V1 behavior.
+// Takes a table of cases and optional default flag.
+// Returns a table {channel, value, ok} or {default=true, ok=true} for default case.
 func channelSelectFunc(l *lua.LState) int {
-	nargs := l.GetTop()
-	if nargs == 0 {
-		l.RaiseError("select requires at least one case")
-		return 0
-	}
+	casesTable := l.CheckTable(1)
+	hasDefault := l.OptBool(2, false)
 
 	selectOp := &SelectOp{
-		Task:  l,
-		Cases: make([]*ChannelOp, 0, nargs),
+		Task:       l,
+		Cases:      make([]*ChannelOp, 0, casesTable.Len()),
+		HasDefault: hasDefault,
 	}
 
-	for i := 1; i <= nargs; i++ {
-		arg := l.Get(i)
-
-		if arg == lua.LNil || arg == lua.LFalse {
-			selectOp.HasDefault = true
-			continue
-		}
-
-		sc := checkSelectCase(l, i)
-		if sc == nil {
-			l.RaiseError("select case %d: expected case_send/case_receive result", i)
-			return 0
-		}
-
-		selectOp.Cases = append(selectOp.Cases, &ChannelOp{
-			Kind:     sc.Kind,
-			Channel:  sc.Channel,
-			Value:    sc.Value,
-			Task:     l,
-			SelectOp: selectOp,
-		})
-	}
-
-	for idx, caseOp := range selectOp.Cases {
-		var result *ChannelResult
-		if caseOp.Kind == SendOp {
-			result = caseOp.Channel.Send(l, caseOp.Value, selectOp)
-		} else {
-			result = caseOp.Channel.Receive(l, selectOp)
-		}
-
-		updates := result.GetUpdates()
-		if !result.Yields || len(updates) > 0 {
-			l.Push(lua.LNumber(idx + 1))
-			if caseOp.Kind == ReceiveOp && len(updates) > 0 {
-				res := updates[0].GetResult()
-				for _, v := range res {
-					l.Push(v)
-				}
-				return 1 + len(res)
+	// Parse cases from table
+	casesTable.ForEach(func(key, value lua.LValue) {
+		if key.Type() == lua.LTString && key.String() == "default" {
+			if v, ok := value.(lua.LBool); ok && bool(v) {
+				selectOp.HasDefault = true
 			}
-			return 1
+			return
+		}
+		sc := checkSelectCaseValue(value)
+		if sc != nil {
+			selectOp.Cases = append(selectOp.Cases, &ChannelOp{
+				Kind:     sc.Kind,
+				Channel:  sc.Channel,
+				Value:    sc.Value,
+				Task:     l,
+				SelectOp: selectOp,
+			})
+		}
+	})
+
+	// Try immediate execution
+	for _, caseOp := range selectOp.Cases {
+		var canExecute bool
+		if caseOp.Kind == SendOp {
+			canExecute = caseOp.Channel.CanSend()
+		} else {
+			canExecute = caseOp.Channel.CanReceive()
+		}
+
+		if canExecute {
+			var result *ChannelResult
+			if caseOp.Kind == SendOp {
+				result = caseOp.Channel.Send(l, caseOp.Value, selectOp)
+			} else {
+				result = caseOp.Channel.Receive(l, selectOp)
+			}
+
+			updates := result.GetUpdates()
+			if len(updates) > 0 {
+				res := updates[0].GetResult()
+				if len(res) > 0 {
+					l.Push(res[0])
+					return 1
+				}
+			}
 		}
 	}
 
+	// Handle default case
 	if selectOp.HasDefault {
-		l.Push(lua.LNumber(0))
+		result := l.CreateTable(0, 2)
+		result.RawSetString("default", lua.LTrue)
+		result.RawSetString("ok", lua.LTrue)
+		l.Push(result)
 		return 1
 	}
 
-	result := &ChannelResult{
-		Yields: true,
-		Block:  make([]*Channel, 0, len(selectOp.Cases)),
+	// Must block - register all cases
+	nNext := &ChannelResult{
+		Yields:  true,
+		Block:   make([]*Channel, 0, len(selectOp.Cases)),
+		Release: make([]*Channel, 0),
 	}
-	for _, c := range selectOp.Cases {
-		result.Block = append(result.Block, c.Channel)
+
+	for _, caseOp := range selectOp.Cases {
+		var m *ChannelResult
+		if caseOp.Kind == SendOp {
+			m = caseOp.Channel.Send(l, caseOp.Value, selectOp)
+		} else {
+			m = caseOp.Channel.Receive(l, selectOp)
+		}
+		nNext.Block = append(nNext.Block, m.Block...)
+		nNext.Release = append(nNext.Release, m.Release...)
 	}
-	l.Push(result)
+
+	l.Push(nNext)
 	return -1
+}
+
+// checkSelectCaseValue extracts a SelectCase from a lua value.
+func checkSelectCaseValue(v lua.LValue) *SelectCase {
+	ud, ok := v.(*lua.LUserData)
+	if !ok {
+		return nil
+	}
+	sc, ok := ud.Value.(*SelectCase)
+	if !ok {
+		return nil
+	}
+	return sc
 }
 
 // channelMethods defines all channel instance methods using package-level functions.
@@ -175,9 +207,17 @@ func channelSend(l *lua.LState) int {
 		return -1
 	}
 	updates := result.GetUpdates()
-	if len(updates) > 0 && updates[0].Error != nil {
-		l.RaiseError("%s", updates[0].Error.Error())
-		return 0
+	if len(updates) > 0 {
+		if updates[0].Error != nil {
+			l.RaiseError("%s", updates[0].Error.Error())
+			return 0
+		}
+		// Return the result from channel operation (e.g., [value, true] for buffered send)
+		res := updates[0].GetResult()
+		for _, v := range res {
+			l.Push(v)
+		}
+		return len(res)
 	}
 	l.Push(lua.LTrue)
 	return 1
@@ -257,16 +297,21 @@ func channelCaseReceive(l *lua.LState) int {
 	return 1
 }
 
-// registerChannelMetatable registers the shared channel metatable once.
-func registerChannelMetatable() {
+// RegisterChannelMetatable registers the shared channel metatable once.
+func RegisterChannelMetatable() {
 	channelMetatableOnce.Do(func() {
 		value.RegisterTypeMethods(nil, channelTypeName, nil, channelMethods)
 	})
 }
 
+// GetChannelModuleTable returns the channel module table.
+func GetChannelModuleTable() *lua.LTable {
+	return getChannelModuleTable()
+}
+
 // BindChannelFunctions binds channel.new and channel methods to Lua.
 func BindChannelFunctions(l *lua.LState) {
-	registerChannelMetatable()
+	RegisterChannelMetatable()
 	l.SetGlobal("channel", getChannelModuleTable())
 }
 

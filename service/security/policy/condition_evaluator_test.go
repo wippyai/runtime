@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wippyai/runtime/api/attrs"
-	"github.com/wippyai/runtime/api/registry"
+
 	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/api/service/security/policy"
 )

@@ -2,13 +2,30 @@ package dispatchers
 
 import (
 	"context"
+	"io"
+	"time"
+
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
 	httpclient "github.com/wippyai/runtime/service/http/client"
 )
 
-func HTTP() boot.Component {
+// HTTPConfig configures the HTTP client dispatcher.
+type HTTPConfig struct {
+	Timeout         time.Duration
+	MaxIdleConns    int
+	MaxIdlePerHost  int
+	IdleConnTimeout time.Duration
+	Debug           io.Writer // TODO: remove after testing is complete
+}
+
+// HTTP creates the HTTP client dispatcher component.
+func HTTP(cfg ...HTTPConfig) boot.Component {
 	var d *httpclient.Dispatcher
+	var config HTTPConfig
+	if len(cfg) > 0 {
+		config = cfg[0]
+	}
 
 	return boot.New(boot.P{
 		Name:      HTTPDispatcherName,
@@ -19,7 +36,20 @@ func HTTP() boot.Component {
 				return ctx, ErrDispatcherNotFound
 			}
 
-			d = httpclient.NewDispatcher()
+			var opts []httpclient.Option
+			if config.Debug != nil {
+				opts = append(opts, httpclient.WithDebug(config.Debug))
+			}
+			if config.Timeout > 0 || config.MaxIdleConns > 0 {
+				opts = append(opts, httpclient.WithPoolConfig(httpclient.PoolConfig{
+					Timeout:         config.Timeout,
+					MaxIdleConns:    config.MaxIdleConns,
+					MaxIdlePerHost:  config.MaxIdlePerHost,
+					IdleConnTimeout: config.IdleConnTimeout,
+				}))
+			}
+
+			d = httpclient.NewDispatcher(opts...)
 			d.RegisterAll(reg.Register)
 
 			return ctx, nil

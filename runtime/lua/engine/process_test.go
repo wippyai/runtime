@@ -21,7 +21,7 @@ func TestProcessBasicExecution(t *testing.T) {
 	// Create frame context
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 
-	if err := proc.Execute(ctx, "", nil); err != nil {
+	if err := proc.Init(ctx, "", nil); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
 	defer proc.Close()
@@ -55,7 +55,7 @@ func TestProcessMultipleCoroutines(t *testing.T) {
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 
-	if err := proc.Execute(ctx, "", nil); err != nil {
+	if err := proc.Init(ctx, "", nil); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
 	defer proc.Close()
@@ -86,7 +86,7 @@ func TestResourceStoreInContext(t *testing.T) {
 	script := `return 1`
 	proc := NewProcess(WithScript(script, "test.lua"))
 
-	if err := proc.Execute(ctx, "", nil); err != nil {
+	if err := proc.Init(ctx, "", nil); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
 	defer proc.Close()
@@ -125,7 +125,7 @@ func TestErrorPropagationFromRaiseError(t *testing.T) {
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 
-	if err := proc.Execute(ctx, "", nil); err != nil {
+	if err := proc.Init(ctx, "", nil); err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
 	defer proc.Close()
@@ -192,7 +192,7 @@ func TestErrorPropagationWithPcall(t *testing.T) {
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 
-	if err := proc.Execute(ctx, "", nil); err != nil {
+	if err := proc.Init(ctx, "", nil); err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
 	defer proc.Close()
@@ -232,7 +232,7 @@ func TestLuaErrorWithStack(t *testing.T) {
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 
-	if err := proc.Execute(ctx, "", nil); err != nil {
+	if err := proc.Init(ctx, "", nil); err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
 	defer proc.Close()
@@ -278,4 +278,92 @@ func findSubstring(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestProcessReturnsResult(t *testing.T) {
+	// Test that Step() captures the return value in StepResult.Result
+	script := `return {ok = true, value = 42}`
+
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	defer proc.Close()
+
+	result, err := proc.Step(nil)
+	if err != nil {
+		t.Fatalf("Step failed: %v", err)
+	}
+
+	if result.Status != scheduler.StepDone {
+		t.Fatalf("Expected StepDone, got %v", result.Status)
+	}
+
+	// The result should contain the return value
+	if result.Result == nil {
+		t.Fatal("Expected result.Result to be non-nil, got nil")
+	}
+}
+
+func TestProcessReturnsSimpleValue(t *testing.T) {
+	// Test returning a simple number
+	script := `return 123`
+
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	defer proc.Close()
+
+	result, err := proc.Step(nil)
+	if err != nil {
+		t.Fatalf("Step failed: %v", err)
+	}
+
+	if result.Status != scheduler.StepDone {
+		t.Fatalf("Expected StepDone, got %v", result.Status)
+	}
+
+	if result.Result == nil {
+		t.Fatal("Expected result.Result to be non-nil")
+	}
+}
+
+func TestProcessReturnsMethodResult(t *testing.T) {
+	// Test that method return values are captured
+	script := `
+		return {
+			main = function()
+				return {status = "success", code = 200}
+			end
+		}
+	`
+
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	if err := proc.Init(ctx, "main", nil); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	defer proc.Close()
+
+	result, err := proc.Step(nil)
+	if err != nil {
+		t.Fatalf("Step failed: %v", err)
+	}
+
+	if result.Status != scheduler.StepDone {
+		t.Fatalf("Expected StepDone, got %v", result.Status)
+	}
+
+	if result.Result == nil {
+		t.Fatal("Expected result.Result to be non-nil")
+	}
 }

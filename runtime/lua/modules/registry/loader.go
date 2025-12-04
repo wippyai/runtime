@@ -1,7 +1,6 @@
 package registry
 
 import (
-	"fmt"
 	"sync"
 
 	fsapi "github.com/wippyai/runtime/api/fs"
@@ -59,7 +58,7 @@ func (m *LoaderModule) Loader(l *lua.LState) int {
 		mod := l.CreateTable(0, 1)
 
 		mt := l.NewTypeMetatable(loaderInstanceMetatable)
-		methods := l.NewTable()
+		methods := l.CreateTable(0, 2)
 		l.SetFuncs(methods, map[string]lua.LGFunction{
 			"load_directory": loaderLoadDirectory,
 			"load_file":      loaderLoadFile,
@@ -80,29 +79,41 @@ func (m *LoaderModule) createLoader(l *lua.LState) int {
 
 	dtt := payload.GetTranscoder(ctx)
 	if dtt == nil {
+		err := lua.NewLuaError(l, "transcoder not found in context").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("transcoder not found in context"))
+		l.Push(err)
 		return 2
 	}
 
 	fsRegistry := fsapi.GetRegistry(ctx)
 	if fsRegistry == nil {
+		err := lua.NewLuaError(l, "filesystem registry not found in context").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("filesystem registry not found in context"))
+		l.Push(err)
 		return 2
 	}
 
 	fsName := l.CheckString(1)
 	if fsName == "" {
+		err := lua.NewLuaError(l, "filesystem name required").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("filesystem name required"))
+		l.Push(err)
 		return 2
 	}
 
 	fsys, ok := fsRegistry.GetFS(fsName)
 	if !ok {
+		err := lua.NewLuaError(l, "filesystem '"+fsName+"' not found").
+			WithKind(lua.KindNotFound).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("filesystem '%s' not found", fsName)))
+		l.Push(err)
 		return 2
 	}
 
@@ -137,24 +148,35 @@ func loaderLoadDirectory(l *lua.LState) int {
 
 	dirPath := l.CheckString(2)
 	if dirPath == "" {
+		err := lua.NewLuaError(l, "directory path required").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("directory path required"))
+		l.Push(err)
 		return 2
 	}
 
-	entries, err := fl.folderLoader.LoadDir(l.Context(), fl.fs, dirPath)
-	if err != nil {
+	entries, loadErr := fl.folderLoader.LoadDir(l.Context(), fl.fs, dirPath)
+	if loadErr != nil {
+		err := lua.WrapErrorWithLua(l, loadErr, "load entries").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to load entries: %v", err)))
+		l.Push(err)
 		return 2
 	}
 
-	entriesTable := l.CreateTable(0, len(entries))
+	entriesTable := l.CreateTable(len(entries), 0)
 	for i, entry := range entries {
-		entryTable, err := entryToLuaTable(l, entry)
-		if err != nil {
+		entryTable, convErr := entryToLuaTable(l, entry)
+		if convErr != nil {
+			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
+				WithKind(lua.KindInternal).
+				WithRetryable(false)
+			lua.SetErrorMetatable(l, err)
 			l.Push(lua.LNil)
-			l.Push(lua.LString(fmt.Sprintf("failed to convert entry: %v", err)))
+			l.Push(err)
 			return 2
 		}
 		entriesTable.RawSetInt(i+1, entryTable)
@@ -174,24 +196,35 @@ func loaderLoadFile(l *lua.LState) int {
 
 	filePath := l.CheckString(2)
 	if filePath == "" {
+		err := lua.NewLuaError(l, "file path required").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("file path required"))
+		l.Push(err)
 		return 2
 	}
 
-	entries, err := fl.folderLoader.LoadFile(l.Context(), fl.fs, filePath)
-	if err != nil {
+	entries, loadErr := fl.folderLoader.LoadFile(l.Context(), fl.fs, filePath)
+	if loadErr != nil {
+		err := lua.WrapErrorWithLua(l, loadErr, "load entries").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to load entries: %v", err)))
+		l.Push(err)
 		return 2
 	}
 
-	entriesTable := l.NewTable()
+	entriesTable := l.CreateTable(len(entries), 0)
 	for i, entry := range entries {
-		entryTable, err := entryToLuaTable(l, entry)
-		if err != nil {
+		entryTable, convErr := entryToLuaTable(l, entry)
+		if convErr != nil {
+			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
+				WithKind(lua.KindInternal).
+				WithRetryable(false)
+			lua.SetErrorMetatable(l, err)
 			l.Push(lua.LNil)
-			l.Push(lua.LString(fmt.Sprintf("failed to convert entry: %v", err)))
+			l.Push(err)
 			return 2
 		}
 		entriesTable.RawSetInt(i+1, entryTable)

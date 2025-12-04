@@ -123,6 +123,7 @@ func releaseTaskUpdate(u *TaskUpdate) {
 	u.State = nil
 	u.ResultBuf[0] = nil
 	u.ResultBuf[1] = nil
+	u.ResultBuf[2] = nil
 	u.ResultLen = 0
 	u.Error = nil
 	taskUpdatePool.Put(u)
@@ -248,7 +249,12 @@ func (c *Channel) Close(caller *lua.LState) *ChannelResult {
 		if op.Task != nil {
 			u := acquireTaskUpdate()
 			u.State = op.Task
-			u.SetResult2(lua.LNil, lua.LFalse)
+			if op.SelectOp != nil {
+				u.SetSelectResult(op.Task, c.value, lua.LNil, false)
+				r.Release = append(r.Release, c.flushSelectLocked(op.SelectOp)...)
+			} else {
+				u.SetResult2(lua.LNil, lua.LFalse)
+			}
 			r.AddUpdate(u)
 			r.Release = append(r.Release, c)
 		}
@@ -285,6 +291,20 @@ func (c *Channel) Value() lua.LValue {
 // SetValue sets the Lua value associated with the channel.
 func (c *Channel) SetValue(v lua.LValue) {
 	c.value = v
+}
+
+// CanSend returns true if a send can complete immediately.
+func (c *Channel) CanSend() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.receivers.Len() > 0 || (!c.closed && c.size < c.capacity)
+}
+
+// CanReceive returns true if a receive can complete immediately.
+func (c *Channel) CanReceive() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.senders.Len() > 0
 }
 
 // ChannelOp represents a pending channel operation.
@@ -359,7 +379,7 @@ func (r *ChannelResult) Type() lua.LValueType {
 // TaskUpdate represents an update to resume a task.
 type TaskUpdate struct {
 	State     *lua.LState
-	ResultBuf [2]lua.LValue // Inline for common case (1-2 values)
+	ResultBuf [3]lua.LValue // Inline for common case (1-3 values, 3 for select: idx, val, ok)
 	ResultLen int
 	Error     error
 }
@@ -380,6 +400,16 @@ func (u *TaskUpdate) SetResult2(v1, v2 lua.LValue) {
 	u.ResultBuf[0] = v1
 	u.ResultBuf[1] = v2
 	u.ResultLen = 2
+}
+
+// SetSelectResult sets a select result table {channel, value, ok}.
+func (u *TaskUpdate) SetSelectResult(l *lua.LState, chValue, value lua.LValue, ok bool) {
+	result := l.CreateTable(0, 3)
+	result.RawSetString("channel", chValue)
+	result.RawSetString("value", value)
+	result.RawSetString("ok", lua.LBool(ok))
+	u.ResultBuf[0] = result
+	u.ResultLen = 1
 }
 
 // Send attempts to send a value on the channel.
@@ -403,20 +433,38 @@ func (c *Channel) Send(task *lua.LState, value lua.LValue, selectOp *SelectOp) *
 			r := acquireResult()
 			r.Yields = true
 
+			// Receiver gets result
 			u1 := acquireTaskUpdate()
 			u1.State = recvOp.Task
-			u1.SetResult2(value, lua.LTrue)
+			if recvOp.SelectOp != nil {
+				// Part of a select - return {channel, value, ok} table
+				u1.SetSelectResult(recvOp.Task, c.value, value, true)
+			} else {
+				// Direct receive - return [value, true]
+				u1.SetResult2(value, lua.LTrue)
+			}
 			r.UpdatesBuf[0] = u1
 
+			// Sender result
 			u2 := acquireTaskUpdate()
 			u2.State = task
-			u2.SetResult1(lua.LTrue)
+			if selectOp != nil {
+				// Part of a select - return {channel, value, ok} table
+				if task != nil {
+					u2.SetSelectResult(task, c.value, nil, true)
+				}
+			} else {
+				u2.SetResult1(lua.LTrue)
+			}
 			r.UpdatesBuf[1] = u2
 			r.UpdatesLen = 2
 
 			r.Release = append(r.Release, c)
 			if selectOp != nil {
 				r.Release = append(r.Release, c.flushSelectLocked(selectOp)...)
+			}
+			if recvOp.SelectOp != nil {
+				r.Release = append(r.Release, c.flushSelectLocked(recvOp.SelectOp)...)
 			}
 			releaseChannelOp(recvOp)
 			return r
@@ -433,10 +481,15 @@ func (c *Channel) Send(task *lua.LState, value lua.LValue, selectOp *SelectOp) *
 		c.senders.Push(op)
 		c.size++
 
+		// Buffered send
 		r := acquireResult()
 		u := acquireTaskUpdate()
 		u.State = task
-		u.SetResult1(lua.LTrue)
+		if selectOp != nil && task != nil {
+			u.SetSelectResult(task, c.value, value, true)
+		} else {
+			u.SetResult2(value, lua.LTrue)
+		}
 		r.UpdatesBuf[0] = u
 		r.UpdatesLen = 1
 		return r
@@ -471,18 +524,36 @@ func (c *Channel) Receive(task *lua.LState, selectOp *SelectOp) *ChannelResult {
 			r := acquireResult()
 			r.Yields = true
 
+			// Sender result
 			u1 := acquireTaskUpdate()
 			u1.State = sendOp.Task
-			u1.SetResult1(lua.LTrue)
+			if sendOp.SelectOp != nil {
+				// Part of a select - return {channel, value, ok} table
+				u1.SetSelectResult(sendOp.Task, c.value, sendOp.Value, true)
+			} else {
+				// Direct send - return [true]
+				u1.SetResult1(lua.LTrue)
+			}
 			r.UpdatesBuf[0] = u1
 
+			// Receiver result
 			u2 := acquireTaskUpdate()
 			u2.State = task
-			u2.SetResult2(sendOp.Value, lua.LTrue)
+			if selectOp != nil && task != nil {
+				u2.SetSelectResult(task, c.value, sendOp.Value, true)
+			} else {
+				u2.SetResult2(sendOp.Value, lua.LTrue)
+			}
 			r.UpdatesBuf[1] = u2
 			r.UpdatesLen = 2
 
 			r.Release = append(r.Release, c)
+			if sendOp.SelectOp != nil {
+				r.Release = append(r.Release, c.flushSelectLocked(sendOp.SelectOp)...)
+			}
+			if selectOp != nil {
+				r.Release = append(r.Release, c.flushSelectLocked(selectOp)...)
+			}
 			releaseChannelOp(sendOp)
 			return r
 		}
@@ -491,7 +562,11 @@ func (c *Channel) Receive(task *lua.LState, selectOp *SelectOp) *ChannelResult {
 		r := acquireResult()
 		u := acquireTaskUpdate()
 		u.State = task
-		u.SetResult2(sendOp.Value, lua.LTrue)
+		if selectOp != nil && task != nil {
+			u.SetSelectResult(task, c.value, sendOp.Value, true)
+		} else {
+			u.SetResult2(sendOp.Value, lua.LTrue)
+		}
 		r.UpdatesBuf[0] = u
 		r.UpdatesLen = 1
 		releaseChannelOp(sendOp)
@@ -502,7 +577,11 @@ func (c *Channel) Receive(task *lua.LState, selectOp *SelectOp) *ChannelResult {
 		r := acquireResult()
 		u := acquireTaskUpdate()
 		u.State = task
-		u.SetResult2(lua.LNil, lua.LFalse)
+		if selectOp != nil && task != nil {
+			u.SetSelectResult(task, c.value, lua.LNil, false)
+		} else {
+			u.SetResult2(lua.LNil, lua.LFalse)
+		}
 		r.UpdatesBuf[0] = u
 		r.UpdatesLen = 1
 		return r

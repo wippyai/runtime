@@ -255,8 +255,12 @@ func parse(l *lua.LState) int {
 
 	ctx := l.Context()
 	if ctx == nil {
-		l.RaiseError("no context found")
-		return 0
+		err := lua.NewLuaError(l, "no context found").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
 	var cflag uintptr

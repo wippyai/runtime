@@ -13,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
+	relayapi "github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	api "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/supervisor"
@@ -20,9 +21,7 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/component"
 	"github.com/wippyai/runtime/runtime/lua/engine"
-	"github.com/wippyai/runtime/runtime/lua/modules/http"
 	processmod "github.com/wippyai/runtime/runtime/lua/modules/process"
-	"github.com/wippyai/runtime/runtime/lua/modules/stream"
 	timeyields "github.com/wippyai/runtime/runtime/lua/modules/time"
 	funcpool "github.com/wippyai/runtime/system/scheduler/pool"
 	lua "github.com/yuin/gopher-lua"
@@ -46,6 +45,7 @@ type BytecodeManager struct {
 	fsRegistry fsapi.Registry
 	topo       topology.Topology
 	pidReg     topology.PIDRegistry
+	node       relayapi.Node
 
 	mu      sync.RWMutex
 	pools   map[registry.ID]*bytecodePoolEntry
@@ -76,6 +76,7 @@ func (m *BytecodeManager) Start(ctx context.Context) error {
 	m.ctx = ctx
 	m.topo = topology.GetTopology(ctx)
 	m.pidReg = topology.GetRegistry(ctx)
+	m.node = relayapi.GetNode(ctx)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -91,6 +92,9 @@ func (m *BytecodeManager) Stop() {
 
 	for id, entry := range m.pools {
 		entry.pool.Stop()
+		if m.node != nil {
+			m.node.UnregisterHost(id.String())
+		}
 		m.log.Debug("bytecode pool stopped", zap.String("id", id.String()))
 	}
 	m.pools = make(map[registry.ID]*bytecodePoolEntry)
@@ -320,6 +324,12 @@ func (m *BytecodeManager) createPool(ctx context.Context, id registry.ID, cfg *a
 		method: cfg.Method,
 	}
 
+	if m.node != nil {
+		if err := m.node.RegisterHost(id.String(), pool); err != nil {
+			m.log.Warn("failed to register bytecode pool as host", zap.String("id", id.String()), zap.Error(err))
+		}
+	}
+
 	if m.started {
 		pool.Start()
 	}
@@ -341,6 +351,10 @@ func (m *BytecodeManager) removePool(id registry.ID) {
 	if entry, exists := m.pools[id]; exists {
 		entry.pool.Stop()
 		delete(m.pools, id)
+
+		if m.node != nil {
+			m.node.UnregisterHost(id.String())
+		}
 	}
 }
 
@@ -354,7 +368,7 @@ func (m *BytecodeManager) createFactory(proto *lua.FunctionProto, compiled *code
 // createBytecodeProcess creates a new process with the bytecode proto and dependencies.
 func createBytecodeProcess(proto *lua.FunctionProto, compiled *code.CompiledMain) (process.Process, error) {
 	binders := engine.CoreBinders()
-	binders = append(binders, stream.BindStream, http.Bind, timeyields.BindYields, processmod.BindGlobal)
+	binders = append(binders, timeyields.BindYields, processmod.BindGlobal)
 
 	// Add module binders for dependencies
 	for _, dep := range compiled.Dependencies {

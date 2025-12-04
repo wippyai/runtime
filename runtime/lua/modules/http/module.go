@@ -1,19 +1,9 @@
 package http
 
 import (
-	"sync"
-
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
-)
-
-var (
-	moduleTable       *lua.LTable
-	registration      *luaapi.Registration
-	requestMetatable  *lua.LTable
-	responseMetatable *lua.LTable
-	initOnce          sync.Once
 )
 
 const (
@@ -21,60 +11,29 @@ const (
 	responseTypeName = "http.Response"
 )
 
-// Module is the singleton http module instance.
-var Module = &httpModule{}
+func init() {
+	value.RegisterTypeMethods(nil, requestTypeName,
+		map[string]lua.LGFunction{"__tostring": requestToString},
+		requestMethods)
 
-type httpModule struct{}
-
-func (m *httpModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        "http",
-		Description: "HTTP request and response types",
-		Class:       []string{luaapi.ClassNetwork, luaapi.ClassIO, luaapi.ClassNondeterministic},
-	}
+	value.RegisterTypeMethods(nil, responseTypeName,
+		map[string]lua.LGFunction{"__tostring": responseToString},
+		responseMethods)
 }
 
-func (m *httpModule) Register(l *lua.LState) *luaapi.Registration {
-	initOnce.Do(func() {
-		moduleTable = createModuleTable()
-
-		requestMetatable = value.RegisterTypeMethods(nil, requestTypeName,
-			map[string]lua.LGFunction{"__tostring": requestToString},
-			requestMethods)
-
-		responseMetatable = value.RegisterTypeMethods(nil, responseTypeName,
-			map[string]lua.LGFunction{"__tostring": responseToString},
-			responseMethods)
-
-		registration = &luaapi.Registration{
-			Table:      moduleTable,
-			YieldTypes: nil,
-		}
-	})
-	return registration
-}
-
-func (m *httpModule) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	l.Push(reg.Table)
-	return 1
-}
-
-// Bind binds the http module to the Lua state.
-func Bind(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
-}
-
-func createModuleTable() *lua.LTable {
-	mod := &lua.LTable{}
-
-	mod.RawSetString("request", lua.LGoFunc(newRequest))
-	mod.RawSetString("response", lua.LGoFunc(newResponse))
-
-	registerConstants(mod)
-
-	mod.Immutable = true
-	return mod
+// Module is the http module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "http",
+	Description: "HTTP request and response types",
+	Class:       []string{luaapi.ClassNetwork, luaapi.ClassIO, luaapi.ClassNondeterministic},
+	Build: func() (*lua.LTable, []luaapi.YieldType) {
+		mod := lua.CreateTable(0, 16)
+		mod.RawSetString("request", lua.LGoFunc(newRequest))
+		mod.RawSetString("response", lua.LGoFunc(newResponse))
+		registerConstants(mod)
+		mod.Immutable = true
+		return mod, nil
+	},
 }
 
 func registerConstants(mod *lua.LTable) {

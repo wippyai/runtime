@@ -4,42 +4,81 @@ package client
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"mime/multipart"
 	gohttp "net/http"
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	httpapi "github.com/wippyai/runtime/api/dispatcher/http"
+	"github.com/wippyai/runtime/api/runtime/resource"
 	streamhandler "github.com/wippyai/runtime/service/fs/stream"
 )
 
-// Dispatcher handles HTTP client commands.
-type Dispatcher struct {
-	pool *ClientPool
-}
+// Option configures a Dispatcher.
+type Option func(*Dispatcher)
 
-// NewDispatcher creates a new HTTP client dispatcher.
-func NewDispatcher() *Dispatcher {
-	return &Dispatcher{
-		pool: NewClientPool(),
+// WithDebug enables debug output to the given writer.
+// TODO: remove after testing is complete
+func WithDebug(w io.Writer) Option {
+	return func(d *Dispatcher) {
+		d.debug = w
 	}
 }
 
-// NewDispatcherWithPool creates dispatcher with custom pool.
-func NewDispatcherWithPool(pool *ClientPool) *Dispatcher {
-	return &Dispatcher{pool: pool}
+// WithPoolConfig sets custom pool configuration.
+func WithPoolConfig(cfg PoolConfig) Option {
+	return func(d *Dispatcher) {
+		d.poolCfg = cfg
+	}
 }
 
-// Start is a no-op for HTTP client dispatcher.
+// PoolConfig configures the HTTP client pool.
+type PoolConfig struct {
+	Timeout         time.Duration
+	MaxIdleConns    int
+	MaxIdlePerHost  int
+	IdleConnTimeout time.Duration
+}
+
+// Dispatcher handles HTTP client commands.
+type Dispatcher struct {
+	pool    *ClientPool
+	poolCfg PoolConfig
+	debug   io.Writer
+}
+
+// NewDispatcher creates a new HTTP client dispatcher.
+func NewDispatcher(opts ...Option) *Dispatcher {
+	d := &Dispatcher{}
+	for _, opt := range opts {
+		opt(d)
+	}
+	if d.poolCfg.Timeout > 0 || d.poolCfg.MaxIdleConns > 0 {
+		d.pool = NewClientPoolWithConfig(d.poolCfg)
+	} else {
+		d.pool = NewClientPool()
+	}
+	return d
+}
+
+// Start logs dispatcher start.
 func (d *Dispatcher) Start(_ context.Context) error {
+	if d.debug != nil {
+		fmt.Fprintf(d.debug, "[http] dispatcher started\n")
+	}
 	return nil
 }
 
-// Stop is a no-op for HTTP client dispatcher.
+// Stop logs dispatcher stop.
 func (d *Dispatcher) Stop(_ context.Context) error {
+	if d.debug != nil {
+		fmt.Fprintf(d.debug, "[http] dispatcher stopped pool_size=%d\n", d.pool.Size())
+	}
 	return nil
 }
 
@@ -49,29 +88,44 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(httpapi.CmdRequestBatch, dispatcher.HandlerFunc(d.handleRequestBatch))
 }
 
-func (d *Dispatcher) handleRequest(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
+func (d *Dispatcher) handleRequest(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
 	req := cmd.(*httpapi.RequestCmd)
 
+	if d.debug != nil {
+		fmt.Fprintf(d.debug, "[http] request %s %s stream=%v\n", req.Method, req.URL, req.Stream)
+	}
+
 	go func() {
+		start := time.Now()
 		result := executeRequest(ctx, d.pool, req, true)
-		// Don't emit if context was cancelled - executor has already moved on
+
+		if d.debug != nil {
+			fmt.Fprintf(d.debug, "[http] response %s %s status=%d duration=%v err=%s\n",
+				req.Method, req.URL, result.StatusCode, time.Since(start), result.Error)
+		}
+
 		if ctx.Err() == nil {
-			emit.Emit(result, nil)
+			complete.Complete(result, nil)
 		}
 	}()
 
 	return nil
 }
 
-func (d *Dispatcher) handleRequestBatch(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
+func (d *Dispatcher) handleRequestBatch(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
 	batch := cmd.(*httpapi.RequestBatchCmd)
 
 	if len(batch.Requests) == 0 {
-		emit.Emit(httpapi.BatchResponse{Responses: []httpapi.Response{}}, nil)
+		complete.Complete(httpapi.BatchResponse{Responses: []httpapi.Response{}}, nil)
 		return nil
 	}
 
+	if d.debug != nil {
+		fmt.Fprintf(d.debug, "[http] batch request count=%d\n", len(batch.Requests))
+	}
+
 	go func() {
+		start := time.Now()
 		responses := make([]httpapi.Response, len(batch.Requests))
 		var wg sync.WaitGroup
 		wg.Add(len(batch.Requests))
@@ -84,9 +138,13 @@ func (d *Dispatcher) handleRequestBatch(ctx context.Context, cmd dispatcher.Comm
 		}
 
 		wg.Wait()
-		// Don't emit if context was cancelled - executor has already moved on
+
+		if d.debug != nil {
+			fmt.Fprintf(d.debug, "[http] batch response count=%d duration=%v\n", len(responses), time.Since(start))
+		}
+
 		if ctx.Err() == nil {
-			emit.Emit(httpapi.BatchResponse{Responses: responses}, nil)
+			complete.Complete(httpapi.BatchResponse{Responses: responses}, nil)
 		}
 	}()
 
@@ -175,8 +233,12 @@ func executeRequest(ctx context.Context, pool *ClientPool, req *httpapi.RequestC
 
 	// Streaming response
 	if allowStream && req.Stream {
-		registry := streamhandler.GetOrCreateStreamRegistry(ctx)
-		streamID := registry.RegisterStream(resp.Body)
+		table := resource.GetTable(ctx)
+		if table == nil {
+			resp.Body.Close()
+			return httpapi.Response{Error: "resource table not available"}
+		}
+		streamID := streamhandler.Insert(table, resp.Body)
 
 		return httpapi.Response{
 			StatusCode: resp.StatusCode,

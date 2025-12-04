@@ -33,7 +33,7 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(CmdRun, dispatcher.HandlerFunc(d.handleRun))
 }
 
-func (d *Dispatcher) handleCompile(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
+func (d *Dispatcher) handleCompile(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
 	compileCmd := cmd.(CompileCmd)
 
 	go func() {
@@ -42,16 +42,16 @@ func (d *Dispatcher) handleCompile(ctx context.Context, cmd dispatcher.Command, 
 			return
 		}
 		if err != nil {
-			emit.Emit(nil, err)
+			complete.Complete(nil, err)
 			return
 		}
-		emit.Emit(program, nil)
+		complete.Complete(program, nil)
 	}()
 
 	return nil
 }
 
-func (d *Dispatcher) handleRun(_ context.Context, _ dispatcher.Command, emit dispatcher.Emitter) error {
-	emit.Emit(nil, nil)
+func (d *Dispatcher) handleRun(_ context.Context, _ dispatcher.Command, complete dispatcher.Completer) error {
+	complete.Complete(nil, nil)
 	return nil
 }

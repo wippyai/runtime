@@ -1,99 +1,64 @@
 package funcs
 
 import (
-	"sync"
-
+	"github.com/google/uuid"
 	"github.com/wippyai/runtime/api/attrs"
 	contextapi "github.com/wippyai/runtime/api/context"
-	funcapi "github.com/wippyai/runtime/api/dispatcher/func"
+	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	secapi "github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/modules/future"
 	"github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
 )
 
-const (
-	futureTypeName   = "funcs.Future"
-	executorTypeName = "funcs.Executor"
-)
+const executorTypeName = "funcs.Executor"
 
 var (
-	moduleTable       *lua.LTable
-	registration      *luaapi.Registration
-	futureMetatable   *lua.LTable
-	executorMetatable *lua.LTable
-	initOnce          sync.Once
+	moduleTable *lua.LTable
+	yieldTypes  []luaapi.YieldType
 )
+
+func init() {
+	value.RegisterTypeMethods(nil, executorTypeName, nil, map[string]lua.LGFunction{
+		"with_context": executorWithContext,
+		"with_actor":   executorWithActor,
+		"with_scope":   executorWithScope,
+		"with_options": executorWithOptions,
+		"call":         executorCall,
+		"async":        executorAsync,
+	})
+
+	// Set cancel function for Future type
+	future.CancelFunc = futureCancelImpl
+
+	moduleTable = lua.CreateTable(0, 3)
+	moduleTable.RawSetString("new", lua.LGoFunc(executorNew))
+	moduleTable.RawSetString("call", lua.LGoFunc(call))
+	moduleTable.RawSetString("async", lua.LGoFunc(async))
+	moduleTable.Immutable = true
+
+	yieldTypes = []luaapi.YieldType{
+		{Sample: &CallYield{}, CmdID: function.Call},
+		{Sample: &AsyncStartYield{}, CmdID: function.AsyncStart},
+		{Sample: &AsyncCancelYield{}, CmdID: function.AsyncCancel},
+	}
+}
 
 // Module is the funcs module definition.
 var Module = &luaapi.ModuleDef{
 	Name:        "funcs",
 	Description: "Function calls and async execution",
 	Class:       []string{luaapi.ClassWorkflow, luaapi.ClassNondeterministic},
-	Build:       buildModule,
-}
-
-func buildModule() (*lua.LTable, []luaapi.YieldType) {
-	initOnce.Do(doInit)
-
-	return moduleTable, []luaapi.YieldType{
-		{Sample: &CallYield{}, CmdID: funcapi.CmdCall},
-		{Sample: &AsyncStartYield{}, CmdID: funcapi.CmdAsyncStart},
-		{Sample: &AsyncAwaitYield{}, CmdID: funcapi.CmdAsyncAwait},
-		{Sample: &AsyncCancelYield{}, CmdID: funcapi.CmdAsyncCancel},
-	}
-}
-
-func doInit() {
-	futureMetatable = value.RegisterTypeMethods(nil, futureTypeName, nil, futureMethods)
-	executorMetatable = value.RegisterTypeMethods(nil, executorTypeName, nil, executorMethods)
-
-	mod := lua.CreateTable(0, 3)
-	mod.RawSetString("call", lua.LGoFunc(call))
-	mod.RawSetString("async", lua.LGoFunc(async))
-	mod.RawSetString("new", lua.LGoFunc(executorNew))
-	mod.Immutable = true
-	moduleTable = mod
-}
-
-// Future represents an async call that can be awaited.
-type Future struct {
-	ID uint64
-}
-
-var futureMethods = map[string]lua.LGFunction{
-	"await":  futureAwait,
-	"cancel": futureCancel,
-}
-
-func checkFuture(l *lua.LState, idx int) *Future {
-	ud := l.CheckUserData(idx)
-	if v, ok := ud.Value.(*Future); ok {
-		return v
-	}
-	l.ArgError(idx, "Future expected")
-	return nil
-}
-
-func futureAwait(l *lua.LState) int {
-	future := checkFuture(l, 1)
-	yield := AcquireAsyncAwaitYield()
-	yield.CallID = future.ID
-	l.Push(yield)
-	return -1
-}
-
-func futureCancel(l *lua.LState) int {
-	future := checkFuture(l, 1)
-	yield := AcquireAsyncCancelYield()
-	yield.CallID = future.ID
-	l.Push(yield)
-	return -1
+	Build: func() (*lua.LTable, []luaapi.YieldType) {
+		return moduleTable, yieldTypes
+	},
 }
 
 // Executor represents a function executor with context values.
@@ -107,36 +72,17 @@ type Executor struct {
 	hasOptions bool
 }
 
-var executorMethods = map[string]lua.LGFunction{
-	"with_context": executorWithContext,
-	"with_actor":   executorWithActor,
-	"with_scope":   executorWithScope,
-	"with_options": executorWithOptions,
-	"call":         executorCall,
-	"async":        executorAsync,
-}
-
-func checkExecutor(l *lua.LState, idx int) *Executor {
-	ud := l.CheckUserData(idx)
-	if v, ok := ud.Value.(*Executor); ok {
-		return v
-	}
-	l.ArgError(idx, "Executor expected")
-	return nil
-}
-
 func executorNew(l *lua.LState) int {
 	exec := &Executor{}
-	ud := l.NewUserData()
-	ud.Value = exec
-	ud.Metatable = executorMetatable
-	l.Push(ud)
+	value.PushTypedUserData(l, exec, executorTypeName)
 	return 1
 }
 
 func executorWithContext(l *lua.LState) int {
-	exec := checkExecutor(l, 1)
-	if exec == nil {
+	ud := l.CheckUserData(1)
+	exec, ok := ud.Value.(*Executor)
+	if !ok {
+		l.ArgError(1, "Executor expected")
 		return 0
 	}
 
@@ -174,16 +120,15 @@ func executorWithContext(l *lua.LState) int {
 		hasOptions: exec.hasOptions,
 	}
 
-	ud := l.NewUserData()
-	ud.Value = newExec
-	ud.Metatable = executorMetatable
-	l.Push(ud)
+	value.PushTypedUserData(l, newExec, executorTypeName)
 	return 1
 }
 
 func executorWithActor(l *lua.LState) int {
-	exec := checkExecutor(l, 1)
-	if exec == nil {
+	ud := l.CheckUserData(1)
+	exec, ok := ud.Value.(*Executor)
+	if !ok {
+		l.ArgError(1, "Executor expected")
 		return 0
 	}
 
@@ -222,16 +167,15 @@ func executorWithActor(l *lua.LState) int {
 		hasOptions: exec.hasOptions,
 	}
 
-	ud := l.NewUserData()
-	ud.Value = newExec
-	ud.Metatable = executorMetatable
-	l.Push(ud)
+	value.PushTypedUserData(l, newExec, executorTypeName)
 	return 1
 }
 
 func executorWithScope(l *lua.LState) int {
-	exec := checkExecutor(l, 1)
-	if exec == nil {
+	ud := l.CheckUserData(1)
+	exec, ok := ud.Value.(*Executor)
+	if !ok {
+		l.ArgError(1, "Executor expected")
 		return 0
 	}
 
@@ -270,16 +214,15 @@ func executorWithScope(l *lua.LState) int {
 		hasOptions: exec.hasOptions,
 	}
 
-	ud := l.NewUserData()
-	ud.Value = newExec
-	ud.Metatable = executorMetatable
-	l.Push(ud)
+	value.PushTypedUserData(l, newExec, executorTypeName)
 	return 1
 }
 
 func executorWithOptions(l *lua.LState) int {
-	exec := checkExecutor(l, 1)
-	if exec == nil {
+	ud := l.CheckUserData(1)
+	exec, ok := ud.Value.(*Executor)
+	if !ok {
+		l.ArgError(1, "Executor expected")
 		return 0
 	}
 
@@ -304,70 +247,37 @@ func executorWithOptions(l *lua.LState) int {
 		hasOptions: true,
 	}
 
-	ud := l.NewUserData()
-	ud.Value = newExec
-	ud.Metatable = executorMetatable
-	l.Push(ud)
+	value.PushTypedUserData(l, newExec, executorTypeName)
 	return 1
 }
 
 func executorCall(l *lua.LState) int {
-	exec := checkExecutor(l, 1)
-	if exec == nil {
+	ud := l.CheckUserData(1)
+	exec, ok := ud.Value.(*Executor)
+	if !ok {
+		l.ArgError(1, "Executor expected")
 		return 0
 	}
 
 	target := l.CheckString(2)
-	if target == "" {
-		err := lua.NewLuaError(l, "function ID required").
-			WithKind(lua.KindInvalid).
-			WithRetryable(false)
-		l.Push(lua.LNil)
-		l.Push(err)
-		return 2
-	}
-
-	regID := registry.ParseID(target)
-	if regID.NS == "" {
-		err := lua.NewLuaError(l, "namespace required in function ID").
-			WithKind(lua.KindInvalid).
-			WithRetryable(false)
-		l.Push(lua.LNil)
-		l.Push(err)
-		return 2
-	}
-	if regID.Name == "" {
-		err := lua.NewLuaError(l, "name required in function ID").
-			WithKind(lua.KindInvalid).
-			WithRetryable(false)
-		l.Push(lua.LNil)
-		l.Push(err)
-		return 2
+	regID, retCount := validateTarget(l, target)
+	if retCount != 0 {
+		return retCount
 	}
 
 	ctx := l.Context()
-	if ctx == nil {
-		err := lua.NewLuaError(l, "no context").
-			WithKind(lua.KindInternal).
-			WithRetryable(false)
-		l.Push(lua.LNil)
-		l.Push(err)
-		return 2
-	}
-
 	if !security.IsAllowed(ctx, "funcs.call", target, nil) {
-		err := lua.NewLuaError(l, "not allowed: "+target).
+		luaErr := lua.NewLuaError(l, "not allowed: "+target).
 			WithKind(lua.KindPermissionDenied).
 			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(err)
+		l.Push(luaErr)
 		return 2
 	}
 
 	var payloads []payload.Payload
 	for i := 3; i <= l.GetTop(); i++ {
-		val := l.Get(i)
-		payloads = append(payloads, luaconv.ExportPayload(val))
+		payloads = append(payloads, luaconv.ExportPayload(l.Get(i)))
 	}
 
 	yield := AcquireCallYield()
@@ -393,68 +303,37 @@ func executorCall(l *lua.LState) int {
 }
 
 func executorAsync(l *lua.LState) int {
-	exec := checkExecutor(l, 1)
-	if exec == nil {
+	ud := l.CheckUserData(1)
+	exec, ok := ud.Value.(*Executor)
+	if !ok {
+		l.ArgError(1, "Executor expected")
 		return 0
 	}
 
 	target := l.CheckString(2)
-	if target == "" {
-		err := lua.NewLuaError(l, "function ID required").
-			WithKind(lua.KindInvalid).
-			WithRetryable(false)
-		l.Push(lua.LNil)
-		l.Push(err)
-		return 2
-	}
-
-	regID := registry.ParseID(target)
-	if regID.NS == "" {
-		err := lua.NewLuaError(l, "namespace required in function ID").
-			WithKind(lua.KindInvalid).
-			WithRetryable(false)
-		l.Push(lua.LNil)
-		l.Push(err)
-		return 2
-	}
-	if regID.Name == "" {
-		err := lua.NewLuaError(l, "name required in function ID").
-			WithKind(lua.KindInvalid).
-			WithRetryable(false)
-		l.Push(lua.LNil)
-		l.Push(err)
-		return 2
+	regID, retCount := validateTarget(l, target)
+	if retCount != 0 {
+		return retCount
 	}
 
 	ctx := l.Context()
-	if ctx == nil {
-		err := lua.NewLuaError(l, "no context").
-			WithKind(lua.KindInternal).
-			WithRetryable(false)
-		l.Push(lua.LNil)
-		l.Push(err)
-		return 2
-	}
-
 	if !security.IsAllowed(ctx, "funcs.call", target, nil) {
-		err := lua.NewLuaError(l, "not allowed: "+target).
+		luaErr := lua.NewLuaError(l, "not allowed: "+target).
 			WithKind(lua.KindPermissionDenied).
 			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(err)
+		l.Push(luaErr)
 		return 2
 	}
 
 	var payloads []payload.Payload
 	for i := 3; i <= l.GetTop(); i++ {
-		val := l.Get(i)
-		payloads = append(payloads, luaconv.ExportPayload(val))
+		payloads = append(payloads, luaconv.ExportPayload(l.Get(i)))
 	}
 
-	yield := AcquireAsyncStartYield()
-	yield.Task = runtime.Task{
-		ID:       regID,
-		Payloads: payloads,
+	yield, retCount := setupAsyncYield(l, regID, payloads)
+	if retCount != 0 {
+		return retCount
 	}
 
 	if exec.hasActor {
@@ -473,59 +352,27 @@ func executorAsync(l *lua.LState) int {
 	return -1
 }
 
-// call is the simple funcs.call(target, ...) function.
+// call is a shortcut for funcs.call(target, ...).
 func call(l *lua.LState) int {
 	target := l.CheckString(1)
-	if target == "" {
-		err := lua.NewLuaError(l, "function ID required").
-			WithKind(lua.KindInvalid).
-			WithRetryable(false)
-		l.Push(lua.LNil)
-		l.Push(err)
-		return 2
-	}
-
-	regID := registry.ParseID(target)
-	if regID.NS == "" {
-		err := lua.NewLuaError(l, "namespace required in function ID").
-			WithKind(lua.KindInvalid).
-			WithRetryable(false)
-		l.Push(lua.LNil)
-		l.Push(err)
-		return 2
-	}
-	if regID.Name == "" {
-		err := lua.NewLuaError(l, "name required in function ID").
-			WithKind(lua.KindInvalid).
-			WithRetryable(false)
-		l.Push(lua.LNil)
-		l.Push(err)
-		return 2
+	regID, retCount := validateTarget(l, target)
+	if retCount != 0 {
+		return retCount
 	}
 
 	ctx := l.Context()
-	if ctx == nil {
-		err := lua.NewLuaError(l, "no context").
-			WithKind(lua.KindInternal).
-			WithRetryable(false)
-		l.Push(lua.LNil)
-		l.Push(err)
-		return 2
-	}
-
 	if !security.IsAllowed(ctx, "funcs.call", target, nil) {
-		err := lua.NewLuaError(l, "not allowed: "+target).
+		luaErr := lua.NewLuaError(l, "not allowed: "+target).
 			WithKind(lua.KindPermissionDenied).
 			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(err)
+		l.Push(luaErr)
 		return 2
 	}
 
 	var payloads []payload.Payload
 	for i := 2; i <= l.GetTop(); i++ {
-		val := l.Get(i)
-		payloads = append(payloads, luaconv.ExportPayload(val))
+		payloads = append(payloads, luaconv.ExportPayload(l.Get(i)))
 	}
 
 	yield := AcquireCallYield()
@@ -538,16 +385,84 @@ func call(l *lua.LState) int {
 	return -1
 }
 
-// async is the simple funcs.async(target, ...) function.
+// async is a shortcut for funcs.async(target, ...).
 func async(l *lua.LState) int {
 	target := l.CheckString(1)
+	regID, retCount := validateTarget(l, target)
+	if retCount != 0 {
+		return retCount
+	}
+
+	ctx := l.Context()
+	if !security.IsAllowed(ctx, "funcs.call", target, nil) {
+		luaErr := lua.NewLuaError(l, "not allowed: "+target).
+			WithKind(lua.KindPermissionDenied).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return 2
+	}
+
+	var payloads []payload.Payload
+	for i := 2; i <= l.GetTop(); i++ {
+		payloads = append(payloads, luaconv.ExportPayload(l.Get(i)))
+	}
+
+	yield, retCount := setupAsyncYield(l, regID, payloads)
+	if retCount != 0 {
+		return retCount
+	}
+
+	l.Push(yield)
+	return -1
+}
+
+// setupAsyncYield creates the async yield with topic, channel, and future.
+func setupAsyncYield(l *lua.LState, regID registry.ID, payloads []payload.Payload) (*AsyncStartYield, int) {
+	pc := engine.GetProcessContext(l.Context())
+	if pc == nil {
+		luaErr := lua.NewLuaError(l, "no process context").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return nil, 2
+	}
+
+	topic := "@future:" + uuid.New().String()
+	ch := engine.NewChannel(1)
+
+	if subErr := pc.Subscribe(topic, ch); subErr != nil {
+		luaErr := lua.WrapErrorWithLua(l, subErr, "subscribe failed").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return nil, 2
+	}
+
+	f := future.New(topic, ch)
+	pc.SetTopicHandler(topic, f.CreateHandler())
+
+	yield := AcquireAsyncStartYield()
+	yield.Task = runtime.Task{
+		ID:       regID,
+		Payloads: payloads,
+	}
+	yield.AsyncStartCmd.Topic = topic
+	yield.Future = f
+
+	return yield, 0
+}
+
+func validateTarget(l *lua.LState, target string) (registry.ID, int) {
 	if target == "" {
 		err := lua.NewLuaError(l, "function ID required").
 			WithKind(lua.KindInvalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
-		return 2
+		return registry.ID{}, 2
 	}
 
 	regID := registry.ParseID(target)
@@ -557,7 +472,7 @@ func async(l *lua.LState) int {
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
-		return 2
+		return registry.ID{}, 2
 	}
 	if regID.Name == "" {
 		err := lua.NewLuaError(l, "name required in function ID").
@@ -565,49 +480,23 @@ func async(l *lua.LState) int {
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
-		return 2
+		return registry.ID{}, 2
 	}
 
-	ctx := l.Context()
-	if ctx == nil {
-		err := lua.NewLuaError(l, "no context").
-			WithKind(lua.KindInternal).
-			WithRetryable(false)
-		l.Push(lua.LNil)
-		l.Push(err)
-		return 2
-	}
-
-	if !security.IsAllowed(ctx, "funcs.call", target, nil) {
-		err := lua.NewLuaError(l, "not allowed: "+target).
-			WithKind(lua.KindPermissionDenied).
-			WithRetryable(false)
-		l.Push(lua.LNil)
-		l.Push(err)
-		return 2
-	}
-
-	var payloads []payload.Payload
-	for i := 2; i <= l.GetTop(); i++ {
-		val := l.Get(i)
-		payloads = append(payloads, luaconv.ExportPayload(val))
-	}
-
-	yield := AcquireAsyncStartYield()
-	yield.Task = runtime.Task{
-		ID:       regID,
-		Payloads: payloads,
-	}
-
-	l.Push(yield)
-	return -1
+	return regID, 0
 }
 
-// createFuture creates a Future userdata from a call ID.
-func createFuture(l *lua.LState, id uint64) *lua.LUserData {
-	future := &Future{ID: id}
-	ud := l.NewUserData()
-	ud.Value = future
-	ud.Metatable = futureMetatable
-	return ud
+// futureCancelImpl yields an async cancel command for the future's topic.
+func futureCancelImpl(l *lua.LState) int {
+	ud := l.CheckUserData(1)
+	f, ok := ud.Value.(*future.Future)
+	if !ok {
+		l.ArgError(1, "Future expected")
+		return 0
+	}
+
+	yield := AcquireAsyncCancelYield()
+	yield.AsyncCancelCmd.Topic = f.Topic
+	l.Push(yield)
+	return -1
 }

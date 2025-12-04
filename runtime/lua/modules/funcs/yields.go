@@ -1,25 +1,26 @@
 package funcs
 
 import (
-	"fmt"
 	"sync"
 
 	"github.com/wippyai/runtime/api/dispatcher"
-	funcapi "github.com/wippyai/runtime/api/dispatcher/func"
+	"github.com/wippyai/runtime/api/function"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/modules/future"
 	lua "github.com/yuin/gopher-lua"
 )
 
 // CallYield wraps CallCmd for Lua.
 type CallYield struct {
-	*funcapi.CallCmd
+	*function.CallCmd
 }
 
 var callYieldPool = sync.Pool{New: func() any { return &CallYield{} }}
 
 func AcquireCallYield() *CallYield {
 	y := callYieldPool.Get().(*CallYield)
-	y.CallCmd = funcapi.AcquireCallCmd()
+	y.CallCmd = function.AcquireCallCmd()
 	return y
 }
 
@@ -34,12 +35,11 @@ func ReleaseCallYield(y *CallYield) {
 func (y *CallYield) String() string                { return "<func_call_yield>" }
 func (y *CallYield) Type() lua.LValueType          { return lua.LTUserData }
 func (y *CallYield) ToCommand() dispatcher.Command { return y.CallCmd }
-func (y *CallYield) CmdID() dispatcher.CommandID   { return funcapi.CmdCall }
+func (y *CallYield) CmdID() dispatcher.CommandID   { return function.Call }
 func (y *CallYield) Release()                      { ReleaseCallYield(y) }
 
 // HandleResult converts function call response to Lua values.
 func (y *CallYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
-	fmt.Printf("[DEBUG] CallYield.HandleResult called: data=%v, err=%v\n", data, err)
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "call failed").
 			WithKind(lua.KindInternal).
@@ -53,9 +53,8 @@ func (y *CallYield) HandleResult(l *lua.LState, data any, err error) []lua.LValu
 			WithRetryable(false)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
-	resp, ok := data.(funcapi.Response)
+	resp, ok := data.(function.CallResult)
 	if !ok {
-		fmt.Printf("[DEBUG] type assertion failed: got %T\n", data)
 		luaErr := lua.NewLuaError(l, "invalid response type").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
@@ -81,14 +80,15 @@ func (y *CallYield) HandleResult(l *lua.LState, data any, err error) []lua.LValu
 
 // AsyncStartYield wraps AsyncStartCmd for Lua.
 type AsyncStartYield struct {
-	*funcapi.AsyncStartCmd
+	*function.AsyncStartCmd
+	Future *future.Future // Pre-created Future to return
 }
 
 var asyncStartYieldPool = sync.Pool{New: func() any { return &AsyncStartYield{} }}
 
 func AcquireAsyncStartYield() *AsyncStartYield {
 	y := asyncStartYieldPool.Get().(*AsyncStartYield)
-	y.AsyncStartCmd = funcapi.AcquireAsyncStartCmd()
+	y.AsyncStartCmd = function.AcquireAsyncStartCmd()
 	return y
 }
 
@@ -97,16 +97,17 @@ func ReleaseAsyncStartYield(y *AsyncStartYield) {
 		y.AsyncStartCmd.Release()
 		y.AsyncStartCmd = nil
 	}
+	y.Future = nil
 	asyncStartYieldPool.Put(y)
 }
 
 func (y *AsyncStartYield) String() string                { return "<func_async_start_yield>" }
 func (y *AsyncStartYield) Type() lua.LValueType          { return lua.LTUserData }
 func (y *AsyncStartYield) ToCommand() dispatcher.Command { return y.AsyncStartCmd }
-func (y *AsyncStartYield) CmdID() dispatcher.CommandID   { return funcapi.CmdAsyncStart }
+func (y *AsyncStartYield) CmdID() dispatcher.CommandID   { return function.AsyncStart }
 func (y *AsyncStartYield) Release()                      { ReleaseAsyncStartYield(y) }
 
-// HandleResult converts async start response to Future userdata.
+// HandleResult returns the pre-created Future after dispatcher confirms start.
 func (y *AsyncStartYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "async start failed").
@@ -115,7 +116,7 @@ func (y *AsyncStartYield) HandleResult(l *lua.LState, data any, err error) []lua
 		lua.SetErrorMetatable(l, luaErr)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
-	resp, ok := data.(funcapi.AsyncStartResponse)
+	resp, ok := data.(function.AsyncStartResult)
 	if !ok {
 		luaErr := lua.NewLuaError(l, "invalid response type").
 			WithKind(lua.KindInternal).
@@ -129,87 +130,22 @@ func (y *AsyncStartYield) HandleResult(l *lua.LState, data any, err error) []lua
 		lua.SetErrorMetatable(l, luaErr)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
-	// Return Future userdata instead of raw CallID
-	return []lua.LValue{createFuture(l, resp.CallID), lua.LNil}
-}
-
-// AsyncAwaitYield wraps AsyncAwaitCmd for Lua.
-type AsyncAwaitYield struct {
-	*funcapi.AsyncAwaitCmd
-}
-
-var asyncAwaitYieldPool = sync.Pool{New: func() any { return &AsyncAwaitYield{} }}
-
-func AcquireAsyncAwaitYield() *AsyncAwaitYield {
-	y := asyncAwaitYieldPool.Get().(*AsyncAwaitYield)
-	y.AsyncAwaitCmd = funcapi.AcquireAsyncAwaitCmd()
-	return y
-}
-
-func ReleaseAsyncAwaitYield(y *AsyncAwaitYield) {
-	if y.AsyncAwaitCmd != nil {
-		y.AsyncAwaitCmd.Release()
-		y.AsyncAwaitCmd = nil
-	}
-	asyncAwaitYieldPool.Put(y)
-}
-
-func (y *AsyncAwaitYield) String() string                { return "<func_async_await_yield>" }
-func (y *AsyncAwaitYield) Type() lua.LValueType          { return lua.LTUserData }
-func (y *AsyncAwaitYield) ToCommand() dispatcher.Command { return y.AsyncAwaitCmd }
-func (y *AsyncAwaitYield) CmdID() dispatcher.CommandID   { return funcapi.CmdAsyncAwait }
-func (y *AsyncAwaitYield) Release()                      { ReleaseAsyncAwaitYield(y) }
-
-// HandleResult converts async await response to Lua values.
-func (y *AsyncAwaitYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
-	if err != nil {
-		luaErr := lua.WrapErrorWithLua(l, err, "async await failed").
-			WithKind(lua.KindInternal).
-			WithRetryable(false)
-		lua.SetErrorMetatable(l, luaErr)
-		return []lua.LValue{lua.LNil, luaErr}
-	}
-	resp, ok := data.(funcapi.AsyncAwaitResponse)
-	if !ok {
-		luaErr := lua.NewLuaError(l, "invalid response type").
-			WithKind(lua.KindInternal).
-			WithRetryable(false)
-		return []lua.LValue{lua.LNil, luaErr}
-	}
-	if resp.Cancelled {
-		luaErr := lua.NewLuaError(l, "call cancelled").
-			WithKind(lua.KindCanceled).
-			WithRetryable(false)
-		return []lua.LValue{lua.LNil, luaErr}
-	}
-	if resp.Error != nil {
-		luaErr := lua.WrapErrorWithLua(l, resp.Error, "async await error").
-			WithKind(lua.KindInternal).
-			WithRetryable(false)
-		lua.SetErrorMetatable(l, luaErr)
-		return []lua.LValue{lua.LNil, luaErr}
-	}
-	lv, convErr := luaconv.GoToLua(resp.Value)
-	if convErr != nil {
-		luaErr := lua.WrapErrorWithLua(l, convErr, "result conversion failed").
-			WithKind(lua.KindInternal).
-			WithRetryable(false)
-		lua.SetErrorMetatable(l, luaErr)
-		return []lua.LValue{lua.LNil, luaErr}
-	}
-	return []lua.LValue{lv, lua.LNil}
+	// Return pre-created Future with channel
+	ud := value.PushTypedUserData(l, y.Future, future.TypeName)
+	l.Pop(1)
+	return []lua.LValue{ud, lua.LNil}
 }
 
 // AsyncCancelYield wraps AsyncCancelCmd for Lua.
 type AsyncCancelYield struct {
-	*funcapi.AsyncCancelCmd
+	*function.AsyncCancelCmd
 }
 
 var asyncCancelYieldPool = sync.Pool{New: func() any { return &AsyncCancelYield{} }}
 
 func AcquireAsyncCancelYield() *AsyncCancelYield {
 	y := asyncCancelYieldPool.Get().(*AsyncCancelYield)
-	y.AsyncCancelCmd = funcapi.AcquireAsyncCancelCmd()
+	y.AsyncCancelCmd = function.AcquireAsyncCancelCmd()
 	return y
 }
 
@@ -224,7 +160,7 @@ func ReleaseAsyncCancelYield(y *AsyncCancelYield) {
 func (y *AsyncCancelYield) String() string                { return "<func_async_cancel_yield>" }
 func (y *AsyncCancelYield) Type() lua.LValueType          { return lua.LTUserData }
 func (y *AsyncCancelYield) ToCommand() dispatcher.Command { return y.AsyncCancelCmd }
-func (y *AsyncCancelYield) CmdID() dispatcher.CommandID   { return funcapi.CmdAsyncCancel }
+func (y *AsyncCancelYield) CmdID() dispatcher.CommandID   { return function.AsyncCancel }
 func (y *AsyncCancelYield) Release()                      { ReleaseAsyncCancelYield(y) }
 
 // HandleResult for cancel - returns nil, nil (no meaningful result).

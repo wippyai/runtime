@@ -29,9 +29,9 @@ var (
 		retryable: apierror.False,
 	}
 
-	ErrIdleNotSupported = &Error{
-		kind:      apierror.KindInvalid,
-		message:   "idle yield not supported in function pool",
+	ErrProcessNotFound = &Error{
+		kind:      apierror.KindNotFound,
+		message:   "process not found",
 		retryable: apierror.False,
 	}
 )

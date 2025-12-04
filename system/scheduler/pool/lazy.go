@@ -8,11 +8,13 @@ import (
 
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 )
 
 // Lazy creates processes on demand and destroys them after idle timeout.
 // Zero memory footprint when no work is happening.
+// Implements relay.Receiver for message delivery to running processes.
 //
 // Lifecycle:
 //   - No processes at init
@@ -41,6 +43,12 @@ type Lazy struct {
 	closed     atomic.Bool
 	reaperDone chan struct{}
 	reaper     *time.Ticker
+
+	// Active executions indexed by PID.UniqID for message routing
+	activeExec sync.Map // map[string]*Executor
+
+	// Executor pool for reuse
+	executors sync.Pool
 }
 
 // LazyConfig configures the lazy pool.
@@ -63,7 +71,7 @@ func NewLazy(factory Factory, dispatcher Dispatcher, cfg LazyConfig, hooks ...Ex
 		hooksCfg = hooks[0]
 	}
 
-	return &Lazy{
+	l := &Lazy{
 		factory:     factory,
 		dispatcher:  dispatcher,
 		hooks:       hooksCfg,
@@ -72,7 +80,11 @@ func NewLazy(factory Factory, dispatcher Dispatcher, cfg LazyConfig, hooks ...Ex
 		idle:        make([]process.Process, 0, cfg.MaxWorkers),
 		done:        make(chan struct{}),
 		reaperDone:  make(chan struct{}),
-	}, nil
+	}
+	l.executors.New = func() any {
+		return NewExecutor(dispatcher).WithExecutionHooks(hooksCfg)
+	}
+	return l, nil
 }
 
 // Start begins the idle reaper.
@@ -112,12 +124,32 @@ func (l *Lazy) Call(ctx context.Context, method string, input payload.Payloads) 
 		return nil, err
 	}
 
-	// Create executor per-call to avoid races on multiCtx
-	executor := NewExecutor(l.dispatcher).WithExecutionHooks(l.hooks)
+	// Get PID from frame context (set by function registry)
+	pid, _ := runtime.GetFramePID(ctx)
+
+	// Get executor from pool, set process, register
+	executor := l.executors.Get().(*Executor)
+	executor.proc = proc
+	l.activeExec.Store(pid.UniqID, executor)
+
 	result := executor.Run(ctx, proc, method, input)
+
+	// Unregister and return executor to pool
+	l.activeExec.Delete(pid.UniqID)
+	executor.Reset()
+	l.executors.Put(executor)
 
 	l.release(proc)
 	return result, nil
+}
+
+// Send implements relay.Receiver. Routes package to target execution.
+func (l *Lazy) Send(pkg *relay.Package) error {
+	v, ok := l.activeExec.Load(pkg.Target.UniqID)
+	if !ok {
+		return ErrProcessNotFound
+	}
+	return v.(*Executor).Send(pkg)
 }
 
 // acquire gets an idle process or creates a new one.

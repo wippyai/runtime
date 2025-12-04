@@ -19,9 +19,9 @@ type Dispatcher struct {
 }
 
 type job struct {
-	ctx  context.Context
-	cmd  dispatcher.Command
-	emit dispatcher.Emitter
+	ctx      context.Context
+	cmd      dispatcher.Command
+	complete dispatcher.Completer
 }
 
 // NewDispatcher creates a queue dispatcher with the specified worker count.
@@ -59,9 +59,9 @@ func (d *Dispatcher) worker() {
 	}
 }
 
-func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) {
+func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) {
 	select {
-	case d.jobs <- job{ctx: ctx, cmd: cmd, emit: emit}:
+	case d.jobs <- job{ctx: ctx, cmd: cmd, complete: complete}:
 	case <-d.ctx.Done():
 	}
 }
@@ -69,12 +69,12 @@ func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, emit di
 func (d *Dispatcher) execute(j job) {
 	if c, ok := j.cmd.(*queueapi.QueuePublishCmd); ok {
 		err := c.Manager.Publish(j.ctx, c.QueueID, c.Message)
-		j.emit.Emit(queueapi.QueuePublishResponse{Error: err}, nil)
+		j.complete.Complete(queueapi.QueuePublishResponse{Error: err}, nil)
 	}
 }
 
-func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
-	d.submit(ctx, cmd, emit)
+func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
+	d.submit(ctx, cmd, complete)
 	return nil
 }
 

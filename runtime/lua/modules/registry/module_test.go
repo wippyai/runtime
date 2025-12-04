@@ -6,11 +6,15 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-func TestBind(t *testing.T) {
+func setupModule(l *lua.LState) {
+	Module.Load(l)
+}
+
+func TestLoad(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Bind(l)
+	Module.Load(l)
 
 	mod := l.GetGlobal("registry")
 	if mod.Type() != lua.LTTable {
@@ -19,10 +23,9 @@ func TestBind(t *testing.T) {
 
 	tbl := mod.(*lua.LTable)
 
-	// Check core functions
 	functions := []string{
-		"snapshot", "snapshot_at", "current_version", "versions",
-		"apply_version", "parse_id", "history", "find", "get", "build_delta",
+		"snapshot", "current_version", "versions",
+		"parse_id", "history", "find", "get", "build_delta",
 	}
 	for _, fn := range functions {
 		if tbl.RawGetString(fn).Type() != lua.LTFunction {
@@ -31,10 +34,27 @@ func TestBind(t *testing.T) {
 	}
 }
 
+func TestLoadReuse(t *testing.T) {
+	l1 := lua.NewState()
+	defer l1.Close()
+	l2 := lua.NewState()
+	defer l2.Close()
+
+	Module.Load(l1)
+	Module.Load(l2)
+
+	mod1 := l1.GetGlobal("registry").(*lua.LTable)
+	mod2 := l2.GetGlobal("registry").(*lua.LTable)
+
+	if mod1 != mod2 {
+		t.Error("module table should be reused across states")
+	}
+}
+
 func TestParseID(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	setupModule(l)
 
 	err := l.DoString(`
 		local id = registry.parse_id("test:example")
@@ -50,7 +70,7 @@ func TestParseID(t *testing.T) {
 func TestParseIDInvalidFormat(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	setupModule(l)
 
 	err := l.DoString(`
 		local id = registry.parse_id("invalid_format")
@@ -66,7 +86,7 @@ func TestParseIDInvalidFormat(t *testing.T) {
 func TestParseIDWithSlash(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	setupModule(l)
 
 	err := l.DoString(`
 		local id = registry.parse_id("namespace:path/to/name")
@@ -81,12 +101,15 @@ func TestParseIDWithSlash(t *testing.T) {
 func TestSnapshotWithoutRegistry(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	lua.OpenErrors(l)
+	setupModule(l)
 
 	err := l.DoString(`
 		local snap, err = registry.snapshot()
 		assert(snap == nil, "snapshot should be nil without registry")
 		assert(err ~= nil, "should return error without registry")
+		assert(err:kind() == errors.INTERNAL, "error kind should be INTERNAL")
+		assert(err:retryable() == false, "error should not be retryable")
 	`)
 	if err != nil {
 		t.Errorf("snapshot without registry test failed: %v", err)
@@ -96,12 +119,15 @@ func TestSnapshotWithoutRegistry(t *testing.T) {
 func TestCurrentVersionWithoutRegistry(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	lua.OpenErrors(l)
+	setupModule(l)
 
 	err := l.DoString(`
 		local version, err = registry.current_version()
 		assert(version == nil, "version should be nil without registry")
 		assert(err ~= nil, "should return error without registry")
+		assert(err:kind() == errors.INTERNAL, "error kind should be INTERNAL")
+		assert(err:retryable() == false, "error should not be retryable")
 	`)
 	if err != nil {
 		t.Errorf("current_version without registry test failed: %v", err)
@@ -111,12 +137,15 @@ func TestCurrentVersionWithoutRegistry(t *testing.T) {
 func TestVersionsWithoutRegistry(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	lua.OpenErrors(l)
+	setupModule(l)
 
 	err := l.DoString(`
 		local versions, err = registry.versions()
 		assert(versions == nil, "versions should be nil without registry")
 		assert(err ~= nil, "should return error without registry")
+		assert(err:kind() == errors.INTERNAL, "error kind should be INTERNAL")
+		assert(err:retryable() == false, "error should not be retryable")
 	`)
 	if err != nil {
 		t.Errorf("versions without registry test failed: %v", err)
@@ -126,12 +155,15 @@ func TestVersionsWithoutRegistry(t *testing.T) {
 func TestHistoryWithoutRegistry(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	lua.OpenErrors(l)
+	setupModule(l)
 
 	err := l.DoString(`
 		local history, err = registry.history()
 		assert(history == nil, "history should be nil without registry")
 		assert(err ~= nil, "should return error without registry")
+		assert(err:kind() == errors.INTERNAL, "error kind should be INTERNAL")
+		assert(err:retryable() == false, "error should not be retryable")
 	`)
 	if err != nil {
 		t.Errorf("history without registry test failed: %v", err)
@@ -141,12 +173,15 @@ func TestHistoryWithoutRegistry(t *testing.T) {
 func TestGetWithoutRegistry(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	lua.OpenErrors(l)
+	setupModule(l)
 
 	err := l.DoString(`
 		local entry, err = registry.get("test:example")
 		assert(entry == nil, "entry should be nil without registry")
 		assert(err ~= nil, "should return error without registry")
+		assert(err:kind() == errors.INTERNAL, "error kind should be INTERNAL")
+		assert(err:retryable() == false, "error should not be retryable")
 	`)
 	if err != nil {
 		t.Errorf("get without registry test failed: %v", err)
@@ -156,12 +191,15 @@ func TestGetWithoutRegistry(t *testing.T) {
 func TestFindWithoutRegistry(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	lua.OpenErrors(l)
+	setupModule(l)
 
 	err := l.DoString(`
 		local entries, err = registry.find({kind = "test"})
 		assert(entries == nil, "entries should be nil without registry")
 		assert(err ~= nil, "should return error without registry")
+		assert(err:kind() == errors.INTERNAL, "error kind should be INTERNAL")
+		assert(err:retryable() == false, "error should not be retryable")
 	`)
 	if err != nil {
 		t.Errorf("find without registry test failed: %v", err)
@@ -171,12 +209,15 @@ func TestFindWithoutRegistry(t *testing.T) {
 func TestBuildDeltaWithoutTranscoder(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	lua.OpenErrors(l)
+	setupModule(l)
 
 	err := l.DoString(`
 		local delta, err = registry.build_delta({}, {})
 		assert(delta == nil, "delta should be nil without transcoder")
 		assert(err ~= nil, "should return error without transcoder")
+		assert(err:kind() == errors.INTERNAL, "error kind should be INTERNAL")
+		assert(err:retryable() == false, "error should not be retryable")
 	`)
 	if err != nil {
 		t.Errorf("build_delta without transcoder test failed: %v", err)
@@ -364,7 +405,16 @@ func TestToFloat64(t *testing.T) {
 		expected float64
 	}{
 		{"int", 42, 42.0},
+		{"int8", int8(42), 42.0},
+		{"int16", int16(42), 42.0},
+		{"int32", int32(42), 42.0},
 		{"int64", int64(42), 42.0},
+		{"uint", uint(42), 42.0},
+		{"uint8", uint8(42), 42.0},
+		{"uint16", uint16(42), 42.0},
+		{"uint32", uint32(42), 42.0},
+		{"uint64", uint64(42), 42.0},
+		{"float32", float32(42.5), 42.5},
 		{"float64", float64(42.5), 42.5},
 		{"unknown", "42", 0},
 	}

@@ -12,7 +12,7 @@ import (
 type (
 	CommandID   = process.CommandID
 	Command     = process.Command
-	Emitter     = process.Emitter
+	Completer   = process.Completer
 	Handler     = process.Handler
 	HandlerFunc = process.HandlerFunc
 	Dispatcher  = process.Dispatcher

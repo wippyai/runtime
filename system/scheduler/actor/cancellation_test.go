@@ -24,7 +24,7 @@ type slowProcess struct {
 	closed      atomic.Bool
 }
 
-func (p *slowProcess) Execute(_ context.Context, _ string, _ payload.Payloads) error {
+func (p *slowProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
 	p.maxSteps = 10
 	p.stepLatency = 500 * time.Microsecond
 	return nil
@@ -62,9 +62,9 @@ type delayedHandler struct {
 	delay time.Duration
 }
 
-func (h *delayedHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
+func (h *delayedHandler) Handle(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
 	time.Sleep(h.delay)
-	emit.Emit(nil, nil)
+	complete.Complete(nil, nil)
 	return nil
 }
 
@@ -242,7 +242,7 @@ type steppingProcess struct {
 	closed   atomic.Bool
 }
 
-func (p *steppingProcess) Execute(_ context.Context, _ string, _ payload.Payloads) error {
+func (p *steppingProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
 	return nil
 }
 

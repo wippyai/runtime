@@ -114,7 +114,7 @@ func TestEvalModule_SandboxWithSleep(t *testing.T) {
 		}),
 	)
 
-	err = proc.Execute(ctx, "", nil)
+	err = proc.Init(ctx, "", nil)
 	require.NoError(t, err)
 
 	// Step through parent - it should complete without external yields
@@ -319,7 +319,7 @@ func TestEvalModule_SandboxMethods(t *testing.T) {
 		}),
 	)
 
-	err = proc.Execute(ctx, "", nil)
+	err = proc.Init(ctx, "", nil)
 	require.NoError(t, err)
 
 	step, err := proc.Step(nil)
@@ -412,7 +412,7 @@ func TestEvalModule_SandboxManualDispatch(t *testing.T) {
 		}),
 	)
 
-	err = proc.Execute(ctx, "", nil)
+	err = proc.Init(ctx, "", nil)
 	require.NoError(t, err)
 
 	step, err := proc.Step(nil)
@@ -513,7 +513,7 @@ func TestEvalModule_ErrorCases(t *testing.T) {
 			}),
 		)
 
-		err = proc.Execute(badCtx, "", nil)
+		err = proc.Init(badCtx, "", nil)
 		require.NoError(t, err)
 
 		step, _ := proc.Step(nil)
@@ -542,7 +542,7 @@ func TestEvalModule_ErrorCases(t *testing.T) {
 			}),
 		)
 
-		err = proc.Execute(ctx, "", nil)
+		err = proc.Init(ctx, "", nil)
 		require.NoError(t, err)
 
 		step, _ := proc.Step(nil)
@@ -569,7 +569,7 @@ func TestEvalModule_ErrorCases(t *testing.T) {
 			}),
 		)
 
-		err = proc.Execute(ctx, "", nil)
+		err = proc.Init(ctx, "", nil)
 		require.NoError(t, err)
 
 		step, _ := proc.Step(nil)
@@ -749,7 +749,7 @@ func TestEvalModule_ComprehensiveIntegration(t *testing.T) {
 		}),
 	)
 
-	err = proc.Execute(ctx, "", nil)
+	err = proc.Init(ctx, "", nil)
 	require.NoError(t, err)
 
 	step, err := proc.Step(nil)
@@ -807,7 +807,7 @@ func TestEvalModule_SandboxResourceCleanup(t *testing.T) {
 		}),
 	)
 
-	err = proc.Execute(ctx, "", nil)
+	err = proc.Init(ctx, "", nil)
 	require.NoError(t, err)
 
 	_, err = proc.Step(nil)
@@ -885,7 +885,7 @@ func TestEvalModule_MultipleModulesLoaded(t *testing.T) {
 		}),
 	)
 
-	err = proc.Execute(ctx, "", nil)
+	err = proc.Init(ctx, "", nil)
 	require.NoError(t, err)
 
 	step, err := proc.Step(nil)
@@ -974,7 +974,7 @@ func TestEvalModule_YieldObservation(t *testing.T) {
 		}),
 	)
 
-	err = proc.Execute(ctx, "", nil)
+	err = proc.Init(ctx, "", nil)
 	require.NoError(t, err)
 
 	step, err := proc.Step(nil)
@@ -1026,7 +1026,7 @@ func BenchmarkSandboxCreateExecuteStep(b *testing.B) {
 				luaapi.LoadModule(l, Module)
 			}),
 		)
-		proc.Execute(ctx, "", nil)
+		proc.Init(ctx, "", nil)
 		proc.Step(nil)
 		proc.Close()
 	}

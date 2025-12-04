@@ -1,0 +1,68 @@
+version: "1.0"
+namespace: app.test.uuid
+
+entries:
+  - name: generate
+    kind: function.lua
+    meta:
+      type: test
+      suite: uuid
+      description: UUID generation functions
+    source: file://generate.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - uuid
+
+  - name: validate
+    kind: function.lua
+    meta:
+      type: test
+      suite: uuid
+      description: UUID validation
+    source: file://validate.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - uuid
+
+  - name: parse
+    kind: function.lua
+    meta:
+      type: test
+      suite: uuid
+      description: UUID parsing and info
+    source: file://parse.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - uuid
+
+  - name: format
+    kind: function.lua
+    meta:
+      type: test
+      suite: uuid
+      description: UUID formatting
+    source: file://format.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - uuid
+
+  - name: errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: uuid
+      description: UUID error handling
+    source: file://errors.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - uuid

@@ -26,22 +26,34 @@ var responseMethods = map[string]lua.LGFunction{
 	"set_transfer":     responseSetTransfer,
 }
 
+func pushResponse(l *lua.LState, res *Response) {
+	value.PushTypedUserData(l, res, responseTypeName)
+}
+
 func newResponse(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
+		err := lua.NewLuaError(l, "no context available").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no context available"))
+		l.Push(err)
 		return 2
 	}
 
 	reqCtx, ok := httpservice.GetRequestContext(ctx)
 	if !ok {
+		err := lua.NewLuaError(l, "no HTTP request context found").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no HTTP request context found"))
+		l.Push(err)
 		return 2
 	}
 
-	value.PushUserData(l, &Response{writer: reqCtx.ResponseWriter(), rCtx: reqCtx}, responseMetatable)
+	pushResponse(l, &Response{writer: reqCtx.ResponseWriter(), rCtx: reqCtx})
 	l.Push(lua.LNil)
 	return 2
 }
@@ -85,7 +97,11 @@ func responseWrite(l *lua.LState) int {
 	data := l.CheckString(2)
 	_, err := res.writer.Write([]byte(data))
 	if err != nil {
-		l.Push(lua.LString(err.Error()))
+		luaErr := lua.WrapErrorWithLua(l, err, "write failed").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
+		l.Push(luaErr)
 		return 1
 	}
 	res.rCtx.MarkHandled()
@@ -113,13 +129,21 @@ func responseWriteJSON(l *lua.LState) int {
 	val := l.Get(2)
 	data, err := jsonmod.Encode(val)
 	if err != nil {
-		l.Push(lua.LString(fmt.Sprintf("failed to encode JSON: %v", err)))
+		luaErr := lua.WrapErrorWithLua(l, err, "failed to encode JSON").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
+		l.Push(luaErr)
 		return 1
 	}
 	res.writer.Header().Set("Content-Type", "application/json")
 	_, err = res.writer.Write(data)
 	if err != nil {
-		l.Push(lua.LString(err.Error()))
+		luaErr := lua.WrapErrorWithLua(l, err, "write failed").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
+		l.Push(luaErr)
 		return 1
 	}
 	res.rCtx.MarkHandled()
@@ -163,13 +187,21 @@ func responseWriteEvent(l *lua.LState) int {
 
 	data, err := jsonmod.Encode(dataLV)
 	if err != nil {
-		l.ArgError(2, fmt.Sprintf("failed to marshal event data: %v", err))
-		return 0
+		luaErr := lua.WrapErrorWithLua(l, err, "failed to marshal event data").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
+		l.Push(luaErr)
+		return 1
 	}
 
 	_, writeErr := fmt.Fprintf(res.writer, "event: %s\ndata: %s\n\n", name, data)
 	if writeErr != nil {
-		l.Push(lua.LString(writeErr.Error()))
+		luaErr := lua.WrapErrorWithLua(l, writeErr, "write event failed").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
+		l.Push(luaErr)
 		return 1
 	}
 

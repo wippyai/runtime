@@ -5,6 +5,7 @@ import (
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	httpapi "github.com/wippyai/runtime/api/dispatcher/http"
+	"github.com/wippyai/runtime/runtime/lua/modules/stream"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -72,7 +73,7 @@ func (y *RequestYield) HandleResult(l *lua.LState, data any, err error) []lua.LV
 		tbl.RawSetString("cookies", cookies)
 	}
 	if resp.StreamID > 0 {
-		tbl.RawSetString("stream_id", lua.LNumber(resp.StreamID))
+		tbl.RawSetString("stream", stream.NewStream(l, resp.StreamID))
 	}
 
 	return []lua.LValue{tbl, lua.LNil}

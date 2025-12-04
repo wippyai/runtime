@@ -42,38 +42,29 @@ func (t *CommandTranscoder) Transcode(l *lua.LState, cmd dispatcher.Command) *lu
 
 func (t *CommandTranscoder) registerBuiltins() {
 	// Clock commands
-	t.Register(clockapi.CmdSleep, transcodeSleep)
-	t.Register(clockapi.CmdNow, transcodeNow)
-	t.Register(clockapi.CmdTickerStart, transcodeTickerStart)
-	t.Register(clockapi.CmdTickerNext, transcodeTickerNext)
-	t.Register(clockapi.CmdTickerStop, transcodeTickerStop)
-	t.Register(clockapi.CmdTimerStart, transcodeTimerStart)
-	t.Register(clockapi.CmdTimerWait, transcodeTimerWait)
-	t.Register(clockapi.CmdTimerStop, transcodeTimerStop)
-	t.Register(clockapi.CmdTimerReset, transcodeTimerReset)
-	t.Register(clockapi.CmdAfter, transcodeAfter)
+	t.Register(clockapi.Sleep, transcodeSleep)
+	t.Register(clockapi.TickerStart, transcodeTickerStart)
+	t.Register(clockapi.TickerNext, transcodeTickerNext)
+	t.Register(clockapi.TickerStop, transcodeTickerStop)
+	t.Register(clockapi.TimerStart, transcodeTimerStart)
+	t.Register(clockapi.TimerWait, transcodeTimerWait)
+	t.Register(clockapi.TimerStop, transcodeTimerStop)
+	t.Register(clockapi.TimerReset, transcodeTimerReset)
 }
 
 func transcodeSleep(l *lua.LState, cmd dispatcher.Command) *lua.LTable {
 	sleep := cmd.(clockapi.SleepCmd)
 	tbl := l.CreateTable(0, 3)
-	tbl.RawSetString("id", lua.LNumber(clockapi.CmdSleep))
+	tbl.RawSetString("id", lua.LNumber(clockapi.Sleep))
 	tbl.RawSetString("type", lua.LString("sleep"))
 	tbl.RawSetString("duration", lua.LNumber(sleep.Duration))
-	return tbl
-}
-
-func transcodeNow(l *lua.LState, cmd dispatcher.Command) *lua.LTable {
-	tbl := l.CreateTable(0, 2)
-	tbl.RawSetString("id", lua.LNumber(clockapi.CmdNow))
-	tbl.RawSetString("type", lua.LString("now"))
 	return tbl
 }
 
 func transcodeTickerStart(l *lua.LState, cmd dispatcher.Command) *lua.LTable {
 	ticker := cmd.(clockapi.TickerStartCmd)
 	tbl := l.CreateTable(0, 3)
-	tbl.RawSetString("id", lua.LNumber(clockapi.CmdTickerStart))
+	tbl.RawSetString("id", lua.LNumber(clockapi.TickerStart))
 	tbl.RawSetString("type", lua.LString("ticker_start"))
 	tbl.RawSetString("duration", lua.LNumber(ticker.Duration))
 	return tbl
@@ -82,7 +73,7 @@ func transcodeTickerStart(l *lua.LState, cmd dispatcher.Command) *lua.LTable {
 func transcodeTickerNext(l *lua.LState, cmd dispatcher.Command) *lua.LTable {
 	ticker := cmd.(clockapi.TickerNextCmd)
 	tbl := l.CreateTable(0, 3)
-	tbl.RawSetString("id", lua.LNumber(clockapi.CmdTickerNext))
+	tbl.RawSetString("id", lua.LNumber(clockapi.TickerNext))
 	tbl.RawSetString("type", lua.LString("ticker_next"))
 	tbl.RawSetString("ticker_id", lua.LNumber(ticker.TickerID))
 	return tbl
@@ -91,7 +82,7 @@ func transcodeTickerNext(l *lua.LState, cmd dispatcher.Command) *lua.LTable {
 func transcodeTickerStop(l *lua.LState, cmd dispatcher.Command) *lua.LTable {
 	ticker := cmd.(clockapi.TickerStopCmd)
 	tbl := l.CreateTable(0, 3)
-	tbl.RawSetString("id", lua.LNumber(clockapi.CmdTickerStop))
+	tbl.RawSetString("id", lua.LNumber(clockapi.TickerStop))
 	tbl.RawSetString("type", lua.LString("ticker_stop"))
 	tbl.RawSetString("ticker_id", lua.LNumber(ticker.TickerID))
 	return tbl
@@ -100,7 +91,7 @@ func transcodeTickerStop(l *lua.LState, cmd dispatcher.Command) *lua.LTable {
 func transcodeTimerStart(l *lua.LState, cmd dispatcher.Command) *lua.LTable {
 	timer := cmd.(clockapi.TimerStartCmd)
 	tbl := l.CreateTable(0, 3)
-	tbl.RawSetString("id", lua.LNumber(clockapi.CmdTimerStart))
+	tbl.RawSetString("id", lua.LNumber(clockapi.TimerStart))
 	tbl.RawSetString("type", lua.LString("timer_start"))
 	tbl.RawSetString("duration", lua.LNumber(timer.Duration))
 	return tbl
@@ -109,7 +100,7 @@ func transcodeTimerStart(l *lua.LState, cmd dispatcher.Command) *lua.LTable {
 func transcodeTimerWait(l *lua.LState, cmd dispatcher.Command) *lua.LTable {
 	timer := cmd.(clockapi.TimerWaitCmd)
 	tbl := l.CreateTable(0, 3)
-	tbl.RawSetString("id", lua.LNumber(clockapi.CmdTimerWait))
+	tbl.RawSetString("id", lua.LNumber(clockapi.TimerWait))
 	tbl.RawSetString("type", lua.LString("timer_wait"))
 	tbl.RawSetString("timer_id", lua.LNumber(timer.TimerID))
 	return tbl
@@ -118,7 +109,7 @@ func transcodeTimerWait(l *lua.LState, cmd dispatcher.Command) *lua.LTable {
 func transcodeTimerStop(l *lua.LState, cmd dispatcher.Command) *lua.LTable {
 	timer := cmd.(clockapi.TimerStopCmd)
 	tbl := l.CreateTable(0, 3)
-	tbl.RawSetString("id", lua.LNumber(clockapi.CmdTimerStop))
+	tbl.RawSetString("id", lua.LNumber(clockapi.TimerStop))
 	tbl.RawSetString("type", lua.LString("timer_stop"))
 	tbl.RawSetString("timer_id", lua.LNumber(timer.TimerID))
 	return tbl
@@ -127,18 +118,9 @@ func transcodeTimerStop(l *lua.LState, cmd dispatcher.Command) *lua.LTable {
 func transcodeTimerReset(l *lua.LState, cmd dispatcher.Command) *lua.LTable {
 	timer := cmd.(clockapi.TimerResetCmd)
 	tbl := l.CreateTable(0, 4)
-	tbl.RawSetString("id", lua.LNumber(clockapi.CmdTimerReset))
+	tbl.RawSetString("id", lua.LNumber(clockapi.TimerReset))
 	tbl.RawSetString("type", lua.LString("timer_reset"))
 	tbl.RawSetString("timer_id", lua.LNumber(timer.TimerID))
 	tbl.RawSetString("duration", lua.LNumber(timer.Duration))
-	return tbl
-}
-
-func transcodeAfter(l *lua.LState, cmd dispatcher.Command) *lua.LTable {
-	after := cmd.(clockapi.AfterCmd)
-	tbl := l.CreateTable(0, 3)
-	tbl.RawSetString("id", lua.LNumber(clockapi.CmdAfter))
-	tbl.RawSetString("type", lua.LString("after"))
-	tbl.RawSetString("duration", lua.LNumber(after.Duration))
 	return tbl
 }

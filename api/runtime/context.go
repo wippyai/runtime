@@ -17,9 +17,6 @@ var (
 	// FramePIDKey stores the full PID (relay.PID)
 	FramePIDKey = &ctxapi.Key{Name: "runtime.frame_pid"}
 
-	// FrameHostKey stores the Host instance
-	FrameHostKey = &ctxapi.Key{Name: "runtime.frame_host"}
-
 	// FrameLifecycleOptionsKey stores lifecycle options (attrs.Attributes)
 	FrameLifecycleOptionsKey = &ctxapi.Key{Name: "runtime.frame_lifecycle_options"}
 )
@@ -72,31 +69,6 @@ func GetFramePID(ctx context.Context) (relay.PID, bool) {
 		}
 	}
 	return relay.PID{}, false
-}
-
-// SetFrameHost sets the Host in the FrameContext.
-// Returns error if no frame context or frame is sealed.
-func SetFrameHost(ctx context.Context, host relay.Host) error {
-	fc := ctxapi.FrameFromContext(ctx)
-	if fc == nil {
-		return ErrNoFrameContext
-	}
-	return fc.Set(FrameHostKey, host)
-}
-
-// GetFrameHost retrieves the Host from the FrameContext.
-// Returns nil and false if not found.
-func GetFrameHost(ctx context.Context) (relay.Host, bool) {
-	fc := ctxapi.FrameFromContext(ctx)
-	if fc == nil {
-		return nil, false
-	}
-	if val, ok := fc.Get(FrameHostKey); ok {
-		if host, ok := val.(relay.Host); ok {
-			return host, true
-		}
-	}
-	return nil, false
 }
 
 // GetFrameLifecycleOptions retrieves lifecycle options from the FrameContext.

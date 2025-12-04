@@ -207,29 +207,31 @@ func nodeText(l *lua.LState) int {
 		code = l.CheckString(2)
 	} else {
 		if node.source == nil {
-			l.RaiseError("source reference is empty")
-			return 0
+			err := lua.NewLuaError(l, "source reference is empty").
+				WithKind(lua.KindInvalid).
+				WithRetryable(false)
+			l.Push(lua.LNil)
+			l.Push(err)
+			return 2
 		}
 
 		code = *node.source
 	}
 
-	// Spawn byte positions
-	// start and end can't be < 0
 	start := node.node.StartByte()
 	end := node.node.EndByte()
 
 	sourceLen := len(code)
-	startPos := start
-	endPos := end
 
-	if startPos > endPos || endPos > uint(sourceLen) {
-		// Instead of just returning nil, raise an error
-		l.RaiseError("invalid byte range")
-		return 0 // This line won't be reached due to RaiseError
+	if start > end || end > uint(sourceLen) {
+		err := lua.NewLuaError(l, "invalid byte range").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
-	// Extract text
 	text := code[start:end]
 	l.Push(lua.LString(text))
 	return 1

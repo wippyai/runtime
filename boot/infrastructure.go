@@ -6,7 +6,6 @@ import (
 	"github.com/wippyai/runtime/api/boot"
 	contextapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
-	funcapi "github.com/wippyai/runtime/api/function"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
 	relayapi "github.com/wippyai/runtime/api/relay"
@@ -114,23 +113,6 @@ func createHosts(ctx context.Context, cfg boot.Config) error {
 		Logger:      logger.Named("control"),
 	})
 	if err := node.RegisterHost(topapi.ControlHost, controlHost); err != nil {
-		return err
-	}
-
-	// Function host for function execution
-	functionsBufferSize := 1024
-	functionsWorkerCount := 16
-	if cfg != nil {
-		functionsCfg := cfg.Sub("functions")
-		functionsBufferSize = functionsCfg.GetInt("host.buffer_size", functionsBufferSize)
-		functionsWorkerCount = functionsCfg.GetInt("host.worker_count", functionsWorkerCount)
-	}
-	funcHost := relay.NewHost(ctx, relay.HostConfig{
-		BufferSize:  functionsBufferSize,
-		WorkerCount: functionsWorkerCount,
-		Logger:      logger.Named("functions"),
-	})
-	if err := node.RegisterHost(funcapi.HostID, funcHost); err != nil {
 		return err
 	}
 

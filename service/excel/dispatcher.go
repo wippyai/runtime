@@ -8,23 +8,24 @@ import (
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	excelapi "github.com/wippyai/runtime/api/dispatcher/excel"
+	"github.com/wippyai/runtime/api/runtime/resource"
 	streamhandler "github.com/wippyai/runtime/service/fs/stream"
 	"github.com/xuri/excelize/v2"
 )
 
-// streamRegistryReader wraps StreamRegistry to implement io.Reader.
-type streamRegistryReader struct {
-	registry *streamhandler.StreamRegistry
+// streamReader wraps stream operations to implement io.Reader.
+type streamReader struct {
+	table    *resource.Table
 	streamID uint64
 	eof      bool
 }
 
-func (r *streamRegistryReader) Read(p []byte) (n int, err error) {
+func (r *streamReader) Read(p []byte) (n int, err error) {
 	if r.eof {
 		return 0, io.EOF
 	}
 
-	data, err := r.registry.Read(r.streamID, int64(len(p)))
+	data, err := streamhandler.Read(r.table, r.streamID, int64(len(p)))
 	if err == io.EOF {
 		r.eof = true
 		if len(data) > 0 {
@@ -41,14 +42,14 @@ func (r *streamRegistryReader) Read(p []byte) (n int, err error) {
 	return len(data), nil
 }
 
-// streamRegistryWriter wraps StreamRegistry to implement io.Writer.
-type streamRegistryWriter struct {
-	registry *streamhandler.StreamRegistry
+// streamWriter wraps stream operations to implement io.Writer.
+type streamWriter struct {
+	table    *resource.Table
 	streamID uint64
 }
 
-func (w *streamRegistryWriter) Write(p []byte) (n int, err error) {
-	return w.registry.Write(w.streamID, p)
+func (w *streamWriter) Write(p []byte) (n int, err error) {
+	return streamhandler.Write(w.table, w.streamID, p)
 }
 
 // Dispatcher handles excel commands via async worker pool.
@@ -61,9 +62,9 @@ type Dispatcher struct {
 }
 
 type job struct {
-	ctx  context.Context
-	cmd  dispatcher.Command
-	emit dispatcher.Emitter
+	ctx      context.Context
+	cmd      dispatcher.Command
+	complete dispatcher.Completer
 }
 
 // NewDispatcher creates an excel dispatcher with the specified worker count.
@@ -101,50 +102,44 @@ func (d *Dispatcher) worker() {
 	}
 }
 
-func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) {
+func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) {
 	select {
-	case d.jobs <- job{ctx: ctx, cmd: cmd, emit: emit}:
+	case d.jobs <- job{ctx: ctx, cmd: cmd, complete: complete}:
 	case <-d.ctx.Done():
 	}
 }
 
 func (d *Dispatcher) execute(j job) {
-	registry := streamhandler.GetStreamRegistry(j.ctx)
-	if registry == nil {
+	table := resource.GetTable(j.ctx)
+	if table == nil {
 		switch j.cmd.(type) {
 		case *excelapi.ExcelOpenStreamCmd:
-			j.emit.Emit(excelapi.ExcelOpenStreamResponse{Error: streamhandler.ErrStreamNotFound}, nil)
+			j.complete.Complete(excelapi.ExcelOpenStreamResponse{Error: streamhandler.ErrNoTable}, nil)
 		case *excelapi.ExcelWriteStreamCmd:
-			j.emit.Emit(excelapi.ExcelWriteStreamResponse{Error: streamhandler.ErrStreamNotFound}, nil)
+			j.complete.Complete(excelapi.ExcelWriteStreamResponse{Error: streamhandler.ErrNoTable}, nil)
 		}
 		return
 	}
 
 	switch c := j.cmd.(type) {
 	case *excelapi.ExcelOpenStreamCmd:
-		reader := &streamRegistryReader{
-			registry: registry,
-			streamID: c.StreamID,
-		}
+		reader := &streamReader{table: table, streamID: c.StreamID}
 		file, err := excelize.OpenReader(reader)
 		if err != nil {
-			j.emit.Emit(excelapi.ExcelOpenStreamResponse{Error: err}, nil)
+			j.complete.Complete(excelapi.ExcelOpenStreamResponse{Error: err}, nil)
 			return
 		}
-		j.emit.Emit(excelapi.ExcelOpenStreamResponse{File: file}, nil)
+		j.complete.Complete(excelapi.ExcelOpenStreamResponse{File: file}, nil)
 
 	case *excelapi.ExcelWriteStreamCmd:
-		writer := &streamRegistryWriter{
-			registry: registry,
-			streamID: c.StreamID,
-		}
+		writer := &streamWriter{table: table, streamID: c.StreamID}
 		err := c.File.Write(writer)
-		j.emit.Emit(excelapi.ExcelWriteStreamResponse{Error: err}, nil)
+		j.complete.Complete(excelapi.ExcelWriteStreamResponse{Error: err}, nil)
 	}
 }
 
-func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
-	d.submit(ctx, cmd, emit)
+func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
+	d.submit(ctx, cmd, complete)
 	return nil
 }
 

@@ -23,7 +23,7 @@ type RandomYieldProcess struct {
 	maxSteps int
 }
 
-func (p *RandomYieldProcess) Execute(_ context.Context, _ string, input payload.Payloads) error {
+func (p *RandomYieldProcess) Init(_ context.Context, _ string, input payload.Payloads) error {
 	if len(input) > 0 {
 		if v, ok := input[0].Data().(int); ok {
 			p.maxSteps = v
@@ -55,10 +55,10 @@ type RandomSleepHandler struct {
 	maxSleep time.Duration
 }
 
-func (h *RandomSleepHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
+func (h *RandomSleepHandler) Handle(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
 	sleep := h.minSleep + time.Duration(rand.Int63n(int64(h.maxSleep-h.minSleep)))
 	time.Sleep(sleep)
-	emit.Emit(sleep.Nanoseconds(), nil)
+	complete.Complete(sleep.Nanoseconds(), nil)
 	return nil
 }
 
@@ -67,12 +67,12 @@ type CPUWorkHandler struct {
 	iterations int
 }
 
-func (h *CPUWorkHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
+func (h *CPUWorkHandler) Handle(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
 	sum := 0
 	for i := 0; i < h.iterations; i++ {
 		sum += i * i
 	}
-	emit.Emit(sum, nil)
+	complete.Complete(sum, nil)
 	return nil
 }
 
@@ -470,7 +470,7 @@ func BenchmarkSchedulerMemory(b *testing.B) {
 // InstantHandler completes immediately
 type InstantHandler struct{}
 
-func (h *InstantHandler) Handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
-	emit.Emit(nil, nil)
+func (h *InstantHandler) Handle(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
+	complete.Complete(nil, nil)
 	return nil
 }

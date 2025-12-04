@@ -13,6 +13,11 @@ import (
 
 const typeParser = "treesitter.Parser"
 
+// pushParser pushes a Parser userdata to the stack
+func pushParser(l *lua.LState, p *ParserWrapper) {
+	value.PushTypedUserData(l, p, typeParser)
+}
+
 // ParserWrapper wraps a Tree-sitter parser with language information
 type ParserWrapper struct {
 	parser        *treesitter.Parser
@@ -73,16 +78,15 @@ func newParser(l *lua.LState) int {
 
 	ctx := l.Context()
 	if ctx == nil {
-		l.RaiseError("no context found")
-		return 0
+		err := lua.NewLuaError(l, "no context found").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
-	p := NewParser(ctx, parser)
-
-	ud := l.NewUserData()
-	ud.Value = p
-	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Parser")
-	l.Push(ud)
+	pushParser(l, NewParser(ctx, parser))
 	return 1
 }
 
@@ -117,13 +121,21 @@ func parserSetLanguage(l *lua.LState) int {
 
 	langInfo := languages.GetLanguageInfo(langAlias)
 	if langInfo == nil {
-		l.RaiseError("language %s is not found", langAlias)
-		return 0
+		err := lua.NewLuaError(l, fmt.Sprintf("language %s is not found", langAlias)).
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(lua.LFalse)
+		l.Push(err)
+		return 2
 	}
 
 	if langInfo.Language == nil {
-		l.RaiseError("language %s does not have a Tree-sitter language binding", langAlias)
-		return 0
+		err := lua.NewLuaError(l, fmt.Sprintf("language %s does not have a Tree-sitter language binding", langAlias)).
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(lua.LFalse)
+		l.Push(err)
+		return 2
 	}
 
 	lang := langInfo.Language()
@@ -146,8 +158,12 @@ func parserGetLanguage(l *lua.LState) int {
 	p := checkParser(l)
 
 	if p.lang == nil {
-		l.RaiseError("language is not set")
-		return 0
+		err := lua.NewLuaError(l, "language is not set").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
 	l.Push(lua.LString(p.lang.Name))
@@ -159,8 +175,12 @@ func parserParse(l *lua.LState) int {
 	code := l.CheckString(2)
 
 	if parser.parser.Language() == nil {
-		l.ArgError(1, "language is not set")
-		return 0
+		err := lua.NewLuaError(l, "language is not set").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
 	var oldTree *TreeWrapper
@@ -169,16 +189,24 @@ func parserParse(l *lua.LState) int {
 			if tw, ok := ud.Value.(*TreeWrapper); ok {
 				oldTree = tw
 			} else {
-				l.ArgError(3, "tree expected")
-				return 0
+				err := lua.NewLuaError(l, "tree expected").
+					WithKind(lua.KindInvalid).
+					WithRetryable(false)
+				l.Push(lua.LNil)
+				l.Push(err)
+				return 2
 			}
 		}
 	}
 
 	ctx := l.Context()
 	if ctx == nil {
-		l.RaiseError("no context found")
-		return 0
+		err := lua.NewLuaError(l, "no context found").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
 	tree, parseErr := parser.parseWithContext(ctx, []byte(code), oldTree)
@@ -204,8 +232,10 @@ func parserReset(l *lua.LState) int {
 }
 
 func parserClose(l *lua.LState) int {
-	p := checkParser(l)
-	p.Close()
+	ud := l.CheckUserData(1)
+	if v, ok := ud.Value.(*ParserWrapper); ok {
+		v.Close()
+	}
 	return 0
 }
 

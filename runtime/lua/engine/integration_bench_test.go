@@ -24,11 +24,11 @@ type mockHandler struct {
 	delay time.Duration
 }
 
-func (h *mockHandler) Handle(ctx context.Context, cmd process.Command, emit process.Emitter) error {
+func (h *mockHandler) Handle(ctx context.Context, cmd process.Command, complete process.Completer) error {
 	if h.delay > 0 {
 		time.Sleep(h.delay)
 	}
-	emit.Emit(map[string]any{"status": "ok"}, nil)
+	complete.Complete(map[string]any{"status": "ok"}, nil)
 	return nil
 }
 

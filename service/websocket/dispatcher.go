@@ -216,9 +216,9 @@ type Dispatcher struct {
 }
 
 type job struct {
-	ctx  context.Context
-	cmd  dispatcher.Command
-	emit dispatcher.Emitter
+	ctx      context.Context
+	cmd      dispatcher.Command
+	complete dispatcher.Completer
 }
 
 // NewDispatcher creates a WebSocket dispatcher with the specified worker count.
@@ -256,9 +256,9 @@ func (d *Dispatcher) worker() {
 	}
 }
 
-func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) {
+func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) {
 	select {
-	case d.jobs <- job{ctx: ctx, cmd: cmd, emit: emit}:
+	case d.jobs <- job{ctx: ctx, cmd: cmd, complete: complete}:
 	case <-d.ctx.Done():
 	}
 }
@@ -266,21 +266,21 @@ func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, emit di
 func (d *Dispatcher) execute(j job) {
 	switch c := j.cmd.(type) {
 	case wsapi.WsConnectCmd:
-		d.executeConnect(j.ctx, c, j.emit)
+		d.executeConnect(j.ctx, c, j.complete)
 	case wsapi.WsSendCmd:
-		d.executeSend(j.ctx, c, j.emit)
+		d.executeSend(j.ctx, c, j.complete)
 	case wsapi.WsReceiveCmd:
-		d.executeReceive(j.ctx, c, j.emit)
+		d.executeReceive(j.ctx, c, j.complete)
 	case wsapi.WsCloseCmd:
-		d.executeClose(j.ctx, c, j.emit)
+		d.executeClose(j.ctx, c, j.complete)
 	case wsapi.WsPingCmd:
-		d.executePing(j.ctx, c, j.emit)
+		d.executePing(j.ctx, c, j.complete)
 	case wsapi.WsSubscribeCmd:
-		d.executeSubscribe(j.ctx, c, j.emit)
+		d.executeSubscribe(j.ctx, c, j.complete)
 	}
 }
 
-func (d *Dispatcher) executeConnect(ctx context.Context, cmd wsapi.WsConnectCmd, emit dispatcher.Emitter) {
+func (d *Dispatcher) executeConnect(ctx context.Context, cmd wsapi.WsConnectCmd, complete dispatcher.Completer) {
 	opts := &websocket.DialOptions{}
 
 	if len(cmd.Headers) > 0 {
@@ -320,10 +320,10 @@ func (d *Dispatcher) executeConnect(ctx context.Context, cmd wsapi.WsConnectCmd,
 
 	registry := GetOrCreateRegistry(ctx)
 	id := registry.Register(ctx, conn, 16)
-	emit.Emit(id, nil)
+	complete.Complete(id, nil)
 }
 
-func (d *Dispatcher) executeSend(ctx context.Context, cmd wsapi.WsSendCmd, emit dispatcher.Emitter) {
+func (d *Dispatcher) executeSend(ctx context.Context, cmd wsapi.WsSendCmd, complete dispatcher.Completer) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
 		return
@@ -342,10 +342,10 @@ func (d *Dispatcher) executeSend(ctx context.Context, cmd wsapi.WsSendCmd, emit 
 	if err := entry.conn.Write(ctx, msgType, cmd.Data); err != nil {
 		return
 	}
-	emit.Emit(nil, nil)
+	complete.Complete(nil, nil)
 }
 
-func (d *Dispatcher) executeReceive(ctx context.Context, cmd wsapi.WsReceiveCmd, emit dispatcher.Emitter) {
+func (d *Dispatcher) executeReceive(ctx context.Context, cmd wsapi.WsReceiveCmd, complete dispatcher.Completer) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
 		return
@@ -359,16 +359,16 @@ func (d *Dispatcher) executeReceive(ctx context.Context, cmd wsapi.WsReceiveCmd,
 	select {
 	case msg, ok := <-msgCh:
 		if !ok {
-			emit.Emit(wsapi.WsMessage{EOF: true}, nil)
+			complete.Complete(wsapi.WsMessage{EOF: true}, nil)
 			return
 		}
-		emit.Emit(msg, nil)
+		complete.Complete(msg, nil)
 	case <-ctx.Done():
 		return
 	}
 }
 
-func (d *Dispatcher) executeClose(ctx context.Context, cmd wsapi.WsCloseCmd, emit dispatcher.Emitter) {
+func (d *Dispatcher) executeClose(ctx context.Context, cmd wsapi.WsCloseCmd, complete dispatcher.Completer) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
 		return
@@ -377,10 +377,10 @@ func (d *Dispatcher) executeClose(ctx context.Context, cmd wsapi.WsCloseCmd, emi
 	if err := registry.Close(cmd.ConnID, cmd.Code, cmd.Reason); err != nil {
 		return
 	}
-	emit.Emit(nil, nil)
+	complete.Complete(nil, nil)
 }
 
-func (d *Dispatcher) executePing(ctx context.Context, cmd wsapi.WsPingCmd, emit dispatcher.Emitter) {
+func (d *Dispatcher) executePing(ctx context.Context, cmd wsapi.WsPingCmd, complete dispatcher.Completer) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
 		return
@@ -394,10 +394,10 @@ func (d *Dispatcher) executePing(ctx context.Context, cmd wsapi.WsPingCmd, emit 
 	if err := entry.conn.Ping(ctx); err != nil {
 		return
 	}
-	emit.Emit(nil, nil)
+	complete.Complete(nil, nil)
 }
 
-func (d *Dispatcher) executeSubscribe(ctx context.Context, cmd wsapi.WsSubscribeCmd, emit dispatcher.Emitter) {
+func (d *Dispatcher) executeSubscribe(ctx context.Context, cmd wsapi.WsSubscribeCmd, complete dispatcher.Completer) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
 		return
@@ -446,11 +446,11 @@ func (d *Dispatcher) executeSubscribe(ctx context.Context, cmd wsapi.WsSubscribe
 		}
 	}()
 
-	emit.Emit(wsapi.WsSubscription{ConnID: cmd.ConnID}, nil)
+	complete.Complete(wsapi.WsSubscription{ConnID: cmd.ConnID}, nil)
 }
 
-func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
-	d.submit(ctx, cmd, emit)
+func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
+	d.submit(ctx, cmd, complete)
 	return nil
 }
 

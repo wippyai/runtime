@@ -12,6 +12,7 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/runtime/resource"
+	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	scheduler "github.com/wippyai/runtime/system/scheduler/actor"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -192,6 +193,9 @@ type Process struct {
 	proto      *lua.FunctionProto
 	mainTask   *Task
 	ctx        context.Context
+
+	// result holds the mainTask's return value when it completes
+	result payload.Payload
 
 	// factory holds shared config (binders, state options)
 	factory *Factory
@@ -409,8 +413,9 @@ func (p *Process) Step(results *scheduler.YieldResults) (scheduler.StepResult, e
 
 	// Check completion
 	if len(externalTasks) == 0 && p.queue.IsEmpty() && len(p.threads) == 0 {
+		result := p.result
 		p.clearExecution()
-		return scheduler.StepResult{Status: scheduler.StepDone}, nil
+		return scheduler.StepResult{Status: scheduler.StepDone, Result: result}, nil
 	}
 
 	// Convert external yields to commands
@@ -452,7 +457,8 @@ func (p *Process) Step(results *scheduler.YieldResults) (scheduler.StepResult, e
 		result.Status = scheduler.StepContinue
 	} else if result.YieldCount() == 0 && len(p.threads) > 0 {
 		// Check if we're waiting for external messages (subscriptions)
-		if HasSubscriptions(p) {
+		hasSubs := HasSubscriptions(p)
+		if hasSubs {
 			result.Status = scheduler.StepIdle
 		} else {
 			// Deadlock: threads exist but nothing can progress
@@ -614,26 +620,66 @@ func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, error) {
 	for _, pkg := range pc.DrainInbox() {
 		for _, msg := range pkg.Messages {
 			topic := string(msg.Topic)
-			if sub, exists := subs.get(topic); exists {
-				value := messageToLua(p.ctx, p.state, msg)
-				result := sub.channel.Send(nil, value, nil)
+			sub, exists := subs.get(topic)
+			if !exists {
+				continue
+			}
 
-				// Wake any blocked receivers
-				updates := result.GetUpdates()
-				if result.Yields && len(updates) > 0 {
-					for _, upd := range updates {
-						if upd.State == nil {
-							continue
-						}
-						t, err := p.GetTask(upd.State)
-						if err == nil {
-							t.ResumeWith(upd.GetResult()...)
-							p.queue.Push(t)
-						}
+			// Check for terminal payload - unsubscribe and close channel
+			if len(msg.Payloads) == 1 && payload.IsTerminal(msg.Payloads[0]) {
+				pc.RemoveTopicHandler(topic)
+				subs.remove(sub.channel)
+				sub.channel.Close(nil)
+				continue
+			}
+
+			// Check for terminal at end of multi-payload message (result + terminal pattern)
+			hasTerminal := len(msg.Payloads) > 1 && payload.IsTerminal(msg.Payloads[len(msg.Payloads)-1])
+			payloads := msg.Payloads
+			if hasTerminal {
+				payloads = msg.Payloads[:len(msg.Payloads)-1]
+			}
+
+			// Check for topic handler
+			var value lua.LValue
+			if handler, ok := pc.GetTopicHandler(topic); ok {
+				value = handler(p.ctx, p.state, payloads)
+				if value == nil {
+					// Handler processed but doesn't want to send to channel
+					if hasTerminal {
+						pc.RemoveTopicHandler(topic)
+						subs.remove(sub.channel)
+						sub.channel.Close(nil)
+					}
+					continue
+				}
+			} else {
+				value = PayloadsToLua(p.ctx, p.state, payloads)
+			}
+			result := sub.channel.Send(nil, value, nil)
+
+			// Wake any blocked receivers
+			updates := result.GetUpdates()
+			if result.Yields && len(updates) > 0 {
+				for _, upd := range updates {
+					if upd.State == nil {
+						continue
+					}
+					t, err := p.GetTask(upd.State)
+					if err == nil {
+						t.ResumeWith(upd.GetResult()...)
+						p.queue.Push(t)
 					}
 				}
+			}
 
-				ReleaseResult(result)
+			ReleaseResult(result)
+
+			// Close channel after sending if terminal was present
+			if hasTerminal {
+				pc.RemoveTopicHandler(topic)
+				subs.remove(sub.channel)
+				sub.channel.Close(nil)
 			}
 		}
 	}
@@ -685,12 +731,21 @@ func messageToLua(ctx context.Context, l *lua.LState, msg *relay.Message) lua.LV
 		return lua.LString(msg.Topic)
 	}
 
-	if len(msg.Payloads) == 1 {
-		return transcodeToLua(ctx, msg.Payloads[0])
+	return PayloadsToLua(ctx, l, msg.Payloads)
+}
+
+// PayloadsToLua converts a slice of payloads to Lua value.
+func PayloadsToLua(ctx context.Context, l *lua.LState, payloads []payload.Payload) lua.LValue {
+	if len(payloads) == 0 {
+		return lua.LNil
 	}
 
-	tbl := l.CreateTable(len(msg.Payloads), 0)
-	for i, pl := range msg.Payloads {
+	if len(payloads) == 1 {
+		return transcodeToLua(ctx, payloads[0])
+	}
+
+	tbl := l.CreateTable(len(payloads), 0)
+	for i, pl := range payloads {
 		tbl.RawSetInt(i+1, transcodeToLua(ctx, pl))
 	}
 	return tbl
@@ -737,7 +792,13 @@ func (p *Process) vmStep(tasks ...*Task) ([]*Task, error) {
 				continue
 			}
 			p.yieldBuf = append(p.yieldBuf, task)
-		case lua.ResumeOK, lua.ResumeError:
+		case lua.ResumeOK:
+			// Capture mainTask's return value before removing
+			if task == p.mainTask && len(values) > 0 {
+				p.result = luaconv.ExportPayload(values[0])
+			}
+			p.removeTask(task)
+		case lua.ResumeError:
 			p.removeTask(task)
 		}
 	}
@@ -812,6 +873,7 @@ func (p *Process) yieldToCommand(task *Task) dispatcher.Command {
 	// NOTE: Do NOT release the yield object here - the cmd shares the same
 	// underlying data (e.g., CallYield.CallCmd). The yield object should be
 	// released after the handler has processed the command (in handleYieldResults).
+	// TODO: Rethink
 
 	return cmd
 }
@@ -908,21 +970,18 @@ func (p *Process) distributeResults(results *scheduler.YieldResults) {
 
 // resumeTaskWithResult converts handler result to Lua values and queues task.
 func (p *Process) resumeTaskWithResult(task *Task, data any, err error) {
-	if data != nil || err != nil {
-		if len(task.Yielded) > 0 {
-			lastYield := task.Yielded[len(task.Yielded)-1]
-			if hy, ok := lastYield.(HandledYield); ok {
-				task.Resumed = hy.HandleResult(p.state, data, err)
-				// Release the yield object now that the handler is done
-				if releasable, ok := lastYield.(luaapi.Releasable); ok {
-					releasable.Release()
-				}
-			} else if luaVals, ok := data.([]lua.LValue); ok {
-				task.Resumed = luaVals
+	if len(task.Yielded) > 0 {
+		lastYield := task.Yielded[len(task.Yielded)-1]
+		if hy, ok := lastYield.(HandledYield); ok {
+			task.Resumed = hy.HandleResult(p.state, data, err)
+			if releasable, ok := lastYield.(luaapi.Releasable); ok {
+				releasable.Release()
 			}
 		} else if luaVals, ok := data.([]lua.LValue); ok {
 			task.Resumed = luaVals
 		}
+	} else if luaVals, ok := data.([]lua.LValue); ok {
+		task.Resumed = luaVals
 	}
 	if task.State == lua.ResumeYield {
 		p.queue.Push(task)
@@ -944,9 +1003,10 @@ func (p *Process) clearExecution() {
 	// Drain queue
 	p.queue.Drain()
 
-	// Clear main task reference
+	// Clear main task reference and result
 	p.mainTask = nil
 	p.pendingYields = nil
+	p.result = nil
 
 	// Clear yield buffer
 	p.yieldBuf = p.yieldBuf[:0]

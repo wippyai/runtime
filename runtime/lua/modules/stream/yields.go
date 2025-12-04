@@ -9,45 +9,49 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// StreamReadYield is yielded to read a chunk from a stream.
-type StreamReadYield struct {
+// ReadYield is yielded to read a chunk from a stream.
+type ReadYield struct {
 	StreamID uint64
 	Size     int64
 }
 
-var streamReadYieldPool = sync.Pool{
-	New: func() interface{} { return &StreamReadYield{} },
+var readYieldPool = sync.Pool{
+	New: func() interface{} { return &ReadYield{} },
 }
 
-func AcquireStreamReadYield(id uint64, size int64) *StreamReadYield {
-	y := streamReadYieldPool.Get().(*StreamReadYield)
+func AcquireReadYield(id uint64, size int64) *ReadYield {
+	y := readYieldPool.Get().(*ReadYield)
 	y.StreamID = id
 	y.Size = size
 	return y
 }
 
-func ReleaseStreamReadYield(y *StreamReadYield) {
+func ReleaseReadYield(y *ReadYield) {
 	y.StreamID = 0
 	y.Size = 0
-	streamReadYieldPool.Put(y)
+	readYieldPool.Put(y)
 }
 
-func (y *StreamReadYield) String() string       { return "<stream_read_yield>" }
-func (y *StreamReadYield) Type() lua.LValueType { return lua.LTUserData }
+func (y *ReadYield) String() string       { return "<stream_read_yield>" }
+func (y *ReadYield) Type() lua.LValueType { return lua.LTUserData }
 
-func (y *StreamReadYield) CmdID() dispatcher.CommandID {
-	return streamapi.CmdStreamRead
+func (y *ReadYield) CmdID() dispatcher.CommandID {
+	return streamapi.CmdRead
 }
 
-func (y *StreamReadYield) ToCommand() dispatcher.Command {
-	return streamapi.StreamReadCmd{StreamID: y.StreamID, Size: y.Size}
+func (y *ReadYield) ToCommand() dispatcher.Command {
+	return streamapi.ReadCmd{StreamID: y.StreamID, Size: y.Size}
 }
 
-func (y *StreamReadYield) Release() { ReleaseStreamReadYield(y) }
+func (y *ReadYield) Release() { ReleaseReadYield(y) }
 
-func (y *StreamReadYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+func (y *ReadYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+		luaErr := lua.WrapErrorWithLua(l, err, "stream read").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
+		return []lua.LValue{lua.LNil, luaErr}
 	}
 	if data == nil {
 		return []lua.LValue{lua.LNil, lua.LNil}
@@ -55,224 +59,256 @@ func (y *StreamReadYield) HandleResult(l *lua.LState, data any, err error) []lua
 	if bytes, ok := data.([]byte); ok {
 		return []lua.LValue{lua.LString(bytes), lua.LNil}
 	}
-	return []lua.LValue{lua.LNil, lua.LString("invalid response type")}
+	luaErr := lua.NewLuaError(l, "invalid response type").
+		WithKind(lua.KindInternal).
+		WithRetryable(false)
+	return []lua.LValue{lua.LNil, luaErr}
 }
 
-// StreamCloseYield is yielded to close a stream.
-type StreamCloseYield struct {
+// CloseYield is yielded to close a stream.
+type CloseYield struct {
 	StreamID uint64
 }
 
-var streamCloseYieldPool = sync.Pool{
-	New: func() interface{} { return &StreamCloseYield{} },
+var closeYieldPool = sync.Pool{
+	New: func() interface{} { return &CloseYield{} },
 }
 
-func AcquireStreamCloseYield(id uint64) *StreamCloseYield {
-	y := streamCloseYieldPool.Get().(*StreamCloseYield)
+func AcquireCloseYield(id uint64) *CloseYield {
+	y := closeYieldPool.Get().(*CloseYield)
 	y.StreamID = id
 	return y
 }
 
-func ReleaseStreamCloseYield(y *StreamCloseYield) {
+func ReleaseCloseYield(y *CloseYield) {
 	y.StreamID = 0
-	streamCloseYieldPool.Put(y)
+	closeYieldPool.Put(y)
 }
 
-func (y *StreamCloseYield) String() string       { return "<stream_close_yield>" }
-func (y *StreamCloseYield) Type() lua.LValueType { return lua.LTUserData }
+func (y *CloseYield) String() string       { return "<stream_close_yield>" }
+func (y *CloseYield) Type() lua.LValueType { return lua.LTUserData }
 
-func (y *StreamCloseYield) CmdID() dispatcher.CommandID {
-	return streamapi.CmdStreamClose
+func (y *CloseYield) CmdID() dispatcher.CommandID {
+	return streamapi.CmdClose
 }
 
-func (y *StreamCloseYield) ToCommand() dispatcher.Command {
-	return streamapi.StreamCloseCmd{StreamID: y.StreamID}
+func (y *CloseYield) ToCommand() dispatcher.Command {
+	return streamapi.CloseCmd{StreamID: y.StreamID}
 }
 
-func (y *StreamCloseYield) Release() { ReleaseStreamCloseYield(y) }
+func (y *CloseYield) Release() { ReleaseCloseYield(y) }
 
-func (y *StreamCloseYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+func (y *CloseYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LFalse, lua.LString(err.Error())}
+		luaErr := lua.WrapErrorWithLua(l, err, "stream close").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
+		return []lua.LValue{lua.LFalse, luaErr}
 	}
 	return []lua.LValue{lua.LTrue, lua.LNil}
 }
 
-// StreamWriteYield is yielded to write data to a stream.
-type StreamWriteYield struct {
+// WriteYield is yielded to write data to a stream.
+type WriteYield struct {
 	StreamID uint64
 	Data     []byte
 }
 
-var streamWriteYieldPool = sync.Pool{
-	New: func() interface{} { return &StreamWriteYield{} },
+var writeYieldPool = sync.Pool{
+	New: func() interface{} { return &WriteYield{} },
 }
 
-func AcquireStreamWriteYield(id uint64, data []byte) *StreamWriteYield {
-	y := streamWriteYieldPool.Get().(*StreamWriteYield)
+func AcquireWriteYield(id uint64, data []byte) *WriteYield {
+	y := writeYieldPool.Get().(*WriteYield)
 	y.StreamID = id
 	y.Data = data
 	return y
 }
 
-func ReleaseStreamWriteYield(y *StreamWriteYield) {
+func ReleaseWriteYield(y *WriteYield) {
 	y.StreamID = 0
 	y.Data = nil
-	streamWriteYieldPool.Put(y)
+	writeYieldPool.Put(y)
 }
 
-func (y *StreamWriteYield) String() string       { return "<stream_write_yield>" }
-func (y *StreamWriteYield) Type() lua.LValueType { return lua.LTUserData }
+func (y *WriteYield) String() string       { return "<stream_write_yield>" }
+func (y *WriteYield) Type() lua.LValueType { return lua.LTUserData }
 
-func (y *StreamWriteYield) CmdID() dispatcher.CommandID {
-	return streamapi.CmdStreamWrite
+func (y *WriteYield) CmdID() dispatcher.CommandID {
+	return streamapi.CmdWrite
 }
 
-func (y *StreamWriteYield) ToCommand() dispatcher.Command {
-	return streamapi.StreamWriteCmd{StreamID: y.StreamID, Data: y.Data}
+func (y *WriteYield) ToCommand() dispatcher.Command {
+	return streamapi.WriteCmd{StreamID: y.StreamID, Data: y.Data}
 }
 
-func (y *StreamWriteYield) Release() { ReleaseStreamWriteYield(y) }
+func (y *WriteYield) Release() { ReleaseWriteYield(y) }
 
-func (y *StreamWriteYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+func (y *WriteYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNumber(0), lua.LString(err.Error())}
+		luaErr := lua.WrapErrorWithLua(l, err, "stream write").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
+		return []lua.LValue{lua.LNumber(0), luaErr}
 	}
 	if n, ok := data.(int64); ok {
 		return []lua.LValue{lua.LNumber(n), lua.LNil}
 	}
-	return []lua.LValue{lua.LNumber(0), lua.LString("invalid response type")}
+	luaErr := lua.NewLuaError(l, "invalid response type").
+		WithKind(lua.KindInternal).
+		WithRetryable(false)
+	return []lua.LValue{lua.LNumber(0), luaErr}
 }
 
-// StreamSeekYield is yielded to seek within a stream.
-type StreamSeekYield struct {
+// SeekYield is yielded to seek within a stream.
+type SeekYield struct {
 	StreamID uint64
 	Offset   int64
 	Whence   int
 }
 
-var streamSeekYieldPool = sync.Pool{
-	New: func() interface{} { return &StreamSeekYield{} },
+var seekYieldPool = sync.Pool{
+	New: func() interface{} { return &SeekYield{} },
 }
 
-func AcquireStreamSeekYield(id uint64, offset int64, whence int) *StreamSeekYield {
-	y := streamSeekYieldPool.Get().(*StreamSeekYield)
+func AcquireSeekYield(id uint64, offset int64, whence int) *SeekYield {
+	y := seekYieldPool.Get().(*SeekYield)
 	y.StreamID = id
 	y.Offset = offset
 	y.Whence = whence
 	return y
 }
 
-func ReleaseStreamSeekYield(y *StreamSeekYield) {
+func ReleaseSeekYield(y *SeekYield) {
 	y.StreamID = 0
 	y.Offset = 0
 	y.Whence = 0
-	streamSeekYieldPool.Put(y)
+	seekYieldPool.Put(y)
 }
 
-func (y *StreamSeekYield) String() string       { return "<stream_seek_yield>" }
-func (y *StreamSeekYield) Type() lua.LValueType { return lua.LTUserData }
+func (y *SeekYield) String() string       { return "<stream_seek_yield>" }
+func (y *SeekYield) Type() lua.LValueType { return lua.LTUserData }
 
-func (y *StreamSeekYield) CmdID() dispatcher.CommandID {
-	return streamapi.CmdStreamSeek
+func (y *SeekYield) CmdID() dispatcher.CommandID {
+	return streamapi.CmdSeek
 }
 
-func (y *StreamSeekYield) ToCommand() dispatcher.Command {
-	return streamapi.StreamSeekCmd{StreamID: y.StreamID, Offset: y.Offset, Whence: y.Whence}
+func (y *SeekYield) ToCommand() dispatcher.Command {
+	return streamapi.SeekCmd{StreamID: y.StreamID, Offset: y.Offset, Whence: y.Whence}
 }
 
-func (y *StreamSeekYield) Release() { ReleaseStreamSeekYield(y) }
+func (y *SeekYield) Release() { ReleaseSeekYield(y) }
 
-func (y *StreamSeekYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+func (y *SeekYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNumber(-1), lua.LString(err.Error())}
+		luaErr := lua.WrapErrorWithLua(l, err, "stream seek").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
+		return []lua.LValue{lua.LNumber(-1), luaErr}
 	}
 	if pos, ok := data.(int64); ok {
 		return []lua.LValue{lua.LNumber(pos), lua.LNil}
 	}
-	return []lua.LValue{lua.LNumber(-1), lua.LString("invalid response type")}
+	luaErr := lua.NewLuaError(l, "invalid response type").
+		WithKind(lua.KindInternal).
+		WithRetryable(false)
+	return []lua.LValue{lua.LNumber(-1), luaErr}
 }
 
-// StreamFlushYield is yielded to flush a stream.
-type StreamFlushYield struct {
+// FlushYield is yielded to flush a stream.
+type FlushYield struct {
 	StreamID uint64
 }
 
-var streamFlushYieldPool = sync.Pool{
-	New: func() interface{} { return &StreamFlushYield{} },
+var flushYieldPool = sync.Pool{
+	New: func() interface{} { return &FlushYield{} },
 }
 
-func AcquireStreamFlushYield(id uint64) *StreamFlushYield {
-	y := streamFlushYieldPool.Get().(*StreamFlushYield)
+func AcquireFlushYield(id uint64) *FlushYield {
+	y := flushYieldPool.Get().(*FlushYield)
 	y.StreamID = id
 	return y
 }
 
-func ReleaseStreamFlushYield(y *StreamFlushYield) {
+func ReleaseFlushYield(y *FlushYield) {
 	y.StreamID = 0
-	streamFlushYieldPool.Put(y)
+	flushYieldPool.Put(y)
 }
 
-func (y *StreamFlushYield) String() string       { return "<stream_flush_yield>" }
-func (y *StreamFlushYield) Type() lua.LValueType { return lua.LTUserData }
+func (y *FlushYield) String() string       { return "<stream_flush_yield>" }
+func (y *FlushYield) Type() lua.LValueType { return lua.LTUserData }
 
-func (y *StreamFlushYield) CmdID() dispatcher.CommandID {
-	return streamapi.CmdStreamFlush
+func (y *FlushYield) CmdID() dispatcher.CommandID {
+	return streamapi.CmdFlush
 }
 
-func (y *StreamFlushYield) ToCommand() dispatcher.Command {
-	return streamapi.StreamFlushCmd{StreamID: y.StreamID}
+func (y *FlushYield) ToCommand() dispatcher.Command {
+	return streamapi.FlushCmd{StreamID: y.StreamID}
 }
 
-func (y *StreamFlushYield) Release() { ReleaseStreamFlushYield(y) }
+func (y *FlushYield) Release() { ReleaseFlushYield(y) }
 
-func (y *StreamFlushYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+func (y *FlushYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LFalse, lua.LString(err.Error())}
+		luaErr := lua.WrapErrorWithLua(l, err, "stream flush").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
+		return []lua.LValue{lua.LFalse, luaErr}
 	}
 	return []lua.LValue{lua.LTrue, lua.LNil}
 }
 
-// StreamStatYield is yielded to get stream info.
-type StreamStatYield struct {
+// StatYield is yielded to get stream info.
+type StatYield struct {
 	StreamID uint64
 }
 
-var streamStatYieldPool = sync.Pool{
-	New: func() interface{} { return &StreamStatYield{} },
+var statYieldPool = sync.Pool{
+	New: func() interface{} { return &StatYield{} },
 }
 
-func AcquireStreamStatYield(id uint64) *StreamStatYield {
-	y := streamStatYieldPool.Get().(*StreamStatYield)
+func AcquireStatYield(id uint64) *StatYield {
+	y := statYieldPool.Get().(*StatYield)
 	y.StreamID = id
 	return y
 }
 
-func ReleaseStreamStatYield(y *StreamStatYield) {
+func ReleaseStatYield(y *StatYield) {
 	y.StreamID = 0
-	streamStatYieldPool.Put(y)
+	statYieldPool.Put(y)
 }
 
-func (y *StreamStatYield) String() string       { return "<stream_stat_yield>" }
-func (y *StreamStatYield) Type() lua.LValueType { return lua.LTUserData }
+func (y *StatYield) String() string       { return "<stream_stat_yield>" }
+func (y *StatYield) Type() lua.LValueType { return lua.LTUserData }
 
-func (y *StreamStatYield) CmdID() dispatcher.CommandID {
-	return streamapi.CmdStreamStat
+func (y *StatYield) CmdID() dispatcher.CommandID {
+	return streamapi.CmdStat
 }
 
-func (y *StreamStatYield) ToCommand() dispatcher.Command {
-	return streamapi.StreamStatCmd{StreamID: y.StreamID}
+func (y *StatYield) ToCommand() dispatcher.Command {
+	return streamapi.StatCmd{StreamID: y.StreamID}
 }
 
-func (y *StreamStatYield) Release() { ReleaseStreamStatYield(y) }
+func (y *StatYield) Release() { ReleaseStatYield(y) }
 
-func (y *StreamStatYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+func (y *StatYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+		luaErr := lua.WrapErrorWithLua(l, err, "stream stat").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		lua.SetErrorMetatable(l, luaErr)
+		return []lua.LValue{lua.LNil, luaErr}
 	}
-	info, ok := data.(streamapi.StreamInfo)
+	info, ok := data.(streamapi.Info)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.LString("invalid response type")}
+		luaErr := lua.NewLuaError(l, "invalid response type").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		return []lua.LValue{lua.LNil, luaErr}
 	}
 	result := l.CreateTable(0, 5)
 	result.RawSetString("size", lua.LNumber(info.Size))
@@ -302,15 +338,13 @@ func registerStreamMetatable() {
 	})
 }
 
-// BindStream binds stream functions to Lua.
-func BindStream(l *lua.LState) {
+// NewStream creates a Stream userdata from an ID.
+func NewStream(l *lua.LState, id uint64) lua.LValue {
 	registerStreamMetatable()
-
-	l.SetGlobal("__stream_new", lua.LGoFunc(func(l *lua.LState) int {
-		id := uint64(l.CheckNumber(1))
-		value.PushUserData(l, &Stream{ID: id}, streamMetatable)
-		return 1
-	}))
+	ud := l.NewUserData()
+	ud.Value = &Stream{ID: id}
+	ud.Metatable = streamMetatable
+	return ud
 }
 
 var streamMethods = map[string]lua.LGFunction{
@@ -337,14 +371,14 @@ func streamReadMethod(l *lua.LState) int {
 	if l.GetTop() >= 2 {
 		size = int64(l.CheckNumber(2))
 	}
-	yield := AcquireStreamReadYield(stream.ID, size)
+	yield := AcquireReadYield(stream.ID, size)
 	l.Push(yield)
 	return -1
 }
 
 func streamCloseMethod(l *lua.LState) int {
 	stream := checkStream(l, 1)
-	yield := AcquireStreamCloseYield(stream.ID)
+	yield := AcquireCloseYield(stream.ID)
 	l.Push(yield)
 	return -1
 }
@@ -352,7 +386,7 @@ func streamCloseMethod(l *lua.LState) int {
 func streamWriteMethod(l *lua.LState) int {
 	stream := checkStream(l, 1)
 	data := l.CheckString(2)
-	yield := AcquireStreamWriteYield(stream.ID, []byte(data))
+	yield := AcquireWriteYield(stream.ID, []byte(data))
 	l.Push(yield)
 	return -1
 }
@@ -380,21 +414,21 @@ func streamSeekMethod(l *lua.LState) int {
 		offset = int64(l.CheckNumber(3))
 	}
 
-	yield := AcquireStreamSeekYield(stream.ID, offset, whence)
+	yield := AcquireSeekYield(stream.ID, offset, whence)
 	l.Push(yield)
 	return -1
 }
 
 func streamFlushMethod(l *lua.LState) int {
 	stream := checkStream(l, 1)
-	yield := AcquireStreamFlushYield(stream.ID)
+	yield := AcquireFlushYield(stream.ID)
 	l.Push(yield)
 	return -1
 }
 
 func streamStatMethod(l *lua.LState) int {
 	stream := checkStream(l, 1)
-	yield := AcquireStreamStatYield(stream.ID)
+	yield := AcquireStatYield(stream.ID)
 	l.Push(yield)
 	return -1
 }

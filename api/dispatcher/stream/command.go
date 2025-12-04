@@ -7,20 +7,20 @@ import (
 
 func init() {
 	dispatcher.MustRegisterCommands("stream",
-		CmdStreamRead, CmdStreamClose, CmdStreamWrite,
-		CmdStreamSeek, CmdStreamFlush, CmdStreamStat,
+		CmdRead, CmdClose, CmdWrite,
+		CmdSeek, CmdFlush, CmdStat,
 	)
 }
 
 // Command IDs for stream operations.
 // Range 50-59 is reserved for stream I/O commands.
 const (
-	CmdStreamRead  dispatcher.CommandID = 50 // Read chunk from stream
-	CmdStreamClose dispatcher.CommandID = 51 // Close stream
-	CmdStreamWrite dispatcher.CommandID = 52 // Write data to stream
-	CmdStreamSeek  dispatcher.CommandID = 53 // Seek within stream
-	CmdStreamFlush dispatcher.CommandID = 54 // Flush buffered data
-	CmdStreamStat  dispatcher.CommandID = 55 // Get stream info (size, etc)
+	CmdRead  dispatcher.CommandID = 50 // Read chunk from stream
+	CmdClose dispatcher.CommandID = 51 // Close stream
+	CmdWrite dispatcher.CommandID = 52 // Write data to stream
+	CmdSeek  dispatcher.CommandID = 53 // Seek within stream
+	CmdFlush dispatcher.CommandID = 54 // Flush buffered data
+	CmdStat  dispatcher.CommandID = 55 // Get stream info (size, etc)
 )
 
 // Seek whence constants (matching io.Seek*)
@@ -30,76 +30,76 @@ const (
 	SeekEnd     = 2 // Seek relative to end
 )
 
-// StreamReadCmd reads a chunk of data from a stream.
+// ReadCmd reads a chunk of data from a stream.
 // Returns bytes via emit, or nil on EOF.
-type StreamReadCmd struct {
+type ReadCmd struct {
 	StreamID uint64
 	Size     int64 // 0 = default chunk size
 }
 
 // CmdID implements dispatcher.Command.
-func (c StreamReadCmd) CmdID() dispatcher.CommandID {
-	return CmdStreamRead
+func (c ReadCmd) CmdID() dispatcher.CommandID {
+	return CmdRead
 }
 
-// StreamCloseCmd closes a stream and releases resources.
-type StreamCloseCmd struct {
+// CloseCmd closes a stream and releases resources.
+type CloseCmd struct {
 	StreamID uint64
 }
 
 // CmdID implements dispatcher.Command.
-func (c StreamCloseCmd) CmdID() dispatcher.CommandID {
-	return CmdStreamClose
+func (c CloseCmd) CmdID() dispatcher.CommandID {
+	return CmdClose
 }
 
-// StreamWriteCmd writes data to a stream.
+// WriteCmd writes data to a stream.
 // Returns number of bytes written via emit.
-type StreamWriteCmd struct {
+type WriteCmd struct {
 	StreamID uint64
 	Data     []byte
 }
 
 // CmdID implements dispatcher.Command.
-func (c StreamWriteCmd) CmdID() dispatcher.CommandID {
-	return CmdStreamWrite
+func (c WriteCmd) CmdID() dispatcher.CommandID {
+	return CmdWrite
 }
 
-// StreamSeekCmd seeks to a position in a seekable stream.
+// SeekCmd seeks to a position in a seekable stream.
 // Returns new position via emit.
-type StreamSeekCmd struct {
+type SeekCmd struct {
 	StreamID uint64
 	Offset   int64
 	Whence   int // SeekStart, SeekCurrent, SeekEnd
 }
 
 // CmdID implements dispatcher.Command.
-func (c StreamSeekCmd) CmdID() dispatcher.CommandID {
-	return CmdStreamSeek
+func (c SeekCmd) CmdID() dispatcher.CommandID {
+	return CmdSeek
 }
 
-// StreamFlushCmd flushes any buffered data.
-type StreamFlushCmd struct {
+// FlushCmd flushes any buffered data.
+type FlushCmd struct {
 	StreamID uint64
 }
 
 // CmdID implements dispatcher.Command.
-func (c StreamFlushCmd) CmdID() dispatcher.CommandID {
-	return CmdStreamFlush
+func (c FlushCmd) CmdID() dispatcher.CommandID {
+	return CmdFlush
 }
 
-// StreamStatCmd gets information about a stream.
-// Returns StreamInfo via emit.
-type StreamStatCmd struct {
+// StatCmd gets information about a stream.
+// Returns Info via emit.
+type StatCmd struct {
 	StreamID uint64
 }
 
 // CmdID implements dispatcher.Command.
-func (c StreamStatCmd) CmdID() dispatcher.CommandID {
-	return CmdStreamStat
+func (c StatCmd) CmdID() dispatcher.CommandID {
+	return CmdStat
 }
 
-// StreamInfo contains metadata about a stream.
-type StreamInfo struct {
+// Info contains metadata about a stream.
+type Info struct {
 	Size     int64 // Total size (-1 if unknown)
 	Position int64 // Current position (-1 if not seekable)
 	Readable bool

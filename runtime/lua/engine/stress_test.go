@@ -51,7 +51,7 @@ func TestStress10KProcesses(t *testing.T) {
 	for i := 0; i < processCount; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
 		proc := NewProcess(WithProto(proto))
-		if err := proc.Execute(ctx, "", nil); err != nil {
+		if err := proc.Init(ctx, "", nil); err != nil {
 			errors = append(errors, fmt.Errorf("process %d start: %w", i, err))
 			continue
 		}
@@ -160,7 +160,7 @@ func TestStress10KWithCoroutines(t *testing.T) {
 	for i := 0; i < processCount; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
 		proc := NewProcess(WithProto(proto))
-		if err := proc.Execute(ctx, "", nil); err != nil {
+		if err := proc.Init(ctx, "", nil); err != nil {
 			t.Fatalf("process %d start: %v", i, err)
 		}
 		processes[i] = proc
@@ -231,7 +231,7 @@ func TestStressParallelProcessCreation(t *testing.T) {
 			for i := 0; i < processesPerWorker; i++ {
 				ctx, _ := ctxapi.OpenFrameContext(context.Background())
 				proc := NewProcess(WithProto(proto))
-				if err := proc.Execute(ctx, "", nil); err != nil {
+				if err := proc.Init(ctx, "", nil); err != nil {
 					errorCounts[workerID]++
 					continue
 				}
@@ -286,7 +286,7 @@ func BenchmarkStress10K(b *testing.B) {
 		for j := 0; j < 10000; j++ {
 			ctx, _ := ctxapi.OpenFrameContext(context.Background())
 			proc := NewProcess(WithProto(proto))
-			proc.Execute(ctx, "", nil)
+			proc.Init(ctx, "", nil)
 			processes[j] = proc
 		}
 
@@ -330,7 +330,7 @@ func TestStressMemoryLeak(t *testing.T) {
 		for i := 0; i < processCount; i++ {
 			ctx, _ := ctxapi.OpenFrameContext(context.Background())
 			proc := NewProcess(WithProto(proto))
-			proc.Execute(ctx, "", nil)
+			proc.Init(ctx, "", nil)
 			proc.Step(nil)
 			processes[i] = proc
 		}
@@ -384,7 +384,7 @@ func TestStressStringConcat(t *testing.T) {
 	for i := 0; i < processCount; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
 		proc := NewProcess(WithProto(proto))
-		if err := proc.Execute(ctx, "", nil); err != nil {
+		if err := proc.Init(ctx, "", nil); err != nil {
 			t.Fatal(err)
 		}
 
@@ -443,7 +443,7 @@ func TestStressTableOperations(t *testing.T) {
 	for i := 0; i < processCount; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
 		proc := NewProcess(WithProto(proto))
-		if err := proc.Execute(ctx, "", nil); err != nil {
+		if err := proc.Init(ctx, "", nil); err != nil {
 			t.Fatal(err)
 		}
 
@@ -490,7 +490,7 @@ func BenchmarkStressCreateStepClose(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
 		proc := NewProcess(WithProto(proto))
-		proc.Execute(ctx, "", nil)
+		proc.Init(ctx, "", nil)
 
 		for {
 			result, _ := proc.Step(nil)
@@ -518,7 +518,7 @@ func TestSpawnBasic(t *testing.T) {
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	proc := NewProcess(WithProto(proto))
-	if err := proc.Execute(ctx, "", nil); err != nil {
+	if err := proc.Init(ctx, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	defer proc.Close()
@@ -563,7 +563,7 @@ func TestSpawnMultiple(t *testing.T) {
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	proc := NewProcess(WithProto(proto))
-	if err := proc.Execute(ctx, "", nil); err != nil {
+	if err := proc.Init(ctx, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	defer proc.Close()
@@ -625,7 +625,7 @@ func TestHighConcurrencyMemoryPressure(t *testing.T) {
 
 				ctx, _ := ctxapi.OpenFrameContext(context.Background())
 				proc := NewProcess(WithProto(proto))
-				proc.Execute(ctx, "", nil)
+				proc.Init(ctx, "", nil)
 				proc.Step(nil)
 				proc.Close()
 
@@ -711,7 +711,7 @@ func TestHighConcurrencyWithBindings(t *testing.T) {
 				}
 
 				ctx, _ := ctxapi.OpenFrameContext(context.Background())
-				proc.Execute(ctx, "", nil)
+				proc.Init(ctx, "", nil)
 				proc.(*Process).Step(nil)
 				proc.Close()
 
@@ -783,7 +783,7 @@ func TestSpawnWithCompute(t *testing.T) {
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	proc := NewProcess(WithProto(proto))
-	if err := proc.Execute(ctx, "", nil); err != nil {
+	if err := proc.Init(ctx, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	defer proc.Close()

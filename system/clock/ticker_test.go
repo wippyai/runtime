@@ -121,7 +121,7 @@ func TestTickerStartHandler(t *testing.T) {
 	defer cleanup()
 
 	var emitted any
-	err := startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 10 * time.Millisecond}, emitFunc(func(data any, _ error) {
+	err := startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 10 * time.Millisecond}, completeFunc(func(data any, _ error) {
 		emitted = data
 	}))
 
@@ -144,13 +144,13 @@ func TestTickerNextHandler(t *testing.T) {
 	defer cleanup()
 
 	var tickerID uint64
-	startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 5 * time.Millisecond}, emitFunc(func(data any, _ error) {
+	startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 5 * time.Millisecond}, completeFunc(func(data any, _ error) {
 		tickerID = data.(uint64)
 	}))
 
 	var emitted any
 	done := make(chan struct{})
-	err := nextH.Handle(ctx, clockapi.TickerNextCmd{TickerID: tickerID}, emitFunc(func(data any, _ error) {
+	err := nextH.Handle(ctx, clockapi.TickerNextCmd{TickerID: tickerID}, completeFunc(func(data any, _ error) {
 		emitted = data
 		close(done)
 	}))
@@ -175,12 +175,12 @@ func TestTickerStopHandler(t *testing.T) {
 	defer cleanup()
 
 	var tickerID uint64
-	startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 10 * time.Millisecond}, emitFunc(func(data any, _ error) {
+	startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 10 * time.Millisecond}, completeFunc(func(data any, _ error) {
 		tickerID = data.(uint64)
 	}))
 
 	var emitted bool
-	err := stopH.Handle(ctx, clockapi.TickerStopCmd{TickerID: tickerID}, emitFunc(func(data any, _ error) {
+	err := stopH.Handle(ctx, clockapi.TickerStopCmd{TickerID: tickerID}, completeFunc(func(data any, _ error) {
 		emitted = true
 	}))
 
@@ -198,7 +198,7 @@ func TestTickerFullCycle(t *testing.T) {
 	defer cleanup()
 
 	var tickerID uint64
-	startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 2 * time.Millisecond}, emitFunc(func(data any, _ error) {
+	startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 2 * time.Millisecond}, completeFunc(func(data any, _ error) {
 		tickerID = data.(uint64)
 	}))
 
@@ -206,7 +206,7 @@ func TestTickerFullCycle(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		var tick int64
 		done := make(chan struct{})
-		err := nextH.Handle(ctx, clockapi.TickerNextCmd{TickerID: tickerID}, emitFunc(func(data any, _ error) {
+		err := nextH.Handle(ctx, clockapi.TickerNextCmd{TickerID: tickerID}, completeFunc(func(data any, _ error) {
 			tick = data.(int64)
 			close(done)
 		}))
@@ -223,7 +223,7 @@ func TestTickerFullCycle(t *testing.T) {
 		}
 	}
 
-	err := stopH.Handle(ctx, clockapi.TickerStopCmd{TickerID: tickerID}, emitFunc(func(data any, _ error) {}))
+	err := stopH.Handle(ctx, clockapi.TickerStopCmd{TickerID: tickerID}, completeFunc(func(data any, _ error) {}))
 	if err != nil {
 		t.Fatalf("stop error: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestTickerStartHandlerInvalidDuration(t *testing.T) {
 	defer cleanup()
 
 	var emitted bool
-	err := startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 0}, emitFunc(func(data any, _ error) {
+	err := startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 0}, completeFunc(func(data any, _ error) {
 		emitted = true
 	}))
 	if err != nil {
@@ -245,7 +245,7 @@ func TestTickerStartHandlerInvalidDuration(t *testing.T) {
 		t.Error("expected no emit for zero duration")
 	}
 
-	err = startH.Handle(ctx, clockapi.TickerStartCmd{Duration: -time.Second}, emitFunc(func(data any, _ error) {
+	err = startH.Handle(ctx, clockapi.TickerStartCmd{Duration: -time.Second}, completeFunc(func(data any, _ error) {
 		emitted = true
 	}))
 	if err != nil {

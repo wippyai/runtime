@@ -1,7 +1,6 @@
 package template
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -10,7 +9,6 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
-	rtresource "github.com/wippyai/runtime/api/runtime/resource"
 	templateapi "github.com/wippyai/runtime/api/service/template"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"
@@ -18,159 +16,107 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-const templateSetTypeName = "template.Set"
+const typeTemplateSet = "template.Set"
 
-var (
-	moduleTable          *lua.LTable
-	registration         *luaapi.Registration
-	templateSetMetatable *lua.LTable
-	initOnce             sync.Once
-)
-
-// Module is the singleton template module instance.
-var Module = &templateModule{}
-
-type templateModule struct{}
-
-func (m *templateModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        "templates",
-		Description: "Template rendering engine",
-		Class:       []string{luaapi.ClassDeterministic},
-	}
+// Module is the template module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "templates",
+	Description: "Template rendering engine",
+	Class:       []string{luaapi.ClassDeterministic},
+	Build:       buildModule,
 }
 
-func (m *templateModule) Register(l *lua.LState) *luaapi.Registration {
-	initOnce.Do(func() {
-		mod := lua.CreateTable(0, 1)
-		mod.RawSetString("get", lua.LGoFunc(templateGet))
-		mod.Immutable = true
-		moduleTable = mod
-
-		templateSetMetatable = value.RegisterTypeMethods(nil, templateSetTypeName,
-			map[string]lua.LGFunction{"__tostring": templateSetToString},
-			templateSetMethods)
-
-		registration = &luaapi.Registration{
-			Table:      moduleTable,
-			YieldTypes: nil,
-		}
-	})
-
-	return registration
-}
-
-func (m *templateModule) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	l.Push(reg.Table)
-	return 1
-}
-
-// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
-func Bind(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
-}
-
-// TemplateSet wraps jet.Set with cleanup tracking.
-type TemplateSet struct {
-	resource      resource.Resource[any]
-	templates     *jet.Set
-	released      bool
-	mu            sync.Mutex
-	cancelCleanup func()
-}
-
-func NewTemplateSet(ctx context.Context, res resource.Resource[any], templates *jet.Set) *TemplateSet {
-	ts := &TemplateSet{
-		resource:  res,
-		templates: templates,
-		released:  false,
-	}
-
-	store := rtresource.GetStore(ctx)
-	if store != nil {
-		ts.cancelCleanup = store.AddCleanup(func() error {
-			ts.mu.Lock()
-			defer ts.mu.Unlock()
-			if !ts.released && ts.resource != nil {
-				ts.resource.Release()
-				ts.released = true
-			}
-			return nil
+func init() {
+	value.RegisterTypeMethods(nil, typeTemplateSet,
+		map[string]lua.LGFunction{"__tostring": templateSetToString},
+		map[string]lua.LGFunction{
+			"render":  templateSetRender,
+			"release": templateSetRelease,
 		})
-	}
-
-	return ts
 }
 
-var templateSetMethods = map[string]lua.LGFunction{
-	"render":  templateSetRender,
-	"release": templateSetRelease,
+func buildModule() (*lua.LTable, []luaapi.YieldType) {
+	mod := lua.CreateTable(0, 1)
+	mod.RawSetString("get", lua.LGoFunc(templateGet))
+	mod.Immutable = true
+	return mod, nil
 }
 
-func checkTemplateSet(l *lua.LState, idx int) *TemplateSet {
-	ud := l.CheckUserData(idx)
-	if v, ok := ud.Value.(*TemplateSet); ok {
-		return v
-	}
-	l.ArgError(idx, "template.Set expected")
-	return nil
+// Set wraps jet.Set for Lua.
+type Set struct {
+	resource  resource.Resource[any]
+	templates *jet.Set
+	released  bool
+	mu        sync.Mutex
+}
+
+func pushError(l *lua.LState, err *lua.Error) int {
+	lua.SetErrorMetatable(l, err)
+	l.Push(lua.LNil)
+	l.Push(err)
+	return 2
 }
 
 func templateGet(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no context"))
-		return 2
+		return pushError(l, lua.NewLuaError(l, "no context").
+			WithKind(lua.KindInternal).
+			WithRetryable(false))
 	}
 
 	id := l.CheckString(1)
 	if id == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("resource id is required"))
-		return 2
+		return pushError(l, lua.NewLuaError(l, "resource id is required").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false))
 	}
 
 	if !security.IsAllowed(ctx, "template.get", id, nil) {
-		l.RaiseError("not allowed to access template: %s", id)
-		return 0
+		return pushError(l, lua.NewLuaError(l, fmt.Sprintf("not allowed to access template: %s", id)).
+			WithKind(lua.KindPermissionDenied).
+			WithRetryable(false))
 	}
 
 	reg := resource.GetRegistry(ctx)
 	if reg == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("resource registry not found"))
-		return 2
+		return pushError(l, lua.NewLuaError(l, "resource registry not found").
+			WithKind(lua.KindInternal).
+			WithRetryable(false))
 	}
 
 	resID := registry.ParseID(id)
-	res, err := reg.Acquire(ctx, resID, resource.ModeNormal)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to acquire resource: %v", err)))
-		return 2
+	res, acquireErr := reg.Acquire(ctx, resID, resource.ModeNormal)
+	if acquireErr != nil {
+		err := lua.WrapErrorWithLua(l, acquireErr, "failed to acquire resource").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		return pushError(l, err)
 	}
 
-	templateRes, err := res.Get()
-	if err != nil {
+	templateRes, getErr := res.Get()
+	if getErr != nil {
 		res.Release()
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to get resource: %v", err)))
-		return 2
+		err := lua.WrapErrorWithLua(l, getErr, "failed to get resource").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		return pushError(l, err)
 	}
 
 	templateSet, ok := templateRes.(*jet.Set)
 	if !ok {
 		res.Release()
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("resource is not a template set: %T", templateRes)))
-		return 2
+		return pushError(l, lua.NewLuaError(l, fmt.Sprintf("resource is not a template set: %T", templateRes)).
+			WithKind(lua.KindInternal).
+			WithRetryable(false))
 	}
 
-	ts := NewTemplateSet(ctx, res, templateSet)
+	ts := &Set{
+		resource:  res,
+		templates: templateSet,
+	}
 
-	value.PushUserData(l, ts, templateSetMetatable)
+	value.PushTypedUserData(l, ts, typeTemplateSet)
 	return 1
 }
 
@@ -183,32 +129,33 @@ func templateSetRender(l *lua.LState) int {
 	ts.mu.Lock()
 	if ts.released {
 		ts.mu.Unlock()
-		l.Push(lua.LNil)
-		l.Push(lua.LString("template set is released"))
-		return 2
+		return pushError(l, lua.NewLuaError(l, "template set is released").
+			WithKind(lua.KindInternal).
+			WithRetryable(false))
 	}
 	templates := ts.templates
 	ts.mu.Unlock()
 
 	name := l.CheckString(2)
 	if name == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("template name is required"))
-		return 2
+		return pushError(l, lua.NewLuaError(l, "template name is required").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false))
 	}
 
 	args := l.OptTable(3, lua.CreateTable(0, 0))
 
-	result, err := templates.RenderPayload(name, payload.NewPayload(args, payload.Lua))
-	if err != nil {
-		if errors.Is(err, templateapi.ErrTemplateNotFound) {
-			l.Push(lua.LNil)
-			l.Push(lua.LString("template not found"))
-			return 2
+	result, renderErr := templates.RenderPayload(name, payload.NewPayload(args, payload.Lua))
+	if renderErr != nil {
+		if errors.Is(renderErr, templateapi.ErrTemplateNotFound) {
+			return pushError(l, lua.NewLuaError(l, "template not found").
+				WithKind(lua.KindNotFound).
+				WithRetryable(false))
 		}
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to render template: %v", err)))
-		return 2
+		err := lua.WrapErrorWithLua(l, renderErr, "failed to render template").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		return pushError(l, err)
 	}
 
 	l.Push(lua.LString(result))
@@ -227,15 +174,8 @@ func templateSetRelease(l *lua.LState) int {
 		ts.resource.Release()
 		ts.resource = nil
 		ts.released = true
-		cancel := ts.cancelCleanup
-		ts.cancelCleanup = nil
-		ts.mu.Unlock()
-		if cancel != nil {
-			cancel()
-		}
-	} else {
-		ts.mu.Unlock()
 	}
+	ts.mu.Unlock()
 
 	l.Push(lua.LTrue)
 	return 1
@@ -246,6 +186,7 @@ func templateSetToString(l *lua.LState) int {
 	if ts == nil {
 		return 0
 	}
+
 	ts.mu.Lock()
 	released := ts.released
 	ts.mu.Unlock()
@@ -256,4 +197,13 @@ func templateSetToString(l *lua.LState) int {
 		l.Push(lua.LString("template.Set{}"))
 	}
 	return 1
+}
+
+func checkTemplateSet(l *lua.LState, idx int) *Set {
+	ud := l.CheckUserData(idx)
+	if v, ok := ud.Value.(*Set); ok {
+		return v
+	}
+	l.ArgError(idx, "template.Set expected")
+	return nil
 }

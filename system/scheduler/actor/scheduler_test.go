@@ -39,22 +39,22 @@ func (SleepCmd) CmdID() dispatcher.CommandID { return CmdSleep }
 // Test handlers
 
 func CompleteHandler() dispatcher.Handler {
-	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
+	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
 		c := cmd.(CompleteCmd)
-		emit.Emit(c.Value, nil)
+		complete.Complete(c.Value, nil)
 		return nil
 	})
 }
 
 func YieldHandler() dispatcher.Handler {
-	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
-		emit.Emit(nil, nil)
+	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
+		complete.Complete(nil, nil)
 		return nil
 	})
 }
 
 func SleepHandler() dispatcher.Handler {
-	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, emit dispatcher.Emitter) error {
+	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
 		s := cmd.(SleepCmd)
 		timer := time.NewTimer(s.Duration)
 		go func() {
@@ -62,7 +62,7 @@ func SleepHandler() dispatcher.Handler {
 			select {
 			case <-ctx.Done():
 			case <-timer.C:
-				emit.Emit(nil, nil)
+				complete.Complete(nil, nil)
 			}
 		}()
 		return nil
@@ -617,7 +617,7 @@ func TestSendByPID(t *testing.T) {
 
 	// Send to active process should work
 	pkg := &relay.Package{Target: pid}
-	err = sched.Send(pid, pkg)
+	err = sched.Send(pkg)
 	if err != nil {
 		t.Fatalf("Send error: %v", err)
 	}
@@ -629,7 +629,7 @@ func TestSendByPID(t *testing.T) {
 	}
 
 	// After completion, Send should return ProcessNotFoundError
-	err = sched.Send(pid, pkg)
+	err = sched.Send(pkg)
 	if err == nil {
 		t.Fatal("expected error for completed PID")
 	}

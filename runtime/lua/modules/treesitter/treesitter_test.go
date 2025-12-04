@@ -441,3 +441,95 @@ func TestLuaLanguage(t *testing.T) {
 		t.Errorf("test failed: %v", err)
 	}
 }
+
+func TestDoubleClose(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(context.Background())
+	Module.Load(l)
+
+	err := l.DoString(`
+		-- Test parser double close
+		local parser = treesitter.parser()
+		parser:set_language("go")
+		local tree = parser:parse("package main")
+		tree:close()
+		parser:close()
+		parser:close()  -- Should not crash
+
+		-- Test tree double close
+		local tree2 = treesitter.parse("go", "package main")
+		tree2:close()
+		tree2:close()  -- Should not crash
+
+		-- Test query double close
+		local query = treesitter.query("go", "(identifier) @id")
+		query:close()
+		query:close()  -- Should not crash
+
+		-- Test cursor double close
+		local tree3 = treesitter.parse("go", "package main")
+		local cursor = tree3:walk()
+		cursor:close()
+		cursor:close()  -- Should not crash
+		tree3:close()
+	`)
+	if err != nil {
+		t.Errorf("double close test failed: %v", err)
+	}
+}
+
+func TestAllLanguages(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(context.Background())
+	Module.Load(l)
+
+	testCases := []struct {
+		lang string
+		code string
+		root string
+	}{
+		{"go", "package main", "source_file"},
+		{"javascript", "const x = 1;", "program"},
+		{"typescript", "const x: number = 1;", "program"},
+		{"tsx", "const x = <div/>;", "program"},
+		{"python", "x = 1", "module"},
+		{"lua", "local x = 1", "chunk"},
+		{"php", "<?php $x = 1; ?>", "program"},
+		{"csharp", "class Foo {}", "compilation_unit"},
+		{"html", "<div></div>", "document"},
+		{"markdown", "# Hello\n\nWorld", "document"},
+		{"sql", "SELECT 1", ""},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.lang, func(t *testing.T) {
+			l.SetTop(0)
+			l.SetGlobal("test_lang", lua.LString(tc.lang))
+			l.SetGlobal("test_code", lua.LString(tc.code))
+			l.SetGlobal("expected_root", lua.LString(tc.root))
+
+			err := l.DoString(`
+				local tree = treesitter.parse(test_lang, test_code)
+				if tree == nil then
+					error("failed to parse " .. test_lang)
+				end
+				local root = tree:root_node()
+				if root == nil then
+					error("no root node for " .. test_lang)
+				end
+				if root:has_error() then
+					error("parse error for " .. test_lang)
+				end
+				if expected_root ~= "" and root:kind() ~= expected_root then
+					error("wrong root for " .. test_lang .. ": " .. root:kind())
+				end
+				tree:close()
+			`)
+			if err != nil {
+				t.Errorf("language %s failed: %v", tc.lang, err)
+			}
+		})
+	}
+}

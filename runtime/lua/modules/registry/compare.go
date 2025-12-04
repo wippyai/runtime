@@ -1,5 +1,7 @@
 package registry
 
+import "reflect"
+
 // mapsEqual compares two maps for equality while ignoring key order
 func mapsEqual(a, b map[string]any) bool {
 	if len(a) != len(b) {
@@ -89,13 +91,14 @@ func isNumeric(v interface{}) bool {
 
 // toFloat64 converts a numeric value to float64
 func toFloat64(v interface{}) float64 {
-	switch val := v.(type) {
-	case int:
-		return float64(val)
-	case int64:
-		return float64(val)
-	case float64:
-		return val
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return float64(rv.Int())
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return float64(rv.Uint())
+	case reflect.Float32, reflect.Float64:
+		return rv.Float()
 	default:
 		return 0
 	}

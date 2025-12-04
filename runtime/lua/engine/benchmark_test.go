@@ -21,7 +21,7 @@ func BenchmarkProcessCreate(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
 		proc := NewProcess(WithScript(script, "test.lua"))
-		if err := proc.Execute(ctx, "", nil); err != nil {
+		if err := proc.Init(ctx, "", nil); err != nil {
 			b.Fatal(err)
 		}
 		proc.Close()
@@ -38,7 +38,7 @@ func BenchmarkProcessStep(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
 		proc := NewProcess(WithScript(script, "test.lua"))
-		if err := proc.Execute(ctx, "", nil); err != nil {
+		if err := proc.Init(ctx, "", nil); err != nil {
 			b.Fatal(err)
 		}
 		proc.Step(nil)
@@ -73,7 +73,7 @@ func BenchmarkCoroutineSpawn(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
 		proc := NewProcess(WithProto(proto))
-		if err := proc.Execute(ctx, "", nil); err != nil {
+		if err := proc.Init(ctx, "", nil); err != nil {
 			b.Fatal(err)
 		}
 
@@ -106,7 +106,7 @@ func BenchmarkMemoryPerProcess(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
 		proc := NewProcess(WithScript(script, "test.lua"))
-		if err := proc.Execute(ctx, "", nil); err != nil {
+		if err := proc.Init(ctx, "", nil); err != nil {
 			b.Fatal(err)
 		}
 		proc.Step(nil)
@@ -144,7 +144,7 @@ func BenchmarkYieldResume(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
 		proc := NewProcess(WithScript(script, "test.lua"))
-		if err := proc.Execute(ctx, "", nil); err != nil {
+		if err := proc.Init(ctx, "", nil); err != nil {
 			b.Fatal(err)
 		}
 
@@ -177,7 +177,7 @@ func BenchmarkManyProcesses(b *testing.B) {
 				for j := 0; j < count; j++ {
 					ctx, _ := ctxapi.OpenFrameContext(context.Background())
 					proc := NewProcess(WithScript(script, "test.lua"))
-					if err := proc.Execute(ctx, "", nil); err != nil {
+					if err := proc.Init(ctx, "", nil); err != nil {
 						b.Fatal(err)
 					}
 					processes[j] = proc
@@ -211,7 +211,7 @@ func BenchmarkSendMessage(b *testing.B) {
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	proc := NewProcess(WithScript(script, "bench.lua"))
-	if err := proc.Execute(ctx, "", nil); err != nil {
+	if err := proc.Init(ctx, "", nil); err != nil {
 		b.Fatal(err)
 	}
 	defer proc.Close()
@@ -258,7 +258,7 @@ func BenchmarkActorReceive(b *testing.B) {
 		WithScript(script, "actor.lua"),
 	)
 
-	if err := proc.Execute(ctx, "", nil); err != nil {
+	if err := proc.Init(ctx, "", nil); err != nil {
 		b.Fatal(err)
 	}
 	defer proc.Close()
@@ -311,7 +311,7 @@ func TestActorPattern(t *testing.T) {
 		WithScript(script, "actor.lua"),
 	)
 
-	if err := proc.Execute(ctx, "", nil); err != nil {
+	if err := proc.Init(ctx, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	defer proc.Close()
@@ -380,7 +380,7 @@ func TestMemoryProfile(t *testing.T) {
 		for i := 0; i < count; i++ {
 			ctx, _ := ctxapi.OpenFrameContext(context.Background())
 			proc := NewProcess(WithScript(script, "test.lua"))
-			if err := proc.Execute(ctx, "", nil); err != nil {
+			if err := proc.Init(ctx, "", nil); err != nil {
 				t.Fatal(err)
 			}
 			proc.Step(nil)
@@ -422,7 +422,7 @@ func BenchmarkProcessCreatePrecompiled(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
 		proc := NewProcess(WithProto(proto))
-		if err := proc.Execute(ctx, "", nil); err != nil {
+		if err := proc.Init(ctx, "", nil); err != nil {
 			b.Fatal(err)
 		}
 		proc.Close()
@@ -443,7 +443,7 @@ func BenchmarkProcessStepPrecompiled(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
 		proc := NewProcess(WithProto(proto))
-		if err := proc.Execute(ctx, "", nil); err != nil {
+		if err := proc.Init(ctx, "", nil); err != nil {
 			b.Fatal(err)
 		}
 		proc.Step(nil)
@@ -470,7 +470,7 @@ func BenchmarkYieldResumePrecompiled(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
 		proc := NewProcess(WithProto(proto))
-		if err := proc.Execute(ctx, "", nil); err != nil {
+		if err := proc.Init(ctx, "", nil); err != nil {
 			b.Fatal(err)
 		}
 
@@ -503,7 +503,7 @@ func BenchmarkHotPathYield(b *testing.B) {
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	proc := NewProcess(WithProto(proto))
-	if err := proc.Execute(ctx, "", nil); err != nil {
+	if err := proc.Init(ctx, "", nil); err != nil {
 		b.Fatal(err)
 	}
 	defer proc.Close()
@@ -534,7 +534,7 @@ func BenchmarkRawVMYield(b *testing.B) {
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	proc := NewProcess(WithProto(proto))
-	if err := proc.Execute(ctx, "", nil); err != nil {
+	if err := proc.Init(ctx, "", nil); err != nil {
 		b.Fatal(err)
 	}
 	defer proc.Close()
@@ -561,7 +561,7 @@ func setupChannelProc(b *testing.B, script string) *Process {
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	if err := proc.Execute(ctx, "", nil); err != nil {
+	if err := proc.Init(ctx, "", nil); err != nil {
 		b.Fatal(err)
 	}
 
@@ -843,7 +843,7 @@ func BenchmarkMemoryBaseline(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
 		proc := NewProcess(WithProto(proto))
-		if err := proc.Execute(ctx, "", nil); err != nil {
+		if err := proc.Init(ctx, "", nil); err != nil {
 			b.Fatal(err)
 		}
 		proc.Close()
@@ -865,7 +865,7 @@ func TestMemoryPerProcessDetailed(t *testing.T) {
 	for i := 0; i < count; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
 		proc := NewProcess(WithProto(proto))
-		if err := proc.Execute(ctx, "", nil); err != nil {
+		if err := proc.Init(ctx, "", nil); err != nil {
 			t.Fatal(err)
 		}
 		processes[i] = proc
@@ -905,7 +905,7 @@ func Test100CoroutinesMemory(t *testing.T) {
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	proc := NewProcess(WithProto(proto))
-	if err := proc.Execute(ctx, "", nil); err != nil {
+	if err := proc.Init(ctx, "", nil); err != nil {
 		t.Fatal(err)
 	}
 
