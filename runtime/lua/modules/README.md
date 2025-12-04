@@ -88,7 +88,6 @@ func internalError(l *lua.LState, goErr error, context string) int {
     err := lua.WrapErrorWithLua(l, goErr, context).
         WithKind(lua.KindInternal).
         WithRetryable(false)
-    lua.SetErrorMetatable(l, err)
     l.Push(lua.LNil)
     l.Push(err)
     return 2
@@ -129,7 +128,6 @@ func encodeFunc(l *lua.LState) int {
         err := lua.WrapErrorWithLua(l, goErr, "encode failed").
             WithKind(lua.KindInternal).
             WithRetryable(false)
-        lua.SetErrorMetatable(l, err)
         l.Push(lua.LNil)
         l.Push(err)
         return 2
@@ -169,7 +167,6 @@ func luaRegexpCompile(l *lua.LState) int {
         luaErr := lua.WrapErrorWithLua(l, err, "regex compile error").
             WithKind(lua.KindInvalid).
             WithRetryable(false)
-        lua.SetErrorMetatable(l, luaErr)
         l.Push(lua.LNil)
         l.Push(luaErr)
         return 2
@@ -460,8 +457,7 @@ When creating/updating a module:
 4. [ ] Return structured errors with `lua.NewLuaError` or `lua.WrapErrorWithLua`
 5. [ ] Set error kind (`lua.KindInvalid` or `lua.KindInternal`)
 6. [ ] Set `WithRetryable(false)` for non-retryable errors
-7. [ ] Call `lua.SetErrorMetatable(l, err)` for wrapped errors
-8. [ ] Go tests:
+7. [ ] Go tests:
    - [ ] TestLoad - module registers correctly
    - [ ] TestLoadReuse - table reused across states
    - [ ] Error kind/retryable checks in error tests

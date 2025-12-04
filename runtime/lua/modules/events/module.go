@@ -272,12 +272,7 @@ func subscriptionChannel(l *lua.LState) int {
 		return 0
 	}
 
-	ud := value.PushTypedUserData(l, sub.channel, "channel")
-	if ud == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("channel type not registered"))
-		return 2
-	}
+	engine.PushChannel(l, sub.channel)
 	return 1
 }
 

@@ -1,52 +1,25 @@
 package metrics
 
 import (
-	"sync"
-
 	api "github.com/wippyai/runtime/api/metrics"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
-var (
-	moduleTable  *lua.LTable
-	registration *luaapi.Registration
-	initOnce     sync.Once
-)
+var moduleTable *lua.LTable
 
-// Module is the singleton metrics module instance.
-var Module = &metricsModule{}
-
-type metricsModule struct{}
-
-func (m *metricsModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        "metrics",
-		Description: "Counters, gauges, and histograms",
-		Class:       []string{luaapi.ClassIO, luaapi.ClassNondeterministic},
-	}
+func init() {
+	moduleTable = createModuleTable()
 }
 
-func (m *metricsModule) Register(l *lua.LState) *luaapi.Registration {
-	initOnce.Do(func() {
-		moduleTable = createModuleTable()
-		registration = &luaapi.Registration{
-			Table:      moduleTable,
-			YieldTypes: nil,
-		}
-	})
-	return registration
-}
-
-func (m *metricsModule) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	l.Push(reg.Table)
-	return 1
-}
-
-// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
-func Bind(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
+// Module is the metrics module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "metrics",
+	Description: "Counters, gauges, and histograms",
+	Class:       []string{luaapi.ClassIO, luaapi.ClassNondeterministic},
+	Build: func() (*lua.LTable, []luaapi.YieldType) {
+		return moduleTable, nil
+	},
 }
 
 func createModuleTable() *lua.LTable {
@@ -64,9 +37,7 @@ func createModuleTable() *lua.LTable {
 func counterInc(l *lua.LState) int {
 	collector := api.GetCollector(l.Context())
 	if collector == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("metrics collector not available"))
-		return 2
+		return collectorNotAvailable(l)
 	}
 
 	name := l.CheckString(1)
@@ -82,9 +53,7 @@ func counterInc(l *lua.LState) int {
 func counterAdd(l *lua.LState) int {
 	collector := api.GetCollector(l.Context())
 	if collector == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("metrics collector not available"))
-		return 2
+		return collectorNotAvailable(l)
 	}
 
 	name := l.CheckString(1)
@@ -101,9 +70,7 @@ func counterAdd(l *lua.LState) int {
 func gaugeSet(l *lua.LState) int {
 	collector := api.GetCollector(l.Context())
 	if collector == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("metrics collector not available"))
-		return 2
+		return collectorNotAvailable(l)
 	}
 
 	name := l.CheckString(1)
@@ -120,9 +87,7 @@ func gaugeSet(l *lua.LState) int {
 func gaugeInc(l *lua.LState) int {
 	collector := api.GetCollector(l.Context())
 	if collector == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("metrics collector not available"))
-		return 2
+		return collectorNotAvailable(l)
 	}
 
 	name := l.CheckString(1)
@@ -138,9 +103,7 @@ func gaugeInc(l *lua.LState) int {
 func gaugeDec(l *lua.LState) int {
 	collector := api.GetCollector(l.Context())
 	if collector == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("metrics collector not available"))
-		return 2
+		return collectorNotAvailable(l)
 	}
 
 	name := l.CheckString(1)
@@ -156,9 +119,7 @@ func gaugeDec(l *lua.LState) int {
 func histogram(l *lua.LState) int {
 	collector := api.GetCollector(l.Context())
 	if collector == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("metrics collector not available"))
-		return 2
+		return collectorNotAvailable(l)
 	}
 
 	name := l.CheckString(1)
@@ -169,6 +130,15 @@ func histogram(l *lua.LState) int {
 
 	l.Push(lua.LBool(true))
 	l.Push(lua.LNil)
+	return 2
+}
+
+func collectorNotAvailable(l *lua.LState) int {
+	err := lua.NewLuaError(l, "metrics collector not available").
+		WithKind(lua.KindInternal).
+		WithRetryable(false)
+	l.Push(lua.LNil)
+	l.Push(err)
 	return 2
 }
 

@@ -1,0 +1,54 @@
+version: "1.0"
+namespace: app.test.ctx
+
+entries:
+  # Helper function that reads context values
+  - name: ctx_reader
+    kind: function.lua
+    meta:
+      comment: Helper function that reads context values
+    source: file://ctx_reader.lua
+    method: main
+    modules:
+      - ctx
+
+  # Test cases
+  - name: basic
+    kind: function.lua
+    meta:
+      type: test
+      suite: ctx
+      description: ctx.get, ctx.all
+    source: file://basic.lua
+    method: main
+    modules:
+      - ctx
+    imports:
+      assert2: app.lib:assert
+
+  - name: errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: ctx
+      description: ctx error handling
+    source: file://errors.lua
+    method: main
+    modules:
+      - ctx
+    imports:
+      assert2: app.lib:assert
+
+  - name: context_passing
+    kind: function.lua
+    meta:
+      type: test
+      suite: ctx
+      description: Context passing through funcs.call
+    source: file://context_passing.lua
+    method: main
+    modules:
+      - ctx
+      - funcs
+    imports:
+      assert2: app.lib:assert

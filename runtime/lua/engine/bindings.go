@@ -9,13 +9,15 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/runtime/lua/engine/loadlib"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/modules/ostime"
 	"github.com/wippyai/runtime/runtime/lua/modules/payload"
 	lua "github.com/yuin/gopher-lua"
 	"github.com/yuin/gopher-lua/inspect"
 	"go.uber.org/zap"
 )
 
-const channelTypeName = "channel"
+// ChannelTypeName is the Lua metatable type name for channels.
+const ChannelTypeName = "channel"
 
 var channelMetatableOnce sync.Once
 
@@ -71,13 +73,19 @@ func getChannelModuleTable() *lua.LTable {
 func channelNewFunc(l *lua.LState) int {
 	bufSize := l.OptInt(1, 0)
 	ch := NewChannel(bufSize)
+	PushChannel(l, ch)
+	return 1
+}
 
+// PushChannel creates a channel userdata, sets up the metatable,
+// links the channel value reference, pushes to stack, and returns the userdata.
+func PushChannel(l *lua.LState, ch *Channel) *lua.LUserData {
 	ud := l.NewUserData()
 	ud.Value = ch
-	ud.Metatable = value.GetTypeMetatable(nil, channelTypeName)
-	ch.SetValue(ud) // for select conditions
+	ud.Metatable = value.GetTypeMetatable(nil, ChannelTypeName)
+	ch.SetValue(ud)
 	l.Push(ud)
-	return 1
+	return ud
 }
 
 // channelSelectFunc implements channel.select{cases...} matching V1 behavior.
@@ -300,7 +308,7 @@ func channelCaseReceive(l *lua.LState) int {
 // RegisterChannelMetatable registers the shared channel metatable once.
 func RegisterChannelMetatable() {
 	channelMetatableOnce.Do(func() {
-		value.RegisterTypeMethods(nil, channelTypeName, nil, channelMethods)
+		value.RegisterTypeMethods(nil, ChannelTypeName, nil, channelMethods)
 	})
 }
 
@@ -415,10 +423,16 @@ func BindPayloadModule(l *lua.LState) {
 	payload.Module.Load(l)
 }
 
+// BindOsModule registers the os module (time, date, clock, difftime, platform).
+func BindOsModule(l *lua.LState) {
+	ostime.Module.Load(l)
+}
+
 // coreBinders is the shared slice of stateless binders.
 var coreBinders = []ModuleBinder{
 	BindErrorsModule,
 	BindPayloadModule,
+	BindOsModule,
 	BindPrint,
 	BindChannelFunctions,
 	BindSubscribeFunctions,

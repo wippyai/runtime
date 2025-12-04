@@ -126,7 +126,6 @@ func validationError(l *lua.LState, goErr error, context string) int {
 	err := lua.WrapErrorWithLua(l, goErr, context).
 		WithKind(lua.KindInvalid).
 		WithRetryable(false)
-	lua.SetErrorMetatable(l, err)
 	l.Push(lua.LFalse)
 	l.Push(err)
 	return 2

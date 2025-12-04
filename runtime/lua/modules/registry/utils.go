@@ -18,7 +18,7 @@ func luaTableToEntry(l *lua.LState, table *lua.LTable) (regapi.Entry, error) {
 
 	// Extract ID
 	idVal := table.RawGetString("id")
-	switch idVal.Type() {
+	switch idVal.Type() { //nolint:exhaustive
 	case lua.LTTable:
 		idTable := idVal.(*lua.LTable)
 		var err error

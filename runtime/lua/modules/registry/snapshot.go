@@ -46,7 +46,6 @@ func snapshotEntries(l *lua.LState) int {
 		err := lua.WrapErrorWithLua(l, getErr, "get entries").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
 		l.Push(err)
 		return 2
@@ -64,7 +63,6 @@ func snapshotEntries(l *lua.LState) int {
 			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
 				WithKind(lua.KindInternal).
 				WithRetryable(false)
-			lua.SetErrorMetatable(l, err)
 			l.Push(lua.LNil)
 			l.Push(err)
 			return 2
@@ -112,7 +110,6 @@ func snapshotGet(l *lua.LState) int {
 		err := lua.WrapErrorWithLua(l, convErr, "convert entry").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
 		l.Push(err)
 		return 2
@@ -148,7 +145,6 @@ func snapshotNamespace(l *lua.LState) int {
 			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
 				WithKind(lua.KindInternal).
 				WithRetryable(false)
-			lua.SetErrorMetatable(l, err)
 			l.Push(lua.LNil)
 			l.Push(err)
 			return 2
@@ -186,7 +182,6 @@ func snapshotFind(l *lua.LState) int {
 		err := lua.WrapErrorWithLua(l, findErr, "find entries").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
 		l.Push(err)
 		return 2
@@ -204,7 +199,6 @@ func snapshotFind(l *lua.LState) int {
 			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
 				WithKind(lua.KindInternal).
 				WithRetryable(false)
-			lua.SetErrorMetatable(l, err)
 			l.Push(lua.LNil)
 			l.Push(err)
 			return 2

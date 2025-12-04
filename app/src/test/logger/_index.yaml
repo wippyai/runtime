@@ -1,0 +1,55 @@
+version: "1.0"
+namespace: app.test.logger
+
+entries:
+  - name: basic
+    kind: function.lua
+    meta:
+      type: test
+      suite: logger
+      description: logger basic functions
+    source: file://basic.lua
+    method: main
+    modules:
+      - logger
+    imports:
+      assert2: app.lib:assert
+
+  - name: with
+    kind: function.lua
+    meta:
+      type: test
+      suite: logger
+      description: logger.with child logger
+    source: file://with.lua
+    method: main
+    modules:
+      - logger
+    imports:
+      assert2: app.lib:assert
+
+  - name: named
+    kind: function.lua
+    meta:
+      type: test
+      suite: logger
+      description: logger.named named logger
+    source: file://named.lua
+    method: main
+    modules:
+      - logger
+    imports:
+      assert2: app.lib:assert
+
+  - name: fields
+    kind: function.lua
+    meta:
+      type: test
+      suite: logger
+      description: logger field types
+    source: file://fields.lua
+    method: main
+    modules:
+      - logger
+    imports:
+      assert2: app.lib:assert

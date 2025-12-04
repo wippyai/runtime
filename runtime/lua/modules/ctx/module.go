@@ -1,87 +1,79 @@
 package ctx
 
 import (
-	"sync"
-
 	ctxapi "github.com/wippyai/runtime/api/context"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
-var (
-	moduleTable  *lua.LTable
-	registration *luaapi.Registration
-	initOnce     sync.Once
-)
+var moduleTable *lua.LTable
 
-// Module is the singleton ctx module instance.
-var Module = &ctxModule{}
-
-type ctxModule struct{}
-
-func (m *ctxModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        "ctx",
-		Description: "Context value get/set operations",
-		Class:       []string{luaapi.ClassNondeterministic},
-	}
+func init() {
+	mod := lua.CreateTable(0, 2)
+	mod.RawSetString("get", lua.LGoFunc(get))
+	mod.RawSetString("all", lua.LGoFunc(all))
+	mod.Immutable = true
+	moduleTable = mod
 }
 
-func (m *ctxModule) Register(l *lua.LState) *luaapi.Registration {
-	initOnce.Do(func() {
-		mod := lua.CreateTable(0, 3)
-		mod.RawSetString("get", lua.LGoFunc(get))
-		mod.RawSetString("set", lua.LGoFunc(set))
-		mod.RawSetString("all", lua.LGoFunc(all))
-		mod.Immutable = true
-		moduleTable = mod
-
-		registration = &luaapi.Registration{
-			Table:      moduleTable,
-			YieldTypes: nil,
-		}
-	})
-	return registration
+// Module is the ctx module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "ctx",
+	Description: "Context value read operations",
+	Class:       []string{luaapi.ClassNondeterministic},
+	Build: func() (*lua.LTable, []luaapi.YieldType) {
+		return moduleTable, nil
+	},
 }
 
-func (m *ctxModule) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	l.Push(reg.Table)
-	return 1
+// Error helpers
+
+func invalidError(l *lua.LState, msg string) int {
+	err := lua.NewLuaError(l, msg).
+		WithKind(lua.KindInvalid).
+		WithRetryable(false)
+	l.Push(lua.LNil)
+	l.Push(err)
+	return 2
 }
 
-// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
-func Bind(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
+func internalError(l *lua.LState, msg string) int {
+	err := lua.NewLuaError(l, msg).
+		WithKind(lua.KindInternal).
+		WithRetryable(false)
+	l.Push(lua.LNil)
+	l.Push(err)
+	return 2
+}
+
+func notFoundError(l *lua.LState, key string) int {
+	err := lua.NewLuaError(l, "key not found: "+key).
+		WithKind(lua.KindNotFound).
+		WithRetryable(false)
+	l.Push(lua.LNil)
+	l.Push(err)
+	return 2
 }
 
 func get(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no context"))
-		return 2
+		return internalError(l, "no context")
 	}
 
 	key := l.CheckString(1)
 	if key == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("empty key"))
-		return 2
+		return invalidError(l, "empty key")
 	}
 
 	values := ctxapi.GetValues(ctx)
 	if values == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no values in context"))
-		return 2
+		return notFoundError(l, key)
 	}
 
 	val, ok := values.Get(key)
 	if !ok {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("key not found: " + key))
-		return 2
+		return notFoundError(l, key)
 	}
 
 	l.Push(toLuaValue(l, val))
@@ -89,48 +81,16 @@ func get(l *lua.LState) int {
 	return 2
 }
 
-func set(l *lua.LState) int {
-	ctx := l.Context()
-	if ctx == nil {
-		l.Push(lua.LFalse)
-		l.Push(lua.LString("no context"))
-		return 2
-	}
-
-	key := l.CheckString(1)
-	if key == "" {
-		l.Push(lua.LFalse)
-		l.Push(lua.LString("empty key"))
-		return 2
-	}
-
-	values := ctxapi.GetValues(ctx)
-	if values == nil {
-		l.Push(lua.LFalse)
-		l.Push(lua.LString("no values in context"))
-		return 2
-	}
-
-	val := toGoValue(l.CheckAny(2))
-	values.Set(key, val)
-
-	l.Push(lua.LTrue)
-	l.Push(lua.LNil)
-	return 2
-}
-
 func all(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no context"))
-		return 2
+		return internalError(l, "no context")
 	}
 
 	values := ctxapi.GetValues(ctx)
 	if values == nil {
+		l.Push(l.CreateTable(0, 0))
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no values in context"))
 		return 2
 	}
 
@@ -161,24 +121,19 @@ func toLuaValue(l *lua.LState, val any) lua.LValue {
 		return lua.LBool(v)
 	case []byte:
 		return lua.LString(v)
+	case map[string]any:
+		t := l.CreateTable(0, len(v))
+		for k, val := range v {
+			t.RawSetString(k, toLuaValue(l, val))
+		}
+		return t
+	case []any:
+		t := l.CreateTable(len(v), 0)
+		for i, val := range v {
+			t.RawSetInt(i+1, toLuaValue(l, val))
+		}
+		return t
 	default:
 		return lua.LNil
-	}
-}
-
-func toGoValue(lv lua.LValue) any {
-	switch v := lv.(type) {
-	case lua.LString:
-		return string(v)
-	case lua.LNumber:
-		return float64(v)
-	case lua.LInteger:
-		return int64(v)
-	case lua.LBool:
-		return bool(v)
-	case *lua.LNilType:
-		return nil
-	default:
-		return nil
 	}
 }

@@ -63,7 +63,6 @@ func decodeFunc(l *lua.LState) int {
 		err := lua.WrapErrorWithLua(l, decErr, "decode failed").
 			WithKind(lua.KindInvalid).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
 		l.Push(err)
 		return 2

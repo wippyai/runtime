@@ -7,11 +7,11 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-func TestBind(t *testing.T) {
+func TestLoad(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Bind(l)
+	Module.Load(l)
 
 	mod := l.GetGlobal("env")
 	if mod.Type() != lua.LTTable {
@@ -27,11 +27,28 @@ func TestBind(t *testing.T) {
 	}
 }
 
+func TestLoadReuse(t *testing.T) {
+	l1 := lua.NewState()
+	defer l1.Close()
+	l2 := lua.NewState()
+	defer l2.Close()
+
+	Module.Load(l1)
+	Module.Load(l2)
+
+	mod1 := l1.GetGlobal("env").(*lua.LTable)
+	mod2 := l2.GetGlobal("env").(*lua.LTable)
+
+	if mod1 != mod2 {
+		t.Error("module table should be reused across states")
+	}
+}
+
 func TestImmutability(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local success = pcall(function()
@@ -47,7 +64,7 @@ func TestGetNoContext(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local val, err = env.get("TEST_VAR")
@@ -64,7 +81,7 @@ func TestSetNoContext(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local val, err = env.set("TEST_VAR", "value")
@@ -81,7 +98,7 @@ func TestGetAllNoContext(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local val, err = env.get_all()
@@ -99,7 +116,7 @@ func TestGetWithEmptyContext(t *testing.T) {
 	defer l.Close()
 	l.SetContext(context.Background())
 
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local val, err = env.get("TEST_VAR")
@@ -116,7 +133,7 @@ func TestGetEmptyKey(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local ok, err = pcall(function()
@@ -135,7 +152,7 @@ func TestSetEmptyKey(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local ok, err = pcall(function()
@@ -147,23 +164,5 @@ func TestSetEmptyKey(t *testing.T) {
 	`)
 	if err != nil {
 		t.Errorf("set empty key test failed: %v", err)
-	}
-}
-
-func TestBindIdempotent(t *testing.T) {
-	l1 := lua.NewState()
-	defer l1.Close()
-
-	l2 := lua.NewState()
-	defer l2.Close()
-
-	Bind(l1)
-	Bind(l2)
-
-	mod1 := l1.GetGlobal("env")
-	mod2 := l2.GetGlobal("env")
-
-	if mod1.Type() != lua.LTTable || mod2.Type() != lua.LTTable {
-		t.Fatal("module should be registered in both states")
 	}
 }

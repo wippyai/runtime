@@ -44,7 +44,7 @@ func (m *fsModule) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *fsModule) Register(l *lua.LState) *luaapi.Registration {
+func (m *fsModule) Register(_ *lua.LState) *luaapi.Registration {
 	initOnce.Do(func() {
 		moduleTable = createModuleTable()
 		fsMetatable = value.RegisterTypeMethods(nil, fsTypeName,
@@ -130,7 +130,7 @@ func fsGet(l *lua.LState) int {
 	return 2
 }
 
-func checkFS(l *lua.LState, idx int) *FS {
+func checkFS(l *lua.LState, idx int) *FS { //nolint:unparam
 	ud := l.CheckUserData(idx)
 	if v, ok := ud.Value.(*FS); ok {
 		return v
@@ -139,7 +139,7 @@ func checkFS(l *lua.LState, idx int) *FS {
 	return nil
 }
 
-func checkFile(l *lua.LState, idx int) *File {
+func checkFile(l *lua.LState, idx int) *File { //nolint:unparam
 	ud := l.CheckUserData(idx)
 	if v, ok := ud.Value.(*File); ok {
 		return v

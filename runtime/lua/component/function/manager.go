@@ -22,7 +22,6 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/component"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	processmod "github.com/wippyai/runtime/runtime/lua/modules/process"
-	timeyields "github.com/wippyai/runtime/runtime/lua/modules/time"
 	funcpool "github.com/wippyai/runtime/system/scheduler/pool"
 	lua "github.com/yuin/gopher-lua"
 
@@ -359,7 +358,7 @@ func (m *Manager) createFactory(compiled *code.CompiledMain) funcpool.Factory {
 // createProcess creates a new process with standard bindings.
 func createProcess(compiled *code.CompiledMain) (process.Process, error) {
 	binders := engine.CoreBinders()
-	binders = append(binders, timeyields.BindYields, processmod.BindGlobal)
+	binders = append(binders, processmod.BindGlobal)
 
 	// Add module binders for dependencies
 	for _, dep := range compiled.Dependencies {

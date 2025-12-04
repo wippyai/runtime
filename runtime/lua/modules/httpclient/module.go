@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wippyai/runtime/api/dispatcher"
 	httpapi "github.com/wippyai/runtime/api/dispatcher/http"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/security"
@@ -42,8 +41,8 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	mod.Immutable = true
 
 	yields := []luaapi.YieldType{
-		{Sample: &RequestYield{}, CmdID: dispatcher.CommandID(httpapi.CmdRequest)},
-		{Sample: &RequestBatchYield{}, CmdID: dispatcher.CommandID(httpapi.CmdRequestBatch)},
+		{Sample: &RequestYield{}, CmdID: httpapi.CmdRequest},
+		{Sample: &RequestBatchYield{}, CmdID: httpapi.CmdRequestBatch},
 	}
 
 	return mod, yields

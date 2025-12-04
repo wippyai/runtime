@@ -158,7 +158,7 @@ func fileRead(l *lua.LState) int {
 	size := l.OptInt(2, 4096)
 	if size <= 0 {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("size must be positive"))
+		l.Push(lua.NewLuaError(l, "size must be positive").WithKind(lua.KindInvalid))
 		return 2
 	}
 
@@ -168,11 +168,11 @@ func fileRead(l *lua.LState) int {
 	if err != nil {
 		if errors.Is(err, io.EOF) {
 			l.Push(lua.LNil)
-			l.Push(lua.LString("EOF"))
+			l.Push(lua.NewLuaError(l, "EOF").WithKind(lua.KindNotFound))
 			return 2
 		}
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.WrapErrorWithLua(l, err, "read failed").WithKind(lua.KindInternal))
 		return 2
 	}
 
@@ -189,14 +189,14 @@ func fileWrite(l *lua.LState) int {
 	data := l.CheckString(2)
 	if data == "" {
 		l.Push(lua.LFalse)
-		l.Push(lua.LString("data required"))
+		l.Push(lua.NewLuaError(l, "data required").WithKind(lua.KindInvalid))
 		return 2
 	}
 
 	_, err := f.Write([]byte(data))
 	if err != nil {
 		l.Push(lua.LFalse)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.WrapErrorWithLua(l, err, "write failed").WithKind(lua.KindInternal))
 		return 2
 	}
 
@@ -223,14 +223,14 @@ func fileSeek(l *lua.LState) int {
 		w = io.SeekEnd
 	default:
 		l.Push(lua.LNil)
-		l.Push(lua.LString("invalid whence: must be 'set', 'cur', or 'end'"))
+		l.Push(lua.NewLuaError(l, "invalid whence: must be 'set', 'cur', or 'end'").WithKind(lua.KindInvalid))
 		return 2
 	}
 
 	pos, err := f.Seek(offset, w)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.WrapErrorWithLua(l, err, "seek failed").WithKind(lua.KindInternal))
 		return 2
 	}
 
@@ -247,7 +247,7 @@ func fileClose(l *lua.LState) int {
 	err := f.Close()
 	if err != nil {
 		l.Push(lua.LFalse)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.WrapErrorWithLua(l, err, "close failed").WithKind(lua.KindInternal))
 		return 2
 	}
 	l.Push(lua.LTrue)
@@ -263,7 +263,7 @@ func fileStat(l *lua.LState) int {
 	info, err := f.Stat()
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.WrapErrorWithLua(l, err, "stat failed").WithKind(lua.KindInternal))
 		return 2
 	}
 	l.Push(pushFileInfo(l, info))
@@ -279,7 +279,7 @@ func fileSync(l *lua.LState) int {
 	err := f.Sync()
 	if err != nil {
 		l.Push(lua.LFalse)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.WrapErrorWithLua(l, err, "sync failed").WithKind(lua.KindInternal))
 		return 2
 	}
 	l.Push(lua.LTrue)

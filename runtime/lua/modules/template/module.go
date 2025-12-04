@@ -51,7 +51,6 @@ type Set struct {
 }
 
 func pushError(l *lua.LState, err *lua.Error) int {
-	lua.SetErrorMetatable(l, err)
 	l.Push(lua.LNil)
 	l.Push(err)
 	return 2

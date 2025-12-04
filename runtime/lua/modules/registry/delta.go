@@ -96,7 +96,6 @@ func buildDelta(l *lua.LState, log *zap.Logger) int {
 		err := lua.WrapErrorWithLua(l, buildErr, "build delta").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
 		l.Push(err)
 		return 2
@@ -112,7 +111,6 @@ func buildDelta(l *lua.LState, log *zap.Logger) int {
 			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
 				WithKind(lua.KindInternal).
 				WithRetryable(false)
-			lua.SetErrorMetatable(l, err)
 			l.Push(lua.LNil)
 			l.Push(err)
 			return 2

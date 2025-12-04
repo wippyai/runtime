@@ -68,19 +68,42 @@ func checkStore(l *lua.LState) *Store {
 	return nil
 }
 
+func invalidError(l *lua.LState, msg string) int {
+	err := lua.NewLuaError(l, msg).
+		WithKind(lua.KindInvalid).
+		WithRetryable(false)
+	l.Push(lua.LNil)
+	l.Push(err)
+	return 2
+}
+
+func notFoundError(l *lua.LState, msg string) int {
+	err := lua.NewLuaError(l, msg).
+		WithKind(lua.KindNotFound).
+		WithRetryable(false)
+	l.Push(lua.LNil)
+	l.Push(err)
+	return 2
+}
+
+func internalError(l *lua.LState, goErr error, context string) int {
+	err := lua.WrapErrorWithLua(l, goErr, context).
+		WithKind(lua.KindInternal).
+		WithRetryable(false)
+	l.Push(lua.LNil)
+	l.Push(err)
+	return 2
+}
+
 func storeGet(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no context"))
-		return 2
+		return invalidError(l, "no context")
 	}
 
 	id := l.CheckString(1)
 	if id == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("resource id is required"))
-		return 2
+		return invalidError(l, "resource id is required")
 	}
 
 	if !security.IsAllowed(ctx, "store.get", id, nil) {
@@ -90,38 +113,30 @@ func storeGet(l *lua.LState) int {
 
 	reg := resource.GetRegistry(ctx)
 	if reg == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("resource registry not found"))
-		return 2
+		return notFoundError(l, "resource registry not found")
 	}
 
 	resID := registry.ParseID(id)
 	res, err := reg.Acquire(ctx, resID, resource.ModeNormal)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to acquire resource: %v", err)))
-		return 2
+		return internalError(l, err, "failed to acquire resource")
 	}
 
 	storeRes, err := res.Get()
 	if err != nil {
 		res.Release()
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to get resource: %v", err)))
-		return 2
+		return internalError(l, err, "failed to get resource")
 	}
 
 	storeImpl, ok := storeRes.(store.Store)
 	if !ok {
 		res.Release()
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("resource is not a store: %T", storeRes)))
-		return 2
+		return invalidError(l, fmt.Sprintf("resource is not a store: %T", storeRes))
 	}
 
 	s := NewStore(ctx, res, storeImpl)
 
-	value.PushUserData(l, s, storeMetatable)
+	value.PushTypedUserData(l, s, storeTypeName)
 	return 1
 }
 
@@ -134,18 +149,14 @@ func storeKeyGet(l *lua.LState) int {
 	s.mu.Lock()
 	if s.released {
 		s.mu.Unlock()
-		l.Push(lua.LNil)
-		l.Push(lua.LString("store is released"))
-		return 2
+		return invalidError(l, "store is released")
 	}
 	storeImpl := s.store
 	s.mu.Unlock()
 
 	keyStr := l.CheckString(2)
 	if keyStr == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("key is required"))
-		return 2
+		return invalidError(l, "key is required")
 	}
 
 	if !security.IsAllowed(l.Context(), "store.key.get", keyStr, nil) {
@@ -170,18 +181,14 @@ func storeKeySet(l *lua.LState) int {
 	s.mu.Lock()
 	if s.released {
 		s.mu.Unlock()
-		l.Push(lua.LNil)
-		l.Push(lua.LString("store is released"))
-		return 2
+		return invalidError(l, "store is released")
 	}
 	storeImpl := s.store
 	s.mu.Unlock()
 
 	keyStr := l.CheckString(2)
 	if keyStr == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("key is required"))
-		return 2
+		return invalidError(l, "key is required")
 	}
 
 	if !security.IsAllowed(l.Context(), "store.key.set", keyStr, nil) {
@@ -191,9 +198,7 @@ func storeKeySet(l *lua.LState) int {
 
 	luaVal := l.Get(3)
 	if luaVal == lua.LNil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("value is required"))
-		return 2
+		return invalidError(l, "value is required")
 	}
 
 	var ttl time.Duration
@@ -204,17 +209,13 @@ func storeKeySet(l *lua.LState) int {
 
 	transcoder := payload.GetTranscoder(l.Context())
 	if transcoder == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("transcoder not found in context"))
-		return 2
+		return notFoundError(l, "transcoder not found in context")
 	}
 
 	luaPayload := payload.NewPayload(luaVal, payload.Lua)
 	goPayload, err := transcoder.Transcode(luaPayload, payload.Golang)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to transcode: %v", err)))
-		return 2
+		return internalError(l, err, "failed to transcode")
 	}
 
 	parsedKey := registry.ParseID(keyStr)
@@ -239,18 +240,14 @@ func storeKeyDelete(l *lua.LState) int {
 	s.mu.Lock()
 	if s.released {
 		s.mu.Unlock()
-		l.Push(lua.LNil)
-		l.Push(lua.LString("store is released"))
-		return 2
+		return invalidError(l, "store is released")
 	}
 	storeImpl := s.store
 	s.mu.Unlock()
 
 	keyStr := l.CheckString(2)
 	if keyStr == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("key is required"))
-		return 2
+		return invalidError(l, "key is required")
 	}
 
 	if !security.IsAllowed(l.Context(), "store.key.delete", keyStr, nil) {
@@ -275,18 +272,14 @@ func storeKeyHas(l *lua.LState) int {
 	s.mu.Lock()
 	if s.released {
 		s.mu.Unlock()
-		l.Push(lua.LNil)
-		l.Push(lua.LString("store is released"))
-		return 2
+		return invalidError(l, "store is released")
 	}
 	storeImpl := s.store
 	s.mu.Unlock()
 
 	keyStr := l.CheckString(2)
 	if keyStr == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("key is required"))
-		return 2
+		return invalidError(l, "key is required")
 	}
 
 	if !security.IsAllowed(l.Context(), "store.key.has", keyStr, nil) {

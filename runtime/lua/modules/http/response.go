@@ -11,8 +11,10 @@ import (
 )
 
 type Response struct {
-	writer basehttp.ResponseWriter
-	rCtx   *httpservice.RequestContext
+	writer       basehttp.ResponseWriter
+	rCtx         *httpservice.RequestContext
+	headersSent  bool
+	transferMode string
 }
 
 var responseMethods = map[string]lua.LGFunction{
@@ -36,7 +38,6 @@ func newResponse(l *lua.LState) int {
 		err := lua.NewLuaError(l, "no context available").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
 		l.Push(err)
 		return 2
@@ -47,7 +48,6 @@ func newResponse(l *lua.LState) int {
 		err := lua.NewLuaError(l, "no HTTP request context found").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
 		l.Push(err)
 		return 2
@@ -58,7 +58,7 @@ func newResponse(l *lua.LState) int {
 	return 2
 }
 
-func checkResponse(l *lua.LState, idx int) *Response {
+func checkResponse(l *lua.LState, idx int) *Response { //nolint:unparam
 	ud := l.CheckUserData(idx)
 	if res, ok := ud.Value.(*Response); ok {
 		return res
@@ -72,10 +72,19 @@ func responseSetStatus(l *lua.LState) int {
 	if res == nil {
 		return 0
 	}
+	if res.headersSent {
+		err := lua.NewLuaError(l, "cannot set status after headers are sent").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(err)
+		return 1
+	}
 	code := l.CheckInt(2)
 	res.writer.WriteHeader(code)
+	res.headersSent = true
 	res.rCtx.MarkHandled()
-	return 0
+	l.Push(lua.LNil)
+	return 1
 }
 
 func responseSetHeader(l *lua.LState) int {
@@ -83,10 +92,19 @@ func responseSetHeader(l *lua.LState) int {
 	if res == nil {
 		return 0
 	}
+	if res.headersSent {
+		err := lua.NewLuaError(l, "cannot set headers after they are sent").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(err)
+		return 1
+	}
 	name := l.CheckString(2)
 	val := l.CheckString(3)
 	res.writer.Header().Set(name, val)
-	return 0
+	res.rCtx.MarkHandled()
+	l.Push(lua.LNil)
+	return 1
 }
 
 func responseWrite(l *lua.LState) int {
@@ -100,10 +118,10 @@ func responseWrite(l *lua.LState) int {
 		luaErr := lua.WrapErrorWithLua(l, err, "write failed").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, luaErr)
 		l.Push(luaErr)
 		return 1
 	}
+	res.headersSent = true
 	res.rCtx.MarkHandled()
 	l.Push(lua.LNil)
 	return 1
@@ -117,6 +135,8 @@ func responseFlush(l *lua.LState) int {
 	if flusher, ok := res.writer.(interface{ Flush() }); ok {
 		flusher.Flush()
 	}
+	res.headersSent = true
+	res.rCtx.MarkHandled()
 	l.Push(lua.LNil)
 	return 1
 }
@@ -132,20 +152,21 @@ func responseWriteJSON(l *lua.LState) int {
 		luaErr := lua.WrapErrorWithLua(l, err, "failed to encode JSON").
 			WithKind(lua.KindInvalid).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, luaErr)
 		l.Push(luaErr)
 		return 1
 	}
-	res.writer.Header().Set("Content-Type", "application/json")
+	if !res.headersSent {
+		res.writer.Header().Set("Content-Type", "application/json")
+	}
 	_, err = res.writer.Write(data)
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "write failed").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, luaErr)
 		l.Push(luaErr)
 		return 1
 	}
+	res.headersSent = true
 	res.rCtx.MarkHandled()
 	l.Push(lua.LNil)
 	return 1
@@ -156,15 +177,38 @@ func responseSetContentType(l *lua.LState) int {
 	if res == nil {
 		return 0
 	}
+	if res.headersSent {
+		err := lua.NewLuaError(l, "cannot set content type after headers are sent").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(err)
+		return 1
+	}
 	ct := l.CheckString(2)
 	res.writer.Header().Set("Content-Type", ct)
-	return 0
+	l.Push(lua.LNil)
+	return 1
 }
 
 func responseWriteEvent(l *lua.LState) int {
 	res := checkResponse(l, 1)
 	if res == nil {
 		return 0
+	}
+
+	// Auto-set SSE mode if not already set
+	if res.transferMode != "sse" {
+		if res.headersSent {
+			err := lua.NewLuaError(l, "cannot switch to SSE mode after headers are sent").
+				WithKind(lua.KindInvalid).
+				WithRetryable(false)
+			l.Push(err)
+			return 1
+		}
+		res.writer.Header().Set("Content-Type", "text/event-stream")
+		res.writer.Header().Set("Cache-Control", "no-cache")
+		res.writer.Header().Set("Connection", "keep-alive")
+		res.transferMode = "sse"
 	}
 
 	eventTable := l.CheckTable(2)
@@ -190,7 +234,6 @@ func responseWriteEvent(l *lua.LState) int {
 		luaErr := lua.WrapErrorWithLua(l, err, "failed to marshal event data").
 			WithKind(lua.KindInvalid).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, luaErr)
 		l.Push(luaErr)
 		return 1
 	}
@@ -200,7 +243,6 @@ func responseWriteEvent(l *lua.LState) int {
 		luaErr := lua.WrapErrorWithLua(l, writeErr, "write event failed").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, luaErr)
 		l.Push(luaErr)
 		return 1
 	}
@@ -209,6 +251,7 @@ func responseWriteEvent(l *lua.LState) int {
 		flusher.Flush()
 	}
 
+	res.headersSent = true
 	res.rCtx.MarkHandled()
 	l.Push(lua.LNil)
 	return 1
@@ -219,20 +262,30 @@ func responseSetTransfer(l *lua.LState) int {
 	if res == nil {
 		return 0
 	}
+	if res.headersSent {
+		err := lua.NewLuaError(l, "cannot set transfer mode after headers are sent").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(err)
+		return 1
+	}
 	mode := l.CheckString(2)
 	switch mode {
 	case "chunked":
 		res.writer.Header().Set("Transfer-Encoding", "chunked")
 		res.writer.Header().Set("Cache-Control", "no-cache")
+		res.transferMode = "chunked"
 	case "sse":
 		res.writer.Header().Set("Content-Type", "text/event-stream")
 		res.writer.Header().Set("Cache-Control", "no-cache")
 		res.writer.Header().Set("Connection", "keep-alive")
+		res.transferMode = "sse"
 	default:
 		l.ArgError(2, "invalid transfer type")
 		return 0
 	}
-	return 0
+	l.Push(lua.LNil)
+	return 1
 }
 
 func responseToString(l *lua.LState) int {

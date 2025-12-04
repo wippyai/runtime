@@ -1,109 +1,61 @@
 package websocket
 
 import (
-	"sync"
+	"fmt"
 	"time"
 
 	wsapi "github.com/wippyai/runtime/api/dispatcher/ws"
+	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
 )
 
-var (
-	moduleTable  *lua.LTable
-	registration *luaapi.Registration
-	initOnce     sync.Once
-)
+// parseDuration parses a Lua value into time.Duration.
+// Supports numbers (as milliseconds) and strings (Go duration format).
+func parseDuration(lv lua.LValue) (time.Duration, bool) {
+	switch v := lv.(type) {
+	case lua.LString:
+		d, err := time.ParseDuration(string(v))
+		if err != nil {
+			return 0, false
+		}
+		return d, true
+	case lua.LNumber:
+		return time.Duration(v) * time.Millisecond, true
+	default:
+		return 0, false
+	}
+}
 
 const (
-	wsConnTypeName    = "websocket.Client"
-	wsChannelTypeName = "websocket.Channel"
+	wsConnTypeName = "websocket.Client"
 )
 
-// Module is the singleton websocket module instance.
-var Module = &websocketModule{}
-
-type websocketModule struct{}
-
-func (m *websocketModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        "websocket",
-		Description: "WebSocket client connections",
-		Class:       []string{luaapi.ClassNetwork, luaapi.ClassIO, luaapi.ClassNondeterministic},
-	}
+// Module is the websocket module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "websocket",
+	Description: "WebSocket client connections",
+	Class:       []string{luaapi.ClassNetwork, luaapi.ClassIO, luaapi.ClassNondeterministic},
+	Build:       buildModule,
 }
 
-func (m *websocketModule) Register(l *lua.LState) *luaapi.Registration {
-	initOnce.Do(func() {
-		moduleTable = createModuleTable()
-		value.RegisterTypeMethods(nil, wsConnTypeName, nil, connMethods)
-		registerChannelMethods()
-		registration = &luaapi.Registration{
-			Table:      moduleTable,
-			YieldTypes: nil,
-		}
-	})
+func buildModule() (*lua.LTable, []luaapi.YieldType) {
+	value.RegisterTypeMethods(nil, wsConnTypeName, nil, connMethods)
 
-	return registration
-}
-
-func registerChannelMethods() {
-	value.RegisterMethods(nil, wsChannelTypeName, map[string]lua.LGFunction{
-		"receive": wsChannelReceive,
-	})
-}
-
-// WsChannel is a channel-like type that yields WsReceiveYield on receive.
-type WsChannel struct {
-	ConnID uint64
-}
-
-// wsChannelReceive yields WsReceiveYield to wait for next message.
-func wsChannelReceive(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	ch, ok := ud.Value.(*WsChannel)
-	if !ok {
-		l.ArgError(1, "websocket channel expected")
-		return 0
-	}
-	yield := AcquireWsReceiveYield(ch.ConnID)
-	l.Push(yield)
-	return -1
-}
-
-func (m *websocketModule) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	l.Push(reg.Table)
-	return 1
-}
-
-// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
-func Bind(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
-}
-
-func createModuleTable() *lua.LTable {
-	mod := lua.CreateTable(0, 8)
-
+	mod := lua.CreateTable(0, 10)
 	mod.RawSetString("connect", lua.LGoFunc(connect))
 
-	registerConstants(mod)
-
-	mod.Immutable = true
-	return mod
-}
-
-func registerConstants(mod *lua.LTable) {
-	// Message types (strings for engine1 compatibility)
+	// Message types (strings for v1 compatibility)
 	mod.RawSetString("TYPE_TEXT", lua.LString("text"))
 	mod.RawSetString("TYPE_BINARY", lua.LString("binary"))
 	mod.RawSetString("TYPE_PING", lua.LString("ping"))
 	mod.RawSetString("TYPE_PONG", lua.LString("pong"))
 	mod.RawSetString("TYPE_CLOSE", lua.LString("close"))
 
-	// Also keep numeric constants for internal use
+	// Numeric constants for internal use
 	mod.RawSetString("TEXT", lua.LNumber(wsapi.MessageText))
 	mod.RawSetString("BINARY", lua.LNumber(wsapi.MessageBinary))
 
@@ -115,30 +67,38 @@ func registerConstants(mod *lua.LTable) {
 	compressionTbl.Immutable = true
 	mod.RawSetString("COMPRESSION", compressionTbl)
 
-	closeCodes := map[string]int{
-		"NORMAL":              1000,
-		"GOING_AWAY":          1001,
-		"PROTOCOL_ERROR":      1002,
-		"UNSUPPORTED_DATA":    1003,
-		"RESERVED":            1004,
-		"NO_STATUS":           1005,
-		"ABNORMAL_CLOSURE":    1006,
-		"INVALID_PAYLOAD":     1007,
-		"POLICY_VIOLATION":    1008,
-		"MESSAGE_TOO_BIG":     1009,
-		"MANDATORY_EXTENSION": 1010,
-		"INTERNAL_ERROR":      1011,
-		"SERVICE_RESTART":     1012,
-		"TRY_AGAIN_LATER":     1013,
-		"BAD_GATEWAY":         1014,
-		"TLS_HANDSHAKE":       1015,
-	}
-	closeCodeTbl := lua.CreateTable(0, len(closeCodes))
-	for name, code := range closeCodes {
-		closeCodeTbl.RawSetString(name, lua.LNumber(code))
-	}
+	// Close codes
+	closeCodeTbl := lua.CreateTable(0, 16)
+	closeCodeTbl.RawSetString("NORMAL", lua.LNumber(1000))
+	closeCodeTbl.RawSetString("GOING_AWAY", lua.LNumber(1001))
+	closeCodeTbl.RawSetString("PROTOCOL_ERROR", lua.LNumber(1002))
+	closeCodeTbl.RawSetString("UNSUPPORTED_DATA", lua.LNumber(1003))
+	closeCodeTbl.RawSetString("RESERVED", lua.LNumber(1004))
+	closeCodeTbl.RawSetString("NO_STATUS", lua.LNumber(1005))
+	closeCodeTbl.RawSetString("ABNORMAL_CLOSURE", lua.LNumber(1006))
+	closeCodeTbl.RawSetString("INVALID_PAYLOAD", lua.LNumber(1007))
+	closeCodeTbl.RawSetString("POLICY_VIOLATION", lua.LNumber(1008))
+	closeCodeTbl.RawSetString("MESSAGE_TOO_BIG", lua.LNumber(1009))
+	closeCodeTbl.RawSetString("MANDATORY_EXTENSION", lua.LNumber(1010))
+	closeCodeTbl.RawSetString("INTERNAL_ERROR", lua.LNumber(1011))
+	closeCodeTbl.RawSetString("SERVICE_RESTART", lua.LNumber(1012))
+	closeCodeTbl.RawSetString("TRY_AGAIN_LATER", lua.LNumber(1013))
+	closeCodeTbl.RawSetString("BAD_GATEWAY", lua.LNumber(1014))
+	closeCodeTbl.RawSetString("TLS_HANDSHAKE", lua.LNumber(1015))
 	closeCodeTbl.Immutable = true
 	mod.RawSetString("CLOSE_CODES", closeCodeTbl)
+
+	mod.Immutable = true
+
+	yields := []luaapi.YieldType{
+		{Sample: &WsConnectYield{}, CmdID: wsapi.CmdWsConnect},
+		{Sample: &WsSendYield{}, CmdID: wsapi.CmdWsSend},
+		{Sample: &WsCloseYield{}, CmdID: wsapi.CmdWsClose},
+		{Sample: &WsPingYield{}, CmdID: wsapi.CmdWsPing},
+		{Sample: &WsSubscribeYield{}, CmdID: wsapi.CmdWsSubscribe},
+	}
+
+	return mod, yields
 }
 
 func connect(l *lua.LState) int {
@@ -177,9 +137,34 @@ func connect(l *lua.LState) int {
 			})
 		}
 
-		// Dial timeout (in seconds)
-		if timeout := opts.RawGetString("dial_timeout"); timeout.Type() == lua.LTNumber || timeout.Type() == lua.LTInteger {
-			yield.DialTimeout = time.Duration(lua.LVAsNumber(timeout) * lua.LNumber(time.Second))
+		// Protocols (subprotocols)
+		if protos := opts.RawGetString("protocols"); protos.Type() == lua.LTTable {
+			protos.(*lua.LTable).ForEach(func(_, v lua.LValue) {
+				if v.Type() == lua.LTString {
+					yield.Protocols = append(yield.Protocols, v.String())
+				}
+			})
+		}
+
+		// Dial timeout (ms or duration string)
+		if timeout := opts.RawGetString("dial_timeout"); timeout != lua.LNil {
+			if d, ok := parseDuration(timeout); ok {
+				yield.DialTimeout = d
+			}
+		}
+
+		// Read timeout (ms or duration string)
+		if timeout := opts.RawGetString("read_timeout"); timeout != lua.LNil {
+			if d, ok := parseDuration(timeout); ok {
+				yield.ReadTimeout = d
+			}
+		}
+
+		// Write timeout (ms or duration string)
+		if timeout := opts.RawGetString("write_timeout"); timeout != lua.LNil {
+			if d, ok := parseDuration(timeout); ok {
+				yield.WriteTimeout = d
+			}
 		}
 
 		// Compression mode (supports both numbers and strings)
@@ -208,23 +193,30 @@ func connect(l *lua.LState) int {
 		if limit := opts.RawGetString("read_limit"); limit.Type() == lua.LTNumber || limit.Type() == lua.LTInteger {
 			yield.ReadLimit = int64(lua.LVAsNumber(limit))
 		}
+
+		// Channel capacity
+		if cap := opts.RawGetString("channel_capacity"); cap.Type() == lua.LTNumber || cap.Type() == lua.LTInteger {
+			yield.ChannelCapacity = int(lua.LVAsNumber(cap))
+		}
 	}
 
 	l.Push(yield)
 	return -1
 }
 
+// WsConn represents a websocket connection.
+type WsConn struct {
+	ID         uint64
+	Channel    *engine.Channel
+	subscribed bool
+}
+
 var connMethods = map[string]lua.LGFunction{
 	"send":    connSend,
-	"receive": connReceive,
+	"receive": connChannel,
 	"channel": connChannel,
 	"close":   connClose,
 	"ping":    connPing,
-}
-
-type WsConn struct {
-	ID      uint64
-	Channel *WsChannel
 }
 
 func checkConn(l *lua.LState, idx int) *WsConn {
@@ -250,22 +242,42 @@ func connSend(l *lua.LState) int {
 }
 
 // connChannel returns the channel for receiving messages.
+// On first call, yields WsSubscribeYield to start the subscription.
+// Subsequent calls return the cached channel directly.
 func connChannel(l *lua.LState) int {
 	conn := checkConn(l, 1)
+
+	// If already subscribed, return the channel directly
+	if conn.subscribed && conn.Channel != nil {
+		l.Push(conn.Channel.Value())
+		return 1
+	}
+
+	// First call - need to subscribe
 	if conn.Channel == nil {
 		l.RaiseError("connection has no channel")
 		return 0
 	}
-	ud := l.NewUserData()
-	ud.Value = conn.Channel
-	ud.Metatable = value.GetTypeMetatable(nil, wsChannelTypeName)
-	l.Push(ud)
-	return 1
-}
 
-// connReceive is an alias for connChannel for API compatibility.
-func connReceive(l *lua.LState) int {
-	return connChannel(l)
+	ctx := l.Context()
+	if ctx == nil {
+		l.RaiseError("no context")
+		return 0
+	}
+
+	// Get PID from frame context
+	pid, ok := runtime.GetFramePID(ctx)
+	if !ok {
+		l.RaiseError("no process PID")
+		return 0
+	}
+
+	// Generate unique topic for this connection
+	topic := fmt.Sprintf("ws@%d", conn.ID)
+
+	yield := AcquireWsSubscribeYield(conn.ID, conn.Channel, pid, topic, conn)
+	l.Push(yield)
+	return -1
 }
 
 func connPing(l *lua.LState) int {

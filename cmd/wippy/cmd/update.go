@@ -38,7 +38,7 @@ func init() {
 
 	updateCmd.Flags().StringP("lock-file", "l", "wippy.lock", "path to lock file")
 	updateCmd.Flags().StringP("src-dir", "d", ".", "source directory path")
-	updateCmd.Flags().StringP("modules-dir", "m", ".wippy", "modules directory path")
+	updateCmd.Flags().String("modules-dir", ".wippy", "modules directory path")
 }
 
 func runUpdate(cmd *cobra.Command, args []string) error {

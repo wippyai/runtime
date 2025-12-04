@@ -13,7 +13,6 @@ import (
 	wsapi "github.com/wippyai/runtime/api/dispatcher/ws"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/relay"
-	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/runtime/resource"
 
 	"github.com/coder/websocket"
@@ -408,21 +407,30 @@ func (d *Dispatcher) executeSubscribe(ctx context.Context, cmd wsapi.WsSubscribe
 		return
 	}
 
-	pid, ok := runtime.GetFramePID(ctx)
-	if !ok {
-		return
-	}
-
 	node := relay.GetNode(ctx)
 	if node == nil {
 		return
 	}
+
+	// Use PID and topic from command
+	pid := cmd.PID
+	topic := relay.Topic(cmd.Topic)
 
 	go func() {
 		for {
 			select {
 			case msg, ok := <-entry.msgCh:
 				if !ok {
+					// Channel closed - send terminal to close subscriber channel
+					pkg := relay.NewPackage(relay.PID{}, pid, topic, payload.NewTerminal())
+					_ = node.Send(pkg)
+					return
+				}
+
+				if msg.EOF {
+					// EOF received - send terminal to close subscriber channel
+					pkg := relay.NewPackage(relay.PID{}, pid, topic, payload.NewTerminal())
+					_ = node.Send(pkg)
 					return
 				}
 
@@ -430,23 +438,19 @@ func (d *Dispatcher) executeSubscribe(ctx context.Context, cmd wsapi.WsSubscribe
 				if msg.MessageType == wsapi.MessageText {
 					p = payload.NewPayload(msg.Data, payload.String)
 				}
-				if msg.EOF {
-					p = payload.NewPayload(nil, payload.Golang)
-				}
 
-				pkg := relay.NewPackage(relay.PID{}, pid, TopicWsMessage, p)
+				pkg := relay.NewPackage(relay.PID{}, pid, topic, p)
 				_ = node.Send(pkg)
-
-				if msg.EOF {
-					return
-				}
 			case <-entry.ctx.Done():
+				// Context canceled - send terminal to close subscriber channel
+				pkg := relay.NewPackage(relay.PID{}, pid, topic, payload.NewTerminal())
+				_ = node.Send(pkg)
 				return
 			}
 		}
 	}()
 
-	complete.Complete(wsapi.WsSubscription{ConnID: cmd.ConnID}, nil)
+	complete.Complete(wsapi.WsSubscription{ConnID: cmd.ConnID, Topic: string(topic)}, nil)
 }
 
 func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {

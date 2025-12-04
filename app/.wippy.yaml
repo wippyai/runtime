@@ -103,7 +103,7 @@ metrics:
 # Prometheus configuration
 # Prometheus metrics export
 prometheus:
-  enabled: true                   # Enable Prometheus exporter
+  enabled: false                   # Enable Prometheus exporter
   address: localhost:9090         # HTTP server address for /metrics endpoint
 
 # Cluster configuration

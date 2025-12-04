@@ -14,7 +14,7 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/runtime/lua/engine"
-	timeyields "github.com/wippyai/runtime/runtime/lua/modules/time"
+	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
 	"github.com/wippyai/runtime/system/clock"
 	scheduler "github.com/wippyai/runtime/system/scheduler/actor"
 	lua "github.com/yuin/gopher-lua"
@@ -102,12 +102,16 @@ func testPID() relay.PID {
 	return relay.PID{UniqID: "time-test"}
 }
 
+func bindTimeModule(l *lua.LState) {
+	timemod.Module.Load(l)
+}
+
 func newLuaProcessWithChannels(script string) *engine.Process {
 	proto, _ := lua.CompileString(script, "test.lua")
 	return engine.NewProcess(
 		engine.WithProto(proto),
 		engine.WithModuleBinder(engine.BindChannelFunctions),
-		engine.WithModuleBinder(timeyields.BindYields),
+		engine.WithModuleBinder(bindTimeModule),
 	)
 }
 

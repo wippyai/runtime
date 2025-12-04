@@ -44,7 +44,6 @@ func (y *CallYield) HandleResult(l *lua.LState, data any, err error) []lua.LValu
 		luaErr := lua.WrapErrorWithLua(l, err, "call failed").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, luaErr)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 	if data == nil {
@@ -64,7 +63,6 @@ func (y *CallYield) HandleResult(l *lua.LState, data any, err error) []lua.LValu
 		luaErr := lua.WrapErrorWithLua(l, resp.Error, "function error").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, luaErr)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 	lv, convErr := luaconv.GoToLua(resp.Value)
@@ -72,7 +70,6 @@ func (y *CallYield) HandleResult(l *lua.LState, data any, err error) []lua.LValu
 		luaErr := lua.WrapErrorWithLua(l, convErr, "result conversion failed").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, luaErr)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 	return []lua.LValue{lv, lua.LNil}
@@ -113,7 +110,6 @@ func (y *AsyncStartYield) HandleResult(l *lua.LState, data any, err error) []lua
 		luaErr := lua.WrapErrorWithLua(l, err, "async start failed").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, luaErr)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 	resp, ok := data.(function.AsyncStartResult)
@@ -127,7 +123,6 @@ func (y *AsyncStartYield) HandleResult(l *lua.LState, data any, err error) []lua
 		luaErr := lua.WrapErrorWithLua(l, resp.Error, "async start error").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, luaErr)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 	// Return pre-created Future with channel
@@ -169,7 +164,6 @@ func (y *AsyncCancelYield) HandleResult(l *lua.LState, data any, err error) []lu
 		luaErr := lua.WrapErrorWithLua(l, err, "async cancel failed").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, luaErr)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 	return []lua.LValue{lua.LTrue, lua.LNil}

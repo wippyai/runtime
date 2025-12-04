@@ -2,20 +2,19 @@ package time
 
 import (
 	stdtime "time"
-
-	lua "github.com/yuin/gopher-lua"
 )
 
-// Type definitions for time module
-
+// Time wraps time.Time for Lua userdata.
 type Time struct {
 	time stdtime.Time
 }
 
+// Duration wraps time.Duration for Lua userdata.
 type Duration struct {
 	duration stdtime.Duration
 }
 
+// Location wraps time.Location for Lua userdata.
 type Location struct {
 	location *stdtime.Location
 }
@@ -25,9 +24,3 @@ var (
 	utcLocation   = &Location{location: stdtime.UTC}
 	localLocation = &Location{location: stdtime.Local}
 )
-
-// Bind is deprecated - use Module.Loader instead.
-// Kept for backward compatibility.
-func Bind(l *lua.LState) {
-	BindYields(l)
-}

@@ -68,7 +68,6 @@ if goErr != nil {
     err := lua.WrapErrorWithLua(l, goErr, "decode failed").
         WithKind(lua.KindInvalid).
         WithRetryable(false)
-    lua.SetErrorMetatable(l, err)
     l.Push(lua.LNil)
     l.Push(err)
     return 2
@@ -177,6 +176,5 @@ Available Go constants:
 - `lua.KindRateLimited`
 
 Error creation functions:
-- `lua.NewLuaError(l, message)` - Create new error with Lua stack
-- `lua.WrapErrorWithLua(l, err, context)` - Wrap Go error
-- `lua.SetErrorMetatable(l, err)` - Set metatable on wrapped errors
+- `lua.NewLuaError(l, message)` - Create new error with Lua stack (metatable set automatically)
+- `lua.WrapErrorWithLua(l, err, context)` - Wrap Go error (metatable set automatically)

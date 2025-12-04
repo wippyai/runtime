@@ -2,7 +2,6 @@ package http
 
 import (
 	"context"
-	"io"
 	"net/http"
 	"path"
 	"strings"
@@ -10,7 +9,6 @@ import (
 	contextapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/function"
-	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	config "github.com/wippyai/runtime/api/service/http"
@@ -67,23 +65,15 @@ func (f *EndpointFactory) CreateHandler(_ context.Context, cfg *config.EndpointC
 			fc.Seal()
 		}
 
-		// Read request body as payload for functions that accept parameters
-		var payloads payload.Payloads
-		if r.Body != nil && r.ContentLength != 0 {
-			body, err := io.ReadAll(r.Body)
-			if err == nil && len(body) > 0 {
-				payloads = payload.Payloads{payload.NewPayload(body, payload.JSON)}
-			}
-		}
-
 		// Create task with request context as pairs (not in frame)
 		// This prevents request context from leaking to child function calls
+		// Note: We don't pre-read the body here - the Lua function can access it
+		// via req:body() or req:stream() as needed
 		task := runtime.Task{
 			ID: cfg.Func,
 			Context: []contextapi.Pair{
 				{Key: config.RequestCtxKey(), Value: rCtx},
 			},
-			Payloads: payloads,
 		}
 
 		result, err := f.funcs.Call(execCtx, task)

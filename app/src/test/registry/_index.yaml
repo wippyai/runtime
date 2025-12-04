@@ -93,3 +93,56 @@ entries:
     modules:
       - registry
       - funcs
+
+  - name: snapshot_at
+    kind: function.lua
+    meta:
+      type: test
+      suite: registry
+      description: registry.snapshot_at function and history.snapshot_at method
+    source: file://snapshot_at.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - registry
+
+  - name: version_navigation
+    kind: function.lua
+    meta:
+      type: test
+      suite: registry
+      description: version navigation with previous/next and history methods
+    source: file://version_navigation.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - registry
+
+  - name: version_compare
+    kind: function.lua
+    meta:
+      type: test
+      suite: registry
+      description: compare snapshots between versions and detect changes
+    source: file://version_compare.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - registry
+
+  - name: version_transition
+    kind: function.lua
+    meta:
+      type: test
+      suite: registry
+      description: test version transitions with dynamic function creation and rollback
+    source: file://version_transition.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - registry
+      - funcs

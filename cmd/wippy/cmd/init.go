@@ -23,8 +23,8 @@ The lock file tracks installed dependencies and their versions.`,
 func init() {
 	rootCmd.AddCommand(initCmd)
 
-	initCmd.Flags().StringP("src-dir", "d", ".", "source directory path")
-	initCmd.Flags().StringP("modules-dir", "m", ".wippy", "modules directory path")
+	initCmd.Flags().StringP("src-dir", "d", "./src", "source directory path")
+	initCmd.Flags().String("modules-dir", ".wippy", "modules directory path")
 	initCmd.Flags().StringP("lock-file", "l", "wippy.lock", "path to lock file")
 }
 

@@ -92,7 +92,7 @@ func isNumeric(v interface{}) bool {
 // toFloat64 converts a numeric value to float64
 func toFloat64(v interface{}) float64 {
 	rv := reflect.ValueOf(v)
-	switch rv.Kind() {
+	switch rv.Kind() { //nolint:exhaustive
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return float64(rv.Int())
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:

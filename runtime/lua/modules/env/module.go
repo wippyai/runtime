@@ -1,67 +1,28 @@
 package env
 
 import (
-	"sync"
-
 	"github.com/wippyai/runtime/api/env"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
 )
 
-var (
-	moduleTable  *lua.LTable
-	registration *luaapi.Registration
-	initOnce     sync.Once
-)
-
-// Module is the singleton env module instance.
-var Module = &envModule{}
-
-type envModule struct{}
-
-func (m *envModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        "env",
-		Description: "Environment variable access",
-		Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
-	}
+// Module is the env module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "env",
+	Description: "Environment variable access",
+	Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
+	Build: func() (*lua.LTable, []luaapi.YieldType) {
+		mod := &lua.LTable{}
+		mod.RawSetString("get", lua.LGoFunc(envGet))
+		mod.RawSetString("set", lua.LGoFunc(envSet))
+		mod.RawSetString("get_all", lua.LGoFunc(envGetAll))
+		mod.Immutable = true
+		return mod, nil
+	},
 }
 
-func (m *envModule) Register(l *lua.LState) *luaapi.Registration {
-	initOnce.Do(func() {
-		moduleTable = createModuleTable()
-		registration = &luaapi.Registration{
-			Table:      moduleTable,
-			YieldTypes: nil,
-		}
-	})
-	return registration
-}
-
-func (m *envModule) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	l.Push(reg.Table)
-	return 1
-}
-
-// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
-func Bind(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
-}
-
-func createModuleTable() *lua.LTable {
-	mod := lua.CreateTable(0, 3)
-
-	mod.RawSetString("get", lua.LGoFunc(get))
-	mod.RawSetString("set", lua.LGoFunc(set))
-	mod.RawSetString("get_all", lua.LGoFunc(getAll))
-	mod.Immutable = true
-
-	return mod
-}
-
-func get(l *lua.LState) int {
+func envGet(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
@@ -100,7 +61,7 @@ func get(l *lua.LState) int {
 	return 2
 }
 
-func set(l *lua.LState) int {
+func envSet(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
@@ -141,7 +102,7 @@ func set(l *lua.LState) int {
 	return 2
 }
 
-func getAll(l *lua.LState) int {
+func envGetAll(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)

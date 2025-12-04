@@ -50,7 +50,6 @@ func (y *ReadYield) HandleResult(l *lua.LState, data any, err error) []lua.LValu
 		luaErr := lua.WrapErrorWithLua(l, err, "stream read").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, luaErr)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 	if data == nil {
@@ -103,7 +102,6 @@ func (y *CloseYield) HandleResult(l *lua.LState, data any, err error) []lua.LVal
 		luaErr := lua.WrapErrorWithLua(l, err, "stream close").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, luaErr)
 		return []lua.LValue{lua.LFalse, luaErr}
 	}
 	return []lua.LValue{lua.LTrue, lua.LNil}
@@ -150,7 +148,6 @@ func (y *WriteYield) HandleResult(l *lua.LState, data any, err error) []lua.LVal
 		luaErr := lua.WrapErrorWithLua(l, err, "stream write").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, luaErr)
 		return []lua.LValue{lua.LNumber(0), luaErr}
 	}
 	if n, ok := data.(int64); ok {
@@ -206,7 +203,6 @@ func (y *SeekYield) HandleResult(l *lua.LState, data any, err error) []lua.LValu
 		luaErr := lua.WrapErrorWithLua(l, err, "stream seek").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, luaErr)
 		return []lua.LValue{lua.LNumber(-1), luaErr}
 	}
 	if pos, ok := data.(int64); ok {
@@ -256,7 +252,6 @@ func (y *FlushYield) HandleResult(l *lua.LState, data any, err error) []lua.LVal
 		luaErr := lua.WrapErrorWithLua(l, err, "stream flush").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, luaErr)
 		return []lua.LValue{lua.LFalse, luaErr}
 	}
 	return []lua.LValue{lua.LTrue, lua.LNil}
@@ -300,7 +295,6 @@ func (y *StatYield) HandleResult(l *lua.LState, data any, err error) []lua.LValu
 		luaErr := lua.WrapErrorWithLua(l, err, "stream stat").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, luaErr)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 	info, ok := data.(streamapi.Info)

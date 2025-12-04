@@ -35,7 +35,6 @@ func changesOps(l *lua.LState) int {
 			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
 				WithKind(lua.KindInternal).
 				WithRetryable(false)
-			lua.SetErrorMetatable(l, err)
 			l.Push(lua.LNil)
 			l.Push(err)
 			return 2
@@ -63,7 +62,6 @@ func changesCreate(l *lua.LState) int {
 		err := lua.WrapErrorWithLua(l, convErr, "convert entry").
 			WithKind(lua.KindInvalid).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
 		l.Push(err)
 		return 2
@@ -92,7 +90,6 @@ func changesUpdate(l *lua.LState) int {
 		err := lua.WrapErrorWithLua(l, convErr, "convert entry").
 			WithKind(lua.KindInvalid).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
 		l.Push(err)
 		return 2
@@ -179,7 +176,6 @@ func changesApply(l *lua.LState) int {
 		err := lua.WrapErrorWithLua(l, sortErr, "sort operations").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
 		l.Push(err)
 		return 2
@@ -190,7 +186,6 @@ func changesApply(l *lua.LState) int {
 		err := lua.WrapErrorWithLua(l, applyErr, "apply changes").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
 		l.Push(err)
 		return 2

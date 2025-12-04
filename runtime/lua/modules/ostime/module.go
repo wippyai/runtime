@@ -3,66 +3,41 @@ package ostime
 import (
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
-var (
-	moduleTable  *lua.LTable
-	registration *luaapi.Registration
-	initOnce     sync.Once
-	startTime    time.Time
-)
+var startTime = time.Now()
 
-// Module is the singleton ostime module instance.
-var Module = &ostimeModule{}
-
-type ostimeModule struct{}
-
-func (m *ostimeModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        "os",
-		Description: "Lua os.time, os.date, os.clock functions",
-		Class:       []string{luaapi.ClassTime, luaapi.ClassNondeterministic},
-	}
-}
-
-func (m *ostimeModule) Register(l *lua.LState) *luaapi.Registration {
-	initOnce.Do(func() {
-		startTime = time.Now()
-
-		mod := &lua.LTable{}
-		mod.RawSetString("time", lua.LGoFunc(osTime))
-		mod.RawSetString("date", lua.LGoFunc(osDate))
-		mod.RawSetString("clock", lua.LGoFunc(osClock))
-		mod.Immutable = true
-		moduleTable = mod
-
-		registration = &luaapi.Registration{
-			Table:      moduleTable,
-			YieldTypes: nil,
-		}
-	})
-	return registration
-}
-
-func (m *ostimeModule) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	l.Push(reg.Table)
-	return 1
-}
-
-// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
-func Bind(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
+// Module is the os time module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "os",
+	Description: "Lua os.time, os.date, os.clock, os.difftime functions",
+	Class:       []string{luaapi.ClassTime, luaapi.ClassNondeterministic},
+	Build: func() (*lua.LTable, []luaapi.YieldType) {
+		tbl := &lua.LTable{}
+		tbl.RawSetString("time", lua.LGoFunc(osTime))
+		tbl.RawSetString("date", lua.LGoFunc(osDate))
+		tbl.RawSetString("clock", lua.LGoFunc(osClock))
+		tbl.RawSetString("difftime", lua.LGoFunc(osDifftime))
+		tbl.RawSetString("platform", lua.LString("wippy"))
+		tbl.Immutable = true
+		return tbl, nil
+	},
 }
 
 func osClock(l *lua.LState) int {
 	elapsed := time.Since(startTime).Seconds()
 	l.Push(lua.LNumber(elapsed))
+	return 1
+}
+
+func osDifftime(l *lua.LState) int {
+	t2 := l.CheckNumber(1)
+	t1 := l.CheckNumber(2)
+	l.Push(lua.LNumber(t2 - t1))
 	return 1
 }
 
@@ -73,10 +48,11 @@ func osTime(l *lua.LState) int {
 	}
 
 	tbl := l.CheckTable(1)
+	ref := time.Now()
 
-	year := getIntField(tbl, "year", time.Now().Year())
-	month := getIntField(tbl, "month", int(time.Now().Month()))
-	day := getIntField(tbl, "day", time.Now().Day())
+	year := getIntField(tbl, "year", ref.Year())
+	month := getIntField(tbl, "month", int(ref.Month()))
+	day := getIntField(tbl, "day", ref.Day())
 	hour := getIntField(tbl, "hour", 0)
 	min := getIntField(tbl, "min", 0)
 	sec := getIntField(tbl, "sec", 0)
@@ -160,16 +136,16 @@ func formatDate(format string, t time.Time) string {
 		return t.Format("15:04:05")
 	}
 
-	result := ""
+	var b strings.Builder
 	for i := 0; i < len(format); i++ {
 		if format[i] == '%' && i+1 < len(format) {
 			i++
-			result += formatSpecifier(format[i], t)
+			b.WriteString(formatSpecifier(format[i], t))
 		} else {
-			result += string(format[i])
+			b.WriteByte(format[i])
 		}
 	}
-	return result
+	return b.String()
 }
 
 func formatSpecifier(specifier byte, t time.Time) string {

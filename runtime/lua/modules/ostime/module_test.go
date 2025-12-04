@@ -8,11 +8,11 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-func TestBind(t *testing.T) {
+func TestLoad(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Bind(l)
+	Module.Load(l)
 
 	mod := l.GetGlobal("os")
 	if mod.Type() != lua.LTTable {
@@ -20,18 +20,40 @@ func TestBind(t *testing.T) {
 	}
 
 	tbl := mod.(*lua.LTable)
-	funcs := []string{"time", "date", "clock"}
+	funcs := []string{"time", "date", "clock", "difftime"}
 	for _, fn := range funcs {
 		if tbl.RawGetString(fn).Type() != lua.LTFunction {
 			t.Errorf("%s function not registered", fn)
 		}
+	}
+
+	platform := tbl.RawGetString("platform")
+	if platform.Type() != lua.LTString || platform.String() != "wippy" {
+		t.Errorf("os.platform = %v, expected 'wippy'", platform)
+	}
+}
+
+func TestLoadReuse(t *testing.T) {
+	l1 := lua.NewState()
+	defer l1.Close()
+	l2 := lua.NewState()
+	defer l2.Close()
+
+	Module.Load(l1)
+	Module.Load(l2)
+
+	mod1 := l1.GetGlobal("os").(*lua.LTable)
+	mod2 := l2.GetGlobal("os").(*lua.LTable)
+
+	if mod1 != mod2 {
+		t.Error("module table should be reused across states")
 	}
 }
 
 func TestOsTimeNoArgs(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	before := time.Now().Unix()
 
@@ -51,7 +73,7 @@ func TestOsTimeNoArgs(t *testing.T) {
 func TestOsTimeWithTable(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		result = os.time({year=2024, month=6, day=15, hour=12, min=30, sec=45})
@@ -70,7 +92,7 @@ func TestOsTimeWithTable(t *testing.T) {
 func TestOsTimePartialTable(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		result = os.time({year=2024, month=1, day=1})
@@ -89,7 +111,7 @@ func TestOsTimePartialTable(t *testing.T) {
 func TestOsClock(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		clock1 = os.clock()
@@ -119,7 +141,7 @@ func TestOsClock(t *testing.T) {
 func TestOsDateDefault(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`result = os.date()`)
 	if err != nil {
@@ -135,7 +157,7 @@ func TestOsDateDefault(t *testing.T) {
 func TestOsDateFormats(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	timestamp := time.Date(2024, 6, 15, 14, 30, 45, 0, time.Local).Unix()
 
@@ -159,7 +181,7 @@ func TestOsDateFormats(t *testing.T) {
 
 	for _, tc := range tests {
 		l2 := lua.NewState()
-		Bind(l2)
+		Module.Load(l2)
 
 		err := l2.DoString(`result = os.date("` + tc.format + `", ` + itoa(timestamp) + `)`)
 		if err != nil {
@@ -179,7 +201,7 @@ func TestOsDateFormats(t *testing.T) {
 func TestOsDateTable(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	timestamp := time.Date(2024, 6, 15, 14, 30, 45, 0, time.Local).Unix()
 
@@ -218,7 +240,7 @@ func TestOsDateTable(t *testing.T) {
 func TestOsDateUTC(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	timestamp := time.Date(2024, 6, 15, 0, 0, 0, 0, time.UTC).Unix()
 
@@ -238,7 +260,7 @@ func TestOsDateUTC(t *testing.T) {
 func TestOsDateYearDay(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	timestamp := time.Date(2024, 1, 15, 0, 0, 0, 0, time.Local).Unix()
 
@@ -256,7 +278,7 @@ func TestOsDateYearDay(t *testing.T) {
 func TestOsDateWeekday(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	timestamp := time.Date(2024, 6, 15, 0, 0, 0, 0, time.Local).Unix()
 
@@ -274,7 +296,7 @@ func TestOsDateWeekday(t *testing.T) {
 func TestOsDateAMPM(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	timestamp := time.Date(2024, 6, 15, 14, 0, 0, 0, time.Local).Unix()
 
@@ -292,7 +314,7 @@ func TestOsDateAMPM(t *testing.T) {
 func TestOsDate12Hour(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	timestamp := time.Date(2024, 6, 15, 14, 0, 0, 0, time.Local).Unix()
 
@@ -310,7 +332,7 @@ func TestOsDate12Hour(t *testing.T) {
 func TestOsDateTimezone(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`result = os.date("%Z")`)
 	if err != nil {
@@ -326,7 +348,7 @@ func TestOsDateTimezone(t *testing.T) {
 func TestOsDateUnknownSpecifier(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`result = os.date("%Q")`)
 	if err != nil {
@@ -342,7 +364,7 @@ func TestOsDateUnknownSpecifier(t *testing.T) {
 func TestOsDateMixedFormat(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	timestamp := time.Date(2024, 6, 15, 14, 30, 45, 0, time.Local).Unix()
 
@@ -358,10 +380,66 @@ func TestOsDateMixedFormat(t *testing.T) {
 	}
 }
 
+func TestOsDifftime(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Module.Load(l)
+
+	err := l.DoString(`
+		t1 = os.time({year=2024, month=1, day=1, hour=0, min=0, sec=0})
+		t2 = os.time({year=2024, month=1, day=1, hour=0, min=0, sec=30})
+		result = os.difftime(t2, t1)
+	`)
+	if err != nil {
+		t.Fatalf("os.difftime failed: %v", err)
+	}
+
+	result := float64(l.GetGlobal("result").(lua.LNumber))
+	if result != 30 {
+		t.Errorf("os.difftime = %v, expected 30", result)
+	}
+}
+
+func TestOsDifftimeNegative(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Module.Load(l)
+
+	err := l.DoString(`
+		t1 = os.time({year=2024, month=1, day=1, hour=0, min=0, sec=30})
+		t2 = os.time({year=2024, month=1, day=1, hour=0, min=0, sec=0})
+		result = os.difftime(t2, t1)
+	`)
+	if err != nil {
+		t.Fatalf("os.difftime negative failed: %v", err)
+	}
+
+	result := float64(l.GetGlobal("result").(lua.LNumber))
+	if result != -30 {
+		t.Errorf("os.difftime negative = %v, expected -30", result)
+	}
+}
+
+func TestOsPlatform(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Module.Load(l)
+
+	err := l.DoString(`result = os.platform`)
+	if err != nil {
+		t.Fatalf("os.platform failed: %v", err)
+	}
+
+	result := l.GetGlobal("result").String()
+	if result != "wippy" {
+		t.Errorf("os.platform = %q, expected 'wippy'", result)
+	}
+}
+
 func TestImmutability(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Bind(l)
+	Module.Load(l)
 
 	err := l.DoString(`
 		local success = pcall(function()

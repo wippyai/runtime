@@ -1,0 +1,83 @@
+version: "1.0"
+namespace: app.test.store
+
+entries:
+  # Memory store for testing
+  - name: memory
+    kind: store.memory
+    meta:
+      comment: In-memory store for tests
+    max_size: 1000
+    cleanup_interval: "1m"
+    lifecycle:
+      auto_start: true
+
+  # Basic operations test
+  - name: basic
+    kind: function.lua
+    meta:
+      type: test
+      suite: store
+      description: store basic operations
+    source: file://basic.lua
+    method: main
+    modules:
+      - store
+    imports:
+      assert_primitives: app.lib:assert
+
+  # Get/Set operations test
+  - name: getset
+    kind: function.lua
+    meta:
+      type: test
+      suite: store
+      description: store get and set operations
+    source: file://getset.lua
+    method: main
+    modules:
+      - store
+    imports:
+      assert_primitives: app.lib:assert
+
+  # Has/Delete operations test
+  - name: hasdelete
+    kind: function.lua
+    meta:
+      type: test
+      suite: store
+      description: store has and delete operations
+    source: file://hasdelete.lua
+    method: main
+    modules:
+      - store
+    imports:
+      assert_primitives: app.lib:assert
+
+  # Error handling test
+  - name: errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: store
+      description: store structured errors
+    source: file://errors.lua
+    method: main
+    modules:
+      - store
+    imports:
+      assert_primitives: app.lib:assert
+
+  # Release test
+  - name: release
+    kind: function.lua
+    meta:
+      type: test
+      suite: store
+      description: store release behavior
+    source: file://release.lua
+    method: main
+    modules:
+      - store
+    imports:
+      assert_primitives: app.lib:assert

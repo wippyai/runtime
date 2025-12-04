@@ -161,7 +161,6 @@ func loaderLoadDirectory(l *lua.LState) int {
 		err := lua.WrapErrorWithLua(l, loadErr, "load entries").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
 		l.Push(err)
 		return 2
@@ -174,7 +173,6 @@ func loaderLoadDirectory(l *lua.LState) int {
 			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
 				WithKind(lua.KindInternal).
 				WithRetryable(false)
-			lua.SetErrorMetatable(l, err)
 			l.Push(lua.LNil)
 			l.Push(err)
 			return 2
@@ -209,7 +207,6 @@ func loaderLoadFile(l *lua.LState) int {
 		err := lua.WrapErrorWithLua(l, loadErr, "load entries").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
 		l.Push(err)
 		return 2
@@ -222,7 +219,6 @@ func loaderLoadFile(l *lua.LState) int {
 			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
 				WithKind(lua.KindInternal).
 				WithRetryable(false)
-			lua.SetErrorMetatable(l, err)
 			l.Push(lua.LNil)
 			l.Push(err)
 			return 2

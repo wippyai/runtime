@@ -1,0 +1,42 @@
+version: "1.0"
+namespace: app.test.websocket
+
+entries:
+  - name: connect
+    kind: function.lua
+    meta:
+      type: test
+      suite: websocket
+      description: WebSocket connect and receive
+    source: file://connect.lua
+    method: main
+    modules:
+      - websocket
+    imports:
+      assert2: app.lib:assert
+
+  - name: echo
+    kind: function.lua
+    meta:
+      type: test
+      suite: websocket
+      description: WebSocket echo test
+    source: file://echo.lua
+    method: main
+    modules:
+      - websocket
+    imports:
+      assert2: app.lib:assert
+
+  - name: constants
+    kind: function.lua
+    meta:
+      type: test
+      suite: websocket
+      description: WebSocket constants
+    source: file://constants.lua
+    method: main
+    modules:
+      - websocket
+    imports:
+      assert2: app.lib:assert

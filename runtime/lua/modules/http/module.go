@@ -7,8 +7,9 @@ import (
 )
 
 const (
-	requestTypeName  = "http.Request"
-	responseTypeName = "http.Response"
+	requestTypeName       = "http.Request"
+	responseTypeName      = "http.Response"
+	multipartFileTypeName = "http.MultipartFile"
 )
 
 func init() {
@@ -19,6 +20,10 @@ func init() {
 	value.RegisterTypeMethods(nil, responseTypeName,
 		map[string]lua.LGFunction{"__tostring": responseToString},
 		responseMethods)
+
+	value.RegisterTypeMethods(nil, multipartFileTypeName,
+		map[string]lua.LGFunction{"__tostring": multipartFileToString},
+		multipartFileMethods)
 }
 
 // Module is the http module definition.

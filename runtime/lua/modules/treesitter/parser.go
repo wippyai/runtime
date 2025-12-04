@@ -143,7 +143,6 @@ func parserSetLanguage(l *lua.LState) int {
 		err := lua.WrapErrorWithLua(l, setErr, "failed to set language").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LFalse)
 		l.Push(err)
 		return 2
@@ -214,7 +213,6 @@ func parserParse(l *lua.LState) int {
 		err := lua.WrapErrorWithLua(l, parseErr, "parse failed").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
 		l.Push(err)
 		return 2
@@ -320,7 +318,6 @@ func parserSetRanges(l *lua.LState) int {
 		err := lua.WrapErrorWithLua(l, setErr, "failed to set ranges").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LFalse)
 		l.Push(err)
 		return 2

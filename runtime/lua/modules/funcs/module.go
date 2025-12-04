@@ -63,7 +63,7 @@ var Module = &luaapi.ModuleDef{
 
 // Executor represents a function executor with context values.
 type Executor struct {
-	values     []contextapi.Pair
+	values     contextapi.Values
 	actor      secapi.Actor
 	hasActor   bool
 	scope      secapi.Scope
@@ -98,15 +98,18 @@ func executorWithContext(l *lua.LState) int {
 
 	ctxTable := l.CheckTable(2)
 
-	newValues := make([]contextapi.Pair, len(exec.values))
-	copy(newValues, exec.values)
+	// Create new values bag, copying existing values
+	newValues := contextapi.NewValues()
+	if exec.values != nil {
+		exec.values.Iterate(func(key string, val any) {
+			newValues.Set(key, val)
+		})
+	}
 
+	// Add new values from table
 	ctxTable.ForEach(func(k, v lua.LValue) {
 		if key, ok := k.(lua.LString); ok {
-			newValues = append(newValues, contextapi.Pair{
-				Key:   string(key),
-				Value: value.ToGoAny(v),
-			})
+			newValues.Set(string(key), value.ToGoAny(v))
 		}
 	})
 
@@ -154,11 +157,8 @@ func executorWithActor(l *lua.LState) int {
 		return 0
 	}
 
-	newValues := make([]contextapi.Pair, len(exec.values))
-	copy(newValues, exec.values)
-
 	newExec := &Executor{
-		values:     newValues,
+		values:     exec.values,
 		actor:      actor,
 		hasActor:   true,
 		scope:      exec.scope,
@@ -201,11 +201,8 @@ func executorWithScope(l *lua.LState) int {
 		return 0
 	}
 
-	newValues := make([]contextapi.Pair, len(exec.values))
-	copy(newValues, exec.values)
-
 	newExec := &Executor{
-		values:     newValues,
+		values:     exec.values,
 		actor:      exec.actor,
 		hasActor:   exec.hasActor,
 		scope:      scope,
@@ -234,11 +231,8 @@ func executorWithOptions(l *lua.LState) int {
 		}
 	})
 
-	newValues := make([]contextapi.Pair, len(exec.values))
-	copy(newValues, exec.values)
-
 	newExec := &Executor{
-		values:     newValues,
+		values:     exec.values,
 		actor:      exec.actor,
 		hasActor:   exec.hasActor,
 		scope:      exec.scope,
@@ -292,7 +286,9 @@ func executorCall(l *lua.LState) int {
 	if exec.hasScope {
 		yield.Task.Context = append(yield.Task.Context, secapi.ScopePair(exec.scope))
 	}
-	yield.Task.Context = append(yield.Task.Context, exec.values...)
+	if exec.values != nil && exec.values.Len() > 0 {
+		yield.Task.Context = append(yield.Task.Context, contextapi.ValuesPair(exec.values))
+	}
 
 	if exec.hasOptions {
 		yield.Task.Options = exec.options
@@ -342,7 +338,9 @@ func executorAsync(l *lua.LState) int {
 	if exec.hasScope {
 		yield.Task.Context = append(yield.Task.Context, secapi.ScopePair(exec.scope))
 	}
-	yield.Task.Context = append(yield.Task.Context, exec.values...)
+	if exec.values != nil && exec.values.Len() > 0 {
+		yield.Task.Context = append(yield.Task.Context, contextapi.ValuesPair(exec.values))
+	}
 
 	if exec.hasOptions {
 		yield.Task.Options = exec.options

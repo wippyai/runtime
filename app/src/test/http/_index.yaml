@@ -1,0 +1,44 @@
+version: "1.0"
+namespace: app.test.http
+
+entries:
+  - name: stream_echo
+    kind: function.lua
+    meta:
+      type: test
+      suite: http
+      description: Stream echo endpoint test
+    source: file://stream_echo.lua
+    method: main
+    modules:
+      - http_client
+      - stream
+    imports:
+      assert2: app.lib:assert
+
+  - name: request_stream
+    kind: function.lua
+    meta:
+      type: test
+      suite: http
+      description: HTTP request stream method test
+    source: file://request_stream.lua
+    method: main
+    modules:
+      - http_client
+      - json
+    imports:
+      assert2: app.lib:assert
+
+  - name: response_headers
+    kind: function.lua
+    meta:
+      type: test
+      suite: http
+      description: Response headersSent tracking test
+    source: file://response_headers.lua
+    method: main
+    modules:
+      - http_client
+    imports:
+      assert2: app.lib:assert

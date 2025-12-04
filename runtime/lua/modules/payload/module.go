@@ -119,7 +119,6 @@ func payloadData(l *lua.LState) int {
 		luaErr := lua.WrapErrorWithLua(l, err, "transcode failed").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, luaErr)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
 		return 2
@@ -158,7 +157,6 @@ func payloadTranscode(l *lua.LState) int {
 		luaErr := lua.WrapErrorWithLua(l, err, "transcode failed").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, luaErr)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
 		return 2
@@ -199,7 +197,6 @@ func payloadUnmarshal(l *lua.LState) int {
 		luaErr := lua.WrapErrorWithLua(l, err, "unmarshal failed").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, luaErr)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
 		return 2
@@ -213,7 +210,6 @@ func payloadUnmarshal(l *lua.LState) int {
 	luaErr := lua.NewLuaError(l, "transcoded data is not a valid Lua value").
 		WithKind(lua.KindInternal).
 		WithRetryable(false)
-	lua.SetErrorMetatable(l, luaErr)
 	l.Push(lua.LNil)
 	l.Push(luaErr)
 	return 2

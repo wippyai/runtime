@@ -8,15 +8,9 @@ import (
 	clockapi "github.com/wippyai/runtime/api/clock"
 	"github.com/wippyai/runtime/api/dispatcher"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
-)
-
-// Module initialization - cached with sync.Once
-var (
-	moduleTable  *lua.LTable
-	registration *luaapi.Registration
-	initOnce     sync.Once
 )
 
 const (
@@ -29,29 +23,46 @@ const (
 	locationTypeName      = "time.Location"
 )
 
-// Module is the singleton time module instance.
-// Implements engine.Module interface.
-var Module = &timeModule{}
+// Error helpers for structured errors
 
-type timeModule struct{}
-
-// Info returns module metadata for discovery and class-based filtering.
-func (m *timeModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        "time",
-		Description: "Time operations, scheduling, and duration handling",
-		Class:       []string{luaapi.ClassTime, luaapi.ClassNondeterministic},
-	}
+func invalidError(l *lua.LState, msg string) int {
+	err := lua.NewLuaError(l, msg).
+		WithKind(lua.KindInvalid).
+		WithRetryable(false)
+	l.Push(lua.LNil)
+	l.Push(err)
+	return 2
 }
 
-// Register implements engine.Module interface.
-// Returns the module table and yield types in a single call.
-func (m *timeModule) Register(l *lua.LState) *luaapi.Registration {
-	initOnce.Do(doInit)
-	return registration
+func internalError(l *lua.LState, goErr error, context string) int {
+	err := lua.WrapErrorWithLua(l, goErr, context).
+		WithKind(lua.KindInternal).
+		WithRetryable(false)
+	l.Push(lua.LNil)
+	l.Push(err)
+	return 2
 }
 
-func doInit() {
+func wrapErrorValue(l *lua.LState, goErr error, context string) lua.LValue {
+	err := lua.WrapErrorWithLua(l, goErr, context).
+		WithKind(lua.KindInternal).
+		WithRetryable(false)
+	return err
+}
+
+func newErrorValue(l *lua.LState, msg string) lua.LValue {
+	err := lua.NewLuaError(l, msg).
+		WithKind(lua.KindInvalid).
+		WithRetryable(false)
+	return err
+}
+
+var (
+	moduleTable *lua.LTable
+	yieldTypes  []luaapi.YieldType
+)
+
+func init() {
 	// Register type metatables (uses value package's global cache)
 	registerTimeMethods()
 	registerDurationMethods()
@@ -61,41 +72,36 @@ func doInit() {
 	registerTimerMethods()
 	registerTimerChannelMethods()
 
-	// Create module table - LState independent
+	// Create module table
 	initModuleTable()
 
-	// Create registration with table and yield types
-	registration = &luaapi.Registration{
-		Table: moduleTable,
-		YieldTypes: []luaapi.YieldType{
-			{Sample: &SleepYield{}, CmdID: clockapi.Sleep},
-			{Sample: &TimerStartYield{}, CmdID: clockapi.TimerStart},
-			{Sample: &TimerWaitYield{}, CmdID: clockapi.TimerWait},
-			{Sample: &TimerStopYield{}, CmdID: clockapi.TimerStop},
-			{Sample: &TimerResetYield{}, CmdID: clockapi.TimerReset},
-			{Sample: &TickerStartYield{}, CmdID: clockapi.TickerStart},
-			{Sample: &TickerNextYield{}, CmdID: clockapi.TickerNext},
-			{Sample: &TickerStopYield{}, CmdID: clockapi.TickerStop},
-		},
+	// Setup yield types
+	yieldTypes = []luaapi.YieldType{
+		{Sample: &SleepYield{}, CmdID: clockapi.Sleep},
+		{Sample: &TimerStartYield{}, CmdID: clockapi.TimerStart},
+		{Sample: &AfterStartYield{}, CmdID: clockapi.TimerStart},
+		{Sample: &TimerWaitYield{}, CmdID: clockapi.TimerWait},
+		{Sample: &TimerStopYield{}, CmdID: clockapi.TimerStop},
+		{Sample: &TimerResetYield{}, CmdID: clockapi.TimerReset},
+		{Sample: &TickerStartYield{}, CmdID: clockapi.TickerStart},
+		{Sample: &TickerNextYield{}, CmdID: clockapi.TickerNext},
+		{Sample: &TickerStopYield{}, CmdID: clockapi.TickerStop},
 	}
 }
 
-func (m *timeModule) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	l.Push(reg.Table)
-	return 1
-}
-
-// BindYields sets global AND adds to package.preload for require() compatibility.
-// Deprecated: Use luaapi.LoadModule(l, Module) instead.
-func BindYields(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
+// Module is the time module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "time",
+	Description: "Time operations, scheduling, and duration handling",
+	Class:       []string{luaapi.ClassTime, luaapi.ClassNondeterministic},
+	Build: func() (*lua.LTable, []luaapi.YieldType) {
+		return moduleTable, yieldTypes
+	},
 }
 
 // initModuleTable creates the immutable module table.
-// Uses direct struct allocation - no LState dependency.
 func initModuleTable() {
-	mod := &lua.LTable{}
+	mod := lua.CreateTable(0, 40)
 
 	// Duration constants (nanoseconds)
 	mod.RawSetString("NANOSECOND", lua.LNumber(stdtime.Nanosecond))
@@ -161,13 +167,11 @@ func initModuleTable() {
 	// Yielding functions - LGoFunc is stateless
 	mod.RawSetString("sleep", lua.LGoFunc(sleepFunc))
 	mod.RawSetString("timer", lua.LGoFunc(timerFunc))
+	mod.RawSetString("after", lua.LGoFunc(afterFunc))
 	mod.RawSetString("now", lua.LGoFunc(nowFunc))
 
-	// Ticker functions
+	// Ticker function
 	mod.RawSetString("ticker", lua.LGoFunc(tickerFunc))
-	mod.RawSetString("ticker_start", lua.LGoFunc(tickerStartFunc))
-	mod.RawSetString("ticker_next", lua.LGoFunc(tickerNextFunc))
-	mod.RawSetString("ticker_stop", lua.LGoFunc(tickerStopFunc))
 
 	// Non-yielding functions
 	mod.RawSetString("date", lua.LGoFunc(dateFunc))
@@ -250,7 +254,6 @@ func registerLocationMethods() {
 
 func registerTickerMethods() {
 	value.RegisterMethods(nil, tickerTypeName, map[string]lua.LGFunction{
-		"next":    tickerNextMethod,
 		"stop":    tickerStopMethod,
 		"channel": tickerChannelMethod,
 	})
@@ -315,12 +318,12 @@ func (y *TimerStartYield) ToCommand() dispatcher.Command {
 // HandleResult implements HandledYield to convert timer ID to Timer userdata.
 func (y *TimerStartYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+		return []lua.LValue{lua.LNil, wrapErrorValue(l, err, "timer start")}
 	}
 
 	id, ok := data.(uint64)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.LString("invalid timer ID type")}
+		return []lua.LValue{lua.LNil, newErrorValue(l, "invalid timer ID type")}
 	}
 
 	// Create timer channel that yields TimerWaitYield on receive
@@ -331,6 +334,66 @@ func (y *TimerStartYield) HandleResult(l *lua.LState, data any, err error) []lua
 	ud.Value = timer
 	ud.Metatable = value.GetTypeMetatable(l, timerTypeName)
 	return []lua.LValue{ud}
+}
+
+// AfterStartYield is yielded by time.after() to create a timer channel.
+// Uses Sleep command and sends time.Now() to channel when complete.
+// The channel is a standard engine.Channel that works with channel.select.
+type AfterStartYield struct {
+	Duration stdtime.Duration
+	Channel  *engine.Channel
+}
+
+var afterStartYieldPool = sync.Pool{
+	New: func() interface{} { return &AfterStartYield{} },
+}
+
+func acquireAfterStartYield(d stdtime.Duration, ch *engine.Channel) *AfterStartYield {
+	y := afterStartYieldPool.Get().(*AfterStartYield)
+	y.Duration = d
+	y.Channel = ch
+	return y
+}
+
+func ReleaseAfterStartYield(y *AfterStartYield) {
+	y.Duration = 0
+	y.Channel = nil
+	afterStartYieldPool.Put(y)
+}
+
+func (y *AfterStartYield) Release()                    { ReleaseAfterStartYield(y) }
+func (y *AfterStartYield) String() string              { return "<after_start_yield>" }
+func (y *AfterStartYield) Type() lua.LValueType        { return lua.LTUserData }
+func (y *AfterStartYield) CmdID() dispatcher.CommandID { return clockapi.Sleep }
+func (y *AfterStartYield) ToCommand() dispatcher.Command {
+	return clockapi.SleepCmd{Duration: y.Duration}
+}
+
+// HandleResult implements HandledYield. Called when sleep completes.
+// Sends time.Now() to the channel and returns the channel.
+func (y *AfterStartYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LNil, wrapErrorValue(l, err, "time.after")}
+	}
+
+	// Get current time
+	var t stdtime.Time
+	if ref := clockapi.GetTimeReference(l.Context()); ref != nil {
+		t = ref.Now()
+	} else {
+		t = stdtime.Now()
+	}
+
+	// Create time userdata
+	timeUD := l.NewUserData()
+	timeUD.Value = &Time{time: t}
+	timeUD.Metatable = value.GetTypeMetatable(l, timeTypeName)
+
+	// Send time to channel (buffered, won't block)
+	y.Channel.Send(nil, timeUD, nil)
+
+	// Return the channel
+	return []lua.LValue{y.Channel.Value()}
 }
 
 // TimerWaitYield is yielded to wait for timer to fire.
@@ -387,6 +450,17 @@ func (y *TimerStopYield) Type() lua.LValueType        { return lua.LTUserData }
 func (y *TimerStopYield) CmdID() dispatcher.CommandID { return clockapi.TimerStop }
 func (y *TimerStopYield) ToCommand() dispatcher.Command {
 	return clockapi.TimerStopCmd{TimerID: y.TimerID}
+}
+
+// HandleResult converts bool result to Lua boolean.
+func (y *TimerStopYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LFalse}
+	}
+	if stopped, ok := data.(bool); ok && stopped {
+		return []lua.LValue{lua.LTrue}
+	}
+	return []lua.LValue{lua.LFalse}
 }
 
 // TimerResetYield is yielded to reset a timer with a new duration.
@@ -452,12 +526,12 @@ func (y *TickerStartYield) ToCommand() dispatcher.Command {
 // Returns a Ticker with a TickerChannel that yields on receive operations.
 func (y *TickerStartYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+		return []lua.LValue{lua.LNil, wrapErrorValue(l, err, "ticker start")}
 	}
 
 	id, ok := data.(uint64)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.LString("invalid ticker ID type")}
+		return []lua.LValue{lua.LNil, newErrorValue(l, "invalid ticker ID type")}
 	}
 
 	// Create ticker channel that yields TickerNextYield on receive
@@ -667,21 +741,28 @@ func timerFunc(l *lua.LState) int {
 	return -1
 }
 
-// TODO: afterFunc disabled pending clock API refactor
-// func afterFunc(l *lua.LState) int {
-// 	duration, err := ParseDuration(l, 1)
-// 	if err != nil {
-// 		l.RaiseError("time.after: %s", err.Error())
-// 		return 0
-// 	}
-// 	if duration <= 0 {
-// 		l.RaiseError("time.after: duration must be > 0")
-// 		return 0
-// 	}
-// 	yield := acquireAfterYield(duration)
-// 	l.Push(yield)
-// 	return -1
-// }
+// afterFunc returns a channel that receives once after the duration.
+// Returns a standard engine.Channel that works with channel.select.
+func afterFunc(l *lua.LState) int {
+	duration, err := ParseDuration(l, 1)
+	if err != nil {
+		l.RaiseError("time.after: %s", err.Error())
+		return 0
+	}
+	if duration <= 0 {
+		l.RaiseError("time.after: duration must be > 0")
+		return 0
+	}
+
+	// Create buffered channel (size 1) for the timer result
+	ch := engine.NewChannel(1)
+	engine.PushChannel(l, ch)
+	l.Pop(1)
+
+	yield := acquireAfterStartYield(duration, ch)
+	l.Push(yield)
+	return -1
+}
 
 func nowFunc(l *lua.LState) int {
 	var t stdtime.Time
@@ -715,31 +796,6 @@ func tickerFunc(l *lua.LState) int {
 	return -1
 }
 
-func tickerStartFunc(l *lua.LState) int {
-	duration, err := ParseDuration(l, 1)
-	if err != nil {
-		l.RaiseError("time.ticker_start: %s", err.Error())
-		return 0
-	}
-	yield := acquireTickerStartYield(duration)
-	l.Push(yield)
-	return -1
-}
-
-func tickerNextFunc(l *lua.LState) int {
-	id := uint64(l.CheckNumber(1))
-	yield := acquireTickerNextYield(id)
-	l.Push(yield)
-	return -1
-}
-
-func tickerStopFunc(l *lua.LState) int {
-	id := uint64(l.CheckNumber(1))
-	yield := acquireTickerStopYield(id)
-	l.Push(yield)
-	return -1
-}
-
 // Ticker method functions
 
 func checkTicker(l *lua.LState, idx int) *Ticker {
@@ -749,13 +805,6 @@ func checkTicker(l *lua.LState, idx int) *Ticker {
 	}
 	l.ArgError(idx, "Ticker expected")
 	return nil
-}
-
-func tickerNextMethod(l *lua.LState) int {
-	ticker := checkTicker(l, 1)
-	yield := acquireTickerNextYield(ticker.ID)
-	l.Push(yield)
-	return -1
 }
 
 func tickerStopMethod(l *lua.LState) int {
@@ -838,9 +887,7 @@ func parseFunc(l *lua.LState) int {
 
 	t, err := stdtime.ParseInLocation(layout, v, loc)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return internalError(l, err, "time.parse")
 	}
 
 	ud := l.NewUserData()
@@ -853,9 +900,7 @@ func parseFunc(l *lua.LState) int {
 func parseDurationFunc(l *lua.LState) int {
 	duration, err := parseDurationValue(l.Get(1))
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return internalError(l, err, "time.parse_duration")
 	}
 
 	ud := l.NewUserData()
@@ -868,16 +913,12 @@ func parseDurationFunc(l *lua.LState) int {
 func loadLocationFunc(l *lua.LState) int {
 	name := l.CheckString(1)
 	if name == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("empty location name"))
-		return 2
+		return invalidError(l, "empty location name")
 	}
 
 	loc, err := stdtime.LoadLocation(name)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return internalError(l, err, "time.load_location")
 	}
 
 	ud := l.NewUserData()
@@ -1398,6 +1439,7 @@ func timeTruncate(l *lua.LState) int {
 }
 
 // ParseDuration parses a duration from Lua argument.
+// Accepts: number (nanoseconds), string ("1h30m"), or Duration userdata.
 func ParseDuration(l *lua.LState, idx int) (stdtime.Duration, error) {
 	arg := l.Get(idx)
 	switch v := arg.(type) {
@@ -1407,6 +1449,11 @@ func ParseDuration(l *lua.LState, idx int) (stdtime.Duration, error) {
 		return stdtime.Duration(v), nil
 	case lua.LString:
 		return stdtime.ParseDuration(string(v))
+	case *lua.LUserData:
+		if d, ok := v.Value.(*Duration); ok {
+			return d.duration, nil
+		}
+		return 0, ErrDurationNumberOrStringExpected
 	default:
 		return 0, ErrDurationNumberOrStringExpected
 	}

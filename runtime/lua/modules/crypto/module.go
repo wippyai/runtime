@@ -127,7 +127,6 @@ func internalError(l *lua.LState, goErr error, context string) int {
 	err := lua.WrapErrorWithLua(l, goErr, context).
 		WithKind(lua.KindInternal).
 		WithRetryable(false)
-	lua.SetErrorMetatable(l, err)
 	l.Push(lua.LNil)
 	l.Push(err)
 	return 2

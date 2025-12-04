@@ -30,6 +30,9 @@ func DefaultOptions() Options {
 	}
 }
 
+// Module is the default expr module with default options.
+var Module = NewModule(DefaultOptions())
+
 // NewModule creates an expr module with given options.
 func NewModule(opts Options) *luaapi.ModuleDef {
 	if opts.CacheCapacity <= 0 {
@@ -79,7 +82,6 @@ func internalError(l *lua.LState, goErr error, context string) int {
 	err := lua.WrapErrorWithLua(l, goErr, context).
 		WithKind(lua.KindInternal).
 		WithRetryable(false)
-	lua.SetErrorMetatable(l, err)
 	l.Push(lua.LNil)
 	l.Push(err)
 	return 2

@@ -2,7 +2,6 @@ package engine
 
 import (
 	"github.com/wippyai/runtime/api/process"
-	"github.com/wippyai/runtime/runtime/lua/modules/ostime"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -129,9 +128,6 @@ func (f *Factory) CreateState() *lua.LState {
 	state.Push(lua.LGoFunc(OpenRestrictedPackage))
 	state.Push(lua.LString(lua.LoadLibName))
 	state.Call(1, 0)
-
-	// Load os module (time, date, clock)
-	ostime.Bind(state)
 
 	// Apply module binders
 	for _, binder := range f.moduleBinders {

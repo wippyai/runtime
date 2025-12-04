@@ -27,7 +27,6 @@ func historyVersions(l *lua.LState) int {
 		err := lua.WrapErrorWithLua(l, versErr, "get versions").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
 		l.Push(err)
 		return 2
@@ -67,7 +66,6 @@ func historyGetVersion(l *lua.LState) int {
 		err := lua.WrapErrorWithLua(l, versErr, "get versions").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
 		l.Push(err)
 		return 2
@@ -121,7 +119,6 @@ func historySnapshotAt(l *lua.LState) int {
 		err := lua.WrapErrorWithLua(l, buildErr, "build snapshot state").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
 		l.Push(err)
 		return 2

@@ -328,7 +328,6 @@ func treeEdit(l *lua.LState) int {
 		err := lua.WrapErrorWithLua(l, editErr, "edit failed").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LFalse)
 		l.Push(err)
 		return 2
@@ -431,7 +430,6 @@ func treePrintDotGraph(l *lua.LState) int {
 		err := lua.WrapErrorWithLua(l, pipeErr, "failed to create pipe").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
 		l.Push(err)
 		return 2
@@ -461,7 +459,6 @@ func treePrintDotGraph(l *lua.LState) int {
 		err := lua.WrapErrorWithLua(l, readErr, "failed to read DOT graph").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
-		lua.SetErrorMetatable(l, err)
 		l.Push(lua.LNil)
 		l.Push(err)
 		return 2

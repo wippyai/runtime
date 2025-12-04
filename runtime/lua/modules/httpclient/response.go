@@ -4,8 +4,6 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-const responseTypeName = "httpclient.Response"
-
 type httpResponse struct {
 	statusCode int
 	headers    map[string]string

@@ -3,6 +3,9 @@ package lua
 const (
 	// Lua component names
 	LuaEngineName = "lua.engine"
+	LuaEnvName    = "lua.env"
+	LuaIOName     = "lua.io"
+	LuaLoggerName = "lua.logger"
 	LuaBase64Name = "lua.base64"
 	// LuaBteaName reserved for future use
 	LuaChannelName          = "lua.channel"
@@ -20,6 +23,7 @@ const (
 	LuaFuncName             = "lua.func"
 	LuaHTMLName             = "lua.html"
 	LuaHTTPName             = "lua.http"
+	LuaMetricsName          = "lua.metrics"
 	LuaJSONName             = "lua.json"
 	LuaPayloadName          = "lua.payload"
 	LuaProcessName          = "lua.process"

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/relay"
 )
 
 func init() {
@@ -40,11 +41,14 @@ const (
 // WsConnectCmd connects to a WebSocket server.
 // Returns connection ID via emit on success.
 type WsConnectCmd struct {
-	URL     string
-	Headers map[string]string // Optional headers
+	URL       string
+	Headers   map[string]string // Optional headers
+	Protocols []string          // Subprotocols to negotiate
 
 	// Timeout options
-	DialTimeout time.Duration // Dial timeout (0 = default 30s)
+	DialTimeout  time.Duration // Dial timeout (0 = default 30s)
+	ReadTimeout  time.Duration // Read timeout per message (0 = no timeout)
+	WriteTimeout time.Duration // Write timeout per message (0 = no timeout)
 
 	// Compression options
 	CompressionMode      int // 0=disabled, 1=context takeover, 2=no context takeover
@@ -52,6 +56,9 @@ type WsConnectCmd struct {
 
 	// Read limits
 	ReadLimit int64 // Max message size in bytes (0 = default 32KB)
+
+	// Channel options
+	ChannelCapacity int // Capacity for receive channel (0 = unbuffered)
 }
 
 // CmdID implements dispatcher.Command.
@@ -113,11 +120,13 @@ type WsMessage struct {
 	EOF         bool // True if connection closed
 }
 
-// WsSubscribeCmd starts a background read loop that sends messages to a callback.
+// WsSubscribeCmd starts a background read loop that sends messages to a relay topic.
 // The handler spawns a goroutine that reads until connection closes.
-// Each message is delivered via the emit function with WsMessage.
+// Each message is delivered to the specified topic via relay.
 type WsSubscribeCmd struct {
 	ConnID uint64
+	Topic  string    // Per-connection topic (e.g., "ws@123")
+	PID    relay.PID // Target process PID to send messages to
 }
 
 // CmdID implements dispatcher.Command.
@@ -128,4 +137,5 @@ func (c WsSubscribeCmd) CmdID() dispatcher.CommandID {
 // WsSubscription represents an active subscription to WebSocket messages.
 type WsSubscription struct {
 	ConnID uint64
+	Topic  string // The topic messages are sent to
 }

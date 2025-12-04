@@ -1,0 +1,115 @@
+version: "1.0"
+namespace: app.test.channel
+
+entries:
+  - name: basic
+    kind: function.lua
+    meta:
+      type: test
+      suite: channel
+      description: Basic channel operations
+    source: file://basic.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: buffered
+    kind: function.lua
+    meta:
+      type: test
+      suite: channel
+      description: Buffered channel operations
+    source: file://buffered.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: select_basic
+    kind: function.lua
+    meta:
+      type: test
+      suite: channel
+      description: Basic select operations
+    source: file://select_basic.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: select_default
+    kind: function.lua
+    meta:
+      type: test
+      suite: channel
+      description: Select with default case
+    source: file://select_default.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: select_spawn
+    kind: function.lua
+    meta:
+      type: test
+      suite: channel
+      description: Select with coroutine.spawn
+    source: file://select_spawn.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: close
+    kind: function.lua
+    meta:
+      type: test
+      suite: channel
+      description: Channel close behavior
+    source: file://close.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: producer_consumer
+    kind: function.lua
+    meta:
+      type: test
+      suite: channel
+      description: Producer-consumer pattern
+    source: file://producer_consumer.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: distributed_work
+    kind: function.lua
+    meta:
+      type: test
+      suite: channel
+      description: Distributed work simulation with time.sleep
+    source: file://distributed_work.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: fan_in
+    kind: function.lua
+    meta:
+      type: test
+      suite: channel
+      description: Fan-in pattern with multiple producers
+    source: file://fan_in.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: channel
+      description: Channel error handling
+    source: file://errors.lua
+    method: main
+    imports:
+      assert2: app.lib:assert

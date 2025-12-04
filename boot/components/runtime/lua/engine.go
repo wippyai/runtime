@@ -15,9 +15,8 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/component/library"
 	proclua "github.com/wippyai/runtime/runtime/lua/component/process"
 	workflowlua "github.com/wippyai/runtime/runtime/lua/component/workflow"
-	envlua "github.com/wippyai/runtime/runtime/lua/modules/env"
-	iomod "github.com/wippyai/runtime/runtime/lua/modules/io"
-	loggermod "github.com/wippyai/runtime/runtime/lua/modules/logger"
+	"github.com/wippyai/runtime/runtime/lua/modules/channel"
+	"github.com/wippyai/runtime/runtime/lua/modules/ostime"
 	processmod "github.com/wippyai/runtime/runtime/lua/modules/process"
 	reghandler "github.com/wippyai/runtime/system/registry/events"
 )
@@ -50,10 +49,9 @@ func Engine() boot.Component {
 				bus,
 				code.Config{
 					Modules: []luaapi.Module{
-						envlua.Module,
-						iomod.Module,
-						loggermod.Module,
+						ostime.Module,
 						processmod.Module,
+						channel.Module,
 					},
 					ProtoCacheSize: protoCacheSize,
 					MainCacheSize:  mainCacheSize,

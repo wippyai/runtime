@@ -1,11 +1,15 @@
 package websocket
 
 import (
+	"context"
 	"sync"
 	"time"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	wsapi "github.com/wippyai/runtime/api/dispatcher/ws"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -14,10 +18,14 @@ import (
 type WsConnectYield struct {
 	URL                  string
 	Headers              map[string]string
+	Protocols            []string
 	DialTimeout          time.Duration
+	ReadTimeout          time.Duration
+	WriteTimeout         time.Duration
 	CompressionMode      int
 	CompressionThreshold int
 	ReadLimit            int64
+	ChannelCapacity      int
 }
 
 var wsConnectYieldPool = sync.Pool{
@@ -31,10 +39,14 @@ func AcquireWsConnectYield() *WsConnectYield {
 func ReleaseWsConnectYield(y *WsConnectYield) {
 	y.URL = ""
 	y.Headers = nil
+	y.Protocols = nil
 	y.DialTimeout = 0
+	y.ReadTimeout = 0
+	y.WriteTimeout = 0
 	y.CompressionMode = 0
 	y.CompressionThreshold = 0
 	y.ReadLimit = 0
+	y.ChannelCapacity = 0
 	wsConnectYieldPool.Put(y)
 }
 
@@ -49,10 +61,14 @@ func (y *WsConnectYield) ToCommand() dispatcher.Command {
 	return wsapi.WsConnectCmd{
 		URL:                  y.URL,
 		Headers:              y.Headers,
+		Protocols:            y.Protocols,
 		DialTimeout:          y.DialTimeout,
+		ReadTimeout:          y.ReadTimeout,
+		WriteTimeout:         y.WriteTimeout,
 		CompressionMode:      y.CompressionMode,
 		CompressionThreshold: y.CompressionThreshold,
 		ReadLimit:            y.ReadLimit,
+		ChannelCapacity:      y.ChannelCapacity,
 	}
 }
 
@@ -69,9 +85,12 @@ func (y *WsConnectYield) HandleResult(l *lua.LState, data any, err error) []lua.
 		return []lua.LValue{lua.LNil, lua.LString("invalid connection ID type")}
 	}
 
-	// Create websocket channel that yields WsReceiveYield on receive
-	wsCh := &WsChannel{ConnID: id}
-	conn := &WsConn{ID: id, Channel: wsCh}
+	// Create engine.Channel for receiving messages (works with channel.select)
+	ch := engine.NewChannel(32)
+	engine.PushChannel(l, ch)
+	l.Pop(1) // PushChannel pushes to stack, we'll return via userdata
+
+	conn := &WsConn{ID: id, Channel: ch}
 
 	ud := l.NewUserData()
 	ud.Value = conn
@@ -118,66 +137,110 @@ func (y *WsSendYield) ToCommand() dispatcher.Command {
 
 func (y *WsSendYield) Release() { ReleaseWsSendYield(y) }
 
-// WsReceiveYield is yielded to receive a message.
-type WsReceiveYield struct {
-	ConnID uint64
+// WsSubscribeYield is yielded to start receiving messages on a channel.
+// This subscribes the channel to the topic and starts the dispatcher read loop.
+type WsSubscribeYield struct {
+	ConnID  uint64
+	Channel *engine.Channel
+	PID     relay.PID
+	Topic   string
+	Conn    *WsConn
 }
 
-var wsReceiveYieldPool = sync.Pool{
-	New: func() interface{} { return &WsReceiveYield{} },
+var wsSubscribeYieldPool = sync.Pool{
+	New: func() interface{} { return &WsSubscribeYield{} },
 }
 
-func AcquireWsReceiveYield(connID uint64) *WsReceiveYield {
-	y := wsReceiveYieldPool.Get().(*WsReceiveYield)
+func AcquireWsSubscribeYield(connID uint64, ch *engine.Channel, pid relay.PID, topic string, conn *WsConn) *WsSubscribeYield {
+	y := wsSubscribeYieldPool.Get().(*WsSubscribeYield)
 	y.ConnID = connID
+	y.Channel = ch
+	y.PID = pid
+	y.Topic = topic
+	y.Conn = conn
 	return y
 }
 
-func ReleaseWsReceiveYield(y *WsReceiveYield) {
+func ReleaseWsSubscribeYield(y *WsSubscribeYield) {
 	y.ConnID = 0
-	wsReceiveYieldPool.Put(y)
+	y.Channel = nil
+	y.PID = relay.PID{}
+	y.Topic = ""
+	y.Conn = nil
+	wsSubscribeYieldPool.Put(y)
 }
 
-func (y *WsReceiveYield) String() string       { return "<ws_receive_yield>" }
-func (y *WsReceiveYield) Type() lua.LValueType { return lua.LTUserData }
+func (y *WsSubscribeYield) String() string       { return "<ws_subscribe_yield>" }
+func (y *WsSubscribeYield) Type() lua.LValueType { return lua.LTUserData }
 
-func (y *WsReceiveYield) CmdID() dispatcher.CommandID {
-	return wsapi.CmdWsReceive
+func (y *WsSubscribeYield) CmdID() dispatcher.CommandID {
+	return wsapi.CmdWsSubscribe
 }
 
-func (y *WsReceiveYield) ToCommand() dispatcher.Command {
-	return wsapi.WsReceiveCmd{ConnID: y.ConnID}
+func (y *WsSubscribeYield) ToCommand() dispatcher.Command {
+	return wsapi.WsSubscribeCmd{ConnID: y.ConnID, PID: y.PID, Topic: y.Topic}
 }
 
-func (y *WsReceiveYield) Release() { ReleaseWsReceiveYield(y) }
+func (y *WsSubscribeYield) Release() { ReleaseWsSubscribeYield(y) }
 
-// HandleResult implements HandledYield to convert WsMessage to Lua table.
-func (y *WsReceiveYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+// HandleResult implements HandledYield to set up topic subscription.
+// This registers the channel for the topic and sets up a handler
+// to convert incoming payloads to Lua message tables.
+func (y *WsSubscribeYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNil, lua.LFalse}
+		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
 	}
 
-	msg, ok := data.(wsapi.WsMessage)
-	if !ok {
-		return []lua.LValue{lua.LNil, lua.LFalse}
+	ctx := l.Context()
+	pc := engine.GetProcessContext(ctx)
+	if pc == nil {
+		return []lua.LValue{lua.LNil, lua.LString("no process context")}
 	}
 
-	if msg.EOF {
-		// Connection closed - return table with close type
-		tbl := l.CreateTable(0, 2)
-		tbl.RawSetString("type", lua.LString("close"))
-		tbl.RawSetString("data", lua.LNil)
-		return []lua.LValue{tbl, lua.LTrue}
+	// Subscribe the channel to the topic
+	if err := pc.Subscribe(y.Topic, y.Channel); err != nil {
+		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
 	}
 
+	// Set topic handler to convert websocket payloads to Lua tables
+	pc.SetTopicHandler(y.Topic, wsMessageHandler)
+
+	// Mark connection as subscribed
+	if y.Conn != nil {
+		y.Conn.subscribed = true
+	}
+
+	// Return the channel
+	return []lua.LValue{y.Channel.Value()}
+}
+
+// wsMessageHandler converts websocket message payloads to Lua tables.
+// Terminal payloads are handled by the process layer (closes channel automatically).
+func wsMessageHandler(ctx context.Context, l *lua.LState, payloads []payload.Payload) lua.LValue {
+	if len(payloads) == 0 {
+		return lua.LNil
+	}
+
+	p := payloads[0]
+
+	// Create message table
 	tbl := l.CreateTable(0, 2)
-	if msg.MessageType == wsapi.MessageText {
+	if p.Format() == payload.String {
 		tbl.RawSetString("type", lua.LString("text"))
 	} else {
 		tbl.RawSetString("type", lua.LString("binary"))
 	}
-	tbl.RawSetString("data", lua.LString(msg.Data))
-	return []lua.LValue{tbl, lua.LTrue}
+
+	// Convert data to string
+	switch v := p.Data().(type) {
+	case string:
+		tbl.RawSetString("data", lua.LString(v))
+	case []byte:
+		tbl.RawSetString("data", lua.LString(v))
+	default:
+		tbl.RawSetString("data", lua.LNil)
+	}
+	return tbl
 }
 
 // WsCloseYield is yielded to close a connection.

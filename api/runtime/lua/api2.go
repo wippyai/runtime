@@ -16,25 +16,32 @@ type ModuleDef struct {
 	Class       []string
 	Default     bool // Indicates the module is always loaded
 	Build       func() (*lua.LTable, []YieldType)
+	BuildValue  func() (lua.LValue, []YieldType) // For modules returning non-table values (e.g., userdata)
 
 	once   sync.Once
 	table  *lua.LTable
+	value  lua.LValue
 	yields []YieldType
 }
 
 // Load loads the module into LState. Returns yields.
 func (m *ModuleDef) Load(l *lua.LState) []YieldType {
 	m.once.Do(func() {
-		m.table, m.yields = m.Build()
+		if m.BuildValue != nil {
+			m.value, m.yields = m.BuildValue()
+		} else if m.Build != nil {
+			m.table, m.yields = m.Build()
+			m.value = m.table
+		}
 	})
 
-	l.SetGlobal(m.Name, m.table)
+	l.SetGlobal(m.Name, m.value)
 
 	if pkg := l.GetGlobal("package"); pkg != lua.LNil {
 		if pkgTbl, ok := pkg.(*lua.LTable); ok {
 			if preload := pkgTbl.RawGetString("preload"); preload != lua.LNil {
 				if preloadTbl, ok := preload.(*lua.LTable); ok {
-					preloadTbl.RawSetString(m.Name, m.table)
+					preloadTbl.RawSetString(m.Name, m.value)
 				}
 			}
 		}
@@ -43,31 +50,43 @@ func (m *ModuleDef) Load(l *lua.LState) []YieldType {
 	return m.yields
 }
 
-// Info returns module metadata. Implements Module interface for transition period.
+// Info returns module metadata.
+// Deprecated: Use ModuleDef.Load() directly instead of Module interface.
 func (m *ModuleDef) Info() ModuleInfo {
 	return ModuleInfo{Name: m.Name, Description: m.Description, Class: m.Class}
 }
 
-// Register implements Module interface for transition period.
-func (m *ModuleDef) Register(l *lua.LState) *Registration {
+// Register implements Module interface.
+// Deprecated: Use ModuleDef.Load() directly instead of Module interface.
+func (m *ModuleDef) Register(_ *lua.LState) *Registration {
 	m.once.Do(func() {
-		m.table, m.yields = m.Build()
+		if m.BuildValue != nil {
+			m.value, m.yields = m.BuildValue()
+			if tbl, ok := m.value.(*lua.LTable); ok {
+				m.table = tbl
+			}
+		} else if m.Build != nil {
+			m.table, m.yields = m.Build()
+			m.value = m.table
+		}
 	})
 	return &Registration{Table: m.table, YieldTypes: m.yields}
 }
 
-// Loader implements Module interface for transition period.
+// Loader implements Module interface.
+// Deprecated: Use ModuleDef.Load() directly instead of Module interface.
 func (m *ModuleDef) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	l.Push(reg.Table)
+	m.Register(l) // ensures once.Do is called
+	if m.value != nil {
+		l.Push(m.value)
+	} else {
+		l.Push(m.table)
+	}
 	return 1
 }
 
-// TODO: Remove Module interface, Registration struct, LoadModule, LoadModules
-// once all modules are transitioned to ModuleDef
-
 // Module is the unified interface for Lua modules.
-// Modules provide metadata for filtering and registration for runtime setup.
+// Deprecated: Use ModuleDef directly with Load() method instead.
 type Module interface {
 	// Info returns module metadata including name, description, and class tags.
 	// Used for module filtering (DeniedClasses, AllowedClasses) and discovery.
@@ -83,8 +102,8 @@ type Module interface {
 	Register(l *lua.LState) *Registration
 }
 
-// ModuleV2 is an alias for Module for backward compatibility.
-// Deprecated: Use Module instead.
+// ModuleV2 is an alias for Module.
+// Deprecated: Use ModuleDef directly with Load() method instead.
 type ModuleV2 = Module
 
 // Registration contains all module configuration returned by Register.
@@ -119,8 +138,7 @@ type Releasable interface {
 }
 
 // LoadModule loads a module into the LState.
-// Sets the global, adds to package.preload (if available), and returns yield types.
-// Zero allocation for preload when storing tables directly.
+// Deprecated: Use ModuleDef.Load() directly instead.
 func LoadModule(l *lua.LState, m Module) []YieldType {
 	info := m.Info()
 	reg := m.Register(l)
@@ -144,6 +162,7 @@ func LoadModule(l *lua.LState, m Module) []YieldType {
 }
 
 // LoadModules loads multiple modules and returns all yield types.
+// Deprecated: Use ModuleDef.Load() directly instead.
 func LoadModules(l *lua.LState, modules ...ModuleV2) []YieldType {
 	var allYields []YieldType
 	for _, m := range modules {
