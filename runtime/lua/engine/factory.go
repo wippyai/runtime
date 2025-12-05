@@ -108,21 +108,18 @@ func (f *Factory) CreateState() *lua.LState {
 	}
 
 	state := lua.NewState(opts)
-	global := state.G.Global
 
-	// Use global singleton tables (zero allocation)
-	global.RawSetString(lua.TabLibName, lua.GetGlobalTableMod())
-	global.RawSetString(lua.StringLibName, lua.GetGlobalStringMod())
-	global.RawSetString(lua.MathLibName, lua.GetGlobalMathMod())
-	global.RawSetString(lua.CoroutineLibName, lua.GetGlobalCoroutineMod())
-
-	// String metatable
-	state.G.SetBuiltinMt(lua.LTString, lua.GetGlobalStringMod())
-
-	// Base functions (must be set on global)
-	state.Push(lua.LGoFunc(lua.OpenBase))
+	// Base functions
+	state.Push(state.NewFunction(lua.OpenBase))
 	state.Push(lua.LString(lua.BaseLibName))
 	state.Call(1, 0)
+
+	// Standard libraries
+	lua.OpenTable(state)
+	lua.OpenString(state)
+	lua.OpenMath(state)
+	lua.OpenCoroutine(state)
+	lua.OpenErrors(state)
 
 	// Restricted package loader (wippy-specific)
 	state.Push(lua.LGoFunc(OpenRestrictedPackage))

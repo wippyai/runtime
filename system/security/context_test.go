@@ -7,6 +7,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/system/eventbus"
 )
 
 func TestWithSecurityConfig(t *testing.T) {
@@ -38,7 +39,7 @@ func TestWithSecurityConfig(t *testing.T) {
 	_, ok = security.GetScope(result)
 	assert.False(t, ok)
 
-	reg := NewPolicyRegistry(nil, nil)
+	reg := NewPolicyRegistry(eventbus.NewBus(), nil)
 	ctxWithReg := security.WithRegistry(ctx, reg)
 	result = WithSecurityConfig(ctxWithReg, policyConfig)
 

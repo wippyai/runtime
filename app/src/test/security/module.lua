@@ -28,6 +28,26 @@ local function main()
     assert.eq(type(allowed), "boolean", "can should return boolean")
     assert.eq(allowed, false, "can should return false without security context")
 
+    -- policy() returns policy when found, error when not
+    local pol, err = security.policy("app.test.security:allow_all")
+    if pol then
+        -- Policy found
+        assert.is_nil(err, "no error when policy found")
+    else
+        -- Policy not found is also valid in test context
+        assert.not_nil(err, "should return error when policy not found")
+    end
+
+    -- named_scope() returns scope when found, error when not
+    local scope2, err2 = security.named_scope("app.test.security:test_group")
+    if scope2 then
+        -- Scope found
+        assert.is_nil(err2, "no error when scope found")
+    else
+        -- Scope not found is also valid in test context
+        assert.not_nil(err2, "should return error when scope not found")
+    end
+
     return true
 end
 

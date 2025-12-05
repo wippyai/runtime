@@ -114,9 +114,8 @@ func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Comman
 		}
 
 		// Send result via relay node - routes based on pid.Host (function ID)
-		pkg := &relay.Package{Target: pid}
-		pkg.AddMessage(topic, resultPayload, payload.NewTerminal())
-		node.Send(pkg)
+		pkg := relay.NewPackage(relay.PID{}, pid, topic, resultPayload, payload.NewTerminal())
+		_ = node.Send(pkg)
 	}()
 
 	// Confirm start immediately
@@ -141,8 +140,7 @@ func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Comma
 	topic := cancelCmd.Topic
 
 	// Send terminal via relay node to close the channel
-	pkg := &relay.Package{Target: pid}
-	pkg.AddMessage(topic, payload.NewTerminal())
+	pkg := relay.NewPackage(relay.PID{}, pid, topic, payload.NewTerminal())
 	_ = d.node.Send(pkg)
 
 	complete.Complete(nil, nil)

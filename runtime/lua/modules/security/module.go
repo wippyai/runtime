@@ -19,21 +19,10 @@ var (
 )
 
 func init() {
-	value.RegisterTypeMethods(nil, actorTypeName,
-		map[string]lua.LGFunction{"__tostring": actorToString},
-		actorMethods)
-
-	value.RegisterTypeMethods(nil, scopeTypeName,
-		map[string]lua.LGFunction{"__tostring": scopeToString},
-		scopeMethods)
-
-	value.RegisterTypeMethods(nil, policyTypeName,
-		map[string]lua.LGFunction{"__tostring": policyToString},
-		policyMethods)
-
-	value.RegisterTypeMethods(nil, tokenStoreTypeName,
-		map[string]lua.LGFunction{"__tostring": tokenStoreToString},
-		tokenStoreMethods)
+	value.RegisterTypeMethods(nil, actorTypeName, nil, actorMethods)
+	value.RegisterTypeMethods(nil, scopeTypeName, nil, scopeMethods)
+	value.RegisterTypeMethods(nil, policyTypeName, nil, policyMethods)
+	value.RegisterTypeMethods(nil, tokenStoreTypeName, nil, tokenStoreMethods)
 }
 
 func initModuleTable() {
@@ -129,20 +118,20 @@ func policy(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no context"))
+		l.Push(lua.NewLuaError(l, "no context").WithKind(lua.KindInternal).WithRetryable(false))
 		return 2
 	}
 
 	if !security.IsAllowed(ctx, "security.policy.get", idStr, nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("permission denied: access policy"))
+		l.Push(lua.NewLuaError(l, "permission denied: access policy").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
 	pol, err := secapi.GetPolicy(ctx, id)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.WrapErrorWithLua(l, err, "get policy").WithKind(lua.KindInternal).WithRetryable(false))
 		return 2
 	}
 
@@ -158,20 +147,20 @@ func namedScope(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no context"))
+		l.Push(lua.NewLuaError(l, "no context").WithKind(lua.KindInternal).WithRetryable(false))
 		return 2
 	}
 
 	if !security.IsAllowed(ctx, "security.policy_group.get", idStr, nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("permission denied: access policy group"))
+		l.Push(lua.NewLuaError(l, "permission denied: access policy group").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
 	sc, err := secapi.GetPolicyGroup(ctx, id)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.WrapErrorWithLua(l, err, "get policy group").WithKind(lua.KindInternal).WithRetryable(false))
 		return 2
 	}
 

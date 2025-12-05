@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -692,6 +693,7 @@ func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, error) {
 				sub.channel.Close(nil)
 			}
 		}
+		relay.ReleasePackage(pkg)
 	}
 
 	// Handle subscribe/unsubscribe yields from incoming tasks
@@ -1097,7 +1099,8 @@ func (p *Process) wrapError(thread *lua.LState, err error) error {
 	}
 
 	// Check if already wrapped
-	if e := lua.GetError(err); e != nil {
+	var e *lua.Error
+	if errors.As(err, &e) {
 		return e
 	}
 

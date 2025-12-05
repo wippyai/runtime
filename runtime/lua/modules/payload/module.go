@@ -62,7 +62,7 @@ func newPayload(l *lua.LState) int {
 	v := l.Get(1)
 
 	// Check if the value is an error
-	if err := lua.ExtractError(v); err != nil {
+	if err, ok := v.(*lua.Error); ok {
 		p := payload.NewPayload(err, payload.GoError)
 		return PushPayload(l, p)
 	}

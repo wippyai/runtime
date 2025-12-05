@@ -35,10 +35,15 @@ func (m *mockEventBus) Send(_ context.Context, e event.Event) {
 	m.events = append(m.events, e)
 }
 
-func TestPolicyRegistry_StartStop(t *testing.T) {
+func newTestRegistry(t *testing.T) *PolicyRegistry {
 	bus := &mockEventBus{}
 	logger := zap.NewNop()
 	reg := NewPolicyRegistry(bus, logger)
+	return reg
+}
+
+func TestPolicyRegistry_StartStop(t *testing.T) {
+	reg := newTestRegistry(t)
 
 	err := reg.Start(context.Background())
 	assert.NoError(t, err)
@@ -49,9 +54,7 @@ func TestPolicyRegistry_StartStop(t *testing.T) {
 }
 
 func TestPolicyRegistry_ListGroupsAndPolicies(t *testing.T) {
-	bus := &mockEventBus{}
-	logger := zap.NewNop()
-	reg := NewPolicyRegistry(bus, logger)
+	reg := newTestRegistry(t)
 
 	policy1 := newMockPolicy("test", "policy1", security.Allow)
 	policy2 := newMockPolicy("test", "policy2", security.Deny)
@@ -91,9 +94,7 @@ func TestPolicyRegistry_ListGroupsAndPolicies(t *testing.T) {
 }
 
 func TestPolicyRegistry_GetPolicyAndGroup(t *testing.T) {
-	bus := &mockEventBus{}
-	logger := zap.NewNop()
-	reg := NewPolicyRegistry(bus, logger)
+	reg := newTestRegistry(t)
 
 	policy := newMockPolicy("test", "policy1", security.Allow)
 	groupID := registry.NewID("test", "group1")
@@ -128,9 +129,7 @@ func TestPolicyRegistry_GetPolicyAndGroup(t *testing.T) {
 }
 
 func TestPolicyRegistry_EventHandling(t *testing.T) {
-	bus := &mockEventBus{}
-	logger := zap.NewNop()
-	reg := NewPolicyRegistry(bus, logger)
+	reg := newTestRegistry(t)
 
 	policy := newMockPolicy("test", "policy1", security.Allow)
 	groupID := registry.NewID("test", "group1")

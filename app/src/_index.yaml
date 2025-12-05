@@ -47,6 +47,20 @@ entries:
     directory: /tmp/wippy-test
     auto_init: true
 
+  # app:exec - Native process executor for tests
+  - name: exec
+    kind: exec.native
+    meta:
+      comment: Native process executor for exec module tests
+
+  # app:exec_docker - Docker container executor for tests
+  - name: exec_docker
+    kind: exec.docker
+    meta:
+      comment: Docker executor for exec module tests
+    image: alpine:latest
+    auto_remove: true
+
   # app:test_runner - Test runner process
   - name: test_runner
     kind: process.lua

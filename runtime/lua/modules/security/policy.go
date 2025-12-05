@@ -68,12 +68,3 @@ func policyEvaluate(l *lua.LState) int {
 	l.Push(resultValue)
 	return 1
 }
-
-func policyToString(l *lua.LState) int {
-	policy := checkPolicy(l, 1)
-	if policy == nil {
-		return 0
-	}
-	l.Push(lua.LString("security.Policy{id=" + policy.ID().String() + "}"))
-	return 1
-}

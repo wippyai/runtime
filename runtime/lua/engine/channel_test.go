@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	procapi "github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	scheduler "github.com/wippyai/runtime/system/scheduler/actor"
 	lua "github.com/yuin/gopher-lua"
@@ -108,10 +109,10 @@ func TestSimpleYieldResume(t *testing.T) {
 		-- Second resume with no values - r1, r2 should be nil
 		local ok, ret1, ret2 = coroutine.resume(co)
 
-		-- Check what we got
+		-- Check what we got - return as table to avoid string-as-error
 		local t1 = type(ret1)
 		local t2 = type(ret2)
-		return t1 .. "," .. t2
+		return {types = t1 .. "," .. t2}
 	`
 	proc := startChannelProcess(t, script)
 	defer proc.Close()
@@ -141,8 +142,8 @@ func TestChannelSendWakesReceiverReturnValues(t *testing.T) {
 
 		send_r1, send_r2 = ch:send("hello")
 
-		-- Simply return the values directly - no function calls on them
-		return send_r1, send_r2
+		-- Return as table to avoid second value being interpreted as error
+		return {r1 = send_r1, r2 = send_r2}
 	`
 	proc := startChannelProcess(t, script)
 	defer proc.Close()
@@ -1247,6 +1248,13 @@ func startSubscribeProcess(t *testing.T, script string) *Process {
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	// Create inbox for subscribe tests
+	inbox := procapi.NewMessageInbox()
+	if err := procapi.SetInbox(ctx, inbox); err != nil {
+		t.Fatal(err)
+	}
+
 	if err := proc.Init(ctx, "", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -1825,7 +1833,7 @@ func TestSelectReadySendBlockedReceive(t *testing.T) {
 			readyCh:case_receive()
 		}
 
-		return result.channel == readyCh, result.value, result.ok
+		return {is_ready_ch = result.channel == readyCh, value = result.value, ok = result.ok}
 	`
 
 	proc := startChannelProcess(t, script)
@@ -1835,17 +1843,21 @@ func TestSelectReadySendBlockedReceive(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if proc.mainTask != nil && len(proc.mainTask.Yielded) >= 3 {
-		isReadyCh := proc.mainTask.Yielded[0].(lua.LBool)
-		val := proc.mainTask.Yielded[1].(lua.LString)
-		ok := proc.mainTask.Yielded[2].(lua.LBool)
+	if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
+		tbl, ok := proc.mainTask.Yielded[0].(*lua.LTable)
+		if !ok {
+			t.Fatal("expected table result")
+		}
+		isReadyCh := tbl.RawGetString("is_ready_ch").(lua.LBool)
+		val := tbl.RawGetString("value").(lua.LString)
+		okVal := tbl.RawGetString("ok").(lua.LBool)
 		if !bool(isReadyCh) {
 			t.Error("expected result.channel == readyCh")
 		}
 		if string(val) != "ready_value" {
 			t.Errorf("expected 'ready_value', got %q", val)
 		}
-		if !bool(ok) {
+		if !bool(okVal) {
 			t.Error("expected ok=true")
 		}
 	}
@@ -1877,7 +1889,7 @@ func TestSelectMixedBlockingBothCases(t *testing.T) {
 
 		for i = 1, 10 do coroutine.yield() end
 
-		return result_ch == ch2, result_val
+		return {is_ch2 = result_ch == ch2, value = result_val}
 	`
 
 	proc := startChannelProcess(t, script)
@@ -1887,9 +1899,13 @@ func TestSelectMixedBlockingBothCases(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if proc.mainTask != nil && len(proc.mainTask.Yielded) >= 2 {
-		isCh2 := proc.mainTask.Yielded[0].(lua.LBool)
-		val := proc.mainTask.Yielded[1].(lua.LString)
+	if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
+		tbl, ok := proc.mainTask.Yielded[0].(*lua.LTable)
+		if !ok {
+			t.Fatal("expected table result")
+		}
+		isCh2 := tbl.RawGetString("is_ch2").(lua.LBool)
+		val := tbl.RawGetString("value").(lua.LString)
 		if !bool(isCh2) {
 			t.Error("expected result.channel == ch2")
 		}
@@ -2060,7 +2076,7 @@ func TestSelectBufferedImmediateIndex(t *testing.T) {
 			ch2:case_receive()
 		}
 
-		return result.channel == ch2, result.value
+		return {is_ch2 = result.channel == ch2, value = result.value}
 	`
 
 	proc := startChannelProcess(t, script)
@@ -2070,8 +2086,12 @@ func TestSelectBufferedImmediateIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if proc.mainTask != nil && len(proc.mainTask.Yielded) >= 2 {
-		isCh2 := proc.mainTask.Yielded[0].(lua.LBool)
+	if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
+		tbl, ok := proc.mainTask.Yielded[0].(*lua.LTable)
+		if !ok {
+			t.Fatal("expected table result")
+		}
+		isCh2 := tbl.RawGetString("is_ch2").(lua.LBool)
 		if !bool(isCh2) {
 			t.Error("expected result.channel == ch2")
 		}

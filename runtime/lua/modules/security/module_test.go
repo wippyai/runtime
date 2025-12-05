@@ -315,24 +315,6 @@ func TestActorReturnsActor(t *testing.T) {
 	}
 }
 
-func TestActorToString(t *testing.T) {
-	actor := secapi.Actor{ID: "my-actor"}
-	scope := secsystem.NewScope(nil)
-	l := setupStateWithSecurityContext(actor, scope)
-	defer l.Close()
-
-	err := l.DoString(`
-		local a = security.actor()
-		local str = tostring(a)
-		if str ~= "security.Actor{id=my-actor}" then
-			error("expected 'security.Actor{id=my-actor}', got: " .. str)
-		end
-	`)
-	if err != nil {
-		t.Errorf("test failed: %v", err)
-	}
-}
-
 func TestActorMeta(t *testing.T) {
 	actor := secapi.Actor{ID: "user1", Meta: map[string]any{"role": "admin", "level": 5}}
 	scope := secsystem.NewScope(nil)
@@ -383,24 +365,6 @@ func TestScopeReturnsScope(t *testing.T) {
 		local s = security.scope()
 		if s == nil then
 			error("expected scope")
-		end
-	`)
-	if err != nil {
-		t.Errorf("test failed: %v", err)
-	}
-}
-
-func TestScopeToString(t *testing.T) {
-	actor := secapi.Actor{ID: "test-user"}
-	scope := secsystem.NewScope(nil)
-	l := setupStateWithSecurityContext(actor, scope)
-	defer l.Close()
-
-	err := l.DoString(`
-		local s = security.scope()
-		local str = tostring(s)
-		if str ~= "security.Scope{}" then
-			error("expected 'security.Scope{}', got: " .. str)
 		end
 	`)
 	if err != nil {
@@ -496,27 +460,6 @@ func TestCanWithDenyPolicy(t *testing.T) {
 		local allowed = security.can("read", "resource")
 		if allowed then
 			error("expected false with deny policy")
-		end
-	`)
-	if err != nil {
-		t.Errorf("test failed: %v", err)
-	}
-}
-
-func TestPolicyToString(t *testing.T) {
-	actor := secapi.Actor{ID: "test-user"}
-	pol := newMockPolicy("test", "mypolicy", secapi.Allow)
-	scope := secsystem.NewScope([]secapi.Policy{pol})
-	l := setupStateWithSecurityContext(actor, scope)
-	defer l.Close()
-
-	err := l.DoString(`
-		local s = security.scope()
-		local policies = s:policies()
-		local p = policies[1]
-		local str = tostring(p)
-		if str ~= "security.Policy{id=test:mypolicy}" then
-			error("expected 'security.Policy{id=test:mypolicy}', got: " .. str)
 		end
 	`)
 	if err != nil {

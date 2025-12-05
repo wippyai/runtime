@@ -51,11 +51,6 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 		memGraph: NewMemoryGraph(),
 		compiler: NewCompiler(
 			func(node *Node) (*glua.FunctionProto, error) {
-				// Register source for beautiful error formatting
-				if node.Source != "" {
-					glua.GetSourceRegistry().Register(node.ID.String(), node.Source)
-				}
-
 				chunk, err := parse.Parse(strings.NewReader(node.Source), node.ID.String())
 				if err != nil {
 					return nil, NewParseError(err)

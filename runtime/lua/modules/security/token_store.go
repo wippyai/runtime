@@ -2,7 +2,6 @@ package security
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"time"
 
@@ -76,14 +75,14 @@ func tokenStoreGet(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no context"))
+		l.Push(lua.NewLuaError(l, "no context").WithKind(lua.KindInternal).WithRetryable(false))
 		return 2
 	}
 
 	idStr := l.CheckString(1)
 	if idStr == "" {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("token store id is required"))
+		l.Push(lua.NewLuaError(l, "token store id is required").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
@@ -95,7 +94,7 @@ func tokenStoreGet(l *lua.LState) int {
 	reg := resource.GetRegistry(ctx)
 	if reg == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("resource registry not found"))
+		l.Push(lua.NewLuaError(l, "resource registry not found").WithKind(lua.KindInternal).WithRetryable(false))
 		return 2
 	}
 
@@ -103,7 +102,7 @@ func tokenStoreGet(l *lua.LState) int {
 	res, err := reg.Acquire(ctx, id, resource.ModeNormal)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.WrapErrorWithLua(l, err, "acquire token store").WithKind(lua.KindInternal).WithRetryable(false))
 		return 2
 	}
 
@@ -111,7 +110,7 @@ func tokenStoreGet(l *lua.LState) int {
 	if err != nil {
 		res.Release()
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.WrapErrorWithLua(l, err, "get token store").WithKind(lua.KindInternal).WithRetryable(false))
 		return 2
 	}
 
@@ -119,7 +118,7 @@ func tokenStoreGet(l *lua.LState) int {
 	if !ok {
 		res.Release()
 		l.Push(lua.LNil)
-		l.Push(lua.LString("resource is not a token store"))
+		l.Push(lua.NewLuaError(l, "resource is not a token store").WithKind(lua.KindInternal).WithRetryable(false))
 		return 2
 	}
 
@@ -144,7 +143,7 @@ func tokenStoreValidate(l *lua.LState) int {
 		ts.mu.Unlock()
 		l.Push(lua.LNil)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("token store is closed"))
+		l.Push(lua.NewLuaError(l, "token store is closed").WithKind(lua.KindInternal).WithRetryable(false))
 		return 3
 	}
 	tokenStore := ts.tokenStore
@@ -158,7 +157,7 @@ func tokenStoreValidate(l *lua.LState) int {
 	if !luasec.IsAllowed(l.Context(), "security.token.validate", storeID, meta) {
 		l.Push(lua.LNil)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("not allowed to validate token"))
+		l.Push(lua.NewLuaError(l, "not allowed to validate token").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 3
 	}
 
@@ -178,7 +177,7 @@ func tokenStoreCreate(l *lua.LState) int {
 	if ts.released {
 		ts.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.LString("token store is closed"))
+		l.Push(lua.NewLuaError(l, "token store is closed").WithKind(lua.KindInternal).WithRetryable(false))
 		return 2
 	}
 	tokenStore := ts.tokenStore
@@ -204,7 +203,7 @@ func tokenStoreCreate(l *lua.LState) int {
 	meta := attrs.Bag{"actor": actor.ID}
 	if !luasec.IsAllowed(l.Context(), "security.token.create", storeID, meta) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("not allowed to create token"))
+		l.Push(lua.NewLuaError(l, "not allowed to create token").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
@@ -221,7 +220,7 @@ func tokenStoreCreate(l *lua.LState) int {
 				d, err := time.ParseDuration(string(v))
 				if err != nil {
 					l.Push(lua.LNil)
-					l.Push(lua.LString("invalid expiration format"))
+					l.Push(lua.NewLuaError(l, "invalid expiration format").WithKind(lua.KindInvalid).WithRetryable(false))
 					return 2
 				}
 				expiration = d
@@ -259,7 +258,7 @@ func tokenStoreRevoke(l *lua.LState) int {
 	if ts.released {
 		ts.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.LString("token store is closed"))
+		l.Push(lua.NewLuaError(l, "token store is closed").WithKind(lua.KindInternal).WithRetryable(false))
 		return 2
 	}
 	tokenStore := ts.tokenStore
@@ -272,7 +271,7 @@ func tokenStoreRevoke(l *lua.LState) int {
 	meta := attrs.Bag{"token": tokenStr}
 	if !luasec.IsAllowed(l.Context(), "security.token.revoke", storeID, meta) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("not allowed to revoke token"))
+		l.Push(lua.NewLuaError(l, "not allowed to revoke token").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
@@ -304,23 +303,6 @@ func tokenStoreClose(l *lua.LState) int {
 	}
 
 	l.Push(lua.LTrue)
-	return 1
-}
-
-func tokenStoreToString(l *lua.LState) int {
-	ts := checkTokenStore(l, 1)
-	if ts == nil {
-		return 0
-	}
-	ts.mu.Lock()
-	released := ts.released
-	ts.mu.Unlock()
-
-	if released {
-		l.Push(lua.LString("security.TokenStore{closed}"))
-	} else {
-		l.Push(lua.LString("security.TokenStore{}"))
-	}
 	return 1
 }
 
@@ -360,14 +342,14 @@ func (y *ValidateYield) ToCommand() dispatcher.Command {
 
 func (y *ValidateYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNil, lua.LNil, lua.LString(err.Error())}
+		return []lua.LValue{lua.LNil, lua.LNil, lua.WrapErrorWithLua(l, err, "validate token").WithKind(lua.KindInternal).WithRetryable(false)}
 	}
 	resp, ok := data.(securityapi.TokenValidateResponse)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.LNil, lua.LString("invalid response type")}
+		return []lua.LValue{lua.LNil, lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.KindInternal).WithRetryable(false)}
 	}
 	if resp.Error != nil {
-		return []lua.LValue{lua.LNil, lua.LNil, lua.LString(resp.Error.Error())}
+		return []lua.LValue{lua.LNil, lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "validate token").WithKind(lua.KindInternal).WithRetryable(false)}
 	}
 	return []lua.LValue{wrapActor(l, resp.Actor), wrapScope(l, resp.Scope), lua.LNil}
 }
@@ -414,14 +396,14 @@ func (y *CreateYield) ToCommand() dispatcher.Command {
 
 func (y *CreateYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "create token").WithKind(lua.KindInternal).WithRetryable(false)}
 	}
 	resp, ok := data.(securityapi.TokenCreateResponse)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.LString("invalid response type")}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.KindInternal).WithRetryable(false)}
 	}
 	if resp.Error != nil {
-		return []lua.LValue{lua.LNil, lua.LString(resp.Error.Error())}
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "create token").WithKind(lua.KindInternal).WithRetryable(false)}
 	}
 	return []lua.LValue{lua.LString(resp.Token), lua.LNil}
 }
@@ -460,29 +442,14 @@ func (y *RevokeYield) ToCommand() dispatcher.Command {
 
 func (y *RevokeYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "revoke token").WithKind(lua.KindInternal).WithRetryable(false)}
 	}
 	resp, ok := data.(securityapi.TokenRevokeResponse)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.LString("invalid response type")}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.KindInternal).WithRetryable(false)}
 	}
 	if resp.Error != nil {
-		return []lua.LValue{lua.LNil, lua.LString(resp.Error.Error())}
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "revoke token").WithKind(lua.KindInternal).WithRetryable(false)}
 	}
 	return []lua.LValue{lua.LTrue, lua.LNil}
-}
-
-// getTokenStoreFromResource extracts the token store from a resource.
-func getTokenStoreFromResource(res resource.Resource[any]) (secapi.TokenStore, error) {
-	storeImpl, err := res.Get()
-	if err != nil {
-		return nil, err
-	}
-
-	tokenStore, ok := storeImpl.(secapi.TokenStore)
-	if !ok {
-		return nil, errors.New("resource is not a token store")
-	}
-
-	return tokenStore, nil
 }

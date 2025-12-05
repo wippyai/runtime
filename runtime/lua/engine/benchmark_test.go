@@ -663,7 +663,7 @@ func BenchmarkChannelSelect(b *testing.B) {
 
 		for i = 1, 100 do
 			ch1:send(i)
-			local idx = channel.select(ch1:case_receive(), ch2:case_receive(), nil)
+			local result = channel.select{ch1:case_receive(), ch2:case_receive()}
 		end
 	`
 	b.ResetTimer()
@@ -761,7 +761,7 @@ func BenchmarkSelectCases2(b *testing.B) {
 		local ch2 = channel.new(1)
 		ch1:send(1)
 		for i = 1, 50 do
-			channel.select(ch1:case_receive(), ch2:case_receive())
+			channel.select{ch1:case_receive(), ch2:case_receive()}
 			ch1:send(1)
 		end
 	`
@@ -823,7 +823,7 @@ func BenchmarkSelectCases4(b *testing.B) {
 		local ch4 = channel.new(1)
 		ch1:send(1)
 		for i = 1, 50 do
-			channel.select(ch1:case_receive(), ch2:case_receive(), ch3:case_receive(), ch4:case_receive())
+			channel.select{ch1:case_receive(), ch2:case_receive(), ch3:case_receive(), ch4:case_receive()}
 			ch1:send(1)
 		end
 	`

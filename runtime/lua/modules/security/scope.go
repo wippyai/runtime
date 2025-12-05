@@ -181,8 +181,3 @@ func scopePolicies(l *lua.LState) int {
 	l.Push(policiesTable)
 	return 1
 }
-
-func scopeToString(l *lua.LState) int {
-	l.Push(lua.LString("security.Scope{}"))
-	return 1
-}

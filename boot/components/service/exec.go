@@ -8,6 +8,7 @@ import (
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
 	bootpkg "github.com/wippyai/runtime/boot"
+	"github.com/wippyai/runtime/service/exec/docker"
 	"github.com/wippyai/runtime/service/exec/native"
 )
 
@@ -21,13 +22,20 @@ func Exec() boot.Component {
 			bus := event.GetBus(ctx)
 			handlers := bootpkg.GetHandlerRegistry(ctx)
 
-			manager := native.NewManager(
+			nativeManager := native.NewManager(
 				bus,
 				dtt,
-				logger.Named("exec"),
+				logger.Named("exec.native"),
 			)
+			handlers.RegisterListener("exec.native", nativeManager)
 
-			handlers.RegisterListener("exec.native", manager)
+			dockerManager := docker.NewManager(
+				bus,
+				dtt,
+				logger.Named("exec.docker"),
+			)
+			handlers.RegisterListener("exec.docker", dockerManager)
+
 			return ctx, nil
 		},
 	})

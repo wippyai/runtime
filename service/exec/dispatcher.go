@@ -3,12 +3,15 @@ package exec
 
 import (
 	"context"
-	"errors"
-	osexec "os/exec"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	execapi "github.com/wippyai/runtime/api/dispatcher/exec"
 )
+
+// exitCoder is an interface for errors that have an exit code.
+type exitCoder interface {
+	ExitCode() int
+}
 
 // Dispatcher handles exec commands.
 type Dispatcher struct{}
@@ -42,12 +45,9 @@ func (d *Dispatcher) handleProcessWait(ctx context.Context, cmd dispatcher.Comma
 		var exitCode int
 		if err == nil {
 			exitCode = 0
-		} else {
-			var exitErr *osexec.ExitError
-			if errors.As(err, &exitErr) {
-				exitCode = exitErr.ExitCode()
-				err = nil
-			}
+		} else if ec, ok := err.(exitCoder); ok {
+			exitCode = ec.ExitCode()
+			err = nil
 		}
 
 		if ctx.Err() == nil {

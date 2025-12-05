@@ -44,9 +44,3 @@ func actorMeta(l *lua.LState) int {
 	l.Push(tbl)
 	return 1
 }
-
-func actorToString(l *lua.LState) int {
-	actor := checkActor(l, 1)
-	l.Push(lua.LString("security.Actor{id=" + actor.ID + "}"))
-	return 1
-}

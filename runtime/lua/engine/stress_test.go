@@ -509,7 +509,7 @@ func TestSpawnBasic(t *testing.T) {
 		local thread = coroutine.spawn(function()
 			return "child done"
 		end)
-		return "main done", type(thread)
+		return {main = "main done", thread_type = type(thread)}
 	`
 	proto, err := lua.CompileString(script, "test.lua")
 	if err != nil {
