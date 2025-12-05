@@ -64,6 +64,12 @@ type (
 
 		// All returns all variables from all storages.
 		All(ctx context.Context) (map[string]string, error)
+
+		// GetStorage retrieves a storage backend by its ID.
+		GetStorage(ctx context.Context, id registry.ID) (Storage, error)
+
+		// RegisterStorage registers a storage backend directly (synchronous).
+		RegisterStorage(id registry.ID, storage Storage)
 	}
 )
 

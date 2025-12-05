@@ -989,7 +989,8 @@ func TestSendStressLazy(t *testing.T) {
 
 func BenchmarkExecutorSend(b *testing.B) {
 	executor := NewExecutor(&mockDispatcher{})
-	executor.proc = &idleProcess{}
+	var proc process.Process = &idleProcess{}
+	executor.proc.Store(&proc)
 	pkg := &relay.Package{Target: relay.PID{UniqID: "1"}}
 
 	b.ResetTimer()
@@ -1005,7 +1006,8 @@ func BenchmarkStaticSendLookup(b *testing.B) {
 
 	// Register a fake executor in active map
 	executor := NewExecutor(&mockDispatcher{})
-	executor.proc = &idleProcess{}
+	var proc process.Process = &idleProcess{}
+	executor.proc.Store(&proc)
 	pool.active.Store("bench-1", executor)
 	pkg := &relay.Package{Target: relay.PID{UniqID: "bench-1"}}
 
@@ -1022,7 +1024,8 @@ func BenchmarkLazySendLookup(b *testing.B) {
 
 	// Register a fake executor in active map
 	executor := NewExecutor(&mockDispatcher{})
-	executor.proc = &idleProcess{}
+	var proc process.Process = &idleProcess{}
+	executor.proc.Store(&proc)
 	pool.activeExec.Store("bench-1", executor)
 	pkg := &relay.Package{Target: relay.PID{UniqID: "bench-1"}}
 
@@ -1039,7 +1042,8 @@ func BenchmarkInlineSendLookup(b *testing.B) {
 
 	// Register a fake executor in active map
 	executor := NewExecutor(&mockDispatcher{})
-	executor.proc = &idleProcess{}
+	var proc process.Process = &idleProcess{}
+	executor.proc.Store(&proc)
 	pool.active.Store("bench-1", executor)
 	pkg := &relay.Package{Target: relay.PID{UniqID: "bench-1"}}
 

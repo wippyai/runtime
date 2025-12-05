@@ -19,7 +19,7 @@ func Environment() boot.Component {
 		Name:      EnvironmentName,
 		DependsOn: []boot.Name{bootcore.RegistryName},
 		Load: func(ctx context.Context) (context.Context, error) {
-			logger := logapi.GetLogger(ctx)
+			logger := logapi.GetLogger(ctx).Named("env")
 			if logger == nil {
 				return ctx, ErrLoggerNotAvailable
 			}

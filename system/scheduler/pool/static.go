@@ -69,6 +69,8 @@ type Static struct {
 	workers    []*staticWorker
 	tasks      chan *request
 	dispatcher Dispatcher
+	factory    Factory
+	hooks      ExecutionHooks
 	done       chan struct{}
 	wg         sync.WaitGroup
 	closed     atomic.Bool
@@ -86,16 +88,18 @@ func NewStatic(factory Factory, dispatcher Dispatcher, cfg Config, hooks ...Exec
 		cfg.QueueSize = cfg.Workers * 256
 	}
 
+	var hooksCfg ExecutionHooks
+	if len(hooks) > 0 {
+		hooksCfg = hooks[0]
+	}
+
 	s := &Static{
 		workers:    make([]*staticWorker, cfg.Workers),
 		tasks:      make(chan *request, cfg.QueueSize),
 		dispatcher: dispatcher,
+		factory:    factory,
+		hooks:      hooksCfg,
 		done:       make(chan struct{}),
-	}
-
-	var hooksCfg ExecutionHooks
-	if len(hooks) > 0 {
-		hooksCfg = hooks[0]
 	}
 
 	for i := 0; i < cfg.Workers; i++ {
@@ -109,7 +113,7 @@ func NewStatic(factory Factory, dispatcher Dispatcher, cfg Config, hooks ...Exec
 
 		// Each worker needs its own Executor to avoid races on multiCtx
 		executor := NewExecutor(dispatcher).WithExecutionHooks(hooksCfg)
-		executor.proc = proc // Set once, immutable for this worker's lifetime
+		executor.proc.Store(&proc)
 
 		s.workers[i] = &staticWorker{
 			pool:     s,
@@ -236,11 +240,41 @@ func (w *staticWorker) execute(req *request) {
 
 	result := w.executor.Run(ctx, w.process, req.method, req.input)
 
-	// Unregister - any Send after this returns ErrProcessNotFound
+	// Clear proc atomically first - concurrent Send will see nil and fail safely
+	w.executor.proc.Store(nil)
+
+	// Unregister - no more lookups will find this executor
 	w.pool.active.Delete(pid.UniqID)
+
+	// Reset or recreate process, then restore proc pointer
+	w.resetOrRecreate()
 
 	select {
 	case req.resultCh <- result:
 	default:
 	}
+}
+
+// resetOrRecreate resets the process if supported, otherwise closes and recreates it.
+// After this returns, proc is restored and ready for next execution.
+func (w *staticWorker) resetOrRecreate() {
+	if r, ok := w.process.(process.Resettable); ok {
+		r.Reset()
+		w.executor.proc.Store(&w.process)
+		return
+	}
+
+	// Process not resettable - close and create new one
+	w.process.Close()
+
+	newProc, err := w.pool.factory()
+	if err != nil {
+		// Factory failed - worker will error on next request
+		w.process = nil
+		// proc stays nil - already cleared in execute()
+		return
+	}
+
+	w.process = newProc
+	w.executor.proc.Store(&newProc)
 }

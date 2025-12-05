@@ -367,3 +367,157 @@ func TestProcessReturnsMethodResult(t *testing.T) {
 		t.Fatal("Expected result.Result to be non-nil")
 	}
 }
+
+func TestProcessReturnsStringError(t *testing.T) {
+	// Test that returning (value, "error string") is treated as an error
+	script := `
+		return {
+			main = function()
+				return nil, "something went wrong"
+			end
+		}
+	`
+
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	if err := proc.Init(ctx, "main", nil); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	defer proc.Close()
+
+	result, err := proc.Step(nil)
+	if result.Status != scheduler.StepDone {
+		t.Fatalf("Expected StepDone, got %v", result.Status)
+	}
+
+	if err == nil {
+		t.Fatal("Expected error from second return value, got nil")
+	}
+
+	if err.Error() != "something went wrong" {
+		t.Errorf("Expected error 'something went wrong', got '%s'", err.Error())
+	}
+}
+
+func TestProcessReturnsLuaError(t *testing.T) {
+	// Test that returning (value, errors.new({...})) is treated as an error
+	script := `
+		return {
+			main = function()
+				local err = errors.new({
+					message = "validation failed",
+					kind = errors.INVALID,
+					retryable = false
+				})
+				return nil, err
+			end
+		}
+	`
+
+	// Create factory with errors module
+	factory := NewFactory(FactoryConfig{
+		Script:        script,
+		ScriptName:    "test.lua",
+		ModuleBinders: []ModuleBinder{BindErrorsModule},
+	})
+
+	p, err := factory()
+	if err != nil {
+		t.Fatalf("Factory failed: %v", err)
+	}
+	proc := p.(*Process)
+	defer proc.Close()
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	if err := proc.Init(ctx, "main", nil); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+
+	result, stepErr := proc.Step(nil)
+	if result.Status != scheduler.StepDone {
+		t.Fatalf("Expected StepDone, got %v", result.Status)
+	}
+
+	if stepErr == nil {
+		t.Fatal("Expected error from second return value, got nil")
+	}
+
+	// Check that it's a lua.Error
+	luaErr := lua.GetError(stepErr)
+	if luaErr == nil {
+		t.Fatalf("Expected lua.Error, got %T", stepErr)
+	}
+
+	if luaErr.Message != "validation failed" {
+		t.Errorf("Expected message 'validation failed', got '%s'", luaErr.Message)
+	}
+
+	if luaErr.Kind() != lua.KindInvalid {
+		t.Errorf("Expected kind Invalid, got %s", luaErr.Kind())
+	}
+}
+
+func TestProcessReturnsValueNoError(t *testing.T) {
+	// Test that returning (value, nil) is NOT treated as an error
+	script := `
+		return {
+			main = function()
+				return {success = true}, nil
+			end
+		}
+	`
+
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	if err := proc.Init(ctx, "main", nil); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	defer proc.Close()
+
+	result, err := proc.Step(nil)
+	if result.Status != scheduler.StepDone {
+		t.Fatalf("Expected StepDone, got %v", result.Status)
+	}
+
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	if result.Result == nil {
+		t.Fatal("Expected result.Result to be non-nil")
+	}
+}
+
+func TestProcessReturnsValueWithFalseSecond(t *testing.T) {
+	// Test that returning (value, false) is NOT treated as an error
+	script := `
+		return {
+			main = function()
+				return 42, false
+			end
+		}
+	`
+
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	if err := proc.Init(ctx, "main", nil); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	defer proc.Close()
+
+	result, err := proc.Step(nil)
+	if result.Status != scheduler.StepDone {
+		t.Fatalf("Expected StepDone, got %v", result.Status)
+	}
+
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+}

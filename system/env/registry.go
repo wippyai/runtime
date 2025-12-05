@@ -108,6 +108,12 @@ func (r *Registry) registerStorage(e event.Event) {
 	r.log.Debug("storage registered", zap.String("id", storageID.String()))
 }
 
+// RegisterStorage registers a storage backend directly (synchronous).
+func (r *Registry) RegisterStorage(id registry.ID, storage env.Storage) {
+	r.storages.Store(id, storage)
+	r.log.Debug("storage registered directly", zap.String("id", id.String()))
+}
+
 func (r *Registry) deleteStorage(e event.Event) {
 	storageID := registry.ParseID(e.Path)
 	r.storages.Delete(storageID)
@@ -251,10 +257,10 @@ func (r *Registry) findVariable(ctx context.Context, name string) (*env.Variable
 	return r.findVariableByID(nameID)
 }
 
-// getStorage retrieves storage by ID from the registry's in-memory map.
+// GetStorage retrieves storage by ID from the registry's in-memory map.
 // Context is accepted for interface consistency but not used since storage
 // lookup is a local map operation.
-func (r *Registry) getStorage(_ context.Context, id registry.ID) (env.Storage, error) {
+func (r *Registry) GetStorage(_ context.Context, id registry.ID) (env.Storage, error) {
 	stored, exists := r.storages.Load(id)
 	if !exists {
 		return nil, env.ErrStorageNotFound
@@ -302,7 +308,7 @@ func (r *Registry) getValue(ctx context.Context, variable *env.Variable) (string
 }
 
 func (r *Registry) lookupValue(ctx context.Context, variable *env.Variable) (string, bool, error) {
-	storage, err := r.getStorage(ctx, variable.StorageID)
+	storage, err := r.GetStorage(ctx, variable.StorageID)
 	if err != nil {
 		return "", false, err
 	}
@@ -323,7 +329,7 @@ func (r *Registry) setValue(ctx context.Context, variable *env.Variable, value s
 		return env.ErrVariableReadOnly
 	}
 
-	storage, err := r.getStorage(ctx, variable.StorageID)
+	storage, err := r.GetStorage(ctx, variable.StorageID)
 	if err != nil {
 		return err
 	}

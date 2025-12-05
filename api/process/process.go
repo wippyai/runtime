@@ -28,7 +28,7 @@ const (
 const KindHandler registry.Kind = "dispatcher.handler"
 
 // Payload is an alias for payload.Payload used in process results.
-type Payload = payload.Payload
+type Payload = payload.Payload // todo: drop it
 
 type (
 	// Meta contains metadata about a process type.
@@ -54,6 +54,9 @@ type (
 
 type (
 	// Process is a schedulable unit of work implemented as a state machine.
+	//
+	// Thread safety: Pool schedulers route messages through Executor.Send() which
+	// writes directly to the Inbox. Process.Send() is only used by actor scheduler.
 	Process interface {
 		// Init prepares the process for execution with method and input.
 		Init(ctx context.Context, method string, input payload.Payloads) error
@@ -62,6 +65,13 @@ type (
 		// Close releases process resources.
 		Close()
 		relay.Receiver
+	}
+
+	// Inbox is a thread-safe message queue for process communication.
+	// Implemented by ProcessContext in the engine package.
+	Inbox interface {
+		// QueueMessage adds a message to the inbox. Returns false if closed.
+		QueueMessage(pkg *relay.Package) bool
 	}
 
 	// NewFunc creates new Process instances.

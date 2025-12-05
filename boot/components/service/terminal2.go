@@ -18,7 +18,7 @@ func Terminal2() boot.Component {
 		Name:      Terminal2Name,
 		DependsOn: []boot.Name{system.FactoryName},
 		Load: func(ctx context.Context) (context.Context, error) {
-			logger := logapi.GetLogger(ctx)
+			logger := logapi.GetLogger(ctx).Named("terminal")
 			if logger == nil {
 				return ctx, ErrLoggerNotAvailable
 			}
@@ -49,7 +49,7 @@ func Terminal2() boot.Component {
 				return ctx, ErrDispatcherRegistryNotAvailable
 			}
 
-			manager := terminal.NewManager(bus, dtt, registry, factory, logger.Named("terminal"))
+			manager := terminal.NewManager(bus, dtt, registry, factory, logger)
 			handlers.RegisterListener("terminal.host", manager)
 
 			logger.Info("terminal manager registered")

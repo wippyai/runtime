@@ -65,6 +65,11 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	m.storages[entry.ID] = storage
 	m.mu.Unlock()
 
+	// Register directly in the central registry for synchronous access
+	if reg := env.GetRegistry(ctx); reg != nil {
+		reg.RegisterStorage(entry.ID, storage)
+	}
+
 	m.bus.Send(ctx, event.Event{
 		System: env.System,
 		Kind:   env.StorageRegister,

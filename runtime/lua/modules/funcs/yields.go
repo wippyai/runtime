@@ -60,9 +60,8 @@ func (y *CallYield) HandleResult(l *lua.LState, data any, err error) []lua.LValu
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 	if resp.Error != nil {
-		luaErr := lua.WrapErrorWithLua(l, resp.Error, "function error").
-			WithKind(lua.KindInternal).
-			WithRetryable(false)
+		// Wrap error but preserve original kind/retryable from error chain
+		luaErr := lua.WrapErrorWithLua(l, resp.Error, "")
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 	lv, convErr := luaconv.GoToLua(resp.Value)

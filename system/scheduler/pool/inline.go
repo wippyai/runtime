@@ -22,6 +22,7 @@ import (
 type Inline struct {
 	factory    Factory
 	dispatcher Dispatcher
+	hooks      ExecutionHooks
 	executor   *Executor
 	process    process.Process
 	mu         sync.Mutex
@@ -37,15 +38,18 @@ func NewInline(factory Factory, dispatcher Dispatcher, hooks ...ExecutionHooks) 
 		return nil, err
 	}
 
-	executor := NewExecutor(dispatcher)
+	var hooksCfg ExecutionHooks
 	if len(hooks) > 0 {
-		executor = executor.WithExecutionHooks(hooks[0])
+		hooksCfg = hooks[0]
 	}
-	executor.proc = proc // Set once, immutable
+
+	executor := NewExecutor(dispatcher).WithExecutionHooks(hooksCfg)
+	executor.proc.Store(&proc)
 
 	return &Inline{
 		factory:    factory,
 		dispatcher: dispatcher,
+		hooks:      hooksCfg,
 		executor:   executor,
 		process:    proc,
 	}, nil
@@ -63,10 +67,39 @@ func (i *Inline) Call(ctx context.Context, method string, input payload.Payloads
 
 	result := i.executor.Run(ctx, i.process, method, input)
 
-	// Unregister
+	// Clear proc atomically first - concurrent Send will see nil and fail safely
+	i.executor.proc.Store(nil)
+
+	// Unregister - no more lookups will find this executor
 	i.active.Delete(pid.UniqID)
 
+	// Reset or recreate process for next use
+	i.resetOrRecreate()
+
 	return result, nil
+}
+
+// resetOrRecreate resets the process if supported, otherwise closes and recreates it.
+// After this returns, proc is restored and ready for next execution.
+func (i *Inline) resetOrRecreate() {
+	if r, ok := i.process.(process.Resettable); ok {
+		r.Reset()
+		i.executor.proc.Store(&i.process)
+		return
+	}
+
+	// Process not resettable - close and create new one
+	i.process.Close()
+
+	newProc, err := i.factory()
+	if err != nil {
+		i.process = nil
+		// proc stays nil - already cleared in Call()
+		return
+	}
+
+	i.process = newProc
+	i.executor.proc.Store(&newProc)
 }
 
 // Send implements relay.Receiver. Routes package to target execution.

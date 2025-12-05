@@ -12,6 +12,7 @@ import (
 	"context"
 	"sync/atomic"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
@@ -185,8 +186,13 @@ type Executor struct {
 	// Wake signal for StepIdle - message was delivered to process
 	wake chan struct{}
 
-	// Process for this executor (set at creation, immutable)
-	proc process.Process
+	// Process for this executor. Stored atomically for Lazy pool reuse.
+	proc atomic.Pointer[process.Process]
+
+	// Direct reference to ProcessContext for message delivery.
+	// Set after Init, cleared when execution ends.
+	// Send() writes directly here, bypassing Process.Send().
+	inbox atomic.Pointer[engine.ProcessContext]
 
 	// hasWork is set when messages arrive, checked/cleared at StepIdle
 	hasWork atomic.Bool
@@ -202,10 +208,11 @@ func NewExecutor(d Dispatcher) *Executor {
 	return e
 }
 
-// Reset prepares the executor for reuse. Clears hasWork flag and drains channels.
-// Note: proc is not cleared here - it will be set when executor is reused.
-// This avoids race with concurrent Send that may have looked up this executor.
+// Reset prepares the executor for reuse. Clears inbox and proc atomically,
+// hasWork flag, and drains channels.
 func (e *Executor) Reset() {
+	e.inbox.Store(nil)
+	e.proc.Store(nil)
 	e.hasWork.Store(false)
 	// Drain wake channel
 	select {
@@ -219,10 +226,15 @@ func (e *Executor) Reset() {
 	}
 }
 
-// Send implements relay.Receiver. Delivers message to process and signals wake.
+// Send implements relay.Receiver. Delivers message directly to inbox.
+// Safe to call concurrently - returns error if inbox was cleared.
 func (e *Executor) Send(pkg *relay.Package) error {
-	if err := e.proc.Send(pkg); err != nil {
-		return err
+	inbox := e.inbox.Load()
+	if inbox == nil {
+		return ErrProcessNotFound
+	}
+	if !inbox.QueueMessage(pkg) {
+		return ErrProcessNotFound
 	}
 	// Mark that work arrived and signal wake
 	e.hasWork.Store(true)
@@ -240,7 +252,7 @@ func (e *Executor) WithExecutionHooks(hooks ExecutionHooks) *Executor {
 }
 
 // Run executes a process to completion, handling all yields.
-// Caller must set e.proc before registering executor and clear after unregistering.
+// Captures inbox after Init and clears it before returning.
 func (e *Executor) Run(ctx context.Context, proc process.Process, method string, input payload.Payloads) *runtime.Result {
 	if e.hooks.OnStart != nil {
 		e.hooks.OnStart(ctx, proc)
@@ -253,6 +265,15 @@ func (e *Executor) Run(ctx context.Context, proc process.Process, method string,
 		}
 		return result
 	}
+
+	// Capture inbox reference after Init - ProcessContext is now in the frame context
+	pc := engine.GetProcessContext(ctx)
+	if pc != nil {
+		e.inbox.Store(pc)
+	}
+
+	// Ensure inbox is cleared when Run returns - prevents messages after completion
+	defer e.inbox.Store(nil)
 
 	var yieldResults *process.YieldResults
 	for {

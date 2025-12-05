@@ -26,6 +26,13 @@ entries:
     source: file://error_func.lua
     method: main
 
+  - name: error_with_kind
+    kind: function.lua
+    meta:
+      comment: Function that returns structured errors with kind
+    source: file://error_with_kind.lua
+    method: main
+
   # Test cases
   - name: call
     kind: function.lua
@@ -140,6 +147,19 @@ entries:
       suite: funcs
       description: Input validation for funcs
     source: file://validation.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - funcs
+
+  - name: error_propagation
+    kind: function.lua
+    meta:
+      type: test
+      suite: funcs
+      description: Error propagation through funcs.call
+    source: file://error_propagation.lua
     method: main
     imports:
       assert2: app.lib:assert

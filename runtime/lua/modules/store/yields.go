@@ -157,6 +157,9 @@ func (y *DeleteYield) HandleResult(_ *lua.LState, data any, err error) []lua.LVa
 		return []lua.LValue{lua.LNil, lua.LString("invalid response type")}
 	}
 	if resp.Error != nil {
+		if resp.NotFound {
+			return []lua.LValue{lua.LFalse, lua.LNil}
+		}
 		return []lua.LValue{lua.LNil, lua.LString(resp.Error.Error())}
 	}
 	return []lua.LValue{lua.LTrue, lua.LNil}

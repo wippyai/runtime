@@ -2,6 +2,7 @@ package security
 
 import (
 	secapi "github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -15,7 +16,7 @@ var actorMethods = map[string]lua.LGFunction{
 func wrapActor(l *lua.LState, actor secapi.Actor) *lua.LUserData {
 	ud := l.NewUserData()
 	ud.Value = actor
-	ud.Metatable = actorMetatable
+	ud.Metatable = value.GetTypeMetatable(l, actorTypeName)
 	return ud
 }
 

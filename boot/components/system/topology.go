@@ -16,7 +16,7 @@ func Topology() boot.Component {
 	return boot.New(boot.P{
 		Name: TopologyName,
 		Load: func(ctx context.Context) (context.Context, error) {
-			logger := logapi.GetLogger(ctx)
+			logger := logapi.GetLogger(ctx).Named("topology")
 			if logger == nil {
 				return ctx, ErrLoggerNotAvailable
 			}

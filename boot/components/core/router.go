@@ -19,7 +19,7 @@ func EventRouter() boot.Component {
 			return ctx, nil
 		},
 		Start: func(ctx context.Context) error {
-			logger := logapi.GetLogger(ctx)
+			logger := logapi.GetLogger(ctx).Named("router")
 			bus := event.GetBus(ctx)
 			handlerRegistry := bootpkg.GetHandlerRegistry(ctx)
 

@@ -130,10 +130,16 @@ func (pc *ProcessContext) Subscriptions() *subscribeContext {
 }
 
 // QueueMessage adds a message to the inbox.
-func (pc *ProcessContext) QueueMessage(pkg *relay.Package) {
+// Returns false if ProcessContext is closed.
+func (pc *ProcessContext) QueueMessage(pkg *relay.Package) bool {
 	pc.inboxMu.Lock()
+	if pc.closed {
+		pc.inboxMu.Unlock()
+		return false
+	}
 	pc.inbox = append(pc.inbox, pkg)
 	pc.inboxMu.Unlock()
+	return true
 }
 
 // DrainInbox returns and clears all incoming messages.

@@ -23,7 +23,7 @@ func Queues() boot.Component {
 			ManagerName,
 		},
 		Load: func(ctx context.Context) (context.Context, error) {
-			logger := logapi.GetLogger(ctx)
+			logger := logapi.GetLogger(ctx).Named("queue.queues")
 			dtt := payload.GetTranscoder(ctx)
 			bus := event.GetBus(ctx)
 			handlers := bootpkg.GetHandlerRegistry(ctx)

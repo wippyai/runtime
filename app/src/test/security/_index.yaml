@@ -1,0 +1,62 @@
+version: "1.0"
+namespace: app.test.security
+
+entries:
+  # Allow-all policy for testing
+  - name: allow_all
+    kind: security.policy
+    policy:
+      actions: "*"
+      resources: "*"
+      effect: allow
+    groups:
+      - test_group
+
+  # Deny-all policy for testing
+  - name: deny_all
+    kind: security.policy
+    policy:
+      actions: "*"
+      resources: "*"
+      effect: deny
+    groups:
+      - test_deny_group
+
+  # Read-only policy
+  - name: read_only
+    kind: security.policy
+    policy:
+      actions:
+        - read
+        - list
+        - get
+      resources: "*"
+      effect: allow
+    groups:
+      - test_read_group
+
+  # Actor conditional policy
+  - name: actor_match
+    kind: security.policy
+    policy:
+      actions: "*"
+      resources: "*"
+      effect: allow
+      conditions:
+        - field: actor.id
+          operator: eq
+          value: admin
+
+  # Module loading test - verifies security module loads and basic functions exist
+  - name: module
+    kind: function.lua
+    meta:
+      type: test
+      suite: security
+      description: security module loading
+    source: file://module.lua
+    method: main
+    modules:
+      - security
+    imports:
+      assert_primitives: app.lib:assert

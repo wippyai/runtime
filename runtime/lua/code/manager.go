@@ -3,6 +3,7 @@ package code
 import (
 	"context"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wippyai/runtime/api/event"
@@ -22,6 +23,7 @@ type (
 		compiler *Compiler
 
 		// Transaction tracking
+		txMu    sync.Mutex
 		txNodes map[registry.ID]bool
 	}
 
@@ -88,11 +90,14 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 
 // Begin implements TransactionListener
 func (cm *Manager) Begin(_ context.Context) {
+	cm.txMu.Lock()
+	defer cm.txMu.Unlock()
 	cm.txNodes = make(map[registry.ID]bool)
 }
 
 // Commit implements TransactionListener
 func (cm *Manager) Commit(ctx context.Context) {
+	cm.txMu.Lock()
 	// Get all affected nodes
 	affected := make(map[registry.ID]bool)
 	for id := range cm.txNodes {
@@ -121,6 +126,7 @@ func (cm *Manager) Commit(ctx context.Context) {
 
 	// Clear transaction nodes
 	cm.txNodes = make(map[registry.ID]bool)
+	cm.txMu.Unlock()
 
 	// to slice of []registry.Process
 	affectedSlice := make([]registry.ID, 0, len(affected))
@@ -138,6 +144,8 @@ func (cm *Manager) Commit(ctx context.Context) {
 
 // Discard implements TransactionListener
 func (cm *Manager) Discard(_ context.Context) {
+	cm.txMu.Lock()
+	defer cm.txMu.Unlock()
 	cm.txNodes = make(map[registry.ID]bool)
 }
 
@@ -176,7 +184,9 @@ func (cm *Manager) AddNode(_ context.Context, node Node, deps []Import) error {
 	}
 
 	// Mark node for transaction
+	cm.txMu.Lock()
 	cm.txNodes[node.ID] = true
+	cm.txMu.Unlock()
 
 	return nil
 }
@@ -214,7 +224,9 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 	}
 
 	// Mark node for transaction
+	cm.txMu.Lock()
 	cm.txNodes[node.ID] = true
+	cm.txMu.Unlock()
 
 	// Calculate all dependents for cache invalidation
 	dependents, err := cm.memGraph.GetAllDependents(node.ID)
@@ -258,7 +270,9 @@ func (cm *Manager) DeleteNode(_ context.Context, id registry.ID) error {
 	}
 
 	// Mark node for transaction
+	cm.txMu.Lock()
 	cm.txNodes[id] = true
+	cm.txMu.Unlock()
 
 	return nil
 }
@@ -305,7 +319,10 @@ func (cm *Manager) AddNodeWithProto(_ context.Context, node Node, deps []Import,
 		cm.compiler.SetProto(node.ID, proto)
 	}
 
+	cm.txMu.Lock()
 	cm.txNodes[node.ID] = true
+	cm.txMu.Unlock()
+
 	return nil
 }
 
@@ -340,7 +357,9 @@ func (cm *Manager) UpdateNodeWithProto(_ context.Context, node Node, deps []Impo
 		}
 	}
 
+	cm.txMu.Lock()
 	cm.txNodes[node.ID] = true
+	cm.txMu.Unlock()
 
 	dependents, err := cm.memGraph.GetAllDependents(node.ID)
 	if err != nil {

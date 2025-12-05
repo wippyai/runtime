@@ -10,7 +10,6 @@ const (
 	ClockDispatcherName    boot.Name = "dispatcher.clock"
 	FuncDispatcherName     boot.Name = "dispatcher.func"
 	SecurityDispatcherName boot.Name = "dispatcher.security"
-	QueueDispatcherName    boot.Name = "dispatcher.queue"
 
 	// Service dispatchers
 	HTTPDispatcherName   boot.Name = "dispatcher.http"

@@ -3,6 +3,7 @@ package security
 import (
 	"github.com/wippyai/runtime/api/registry"
 	secapi "github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -20,7 +21,7 @@ var scopeMethods = map[string]lua.LGFunction{
 func wrapScope(l *lua.LState, scope secapi.Scope) *lua.LUserData {
 	ud := l.NewUserData()
 	ud.Value = scope
-	ud.Metatable = scopeMetatable
+	ud.Metatable = value.GetTypeMetatable(l, scopeTypeName)
 	return ud
 }
 

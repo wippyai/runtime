@@ -70,9 +70,8 @@ func (f *Future) CreateHandler() engine.TopicHandler {
 		if len(payloads) == 1 && payloads[0].Format() == payload.GoError {
 			if err, ok := payloads[0].Data().(error); ok {
 				f.err = err
-				luaErr := lua.WrapErrorWithLua(l, err, "async call failed").
-					WithKind(lua.KindInternal).
-					WithRetryable(false)
+				// Preserve original kind/retryable from error chain
+				luaErr := lua.WrapErrorWithLua(l, err, "")
 				return luaErr
 			}
 		}
@@ -123,9 +122,8 @@ func futureAwait(l *lua.LState) int {
 	f.mu.Lock()
 	if f.completed {
 		if f.err != nil {
-			luaErr := lua.WrapErrorWithLua(l, f.err, "async call failed").
-				WithKind(lua.KindInternal).
-				WithRetryable(false)
+			// Preserve original kind/retryable from error chain
+			luaErr := lua.WrapErrorWithLua(l, f.err, "")
 			f.mu.Unlock()
 			l.Push(lua.LNil)
 			l.Push(luaErr)
@@ -158,9 +156,8 @@ func handleChannelResult(l *lua.LState, f *Future, result *engine.ChannelResult)
 		res := updates[0]
 		if res.Error != nil {
 			engine.ReleaseResult(result)
-			luaErr := lua.WrapErrorWithLua(l, res.Error, "await failed").
-				WithKind(lua.KindInternal).
-				WithRetryable(false)
+			// Wrap error but preserve original kind/retryable from error chain
+			luaErr := lua.WrapErrorWithLua(l, res.Error, "")
 			l.Push(lua.LNil)
 			l.Push(luaErr)
 			return 2

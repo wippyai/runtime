@@ -19,7 +19,7 @@ func Filesystem() boot.Component {
 		Name:      FilesystemName,
 		DependsOn: []boot.Name{bootcore.RegistryName},
 		Load: func(ctx context.Context) (context.Context, error) {
-			logger := logapi.GetLogger(ctx)
+			logger := logapi.GetLogger(ctx).Named("fs")
 			if logger == nil {
 				return ctx, ErrLoggerNotAvailable
 			}

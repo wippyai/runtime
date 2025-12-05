@@ -13,32 +13,24 @@ import (
 	"go.uber.org/zap"
 )
 
-// StorageProvider provides access to storages from other managers
-type StorageProvider interface {
-	GetStorage(id registry.ID) (env.Storage, bool)
-}
-
 type Manager struct {
-	log              *zap.Logger
-	dtt              payload.Transcoder
-	bus              event.Bus
-	mu               sync.RWMutex
-	storages         map[registry.ID]*Storage
-	storageProviders []StorageProvider
+	log      *zap.Logger
+	dtt      payload.Transcoder
+	bus      event.Bus
+	mu       sync.RWMutex
+	storages map[registry.ID]*Storage
 }
 
 func NewManager(
 	bus event.Bus,
 	dtt payload.Transcoder,
 	log *zap.Logger,
-	providers ...StorageProvider,
 ) *Manager {
 	return &Manager{
-		log:              log,
-		dtt:              dtt,
-		bus:              bus,
-		storages:         make(map[registry.ID]*Storage),
-		storageProviders: providers,
+		log:      log,
+		dtt:      dtt,
+		bus:      bus,
+		storages: make(map[registry.ID]*Storage),
 	}
 }
 
@@ -59,8 +51,8 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	selectedStorages := make([]env.Storage, 0, len(cfg.Storages))
 	for _, storageName := range cfg.Storages {
 		storageID := registry.ParseID(storageName)
-		storage, found := m.findStorage(storageID)
-		if !found {
+		storage, err := m.findStorage(ctx, storageID)
+		if err != nil {
 			return env.NewStorageNotFoundError(storageName)
 		}
 		selectedStorages = append(selectedStorages, storage)
@@ -89,20 +81,20 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	return nil
 }
 
-func (m *Manager) findStorage(id registry.ID) (env.Storage, bool) {
+func (m *Manager) findStorage(ctx context.Context, id registry.ID) (env.Storage, error) {
 	m.mu.RLock()
 	if storage, exists := m.storages[id]; exists {
 		m.mu.RUnlock()
-		return storage, true
+		return storage, nil
 	}
 	m.mu.RUnlock()
 
-	for _, provider := range m.storageProviders {
-		if storage, found := provider.GetStorage(id); found {
-			return storage, true
-		}
+	reg := env.GetRegistry(ctx)
+	if reg == nil {
+		return nil, env.ErrStorageNotFound
 	}
-	return nil, false
+
+	return reg.GetStorage(ctx, id)
 }
 
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {

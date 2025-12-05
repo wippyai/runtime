@@ -20,7 +20,7 @@ func Contracts() boot.Component {
 		Name:      ContractsName,
 		DependsOn: []boot.Name{bootcore.RegistryName, FunctionsName},
 		Load: func(ctx context.Context) (context.Context, error) {
-			logger := logapi.GetLogger(ctx)
+			logger := logapi.GetLogger(ctx).Named("contracts")
 			if logger == nil {
 				return ctx, ErrLoggerNotAvailable
 			}

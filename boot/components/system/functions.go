@@ -19,7 +19,7 @@ func Functions() boot.Component {
 		Name:      FunctionsName,
 		DependsOn: []boot.Name{bootcore.RegistryName},
 		Load: func(ctx context.Context) (context.Context, error) {
-			logger := logapi.GetLogger(ctx)
+			logger := logapi.GetLogger(ctx).Named("funcs")
 			if logger == nil {
 				return ctx, ErrLoggerNotAvailable
 			}

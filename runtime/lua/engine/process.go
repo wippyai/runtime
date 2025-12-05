@@ -197,6 +197,9 @@ type Process struct {
 	// result holds the mainTask's return value when it completes
 	result payload.Payload
 
+	// execErr holds an error returned in second return value (Go's value, error pattern)
+	execErr error
+
 	// factory holds shared config (binders, state options)
 	factory *Factory
 
@@ -414,8 +417,9 @@ func (p *Process) Step(results *scheduler.YieldResults) (scheduler.StepResult, e
 	// Check completion
 	if len(externalTasks) == 0 && p.queue.IsEmpty() && len(p.threads) == 0 {
 		result := p.result
+		execErr := p.execErr
 		p.clearExecution()
-		return scheduler.StepResult{Status: scheduler.StepDone, Result: result}, nil
+		return scheduler.StepResult{Status: scheduler.StepDone, Result: result}, execErr
 	}
 
 	// Convert external yields to commands
@@ -475,11 +479,16 @@ func (p *Process) Step(results *scheduler.YieldResults) (scheduler.StepResult, e
 
 // Send delivers an external message to the process via ProcessContext.
 func (p *Process) Send(pkg *relay.Package) error {
+	if p.ctx == nil {
+		return ErrProcessContextNotAvailable
+	}
 	pc := GetProcessContext(p.ctx)
 	if pc == nil {
 		return ErrProcessContextNotAvailable
 	}
-	pc.QueueMessage(pkg)
+	if !pc.QueueMessage(pkg) {
+		return ErrProcessContextNotAvailable
+	}
 	return nil
 }
 
@@ -795,6 +804,15 @@ func (p *Process) vmStep(tasks ...*Task) ([]*Task, error) {
 		case lua.ResumeOK:
 			// Capture mainTask's return value before removing
 			if task == p.mainTask && len(values) > 0 {
+				// Check for error in second return value (Go's value, error pattern)
+				if len(values) >= 2 {
+					if err := extractReturnError(values[1]); err != nil {
+						p.result = nil
+						p.execErr = err
+						p.removeTask(task)
+						continue
+					}
+				}
 				p.result = luaconv.ExportPayload(values[0])
 			}
 			p.removeTask(task)
@@ -883,6 +901,9 @@ func (p *Process) yieldToCommand(task *Task) dispatcher.Command {
 // Note: Per-execution resources (Store, ProcessContext) are automatically
 // released when FrameContext is released - they implement ctxapi.Closer.
 func (p *Process) Close() {
+	// Reset first to clear execution context
+	p.Reset()
+
 	// Close all threads
 	for _, task := range p.threads {
 		task.Close()
@@ -897,9 +918,6 @@ func (p *Process) Close() {
 		p.state.Close()
 		p.state = nil
 	}
-
-	// Clear context reference
-	p.ctx = nil
 }
 
 // SyncExecute runs the script directly without coroutines or scheduler.
@@ -991,8 +1009,8 @@ func (p *Process) resumeTaskWithResult(task *Task, data any, err error) {
 // clearExecution clears coroutine tracking after execution completes.
 // Called automatically by Step when returning StepDone.
 // The Lua state is preserved for reuse.
-// Note: ProcessContext and resource.Store are NOT released here -
-// they are owned by the scheduler/host and released via OnComplete callback.
+// Note: Does NOT clear p.ctx - that is done by Reset() which is called
+// by the scheduler after removing the process from the active map.
 func (p *Process) clearExecution() {
 	// Close all spawned threads but keep them referenced for GC
 	for _, task := range p.threads {
@@ -1007,6 +1025,7 @@ func (p *Process) clearExecution() {
 	p.mainTask = nil
 	p.pendingYields = nil
 	p.result = nil
+	p.execErr = nil
 
 	// Clear yield buffer
 	p.yieldBuf = p.yieldBuf[:0]
@@ -1016,8 +1035,7 @@ func (p *Process) clearExecution() {
 		p.state.RemoveContext()
 	}
 
-	// Clear context reference (but don't release ProcessContext - scheduler owns it)
-	p.ctx = nil
+	// Note: p.ctx is cleared by Reset(), not here
 }
 
 // transcodeToLua converts a payload to Lua value using context transcoder.
@@ -1046,6 +1064,27 @@ func transcodeToLua(ctx context.Context, pl payload.Payload) lua.LValue {
 
 	// Fallback: return as string representation
 	return lua.LString(fmt.Sprintf("%v", pl.Data()))
+}
+
+// extractReturnError checks if a Lua value represents an error in the
+// second return position (following Go's value, error pattern).
+// Returns the error if val is a string or a LuaError userdata, nil otherwise.
+func extractReturnError(val lua.LValue) error {
+	if val == nil || val == lua.LNil {
+		return nil
+	}
+
+	// String error
+	if s, ok := val.(lua.LString); ok {
+		return fmt.Errorf("%s", string(s))
+	}
+
+	// LuaError userdata
+	if e, ok := lua.AsError(val); ok {
+		return e
+	}
+
+	return nil
 }
 
 // wrapError wraps an error with Lua stack trace and metadata.

@@ -1,0 +1,81 @@
+version: "1.0"
+namespace: app.test.queue
+
+entries:
+  - name: publish
+    kind: function.lua
+    meta:
+      type: test
+      suite: queue
+      description: queue.publish function
+    source: file://publish.lua
+    method: main
+    modules:
+      - queue
+    imports:
+      assert2: app.lib:assert
+
+  - name: message
+    kind: function.lua
+    meta:
+      type: test
+      suite: queue
+      description: queue.message function
+    source: file://message.lua
+    method: main
+    modules:
+      - queue
+    imports:
+      assert2: app.lib:assert
+
+  - name: errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: queue
+      description: queue error handling
+    source: file://errors.lua
+    method: main
+    modules:
+      - queue
+    imports:
+      assert2: app.lib:assert
+
+  - name: publish_string
+    kind: function.lua
+    meta:
+      type: test
+      suite: queue
+      description: queue.publish with string data
+    source: file://publish_string.lua
+    method: main
+    modules:
+      - queue
+    imports:
+      assert2: app.lib:assert
+
+  - name: publish_table
+    kind: function.lua
+    meta:
+      type: test
+      suite: queue
+      description: queue.publish with table data
+    source: file://publish_table.lua
+    method: main
+    modules:
+      - queue
+    imports:
+      assert2: app.lib:assert
+
+  - name: headers
+    kind: function.lua
+    meta:
+      type: test
+      suite: queue
+      description: queue message headers
+    source: file://headers.lua
+    method: main
+    modules:
+      - queue
+    imports:
+      assert2: app.lib:assert

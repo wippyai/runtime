@@ -18,7 +18,7 @@ func Host2() boot.Component {
 		Name:      EphemeralHost2Name,
 		DependsOn: []boot.Name{system.FactoryName},
 		Load: func(ctx context.Context) (context.Context, error) {
-			logger := logapi.GetLogger(ctx)
+			logger := logapi.GetLogger(ctx).Named("host")
 			if logger == nil {
 				return ctx, ErrLoggerNotAvailable
 			}
@@ -49,7 +49,7 @@ func Host2() boot.Component {
 				return ctx, ErrDispatcherRegistryNotAvailable
 			}
 
-			manager := host.NewManager(bus, dtt, registry, factory, logger.Named("host"))
+			manager := host.NewManager(bus, dtt, registry, factory, logger)
 			handlers.RegisterListener("process.host", manager)
 
 			logger.Info("host manager registered")

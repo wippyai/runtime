@@ -13,6 +13,7 @@ func All() []boot.Component {
 		Registry(),
 		Finder(),
 		Security(),
+		SecurityPolicy(),
 		Supervisor(),
 		Loader(),
 		EventRouter(),

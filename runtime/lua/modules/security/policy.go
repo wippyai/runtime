@@ -2,6 +2,7 @@ package security
 
 import (
 	secapi "github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -15,7 +16,7 @@ var policyMethods = map[string]lua.LGFunction{
 func wrapPolicy(l *lua.LState, policy secapi.Policy) *lua.LUserData {
 	ud := l.NewUserData()
 	ud.Value = policy
-	ud.Metatable = policyMetatable
+	ud.Metatable = value.GetTypeMetatable(l, policyTypeName)
 	return ud
 }
 

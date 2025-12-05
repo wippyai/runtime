@@ -8,13 +8,14 @@ import (
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
 	bootpkg "github.com/wippyai/runtime/boot"
+	bootsys "github.com/wippyai/runtime/boot/components/system"
 	"github.com/wippyai/runtime/service/env/composite"
 )
 
-func Composite(providers ...composite.StorageProvider) boot.Component {
+func Composite() boot.Component {
 	return boot.New(boot.P{
 		Name:      CompositeName,
-		DependsOn: []boot.Name{MemoryName, FileName, OSName},
+		DependsOn: []boot.Name{MemoryName, FileName, OSName, bootsys.EnvironmentName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			dtt := payload.GetTranscoder(ctx)
@@ -25,7 +26,6 @@ func Composite(providers ...composite.StorageProvider) boot.Component {
 				bus,
 				dtt,
 				logger.Named("env.composite"),
-				providers...,
 			)
 
 			handlers.RegisterListener("env.storage.router", manager)

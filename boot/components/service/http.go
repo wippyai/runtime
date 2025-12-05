@@ -34,7 +34,7 @@ func HTTP() boot.Component {
 		Name:      HTTPName,
 		DependsOn: []boot.Name{bootcore.RegistryName, bootsystem.FunctionsName, bootsystem.FilesystemName},
 		Load: func(ctx context.Context) (context.Context, error) {
-			logger := logapi.GetLogger(ctx)
+			logger := logapi.GetLogger(ctx).Named("http")
 			if logger == nil {
 				return ctx, ErrLoggerNotAvailable
 			}
@@ -92,7 +92,7 @@ func HTTP() boot.Component {
 
 			relayManager := wsrelay.NewWebSocketRelay(ctx, logger.Named("ws"), pidGen)
 
-			midRegistry := http.NewMiddlewareRegistry(logger.Named("http.mw"))
+			midRegistry := http.NewMiddlewareRegistry(logger.Named("mw"))
 
 			// Register built-in middleware
 			_ = midRegistry.Register(cors.MiddlewareName, cors.CreateCORSMiddleware)
@@ -130,7 +130,7 @@ func HTTP() boot.Component {
 				http.NewServerFactory(midRegistry),
 				endpointFactory,
 				staticFactory,
-				logger.Named("http"),
+				logger,
 			)
 			if err != nil {
 				return ctx, NewHTTPManagerError(err)

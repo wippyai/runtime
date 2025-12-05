@@ -32,7 +32,7 @@ func envGet(l *lua.LState) int {
 
 	key := l.CheckString(1)
 	if key == "" {
-		l.ArgError(1, "empty key")
+		l.RaiseError("empty key")
 		return 0
 	}
 
@@ -62,6 +62,8 @@ func envGet(l *lua.LState) int {
 }
 
 func envSet(l *lua.LState) int {
+	key := l.CheckString(1)
+
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
@@ -69,9 +71,8 @@ func envSet(l *lua.LState) int {
 		return 2
 	}
 
-	key := l.CheckString(1)
 	if key == "" {
-		l.ArgError(1, "empty key")
+		l.RaiseError("empty key")
 		return 0
 	}
 

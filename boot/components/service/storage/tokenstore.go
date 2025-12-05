@@ -21,7 +21,7 @@ func TokenStore() boot.Component {
 		Name:      TokenStoreName,
 		DependsOn: []string{bootcore.RegistryName, bootsystem.ResourcesName, bootcore.SecurityName},
 		Load: func(ctx context.Context) (context.Context, error) {
-			logger := logapi.GetLogger(ctx)
+			logger := logapi.GetLogger(ctx).Named("tokenstore")
 			if logger == nil {
 				return ctx, ErrLoggerNotAvailable
 			}

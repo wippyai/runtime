@@ -25,7 +25,7 @@ func Directory() boot.Component {
 				bus,
 				dtt,
 				nil,
-				logger.Named("fs.dir"),
+				logger.Named("fs"),
 			)
 
 			handlers.RegisterListener("fs.directory", manager)

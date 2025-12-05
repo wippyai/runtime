@@ -14,73 +14,29 @@ import (
 )
 
 var (
-	moduleTable         *lua.LTable
-	registration        *luaapi.Registration
-	actorMetatable      *lua.LTable
-	scopeMetatable      *lua.LTable
-	policyMetatable     *lua.LTable
-	tokenStoreMetatable *lua.LTable
-	initOnce            sync.Once
+	moduleTable *lua.LTable
+	initOnce    sync.Once
 )
 
-// Module is the singleton security module instance.
-var Module = &securityModule{}
+func init() {
+	value.RegisterTypeMethods(nil, actorTypeName,
+		map[string]lua.LGFunction{"__tostring": actorToString},
+		actorMethods)
 
-type securityModule struct{}
+	value.RegisterTypeMethods(nil, scopeTypeName,
+		map[string]lua.LGFunction{"__tostring": scopeToString},
+		scopeMethods)
 
-func (m *securityModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        "security",
-		Description: "Security actors, scopes, and policies",
-		Class:       []string{luaapi.ClassSecurity, luaapi.ClassNondeterministic},
-	}
+	value.RegisterTypeMethods(nil, policyTypeName,
+		map[string]lua.LGFunction{"__tostring": policyToString},
+		policyMethods)
+
+	value.RegisterTypeMethods(nil, tokenStoreTypeName,
+		map[string]lua.LGFunction{"__tostring": tokenStoreToString},
+		tokenStoreMethods)
 }
 
-func (m *securityModule) Register(l *lua.LState) *luaapi.Registration {
-	initOnce.Do(func() {
-		moduleTable = createModuleTable()
-
-		actorMetatable = value.RegisterTypeMethods(nil, actorTypeName,
-			map[string]lua.LGFunction{"__tostring": actorToString},
-			actorMethods)
-
-		scopeMetatable = value.RegisterTypeMethods(nil, scopeTypeName,
-			map[string]lua.LGFunction{"__tostring": scopeToString},
-			scopeMethods)
-
-		policyMetatable = value.RegisterTypeMethods(nil, policyTypeName,
-			map[string]lua.LGFunction{"__tostring": policyToString},
-			policyMethods)
-
-		tokenStoreMetatable = value.RegisterTypeMethods(nil, tokenStoreTypeName,
-			map[string]lua.LGFunction{"__tostring": tokenStoreToString},
-			tokenStoreMethods)
-
-		registration = &luaapi.Registration{
-			Table: moduleTable,
-			YieldTypes: []luaapi.YieldType{
-				{Sample: &ValidateYield{}, CmdID: securityapi.CmdTokenValidate},
-				{Sample: &CreateYield{}, CmdID: securityapi.CmdTokenCreate},
-				{Sample: &RevokeYield{}, CmdID: securityapi.CmdTokenRevoke},
-			},
-		}
-	})
-
-	return registration
-}
-
-func (m *securityModule) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	l.Push(reg.Table)
-	return 1
-}
-
-// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
-func Bind(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
-}
-
-func createModuleTable() *lua.LTable {
+func initModuleTable() {
 	mod := lua.CreateTable(0, 8)
 
 	mod.RawSetString("actor", lua.LGoFunc(actor))
@@ -93,7 +49,22 @@ func createModuleTable() *lua.LTable {
 	mod.RawSetString("token_store", lua.LGoFunc(tokenStoreGet))
 
 	mod.Immutable = true
-	return mod
+	moduleTable = mod
+}
+
+// Module is the security module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "security",
+	Description: "Security actors, scopes, and policies",
+	Class:       []string{luaapi.ClassSecurity, luaapi.ClassNondeterministic},
+	Build: func() (*lua.LTable, []luaapi.YieldType) {
+		initOnce.Do(initModuleTable)
+		return moduleTable, []luaapi.YieldType{
+			{Sample: &ValidateYield{}, CmdID: securityapi.CmdTokenValidate},
+			{Sample: &CreateYield{}, CmdID: securityapi.CmdTokenCreate},
+			{Sample: &RevokeYield{}, CmdID: securityapi.CmdTokenRevoke},
+		}
+	},
 }
 
 func actor(l *lua.LState) int {

@@ -18,7 +18,7 @@ func S3() boot.Component {
 		Name:      S3Name,
 		DependsOn: []boot.Name{bootcore.RegistryName},
 		Load: func(ctx context.Context) (context.Context, error) {
-			logger := logapi.GetLogger(ctx)
+			logger := logapi.GetLogger(ctx).Named("s3")
 			if logger == nil {
 				return ctx, ErrLoggerNotAvailable
 			}

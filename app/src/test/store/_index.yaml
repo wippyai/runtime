@@ -81,3 +81,33 @@ entries:
       - store
     imports:
       assert_primitives: app.lib:assert
+
+  # Persistence test - write (runs first)
+  - name: persist_write
+    kind: function.lua
+    meta:
+      type: test
+      suite: store
+      description: store persistence - write data
+      order: 100
+    source: file://persist_write.lua
+    method: main
+    modules:
+      - store
+    imports:
+      assert_primitives: app.lib:assert
+
+  # Persistence test - read (runs after write)
+  - name: persist_read
+    kind: function.lua
+    meta:
+      type: test
+      suite: store
+      description: store persistence - read data
+      order: 101
+    source: file://persist_read.lua
+    method: main
+    modules:
+      - store
+    imports:
+      assert_primitives: app.lib:assert

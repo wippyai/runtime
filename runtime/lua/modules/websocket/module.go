@@ -102,12 +102,6 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 }
 
 func connect(l *lua.LState) int {
-	url := l.CheckString(1)
-	if url == "" {
-		l.ArgError(1, "URL required")
-		return 0
-	}
-
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
@@ -115,7 +109,21 @@ func connect(l *lua.LState) int {
 		return 2
 	}
 
-	if !security.IsAllowed(ctx, "websocket.connect", url, nil) {
+	// General permission check for websocket.connect capability
+	if !security.IsAllowed(ctx, "websocket.connect", "", nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("websocket connections not allowed"))
+		return 2
+	}
+
+	url := l.CheckString(1)
+	if url == "" {
+		l.ArgError(1, "URL required")
+		return 0
+	}
+
+	// URL-specific permission check
+	if !security.IsAllowed(ctx, "websocket.connect.url", url, nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("not allowed: " + url))
 		return 2

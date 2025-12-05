@@ -8,7 +8,6 @@ func All() []boot.Component {
 		Clock(),
 		Func(),
 		Security(),
-		Queue(),
 		HTTP(),
 		WS(),
 		Exec(),

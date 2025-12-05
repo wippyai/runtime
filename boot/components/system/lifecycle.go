@@ -18,7 +18,7 @@ func Lifecycle() boot.Component {
 		Name:      LifecycleName,
 		DependsOn: []boot.Name{TopologyName},
 		Load: func(ctx context.Context) (context.Context, error) {
-			logger := logapi.GetLogger(ctx)
+			logger := logapi.GetLogger(ctx).Named("lifecycle")
 			if logger == nil {
 				return ctx, ErrLoggerNotAvailable
 			}

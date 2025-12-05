@@ -18,7 +18,7 @@ func Template() boot.Component {
 		Name:      TemplateName,
 		DependsOn: []boot.Name{bootcore.RegistryName},
 		Load: func(ctx context.Context) (context.Context, error) {
-			logger := logapi.GetLogger(ctx)
+			logger := logapi.GetLogger(ctx).Named("template")
 			if logger == nil {
 				return ctx, ErrLoggerNotAvailable
 			}
@@ -54,7 +54,7 @@ func Template() boot.Component {
 			manager := jet.NewManager(
 				bus,
 				dtt,
-				logger.Named("tmpl"),
+				logger,
 			)
 
 			handlers.RegisterListener("template.(jet|set)", manager)

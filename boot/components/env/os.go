@@ -8,6 +8,7 @@ import (
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
 	bootpkg "github.com/wippyai/runtime/boot"
+	bootsys "github.com/wippyai/runtime/boot/components/system"
 	envos "github.com/wippyai/runtime/service/env/os"
 )
 
@@ -23,7 +24,7 @@ func OS(opts ...func(*OSOptions)) boot.Component {
 
 	return boot.New(boot.P{
 		Name:      OSName,
-		DependsOn: nil,
+		DependsOn: []boot.Name{bootsys.EnvironmentName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			dtt := payload.GetTranscoder(ctx)

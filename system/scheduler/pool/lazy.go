@@ -129,18 +129,49 @@ func (l *Lazy) Call(ctx context.Context, method string, input payload.Payloads) 
 
 	// Get executor from pool, set process, register
 	executor := l.executors.Get().(*Executor)
-	executor.proc = proc
+	executor.proc.Store(&proc)
 	l.activeExec.Store(pid.UniqID, executor)
 
 	result := executor.Run(ctx, proc, method, input)
 
-	// Unregister and return executor to pool
-	l.activeExec.Delete(pid.UniqID)
+	// Clear proc atomically first - concurrent Send will see nil and fail safely
+	// This is done by executor.Reset() which clears proc and drains channels
 	executor.Reset()
+
+	// Unregister - no more lookups will find this executor
+	l.activeExec.Delete(pid.UniqID)
 	l.executors.Put(executor)
 
-	l.release(proc)
+	// Reset process and return to pool, or close if not resettable
+	l.resetAndRelease(proc)
 	return result, nil
+}
+
+// resetAndRelease resets the process and returns it to idle pool.
+// If process is not resettable, closes it instead of returning to pool.
+func (l *Lazy) resetAndRelease(proc process.Process) {
+	if r, ok := proc.(process.Resettable); ok {
+		r.Reset()
+		l.release(proc)
+		return
+	}
+
+	// Not resettable - close and decrement active count
+	proc.Close()
+	l.mu.Lock()
+	l.active--
+	// Wake one waiter since a slot freed up
+	if len(l.waiters) > 0 {
+		waiter := l.waiters[0]
+		l.waiters = l.waiters[1:]
+		l.mu.Unlock()
+		select {
+		case waiter <- struct{}{}:
+		default:
+		}
+		return
+	}
+	l.mu.Unlock()
 }
 
 // Send implements relay.Receiver. Routes package to target execution.

@@ -441,8 +441,11 @@ func (d *Dispatcher) executeSubscribe(ctx context.Context, cmd wsapi.WsSubscribe
 
 				pkg := relay.NewPackage(relay.PID{}, pid, topic, p)
 				_ = node.Send(pkg)
+			case <-ctx.Done():
+				// Request context canceled - process finished, stop forwarding
+				return
 			case <-entry.ctx.Done():
-				// Context canceled - send terminal to close subscriber channel
+				// Connection closed - send terminal to close subscriber channel
 				pkg := relay.NewPackage(relay.PID{}, pid, topic, payload.NewTerminal())
 				_ = node.Send(pkg)
 				return

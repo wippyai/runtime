@@ -3,11 +3,13 @@ package store
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	storeapi "github.com/wippyai/runtime/api/dispatcher/store"
+	"github.com/wippyai/runtime/api/store"
 )
 
 // Dispatcher handles store commands via async worker pool.
@@ -84,7 +86,8 @@ func (d *Dispatcher) execute(j job) {
 
 	case *storeapi.StoreDeleteCmd:
 		err := c.Store.Delete(j.ctx, c.Key)
-		j.complete.Complete(storeapi.StoreDeleteResponse{Error: err}, nil)
+		notFound := errors.Is(err, store.ErrKeyNotFound)
+		j.complete.Complete(storeapi.StoreDeleteResponse{NotFound: notFound, Error: err}, nil)
 
 	case *storeapi.StoreHasCmd:
 		exists, err := c.Store.Has(j.ctx, c.Key)

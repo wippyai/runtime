@@ -102,7 +102,8 @@ type StoreSetResponse struct {
 
 // StoreDeleteResponse contains the result of a delete operation.
 type StoreDeleteResponse struct {
-	Error error
+	NotFound bool
+	Error    error
 }
 
 // StoreHasResponse contains the result of a has operation.

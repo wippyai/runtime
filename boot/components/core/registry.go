@@ -26,7 +26,7 @@ func Registry() boot.Component {
 		Name:      RegistryName,
 		DependsOn: []boot.Name{},
 		Load: func(ctx context.Context) (context.Context, error) {
-			logger := logapi.GetLogger(ctx)
+			logger := logapi.GetLogger(ctx).Named("registry")
 			bus := event.GetBus(ctx)
 
 			// Create dependency resolver with default patterns
