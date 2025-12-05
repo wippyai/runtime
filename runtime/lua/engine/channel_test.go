@@ -524,7 +524,7 @@ func TestSelectWithCaseSend(t *testing.T) {
 		local ch = channel.new(1)
 		local result = channel.select{ch:case_send("value")}
 		local v = ch:receive()
-		return result.ok, v
+		return {ok = result.ok, value = v}
 	`
 
 	proc := startChannelProcess(t, script)
@@ -534,12 +534,16 @@ func TestSelectWithCaseSend(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if proc.mainTask != nil && len(proc.mainTask.Yielded) >= 2 {
-		if b, ok := proc.mainTask.Yielded[0].(lua.LBool); ok && !bool(b) {
+	if proc.mainTask != nil && len(proc.mainTask.Yielded) >= 1 {
+		tbl, ok := proc.mainTask.Yielded[0].(*lua.LTable)
+		if !ok {
+			t.Fatal("expected table result")
+		}
+		if tbl.RawGetString("ok") != lua.LTrue {
 			t.Error("expected result.ok=true")
 		}
-		if s, ok := proc.mainTask.Yielded[1].(lua.LString); ok && string(s) != "value" {
-			t.Errorf("expected 'value', got %q", s)
+		if s, ok := tbl.RawGetString("value").(lua.LString); !ok || string(s) != "value" {
+			t.Errorf("expected 'value', got %v", tbl.RawGetString("value"))
 		}
 	}
 	t.Log("Select with case_send test passed")
@@ -675,7 +679,7 @@ func TestSelectImmediateBuffered(t *testing.T) {
 			ch1:case_receive(),
 			ch2:case_receive()
 		}
-		return result.channel == ch1, result.value, result.ok
+		return {is_ch1 = result.channel == ch1, value = result.value, ok = result.ok}
 	`
 
 	proc := startChannelProcess(t, script)
@@ -685,14 +689,18 @@ func TestSelectImmediateBuffered(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if proc.mainTask != nil && len(proc.mainTask.Yielded) >= 3 {
-		if b, ok := proc.mainTask.Yielded[0].(lua.LBool); ok && !bool(b) {
+	if proc.mainTask != nil && len(proc.mainTask.Yielded) >= 1 {
+		tbl, ok := proc.mainTask.Yielded[0].(*lua.LTable)
+		if !ok {
+			t.Fatal("expected table result")
+		}
+		if tbl.RawGetString("is_ch1") != lua.LTrue {
 			t.Error("expected result.channel == ch1")
 		}
-		if s, ok := proc.mainTask.Yielded[1].(lua.LString); ok && string(s) != "msg1" {
-			t.Errorf("expected 'msg1', got %q", s)
+		if s, ok := tbl.RawGetString("value").(lua.LString); !ok || string(s) != "msg1" {
+			t.Errorf("expected 'msg1', got %v", tbl.RawGetString("value"))
 		}
-		if b, ok := proc.mainTask.Yielded[2].(lua.LBool); ok && !bool(b) {
+		if tbl.RawGetString("ok") != lua.LTrue {
 			t.Error("expected result.ok=true")
 		}
 	}

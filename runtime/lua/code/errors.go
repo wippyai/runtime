@@ -19,6 +19,9 @@ type Error struct {
 
 // Error implements error interface
 func (e *Error) Error() string {
+	if e.cause != nil {
+		return e.message + ": " + e.cause.Error()
+	}
 	return e.message
 }
 

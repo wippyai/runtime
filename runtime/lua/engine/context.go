@@ -6,6 +6,7 @@ import (
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -23,7 +24,6 @@ var processContextPool = sync.Pool{
 				byTopic:   make(map[string]*subscription, 4),
 				byChannel: make(map[*Channel]string, 4),
 			},
-			inbox: make([]*relay.Package, 0, 4),
 		}
 	},
 }
@@ -34,7 +34,11 @@ type TopicHandler func(ctx context.Context, l *lua.LState, payloads []payload.Pa
 
 // ProcessContext holds all request-specific state for a Lua process execution.
 // Created once per Execute call, stored in FrameContext, released on completion.
+// Note: Inbox is managed separately by the pool scheduler and accessed via FrameContext.
 type ProcessContext struct {
+	// Context reference for inbox lookup
+	ctx context.Context
+
 	// Channel layer state
 	channelQueue *TaskQueue
 	channels     map[*Channel]int
@@ -46,10 +50,8 @@ type ProcessContext struct {
 	handlers   map[string]TopicHandler
 	handlersMu sync.RWMutex
 
-	// Incoming messages from relay
-	inboxMu sync.Mutex
-	inbox   []*relay.Package
-
+	// mu protects closed flag
+	mu sync.Mutex
 	// closed prevents double-release to pool
 	closed bool
 }
@@ -57,7 +59,9 @@ type ProcessContext struct {
 // acquireProcessContext gets a ProcessContext from the pool.
 func acquireProcessContext() *ProcessContext {
 	pc := processContextPool.Get().(*ProcessContext)
+	pc.mu.Lock()
 	pc.closed = false
+	pc.mu.Unlock()
 	return pc
 }
 
@@ -65,20 +69,21 @@ func acquireProcessContext() *ProcessContext {
 // Implements ctxapi.Closer for automatic cleanup when FrameContext is released.
 // Safe to call multiple times - subsequent calls are no-ops.
 func (pc *ProcessContext) Close() error {
-	pc.inboxMu.Lock()
+	pc.mu.Lock()
 	if pc.closed {
-		pc.inboxMu.Unlock()
+		pc.mu.Unlock()
 		return nil
 	}
 	pc.closed = true
-	pc.inboxMu.Unlock()
+	pc.ctx = nil
+	pc.mu.Unlock()
 
 	pc.reset()
 	processContextPool.Put(pc)
 	return nil
 }
 
-// reset clears the ProcessContext for reuse.
+// reset clears all ProcessContext fields for reuse.
 func (pc *ProcessContext) reset() {
 	// Clear channel layer
 	if pc.channelQueue != nil {
@@ -97,11 +102,6 @@ func (pc *ProcessContext) reset() {
 		delete(pc.subs.byChannel, k)
 	}
 	pc.subs.mu.Unlock()
-
-	// Clear inbox
-	pc.inboxMu.Lock()
-	pc.inbox = pc.inbox[:0]
-	pc.inboxMu.Unlock()
 
 	// Clear handlers
 	pc.handlersMu.Lock()
@@ -129,26 +129,13 @@ func (pc *ProcessContext) Subscriptions() *subscribeContext {
 	return pc.subs
 }
 
-// QueueMessage adds a message to the inbox.
-// Returns false if ProcessContext is closed.
-func (pc *ProcessContext) QueueMessage(pkg *relay.Package) bool {
-	pc.inboxMu.Lock()
-	if pc.closed {
-		pc.inboxMu.Unlock()
-		return false
-	}
-	pc.inbox = append(pc.inbox, pkg)
-	pc.inboxMu.Unlock()
-	return true
-}
-
-// DrainInbox returns and clears all incoming messages.
+// DrainInbox returns and clears all incoming messages from the Inbox.
 func (pc *ProcessContext) DrainInbox() []*relay.Package {
-	pc.inboxMu.Lock()
-	msgs := pc.inbox
-	pc.inbox = pc.inbox[:0]
-	pc.inboxMu.Unlock()
-	return msgs
+	inbox := process.GetInbox(pc.ctx)
+	if inbox == nil {
+		return nil
+	}
+	return inbox.Drain()
 }
 
 // HasSubscriptions returns true if there are active subscriptions.
@@ -207,10 +194,12 @@ func GetProcessContext(ctx context.Context) *ProcessContext {
 }
 
 // setProcessContext stores ProcessContext in FrameContext.
+// Note: Inbox is set separately by the pool scheduler before Init is called.
 func setProcessContext(ctx context.Context, pc *ProcessContext) error {
 	fc := ctxapi.FrameFromContext(ctx)
 	if fc == nil {
 		return ctxapi.ErrNoFrameContext
 	}
+	pc.ctx = ctx
 	return fc.Set(ProcessContextKey, pc)
 }

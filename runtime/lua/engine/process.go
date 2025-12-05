@@ -9,6 +9,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/runtime/resource"
@@ -477,16 +478,16 @@ func (p *Process) Step(results *scheduler.YieldResults) (scheduler.StepResult, e
 	return result, nil
 }
 
-// Send delivers an external message to the process via ProcessContext.
+// Send delivers an external message to the process via the Inbox in FrameContext.
 func (p *Process) Send(pkg *relay.Package) error {
 	if p.ctx == nil {
 		return ErrProcessContextNotAvailable
 	}
-	pc := GetProcessContext(p.ctx)
-	if pc == nil {
+	inbox := process.GetInbox(p.ctx)
+	if inbox == nil {
 		return ErrProcessContextNotAvailable
 	}
-	if !pc.QueueMessage(pkg) {
+	if !inbox.QueueMessage(pkg) {
 		return ErrProcessContextNotAvailable
 	}
 	return nil
@@ -901,9 +902,6 @@ func (p *Process) yieldToCommand(task *Task) dispatcher.Command {
 // Note: Per-execution resources (Store, ProcessContext) are automatically
 // released when FrameContext is released - they implement ctxapi.Closer.
 func (p *Process) Close() {
-	// Reset first to clear execution context
-	p.Reset()
-
 	// Close all threads
 	for _, task := range p.threads {
 		task.Close()
@@ -918,6 +916,9 @@ func (p *Process) Close() {
 		p.state.Close()
 		p.state = nil
 	}
+
+	// Clear context reference
+	p.ctx = nil
 }
 
 // SyncExecute runs the script directly without coroutines or scheduler.
@@ -1076,7 +1077,7 @@ func extractReturnError(val lua.LValue) error {
 
 	// String error
 	if s, ok := val.(lua.LString); ok {
-		return fmt.Errorf("%s", string(s))
+		return NewScriptReturnError(string(s))
 	}
 
 	// LuaError userdata

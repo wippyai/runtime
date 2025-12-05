@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"sync/atomic"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
@@ -72,6 +73,16 @@ func (h *Host) OnComplete(ctx context.Context, pid relay.PID, result *runtime.Re
 	exitCode := 0
 	if result != nil && result.Error != nil {
 		exitCode = 1
+		// Print error to stderr, deduplicate if message is repeated
+		errStr := result.Error.Error()
+		if idx := strings.Index(errStr, ": "); idx > 0 {
+			prefix := errStr[:idx+2]
+			rest := errStr[idx+2:]
+			if strings.HasPrefix(rest, prefix) {
+				errStr = rest
+			}
+		}
+		_, _ = os.Stderr.WriteString(errStr + "\n")
 	}
 	supervisorapi.TriggerShutdown(h.ctx, exitCode)
 }

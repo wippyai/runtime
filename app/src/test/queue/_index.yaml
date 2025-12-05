@@ -79,3 +79,18 @@ entries:
       - queue
     imports:
       assert2: app.lib:assert
+
+  - name: integration
+    kind: function.lua
+    meta:
+      type: test
+      suite: queue
+      description: end-to-end queue with consumer
+    source: file://integration.lua
+    method: main
+    modules:
+      - queue
+      - store
+      - time
+    imports:
+      assert2: app.lib:assert

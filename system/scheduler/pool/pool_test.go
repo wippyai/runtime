@@ -2,16 +2,19 @@ package pool
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
 )
 
 // mockProcess is a test process that returns immediately.
@@ -62,6 +65,24 @@ type mockDispatcher struct{}
 
 func (d *mockDispatcher) Dispatch(cmd dispatcher.Command) dispatcher.Handler { return nil }
 
+// mockInbox implements process.Inbox for testing.
+type mockInbox struct{}
+
+func (m *mockInbox) QueueMessage(pkg *relay.Package) bool { return true }
+func (m *mockInbox) Drain() []*relay.Package              { return nil }
+
+// testContext creates a context with FrameContext and PID for testing.
+func testContext() context.Context {
+	return testContextWithPID("test-pid")
+}
+
+// testContextWithPID creates a context with a specific PID for testing.
+func testContextWithPID(pid string) context.Context {
+	ctx, _ := ctxapi.AcquireFrameContext(context.Background())
+	runtime.SetFramePID(ctx, relay.PID{UniqID: pid})
+	return ctx
+}
+
 // factories
 
 func newMockFactory(latency time.Duration) Factory {
@@ -95,7 +116,7 @@ func TestInlineBasic(t *testing.T) {
 
 	pool.Start()
 
-	result, err := pool.Call(context.Background(), "test", nil)
+	result, err := pool.Call(testContext(), "test", nil)
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
@@ -113,7 +134,7 @@ func TestInlineMultipleCalls(t *testing.T) {
 	pool.Start()
 
 	for i := 0; i < 100; i++ {
-		_, err := pool.Call(context.Background(), "test", nil)
+		_, err := pool.Call(testContext(), "test", nil)
 		if err != nil {
 			t.Fatalf("Call %d: %v", i, err)
 		}
@@ -139,7 +160,7 @@ func TestInlineResultPropagation(t *testing.T) {
 	defer pool.Stop()
 	pool.Start()
 
-	result, err := pool.Call(context.Background(), "test", nil)
+	result, err := pool.Call(testContext(), "test", nil)
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
@@ -184,7 +205,7 @@ func TestStaticBasic(t *testing.T) {
 	defer pool.Stop()
 	pool.Start()
 
-	result, err := pool.Call(context.Background(), "test", nil)
+	result, err := pool.Call(testContext(), "test", nil)
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
@@ -213,7 +234,7 @@ func TestStaticConcurrent(t *testing.T) {
 	for i := 0; i < n; i++ {
 		go func() {
 			defer wg.Done()
-			_, err := pool.Call(context.Background(), "test", nil)
+			_, err := pool.Call(testContext(), "test", nil)
 			if err != nil {
 				t.Errorf("Call: %v", err)
 			}
@@ -230,7 +251,8 @@ func TestStaticContextCancel(t *testing.T) {
 	defer pool.Stop()
 	pool.Start()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	ctx := testContext()
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
 	defer cancel()
 
 	_, err = pool.Call(ctx, "test", nil)
@@ -252,7 +274,7 @@ func TestStaticStopDrainsQueue(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			pool.Call(context.Background(), "test", nil)
+			pool.Call(testContext(), "test", nil)
 		}()
 	}
 
@@ -281,7 +303,7 @@ func TestLazyBasic(t *testing.T) {
 	}
 
 	// First call creates a process
-	_, err = pool.Call(context.Background(), "test", nil)
+	_, err = pool.Call(testContext(), "test", nil)
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
@@ -302,7 +324,7 @@ func TestLazyReusesIdleProcess(t *testing.T) {
 
 	// Multiple sequential calls should reuse the same process
 	for i := 0; i < 10; i++ {
-		_, err = pool.Call(context.Background(), "test", nil)
+		_, err = pool.Call(testContext(), "test", nil)
 		if err != nil {
 			t.Fatalf("Call %d: %v", i, err)
 		}
@@ -338,7 +360,7 @@ func TestLazyMaxWorkers(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		go func() {
 			defer wg.Done()
-			pool2.Call(context.Background(), "test", nil)
+			pool2.Call(testContext(), "test", nil)
 		}()
 	}
 
@@ -346,7 +368,8 @@ func TestLazyMaxWorkers(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 
 	// Third call should timeout (all workers busy, will wait for one)
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	ctx := testContext()
+	ctx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
 	defer cancel()
 	_, err = pool2.Call(ctx, "test", nil)
 	if err != context.DeadlineExceeded {
@@ -381,10 +404,9 @@ func BenchmarkInlineCall(b *testing.B) {
 	defer pool.Stop()
 	pool.Start()
 
-	ctx := context.Background()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		pool.Call(ctx, "test", nil)
+		pool.Call(testContext(), "test", nil)
 	}
 }
 
@@ -393,11 +415,10 @@ func BenchmarkStaticCall(b *testing.B) {
 	defer pool.Stop()
 	pool.Start()
 
-	ctx := context.Background()
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			pool.Call(ctx, "test", nil)
+			pool.Call(testContext(), "test", nil)
 		}
 	})
 }
@@ -407,11 +428,10 @@ func BenchmarkLazyCall(b *testing.B) {
 	defer pool.Stop()
 	pool.Start()
 
-	ctx := context.Background()
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			pool.Call(ctx, "test", nil)
+			pool.Call(testContext(), "test", nil)
 		}
 	})
 }
@@ -459,7 +479,7 @@ func TestHooksOnStopCalled(t *testing.T) {
 
 	// Do some calls
 	for i := 0; i < 5; i++ {
-		pool.Call(context.Background(), "test", nil)
+		pool.Call(testContext(), "test", nil)
 	}
 
 	pool.Stop()
@@ -487,14 +507,16 @@ func TestHooksNoHooks(t *testing.T) {
 }
 
 // idleProcess goes into StepIdle state and waits for a message before completing.
-// It records received messages for validation.
+// Messages are received via the Executor-owned inbox in context.
 type idleProcess struct {
+	ctx       context.Context
 	received  []*relay.Package
 	mu        sync.Mutex
 	stepCount int
 }
 
 func (p *idleProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
+	p.ctx = ctx
 	return nil
 }
 
@@ -508,14 +530,27 @@ func (p *idleProcess) Step(results *process.YieldResults) (process.StepResult, e
 	if count == 1 {
 		return process.StepResult{Status: process.StepIdle}, nil
 	}
+
+	// Drain messages from inbox and store them
+	if inbox := process.GetInbox(p.ctx); inbox != nil {
+		msgs := inbox.Drain()
+		p.mu.Lock()
+		p.received = append(p.received, msgs...)
+		p.mu.Unlock()
+	}
+
 	// After receiving message, complete
 	return process.StepResult{Status: process.StepDone}, nil
 }
 
 func (p *idleProcess) Send(pkg *relay.Package) error {
-	p.mu.Lock()
-	p.received = append(p.received, pkg)
-	p.mu.Unlock()
+	inbox := process.GetInbox(p.ctx)
+	if inbox == nil {
+		return errors.New("no inbox")
+	}
+	if !inbox.QueueMessage(pkg) {
+		return errors.New("inbox closed")
+	}
 	return nil
 }
 
@@ -530,7 +565,9 @@ func (p *idleProcess) getReceived() []*relay.Package {
 }
 
 // multiIdleProcess goes idle N times before completing.
+// Messages are received via the Executor-owned inbox in context.
 type multiIdleProcess struct {
+	ctx       context.Context
 	idleTimes int
 	received  []*relay.Package
 	mu        sync.Mutex
@@ -538,6 +575,7 @@ type multiIdleProcess struct {
 }
 
 func (p *multiIdleProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
+	p.ctx = ctx
 	return nil
 }
 
@@ -547,6 +585,16 @@ func (p *multiIdleProcess) Step(results *process.YieldResults) (process.StepResu
 	count := p.stepCount
 	idleTimes := p.idleTimes
 	p.mu.Unlock()
+
+	// On even steps (after waking from idle), drain messages from inbox
+	if count%2 == 0 {
+		if inbox := process.GetInbox(p.ctx); inbox != nil {
+			msgs := inbox.Drain()
+			p.mu.Lock()
+			p.received = append(p.received, msgs...)
+			p.mu.Unlock()
+		}
+	}
 
 	// Alternate between idle and continue until we've received enough messages
 	if count <= idleTimes*2 && count%2 == 1 {
@@ -560,9 +608,13 @@ func (p *multiIdleProcess) Step(results *process.YieldResults) (process.StepResu
 }
 
 func (p *multiIdleProcess) Send(pkg *relay.Package) error {
-	p.mu.Lock()
-	p.received = append(p.received, pkg)
-	p.mu.Unlock()
+	inbox := process.GetInbox(p.ctx)
+	if inbox == nil {
+		return errors.New("no inbox")
+	}
+	if !inbox.QueueMessage(pkg) {
+		return errors.New("inbox closed")
+	}
 	return nil
 }
 
@@ -595,15 +647,15 @@ func TestInlineSend(t *testing.T) {
 	// Run Call in a goroutine since it will block on StepIdle
 	resultCh := make(chan error, 1)
 	go func() {
-		_, err := pool.Call(context.Background(), "test", nil)
+		_, err := pool.Call(testContext(), "test", nil)
 		resultCh <- err
 	}()
 
 	// Wait for process to enter idle state
 	time.Sleep(10 * time.Millisecond)
 
-	// Send message to the pool (should route to the active executor)
-	pkg := &relay.Package{Target: relay.PID{UniqID: "1"}}
+	// Send message to the pool using the known test PID
+	pkg := &relay.Package{Target: relay.PID{UniqID: "test-pid"}}
 	err = pool.Send(pkg)
 	if err != nil {
 		t.Fatalf("Send: %v", err)
@@ -665,15 +717,15 @@ func TestStaticSend(t *testing.T) {
 	// Run Call in a goroutine since it will block on StepIdle
 	resultCh := make(chan error, 1)
 	go func() {
-		_, err := pool.Call(context.Background(), "test", nil)
+		_, err := pool.Call(testContext(), "test", nil)
 		resultCh <- err
 	}()
 
 	// Wait for process to enter idle state
 	time.Sleep(20 * time.Millisecond)
 
-	// Send message to the pool
-	pkg := &relay.Package{Target: relay.PID{UniqID: "1"}}
+	// Send message to the pool using the known test PID
+	pkg := &relay.Package{Target: relay.PID{UniqID: "test-pid"}}
 	err = pool.Send(pkg)
 	if err != nil {
 		t.Fatalf("Send: %v", err)
@@ -730,14 +782,15 @@ func TestStaticSendMultipleWorkers(t *testing.T) {
 	defer pool.Stop()
 	pool.Start()
 
-	// Start 4 concurrent calls
+	// Start 4 concurrent calls with unique PIDs
 	var wg sync.WaitGroup
 	for i := 0; i < 4; i++ {
 		wg.Add(1)
-		go func() {
+		pid := fmt.Sprintf("pid-%d", i+1)
+		go func(p string) {
 			defer wg.Done()
-			pool.Call(context.Background(), "test", nil)
-		}()
+			pool.Call(testContextWithPID(p), "test", nil)
+		}(pid)
 	}
 
 	// Wait for all processes to enter idle state
@@ -745,7 +798,7 @@ func TestStaticSendMultipleWorkers(t *testing.T) {
 
 	// Send messages to each active execution
 	for i := 1; i <= 4; i++ {
-		pkg := &relay.Package{Target: relay.PID{UniqID: fmt.Sprintf("%d", i)}}
+		pkg := &relay.Package{Target: relay.PID{UniqID: fmt.Sprintf("pid-%d", i)}}
 		err = pool.Send(pkg)
 		if err != nil {
 			t.Fatalf("Send to %d: %v", i, err)
@@ -789,15 +842,15 @@ func TestLazySend(t *testing.T) {
 	// Run Call in a goroutine since it will block on StepIdle
 	resultCh := make(chan error, 1)
 	go func() {
-		_, err := pool.Call(context.Background(), "test", nil)
+		_, err := pool.Call(testContext(), "test", nil)
 		resultCh <- err
 	}()
 
 	// Wait for process to enter idle state
 	time.Sleep(20 * time.Millisecond)
 
-	// Send message to the pool
-	pkg := &relay.Package{Target: relay.PID{UniqID: "1"}}
+	// Send message to the pool using the known test PID
+	pkg := &relay.Package{Target: relay.PID{UniqID: "test-pid"}}
 	err = pool.Send(pkg)
 	if err != nil {
 		t.Fatalf("Send: %v", err)
@@ -846,7 +899,7 @@ func TestLazySendAfterCompletion(t *testing.T) {
 	pool.Start()
 
 	// Complete a call
-	_, err = pool.Call(context.Background(), "test", nil)
+	_, err = pool.Call(testContext(), "test", nil)
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
@@ -876,14 +929,15 @@ func TestSendStressInline(t *testing.T) {
 			t.Fatalf("iteration %d: NewInline: %v", i, err)
 		}
 
+		pid := fmt.Sprintf("pid-%d", i)
 		done := make(chan struct{})
-		go func() {
-			pool.Call(context.Background(), "test", nil)
+		go func(p string) {
+			pool.Call(testContextWithPID(p), "test", nil)
 			close(done)
-		}()
+		}(pid)
 
 		time.Sleep(time.Millisecond)
-		pkg := &relay.Package{Target: relay.PID{UniqID: "1"}}
+		pkg := &relay.Package{Target: relay.PID{UniqID: pid}}
 		pool.Send(pkg)
 
 		select {
@@ -919,15 +973,15 @@ func TestSendStressStatic(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
+			pid := fmt.Sprintf("pid-%d", nextPID.Add(1))
 			doneCh := make(chan struct{})
-			go func() {
-				pool.Call(context.Background(), "test", nil)
+			go func(p string) {
+				pool.Call(testContextWithPID(p), "test", nil)
 				close(doneCh)
-			}()
+			}(pid)
 
 			time.Sleep(time.Millisecond)
-			pid := nextPID.Add(1)
-			pkg := &relay.Package{Target: relay.PID{UniqID: fmt.Sprintf("%d", pid)}}
+			pkg := &relay.Package{Target: relay.PID{UniqID: pid}}
 			pool.Send(pkg)
 
 			select {
@@ -963,15 +1017,15 @@ func TestSendStressLazy(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
+			pid := fmt.Sprintf("pid-%d", nextPID.Add(1))
 			doneCh := make(chan struct{})
-			go func() {
-				pool.Call(context.Background(), "test", nil)
+			go func(p string) {
+				pool.Call(testContextWithPID(p), "test", nil)
 				close(doneCh)
-			}()
+			}(pid)
 
 			time.Sleep(time.Millisecond)
-			pid := nextPID.Add(1)
-			pkg := &relay.Package{Target: relay.PID{UniqID: fmt.Sprintf("%d", pid)}}
+			pkg := &relay.Package{Target: relay.PID{UniqID: pid}}
 			pool.Send(pkg)
 
 			select {
@@ -989,8 +1043,8 @@ func TestSendStressLazy(t *testing.T) {
 
 func BenchmarkExecutorSend(b *testing.B) {
 	executor := NewExecutor(&mockDispatcher{})
-	var proc process.Process = &idleProcess{}
-	executor.proc.Store(&proc)
+	var inbox process.Inbox = &mockInbox{}
+	executor.inbox.Store(&inbox)
 	pkg := &relay.Package{Target: relay.PID{UniqID: "1"}}
 
 	b.ResetTimer()
@@ -1006,8 +1060,8 @@ func BenchmarkStaticSendLookup(b *testing.B) {
 
 	// Register a fake executor in active map
 	executor := NewExecutor(&mockDispatcher{})
-	var proc process.Process = &idleProcess{}
-	executor.proc.Store(&proc)
+	var inbox process.Inbox = &mockInbox{}
+	executor.inbox.Store(&inbox)
 	pool.active.Store("bench-1", executor)
 	pkg := &relay.Package{Target: relay.PID{UniqID: "bench-1"}}
 
@@ -1024,8 +1078,8 @@ func BenchmarkLazySendLookup(b *testing.B) {
 
 	// Register a fake executor in active map
 	executor := NewExecutor(&mockDispatcher{})
-	var proc process.Process = &idleProcess{}
-	executor.proc.Store(&proc)
+	var inbox process.Inbox = &mockInbox{}
+	executor.inbox.Store(&inbox)
 	pool.activeExec.Store("bench-1", executor)
 	pkg := &relay.Package{Target: relay.PID{UniqID: "bench-1"}}
 
@@ -1042,8 +1096,8 @@ func BenchmarkInlineSendLookup(b *testing.B) {
 
 	// Register a fake executor in active map
 	executor := NewExecutor(&mockDispatcher{})
-	var proc process.Process = &idleProcess{}
-	executor.proc.Store(&proc)
+	var inbox process.Inbox = &mockInbox{}
+	executor.inbox.Store(&inbox)
 	pool.active.Store("bench-1", executor)
 	pkg := &relay.Package{Target: relay.PID{UniqID: "bench-1"}}
 

@@ -58,3 +58,4 @@ entries:
       - io
       - registry
       - funcs
+      - time

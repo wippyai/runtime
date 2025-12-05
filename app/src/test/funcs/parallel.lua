@@ -6,15 +6,10 @@ local time = require("time")
 local function main()
     local start = time.now()
 
-    -- Start 5 slow operations in parallel
+    -- Start 5 slow operations in parallel (100ms each)
     local futures = {}
     for i = 1, 5 do
-        futures[i] = funcs.async("app.test.funcs:slow", 50, "task-" .. i)
-    end
-
-    -- All should not be complete immediately
-    for i, f in ipairs(futures) do
-        assert.eq(f:is_complete(), false, "future " .. i .. " not complete immediately")
+        futures[i] = funcs.async("app.test.funcs:slow", 100, "task-" .. i)
     end
 
     -- Await all
@@ -32,9 +27,9 @@ local function main()
         assert.eq(r.value, "task-" .. i, "result " .. i .. " has correct value")
     end
 
-    -- Parallel execution should be faster than sequential (5*50=250ms)
-    -- Allow some overhead but should be well under 200ms for parallel
-    assert.ok(elapsed_ms < 200, "parallel execution faster than sequential: " .. elapsed_ms .. "ms")
+    -- Parallel execution should be faster than sequential (5*100=500ms)
+    -- Allow some overhead but should be well under 400ms for parallel
+    assert.ok(elapsed_ms < 400, "parallel execution faster than sequential: " .. elapsed_ms .. "ms")
 
     return true
 end

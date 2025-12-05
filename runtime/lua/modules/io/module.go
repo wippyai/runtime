@@ -56,6 +56,7 @@ func createModuleTable() *lua.LTable {
 	mod.RawSetString("eprint", lua.LGoFunc(ioEprint))
 	mod.RawSetString("read", lua.LGoFunc(ioRead))
 	mod.RawSetString("readline", lua.LGoFunc(ioReadline))
+	mod.RawSetString("flush", lua.LGoFunc(ioFlush))
 
 	mod.Immutable = true
 	return mod

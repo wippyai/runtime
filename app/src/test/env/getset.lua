@@ -1,4 +1,4 @@
-but itslocal assert = require("assert_primitives")
+local assert = require("assert_primitives")
 local env = require("env")
 
 return function()

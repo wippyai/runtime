@@ -12,7 +12,6 @@ import (
 	"context"
 	"sync/atomic"
 
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
@@ -186,13 +185,13 @@ type Executor struct {
 	// Wake signal for StepIdle - message was delivered to process
 	wake chan struct{}
 
-	// Process for this executor. Stored atomically for Lazy pool reuse.
-	proc atomic.Pointer[process.Process]
+	// Embedded inbox owned by this executor, reused across executions.
+	// Executor controls lifecycle: Reset before run, Close after.
+	ownedInbox *Inbox
 
-	// Direct reference to ProcessContext for message delivery.
-	// Set after Init, cleared when execution ends.
-	// Send() writes directly here, bypassing Process.Send().
-	inbox atomic.Pointer[engine.ProcessContext]
+	// Direct reference to inbox for message delivery via Send().
+	// Points to ownedInbox during execution, nil otherwise.
+	inbox atomic.Pointer[process.Inbox]
 
 	// hasWork is set when messages arrive, checked/cleared at StepIdle
 	hasWork atomic.Bool
@@ -203,16 +202,16 @@ func NewExecutor(d Dispatcher) *Executor {
 	e := &Executor{
 		dispatcher: d,
 		wake:       make(chan struct{}, 1),
+		ownedInbox: NewInbox(),
 	}
 	e.multiCtx.wakeup = make(chan struct{}, 1)
 	return e
 }
 
-// Reset prepares the executor for reuse. Clears inbox and proc atomically,
+// Reset prepares the executor for reuse. Clears inbox atomically,
 // hasWork flag, and drains channels.
 func (e *Executor) Reset() {
 	e.inbox.Store(nil)
-	e.proc.Store(nil)
 	e.hasWork.Store(false)
 	// Drain wake channel
 	select {
@@ -229,11 +228,11 @@ func (e *Executor) Reset() {
 // Send implements relay.Receiver. Delivers message directly to inbox.
 // Safe to call concurrently - returns error if inbox was cleared.
 func (e *Executor) Send(pkg *relay.Package) error {
-	inbox := e.inbox.Load()
-	if inbox == nil {
+	inboxPtr := e.inbox.Load()
+	if inboxPtr == nil {
 		return ErrProcessNotFound
 	}
-	if !inbox.QueueMessage(pkg) {
+	if !(*inboxPtr).QueueMessage(pkg) {
 		return ErrProcessNotFound
 	}
 	// Mark that work arrived and signal wake
@@ -252,11 +251,33 @@ func (e *Executor) WithExecutionHooks(hooks ExecutionHooks) *Executor {
 }
 
 // Run executes a process to completion, handling all yields.
-// Captures inbox after Init and clears it before returning.
+// Resets owned inbox before Init and closes it after returning.
 func (e *Executor) Run(ctx context.Context, proc process.Process, method string, input payload.Payloads) *runtime.Result {
 	if e.hooks.OnStart != nil {
 		e.hooks.OnStart(ctx, proc)
 	}
+
+	// Reset owned inbox for this execution
+	e.ownedInbox.Reset()
+
+	// Store inbox in frame context BEFORE Init so engine can access it
+	if err := SetInbox(ctx, e.ownedInbox); err != nil {
+		result := &runtime.Result{Error: err}
+		if e.hooks.OnComplete != nil {
+			e.hooks.OnComplete(ctx, result)
+		}
+		return result
+	}
+
+	// Enable Send routing via atomic pointer
+	var inbox process.Inbox = e.ownedInbox
+	e.inbox.Store(&inbox)
+
+	// Ensure inbox is closed and pointer cleared when Run returns
+	defer func() {
+		e.inbox.Store(nil)
+		e.ownedInbox.Close()
+	}()
 
 	if err := proc.Init(ctx, method, input); err != nil {
 		result := &runtime.Result{Error: err}
@@ -265,15 +286,6 @@ func (e *Executor) Run(ctx context.Context, proc process.Process, method string,
 		}
 		return result
 	}
-
-	// Capture inbox reference after Init - ProcessContext is now in the frame context
-	pc := engine.GetProcessContext(ctx)
-	if pc != nil {
-		e.inbox.Store(pc)
-	}
-
-	// Ensure inbox is cleared when Run returns - prevents messages after completion
-	defer e.inbox.Store(nil)
 
 	var yieldResults *process.YieldResults
 	for {

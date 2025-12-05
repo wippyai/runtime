@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	scheduler "github.com/wippyai/runtime/system/scheduler/actor"
 	lua "github.com/yuin/gopher-lua"
@@ -254,6 +255,13 @@ func BenchmarkActorReceive(b *testing.B) {
 	`
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	// Set up inbox for actor message delivery
+	inbox := process.NewMessageInbox()
+	if err := process.SetInbox(ctx, inbox); err != nil {
+		b.Fatal(err)
+	}
+
 	proc := NewProcess(
 		WithScript(script, "actor.lua"),
 	)
@@ -307,6 +315,13 @@ func TestActorPattern(t *testing.T) {
 	`
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	// Set up inbox for actor message delivery
+	inbox := process.NewMessageInbox()
+	if err := process.SetInbox(ctx, inbox); err != nil {
+		t.Fatal(err)
+	}
+
 	proc := NewProcess(
 		WithScript(script, "actor.lua"),
 	)

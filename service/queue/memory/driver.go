@@ -188,14 +188,19 @@ func (d *Driver) GetQueueInfo(_ context.Context, queueID registry.ID) (attrs.Att
 }
 
 func (d *Driver) lifecycleCtxDone() <-chan struct{} {
-	if d.ctx != nil {
-		return d.ctx.Done()
+	d.mu.RLock()
+	ctx := d.ctx
+	d.mu.RUnlock()
+	if ctx != nil {
+		return ctx.Done()
 	}
 	return make(chan struct{})
 }
 
 func (d *Driver) Start(ctx context.Context) (<-chan any, error) {
+	d.mu.Lock()
 	d.ctx, d.cancel = context.WithCancel(ctx)
+	d.mu.Unlock()
 	d.logger.Info("memory driver started", zap.String("id", d.id.String()))
 	d.statusChan = make(chan any, 1)
 	return d.statusChan, nil

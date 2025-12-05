@@ -113,7 +113,6 @@ func NewStatic(factory Factory, dispatcher Dispatcher, cfg Config, hooks ...Exec
 
 		// Each worker needs its own Executor to avoid races on multiCtx
 		executor := NewExecutor(dispatcher).WithExecutionHooks(hooksCfg)
-		executor.proc.Store(&proc)
 
 		s.workers[i] = &staticWorker{
 			pool:     s,
@@ -150,13 +149,10 @@ func (s *Static) Stop() {
 
 // Send implements relay.Receiver. Routes package to target execution.
 func (s *Static) Send(pkg *relay.Package) error {
-	println("[DEBUG] Static.Send: Target.Host=", pkg.Target.Host, "Target.UniqID=", pkg.Target.UniqID)
 	v, ok := s.active.Load(pkg.Target.UniqID)
 	if !ok {
-		println("[DEBUG] Static.Send: NOT FOUND in active map")
 		return ErrProcessNotFound
 	}
-	println("[DEBUG] Static.Send: found executor, forwarding")
 	return v.(*Executor).Send(pkg)
 }
 
@@ -240,41 +236,13 @@ func (w *staticWorker) execute(req *request) {
 
 	result := w.executor.Run(ctx, w.process, req.method, req.input)
 
-	// Clear proc atomically first - concurrent Send will see nil and fail safely
-	w.executor.proc.Store(nil)
-
-	// Unregister - no more lookups will find this executor
+	// Unregister - any Send after this returns ErrProcessNotFound
+	// inbox was already cleared by Run's defer
 	w.pool.active.Delete(pid.UniqID)
 
-	// Reset or recreate process, then restore proc pointer
-	w.resetOrRecreate()
-
+	// Process is ready for reuse - clearExecution() was called by Step
 	select {
 	case req.resultCh <- result:
 	default:
 	}
-}
-
-// resetOrRecreate resets the process if supported, otherwise closes and recreates it.
-// After this returns, proc is restored and ready for next execution.
-func (w *staticWorker) resetOrRecreate() {
-	if r, ok := w.process.(process.Resettable); ok {
-		r.Reset()
-		w.executor.proc.Store(&w.process)
-		return
-	}
-
-	// Process not resettable - close and create new one
-	w.process.Close()
-
-	newProc, err := w.pool.factory()
-	if err != nil {
-		// Factory failed - worker will error on next request
-		w.process = nil
-		// proc stays nil - already cleared in execute()
-		return
-	}
-
-	w.process = newProc
-	w.executor.proc.Store(&newProc)
 }

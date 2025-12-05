@@ -4,8 +4,13 @@ local store = require("store")
 local time = require("time")
 
 local function main()
+    -- Get store instance
+    local s, store_err = store.get("app.test.store:memory")
+    assert.is_nil(store_err, "should get store")
+
     -- Generate unique message ID for this test run
-    local test_id = "test-" .. tostring(os.time()) .. "-" .. tostring(math.random(1000, 9999))
+    local now = time.now()
+    local test_id = "test-" .. tostring(now:unix_nano())
 
     -- Publish a message to the queue
     local ok, err = queue.publish("app.queue:tasks", {
@@ -26,15 +31,12 @@ local function main()
     -- Wait for the message to be processed
     local max_wait = 5 -- seconds
     local processed = false
-    local result = nil
 
     for i = 1, max_wait * 10 do
-        time.sleep(100) -- 100ms
+        time.sleep("100ms")
 
         -- Check if the message was processed by looking in store
-        -- The handler stores results with key "queue:processed:{msg_id}"
-        -- But we don't know the exact msg_id, so check the counter instead
-        local counter, _ = store.get("queue:counter")
+        local counter, _ = s:get("queue:counter")
         if counter and counter > 0 then
             processed = true
             break

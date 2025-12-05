@@ -1,10 +1,11 @@
--- Test runner
+-- Test runner with real-time progress and beautiful error display
 -- Finds and runs all functions with meta.type = "test"
 local io = require("io")
 local registry = require("registry")
 local funcs = require("funcs")
+local time = require("time")
 
--- ANSI colors
+-- ANSI codes
 local reset = "\027[0m"
 local function bold(s) return "\027[1m" .. s .. reset end
 local function red(s) return "\027[31m" .. s .. reset end
@@ -12,18 +13,50 @@ local function green(s) return "\027[32m" .. s .. reset end
 local function yellow(s) return "\027[33m" .. s .. reset end
 local function cyan(s) return "\027[36m" .. s .. reset end
 local function dim(s) return "\027[2m" .. s .. reset end
-local function magenta(s) return "\027[35m" .. s .. reset end
+
+-- Cursor control
+local function clear_line() return "\027[2K\r" end
+local function hide_cursor() return "\027[?25l" end
+local function show_cursor() return "\027[?25h" end
+
+-- Spinner frames
+local spinner_frames = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+-- Progress bar characters
+local bar_full = "█"
+local bar_empty = "░"
 
 -- Symbols
-local SYM_PASS = green("✓")
 local SYM_FAIL = red("✗")
-local SYM_SUITE = "▸"
+local SYM_SUITE_DONE = green("●")
+local SYM_SUITE_FAIL = red("●")
+
+-- Format duration
+local function format_duration(ms)
+    if ms < 1 then
+        return dim("<1ms")
+    elseif ms < 1000 then
+        return dim(string.format("%dms", ms))
+    else
+        return dim(string.format("%.1fs", ms / 1000))
+    end
+end
+
+-- Build progress bar
+local function progress_bar(current, total, width)
+    width = width or 20
+    if total == 0 then return dim(string.rep(bar_empty, width)) end
+    local filled = math.floor((current / total) * width)
+    local empty = width - filled
+    return cyan(string.rep(bar_full, filled)) .. dim(string.rep(bar_empty, empty))
+end
 
 -- Results
 local results = {
     passed = 0,
     failed = 0,
     errors = {},
+    suite_times = {},
 }
 
 -- Sort tests by order field (meta.order), then by id
@@ -54,7 +87,6 @@ local function group_by_suite(entries)
         end
     end
 
-    -- Sort tests within each suite
     for _, tests in pairs(suites) do
         sort_tests(tests)
     end
@@ -73,49 +105,79 @@ local function sorted_keys(t)
     return keys
 end
 
--- Extract short name from full id (e.g., "app.test.store:basic" -> "basic")
+-- Extract short name from full id
 local function short_name(id)
     return id:match(":([^:]+)$") or id
 end
 
--- Run single test, returns success and error message
+-- Run single test
 local function run_test(entry)
     local ok, result, err = pcall(function()
         return funcs.call(entry.id)
     end)
 
     if not ok then
-        return false, tostring(result)
+        return false, result
     end
     if err then
-        return false, tostring(err)
+        return false, err
     end
     if result == false then
-        return false, "returned false"
+        return false, "test returned false"
     end
     return true, nil
 end
 
--- Run suite and collect results
-local function run_suite(name, tests)
+-- Run suite with live progress
+local function run_suite(name, tests, suite_idx, total_suites, completed_tests, total_tests)
     local suite_passed = 0
     local suite_failed = 0
     local failures = {}
+    local suite_start = time.now()
 
-    for _, entry in ipairs(tests) do
-        local ok, err_msg = run_test(entry)
+    local base_indent = "  "
+
+    for i, entry in ipairs(tests) do
+        local test_name = short_name(entry.id)
+        local spinner = cyan(spinner_frames[((i - 1) % #spinner_frames) + 1])
+
+        -- Update progress line
+        local progress = completed_tests + i
+        local pbar = progress_bar(progress, total_tests, 15)
+        local pct = string.format("%3d%%", math.floor((progress / total_tests) * 100))
+
+        -- Show current test being run
+        io.write(clear_line() .. base_indent .. spinner .. " " .. bold(name) .. " " .. dim("(" .. i .. "/" .. #tests .. ")") .. " " .. dim(test_name) .. "  " .. pbar .. " " .. dim(pct))
+        io.flush()
+
+        -- Run the test
+        local test_start = time.now()
+        local ok, err_obj = run_test(entry)
+        local test_elapsed = time.now():sub(test_start):milliseconds()
+
         if ok then
             suite_passed = suite_passed + 1
             results.passed = results.passed + 1
         else
             suite_failed = suite_failed + 1
             results.failed = results.failed + 1
-            table.insert(failures, {name = short_name(entry.id), error = err_msg})
-            table.insert(results.errors, {id = entry.id, error = err_msg})
+            table.insert(failures, {
+                name = test_name,
+                id = entry.id,
+                error = err_obj,
+                time = test_elapsed
+            })
+            table.insert(results.errors, {id = entry.id, error = err_obj})
         end
     end
 
-    -- Print suite line
+    local suite_elapsed = time.now():sub(suite_start):milliseconds()
+    results.suite_times[name] = suite_elapsed
+
+    -- Clear spinner line and print final suite result
+    io.write(clear_line())
+
+    local icon = suite_failed == 0 and SYM_SUITE_DONE or SYM_SUITE_FAIL
     local status
     if suite_failed == 0 then
         status = green(suite_passed .. "/" .. #tests)
@@ -123,26 +185,31 @@ local function run_suite(name, tests)
         status = red(suite_failed .. " failed")
     end
 
-    io.print("  " .. SYM_SUITE .. " " .. bold(name) .. " " .. dim("(" .. #tests .. ")") .. " " .. status)
+    io.print(base_indent .. icon .. " " .. bold(name) .. " " .. dim("(" .. #tests .. ")") .. " " .. status .. " " .. format_duration(suite_elapsed))
 
-    -- Print failures inline
+    -- Print brief failures (detailed later)
     for _, f in ipairs(failures) do
-        io.print("    " .. SYM_FAIL .. " " .. f.name .. dim(": ") .. red(f.error))
+        io.print("    " .. SYM_FAIL .. " " .. f.name)
     end
+
+    return #tests, failures
 end
 
-local function main()
-    io.print(bold(cyan("Tests")))
+-- Main test runner logic (called via pcall for safety)
+local function run_tests()
+    io.print("")
+    io.print(bold(cyan("  Running Tests")))
+    io.print("")
 
     -- Find tests
     local entries, err = registry.find({["meta.type"] = "test"})
     if err then
-        io.print(red("Error: " .. tostring(err)))
+        io.print(red("  Error: " .. tostring(err)))
         return 1
     end
 
     if not entries or #entries == 0 then
-        io.print(yellow("No tests found"))
+        io.print(yellow("  No tests found"))
         return 0
     end
 
@@ -150,28 +217,90 @@ local function main()
     local suites, no_suite = group_by_suite(entries)
     local suite_names = sorted_keys(suites)
 
-    io.print(dim(#entries .. " tests in " .. #suite_names .. " suites"))
+    local total_tests = #entries
+    local total_suites = #suite_names + (#no_suite > 0 and 1 or 0)
+
+    io.print(dim("  " .. total_tests .. " tests in " .. total_suites .. " suites"))
     io.print("")
 
+    local start_time = time.now()
+    local completed_tests = 0
+    local all_failures = {}
+
     -- Run suites
-    for _, name in ipairs(suite_names) do
-        run_suite(name, suites[name])
+    for idx, name in ipairs(suite_names) do
+        local count, failures = run_suite(name, suites[name], idx, total_suites, completed_tests, total_tests)
+        completed_tests = completed_tests + count
+        for _, f in ipairs(failures) do
+            table.insert(all_failures, f)
+        end
     end
 
     -- Run tests without suite
     if #no_suite > 0 then
-        run_suite("other", no_suite)
+        local count, failures = run_suite("other", no_suite, total_suites, total_suites, completed_tests, total_tests)
+        for _, f in ipairs(failures) do
+            table.insert(all_failures, f)
+        end
+    end
+
+    local total_elapsed = time.now():sub(start_time):milliseconds()
+
+    -- Print detailed failure reports
+    if #all_failures > 0 then
+        io.print("")
+        io.print(bold(red("  Failures")))
+
+        for _, f in ipairs(all_failures) do
+            io.print("")
+            io.print("    " .. cyan(f.id))
+            io.print("    " .. red(tostring(f.error)))
+        end
     end
 
     -- Summary
     io.print("")
+
+    local summary_bar = progress_bar(results.passed, total_tests, 25)
+
     if results.failed > 0 then
-        io.print(red("FAILED") .. " " .. dim(results.passed .. " passed, " .. results.failed .. " failed"))
+        io.print("  " .. red(bold("FAILED")) .. "  " .. summary_bar)
+        io.print("")
+        io.print("  " .. green(results.passed .. " passed") .. "  " .. red(results.failed .. " failed") .. "  " .. format_duration(total_elapsed))
+    else
+        io.print("  " .. green(bold("PASSED")) .. "  " .. summary_bar)
+        io.print("")
+        io.print("  " .. green(results.passed .. " tests") .. "  " .. format_duration(total_elapsed))
+    end
+
+    io.print("")
+
+    return results.failed > 0 and 1 or 0
+end
+
+local function main()
+    -- Hide cursor during test run
+    io.write(hide_cursor())
+    io.flush()
+
+    -- Run tests with pcall to ensure cursor is restored on any error
+    local ok, result = pcall(run_tests)
+
+    -- Always restore cursor
+    io.write(show_cursor())
+    io.flush()
+
+    if not ok then
+        -- Runner itself crashed - show the error
+        io.print("")
+        io.print(red(bold("  RUNNER ERROR")))
+        io.print("")
+        io.print(red("  " .. tostring(result)))
+        io.print("")
         return 1
     end
 
-    io.print(green("PASSED") .. " " .. dim(results.passed .. " tests"))
-    return 0
+    return result
 end
 
 return { main = main }

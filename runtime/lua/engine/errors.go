@@ -151,3 +151,11 @@ func NewOperationError(operation string, cause error) *Error {
 		cause:     cause,
 	}
 }
+
+func NewScriptReturnError(message string) *Error {
+	return &Error{
+		kind:      apierror.KindInternal,
+		message:   message,
+		retryable: apierror.False,
+	}
+}

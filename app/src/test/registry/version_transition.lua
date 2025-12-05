@@ -1,6 +1,7 @@
 local assert = require("assert2")
 local registry = require("registry")
 local funcs = require("funcs")
+local time = require("time")
 
 local function main()
     -- get current version before changes
@@ -40,8 +41,16 @@ local function main()
     local new_id = new_version:id()
     assert.ok(new_id > original_id, "new version id is higher")
 
-    -- call the dynamically created function
-    local result, call_err = funcs.call(func_id)
+    -- wait for function manager to create pool for the new function
+    -- use polling since event propagation timing is non-deterministic
+    local result, call_err
+    for i = 1, 20 do
+        result, call_err = funcs.call(func_id)
+        if call_err == nil then
+            break
+        end
+        time.sleep("50ms")
+    end
     assert.is_nil(call_err, "call dynamic func no error")
     assert.not_nil(result, "call returns result")
     assert.eq(result.created, true, "function returned expected value")
