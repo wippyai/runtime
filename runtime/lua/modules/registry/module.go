@@ -449,7 +449,7 @@ func registryHistory(l *lua.LState) int {
 	return 2
 }
 
-func makeSnapshotAt(log *zap.Logger) lua.LGFunction {
+func makeSnapshotAt(log *zap.Logger) lua.LGoFunc {
 	return func(l *lua.LState) int {
 		ctx := l.Context()
 		if ctx == nil {

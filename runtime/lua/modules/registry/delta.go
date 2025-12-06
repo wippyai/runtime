@@ -9,7 +9,7 @@ import (
 )
 
 // makeBuildDelta creates a build_delta function with the given logger
-func makeBuildDelta(log *zap.Logger) lua.LGFunction {
+func makeBuildDelta(log *zap.Logger) lua.LGoFunc {
 	return func(l *lua.LState) int {
 		return buildDelta(l, log)
 	}

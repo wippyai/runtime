@@ -87,7 +87,7 @@ func internalError(l *lua.LState, goErr error, context string) int {
 	return 2
 }
 
-func makeCompileFunc() lua.LGFunction {
+func makeCompileFunc() lua.LGoFunc {
 	return func(l *lua.LState) int {
 		expression := l.CheckString(1)
 		if expression == "" {
@@ -111,7 +111,7 @@ func makeCompileFunc() lua.LGFunction {
 	}
 }
 
-func makeEvalFunc(cache *lru.Cache[string, *vm.Program]) lua.LGFunction {
+func makeEvalFunc(cache *lru.Cache[string, *vm.Program]) lua.LGoFunc {
 	return func(l *lua.LState) int {
 		expression := l.CheckString(1)
 		if expression == "" {

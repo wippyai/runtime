@@ -48,7 +48,7 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	return mod, yields
 }
 
-func makeMethod(method string) lua.LGFunction {
+func makeMethod(method string) lua.LGoFunc {
 	return func(l *lua.LState) int {
 		urlStr := l.CheckString(1)
 		if urlStr == "" {
