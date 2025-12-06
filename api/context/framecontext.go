@@ -171,9 +171,7 @@ func ReleaseFrameContext(fc FrameContext) {
 			closers = append(closers, closer)
 		}
 	}
-	for k := range f.values {
-		delete(f.values, k)
-	}
+	clear(f.values)
 	f.sealed.Store(false)
 	f.closed = false
 	f.mu.Unlock()

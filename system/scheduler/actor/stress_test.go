@@ -15,6 +15,7 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	apiruntime "github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/system/scheduler"
 )
 
 // RandomYieldProcess yields random commands with random data
@@ -89,7 +90,7 @@ type StressConfig struct {
 }
 
 func runStressTest(t *testing.T, cfg StressConfig) StressResult {
-	registry := NewRegistry()
+	registry := scheduler.NewRegistry()
 
 	var handler dispatcher.Handler
 	switch cfg.HandlerType {
@@ -352,123 +353,7 @@ func TestStressWorkerBalance(t *testing.T) {
 	}
 }
 
-// Benchmarks comparing modes
-
-func BenchmarkSchedulerGlobal4Workers(b *testing.B) {
-	benchmarkScheduler(b, process.KindGlobal, 4)
-}
-
-func BenchmarkSchedulerStealing4Workers(b *testing.B) {
-	benchmarkScheduler(b, process.KindStealing, 4)
-}
-
-func BenchmarkSchedulerGlobal32Workers(b *testing.B) {
-	benchmarkScheduler(b, process.KindGlobal, 32)
-}
-
-func BenchmarkSchedulerStealing32Workers(b *testing.B) {
-	benchmarkScheduler(b, process.KindStealing, 32)
-}
-
-func benchmarkScheduler(b *testing.B, kind process.SchedulerKind, workers int) {
-	registry := NewRegistry()
-	registry.Register(1, &InstantHandler{})
-
-	var completed atomic.Int64
-	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
-			completed.Add(1)
-		},
-	}
-
-	sched := NewScheduler(registry, WithWorkers(workers), WithKind(kind), WithLifecycle(lc))
-	sched.Start()
-	defer sched.Stop()
-
-	var counter atomic.Int64
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			i := counter.Add(1)
-			proc := &RandomYieldProcess{}
-			pid := relay.PID{UniqID: fmt.Sprintf("bench-%d", i)}
-			sched.Submit(context.Background(), pid, proc, "", testInput(3))
-		}
-	})
-
-	// Wait for completion
-	for completed.Load() < counter.Load() {
-	}
-}
-
-func BenchmarkSchedulerHighContention(b *testing.B) {
-	for _, kind := range []process.SchedulerKind{process.KindGlobal, process.KindStealing} {
-		for _, workers := range []int{4, 16, 64} {
-			name := fmt.Sprintf("%s_%dworkers", kind, workers)
-			b.Run(name, func(b *testing.B) {
-				registry := NewRegistry()
-				registry.Register(1, &InstantHandler{})
-
-				var completed atomic.Int64
-				lc := &testLifecycle{
-					onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
-						completed.Add(1)
-					},
-				}
-
-				sched := NewScheduler(registry, WithWorkers(workers), WithKind(kind), WithLifecycle(lc))
-				sched.Start()
-				defer sched.Stop()
-
-				var counter atomic.Uint64
-				b.ResetTimer()
-				b.RunParallel(func(pb *testing.PB) {
-					for pb.Next() {
-						id := counter.Add(1)
-						proc := &RandomYieldProcess{}
-						pid := relay.PID{UniqID: fmt.Sprintf("bench-%d", id)}
-						sched.Submit(context.Background(), pid, proc, "", testInput(5))
-					}
-				})
-
-				// Wait for completion
-				for completed.Load() < int64(counter.Load()) {
-				}
-			})
-		}
-	}
-}
-
-func BenchmarkSchedulerMemory(b *testing.B) {
-	registry := NewRegistry()
-	registry.Register(1, &InstantHandler{})
-
-	var completed atomic.Int64
-	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
-			completed.Add(1)
-		},
-	}
-
-	sched := NewScheduler(registry, WithWorkers(runtime.GOMAXPROCS(0)), WithKind(process.KindGlobal), WithLifecycle(lc))
-	sched.Start()
-	defer sched.Stop()
-
-	b.ReportAllocs()
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		proc := &RandomYieldProcess{}
-		pid := relay.PID{UniqID: fmt.Sprintf("bench-%d", i)}
-		sched.Submit(context.Background(), pid, proc, "", testInput(3))
-	}
-
-	// Wait for completion
-	for completed.Load() < int64(b.N) {
-	}
-}
-
-// InstantHandler completes immediately
+// InstantHandler completes immediately (used by stress tests)
 type InstantHandler struct{}
 
 func (h *InstantHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {

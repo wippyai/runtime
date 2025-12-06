@@ -23,6 +23,7 @@ type Service struct {
 	logger     *zap.Logger
 	bus        event.Bus
 	config     Config
+	transport  memberlist.Transport
 	memberlist *memberlist.Memberlist
 
 	// Node state
@@ -43,15 +44,45 @@ type Config struct {
 
 	// Node metadata for service discovery
 	Meta cluster.NodeMeta
+
+	// Transport allows injecting custom memberlist transport (for testing).
+	Transport memberlist.Transport
 }
 
 // NewService creates a new membership service
 func NewService(config Config, bus event.Bus, logger *zap.Logger) *Service {
 	return &Service{
-		logger: logger,
-		bus:    bus,
-		config: config,
-		nodes:  make(map[string]cluster.NodeInfo),
+		logger:    logger,
+		bus:       bus,
+		config:    config,
+		transport: config.Transport,
+		nodes:     make(map[string]cluster.NodeInfo),
+	}
+}
+
+// New creates a membership service with functional options.
+func New(opts ...Option) *Service {
+	o := defaultOptions()
+	for _, opt := range opts {
+		opt(o)
+	}
+
+	return &Service{
+		logger: o.logger,
+		bus:    o.bus,
+		config: Config{
+			NodeName:     o.nodeName,
+			BindAddr:     o.bindAddr,
+			BindPort:     o.bindPort,
+			JoinAddrs:    o.joinAddrs,
+			SecretFile:   o.secretFile,
+			SecretString: o.secretString,
+			AdvertiseIP:  o.advertiseIP,
+			VeryVerbose:  o.veryVerbose,
+			Meta:         o.meta,
+		},
+		transport: o.transport,
+		nodes:     make(map[string]cluster.NodeInfo),
 	}
 }
 
@@ -69,6 +100,12 @@ func (s *Service) Start(ctx context.Context) error {
 	mlConfig.BindPort = s.config.BindPort
 	mlConfig.Events = &eventDelegate{service: s}
 	mlConfig.Delegate = &delegate{service: s}
+
+	// Use custom transport if provided (for testing)
+	if s.transport != nil {
+		mlConfig.Transport = s.transport
+		s.logger.Debug("using custom transport")
+	}
 
 	// Set advertise address if provided
 	if s.config.AdvertiseIP != "" {
@@ -95,7 +132,8 @@ func (s *Service) Start(ctx context.Context) error {
 		}
 		mlConfig.SecretKey = secretKey
 		s.logger.Info("encryption enabled", zap.Int("key_size", len(secretKey)))
-	} else {
+	} else if s.transport == nil {
+		// Only warn about encryption when using real network
 		s.logger.Warn("encryption disabled - no secret key provided")
 	}
 
@@ -235,7 +273,7 @@ func (ed *eventDelegate) NotifyJoin(node *memberlist.Node) {
 
 	nodeInfo := cluster.NodeInfo{
 		ID:   node.Name,
-		Addr: node.Addr.String(), // Just the IP address
+		Addr: node.Address(), // IP:port for transport use
 		Meta: ed.parseNodeMeta(node.Meta),
 	}
 
@@ -259,7 +297,7 @@ func (ed *eventDelegate) NotifyLeave(node *memberlist.Node) {
 
 	nodeInfo := cluster.NodeInfo{
 		ID:   node.Name,
-		Addr: node.Addr.String(), // Just the IP address
+		Addr: node.Address(), // IP:port for transport use
 		Meta: ed.parseNodeMeta(node.Meta),
 	}
 
@@ -282,7 +320,7 @@ func (ed *eventDelegate) NotifyUpdate(node *memberlist.Node) {
 
 	nodeInfo := cluster.NodeInfo{
 		ID:   node.Name,
-		Addr: node.Addr.String(), // Just the IP address
+		Addr: node.Address(), // IP:port for transport use
 		Meta: ed.parseNodeMeta(node.Meta),
 	}
 

@@ -21,13 +21,12 @@ const defaultQueueCap = 8
 
 // TaskQueue manages a queue of coroutine tasks waiting for execution.
 // Uses a slice-based ring buffer to avoid allocations.
+// Note: Lock-free - single-threaded process model guarantees no concurrent access.
 type TaskQueue struct {
-	items []*Task
-	head  int
-	tail  int
-	count int
-	mu    sync.Mutex
-
+	items    []*Task
+	head     int
+	tail     int
+	count    int
 	drainBuf []*Task
 }
 
@@ -41,14 +40,12 @@ func NewTaskQueue() *TaskQueue {
 
 // Push adds a task to the end of the queue.
 func (q *TaskQueue) Push(task *Task) {
-	q.mu.Lock()
 	if q.count == len(q.items) {
 		q.grow()
 	}
 	q.items[q.tail] = task
 	q.tail = (q.tail + 1) % len(q.items)
 	q.count++
-	q.mu.Unlock()
 }
 
 // grow doubles the capacity of the ring buffer.
@@ -67,25 +64,20 @@ func (q *TaskQueue) grow() {
 // Pop removes and returns the first task in the queue.
 // Returns nil if the queue is empty.
 func (q *TaskQueue) Pop() *Task {
-	q.mu.Lock()
 	if q.count == 0 {
-		q.mu.Unlock()
 		return nil
 	}
 	task := q.items[q.head]
 	q.items[q.head] = nil
 	q.head = (q.head + 1) % len(q.items)
 	q.count--
-	q.mu.Unlock()
 	return task
 }
 
 // Drain removes and returns all tasks from the queue.
 // Reuses internal buffer to avoid allocations.
 func (q *TaskQueue) Drain() []*Task {
-	q.mu.Lock()
 	if q.count == 0 {
-		q.mu.Unlock()
 		return nil
 	}
 
@@ -103,25 +95,20 @@ func (q *TaskQueue) Drain() []*Task {
 	q.head = 0
 	q.tail = 0
 	q.count = 0
-	q.mu.Unlock()
 
 	return q.drainBuf
 }
 
 // IsEmpty returns true if the queue contains no tasks.
+// Note: Single-threaded process model - count check is safe without lock.
 func (q *TaskQueue) IsEmpty() bool {
-	q.mu.Lock()
-	empty := q.count == 0
-	q.mu.Unlock()
-	return empty
+	return q.count == 0
 }
 
 // Len returns the number of tasks currently in the queue.
+// Note: Single-threaded process model - count check is safe without lock.
 func (q *TaskQueue) Len() int {
-	q.mu.Lock()
-	n := q.count
-	q.mu.Unlock()
-	return n
+	return q.count
 }
 
 // Task represents a coroutine execution unit in the Lua VM.

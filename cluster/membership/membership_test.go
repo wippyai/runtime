@@ -284,7 +284,7 @@ func TestEventDelegate_NotifyJoin_PublishesEvent(t *testing.T) {
 
 	nodeEvent := receivedEvents[0].Data.(cluster.NodeEvent)
 	assert.Equal(t, "remote-node", nodeEvent.Node.ID)
-	assert.Equal(t, "192.168.1.100", nodeEvent.Node.Addr)
+	assert.Equal(t, "192.168.1.100:0", nodeEvent.Node.Addr)
 	assert.Equal(t, "worker", nodeEvent.Node.Meta["role"])
 }
 
@@ -457,7 +457,7 @@ func TestEventDelegate_NotifyJoin_UpdatesNodesMap(t *testing.T) {
 
 	assert.True(t, exists)
 	assert.Equal(t, "remote-node", nodeInfo.ID)
-	assert.Equal(t, "192.168.1.100", nodeInfo.Addr)
+	assert.Equal(t, "192.168.1.100:0", nodeInfo.Addr)
 	assert.Equal(t, "worker", nodeInfo.Meta["role"])
 }
 

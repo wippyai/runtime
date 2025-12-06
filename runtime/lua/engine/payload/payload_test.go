@@ -557,7 +557,7 @@ func TestJSONToLua_Transcode(t *testing.T) {
 			check: func(t *testing.T, lv lua.LValue) {
 				tbl := lv.(*lua.LTable)
 				assert.Equal(t, "test", string(tbl.RawGetString("name").(lua.LString)))
-				assert.Equal(t, float64(42), float64(tbl.RawGetString("count").(lua.LNumber)))
+				assert.Equal(t, int64(42), int64(tbl.RawGetString("count").(lua.LInteger)))
 			},
 		},
 		{
@@ -565,9 +565,9 @@ func TestJSONToLua_Transcode(t *testing.T) {
 			json: `[1,2,3]`,
 			check: func(t *testing.T, lv lua.LValue) {
 				tbl := lv.(*lua.LTable)
-				assert.Equal(t, float64(1), float64(tbl.RawGetInt(1).(lua.LNumber)))
-				assert.Equal(t, float64(2), float64(tbl.RawGetInt(2).(lua.LNumber)))
-				assert.Equal(t, float64(3), float64(tbl.RawGetInt(3).(lua.LNumber)))
+				assert.Equal(t, int64(1), int64(tbl.RawGetInt(1).(lua.LInteger)))
+				assert.Equal(t, int64(2), int64(tbl.RawGetInt(2).(lua.LInteger)))
+				assert.Equal(t, int64(3), int64(tbl.RawGetInt(3).(lua.LInteger)))
 			},
 		},
 		{

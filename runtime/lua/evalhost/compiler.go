@@ -40,7 +40,7 @@ func (p *Program) Proto() *lua.FunctionProto { return p.proto }
 
 // Compiler compiles Lua source with module constraints.
 type Compiler struct {
-	availableModules map[string]luaapi.ModuleV2
+	availableModules map[string]luaapi.Module
 	forbiddenClasses []string
 	allowedClasses   []string
 }
@@ -63,8 +63,8 @@ func WithAllowedClasses(classes ...string) CompilerOption {
 }
 
 // NewCompiler creates a compiler with available modules.
-func NewCompiler(modules []luaapi.ModuleV2, opts ...CompilerOption) *Compiler {
-	available := make(map[string]luaapi.ModuleV2)
+func NewCompiler(modules []luaapi.Module, opts ...CompilerOption) *Compiler {
+	available := make(map[string]luaapi.Module)
 	for _, m := range modules {
 		info := m.Info()
 		available[info.Name] = m
@@ -184,7 +184,7 @@ func (c *Compiler) GetModuleBinder(modules []string) func(*lua.LState) {
 }
 
 // GetAvailableModule returns a module by name.
-func (c *Compiler) GetAvailableModule(name string) (luaapi.ModuleV2, bool) {
+func (c *Compiler) GetAvailableModule(name string) (luaapi.Module, bool) {
 	m, ok := c.availableModules[name]
 	return m, ok
 }

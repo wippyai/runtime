@@ -417,8 +417,8 @@ func async(l *lua.LState) int {
 
 // setupAsyncYield creates the async yield with topic, channel, and future.
 func setupAsyncYield(l *lua.LState, regID registry.ID, payloads []payload.Payload) (*AsyncStartYield, int) {
-	pc := engine.GetProcessContext(l.Context())
-	if pc == nil {
+	proc := engine.GetProcess(l)
+	if proc == nil {
 		luaErr := lua.NewLuaError(l, "no process context").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
@@ -430,7 +430,7 @@ func setupAsyncYield(l *lua.LState, regID registry.ID, payloads []payload.Payloa
 	topic := "@future:" + uuid.New().String()
 	ch := engine.NewChannel(1)
 
-	if subErr := pc.Subscribe(topic, ch); subErr != nil {
+	if subErr := proc.Subscribe(topic, ch); subErr != nil {
 		luaErr := lua.WrapErrorWithLua(l, subErr, "subscribe failed").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
@@ -440,7 +440,7 @@ func setupAsyncYield(l *lua.LState, regID registry.ID, payloads []payload.Payloa
 	}
 
 	f := future.New(topic, ch)
-	pc.SetTopicHandler(topic, f.CreateHandler())
+	proc.SetTopicHandler(topic, f.CreateHandler())
 
 	yield := AcquireAsyncStartYield()
 	yield.Task = runtime.Task{

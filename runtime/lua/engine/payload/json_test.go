@@ -33,7 +33,7 @@ func TestJsonLuaTranscoders(t *testing.T) {
 
 					tbl := lv.(*lua.LTable)
 					assert.Equal(t, lua.LString("test"), tbl.RawGetString("name"))
-					assert.Equal(t, lua.LNumber(30), tbl.RawGetString("age"))
+					assert.Equal(t, lua.LInteger(30), tbl.RawGetString("age"))
 				},
 				wantErr: false,
 			},
@@ -46,8 +46,8 @@ func TestJsonLuaTranscoders(t *testing.T) {
 					assert.Equal(t, lua.LTTable, lv.Type())
 
 					tbl := lv.(*lua.LTable)
-					assert.Equal(t, lua.LNumber(1), tbl.RawGetInt(1))
-					assert.Equal(t, lua.LNumber(2), tbl.RawGetInt(2))
+					assert.Equal(t, lua.LInteger(1), tbl.RawGetInt(1))
+					assert.Equal(t, lua.LInteger(2), tbl.RawGetInt(2))
 					assert.Equal(t, lua.LString("three"), tbl.RawGetInt(3))
 				},
 				wantErr: false,

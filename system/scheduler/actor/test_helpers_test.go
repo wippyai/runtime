@@ -10,6 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/system/scheduler"
 )
 
 // testExecutor provides synchronous execution semantics for tests.
@@ -21,11 +22,11 @@ type testExecutor struct {
 	pending map[string]chan *runtime.Result
 }
 
-func newTestExecutorWithRegistry(workers int, registry *Registry) *testExecutor {
+func newTestExecutorWithRegistry(workers int, registry *scheduler.Registry) *testExecutor {
 	return newTestExecutorWithRegistryAndOptions(workers, registry)
 }
 
-func newTestExecutorWithRegistryAndOptions(workers int, registry *Registry, opts ...Option) *testExecutor {
+func newTestExecutorWithRegistryAndOptions(workers int, registry *scheduler.Registry, opts ...Option) *testExecutor {
 	te := &testExecutor{
 		pending: make(map[string]chan *runtime.Result),
 	}
@@ -50,7 +51,7 @@ func newTestExecutorWithRegistryAndOptions(workers int, registry *Registry, opts
 }
 
 func newTestExecutorWithOptions(workers int, opts ...Option) *testExecutor {
-	registry := NewRegistry()
+	registry := scheduler.NewRegistry()
 	registry.Register(CmdComplete, CompleteHandler())
 	registry.Register(CmdYield, YieldHandler())
 	registry.Register(CmdSleep, SleepHandler())

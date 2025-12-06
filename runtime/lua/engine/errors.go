@@ -99,15 +99,6 @@ func NewStoreResourcesError(cause error) *Error {
 	}
 }
 
-func NewStoreProcessContextError(cause error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "failed to store process context",
-		retryable: apierror.False,
-		cause:     cause,
-	}
-}
-
 func NewLoadScriptError(cause error) *Error {
 	return &Error{
 		kind:      apierror.KindInternal,

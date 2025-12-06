@@ -13,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/system/scheduler"
 )
 
 // slowProcess yields with small delays to increase chance of race conditions
@@ -90,7 +91,7 @@ func TestActorConcurrentCancellationStress(t *testing.T) {
 		},
 	}
 
-	registry := NewRegistry()
+	registry := scheduler.NewRegistry()
 	registry.Register(1, &delayedHandler{delay: 100 * time.Microsecond})
 
 	sched := NewScheduler(registry, WithWorkers(4), WithKind(process.KindGlobal), WithLifecycle(lc))
@@ -152,7 +153,7 @@ func TestActorStopDuringExecution(t *testing.T) {
 		},
 	}
 
-	registry := NewRegistry()
+	registry := scheduler.NewRegistry()
 	registry.Register(1, &delayedHandler{delay: 1 * time.Millisecond})
 
 	sched := NewScheduler(registry, WithWorkers(4), WithKind(process.KindGlobal), WithLifecycle(lc))
@@ -201,7 +202,7 @@ func TestActorStealingConcurrentCancellation(t *testing.T) {
 		},
 	}
 
-	registry := NewRegistry()
+	registry := scheduler.NewRegistry()
 	registry.Register(1, &delayedHandler{delay: 50 * time.Microsecond})
 
 	sched := NewScheduler(registry, WithWorkers(8), WithKind(process.KindStealing), WithLifecycle(lc))
@@ -273,7 +274,7 @@ func (p *steppingProcess) Send(_ *relay.Package) error { return nil }
 func TestActorStopNoStepping(t *testing.T) {
 	for _, kind := range []process.SchedulerKind{process.KindGlobal, process.KindStealing} {
 		t.Run(string(kind), func(t *testing.T) {
-			registry := NewRegistry()
+			registry := scheduler.NewRegistry()
 			registry.Register(1, &delayedHandler{delay: 500 * time.Microsecond})
 
 			sched := NewScheduler(registry, WithWorkers(4), WithKind(kind))
@@ -316,7 +317,7 @@ func TestActorStopNoSteppingStress(t *testing.T) {
 	}
 
 	for iter := 0; iter < 20; iter++ {
-		registry := NewRegistry()
+		registry := scheduler.NewRegistry()
 		registry.Register(1, &delayedHandler{delay: 100 * time.Microsecond})
 
 		sched := NewScheduler(registry, WithWorkers(8), WithKind(process.KindStealing))
@@ -365,7 +366,7 @@ func TestActorRapidStopStart(t *testing.T) {
 	for _, kind := range []process.SchedulerKind{process.KindGlobal, process.KindStealing} {
 		t.Run(string(kind), func(t *testing.T) {
 			for cycle := 0; cycle < 10; cycle++ {
-				registry := NewRegistry()
+				registry := scheduler.NewRegistry()
 				registry.Register(1, &delayedHandler{delay: 100 * time.Microsecond})
 
 				sched := NewScheduler(registry, WithWorkers(4), WithKind(kind))

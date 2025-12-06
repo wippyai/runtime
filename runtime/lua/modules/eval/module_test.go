@@ -24,7 +24,7 @@ import (
 // a child process that sleeps. This is the key integration test.
 func TestEvalModule_SandboxWithSleep(t *testing.T) {
 	// Setup: Create eval host with modules
-	modules := []luaapi.ModuleV2{
+	modules := []luaapi.Module{
 		json.Module,
 		timemod.Module,
 	}
@@ -124,7 +124,7 @@ func TestEvalModule_SandboxWithSleep(t *testing.T) {
 
 // TestEvalModule_SandboxYieldTranscoding tests that yields are properly transcoded to Lua tables
 func TestEvalModule_SandboxYieldTranscoding(t *testing.T) {
-	modules := []luaapi.ModuleV2{
+	modules := []luaapi.Module{
 		json.Module,
 		timemod.Module,
 	}
@@ -194,7 +194,7 @@ func TestEvalModule_CompileYield(t *testing.T) {
 	state := lua.NewState()
 	defer state.Close()
 
-	modules := []luaapi.ModuleV2{json.Module, timemod.Module}
+	modules := []luaapi.Module{json.Module, timemod.Module}
 	compiler := evalhost.NewCompiler(modules)
 	program, err := compiler.Compile(evalhost.CompileCmd{
 		Source:  "return { handle = function() return 42 end }",
@@ -264,7 +264,7 @@ func TestEvalModule_RunYield(t *testing.T) {
 
 // TestEvalModule_SandboxMethods tests sandbox userdata methods
 func TestEvalModule_SandboxMethods(t *testing.T) {
-	modules := []luaapi.ModuleV2{
+	modules := []luaapi.Module{
 		json.Module,
 		timemod.Module,
 	}
@@ -327,7 +327,7 @@ func TestEvalModule_SandboxMethods(t *testing.T) {
 func TestEvalModule_SandboxManualDispatch(t *testing.T) {
 	t.Skip("Skipping: known issue with sealed frame context in nested sandbox execution")
 
-	modules := []luaapi.ModuleV2{
+	modules := []luaapi.Module{
 		json.Module,
 		timemod.Module,
 	}
@@ -416,7 +416,7 @@ func TestEvalModule_SandboxManualDispatch(t *testing.T) {
 
 // TestEvalModule_ProgramMethods tests Program userdata methods
 func TestEvalModule_ProgramMethods(t *testing.T) {
-	modules := []luaapi.ModuleV2{
+	modules := []luaapi.Module{
 		json.Module,
 		timemod.Module,
 	}
@@ -467,7 +467,7 @@ func TestEvalModule_ProgramMethods(t *testing.T) {
 
 // TestEvalModule_ErrorCases tests various error conditions
 func TestEvalModule_ErrorCases(t *testing.T) {
-	modules := []luaapi.ModuleV2{
+	modules := []luaapi.Module{
 		json.Module,
 		timemod.Module,
 	}
@@ -594,7 +594,7 @@ func (r *testRegistry) Dispatch(cmd dispatcher.Command) dispatcher.Handler {
 // 3. Tests multiple yield types (sleep, now)
 // 4. Verifies resource cleanup
 func TestEvalModule_ComprehensiveIntegration(t *testing.T) {
-	modules := []luaapi.ModuleV2{
+	modules := []luaapi.Module{
 		json.Module,
 		timemod.Module,
 	}
@@ -750,7 +750,7 @@ func TestEvalModule_ComprehensiveIntegration(t *testing.T) {
 
 // TestEvalModule_SandboxResourceCleanup verifies sandbox resources are cleaned when parent exits
 func TestEvalModule_SandboxResourceCleanup(t *testing.T) {
-	modules := []luaapi.ModuleV2{
+	modules := []luaapi.Module{
 		json.Module,
 		timemod.Module,
 	}
@@ -804,7 +804,7 @@ func TestEvalModule_SandboxResourceCleanup(t *testing.T) {
 
 // TestEvalModule_MultipleModulesLoaded verifies all requested modules are available
 func TestEvalModule_MultipleModulesLoaded(t *testing.T) {
-	modules := []luaapi.ModuleV2{
+	modules := []luaapi.Module{
 		json.Module,
 		timemod.Module,
 	}
@@ -882,7 +882,7 @@ func TestEvalModule_MultipleModulesLoaded(t *testing.T) {
 func TestEvalModule_YieldObservation(t *testing.T) {
 	t.Skip("Skipping: known issue with sealed frame context in nested sandbox execution")
 
-	modules := []luaapi.ModuleV2{
+	modules := []luaapi.Module{
 		json.Module,
 		timemod.Module,
 	}
@@ -966,7 +966,7 @@ func TestEvalModule_YieldObservation(t *testing.T) {
 
 // BenchmarkSandboxCreateExecuteStep benchmarks sandbox creation, execute, and step cycle
 func BenchmarkSandboxCreateExecuteStep(b *testing.B) {
-	modules := []luaapi.ModuleV2{
+	modules := []luaapi.Module{
 		json.Module,
 		timemod.Module,
 	}

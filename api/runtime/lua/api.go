@@ -3,7 +3,9 @@ package lua
 
 import (
 	"context"
+	"sync"
 
+	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
 
 	lua "github.com/yuin/gopher-lua"
@@ -37,20 +39,145 @@ type ModuleInfo struct {
 
 type (
 	// Factory creates new instances of the Lua virtual machine with compiled code.
-	// It handles the compilation and instantiation of Lua environments.
 	Factory interface {
-		// Compile prepares the Lua code for execution.
 		Compile() error
-		// CreateVM creates a new instance of the Lua virtual machine.
 		CreateVM() (VM, error)
 	}
 
-	// VM represents a Lua virtual machine instance that can execute Lua code.
-	// It provides methods to run Lua functions and manage the VM lifecycle.
+	// VM represents a Lua virtual machine instance.
 	VM interface {
-		// Execute runs a Lua function with the given name and arguments in the VM.
 		Execute(ctx context.Context, name string, args ...lua.LValue) (lua.LValue, error)
-		// Close cleans up the VM resources.
 		Close()
 	}
 )
+
+// Module is the interface for Lua modules.
+type Module interface {
+	Info() ModuleInfo
+	Loader(l *lua.LState) int
+	Register(l *lua.LState) *Registration
+}
+
+// Registration contains module configuration returned by Register.
+type Registration struct {
+	Table      *lua.LTable
+	YieldTypes []YieldType
+}
+
+// YieldType describes a yield and how to handle it.
+type YieldType struct {
+	Sample any
+	CmdID  dispatcher.CommandID
+}
+
+// YieldConverter is implemented by yield values to convert to dispatcher commands.
+type YieldConverter interface {
+	lua.LValue
+	CmdID() dispatcher.CommandID
+	ToCommand() dispatcher.Command
+}
+
+// Releasable is implemented by pooled yields for cleanup.
+type Releasable interface {
+	Release()
+}
+
+// HandledYield is implemented by yields that know how to convert
+// handler results back to Lua values.
+type HandledYield interface {
+	lua.LValue
+	HandleResult(l *lua.LState, data any, err error) []lua.LValue
+}
+
+// ModuleDef is the complete module definition.
+type ModuleDef struct {
+	Name        string
+	Description string
+	Class       []string
+	Default     bool
+	Build       func() (*lua.LTable, []YieldType)
+	BuildValue  func() (lua.LValue, []YieldType)
+
+	once   sync.Once
+	table  *lua.LTable
+	value  lua.LValue
+	yields []YieldType
+}
+
+// Load loads the module into LState.
+func (m *ModuleDef) Load(l *lua.LState) []YieldType {
+	m.once.Do(func() {
+		if m.BuildValue != nil {
+			m.value, m.yields = m.BuildValue()
+		} else if m.Build != nil {
+			m.table, m.yields = m.Build()
+			m.value = m.table
+		}
+	})
+
+	l.SetGlobal(m.Name, m.value)
+
+	if pkg := l.GetGlobal("package"); pkg != lua.LNil {
+		if pkgTbl, ok := pkg.(*lua.LTable); ok {
+			if preload := pkgTbl.RawGetString("preload"); preload != lua.LNil {
+				if preloadTbl, ok := preload.(*lua.LTable); ok {
+					preloadTbl.RawSetString(m.Name, m.value)
+				}
+			}
+		}
+	}
+
+	return m.yields
+}
+
+// Info returns module metadata.
+func (m *ModuleDef) Info() ModuleInfo {
+	return ModuleInfo{Name: m.Name, Description: m.Description, Class: m.Class}
+}
+
+// Register initializes the module and returns its registration.
+func (m *ModuleDef) Register(_ *lua.LState) *Registration {
+	m.once.Do(func() {
+		if m.BuildValue != nil {
+			m.value, m.yields = m.BuildValue()
+			if tbl, ok := m.value.(*lua.LTable); ok {
+				m.table = tbl
+			}
+		} else if m.Build != nil {
+			m.table, m.yields = m.Build()
+			m.value = m.table
+		}
+	})
+	return &Registration{Table: m.table, YieldTypes: m.yields}
+}
+
+// Loader initializes the module and pushes it onto the stack.
+func (m *ModuleDef) Loader(l *lua.LState) int {
+	m.Register(l)
+	if m.value != nil {
+		l.Push(m.value)
+	} else {
+		l.Push(m.table)
+	}
+	return 1
+}
+
+// LoadModule loads a module into the LState.
+func LoadModule(l *lua.LState, m Module) []YieldType {
+	info := m.Info()
+	reg := m.Register(l)
+
+	l.SetGlobal(info.Name, reg.Table)
+
+	if pkg := l.GetGlobal("package"); pkg != lua.LNil {
+		if pkgTbl, ok := pkg.(*lua.LTable); ok {
+			if preload := pkgTbl.RawGetString("preload"); preload != lua.LNil {
+				if preloadTbl, ok := preload.(*lua.LTable); ok {
+					preloadTbl.RawSetString(info.Name, reg.Table)
+				}
+			}
+		}
+	}
+
+	return reg.YieldTypes
+}

@@ -27,6 +27,9 @@ func DecodeValue(value any) lua.LValue {
 	case bool:
 		return lua.LBool(converted)
 	case json.Number:
+		if i, err := converted.Int64(); err == nil {
+			return lua.LInteger(i)
+		}
 		if f, err := converted.Float64(); err == nil {
 			return lua.LNumber(f)
 		}

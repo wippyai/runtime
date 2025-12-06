@@ -14,6 +14,7 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/system/scheduler"
 )
 
 // Test commands
@@ -157,7 +158,7 @@ func (l *testLifecycle) OnComplete(ctx context.Context, pid relay.PID, result *r
 
 // Helper to create test scheduler
 func newTestScheduler(workers int) *Scheduler {
-	registry := NewRegistry()
+	registry := scheduler.NewRegistry()
 	registry.Register(CmdComplete, CompleteHandler())
 	registry.Register(CmdYield, YieldHandler())
 	registry.Register(CmdSleep, SleepHandler())
@@ -165,7 +166,7 @@ func newTestScheduler(workers int) *Scheduler {
 }
 
 func newTestSchedulerWithLifecycle(workers int, lc *testLifecycle) *Scheduler {
-	registry := NewRegistry()
+	registry := scheduler.NewRegistry()
 	registry.Register(CmdComplete, CompleteHandler())
 	registry.Register(CmdYield, YieldHandler())
 	registry.Register(CmdSleep, SleepHandler())
@@ -182,7 +183,7 @@ func testInput(v any) payload.Payloads {
 
 // newTestExecutor creates a testExecutor with the standard test registry
 func newTestExecutor(workers int) *testExecutor {
-	registry := NewRegistry()
+	registry := scheduler.NewRegistry()
 	registry.Register(CmdComplete, CompleteHandler())
 	registry.Register(CmdYield, YieldHandler())
 	registry.Register(CmdSleep, SleepHandler())
@@ -649,7 +650,7 @@ func TestSchedulerSingleWorker(t *testing.T) {
 				},
 			}
 
-			registry := NewRegistry()
+			registry := scheduler.NewRegistry()
 			registry.Register(CmdComplete, CompleteHandler())
 			registry.Register(CmdYield, YieldHandler())
 

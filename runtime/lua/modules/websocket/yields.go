@@ -191,19 +191,18 @@ func (y *WsSubscribeYield) HandleResult(l *lua.LState, data any, err error) []lu
 		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
 	}
 
-	ctx := l.Context()
-	pc := engine.GetProcessContext(ctx)
-	if pc == nil {
+	proc := engine.GetProcess(l)
+	if proc == nil {
 		return []lua.LValue{lua.LNil, lua.LString("no process context")}
 	}
 
 	// Subscribe the channel to the topic
-	if err := pc.Subscribe(y.Topic, y.Channel); err != nil {
+	if err := proc.Subscribe(y.Topic, y.Channel); err != nil {
 		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
 	}
 
 	// Set topic handler to convert websocket payloads to Lua tables
-	pc.SetTopicHandler(y.Topic, wsMessageHandler)
+	proc.SetTopicHandler(y.Topic, wsMessageHandler)
 
 	// Mark connection as subscribed
 	if y.Conn != nil {

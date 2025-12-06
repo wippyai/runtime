@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
@@ -17,125 +16,6 @@ import (
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	lua "github.com/yuin/gopher-lua"
 )
-
-// subscribeContext manages topic-to-channel mappings.
-type subscribeContext struct {
-	byTopic   map[string]*subscription
-	byChannel map[*Channel]string
-	mu        sync.RWMutex
-}
-
-func (m *subscribeContext) add(topic string, ch *Channel) (*subscription, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if existing, exists := m.byTopic[topic]; exists {
-		if existing.channel != ch {
-			return nil, NewTopicAlreadySubscribedError(topic)
-		}
-		return existing, nil
-	}
-
-	sub := &subscription{topic: topic, channel: ch}
-	m.byTopic[topic] = sub
-	m.byChannel[ch] = topic
-	return sub, nil
-}
-
-func (m *subscribeContext) remove(ch *Channel) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	topic, exists := m.byChannel[ch]
-	if !exists {
-		return ErrChannelNotFound
-	}
-	delete(m.byTopic, topic)
-	delete(m.byChannel, ch)
-	return nil
-}
-
-func (m *subscribeContext) get(topic string) (*subscription, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	sub, exists := m.byTopic[topic]
-	return sub, exists
-}
-
-// subscription links a topic to a channel.
-type subscription struct {
-	topic   string
-	channel *Channel
-}
-
-// SubscribeRequest is yielded to request a topic subscription.
-type SubscribeRequest struct {
-	Topic   string
-	Channel *Channel
-}
-
-func (r *SubscribeRequest) String() string       { return "<subscribe_request>" }
-func (r *SubscribeRequest) Type() lua.LValueType { return lua.LTUserData }
-
-// UnsubscribeRequest is yielded to unsubscribe a channel.
-type UnsubscribeRequest struct {
-	Channel *Channel
-}
-
-func (r *UnsubscribeRequest) String() string       { return "<unsubscribe_request>" }
-func (r *UnsubscribeRequest) Type() lua.LValueType { return lua.LTUserData }
-
-// ActiveChannel represents a channel blocking execution.
-type ActiveChannel struct {
-	Name  string
-	Slots int
-	Refs  int
-}
-
-// GetActiveChannels returns channels currently blocking execution.
-func GetActiveChannels(proc *Process) []ActiveChannel {
-	pc := GetProcessContext(proc.ctx)
-	if pc == nil {
-		return nil
-	}
-
-	channels := pc.Channels()
-	result := make([]ActiveChannel, 0, len(channels))
-	for ch, refs := range channels {
-		result = append(result, ActiveChannel{
-			Name:  ch.Name(),
-			Slots: ch.Slots(),
-			Refs:  refs,
-		})
-	}
-
-	return result
-}
-
-// HasSubscriptions returns true if the process has any active subscriptions.
-func HasSubscriptions(proc *Process) bool {
-	pc := GetProcessContext(proc.ctx)
-	if pc == nil {
-		return false
-	}
-	return pc.HasSubscriptions()
-}
-
-// HandledYield is implemented by yields that know how to convert
-// handler results back to Lua values. This allows each module to
-// define its own result conversion without central dispatch.
-type HandledYield interface {
-	lua.LValue
-	HandleResult(l *lua.LState, data any, err error) []lua.LValue
-}
-
-// ConvertYieldToCommand attempts to convert a Lua yield value to a scheduler command.
-func ConvertYieldToCommand(value lua.LValue) dispatcher.Command {
-	if converter, ok := value.(luaapi.YieldConverter); ok {
-		return converter.ToCommand()
-	}
-	return nil
-}
 
 // ProcessOption configures a Process.
 type ProcessOption func(*Process)
@@ -182,7 +62,6 @@ func WithStateOptions(opts lua.Options) ProcessOption {
 
 // Process implements scheduler.Process for Lua execution.
 // Combines VM + CVM + Runner into a single unit.
-// Request-specific state is stored in ProcessContext (via FrameContext), not here.
 // Module binders and state options are stored in Factory for sharing across processes.
 type Process struct {
 	state   *lua.LState
@@ -207,8 +86,7 @@ type Process struct {
 	// reusable buffer for yielded tasks
 	yieldBuf []*Task
 
-	// pendingYields maps tags to tasks waiting for external results
-	// Tag-based correlation enables O(1) lookup when results arrive
+	// pendingYields tracks yields waiting for external operations
 	pendingYields map[any]*Task
 
 	// yieldSeq is a monotonic counter for generating unique yield tags
@@ -223,8 +101,74 @@ type Process struct {
 	// exported caches method functions extracted from module table
 	exported map[string]*lua.LFunction
 
-	// pc caches ProcessContext for this execution (set in Init)
-	pc *ProcessContext
+	// Channel layer state (moved from ProcessContext)
+	channelQueue *TaskQueue
+	channels     map[*Channel]int
+
+	// Subscribe layer state (moved from ProcessContext)
+	subs *subscribeContext
+
+	// Topic handlers for custom message processing
+	handlers map[string]TopicHandler
+}
+
+// GetProcess retrieves the Process from LState via Owner.
+// Returns nil if Owner is not set or not a Process.
+func GetProcess(l *lua.LState) *Process {
+	if l.G == nil || l.G.Owner == nil {
+		return nil
+	}
+	p, _ := l.G.Owner.(*Process)
+	return p
+}
+
+// Subscribe registers a channel to receive messages for a topic.
+func (p *Process) Subscribe(topic string, ch *Channel) error {
+	if p.subs == nil {
+		return ErrProcessContextNotAvailable
+	}
+	_, err := p.subs.add(topic, ch)
+	return err
+}
+
+// SetTopicHandler registers a handler for a topic.
+func (p *Process) SetTopicHandler(topic string, handler TopicHandler) {
+	if p.handlers == nil {
+		p.handlers = make(map[string]TopicHandler, 4)
+	}
+	p.handlers[topic] = handler
+}
+
+// GetTopicHandler retrieves a handler for a topic.
+func (p *Process) GetTopicHandler(topic string) (TopicHandler, bool) {
+	if p.handlers == nil {
+		return nil, false
+	}
+	h, ok := p.handlers[topic]
+	return h, ok
+}
+
+// RemoveTopicHandler removes a handler for a topic.
+func (p *Process) RemoveTopicHandler(topic string) {
+	delete(p.handlers, topic)
+}
+
+// ChannelQueue returns the channel layer task queue, creating it if needed.
+func (p *Process) ChannelQueue() *TaskQueue {
+	if p.channelQueue == nil {
+		p.channelQueue = NewTaskQueue()
+	}
+	return p.channelQueue
+}
+
+// HasSubscriptions returns true if there are active subscriptions.
+func (p *Process) HasSubscriptions() bool {
+	if p.subs == nil {
+		return false
+	}
+	p.subs.mu.RLock()
+	defer p.subs.mu.RUnlock()
+	return len(p.subs.byTopic) > 0
 }
 
 // NewProcess creates a new Lua process with options.
@@ -271,6 +215,9 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 	p.ctx = ctx
 	p.state.SetContext(ctx)
 
+	// Set Owner for fast access from modules
+	p.state.G.Owner = p
+
 	// Create and store resource.Store in FrameContext
 	store := resource.NewStore()
 	if err := resource.SetStore(ctx, store); err != nil {
@@ -280,13 +227,25 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 		return NewStoreResourcesError(err)
 	}
 
-	// Create and store ProcessContext for request-specific state
-	pc := acquireProcessContext()
-	if err := setProcessContext(ctx, pc); err != nil {
-		_ = pc.Close()
-		return NewStoreProcessContextError(err)
+	// Initialize channel and subscription state
+	if p.channels == nil {
+		p.channels = make(map[*Channel]int, 4)
+	} else {
+		clear(p.channels)
 	}
-	p.pc = pc
+	if p.subs == nil {
+		p.subs = &subscribeContext{
+			byTopic:   make(map[string]*subscription, 4),
+			byChannel: make(map[*Channel]string, 4),
+		}
+	} else {
+		clear(p.subs.byTopic)
+		clear(p.subs.byChannel)
+	}
+	clear(p.handlers)
+	if p.channelQueue != nil {
+		p.channelQueue.Drain()
+	}
 
 	// Seal the frame - no more modifications allowed after this
 	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
@@ -475,7 +434,7 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		// Check if we're waiting for external operations
 		if len(p.pendingYields) > 0 {
 			out.Continue()
-		} else if p.pc != nil && (p.pc.HasSubscriptions() || len(p.pc.channels) > 0) {
+		} else if p.HasSubscriptions() || len(p.channels) > 0 {
 			out.Idle()
 		} else {
 			p.clearExecution()
@@ -517,13 +476,13 @@ func (p *Process) Queue() *TaskQueue {
 
 // processChannelYields handles channel operations internally.
 func (p *Process) processChannelYields() ([]*Task, error) {
-	// Fast path: no ProcessContext = no channels, run vmStep directly
-	if p.pc == nil {
+	// Fast path: no channels, run vmStep directly
+	if p.channels == nil {
 		return p.vmStep(p.queue.Drain()...)
 	}
 
-	channels := p.pc.channels
-	channelQueue := p.pc.ChannelQueue()
+	channels := p.channels
+	channelQueue := p.ChannelQueue()
 	p.externalTasks = p.externalTasks[:0]
 
 	// Transfer tasks from process queue to channel queue
@@ -554,7 +513,7 @@ func (p *Process) processChannelYields() ([]*Task, error) {
 			// Check if yield is a channel operation
 			value := task.Yielded[len(task.Yielded)-1]
 			result, ok := value.(*ChannelResult)
-			if !ok {
+			if !ok || result == nil {
 				p.externalTasks = append(p.externalTasks, task)
 				continue
 			}
@@ -615,11 +574,11 @@ func (p *Process) updateChannelRefs(channels map[*Channel]int, blocks, releases 
 // processSubscribeYields routes incoming messages and handles subscribe/unsubscribe.
 // messages are received via EventMessage events from the scheduler.
 func (p *Process) processSubscribeYields(tasks []*Task, messages []*relay.Package) ([]*Task, error) {
-	if p.pc == nil {
+	if p.subs == nil {
 		return tasks, nil
 	}
 
-	subs := p.pc.subs
+	subs := p.subs
 
 	// Route incoming messages to subscribed channels
 	for _, pkg := range messages {
@@ -632,7 +591,7 @@ func (p *Process) processSubscribeYields(tasks []*Task, messages []*relay.Packag
 
 			// Check for terminal payload - unsubscribe and close channel
 			if len(msg.Payloads) == 1 && payload.IsTerminal(msg.Payloads[0]) {
-				p.pc.RemoveTopicHandler(topic)
+				p.RemoveTopicHandler(topic)
 				_ = subs.remove(sub.channel)
 				sub.channel.Close(nil)
 				continue
@@ -647,12 +606,12 @@ func (p *Process) processSubscribeYields(tasks []*Task, messages []*relay.Packag
 
 			// Check for topic handler
 			var value lua.LValue
-			if handler, ok := p.pc.GetTopicHandler(topic); ok {
+			if handler, ok := p.GetTopicHandler(topic); ok {
 				value = handler(p.ctx, p.state, payloads)
 				if value == nil {
 					// Handler processed but doesn't want to send to channel
 					if hasTerminal {
-						p.pc.RemoveTopicHandler(topic)
+						p.RemoveTopicHandler(topic)
 						_ = subs.remove(sub.channel)
 						sub.channel.Close(nil)
 					}
@@ -682,7 +641,7 @@ func (p *Process) processSubscribeYields(tasks []*Task, messages []*relay.Packag
 
 			// Close channel after sending if terminal was present
 			if hasTerminal {
-				p.pc.RemoveTopicHandler(topic)
+				p.RemoveTopicHandler(topic)
 				_ = subs.remove(sub.channel)
 				sub.channel.Close(nil)
 			}
@@ -874,7 +833,10 @@ func (p *Process) yieldToCommand(task *Task) dispatcher.Command {
 
 	// Check last yielded value for convertible types
 	lastValue := task.Yielded[len(task.Yielded)-1]
-	cmd := ConvertYieldToCommand(lastValue)
+	var cmd dispatcher.Command
+	if converter, ok := lastValue.(luaapi.YieldConverter); ok {
+		cmd = converter.ToCommand()
+	}
 
 	// NOTE: Do NOT release the yield object here - the cmd shares the same
 	// underlying data (e.g., CallYield.CallCmd). The yield object should be
@@ -948,25 +910,16 @@ func (p *Process) distributeEvent(ev process.Event) {
 	var task *Task
 	var tag any
 
-	if ev.Tag != nil {
-		// Tag-based O(1) lookup
-		var exists bool
-		task, exists = p.pendingYields[ev.Tag]
-		if !exists || task == nil {
-			return
-		}
-		tag = ev.Tag
-	} else if len(p.pendingYields) == 1 {
-		// Single-yield case: Tag is nil, resume the only pending task
-		for k, v := range p.pendingYields {
-			tag = k
-			task = v
-			break
-		}
-	} else {
-		// Multiple pending yields but no Tag - cannot correlate
+	if ev.Tag == nil {
 		return
 	}
+
+	var exists bool
+	task, exists = p.pendingYields[ev.Tag]
+	if !exists || task == nil {
+		return
+	}
+	tag = ev.Tag
 
 	p.resumeTaskWithResult(task, ev.Data, ev.Error)
 
@@ -978,7 +931,7 @@ func (p *Process) distributeEvent(ev process.Event) {
 func (p *Process) resumeTaskWithResult(task *Task, data any, err error) {
 	if len(task.Yielded) > 0 {
 		lastYield := task.Yielded[len(task.Yielded)-1]
-		if hy, ok := lastYield.(HandledYield); ok {
+		if hy, ok := lastYield.(luaapi.HandledYield); ok {
 			task.Resumed = hy.HandleResult(p.state, data, err)
 			if releasable, ok := lastYield.(luaapi.Releasable); ok {
 				releasable.Release()
@@ -1014,7 +967,17 @@ func (p *Process) clearExecution() {
 	p.pendingYields = nil
 	p.result = nil
 	p.execErr = nil
-	p.pc = nil
+
+	// Clear channel/subscription state
+	clear(p.channels)
+	if p.subs != nil {
+		clear(p.subs.byTopic)
+		clear(p.subs.byChannel)
+	}
+	clear(p.handlers)
+	if p.channelQueue != nil {
+		p.channelQueue.Drain()
+	}
 
 	// Clear yield buffer
 	p.yieldBuf = p.yieldBuf[:0]

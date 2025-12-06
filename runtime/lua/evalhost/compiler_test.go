@@ -12,8 +12,8 @@ import (
 )
 
 // safeModules returns modules safe for eval testing
-func safeModules() []luaapi.ModuleV2 {
-	return []luaapi.ModuleV2{
+func safeModules() []luaapi.Module {
+	return []luaapi.Module{
 		json.Module,
 		timemod.Module,
 	}
@@ -61,7 +61,7 @@ func TestCompiler_Compile_ForbiddenClass(t *testing.T) {
 		classes: []string{luaapi.ClassProcess},
 	}
 
-	modules := []luaapi.ModuleV2{
+	modules := []luaapi.Module{
 		json.Module,
 		mockMod,
 	}
@@ -144,7 +144,7 @@ func TestCompiler_ClassBasedFiltering(t *testing.T) {
 		classes: []string{luaapi.ClassNetwork},
 	}
 
-	modules := []luaapi.ModuleV2{
+	modules := []luaapi.Module{
 		safeModule,
 		processModule,
 		storageModule,
@@ -167,7 +167,7 @@ func TestCompiler_CustomForbiddenClasses(t *testing.T) {
 		classes: []string{luaapi.ClassIO},
 	}
 
-	modules := []luaapi.ModuleV2{ioModule}
+	modules := []luaapi.Module{ioModule}
 
 	// With default settings, IO is allowed
 	compilerDefault := NewCompiler(modules)
@@ -240,7 +240,7 @@ func TestCompiler_ForbiddenClasses(t *testing.T) {
 	assert.Contains(t, forbidden, luaapi.ClassNetwork)
 }
 
-// mockModule implements luaapi.ModuleV2 for testing
+// mockModule implements luaapi.Module for testing
 type mockModule struct {
 	name    string
 	classes []string

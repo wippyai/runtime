@@ -1310,7 +1310,7 @@ func TestSubscribeBasic(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !HasSubscriptions(proc) {
+	if !proc.HasSubscriptions() {
 		t.Error("expected active subscription")
 	}
 
@@ -1484,7 +1484,7 @@ func TestSubscribeWithCoroutineSpawn(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !HasSubscriptions(proc) {
+	if !proc.HasSubscriptions() {
 		t.Error("expected active subscription with spawned workers")
 	}
 
@@ -1513,7 +1513,7 @@ func TestHasSubscriptions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !HasSubscriptions(proc) {
+	if !proc.HasSubscriptions() {
 		t.Error("expected subscription to be active")
 	}
 

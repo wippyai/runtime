@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"sync"
 	"testing"
 
 	lua "github.com/yuin/gopher-lua"
@@ -206,7 +205,9 @@ func TestTaskQueueGrow(t *testing.T) {
 	}
 }
 
-func TestTaskQueueConcurrent(t *testing.T) {
+func TestTaskQueueSequential(t *testing.T) {
+	// TaskQueue is lock-free and designed for single-threaded process model.
+	// This test verifies sequential operations work correctly.
 	q := NewTaskQueue()
 
 	state := lua.NewState()
@@ -214,43 +215,29 @@ func TestTaskQueueConcurrent(t *testing.T) {
 
 	fn := state.NewFunction(func(l *lua.LState) int { return 0 })
 
-	var wg sync.WaitGroup
 	pushCount := 100
+	tasks := make([]*Task, 0, pushCount)
 
-	// Concurrent pushes
+	// Sequential pushes
 	for i := 0; i < pushCount; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			thread, _ := state.NewThread()
-			task := NewTask(thread, fn)
-			q.Push(task)
-		}()
+		thread, _ := state.NewThread()
+		task := NewTask(thread, fn)
+		q.Push(task)
+		tasks = append(tasks, task)
 	}
-
-	wg.Wait()
 
 	if q.Len() != pushCount {
 		t.Errorf("Len() = %d, want %d", q.Len(), pushCount)
 	}
 
-	// Concurrent pops
+	// Sequential pops
 	popped := 0
-	var popMu sync.Mutex
 	for i := 0; i < pushCount; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if task := q.Pop(); task != nil {
-				task.Close()
-				popMu.Lock()
-				popped++
-				popMu.Unlock()
-			}
-		}()
+		if task := q.Pop(); task != nil {
+			task.Close()
+			popped++
+		}
 	}
-
-	wg.Wait()
 
 	if popped != pushCount {
 		t.Errorf("popped = %d, want %d", popped, pushCount)
