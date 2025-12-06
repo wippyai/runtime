@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 	"sync"
+	"sync/atomic"
 
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
@@ -16,12 +17,20 @@ type entry struct {
 	name        string
 }
 
+// sealedChain holds the immutable interceptor slice after rebuild
+type sealedChain struct {
+	interceptors []queueapi.PublishInterceptor
+	publishFunc  func(context.Context, registry.ID, ...*queueapi.Message) error
+}
+
+// Registry manages publish interceptors.
+// Uses atomic pointer for lock-free Publish() on hot path.
 type Registry struct {
 	logger      *zap.Logger
 	entries     []entry
-	chain       queueapi.PublishChain
 	publishFunc func(context.Context, registry.ID, ...*queueapi.Message) error
-	mu          sync.RWMutex
+	mu          sync.Mutex
+	chain       atomic.Pointer[sealedChain]
 }
 
 func NewInterceptorRegistry(logger *zap.Logger) *Registry {
@@ -80,31 +89,55 @@ func (r *Registry) SetPublishFunc(f func(context.Context, registry.ID, ...*queue
 	r.rebuild()
 }
 
+// rebuild creates the sealed chain (called with lock held)
 func (r *Registry) rebuild() {
 	sort.Slice(r.entries, func(i, j int) bool {
 		return r.entries[i].priority < r.entries[j].priority
 	})
+
+	if len(r.entries) == 0 && r.publishFunc == nil {
+		r.chain.Store(nil)
+		return
+	}
 
 	interceptors := make([]queueapi.PublishInterceptor, len(r.entries))
 	for i, e := range r.entries {
 		interceptors[i] = e.interceptor
 	}
 
-	chain := newChain(interceptors, r.publishFunc, r.logger)
-	r.chain = &chain
+	r.chain.Store(&sealedChain{
+		interceptors: interceptors,
+		publishFunc:  r.publishFunc,
+	})
 }
 
+// Publish executes the interceptor chain. Lock-free on hot path.
 func (r *Registry) Publish(ctx context.Context, queue registry.ID, msgs ...*queueapi.Message) error {
-	r.mu.RLock()
-	chain := r.chain
-	r.mu.RUnlock()
-
+	chain := r.chain.Load()
 	if chain == nil {
-		if r.publishFunc != nil {
-			return r.publishFunc(ctx, queue, msgs...)
+		return queueapi.ErrNoPublishFunc
+	}
+
+	if len(chain.interceptors) == 0 {
+		if chain.publishFunc != nil {
+			return chain.publishFunc(ctx, queue, msgs...)
 		}
 		return queueapi.ErrNoPublishFunc
 	}
 
-	return chain.Publish(ctx, queue, msgs...)
+	return r.publishAt(ctx, queue, msgs, chain, 0)
+}
+
+// publishAt runs interceptor at index i
+func (r *Registry) publishAt(ctx context.Context, queue registry.ID, msgs []*queueapi.Message, chain *sealedChain, i int) error {
+	if i >= len(chain.interceptors) {
+		if chain.publishFunc != nil {
+			return chain.publishFunc(ctx, queue, msgs...)
+		}
+		return queueapi.ErrNoPublishFunc
+	}
+
+	return chain.interceptors[i].Handle(ctx, queue, msgs, func(ctx context.Context, q registry.ID, m []*queueapi.Message) error {
+		return r.publishAt(ctx, q, m, chain, i+1)
+	})
 }

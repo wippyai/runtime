@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 	"sync"
+	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/runtime"
@@ -16,17 +17,18 @@ type entry struct {
 	name        string
 }
 
+// sealedChain holds the immutable interceptor slice after sealing
+type sealedChain struct {
+	interceptors []function.Interceptor
+}
+
 // Registry manages available interceptors.
-// Interceptors are registered at boot, then Seal() is called.
-// After sealing, Execute() has zero overhead - just a single function call.
+// Uses atomic pointer for lock-free Execute() on hot path.
 type Registry struct {
 	logger  *zap.Logger
 	entries []entry
 	mu      sync.Mutex
-
-	// Sealed state - the pre-built pipeline function, created once at Seal()
-	sealed   bool
-	pipeline func(context.Context, function.Func, runtime.Task) (*runtime.Result, error)
+	chain   atomic.Pointer[sealedChain]
 }
 
 // NewInterceptorRegistry creates a new interceptor registry
@@ -38,14 +40,9 @@ func NewInterceptorRegistry(logger *zap.Logger) *Registry {
 }
 
 // Register adds an interceptor to the registry.
-// Must be called before Seal().
 func (r *Registry) Register(name string, interceptor function.Interceptor, order int) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
-	if r.sealed {
-		return NewInterceptorSealedError()
-	}
 
 	for _, e := range r.entries {
 		if e.name == name {
@@ -59,6 +56,8 @@ func (r *Registry) Register(name string, interceptor function.Interceptor, order
 		name:        name,
 	})
 
+	r.rebuild()
+
 	r.logger.Debug("interceptor registered",
 		zap.String("interceptor", name),
 		zap.Int("order", order))
@@ -67,18 +66,14 @@ func (r *Registry) Register(name string, interceptor function.Interceptor, order
 }
 
 // Unregister removes an interceptor from the registry.
-// Must be called before Seal().
 func (r *Registry) Unregister(name string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.sealed {
-		return NewInterceptorSealedError()
-	}
-
 	for i, e := range r.entries {
 		if e.name == name {
 			r.entries = append(r.entries[:i], r.entries[i+1:]...)
+			r.rebuild()
 
 			r.logger.Debug("interceptor unregistered",
 				zap.String("interceptor", name))
@@ -90,64 +85,42 @@ func (r *Registry) Unregister(name string) error {
 	return NewInterceptorNotFoundError(name)
 }
 
-// Seal finalizes the interceptor chain. After this, no more changes allowed.
-// Builds the pipeline function once - zero allocations per request after this.
-func (r *Registry) Seal() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.sealed {
-		return
-	}
-
+// rebuild creates the sealed chain (called with lock held)
+func (r *Registry) rebuild() {
 	sort.Slice(r.entries, func(i, j int) bool {
 		return r.entries[i].order < r.entries[j].order
 	})
 
-	n := len(r.entries)
-	if n == 0 {
-		r.pipeline = nil
-		r.sealed = true
-		r.entries = nil
-		r.logger.Info("interceptor chain sealed", zap.Int("count", 0))
+	if len(r.entries) == 0 {
+		r.chain.Store(nil)
 		return
 	}
 
-	// Copy interceptors to a slice that won't change
-	interceptors := make([]function.Interceptor, n)
+	interceptors := make([]function.Interceptor, len(r.entries))
 	for i, e := range r.entries {
 		interceptors[i] = e.interceptor
 	}
 
-	// Build pipeline - the tricky part is that Handle() requires a `next` function.
-	// We can't avoid that allocation unless we change the interface.
-	// But we CAN avoid the RWMutex and the buildNext() overhead.
-	r.pipeline = func(ctx context.Context, f function.Func, task runtime.Task) (*runtime.Result, error) {
-		// This still creates N closures per request for the `next` parameter.
-		// To truly have zero allocations, the interface must change.
-		var execute func(i int) (*runtime.Result, error)
-		execute = func(i int) (*runtime.Result, error) {
-			if i >= n {
-				return f(ctx, task)
-			}
-			return interceptors[i].Handle(ctx, task, func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
-				return execute(i + 1)
-			})
-		}
-		return execute(0)
-	}
-
-	r.sealed = true
-	r.entries = nil
-
-	r.logger.Info("interceptor chain sealed", zap.Int("count", n))
+	r.chain.Store(&sealedChain{interceptors: interceptors})
 }
 
-// Execute runs the sealed interceptor chain.
-// Zero allocations per request - just calls the pre-built pipeline.
+// Execute runs the interceptor chain. Lock-free on hot path.
 func (r *Registry) Execute(ctx context.Context, f function.Func, task runtime.Task) (*runtime.Result, error) {
-	if r.pipeline == nil {
+	chain := r.chain.Load()
+	if chain == nil || len(chain.interceptors) == 0 {
 		return f(ctx, task)
 	}
-	return r.pipeline(ctx, f, task)
+
+	return r.executeAt(ctx, f, task, chain.interceptors, 0)
+}
+
+// executeAt runs interceptor at index i
+func (r *Registry) executeAt(ctx context.Context, f function.Func, task runtime.Task, interceptors []function.Interceptor, i int) (*runtime.Result, error) {
+	if i >= len(interceptors) {
+		return f(ctx, task)
+	}
+
+	return interceptors[i].Handle(ctx, task, func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
+		return r.executeAt(ctx, f, task, interceptors, i+1)
+	})
 }

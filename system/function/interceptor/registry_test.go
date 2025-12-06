@@ -24,9 +24,9 @@ func TestRegistry_Register(t *testing.T) {
 
 	require.NoError(t, err)
 
-	reg.mu.RLock()
+	reg.mu.Lock()
 	entriesCount := len(reg.entries)
-	reg.mu.RUnlock()
+	reg.mu.Unlock()
 
 	assert.Equal(t, 1, entriesCount)
 }
@@ -39,13 +39,13 @@ func TestRegistry_RegisterWithOrder(t *testing.T) {
 
 	require.NoError(t, err)
 
-	reg.mu.RLock()
+	reg.mu.Lock()
 	entriesCount := len(reg.entries)
 	firstOrder := 0
 	if entriesCount > 0 {
 		firstOrder = reg.entries[0].order
 	}
-	reg.mu.RUnlock()
+	reg.mu.Unlock()
 
 	assert.Equal(t, 1, entriesCount)
 	assert.Equal(t, 50, firstOrder)
@@ -62,9 +62,9 @@ func TestRegistry_RegisterDuplicate(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "already registered")
 
-	reg.mu.RLock()
+	reg.mu.Lock()
 	entriesCount := len(reg.entries)
-	reg.mu.RUnlock()
+	reg.mu.Unlock()
 
 	assert.Equal(t, 1, entriesCount)
 }
@@ -79,9 +79,9 @@ func TestRegistry_Unregister(t *testing.T) {
 	err = reg.Unregister("test")
 	require.NoError(t, err)
 
-	reg.mu.RLock()
+	reg.mu.Lock()
 	entriesCount := len(reg.entries)
-	reg.mu.RUnlock()
+	reg.mu.Unlock()
 
 	assert.Equal(t, 0, entriesCount)
 }
@@ -105,10 +105,10 @@ func TestRegistry_OrderPreservation(t *testing.T) {
 	require.NoError(t, reg.Register("int1", int1, 100))
 	require.NoError(t, reg.Register("int3", int3, 300))
 
-	reg.mu.RLock()
+	reg.mu.Lock()
 	entries := make([]entry, len(reg.entries))
 	copy(entries, reg.entries)
-	reg.mu.RUnlock()
+	reg.mu.Unlock()
 
 	require.Len(t, entries, 3)
 	assert.Equal(t, 100, entries[0].order)

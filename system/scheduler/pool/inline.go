@@ -60,6 +60,10 @@ func (i *Inline) Call(ctx context.Context, method string, input payload.Payloads
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
+	if i.process == nil {
+		return nil, ErrPoolClosed
+	}
+
 	// Get PID from frame context (set by function registry)
 	pid, _ := runtime.GetFramePID(ctx)
 	i.active.Store(pid.UniqID, i.executor)

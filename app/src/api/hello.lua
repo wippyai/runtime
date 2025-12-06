@@ -12,9 +12,9 @@ local function handler()
     -- Sleep for 1ms
     --time.sleep("1ms")
     --
-    --local data = {
-    --     message = "hello world"
-    -- }
+    local data = {
+         message = "hello world"
+     }
 
     ---- Spawn a monitored worker process
     --local worker_pid, spawn_err = process.spawn("app.api:worker", "app:processes", "hello from handler")
