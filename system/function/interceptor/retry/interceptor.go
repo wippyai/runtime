@@ -36,95 +36,108 @@ func NewWithLogger(logger *zap.Logger) *Interceptor {
 
 // Handle implements the interceptor interface
 func (i *Interceptor) Handle(ctx context.Context, task runtime.Task, next func(context.Context, runtime.Task) (*runtime.Result, error)) (*runtime.Result, error) {
-	// Get options from task
+	// Execute first - only check retry config if there's an error
+	result, err := next(ctx, task)
+
+	// Fast path: no error = no retry needed
+	if err == nil && (result == nil || result.Error == nil) {
+		return result, nil
+	}
+
+	// Check if error is explicitly non-retryable before parsing options
+	checkErr := err
+	if checkErr == nil && result != nil {
+		checkErr = result.Error
+	}
+
+	// Context errors are never retryable
+	if errors.Is(checkErr, context.Canceled) || errors.Is(checkErr, context.DeadlineExceeded) {
+		return result, err
+	}
+
+	// API errors marked non-retryable skip option parsing
+	var apiErr apierror.Error
+	if errors.As(checkErr, &apiErr) && apiErr.Retryable() == apierror.False {
+		return result, err
+	}
+
+	// Now check if retry is configured
 	if task.Options == nil {
-		return next(ctx, task)
+		return result, err
 	}
 
 	opts, ok := task.Options.(runtime.Bag)
 	if !ok {
-		return next(ctx, task)
+		return result, err
 	}
 
-	val, ok := opts.Get("retry")
+	val, ok := opts["retry"]
 	if !ok {
-		return next(ctx, task)
+		return result, err
 	}
 
-	// Parse retry options from map or struct
+	// Parse retry options
+	retryOpts, ok := val.(map[string]any)
+	if !ok {
+		return result, err
+	}
+
 	var maxAttempts int
-	var backoff time.Duration
-	var retryKinds []string
-	var skipKinds []string
-
-	switch v := val.(type) {
-	case map[string]any:
-		if ma, ok := v[optionKeyMaxAttempts]; ok {
-			if maInt, ok := ma.(int); ok {
-				maxAttempts = maInt
-			} else if maFloat, ok := ma.(float64); ok {
-				maxAttempts = int(maFloat)
-			}
+	if ma, ok := retryOpts[optionKeyMaxAttempts]; ok {
+		if maInt, ok := ma.(int); ok {
+			maxAttempts = maInt
+		} else if maFloat, ok := ma.(float64); ok {
+			maxAttempts = int(maFloat)
 		}
-		if maxAttempts == 0 {
-			return next(ctx, task)
-		}
-		backoffMs := defaultBackoffMs
-		if bm, ok := v[optionKeyBackoffMs]; ok {
-			if bmInt, ok := bm.(int); ok && bmInt > 0 {
-				backoffMs = bmInt
-			} else if bmFloat, ok := bm.(float64); ok && bmFloat > 0 {
-				backoffMs = int(bmFloat)
-			}
-		}
-		backoff = time.Duration(backoffMs) * time.Millisecond
-
-		bag := runtime.Bag(v)
-		retryKinds = bag.GetSlice(optionKeyRetryKinds)
-		skipKinds = bag.GetSlice(optionKeySkipKinds)
-
-	default:
-		return next(ctx, task)
+	}
+	if maxAttempts <= 1 {
+		return result, err
 	}
 
-	for attempt := 0; attempt < maxAttempts; attempt++ {
+	backoffMs := defaultBackoffMs
+	if bm, ok := retryOpts[optionKeyBackoffMs]; ok {
+		if bmInt, ok := bm.(int); ok && bmInt > 0 {
+			backoffMs = bmInt
+		} else if bmFloat, ok := bm.(float64); ok && bmFloat > 0 {
+			backoffMs = int(bmFloat)
+		}
+	}
+	backoff := time.Duration(backoffMs) * time.Millisecond
+
+	bag := runtime.Bag(retryOpts)
+	retryKinds := bag.GetSlice(optionKeyRetryKinds)
+	skipKinds := bag.GetSlice(optionKeySkipKinds)
+
+	// Check if error is retryable
+	if !i.isRetryable(checkErr, retryKinds, skipKinds) {
+		return result, err
+	}
+
+	// Retry loop (we already did attempt 0 above)
+	for attempt := 1; attempt < maxAttempts; attempt++ {
 		select {
 		case <-ctx.Done():
 			return &runtime.Result{Error: ctx.Err()}, ctx.Err()
-		default:
-			result, err := next(ctx, task)
+		case <-time.After(backoff):
+		}
 
-			if err == nil && (result == nil || result.Error == nil) {
-				return result, nil
-			}
+		result, err = next(ctx, task)
 
-			// Determine the error to check
-			checkErr := err
-			if checkErr == nil && result != nil {
-				checkErr = result.Error
-			}
+		if err == nil && (result == nil || result.Error == nil) {
+			return result, nil
+		}
 
-			// Check if error is retryable
-			if !i.isRetryable(checkErr, retryKinds, skipKinds) {
-				return result, err
-			}
+		checkErr = err
+		if checkErr == nil && result != nil {
+			checkErr = result.Error
+		}
 
-			// If this was the last attempt, return the error
-			if attempt >= maxAttempts-1 {
-				return result, err
-			}
-
-			select {
-			case <-ctx.Done():
-				return &runtime.Result{Error: ctx.Err()}, ctx.Err()
-			case <-time.After(backoff):
-				continue
-			}
+		if !i.isRetryable(checkErr, retryKinds, skipKinds) {
+			return result, err
 		}
 	}
 
-	// Should never reach here, but return error if we do
-	return &runtime.Result{Error: errors.New("max retry attempts exceeded")}, errors.New("max retry attempts exceeded")
+	return result, err
 }
 
 // isRetryable checks if an error should be retried

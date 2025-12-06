@@ -64,18 +64,13 @@ func (i *Inline) Call(ctx context.Context, method string, input payload.Payloads
 		return nil, ErrPoolClosed
 	}
 
-	// Get PID from frame context (set by function registry)
 	pid, _ := runtime.GetFramePID(ctx)
 	i.active.Store(pid.UniqID, i.executor)
 
 	result := i.executor.Run(ctx, i.process, method, input)
 
-	// Unregister - no more lookups will find this executor
-	// inbox was already cleared by Run's defer
 	i.active.Delete(pid.UniqID)
 
-	// Process is ready for reuse - clearExecution() was called by Step
-	// when it returned StepDone
 	return result, nil
 }
 

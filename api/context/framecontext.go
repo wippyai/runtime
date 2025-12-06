@@ -3,6 +3,7 @@ package context
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 )
 
 var frameContextKey = &Key{Name: "context.frame"}
@@ -36,9 +37,9 @@ type FrameContext interface {
 }
 
 type frameContext struct {
+	sealed atomic.Bool
 	mu     sync.RWMutex
 	values map[any]any
-	sealed bool
 	closed bool
 }
 
@@ -49,59 +50,79 @@ var frameContextPool = sync.Pool{
 }
 
 func (f *frameContext) Get(key any) (any, bool) {
+	if f.sealed.Load() {
+		val, exists := f.values[key]
+		return val, exists
+	}
 	f.mu.RLock()
-	defer f.mu.RUnlock()
 	val, exists := f.values[key]
+	f.mu.RUnlock()
 	return val, exists
 }
 
 func (f *frameContext) Set(key any, value any) error {
+	if f.sealed.Load() {
+		return NewFrameSealedError(key)
+	}
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.sealed {
+	if f.sealed.Load() {
+		f.mu.Unlock()
 		return NewFrameSealedError(key)
 	}
 	f.values[key] = value
+	f.mu.Unlock()
 	return nil
 }
 
 func (f *frameContext) SetMultiple(pairs ...Pair) error {
+	if f.sealed.Load() {
+		return ErrFrameSealed
+	}
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.sealed {
+	if f.sealed.Load() {
+		f.mu.Unlock()
 		return ErrFrameSealed
 	}
 	for _, p := range pairs {
 		f.values[p.Key] = p.Value
 	}
+	f.mu.Unlock()
 	return nil
 }
 
 func (f *frameContext) Has(key any) bool {
+	if f.sealed.Load() {
+		_, exists := f.values[key]
+		return exists
+	}
 	f.mu.RLock()
-	defer f.mu.RUnlock()
 	_, exists := f.values[key]
+	f.mu.RUnlock()
 	return exists
 }
 
 func (f *frameContext) Iterate(fn func(key any, value any)) {
+	if f.sealed.Load() {
+		for k, v := range f.values {
+			fn(k, v)
+		}
+		return
+	}
 	f.mu.RLock()
-	defer f.mu.RUnlock()
 	for k, v := range f.values {
 		fn(k, v)
 	}
+	f.mu.RUnlock()
 }
 
 func (f *frameContext) Seal() {
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.sealed = true
+	f.sealed.Store(true)
+	f.mu.Unlock()
 }
 
 func (f *frameContext) IsSealed() bool {
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	return f.sealed
+	return f.sealed.Load()
 }
 
 func (f *frameContext) Close() error {
@@ -132,7 +153,7 @@ func CallFromContext(ctx context.Context) FrameContext {
 // AcquireFrameContext gets a frame context from pool.
 func AcquireFrameContext(parent context.Context) (context.Context, FrameContext) {
 	fc := frameContextPool.Get().(*frameContext)
-	fc.sealed = false
+	fc.sealed.Store(false)
 	fc.closed = false
 	return WithFrameContext(parent, fc), fc
 }
@@ -153,7 +174,7 @@ func ReleaseFrameContext(fc FrameContext) {
 	for k := range f.values {
 		delete(f.values, k)
 	}
-	f.sealed = false
+	f.sealed.Store(false)
 	f.closed = false
 	f.mu.Unlock()
 
@@ -205,7 +226,7 @@ func OpenFrameContextOn(targetCtx context.Context, parentCtx context.Context) (c
 
 func newFrameContext(parent context.Context) (context.Context, FrameContext) {
 	fc := frameContextPool.Get().(*frameContext)
-	fc.sealed = false
+	fc.sealed.Store(false)
 	fc.closed = false
 	return WithFrameContext(parent, fc), fc
 }

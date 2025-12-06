@@ -19,34 +19,6 @@ type request struct {
 	resultCh chan *runtime.Result
 }
 
-// requestPool pools request structs to reduce allocations.
-var requestPool = sync.Pool{
-	New: func() any {
-		return &request{
-			resultCh: make(chan *runtime.Result, 1),
-		}
-	},
-}
-
-func acquireRequest(ctx context.Context, method string, input payload.Payloads) *request {
-	req := requestPool.Get().(*request)
-	req.ctx = ctx
-	req.method = method
-	req.input = input
-	return req
-}
-
-func releaseRequest(req *request) {
-	req.ctx = nil
-	req.method = ""
-	req.input = nil
-	select {
-	case <-req.resultCh:
-	default:
-	}
-	requestPool.Put(req)
-}
-
 // staticWorker owns one process and pulls from shared queue.
 type staticWorker struct {
 	pool     *Static
@@ -162,7 +134,12 @@ func (s *Static) Call(ctx context.Context, method string, input payload.Payloads
 		return nil, ErrPoolClosed
 	}
 
-	req := acquireRequest(ctx, method, input)
+	req := &request{
+		ctx:      ctx,
+		method:   method,
+		input:    input,
+		resultCh: make(chan *runtime.Result, 1),
+	}
 
 	// Fast path: try non-blocking send first (avoids select overhead when queue has room)
 	select {
@@ -172,25 +149,15 @@ func (s *Static) Call(ctx context.Context, method string, input payload.Payloads
 		select {
 		case s.tasks <- req:
 		case <-ctx.Done():
-			releaseRequest(req)
 			return nil, ctx.Err()
 		case <-s.done:
-			releaseRequest(req)
 			return nil, ErrPoolClosed
 		}
 	}
 
-	// Wait for result - worker owns request now, it will be released by worker
-	// We only wait for the result or give up on context cancellation
-	select {
-	case result := <-req.resultCh:
-		releaseRequest(req)
-		return result, nil
-	case <-ctx.Done():
-		// Context cancelled but worker may still be using request
-		// Don't release here - worker will release after execution
-		return nil, ctx.Err()
-	}
+	// Wait for result - worker always sends result even during shutdown
+	// Worker drains tasks during shutdown, so result will arrive
+	return <-req.resultCh, nil
 }
 
 // run is the worker's main loop.
@@ -222,31 +189,11 @@ func (w *staticWorker) drain() {
 
 // execute runs a single request.
 func (w *staticWorker) execute(req *request) {
-	ctx := req.ctx
-
-	// Check if already cancelled
-	select {
-	case <-ctx.Done():
-		releaseRequest(req)
-		return
-	default:
-	}
-
-	// Get PID from frame context (set by function registry)
-	pid, _ := runtime.GetFramePID(ctx)
+	pid, _ := runtime.GetFramePID(req.ctx)
 	w.pool.active.Store(pid.UniqID, w.executor)
 
-	result := w.executor.Run(ctx, w.process, req.method, req.input)
+	result := w.executor.Run(req.ctx, w.process, req.method, req.input)
 
-	// Unregister - any Send after this returns ErrProcessNotFound
 	w.pool.active.Delete(pid.UniqID)
-
-	// Send result - non-blocking since caller may have given up
-	select {
-	case req.resultCh <- result:
-		// Caller will release
-	default:
-		// Caller gave up, we release
-		releaseRequest(req)
-	}
+	req.resultCh <- result
 }

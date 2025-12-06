@@ -43,6 +43,7 @@ type Lazy struct {
 	closed     atomic.Bool
 	reaperDone chan struct{}
 	reaper     *time.Ticker
+	startOnce  sync.Once
 
 	// Active executions indexed by PID.UniqID for message routing
 	activeExec sync.Map // map[string]*Executor
@@ -89,8 +90,10 @@ func NewLazy(factory Factory, dispatcher Dispatcher, cfg LazyConfig, hooks ...Ex
 
 // Start begins the idle reaper.
 func (l *Lazy) Start() {
-	l.reaper = time.NewTicker(l.idleTimeout / 2)
-	go l.runReaper()
+	l.startOnce.Do(func() {
+		l.reaper = time.NewTicker(l.idleTimeout / 2)
+		go l.runReaper()
+	})
 }
 
 // Stop shuts down and destroys all processes.
@@ -124,22 +127,16 @@ func (l *Lazy) Call(ctx context.Context, method string, input payload.Payloads) 
 		return nil, err
 	}
 
-	// Get PID from frame context (set by function registry)
 	pid, _ := runtime.GetFramePID(ctx)
-
-	// Get executor from pool, register for message routing
 	executor := l.executors.Get().(*Executor)
 	l.activeExec.Store(pid.UniqID, executor)
 
 	result := executor.Run(ctx, proc, method, input)
 
-	// Unregister and return executor to pool
-	// inbox was already cleared by Run's defer
 	l.activeExec.Delete(pid.UniqID)
 	executor.Reset()
 	l.executors.Put(executor)
 
-	// Process is ready for reuse - return to idle pool
 	l.release(proc)
 	return result, nil
 }

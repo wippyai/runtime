@@ -7,6 +7,7 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 )
 
+// trodo: move uplevel
 // Registry maps CommandID to Handler with O(1) lookup.
 // Uses map for uint16 CommandID space.
 type Registry struct {

@@ -222,6 +222,9 @@ type Process struct {
 
 	// exported caches method functions extracted from module table
 	exported map[string]*lua.LFunction
+
+	// pc caches ProcessContext for this execution (set in Init)
+	pc *ProcessContext
 }
 
 // NewProcess creates a new Lua process with options.
@@ -283,6 +286,7 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 		_ = pc.Close()
 		return NewStoreProcessContextError(err)
 	}
+	p.pc = pc
 
 	// Seal the frame - no more modifications allowed after this
 	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
@@ -455,11 +459,9 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		// Check for scheduler commands in yielded values
 		cmd := p.yieldToCommand(task)
 		if cmd != nil {
-			// Generate unique tag per yield (not per task, since task can yield multiple times)
 			p.yieldSeq++
-			tag := p.yieldSeq
-			p.pendingYields[tag] = task
-			out.Yield(cmd, tag)
+			p.pendingYields[p.yieldSeq] = task
+			out.Yield(cmd, p.yieldSeq)
 			yieldCount++
 		} else {
 			p.queue.Push(task)
@@ -471,18 +473,11 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		out.Continue()
 	} else if yieldCount == 0 && len(p.threads) > 0 {
 		// Check if we're waiting for external operations
-		hasSubs := HasSubscriptions(p)
-		hasChannels := len(GetActiveChannels(p)) > 0
-		hasPending := len(p.pendingYields) > 0
-
-		if hasPending {
-			// Waiting for yield completions - stay in Continue with no yields
+		if len(p.pendingYields) > 0 {
 			out.Continue()
-		} else if hasSubs || hasChannels {
-			// Waiting for inbox messages - use Idle
+		} else if p.pc != nil && (p.pc.HasSubscriptions() || len(p.pc.channels) > 0) {
 			out.Idle()
 		} else {
-			// Deadlock: threads exist but nothing can progress
 			p.clearExecution()
 			out.Done(nil)
 			return &DeadlockError{
@@ -522,18 +517,16 @@ func (p *Process) Queue() *TaskQueue {
 
 // processChannelYields handles channel operations internally.
 func (p *Process) processChannelYields() ([]*Task, error) {
-	pc := GetProcessContext(p.ctx)
-	if pc == nil {
-		// No ProcessContext - just run vmStep without channel handling
-		tasks := p.queue.Drain()
-		return p.vmStep(tasks...)
+	// Fast path: no ProcessContext = no channels, run vmStep directly
+	if p.pc == nil {
+		return p.vmStep(p.queue.Drain()...)
 	}
 
-	channelQueue := pc.ChannelQueue()
-	channels := pc.Channels()
+	channels := p.pc.channels
+	channelQueue := p.pc.ChannelQueue()
 	p.externalTasks = p.externalTasks[:0]
 
-	// Transfer tasks from process queue to channel queue on first call
+	// Transfer tasks from process queue to channel queue
 	for _, task := range p.queue.Drain() {
 		channelQueue.Push(task)
 	}
@@ -622,12 +615,11 @@ func (p *Process) updateChannelRefs(channels map[*Channel]int, blocks, releases 
 // processSubscribeYields routes incoming messages and handles subscribe/unsubscribe.
 // messages are received via EventMessage events from the scheduler.
 func (p *Process) processSubscribeYields(tasks []*Task, messages []*relay.Package) ([]*Task, error) {
-	pc := GetProcessContext(p.ctx)
-	if pc == nil {
+	if p.pc == nil {
 		return tasks, nil
 	}
 
-	subs := pc.Subscriptions()
+	subs := p.pc.subs
 
 	// Route incoming messages to subscribed channels
 	for _, pkg := range messages {
@@ -640,8 +632,8 @@ func (p *Process) processSubscribeYields(tasks []*Task, messages []*relay.Packag
 
 			// Check for terminal payload - unsubscribe and close channel
 			if len(msg.Payloads) == 1 && payload.IsTerminal(msg.Payloads[0]) {
-				pc.RemoveTopicHandler(topic)
-				subs.remove(sub.channel)
+				p.pc.RemoveTopicHandler(topic)
+				_ = subs.remove(sub.channel)
 				sub.channel.Close(nil)
 				continue
 			}
@@ -655,13 +647,13 @@ func (p *Process) processSubscribeYields(tasks []*Task, messages []*relay.Packag
 
 			// Check for topic handler
 			var value lua.LValue
-			if handler, ok := pc.GetTopicHandler(topic); ok {
+			if handler, ok := p.pc.GetTopicHandler(topic); ok {
 				value = handler(p.ctx, p.state, payloads)
 				if value == nil {
 					// Handler processed but doesn't want to send to channel
 					if hasTerminal {
-						pc.RemoveTopicHandler(topic)
-						subs.remove(sub.channel)
+						p.pc.RemoveTopicHandler(topic)
+						_ = subs.remove(sub.channel)
 						sub.channel.Close(nil)
 					}
 					continue
@@ -690,8 +682,8 @@ func (p *Process) processSubscribeYields(tasks []*Task, messages []*relay.Packag
 
 			// Close channel after sending if terminal was present
 			if hasTerminal {
-				pc.RemoveTopicHandler(topic)
-				subs.remove(sub.channel)
+				p.pc.RemoveTopicHandler(topic)
+				_ = subs.remove(sub.channel)
 				sub.channel.Close(nil)
 			}
 		}
@@ -737,15 +729,6 @@ func (p *Process) processSubscribeYields(tasks []*Task, messages []*relay.Packag
 	}
 
 	return p.outTasks, nil
-}
-
-// messageToLua converts a relay.Message to Lua value.
-func messageToLua(ctx context.Context, l *lua.LState, msg *relay.Message) lua.LValue {
-	if len(msg.Payloads) == 0 {
-		return lua.LString(msg.Topic)
-	}
-
-	return PayloadsToLua(ctx, l, msg.Payloads)
 }
 
 // PayloadsToLua converts a slice of payloads to Lua value.
@@ -958,7 +941,7 @@ func (p *Process) SyncExecute(ctx context.Context, args ...lua.LValue) (lua.LVal
 // Uses tag-based correlation for O(1) direct lookup.
 // For single-yield case where Tag is nil, resumes the only pending task.
 func (p *Process) distributeEvent(ev process.Event) {
-	if p.pendingYields == nil || len(p.pendingYields) == 0 {
+	if len(p.pendingYields) == 0 {
 		return
 	}
 
@@ -1031,14 +1014,10 @@ func (p *Process) clearExecution() {
 	p.pendingYields = nil
 	p.result = nil
 	p.execErr = nil
+	p.pc = nil
 
 	// Clear yield buffer
 	p.yieldBuf = p.yieldBuf[:0]
-
-	// Clear pending yields map
-	for k := range p.pendingYields {
-		delete(p.pendingYields, k)
-	}
 
 	// Clear context from LState to release all references
 	if p.state != nil {

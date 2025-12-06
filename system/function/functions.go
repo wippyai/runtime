@@ -219,7 +219,6 @@ func (f *Registry) executor(ctx context.Context, handler function.Func, task run
 		_ = fc.Set(runtimeapi.FrameIDKey, task.ID)
 		_ = fc.Set(runtimeapi.FramePIDKey, pid)
 	} else {
-		// Slow path: has task context overrides
 		pairsLen := 2 + len(task.Context)
 		pairs := make([]ctxapi.Pair, pairsLen)
 		pairs[0] = ctxapi.Pair{Key: runtimeapi.FrameIDKey, Value: task.ID}

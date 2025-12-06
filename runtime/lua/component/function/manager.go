@@ -4,7 +4,6 @@ package function
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"time"
 
@@ -16,7 +15,6 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
-	"github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/component"
@@ -451,22 +449,24 @@ func (m *Manager) unregisterCaller(ctx context.Context, id registry.ID) {
 }
 
 // createExecutionHooks creates execution hooks for topology integration.
+// Functions are virtual processes - they don't need topology registration
+// for simple request/response patterns. This eliminates lock contention.
 func (m *Manager) createExecutionHooks() funcpool.ExecutionHooks {
 	if m.topo == nil || m.pidReg == nil {
 		return funcpool.ExecutionHooks{}
 	}
 
-	onStart := func(ctx context.Context, _ process.Process) {
+	onStart := func(ctx context.Context, _ process.Process) { // todo: why do we pass process here? should we also pass pid so it's much faster?
 		pid, ok := runtime.GetFramePID(ctx)
 		if !ok || pid.String() == "" {
 			return
 		}
 
-		if err := m.topo.Register(pid); err != nil {
-			m.log.Warn("failed to register function PID in topology",
-				zap.String("pid", pid.String()),
-				zap.Error(err))
-		}
+		//if err := m.topo.Register(pid); err != nil {
+		//	m.log.Warn("failed to register function PID in topology",
+		//		zap.String("pid", pid.String()),
+		//		zap.Error(err))
+		//}
 	}
 
 	onComplete := func(ctx context.Context, result *runtime.Result) {
@@ -475,15 +475,15 @@ func (m *Manager) createExecutionHooks() funcpool.ExecutionHooks {
 			return
 		}
 
-		if result.Error != nil {
-			if errors.Is(result.Error, supervisor.ErrExit) {
-				result.Error = nil
-			}
-		}
+		//if result.Error != nil {
+		//	if errors.Is(result.Error, supervisor.ErrExit) {
+		//		result.Error = nil
+		//	}
+		//}
 
-		m.topo.Notify(pid, result)
-		m.pidReg.Remove(pid)
-		m.topo.Remove(pid)
+		//m.topo.Notify(pid, result)
+		//m.pidReg.Remove(pid)
+		//m.topo.Remove(pid)
 	}
 
 	return funcpool.ExecutionHooks{
