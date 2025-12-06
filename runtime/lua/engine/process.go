@@ -125,7 +125,7 @@ func GetProcess(l *lua.LState) *Process {
 // Subscribe registers a channel to receive messages for a topic.
 func (p *Process) Subscribe(topic string, ch *Channel) error {
 	if p.subs == nil {
-		return ErrProcessContextNotAvailable
+		return luaapi.ErrProcessContextNotAvailable
 	}
 	_, err := p.subs.add(topic, ch)
 	return err
@@ -202,7 +202,7 @@ func NewProcess(opts ...ProcessOption) *Process {
 // If method is specified, the script is run once to get module table, then the method is called.
 func (p *Process) Init(ctx context.Context, method string, input payload.Payloads) error {
 	if p.state == nil {
-		return ErrStateNotInitialized
+		return luaapi.ErrStateNotInitialized
 	}
 
 	// Clear state from previous execution (for pooled processes)
@@ -224,7 +224,7 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 		if p.state != nil {
 			p.state.Close()
 		}
-		return NewStoreResourcesError(err)
+		return luaapi.NewStoreResourcesError(err)
 	}
 
 	// Initialize channel and subscription state
@@ -279,11 +279,11 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 			fn, err = p.state.Load(strings.NewReader(p.script), p.scriptName)
 			if err != nil {
 				p.state.Close()
-				return NewLoadScriptError(err)
+				return luaapi.NewLoadScriptError(err)
 			}
 		} else {
 			p.state.Close()
-			return ErrNoScriptOrProto
+			return luaapi.ErrNoScriptOrProto
 		}
 	}
 
@@ -312,10 +312,10 @@ func (p *Process) extractMethod(method string) error {
 		var err error
 		scriptFn, err = p.state.Load(strings.NewReader(p.script), p.scriptName)
 		if err != nil {
-			return NewLoadScriptError(err)
+			return luaapi.NewLoadScriptError(err)
 		}
 	} else {
-		return ErrNoScriptOrProto
+		return luaapi.ErrNoScriptOrProto
 	}
 
 	// Run script synchronously to get module table
@@ -324,7 +324,7 @@ func (p *Process) extractMethod(method string) error {
 		NRet:    1,
 		Protect: true,
 	}); err != nil {
-		return NewExecuteScriptError(err)
+		return luaapi.NewExecuteScriptError(err)
 	}
 
 	// Get return value
@@ -351,7 +351,7 @@ func (p *Process) extractMethod(method string) error {
 	}
 
 	if fn == nil {
-		return NewMethodNotFoundError(method)
+		return luaapi.NewMethodNotFoundError(method)
 	}
 
 	p.exported[method] = fn
@@ -439,7 +439,7 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		} else {
 			p.clearExecution()
 			out.Done(nil)
-			return &DeadlockError{
+			return &luaapi.DeadlockError{
 				ThreadCount: len(p.threads),
 				Message:     "all coroutines blocked with no pending operations",
 			}
@@ -461,7 +461,7 @@ func (p *Process) GetTask(thread *lua.LState) (*Task, error) {
 			return task, nil
 		}
 	}
-	return nil, ErrTaskNotFound
+	return nil, luaapi.ErrTaskNotFound
 }
 
 // GetTasks returns all tasks.
@@ -532,7 +532,7 @@ func (p *Process) processChannelYields() ([]*Task, error) {
 					t, err := p.GetTask(upd.State)
 					if err != nil {
 						ReleaseResult(result)
-						return nil, NewTaskNotFoundForChannelError(err)
+						return nil, luaapi.NewTaskNotFoundForChannelError(err)
 					}
 
 					if upd.Error != nil {
@@ -875,7 +875,7 @@ func (p *Process) Close() {
 // The Lua state must be initialized via Start first.
 func (p *Process) SyncExecute(ctx context.Context, args ...lua.LValue) (lua.LValue, error) {
 	if p.state == nil {
-		return lua.LNil, ErrProcessNotInitialized
+		return lua.LNil, luaapi.ErrProcessNotInitialized
 	}
 
 	p.state.SetContext(ctx)
@@ -1028,7 +1028,7 @@ func extractReturnError(val lua.LValue) error {
 
 	// String error
 	if s, ok := val.(lua.LString); ok {
-		return NewScriptReturnError(string(s))
+		return luaapi.NewScriptReturnError(string(s))
 	}
 
 	// LuaError userdata

@@ -33,7 +33,7 @@ var Module = &luaapi.ModuleDef{
 
 func init() {
 	// Register type metatables once at startup
-	value.RegisterTypeMethods(nil, typeRegexp, nil, map[string]lua.LGFunction{
+	value.RegisterTypeMethods(nil, typeRegexp, nil, map[string]lua.LGoFunc{
 		"find_all_string_submatch": regexpFindAllStringSubmatch,
 		"find_string_submatch":     regexpFindStringSubmatch,
 		"find_all_string":          regexpFindAllString,
@@ -48,7 +48,7 @@ func init() {
 		"string":                   regexpString,
 	})
 
-	value.RegisterTypeMethods(nil, typeDiffer, nil, map[string]lua.LGFunction{
+	value.RegisterTypeMethods(nil, typeDiffer, nil, map[string]lua.LGoFunc{
 		"compare":     differCompare,
 		"pretty_text": differPrettyText,
 		"pretty_html": differPrettyHTML,
@@ -57,7 +57,7 @@ func init() {
 		"summarize":   differSummarize,
 	})
 
-	value.RegisterTypeMethods(nil, typeSplitter, nil, map[string]lua.LGFunction{
+	value.RegisterTypeMethods(nil, typeSplitter, nil, map[string]lua.LGoFunc{
 		"split_text":  splitterSplitText,
 		"split_batch": splitterSplitBatch,
 	})

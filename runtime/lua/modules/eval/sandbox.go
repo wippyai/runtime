@@ -26,7 +26,7 @@ type Sandbox struct {
 	output        process.StepOutput // reusable output buffer
 }
 
-var sandboxMethods = map[string]lua.LGFunction{
+var sandboxMethods = map[string]lua.LGoFunc{
 	"execute": sandboxExecute,
 	"step":    sandboxStep,
 	"close":   sandboxClose,

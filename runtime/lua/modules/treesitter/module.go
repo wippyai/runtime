@@ -45,7 +45,7 @@ var Module = &luaapi.ModuleDef{
 func init() {
 	languages = NewLanguages()
 
-	value.RegisterTypeMethods(nil, typeParser, nil, map[string]lua.LGFunction{
+	value.RegisterTypeMethods(nil, typeParser, nil, map[string]lua.LGoFunc{
 		"parse":        parserParse,
 		"set_language": parserSetLanguage,
 		"get_language": parserGetLanguage,
@@ -55,7 +55,7 @@ func init() {
 		"set_ranges":   parserSetRanges,
 	})
 
-	value.RegisterTypeMethods(nil, typeTree, nil, map[string]lua.LGFunction{
+	value.RegisterTypeMethods(nil, typeTree, nil, map[string]lua.LGoFunc{
 		"root_node":             treeRootNode,
 		"root_node_with_offset": treeRootNodeWithOffset,
 		"language":              treeLanguage,
@@ -68,7 +68,7 @@ func init() {
 		"dot_graph":             treePrintDotGraph,
 	})
 
-	value.RegisterTypeMethods(nil, typeNode, nil, map[string]lua.LGFunction{
+	value.RegisterTypeMethods(nil, typeNode, nil, map[string]lua.LGoFunc{
 		"parent":                           nodeParent,
 		"child":                            nodeChild,
 		"child_count":                      nodeChildCount,
@@ -98,7 +98,7 @@ func init() {
 		"to_sexp":                          nodeToSexp,
 	})
 
-	value.RegisterTypeMethods(nil, typeQuery, nil, map[string]lua.LGFunction{
+	value.RegisterTypeMethods(nil, typeQuery, nil, map[string]lua.LGoFunc{
 		"close":                   queryClose,
 		"matches":                 queryMatches,
 		"captures":                queryCaptures,
@@ -128,7 +128,7 @@ func init() {
 		"get_text_predicates":     queryGetTextPredicates,
 	})
 
-	value.RegisterTypeMethods(nil, typeCursor, nil, map[string]lua.LGFunction{
+	value.RegisterTypeMethods(nil, typeCursor, nil, map[string]lua.LGoFunc{
 		"current_node":               cursorCurrentNode,
 		"current_field_id":           cursorCurrentFieldID,
 		"current_field_name":         cursorCurrentFieldName,
@@ -148,7 +148,7 @@ func init() {
 		"close":                      cursorClose,
 	})
 
-	value.RegisterTypeMethods(nil, typeLanguage, nil, map[string]lua.LGFunction{
+	value.RegisterTypeMethods(nil, typeLanguage, nil, map[string]lua.LGoFunc{
 		"version":            languageVersion,
 		"node_kind_count":    languageNodeKindCount,
 		"parse_state_count":  languageParseStateCount,

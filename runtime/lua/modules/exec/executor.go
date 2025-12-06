@@ -45,7 +45,7 @@ func NewExecutor(ctx context.Context, res resource.Resource[any], factory apiexe
 	return e
 }
 
-var executorMethods = map[string]lua.LGFunction{
+var executorMethods = map[string]lua.LGoFunc{
 	"exec":    executorExec,
 	"release": executorRelease,
 }

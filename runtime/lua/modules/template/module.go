@@ -28,8 +28,8 @@ var Module = &luaapi.ModuleDef{
 
 func init() {
 	value.RegisterTypeMethods(nil, typeTemplateSet,
-		map[string]lua.LGFunction{"__tostring": templateSetToString},
-		map[string]lua.LGFunction{
+		map[string]lua.LGoFunc{"__tostring": templateSetToString},
+		map[string]lua.LGoFunc{
 			"render":  templateSetRender,
 			"release": templateSetRelease,
 		})

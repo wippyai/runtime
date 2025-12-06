@@ -54,7 +54,7 @@ func NewTransactionUserData(l *lua.LState, tx *Transaction) *lua.LUserData {
 	return value.PushTypedUserData(l, tx, transactionTypeName)
 }
 
-var transactionMethods = map[string]lua.LGFunction{
+var transactionMethods = map[string]lua.LGoFunc{
 	"db_type":     txDbType,
 	"query":       txQuery,
 	"execute":     txExecute,

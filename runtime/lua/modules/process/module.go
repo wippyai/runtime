@@ -49,7 +49,7 @@ func (m *processModule) Register(l *lua.LState) *luaapi.Registration {
 		moduleTable = createModuleTable()
 
 		messageMetatable = value.RegisterTypeMethods(nil, messageTypeName,
-			map[string]lua.LGFunction{"__tostring": messageToString},
+			map[string]lua.LGoFunc{"__tostring": messageToString},
 			messageMethods)
 
 		registration = &luaapi.Registration{
@@ -620,7 +620,7 @@ func cancel(l *lua.LState) int {
 				return 2
 			}
 			deadline = time.Now().Add(duration)
-		case lua.LTNumber:
+		case lua.LTNumber, lua.LTInteger:
 			ms := l.CheckNumber(2)
 			deadline = time.Now().Add(time.Duration(ms) * time.Millisecond)
 		default:

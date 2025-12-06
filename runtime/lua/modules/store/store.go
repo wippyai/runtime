@@ -47,7 +47,7 @@ func NewStore(ctx context.Context, res resource.Resource[any], s store.Store) *S
 	return storeWrapper
 }
 
-var storeMethods = map[string]lua.LGFunction{
+var storeMethods = map[string]lua.LGoFunc{
 	"get":     storeKeyGet,
 	"set":     storeKeySet,
 	"delete":  storeKeyDelete,

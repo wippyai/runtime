@@ -26,7 +26,7 @@ var (
 )
 
 func init() {
-	value.RegisterTypeMethods(nil, executorTypeName, nil, map[string]lua.LGFunction{
+	value.RegisterTypeMethods(nil, executorTypeName, nil, map[string]lua.LGoFunc{
 		"with_context": executorWithContext,
 		"with_actor":   executorWithActor,
 		"with_scope":   executorWithScope,

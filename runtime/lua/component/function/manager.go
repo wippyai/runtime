@@ -100,12 +100,12 @@ func (m *Manager) Stop() {
 // Add creates and registers a new function.
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindFunction {
-		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindFunction))
+		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindFunction))
 	}
 
 	cfg, err := component.UnpackConfig[api.FunctionConfig](ctx, entry)
 	if err != nil {
-		return NewUnpackConfigError(err)
+		return api.NewUnpackConfigError("function", err)
 	}
 
 	// Add to code manager
@@ -117,12 +117,12 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 	imports := component.BuildImports(cfg.Imports, cfg.Modules)
 	if err := m.code.AddNode(ctx, node, imports); err != nil {
-		return NewAddFunctionError(err)
+		return api.NewAddNodeError("function", err)
 	}
 
 	if err := m.createPool(entry.ID, cfg); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
-		return NewCreatePoolError(err)
+		return api.NewCreatePoolError(err)
 	}
 
 	// Store config for invalidation
@@ -143,12 +143,12 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update updates an existing function.
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindFunction {
-		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindFunction))
+		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindFunction))
 	}
 
 	cfg, err := component.UnpackConfig[api.FunctionConfig](ctx, entry)
 	if err != nil {
-		return NewUnpackConfigError(err)
+		return api.NewUnpackConfigError("function", err)
 	}
 
 	// Update code manager
@@ -160,11 +160,11 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 	imports := component.BuildImports(cfg.Imports, cfg.Modules)
 	if err := m.code.UpdateNode(ctx, node, imports); err != nil {
-		return NewUpdateFunctionNodeError(err)
+		return api.NewUpdateNodeError("function", err)
 	}
 
 	if err := m.replacePool(entry.ID, cfg); err != nil {
-		return NewReplacePoolError(err)
+		return api.NewReplacePoolError(err)
 	}
 
 	// Update config
@@ -181,11 +181,11 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete removes a function.
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindFunction {
-		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindFunction))
+		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindFunction))
 	}
 
 	if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
-		return NewDeleteFunctionNodeError(err)
+		return api.NewDeleteNodeError("function", err)
 	}
 
 	// Stop and remove pool
@@ -222,7 +222,7 @@ func (m *Manager) Invalidate(_ context.Context, ids []registry.ID) {
 func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 	v, exists := m.pools.Load(task.ID)
 	if !exists {
-		return nil, NewPoolNotFoundError(task.ID.String())
+		return nil, api.NewPoolNotFoundError(task.ID.String())
 	}
 	entry := v.(*poolEntry)
 
@@ -244,7 +244,7 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Resu
 func (m *Manager) createPool(id registry.ID, cfg *api.FunctionConfig) error {
 	compiled, err := m.code.Compile(id, functionBuildOptions())
 	if err != nil {
-		return NewCompileError(err)
+		return api.NewCompileError(err)
 	}
 
 	// Create process factory
@@ -295,11 +295,11 @@ func (m *Manager) createPool(id registry.ID, cfg *api.FunctionConfig) error {
 		}, execHooks)
 
 	default:
-		return NewUnknownPoolTypeError(string(poolType))
+		return api.NewUnknownPoolTypeError(string(poolType))
 	}
 
 	if err != nil {
-		return NewCreatePoolError(err)
+		return api.NewCreatePoolError(err)
 	}
 
 	entry := &poolEntry{

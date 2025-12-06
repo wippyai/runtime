@@ -10,7 +10,7 @@ type Program struct {
 	program *evalhost.Program
 }
 
-var programMethods = map[string]lua.LGFunction{
+var programMethods = map[string]lua.LGoFunc{
 	"method":  programMethod,
 	"modules": programModules,
 }

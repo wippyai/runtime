@@ -45,7 +45,7 @@ func (m *excelModule) Register(l *lua.LState) *luaapi.Registration {
 		moduleTable = mod
 
 		workbookMetatable = value.RegisterTypeMethods(nil, workbookTypeName,
-			map[string]lua.LGFunction{"__tostring": workbookToString},
+			map[string]lua.LGoFunc{"__tostring": workbookToString},
 			workbookMethods)
 
 		registration = &luaapi.Registration{
@@ -122,7 +122,7 @@ func Bind(l *lua.LState) {
 	luaapi.LoadModule(l, Module)
 }
 
-var workbookMethods = map[string]lua.LGFunction{
+var workbookMethods = map[string]lua.LGoFunc{
 	"new_sheet":      workbookNewSheet,
 	"get_sheet_list": workbookGetSheetList,
 	"get_rows":       workbookGetRows,

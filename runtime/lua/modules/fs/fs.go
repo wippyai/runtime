@@ -47,7 +47,7 @@ func (f *FS) resolvePath(p string) string {
 	return res
 }
 
-var fsMethods = map[string]lua.LGFunction{
+var fsMethods = map[string]lua.LGoFunc{
 	"chdir":      fsChdir,
 	"pwd":        fsPwd,
 	"open":       fsOpen,

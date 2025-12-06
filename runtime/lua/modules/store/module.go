@@ -24,7 +24,7 @@ func initModuleTable() {
 
 func init() {
 	value.RegisterTypeMethods(nil, storeTypeName,
-		map[string]lua.LGFunction{"__tostring": storeToString},
+		map[string]lua.LGoFunc{"__tostring": storeToString},
 		storeMethods)
 }
 

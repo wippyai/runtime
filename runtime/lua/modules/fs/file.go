@@ -141,7 +141,7 @@ func (f *File) Close() error {
 	return f.file.Close()
 }
 
-var fileMethods = map[string]lua.LGFunction{
+var fileMethods = map[string]lua.LGoFunc{
 	"read":  fileRead,
 	"write": fileWrite,
 	"seek":  fileSeek,

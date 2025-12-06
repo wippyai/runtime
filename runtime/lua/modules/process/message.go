@@ -15,7 +15,7 @@ type Message struct {
 	From    relay.PID
 }
 
-var messageMethods = map[string]lua.LGFunction{
+var messageMethods = map[string]lua.LGoFunc{
 	"topic":   messageTopic,
 	"payload": messagePayload,
 	"from":    messageFrom,

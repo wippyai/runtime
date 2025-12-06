@@ -14,15 +14,15 @@ const (
 
 func init() {
 	value.RegisterTypeMethods(nil, requestTypeName,
-		map[string]lua.LGFunction{"__tostring": requestToString},
+		map[string]lua.LGoFunc{"__tostring": requestToString},
 		requestMethods)
 
 	value.RegisterTypeMethods(nil, responseTypeName,
-		map[string]lua.LGFunction{"__tostring": responseToString},
+		map[string]lua.LGoFunc{"__tostring": responseToString},
 		responseMethods)
 
 	value.RegisterTypeMethods(nil, multipartFileTypeName,
-		map[string]lua.LGFunction{"__tostring": multipartFileToString},
+		map[string]lua.LGoFunc{"__tostring": multipartFileToString},
 		multipartFileMethods)
 }
 

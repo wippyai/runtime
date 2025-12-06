@@ -8,6 +8,7 @@ import (
 
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/relay"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -96,7 +97,7 @@ func GoToLua(v any) (lua.LValue, error) {
 		for i := 0; i < rv.Len(); i++ {
 			lval, err := GoToLua(rv.Index(i).Interface())
 			if err != nil {
-				return nil, NewConversionError(fmt.Sprintf("error converting slice/array element %d", i), err)
+				return nil, luaapi.NewConversionError(fmt.Sprintf("error converting slice/array element %d", i), err)
 			}
 			table.RawSetInt(i+1, lval)
 		}
@@ -116,7 +117,7 @@ func GoToLua(v any) (lua.LValue, error) {
 
 			lval, err := GoToLua(iter.Value().Interface())
 			if err != nil {
-				return nil, NewConversionError(fmt.Sprintf("error converting map value for key %s", keyStr), err)
+				return nil, luaapi.NewConversionError(fmt.Sprintf("error converting map value for key %s", keyStr), err)
 			}
 			table.RawSetString(keyStr, lval)
 		}
@@ -147,69 +148,19 @@ func GoToLua(v any) (lua.LValue, error) {
 				} else {
 					lval, err = GoToLua(fieldValue.Interface())
 				}
-			case reflect.Invalid,
-				reflect.Bool,
-				reflect.Int,
-				reflect.Int8,
-				reflect.Int16,
-				reflect.Int32,
-				reflect.Int64,
-				reflect.Uint,
-				reflect.Uint8,
-				reflect.Uint16,
-				reflect.Uint32,
-				reflect.Uint64,
-				reflect.Uintptr,
-				reflect.Float32,
-				reflect.Float64,
-				reflect.Complex64,
-				reflect.Complex128,
-				reflect.Array,
-				reflect.Chan,
-				reflect.Func,
-				reflect.String,
-				reflect.Struct,
-				reflect.UnsafePointer:
-				// FIXME rework on demand
-				fallthrough
-
 			default:
 				lval, err = GoToLua(fieldValue.Interface())
 			}
 
 			if err != nil {
-				return nil, NewConversionError(fmt.Sprintf("error converting struct field %s", field.name), err)
+				return nil, luaapi.NewConversionError(fmt.Sprintf("error converting struct field %s", field.name), err)
 			}
 
 			table.RawSetString(field.name, lval)
 		}
 		return table, nil
 
-	case reflect.Invalid,
-		reflect.Bool,
-		reflect.Int,
-		reflect.Int8,
-		reflect.Int16,
-		reflect.Int32,
-		reflect.Int64,
-		reflect.Uint,
-		reflect.Uint8,
-		reflect.Uint16,
-		reflect.Uint32,
-		reflect.Uint64,
-		reflect.Uintptr,
-		reflect.Float32,
-		reflect.Float64,
-		reflect.Complex64,
-		reflect.Complex128,
-		reflect.Chan,
-		reflect.Func,
-		reflect.Interface,
-		reflect.String,
-		reflect.UnsafePointer:
-		// FIXME rework on demand
-		fallthrough
 	default:
-		return nil, NewUnsupportedTypeError(fmt.Sprintf("unsupported type: %T", v))
+		return nil, luaapi.NewUnsupportedTypeError(fmt.Sprintf("unsupported type: %T", v))
 	}
 }

@@ -37,17 +37,17 @@ func NewBytecodeManager(log *zap.Logger, code *code.Manager, bus event.Bus, fsRe
 // Add loads and registers a new bytecode process.
 func (m *BytecodeManager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindProcessBytecode {
-		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindProcessBytecode))
+		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindProcessBytecode))
 	}
 
 	cfg, err := component.UnpackConfig[api.BytecodeProcessConfig](ctx, entry)
 	if err != nil {
-		return NewUnpackConfigError(err)
+		return api.NewUnpackConfigError("process", err)
 	}
 
 	proto, err := component.LoadAndVerifyBytecode(m.fsRegistry, cfg.FS, cfg.Path, cfg.Hash)
 	if err != nil {
-		return NewLoadBytecodeError(err)
+		return api.NewLoadBytecodeError(err)
 	}
 
 	// Add node with proto to code manager
@@ -58,14 +58,14 @@ func (m *BytecodeManager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	if err := m.code.AddNodeWithProto(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules), proto); err != nil {
-		return NewAddProcessNodeError(err)
+		return api.NewAddNodeError("process", err)
 	}
 
 	m.configs.Store(entry.ID, cfg)
 
 	if err := m.registerFactory(ctx, entry.ID, cfg.Method); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
-		return NewRegisterFactoryError(err)
+		return api.NewRegisterFactoryError(err)
 	}
 
 	m.log.Info("bytecode process added",
@@ -80,17 +80,17 @@ func (m *BytecodeManager) Add(ctx context.Context, entry registry.Entry) error {
 // Update updates an existing bytecode process.
 func (m *BytecodeManager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindProcessBytecode {
-		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindProcessBytecode))
+		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindProcessBytecode))
 	}
 
 	cfg, err := component.UnpackConfig[api.BytecodeProcessConfig](ctx, entry)
 	if err != nil {
-		return NewUnpackConfigError(err)
+		return api.NewUnpackConfigError("process", err)
 	}
 
 	proto, err := component.LoadAndVerifyBytecode(m.fsRegistry, cfg.FS, cfg.Path, cfg.Hash)
 	if err != nil {
-		return NewLoadBytecodeError(err)
+		return api.NewLoadBytecodeError(err)
 	}
 
 	node := code.Node{
@@ -100,13 +100,13 @@ func (m *BytecodeManager) Update(ctx context.Context, entry registry.Entry) erro
 	}
 
 	if err := m.code.UpdateNodeWithProto(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules), proto); err != nil {
-		return NewUpdateProcessNodeError(err)
+		return api.NewUpdateNodeError("process", err)
 	}
 
 	m.configs.Store(entry.ID, cfg)
 
 	if err := m.registerFactory(ctx, entry.ID, cfg.Method); err != nil {
-		return NewUpdateFactoryError(err)
+		return api.NewUpdateFactoryError(err)
 	}
 
 	m.log.Info("bytecode process updated", zap.String("id", entry.ID.String()))
@@ -116,11 +116,11 @@ func (m *BytecodeManager) Update(ctx context.Context, entry registry.Entry) erro
 // Delete removes a bytecode process.
 func (m *BytecodeManager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindProcessBytecode {
-		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindProcessBytecode))
+		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindProcessBytecode))
 	}
 
 	if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
-		return NewDeleteProcessNodeError(err)
+		return api.NewDeleteNodeError("process", err)
 	}
 
 	m.configs.Delete(entry.ID)
@@ -157,7 +157,7 @@ func (m *BytecodeManager) registerFactory(ctx context.Context, id registry.ID, m
 	// Verify compilation works
 	_, err := m.code.Compile(id, processBuildOptions())
 	if err != nil {
-		return NewCompileError(err)
+		return api.NewCompileError(err)
 	}
 
 	if method == "" {
@@ -194,7 +194,7 @@ func (m *BytecodeManager) unregisterFactory(ctx context.Context, id registry.ID)
 func (m *BytecodeManager) createProcess(id registry.ID) (process.Process, error) {
 	compiled, err := m.code.Compile(id, processBuildOptions())
 	if err != nil {
-		return nil, NewCompileError(err)
+		return nil, api.NewCompileError(err)
 	}
 
 	return createProcess(compiled)

@@ -17,7 +17,7 @@ const TypeName = "Future"
 var CancelFunc func(l *lua.LState) int
 
 func init() {
-	value.RegisterTypeMethods(nil, TypeName, nil, map[string]lua.LGFunction{
+	value.RegisterTypeMethods(nil, TypeName, nil, map[string]lua.LGoFunc{
 		"await":       futureAwait,
 		"channel":     futureChannel,
 		"is_complete": futureIsComplete,

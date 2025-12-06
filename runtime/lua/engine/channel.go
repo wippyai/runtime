@@ -132,6 +132,9 @@ type Channel struct {
 
 // NewChannel creates a channel with the given buffer capacity.
 func NewChannel(capacity int) *Channel {
+	if capacity < 0 {
+		capacity = 0
+	}
 	return &Channel{
 		capacity:  capacity,
 		senders:   newOpQueue(4),

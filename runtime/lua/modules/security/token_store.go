@@ -54,7 +54,7 @@ func NewTokenStore(ctx context.Context, id registry.ID, res resource.Resource[an
 	return wrapper
 }
 
-var tokenStoreMethods = map[string]lua.LGFunction{
+var tokenStoreMethods = map[string]lua.LGoFunc{
 	"validate": tokenStoreValidate,
 	"create":   tokenStoreCreate,
 	"revoke":   tokenStoreRevoke,

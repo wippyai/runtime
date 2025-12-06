@@ -26,7 +26,7 @@ type MultipartFile struct {
 	request    *basehttp.Request
 }
 
-var requestMethods = map[string]lua.LGFunction{
+var requestMethods = map[string]lua.LGoFunc{
 	"method":          requestMethod,
 	"path":            requestPath,
 	"query":           requestQuery,
@@ -47,7 +47,7 @@ var requestMethods = map[string]lua.LGFunction{
 	"parse_multipart": requestParseMultipart,
 }
 
-var multipartFileMethods = map[string]lua.LGFunction{
+var multipartFileMethods = map[string]lua.LGoFunc{
 	"stream": multipartFileStream,
 	"size":   multipartFileSize,
 	"name":   multipartFileName,

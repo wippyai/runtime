@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	fsapi "github.com/wippyai/runtime/api/fs"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	glua "github.com/yuin/gopher-lua"
 	"github.com/yuin/gopher-lua/bytecode"
 )
@@ -15,12 +16,12 @@ import (
 func LoadBytecode(fsReg fsapi.Registry, fsID, path string) ([]byte, error) {
 	fs, ok := fsReg.GetFS(fsID)
 	if !ok {
-		return nil, NewFilesystemNotFoundError(fsID)
+		return nil, luaapi.NewFilesystemNotFoundError(fsID)
 	}
 
 	file, err := fs.Open(path)
 	if err != nil {
-		return nil, NewOpenFileError(path, err)
+		return nil, luaapi.NewOpenFileError(path, err)
 	}
 	defer file.Close()
 
@@ -32,7 +33,7 @@ func LoadBytecode(fsReg fsapi.Registry, fsID, path string) ([]byte, error) {
 func VerifyHash(data []byte, expected string) error {
 	parts := strings.SplitN(expected, ":", 2)
 	if len(parts) != 2 {
-		return NewInvalidHashFormatError(expected)
+		return luaapi.NewInvalidHashFormatError(expected)
 	}
 
 	algorithm := parts[0]
@@ -44,11 +45,11 @@ func VerifyHash(data []byte, expected string) error {
 		h := sha256.Sum256(data)
 		actualHash = hex.EncodeToString(h[:])
 	default:
-		return NewUnsupportedHashAlgorithmError(algorithm)
+		return luaapi.NewUnsupportedHashAlgorithmError(algorithm)
 	}
 
 	if actualHash != expectedHash {
-		return NewHashMismatchError(expectedHash, actualHash)
+		return luaapi.NewHashMismatchError(expectedHash, actualHash)
 	}
 
 	return nil
@@ -58,7 +59,7 @@ func VerifyHash(data []byte, expected string) error {
 func UndumpBytecode(data []byte) (*glua.FunctionProto, error) {
 	proto, err := bytecode.Undump(data)
 	if err != nil {
-		return nil, NewUndumpBytecodeError(err)
+		return nil, luaapi.NewUndumpBytecodeError(err)
 	}
 	return proto, nil
 }

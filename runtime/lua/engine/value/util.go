@@ -42,8 +42,8 @@ func GetTypeMetatable(_ *lua.LState, typeName string) *lua.LTable {
 func RegisterTypeMethods(
 	_ *lua.LState, // Not used, kept for API compatibility
 	typeName string,
-	metamethods map[string]lua.LGFunction,
-	methods map[string]lua.LGFunction,
+	metamethods map[string]lua.LGoFunc,
+	methods map[string]lua.LGoFunc,
 ) *lua.LTable {
 	// Check if metatable already exists in our registry
 	var mt *lua.LTable
@@ -125,12 +125,12 @@ func RegisterTypeMethods(
 }
 
 // RegisterMetamethods registers only metamethods for a type
-func RegisterMetamethods(l *lua.LState, typeName string, metamethods map[string]lua.LGFunction) *lua.LTable {
+func RegisterMetamethods(l *lua.LState, typeName string, metamethods map[string]lua.LGoFunc) *lua.LTable {
 	return RegisterTypeMethods(l, typeName, metamethods, nil)
 }
 
 // RegisterMethods registers only regular methods for a type
-func RegisterMethods(l *lua.LState, typeName string, methods map[string]lua.LGFunction) *lua.LTable {
+func RegisterMethods(l *lua.LState, typeName string, methods map[string]lua.LGoFunc) *lua.LTable {
 	return RegisterTypeMethods(l, typeName, nil, methods)
 }
 
@@ -207,7 +207,7 @@ func GetField(l *lua.LState, value lua.LValue, field string) (lua.LValue, bool) 
 			}
 			return lua.LNil, false
 
-		case lua.LTNil, lua.LTBool, lua.LTNumber, lua.LTString, lua.LTUserData, lua.LTThread, lua.LTChannel:
+		case lua.LTNil, lua.LTBool, lua.LTNumber, lua.LTInteger, lua.LTString, lua.LTUserData, lua.LTThread, lua.LTChannel:
 			// Invalid __index type according to Lua spec
 			return lua.LNil, false
 		}

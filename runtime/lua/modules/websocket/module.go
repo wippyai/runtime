@@ -219,7 +219,7 @@ type WsConn struct {
 	subscribed bool
 }
 
-var connMethods = map[string]lua.LGFunction{
+var connMethods = map[string]lua.LGoFunc{
 	"send":    connSend,
 	"receive": connChannel,
 	"channel": connChannel,

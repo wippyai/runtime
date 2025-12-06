@@ -44,7 +44,7 @@ func (m *eventsModule) Register(l *lua.LState) *luaapi.Registration {
 		moduleTable = createModuleTable()
 
 		subscriptionMetatable = value.RegisterTypeMethods(nil, subscriptionTypeName,
-			map[string]lua.LGFunction{"__tostring": subscriptionToString},
+			map[string]lua.LGoFunc{"__tostring": subscriptionToString},
 			subscriptionMethods)
 
 		registration = &luaapi.Registration{
@@ -85,7 +85,7 @@ func createModuleTable() *lua.LTable {
 	return mod
 }
 
-var subscriptionMethods = map[string]lua.LGFunction{
+var subscriptionMethods = map[string]lua.LGoFunc{
 	"channel": subscriptionChannel,
 	"close":   subscriptionClose,
 }

@@ -8,7 +8,7 @@ import (
 
 const actorTypeName = "security.Actor"
 
-var actorMethods = map[string]lua.LGFunction{
+var actorMethods = map[string]lua.LGoFunc{
 	"id":   actorID,
 	"meta": actorMeta,
 }

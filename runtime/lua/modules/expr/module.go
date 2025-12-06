@@ -13,7 +13,7 @@ import (
 const typeProgramName = "expr.Program"
 
 func init() {
-	value.RegisterTypeMethods(nil, typeProgramName, nil, map[string]lua.LGFunction{
+	value.RegisterTypeMethods(nil, typeProgramName, nil, map[string]lua.LGoFunc{
 		"run": programRun,
 	})
 }

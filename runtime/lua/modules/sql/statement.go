@@ -57,7 +57,7 @@ func NewStatementUserData(l *lua.LState, stmt *Statement) *lua.LUserData {
 	return value.PushTypedUserData(l, stmt, statementTypeName)
 }
 
-var statementMethods = map[string]lua.LGFunction{
+var statementMethods = map[string]lua.LGoFunc{
 	"query":   stmtQuery,
 	"execute": stmtExecute,
 	"close":   stmtClose,

@@ -28,7 +28,7 @@ func luaTableToEntry(l *lua.LState, table *lua.LTable) (regapi.Entry, error) {
 		}
 	case lua.LTString:
 		entry.ID = regapi.ParseID(idVal.String())
-	case lua.LTNil, lua.LTBool, lua.LTNumber, lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTChannel:
+	case lua.LTNil, lua.LTBool, lua.LTNumber, lua.LTInteger, lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTChannel:
 		fallthrough
 	default:
 		return entry, errors.New("entry must have valid id field")

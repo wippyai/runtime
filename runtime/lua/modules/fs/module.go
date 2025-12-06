@@ -48,10 +48,10 @@ func (m *fsModule) Register(_ *lua.LState) *luaapi.Registration {
 	initOnce.Do(func() {
 		moduleTable = createModuleTable()
 		fsMetatable = value.RegisterTypeMethods(nil, fsTypeName,
-			map[string]lua.LGFunction{"__tostring": fsToString},
+			map[string]lua.LGoFunc{"__tostring": fsToString},
 			fsMethods)
 		fileMetatable = value.RegisterTypeMethods(nil, fileTypeName,
-			map[string]lua.LGFunction{"__tostring": fileToString},
+			map[string]lua.LGoFunc{"__tostring": fileToString},
 			fileMethods)
 		registration = &luaapi.Registration{
 			Table:      moduleTable,

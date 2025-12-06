@@ -37,12 +37,12 @@ func NewManager(log *zap.Logger, code *code.Manager, bus event.Bus) *Manager {
 // Add implements registry.EntryListener.
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindProcess {
-		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindProcess))
+		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindProcess))
 	}
 
 	cfg, err := component.UnpackConfig[api.ProcessConfig](ctx, entry)
 	if err != nil {
-		return NewUnpackConfigError(err)
+		return api.NewUnpackConfigError("process", err)
 	}
 
 	node := code.Node{
@@ -53,14 +53,14 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	if err := m.code.AddNode(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules)); err != nil {
-		return NewAddProcessNodeError(err)
+		return api.NewAddNodeError("process", err)
 	}
 
 	m.configs.Store(entry.ID, cfg)
 
 	if err := m.registerFactory(ctx, entry.ID, cfg.Method); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
-		return NewRegisterFactoryError(err)
+		return api.NewRegisterFactoryError(err)
 	}
 
 	m.log.Debug("added process", zap.String("id", entry.ID.String()))
@@ -70,12 +70,12 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update implements registry.EntryListener.
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindProcess {
-		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindProcess))
+		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindProcess))
 	}
 
 	cfg, err := component.UnpackConfig[api.ProcessConfig](ctx, entry)
 	if err != nil {
-		return NewUnpackConfigError(err)
+		return api.NewUnpackConfigError("process", err)
 	}
 
 	node := code.Node{
@@ -86,13 +86,13 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	if err := m.code.UpdateNode(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules)); err != nil {
-		return NewUpdateProcessNodeError(err)
+		return api.NewUpdateNodeError("process", err)
 	}
 
 	m.configs.Store(entry.ID, cfg)
 
 	if err := m.registerFactory(ctx, entry.ID, cfg.Method); err != nil {
-		return NewUpdateFactoryError(err)
+		return api.NewUpdateFactoryError(err)
 	}
 
 	m.log.Debug("updated process", zap.String("id", entry.ID.String()))
@@ -102,11 +102,11 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete implements registry.EntryListener.
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindProcess {
-		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindProcess))
+		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindProcess))
 	}
 
 	if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
-		return NewDeleteProcessNodeError(err)
+		return api.NewDeleteNodeError("process", err)
 	}
 
 	m.configs.Delete(entry.ID)
@@ -138,7 +138,7 @@ func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method st
 	// Verify compilation works
 	_, err := m.code.Compile(id, processBuildOptions())
 	if err != nil {
-		return NewCompileError(err)
+		return api.NewCompileError(err)
 	}
 
 	// Default method
@@ -176,7 +176,7 @@ func (m *Manager) unregisterFactory(ctx context.Context, id registry.ID) {
 func (m *Manager) createProcess(id registry.ID) (process.Process, error) {
 	compiled, err := m.code.Compile(id, processBuildOptions())
 	if err != nil {
-		return nil, NewCompileError(err)
+		return nil, api.NewCompileError(err)
 	}
 
 	return createProcess(compiled)

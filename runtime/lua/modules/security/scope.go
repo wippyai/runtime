@@ -10,7 +10,7 @@ import (
 
 const scopeTypeName = "security.Scope"
 
-var scopeMethods = map[string]lua.LGFunction{
+var scopeMethods = map[string]lua.LGoFunc{
 	"with":     scopeWith,
 	"without":  scopeWithout,
 	"evaluate": scopeEvaluate,

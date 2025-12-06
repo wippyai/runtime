@@ -39,7 +39,7 @@ func NewProcess(ctx context.Context, handle apiexec.Process) *Process {
 	return p
 }
 
-var processMethods = map[string]lua.LGFunction{
+var processMethods = map[string]lua.LGoFunc{
 	"start":         procStart,
 	"wait":          procWait,
 	"signal":        procSignal,

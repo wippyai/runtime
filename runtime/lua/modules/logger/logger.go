@@ -19,7 +19,7 @@ const typeLoggerName = "logger.Logger"
 var loggerMetatable *lua.LTable
 
 func init() {
-	loggerMetatable = value.RegisterTypeMethods(nil, typeLoggerName, nil, map[string]lua.LGFunction{
+	loggerMetatable = value.RegisterTypeMethods(nil, typeLoggerName, nil, map[string]lua.LGoFunc{
 		"debug": loggerDebug,
 		"info":  loggerInfo,
 		"warn":  loggerWarn,
@@ -222,6 +222,8 @@ func tableToFields(table *lua.LTable) []zap.Field {
 			fields = append(fields, zap.String(string(key), string(v.(lua.LString))))
 		case lua.LTNumber:
 			fields = append(fields, zap.Float64(string(key), float64(v.(lua.LNumber))))
+		case lua.LTInteger:
+			fields = append(fields, zap.Int64(string(key), int64(v.(lua.LInteger))))
 		case lua.LTBool:
 			fields = append(fields, zap.Bool(string(key), bool(v.(lua.LBool))))
 		case lua.LTUserData:

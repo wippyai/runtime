@@ -189,10 +189,10 @@ func initModuleTable() {
 
 func registerTimeMethods() {
 	value.RegisterTypeMethods(nil, timeTypeName,
-		map[string]lua.LGFunction{
+		map[string]lua.LGoFunc{
 			"__tostring": timeToString,
 		},
-		map[string]lua.LGFunction{
+		map[string]lua.LGoFunc{
 			"add":            timeAdd,
 			"sub":            timeSub,
 			"add_date":       timeAddDate,
@@ -227,10 +227,10 @@ func registerTimeMethods() {
 
 func registerDurationMethods() {
 	value.RegisterTypeMethods(nil, durationTypeName,
-		map[string]lua.LGFunction{
+		map[string]lua.LGoFunc{
 			"__tostring": durationToString,
 		},
-		map[string]lua.LGFunction{
+		map[string]lua.LGoFunc{
 			"nanoseconds":  durationNanoseconds,
 			"microseconds": durationMicroseconds,
 			"milliseconds": durationMilliseconds,
@@ -243,17 +243,17 @@ func registerDurationMethods() {
 
 func registerLocationMethods() {
 	value.RegisterTypeMethods(nil, locationTypeName,
-		map[string]lua.LGFunction{
+		map[string]lua.LGoFunc{
 			"__tostring": locationString,
 		},
-		map[string]lua.LGFunction{
+		map[string]lua.LGoFunc{
 			"string": locationString,
 		},
 	)
 }
 
 func registerTickerMethods() {
-	value.RegisterMethods(nil, tickerTypeName, map[string]lua.LGFunction{
+	value.RegisterMethods(nil, tickerTypeName, map[string]lua.LGoFunc{
 		"stop":    tickerStopMethod,
 		"channel": tickerChannelMethod,
 	})
@@ -625,7 +625,7 @@ func tickerChannelReceive(l *lua.LState) int {
 }
 
 func registerTickerChannelMethods() {
-	value.RegisterMethods(nil, tickerChannelTypeName, map[string]lua.LGFunction{
+	value.RegisterMethods(nil, tickerChannelTypeName, map[string]lua.LGoFunc{
 		"receive": tickerChannelReceive,
 	})
 }
@@ -655,13 +655,13 @@ func timerChannelReceive(l *lua.LState) int {
 }
 
 func registerTimerChannelMethods() {
-	value.RegisterMethods(nil, timerChannelTypeName, map[string]lua.LGFunction{
+	value.RegisterMethods(nil, timerChannelTypeName, map[string]lua.LGoFunc{
 		"receive": timerChannelReceive,
 	})
 }
 
 func registerTimerMethods() {
-	value.RegisterMethods(nil, timerTypeName, map[string]lua.LGFunction{
+	value.RegisterMethods(nil, timerTypeName, map[string]lua.LGoFunc{
 		"channel": timerChannelMethod,
 		"stop":    timerStopMethod,
 		"reset":   timerResetMethod,

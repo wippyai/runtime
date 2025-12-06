@@ -41,19 +41,6 @@ func checkChannel(l *lua.LState, idx int) *Channel {
 	return nil
 }
 
-// checkSelectCase extracts a SelectCase from userdata.
-func checkSelectCase(l *lua.LState, idx int) *SelectCase {
-	ud, ok := l.Get(idx).(*lua.LUserData)
-	if !ok {
-		return nil
-	}
-	sc, ok := ud.Value.(*SelectCase)
-	if !ok {
-		return nil
-	}
-	return sc
-}
-
 var (
 	channelModuleTable *lua.LTable
 	channelInitOnce    sync.Once
@@ -194,7 +181,7 @@ func checkSelectCaseValue(v lua.LValue) *SelectCase {
 }
 
 // channelMethods defines all channel instance methods using package-level functions.
-var channelMethods = map[string]lua.LGFunction{
+var channelMethods = map[string]lua.LGoFunc{
 	"send":         channelSend,
 	"receive":      channelReceive,
 	"close":        channelClose,

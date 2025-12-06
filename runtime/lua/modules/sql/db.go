@@ -51,7 +51,7 @@ func NewDB(ctx context.Context, res resource.Resource[any], db *sql.DB, dbType s
 	return dbWrapper
 }
 
-var dbMethods = map[string]lua.LGFunction{
+var dbMethods = map[string]lua.LGoFunc{
 	"type":    dbType,
 	"query":   dbQuery,
 	"execute": dbExecute,

@@ -107,7 +107,7 @@ func createHosts(ctx context.Context, cfg boot.Config) error {
 		supervisorBufferSize = supervisorCfg.GetInt("host.buffer_size", supervisorBufferSize)
 		supervisorWorkerCount = supervisorCfg.GetInt("host.worker_count", supervisorWorkerCount)
 	}
-	controlHost := relay.NewHost(ctx, relay.HostConfig{
+	controlHost := relay.NewMailbox(ctx, relay.MailboxConfig{
 		BufferSize:  supervisorBufferSize,
 		WorkerCount: supervisorWorkerCount,
 		Logger:      logger.Named("control"),

@@ -7,6 +7,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -329,7 +330,7 @@ func TestDeadlockSingleCoroutine(t *testing.T) {
 		t.Fatal("expected deadlock error")
 	}
 
-	if !IsDeadlock(lastErr) {
+	if !luaapi.IsDeadlock(lastErr) {
 		t.Errorf("expected DeadlockError, got %T: %v", lastErr, lastErr)
 	}
 	t.Logf("Deadlock detected correctly: %v", lastErr)
@@ -379,7 +380,7 @@ func TestDeadlockMutualWait(t *testing.T) {
 		t.Fatal("expected deadlock error for mutual wait")
 	}
 
-	if !IsDeadlock(lastErr) {
+	if !luaapi.IsDeadlock(lastErr) {
 		t.Errorf("expected DeadlockError, got %T: %v", lastErr, lastErr)
 	}
 	t.Logf("Mutual deadlock detected correctly: %v", lastErr)

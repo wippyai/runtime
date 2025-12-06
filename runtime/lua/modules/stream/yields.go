@@ -341,7 +341,7 @@ func NewStream(l *lua.LState, id uint64) lua.LValue {
 	return ud
 }
 
-var streamMethods = map[string]lua.LGFunction{
+var streamMethods = map[string]lua.LGoFunc{
 	"read":  streamReadMethod,
 	"write": streamWriteMethod,
 	"seek":  streamSeekMethod,

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/wippyai/runtime/api/payload"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	jsonlua "github.com/wippyai/runtime/runtime/lua/modules/json"
 	lua "github.com/yuin/gopher-lua"
@@ -33,12 +34,12 @@ type ToGolang struct{}
 // Transcode implements the payload.FormatTranscoder interface.
 func (t *ToGolang) Transcode(p payload.Payload) (payload.Payload, error) {
 	if p.Format() != payload.Lua {
-		return nil, NewInvalidFormatError(fmt.Sprintf("Lua=>Golang can only transcode from Lua format, got %s", p.Format()))
+		return nil, luaapi.NewInvalidFormatError(fmt.Sprintf("Lua=>Golang can only transcode from Lua format, got %s", p.Format()))
 	}
 
 	lv, ok := p.Data().(lua.LValue)
 	if !ok {
-		return nil, NewInvalidTypeError(fmt.Sprintf("Lua=>Golang expects data to be of type lua.LValue, got %T", p.Data()))
+		return nil, luaapi.NewInvalidTypeError(fmt.Sprintf("Lua=>Golang expects data to be of type lua.LValue, got %T", p.Data()))
 	}
 
 	data := value.ToGoAny(lv)
@@ -49,12 +50,12 @@ func (t *ToGolang) Transcode(p payload.Payload) (payload.Payload, error) {
 // Unmarshal implements the payload.Unmarshaler interface.
 func (t *ToGolang) Unmarshal(p payload.Payload, v interface{}) error {
 	if p.Format() != payload.Lua {
-		return NewInvalidFormatError(fmt.Sprintf("Lua=>Golang can only unmarshal from Lua format, got %s", p.Format()))
+		return luaapi.NewInvalidFormatError(fmt.Sprintf("Lua=>Golang can only unmarshal from Lua format, got %s", p.Format()))
 	}
 
 	lv, ok := p.Data().(lua.LValue)
 	if !ok {
-		return NewInvalidTypeError(fmt.Sprintf("Lua=>Golang expects data to be of type lua.LValue, got %T", p.Data()))
+		return luaapi.NewInvalidTypeError(fmt.Sprintf("Lua=>Golang expects data to be of type lua.LValue, got %T", p.Data()))
 	}
 
 	json, err := jsonlua.Encode(lv)
@@ -72,7 +73,7 @@ type FromGolang struct{}
 // Transcode implements the payload.FormatTranscoder interface.
 func (t *FromGolang) Transcode(p payload.Payload) (payload.Payload, error) {
 	if p.Format() != payload.Golang {
-		return nil, NewInvalidFormatError(fmt.Sprintf("Golang=>Lua can only transcode from Golang format, got %s", p.Format()))
+		return nil, luaapi.NewInvalidFormatError(fmt.Sprintf("Golang=>Lua can only transcode from Golang format, got %s", p.Format()))
 	}
 
 	lv, err := GoToLua(p.Data())

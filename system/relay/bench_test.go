@@ -13,20 +13,20 @@ import (
 	api "github.com/wippyai/runtime/api/relay"
 )
 
-// TestHost_MessageOrdering verifies that messages from the same source
+// TestMailbox_MessageOrdering verifies that messages from the same source
 // are delivered in FIFO order (per-sender ordering guarantee).
-func TestHost_MessageOrdering(t *testing.T) {
+func TestMailbox_MessageOrdering(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	host := NewHost(ctx, HostConfig{
+	mailbox := NewMailbox(ctx, MailboxConfig{
 		BufferSize:  1000,
 		WorkerCount: 8,
 	})
 
 	targetPID := api.PID{Host: "test", UniqID: "receiver"}
 	receiverCh := make(chan *api.Package, 1000)
-	_, err := host.Attach(targetPID, receiverCh)
+	_, err := mailbox.Attach(targetPID, receiverCh)
 	require.NoError(t, err)
 
 	const messagesPerSender = 100
@@ -49,7 +49,7 @@ func TestHost_MessageOrdering(t *testing.T) {
 						Topic: fmt.Sprintf("%d:%d", senderID, i),
 					}},
 				}
-				err := host.Send(pkg)
+				err := mailbox.Send(pkg)
 				assert.NoError(t, err)
 			}
 		}(sender)
@@ -94,19 +94,19 @@ done:
 	assert.Equal(t, numSenders, len(lastSeq), "should have received from all senders")
 }
 
-// BenchmarkHost_Send measures Send throughput.
-func BenchmarkHost_Send(b *testing.B) {
+// BenchmarkMailbox_Send measures Send throughput.
+func BenchmarkMailbox_Send(b *testing.B) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	host := NewHost(ctx, HostConfig{
+	mailbox := NewMailbox(ctx, MailboxConfig{
 		BufferSize:  10000,
 		WorkerCount: 8,
 	})
 
 	targetPID := api.PID{Host: "bench", UniqID: "target"}
 	receiverCh := make(chan *api.Package, 10000)
-	_, _ = host.Attach(targetPID, receiverCh)
+	_, _ = mailbox.Attach(targetPID, receiverCh)
 
 	// Drain receiver in background
 	go func() {
@@ -124,23 +124,23 @@ func BenchmarkHost_Send(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		_ = host.Send(pkg)
+		_ = mailbox.Send(pkg)
 	}
 }
 
-// BenchmarkHost_SendParallel measures parallel Send throughput.
-func BenchmarkHost_SendParallel(b *testing.B) {
+// BenchmarkMailbox_SendParallel measures parallel Send throughput.
+func BenchmarkMailbox_SendParallel(b *testing.B) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	host := NewHost(ctx, HostConfig{
+	mailbox := NewMailbox(ctx, MailboxConfig{
 		BufferSize:  100000,
 		WorkerCount: 8,
 	})
 
 	targetPID := api.PID{Host: "bench", UniqID: "target"}
 	receiverCh := make(chan *api.Package, 100000)
-	_, _ = host.Attach(targetPID, receiverCh)
+	_, _ = mailbox.Attach(targetPID, receiverCh)
 
 	// Drain receiver in background
 	go func() {
@@ -161,7 +161,7 @@ func BenchmarkHost_SendParallel(b *testing.B) {
 			Target: targetPID,
 		}
 		for pb.Next() {
-			_ = host.Send(pkg)
+			_ = mailbox.Send(pkg)
 		}
 	})
 }
@@ -172,17 +172,17 @@ func BenchmarkRouter_Send(b *testing.B) {
 	defer cancel()
 
 	node := NewNode("local")
-	host := NewHost(ctx, HostConfig{
+	mailbox := NewMailbox(ctx, MailboxConfig{
 		BufferSize:  10000,
 		WorkerCount: 8,
 	})
-	_ = node.RegisterHost("bench", host)
+	_ = node.RegisterHost("bench", mailbox)
 
 	router := NewRouter(node, nil)
 
 	targetPID := api.PID{Host: "bench", UniqID: "target"}
 	receiverCh := make(chan *api.Package, 10000)
-	_, _ = host.Attach(targetPID, receiverCh)
+	_, _ = mailbox.Attach(targetPID, receiverCh)
 
 	// Drain receiver in background
 	go func() {
@@ -253,8 +253,8 @@ func BenchmarkHashString(b *testing.B) {
 	}
 }
 
-// BenchmarkHost_SendDirect measures direct channel send (baseline).
-func BenchmarkHost_SendDirect(b *testing.B) {
+// BenchmarkBaseline_SendDirect measures direct channel send (baseline).
+func BenchmarkBaseline_SendDirect(b *testing.B) {
 	ch := make(chan *api.Package, 10000)
 
 	// Drain in background
@@ -273,8 +273,8 @@ func BenchmarkHost_SendDirect(b *testing.B) {
 	}
 }
 
-// BenchmarkHost_ContextCheck measures context.Err() overhead.
-func BenchmarkHost_ContextCheck(b *testing.B) {
+// BenchmarkBaseline_ContextCheck measures context.Err() overhead.
+func BenchmarkBaseline_ContextCheck(b *testing.B) {
 	ctx := context.Background()
 
 	b.ResetTimer()
@@ -285,8 +285,8 @@ func BenchmarkHost_ContextCheck(b *testing.B) {
 	}
 }
 
-// BenchmarkHost_SelectSend measures select with channel send.
-func BenchmarkHost_SelectSend(b *testing.B) {
+// BenchmarkBaseline_SelectSend measures select with channel send.
+func BenchmarkBaseline_SelectSend(b *testing.B) {
 	ctx := context.Background()
 	ch := make(chan *api.Package, 10000)
 
@@ -324,11 +324,11 @@ func BenchmarkSyncMapLoad(b *testing.B) {
 	}
 }
 
-// BenchmarkHost_SendEnqueueOnly measures just the enqueue part (no worker drain).
-func BenchmarkHost_SendEnqueueOnly(b *testing.B) {
+// BenchmarkMailbox_SendEnqueueOnly measures just the enqueue part (no worker drain).
+func BenchmarkMailbox_SendEnqueueOnly(b *testing.B) {
 	ctx := context.Background()
 
-	host := NewHost(ctx, HostConfig{
+	mailbox := NewMailbox(ctx, MailboxConfig{
 		BufferSize:  b.N + 1000, // Large buffer so we don't block
 		WorkerCount: 8,
 	})
@@ -345,6 +345,6 @@ func BenchmarkHost_SendEnqueueOnly(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		_ = host.Send(pkg)
+		_ = mailbox.Send(pkg)
 	}
 }

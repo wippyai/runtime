@@ -6,7 +6,7 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
-	api "github.com/wippyai/runtime/api/runtime/lua"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/system/eventbus"
 	eventhandlers "github.com/wippyai/runtime/system/registry/events"
@@ -38,8 +38,8 @@ func (h *Handler) Pattern() eventbus.Pattern {
 
 func (h *Handler) Handle(ctx context.Context, evt event.Event) error {
 	// Handle Lua events first
-	if evt.System == api.System {
-		if evt.Kind == api.InvalidateNodes {
+	if evt.System == luaapi.System {
+		if evt.Kind == luaapi.InvalidateNodes {
 			if ids, ok := evt.Data.([]registry.ID); ok {
 				h.entity.Invalidate(ctx, ids)
 			}
@@ -54,17 +54,17 @@ func (h *Handler) Handle(ctx context.Context, evt event.Event) error {
 func UnpackConfig[T any](ctx context.Context, entry registry.Entry) (*T, error) {
 	dtt := payload.GetTranscoder(ctx)
 	if dtt == nil {
-		return nil, ErrTranscoderNotFound
+		return nil, luaapi.ErrTranscoderNotFound
 	}
 
 	cfg := new(T)
 	if err := dtt.Unmarshal(entry.Data, cfg); err != nil {
-		return nil, NewUnmarshalError(err)
+		return nil, luaapi.NewUnmarshalConfigError(err)
 	}
 
 	if validator, ok := interface{}(cfg).(interface{ Validate() error }); ok {
 		if err := validator.Validate(); err != nil {
-			return nil, NewValidationError(err)
+			return nil, luaapi.NewValidationError(err)
 		}
 	}
 

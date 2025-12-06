@@ -31,17 +31,17 @@ func NewBytecodeManager(log *zap.Logger, code *lua.Manager, fsReg fsapi.Registry
 // Add loads and registers a new bytecode library.
 func (m *BytecodeManager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindLibraryBytecode {
-		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindLibraryBytecode))
+		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindLibraryBytecode))
 	}
 
 	cfg, err := component.UnpackConfig[api.BytecodeLibraryConfig](ctx, entry)
 	if err != nil {
-		return NewUnpackConfigError(err)
+		return api.NewUnpackConfigError("library", err)
 	}
 
 	proto, err := component.LoadAndVerifyBytecode(m.fsRegistry, cfg.FS, cfg.Path, cfg.Hash)
 	if err != nil {
-		return NewLoadBytecodeError(err)
+		return api.NewLoadBytecodeError(err)
 	}
 
 	node := lua.Node{
@@ -51,7 +51,7 @@ func (m *BytecodeManager) Add(ctx context.Context, entry registry.Entry) error {
 
 	if err := m.code.AddNodeWithProto(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules), proto); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
-		return NewAddLibraryNodeError(err)
+		return api.NewAddNodeError("library", err)
 	}
 
 	m.log.Info("bytecode library added",
@@ -66,17 +66,17 @@ func (m *BytecodeManager) Add(ctx context.Context, entry registry.Entry) error {
 // Update updates an existing bytecode library.
 func (m *BytecodeManager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindLibraryBytecode {
-		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindLibraryBytecode))
+		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindLibraryBytecode))
 	}
 
 	cfg, err := component.UnpackConfig[api.BytecodeLibraryConfig](ctx, entry)
 	if err != nil {
-		return NewUnpackConfigError(err)
+		return api.NewUnpackConfigError("library", err)
 	}
 
 	proto, err := component.LoadAndVerifyBytecode(m.fsRegistry, cfg.FS, cfg.Path, cfg.Hash)
 	if err != nil {
-		return NewLoadBytecodeError(err)
+		return api.NewLoadBytecodeError(err)
 	}
 
 	node := lua.Node{
@@ -85,7 +85,7 @@ func (m *BytecodeManager) Update(ctx context.Context, entry registry.Entry) erro
 	}
 
 	if err := m.code.UpdateNodeWithProto(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules), proto); err != nil {
-		return NewUpdateLibraryNodeError(err)
+		return api.NewUpdateNodeError("library", err)
 	}
 
 	m.log.Info("bytecode library updated", zap.String("id", entry.ID.String()))
@@ -95,11 +95,11 @@ func (m *BytecodeManager) Update(ctx context.Context, entry registry.Entry) erro
 // Delete removes a bytecode library.
 func (m *BytecodeManager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindLibraryBytecode {
-		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindLibraryBytecode))
+		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindLibraryBytecode))
 	}
 
 	if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
-		return NewDeleteLibraryNodeError(err)
+		return api.NewDeleteNodeError("library", err)
 	}
 
 	m.log.Info("bytecode library deleted", zap.String("id", entry.ID.String()))

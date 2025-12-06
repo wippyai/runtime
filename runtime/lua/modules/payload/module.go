@@ -21,7 +21,7 @@ var Module = &luaapi.ModuleDef{
 
 func init() {
 	value.RegisterTypeMethods(nil, typeName,
-		map[string]lua.LGFunction{"__tostring": payloadToString},
+		map[string]lua.LGoFunc{"__tostring": payloadToString},
 		payloadMethods)
 }
 
@@ -51,7 +51,7 @@ type Wrapper struct {
 	Payload payload.Payload
 }
 
-var payloadMethods = map[string]lua.LGFunction{
+var payloadMethods = map[string]lua.LGoFunc{
 	"get_format": payloadGetFormat,
 	"data":       payloadData,
 	"transcode":  payloadTranscode,

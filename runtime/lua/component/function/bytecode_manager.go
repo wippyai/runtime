@@ -104,17 +104,17 @@ func (m *BytecodeManager) Stop() {
 // Add loads and registers a new bytecode function.
 func (m *BytecodeManager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindFunctionBytecode {
-		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindFunctionBytecode))
+		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindFunctionBytecode))
 	}
 
 	cfg, err := component.UnpackConfig[api.BytecodeFunctionConfig](ctx, entry)
 	if err != nil {
-		return NewUnpackConfigError(err)
+		return api.NewUnpackConfigError("function", err)
 	}
 
 	proto, err := component.LoadAndVerifyBytecode(m.fsRegistry, cfg.FS, cfg.Path, cfg.Hash)
 	if err != nil {
-		return NewLoadBytecodeError(err)
+		return api.NewLoadBytecodeError(err)
 	}
 
 	// Add to code manager with the proto (no source needed)
@@ -125,13 +125,13 @@ func (m *BytecodeManager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 	imports := component.BuildImports(cfg.Imports, cfg.Modules)
 	if err := m.code.AddNode(ctx, node, imports); err != nil {
-		return NewAddFunctionError(err)
+		return api.NewAddNodeError("function", err)
 	}
 
 	// Create pool with the loaded proto
 	if err := m.createPool(ctx, entry.ID, cfg, proto); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
-		return NewCreatePoolError(err)
+		return api.NewCreatePoolError(err)
 	}
 
 	// Store config
@@ -153,17 +153,17 @@ func (m *BytecodeManager) Add(ctx context.Context, entry registry.Entry) error {
 // Update updates an existing bytecode function.
 func (m *BytecodeManager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindFunctionBytecode {
-		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindFunctionBytecode))
+		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindFunctionBytecode))
 	}
 
 	cfg, err := component.UnpackConfig[api.BytecodeFunctionConfig](ctx, entry)
 	if err != nil {
-		return NewUnpackConfigError(err)
+		return api.NewUnpackConfigError("function", err)
 	}
 
 	proto, err := component.LoadAndVerifyBytecode(m.fsRegistry, cfg.FS, cfg.Path, cfg.Hash)
 	if err != nil {
-		return NewLoadBytecodeError(err)
+		return api.NewLoadBytecodeError(err)
 	}
 
 	// Update code manager
@@ -174,11 +174,11 @@ func (m *BytecodeManager) Update(ctx context.Context, entry registry.Entry) erro
 	}
 	imports := component.BuildImports(cfg.Imports, cfg.Modules)
 	if err := m.code.UpdateNode(ctx, node, imports); err != nil {
-		return NewUpdateFunctionNodeError(err)
+		return api.NewUpdateNodeError("function", err)
 	}
 
 	if err := m.replacePool(ctx, entry.ID, cfg, proto); err != nil {
-		return NewReplacePoolError(err)
+		return api.NewReplacePoolError(err)
 	}
 
 	m.configs.Store(entry.ID, cfg)
@@ -193,11 +193,11 @@ func (m *BytecodeManager) Update(ctx context.Context, entry registry.Entry) erro
 // Delete removes a bytecode function.
 func (m *BytecodeManager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindFunctionBytecode {
-		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindFunctionBytecode))
+		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindFunctionBytecode))
 	}
 
 	if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
-		return NewDeleteFunctionNodeError(err)
+		return api.NewDeleteNodeError("function", err)
 	}
 
 	m.removePool(entry.ID)
@@ -238,7 +238,7 @@ func (m *BytecodeManager) Execute(ctx context.Context, task runtime.Task) (*runt
 	m.mu.RUnlock()
 
 	if !exists {
-		return nil, NewPoolNotFoundError(task.ID.String())
+		return nil, api.NewPoolNotFoundError(task.ID.String())
 	}
 
 	if len(task.Context) > 0 {
@@ -259,7 +259,7 @@ func (m *BytecodeManager) createPool(ctx context.Context, id registry.ID, cfg *a
 	// Get compiled dependencies from code manager
 	compiled, err := m.code.Compile(id, functionBuildOptions())
 	if err != nil {
-		return NewCompileError(err)
+		return api.NewCompileError(err)
 	}
 
 	// Create process factory with the loaded proto
@@ -307,11 +307,11 @@ func (m *BytecodeManager) createPool(ctx context.Context, id registry.ID, cfg *a
 		}, execHooks)
 
 	default:
-		return NewUnknownPoolTypeError(string(poolType))
+		return api.NewUnknownPoolTypeError(string(poolType))
 	}
 
 	if err != nil {
-		return NewCreatePoolError(err)
+		return api.NewCreatePoolError(err)
 	}
 
 	m.mu.Lock()

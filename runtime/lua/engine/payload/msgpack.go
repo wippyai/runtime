@@ -7,6 +7,7 @@ import (
 
 	"github.com/hashicorp/go-msgpack/v2/codec"
 	"github.com/wippyai/runtime/api/payload"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -50,12 +51,12 @@ type ToMsgPack struct{}
 // Transcode implements payload.FormatTranscoder
 func (t *ToMsgPack) Transcode(p payload.Payload) (payload.Payload, error) {
 	if p.Format() != payload.Lua {
-		return nil, NewInvalidFormatError("Lua=>MsgPack can only transcode from Lua format, got " + string(p.Format()))
+		return nil, luaapi.NewInvalidFormatError("Lua=>MsgPack can only transcode from Lua format, got " + string(p.Format()))
 	}
 
 	lv, ok := p.Data().(lua.LValue)
 	if !ok {
-		return nil, NewInvalidTypeError("Lua=>MsgPack expects lua.LValue, got " + msgpackTypeName(p.Data()))
+		return nil, luaapi.NewInvalidTypeError("Lua=>MsgPack expects lua.LValue, got " + msgpackTypeName(p.Data()))
 	}
 
 	goValue := value.ToGoAny(lv)
@@ -66,7 +67,7 @@ func (t *ToMsgPack) Transcode(p payload.Payload) (payload.Payload, error) {
 
 	encoder := codec.NewEncoder(buf, getMsgpackHandle())
 	if err := encoder.Encode(goValue); err != nil {
-		return nil, NewTranscodeError("failed to encode to MsgPack", err)
+		return nil, luaapi.NewTranscodeError("failed to encode to MsgPack", err)
 	}
 
 	result := make([]byte, buf.Len())
@@ -81,12 +82,12 @@ type MsgPackToLua struct{}
 // Transcode implements payload.FormatTranscoder
 func (t *MsgPackToLua) Transcode(p payload.Payload) (payload.Payload, error) {
 	if p.Format() != payload.MsgPack {
-		return nil, NewInvalidFormatError("MsgPack=>Lua can only transcode from MsgPack format, got " + string(p.Format()))
+		return nil, luaapi.NewInvalidFormatError("MsgPack=>Lua can only transcode from MsgPack format, got " + string(p.Format()))
 	}
 
 	data, ok := p.Data().([]byte)
 	if !ok {
-		return nil, NewInvalidTypeError("MsgPack=>Lua expects []byte, got " + msgpackTypeName(p.Data()))
+		return nil, luaapi.NewInvalidTypeError("MsgPack=>Lua expects []byte, got " + msgpackTypeName(p.Data()))
 	}
 
 	reader := msgpackReaderPool.Get().(*bytes.Reader)
@@ -96,12 +97,12 @@ func (t *MsgPackToLua) Transcode(p payload.Payload) (payload.Payload, error) {
 	var goValue any
 	decoder := codec.NewDecoder(reader, getMsgpackHandle())
 	if err := decoder.Decode(&goValue); err != nil {
-		return nil, NewTranscodeError("failed to decode MsgPack", err)
+		return nil, luaapi.NewTranscodeError("failed to decode MsgPack", err)
 	}
 
 	lv, err := GoToLua(goValue)
 	if err != nil {
-		return nil, NewTranscodeError("failed to convert to Lua", err)
+		return nil, luaapi.NewTranscodeError("failed to convert to Lua", err)
 	}
 
 	return payload.NewPayload(lv, payload.Lua), nil

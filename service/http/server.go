@@ -198,24 +198,24 @@ func (s *ServerService) Rebuild(_ context.Context) error {
 func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 	s.mu.Lock()
 
-	// Initialize host with config
-	hostConfig := relaysys.HostConfig{
+	// Initialize mailbox with config
+	mailboxConfig := relaysys.MailboxConfig{
 		BufferSize:  s.config.Host.BufferSize,
 		WorkerCount: s.config.Host.WorkerCount,
 		Logger:      logs.GetLogger(ctx),
 	}
 
 	// If values not specified, set reasonable defaults
-	if hostConfig.BufferSize <= 0 {
-		hostConfig.BufferSize = 1024 // Default buffer size
+	if mailboxConfig.BufferSize <= 0 {
+		mailboxConfig.BufferSize = 1024 // Default buffer size
 	}
 
-	if hostConfig.WorkerCount <= 0 {
-		hostConfig.WorkerCount = runtime.NumCPU() // Default to number of CPUs
+	if mailboxConfig.WorkerCount <= 0 {
+		mailboxConfig.WorkerCount = runtime.NumCPU() // Default to number of CPUs
 	}
 
-	// Create the host
-	s.host = relaysys.NewHost(ctx, hostConfig)
+	// Create the mailbox
+	s.host = relaysys.NewMailbox(ctx, mailboxConfig)
 
 	s.ctx = ctx
 

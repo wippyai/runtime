@@ -255,6 +255,8 @@ func luaValueToGo(v lua.LValue) interface{} {
 		return bool(v.(lua.LBool))
 	case lua.LTNumber:
 		return float64(v.(lua.LNumber))
+	case lua.LTInteger:
+		return int64(v.(lua.LInteger))
 	case lua.LTString:
 		return string(v.(lua.LString))
 	default:

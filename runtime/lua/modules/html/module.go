@@ -23,7 +23,7 @@ var Module = &luaapi.ModuleDef{
 }
 
 func init() {
-	value.RegisterTypeMethods(nil, typePolicy, nil, map[string]lua.LGFunction{
+	value.RegisterTypeMethods(nil, typePolicy, nil, map[string]lua.LGoFunc{
 		"allow_elements":                            policyAllowElements,
 		"allow_attrs":                               policyAllowAttrs,
 		"allow_standard_urls":                       policyAllowStandardURLs,
@@ -41,7 +41,7 @@ func init() {
 		"sanitize":                                  policySanitize,
 	})
 
-	value.RegisterTypeMethods(nil, typeAttrBuilder, nil, map[string]lua.LGFunction{
+	value.RegisterTypeMethods(nil, typeAttrBuilder, nil, map[string]lua.LGoFunc{
 		"on_elements": attrBuilderOnElements,
 		"globally":    attrBuilderGlobally,
 		"matching":    attrBuilderMatching,

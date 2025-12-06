@@ -244,9 +244,9 @@ func TestManager_Attach(t *testing.T) {
 	require.NoError(t, manager.Start(ctx))
 	defer func() { assert.NoError(t, manager.Stop()) }()
 
-	// Register an attachable host first
-	attachableHost := NewHost(ctx, HostConfig{WorkerCount: 1, BufferSize: 10})
-	require.NoError(t, node.RegisterHost("test-host", attachableHost))
+	// Register an attachable mailbox first
+	attachableMailbox := NewMailbox(ctx, MailboxConfig{WorkerCount: 1, BufferSize: 10})
+	require.NoError(t, node.RegisterHost("test-host", attachableMailbox))
 
 	pid := api.PID{
 		Node:   "test-node",

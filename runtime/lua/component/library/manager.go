@@ -21,12 +21,12 @@ func NewManager(log *zap.Logger, code *lua.Manager) *Manager {
 
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindLibrary {
-		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindLibrary))
+		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindLibrary))
 	}
 
 	cfg, err := component.UnpackConfig[api.LibraryConfig](ctx, entry)
 	if err != nil {
-		return NewUnpackConfigError(err)
+		return api.NewUnpackConfigError("library", err)
 	}
 
 	node := lua.Node{
@@ -37,7 +37,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	if err := m.code.AddNode(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules)); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
-		return NewAddLibraryNodeError(err)
+		return api.NewAddNodeError("library", err)
 	}
 
 	return nil
@@ -45,12 +45,12 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindLibrary {
-		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindLibrary))
+		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindLibrary))
 	}
 
 	cfg, err := component.UnpackConfig[api.LibraryConfig](ctx, entry)
 	if err != nil {
-		return NewUnpackConfigError(err)
+		return api.NewUnpackConfigError("library", err)
 	}
 
 	node := lua.Node{
@@ -60,7 +60,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	if err := m.code.UpdateNode(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules)); err != nil {
-		return NewUpdateLibraryNodeError(err)
+		return api.NewUpdateNodeError("library", err)
 	}
 
 	return nil
@@ -68,11 +68,11 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindLibrary {
-		return NewInvalidEntryKindError(string(entry.Kind), string(api.KindLibrary))
+		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindLibrary))
 	}
 
 	if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
-		return NewDeleteLibraryNodeError(err)
+		return api.NewDeleteNodeError("library", err)
 	}
 
 	return nil

@@ -59,7 +59,7 @@ func (m *LoaderModule) Loader(l *lua.LState) int {
 
 		mt := l.NewTypeMetatable(loaderInstanceMetatable)
 		methods := l.CreateTable(0, 2)
-		l.SetFuncs(methods, map[string]lua.LGFunction{
+		l.SetGoFuncs(methods, map[string]lua.LGoFunc{
 			"load_directory": loaderLoadDirectory,
 			"load_file":      loaderLoadFile,
 		})

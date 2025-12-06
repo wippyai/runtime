@@ -16,7 +16,7 @@ const messageTypeName = "queue.Message"
 
 func init() {
 	value.RegisterTypeMethods(nil, messageTypeName,
-		map[string]lua.LGFunction{"__tostring": messageToString},
+		map[string]lua.LGoFunc{"__tostring": messageToString},
 		messageMethods)
 }
 
@@ -40,7 +40,7 @@ type Message struct {
 	message *queueapi.Message
 }
 
-var messageMethods = map[string]lua.LGFunction{
+var messageMethods = map[string]lua.LGoFunc{
 	"id":      messageID,
 	"header":  messageHeader,
 	"headers": messageHeaders,

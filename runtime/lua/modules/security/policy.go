@@ -8,7 +8,7 @@ import (
 
 const policyTypeName = "security.Policy"
 
-var policyMethods = map[string]lua.LGFunction{
+var policyMethods = map[string]lua.LGoFunc{
 	"id":       policyID,
 	"evaluate": policyEvaluate,
 }

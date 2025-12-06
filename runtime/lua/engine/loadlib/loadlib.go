@@ -4,18 +4,31 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+// packageFuncs contains stateless Go functions for package library.
+var packageFuncs = map[string]lua.LGoFunc{
+	"loadlib": restrictedLoadLib,
+	"seeall":  seeAll,
+}
+
 // OpenRestrictedPackage is our replacement for lua.OpenPackage.
 // Optimized for wippy: require() uses registry for fast table access.
 func OpenRestrictedPackage(l *lua.LState) int {
-	packagemod := l.RegisterModule(lua.LoadLibName, packageFuncs)
+	// Create package module table
+	packagemod := l.CreateTable(0, 6)
+	l.SetGlobal(lua.LoadLibName, packagemod)
+
+	// Register functions as LGoFunc (zero allocation)
+	for name, fn := range packageFuncs {
+		packagemod.RawSetString(name, fn)
+	}
 
 	// Preload table for modules (function or table values)
 	preload := l.CreateTable(0, 16)
-	l.SetField(packagemod, "preload", preload)
+	packagemod.RawSetString("preload", preload)
 
 	// Loaded table for caching
 	loaded := l.CreateTable(0, 32)
-	l.SetField(packagemod, "loaded", loaded)
+	packagemod.RawSetString("loaded", loaded)
 
 	// Store in registry for fast access (RawGetString)
 	reg := l.Get(lua.RegistryIndex).(*lua.LTable)
@@ -23,8 +36,8 @@ func OpenRestrictedPackage(l *lua.LState) int {
 	reg.RawSetString("_LOADED", loaded)
 
 	// Empty paths (no file system access)
-	l.SetField(packagemod, "path", lua.LString(""))
-	l.SetField(packagemod, "cpath", lua.LString(""))
+	packagemod.RawSetString("path", lua.LString(""))
+	packagemod.RawSetString("cpath", lua.LString(""))
 
 	// require function using LGoFunc (zero allocation)
 	l.SetGlobal("require", lua.LGoFunc(loRequire))
@@ -52,12 +65,7 @@ func loRequire(l *lua.LState) int {
 	preload := reg.RawGetString("_PRELOAD").(*lua.LTable)
 	value := preload.RawGetString(name)
 	if value == lua.LNil {
-		// Debug: list all preloaded modules
-		var keys []string
-		preload.ForEach(func(k, v lua.LValue) {
-			keys = append(keys, k.String())
-		})
-		l.RaiseError("module '%s' not found (preloaded: %v)", name, keys)
+		l.RaiseError("module '%s' not found", name)
 	}
 
 	var result lua.LValue
@@ -93,27 +101,18 @@ func loRequire(l *lua.LState) int {
 	return 1
 }
 
-// Package functions map
-//
-// ok for now
-var packageFuncs = map[string]lua.LGFunction{
-	"loadlib": restrictedLoadLib,
-	"seeall":  seeAll,
-}
-
-// restrictedLoadLib returns an error for loadlib calls
+// restrictedLoadLib returns an error for loadlib calls.
 func restrictedLoadLib(l *lua.LState) int {
 	name := l.CheckString(1)
 	l.Push(lua.LString("cannot load module '" + name + "': loadlib disabled"))
 	return 1
 }
 
-// seeAll implements package.seeall
+// seeAll implements package.seeall.
 func seeAll(l *lua.LState) int {
 	mod := l.CheckTable(1)
 	mt := l.GetMetatable(mod)
 	if mt == lua.LNil {
-		// Create metatable with exact capacity (just __index)
 		mt = l.CreateTable(0, 1)
 		l.SetMetatable(mod, mt)
 	}

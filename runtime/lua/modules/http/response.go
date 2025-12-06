@@ -17,7 +17,7 @@ type Response struct {
 	transferMode string
 }
 
-var responseMethods = map[string]lua.LGFunction{
+var responseMethods = map[string]lua.LGoFunc{
 	"set_status":       responseSetStatus,
 	"set_header":       responseSetHeader,
 	"write":            responseWrite,

@@ -22,8 +22,8 @@ const (
 
 func init() {
 	value.RegisterTypeMethods(nil, typeSnapshot,
-		map[string]lua.LGFunction{"__tostring": snapshotToString},
-		map[string]lua.LGFunction{
+		map[string]lua.LGoFunc{"__tostring": snapshotToString},
+		map[string]lua.LGoFunc{
 			"entries":   snapshotEntries,
 			"get":       snapshotGet,
 			"namespace": snapshotNamespace,
@@ -33,8 +33,8 @@ func init() {
 		})
 
 	value.RegisterTypeMethods(nil, typeChanges,
-		map[string]lua.LGFunction{"__tostring": changesToString},
-		map[string]lua.LGFunction{
+		map[string]lua.LGoFunc{"__tostring": changesToString},
+		map[string]lua.LGoFunc{
 			"ops":    changesOps,
 			"create": changesCreate,
 			"update": changesUpdate,
@@ -43,8 +43,8 @@ func init() {
 		})
 
 	value.RegisterTypeMethods(nil, typeVersion,
-		map[string]lua.LGFunction{"__tostring": versionToString},
-		map[string]lua.LGFunction{
+		map[string]lua.LGoFunc{"__tostring": versionToString},
+		map[string]lua.LGoFunc{
 			"id":       versionID,
 			"previous": versionPrevious,
 			"next":     versionNext,
@@ -52,8 +52,8 @@ func init() {
 		})
 
 	value.RegisterTypeMethods(nil, typeHistory,
-		map[string]lua.LGFunction{"__tostring": historyToString},
-		map[string]lua.LGFunction{
+		map[string]lua.LGoFunc{"__tostring": historyToString},
+		map[string]lua.LGoFunc{
 			"versions":    historyVersions,
 			"get_version": historyGetVersion,
 			"snapshot_at": historySnapshotAt,
