@@ -7,8 +7,6 @@ import (
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/process"
-	"github.com/wippyai/runtime/api/relay"
-	scheduler "github.com/wippyai/runtime/system/scheduler/actor"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -42,7 +40,8 @@ func BenchmarkProcessStep(b *testing.B) {
 		if err := proc.Init(ctx, "", nil); err != nil {
 			b.Fatal(err)
 		}
-		proc.Step(nil)
+		var output process.StepOutput
+		proc.Step(nil, &output)
 		proc.Close()
 	}
 }
@@ -78,12 +77,13 @@ func BenchmarkCoroutineSpawn(b *testing.B) {
 			b.Fatal(err)
 		}
 
+		var output process.StepOutput
 		for {
-			result, err := proc.Step(nil)
-			if err != nil {
+			output.Reset()
+			if err := proc.Step(nil, &output); err != nil {
 				b.Fatal(err)
 			}
-			if result.Status == scheduler.StepDone {
+			if output.Status() == process.StepDone {
 				break
 			}
 		}
@@ -110,7 +110,8 @@ func BenchmarkMemoryPerProcess(b *testing.B) {
 		if err := proc.Init(ctx, "", nil); err != nil {
 			b.Fatal(err)
 		}
-		proc.Step(nil)
+		var output process.StepOutput
+		proc.Step(nil, &output)
 		processes = append(processes, proc)
 		contexts = append(contexts, ctx)
 	}
@@ -149,12 +150,13 @@ func BenchmarkYieldResume(b *testing.B) {
 			b.Fatal(err)
 		}
 
+		var output process.StepOutput
 		for {
-			result, err := proc.Step(nil)
-			if err != nil {
+			output.Reset()
+			if err := proc.Step(nil, &output); err != nil {
 				b.Fatal(err)
 			}
-			if result.Status == scheduler.StepDone {
+			if output.Status() == process.StepDone {
 				break
 			}
 		}
@@ -185,8 +187,10 @@ func BenchmarkManyProcesses(b *testing.B) {
 				}
 
 				// Step all
+				var output process.StepOutput
 				for j := 0; j < count; j++ {
-					processes[j].Step(nil)
+					output.Reset()
+					processes[j].Step(nil, &output)
 				}
 
 				// Close all
@@ -218,8 +222,8 @@ func BenchmarkSendMessage(b *testing.B) {
 	defer proc.Close()
 
 	// Initial step to get to yield
-	_, err := proc.Step(nil)
-	if err != nil {
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
 		b.Fatal(err)
 	}
 
@@ -229,150 +233,16 @@ func BenchmarkSendMessage(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		// Re-queue and resume the yielded task
 		proc.queue.Push(proc.mainTask)
-		_, err := proc.Step(nil)
-		if err != nil {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
 			b.Fatal(err)
 		}
 	}
 }
 
-// BenchmarkActorReceive measures actor-style message receive (external → process).
-func BenchmarkActorReceive(b *testing.B) {
-	script := `
-		-- Subscribe to inbox
-		local inbox = channel.new(10)
-		subscribe("inbox", inbox)
-
-		-- Actor loop: receive messages
-		local count = 0
-		while true do
-			local msg = inbox:receive()
-			count = count + 1
-			if msg == "stop" then
-				return count
-			end
-		end
-	`
-
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-
-	// Set up inbox for actor message delivery
-	inbox := process.NewMessageInbox()
-	if err := process.SetInbox(ctx, inbox); err != nil {
-		b.Fatal(err)
-	}
-
-	proc := NewProcess(
-		WithScript(script, "actor.lua"),
-	)
-
-	if err := proc.Init(ctx, "", nil); err != nil {
-		b.Fatal(err)
-	}
-	defer proc.Close()
-
-	BindChannelFunctions(proc.State())
-	BindSubscribeFunctions(proc.State())
-
-	// Run until subscribed and waiting on channel
-	for i := 0; i < 20; i++ {
-		result, err := proc.Step(nil)
-		if err != nil {
-			b.Fatal(err)
-		}
-		if result.Status == scheduler.StepIdle {
-			break
-		}
-	}
-
-	b.ResetTimer()
-	b.ReportAllocs()
-
-	for i := 0; i < b.N; i++ {
-		proc.Send(&relay.Package{
-			Messages: []*relay.Message{{Topic: "inbox", Payloads: nil}},
-		})
-
-		_, err := proc.Step(nil)
-		if err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-// TestActorPattern tests the full actor message flow.
-func TestActorPattern(t *testing.T) {
-	script := `
-		local inbox = channel.new(10)
-		subscribe("inbox", inbox)
-
-		local messages = {}
-		for i = 1, 3 do
-			local msg = inbox:receive()
-			table.insert(messages, msg)
-		end
-		return #messages
-	`
-
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-
-	// Set up inbox for actor message delivery
-	inbox := process.NewMessageInbox()
-	if err := process.SetInbox(ctx, inbox); err != nil {
-		t.Fatal(err)
-	}
-
-	proc := NewProcess(
-		WithScript(script, "actor.lua"),
-	)
-
-	if err := proc.Init(ctx, "", nil); err != nil {
-		t.Fatal(err)
-	}
-	defer proc.Close()
-
-	BindChannelFunctions(proc.State())
-	BindSubscribeFunctions(proc.State())
-
-	// Run until waiting for messages
-	var result scheduler.StepResult
-	var err error
-	for i := 0; i < 10; i++ {
-		result, err = proc.Step(nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if result.Status == scheduler.StepIdle {
-			break
-		}
-	}
-
-	if result.Status != scheduler.StepIdle {
-		t.Fatalf("expected StepIdle, got %v", result.Status)
-	}
-
-	// Send 3 messages
-	for i := 0; i < 3; i++ {
-		proc.Send(&relay.Package{
-			Messages: []*relay.Message{{Topic: "inbox", Payloads: nil}},
-		})
-
-		result, err = proc.Step(nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	// Should complete
-	for result.Status != scheduler.StepDone {
-		result, err = proc.Step(nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	t.Log("Actor pattern test passed")
-}
+// NOTE: BenchmarkActorReceive and TestActorPattern were removed because they
+// relied on process.NewMessageInbox() and process.SetInbox() which don't exist.
+// Actor message delivery is tested in channel_test.go via sendMessage helper.
 
 // TestMemoryProfile creates many processes and reports memory stats.
 func TestMemoryProfile(t *testing.T) {
@@ -392,13 +262,15 @@ func TestMemoryProfile(t *testing.T) {
 		runtime.ReadMemStats(&m1)
 
 		processes := make([]*Process, count)
+		var output process.StepOutput
 		for i := 0; i < count; i++ {
 			ctx, _ := ctxapi.OpenFrameContext(context.Background())
 			proc := NewProcess(WithScript(script, "test.lua"))
 			if err := proc.Init(ctx, "", nil); err != nil {
 				t.Fatal(err)
 			}
-			proc.Step(nil)
+			output.Reset()
+			proc.Step(nil, &output)
 			processes[i] = proc
 		}
 
@@ -461,7 +333,8 @@ func BenchmarkProcessStepPrecompiled(b *testing.B) {
 		if err := proc.Init(ctx, "", nil); err != nil {
 			b.Fatal(err)
 		}
-		proc.Step(nil)
+		var output process.StepOutput
+		proc.Step(nil, &output)
 		proc.Close()
 	}
 }
@@ -489,12 +362,13 @@ func BenchmarkYieldResumePrecompiled(b *testing.B) {
 			b.Fatal(err)
 		}
 
+		var output process.StepOutput
 		for {
-			result, err := proc.Step(nil)
-			if err != nil {
+			output.Reset()
+			if err := proc.Step(nil, &output); err != nil {
 				b.Fatal(err)
 			}
-			if result.Status == scheduler.StepDone {
+			if output.Status() == process.StepDone {
 				break
 			}
 		}
@@ -524,14 +398,16 @@ func BenchmarkHotPathYield(b *testing.B) {
 	defer proc.Close()
 
 	// Warm up
-	proc.Step(nil)
+	var output process.StepOutput
+	proc.Step(nil, &output)
 
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
 		proc.queue.Push(proc.mainTask)
-		proc.Step(nil)
+		output.Reset()
+		proc.Step(nil, &output)
 	}
 }
 
@@ -585,12 +461,13 @@ func setupChannelProc(b *testing.B, script string) *Process {
 }
 
 func runProcToCompletion(b *testing.B, proc *Process, maxSteps int) {
+	var output process.StepOutput
 	for i := 0; i < maxSteps; i++ {
-		result, err := proc.Step(nil)
-		if err != nil {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
 			b.Fatal(err)
 		}
-		if result.Status == scheduler.StepDone {
+		if output.Status() == process.StepDone {
 			return
 		}
 	}
@@ -925,12 +802,13 @@ func Test100CoroutinesMemory(t *testing.T) {
 	}
 
 	// Run until all coroutines spawned
+	var output process.StepOutput
 	for i := 0; i < 150; i++ {
-		result, err := proc.Step(nil)
-		if err != nil {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
 			t.Fatal(err)
 		}
-		if result.Status == scheduler.StepIdle {
+		if output.Status() == process.StepIdle {
 			break
 		}
 	}

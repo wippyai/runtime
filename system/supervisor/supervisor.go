@@ -124,6 +124,9 @@ func (s *Supervisor) GetAllStates() map[string]State {
 // Start initializes the supervisor and begins listening for events.
 // It sets up event subscriptions and starts the main control loop.
 func (s *Supervisor) Start(ctx context.Context) error {
+	// Set context before launching goroutine to avoid race with Stop()
+	s.ctx = ctx
+
 	// Subscribe to all relevant events using a single subscriber with patterns
 	sub, err := eventbus.NewSubscriber(
 		ctx,
@@ -230,8 +233,6 @@ func (s *Supervisor) handleEvent(e event.Event) {
 func (s *Supervisor) run(ctx context.Context) {
 	defer s.logger.Info("supervisor control loop stopped")
 	defer s.wg.Done()
-
-	s.ctx = ctx
 
 	for action := range s.actions {
 		switch action.kind {

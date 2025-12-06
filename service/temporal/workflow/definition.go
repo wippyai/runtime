@@ -67,11 +67,12 @@ type Definition struct {
 	dc      converter.DataConverter
 	proc    process.Process
 	result  *runtime.Result
+	output  process.StepOutput // reusable output buffer
 }
 
 // Execute implements WorkflowDefinition.Execute.
 // Called by Temporal SDK to start workflow execution.
-func (d *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.Header, input *commonpb.Payloads) {
+func (d *Definition) Execute(env bindings.WorkflowEnvironment, _ *commonpb.Header, input *commonpb.Payloads) {
 	d.env = env
 	d.dc = env.GetDataConverter()
 
@@ -126,9 +127,10 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.
 
 // OnWorkflowTaskStarted implements WorkflowDefinition.OnWorkflowTaskStarted.
 // Called by Temporal SDK when a workflow task is ready to execute.
-func (d *Definition) OnWorkflowTaskStarted(timeout time.Duration) {
+func (d *Definition) OnWorkflowTaskStarted(_ time.Duration) {
 	for {
-		stepResult, err := d.proc.Step(nil)
+		d.output.Reset()
+		err := d.proc.Step(nil, &d.output)
 
 		if d.result != nil {
 			d.completeWithResult()
@@ -140,10 +142,10 @@ func (d *Definition) OnWorkflowTaskStarted(timeout time.Duration) {
 			return
 		}
 
-		switch stepResult.Status {
+		switch d.output.Status() {
 		case process.StepDone:
-			if stepResult.Result != nil {
-				res, err := d.dc.ToPayloads(payload.Payloads{stepResult.Result})
+			if result := d.output.Result(); result != nil {
+				res, err := d.dc.ToPayloads(payload.Payloads{result})
 				if err != nil {
 					d.env.Complete(nil, fmt.Errorf("failed to encode result: %w", err))
 					return
@@ -158,13 +160,11 @@ func (d *Definition) OnWorkflowTaskStarted(timeout time.Duration) {
 			return
 
 		case process.StepContinue:
-			yields := stepResult.GetYields()
-			for _, cmd := range yields {
-				if err := d.executeCommand(cmd); err != nil {
+			d.output.ForEachYield(func(y process.Yield) {
+				if err := d.executeCommand(y.Cmd); err != nil {
 					d.env.Complete(nil, fmt.Errorf("failed to execute command: %w", err))
-					return
 				}
-			}
+			})
 		}
 	}
 }
@@ -235,7 +235,7 @@ func (d *Definition) executeLocalActivity(cmd *LocalActivityCommand) error {
 	}
 
 	// Convert payloads to []interface{} as required by local activities
-	var inputArgs []interface{}
+	inputArgs := make([]interface{}, 0, len(cmd.Args))
 	for _, p := range cmd.Args {
 		inputArgs = append(inputArgs, p)
 	}
@@ -286,7 +286,7 @@ func (d *Definition) handleActivityResult(result *commonpb.Payloads, err error) 
 }
 
 func (d *Definition) executeSleep(cmd clock.SleepCmd) error {
-	d.env.NewTimer(cmd.Duration, workflow.TimerOptions{}, func(result *commonpb.Payloads, err error) {
+	d.env.NewTimer(cmd.Duration, workflow.TimerOptions{}, func(_ *commonpb.Payloads, err error) {
 		if err != nil {
 			d.resumeProcess(nil, err)
 			return
@@ -338,7 +338,7 @@ func (d *Definition) executeChildWorkflow(cmd *ChildWorkflowCommand) error {
 
 	d.env.ExecuteChildWorkflow(params, func(result *commonpb.Payloads, err error) {
 		d.handleActivityResult(result, err)
-	}, func(result bindings.WorkflowExecution, err error) {
+	}, func(_ bindings.WorkflowExecution, _ error) {
 		// Child workflow started callback
 	})
 
@@ -364,7 +364,7 @@ func (d *Definition) executeSignal(cmd *SignalCommand) error {
 		nil,
 		nil,
 		false,
-		func(result *commonpb.Payloads, err error) {
+		func(_ *commonpb.Payloads, err error) {
 			if err != nil {
 				d.resumeProcess(nil, err)
 				return
@@ -377,11 +377,13 @@ func (d *Definition) executeSignal(cmd *SignalCommand) error {
 }
 
 func (d *Definition) resumeProcess(data any, err error) {
-	yr := process.AcquireYieldResults()
-	yr.Data = data
-	yr.Error = err
-	d.proc.Step(yr)
-	process.ReleaseYieldResults(yr)
+	events := []process.Event{{
+		Type:  process.EventYieldComplete,
+		Data:  data,
+		Error: err,
+	}}
+	d.output.Reset()
+	_ = d.proc.Step(events, &d.output)
 }
 
 // StackTrace implements WorkflowDefinition.StackTrace.

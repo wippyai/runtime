@@ -10,6 +10,7 @@ import (
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	streamapi "github.com/wippyai/runtime/api/dispatcher/stream"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/runtime/resource"
 )
 
@@ -258,7 +259,8 @@ type Dispatcher struct {
 type job struct {
 	ctx      context.Context
 	cmd      dispatcher.Command
-	complete dispatcher.Completer
+	tag      any
+	receiver process.ResultReceiver
 }
 
 // NewDispatcher creates a stream dispatcher with default 16 workers.
@@ -307,9 +309,9 @@ func (d *Dispatcher) worker() {
 	}
 }
 
-func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) {
+func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, tag any, receiver process.ResultReceiver) {
 	select {
-	case d.jobs <- job{ctx: ctx, cmd: cmd, complete: complete}:
+	case d.jobs <- job{ctx: ctx, cmd: cmd, tag: tag, receiver: receiver}:
 	case <-d.ctx.Done():
 	}
 }
@@ -320,7 +322,7 @@ func (d *Dispatcher) execute(j job) {
 		if d.debug != nil {
 			fmt.Fprintf(d.debug, "[stream] execute error: no table\n")
 		}
-		j.complete.Complete(nil, ErrNoTable)
+		j.receiver.CompleteYield(j.tag, nil, ErrNoTable)
 		return
 	}
 
@@ -334,20 +336,20 @@ func (d *Dispatcher) execute(j job) {
 			if d.debug != nil {
 				fmt.Fprintf(d.debug, "[stream] read id=%d EOF\n", c.StreamID)
 			}
-			j.complete.Complete(nil, nil)
+			j.receiver.CompleteYield(j.tag, nil, nil)
 			return
 		}
 		if err != nil {
 			if d.debug != nil {
 				fmt.Fprintf(d.debug, "[stream] read id=%d error=%v\n", c.StreamID, err)
 			}
-			j.complete.Complete(nil, err)
+			j.receiver.CompleteYield(j.tag, nil, err)
 			return
 		}
 		if d.debug != nil {
 			fmt.Fprintf(d.debug, "[stream] read id=%d bytes=%d\n", c.StreamID, len(data))
 		}
-		j.complete.Complete(data, nil)
+		j.receiver.CompleteYield(j.tag, data, nil)
 
 	case streamapi.WriteCmd:
 		if d.debug != nil {
@@ -358,13 +360,13 @@ func (d *Dispatcher) execute(j job) {
 			if d.debug != nil {
 				fmt.Fprintf(d.debug, "[stream] write id=%d error=%v\n", c.StreamID, err)
 			}
-			j.complete.Complete(nil, err)
+			j.receiver.CompleteYield(j.tag, nil, err)
 			return
 		}
 		if d.debug != nil {
 			fmt.Fprintf(d.debug, "[stream] write id=%d written=%d\n", c.StreamID, n)
 		}
-		j.complete.Complete(int64(n), nil)
+		j.receiver.CompleteYield(j.tag, int64(n), nil)
 
 	case streamapi.CloseCmd:
 		if d.debug != nil {
@@ -374,10 +376,10 @@ func (d *Dispatcher) execute(j job) {
 			if d.debug != nil {
 				fmt.Fprintf(d.debug, "[stream] close id=%d error=%v\n", c.StreamID, err)
 			}
-			j.complete.Complete(nil, err)
+			j.receiver.CompleteYield(j.tag, nil, err)
 			return
 		}
-		j.complete.Complete(nil, nil)
+		j.receiver.CompleteYield(j.tag, nil, nil)
 
 	case streamapi.SeekCmd:
 		if d.debug != nil {
@@ -388,13 +390,13 @@ func (d *Dispatcher) execute(j job) {
 			if d.debug != nil {
 				fmt.Fprintf(d.debug, "[stream] seek id=%d error=%v\n", c.StreamID, err)
 			}
-			j.complete.Complete(nil, err)
+			j.receiver.CompleteYield(j.tag, nil, err)
 			return
 		}
 		if d.debug != nil {
 			fmt.Fprintf(d.debug, "[stream] seek id=%d pos=%d\n", c.StreamID, pos)
 		}
-		j.complete.Complete(pos, nil)
+		j.receiver.CompleteYield(j.tag, pos, nil)
 
 	case streamapi.FlushCmd:
 		if d.debug != nil {
@@ -404,10 +406,10 @@ func (d *Dispatcher) execute(j job) {
 			if d.debug != nil {
 				fmt.Fprintf(d.debug, "[stream] flush id=%d error=%v\n", c.StreamID, err)
 			}
-			j.complete.Complete(nil, err)
+			j.receiver.CompleteYield(j.tag, nil, err)
 			return
 		}
-		j.complete.Complete(nil, nil)
+		j.receiver.CompleteYield(j.tag, nil, nil)
 
 	case streamapi.StatCmd:
 		if d.debug != nil {
@@ -418,14 +420,14 @@ func (d *Dispatcher) execute(j job) {
 			if d.debug != nil {
 				fmt.Fprintf(d.debug, "[stream] stat id=%d error=%v\n", c.StreamID, err)
 			}
-			j.complete.Complete(nil, err)
+			j.receiver.CompleteYield(j.tag, nil, err)
 			return
 		}
 		if d.debug != nil {
 			fmt.Fprintf(d.debug, "[stream] stat id=%d size=%d pos=%d readable=%v writable=%v seekable=%v\n",
 				c.StreamID, size, pos, caps.Readable, caps.Writable, caps.Seekable)
 		}
-		j.complete.Complete(streamapi.Info{
+		j.receiver.CompleteYield(j.tag, streamapi.Info{
 			Size:     size,
 			Position: pos,
 			Readable: caps.Readable,
@@ -434,12 +436,12 @@ func (d *Dispatcher) execute(j job) {
 		}, nil)
 
 	default:
-		j.complete.Complete(nil, fmt.Errorf("unknown stream command: %T", j.cmd))
+		j.receiver.CompleteYield(j.tag, nil, fmt.Errorf("unknown stream command: %T", j.cmd))
 	}
 }
 
-func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
-	d.submit(ctx, cmd, complete)
+func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, tag any, receiver process.ResultReceiver) error {
+	d.submit(ctx, cmd, tag, receiver)
 	return nil
 }
 

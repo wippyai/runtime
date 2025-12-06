@@ -88,7 +88,7 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(httpapi.CmdRequestBatch, dispatcher.HandlerFunc(d.handleRequestBatch))
 }
 
-func (d *Dispatcher) handleRequest(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
+func (d *Dispatcher) handleRequest(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
 	req := cmd.(*httpapi.RequestCmd)
 
 	if d.debug != nil {
@@ -105,18 +105,18 @@ func (d *Dispatcher) handleRequest(ctx context.Context, cmd dispatcher.Command, 
 		}
 
 		if ctx.Err() == nil {
-			complete.Complete(result, nil)
+			receiver.CompleteYield(tag, result, nil)
 		}
 	}()
 
 	return nil
 }
 
-func (d *Dispatcher) handleRequestBatch(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
+func (d *Dispatcher) handleRequestBatch(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
 	batch := cmd.(*httpapi.RequestBatchCmd)
 
 	if len(batch.Requests) == 0 {
-		complete.Complete(httpapi.BatchResponse{Responses: []httpapi.Response{}}, nil)
+		receiver.CompleteYield(tag, httpapi.BatchResponse{Responses: []httpapi.Response{}}, nil)
 		return nil
 	}
 
@@ -144,7 +144,7 @@ func (d *Dispatcher) handleRequestBatch(ctx context.Context, cmd dispatcher.Comm
 		}
 
 		if ctx.Err() == nil {
-			complete.Complete(httpapi.BatchResponse{Responses: responses}, nil)
+			receiver.CompleteYield(tag, httpapi.BatchResponse{Responses: responses}, nil)
 		}
 	}()
 

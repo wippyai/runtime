@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -21,7 +22,7 @@ import (
 
 type mockTranscoder struct{}
 
-func (m *mockTranscoder) Transcode(p payload.Payload, format payload.Format) (payload.Payload, error) {
+func (m *mockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
 	return p, nil
 }
 
@@ -40,44 +41,51 @@ type mockEventBus struct {
 	events []event.Event
 }
 
-func (m *mockEventBus) Send(ctx context.Context, evt event.Event) {
+func (m *mockEventBus) Send(_ context.Context, evt event.Event) {
 	m.events = append(m.events, evt)
 }
 
-func (m *mockEventBus) Subscribe(ctx context.Context, system event.System, ch chan<- event.Event) (event.SubscriberID, error) {
+func (m *mockEventBus) Subscribe(_ context.Context, _ event.System, _ chan<- event.Event) (event.SubscriberID, error) {
 	return event.SubscriberID("mock"), nil
 }
 
-func (m *mockEventBus) SubscribeP(ctx context.Context, system event.System, kind event.Kind, ch chan<- event.Event) (event.SubscriberID, error) {
+func (m *mockEventBus) SubscribeP(_ context.Context, _ event.System, _ event.Kind, _ chan<- event.Event) (event.SubscriberID, error) {
 	return event.SubscriberID("mock"), nil
 }
 
-func (m *mockEventBus) Unsubscribe(ctx context.Context, id event.SubscriberID) {
+func (m *mockEventBus) Unsubscribe(_ context.Context, _ event.SubscriberID) {
 }
 
 type mockEnvRegistry struct {
 	values map[string]string
 }
 
-func (m *mockEnvRegistry) Get(ctx context.Context, key string) (string, error) {
+func (m *mockEnvRegistry) Get(_ context.Context, key string) (string, error) {
 	if val, ok := m.values[key]; ok {
 		return val, nil
 	}
 	return "", fmt.Errorf("not found")
 }
 
-func (m *mockEnvRegistry) Lookup(ctx context.Context, key string) (string, bool, error) {
+func (m *mockEnvRegistry) Lookup(_ context.Context, key string) (string, bool, error) {
 	val, ok := m.values[key]
 	return val, ok, nil
 }
 
-func (m *mockEnvRegistry) Set(ctx context.Context, key string, value string) error {
+func (m *mockEnvRegistry) Set(_ context.Context, key string, value string) error {
 	m.values[key] = value
 	return nil
 }
 
-func (m *mockEnvRegistry) All(ctx context.Context) (map[string]string, error) {
+func (m *mockEnvRegistry) All(_ context.Context) (map[string]string, error) {
 	return m.values, nil
+}
+
+func (m *mockEnvRegistry) GetStorage(_ context.Context, _ registry.ID) (env.Storage, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockEnvRegistry) RegisterStorage(_ registry.ID, _ env.Storage) {
 }
 
 type mockClientFactory struct {
@@ -101,18 +109,18 @@ type mockTemporalClient struct {
 
 func (m *mockTemporalClient) Close() {}
 
-func (m *mockTemporalClient) CheckHealth(ctx context.Context, request *client.CheckHealthRequest) (*client.CheckHealthResponse, error) {
+func (m *mockTemporalClient) CheckHealth(_ context.Context, _ *client.CheckHealthRequest) (*client.CheckHealthResponse, error) {
 	return &client.CheckHealthResponse{}, nil
 }
 
-func setupManager(t *testing.T) (*Manager, *mockEventBus, *mockEnvRegistry) {
+func setupManager(t *testing.T) (*Manager, *mockEventBus) {
 	logger := zap.NewNop()
 	transcoder := &mockTranscoder{}
 	bus := &mockEventBus{events: make([]event.Event, 0)}
 	envReg := &mockEnvRegistry{values: make(map[string]string)}
 
 	factory := &mockClientFactory{
-		createFunc: func(ctx context.Context, logger *zap.Logger, id registry.ID, config *api.ClientConfig) (*Client, error) {
+		createFunc: func(_ context.Context, logger *zap.Logger, id registry.ID, config *api.ClientConfig) (*Client, error) {
 			return &Client{
 				id:     id,
 				log:    logger,
@@ -133,7 +141,7 @@ func setupManager(t *testing.T) (*Manager, *mockEventBus, *mockEnvRegistry) {
 	)
 	require.NoError(t, err)
 
-	return manager, bus, envReg
+	return manager, bus
 }
 
 func TestNewManager(t *testing.T) {
@@ -236,7 +244,7 @@ func TestNewManager(t *testing.T) {
 
 func TestManager_AddClient(t *testing.T) {
 	t.Run("add valid client config", func(t *testing.T) {
-		manager, bus, _ := setupManager(t)
+		manager, bus := setupManager(t)
 
 		id := registry.NewID("test", "client1")
 		cfg := &api.ClientConfig{
@@ -255,7 +263,7 @@ func TestManager_AddClient(t *testing.T) {
 	})
 
 	t.Run("add client without address fails", func(t *testing.T) {
-		manager, _, _ := setupManager(t)
+		manager, _ := setupManager(t)
 
 		id := registry.NewID("test", "client1")
 		cfg := &api.ClientConfig{
@@ -271,7 +279,7 @@ func TestManager_AddClient(t *testing.T) {
 	})
 
 	t.Run("add duplicate client fails", func(t *testing.T) {
-		manager, _, _ := setupManager(t)
+		manager, _ := setupManager(t)
 
 		id := registry.NewID("test", "client1")
 		cfg := &api.ClientConfig{
@@ -291,7 +299,7 @@ func TestManager_AddClient(t *testing.T) {
 	})
 
 	t.Run("defaults are initialized", func(t *testing.T) {
-		manager, _, _ := setupManager(t)
+		manager, _ := setupManager(t)
 
 		id := registry.NewID("test", "client1")
 		cfg := &api.ClientConfig{
@@ -314,7 +322,7 @@ func TestManager_AddClient(t *testing.T) {
 
 func TestManager_UpdateClient(t *testing.T) {
 	t.Run("update existing client", func(t *testing.T) {
-		manager, bus, _ := setupManager(t)
+		manager, bus := setupManager(t)
 
 		id := registry.NewID("test", "client1")
 		cfg := &api.ClientConfig{
@@ -351,7 +359,7 @@ func TestManager_UpdateClient(t *testing.T) {
 	})
 
 	t.Run("update non-existent client fails", func(t *testing.T) {
-		manager, _, _ := setupManager(t)
+		manager, _ := setupManager(t)
 
 		id := registry.NewID("test", "nonexistent")
 		cfg := &api.ClientConfig{
@@ -369,7 +377,7 @@ func TestManager_UpdateClient(t *testing.T) {
 
 func TestManager_DeleteClient(t *testing.T) {
 	t.Run("delete existing client", func(t *testing.T) {
-		manager, bus, _ := setupManager(t)
+		manager, bus := setupManager(t)
 
 		id := registry.NewID("test", "client1")
 		cfg := &api.ClientConfig{
@@ -393,7 +401,7 @@ func TestManager_DeleteClient(t *testing.T) {
 	})
 
 	t.Run("delete non-existent client fails", func(t *testing.T) {
-		manager, _, _ := setupManager(t)
+		manager, _ := setupManager(t)
 
 		id := registry.NewID("test", "nonexistent")
 		err := manager.DeleteClient(context.Background(), id)
@@ -404,7 +412,7 @@ func TestManager_DeleteClient(t *testing.T) {
 
 func TestManager_GetClient(t *testing.T) {
 	t.Run("get existing client", func(t *testing.T) {
-		manager, _, _ := setupManager(t)
+		manager, _ := setupManager(t)
 
 		id := registry.NewID("test", "client1")
 		cfg := &api.ClientConfig{
@@ -425,7 +433,7 @@ func TestManager_GetClient(t *testing.T) {
 	})
 
 	t.Run("get non-existent client fails", func(t *testing.T) {
-		manager, _, _ := setupManager(t)
+		manager, _ := setupManager(t)
 
 		id := registry.NewID("test", "nonexistent")
 		client, err := manager.GetClient(id)
@@ -437,7 +445,7 @@ func TestManager_GetClient(t *testing.T) {
 
 func TestManager_EntryListener(t *testing.T) {
 	t.Run("add entry with correct kind", func(t *testing.T) {
-		manager, _, _ := setupManager(t)
+		manager, _ := setupManager(t)
 
 		cfg := &api.ClientConfig{
 			Address:   "localhost:7233",
@@ -462,7 +470,7 @@ func TestManager_EntryListener(t *testing.T) {
 	})
 
 	t.Run("add entry with wrong kind fails", func(t *testing.T) {
-		manager, _, _ := setupManager(t)
+		manager, _ := setupManager(t)
 
 		entry := registry.Entry{
 			ID:   registry.NewID("test", "wrong"),
@@ -475,7 +483,7 @@ func TestManager_EntryListener(t *testing.T) {
 	})
 
 	t.Run("update entry", func(t *testing.T) {
-		manager, _, _ := setupManager(t)
+		manager, _ := setupManager(t)
 
 		cfg := &api.ClientConfig{
 			Address:   "localhost:7233",
@@ -512,7 +520,7 @@ func TestManager_EntryListener(t *testing.T) {
 	})
 
 	t.Run("delete entry", func(t *testing.T) {
-		manager, _, _ := setupManager(t)
+		manager, _ := setupManager(t)
 
 		cfg := &api.ClientConfig{
 			Address:   "localhost:7233",
@@ -542,7 +550,7 @@ func TestManager_EntryListener(t *testing.T) {
 
 func TestManager_GetTaskQueueName(t *testing.T) {
 	t.Run("get task queue name with prefix", func(t *testing.T) {
-		manager, _, _ := setupManager(t)
+		manager, _ := setupManager(t)
 
 		id := registry.NewID("test", "client1")
 		cfg := &api.ClientConfig{
@@ -563,7 +571,7 @@ func TestManager_GetTaskQueueName(t *testing.T) {
 	})
 
 	t.Run("get task queue name without prefix", func(t *testing.T) {
-		manager, _, _ := setupManager(t)
+		manager, _ := setupManager(t)
 
 		id := registry.NewID("test", "client1")
 		cfg := &api.ClientConfig{
@@ -583,7 +591,7 @@ func TestManager_GetTaskQueueName(t *testing.T) {
 	})
 
 	t.Run("get task queue name for non-existent client fails", func(t *testing.T) {
-		manager, _, _ := setupManager(t)
+		manager, _ := setupManager(t)
 
 		id := registry.NewID("test", "nonexistent")
 		queueName, err := manager.GetTaskQueueName(id, "my-queue")
@@ -594,7 +602,7 @@ func TestManager_GetTaskQueueName(t *testing.T) {
 
 func TestManager_ConcurrentAccess(t *testing.T) {
 	t.Run("concurrent add and get operations", func(t *testing.T) {
-		manager, _, _ := setupManager(t)
+		manager, _ := setupManager(t)
 
 		done := make(chan bool, 2)
 

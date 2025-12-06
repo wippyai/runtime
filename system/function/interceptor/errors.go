@@ -39,3 +39,12 @@ func NewInterceptorNotFoundError(name string) *Error {
 		details:   attrs.NewBagFrom(map[string]any{"name": name}),
 	}
 }
+
+// NewInterceptorSealedError creates an error when registry is sealed
+func NewInterceptorSealedError() *Error {
+	return &Error{
+		kind:      apierror.KindInvalid,
+		message:   "interceptor registry is sealed",
+		retryable: apierror.False,
+	}
+}

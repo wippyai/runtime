@@ -23,6 +23,7 @@ type Sandbox struct {
 	started       bool
 	transcoder    *CommandTranscoder
 	cancelCleanup func()
+	output        process.StepOutput // reusable output buffer
 }
 
 var sandboxMethods = map[string]lua.LGFunction{
@@ -140,31 +141,31 @@ func sandboxStep(l *lua.LState) int {
 		return 2
 	}
 
-	// Get results from previous yields (if any)
-	var results *process.YieldResults
+	// Build events from previous yields (if any)
+	var events []process.Event
 	if l.GetTop() >= 2 && l.Get(2).Type() == lua.LTTable {
 		resultsTable := l.CheckTable(2)
-		results = process.AcquireYieldResults()
 
-		// Extract data and error from table
+		var data any
+		var err error
 		if dataVal := resultsTable.RawGetString("data"); dataVal != lua.LNil {
-			results.Data = value.ToGoAny(dataVal)
+			data = value.ToGoAny(dataVal)
 		}
 		if errVal := resultsTable.RawGetString("error"); errVal != lua.LNil {
 			if errStr, ok := errVal.(lua.LString); ok {
-				results.Error = NewEvalError(string(errStr))
+				err = NewEvalError(string(errStr))
 			}
 		}
+		events = []process.Event{{
+			Type:  process.EventYieldComplete,
+			Data:  data,
+			Error: err,
+		}}
 	}
 
 	// Step the process
-	stepResult, err := sb.process.Step(results)
-	if results != nil {
-		process.ReleaseYieldResults(results)
-	}
-
-	if err != nil {
-		// Return error step
+	sb.output.Reset()
+	if err := sb.process.Step(events, &sb.output); err != nil {
 		t := l.CreateTable(0, 2)
 		t.RawSetString("status", lua.LString("error"))
 		t.RawSetString("error", lua.LString(err.Error()))
@@ -175,11 +176,11 @@ func sandboxStep(l *lua.LState) int {
 	// Create result table
 	t := l.CreateTable(0, 3)
 
-	switch stepResult.Status {
+	switch sb.output.Status() {
 	case process.StepDone:
 		t.RawSetString("status", lua.LString("done"))
-		if stepResult.Result != nil {
-			luaVal := transcodeToLua(sb.ctx, stepResult.Result)
+		if result := sb.output.Result(); result != nil {
+			luaVal := transcodeToLua(sb.ctx, result)
 			t.RawSetString("value", luaVal)
 		} else {
 			t.RawSetString("value", lua.LNil)
@@ -192,10 +193,10 @@ func sandboxStep(l *lua.LState) int {
 		t.RawSetString("status", lua.LString("continue"))
 
 		// Transcode yields to Lua tables
-		yields := stepResult.GetYields()
+		yields := sb.output.Yields()
 		yieldsTable := l.CreateTable(len(yields), 0)
-		for i, cmd := range yields {
-			cmdTable := sb.transcoder.Transcode(l, cmd)
+		for i, y := range yields {
+			cmdTable := sb.transcoder.Transcode(l, y.Cmd)
 			yieldsTable.RawSetInt(i+1, cmdTable)
 		}
 		t.RawSetString("yields", yieldsTable)

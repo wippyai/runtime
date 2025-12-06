@@ -27,9 +27,16 @@ func setupDispatcherTestContext(reg function.Registry) context.Context {
 	return ctx
 }
 
-type completeFunc func(data any, err error)
+// testReceiver implements ResultReceiver for tests
+type testReceiver struct {
+	cb func(data any, err error)
+}
 
-func (f completeFunc) Complete(data any, err error) { f(data, err) }
+func (r *testReceiver) CompleteYield(tag any, data any, err error) {
+	if r.cb != nil {
+		r.cb(data, err)
+	}
+}
 
 func TestCallHandler(t *testing.T) {
 	d := NewDispatcher(nil)
@@ -44,9 +51,9 @@ func TestCallHandler(t *testing.T) {
 	cmd.Task = runtime.Task{ID: registry.NewID("test", "func")}
 
 	done := make(chan function.CallResult, 1)
-	err := d.call.Handle(ctx, cmd, completeFunc(func(data any, _ error) {
+	err := d.call.Handle(ctx, cmd, nil, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(function.CallResult)
-	}))
+	}})
 
 	require.NoError(t, err)
 	select {
@@ -65,9 +72,9 @@ func TestCallHandler_NoRegistry(t *testing.T) {
 	cmd.Task = runtime.Task{ID: registry.NewID("test", "func")}
 
 	done := make(chan function.CallResult, 1)
-	err := d.call.Handle(ctx, cmd, completeFunc(func(data any, _ error) {
+	err := d.call.Handle(ctx, cmd, nil, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(function.CallResult)
-	}))
+	}})
 
 	require.NoError(t, err)
 	result := <-done
@@ -88,9 +95,9 @@ func TestCallHandler_Error(t *testing.T) {
 	cmd.Task = runtime.Task{ID: registry.NewID("test", "func")}
 
 	done := make(chan function.CallResult, 1)
-	err := d.call.Handle(ctx, cmd, completeFunc(func(data any, _ error) {
+	err := d.call.Handle(ctx, cmd, nil, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(function.CallResult)
-	}))
+	}})
 
 	require.NoError(t, err)
 	select {
@@ -115,9 +122,9 @@ func TestCallHandler_ResultError(t *testing.T) {
 	cmd.Task = runtime.Task{ID: registry.NewID("test", "func")}
 
 	done := make(chan function.CallResult, 1)
-	err := d.call.Handle(ctx, cmd, completeFunc(func(data any, _ error) {
+	err := d.call.Handle(ctx, cmd, nil, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(function.CallResult)
-	}))
+	}})
 
 	require.NoError(t, err)
 	select {
@@ -149,9 +156,9 @@ func TestAsyncStartHandler(t *testing.T) {
 	cmd.Topic = "@future:test-123"
 
 	done := make(chan function.AsyncStartResult, 1)
-	err := d.asyncStart.Handle(frameCtx, cmd, completeFunc(func(data any, _ error) {
+	err := d.asyncStart.Handle(frameCtx, cmd, nil, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(function.AsyncStartResult)
-	}))
+	}})
 
 	require.NoError(t, err)
 	result := <-done
@@ -181,9 +188,9 @@ func TestAsyncStartHandler_NoRegistry(t *testing.T) {
 	cmd.Topic = "@future:test-123"
 
 	done := make(chan function.AsyncStartResult, 1)
-	err := d.asyncStart.Handle(ctx, cmd, completeFunc(func(data any, _ error) {
+	err := d.asyncStart.Handle(ctx, cmd, nil, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(function.AsyncStartResult)
-	}))
+	}})
 
 	require.NoError(t, err)
 	result := <-done
@@ -204,9 +211,9 @@ func TestAsyncCancelHandler(t *testing.T) {
 	cmd.Topic = "@future:test-123"
 
 	done := make(chan struct{}, 1)
-	err := d.asyncCancel.Handle(frameCtx, cmd, completeFunc(func(_ any, _ error) {
+	err := d.asyncCancel.Handle(frameCtx, cmd, nil, &testReceiver{cb: func(_ any, _ error) {
 		done <- struct{}{}
-	}))
+	}})
 	require.NoError(t, err)
 	<-done
 
@@ -249,11 +256,11 @@ func BenchmarkCallHandler(b *testing.B) {
 	ctx := setupDispatcherTestContext(mock)
 	cmd := function.AcquireCallCmd()
 	cmd.Task = runtime.Task{ID: registry.NewID("test", "func")}
-	emit := completeFunc(func(_ any, _ error) {})
+	recv := &testReceiver{}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = d.call.Handle(ctx, cmd, emit)
+		_ = d.call.Handle(ctx, cmd, nil, recv)
 	}
 }
 
@@ -268,12 +275,12 @@ func BenchmarkCallHandler_Parallel(b *testing.B) {
 	ctx := setupDispatcherTestContext(mock)
 	cmd := function.AcquireCallCmd()
 	cmd.Task = runtime.Task{ID: registry.NewID("test", "func")}
-	emit := completeFunc(func(_ any, _ error) {})
+	recv := &testReceiver{}
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			_ = d.call.Handle(ctx, cmd, emit)
+			_ = d.call.Handle(ctx, cmd, nil, recv)
 		}
 	})
 }
@@ -300,9 +307,9 @@ func TestCallHandler_Stress(t *testing.T) {
 			cmd := function.AcquireCallCmd()
 			cmd.Task = runtime.Task{ID: registry.NewID("test", "func")}
 			done := make(chan function.CallResult, 1)
-			err := d.call.Handle(ctx, cmd, completeFunc(func(data any, _ error) {
+			err := d.call.Handle(ctx, cmd, nil, &testReceiver{cb: func(data any, _ error) {
 				done <- data.(function.CallResult)
-			}))
+			}})
 			assert.NoError(t, err)
 			select {
 			case result := <-done:
@@ -336,11 +343,11 @@ func BenchmarkAsyncStartHandler(b *testing.B) {
 	cmd := function.AcquireAsyncStartCmd()
 	cmd.Task = runtime.Task{ID: registry.NewID("test", "func")}
 	cmd.Topic = "@future:test"
-	emit := completeFunc(func(_ any, _ error) {})
+	recv := &testReceiver{}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = d.asyncStart.Handle(frameCtx, cmd, emit)
+		_ = d.asyncStart.Handle(frameCtx, cmd, nil, recv)
 	}
 }
 
@@ -363,12 +370,12 @@ func BenchmarkAsyncStartHandler_Parallel(b *testing.B) {
 	cmd := function.AcquireAsyncStartCmd()
 	cmd.Task = runtime.Task{ID: registry.NewID("test", "func")}
 	cmd.Topic = "@future:test"
-	emit := completeFunc(func(_ any, _ error) {})
+	recv := &testReceiver{}
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			_ = d.asyncStart.Handle(frameCtx, cmd, emit)
+			_ = d.asyncStart.Handle(frameCtx, cmd, nil, recv)
 		}
 	})
 }

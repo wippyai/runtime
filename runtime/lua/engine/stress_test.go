@@ -11,7 +11,7 @@ import (
 	"time"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
-	scheduler "github.com/wippyai/runtime/system/scheduler/actor"
+	"github.com/wippyai/runtime/api/process"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -75,16 +75,17 @@ func TestStress10KProcesses(t *testing.T) {
 	// Step all processes
 	stepStart := time.Now()
 	completedCount := 0
+	var output process.StepOutput
 
 	for i, proc := range processes {
 		if proc == nil {
 			continue
 		}
-		result, err := proc.Step(nil)
-		if err != nil {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
 			t.Fatalf("process %d step: %v", i, err)
 		}
-		if result.Status == scheduler.StepDone {
+		if output.Status() == process.StepDone {
 			completedCount++
 		}
 	}
@@ -166,12 +167,13 @@ func TestStress10KWithCoroutines(t *testing.T) {
 		processes[i] = proc
 
 		// Run until idle or done
+		var output process.StepOutput
 		for j := 0; j < 50; j++ {
-			result, err := proc.Step(nil)
-			if err != nil {
+			output.Reset()
+			if err := proc.Step(nil, &output); err != nil {
 				t.Fatalf("process %d step %d: %v", i, j, err)
 			}
-			if result.Status == scheduler.StepDone || result.Status == scheduler.StepIdle {
+			if output.Status() == process.StepDone || output.Status() == process.StepIdle {
 				break
 			}
 		}
@@ -235,7 +237,8 @@ func TestStressParallelProcessCreation(t *testing.T) {
 					errorCounts[workerID]++
 					continue
 				}
-				proc.Step(nil)
+				var output process.StepOutput
+				proc.Step(nil, &output)
 				procs = append(procs, proc)
 			}
 			allProcesses[workerID] = procs
@@ -290,8 +293,10 @@ func BenchmarkStress10K(b *testing.B) {
 			processes[j] = proc
 		}
 
+		var output process.StepOutput
 		for j := 0; j < 10000; j++ {
-			processes[j].Step(nil)
+			output.Reset()
+			processes[j].Step(nil, &output)
 		}
 
 		for j := 0; j < 10000; j++ {
@@ -327,11 +332,13 @@ func TestStressMemoryLeak(t *testing.T) {
 	for iter := 0; iter < iterations; iter++ {
 		processes := make([]*Process, processCount)
 
+		var output process.StepOutput
 		for i := 0; i < processCount; i++ {
 			ctx, _ := ctxapi.OpenFrameContext(context.Background())
 			proc := NewProcess(WithProto(proto))
 			proc.Init(ctx, "", nil)
-			proc.Step(nil)
+			output.Reset()
+			proc.Step(nil, &output)
 			processes[i] = proc
 		}
 
@@ -388,12 +395,13 @@ func TestStressStringConcat(t *testing.T) {
 			t.Fatal(err)
 		}
 
+		var output process.StepOutput
 		for j := 0; j < 200; j++ {
-			result, err := proc.Step(nil)
-			if err != nil {
+			output.Reset()
+			if err := proc.Step(nil, &output); err != nil {
 				t.Fatal(err)
 			}
-			if result.Status == scheduler.StepDone {
+			if output.Status() == process.StepDone {
 				break
 			}
 		}
@@ -447,12 +455,13 @@ func TestStressTableOperations(t *testing.T) {
 			t.Fatal(err)
 		}
 
+		var output process.StepOutput
 		for j := 0; j < 500; j++ {
-			result, err := proc.Step(nil)
-			if err != nil {
+			output.Reset()
+			if err := proc.Step(nil, &output); err != nil {
 				t.Fatal(err)
 			}
-			if result.Status == scheduler.StepDone {
+			if output.Status() == process.StepDone {
 				break
 			}
 		}
@@ -492,9 +501,11 @@ func BenchmarkStressCreateStepClose(b *testing.B) {
 		proc := NewProcess(WithProto(proto))
 		proc.Init(ctx, "", nil)
 
+		var output process.StepOutput
 		for {
-			result, _ := proc.Step(nil)
-			if result.Status == scheduler.StepDone {
+			output.Reset()
+			proc.Step(nil, &output)
+			if output.Status() == process.StepDone {
 				break
 			}
 		}
@@ -524,17 +535,18 @@ func TestSpawnBasic(t *testing.T) {
 	defer proc.Close()
 
 	maxSteps := 20
+	var output process.StepOutput
 	for i := 0; i < maxSteps; i++ {
 		t.Logf("Step %d: threads=%d, queue=%d", i, len(proc.threads), proc.queue.Len())
 
-		result, err := proc.Step(nil)
-		if err != nil {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
 			t.Fatalf("step %d error: %v", i, err)
 		}
 
-		t.Logf("  Status=%v, YieldCount=%d", result.Status, result.YieldCount())
+		t.Logf("  Status=%v", output.Status())
 
-		if result.Status == scheduler.StepDone {
+		if output.Status() == process.StepDone {
 			t.Logf("Done at step %d! Final threads=%d", i, len(proc.threads))
 			return
 		}
@@ -570,17 +582,18 @@ func TestSpawnMultiple(t *testing.T) {
 
 	maxSteps := 100
 	peakThreads := 0
+	var output process.StepOutput
 	for i := 0; i < maxSteps; i++ {
 		if len(proc.threads) > peakThreads {
 			peakThreads = len(proc.threads)
 		}
 
-		result, err := proc.Step(nil)
-		if err != nil {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
 			t.Fatalf("step %d error: %v", i, err)
 		}
 
-		if result.Status == scheduler.StepDone {
+		if output.Status() == process.StepDone {
 			t.Logf("Done at step %d, peak threads=%d", i, peakThreads)
 			return
 		}
@@ -626,7 +639,8 @@ func TestHighConcurrencyMemoryPressure(t *testing.T) {
 				ctx, _ := ctxapi.OpenFrameContext(context.Background())
 				proc := NewProcess(WithProto(proto))
 				proc.Init(ctx, "", nil)
-				proc.Step(nil)
+				var output process.StepOutput
+				proc.Step(nil, &output)
 				proc.Close()
 
 				atomic.AddInt64(&created, 1)
@@ -712,7 +726,8 @@ func TestHighConcurrencyWithBindings(t *testing.T) {
 
 				ctx, _ := ctxapi.OpenFrameContext(context.Background())
 				proc.Init(ctx, "", nil)
-				proc.(*Process).Step(nil)
+				var output process.StepOutput
+				proc.(*Process).Step(nil, &output)
 				proc.Close()
 
 				atomic.AddInt64(&created, 1)
@@ -789,13 +804,14 @@ func TestSpawnWithCompute(t *testing.T) {
 	defer proc.Close()
 
 	maxSteps := 100
+	var output process.StepOutput
 	for i := 0; i < maxSteps; i++ {
-		result, err := proc.Step(nil)
-		if err != nil {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
 			t.Fatalf("step %d error: %v", i, err)
 		}
 
-		if result.Status == scheduler.StepDone {
+		if output.Status() == process.StepDone {
 			if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
 				if n, ok := proc.mainTask.Yielded[0].(lua.LNumber); ok {
 					if int(n) != 10 {

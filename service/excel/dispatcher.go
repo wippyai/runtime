@@ -8,6 +8,7 @@ import (
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	excelapi "github.com/wippyai/runtime/api/dispatcher/excel"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	streamhandler "github.com/wippyai/runtime/service/fs/stream"
 	"github.com/xuri/excelize/v2"
@@ -64,7 +65,8 @@ type Dispatcher struct {
 type job struct {
 	ctx      context.Context
 	cmd      dispatcher.Command
-	complete dispatcher.Completer
+	tag      any
+	receiver process.ResultReceiver
 }
 
 // NewDispatcher creates an excel dispatcher with the specified worker count.
@@ -102,9 +104,9 @@ func (d *Dispatcher) worker() {
 	}
 }
 
-func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) {
+func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, tag any, receiver process.ResultReceiver) {
 	select {
-	case d.jobs <- job{ctx: ctx, cmd: cmd, complete: complete}:
+	case d.jobs <- job{ctx: ctx, cmd: cmd, tag: tag, receiver: receiver}:
 	case <-d.ctx.Done():
 	}
 }
@@ -114,9 +116,9 @@ func (d *Dispatcher) execute(j job) {
 	if table == nil {
 		switch j.cmd.(type) {
 		case *excelapi.ExcelOpenStreamCmd:
-			j.complete.Complete(excelapi.ExcelOpenStreamResponse{Error: streamhandler.ErrNoTable}, nil)
+			j.receiver.CompleteYield(j.tag, excelapi.ExcelOpenStreamResponse{Error: streamhandler.ErrNoTable}, nil)
 		case *excelapi.ExcelWriteStreamCmd:
-			j.complete.Complete(excelapi.ExcelWriteStreamResponse{Error: streamhandler.ErrNoTable}, nil)
+			j.receiver.CompleteYield(j.tag, excelapi.ExcelWriteStreamResponse{Error: streamhandler.ErrNoTable}, nil)
 		}
 		return
 	}
@@ -126,20 +128,20 @@ func (d *Dispatcher) execute(j job) {
 		reader := &streamReader{table: table, streamID: c.StreamID}
 		file, err := excelize.OpenReader(reader)
 		if err != nil {
-			j.complete.Complete(excelapi.ExcelOpenStreamResponse{Error: err}, nil)
+			j.receiver.CompleteYield(j.tag, excelapi.ExcelOpenStreamResponse{Error: err}, nil)
 			return
 		}
-		j.complete.Complete(excelapi.ExcelOpenStreamResponse{File: file}, nil)
+		j.receiver.CompleteYield(j.tag, excelapi.ExcelOpenStreamResponse{File: file}, nil)
 
 	case *excelapi.ExcelWriteStreamCmd:
 		writer := &streamWriter{table: table, streamID: c.StreamID}
 		err := c.File.Write(writer)
-		j.complete.Complete(excelapi.ExcelWriteStreamResponse{Error: err}, nil)
+		j.receiver.CompleteYield(j.tag, excelapi.ExcelWriteStreamResponse{Error: err}, nil)
 	}
 }
 
-func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
-	d.submit(ctx, cmd, complete)
+func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, tag any, receiver process.ResultReceiver) error {
+	d.submit(ctx, cmd, tag, receiver)
 	return nil
 }
 

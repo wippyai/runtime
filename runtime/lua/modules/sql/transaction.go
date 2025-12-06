@@ -51,7 +51,7 @@ func NewTransaction(ctx context.Context, tx *sql.Tx, db *DB) *Transaction {
 }
 
 func NewTransactionUserData(l *lua.LState, tx *Transaction) *lua.LUserData {
-	return value.PushUserData(l, tx, transactionMetatable)
+	return value.PushTypedUserData(l, tx, transactionTypeName)
 }
 
 var transactionMethods = map[string]lua.LGFunction{
@@ -84,7 +84,7 @@ func txDbType(l *lua.LState) int {
 	if !tx.active {
 		tx.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.LString("transaction is not active"))
+		l.Push(lua.NewLuaError(l, "transaction is not active").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 	tx.mu.Unlock()
@@ -104,7 +104,7 @@ func txQuery(l *lua.LState) int {
 	if !tx.active {
 		tx.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.LString("transaction is not active"))
+		l.Push(lua.NewLuaError(l, "transaction is not active").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 	tx.mu.Unlock()
@@ -113,7 +113,7 @@ func txQuery(l *lua.LState) int {
 	params, err := checkParams(l, 3)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.WrapErrorWithLua(l, err, "check params").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
@@ -134,7 +134,7 @@ func txExecute(l *lua.LState) int {
 	if !tx.active {
 		tx.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.LString("transaction is not active"))
+		l.Push(lua.NewLuaError(l, "transaction is not active").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 	tx.mu.Unlock()
@@ -143,7 +143,7 @@ func txExecute(l *lua.LState) int {
 	params, err := checkParams(l, 3)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.WrapErrorWithLua(l, err, "check params").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
@@ -166,7 +166,7 @@ func txPrepare(l *lua.LState) int {
 	if !tx.active {
 		tx.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.LString("transaction is not active"))
+		l.Push(lua.NewLuaError(l, "transaction is not active").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 	tx.mu.Unlock()
@@ -193,7 +193,7 @@ func txCommit(l *lua.LState) int {
 	if !tx.active {
 		tx.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.LString("transaction is not active"))
+		l.Push(lua.NewLuaError(l, "transaction is not active").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 	tx.mu.Unlock()
@@ -224,7 +224,7 @@ func txRollback(l *lua.LState) int {
 	if !tx.active {
 		tx.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.LString("transaction is not active"))
+		l.Push(lua.NewLuaError(l, "transaction is not active").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 	tx.mu.Unlock()
@@ -255,7 +255,7 @@ func txSavepoint(l *lua.LState) int {
 	if !tx.active {
 		tx.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.LString("transaction is not active"))
+		l.Push(lua.NewLuaError(l, "transaction is not active").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 	tx.mu.Unlock()
@@ -263,13 +263,13 @@ func txSavepoint(l *lua.LState) int {
 	name := l.CheckString(2)
 	if name == "" {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("savepoint name is required"))
+		l.Push(lua.NewLuaError(l, "savepoint name is required").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
 	if !isValidSavepointName(name) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("savepoint name can only contain alphanumeric characters and underscores"))
+		l.Push(lua.NewLuaError(l, "savepoint name can only contain alphanumeric characters and underscores").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
@@ -290,7 +290,7 @@ func txRollbackTo(l *lua.LState) int {
 	if !tx.active {
 		tx.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.LString("transaction is not active"))
+		l.Push(lua.NewLuaError(l, "transaction is not active").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 	tx.mu.Unlock()
@@ -298,13 +298,13 @@ func txRollbackTo(l *lua.LState) int {
 	name := l.CheckString(2)
 	if name == "" {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("savepoint name is required"))
+		l.Push(lua.NewLuaError(l, "savepoint name is required").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
 	if !isValidSavepointName(name) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("savepoint name can only contain alphanumeric characters and underscores"))
+		l.Push(lua.NewLuaError(l, "savepoint name can only contain alphanumeric characters and underscores").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
@@ -325,7 +325,7 @@ func txRelease(l *lua.LState) int {
 	if !tx.active {
 		tx.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.LString("transaction is not active"))
+		l.Push(lua.NewLuaError(l, "transaction is not active").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 	tx.mu.Unlock()
@@ -333,13 +333,13 @@ func txRelease(l *lua.LState) int {
 	name := l.CheckString(2)
 	if name == "" {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("savepoint name is required"))
+		l.Push(lua.NewLuaError(l, "savepoint name is required").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
 	if !isValidSavepointName(name) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("savepoint name can only contain alphanumeric characters and underscores"))
+		l.Push(lua.NewLuaError(l, "savepoint name can only contain alphanumeric characters and underscores").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
@@ -358,21 +358,4 @@ func isValidSavepointName(name string) bool {
 		}
 	}
 	return true
-}
-
-func transactionToString(l *lua.LState) int {
-	tx := checkTransaction(l, 1)
-	if tx == nil {
-		return 0
-	}
-	tx.mu.Lock()
-	active := tx.active
-	tx.mu.Unlock()
-
-	if active {
-		l.Push(lua.LString("sql.Transaction{active}"))
-	} else {
-		l.Push(lua.LString("sql.Transaction{inactive}"))
-	}
-	return 1
 }

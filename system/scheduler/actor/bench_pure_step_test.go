@@ -24,25 +24,23 @@ func (p *NYieldProcess) Init(ctx context.Context, method string, input payload.P
 	return nil
 }
 
-func (p *NYieldProcess) Step(results *YieldResults) (StepResult, error) {
+func (p *NYieldProcess) Step(events []Event, out *StepOutput) error {
 	if p.remaining <= 0 {
-		var r StepResult
-		r.Status = StepDone
-		return r, nil
+		out.Done(nil)
+		return nil
 	}
 	p.remaining--
-	var r StepResult
-	r.Status = StepContinue
-	r.AddYield(YieldCmd{})
-	return r, nil
+	out.Yield(YieldCmd{}, nil)
+	out.Continue()
+	return nil
 }
 
 func (p *NYieldProcess) Send(pkg *relay.Package) error { return nil }
 func (p *NYieldProcess) Close()                        {}
 
 func ImmediateHandler2() dispatcher.Handler {
-	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
-		complete.Complete(nil, nil)
+	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+		receiver.CompleteYield(tag, nil, nil)
 		return nil
 	})
 }

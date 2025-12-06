@@ -42,15 +42,10 @@ type (
 		Terminate(ctx context.Context, pid relay.PID) error
 	}
 
-	// Canceller defines the interface for gracefully canceling a running process.
-	Canceller interface {
-		Cancel(ctx context.Context, from, pid relay.PID, deadline time.Time) error
-	}
-
 	// Manager defines the interface for process lifecycle management.
 	Manager interface {
-		Canceller
 		Start(ctx context.Context, start *Start) (relay.PID, error)
+		Cancel(ctx context.Context, from, pid relay.PID, deadline time.Time) error
 		Terminate(ctx context.Context, pid relay.PID) error
 	}
 )

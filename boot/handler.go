@@ -15,8 +15,13 @@ type HandlerRegistry interface {
 	// Register registers an event handler for a specific pattern
 	Register(handler eventbus.EventHandler)
 
-	// RegisterListener registers a registry.EntryListener for matching registry events
+	// RegisterListener registers a registry.EntryListener for matching registry events.
+	// This sends Accept/Reject events - use for primary handlers only.
 	RegisterListener(kinds registry.Kind, listener registry.EntryListener)
+
+	// RegisterObserver registers a registry.EntryListener that only observes events.
+	// Does not send Accept/Reject - use for secondary handlers that shouldn't ack.
+	RegisterObserver(kinds registry.Kind, listener registry.EntryListener)
 
 	// Handlers returns all registered handlers
 	Handlers() []eventbus.EventHandler
@@ -44,6 +49,11 @@ func (r *handlerRegistry) RegisterListener(kinds registry.Kind, listener registr
 
 func (r *handlerRegistry) Handlers() []eventbus.EventHandler {
 	return r.handlers
+}
+
+func (r *handlerRegistry) RegisterObserver(kinds registry.Kind, listener registry.EntryListener) {
+	handler := wrapObserver(kinds, listener)
+	r.handlers = append(r.handlers, handler)
 }
 
 // wrapListener wraps a registry.EntryListener into an eventbus.EventHandler.
@@ -107,6 +117,55 @@ func wrapListener(kinds registry.Kind, listener registry.EntryListener) eventbus
 				Kind:   registry.Accept,
 				Path:   entry.ID.String(),
 			})
+			return nil
+		},
+	)
+}
+
+// wrapObserver wraps a registry.EntryListener for observation only.
+// Does not send Accept/Reject - for secondary handlers that observe but don't ack.
+func wrapObserver(kinds registry.Kind, listener registry.EntryListener) eventbus.EventHandler {
+	w := wildcard.NewWildcard(kinds)
+
+	return eventbus.NewBaseHandler(
+		eventbus.Pattern{System: registry.System, Kind: registry.AllEvents},
+		func(ctx context.Context, evt event.Event) error {
+			entry, ok := evt.Data.(registry.Entry)
+			if !ok {
+				// Handle transaction events
+				switch evt.Kind {
+				case registry.Begin:
+					if tx, ok := listener.(registry.TransactionListener); ok {
+						tx.Begin(ctx)
+					}
+					return nil
+				case registry.Commit:
+					if tx, ok := listener.(registry.TransactionListener); ok {
+						tx.Commit(ctx)
+					}
+					return nil
+				case registry.Discard:
+					if tx, ok := listener.(registry.TransactionListener); ok {
+						tx.Discard(ctx)
+					}
+					return nil
+				}
+				return nil
+			}
+
+			if !w.Match(entry.Kind) {
+				return nil
+			}
+
+			switch evt.Kind {
+			case registry.Create:
+				_ = listener.Add(ctx, entry)
+			case registry.Update:
+				_ = listener.Update(ctx, entry)
+			case registry.Delete:
+				_ = listener.Delete(ctx, entry)
+			}
+
 			return nil
 		},
 	)

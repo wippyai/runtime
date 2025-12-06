@@ -144,9 +144,17 @@ func (br *BusRunner) applyOperation(
 			id := registry.ParseID(confirmation.Path)
 			br.log.Debug("received accept event",
 				zap.String("id", id.String()),
-				zap.String("expected", op.Entry.ID.String()))
+				zap.String("expected", op.Entry.ID.String()),
+				zap.Any("data", confirmation.Data),
+				zap.String("system", confirmation.System),
+				zap.String("kind", confirmation.Kind))
 
 			if id != op.Entry.ID {
+				br.log.Error("unrelated accept event details",
+					zap.String("received_id", id.String()),
+					zap.String("expected_id", op.Entry.ID.String()),
+					zap.String("expected_kind", op.Entry.Kind),
+					zap.Any("event_data", confirmation.Data))
 				return state, ErrUnrelatedAcceptEvent
 			}
 

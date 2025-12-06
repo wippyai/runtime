@@ -10,8 +10,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// WorkerFactory creates Temporal workers
-type WorkerFactory interface {
+// Factory creates Temporal workers
+type Factory interface {
 	CreateWorker(
 		ctx context.Context,
 		logger *zap.Logger,
@@ -21,7 +21,7 @@ type WorkerFactory interface {
 	) (*Worker, error)
 }
 
-// DefaultWorkerFactory is the default implementation of WorkerFactory
+// DefaultWorkerFactory is the default implementation of Factory
 type DefaultWorkerFactory struct {
 	interceptors []interceptor.WorkerInterceptor
 }
@@ -35,7 +35,7 @@ func NewDefaultWorkerFactory(interceptors []interceptor.WorkerInterceptor) *Defa
 
 // CreateWorker creates a new Worker instance
 func (f *DefaultWorkerFactory) CreateWorker(
-	ctx context.Context,
+	_ context.Context,
 	logger *zap.Logger,
 	id registry.ID,
 	config *api.WorkerConfig,

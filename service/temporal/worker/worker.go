@@ -214,7 +214,7 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 }
 
 // Stop implements supervisor.Service
-func (w *Worker) Stop(ctx context.Context) error {
+func (w *Worker) Stop(_ context.Context) error {
 	if w.closed.Swap(true) {
 		return nil
 	}
@@ -367,7 +367,7 @@ func (w *Worker) registerLocalActivity(ctx context.Context, reg *ActivityRegistr
 }
 
 // registerWorkflow registers a workflow with the Temporal SDK worker
-func (w *Worker) registerWorkflow(ctx context.Context, reg *WorkflowRegistration) {
+func (w *Worker) registerWorkflow(_ context.Context, reg *WorkflowRegistration) {
 	// Support DefinitionFactory with WithContext method (for Lua workflows)
 	handler := reg.Handler
 	if cwf, ok := handler.(interface{ WithContext(context.Context) any }); ok {
@@ -381,7 +381,7 @@ func (w *Worker) registerWorkflow(ctx context.Context, reg *WorkflowRegistration
 }
 
 // createActivityHandler creates an activity handler that executes a function through the registry
-func (w *Worker) createActivityHandler(ctx context.Context, funcID registry.ID) func(context.Context, []payload.Payload) ([]payload.Payload, error) {
+func (w *Worker) createActivityHandler(_ context.Context, funcID registry.ID) func(context.Context, []payload.Payload) ([]payload.Payload, error) {
 	return func(activityCtx context.Context, input []payload.Payload) ([]payload.Payload, error) {
 		info := activity.GetInfo(activityCtx)
 		w.log.Debug("executing",
@@ -406,7 +406,7 @@ func (w *Worker) createActivityHandler(ctx context.Context, funcID registry.ID) 
 
 		result, err := w.funcRegistry.Call(execCtx, runtime.Task{
 			ID:       funcID,
-			Payloads: payload.Payloads(input),
+			Payloads: input,
 			Context: []ctxapi.Pair{
 				{Key: api.ActivityContextKey(), Value: activityCtx},
 			},

@@ -33,25 +33,26 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(CmdRun, dispatcher.HandlerFunc(d.handleRun))
 }
 
-func (d *Dispatcher) handleCompile(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
+func (d *Dispatcher) handleCompile(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
 	compileCmd := cmd.(CompileCmd)
 
 	go func() {
 		program, err := d.host.Compile(ctx, compileCmd)
 		if ctx.Err() != nil {
+			receiver.CompleteYield(tag, nil, ctx.Err())
 			return
 		}
 		if err != nil {
-			complete.Complete(nil, err)
+			receiver.CompleteYield(tag, nil, err)
 			return
 		}
-		complete.Complete(program, nil)
+		receiver.CompleteYield(tag, program, nil)
 	}()
 
 	return nil
 }
 
-func (d *Dispatcher) handleRun(_ context.Context, _ dispatcher.Command, complete dispatcher.Completer) error {
-	complete.Complete(nil, nil)
+func (d *Dispatcher) handleRun(_ context.Context, _ dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+	receiver.CompleteYield(tag, nil, nil)
 	return nil
 }

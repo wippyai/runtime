@@ -1,7 +1,5 @@
 package process
 
-import "sync"
-
 // StepStatus indicates the process state after Step() returns.
 const (
 	StepContinue StepStatus = iota
@@ -15,74 +13,124 @@ const MaxYields = 2
 // StepStatus indicates the process state after Step() returns.
 type StepStatus int
 
-// StepResult is returned by Process.Step() containing status and yields.
-type StepResult struct {
-	Status     StepStatus
-	Result     Payload
-	yieldCount int
-	yieldsBuf  [MaxYields]Command
-	yields     []Command
+// EventType distinguishes yield completions from messages.
+type EventType uint8
+
+const (
+	EventYieldComplete EventType = iota
+	EventMessage
+)
+
+// Event is a single item delivered to Process.Step().
+// Can be a yield completion or an external message.
+type Event struct {
+	Type  EventType
+	Tag   any   // correlation tag for yield completions
+	Data  any   // result data or message payload
+	Error error // error if yield failed
 }
 
-// YieldResults carries results from handler execution back to the process.
-type YieldResults struct {
-	Data  any
-	Error error
+// Yield associates a command with a correlation tag.
+// The tag is returned with the result for O(1) lookup.
+type Yield struct {
+	Cmd Command
+	Tag any
 }
 
-// GetYields returns the yielded commands.
-func (r *StepResult) GetYields() []Command {
-	if r.yields != nil {
-		return r.yields
-	}
-	return r.yieldsBuf[:r.yieldCount]
+// StepOutput is the write-only output buffer for Process.Step().
+// Scheduler owns this, process writes yields and completion status.
+// Inline buffer for common case (1-2 yields), overflow slice for rare cases.
+type StepOutput struct {
+	buf    [MaxYields]Yield
+	ext    []Yield // overflow for > MaxYields yields
+	count  int
+	status StepStatus
+	result Payload
 }
 
-// AddYield appends a command to the result.
-func (r *StepResult) AddYield(cmd Command) {
-	if r.yieldCount < MaxYields {
-		r.yieldsBuf[r.yieldCount] = cmd
-		r.yieldCount++
+// Yield adds a command to be dispatched.
+func (o *StepOutput) Yield(cmd Command, tag any) {
+	if o.count < len(o.buf) {
+		o.buf[o.count] = Yield{Cmd: cmd, Tag: tag}
 	} else {
-		if r.yields == nil {
-			r.yields = make([]Command, MaxYields, MaxYields*2)
-			copy(r.yields, r.yieldsBuf[:])
-		}
-		r.yields = append(r.yields, cmd)
+		o.ext = append(o.ext, Yield{Cmd: cmd, Tag: tag})
 	}
+	o.count++
 }
 
-// YieldCount returns the number of yielded commands.
-func (r *StepResult) YieldCount() int {
-	if r.yields != nil {
-		return len(r.yields)
+// Done marks execution as complete with result.
+func (o *StepOutput) Done(result Payload) {
+	o.status = StepDone
+	o.result = result
+}
+
+// Idle marks process as waiting for external events (messages).
+func (o *StepOutput) Idle() {
+	o.status = StepIdle
+}
+
+// Continue marks process as ready to continue (default).
+func (o *StepOutput) Continue() {
+	o.status = StepContinue
+}
+
+// Reset clears output for reuse.
+func (o *StepOutput) Reset() {
+	o.buf[0] = Yield{}
+	o.buf[1] = Yield{}
+	o.ext = o.ext[:0]
+	o.count = 0
+	o.status = StepContinue
+	o.result = nil
+}
+
+// Count returns number of yields.
+func (o *StepOutput) Count() int {
+	return o.count
+}
+
+// Status returns the step status.
+func (o *StepOutput) Status() StepStatus {
+	return o.status
+}
+
+// IsDone returns true if process completed.
+func (o *StepOutput) IsDone() bool {
+	return o.status == StepDone
+}
+
+// IsIdle returns true if process is waiting for messages.
+func (o *StepOutput) IsIdle() bool {
+	return o.status == StepIdle
+}
+
+// Result returns the completion result.
+func (o *StepOutput) Result() Payload {
+	return o.result
+}
+
+// Yields returns all yields as a slice.
+// For iteration by scheduler only.
+func (o *StepOutput) Yields() []Yield {
+	if o.count == 0 {
+		return nil
 	}
-	return r.yieldCount
-}
-
-// Reset clears the result for reuse.
-func (r *StepResult) Reset() {
-	r.Status = StepContinue
-	r.Result = nil
-	for i := 0; i < r.yieldCount; i++ {
-		r.yieldsBuf[i] = nil
+	if o.count <= len(o.buf) {
+		return o.buf[:o.count]
 	}
-	r.yieldCount = 0
-	r.yields = nil
+	// Combine inline + overflow
+	all := make([]Yield, o.count)
+	copy(all, o.buf[:])
+	copy(all[len(o.buf):], o.ext)
+	return all
 }
 
-var yieldResultsPool = sync.Pool{
-	New: func() any { return &YieldResults{} },
-}
-
-// AcquireYieldResults gets a YieldResults from pool.
-func AcquireYieldResults() *YieldResults {
-	return yieldResultsPool.Get().(*YieldResults)
-}
-
-// ReleaseYieldResults returns a YieldResults to pool.
-func ReleaseYieldResults(yr *YieldResults) {
-	yr.Data = nil
-	yr.Error = nil
-	yieldResultsPool.Put(yr)
+// ForEachYield iterates yields without allocation.
+func (o *StepOutput) ForEachYield(fn func(y Yield)) {
+	for i := 0; i < o.count && i < len(o.buf); i++ {
+		fn(o.buf[i])
+	}
+	for _, y := range o.ext {
+		fn(y)
+	}
 }

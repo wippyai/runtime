@@ -27,7 +27,7 @@ func NewDataConverter(
 // ToPayloads converts a list of values to Temporal payloads.
 func (c *DataConverter) ToPayloads(values ...any) (*commonpb.Payloads, error) {
 	if len(values) == 0 {
-		return nil, nil
+		return &commonpb.Payloads{}, nil
 	}
 
 	// Special handling for payload.Messages

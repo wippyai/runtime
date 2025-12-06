@@ -24,12 +24,11 @@ type mockHandler struct {
 	delay time.Duration
 }
 
-func (h *mockHandler) Handle(ctx context.Context, cmd process.Command, complete process.Completer) error {
+func (h *mockHandler) Handle(ctx context.Context, cmd process.Command) (any, error) {
 	if h.delay > 0 {
 		time.Sleep(h.delay)
 	}
-	complete.Complete(map[string]any{"status": "ok"}, nil)
-	return nil
+	return map[string]any{"status": "ok"}, nil
 }
 
 // mockRegistry implements process.Registry for testing.
@@ -59,26 +58,23 @@ func (r *mockRegistry) Has(id process.CommandID) bool {
 // mockProcess wraps engine.Process for scheduler compatibility.
 type mockProcess struct {
 	*Process
+	output process.StepOutput
 }
 
 func (m *mockProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
 	return m.Process.Init(ctx, method, input)
 }
 
-func (m *mockProcess) Step(results *process.YieldResults) (process.StepResult, error) {
-	r, err := m.Process.Step((*scheduler.YieldResults)(results))
-	return process.StepResult{
-		Status: process.StepStatus(r.Status),
-		Result: r.Result,
-	}, err
+func (m *mockProcess) Step(events []process.Event, out *process.StepOutput) error {
+	return m.Process.Step(events, out)
 }
 
 func (m *mockProcess) Close() {
 	m.Process.Close()
 }
 
-func (m *mockProcess) Send(pkg *relay.Package) error {
-	return m.Process.Send(pkg)
+func (m *mockProcess) Send(_ *relay.Package) error {
+	return nil
 }
 
 // newTestPID creates a PID for testing.

@@ -22,7 +22,7 @@ type Manager struct {
 	dtt                payload.Transcoder
 	bus                event.Bus
 	res                resource.Registry
-	factory            WorkerFactory
+	factory            Factory
 	workerInterceptors []interceptor.WorkerInterceptor
 
 	mu       sync.RWMutex
@@ -71,7 +71,7 @@ func NewManagerWithFactory(
 	transcoder payload.Transcoder,
 	bus event.Bus,
 	resourceReg resource.Registry,
-	factory WorkerFactory,
+	factory Factory,
 	workerInterceptors []interceptor.WorkerInterceptor,
 ) (*Manager, error) {
 	if logger == nil {
@@ -110,7 +110,7 @@ func (m *Manager) Add(ctx context.Context, ent registry.Entry) error {
 
 	m.log.Debug("processing temporal worker entry",
 		zap.String("id", ent.ID.String()),
-		zap.String("kind", string(ent.Kind)))
+		zap.String("kind", ent.Kind))
 
 	cfg, err := entry.DecodeEntryConfig[api.WorkerConfig](ctx, m.dtt, ent)
 	if err != nil {
@@ -210,7 +210,7 @@ func (m *Manager) Update(ctx context.Context, ent registry.Entry) error {
 
 	m.log.Debug("updating temporal worker entry",
 		zap.String("id", ent.ID.String()),
-		zap.String("kind", string(ent.Kind)))
+		zap.String("kind", ent.Kind))
 
 	cfg, err := entry.DecodeEntryConfig[api.WorkerConfig](ctx, m.dtt, ent)
 	if err != nil {
@@ -281,7 +281,7 @@ func (m *Manager) Delete(ctx context.Context, ent registry.Entry) error {
 
 	m.log.Debug("deleting temporal worker entry",
 		zap.String("id", ent.ID.String()),
-		zap.String("kind", string(ent.Kind)))
+		zap.String("kind", ent.Kind))
 
 	return m.DeleteWorker(ctx, ent.ID)
 }
@@ -360,7 +360,7 @@ func (m *Manager) RegisterLocalActivity(ctx context.Context, workerID registry.I
 }
 
 // UnregisterActivity removes an activity from a worker
-func (m *Manager) UnregisterActivity(ctx context.Context, workerID registry.ID, activityName string) error {
+func (m *Manager) UnregisterActivity(_ context.Context, workerID registry.ID, activityName string) error {
 	worker, err := m.GetWorker(workerID)
 	if err != nil {
 		return fmt.Errorf("worker %s not found: %w", workerID, err)
@@ -380,7 +380,7 @@ func (m *Manager) RegisterWorkflow(ctx context.Context, workerID registry.ID, wo
 }
 
 // UnregisterWorkflow removes a workflow from a worker
-func (m *Manager) UnregisterWorkflow(ctx context.Context, workerID registry.ID, workflowName string) error {
+func (m *Manager) UnregisterWorkflow(_ context.Context, workerID registry.ID, workflowName string) error {
 	worker, err := m.GetWorker(workerID)
 	if err != nil {
 		return fmt.Errorf("worker %s not found: %w", workerID, err)

@@ -54,7 +54,7 @@ func (s *Statement) Close() error {
 }
 
 func NewStatementUserData(l *lua.LState, stmt *Statement) *lua.LUserData {
-	return value.PushUserData(l, stmt, statementMetatable)
+	return value.PushTypedUserData(l, stmt, statementTypeName)
 }
 
 var statementMethods = map[string]lua.LGFunction{
@@ -81,7 +81,7 @@ func stmtQuery(l *lua.LState) int {
 	if stmt.closed {
 		stmt.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.LString("statement is closed"))
+		l.Push(lua.NewLuaError(l, "statement is closed").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 	stmt.mu.Unlock()
@@ -89,7 +89,7 @@ func stmtQuery(l *lua.LState) int {
 	params, err := checkParams(l, 2)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.WrapErrorWithLua(l, err, "check params").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
@@ -109,7 +109,7 @@ func stmtExecute(l *lua.LState) int {
 	if stmt.closed {
 		stmt.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.LString("statement is closed"))
+		l.Push(lua.NewLuaError(l, "statement is closed").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 	stmt.mu.Unlock()
@@ -117,7 +117,7 @@ func stmtExecute(l *lua.LState) int {
 	params, err := checkParams(l, 2)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.WrapErrorWithLua(l, err, "check params").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
@@ -137,7 +137,7 @@ func stmtClose(l *lua.LState) int {
 	if stmt.closed {
 		stmt.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.LString("statement is already closed"))
+		l.Push(lua.NewLuaError(l, "statement is already closed").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 	stmt.mu.Unlock()
@@ -157,21 +157,4 @@ func stmtClose(l *lua.LState) int {
 
 	l.Push(yield)
 	return -1
-}
-
-func statementToString(l *lua.LState) int {
-	stmt := checkStatement(l, 1)
-	if stmt == nil {
-		return 0
-	}
-	stmt.mu.Lock()
-	closed := stmt.closed
-	stmt.mu.Unlock()
-
-	if closed {
-		l.Push(lua.LString("sql.Statement{closed}"))
-	} else {
-		l.Push(lua.LString("sql.Statement{}"))
-	}
-	return 1
 }

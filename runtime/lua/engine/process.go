@@ -15,7 +15,6 @@ import (
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
-	scheduler "github.com/wippyai/runtime/system/scheduler/actor"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -208,10 +207,12 @@ type Process struct {
 	// reusable buffer for yielded tasks
 	yieldBuf []*Task
 
-	// pendingYields tracks tasks waiting for external results
-	// Uses fixed buffer for common case (up to 4 concurrent yields)
-	pendingYieldsBuf [4]*Task
-	pendingYields    []*Task
+	// pendingYields maps tags to tasks waiting for external results
+	// Tag-based correlation enables O(1) lookup when results arrive
+	pendingYields map[any]*Task
+
+	// yieldSeq is a monotonic counter for generating unique yield tags
+	yieldSeq uint64
 
 	// externalTasks reusable slice for non-channel tasks in processChannelYields
 	externalTasks []*Task
@@ -395,25 +396,38 @@ func (p *Process) extractMethod(method string) error {
 }
 
 // Step advances the process by one iteration.
-func (p *Process) Step(results *scheduler.YieldResults) (scheduler.StepResult, error) {
-	// Resume from handler results if any
-	if results != nil && len(p.pendingYields) > 0 {
-		p.distributeResults(results)
-		p.pendingYields = nil
+// events contains yield completions and messages from the scheduler.
+// out is the scheduler-owned buffer where the process writes yields and status.
+func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
+	// Collect messages from events
+	var messages []*relay.Package
+	for _, ev := range events {
+		switch ev.Type {
+		case process.EventYieldComplete:
+			if len(p.pendingYields) > 0 {
+				p.distributeEvent(ev)
+			}
+		case process.EventMessage:
+			if pkg, ok := ev.Data.(*relay.Package); ok {
+				messages = append(messages, pkg)
+			}
+		}
 	}
 
 	// Process channel yields (inner layer)
 	externalTasks, err := p.processChannelYields()
 	if err != nil {
 		p.clearExecution()
-		return scheduler.StepResult{Status: scheduler.StepDone}, err
+		out.Done(nil)
+		return err
 	}
 
 	// Process subscribe yields (outer layer)
-	externalTasks, err = p.processSubscribeYields(externalTasks)
+	externalTasks, err = p.processSubscribeYields(externalTasks, messages)
 	if err != nil {
 		p.clearExecution()
-		return scheduler.StepResult{Status: scheduler.StepDone}, err
+		out.Done(nil)
+		return err
 	}
 
 	// Check completion
@@ -421,16 +435,17 @@ func (p *Process) Step(results *scheduler.YieldResults) (scheduler.StepResult, e
 		result := p.result
 		execErr := p.execErr
 		p.clearExecution()
-		return scheduler.StepResult{Status: scheduler.StepDone, Result: result}, execErr
+		out.Done(result)
+		return execErr
+	}
+
+	// Initialize pendingYields map if needed
+	if p.pendingYields == nil {
+		p.pendingYields = make(map[any]*Task, 4)
 	}
 
 	// Convert external yields to commands
-	var result scheduler.StepResult
-	result.Status = scheduler.StepContinue
-
-	// Reset pending yields, use fixed buffer for zero-alloc common case
-	p.pendingYields = p.pendingYieldsBuf[:0]
-
+	yieldCount := 0
 	for _, task := range externalTasks {
 		if len(task.Yielded) == 0 {
 			p.queue.Push(task)
@@ -440,57 +455,43 @@ func (p *Process) Step(results *scheduler.YieldResults) (scheduler.StepResult, e
 		// Check for scheduler commands in yielded values
 		cmd := p.yieldToCommand(task)
 		if cmd != nil {
-			// Track all tasks that yielded commands (in order)
-			if len(p.pendingYields) < len(p.pendingYieldsBuf) {
-				p.pendingYields = append(p.pendingYields, task)
-			} else {
-				// Overflow to heap allocation for rare case of many concurrent yields
-				if cap(p.pendingYields) == len(p.pendingYieldsBuf) {
-					overflow := make([]*Task, len(p.pendingYields), len(p.pendingYields)*2)
-					copy(overflow, p.pendingYields)
-					p.pendingYields = overflow
-				}
-				p.pendingYields = append(p.pendingYields, task)
-			}
-			result.AddYield(cmd)
+			// Generate unique tag per yield (not per task, since task can yield multiple times)
+			p.yieldSeq++
+			tag := p.yieldSeq
+			p.pendingYields[tag] = task
+			out.Yield(cmd, tag)
+			yieldCount++
 		} else {
 			p.queue.Push(task)
 		}
 	}
 
 	// Determine status
-	if result.YieldCount() == 0 && !p.queue.IsEmpty() {
-		result.Status = scheduler.StepContinue
-	} else if result.YieldCount() == 0 && len(p.threads) > 0 {
-		// Check if we're waiting for external messages (subscriptions)
+	if yieldCount == 0 && !p.queue.IsEmpty() {
+		out.Continue()
+	} else if yieldCount == 0 && len(p.threads) > 0 {
+		// Check if we're waiting for external operations
 		hasSubs := HasSubscriptions(p)
-		if hasSubs {
-			result.Status = scheduler.StepIdle
+		hasChannels := len(GetActiveChannels(p)) > 0
+		hasPending := len(p.pendingYields) > 0
+
+		if hasPending {
+			// Waiting for yield completions - stay in Continue with no yields
+			out.Continue()
+		} else if hasSubs || hasChannels {
+			// Waiting for inbox messages - use Idle
+			out.Idle()
 		} else {
 			// Deadlock: threads exist but nothing can progress
 			p.clearExecution()
-			return scheduler.StepResult{Status: scheduler.StepDone}, &DeadlockError{
+			out.Done(nil)
+			return &DeadlockError{
 				ThreadCount: len(p.threads),
 				Message:     "all coroutines blocked with no pending operations",
 			}
 		}
 	}
 
-	return result, nil
-}
-
-// Send delivers an external message to the process via the Inbox in FrameContext.
-func (p *Process) Send(pkg *relay.Package) error {
-	if p.ctx == nil {
-		return ErrProcessContextNotAvailable
-	}
-	inbox := process.GetInbox(p.ctx)
-	if inbox == nil {
-		return ErrProcessContextNotAvailable
-	}
-	if !inbox.QueueMessage(pkg) {
-		return ErrProcessContextNotAvailable
-	}
 	return nil
 }
 
@@ -619,7 +620,8 @@ func (p *Process) updateChannelRefs(channels map[*Channel]int, blocks, releases 
 }
 
 // processSubscribeYields routes incoming messages and handles subscribe/unsubscribe.
-func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, error) {
+// messages are received via EventMessage events from the scheduler.
+func (p *Process) processSubscribeYields(tasks []*Task, messages []*relay.Package) ([]*Task, error) {
 	pc := GetProcessContext(p.ctx)
 	if pc == nil {
 		return tasks, nil
@@ -628,7 +630,7 @@ func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, error) {
 	subs := pc.Subscriptions()
 
 	// Route incoming messages to subscribed channels
-	for _, pkg := range pc.DrainInbox() {
+	for _, pkg := range messages {
 		for _, msg := range pkg.Messages {
 			topic := string(msg.Topic)
 			sub, exists := subs.get(topic)
@@ -952,41 +954,41 @@ func (p *Process) SyncExecute(ctx context.Context, args ...lua.LValue) (lua.LVal
 	return result, nil
 }
 
-// distributeResults routes handler results to the correct pending tasks.
-// For single yield: results.Data is the direct result
-// For multiple yields: results.Data is []any with results in order
-func (p *Process) distributeResults(results *scheduler.YieldResults) {
-	n := len(p.pendingYields)
-	if n == 0 {
+// distributeEvent routes a yield completion event to the correct pending task.
+// Uses tag-based correlation for O(1) direct lookup.
+// For single-yield case where Tag is nil, resumes the only pending task.
+func (p *Process) distributeEvent(ev process.Event) {
+	if p.pendingYields == nil || len(p.pendingYields) == 0 {
 		return
 	}
 
-	// Single yield case - direct routing (most common, optimized path)
-	if n == 1 {
-		task := p.pendingYields[0]
-		p.resumeTaskWithResult(task, results.Data, results.Error)
-		return
-	}
+	var task *Task
+	var tag any
 
-	// Multiple yields case - results come as []any in order
-	resultSlice, ok := results.Data.([]any)
-	if !ok {
-		// Fallback: if not a slice, route to first task only
-		p.resumeTaskWithResult(p.pendingYields[0], results.Data, results.Error)
-		for i := 1; i < n; i++ {
-			task := p.pendingYields[i]
-			if task.State == lua.ResumeYield {
-				p.queue.Push(task)
-			}
+	if ev.Tag != nil {
+		// Tag-based O(1) lookup
+		var exists bool
+		task, exists = p.pendingYields[ev.Tag]
+		if !exists || task == nil {
+			return
 		}
+		tag = ev.Tag
+	} else if len(p.pendingYields) == 1 {
+		// Single-yield case: Tag is nil, resume the only pending task
+		for k, v := range p.pendingYields {
+			tag = k
+			task = v
+			break
+		}
+	} else {
+		// Multiple pending yields but no Tag - cannot correlate
 		return
 	}
 
-	// Distribute each result to corresponding task
-	for i := 0; i < n && i < len(resultSlice); i++ {
-		task := p.pendingYields[i]
-		p.resumeTaskWithResult(task, resultSlice[i], nil)
-	}
+	p.resumeTaskWithResult(task, ev.Data, ev.Error)
+
+	// Remove completed task from pending map
+	delete(p.pendingYields, tag)
 }
 
 // resumeTaskWithResult converts handler result to Lua values and queues task.
@@ -1032,6 +1034,11 @@ func (p *Process) clearExecution() {
 
 	// Clear yield buffer
 	p.yieldBuf = p.yieldBuf[:0]
+
+	// Clear pending yields map
+	for k := range p.pendingYields {
+		delete(p.pendingYields, k)
+	}
 
 	// Clear context from LState to release all references
 	if p.state != nil {

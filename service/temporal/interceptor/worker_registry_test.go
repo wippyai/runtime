@@ -87,7 +87,7 @@ func TestWorkerRegistry_GetAll(t *testing.T) {
 		registry.Register(interceptor1)
 
 		all := registry.GetAll()
-		all = append(all, &mockWorkerInterceptor{name: "fake"})
+		_ = append(all, &mockWorkerInterceptor{name: "fake"})
 
 		allAgain := registry.GetAll()
 		assert.Len(t, allAgain, 1, "registry should not be affected by modifications to returned slice")
@@ -127,12 +127,12 @@ func TestWorkerRegistry_ConcurrentAccess(t *testing.T) {
 		done := make(chan bool, numWriters)
 
 		for w := 0; w < numWriters; w++ {
-			go func(id int) {
+			go func() {
 				for i := 0; i < writesPerWriter; i++ {
 					registry.Register(&mockWorkerInterceptor{name: "writer"})
 				}
 				done <- true
-			}(w)
+			}()
 		}
 
 		for i := 0; i < numWriters; i++ {

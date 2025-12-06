@@ -234,12 +234,12 @@ func TestRegistry_ConcurrentAccess(t *testing.T) {
 		done := make(chan bool, numWriters)
 
 		for w := 0; w < numWriters; w++ {
-			go func(id int) {
+			go func() {
 				for i := 0; i < writesPerWriter; i++ {
 					registry.RegisterCodec(&mockPayloadCodec{name: "writer"})
 				}
 				done <- true
-			}(w)
+			}()
 		}
 
 		for i := 0; i < numWriters; i++ {

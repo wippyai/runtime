@@ -29,6 +29,7 @@ var (
 	ErrRegistryNotAvailable           = &Error{kind: apierror.KindInternal, message: "registry not available in context"}
 	ErrFunctionRegistryNotAvailable   = &Error{kind: apierror.KindInternal, message: "function registry not available in context"}
 	ErrFilesystemRegistryNotAvailable = &Error{kind: apierror.KindInternal, message: "filesystem registry not available in context"}
+	ErrPIDGeneratorNotAvailable       = &Error{kind: apierror.KindInternal, message: "pid generator not available in context"}
 )
 
 func NewEndpointFactoryError(cause error) *Error {

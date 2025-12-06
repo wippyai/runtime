@@ -13,5 +13,6 @@ func All() []boot.Component {
 		Exec(),
 		Stream(),
 		Excel(),
+		SQL(),
 	}
 }

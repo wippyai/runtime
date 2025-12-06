@@ -35,15 +35,16 @@ func (p *RandomYieldProcess) Init(_ context.Context, _ string, input payload.Pay
 	return nil
 }
 
-func (p *RandomYieldProcess) Step(results *YieldResults) (StepResult, error) {
+func (p *RandomYieldProcess) Step(events []Event, out *StepOutput) error {
 	p.steps++
 	if p.steps >= p.maxSteps {
-		return StepResult{Status: StepDone}, nil
+		out.Done(nil)
+		return nil
 	}
 
-	result := StepResult{Status: StepContinue}
-	result.AddYield(YieldCmd{})
-	return result, nil
+	out.Yield(YieldCmd{}, nil)
+	out.Continue()
+	return nil
 }
 
 func (p *RandomYieldProcess) Send(_ *relay.Package) error { return nil }
@@ -55,10 +56,10 @@ type RandomSleepHandler struct {
 	maxSleep time.Duration
 }
 
-func (h *RandomSleepHandler) Handle(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
+func (h *RandomSleepHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
 	sleep := h.minSleep + time.Duration(rand.Int63n(int64(h.maxSleep-h.minSleep)))
 	time.Sleep(sleep)
-	complete.Complete(sleep.Nanoseconds(), nil)
+	receiver.CompleteYield(tag, sleep.Nanoseconds(), nil)
 	return nil
 }
 
@@ -67,12 +68,12 @@ type CPUWorkHandler struct {
 	iterations int
 }
 
-func (h *CPUWorkHandler) Handle(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
+func (h *CPUWorkHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
 	sum := 0
 	for i := 0; i < h.iterations; i++ {
 		sum += i * i
 	}
-	complete.Complete(sum, nil)
+	receiver.CompleteYield(tag, sum, nil)
 	return nil
 }
 
@@ -470,7 +471,7 @@ func BenchmarkSchedulerMemory(b *testing.B) {
 // InstantHandler completes immediately
 type InstantHandler struct{}
 
-func (h *InstantHandler) Handle(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
-	complete.Complete(nil, nil)
+func (h *InstantHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+	receiver.CompleteYield(tag, nil, nil)
 	return nil
 }

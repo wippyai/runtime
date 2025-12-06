@@ -30,7 +30,7 @@ func (p *slowProcess) Init(_ context.Context, _ string, _ payload.Payloads) erro
 	return nil
 }
 
-func (p *slowProcess) Step(results *YieldResults) (StepResult, error) {
+func (p *slowProcess) Step(events []Event, out *StepOutput) error {
 	p.mu.Lock()
 	p.steps++
 	step := p.steps
@@ -43,12 +43,13 @@ func (p *slowProcess) Step(results *YieldResults) (StepResult, error) {
 	}
 
 	if step >= maxSteps {
-		return StepResult{Status: StepDone}, nil
+		out.Done(nil)
+		return nil
 	}
 
-	result := StepResult{Status: StepContinue}
-	result.AddYield(YieldCmd{})
-	return result, nil
+	out.Yield(YieldCmd{}, nil)
+	out.Continue()
+	return nil
 }
 
 func (p *slowProcess) Close() {
@@ -57,14 +58,16 @@ func (p *slowProcess) Close() {
 
 func (p *slowProcess) Send(_ *relay.Package) error { return nil }
 
-// delayedHandler adds small delay before emitting
+// delayedHandler adds small delay before emitting (async to avoid race)
 type delayedHandler struct {
 	delay time.Duration
 }
 
-func (h *delayedHandler) Handle(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
-	time.Sleep(h.delay)
-	complete.Complete(nil, nil)
+func (h *delayedHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+	go func() {
+		time.Sleep(h.delay)
+		receiver.CompleteYield(tag, nil, nil)
+	}()
 	return nil
 }
 
@@ -246,7 +249,7 @@ func (p *steppingProcess) Init(_ context.Context, _ string, _ payload.Payloads) 
 	return nil
 }
 
-func (p *steppingProcess) Step(results *YieldResults) (StepResult, error) {
+func (p *steppingProcess) Step(events []Event, out *StepOutput) error {
 	p.stepping.Store(true)
 	defer p.stepping.Store(false)
 
@@ -254,12 +257,13 @@ func (p *steppingProcess) Step(results *YieldResults) (StepResult, error) {
 	time.Sleep(1 * time.Millisecond) // Slow step to increase race window
 
 	if p.steps.Load() >= 5 {
-		return StepResult{Status: StepDone}, nil
+		out.Done(nil)
+		return nil
 	}
 
-	result := StepResult{Status: StepContinue}
-	result.AddYield(YieldCmd{})
-	return result, nil
+	out.Yield(YieldCmd{}, nil)
+	out.Continue()
+	return nil
 }
 
 func (p *steppingProcess) Close()                      { p.closed.Store(true) }

@@ -6,9 +6,7 @@ import (
 	"strings"
 
 	"github.com/wippyai/runtime/api/attrs"
-	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 
@@ -28,7 +26,8 @@ type WorkerRegistry interface {
 }
 
 // Listener listens for function registry entries and registers
-// them as Temporal activities when appropriate metadata is present
+// them as Temporal activities when appropriate metadata is present.
+// Implements registry.EntryListener for use with RegisterObserver.
 type Listener struct {
 	log     *zap.Logger
 	workers WorkerRegistry
@@ -45,33 +44,19 @@ func NewListener(
 	}
 }
 
-// Pattern returns the event matching criteria for this handler
-func (l *Listener) Pattern() eventbus.Pattern {
-	return eventbus.Pattern{
-		System: registry.System,
-		Kind:   registry.Changes,
-	}
+// Add implements registry.EntryListener
+func (l *Listener) Add(ctx context.Context, entry registry.Entry) error {
+	return l.handleEntry(ctx, entry)
 }
 
-// Handle processes registry events
-func (l *Listener) Handle(ctx context.Context, evt event.Event) error {
-	if evt.System != registry.System {
-		return nil
-	}
+// Update implements registry.EntryListener
+func (l *Listener) Update(ctx context.Context, entry registry.Entry) error {
+	return l.handleEntry(ctx, entry)
+}
 
-	entry, ok := evt.Data.(registry.Entry)
-	if !ok {
-		return nil
-	}
-
-	switch evt.Kind {
-	case registry.Create, registry.Update:
-		return l.handleEntry(ctx, entry)
-	case registry.Delete:
-		return l.handleDelete(ctx, entry)
-	default:
-		return nil
-	}
+// Delete implements registry.EntryListener
+func (l *Listener) Delete(ctx context.Context, entry registry.Entry) error {
+	return l.handleDelete(ctx, entry)
 }
 
 // handleEntry registers a function as a Temporal activity if it has appropriate metadata
@@ -158,8 +143,8 @@ func (l *Listener) handleDelete(ctx context.Context, entry registry.Entry) error
 
 // isActivityTarget checks if an entry is a function or process type
 func isActivityTarget(entry registry.Entry) bool {
-	return strings.HasPrefix(string(entry.Kind), "function.") ||
-		strings.HasPrefix(string(entry.Kind), "process.")
+	return strings.HasPrefix(entry.Kind, "function.") ||
+		strings.HasPrefix(entry.Kind, "process.")
 }
 
 // getActivityMetadata extracts the temporal activity metadata map
@@ -196,13 +181,4 @@ func (l *Listener) getWorkerID(activityMeta attrs.Bag, defaultNS string) (regist
 	return workerID, nil
 }
 
-// getActivityName gets the activity name from metadata or defaults to function ID string
-func (l *Listener) getActivityName(activityMeta attrs.Bag, defaultName string) string {
-	name := activityMeta.GetString(MetaActivityName, "")
-	if name == "" {
-		return defaultName
-	}
-	return name
-}
-
-var _ eventbus.EventHandler = (*Listener)(nil)
+var _ registry.EntryListener = (*Listener)(nil)

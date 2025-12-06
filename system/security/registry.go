@@ -40,7 +40,7 @@ func (r *PolicyRegistry) Start(ctx context.Context) error {
 		r.ctx,
 		r.bus,
 		security.System,
-		"security.policy.(register|update|delete)",
+		"policy.(register|update|delete)",
 		r.handleEvent,
 	)
 	if err != nil {

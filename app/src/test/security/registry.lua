@@ -54,7 +54,7 @@ local function main()
     assert.eq(read_result, "allow", "read_only should allow read")
 
     local write_result = read_scope:evaluate(actor, "write", "resource")
-    assert.eq(write_result, "deny", "read_only should deny write")
+    assert.eq(write_result, "undefined", "read_only returns undefined for non-matching action")
 
     -- Test actor conditional policy
     local admin_actor = security.new_actor("admin")
@@ -65,7 +65,7 @@ local function main()
     assert.eq(admin_result, "allow", "actor_match should allow admin")
 
     local user_result = actor_scope:evaluate(user_actor, "action", "resource")
-    assert.eq(user_result, "deny", "actor_match should deny non-admin")
+    assert.eq(user_result, "undefined", "actor_match returns undefined for non-matching actor")
 
     -- Test funcs with injected security context using registry policy
     local call_result, call_err = funcs.new()

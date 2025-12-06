@@ -19,41 +19,6 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 )
 
-// MaxPoolYields is the maximum yields that fit in embedded slots.
-const MaxPoolYields = 4
-
-// yieldSlot stores result for one yield.
-type yieldSlot struct {
-	Data  any
-	Error error
-}
-
-// poolCompleter implements dispatcher.Completer for pool multi-yield.
-type poolCompleter struct {
-	ctx *multiYieldCtx
-	idx int
-}
-
-func (e *poolCompleter) Complete(data any, err error) {
-	e.ctx.slots[e.idx].Data = data
-	e.ctx.slots[e.idx].Error = err
-	if e.ctx.pending.Add(-1) == 0 {
-		select {
-		case e.ctx.wakeup <- struct{}{}:
-		default:
-		}
-	}
-}
-
-// multiYieldCtx supports zero-allocation multi-yield completion.
-type multiYieldCtx struct {
-	slots      [MaxPoolYields]yieldSlot
-	completers [MaxPoolYields]poolCompleter
-	handlers   [MaxPoolYields]dispatcher.Handler
-	pending    atomic.Int32
-	wakeup     chan struct{}
-}
-
 // Pool executes function calls using managed processes.
 // Implementations must be safe for concurrent use.
 // Also implements relay.Receiver for message routing.
@@ -149,17 +114,13 @@ func (h *hookedProcess) Init(ctx context.Context, method string, input payload.P
 	return h.proc.Init(ctx, method, input)
 }
 
-func (h *hookedProcess) Step(results *process.YieldResults) (process.StepResult, error) {
-	return h.proc.Step(results)
+func (h *hookedProcess) Step(events []process.Event, out *process.StepOutput) error {
+	return h.proc.Step(events, out)
 }
 
 func (h *hookedProcess) Close() {
 	h.onStop(h.proc)
 	h.proc.Close()
-}
-
-func (h *hookedProcess) Send(pkg *relay.Package) error {
-	return h.proc.Send(pkg)
 }
 
 // OnExecutionStart is called before each execution with context and process.
@@ -176,25 +137,24 @@ type ExecutionHooks struct {
 
 // Executor runs a process to completion with yield handling.
 // This is the core execution logic shared across all pool types.
-// Implements relay.Receiver to handle incoming messages during StepIdle.
+// Implements relay.Receiver to handle incoming messages via EventQueue.
+// Implements process.ResultReceiver for zero-allocation handler completion.
 type Executor struct {
 	dispatcher Dispatcher
 	hooks      ExecutionHooks
-	multiCtx   multiYieldCtx // embedded for zero-alloc multi-yield
 
-	// Wake signal for StepIdle - message was delivered to process
+	// Event queue for yield completions and messages
+	queue *process.EventQueue
+	gen   atomic.Uint64 // cached generation for CompleteYield (atomic for concurrent access)
+
+	// Step output buffer (reused across steps)
+	output process.StepOutput
+
+	// Wake signal for StepIdle - event was delivered to queue
 	wake chan struct{}
 
-	// Embedded inbox owned by this executor, reused across executions.
-	// Executor controls lifecycle: Reset before run, Close after.
-	ownedInbox *Inbox
-
-	// Direct reference to inbox for message delivery via Send().
-	// Points to ownedInbox during execution, nil otherwise.
-	inbox atomic.Pointer[process.Inbox]
-
-	// hasWork is set when messages arrive, checked/cleared at StepIdle
-	hasWork atomic.Bool
+	// active indicates executor is running and can receive messages
+	active atomic.Bool
 }
 
 // NewExecutor creates an executor with the given dispatcher.
@@ -202,41 +162,56 @@ func NewExecutor(d Dispatcher) *Executor {
 	e := &Executor{
 		dispatcher: d,
 		wake:       make(chan struct{}, 1),
-		ownedInbox: NewInbox(),
+		queue:      process.NewEventQueue(),
 	}
-	e.multiCtx.wakeup = make(chan struct{}, 1)
 	return e
 }
 
-// Reset prepares the executor for reuse. Clears inbox atomically,
-// hasWork flag, and drains channels.
+// Reset prepares the executor for reuse.
 func (e *Executor) Reset() {
-	e.inbox.Store(nil)
-	e.hasWork.Store(false)
+	e.active.Store(false)
 	// Drain wake channel
 	select {
 	case <-e.wake:
 	default:
 	}
-	// Drain multiCtx wakeup
-	select {
-	case <-e.multiCtx.wakeup:
-	default:
+	// Reset queue for next execution
+	e.queue.Reset()
+	e.gen.Store(e.queue.Generation())
+}
+
+// CompleteYield implements process.ResultReceiver.
+// Called by handlers to deliver yield completion.
+// Thread-safe: can be called from any goroutine.
+func (e *Executor) CompleteYield(tag any, data any, err error) {
+	if e.queue.Push(process.Event{
+		Type:  process.EventYieldComplete,
+		Tag:   tag,
+		Data:  data,
+		Error: err,
+	}, e.gen.Load()) {
+		// Signal wake
+		select {
+		case e.wake <- struct{}{}:
+		default:
+		}
 	}
 }
 
-// Send implements relay.Receiver. Delivers message directly to inbox.
-// Safe to call concurrently - returns error if inbox was cleared.
+// Send implements relay.Receiver. Delivers message via EventQueue.
+// Safe to call concurrently - returns error if executor is not active.
 func (e *Executor) Send(pkg *relay.Package) error {
-	inboxPtr := e.inbox.Load()
-	if inboxPtr == nil {
+	if !e.active.Load() {
 		return ErrProcessNotFound
 	}
-	if !(*inboxPtr).QueueMessage(pkg) {
+	// Push message event to queue with generation check
+	if !e.queue.Push(process.Event{
+		Type: process.EventMessage,
+		Data: pkg,
+	}, e.gen.Load()) {
 		return ErrProcessNotFound
 	}
-	// Mark that work arrived and signal wake
-	e.hasWork.Store(true)
+	// Signal wake
 	select {
 	case e.wake <- struct{}{}:
 	default:
@@ -251,32 +226,22 @@ func (e *Executor) WithExecutionHooks(hooks ExecutionHooks) *Executor {
 }
 
 // Run executes a process to completion, handling all yields.
-// Resets owned inbox before Init and closes it after returning.
 func (e *Executor) Run(ctx context.Context, proc process.Process, method string, input payload.Payloads) *runtime.Result {
 	if e.hooks.OnStart != nil {
 		e.hooks.OnStart(ctx, proc)
 	}
 
-	// Reset owned inbox for this execution
-	e.ownedInbox.Reset()
+	// Reset queue for this execution
+	e.queue.Reset()
+	e.gen.Store(e.queue.Generation())
 
-	// Store inbox in frame context BEFORE Init so engine can access it
-	if err := SetInbox(ctx, e.ownedInbox); err != nil {
-		result := &runtime.Result{Error: err}
-		if e.hooks.OnComplete != nil {
-			e.hooks.OnComplete(ctx, result)
-		}
-		return result
-	}
+	// Enable Send routing
+	e.active.Store(true)
 
-	// Enable Send routing via atomic pointer
-	var inbox process.Inbox = e.ownedInbox
-	e.inbox.Store(&inbox)
-
-	// Ensure inbox is closed and pointer cleared when Run returns
+	// Ensure active flag cleared and queue closed when Run returns
 	defer func() {
-		e.inbox.Store(nil)
-		e.ownedInbox.Close()
+		e.active.Store(false)
+		e.queue.Close()
 	}()
 
 	if err := proc.Init(ctx, method, input); err != nil {
@@ -287,16 +252,15 @@ func (e *Executor) Run(ctx context.Context, proc process.Process, method string,
 		return result
 	}
 
-	var yieldResults *process.YieldResults
 	for {
-		stepResult, err := proc.Step(yieldResults)
+		// Drain events from queue
+		events := e.queue.Drain()
 
-		if yieldResults != nil {
-			process.ReleaseYieldResults(yieldResults)
-			yieldResults = nil
-		}
+		// Reset output for this step
+		e.output.Reset()
 
-		if err != nil {
+		// Step the process
+		if err := proc.Step(events, &e.output); err != nil {
 			result := &runtime.Result{Error: err}
 			if e.hooks.OnComplete != nil {
 				e.hooks.OnComplete(ctx, result)
@@ -304,22 +268,24 @@ func (e *Executor) Run(ctx context.Context, proc process.Process, method string,
 			return result
 		}
 
-		switch stepResult.Status {
+		switch e.output.Status() {
 		case process.StepDone:
-			ret := runtime.Result{Value: stepResult.Result}
+			ret := runtime.Result{Value: e.output.Result()}
 			if e.hooks.OnComplete != nil {
 				e.hooks.OnComplete(ctx, &ret)
 			}
 			return &ret
 
 		case process.StepIdle:
-			// Check if messages arrived during step - if so, continue immediately
-			if e.hasWork.Swap(false) {
+			// Check if events arrived during step - if so, continue immediately
+			if e.queue.HasEvents() {
 				continue
 			}
 			// Wait for wake signal or context cancellation
 			select {
 			case <-e.wake:
+				continue
+			case <-e.queue.Signal():
 				continue
 			case <-ctx.Done():
 				result := &runtime.Result{Error: ctx.Err()}
@@ -330,14 +296,47 @@ func (e *Executor) Run(ctx context.Context, proc process.Process, method string,
 			}
 
 		case process.StepContinue:
-			yields := stepResult.GetYields()
+			yields := e.output.Yields()
 			if len(yields) == 0 {
+				// No yields means step again immediately
 				continue
 			}
 
-			yieldResults = e.handleYields(ctx, yields)
-			if yieldResults.Error != nil {
-				result := &runtime.Result{Error: yieldResults.Error}
+			// Dispatch yields - pass e as ResultReceiver (zero allocation!)
+			for _, y := range yields {
+				handler := e.dispatcher.Dispatch(y.Cmd)
+				if handler == nil {
+					// Unknown command - complete with error immediately
+					e.queue.PushDirect(process.Event{
+						Type:  process.EventYieldComplete,
+						Tag:   y.Tag,
+						Error: &UnknownCommandError{CmdID: y.Cmd.CmdID()},
+					})
+					continue
+				}
+				if err := handler.Handle(ctx, y.Cmd, y.Tag, e); err != nil {
+					// Handler returned error - complete with error
+					e.queue.PushDirect(process.Event{
+						Type:  process.EventYieldComplete,
+						Tag:   y.Tag,
+						Error: err,
+					})
+				}
+			}
+
+			// Check if results are already ready before blocking
+			if e.queue.HasEvents() {
+				continue
+			}
+
+			// Wait for first completion
+			select {
+			case <-e.wake:
+				continue
+			case <-e.queue.Signal():
+				continue
+			case <-ctx.Done():
+				result := &runtime.Result{Error: ctx.Err()}
 				if e.hooks.OnComplete != nil {
 					e.hooks.OnComplete(ctx, result)
 				}
@@ -345,88 +344,4 @@ func (e *Executor) Run(ctx context.Context, proc process.Process, method string,
 			}
 		}
 	}
-}
-
-// handleYields executes all command handlers and waits for complete to be called.
-// Handlers are async - they call complete.Complete() when done, possibly from another goroutine.
-func (e *Executor) handleYields(ctx context.Context, yields []dispatcher.Command) *process.YieldResults {
-	res := process.AcquireYieldResults()
-
-	if len(yields) == 1 {
-		cmd := yields[0]
-		handler := e.dispatcher.Dispatch(cmd)
-		if handler == nil {
-			res.Error = &UnknownCommandError{CmdID: cmd.CmdID()}
-			return res
-		}
-
-		// Single yield - use embedded emitter for zero allocation
-		e.multiCtx.pending.Store(1)
-		e.multiCtx.slots[0].Data = nil
-		e.multiCtx.slots[0].Error = nil
-		e.multiCtx.completers[0].ctx = &e.multiCtx
-		e.multiCtx.completers[0].idx = 0
-
-		if err := handler.Handle(ctx, cmd, &e.multiCtx.completers[0]); err != nil {
-			res.Error = err
-			return res
-		}
-
-		select {
-		case <-e.multiCtx.wakeup:
-			res.Data = e.multiCtx.slots[0].Data
-			res.Error = e.multiCtx.slots[0].Error
-		case <-ctx.Done():
-			res.Error = ctx.Err()
-		}
-		return res
-	}
-
-	// Multiple yields - validate handlers first using embedded array
-	n := len(yields)
-	for i, cmd := range yields {
-		e.multiCtx.handlers[i] = e.dispatcher.Dispatch(cmd)
-		if e.multiCtx.handlers[i] == nil {
-			res.Error = &UnknownCommandError{CmdID: cmd.CmdID()}
-			return res
-		}
-	}
-
-	// Initialize multi-yield context
-	e.multiCtx.pending.Store(int32(n)) //nolint:gosec // n is bounded by MaxPoolYields (4)
-	for i := 0; i < n && i < MaxPoolYields; i++ {
-		e.multiCtx.slots[i].Data = nil
-		e.multiCtx.slots[i].Error = nil
-		e.multiCtx.completers[i].ctx = &e.multiCtx
-		e.multiCtx.completers[i].idx = i
-	}
-
-	// Start all handlers in parallel using embedded completers
-	for i, cmd := range yields {
-		completer := &e.multiCtx.completers[i]
-		if err := e.multiCtx.handlers[i].Handle(ctx, cmd, completer); err != nil {
-			completer.Complete(nil, err)
-		}
-	}
-
-	// Wait for all to complete
-	select {
-	case <-e.multiCtx.wakeup:
-	case <-ctx.Done():
-		res.Error = ctx.Err()
-		return res
-	}
-
-	// Check for errors, collect results
-	results := make([]any, n)
-	for i := 0; i < n; i++ {
-		if e.multiCtx.slots[i].Error != nil {
-			res.Error = e.multiCtx.slots[i].Error
-			return res
-		}
-		results[i] = e.multiCtx.slots[i].Data
-	}
-
-	res.Data = results
-	return res
 }

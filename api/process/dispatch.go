@@ -15,15 +15,16 @@ type (
 		CmdID() CommandID
 	}
 
-	// Completer signals yield completion to the scheduler.
-	// Complete is called exactly once per command to return the result.
-	Completer interface {
-		Complete(data any, err error)
+	// ResultReceiver receives yield completion results.
+	// Scheduler implements this - no Completer allocation needed.
+	ResultReceiver interface {
+		CompleteYield(tag any, data any, err error)
 	}
 
 	// Handler processes commands yielded by processes.
+	// tag is the correlation tag, receiver is where to send results.
 	Handler interface {
-		Handle(ctx context.Context, cmd Command, complete Completer) error
+		Handle(ctx context.Context, cmd Command, tag any, receiver ResultReceiver) error
 	}
 
 	// Dispatcher routes commands to handlers.
@@ -50,11 +51,11 @@ type (
 )
 
 // HandlerFunc adapts a function to the Handler interface.
-type HandlerFunc func(ctx context.Context, cmd Command, complete Completer) error
+type HandlerFunc func(ctx context.Context, cmd Command, tag any, receiver ResultReceiver) error
 
 // Handle implements Handler.
-func (f HandlerFunc) Handle(ctx context.Context, cmd Command, complete Completer) error {
-	return f(ctx, cmd, complete)
+func (f HandlerFunc) Handle(ctx context.Context, cmd Command, tag any, receiver ResultReceiver) error {
+	return f(ctx, cmd, tag, receiver)
 }
 
 var (

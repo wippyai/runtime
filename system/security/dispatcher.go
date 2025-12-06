@@ -7,6 +7,7 @@ import (
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	securityapi "github.com/wippyai/runtime/api/dispatcher/security"
+	"github.com/wippyai/runtime/api/process"
 )
 
 // Dispatcher handles security commands via async worker pool.
@@ -21,7 +22,8 @@ type Dispatcher struct {
 type job struct {
 	ctx      context.Context
 	cmd      dispatcher.Command
-	complete dispatcher.Completer
+	tag      any
+	receiver process.ResultReceiver
 }
 
 // NewDispatcher creates a security dispatcher with the specified worker count.
@@ -59,9 +61,9 @@ func (d *Dispatcher) worker() {
 	}
 }
 
-func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) {
+func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, tag any, receiver process.ResultReceiver) {
 	select {
-	case d.jobs <- job{ctx: ctx, cmd: cmd, complete: complete}:
+	case d.jobs <- job{ctx: ctx, cmd: cmd, tag: tag, receiver: receiver}:
 	case <-d.ctx.Done():
 	}
 }
@@ -70,20 +72,20 @@ func (d *Dispatcher) execute(j job) {
 	switch c := j.cmd.(type) {
 	case *securityapi.TokenValidateCmd:
 		actor, scope, err := c.TokenStore.Validate(j.ctx, c.Token)
-		j.complete.Complete(securityapi.TokenValidateResponse{Actor: actor, Scope: scope, Error: err}, nil)
+		j.receiver.CompleteYield(j.tag, securityapi.TokenValidateResponse{Actor: actor, Scope: scope, Error: err}, nil)
 
 	case *securityapi.TokenCreateCmd:
 		token, err := c.TokenStore.Create(j.ctx, c.Actor, c.Scope, c.Details)
-		j.complete.Complete(securityapi.TokenCreateResponse{Token: token, Error: err}, nil)
+		j.receiver.CompleteYield(j.tag, securityapi.TokenCreateResponse{Token: token, Error: err}, nil)
 
 	case *securityapi.TokenRevokeCmd:
 		err := c.TokenStore.Revoke(j.ctx, c.Token)
-		j.complete.Complete(securityapi.TokenRevokeResponse{Error: err}, nil)
+		j.receiver.CompleteYield(j.tag, securityapi.TokenRevokeResponse{Error: err}, nil)
 	}
 }
 
-func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
-	d.submit(ctx, cmd, complete)
+func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, tag any, receiver process.ResultReceiver) error {
+	d.submit(ctx, cmd, tag, receiver)
 	return nil
 }
 

@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/runtime/resource"
-	scheduler "github.com/wippyai/runtime/system/scheduler/actor"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -26,13 +26,14 @@ func TestProcessBasicExecution(t *testing.T) {
 	}
 	defer proc.Close()
 
-	result, err := proc.Step(nil)
+	var output process.StepOutput
+	err := proc.Step(nil, &output)
 	if err != nil {
 		t.Fatalf("Step failed: %v", err)
 	}
 
-	if result.Status != scheduler.StepDone {
-		t.Errorf("Expected StepDone, got %v", result.Status)
+	if output.Status() != process.StepDone {
+		t.Errorf("Expected StepDone, got %v", output.Status())
 	}
 }
 
@@ -61,12 +62,13 @@ func TestProcessMultipleCoroutines(t *testing.T) {
 	defer proc.Close()
 
 	// Spawns create yield points, so we need to step until done
+	var output process.StepOutput
 	for i := 0; i < 10; i++ {
-		result, err := proc.Step(nil)
-		if err != nil {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
 			t.Fatalf("Step %d failed: %v", i, err)
 		}
-		if result.Status == scheduler.StepDone {
+		if output.Status() == process.StepDone {
 			return
 		}
 	}
@@ -131,7 +133,8 @@ func TestErrorPropagationFromRaiseError(t *testing.T) {
 	defer proc.Close()
 
 	// Step should return an error
-	_, err := proc.Step(nil)
+	var output process.StepOutput
+	err := proc.Step(nil, &output)
 
 	if err == nil {
 		t.Fatal("Expected error, got nil")
@@ -198,12 +201,13 @@ func TestErrorPropagationWithPcall(t *testing.T) {
 	defer proc.Close()
 
 	// Run to completion
+	var output process.StepOutput
 	for i := 0; i < 10; i++ {
-		result, err := proc.Step(nil)
-		if err != nil {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
 			t.Fatalf("Step failed: %v", err)
 		}
-		if result.Status == scheduler.StepDone {
+		if output.Status() == process.StepDone {
 			return
 		}
 	}
@@ -237,7 +241,8 @@ func TestLuaErrorWithStack(t *testing.T) {
 	}
 	defer proc.Close()
 
-	_, err := proc.Step(nil)
+	var output process.StepOutput
+	err := proc.Step(nil, &output)
 
 	if err == nil {
 		t.Fatal("Expected error, got nil")
@@ -281,7 +286,7 @@ func findSubstring(s, substr string) bool {
 }
 
 func TestProcessReturnsResult(t *testing.T) {
-	// Test that Step() captures the return value in StepResult.Result
+	// Test that Step() captures the return value in StepOutput.Result
 	script := `return {ok = true, value = 42}`
 
 	proc := NewProcess(WithScript(script, "test.lua"))
@@ -293,18 +298,18 @@ func TestProcessReturnsResult(t *testing.T) {
 	}
 	defer proc.Close()
 
-	result, err := proc.Step(nil)
-	if err != nil {
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
 		t.Fatalf("Step failed: %v", err)
 	}
 
-	if result.Status != scheduler.StepDone {
-		t.Fatalf("Expected StepDone, got %v", result.Status)
+	if output.Status() != process.StepDone {
+		t.Fatalf("Expected StepDone, got %v", output.Status())
 	}
 
 	// The result should contain the return value
-	if result.Result == nil {
-		t.Fatal("Expected result.Result to be non-nil, got nil")
+	if output.Result() == nil {
+		t.Fatal("Expected output.Result to be non-nil, got nil")
 	}
 }
 
@@ -321,17 +326,17 @@ func TestProcessReturnsSimpleValue(t *testing.T) {
 	}
 	defer proc.Close()
 
-	result, err := proc.Step(nil)
-	if err != nil {
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
 		t.Fatalf("Step failed: %v", err)
 	}
 
-	if result.Status != scheduler.StepDone {
-		t.Fatalf("Expected StepDone, got %v", result.Status)
+	if output.Status() != process.StepDone {
+		t.Fatalf("Expected StepDone, got %v", output.Status())
 	}
 
-	if result.Result == nil {
-		t.Fatal("Expected result.Result to be non-nil")
+	if output.Result() == nil {
+		t.Fatal("Expected output.Result to be non-nil")
 	}
 }
 
@@ -354,17 +359,17 @@ func TestProcessReturnsMethodResult(t *testing.T) {
 	}
 	defer proc.Close()
 
-	result, err := proc.Step(nil)
-	if err != nil {
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
 		t.Fatalf("Step failed: %v", err)
 	}
 
-	if result.Status != scheduler.StepDone {
-		t.Fatalf("Expected StepDone, got %v", result.Status)
+	if output.Status() != process.StepDone {
+		t.Fatalf("Expected StepDone, got %v", output.Status())
 	}
 
-	if result.Result == nil {
-		t.Fatal("Expected result.Result to be non-nil")
+	if output.Result() == nil {
+		t.Fatal("Expected output.Result to be non-nil")
 	}
 }
 
@@ -387,9 +392,10 @@ func TestProcessReturnsStringError(t *testing.T) {
 	}
 	defer proc.Close()
 
-	result, err := proc.Step(nil)
-	if result.Status != scheduler.StepDone {
-		t.Fatalf("Expected StepDone, got %v", result.Status)
+	var output process.StepOutput
+	err := proc.Step(nil, &output)
+	if output.Status() != process.StepDone {
+		t.Fatalf("Expected StepDone, got %v", output.Status())
 	}
 
 	if err == nil {
@@ -436,9 +442,10 @@ func TestProcessReturnsLuaError(t *testing.T) {
 		t.Fatalf("Init failed: %v", err)
 	}
 
-	result, stepErr := proc.Step(nil)
-	if result.Status != scheduler.StepDone {
-		t.Fatalf("Expected StepDone, got %v", result.Status)
+	var output process.StepOutput
+	stepErr := proc.Step(nil, &output)
+	if output.Status() != process.StepDone {
+		t.Fatalf("Expected StepDone, got %v", output.Status())
 	}
 
 	if stepErr == nil {
@@ -479,17 +486,18 @@ func TestProcessReturnsValueNoError(t *testing.T) {
 	}
 	defer proc.Close()
 
-	result, err := proc.Step(nil)
-	if result.Status != scheduler.StepDone {
-		t.Fatalf("Expected StepDone, got %v", result.Status)
+	var output process.StepOutput
+	err := proc.Step(nil, &output)
+	if output.Status() != process.StepDone {
+		t.Fatalf("Expected StepDone, got %v", output.Status())
 	}
 
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	if result.Result == nil {
-		t.Fatal("Expected result.Result to be non-nil")
+	if output.Result() == nil {
+		t.Fatal("Expected output.Result to be non-nil")
 	}
 }
 
@@ -512,9 +520,10 @@ func TestProcessReturnsValueWithFalseSecond(t *testing.T) {
 	}
 	defer proc.Close()
 
-	result, err := proc.Step(nil)
-	if result.Status != scheduler.StepDone {
-		t.Fatalf("Expected StepDone, got %v", result.Status)
+	var output process.StepOutput
+	err := proc.Step(nil, &output)
+	if output.Status() != process.StepDone {
+		t.Fatalf("Expected StepDone, got %v", output.Status())
 	}
 
 	if err != nil {

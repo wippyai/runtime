@@ -2,7 +2,6 @@ package pool
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -33,7 +32,7 @@ func (p *mockProcess) Init(ctx context.Context, method string, input payload.Pay
 	return nil
 }
 
-func (p *mockProcess) Step(results *process.YieldResults) (process.StepResult, error) {
+func (p *mockProcess) Step(events []process.Event, out *process.StepOutput) error {
 	p.mu.Lock()
 	p.stepCount++
 	latency := p.latency
@@ -43,7 +42,8 @@ func (p *mockProcess) Step(results *process.YieldResults) (process.StepResult, e
 		time.Sleep(latency)
 	}
 
-	return process.StepResult{Status: process.StepDone}, nil
+	out.Done(nil)
+	return nil
 }
 
 func (p *mockProcess) Close() {
@@ -51,8 +51,6 @@ func (p *mockProcess) Close() {
 	p.closeCount++
 	p.mu.Unlock()
 }
-
-func (p *mockProcess) Send(pkg *relay.Package) error { return nil }
 
 func (p *mockProcess) stats() (exec, step, close int) {
 	p.mu.Lock()
@@ -64,12 +62,6 @@ func (p *mockProcess) stats() (exec, step, close int) {
 type mockDispatcher struct{}
 
 func (d *mockDispatcher) Dispatch(cmd dispatcher.Command) dispatcher.Handler { return nil }
-
-// mockInbox implements process.Inbox for testing.
-type mockInbox struct{}
-
-func (m *mockInbox) QueueMessage(pkg *relay.Package) bool { return true }
-func (m *mockInbox) Drain() []*relay.Package              { return nil }
 
 // testContext creates a context with FrameContext and PID for testing.
 func testContext() context.Context {
@@ -188,8 +180,9 @@ func (p *resultProcess) Init(ctx context.Context, method string, input payload.P
 	return nil
 }
 
-func (p *resultProcess) Step(results *process.YieldResults) (process.StepResult, error) {
-	return process.StepResult{Status: process.StepDone, Result: p.result}, nil
+func (p *resultProcess) Step(events []process.Event, out *process.StepOutput) error {
+	out.Done(p.result)
+	return nil
 }
 
 func (p *resultProcess) Close()                        {}
@@ -389,9 +382,10 @@ func (p *blockingProcess) Init(ctx context.Context, method string, input payload
 	return nil
 }
 
-func (p *blockingProcess) Step(results *process.YieldResults) (process.StepResult, error) {
+func (p *blockingProcess) Step(events []process.Event, out *process.StepOutput) error {
 	<-p.blockCh
-	return process.StepResult{Status: process.StepDone}, nil
+	out.Done(nil)
+	return nil
 }
 
 func (p *blockingProcess) Close()                        {}
@@ -507,20 +501,18 @@ func TestHooksNoHooks(t *testing.T) {
 }
 
 // idleProcess goes into StepIdle state and waits for a message before completing.
-// Messages are received via the Executor-owned inbox in context.
+// Messages are received via events with EventMessage type.
 type idleProcess struct {
-	ctx       context.Context
 	received  []*relay.Package
 	mu        sync.Mutex
 	stepCount int
 }
 
 func (p *idleProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
-	p.ctx = ctx
 	return nil
 }
 
-func (p *idleProcess) Step(results *process.YieldResults) (process.StepResult, error) {
+func (p *idleProcess) Step(events []process.Event, out *process.StepOutput) error {
 	p.mu.Lock()
 	p.stepCount++
 	count := p.stepCount
@@ -528,29 +520,23 @@ func (p *idleProcess) Step(results *process.YieldResults) (process.StepResult, e
 
 	// First step: go idle and wait for message
 	if count == 1 {
-		return process.StepResult{Status: process.StepIdle}, nil
+		out.Idle()
+		return nil
 	}
 
-	// Drain messages from inbox and store them
-	if inbox := process.GetInbox(p.ctx); inbox != nil {
-		msgs := inbox.Drain()
-		p.mu.Lock()
-		p.received = append(p.received, msgs...)
-		p.mu.Unlock()
+	// Collect messages from events
+	for _, ev := range events {
+		if ev.Type == process.EventMessage {
+			if pkg, ok := ev.Data.(*relay.Package); ok {
+				p.mu.Lock()
+				p.received = append(p.received, pkg)
+				p.mu.Unlock()
+			}
+		}
 	}
 
 	// After receiving message, complete
-	return process.StepResult{Status: process.StepDone}, nil
-}
-
-func (p *idleProcess) Send(pkg *relay.Package) error {
-	inbox := process.GetInbox(p.ctx)
-	if inbox == nil {
-		return errors.New("no inbox")
-	}
-	if !inbox.QueueMessage(pkg) {
-		return errors.New("inbox closed")
-	}
+	out.Done(nil)
 	return nil
 }
 
@@ -565,9 +551,8 @@ func (p *idleProcess) getReceived() []*relay.Package {
 }
 
 // multiIdleProcess goes idle N times before completing.
-// Messages are received via the Executor-owned inbox in context.
+// Messages are received via events with EventMessage type.
 type multiIdleProcess struct {
-	ctx       context.Context
 	idleTimes int
 	received  []*relay.Package
 	mu        sync.Mutex
@@ -575,46 +560,40 @@ type multiIdleProcess struct {
 }
 
 func (p *multiIdleProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
-	p.ctx = ctx
 	return nil
 }
 
-func (p *multiIdleProcess) Step(results *process.YieldResults) (process.StepResult, error) {
+func (p *multiIdleProcess) Step(events []process.Event, out *process.StepOutput) error {
 	p.mu.Lock()
 	p.stepCount++
 	count := p.stepCount
 	idleTimes := p.idleTimes
 	p.mu.Unlock()
 
-	// On even steps (after waking from idle), drain messages from inbox
+	// On even steps (after waking from idle), collect messages from events
 	if count%2 == 0 {
-		if inbox := process.GetInbox(p.ctx); inbox != nil {
-			msgs := inbox.Drain()
-			p.mu.Lock()
-			p.received = append(p.received, msgs...)
-			p.mu.Unlock()
+		for _, ev := range events {
+			if ev.Type == process.EventMessage {
+				if pkg, ok := ev.Data.(*relay.Package); ok {
+					p.mu.Lock()
+					p.received = append(p.received, pkg)
+					p.mu.Unlock()
+				}
+			}
 		}
 	}
 
 	// Alternate between idle and continue until we've received enough messages
 	if count <= idleTimes*2 && count%2 == 1 {
-		return process.StepResult{Status: process.StepIdle}, nil
+		out.Idle()
+		return nil
 	}
 	if count > idleTimes*2 {
-		return process.StepResult{Status: process.StepDone}, nil
+		out.Done(nil)
+		return nil
 	}
 	// Even step: continue after receiving message
-	return process.StepResult{Status: process.StepContinue}, nil
-}
-
-func (p *multiIdleProcess) Send(pkg *relay.Package) error {
-	inbox := process.GetInbox(p.ctx)
-	if inbox == nil {
-		return errors.New("no inbox")
-	}
-	if !inbox.QueueMessage(pkg) {
-		return errors.New("inbox closed")
-	}
+	out.Continue()
 	return nil
 }
 
@@ -1043,8 +1022,9 @@ func TestSendStressLazy(t *testing.T) {
 
 func BenchmarkExecutorSend(b *testing.B) {
 	executor := NewExecutor(&mockDispatcher{})
-	var inbox process.Inbox = &mockInbox{}
-	executor.inbox.Store(&inbox)
+	executor.active.Store(true)
+	executor.queue.Reset()
+	executor.gen.Store(executor.queue.Generation())
 	pkg := &relay.Package{Target: relay.PID{UniqID: "1"}}
 
 	b.ResetTimer()
@@ -1060,8 +1040,9 @@ func BenchmarkStaticSendLookup(b *testing.B) {
 
 	// Register a fake executor in active map
 	executor := NewExecutor(&mockDispatcher{})
-	var inbox process.Inbox = &mockInbox{}
-	executor.inbox.Store(&inbox)
+	executor.active.Store(true)
+	executor.queue.Reset()
+	executor.gen.Store(executor.queue.Generation())
 	pool.active.Store("bench-1", executor)
 	pkg := &relay.Package{Target: relay.PID{UniqID: "bench-1"}}
 
@@ -1078,8 +1059,9 @@ func BenchmarkLazySendLookup(b *testing.B) {
 
 	// Register a fake executor in active map
 	executor := NewExecutor(&mockDispatcher{})
-	var inbox process.Inbox = &mockInbox{}
-	executor.inbox.Store(&inbox)
+	executor.active.Store(true)
+	executor.queue.Reset()
+	executor.gen.Store(executor.queue.Generation())
 	pool.activeExec.Store("bench-1", executor)
 	pkg := &relay.Package{Target: relay.PID{UniqID: "bench-1"}}
 
@@ -1096,8 +1078,9 @@ func BenchmarkInlineSendLookup(b *testing.B) {
 
 	// Register a fake executor in active map
 	executor := NewExecutor(&mockDispatcher{})
-	var inbox process.Inbox = &mockInbox{}
-	executor.inbox.Store(&inbox)
+	executor.active.Store(true)
+	executor.queue.Reset()
+	executor.gen.Store(executor.queue.Generation())
 	pool.active.Store("bench-1", executor)
 	pkg := &relay.Package{Target: relay.PID{UniqID: "bench-1"}}
 

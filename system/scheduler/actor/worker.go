@@ -5,7 +5,7 @@ import (
 	"runtime"
 	"sync/atomic"
 
-	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/process"
 )
 
 type Worker struct {
@@ -162,104 +162,89 @@ func (w *Worker) executeOne(proc *Processor) {
 	if proc.Process == nil {
 		return
 	}
-	proc.State = StateRunning
 
-	var yieldResults *YieldResults
-	if proc.hasYieldResult {
-		yieldResults = &proc.yieldResult
-		proc.hasYieldResult = false
-	}
+	proc.SetState(StateRunning)
 
-	result, err := proc.Process.Step(yieldResults)
+	// Drain events from queue
+	events := proc.queue.Drain()
 
-	if yieldResults != nil {
-		proc.yieldResult.Data = nil
-		proc.yieldResult.Error = nil
-	}
+	// Reset output for this step
+	proc.output.Reset()
+
+	// Step the process
+	err := proc.Process.Step(events, &proc.output)
 
 	if err != nil {
-		proc.State = StateComplete
+		proc.SetState(StateComplete)
+		proc.queue.Close()
 		w.scheduler.complete(proc, nil, err)
 		return
 	}
 
-	switch result.Status {
+	switch proc.output.Status() {
 	case StepDone:
-		proc.State = StateComplete
-		w.scheduler.complete(proc, &result, nil)
+		proc.SetState(StateComplete)
+		proc.queue.Close()
+		w.scheduler.complete(proc, &proc.output, nil)
 
 	case StepIdle:
-		proc.State = StateIdle
+		proc.SetState(StateIdle)
 		w.scheduler.parkIdle(proc)
 
 	case StepContinue:
-		yields := result.GetYields()
+		yields := proc.output.Yields()
 		if len(yields) == 0 {
-			proc.State = StateReady
-			if w.local != nil {
-				if old := w.lifoSlot.Swap(proc); old != nil {
-					w.local.Push(old)
-				}
-			} else {
+			// No yields - continue immediately if events pending
+			if proc.queue.HasEvents() {
+				proc.SetState(StateReady)
 				w.scheduler.global.Push(proc)
 				w.scheduler.wake()
+			} else {
+				// Wait for events
+				proc.SetState(StateBlocked)
 			}
 			return
 		}
 
-		proc.State = StateBlocked
+		// Set blocked BEFORE dispatching so CompleteYield can use CAS
+		proc.SetState(StateBlocked)
 		ctx := proc.Context()
 
-		if len(yields) == 1 {
-			cmd := yields[0]
-			handler := w.scheduler.getHandler(cmd)
-			if handler == nil {
-				proc.State = StateComplete
-				w.scheduler.complete(proc, nil, &UnknownCommandError{ID: cmd.CmdID()})
-				return
-			}
-			if err := handler.Handle(ctx, cmd, proc); err != nil {
-				proc.Complete(nil, err)
-			}
-		} else {
-			handlers := make([]dispatcher.Handler, len(yields))
-			for i, cmd := range yields {
-				handlers[i] = w.scheduler.getHandler(cmd)
-				if handlers[i] == nil {
-					proc.State = StateComplete
-					w.scheduler.complete(proc, nil, &UnknownCommandError{ID: cmd.CmdID()})
-					return
-				}
-			}
-			go w.handleMultiYields(ctx, proc, yields, handlers)
-		}
+		// Dispatch all yields - pass proc as ResultReceiver (zero allocation!)
+		w.dispatchYields(ctx, proc, yields)
 	}
 }
 
-func (w *Worker) handleMultiYields(ctx context.Context, proc *Processor, yields []dispatcher.Command, handlers []dispatcher.Handler) {
-	n := len(yields)
-	proc.initMultiYield(n)
-
-	for i, cmd := range yields {
-		completer := proc.getCompleter(i)
-		if err := handlers[i].Handle(ctx, cmd, completer); err != nil {
-			completer.Complete(nil, err)
+// dispatchYields sends all yields to handlers.
+func (w *Worker) dispatchYields(ctx context.Context, proc *Processor, yields []Yield) {
+	for _, y := range yields {
+		handler := w.scheduler.getHandler(y.Cmd)
+		if handler == nil {
+			// Unknown command - complete with error immediately
+			proc.queue.PushDirect(process.Event{
+				Type:  process.EventYieldComplete,
+				Tag:   y.Tag,
+				Error: &UnknownCommandError{ID: y.Cmd.CmdID()},
+			})
+			continue
+		}
+		if err := handler.Handle(ctx, y.Cmd, y.Tag, proc); err != nil {
+			// Handler returned error - complete with error
+			proc.queue.PushDirect(process.Event{
+				Type:  process.EventYieldComplete,
+				Tag:   y.Tag,
+				Error: err,
+			})
 		}
 	}
 
-	if err := proc.waitMultiYield(ctx); err != nil {
-		proc.Complete(nil, err)
-		return
-	}
-
-	results := make([]any, n)
-	for i := 0; i < n; i++ {
-		slot := proc.getSlot(i)
-		if slot.Error != nil {
-			proc.Complete(nil, slot.Error)
-			return
+	// If events arrived during dispatch (from PushDirect above or CompleteYield),
+	// try to transition from Blocked to Ready and re-queue.
+	// CompleteYield may have already done this, in which case CAS fails (safe no-op).
+	if proc.queue.HasEvents() {
+		if proc.casState(StateBlocked, StateReady) {
+			w.scheduler.global.Push(proc)
+			w.scheduler.wake()
 		}
-		results[i] = slot.Data
 	}
-	proc.Complete(results, nil)
 }

@@ -55,10 +55,14 @@ func GoToLua(v any) (lua.LValue, error) {
 		return lua.LString(val), nil
 	case float64:
 		return lua.LNumber(val), nil
+	case float32:
+		return lua.LNumber(float64(val)), nil
 	case int:
-		return lua.LNumber(val), nil
-	case int32, int64:
-		return lua.LNumber(reflect.ValueOf(val).Int()), nil
+		return lua.LInteger(int64(val)), nil
+	case int32:
+		return lua.LInteger(int64(val)), nil
+	case int64:
+		return lua.LInteger(val), nil
 	case bool:
 		return lua.LBool(val), nil
 	case time.Time:

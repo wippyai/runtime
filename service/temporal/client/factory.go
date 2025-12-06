@@ -15,15 +15,14 @@ import (
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/interceptor"
 	"go.uber.org/zap"
-	"google.golang.org/grpc"
 )
 
-// ClientFactory creates Temporal clients from configuration
-type ClientFactory interface {
+// Factory creates Temporal clients from configuration
+type Factory interface {
 	CreateClient(ctx context.Context, logger *zap.Logger, id registry.ID, config *api.ClientConfig) (*Client, error)
 }
 
-// DefaultClientFactory implements ClientFactory
+// DefaultClientFactory implements Factory
 type DefaultClientFactory struct {
 	env                env.Registry
 	dataConverter      converter.DataConverter
@@ -98,9 +97,7 @@ func (f *DefaultClientFactory) buildClientOptions(ctx context.Context, logger *z
 	}
 
 	// Configure connection options
-	if err := f.configureConnectionOptions(config, &opts); err != nil {
-		return opts, fmt.Errorf("failed to configure connection options: %w", err)
-	}
+	f.configureConnectionOptions(config, &opts)
 
 	return opts, nil
 }
@@ -170,26 +167,28 @@ func (f *DefaultClientFactory) loadClientCertificate(ctx context.Context, auth a
 	var err error
 
 	// Load certificate
-	if auth.CertFile != "" {
+	switch {
+	case auth.CertFile != "":
 		certPEM, err = os.ReadFile(auth.CertFile)
 		if err != nil {
 			return tls.Certificate{}, fmt.Errorf("failed to read cert_file %s: %w", auth.CertFile, err)
 		}
-	} else if auth.CertPEM != "" {
+	case auth.CertPEM != "":
 		certPEM = []byte(auth.CertPEM)
-	} else {
+	default:
 		return tls.Certificate{}, fmt.Errorf("no certificate source configured")
 	}
 
 	// Load private key
-	if auth.KeyFile != "" {
+	switch {
+	case auth.KeyFile != "":
 		keyPEM, err = os.ReadFile(auth.KeyFile)
 		if err != nil {
 			return tls.Certificate{}, fmt.Errorf("failed to read key_file %s: %w", auth.KeyFile, err)
 		}
-	} else if auth.KeyPEM != "" {
+	case auth.KeyPEM != "":
 		keyPEM = []byte(auth.KeyPEM)
-	} else if auth.KeyPEMEnv != "" {
+	case auth.KeyPEMEnv != "":
 		if f.env == nil {
 			return tls.Certificate{}, fmt.Errorf("env registry not available for key_pem_env resolution")
 		}
@@ -198,7 +197,7 @@ func (f *DefaultClientFactory) loadClientCertificate(ctx context.Context, auth a
 			return tls.Certificate{}, fmt.Errorf("failed to get key_pem from env %s: %w", auth.KeyPEMEnv, err)
 		}
 		keyPEM = []byte(keyStr)
-	} else {
+	default:
 		return tls.Certificate{}, fmt.Errorf("no private key source configured")
 	}
 
@@ -219,7 +218,7 @@ func (f *DefaultClientFactory) configureTLS(config *api.ClientConfig, opts *clie
 
 	tlsConfig := &tls.Config{
 		ServerName:         config.TLS.ServerName,
-		InsecureSkipVerify: config.TLS.InsecureSkipVerify,
+		InsecureSkipVerify: config.TLS.InsecureSkipVerify, //nolint:gosec // G402: user-configurable for dev/testing
 	}
 
 	// Load CA certificate if specified
@@ -243,24 +242,9 @@ func (f *DefaultClientFactory) configureTLS(config *api.ClientConfig, opts *clie
 	return nil
 }
 
-// configureConnectionOptions sets up connection-related options
-func (f *DefaultClientFactory) configureConnectionOptions(config *api.ClientConfig, opts *client.Options) error {
-	// Set connection timeout if configured
-	if config.ConnectionTimeout > 0 {
-		// Add gRPC dial options for connection timeout
-		dialOpts := []grpc.DialOption{
-			grpc.WithBlock(),
-		}
-
-		if opts.ConnectionOptions.DialOptions == nil {
-			opts.ConnectionOptions.DialOptions = dialOpts
-		} else {
-			opts.ConnectionOptions.DialOptions = append(opts.ConnectionOptions.DialOptions, dialOpts...)
-		}
-	}
-
-	// Keep-alive settings are handled by gRPC automatically
-	// We could add custom keep-alive params here if needed in the future
-
-	return nil
+// configureConnectionOptions sets up connection-related options.
+// Connection timeout is handled via context in CreateClient.
+// Keep-alive settings are handled by gRPC automatically.
+func (f *DefaultClientFactory) configureConnectionOptions(_ *api.ClientConfig, _ *client.Options) {
+	// Reserved for future connection options (e.g., custom keep-alive params)
 }

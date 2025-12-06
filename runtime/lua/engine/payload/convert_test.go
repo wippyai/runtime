@@ -85,14 +85,14 @@ func TestGoToLua(t *testing.T) {
 	}{
 		{"String", "hello", lua.LString("hello"), false},
 		{"Float64", 42.5, lua.LNumber(42.5), false},
-		{"Int", 10, lua.LNumber(10), false},
+		{"Int", 10, lua.LInteger(10), false},
 		{"Bool", true, lua.LBool(true), false},
 		{"Nil", nil, lua.LNil, false},
 		{"Int Array", []int{1, 2, 3}, func() lua.LValue {
 			tbl := l.NewTable()
-			l.SetTable(tbl, lua.LNumber(1), lua.LNumber(1))
-			l.SetTable(tbl, lua.LNumber(2), lua.LNumber(2))
-			l.SetTable(tbl, lua.LNumber(3), lua.LNumber(3))
+			l.SetTable(tbl, lua.LNumber(1), lua.LInteger(1))
+			l.SetTable(tbl, lua.LNumber(2), lua.LInteger(2))
+			l.SetTable(tbl, lua.LNumber(3), lua.LInteger(3))
 			return tbl
 		}(), false},
 		{"String Array", []string{"a", "b"}, func() lua.LValue {
@@ -107,7 +107,7 @@ func TestGoToLua(t *testing.T) {
 			func() lua.LValue {
 				tbl := l.NewTable()
 				l.SetTable(tbl, lua.LString("name"), lua.LString("John"))
-				l.SetTable(tbl, lua.LString("age"), lua.LNumber(30))
+				l.SetTable(tbl, lua.LString("age"), lua.LInteger(30))
 				return tbl
 			}(),
 			false,
@@ -129,7 +129,7 @@ func TestGoToLua(t *testing.T) {
 			func() lua.LValue {
 				tbl := l.NewTable()
 				l.SetTable(tbl, lua.LNumber(1), lua.LString("hello"))
-				l.SetTable(tbl, lua.LNumber(2), lua.LNumber(42))
+				l.SetTable(tbl, lua.LNumber(2), lua.LInteger(42))
 				l.SetTable(tbl, lua.LNumber(3), lua.LBool(true))
 				return tbl
 			}(),
@@ -255,7 +255,7 @@ func TestGoToLuaExtended(t *testing.T) {
 			},
 			want: map[string]any{
 				"name":       "John Doe",
-				"age":        float64(30),
+				"age":        int64(30),
 				"created_at": float64(fixedTime.Unix()),
 				"address": map[string]any{
 					"street": "123 Main St",
@@ -263,7 +263,7 @@ func TestGoToLuaExtended(t *testing.T) {
 				},
 				"tags": []any{"user", "admin"},
 				"Metadata": map[string]any{
-					"visits": float64(42),
+					"visits": int64(42),
 					"preferences": map[string]any{
 						"theme": "dark",
 					},
@@ -283,7 +283,7 @@ func TestGoToLuaExtended(t *testing.T) {
 			},
 			want: map[string]any{
 				"name":       "John Doe",
-				"age":        float64(30),
+				"age":        int64(30),
 				"created_at": float64(fixedTime.Unix()),
 				"tags":       map[string]any{}, // empty slice becomes an empty table
 				"Metadata":   map[string]any{}, // nil map becomes an empty table

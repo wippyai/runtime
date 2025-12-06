@@ -2,11 +2,6 @@ package exec
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"io"
-	"os"
-	"strings"
 	"sync"
 	"syscall"
 
@@ -72,7 +67,7 @@ func procStart(l *lua.LState) int {
 	if p.closed {
 		p.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.LString("process is closed"))
+		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 	handle := p.handle
@@ -81,7 +76,7 @@ func procStart(l *lua.LState) int {
 	err := handle.Start()
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to start: %v", err)))
+		l.Push(lua.WrapErrorWithLua(l, err, "start process").WithKind(lua.KindInternal).WithRetryable(false))
 		return 2
 	}
 
@@ -99,7 +94,7 @@ func procWait(l *lua.LState) int {
 	if p.closed {
 		p.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.LString("process is closed"))
+		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 	handle := p.handle
@@ -129,7 +124,7 @@ func procSignal(l *lua.LState) int {
 	if p.closed {
 		p.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.LString("process is closed"))
+		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 	handle := p.handle
@@ -138,12 +133,8 @@ func procSignal(l *lua.LState) int {
 	sig := l.CheckInt(2)
 	err := handle.Signal(sig)
 	if err != nil {
-		errMsg := fmt.Sprintf("failed to send signal %d: %v", sig, err)
-		if errors.Is(err, os.ErrProcessDone) || strings.Contains(err.Error(), "process already finished") {
-			errMsg = fmt.Sprintf("failed to send signal %d (process already finished)", sig)
-		}
 		l.Push(lua.LNil)
-		l.Push(lua.LString(errMsg))
+		l.Push(lua.WrapErrorWithLua(l, err, "send signal").WithKind(lua.KindInternal).WithRetryable(false))
 		return 2
 	}
 
@@ -161,7 +152,7 @@ func procWriteStdin(l *lua.LState) int {
 	if p.closed {
 		p.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.LString("process is closed"))
+		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 	handle := p.handle
@@ -170,12 +161,8 @@ func procWriteStdin(l *lua.LState) int {
 	data := l.CheckString(2)
 	err := handle.WriteStdin([]byte(data))
 	if err != nil {
-		errMsg := fmt.Sprintf("failed to write to stdin: %v", err)
-		if errors.Is(err, io.ErrClosedPipe) || strings.Contains(err.Error(), "process is not running") {
-			errMsg = "failed to write to stdin (pipe closed or process not running)"
-		}
 		l.Push(lua.LNil)
-		l.Push(lua.LString(errMsg))
+		l.Push(lua.WrapErrorWithLua(l, err, "write stdin").WithKind(lua.KindInternal).WithRetryable(false))
 		return 2
 	}
 
@@ -193,7 +180,7 @@ func procStdout(l *lua.LState) int {
 	if p.closed {
 		p.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.LString("process is closed"))
+		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 	handle := p.handle
@@ -202,7 +189,7 @@ func procStdout(l *lua.LState) int {
 	reader := handle.Stdout()
 	if reader == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("stdout not available"))
+		l.Push(lua.NewLuaError(l, "stdout not available").WithKind(lua.KindInternal).WithRetryable(false))
 		return 2
 	}
 
@@ -222,7 +209,7 @@ func procStderr(l *lua.LState) int {
 	if p.closed {
 		p.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.LString("process is closed"))
+		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 	handle := p.handle
@@ -231,7 +218,7 @@ func procStderr(l *lua.LState) int {
 	reader := handle.Stderr()
 	if reader == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("stderr not available"))
+		l.Push(lua.NewLuaError(l, "stderr not available").WithKind(lua.KindInternal).WithRetryable(false))
 		return 2
 	}
 
@@ -281,21 +268,4 @@ func procClose(l *lua.LState) int {
 	l.Push(lua.LTrue)
 	l.Push(lua.LNil)
 	return 2
-}
-
-func processToString(l *lua.LState) int {
-	p := checkProcess(l, 1)
-	if p == nil {
-		return 0
-	}
-	p.mu.Lock()
-	closed := p.closed
-	p.mu.Unlock()
-
-	if closed {
-		l.Push(lua.LString("exec.Process{closed}"))
-	} else {
-		l.Push(lua.LString("exec.Process{}"))
-	}
-	return 1
 }

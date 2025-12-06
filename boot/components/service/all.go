@@ -19,6 +19,8 @@ func All() []boot.Component {
 		Terminal2(),
 		Exec(),
 		Host2(),
+		ProcessSupervisor(),
+		ProcessFunc(),
 		Contract(),
 		HTTP(),
 		InterceptorRetry(),

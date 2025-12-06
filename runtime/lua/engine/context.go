@@ -6,8 +6,6 @@ import (
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/process"
-	"github.com/wippyai/runtime/api/relay"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -127,15 +125,6 @@ func (pc *ProcessContext) Channels() map[*Channel]int {
 // Subscriptions returns the subscription context.
 func (pc *ProcessContext) Subscriptions() *subscribeContext {
 	return pc.subs
-}
-
-// DrainInbox returns and clears all incoming messages from the Inbox.
-func (pc *ProcessContext) DrainInbox() []*relay.Package {
-	inbox := process.GetInbox(pc.ctx)
-	if inbox == nil {
-		return nil
-	}
-	return inbox.Drain()
 }
 
 // HasSubscriptions returns true if there are active subscriptions.

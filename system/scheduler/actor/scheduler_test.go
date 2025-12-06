@@ -39,22 +39,22 @@ func (SleepCmd) CmdID() dispatcher.CommandID { return CmdSleep }
 // Test handlers
 
 func CompleteHandler() dispatcher.Handler {
-	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
+	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
 		c := cmd.(CompleteCmd)
-		complete.Complete(c.Value, nil)
+		go receiver.CompleteYield(tag, c.Value, nil)
 		return nil
 	})
 }
 
 func YieldHandler() dispatcher.Handler {
-	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
-		complete.Complete(nil, nil)
+	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+		go receiver.CompleteYield(tag, nil, nil)
 		return nil
 	})
 }
 
 func SleepHandler() dispatcher.Handler {
-	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
+	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
 		s := cmd.(SleepCmd)
 		timer := time.NewTimer(s.Duration)
 		go func() {
@@ -62,7 +62,7 @@ func SleepHandler() dispatcher.Handler {
 			select {
 			case <-ctx.Done():
 			case <-timer.C:
-				complete.Complete(nil, nil)
+				receiver.CompleteYield(tag, nil, nil)
 			}
 		}()
 		return nil
@@ -85,19 +85,17 @@ func (p *CounterProcess) Init(ctx context.Context, method string, input payload.
 	return nil
 }
 
-func (p *CounterProcess) Step(results *YieldResults) (StepResult, error) {
+func (p *CounterProcess) Step(events []Event, out *StepOutput) error {
 	if p.current >= p.target {
-		var r StepResult
-		r.Status = StepDone
-		r.AddYield(CompleteCmd{Value: p.current})
-		return r, nil
+		out.Yield(CompleteCmd{Value: p.current}, nil)
+		out.Done(nil)
+		return nil
 	}
 
 	p.current++
-	var r StepResult
-	r.Status = StepContinue
-	r.AddYield(YieldCmd{})
-	return r, nil
+	out.Yield(YieldCmd{}, nil)
+	out.Continue()
+	return nil
 }
 
 func (p *CounterProcess) Send(pkg *relay.Package) error {
@@ -120,19 +118,17 @@ func (p *SleepProcess) Init(ctx context.Context, method string, input payload.Pa
 	return nil
 }
 
-func (p *SleepProcess) Step(results *YieldResults) (StepResult, error) {
+func (p *SleepProcess) Step(events []Event, out *StepOutput) error {
 	if !p.slept {
 		p.slept = true
-		var r StepResult
-		r.Status = StepContinue
-		r.AddYield(SleepCmd{Duration: p.duration})
-		return r, nil
+		out.Yield(SleepCmd{Duration: p.duration}, nil)
+		out.Continue()
+		return nil
 	}
 
-	var r StepResult
-	r.Status = StepDone
-	r.AddYield(CompleteCmd{Value: "done"})
-	return r, nil
+	out.Yield(CompleteCmd{Value: "done"}, nil)
+	out.Done(nil)
+	return nil
 }
 
 func (p *SleepProcess) Send(pkg *relay.Package) error {
@@ -866,11 +862,10 @@ func (p *TrackingProcess) Init(ctx context.Context, method string, input payload
 	return nil
 }
 
-func (p *TrackingProcess) Step(results *YieldResults) (StepResult, error) {
-	var r StepResult
-	r.Status = StepDone
-	r.AddYield(CompleteCmd{Value: "done"})
-	return r, nil
+func (p *TrackingProcess) Step(events []Event, out *StepOutput) error {
+	out.Yield(CompleteCmd{Value: "done"}, nil)
+	out.Done(nil)
+	return nil
 }
 
 func (p *TrackingProcess) Send(pkg *relay.Package) error {

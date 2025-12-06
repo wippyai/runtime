@@ -47,9 +47,9 @@ type Manager struct {
 	pidReg     topology.PIDRegistry
 	node       relay.Node
 
-	mu      sync.RWMutex
-	pools   map[registry.ID]*poolEntry
+	pools   sync.Map // map[registry.ID]*poolEntry - lock-free for hot path
 	configs sync.Map
+	mu      sync.Mutex // only for start/stop coordination
 	started bool
 }
 
@@ -60,7 +60,6 @@ func NewManager(log *zap.Logger, code *code.Manager, bus event.Bus, disp dispatc
 		code:       code,
 		bus:        bus,
 		dispatcher: disp,
-		pools:      make(map[registry.ID]*poolEntry),
 	}
 }
 
@@ -72,8 +71,9 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.node = relay.GetNode(ctx)
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.started = true
+	m.mu.Unlock()
+
 	m.log.Info("function manager started")
 	return nil
 }
@@ -81,18 +81,21 @@ func (m *Manager) Start(ctx context.Context) error {
 // Stop stops all pools gracefully.
 func (m *Manager) Stop() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.started = false
+	m.mu.Unlock()
 
-	for id, entry := range m.pools {
+	m.pools.Range(func(key, value any) bool {
+		id := key.(registry.ID)
+		entry := value.(*poolEntry)
 		entry.pool.Stop()
-		// Unregister pool from relay
 		if m.node != nil {
 			m.node.UnregisterHost(id.String())
 		}
+		m.pools.Delete(id)
 		m.log.Debug("pool stopped", zap.String("id", id.String()))
-	}
-	m.pools = make(map[registry.ID]*poolEntry)
-	m.started = false
+		return true
+	})
+
 	m.log.Info("function manager stopped")
 }
 
@@ -219,13 +222,11 @@ func (m *Manager) Invalidate(_ context.Context, ids []registry.ID) {
 
 // Execute runs a function with given task.
 func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
-	m.mu.RLock()
-	entry, exists := m.pools[task.ID]
-	m.mu.RUnlock()
-
+	v, exists := m.pools.Load(task.ID)
 	if !exists {
 		return nil, NewPoolNotFoundError(task.ID.String())
 	}
+	entry := v.(*poolEntry)
 
 	// Add task.Context pairs to the frame context
 	if len(task.Context) > 0 {
@@ -303,14 +304,12 @@ func (m *Manager) createPool(id registry.ID, cfg *api.FunctionConfig) error {
 		return NewCreatePoolError(err)
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.pools[id] = &poolEntry{
+	entry := &poolEntry{
 		pool:   pool,
 		config: cfg.Pool,
 		method: cfg.Method,
 	}
+	m.pools.Store(id, entry)
 
 	// Register pool as relay host using function ID
 	if m.node != nil {
@@ -319,7 +318,11 @@ func (m *Manager) createPool(id registry.ID, cfg *api.FunctionConfig) error {
 		}
 	}
 
-	if m.started {
+	m.mu.Lock()
+	started := m.started
+	m.mu.Unlock()
+
+	if started {
 		pool.Start()
 	}
 
@@ -334,17 +337,16 @@ func (m *Manager) replacePool(id registry.ID, cfg *api.FunctionConfig) error {
 
 // removePool stops and removes a pool.
 func (m *Manager) removePool(id registry.ID) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	v, exists := m.pools.LoadAndDelete(id)
+	if !exists {
+		return
+	}
+	entry := v.(*poolEntry)
+	entry.pool.Stop()
 
-	if entry, exists := m.pools[id]; exists {
-		entry.pool.Stop()
-		delete(m.pools, id)
-
-		// Unregister pool from relay
-		if m.node != nil {
-			m.node.UnregisterHost(id.String())
-		}
+	// Unregister pool from relay
+	if m.node != nil {
+		m.node.UnregisterHost(id.String())
 	}
 }
 

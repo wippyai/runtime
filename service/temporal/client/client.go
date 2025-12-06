@@ -100,7 +100,7 @@ func (c *Client) Stop(ctx context.Context) error {
 }
 
 // Acquire returns a resource handle for this client
-func (c *Client) Acquire(ctx context.Context, id registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
+func (c *Client) Acquire(_ context.Context, _ registry.ID, _ resource.AccessMode) (resource.Resource[any], error) {
 	if c.closed.Load() {
 		return nil, fmt.Errorf("client is closed")
 	}

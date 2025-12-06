@@ -3,6 +3,7 @@ package sql
 import (
 	"sync"
 
+	sqlapi "github.com/wippyai/runtime/api/dispatcher/sql"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	servicesql "github.com/wippyai/runtime/api/service/sql"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -30,60 +31,17 @@ const (
 )
 
 var (
-	moduleTable          *lua.LTable
-	registration         *luaapi.Registration
-	dbMetatable          *lua.LTable
-	statementMetatable   *lua.LTable
-	transactionMetatable *lua.LTable
-	initOnce             sync.Once
+	moduleTable *lua.LTable
+	initOnce    sync.Once
 )
 
-// Module is the singleton sql module instance.
-var Module = &sqlModule{}
-
-type sqlModule struct{}
-
-func (m *sqlModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        "sql",
-		Description: "SQL database operations",
-		Class:       []string{luaapi.ClassStorage, luaapi.ClassIO, luaapi.ClassNondeterministic},
-	}
+func init() {
+	value.RegisterTypeMethods(nil, dbTypeName, nil, dbMethods)
+	value.RegisterTypeMethods(nil, statementTypeName, nil, statementMethods)
+	value.RegisterTypeMethods(nil, transactionTypeName, nil, transactionMethods)
 }
 
-func (m *sqlModule) Register(l *lua.LState) *luaapi.Registration {
-	initOnce.Do(func() {
-		moduleTable = createModuleTable()
-		dbMetatable = value.RegisterTypeMethods(nil, dbTypeName,
-			map[string]lua.LGFunction{"__tostring": dbToString},
-			dbMethods)
-		statementMetatable = value.RegisterTypeMethods(nil, statementTypeName,
-			map[string]lua.LGFunction{"__tostring": statementToString},
-			statementMethods)
-		transactionMetatable = value.RegisterTypeMethods(nil, transactionTypeName,
-			map[string]lua.LGFunction{"__tostring": transactionToString},
-			transactionMethods)
-		registration = &luaapi.Registration{
-			Table:      moduleTable,
-			YieldTypes: nil,
-		}
-	})
-
-	return registration
-}
-
-func (m *sqlModule) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	l.Push(reg.Table)
-	return 1
-}
-
-// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
-func Bind(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
-}
-
-func createModuleTable() *lua.LTable {
+func initModuleTable() {
 	mod := lua.CreateTable(0, 5)
 
 	mod.RawSetString("get", lua.LGoFunc(sqlGet))
@@ -112,7 +70,31 @@ func createModuleTable() *lua.LTable {
 	mod.RawSetString("isolation", isolation)
 
 	mod.Immutable = true
-	return mod
+	moduleTable = mod
+}
+
+// Module is the sql module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "sql",
+	Description: "SQL database operations",
+	Class:       []string{luaapi.ClassStorage, luaapi.ClassIO, luaapi.ClassNondeterministic},
+	Build: func() (*lua.LTable, []luaapi.YieldType) {
+		initOnce.Do(initModuleTable)
+		return moduleTable, []luaapi.YieldType{
+			{Sample: &QueryYield{}, CmdID: sqlapi.CmdQuery},
+			{Sample: &ExecuteYield{}, CmdID: sqlapi.CmdExecute},
+			{Sample: &PrepareYield{}, CmdID: sqlapi.CmdPrepare},
+			{Sample: &BeginYield{}, CmdID: sqlapi.CmdBegin},
+			{Sample: &StmtQueryYield{}, CmdID: sqlapi.CmdStmtQuery},
+			{Sample: &StmtExecuteYield{}, CmdID: sqlapi.CmdStmtExecute},
+			{Sample: &StmtCloseYield{}, CmdID: sqlapi.CmdStmtClose},
+			{Sample: &TxQueryYield{}, CmdID: sqlapi.CmdTxQuery},
+			{Sample: &TxExecuteYield{}, CmdID: sqlapi.CmdTxExecute},
+			{Sample: &TxPrepareYield{}, CmdID: sqlapi.CmdTxPrepare},
+			{Sample: &TxCommitYield{}, CmdID: sqlapi.CmdTxCommit},
+			{Sample: &TxRollbackYield{}, CmdID: sqlapi.CmdTxRollback},
+		}
+	},
 }
 
 func mapDBTypeFromResourceKind(dbType string) string {

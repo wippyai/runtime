@@ -7,6 +7,7 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 )
@@ -45,51 +46,52 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(function.AsyncCancel, d.asyncCancel)
 }
 
-func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
+func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, tag any, receiver process.ResultReceiver) error {
 	callCmd := cmd.(*function.CallCmd)
 
 	registry := function.GetRegistry(ctx)
 	if registry == nil {
-		complete.Complete(function.CallResult{Error: function.ErrRegistryNotFound}, nil)
+		receiver.CompleteYield(tag, function.CallResult{Error: function.ErrRegistryNotFound}, nil)
 		return nil
 	}
 
 	go func() {
 		result, err := registry.Call(ctx, callCmd.Task)
 		if ctx.Err() != nil {
+			receiver.CompleteYield(tag, function.CallResult{Error: ctx.Err()}, nil)
 			return
 		}
 		if err != nil {
-			complete.Complete(function.CallResult{Error: err}, nil)
+			receiver.CompleteYield(tag, function.CallResult{Error: err}, nil)
 			return
 		}
 		if result.Error != nil {
-			complete.Complete(function.CallResult{Error: result.Error}, nil)
+			receiver.CompleteYield(tag, function.CallResult{Error: result.Error}, nil)
 			return
 		}
-		complete.Complete(function.CallResult{Value: result.Value}, nil)
+		receiver.CompleteYield(tag, function.CallResult{Value: result.Value}, nil)
 	}()
 
 	return nil
 }
 
-func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
+func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Command, tag any, receiver process.ResultReceiver) error {
 	startCmd := cmd.(*function.AsyncStartCmd)
 
 	registry := function.GetRegistry(ctx)
 	if registry == nil {
-		complete.Complete(function.AsyncStartResult{Error: function.ErrRegistryNotFound}, nil)
+		receiver.CompleteYield(tag, function.AsyncStartResult{Error: function.ErrRegistryNotFound}, nil)
 		return nil
 	}
 
 	if d.node == nil {
-		complete.Complete(function.AsyncStartResult{Error: function.ErrNodeNotFound}, nil)
+		receiver.CompleteYield(tag, function.AsyncStartResult{Error: function.ErrNodeNotFound}, nil)
 		return nil
 	}
 
 	pid, ok := runtime.GetFramePID(ctx)
 	if !ok {
-		complete.Complete(function.AsyncStartResult{Error: function.ErrPIDNotFound}, nil)
+		receiver.CompleteYield(tag, function.AsyncStartResult{Error: function.ErrPIDNotFound}, nil)
 		return nil
 	}
 
@@ -119,21 +121,21 @@ func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Comman
 	}()
 
 	// Confirm start immediately
-	complete.Complete(function.AsyncStartResult{}, nil)
+	receiver.CompleteYield(tag, function.AsyncStartResult{}, nil)
 	return nil
 }
 
-func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Command, complete dispatcher.Completer) error {
+func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Command, tag any, receiver process.ResultReceiver) error {
 	cancelCmd := cmd.(*function.AsyncCancelCmd)
 
 	if d.node == nil {
-		complete.Complete(nil, nil)
+		receiver.CompleteYield(tag, nil, nil)
 		return nil
 	}
 
 	pid, ok := runtime.GetFramePID(ctx)
 	if !ok {
-		complete.Complete(nil, nil)
+		receiver.CompleteYield(tag, nil, nil)
 		return nil
 	}
 
@@ -143,6 +145,6 @@ func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Comma
 	pkg := relay.NewPackage(relay.PID{}, pid, topic, payload.NewTerminal())
 	_ = d.node.Send(pkg)
 
-	complete.Complete(nil, nil)
+	receiver.CompleteYield(tag, nil, nil)
 	return nil
 }

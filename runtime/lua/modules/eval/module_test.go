@@ -23,10 +23,6 @@ import (
 // TestEvalModule_SandboxWithSleep tests Lua code creating a sandbox and stepping through
 // a child process that sleeps. This is the key integration test.
 func TestEvalModule_SandboxWithSleep(t *testing.T) {
-	// Disable main state pooling for this test to avoid pool corruption issues
-	lua.DisableMainStatePooling()
-	defer lua.EnableMainStatePooling()
-
 	// Setup: Create eval host with modules
 	modules := []luaapi.ModuleV2{
 		json.Module,
@@ -119,10 +115,11 @@ func TestEvalModule_SandboxWithSleep(t *testing.T) {
 
 	// Step through parent - it should complete without external yields
 	// because sandbox stepping is internal
-	step, err := proc.Step(nil)
+	var output process.StepOutput
+	err = proc.Step(nil, &output)
 	require.NoError(t, err)
 
-	t.Logf("Parent completed with status: %v", step.Status)
+	t.Logf("Parent completed with status: %v", output.Status())
 }
 
 // TestEvalModule_SandboxYieldTranscoding tests that yields are properly transcoded to Lua tables
@@ -147,7 +144,6 @@ func TestEvalModule_SandboxYieldTranscoding(t *testing.T) {
 		wantType string
 	}{
 		{"sleep", clockapi.SleepCmd{Duration: 50 * time.Millisecond}, "sleep"},
-		{"now", clockapi.NowCmd{}, "now"},
 		{"ticker_start", clockapi.TickerStartCmd{Duration: 100 * time.Millisecond}, "ticker_start"},
 		{"ticker_next", clockapi.TickerNextCmd{TickerID: 1}, "ticker_next"},
 		{"ticker_stop", clockapi.TickerStopCmd{TickerID: 1}, "ticker_stop"},
@@ -155,7 +151,6 @@ func TestEvalModule_SandboxYieldTranscoding(t *testing.T) {
 		{"timer_wait", clockapi.TimerWaitCmd{TimerID: 1}, "timer_wait"},
 		{"timer_stop", clockapi.TimerStopCmd{TimerID: 1}, "timer_stop"},
 		{"timer_reset", clockapi.TimerResetCmd{TimerID: 1, Duration: 100 * time.Millisecond}, "timer_reset"},
-		{"after", clockapi.AfterCmd{Duration: 50 * time.Millisecond}, "after"},
 	}
 
 	state := lua.NewState()
@@ -322,18 +317,15 @@ func TestEvalModule_SandboxMethods(t *testing.T) {
 	err = proc.Init(ctx, "", nil)
 	require.NoError(t, err)
 
-	step, err := proc.Step(nil)
+	var out process.StepOutput
+	err = proc.Step(nil, &out)
 	require.NoError(t, err)
-	assert.Equal(t, process.StepDone, step.Status)
+	assert.Equal(t, process.StepDone, out.Status())
 }
 
 // TestEvalModule_SandboxManualDispatch tests sandbox with manual dispatch of yields
 func TestEvalModule_SandboxManualDispatch(t *testing.T) {
 	t.Skip("Skipping: known issue with sealed frame context in nested sandbox execution")
-
-	// Disable main state pooling for this test to avoid pool corruption issues
-	lua.DisableMainStatePooling()
-	defer lua.EnableMainStatePooling()
 
 	modules := []luaapi.ModuleV2{
 		json.Module,
@@ -415,18 +407,15 @@ func TestEvalModule_SandboxManualDispatch(t *testing.T) {
 	err = proc.Init(ctx, "", nil)
 	require.NoError(t, err)
 
-	step, err := proc.Step(nil)
+	var stepOut process.StepOutput
+	err = proc.Step(nil, &stepOut)
 	require.NoError(t, err)
 
-	t.Logf("Step status: %v, yields: %d", step.Status, step.YieldCount())
+	t.Logf("Step status: %v, yields: %d", stepOut.Status(), len(stepOut.Yields()))
 }
 
 // TestEvalModule_ProgramMethods tests Program userdata methods
 func TestEvalModule_ProgramMethods(t *testing.T) {
-	// Disable main state pooling to avoid pool corruption issues
-	lua.DisableMainStatePooling()
-	defer lua.EnableMainStatePooling()
-
 	modules := []luaapi.ModuleV2{
 		json.Module,
 		timemod.Module,
@@ -478,10 +467,6 @@ func TestEvalModule_ProgramMethods(t *testing.T) {
 
 // TestEvalModule_ErrorCases tests various error conditions
 func TestEvalModule_ErrorCases(t *testing.T) {
-	// Disable main state pooling to avoid pool corruption issues
-	lua.DisableMainStatePooling()
-	defer lua.EnableMainStatePooling()
-
 	modules := []luaapi.ModuleV2{
 		json.Module,
 		timemod.Module,
@@ -516,9 +501,10 @@ func TestEvalModule_ErrorCases(t *testing.T) {
 		err = proc.Init(badCtx, "", nil)
 		require.NoError(t, err)
 
-		step, _ := proc.Step(nil)
+		var step1 process.StepOutput
+		proc.Step(nil, &step1)
 		// Should complete but with error in result
-		assert.Equal(t, process.StepDone, step.Status)
+		assert.Equal(t, process.StepDone, step1.Status())
 	})
 
 	t.Run("sandbox_execute_twice", func(t *testing.T) {
@@ -545,8 +531,9 @@ func TestEvalModule_ErrorCases(t *testing.T) {
 		err = proc.Init(ctx, "", nil)
 		require.NoError(t, err)
 
-		step, _ := proc.Step(nil)
-		assert.Equal(t, process.StepDone, step.Status)
+		var step2 process.StepOutput
+		proc.Step(nil, &step2)
+		assert.Equal(t, process.StepDone, step2.Status())
 	})
 
 	t.Run("sandbox_step_before_execute", func(t *testing.T) {
@@ -572,8 +559,9 @@ func TestEvalModule_ErrorCases(t *testing.T) {
 		err = proc.Init(ctx, "", nil)
 		require.NoError(t, err)
 
-		step, _ := proc.Step(nil)
-		assert.Equal(t, process.StepDone, step.Status)
+		var step3 process.StepOutput
+		proc.Step(nil, &step3)
+		assert.Equal(t, process.StepDone, step3.Status())
 	})
 }
 
@@ -606,10 +594,6 @@ func (r *testRegistry) Dispatch(cmd dispatcher.Command) dispatcher.Handler {
 // 3. Tests multiple yield types (sleep, now)
 // 4. Verifies resource cleanup
 func TestEvalModule_ComprehensiveIntegration(t *testing.T) {
-	// Disable main state pooling to avoid pool corruption issues
-	lua.DisableMainStatePooling()
-	defer lua.EnableMainStatePooling()
-
 	modules := []luaapi.ModuleV2{
 		json.Module,
 		timemod.Module,
@@ -752,9 +736,10 @@ func TestEvalModule_ComprehensiveIntegration(t *testing.T) {
 	err = proc.Init(ctx, "", nil)
 	require.NoError(t, err)
 
-	step, err := proc.Step(nil)
+	var stepIntegration process.StepOutput
+	err = proc.Step(nil, &stepIntegration)
 	require.NoError(t, err)
-	assert.Equal(t, process.StepDone, step.Status)
+	assert.Equal(t, process.StepDone, stepIntegration.Status())
 
 	// Process completed successfully - the Lua script internally verifies
 	// the sandbox worked correctly with multiple modules and yields
@@ -765,10 +750,6 @@ func TestEvalModule_ComprehensiveIntegration(t *testing.T) {
 
 // TestEvalModule_SandboxResourceCleanup verifies sandbox resources are cleaned when parent exits
 func TestEvalModule_SandboxResourceCleanup(t *testing.T) {
-	// Disable main state pooling to avoid pool corruption issues
-	lua.DisableMainStatePooling()
-	defer lua.EnableMainStatePooling()
-
 	modules := []luaapi.ModuleV2{
 		json.Module,
 		timemod.Module,
@@ -810,7 +791,8 @@ func TestEvalModule_SandboxResourceCleanup(t *testing.T) {
 	err = proc.Init(ctx, "", nil)
 	require.NoError(t, err)
 
-	_, err = proc.Step(nil)
+	var cleanupOut process.StepOutput
+	err = proc.Step(nil, &cleanupOut)
 	require.NoError(t, err)
 
 	// Close process - this should trigger cleanup of sandbox resources
@@ -822,10 +804,6 @@ func TestEvalModule_SandboxResourceCleanup(t *testing.T) {
 
 // TestEvalModule_MultipleModulesLoaded verifies all requested modules are available
 func TestEvalModule_MultipleModulesLoaded(t *testing.T) {
-	// Disable main state pooling to avoid pool corruption issues
-	lua.DisableMainStatePooling()
-	defer lua.EnableMainStatePooling()
-
 	modules := []luaapi.ModuleV2{
 		json.Module,
 		timemod.Module,
@@ -888,9 +866,10 @@ func TestEvalModule_MultipleModulesLoaded(t *testing.T) {
 	err = proc.Init(ctx, "", nil)
 	require.NoError(t, err)
 
-	step, err := proc.Step(nil)
+	var multiModOut process.StepOutput
+	err = proc.Step(nil, &multiModOut)
 	require.NoError(t, err)
-	assert.Equal(t, process.StepDone, step.Status)
+	assert.Equal(t, process.StepDone, multiModOut.Status())
 
 	// If we get StepDone without errors, the sandbox successfully loaded
 	// and executed code using both time and json modules
@@ -902,10 +881,6 @@ func TestEvalModule_MultipleModulesLoaded(t *testing.T) {
 // TestEvalModule_YieldObservation tests that we can observe yields in detail
 func TestEvalModule_YieldObservation(t *testing.T) {
 	t.Skip("Skipping: known issue with sealed frame context in nested sandbox execution")
-
-	// Disable main state pooling to avoid pool corruption issues
-	lua.DisableMainStatePooling()
-	defer lua.EnableMainStatePooling()
 
 	modules := []luaapi.ModuleV2{
 		json.Module,
@@ -977,9 +952,10 @@ func TestEvalModule_YieldObservation(t *testing.T) {
 	err = proc.Init(ctx, "", nil)
 	require.NoError(t, err)
 
-	step, err := proc.Step(nil)
+	var observeOut process.StepOutput
+	err = proc.Step(nil, &observeOut)
 	require.NoError(t, err)
-	assert.Equal(t, process.StepDone, step.Status)
+	assert.Equal(t, process.StepDone, observeOut.Status())
 
 	// Process completed - the Lua script internally observes and counts 3 sleep yields
 	// If there were issues with yield observation, the script would error/hang
@@ -1027,7 +1003,8 @@ func BenchmarkSandboxCreateExecuteStep(b *testing.B) {
 			}),
 		)
 		proc.Init(ctx, "", nil)
-		proc.Step(nil)
+		var benchOut process.StepOutput
+		proc.Step(nil, &benchOut)
 		proc.Close()
 	}
 }

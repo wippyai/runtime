@@ -25,7 +25,6 @@ entries:
     pool:
       type: static
       size: 16
-      buffer: 1024
 
   # app.api:hello.endpoint - HTTP endpoint
   - name: hello.endpoint

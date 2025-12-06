@@ -162,12 +162,16 @@ func (s *Scheduler) Submit(ctx context.Context, pid relay.PID, p Process, method
 	proc.id = s.nextID.Add(1)
 	proc.pid = pid
 	proc.Process = p
-	proc.State = StateReady
+	proc.SetState(StateReady)
 	proc.ctx = ctx
 	proc.scheduler = s
 
+	// Reset queue for this execution and cache generation
+	proc.queue.Reset()
+	proc.gen.Store(proc.queue.Generation())
+
 	s.processorCount.Add(1)
-	s.byPID.Store(pid, p)
+	s.byPID.Store(pid, proc)
 
 	s.global.Push(proc)
 	s.wake()
@@ -186,11 +190,15 @@ func (s *Scheduler) SendTo(procID uint64, pkg *relay.Package) error {
 	}
 
 	proc := val.(*Processor)
-	if err := proc.Process.Send(pkg); err != nil {
-		return err
+	// Push message event to processor's queue with generation check
+	if !proc.queue.Push(process.Event{
+		Type: process.EventMessage,
+		Data: pkg,
+	}, proc.gen.Load()) {
+		return ErrProcessClosed
 	}
 
-	proc.State = StateReady
+	proc.SetState(StateReady)
 	s.global.Push(proc)
 	s.wake()
 	return nil
@@ -200,10 +208,10 @@ func (s *Scheduler) Cancel(procID uint64) {
 	s.idleProcs.Delete(procID)
 }
 
-func (s *Scheduler) complete(proc *Processor, result *StepResult, err error) {
+func (s *Scheduler) complete(proc *Processor, result *StepOutput, err error) {
 	res := &runtime.Result{Error: err}
-	if result != nil && result.Result != nil {
-		res.Value = result.Result
+	if result != nil && result.Result() != nil {
+		res.Value = result.Result()
 	}
 
 	if !proc.pooled {
@@ -239,13 +247,17 @@ func (s *Scheduler) CreateProcessor(pid relay.PID, p Process) (*Processor, error
 	proc.id = s.nextID.Add(1)
 	proc.pid = pid
 	proc.Process = p
-	proc.State = StateReady
+	proc.SetState(StateReady)
 	proc.scheduler = s
 	proc.pooled = true
 	proc.resultCh = make(chan *runtime.Result, 1)
 
+	// Reset queue for this execution and cache generation
+	proc.queue.Reset()
+	proc.gen.Store(proc.queue.Generation())
+
 	s.processorCount.Add(1)
-	s.byPID.Store(pid, p)
+	s.byPID.Store(pid, proc)
 
 	return proc, nil
 }
@@ -256,12 +268,37 @@ func (s *Scheduler) ReleaseProcessor(proc *Processor) {
 }
 
 // Send implements relay.Receiver. Routes package to target process.
+// Wakes the process if it's idle waiting for messages.
 func (s *Scheduler) Send(pkg *relay.Package) error {
 	v, ok := s.byPID.Load(pkg.Target)
 	if !ok {
 		return &ProcessNotFoundError{PID: pkg.Target}
 	}
-	return v.(Process).Send(pkg)
+	proc := v.(*Processor)
+
+	// Push message event to processor's queue with generation check
+	if !proc.queue.Push(process.Event{
+		Type: process.EventMessage,
+		Data: pkg,
+	}, proc.gen.Load()) {
+		return ErrProcessClosed
+	}
+
+	// Try to wake idle process
+	s.idleProcs.Range(func(key, value any) bool {
+		idleProc := value.(*Processor)
+		if idleProc.pid == pkg.Target {
+			if s.idleProcs.CompareAndDelete(key, value) {
+				idleProc.SetState(StateReady)
+				s.global.Push(idleProc)
+				s.wake()
+			}
+			return false
+		}
+		return true
+	})
+
+	return nil
 }
 
 func (s *Scheduler) parkIdle(proc *Processor) {
@@ -318,8 +355,8 @@ func (s *Scheduler) CollectProcessStats() []any {
 	var stats []any
 
 	s.byPID.Range(func(_, value any) bool {
-		p := value.(Process)
-		if sp, ok := p.(StatsProvider); ok {
+		proc := value.(*Processor)
+		if sp, ok := proc.Process.(StatsProvider); ok {
 			if s := sp.Stats(); s != nil {
 				stats = append(stats, s)
 			}

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 )
@@ -29,16 +30,18 @@ func TestWorkerExecuteSimple(t *testing.T) {
 	proc := &Processor{
 		id:        1,
 		Process:   p,
-		State:     StateReady,
 		scheduler: sched,
+		queue:     process.NewEventQueue(),
 	}
+	proc.SetState(StateReady)
 
 	worker.executeOne(proc)
 
-	// After executeOne with sync handler (YieldHandler calls Emit immediately),
-	// state should be StateReady (re-queued for next step)
-	if proc.State != StateReady {
-		t.Fatalf("expected StateReady after sync handler, got %v", proc.State)
+	// After executeOne with async handler (YieldHandler spawns goroutine),
+	// state could be StateBlocked (waiting) or StateReady (if goroutine completed fast)
+	state := proc.State()
+	if state != StateBlocked && state != StateReady {
+		t.Fatalf("expected StateBlocked or StateReady after async handler, got %v", state)
 	}
 }
 
@@ -63,15 +66,16 @@ func TestWorkerExecuteToCompletion(t *testing.T) {
 		id:        1,
 		pid:       testPID(),
 		Process:   p,
-		State:     StateReady,
 		scheduler: sched,
+		queue:     process.NewEventQueue(),
 	}
+	proc.SetState(StateReady)
 
 	// First step - yields
 	worker.executeOne(proc)
 
 	// Simulate handler completion
-	proc.Complete(nil, nil)
+	proc.CompleteYield(nil, nil, nil)
 
 	// Second step - completes
 	worker.executeOne(proc)
@@ -156,16 +160,9 @@ func TestWorkerMetrics(t *testing.T) {
 }
 
 func TestWorkerUnknownCommand(t *testing.T) {
-	var errorReceived error
-
-	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
-			errorReceived = result.Error
-		},
-	}
 	registry := NewRegistry()
 	// Don't register any handlers
-	sched := NewScheduler(registry, WithWorkers(1), WithLifecycle(lc))
+	sched := NewScheduler(registry, WithWorkers(1))
 	worker := sched.workers[0]
 
 	p := &CounterProcess{}
@@ -175,18 +172,37 @@ func TestWorkerUnknownCommand(t *testing.T) {
 		id:        1,
 		pid:       testPID(),
 		Process:   p,
-		State:     StateReady,
 		scheduler: sched,
+		queue:     process.NewEventQueue(),
 	}
+	proc.SetState(StateReady)
 
 	worker.executeOne(proc)
 
-	if errorReceived == nil {
-		t.Fatal("expected error for unknown command")
+	// With the new architecture, unknown command errors are delivered
+	// as events to the process, not as fatal errors. Check queue has events.
+	if !proc.queue.HasEvents() {
+		t.Fatal("expected error event in queue for unknown command")
 	}
 
-	if _, ok := errorReceived.(*UnknownCommandError); !ok {
-		t.Fatalf("expected UnknownCommandError, got %T", errorReceived)
+	events := proc.queue.Drain()
+	if len(events) == 0 {
+		t.Fatal("expected at least one error event")
+	}
+
+	// Check the error type
+	var foundError bool
+	for _, e := range events {
+		if e.Error != nil {
+			if _, ok := e.Error.(*UnknownCommandError); ok {
+				foundError = true
+				break
+			}
+		}
+	}
+
+	if !foundError {
+		t.Fatal("expected UnknownCommandError in event queue")
 	}
 }
 
@@ -204,9 +220,10 @@ func BenchmarkWorkerExecute(b *testing.B) {
 		proc := &Processor{
 			id:        uint64(i),
 			Process:   p,
-			State:     StateReady,
 			scheduler: sched,
+			queue:     process.NewEventQueue(),
 		}
+		proc.SetState(StateReady)
 
 		worker.executeOne(proc)
 	}

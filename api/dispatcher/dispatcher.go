@@ -10,15 +10,15 @@ import (
 
 // Type aliases - use process directly in new code.
 type (
-	CommandID   = process.CommandID
-	Command     = process.Command
-	Completer   = process.Completer
-	Handler     = process.Handler
-	HandlerFunc = process.HandlerFunc
-	Dispatcher  = process.Dispatcher
-	Registry    = process.Registry
-	Registrar   = process.Registrar
-	Freezer     = process.Freezer
+	CommandID      = process.CommandID
+	Command        = process.Command
+	ResultReceiver = process.ResultReceiver
+	Handler        = process.Handler
+	HandlerFunc    = process.HandlerFunc
+	Dispatcher     = process.Dispatcher
+	Registry       = process.Registry
+	Registrar      = process.Registrar
+	Freezer        = process.Freezer
 )
 
 // Re-export constants

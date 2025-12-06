@@ -164,40 +164,33 @@ func (s *Static) Call(ctx context.Context, method string, input payload.Payloads
 
 	req := acquireRequest(ctx, method, input)
 
-	// Try to submit request to worker queue
+	// Fast path: try non-blocking send first (avoids select overhead when queue has room)
 	select {
 	case s.tasks <- req:
-	case <-ctx.Done():
-		releaseRequest(req)
-		return nil, ctx.Err()
-	case <-s.done:
-		releaseRequest(req)
-		return nil, ErrPoolClosed
+	default:
+		// Queue full - fall back to blocking with cancellation
+		select {
+		case s.tasks <- req:
+		case <-ctx.Done():
+			releaseRequest(req)
+			return nil, ctx.Err()
+		case <-s.done:
+			releaseRequest(req)
+			return nil, ErrPoolClosed
+		}
 	}
 
-	// Wait for worker to complete. We must always wait for the result
-	// before releasing the request, even if context is cancelled or pool stops.
-	// Worker checks ctx.Done() in yield handling and returns early.
-	// We cannot return until worker is done to prevent races with ResponseWriter.
-	var result *runtime.Result
-	var poolStopped bool
+	// Wait for result - worker owns request now, it will be released by worker
+	// We only wait for the result or give up on context cancellation
 	select {
-	case result = <-req.resultCh:
-	case <-s.done:
-		poolStopped = true
-		result = <-req.resultCh
-	}
-
-	releaseRequest(req)
-
-	// Return appropriate error based on what happened
-	if poolStopped {
-		return nil, ErrPoolClosed
-	}
-	if ctx.Err() != nil {
+	case result := <-req.resultCh:
+		releaseRequest(req)
+		return result, nil
+	case <-ctx.Done():
+		// Context cancelled but worker may still be using request
+		// Don't release here - worker will release after execution
 		return nil, ctx.Err()
 	}
-	return result, nil
 }
 
 // run is the worker's main loop.
@@ -229,20 +222,31 @@ func (w *staticWorker) drain() {
 
 // execute runs a single request.
 func (w *staticWorker) execute(req *request) {
-	// Get PID from frame context (set by function registry)
 	ctx := req.ctx
+
+	// Check if already cancelled
+	select {
+	case <-ctx.Done():
+		releaseRequest(req)
+		return
+	default:
+	}
+
+	// Get PID from frame context (set by function registry)
 	pid, _ := runtime.GetFramePID(ctx)
 	w.pool.active.Store(pid.UniqID, w.executor)
 
 	result := w.executor.Run(ctx, w.process, req.method, req.input)
 
 	// Unregister - any Send after this returns ErrProcessNotFound
-	// inbox was already cleared by Run's defer
 	w.pool.active.Delete(pid.UniqID)
 
-	// Process is ready for reuse - clearExecution() was called by Step
+	// Send result - non-blocking since caller may have given up
 	select {
 	case req.resultCh <- result:
+		// Caller will release
 	default:
+		// Caller gave up, we release
+		releaseRequest(req)
 	}
 }

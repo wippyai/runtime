@@ -102,32 +102,32 @@ func TestGoToLua_BasicTypes(t *testing.T) {
 			name:  "int",
 			input: 42,
 			check: func(t *testing.T, lv lua.LValue) {
-				assert.Equal(t, lua.LTNumber, lv.Type())
-				assert.Equal(t, float64(42), float64(lv.(lua.LNumber)))
+				assert.Equal(t, lua.LTInteger, lv.Type())
+				assert.Equal(t, int64(42), int64(lv.(lua.LInteger)))
 			},
 		},
 		{
 			name:  "int32",
 			input: int32(42),
 			check: func(t *testing.T, lv lua.LValue) {
-				assert.Equal(t, lua.LTNumber, lv.Type())
-				assert.Equal(t, float64(42), float64(lv.(lua.LNumber)))
+				assert.Equal(t, lua.LTInteger, lv.Type())
+				assert.Equal(t, int64(42), int64(lv.(lua.LInteger)))
 			},
 		},
 		{
 			name:  "int64",
 			input: int64(42),
 			check: func(t *testing.T, lv lua.LValue) {
-				assert.Equal(t, lua.LTNumber, lv.Type())
-				assert.Equal(t, float64(42), float64(lv.(lua.LNumber)))
+				assert.Equal(t, lua.LTInteger, lv.Type())
+				assert.Equal(t, int64(42), int64(lv.(lua.LInteger)))
 			},
 		},
 		{
 			name:  "int64 large",
 			input: int64(9007199254740992), // 2^53, max safe integer in float64
 			check: func(t *testing.T, lv lua.LValue) {
-				assert.Equal(t, lua.LTNumber, lv.Type())
-				assert.Equal(t, float64(9007199254740992), float64(lv.(lua.LNumber)))
+				assert.Equal(t, lua.LTInteger, lv.Type())
+				assert.Equal(t, int64(9007199254740992), int64(lv.(lua.LInteger)))
 			},
 		},
 		{
@@ -224,9 +224,9 @@ func TestGoToLua_Slices(t *testing.T) {
 			check: func(t *testing.T, lv lua.LValue) {
 				tbl := lv.(*lua.LTable)
 				assert.Equal(t, 3, tbl.MaxN())
-				assert.Equal(t, float64(1), float64(tbl.RawGetInt(1).(lua.LNumber)))
-				assert.Equal(t, float64(2), float64(tbl.RawGetInt(2).(lua.LNumber)))
-				assert.Equal(t, float64(3), float64(tbl.RawGetInt(3).(lua.LNumber)))
+				assert.Equal(t, int64(1), int64(tbl.RawGetInt(1).(lua.LInteger)))
+				assert.Equal(t, int64(2), int64(tbl.RawGetInt(2).(lua.LInteger)))
+				assert.Equal(t, int64(3), int64(tbl.RawGetInt(3).(lua.LInteger)))
 			},
 		},
 		{
@@ -247,8 +247,8 @@ func TestGoToLua_Slices(t *testing.T) {
 				tbl := lv.(*lua.LTable)
 				assert.Equal(t, 2, tbl.MaxN())
 				inner1 := tbl.RawGetInt(1).(*lua.LTable)
-				assert.Equal(t, float64(1), float64(inner1.RawGetInt(1).(lua.LNumber)))
-				assert.Equal(t, float64(2), float64(inner1.RawGetInt(2).(lua.LNumber)))
+				assert.Equal(t, int64(1), int64(inner1.RawGetInt(1).(lua.LInteger)))
+				assert.Equal(t, int64(2), int64(inner1.RawGetInt(2).(lua.LInteger)))
 			},
 		},
 		{
@@ -259,7 +259,7 @@ func TestGoToLua_Slices(t *testing.T) {
 				// MaxN returns last non-nil contiguous index; trailing nil doesn't extend it
 				assert.Equal(t, 3, tbl.MaxN())
 				assert.Equal(t, "string", string(tbl.RawGetInt(1).(lua.LString)))
-				assert.Equal(t, float64(42), float64(tbl.RawGetInt(2).(lua.LNumber)))
+				assert.Equal(t, int64(42), int64(tbl.RawGetInt(2).(lua.LInteger)))
 				assert.Equal(t, true, bool(tbl.RawGetInt(3).(lua.LBool)))
 				assert.Equal(t, lua.LTNil, tbl.RawGetInt(4).Type())
 			},
@@ -304,8 +304,8 @@ func TestGoToLua_Maps(t *testing.T) {
 			input: map[string]int{"a": 1, "b": 2},
 			check: func(t *testing.T, lv lua.LValue) {
 				tbl := lv.(*lua.LTable)
-				assert.Equal(t, float64(1), float64(tbl.RawGetString("a").(lua.LNumber)))
-				assert.Equal(t, float64(2), float64(tbl.RawGetString("b").(lua.LNumber)))
+				assert.Equal(t, int64(1), int64(tbl.RawGetString("a").(lua.LInteger)))
+				assert.Equal(t, int64(2), int64(tbl.RawGetString("b").(lua.LInteger)))
 			},
 		},
 		{
@@ -369,7 +369,7 @@ func TestGoToLua_Structs(t *testing.T) {
 			check: func(t *testing.T, lv lua.LValue) {
 				tbl := lv.(*lua.LTable)
 				assert.Equal(t, "test", string(tbl.RawGetString("name").(lua.LString)))
-				assert.Equal(t, float64(42), float64(tbl.RawGetString("age").(lua.LNumber)))
+				assert.Equal(t, int64(42), int64(tbl.RawGetString("age").(lua.LInteger)))
 			},
 		},
 		{
@@ -845,7 +845,7 @@ func TestGoToLua_EdgeCases(t *testing.T) {
 
 		tbl := lv.(*lua.LTable)
 		assert.Equal(t, 10000, tbl.MaxN())
-		assert.Equal(t, float64(9999), float64(tbl.RawGetInt(10000).(lua.LNumber)))
+		assert.Equal(t, int64(9999), int64(tbl.RawGetInt(10000).(lua.LInteger)))
 	})
 
 	t.Run("large map", func(t *testing.T) {

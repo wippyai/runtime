@@ -28,7 +28,7 @@ func (p *slowYieldingProcess) Init(_ context.Context, _ string, input payload.Pa
 	return nil
 }
 
-func (p *slowYieldingProcess) Step(results *process.YieldResults) (process.StepResult, error) {
+func (p *slowYieldingProcess) Step(events []process.Event, out *process.StepOutput) error {
 	p.mu.Lock()
 	p.steps++
 	step := p.steps
@@ -41,11 +41,13 @@ func (p *slowYieldingProcess) Step(results *process.YieldResults) (process.StepR
 	}
 
 	if step >= maxSteps {
-		return process.StepResult{Status: process.StepDone}, nil
+		out.Done(nil)
+		return nil
 	}
 
 	// Return continue (no yields means instant continue)
-	return process.StepResult{Status: process.StepContinue}, nil
+	out.Continue()
+	return nil
 }
 
 func (p *slowYieldingProcess) Close() {
@@ -63,14 +65,92 @@ func (d *yieldingDispatcher) Dispatch(cmd dispatcher.Command) dispatcher.Handler
 
 type instantYieldHandler struct{}
 
-func (h *instantYieldHandler) Handle(_ context.Context, _ dispatcher.Command, complete dispatcher.Completer) error {
-	complete.Complete(nil, nil)
+func (h *instantYieldHandler) Handle(_ context.Context, _ dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+	go receiver.CompleteYield(tag, nil, nil)
+	return nil
+}
+
+// timerYieldDispatcher dispatches handlers that use time.AfterFunc
+type timerYieldDispatcher struct {
+	delay time.Duration
+}
+
+func (d *timerYieldDispatcher) Dispatch(cmd dispatcher.Command) dispatcher.Handler {
+	return &timerYieldHandler{delay: d.delay}
+}
+
+type timerYieldHandler struct {
+	delay time.Duration
+}
+
+func (h *timerYieldHandler) Handle(_ context.Context, _ dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+	time.AfterFunc(h.delay, func() {
+		receiver.CompleteYield(tag, nil, nil)
+	})
 	return nil
 }
 
 func newSlowYieldingFactory() Factory {
 	return func() (process.Process, error) {
 		return &slowYieldingProcess{}, nil
+	}
+}
+
+// actualYieldingProcess yields commands that need handler completion
+type actualYieldingProcess struct {
+	mu       sync.Mutex
+	steps    int
+	maxSteps int
+	closed   atomic.Bool
+	waiting  map[int]bool
+	nextTag  int
+}
+
+func (p *actualYieldingProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
+	p.maxSteps = 10
+	p.waiting = make(map[int]bool)
+	return nil
+}
+
+func (p *actualYieldingProcess) Step(events []process.Event, out *process.StepOutput) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Process completed yields
+	for _, ev := range events {
+		if ev.Type == process.EventYieldComplete {
+			tag := ev.Tag.(int)
+			delete(p.waiting, tag)
+		}
+	}
+
+	p.steps++
+	if p.steps >= p.maxSteps && len(p.waiting) == 0 {
+		out.Done(nil)
+		return nil
+	}
+
+	// Emit a yield
+	p.nextTag++
+	tag := p.nextTag
+	p.waiting[tag] = true
+	out.Yield(&testYieldCmd{}, tag)
+	return nil
+}
+
+func (p *actualYieldingProcess) Close() {
+	p.closed.Store(true)
+}
+
+func (p *actualYieldingProcess) Send(_ *relay.Package) error { return nil }
+
+type testYieldCmd struct{}
+
+func (c *testYieldCmd) CmdID() dispatcher.CommandID { return 1 }
+
+func newActualYieldingFactory() Factory {
+	return func() (process.Process, error) {
+		return &actualYieldingProcess{}, nil
 	}
 }
 
@@ -299,7 +379,7 @@ func (p *steppingPoolProcess) Init(_ context.Context, _ string, _ payload.Payloa
 	return nil
 }
 
-func (p *steppingPoolProcess) Step(results *process.YieldResults) (process.StepResult, error) {
+func (p *steppingPoolProcess) Step(events []process.Event, out *process.StepOutput) error {
 	p.stepping.Store(true)
 	defer p.stepping.Store(false)
 
@@ -307,10 +387,12 @@ func (p *steppingPoolProcess) Step(results *process.YieldResults) (process.StepR
 	time.Sleep(1 * time.Millisecond)
 
 	if p.steps.Load() >= 5 {
-		return process.StepResult{Status: process.StepDone}, nil
+		out.Done(nil)
+		return nil
 	}
 
-	return process.StepResult{Status: process.StepContinue}, nil
+	out.Continue()
+	return nil
 }
 
 func (p *steppingPoolProcess) Close()                      { p.closed.Store(true) }
@@ -464,6 +546,130 @@ func TestAllPoolsRapidStopStart(t *testing.T) {
 
 				// Wait for goroutines to finish
 				wg.Wait()
+			}
+		})
+	}
+}
+
+// TestTimerBasedYieldCancellation tests that timer-based yield handlers
+// don't race with context cancellation. This simulates time.AfterFunc
+// completing a yield while the context is being cancelled externally.
+func TestTimerBasedYieldCancellation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping stress test in short mode")
+	}
+
+	timerDispatcher := &timerYieldDispatcher{delay: 2 * time.Millisecond}
+
+	factories := map[string]func() (Pool, error){
+		"static": func() (Pool, error) {
+			return NewStatic(newActualYieldingFactory(), timerDispatcher, Config{Workers: 4})
+		},
+		"lazy": func() (Pool, error) {
+			return NewLazy(newActualYieldingFactory(), timerDispatcher, LazyConfig{MaxWorkers: 4})
+		},
+		"inline": func() (Pool, error) {
+			return NewInline(newActualYieldingFactory(), timerDispatcher)
+		},
+	}
+
+	for name, factory := range factories {
+		t.Run(name, func(t *testing.T) {
+			pool, err := factory()
+			if err != nil {
+				t.Fatalf("factory: %v", err)
+			}
+
+			pool.Start()
+
+			var wg sync.WaitGroup
+			var completed, cancelled atomic.Int64
+
+			// Fire 100 requests with very short timeouts
+			// The timer delay (2ms) should often fire after context is cancelled
+			for i := 0; i < 100; i++ {
+				wg.Add(1)
+				go func(id int) {
+					defer wg.Done()
+
+					// Short timeout: 1-5ms while handler takes 2ms
+					timeout := time.Duration(1+id%5) * time.Millisecond
+					ctx, cancel := context.WithTimeout(context.Background(), timeout)
+					defer cancel()
+
+					result, err := pool.Call(ctx, "test", nil)
+					if err != nil || (result != nil && result.Error != nil) {
+						cancelled.Add(1)
+					} else {
+						completed.Add(1)
+					}
+				}(i)
+			}
+
+			wg.Wait()
+			pool.Stop()
+
+			t.Logf("%s: completed=%d, cancelled=%d", name, completed.Load(), cancelled.Load())
+		})
+	}
+}
+
+// TestExternalCancellationDuringYield tests cancelling context externally
+// while a yield handler is in-flight. This is the most aggressive test.
+func TestExternalCancellationDuringYield(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping stress test in short mode")
+	}
+
+	// Use a 5ms timer delay to give us time to cancel externally
+	timerDispatcher := &timerYieldDispatcher{delay: 5 * time.Millisecond}
+
+	factories := map[string]func() (Pool, error){
+		"static": func() (Pool, error) {
+			return NewStatic(newActualYieldingFactory(), timerDispatcher, Config{Workers: 4})
+		},
+		"lazy": func() (Pool, error) {
+			return NewLazy(newActualYieldingFactory(), timerDispatcher, LazyConfig{MaxWorkers: 4})
+		},
+		"inline": func() (Pool, error) {
+			return NewInline(newActualYieldingFactory(), timerDispatcher)
+		},
+	}
+
+	for name, factory := range factories {
+		t.Run(name, func(t *testing.T) {
+			for iter := 0; iter < 20; iter++ {
+				pool, err := factory()
+				if err != nil {
+					t.Fatalf("factory: %v", err)
+				}
+
+				pool.Start()
+
+				var wg sync.WaitGroup
+
+				// Launch 10 requests with manual cancel
+				cancels := make([]context.CancelFunc, 10)
+				for i := 0; i < 10; i++ {
+					wg.Add(1)
+					ctx, cancel := context.WithCancel(context.Background())
+					cancels[i] = cancel
+					go func() {
+						defer wg.Done()
+						pool.Call(ctx, "test", nil)
+					}()
+				}
+
+				// Wait a bit for yields to be in-flight
+				time.Sleep(1 * time.Millisecond)
+
+				// Cancel all contexts while handlers are active
+				for _, cancel := range cancels {
+					cancel()
+				}
+
+				wg.Wait()
+				pool.Stop()
 			}
 		})
 	}

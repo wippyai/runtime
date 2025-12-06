@@ -25,7 +25,7 @@ type Manager struct {
 	dtt                payload.Transcoder
 	bus                event.Bus
 	env                env.Registry
-	factory            ClientFactory
+	factory            Factory
 	dataConverter      converter.DataConverter
 	clientInterceptors []interceptor.ClientInterceptor
 
@@ -77,7 +77,7 @@ func NewManagerWithFactory(
 	transcoder payload.Transcoder,
 	bus event.Bus,
 	envRegistry env.Registry,
-	factory ClientFactory,
+	factory Factory,
 	dataConverter converter.DataConverter,
 	clientInterceptors []interceptor.ClientInterceptor,
 ) (*Manager, error) {
@@ -118,7 +118,7 @@ func (m *Manager) Add(ctx context.Context, ent registry.Entry) error {
 
 	m.log.Debug("processing temporal client entry",
 		zap.String("id", ent.ID.String()),
-		zap.String("kind", string(ent.Kind)))
+		zap.String("kind", ent.Kind))
 
 	cfg, err := entry.DecodeEntryConfig[api.ClientConfig](ctx, m.dtt, ent)
 	if err != nil {
@@ -206,7 +206,7 @@ func (m *Manager) Update(ctx context.Context, ent registry.Entry) error {
 
 	m.log.Debug("updating temporal client entry",
 		zap.String("id", ent.ID.String()),
-		zap.String("kind", string(ent.Kind)))
+		zap.String("kind", ent.Kind))
 
 	cfg, err := entry.DecodeEntryConfig[api.ClientConfig](ctx, m.dtt, ent)
 	if err != nil {
@@ -261,7 +261,7 @@ func (m *Manager) Delete(ctx context.Context, ent registry.Entry) error {
 
 	m.log.Debug("deleting temporal client entry",
 		zap.String("id", ent.ID.String()),
-		zap.String("kind", string(ent.Kind)))
+		zap.String("kind", ent.Kind))
 
 	return m.DeleteClient(ctx, ent.ID)
 }

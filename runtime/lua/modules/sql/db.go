@@ -74,26 +74,27 @@ func sqlGet(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no context"))
+		l.Push(lua.NewLuaError(l, "no context").WithKind(lua.KindInternal))
 		return 2
 	}
 
 	id := l.CheckString(1)
 	if id == "" {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("resource id is required"))
+		l.Push(lua.NewLuaError(l, "resource id is required").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
 	if !security.IsAllowed(ctx, "db.get", id, nil) {
-		l.RaiseError("not allowed to access database: %s", id)
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, fmt.Sprintf("not allowed to access database: %s", id)).WithKind(lua.KindPermissionDenied).WithRetryable(false))
+		return 2
 	}
 
 	reg := resource.GetRegistry(ctx)
 	if reg == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("resource registry not found"))
+		l.Push(lua.NewLuaError(l, "resource registry not found").WithKind(lua.KindInternal))
 		return 2
 	}
 
@@ -101,7 +102,7 @@ func sqlGet(l *lua.LState) int {
 	res, err := reg.Acquire(ctx, resID, resource.ModeNormal)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to acquire resource: %v", err)))
+		l.Push(lua.WrapErrorWithLua(l, err, "acquire resource"))
 		return 2
 	}
 
@@ -109,7 +110,7 @@ func sqlGet(l *lua.LState) int {
 	if err != nil {
 		res.Release()
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to get resource: %v", err)))
+		l.Push(lua.WrapErrorWithLua(l, err, "get resource"))
 		return 2
 	}
 
@@ -117,13 +118,13 @@ func sqlGet(l *lua.LState) int {
 	if !ok {
 		res.Release()
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("resource is not a database: %T", dbRes)))
+		l.Push(lua.NewLuaError(l, fmt.Sprintf("resource is not a database: %T", dbRes)).WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
 	db := NewDB(ctx, res, sqlDBRes.DB, sqlDBRes.Type)
 
-	value.PushUserData(l, db, dbMetatable)
+	value.PushTypedUserData(l, db, dbTypeName)
 	l.Push(lua.LNil)
 	return 2
 }
@@ -148,7 +149,7 @@ func dbQuery(l *lua.LState) int {
 	params, err := checkParams(l, 3)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.WrapErrorWithLua(l, err, "check params").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
@@ -169,7 +170,7 @@ func dbExecute(l *lua.LState) int {
 	params, err := checkParams(l, 3)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.WrapErrorWithLua(l, err, "check params").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
@@ -181,6 +182,7 @@ func dbExecute(l *lua.LState) int {
 	return -1
 }
 
+// TODO: dbPrepare returns error in tests - investigate after scheduler refactor
 func dbPrepare(l *lua.LState) int {
 	db := checkDB(l, 1)
 	if db == nil {
@@ -200,6 +202,7 @@ func dbPrepare(l *lua.LState) int {
 	return -1
 }
 
+// TODO: dbBegin returns error in tests - investigate after scheduler refactor
 func dbBegin(l *lua.LState) int {
 	db := checkDB(l, 1)
 	if db == nil {
@@ -295,13 +298,4 @@ func dbStats(l *lua.LState) int {
 	l.Push(statsTable)
 	l.Push(lua.LNil)
 	return 2
-}
-
-func dbToString(l *lua.LState) int {
-	db := checkDB(l, 1)
-	if db == nil {
-		return 0
-	}
-	l.Push(lua.LString(fmt.Sprintf("sql.DB{type=%s}", db.dbType)))
-	return 1
 }

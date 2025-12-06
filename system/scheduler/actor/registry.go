@@ -79,3 +79,6 @@ type ProcessNotFoundError struct {
 func (e *ProcessNotFoundError) Error() string {
 	return fmt.Sprintf("process %s not found", e.PID.String())
 }
+
+// ErrProcessClosed indicates the process queue rejected the message due to generation mismatch.
+var ErrProcessClosed = fmt.Errorf("process closed")

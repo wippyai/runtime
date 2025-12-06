@@ -8,62 +8,41 @@ import (
 	"sync"
 
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
 )
 
 var (
-	moduleTable  *lua.LTable
-	registration *luaapi.Registration
-	initOnce     sync.Once
-	settingsMu   sync.Mutex
+	moduleTable *lua.LTable
+	initOnce    sync.Once
+	settingsMu  sync.Mutex
 )
 
-// Module is the singleton system module instance.
-var Module = &systemModule{}
-
-type systemModule struct{}
-
-func (m *systemModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        "system",
-		Description: "System memory, GC, and process info",
-		Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
-	}
-}
-
-func (m *systemModule) Register(l *lua.LState) *luaapi.Registration {
-	initOnce.Do(func() {
-		moduleTable = createModuleTable()
-		registration = &luaapi.Registration{
-			Table:      moduleTable,
-			YieldTypes: nil,
-		}
-	})
-	return registration
-}
-
-func (m *systemModule) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	l.Push(reg.Table)
-	return 1
-}
-
-// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
-func Bind(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
-}
-
-func createModuleTable() *lua.LTable {
-	mod := lua.CreateTable(0, 5)
+func initModuleTable() {
+	mod := lua.CreateTable(0, 6)
 
 	mod.RawSetString("memory", createMemoryTable())
 	mod.RawSetString("gc", createGCTable())
 	mod.RawSetString("runtime", createRuntimeTable())
 	mod.RawSetString("process", createProcessTable())
+	mod.RawSetString("supervisor", createSupervisorTable())
+	mod.RawSetString("exit", lua.LGoFunc(exit))
+	mod.RawSetString("modules", lua.LGoFunc(modules))
 
 	mod.Immutable = true
-	return mod
+	moduleTable = mod
+}
+
+// Module is the system module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "system",
+	Description: "System memory, GC, runtime, and process info",
+	Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
+	Build: func() (*lua.LTable, []luaapi.YieldType) {
+		initOnce.Do(initModuleTable)
+		return moduleTable, nil
+	},
 }
 
 func createMemoryTable() *lua.LTable {
@@ -103,10 +82,18 @@ func createProcessTable() *lua.LTable {
 	return t
 }
 
+func createSupervisorTable() *lua.LTable {
+	t := lua.CreateTable(0, 2)
+	t.RawSetString("state", lua.LGoFunc(supervisorState))
+	t.RawSetString("states", lua.LGoFunc(supervisorStates))
+	t.Immutable = true
+	return t
+}
+
 func memStats(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "memory", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("permission denied"))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on memory").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
@@ -138,7 +125,7 @@ func memStats(l *lua.LState) int {
 func allocated(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "memory", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("permission denied"))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on memory").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
@@ -153,7 +140,7 @@ func allocated(l *lua.LState) int {
 func heapObjects(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "memory", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("permission denied"))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on memory").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
@@ -168,13 +155,13 @@ func heapObjects(l *lua.LState) int {
 func setMemoryLimit(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.control", "memory_limit", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("permission denied"))
+		l.Push(lua.NewLuaError(l, "permission denied: system.control on memory_limit").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
 	if l.GetTop() < 1 {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("memory limit required"))
+		l.Push(lua.NewLuaError(l, "memory limit value required").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
@@ -184,7 +171,7 @@ func setMemoryLimit(l *lua.LState) int {
 			limit = math.MaxInt64
 		} else {
 			l.Push(lua.LNil)
-			l.Push(lua.LString("limit must be non-negative or -1"))
+			l.Push(lua.NewLuaError(l, "limit must be non-negative or -1").WithKind(lua.KindInvalid).WithRetryable(false))
 			return 2
 		}
 	}
@@ -201,7 +188,7 @@ func setMemoryLimit(l *lua.LState) int {
 func getMemoryLimit(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "memory_limit", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("permission denied"))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on memory_limit").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
@@ -218,7 +205,7 @@ func getMemoryLimit(l *lua.LState) int {
 func gcCollect(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.gc", "gc", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("permission denied"))
+		l.Push(lua.NewLuaError(l, "permission denied: system.gc on gc").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
@@ -232,13 +219,13 @@ func gcCollect(l *lua.LState) int {
 func setGCPercent(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.gc", "gc_percent", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("permission denied"))
+		l.Push(lua.NewLuaError(l, "permission denied: system.gc on gc_percent").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
 	if l.GetTop() < 1 {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("percent required"))
+		l.Push(lua.NewLuaError(l, "percent value required").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
@@ -260,7 +247,7 @@ func setGCPercent(l *lua.LState) int {
 func getGCPercent(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "gc_percent", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("permission denied"))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on gc_percent").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
@@ -281,7 +268,7 @@ func getGCPercent(l *lua.LState) int {
 func numGoroutines(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "goroutines", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("permission denied"))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on goroutines").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
@@ -294,13 +281,13 @@ func goMaxProcs(l *lua.LState) int {
 	if l.GetTop() > 0 {
 		if !security.IsAllowed(l.Context(), "system.control", "gomaxprocs", nil) {
 			l.Push(lua.LNil)
-			l.Push(lua.LString("permission denied"))
+			l.Push(lua.NewLuaError(l, "permission denied: system.control on gomaxprocs").WithKind(lua.KindInvalid).WithRetryable(false))
 			return 2
 		}
 		n := l.CheckInt(1)
 		if n <= 0 {
 			l.Push(lua.LNil)
-			l.Push(lua.LString("value must be positive"))
+			l.Push(lua.NewLuaError(l, "GOMAXPROCS value must be positive").WithKind(lua.KindInvalid).WithRetryable(false))
 			return 2
 		}
 		prev := goruntime.GOMAXPROCS(n)
@@ -308,7 +295,7 @@ func goMaxProcs(l *lua.LState) int {
 	} else {
 		if !security.IsAllowed(l.Context(), "system.read", "gomaxprocs", nil) {
 			l.Push(lua.LNil)
-			l.Push(lua.LString("permission denied"))
+			l.Push(lua.NewLuaError(l, "permission denied: system.read on gomaxprocs").WithKind(lua.KindInvalid).WithRetryable(false))
 			return 2
 		}
 		l.Push(lua.LNumber(goruntime.GOMAXPROCS(0)))
@@ -320,7 +307,7 @@ func goMaxProcs(l *lua.LState) int {
 func numCPU(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "cpu", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("permission denied"))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on cpu").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
@@ -332,7 +319,7 @@ func numCPU(l *lua.LState) int {
 func pid(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "pid", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("permission denied"))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on pid").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
@@ -344,18 +331,73 @@ func pid(l *lua.LState) int {
 func hostname(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "hostname", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("permission denied"))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on hostname").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
 	name, err := os.Hostname()
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.WrapErrorWithLua(l, err, "get hostname").WithKind(lua.KindInternal).WithRetryable(false))
 		return 2
 	}
 
 	l.Push(lua.LString(name))
+	l.Push(lua.LNil)
+	return 2
+}
+
+func exit(l *lua.LState) int {
+	if !security.IsAllowed(l.Context(), "system.exit", "", nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "permission denied: system.exit").WithKind(lua.KindInvalid).WithRetryable(false))
+		return 2
+	}
+
+	code := 0
+	if l.GetTop() > 0 {
+		code = l.CheckInt(1)
+	}
+
+	supervisor.TriggerShutdown(l.Context(), code)
+
+	l.Push(lua.LBool(true))
+	l.Push(lua.LNil)
+	return 2
+}
+
+func modules(l *lua.LState) int {
+	if !security.IsAllowed(l.Context(), "system.read", "modules", nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on modules").WithKind(lua.KindInvalid).WithRetryable(false))
+		return 2
+	}
+
+	cm := luaapi.GetCodeManager(l.Context())
+	if cm == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "code manager not available").WithKind(lua.KindInternal).WithRetryable(false))
+		return 2
+	}
+
+	mods := cm.GetModules()
+	result := l.CreateTable(len(mods), 0)
+
+	for i, mod := range mods {
+		modTable := l.CreateTable(0, 3)
+		modTable.RawSetString("name", lua.LString(mod.Name))
+		modTable.RawSetString("description", lua.LString(mod.Description))
+
+		classTable := l.CreateTable(len(mod.Class), 0)
+		for j, class := range mod.Class {
+			classTable.RawSetInt(j+1, lua.LString(class))
+		}
+		modTable.RawSetString("class", classTable)
+
+		result.RawSetInt(i+1, modTable)
+	}
+
+	l.Push(result)
 	l.Push(lua.LNil)
 	return 2
 }

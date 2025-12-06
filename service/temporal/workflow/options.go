@@ -138,9 +138,10 @@ func (o *LocalActivityOptions) ToLocalActivityOptions() (bindings.ExecuteLocalAc
 }
 
 // ToCommonRetryPolicy converts to Temporal common retry policy.
+// Returns nil policy (not error) when receiver is nil - this is valid for "no retry policy".
 func (rp *RetryPolicy) ToCommonRetryPolicy() (*commonpb.RetryPolicy, error) {
 	if rp == nil {
-		return nil, nil
+		return nil, nil //nolint:nilnil // nil policy is valid for "no retry configured"
 	}
 
 	policy := &commonpb.RetryPolicy{
