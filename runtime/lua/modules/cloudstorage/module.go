@@ -11,6 +11,7 @@ import (
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	rtresource "github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -93,6 +94,11 @@ func apiGet(l *lua.LState) int {
 	}
 
 	resID := registry.ParseID(id)
+
+	if !security.IsAllowed(ctx, "cloudstorage.get", resID.String(), nil) {
+		l.RaiseError("not allowed to access cloud storage resource: %s", resID.String())
+		return 0
+	}
 
 	res, err := reg.Acquire(ctx, resID, resource.ModeNormal)
 	if err != nil {
