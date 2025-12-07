@@ -1,9 +1,8 @@
-// Package events provides event bus command types for the dispatcher system.
-package events
+package event
 
 import (
 	"github.com/wippyai/runtime/api/dispatcher"
-	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/pid"
 )
 
 func init() {
@@ -21,10 +20,10 @@ const (
 
 // EventsSubscribeCmd subscribes to events from the bus and forwards them via relay.
 type EventsSubscribeCmd struct {
-	System string    // Event system pattern to subscribe to
-	Kind   string    // Event kind pattern (optional)
-	Topic  string    // Per-subscription topic for relay messages
-	PID    relay.PID // Target process PID to send events to
+	System string  // Event system pattern to subscribe to
+	Kind   string  // Event kind pattern (optional)
+	Topic  string  // Per-subscription topic for relay messages
+	PID    pid.PID // Target process PID to send events to
 }
 
 // CmdID implements dispatcher.Command.

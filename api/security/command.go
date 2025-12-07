@@ -1,5 +1,4 @@
-// Package securityapi provides security command types for the dispatcher system.
-package securityapi
+package security
 
 import (
 	"sync"
@@ -7,7 +6,6 @@ import (
 
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/dispatcher"
-	secapi "github.com/wippyai/runtime/api/security"
 )
 
 func init() {
@@ -26,8 +24,8 @@ const (
 
 // TokenValidateCmd validates a token.
 type TokenValidateCmd struct {
-	TokenStore secapi.TokenStore
-	Token      secapi.Token
+	TokenStore TokenStore
+	Token      Token
 }
 
 var tokenValidateCmdPool = sync.Pool{New: func() any { return &TokenValidateCmd{} }}
@@ -44,10 +42,10 @@ func (c *TokenValidateCmd) Release() {
 
 // TokenCreateCmd creates a new token.
 type TokenCreateCmd struct {
-	TokenStore secapi.TokenStore
-	Actor      secapi.Actor
-	Scope      secapi.Scope
-	Details    secapi.TokenDetails
+	TokenStore TokenStore
+	Actor      Actor
+	Scope      Scope
+	Details    TokenDetails
 }
 
 var tokenCreateCmdPool = sync.Pool{New: func() any { return &TokenCreateCmd{} }}
@@ -56,16 +54,16 @@ func AcquireTokenCreateCmd() *TokenCreateCmd          { return tokenCreateCmdPoo
 func (c *TokenCreateCmd) CmdID() dispatcher.CommandID { return CmdTokenCreate }
 func (c *TokenCreateCmd) Release() {
 	c.TokenStore = nil
-	c.Actor = secapi.Actor{}
+	c.Actor = Actor{}
 	c.Scope = nil
-	c.Details = secapi.TokenDetails{}
+	c.Details = TokenDetails{}
 	tokenCreateCmdPool.Put(c)
 }
 
 // TokenRevokeCmd revokes a token.
 type TokenRevokeCmd struct {
-	TokenStore secapi.TokenStore
-	Token      secapi.Token
+	TokenStore TokenStore
+	Token      Token
 }
 
 var tokenRevokeCmdPool = sync.Pool{New: func() any { return &TokenRevokeCmd{} }}
@@ -80,14 +78,14 @@ func (c *TokenRevokeCmd) Release() {
 
 // TokenValidateResponse contains the result of a validate operation.
 type TokenValidateResponse struct {
-	Actor secapi.Actor
-	Scope secapi.Scope
+	Actor Actor
+	Scope Scope
 	Error error
 }
 
 // TokenCreateResponse contains the result of a create operation.
 type TokenCreateResponse struct {
-	Token secapi.Token
+	Token Token
 	Error error
 }
 
@@ -96,9 +94,9 @@ type TokenRevokeResponse struct {
 	Error error
 }
 
-// TokenDetails helper for creating token details.
-func NewTokenDetails(expiration time.Duration, meta attrs.Bag) secapi.TokenDetails {
-	return secapi.TokenDetails{
+// NewTokenDetails helper for creating token details.
+func NewTokenDetails(expiration time.Duration, meta attrs.Bag) TokenDetails {
+	return TokenDetails{
 		Expiration: expiration,
 		Meta:       meta,
 	}

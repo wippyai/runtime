@@ -4,13 +4,13 @@ import (
 	"context"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/internal/uniqid"
 )
 
 var (
 	managerCtxKey           = &ctxapi.Key{Name: "process.manager"}
 	factoryCtxKey           = &ctxapi.Key{Name: "process.factory"}
-	registryCtxKey          = &ctxapi.Key{Name: "dispatcher.registry"}
 	generatorCtxKey         = &ctxapi.Key{Name: "pidgen.generator"}
 	lifecycleRegistryCtxKey = &ctxapi.Key{Name: "process.lifecycle_registry"}
 )
@@ -64,50 +64,24 @@ func GetFactory(ctx context.Context) Factory {
 	return nil
 }
 
-// WithRegistry stores a dispatcher registry in the AppContext.
+// WithRegistry delegates to dispatcher.WithRegistry.
 func WithRegistry(ctx context.Context, r Registry) error {
-	ac := ctxapi.AppFromContext(ctx)
-	if ac == nil {
-		return ctxapi.ErrNoAppContext
-	}
-	ac.With(registryCtxKey, r)
-	return nil
+	return dispatcher.WithRegistry(ctx, r)
 }
 
-// GetRegistry retrieves the dispatcher registry from AppContext.
+// GetRegistry delegates to dispatcher.GetRegistry.
 func GetRegistry(ctx context.Context) Registry {
-	ac := ctxapi.AppFromContext(ctx)
-	if ac == nil {
-		return nil
-	}
-	if r, ok := ac.Get(registryCtxKey).(Registry); ok {
-		return r
-	}
-	return nil
+	return dispatcher.GetRegistry(ctx)
 }
 
-// GetRegistrar retrieves the dispatcher registrar from AppContext.
+// GetRegistrar delegates to dispatcher.GetRegistrar.
 func GetRegistrar(ctx context.Context) Registrar {
-	ac := ctxapi.AppFromContext(ctx)
-	if ac == nil {
-		return nil
-	}
-	if r, ok := ac.Get(registryCtxKey).(Registrar); ok {
-		return r
-	}
-	return nil
+	return dispatcher.GetRegistrar(ctx)
 }
 
-// GetDispatcher retrieves the dispatcher from AppContext.
+// GetDispatcher delegates to dispatcher.GetDispatcher.
 func GetDispatcher(ctx context.Context) Dispatcher {
-	ac := ctxapi.AppFromContext(ctx)
-	if ac == nil {
-		return nil
-	}
-	if d, ok := ac.Get(registryCtxKey).(Dispatcher); ok {
-		return d
-	}
-	return nil
+	return dispatcher.GetDispatcher(ctx)
 }
 
 // WithPIDGenerator attaches a PID generator to the context.

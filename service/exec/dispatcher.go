@@ -5,8 +5,8 @@ import (
 	"context"
 
 	"github.com/wippyai/runtime/api/dispatcher"
-	execapi "github.com/wippyai/runtime/api/dispatcher/exec"
 	"github.com/wippyai/runtime/api/process"
+	execapi "github.com/wippyai/runtime/api/service/exec"
 )
 
 // exitCoder is an interface for errors that have an exit code.

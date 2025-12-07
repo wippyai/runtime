@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	wsapi "github.com/wippyai/runtime/api/dispatcher/ws"
 	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	wsapi "github.com/wippyai/runtime/api/websocket"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"

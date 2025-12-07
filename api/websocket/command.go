@@ -1,5 +1,5 @@
-// Package ws provides WebSocket-related command types for the dispatcher system.
-package ws
+// Package websocket provides WebSocket-related command types for the dispatcher system.
+package websocket
 
 import (
 	"time"

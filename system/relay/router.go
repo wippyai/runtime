@@ -62,7 +62,9 @@ func (r *Router) Send(pkg *api.Package) error {
 
 	// Check if it's for a registered peer node.
 	if receiver, ok := r.peers.Load(pkg.Target.Node); ok {
-		return receiver.(api.Receiver).Send(pkg)
+		if rec, ok := receiver.(api.Receiver); ok {
+			return rec.Send(pkg)
+		}
 	}
 
 	// Fallback to internode for unknown nodes.

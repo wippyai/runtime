@@ -7,11 +7,10 @@ import (
 
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/dispatcher"
-	securityapi "github.com/wippyai/runtime/api/dispatcher/security"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	rtresource "github.com/wippyai/runtime/api/runtime/resource"
-	secapi "github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	luasec "github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
@@ -23,14 +22,14 @@ const tokenStoreTypeName = "security.TokenStore"
 type TokenStore struct {
 	id            registry.ID
 	resource      resource.Resource[any]
-	tokenStore    secapi.TokenStore
+	tokenStore    security.TokenStore
 	released      bool
 	mu            sync.Mutex
 	cancelCleanup func()
 }
 
 // NewTokenStore creates a new token store wrapper.
-func NewTokenStore(ctx context.Context, id registry.ID, res resource.Resource[any], ts secapi.TokenStore) *TokenStore {
+func NewTokenStore(ctx context.Context, id registry.ID, res resource.Resource[any], ts security.TokenStore) *TokenStore {
 	wrapper := &TokenStore{
 		id:         id,
 		resource:   res,
@@ -114,7 +113,7 @@ func tokenStoreGet(l *lua.LState) int {
 		return 2
 	}
 
-	tokenStore, ok := storeRes.(secapi.TokenStore)
+	tokenStore, ok := storeRes.(security.TokenStore)
 	if !ok {
 		res.Release()
 		l.Push(lua.LNil)
@@ -151,7 +150,7 @@ func tokenStoreValidate(l *lua.LState) int {
 	ts.mu.Unlock()
 
 	tokenStr := l.CheckString(2)
-	token := secapi.Token(tokenStr)
+	token := security.Token(tokenStr)
 
 	meta := attrs.Bag{"token": tokenStr}
 	if !luasec.IsAllowed(l.Context(), "security.token.validate", storeID, meta) {
@@ -186,7 +185,7 @@ func tokenStoreCreate(l *lua.LState) int {
 
 	// Get actor
 	actorUD := l.CheckUserData(2)
-	actor, ok := actorUD.Value.(secapi.Actor)
+	actor, ok := actorUD.Value.(security.Actor)
 	if !ok {
 		l.ArgError(2, "Actor expected")
 		return 0
@@ -194,7 +193,7 @@ func tokenStoreCreate(l *lua.LState) int {
 
 	// Get scope
 	scopeUD := l.CheckUserData(3)
-	scope, ok := scopeUD.Value.(secapi.Scope)
+	scope, ok := scopeUD.Value.(security.Scope)
 	if !ok {
 		l.ArgError(3, "Scope expected")
 		return 0
@@ -237,7 +236,7 @@ func tokenStoreCreate(l *lua.LState) int {
 		}
 	}
 
-	details := secapi.TokenDetails{
+	details := security.TokenDetails{
 		Expiration: expiration,
 		Meta:       tokenMeta,
 	}
@@ -266,7 +265,7 @@ func tokenStoreRevoke(l *lua.LState) int {
 	ts.mu.Unlock()
 
 	tokenStr := l.CheckString(2)
-	token := secapi.Token(tokenStr)
+	token := security.Token(tokenStr)
 
 	meta := attrs.Bag{"token": tokenStr}
 	if !luasec.IsAllowed(l.Context(), "security.token.revoke", storeID, meta) {
@@ -310,13 +309,13 @@ func tokenStoreClose(l *lua.LState) int {
 
 // ValidateYield is yielded to validate a token.
 type ValidateYield struct {
-	TokenStore secapi.TokenStore
-	Token      secapi.Token
+	TokenStore security.TokenStore
+	Token      security.Token
 }
 
 var validateYieldPool = sync.Pool{New: func() any { return &ValidateYield{} }}
 
-func acquireValidateYield(ts secapi.TokenStore, token secapi.Token) *ValidateYield {
+func acquireValidateYield(ts security.TokenStore, token security.Token) *ValidateYield {
 	y := validateYieldPool.Get().(*ValidateYield)
 	y.TokenStore = ts
 	y.Token = token
@@ -332,9 +331,9 @@ func releaseValidateYield(y *ValidateYield) {
 func (y *ValidateYield) Release()                    { releaseValidateYield(y) }
 func (y *ValidateYield) String() string              { return "<token_validate_yield>" }
 func (y *ValidateYield) Type() lua.LValueType        { return lua.LTUserData }
-func (y *ValidateYield) CmdID() dispatcher.CommandID { return securityapi.CmdTokenValidate }
+func (y *ValidateYield) CmdID() dispatcher.CommandID { return security.CmdTokenValidate }
 func (y *ValidateYield) ToCommand() dispatcher.Command {
-	cmd := securityapi.AcquireTokenValidateCmd()
+	cmd := security.AcquireTokenValidateCmd()
 	cmd.TokenStore = y.TokenStore
 	cmd.Token = y.Token
 	return cmd
@@ -344,7 +343,7 @@ func (y *ValidateYield) HandleResult(l *lua.LState, data any, err error) []lua.L
 	if err != nil {
 		return []lua.LValue{lua.LNil, lua.LNil, lua.WrapErrorWithLua(l, err, "validate token").WithKind(lua.KindInternal).WithRetryable(false)}
 	}
-	resp, ok := data.(securityapi.TokenValidateResponse)
+	resp, ok := data.(security.TokenValidateResponse)
 	if !ok {
 		return []lua.LValue{lua.LNil, lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.KindInternal).WithRetryable(false)}
 	}
@@ -356,15 +355,15 @@ func (y *ValidateYield) HandleResult(l *lua.LState, data any, err error) []lua.L
 
 // CreateYield is yielded to create a token.
 type CreateYield struct {
-	TokenStore secapi.TokenStore
-	Actor      secapi.Actor
-	Scope      secapi.Scope
-	Details    secapi.TokenDetails
+	TokenStore security.TokenStore
+	Actor      security.Actor
+	Scope      security.Scope
+	Details    security.TokenDetails
 }
 
 var createYieldPool = sync.Pool{New: func() any { return &CreateYield{} }}
 
-func acquireCreateYield(ts secapi.TokenStore, actor secapi.Actor, scope secapi.Scope, details secapi.TokenDetails) *CreateYield {
+func acquireCreateYield(ts security.TokenStore, actor security.Actor, scope security.Scope, details security.TokenDetails) *CreateYield {
 	y := createYieldPool.Get().(*CreateYield)
 	y.TokenStore = ts
 	y.Actor = actor
@@ -375,18 +374,18 @@ func acquireCreateYield(ts secapi.TokenStore, actor secapi.Actor, scope secapi.S
 
 func releaseCreateYield(y *CreateYield) {
 	y.TokenStore = nil
-	y.Actor = secapi.Actor{}
+	y.Actor = security.Actor{}
 	y.Scope = nil
-	y.Details = secapi.TokenDetails{}
+	y.Details = security.TokenDetails{}
 	createYieldPool.Put(y)
 }
 
 func (y *CreateYield) Release()                    { releaseCreateYield(y) }
 func (y *CreateYield) String() string              { return "<token_create_yield>" }
 func (y *CreateYield) Type() lua.LValueType        { return lua.LTUserData }
-func (y *CreateYield) CmdID() dispatcher.CommandID { return securityapi.CmdTokenCreate }
+func (y *CreateYield) CmdID() dispatcher.CommandID { return security.CmdTokenCreate }
 func (y *CreateYield) ToCommand() dispatcher.Command {
-	cmd := securityapi.AcquireTokenCreateCmd()
+	cmd := security.AcquireTokenCreateCmd()
 	cmd.TokenStore = y.TokenStore
 	cmd.Actor = y.Actor
 	cmd.Scope = y.Scope
@@ -398,7 +397,7 @@ func (y *CreateYield) HandleResult(l *lua.LState, data any, err error) []lua.LVa
 	if err != nil {
 		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "create token").WithKind(lua.KindInternal).WithRetryable(false)}
 	}
-	resp, ok := data.(securityapi.TokenCreateResponse)
+	resp, ok := data.(security.TokenCreateResponse)
 	if !ok {
 		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.KindInternal).WithRetryable(false)}
 	}
@@ -410,13 +409,13 @@ func (y *CreateYield) HandleResult(l *lua.LState, data any, err error) []lua.LVa
 
 // RevokeYield is yielded to revoke a token.
 type RevokeYield struct {
-	TokenStore secapi.TokenStore
-	Token      secapi.Token
+	TokenStore security.TokenStore
+	Token      security.Token
 }
 
 var revokeYieldPool = sync.Pool{New: func() any { return &RevokeYield{} }}
 
-func acquireRevokeYield(ts secapi.TokenStore, token secapi.Token) *RevokeYield {
+func acquireRevokeYield(ts security.TokenStore, token security.Token) *RevokeYield {
 	y := revokeYieldPool.Get().(*RevokeYield)
 	y.TokenStore = ts
 	y.Token = token
@@ -432,9 +431,9 @@ func releaseRevokeYield(y *RevokeYield) {
 func (y *RevokeYield) Release()                    { releaseRevokeYield(y) }
 func (y *RevokeYield) String() string              { return "<token_revoke_yield>" }
 func (y *RevokeYield) Type() lua.LValueType        { return lua.LTUserData }
-func (y *RevokeYield) CmdID() dispatcher.CommandID { return securityapi.CmdTokenRevoke }
+func (y *RevokeYield) CmdID() dispatcher.CommandID { return security.CmdTokenRevoke }
 func (y *RevokeYield) ToCommand() dispatcher.Command {
-	cmd := securityapi.AcquireTokenRevokeCmd()
+	cmd := security.AcquireTokenRevokeCmd()
 	cmd.TokenStore = y.TokenStore
 	cmd.Token = y.Token
 	return cmd
@@ -444,7 +443,7 @@ func (y *RevokeYield) HandleResult(l *lua.LState, data any, err error) []lua.LVa
 	if err != nil {
 		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "revoke token").WithKind(lua.KindInternal).WithRetryable(false)}
 	}
-	resp, ok := data.(securityapi.TokenRevokeResponse)
+	resp, ok := data.(security.TokenRevokeResponse)
 	if !ok {
 		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.KindInternal).WithRetryable(false)}
 	}

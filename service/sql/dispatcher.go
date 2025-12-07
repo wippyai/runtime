@@ -6,8 +6,8 @@ import (
 	"database/sql"
 
 	"github.com/wippyai/runtime/api/dispatcher"
-	sqlapi "github.com/wippyai/runtime/api/dispatcher/sql"
 	"github.com/wippyai/runtime/api/process"
+	sqlapi "github.com/wippyai/runtime/api/service/sql"
 )
 
 // Dispatcher handles SQL commands.

@@ -24,9 +24,6 @@ const (
 	FactoryReject   event.Kind = "factory.reject"
 )
 
-// Registry kind for dispatcher handlers.
-const KindHandler registry.Kind = "dispatcher.handler"
-
 // Payload is an alias for payload.Payload used in process results.
 type Payload = payload.Payload
 

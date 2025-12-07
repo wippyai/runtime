@@ -1,11 +1,9 @@
-// Package execapi provides exec command types for the dispatcher system.
-package execapi
+package exec
 
 import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/dispatcher"
-	apiexec "github.com/wippyai/runtime/api/service/exec"
 )
 
 func init() {
@@ -20,7 +18,7 @@ const (
 
 // ProcessWaitCmd waits for a process to complete.
 type ProcessWaitCmd struct {
-	Process apiexec.Process
+	Process Process
 }
 
 var processWaitCmdPool = sync.Pool{New: func() any { return &ProcessWaitCmd{} }}

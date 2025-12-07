@@ -11,8 +11,8 @@ import (
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
-	wsapi "github.com/wippyai/runtime/api/dispatcher/ws"
 	"github.com/wippyai/runtime/api/runtime/resource"
+	wsapi "github.com/wippyai/runtime/api/websocket"
 
 	"github.com/coder/websocket"
 )

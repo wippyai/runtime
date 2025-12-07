@@ -132,5 +132,12 @@ func (m *Mailbox) deliver(pkg *api.Package) {
 		return
 	}
 
-	rec.(chan *api.Package) <- pkg
+	ch, ok := rec.(chan *api.Package)
+	if !ok {
+		m.config.Logger.Error("receiver has invalid type",
+			zap.String("target", pkg.Target.String()))
+		return
+	}
+
+	ch <- pkg
 }

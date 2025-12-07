@@ -111,7 +111,9 @@ func (r *Registry) sendReject(path event.Path, reason string) {
 // GetFS returns a filesystem by path
 func (r *Registry) GetFS(path string) (fsapi.FS, bool) {
 	if val, ok := r.filesystems.Load(path); ok {
-		return val.(fsapi.FS), true
+		if fs, ok := val.(fsapi.FS); ok {
+			return fs, true
+		}
 	}
 	return nil, false
 }

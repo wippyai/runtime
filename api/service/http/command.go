@@ -1,5 +1,4 @@
 // Package http provides HTTP command types for the dispatcher system.
-// Commands are pure data structures yielded by processes and handled by HTTP handlers.
 package http
 
 import (

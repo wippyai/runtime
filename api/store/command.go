@@ -1,5 +1,4 @@
-// Package storeapi provides store command types for the dispatcher system.
-package storeapi
+package store
 
 import (
 	"sync"
@@ -7,7 +6,6 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/api/store"
 )
 
 func init() {
@@ -27,7 +25,7 @@ const (
 
 // StoreGetCmd retrieves a value from the store.
 type StoreGetCmd struct {
-	Store store.Store
+	Store Store
 	Key   registry.ID
 }
 
@@ -43,8 +41,8 @@ func (c *StoreGetCmd) Release() {
 
 // StoreSetCmd sets a value in the store.
 type StoreSetCmd struct {
-	Store store.Store
-	Entry store.Entry
+	Store Store
+	Entry Entry
 }
 
 var storeSetCmdPool = sync.Pool{New: func() any { return &StoreSetCmd{} }}
@@ -53,13 +51,13 @@ func AcquireStoreSetCmd() *StoreSetCmd             { return storeSetCmdPool.Get(
 func (c *StoreSetCmd) CmdID() dispatcher.CommandID { return CmdStoreSet }
 func (c *StoreSetCmd) Release() {
 	c.Store = nil
-	c.Entry = store.Entry{}
+	c.Entry = Entry{}
 	storeSetCmdPool.Put(c)
 }
 
 // StoreDeleteCmd deletes a key from the store.
 type StoreDeleteCmd struct {
-	Store store.Store
+	Store Store
 	Key   registry.ID
 }
 
@@ -75,7 +73,7 @@ func (c *StoreDeleteCmd) Release() {
 
 // StoreHasCmd checks if a key exists.
 type StoreHasCmd struct {
-	Store store.Store
+	Store Store
 	Key   registry.ID
 }
 

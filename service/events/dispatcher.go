@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/dispatcher"
-	eventsapi "github.com/wippyai/runtime/api/dispatcher/events"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
@@ -127,12 +126,12 @@ func matchPattern(pattern, value string) bool {
 
 // RegisterAll registers event bus command handlers.
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
-	register(eventsapi.CmdEventsSubscribe, dispatcher.HandlerFunc(d.handleSubscribe))
-	register(eventsapi.CmdEventsSend, dispatcher.HandlerFunc(d.handleSend))
+	register(event.CmdEventsSubscribe, dispatcher.HandlerFunc(d.handleSubscribe))
+	register(event.CmdEventsSend, dispatcher.HandlerFunc(d.handleSend))
 }
 
 func (d *Dispatcher) handleSubscribe(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
-	subCmd := cmd.(eventsapi.EventsSubscribeCmd)
+	subCmd := cmd.(event.EventsSubscribeCmd)
 
 	d.mu.Lock()
 	d.subs[subCmd.Topic] = &subscription{
@@ -144,7 +143,7 @@ func (d *Dispatcher) handleSubscribe(ctx context.Context, cmd dispatcher.Command
 	d.mu.Unlock()
 
 	topic := subCmd.Topic
-	receiver.CompleteYield(tag, eventsapi.EventSubscription{
+	receiver.CompleteYield(tag, event.EventSubscription{
 		System: subCmd.System,
 		Kind:   subCmd.Kind,
 		Topic:  subCmd.Topic,
@@ -157,7 +156,7 @@ func (d *Dispatcher) handleSubscribe(ctx context.Context, cmd dispatcher.Command
 }
 
 func (d *Dispatcher) handleSend(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
-	sendCmd := cmd.(eventsapi.EventsSendCmd)
+	sendCmd := cmd.(event.EventsSendCmd)
 
 	evt := event.Event{
 		System: event.System(sendCmd.System),

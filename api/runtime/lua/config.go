@@ -4,7 +4,6 @@ package lua
 import (
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/system/scheduler/pool"
 )
 
 // Registry kind constants for different Lua component types.
@@ -159,25 +158,6 @@ type (
 		Meta    attrs.Bag              `json:"meta,omitempty"`
 	}
 )
-
-// ToPoolConfig converts PoolConfig to pool.Config for scheduler pool.
-// Uses Workers directly if set, otherwise falls back to Size.
-func (c *PoolConfig) ToPoolConfig() pool.Config {
-	workers := c.Workers
-	if workers == 0 {
-		workers = c.Size
-	}
-
-	queueSize := c.Buffer
-	if queueSize == 0 && workers > 0 {
-		queueSize = workers * 64
-	}
-
-	return pool.Config{
-		Workers:   workers,
-		QueueSize: queueSize,
-	}
-}
 
 // Validate checks if the FunctionConfig has all required fields set to valid values.
 // It returns an error if any validation check fails.

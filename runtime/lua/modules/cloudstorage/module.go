@@ -5,7 +5,7 @@ import (
 	"io"
 
 	"github.com/wippyai/runtime/api/cloudstorage"
-	csapi "github.com/wippyai/runtime/api/dispatcher/cloudstorage"
+	csapi "github.com/wippyai/runtime/api/cloudstorage"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"

@@ -159,11 +159,17 @@ func (s *Registry) Acquire(ctx context.Context, id registry.ID, mode resource.Ac
 		return nil, resource.ErrNotFound
 	}
 
-	entry := entryVal.(resource.Entry)
+	entry, ok := entryVal.(resource.Entry)
+	if !ok {
+		return nil, resource.ErrNotFound
+	}
 
 	// Get or create borrow counter
 	countVal, _ := s.borrowCount.LoadOrStore(id, new(atomic.Int32))
-	counter := countVal.(*atomic.Int32)
+	counter, ok := countVal.(*atomic.Int32)
+	if !ok {
+		return nil, resource.ErrNotFound
+	}
 	counter.Add(1)
 
 	res, err := entry.Provider.Acquire(ctx, id, mode)
@@ -182,7 +188,9 @@ func (s *Registry) Acquire(ctx context.Context, id registry.ID, mode resource.Ac
 func (s *Registry) List() ([]registry.ID, error) {
 	var resources []registry.ID
 	s.resources.Range(func(key, _ interface{}) bool {
-		resources = append(resources, key.(registry.ID))
+		if id, ok := key.(registry.ID); ok {
+			resources = append(resources, id)
+		}
 		return true
 	})
 	return resources, nil

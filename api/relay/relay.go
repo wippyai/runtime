@@ -6,6 +6,7 @@ import (
 
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 )
 
 // System identifies the relay system in the event bus.
@@ -30,10 +31,10 @@ const (
 
 type (
 	// NodeID uniquely identifies a node in the relay network.
-	NodeID = string
+	NodeID = pid.NodeID
 
 	// HostID uniquely identifies a host within a node.
-	HostID = string
+	HostID = pid.HostID
 
 	// Topic represents a message channel identifier.
 	Topic = string

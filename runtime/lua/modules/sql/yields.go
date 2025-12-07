@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/dispatcher"
-	sqlapi "github.com/wippyai/runtime/api/dispatcher/sql"
+	sqlapi "github.com/wippyai/runtime/api/service/sql"
 	lua "github.com/yuin/gopher-lua"
 )
 

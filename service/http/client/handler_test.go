@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/dispatcher"
-	httpapi "github.com/wippyai/runtime/api/dispatcher/http"
+	httpapi "github.com/wippyai/runtime/api/service/http"
 )
 
 type testReceiver struct {

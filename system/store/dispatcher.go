@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/dispatcher"
-	storeapi "github.com/wippyai/runtime/api/dispatcher/store"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/store"
 )
@@ -78,22 +77,22 @@ func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, tag uin
 
 func (d *Dispatcher) execute(j job) {
 	switch c := j.cmd.(type) {
-	case *storeapi.StoreGetCmd:
+	case *store.StoreGetCmd:
 		value, err := c.Store.Get(j.ctx, c.Key)
-		j.receiver.CompleteYield(j.tag, storeapi.StoreGetResponse{Value: value, Error: err}, nil)
+		j.receiver.CompleteYield(j.tag, store.StoreGetResponse{Value: value, Error: err}, nil)
 
-	case *storeapi.StoreSetCmd:
+	case *store.StoreSetCmd:
 		err := c.Store.Set(j.ctx, c.Entry)
-		j.receiver.CompleteYield(j.tag, storeapi.StoreSetResponse{Error: err}, nil)
+		j.receiver.CompleteYield(j.tag, store.StoreSetResponse{Error: err}, nil)
 
-	case *storeapi.StoreDeleteCmd:
+	case *store.StoreDeleteCmd:
 		err := c.Store.Delete(j.ctx, c.Key)
 		notFound := errors.Is(err, store.ErrKeyNotFound)
-		j.receiver.CompleteYield(j.tag, storeapi.StoreDeleteResponse{NotFound: notFound, Error: err}, nil)
+		j.receiver.CompleteYield(j.tag, store.StoreDeleteResponse{NotFound: notFound, Error: err}, nil)
 
-	case *storeapi.StoreHasCmd:
+	case *store.StoreHasCmd:
 		exists, err := c.Store.Has(j.ctx, c.Key)
-		j.receiver.CompleteYield(j.tag, storeapi.StoreHasResponse{Exists: exists, Error: err}, nil)
+		j.receiver.CompleteYield(j.tag, store.StoreHasResponse{Exists: exists, Error: err}, nil)
 
 	default:
 		// unknown command type, ignore
@@ -108,8 +107,8 @@ func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, tag uin
 // RegisterAll registers all store handlers.
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
 	h := dispatcher.HandlerFunc(d.handle)
-	register(storeapi.CmdStoreGet, h)
-	register(storeapi.CmdStoreSet, h)
-	register(storeapi.CmdStoreDelete, h)
-	register(storeapi.CmdStoreHas, h)
+	register(store.CmdStoreGet, h)
+	register(store.CmdStoreSet, h)
+	register(store.CmdStoreDelete, h)
+	register(store.CmdStoreHas, h)
 }

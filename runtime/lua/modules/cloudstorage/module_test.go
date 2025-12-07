@@ -3,7 +3,7 @@ package cloudstorage
 import (
 	"testing"
 
-	csapi "github.com/wippyai/runtime/api/dispatcher/cloudstorage"
+	csapi "github.com/wippyai/runtime/api/cloudstorage"
 	lua "github.com/yuin/gopher-lua"
 )
 

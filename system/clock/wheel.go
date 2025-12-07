@@ -513,9 +513,14 @@ func (r *WheelTimerRegistry) Reset(id uint64, d time.Duration) (bool, error) {
 	shard := r.getShard(id)
 	shard.mu.Lock()
 	t, ok := shard.timers[id]
-	shard.mu.Unlock()
+	if !ok {
+		shard.mu.Unlock()
+		return false, ErrTimerNotFound
+	}
 
-	if !ok || t.stopped.Load() {
+	// Check stopped state while holding shard lock
+	if t.stopped.Load() {
+		shard.mu.Unlock()
 		return false, ErrTimerNotFound
 	}
 
@@ -524,11 +529,14 @@ func (r *WheelTimerRegistry) Reset(id uint64, d time.Duration) (bool, error) {
 		b.Remove(t)
 	}
 
+	// Re-check stopped after bucket removal (timer could be stopped during Remove)
 	if t.stopped.Load() {
+		shard.mu.Unlock()
 		return false, ErrTimerNotFound
 	}
 
 	t.setExpiration(time.Now().UnixMilli() + d.Milliseconds())
+	shard.mu.Unlock()
 
 	if !r.wheel.Add(t) {
 		r.fireTimer(t)

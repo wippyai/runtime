@@ -10,8 +10,8 @@ import (
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
-	streamapi "github.com/wippyai/runtime/api/dispatcher/stream"
 	"github.com/wippyai/runtime/api/runtime/resource"
+	streamapi "github.com/wippyai/runtime/api/stream"
 )
 
 type testReceiver struct {

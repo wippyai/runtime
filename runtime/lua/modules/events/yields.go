@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/dispatcher"
-	eventsapi "github.com/wippyai/runtime/api/dispatcher/events"
+	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime/resource"
@@ -49,11 +49,11 @@ func (y *EventSubscribeYield) String() string       { return "<event_subscribe_y
 func (y *EventSubscribeYield) Type() lua.LValueType { return lua.LTUserData }
 
 func (y *EventSubscribeYield) CmdID() dispatcher.CommandID {
-	return eventsapi.CmdEventsSubscribe
+	return event.CmdEventsSubscribe
 }
 
 func (y *EventSubscribeYield) ToCommand() dispatcher.Command {
-	return eventsapi.EventsSubscribeCmd{
+	return event.EventsSubscribeCmd{
 		System: y.System,
 		Kind:   y.Kind,
 		Topic:  y.Topic,
@@ -83,7 +83,7 @@ func (y *EventSubscribeYield) HandleResult(l *lua.LState, data any, err error) [
 	}
 
 	// Register cleanup to unsubscribe from dispatcher when frame is released
-	if sub, ok := data.(eventsapi.EventSubscription); ok && sub.Unsubscribe != nil {
+	if sub, ok := data.(event.EventSubscription); ok && sub.Unsubscribe != nil {
 		ctx := l.Context()
 		if ctx != nil {
 			if store := resource.GetStore(ctx); store != nil {
@@ -193,11 +193,11 @@ func (y *EventSendYield) String() string       { return "<event_send_yield>" }
 func (y *EventSendYield) Type() lua.LValueType { return lua.LTUserData }
 
 func (y *EventSendYield) CmdID() dispatcher.CommandID {
-	return eventsapi.CmdEventsSend
+	return event.CmdEventsSend
 }
 
 func (y *EventSendYield) ToCommand() dispatcher.Command {
-	return eventsapi.EventsSendCmd{
+	return event.EventsSendCmd{
 		System: y.System,
 		Kind:   y.Kind,
 		Path:   y.Path,

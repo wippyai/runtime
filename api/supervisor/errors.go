@@ -231,6 +231,17 @@ func NewDependencyLevelsError(phase string, err error) *Error {
 	}
 }
 
+// NewMultiStartError creates an error when multiple service starts fail.
+func NewMultiStartError(count int, firstErr error) *Error {
+	return &Error{
+		kind:      apierror.KindInternal,
+		message:   "start failed for multiple services: " + firstErr.Error(),
+		retryable: apierror.False,
+		details:   attrs.NewBagFrom(map[string]any{"failed_count": count, "first_error": firstErr.Error()}),
+		cause:     firstErr,
+	}
+}
+
 // NewMultiStopError creates an error when multiple service stops fail.
 func NewMultiStopError(count int, firstErr error) *Error {
 	return &Error{

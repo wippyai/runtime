@@ -6,8 +6,8 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/dispatcher"
-	securityapi "github.com/wippyai/runtime/api/dispatcher/security"
 	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/security"
 )
 
 // Dispatcher handles security commands via async worker pool.
@@ -70,17 +70,17 @@ func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, tag uin
 
 func (d *Dispatcher) execute(j job) {
 	switch c := j.cmd.(type) {
-	case *securityapi.TokenValidateCmd:
+	case *security.TokenValidateCmd:
 		actor, scope, err := c.TokenStore.Validate(j.ctx, c.Token)
-		j.receiver.CompleteYield(j.tag, securityapi.TokenValidateResponse{Actor: actor, Scope: scope, Error: err}, nil)
+		j.receiver.CompleteYield(j.tag, security.TokenValidateResponse{Actor: actor, Scope: scope, Error: err}, nil)
 
-	case *securityapi.TokenCreateCmd:
+	case *security.TokenCreateCmd:
 		token, err := c.TokenStore.Create(j.ctx, c.Actor, c.Scope, c.Details)
-		j.receiver.CompleteYield(j.tag, securityapi.TokenCreateResponse{Token: token, Error: err}, nil)
+		j.receiver.CompleteYield(j.tag, security.TokenCreateResponse{Token: token, Error: err}, nil)
 
-	case *securityapi.TokenRevokeCmd:
+	case *security.TokenRevokeCmd:
 		err := c.TokenStore.Revoke(j.ctx, c.Token)
-		j.receiver.CompleteYield(j.tag, securityapi.TokenRevokeResponse{Error: err}, nil)
+		j.receiver.CompleteYield(j.tag, security.TokenRevokeResponse{Error: err}, nil)
 	}
 }
 
@@ -92,7 +92,7 @@ func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, tag uin
 // RegisterAll registers all security handlers.
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
 	h := dispatcher.HandlerFunc(d.handle)
-	register(securityapi.CmdTokenValidate, h)
-	register(securityapi.CmdTokenCreate, h)
-	register(securityapi.CmdTokenRevoke, h)
+	register(security.CmdTokenValidate, h)
+	register(security.CmdTokenCreate, h)
+	register(security.CmdTokenRevoke, h)
 }

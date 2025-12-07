@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/cloudstorage"
+	csapi "github.com/wippyai/runtime/api/cloudstorage"
 	"github.com/wippyai/runtime/api/dispatcher"
-	csapi "github.com/wippyai/runtime/api/dispatcher/cloudstorage"
 	"github.com/wippyai/runtime/api/process"
 )
 

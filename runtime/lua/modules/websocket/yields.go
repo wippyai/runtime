@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/dispatcher"
-	wsapi "github.com/wippyai/runtime/api/dispatcher/ws"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/relay"
+	wsapi "github.com/wippyai/runtime/api/websocket"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"

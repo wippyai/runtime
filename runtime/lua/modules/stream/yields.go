@@ -4,7 +4,7 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/dispatcher"
-	streamapi "github.com/wippyai/runtime/api/dispatcher/stream"
+	streamapi "github.com/wippyai/runtime/api/stream"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )

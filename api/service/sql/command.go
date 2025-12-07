@@ -1,5 +1,4 @@
-// Package sqlapi provides SQL command types for the dispatcher system.
-package sqlapi
+package sql
 
 import (
 	"database/sql"

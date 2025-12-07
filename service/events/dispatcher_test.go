@@ -7,7 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	eventsapi "github.com/wippyai/runtime/api/dispatcher/events"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/relay"
 )
@@ -102,7 +101,7 @@ func TestDispatcher_Subscribe(t *testing.T) {
 		},
 	}
 
-	cmd := eventsapi.EventsSubscribeCmd{
+	cmd := event.EventsSubscribeCmd{
 		System: "test.system",
 		Kind:   "test.kind",
 		Topic:  "events@1",
@@ -113,7 +112,7 @@ func TestDispatcher_Subscribe(t *testing.T) {
 	require.NoError(t, err)
 
 	<-completed
-	sub, ok := result.(eventsapi.EventSubscription)
+	sub, ok := result.(event.EventSubscription)
 	require.True(t, ok)
 	assert.Equal(t, "test.system", sub.System)
 	assert.Equal(t, "test.kind", sub.Kind)
@@ -211,7 +210,7 @@ func TestDispatcher_Send(t *testing.T) {
 		},
 	}
 
-	cmd := eventsapi.EventsSendCmd{
+	cmd := event.EventsSendCmd{
 		System: "test.system",
 		Kind:   "test.kind",
 		Path:   "/test/path",

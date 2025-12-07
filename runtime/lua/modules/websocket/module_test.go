@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	wsapi "github.com/wippyai/runtime/api/dispatcher/ws"
 	"github.com/wippyai/runtime/api/relay"
+	wsapi "github.com/wippyai/runtime/api/websocket"
 	"github.com/yuin/gopher-lua"
 
 	"github.com/coder/websocket"

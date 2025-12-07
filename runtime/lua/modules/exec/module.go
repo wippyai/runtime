@@ -3,8 +3,8 @@ package exec
 import (
 	"sync"
 
-	execapi "github.com/wippyai/runtime/api/dispatcher/exec"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	execapi "github.com/wippyai/runtime/api/service/exec"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	eventsapi "github.com/wippyai/runtime/api/dispatcher/events"
+	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine"
@@ -31,8 +31,8 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	mod.Immutable = true
 
 	yields := []luaapi.YieldType{
-		{Sample: &EventSubscribeYield{}, CmdID: eventsapi.CmdEventsSubscribe},
-		{Sample: &EventSendYield{}, CmdID: eventsapi.CmdEventsSend},
+		{Sample: &EventSubscribeYield{}, CmdID: event.CmdEventsSubscribe},
+		{Sample: &EventSendYield{}, CmdID: event.CmdEventsSend},
 	}
 
 	return mod, yields

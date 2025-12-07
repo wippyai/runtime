@@ -3,9 +3,9 @@ package sql
 import (
 	"sync"
 
-	sqlapi "github.com/wippyai/runtime/api/dispatcher/sql"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	servicesql "github.com/wippyai/runtime/api/service/sql"
+	sqlapi "github.com/wippyai/runtime/api/service/sql"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )

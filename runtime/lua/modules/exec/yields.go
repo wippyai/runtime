@@ -4,7 +4,7 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/dispatcher"
-	execapi "github.com/wippyai/runtime/api/dispatcher/exec"
+	execapi "github.com/wippyai/runtime/api/service/exec"
 	lua "github.com/yuin/gopher-lua"
 )
 

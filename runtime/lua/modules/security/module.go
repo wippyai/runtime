@@ -3,12 +3,11 @@ package security
 import (
 	"sync"
 
-	securityapi "github.com/wippyai/runtime/api/dispatcher/security"
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
-	secapi "github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	"github.com/wippyai/runtime/runtime/lua/security"
+	luasec "github.com/wippyai/runtime/runtime/lua/security"
 	secsystem "github.com/wippyai/runtime/system/security"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -49,9 +48,9 @@ var Module = &luaapi.ModuleDef{
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		initOnce.Do(initModuleTable)
 		return moduleTable, []luaapi.YieldType{
-			{Sample: &ValidateYield{}, CmdID: securityapi.CmdTokenValidate},
-			{Sample: &CreateYield{}, CmdID: securityapi.CmdTokenCreate},
-			{Sample: &RevokeYield{}, CmdID: securityapi.CmdTokenRevoke},
+			{Sample: &ValidateYield{}, CmdID: security.CmdTokenValidate},
+			{Sample: &CreateYield{}, CmdID: security.CmdTokenCreate},
+			{Sample: &RevokeYield{}, CmdID: security.CmdTokenRevoke},
 		}
 	},
 }
@@ -63,7 +62,7 @@ func actor(l *lua.LState) int {
 		return 1
 	}
 
-	act, exists := secapi.GetActor(ctx)
+	act, exists := security.GetActor(ctx)
 	if !exists {
 		l.Push(lua.LNil)
 		return 1
@@ -80,7 +79,7 @@ func scope(l *lua.LState) int {
 		return 1
 	}
 
-	sc, exists := secapi.GetScope(ctx)
+	sc, exists := security.GetScope(ctx)
 	if !exists {
 		l.Push(lua.LNil)
 		return 1
@@ -106,7 +105,7 @@ func can(l *lua.LState) int {
 		return 1
 	}
 
-	allowed := secapi.IsAllowed(ctx, action, resource, meta)
+	allowed := security.IsAllowed(ctx, action, resource, meta)
 	l.Push(lua.LBool(allowed))
 	return 1
 }
@@ -122,13 +121,13 @@ func policy(l *lua.LState) int {
 		return 2
 	}
 
-	if !security.IsAllowed(ctx, "security.policy.get", idStr, nil) {
+	if !luasec.IsAllowed(ctx, "security.policy.get", idStr, nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "permission denied: access policy").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
-	pol, err := secapi.GetPolicy(ctx, id)
+	pol, err := security.GetPolicy(ctx, id)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.WrapErrorWithLua(l, err, "get policy").WithKind(lua.KindInternal).WithRetryable(false))
@@ -151,13 +150,13 @@ func namedScope(l *lua.LState) int {
 		return 2
 	}
 
-	if !security.IsAllowed(ctx, "security.policy_group.get", idStr, nil) {
+	if !luasec.IsAllowed(ctx, "security.policy_group.get", idStr, nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "permission denied: access policy group").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 
-	sc, err := secapi.GetPolicyGroup(ctx, id)
+	sc, err := security.GetPolicyGroup(ctx, id)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.WrapErrorWithLua(l, err, "get policy group").WithKind(lua.KindInternal).WithRetryable(false))
@@ -176,7 +175,7 @@ func newScope(l *lua.LState) int {
 		return 0
 	}
 
-	if !security.IsAllowed(ctx, "security.scope.create", "custom", nil) {
+	if !luasec.IsAllowed(ctx, "security.scope.create", "custom", nil) {
 		l.RaiseError("not allowed to create custom scopes")
 		return 0
 	}
@@ -187,7 +186,7 @@ func newScope(l *lua.LState) int {
 		policiesTable := l.CheckTable(1)
 		policiesTable.ForEach(func(_, policyValue lua.LValue) {
 			if policyUD, ok := policyValue.(*lua.LUserData); ok {
-				if pol, ok := policyUD.Value.(secapi.Policy); ok {
+				if pol, ok := policyUD.Value.(security.Policy); ok {
 					sc = sc.With(pol)
 				}
 			}
@@ -207,7 +206,7 @@ func newActor(l *lua.LState) int {
 		return 0
 	}
 
-	if !security.IsAllowed(ctx, "security.actor.create", id, nil) {
+	if !luasec.IsAllowed(ctx, "security.actor.create", id, nil) {
 		l.RaiseError("not allowed to create actor with ID: %s", id)
 		return 0
 	}
@@ -218,7 +217,7 @@ func newActor(l *lua.LState) int {
 		return 0
 	}
 
-	act := secapi.Actor{
+	act := security.Actor{
 		ID:   id,
 		Meta: meta,
 	}

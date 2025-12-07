@@ -7,9 +7,9 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 )
 
-type contextKey string
+type embedRegistryKeyType struct{}
 
-const embedRegistryKey contextKey = "embed.registry"
+var embedRegistryKey = embedRegistryKeyType{}
 
 // Registry provides access to embedded filesystem resources.
 // Implementation is backed by pack readers but the interface abstracts this detail.

@@ -2,8 +2,8 @@ package stream
 
 import (
 	"github.com/wippyai/runtime/api/dispatcher"
-	streamapi "github.com/wippyai/runtime/api/dispatcher/stream"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	streamapi "github.com/wippyai/runtime/api/stream"
 	lua "github.com/yuin/gopher-lua"
 )
 

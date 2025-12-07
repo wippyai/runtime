@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	httpapi "github.com/wippyai/runtime/api/dispatcher/http"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	httpapi "github.com/wippyai/runtime/api/service/http"
 	"github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
 )

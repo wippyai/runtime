@@ -9,9 +9,9 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/dispatcher"
-	streamapi "github.com/wippyai/runtime/api/dispatcher/stream"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/runtime/resource"
+	streamapi "github.com/wippyai/runtime/api/stream"
 )
 
 const DefaultChunkSize = 32 * 1024 // 32KB

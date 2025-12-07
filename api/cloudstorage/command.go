@@ -1,12 +1,10 @@
-// Package csapi provides cloud storage command types for the dispatcher system.
-package csapi
+package cloudstorage
 
 import (
 	"io"
 	"sync"
 	"time"
 
-	"github.com/wippyai/runtime/api/cloudstorage"
 	"github.com/wippyai/runtime/api/dispatcher"
 )
 
@@ -30,8 +28,8 @@ const (
 
 // ListObjectsCmd lists objects in cloud storage.
 type ListObjectsCmd struct {
-	Storage cloudstorage.Storage
-	Options *cloudstorage.ListObjectsOptions
+	Storage Storage
+	Options *ListObjectsOptions
 }
 
 var listObjectsCmdPool = sync.Pool{New: func() any { return &ListObjectsCmd{} }}
@@ -46,16 +44,16 @@ func (c *ListObjectsCmd) Release() {
 
 // ListObjectsResponse contains list objects results.
 type ListObjectsResponse struct {
-	Result *cloudstorage.ListObjectsResult
+	Result *ListObjectsResult
 	Error  error
 }
 
 // DownloadObjectCmd downloads an object from cloud storage.
 type DownloadObjectCmd struct {
-	Storage cloudstorage.Storage
+	Storage Storage
 	Key     string
 	Writer  io.Writer
-	Options *cloudstorage.DownloadOptions
+	Options *DownloadOptions
 }
 
 var downloadObjectCmdPool = sync.Pool{New: func() any { return &DownloadObjectCmd{} }}
@@ -79,7 +77,7 @@ type DownloadObjectResponse struct {
 
 // UploadObjectCmd uploads an object to cloud storage.
 type UploadObjectCmd struct {
-	Storage cloudstorage.Storage
+	Storage Storage
 	Key     string
 	Reader  io.Reader
 }
@@ -102,7 +100,7 @@ type UploadObjectResponse struct {
 
 // DeleteObjectsCmd deletes objects from cloud storage.
 type DeleteObjectsCmd struct {
-	Storage cloudstorage.Storage
+	Storage Storage
 	Keys    []string
 }
 
@@ -125,7 +123,7 @@ type DeleteObjectsResponse struct {
 
 // PresignedGetURLCmd generates a presigned GET URL.
 type PresignedGetURLCmd struct {
-	Storage    cloudstorage.Storage
+	Storage    Storage
 	Key        string
 	Expiration time.Duration
 }
@@ -151,7 +149,7 @@ type PresignedGetURLResponse struct {
 
 // PresignedPutURLCmd generates a presigned PUT URL.
 type PresignedPutURLCmd struct {
-	Storage       cloudstorage.Storage
+	Storage       Storage
 	Key           string
 	Expiration    time.Duration
 	ContentType   string

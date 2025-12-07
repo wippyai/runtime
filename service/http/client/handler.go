@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/dispatcher"
-	httpapi "github.com/wippyai/runtime/api/dispatcher/http"
 	"github.com/wippyai/runtime/api/runtime/resource"
+	httpapi "github.com/wippyai/runtime/api/service/http"
 	streamhandler "github.com/wippyai/runtime/service/fs/stream"
 )
 

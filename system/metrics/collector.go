@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 
 	api "github.com/wippyai/runtime/api/metrics"
@@ -14,6 +15,7 @@ type collector struct {
 	recordCh  chan recordEvent
 	stopCh    chan struct{}
 	wg        sync.WaitGroup
+	dropped   atomic.Uint64
 }
 
 type recordEvent struct {
@@ -67,7 +69,13 @@ func (c *collector) record(name string, typ api.MetricType, value float64, label
 	select {
 	case c.recordCh <- recordEvent{name: name, typ: typ, value: value, labels: labels}:
 	default:
+		c.dropped.Add(1)
 	}
+}
+
+// Dropped returns the number of metrics that were dropped due to buffer overflow.
+func (c *collector) Dropped() uint64 {
+	return c.dropped.Load()
 }
 
 func (c *collector) RegisterExporter(e api.Exporter) error {

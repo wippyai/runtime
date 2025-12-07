@@ -135,7 +135,7 @@ func (sp *Sequencer) processStartOperations(_ context.Context, operations []Oper
 		wg.Wait()
 		close(errChan)
 
-		// Check for any errors
+		// For start operations, stop on first error - don't start services with broken dependencies
 		for err := range errChan {
 			if err != nil {
 				return err

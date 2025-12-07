@@ -60,6 +60,7 @@ func (m *Manager) Cancel(_ context.Context, from, pid relay.PID, deadline time.T
 		m.logger.Error("failed to send cancel",
 			zap.String("pid", pid.String()),
 			zap.Error(err))
+		return err
 	}
 
 	return nil
