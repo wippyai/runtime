@@ -41,7 +41,7 @@ func Queues() boot.Component {
 				bus,
 				queueManager,
 				dtt,
-				logger.Named("queue.queue"),
+				logger,
 			)
 
 			handlers.RegisterListener("queue.queue", manager)

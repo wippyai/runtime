@@ -36,7 +36,7 @@ local function main(body)
         processed_at = os.time()
     }
 
-    local ok, err = s:set(result_key, result, {ttl = 300})
+    local ok, err = s:set(result_key, result, 300)
     if err then
         logger:error("failed to store result", {error = tostring(err)})
         return false
@@ -46,7 +46,7 @@ local function main(body)
     local counter_key = "queue:counter"
     local current, _ = s:get(counter_key)
     local count = (current or 0) + 1
-    s:set(counter_key, count, {ttl = 300})
+    s:set(counter_key, count, 300)
 
     logger:info("task processed successfully", {
         msg_id = msg_id,

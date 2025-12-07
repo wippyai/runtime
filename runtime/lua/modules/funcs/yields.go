@@ -125,9 +125,7 @@ func (y *AsyncStartYield) HandleResult(l *lua.LState, data any, err error) []lua
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 	// Return pre-created Future with channel
-	ud := value.PushTypedUserData(l, y.Future, future.TypeName)
-	l.Pop(1)
-	return []lua.LValue{ud, lua.LNil}
+	return []lua.LValue{value.NewTypedUserData(l, y.Future, future.TypeName), lua.LNil}
 }
 
 // AsyncCancelYield wraps AsyncCancelCmd for Lua.

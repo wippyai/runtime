@@ -134,12 +134,30 @@ func RegisterMethods(l *lua.LState, typeName string, methods map[string]lua.LGoF
 	return RegisterTypeMethods(l, typeName, nil, methods)
 }
 
-// PushUserData creates a new userdata with the given value and metatable,
-// pushes it onto the stack, and returns it.
-func PushUserData(l *lua.LState, val any, metatable *lua.LTable) *lua.LUserData {
+// NewUserData creates a new userdata with the given value and metatable.
+// Does not push onto the stack.
+func NewUserData(l *lua.LState, val any, metatable *lua.LTable) *lua.LUserData {
 	ud := l.NewUserData()
 	ud.Value = val
 	ud.Metatable = metatable
+	return ud
+}
+
+// NewTypedUserData creates a new userdata with the given value and looks up
+// the metatable by type name from the registry. Does not push onto the stack.
+// Returns nil if the type is not registered.
+func NewTypedUserData(l *lua.LState, val any, typeName string) *lua.LUserData {
+	mt := GetTypeMetatable(l, typeName)
+	if mt == nil {
+		return nil
+	}
+	return NewUserData(l, val, mt)
+}
+
+// PushUserData creates a new userdata with the given value and metatable,
+// pushes it onto the stack, and returns it.
+func PushUserData(l *lua.LState, val any, metatable *lua.LTable) *lua.LUserData {
+	ud := NewUserData(l, val, metatable)
 	l.Push(ud)
 	return ud
 }

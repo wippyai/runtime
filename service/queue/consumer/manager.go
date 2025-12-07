@@ -91,7 +91,7 @@ func (m *Manager) addOrUpdate(ctx context.Context, entry registry.Entry, action 
 		cfg,
 		driver,
 		m.funcReg,
-		m.logger.Named("consumer"),
+		m.logger,
 	)
 
 	m.consumers.Store(entry.ID, consumer)

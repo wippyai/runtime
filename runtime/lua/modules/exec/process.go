@@ -7,11 +7,14 @@ import (
 
 	"github.com/wippyai/runtime/api/runtime/resource"
 	apiexec "github.com/wippyai/runtime/api/service/exec"
+	"github.com/wippyai/runtime/runtime/lua/modules/stream"
+	fsstream "github.com/wippyai/runtime/service/fs/stream"
 	lua "github.com/yuin/gopher-lua"
 )
 
 type Process struct {
 	handle        apiexec.Process
+	started       bool
 	closed        bool
 	mu            sync.Mutex
 	cancelCleanup func()
@@ -70,7 +73,14 @@ func procStart(l *lua.LState) int {
 		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
+	if p.started {
+		p.mu.Unlock()
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "process already started").WithKind(lua.KindInvalid).WithRetryable(false))
+		return 2
+	}
 	handle := p.handle
+	p.started = true
 	p.mu.Unlock()
 
 	err := handle.Start()
@@ -95,6 +105,12 @@ func procWait(l *lua.LState) int {
 		p.mu.Unlock()
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.KindInvalid).WithRetryable(false))
+		return 2
+	}
+	if !p.started {
+		p.mu.Unlock()
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "process not started: call start() first").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
 	handle := p.handle
@@ -127,6 +143,12 @@ func procSignal(l *lua.LState) int {
 		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
+	if !p.started {
+		p.mu.Unlock()
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "process not started: call start() first").WithKind(lua.KindInvalid).WithRetryable(false))
+		return 2
+	}
 	handle := p.handle
 	p.mu.Unlock()
 
@@ -155,6 +177,12 @@ func procWriteStdin(l *lua.LState) int {
 		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.KindInvalid).WithRetryable(false))
 		return 2
 	}
+	if !p.started {
+		p.mu.Unlock()
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "process not started: call start() first").WithKind(lua.KindInvalid).WithRetryable(false))
+		return 2
+	}
 	handle := p.handle
 	p.mu.Unlock()
 
@@ -176,6 +204,8 @@ func procStdout(l *lua.LState) int {
 	if p == nil {
 		return 0
 	}
+	ctx := l.Context()
+
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
@@ -193,9 +223,15 @@ func procStdout(l *lua.LState) int {
 		return 2
 	}
 
-	ud := l.NewUserData()
-	ud.Value = reader
-	l.Push(ud)
+	table := resource.GetTable(ctx)
+	if table == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "resource table not available").WithKind(lua.KindInternal).WithRetryable(false))
+		return 2
+	}
+
+	streamID := fsstream.Insert(table, reader)
+	l.Push(stream.NewStream(l, streamID))
 	l.Push(lua.LNil)
 	return 2
 }
@@ -205,6 +241,8 @@ func procStderr(l *lua.LState) int {
 	if p == nil {
 		return 0
 	}
+	ctx := l.Context()
+
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
@@ -222,9 +260,15 @@ func procStderr(l *lua.LState) int {
 		return 2
 	}
 
-	ud := l.NewUserData()
-	ud.Value = reader
-	l.Push(ud)
+	table := resource.GetTable(ctx)
+	if table == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "resource table not available").WithKind(lua.KindInternal).WithRetryable(false))
+		return 2
+	}
+
+	streamID := fsstream.Insert(table, reader)
+	l.Push(stream.NewStream(l, streamID))
 	l.Push(lua.LNil)
 	return 2
 }

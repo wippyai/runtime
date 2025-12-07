@@ -43,9 +43,9 @@ func Manager() boot.Component {
 				logger.Warn("failed to register queue dependency pattern", zap.Error(err))
 			}
 
-			interceptorReg = interceptor.NewInterceptorRegistry(logger.Named("queue.interceptor"))
+			interceptorReg = interceptor.NewInterceptorRegistry(logger.Named("interceptor"))
 
-			mgr = queuemgr.NewManager(bus, logger.Named("queue"))
+			mgr = queuemgr.NewManager(bus, logger)
 
 			interceptorReg.SetPublishFunc(mgr.PublishDirect)
 			mgr.SetPublishChain(interceptorReg)

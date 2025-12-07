@@ -7,7 +7,7 @@ local function main()
     local executor, err = exec.get("app:exec")
     assert.not_nil(executor, "executor acquired")
 
-    -- Test stdout
+    -- Test stdout with read
     local proc, perr = executor:exec("echo 'hello stdout'")
     assert.not_nil(proc, "process created")
 
@@ -16,8 +16,19 @@ local function main()
     assert.not_nil(stdout, "stdout stream acquired")
     assert.is_nil(serr, "no error getting stdout")
 
+    -- Verify stream has read method (Stream type)
+    assert.not_nil(stdout.read, "stdout has read method")
+    assert.not_nil(stdout.close, "stdout has close method")
+
     proc:start()
+
+    -- Read from stdout via dispatcher (before wait, while process is running)
+    local data, rerr = stdout:read()
+    assert.is_nil(rerr, "no error reading stdout")
+    assert.not_nil(data, "data read from stdout")
+
     proc:wait()
+    stdout:close()
 
     -- Test stderr
     local proc2, p2err = executor:exec("sh -c 'echo error >&2'")

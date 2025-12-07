@@ -182,7 +182,6 @@ func dbExecute(l *lua.LState) int {
 	return -1
 }
 
-// TODO: dbPrepare returns error in tests - investigate after scheduler refactor
 func dbPrepare(l *lua.LState) int {
 	db := checkDB(l, 1)
 	if db == nil {
@@ -202,7 +201,6 @@ func dbPrepare(l *lua.LState) int {
 	return -1
 }
 
-// TODO: dbBegin returns error in tests - investigate after scheduler refactor
 func dbBegin(l *lua.LState) int {
 	db := checkDB(l, 1)
 	if db == nil {
