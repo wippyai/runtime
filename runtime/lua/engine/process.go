@@ -87,7 +87,7 @@ type Process struct {
 	yieldBuf []*Task
 
 	// pendingYields tracks yields waiting for external operations
-	pendingYields map[any]*Task
+	pendingYields map[uint64]*Task
 
 	// yieldSeq is a monotonic counter for generating unique yield tags
 	yieldSeq uint64
@@ -404,7 +404,7 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 
 	// Initialize pendingYields map if needed
 	if p.pendingYields == nil {
-		p.pendingYields = make(map[any]*Task, 4)
+		p.pendingYields = make(map[uint64]*Task, 4)
 	}
 
 	// Convert external yields to commands
@@ -901,30 +901,24 @@ func (p *Process) SyncExecute(ctx context.Context, args ...lua.LValue) (lua.LVal
 
 // distributeEvent routes a yield completion event to the correct pending task.
 // Uses tag-based correlation for O(1) direct lookup.
-// For single-yield case where Tag is nil, resumes the only pending task.
 func (p *Process) distributeEvent(ev process.Event) {
 	if len(p.pendingYields) == 0 {
 		return
 	}
 
-	var task *Task
-	var tag any
-
-	if ev.Tag == nil {
+	if ev.Tag == 0 {
 		return
 	}
 
-	var exists bool
-	task, exists = p.pendingYields[ev.Tag]
+	task, exists := p.pendingYields[ev.Tag]
 	if !exists || task == nil {
 		return
 	}
-	tag = ev.Tag
 
 	p.resumeTaskWithResult(task, ev.Data, ev.Error)
 
 	// Remove completed task from pending map
-	delete(p.pendingYields, tag)
+	delete(p.pendingYields, ev.Tag)
 }
 
 // resumeTaskWithResult converts handler result to Lua values and queues task.

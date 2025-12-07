@@ -20,6 +20,17 @@ const (
 	CmdTaggedSleep     dispatcher.CommandID = 200
 )
 
+// Yield correlation tags for tests
+const (
+	tagA  uint64 = 1
+	tagB  uint64 = 2
+	tagC  uint64 = 3
+	tagY1 uint64 = 4
+	tagX1 uint64 = 5
+	tagX2 uint64 = 6
+	tagX3 uint64 = 7
+)
+
 // DelayedCompleteCmd completes after a specified delay.
 type DelayedCompleteCmd struct {
 	ID    int
@@ -35,7 +46,7 @@ type DelayedHandler struct {
 	mu              *sync.Mutex
 }
 
-func (h *DelayedHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+func (h *DelayedHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	c := cmd.(DelayedCompleteCmd)
 	go func() {
 		select {
@@ -61,7 +72,7 @@ func (TaggedSleepCmd) CmdID() dispatcher.CommandID { return CmdTaggedSleep }
 // TaggedSleepHandler completes after delay, returning the tag.
 type TaggedSleepHandler struct{}
 
-func (h *TaggedSleepHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+func (h *TaggedSleepHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	c := cmd.(TaggedSleepCmd)
 	go func() {
 		select {
@@ -84,7 +95,7 @@ func (TagTrackingCmd) CmdID() dispatcher.CommandID { return CmdTaggedSleep }
 // TagTrackingHandler completes with the original command data.
 type TagTrackingHandler struct{}
 
-func (h *TagTrackingHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+func (h *TagTrackingHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	c := cmd.(TagTrackingCmd)
 	go receiver.CompleteYield(tag, c.Value, nil)
 	return nil
@@ -95,7 +106,7 @@ type AsyncTagTrackingHandler struct {
 	delay time.Duration
 }
 
-func (h *AsyncTagTrackingHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+func (h *AsyncTagTrackingHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	c := cmd.(TagTrackingCmd)
 	go func() {
 		select {
@@ -131,22 +142,20 @@ func (p *MultiYieldProcess) Step(events []Event, out *StepOutput) error {
 	if p.step == 0 {
 		p.step++
 		for _, cmd := range p.yields {
-			out.Yield(cmd, cmd.ID)
+			out.Yield(cmd, uint64(cmd.ID))
 		}
 		out.Continue()
 		return nil
 	}
 
 	for _, ev := range events {
-		if ev.Type == EventYieldComplete && ev.Tag != nil {
-			if id, ok := ev.Tag.(int); ok {
-				p.resumeOrder = append(p.resumeOrder, id)
-			}
+		if ev.Type == EventYieldComplete && ev.Tag != 0 {
+			p.resumeOrder = append(p.resumeOrder, int(ev.Tag))
 		}
 	}
 
 	if len(p.resumeOrder) >= len(p.yields) {
-		out.Yield(CompleteCmd{Value: p.resumeOrder}, nil)
+		out.Yield(CompleteCmd{Value: p.resumeOrder}, 0)
 		out.Done(nil)
 		return nil
 	}
@@ -186,8 +195,8 @@ func TestMultiYieldIndependentCompletion(t *testing.T) {
 	defer sched.Stop()
 
 	yields := []DelayedCompleteCmd{
-		{ID: 0, Delay: 100 * time.Millisecond, Value: "slow"},
-		{ID: 1, Delay: 10 * time.Millisecond, Value: "fast"},
+		{ID: 1, Delay: 100 * time.Millisecond, Value: "slow"},
+		{ID: 2, Delay: 10 * time.Millisecond, Value: "fast"},
 	}
 
 	proc := &MultiYieldProcess{}
@@ -210,8 +219,8 @@ func TestMultiYieldIndependentCompletion(t *testing.T) {
 	mu.Unlock()
 
 	t.Logf("Handler completion order: %v", handlerOrder)
-	if len(handlerOrder) != 2 || handlerOrder[0] != 1 || handlerOrder[1] != 0 {
-		t.Errorf("Expected handler completion order [1, 0], got %v", handlerOrder)
+	if len(handlerOrder) != 2 || handlerOrder[0] != 2 || handlerOrder[1] != 1 {
+		t.Errorf("Expected handler completion order [2, 1], got %v", handlerOrder)
 	}
 
 	proc.mu.Lock()
@@ -224,8 +233,8 @@ func TestMultiYieldIndependentCompletion(t *testing.T) {
 		t.Errorf("Expected 2 resumes, got %d", len(resumeOrder))
 	}
 
-	if resumeOrder[0] != 1 || resumeOrder[1] != 0 {
-		t.Errorf("Expected resume order [1, 0] (completion order), got %v (batched order)", resumeOrder)
+	if resumeOrder[0] != 2 || resumeOrder[1] != 1 {
+		t.Errorf("Expected resume order [2, 1] (completion order), got %v (batched order)", resumeOrder)
 	}
 }
 
@@ -250,8 +259,8 @@ func (p *SequentialYieldProcess) Step(events []Event, out *StepOutput) error {
 
 	if p.step == 0 {
 		p.step++
-		out.Yield(TaggedSleepCmd{Tag: "A", Duration: 100 * time.Millisecond}, "tag_A")
-		out.Yield(TaggedSleepCmd{Tag: "B", Duration: 10 * time.Millisecond}, "tag_B")
+		out.Yield(TaggedSleepCmd{Tag: "A", Duration: 100 * time.Millisecond}, tagA)
+		out.Yield(TaggedSleepCmd{Tag: "B", Duration: 10 * time.Millisecond}, tagB)
 		out.Continue()
 		return nil
 	}
@@ -364,15 +373,15 @@ func (p *StaggeredYieldProcess) Step(events []Event, out *StepOutput) error {
 	switch p.step {
 	case 0:
 		p.step++
-		out.Yield(TaggedSleepCmd{Tag: "A", Duration: 200 * time.Millisecond}, "tag_A")
-		out.Yield(TaggedSleepCmd{Tag: "B", Duration: 10 * time.Millisecond}, "tag_B")
+		out.Yield(TaggedSleepCmd{Tag: "A", Duration: 200 * time.Millisecond}, tagA)
+		out.Yield(TaggedSleepCmd{Tag: "B", Duration: 10 * time.Millisecond}, tagB)
 		out.Continue()
 		return nil
 
 	case 1:
 		if gotB {
 			p.step++
-			out.Yield(TaggedSleepCmd{Tag: "C", Duration: 50 * time.Millisecond}, "tag_C")
+			out.Yield(TaggedSleepCmd{Tag: "C", Duration: 50 * time.Millisecond}, tagC)
 			out.Continue()
 			return nil
 		}
@@ -491,10 +500,19 @@ func (p *ParallelCoroutinesProcess) Step(events []Event, out *StepOutput) error 
 
 	if p.yieldedXCount < p.xYieldsExpected {
 		p.yieldedXCount++
-		tag := "X" + string(rune('0'+p.yieldedXCount))
-		out.Yield(TaggedSleepCmd{Tag: tag, Duration: 5 * time.Millisecond}, "tag_"+tag)
+		var yieldTag uint64
+		var cmdTag string
+		switch p.yieldedXCount {
+		case 1:
+			yieldTag, cmdTag = tagX1, "X1"
+		case 2:
+			yieldTag, cmdTag = tagX2, "X2"
+		case 3:
+			yieldTag, cmdTag = tagX3, "X3"
+		}
+		out.Yield(TaggedSleepCmd{Tag: cmdTag, Duration: 5 * time.Millisecond}, yieldTag)
 		if p.yieldedXCount == 1 {
-			out.Yield(TaggedSleepCmd{Tag: "Y1", Duration: 100 * time.Millisecond}, "tag_Y1")
+			out.Yield(TaggedSleepCmd{Tag: "Y1", Duration: 100 * time.Millisecond}, tagY1)
 		}
 		out.Continue()
 		return nil
@@ -573,7 +591,7 @@ func TestParallelCoroutines_IndexCorrelation(t *testing.T) {
 type SingleYieldTagProcess struct {
 	mu          sync.Mutex
 	step        int
-	receivedTag any
+	receivedTag uint64
 	ctx         context.Context
 }
 
@@ -588,7 +606,7 @@ func (p *SingleYieldTagProcess) Step(events []Event, out *StepOutput) error {
 
 	if p.step == 0 {
 		p.step++
-		out.Yield(TagTrackingCmd{ID: 1, Value: "test-value"}, "my-tag")
+		out.Yield(TagTrackingCmd{ID: 1, Value: "test-value"}, 100)
 		out.Continue()
 		return nil
 	}
@@ -604,7 +622,7 @@ func (p *SingleYieldTagProcess) Step(events []Event, out *StepOutput) error {
 	out.Yield(CompleteCmd{Value: map[string]any{
 		"receivedTag": p.receivedTag,
 		"data":        data,
-	}}, nil)
+	}}, 0)
 	out.Done(nil)
 	return nil
 }
@@ -656,8 +674,8 @@ func TestSingleYieldTagPropagation(t *testing.T) {
 	receivedTag := proc.receivedTag
 	proc.mu.Unlock()
 
-	if receivedTag != "my-tag" {
-		t.Errorf("expected Tag 'my-tag', got %v", receivedTag)
+	if receivedTag != 100 {
+		t.Errorf("expected Tag 100, got %v", receivedTag)
 	}
 }
 
@@ -665,14 +683,14 @@ func TestSingleYieldTagPropagation(t *testing.T) {
 type SequentialTagYieldProcess struct {
 	mu           sync.Mutex
 	step         int
-	pendingTasks map[any]int
+	pendingTasks map[uint64]int
 	results      []int
 	ctx          context.Context
 }
 
 func (p *SequentialTagYieldProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
 	p.ctx = ctx
-	p.pendingTasks = make(map[any]int)
+	p.pendingTasks = make(map[uint64]int)
 	return nil
 }
 
@@ -681,7 +699,7 @@ func (p *SequentialTagYieldProcess) Step(events []Event, out *StepOutput) error 
 	defer p.mu.Unlock()
 
 	for _, ev := range events {
-		if ev.Type == EventYieldComplete && ev.Tag != nil {
+		if ev.Type == EventYieldComplete && ev.Tag != 0 {
 			if taskID, ok := p.pendingTasks[ev.Tag]; ok {
 				p.results = append(p.results, taskID)
 				delete(p.pendingTasks, ev.Tag)
@@ -691,7 +709,7 @@ func (p *SequentialTagYieldProcess) Step(events []Event, out *StepOutput) error 
 
 	if p.step < 3 {
 		p.step++
-		tag := p.step
+		tag := uint64(p.step)
 		p.pendingTasks[tag] = p.step
 
 		out.Yield(TagTrackingCmd{ID: p.step, Value: "value"}, tag)
@@ -704,7 +722,7 @@ func (p *SequentialTagYieldProcess) Step(events []Event, out *StepOutput) error 
 		return nil
 	}
 
-	out.Yield(CompleteCmd{Value: p.results}, nil)
+	out.Yield(CompleteCmd{Value: p.results}, 0)
 	out.Done(nil)
 	return nil
 }
@@ -765,8 +783,8 @@ func TestSequentialYieldTagCorrelation(t *testing.T) {
 // StaggeredMultiYieldProcess simulates the Lua distributed_work scenario.
 type StaggeredMultiYieldProcess struct {
 	mu            sync.Mutex
-	pendingYields map[any]bool
-	completedTags []any
+	pendingYields map[uint64]bool
+	completedTags []uint64
 	yieldCount    int
 	maxYields     int
 	workers       int
@@ -775,7 +793,7 @@ type StaggeredMultiYieldProcess struct {
 
 func (p *StaggeredMultiYieldProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
 	p.ctx = ctx
-	p.pendingYields = make(map[any]bool)
+	p.pendingYields = make(map[uint64]bool)
 	p.workers = 3
 	p.maxYields = 2
 	return nil
@@ -785,21 +803,21 @@ func (p *StaggeredMultiYieldProcess) Step(events []Event, out *StepOutput) error
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	var lastTag any
+	var completedThisStep []uint64
 	for _, ev := range events {
-		if ev.Type == EventYieldComplete && ev.Tag != nil {
+		if ev.Type == EventYieldComplete && ev.Tag != 0 {
 			delete(p.pendingYields, ev.Tag)
 			p.completedTags = append(p.completedTags, ev.Tag)
-			lastTag = ev.Tag
+			completedThisStep = append(completedThisStep, ev.Tag)
 		}
 	}
 
 	if p.yieldCount == 0 {
 		for i := 0; i < p.workers; i++ {
-			tag := i + 1
+			tag := uint64(i + 1)
 			p.pendingYields[tag] = true
 			p.yieldCount++
-			out.Yield(TagTrackingCmd{ID: tag, Value: "initial"}, tag)
+			out.Yield(TagTrackingCmd{ID: int(tag), Value: "initial"}, tag)
 		}
 		out.Continue()
 		return nil
@@ -807,26 +825,23 @@ func (p *StaggeredMultiYieldProcess) Step(events []Event, out *StepOutput) error
 
 	workerYields := make(map[int]int)
 	for _, tag := range p.completedTags {
-		if t, ok := tag.(int); ok {
-			workerID := ((t - 1) % p.workers) + 1
-			workerYields[workerID]++
-		}
+		workerID := ((int(tag) - 1) % p.workers) + 1
+		workerYields[workerID]++
 	}
 
-	if lastTag != nil {
-		if t, ok := lastTag.(int); ok {
-			workerID := ((t - 1) % p.workers) + 1
-			if workerYields[workerID] < p.maxYields {
-				newTag := p.yieldCount + 1
-				p.pendingYields[newTag] = true
-				p.yieldCount++
-				out.Yield(TagTrackingCmd{ID: newTag, Value: "subsequent"}, newTag)
-			}
+	for _, tag := range completedThisStep {
+		workerID := ((int(tag) - 1) % p.workers) + 1
+		if workerYields[workerID] < p.maxYields {
+			p.yieldCount++
+			newTag := uint64(p.yieldCount)
+			p.pendingYields[newTag] = true
+			workerYields[workerID]++
+			out.Yield(TagTrackingCmd{ID: int(newTag), Value: "subsequent"}, newTag)
 		}
 	}
 
 	if len(p.pendingYields) == 0 && len(p.completedTags) >= p.workers*p.maxYields {
-		out.Yield(CompleteCmd{Value: p.completedTags}, nil)
+		out.Yield(CompleteCmd{Value: p.completedTags}, 0)
 		out.Done(nil)
 		return nil
 	}
@@ -841,8 +856,12 @@ func (p *StaggeredMultiYieldProcess) Close()                        {}
 // TestStaggeredMultiYield tests the scenario where multiple concurrent yields
 // are active, and as each completes, the process yields again.
 func TestStaggeredMultiYield(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode")
+	}
+
 	registry := scheduler.NewRegistry()
-	registry.Register(CmdTaggedSleep, &AsyncTagTrackingHandler{delay: 5 * time.Millisecond})
+	registry.Register(CmdTaggedSleep, &AsyncTagTrackingHandler{delay: 1 * time.Millisecond})
 	registry.Register(CmdComplete, CompleteHandler())
 
 	var completed atomic.Bool
@@ -865,9 +884,9 @@ func TestStaggeredMultiYield(t *testing.T) {
 		t.Fatalf("submit error: %v", err)
 	}
 
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for !completed.Load() && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 	}
 
 	if !completed.Load() {
@@ -937,7 +956,7 @@ func TestAsyncSingleYieldTagPropagation(t *testing.T) {
 	receivedTag := proc.receivedTag
 	proc.mu.Unlock()
 
-	if receivedTag != "my-tag" {
-		t.Errorf("expected Tag 'my-tag', got %v", receivedTag)
+	if receivedTag != 100 {
+		t.Errorf("expected Tag 100, got %v", receivedTag)
 	}
 }

@@ -65,7 +65,7 @@ func (d *yieldingDispatcher) Dispatch(cmd dispatcher.Command) dispatcher.Handler
 
 type instantYieldHandler struct{}
 
-func (h *instantYieldHandler) Handle(_ context.Context, _ dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+func (h *instantYieldHandler) Handle(_ context.Context, _ dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	go receiver.CompleteYield(tag, nil, nil)
 	return nil
 }
@@ -83,7 +83,7 @@ type timerYieldHandler struct {
 	delay time.Duration
 }
 
-func (h *timerYieldHandler) Handle(_ context.Context, _ dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+func (h *timerYieldHandler) Handle(_ context.Context, _ dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	time.AfterFunc(h.delay, func() {
 		receiver.CompleteYield(tag, nil, nil)
 	})
@@ -102,13 +102,13 @@ type actualYieldingProcess struct {
 	steps    int
 	maxSteps int
 	closed   atomic.Bool
-	waiting  map[int]bool
-	nextTag  int
+	waiting  map[uint64]bool
+	nextTag  uint64
 }
 
 func (p *actualYieldingProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
 	p.maxSteps = 10
-	p.waiting = make(map[int]bool)
+	p.waiting = make(map[uint64]bool)
 	return nil
 }
 
@@ -119,8 +119,7 @@ func (p *actualYieldingProcess) Step(events []process.Event, out *process.StepOu
 	// Process completed yields
 	for _, ev := range events {
 		if ev.Type == process.EventYieldComplete {
-			tag := ev.Tag.(int)
-			delete(p.waiting, tag)
+			delete(p.waiting, ev.Tag)
 		}
 	}
 

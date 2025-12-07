@@ -232,6 +232,12 @@ func (m *MockEnvRegistry) Lookup(_ context.Context, name string) (string, bool, 
 	return "", false, nil
 }
 
+func (m *MockEnvRegistry) GetStorage(_ context.Context, _ registry.ID) (envapi.Storage, error) {
+	return nil, envapi.ErrVariableNotFound
+}
+
+func (m *MockEnvRegistry) RegisterStorage(_ registry.ID, _ envapi.Storage) {}
+
 // Helper to create a test manager with mock components
 func newTestManager(t *testing.T) (*Manager, event.Bus, *TestPoolFactory) {
 	logger := zap.NewNop()
@@ -595,7 +601,7 @@ func TestManager_Delete(t *testing.T) {
 				select {
 				case evt := <-supervisorEvents:
 					assert.Equal(t, supervisor.System, evt.System)
-					assert.Equal(t, "supervisor.service.register", evt.Kind) // Match actual value
+					assert.Equal(t, "service.register", evt.Kind)
 				case <-time.After(time.Second):
 					t.Fatal("timeout waiting for supervisor event")
 				}

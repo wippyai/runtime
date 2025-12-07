@@ -121,7 +121,6 @@ func (r *ChannelResult) reset() {
 // Channel represents a Go-like channel with optional buffering.
 type Channel struct {
 	mu        sync.Mutex
-	name      string
 	capacity  int
 	size      int
 	closed    bool
@@ -142,7 +141,6 @@ func NewChannel(capacity int) *Channel {
 	}
 }
 
-func (c *Channel) Name() string          { return c.name }
 func (c *Channel) Value() lua.LValue     { return c.value }
 func (c *Channel) SetValue(v lua.LValue) { c.value = v }
 

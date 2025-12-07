@@ -6,13 +6,16 @@ import (
 	"time"
 
 	clockapi "github.com/wippyai/runtime/api/clock"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 )
 
-type completeFunc func(data any, err error)
+type testReceiver struct {
+	fn func(data any, err error)
+}
 
-func (f completeFunc) Complete(data any, err error) { f(data, err) }
+func (r *testReceiver) CompleteYield(_ uint64, data any, err error) {
+	r.fn(data, err)
+}
 
 func TestSleepHandler(t *testing.T) {
 	d := NewDispatcher()
@@ -23,14 +26,14 @@ func TestSleepHandler(t *testing.T) {
 		handlers[id] = h
 	})
 
-	h := handlers[clockapi.CmdSleep]
+	h := handlers[clockapi.Sleep]
 	ctx := context.Background()
 
 	done := make(chan struct{})
 	start := time.Now()
-	err := h.Handle(ctx, clockapi.SleepCmd{Duration: 10 * time.Millisecond}, completeFunc(func(_ any, _ error) {
+	err := h.Handle(ctx, clockapi.SleepCmd{Duration: 10 * time.Millisecond}, 0, &testReceiver{fn: func(_ any, _ error) {
 		close(done)
-	}))
+	}})
 
 	<-done
 	elapsed := time.Since(start)
@@ -52,13 +55,13 @@ func TestSleepHandlerZeroDuration(t *testing.T) {
 		handlers[id] = h
 	})
 
-	h := handlers[clockapi.CmdSleep]
+	h := handlers[clockapi.Sleep]
 	ctx := context.Background()
 
 	var emitted bool
-	err := h.Handle(ctx, clockapi.SleepCmd{Duration: 0}, completeFunc(func(_ any, _ error) {
+	err := h.Handle(ctx, clockapi.SleepCmd{Duration: 0}, 0, &testReceiver{fn: func(_ any, _ error) {
 		emitted = true
-	}))
+	}})
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -77,20 +80,23 @@ func TestTimerStartHandler(t *testing.T) {
 		handlers[id] = h
 	})
 
-	h := handlers[clockapi.CmdTimerStart]
+	h := handlers[clockapi.TimerStart]
 
 	var emitted any
-	err := h.Handle(context.Background(), clockapi.TimerStartCmd{Duration: 10 * time.Millisecond}, completeFunc(func(data any, _ error) {
+	err := h.Handle(context.Background(), clockapi.TimerStartCmd{Duration: 10 * time.Millisecond}, 0, &testReceiver{fn: func(data any, _ error) {
 		emitted = data
-	}))
+	}})
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 
-	id, ok := emitted.(uint64)
-	if !ok || id == 0 {
+	result, ok := emitted.(clockapi.TimerStartResult)
+	if !ok || result.ID == 0 {
 		t.Errorf("expected non-zero timer ID, got %v", emitted)
+	}
+	if result.Stop == nil {
+		t.Error("expected Stop callback to be set")
 	}
 }
 
@@ -103,12 +109,12 @@ func TestTimerStartHandlerZeroDuration(t *testing.T) {
 		handlers[id] = h
 	})
 
-	h := handlers[clockapi.CmdTimerStart]
+	h := handlers[clockapi.TimerStart]
 
 	var emitted bool
-	err := h.Handle(context.Background(), clockapi.TimerStartCmd{Duration: 0}, completeFunc(func(_ any, _ error) {
+	err := h.Handle(context.Background(), clockapi.TimerStartCmd{Duration: 0}, 0, &testReceiver{fn: func(_ any, _ error) {
 		emitted = true
-	}))
+	}})
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -127,21 +133,21 @@ func TestTimerWaitHandler(t *testing.T) {
 		handlers[id] = h
 	})
 
-	startHandler := handlers[clockapi.CmdTimerStart]
-	waitHandler := handlers[clockapi.CmdTimerWait]
+	startHandler := handlers[clockapi.TimerStart]
+	waitHandler := handlers[clockapi.TimerWait]
 
 	var timerID uint64
-	startHandler.Handle(context.Background(), clockapi.TimerStartCmd{Duration: 10 * time.Millisecond}, completeFunc(func(data any, _ error) {
-		timerID = data.(uint64)
-	}))
+	startHandler.Handle(context.Background(), clockapi.TimerStartCmd{Duration: 10 * time.Millisecond}, 0, &testReceiver{fn: func(data any, _ error) {
+		timerID = data.(clockapi.TimerStartResult).ID
+	}})
 
 	var emitted any
 	start := time.Now()
 	done := make(chan struct{})
-	err := waitHandler.Handle(context.Background(), clockapi.TimerWaitCmd{TimerID: timerID}, completeFunc(func(data any, _ error) {
+	err := waitHandler.Handle(context.Background(), clockapi.TimerWaitCmd{TimerID: timerID}, 0, &testReceiver{fn: func(data any, _ error) {
 		emitted = data
 		close(done)
-	}))
+	}})
 
 	<-done
 	elapsed := time.Since(start)
@@ -166,18 +172,18 @@ func TestTimerStopHandler(t *testing.T) {
 		handlers[id] = h
 	})
 
-	startHandler := handlers[clockapi.CmdTimerStart]
-	stopHandler := handlers[clockapi.CmdTimerStop]
+	startHandler := handlers[clockapi.TimerStart]
+	stopHandler := handlers[clockapi.TimerStop]
 
 	var timerID uint64
-	startHandler.Handle(context.Background(), clockapi.TimerStartCmd{Duration: time.Hour}, completeFunc(func(data any, _ error) {
-		timerID = data.(uint64)
-	}))
+	startHandler.Handle(context.Background(), clockapi.TimerStartCmd{Duration: time.Hour}, 0, &testReceiver{fn: func(data any, _ error) {
+		timerID = data.(clockapi.TimerStartResult).ID
+	}})
 
 	var emitted any
-	err := stopHandler.Handle(context.Background(), clockapi.TimerStopCmd{TimerID: timerID}, completeFunc(func(data any, _ error) {
+	err := stopHandler.Handle(context.Background(), clockapi.TimerStopCmd{TimerID: timerID}, 0, &testReceiver{fn: func(data any, _ error) {
 		emitted = data
-	}))
+	}})
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -192,77 +198,6 @@ func TestTimerStopHandler(t *testing.T) {
 	}
 }
 
-func TestNowHandler(t *testing.T) {
-	d := NewDispatcher()
-	defer d.Stop(context.Background())
-
-	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
-	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
-		handlers[id] = h
-	})
-
-	h := handlers[clockapi.CmdNow]
-	ctx := context.Background()
-
-	var emitted any
-	before := time.Now().UnixNano()
-	err := h.Handle(ctx, clockapi.NowCmd{}, completeFunc(func(data any, _ error) {
-		emitted = data
-	}))
-	after := time.Now().UnixNano()
-
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-
-	nanos, ok := emitted.(int64)
-	if !ok {
-		t.Fatalf("expected int64, got %T", emitted)
-	}
-	if nanos < before || nanos > after {
-		t.Errorf("emitted time %d not between %d and %d", nanos, before, after)
-	}
-}
-
-type testTimeReference struct {
-	fixedTime time.Time
-}
-
-func (m *testTimeReference) Now() time.Time       { return m.fixedTime }
-func (m *testTimeReference) StartTime() time.Time { return m.fixedTime }
-
-func TestNowHandlerWithTimeReference(t *testing.T) {
-	d := NewDispatcher()
-	defer d.Stop(context.Background())
-
-	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
-	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
-		handlers[id] = h
-	})
-
-	h := handlers[clockapi.CmdNow]
-	fixedTime := time.Date(2024, 6, 15, 12, 0, 0, 0, time.UTC)
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	clockapi.WithTimeReference(ctx, &testTimeReference{fixedTime: fixedTime})
-
-	var emitted any
-	err := h.Handle(ctx, clockapi.NowCmd{}, completeFunc(func(data any, _ error) {
-		emitted = data
-	}))
-
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-
-	nanos, ok := emitted.(int64)
-	if !ok {
-		t.Fatalf("expected int64, got %T", emitted)
-	}
-	if nanos != fixedTime.UnixNano() {
-		t.Errorf("expected %d, got %d", fixedTime.UnixNano(), nanos)
-	}
-}
-
 func TestTimerResetHandler(t *testing.T) {
 	d := NewDispatcher()
 	defer d.Stop(context.Background())
@@ -272,18 +207,18 @@ func TestTimerResetHandler(t *testing.T) {
 		handlers[id] = h
 	})
 
-	startHandler := handlers[clockapi.CmdTimerStart]
-	resetHandler := handlers[clockapi.CmdTimerReset]
+	startHandler := handlers[clockapi.TimerStart]
+	resetHandler := handlers[clockapi.TimerReset]
 
 	var timerID uint64
-	startHandler.Handle(context.Background(), clockapi.TimerStartCmd{Duration: time.Hour}, completeFunc(func(data any, _ error) {
-		timerID = data.(uint64)
-	}))
+	startHandler.Handle(context.Background(), clockapi.TimerStartCmd{Duration: time.Hour}, 0, &testReceiver{fn: func(data any, _ error) {
+		timerID = data.(clockapi.TimerStartResult).ID
+	}})
 
 	var emitted any
-	err := resetHandler.Handle(context.Background(), clockapi.TimerResetCmd{TimerID: timerID, Duration: 10 * time.Millisecond}, completeFunc(func(data any, _ error) {
+	err := resetHandler.Handle(context.Background(), clockapi.TimerResetCmd{TimerID: timerID, Duration: 10 * time.Millisecond}, 0, &testReceiver{fn: func(data any, _ error) {
 		emitted = data
-	}))
+	}})
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -307,18 +242,18 @@ func TestTimerResetHandlerZeroDuration(t *testing.T) {
 		handlers[id] = h
 	})
 
-	startHandler := handlers[clockapi.CmdTimerStart]
-	resetHandler := handlers[clockapi.CmdTimerReset]
+	startHandler := handlers[clockapi.TimerStart]
+	resetHandler := handlers[clockapi.TimerReset]
 
 	var timerID uint64
-	startHandler.Handle(context.Background(), clockapi.TimerStartCmd{Duration: time.Hour}, completeFunc(func(data any, _ error) {
-		timerID = data.(uint64)
-	}))
+	startHandler.Handle(context.Background(), clockapi.TimerStartCmd{Duration: time.Hour}, 0, &testReceiver{fn: func(data any, _ error) {
+		timerID = data.(clockapi.TimerStartResult).ID
+	}})
 
 	var emitted bool
-	err := resetHandler.Handle(context.Background(), clockapi.TimerResetCmd{TimerID: timerID, Duration: 0}, completeFunc(func(_ any, _ error) {
+	err := resetHandler.Handle(context.Background(), clockapi.TimerResetCmd{TimerID: timerID, Duration: 0}, 0, &testReceiver{fn: func(_ any, _ error) {
 		emitted = true
-	}))
+	}})
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -337,12 +272,12 @@ func TestTimerResetHandlerNotFound(t *testing.T) {
 		handlers[id] = h
 	})
 
-	resetHandler := handlers[clockapi.CmdTimerReset]
+	resetHandler := handlers[clockapi.TimerReset]
 
 	var emitErr error
-	err := resetHandler.Handle(context.Background(), clockapi.TimerResetCmd{TimerID: 999, Duration: time.Second}, completeFunc(func(_ any, e error) {
+	err := resetHandler.Handle(context.Background(), clockapi.TimerResetCmd{TimerID: 999, Duration: time.Second}, 0, &testReceiver{fn: func(_ any, e error) {
 		emitErr = e
-	}))
+	}})
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -361,16 +296,14 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 	})
 
 	expected := []dispatcher.CommandID{
-		clockapi.CmdSleep,
-		clockapi.CmdNow,
-		clockapi.CmdAfter,
-		clockapi.CmdTickerStart,
-		clockapi.CmdTickerNext,
-		clockapi.CmdTickerStop,
-		clockapi.CmdTimerStart,
-		clockapi.CmdTimerWait,
-		clockapi.CmdTimerStop,
-		clockapi.CmdTimerReset,
+		clockapi.Sleep,
+		clockapi.TickerStart,
+		clockapi.TickerNext,
+		clockapi.TickerStop,
+		clockapi.TimerStart,
+		clockapi.TimerWait,
+		clockapi.TimerStop,
+		clockapi.TimerReset,
 	}
 
 	for _, id := range expected {

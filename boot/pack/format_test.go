@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 )
 

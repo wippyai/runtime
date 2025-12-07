@@ -140,3 +140,82 @@ entries:
       assert2: app.lib:assert
     modules:
       - contract
+
+  - name: get_introspect
+    kind: function.lua
+    meta:
+      type: test
+      suite: contract
+      description: contract.get and full introspection API
+    source: file://get_introspect.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - contract
+
+  - name: async_call
+    kind: function.lua
+    meta:
+      type: test
+      suite: contract
+      description: async contract method calls with futures
+    source: file://async_call.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - contract
+      - time
+
+  - name: find_implementations
+    kind: function.lua
+    meta:
+      type: test
+      suite: contract
+      description: contract.find_implementations function
+    source: file://find_implementations.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - contract
+
+  - name: errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: contract
+      description: contract error handling
+    source: file://errors.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - contract
+
+  - name: query_params
+    kind: function.lua
+    meta:
+      type: test
+      suite: contract
+      description: contract.open with query parameters
+    source: file://query_params.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - contract
+
+  - name: wrapper_open
+    kind: function.lua
+    meta:
+      type: test
+      suite: contract
+      description: opening contract via wrapper (contract.get then open)
+    source: file://wrapper_open.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - contract

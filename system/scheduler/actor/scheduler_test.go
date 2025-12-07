@@ -40,7 +40,7 @@ func (SleepCmd) CmdID() dispatcher.CommandID { return CmdSleep }
 // Test handlers
 
 func CompleteHandler() dispatcher.Handler {
-	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 		c := cmd.(CompleteCmd)
 		go receiver.CompleteYield(tag, c.Value, nil)
 		return nil
@@ -48,14 +48,14 @@ func CompleteHandler() dispatcher.Handler {
 }
 
 func YieldHandler() dispatcher.Handler {
-	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 		go receiver.CompleteYield(tag, nil, nil)
 		return nil
 	})
 }
 
 func SleepHandler() dispatcher.Handler {
-	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 		s := cmd.(SleepCmd)
 		timer := time.NewTimer(s.Duration)
 		go func() {
@@ -88,13 +88,13 @@ func (p *CounterProcess) Init(ctx context.Context, method string, input payload.
 
 func (p *CounterProcess) Step(events []Event, out *StepOutput) error {
 	if p.current >= p.target {
-		out.Yield(CompleteCmd{Value: p.current}, nil)
+		out.Yield(CompleteCmd{Value: p.current}, 0)
 		out.Done(nil)
 		return nil
 	}
 
 	p.current++
-	out.Yield(YieldCmd{}, nil)
+	out.Yield(YieldCmd{}, 0)
 	out.Continue()
 	return nil
 }
@@ -122,12 +122,12 @@ func (p *SleepProcess) Init(ctx context.Context, method string, input payload.Pa
 func (p *SleepProcess) Step(events []Event, out *StepOutput) error {
 	if !p.slept {
 		p.slept = true
-		out.Yield(SleepCmd{Duration: p.duration}, nil)
+		out.Yield(SleepCmd{Duration: p.duration}, 0)
 		out.Continue()
 		return nil
 	}
 
-	out.Yield(CompleteCmd{Value: "done"}, nil)
+	out.Yield(CompleteCmd{Value: "done"}, 0)
 	out.Done(nil)
 	return nil
 }
@@ -864,7 +864,7 @@ func (p *TrackingProcess) Init(ctx context.Context, method string, input payload
 }
 
 func (p *TrackingProcess) Step(events []Event, out *StepOutput) error {
-	out.Yield(CompleteCmd{Value: "done"}, nil)
+	out.Yield(CompleteCmd{Value: "done"}, 0)
 	out.Done(nil)
 	return nil
 }

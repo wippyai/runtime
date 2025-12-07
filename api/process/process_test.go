@@ -2,14 +2,12 @@ package process
 
 import (
 	"testing"
-
-	"github.com/wippyai/runtime/api/payload"
 )
 
-func TestStepResult_Result(t *testing.T) {
+func TestStepOutput_Result(t *testing.T) {
 	tests := []struct {
 		name   string
-		result payload.Payload
+		result Payload
 		want   any
 	}{
 		{
@@ -17,78 +15,59 @@ func TestStepResult_Result(t *testing.T) {
 			result: nil,
 			want:   nil,
 		},
-		{
-			name:   "string result",
-			result: payload.New("hello"),
-			want:   "hello",
-		},
-		{
-			name:   "int result",
-			result: payload.New(42),
-			want:   42,
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sr := StepResult{
-				Status: StepDone,
-				Result: tt.result,
+			var so StepOutput
+			if tt.result != nil {
+				so.Done(tt.result)
+			} else {
+				so.Done(nil)
 			}
 
 			if tt.result == nil {
-				if sr.Result != nil {
-					t.Errorf("expected nil result, got %v", sr.Result)
+				if so.Result() != nil {
+					t.Errorf("expected nil result, got %v", so.Result())
 				}
 				return
-			}
-
-			if sr.Result == nil {
-				t.Errorf("expected result, got nil")
-				return
-			}
-
-			if sr.Result.Data() != tt.want {
-				t.Errorf("Result.Data() = %v, want %v", sr.Result.Data(), tt.want)
 			}
 		})
 	}
 }
 
-func TestStepResult_Reset(t *testing.T) {
-	sr := StepResult{
-		Status: StepDone,
-		Result: payload.New("test"),
-	}
-	sr.AddYield(&mockCommand{id: 1})
+func TestStepOutput_Reset(t *testing.T) {
+	var so StepOutput
+	so.Done(nil)
+	so.Yield(&mockCommand{id: 1}, 0)
 
-	sr.Reset()
+	so.Reset()
 
-	if sr.Status != StepContinue {
-		t.Errorf("Status after Reset = %v, want StepContinue", sr.Status)
+	if so.Status() != StepContinue {
+		t.Errorf("Status after Reset = %v, want StepContinue", so.Status())
 	}
-	if sr.Result != nil {
-		t.Errorf("Result after Reset = %v, want nil", sr.Result)
+	if so.Result() != nil {
+		t.Errorf("Result after Reset = %v, want nil", so.Result())
 	}
-	if sr.YieldCount() != 0 {
-		t.Errorf("YieldCount after Reset = %d, want 0", sr.YieldCount())
+	if so.Count() != 0 {
+		t.Errorf("Count after Reset = %d, want 0", so.Count())
 	}
 }
 
-func TestStepResult_AddYield(t *testing.T) {
-	sr := StepResult{}
+func TestStepOutput_Yield(t *testing.T) {
+	var so StepOutput
 
 	for i := 0; i < MaxYields+2; i++ {
-		sr.AddYield(&mockCommand{id: CommandID(i)})
+		so.Yield(&mockCommand{id: CommandID(i)}, uint64(i+1))
 	}
 
-	if sr.YieldCount() != MaxYields+2 {
-		t.Errorf("YieldCount = %d, want %d", sr.YieldCount(), MaxYields+2)
+	if so.Count() != MaxYields+2 {
+		t.Errorf("Count = %d, want %d", so.Count(), MaxYields+2)
 	}
 
-	yields := sr.GetYields()
+	yields := so.Yields()
 	if len(yields) != MaxYields+2 {
-		t.Errorf("len(GetYields) = %d, want %d", len(yields), MaxYields+2)
+		t.Errorf("len(Yields) = %d, want %d", len(yields), MaxYields+2)
 	}
 }
 

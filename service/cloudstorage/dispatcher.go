@@ -32,7 +32,7 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(csapi.CmdPresignedPutURL, dispatcher.HandlerFunc(d.handlePresignedPutURL))
 }
 
-func (d *Dispatcher) handleListObjects(ctx context.Context, cmd dispatcher.Command, tag any, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleListObjects(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
 	c := cmd.(*csapi.ListObjectsCmd)
 	go func() {
 		result, err := c.Storage.ListObjects(ctx, c.Options)
@@ -43,7 +43,7 @@ func (d *Dispatcher) handleListObjects(ctx context.Context, cmd dispatcher.Comma
 	return nil
 }
 
-func (d *Dispatcher) handleDownloadObject(ctx context.Context, cmd dispatcher.Command, tag any, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleDownloadObject(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
 	c := cmd.(*csapi.DownloadObjectCmd)
 	go func() {
 		err := c.Storage.DownloadObject(ctx, c.Key, c.Writer, c.Options)
@@ -54,7 +54,7 @@ func (d *Dispatcher) handleDownloadObject(ctx context.Context, cmd dispatcher.Co
 	return nil
 }
 
-func (d *Dispatcher) handleUploadObject(ctx context.Context, cmd dispatcher.Command, tag any, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleUploadObject(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
 	c := cmd.(*csapi.UploadObjectCmd)
 	go func() {
 		err := c.Storage.UploadObject(ctx, c.Key, c.Reader)
@@ -65,7 +65,7 @@ func (d *Dispatcher) handleUploadObject(ctx context.Context, cmd dispatcher.Comm
 	return nil
 }
 
-func (d *Dispatcher) handleDeleteObjects(ctx context.Context, cmd dispatcher.Command, tag any, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleDeleteObjects(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
 	c := cmd.(*csapi.DeleteObjectsCmd)
 	go func() {
 		err := c.Storage.DeleteObjects(ctx, c.Keys)
@@ -76,7 +76,7 @@ func (d *Dispatcher) handleDeleteObjects(ctx context.Context, cmd dispatcher.Com
 	return nil
 }
 
-func (d *Dispatcher) handlePresignedGetURL(ctx context.Context, cmd dispatcher.Command, tag any, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handlePresignedGetURL(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
 	c := cmd.(*csapi.PresignedGetURLCmd)
 	go func() {
 		opts := &cloudstorage.PresignedGetOptions{Expiration: c.Expiration}
@@ -88,7 +88,7 @@ func (d *Dispatcher) handlePresignedGetURL(ctx context.Context, cmd dispatcher.C
 	return nil
 }
 
-func (d *Dispatcher) handlePresignedPutURL(ctx context.Context, cmd dispatcher.Command, tag any, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handlePresignedPutURL(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
 	c := cmd.(*csapi.PresignedPutURLCmd)
 	go func() {
 		opts := &cloudstorage.PresignedPutOptions{

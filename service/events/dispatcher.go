@@ -131,7 +131,7 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(eventsapi.CmdEventsSend, dispatcher.HandlerFunc(d.handleSend))
 }
 
-func (d *Dispatcher) handleSubscribe(ctx context.Context, cmd dispatcher.Command, tag any, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleSubscribe(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
 	subCmd := cmd.(eventsapi.EventsSubscribeCmd)
 
 	d.mu.Lock()
@@ -156,7 +156,7 @@ func (d *Dispatcher) handleSubscribe(ctx context.Context, cmd dispatcher.Command
 	return nil
 }
 
-func (d *Dispatcher) handleSend(ctx context.Context, cmd dispatcher.Command, tag any, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleSend(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
 	sendCmd := cmd.(eventsapi.EventsSendCmd)
 
 	evt := event.Event{

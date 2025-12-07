@@ -88,7 +88,7 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(httpapi.CmdRequestBatch, dispatcher.HandlerFunc(d.handleRequestBatch))
 }
 
-func (d *Dispatcher) handleRequest(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+func (d *Dispatcher) handleRequest(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	req := cmd.(*httpapi.RequestCmd)
 
 	if d.debug != nil {
@@ -112,7 +112,7 @@ func (d *Dispatcher) handleRequest(ctx context.Context, cmd dispatcher.Command, 
 	return nil
 }
 
-func (d *Dispatcher) handleRequestBatch(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+func (d *Dispatcher) handleRequestBatch(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	batch := cmd.(*httpapi.RequestBatchCmd)
 
 	if len(batch.Requests) == 0 {

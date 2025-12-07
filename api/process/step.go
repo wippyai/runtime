@@ -25,16 +25,16 @@ const (
 // Can be a yield completion or an external message.
 type Event struct {
 	Type  EventType
-	Tag   any   // correlation tag for yield completions
-	Data  any   // result data or message payload
-	Error error // error if yield failed
+	Tag   uint64 // correlation tag for yield completions
+	Data  any    // result data or message payload
+	Error error  // error if yield failed
 }
 
 // Yield associates a command with a correlation tag.
 // The tag is returned with the result for O(1) lookup.
 type Yield struct {
 	Cmd Command
-	Tag any
+	Tag uint64
 }
 
 // StepOutput is the write-only output buffer for Process.Step().
@@ -49,7 +49,7 @@ type StepOutput struct {
 }
 
 // Yield adds a command to be dispatched.
-func (o *StepOutput) Yield(cmd Command, tag any) {
+func (o *StepOutput) Yield(cmd Command, tag uint64) {
 	if o.count < len(o.buf) {
 		o.buf[o.count] = Yield{Cmd: cmd, Tag: tag}
 	} else {

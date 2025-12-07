@@ -43,7 +43,7 @@ func (p *RandomYieldProcess) Step(events []Event, out *StepOutput) error {
 		return nil
 	}
 
-	out.Yield(YieldCmd{}, nil)
+	out.Yield(YieldCmd{}, 0)
 	out.Continue()
 	return nil
 }
@@ -57,7 +57,7 @@ type RandomSleepHandler struct {
 	maxSleep time.Duration
 }
 
-func (h *RandomSleepHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+func (h *RandomSleepHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	sleep := h.minSleep + time.Duration(rand.Int63n(int64(h.maxSleep-h.minSleep)))
 	time.Sleep(sleep)
 	receiver.CompleteYield(tag, sleep.Nanoseconds(), nil)
@@ -69,7 +69,7 @@ type CPUWorkHandler struct {
 	iterations int
 }
 
-func (h *CPUWorkHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+func (h *CPUWorkHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	sum := 0
 	for i := 0; i < h.iterations; i++ {
 		sum += i * i
@@ -356,7 +356,7 @@ func TestStressWorkerBalance(t *testing.T) {
 // InstantHandler completes immediately (used by stress tests)
 type InstantHandler struct{}
 
-func (h *InstantHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+func (h *InstantHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	receiver.CompleteYield(tag, nil, nil)
 	return nil
 }

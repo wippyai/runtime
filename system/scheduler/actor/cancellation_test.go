@@ -48,7 +48,7 @@ func (p *slowProcess) Step(events []Event, out *StepOutput) error {
 		return nil
 	}
 
-	out.Yield(YieldCmd{}, nil)
+	out.Yield(YieldCmd{}, 0)
 	out.Continue()
 	return nil
 }
@@ -64,7 +64,7 @@ type delayedHandler struct {
 	delay time.Duration
 }
 
-func (h *delayedHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+func (h *delayedHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	go func() {
 		time.Sleep(h.delay)
 		receiver.CompleteYield(tag, nil, nil)
@@ -262,7 +262,7 @@ func (p *steppingProcess) Step(events []Event, out *StepOutput) error {
 		return nil
 	}
 
-	out.Yield(YieldCmd{}, nil)
+	out.Yield(YieldCmd{}, 0)
 	out.Continue()
 	return nil
 }

@@ -183,7 +183,7 @@ func (e *Executor) Reset() {
 // CompleteYield implements process.ResultReceiver.
 // Called by handlers to deliver yield completion.
 // Thread-safe: can be called from any goroutine.
-func (e *Executor) CompleteYield(tag any, data any, err error) {
+func (e *Executor) CompleteYield(tag uint64, data any, err error) {
 	if e.queue.Push(process.Event{
 		Type:  process.EventYieldComplete,
 		Tag:   tag,

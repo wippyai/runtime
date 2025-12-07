@@ -408,36 +408,8 @@ func BenchmarkOriginalRegister(b *testing.B) {
 	}
 }
 
-func BenchmarkShardedRegister(b *testing.B) {
-	topo := NewShardedTopology(&discardReceiver{}, &discardReceiver{}, "local")
-	pids := make([]relay.PID, b.N)
-	for i := range pids {
-		pids[i] = relay.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		topo.Register(pids[i])
-	}
-}
-
 func BenchmarkOriginalParallel(b *testing.B) {
 	topo := NewTopology(&discardReceiver{}, &discardReceiver{}, "local")
-
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		var i int
-		for pb.Next() {
-			pid := relay.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
-			topo.Register(pid)
-			topo.Remove(pid)
-			i++
-		}
-	})
-}
-
-func BenchmarkShardedParallel(b *testing.B) {
-	topo := NewShardedTopology(&discardReceiver{}, &discardReceiver{}, "local")
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
@@ -470,76 +442,11 @@ func BenchmarkOriginal100k(b *testing.B) {
 	}
 }
 
-func BenchmarkSharded100k(b *testing.B) {
-	const numProcesses = 100000
-
-	b.ResetTimer()
-	for n := 0; n < b.N; n++ {
-		topo := NewShardedTopology(&discardReceiver{}, &discardReceiver{}, "local")
-		pids := make([]relay.PID, numProcesses)
-
-		for i := 0; i < numProcesses; i++ {
-			pids[i] = relay.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
-			topo.Register(pids[i])
-		}
-
-		for i := 0; i < numProcesses; i++ {
-			topo.Remove(pids[i])
-		}
-	}
-}
-
-// Realistic parallel 100k benchmark
 func BenchmarkOriginal100kParallel(b *testing.B) {
 	const numProcesses = 100000
 
 	for n := 0; n < b.N; n++ {
 		topo := NewTopology(&discardReceiver{}, &discardReceiver{}, "local")
-		pids := make([]relay.PID, numProcesses)
-		for i := range pids {
-			pids[i] = relay.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
-		}
-
-		b.StopTimer()
-		b.StartTimer()
-
-		var wg sync.WaitGroup
-		numWorkers := runtime.GOMAXPROCS(0)
-		perWorker := numProcesses / numWorkers
-
-		for w := 0; w < numWorkers; w++ {
-			wg.Add(1)
-			start := w * perWorker
-			end := start + perWorker
-			go func() {
-				defer wg.Done()
-				for i := start; i < end; i++ {
-					topo.Register(pids[i])
-				}
-			}()
-		}
-		wg.Wait()
-
-		for w := 0; w < numWorkers; w++ {
-			wg.Add(1)
-			start := w * perWorker
-			end := start + perWorker
-			go func() {
-				defer wg.Done()
-				for i := start; i < end; i++ {
-					topo.Remove(pids[i])
-				}
-			}()
-		}
-		wg.Wait()
-	}
-}
-
-func BenchmarkSharded100kParallel(b *testing.B) {
-	const numProcesses = 100000
-
-	for n := 0; n < b.N; n++ {
-		topo := NewShardedTopology(&discardReceiver{}, &discardReceiver{}, "local")
 		pids := make([]relay.PID, numProcesses)
 		for i := range pids {
 			pids[i] = relay.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()

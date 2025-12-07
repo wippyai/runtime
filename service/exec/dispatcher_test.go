@@ -15,16 +15,12 @@ import (
 )
 
 // testCompleter wraps a callback function to implement dispatcher.Completer
-type testCompleter struct {
+type testReceiver struct {
 	fn func(data any)
 }
 
-func (e *testCompleter) Complete(data any, _ error) {
-	e.fn(data)
-}
-
-func newTestEmitter(fn func(data any)) dispatcher.Completer {
-	return &testCompleter{fn: fn}
+func (r *testReceiver) CompleteYield(_ uint64, data any, _ error) {
+	r.fn(data)
 }
 
 type mockProcess struct {
@@ -60,10 +56,10 @@ func TestProcessWaitHandler_Handle_Success(t *testing.T) {
 
 	var response execapi.ProcessWaitResponse
 	done := make(chan struct{})
-	err := handlers[execapi.CmdProcessWait].Handle(context.Background(), cmd, newTestEmitter(func(data any) {
+	err := handlers[execapi.CmdProcessWait].Handle(context.Background(), cmd, 0, &testReceiver{fn: func(data any) {
 		response = data.(execapi.ProcessWaitResponse)
 		close(done)
-	}))
+	}})
 
 	require.NoError(t, err)
 
@@ -94,10 +90,10 @@ func TestProcessWaitHandler_Handle_ExitError(t *testing.T) {
 
 	var response execapi.ProcessWaitResponse
 	done := make(chan struct{})
-	err := handlers[execapi.CmdProcessWait].Handle(context.Background(), cmd, newTestEmitter(func(data any) {
+	err := handlers[execapi.CmdProcessWait].Handle(context.Background(), cmd, 0, &testReceiver{fn: func(data any) {
 		response = data.(execapi.ProcessWaitResponse)
 		close(done)
-	}))
+	}})
 
 	require.NoError(t, err)
 
@@ -127,10 +123,10 @@ func TestProcessWaitHandler_Handle_OtherError(t *testing.T) {
 
 	var response execapi.ProcessWaitResponse
 	done := make(chan struct{})
-	err := handlers[execapi.CmdProcessWait].Handle(context.Background(), cmd, newTestEmitter(func(data any) {
+	err := handlers[execapi.CmdProcessWait].Handle(context.Background(), cmd, 0, &testReceiver{fn: func(data any) {
 		response = data.(execapi.ProcessWaitResponse)
 		close(done)
-	}))
+	}})
 
 	require.NoError(t, err)
 

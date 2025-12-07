@@ -541,8 +541,8 @@ func TestSandbox_StepResult(t *testing.T) {
 		Status:     process.StepContinue,
 		YieldCount: 2,
 		Yields: []YieldInfo{
-			{CmdID: 1, Tag: "tag1"},
-			{CmdID: 2, Tag: "tag2"},
+			{CmdID: 1, Tag: 1},
+			{CmdID: 2, Tag: 2},
 		},
 	}
 

@@ -18,13 +18,13 @@ type (
 	// ResultReceiver receives yield completion results.
 	// Scheduler implements this - no Completer allocation needed.
 	ResultReceiver interface {
-		CompleteYield(tag any, data any, err error)
+		CompleteYield(tag uint64, data any, err error)
 	}
 
 	// Handler processes commands yielded by processes.
 	// tag is the correlation tag, receiver is where to send results.
 	Handler interface {
-		Handle(ctx context.Context, cmd Command, tag any, receiver ResultReceiver) error
+		Handle(ctx context.Context, cmd Command, tag uint64, receiver ResultReceiver) error
 	}
 
 	// Dispatcher routes commands to handlers.
@@ -51,10 +51,10 @@ type (
 )
 
 // HandlerFunc adapts a function to the Handler interface.
-type HandlerFunc func(ctx context.Context, cmd Command, tag any, receiver ResultReceiver) error
+type HandlerFunc func(ctx context.Context, cmd Command, tag uint64, receiver ResultReceiver) error
 
 // Handle implements Handler.
-func (f HandlerFunc) Handle(ctx context.Context, cmd Command, tag any, receiver ResultReceiver) error {
+func (f HandlerFunc) Handle(ctx context.Context, cmd Command, tag uint64, receiver ResultReceiver) error {
 	return f(ctx, cmd, tag, receiver)
 }
 

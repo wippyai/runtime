@@ -91,7 +91,7 @@ func (p *Processor) casState(old, new ProcessState) bool {
 // CompleteYield implements process.ResultReceiver.
 // Called by handlers to deliver yield completion.
 // Thread-safe: can be called from any goroutine.
-func (p *Processor) CompleteYield(tag any, data any, err error) {
+func (p *Processor) CompleteYield(tag uint64, data any, err error) {
 	if !p.queue.Push(process.Event{
 		Type:  process.EventYieldComplete,
 		Tag:   tag,

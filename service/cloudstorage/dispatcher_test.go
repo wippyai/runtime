@@ -16,14 +16,14 @@ import (
 )
 
 type testReceiver struct {
-	fn func(tag any, data any, err error)
+	fn func(tag uint64, data any, err error)
 }
 
-func (r *testReceiver) CompleteYield(tag any, data any, err error) {
+func (r *testReceiver) CompleteYield(tag uint64, data any, err error) {
 	r.fn(tag, data, err)
 }
 
-func newTestReceiver(fn func(tag any, data any, err error)) process.ResultReceiver {
+func newTestReceiver(fn func(tag uint64, data any, err error)) process.ResultReceiver {
 	return &testReceiver{fn: fn}
 }
 
@@ -122,7 +122,7 @@ func TestDispatcher_ListObjects(t *testing.T) {
 	}
 
 	done := make(chan csapi.ListObjectsResponse, 1)
-	err := handlers[csapi.CmdListObjects].Handle(context.Background(), cmd, "tag1", newTestReceiver(func(_ any, data any, _ error) {
+	err := handlers[csapi.CmdListObjects].Handle(context.Background(), cmd, 1, newTestReceiver(func(_ uint64, data any, _ error) {
 		done <- data.(csapi.ListObjectsResponse)
 	}))
 	require.NoError(t, err)
@@ -156,7 +156,7 @@ func TestDispatcher_DownloadObject(t *testing.T) {
 	}
 
 	done := make(chan csapi.DownloadObjectResponse, 1)
-	err := handlers[csapi.CmdDownloadObject].Handle(context.Background(), cmd, "tag1", newTestReceiver(func(_ any, data any, _ error) {
+	err := handlers[csapi.CmdDownloadObject].Handle(context.Background(), cmd, 1, newTestReceiver(func(_ uint64, data any, _ error) {
 		done <- data.(csapi.DownloadObjectResponse)
 	}))
 	require.NoError(t, err)
@@ -186,7 +186,7 @@ func TestDispatcher_UploadObject(t *testing.T) {
 	}
 
 	done := make(chan csapi.UploadObjectResponse, 1)
-	err := handlers[csapi.CmdUploadObject].Handle(context.Background(), cmd, "tag1", newTestReceiver(func(_ any, data any, _ error) {
+	err := handlers[csapi.CmdUploadObject].Handle(context.Background(), cmd, 1, newTestReceiver(func(_ uint64, data any, _ error) {
 		done <- data.(csapi.UploadObjectResponse)
 	}))
 	require.NoError(t, err)
@@ -214,7 +214,7 @@ func TestDispatcher_DeleteObjects(t *testing.T) {
 	}
 
 	done := make(chan csapi.DeleteObjectsResponse, 1)
-	err := handlers[csapi.CmdDeleteObjects].Handle(context.Background(), cmd, "tag1", newTestReceiver(func(_ any, data any, _ error) {
+	err := handlers[csapi.CmdDeleteObjects].Handle(context.Background(), cmd, 1, newTestReceiver(func(_ uint64, data any, _ error) {
 		done <- data.(csapi.DeleteObjectsResponse)
 	}))
 	require.NoError(t, err)
@@ -245,7 +245,7 @@ func TestDispatcher_PresignedGetURL(t *testing.T) {
 	}
 
 	done := make(chan csapi.PresignedGetURLResponse, 1)
-	err := handlers[csapi.CmdPresignedGetURL].Handle(context.Background(), cmd, "tag1", newTestReceiver(func(_ any, data any, _ error) {
+	err := handlers[csapi.CmdPresignedGetURL].Handle(context.Background(), cmd, 1, newTestReceiver(func(_ uint64, data any, _ error) {
 		done <- data.(csapi.PresignedGetURLResponse)
 	}))
 	require.NoError(t, err)
@@ -279,7 +279,7 @@ func TestDispatcher_PresignedPutURL(t *testing.T) {
 	}
 
 	done := make(chan csapi.PresignedPutURLResponse, 1)
-	err := handlers[csapi.CmdPresignedPutURL].Handle(context.Background(), cmd, "tag1", newTestReceiver(func(_ any, data any, _ error) {
+	err := handlers[csapi.CmdPresignedPutURL].Handle(context.Background(), cmd, 1, newTestReceiver(func(_ uint64, data any, _ error) {
 		done <- data.(csapi.PresignedPutURLResponse)
 	}))
 	require.NoError(t, err)

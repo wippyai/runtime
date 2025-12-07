@@ -27,7 +27,7 @@ type SandboxProcess struct {
 // YieldInfo contains information about a yield for Lua inspection.
 type YieldInfo struct {
 	CmdID int
-	Tag   any
+	Tag   uint64
 	Cmd   process.Command
 }
 
@@ -200,12 +200,8 @@ func processStep(l *lua.LState) int {
 			if eventTbl, ok := v.(*lua.LTable); ok {
 				event := process.Event{}
 				if tag := eventTbl.RawGetString("tag"); tag != lua.LNil {
-					tagVal := value.ToGoAny(tag)
-					// Convert float64 to uint64 for tag matching (yieldSeq is uint64)
-					if f, ok := tagVal.(float64); ok {
-						event.Tag = uint64(f)
-					} else {
-						event.Tag = tagVal
+					if n, ok := tag.(lua.LNumber); ok {
+						event.Tag = uint64(n)
 					}
 				}
 				if data := eventTbl.RawGetString("data"); data != lua.LNil {
@@ -255,8 +251,8 @@ func processStep(l *lua.LState) int {
 		for i, y := range result.Yields {
 			yieldTbl := l.CreateTable(0, 3)
 			yieldTbl.RawSetString("cmd_id", lua.LNumber(y.CmdID))
-			if y.Tag != nil {
-				yieldTbl.RawSetString("tag", anyToLua(l, y.Tag))
+			if y.Tag != 0 {
+				yieldTbl.RawSetString("tag", lua.LNumber(y.Tag))
 			}
 			// Add command-specific info
 			addCommandInfo(l, yieldTbl, y.Cmd)

@@ -46,7 +46,7 @@ func (p *OneYieldProcess) Step(events []Event, out *StepOutput) error {
 		return nil
 	}
 	p.done = true
-	out.Yield(YieldCmd{}, nil)
+	out.Yield(YieldCmd{}, 0)
 	out.Continue()
 	return nil
 }
@@ -72,7 +72,7 @@ func (p *NYieldProcess) Step(events []Event, out *StepOutput) error {
 		return nil
 	}
 	p.remaining--
-	out.Yield(YieldCmd{}, nil)
+	out.Yield(YieldCmd{}, 0)
 	out.Continue()
 	return nil
 }
@@ -82,7 +82,7 @@ func (p *NYieldProcess) Close()                        {}
 
 // Immediate sync handler - no goroutine
 func benchImmediateHandler() dispatcher.Handler {
-	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 		receiver.CompleteYield(tag, nil, nil)
 		return nil
 	})

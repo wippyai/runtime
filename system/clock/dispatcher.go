@@ -57,7 +57,7 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 // Short sleeps use Go's optimized timer heap directly.
 const shortSleepThreshold = 10 * time.Millisecond
 
-func (d *Dispatcher) handleSleep(_ context.Context, cmd dispatcher.Command, tag any, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleSleep(_ context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
 	c := cmd.(clockapi.SleepCmd)
 	if c.Duration <= 0 {
 		receiver.CompleteYield(tag, nil, nil)
@@ -75,17 +75,22 @@ func (d *Dispatcher) handleSleep(_ context.Context, cmd dispatcher.Command, tag 
 	return nil
 }
 
-func (d *Dispatcher) handleTickerStart(_ context.Context, cmd dispatcher.Command, tag any, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleTickerStart(_ context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
 	c := cmd.(clockapi.TickerStartCmd)
 	if c.Duration <= 0 {
 		return nil
 	}
 	id := d.tickers.Start(c.Duration)
-	receiver.CompleteYield(tag, id, nil)
+	receiver.CompleteYield(tag, clockapi.TickerStartResult{
+		ID: id,
+		Stop: func() {
+			_ = d.tickers.Stop(id)
+		},
+	}, nil)
 	return nil
 }
 
-func (d *Dispatcher) handleTickerNext(ctx context.Context, cmd dispatcher.Command, tag any, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleTickerNext(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
 	c := cmd.(clockapi.TickerNextCmd)
 	go func() {
 		t, err := d.tickers.Next(ctx, c.TickerID)
@@ -102,7 +107,7 @@ func (d *Dispatcher) handleTickerNext(ctx context.Context, cmd dispatcher.Comman
 	return nil
 }
 
-func (d *Dispatcher) handleTickerStop(_ context.Context, cmd dispatcher.Command, tag any, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleTickerStop(_ context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
 	c := cmd.(clockapi.TickerStopCmd)
 	if err := d.tickers.Stop(c.TickerID); err != nil {
 		receiver.CompleteYield(tag, nil, err)
@@ -112,17 +117,22 @@ func (d *Dispatcher) handleTickerStop(_ context.Context, cmd dispatcher.Command,
 	return nil
 }
 
-func (d *Dispatcher) handleTimerStart(_ context.Context, cmd dispatcher.Command, tag any, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleTimerStart(_ context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
 	c := cmd.(clockapi.TimerStartCmd)
 	if c.Duration <= 0 {
 		return nil
 	}
 	id := d.wheel.Start(c.Duration)
-	receiver.CompleteYield(tag, id, nil)
+	receiver.CompleteYield(tag, clockapi.TimerStartResult{
+		ID: id,
+		Stop: func() {
+			_, _ = d.wheel.Stop(id)
+		},
+	}, nil)
 	return nil
 }
 
-func (d *Dispatcher) handleTimerWait(ctx context.Context, cmd dispatcher.Command, tag any, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleTimerWait(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
 	c := cmd.(clockapi.TimerWaitCmd)
 	go func() {
 		t, err := d.wheel.Wait(ctx, c.TimerID)
@@ -139,7 +149,7 @@ func (d *Dispatcher) handleTimerWait(ctx context.Context, cmd dispatcher.Command
 	return nil
 }
 
-func (d *Dispatcher) handleTimerStop(_ context.Context, cmd dispatcher.Command, tag any, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleTimerStop(_ context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
 	c := cmd.(clockapi.TimerStopCmd)
 	stopped, err := d.wheel.Stop(c.TimerID)
 	if err != nil {
@@ -150,7 +160,7 @@ func (d *Dispatcher) handleTimerStop(_ context.Context, cmd dispatcher.Command, 
 	return nil
 }
 
-func (d *Dispatcher) handleTimerReset(_ context.Context, cmd dispatcher.Command, tag any, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleTimerReset(_ context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
 	c := cmd.(clockapi.TimerResetCmd)
 	if c.Duration <= 0 {
 		return nil
@@ -167,4 +177,14 @@ func (d *Dispatcher) handleTimerReset(_ context.Context, cmd dispatcher.Command,
 // AfterResult contains the channel ID for time.after().
 type AfterResult struct {
 	ChannelID uint64
+}
+
+// TickerCount returns the number of active tickers.
+func (d *Dispatcher) TickerCount() int {
+	return d.tickers.Count()
+}
+
+// TimerCount returns the number of active timers.
+func (d *Dispatcher) TimerCount() int {
+	return d.wheel.Count()
 }

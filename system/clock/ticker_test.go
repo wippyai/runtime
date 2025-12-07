@@ -109,9 +109,9 @@ func getTickerHandlers(t *testing.T) (start, next, stop dispatcher.Handler, clea
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		handlers[id] = h
 	})
-	return handlers[clockapi.CmdTickerStart],
-		handlers[clockapi.CmdTickerNext],
-		handlers[clockapi.CmdTickerStop],
+	return handlers[clockapi.TickerStart],
+		handlers[clockapi.TickerNext],
+		handlers[clockapi.TickerStop],
 		func() { d.Stop(context.Background()) }
 }
 
@@ -121,20 +121,23 @@ func TestTickerStartHandler(t *testing.T) {
 	defer cleanup()
 
 	var emitted any
-	err := startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 10 * time.Millisecond}, completeFunc(func(data any, _ error) {
+	err := startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 10 * time.Millisecond}, 0, &testReceiver{fn: func(data any, _ error) {
 		emitted = data
-	}))
+	}})
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	id, ok := emitted.(uint64)
+	result, ok := emitted.(clockapi.TickerStartResult)
 	if !ok {
-		t.Fatalf("expected uint64, got %T", emitted)
+		t.Fatalf("expected TickerStartResult, got %T", emitted)
 	}
-	if id != 1 {
-		t.Errorf("expected ID 1, got %d", id)
+	if result.ID != 1 {
+		t.Errorf("expected ID 1, got %d", result.ID)
+	}
+	if result.Stop == nil {
+		t.Error("expected Stop callback to be set")
 	}
 }
 
@@ -144,16 +147,16 @@ func TestTickerNextHandler(t *testing.T) {
 	defer cleanup()
 
 	var tickerID uint64
-	startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 5 * time.Millisecond}, completeFunc(func(data any, _ error) {
-		tickerID = data.(uint64)
-	}))
+	startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 5 * time.Millisecond}, 0, &testReceiver{fn: func(data any, _ error) {
+		tickerID = data.(clockapi.TickerStartResult).ID
+	}})
 
 	var emitted any
 	done := make(chan struct{})
-	err := nextH.Handle(ctx, clockapi.TickerNextCmd{TickerID: tickerID}, completeFunc(func(data any, _ error) {
+	err := nextH.Handle(ctx, clockapi.TickerNextCmd{TickerID: tickerID}, 0, &testReceiver{fn: func(data any, _ error) {
 		emitted = data
 		close(done)
-	}))
+	}})
 	<-done
 
 	if err != nil {
@@ -175,14 +178,14 @@ func TestTickerStopHandler(t *testing.T) {
 	defer cleanup()
 
 	var tickerID uint64
-	startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 10 * time.Millisecond}, completeFunc(func(data any, _ error) {
-		tickerID = data.(uint64)
-	}))
+	startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 10 * time.Millisecond}, 0, &testReceiver{fn: func(data any, _ error) {
+		tickerID = data.(clockapi.TickerStartResult).ID
+	}})
 
 	var emitted bool
-	err := stopH.Handle(ctx, clockapi.TickerStopCmd{TickerID: tickerID}, completeFunc(func(data any, _ error) {
+	err := stopH.Handle(ctx, clockapi.TickerStopCmd{TickerID: tickerID}, 0, &testReceiver{fn: func(data any, _ error) {
 		emitted = true
-	}))
+	}})
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -198,18 +201,18 @@ func TestTickerFullCycle(t *testing.T) {
 	defer cleanup()
 
 	var tickerID uint64
-	startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 2 * time.Millisecond}, completeFunc(func(data any, _ error) {
-		tickerID = data.(uint64)
-	}))
+	startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 2 * time.Millisecond}, 0, &testReceiver{fn: func(data any, _ error) {
+		tickerID = data.(clockapi.TickerStartResult).ID
+	}})
 
 	ticks := make([]int64, 0, 3)
 	for i := 0; i < 3; i++ {
 		var tick int64
 		done := make(chan struct{})
-		err := nextH.Handle(ctx, clockapi.TickerNextCmd{TickerID: tickerID}, completeFunc(func(data any, _ error) {
+		err := nextH.Handle(ctx, clockapi.TickerNextCmd{TickerID: tickerID}, 0, &testReceiver{fn: func(data any, _ error) {
 			tick = data.(int64)
 			close(done)
-		}))
+		}})
 		<-done
 		if err != nil {
 			t.Fatalf("tick %d error: %v", i, err)
@@ -223,7 +226,7 @@ func TestTickerFullCycle(t *testing.T) {
 		}
 	}
 
-	err := stopH.Handle(ctx, clockapi.TickerStopCmd{TickerID: tickerID}, completeFunc(func(data any, _ error) {}))
+	err := stopH.Handle(ctx, clockapi.TickerStopCmd{TickerID: tickerID}, 0, &testReceiver{fn: func(data any, _ error) {}})
 	if err != nil {
 		t.Fatalf("stop error: %v", err)
 	}
@@ -235,9 +238,9 @@ func TestTickerStartHandlerInvalidDuration(t *testing.T) {
 	defer cleanup()
 
 	var emitted bool
-	err := startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 0}, completeFunc(func(data any, _ error) {
+	err := startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 0}, 0, &testReceiver{fn: func(data any, _ error) {
 		emitted = true
-	}))
+	}})
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -245,9 +248,9 @@ func TestTickerStartHandlerInvalidDuration(t *testing.T) {
 		t.Error("expected no emit for zero duration")
 	}
 
-	err = startH.Handle(ctx, clockapi.TickerStartCmd{Duration: -time.Second}, completeFunc(func(data any, _ error) {
+	err = startH.Handle(ctx, clockapi.TickerStartCmd{Duration: -time.Second}, 0, &testReceiver{fn: func(data any, _ error) {
 		emitted = true
-	}))
+	}})
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}

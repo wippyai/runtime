@@ -120,3 +120,15 @@ func (c TimerStopCmd) CmdID() dispatcher.CommandID { return TimerStop }
 
 // CmdID implements dispatcher.Command.
 func (c TimerResetCmd) CmdID() dispatcher.CommandID { return TimerReset }
+
+// TickerStartResult is returned by TickerStart command with cleanup callback.
+type TickerStartResult struct {
+	ID   uint64
+	Stop func() // Cleanup function to stop the ticker
+}
+
+// TimerStartResult is returned by TimerStart command with cleanup callback.
+type TimerStartResult struct {
+	ID   uint64
+	Stop func() // Cleanup function to stop the timer
+}

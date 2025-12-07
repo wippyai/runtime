@@ -118,32 +118,6 @@ func BenchmarkTickerNext(b *testing.B) {
 	}
 }
 
-// After Benchmarks
-
-func BenchmarkAfterCreate(b *testing.B) {
-	r := NewAfterRegistry()
-	defer r.Close()
-
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		r.Create(ctx, time.Hour)
-	}
-}
-
-func BenchmarkAfterCreateParallel(b *testing.B) {
-	r := NewAfterRegistry()
-	defer r.Close()
-
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			r.Create(ctx, time.Hour)
-		}
-	})
-}
-
 // Dispatcher Benchmarks
 
 func BenchmarkDispatcherSleep(b *testing.B) {
@@ -154,14 +128,14 @@ func BenchmarkDispatcherSleep(b *testing.B) {
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		handlers[id] = h
 	})
-	h := handlers[clockapi.CmdSleep]
+	h := handlers[clockapi.Sleep]
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		done := make(chan struct{})
-		h.Handle(context.Background(), clockapi.SleepCmd{Duration: time.Microsecond}, completeFunc(func(_ any, _ error) {
+		h.Handle(context.Background(), clockapi.SleepCmd{Duration: time.Microsecond}, 0, &testReceiver{fn: func(_ any, _ error) {
 			close(done)
-		}))
+		}})
 		<-done
 	}
 }
@@ -174,27 +148,11 @@ func BenchmarkDispatcherSleepZero(b *testing.B) {
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		handlers[id] = h
 	})
-	h := handlers[clockapi.CmdSleep]
+	h := handlers[clockapi.Sleep]
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		h.Handle(context.Background(), clockapi.SleepCmd{Duration: 0}, completeFunc(func(_ any, _ error) {}))
-	}
-}
-
-func BenchmarkDispatcherNow(b *testing.B) {
-	d := NewDispatcher()
-	defer d.Stop(context.Background())
-
-	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
-	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
-		handlers[id] = h
-	})
-	h := handlers[clockapi.CmdNow]
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		h.Handle(context.Background(), clockapi.NowCmd{}, completeFunc(func(_ any, _ error) {}))
+		h.Handle(context.Background(), clockapi.SleepCmd{Duration: 0}, 0, &testReceiver{fn: func(_ any, _ error) {}})
 	}
 }
 
@@ -206,19 +164,19 @@ func BenchmarkDispatcherTimerStartWait(b *testing.B) {
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		handlers[id] = h
 	})
-	startH := handlers[clockapi.CmdTimerStart]
-	waitH := handlers[clockapi.CmdTimerWait]
+	startH := handlers[clockapi.TimerStart]
+	waitH := handlers[clockapi.TimerWait]
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		var id uint64
-		startH.Handle(context.Background(), clockapi.TimerStartCmd{Duration: time.Microsecond}, completeFunc(func(data any, _ error) {
-			id = data.(uint64)
-		}))
+		var timerID uint64
+		startH.Handle(context.Background(), clockapi.TimerStartCmd{Duration: time.Microsecond}, 0, &testReceiver{fn: func(data any, _ error) {
+			timerID = data.(clockapi.TimerStartResult).ID
+		}})
 		done := make(chan struct{})
-		waitH.Handle(context.Background(), clockapi.TimerWaitCmd{TimerID: id}, completeFunc(func(_ any, _ error) {
+		waitH.Handle(context.Background(), clockapi.TimerWaitCmd{TimerID: timerID}, 0, &testReceiver{fn: func(_ any, _ error) {
 			close(done)
-		}))
+		}})
 		<-done
 	}
 }
@@ -231,16 +189,16 @@ func BenchmarkDispatcherTimerStartStop(b *testing.B) {
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		handlers[id] = h
 	})
-	startH := handlers[clockapi.CmdTimerStart]
-	stopH := handlers[clockapi.CmdTimerStop]
+	startH := handlers[clockapi.TimerStart]
+	stopH := handlers[clockapi.TimerStop]
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		var id uint64
-		startH.Handle(context.Background(), clockapi.TimerStartCmd{Duration: time.Hour}, completeFunc(func(data any, _ error) {
-			id = data.(uint64)
-		}))
-		stopH.Handle(context.Background(), clockapi.TimerStopCmd{TimerID: id}, completeFunc(func(_ any, _ error) {}))
+		var timerID uint64
+		startH.Handle(context.Background(), clockapi.TimerStartCmd{Duration: time.Hour}, 0, &testReceiver{fn: func(data any, _ error) {
+			timerID = data.(clockapi.TimerStartResult).ID
+		}})
+		stopH.Handle(context.Background(), clockapi.TimerStopCmd{TimerID: timerID}, 0, &testReceiver{fn: func(_ any, _ error) {}})
 	}
 }
 
@@ -252,43 +210,25 @@ func BenchmarkDispatcherTickerStartNext(b *testing.B) {
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		handlers[id] = h
 	})
-	startH := handlers[clockapi.CmdTickerStart]
-	nextH := handlers[clockapi.CmdTickerNext]
-	stopH := handlers[clockapi.CmdTickerStop]
+	startH := handlers[clockapi.TickerStart]
+	nextH := handlers[clockapi.TickerNext]
+	stopH := handlers[clockapi.TickerStop]
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 
 	var tickerID uint64
-	startH.Handle(ctx, clockapi.TickerStartCmd{Duration: time.Nanosecond}, completeFunc(func(data any, _ error) {
-		tickerID = data.(uint64)
-	}))
-	defer stopH.Handle(ctx, clockapi.TickerStopCmd{TickerID: tickerID}, completeFunc(func(_ any, _ error) {}))
+	startH.Handle(ctx, clockapi.TickerStartCmd{Duration: time.Nanosecond}, 0, &testReceiver{fn: func(data any, _ error) {
+		tickerID = data.(clockapi.TickerStartResult).ID
+	}})
+	defer stopH.Handle(ctx, clockapi.TickerStopCmd{TickerID: tickerID}, 0, &testReceiver{fn: func(_ any, _ error) {}})
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		done := make(chan struct{})
-		nextH.Handle(ctx, clockapi.TickerNextCmd{TickerID: tickerID}, completeFunc(func(_ any, _ error) {
+		nextH.Handle(ctx, clockapi.TickerNextCmd{TickerID: tickerID}, 0, &testReceiver{fn: func(_ any, _ error) {
 			close(done)
-		}))
+		}})
 		<-done
-	}
-}
-
-func BenchmarkDispatcherAfter(b *testing.B) {
-	d := NewDispatcher()
-	defer d.Stop(context.Background())
-
-	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
-	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
-		handlers[id] = h
-	})
-	h := handlers[clockapi.CmdAfter]
-
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		h.Handle(ctx, clockapi.AfterCmd{Duration: time.Hour}, completeFunc(func(_ any, _ error) {}))
 	}
 }
 
@@ -355,17 +295,5 @@ func BenchmarkTickerAllocations(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		id := r.Start(time.Hour)
 		r.Stop(id)
-	}
-}
-
-func BenchmarkAfterAllocations(b *testing.B) {
-	r := NewAfterRegistry()
-	defer r.Close()
-
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		r.Create(ctx, time.Hour)
 	}
 }

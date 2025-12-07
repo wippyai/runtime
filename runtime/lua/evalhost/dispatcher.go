@@ -34,7 +34,7 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(CmdCreateProcess, dispatcher.HandlerFunc(d.handleCreateProcess))
 }
 
-func (d *Dispatcher) handleCompile(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+func (d *Dispatcher) handleCompile(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	compileCmd := cmd.(CompileCmd)
 
 	go func() {
@@ -53,7 +53,7 @@ func (d *Dispatcher) handleCompile(ctx context.Context, cmd dispatcher.Command, 
 	return nil
 }
 
-func (d *Dispatcher) handleRun(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+func (d *Dispatcher) handleRun(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	runCmd := cmd.(RunCmd)
 
 	go func() {
@@ -72,7 +72,7 @@ func (d *Dispatcher) handleRun(ctx context.Context, cmd dispatcher.Command, tag 
 	return nil
 }
 
-func (d *Dispatcher) handleCreateProcess(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+func (d *Dispatcher) handleCreateProcess(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	createCmd := cmd.(CreateProcessCmd)
 
 	proc, err := d.host.CreateProcess(ctx, createCmd.Program)

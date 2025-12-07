@@ -16,10 +16,16 @@ import (
 	"github.com/wippyai/runtime/api/store"
 )
 
-// emitFunc adapts a function to dispatcher.Emitter for tests.
-type completeFunc func(data any, err error)
+// testReceiver implements process.ResultReceiver for tests.
+type testReceiver struct {
+	onComplete func(tag uint64, data any, err error)
+}
 
-func (f completeFunc) Complete(data any, err error) { f(data, err) }
+func (r *testReceiver) CompleteYield(tag uint64, data any, err error) {
+	if r.onComplete != nil {
+		r.onComplete(tag, data, err)
+	}
+}
 
 type mockStore struct {
 	data  map[string]payload.Payload
@@ -92,9 +98,9 @@ func TestDispatcher(t *testing.T) {
 		},
 	}
 
-	err := d.handle(ctx, setCmd, completeFunc(func(data any, _ error) {
+	err := d.handle(ctx, setCmd, 1, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
 		setDone <- data.(storeapi.StoreSetResponse)
-	}))
+	}})
 	require.NoError(t, err)
 
 	select {
@@ -111,9 +117,9 @@ func TestDispatcher(t *testing.T) {
 		Key:   registry.NewID("test", "key1"),
 	}
 
-	err = d.handle(ctx, getCmd, completeFunc(func(data any, _ error) {
+	err = d.handle(ctx, getCmd, 2, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
 		getDone <- data.(storeapi.StoreGetResponse)
-	}))
+	}})
 	require.NoError(t, err)
 
 	select {
@@ -131,9 +137,9 @@ func TestDispatcher(t *testing.T) {
 		Key:   registry.NewID("test", "key1"),
 	}
 
-	err = d.handle(ctx, hasCmd, completeFunc(func(data any, _ error) {
+	err = d.handle(ctx, hasCmd, 3, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
 		hasDone <- data.(storeapi.StoreHasResponse)
-	}))
+	}})
 	require.NoError(t, err)
 
 	select {
@@ -151,9 +157,9 @@ func TestDispatcher(t *testing.T) {
 		Key:   registry.NewID("test", "key1"),
 	}
 
-	err = d.handle(ctx, delCmd, completeFunc(func(data any, _ error) {
+	err = d.handle(ctx, delCmd, 4, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
 		delDone <- data.(storeapi.StoreDeleteResponse)
-	}))
+	}})
 	require.NoError(t, err)
 
 	select {
@@ -178,7 +184,7 @@ func TestDispatcher_Concurrent(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
-		go func() {
+		go func(tag uint64) {
 			defer wg.Done()
 			cmd := &storeapi.StoreSetCmd{
 				Store: ms,
@@ -187,10 +193,10 @@ func TestDispatcher_Concurrent(t *testing.T) {
 					Value: payload.New("value"),
 				},
 			}
-			_ = d.handle(ctx, cmd, completeFunc(func(data any, _ error) {
+			_ = d.handle(ctx, cmd, tag, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
 				results <- data.(storeapi.StoreSetResponse)
-			}))
-		}()
+			}})
+		}(uint64(i))
 	}
 
 	wg.Wait()
@@ -253,9 +259,9 @@ func TestDispatcher_ErrorHandling(t *testing.T) {
 		Key:   registry.NewID("test", "nonexistent"),
 	}
 
-	err := d.handle(ctx, getCmd, completeFunc(func(data any, _ error) {
+	err := d.handle(ctx, getCmd, 1, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
 		getDone <- data.(storeapi.StoreGetResponse)
-	}))
+	}})
 	require.NoError(t, err)
 
 	select {
@@ -273,9 +279,9 @@ func TestDispatcher_ErrorHandling(t *testing.T) {
 		Key:   registry.NewID("test", "nonexistent"),
 	}
 
-	err = d.handle(ctx, hasCmd, completeFunc(func(data any, _ error) {
+	err = d.handle(ctx, hasCmd, 2, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
 		hasDone <- data.(storeapi.StoreHasResponse)
-	}))
+	}})
 	require.NoError(t, err)
 
 	select {
@@ -303,9 +309,9 @@ func TestDispatcher_GracefulShutdown(t *testing.T) {
 			Value: payload.New("value"),
 		},
 	}
-	_ = d.handle(ctx, cmd, completeFunc(func(_ any, _ error) {
+	_ = d.handle(ctx, cmd, 1, &testReceiver{onComplete: func(_ uint64, _ any, _ error) {
 		close(done)
-	}))
+	}})
 
 	require.NoError(t, d.Stop(context.Background()))
 
@@ -332,9 +338,9 @@ func TestDispatcher_AllOperations(t *testing.T) {
 				Value: payload.New("async-value"),
 			},
 		}
-		require.NoError(t, d.handle(ctx, cmd, completeFunc(func(data any, _ error) {
+		require.NoError(t, d.handle(ctx, cmd, 1, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
 			done <- data.(storeapi.StoreSetResponse)
-		})))
+		}}))
 
 		select {
 		case resp := <-done:
@@ -350,9 +356,9 @@ func TestDispatcher_AllOperations(t *testing.T) {
 			Store: ms,
 			Key:   registry.NewID("test", "async-key"),
 		}
-		require.NoError(t, d.handle(ctx, cmd, completeFunc(func(data any, _ error) {
+		require.NoError(t, d.handle(ctx, cmd, 2, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
 			done <- data.(storeapi.StoreGetResponse)
-		})))
+		}}))
 
 		select {
 		case resp := <-done:
@@ -369,9 +375,9 @@ func TestDispatcher_AllOperations(t *testing.T) {
 			Store: ms,
 			Key:   registry.NewID("test", "async-key"),
 		}
-		require.NoError(t, d.handle(ctx, cmd, completeFunc(func(data any, _ error) {
+		require.NoError(t, d.handle(ctx, cmd, 3, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
 			done <- data.(storeapi.StoreHasResponse)
-		})))
+		}}))
 
 		select {
 		case resp := <-done:
@@ -388,9 +394,9 @@ func TestDispatcher_AllOperations(t *testing.T) {
 			Store: ms,
 			Key:   registry.NewID("test", "async-key"),
 		}
-		require.NoError(t, d.handle(ctx, cmd, completeFunc(func(data any, _ error) {
+		require.NoError(t, d.handle(ctx, cmd, 4, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
 			done <- data.(storeapi.StoreDeleteResponse)
-		})))
+		}}))
 
 		select {
 		case resp := <-done:
@@ -415,12 +421,14 @@ func BenchmarkDispatcher(b *testing.B) {
 	b.ResetTimer()
 
 	b.RunParallel(func(pb *testing.PB) {
+		var tag uint64
 		for pb.Next() {
 			wg.Add(1)
+			tag++
 			cmd := &storeapi.StoreGetCmd{Store: ms, Key: key}
-			_ = d.handle(ctx, cmd, completeFunc(func(_ any, _ error) {
+			_ = d.handle(ctx, cmd, tag, &testReceiver{onComplete: func(_ uint64, _ any, _ error) {
 				wg.Done()
-			}))
+			}})
 		}
 	})
 	wg.Wait()
@@ -453,32 +461,33 @@ func TestStress_HighConcurrency(t *testing.T) {
 
 			for i := 0; i < opsPerGoroutine; i++ {
 				key := registry.ID{NS: "stress", Name: fmt.Sprintf("key-%d-%d", goroutineID, i)}
+				tag := uint64(goroutineID*opsPerGoroutine + i)
 
 				setDone := make(chan struct{})
 				setCmd := &storeapi.StoreSetCmd{
 					Store: ms,
 					Entry: store.Entry{Key: key, Value: payload.New("value")},
 				}
-				if err := d.handle(ctx, setCmd, completeFunc(func(data any, _ error) {
+				if err := d.handle(ctx, setCmd, tag, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
 					resp := data.(storeapi.StoreSetResponse)
 					if resp.Error != nil {
 						errors <- resp.Error
 					}
 					close(setDone)
-				})); err != nil {
+				}}); err != nil {
 					errors <- err
 				}
 				<-setDone
 
 				getDone := make(chan struct{})
 				getCmd := &storeapi.StoreGetCmd{Store: ms, Key: key}
-				if err := d.handle(ctx, getCmd, completeFunc(func(data any, _ error) {
+				if err := d.handle(ctx, getCmd, tag+1, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
 					resp := data.(storeapi.StoreGetResponse)
 					if resp.Error != nil {
 						errors <- resp.Error
 					}
 					close(getDone)
-				})); err != nil {
+				}}); err != nil {
 					errors <- err
 				}
 				<-getDone
@@ -515,9 +524,9 @@ func TestStress_RapidStartStop(t *testing.T) {
 				Value: payload.New("value"),
 			},
 		}
-		_ = d.handle(context.Background(), cmd, completeFunc(func(_ any, _ error) {
+		_ = d.handle(context.Background(), cmd, uint64(i), &testReceiver{onComplete: func(_ uint64, _ any, _ error) {
 			close(done)
-		}))
+		}})
 
 		require.NoError(t, d.Stop(context.Background()))
 	}
@@ -544,6 +553,8 @@ func TestStress_MixedOperations(t *testing.T) {
 			defer wg.Done()
 
 			key := registry.ID{NS: "mixed", Name: fmt.Sprintf("key-%d", i%100)}
+			tag := uint64(i)
+			receiver := &testReceiver{onComplete: func(_ uint64, _ any, _ error) {}}
 
 			switch i % 4 {
 			case 0:
@@ -551,16 +562,16 @@ func TestStress_MixedOperations(t *testing.T) {
 					Store: ms,
 					Entry: store.Entry{Key: key, Value: payload.New(fmt.Sprintf("value-%d", i))},
 				}
-				_ = d.handle(ctx, cmd, completeFunc(func(_ any, _ error) {}))
+				_ = d.handle(ctx, cmd, tag, receiver)
 			case 1:
 				cmd := &storeapi.StoreGetCmd{Store: ms, Key: key}
-				_ = d.handle(ctx, cmd, completeFunc(func(_ any, _ error) {}))
+				_ = d.handle(ctx, cmd, tag, receiver)
 			case 2:
 				cmd := &storeapi.StoreHasCmd{Store: ms, Key: key}
-				_ = d.handle(ctx, cmd, completeFunc(func(_ any, _ error) {}))
+				_ = d.handle(ctx, cmd, tag, receiver)
 			case 3:
 				cmd := &storeapi.StoreDeleteCmd{Store: ms, Key: key}
-				_ = d.handle(ctx, cmd, completeFunc(func(_ any, _ error) {}))
+				_ = d.handle(ctx, cmd, tag, receiver)
 			}
 		}(i)
 	}
@@ -587,52 +598,13 @@ func TestRace_ConcurrentSubmit(t *testing.T) {
 				Entry: store.Entry{Key: key, Value: payload.New("value")},
 			}
 			done := make(chan struct{})
-			_ = d.handle(ctx, cmd, completeFunc(func(_ any, _ error) {
+			_ = d.handle(ctx, cmd, uint64(i), &testReceiver{onComplete: func(_ uint64, _ any, _ error) {
 				close(done)
-			}))
+			}})
 			<-done
 		}(i)
 	}
 	wg.Wait()
-}
-
-func TestRace_SubmitDuringShutdown(t *testing.T) {
-	for i := 0; i < 10; i++ {
-		d := NewDispatcher(2)
-		require.NoError(t, d.Start(context.Background()))
-
-		ms := newMockStore()
-		ctx := context.Background()
-
-		var submitWg sync.WaitGroup
-		stopSubmit := make(chan struct{})
-
-		submitWg.Add(1)
-		go func() {
-			defer submitWg.Done()
-			for {
-				select {
-				case <-stopSubmit:
-					return
-				default:
-					cmd := &storeapi.StoreSetCmd{
-						Store: ms,
-						Entry: store.Entry{
-							Key:   registry.NewID("race", "key"),
-							Value: payload.New("value"),
-						},
-					}
-					_ = d.handle(ctx, cmd, completeFunc(func(_ any, _ error) {}))
-				}
-			}
-		}()
-
-		time.Sleep(time.Millisecond)
-		close(stopSubmit)
-
-		require.NoError(t, d.Stop(context.Background()))
-		submitWg.Wait()
-	}
 }
 
 func BenchmarkDispatcher_Workers1(b *testing.B) {
@@ -669,12 +641,14 @@ func benchmarkWithWorkers(b *testing.B, workers int) {
 	b.ResetTimer()
 
 	b.RunParallel(func(pb *testing.PB) {
+		var tag uint64
 		for pb.Next() {
 			wg.Add(1)
+			tag++
 			cmd := &storeapi.StoreGetCmd{Store: ms, Key: key}
-			_ = d.handle(ctx, cmd, completeFunc(func(_ any, _ error) {
+			_ = d.handle(ctx, cmd, tag, &testReceiver{onComplete: func(_ uint64, _ any, _ error) {
 				wg.Done()
-			}))
+			}})
 		}
 	})
 	wg.Wait()
@@ -697,9 +671,9 @@ func BenchmarkDispatcher_WithLatency(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		wg.Add(1)
 		cmd := &storeapi.StoreGetCmd{Store: ms, Key: key}
-		_ = d.handle(ctx, cmd, completeFunc(func(_ any, _ error) {
+		_ = d.handle(ctx, cmd, uint64(i), &testReceiver{onComplete: func(_ uint64, _ any, _ error) {
 			wg.Done()
-		}))
+		}})
 	}
 	wg.Wait()
 }

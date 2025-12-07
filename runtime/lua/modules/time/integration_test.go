@@ -274,3 +274,98 @@ func TestTickerStop(t *testing.T) {
 
 	t.Logf("Ticker stop: completed in %v", elapsed)
 }
+
+// TestTickerCleanupOnProcessExit tests that tickers are cleaned up when process exits
+func TestTickerCleanupOnProcessExit(t *testing.T) {
+	sched := newTestScheduler(4)
+	sched.Start()
+	defer sched.Stop()
+
+	// Get initial ticker count
+	initialCount := sched.clock.TickerCount()
+	t.Logf("Initial ticker count: %d", initialCount)
+
+	script := `
+		-- Create tickers but DON'T stop them
+		local ticker1 = time.ticker(100 * time.MILLISECOND)
+		local ticker2 = time.ticker(200 * time.MILLISECOND)
+		local ticker3 = time.ticker(300 * time.MILLISECOND)
+
+		-- Just receive one tick to prove they work
+		ticker1:channel():receive()
+
+		-- Exit WITHOUT calling stop() - cleanup should happen automatically
+		return "done"
+	`
+
+	ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+	proc := newLuaProcessWithChannels(script)
+
+	result, err := sched.Execute(ctx, testPID(), proc, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result == nil {
+		t.Fatal("nil result")
+	}
+
+	// Release frame context - this triggers cleanup
+	ctxapi.ReleaseFrameContext(fc)
+
+	// Give a moment for cleanup
+	stdtime.Sleep(10 * stdtime.Millisecond)
+
+	// Check ticker count - should be back to initial
+	finalCount := sched.clock.TickerCount()
+	t.Logf("Final ticker count: %d", finalCount)
+
+	if finalCount != initialCount {
+		t.Errorf("Ticker leak: started with %d, ended with %d (expected %d)", initialCount, finalCount, initialCount)
+	}
+}
+
+// TestTimerCleanupOnProcessExit tests that timers are cleaned up when process exits
+func TestTimerCleanupOnProcessExit(t *testing.T) {
+	sched := newTestScheduler(4)
+	sched.Start()
+	defer sched.Stop()
+
+	// Get initial timer count
+	initialCount := sched.clock.TimerCount()
+	t.Logf("Initial timer count: %d", initialCount)
+
+	script := `
+		-- Create timers with long durations but DON'T wait for them
+		local timer1 = time.timer(10 * time.SECOND)
+		local timer2 = time.timer(20 * time.SECOND)
+		local timer3 = time.timer(30 * time.SECOND)
+
+		-- Exit immediately WITHOUT stopping timers - cleanup should happen
+		return "done"
+	`
+
+	ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+	proc := newLuaProcessWithChannels(script)
+
+	result, err := sched.Execute(ctx, testPID(), proc, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result == nil {
+		t.Fatal("nil result")
+	}
+
+	// Release frame context - this triggers cleanup
+	ctxapi.ReleaseFrameContext(fc)
+
+	// Give a moment for cleanup
+	stdtime.Sleep(10 * stdtime.Millisecond)
+
+	// Check timer count - should be back to initial
+	finalCount := sched.clock.TimerCount()
+	t.Logf("Final timer count: %d", finalCount)
+
+	if finalCount != initialCount {
+		t.Errorf("Timer leak: started with %d, ended with %d (expected %d)", initialCount, finalCount, initialCount)
+	}
+}

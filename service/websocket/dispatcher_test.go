@@ -17,17 +17,15 @@ import (
 	"github.com/coder/websocket"
 )
 
-// testCompleter wraps a callback function to implement dispatcher.Completer
-type testCompleter struct {
-	fn func(data any)
+// testReceiver implements process.ResultReceiver for tests.
+type testReceiver struct {
+	fn func(tag uint64, data any, err error)
 }
 
-func (e *testCompleter) Complete(data any, _ error) {
-	e.fn(data)
-}
-
-func newTestEmitter(fn func(data any)) dispatcher.Completer {
-	return &testCompleter{fn: fn}
+func (r *testReceiver) CompleteYield(tag uint64, data any, err error) {
+	if r.fn != nil {
+		r.fn(tag, data, err)
+	}
 }
 
 // setupTestContext creates a FrameContext with a resource Store
@@ -236,10 +234,10 @@ func TestConnectHandler(t *testing.T) {
 
 	var connID uint64
 	done := make(chan struct{})
-	err := handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{URL: wsURL}, newTestEmitter(func(data any) {
+	err := handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{URL: wsURL}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
 		connID = data.(uint64)
 		close(done)
-	}))
+	}})
 
 	if err != nil {
 		t.Fatalf("connect failed: %v", err)
@@ -304,9 +302,9 @@ func TestConnectHandlerWithHeaders(t *testing.T) {
 	err := handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{
 		URL:     wsURL,
 		Headers: map[string]string{"X-Custom": "test-value"},
-	}, newTestEmitter(func(data any) {
+	}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
 		close(done)
-	}))
+	}})
 
 	if err != nil {
 		t.Fatalf("connect failed: %v", err)
@@ -369,9 +367,9 @@ func TestSendHandler(t *testing.T) {
 		ConnID:      connID,
 		Data:        []byte("hello"),
 		MessageType: wsapi.MessageText,
-	}, newTestEmitter(func(data any) {
+	}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
 		close(done)
-	}))
+	}})
 
 	if err != nil {
 		t.Fatalf("send failed: %v", err)
@@ -433,10 +431,10 @@ func TestReceiveHandler(t *testing.T) {
 
 	var msg wsapi.WsMessage
 	done := make(chan struct{})
-	err = handlers[wsapi.CmdWsReceive].Handle(ctx, wsapi.WsReceiveCmd{ConnID: connID}, newTestEmitter(func(data any) {
+	err = handlers[wsapi.CmdWsReceive].Handle(ctx, wsapi.WsReceiveCmd{ConnID: connID}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
 		msg = data.(wsapi.WsMessage)
 		close(done)
-	}))
+	}})
 
 	if err != nil {
 		t.Fatalf("receive failed: %v", err)
@@ -502,10 +500,10 @@ func TestReceiveHandlerBinary(t *testing.T) {
 
 	var msg wsapi.WsMessage
 	done := make(chan struct{})
-	err = handlers[wsapi.CmdWsReceive].Handle(ctx, wsapi.WsReceiveCmd{ConnID: connID}, newTestEmitter(func(data any) {
+	err = handlers[wsapi.CmdWsReceive].Handle(ctx, wsapi.WsReceiveCmd{ConnID: connID}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
 		msg = data.(wsapi.WsMessage)
 		close(done)
-	}))
+	}})
 
 	if err != nil {
 		t.Fatalf("receive failed: %v", err)
@@ -594,9 +592,9 @@ func TestCloseHandler(t *testing.T) {
 		ConnID: connID,
 		Code:   1000,
 		Reason: "normal close",
-	}, newTestEmitter(func(data any) {
+	}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
 		close(done)
-	}))
+	}})
 
 	if err != nil {
 		t.Fatalf("close failed: %v", err)
@@ -643,9 +641,9 @@ func TestPingHandler(t *testing.T) {
 	})
 
 	done := make(chan struct{})
-	err = handlers[wsapi.CmdWsPing].Handle(pingCtx, wsapi.WsPingCmd{ConnID: connID}, newTestEmitter(func(data any) {
+	err = handlers[wsapi.CmdWsPing].Handle(pingCtx, wsapi.WsPingCmd{ConnID: connID}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
 		close(done)
-	}))
+	}})
 
 	if err != nil {
 		t.Fatalf("ping failed: %v", err)
@@ -676,9 +674,9 @@ func TestSendHandlerNotFound(t *testing.T) {
 	err := handlers[wsapi.CmdWsSend].Handle(ctx, wsapi.WsSendCmd{
 		ConnID: 99999,
 		Data:   []byte("test"),
-	}, newTestEmitter(func(data any) {
+	}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
 		emitted = true
-	}))
+	}})
 
 	if err != nil {
 		t.Errorf("expected no error (silent failure), got %v", err)
@@ -707,9 +705,9 @@ func TestReceiveHandlerNotFound(t *testing.T) {
 	})
 
 	var emitted bool
-	err := handlers[wsapi.CmdWsReceive].Handle(ctx, wsapi.WsReceiveCmd{ConnID: 99999}, newTestEmitter(func(data any) {
+	err := handlers[wsapi.CmdWsReceive].Handle(ctx, wsapi.WsReceiveCmd{ConnID: 99999}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
 		emitted = true
-	}))
+	}})
 
 	if err != nil {
 		t.Errorf("expected no error (silent failure), got %v", err)
@@ -779,7 +777,7 @@ func TestConcurrentSends(t *testing.T) {
 				ConnID:      connID,
 				Data:        []byte("msg"),
 				MessageType: wsapi.MessageText,
-			}, newTestEmitter(func(data any) {}))
+			}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {}})
 		}(i)
 	}
 
@@ -810,10 +808,10 @@ func TestFullCycle(t *testing.T) {
 
 	var connID uint64
 	done := make(chan struct{})
-	err := handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{URL: wsURL}, newTestEmitter(func(data any) {
+	err := handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{URL: wsURL}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
 		connID = data.(uint64)
 		close(done)
-	}))
+	}})
 	if err != nil {
 		t.Fatalf("connect failed: %v", err)
 	}
@@ -824,9 +822,9 @@ func TestFullCycle(t *testing.T) {
 		ConnID:      connID,
 		Data:        []byte("hello"),
 		MessageType: wsapi.MessageText,
-	}, newTestEmitter(func(data any) {
+	}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
 		close(done)
-	}))
+	}})
 	if err != nil {
 		t.Fatalf("send failed: %v", err)
 	}
@@ -837,10 +835,10 @@ func TestFullCycle(t *testing.T) {
 
 	var msg wsapi.WsMessage
 	done = make(chan struct{})
-	err = handlers[wsapi.CmdWsReceive].Handle(ctx, wsapi.WsReceiveCmd{ConnID: connID}, newTestEmitter(func(data any) {
+	err = handlers[wsapi.CmdWsReceive].Handle(ctx, wsapi.WsReceiveCmd{ConnID: connID}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
 		msg = data.(wsapi.WsMessage)
 		close(done)
-	}))
+	}})
 	if err != nil {
 		t.Fatalf("receive failed: %v", err)
 	}
@@ -854,9 +852,9 @@ func TestFullCycle(t *testing.T) {
 		ConnID: connID,
 		Code:   1000,
 		Reason: "done",
-	}, newTestEmitter(func(data any) {
+	}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
 		close(done)
-	}))
+	}})
 	if err != nil {
 		t.Fatalf("close failed: %v", err)
 	}
@@ -1008,10 +1006,10 @@ func TestCleanupOnStoreClose(t *testing.T) {
 
 	var connID uint64
 	done := make(chan struct{})
-	err := handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{URL: wsURL}, newTestEmitter(func(data any) {
+	err := handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{URL: wsURL}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
 		connID = data.(uint64)
 		close(done)
-	}))
+	}})
 	if err != nil {
 		t.Fatalf("connect failed: %v", err)
 	}
@@ -1068,9 +1066,9 @@ func TestCleanupMultipleConnections(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		done := make(chan struct{})
-		err := handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{URL: wsURL}, newTestEmitter(func(data any) {
+		err := handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{URL: wsURL}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
 			close(done)
-		}))
+		}})
 		if err != nil {
 			t.Fatalf("connect %d failed: %v", i, err)
 		}
@@ -1137,10 +1135,10 @@ func TestDispatcherWithWorkers(t *testing.T) {
 	var connID uint64
 	var wg sync.WaitGroup
 	wg.Add(1)
-	err = handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{URL: wsURL}, newTestEmitter(func(data any) {
+	err = handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{URL: wsURL}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
 		connID = data.(uint64)
 		wg.Done()
-	}))
+	}})
 	if err != nil {
 		t.Fatalf("connect failed: %v", err)
 	}
@@ -1159,7 +1157,7 @@ func TestDispatcherWithWorkers(t *testing.T) {
 				ConnID:      connID,
 				Data:        []byte("async"),
 				MessageType: wsapi.MessageText,
-			}, newTestEmitter(func(data any) {}))
+			}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {}})
 		}()
 	}
 	wg.Wait()
@@ -1280,7 +1278,7 @@ func BenchmarkSend(b *testing.B) {
 				ConnID:      connID,
 				Data:        []byte("benchmark"),
 				MessageType: wsapi.MessageText,
-			}, newTestEmitter(func(data any) {}))
+			}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {}})
 		}
 	})
 }
@@ -1330,7 +1328,7 @@ func BenchmarkReceive(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		handlers[wsapi.CmdWsReceive].Handle(ctx, wsapi.WsReceiveCmd{ConnID: connID}, newTestEmitter(func(data any) {}))
+		handlers[wsapi.CmdWsReceive].Handle(ctx, wsapi.WsReceiveCmd{ConnID: connID}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {}})
 	}
 }
 

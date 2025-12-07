@@ -37,7 +37,7 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(execapi.CmdProcessWait, dispatcher.HandlerFunc(d.handleProcessWait))
 }
 
-func (d *Dispatcher) handleProcessWait(ctx context.Context, cmd dispatcher.Command, tag any, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleProcessWait(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
 	waitCmd := cmd.(*execapi.ProcessWaitCmd)
 
 	go func() {

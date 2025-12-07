@@ -23,6 +23,17 @@ const (
 	CmdPoolComplete dispatcher.CommandID = 201
 )
 
+// Yield correlation tags
+const (
+	tagA uint64 = 1
+	tagB uint64 = 2
+	tagC uint64 = 3
+	tag1 uint64 = 4
+	tag2 uint64 = 5
+	tag3 uint64 = 6
+	tag4 uint64 = 7
+)
+
 // TaggedSleepCmd carries an identifier so we can track which yield it came from
 type TaggedSleepCmd struct {
 	Tag      string
@@ -39,7 +50,7 @@ func (PoolCompleteCmd) CmdID() dispatcher.CommandID { return CmdPoolComplete }
 // taggedSleepHandler completes after delay, returning the tag
 type taggedSleepHandler struct{}
 
-func (h *taggedSleepHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+func (h *taggedSleepHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	c := cmd.(TaggedSleepCmd)
 	go func() {
 		select {
@@ -54,7 +65,7 @@ func (h *taggedSleepHandler) Handle(ctx context.Context, cmd dispatcher.Command,
 // poolCompleteHandler completes immediately (async to avoid race)
 type poolCompleteHandler struct{}
 
-func (h *poolCompleteHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag any, receiver dispatcher.ResultReceiver) error {
+func (h *poolCompleteHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	c := cmd.(PoolCompleteCmd)
 	go receiver.CompleteYield(tag, c.Value, nil)
 	return nil
@@ -104,8 +115,8 @@ func (p *SequentialYieldPoolProcess) Step(events []process.Event, out *process.S
 
 	if p.step == 0 {
 		p.step++
-		out.Yield(TaggedSleepCmd{Tag: "A", Duration: 100 * time.Millisecond}, "tag_A")
-		out.Yield(TaggedSleepCmd{Tag: "B", Duration: 10 * time.Millisecond}, "tag_B")
+		out.Yield(TaggedSleepCmd{Tag: "A", Duration: 100 * time.Millisecond}, tagA)
+		out.Yield(TaggedSleepCmd{Tag: "B", Duration: 10 * time.Millisecond}, tagB)
 		out.Continue()
 		return nil
 	}
@@ -210,15 +221,15 @@ func (p *StaggeredYieldPoolProcess) Step(events []process.Event, out *process.St
 	switch p.step {
 	case 0:
 		p.step++
-		out.Yield(TaggedSleepCmd{Tag: "A", Duration: 200 * time.Millisecond}, "tag_A")
-		out.Yield(TaggedSleepCmd{Tag: "B", Duration: 10 * time.Millisecond}, "tag_B")
+		out.Yield(TaggedSleepCmd{Tag: "A", Duration: 200 * time.Millisecond}, tagA)
+		out.Yield(TaggedSleepCmd{Tag: "B", Duration: 10 * time.Millisecond}, tagB)
 		out.Continue()
 		return nil
 
 	case 1:
 		if gotB {
 			p.step++
-			out.Yield(TaggedSleepCmd{Tag: "C", Duration: 50 * time.Millisecond}, "tag_C")
+			out.Yield(TaggedSleepCmd{Tag: "C", Duration: 50 * time.Millisecond}, tagC)
 			out.Continue()
 			return nil
 		}
@@ -394,10 +405,10 @@ func (p *ConcurrentYieldsProcess) Step(events []process.Event, out *process.Step
 	// First step: yield multiple commands that complete at same time
 	if p.resultsReceived.Load() == 0 {
 		// All complete at roughly same time - race condition test
-		out.Yield(TaggedSleepCmd{Tag: "1", Duration: 5 * time.Millisecond}, "tag_1")
-		out.Yield(TaggedSleepCmd{Tag: "2", Duration: 5 * time.Millisecond}, "tag_2")
-		out.Yield(TaggedSleepCmd{Tag: "3", Duration: 5 * time.Millisecond}, "tag_3")
-		out.Yield(TaggedSleepCmd{Tag: "4", Duration: 5 * time.Millisecond}, "tag_4")
+		out.Yield(TaggedSleepCmd{Tag: "1", Duration: 5 * time.Millisecond}, tag1)
+		out.Yield(TaggedSleepCmd{Tag: "2", Duration: 5 * time.Millisecond}, tag2)
+		out.Yield(TaggedSleepCmd{Tag: "3", Duration: 5 * time.Millisecond}, tag3)
+		out.Yield(TaggedSleepCmd{Tag: "4", Duration: 5 * time.Millisecond}, tag4)
 		out.Continue()
 		return nil
 	}

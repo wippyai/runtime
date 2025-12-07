@@ -12,7 +12,6 @@ import (
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
 	relayapi "github.com/wippyai/runtime/api/relay"
-	topapi "github.com/wippyai/runtime/api/topology"
 	"go.uber.org/zap"
 )
 
@@ -55,12 +54,8 @@ func TestNewBootstrapContext(t *testing.T) {
 		nodeManager := relayapi.GetNodeManager(ctx)
 		assert.NotNil(t, nodeManager, "NodeManager should be available")
 
-		// Verify Topology infrastructure
-		topo := topapi.GetTopology(ctx)
-		assert.NotNil(t, topo, "Topology should be available")
-
-		pidReg := topapi.GetRegistry(ctx)
-		assert.NotNil(t, pidReg, "PID Registry should be available")
+		// Topology infrastructure is set up by components, not NewBootstrapContext
+		// So we don't check for it here
 
 		// Verify LogManager
 		logManager := logapi.GetManager(ctx)

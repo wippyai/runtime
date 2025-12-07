@@ -8,6 +8,7 @@ import (
 	clockapi "github.com/wippyai/runtime/api/clock"
 	"github.com/wippyai/runtime/api/dispatcher"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
@@ -321,18 +322,37 @@ func (y *TimerStartYield) HandleResult(l *lua.LState, data any, err error) []lua
 		return []lua.LValue{lua.LNil, wrapErrorValue(l, err, "timer start")}
 	}
 
-	id, ok := data.(uint64)
+	result, ok := data.(clockapi.TimerStartResult)
 	if !ok {
-		return []lua.LValue{lua.LNil, newErrorValue(l, "invalid timer ID type")}
+		// Fallback for backward compatibility with tests that return uint64
+		if id, ok := data.(uint64); ok {
+			result = clockapi.TimerStartResult{ID: id}
+		} else {
+			return []lua.LValue{lua.LNil, newErrorValue(l, "invalid timer result type")}
+		}
 	}
 
 	// Create timer channel that yields TimerWaitYield on receive
-	timerCh := &TimerChannel{TimerID: id}
-	timer := &Timer{ID: id, Channel: timerCh}
+	timerCh := &TimerChannel{TimerID: result.ID}
+	timer := &Timer{ID: result.ID, Channel: timerCh}
 
 	ud := l.NewUserData()
 	ud.Value = timer
 	ud.Metatable = value.GetTypeMetatable(l, timerTypeName)
+
+	// Register cleanup to stop timer when frame is released
+	if result.Stop != nil {
+		ctx := l.Context()
+		if ctx != nil {
+			if store := resource.GetStore(ctx); store != nil {
+				store.AddCleanup(func() error {
+					result.Stop()
+					return nil
+				})
+			}
+		}
+	}
+
 	return []lua.LValue{ud}
 }
 
@@ -529,18 +549,37 @@ func (y *TickerStartYield) HandleResult(l *lua.LState, data any, err error) []lu
 		return []lua.LValue{lua.LNil, wrapErrorValue(l, err, "ticker start")}
 	}
 
-	id, ok := data.(uint64)
+	result, ok := data.(clockapi.TickerStartResult)
 	if !ok {
-		return []lua.LValue{lua.LNil, newErrorValue(l, "invalid ticker ID type")}
+		// Fallback for backward compatibility with tests that return uint64
+		if id, ok := data.(uint64); ok {
+			result = clockapi.TickerStartResult{ID: id}
+		} else {
+			return []lua.LValue{lua.LNil, newErrorValue(l, "invalid ticker result type")}
+		}
 	}
 
 	// Create ticker channel that yields TickerNextYield on receive
-	tickerCh := &TickerChannel{TickerID: id}
-	ticker := &Ticker{ID: id, Channel: tickerCh}
+	tickerCh := &TickerChannel{TickerID: result.ID}
+	ticker := &Ticker{ID: result.ID, Channel: tickerCh}
 
 	ud := l.NewUserData()
 	ud.Value = ticker
 	ud.Metatable = value.GetTypeMetatable(l, tickerTypeName)
+
+	// Register cleanup to stop ticker when frame is released
+	if result.Stop != nil {
+		ctx := l.Context()
+		if ctx != nil {
+			if store := resource.GetStore(ctx); store != nil {
+				store.AddCleanup(func() error {
+					result.Stop()
+					return nil
+				})
+			}
+		}
+	}
+
 	return []lua.LValue{ud}
 }
 

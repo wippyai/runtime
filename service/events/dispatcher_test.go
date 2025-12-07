@@ -96,7 +96,7 @@ func TestDispatcher_Subscribe(t *testing.T) {
 	var result any
 
 	receiver := &mockReceiver{
-		onComplete: func(tag, data any, err error) {
+		onComplete: func(tag uint64, data any, err error) {
 			result = data
 			close(completed)
 		},
@@ -109,7 +109,7 @@ func TestDispatcher_Subscribe(t *testing.T) {
 		PID:    pid,
 	}
 
-	err = d.handleSubscribe(ctx, cmd, nil, receiver)
+	err = d.handleSubscribe(ctx, cmd, 0, receiver)
 	require.NoError(t, err)
 
 	<-completed
@@ -206,7 +206,7 @@ func TestDispatcher_Send(t *testing.T) {
 	// Send via dispatcher
 	completed := make(chan struct{})
 	receiver := &mockReceiver{
-		onComplete: func(tag, data any, err error) {
+		onComplete: func(tag uint64, data any, err error) {
 			close(completed)
 		},
 	}
@@ -218,7 +218,7 @@ func TestDispatcher_Send(t *testing.T) {
 		Data:   map[string]any{"key": "value"},
 	}
 
-	err = d.handleSend(ctx, cmd, nil, receiver)
+	err = d.handleSend(ctx, cmd, 0, receiver)
 	require.NoError(t, err)
 
 	<-completed
@@ -234,16 +234,16 @@ func TestDispatcher_Send(t *testing.T) {
 }
 
 type mockReceiver struct {
-	onComplete func(tag, data any, err error)
+	onComplete func(tag uint64, data any, err error)
 }
 
-func (r *mockReceiver) CompleteYield(tag any, data any, err error) {
+func (r *mockReceiver) CompleteYield(tag uint64, data any, err error) {
 	if r.onComplete != nil {
 		r.onComplete(tag, data, err)
 	}
 }
 
-func (r *mockReceiver) FailYield(tag any, err error) {
+func (r *mockReceiver) FailYield(tag uint64, err error) {
 	if r.onComplete != nil {
 		r.onComplete(tag, nil, err)
 	}

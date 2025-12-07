@@ -33,7 +33,7 @@ type testReceiver struct {
 	cb func(data any, err error)
 }
 
-func (r *testReceiver) CompleteYield(_ any, data any, err error) {
+func (r *testReceiver) CompleteYield(_ uint64, data any, err error) {
 	if r.cb != nil {
 		r.cb(data, err)
 	}
@@ -52,7 +52,7 @@ func TestOpenHandler(t *testing.T) {
 	cmd.BindingID = registry.NewID("test", "binding")
 
 	done := make(chan contract.OpenResult, 1)
-	err := d.open.Handle(ctx, cmd, nil, &testReceiver{cb: func(data any, _ error) {
+	err := d.open.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(contract.OpenResult)
 	}})
 
@@ -73,7 +73,7 @@ func TestOpenHandler_NoInstantiator(t *testing.T) {
 	cmd.BindingID = registry.NewID("test", "binding")
 
 	done := make(chan contract.OpenResult, 1)
-	err := d.open.Handle(ctx, cmd, nil, &testReceiver{cb: func(data any, _ error) {
+	err := d.open.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(contract.OpenResult)
 	}})
 
@@ -96,7 +96,7 @@ func TestOpenHandler_Error(t *testing.T) {
 	cmd.BindingID = registry.NewID("test", "binding")
 
 	done := make(chan contract.OpenResult, 1)
-	err := d.open.Handle(ctx, cmd, nil, &testReceiver{cb: func(data any, _ error) {
+	err := d.open.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(contract.OpenResult)
 	}})
 
@@ -123,7 +123,7 @@ func TestCallHandler(t *testing.T) {
 	cmd.Method = "test_method"
 
 	done := make(chan contract.CallResult, 1)
-	err := d.call.Handle(ctx, cmd, nil, &testReceiver{cb: func(data any, _ error) {
+	err := d.call.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(contract.CallResult)
 	}})
 
@@ -145,7 +145,7 @@ func TestCallHandler_NilInstance(t *testing.T) {
 	cmd.Method = "test_method"
 
 	done := make(chan contract.CallResult, 1)
-	err := d.call.Handle(ctx, cmd, nil, &testReceiver{cb: func(data any, _ error) {
+	err := d.call.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(contract.CallResult)
 	}})
 
@@ -169,7 +169,7 @@ func TestCallHandler_Error(t *testing.T) {
 	cmd.Method = "test_method"
 
 	done := make(chan contract.CallResult, 1)
-	err := d.call.Handle(ctx, cmd, nil, &testReceiver{cb: func(data any, _ error) {
+	err := d.call.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(contract.CallResult)
 	}})
 
@@ -197,7 +197,7 @@ func TestCallHandler_ResultError(t *testing.T) {
 	cmd.Method = "test_method"
 
 	done := make(chan contract.CallResult, 1)
-	err := d.call.Handle(ctx, cmd, nil, &testReceiver{cb: func(data any, _ error) {
+	err := d.call.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(contract.CallResult)
 	}})
 
@@ -231,7 +231,7 @@ func TestAsyncCallHandler(t *testing.T) {
 	cmd.Topic = "@future:test-123"
 
 	done := make(chan contract.AsyncCallResult, 1)
-	err := d.asyncCall.Handle(frameCtx, cmd, nil, &testReceiver{cb: func(data any, _ error) {
+	err := d.asyncCall.Handle(frameCtx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(contract.AsyncCallResult)
 	}})
 
@@ -262,7 +262,7 @@ func TestAsyncCallHandler_NilInstance(t *testing.T) {
 	cmd.Topic = "@future:test-123"
 
 	done := make(chan contract.AsyncCallResult, 1)
-	err := d.asyncCall.Handle(ctx, cmd, nil, &testReceiver{cb: func(data any, _ error) {
+	err := d.asyncCall.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(contract.AsyncCallResult)
 	}})
 
@@ -285,7 +285,7 @@ func TestAsyncCancelHandler(t *testing.T) {
 	cmd.Topic = "@future:test-123"
 
 	done := make(chan struct{}, 1)
-	err := d.asyncCancel.Handle(frameCtx, cmd, nil, &testReceiver{cb: func(_ any, _ error) {
+	err := d.asyncCancel.Handle(frameCtx, cmd, 0, &testReceiver{cb: func(_ any, _ error) {
 		done <- struct{}{}
 	}})
 	require.NoError(t, err)
@@ -340,7 +340,7 @@ func TestCallHandler_Stress(t *testing.T) {
 			cmd.Instance = mockInstance
 			cmd.Method = "test"
 			done := make(chan contract.CallResult, 1)
-			err := d.call.Handle(ctx, cmd, nil, &testReceiver{cb: func(data any, _ error) {
+			err := d.call.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
 				done <- data.(contract.CallResult)
 			}})
 			assert.NoError(t, err)
@@ -373,7 +373,7 @@ func BenchmarkCallHandler(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = d.call.Handle(ctx, cmd, nil, recv)
+		_ = d.call.Handle(ctx, cmd, 0, recv)
 	}
 }
 
@@ -394,7 +394,7 @@ func BenchmarkCallHandler_Parallel(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			_ = d.call.Handle(ctx, cmd, nil, recv)
+			_ = d.call.Handle(ctx, cmd, 0, recv)
 		}
 	})
 }

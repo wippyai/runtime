@@ -14,7 +14,7 @@ func TestErrorInterface(t *testing.T) {
 	err := luaapi.NewTranscodeError("test message", cause)
 
 	t.Run("Error", func(t *testing.T) {
-		assert.Equal(t, "test message", err.Error())
+		assert.Equal(t, "test message: test cause", err.Error())
 	})
 
 	t.Run("Kind", func(t *testing.T) {
@@ -53,7 +53,7 @@ func TestNewInvalidTypeError(t *testing.T) {
 func TestNewTranscodeError(t *testing.T) {
 	cause := errors.New("underlying error")
 	err := luaapi.NewTranscodeError("transcode failed", cause)
-	assert.Equal(t, "transcode failed", err.Error())
+	assert.Equal(t, "transcode failed: underlying error", err.Error())
 	assert.Equal(t, apierror.KindInternal, err.Kind())
 	assert.Equal(t, apierror.False, err.Retryable())
 	assert.Equal(t, cause, err.Unwrap())
@@ -62,7 +62,7 @@ func TestNewTranscodeError(t *testing.T) {
 func TestNewConversionError(t *testing.T) {
 	cause := errors.New("conversion issue")
 	err := luaapi.NewConversionError("conversion failed", cause)
-	assert.Equal(t, "conversion failed", err.Error())
+	assert.Equal(t, "conversion failed: conversion issue", err.Error())
 	assert.Equal(t, apierror.KindInternal, err.Kind())
 	assert.Equal(t, apierror.False, err.Retryable())
 	assert.Equal(t, cause, err.Unwrap())
