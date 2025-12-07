@@ -1,6 +1,10 @@
 package contract
 
 import (
+	"net/url"
+	"strconv"
+	"strings"
+
 	"github.com/google/uuid"
 	"github.com/wippyai/runtime/api/attrs"
 	contextapi "github.com/wippyai/runtime/api/context"
@@ -41,7 +45,6 @@ func init() {
 	})
 
 	// Register instance type with dynamic method access via __index
-	// Built-in methods (id, implements) are handled in instanceIndex
 	value.RegisterTypeMethods(nil, instanceTypeName,
 		map[string]lua.LGoFunc{
 			"__index": instanceIndex,
@@ -77,8 +80,8 @@ var Module = &luaapi.ModuleDef{
 	},
 }
 
-// ContractWrapper holds a contract definition with optional context for introspection.
-type ContractWrapper struct {
+// Wrapper holds a contract definition with optional context for introspection.
+type Wrapper struct {
 	definition contract.Contract
 	registry   contract.Registry
 	values     contextapi.Values
@@ -91,6 +94,44 @@ type ContractWrapper struct {
 // InstanceWrapper holds an opened contract instance.
 type InstanceWrapper struct {
 	instance contract.Instance
+}
+
+// parseBindingID parses a binding ID with optional query parameters.
+// Format: "service:impl?key1=value1&key2=value2" or just "service:impl"
+func parseBindingID(bindingID string) (string, map[string]any, error) {
+	parts := strings.SplitN(bindingID, "?", 2)
+	baseID := parts[0]
+
+	if len(parts) == 1 {
+		return baseID, nil, nil
+	}
+
+	values, err := url.ParseQuery(parts[1])
+	if err != nil {
+		return "", nil, err
+	}
+
+	args := make(map[string]any)
+	for k, v := range values {
+		if len(v) == 0 {
+			args[k] = ""
+			continue
+		}
+		val := v[0]
+		if val == "true" {
+			args[k] = true
+		} else if val == "false" {
+			args[k] = false
+		} else if intVal, err := strconv.Atoi(val); err == nil {
+			args[k] = intVal
+		} else if floatVal, err := strconv.ParseFloat(val, 64); err == nil {
+			args[k] = floatVal
+		} else {
+			args[k] = val
+		}
+	}
+
+	return baseID, args, nil
 }
 
 // getContract retrieves a contract definition by ID.
@@ -125,7 +166,7 @@ func getContract(l *lua.LState) int {
 		return 2
 	}
 
-	wrapper := &ContractWrapper{
+	wrapper := &Wrapper{
 		definition: def,
 		registry:   reg,
 	}
@@ -136,11 +177,22 @@ func getContract(l *lua.LState) int {
 }
 
 // openBinding opens a binding directly by ID.
+// Supports query parameters: "service:impl?key=value"
 func openBinding(l *lua.LState) int {
-	bindingID := l.CheckString(1)
+	bindingIDArg := l.CheckString(1)
 
-	if !security.IsAllowed(l.Context(), "contract.open", bindingID, nil) {
-		luaErr := lua.NewLuaError(l, "not allowed to open binding: "+bindingID).
+	baseID, queryArgs, err := parseBindingID(bindingIDArg)
+	if err != nil {
+		luaErr := lua.WrapErrorWithLua(l, err, "parse binding ID failed").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return 2
+	}
+
+	if !security.IsAllowed(l.Context(), "contract.open", baseID, nil) {
+		luaErr := lua.NewLuaError(l, "not allowed to open binding: "+baseID).
 			WithKind(lua.KindPermissionDenied).
 			WithRetryable(false)
 		l.Push(lua.LNil)
@@ -148,19 +200,24 @@ func openBinding(l *lua.LState) int {
 		return 2
 	}
 
-	// Parse optional scope table
+	// Build scope from query parameters and optional table
 	var scope attrs.Bag
-	if l.GetTop() >= 2 && l.Get(2).Type() == lua.LTTable {
+	if queryArgs != nil || (l.GetTop() >= 2 && l.Get(2).Type() == lua.LTTable) {
 		scope = attrs.NewBag()
-		l.CheckTable(2).ForEach(func(k, v lua.LValue) {
-			if key, ok := k.(lua.LString); ok {
-				scope.Set(string(key), value.ToGoAny(v))
-			}
-		})
+		for k, v := range queryArgs {
+			scope.Set(k, v)
+		}
+		if l.GetTop() >= 2 && l.Get(2).Type() == lua.LTTable {
+			l.CheckTable(2).ForEach(func(k, v lua.LValue) {
+				if key, ok := k.(lua.LString); ok {
+					scope.Set(string(key), value.ToGoAny(v))
+				}
+			})
+		}
 	}
 
 	yield := AcquireOpenYield()
-	yield.BindingID = registry.ParseID(bindingID)
+	yield.BindingID = registry.ParseID(baseID)
 	yield.Scope = scope
 
 	l.Push(yield)
@@ -234,13 +291,13 @@ func findImplementations(l *lua.LState) int {
 // Contract wrapper methods
 
 func contractID(l *lua.LState) int {
-	wrapper := l.CheckUserData(1).Value.(*ContractWrapper)
+	wrapper := l.CheckUserData(1).Value.(*Wrapper)
 	l.Push(lua.LString(wrapper.definition.ID().String()))
 	return 1
 }
 
 func contractMethods(l *lua.LState) int {
-	wrapper := l.CheckUserData(1).Value.(*ContractWrapper)
+	wrapper := l.CheckUserData(1).Value.(*Wrapper)
 	methods := wrapper.definition.Methods()
 	result := l.CreateTable(len(methods), 0)
 
@@ -262,7 +319,7 @@ func contractMethods(l *lua.LState) int {
 }
 
 func contractMethod(l *lua.LState) int {
-	wrapper := l.CheckUserData(1).Value.(*ContractWrapper)
+	wrapper := l.CheckUserData(1).Value.(*Wrapper)
 	methodName := l.CheckString(2)
 
 	method, err := wrapper.definition.Method(methodName)
@@ -288,7 +345,7 @@ func contractMethod(l *lua.LState) int {
 }
 
 func contractImplementations(l *lua.LState) int {
-	wrapper := l.CheckUserData(1).Value.(*ContractWrapper)
+	wrapper := l.CheckUserData(1).Value.(*Wrapper)
 
 	bindings, err := wrapper.registry.GetBindingsForContract(l.Context(), wrapper.definition.ID())
 	if err != nil {
@@ -308,14 +365,22 @@ func contractImplementations(l *lua.LState) int {
 }
 
 func contractOpen(l *lua.LState) int {
-	wrapper := l.CheckUserData(1).Value.(*ContractWrapper)
+	wrapper := l.CheckUserData(1).Value.(*Wrapper)
 
 	var bindingID string
-	var scope attrs.Bag
+	var queryArgs map[string]any
 
 	// Check if binding ID is provided
 	if l.GetTop() >= 2 && l.Get(2).Type() != lua.LTNil {
-		bindingID = l.CheckString(2)
+		bindingIDArg := l.CheckString(2)
+		baseID, args, err := parseBindingID(bindingIDArg)
+		if err != nil {
+			l.Push(lua.LNil)
+			l.Push(lua.WrapErrorWithLua(l, err, "parse binding ID failed"))
+			return 2
+		}
+		bindingID = baseID
+		queryArgs = args
 	} else {
 		// Use default binding
 		defaultID, err := wrapper.registry.GetDefaultBinding(l.Context(), wrapper.definition.ID())
@@ -336,36 +401,43 @@ func contractOpen(l *lua.LState) int {
 		return 2
 	}
 
-	// Parse optional scope table
+	// Build scope: query args -> wrapper context -> explicit table (highest priority)
+	var scope attrs.Bag
+	hasScope := queryArgs != nil || wrapper.values != nil
+
 	scopeIndex := 3
 	if l.GetTop() >= 2 && l.Get(2).Type() == lua.LTNil {
 		scopeIndex = 2
 	}
 	if l.GetTop() >= scopeIndex && l.Get(scopeIndex).Type() == lua.LTTable {
-		scope = attrs.NewBag()
-		l.CheckTable(scopeIndex).ForEach(func(k, v lua.LValue) {
-			if key, ok := k.(lua.LString); ok {
-				scope.Set(string(key), value.ToGoAny(v))
-			}
-		})
+		hasScope = true
 	}
 
-	// Merge wrapper context with explicit scope
-	mergedScope := scope
-	if wrapper.values != nil {
-		if mergedScope == nil {
-			mergedScope = attrs.NewBag()
+	if hasScope {
+		scope = attrs.NewBag()
+		// Query args first (lowest priority)
+		for k, v := range queryArgs {
+			scope.Set(k, v)
 		}
-		wrapper.values.Iterate(func(key string, val any) {
-			if _, exists := mergedScope.Get(key); !exists {
-				mergedScope.Set(key, val)
-			}
-		})
+		// Wrapper context values
+		if wrapper.values != nil {
+			wrapper.values.Iterate(func(key string, val any) {
+				scope.Set(key, val)
+			})
+		}
+		// Explicit table (highest priority)
+		if l.GetTop() >= scopeIndex && l.Get(scopeIndex).Type() == lua.LTTable {
+			l.CheckTable(scopeIndex).ForEach(func(k, v lua.LValue) {
+				if key, ok := k.(lua.LString); ok {
+					scope.Set(string(key), value.ToGoAny(v))
+				}
+			})
+		}
 	}
 
 	yield := AcquireOpenYield()
 	yield.BindingID = registry.ParseID(bindingID)
-	yield.Scope = mergedScope
+	yield.Scope = scope
 	yield.Values = wrapper.values
 	yield.Actor = wrapper.actor
 	yield.HasActor = wrapper.hasActor
@@ -378,7 +450,7 @@ func contractOpen(l *lua.LState) int {
 
 func contractWithContext(l *lua.LState) int {
 	ud := l.CheckUserData(1)
-	wrapper, ok := ud.Value.(*ContractWrapper)
+	wrapper, ok := ud.Value.(*Wrapper)
 	if !ok {
 		l.ArgError(1, "Contract expected")
 		return 0
@@ -408,7 +480,7 @@ func contractWithContext(l *lua.LState) int {
 		}
 	})
 
-	newWrapper := &ContractWrapper{
+	newWrapper := &Wrapper{
 		definition: wrapper.definition,
 		registry:   wrapper.registry,
 		values:     newValues,
@@ -424,7 +496,7 @@ func contractWithContext(l *lua.LState) int {
 
 func contractWithActor(l *lua.LState) int {
 	ud := l.CheckUserData(1)
-	wrapper, ok := ud.Value.(*ContractWrapper)
+	wrapper, ok := ud.Value.(*Wrapper)
 	if !ok {
 		l.ArgError(1, "Contract expected")
 		return 0
@@ -451,7 +523,7 @@ func contractWithActor(l *lua.LState) int {
 		return 0
 	}
 
-	newWrapper := &ContractWrapper{
+	newWrapper := &Wrapper{
 		definition: wrapper.definition,
 		registry:   wrapper.registry,
 		values:     wrapper.values,
@@ -467,7 +539,7 @@ func contractWithActor(l *lua.LState) int {
 
 func contractWithScope(l *lua.LState) int {
 	ud := l.CheckUserData(1)
-	wrapper, ok := ud.Value.(*ContractWrapper)
+	wrapper, ok := ud.Value.(*Wrapper)
 	if !ok {
 		l.ArgError(1, "Contract expected")
 		return 0
@@ -494,7 +566,7 @@ func contractWithScope(l *lua.LState) int {
 		return 0
 	}
 
-	newWrapper := &ContractWrapper{
+	newWrapper := &Wrapper{
 		definition: wrapper.definition,
 		registry:   wrapper.registry,
 		values:     wrapper.values,

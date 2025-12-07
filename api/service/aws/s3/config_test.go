@@ -22,11 +22,9 @@ func TestConfig_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "complete config",
 			config: Config{
-				Bucket:             "my-bucket",
-				AWSConfig:          "aws-config-resource",
-				AccessKeyIDEnv:     "AWS_ACCESS_KEY_ID",
-				SecretAccessKeyEnv: "AWS_SECRET_ACCESS_KEY",
-				Endpoint:           "https://s3.amazonaws.com",
+				Bucket:    "my-bucket",
+				AWSConfig: "aws-config-resource",
+				Endpoint:  "https://s3.amazonaws.com",
 			},
 			wantErr: false,
 		},

@@ -17,7 +17,7 @@ func CloudStorage() boot.Component {
 				return ctx, nil
 			}
 
-			if err := AddModules(ctx, cm, &cloudstorage.Module); err != nil {
+			if err := AddModules(ctx, cm, cloudstorage.Module); err != nil {
 				return ctx, err
 			}
 

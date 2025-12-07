@@ -3,6 +3,7 @@ local assert = require("assert_primitives")
 
 local function main()
     local cloudstorage = require("cloudstorage")
+    local fs = require("fs")
 
     -- Test invalid resource ID
     local storage, err = cloudstorage.get("")
@@ -19,6 +20,11 @@ local function main()
     assert.is_nil(err3, "should get storage without error")
     assert.not_nil(storage3, "should have storage connection")
 
+    -- Get temp volume for download tests
+    local vol, verr = fs.get("app:temp")
+    assert.is_nil(verr, "should get temp volume")
+    assert.not_nil(vol, "should have temp volume")
+
     storage3:release()
 
     -- Operations after release should error
@@ -26,7 +32,11 @@ local function main()
     assert.is_nil(result, "should not have result after release")
     assert.not_nil(err4, "should have error after release")
 
-    local content, err5 = storage3:download_object("test.txt")
+    local file, ferr = vol:open("/error_test.txt", "w")
+    assert.is_nil(ferr, "should open temp file")
+    local content, err5 = storage3:download_object("test.txt", file)
+    file:close()
+    vol:remove("/error_test.txt")
     assert.is_nil(content, "should not have content after release")
     assert.not_nil(err5, "should have error for download after release")
 

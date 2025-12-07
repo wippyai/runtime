@@ -35,7 +35,7 @@ func setupInstantiatorTest() (*Instantiator, event.Bus, *Registry, *functionSys.
 
 	uniqGen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
-	ctx = process.WithPIDGenerator(ctx, pidGen)
+	_ = process.WithPIDGenerator(ctx, pidGen)
 
 	functionRegistry := functionSys.NewFunctionRegistry(bus, logger)
 

@@ -214,7 +214,7 @@ func (y *AsyncCancelYield) CmdID() dispatcher.CommandID   { return contract.Asyn
 func (y *AsyncCancelYield) Release()                      { ReleaseAsyncCancelYield(y) }
 
 // HandleResult for cancel - returns true on success.
-func (y *AsyncCancelYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+func (y *AsyncCancelYield) HandleResult(l *lua.LState, _ any, err error) []lua.LValue {
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "async cancel failed").
 			WithKind(lua.KindInternal).

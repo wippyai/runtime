@@ -130,11 +130,12 @@ func (d *Dispatcher) handleAsyncCall(ctx context.Context, cmd dispatcher.Command
 		result, err := instance.Call(ctx, method, args)
 
 		var resultPayload payload.Payload
-		if err != nil {
+		switch {
+		case err != nil:
 			resultPayload = payload.NewError(err)
-		} else if result.Error != nil {
+		case result.Error != nil:
 			resultPayload = payload.NewError(result.Error)
-		} else {
+		default:
 			resultPayload = result.Value
 		}
 

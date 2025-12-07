@@ -18,12 +18,6 @@ type Config struct {
 	// AWSConfig is a resource name of aws config.
 	AWSConfig string `json:"config"`
 
-	// AccessKeyIDEnv is the AWS access key ID env name.
-	AccessKeyIDEnv string `json:"access_key_id_env,omitempty"`
-
-	// SecretAccessKeyEnv is the AWS secret access key env name.
-	SecretAccessKeyEnv string `json:"secret_access_key_env,omitempty"`
-
 	// Endpoint is a custom endpoint.
 	Endpoint string `json:"endpoint"`
 }

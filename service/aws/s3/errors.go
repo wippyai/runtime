@@ -5,7 +5,7 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
-type StructuredError struct {
+type Error struct {
 	kind      apierror.Kind
 	message   string
 	retryable apierror.Ternary
@@ -13,14 +13,14 @@ type StructuredError struct {
 	cause     error
 }
 
-func (e *StructuredError) Error() string               { return e.message }
-func (e *StructuredError) Kind() apierror.Kind         { return e.kind }
-func (e *StructuredError) Retryable() apierror.Ternary { return e.retryable }
-func (e *StructuredError) Details() attrs.Attributes   { return e.details }
-func (e *StructuredError) Unwrap() error               { return e.cause }
+func (e *Error) Error() string               { return e.message }
+func (e *Error) Kind() apierror.Kind         { return e.kind }
+func (e *Error) Retryable() apierror.Ternary { return e.retryable }
+func (e *Error) Details() attrs.Attributes   { return e.details }
+func (e *Error) Unwrap() error               { return e.cause }
 
 func newUnsupportedKindError(kind string) error {
-	return &StructuredError{
+	return &Error{
 		kind:      apierror.KindInvalid,
 		message:   "unsupported entry kind: " + kind,
 		retryable: apierror.False,
@@ -29,7 +29,7 @@ func newUnsupportedKindError(kind string) error {
 }
 
 func newStorageAlreadyExistsError(id string) error {
-	return &StructuredError{
+	return &Error{
 		kind:      apierror.KindAlreadyExists,
 		message:   "storage " + id + " already exists",
 		retryable: apierror.False,
@@ -38,7 +38,7 @@ func newStorageAlreadyExistsError(id string) error {
 }
 
 func newAddEntryError(cause error) error {
-	return &StructuredError{
+	return &Error{
 		kind:      apierror.KindInternal,
 		message:   "add entry",
 		retryable: apierror.Unknown,
@@ -47,7 +47,7 @@ func newAddEntryError(cause error) error {
 }
 
 func newStorageNotFoundError(id string) error {
-	return &StructuredError{
+	return &Error{
 		kind:      apierror.KindNotFound,
 		message:   "storage " + id + " not found",
 		retryable: apierror.False,
@@ -56,7 +56,7 @@ func newStorageNotFoundError(id string) error {
 }
 
 func newUpdateEntryError(cause error) error {
-	return &StructuredError{
+	return &Error{
 		kind:      apierror.KindInternal,
 		message:   "update entry",
 		retryable: apierror.Unknown,
@@ -65,7 +65,7 @@ func newUpdateEntryError(cause error) error {
 }
 
 func newDecodeConfigError(cause error) error {
-	return &StructuredError{
+	return &Error{
 		kind:      apierror.KindInvalid,
 		message:   "decode config",
 		retryable: apierror.False,
@@ -74,7 +74,7 @@ func newDecodeConfigError(cause error) error {
 }
 
 func newAcquireResourceError(cause error) error {
-	return &StructuredError{
+	return &Error{
 		kind:      apierror.KindInternal,
 		message:   "acquire resource",
 		retryable: apierror.Unknown,
@@ -83,7 +83,7 @@ func newAcquireResourceError(cause error) error {
 }
 
 func newGetConfigError(cause error) error {
-	return &StructuredError{
+	return &Error{
 		kind:      apierror.KindInternal,
 		message:   "get config",
 		retryable: apierror.Unknown,
@@ -92,7 +92,7 @@ func newGetConfigError(cause error) error {
 }
 
 func newAWSConfigNotConfigError() error {
-	return &StructuredError{
+	return &Error{
 		kind:      apierror.KindInternal,
 		message:   "aws config not config",
 		retryable: apierror.False,

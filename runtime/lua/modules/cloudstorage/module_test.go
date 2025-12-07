@@ -88,9 +88,6 @@ func TestDownloadObjectYieldPool(t *testing.T) {
 	if y1.DownloadObjectCmd == nil {
 		t.Fatal("expected non-nil command")
 	}
-	if y1.buffer == nil {
-		t.Fatal("expected non-nil buffer")
-	}
 
 	ReleaseDownloadObjectYield(y1)
 

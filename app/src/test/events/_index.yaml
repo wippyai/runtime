@@ -80,62 +80,58 @@ entries:
     imports:
       assert2: app.lib:assert
 
-#  - name: receive
-#    kind: function.lua
-#    meta:
-#      type: test
-#      suite: events
-#      description: Events receive via channel
-#    source: file://receive.lua
-#    method: main
-#    modules:
-#      - events
-#      - channel
-#      - time
-#    imports:
-#      assert2: app.lib:assert
-#
-#  - name: receive_data
-#    kind: function.lua
-#    meta:
-#      type: test
-#      suite: events
-#      description: Events receive with data payload
-#    source: file://receive_data.lua
-#    method: main
-#    modules:
-#      - events
-#      - channel
-#      - time
-#    imports:
-#      assert2: app.lib:assert
-#
-#  - name: multiple_events
-#    kind: function.lua
-#    meta:
-#      type: test
-#      suite: events
-#      description: Receive multiple events
-#    source: file://multiple_events.lua
-#    method: main
-#    modules:
-#      - events
-#      - channel
-#      - time
-#    imports:
-#      assert2: app.lib:assert
-#
-#  - name: pattern_match
-#    kind: function.lua
-#    meta:
-#      type: test
-#      suite: events
-#      description: Pattern matching for subscriptions
-#    source: file://pattern_match.lua
-#    method: main
-#    modules:
-#      - events
-#      - channel
-#      - time
-#    imports:
-#      assert2: app.lib:assert
+  - name: receive
+    kind: function.lua
+    meta:
+      type: test
+      suite: events
+      description: Events receive via channel
+    source: file://receive.lua
+    method: main
+    modules:
+      - events
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: receive_data
+    kind: function.lua
+    meta:
+      type: test
+      suite: events
+      description: Events receive with data payload
+    source: file://receive_data.lua
+    method: main
+    modules:
+      - events
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: multiple_events
+    kind: function.lua
+    meta:
+      type: test
+      suite: events
+      description: Receive multiple events
+    source: file://multiple_events.lua
+    method: main
+    modules:
+      - events
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: pattern_match
+    kind: function.lua
+    meta:
+      type: test
+      suite: events
+      description: Pattern matching for subscriptions
+    source: file://pattern_match.lua
+    method: main
+    modules:
+      - events
+      - time
+    imports:
+      assert2: app.lib:assert

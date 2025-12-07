@@ -291,7 +291,7 @@ func TestIntegration_OpenBinding(t *testing.T) {
 		if err then
 			return nil, tostring(err)
 		end
-		return instance:id()
+		return contract.is(instance, "test:greeter")
 	`
 
 	frameCtx, _ := ctxapi.OpenFrameContext(tc.ctx)
@@ -301,8 +301,7 @@ func TestIntegration_OpenBinding(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, result.Error)
 	require.NotNil(t, result.Value)
-	// Result from Lua comes as lua.LString
-	assert.Equal(t, "test:default_greeter", string(result.Value.Data().(lua.LString)))
+	assert.Equal(t, lua.LTrue, result.Value.Data().(lua.LBool))
 }
 
 func TestIntegration_CallMethod(t *testing.T) {
@@ -565,8 +564,9 @@ func TestIntegration_InstanceImplements(t *testing.T) {
 		local instance, err = contract.open("test:multi_impl")
 		if err then return nil, tostring(err) end
 
-		local impls = instance:implements()
-		return #impls
+		local impl1 = contract.is(instance, "test:service_a")
+		local impl2 = contract.is(instance, "test:service_b")
+		return impl1 and impl2
 	`
 
 	frameCtx, _ := ctxapi.OpenFrameContext(tc.ctx)
@@ -576,8 +576,7 @@ func TestIntegration_InstanceImplements(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, result.Error)
 	require.NotNil(t, result.Value)
-	// Lua # operator returns a number
-	assert.Equal(t, lua.LNumber(2), result.Value.Data().(lua.LNumber))
+	assert.Equal(t, lua.LTrue, result.Value.Data().(lua.LBool))
 }
 
 func TestIntegration_IsContract(t *testing.T) {

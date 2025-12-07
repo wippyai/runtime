@@ -274,7 +274,7 @@ func TestAsyncCancelYield_HandleResult(t *testing.T) {
 	assert.Equal(t, lua.LNil, results[1])
 }
 
-func TestPoolConcurrency(t *testing.T) {
+func TestPoolConcurrency(_ *testing.T) {
 	const goroutines = 50
 	const iterations = 100
 

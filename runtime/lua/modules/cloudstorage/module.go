@@ -16,7 +16,7 @@ import (
 
 const storageTypeName = "cloudstorage.Storage"
 
-var Module = luaapi.ModuleDef{
+var Module = &luaapi.ModuleDef{
 	Name:        "cloudstorage",
 	Description: "Cloud storage operations (S3, GCS, etc.)",
 	Class:       []string{luaapi.ClassStorage, luaapi.ClassNetwork, luaapi.ClassIO},

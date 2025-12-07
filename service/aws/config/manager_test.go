@@ -139,6 +139,12 @@ func (m *MockEnvRegistry) Lookup(_ context.Context, name string) (string, bool, 
 	return "", false, nil
 }
 
+func (m *MockEnvRegistry) GetStorage(_ context.Context, _ registry.ID) (envapi.Storage, error) {
+	return nil, envapi.ErrStorageNotFound
+}
+
+func (m *MockEnvRegistry) RegisterStorage(_ registry.ID, _ envapi.Storage) {}
+
 // setupTestEnvironment creates a test environment with mocked dependencies
 func setupTestEnvironment(t *testing.T) (*Manager, event.Bus, context.Context) {
 	logger := zap.NewNop()
