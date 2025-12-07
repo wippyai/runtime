@@ -11,23 +11,23 @@ local function main()
 
     -- Send matching and non-matching events
     coroutine.spawn(function()
-        time.sleep(10)
+        time.sleep(10 * time.MILLISECOND)
         events.send("test.match", "kind", "/matched")
-        time.sleep(5)
+        time.sleep(5 * time.MILLISECOND)
         events.send("other.nomatch", "kind", "/notmatched")
-        time.sleep(5)
+        time.sleep(5 * time.MILLISECOND)
         events.send("test.also", "kind", "/alsomatched")
     end)
 
     -- Should receive only matching events
     local received = {}
     for i = 1, 2 do
-        local timer = time.after(500)
-        local result = channel.select({
-            {ch, "recv"},
-            {timer, "recv"}
-        })
-        if result.index == 1 then
+        local timer = time.after(500 * time.MILLISECOND)
+        local result = channel.select{
+            ch:case_receive(),
+            timer:case_receive()
+        }
+        if result.channel == ch then
             table.insert(received, result.value.path)
         end
     end

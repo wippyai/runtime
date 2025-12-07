@@ -8,6 +8,7 @@ import (
 	eventsapi "github.com/wippyai/runtime/api/dispatcher/events"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -79,6 +80,19 @@ func (y *EventSubscribeYield) HandleResult(l *lua.LState, data any, err error) [
 			return []lua.LValue{lua.LNil, lua.LString(err.Error())}
 		}
 		proc.SetTopicHandler(y.Topic, eventMessageHandler)
+	}
+
+	// Register cleanup to unsubscribe from dispatcher when frame is released
+	if sub, ok := data.(eventsapi.EventSubscription); ok && sub.Unsubscribe != nil {
+		ctx := l.Context()
+		if ctx != nil {
+			if store := resource.GetStore(ctx); store != nil {
+				store.AddCleanup(func() error {
+					sub.Unsubscribe()
+					return nil
+				})
+			}
+		}
 	}
 
 	return []lua.LValue{ud, lua.LNil}

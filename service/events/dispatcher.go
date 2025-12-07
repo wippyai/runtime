@@ -52,9 +52,9 @@ func NewDispatcher(bus event.Bus, node relay.Node) *Dispatcher {
 func (d *Dispatcher) Start(ctx context.Context) error {
 	d.ctx, d.cancel = context.WithCancel(ctx)
 
-	// Subscribe to all events (system "*")
+	// Subscribe to all events
 	var err error
-	d.subID, err = d.bus.Subscribe(d.ctx, "*", d.eventC)
+	d.subID, err = d.bus.Subscribe(d.ctx, "**", d.eventC)
 	if err != nil {
 		return err
 	}
@@ -143,10 +143,14 @@ func (d *Dispatcher) handleSubscribe(ctx context.Context, cmd dispatcher.Command
 	}
 	d.mu.Unlock()
 
+	topic := subCmd.Topic
 	receiver.CompleteYield(tag, eventsapi.EventSubscription{
 		System: subCmd.System,
 		Kind:   subCmd.Kind,
 		Topic:  subCmd.Topic,
+		Unsubscribe: func() {
+			d.Unsubscribe(topic)
+		},
 	}, nil)
 
 	return nil

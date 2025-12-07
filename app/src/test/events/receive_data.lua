@@ -9,7 +9,7 @@ local function main()
     assert.is_nil(err, "subscribe should succeed")
 
     coroutine.spawn(function()
-        time.sleep(10)
+        time.sleep(10 * time.MILLISECOND)
         events.send("test.data", "test.kind", "/test/path", {
             string_val = "hello",
             number_val = 42,
@@ -18,13 +18,13 @@ local function main()
         })
     end)
 
-    local timer = time.after(500)
-    local result = channel.select({
-        {ch, "recv"},
-        {timer, "recv"}
-    })
+    local timer = time.after(500 * time.MILLISECOND)
+    local result = channel.select{
+        ch:case_receive(),
+        timer:case_receive()
+    }
 
-    assert.eq(result.index, 1, "should receive event")
+    assert.eq(result.channel, ch, "should receive event")
 
     local evt = result.value
     assert.not_nil(evt.data, "event should have data")

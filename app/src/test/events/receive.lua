@@ -12,19 +12,19 @@ local function main()
 
     -- Spawn sender coroutine
     coroutine.spawn(function()
-        time.sleep(10)
+        time.sleep(10 * time.MILLISECOND)
         events.send("test.system", "test.kind", "/test/path", {key = "value"})
     end)
 
     -- Wait for event with timeout
-    local timer = time.after(500)
-    local result = channel.select({
-        {ch, "recv"},
-        {timer, "recv"}
-    })
+    local timer = time.after(500 * time.MILLISECOND)
+    local result = channel.select{
+        ch:case_receive(),
+        timer:case_receive()
+    }
 
     assert.not_nil(result, "should receive result")
-    assert.eq(result.index, 1, "should receive from events channel")
+    assert.eq(result.channel, ch, "should receive from events channel")
 
     local evt = result.value
     assert.not_nil(evt, "event should not be nil")

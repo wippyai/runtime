@@ -10,22 +10,22 @@ local function main()
 
     -- Send 3 events
     coroutine.spawn(function()
-        time.sleep(10)
+        time.sleep(10 * time.MILLISECOND)
         events.send("test.multi", "kind", "/path1")
-        time.sleep(5)
+        time.sleep(5 * time.MILLISECOND)
         events.send("test.multi", "kind", "/path2")
-        time.sleep(5)
+        time.sleep(5 * time.MILLISECOND)
         events.send("test.multi", "kind", "/path3")
     end)
 
     local received = {}
     for i = 1, 3 do
-        local timer = time.after(500)
-        local result = channel.select({
-            {ch, "recv"},
-            {timer, "recv"}
-        })
-        assert.eq(result.index, 1, "should receive event " .. i)
+        local timer = time.after(500 * time.MILLISECOND)
+        local result = channel.select{
+            ch:case_receive(),
+            timer:case_receive()
+        }
+        assert.eq(result.channel, ch, "should receive event " .. i)
         table.insert(received, result.value.path)
     end
 

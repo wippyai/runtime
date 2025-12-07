@@ -47,7 +47,8 @@ func (c EventsSendCmd) CmdID() dispatcher.CommandID {
 
 // EventSubscription represents an active event subscription.
 type EventSubscription struct {
-	System string // Subscribed system pattern
-	Kind   string // Subscribed kind pattern
-	Topic  string // Relay topic for messages
+	System      string // Subscribed system pattern
+	Kind        string // Subscribed kind pattern
+	Topic       string // Relay topic for messages
+	Unsubscribe func() // Cleanup function to unsubscribe
 }
