@@ -3,10 +3,12 @@ package contract
 import (
 	"github.com/google/uuid"
 	"github.com/wippyai/runtime/api/attrs"
+	contextapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/contract"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	secapi "github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -33,25 +35,27 @@ func init() {
 		"method":          contractMethod,
 		"implementations": contractImplementations,
 		"open":            contractOpen,
+		"with_context":    contractWithContext,
+		"with_actor":      contractWithActor,
+		"with_scope":      contractWithScope,
 	})
 
-	// Register instance type with dynamic method access
+	// Register instance type with dynamic method access via __index
+	// Built-in methods (id, implements) are handled in instanceIndex
 	value.RegisterTypeMethods(nil, instanceTypeName,
 		map[string]lua.LGoFunc{
 			"__index": instanceIndex,
 		},
-		map[string]lua.LGoFunc{
-			"id":         instanceID,
-			"implements": instanceImplements,
-		},
+		nil,
 	)
 
 	// Set cancel function for Future type
 	future.CancelFunc = futureCancelImpl
 
-	moduleTable = lua.CreateTable(0, 3)
+	moduleTable = lua.CreateTable(0, 4)
 	moduleTable.RawSetString("get", lua.LGoFunc(getContract))
 	moduleTable.RawSetString("open", lua.LGoFunc(openBinding))
+	moduleTable.RawSetString("find_implementations", lua.LGoFunc(findImplementations))
 	moduleTable.RawSetString("is", lua.LGoFunc(isContract))
 	moduleTable.Immutable = true
 
@@ -73,10 +77,15 @@ var Module = &luaapi.ModuleDef{
 	},
 }
 
-// ContractWrapper holds a contract definition for introspection.
+// ContractWrapper holds a contract definition with optional context for introspection.
 type ContractWrapper struct {
 	definition contract.Contract
 	registry   contract.Registry
+	values     contextapi.Values
+	actor      secapi.Actor
+	hasActor   bool
+	scope      secapi.Scope
+	hasScope   bool
 }
 
 // InstanceWrapper holds an opened contract instance.
@@ -179,6 +188,47 @@ func isContract(l *lua.LState) int {
 
 	l.Push(lua.LBool(false))
 	return 1
+}
+
+// findImplementations lists all binding IDs that implement a contract.
+func findImplementations(l *lua.LState) int {
+	contractID := l.CheckString(1)
+
+	if !security.IsAllowed(l.Context(), "contract.implementations", contractID, nil) {
+		luaErr := lua.NewLuaError(l, "not allowed to list implementations: "+contractID).
+			WithKind(lua.KindPermissionDenied).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return 2
+	}
+
+	reg := contract.GetRegistry(l.Context())
+	if reg == nil {
+		luaErr := lua.NewLuaError(l, "contract registry not found").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return 2
+	}
+
+	regID := registry.ParseID(contractID)
+	bindings, err := reg.GetBindingsForContract(l.Context(), regID)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.WrapErrorWithLua(l, err, "get implementations failed"))
+		return 2
+	}
+
+	result := l.CreateTable(len(bindings), 0)
+	for i, bindingID := range bindings {
+		result.RawSetInt(i+1, lua.LString(bindingID.String()))
+	}
+
+	l.Push(result)
+	l.Push(lua.LNil)
+	return 2
 }
 
 // Contract wrapper methods
@@ -300,36 +350,166 @@ func contractOpen(l *lua.LState) int {
 		})
 	}
 
+	// Merge wrapper context with explicit scope
+	mergedScope := scope
+	if wrapper.values != nil {
+		if mergedScope == nil {
+			mergedScope = attrs.NewBag()
+		}
+		wrapper.values.Iterate(func(key string, val any) {
+			if _, exists := mergedScope.Get(key); !exists {
+				mergedScope.Set(key, val)
+			}
+		})
+	}
+
 	yield := AcquireOpenYield()
 	yield.BindingID = registry.ParseID(bindingID)
-	yield.Scope = scope
+	yield.Scope = mergedScope
+	yield.Values = wrapper.values
+	yield.Actor = wrapper.actor
+	yield.HasActor = wrapper.hasActor
+	yield.SecurityScope = wrapper.scope
+	yield.HasScope = wrapper.hasScope
 
 	l.Push(yield)
 	return -1
 }
 
-// Instance wrapper methods
+func contractWithContext(l *lua.LState) int {
+	ud := l.CheckUserData(1)
+	wrapper, ok := ud.Value.(*ContractWrapper)
+	if !ok {
+		l.ArgError(1, "Contract expected")
+		return 0
+	}
 
-func instanceID(l *lua.LState) int {
-	wrapper := l.CheckUserData(1).Value.(*InstanceWrapper)
-	l.Push(lua.LString(wrapper.instance.ID().String()))
+	if !security.IsAllowed(l.Context(), "contract.context", "context", nil) {
+		luaErr := lua.NewLuaError(l, "not allowed to use contracts with custom context").
+			WithKind(lua.KindPermissionDenied).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return 2
+	}
+
+	ctxTable := l.CheckTable(2)
+
+	newValues := contextapi.NewValues()
+	if wrapper.values != nil {
+		wrapper.values.Iterate(func(key string, val any) {
+			newValues.Set(key, val)
+		})
+	}
+
+	ctxTable.ForEach(func(k, v lua.LValue) {
+		if key, ok := k.(lua.LString); ok {
+			newValues.Set(string(key), value.ToGoAny(v))
+		}
+	})
+
+	newWrapper := &ContractWrapper{
+		definition: wrapper.definition,
+		registry:   wrapper.registry,
+		values:     newValues,
+		actor:      wrapper.actor,
+		hasActor:   wrapper.hasActor,
+		scope:      wrapper.scope,
+		hasScope:   wrapper.hasScope,
+	}
+
+	value.PushTypedUserData(l, newWrapper, contractTypeName)
 	return 1
 }
 
-func instanceImplements(l *lua.LState) int {
-	wrapper := l.CheckUserData(1).Value.(*InstanceWrapper)
-	contracts := wrapper.instance.Implements()
-	result := l.CreateTable(len(contracts), 0)
-
-	for i, c := range contracts {
-		result.RawSetInt(i+1, lua.LString(c.ID().String()))
+func contractWithActor(l *lua.LState) int {
+	ud := l.CheckUserData(1)
+	wrapper, ok := ud.Value.(*ContractWrapper)
+	if !ok {
+		l.ArgError(1, "Contract expected")
+		return 0
 	}
 
-	l.Push(result)
+	if !security.IsAllowed(l.Context(), "contract.security", "security", nil) {
+		luaErr := lua.NewLuaError(l, "not allowed to use contracts with custom security context").
+			WithKind(lua.KindPermissionDenied).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return 2
+	}
+
+	if l.Get(2).Type() == lua.LTNil {
+		l.ArgError(2, "actor cannot be nil")
+		return 0
+	}
+
+	actorUD := l.CheckUserData(2)
+	actor, ok := actorUD.Value.(secapi.Actor)
+	if !ok {
+		l.ArgError(2, "Actor expected")
+		return 0
+	}
+
+	newWrapper := &ContractWrapper{
+		definition: wrapper.definition,
+		registry:   wrapper.registry,
+		values:     wrapper.values,
+		actor:      actor,
+		hasActor:   true,
+		scope:      wrapper.scope,
+		hasScope:   wrapper.hasScope,
+	}
+
+	value.PushTypedUserData(l, newWrapper, contractTypeName)
+	return 1
+}
+
+func contractWithScope(l *lua.LState) int {
+	ud := l.CheckUserData(1)
+	wrapper, ok := ud.Value.(*ContractWrapper)
+	if !ok {
+		l.ArgError(1, "Contract expected")
+		return 0
+	}
+
+	if !security.IsAllowed(l.Context(), "contract.security", "security", nil) {
+		luaErr := lua.NewLuaError(l, "not allowed to use contracts with custom security context").
+			WithKind(lua.KindPermissionDenied).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return 2
+	}
+
+	if l.Get(2).Type() == lua.LTNil {
+		l.ArgError(2, "scope cannot be nil")
+		return 0
+	}
+
+	scopeUD := l.CheckUserData(2)
+	scope, ok := scopeUD.Value.(secapi.Scope)
+	if !ok {
+		l.ArgError(2, "Scope expected")
+		return 0
+	}
+
+	newWrapper := &ContractWrapper{
+		definition: wrapper.definition,
+		registry:   wrapper.registry,
+		values:     wrapper.values,
+		actor:      wrapper.actor,
+		hasActor:   wrapper.hasActor,
+		scope:      scope,
+		hasScope:   true,
+	}
+
+	value.PushTypedUserData(l, newWrapper, contractTypeName)
 	return 1
 }
 
 // instanceIndex provides dynamic method access via __index metamethod.
+// Enables syntax: instance:method_name() and instance:method_name_async()
 func instanceIndex(l *lua.LState) int {
 	wrapper := l.CheckUserData(1).Value.(*InstanceWrapper)
 	key := l.CheckString(2)
@@ -342,7 +522,7 @@ func instanceIndex(l *lua.LState) int {
 		methodName = key[:len(key)-6]
 	}
 
-	// Verify method exists
+	// Verify method exists in implemented contracts
 	found := false
 	for _, c := range wrapper.instance.Implements() {
 		if _, err := c.Method(methodName); err == nil {

@@ -4,9 +4,11 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/attrs"
+	contextapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
+	secapi "github.com/wippyai/runtime/api/security"
 )
 
 func init() {
@@ -25,8 +27,13 @@ const (
 
 // OpenCmd opens a contract binding and returns an instance.
 type OpenCmd struct {
-	BindingID registry.ID
-	Scope     attrs.Bag // Context values for the instance
+	BindingID     registry.ID
+	Scope         attrs.Bag         // Context values for the instance
+	Values        contextapi.Values // Chained context values
+	Actor         secapi.Actor      // Security actor
+	HasActor      bool              // Whether actor is set
+	SecurityScope secapi.Scope      // Security scope
+	HasScope      bool              // Whether scope is set
 }
 
 var openCmdPool = sync.Pool{New: func() any { return &OpenCmd{} }}
@@ -36,6 +43,11 @@ func (c *OpenCmd) CmdID() dispatcher.CommandID { return Open }
 func (c *OpenCmd) Release() {
 	c.BindingID = registry.ID{}
 	c.Scope = nil
+	c.Values = nil
+	c.Actor = secapi.Actor{}
+	c.HasActor = false
+	c.SecurityScope = nil
+	c.HasScope = false
 	openCmdPool.Put(c)
 }
 

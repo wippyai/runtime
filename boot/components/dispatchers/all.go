@@ -6,6 +6,8 @@ import "github.com/wippyai/runtime/api/boot"
 func All() []boot.Component {
 	return []boot.Component{
 		Clock(),
+		CloudStorage(),
+		Contract(),
 		Func(),
 		Security(),
 		HTTP(),
@@ -13,5 +15,6 @@ func All() []boot.Component {
 		Exec(),
 		Stream(),
 		SQL(),
+		Events(),
 	}
 }

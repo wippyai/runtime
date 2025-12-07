@@ -75,7 +75,7 @@ func listObjectsResultToLua(l *lua.LState, result *cloudstorage.ListObjectsResul
 // DownloadObjectYield wraps DownloadObjectCmd for Lua.
 type DownloadObjectYield struct {
 	*csapi.DownloadObjectCmd
-	buffer *bytes.Buffer
+	Writer io.Writer
 }
 
 var downloadObjectYieldPool = sync.Pool{New: func() any { return &DownloadObjectYield{} }}
@@ -83,8 +83,6 @@ var downloadObjectYieldPool = sync.Pool{New: func() any { return &DownloadObject
 func AcquireDownloadObjectYield() *DownloadObjectYield {
 	y := downloadObjectYieldPool.Get().(*DownloadObjectYield)
 	y.DownloadObjectCmd = csapi.AcquireDownloadObjectCmd()
-	y.buffer = &bytes.Buffer{}
-	y.DownloadObjectCmd.Writer = y.buffer
 	return y
 }
 
@@ -93,15 +91,18 @@ func ReleaseDownloadObjectYield(y *DownloadObjectYield) {
 		y.DownloadObjectCmd.Release()
 		y.DownloadObjectCmd = nil
 	}
-	y.buffer = nil
+	y.Writer = nil
 	downloadObjectYieldPool.Put(y)
 }
 
-func (y *DownloadObjectYield) String() string                { return "<cloudstorage_download_object_yield>" }
-func (y *DownloadObjectYield) Type() lua.LValueType          { return lua.LTUserData }
-func (y *DownloadObjectYield) CmdID() dispatcher.CommandID   { return csapi.CmdDownloadObject }
-func (y *DownloadObjectYield) ToCommand() dispatcher.Command { return y.DownloadObjectCmd }
-func (y *DownloadObjectYield) Release()                      { ReleaseDownloadObjectYield(y) }
+func (y *DownloadObjectYield) String() string              { return "<cloudstorage_download_object_yield>" }
+func (y *DownloadObjectYield) Type() lua.LValueType        { return lua.LTUserData }
+func (y *DownloadObjectYield) CmdID() dispatcher.CommandID { return csapi.CmdDownloadObject }
+func (y *DownloadObjectYield) ToCommand() dispatcher.Command {
+	y.DownloadObjectCmd.Writer = y.Writer
+	return y.DownloadObjectCmd
+}
+func (y *DownloadObjectYield) Release() { ReleaseDownloadObjectYield(y) }
 
 func (y *DownloadObjectYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
@@ -114,7 +115,7 @@ func (y *DownloadObjectYield) HandleResult(l *lua.LState, data any, err error) [
 	if resp.Error != nil {
 		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "download_object")}
 	}
-	return []lua.LValue{lua.LString(y.buffer.String()), lua.LNil}
+	return []lua.LValue{lua.LTrue}
 }
 
 // UploadObjectYield wraps UploadObjectCmd for Lua.

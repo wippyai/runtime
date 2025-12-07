@@ -2,6 +2,7 @@ package cloudstorage
 
 import (
 	"context"
+	"io"
 
 	"github.com/wippyai/runtime/api/cloudstorage"
 	csapi "github.com/wippyai/runtime/api/dispatcher/cloudstorage"
@@ -216,12 +217,23 @@ func storageDownloadObject(l *lua.LState) int {
 		return 2
 	}
 
+	// V1 compatible: 3rd arg is writer (io.Writer userdata)
+	ud := l.CheckUserData(3)
+	writer, ok := ud.Value.(io.Writer)
+	if !ok {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "third argument must implement io.Writer").WithKind(lua.KindInvalid).WithRetryable(false))
+		return 2
+	}
+
 	yield := AcquireDownloadObjectYield()
 	yield.Storage = wrapper.storage
 	yield.Key = key
+	yield.Writer = writer
 
-	if l.Get(3) != lua.LNil {
-		optsTable := l.CheckTable(3)
+	// V1 compatible: 4th arg is options
+	if l.Get(4) != lua.LNil {
+		optsTable := l.CheckTable(4)
 		yield.Options = &cloudstorage.DownloadOptions{}
 
 		if rang := optsTable.RawGetString("range"); rang != lua.LNil {

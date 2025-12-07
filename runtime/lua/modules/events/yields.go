@@ -68,20 +68,20 @@ func (y *EventSubscribeYield) HandleResult(l *lua.LState, data any, err error) [
 		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
 	}
 
+	// Create channel userdata (PushChannel also sets ch.Value internally)
+	ud := engine.PushChannel(l, y.Channel)
+	l.Pop(1) // Remove from stack since we return via slice
+
+	// Try to subscribe channel to topic if we're in a process context
 	proc := engine.GetProcess(l)
-	if proc == nil {
-		return []lua.LValue{lua.LNil, lua.LString("no process context")}
+	if proc != nil {
+		if err := proc.Subscribe(y.Topic, y.Channel); err != nil {
+			return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+		}
+		proc.SetTopicHandler(y.Topic, eventMessageHandler)
 	}
 
-	// Subscribe channel to the topic
-	if err := proc.Subscribe(y.Topic, y.Channel); err != nil {
-		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
-	}
-
-	// Set topic handler to convert event payloads to Lua tables
-	proc.SetTopicHandler(y.Topic, eventMessageHandler)
-
-	return []lua.LValue{y.Channel.Value()}
+	return []lua.LValue{ud, lua.LNil}
 }
 
 // eventMessageHandler converts event payloads to Lua tables.
@@ -192,3 +192,11 @@ func (y *EventSendYield) ToCommand() dispatcher.Command {
 }
 
 func (y *EventSendYield) Release() { ReleaseEventSendYield(y) }
+
+// HandleResult returns success after the event is sent.
+func (y *EventSendYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+	}
+	return []lua.LValue{lua.LTrue, lua.LNil}
+}
