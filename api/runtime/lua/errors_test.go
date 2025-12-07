@@ -115,7 +115,7 @@ func TestComponentErrorFactories(t *testing.T) {
 		if err.Kind() != apierror.KindInvalid {
 			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInvalid)
 		}
-		expected := "failed to unpack function config"
+		expected := "failed to unpack function config: json parse error"
 		if err.Error() != expected {
 			t.Errorf("Error() = %q, want %q", err.Error(), expected)
 		}
@@ -158,7 +158,7 @@ func TestComponentErrorFactories(t *testing.T) {
 		if err.Kind() != apierror.KindInternal {
 			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
 		}
-		expected := "failed to add function node"
+		expected := "failed to add function node: duplicate key"
 		if err.Error() != expected {
 			t.Errorf("Error() = %q, want %q", err.Error(), expected)
 		}
@@ -277,7 +277,7 @@ func TestBytecodeErrorFactories(t *testing.T) {
 		if err.Kind() != apierror.KindNotFound {
 			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindNotFound)
 		}
-		expected := "failed to open file: /path/to/file.lua"
+		expected := "failed to open file: /path/to/file.lua: permission denied"
 		if err.Error() != expected {
 			t.Errorf("Error() = %q, want %q", err.Error(), expected)
 		}

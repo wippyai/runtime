@@ -4,6 +4,7 @@ package eval
 import (
 	"sync"
 
+	"github.com/wippyai/runtime/api/payload"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/evalhost"
@@ -121,10 +122,10 @@ func runFunc(l *lua.LState) int {
 		})
 	}
 
-	var args []any
+	var args payload.Payloads
 	if v := config.RawGetString("args"); v.Type() == lua.LTTable {
 		v.(*lua.LTable).ForEach(func(_, av lua.LValue) {
-			args = append(args, value.ToGoAny(av))
+			args = append(args, payload.NewPayload(av, payload.Lua))
 		})
 	}
 

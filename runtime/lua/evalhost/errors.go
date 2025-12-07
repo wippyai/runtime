@@ -85,3 +85,12 @@ func NewForbiddenClassError(module, class string) *Error {
 		retryable: apierror.False,
 	}
 }
+
+func NewRunError(cause error) *Error {
+	return &Error{
+		kind:      apierror.KindInternal,
+		message:   "run failed",
+		retryable: apierror.False,
+		cause:     cause,
+	}
+}

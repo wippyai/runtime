@@ -41,24 +41,20 @@ func anyToLua(l *lua.LState, v any) lua.LValue {
 	}
 }
 
+// queryResultToLua converts query response to v1 format: array of row tables with column names as keys.
+// Usage: rows[1].column_name
 func queryResultToLua(l *lua.LState, resp sqlapi.QueryResponse) lua.LValue {
-	tbl := l.CreateTable(0, 2)
-	cols := l.CreateTable(len(resp.Columns), 0)
-	for i, c := range resp.Columns {
-		cols.RawSetInt(i+1, lua.LString(c))
-	}
-	tbl.RawSetString("columns", cols)
-
 	rows := l.CreateTable(len(resp.Rows), 0)
 	for i, row := range resp.Rows {
-		rowTbl := l.CreateTable(len(row), 0)
+		rowTbl := l.CreateTable(0, len(resp.Columns))
 		for j, val := range row {
-			rowTbl.RawSetInt(j+1, anyToLua(l, val))
+			if j < len(resp.Columns) {
+				rowTbl.RawSetString(resp.Columns[j], anyToLua(l, val))
+			}
 		}
 		rows.RawSetInt(i+1, rowTbl)
 	}
-	tbl.RawSetString("rows", rows)
-	return tbl
+	return rows
 }
 
 func executeResultToLua(l *lua.LState, resp sqlapi.ExecuteResponse) lua.LValue {
@@ -446,6 +442,47 @@ func (y *TxExecuteYield) HandleResult(l *lua.LState, data any, err error) []lua.
 		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "tx execute")}
 	}
 	return []lua.LValue{executeResultToLua(l, resp), lua.LNil}
+}
+
+// TxSavepointYield wraps TxExecuteCmd for savepoint operations, returns true on success (v1 compatible).
+type TxSavepointYield struct {
+	*sqlapi.TxExecuteCmd
+}
+
+var txSavepointYieldPool = sync.Pool{New: func() any { return &TxSavepointYield{} }}
+
+func AcquireTxSavepointYield() *TxSavepointYield {
+	y := txSavepointYieldPool.Get().(*TxSavepointYield)
+	y.TxExecuteCmd = sqlapi.AcquireTxExecuteCmd()
+	return y
+}
+
+func ReleaseTxSavepointYield(y *TxSavepointYield) {
+	if y.TxExecuteCmd != nil {
+		y.TxExecuteCmd.Release()
+		y.TxExecuteCmd = nil
+	}
+	txSavepointYieldPool.Put(y)
+}
+
+func (y *TxSavepointYield) String() string                { return "<sql_tx_savepoint_yield>" }
+func (y *TxSavepointYield) Type() lua.LValueType          { return lua.LTUserData }
+func (y *TxSavepointYield) CmdID() dispatcher.CommandID   { return sqlapi.CmdTxExecute }
+func (y *TxSavepointYield) ToCommand() dispatcher.Command { return y.TxExecuteCmd }
+func (y *TxSavepointYield) Release()                      { ReleaseTxSavepointYield(y) }
+
+func (y *TxSavepointYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "savepoint")}
+	}
+	resp, ok := data.(sqlapi.ExecuteResponse)
+	if !ok {
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.KindInternal)}
+	}
+	if resp.Error != nil {
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "savepoint")}
+	}
+	return []lua.LValue{lua.LTrue, lua.LNil}
 }
 
 // TxPrepareYield wraps TxPrepareCmd for Lua.

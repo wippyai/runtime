@@ -10,6 +10,7 @@ import (
 	clockapi "github.com/wippyai/runtime/api/clock"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine"
@@ -227,7 +228,7 @@ func TestEvalModule_RunYield(t *testing.T) {
 	yield := AcquireRunYield()
 	yield.Source = "return x + 1"
 	yield.Method = "handle"
-	yield.Args = []any{42}
+	yield.Args = payload.Payloads{payload.NewPayload(42, payload.JSON)}
 	yield.Modules = []string{"json"}
 	yield.Context = map[string]any{"key": "value"}
 
@@ -240,7 +241,7 @@ func TestEvalModule_RunYield(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "return x + 1", runCmd.Source)
 	assert.Equal(t, "handle", runCmd.Method)
-	assert.Equal(t, []any{42}, runCmd.Args)
+	assert.Len(t, runCmd.Args, 1)
 	assert.Equal(t, []string{"json"}, runCmd.Modules)
 	assert.Equal(t, map[string]any{"key": "value"}, runCmd.Context)
 
@@ -1039,7 +1040,11 @@ func BenchmarkYieldPooling(b *testing.B) {
 			y := AcquireRunYield()
 			y.Source = "return 42"
 			y.Method = "handle"
-			y.Args = []any{1, 2, 3}
+			y.Args = payload.Payloads{
+				payload.NewPayload(1, payload.JSON),
+				payload.NewPayload(2, payload.JSON),
+				payload.NewPayload(3, payload.JSON),
+			}
 			ReleaseRunYield(y)
 		}
 	})

@@ -18,6 +18,8 @@ type Process struct {
 	closed        bool
 	mu            sync.Mutex
 	cancelCleanup func()
+	stdoutID      uint64
+	stderrID      uint64
 }
 
 func NewProcess(ctx context.Context, handle apiexec.Process) *Process {
@@ -214,7 +216,14 @@ func procStdout(l *lua.LState) int {
 		return 2
 	}
 	handle := p.handle
+	cachedID := p.stdoutID
 	p.mu.Unlock()
+
+	if cachedID != 0 {
+		l.Push(stream.NewStream(l, cachedID))
+		l.Push(lua.LNil)
+		return 2
+	}
 
 	reader := handle.Stdout()
 	if reader == nil {
@@ -231,6 +240,11 @@ func procStdout(l *lua.LState) int {
 	}
 
 	streamID := fsstream.Insert(table, reader)
+
+	p.mu.Lock()
+	p.stdoutID = streamID
+	p.mu.Unlock()
+
 	l.Push(stream.NewStream(l, streamID))
 	l.Push(lua.LNil)
 	return 2
@@ -251,7 +265,14 @@ func procStderr(l *lua.LState) int {
 		return 2
 	}
 	handle := p.handle
+	cachedID := p.stderrID
 	p.mu.Unlock()
+
+	if cachedID != 0 {
+		l.Push(stream.NewStream(l, cachedID))
+		l.Push(lua.LNil)
+		return 2
+	}
 
 	reader := handle.Stderr()
 	if reader == nil {
@@ -268,6 +289,11 @@ func procStderr(l *lua.LState) int {
 	}
 
 	streamID := fsstream.Insert(table, reader)
+
+	p.mu.Lock()
+	p.stderrID = streamID
+	p.mu.Unlock()
+
 	l.Push(stream.NewStream(l, streamID))
 	l.Push(lua.LNil)
 	return 2

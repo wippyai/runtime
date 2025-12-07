@@ -1,0 +1,374 @@
+package cloudstorage
+
+import (
+	"context"
+
+	"github.com/wippyai/runtime/api/cloudstorage"
+	csapi "github.com/wippyai/runtime/api/dispatcher/cloudstorage"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	rtresource "github.com/wippyai/runtime/api/runtime/resource"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	lua "github.com/yuin/gopher-lua"
+)
+
+const storageTypeName = "cloudstorage.Storage"
+
+var Module = luaapi.ModuleDef{
+	Name:        "cloudstorage",
+	Description: "Cloud storage operations (S3, GCS, etc.)",
+	Class:       []string{luaapi.ClassStorage, luaapi.ClassNetwork, luaapi.ClassIO},
+	Build: func() (*lua.LTable, []luaapi.YieldType) {
+		mod := &lua.LTable{}
+		mod.RawSetString("get", lua.LGoFunc(apiGet))
+		mod.Immutable = true
+
+		value.RegisterTypeMethods(nil, storageTypeName, storageMetamethods, storageMethods)
+
+		return mod, []luaapi.YieldType{
+			{Sample: &ListObjectsYield{}, CmdID: csapi.CmdListObjects},
+			{Sample: &DownloadObjectYield{}, CmdID: csapi.CmdDownloadObject},
+			{Sample: &UploadObjectYield{}, CmdID: csapi.CmdUploadObject},
+			{Sample: &DeleteObjectsYield{}, CmdID: csapi.CmdDeleteObjects},
+			{Sample: &PresignedGetURLYield{}, CmdID: csapi.CmdPresignedGetURL},
+			{Sample: &PresignedPutURLYield{}, CmdID: csapi.CmdPresignedPutURL},
+		}
+	},
+}
+
+// storageWrapper wraps a cloud storage instance with resource tracking.
+type storageWrapper struct {
+	storage   cloudstorage.Storage
+	resource  resource.Resource[any]
+	onRelease context.CancelFunc
+	released  bool
+}
+
+var storageMethods = map[string]lua.LGoFunc{
+	"list_objects":      storageListObjects,
+	"download_object":   storageDownloadObject,
+	"upload_object":     storageUploadObject,
+	"delete_objects":    storageDeleteObjects,
+	"presigned_get_url": storagePresignedGetURL,
+	"presigned_put_url": storagePresignedPutURL,
+	"release":           storageRelease,
+}
+
+var storageMetamethods = map[string]lua.LGoFunc{
+	"__tostring": storageToString,
+}
+
+func checkStorage(l *lua.LState, n int) *storageWrapper {
+	ud := l.CheckUserData(n)
+	if wrapper, ok := ud.Value.(*storageWrapper); ok {
+		return wrapper
+	}
+	l.ArgError(n, "cloudstorage.Storage expected")
+	return nil
+}
+
+func apiGet(l *lua.LState) int {
+	id := l.CheckString(1)
+	if id == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "resource ID is required").WithKind(lua.KindInvalid).WithRetryable(false))
+		return 2
+	}
+
+	ctx := l.Context()
+	store := rtresource.GetStore(ctx)
+	if store == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "resource store not found").WithKind(lua.KindInternal).WithRetryable(false))
+		return 2
+	}
+
+	reg := resource.GetRegistry(ctx)
+	if reg == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "resource registry not found").WithKind(lua.KindInternal).WithRetryable(false))
+		return 2
+	}
+
+	resID := registry.ParseID(id)
+
+	res, err := reg.Acquire(ctx, resID, resource.ModeNormal)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, err.Error()).WithKind(lua.KindNotFound).WithRetryable(false))
+		return 2
+	}
+
+	onRelease := store.AddCleanup(func() error {
+		res.Release()
+		return nil
+	})
+
+	storageRes, err := res.Get()
+	if err != nil {
+		res.Release()
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, err.Error()).WithKind(lua.KindInternal).WithRetryable(false))
+		return 2
+	}
+
+	csRes, ok := storageRes.(cloudstorage.Storage)
+	if !ok {
+		res.Release()
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "resource is not a cloud storage provider").WithKind(lua.KindInvalid).WithRetryable(false))
+		return 2
+	}
+
+	wrapper := &storageWrapper{
+		storage:   csRes,
+		resource:  res,
+		onRelease: onRelease,
+	}
+
+	value.PushTypedUserData(l, wrapper, storageTypeName)
+	l.Push(lua.LNil)
+	return 2
+}
+
+func storageToString(l *lua.LState) int {
+	l.Push(lua.LString("cloudstorage.Storage"))
+	return 1
+}
+
+func storageRelease(l *lua.LState) int {
+	wrapper := checkStorage(l, 1)
+	if wrapper == nil {
+		return 0
+	}
+
+	if wrapper.released {
+		l.Push(lua.LTrue)
+		return 1
+	}
+
+	if wrapper.resource != nil {
+		wrapper.resource.Release()
+		wrapper.resource = nil
+	}
+
+	if wrapper.onRelease != nil {
+		wrapper.onRelease()
+		wrapper.onRelease = nil
+	}
+
+	wrapper.released = true
+	l.Push(lua.LTrue)
+	return 1
+}
+
+func storageListObjects(l *lua.LState) int {
+	wrapper := checkStorage(l, 1)
+	if wrapper == nil {
+		return 0
+	}
+
+	if wrapper.released {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "storage has been released").WithKind(lua.KindInvalid).WithRetryable(false))
+		return 2
+	}
+
+	yield := AcquireListObjectsYield()
+	yield.Storage = wrapper.storage
+
+	if l.Get(2) != lua.LNil {
+		optsTable := l.CheckTable(2)
+		yield.Options = &cloudstorage.ListObjectsOptions{}
+
+		if prefix := optsTable.RawGetString("prefix"); prefix != lua.LNil {
+			yield.Options.Prefix = prefix.String()
+		}
+		if maxKeys := optsTable.RawGetString("max_keys"); maxKeys != lua.LNil {
+			yield.Options.MaxKeys = int(lua.LVAsNumber(maxKeys))
+		}
+		if token := optsTable.RawGetString("continuation_token"); token != lua.LNil {
+			yield.Options.ContinuationToken = token.String()
+		}
+	}
+
+	l.Push(yield)
+	return -1
+}
+
+func storageDownloadObject(l *lua.LState) int {
+	wrapper := checkStorage(l, 1)
+	if wrapper == nil {
+		return 0
+	}
+
+	if wrapper.released {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "storage has been released").WithKind(lua.KindInvalid).WithRetryable(false))
+		return 2
+	}
+
+	key := l.CheckString(2)
+	if key == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "key is required").WithKind(lua.KindInvalid).WithRetryable(false))
+		return 2
+	}
+
+	yield := AcquireDownloadObjectYield()
+	yield.Storage = wrapper.storage
+	yield.Key = key
+
+	if l.Get(3) != lua.LNil {
+		optsTable := l.CheckTable(3)
+		yield.Options = &cloudstorage.DownloadOptions{}
+
+		if rang := optsTable.RawGetString("range"); rang != lua.LNil {
+			yield.Options.Range = rang.String()
+		}
+	}
+
+	l.Push(yield)
+	return -1
+}
+
+func storageUploadObject(l *lua.LState) int {
+	wrapper := checkStorage(l, 1)
+	if wrapper == nil {
+		return 0
+	}
+
+	if wrapper.released {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "storage has been released").WithKind(lua.KindInvalid).WithRetryable(false))
+		return 2
+	}
+
+	key := l.CheckString(2)
+	if key == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "key is required").WithKind(lua.KindInvalid).WithRetryable(false))
+		return 2
+	}
+
+	content := l.Get(3)
+	if content == lua.LNil {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "content is required").WithKind(lua.KindInvalid).WithRetryable(false))
+		return 2
+	}
+
+	yield := AcquireUploadObjectYield()
+	yield.Storage = wrapper.storage
+	yield.Key = key
+	yield.Content = content
+
+	l.Push(yield)
+	return -1
+}
+
+func storageDeleteObjects(l *lua.LState) int {
+	wrapper := checkStorage(l, 1)
+	if wrapper == nil {
+		return 0
+	}
+
+	if wrapper.released {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "storage has been released").WithKind(lua.KindInvalid).WithRetryable(false))
+		return 2
+	}
+
+	keysTable := l.CheckTable(2)
+	keys := make([]string, keysTable.Len())
+	keysTable.ForEach(func(idx, value lua.LValue) {
+		if idx.Type() == lua.LTNumber {
+			i := int(lua.LVAsNumber(idx)) - 1
+			if i >= 0 && i < len(keys) {
+				keys[i] = value.String()
+			}
+		}
+	})
+
+	yield := AcquireDeleteObjectsYield()
+	yield.Storage = wrapper.storage
+	yield.Keys = keys
+
+	l.Push(yield)
+	return -1
+}
+
+func storagePresignedGetURL(l *lua.LState) int {
+	wrapper := checkStorage(l, 1)
+	if wrapper == nil {
+		return 0
+	}
+
+	if wrapper.released {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "storage has been released").WithKind(lua.KindInvalid).WithRetryable(false))
+		return 2
+	}
+
+	key := l.CheckString(2)
+	if key == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "key is required").WithKind(lua.KindInvalid).WithRetryable(false))
+		return 2
+	}
+
+	yield := AcquirePresignedGetURLYield()
+	yield.Storage = wrapper.storage
+	yield.Key = key
+
+	if l.Get(3) != lua.LNil {
+		optsTable := l.CheckTable(3)
+		if exp := optsTable.RawGetString("expiration"); exp != lua.LNil {
+			yield.Expiration = int64(lua.LVAsNumber(exp))
+		}
+	}
+
+	l.Push(yield)
+	return -1
+}
+
+func storagePresignedPutURL(l *lua.LState) int {
+	wrapper := checkStorage(l, 1)
+	if wrapper == nil {
+		return 0
+	}
+
+	if wrapper.released {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "storage has been released").WithKind(lua.KindInvalid).WithRetryable(false))
+		return 2
+	}
+
+	key := l.CheckString(2)
+	if key == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "key is required").WithKind(lua.KindInvalid).WithRetryable(false))
+		return 2
+	}
+
+	yield := AcquirePresignedPutURLYield()
+	yield.Storage = wrapper.storage
+	yield.Key = key
+
+	if l.Get(3) != lua.LNil {
+		optsTable := l.CheckTable(3)
+		if exp := optsTable.RawGetString("expiration"); exp != lua.LNil {
+			yield.Expiration = int64(lua.LVAsNumber(exp))
+		}
+		if ct := optsTable.RawGetString("content_type"); ct != lua.LNil {
+			yield.ContentType = ct.String()
+		}
+		if cl := optsTable.RawGetString("content_length"); cl != lua.LNil {
+			yield.ContentLength = int64(lua.LVAsNumber(cl))
+		}
+	}
+
+	l.Push(yield)
+	return -1
+}

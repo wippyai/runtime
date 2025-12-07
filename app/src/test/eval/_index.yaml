@@ -1,0 +1,32 @@
+version: "1.0"
+namespace: app.test.eval
+
+entries:
+  - name: runner_compile
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval
+      description: eval_runner compile function
+    source: file://runner_compile.lua
+    method: main
+    modules:
+      - eval_runner
+      - json
+    imports:
+      assert: app.lib:assert
+
+  - name: runner_run
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval
+      description: eval_runner run function
+    source: file://runner_run.lua
+    method: main
+    modules:
+      - eval_runner
+      - json
+    imports:
+      assert: app.lib:assert
+

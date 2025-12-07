@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/evalhost"
 	lua "github.com/yuin/gopher-lua"
@@ -73,7 +74,7 @@ func (y *CompileYield) HandleResult(l *lua.LState, data any, err error) []lua.LV
 type RunYield struct {
 	Source  string
 	Method  string
-	Args    []any
+	Args    payload.Payloads
 	Modules []string
 	Context map[string]any
 }

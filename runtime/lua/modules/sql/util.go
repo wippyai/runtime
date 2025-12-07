@@ -33,6 +33,10 @@ func checkParams(l *lua.LState, index int) ([]any, error) {
 					result[i-1] = nil
 					continue
 				}
+				if typed, ok := ud.Value.(*TypedValue); ok {
+					result[i-1] = typed.Value
+					continue
+				}
 			}
 		}
 

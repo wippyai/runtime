@@ -31,9 +31,9 @@ local function main()
     assert.eq(ok1, true, "commit should return true")
 
     -- Verify data persisted
-    local result1, _ = db:query("SELECT name FROM tx_test")
-    assert.eq(#result1.rows, 1, "should have 1 row after commit")
-    assert.eq(result1.rows[1][1], "committed", "should have committed data")
+    local rows1, _ = db:query("SELECT name FROM tx_test")
+    assert.eq(#rows1, 1, "should have 1 row after commit")
+    assert.eq(rows1[1].name, "committed", "should have committed data")
 
     -- Test rollback
     local tx2, err4 = db:begin()
@@ -42,8 +42,8 @@ local function main()
     tx2:execute("INSERT INTO tx_test (name) VALUES (?)", {"rolled_back"})
 
     -- Verify data visible in transaction
-    local result2, _ = tx2:query("SELECT COUNT(*) FROM tx_test")
-    assert.eq(result2.rows[1][1], 2, "should see 2 rows in transaction")
+    local rows2, _ = tx2:query("SELECT COUNT(*) as cnt FROM tx_test")
+    assert.eq(rows2[1].cnt, 2, "should see 2 rows in transaction")
 
     -- Rollback
     local ok2, err5 = tx2:rollback()
@@ -51,8 +51,8 @@ local function main()
     assert.eq(ok2, true, "rollback should return true")
 
     -- Verify data not persisted
-    local result3, _ = db:query("SELECT COUNT(*) FROM tx_test")
-    assert.eq(result3.rows[1][1], 1, "should still have 1 row after rollback")
+    local rows3, _ = db:query("SELECT COUNT(*) as cnt FROM tx_test")
+    assert.eq(rows3[1].cnt, 1, "should still have 1 row after rollback")
 
     -- Test transaction with isolation level
     local tx3, err6 = db:begin({isolation = sql.isolation.SERIALIZABLE})
@@ -63,9 +63,68 @@ local function main()
     local tx4, err7 = db:begin({read_only = true})
     assert.is_nil(err7, "begin read_only should not error")
 
-    local result4, err8 = tx4:query("SELECT * FROM tx_test")
+    local rows4, err8 = tx4:query("SELECT * FROM tx_test")
     assert.is_nil(err8, "read in read_only tx should work")
     tx4:rollback()
+
+    -- Test savepoint
+    local tx5, _ = db:begin()
+    tx5:execute("INSERT INTO tx_test (name) VALUES (?)", {"before_savepoint"})
+
+    -- Create savepoint
+    local ok_sp, err_sp = tx5:savepoint("sp1")
+    assert.is_nil(err_sp, "savepoint should not error")
+    assert.eq(ok_sp, true, "savepoint should return true")
+
+    -- Insert after savepoint
+    tx5:execute("INSERT INTO tx_test (name) VALUES (?)", {"after_savepoint"})
+
+    -- Verify both rows visible
+    local rows5, _ = tx5:query("SELECT COUNT(*) as cnt FROM tx_test WHERE name LIKE '%savepoint'")
+    assert.eq(rows5[1].cnt, 2, "should see 2 savepoint rows")
+
+    -- Rollback to savepoint
+    local ok_rb, err_rb = tx5:rollback_to("sp1")
+    assert.is_nil(err_rb, "rollback_to should not error")
+    assert.eq(ok_rb, true, "rollback_to should return true")
+
+    -- Verify only before_savepoint remains
+    local rows6, _ = tx5:query("SELECT COUNT(*) as cnt FROM tx_test WHERE name LIKE '%savepoint'")
+    assert.eq(rows6[1].cnt, 1, "should see 1 row after rollback_to")
+
+    -- Release savepoint (optional cleanup)
+    local ok_rel, err_rel = tx5:release("sp1")
+    assert.is_nil(err_rel, "release savepoint should not error")
+    assert.eq(ok_rel, true, "release should return true")
+
+    tx5:commit()
+
+    -- Test nested savepoints
+    local tx6, _ = db:begin()
+    tx6:execute("INSERT INTO tx_test (name) VALUES (?)", {"nested_base"})
+
+    tx6:savepoint("outer")
+    tx6:execute("INSERT INTO tx_test (name) VALUES (?)", {"nested_outer"})
+
+    tx6:savepoint("inner")
+    tx6:execute("INSERT INTO tx_test (name) VALUES (?)", {"nested_inner"})
+
+    -- Rollback inner savepoint
+    tx6:rollback_to("inner")
+
+    -- Verify inner was rolled back but outer remains
+    local rows7, _ = tx6:query("SELECT name FROM tx_test WHERE name LIKE 'nested%' ORDER BY name")
+    assert.eq(#rows7, 2, "should have 2 nested rows")
+    assert.eq(rows7[1].name, "nested_base", "first should be base")
+    assert.eq(rows7[2].name, "nested_outer", "second should be outer")
+
+    tx6:commit()
+
+    -- Test invalid savepoint name
+    local tx7, _ = db:begin()
+    local _, err_invalid = tx7:savepoint("invalid name with spaces")
+    assert.not_nil(err_invalid, "invalid savepoint name should error")
+    tx7:rollback()
 
     -- Cleanup
     db:execute("DROP TABLE tx_test")

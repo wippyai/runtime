@@ -16,12 +16,13 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
 	"github.com/wippyai/runtime/system/clock"
-	scheduler "github.com/wippyai/runtime/system/scheduler/actor"
+	"github.com/wippyai/runtime/system/scheduler"
+	"github.com/wippyai/runtime/system/scheduler/actor"
 	lua "github.com/yuin/gopher-lua"
 )
 
 type testScheduler struct {
-	*scheduler.Scheduler
+	*actor.Scheduler
 	clock   *clock.Dispatcher
 	mu      sync.Mutex
 	pending map[string]chan *runtime.Result
@@ -48,7 +49,7 @@ func (ts *testScheduler) OnComplete(ctx context.Context, pid relay.PID, result *
 	}
 }
 
-func (ts *testScheduler) Execute(ctx context.Context, pid relay.PID, p scheduler.Process, method string, input payload.Payloads) (*runtime.Result, error) {
+func (ts *testScheduler) Execute(ctx context.Context, pid relay.PID, p actor.Process, method string, input payload.Payloads) (*runtime.Result, error) {
 	resultCh := make(chan *runtime.Result, 1)
 
 	ts.mu.Lock()
@@ -80,21 +81,21 @@ func uniqueTestPID() relay.PID {
 	return relay.PID{UniqID: stdtime.Now().Format("20060102150405.000000000") + "-" + string(rune(testPIDCounter.Add(1)))}
 }
 
-func newTestScheduler(numWorkers int, opts ...scheduler.Option) *testScheduler {
+func newTestScheduler(numWorkers int, opts ...actor.Option) *testScheduler {
 	ts := &testScheduler{
 		pending: make(map[string]chan *runtime.Result),
 	}
-	registry := scheduler.NewRegistry()
+	reg := scheduler.NewRegistry()
 	clockSvc := clock.NewDispatcher()
 	clockSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
-		registry.Register(id, h)
+		reg.Register(id, h)
 	})
 	ts.clock = clockSvc
-	opts = append([]scheduler.Option{
-		scheduler.WithWorkers(numWorkers),
-		scheduler.WithLifecycle(ts),
+	opts = append([]actor.Option{
+		actor.WithWorkers(numWorkers),
+		actor.WithLifecycle(ts),
 	}, opts...)
-	ts.Scheduler = scheduler.NewScheduler(registry, opts...)
+	ts.Scheduler = actor.NewScheduler(reg, opts...)
 	return ts
 }
 

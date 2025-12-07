@@ -16,6 +16,5 @@ const (
 	WSDispatcherName     boot.Name = "dispatcher.ws"
 	ExecDispatcherName   boot.Name = "dispatcher.exec"
 	StreamDispatcherName boot.Name = "dispatcher.stream"
-	ExcelDispatcherName  boot.Name = "dispatcher.excel"
 	SQLDispatcherName    boot.Name = "dispatcher.sql"
 )

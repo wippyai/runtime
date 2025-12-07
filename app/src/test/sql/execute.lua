@@ -38,9 +38,9 @@ local function main()
     assert.eq(result4.rows_affected, 1, "should delete 1 row")
 
     -- Verify deletion
-    local result5, err6 = db:query("SELECT COUNT(*) FROM execute_test")
+    local rows, err6 = db:query("SELECT COUNT(*) as cnt FROM execute_test")
     assert.is_nil(err6, "count query should not error")
-    assert.eq(result5.rows[1][1], 1, "should have 1 row remaining")
+    assert.eq(rows[1].cnt, 1, "should have 1 row remaining")
 
     -- Cleanup
     db:execute("DROP TABLE execute_test")

@@ -274,7 +274,7 @@ func txSavepoint(l *lua.LState) int {
 	}
 
 	query := fmt.Sprintf("SAVEPOINT %s", name)
-	yield := AcquireTxExecuteYield()
+	yield := AcquireTxSavepointYield()
 	yield.Tx = tx.tx
 	yield.Query = query
 	l.Push(yield)
@@ -309,7 +309,7 @@ func txRollbackTo(l *lua.LState) int {
 	}
 
 	query := fmt.Sprintf("ROLLBACK TO SAVEPOINT %s", name)
-	yield := AcquireTxExecuteYield()
+	yield := AcquireTxSavepointYield()
 	yield.Tx = tx.tx
 	yield.Query = query
 	l.Push(yield)
@@ -344,7 +344,7 @@ func txRelease(l *lua.LState) int {
 	}
 
 	query := fmt.Sprintf("RELEASE SAVEPOINT %s", name)
-	yield := AcquireTxExecuteYield()
+	yield := AcquireTxSavepointYield()
 	yield.Tx = tx.tx
 	yield.Query = query
 	l.Push(yield)

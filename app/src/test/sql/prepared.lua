@@ -39,14 +39,14 @@ local function main()
     assert.is_nil(err6, "prepare query should not error")
 
     -- Query with prepared statement
-    local result1, err7 = query_stmt:query({150})
+    local rows1, err7 = query_stmt:query({150})
     assert.is_nil(err7, "prepared query should not error")
-    assert.eq(#result1.rows, 2, "should find 2 rows > 150")
+    assert.eq(#rows1, 2, "should find 2 rows > 150")
 
-    local result2, err8 = query_stmt:query({250})
+    local rows2, err8 = query_stmt:query({250})
     assert.is_nil(err8, "second prepared query should not error")
-    assert.eq(#result2.rows, 1, "should find 1 row > 250")
-    assert.eq(result2.rows[1][1], "item3", "should find item3")
+    assert.eq(#rows2, 1, "should find 1 row > 250")
+    assert.eq(rows2[1].name, "item3", "should find item3")
 
     query_stmt:close()
 
@@ -63,8 +63,8 @@ local function main()
     tx:commit()
 
     -- Verify update
-    local result3, _ = db:query("SELECT value FROM stmt_test WHERE name = ?", {"item1"})
-    assert.eq(result3.rows[1][1], 150, "value should be updated to 150")
+    local rows3, _ = db:query("SELECT value FROM stmt_test WHERE name = ?", {"item1"})
+    assert.eq(rows3[1].value, 150, "value should be updated to 150")
 
     -- Cleanup
     db:execute("DROP TABLE stmt_test")

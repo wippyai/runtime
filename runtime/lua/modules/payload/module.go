@@ -228,7 +228,3 @@ func PushPayload(l *lua.LState, p payload.Payload) int {
 	value.PushTypedUserData(l, &Wrapper{Payload: p}, typeName)
 	return 1
 }
-
-func WrapPayload(l *lua.LState, p payload.Payload) lua.LValue {
-	return value.PushTypedUserData(l, &Wrapper{Payload: p}, typeName)
-}

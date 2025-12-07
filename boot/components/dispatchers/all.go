@@ -12,7 +12,6 @@ func All() []boot.Component {
 		WS(),
 		Exec(),
 		Stream(),
-		Excel(),
 		SQL(),
 	}
 }

@@ -42,7 +42,7 @@ func init() {
 }
 
 func initModuleTable() {
-	mod := lua.CreateTable(0, 5)
+	mod := lua.CreateTable(0, 6)
 
 	mod.RawSetString("get", lua.LGoFunc(sqlGet))
 
@@ -69,6 +69,9 @@ func initModuleTable() {
 	isolation.Immutable = true
 	mod.RawSetString("isolation", isolation)
 
+	registerAsSubmodule(mod)
+	registerBuilderSubmodule(mod)
+
 	mod.Immutable = true
 	moduleTable = mod
 }
@@ -90,6 +93,7 @@ var Module = &luaapi.ModuleDef{
 			{Sample: &StmtCloseYield{}, CmdID: sqlapi.CmdStmtClose},
 			{Sample: &TxQueryYield{}, CmdID: sqlapi.CmdTxQuery},
 			{Sample: &TxExecuteYield{}, CmdID: sqlapi.CmdTxExecute},
+			{Sample: &TxSavepointYield{}, CmdID: sqlapi.CmdTxExecute},
 			{Sample: &TxPrepareYield{}, CmdID: sqlapi.CmdTxPrepare},
 			{Sample: &TxCommitYield{}, CmdID: sqlapi.CmdTxCommit},
 			{Sample: &TxRollbackYield{}, CmdID: sqlapi.CmdTxRollback},
