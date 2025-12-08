@@ -13,8 +13,8 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// SandboxProcess wraps a process for deterministic stepping in Lua.
-type SandboxProcess struct {
+// Process wraps a process for deterministic stepping in Lua.
+type Process struct {
 	mu        sync.Mutex
 	proc      process.Process
 	clock     *MockClock
@@ -31,12 +31,12 @@ type YieldInfo struct {
 	Cmd   process.Command
 }
 
-// NewSandboxProcess creates a new sandbox process wrapper.
-func NewSandboxProcess(ctx context.Context, proc process.Process, clock *MockClock) *SandboxProcess {
+// NewProcess creates a new sandbox process wrapper.
+func NewProcess(ctx context.Context, proc process.Process, clock *MockClock) *Process {
 	// Create fresh frame context for the sandbox process
 	sandboxCtx, _ := ctxapi.OpenFrameContext(ctx)
 
-	sp := &SandboxProcess{
+	sp := &Process{
 		proc:  proc,
 		clock: clock,
 		ctx:   sandboxCtx,
@@ -51,7 +51,7 @@ func NewSandboxProcess(ctx context.Context, proc process.Process, clock *MockClo
 }
 
 // Init initializes the process with method and arguments.
-func (p *SandboxProcess) Init(method string, args payload.Payloads) error {
+func (p *Process) Init(method string, args payload.Payloads) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -63,7 +63,7 @@ func (p *SandboxProcess) Init(method string, args payload.Payloads) error {
 }
 
 // Step advances the process and returns yield info or completion status.
-func (p *SandboxProcess) Step(events []process.Event) (*StepResult, error) {
+func (p *Process) Step(events []process.Event) (*StepResult, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -107,7 +107,7 @@ func (p *SandboxProcess) Step(events []process.Event) (*StepResult, error) {
 }
 
 // Close releases process resources.
-func (p *SandboxProcess) Close() {
+func (p *Process) Close() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -119,12 +119,12 @@ func (p *SandboxProcess) Close() {
 }
 
 // Clock returns the mock clock if any.
-func (p *SandboxProcess) Clock() *MockClock {
+func (p *Process) Clock() *MockClock {
 	return p.clock
 }
 
 // IsClosed returns true if process is closed.
-func (p *SandboxProcess) IsClosed() bool {
+func (p *Process) IsClosed() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.closed
@@ -148,17 +148,17 @@ var processMethods = map[string]lua.LGoFunc{
 	"is_done": processIsDone,
 }
 
-func checkProcess(l *lua.LState, idx int) *SandboxProcess {
-	ud := l.CheckUserData(idx)
-	if p, ok := ud.Value.(*SandboxProcess); ok {
+func checkProcess(l *lua.LState) *Process {
+	ud := l.CheckUserData(1)
+	if p, ok := ud.Value.(*Process); ok {
 		return p
 	}
-	l.ArgError(idx, "eval.sandbox.Process expected")
+	l.ArgError(1, "eval.sandbox.Process expected")
 	return nil
 }
 
 func processInit(l *lua.LState) int {
-	p := checkProcess(l, 1)
+	p := checkProcess(l)
 	if p == nil {
 		return 0
 	}
@@ -187,7 +187,7 @@ func processInit(l *lua.LState) int {
 }
 
 func processStep(l *lua.LState) int {
-	p := checkProcess(l, 1)
+	p := checkProcess(l)
 	if p == nil {
 		return 0
 	}
@@ -267,14 +267,13 @@ func processStep(l *lua.LState) int {
 
 func addCommandInfo(_ *lua.LState, tbl *lua.LTable, cmd process.Command) {
 	// Use type assertion to extract command-specific fields
-	switch c := cmd.(type) {
-	case interface{ Duration() int64 }:
+	if c, ok := cmd.(interface{ Duration() int64 }); ok {
 		tbl.RawSetString("duration", lua.LNumber(c.Duration()))
 	}
 }
 
 func processClose(l *lua.LState) int {
-	p := checkProcess(l, 1)
+	p := checkProcess(l)
 	if p == nil {
 		return 0
 	}
@@ -283,7 +282,7 @@ func processClose(l *lua.LState) int {
 }
 
 func processGetClock(l *lua.LState) int {
-	p := checkProcess(l, 1)
+	p := checkProcess(l)
 	if p == nil {
 		return 0
 	}
@@ -297,7 +296,7 @@ func processGetClock(l *lua.LState) int {
 }
 
 func processIsDone(l *lua.LState) int {
-	p := checkProcess(l, 1)
+	p := checkProcess(l)
 	if p == nil {
 		return 0
 	}

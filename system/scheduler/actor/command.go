@@ -12,7 +12,7 @@ type (
 	Event          = process.Event
 	EventType      = process.EventType
 	Process        = process.Process
-	ProcessFactory = process.NewFunc
+	ProcessFactory = process.FactoryFunc
 	Yield          = process.Yield
 	EventQueue     = process.EventQueue
 )

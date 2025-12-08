@@ -88,24 +88,24 @@ func (d *Dispatcher) routeEvent(evt event.Event) {
 	defer d.mu.RUnlock()
 
 	for _, sub := range d.subs {
-		if !matchPattern(sub.system, string(evt.System)) {
+		if !matchPattern(sub.system, evt.System) {
 			continue
 		}
-		if sub.kind != "" && sub.kind != "*" && !matchPattern(sub.kind, string(evt.Kind)) {
+		if sub.kind != "" && sub.kind != "*" && !matchPattern(sub.kind, evt.Kind) {
 			continue
 		}
 
 		// Build event payload as map
 		data := map[string]any{
-			"system": string(evt.System),
-			"kind":   string(evt.Kind),
+			"system": evt.System,
+			"kind":   evt.Kind,
 			"path":   evt.Path,
 		}
 		if evt.Data != nil {
 			data["data"] = evt.Data
 		}
 
-		pkg := relay.NewPackage(relay.PID{}, sub.pid, relay.Topic(sub.topic), payload.New(data))
+		pkg := relay.NewPackage(relay.PID{}, sub.pid, sub.topic, payload.New(data))
 		_ = d.node.Send(pkg)
 	}
 }
@@ -158,12 +158,7 @@ func (d *Dispatcher) handleSubscribe(_ context.Context, cmd dispatcher.Command, 
 func (d *Dispatcher) handleSend(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
 	sendCmd := cmd.(event.EventsSendCmd)
 
-	evt := event.Event{
-		System: event.System(sendCmd.System),
-		Kind:   event.Kind(sendCmd.Kind),
-		Path:   sendCmd.Path,
-		Data:   sendCmd.Data,
-	}
+	evt := event.Event(sendCmd)
 
 	d.bus.Send(ctx, evt)
 	receiver.CompleteYield(tag, true, nil)

@@ -14,13 +14,13 @@ type config struct {
 
 func Load(path string) (boot.Config, error) {
 	if path == "" {
-		return nil, nil
+		return nil, nil //nolint:nilnil // empty path means no config
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, nil //nolint:nilnil // missing file means no config
 		}
 		return nil, NewReadConfigFileError(err)
 	}
@@ -54,7 +54,7 @@ func validateVersion(version string) error {
 
 func buildBootConfig(sections map[string]map[string]any) (boot.Config, error) {
 	if len(sections) == 0 {
-		return nil, nil
+		return nil, nil //nolint:nilnil // empty sections means no config
 	}
 
 	opts := make([]boot.ConfigOption, 0, len(sections))

@@ -14,9 +14,8 @@ import (
 )
 
 var (
-	moduleTable      *lua.LTable
-	programMetatable *lua.LTable
-	initOnce         sync.Once
+	moduleTable *lua.LTable
+	initOnce    sync.Once
 )
 
 const programTypeName = "eval.runner.Program"
@@ -32,7 +31,7 @@ var Module = &luaapi.ModuleDef{
 func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	initOnce.Do(func() {
 		moduleTable = createModuleTable()
-		programMetatable = value.RegisterTypeMethods(nil, programTypeName, nil, programMethods)
+		value.RegisterTypeMethods(nil, programTypeName, nil, programMethods)
 	})
 
 	return moduleTable, []luaapi.YieldType{

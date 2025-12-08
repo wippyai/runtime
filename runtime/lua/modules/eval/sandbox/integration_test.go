@@ -89,7 +89,7 @@ func uniqueTestPID() relay.PID {
 	return relay.PID{UniqID: time.Now().Format("20060102150405.000000000") + "-" + string(rune(testPIDCounter.Add(1)))}
 }
 
-func newTestScheduler(numWorkers int) *testScheduler {
+func newTestScheduler() *testScheduler {
 	ts := &testScheduler{
 		pending: make(map[string]chan *runtime.Result),
 	}
@@ -113,7 +113,7 @@ func newTestScheduler(numWorkers int) *testScheduler {
 	ts.eval = evalSvc
 
 	opts := []actor.Option{
-		actor.WithWorkers(numWorkers),
+		actor.WithWorkers(4),
 		actor.WithLifecycle(ts),
 	}
 	ts.Scheduler = actor.NewScheduler(reg, opts...)
@@ -265,15 +265,15 @@ func TestSandbox_YieldStringAndType(t *testing.T) {
 	assert.Equal(t, lua.LTUserData, cpy.Type())
 }
 
-// TestSandbox_SandboxProcess tests the SandboxProcess wrapper directly
-func TestSandbox_SandboxProcess(t *testing.T) {
+// TestSandbox_Process tests the Process wrapper directly
+func TestSandbox_Process(t *testing.T) {
 	clock := NewMockClock(0)
 
 	// Create a mock process for testing
 	mockProc := &mockProcess{}
 	ctx := context.Background()
 
-	sp := NewSandboxProcess(ctx, mockProc, clock)
+	sp := NewProcess(ctx, mockProc, clock)
 	require.NotNil(t, sp)
 
 	// Test Clock
@@ -305,12 +305,12 @@ type mockProcess struct {
 	closeCalled bool
 }
 
-func (m *mockProcess) Init(ctx context.Context, method string, args payload.Payloads) error {
+func (m *mockProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
 	m.initCalled = true
 	return nil
 }
 
-func (m *mockProcess) Step(events []process.Event, out *process.StepOutput) error {
+func (m *mockProcess) Step(_ []process.Event, out *process.StepOutput) error {
 	m.stepCalled = true
 	out.Done(nil)
 	return nil
@@ -320,13 +320,13 @@ func (m *mockProcess) Close() {
 	m.closeCalled = true
 }
 
-// TestSandbox_SandboxProcess_WithMockProcess tests SandboxProcess with mock process
-func TestSandbox_SandboxProcess_WithMockProcess(t *testing.T) {
+// TestSandbox_Process_WithMockProcess tests Process with mock process
+func TestSandbox_Process_WithMockProcess(t *testing.T) {
 	clock := NewMockClock(time.Now().UnixNano())
 	mockProc := &mockProcess{}
 	ctx := context.Background()
 
-	sp := NewSandboxProcess(ctx, mockProc, clock)
+	sp := NewProcess(ctx, mockProc, clock)
 	defer sp.Close()
 
 	// Test Init
@@ -344,7 +344,7 @@ func TestSandbox_SandboxProcess_WithMockProcess(t *testing.T) {
 
 // TestSandbox_Integration_Compile tests the full compile flow via scheduler
 func TestSandbox_Integration_Compile(t *testing.T) {
-	sched := newTestScheduler(4)
+	sched := newTestScheduler()
 	sched.Scheduler.Start()
 	defer sched.Stop()
 
@@ -380,7 +380,7 @@ func TestSandbox_Integration_Compile(t *testing.T) {
 
 // TestSandbox_Integration_CompileSyntaxError tests compile with syntax error
 func TestSandbox_Integration_CompileSyntaxError(t *testing.T) {
-	sched := newTestScheduler(4)
+	sched := newTestScheduler()
 	sched.Scheduler.Start()
 	defer sched.Stop()
 
@@ -412,7 +412,7 @@ func TestSandbox_Integration_CompileSyntaxError(t *testing.T) {
 
 // TestSandbox_Integration_Clock tests clock operations via scheduler
 func TestSandbox_Integration_Clock(t *testing.T) {
-	sched := newTestScheduler(4)
+	sched := newTestScheduler()
 	sched.Scheduler.Start()
 	defer sched.Stop()
 
@@ -445,7 +445,7 @@ func TestSandbox_Integration_Clock(t *testing.T) {
 
 // TestSandbox_ProgramMethods tests Program userdata methods
 func TestSandbox_ProgramMethods(t *testing.T) {
-	sched := newTestScheduler(4)
+	sched := newTestScheduler()
 	sched.Scheduler.Start()
 	defer sched.Stop()
 
@@ -483,7 +483,7 @@ func TestSandbox_ProgramMethods(t *testing.T) {
 }
 
 // TestSandbox_PoolConcurrency tests pool under concurrent access
-func TestSandbox_PoolConcurrency(t *testing.T) {
+func TestSandbox_PoolConcurrency(_ *testing.T) {
 	const goroutines = 100
 	const iterations = 100
 
@@ -552,7 +552,7 @@ func TestSandbox_StepResult(t *testing.T) {
 }
 
 // TestSandbox_ClockConcurrency tests MockClock under concurrent access
-func TestSandbox_ClockConcurrency(t *testing.T) {
+func TestSandbox_ClockConcurrency(_ *testing.T) {
 	clock := NewMockClock(time.Now().UnixNano())
 
 	var wg sync.WaitGroup
@@ -575,7 +575,7 @@ func TestSandbox_ClockConcurrency(t *testing.T) {
 
 // TestSandbox_Integration_StepWithSleep tests stepping a process with time.sleep
 func TestSandbox_Integration_StepWithSleep(t *testing.T) {
-	sched := newTestScheduler(4)
+	sched := newTestScheduler()
 	sched.Scheduler.Start()
 	defer sched.Stop()
 

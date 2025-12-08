@@ -63,7 +63,7 @@ type delayedHandler struct {
 	delay time.Duration
 }
 
-func (h *delayedHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+func (h *delayedHandler) Handle(_ context.Context, _ dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	go func() {
 		time.Sleep(h.delay)
 		receiver.CompleteYield(tag, nil, nil)
@@ -81,7 +81,7 @@ func TestActorConcurrentCancellationStress(t *testing.T) {
 	var completed, errors atomic.Int64
 
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, result *runtime.Result) {
 			if result.Error != nil {
 				errors.Add(1)
 			} else {
@@ -145,7 +145,7 @@ func TestActorStopDuringExecution(t *testing.T) {
 	var completed atomic.Int64
 
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, result *runtime.Result) {
 			if result.Error == nil {
 				completed.Add(1)
 			}
@@ -167,7 +167,7 @@ func TestActorStopDuringExecution(t *testing.T) {
 			defer wg.Done()
 			proc := &slowProcess{}
 			pid := relay.PID{UniqID: fmt.Sprintf("stop-test-%d", id)}
-			sched.Submit(context.Background(), pid, proc, "", nil)
+			_, _ = sched.Submit(context.Background(), pid, proc, "", nil)
 		}(i)
 	}
 
@@ -192,7 +192,7 @@ func TestActorStealingConcurrentCancellation(t *testing.T) {
 	var completed, errors atomic.Int64
 
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, result *runtime.Result) {
 			if result.Error != nil {
 				errors.Add(1)
 			} else {
@@ -224,7 +224,7 @@ func TestActorStealingConcurrentCancellation(t *testing.T) {
 			proc := &slowProcess{}
 			pid := relay.PID{UniqID: fmt.Sprintf("steal-test-%d", id)}
 
-			sched.Submit(ctx, pid, proc, "", nil)
+			_, _ = sched.Submit(ctx, pid, proc, "", nil)
 		}(i)
 	}
 
@@ -288,7 +288,7 @@ func TestActorStopNoStepping(t *testing.T) {
 		processes = append(processes, proc)
 		mu.Unlock()
 		pid := relay.PID{UniqID: fmt.Sprintf("step-test-%d", i)}
-		sched.Submit(context.Background(), pid, proc, "", nil)
+		_, _ = sched.Submit(context.Background(), pid, proc, "", nil)
 	}
 
 	// Let some start stepping
@@ -332,7 +332,7 @@ func TestActorStopNoSteppingStress(t *testing.T) {
 				processes = append(processes, proc)
 				mu.Unlock()
 				pid := relay.PID{UniqID: fmt.Sprintf("iter%d-proc%d", iter, id)}
-				sched.Submit(context.Background(), pid, proc, "", nil)
+				_, _ = sched.Submit(context.Background(), pid, proc, "", nil)
 			}(i)
 		}
 
@@ -374,7 +374,7 @@ func TestActorRapidStopStart(t *testing.T) {
 				defer cancel()
 				proc := &slowProcess{}
 				pid := relay.PID{UniqID: fmt.Sprintf("rapid-%d", id)}
-				sched.Submit(ctx, pid, proc, "", nil)
+				_, _ = sched.Submit(ctx, pid, proc, "", nil)
 			}(i)
 		}
 

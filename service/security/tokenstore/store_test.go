@@ -45,7 +45,7 @@ func (t *jsonTranscoder) Transcode(p payload.Payload, format payload.Format) (pa
 }
 
 func (t *jsonTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
-	switch p.Format() {
+	switch p.Format() { //nolint:exhaustive // only JSON/Golang in tests
 	case payload.JSON:
 		jsonStr, ok := p.Data().(string)
 		if !ok {
@@ -197,13 +197,13 @@ func TestTokenStoreCreateValidateRevoke(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 	logger := zap.NewNop()
 
-	// Create and configure MemoryStore
+	// Create and configure memory store
 	storeID := registry.NewID("", "test-store")
 	memConfig := &memstore.Config{
 		MaxSize:         1000,
 		CleanupInterval: time.Second,
 	}
-	memStore := memorystore.NewMemoryStore(storeID, memConfig, logger)
+	memStore := memorystore.NewStore(storeID, memConfig, logger)
 
 	// Start the memory store
 	statusChan, err := memStore.Start(ctx)
@@ -300,7 +300,7 @@ func TestTokenExpiration(t *testing.T) {
 		MaxSize:         1000,
 		CleanupInterval: 100 * time.Millisecond, // Short cleanup for testing
 	}
-	memStore := memorystore.NewMemoryStore(storeID, memConfig, logger)
+	memStore := memorystore.NewStore(storeID, memConfig, logger)
 
 	statusChan, err := memStore.Start(ctx)
 	require.NoError(t, err)
@@ -354,7 +354,7 @@ func TestTokenSignature(t *testing.T) {
 	logger := zap.NewNop()
 
 	storeID := registry.NewID("", "test-store")
-	memStore := memorystore.NewMemoryStore(storeID, nil, logger)
+	memStore := memorystore.NewStore(storeID, nil, logger)
 
 	statusChan, err := memStore.Start(ctx)
 	require.NoError(t, err)
@@ -418,7 +418,7 @@ func TestEdgeCases(t *testing.T) {
 	logger := zap.NewNop()
 
 	storeID := registry.NewID("", "test-store")
-	memStore := memorystore.NewMemoryStore(storeID, nil, logger)
+	memStore := memorystore.NewStore(storeID, nil, logger)
 
 	statusChan, err := memStore.Start(ctx)
 	require.NoError(t, err)
@@ -490,7 +490,7 @@ func TestTokenStoreWithoutSigningKey(t *testing.T) {
 	logger := zap.NewNop()
 
 	storeID := registry.NewID("", "test-store")
-	memStore := memorystore.NewMemoryStore(storeID, nil, logger)
+	memStore := memorystore.NewStore(storeID, nil, logger)
 
 	statusChan, err := memStore.Start(ctx)
 	require.NoError(t, err)
@@ -548,7 +548,7 @@ func TestConcurrentAccess(t *testing.T) {
 	logger := zap.NewNop()
 
 	storeID := registry.NewID("", "test-store")
-	memStore := memorystore.NewMemoryStore(storeID, nil, logger)
+	memStore := memorystore.NewStore(storeID, nil, logger)
 
 	statusChan, err := memStore.Start(ctx)
 	require.NoError(t, err)
@@ -673,7 +673,7 @@ func TestStoreResourceCleanup(t *testing.T) {
 	logger := zap.NewNop()
 
 	storeID := registry.NewID("", "test-store")
-	memStore := memorystore.NewMemoryStore(storeID, nil, logger)
+	memStore := memorystore.NewStore(storeID, nil, logger)
 
 	statusChan, err := memStore.Start(ctx)
 	require.NoError(t, err)

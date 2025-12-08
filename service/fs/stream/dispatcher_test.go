@@ -69,7 +69,7 @@ func TestStreamRead(t *testing.T) {
 		t.Errorf("expected ' world', got '%s'", string(chunk))
 	}
 
-	chunk, err = Read(table, id, 10)
+	_, err = Read(table, id, 10)
 	if !errors.Is(err, io.EOF) {
 		t.Errorf("expected io.EOF, got %v", err)
 	}

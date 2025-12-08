@@ -13,11 +13,8 @@ import (
 )
 
 var (
-	moduleTable      *lua.LTable
-	clockMetatable   *lua.LTable
-	processMetatable *lua.LTable
-	programMetatable *lua.LTable
-	initOnce         sync.Once
+	moduleTable *lua.LTable
+	initOnce    sync.Once
 )
 
 const (
@@ -37,9 +34,9 @@ var Module = &luaapi.ModuleDef{
 func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	initOnce.Do(func() {
 		moduleTable = createModuleTable()
-		clockMetatable = value.RegisterTypeMethods(nil, clockTypeName, nil, clockMethods)
-		processMetatable = value.RegisterTypeMethods(nil, processTypeName, nil, processMethods)
-		programMetatable = value.RegisterTypeMethods(nil, programTypeName, nil, programMethods)
+		value.RegisterTypeMethods(nil, clockTypeName, nil, clockMethods)
+		value.RegisterTypeMethods(nil, processTypeName, nil, processMethods)
+		value.RegisterTypeMethods(nil, programTypeName, nil, programMethods)
 	})
 
 	return moduleTable, []luaapi.YieldType{

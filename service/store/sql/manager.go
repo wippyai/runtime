@@ -20,7 +20,7 @@ type Manager struct {
 	dtt    payload.Transcoder
 	bus    event.Bus
 	mu     sync.RWMutex
-	stores map[registry.ID]*SQLStore
+	stores map[registry.ID]*Store
 }
 
 // NewManager creates a new SQL store manager
@@ -33,7 +33,7 @@ func NewManager(
 		log:    log,
 		dtt:    dtt,
 		bus:    bus,
-		stores: make(map[registry.ID]*SQLStore),
+		stores: make(map[registry.ID]*Store),
 	}
 }
 
@@ -57,7 +57,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Create SQL store
-	store := NewSQLStore(entry.ID, cfg, m.log)
+	store := NewStore(entry.ID, cfg, m.log)
 	m.stores[entry.ID] = store
 
 	m.bus.Send(ctx, event.Event{
@@ -114,7 +114,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Create new store with updated config
-	newStore := NewSQLStore(entry.ID, cfg, m.log)
+	newStore := NewStore(entry.ID, cfg, m.log)
 	m.stores[entry.ID] = newStore
 
 	// Update supervisor entry

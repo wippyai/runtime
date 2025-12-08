@@ -112,7 +112,10 @@ func TestRegistryRegisterAndGet(t *testing.T) {
 	defer ts.Close()
 
 	wsURL := "ws" + ts.URL[4:]
-	conn, _, err := websocket.Dial(context.Background(), wsURL, nil)
+	conn, resp, err := websocket.Dial(context.Background(), wsURL, nil)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
 	}
@@ -142,7 +145,10 @@ func TestRegistryClose(t *testing.T) {
 	defer ts.Close()
 
 	wsURL := "ws" + ts.URL[4:]
-	conn, _, err := websocket.Dial(context.Background(), wsURL, nil)
+	conn, resp, err := websocket.Dial(context.Background(), wsURL, nil)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
 	}
@@ -174,7 +180,10 @@ func TestRegistryCloseAll(t *testing.T) {
 	r := NewRegistry(store.Table())
 
 	for i := 0; i < 5; i++ {
-		conn, _, err := websocket.Dial(context.Background(), wsURL, nil)
+		conn, resp, err := websocket.Dial(context.Background(), wsURL, nil)
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
 		if err != nil {
 			t.Fatalf("dial %d failed: %v", i, err)
 		}
@@ -193,7 +202,10 @@ func TestRegistryDoubleClose(t *testing.T) {
 	defer ts.Close()
 
 	wsURL := "ws" + ts.URL[4:]
-	conn, _, err := websocket.Dial(context.Background(), wsURL, nil)
+	conn, resp, err := websocket.Dial(context.Background(), wsURL, nil)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
 	}
@@ -210,7 +222,7 @@ func TestRegistryDoubleClose(t *testing.T) {
 	}
 
 	err = r.Close(id, 1000, "second close")
-	if err != ErrConnNotFound {
+	if !errors.Is(err, ErrConnNotFound) {
 		t.Errorf("expected ErrConnNotFound on second close, got %v", err)
 	}
 }
@@ -346,7 +358,10 @@ func TestSendHandler(t *testing.T) {
 	ctx, store := setupTestContext()
 	defer store.Close()
 
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
 	}
@@ -410,7 +425,10 @@ func TestReceiveHandler(t *testing.T) {
 	ctx, store := setupTestContext()
 	defer store.Close()
 
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
 	}
@@ -480,7 +498,10 @@ func TestReceiveHandlerBinary(t *testing.T) {
 	ctx, store := setupTestContext()
 	defer store.Close()
 
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
 	}
@@ -535,7 +556,10 @@ func TestReceiveHandlerEOFOnServerClose(t *testing.T) {
 	ctx, store := setupTestContext()
 	defer store.Close()
 
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
 	}
@@ -571,7 +595,10 @@ func TestCloseHandler(t *testing.T) {
 	ctx, store := setupTestContext()
 	defer store.Close()
 
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
 	}
@@ -608,7 +635,7 @@ func TestCloseHandler(t *testing.T) {
 	}
 
 	_, err = registry.Get(connID)
-	if err != ErrConnNotFound {
+	if !errors.Is(err, ErrConnNotFound) {
 		t.Errorf("expected ErrConnNotFound after close, got %v", err)
 	}
 }
@@ -621,7 +648,10 @@ func TestPingHandler(t *testing.T) {
 	ctx, store := setupTestContext()
 	defer store.Close()
 
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
 	}
@@ -752,7 +782,10 @@ func TestConcurrentSends(t *testing.T) {
 	ctx, store := setupTestContext()
 	defer store.Close()
 
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
 	}
@@ -883,7 +916,10 @@ func TestChannelReceiveMultipleMessages(t *testing.T) {
 	ctx, store := setupTestContext()
 	defer store.Close()
 
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
 	}
@@ -945,7 +981,10 @@ func TestChannelClosedOnContextCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(baseCtx)
 
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
 	}
@@ -1185,7 +1224,10 @@ func TestRemoteCloseDeliveryEOF(t *testing.T) {
 	ctx, store := setupTestContext()
 	defer store.Close()
 
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
 	}
@@ -1255,7 +1297,10 @@ func BenchmarkSend(b *testing.B) {
 	ctx, store := setupTestContext()
 	defer store.Close()
 
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		b.Fatalf("dial failed: %v", err)
 	}
@@ -1307,7 +1352,10 @@ func BenchmarkReceive(b *testing.B) {
 	ctx, store := setupTestContext()
 	defer store.Close()
 
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		b.Fatalf("dial failed: %v", err)
 	}
@@ -1354,7 +1402,10 @@ func BenchmarkChannelReceive(b *testing.B) {
 	ctx, store := setupTestContext()
 	defer store.Close()
 
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		b.Fatalf("dial failed: %v", err)
 	}

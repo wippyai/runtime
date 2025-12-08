@@ -117,54 +117,59 @@ func (m *Manager) handleStandardDBAdd(ctx context.Context, entry registry.Entry)
 
 	if cfg.HostEnv != "" {
 		val, found, err := m.env.Lookup(ctx, cfg.HostEnv)
-		if err != nil {
+		switch {
+		case err != nil:
 			m.log.Warn("failed to lookup host env var", zap.String("var", cfg.HostEnv), zap.Error(err))
-		} else if found {
+		case found:
 			cfg.Host = val
-		} else {
+		default:
 			m.log.Warn("host env var not found", zap.String("var", cfg.HostEnv))
 		}
 	}
 	if cfg.PortEnv != "" {
 		val, found, err := m.env.Lookup(ctx, cfg.PortEnv)
-		if err != nil {
+		switch {
+		case err != nil:
 			m.log.Warn("failed to lookup port env var", zap.String("var", cfg.PortEnv), zap.Error(err))
-		} else if found {
+		case found:
 			cfg.Port, err = strconv.Atoi(val)
 			if err != nil {
 				return NewInvalidPortError(cfg.PortEnv, err)
 			}
-		} else {
+		default:
 			m.log.Warn("port env var not found", zap.String("var", cfg.PortEnv))
 		}
 	}
 	if cfg.DatabaseEnv != "" {
 		val, found, err := m.env.Lookup(ctx, cfg.DatabaseEnv)
-		if err != nil {
+		switch {
+		case err != nil:
 			m.log.Warn("failed to lookup database env var", zap.String("var", cfg.DatabaseEnv), zap.Error(err))
-		} else if found {
+		case found:
 			cfg.Database = val
-		} else {
+		default:
 			m.log.Warn("database env var not found", zap.String("var", cfg.DatabaseEnv))
 		}
 	}
 	if cfg.UsernameEnv != "" {
 		val, found, err := m.env.Lookup(ctx, cfg.UsernameEnv)
-		if err != nil {
+		switch {
+		case err != nil:
 			m.log.Warn("failed to lookup username env var", zap.String("var", cfg.UsernameEnv), zap.Error(err))
-		} else if found {
+		case found:
 			cfg.Username = val
-		} else {
+		default:
 			m.log.Warn("username env var not found", zap.String("var", cfg.UsernameEnv))
 		}
 	}
 	if cfg.PasswordEnv != "" {
 		val, found, err := m.env.Lookup(ctx, cfg.PasswordEnv)
-		if err != nil {
+		switch {
+		case err != nil:
 			m.log.Warn("failed to lookup password env var", zap.String("var", cfg.PasswordEnv), zap.Error(err))
-		} else if found {
+		case found:
 			cfg.Password = val
-		} else {
+		default:
 			m.log.Warn("password env var not found", zap.String("var", cfg.PasswordEnv))
 		}
 	}

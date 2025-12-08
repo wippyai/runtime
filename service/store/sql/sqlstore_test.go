@@ -123,7 +123,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 	return db
 }
 
-// setupSQLStoreTable creates the table required by SQLStore
+// setupSQLStoreTable creates the table required by Store
 func setupSQLStoreTable(t *testing.T, db *sql.DB, config *sqlstore.Config) {
 	ctx := t.Context()
 
@@ -157,7 +157,7 @@ func insertTestData(t *testing.T, db *sql.DB, config *sqlstore.Config, key strin
 	require.NoError(t, err)
 }
 
-// createDefaultConfig creates a default SQLStore config for testing
+// createDefaultConfig creates a default Store config for testing
 func createDefaultConfig() *sqlstore.Config {
 	return &sqlstore.Config{
 		Database:          registry.NewID("test", "db"),
@@ -187,7 +187,7 @@ func createTestEntry(key string, value any) store.Entry {
 	}
 }
 
-func MakeStore(t *testing.T) (*SQLStore, *sql.DB, context.Context) {
+func MakeStore(t *testing.T) (*Store, *sql.DB, context.Context) {
 	// Create a default config
 	config := createDefaultConfig()
 
@@ -212,7 +212,7 @@ func MakeStore(t *testing.T) (*SQLStore, *sql.DB, context.Context) {
 	// Create store
 	logger := zap.NewNop()
 
-	return NewSQLStore(registry.NewID("test", "store"), config, logger), db, ctx
+	return NewStore(registry.NewID("test", "store"), config, logger), db, ctx
 }
 
 func TestSQLStore_Delete(t *testing.T) {
@@ -323,7 +323,7 @@ func TestSQLStore_Get_ExpiredKey(t *testing.T) {
 
 	// Create store
 	logger := zap.NewNop()
-	ss := NewSQLStore(registry.NewID("test", "store"), config, logger)
+	ss := NewStore(registry.NewID("test", "store"), config, logger)
 	ss.cleanup(ctx)
 
 	// Test Get with expired key
@@ -347,7 +347,7 @@ func TestSQLStore_Get_ResourceAcquisitionError(t *testing.T) {
 
 	// Create store
 	logger := zap.NewNop()
-	store := NewSQLStore(registry.NewID("test", "store"), config, logger)
+	store := NewStore(registry.NewID("test", "store"), config, logger)
 
 	// Test Get
 	result, err := store.Get(ctx, registry.NewID("test", "key"))
@@ -375,7 +375,7 @@ func TestSQLStore_Get_ResourceGetError(t *testing.T) {
 
 	// Create store
 	logger := zap.NewNop()
-	ss := NewSQLStore(registry.NewID("test", "store"), config, logger)
+	ss := NewStore(registry.NewID("test", "store"), config, logger)
 
 	// Test Get
 	result, err := ss.Get(ctx, registry.NewID("test", "key"))
@@ -527,7 +527,7 @@ func TestSQLStore_Cleanup(t *testing.T) {
 	ctx = createTranscoderContext(ctx)
 
 	logger := zap.NewNop()
-	ss := NewSQLStore(registry.NewID("test", "cleanup-store"), config, logger)
+	ss := NewStore(registry.NewID("test", "cleanup-store"), config, logger)
 
 	_, err := ss.Start(ctx)
 	require.NoError(t, err)
@@ -623,7 +623,7 @@ func TestSQLStore_ConcurrentReads(t *testing.T) {
 	wg.Wait()
 	close(errChan)
 
-	var errs []error
+	var errs []error //nolint:prealloc // size unknown, expect empty in passing test
 	for err := range errChan {
 		errs = append(errs, err)
 	}
@@ -691,7 +691,7 @@ func BenchmarkSQLStore_Set(b *testing.B) {
 	ctx = createTranscoderContext(ctx)
 
 	logger := zap.NewNop()
-	ss := NewSQLStore(registry.NewID("bench", "store"), config, logger)
+	ss := NewStore(registry.NewID("bench", "store"), config, logger)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -727,7 +727,7 @@ func BenchmarkSQLStore_Get(b *testing.B) {
 	ctx = createTranscoderContext(ctx)
 
 	logger := zap.NewNop()
-	ss := NewSQLStore(registry.NewID("bench", "store"), config, logger)
+	ss := NewStore(registry.NewID("bench", "store"), config, logger)
 
 	// Pre-populate
 	for i := 0; i < 1000; i++ {
@@ -769,7 +769,7 @@ func BenchmarkSQLStore_Has(b *testing.B) {
 	ctx = createTranscoderContext(ctx)
 
 	logger := zap.NewNop()
-	ss := NewSQLStore(registry.NewID("bench", "store"), config, logger)
+	ss := NewStore(registry.NewID("bench", "store"), config, logger)
 
 	// Pre-populate
 	for i := 0; i < 1000; i++ {
@@ -812,7 +812,7 @@ func BenchmarkSQLStore_Delete(b *testing.B) {
 	ctx = createTranscoderContext(ctx)
 
 	logger := zap.NewNop()
-	ss := NewSQLStore(registry.NewID("bench", "store"), config, logger)
+	ss := NewStore(registry.NewID("bench", "store"), config, logger)
 
 	b.ResetTimer()
 	b.ReportAllocs()

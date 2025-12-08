@@ -21,8 +21,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// SQLStore that also functions as a resource.Provider
-type SQLStore struct {
+// Store is a SQL-backed key-value store that also functions as a resource.Provider
+type Store struct {
 	id     registry.ID
 	config *sqlstore.Config
 	log    *zap.Logger
@@ -34,13 +34,13 @@ type SQLStore struct {
 	wg         sync.WaitGroup // For tracking active goroutines
 }
 
-// NewSQLStore creates a new SQL-based key-value store
-func NewSQLStore(id registry.ID, config *sqlstore.Config, log *zap.Logger) *SQLStore {
+// NewStore creates a new SQL-based key-value store
+func NewStore(id registry.ID, config *sqlstore.Config, log *zap.Logger) *Store {
 	if config == nil {
 		config = &sqlstore.Config{}
 	}
 
-	return &SQLStore{
+	return &Store{
 		id:       id,
 		config:   config,
 		log:      log.With(zap.String("component", "sqlstore"), zap.String("id", id.String())),
@@ -50,7 +50,7 @@ func NewSQLStore(id registry.ID, config *sqlstore.Config, log *zap.Logger) *SQLS
 
 // Get retrieves a value by key
 // Returns the payload associated with the given registry.ID or ErrKeyNotFound if not present
-func (s *SQLStore) Get(ctx context.Context, key registry.ID) (payload.Payload, error) {
+func (s *Store) Get(ctx context.Context, key registry.ID) (payload.Payload, error) {
 	s.mu.RLock()
 	if s.closed {
 		s.mu.RUnlock()
@@ -116,7 +116,7 @@ func (s *SQLStore) Get(ctx context.Context, key registry.ID) (payload.Payload, e
 
 // Set stores or updates a value with the given key
 // Overwrites any existing value if the key already exists
-func (s *SQLStore) Set(ctx context.Context, entry store.Entry) error {
+func (s *Store) Set(ctx context.Context, entry store.Entry) error {
 	s.mu.RLock()
 	if s.closed {
 		s.mu.RUnlock()
@@ -228,7 +228,7 @@ func (s *SQLStore) Set(ctx context.Context, entry store.Entry) error {
 
 // Delete removes a value with the given key
 // Returns ErrKeyNotFound if the key doesn't exist
-func (s *SQLStore) Delete(ctx context.Context, key registry.ID) error {
+func (s *Store) Delete(ctx context.Context, key registry.ID) error {
 	s.mu.RLock()
 	if s.closed {
 		s.mu.RUnlock()
@@ -292,7 +292,7 @@ func (s *SQLStore) Delete(ctx context.Context, key registry.ID) error {
 
 // Has checks if a key exists without retrieving the value
 // Returns true if the key exists, false otherwise
-func (s *SQLStore) Has(ctx context.Context, key registry.ID) (bool, error) {
+func (s *Store) Has(ctx context.Context, key registry.ID) (bool, error) {
 	s.mu.RLock()
 	if s.closed {
 		s.mu.RUnlock()
@@ -356,7 +356,7 @@ func (s *SQLStore) Has(ctx context.Context, key registry.ID) (bool, error) {
 }
 
 // Acquire implements resource.Provider interface
-func (s *SQLStore) Acquire(_ context.Context, _ registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
+func (s *Store) Acquire(_ context.Context, _ registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -370,7 +370,7 @@ func (s *SQLStore) Acquire(_ context.Context, _ registry.ID, mode resource.Acces
 
 // storeResource represents an acquired store resource
 type storeResource struct {
-	store  *SQLStore
+	store  *Store
 	closed bool
 	mu     sync.Mutex
 }
@@ -399,7 +399,7 @@ func (r *storeResource) Release() {
 	r.closed = true
 }
 
-func (s *SQLStore) cleanupLoop(ctx context.Context) {
+func (s *Store) cleanupLoop(ctx context.Context) {
 	defer s.wg.Done()
 	ticker := time.NewTicker(s.config.CleanupInterval)
 	defer ticker.Stop()
@@ -418,7 +418,7 @@ func (s *SQLStore) cleanupLoop(ctx context.Context) {
 	}
 }
 
-func (s *SQLStore) cleanup(ctx context.Context) {
+func (s *Store) cleanup(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -477,7 +477,7 @@ func (s *SQLStore) cleanup(ctx context.Context) {
 	}
 }
 
-func (s *SQLStore) Start(ctx context.Context) (<-chan any, error) {
+func (s *Store) Start(ctx context.Context) (<-chan any, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -502,7 +502,7 @@ func (s *SQLStore) Start(ctx context.Context) (<-chan any, error) {
 	return s.statusChan, nil
 }
 
-func (s *SQLStore) Stop(ctx context.Context) error {
+func (s *Store) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -544,9 +544,9 @@ func statementBuilder(dbType registry.Kind) sq.StatementBuilderType {
 	}
 }
 
-// Ensure SQLStore implements all required interfaces
+// Ensure Store implements all required interfaces
 var (
-	_ store.Store        = (*SQLStore)(nil)
-	_ resource.Provider  = (*SQLStore)(nil)
-	_ supervisor.Service = (*SQLStore)(nil)
+	_ store.Store        = (*Store)(nil)
+	_ resource.Provider  = (*Store)(nil)
+	_ supervisor.Service = (*Store)(nil)
 )

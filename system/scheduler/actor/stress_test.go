@@ -2,6 +2,7 @@ package actor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"runtime"
@@ -23,8 +24,8 @@ type RandomSleepHandler struct {
 	maxSleep time.Duration
 }
 
-func (h *RandomSleepHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
-	sleep := h.minSleep + time.Duration(rand.Int63n(int64(h.maxSleep-h.minSleep)))
+func (h *RandomSleepHandler) Handle(_ context.Context, _ dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+	sleep := h.minSleep + time.Duration(rand.Int63n(int64(h.maxSleep-h.minSleep))) //nolint:gosec // weak random is fine for test jitter
 	time.Sleep(sleep)
 	receiver.CompleteYield(tag, sleep.Nanoseconds(), nil)
 	return nil
@@ -35,7 +36,7 @@ type CPUWorkHandler struct {
 	iterations int
 }
 
-func (h *CPUWorkHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+func (h *CPUWorkHandler) Handle(_ context.Context, _ dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	sum := 0
 	for i := 0; i < h.iterations; i++ {
 		sum += i * i
@@ -54,7 +55,7 @@ type StressConfig struct {
 	MaxProcessors int64
 }
 
-func runStressTest(t *testing.T, cfg StressConfig) StressResult {
+func runStressTest(_ *testing.T, cfg StressConfig) StressResult {
 	registry := scheduler.NewRegistry()
 
 	var handler dispatcher.Handler
@@ -69,12 +70,12 @@ func runStressTest(t *testing.T, cfg StressConfig) StressResult {
 	registry.Register(1, handler)
 
 	var completed atomic.Int64
-	var errors atomic.Int64
+	var errCount atomic.Int64
 
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, result *apiruntime.Result) {
 			if result.Error != nil {
-				errors.Add(1)
+				errCount.Add(1)
 			} else {
 				completed.Add(1)
 			}
@@ -108,10 +109,8 @@ func runStressTest(t *testing.T, cfg StressConfig) StressResult {
 			proc := &RandomYieldProcess{}
 			pid := relay.PID{UniqID: fmt.Sprintf("stress-%d", id)}
 			_, err := sched.Submit(context.Background(), pid, proc, "", testInput(cfg.StepsPerProc))
-			if err != nil {
-				if err == process.ErrMaxProcessesExceeded {
-					errors.Add(1)
-				}
+			if errors.Is(err, process.ErrMaxProcessesExceeded) {
+				errCount.Add(1)
 			}
 		}(i)
 	}
@@ -120,7 +119,7 @@ func runStressTest(t *testing.T, cfg StressConfig) StressResult {
 
 	// Wait for all processes to complete
 	deadline := time.Now().Add(30 * time.Second)
-	for completed.Load()+errors.Load() < int64(cfg.Processes) && time.Now().Before(deadline) {
+	for completed.Load()+errCount.Load() < int64(cfg.Processes) && time.Now().Before(deadline) {
 		time.Sleep(1 * time.Millisecond)
 	}
 
@@ -137,7 +136,7 @@ func runStressTest(t *testing.T, cfg StressConfig) StressResult {
 		Config:       cfg,
 		Duration:     elapsed,
 		Completed:    completed.Load(),
-		Errors:       errors.Load(),
+		Errors:       errCount.Load(),
 		OpsPerSec:    float64(completed.Load()) / elapsed.Seconds(),
 		StepsPerSec:  float64(stats["executed"]) / elapsed.Seconds(),
 		HeapAllocMB:  float64(memAfter.HeapAlloc-memBefore.HeapAlloc) / 1024 / 1024,
@@ -288,19 +287,19 @@ func TestStressWorkerBalance(t *testing.T) {
 		t.Log(result.String())
 
 		// Check work distribution
-		var min, max uint64 = ^uint64(0), 0
+		var minExec, maxExec uint64 = ^uint64(0), 0
 		for _, ws := range result.WorkerStats {
 			exec := ws["executed"]
-			if exec < min {
-				min = exec
+			if exec < minExec {
+				minExec = exec
 			}
-			if exec > max {
-				max = exec
+			if exec > maxExec {
+				maxExec = exec
 			}
 		}
 
-		balance := float64(min) / float64(max)
-		t.Logf("%s balance: %.2f (min=%d, max=%d)", cfg.Name, balance, min, max)
+		balance := float64(minExec) / float64(maxExec)
+		t.Logf("%s balance: %.2f (min=%d, max=%d)", cfg.Name, balance, minExec, maxExec)
 
 		// Work stealing should have better balance
 		if balance < 0.5 {

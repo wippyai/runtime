@@ -177,7 +177,7 @@ func connect(l *lua.LState) int {
 
 		// Compression mode (supports both numbers and strings)
 		if compression := opts.RawGetString("compression"); compression != lua.LNil {
-			switch compression.Type() {
+			switch compression.Type() { //nolint:exhaustive // only number/string types valid
 			case lua.LTNumber, lua.LTInteger:
 				yield.CompressionMode = int(lua.LVAsNumber(compression))
 			case lua.LTString:

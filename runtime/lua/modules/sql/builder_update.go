@@ -98,7 +98,7 @@ func updateSet(l *lua.LState) int {
 	valueParam := l.Get(3)
 
 	var v any
-	switch valueParam.Type() {
+	switch valueParam.Type() { //nolint:exhaustive // only userdata needs special handling
 	case lua.LTUserData:
 		if ud, ok := valueParam.(*lua.LUserData); ok {
 			if sqlizer, ok := ud.Value.(squirrel.Sqlizer); ok {
@@ -145,7 +145,7 @@ func updateWhere(l *lua.LState) int {
 
 	var newBuilder squirrel.UpdateBuilder
 
-	switch l.Get(2).Type() {
+	switch l.Get(2).Type() { //nolint:exhaustive // only string/table/userdata types valid
 	case lua.LTString:
 		condition := l.CheckString(2)
 		args := make([]any, 0, l.GetTop()-2)
@@ -201,9 +201,12 @@ func updateLimit(l *lua.LState) int {
 	}
 
 	limit := l.CheckInt64(2)
+	if limit < 0 {
+		limit = 0
+	}
 
 	wrapUpdateBuilder(l, &updateBuilderWrapper{
-		builder: wrapper.builder.Limit(uint64(limit)),
+		builder: wrapper.builder.Limit(uint64(limit)), //nolint:gosec // validated non-negative
 	})
 	return 1
 }
@@ -215,9 +218,12 @@ func updateOffset(l *lua.LState) int {
 	}
 
 	offset := l.CheckInt64(2)
+	if offset < 0 {
+		offset = 0
+	}
 
 	wrapUpdateBuilder(l, &updateBuilderWrapper{
-		builder: wrapper.builder.Offset(uint64(offset)),
+		builder: wrapper.builder.Offset(uint64(offset)), //nolint:gosec // validated non-negative
 	})
 	return 1
 }

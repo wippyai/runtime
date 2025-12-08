@@ -37,7 +37,7 @@ func (d *poolTestDispatcher) Stop() {
 	}
 }
 
-func newLuaFactory(script string) funcpool.Factory {
+func newLuaFactory(script string) process.FactoryFunc {
 	return func() (process.Process, error) {
 		proto, err := lua.CompileString(script, "test.lua")
 		if err != nil {

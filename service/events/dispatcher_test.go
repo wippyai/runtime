@@ -25,7 +25,7 @@ func newMockBus() *mockBus {
 
 func (b *mockBus) Subscribe(_ context.Context, _ event.System, ch chan<- event.Event) (event.SubscriberID, error) {
 	b.nextID++
-	id := event.SubscriberID(string(rune('A' + b.nextID)))
+	id := string(rune('A' + b.nextID))
 	b.subscribers[id] = ch
 	return id, nil
 }

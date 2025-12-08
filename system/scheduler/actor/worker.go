@@ -94,7 +94,7 @@ func (w *Worker) steal() *Processor {
 		return nil
 	}
 
-	start := int(w.scheduler.nextID.Load()) % n
+	start := int(w.scheduler.nextID.Load()) % n //nolint:gosec // safe: n is always small (worker count)
 	if start == w.id {
 		start = (start + 1) % n
 	}

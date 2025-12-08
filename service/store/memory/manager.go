@@ -21,7 +21,7 @@ type Manager struct {
 	dtt    payload.Transcoder
 	bus    event.Bus
 	mu     sync.RWMutex
-	stores map[registry.ID]*MemoryStore
+	stores map[registry.ID]*Store
 }
 
 // NewManager creates a new memory store manager
@@ -34,7 +34,7 @@ func NewManager(
 		log:    log,
 		dtt:    dtt,
 		bus:    bus,
-		stores: make(map[registry.ID]*MemoryStore),
+		stores: make(map[registry.ID]*Store),
 	}
 }
 
@@ -58,7 +58,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Create memory store
-	store := NewMemoryStore(entry.ID, cfg, m.log)
+	store := NewStore(entry.ID, cfg, m.log)
 	m.stores[entry.ID] = store
 
 	// Register with supervisor
@@ -123,7 +123,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Create new store with updated config
-	newStore := NewMemoryStore(entry.ID, cfg, m.log)
+	newStore := NewStore(entry.ID, cfg, m.log)
 	m.stores[entry.ID] = newStore
 
 	// Update supervisor entry

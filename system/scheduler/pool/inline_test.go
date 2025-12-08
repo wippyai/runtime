@@ -69,11 +69,7 @@ func TestInlineResultPropagation(t *testing.T) {
 	if result.Value == nil {
 		t.Fatal("expected result.Value to be set")
 	}
-	pl, ok := result.Value.(payload.Payload)
-	if !ok {
-		t.Fatalf("expected result.Value to be payload.Payload, got %T", result.Value)
-	}
-	if pl.Data() != "hello world" {
-		t.Fatalf("expected 'hello world', got %v", pl.Data())
+	if result.Value.Data() != "hello world" {
+		t.Fatalf("expected 'hello world', got %v", result.Value.Data())
 	}
 }

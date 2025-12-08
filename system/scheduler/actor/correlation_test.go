@@ -95,7 +95,7 @@ func (TagTrackingCmd) CmdID() dispatcher.CommandID { return CmdTaggedSleep }
 // TagTrackingHandler completes with the original command data.
 type TagTrackingHandler struct{}
 
-func (h *TagTrackingHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+func (h *TagTrackingHandler) Handle(_ context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	c := cmd.(TagTrackingCmd)
 	go receiver.CompleteYield(tag, c.Value, nil)
 	return nil
@@ -142,7 +142,7 @@ func (p *MultiYieldProcess) Step(events []Event, out *StepOutput) error {
 	if p.step == 0 {
 		p.step++
 		for _, cmd := range p.yields {
-			out.Yield(cmd, uint64(cmd.ID))
+			out.Yield(cmd, uint64(cmd.ID)) //nolint:gosec // test: ID is always small positive int
 		}
 		out.Continue()
 		return nil
@@ -150,7 +150,7 @@ func (p *MultiYieldProcess) Step(events []Event, out *StepOutput) error {
 
 	for _, ev := range events {
 		if ev.Type == EventYieldComplete && ev.Tag != 0 {
-			p.resumeOrder = append(p.resumeOrder, int(ev.Tag))
+			p.resumeOrder = append(p.resumeOrder, int(ev.Tag)) //nolint:gosec // test: tag is always small
 		}
 	}
 
@@ -184,8 +184,7 @@ func TestMultiYieldIndependentCompletion(t *testing.T) {
 	var completed atomic.Bool
 
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, res *runtime.Result) {
-			_ = res
+		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
 			completed.Store(true)
 		},
 	}
@@ -281,8 +280,8 @@ func (p *SequentialYieldProcess) Step(events []Event, out *StepOutput) error {
 	return nil
 }
 
-func (p *SequentialYieldProcess) Send(pkg *relay.Package) error { return nil }
-func (p *SequentialYieldProcess) Close()                        {}
+func (p *SequentialYieldProcess) Send(_ *relay.Package) error { return nil }
+func (p *SequentialYieldProcess) Close()                      {}
 
 // TestIndexCorrelationBreaks proves that index-based correlation delivers results
 // in the wrong order when yields complete out of order.
@@ -294,7 +293,7 @@ func TestIndexCorrelationBreaks_ActorScheduler(t *testing.T) {
 	var completed atomic.Bool
 
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, res *runtime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
 			completed.Store(true)
 		},
 	}
@@ -348,7 +347,7 @@ type StaggeredYieldProcess struct {
 	ctx         context.Context
 }
 
-func (p *StaggeredYieldProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
+func (p *StaggeredYieldProcess) Init(ctx context.Context, _ string, _ payload.Payloads) error {
 	p.ctx = ctx
 	p.results = make(map[string]bool)
 	return nil
@@ -398,8 +397,8 @@ func (p *StaggeredYieldProcess) Step(events []Event, out *StepOutput) error {
 	}
 }
 
-func (p *StaggeredYieldProcess) Send(pkg *relay.Package) error { return nil }
-func (p *StaggeredYieldProcess) Close()                        {}
+func (p *StaggeredYieldProcess) Send(_ *relay.Package) error { return nil }
+func (p *StaggeredYieldProcess) Close()                      {}
 
 // TestStaggeredYields_IndexCollision proves that index correlation breaks across steps.
 func TestStaggeredYields_IndexCollision(t *testing.T) {
@@ -410,7 +409,7 @@ func TestStaggeredYields_IndexCollision(t *testing.T) {
 	var completed atomic.Bool
 
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, res *runtime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
 			completed.Store(true)
 		},
 	}
@@ -460,7 +459,6 @@ func TestStaggeredYields_IndexCollision(t *testing.T) {
 
 // ParallelCoroutinesProcess simulates multiple coroutines running concurrently.
 type ParallelCoroutinesProcess struct {
-	step            int
 	xResults        []string
 	yResults        []string
 	yieldedXCount   int
@@ -469,7 +467,7 @@ type ParallelCoroutinesProcess struct {
 	ctx             context.Context
 }
 
-func (p *ParallelCoroutinesProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
+func (p *ParallelCoroutinesProcess) Init(ctx context.Context, _ string, _ payload.Payloads) error {
 	p.ctx = ctx
 	p.xYieldsExpected = 3
 	return nil
@@ -522,8 +520,8 @@ func (p *ParallelCoroutinesProcess) Step(events []Event, out *StepOutput) error 
 	return nil
 }
 
-func (p *ParallelCoroutinesProcess) Send(pkg *relay.Package) error { return nil }
-func (p *ParallelCoroutinesProcess) Close()                        {}
+func (p *ParallelCoroutinesProcess) Send(_ *relay.Package) error { return nil }
+func (p *ParallelCoroutinesProcess) Close()                      {}
 
 // TestParallelCoroutines_IndexCorrelation proves that concurrent coroutine patterns
 // break with index correlation.
@@ -535,7 +533,7 @@ func TestParallelCoroutines_IndexCorrelation(t *testing.T) {
 	var completed atomic.Bool
 
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, res *runtime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
 			completed.Store(true)
 		},
 	}
@@ -595,7 +593,7 @@ type SingleYieldTagProcess struct {
 	ctx         context.Context
 }
 
-func (p *SingleYieldTagProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
+func (p *SingleYieldTagProcess) Init(ctx context.Context, _ string, _ payload.Payloads) error {
 	p.ctx = ctx
 	return nil
 }
@@ -627,8 +625,8 @@ func (p *SingleYieldTagProcess) Step(events []Event, out *StepOutput) error {
 	return nil
 }
 
-func (p *SingleYieldTagProcess) Send(pkg *relay.Package) error { return nil }
-func (p *SingleYieldTagProcess) Close()                        {}
+func (p *SingleYieldTagProcess) Send(_ *relay.Package) error { return nil }
+func (p *SingleYieldTagProcess) Close()                      {}
 
 // TestSingleYieldTagPropagation verifies that the single-yield path
 // correctly propagates the Tag back to the process.
@@ -641,7 +639,7 @@ func TestSingleYieldTagPropagation(t *testing.T) {
 	var result *runtime.Result
 
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, res *runtime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, res *runtime.Result) {
 			result = res
 			completed.Store(true)
 		},
@@ -688,7 +686,7 @@ type SequentialTagYieldProcess struct {
 	ctx          context.Context
 }
 
-func (p *SequentialTagYieldProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
+func (p *SequentialTagYieldProcess) Init(ctx context.Context, _ string, _ payload.Payloads) error {
 	p.ctx = ctx
 	p.pendingTasks = make(map[uint64]int)
 	return nil
@@ -709,7 +707,7 @@ func (p *SequentialTagYieldProcess) Step(events []Event, out *StepOutput) error 
 
 	if p.step < 3 {
 		p.step++
-		tag := uint64(p.step)
+		tag := uint64(p.step) //nolint:gosec // test: step count is always small
 		p.pendingTasks[tag] = p.step
 
 		out.Yield(TagTrackingCmd{ID: p.step, Value: "value"}, tag)
@@ -727,8 +725,8 @@ func (p *SequentialTagYieldProcess) Step(events []Event, out *StepOutput) error 
 	return nil
 }
 
-func (p *SequentialTagYieldProcess) Send(pkg *relay.Package) error { return nil }
-func (p *SequentialTagYieldProcess) Close()                        {}
+func (p *SequentialTagYieldProcess) Send(_ *relay.Package) error { return nil }
+func (p *SequentialTagYieldProcess) Close()                      {}
 
 // TestSequentialYieldTagCorrelation verifies that when a process yields
 // one command per Step across multiple Steps, each result is correctly
@@ -742,7 +740,7 @@ func TestSequentialYieldTagCorrelation(t *testing.T) {
 	var result *runtime.Result
 
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, res *runtime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, res *runtime.Result) {
 			result = res
 			completed.Store(true)
 		},
@@ -791,7 +789,7 @@ type StaggeredMultiYieldProcess struct {
 	ctx           context.Context
 }
 
-func (p *StaggeredMultiYieldProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
+func (p *StaggeredMultiYieldProcess) Init(ctx context.Context, _ string, _ payload.Payloads) error {
 	p.ctx = ctx
 	p.pendingYields = make(map[uint64]bool)
 	p.workers = 3
@@ -814,10 +812,10 @@ func (p *StaggeredMultiYieldProcess) Step(events []Event, out *StepOutput) error
 
 	if p.yieldCount == 0 {
 		for i := 0; i < p.workers; i++ {
-			tag := uint64(i + 1)
+			tag := uint64(i + 1) //nolint:gosec // test: i is always small
 			p.pendingYields[tag] = true
 			p.yieldCount++
-			out.Yield(TagTrackingCmd{ID: int(tag), Value: "initial"}, tag)
+			out.Yield(TagTrackingCmd{ID: int(tag), Value: "initial"}, tag) //nolint:gosec // test: tag is always small
 		}
 		out.Continue()
 		return nil
@@ -825,18 +823,18 @@ func (p *StaggeredMultiYieldProcess) Step(events []Event, out *StepOutput) error
 
 	workerYields := make(map[int]int)
 	for _, tag := range p.completedTags {
-		workerID := ((int(tag) - 1) % p.workers) + 1
+		workerID := ((int(tag) - 1) % p.workers) + 1 //nolint:gosec // test: tag is always small
 		workerYields[workerID]++
 	}
 
 	for _, tag := range completedThisStep {
-		workerID := ((int(tag) - 1) % p.workers) + 1
+		workerID := ((int(tag) - 1) % p.workers) + 1 //nolint:gosec // test: tag is always small
 		if workerYields[workerID] < p.maxYields {
 			p.yieldCount++
-			newTag := uint64(p.yieldCount)
+			newTag := uint64(p.yieldCount) //nolint:gosec // test: yield count is always small
 			p.pendingYields[newTag] = true
 			workerYields[workerID]++
-			out.Yield(TagTrackingCmd{ID: int(newTag), Value: "subsequent"}, newTag)
+			out.Yield(TagTrackingCmd{ID: int(newTag), Value: "subsequent"}, newTag) //nolint:gosec // test: tag is always small
 		}
 	}
 
@@ -850,8 +848,8 @@ func (p *StaggeredMultiYieldProcess) Step(events []Event, out *StepOutput) error
 	return nil
 }
 
-func (p *StaggeredMultiYieldProcess) Send(pkg *relay.Package) error { return nil }
-func (p *StaggeredMultiYieldProcess) Close()                        {}
+func (p *StaggeredMultiYieldProcess) Send(_ *relay.Package) error { return nil }
+func (p *StaggeredMultiYieldProcess) Close()                      {}
 
 // TestStaggeredMultiYield tests the scenario where multiple concurrent yields
 // are active, and as each completes, the process yields again.
@@ -868,7 +866,7 @@ func TestStaggeredMultiYield(t *testing.T) {
 	var result *runtime.Result
 
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, res *runtime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, res *runtime.Result) {
 			result = res
 			completed.Store(true)
 		},
@@ -923,7 +921,7 @@ func TestAsyncSingleYieldTagPropagation(t *testing.T) {
 	var result *runtime.Result
 
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, res *runtime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, res *runtime.Result) {
 			result = res
 			completed.Store(true)
 		},

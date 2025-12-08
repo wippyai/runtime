@@ -263,9 +263,9 @@ func parse(l *lua.LState) int {
 	}
 
 	var cflag uintptr
-	parser.SetCancellationFlag(&cflag)
+	parser.SetCancellationFlag(&cflag) //nolint:staticcheck // library update needed
 
-	tree := parser.ParseCtx(ctx, []byte(code), nil)
+	tree := parser.ParseCtx(ctx, []byte(code), nil) //nolint:staticcheck // library update needed
 	if tree == nil {
 		err := lua.NewLuaError(l, "failed to parse code").
 			WithKind(lua.KindInternal).

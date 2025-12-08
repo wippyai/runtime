@@ -196,7 +196,7 @@ func TestDispatcher_Concurrent(t *testing.T) {
 			_ = d.handle(ctx, cmd, tag, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
 				results <- data.(storeapi.SetResponse)
 			}})
-		}(uint64(i))
+		}(uint64(i)) //nolint:gosec // test loop counter
 	}
 
 	wg.Wait()
@@ -461,7 +461,7 @@ func TestStress_HighConcurrency(t *testing.T) {
 
 			for i := 0; i < opsPerGoroutine; i++ {
 				key := registry.ID{NS: "stress", Name: fmt.Sprintf("key-%d-%d", goroutineID, i)}
-				tag := uint64(goroutineID*opsPerGoroutine + i)
+				tag := uint64(goroutineID*opsPerGoroutine + i) //nolint:gosec // test loop counter
 
 				setDone := make(chan struct{})
 				setCmd := &storeapi.SetCmd{
@@ -524,7 +524,7 @@ func TestStress_RapidStartStop(t *testing.T) {
 				Value: payload.New("value"),
 			},
 		}
-		_ = d.handle(context.Background(), cmd, uint64(i), &testReceiver{onComplete: func(_ uint64, _ any, _ error) {
+		_ = d.handle(context.Background(), cmd, uint64(i), &testReceiver{onComplete: func(_ uint64, _ any, _ error) { //nolint:gosec // test loop counter
 			close(done)
 		}})
 
@@ -553,7 +553,7 @@ func TestStress_MixedOperations(t *testing.T) {
 			defer wg.Done()
 
 			key := registry.ID{NS: "mixed", Name: fmt.Sprintf("key-%d", i%100)}
-			tag := uint64(i)
+			tag := uint64(i) //nolint:gosec // test loop counter
 			receiver := &testReceiver{onComplete: func(_ uint64, _ any, _ error) {}}
 
 			switch i % 4 {
@@ -598,7 +598,7 @@ func TestRace_ConcurrentSubmit(t *testing.T) {
 				Entry: store.Entry{Key: key, Value: payload.New("value")},
 			}
 			done := make(chan struct{})
-			_ = d.handle(ctx, cmd, uint64(i), &testReceiver{onComplete: func(_ uint64, _ any, _ error) {
+			_ = d.handle(ctx, cmd, uint64(i), &testReceiver{onComplete: func(_ uint64, _ any, _ error) { //nolint:gosec // test loop counter
 				close(done)
 			}})
 			<-done
@@ -671,7 +671,7 @@ func BenchmarkDispatcher_WithLatency(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		wg.Add(1)
 		cmd := &storeapi.GetCmd{Store: ms, Key: key}
-		_ = d.handle(ctx, cmd, uint64(i), &testReceiver{onComplete: func(_ uint64, _ any, _ error) {
+		_ = d.handle(ctx, cmd, uint64(i), &testReceiver{onComplete: func(_ uint64, _ any, _ error) { //nolint:gosec // benchmark loop counter
 			wg.Done()
 		}})
 	}

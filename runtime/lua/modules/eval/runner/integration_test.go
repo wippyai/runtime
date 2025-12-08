@@ -43,9 +43,9 @@ func (ts *testScheduler) Stop() {
 	}
 }
 
-func (ts *testScheduler) OnStart(ctx context.Context, pid relay.PID, p process.Process) {}
+func (ts *testScheduler) OnStart(_ context.Context, _ relay.PID, _ process.Process) {}
 
-func (ts *testScheduler) OnComplete(ctx context.Context, pid relay.PID, result *runtime.Result) {
+func (ts *testScheduler) OnComplete(_ context.Context, pid relay.PID, result *runtime.Result) {
 	ts.mu.Lock()
 	ch, ok := ts.pending[pid.UniqID]
 	if ok {
@@ -89,7 +89,7 @@ func uniqueTestPID() relay.PID {
 	return relay.PID{UniqID: time.Now().Format("20060102150405.000000000") + "-" + string(rune(testPIDCounter.Add(1)))}
 }
 
-func newTestScheduler(numWorkers int) *testScheduler {
+func newTestScheduler() *testScheduler {
 	ts := &testScheduler{
 		pending: make(map[string]chan *runtime.Result),
 	}
@@ -113,15 +113,11 @@ func newTestScheduler(numWorkers int) *testScheduler {
 	ts.eval = evalSvc
 
 	opts := []actor.Option{
-		actor.WithWorkers(numWorkers),
+		actor.WithWorkers(4),
 		actor.WithLifecycle(ts),
 	}
 	ts.Scheduler = actor.NewScheduler(reg, opts...)
 	return ts
-}
-
-func bindRunnerModule(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
 }
 
 func bindAllModules(l *lua.LState) {
@@ -319,7 +315,7 @@ func TestRunner_YieldStringAndType(t *testing.T) {
 
 // TestRunner_Integration_Compile tests the full compile flow via scheduler
 func TestRunner_Integration_Compile(t *testing.T) {
-	sched := newTestScheduler(4)
+	sched := newTestScheduler()
 	sched.Scheduler.Start()
 	defer sched.Stop()
 
@@ -355,7 +351,7 @@ func TestRunner_Integration_Compile(t *testing.T) {
 
 // TestRunner_Integration_CompileSyntaxError tests compile with syntax error
 func TestRunner_Integration_CompileSyntaxError(t *testing.T) {
-	sched := newTestScheduler(4)
+	sched := newTestScheduler()
 	sched.Scheduler.Start()
 	defer sched.Stop()
 
@@ -387,7 +383,7 @@ func TestRunner_Integration_CompileSyntaxError(t *testing.T) {
 
 // TestRunner_Integration_Run tests the full run flow
 func TestRunner_Integration_Run(t *testing.T) {
-	sched := newTestScheduler(4)
+	sched := newTestScheduler()
 	sched.Scheduler.Start()
 	defer sched.Stop()
 
@@ -428,7 +424,7 @@ func TestRunner_Integration_Run(t *testing.T) {
 
 // TestRunner_ProgramMethods tests Program userdata methods
 func TestRunner_ProgramMethods(t *testing.T) {
-	sched := newTestScheduler(4)
+	sched := newTestScheduler()
 	sched.Scheduler.Start()
 	defer sched.Stop()
 
@@ -466,7 +462,7 @@ func TestRunner_ProgramMethods(t *testing.T) {
 }
 
 // TestRunner_PoolConcurrency tests pool under concurrent access
-func TestRunner_PoolConcurrency(t *testing.T) {
+func TestRunner_PoolConcurrency(_ *testing.T) {
 	const goroutines = 100
 	const iterations = 100
 

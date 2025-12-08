@@ -63,14 +63,14 @@ func TestTimerWaveLoad(t *testing.T) {
 					return
 				}
 
-				duration := time.Duration(10+rand.Intn(100)) * time.Millisecond
+				duration := time.Duration(10+rand.Intn(100)) * time.Millisecond //nolint:gosec // test simulation
 				id := r.Start(duration)
 				totalCreated.Add(1)
 
 				// 30% of timers will be canceled
-				if rand.Float32() < 0.3 {
+				if rand.Float32() < 0.3 { //nolint:gosec // test simulation
 					go func(id uint64) {
-						time.Sleep(time.Duration(rand.Intn(50)) * time.Millisecond)
+						time.Sleep(time.Duration(rand.Intn(50)) * time.Millisecond) //nolint:gosec // test simulation
 						if _, err := r.Stop(id); err == nil {
 							totalCanceled.Add(1)
 						}
@@ -150,7 +150,7 @@ func TestTickerWaveLoad(t *testing.T) {
 				if ctx.Err() != nil {
 					return
 				}
-				interval := time.Duration(20+rand.Intn(80)) * time.Millisecond
+				interval := time.Duration(20+rand.Intn(80)) * time.Millisecond //nolint:gosec // test simulation
 				id := r.Start(interval)
 				totalCreated.Add(1)
 
@@ -174,7 +174,7 @@ func TestTickerWaveLoad(t *testing.T) {
 					return
 				case id := <-activeTickers:
 					// Read a few ticks then stop
-					for j := 0; j < rand.Intn(5)+1; j++ {
+					for j := 0; j < rand.Intn(5)+1; j++ { //nolint:gosec // test simulation
 						ctx2, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
 						if _, err := r.Next(ctx2, id); err == nil {
 							totalTicks.Add(1)
@@ -240,7 +240,7 @@ func TestTimerBurstSpikes(t *testing.T) {
 				spikeWg.Add(1)
 				go func() {
 					defer spikeWg.Done()
-					duration := time.Duration(50+rand.Intn(200)) * time.Millisecond
+					duration := time.Duration(50+rand.Intn(200)) * time.Millisecond //nolint:gosec // test simulation
 					id := r.Start(duration)
 					totalCreated.Add(1)
 
@@ -301,7 +301,7 @@ func TestMixedOperationsChaos(t *testing.T) {
 		go func(workerID int) {
 			defer wg.Done()
 
-			rng := rand.New(rand.NewSource(time.Now().UnixNano() + int64(workerID)))
+			rng := rand.New(rand.NewSource(time.Now().UnixNano() + int64(workerID))) //nolint:gosec // test simulation
 			var localTimers []uint64
 
 			// Each worker has different "personality"
@@ -456,7 +456,7 @@ func TestWheelTimerMixedChaos(t *testing.T) {
 		go func(workerID int) {
 			defer wg.Done()
 
-			rng := rand.New(rand.NewSource(time.Now().UnixNano() + int64(workerID)))
+			rng := rand.New(rand.NewSource(time.Now().UnixNano() + int64(workerID))) //nolint:gosec // test simulation
 			var localTimers []uint64
 
 			for {
@@ -657,7 +657,7 @@ func TestContextCancellationUnderLoad(t *testing.T) {
 				id := r.Start(time.Hour)
 
 				go func() {
-					time.Sleep(time.Microsecond * time.Duration(rand.Intn(100)))
+					time.Sleep(time.Microsecond * time.Duration(rand.Intn(100))) //nolint:gosec // test simulation
 					cancel()
 				}()
 
@@ -694,7 +694,7 @@ func TestWheelTimerMemoryLeak(t *testing.T) {
 		// Create timers with mixed durations
 		ids := make([]uint64, timersPerIteration)
 		for i := 0; i < timersPerIteration; i++ {
-			duration := time.Duration(1+rand.Intn(100)) * time.Millisecond
+			duration := time.Duration(1+rand.Intn(100)) * time.Millisecond //nolint:gosec // test simulation
 			ids[i] = r.Start(duration)
 		}
 
@@ -764,12 +764,12 @@ func TestWheelTimerLongRunning(t *testing.T) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				dur := time.Duration(10+rand.Intn(90)) * time.Millisecond
+				dur := time.Duration(10+rand.Intn(90)) * time.Millisecond //nolint:gosec // test simulation
 				id := r.Start(dur)
 				created.Add(1)
 
 				// 70% wait, 30% stop immediately
-				if rand.Intn(100) < 70 {
+				if rand.Intn(100) < 70 { //nolint:gosec // test simulation
 					go func(id uint64) {
 						waitCtx, waitCancel := context.WithTimeout(ctx, 200*time.Millisecond)
 						if _, err := r.Wait(waitCtx, id); err == nil {
@@ -843,7 +843,7 @@ func TestWheelTimerBurstMemory(t *testing.T) {
 		// Create burst of timers
 		ids := make([]uint64, timersPerBurst)
 		for i := 0; i < timersPerBurst; i++ {
-			ids[i] = r.Start(time.Duration(10+rand.Intn(90)) * time.Millisecond)
+			ids[i] = r.Start(time.Duration(10+rand.Intn(90)) * time.Millisecond) //nolint:gosec // test simulation
 		}
 
 		// Wait for all to fire

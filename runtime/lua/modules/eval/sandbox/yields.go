@@ -133,8 +133,8 @@ func (y *CreateProcessYield) HandleResult(l *lua.LState, data any, err error) []
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 
-	// Wrap in SandboxProcess for Lua control
-	wrapper := NewSandboxProcess(y.Ctx, proc, y.Clock)
+	// Wrap in Process for Lua control
+	wrapper := NewProcess(y.Ctx, proc, y.Clock)
 	ud := value.NewTypedUserData(l, wrapper, processTypeName)
 	return []lua.LValue{ud, lua.LNil}
 }

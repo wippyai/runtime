@@ -2,6 +2,7 @@ package pool
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -95,7 +96,7 @@ func TestLazyMaxWorkers(t *testing.T) {
 	ctx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
 	defer cancel()
 	_, err = pool2.Call(ctx, "test", nil)
-	if err != context.DeadlineExceeded {
+	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Logf("Expected DeadlineExceeded, got: %v", err)
 	}
 

@@ -90,7 +90,7 @@ func (h *timerYieldHandler) Handle(_ context.Context, _ dispatcher.Command, tag 
 	return nil
 }
 
-func newSlowYieldingFactory() Factory {
+func newSlowYieldingFactory() process.FactoryFunc {
 	return func() (process.Process, error) {
 		return &slowYieldingProcess{}, nil
 	}
@@ -147,7 +147,7 @@ type testYieldCmd struct{}
 
 func (c *testYieldCmd) CmdID() dispatcher.CommandID { return 1 }
 
-func newActualYieldingFactory() Factory {
+func newActualYieldingFactory() process.FactoryFunc {
 	return func() (process.Process, error) {
 		return &actualYieldingProcess{}, nil
 	}

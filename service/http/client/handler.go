@@ -170,7 +170,8 @@ func executeRequest(ctx context.Context, pool *Pool, req *httpapi.RequestCmd, al
 	var body io.Reader
 	var contentType string
 
-	if len(req.Files) > 0 {
+	switch {
+	case len(req.Files) > 0:
 		var buf bytes.Buffer
 		writer := multipart.NewWriter(&buf)
 		for k, v := range req.Form {
@@ -186,14 +187,14 @@ func executeRequest(ctx context.Context, pool *Pool, req *httpapi.RequestCmd, al
 		_ = writer.Close()
 		body = &buf
 		contentType = writer.FormDataContentType()
-	} else if len(req.Form) > 0 {
+	case len(req.Form) > 0:
 		formData := url.Values{}
 		for k, v := range req.Form {
 			formData.Set(k, v)
 		}
 		body = strings.NewReader(formData.Encode())
 		contentType = "application/x-www-form-urlencoded"
-	} else if len(req.Body) > 0 {
+	case len(req.Body) > 0:
 		body = bytes.NewReader(req.Body)
 	}
 

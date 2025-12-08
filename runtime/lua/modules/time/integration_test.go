@@ -74,8 +74,7 @@ func (ts *testScheduler) Execute(ctx context.Context, pid relay.PID, p actor.Pro
 	}
 }
 
-func newTestScheduler(numWorkers int, opts ...actor.Option) *testScheduler {
-	_ = numWorkers // always 4
+func newTestScheduler() *testScheduler {
 	ts := &testScheduler{
 		pending: make(map[string]chan *runtime.Result),
 	}
@@ -85,10 +84,10 @@ func newTestScheduler(numWorkers int, opts ...actor.Option) *testScheduler {
 		reg.Register(id, h)
 	})
 	ts.clock = clockSvc
-	opts = append([]actor.Option{
+	opts := []actor.Option{
 		actor.WithWorkers(4),
 		actor.WithLifecycle(ts),
-	}, opts...)
+	}
 	ts.Scheduler = actor.NewScheduler(reg, opts...)
 	return ts
 }
@@ -112,7 +111,7 @@ func newLuaProcessWithChannels(script string) *engine.Process {
 
 // TestTickerBasic tests basic ticker functionality with channel API
 func TestTickerBasic(t *testing.T) {
-	sched := newTestScheduler(4)
+	sched := newTestScheduler()
 	sched.Start()
 	defer sched.Stop()
 
@@ -167,7 +166,7 @@ func TestOverlappingTickersSelect(t *testing.T) {
 
 // TestMultipleTickersStaggered tests staggered tickers
 func TestMultipleTickersStaggered(t *testing.T) {
-	sched := newTestScheduler(4)
+	sched := newTestScheduler()
 	sched.Start()
 	defer sched.Stop()
 
@@ -232,7 +231,7 @@ func TestMultipleTickersStaggered(t *testing.T) {
 
 // TestTickerStop tests ticker stop mid-stream
 func TestTickerStop(t *testing.T) {
-	sched := newTestScheduler(4)
+	sched := newTestScheduler()
 	sched.Start()
 	defer sched.Stop()
 
@@ -271,7 +270,7 @@ func TestTickerStop(t *testing.T) {
 
 // TestTickerCleanupOnProcessExit tests that tickers are cleaned up when process exits
 func TestTickerCleanupOnProcessExit(t *testing.T) {
-	sched := newTestScheduler(4)
+	sched := newTestScheduler()
 	sched.Start()
 	defer sched.Stop()
 
@@ -320,7 +319,7 @@ func TestTickerCleanupOnProcessExit(t *testing.T) {
 
 // TestTimerCleanupOnProcessExit tests that timers are cleaned up when process exits
 func TestTimerCleanupOnProcessExit(t *testing.T) {
-	sched := newTestScheduler(4)
+	sched := newTestScheduler()
 	sched.Start()
 	defer sched.Stop()
 

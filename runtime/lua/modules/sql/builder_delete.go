@@ -92,7 +92,7 @@ func deleteWhere(l *lua.LState) int {
 
 	var newBuilder squirrel.DeleteBuilder
 
-	switch l.Get(2).Type() {
+	switch l.Get(2).Type() { //nolint:exhaustive // only string/table/userdata types valid
 	case lua.LTString:
 		condition := l.CheckString(2)
 		args := make([]any, 0, l.GetTop()-2)
@@ -148,9 +148,12 @@ func deleteLimit(l *lua.LState) int {
 	}
 
 	limit := l.CheckInt64(2)
+	if limit < 0 {
+		limit = 0
+	}
 
 	wrapDeleteBuilder(l, &deleteBuilderWrapper{
-		builder: wrapper.builder.Limit(uint64(limit)),
+		builder: wrapper.builder.Limit(uint64(limit)), //nolint:gosec // validated non-negative
 	})
 	return 1
 }
@@ -162,9 +165,12 @@ func deleteOffset(l *lua.LState) int {
 	}
 
 	offset := l.CheckInt64(2)
+	if offset < 0 {
+		offset = 0
+	}
 
 	wrapDeleteBuilder(l, &deleteBuilderWrapper{
-		builder: wrapper.builder.Offset(uint64(offset)),
+		builder: wrapper.builder.Offset(uint64(offset)), //nolint:gosec // validated non-negative
 	})
 	return 1
 }

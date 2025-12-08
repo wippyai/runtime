@@ -26,7 +26,7 @@ func TestQueuePushPop(t *testing.T) {
 
 	// Push 5 items
 	for i := 0; i < 5; i++ {
-		q.Push(&Processor{id: uint64(i)})
+		q.Push(&Processor{id: uint64(i)}) //nolint:gosec // test: i is always small
 	}
 
 	if q.Len() != 5 {
@@ -58,7 +58,7 @@ func TestQueuePopN(t *testing.T) {
 	q := NewQueue(32)
 
 	for i := 0; i < 10; i++ {
-		q.Push(&Processor{id: uint64(i)})
+		q.Push(&Processor{id: uint64(i)}) //nolint:gosec // test: i is always small
 	}
 
 	buf := make([]*Processor, 4)
@@ -70,7 +70,7 @@ func TestQueuePopN(t *testing.T) {
 
 	// Should be FIFO
 	for i := 0; i < n; i++ {
-		if buf[i].ID() != uint64(i) {
+		if buf[i].ID() != uint64(i) { //nolint:gosec // test: i is always small
 			t.Fatalf("buf[%d] expected ID %d, got %d", i, i, buf[i].ID())
 		}
 	}
@@ -84,7 +84,7 @@ func TestQueuePopNMoreThanAvailable(t *testing.T) {
 	q := NewQueue(16)
 
 	for i := 0; i < 3; i++ {
-		q.Push(&Processor{id: uint64(i)})
+		q.Push(&Processor{id: uint64(i)}) //nolint:gosec // test: i is always small
 	}
 
 	buf := make([]*Processor, 10)
@@ -104,7 +104,7 @@ func TestQueueGrow(t *testing.T) {
 
 	// Push more than initial capacity
 	for i := 0; i < 50; i++ {
-		q.Push(&Processor{id: uint64(i)})
+		q.Push(&Processor{id: uint64(i)}) //nolint:gosec // test: i is always small
 	}
 
 	if q.Len() != 50 {
@@ -126,11 +126,11 @@ func TestQueueWrapAround(t *testing.T) {
 	// Push and pop to move head/tail
 	for round := 0; round < 5; round++ {
 		for i := 0; i < 10; i++ {
-			q.Push(&Processor{id: uint64(round*10 + i)})
+			q.Push(&Processor{id: uint64(round*10 + i)}) //nolint:gosec // test: values always small
 		}
 		for i := 0; i < 10; i++ {
 			p := q.Pop()
-			if p.ID() != uint64(round*10+i) {
+			if p.ID() != uint64(round*10+i) { //nolint:gosec // test: values always small
 				t.Fatalf("round %d, expected ID %d, got %d", round, round*10+i, p.ID())
 			}
 		}
@@ -170,7 +170,7 @@ func TestQueueConcurrentPushPop(t *testing.T) {
 		go func(base int) {
 			defer wg.Done()
 			for j := 0; j < numOps/4; j++ {
-				q.Push(&Processor{id: uint64(base*numOps + j)})
+				q.Push(&Processor{id: uint64(base*numOps + j)}) //nolint:gosec // test: values always small
 				pushed.Add(1)
 			}
 		}(i)
@@ -210,7 +210,7 @@ func TestQueueConcurrentPopN(t *testing.T) {
 
 	const numItems = 1000
 	for i := 0; i < numItems; i++ {
-		q.Push(&Processor{id: uint64(i)})
+		q.Push(&Processor{id: uint64(i)}) //nolint:gosec // test: i is always small
 	}
 
 	var popped atomic.Int64
@@ -240,14 +240,14 @@ func TestQueueConcurrentPopN(t *testing.T) {
 	}
 }
 
-func TestQueueNoDataRace(t *testing.T) {
+func TestQueueNoDataRace(_ *testing.T) {
 	q := NewQueue(64)
 	done := make(chan struct{})
 
 	// Writer
 	go func() {
 		for i := 0; i < 10000; i++ {
-			q.Push(&Processor{id: uint64(i)})
+			q.Push(&Processor{id: uint64(i)}) //nolint:gosec // test: i is always small
 		}
 		close(done)
 	}()
@@ -262,7 +262,7 @@ func TestQueueNoDataRace(t *testing.T) {
 				select {
 				case <-done:
 					// Drain remaining
-					for q.Pop() != nil {
+					for q.Pop() != nil { //nolint:revive // intentional empty drain loop
 					}
 					return
 				default:
@@ -284,7 +284,7 @@ func TestQueueZeroAllocPushPop(t *testing.T) {
 
 	// Pre-warm
 	for i := 0; i < 32; i++ {
-		q.Push(&Processor{id: uint64(i)})
+		q.Push(&Processor{id: uint64(i)}) //nolint:gosec // test: i is always small
 	}
 	for i := 0; i < 32; i++ {
 		q.Pop()

@@ -63,6 +63,8 @@ func (t Ternary) String() string {
 		return "True"
 	case False:
 		return "False"
+	case Unknown:
+		return "Unknown"
 	default:
 		return "Unknown"
 	}

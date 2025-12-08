@@ -185,7 +185,7 @@ person:
 				if transcodedPayload.Format() != tt.expectedPayload.Format() {
 					t.Errorf("transcoded payload format does not match expected format\ngot:  %v\nwant: %v", transcodedPayload.Format(), tt.expectedPayload.Format())
 				}
-				switch tt.expectedPayload.Format() {
+				switch tt.expectedPayload.Format() { //nolint:exhaustive // only JSON/YAML/Golang in tests
 				case payload.JSON:
 					var got, want interface{}
 					jt := &json.ToGolang{}

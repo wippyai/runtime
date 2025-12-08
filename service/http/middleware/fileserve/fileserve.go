@@ -25,17 +25,6 @@ const (
 	XFileNameHeader = "X-File-Name" // Download filename
 )
 
-// getOption retrieves an option value, checking the new dot-separated key first,
-// then falling back to the legacy underscore key for backward compatibility
-//
-
-func getOption(options map[string]string, newKey, legacyKey string) string {
-	if val, ok := options[newKey]; ok {
-		return val
-	}
-	return options[legacyKey]
-}
-
 // FSRegistry interface for filesystem registry
 type FSRegistry interface {
 	GetFS(path string) (fsapi.FS, bool)
@@ -73,7 +62,11 @@ func (rec *responseRecorder) Write(b []byte) (int, error) {
 
 // CreateFileServeMiddleware creates middleware that serves files when X-Sendfile or X-File-Path header is set
 func CreateFileServeMiddleware(options map[string]string, fsRegistry FSRegistry) func(http.Handler) http.Handler {
-	fsID := getOption(options, OptionFS, legacyFS)
+	// Check new key first, then fallback to legacy key
+	fsID := options[OptionFS]
+	if fsID == "" {
+		fsID = options[legacyFS]
+	}
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

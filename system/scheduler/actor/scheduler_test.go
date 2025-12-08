@@ -2,6 +2,7 @@ package actor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -39,7 +40,7 @@ func (SleepCmd) CmdID() dispatcher.CommandID { return CmdSleep }
 // Test handlers
 
 func CompleteHandler() dispatcher.Handler {
-	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+	return dispatcher.HandlerFunc(func(_ context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 		c := cmd.(CompleteCmd)
 		go receiver.CompleteYield(tag, c.Value, nil)
 		return nil
@@ -47,7 +48,7 @@ func CompleteHandler() dispatcher.Handler {
 }
 
 func YieldHandler() dispatcher.Handler {
-	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+	return dispatcher.HandlerFunc(func(_ context.Context, _ dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 		go receiver.CompleteYield(tag, nil, nil)
 		return nil
 	})
@@ -196,7 +197,7 @@ func TestSchedulerBasic(t *testing.T) {
 	var result *runtime.Result
 
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, res *runtime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, res *runtime.Result) {
 			result = res
 			completed.Store(true)
 		},
@@ -229,7 +230,7 @@ func TestSchedulerMultipleProcesses(t *testing.T) {
 	var completedCount atomic.Int32
 
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, result *runtime.Result) {
 			if result.Error != nil {
 				t.Errorf("process error: %v", result.Error)
 				return
@@ -264,7 +265,7 @@ func TestSchedulerSleep(t *testing.T) {
 	var completed atomic.Bool
 
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, result *runtime.Result) {
 			if result.Error != nil {
 				t.Errorf("error: %v", result.Error)
 			}
@@ -301,7 +302,7 @@ func TestSchedulerWorkDistribution(t *testing.T) {
 	var completed atomic.Int32
 
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
 			completed.Add(1)
 		},
 	}
@@ -311,7 +312,7 @@ func TestSchedulerWorkDistribution(t *testing.T) {
 	defer sched.Stop()
 
 	for i := 0; i < 100; i++ {
-		sched.Submit(context.Background(), testPID(), &CounterProcess{}, "", testInput(50))
+		_, _ = sched.Submit(context.Background(), testPID(), &CounterProcess{}, "", testInput(50))
 	}
 
 	deadline := time.Now().Add(5 * time.Second)
@@ -349,7 +350,7 @@ func TestSchedulerStats(t *testing.T) {
 	var completed atomic.Int32
 
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
 			completed.Add(1)
 		},
 	}
@@ -359,7 +360,7 @@ func TestSchedulerStats(t *testing.T) {
 	defer sched.Stop()
 
 	for i := 0; i < 10; i++ {
-		sched.Submit(context.Background(), testPID(), &CounterProcess{}, "", testInput(10))
+		_, _ = sched.Submit(context.Background(), testPID(), &CounterProcess{}, "", testInput(10))
 	}
 
 	deadline := time.Now().Add(5 * time.Second)
@@ -510,7 +511,7 @@ func TestOnStartCallback(t *testing.T) {
 	var mu sync.Mutex
 
 	lc := &testLifecycle{
-		onStart: func(ctx context.Context, pid relay.PID, proc Process) {
+		onStart: func(_ context.Context, pid relay.PID, _ Process) {
 			startCalls.Add(1)
 			mu.Lock()
 			startPIDs = append(startPIDs, pid)
@@ -525,7 +526,7 @@ func TestOnStartCallback(t *testing.T) {
 	// Submit multiple processes
 	for i := 0; i < 5; i++ {
 		pid := relay.PID{UniqID: fmt.Sprintf("test-%d", i)}
-		sched.Submit(context.Background(), pid, &CounterProcess{}, "", testInput(1))
+		_, _ = sched.Submit(context.Background(), pid, &CounterProcess{}, "", testInput(1))
 	}
 
 	// Wait for all to complete
@@ -552,7 +553,7 @@ func TestOnCompleteCallback(t *testing.T) {
 	var mu sync.Mutex
 
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+		onComplete: func(_ context.Context, pid relay.PID, result *runtime.Result) {
 			completeCalls.Add(1)
 			mu.Lock()
 			completePIDs = append(completePIDs, pid)
@@ -568,7 +569,7 @@ func TestOnCompleteCallback(t *testing.T) {
 	// Submit multiple processes
 	for i := 0; i < 5; i++ {
 		pid := relay.PID{UniqID: fmt.Sprintf("test-%d", i)}
-		sched.Submit(context.Background(), pid, &CounterProcess{}, "", testInput(1))
+		_, _ = sched.Submit(context.Background(), pid, &CounterProcess{}, "", testInput(1))
 	}
 
 	// Wait for all to complete
@@ -594,7 +595,7 @@ func TestSendByPID(t *testing.T) {
 	var completed atomic.Bool
 
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
 			completed.Store(true)
 		},
 	}
@@ -629,7 +630,7 @@ func TestSendByPID(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for completed PID")
 	}
-	if err != process.ErrProcessNotFound {
+	if !errors.Is(err, process.ErrProcessNotFound) {
 		t.Fatalf("expected ErrProcessNotFound, got %T", err)
 	}
 }
@@ -641,7 +642,7 @@ func TestSchedulerSingleWorker(t *testing.T) {
 	var result *runtime.Result
 
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, res *runtime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, res *runtime.Result) {
 			result = res
 			completed.Store(true)
 		},
@@ -690,7 +691,7 @@ func TestSchedulerSubmitAlloc(t *testing.T) {
 	var completed atomic.Int32
 
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
 			completed.Add(1)
 		},
 	}
@@ -704,7 +705,7 @@ func TestSchedulerSubmitAlloc(t *testing.T) {
 
 	// Warm up
 	for i := 0; i < 100; i++ {
-		sched.Submit(context.Background(), pid, &CounterProcess{}, "", input)
+		_, _ = sched.Submit(context.Background(), pid, &CounterProcess{}, "", input)
 	}
 
 	deadline := time.Now().Add(5 * time.Second)
@@ -714,7 +715,7 @@ func TestSchedulerSubmitAlloc(t *testing.T) {
 
 	// Measure allocations
 	allocs := testing.AllocsPerRun(100, func() {
-		sched.Submit(context.Background(), pid, &CounterProcess{}, "", input)
+		_, _ = sched.Submit(context.Background(), pid, &CounterProcess{}, "", input)
 	})
 
 	deadline = time.Now().Add(5 * time.Second)
@@ -759,7 +760,7 @@ func TestSchedulerReleasesProcesses(t *testing.T) {
 	var completed atomic.Int32
 
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
 			completed.Add(1)
 		},
 	}

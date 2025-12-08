@@ -19,7 +19,7 @@ import (
 // Minimal process - single step, immediate complete
 type SingleStepProcess struct{}
 
-func (p *SingleStepProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
+func (p *SingleStepProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
 	return nil
 }
 
@@ -113,7 +113,7 @@ func (p *RandomYieldProcess) Send(_ *relay.Package) error { return nil }
 func (p *RandomYieldProcess) Close()                      {}
 
 func benchImmediateHandler() dispatcher.Handler {
-	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+	return dispatcher.HandlerFunc(func(_ context.Context, _ dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 		receiver.CompleteYield(tag, nil, nil)
 		return nil
 	})
@@ -121,7 +121,7 @@ func benchImmediateHandler() dispatcher.Handler {
 
 type InstantHandler struct{}
 
-func (h *InstantHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+func (h *InstantHandler) Handle(_ context.Context, _ dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	receiver.CompleteYield(tag, nil, nil)
 	return nil
 }
@@ -130,7 +130,7 @@ func (h *InstantHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag
 func BenchmarkSingleStep(b *testing.B) {
 	var completed atomic.Int64
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, _ *apiruntime.Result) {
 			completed.Add(1)
 		},
 	}
@@ -149,6 +149,7 @@ func BenchmarkSingleStep(b *testing.B) {
 	}
 
 	for completed.Load() < int64(b.N) {
+		runtime.Gosched()
 	}
 }
 
@@ -156,7 +157,7 @@ func BenchmarkSingleStep(b *testing.B) {
 func BenchmarkOneYield(b *testing.B) {
 	var completed atomic.Int64
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, _ *apiruntime.Result) {
 			completed.Add(1)
 		},
 	}
@@ -176,6 +177,7 @@ func BenchmarkOneYield(b *testing.B) {
 	}
 
 	for completed.Load() < int64(b.N) {
+		runtime.Gosched()
 	}
 }
 
@@ -183,7 +185,7 @@ func BenchmarkOneYield(b *testing.B) {
 func BenchmarkManyYieldsPerExecute(b *testing.B) {
 	var completed atomic.Int64
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, _ *apiruntime.Result) {
 			completed.Add(1)
 		},
 	}
@@ -204,6 +206,7 @@ func BenchmarkManyYieldsPerExecute(b *testing.B) {
 	}
 
 	for completed.Load() < int64(b.N) {
+		runtime.Gosched()
 	}
 }
 
@@ -218,7 +221,7 @@ func BenchmarkWorkerExecute(b *testing.B) {
 		_ = p.Init(context.Background(), "", testInput(0))
 
 		proc := &Processor{
-			id:        uint64(i),
+			id:        uint64(i), //nolint:gosec // benchmark counter always positive
 			Process:   p,
 			scheduler: sched,
 			queue:     process.NewEventQueue(),
@@ -229,7 +232,6 @@ func BenchmarkWorkerExecute(b *testing.B) {
 	}
 }
 
-// BenchmarkExecuteThroughput measures blocking Execute throughput.
 func BenchmarkExecuteThroughput(b *testing.B) {
 	te := newTestExecutor(runtime.GOMAXPROCS(0))
 	te.Start()
@@ -305,7 +307,7 @@ func benchmarkWithQueueSize(b *testing.B, queueSize int) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		pid := relay.PID{UniqID: fmt.Sprintf("bench-%d", i)}
-		te.Execute(ctx, pid, &CounterProcess{}, "", input)
+		_, _ = te.Execute(ctx, pid, &CounterProcess{}, "", input)
 	}
 }
 
@@ -318,7 +320,7 @@ func benchmarkScheduler(b *testing.B, workers int) {
 
 	var completed atomic.Int64
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, _ *apiruntime.Result) {
 			completed.Add(1)
 		},
 	}
@@ -334,11 +336,12 @@ func benchmarkScheduler(b *testing.B, workers int) {
 			i := counter.Add(1)
 			proc := &RandomYieldProcess{}
 			pid := relay.PID{UniqID: fmt.Sprintf("bench-%d", i)}
-			sched.Submit(context.Background(), pid, proc, "", testInput(3))
+			_, _ = sched.Submit(context.Background(), pid, proc, "", testInput(3))
 		}
 	})
 
 	for completed.Load() < counter.Load() {
+		runtime.Gosched()
 	}
 }
 
@@ -352,7 +355,7 @@ func BenchmarkSchedulerHighContention(b *testing.B) {
 
 			var completed atomic.Int64
 			lc := &testLifecycle{
-				onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
+				onComplete: func(_ context.Context, _ relay.PID, _ *apiruntime.Result) {
 					completed.Add(1)
 				},
 			}
@@ -368,11 +371,12 @@ func BenchmarkSchedulerHighContention(b *testing.B) {
 					id := counter.Add(1)
 					proc := &RandomYieldProcess{}
 					pid := relay.PID{UniqID: fmt.Sprintf("bench-%d", id)}
-					sched.Submit(context.Background(), pid, proc, "", testInput(5))
+					_, _ = sched.Submit(context.Background(), pid, proc, "", testInput(5))
 				}
 			})
 
-			for completed.Load() < int64(counter.Load()) {
+			for completed.Load() < int64(counter.Load()) { //nolint:gosec // counter is always small in benchmarks
+				runtime.Gosched()
 			}
 		})
 	}
@@ -385,7 +389,7 @@ func BenchmarkSchedulerMemory(b *testing.B) {
 
 	var completed atomic.Int64
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, _ *apiruntime.Result) {
 			completed.Add(1)
 		},
 	}
@@ -400,10 +404,11 @@ func BenchmarkSchedulerMemory(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		proc := &RandomYieldProcess{}
 		pid := relay.PID{UniqID: fmt.Sprintf("bench-%d", i)}
-		sched.Submit(context.Background(), pid, proc, "", testInput(3))
+		_, _ = sched.Submit(context.Background(), pid, proc, "", testInput(3))
 	}
 
 	for completed.Load() < int64(b.N) {
+		runtime.Gosched()
 	}
 }
 
@@ -429,7 +434,7 @@ func BenchmarkWakeupLatency(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		time.Sleep(100 * time.Microsecond)
 		pid := relay.PID{UniqID: fmt.Sprintf("wake-%d", i)}
-		te.Execute(context.Background(), pid, &CounterProcess{}, "", testInput(1))
+		_, _ = te.Execute(context.Background(), pid, &CounterProcess{}, "", testInput(1))
 	}
 }
 
@@ -437,7 +442,7 @@ func BenchmarkSchedulerSubmit(b *testing.B) {
 	var completed atomic.Int64
 
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, _ *apiruntime.Result) {
 			completed.Add(1)
 		},
 	}
@@ -452,7 +457,7 @@ func BenchmarkSchedulerSubmit(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sched.Submit(ctx, pid, &CounterProcess{}, "", input)
+		_, _ = sched.Submit(ctx, pid, &CounterProcess{}, "", input)
 	}
 
 	for completed.Load() < int64(b.N) {
@@ -464,7 +469,7 @@ func BenchmarkSchedulerThroughput(b *testing.B) {
 	var completed atomic.Int64
 
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, _ *apiruntime.Result) {
 			completed.Add(1)
 		},
 	}
@@ -480,7 +485,7 @@ func BenchmarkSchedulerThroughput(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		sched.Submit(ctx, pid, &CounterProcess{}, "", input)
+		_, _ = sched.Submit(ctx, pid, &CounterProcess{}, "", input)
 	}
 
 	for completed.Load() < int64(b.N) {
@@ -492,7 +497,7 @@ func BenchmarkSchedulerParallelSubmit(b *testing.B) {
 	var completed atomic.Int64
 
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
+		onComplete: func(_ context.Context, _ relay.PID, _ *apiruntime.Result) {
 			completed.Add(1)
 		},
 	}
@@ -508,7 +513,7 @@ func BenchmarkSchedulerParallelSubmit(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			sched.Submit(ctx, pid, &CounterProcess{}, "", input)
+			_, _ = sched.Submit(ctx, pid, &CounterProcess{}, "", input)
 		}
 	})
 
@@ -528,7 +533,7 @@ func BenchmarkSchedulerExecute(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		pid := relay.PID{UniqID: fmt.Sprintf("bench-%d", i)}
-		te.Execute(ctx, pid, &CounterProcess{}, "", input)
+		_, _ = te.Execute(ctx, pid, &CounterProcess{}, "", input)
 	}
 }
 
@@ -546,7 +551,7 @@ func BenchmarkSchedulerParallelExecute(b *testing.B) {
 		for pb.Next() {
 			i := counter.Add(1)
 			pid := relay.PID{UniqID: fmt.Sprintf("bench-%d", i)}
-			te.Execute(ctx, pid, &CounterProcess{}, "", input)
+			_, _ = te.Execute(ctx, pid, &CounterProcess{}, "", input)
 		}
 	})
 }

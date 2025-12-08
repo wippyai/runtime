@@ -43,10 +43,10 @@ func WithLocalQueueSize(size int) Option {
 	}
 }
 
-func WithMaxProcesses(max int64) Option {
+func WithMaxProcesses(maxProcs int64) Option {
 	return func(s *Scheduler) {
-		if max > 0 {
-			s.maxProcesses = max
+		if maxProcs > 0 {
+			s.maxProcesses = maxProcs
 		}
 	}
 }
@@ -298,11 +298,11 @@ func (s *Scheduler) Stats() map[string]uint64 {
 
 	stats["executed"] = executed
 	stats["stolen"] = stolen
-	stats["global_queue"] = uint64(s.global.Len())
+	stats["global_queue"] = uint64(max(0, s.global.Len())) //nolint:gosec // queue length is always non-negative and bounded
 	stats["workers"] = uint64(len(s.workers))
 	stats["by_pid"] = byPIDCount
 	stats["idle"] = idleCount
-	stats["processors"] = uint64(s.processorCount.Load())
+	stats["processors"] = uint64(max(0, s.processorCount.Load())) //nolint:gosec // processor count is always non-negative
 
 	return stats
 }
@@ -313,7 +313,7 @@ func (s *Scheduler) WorkerStats() []map[string]uint64 {
 		result[i] = map[string]uint64{
 			"executed":    w.executed.Load(),
 			"stolen":      w.stolen.Load(),
-			"local_queue": uint64(w.local.Len()),
+			"local_queue": uint64(max(0, w.local.Len())), //nolint:gosec // local queue length bounded
 		}
 	}
 	return result

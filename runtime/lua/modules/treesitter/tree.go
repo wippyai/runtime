@@ -17,7 +17,7 @@ import (
 const typeTree = "treesitter.Tree"
 
 // pushTree pushes a Tree userdata to the stack
-func pushTree(l *lua.LState, ctx context.Context, tree *treesitter.Tree, source string) {
+func pushTree(ctx context.Context, l *lua.LState, tree *treesitter.Tree, source string) {
 	value.PushTypedUserData(l, NewTree(ctx, tree, source), typeTree)
 }
 
@@ -166,7 +166,7 @@ func treeCopy(l *lua.LState) int {
 		return 2
 	}
 
-	pushTree(l, ctx, copied, tree.source)
+	pushTree(ctx, l, copied, tree.source)
 	return 1
 }
 

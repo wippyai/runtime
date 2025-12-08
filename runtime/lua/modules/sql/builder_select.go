@@ -106,7 +106,7 @@ func selectWhere(l *lua.LState) int {
 
 	var newBuilder squirrel.SelectBuilder
 
-	switch l.Get(2).Type() {
+	switch l.Get(2).Type() { //nolint:exhaustive // only string/table/userdata types valid
 	case lua.LTString:
 		condition := l.CheckString(2)
 		args := make([]any, 0, l.GetTop()-2)
@@ -252,7 +252,7 @@ func selectHaving(l *lua.LState) int {
 
 	var newBuilder squirrel.SelectBuilder
 
-	switch l.Get(2).Type() {
+	switch l.Get(2).Type() { //nolint:exhaustive // only string/table/userdata types valid
 	case lua.LTString:
 		condition := l.CheckString(2)
 		args := make([]any, 0, l.GetTop()-2)
@@ -291,9 +291,12 @@ func selectLimit(l *lua.LState) int {
 	}
 
 	limit := l.CheckInt64(2)
+	if limit < 0 {
+		limit = 0
+	}
 
 	wrapSelectBuilder(l, &selectBuilderWrapper{
-		builder: wrapper.builder.Limit(uint64(limit)),
+		builder: wrapper.builder.Limit(uint64(limit)), //nolint:gosec // validated non-negative
 	})
 	return 1
 }
@@ -305,9 +308,12 @@ func selectOffset(l *lua.LState) int {
 	}
 
 	offset := l.CheckInt64(2)
+	if offset < 0 {
+		offset = 0
+	}
 
 	wrapSelectBuilder(l, &selectBuilderWrapper{
-		builder: wrapper.builder.Offset(uint64(offset)),
+		builder: wrapper.builder.Offset(uint64(offset)), //nolint:gosec // validated non-negative
 	})
 	return 1
 }

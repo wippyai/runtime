@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
-	"testing"
 	"time"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
@@ -25,7 +24,7 @@ type mockProcess struct {
 	latency    time.Duration
 }
 
-func (p *mockProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
+func (p *mockProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
 	p.mu.Lock()
 	p.execCount++
 	p.mu.Unlock()
@@ -52,12 +51,6 @@ func (p *mockProcess) Close() {
 	p.mu.Unlock()
 }
 
-func (p *mockProcess) stats() (exec, step, closed int) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.execCount, p.stepCount, p.closeCount
-}
-
 // mockDispatcher returns no handlers.
 type mockDispatcher struct{}
 
@@ -77,13 +70,13 @@ func testContextWithPID(pid string) context.Context {
 
 // factories
 
-func newMockFactory(latency time.Duration) Factory {
+func newMockFactory(latency time.Duration) process.FactoryFunc {
 	return func() (process.Process, error) {
 		return &mockProcess{latency: latency}, nil
 	}
 }
 
-func newCountingFactory() (Factory, *atomic.Int32) {
+func newCountingFactory() (process.FactoryFunc, *atomic.Int32) {
 	count := &atomic.Int32{}
 	return func() (process.Process, error) {
 		count.Add(1)
@@ -91,7 +84,7 @@ func newCountingFactory() (Factory, *atomic.Int32) {
 	}, count
 }
 
-func newErrorFactory() Factory {
+func newErrorFactory() process.FactoryFunc {
 	return func() (process.Process, error) {
 		return nil, fmt.Errorf("factory error")
 	}
@@ -113,73 +106,3 @@ func (p *resultProcess) Step(_ []process.Event, out *process.StepOutput) error {
 
 func (p *resultProcess) Close()                    {}
 func (p *resultProcess) Send(*relay.Package) error { return nil }
-
-// Hooks tests
-
-func TestHooksOnStartCalled(t *testing.T) {
-	var startCount atomic.Int32
-	hooks := Hooks{
-		OnStart: func(process.Process) {
-			startCount.Add(1)
-		},
-	}
-
-	factory := WrapFactoryWithHooks(newMockFactory(0), hooks)
-	pool, err := NewStatic(factory, &mockDispatcher{}, Config{Workers: 3})
-	if err != nil {
-		t.Fatal(err)
-	}
-	pool.Start()
-	defer pool.Stop()
-
-	if startCount.Load() != 3 {
-		t.Fatalf("expected 3 OnStart calls, got %d", startCount.Load())
-	}
-}
-
-func TestHooksOnStopCalled(t *testing.T) {
-	var startCount, stopCount atomic.Int32
-	hooks := Hooks{
-		OnStart: func(process.Process) {
-			startCount.Add(1)
-		},
-		OnStop: func(process.Process) {
-			stopCount.Add(1)
-		},
-	}
-
-	factory := WrapFactoryWithHooks(newMockFactory(0), hooks)
-	pool, err := NewStatic(factory, &mockDispatcher{}, Config{Workers: 2})
-	if err != nil {
-		t.Fatal(err)
-	}
-	pool.Start()
-
-	// Do some calls
-	for i := 0; i < 5; i++ {
-		_, _ = pool.Call(testContext(), "test", nil)
-	}
-
-	pool.Stop()
-
-	if startCount.Load() != 2 {
-		t.Fatalf("expected 2 OnStart calls, got %d", startCount.Load())
-	}
-	if stopCount.Load() != 2 {
-		t.Fatalf("expected 2 OnStop calls, got %d", stopCount.Load())
-	}
-}
-
-func TestHooksNoHooks(t *testing.T) {
-	factory := newMockFactory(0)
-	wrapped := WrapFactoryWithHooks(factory, Hooks{})
-
-	proc1, _ := factory()
-	proc2, _ := wrapped()
-
-	if proc1 == nil || proc2 == nil {
-		t.Fatal("expected non-nil processes")
-	}
-	proc1.Close()
-	proc2.Close()
-}

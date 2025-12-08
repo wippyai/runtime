@@ -27,15 +27,15 @@ type dequeBuffer struct {
 
 // NewDeque creates a deque with initial capacity (rounded to power of 2).
 func NewDeque(capacity int) *Deque {
-	cap := 1
-	for cap < capacity {
-		cap *= 2
+	actualCap := 1
+	for actualCap < capacity {
+		actualCap *= 2
 	}
 
 	d := &Deque{}
 	buf := &dequeBuffer{
-		items: make([]unsafe.Pointer, cap),
-		mask:  int64(cap - 1),
+		items: make([]unsafe.Pointer, actualCap),
+		mask:  int64(actualCap - 1),
 	}
 	d.buffer.Store(buf)
 	return d

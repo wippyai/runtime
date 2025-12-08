@@ -44,7 +44,7 @@ type (
 
 	// FactoryEntry is sent via event bus to register a factory.
 	FactoryEntry struct {
-		Factory NewFunc
+		Factory FactoryFunc
 		Meta    Meta
 	}
 )
@@ -67,8 +67,8 @@ type (
 		Close()
 	}
 
-	// NewFunc creates new Process instances.
-	NewFunc func() (Process, error)
+	// FactoryFunc creates new Process instances.
+	FactoryFunc func() (Process, error)
 
 	// Factory creates Process instances from registry IDs.
 	Factory interface {

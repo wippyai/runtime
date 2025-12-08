@@ -349,7 +349,7 @@ func (m *Manager) removePool(id registry.ID) {
 }
 
 // createFactory creates a ProcessFactory from compiled code.
-func (m *Manager) createFactory(compiled *code.CompiledMain) funcpool.Factory {
+func (m *Manager) createFactory(compiled *code.CompiledMain) process.FactoryFunc {
 	return func() (process.Process, error) {
 		return createProcess(compiled)
 	}

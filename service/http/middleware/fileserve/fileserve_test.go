@@ -420,31 +420,3 @@ func TestCreateFileServeMiddleware(t *testing.T) {
 		assert.Equal(t, "new key wins", w.Body.String())
 	})
 }
-
-func TestGetOption(t *testing.T) {
-	t.Run("prefer new key over legacy", func(t *testing.T) {
-		options := map[string]string{
-			"sendfile.fs": "new-value",
-			"fs":          "legacy-value",
-		}
-
-		result := getOption(options, "sendfile.fs", "fs")
-		assert.Equal(t, "new-value", result)
-	})
-
-	t.Run("fallback to legacy when new key missing", func(t *testing.T) {
-		options := map[string]string{
-			"fs": "legacy-value",
-		}
-
-		result := getOption(options, "sendfile.fs", "fs")
-		assert.Equal(t, "legacy-value", result)
-	})
-
-	t.Run("return empty when both missing", func(t *testing.T) {
-		options := map[string]string{}
-
-		result := getOption(options, "sendfile.fs", "fs")
-		assert.Equal(t, "", result)
-	})
-}

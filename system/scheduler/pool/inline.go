@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
@@ -13,8 +14,8 @@ import (
 // Inline executes calls synchronously in the caller's goroutine.
 // Single process, serialized via mutex.
 type Inline struct {
-	factory    Factory
-	dispatcher Dispatcher
+	factory    process.FactoryFunc
+	dispatcher dispatcher.Dispatcher
 	hooks      ExecutionHooks
 	executor   *Executor
 	process    process.Process
@@ -25,7 +26,7 @@ type Inline struct {
 }
 
 // NewInline creates an inline executor.
-func NewInline(factory Factory, dispatcher Dispatcher, hooks ...ExecutionHooks) (*Inline, error) {
+func NewInline(factory process.FactoryFunc, dispatcher dispatcher.Dispatcher, hooks ...ExecutionHooks) (*Inline, error) {
 	proc, err := factory()
 	if err != nil {
 		return nil, err

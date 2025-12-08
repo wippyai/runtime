@@ -102,14 +102,14 @@ func (p *Processor) SetState(s ProcessState) {
 
 // casState atomically compares-and-swaps state (ignoring wakeup flag).
 // Returns true if swap succeeded.
-func (p *Processor) casState(old, new ProcessState) bool {
+func (p *Processor) casState(old, newState ProcessState) bool {
 	for {
 		current := ProcessState(p.state.Load())
 		if current&stateMask != old {
 			return false
 		}
 		// Preserve wakeup flag in new state
-		newWithFlags := (new & stateMask) | (current & wakeupFlag)
+		newWithFlags := (newState & stateMask) | (current & wakeupFlag)
 		if p.state.CompareAndSwap(int32(current), int32(newWithFlags)) {
 			return true
 		}

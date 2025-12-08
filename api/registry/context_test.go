@@ -98,13 +98,13 @@ type mockRegistry struct{}
 func (m *mockRegistry) GetAllEntries() ([]Entry, error) { return nil, nil }
 func (m *mockRegistry) GetEntry(ID) (Entry, error)      { return Entry{}, nil }
 func (m *mockRegistry) Apply(context.Context, ChangeSet) (Version, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil // test mock
 }
 func (m *mockRegistry) ApplyVersion(context.Context, Version) error { return nil }
 func (m *mockRegistry) LoadState(context.Context, State, Version) error {
 	return nil
 }
-func (m *mockRegistry) Current() (Version, error) { return nil, nil }
+func (m *mockRegistry) Current() (Version, error) { return nil, nil } //nolint:nilnil // test mock
 func (m *mockRegistry) History() History          { return nil }
 func (m *mockRegistry) RegisterDependencyPattern(_ DependencyPattern) error {
 	return nil

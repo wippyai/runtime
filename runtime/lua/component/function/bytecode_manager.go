@@ -359,7 +359,7 @@ func (m *BytecodeManager) removePool(id registry.ID) {
 }
 
 // createFactory creates a ProcessFactory from the bytecode proto and compiled dependencies.
-func (m *BytecodeManager) createFactory(proto *lua.FunctionProto, compiled *code.CompiledMain) funcpool.Factory {
+func (m *BytecodeManager) createFactory(proto *lua.FunctionProto, compiled *code.CompiledMain) process.FactoryFunc {
 	return func() (process.Process, error) {
 		return createBytecodeProcess(proto, compiled)
 	}

@@ -15,9 +15,9 @@ import (
 	"go.uber.org/zap"
 )
 
-// MemoryStore is an in-memory implementation of the store.Store interface
+// Store is an in-memory implementation of the store.Store interface
 // that also functions as a resource.Provider and a supervisor.Service
-type MemoryStore struct {
+type Store struct {
 	id         registry.ID
 	config     *memstore.Config
 	log        *zap.Logger
@@ -36,13 +36,13 @@ type storeEntry struct {
 	lastAccess time.Time
 }
 
-// NewMemoryStore creates a new in-memory key-value store
-func NewMemoryStore(id registry.ID, config *memstore.Config, log *zap.Logger) *MemoryStore {
+// NewStore creates a new in-memory key-value store
+func NewStore(id registry.ID, config *memstore.Config, log *zap.Logger) *Store {
 	if config == nil {
 		config = &memstore.Config{}
 	}
 
-	return &MemoryStore{
+	return &Store{
 		id:         id,
 		config:     config,
 		log:        log.With(zap.String("component", "memstore"), zap.String("id", id.String())),
@@ -54,7 +54,7 @@ func NewMemoryStore(id registry.ID, config *memstore.Config, log *zap.Logger) *M
 
 // Start implements supervisor.Service interface
 // Starts the cleanup goroutine if cleanup interval is configured
-func (m *MemoryStore) Start(ctx context.Context) (<-chan any, error) {
+func (m *Store) Start(ctx context.Context) (<-chan any, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -81,7 +81,7 @@ func (m *MemoryStore) Start(ctx context.Context) (<-chan any, error) {
 
 // Stop implements supervisor.Service interface
 // Stops the cleanup goroutine and waits for it to finish
-func (m *MemoryStore) Stop(ctx context.Context) error {
+func (m *Store) Stop(ctx context.Context) error {
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
@@ -110,7 +110,7 @@ func (m *MemoryStore) Stop(ctx context.Context) error {
 }
 
 // Get retrieves a value by key
-func (m *MemoryStore) Get(_ context.Context, key registry.ID) (payload.Payload, error) {
+func (m *Store) Get(_ context.Context, key registry.ID) (payload.Payload, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -135,7 +135,7 @@ func (m *MemoryStore) Get(_ context.Context, key registry.ID) (payload.Payload, 
 }
 
 // Set stores or updates a value with the given key
-func (m *MemoryStore) Set(_ context.Context, entry store.Entry) error {
+func (m *Store) Set(_ context.Context, entry store.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -168,7 +168,7 @@ func (m *MemoryStore) Set(_ context.Context, entry store.Entry) error {
 }
 
 // Delete removes a value with the given key
-func (m *MemoryStore) Delete(_ context.Context, key registry.ID) error {
+func (m *Store) Delete(_ context.Context, key registry.ID) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -186,7 +186,7 @@ func (m *MemoryStore) Delete(_ context.Context, key registry.ID) error {
 }
 
 // Has checks if a key exists without retrieving the value
-func (m *MemoryStore) Has(_ context.Context, key registry.ID) (bool, error) {
+func (m *Store) Has(_ context.Context, key registry.ID) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -210,7 +210,7 @@ func (m *MemoryStore) Has(_ context.Context, key registry.ID) (bool, error) {
 }
 
 // cleanupLoop periodically checks for and removes expired entries
-func (m *MemoryStore) cleanupLoop(ctx context.Context) {
+func (m *Store) cleanupLoop(ctx context.Context) {
 	defer m.wg.Done()
 	ticker := time.NewTicker(m.config.CleanupInterval)
 	defer ticker.Stop()
@@ -230,7 +230,7 @@ func (m *MemoryStore) cleanupLoop(ctx context.Context) {
 }
 
 // cleanup removes expired entries
-func (m *MemoryStore) cleanup() {
+func (m *Store) cleanup() {
 	now := time.Now()
 	expired := 0
 
@@ -254,7 +254,7 @@ func (m *MemoryStore) cleanup() {
 }
 
 // Acquire implements resource.Provider interface
-func (m *MemoryStore) Acquire(_ context.Context, _ registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
+func (m *Store) Acquire(_ context.Context, _ registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -272,7 +272,7 @@ func (m *MemoryStore) Acquire(_ context.Context, _ registry.ID, mode resource.Ac
 
 // storeResource represents an acquired store resource
 type storeResource struct {
-	store  *MemoryStore
+	store  *Store
 	closed bool
 	mu     sync.Mutex
 }
@@ -301,9 +301,9 @@ func (r *storeResource) Release() {
 	r.closed = true
 }
 
-// Ensure MemoryStore implements all required interfaces
+// Ensure Store implements all required interfaces
 var (
-	_ store.Store        = (*MemoryStore)(nil)
-	_ resource.Provider  = (*MemoryStore)(nil)
-	_ supervisor.Service = (*MemoryStore)(nil)
+	_ store.Store        = (*Store)(nil)
+	_ resource.Provider  = (*Store)(nil)
+	_ supervisor.Service = (*Store)(nil)
 )

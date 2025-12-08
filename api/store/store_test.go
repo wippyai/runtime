@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 )
@@ -32,6 +33,171 @@ func TestErrors(t *testing.T) {
 			assert.True(t, errors.Is(tt.err, tt.err))
 		})
 	}
+}
+
+func TestError_Interface(t *testing.T) {
+	t.Run("ErrKeyNotFound", func(t *testing.T) {
+		assert.Equal(t, apierror.KindNotFound, ErrKeyNotFound.Kind())
+		assert.Equal(t, apierror.False, ErrKeyNotFound.Retryable())
+		assert.Nil(t, ErrKeyNotFound.Details())
+		assert.Nil(t, ErrKeyNotFound.Unwrap())
+	})
+
+	t.Run("ErrKeyExists", func(t *testing.T) {
+		assert.Equal(t, apierror.KindAlreadyExists, ErrKeyExists.Kind())
+		assert.Equal(t, apierror.False, ErrKeyExists.Retryable())
+	})
+
+	t.Run("ErrStoreFull", func(t *testing.T) {
+		assert.Equal(t, apierror.KindUnavailable, ErrStoreFull.Kind())
+		assert.Equal(t, apierror.True, ErrStoreFull.Retryable())
+	})
+
+	t.Run("ErrStoreClosed", func(t *testing.T) {
+		assert.Equal(t, apierror.KindUnavailable, ErrStoreClosed.Kind())
+		assert.Equal(t, apierror.False, ErrStoreClosed.Retryable())
+	})
+
+	t.Run("ErrInvalidKey", func(t *testing.T) {
+		assert.Equal(t, apierror.KindInvalid, ErrInvalidKey.Kind())
+		assert.Equal(t, apierror.False, ErrInvalidKey.Retryable())
+	})
+}
+
+func TestNewKeyNotFoundError(t *testing.T) {
+	key := registry.NewID("test", "mykey")
+	err := NewKeyNotFoundError(key)
+
+	assert.Equal(t, "key not found", err.Error())
+	assert.Equal(t, apierror.KindNotFound, err.Kind())
+	assert.Equal(t, apierror.False, err.Retryable())
+	assert.NotNil(t, err.Details())
+
+	keyVal, ok := err.Details().Get("key")
+	assert.True(t, ok)
+	assert.Equal(t, key.String(), keyVal)
+}
+
+func TestNewKeyExistsError(t *testing.T) {
+	key := registry.NewID("test", "existing")
+	err := NewKeyExistsError(key)
+
+	assert.Equal(t, "key already exists", err.Error())
+	assert.Equal(t, apierror.KindAlreadyExists, err.Kind())
+	assert.Equal(t, apierror.False, err.Retryable())
+	assert.NotNil(t, err.Details())
+
+	keyVal, ok := err.Details().Get("key")
+	assert.True(t, ok)
+	assert.Equal(t, key.String(), keyVal)
+}
+
+func TestNewInvalidKeyError(t *testing.T) {
+	err := NewInvalidKeyError("bad-key", "contains invalid characters")
+
+	assert.Equal(t, "invalid key format: contains invalid characters", err.Error())
+	assert.Equal(t, apierror.KindInvalid, err.Kind())
+	assert.Equal(t, apierror.False, err.Retryable())
+	assert.NotNil(t, err.Details())
+
+	keyVal, ok := err.Details().Get("key")
+	assert.True(t, ok)
+	assert.Equal(t, "bad-key", keyVal)
+
+	reasonVal, ok := err.Details().Get("reason")
+	assert.True(t, ok)
+	assert.Equal(t, "contains invalid characters", reasonVal)
+}
+
+func TestCommandPools(t *testing.T) {
+	t.Run("GetCmd pool", func(t *testing.T) {
+		cmd := AcquireGetCmd()
+		assert.NotNil(t, cmd)
+		assert.Equal(t, CmdStoreGet, cmd.CmdID())
+
+		cmd.Key = registry.NewID("test", "key")
+		cmd.Release()
+
+		cmd2 := AcquireGetCmd()
+		assert.NotNil(t, cmd2)
+		assert.Equal(t, registry.ID{}, cmd2.Key)
+	})
+
+	t.Run("SetCmd pool", func(t *testing.T) {
+		cmd := AcquireSetCmd()
+		assert.NotNil(t, cmd)
+		assert.Equal(t, CmdStoreSet, cmd.CmdID())
+
+		cmd.Entry = Entry{Key: registry.NewID("test", "key")}
+		cmd.Release()
+
+		cmd2 := AcquireSetCmd()
+		assert.NotNil(t, cmd2)
+		assert.Equal(t, Entry{}, cmd2.Entry)
+	})
+
+	t.Run("DeleteCmd pool", func(t *testing.T) {
+		cmd := AcquireDeleteCmd()
+		assert.NotNil(t, cmd)
+		assert.Equal(t, CmdStoreDelete, cmd.CmdID())
+
+		cmd.Key = registry.NewID("test", "key")
+		cmd.Release()
+
+		cmd2 := AcquireDeleteCmd()
+		assert.NotNil(t, cmd2)
+		assert.Equal(t, registry.ID{}, cmd2.Key)
+	})
+
+	t.Run("HasCmd pool", func(t *testing.T) {
+		cmd := AcquireHasCmd()
+		assert.NotNil(t, cmd)
+		assert.Equal(t, CmdStoreHas, cmd.CmdID())
+
+		cmd.Key = registry.NewID("test", "key")
+		cmd.Release()
+
+		cmd2 := AcquireHasCmd()
+		assert.NotNil(t, cmd2)
+		assert.Equal(t, registry.ID{}, cmd2.Key)
+	})
+}
+
+func TestResponseTypes(t *testing.T) {
+	t.Run("GetResponse", func(t *testing.T) {
+		resp := GetResponse{Value: payload.New("test"), Error: nil}
+		assert.NotNil(t, resp.Value)
+		assert.NoError(t, resp.Error)
+
+		resp2 := GetResponse{Error: ErrKeyNotFound}
+		assert.Error(t, resp2.Error)
+	})
+
+	t.Run("SetResponse", func(t *testing.T) {
+		resp := SetResponse{Error: nil}
+		assert.NoError(t, resp.Error)
+
+		resp2 := SetResponse{Error: ErrStoreFull}
+		assert.Error(t, resp2.Error)
+	})
+
+	t.Run("DeleteResponse", func(t *testing.T) {
+		resp := DeleteResponse{NotFound: false, Error: nil}
+		assert.False(t, resp.NotFound)
+		assert.NoError(t, resp.Error)
+
+		resp2 := DeleteResponse{NotFound: true, Error: nil}
+		assert.True(t, resp2.NotFound)
+	})
+
+	t.Run("HasResponse", func(t *testing.T) {
+		resp := HasResponse{Exists: true, Error: nil}
+		assert.True(t, resp.Exists)
+		assert.NoError(t, resp.Error)
+
+		resp2 := HasResponse{Exists: false, Error: nil}
+		assert.False(t, resp2.Exists)
+	})
 }
 
 func TestEntry_Marshal(t *testing.T) {

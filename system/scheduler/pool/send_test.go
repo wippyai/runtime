@@ -2,6 +2,7 @@ package pool
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -21,7 +22,7 @@ type idleProcess struct {
 	stepCount int
 }
 
-func (p *idleProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
+func (p *idleProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
 	return nil
 }
 
@@ -56,63 +57,6 @@ func (p *idleProcess) Step(events []process.Event, out *process.StepOutput) erro
 func (p *idleProcess) Close() {}
 
 func (p *idleProcess) getReceived() []*relay.Package {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	result := make([]*relay.Package, len(p.received))
-	copy(result, p.received)
-	return result
-}
-
-// multiIdleProcess goes idle N times before completing.
-// Messages are received via events with EventMessage type.
-type multiIdleProcess struct {
-	idleTimes int
-	received  []*relay.Package
-	mu        sync.Mutex
-	stepCount int
-}
-
-func (p *multiIdleProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
-	return nil
-}
-
-func (p *multiIdleProcess) Step(events []process.Event, out *process.StepOutput) error {
-	p.mu.Lock()
-	p.stepCount++
-	count := p.stepCount
-	idleTimes := p.idleTimes
-	p.mu.Unlock()
-
-	// On even steps (after waking from idle), collect messages from events
-	if count%2 == 0 {
-		for _, ev := range events {
-			if ev.Type == process.EventMessage {
-				if pkg, ok := ev.Data.(*relay.Package); ok {
-					p.mu.Lock()
-					p.received = append(p.received, pkg)
-					p.mu.Unlock()
-				}
-			}
-		}
-	}
-
-	// Alternate between idle and continue until we've received enough messages
-	if count <= idleTimes*2 && count%2 == 1 {
-		out.Idle()
-		return nil
-	}
-	if count > idleTimes*2 {
-		out.Done(nil)
-		return nil
-	}
-	// Even step: continue after receiving message
-	out.Continue()
-	return nil
-}
-
-func (p *multiIdleProcess) Close() {}
-
-func (p *multiIdleProcess) getReceived() []*relay.Package {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	result := make([]*relay.Package, len(p.received))
@@ -181,7 +125,7 @@ func TestInlineSendToNonExistent(t *testing.T) {
 	// Send to non-existent PID should return error
 	pkg := &relay.Package{Target: relay.PID{UniqID: "nonexistent"}}
 	err = pool.Send(pkg)
-	if err != process.ErrProcessNotFound {
+	if !errors.Is(err, process.ErrProcessNotFound) {
 		t.Fatalf("expected ErrProcessNotFound, got %v", err)
 	}
 }
@@ -251,7 +195,7 @@ func TestStaticSendToNonExistent(t *testing.T) {
 
 	pkg := &relay.Package{Target: relay.PID{UniqID: "nonexistent"}}
 	err = pool.Send(pkg)
-	if err != process.ErrProcessNotFound {
+	if !errors.Is(err, process.ErrProcessNotFound) {
 		t.Fatalf("expected ErrProcessNotFound, got %v", err)
 	}
 }
@@ -281,7 +225,7 @@ func TestStaticSendMultipleWorkers(t *testing.T) {
 		pid := fmt.Sprintf("pid-%d", i+1)
 		go func(p string) {
 			defer wg.Done()
-			pool.Call(testContextWithPID(p), "test", nil)
+			_, _ = pool.Call(testContextWithPID(p), "test", nil)
 		}(pid)
 	}
 
@@ -377,7 +321,7 @@ func TestLazySendToNonExistent(t *testing.T) {
 
 	pkg := &relay.Package{Target: relay.PID{UniqID: "nonexistent"}}
 	err = pool.Send(pkg)
-	if err != process.ErrProcessNotFound {
+	if !errors.Is(err, process.ErrProcessNotFound) {
 		t.Fatalf("expected ErrProcessNotFound, got %v", err)
 	}
 }
@@ -399,7 +343,7 @@ func TestLazySendAfterCompletion(t *testing.T) {
 	// Send to completed execution should return ErrProcessNotFound
 	pkg := &relay.Package{Target: relay.PID{UniqID: "1"}}
 	err = pool.Send(pkg)
-	if err != process.ErrProcessNotFound {
+	if !errors.Is(err, process.ErrProcessNotFound) {
 		t.Fatalf("expected ErrProcessNotFound, got %v", err)
 	}
 }
@@ -424,7 +368,7 @@ func TestSendStressInline(t *testing.T) {
 		pid := fmt.Sprintf("pid-%d", i)
 		done := make(chan struct{})
 		go func(p string) {
-			pool.Call(testContextWithPID(p), "test", nil)
+			_, _ = pool.Call(testContextWithPID(p), "test", nil)
 			close(done)
 		}(pid)
 
@@ -468,7 +412,7 @@ func TestSendStressStatic(t *testing.T) {
 			pid := fmt.Sprintf("pid-%d", nextPID.Add(1))
 			doneCh := make(chan struct{})
 			go func(p string) {
-				pool.Call(testContextWithPID(p), "test", nil)
+				_, _ = pool.Call(testContextWithPID(p), "test", nil)
 				close(doneCh)
 			}(pid)
 
@@ -512,7 +456,7 @@ func TestSendStressLazy(t *testing.T) {
 			pid := fmt.Sprintf("pid-%d", nextPID.Add(1))
 			doneCh := make(chan struct{})
 			go func(p string) {
-				pool.Call(testContextWithPID(p), "test", nil)
+				_, _ = pool.Call(testContextWithPID(p), "test", nil)
 				close(doneCh)
 			}(pid)
 

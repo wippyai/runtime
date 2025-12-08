@@ -140,7 +140,7 @@ func (l *FileLoader) loadFileAsPayload(fSys fs.FS, path string, format payload.F
 	}
 
 	var p payload.Payload
-	switch format {
+	switch format { //nolint:exhaustive // only JSON/YAML file formats supported
 	case payload.JSON:
 		p = payload.NewPayload(data, payload.JSON)
 	case payload.YAML:

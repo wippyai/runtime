@@ -52,7 +52,7 @@ func policyEvaluate(l *lua.LState) int {
 	result := policy.Evaluate(actor, action, resource, meta)
 
 	var resultValue lua.LValue
-	switch result {
+	switch result { //nolint:exhaustive // default handles Undefined
 	case secapi.Allow:
 		resultValue = lua.LString("allow")
 	case secapi.Deny:

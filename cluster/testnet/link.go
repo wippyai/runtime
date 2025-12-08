@@ -83,7 +83,7 @@ func (l *Link) ShouldDeliver() bool {
 		return false
 	}
 
-	if l.packetLoss > 0 && rand.Float64() < l.packetLoss {
+	if l.packetLoss > 0 && rand.Float64() < l.packetLoss { //nolint:gosec // test simulation only
 		return false
 	}
 

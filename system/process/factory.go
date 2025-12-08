@@ -14,7 +14,7 @@ import (
 
 // factoryEntry stores factory and its metadata.
 type factoryEntry struct {
-	factory api.NewFunc
+	factory api.FactoryFunc
 	meta    api.Meta
 }
 

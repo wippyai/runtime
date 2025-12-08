@@ -33,7 +33,7 @@ func TestDequePushPop(t *testing.T) {
 	d := NewDeque(8)
 
 	for i := 0; i < 5; i++ {
-		d.Push(&Processor{id: uint64(i)})
+		d.Push(&Processor{id: uint64(i)}) //nolint:gosec // test: i is always small
 	}
 
 	if d.Len() != 5 {
@@ -46,7 +46,7 @@ func TestDequePushPop(t *testing.T) {
 		if p == nil {
 			t.Fatalf("unexpected nil at position %d", i)
 		}
-		if p.ID() != uint64(i) {
+		if p.ID() != uint64(i) { //nolint:gosec // test: i is always small
 			t.Fatalf("expected ID %d, got %d", i, p.ID())
 		}
 	}
@@ -64,7 +64,7 @@ func TestDequeSteal(t *testing.T) {
 	d := NewDeque(8)
 
 	for i := 0; i < 5; i++ {
-		d.Push(&Processor{id: uint64(i)})
+		d.Push(&Processor{id: uint64(i)}) //nolint:gosec // test: i is always small
 	}
 
 	// Steal returns FIFO order (oldest first)
@@ -87,7 +87,7 @@ func TestDequeStealHalf(t *testing.T) {
 	d := NewDeque(16)
 
 	for i := 0; i < 8; i++ {
-		d.Push(&Processor{id: uint64(i)})
+		d.Push(&Processor{id: uint64(i)}) //nolint:gosec // test: i is always small
 	}
 
 	buf := make([]*Processor, 64)
@@ -98,7 +98,7 @@ func TestDequeStealHalf(t *testing.T) {
 	}
 
 	for i := 0; i < count; i++ {
-		if buf[i].ID() != uint64(i) {
+		if buf[i].ID() != uint64(i) { //nolint:gosec // test: i is always small
 			t.Fatalf("stolen[%d] expected ID %d, got %d", i, i, buf[i].ID())
 		}
 	}
@@ -112,7 +112,7 @@ func TestDequeGrow(t *testing.T) {
 	d := NewDeque(4)
 
 	for i := 0; i < 20; i++ {
-		d.Push(&Processor{id: uint64(i)})
+		d.Push(&Processor{id: uint64(i)}) //nolint:gosec // test: i is always small
 	}
 
 	if d.Len() != 20 {
@@ -121,7 +121,7 @@ func TestDequeGrow(t *testing.T) {
 
 	for i := 19; i >= 0; i-- {
 		p := d.Pop()
-		if p == nil || p.ID() != uint64(i) {
+		if p == nil || p.ID() != uint64(i) { //nolint:gosec // test: i is always small
 			t.Fatalf("expected ID %d, got %v", i, p)
 		}
 	}
@@ -155,7 +155,7 @@ func TestDequeConcurrentSteal(t *testing.T) {
 
 	const numItems = 1000
 	for i := 0; i < numItems; i++ {
-		d.Push(&Processor{id: uint64(i)})
+		d.Push(&Processor{id: uint64(i)}) //nolint:gosec // test: i is always small
 	}
 
 	var stolen atomic.Int64
@@ -193,7 +193,7 @@ func TestDequeConcurrentPushPopSteal(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < ops; i++ {
-			d.Push(&Processor{id: uint64(i)})
+			d.Push(&Processor{id: uint64(i)}) //nolint:gosec // test: i is always small
 			pushed.Add(1)
 			if i%3 == 0 {
 				if d.Pop() != nil {

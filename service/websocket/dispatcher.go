@@ -136,7 +136,7 @@ func (r *Registry) Register(ctx context.Context, conn *websocket.Conn, bufferSiz
 }
 
 // Get returns a connection entry by ID.
-func (r *Registry) Get(id uint64) (*connEntry, error) {
+func (r *Registry) Get(id uint64) (*connEntry, error) { //nolint:revive // internal use only
 	entry, ok := r.conns.Get(resource.Handle(id))
 	if !ok {
 		return nil, ErrConnNotFound
@@ -310,7 +310,10 @@ func (d *Dispatcher) executeConnect(ctx context.Context, cmd wsapi.WsConnectCmd,
 		defer cancel()
 	}
 
-	conn, _, err := websocket.Dial(dialCtx, cmd.URL, opts)
+	conn, resp, err := websocket.Dial(dialCtx, cmd.URL, opts)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		return
 	}

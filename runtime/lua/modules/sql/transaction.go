@@ -66,17 +66,17 @@ var transactionMethods = map[string]lua.LGoFunc{
 	"release":     txRelease,
 }
 
-func checkTransaction(l *lua.LState, idx int) *Transaction {
-	ud := l.CheckUserData(idx)
+func checkTransaction(l *lua.LState) *Transaction {
+	ud := l.CheckUserData(1)
 	if v, ok := ud.Value.(*Transaction); ok {
 		return v
 	}
-	l.ArgError(idx, "transaction expected")
+	l.ArgError(1, "transaction expected")
 	return nil
 }
 
 func txDbType(l *lua.LState) int {
-	tx := checkTransaction(l, 1)
+	tx := checkTransaction(l)
 	if tx == nil {
 		return 0
 	}
@@ -96,7 +96,7 @@ func txDbType(l *lua.LState) int {
 }
 
 func txQuery(l *lua.LState) int {
-	tx := checkTransaction(l, 1)
+	tx := checkTransaction(l)
 	if tx == nil {
 		return 0
 	}
@@ -126,7 +126,7 @@ func txQuery(l *lua.LState) int {
 }
 
 func txExecute(l *lua.LState) int {
-	tx := checkTransaction(l, 1)
+	tx := checkTransaction(l)
 	if tx == nil {
 		return 0
 	}
@@ -156,7 +156,7 @@ func txExecute(l *lua.LState) int {
 }
 
 func txPrepare(l *lua.LState) int {
-	tx := checkTransaction(l, 1)
+	tx := checkTransaction(l)
 	if tx == nil {
 		return 0
 	}
@@ -185,7 +185,7 @@ func txPrepare(l *lua.LState) int {
 }
 
 func txCommit(l *lua.LState) int {
-	tx := checkTransaction(l, 1)
+	tx := checkTransaction(l)
 	if tx == nil {
 		return 0
 	}
@@ -216,7 +216,7 @@ func txCommit(l *lua.LState) int {
 }
 
 func txRollback(l *lua.LState) int {
-	tx := checkTransaction(l, 1)
+	tx := checkTransaction(l)
 	if tx == nil {
 		return 0
 	}
@@ -247,7 +247,7 @@ func txRollback(l *lua.LState) int {
 }
 
 func txSavepoint(l *lua.LState) int {
-	tx := checkTransaction(l, 1)
+	tx := checkTransaction(l)
 	if tx == nil {
 		return 0
 	}
@@ -282,7 +282,7 @@ func txSavepoint(l *lua.LState) int {
 }
 
 func txRollbackTo(l *lua.LState) int {
-	tx := checkTransaction(l, 1)
+	tx := checkTransaction(l)
 	if tx == nil {
 		return 0
 	}
@@ -317,7 +317,7 @@ func txRollbackTo(l *lua.LState) int {
 }
 
 func txRelease(l *lua.LState) int {
-	tx := checkTransaction(l, 1)
+	tx := checkTransaction(l)
 	if tx == nil {
 		return 0
 	}

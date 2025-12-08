@@ -63,66 +63,6 @@ func DefaultConfig() Config {
 	}
 }
 
-// Factory creates new Process instances.
-type Factory = process.NewFunc
-
-// Dispatcher routes commands to handlers.
-type Dispatcher = dispatcher.Dispatcher
-
-// OnStart is called when a pool process is created.
-// Use this for resource initialization (DB connections, etc.).
-type OnStart func(proc process.Process)
-
-// OnStop is called when a pool process is destroyed.
-// Use this for resource cleanup.
-type OnStop func(proc process.Process)
-
-// Hooks contains lifecycle callbacks for pool processes.
-type Hooks struct {
-	OnStart OnStart
-	OnStop  OnStop
-}
-
-// WrapFactoryWithHooks wraps a factory to call lifecycle hooks.
-// OnStart is called after process creation, OnStop before Close.
-func WrapFactoryWithHooks(factory Factory, hooks Hooks) Factory {
-	if hooks.OnStart == nil && hooks.OnStop == nil {
-		return factory
-	}
-	return func() (process.Process, error) {
-		proc, err := factory()
-		if err != nil {
-			return nil, err
-		}
-		if hooks.OnStart != nil {
-			hooks.OnStart(proc)
-		}
-		if hooks.OnStop != nil {
-			return &hookedProcess{proc: proc, onStop: hooks.OnStop}, nil
-		}
-		return proc, nil
-	}
-}
-
-// hookedProcess wraps a process to call OnStop before Close.
-type hookedProcess struct {
-	proc   process.Process
-	onStop OnStop
-}
-
-func (h *hookedProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
-	return h.proc.Init(ctx, method, input)
-}
-
-func (h *hookedProcess) Step(events []process.Event, out *process.StepOutput) error {
-	return h.proc.Step(events, out)
-}
-
-func (h *hookedProcess) Close() {
-	h.onStop(h.proc)
-	h.proc.Close()
-}
-
 // OnExecutionStart is called before each execution with context and process.
 type OnExecutionStart func(ctx context.Context, proc process.Process)
 
@@ -140,7 +80,7 @@ type ExecutionHooks struct {
 // Implements relay.Receiver to handle incoming messages via EventQueue.
 // Implements process.ResultReceiver for zero-allocation handler completion.
 type Executor struct {
-	dispatcher Dispatcher
+	dispatcher dispatcher.Dispatcher
 	hooks      ExecutionHooks
 
 	// Event queue for yield completions and messages
@@ -158,7 +98,7 @@ type Executor struct {
 }
 
 // NewExecutor creates an executor with the given dispatcher.
-func NewExecutor(d Dispatcher) *Executor {
+func NewExecutor(d dispatcher.Dispatcher) *Executor {
 	e := &Executor{
 		dispatcher: d,
 		wake:       make(chan struct{}, 1),

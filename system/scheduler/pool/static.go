@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
@@ -34,8 +35,8 @@ type staticWorker struct {
 type Static struct {
 	workers    []*staticWorker
 	tasks      chan *request
-	dispatcher Dispatcher
-	factory    Factory
+	dispatcher dispatcher.Dispatcher
+	factory    process.FactoryFunc
 	hooks      ExecutionHooks
 	done       chan struct{}
 	wg         sync.WaitGroup
@@ -46,7 +47,7 @@ type Static struct {
 }
 
 // NewStatic creates a static pool with the given configuration.
-func NewStatic(factory Factory, dispatcher Dispatcher, cfg Config, hooks ...ExecutionHooks) (*Static, error) {
+func NewStatic(factory process.FactoryFunc, dispatcher dispatcher.Dispatcher, cfg Config, hooks ...ExecutionHooks) (*Static, error) {
 	if cfg.Workers <= 0 {
 		cfg.Workers = 4
 	}

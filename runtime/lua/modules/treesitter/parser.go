@@ -33,7 +33,7 @@ func NewParser(ctx context.Context, parser *treesitter.Parser) *ParserWrapper {
 	}
 
 	var flag uintptr
-	parser.SetCancellationFlag(&flag)
+	parser.SetCancellationFlag(&flag) //nolint:staticcheck // library update needed
 
 	// Register cleanup with resource store
 	store := resource.GetStore(ctx)
@@ -93,18 +93,18 @@ func newParser(l *lua.LState) int {
 func (p *ParserWrapper) parseWithContext(ctx context.Context, code []byte, oldTree *TreeWrapper) (*treesitter.Tree, error) {
 	if deadline, ok := ctx.Deadline(); ok {
 		timeout := time.Until(deadline)
-		p.parser.SetTimeoutMicros(uint64(timeout.Microseconds())) //nolint:gosec // looks like hard to overflow
+		p.parser.SetTimeoutMicros(uint64(timeout.Microseconds())) //nolint:gosec,staticcheck // hard to overflow, library update needed
 	}
 
 	var cflag uintptr
-	p.parser.SetCancellationFlag(&cflag)
+	p.parser.SetCancellationFlag(&cflag) //nolint:staticcheck // library update needed
 
 	var oldTreePtr *treesitter.Tree
 	if oldTree != nil {
 		oldTreePtr = oldTree.tree
 	}
 
-	tree := p.parser.ParseCtx(ctx, code, oldTreePtr)
+	tree := p.parser.ParseCtx(ctx, code, oldTreePtr) //nolint:staticcheck // library update needed
 	if tree == nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -240,7 +240,7 @@ func parserClose(l *lua.LState) int {
 func parserSetTimeout(l *lua.LState) int {
 	p := checkParser(l)
 	timeout := l.CheckNumber(2)
-	p.parser.SetTimeoutMicros(uint64(timeout * 1000000)) // Convert seconds to microseconds
+	p.parser.SetTimeoutMicros(uint64(timeout * 1000000)) //nolint:staticcheck // library update needed
 	return 0
 }
 

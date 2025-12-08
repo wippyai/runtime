@@ -2,7 +2,6 @@ package actor
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -32,7 +31,7 @@ func newTestExecutorWithRegistryAndOptions(workers int, registry *scheduler.Regi
 	}
 
 	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
+		onComplete: func(_ context.Context, pid relay.PID, result *runtime.Result) {
 			te.mu.Lock()
 			if ch, ok := te.pending[pid.UniqID]; ok {
 				delete(te.pending, pid.UniqID)
@@ -96,26 +95,9 @@ func (te *testExecutor) Execute(ctx context.Context, pid relay.PID, p Process, m
 	}
 }
 
-// testUniquePID generates unique PIDs for concurrent tests
-var testPIDCounter atomic.Int64
-
-func uniqueTestPID(prefix string) relay.PID {
-	return relay.PID{UniqID: fmt.Sprintf("%s-%d", prefix, testPIDCounter.Add(1))}
-}
-
-// waitForCompletion waits for processes to complete with timeout
-func waitForCompletion(completed *atomic.Int32, expected int32, timeout time.Duration) bool {
+func waitForCompletionInt64(completed *atomic.Int64, expected int64, timeout time.Duration) {
 	deadline := time.Now().Add(timeout)
 	for completed.Load() < expected && time.Now().Before(deadline) {
 		time.Sleep(1 * time.Millisecond)
 	}
-	return completed.Load() >= expected
-}
-
-func waitForCompletionInt64(completed *atomic.Int64, expected int64, timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
-	for completed.Load() < expected && time.Now().Before(deadline) {
-		time.Sleep(1 * time.Millisecond)
-	}
-	return completed.Load() >= expected
 }

@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
@@ -15,8 +16,8 @@ import (
 // Lazy creates processes on demand and destroys them after idle timeout.
 // Starts with zero processes, scales up to MaxWorkers based on load.
 type Lazy struct {
-	factory     Factory
-	dispatcher  Dispatcher
+	factory     process.FactoryFunc
+	dispatcher  dispatcher.Dispatcher
 	hooks       ExecutionHooks
 	maxWorkers  int
 	idleTimeout time.Duration
@@ -47,7 +48,7 @@ type LazyConfig struct {
 }
 
 // NewLazy creates a lazy pool that starts with zero processes.
-func NewLazy(factory Factory, dispatcher Dispatcher, cfg LazyConfig, hooks ...ExecutionHooks) (*Lazy, error) {
+func NewLazy(factory process.FactoryFunc, dispatcher dispatcher.Dispatcher, cfg LazyConfig, hooks ...ExecutionHooks) (*Lazy, error) {
 	if cfg.MaxWorkers <= 0 {
 		cfg.MaxWorkers = 16
 	}

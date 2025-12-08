@@ -94,17 +94,17 @@ var clockMethods = map[string]lua.LGoFunc{
 	"start_time":   clockStartTime,
 }
 
-func checkClock(l *lua.LState, idx int) *MockClock {
-	ud := l.CheckUserData(idx)
+func checkClock(l *lua.LState) *MockClock {
+	ud := l.CheckUserData(1)
 	if c, ok := ud.Value.(*MockClock); ok {
 		return c
 	}
-	l.ArgError(idx, "eval.sandbox.Clock expected")
+	l.ArgError(1, "eval.sandbox.Clock expected")
 	return nil
 }
 
 func clockNow(l *lua.LState) int {
-	c := checkClock(l, 1)
+	c := checkClock(l)
 	if c == nil {
 		return 0
 	}
@@ -113,7 +113,7 @@ func clockNow(l *lua.LState) int {
 }
 
 func clockNowNano(l *lua.LState) int {
-	c := checkClock(l, 1)
+	c := checkClock(l)
 	if c == nil {
 		return 0
 	}
@@ -122,7 +122,7 @@ func clockNowNano(l *lua.LState) int {
 }
 
 func clockSet(l *lua.LState) int {
-	c := checkClock(l, 1)
+	c := checkClock(l)
 	if c == nil {
 		return 0
 	}
@@ -132,7 +132,7 @@ func clockSet(l *lua.LState) int {
 }
 
 func clockAdvance(l *lua.LState) int {
-	c := checkClock(l, 1)
+	c := checkClock(l)
 	if c == nil {
 		return 0
 	}
@@ -142,7 +142,7 @@ func clockAdvance(l *lua.LState) int {
 }
 
 func clockAdvanceNano(l *lua.LState) int {
-	c := checkClock(l, 1)
+	c := checkClock(l)
 	if c == nil {
 		return 0
 	}
@@ -152,7 +152,7 @@ func clockAdvanceNano(l *lua.LState) int {
 }
 
 func clockElapsed(l *lua.LState) int {
-	c := checkClock(l, 1)
+	c := checkClock(l)
 	if c == nil {
 		return 0
 	}
@@ -161,7 +161,7 @@ func clockElapsed(l *lua.LState) int {
 }
 
 func clockStartTime(l *lua.LState) int {
-	c := checkClock(l, 1)
+	c := checkClock(l)
 	if c == nil {
 		return 0
 	}

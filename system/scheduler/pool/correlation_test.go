@@ -104,7 +104,7 @@ type SequentialYieldPoolProcess struct {
 	totalExpected int
 }
 
-func (p *SequentialYieldPoolProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
+func (p *SequentialYieldPoolProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
 	p.totalExpected = 2
 	return nil
 }
@@ -162,10 +162,7 @@ func TestPoolIndexCorrelationBreaks(t *testing.T) {
 		t.Fatalf("result error: %v", result.Error)
 	}
 
-	pl, ok := result.Value.(payload.Payload)
-	if !ok {
-		t.Fatalf("expected payload, got %T", result.Value)
-	}
+	pl := result.Value
 
 	results, ok := pl.Data().([]string)
 	if !ok {
@@ -197,7 +194,7 @@ type StaggeredYieldPoolProcess struct {
 	mu          sync.Mutex
 }
 
-func (p *StaggeredYieldPoolProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
+func (p *StaggeredYieldPoolProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
 	p.results = make(map[string]bool)
 	return nil
 }
@@ -275,14 +272,9 @@ func TestPoolStaggeredYields_IndexCollision(t *testing.T) {
 		t.Fatalf("result error: %v", result.Error)
 	}
 
-	pl, ok := result.Value.(payload.Payload)
+	order, ok := result.Value.Data().([]string)
 	if !ok {
-		t.Fatalf("expected payload, got %T", result.Value)
-	}
-
-	order, ok := pl.Data().([]string)
-	if !ok {
-		t.Fatalf("expected []string, got %T", pl.Data())
+		t.Fatalf("expected []string, got %T", result.Value.Data())
 	}
 
 	t.Logf("Order: %v", order)
@@ -321,10 +313,7 @@ func TestPoolInlineIndexCorrelation(t *testing.T) {
 		t.Fatalf("result error: %v", result.Error)
 	}
 
-	pl, ok := result.Value.(payload.Payload)
-	if !ok {
-		t.Fatalf("expected payload, got %T", result.Value)
-	}
+	pl := result.Value
 
 	results, ok := pl.Data().([]string)
 	if !ok {
@@ -363,10 +352,7 @@ func TestPoolLazyIndexCorrelation(t *testing.T) {
 		t.Fatalf("result error: %v", result.Error)
 	}
 
-	pl, ok := result.Value.(payload.Payload)
-	if !ok {
-		t.Fatalf("expected payload, got %T", result.Value)
-	}
+	pl := result.Value
 
 	results, ok := pl.Data().([]string)
 	if !ok {
@@ -390,7 +376,7 @@ type ConcurrentYieldsProcess struct {
 	expectedCount   int
 }
 
-func (p *ConcurrentYieldsProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
+func (p *ConcurrentYieldsProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
 	p.expectedCount = 4
 	return nil
 }
@@ -449,14 +435,9 @@ func TestPoolConcurrentYieldCompletion(t *testing.T) {
 			t.Fatalf("Call %d result error: %v", i, result.Error)
 		}
 
-		pl, ok := result.Value.(payload.Payload)
+		count, ok := result.Value.Data().(int)
 		if !ok {
-			t.Fatalf("Call %d: expected payload, got %T", i, result.Value)
-		}
-
-		count, ok := pl.Data().(int)
-		if !ok {
-			t.Fatalf("Call %d: expected int, got %T", i, pl.Data())
+			t.Fatalf("Call %d: expected int, got %T", i, result.Value.Data())
 		}
 
 		if count != 4 {
