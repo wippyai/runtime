@@ -44,7 +44,7 @@ func NewSandboxProcess(ctx context.Context, proc process.Process, clock *MockClo
 
 	// Install clock as time reference if provided
 	if clock != nil {
-		clockapi.WithTimeReference(sandboxCtx, clock)
+		_ = clockapi.WithTimeReference(sandboxCtx, clock)
 	}
 
 	return sp

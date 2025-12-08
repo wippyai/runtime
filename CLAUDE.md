@@ -1,1 +1,0 @@
-how to run test /projects/wippy/app$ ./test.sh

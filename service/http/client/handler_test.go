@@ -130,7 +130,7 @@ func TestDispatcher_Request(t *testing.T) {
 		w.Header().Set("X-Custom", "test")
 		gohttp.SetCookie(w, &gohttp.Cookie{Name: "session", Value: "abc123"})
 		w.WriteHeader(gohttp.StatusOK)
-		w.Write([]byte("hello"))
+		_, _ = w.Write([]byte("hello"))
 	}))
 	defer ts.Close()
 
@@ -342,7 +342,7 @@ func TestDispatcher_RequestConcurrent(t *testing.T) {
 	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
 		reqCount.Add(1)
 		w.WriteHeader(gohttp.StatusOK)
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 	defer ts.Close()
 
@@ -400,7 +400,7 @@ func TestDispatcher_RequestLargeResponse(t *testing.T) {
 		for i := range data {
 			data[i] = byte(i % 256)
 		}
-		w.Write(data)
+		_, _ = w.Write(data)
 	}))
 	defer ts.Close()
 
@@ -633,7 +633,7 @@ func BenchmarkDispatcher_Request(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			done := make(chan struct{})
-			d.handleRequest(ctx, cmd, 0, &testReceiver{fn: func(_ any) {
+			_ = d.handleRequest(ctx, cmd, 0, &testReceiver{fn: func(_ any) {
 				close(done)
 			}})
 			<-done
