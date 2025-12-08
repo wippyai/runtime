@@ -204,7 +204,7 @@ func BenchmarkDispatcherTimerStartStop(b *testing.B) {
 
 func BenchmarkDispatcherTickerStartNext(b *testing.B) {
 	d := NewDispatcher()
-	defer d.Stop(context.Background())
+	defer func() { _ = d.Stop(context.Background()) }()
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {

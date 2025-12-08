@@ -19,6 +19,8 @@ import (
 func nanotime() int64
 
 // ProcessState tracks a processor through the scheduler lifecycle.
+// Lower 4 bits store the state, bit 4 is the wakeup flag.
+// Combined into single atomic for race-free transitions.
 type ProcessState int32
 
 const (
@@ -27,6 +29,9 @@ const (
 	StateBlocked                      // Waiting for handler to call CompleteYield()
 	StateIdle                         // Waiting for Send() (external event)
 	StateComplete                     // Finished execution
+
+	stateMask  ProcessState = 0x0F // Lower 4 bits for state
+	wakeupFlag ProcessState = 0x10 // Bit 4: wakeup pending while Running
 )
 
 // Processor wraps a Process with scheduler metadata.
@@ -41,6 +46,14 @@ const (
 //  2. Flows through global queue -> worker local deque
 //  3. Executed by worker, may block waiting for handler
 //  4. Released back to pool on completion
+//
+// Thread safety guarantee:
+//
+//	A processor is NEVER executed by two workers simultaneously.
+//	The state machine ensures single-owner semantics:
+//	- StateRunning: worker owns processor, CompleteYield sets wakeup flag instead of re-queueing
+//	- StateBlocked: no owner, CompleteYield can CAS to Ready and re-queue
+//	- Worker uses CAS loop to atomically check wakeup and transition state
 type Processor struct {
 	// Identity
 	id  uint64    // Internal fast routing ID (for maps, queues)
@@ -49,7 +62,11 @@ type Processor struct {
 	Process  Process // The wrapped user process
 	Priority int     // Higher = more urgent (for future use)
 
-	// State is accessed atomically - use state()/setState()/casState()
+	// State machine for single-owner guarantee.
+	// Lower 4 bits = state, bit 4 = wakeup flag.
+	// Combined into single atomic for race-free transitions.
+	// Only the owning worker can transition from Running.
+	// CompleteYield can only transition from Blocked or set wakeup on Running.
 	state atomic.Int32
 
 	// Execution context (provided by caller, frame already set up)
@@ -73,19 +90,67 @@ type Processor struct {
 	pooled bool
 }
 
-// State returns current processor state.
+// State returns current processor state (without wakeup flag).
 func (p *Processor) State() ProcessState {
-	return ProcessState(p.state.Load())
+	return ProcessState(p.state.Load()) & stateMask
 }
 
-// SetState sets processor state (for worker use only).
+// SetState sets processor state, clearing the wakeup flag.
+// For worker use only.
 func (p *Processor) SetState(s ProcessState) {
-	p.state.Store(int32(s))
+	p.state.Store(int32(s & stateMask))
 }
 
-// casState atomically compares-and-swaps state. Returns true if swap succeeded.
+// casState atomically compares-and-swaps state (ignoring wakeup flag).
+// Returns true if swap succeeded.
 func (p *Processor) casState(old, new ProcessState) bool {
-	return p.state.CompareAndSwap(int32(old), int32(new))
+	for {
+		current := ProcessState(p.state.Load())
+		if current&stateMask != old {
+			return false
+		}
+		// Preserve wakeup flag in new state
+		newWithFlags := (new & stateMask) | (current & wakeupFlag)
+		if p.state.CompareAndSwap(int32(current), int32(newWithFlags)) {
+			return true
+		}
+		// Retry - someone changed state concurrently
+	}
+}
+
+// setWakeup atomically sets the wakeup flag if state matches expected.
+// Returns true if wakeup was set (state matched).
+func (p *Processor) setWakeup(expectedState ProcessState) bool {
+	for {
+		current := ProcessState(p.state.Load())
+		if current&stateMask != expectedState {
+			return false
+		}
+		newVal := current | wakeupFlag
+		if p.state.CompareAndSwap(int32(current), int32(newVal)) {
+			return true
+		}
+	}
+}
+
+// finishDispatch atomically clears wakeup flag and sets final state.
+// If wakeup was set, transitions to Ready and returns true (caller should re-queue).
+// If no wakeup, transitions to Blocked and returns false.
+// For worker use only - must be called when state is Running.
+func (p *Processor) finishDispatch() bool {
+	for {
+		current := ProcessState(p.state.Load())
+		hadWakeup := current&wakeupFlag != 0
+		var newState ProcessState
+		if hadWakeup {
+			newState = StateReady
+		} else {
+			newState = StateBlocked
+		}
+		if p.state.CompareAndSwap(int32(current), int32(newState)) {
+			return hadWakeup
+		}
+	}
 }
 
 // CompleteYield implements process.ResultReceiver.
@@ -101,15 +166,22 @@ func (p *Processor) CompleteYield(tag uint64, data any, err error) {
 		return
 	}
 
-	// Only re-schedule if transitioning from Blocked to Ready.
-	// This prevents double-queueing when both handler and worker try to push.
+	// Try to transition Blocked→Ready and re-queue.
+	// If processor is Running (worker still owns it), set wakeup flag atomically.
+	// Worker will check wakeup after dispatch and re-queue if set.
 	if p.casState(StateBlocked, StateReady) {
 		sched := p.scheduler
 		if sched != nil {
 			sched.global.Push(p)
 			sched.wake()
 		}
+		return
 	}
+
+	// Failed to transition - processor might be Running.
+	// Try to set wakeup flag atomically. If state changed, that's fine -
+	// either worker already moved on or another CompleteYield already woke it.
+	p.setWakeup(StateRunning)
 }
 
 // ID returns the internal processor ID.
@@ -151,7 +223,7 @@ func releaseProcessor(p *Processor) {
 	p.id = 0
 	p.pid = relay.PID{}
 	p.Process = nil
-	p.state.Store(0)
+	p.state.Store(0) // Clears both state and wakeup flag
 	p.Priority = 0
 	p.ctx = nil
 	p.gen.Store(0)

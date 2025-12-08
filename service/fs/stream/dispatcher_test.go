@@ -3,6 +3,7 @@ package stream
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -69,7 +70,7 @@ func TestStreamRead(t *testing.T) {
 	}
 
 	chunk, err = Read(table, id, 10)
-	if err != io.EOF {
+	if !errors.Is(err, io.EOF) {
 		t.Errorf("expected io.EOF, got %v", err)
 	}
 }
@@ -78,7 +79,7 @@ func TestStreamReadNotFound(t *testing.T) {
 	table := resource.NewTable()
 
 	_, err := Read(table, 999, 10)
-	if err != ErrNotFound {
+	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }
@@ -111,7 +112,7 @@ func TestStreamClose(t *testing.T) {
 	}
 
 	err = Close(table, id)
-	if err != ErrNotFound {
+	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("expected ErrNotFound on double close, got %v", err)
 	}
 }
@@ -126,7 +127,7 @@ func TestStreamTableClose(t *testing.T) {
 	table.Close()
 
 	_, err := Read(table, 1, 10)
-	if err != ErrNotFound {
+	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("expected ErrNotFound after table close, got %v", err)
 	}
 }

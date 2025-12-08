@@ -38,7 +38,7 @@ func NewManager(log *zap.Logger, code *code.Manager, bus event.Bus) *Manager {
 // Add implements registry.EntryListener.
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindWorkflow {
-		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindWorkflow))
+		return api.NewInvalidEntryKindError(entry.Kind, api.KindWorkflow)
 	}
 
 	cfg, err := component.UnpackConfig[api.WorkflowConfig](ctx, entry)
@@ -71,7 +71,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update implements registry.EntryListener.
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindWorkflow {
-		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindWorkflow))
+		return api.NewInvalidEntryKindError(entry.Kind, api.KindWorkflow)
 	}
 
 	cfg, err := component.UnpackConfig[api.WorkflowConfig](ctx, entry)
@@ -103,7 +103,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete implements registry.EntryListener.
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindWorkflow {
-		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindWorkflow))
+		return api.NewInvalidEntryKindError(entry.Kind, api.KindWorkflow)
 	}
 
 	if err := m.code.DeleteNode(ctx, entry.ID); err != nil {

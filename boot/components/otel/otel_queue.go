@@ -8,7 +8,7 @@ import (
 	otelapi "github.com/wippyai/runtime/api/service/otel"
 )
 
-func OTelQueue() boot.Component {
+func Queue() boot.Component {
 	return boot.New(boot.P{
 		Name:      OTelQueueName,
 		DependsOn: []boot.Name{OTelName, queueManagerName},

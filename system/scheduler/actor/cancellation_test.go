@@ -10,7 +10,6 @@ import (
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/system/scheduler"
@@ -94,7 +93,7 @@ func TestActorConcurrentCancellationStress(t *testing.T) {
 	registry := scheduler.NewRegistry()
 	registry.Register(1, &delayedHandler{delay: 100 * time.Microsecond})
 
-	sched := NewScheduler(registry, WithWorkers(4), WithKind(process.KindGlobal), WithLifecycle(lc))
+	sched := NewScheduler(registry, WithWorkers(4), WithLifecycle(lc))
 	sched.Start()
 
 	var wg sync.WaitGroup
@@ -156,7 +155,7 @@ func TestActorStopDuringExecution(t *testing.T) {
 	registry := scheduler.NewRegistry()
 	registry.Register(1, &delayedHandler{delay: 1 * time.Millisecond})
 
-	sched := NewScheduler(registry, WithWorkers(4), WithKind(process.KindGlobal), WithLifecycle(lc))
+	sched := NewScheduler(registry, WithWorkers(4), WithLifecycle(lc))
 	sched.Start()
 
 	var wg sync.WaitGroup
@@ -205,7 +204,7 @@ func TestActorStealingConcurrentCancellation(t *testing.T) {
 	registry := scheduler.NewRegistry()
 	registry.Register(1, &delayedHandler{delay: 50 * time.Microsecond})
 
-	sched := NewScheduler(registry, WithWorkers(8), WithKind(process.KindStealing), WithLifecycle(lc))
+	sched := NewScheduler(registry, WithWorkers(8), WithLifecycle(lc))
 	sched.Start()
 
 	var wg sync.WaitGroup
@@ -272,41 +271,37 @@ func (p *steppingProcess) Send(_ *relay.Package) error { return nil }
 
 // TestActorStopNoStepping verifies that after Stop() returns, no process is mid-Step
 func TestActorStopNoStepping(t *testing.T) {
-	for _, kind := range []process.SchedulerKind{process.KindGlobal, process.KindStealing} {
-		t.Run(string(kind), func(t *testing.T) {
-			registry := scheduler.NewRegistry()
-			registry.Register(1, &delayedHandler{delay: 500 * time.Microsecond})
+	registry := scheduler.NewRegistry()
+	registry.Register(1, &delayedHandler{delay: 500 * time.Microsecond})
 
-			sched := NewScheduler(registry, WithWorkers(4), WithKind(kind))
-			sched.Start()
+	sched := NewScheduler(registry, WithWorkers(4))
+	sched.Start()
 
-			// Track all processes
-			var processes []*steppingProcess
-			var mu sync.Mutex
+	// Track all processes
+	var processes []*steppingProcess
+	var mu sync.Mutex
 
-			const n = 50
-			for i := 0; i < n; i++ {
-				proc := &steppingProcess{}
-				mu.Lock()
-				processes = append(processes, proc)
-				mu.Unlock()
-				pid := relay.PID{UniqID: fmt.Sprintf("step-test-%d", i)}
-				sched.Submit(context.Background(), pid, proc, "", nil)
-			}
+	const n = 50
+	for i := 0; i < n; i++ {
+		proc := &steppingProcess{}
+		mu.Lock()
+		processes = append(processes, proc)
+		mu.Unlock()
+		pid := relay.PID{UniqID: fmt.Sprintf("step-test-%d", i)}
+		sched.Submit(context.Background(), pid, proc, "", nil)
+	}
 
-			// Let some start stepping
-			time.Sleep(5 * time.Millisecond)
+	// Let some start stepping
+	time.Sleep(5 * time.Millisecond)
 
-			// Stop should wait for any in-flight Step calls
-			sched.Stop()
+	// Stop should wait for any in-flight Step calls
+	sched.Stop()
 
-			// After Stop returns, NO process should be mid-step
-			for i, proc := range processes {
-				if proc.stepping.Load() {
-					t.Fatalf("process %d still stepping after Stop()", i)
-				}
-			}
-		})
+	// After Stop returns, NO process should be mid-step
+	for i, proc := range processes {
+		if proc.stepping.Load() {
+			t.Fatalf("process %d still stepping after Stop()", i)
+		}
 	}
 }
 
@@ -320,7 +315,7 @@ func TestActorStopNoSteppingStress(t *testing.T) {
 		registry := scheduler.NewRegistry()
 		registry.Register(1, &delayedHandler{delay: 100 * time.Microsecond})
 
-		sched := NewScheduler(registry, WithWorkers(8), WithKind(process.KindStealing))
+		sched := NewScheduler(registry, WithWorkers(8))
 		sched.Start()
 
 		var processes []*steppingProcess
@@ -363,35 +358,31 @@ func TestActorRapidStopStart(t *testing.T) {
 		t.Skip("skipping stress test in short mode")
 	}
 
-	for _, kind := range []process.SchedulerKind{process.KindGlobal, process.KindStealing} {
-		t.Run(string(kind), func(t *testing.T) {
-			for cycle := 0; cycle < 10; cycle++ {
-				registry := scheduler.NewRegistry()
-				registry.Register(1, &delayedHandler{delay: 100 * time.Microsecond})
+	for cycle := 0; cycle < 10; cycle++ {
+		registry := scheduler.NewRegistry()
+		registry.Register(1, &delayedHandler{delay: 100 * time.Microsecond})
 
-				sched := NewScheduler(registry, WithWorkers(4), WithKind(kind))
-				sched.Start()
+		sched := NewScheduler(registry, WithWorkers(4))
+		sched.Start()
 
-				var wg sync.WaitGroup
-				for i := 0; i < 20; i++ {
-					wg.Add(1)
-					go func(id int) {
-						defer wg.Done()
-						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
-						defer cancel()
-						proc := &slowProcess{}
-						pid := relay.PID{UniqID: fmt.Sprintf("rapid-%d", id)}
-						sched.Submit(ctx, pid, proc, "", nil)
-					}(i)
-				}
+		var wg sync.WaitGroup
+		for i := 0; i < 20; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+				defer cancel()
+				proc := &slowProcess{}
+				pid := relay.PID{UniqID: fmt.Sprintf("rapid-%d", id)}
+				sched.Submit(ctx, pid, proc, "", nil)
+			}(i)
+		}
 
-				// Don't wait for completion, just stop
-				time.Sleep(2 * time.Millisecond)
-				sched.Stop()
+		// Don't wait for completion, just stop
+		time.Sleep(2 * time.Millisecond)
+		sched.Stop()
 
-				// Wait for goroutines to finish
-				wg.Wait()
-			}
-		})
+		// Wait for goroutines to finish
+		wg.Wait()
 	}
 }

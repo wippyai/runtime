@@ -638,9 +638,9 @@ func TestHighConcurrencyMemoryPressure(t *testing.T) {
 
 				ctx, _ := ctxapi.OpenFrameContext(context.Background())
 				proc := NewProcess(WithProto(proto))
-				proc.Init(ctx, "", nil)
+				_ = proc.Init(ctx, "", nil)
 				var output process.StepOutput
-				proc.Step(nil, &output)
+				_ = proc.Step(nil, &output)
 				proc.Close()
 
 				atomic.AddInt64(&created, 1)

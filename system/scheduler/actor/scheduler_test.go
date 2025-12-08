@@ -11,7 +11,6 @@ import (
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/system/scheduler"
@@ -638,54 +637,50 @@ func TestSendByPID(t *testing.T) {
 // Single worker tests
 
 func TestSchedulerSingleWorker(t *testing.T) {
-	for _, kind := range []process.SchedulerKind{process.KindGlobal, process.KindStealing} {
-		t.Run(string(kind), func(t *testing.T) {
-			var completed atomic.Bool
-			var result *runtime.Result
+	var completed atomic.Bool
+	var result *runtime.Result
 
-			lc := &testLifecycle{
-				onComplete: func(ctx context.Context, pid relay.PID, res *runtime.Result) {
-					result = res
-					completed.Store(true)
-				},
-			}
+	lc := &testLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, res *runtime.Result) {
+			result = res
+			completed.Store(true)
+		},
+	}
 
-			registry := scheduler.NewRegistry()
-			registry.Register(CmdComplete, CompleteHandler())
-			registry.Register(CmdYield, YieldHandler())
+	registry := scheduler.NewRegistry()
+	registry.Register(CmdComplete, CompleteHandler())
+	registry.Register(CmdYield, YieldHandler())
 
-			sched := NewScheduler(registry, WithWorkers(1), WithKind(kind), WithLifecycle(lc))
-			sched.Start()
-			defer sched.Stop()
+	sched := NewScheduler(registry, WithWorkers(1), WithLifecycle(lc))
+	sched.Start()
+	defer sched.Stop()
 
-			ctx := context.Background()
-			pid := relay.PID{UniqID: "single"}
+	ctx := context.Background()
+	pid := relay.PID{UniqID: "single"}
 
-			_, err := sched.Submit(ctx, pid, &CounterProcess{}, "", testInput(5))
-			if err != nil {
-				t.Fatalf("Submit error: %v", err)
-			}
+	_, err := sched.Submit(ctx, pid, &CounterProcess{}, "", testInput(5))
+	if err != nil {
+		t.Fatalf("Submit error: %v", err)
+	}
 
-			deadline := time.Now().Add(5 * time.Second)
-			for !completed.Load() && time.Now().Before(deadline) {
-				time.Sleep(1 * time.Millisecond)
-			}
+	deadline := time.Now().Add(5 * time.Second)
+	for !completed.Load() && time.Now().Before(deadline) {
+		time.Sleep(1 * time.Millisecond)
+	}
 
-			if !completed.Load() {
-				t.Fatal("timed out waiting for completion")
-			}
-			if result.Error != nil {
-				t.Fatalf("Result error: %v", result.Error)
-			}
+	if !completed.Load() {
+		t.Fatal("timed out waiting for completion")
+	}
+	if result.Error != nil {
+		t.Fatalf("Result error: %v", result.Error)
+	}
 
-			stats := sched.Stats()
-			if stats["executed"] != 6 {
-				t.Fatalf("expected 6 steps, got %d", stats["executed"])
-			}
-			if stats["workers"] != 1 {
-				t.Fatalf("expected 1 worker, got %d", stats["workers"])
-			}
-		})
+	stats := sched.Stats()
+	if stats["executed"] != 6 {
+		t.Fatalf("expected 6 steps, got %d", stats["executed"])
+	}
+	if stats["workers"] != 1 {
+		t.Fatalf("expected 1 worker, got %d", stats["workers"])
 	}
 }
 

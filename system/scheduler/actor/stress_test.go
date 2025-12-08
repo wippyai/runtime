@@ -81,7 +81,6 @@ func (h *CPUWorkHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag
 // StressConfig defines stress test parameters
 type StressConfig struct {
 	Name          string
-	Kind          process.SchedulerKind
 	Workers       int
 	Processes     int
 	StepsPerProc  int
@@ -118,7 +117,6 @@ func runStressTest(t *testing.T, cfg StressConfig) StressResult {
 
 	opts := []Option{
 		WithWorkers(cfg.Workers),
-		WithKind(cfg.Kind),
 		WithQueueSize(cfg.Processes * 2),
 		WithLifecycle(lc),
 	}
@@ -208,7 +206,7 @@ func (r StressResult) String() string {
 	}
 
 	return fmt.Sprintf(`
-%s (%s, %d workers):
+%s (%d workers):
   Duration:     %v
   Completed:    %d / %d (errors: %d)
   Throughput:   %.0f procs/sec, %.0f steps/sec
@@ -216,7 +214,7 @@ func (r StressResult) String() string {
   Executed:     %d total
   Worker dist:  [%s]
 `,
-		r.Config.Name, r.Config.Kind, r.Config.Workers,
+		r.Config.Name, r.Config.Workers,
 		r.Duration,
 		r.Completed, r.Config.Processes, r.Errors,
 		r.OpsPerSec, r.StepsPerSec,
@@ -232,10 +230,8 @@ func TestStress10kProcesses4Workers(t *testing.T) {
 	}
 
 	configs := []StressConfig{
-		{Name: "10k instant", Kind: process.KindGlobal, Workers: 4, Processes: 10000, StepsPerProc: 5, HandlerType: "instant"},
-		{Name: "10k instant", Kind: process.KindStealing, Workers: 4, Processes: 10000, StepsPerProc: 5, HandlerType: "instant"},
-		{Name: "10k CPU", Kind: process.KindGlobal, Workers: 4, Processes: 10000, StepsPerProc: 5, HandlerType: "cpu"},
-		{Name: "10k CPU", Kind: process.KindStealing, Workers: 4, Processes: 10000, StepsPerProc: 5, HandlerType: "cpu"},
+		{Name: "10k instant", Workers: 4, Processes: 10000, StepsPerProc: 5, HandlerType: "instant"},
+		{Name: "10k CPU", Workers: 4, Processes: 10000, StepsPerProc: 5, HandlerType: "cpu"},
 	}
 
 	for _, cfg := range configs {
@@ -254,10 +250,8 @@ func TestStress10kProcesses32Workers(t *testing.T) {
 	}
 
 	configs := []StressConfig{
-		{Name: "10k instant", Kind: process.KindGlobal, Workers: 32, Processes: 10000, StepsPerProc: 5, HandlerType: "instant"},
-		{Name: "10k instant", Kind: process.KindStealing, Workers: 32, Processes: 10000, StepsPerProc: 5, HandlerType: "instant"},
-		{Name: "10k CPU", Kind: process.KindGlobal, Workers: 32, Processes: 10000, StepsPerProc: 5, HandlerType: "cpu"},
-		{Name: "10k CPU", Kind: process.KindStealing, Workers: 32, Processes: 10000, StepsPerProc: 5, HandlerType: "cpu"},
+		{Name: "10k instant", Workers: 32, Processes: 10000, StepsPerProc: 5, HandlerType: "instant"},
+		{Name: "10k CPU", Workers: 32, Processes: 10000, StepsPerProc: 5, HandlerType: "cpu"},
 	}
 
 	for _, cfg := range configs {
@@ -276,10 +270,8 @@ func TestStressIOBound(t *testing.T) {
 	}
 
 	configs := []StressConfig{
-		{Name: "1k sleep", Kind: process.KindGlobal, Workers: 4, Processes: 1000, StepsPerProc: 3, HandlerType: "sleep"},
-		{Name: "1k sleep", Kind: process.KindStealing, Workers: 4, Processes: 1000, StepsPerProc: 3, HandlerType: "sleep"},
-		{Name: "1k sleep", Kind: process.KindGlobal, Workers: 32, Processes: 1000, StepsPerProc: 3, HandlerType: "sleep"},
-		{Name: "1k sleep", Kind: process.KindStealing, Workers: 32, Processes: 1000, StepsPerProc: 3, HandlerType: "sleep"},
+		{Name: "1k sleep 4w", Workers: 4, Processes: 1000, StepsPerProc: 3, HandlerType: "sleep"},
+		{Name: "1k sleep 32w", Workers: 32, Processes: 1000, StepsPerProc: 3, HandlerType: "sleep"},
 	}
 
 	for _, cfg := range configs {
@@ -299,7 +291,6 @@ func TestStressMaxProcessorsLimit(t *testing.T) {
 
 	cfg := StressConfig{
 		Name:          "10k with 1k limit",
-		Kind:          process.KindGlobal,
 		Workers:       4,
 		Processes:     10000,
 		StepsPerProc:  5,
@@ -323,8 +314,7 @@ func TestStressWorkerBalance(t *testing.T) {
 	}
 
 	configs := []StressConfig{
-		{Name: "balance global", Kind: process.KindGlobal, Workers: 8, Processes: 10000, StepsPerProc: 5, HandlerType: "cpu"},
-		{Name: "balance stealing", Kind: process.KindStealing, Workers: 8, Processes: 10000, StepsPerProc: 5, HandlerType: "cpu"},
+		{Name: "balance", Workers: 8, Processes: 10000, StepsPerProc: 5, HandlerType: "cpu"},
 	}
 
 	for _, cfg := range configs {

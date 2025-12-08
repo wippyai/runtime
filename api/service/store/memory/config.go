@@ -15,8 +15,8 @@ const (
 	KindMemoryKV registry.Kind = "store.memory"
 )
 
-// MemoryConfig defines configuration for an in-memory key-value store
-type MemoryConfig struct {
+// Config defines configuration for an in-memory key-value store
+type Config struct {
 	// MaxSize is the maximum number of entries in the store (0 = unlimited)
 	// When the store reaches this size, new entries will be rejected with ErrStoreFull
 	MaxSize int `json:"max_size"`
@@ -33,7 +33,7 @@ type MemoryConfig struct {
 
 // Validate checks if the configuration is valid
 // Returns an error if any configuration values are invalid
-func (c *MemoryConfig) Validate() error {
+func (c *Config) Validate() error {
 	// MaxSize must be non-negative (0 means unlimited)
 	if c.MaxSize < 0 {
 		return ErrInvalidMaxSize
@@ -49,7 +49,7 @@ func (c *MemoryConfig) Validate() error {
 
 // InitDefaults initializes the configuration with sensible defaults
 // Called during configuration loading to ensure all values have reasonable defaults
-func (c *MemoryConfig) InitDefaults() {
+func (c *Config) InitDefaults() {
 	// Default to 10K entries if not specified
 	if c.MaxSize == 0 {
 		c.MaxSize = 10000
@@ -64,9 +64,9 @@ func (c *MemoryConfig) InitDefaults() {
 	c.Lifecycle.InitDefaults()
 }
 
-// UnmarshalJSON implements custom unmarshaling for MemoryConfig to handle time.Duration fields.
-func (c *MemoryConfig) UnmarshalJSON(data []byte) error {
-	type Alias MemoryConfig
+// UnmarshalJSON implements custom unmarshaling for Config to handle time.Duration fields.
+func (c *Config) UnmarshalJSON(data []byte) error {
+	type Alias Config
 	aux := &struct {
 		CleanupInterval string `json:"cleanup_interval"`
 		*Alias
@@ -89,9 +89,9 @@ func (c *MemoryConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// MarshalJSON implements custom marshaling for MemoryConfig to handle time.Duration fields.
-func (c *MemoryConfig) MarshalJSON() ([]byte, error) {
-	type Alias MemoryConfig
+// MarshalJSON implements custom marshaling for Config to handle time.Duration fields.
+func (c *Config) MarshalJSON() ([]byte, error) {
+	type Alias Config
 	return json.Marshal(&struct {
 		CleanupInterval string `json:"cleanup_interval"`
 		*Alias

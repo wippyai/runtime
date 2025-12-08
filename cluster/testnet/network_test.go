@@ -209,7 +209,7 @@ func TestPartitionAndHeal(t *testing.T) {
 
 	sub1, _ := eventbus.NewSubscriber(ctx, bus1, cluster.System, "node.*", func(evt event.Event) {
 		mu.Lock()
-		events = append(events, string(evt.Kind)+":"+evt.Path)
+		events = append(events, evt.Kind+":"+evt.Path)
 		mu.Unlock()
 	})
 	defer sub1.Close()

@@ -43,9 +43,9 @@ func (ts *testScheduler) Stop() {
 	}
 }
 
-func (ts *testScheduler) OnStart(ctx context.Context, pid relay.PID, p process.Process) {}
+func (ts *testScheduler) OnStart(_ context.Context, _ relay.PID, _ process.Process) {}
 
-func (ts *testScheduler) OnComplete(ctx context.Context, pid relay.PID, result *runtime.Result) {
+func (ts *testScheduler) OnComplete(_ context.Context, pid relay.PID, result *runtime.Result) {
 	ts.mu.Lock()
 	ch, ok := ts.pending[pid.UniqID]
 	if ok {

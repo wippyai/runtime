@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -42,7 +43,7 @@ func TestStreamTableIntegration(t *testing.T) {
 	}
 
 	_, err = streamsvc.Read(table, id, 10)
-	if err != streamsvc.ErrNotFound {
+	if !errors.Is(err, streamsvc.ErrNotFound) {
 		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }

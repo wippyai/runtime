@@ -533,7 +533,7 @@ func TestEvalModule_ErrorCases(t *testing.T) {
 		require.NoError(t, err)
 
 		var step2 process.StepOutput
-		proc.Step(nil, &step2)
+		_ = proc.Step(nil, &step2)
 		assert.Equal(t, process.StepDone, step2.Status())
 	})
 
@@ -561,32 +561,9 @@ func TestEvalModule_ErrorCases(t *testing.T) {
 		require.NoError(t, err)
 
 		var step3 process.StepOutput
-		proc.Step(nil, &step3)
+		_ = proc.Step(nil, &step3)
 		assert.Equal(t, process.StepDone, step3.Status())
 	})
-}
-
-// mockProgram implements evalhost.Program for testing
-type mockProgram struct {
-	method  string
-	modules []string
-}
-
-func (p *mockProgram) Method() string            { return p.method }
-func (p *mockProgram) Modules() []string         { return p.modules }
-func (p *mockProgram) Proto() *lua.FunctionProto { return nil }
-
-// testRegistry is a simple handler registry for tests
-type testRegistry struct {
-	handlers map[dispatcher.CommandID]dispatcher.Handler
-}
-
-func newTestRegistry() *testRegistry {
-	return &testRegistry{handlers: make(map[dispatcher.CommandID]dispatcher.Handler)}
-}
-
-func (r *testRegistry) Dispatch(cmd dispatcher.Command) dispatcher.Handler {
-	return r.handlers[cmd.CmdID()]
 }
 
 // TestEvalModule_ComprehensiveIntegration is a full integration test that:
@@ -1003,9 +980,9 @@ func BenchmarkSandboxCreateExecuteStep(b *testing.B) {
 				luaapi.LoadModule(l, Module)
 			}),
 		)
-		proc.Init(ctx, "", nil)
+		_ = proc.Init(ctx, "", nil)
 		var benchOut process.StepOutput
-		proc.Step(nil, &benchOut)
+		_ = proc.Step(nil, &benchOut)
 		proc.Close()
 	}
 }

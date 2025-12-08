@@ -13,15 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 )
 
-type Dispatcher interface {
-	Dispatch(cmd dispatcher.Command) dispatcher.Handler
-}
-
 type Option func(*Scheduler)
-
-func WithKind(kind process.SchedulerKind) Option {
-	return func(s *Scheduler) { s.kind = kind }
-}
 
 func WithWorkers(n int) Option {
 	return func(s *Scheduler) {
@@ -59,10 +51,6 @@ func WithMaxProcesses(max int64) Option {
 	}
 }
 
-func WithDispatcher(d Dispatcher) Option {
-	return func(s *Scheduler) { s.customDispatcher = d }
-}
-
 type Scheduler struct {
 	registry dispatcher.Registry
 	workers  []*Worker
@@ -72,17 +60,14 @@ type Scheduler struct {
 	wg     sync.WaitGroup
 
 	stopping atomic.Bool
-	idle     uint32
 	wakeMu   sync.Mutex
 	wakeCond *sync.Cond
 
-	kind             process.SchedulerKind
-	numWorkers       int
-	queueSize        int
-	localQueueSize   int
-	maxProcesses     int64
-	customDispatcher Dispatcher
-	lifecycle        process.Lifecycle
+	numWorkers     int
+	queueSize      int
+	localQueueSize int
+	maxProcesses   int64
+	lifecycle      process.Lifecycle
 
 	processorCount atomic.Int64
 	byPID          sync.Map
@@ -92,7 +77,6 @@ type Scheduler struct {
 func NewScheduler(registry dispatcher.Registry, opts ...Option) *Scheduler {
 	s := &Scheduler{
 		registry:       registry,
-		kind:           process.KindGlobal,
 		numWorkers:     goruntime.GOMAXPROCS(0),
 		queueSize:      1024,
 		localQueueSize: 256,
@@ -106,22 +90,16 @@ func NewScheduler(registry dispatcher.Registry, opts ...Option) *Scheduler {
 	s.wakeCond = sync.NewCond(&s.wakeMu)
 	s.workers = make([]*Worker, s.numWorkers)
 
-	stealing := s.kind == process.KindStealing
 	for i := range s.workers {
-		s.workers[i] = newWorker(i, s, stealing)
+		s.workers[i] = newWorker(i, s)
 	}
 
 	return s
 }
 
-func (s *Scheduler) Kind() process.SchedulerKind { return s.kind }
-
 func (s *Scheduler) ProcessorCount() int64 { return s.processorCount.Load() }
 
 func (s *Scheduler) getHandler(cmd dispatcher.Command) dispatcher.Handler {
-	if s.customDispatcher != nil {
-		return s.customDispatcher.Dispatch(cmd)
-	}
 	return s.registry.Get(cmd.CmdID())
 }
 
@@ -333,11 +311,9 @@ func (s *Scheduler) WorkerStats() []map[string]uint64 {
 	result := make([]map[string]uint64, len(s.workers))
 	for i, w := range s.workers {
 		result[i] = map[string]uint64{
-			"executed": w.executed.Load(),
-			"stolen":   w.stolen.Load(),
-		}
-		if w.local != nil {
-			result[i]["local_queue"] = uint64(w.local.Len())
+			"executed":    w.executed.Load(),
+			"stolen":      w.stolen.Load(),
+			"local_queue": uint64(w.local.Len()),
 		}
 	}
 	return result

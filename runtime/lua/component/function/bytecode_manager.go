@@ -3,6 +3,7 @@ package function
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -104,7 +105,7 @@ func (m *BytecodeManager) Stop() {
 // Add loads and registers a new bytecode function.
 func (m *BytecodeManager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindFunctionBytecode {
-		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindFunctionBytecode))
+		return api.NewInvalidEntryKindError(entry.Kind, api.KindFunctionBytecode)
 	}
 
 	cfg, err := component.UnpackConfig[api.BytecodeFunctionConfig](ctx, entry)
@@ -153,7 +154,7 @@ func (m *BytecodeManager) Add(ctx context.Context, entry registry.Entry) error {
 // Update updates an existing bytecode function.
 func (m *BytecodeManager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindFunctionBytecode {
-		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindFunctionBytecode))
+		return api.NewInvalidEntryKindError(entry.Kind, api.KindFunctionBytecode)
 	}
 
 	cfg, err := component.UnpackConfig[api.BytecodeFunctionConfig](ctx, entry)
@@ -193,7 +194,7 @@ func (m *BytecodeManager) Update(ctx context.Context, entry registry.Entry) erro
 // Delete removes a bytecode function.
 func (m *BytecodeManager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindFunctionBytecode {
-		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindFunctionBytecode))
+		return api.NewInvalidEntryKindError(entry.Kind, api.KindFunctionBytecode)
 	}
 
 	if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
@@ -307,7 +308,7 @@ func (m *BytecodeManager) createPool(_ context.Context, id registry.ID, cfg *api
 		}, execHooks)
 
 	default:
-		return api.NewUnknownPoolTypeError(string(poolType))
+		return api.NewUnknownPoolTypeError(poolType)
 	}
 
 	if err != nil {
@@ -476,7 +477,7 @@ func (m *BytecodeManager) createExecutionHooks() funcpool.ExecutionHooks {
 		}
 
 		if result.Error != nil {
-			if result.Error == supervisor.ErrExit {
+			if errors.Is(result.Error, supervisor.ErrExit) {
 				result.Error = nil
 			}
 		}

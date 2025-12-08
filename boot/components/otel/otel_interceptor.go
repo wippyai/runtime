@@ -8,7 +8,7 @@ import (
 	otelapi "github.com/wippyai/runtime/api/service/otel"
 )
 
-func OTelInterceptor() boot.Component {
+func Interceptor() boot.Component {
 	return boot.New(boot.P{
 		Name:      OTelInterceptorName,
 		DependsOn: []boot.Name{OTelName, interceptorName},

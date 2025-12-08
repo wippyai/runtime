@@ -38,7 +38,7 @@ func (b *mockBus) Unsubscribe(_ context.Context, id event.SubscriberID) {
 	delete(b.subscribers, id)
 }
 
-func (b *mockBus) Send(ctx context.Context, evt event.Event) {
+func (b *mockBus) Send(_ context.Context, evt event.Event) {
 	for _, ch := range b.subscribers {
 		select {
 		case ch <- evt:

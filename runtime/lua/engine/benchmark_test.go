@@ -334,7 +334,7 @@ func BenchmarkProcessStepPrecompiled(b *testing.B) {
 			b.Fatal(err)
 		}
 		var output process.StepOutput
-		proc.Step(nil, &output)
+		_ = proc.Step(nil, &output)
 		proc.Close()
 	}
 }
@@ -399,7 +399,7 @@ func BenchmarkHotPathYield(b *testing.B) {
 
 	// Warm up
 	var output process.StepOutput
-	proc.Step(nil, &output)
+	_ = proc.Step(nil, &output)
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -407,7 +407,7 @@ func BenchmarkHotPathYield(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		proc.queue.Push(proc.mainTask)
 		output.Reset()
-		proc.Step(nil, &output)
+		_ = proc.Step(nil, &output)
 	}
 }
 

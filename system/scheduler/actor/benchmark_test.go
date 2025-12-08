@@ -107,7 +107,7 @@ func BenchmarkSingleStep(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		pid := relay.PID{UniqID: fmt.Sprintf("test-%d", i)}
-		sched.Submit(ctx, pid, &SingleStepProcess{}, "", nil)
+		_, _ = sched.Submit(ctx, pid, &SingleStepProcess{}, "", nil)
 	}
 
 	for completed.Load() < int64(b.N) {
@@ -134,7 +134,7 @@ func BenchmarkOneYield(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		pid := relay.PID{UniqID: fmt.Sprintf("test-%d", i)}
-		sched.Submit(ctx, pid, &OneYieldProcess{}, "", nil)
+		_, _ = sched.Submit(ctx, pid, &OneYieldProcess{}, "", nil)
 	}
 
 	for completed.Load() < int64(b.N) {
@@ -162,7 +162,7 @@ func BenchmarkManyYieldsPerExecute(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		pid := relay.PID{UniqID: fmt.Sprintf("test-%d", i)}
-		sched.Submit(ctx, pid, &NYieldProcess{}, "", input)
+		_, _ = sched.Submit(ctx, pid, &NYieldProcess{}, "", input)
 	}
 
 	for completed.Load() < int64(b.N) {
@@ -177,7 +177,7 @@ func BenchmarkWorkerExecute(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		p := &CounterProcess{}
-		p.Init(context.Background(), "", testInput(0))
+		_ = p.Init(context.Background(), "", testInput(0))
 
 		proc := &Processor{
 			id:        uint64(i),
@@ -203,7 +203,7 @@ func BenchmarkExecuteThroughput(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		pid := relay.PID{UniqID: fmt.Sprintf("bench-%d", i)}
-		te.Execute(ctx, pid, &CounterProcess{}, "", input)
+		_, _ = te.Execute(ctx, pid, &CounterProcess{}, "", input)
 	}
 }
 
@@ -222,7 +222,7 @@ func BenchmarkExecuteParallelThroughput(b *testing.B) {
 		for pb.Next() {
 			i := counter.Add(1)
 			pid := relay.PID{UniqID: fmt.Sprintf("bench-%d", i)}
-			te.Execute(ctx, pid, &CounterProcess{}, "", input)
+			_, _ = te.Execute(ctx, pid, &CounterProcess{}, "", input)
 		}
 	})
 }
@@ -246,7 +246,7 @@ func benchmarkWithWorkers(b *testing.B, workers int) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		pid := relay.PID{UniqID: fmt.Sprintf("bench-%d", i)}
-		te.Execute(ctx, pid, &CounterProcess{}, "", input)
+		_, _ = te.Execute(ctx, pid, &CounterProcess{}, "", input)
 	}
 }
 
@@ -271,15 +271,10 @@ func benchmarkWithQueueSize(b *testing.B, queueSize int) {
 	}
 }
 
-// BenchmarkSchedulerGlobal4Workers and variants compare scheduler modes.
-func BenchmarkSchedulerGlobal4Workers(b *testing.B)   { benchmarkScheduler(b, process.KindGlobal, 4) }
-func BenchmarkSchedulerStealing4Workers(b *testing.B) { benchmarkScheduler(b, process.KindStealing, 4) }
-func BenchmarkSchedulerGlobal32Workers(b *testing.B)  { benchmarkScheduler(b, process.KindGlobal, 32) }
-func BenchmarkSchedulerStealing32Workers(b *testing.B) {
-	benchmarkScheduler(b, process.KindStealing, 32)
-}
+func BenchmarkScheduler4Workers(b *testing.B)  { benchmarkScheduler(b, 4) }
+func BenchmarkScheduler32Workers(b *testing.B) { benchmarkScheduler(b, 32) }
 
-func benchmarkScheduler(b *testing.B, kind process.SchedulerKind, workers int) {
+func benchmarkScheduler(b *testing.B, workers int) {
 	registry := scheduler.NewRegistry()
 	registry.Register(1, &InstantHandler{})
 
@@ -290,7 +285,7 @@ func benchmarkScheduler(b *testing.B, kind process.SchedulerKind, workers int) {
 		},
 	}
 
-	sched := NewScheduler(registry, WithWorkers(workers), WithKind(kind), WithLifecycle(lc))
+	sched := NewScheduler(registry, WithWorkers(workers), WithLifecycle(lc))
 	sched.Start()
 	defer sched.Stop()
 
@@ -311,39 +306,37 @@ func benchmarkScheduler(b *testing.B, kind process.SchedulerKind, workers int) {
 
 // BenchmarkSchedulerHighContention measures performance under high contention.
 func BenchmarkSchedulerHighContention(b *testing.B) {
-	for _, kind := range []process.SchedulerKind{process.KindGlobal, process.KindStealing} {
-		for _, workers := range []int{4, 16, 64} {
-			name := fmt.Sprintf("%s_%dworkers", kind, workers)
-			b.Run(name, func(b *testing.B) {
-				registry := scheduler.NewRegistry()
-				registry.Register(1, &InstantHandler{})
+	for _, workers := range []int{4, 16, 64} {
+		name := fmt.Sprintf("%dworkers", workers)
+		b.Run(name, func(b *testing.B) {
+			registry := scheduler.NewRegistry()
+			registry.Register(1, &InstantHandler{})
 
-				var completed atomic.Int64
-				lc := &testLifecycle{
-					onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
-						completed.Add(1)
-					},
-				}
+			var completed atomic.Int64
+			lc := &testLifecycle{
+				onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
+					completed.Add(1)
+				},
+			}
 
-				sched := NewScheduler(registry, WithWorkers(workers), WithKind(kind), WithLifecycle(lc))
-				sched.Start()
-				defer sched.Stop()
+			sched := NewScheduler(registry, WithWorkers(workers), WithLifecycle(lc))
+			sched.Start()
+			defer sched.Stop()
 
-				var counter atomic.Uint64
-				b.ResetTimer()
-				b.RunParallel(func(pb *testing.PB) {
-					for pb.Next() {
-						id := counter.Add(1)
-						proc := &RandomYieldProcess{}
-						pid := relay.PID{UniqID: fmt.Sprintf("bench-%d", id)}
-						sched.Submit(context.Background(), pid, proc, "", testInput(5))
-					}
-				})
-
-				for completed.Load() < int64(counter.Load()) {
+			var counter atomic.Uint64
+			b.ResetTimer()
+			b.RunParallel(func(pb *testing.PB) {
+				for pb.Next() {
+					id := counter.Add(1)
+					proc := &RandomYieldProcess{}
+					pid := relay.PID{UniqID: fmt.Sprintf("bench-%d", id)}
+					sched.Submit(context.Background(), pid, proc, "", testInput(5))
 				}
 			})
-		}
+
+			for completed.Load() < int64(counter.Load()) {
+			}
+		})
 	}
 }
 
@@ -359,7 +352,7 @@ func BenchmarkSchedulerMemory(b *testing.B) {
 		},
 	}
 
-	sched := NewScheduler(registry, WithWorkers(runtime.GOMAXPROCS(0)), WithKind(process.KindGlobal), WithLifecycle(lc))
+	sched := NewScheduler(registry, WithWorkers(runtime.GOMAXPROCS(0)), WithLifecycle(lc))
 	sched.Start()
 	defer sched.Stop()
 

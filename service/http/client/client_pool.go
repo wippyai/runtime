@@ -20,9 +20,9 @@ type clientOnce struct {
 	client *gohttp.Client
 }
 
-// ClientPool provides pooled HTTP clients with proper connection reuse.
+// Pool provides pooled HTTP clients with proper connection reuse.
 // Thread-safe, lock-free for hot path using sync.Map.
-type ClientPool struct {
+type Pool struct {
 	clients       sync.Map // map[clientKey]*clientOnce
 	defaultClient *gohttp.Client
 }
@@ -41,14 +41,14 @@ const (
 )
 
 // NewClientPool creates a new HTTP client pool with default settings.
-func NewClientPool() *ClientPool {
-	return &ClientPool{
+func NewClientPool() *Pool {
+	return &Pool{
 		defaultClient: createClient(defaultTimeout, "", defaultMaxIdleConns, defaultMaxIdlePerHost, defaultIdleConnTimeout),
 	}
 }
 
 // NewClientPoolWithConfig creates a pool with custom configuration.
-func NewClientPoolWithConfig(cfg PoolConfig) *ClientPool {
+func NewClientPoolWithConfig(cfg PoolConfig) *Pool {
 	timeout := cfg.Timeout
 	if timeout <= 0 {
 		timeout = defaultTimeout
@@ -65,14 +65,14 @@ func NewClientPoolWithConfig(cfg PoolConfig) *ClientPool {
 	if idleTimeout <= 0 {
 		idleTimeout = defaultIdleConnTimeout
 	}
-	return &ClientPool{
+	return &Pool{
 		defaultClient: createClient(timeout, "", maxIdle, maxPerHost, idleTimeout),
 	}
 }
 
 // GetClient returns a pooled client for the given configuration.
 // Uses default client when possible to maximize connection reuse.
-func (p *ClientPool) GetClient(timeout time.Duration, unixSocket string) *gohttp.Client {
+func (p *Pool) GetClient(timeout time.Duration, unixSocket string) *gohttp.Client {
 	// Use default for standard cases (most common path)
 	if unixSocket == "" && (timeout <= 0 || timeout == defaultTimeout) {
 		return p.defaultClient
@@ -108,7 +108,7 @@ func (p *ClientPool) GetClient(timeout time.Duration, unixSocket string) *gohttp
 }
 
 // Size returns the number of pooled clients (for monitoring/testing).
-func (p *ClientPool) Size() int {
+func (p *Pool) Size() int {
 	count := 0
 	p.clients.Range(func(_, _ any) bool {
 		count++

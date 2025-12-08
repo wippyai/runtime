@@ -25,7 +25,7 @@ import (
 // createTestStore is a helper function that creates a memory store with default test configuration
 func createTestStore(_ *testing.T) *memorystore.MemoryStore {
 	logger := zap.NewNop()
-	config := &memcfg.MemoryConfig{
+	config := &memcfg.Config{
 		MaxSize:         100,
 		CleanupInterval: 50 * time.Millisecond,
 	}
@@ -122,7 +122,7 @@ func TestMemoryStore_Set(t *testing.T) {
 
 	// Test store full behavior
 	logger, _ := zap.NewDevelopment()
-	config := &memcfg.MemoryConfig{
+	config := &memcfg.Config{
 		MaxSize:         2,
 		CleanupInterval: 50 * time.Millisecond,
 	}
@@ -342,7 +342,7 @@ func TestMemoryStore_StopWithTimeout(t *testing.T) {
 func TestMemoryStore_ConcurrentAccess(t *testing.T) {
 	// Create a store with a larger capacity for concurrent test
 	logger := zap.NewNop()
-	config := &memcfg.MemoryConfig{
+	config := &memcfg.Config{
 		MaxSize:         1000, // Increased to handle concurrent operations
 		CleanupInterval: 50 * time.Millisecond,
 	}
@@ -421,7 +421,7 @@ func TestMemoryStore_ConcurrentAccess(t *testing.T) {
 // TestMemoryStore_ConcurrentReadWrite tests concurrent read/write stress
 func TestMemoryStore_ConcurrentReadWrite(t *testing.T) {
 	logger := zap.NewNop()
-	config := &memcfg.MemoryConfig{
+	config := &memcfg.Config{
 		MaxSize:         10000,
 		CleanupInterval: 100 * time.Millisecond,
 	}
@@ -500,7 +500,7 @@ func TestMemoryStore_ConcurrentReadWrite(t *testing.T) {
 // TestMemoryStore_TTLStress tests TTL expiration under concurrent load
 func TestMemoryStore_TTLStress(t *testing.T) {
 	logger := zap.NewNop()
-	config := &memcfg.MemoryConfig{
+	config := &memcfg.Config{
 		MaxSize:         5000,
 		CleanupInterval: 10 * time.Millisecond,
 	}
@@ -556,7 +556,7 @@ func TestMemoryStore_TTLStress(t *testing.T) {
 func TestMemoryStore_RapidStartStop(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		logger := zap.NewNop()
-		config := &memcfg.MemoryConfig{
+		config := &memcfg.Config{
 			MaxSize:         100,
 			CleanupInterval: 10 * time.Millisecond,
 		}
@@ -584,7 +584,7 @@ func TestMemoryStore_RapidStartStop(t *testing.T) {
 // TestMemoryStore_CapacityBoundary tests behavior at capacity boundaries
 func TestMemoryStore_CapacityBoundary(t *testing.T) {
 	logger := zap.NewNop()
-	config := &memcfg.MemoryConfig{
+	config := &memcfg.Config{
 		MaxSize:         10,
 		CleanupInterval: 50 * time.Millisecond,
 	}
@@ -624,7 +624,7 @@ func TestMemoryStore_CapacityBoundary(t *testing.T) {
 // TestMemoryStore_CleanupBehavior tests the cleanup routine's behavior
 func TestMemoryStore_CleanupBehavior(t *testing.T) {
 	logger := zap.NewNop()
-	config := &memcfg.MemoryConfig{
+	config := &memcfg.Config{
 		MaxSize:         100,
 		CleanupInterval: 50 * time.Millisecond, // Short interval for testing
 	}
@@ -718,7 +718,7 @@ func TestMemoryStore_CleanupBehavior(t *testing.T) {
 
 func createBenchStore(_ *testing.B) (*memorystore.MemoryStore, context.Context) {
 	logger := zap.NewNop()
-	config := &memcfg.MemoryConfig{
+	config := &memcfg.Config{
 		MaxSize:         1000000,
 		CleanupInterval: time.Hour,
 	}

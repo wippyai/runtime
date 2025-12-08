@@ -19,7 +19,7 @@ func (r *testReceiver) CompleteYield(_ uint64, data any, err error) {
 
 func TestSleepHandler(t *testing.T) {
 	d := NewDispatcher()
-	defer d.Stop(context.Background())
+	defer func() { _ = d.Stop(context.Background()) }()
 
 	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -48,7 +48,7 @@ func TestSleepHandler(t *testing.T) {
 
 func TestSleepHandlerZeroDuration(t *testing.T) {
 	d := NewDispatcher()
-	defer d.Stop(context.Background())
+	defer func() { _ = d.Stop(context.Background()) }()
 
 	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -73,7 +73,7 @@ func TestSleepHandlerZeroDuration(t *testing.T) {
 
 func TestTimerStartHandler(t *testing.T) {
 	d := NewDispatcher()
-	defer d.Stop(context.Background())
+	defer func() { _ = d.Stop(context.Background()) }()
 
 	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -102,7 +102,7 @@ func TestTimerStartHandler(t *testing.T) {
 
 func TestTimerStartHandlerZeroDuration(t *testing.T) {
 	d := NewDispatcher()
-	defer d.Stop(context.Background())
+	defer func() { _ = d.Stop(context.Background()) }()
 
 	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -126,7 +126,7 @@ func TestTimerStartHandlerZeroDuration(t *testing.T) {
 
 func TestTimerWaitHandler(t *testing.T) {
 	d := NewDispatcher()
-	defer d.Stop(context.Background())
+	defer func() { _ = d.Stop(context.Background()) }()
 
 	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -165,7 +165,7 @@ func TestTimerWaitHandler(t *testing.T) {
 
 func TestTimerStopHandler(t *testing.T) {
 	d := NewDispatcher()
-	defer d.Stop(context.Background())
+	defer func() { _ = d.Stop(context.Background()) }()
 
 	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -200,7 +200,7 @@ func TestTimerStopHandler(t *testing.T) {
 
 func TestTimerResetHandler(t *testing.T) {
 	d := NewDispatcher()
-	defer d.Stop(context.Background())
+	defer func() { _ = d.Stop(context.Background()) }()
 
 	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -235,7 +235,7 @@ func TestTimerResetHandler(t *testing.T) {
 
 func TestTimerResetHandlerZeroDuration(t *testing.T) {
 	d := NewDispatcher()
-	defer d.Stop(context.Background())
+	defer func() { _ = d.Stop(context.Background()) }()
 
 	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -265,7 +265,7 @@ func TestTimerResetHandlerZeroDuration(t *testing.T) {
 
 func TestTimerResetHandlerNotFound(t *testing.T) {
 	d := NewDispatcher()
-	defer d.Stop(context.Background())
+	defer func() { _ = d.Stop(context.Background()) }()
 
 	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {

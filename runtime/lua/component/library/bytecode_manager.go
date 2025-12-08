@@ -31,7 +31,7 @@ func NewBytecodeManager(log *zap.Logger, code *lua.Manager, fsReg fsapi.Registry
 // Add loads and registers a new bytecode library.
 func (m *BytecodeManager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindLibraryBytecode {
-		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindLibraryBytecode))
+		return api.NewInvalidEntryKindError(entry.Kind, api.KindLibraryBytecode)
 	}
 
 	cfg, err := component.UnpackConfig[api.BytecodeLibraryConfig](ctx, entry)

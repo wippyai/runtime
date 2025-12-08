@@ -44,7 +44,7 @@ func (m *processModule) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *processModule) Register(l *lua.LState) *luaapi.Registration {
+func (m *processModule) Register(_ *lua.LState) *luaapi.Registration {
 	initOnce.Do(func() {
 		moduleTable = createModuleTable()
 

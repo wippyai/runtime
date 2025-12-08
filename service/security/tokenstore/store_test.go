@@ -199,7 +199,7 @@ func TestTokenStoreCreateValidateRevoke(t *testing.T) {
 
 	// Create and configure MemoryStore
 	storeID := registry.NewID("", "test-store")
-	memConfig := &memstore.MemoryConfig{
+	memConfig := &memstore.Config{
 		MaxSize:         1000,
 		CleanupInterval: time.Second,
 	}
@@ -296,7 +296,7 @@ func TestTokenExpiration(t *testing.T) {
 	logger := zap.NewNop()
 
 	storeID := registry.NewID("", "test-store")
-	memConfig := &memstore.MemoryConfig{
+	memConfig := &memstore.Config{
 		MaxSize:         1000,
 		CleanupInterval: 100 * time.Millisecond, // Short cleanup for testing
 	}

@@ -19,7 +19,7 @@ import (
 // that also functions as a resource.Provider and a supervisor.Service
 type MemoryStore struct {
 	id         registry.ID
-	config     *memstore.MemoryConfig
+	config     *memstore.Config
 	log        *zap.Logger
 	mu         sync.RWMutex
 	data       map[string]*storeEntry
@@ -37,9 +37,9 @@ type storeEntry struct {
 }
 
 // NewMemoryStore creates a new in-memory key-value store
-func NewMemoryStore(id registry.ID, config *memstore.MemoryConfig, log *zap.Logger) *MemoryStore {
+func NewMemoryStore(id registry.ID, config *memstore.Config, log *zap.Logger) *MemoryStore {
 	if config == nil {
-		config = &memstore.MemoryConfig{}
+		config = &memstore.Config{}
 	}
 
 	return &MemoryStore{

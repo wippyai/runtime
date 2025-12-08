@@ -181,7 +181,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete removes a function.
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindFunction {
-		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindFunction))
+		return api.NewInvalidEntryKindError(entry.Kind, api.KindFunction)
 	}
 
 	if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
@@ -295,7 +295,7 @@ func (m *Manager) createPool(id registry.ID, cfg *api.FunctionConfig) error {
 		}, execHooks)
 
 	default:
-		return api.NewUnknownPoolTypeError(string(poolType))
+		return api.NewUnknownPoolTypeError(poolType)
 	}
 
 	if err != nil {

@@ -11,7 +11,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func OTelMetrics() boot.Component {
+func Metrics() boot.Component {
 	var mp metric.MeterProvider
 	var exporter *otel.MetricsExporter
 

@@ -117,9 +117,9 @@ func TestSubscribeContextMultipleTopics(t *testing.T) {
 	ch2 := NewChannel(1)
 	ch3 := NewChannel(1)
 
-	_ = ctx.add("topic1", ch1)
-	_ = ctx.add("topic2", ch2)
-	_ = ctx.add("topic3", ch3)
+	_, _ = ctx.add("topic1", ch1)
+	_, _ = ctx.add("topic2", ch2)
+	_, _ = ctx.add("topic3", ch3)
 
 	// Verify all exist
 	if _, ok := ctx.get("topic1"); !ok {

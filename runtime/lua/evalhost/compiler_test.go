@@ -254,10 +254,10 @@ func (m *mockModule) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *mockModule) Register(l *lua.LState) *luaapi.Registration {
+func (m *mockModule) Register(_ *lua.LState) *luaapi.Registration {
 	return &luaapi.Registration{}
 }
 
-func (m *mockModule) Loader(l *lua.LState) int {
+func (m *mockModule) Loader(_ *lua.LState) int {
 	return 0
 }

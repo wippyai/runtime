@@ -99,7 +99,7 @@ func (y *EventSubscribeYield) HandleResult(l *lua.LState, data any, err error) [
 }
 
 // eventMessageHandler converts event payloads to Lua tables.
-func eventMessageHandler(ctx context.Context, l *lua.LState, payloads []payload.Payload) lua.LValue {
+func eventMessageHandler(_ context.Context, _ *lua.LState, payloads []payload.Payload) lua.LValue {
 	if len(payloads) == 0 {
 		return lua.LNil
 	}
@@ -121,14 +121,14 @@ func eventMessageHandler(ctx context.Context, l *lua.LState, payloads []payload.
 		tbl.RawSetString("path", lua.LString(v))
 	}
 	if v, ok := data["data"]; ok {
-		tbl.RawSetString("data", anyToLua(l, v))
+		tbl.RawSetString("data", anyToLua(v))
 	}
 
 	return tbl
 }
 
 // anyToLua converts Go values to Lua values.
-func anyToLua(l *lua.LState, v any) lua.LValue {
+func anyToLua(v any) lua.LValue {
 	if v == nil {
 		return lua.LNil
 	}
@@ -146,13 +146,13 @@ func anyToLua(l *lua.LState, v any) lua.LValue {
 	case map[string]any:
 		tbl := lua.CreateTable(0, len(val))
 		for k, v := range val {
-			tbl.RawSetString(k, anyToLua(l, v))
+			tbl.RawSetString(k, anyToLua(v))
 		}
 		return tbl
 	case []any:
 		tbl := lua.CreateTable(len(val), 0)
 		for i, v := range val {
-			tbl.RawSetInt(i+1, anyToLua(l, v))
+			tbl.RawSetInt(i+1, anyToLua(v))
 		}
 		return tbl
 	default:

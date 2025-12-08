@@ -2,8 +2,6 @@ package websocket
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -11,8 +9,6 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	wsapi "github.com/wippyai/runtime/api/websocket"
 	"github.com/yuin/gopher-lua"
-
-	"github.com/coder/websocket"
 )
 
 func bind(l *lua.LState) {
@@ -374,46 +370,6 @@ type testError struct {
 
 func (e *testError) Error() string { return e.msg }
 
-// echoServer creates a test websocket server that echoes messages back.
-func echoServer(t *testing.T) *httptest.Server {
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := websocket.Accept(w, r, nil)
-		if err != nil {
-			t.Logf("accept error: %v", err)
-			return
-		}
-		defer conn.CloseNow()
-
-		for {
-			msgType, data, err := conn.Read(r.Context())
-			if err != nil {
-				return
-			}
-			if err := conn.Write(r.Context(), msgType, data); err != nil {
-				return
-			}
-		}
-	}))
-}
-
-// multiMessageServer sends multiple messages then closes.
-func multiMessageServer(t *testing.T, count int) *httptest.Server {
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := websocket.Accept(w, r, nil)
-		if err != nil {
-			return
-		}
-		defer conn.CloseNow()
-
-		for i := 0; i < count; i++ {
-			if err := conn.Write(r.Context(), websocket.MessageText, []byte("msg")); err != nil {
-				return
-			}
-		}
-		conn.Close(websocket.StatusNormalClosure, "done")
-	}))
-}
-
 func TestConnMethods(t *testing.T) {
 	if len(connMethods) != 5 {
 		t.Errorf("expected 5 conn methods, got %d", len(connMethods))
@@ -434,7 +390,7 @@ func TestWsConn(t *testing.T) {
 	}
 }
 
-func TestYieldPooling(t *testing.T) {
+func TestYieldPooling(_ *testing.T) {
 	// Test that yields can be acquired and released without issues
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {

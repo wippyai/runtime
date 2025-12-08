@@ -420,7 +420,7 @@ func BenchmarkStaticCall(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			pool.Call(testContext(), "test", nil)
+			_, _ = pool.Call(testContext(), "test", nil)
 		}
 	})
 }
@@ -433,7 +433,7 @@ func BenchmarkLazyCall(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			pool.Call(testContext(), "test", nil)
+			_, _ = pool.Call(testContext(), "test", nil)
 		}
 	})
 }
@@ -481,7 +481,7 @@ func TestHooksOnStopCalled(t *testing.T) {
 
 	// Do some calls
 	for i := 0; i < 5; i++ {
-		pool.Call(testContext(), "test", nil)
+		_, _ = pool.Call(testContext(), "test", nil)
 	}
 
 	pool.Stop()

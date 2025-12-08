@@ -312,7 +312,7 @@ func TestMixedOperationsChaos(t *testing.T) {
 				case <-ctx.Done():
 					// Cleanup
 					for _, id := range localTimers {
-						r.Stop(id)
+						_, _ = r.Stop(id)
 					}
 					return
 				default:
@@ -462,7 +462,7 @@ func TestWheelTimerMixedChaos(t *testing.T) {
 				select {
 				case <-ctx.Done():
 					for _, id := range localTimers {
-						r.Stop(id)
+						_, _ = r.Stop(id)
 					}
 					return
 				default:
@@ -585,7 +585,7 @@ func TestRapidCreateCancel(t *testing.T) {
 			for j := 0; j < perWorker; j++ {
 				id := r.Start(time.Hour)
 				created.Add(1)
-				r.Stop(id)
+				_, _ = r.Stop(id)
 				cancelled.Add(1)
 			}
 		}()
@@ -664,7 +664,7 @@ func TestContextCancellationUnderLoad(t *testing.T) {
 				if err == context.Canceled {
 					cancelled.Add(1)
 				}
-				r.Stop(id)
+				_, _ = r.Stop(id)
 			}
 		}()
 	}
@@ -774,13 +774,13 @@ func TestWheelTimerLongRunning(t *testing.T) {
 						if _, err := r.Wait(waitCtx, id); err == nil {
 							fired.Add(1)
 						} else {
-							r.Stop(id)
+							_, _ = r.Stop(id)
 							stopped.Add(1)
 						}
 						waitCancel()
 					}(id)
 				} else {
-					r.Stop(id)
+					_, _ = r.Stop(id)
 					stopped.Add(1)
 				}
 			}

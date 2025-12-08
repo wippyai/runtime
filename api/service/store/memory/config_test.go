@@ -14,16 +14,16 @@ func TestKindConstant(t *testing.T) {
 	assert.Equal(t, "store.memory", KindMemoryKV)
 }
 
-func TestMemoryConfig_MarshalJSON(t *testing.T) {
+func TestConfig_MarshalJSON(t *testing.T) {
 	tests := []struct {
 		name     string
-		config   MemoryConfig
+		config   Config
 		expected string
 		wantErr  bool
 	}{
 		{
 			name: "complete config",
-			config: MemoryConfig{
+			config: Config{
 				MaxSize:         1000,
 				CleanupInterval: 5 * time.Minute,
 			},
@@ -32,7 +32,7 @@ func TestMemoryConfig_MarshalJSON(t *testing.T) {
 		},
 		{
 			name: "zero values",
-			config: MemoryConfig{
+			config: Config{
 				MaxSize:         0,
 				CleanupInterval: 0,
 			},
@@ -54,11 +54,11 @@ func TestMemoryConfig_MarshalJSON(t *testing.T) {
 	}
 }
 
-func TestMemoryConfig_UnmarshalJSON(t *testing.T) {
+func TestConfig_UnmarshalJSON(t *testing.T) {
 	tests := []struct {
 		name     string
 		json     string
-		expected MemoryConfig
+		expected Config
 		wantErr  bool
 	}{
 		{
@@ -67,7 +67,7 @@ func TestMemoryConfig_UnmarshalJSON(t *testing.T) {
 				"max_size": 1000,
 				"cleanup_interval": "5m"
 			}`,
-			expected: MemoryConfig{
+			expected: Config{
 				MaxSize:         1000,
 				CleanupInterval: 5 * time.Minute,
 			},
@@ -76,7 +76,7 @@ func TestMemoryConfig_UnmarshalJSON(t *testing.T) {
 		{
 			name: "zero values",
 			json: `{}`,
-			expected: MemoryConfig{
+			expected: Config{
 				MaxSize:         0,
 				CleanupInterval: 0,
 			},
@@ -93,7 +93,7 @@ func TestMemoryConfig_UnmarshalJSON(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var config MemoryConfig
+			var config Config
 			err := json.Unmarshal([]byte(tt.json), &config)
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -106,16 +106,16 @@ func TestMemoryConfig_UnmarshalJSON(t *testing.T) {
 	}
 }
 
-func TestMemoryConfig_Validate(t *testing.T) {
+func TestConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
-		config  MemoryConfig
+		config  Config
 		wantErr bool
 		errMsg  string
 	}{
 		{
 			name: "valid config",
-			config: MemoryConfig{
+			config: Config{
 				MaxSize:         1000,
 				CleanupInterval: 5 * time.Minute,
 			},
@@ -123,7 +123,7 @@ func TestMemoryConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "zero max size is valid",
-			config: MemoryConfig{
+			config: Config{
 				MaxSize:         0,
 				CleanupInterval: 1 * time.Minute,
 			},
@@ -131,7 +131,7 @@ func TestMemoryConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "negative max size",
-			config: MemoryConfig{
+			config: Config{
 				MaxSize:         -1,
 				CleanupInterval: 1 * time.Minute,
 			},
@@ -140,7 +140,7 @@ func TestMemoryConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "negative cleanup interval",
-			config: MemoryConfig{
+			config: Config{
 				MaxSize:         100,
 				CleanupInterval: -1 * time.Minute,
 			},
@@ -149,7 +149,7 @@ func TestMemoryConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "zero cleanup interval is valid",
-			config: MemoryConfig{
+			config: Config{
 				MaxSize:         100,
 				CleanupInterval: 0,
 			},
@@ -170,27 +170,27 @@ func TestMemoryConfig_Validate(t *testing.T) {
 	}
 }
 
-func TestMemoryConfig_InitDefaults(t *testing.T) {
+func TestConfig_InitDefaults(t *testing.T) {
 	tests := []struct {
 		name     string
-		config   MemoryConfig
-		expected MemoryConfig
+		config   Config
+		expected Config
 	}{
 		{
 			name:   "zero values get defaults",
-			config: MemoryConfig{},
-			expected: MemoryConfig{
+			config: Config{},
+			expected: Config{
 				MaxSize:         10000,
 				CleanupInterval: 5 * time.Minute,
 			},
 		},
 		{
 			name: "existing values preserved",
-			config: MemoryConfig{
+			config: Config{
 				MaxSize:         5000,
 				CleanupInterval: 10 * time.Minute,
 			},
-			expected: MemoryConfig{
+			expected: Config{
 				MaxSize:         5000,
 				CleanupInterval: 10 * time.Minute,
 			},

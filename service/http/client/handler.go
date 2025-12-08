@@ -47,7 +47,7 @@ type PoolConfig struct {
 
 // Dispatcher handles HTTP client commands.
 type Dispatcher struct {
-	pool    *ClientPool
+	pool    *Pool
 	poolCfg PoolConfig
 	debug   io.Writer
 }
@@ -152,7 +152,7 @@ func (d *Dispatcher) handleRequestBatch(ctx context.Context, cmd dispatcher.Comm
 }
 
 // executeRequest performs a single HTTP request and returns the response.
-func executeRequest(ctx context.Context, pool *ClientPool, req *httpapi.RequestCmd, allowStream bool) httpapi.Response {
+func executeRequest(ctx context.Context, pool *Pool, req *httpapi.RequestCmd, allowStream bool) httpapi.Response {
 	reqURL := req.URL
 	if len(req.Query) > 0 {
 		u, err := url.Parse(reqURL)

@@ -171,7 +171,7 @@ func TestAsyncStartHandler(t *testing.T) {
 	case pkg := <-mockNode.packages:
 		assert.Equal(t, testPID, pkg.Target)
 		require.Len(t, pkg.Messages, 1)
-		assert.Equal(t, "@future:test-123", string(pkg.Messages[0].Topic))
+		assert.Equal(t, "@future:test-123", pkg.Messages[0].Topic)
 		// Should have result payload + terminal
 		require.Len(t, pkg.Messages[0].Payloads, 2)
 		assert.True(t, payload.IsTerminal(pkg.Messages[0].Payloads[1]))
@@ -222,7 +222,7 @@ func TestAsyncCancelHandler(t *testing.T) {
 	case pkg := <-mockNode.packages:
 		assert.Equal(t, testPID, pkg.Target)
 		require.Len(t, pkg.Messages, 1)
-		assert.Equal(t, "@future:test-123", string(pkg.Messages[0].Topic))
+		assert.Equal(t, "@future:test-123", pkg.Messages[0].Topic)
 		require.Len(t, pkg.Messages[0].Payloads, 1)
 		assert.True(t, payload.IsTerminal(pkg.Messages[0].Payloads[0]))
 	case <-time.After(time.Second):

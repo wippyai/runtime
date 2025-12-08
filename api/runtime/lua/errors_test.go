@@ -317,7 +317,7 @@ func TestErrorUnwrap(t *testing.T) {
 		t.Error("errors.Is should find root cause")
 	}
 
-	if err.Unwrap() != root {
+	if !errors.Is(err.Unwrap(), root) {
 		t.Errorf("Unwrap() = %v, want %v", err.Unwrap(), root)
 	}
 }

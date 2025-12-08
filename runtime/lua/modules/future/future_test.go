@@ -89,9 +89,9 @@ func TestError(t *testing.T) {
 	f := New("test", ch)
 
 	// Not completed
-	err, ok := f.Error()
+	ok, err := f.Error()
 	if ok || err != nil {
-		t.Error("should return nil, false when not completed")
+		t.Error("should return false, nil when not completed")
 	}
 
 	// Completed without error
@@ -100,9 +100,9 @@ func TestError(t *testing.T) {
 	f.result = lua.LString("result")
 	f.mu.Unlock()
 
-	err, ok = f.Error()
+	ok, err = f.Error()
 	if ok || err != nil {
-		t.Error("should return nil, false when completed without error")
+		t.Error("should return false, nil when completed without error")
 	}
 }
 
@@ -116,11 +116,11 @@ func TestErrorWithError(t *testing.T) {
 	f.err = testErr
 	f.mu.Unlock()
 
-	err, ok := f.Error()
+	ok, err := f.Error()
 	if !ok {
 		t.Error("should return true when completed with error")
 	}
-	if err != testErr {
+	if !errors.Is(err, testErr) {
 		t.Errorf("expected test error, got %v", err)
 	}
 }
@@ -167,9 +167,9 @@ func TestCreateHandler_Error(t *testing.T) {
 	if !f.IsComplete() {
 		t.Error("future should be complete after handler")
 	}
-	if err, ok := f.Error(); !ok {
+	if ok, err := f.Error(); !ok {
 		t.Error("error should be available")
-	} else if err != testErr {
+	} else if !errors.Is(err, testErr) {
 		t.Errorf("expected test error, got %v", err)
 	}
 }

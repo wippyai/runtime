@@ -136,7 +136,7 @@ func Read(table *resource.Table, id uint64, size int64) ([]byte, error) {
 	buf := make([]byte, size)
 	n, err := entry.reader.Read(buf)
 
-	if err == io.EOF {
+	if errors.Is(err, io.EOF) {
 		if n > 0 {
 			return buf[:n], nil
 		}
@@ -332,7 +332,7 @@ func (d *Dispatcher) execute(j job) {
 			fmt.Fprintf(d.debug, "[stream] read id=%d size=%d\n", c.StreamID, c.Size)
 		}
 		data, err := Read(table, c.StreamID, c.Size)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			if d.debug != nil {
 				fmt.Fprintf(d.debug, "[stream] read id=%d EOF\n", c.StreamID)
 			}

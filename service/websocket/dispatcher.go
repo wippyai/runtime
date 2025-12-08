@@ -455,7 +455,7 @@ func (d *Dispatcher) executeSubscribe(ctx context.Context, cmd wsapi.WsSubscribe
 		}
 	}()
 
-	receiver.CompleteYield(tag, wsapi.WsSubscription{ConnID: cmd.ConnID, Topic: string(topic)}, nil)
+	receiver.CompleteYield(tag, wsapi.WsSubscription{ConnID: cmd.ConnID, Topic: topic}, nil)
 }
 
 func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {

@@ -28,12 +28,12 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	responseMetatable.Immutable = true
 
 	mod := lua.CreateTable(0, 10)
-	mod.RawSetString("get", lua.LGoFunc(makeMethod("GET")))
-	mod.RawSetString("post", lua.LGoFunc(makeMethod("POST")))
-	mod.RawSetString("put", lua.LGoFunc(makeMethod("PUT")))
-	mod.RawSetString("delete", lua.LGoFunc(makeMethod("DELETE")))
-	mod.RawSetString("head", lua.LGoFunc(makeMethod("HEAD")))
-	mod.RawSetString("patch", lua.LGoFunc(makeMethod("PATCH")))
+	mod.RawSetString("get", makeMethod("GET"))
+	mod.RawSetString("post", makeMethod("POST"))
+	mod.RawSetString("put", makeMethod("PUT"))
+	mod.RawSetString("delete", makeMethod("DELETE"))
+	mod.RawSetString("head", makeMethod("HEAD"))
+	mod.RawSetString("patch", makeMethod("PATCH"))
 	mod.RawSetString("request", lua.LGoFunc(request))
 	mod.RawSetString("request_batch", lua.LGoFunc(requestBatch))
 	mod.RawSetString("encode_uri", lua.LGoFunc(encodeURI))

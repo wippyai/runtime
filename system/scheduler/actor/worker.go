@@ -13,51 +13,19 @@ type Worker struct {
 	local     *Deque
 	scheduler *Scheduler
 	batchBuf  [32]*Processor
-	lifoSlot  atomic.Pointer[Processor]
 	executed  atomic.Uint64
 	stolen    atomic.Uint64
 }
 
-func newWorker(id int, s *Scheduler, stealing bool) *Worker {
-	w := &Worker{id: id, scheduler: s}
-	if stealing {
-		w.local = NewDeque(s.localQueueSize)
+func newWorker(id int, s *Scheduler) *Worker {
+	return &Worker{
+		id:        id,
+		scheduler: s,
+		local:     NewDeque(s.localQueueSize),
 	}
-	return w
 }
 
 func (w *Worker) run() {
-	if w.local != nil {
-		w.runStealing()
-	} else {
-		w.runGlobal()
-	}
-}
-
-func (w *Worker) runGlobal() {
-	s := w.scheduler
-	for {
-		if proc := s.global.Pop(); proc != nil {
-			w.executeOne(proc)
-			w.executed.Add(1)
-			continue
-		}
-
-		if s.stopping.Load() {
-			return
-		}
-
-		s.wakeMu.Lock()
-		atomic.AddUint32(&s.idle, 1)
-		for s.global.IsEmpty() && !s.stopping.Load() {
-			s.wakeCond.Wait()
-		}
-		atomic.AddUint32(&s.idle, ^uint32(0))
-		s.wakeMu.Unlock()
-	}
-}
-
-func (w *Worker) runStealing() {
 	s := w.scheduler
 	spins := 0
 
@@ -108,9 +76,6 @@ func (w *Worker) runStealing() {
 }
 
 func (w *Worker) findWork() *Processor {
-	if p := w.lifoSlot.Swap(nil); p != nil {
-		return p
-	}
 	if p := w.local.Pop(); p != nil {
 		return p
 	}
@@ -139,7 +104,7 @@ func (w *Worker) steal() *Processor {
 
 	for i := 0; i < n; i++ {
 		victim := (start + i) % n
-		if victim == w.id || workers[victim].local == nil {
+		if victim == w.id {
 			continue
 		}
 
@@ -206,21 +171,20 @@ func (w *Worker) executeOne(proc *Processor) {
 			return
 		}
 
-		// Set blocked BEFORE dispatching so CompleteYield can use CAS
-		proc.SetState(StateBlocked)
-		ctx := proc.Context()
-
-		// Dispatch all yields - pass proc as ResultReceiver (zero allocation!)
-		w.dispatchYields(ctx, proc, yields)
+		// Dispatch yields while keeping StateRunning.
+		// This prevents CompleteYield from re-queueing while we're still dispatching.
+		w.dispatchYields(proc.Context(), proc, yields)
 	}
 }
 
 // dispatchYields sends all yields to handlers.
+// IMPORTANT: Processor state is StateRunning during this call.
+// This guarantees single-worker ownership during the dispatch phase.
+// CompleteYield sets wakeup flag instead of re-queueing while Running.
 func (w *Worker) dispatchYields(ctx context.Context, proc *Processor, yields []Yield) {
 	for _, y := range yields {
 		handler := w.scheduler.getHandler(y.Cmd)
 		if handler == nil {
-			// Unknown command - complete with error immediately
 			proc.queue.PushDirect(process.Event{
 				Type:  process.EventYieldComplete,
 				Tag:   y.Tag,
@@ -229,7 +193,6 @@ func (w *Worker) dispatchYields(ctx context.Context, proc *Processor, yields []Y
 			continue
 		}
 		if err := handler.Handle(ctx, y.Cmd, y.Tag, proc); err != nil {
-			// Handler returned error - complete with error
 			proc.queue.PushDirect(process.Event{
 				Type:  process.EventYieldComplete,
 				Tag:   y.Tag,
@@ -238,9 +201,18 @@ func (w *Worker) dispatchYields(ctx context.Context, proc *Processor, yields []Y
 		}
 	}
 
-	// If events arrived during dispatch (from PushDirect above or CompleteYield),
-	// try to transition from Blocked to Ready and re-queue.
-	// CompleteYield may have already done this, in which case CAS fails (safe no-op).
+	// All yields dispatched. Atomically transition to final state.
+	// If wakeup was set by CompleteYield during dispatch, state becomes Ready - re-queue.
+	// If not, state becomes Blocked - CompleteYield will wake us later.
+	if proc.finishDispatch() {
+		w.scheduler.global.Push(proc)
+		w.scheduler.wake()
+		return
+	}
+
+	// No wakeup - now in StateBlocked.
+	// CompleteYield will CAS(Blocked→Ready) and re-queue when results arrive.
+	// Or events may already be in queue from PushDirect above - check and re-queue if so.
 	if proc.queue.HasEvents() {
 		if proc.casState(StateBlocked, StateReady) {
 			w.scheduler.global.Push(proc)

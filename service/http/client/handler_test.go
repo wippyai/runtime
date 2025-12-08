@@ -450,7 +450,7 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 func TestDispatcher_RequestBatch(t *testing.T) {
 	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
 		w.Header().Set("X-Path", r.URL.Path)
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 	defer ts.Close()
 
@@ -512,7 +512,7 @@ func TestDispatcher_RequestBatchEmpty(t *testing.T) {
 
 func TestDispatcher_RequestBatchPartialFailure(t *testing.T) {
 	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 	defer ts.Close()
 
@@ -554,10 +554,10 @@ func TestDispatcher_RequestBatchPartialFailure(t *testing.T) {
 
 func TestDispatcher_RequestBatchConcurrent(t *testing.T) {
 	var reqCount atomic.Int64
-	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
+	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
 		reqCount.Add(1)
 		time.Sleep(20 * time.Millisecond)
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 	defer ts.Close()
 
@@ -619,9 +619,9 @@ func BenchmarkClientPoolGetCustom(b *testing.B) {
 }
 
 func BenchmarkDispatcher_Request(b *testing.B) {
-	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
+	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
 		w.WriteHeader(gohttp.StatusOK)
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 	defer ts.Close()
 
@@ -659,7 +659,7 @@ func BenchmarkDispatcher_RequestWithTimeout(b *testing.B) {
 				Timeout: 5 * time.Second,
 			}
 			done := make(chan struct{})
-			d.handleRequest(ctx, cmd, 0, &testReceiver{fn: func(_ any) {
+			_ = d.handleRequest(ctx, cmd, 0, &testReceiver{fn: func(_ any) {
 				close(done)
 			}})
 			<-done

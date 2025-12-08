@@ -100,13 +100,13 @@ func (f *Future) Result() (lua.LValue, bool) {
 }
 
 // Error returns the cached error if completed with error.
-func (f *Future) Error() (error, bool) {
+func (f *Future) Error() (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if !f.completed || f.err == nil {
-		return nil, false
+		return false, nil
 	}
-	return f.err, true
+	return true, f.err
 }
 
 // futureAwait blocks until the future completes and returns (value, error).
@@ -266,7 +266,7 @@ func futureError(l *lua.LState) int {
 		return 0
 	}
 
-	if err, ok := f.Error(); ok {
+	if ok, err := f.Error(); ok {
 		luaErr := lua.WrapErrorWithLua(l, err, "async call failed").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)

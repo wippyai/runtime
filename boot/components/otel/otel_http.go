@@ -9,7 +9,7 @@ import (
 	otelapi "github.com/wippyai/runtime/api/service/otel"
 )
 
-func OTelHTTP() boot.Component {
+func HTTP() boot.Component {
 	return boot.New(boot.P{
 		Name:      OTelHTTPName,
 		DependsOn: []boot.Name{OTelName, httpName},

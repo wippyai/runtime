@@ -76,7 +76,7 @@ func Supervisor() boot.Component {
 
 // createDependencyResolver creates a supervisor dependency resolver that extracts
 // dependencies from registry entries using the registry's topology resolver.
-func createDependencyResolver(reg regapi.Registry, logger *zap.Logger) supervisorapi.DependencyResolver {
+func createDependencyResolver(reg regapi.Registry, _ *zap.Logger) supervisorapi.DependencyResolver {
 	regImpl, ok := reg.(*sysreg.Reg)
 	if !ok {
 		return nil

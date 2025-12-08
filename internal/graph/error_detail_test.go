@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -33,8 +34,8 @@ func TestCycleErrorContainsNodeDetails(t *testing.T) {
 	}
 
 	// Check that details contain cycle information
-	graphErr, ok := err.(*Error)
-	if !ok {
+	var graphErr *Error
+	if !errors.As(err, &graphErr) {
 		t.Fatalf("expected *Error, got %T", err)
 	}
 
@@ -81,8 +82,8 @@ func TestCycleErrorFormat(t *testing.T) {
 	}
 
 	// Check details contain cycle information
-	graphErr, ok := err.(*Error)
-	if !ok {
+	var graphErr *Error
+	if !errors.As(err, &graphErr) {
 		t.Fatalf("expected *Error, got %T", err)
 	}
 
@@ -145,8 +146,8 @@ func TestMultipleCyclePatterns(t *testing.T) {
 			}
 
 			// Check error has details
-			graphErr, ok := err.(*Error)
-			if ok {
+			var graphErr *Error
+			if errors.As(err, &graphErr) {
 				details := graphErr.Details()
 				t.Logf("[%s] Error: %s, details: %v", tc.name, errMsg, details)
 			} else {

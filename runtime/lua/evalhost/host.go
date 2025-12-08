@@ -28,7 +28,7 @@ func NewHost(log *zap.Logger, modules []luaapi.Module, processFactory process.Fa
 }
 
 // Compile compiles Lua source into a reusable Program.
-func (h *Host) Compile(ctx context.Context, cmd CompileCmd) (*Program, error) {
+func (h *Host) Compile(_ context.Context, cmd CompileCmd) (*Program, error) {
 	program, err := h.compiler.Compile(cmd)
 	if err != nil {
 		return nil, NewCompileError(err)
@@ -37,7 +37,7 @@ func (h *Host) Compile(ctx context.Context, cmd CompileCmd) (*Program, error) {
 }
 
 // CreateProcess creates a process from a Program for sandbox use.
-func (h *Host) CreateProcess(ctx context.Context, program *Program) (process.Process, error) {
+func (h *Host) CreateProcess(_ context.Context, program *Program) (process.Process, error) {
 	// Get module binder for the allowed modules
 	binder := h.compiler.GetModuleBinder(program.Modules())
 
