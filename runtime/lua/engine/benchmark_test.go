@@ -41,7 +41,7 @@ func BenchmarkProcessStep(b *testing.B) {
 			b.Fatal(err)
 		}
 		var output process.StepOutput
-		_, _ = proc.Step(nil, &output)
+		_ = proc.Step(nil, &output)
 		proc.Close()
 	}
 }
@@ -111,7 +111,7 @@ func BenchmarkMemoryPerProcess(b *testing.B) {
 			b.Fatal(err)
 		}
 		var output process.StepOutput
-		_, _ = proc.Step(nil, &output)
+		_ = proc.Step(nil, &output)
 		processes = append(processes, proc)
 		contexts = append(contexts, ctx)
 	}
@@ -190,7 +190,7 @@ func BenchmarkManyProcesses(b *testing.B) {
 				var output process.StepOutput
 				for j := 0; j < count; j++ {
 					output.Reset()
-					_, _ = processes[j].Step(nil, &output)
+					_ = processes[j].Step(nil, &output)
 				}
 
 				// Close all
@@ -270,7 +270,7 @@ func TestMemoryProfile(t *testing.T) {
 				t.Fatal(err)
 			}
 			output.Reset()
-			_, _ = proc.Step(nil, &output)
+			_ = proc.Step(nil, &output)
 			processes[i] = proc
 		}
 
@@ -433,13 +433,13 @@ func BenchmarkRawVMYield(b *testing.B) {
 	task := proc.mainTask
 
 	// Warm up - execute first resume
-	_, _ = proc.state.ResumeInto(task.Thread(), task.Function(), task.retBuf, task.Resumed...)
+	_, _, _ = proc.state.ResumeInto(task.Thread(), task.Function(), task.retBuf, task.Resumed...)
 
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		_, _ = proc.state.ResumeInto(task.Thread(), task.Function(), task.retBuf)
+		_, _, _ = proc.state.ResumeInto(task.Thread(), task.Function(), task.retBuf)
 	}
 }
 
