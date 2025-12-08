@@ -36,7 +36,7 @@ func TestMultiNodeClusterFormation(t *testing.T) {
 
 	err := node1.Start(ctx)
 	require.NoError(t, err)
-	defer node1.Stop()
+	defer func() { _ = node1.Stop() }()
 
 	// Get the actual port node1 is listening on
 	localNode1 := node1.LocalNode()
@@ -65,7 +65,7 @@ func TestMultiNodeClusterFormation(t *testing.T) {
 
 	err = node2.Start(ctx)
 	require.NoError(t, err)
-	defer node2.Stop()
+	defer func() { _ = node2.Stop() }()
 
 	// Start third node
 	bus3 := eventbus.NewBus()
@@ -79,7 +79,7 @@ func TestMultiNodeClusterFormation(t *testing.T) {
 
 	err = node3.Start(ctx)
 	require.NoError(t, err)
-	defer node3.Stop()
+	defer func() { _ = node3.Stop() }()
 
 	// Wait for cluster to converge - all nodes should see 2 peers
 	deadline := time.Now().Add(10 * time.Second)
@@ -120,7 +120,7 @@ func TestNodeLeaveDetection(t *testing.T) {
 
 	err := node1.Start(ctx)
 	require.NoError(t, err)
-	defer node1.Stop()
+	defer func() { _ = node1.Stop() }()
 
 	joinAddr := node1.LocalNode().Addr
 
@@ -151,7 +151,7 @@ func TestNodeLeaveDetection(t *testing.T) {
 	require.Len(t, node1.Nodes(), 1, "node-1 should see node-2")
 
 	// Gracefully stop node2
-	node2.Stop()
+	_ = node2.Stop()
 
 	// Wait for leave detection
 	select {
@@ -185,7 +185,7 @@ func TestNodeFailureDetection(t *testing.T) {
 
 	err := node1.Start(ctx)
 	require.NoError(t, err)
-	defer node1.Stop()
+	defer func() { _ = node1.Stop() }()
 
 	joinAddr := node1.LocalNode().Addr
 
@@ -214,7 +214,7 @@ func TestNodeFailureDetection(t *testing.T) {
 	require.Len(t, node1.Nodes(), 1)
 
 	// Simulate crash - shutdown memberlist without graceful leave
-	node2.memberlist.Shutdown()
+	_ = node2.memberlist.Shutdown()
 
 	// Wait for failure detection (memberlist's suspicion mechanism)
 	select {
@@ -246,7 +246,7 @@ func TestConcurrentJoins(t *testing.T) {
 
 	err := node1.Start(ctx)
 	require.NoError(t, err)
-	defer node1.Stop()
+	defer func() { _ = node1.Stop() }()
 
 	joinAddr := node1.LocalNode().Addr
 
@@ -263,7 +263,7 @@ func TestConcurrentJoins(t *testing.T) {
 
 			bus := eventbus.NewBus()
 			node := NewService(Config{
-				NodeName:  cluster.NodeID("node-" + string(rune('a'+idx))),
+				NodeName:  "node-" + string(rune('a'+idx)),
 				BindAddr:  "127.0.0.1",
 				BindPort:  0,
 				JoinAddrs: []string{joinAddr},
@@ -285,7 +285,7 @@ func TestConcurrentJoins(t *testing.T) {
 	// Cleanup
 	defer func() {
 		for _, n := range nodes {
-			n.Stop()
+			_ = n.Stop()
 		}
 	}()
 
@@ -334,7 +334,7 @@ func TestMetadataUpdate(t *testing.T) {
 
 	err := node1.Start(ctx)
 	require.NoError(t, err)
-	defer node1.Stop()
+	defer func() { _ = node1.Stop() }()
 
 	joinAddr := node1.LocalNode().Addr
 
@@ -360,13 +360,13 @@ func TestMetadataUpdate(t *testing.T) {
 
 	err = node2.Start(ctx)
 	require.NoError(t, err)
-	defer node2.Stop()
+	defer func() { _ = node2.Stop() }()
 
 	time.Sleep(500 * time.Millisecond)
 
 	// Update node2's metadata
 	node2.config.Meta["version"] = "2.0"
-	node2.memberlist.UpdateNode(time.Second)
+	_ = node2.memberlist.UpdateNode(time.Second)
 
 	// Wait for update event
 	select {
@@ -398,7 +398,7 @@ func TestClusterPartitionRecovery(t *testing.T) {
 
 	err := node1.Start(ctx)
 	require.NoError(t, err)
-	defer node1.Stop()
+	defer func() { _ = node1.Stop() }()
 
 	joinAddr := node1.LocalNode().Addr
 
@@ -417,7 +417,7 @@ func TestClusterPartitionRecovery(t *testing.T) {
 	require.Len(t, node1.Nodes(), 1)
 
 	// Simulate partition by stopping node2
-	node2.Stop()
+	_ = node2.Stop()
 
 	// Wait for leave detection
 	deadline := time.Now().Add(30 * time.Second)
@@ -453,7 +453,7 @@ func TestClusterPartitionRecovery(t *testing.T) {
 
 	err = node2new.Start(ctx)
 	require.NoError(t, err)
-	defer node2new.Stop()
+	defer func() { _ = node2new.Stop() }()
 
 	// Wait for rejoin
 	select {

@@ -15,8 +15,8 @@ func TestKindConstant(t *testing.T) {
 	assert.Equal(t, "store.sql", KindSQLKV)
 }
 
-func TestSQLConfig_Marshal(t *testing.T) {
-	config := SQLConfig{
+func TestConfig_Marshal(t *testing.T) {
+	config := Config{
 		Database:          registry.NewID("db", "main"),
 		TableName:         "kv_store",
 		IDColumnName:      "key",
@@ -30,16 +30,16 @@ func TestSQLConfig_Marshal(t *testing.T) {
 	assert.NotEmpty(t, data)
 }
 
-func TestSQLConfig_Validate(t *testing.T) {
+func TestConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
-		config  SQLConfig
+		config  Config
 		wantErr bool
 		errMsg  string
 	}{
 		{
 			name: "valid config",
-			config: SQLConfig{
+			config: Config{
 				Database:          registry.NewID("db", "main"),
 				TableName:         "kv_store",
 				IDColumnName:      "key",
@@ -50,13 +50,13 @@ func TestSQLConfig_Validate(t *testing.T) {
 		},
 		{
 			name:    "missing database",
-			config:  SQLConfig{TableName: "kv_store"},
+			config:  Config{TableName: "kv_store"},
 			wantErr: true,
 			errMsg:  "database ID is required",
 		},
 		{
 			name: "missing table name",
-			config: SQLConfig{
+			config: Config{
 				Database: registry.NewID("db", "main"),
 			},
 			wantErr: true,
@@ -64,7 +64,7 @@ func TestSQLConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "invalid table name with SQL keywords",
-			config: SQLConfig{
+			config: Config{
 				Database:          registry.NewID("db", "main"),
 				TableName:         "select",
 				IDColumnName:      "key",
@@ -76,7 +76,7 @@ func TestSQLConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "negative cleanup interval",
-			config: SQLConfig{
+			config: Config{
 				Database:          registry.NewID("db", "main"),
 				TableName:         "kv_store",
 				IDColumnName:      "key",
@@ -102,8 +102,8 @@ func TestSQLConfig_Validate(t *testing.T) {
 	}
 }
 
-func TestSQLConfig_IsSafe(t *testing.T) {
-	config := SQLConfig{}
+func TestConfig_IsSafe(t *testing.T) {
+	config := Config{}
 
 	tests := []struct {
 		name     string
@@ -128,8 +128,8 @@ func TestSQLConfig_IsSafe(t *testing.T) {
 	}
 }
 
-func TestSQLConfig_InitDefaults(t *testing.T) {
-	config := SQLConfig{}
+func TestConfig_InitDefaults(t *testing.T) {
+	config := Config{}
 	config.InitDefaults()
 
 	assert.Equal(t, "key", config.IDColumnName)
@@ -137,12 +137,12 @@ func TestSQLConfig_InitDefaults(t *testing.T) {
 	assert.Equal(t, "expires_at", config.ExpireColumnName)
 }
 
-func TestSQLConfig_UnmarshalJSON(t *testing.T) {
+func TestConfig_UnmarshalJSON(t *testing.T) {
 	tests := []struct {
 		name    string
 		json    string
 		wantErr bool
-		check   func(*testing.T, SQLConfig)
+		check   func(*testing.T, Config)
 	}{
 		{
 			name: "valid config with duration",
@@ -155,7 +155,7 @@ func TestSQLConfig_UnmarshalJSON(t *testing.T) {
 				"cleanup_interval": "5m"
 			}`,
 			wantErr: false,
-			check: func(t *testing.T, c SQLConfig) {
+			check: func(t *testing.T, c Config) {
 				assert.Equal(t, 5*time.Minute, c.CleanupInterval)
 				assert.Equal(t, "kv_store", c.TableName)
 			},
@@ -176,7 +176,7 @@ func TestSQLConfig_UnmarshalJSON(t *testing.T) {
 				"table_name": "kv_store"
 			}`,
 			wantErr: false,
-			check: func(t *testing.T, c SQLConfig) {
+			check: func(t *testing.T, c Config) {
 				assert.Equal(t, time.Duration(0), c.CleanupInterval)
 			},
 		},
@@ -184,7 +184,7 @@ func TestSQLConfig_UnmarshalJSON(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var config SQLConfig
+			var config Config
 			err := json.Unmarshal([]byte(tt.json), &config)
 
 			if tt.wantErr {
@@ -199,15 +199,15 @@ func TestSQLConfig_UnmarshalJSON(t *testing.T) {
 	}
 }
 
-func TestSQLConfig_Validate_MissingColumns(t *testing.T) {
+func TestConfig_Validate_MissingColumns(t *testing.T) {
 	tests := []struct {
 		name   string
-		config SQLConfig
+		config Config
 		errMsg string
 	}{
 		{
 			name: "missing id column",
-			config: SQLConfig{
+			config: Config{
 				Database:          registry.NewID("db", "main"),
 				TableName:         "kv_store",
 				PayloadColumnName: "value",
@@ -217,7 +217,7 @@ func TestSQLConfig_Validate_MissingColumns(t *testing.T) {
 		},
 		{
 			name: "missing payload column",
-			config: SQLConfig{
+			config: Config{
 				Database:         registry.NewID("db", "main"),
 				TableName:        "kv_store",
 				IDColumnName:     "key",
@@ -227,7 +227,7 @@ func TestSQLConfig_Validate_MissingColumns(t *testing.T) {
 		},
 		{
 			name: "missing expire column",
-			config: SQLConfig{
+			config: Config{
 				Database:          registry.NewID("db", "main"),
 				TableName:         "kv_store",
 				IDColumnName:      "key",
@@ -246,15 +246,15 @@ func TestSQLConfig_Validate_MissingColumns(t *testing.T) {
 	}
 }
 
-func TestSQLConfig_Validate_InvalidIdentifiers(t *testing.T) {
+func TestConfig_Validate_InvalidIdentifiers(t *testing.T) {
 	tests := []struct {
 		name   string
-		config SQLConfig
+		config Config
 		errMsg string
 	}{
 		{
 			name: "invalid database name",
-			config: SQLConfig{
+			config: Config{
 				Database:          registry.NewID("db", "main; DROP TABLE"),
 				TableName:         "kv_store",
 				IDColumnName:      "key",
@@ -265,7 +265,7 @@ func TestSQLConfig_Validate_InvalidIdentifiers(t *testing.T) {
 		},
 		{
 			name: "invalid id column name",
-			config: SQLConfig{
+			config: Config{
 				Database:          registry.NewID("db", "main"),
 				TableName:         "kv_store",
 				IDColumnName:      "key; DROP TABLE",
@@ -276,7 +276,7 @@ func TestSQLConfig_Validate_InvalidIdentifiers(t *testing.T) {
 		},
 		{
 			name: "invalid payload column name",
-			config: SQLConfig{
+			config: Config{
 				Database:          registry.NewID("db", "main"),
 				TableName:         "kv_store",
 				IDColumnName:      "key",
@@ -287,7 +287,7 @@ func TestSQLConfig_Validate_InvalidIdentifiers(t *testing.T) {
 		},
 		{
 			name: "invalid expire column name",
-			config: SQLConfig{
+			config: Config{
 				Database:          registry.NewID("db", "main"),
 				TableName:         "kv_store",
 				IDColumnName:      "key",
@@ -307,8 +307,8 @@ func TestSQLConfig_Validate_InvalidIdentifiers(t *testing.T) {
 	}
 }
 
-func TestSQLConfig_IsSafe_AdditionalCases(t *testing.T) {
-	config := SQLConfig{}
+func TestConfig_IsSafe_AdditionalCases(t *testing.T) {
+	config := Config{}
 
 	tests := []struct {
 		name     string

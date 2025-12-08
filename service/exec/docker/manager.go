@@ -48,7 +48,7 @@ func NewManager(
 // Add implements registry.EntryListener for Docker executors
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != exec.KindDockerExecutor {
-		return NewUnsupportedEntryKindError(string(entry.Kind))
+		return NewUnsupportedEntryKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -92,7 +92,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update implements registry.EntryListener
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != exec.KindDockerExecutor {
-		return NewUnsupportedEntryKindError(string(entry.Kind))
+		return NewUnsupportedEntryKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -143,7 +143,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete implements registry.EntryListener
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != exec.KindDockerExecutor {
-		return NewUnsupportedEntryKindError(string(entry.Kind))
+		return NewUnsupportedEntryKindError(entry.Kind)
 	}
 
 	m.mu.Lock()

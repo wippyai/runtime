@@ -47,7 +47,7 @@ func NewManager(
 // Add implements registry.EntryListener
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != serviceaws.Kind {
-		return newUnsupportedKindError(string(entry.Kind))
+		return newUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -96,7 +96,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update implements registry.EntryListener
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != serviceaws.Kind {
-		return newUnsupportedKindError(string(entry.Kind))
+		return newUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -146,7 +146,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete implements registry.EntryListener
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != serviceaws.Kind {
-		return newUnsupportedKindError(string(entry.Kind))
+		return newUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()

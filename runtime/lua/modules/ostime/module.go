@@ -54,10 +54,10 @@ func osTime(l *lua.LState) int {
 	month := getIntField(tbl, "month", int(ref.Month()))
 	day := getIntField(tbl, "day", ref.Day())
 	hour := getIntField(tbl, "hour", 0)
-	min := getIntField(tbl, "min", 0)
+	minute := getIntField(tbl, "min", 0)
 	sec := getIntField(tbl, "sec", 0)
 
-	t := time.Date(year, time.Month(month), day, hour, min, sec, 0, time.Local)
+	t := time.Date(year, time.Month(month), day, hour, minute, sec, 0, time.Local)
 	l.Push(lua.LNumber(t.Unix()))
 	return 1
 }

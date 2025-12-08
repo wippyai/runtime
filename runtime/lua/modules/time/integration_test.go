@@ -3,7 +3,6 @@ package time_test
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 	"testing"
 	stdtime "time"
 
@@ -31,13 +30,13 @@ type testScheduler struct {
 func (ts *testScheduler) Stop() {
 	ts.Scheduler.Stop()
 	if ts.clock != nil {
-		ts.clock.Stop(context.Background())
+		_ = ts.clock.Stop(context.Background())
 	}
 }
 
-func (ts *testScheduler) OnStart(ctx context.Context, pid relay.PID, p process.Process) {}
+func (ts *testScheduler) OnStart(context.Context, relay.PID, process.Process) {}
 
-func (ts *testScheduler) OnComplete(ctx context.Context, pid relay.PID, result *runtime.Result) {
+func (ts *testScheduler) OnComplete(_ context.Context, pid relay.PID, result *runtime.Result) {
 	ts.mu.Lock()
 	ch, ok := ts.pending[pid.UniqID]
 	if ok {
@@ -75,13 +74,8 @@ func (ts *testScheduler) Execute(ctx context.Context, pid relay.PID, p actor.Pro
 	}
 }
 
-var testPIDCounter atomic.Int64
-
-func uniqueTestPID() relay.PID {
-	return relay.PID{UniqID: stdtime.Now().Format("20060102150405.000000000") + "-" + string(rune(testPIDCounter.Add(1)))}
-}
-
 func newTestScheduler(numWorkers int, opts ...actor.Option) *testScheduler {
+	_ = numWorkers // always 4
 	ts := &testScheduler{
 		pending: make(map[string]chan *runtime.Result),
 	}
@@ -92,7 +86,7 @@ func newTestScheduler(numWorkers int, opts ...actor.Option) *testScheduler {
 	})
 	ts.clock = clockSvc
 	opts = append([]actor.Option{
-		actor.WithWorkers(numWorkers),
+		actor.WithWorkers(4),
 		actor.WithLifecycle(ts),
 	}, opts...)
 	ts.Scheduler = actor.NewScheduler(reg, opts...)

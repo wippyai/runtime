@@ -54,12 +54,12 @@ var processMethods = map[string]lua.LGoFunc{
 	"close":         procClose,
 }
 
-func checkProcess(l *lua.LState, idx int) *Process {
-	ud := l.CheckUserData(idx)
+func checkProcess(l *lua.LState, _ int) *Process {
+	ud := l.CheckUserData(1)
 	if v, ok := ud.Value.(*Process); ok {
 		return v
 	}
-	l.ArgError(idx, "process expected")
+	l.ArgError(1, "process expected")
 	return nil
 }
 

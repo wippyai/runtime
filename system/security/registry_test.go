@@ -35,7 +35,7 @@ func (m *mockEventBus) Send(_ context.Context, e event.Event) {
 	m.events = append(m.events, e)
 }
 
-func newTestRegistry(t *testing.T) *PolicyRegistry {
+func newTestRegistry(*testing.T) *PolicyRegistry {
 	bus := &mockEventBus{}
 	logger := zap.NewNop()
 	reg := NewPolicyRegistry(bus, logger)

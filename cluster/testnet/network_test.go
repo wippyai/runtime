@@ -57,13 +57,13 @@ func TestSimulatedClusterFormation(t *testing.T) {
 
 	// Start all services
 	require.NoError(t, svc1.Start(ctx))
-	defer svc1.Stop()
+	defer func() { _ = svc1.Stop() }()
 
 	require.NoError(t, svc2.Start(ctx))
-	defer svc2.Stop()
+	defer func() { _ = svc2.Stop() }()
 
 	require.NoError(t, svc3.Start(ctx))
-	defer svc3.Stop()
+	defer func() { _ = svc3.Stop() }()
 
 	// Wait for convergence
 	deadline := time.Now().Add(5 * time.Second)
@@ -106,10 +106,10 @@ func TestAsymmetricPartition(t *testing.T) {
 	)
 
 	require.NoError(t, svc1.Start(ctx))
-	defer svc1.Stop()
+	defer func() { _ = svc1.Stop() }()
 
 	require.NoError(t, svc2.Start(ctx))
-	defer svc2.Stop()
+	defer func() { _ = svc2.Stop() }()
 
 	// Wait for initial cluster formation
 	time.Sleep(500 * time.Millisecond)
@@ -171,7 +171,7 @@ func TestNodeCrashSimulation(t *testing.T) {
 	)
 
 	require.NoError(t, svc1.Start(ctx))
-	defer svc1.Stop()
+	defer func() { _ = svc1.Stop() }()
 
 	require.NoError(t, svc2.Start(ctx))
 
@@ -230,10 +230,10 @@ func TestPartitionAndHeal(t *testing.T) {
 	)
 
 	require.NoError(t, svc1.Start(ctx))
-	defer svc1.Stop()
+	defer func() { _ = svc1.Stop() }()
 
 	require.NoError(t, svc2.Start(ctx))
-	defer svc2.Stop()
+	defer func() { _ = svc2.Stop() }()
 
 	// Wait for join
 	time.Sleep(500 * time.Millisecond)

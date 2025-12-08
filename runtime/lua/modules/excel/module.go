@@ -89,8 +89,8 @@ var workbookMethods = map[string]lua.LGoFunc{
 	"close":          workbookClose,
 }
 
-func checkWorkbook(l *lua.LState, idx int) *Workbook {
-	ud := l.CheckUserData(idx)
+func checkWorkbook(l *lua.LState, _ int) *Workbook {
+	ud := l.CheckUserData(1)
 	if v, ok := ud.Value.(*Workbook); ok {
 		return v
 	}

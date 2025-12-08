@@ -104,10 +104,10 @@ func TestWheelTimerAccuracyStatistical(t *testing.T) {
 	p50 := jitters[timerCount/2]
 	p90 := jitters[timerCount*90/100]
 	p99 := jitters[timerCount*99/100]
-	max := jitters[timerCount-1]
+	maxJitter := jitters[timerCount-1]
 
 	t.Logf("Jitter stats for %d timers at %v:", timerCount, duration)
-	t.Logf("  mean=%v p50=%v p90=%v p99=%v max=%v", mean, p50, p90, p99, max)
+	t.Logf("  mean=%v p50=%v p90=%v p99=%v max=%v", mean, p50, p90, p99, maxJitter)
 
 	// Assertions - timing wheel with 1ms tick should achieve these
 	if p50 > 3*time.Millisecond {

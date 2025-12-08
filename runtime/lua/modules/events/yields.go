@@ -83,7 +83,7 @@ func (y *EventSubscribeYield) HandleResult(l *lua.LState, data any, err error) [
 	}
 
 	// Register cleanup to unsubscribe from dispatcher when frame is released
-	if sub, ok := data.(event.EventSubscription); ok && sub.Unsubscribe != nil {
+	if sub, ok := data.(event.Subscription); ok && sub.Unsubscribe != nil {
 		ctx := l.Context()
 		if ctx != nil {
 			if store := resource.GetStore(ctx); store != nil {
@@ -208,7 +208,7 @@ func (y *EventSendYield) ToCommand() dispatcher.Command {
 func (y *EventSendYield) Release() { ReleaseEventSendYield(y) }
 
 // HandleResult returns success after the event is sent.
-func (y *EventSendYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+func (y *EventSendYield) HandleResult(_ *lua.LState, _ any, err error) []lua.LValue {
 	if err != nil {
 		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
 	}

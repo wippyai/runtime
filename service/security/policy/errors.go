@@ -3,6 +3,7 @@ package policy
 import (
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 type Error struct {
@@ -113,14 +114,14 @@ func NewCompileExpressionError(cause error) *Error {
 	}
 }
 
-func NewUnsupportedPolicyKindError(kind string) *Error {
+func NewUnsupportedPolicyKindError(kind registry.Kind) *Error {
 	return &Error{
 		kind:    apierror.KindInvalid,
 		message: "unsupported policy kind: " + kind,
 	}
 }
 
-func NewUnsupportedEntryKindError(kind string) *Error {
+func NewUnsupportedEntryKindError(kind registry.Kind) *Error {
 	return &Error{
 		kind:    apierror.KindInvalid,
 		message: "unsupported entry kind: " + kind,

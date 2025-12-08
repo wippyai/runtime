@@ -430,7 +430,7 @@ func TestMemoryStore_ConcurrentReadWrite(t *testing.T) {
 
 	_, err := ms.Start(ctx)
 	require.NoError(t, err)
-	defer ms.Stop(ctx)
+	defer func() { _ = ms.Stop(ctx) }()
 
 	const (
 		numWriters = 10
@@ -509,7 +509,7 @@ func TestMemoryStore_TTLStress(t *testing.T) {
 
 	_, err := ms.Start(ctx)
 	require.NoError(t, err)
-	defer ms.Stop(ctx)
+	defer func() { _ = ms.Stop(ctx) }()
 
 	const numKeys = 200
 	var wg sync.WaitGroup
@@ -593,7 +593,7 @@ func TestMemoryStore_CapacityBoundary(t *testing.T) {
 
 	_, err := ms.Start(ctx)
 	require.NoError(t, err)
-	defer ms.Stop(ctx)
+	defer func() { _ = ms.Stop(ctx) }()
 
 	// Fill to capacity
 	for i := 0; i < 10; i++ {
@@ -716,11 +716,11 @@ func TestMemoryStore_CleanupBehavior(t *testing.T) {
 
 // Benchmarks
 
-func createBenchStore(b *testing.B) (*memorystore.MemoryStore, context.Context) {
+func createBenchStore(_ *testing.B) (*memorystore.MemoryStore, context.Context) {
 	logger := zap.NewNop()
 	config := &memcfg.MemoryConfig{
 		MaxSize:         1000000,
-		CleanupInterval: time.Hour, // Disable cleanup during benchmarks
+		CleanupInterval: time.Hour,
 	}
 	ms := memorystore.NewMemoryStore(registry.NewID("bench", "store"), config, logger)
 	ctx := ctxapi.NewRootContext()
@@ -730,7 +730,7 @@ func createBenchStore(b *testing.B) (*memorystore.MemoryStore, context.Context) 
 
 func BenchmarkMemoryStore_Set(b *testing.B) {
 	ms, ctx := createBenchStore(b)
-	defer ms.Stop(ctx)
+	defer func() { _ = ms.Stop(ctx) }()
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -742,7 +742,7 @@ func BenchmarkMemoryStore_Set(b *testing.B) {
 
 func BenchmarkMemoryStore_Get(b *testing.B) {
 	ms, ctx := createBenchStore(b)
-	defer ms.Stop(ctx)
+	defer func() { _ = ms.Stop(ctx) }()
 
 	// Pre-populate
 	for i := 0; i < 10000; i++ {
@@ -760,7 +760,7 @@ func BenchmarkMemoryStore_Get(b *testing.B) {
 
 func BenchmarkMemoryStore_Has(b *testing.B) {
 	ms, ctx := createBenchStore(b)
-	defer ms.Stop(ctx)
+	defer func() { _ = ms.Stop(ctx) }()
 
 	// Pre-populate
 	for i := 0; i < 10000; i++ {
@@ -778,7 +778,7 @@ func BenchmarkMemoryStore_Has(b *testing.B) {
 
 func BenchmarkMemoryStore_Delete(b *testing.B) {
 	ms, ctx := createBenchStore(b)
-	defer ms.Stop(ctx)
+	defer func() { _ = ms.Stop(ctx) }()
 
 	// Pre-populate
 	for i := 0; i < b.N; i++ {
@@ -796,7 +796,7 @@ func BenchmarkMemoryStore_Delete(b *testing.B) {
 
 func BenchmarkMemoryStore_SetWithTTL(b *testing.B) {
 	ms, ctx := createBenchStore(b)
-	defer ms.Stop(ctx)
+	defer func() { _ = ms.Stop(ctx) }()
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -808,7 +808,7 @@ func BenchmarkMemoryStore_SetWithTTL(b *testing.B) {
 
 func BenchmarkMemoryStore_ConcurrentGet(b *testing.B) {
 	ms, ctx := createBenchStore(b)
-	defer ms.Stop(ctx)
+	defer func() { _ = ms.Stop(ctx) }()
 
 	// Pre-populate
 	for i := 0; i < 10000; i++ {
@@ -830,7 +830,7 @@ func BenchmarkMemoryStore_ConcurrentGet(b *testing.B) {
 
 func BenchmarkMemoryStore_ConcurrentSet(b *testing.B) {
 	ms, ctx := createBenchStore(b)
-	defer ms.Stop(ctx)
+	defer func() { _ = ms.Stop(ctx) }()
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -846,7 +846,7 @@ func BenchmarkMemoryStore_ConcurrentSet(b *testing.B) {
 
 func BenchmarkMemoryStore_ConcurrentMixed(b *testing.B) {
 	ms, ctx := createBenchStore(b)
-	defer ms.Stop(ctx)
+	defer func() { _ = ms.Stop(ctx) }()
 
 	// Pre-populate
 	for i := 0; i < 10000; i++ {

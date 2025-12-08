@@ -92,14 +92,14 @@ func Cluster() boot.Component {
 				return ctx, nil
 			}
 
-			clusterCfg := cfg.Sub(string(ClusterName))
-			if !clusterCfg.GetBool(string(ClusterEnabled), false) {
+			clusterCfg := cfg.Sub(ClusterName)
+			if !clusterCfg.GetBool(ClusterEnabled, false) {
 				logger.Debug("cluster disabled")
 				return ctx, nil
 			}
 
 			// Get node name
-			nodeName := clusterCfg.GetString(string(ClusterNodeName), "")
+			nodeName := clusterCfg.GetString(ClusterNodeName, "")
 			if nodeName == "" {
 				hostname, err := os.Hostname()
 				if err != nil {
@@ -126,7 +126,7 @@ func Cluster() boot.Component {
 
 			// Parse join addresses
 			var joinAddrs []string
-			joinStr := clusterCfg.GetString(string(ClusterMembershipJoin), "")
+			joinStr := clusterCfg.GetString(ClusterMembershipJoin, "")
 			if joinStr != "" {
 				for _, addr := range strings.Split(joinStr, ",") {
 					joinAddrs = append(joinAddrs, strings.TrimSpace(addr))
@@ -139,9 +139,9 @@ func Cluster() boot.Component {
 			// Create connection manager config
 			connManagerCfg := internode.DefaultManagerConfig()
 			connManagerCfg.LocalNodeID = nodeName
-			connManagerCfg.BindAddr = clusterCfg.GetString(string(ClusterInternodeBindAddr), "0.0.0.0")
-			connManagerCfg.BindPort = clusterCfg.GetInt(string(ClusterInternodeBindPort), 0)
-			connManagerCfg.AutoPort = clusterCfg.GetBool(string(ClusterInternodeAutoPort), true)
+			connManagerCfg.BindAddr = clusterCfg.GetString(ClusterInternodeBindAddr, "0.0.0.0")
+			connManagerCfg.BindPort = clusterCfg.GetInt(ClusterInternodeBindPort, 0)
+			connManagerCfg.AutoPort = clusterCfg.GetBool(ClusterInternodeAutoPort, true)
 			connManagerCfg.Logger = logger.Named("internode.conn")
 
 			connMgr = internode.NewConnectionManager(connManagerCfg)
@@ -173,12 +173,12 @@ func Cluster() boot.Component {
 			// Create membership service config
 			memberCfg := membership.Config{
 				NodeName:     nodeName,
-				BindAddr:     clusterCfg.GetString(string(ClusterMembershipBindAddr), "0.0.0.0"),
-				BindPort:     clusterCfg.GetInt(string(ClusterMembershipBindPort), 7946),
+				BindAddr:     clusterCfg.GetString(ClusterMembershipBindAddr, "0.0.0.0"),
+				BindPort:     clusterCfg.GetInt(ClusterMembershipBindPort, 7946),
 				JoinAddrs:    joinAddrs,
-				SecretFile:   clusterCfg.GetString(string(ClusterMembershipSecretFile), ""),
-				SecretString: clusterCfg.GetString(string(ClusterMembershipSecret), ""),
-				AdvertiseIP:  clusterCfg.GetString(string(ClusterMembershipAdvertise), ""),
+				SecretFile:   clusterCfg.GetString(ClusterMembershipSecretFile, ""),
+				SecretString: clusterCfg.GetString(ClusterMembershipSecret, ""),
+				AdvertiseIP:  clusterCfg.GetString(ClusterMembershipAdvertise, ""),
 				VeryVerbose:  false,
 				Meta:         nodeMeta,
 			}

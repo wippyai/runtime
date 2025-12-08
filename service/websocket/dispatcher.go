@@ -416,7 +416,7 @@ func (d *Dispatcher) executeSubscribe(ctx context.Context, cmd wsapi.WsSubscribe
 
 	// Use PID and topic from command
 	pid := cmd.PID
-	topic := relay.Topic(cmd.Topic)
+	topic := cmd.Topic
 
 	go func() {
 		for {

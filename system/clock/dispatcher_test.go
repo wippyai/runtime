@@ -137,7 +137,7 @@ func TestTimerWaitHandler(t *testing.T) {
 	waitHandler := handlers[clockapi.TimerWait]
 
 	var timerID uint64
-	startHandler.Handle(context.Background(), clockapi.TimerStartCmd{Duration: 10 * time.Millisecond}, 0, &testReceiver{fn: func(data any, _ error) {
+	_ = startHandler.Handle(context.Background(), clockapi.TimerStartCmd{Duration: 10 * time.Millisecond}, 0, &testReceiver{fn: func(data any, _ error) {
 		timerID = data.(clockapi.TimerStartResult).ID
 	}})
 
@@ -176,7 +176,7 @@ func TestTimerStopHandler(t *testing.T) {
 	stopHandler := handlers[clockapi.TimerStop]
 
 	var timerID uint64
-	startHandler.Handle(context.Background(), clockapi.TimerStartCmd{Duration: time.Hour}, 0, &testReceiver{fn: func(data any, _ error) {
+	_ = startHandler.Handle(context.Background(), clockapi.TimerStartCmd{Duration: time.Hour}, 0, &testReceiver{fn: func(data any, _ error) {
 		timerID = data.(clockapi.TimerStartResult).ID
 	}})
 
@@ -211,7 +211,7 @@ func TestTimerResetHandler(t *testing.T) {
 	resetHandler := handlers[clockapi.TimerReset]
 
 	var timerID uint64
-	startHandler.Handle(context.Background(), clockapi.TimerStartCmd{Duration: time.Hour}, 0, &testReceiver{fn: func(data any, _ error) {
+	_ = startHandler.Handle(context.Background(), clockapi.TimerStartCmd{Duration: time.Hour}, 0, &testReceiver{fn: func(data any, _ error) {
 		timerID = data.(clockapi.TimerStartResult).ID
 	}})
 
@@ -246,7 +246,7 @@ func TestTimerResetHandlerZeroDuration(t *testing.T) {
 	resetHandler := handlers[clockapi.TimerReset]
 
 	var timerID uint64
-	startHandler.Handle(context.Background(), clockapi.TimerStartCmd{Duration: time.Hour}, 0, &testReceiver{fn: func(data any, _ error) {
+	_ = startHandler.Handle(context.Background(), clockapi.TimerStartCmd{Duration: time.Hour}, 0, &testReceiver{fn: func(data any, _ error) {
 		timerID = data.(clockapi.TimerStartResult).ID
 	}})
 
@@ -291,7 +291,7 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 	d := NewDispatcher()
 	handlers := make(map[dispatcher.CommandID]bool)
 
-	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+	d.RegisterAll(func(id dispatcher.CommandID, _ dispatcher.Handler) {
 		handlers[id] = true
 	})
 

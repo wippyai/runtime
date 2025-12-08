@@ -2,125 +2,15 @@ package security
 
 import (
 	"context"
-	"sync"
 	"testing"
 
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/api/resource"
 	secapi "github.com/wippyai/runtime/api/security"
 	secsystem "github.com/wippyai/runtime/system/security"
 	lua "github.com/yuin/gopher-lua"
 )
-
-// mockTokenStore implements secapi.TokenStore for testing
-type mockTokenStore struct {
-	tokens map[string]tokenData
-	mu     sync.RWMutex
-}
-
-type tokenData struct {
-	actor secapi.Actor
-	scope secapi.Scope
-}
-
-func newMockTokenStore() *mockTokenStore {
-	return &mockTokenStore{tokens: make(map[string]tokenData)}
-}
-
-func (s *mockTokenStore) Create(_ context.Context, actor secapi.Actor, scope secapi.Scope, _ secapi.TokenDetails) (secapi.Token, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	token := secapi.Token("test-token-" + actor.ID)
-	s.tokens[string(token)] = tokenData{actor: actor, scope: scope}
-	return token, nil
-}
-
-func (s *mockTokenStore) Validate(_ context.Context, token secapi.Token) (secapi.Actor, secapi.Scope, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	data, ok := s.tokens[string(token)]
-	if !ok {
-		return secapi.Actor{}, nil, secapi.ErrTokenNotFound
-	}
-	return data.actor, data.scope, nil
-}
-
-func (s *mockTokenStore) Revoke(_ context.Context, token secapi.Token) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.tokens[string(token)]; !ok {
-		return secapi.ErrTokenNotFound
-	}
-	delete(s.tokens, string(token))
-	return nil
-}
-
-// mockResource wraps a token store for resource acquisition
-type mockResource struct {
-	store    secapi.TokenStore
-	released bool
-	mu       sync.Mutex
-}
-
-func (r *mockResource) Get() (any, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.released {
-		return nil, resource.ErrReleased
-	}
-	return r.store, nil
-}
-
-func (r *mockResource) Release() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.released = true
-}
-
-// mockResourceRegistry provides resources for testing
-type mockResourceRegistry struct {
-	stores map[string]secapi.TokenStore
-	mu     sync.RWMutex
-}
-
-func newMockResourceRegistry() *mockResourceRegistry {
-	return &mockResourceRegistry{stores: make(map[string]secapi.TokenStore)}
-}
-
-func (r *mockResourceRegistry) Register(id string, s secapi.TokenStore) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.stores[id] = s
-}
-
-func (r *mockResourceRegistry) Acquire(_ context.Context, id registry.ID, _ resource.AccessMode) (resource.Resource[any], error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	s, ok := r.stores[id.String()]
-	if !ok {
-		return nil, resource.ErrNotFound
-	}
-	return &mockResource{store: s}, nil
-}
-
-func (r *mockResourceRegistry) List() ([]registry.ID, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	ids := make([]registry.ID, 0, len(r.stores))
-	for k := range r.stores {
-		ids = append(ids, registry.ParseID(k))
-	}
-	return ids, nil
-}
-
-func (r *mockResourceRegistry) Exists(id registry.ID) bool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	_, ok := r.stores[id.String()]
-	return ok
-}
 
 // mockPolicy implements secapi.Policy for testing
 type mockPolicy struct {
@@ -130,7 +20,7 @@ type mockPolicy struct {
 
 func newMockPolicy(ns, name string, effect secapi.Result) *mockPolicy {
 	return &mockPolicy{
-		id:     registry.NewID(registry.Namespace(ns), name),
+		id:     registry.NewID(ns, name),
 		effect: effect,
 	}
 }
@@ -141,72 +31,6 @@ func (p *mockPolicy) ID() registry.ID {
 
 func (p *mockPolicy) Evaluate(_ secapi.Actor, _, _ string, _ attrs.Bag) secapi.Result {
 	return p.effect
-}
-
-// mockSecurityRegistry implements secapi.Registry for testing
-type mockSecurityRegistry struct {
-	policies map[string]secapi.Policy
-	groups   map[string]secapi.Scope
-	mu       sync.RWMutex
-}
-
-func newMockSecurityRegistry() *mockSecurityRegistry {
-	return &mockSecurityRegistry{
-		policies: make(map[string]secapi.Policy),
-		groups:   make(map[string]secapi.Scope),
-	}
-}
-
-func (r *mockSecurityRegistry) AddPolicy(pol secapi.Policy) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.policies[pol.ID().String()] = pol
-}
-
-func (r *mockSecurityRegistry) AddGroup(id registry.ID, scope secapi.Scope) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.groups[id.String()] = scope
-}
-
-func (r *mockSecurityRegistry) GetPolicy(id registry.ID) (secapi.Policy, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	pol, ok := r.policies[id.String()]
-	if !ok {
-		return nil, secapi.ErrPolicyNotFound
-	}
-	return pol, nil
-}
-
-func (r *mockSecurityRegistry) GetPolicyGroup(id registry.ID) (secapi.Scope, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	scope, ok := r.groups[id.String()]
-	if !ok {
-		return nil, secapi.ErrGroupNotFound
-	}
-	return scope, nil
-}
-
-func (r *mockSecurityRegistry) ListGroups() []registry.ID {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	ids := make([]registry.ID, 0, len(r.groups))
-	for k := range r.groups {
-		ids = append(ids, registry.ParseID(k))
-	}
-	return ids
-}
-
-func (r *mockSecurityRegistry) ListPolicies() []registry.ID {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	ids := make([]registry.ID, 0, len(r.policies))
-	for k := range r.policies {
-		ids = append(ids, registry.ParseID(k))
-	}
-	return ids
 }
 
 func setupState() *lua.LState {

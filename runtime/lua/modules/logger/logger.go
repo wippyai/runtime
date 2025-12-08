@@ -69,16 +69,16 @@ func (lg *Logger) getLogger(l *lua.LState) *zap.Logger {
 
 // Instance methods for Logger userdata
 
-func checkLogger(l *lua.LState, idx int) *Logger {
-	ud := l.CheckUserData(idx)
+func checkLogger(l *lua.LState, _ int) *Logger {
+	ud := l.CheckUserData(1)
 	if ud == nil {
-		l.ArgError(idx, "expected logger.Logger")
+		l.ArgError(1, "expected logger.Logger")
 		return nil
 	}
 	if logger, ok := ud.Value.(*Logger); ok {
 		return logger
 	}
-	l.ArgError(idx, "expected logger.Logger")
+	l.ArgError(1, "expected logger.Logger")
 	return nil
 }
 

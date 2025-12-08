@@ -9,10 +9,10 @@ var (
 	ErrFunctionIDRequired = queueapi.ErrFunctionIDRequired
 )
 
-func NewConcurrencyExceededError(concurrency, max int) *queueapi.Error {
-	return queueapi.NewConcurrencyExceededError(concurrency, max)
+func NewConcurrencyExceededError(concurrency, maxVal int) *queueapi.Error {
+	return queueapi.NewConcurrencyExceededError(concurrency, maxVal)
 }
 
-func NewPrefetchExceededError(prefetch, max int) *queueapi.Error {
-	return queueapi.NewPrefetchExceededError(prefetch, max)
+func NewPrefetchExceededError(prefetch, maxVal int) *queueapi.Error {
+	return queueapi.NewPrefetchExceededError(prefetch, maxVal)
 }

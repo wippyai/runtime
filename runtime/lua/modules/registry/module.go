@@ -91,12 +91,12 @@ func NewModule(opts Options) *luaapi.ModuleDef {
 			mod.RawSetString("find", lua.LGoFunc(registryFind))
 			mod.RawSetString("parse_id", lua.LGoFunc(parseID))
 			mod.RawSetString("snapshot", lua.LGoFunc(registrySnapshot))
-			mod.RawSetString("snapshot_at", lua.LGoFunc(makeSnapshotAt(opts.Log)))
+			mod.RawSetString("snapshot_at", makeSnapshotAt(opts.Log))
 			mod.RawSetString("current_version", lua.LGoFunc(registryCurrentVersion))
 			mod.RawSetString("versions", lua.LGoFunc(registryVersions))
 			mod.RawSetString("history", lua.LGoFunc(registryHistory))
 			mod.RawSetString("apply_version", lua.LGoFunc(registryApplyVersion))
-			mod.RawSetString("build_delta", lua.LGoFunc(makeBuildDelta(opts.Log)))
+			mod.RawSetString("build_delta", makeBuildDelta(opts.Log))
 			mod.Immutable = true
 			return mod, nil
 		},

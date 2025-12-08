@@ -367,15 +367,15 @@ func TestErrorKinds(t *testing.T) {
 	})
 }
 
-func checkTable(t *testing.T, l *lua.LState, parent, name string) {
+func checkTable(t *testing.T, l *lua.LState, _, name string) {
 	t.Helper()
-	err := l.DoString(`return type(` + parent + `.` + name + `) == "table"`)
+	err := l.DoString(`return type(system.` + name + `) == "table"`)
 	if err != nil {
-		t.Errorf("error checking %s.%s: %v", parent, name, err)
+		t.Errorf("error checking system.%s: %v", name, err)
 		return
 	}
 	if l.Get(-1) != lua.LTrue {
-		t.Errorf("%s.%s is not a table", parent, name)
+		t.Errorf("system.%s is not a table", name)
 	}
 	l.Pop(1)
 }

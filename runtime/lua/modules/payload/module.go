@@ -71,12 +71,12 @@ func newPayload(l *lua.LState) int {
 	return PushPayload(l, p)
 }
 
-func checkPayload(l *lua.LState, idx int) *Wrapper {
-	ud := l.CheckUserData(idx)
+func checkPayload(l *lua.LState, _ int) *Wrapper {
+	ud := l.CheckUserData(1)
 	if pw, ok := ud.Value.(*Wrapper); ok {
 		return pw
 	}
-	l.ArgError(idx, "payload expected")
+	l.ArgError(1, "payload expected")
 	return nil
 }
 

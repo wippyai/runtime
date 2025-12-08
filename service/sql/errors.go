@@ -76,7 +76,7 @@ func NewInvalidConfigTypeError(configType string, expectedKind registry.Kind) *E
 	}
 }
 
-func NewUnsupportedConfigTypeError(configType string) *Error {
+func NewUnsupportedConfigTypeError(configType registry.Kind) *Error {
 	return &Error{
 		kind:      apierror.KindInvalid,
 		message:   "unsupported config type",

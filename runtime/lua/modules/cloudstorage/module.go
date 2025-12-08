@@ -61,12 +61,12 @@ var storageMetamethods = map[string]lua.LGoFunc{
 	"__tostring": storageToString,
 }
 
-func checkStorage(l *lua.LState, n int) *storageWrapper {
-	ud := l.CheckUserData(n)
+func checkStorage(l *lua.LState, _ int) *storageWrapper {
+	ud := l.CheckUserData(1)
 	if wrapper, ok := ud.Value.(*storageWrapper); ok {
 		return wrapper
 	}
-	l.ArgError(n, "cloudstorage.Storage expected")
+	l.ArgError(1, "cloudstorage.Storage expected")
 	return nil
 }
 

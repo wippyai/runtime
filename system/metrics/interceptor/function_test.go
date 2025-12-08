@@ -61,8 +61,8 @@ func (m *mockCollector) HistogramObserve(name string, value float64, labels metr
 	m.records = append(m.records, mockRecord{method: "HistogramObserve", name: name, value: value, labels: labels})
 }
 
-func (m *mockCollector) RegisterExporter(e metrics.Exporter) error { return nil }
-func (m *mockCollector) Close() error                              { return nil }
+func (m *mockCollector) RegisterExporter(metrics.Exporter) error { return nil }
+func (m *mockCollector) Close() error                            { return nil }
 
 func (m *mockCollector) count() int {
 	m.mu.Lock()
@@ -81,7 +81,7 @@ func TestFunctionInterceptor_Success(t *testing.T) {
 	interceptor := NewFunctionInterceptor(mock, true)
 
 	task := runtime.Task{ID: registry.NewID("ns", "test_func")}
-	next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
+	next := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		time.Sleep(10 * time.Millisecond)
 		return &runtime.Result{}, nil
 	}
@@ -114,7 +114,7 @@ func TestFunctionInterceptor_Error(t *testing.T) {
 	interceptor := NewFunctionInterceptor(mock, true)
 
 	task := runtime.Task{ID: registry.NewID("ns", "test_func")}
-	next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
+	next := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		return nil, errors.New("test error")
 	}
 
@@ -134,12 +134,12 @@ func TestFunctionInterceptor_Disabled(t *testing.T) {
 
 	task := runtime.Task{ID: registry.NewID("ns", "test_func")}
 	called := false
-	next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
+	next := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		called = true
 		return &runtime.Result{}, nil
 	}
 
-	interceptor.Handle(context.Background(), task, next)
+	_, _ = interceptor.Handle(context.Background(), task, next)
 
 	assert.True(t, called)
 	assert.Equal(t, 0, mock.count())
@@ -150,11 +150,11 @@ func TestFunctionInterceptor_NilCollector(t *testing.T) {
 
 	task := runtime.Task{ID: registry.NewID("ns", "test_func")}
 	called := false
-	next := func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
+	next := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		called = true
 		return &runtime.Result{}, nil
 	}
 
-	interceptor.Handle(context.Background(), task, next)
+	_, _ = interceptor.Handle(context.Background(), task, next)
 	assert.True(t, called)
 }

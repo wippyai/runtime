@@ -5,6 +5,7 @@ import (
 
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // Error implements apierror.Error for Docker executor errors
@@ -134,7 +135,7 @@ func WrapError(kind apierror.Kind, err error, retryable apierror.Ternary) *Error
 }
 
 // NewUnsupportedEntryKindError creates an error for unsupported entry kinds
-func NewUnsupportedEntryKindError(kind string) *Error {
+func NewUnsupportedEntryKindError(kind registry.Kind) *Error {
 	return &Error{
 		kind:      apierror.KindInvalid,
 		message:   fmt.Sprintf("unsupported entry kind: %s", kind),

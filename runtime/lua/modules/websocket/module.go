@@ -203,8 +203,8 @@ func connect(l *lua.LState) int {
 		}
 
 		// Channel capacity
-		if cap := opts.RawGetString("channel_capacity"); cap.Type() == lua.LTNumber || cap.Type() == lua.LTInteger {
-			yield.ChannelCapacity = int(lua.LVAsNumber(cap))
+		if capacity := opts.RawGetString("channel_capacity"); capacity.Type() == lua.LTNumber || capacity.Type() == lua.LTInteger {
+			yield.ChannelCapacity = int(lua.LVAsNumber(capacity))
 		}
 	}
 

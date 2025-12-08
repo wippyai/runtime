@@ -127,7 +127,7 @@ type MultiYieldProcess struct {
 	ctx         context.Context
 }
 
-func (p *MultiYieldProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
+func (p *MultiYieldProcess) Init(ctx context.Context, _ string, input payload.Payloads) error {
 	p.ctx = ctx
 	if len(input) > 0 {
 		p.yields = input[0].Data().([]DelayedCompleteCmd)
@@ -164,8 +164,8 @@ func (p *MultiYieldProcess) Step(events []Event, out *StepOutput) error {
 	return nil
 }
 
-func (p *MultiYieldProcess) Send(pkg *relay.Package) error { return nil }
-func (p *MultiYieldProcess) Close()                        {}
+func (p *MultiYieldProcess) Send(*relay.Package) error { return nil }
+func (p *MultiYieldProcess) Close()                    {}
 
 // TestMultiYieldIndependentCompletion verifies that yields complete independently.
 func TestMultiYieldIndependentCompletion(t *testing.T) {
@@ -247,7 +247,7 @@ type SequentialYieldProcess struct {
 	ctx           context.Context
 }
 
-func (p *SequentialYieldProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
+func (p *SequentialYieldProcess) Init(ctx context.Context, _ string, _ payload.Payloads) error {
 	p.ctx = ctx
 	p.totalExpected = 2
 	return nil

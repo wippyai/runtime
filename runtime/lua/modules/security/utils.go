@@ -5,7 +5,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-func luaTableToMetadata(l *lua.LState, table *lua.LTable) attrs.Bag {
+func luaTableToMetadata(_ *lua.LState, table *lua.LTable) attrs.Bag {
 	meta := attrs.Bag{}
 	table.ForEach(func(k, v lua.LValue) {
 		if ks, ok := k.(lua.LString); ok {
@@ -15,11 +15,11 @@ func luaTableToMetadata(l *lua.LState, table *lua.LTable) attrs.Bag {
 	return meta
 }
 
-func optMetadataFromLuaTable(l *lua.LState, pos int) (attrs.Bag, error) {
+func optMetadataFromLuaTable(l *lua.LState, pos int) attrs.Bag {
 	if metaTable := l.OptTable(pos, nil); metaTable != nil {
-		return luaTableToMetadata(l, metaTable), nil
+		return luaTableToMetadata(l, metaTable)
 	}
-	return attrs.Bag{}, nil
+	return attrs.Bag{}
 }
 
 func toLuaValue(l *lua.LState, val any) lua.LValue {

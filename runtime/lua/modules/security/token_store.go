@@ -60,12 +60,12 @@ var tokenStoreMethods = map[string]lua.LGoFunc{
 	"close":    tokenStoreClose,
 }
 
-func checkTokenStore(l *lua.LState, idx int) *TokenStore {
-	ud := l.CheckUserData(idx)
+func checkTokenStore(l *lua.LState, _ int) *TokenStore {
+	ud := l.CheckUserData(1)
 	if ts, ok := ud.Value.(*TokenStore); ok {
 		return ts
 	}
-	l.ArgError(idx, "TokenStore expected")
+	l.ArgError(1, "TokenStore expected")
 	return nil
 }
 

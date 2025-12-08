@@ -89,8 +89,8 @@ func TestDispatcher(t *testing.T) {
 	ctx := context.Background()
 
 	// Test Set
-	setDone := make(chan storeapi.StoreSetResponse, 1)
-	setCmd := &storeapi.StoreSetCmd{
+	setDone := make(chan storeapi.SetResponse, 1)
+	setCmd := &storeapi.SetCmd{
 		Store: ms,
 		Entry: store.Entry{
 			Key:   registry.NewID("test", "key1"),
@@ -99,7 +99,7 @@ func TestDispatcher(t *testing.T) {
 	}
 
 	err := d.handle(ctx, setCmd, 1, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
-		setDone <- data.(storeapi.StoreSetResponse)
+		setDone <- data.(storeapi.SetResponse)
 	}})
 	require.NoError(t, err)
 
@@ -111,14 +111,14 @@ func TestDispatcher(t *testing.T) {
 	}
 
 	// Test Get
-	getDone := make(chan storeapi.StoreGetResponse, 1)
-	getCmd := &storeapi.StoreGetCmd{
+	getDone := make(chan storeapi.GetResponse, 1)
+	getCmd := &storeapi.GetCmd{
 		Store: ms,
 		Key:   registry.NewID("test", "key1"),
 	}
 
 	err = d.handle(ctx, getCmd, 2, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
-		getDone <- data.(storeapi.StoreGetResponse)
+		getDone <- data.(storeapi.GetResponse)
 	}})
 	require.NoError(t, err)
 
@@ -131,14 +131,14 @@ func TestDispatcher(t *testing.T) {
 	}
 
 	// Test Has
-	hasDone := make(chan storeapi.StoreHasResponse, 1)
-	hasCmd := &storeapi.StoreHasCmd{
+	hasDone := make(chan storeapi.HasResponse, 1)
+	hasCmd := &storeapi.HasCmd{
 		Store: ms,
 		Key:   registry.NewID("test", "key1"),
 	}
 
 	err = d.handle(ctx, hasCmd, 3, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
-		hasDone <- data.(storeapi.StoreHasResponse)
+		hasDone <- data.(storeapi.HasResponse)
 	}})
 	require.NoError(t, err)
 
@@ -151,14 +151,14 @@ func TestDispatcher(t *testing.T) {
 	}
 
 	// Test Delete
-	delDone := make(chan storeapi.StoreDeleteResponse, 1)
-	delCmd := &storeapi.StoreDeleteCmd{
+	delDone := make(chan storeapi.DeleteResponse, 1)
+	delCmd := &storeapi.DeleteCmd{
 		Store: ms,
 		Key:   registry.NewID("test", "key1"),
 	}
 
 	err = d.handle(ctx, delCmd, 4, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
-		delDone <- data.(storeapi.StoreDeleteResponse)
+		delDone <- data.(storeapi.DeleteResponse)
 	}})
 	require.NoError(t, err)
 
@@ -180,13 +180,13 @@ func TestDispatcher_Concurrent(t *testing.T) {
 	ctx := context.Background()
 
 	var wg sync.WaitGroup
-	results := make(chan storeapi.StoreSetResponse, 10)
+	results := make(chan storeapi.SetResponse, 10)
 
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func(tag uint64) {
 			defer wg.Done()
-			cmd := &storeapi.StoreSetCmd{
+			cmd := &storeapi.SetCmd{
 				Store: ms,
 				Entry: store.Entry{
 					Key:   registry.NewID("test", "key"),
@@ -194,7 +194,7 @@ func TestDispatcher_Concurrent(t *testing.T) {
 				},
 			}
 			_ = d.handle(ctx, cmd, tag, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
-				results <- data.(storeapi.StoreSetResponse)
+				results <- data.(storeapi.SetResponse)
 			}})
 		}(uint64(i))
 	}
@@ -253,14 +253,14 @@ func TestDispatcher_ErrorHandling(t *testing.T) {
 	ctx := context.Background()
 
 	// Test Get on non-existent key
-	getDone := make(chan storeapi.StoreGetResponse, 1)
-	getCmd := &storeapi.StoreGetCmd{
+	getDone := make(chan storeapi.GetResponse, 1)
+	getCmd := &storeapi.GetCmd{
 		Store: ms,
 		Key:   registry.NewID("test", "nonexistent"),
 	}
 
 	err := d.handle(ctx, getCmd, 1, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
-		getDone <- data.(storeapi.StoreGetResponse)
+		getDone <- data.(storeapi.GetResponse)
 	}})
 	require.NoError(t, err)
 
@@ -273,14 +273,14 @@ func TestDispatcher_ErrorHandling(t *testing.T) {
 	}
 
 	// Test Has on non-existent key
-	hasDone := make(chan storeapi.StoreHasResponse, 1)
-	hasCmd := &storeapi.StoreHasCmd{
+	hasDone := make(chan storeapi.HasResponse, 1)
+	hasCmd := &storeapi.HasCmd{
 		Store: ms,
 		Key:   registry.NewID("test", "nonexistent"),
 	}
 
 	err = d.handle(ctx, hasCmd, 2, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
-		hasDone <- data.(storeapi.StoreHasResponse)
+		hasDone <- data.(storeapi.HasResponse)
 	}})
 	require.NoError(t, err)
 
@@ -302,7 +302,7 @@ func TestDispatcher_GracefulShutdown(t *testing.T) {
 	ctx := context.Background()
 
 	done := make(chan struct{})
-	cmd := &storeapi.StoreSetCmd{
+	cmd := &storeapi.SetCmd{
 		Store: ms,
 		Entry: store.Entry{
 			Key:   registry.NewID("test", "key"),
@@ -330,8 +330,8 @@ func TestDispatcher_AllOperations(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("Set", func(t *testing.T) {
-		done := make(chan storeapi.StoreSetResponse, 1)
-		cmd := &storeapi.StoreSetCmd{
+		done := make(chan storeapi.SetResponse, 1)
+		cmd := &storeapi.SetCmd{
 			Store: ms,
 			Entry: store.Entry{
 				Key:   registry.NewID("test", "async-key"),
@@ -339,7 +339,7 @@ func TestDispatcher_AllOperations(t *testing.T) {
 			},
 		}
 		require.NoError(t, d.handle(ctx, cmd, 1, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
-			done <- data.(storeapi.StoreSetResponse)
+			done <- data.(storeapi.SetResponse)
 		}}))
 
 		select {
@@ -351,13 +351,13 @@ func TestDispatcher_AllOperations(t *testing.T) {
 	})
 
 	t.Run("Get", func(t *testing.T) {
-		done := make(chan storeapi.StoreGetResponse, 1)
-		cmd := &storeapi.StoreGetCmd{
+		done := make(chan storeapi.GetResponse, 1)
+		cmd := &storeapi.GetCmd{
 			Store: ms,
 			Key:   registry.NewID("test", "async-key"),
 		}
 		require.NoError(t, d.handle(ctx, cmd, 2, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
-			done <- data.(storeapi.StoreGetResponse)
+			done <- data.(storeapi.GetResponse)
 		}}))
 
 		select {
@@ -370,13 +370,13 @@ func TestDispatcher_AllOperations(t *testing.T) {
 	})
 
 	t.Run("Has", func(t *testing.T) {
-		done := make(chan storeapi.StoreHasResponse, 1)
-		cmd := &storeapi.StoreHasCmd{
+		done := make(chan storeapi.HasResponse, 1)
+		cmd := &storeapi.HasCmd{
 			Store: ms,
 			Key:   registry.NewID("test", "async-key"),
 		}
 		require.NoError(t, d.handle(ctx, cmd, 3, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
-			done <- data.(storeapi.StoreHasResponse)
+			done <- data.(storeapi.HasResponse)
 		}}))
 
 		select {
@@ -389,13 +389,13 @@ func TestDispatcher_AllOperations(t *testing.T) {
 	})
 
 	t.Run("Delete", func(t *testing.T) {
-		done := make(chan storeapi.StoreDeleteResponse, 1)
-		cmd := &storeapi.StoreDeleteCmd{
+		done := make(chan storeapi.DeleteResponse, 1)
+		cmd := &storeapi.DeleteCmd{
 			Store: ms,
 			Key:   registry.NewID("test", "async-key"),
 		}
 		require.NoError(t, d.handle(ctx, cmd, 4, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
-			done <- data.(storeapi.StoreDeleteResponse)
+			done <- data.(storeapi.DeleteResponse)
 		}}))
 
 		select {
@@ -425,7 +425,7 @@ func BenchmarkDispatcher(b *testing.B) {
 		for pb.Next() {
 			wg.Add(1)
 			tag++
-			cmd := &storeapi.StoreGetCmd{Store: ms, Key: key}
+			cmd := &storeapi.GetCmd{Store: ms, Key: key}
 			_ = d.handle(ctx, cmd, tag, &testReceiver{onComplete: func(_ uint64, _ any, _ error) {
 				wg.Done()
 			}})
@@ -464,12 +464,12 @@ func TestStress_HighConcurrency(t *testing.T) {
 				tag := uint64(goroutineID*opsPerGoroutine + i)
 
 				setDone := make(chan struct{})
-				setCmd := &storeapi.StoreSetCmd{
+				setCmd := &storeapi.SetCmd{
 					Store: ms,
 					Entry: store.Entry{Key: key, Value: payload.New("value")},
 				}
 				if err := d.handle(ctx, setCmd, tag, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
-					resp := data.(storeapi.StoreSetResponse)
+					resp := data.(storeapi.SetResponse)
 					if resp.Error != nil {
 						errors <- resp.Error
 					}
@@ -480,9 +480,9 @@ func TestStress_HighConcurrency(t *testing.T) {
 				<-setDone
 
 				getDone := make(chan struct{})
-				getCmd := &storeapi.StoreGetCmd{Store: ms, Key: key}
+				getCmd := &storeapi.GetCmd{Store: ms, Key: key}
 				if err := d.handle(ctx, getCmd, tag+1, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
-					resp := data.(storeapi.StoreGetResponse)
+					resp := data.(storeapi.GetResponse)
 					if resp.Error != nil {
 						errors <- resp.Error
 					}
@@ -517,7 +517,7 @@ func TestStress_RapidStartStop(t *testing.T) {
 
 		ms := newMockStore()
 		done := make(chan struct{})
-		cmd := &storeapi.StoreSetCmd{
+		cmd := &storeapi.SetCmd{
 			Store: ms,
 			Entry: store.Entry{
 				Key:   registry.NewID("test", "key"),
@@ -558,19 +558,19 @@ func TestStress_MixedOperations(t *testing.T) {
 
 			switch i % 4 {
 			case 0:
-				cmd := &storeapi.StoreSetCmd{
+				cmd := &storeapi.SetCmd{
 					Store: ms,
 					Entry: store.Entry{Key: key, Value: payload.New(fmt.Sprintf("value-%d", i))},
 				}
 				_ = d.handle(ctx, cmd, tag, receiver)
 			case 1:
-				cmd := &storeapi.StoreGetCmd{Store: ms, Key: key}
+				cmd := &storeapi.GetCmd{Store: ms, Key: key}
 				_ = d.handle(ctx, cmd, tag, receiver)
 			case 2:
-				cmd := &storeapi.StoreHasCmd{Store: ms, Key: key}
+				cmd := &storeapi.HasCmd{Store: ms, Key: key}
 				_ = d.handle(ctx, cmd, tag, receiver)
 			case 3:
-				cmd := &storeapi.StoreDeleteCmd{Store: ms, Key: key}
+				cmd := &storeapi.DeleteCmd{Store: ms, Key: key}
 				_ = d.handle(ctx, cmd, tag, receiver)
 			}
 		}(i)
@@ -593,7 +593,7 @@ func TestRace_ConcurrentSubmit(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			key := registry.ID{NS: "race", Name: fmt.Sprintf("key-%d", i)}
-			cmd := &storeapi.StoreSetCmd{
+			cmd := &storeapi.SetCmd{
 				Store: ms,
 				Entry: store.Entry{Key: key, Value: payload.New("value")},
 			}
@@ -645,7 +645,7 @@ func benchmarkWithWorkers(b *testing.B, workers int) {
 		for pb.Next() {
 			wg.Add(1)
 			tag++
-			cmd := &storeapi.StoreGetCmd{Store: ms, Key: key}
+			cmd := &storeapi.GetCmd{Store: ms, Key: key}
 			_ = d.handle(ctx, cmd, tag, &testReceiver{onComplete: func(_ uint64, _ any, _ error) {
 				wg.Done()
 			}})
@@ -670,7 +670,7 @@ func BenchmarkDispatcher_WithLatency(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		wg.Add(1)
-		cmd := &storeapi.StoreGetCmd{Store: ms, Key: key}
+		cmd := &storeapi.GetCmd{Store: ms, Key: key}
 		_ = d.handle(ctx, cmd, uint64(i), &testReceiver{onComplete: func(_ uint64, _ any, _ error) {
 			wg.Done()
 		}})

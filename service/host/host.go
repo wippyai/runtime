@@ -80,7 +80,7 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (relay.PID, error)
 }
 
 // Terminate implements process.Host.
-func (h *Host) Terminate(ctx context.Context, pid relay.PID) error {
+func (h *Host) Terminate(_ context.Context, pid relay.PID) error {
 	h.log.Debug("process terminate requested", zap.String("pid", pid.String()))
 	return nil
 }
@@ -107,7 +107,7 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 }
 
 // Stop implements supervisor.Service.
-func (h *Host) Stop(ctx context.Context) error {
+func (h *Host) Stop(_ context.Context) error {
 	if !h.running.Load() {
 		return nil
 	}
@@ -156,10 +156,10 @@ func (h *Host) prepareContext(ctx context.Context, pid relay.PID, start *process
 }
 
 // OnStart implements scheduler.Lifecycle.
-func (h *Host) OnStart(ctx context.Context, pid relay.PID, proc process.Process) {}
+func (h *Host) OnStart(_ context.Context, _ relay.PID, _ process.Process) {}
 
 // OnComplete implements scheduler.Lifecycle.
-func (h *Host) OnComplete(ctx context.Context, pid relay.PID, result *runtime.Result) {
+func (h *Host) OnComplete(ctx context.Context, _ relay.PID, _ *runtime.Result) {
 	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
 		ctxapi.ReleaseFrameContext(fc)
 	}

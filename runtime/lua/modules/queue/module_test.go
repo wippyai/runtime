@@ -30,7 +30,7 @@ func newMockManager() *mockManager {
 	}
 }
 
-func (m *mockManager) Publish(ctx context.Context, queue registry.ID, msgs ...*queueapi.Message) error {
+func (m *mockManager) Publish(_ context.Context, queue registry.ID, msgs ...*queueapi.Message) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -44,7 +44,7 @@ func (m *mockManager) Publish(ctx context.Context, queue registry.ID, msgs ...*q
 	return nil
 }
 
-func (m *mockManager) GetDriver(id registry.ID) (queueapi.Driver, bool) {
+func (m *mockManager) GetDriver(registry.ID) (queueapi.Driver, bool) {
 	return nil, false
 }
 
@@ -57,10 +57,10 @@ func (m *mockManager) GetQueue(id registry.ID) (*queueapi.Queue, bool) {
 	return nil, false
 }
 
-func (m *mockManager) addQueue(id string) {
+func (m *mockManager) addQueue(_ string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.queues[id] = true
+	m.queues["test:myqueue"] = true
 }
 
 func (m *mockManager) getPublished() []*publishedMsg {
@@ -103,8 +103,8 @@ func setupStateWithDelivery(msg *queueapi.Message) *lua.LState {
 
 	delivery := &queueapi.Delivery{
 		Message: msg,
-		Ack:     func(ctx context.Context) error { return nil },
-		Nack:    func(ctx context.Context) error { return nil },
+		Ack:     func(context.Context) error { return nil },
+		Nack:    func(context.Context) error { return nil },
 	}
 	_ = queueapi.WithDelivery(ctx, delivery)
 

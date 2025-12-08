@@ -44,7 +44,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete handles the removal of a security policy
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if !m.isSupportedKind(entry.Kind) {
-		return NewUnsupportedEntryKindError(string(entry.Kind))
+		return NewUnsupportedEntryKindError(entry.Kind)
 	}
 
 	m.bus.Send(ctx, event.Event{
@@ -61,7 +61,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 // processPolicy is a helper that handles common logic for Add and Update operations
 func (m *Manager) processPolicy(ctx context.Context, entry registry.Entry, eventKind event.Kind, action string) error {
 	if !m.isSupportedKind(entry.Kind) {
-		return NewUnsupportedEntryKindError(string(entry.Kind))
+		return NewUnsupportedEntryKindError(entry.Kind)
 	}
 
 	policyEntry, err := m.factory.CreatePolicyEntry(ctx, entry)

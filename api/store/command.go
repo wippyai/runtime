@@ -23,89 +23,89 @@ const (
 	CmdStoreHas    dispatcher.CommandID = 123 // Check if key exists
 )
 
-// StoreGetCmd retrieves a value from the store.
-type StoreGetCmd struct {
+// GetCmd retrieves a value from the store.
+type GetCmd struct {
 	Store Store
 	Key   registry.ID
 }
 
-var storeGetCmdPool = sync.Pool{New: func() any { return &StoreGetCmd{} }}
+var getCmdPool = sync.Pool{New: func() any { return &GetCmd{} }}
 
-func AcquireStoreGetCmd() *StoreGetCmd             { return storeGetCmdPool.Get().(*StoreGetCmd) }
-func (c *StoreGetCmd) CmdID() dispatcher.CommandID { return CmdStoreGet }
-func (c *StoreGetCmd) Release() {
+func AcquireGetCmd() *GetCmd                  { return getCmdPool.Get().(*GetCmd) }
+func (c *GetCmd) CmdID() dispatcher.CommandID { return CmdStoreGet }
+func (c *GetCmd) Release() {
 	c.Store = nil
 	c.Key = registry.ID{}
-	storeGetCmdPool.Put(c)
+	getCmdPool.Put(c)
 }
 
-// StoreSetCmd sets a value in the store.
-type StoreSetCmd struct {
+// SetCmd sets a value in the store.
+type SetCmd struct {
 	Store Store
 	Entry Entry
 }
 
-var storeSetCmdPool = sync.Pool{New: func() any { return &StoreSetCmd{} }}
+var setCmdPool = sync.Pool{New: func() any { return &SetCmd{} }}
 
-func AcquireStoreSetCmd() *StoreSetCmd             { return storeSetCmdPool.Get().(*StoreSetCmd) }
-func (c *StoreSetCmd) CmdID() dispatcher.CommandID { return CmdStoreSet }
-func (c *StoreSetCmd) Release() {
+func AcquireSetCmd() *SetCmd                  { return setCmdPool.Get().(*SetCmd) }
+func (c *SetCmd) CmdID() dispatcher.CommandID { return CmdStoreSet }
+func (c *SetCmd) Release() {
 	c.Store = nil
 	c.Entry = Entry{}
-	storeSetCmdPool.Put(c)
+	setCmdPool.Put(c)
 }
 
-// StoreDeleteCmd deletes a key from the store.
-type StoreDeleteCmd struct {
+// DeleteCmd deletes a key from the store.
+type DeleteCmd struct {
 	Store Store
 	Key   registry.ID
 }
 
-var storeDeleteCmdPool = sync.Pool{New: func() any { return &StoreDeleteCmd{} }}
+var deleteCmdPool = sync.Pool{New: func() any { return &DeleteCmd{} }}
 
-func AcquireStoreDeleteCmd() *StoreDeleteCmd          { return storeDeleteCmdPool.Get().(*StoreDeleteCmd) }
-func (c *StoreDeleteCmd) CmdID() dispatcher.CommandID { return CmdStoreDelete }
-func (c *StoreDeleteCmd) Release() {
+func AcquireDeleteCmd() *DeleteCmd               { return deleteCmdPool.Get().(*DeleteCmd) }
+func (c *DeleteCmd) CmdID() dispatcher.CommandID { return CmdStoreDelete }
+func (c *DeleteCmd) Release() {
 	c.Store = nil
 	c.Key = registry.ID{}
-	storeDeleteCmdPool.Put(c)
+	deleteCmdPool.Put(c)
 }
 
-// StoreHasCmd checks if a key exists.
-type StoreHasCmd struct {
+// HasCmd checks if a key exists.
+type HasCmd struct {
 	Store Store
 	Key   registry.ID
 }
 
-var storeHasCmdPool = sync.Pool{New: func() any { return &StoreHasCmd{} }}
+var hasCmdPool = sync.Pool{New: func() any { return &HasCmd{} }}
 
-func AcquireStoreHasCmd() *StoreHasCmd             { return storeHasCmdPool.Get().(*StoreHasCmd) }
-func (c *StoreHasCmd) CmdID() dispatcher.CommandID { return CmdStoreHas }
-func (c *StoreHasCmd) Release() {
+func AcquireHasCmd() *HasCmd                  { return hasCmdPool.Get().(*HasCmd) }
+func (c *HasCmd) CmdID() dispatcher.CommandID { return CmdStoreHas }
+func (c *HasCmd) Release() {
 	c.Store = nil
 	c.Key = registry.ID{}
-	storeHasCmdPool.Put(c)
+	hasCmdPool.Put(c)
 }
 
-// StoreGetResponse contains the result of a get operation.
-type StoreGetResponse struct {
+// GetResponse contains the result of a get operation.
+type GetResponse struct {
 	Value payload.Payload
 	Error error
 }
 
-// StoreSetResponse contains the result of a set operation.
-type StoreSetResponse struct {
+// SetResponse contains the result of a set operation.
+type SetResponse struct {
 	Error error
 }
 
-// StoreDeleteResponse contains the result of a delete operation.
-type StoreDeleteResponse struct {
+// DeleteResponse contains the result of a delete operation.
+type DeleteResponse struct {
 	NotFound bool
 	Error    error
 }
 
-// StoreHasResponse contains the result of a has operation.
-type StoreHasResponse struct {
+// HasResponse contains the result of a has operation.
+type HasResponse struct {
 	Exists bool
 	Error  error
 }

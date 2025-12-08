@@ -33,7 +33,7 @@ func (d *poolTestDispatcher) Dispatch(cmd dispatcher.Command) dispatcher.Handler
 
 func (d *poolTestDispatcher) Stop() {
 	if d.clock != nil {
-		d.clock.Stop(context.Background())
+		_ = d.clock.Stop(context.Background())
 	}
 }
 
@@ -128,7 +128,7 @@ func Benchmark8x8NoYield(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			ctx, fc := ctxapi.AcquireFrameContext(context.Background())
-			ps.Call(ctx, "", nil)
+			_, _ = ps.Call(ctx, "", nil)
 			ctxapi.ReleaseFrameContext(fc)
 		}
 	})
@@ -156,7 +156,7 @@ func BenchmarkSingleWorker(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		ctx, fc := ctxapi.AcquireFrameContext(context.Background())
-		ps.Call(ctx, "", nil)
+		_, _ = ps.Call(ctx, "", nil)
 		ctxapi.ReleaseFrameContext(fc)
 	}
 }
@@ -186,7 +186,7 @@ func BenchmarkWorkerScalingLua(b *testing.B) {
 			b.RunParallel(func(pb *testing.PB) {
 				for pb.Next() {
 					ctx, fc := ctxapi.AcquireFrameContext(context.Background())
-					ps.Call(ctx, "", nil)
+					_, _ = ps.Call(ctx, "", nil)
 					ctxapi.ReleaseFrameContext(fc)
 				}
 			})

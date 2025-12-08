@@ -186,7 +186,7 @@ func (y *WsSubscribeYield) Release() { ReleaseWsSubscribeYield(y) }
 // HandleResult implements HandledYield to set up topic subscription.
 // This registers the channel for the topic and sets up a handler
 // to convert incoming payloads to Lua message tables.
-func (y *WsSubscribeYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+func (y *WsSubscribeYield) HandleResult(l *lua.LState, _ any, err error) []lua.LValue {
 	if err != nil {
 		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
 	}

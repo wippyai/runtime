@@ -46,7 +46,7 @@ func (m *evalModule) Loader(l *lua.LState) int {
 	return 0
 }
 
-func (m *evalModule) Register(l *lua.LState) *luaapi.Registration {
+func (m *evalModule) Register(*lua.LState) *luaapi.Registration {
 	initOnce.Do(func() {
 		moduleTable = createModuleTable()
 		programMetatable = value.RegisterTypeMethods(nil, programTypeName, nil, programMethods)

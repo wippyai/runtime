@@ -11,7 +11,7 @@ import (
 )
 
 // anyToLua converts Go values to Lua values for SQL results.
-func anyToLua(l *lua.LState, v any) lua.LValue {
+func anyToLua(_ *lua.LState, v any) lua.LValue {
 	if v == nil {
 		return lua.LNil
 	}
@@ -352,7 +352,7 @@ func (y *StmtCloseYield) CmdID() dispatcher.CommandID   { return sqlapi.CmdStmtC
 func (y *StmtCloseYield) ToCommand() dispatcher.Command { return y.StmtCloseCmd }
 func (y *StmtCloseYield) Release()                      { ReleaseStmtCloseYield(y) }
 
-func (y *StmtCloseYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+func (y *StmtCloseYield) HandleResult(l *lua.LState, _ any, err error) []lua.LValue {
 	if y.OnClose != nil {
 		y.OnClose()
 	}
@@ -562,7 +562,7 @@ func (y *TxCommitYield) CmdID() dispatcher.CommandID   { return sqlapi.CmdTxComm
 func (y *TxCommitYield) ToCommand() dispatcher.Command { return y.TxCommitCmd }
 func (y *TxCommitYield) Release()                      { ReleaseTxCommitYield(y) }
 
-func (y *TxCommitYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+func (y *TxCommitYield) HandleResult(l *lua.LState, _ any, err error) []lua.LValue {
 	if y.OnComplete != nil {
 		y.OnComplete()
 	}
@@ -602,7 +602,7 @@ func (y *TxRollbackYield) CmdID() dispatcher.CommandID   { return sqlapi.CmdTxRo
 func (y *TxRollbackYield) ToCommand() dispatcher.Command { return y.TxRollbackCmd }
 func (y *TxRollbackYield) Release()                      { ReleaseTxRollbackYield(y) }
 
-func (y *TxRollbackYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+func (y *TxRollbackYield) HandleResult(l *lua.LState, _ any, err error) []lua.LValue {
 	if y.OnComplete != nil {
 		y.OnComplete()
 	}

@@ -47,8 +47,8 @@ func NewModule(opts Options) *luaapi.ModuleDef {
 		Class:       []string{luaapi.ClassDeterministic},
 		Build: func() (*lua.LTable, []luaapi.YieldType) {
 			mod := lua.CreateTable(0, 2)
-			mod.RawSetString("compile", lua.LGoFunc(makeCompileFunc()))
-			mod.RawSetString("eval", lua.LGoFunc(makeEvalFunc(cache)))
+			mod.RawSetString("compile", makeCompileFunc())
+			mod.RawSetString("eval", makeEvalFunc(cache))
 			mod.Immutable = true
 			return mod, nil
 		},

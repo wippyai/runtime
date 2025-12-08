@@ -150,7 +150,7 @@ func futureAwait(l *lua.LState) int {
 }
 
 // handleChannelResult converts channel result to (value, error) format.
-func handleChannelResult(l *lua.LState, f *Future, result *engine.ChannelResult) int {
+func handleChannelResult(l *lua.LState, _ *Future, result *engine.ChannelResult) int {
 	updates := result.GetUpdates()
 	if len(updates) > 0 {
 		res := updates[0]

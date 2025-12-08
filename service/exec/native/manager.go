@@ -57,7 +57,7 @@ func (m *Manager) RegisterFactory(factory ExecutorFactoryAPI) {
 // Add implements registry.EntryListener for native executors only
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != exec.KindNativeExecutor {
-		return NewUnsupportedEntryKindError(string(entry.Kind))
+		return NewUnsupportedEntryKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -104,7 +104,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update implements registry.EntryListener
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != exec.KindNativeExecutor {
-		return NewUnsupportedEntryKindError(string(entry.Kind))
+		return NewUnsupportedEntryKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -159,7 +159,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete implements registry.EntryListener
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != exec.KindNativeExecutor {
-		return NewUnsupportedEntryKindError(string(entry.Kind))
+		return NewUnsupportedEntryKindError(entry.Kind)
 	}
 
 	m.mu.Lock()

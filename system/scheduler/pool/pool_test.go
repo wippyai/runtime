@@ -32,7 +32,7 @@ func (p *mockProcess) Init(ctx context.Context, method string, input payload.Pay
 	return nil
 }
 
-func (p *mockProcess) Step(events []process.Event, out *process.StepOutput) error {
+func (p *mockProcess) Step(_ []process.Event, out *process.StepOutput) error {
 	p.mu.Lock()
 	p.stepCount++
 	latency := p.latency
@@ -52,7 +52,7 @@ func (p *mockProcess) Close() {
 	p.mu.Unlock()
 }
 
-func (p *mockProcess) stats() (exec, step, close int) {
+func (p *mockProcess) stats() (exec, step, closed int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.execCount, p.stepCount, p.closeCount
@@ -61,7 +61,7 @@ func (p *mockProcess) stats() (exec, step, close int) {
 // mockDispatcher returns no handlers.
 type mockDispatcher struct{}
 
-func (d *mockDispatcher) Dispatch(cmd dispatcher.Command) dispatcher.Handler { return nil }
+func (d *mockDispatcher) Dispatch(dispatcher.Command) dispatcher.Handler { return nil }
 
 // testContext creates a context with FrameContext and PID for testing.
 func testContext() context.Context {
@@ -71,7 +71,7 @@ func testContext() context.Context {
 // testContextWithPID creates a context with a specific PID for testing.
 func testContextWithPID(pid string) context.Context {
 	ctx, _ := ctxapi.AcquireFrameContext(context.Background())
-	runtime.SetFramePID(ctx, relay.PID{UniqID: pid})
+	_ = runtime.SetFramePID(ctx, relay.PID{UniqID: pid})
 	return ctx
 }
 
@@ -176,17 +176,17 @@ type resultProcess struct {
 	result payload.Payload
 }
 
-func (p *resultProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
+func (p *resultProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
 	return nil
 }
 
-func (p *resultProcess) Step(events []process.Event, out *process.StepOutput) error {
+func (p *resultProcess) Step(_ []process.Event, out *process.StepOutput) error {
 	out.Done(p.result)
 	return nil
 }
 
-func (p *resultProcess) Close()                        {}
-func (p *resultProcess) Send(pkg *relay.Package) error { return nil }
+func (p *resultProcess) Close()                    {}
+func (p *resultProcess) Send(*relay.Package) error { return nil }
 
 // Static tests
 
@@ -275,7 +275,7 @@ func TestStaticStopDrainsQueue(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			pool.Call(testContext(), "test", nil)
+			_, _ = pool.Call(testContext(), "test", nil)
 		}()
 	}
 
@@ -361,7 +361,7 @@ func TestLazyMaxWorkers(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		go func() {
 			defer wg.Done()
-			pool2.Call(testContext(), "test", nil)
+			_, _ = pool2.Call(testContext(), "test", nil)
 		}()
 	}
 
@@ -386,18 +386,18 @@ type blockingProcess struct {
 	blockCh <-chan struct{}
 }
 
-func (p *blockingProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
+func (p *blockingProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
 	return nil
 }
 
-func (p *blockingProcess) Step(events []process.Event, out *process.StepOutput) error {
+func (p *blockingProcess) Step(_ []process.Event, out *process.StepOutput) error {
 	<-p.blockCh
 	out.Done(nil)
 	return nil
 }
 
-func (p *blockingProcess) Close()                        {}
-func (p *blockingProcess) Send(pkg *relay.Package) error { return nil }
+func (p *blockingProcess) Close()                    {}
+func (p *blockingProcess) Send(*relay.Package) error { return nil }
 
 // Benchmark tests
 
@@ -408,7 +408,7 @@ func BenchmarkInlineCall(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		pool.Call(testContext(), "test", nil)
+		_, _ = pool.Call(testContext(), "test", nil)
 	}
 }
 
@@ -443,7 +443,7 @@ func BenchmarkLazyCall(b *testing.B) {
 func TestHooksOnStartCalled(t *testing.T) {
 	var startCount atomic.Int32
 	hooks := Hooks{
-		OnStart: func(proc process.Process) {
+		OnStart: func(process.Process) {
 			startCount.Add(1)
 		},
 	}
@@ -464,10 +464,10 @@ func TestHooksOnStartCalled(t *testing.T) {
 func TestHooksOnStopCalled(t *testing.T) {
 	var startCount, stopCount atomic.Int32
 	hooks := Hooks{
-		OnStart: func(proc process.Process) {
+		OnStart: func(process.Process) {
 			startCount.Add(1)
 		},
-		OnStop: func(proc process.Process) {
+		OnStop: func(process.Process) {
 			stopCount.Add(1)
 		},
 	}
@@ -925,7 +925,7 @@ func TestSendStressInline(t *testing.T) {
 
 		time.Sleep(time.Millisecond)
 		pkg := &relay.Package{Target: relay.PID{UniqID: pid}}
-		pool.Send(pkg)
+		_ = pool.Send(pkg)
 
 		select {
 		case <-done:
@@ -969,7 +969,7 @@ func TestSendStressStatic(t *testing.T) {
 
 			time.Sleep(time.Millisecond)
 			pkg := &relay.Package{Target: relay.PID{UniqID: pid}}
-			pool.Send(pkg)
+			_ = pool.Send(pkg)
 
 			select {
 			case <-doneCh:
@@ -1013,7 +1013,7 @@ func TestSendStressLazy(t *testing.T) {
 
 			time.Sleep(time.Millisecond)
 			pkg := &relay.Package{Target: relay.PID{UniqID: pid}}
-			pool.Send(pkg)
+			_ = pool.Send(pkg)
 
 			select {
 			case <-doneCh:
@@ -1037,7 +1037,7 @@ func BenchmarkExecutorSend(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		executor.Send(pkg)
+		_ = executor.Send(pkg)
 	}
 }
 
@@ -1056,7 +1056,7 @@ func BenchmarkStaticSendLookup(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		pool.Send(pkg)
+		_ = pool.Send(pkg)
 	}
 }
 
@@ -1075,7 +1075,7 @@ func BenchmarkLazySendLookup(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		pool.Send(pkg)
+		_ = pool.Send(pkg)
 	}
 }
 
@@ -1094,6 +1094,6 @@ func BenchmarkInlineSendLookup(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		pool.Send(pkg)
+		_ = pool.Send(pkg)
 	}
 }

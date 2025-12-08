@@ -59,7 +59,7 @@ func echoServer(t *testing.T) *httptest.Server {
 }
 
 // readOnlyServer creates a server that just reads messages
-func readOnlyServer(t *testing.T) *httptest.Server {
+func readOnlyServer(*testing.T) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := websocket.Accept(w, r, nil)
 		if err != nil {
@@ -224,8 +224,8 @@ func TestConnectHandler(t *testing.T) {
 	defer store.Close()
 
 	d := NewDispatcher(4)
-	d.Start(ctx)
-	defer d.Stop(ctx)
+	_ = d.Start(ctx)
+	defer func() { _ = d.Stop(ctx) }()
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -290,8 +290,8 @@ func TestConnectHandlerWithHeaders(t *testing.T) {
 	defer store.Close()
 
 	d := NewDispatcher(4)
-	d.Start(ctx)
-	defer d.Stop(ctx)
+	_ = d.Start(ctx)
+	defer func() { _ = d.Stop(ctx) }()
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -302,7 +302,7 @@ func TestConnectHandlerWithHeaders(t *testing.T) {
 	err := handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{
 		URL:     wsURL,
 		Headers: map[string]string{"X-Custom": "test-value"},
-	}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
+	}, 1, &testReceiver{fn: func(_ uint64, _ any, _ error) {
 		close(done)
 	}})
 
@@ -354,8 +354,8 @@ func TestSendHandler(t *testing.T) {
 	connID := registry.Register(ctx, conn, 16)
 
 	d := NewDispatcher(4)
-	d.Start(ctx)
-	defer d.Stop(ctx)
+	_ = d.Start(ctx)
+	defer func() { _ = d.Stop(ctx) }()
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -367,7 +367,7 @@ func TestSendHandler(t *testing.T) {
 		ConnID:      connID,
 		Data:        []byte("hello"),
 		MessageType: wsapi.MessageText,
-	}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
+	}, 1, &testReceiver{fn: func(_ uint64, _ any, _ error) {
 		close(done)
 	}})
 
@@ -395,7 +395,7 @@ func TestReceiveHandler(t *testing.T) {
 		}
 		defer conn.CloseNow()
 
-		conn.Write(r.Context(), websocket.MessageText, []byte("server message"))
+		_ = conn.Write(r.Context(), websocket.MessageText, []byte("server message"))
 		for {
 			_, _, err := conn.Read(r.Context())
 			if err != nil {
@@ -421,8 +421,8 @@ func TestReceiveHandler(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	d := NewDispatcher(4)
-	d.Start(ctx)
-	defer d.Stop(ctx)
+	_ = d.Start(ctx)
+	defer func() { _ = d.Stop(ctx) }()
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -465,7 +465,7 @@ func TestReceiveHandlerBinary(t *testing.T) {
 		}
 		defer conn.CloseNow()
 
-		conn.Write(r.Context(), websocket.MessageBinary, []byte{0x00, 0x01, 0x02})
+		_ = conn.Write(r.Context(), websocket.MessageBinary, []byte{0x00, 0x01, 0x02})
 		for {
 			_, _, err := conn.Read(r.Context())
 			if err != nil {
@@ -490,8 +490,8 @@ func TestReceiveHandlerBinary(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	d := NewDispatcher(4)
-	d.Start(ctx)
-	defer d.Stop(ctx)
+	_ = d.Start(ctx)
+	defer func() { _ = d.Stop(ctx) }()
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -579,8 +579,8 @@ func TestCloseHandler(t *testing.T) {
 	connID := registry.Register(ctx, conn, 16)
 
 	d := NewDispatcher(4)
-	d.Start(ctx)
-	defer d.Stop(ctx)
+	_ = d.Start(ctx)
+	defer func() { _ = d.Stop(ctx) }()
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -592,7 +592,7 @@ func TestCloseHandler(t *testing.T) {
 		ConnID: connID,
 		Code:   1000,
 		Reason: "normal close",
-	}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
+	}, 1, &testReceiver{fn: func(_ uint64, _ any, _ error) {
 		close(done)
 	}})
 
@@ -632,8 +632,8 @@ func TestPingHandler(t *testing.T) {
 	defer cancel()
 
 	d := NewDispatcher(4)
-	d.Start(pingCtx)
-	defer d.Stop(pingCtx)
+	_ = d.Start(pingCtx)
+	defer func() { _ = d.Stop(pingCtx) }()
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -641,7 +641,7 @@ func TestPingHandler(t *testing.T) {
 	})
 
 	done := make(chan struct{})
-	err = handlers[wsapi.CmdWsPing].Handle(pingCtx, wsapi.WsPingCmd{ConnID: connID}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
+	err = handlers[wsapi.CmdWsPing].Handle(pingCtx, wsapi.WsPingCmd{ConnID: connID}, 1, &testReceiver{fn: func(_ uint64, _ any, _ error) {
 		close(done)
 	}})
 
@@ -662,8 +662,8 @@ func TestSendHandlerNotFound(t *testing.T) {
 	GetOrCreateRegistry(ctx)
 
 	d := NewDispatcher(4)
-	d.Start(ctx)
-	defer d.Stop(ctx)
+	_ = d.Start(ctx)
+	defer func() { _ = d.Stop(ctx) }()
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -674,7 +674,7 @@ func TestSendHandlerNotFound(t *testing.T) {
 	err := handlers[wsapi.CmdWsSend].Handle(ctx, wsapi.WsSendCmd{
 		ConnID: 99999,
 		Data:   []byte("test"),
-	}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
+	}, 1, &testReceiver{fn: func(_ uint64, _ any, _ error) {
 		emitted = true
 	}})
 
@@ -696,8 +696,8 @@ func TestReceiveHandlerNotFound(t *testing.T) {
 	GetOrCreateRegistry(ctx)
 
 	d := NewDispatcher(4)
-	d.Start(ctx)
-	defer d.Stop(ctx)
+	_ = d.Start(ctx)
+	defer func() { _ = d.Stop(ctx) }()
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -705,7 +705,7 @@ func TestReceiveHandlerNotFound(t *testing.T) {
 	})
 
 	var emitted bool
-	err := handlers[wsapi.CmdWsReceive].Handle(ctx, wsapi.WsReceiveCmd{ConnID: 99999}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
+	err := handlers[wsapi.CmdWsReceive].Handle(ctx, wsapi.WsReceiveCmd{ConnID: 99999}, 1, &testReceiver{fn: func(_ uint64, _ any, _ error) {
 		emitted = true
 	}})
 
@@ -760,8 +760,8 @@ func TestConcurrentSends(t *testing.T) {
 	connID := registry.Register(ctx, conn, 16)
 
 	d := NewDispatcher(4)
-	d.Start(ctx)
-	defer d.Stop(ctx)
+	_ = d.Start(ctx)
+	defer func() { _ = d.Stop(ctx) }()
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -771,14 +771,14 @@ func TestConcurrentSends(t *testing.T) {
 	var sendWg sync.WaitGroup
 	for i := 0; i < numMessages; i++ {
 		sendWg.Add(1)
-		go func(i int) {
+		go func() {
 			defer sendWg.Done()
-			handlers[wsapi.CmdWsSend].Handle(ctx, wsapi.WsSendCmd{
+			_ = handlers[wsapi.CmdWsSend].Handle(ctx, wsapi.WsSendCmd{
 				ConnID:      connID,
 				Data:        []byte("msg"),
 				MessageType: wsapi.MessageText,
-			}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {}})
-		}(i)
+			}, 1, &testReceiver{fn: func(_ uint64, _ any, _ error) {}})
+		}()
 	}
 
 	sendWg.Wait()
@@ -798,8 +798,8 @@ func TestFullCycle(t *testing.T) {
 	defer store.Close()
 
 	d := NewDispatcher(4)
-	d.Start(ctx)
-	defer d.Stop(ctx)
+	_ = d.Start(ctx)
+	defer func() { _ = d.Stop(ctx) }()
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -822,7 +822,7 @@ func TestFullCycle(t *testing.T) {
 		ConnID:      connID,
 		Data:        []byte("hello"),
 		MessageType: wsapi.MessageText,
-	}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
+	}, 1, &testReceiver{fn: func(_ uint64, _ any, _ error) {
 		close(done)
 	}})
 	if err != nil {
@@ -852,7 +852,7 @@ func TestFullCycle(t *testing.T) {
 		ConnID: connID,
 		Code:   1000,
 		Reason: "done",
-	}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
+	}, 1, &testReceiver{fn: func(_ uint64, _ any, _ error) {
 		close(done)
 	}})
 	if err != nil {
@@ -871,7 +871,7 @@ func TestChannelReceiveMultipleMessages(t *testing.T) {
 		defer conn.CloseNow()
 
 		for i := 0; i < numMessages; i++ {
-			conn.Write(r.Context(), websocket.MessageText, []byte("msg"))
+			_ = conn.Write(r.Context(), websocket.MessageText, []byte("msg"))
 			time.Sleep(10 * time.Millisecond)
 		}
 		conn.Close(websocket.StatusNormalClosure, "done")
@@ -996,8 +996,8 @@ func TestCleanupOnStoreClose(t *testing.T) {
 	ctx, store := setupTestContext()
 
 	d := NewDispatcher(4)
-	d.Start(ctx)
-	defer d.Stop(ctx)
+	_ = d.Start(ctx)
+	defer func() { _ = d.Stop(ctx) }()
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -1056,8 +1056,8 @@ func TestCleanupMultipleConnections(t *testing.T) {
 	ctx, store := setupTestContext()
 
 	d := NewDispatcher(4)
-	d.Start(ctx)
-	defer d.Stop(ctx)
+	_ = d.Start(ctx)
+	defer func() { _ = d.Stop(ctx) }()
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -1066,7 +1066,7 @@ func TestCleanupMultipleConnections(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		done := make(chan struct{})
-		err := handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{URL: wsURL}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
+		err := handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{URL: wsURL}, 1, &testReceiver{fn: func(_ uint64, _ any, _ error) {
 			close(done)
 		}})
 		if err != nil {
@@ -1092,7 +1092,7 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 	d := NewDispatcher(4)
 
 	handlers := make(map[dispatcher.CommandID]bool)
-	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+	d.RegisterAll(func(id dispatcher.CommandID, _ dispatcher.Handler) {
 		handlers[id] = true
 	})
 
@@ -1125,7 +1125,7 @@ func TestDispatcherWithWorkers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start failed: %v", err)
 	}
-	defer d.Stop(ctx)
+	defer func() { _ = d.Stop(ctx) }()
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -1153,11 +1153,11 @@ func TestDispatcherWithWorkers(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			handlers[wsapi.CmdWsSend].Handle(ctx, wsapi.WsSendCmd{
+			_ = handlers[wsapi.CmdWsSend].Handle(ctx, wsapi.WsSendCmd{
 				ConnID:      connID,
 				Data:        []byte("async"),
 				MessageType: wsapi.MessageText,
-			}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {}})
+			}, 1, &testReceiver{fn: func(_ uint64, _ any, _ error) {}})
 		}()
 	}
 	wg.Wait()
@@ -1172,7 +1172,7 @@ func TestRemoteCloseDeliveryEOF(t *testing.T) {
 		}
 
 		// Send a message first
-		conn.Write(r.Context(), websocket.MessageText, []byte("before close"))
+		_ = conn.Write(r.Context(), websocket.MessageText, []byte("before close"))
 		time.Sleep(20 * time.Millisecond)
 
 		// Close connection
@@ -1263,8 +1263,8 @@ func BenchmarkSend(b *testing.B) {
 	connID := registry.Register(ctx, conn, 16)
 
 	d := NewDispatcher(4)
-	d.Start(ctx)
-	defer d.Stop(ctx)
+	_ = d.Start(ctx)
+	defer func() { _ = d.Stop(ctx) }()
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -1274,11 +1274,11 @@ func BenchmarkSend(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			handlers[wsapi.CmdWsSend].Handle(ctx, wsapi.WsSendCmd{
+			_ = handlers[wsapi.CmdWsSend].Handle(ctx, wsapi.WsSendCmd{
 				ConnID:      connID,
 				Data:        []byte("benchmark"),
 				MessageType: wsapi.MessageText,
-			}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {}})
+			}, 1, &testReceiver{fn: func(_ uint64, _ any, _ error) {}})
 		}
 	})
 }
@@ -1318,8 +1318,8 @@ func BenchmarkReceive(b *testing.B) {
 	time.Sleep(100 * time.Millisecond)
 
 	d := NewDispatcher(4)
-	d.Start(ctx)
-	defer d.Stop(ctx)
+	_ = d.Start(ctx)
+	defer func() { _ = d.Stop(ctx) }()
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -1328,7 +1328,7 @@ func BenchmarkReceive(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		handlers[wsapi.CmdWsReceive].Handle(ctx, wsapi.WsReceiveCmd{ConnID: connID}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {}})
+		_ = handlers[wsapi.CmdWsReceive].Handle(ctx, wsapi.WsReceiveCmd{ConnID: connID}, 1, &testReceiver{fn: func(_ uint64, _ any, _ error) {}})
 	}
 }
 

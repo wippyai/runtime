@@ -47,11 +47,7 @@ func policyEvaluate(l *lua.LState) int {
 	action := l.CheckString(3)
 	resource := l.CheckString(4)
 
-	meta, err := optMetadataFromLuaTable(l, 5)
-	if err != nil {
-		l.RaiseError("%s", err.Error())
-		return 0
-	}
+	meta := optMetadataFromLuaTable(l, 5)
 
 	result := policy.Evaluate(actor, action, resource, meta)
 

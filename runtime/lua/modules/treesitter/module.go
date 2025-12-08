@@ -26,7 +26,7 @@ func toUint(v lua.LValue) uint {
 	case lua.LNumber:
 		return uint(n)
 	case lua.LInteger:
-		return uint(n)
+		return uint(n) //nolint:gosec // lua number conversion
 	default:
 		return 0
 	}

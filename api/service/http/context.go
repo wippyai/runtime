@@ -17,8 +17,7 @@ var (
 	routeLabelCtx      = &ctxapi.Key{Name: "http.route_label"}
 	serverIDCtx        = &ctxapi.Key{Name: "http.server_id"}
 	serverHostCtx      = &ctxapi.Key{Name: "http.server.host"}
-	serverCtx          = &ctxapi.Key{Name: "http.server"} // The HTTP server object itself
-	endpointConfigCtx  = &ctxapi.Key{Name: "http.endpoint_config"}
+	serverCtx          = &ctxapi.Key{Name: "http.server"}
 	middlewareRegistry = &ctxapi.Key{Name: "http.middleware_registry"}
 )
 

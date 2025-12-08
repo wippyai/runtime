@@ -289,14 +289,14 @@ func BenchmarkStress10K(b *testing.B) {
 		for j := 0; j < 10000; j++ {
 			ctx, _ := ctxapi.OpenFrameContext(context.Background())
 			proc := NewProcess(WithProto(proto))
-			proc.Init(ctx, "", nil)
+			_ = proc.Init(ctx, "", nil)
 			processes[j] = proc
 		}
 
 		var output process.StepOutput
 		for j := 0; j < 10000; j++ {
 			output.Reset()
-			processes[j].Step(nil, &output)
+			_, _ = processes[j].Step(nil, &output)
 		}
 
 		for j := 0; j < 10000; j++ {
@@ -336,9 +336,9 @@ func TestStressMemoryLeak(t *testing.T) {
 		for i := 0; i < processCount; i++ {
 			ctx, _ := ctxapi.OpenFrameContext(context.Background())
 			proc := NewProcess(WithProto(proto))
-			proc.Init(ctx, "", nil)
+			_ = proc.Init(ctx, "", nil)
 			output.Reset()
-			proc.Step(nil, &output)
+			_, _ = proc.Step(nil, &output)
 			processes[i] = proc
 		}
 
@@ -499,12 +499,12 @@ func BenchmarkStressCreateStepClose(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
 		proc := NewProcess(WithProto(proto))
-		proc.Init(ctx, "", nil)
+		_ = proc.Init(ctx, "", nil)
 
 		var output process.StepOutput
 		for {
 			output.Reset()
-			proc.Step(nil, &output)
+			_, _ = proc.Step(nil, &output)
 			if output.Status() == process.StepDone {
 				break
 			}
@@ -725,9 +725,9 @@ func TestHighConcurrencyWithBindings(t *testing.T) {
 				}
 
 				ctx, _ := ctxapi.OpenFrameContext(context.Background())
-				proc.Init(ctx, "", nil)
+				_ = proc.Init(ctx, "", nil)
 				var output process.StepOutput
-				proc.(*Process).Step(nil, &output)
+				_, _ = proc.(*Process).Step(nil, &output)
 				proc.Close()
 
 				atomic.AddInt64(&created, 1)

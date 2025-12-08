@@ -23,18 +23,18 @@ func newMockBus() *mockBus {
 	}
 }
 
-func (b *mockBus) Subscribe(ctx context.Context, system event.System, ch chan<- event.Event) (event.SubscriberID, error) {
+func (b *mockBus) Subscribe(_ context.Context, _ event.System, ch chan<- event.Event) (event.SubscriberID, error) {
 	b.nextID++
 	id := event.SubscriberID(string(rune('A' + b.nextID)))
 	b.subscribers[id] = ch
 	return id, nil
 }
 
-func (b *mockBus) SubscribeP(ctx context.Context, system event.System, kind event.Kind, ch chan<- event.Event) (event.SubscriberID, error) {
+func (b *mockBus) SubscribeP(ctx context.Context, system event.System, _ event.Kind, ch chan<- event.Event) (event.SubscriberID, error) {
 	return b.Subscribe(ctx, system, ch)
 }
 
-func (b *mockBus) Unsubscribe(ctx context.Context, id event.SubscriberID) {
+func (b *mockBus) Unsubscribe(_ context.Context, id event.SubscriberID) {
 	delete(b.subscribers, id)
 }
 
@@ -59,13 +59,13 @@ func (n *mockNode) Send(pkg *relay.Package) error {
 	return nil
 }
 
-func (n *mockNode) RegisterHost(id relay.HostID, h relay.Host) error { return nil }
-func (n *mockNode) UnregisterHost(id relay.HostID)                   {}
-func (n *mockNode) GetHost(id relay.HostID) (relay.Host, bool)       { return nil, false }
-func (n *mockNode) Attach(pid relay.PID, ch chan *relay.Package) (context.CancelFunc, error) {
+func (n *mockNode) RegisterHost(relay.HostID, relay.Host) error { return nil }
+func (n *mockNode) UnregisterHost(relay.HostID)                 {}
+func (n *mockNode) GetHost(relay.HostID) (relay.Host, bool)     { return nil, false }
+func (n *mockNode) Attach(relay.PID, chan *relay.Package) (context.CancelFunc, error) {
 	return func() {}, nil
 }
-func (n *mockNode) Detach(pid relay.PID) {}
+func (n *mockNode) Detach(relay.PID) {}
 
 func TestDispatcher_StartStop(t *testing.T) {
 	bus := newMockBus()
@@ -87,7 +87,7 @@ func TestDispatcher_Subscribe(t *testing.T) {
 	ctx := context.Background()
 	err := d.Start(ctx)
 	require.NoError(t, err)
-	defer d.Stop(ctx)
+	defer func() { _ = d.Stop(ctx) }()
 
 	// Subscribe
 	pid := relay.PID{UniqID: "test-1"}
@@ -95,7 +95,7 @@ func TestDispatcher_Subscribe(t *testing.T) {
 	var result any
 
 	receiver := &mockReceiver{
-		onComplete: func(tag uint64, data any, err error) {
+		onComplete: func(_ uint64, data any, _ error) {
 			result = data
 			close(completed)
 		},
@@ -112,7 +112,7 @@ func TestDispatcher_Subscribe(t *testing.T) {
 	require.NoError(t, err)
 
 	<-completed
-	sub, ok := result.(event.EventSubscription)
+	sub, ok := result.(event.Subscription)
 	require.True(t, ok)
 	assert.Equal(t, "test.system", sub.System)
 	assert.Equal(t, "test.kind", sub.Kind)
@@ -127,7 +127,7 @@ func TestDispatcher_RouteEvent(t *testing.T) {
 	ctx := context.Background()
 	err := d.Start(ctx)
 	require.NoError(t, err)
-	defer d.Stop(ctx)
+	defer func() { _ = d.Stop(ctx) }()
 
 	// Add subscription
 	pid := relay.PID{UniqID: "test-1"}
@@ -196,16 +196,16 @@ func TestDispatcher_Send(t *testing.T) {
 	ctx := context.Background()
 	err := d.Start(ctx)
 	require.NoError(t, err)
-	defer d.Stop(ctx)
+	defer func() { _ = d.Stop(ctx) }()
 
 	// Add a subscriber to capture the event
 	received := make(chan event.Event, 1)
-	bus.Subscribe(ctx, "test.system", received)
+	_, _ = bus.Subscribe(ctx, "test.system", received)
 
 	// Send via dispatcher
 	completed := make(chan struct{})
 	receiver := &mockReceiver{
-		onComplete: func(tag uint64, data any, err error) {
+		onComplete: func(_ uint64, _ any, _ error) {
 			close(completed)
 		},
 	}

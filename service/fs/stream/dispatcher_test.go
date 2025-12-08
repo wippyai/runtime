@@ -140,8 +140,8 @@ func TestStreamReadHandler(t *testing.T) {
 	id := Insert(table, io.NopCloser(strings.NewReader(data)))
 
 	d := NewDispatcher()
-	d.Start(ctx)
-	defer d.Stop(ctx)
+	_ = d.Start(ctx)
+	defer func() { _ = d.Stop(ctx) }()
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -177,8 +177,8 @@ func TestStreamReadHandlerEOF(t *testing.T) {
 	id := Insert(table, io.NopCloser(bytes.NewReader(nil)))
 
 	d := NewDispatcher()
-	d.Start(ctx)
-	defer d.Stop(ctx)
+	_ = d.Start(ctx)
+	defer func() { _ = d.Stop(ctx) }()
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -210,8 +210,8 @@ func TestStreamCloseHandler(t *testing.T) {
 	id := Insert(table, io.NopCloser(strings.NewReader("test")))
 
 	d := NewDispatcher()
-	d.Start(ctx)
-	defer d.Stop(ctx)
+	_ = d.Start(ctx)
+	defer func() { _ = d.Stop(ctx) }()
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(cmdID dispatcher.CommandID, h dispatcher.Handler) {
@@ -219,7 +219,7 @@ func TestStreamCloseHandler(t *testing.T) {
 	})
 
 	done := make(chan struct{})
-	err := handlers[streamapi.CmdClose].Handle(ctx, streamapi.CloseCmd{StreamID: id}, 0, &testReceiver{fn: func(d any) {
+	err := handlers[streamapi.CmdClose].Handle(ctx, streamapi.CloseCmd{StreamID: id}, 0, &testReceiver{fn: func(_ any) {
 		close(done)
 	}})
 	if err != nil {
@@ -230,7 +230,7 @@ func TestStreamCloseHandler(t *testing.T) {
 
 	// Second close should still complete but stream is already gone
 	done2 := make(chan struct{})
-	err = handlers[streamapi.CmdClose].Handle(ctx, streamapi.CloseCmd{StreamID: id}, 0, &testReceiver{fn: func(d any) {
+	err = handlers[streamapi.CmdClose].Handle(ctx, streamapi.CloseCmd{StreamID: id}, 0, &testReceiver{fn: func(_ any) {
 		close(done2)
 	}})
 	if err != nil {
@@ -253,8 +253,8 @@ func TestStreamFullCycle(t *testing.T) {
 	id := Insert(table, io.NopCloser(strings.NewReader(data)))
 
 	d := NewDispatcher()
-	d.Start(ctx)
-	defer d.Stop(ctx)
+	_ = d.Start(ctx)
+	defer func() { _ = d.Stop(ctx) }()
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(cmdID dispatcher.CommandID, h dispatcher.Handler) {
@@ -286,7 +286,7 @@ func TestStreamFullCycle(t *testing.T) {
 	}
 
 	done := make(chan struct{})
-	err := handlers[streamapi.CmdClose].Handle(ctx, streamapi.CloseCmd{StreamID: id}, 0, &testReceiver{fn: func(d any) {
+	err := handlers[streamapi.CmdClose].Handle(ctx, streamapi.CloseCmd{StreamID: id}, 0, &testReceiver{fn: func(_ any) {
 		close(done)
 	}})
 	if err != nil {
@@ -299,7 +299,7 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 	d := NewDispatcher()
 
 	count := 0
-	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+	d.RegisterAll(func(_ dispatcher.CommandID, _ dispatcher.Handler) {
 		count++
 	})
 	if count != 6 {
@@ -350,7 +350,7 @@ func TestStreamCleanupOnStoreClose(t *testing.T) {
 	}
 }
 
-func TestStreamCleanupIdempotent(t *testing.T) {
+func TestStreamCleanupIdempotent(*testing.T) {
 	ctx, store := setupTestContext()
 
 	table := resource.GetTable(ctx)

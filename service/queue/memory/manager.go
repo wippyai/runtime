@@ -37,7 +37,7 @@ func NewManager(
 
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != memoryapi.Kind {
-		return queueapi.NewUnsupportedKindError(string(entry.Kind))
+		return queueapi.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -79,7 +79,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != memoryapi.Kind {
-		return queueapi.NewUnsupportedKindError(string(entry.Kind))
+		return queueapi.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.RLock()
@@ -112,7 +112,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != memoryapi.Kind {
-		return queueapi.NewUnsupportedKindError(string(entry.Kind))
+		return queueapi.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()

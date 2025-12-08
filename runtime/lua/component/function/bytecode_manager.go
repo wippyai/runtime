@@ -255,7 +255,7 @@ func (m *BytecodeManager) Execute(ctx context.Context, task runtime.Task) (*runt
 }
 
 // createPool creates a new pool for a bytecode function.
-func (m *BytecodeManager) createPool(ctx context.Context, id registry.ID, cfg *api.BytecodeFunctionConfig, proto *lua.FunctionProto) error {
+func (m *BytecodeManager) createPool(_ context.Context, id registry.ID, cfg *api.BytecodeFunctionConfig, proto *lua.FunctionProto) error {
 	// Get compiled dependencies from code manager
 	compiled, err := m.code.Compile(id, functionBuildOptions())
 	if err != nil {

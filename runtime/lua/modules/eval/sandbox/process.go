@@ -265,7 +265,7 @@ func processStep(l *lua.LState) int {
 	return 1
 }
 
-func addCommandInfo(l *lua.LState, tbl *lua.LTable, cmd process.Command) {
+func addCommandInfo(_ *lua.LState, tbl *lua.LTable, cmd process.Command) {
 	// Use type assertion to extract command-specific fields
 	switch c := cmd.(type) {
 	case interface{ Duration() int64 }:
@@ -335,7 +335,7 @@ func transcodeToLua(l *lua.LState, pl payload.Payload) lua.LValue {
 }
 
 // anyToLua converts a Go value to Lua value.
-func anyToLua(l *lua.LState, v any) lua.LValue {
+func anyToLua(_ *lua.LState, v any) lua.LValue {
 	if v == nil {
 		return lua.LNil
 	}

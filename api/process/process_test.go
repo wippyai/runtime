@@ -58,7 +58,7 @@ func TestStepOutput_Yield(t *testing.T) {
 	var so StepOutput
 
 	for i := 0; i < MaxYields+2; i++ {
-		so.Yield(&mockCommand{id: CommandID(i)}, uint64(i+1))
+		so.Yield(&mockCommand{id: CommandID(i)}, uint64(i+1)) //nolint:gosec // test iteration
 	}
 
 	if so.Count() != MaxYields+2 {

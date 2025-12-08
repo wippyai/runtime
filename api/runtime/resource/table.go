@@ -74,7 +74,7 @@ func (t *Table) Get(handle Handle) (any, bool) {
 	defer t.mu.RUnlock()
 
 	idx := handle - 1
-	if int(idx) >= len(t.entries) {
+	if int(idx) >= len(t.entries) { //nolint:gosec // bounds checked
 		return nil, false
 	}
 
@@ -95,7 +95,7 @@ func (t *Table) GetTyped(handle Handle, typeID uint32) (any, bool) {
 	defer t.mu.RUnlock()
 
 	idx := handle - 1
-	if int(idx) >= len(t.entries) {
+	if int(idx) >= len(t.entries) { //nolint:gosec // bounds checked
 		return nil, false
 	}
 
@@ -118,7 +118,7 @@ func (t *Table) Remove(handle Handle) (any, bool) {
 	defer t.mu.Unlock()
 
 	idx := handle - 1
-	if int(idx) >= len(t.entries) {
+	if int(idx) >= len(t.entries) { //nolint:gosec // bounds checked
 		return nil, false
 	}
 
@@ -155,7 +155,7 @@ func (t *Table) Borrow(handle Handle) bool {
 	defer t.mu.Unlock()
 
 	idx := handle - 1
-	if int(idx) >= len(t.entries) {
+	if int(idx) >= len(t.entries) { //nolint:gosec // bounds checked
 		return false
 	}
 
@@ -178,7 +178,7 @@ func (t *Table) ReturnBorrow(handle Handle) bool {
 	defer t.mu.Unlock()
 
 	idx := handle - 1
-	if int(idx) >= len(t.entries) {
+	if int(idx) >= len(t.entries) { //nolint:gosec // bounds checked
 		return false
 	}
 
@@ -201,7 +201,7 @@ func (t *Table) TypeID(handle Handle) (uint32, bool) {
 	defer t.mu.RUnlock()
 
 	idx := handle - 1
-	if int(idx) >= len(t.entries) {
+	if int(idx) >= len(t.entries) { //nolint:gosec // bounds checked
 		return 0, false
 	}
 
@@ -234,7 +234,7 @@ func (t *Table) Each(fn func(Handle, uint32, any) bool) {
 
 	for i, e := range t.entries {
 		if e.valid {
-			if !fn(Handle(i+1), e.typeID, e.value) {
+			if !fn(Handle(i+1), e.typeID, e.value) { //nolint:gosec // index is bounded by slice
 				break
 			}
 		}

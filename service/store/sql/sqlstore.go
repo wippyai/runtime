@@ -24,7 +24,7 @@ import (
 // SQLStore that also functions as a resource.Provider
 type SQLStore struct {
 	id     registry.ID
-	config *sqlstore.SQLConfig
+	config *sqlstore.Config
 	log    *zap.Logger
 	mu     sync.RWMutex
 
@@ -35,9 +35,9 @@ type SQLStore struct {
 }
 
 // NewSQLStore creates a new SQL-based key-value store
-func NewSQLStore(id registry.ID, config *sqlstore.SQLConfig, log *zap.Logger) *SQLStore {
+func NewSQLStore(id registry.ID, config *sqlstore.Config, log *zap.Logger) *SQLStore {
 	if config == nil {
-		config = &sqlstore.SQLConfig{}
+		config = &sqlstore.Config{}
 	}
 
 	return &SQLStore{

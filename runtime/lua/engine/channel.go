@@ -501,11 +501,11 @@ type opQueue struct {
 	len  int
 }
 
-func newOpQueue(cap int) *opQueue {
-	if cap < 4 {
-		cap = 4
+func newOpQueue(capacity int) *opQueue {
+	if capacity < 4 {
+		capacity = 4
 	}
-	return &opQueue{ops: make([]*ChannelOp, cap)}
+	return &opQueue{ops: make([]*ChannelOp, capacity)}
 }
 
 func (q *opQueue) Len() int { return q.len }

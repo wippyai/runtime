@@ -20,14 +20,14 @@ type mockLifecycle struct {
 	mu               sync.Mutex
 }
 
-func (m *mockLifecycle) OnStart(ctx context.Context, pid relay.PID, proc process.Process) {
+func (m *mockLifecycle) OnStart(_ context.Context, pid relay.PID, _ process.Process) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.onStartCalled = true
 	m.startPID = pid
 }
 
-func (m *mockLifecycle) OnComplete(ctx context.Context, pid relay.PID, result *runtime.Result) {
+func (m *mockLifecycle) OnComplete(_ context.Context, pid relay.PID, result *runtime.Result) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.onCompleteCalled = true
@@ -132,16 +132,16 @@ type orderTrackingLifecycle struct {
 	mu    *sync.Mutex
 }
 
-func (o *orderTrackingLifecycle) OnStart(ctx context.Context, pid relay.PID, proc process.Process) {
+func (o *orderTrackingLifecycle) OnStart(_ context.Context, _ relay.PID, _ process.Process) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	*o.order = append(*o.order, o.name)
 }
 
-func (o *orderTrackingLifecycle) OnComplete(ctx context.Context, pid relay.PID, result *runtime.Result) {
+func (o *orderTrackingLifecycle) OnComplete(_ context.Context, _ relay.PID, _ *runtime.Result) {
 }
 
-func TestLifecycleRegistry_ConcurrentAccess(t *testing.T) {
+func TestLifecycleRegistry_ConcurrentAccess(_ *testing.T) {
 	reg := NewLifecycleRegistry()
 
 	var wg sync.WaitGroup

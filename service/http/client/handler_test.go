@@ -126,7 +126,7 @@ func TestClientPoolNoResourceExhaustion(t *testing.T) {
 }
 
 func TestDispatcher_Request(t *testing.T) {
-	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
+	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
 		w.Header().Set("X-Custom", "test")
 		gohttp.SetCookie(w, &gohttp.Cookie{Name: "session", Value: "abc123"})
 		w.WriteHeader(gohttp.StatusOK)
@@ -208,7 +208,7 @@ func TestDispatcher_RequestPost(t *testing.T) {
 }
 
 func TestDispatcher_RequestTimeout(t *testing.T) {
-	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
+	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
 		time.Sleep(200 * time.Millisecond)
 		w.WriteHeader(gohttp.StatusOK)
 	}))
@@ -245,7 +245,7 @@ func TestDispatcher_RequestTimeout(t *testing.T) {
 }
 
 func TestDispatcher_RequestContextCancellation(t *testing.T) {
-	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
+	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
 		time.Sleep(time.Second)
 		w.WriteHeader(gohttp.StatusOK)
 	}))
@@ -264,7 +264,7 @@ func TestDispatcher_RequestContextCancellation(t *testing.T) {
 	err := d.handleRequest(ctx, &httpapi.RequestCmd{
 		Method: "GET",
 		URL:    ts.URL,
-	}, 0, &testReceiver{fn: func(data any) {
+	}, 0, &testReceiver{fn: func(_ any) {
 		emitted <- true
 	}})
 
@@ -339,7 +339,7 @@ func TestDispatcher_RequestConnectionError(t *testing.T) {
 
 func TestDispatcher_RequestConcurrent(t *testing.T) {
 	var reqCount atomic.Int64
-	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
+	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
 		reqCount.Add(1)
 		w.WriteHeader(gohttp.StatusOK)
 		w.Write([]byte("ok"))
@@ -395,7 +395,7 @@ func TestDispatcher_RequestConcurrent(t *testing.T) {
 
 func TestDispatcher_RequestLargeResponse(t *testing.T) {
 	const size = 10 * 1024 * 1024
-	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
+	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
 		data := make([]byte, size)
 		for i := range data {
 			data[i] = byte(i % 256)
@@ -435,7 +435,7 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 	d := NewDispatcher()
 	handlers := make(map[dispatcher.CommandID]bool)
 
-	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+	d.RegisterAll(func(id dispatcher.CommandID, _ dispatcher.Handler) {
 		handlers[id] = true
 	})
 
@@ -511,7 +511,7 @@ func TestDispatcher_RequestBatchEmpty(t *testing.T) {
 }
 
 func TestDispatcher_RequestBatchPartialFailure(t *testing.T) {
-	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
+	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
 		w.Write([]byte("ok"))
 	}))
 	defer ts.Close()
@@ -633,7 +633,7 @@ func BenchmarkDispatcher_Request(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			done := make(chan struct{})
-			d.handleRequest(ctx, cmd, 0, &testReceiver{fn: func(data any) {
+			d.handleRequest(ctx, cmd, 0, &testReceiver{fn: func(_ any) {
 				close(done)
 			}})
 			<-done
@@ -642,7 +642,7 @@ func BenchmarkDispatcher_Request(b *testing.B) {
 }
 
 func BenchmarkDispatcher_RequestWithTimeout(b *testing.B) {
-	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
+	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
 		w.WriteHeader(gohttp.StatusOK)
 	}))
 	defer ts.Close()
@@ -659,7 +659,7 @@ func BenchmarkDispatcher_RequestWithTimeout(b *testing.B) {
 				Timeout: 5 * time.Second,
 			}
 			done := make(chan struct{})
-			d.handleRequest(ctx, cmd, 0, &testReceiver{fn: func(data any) {
+			d.handleRequest(ctx, cmd, 0, &testReceiver{fn: func(_ any) {
 				close(done)
 			}})
 			<-done

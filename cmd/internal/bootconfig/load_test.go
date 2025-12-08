@@ -102,7 +102,7 @@ prometheus:
 `
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "test.yaml")
-		err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+		err := os.WriteFile(configPath, []byte(yamlContent), 0600)
 		require.NoError(t, err)
 
 		cfg, err := Load(configPath)
@@ -131,7 +131,7 @@ supervisor:
 `
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "test.yaml")
-		err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+		err := os.WriteFile(configPath, []byte(yamlContent), 0600)
 		require.NoError(t, err)
 
 		cfg, err := Load(configPath)
@@ -163,7 +163,7 @@ supervisor:
 `
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "test.yaml")
-		err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+		err := os.WriteFile(configPath, []byte(yamlContent), 0600)
 		require.NoError(t, err)
 
 		cfg, err := Load(configPath)
@@ -179,7 +179,7 @@ metrics:
 `
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "test.yaml")
-		err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+		err := os.WriteFile(configPath, []byte(yamlContent), 0600)
 		require.NoError(t, err)
 
 		cfg, err := Load(configPath)
@@ -195,7 +195,7 @@ metrics:
 `
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "test.yaml")
-		err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+		err := os.WriteFile(configPath, []byte(yamlContent), 0600)
 		require.NoError(t, err)
 
 		cfg, err := Load(configPath)

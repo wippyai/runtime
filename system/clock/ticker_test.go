@@ -103,7 +103,7 @@ func TestTickerRegistryContextCancel(t *testing.T) {
 	}
 }
 
-func getTickerHandlers(t *testing.T) (start, next, stop dispatcher.Handler, cleanup func()) {
+func getTickerHandlers(_ *testing.T) (start, next, stop dispatcher.Handler, cleanup func()) {
 	d := NewDispatcher()
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -112,7 +112,7 @@ func getTickerHandlers(t *testing.T) (start, next, stop dispatcher.Handler, clea
 	return handlers[clockapi.TickerStart],
 		handlers[clockapi.TickerNext],
 		handlers[clockapi.TickerStop],
-		func() { d.Stop(context.Background()) }
+		func() { _ = d.Stop(context.Background()) }
 }
 
 func TestTickerStartHandler(t *testing.T) {
@@ -147,7 +147,7 @@ func TestTickerNextHandler(t *testing.T) {
 	defer cleanup()
 
 	var tickerID uint64
-	startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 5 * time.Millisecond}, 0, &testReceiver{fn: func(data any, _ error) {
+	_ = startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 5 * time.Millisecond}, 0, &testReceiver{fn: func(data any, _ error) {
 		tickerID = data.(clockapi.TickerStartResult).ID
 	}})
 
@@ -178,12 +178,12 @@ func TestTickerStopHandler(t *testing.T) {
 	defer cleanup()
 
 	var tickerID uint64
-	startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 10 * time.Millisecond}, 0, &testReceiver{fn: func(data any, _ error) {
+	_ = startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 10 * time.Millisecond}, 0, &testReceiver{fn: func(data any, _ error) {
 		tickerID = data.(clockapi.TickerStartResult).ID
 	}})
 
 	var emitted bool
-	err := stopH.Handle(ctx, clockapi.TickerStopCmd{TickerID: tickerID}, 0, &testReceiver{fn: func(data any, _ error) {
+	err := stopH.Handle(ctx, clockapi.TickerStopCmd{TickerID: tickerID}, 0, &testReceiver{fn: func(_ any, _ error) {
 		emitted = true
 	}})
 
@@ -201,7 +201,7 @@ func TestTickerFullCycle(t *testing.T) {
 	defer cleanup()
 
 	var tickerID uint64
-	startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 2 * time.Millisecond}, 0, &testReceiver{fn: func(data any, _ error) {
+	_ = startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 2 * time.Millisecond}, 0, &testReceiver{fn: func(data any, _ error) {
 		tickerID = data.(clockapi.TickerStartResult).ID
 	}})
 
@@ -226,7 +226,7 @@ func TestTickerFullCycle(t *testing.T) {
 		}
 	}
 
-	err := stopH.Handle(ctx, clockapi.TickerStopCmd{TickerID: tickerID}, 0, &testReceiver{fn: func(data any, _ error) {}})
+	err := stopH.Handle(ctx, clockapi.TickerStopCmd{TickerID: tickerID}, 0, &testReceiver{fn: func(_ any, _ error) {}})
 	if err != nil {
 		t.Fatalf("stop error: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestTickerStartHandlerInvalidDuration(t *testing.T) {
 	defer cleanup()
 
 	var emitted bool
-	err := startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 0}, 0, &testReceiver{fn: func(data any, _ error) {
+	err := startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 0}, 0, &testReceiver{fn: func(_ any, _ error) {
 		emitted = true
 	}})
 	if err != nil {
@@ -248,7 +248,7 @@ func TestTickerStartHandlerInvalidDuration(t *testing.T) {
 		t.Error("expected no emit for zero duration")
 	}
 
-	err = startH.Handle(ctx, clockapi.TickerStartCmd{Duration: -time.Second}, 0, &testReceiver{fn: func(data any, _ error) {
+	err = startH.Handle(ctx, clockapi.TickerStartCmd{Duration: -time.Second}, 0, &testReceiver{fn: func(_ any, _ error) {
 		emitted = true
 	}})
 	if err != nil {
@@ -283,7 +283,7 @@ func TestTickerRegistryScalability(t *testing.T) {
 		wg.Add(1)
 		go func(id uint64) {
 			defer wg.Done()
-			registry.Stop(id)
+			_ = registry.Stop(id)
 		}(ids[i])
 	}
 	wg.Wait()
@@ -315,7 +315,7 @@ func TestTickerRegistryConcurrentOperations(t *testing.T) {
 			}
 
 			for _, id := range ids {
-				registry.Stop(id)
+				_ = registry.Stop(id)
 			}
 		}()
 	}

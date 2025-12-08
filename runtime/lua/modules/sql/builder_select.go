@@ -418,7 +418,7 @@ func goArgsToLuaTable(l *lua.LState, args []any) *lua.LTable {
 	return argsTable
 }
 
-func goValueToLua(l *lua.LState, v any) lua.LValue {
+func goValueToLua(_ *lua.LState, v any) lua.LValue {
 	switch v := v.(type) {
 	case nil:
 		return lua.LNil

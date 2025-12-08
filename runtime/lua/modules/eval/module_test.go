@@ -503,7 +503,7 @@ func TestEvalModule_ErrorCases(t *testing.T) {
 		require.NoError(t, err)
 
 		var step1 process.StepOutput
-		proc.Step(nil, &step1)
+		_ = proc.Step(nil, &step1)
 		// Should complete but with error in result
 		assert.Equal(t, process.StepDone, step1.Status())
 	})

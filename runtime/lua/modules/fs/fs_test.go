@@ -277,7 +277,7 @@ func TestFSChdirNotDirectory(t *testing.T) {
 	defer fsys.Close()
 	f := NewFS(fsys, "")
 
-	err = os.WriteFile(tmpDir+"/file.txt", []byte("test"), 0644)
+	err = os.WriteFile(tmpDir+"/file.txt", []byte("test"), 0600)
 	require.NoError(t, err)
 
 	l := lua.NewState()
@@ -307,7 +307,7 @@ func TestFSReaddirNotDirectory(t *testing.T) {
 	defer fsys.Close()
 	f := NewFS(fsys, "")
 
-	err = os.WriteFile(tmpDir+"/file.txt", []byte("test"), 0644)
+	err = os.WriteFile(tmpDir+"/file.txt", []byte("test"), 0600)
 	require.NoError(t, err)
 
 	l := lua.NewState()
@@ -340,7 +340,7 @@ func TestFSRemoveNonEmpty(t *testing.T) {
 	dir := tmpDir + "/nonempty"
 	err = os.Mkdir(dir, 0755)
 	require.NoError(t, err)
-	err = os.WriteFile(dir+"/file.txt", []byte("test"), 0644)
+	err = os.WriteFile(dir+"/file.txt", []byte("test"), 0600)
 	require.NoError(t, err)
 
 	l := lua.NewState()

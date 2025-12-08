@@ -46,7 +46,7 @@ func (m *cryptoModule) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *cryptoModule) Register(l *lua.LState) *luaapi.Registration {
+func (m *cryptoModule) Register(*lua.LState) *luaapi.Registration {
 	initOnce.Do(func() {
 		mod := &lua.LTable{}
 

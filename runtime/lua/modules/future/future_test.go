@@ -352,7 +352,7 @@ func TestCancelFunc_Set(t *testing.T) {
 	}
 }
 
-func TestConcurrentAccess(t *testing.T) {
+func TestConcurrentAccess(*testing.T) {
 	ch := engine.NewChannel(1)
 	f := New("test", ch)
 
@@ -362,8 +362,8 @@ func TestConcurrentAccess(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		go func() {
 			f.IsComplete()
-			f.Result()
-			f.Error()
+			_, _ = f.Result()
+			_, _ = f.Error()
 			done <- true
 		}()
 	}

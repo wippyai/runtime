@@ -143,7 +143,6 @@ func TestFrameContext_ScopeInheritance(t *testing.T) {
 	if got, ok := child.Get(inheritKey); !ok || got != "inherit_value" {
 		t.Errorf("child.Get(inheritKey) = %v, %v, want inherit_value, true", got, ok)
 	}
-
 }
 
 func TestFrameContext_ConcurrentAccess(t *testing.T) {

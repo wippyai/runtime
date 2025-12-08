@@ -30,7 +30,7 @@ func BenchmarkWheelTimerStartStop(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		id := r.Start(time.Hour)
-		r.Stop(id)
+		_, _ = r.Stop(id)
 	}
 }
 
@@ -42,7 +42,7 @@ func BenchmarkWheelTimerStartStopParallel(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			id := r.Start(time.Hour)
-			r.Stop(id)
+			_, _ = r.Stop(id)
 		}
 	})
 }
@@ -54,7 +54,7 @@ func BenchmarkWheelTimerReset(b *testing.B) {
 	id := r.Start(time.Hour)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		r.Reset(id, time.Hour)
+		_, _ = r.Reset(id, time.Hour)
 	}
 }
 
@@ -66,7 +66,7 @@ func BenchmarkWheelTimerWaitShort(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		id := r.Start(time.Microsecond)
-		r.Wait(ctx, id)
+		_, _ = r.Wait(ctx, id)
 	}
 }
 
@@ -89,7 +89,7 @@ func BenchmarkTickerStartStop(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		id := r.Start(time.Hour)
-		r.Stop(id)
+		_ = r.Stop(id)
 	}
 }
 
@@ -101,7 +101,7 @@ func BenchmarkTickerStartStopParallel(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			id := r.Start(time.Hour)
-			r.Stop(id)
+			_ = r.Stop(id)
 		}
 	})
 }
@@ -114,7 +114,7 @@ func BenchmarkTickerNext(b *testing.B) {
 	ctx := context.Background()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		r.Next(ctx, id)
+		_, _ = r.Next(ctx, id)
 	}
 }
 
@@ -122,7 +122,7 @@ func BenchmarkTickerNext(b *testing.B) {
 
 func BenchmarkDispatcherSleep(b *testing.B) {
 	d := NewDispatcher()
-	defer d.Stop(context.Background())
+	defer func() { _ = d.Stop(context.Background()) }()
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -133,7 +133,7 @@ func BenchmarkDispatcherSleep(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		done := make(chan struct{})
-		h.Handle(context.Background(), clockapi.SleepCmd{Duration: time.Microsecond}, 0, &testReceiver{fn: func(_ any, _ error) {
+		_ = h.Handle(context.Background(), clockapi.SleepCmd{Duration: time.Microsecond}, 0, &testReceiver{fn: func(_ any, _ error) {
 			close(done)
 		}})
 		<-done
@@ -142,7 +142,7 @@ func BenchmarkDispatcherSleep(b *testing.B) {
 
 func BenchmarkDispatcherSleepZero(b *testing.B) {
 	d := NewDispatcher()
-	defer d.Stop(context.Background())
+	defer func() { _ = d.Stop(context.Background()) }()
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -152,13 +152,13 @@ func BenchmarkDispatcherSleepZero(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		h.Handle(context.Background(), clockapi.SleepCmd{Duration: 0}, 0, &testReceiver{fn: func(_ any, _ error) {}})
+		_ = h.Handle(context.Background(), clockapi.SleepCmd{Duration: 0}, 0, &testReceiver{fn: func(_ any, _ error) {}})
 	}
 }
 
 func BenchmarkDispatcherTimerStartWait(b *testing.B) {
 	d := NewDispatcher()
-	defer d.Stop(context.Background())
+	defer func() { _ = d.Stop(context.Background()) }()
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -170,11 +170,11 @@ func BenchmarkDispatcherTimerStartWait(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var timerID uint64
-		startH.Handle(context.Background(), clockapi.TimerStartCmd{Duration: time.Microsecond}, 0, &testReceiver{fn: func(data any, _ error) {
+		_ = startH.Handle(context.Background(), clockapi.TimerStartCmd{Duration: time.Microsecond}, 0, &testReceiver{fn: func(data any, _ error) {
 			timerID = data.(clockapi.TimerStartResult).ID
 		}})
 		done := make(chan struct{})
-		waitH.Handle(context.Background(), clockapi.TimerWaitCmd{TimerID: timerID}, 0, &testReceiver{fn: func(_ any, _ error) {
+		_ = waitH.Handle(context.Background(), clockapi.TimerWaitCmd{TimerID: timerID}, 0, &testReceiver{fn: func(_ any, _ error) {
 			close(done)
 		}})
 		<-done
@@ -183,7 +183,7 @@ func BenchmarkDispatcherTimerStartWait(b *testing.B) {
 
 func BenchmarkDispatcherTimerStartStop(b *testing.B) {
 	d := NewDispatcher()
-	defer d.Stop(context.Background())
+	defer func() { _ = d.Stop(context.Background()) }()
 
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -195,10 +195,10 @@ func BenchmarkDispatcherTimerStartStop(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var timerID uint64
-		startH.Handle(context.Background(), clockapi.TimerStartCmd{Duration: time.Hour}, 0, &testReceiver{fn: func(data any, _ error) {
+		_ = startH.Handle(context.Background(), clockapi.TimerStartCmd{Duration: time.Hour}, 0, &testReceiver{fn: func(data any, _ error) {
 			timerID = data.(clockapi.TimerStartResult).ID
 		}})
-		stopH.Handle(context.Background(), clockapi.TimerStopCmd{TimerID: timerID}, 0, &testReceiver{fn: func(_ any, _ error) {}})
+		_ = stopH.Handle(context.Background(), clockapi.TimerStopCmd{TimerID: timerID}, 0, &testReceiver{fn: func(_ any, _ error) {}})
 	}
 }
 
@@ -217,15 +217,17 @@ func BenchmarkDispatcherTickerStartNext(b *testing.B) {
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 
 	var tickerID uint64
-	startH.Handle(ctx, clockapi.TickerStartCmd{Duration: time.Nanosecond}, 0, &testReceiver{fn: func(data any, _ error) {
+	_ = startH.Handle(ctx, clockapi.TickerStartCmd{Duration: time.Nanosecond}, 0, &testReceiver{fn: func(data any, _ error) {
 		tickerID = data.(clockapi.TickerStartResult).ID
 	}})
-	defer stopH.Handle(ctx, clockapi.TickerStopCmd{TickerID: tickerID}, 0, &testReceiver{fn: func(_ any, _ error) {}})
+	defer func() {
+		_ = stopH.Handle(ctx, clockapi.TickerStopCmd{TickerID: tickerID}, 0, &testReceiver{fn: func(_ any, _ error) {}})
+	}()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		done := make(chan struct{})
-		nextH.Handle(ctx, clockapi.TickerNextCmd{TickerID: tickerID}, 0, &testReceiver{fn: func(_ any, _ error) {
+		_ = nextH.Handle(ctx, clockapi.TickerNextCmd{TickerID: tickerID}, 0, &testReceiver{fn: func(_ any, _ error) {
 			close(done)
 		}})
 		<-done
@@ -246,7 +248,7 @@ func BenchmarkWheelTimer1000Concurrent(b *testing.B) {
 			go func() {
 				defer wg.Done()
 				id := r.Start(time.Hour)
-				r.Stop(id)
+				_, _ = r.Stop(id)
 			}()
 		}
 		wg.Wait()
@@ -265,7 +267,7 @@ func BenchmarkTicker1000Concurrent(b *testing.B) {
 			go func() {
 				defer wg.Done()
 				id := r.Start(time.Hour)
-				r.Stop(id)
+				_ = r.Stop(id)
 			}()
 		}
 		wg.Wait()
@@ -282,7 +284,7 @@ func BenchmarkWheelTimerAllocations(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		id := r.Start(time.Millisecond)
-		r.Stop(id)
+		_, _ = r.Stop(id)
 	}
 }
 
@@ -294,6 +296,6 @@ func BenchmarkTickerAllocations(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		id := r.Start(time.Hour)
-		r.Stop(id)
+		_ = r.Stop(id)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/wippyai/runtime/api/boot"
 	ctxapi "github.com/wippyai/runtime/api/context"
@@ -96,8 +97,9 @@ func Prometheus() boot.Component {
 			mux.Handle("/metrics", exporter.Handler())
 
 			server = &http.Server{
-				Addr:    addr,
-				Handler: mux,
+				Addr:              addr,
+				Handler:           mux,
+				ReadHeaderTimeout: 10 * time.Second,
 			}
 
 			go func() {

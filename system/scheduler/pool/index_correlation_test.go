@@ -65,7 +65,7 @@ func (h *taggedSleepHandler) Handle(ctx context.Context, cmd dispatcher.Command,
 // poolCompleteHandler completes immediately (async to avoid race)
 type poolCompleteHandler struct{}
 
-func (h *poolCompleteHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+func (h *poolCompleteHandler) Handle(_ context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	c := cmd.(PoolCompleteCmd)
 	go receiver.CompleteYield(tag, c.Value, nil)
 	return nil
@@ -92,7 +92,7 @@ func (d *testDispatcher) Dispatch(cmd dispatcher.Command) dispatcher.Handler {
 // poolTestContext creates context with frame for pool tests
 func poolTestContext() context.Context {
 	ctx, _ := ctxapi.AcquireFrameContext(context.Background())
-	runtime.SetFramePID(ctx, relay.PID{UniqID: "pool-test"})
+	_ = runtime.SetFramePID(ctx, relay.PID{UniqID: "pool-test"})
 	return ctx
 }
 
@@ -137,8 +137,8 @@ func (p *SequentialYieldPoolProcess) Step(events []process.Event, out *process.S
 	return nil
 }
 
-func (p *SequentialYieldPoolProcess) Close()                        {}
-func (p *SequentialYieldPoolProcess) Send(pkg *relay.Package) error { return nil }
+func (p *SequentialYieldPoolProcess) Close()                    {}
+func (p *SequentialYieldPoolProcess) Send(*relay.Package) error { return nil }
 
 // TestPoolIndexCorrelationBreaks proves index-based correlation is broken in pool executor.
 func TestPoolIndexCorrelationBreaks(t *testing.T) {
@@ -246,8 +246,8 @@ func (p *StaggeredYieldPoolProcess) Step(events []process.Event, out *process.St
 	}
 }
 
-func (p *StaggeredYieldPoolProcess) Close()                        {}
-func (p *StaggeredYieldPoolProcess) Send(pkg *relay.Package) error { return nil }
+func (p *StaggeredYieldPoolProcess) Close()                    {}
+func (p *StaggeredYieldPoolProcess) Send(*relay.Package) error { return nil }
 
 // TestPoolStaggeredYields_IndexCollision tests yields spanning multiple steps.
 // Scenario: Step 0 yields A (slow 200ms) and B (fast 10ms).
@@ -423,8 +423,8 @@ func (p *ConcurrentYieldsProcess) Step(events []process.Event, out *process.Step
 	return nil
 }
 
-func (p *ConcurrentYieldsProcess) Close()                        {}
-func (p *ConcurrentYieldsProcess) Send(pkg *relay.Package) error { return nil }
+func (p *ConcurrentYieldsProcess) Close()                    {}
+func (p *ConcurrentYieldsProcess) Send(*relay.Package) error { return nil }
 
 // TestPoolConcurrentYieldCompletion tests race conditions when multiple yields complete simultaneously
 func TestPoolConcurrentYieldCompletion(t *testing.T) {

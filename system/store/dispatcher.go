@@ -77,22 +77,22 @@ func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, tag uin
 
 func (d *Dispatcher) execute(j job) {
 	switch c := j.cmd.(type) {
-	case *store.StoreGetCmd:
+	case *store.GetCmd:
 		value, err := c.Store.Get(j.ctx, c.Key)
-		j.receiver.CompleteYield(j.tag, store.StoreGetResponse{Value: value, Error: err}, nil)
+		j.receiver.CompleteYield(j.tag, store.GetResponse{Value: value, Error: err}, nil)
 
-	case *store.StoreSetCmd:
+	case *store.SetCmd:
 		err := c.Store.Set(j.ctx, c.Entry)
-		j.receiver.CompleteYield(j.tag, store.StoreSetResponse{Error: err}, nil)
+		j.receiver.CompleteYield(j.tag, store.SetResponse{Error: err}, nil)
 
-	case *store.StoreDeleteCmd:
+	case *store.DeleteCmd:
 		err := c.Store.Delete(j.ctx, c.Key)
 		notFound := errors.Is(err, store.ErrKeyNotFound)
-		j.receiver.CompleteYield(j.tag, store.StoreDeleteResponse{NotFound: notFound, Error: err}, nil)
+		j.receiver.CompleteYield(j.tag, store.DeleteResponse{NotFound: notFound, Error: err}, nil)
 
-	case *store.StoreHasCmd:
+	case *store.HasCmd:
 		exists, err := c.Store.Has(j.ctx, c.Key)
-		j.receiver.CompleteYield(j.tag, store.StoreHasResponse{Exists: exists, Error: err}, nil)
+		j.receiver.CompleteYield(j.tag, store.HasResponse{Exists: exists, Error: err}, nil)
 
 	default:
 		// unknown command type, ignore

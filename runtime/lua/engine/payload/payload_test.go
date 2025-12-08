@@ -288,7 +288,7 @@ func TestGoToLua_Maps(t *testing.T) {
 				assert.Equal(t, lua.LTTable, lv.Type())
 				tbl := lv.(*lua.LTable)
 				count := 0
-				tbl.ForEach(func(k, v lua.LValue) { count++ })
+				tbl.ForEach(func(_, _ lua.LValue) { count++ })
 				assert.Equal(t, 0, count)
 			},
 		},
@@ -347,12 +347,11 @@ func TestGoToLua_Structs(t *testing.T) {
 	}
 
 	type Outer struct {
-		Name       string            `json:"name"`
-		Count      int               `json:"count"`
-		Inner      *Inner            `json:"inner"`
-		Tags       []string          `json:"tags"`
-		Metadata   map[string]string `json:"metadata"`
-		unexported string
+		Name     string            `json:"name"`
+		Count    int               `json:"count"`
+		Inner    *Inner            `json:"inner"`
+		Tags     []string          `json:"tags"`
+		Metadata map[string]string `json:"metadata"`
 	}
 
 	tests := []struct {
@@ -603,7 +602,7 @@ func TestJSONToLua_Transcode(t *testing.T) {
 				tbl := lv.(*lua.LTable)
 				assert.Equal(t, lua.LTTable, lv.Type())
 				count := 0
-				tbl.ForEach(func(k, v lua.LValue) { count++ })
+				tbl.ForEach(func(_, _ lua.LValue) { count++ })
 				assert.Equal(t, 0, count)
 			},
 		},
@@ -738,8 +737,8 @@ func TestJSONRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// JSON -> Lua
-	toJson := &JSONToLua{}
-	luaPayload, err := toJson.Transcode(jsonPayload)
+	toJSON := &JSONToLua{}
+	luaPayload, err := toJSON.Transcode(jsonPayload)
 	require.NoError(t, err)
 
 	// Verify
@@ -1341,7 +1340,7 @@ func BenchmarkGoToLua_Allocs(b *testing.B) {
 // RACE CONDITION TESTS
 // =============================================================================
 
-func TestRace_GlobalJSONState(t *testing.T) {
+func TestRace_GlobalJSONState(*testing.T) {
 	// This test specifically targets the global `state` variable in json.go
 	// which could cause race conditions
 	const (

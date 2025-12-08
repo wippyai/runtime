@@ -97,7 +97,7 @@ func (y *CloseYield) ToCommand() dispatcher.Command {
 
 func (y *CloseYield) Release() { ReleaseCloseYield(y) }
 
-func (y *CloseYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+func (y *CloseYield) HandleResult(l *lua.LState, _ any, err error) []lua.LValue {
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "stream close").
 			WithKind(lua.KindInternal).
@@ -247,7 +247,7 @@ func (y *FlushYield) ToCommand() dispatcher.Command {
 
 func (y *FlushYield) Release() { ReleaseFlushYield(y) }
 
-func (y *FlushYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+func (y *FlushYield) HandleResult(l *lua.LState, _ any, err error) []lua.LValue {
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "stream flush").
 			WithKind(lua.KindInternal).
@@ -350,12 +350,12 @@ var streamMethods = map[string]lua.LGoFunc{
 	"close": streamCloseMethod,
 }
 
-func checkStream(l *lua.LState, idx int) *Stream {
-	ud := l.CheckUserData(idx)
+func checkStream(l *lua.LState, _ int) *Stream {
+	ud := l.CheckUserData(1)
 	if v, ok := ud.Value.(*Stream); ok {
 		return v
 	}
-	l.ArgError(idx, "Stream expected")
+	l.ArgError(1, "Stream expected")
 	return nil
 }
 

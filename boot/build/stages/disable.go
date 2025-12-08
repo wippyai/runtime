@@ -74,7 +74,7 @@ func (s *disableStage) Execute(ctx context.Context, entries *[]registry.Entry) e
 	} else {
 		cfg := boot.GetConfig(ctx)
 		if cfg != nil {
-			sub := cfg.Sub(string(sectionDisable))
+			sub := cfg.Sub(sectionDisable)
 			nsPatterns = readStringSlice(sub, keyNamespaces)
 			entryPatterns = readStringSlice(sub, keyEntries)
 			mode = "config"

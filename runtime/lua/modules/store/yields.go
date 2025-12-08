@@ -10,23 +10,23 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// GetYield wraps StoreGetCmd for Lua.
+// GetYield wraps GetCmd for Lua.
 type GetYield struct {
-	*store.StoreGetCmd
+	*store.GetCmd
 }
 
 var getYieldPool = sync.Pool{New: func() any { return &GetYield{} }}
 
 func AcquireGetYield() *GetYield {
 	y := getYieldPool.Get().(*GetYield)
-	y.StoreGetCmd = store.AcquireStoreGetCmd()
+	y.GetCmd = store.AcquireGetCmd()
 	return y
 }
 
 func ReleaseGetYield(y *GetYield) {
-	if y.StoreGetCmd != nil {
-		y.StoreGetCmd.Release()
-		y.StoreGetCmd = nil
+	if y.GetCmd != nil {
+		y.GetCmd.Release()
+		y.GetCmd = nil
 	}
 	getYieldPool.Put(y)
 }
@@ -34,14 +34,14 @@ func ReleaseGetYield(y *GetYield) {
 func (y *GetYield) String() string                { return "<store_get_yield>" }
 func (y *GetYield) Type() lua.LValueType          { return lua.LTUserData }
 func (y *GetYield) CmdID() dispatcher.CommandID   { return store.CmdStoreGet }
-func (y *GetYield) ToCommand() dispatcher.Command { return y.StoreGetCmd }
+func (y *GetYield) ToCommand() dispatcher.Command { return y.GetCmd }
 func (y *GetYield) Release()                      { ReleaseGetYield(y) }
 
 func (y *GetYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
 	}
-	resp, ok := data.(store.StoreGetResponse)
+	resp, ok := data.(store.GetResponse)
 	if !ok {
 		return []lua.LValue{lua.LNil, lua.LString("invalid response type")}
 	}
@@ -80,23 +80,23 @@ func transcodeToLua(l *lua.LState, pl payload.Payload) lua.LValue {
 	return lua.LString(fmt.Sprintf("%v", pl.Data()))
 }
 
-// SetYield wraps StoreSetCmd for Lua.
+// SetYield wraps SetCmd for Lua.
 type SetYield struct {
-	*store.StoreSetCmd
+	*store.SetCmd
 }
 
 var setYieldPool = sync.Pool{New: func() any { return &SetYield{} }}
 
 func AcquireSetYield() *SetYield {
 	y := setYieldPool.Get().(*SetYield)
-	y.StoreSetCmd = store.AcquireStoreSetCmd()
+	y.SetCmd = store.AcquireSetCmd()
 	return y
 }
 
 func ReleaseSetYield(y *SetYield) {
-	if y.StoreSetCmd != nil {
-		y.StoreSetCmd.Release()
-		y.StoreSetCmd = nil
+	if y.SetCmd != nil {
+		y.SetCmd.Release()
+		y.SetCmd = nil
 	}
 	setYieldPool.Put(y)
 }
@@ -104,14 +104,14 @@ func ReleaseSetYield(y *SetYield) {
 func (y *SetYield) String() string                { return "<store_set_yield>" }
 func (y *SetYield) Type() lua.LValueType          { return lua.LTUserData }
 func (y *SetYield) CmdID() dispatcher.CommandID   { return store.CmdStoreSet }
-func (y *SetYield) ToCommand() dispatcher.Command { return y.StoreSetCmd }
+func (y *SetYield) ToCommand() dispatcher.Command { return y.SetCmd }
 func (y *SetYield) Release()                      { ReleaseSetYield(y) }
 
 func (y *SetYield) HandleResult(_ *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
 	}
-	resp, ok := data.(store.StoreSetResponse)
+	resp, ok := data.(store.SetResponse)
 	if !ok {
 		return []lua.LValue{lua.LNil, lua.LString("invalid response type")}
 	}
@@ -121,23 +121,23 @@ func (y *SetYield) HandleResult(_ *lua.LState, data any, err error) []lua.LValue
 	return []lua.LValue{lua.LTrue, lua.LNil}
 }
 
-// DeleteYield wraps StoreDeleteCmd for Lua.
+// DeleteYield wraps DeleteCmd for Lua.
 type DeleteYield struct {
-	*store.StoreDeleteCmd
+	*store.DeleteCmd
 }
 
 var deleteYieldPool = sync.Pool{New: func() any { return &DeleteYield{} }}
 
 func AcquireDeleteYield() *DeleteYield {
 	y := deleteYieldPool.Get().(*DeleteYield)
-	y.StoreDeleteCmd = store.AcquireStoreDeleteCmd()
+	y.DeleteCmd = store.AcquireDeleteCmd()
 	return y
 }
 
 func ReleaseDeleteYield(y *DeleteYield) {
-	if y.StoreDeleteCmd != nil {
-		y.StoreDeleteCmd.Release()
-		y.StoreDeleteCmd = nil
+	if y.DeleteCmd != nil {
+		y.DeleteCmd.Release()
+		y.DeleteCmd = nil
 	}
 	deleteYieldPool.Put(y)
 }
@@ -145,14 +145,14 @@ func ReleaseDeleteYield(y *DeleteYield) {
 func (y *DeleteYield) String() string                { return "<store_delete_yield>" }
 func (y *DeleteYield) Type() lua.LValueType          { return lua.LTUserData }
 func (y *DeleteYield) CmdID() dispatcher.CommandID   { return store.CmdStoreDelete }
-func (y *DeleteYield) ToCommand() dispatcher.Command { return y.StoreDeleteCmd }
+func (y *DeleteYield) ToCommand() dispatcher.Command { return y.DeleteCmd }
 func (y *DeleteYield) Release()                      { ReleaseDeleteYield(y) }
 
 func (y *DeleteYield) HandleResult(_ *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
 	}
-	resp, ok := data.(store.StoreDeleteResponse)
+	resp, ok := data.(store.DeleteResponse)
 	if !ok {
 		return []lua.LValue{lua.LNil, lua.LString("invalid response type")}
 	}
@@ -165,23 +165,23 @@ func (y *DeleteYield) HandleResult(_ *lua.LState, data any, err error) []lua.LVa
 	return []lua.LValue{lua.LTrue, lua.LNil}
 }
 
-// HasYield wraps StoreHasCmd for Lua.
+// HasYield wraps HasCmd for Lua.
 type HasYield struct {
-	*store.StoreHasCmd
+	*store.HasCmd
 }
 
 var hasYieldPool = sync.Pool{New: func() any { return &HasYield{} }}
 
 func AcquireHasYield() *HasYield {
 	y := hasYieldPool.Get().(*HasYield)
-	y.StoreHasCmd = store.AcquireStoreHasCmd()
+	y.HasCmd = store.AcquireHasCmd()
 	return y
 }
 
 func ReleaseHasYield(y *HasYield) {
-	if y.StoreHasCmd != nil {
-		y.StoreHasCmd.Release()
-		y.StoreHasCmd = nil
+	if y.HasCmd != nil {
+		y.HasCmd.Release()
+		y.HasCmd = nil
 	}
 	hasYieldPool.Put(y)
 }
@@ -189,14 +189,14 @@ func ReleaseHasYield(y *HasYield) {
 func (y *HasYield) String() string                { return "<store_has_yield>" }
 func (y *HasYield) Type() lua.LValueType          { return lua.LTUserData }
 func (y *HasYield) CmdID() dispatcher.CommandID   { return store.CmdStoreHas }
-func (y *HasYield) ToCommand() dispatcher.Command { return y.StoreHasCmd }
+func (y *HasYield) ToCommand() dispatcher.Command { return y.HasCmd }
 func (y *HasYield) Release()                      { ReleaseHasYield(y) }
 
 func (y *HasYield) HandleResult(_ *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		return []lua.LValue{lua.LFalse, lua.LString(err.Error())}
 	}
-	resp, ok := data.(store.StoreHasResponse)
+	resp, ok := data.(store.HasResponse)
 	if !ok {
 		return []lua.LValue{lua.LFalse, lua.LString("invalid response type")}
 	}

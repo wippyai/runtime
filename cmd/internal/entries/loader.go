@@ -204,7 +204,7 @@ func loadEntriesFromPaths(ctx context.Context, paths []string, logger *zap.Logge
 }
 
 // loadEntriesToRegistry loads entries into the registry using LoadState to restore from history.
-func loadEntriesToRegistry(ctx context.Context, entries []regapi.Entry, logger *zap.Logger, verbose bool) error {
+func loadEntriesToRegistry(ctx context.Context, entries []regapi.Entry, logger *zap.Logger, _ bool) error {
 	reg := regapi.GetRegistry(ctx)
 	if reg == nil {
 		return ErrRegistryNotFound

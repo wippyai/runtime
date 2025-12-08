@@ -124,7 +124,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 }
 
 // setupSQLStoreTable creates the table required by SQLStore
-func setupSQLStoreTable(t *testing.T, db *sql.DB, config *sqlstore.SQLConfig) {
+func setupSQLStoreTable(t *testing.T, db *sql.DB, config *sqlstore.Config) {
 	ctx := t.Context()
 
 	createTable := `CREATE TABLE IF NOT EXISTS ` + config.TableName + ` (
@@ -137,7 +137,7 @@ func setupSQLStoreTable(t *testing.T, db *sql.DB, config *sqlstore.SQLConfig) {
 }
 
 // insertTestData inserts test key-value pairs into the database
-func insertTestData(t *testing.T, db *sql.DB, config *sqlstore.SQLConfig, key string, value []byte, expire *time.Time) {
+func insertTestData(t *testing.T, db *sql.DB, config *sqlstore.Config, key string, value []byte, expire *time.Time) {
 	ctx := t.Context()
 
 	var expireVal interface{}
@@ -158,8 +158,8 @@ func insertTestData(t *testing.T, db *sql.DB, config *sqlstore.SQLConfig, key st
 }
 
 // createDefaultConfig creates a default SQLStore config for testing
-func createDefaultConfig() *sqlstore.SQLConfig {
-	return &sqlstore.SQLConfig{
+func createDefaultConfig() *sqlstore.Config {
+	return &sqlstore.Config{
 		Database:          registry.NewID("test", "db"),
 		TableName:         "kv_store",
 		IDColumnName:      "key_id",
@@ -501,7 +501,7 @@ func TestSQLStore_SetWithTTL(t *testing.T) {
 }
 
 func TestSQLStore_Cleanup(t *testing.T) {
-	config := &sqlstore.SQLConfig{
+	config := &sqlstore.Config{
 		Database:          registry.NewID("test", "db"),
 		TableName:         "kv_cleanup",
 		IDColumnName:      "key_id",
@@ -598,7 +598,7 @@ func TestSQLStore_ConcurrentReads(t *testing.T) {
 	// Concurrent reads should work fine with SQLite
 	for r := 0; r < numReaders; r++ {
 		wg.Add(1)
-		go func(rid int) {
+		go func() {
 			defer wg.Done()
 			for i := 0; i < 50; i++ {
 				keyID := registry.ParseID(fmt.Sprintf("test:key%d", i))
@@ -617,7 +617,7 @@ func TestSQLStore_ConcurrentReads(t *testing.T) {
 					errChan <- fmt.Errorf("has error: %w", err)
 				}
 			}
-		}(r)
+		}()
 	}
 
 	wg.Wait()

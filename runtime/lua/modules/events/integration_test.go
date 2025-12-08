@@ -56,7 +56,7 @@ func TestEventsReceiveIntegration(t *testing.T) {
 
 	// Create clock dispatcher
 	clockSvc := clock.NewDispatcher()
-	defer clockSvc.Stop(ctx)
+	defer func() { _ = clockSvc.Stop(ctx) }()
 	clockSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		reg.Register(id, h)
 	})
@@ -65,7 +65,7 @@ func TestEventsReceiveIntegration(t *testing.T) {
 	eventsSvc := events.NewDispatcher(bus, realNode)
 	err := eventsSvc.Start(ctx)
 	require.NoError(t, err)
-	defer eventsSvc.Stop(ctx)
+	defer func() { _ = eventsSvc.Stop(ctx) }()
 
 	eventsSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		reg.Register(id, h)
@@ -200,7 +200,7 @@ func TestEventsBasicSubscribe(t *testing.T) {
 	eventsSvc := events.NewDispatcher(bus, node)
 	err := eventsSvc.Start(ctx)
 	require.NoError(t, err)
-	defer eventsSvc.Stop(ctx)
+	defer func() { _ = eventsSvc.Stop(ctx) }()
 
 	eventsSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		reg.Register(id, h)

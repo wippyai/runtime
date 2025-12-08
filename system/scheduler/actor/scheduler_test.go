@@ -78,7 +78,7 @@ type CounterProcess struct {
 	ctx     context.Context
 }
 
-func (p *CounterProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
+func (p *CounterProcess) Init(ctx context.Context, _ string, input payload.Payloads) error {
 	p.ctx = ctx
 	if len(input) > 0 {
 		p.target = input[0].Data().(int)
@@ -86,7 +86,7 @@ func (p *CounterProcess) Init(ctx context.Context, method string, input payload.
 	return nil
 }
 
-func (p *CounterProcess) Step(events []Event, out *StepOutput) error {
+func (p *CounterProcess) Step(_ []Event, out *StepOutput) error {
 	if p.current >= p.target {
 		out.Yield(CompleteCmd{Value: p.current}, 0)
 		out.Done(nil)
@@ -99,7 +99,7 @@ func (p *CounterProcess) Step(events []Event, out *StepOutput) error {
 	return nil
 }
 
-func (p *CounterProcess) Send(pkg *relay.Package) error {
+func (p *CounterProcess) Send(*relay.Package) error {
 	return nil
 }
 
@@ -111,7 +111,7 @@ type SleepProcess struct {
 	ctx      context.Context
 }
 
-func (p *SleepProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
+func (p *SleepProcess) Init(ctx context.Context, _ string, input payload.Payloads) error {
 	p.ctx = ctx
 	if len(input) > 0 {
 		p.duration = input[0].Data().(time.Duration)
@@ -119,7 +119,7 @@ func (p *SleepProcess) Init(ctx context.Context, method string, input payload.Pa
 	return nil
 }
 
-func (p *SleepProcess) Step(events []Event, out *StepOutput) error {
+func (p *SleepProcess) Step(_ []Event, out *StepOutput) error {
 	if !p.slept {
 		p.slept = true
 		out.Yield(SleepCmd{Duration: p.duration}, 0)
@@ -132,7 +132,7 @@ func (p *SleepProcess) Step(events []Event, out *StepOutput) error {
 	return nil
 }
 
-func (p *SleepProcess) Send(pkg *relay.Package) error {
+func (p *SleepProcess) Send(*relay.Package) error {
 	return nil
 }
 
@@ -858,18 +858,18 @@ type TrackingProcess struct {
 	ctx         context.Context
 }
 
-func (p *TrackingProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
+func (p *TrackingProcess) Init(ctx context.Context, _ string, _ payload.Payloads) error {
 	p.ctx = ctx
 	return nil
 }
 
-func (p *TrackingProcess) Step(events []Event, out *StepOutput) error {
+func (p *TrackingProcess) Step(_ []Event, out *StepOutput) error {
 	out.Yield(CompleteCmd{Value: "done"}, 0)
 	out.Done(nil)
 	return nil
 }
 
-func (p *TrackingProcess) Send(pkg *relay.Package) error {
+func (p *TrackingProcess) Send(*relay.Package) error {
 	return nil
 }
 
@@ -924,11 +924,11 @@ func TestSchedulerReleasesProcesses(t *testing.T) {
 
 	// Check maps are empty
 	var byPIDCount, idleCount int
-	sched.byPID.Range(func(k, v any) bool {
+	sched.byPID.Range(func(_, _ any) bool {
 		byPIDCount++
 		return true
 	})
-	sched.idleProcs.Range(func(k, v any) bool {
+	sched.idleProcs.Range(func(_, _ any) bool {
 		idleCount++
 		return true
 	})

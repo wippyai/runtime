@@ -30,7 +30,7 @@ func (m *ioModule) Info() luaapi.ModuleInfo {
 	}
 }
 
-func (m *ioModule) Register(l *lua.LState) *luaapi.Registration {
+func (m *ioModule) Register(*lua.LState) *luaapi.Registration {
 	initOnce.Do(func() {
 		moduleTable = createModuleTable()
 		registration = &luaapi.Registration{
@@ -100,12 +100,12 @@ func ioPrint(l *lua.LState) int {
 	n := l.GetTop()
 	for i := 1; i <= n; i++ {
 		if i > 1 {
-			tc.Stdout.Write([]byte("\t"))
+			_, _ = tc.Stdout.Write([]byte("\t"))
 		}
 		s := l.ToString(i)
-		tc.Stdout.Write([]byte(s))
+		_, _ = tc.Stdout.Write([]byte(s))
 	}
-	tc.Stdout.Write([]byte("\n"))
+	_, _ = tc.Stdout.Write([]byte("\n"))
 
 	l.Push(lua.LTrue)
 	return 1
@@ -124,12 +124,12 @@ func ioEprint(l *lua.LState) int {
 	n := l.GetTop()
 	for i := 1; i <= n; i++ {
 		if i > 1 {
-			tc.Stderr.Write([]byte("\t"))
+			_, _ = tc.Stderr.Write([]byte("\t"))
 		}
 		s := l.ToString(i)
-		tc.Stderr.Write([]byte(s))
+		_, _ = tc.Stderr.Write([]byte(s))
 	}
-	tc.Stderr.Write([]byte("\n"))
+	_, _ = tc.Stderr.Write([]byte("\n"))
 
 	l.Push(lua.LTrue)
 	return 1

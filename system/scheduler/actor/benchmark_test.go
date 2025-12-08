@@ -23,24 +23,24 @@ func (p *SingleStepProcess) Init(ctx context.Context, method string, input paylo
 	return nil
 }
 
-func (p *SingleStepProcess) Step(events []Event, out *StepOutput) error {
+func (p *SingleStepProcess) Step(_ []Event, out *StepOutput) error {
 	out.Done(nil)
 	return nil
 }
 
-func (p *SingleStepProcess) Send(pkg *relay.Package) error { return nil }
-func (p *SingleStepProcess) Close()                        {}
+func (p *SingleStepProcess) Send(*relay.Package) error { return nil }
+func (p *SingleStepProcess) Close()                    {}
 
 // Process that yields once with immediate handler
 type OneYieldProcess struct {
 	done bool
 }
 
-func (p *OneYieldProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
+func (p *OneYieldProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
 	return nil
 }
 
-func (p *OneYieldProcess) Step(events []Event, out *StepOutput) error {
+func (p *OneYieldProcess) Step(_ []Event, out *StepOutput) error {
 	if p.done {
 		out.Done(nil)
 		return nil
@@ -51,22 +51,22 @@ func (p *OneYieldProcess) Step(events []Event, out *StepOutput) error {
 	return nil
 }
 
-func (p *OneYieldProcess) Send(pkg *relay.Package) error { return nil }
-func (p *OneYieldProcess) Close()                        {}
+func (p *OneYieldProcess) Send(*relay.Package) error { return nil }
+func (p *OneYieldProcess) Close()                    {}
 
 // Process that does N yields before completing
 type NYieldProcess struct {
 	remaining int
 }
 
-func (p *NYieldProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
+func (p *NYieldProcess) Init(_ context.Context, _ string, input payload.Payloads) error {
 	if len(input) > 0 {
 		p.remaining = input[0].Data().(int)
 	}
 	return nil
 }
 
-func (p *NYieldProcess) Step(events []Event, out *StepOutput) error {
+func (p *NYieldProcess) Step(_ []Event, out *StepOutput) error {
 	if p.remaining <= 0 {
 		out.Done(nil)
 		return nil
@@ -77,8 +77,8 @@ func (p *NYieldProcess) Step(events []Event, out *StepOutput) error {
 	return nil
 }
 
-func (p *NYieldProcess) Send(pkg *relay.Package) error { return nil }
-func (p *NYieldProcess) Close()                        {}
+func (p *NYieldProcess) Send(*relay.Package) error { return nil }
+func (p *NYieldProcess) Close()                    {}
 
 // Immediate sync handler - no goroutine
 func benchImmediateHandler() dispatcher.Handler {

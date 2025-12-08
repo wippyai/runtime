@@ -93,11 +93,7 @@ func can(l *lua.LState) int {
 	action := l.CheckString(1)
 	resource := l.CheckString(2)
 
-	meta, err := optMetadataFromLuaTable(l, 3)
-	if err != nil {
-		l.RaiseError("%s", err.Error())
-		return 0
-	}
+	meta := optMetadataFromLuaTable(l, 3)
 
 	ctx := l.Context()
 	if ctx == nil {
@@ -211,11 +207,7 @@ func newActor(l *lua.LState) int {
 		return 0
 	}
 
-	meta, err := optMetadataFromLuaTable(l, 2)
-	if err != nil {
-		l.RaiseError("%s", err.Error())
-		return 0
-	}
+	meta := optMetadataFromLuaTable(l, 2)
 
 	act := security.Actor{
 		ID:   id,

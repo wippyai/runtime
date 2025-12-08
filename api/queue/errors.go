@@ -194,10 +194,10 @@ func NewUnsupportedKindError(kind string) *Error {
 }
 
 // NewConcurrencyExceededError creates a concurrency limit error.
-func NewConcurrencyExceededError(value, max int) *Error {
+func NewConcurrencyExceededError(value, maxValue int) *Error {
 	details := attrs.NewBag()
 	details.Set("concurrency", value)
-	details.Set("max", max)
+	details.Set("max", maxValue)
 	return &Error{
 		kind:      apierror.KindInvalid,
 		message:   "concurrency exceeds maximum",
@@ -207,10 +207,10 @@ func NewConcurrencyExceededError(value, max int) *Error {
 }
 
 // NewPrefetchExceededError creates a prefetch limit error.
-func NewPrefetchExceededError(value, max int) *Error {
+func NewPrefetchExceededError(value, maxValue int) *Error {
 	details := attrs.NewBag()
 	details.Set("prefetch", value)
-	details.Set("max", max)
+	details.Set("max", maxValue)
 	return &Error{
 		kind:      apierror.KindInvalid,
 		message:   "prefetch exceeds maximum",

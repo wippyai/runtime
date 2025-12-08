@@ -38,7 +38,7 @@ func TestCollector_Counter(t *testing.T) {
 	defer c.Close()
 
 	mock := &mockExporter{}
-	c.RegisterExporter(mock)
+	_ = c.RegisterExporter(mock)
 
 	c.CounterInc("test.counter", api.Labels{"a": "b"})
 	c.CounterAdd("test.counter", 5, api.Labels{"a": "b"})
@@ -54,7 +54,7 @@ func TestCollector_Gauge(t *testing.T) {
 	defer c.Close()
 
 	mock := &mockExporter{}
-	c.RegisterExporter(mock)
+	_ = c.RegisterExporter(mock)
 
 	c.GaugeSet("test.gauge", 42, nil)
 	c.GaugeInc("test.gauge", nil)
@@ -71,7 +71,7 @@ func TestCollector_Histogram(t *testing.T) {
 	defer c.Close()
 
 	mock := &mockExporter{}
-	c.RegisterExporter(mock)
+	_ = c.RegisterExporter(mock)
 
 	c.HistogramObserve("test.histogram", 0.125, api.Labels{"x": "y"})
 
@@ -86,8 +86,8 @@ func TestCollector_ExporterFanout(t *testing.T) {
 	defer c.Close()
 
 	mock1, mock2 := &mockExporter{}, &mockExporter{}
-	c.RegisterExporter(mock1)
-	c.RegisterExporter(mock2)
+	_ = c.RegisterExporter(mock1)
+	_ = c.RegisterExporter(mock2)
 
 	c.CounterInc("test", nil)
 
@@ -101,7 +101,7 @@ func TestCollector_GracefulShutdown(t *testing.T) {
 		Size int
 	}{Size: 1000}})
 	mock := &mockExporter{}
-	c.RegisterExporter(mock)
+	_ = c.RegisterExporter(mock)
 
 	for i := 0; i < 100; i++ {
 		c.CounterInc("test", nil)
@@ -116,7 +116,7 @@ func TestCollector_DefaultBufferSize(t *testing.T) {
 	defer c.Close()
 
 	mock := &mockExporter{}
-	c.RegisterExporter(mock)
+	_ = c.RegisterExporter(mock)
 
 	c.CounterInc("test", nil)
 	time.Sleep(150 * time.Millisecond)
@@ -128,7 +128,7 @@ func TestCollector_BatchFlush(t *testing.T) {
 		Size int
 	}{Size: 10000}})
 	mock := &mockExporter{}
-	c.RegisterExporter(mock)
+	_ = c.RegisterExporter(mock)
 
 	for i := 0; i < 150; i++ {
 		c.CounterInc("test", nil)

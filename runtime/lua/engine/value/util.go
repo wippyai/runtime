@@ -76,7 +76,7 @@ func RegisterTypeMethods(
 	// Add metamethods directly to metatable using LGoFunc (zero allocation)
 	if !mt.Immutable {
 		for name, fn := range metamethods {
-			mt.RawSetString(name, lua.LGoFunc(fn))
+			mt.RawSetString(name, fn)
 		}
 	} else if len(metamethods) > 0 {
 		// This should not happen due to shouldCreateNew logic above,
@@ -100,9 +100,9 @@ func RegisterTypeMethods(
 			mt.RawSetString("__index", indexTable)
 		}
 
-		// Add all methods to indexTable using LGoFunc (zero allocation)
+		// Add all methods to indexTable
 		for name, fn := range methods {
-			indexTable.RawSetString(name, lua.LGoFunc(fn))
+			indexTable.RawSetString(name, fn)
 		}
 
 		// Make the index table immutable for safe reuse

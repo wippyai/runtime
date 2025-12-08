@@ -22,13 +22,13 @@ type slowYieldingProcess struct {
 	closed      atomic.Bool
 }
 
-func (p *slowYieldingProcess) Init(_ context.Context, _ string, input payload.Payloads) error {
+func (p *slowYieldingProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
 	p.maxSteps = 10
 	p.stepLatency = 1 * time.Millisecond
 	return nil
 }
 
-func (p *slowYieldingProcess) Step(events []process.Event, out *process.StepOutput) error {
+func (p *slowYieldingProcess) Step(_ []process.Event, out *process.StepOutput) error {
 	p.mu.Lock()
 	p.steps++
 	step := p.steps
@@ -59,14 +59,14 @@ func (p *slowYieldingProcess) Send(_ *relay.Package) error { return nil }
 // yieldingDispatcher handles yield commands
 type yieldingDispatcher struct{}
 
-func (d *yieldingDispatcher) Dispatch(cmd dispatcher.Command) dispatcher.Handler {
+func (d *yieldingDispatcher) Dispatch(dispatcher.Command) dispatcher.Handler {
 	return &instantYieldHandler{}
 }
 
 type instantYieldHandler struct{}
 
 func (h *instantYieldHandler) Handle(_ context.Context, _ dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
-	go receiver.CompleteYield(tag, nil, nil)
+	receiver.CompleteYield(tag, nil, nil)
 	return nil
 }
 
@@ -75,7 +75,7 @@ type timerYieldDispatcher struct {
 	delay time.Duration
 }
 
-func (d *timerYieldDispatcher) Dispatch(cmd dispatcher.Command) dispatcher.Handler {
+func (d *timerYieldDispatcher) Dispatch(dispatcher.Command) dispatcher.Handler {
 	return &timerYieldHandler{delay: d.delay}
 }
 
@@ -378,7 +378,7 @@ func (p *steppingPoolProcess) Init(_ context.Context, _ string, _ payload.Payloa
 	return nil
 }
 
-func (p *steppingPoolProcess) Step(events []process.Event, out *process.StepOutput) error {
+func (p *steppingPoolProcess) Step(_ []process.Event, out *process.StepOutput) error {
 	p.stepping.Store(true)
 	defer p.stepping.Store(false)
 
@@ -426,7 +426,7 @@ func TestStaticStopNoStepping(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			pool.Call(context.Background(), "test", nil)
+			_, _ = pool.Call(context.Background(), "test", nil)
 		}()
 	}
 
@@ -481,7 +481,7 @@ func TestPoolStopNoSteppingStress(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				pool.Call(context.Background(), "test", nil)
+				_, _ = pool.Call(context.Background(), "test", nil)
 			}()
 		}
 
@@ -535,7 +535,7 @@ func TestAllPoolsRapidStopStart(t *testing.T) {
 						defer wg.Done()
 						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
 						defer cancel()
-						pool.Call(ctx, "test", nil)
+						_, _ = pool.Call(ctx, "test", nil)
 					}()
 				}
 
@@ -655,7 +655,7 @@ func TestExternalCancellationDuringYield(t *testing.T) {
 					cancels[i] = cancel
 					go func() {
 						defer wg.Done()
-						pool.Call(ctx, "test", nil)
+						_, _ = pool.Call(ctx, "test", nil)
 					}()
 				}
 

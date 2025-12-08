@@ -391,7 +391,7 @@ func (y *AfterStartYield) ToCommand() dispatcher.Command {
 
 // HandleResult implements HandledYield. Called when sleep completes.
 // Sends time.Now() to the channel and returns the channel.
-func (y *AfterStartYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+func (y *AfterStartYield) HandleResult(l *lua.LState, _ any, err error) []lua.LValue {
 	if err != nil {
 		return []lua.LValue{lua.LNil, wrapErrorValue(l, err, "time.after")}
 	}
@@ -473,7 +473,7 @@ func (y *TimerStopYield) ToCommand() dispatcher.Command {
 }
 
 // HandleResult converts bool result to Lua boolean.
-func (y *TimerStopYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+func (y *TimerStopYield) HandleResult(_ *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		return []lua.LValue{lua.LFalse}
 	}
@@ -873,7 +873,7 @@ func dateFunc(l *lua.LState) int {
 	month := stdtime.Month(l.CheckInt(2))
 	day := l.CheckInt(3)
 	hour := l.CheckInt(4)
-	min := l.CheckInt(5)
+	minute := l.CheckInt(5)
 	sec := l.CheckInt(6)
 	nsec := l.CheckInt(7)
 
@@ -889,7 +889,7 @@ func dateFunc(l *lua.LState) int {
 		loc = stdtime.Local
 	}
 
-	t := stdtime.Date(year, month, day, hour, min, sec, nsec, loc)
+	t := stdtime.Date(year, month, day, hour, minute, sec, nsec, loc)
 	ud := l.NewUserData()
 	ud.Value = &Time{time: t}
 	ud.Metatable = value.GetTypeMetatable(l, timeTypeName)
@@ -1252,9 +1252,9 @@ func timeClock(l *lua.LState) int {
 		return 0
 	}
 
-	hour, min, sec := t.time.Clock()
+	hour, minute, sec := t.time.Clock()
 	l.Push(lua.LNumber(hour))
-	l.Push(lua.LNumber(min))
+	l.Push(lua.LNumber(minute))
 	l.Push(lua.LNumber(sec))
 	return 3
 }

@@ -44,13 +44,13 @@ func TestIntegration_TwoNodeCommunication(t *testing.T) {
 	cm2 := NewConnectionManager(config2)
 
 	// Start both managers
-	err := cm1.Start(ctx, func(nodeID cluster.NodeID, data []byte) {
+	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {
 		node1Received.Add(1)
 	})
 	require.NoError(t, err)
 	defer func() { _ = cm1.Stop() }()
 
-	err = cm2.Start(ctx, func(nodeID cluster.NodeID, data []byte) {
+	err = cm2.Start(ctx, func(_ cluster.NodeID, _ []byte) {
 		node2Received.Add(1)
 	})
 	require.NoError(t, err)
@@ -127,7 +127,7 @@ func TestIntegration_ConnectionRetryOnFailure(t *testing.T) {
 
 	cm1 := NewConnectionManager(config1)
 
-	err := cm1.Start(ctx, func(nodeID cluster.NodeID, data []byte) {})
+	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {})
 	require.NoError(t, err)
 	defer func() { _ = cm1.Stop() }()
 
@@ -148,7 +148,7 @@ func TestIntegration_ConnectionRetryOnFailure(t *testing.T) {
 
 	cm2 := NewConnectionManager(config2)
 
-	err = cm2.Start(ctx, func(nodeID cluster.NodeID, data []byte) {
+	err = cm2.Start(ctx, func(_ cluster.NodeID, _ []byte) {
 		node2Received.Add(1)
 	})
 	require.NoError(t, err)
@@ -202,11 +202,11 @@ func TestIntegration_GracefulDisconnect(t *testing.T) {
 	cm1 := NewConnectionManager(config1)
 	cm2 := NewConnectionManager(config2)
 
-	err := cm1.Start(ctx, func(nodeID cluster.NodeID, data []byte) {})
+	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {})
 	require.NoError(t, err)
 	defer func() { _ = cm1.Stop() }()
 
-	err = cm2.Start(ctx, func(nodeID cluster.NodeID, data []byte) {})
+	err = cm2.Start(ctx, func(_ cluster.NodeID, _ []byte) {})
 	require.NoError(t, err)
 
 	port1 := cm1.GetListenPort()
@@ -259,7 +259,7 @@ func TestIntegration_ThreeNodeCluster(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		configs[i] = DefaultManagerConfig()
-		configs[i].LocalNodeID = cluster.NodeID("node-" + string(rune('A'+i)))
+		configs[i].LocalNodeID = "node-" + string(rune('A'+i))
 		configs[i].BindAddr = "127.0.0.1"
 		configs[i].AutoPort = true
 		configs[i].Logger = logger
@@ -268,7 +268,7 @@ func TestIntegration_ThreeNodeCluster(t *testing.T) {
 
 		idx := i
 		managers[i] = NewConnectionManager(configs[i])
-		err := managers[i].Start(ctx, func(nodeID cluster.NodeID, data []byte) {
+		err := managers[i].Start(ctx, func(_ cluster.NodeID, _ []byte) {
 			received[idx].Add(1)
 		})
 		require.NoError(t, err)
@@ -362,11 +362,11 @@ func TestIntegration_LargeMessages(t *testing.T) {
 	cm1 := NewConnectionManager(config1)
 	cm2 := NewConnectionManager(config2)
 
-	err := cm1.Start(ctx, func(nodeID cluster.NodeID, data []byte) {})
+	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {})
 	require.NoError(t, err)
 	defer func() { _ = cm1.Stop() }()
 
-	err = cm2.Start(ctx, func(nodeID cluster.NodeID, data []byte) {
+	err = cm2.Start(ctx, func(_ cluster.NodeID, data []byte) {
 		mu.Lock()
 		receivedSizes = append(receivedSizes, len(data))
 		mu.Unlock()
@@ -446,11 +446,11 @@ func TestIntegration_HighThroughput(t *testing.T) {
 	cm1 := NewConnectionManager(config1)
 	cm2 := NewConnectionManager(config2)
 
-	err := cm1.Start(ctx, func(nodeID cluster.NodeID, data []byte) {})
+	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {})
 	require.NoError(t, err)
 	defer func() { _ = cm1.Stop() }()
 
-	err = cm2.Start(ctx, func(nodeID cluster.NodeID, data []byte) {
+	err = cm2.Start(ctx, func(_ cluster.NodeID, _ []byte) {
 		received.Add(1)
 	})
 	require.NoError(t, err)
@@ -526,11 +526,11 @@ func TestIntegration_ShortNetworkDisruption(t *testing.T) {
 	cm1 := NewConnectionManager(config1)
 	cm2 := NewConnectionManager(config2)
 
-	err := cm1.Start(ctx, func(nodeID cluster.NodeID, data []byte) {})
+	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {})
 	require.NoError(t, err)
 	defer func() { _ = cm1.Stop() }()
 
-	err = cm2.Start(ctx, func(nodeID cluster.NodeID, data []byte) {
+	err = cm2.Start(ctx, func(_ cluster.NodeID, _ []byte) {
 		received.Add(1)
 	})
 	require.NoError(t, err)
@@ -583,7 +583,7 @@ func TestIntegration_ShortNetworkDisruption(t *testing.T) {
 
 	// Restart node-2 with same port
 	cm2 = NewConnectionManager(config2)
-	err = cm2.Start(ctx, func(nodeID cluster.NodeID, data []byte) {
+	err = cm2.Start(ctx, func(_ cluster.NodeID, _ []byte) {
 		received.Add(1)
 	})
 	require.NoError(t, err)
@@ -650,7 +650,7 @@ func TestIntegration_MultipleReconnections(t *testing.T) {
 	config2.DrainBatchSize = 128
 
 	cm1 := NewConnectionManager(config1)
-	err := cm1.Start(ctx, func(nodeID cluster.NodeID, data []byte) {})
+	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {})
 	require.NoError(t, err)
 	defer func() { _ = cm1.Stop() }()
 
@@ -662,7 +662,7 @@ func TestIntegration_MultipleReconnections(t *testing.T) {
 
 		// Start node-2
 		cm2 := NewConnectionManager(config2)
-		err = cm2.Start(ctx, func(nodeID cluster.NodeID, data []byte) {
+		err = cm2.Start(ctx, func(_ cluster.NodeID, _ []byte) {
 			received.Add(1)
 		})
 		require.NoError(t, err)
@@ -734,13 +734,13 @@ func TestIntegration_BidirectionalCommunication(t *testing.T) {
 	cm1 := NewConnectionManager(config1)
 	cm2 := NewConnectionManager(config2)
 
-	err := cm1.Start(ctx, func(nodeID cluster.NodeID, data []byte) {
+	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {
 		node1Received.Add(1)
 	})
 	require.NoError(t, err)
 	defer func() { _ = cm1.Stop() }()
 
-	err = cm2.Start(ctx, func(nodeID cluster.NodeID, data []byte) {
+	err = cm2.Start(ctx, func(_ cluster.NodeID, _ []byte) {
 		node2Received.Add(1)
 	})
 	require.NoError(t, err)

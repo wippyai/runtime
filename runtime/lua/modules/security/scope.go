@@ -25,12 +25,12 @@ func wrapScope(l *lua.LState, scope secapi.Scope) *lua.LUserData {
 	return ud
 }
 
-func checkScope(l *lua.LState, idx int) secapi.Scope {
-	ud := l.CheckUserData(idx)
+func checkScope(l *lua.LState, _ int) secapi.Scope {
+	ud := l.CheckUserData(1)
 	if scope, ok := ud.Value.(secapi.Scope); ok {
 		return scope
 	}
-	l.ArgError(idx, "Scope expected")
+	l.ArgError(1, "Scope expected")
 	return nil
 }
 
@@ -108,11 +108,7 @@ func scopeEvaluate(l *lua.LState) int {
 	action := l.CheckString(3)
 	resource := l.CheckString(4)
 
-	meta, err := optMetadataFromLuaTable(l, 5)
-	if err != nil {
-		l.RaiseError("%s", err.Error())
-		return 0
-	}
+	meta := optMetadataFromLuaTable(l, 5)
 
 	result := scope.Evaluate(actor, action, resource, meta)
 

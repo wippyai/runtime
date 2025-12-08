@@ -32,7 +32,7 @@ type testReceiver struct {
 	cb func(data any, err error)
 }
 
-func (r *testReceiver) CompleteYield(tag uint64, data any, err error) {
+func (r *testReceiver) CompleteYield(_ uint64, data any, err error) {
 	if r.cb != nil {
 		r.cb(data, err)
 	}

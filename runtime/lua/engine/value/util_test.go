@@ -582,7 +582,7 @@ func TestToGoAny(t *testing.T) {
 		L := lua.NewState()
 		defer L.Close()
 
-		fn := L.NewFunction(func(L *lua.LState) int { return 0 })
+		fn := L.NewFunction(func(*lua.LState) int { return 0 })
 		result := ToGoAny(fn)
 		_, ok := result.(string)
 		assert.True(t, ok)

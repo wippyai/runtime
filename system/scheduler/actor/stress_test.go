@@ -36,7 +36,7 @@ func (p *RandomYieldProcess) Init(_ context.Context, _ string, input payload.Pay
 	return nil
 }
 
-func (p *RandomYieldProcess) Step(events []Event, out *StepOutput) error {
+func (p *RandomYieldProcess) Step(_ []Event, out *StepOutput) error {
 	p.steps++
 	if p.steps >= p.maxSteps {
 		out.Done(nil)

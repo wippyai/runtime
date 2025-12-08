@@ -36,7 +36,7 @@ func (f *DefaultFactory) CreatePolicyEntry(ctx context.Context, entry registry.E
 	case policy.ExprKind:
 		return f.createExprPolicy(ctx, entry)
 	default:
-		return nil, NewUnsupportedPolicyKindError(string(entry.Kind))
+		return nil, NewUnsupportedPolicyKindError(entry.Kind)
 	}
 }
 

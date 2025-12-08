@@ -73,8 +73,8 @@ func (m *mockCollector) HistogramObserve(name string, value float64, labels api.
 	m.histogram = append(m.histogram, histogramEntry{name: name, value: value, labels: labels})
 }
 
-func (m *mockCollector) RegisterExporter(e api.Exporter) error { return nil }
-func (m *mockCollector) Close() error                          { return nil }
+func (m *mockCollector) RegisterExporter(api.Exporter) error { return nil }
+func (m *mockCollector) Close() error                        { return nil }
 
 func labelsKey(labels api.Labels) string {
 	if labels == nil {

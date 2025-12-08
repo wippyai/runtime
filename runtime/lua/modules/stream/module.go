@@ -1,7 +1,6 @@
 package stream
 
 import (
-	"github.com/wippyai/runtime/api/dispatcher"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	streamapi "github.com/wippyai/runtime/api/stream"
 	lua "github.com/yuin/gopher-lua"
@@ -22,12 +21,12 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	mod.Immutable = true
 
 	yields := []luaapi.YieldType{
-		{Sample: &ReadYield{}, CmdID: dispatcher.CommandID(streamapi.CmdRead)},
-		{Sample: &WriteYield{}, CmdID: dispatcher.CommandID(streamapi.CmdWrite)},
-		{Sample: &SeekYield{}, CmdID: dispatcher.CommandID(streamapi.CmdSeek)},
-		{Sample: &FlushYield{}, CmdID: dispatcher.CommandID(streamapi.CmdFlush)},
-		{Sample: &StatYield{}, CmdID: dispatcher.CommandID(streamapi.CmdStat)},
-		{Sample: &CloseYield{}, CmdID: dispatcher.CommandID(streamapi.CmdClose)},
+		{Sample: &ReadYield{}, CmdID: streamapi.CmdRead},
+		{Sample: &WriteYield{}, CmdID: streamapi.CmdWrite},
+		{Sample: &SeekYield{}, CmdID: streamapi.CmdSeek},
+		{Sample: &FlushYield{}, CmdID: streamapi.CmdFlush},
+		{Sample: &StatYield{}, CmdID: streamapi.CmdStat},
+		{Sample: &CloseYield{}, CmdID: streamapi.CmdClose},
 	}
 
 	return mod, yields

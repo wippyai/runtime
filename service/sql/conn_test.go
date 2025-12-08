@@ -88,7 +88,7 @@ func TestConnPool_Acquire(t *testing.T) {
 
 	_, err := pool.Start(ctx)
 	require.NoError(t, err)
-	defer pool.Stop(ctx)
+	defer func() { _ = pool.Stop(ctx) }()
 
 	res, err := pool.Acquire(ctx, testID, resource.ModeNormal)
 	require.NoError(t, err)
@@ -107,7 +107,7 @@ func TestConnPool_AcquireUnsupportedMode(t *testing.T) {
 
 	_, err := pool.Start(ctx)
 	require.NoError(t, err)
-	defer pool.Stop(ctx)
+	defer func() { _ = pool.Stop(ctx) }()
 
 	_, err = pool.Acquire(ctx, testID, resource.ModeExclusive)
 	assert.Error(t, err)
@@ -199,7 +199,7 @@ func TestDBConn_GetAfterRelease(t *testing.T) {
 
 	_, err := pool.Start(ctx)
 	require.NoError(t, err)
-	defer pool.Stop(ctx)
+	defer func() { _ = pool.Stop(ctx) }()
 
 	res, err := pool.Acquire(ctx, testID, resource.ModeNormal)
 	require.NoError(t, err)
@@ -250,7 +250,7 @@ func TestConnPool_UpdateConfig(t *testing.T) {
 
 	_, err := pool.Start(ctx)
 	require.NoError(t, err)
-	defer pool.Stop(ctx)
+	defer func() { _ = pool.Stop(ctx) }()
 
 	newCfg := &apiconfig.SQLiteConfig{
 		File: ":memory:",
@@ -267,7 +267,7 @@ func TestConnPool_UpdateConfigWrongType(t *testing.T) {
 
 	_, err := pool.Start(ctx)
 	require.NoError(t, err)
-	defer pool.Stop(ctx)
+	defer func() { _ = pool.Stop(ctx) }()
 
 	dbCfg := &apiconfig.DBConfig{
 		Host:     "localhost",
@@ -394,7 +394,7 @@ func BenchmarkConnPool_Acquire(b *testing.B) {
 	pool := newBenchPool(b)
 	ctx := context.Background()
 	_, _ = pool.Start(ctx)
-	defer pool.Stop(ctx)
+	defer func() { _ = pool.Stop(ctx) }()
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -408,7 +408,7 @@ func BenchmarkConnPool_AcquireGet(b *testing.B) {
 	pool := newBenchPool(b)
 	ctx := context.Background()
 	_, _ = pool.Start(ctx)
-	defer pool.Stop(ctx)
+	defer func() { _ = pool.Stop(ctx) }()
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -423,7 +423,7 @@ func BenchmarkConnPool_ConcurrentAcquire(b *testing.B) {
 	pool := newBenchPool(b)
 	ctx := context.Background()
 	_, _ = pool.Start(ctx)
-	defer pool.Stop(ctx)
+	defer func() { _ = pool.Stop(ctx) }()
 
 	b.ResetTimer()
 	b.ReportAllocs()

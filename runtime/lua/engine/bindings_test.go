@@ -372,7 +372,7 @@ func TestGetStackFrame(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	l.DoString(`
+	_ = l.DoString(`
 		function test()
 			return debug.getinfo(1)
 		end

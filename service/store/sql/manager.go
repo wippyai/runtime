@@ -51,7 +51,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Decode and initialize configuration
-	cfg, err := entryutil.DecodeEntryConfig[sqlstore.SQLConfig](ctx, m.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[sqlstore.Config](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}
@@ -108,7 +108,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Decode and initialize updated configuration
-	cfg, err := entryutil.DecodeEntryConfig[sqlstore.SQLConfig](ctx, m.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[sqlstore.Config](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}

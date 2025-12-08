@@ -156,6 +156,6 @@ func PrintWithTheme(silent bool, theme GradientTheme) {
 // Print displays the wippy ASCII banner with a random gradient from the curated collection.
 // If silent is true, no output is produced.
 func Print(silent bool) {
-	theme := allThemes[rand.IntN(len(allThemes))]
+	theme := allThemes[rand.IntN(len(allThemes))] //nolint:gosec // decorative randomness
 	PrintWithTheme(silent, theme)
 }

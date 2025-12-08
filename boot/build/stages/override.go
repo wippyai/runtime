@@ -41,7 +41,7 @@ func (s *overrideStage) Execute(ctx context.Context, entries *[]registry.Entry) 
 
 	mutator := entry.NewMutator(transcoder)
 
-	sub := cfg.Sub(string(sectionOverride))
+	sub := cfg.Sub(sectionOverride)
 	keys := sub.Keys()
 
 	if len(keys) == 0 {

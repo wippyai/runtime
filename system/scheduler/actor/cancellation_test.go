@@ -31,7 +31,7 @@ func (p *slowProcess) Init(_ context.Context, _ string, _ payload.Payloads) erro
 	return nil
 }
 
-func (p *slowProcess) Step(events []Event, out *StepOutput) error {
+func (p *slowProcess) Step(_ []Event, out *StepOutput) error {
 	p.mu.Lock()
 	p.steps++
 	step := p.steps
@@ -250,7 +250,7 @@ func (p *steppingProcess) Init(_ context.Context, _ string, _ payload.Payloads) 
 	return nil
 }
 
-func (p *steppingProcess) Step(events []Event, out *StepOutput) error {
+func (p *steppingProcess) Step(_ []Event, out *StepOutput) error {
 	p.stepping.Store(true)
 	defer p.stepping.Store(false)
 

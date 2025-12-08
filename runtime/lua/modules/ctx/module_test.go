@@ -15,7 +15,7 @@ func setupContextWithValues(keyValues map[string]any) context.Context {
 	for k, v := range keyValues {
 		values.Set(k, v)
 	}
-	fc.Set(ctxapi.ValuesCtx, values)
+	_ = fc.Set(ctxapi.ValuesCtx, values)
 	return ctx
 }
 

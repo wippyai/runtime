@@ -76,7 +76,7 @@ func PerformClientHandshake(conn net.Conn, config NodeConnectionConfig, logger *
 	remoteNodeID := cluster.NodeID(serverIDBytes)
 	if remoteNodeID != expectedRemoteNodeID {
 		_ = conn.Close()
-		err := NewNodeIDMismatchError(string(expectedRemoteNodeID), string(remoteNodeID))
+		err := NewNodeIDMismatchError(expectedRemoteNodeID, remoteNodeID)
 		return nil, &ConnectionError{Reason: ExitProtocolError, Err: err}
 	}
 

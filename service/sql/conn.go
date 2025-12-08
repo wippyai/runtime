@@ -106,7 +106,7 @@ func (p *ConnPool) UpdateConfig(cfg interface{}) error {
 		p.config.Store(&cfg)
 
 	default:
-		return NewUnsupportedConfigTypeError(string(p.kind))
+		return NewUnsupportedConfigTypeError(p.kind)
 	}
 
 	return nil

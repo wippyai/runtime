@@ -82,7 +82,7 @@ func TestTimerWaveLoad(t *testing.T) {
 						if _, err := r.Wait(ctx2, id); err == nil {
 							totalFired.Add(1)
 						} else {
-							r.Stop(id)
+							_, _ = r.Stop(id)
 						}
 					}(id)
 				}
@@ -180,7 +180,7 @@ func TestTickerWaveLoad(t *testing.T) {
 						}
 						cancel()
 					}
-					r.Stop(id)
+					_ = r.Stop(id)
 					totalStopped.Add(1)
 				}
 			}
@@ -248,7 +248,7 @@ func TestTimerBurstSpikes(t *testing.T) {
 					if _, err := r.Wait(ctx2, id); err == nil {
 						totalFired.Add(1)
 					} else {
-						r.Stop(id)
+						_, _ = r.Stop(id)
 					}
 				}()
 			}
@@ -335,7 +335,7 @@ func TestMixedOperationsChaos(t *testing.T) {
 					idx := rng.Intn(len(localTimers))
 					id := localTimers[idx]
 					localTimers = append(localTimers[:idx], localTimers[idx+1:]...)
-					r.Stop(id)
+					_, _ = r.Stop(id)
 					cancels.Add(1)
 
 				case roll < createBias+cancelBias+0.1 && len(localTimers) > 0:
@@ -343,7 +343,7 @@ func TestMixedOperationsChaos(t *testing.T) {
 					idx := rng.Intn(len(localTimers))
 					id := localTimers[idx]
 					newDuration := time.Duration(10+rng.Intn(100)) * time.Millisecond
-					r.Reset(id, newDuration)
+					_, _ = r.Reset(id, newDuration)
 					resets.Add(1)
 
 				case len(localTimers) > 0:
@@ -360,9 +360,9 @@ func TestMixedOperationsChaos(t *testing.T) {
 						waits.Add(1)
 					} else if err == context.DeadlineExceeded {
 						timeouts.Add(1)
-						r.Stop(id)
+						_, _ = r.Stop(id)
 					} else {
-						r.Stop(id)
+						_, _ = r.Stop(id)
 					}
 				}
 			}
@@ -404,11 +404,11 @@ func TestConcurrentResetRace(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+			rng := rand.New(rand.NewSource(time.Now().UnixNano())) //nolint:gosec // test code
 			for j := 0; j < resetsEach*timers/resetWorkers; j++ {
 				idx := rng.Intn(timers)
 				duration := time.Duration(rng.Intn(100)+1) * time.Millisecond
-				r.Reset(ids[idx], duration)
+				_, _ = r.Reset(ids[idx], duration)
 			}
 		}()
 	}
@@ -417,7 +417,7 @@ func TestConcurrentResetRace(t *testing.T) {
 
 	// Cleanup
 	for _, id := range ids {
-		r.Stop(id)
+		_, _ = r.Stop(id)
 	}
 
 	t.Log("Concurrent reset race test passed")
@@ -482,14 +482,14 @@ func TestWheelTimerMixedChaos(t *testing.T) {
 					idx := rng.Intn(len(localTimers))
 					id := localTimers[idx]
 					localTimers = append(localTimers[:idx], localTimers[idx+1:]...)
-					r.Stop(id)
+					_, _ = r.Stop(id)
 					cancels.Add(1)
 
 				case op < 70 && len(localTimers) > 0: // Reset
 					idx := rng.Intn(len(localTimers))
 					id := localTimers[idx]
 					newDuration := time.Duration(5+rng.Intn(50)) * time.Millisecond
-					r.Reset(id, newDuration)
+					_, _ = r.Reset(id, newDuration)
 					resets.Add(1)
 
 				case len(localTimers) > 0: // Wait
@@ -505,7 +505,7 @@ func TestWheelTimerMixedChaos(t *testing.T) {
 						waits.Add(1)
 						fired.Add(1)
 					} else {
-						r.Stop(id)
+						_, _ = r.Stop(id)
 					}
 				}
 			}
@@ -614,7 +614,7 @@ func TestLeakDetection(t *testing.T) {
 	tr := NewWheelTimerRegistry()
 	for i := 0; i < 1000; i++ {
 		id := tr.Start(time.Hour)
-		tr.Stop(id)
+		_, _ = tr.Stop(id)
 	}
 	if count := tr.Count(); count != 0 {
 		t.Errorf("timer registry leaked %d timers", count)
@@ -625,7 +625,7 @@ func TestLeakDetection(t *testing.T) {
 	tkr := NewTickerRegistry()
 	for i := 0; i < 1000; i++ {
 		id := tkr.Start(time.Hour)
-		tkr.Stop(id)
+		_ = tkr.Stop(id)
 	}
 	tkr.Close()
 }
@@ -701,9 +701,9 @@ func TestWheelTimerMemoryLeak(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		for i, id := range ids {
 			if i%2 == 0 {
-				r.Wait(ctx, id)
+				_, _ = r.Wait(ctx, id)
 			} else {
-				r.Stop(id)
+				_, _ = r.Stop(id)
 			}
 		}
 		cancel()
@@ -722,8 +722,8 @@ func TestWheelTimerMemoryLeak(t *testing.T) {
 	var m2 runtime.MemStats
 	runtime.ReadMemStats(&m2)
 
-	heapGrowth := int64(m2.HeapAlloc) - int64(m1.HeapAlloc)
-	if heapGrowth > 10*1024*1024 { // 10MB threshold
+	heapGrowth := int64(m2.HeapAlloc) - int64(m1.HeapAlloc) //nolint:gosec // test code
+	if heapGrowth > 10*1024*1024 {                          // 10MB threshold
 		t.Errorf("potential memory leak: heap grew by %d bytes after %d iterations",
 			heapGrowth, iterations)
 	}
@@ -848,7 +848,7 @@ func TestWheelTimerBurstMemory(t *testing.T) {
 		// Wait for all to fire
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		for _, id := range ids {
-			r.Wait(ctx, id)
+			_, _ = r.Wait(ctx, id)
 		}
 		cancel()
 
@@ -867,7 +867,7 @@ func TestWheelTimerBurstMemory(t *testing.T) {
 	var finalMem runtime.MemStats
 	runtime.ReadMemStats(&finalMem)
 
-	growth := int64(finalMem.HeapAlloc) - int64(baselineMem.HeapAlloc)
+	growth := int64(finalMem.HeapAlloc) - int64(baselineMem.HeapAlloc) //nolint:gosec // test code
 	t.Logf("Memory growth after %d bursts: %dKB (baseline=%dKB final=%dKB)",
 		bursts, growth/1024, baselineMem.HeapAlloc/1024, finalMem.HeapAlloc/1024)
 
@@ -893,10 +893,10 @@ func TestWheelTimerGoroutineLeak(t *testing.T) {
 			id := r.Start(time.Millisecond)
 			if j%2 == 0 {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-				r.Wait(ctx, id)
+				_, _ = r.Wait(ctx, id)
 				cancel()
 			} else {
-				r.Stop(id)
+				_, _ = r.Stop(id)
 			}
 		}
 

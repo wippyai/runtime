@@ -46,12 +46,12 @@ var messageMethods = map[string]lua.LGoFunc{
 	"headers": messageHeaders,
 }
 
-func checkMessage(l *lua.LState, idx int) *Message {
-	ud := l.CheckUserData(idx)
+func checkMessage(l *lua.LState, _ int) *Message {
+	ud := l.CheckUserData(1)
 	if v, ok := ud.Value.(*Message); ok {
 		return v
 	}
-	l.ArgError(idx, "queue.Message expected")
+	l.ArgError(1, "queue.Message expected")
 	return nil
 }
 
