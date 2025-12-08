@@ -100,7 +100,7 @@ func (m *Manager) Stop() {
 // Add creates and registers a new function.
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindFunction {
-		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindFunction))
+		return api.NewInvalidEntryKindError(entry.Kind, api.KindFunction)
 	}
 
 	cfg, err := component.UnpackConfig[api.FunctionConfig](ctx, entry)
@@ -143,7 +143,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update updates an existing function.
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindFunction {
-		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindFunction))
+		return api.NewInvalidEntryKindError(entry.Kind, api.KindFunction)
 	}
 
 	cfg, err := component.UnpackConfig[api.FunctionConfig](ctx, entry)

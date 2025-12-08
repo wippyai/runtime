@@ -238,7 +238,7 @@ func TestStressParallelProcessCreation(t *testing.T) {
 					continue
 				}
 				var output process.StepOutput
-				proc.Step(nil, &output)
+				_ = proc.Step(nil, &output)
 				procs = append(procs, proc)
 			}
 			allProcesses[workerID] = procs

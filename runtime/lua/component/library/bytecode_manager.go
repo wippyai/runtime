@@ -66,7 +66,7 @@ func (m *BytecodeManager) Add(ctx context.Context, entry registry.Entry) error {
 // Update updates an existing bytecode library.
 func (m *BytecodeManager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindLibraryBytecode {
-		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindLibraryBytecode))
+		return api.NewInvalidEntryKindError(entry.Kind, api.KindLibraryBytecode)
 	}
 
 	cfg, err := component.UnpackConfig[api.BytecodeLibraryConfig](ctx, entry)
@@ -95,7 +95,7 @@ func (m *BytecodeManager) Update(ctx context.Context, entry registry.Entry) erro
 // Delete removes a bytecode library.
 func (m *BytecodeManager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindLibraryBytecode {
-		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindLibraryBytecode))
+		return api.NewInvalidEntryKindError(entry.Kind, api.KindLibraryBytecode)
 	}
 
 	if err := m.code.DeleteNode(ctx, entry.ID); err != nil {

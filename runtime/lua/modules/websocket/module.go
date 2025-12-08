@@ -227,17 +227,17 @@ var connMethods = map[string]lua.LGoFunc{
 	"ping":    connPing,
 }
 
-func checkConn(l *lua.LState, idx int) *WsConn {
-	ud := l.CheckUserData(idx)
+func checkConn(l *lua.LState) *WsConn {
+	ud := l.CheckUserData(1)
 	if conn, ok := ud.Value.(*WsConn); ok {
 		return conn
 	}
-	l.ArgError(idx, "websocket.Client expected")
+	l.ArgError(1, "websocket.Client expected")
 	return nil
 }
 
 func connSend(l *lua.LState) int {
-	conn := checkConn(l, 1)
+	conn := checkConn(l)
 	data := l.CheckString(2)
 	msgType := wsapi.MessageText
 	if l.GetTop() >= 3 {
@@ -253,7 +253,7 @@ func connSend(l *lua.LState) int {
 // On first call, yields WsSubscribeYield to start the subscription.
 // Subsequent calls return the cached channel directly.
 func connChannel(l *lua.LState) int {
-	conn := checkConn(l, 1)
+	conn := checkConn(l)
 
 	// If already subscribed, return the channel directly
 	if conn.subscribed && conn.Channel != nil {
@@ -289,14 +289,14 @@ func connChannel(l *lua.LState) int {
 }
 
 func connPing(l *lua.LState) int {
-	conn := checkConn(l, 1)
+	conn := checkConn(l)
 	yield := AcquireWsPingYield(conn.ID, nil)
 	l.Push(yield)
 	return -1
 }
 
 func connClose(l *lua.LState) int {
-	conn := checkConn(l, 1)
+	conn := checkConn(l)
 	code := 1000
 	reason := ""
 	if l.GetTop() >= 2 {

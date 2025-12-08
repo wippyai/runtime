@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"errors"
 	"sync"
 	"testing"
 )
@@ -406,8 +407,8 @@ func TestGraphDependencyLevels(t *testing.T) {
 		}
 
 		// Check error has details via Details() method
-		graphErr, ok := err.(*Error)
-		if !ok {
+		var graphErr *Error
+		if !errors.As(err, &graphErr) {
 			t.Fatalf("expected *Error, got %T", err)
 		}
 

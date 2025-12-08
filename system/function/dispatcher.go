@@ -107,11 +107,12 @@ func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Comman
 
 		// Build result payload
 		var resultPayload payload.Payload
-		if err != nil {
+		switch {
+		case err != nil:
 			resultPayload = payload.NewError(err)
-		} else if result.Error != nil {
+		case result.Error != nil:
 			resultPayload = payload.NewError(result.Error)
-		} else {
+		default:
 			resultPayload = result.Value
 		}
 

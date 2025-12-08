@@ -164,7 +164,7 @@ func (s *Scheduler) Submit(ctx context.Context, pid relay.PID, p Process, method
 func (s *Scheduler) SendTo(procID uint64, pkg *relay.Package) error {
 	val, ok := s.idleProcs.LoadAndDelete(procID)
 	if !ok {
-		return &ProcessNotIdleError{ID: procID}
+		return process.ErrProcessNotIdle
 	}
 
 	proc := val.(*Processor)
@@ -173,7 +173,7 @@ func (s *Scheduler) SendTo(procID uint64, pkg *relay.Package) error {
 		Type: process.EventMessage,
 		Data: pkg,
 	}, proc.gen.Load()) {
-		return ErrProcessClosed
+		return process.ErrProcessClosed
 	}
 
 	proc.SetState(StateReady)
@@ -250,7 +250,7 @@ func (s *Scheduler) ReleaseProcessor(proc *Processor) {
 func (s *Scheduler) Send(pkg *relay.Package) error {
 	v, ok := s.byPID.Load(pkg.Target)
 	if !ok {
-		return &ProcessNotFoundError{PID: pkg.Target}
+		return process.ErrProcessNotFound
 	}
 	proc := v.(*Processor)
 
@@ -259,7 +259,7 @@ func (s *Scheduler) Send(pkg *relay.Package) error {
 		Type: process.EventMessage,
 		Data: pkg,
 	}, proc.gen.Load()) {
-		return ErrProcessClosed
+		return process.ErrProcessClosed
 	}
 
 	// Try to wake idle process

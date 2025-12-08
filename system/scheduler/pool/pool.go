@@ -202,14 +202,14 @@ func (e *Executor) CompleteYield(tag uint64, data any, err error) {
 // Safe to call concurrently - returns error if executor is not active.
 func (e *Executor) Send(pkg *relay.Package) error {
 	if !e.active.Load() {
-		return ErrProcessNotFound
+		return process.ErrProcessNotFound
 	}
 	// Push message event to queue with generation check
 	if !e.queue.Push(process.Event{
 		Type: process.EventMessage,
 		Data: pkg,
 	}, e.gen.Load()) {
-		return ErrProcessNotFound
+		return process.ErrProcessNotFound
 	}
 	// Signal wake
 	select {
@@ -310,7 +310,7 @@ func (e *Executor) Run(ctx context.Context, proc process.Process, method string,
 					e.queue.PushDirect(process.Event{
 						Type:  process.EventYieldComplete,
 						Tag:   y.Tag,
-						Error: &UnknownCommandError{CmdID: y.Cmd.CmdID()},
+						Error: &process.UnknownCommandError{CmdID: y.Cmd.CmdID()},
 					})
 					continue
 				}

@@ -10,15 +10,8 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 )
 
-// Inline executes function calls synchronously in the caller's goroutine.
-// No worker pool, no queuing - calls run to completion immediately.
-// Concurrent calls are serialized via mutex to protect the single process.
-// Implements relay.Receiver for message delivery to running processes.
-//
-// Use cases:
-//   - Eval: Embedding one actor inside another
-//   - Testing: Simple synchronous execution
-//   - Low-overhead calls where caller is already in a worker goroutine
+// Inline executes calls synchronously in the caller's goroutine.
+// Single process, serialized via mutex.
 type Inline struct {
 	factory    Factory
 	dispatcher Dispatcher
@@ -78,7 +71,7 @@ func (i *Inline) Call(ctx context.Context, method string, input payload.Payloads
 func (i *Inline) Send(pkg *relay.Package) error {
 	v, ok := i.active.Load(pkg.Target.UniqID)
 	if !ok {
-		return ErrProcessNotFound
+		return process.ErrProcessNotFound
 	}
 	return v.(*Executor).Send(pkg)
 }

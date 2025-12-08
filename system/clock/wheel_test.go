@@ -302,9 +302,9 @@ func TestWheelTimerUnderLoad(t *testing.T) {
 	sort.Slice(jitters, func(i, j int) bool { return jitters[i] < jitters[j] })
 	p50 := jitters[concurrency/2]
 	p99 := jitters[concurrency*99/100]
-	max := jitters[concurrency-1]
+	maxJitter := jitters[concurrency-1]
 
-	t.Logf("Under load (%d concurrent): p50=%v p99=%v max=%v", concurrency, p50, p99, max)
+	t.Logf("Under load (%d concurrent): p50=%v p99=%v max=%v", concurrency, p50, p99, maxJitter)
 
 	// Under concurrent load, allow more jitter
 	if p99 > 10*time.Millisecond {

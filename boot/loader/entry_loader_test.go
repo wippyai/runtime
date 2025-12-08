@@ -709,7 +709,8 @@ func TestLegacyFunctions(t *testing.T) {
 		base := attrs.Bag{"key": "value"}
 		override := attrs.Bag{"key": "override"}
 
-		result := mergeMeta(base, override)
+		processor := NewEntryProcessor(nil)
+		result := processor.mergeMetadata(base, override)
 		if result["key"] != "override" {
 			t.Errorf("expected 'override', got '%v'", result["key"])
 		}

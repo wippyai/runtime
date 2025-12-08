@@ -1635,9 +1635,9 @@ func TestSubscribeLateSubscription(t *testing.T) {
 
 	// Process should receive this one
 	output.Reset()
-	proc.Step(nil, &output)
+	_ = proc.Step(nil, &output)
 	output.Reset()
-	proc.Step(nil, &output)
+	_ = proc.Step(nil, &output)
 
 	t.Log("Late subscription test passed - message before subscription is lost")
 }
@@ -1787,7 +1787,7 @@ func TestSubscribeMultipleTopicsPartialUnsubscribe(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		output.Reset()
-		proc.Step(nil, &output)
+		_ = proc.Step(nil, &output)
 	}
 
 	// After unsubscribe from topic1, send more to topic2

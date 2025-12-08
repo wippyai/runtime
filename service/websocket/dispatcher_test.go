@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -90,7 +91,7 @@ func TestRegistryGetNotFound(t *testing.T) {
 	r := NewRegistry(table)
 
 	_, err := r.Get(999)
-	if err != ErrConnNotFound {
+	if !errors.Is(err, ErrConnNotFound) {
 		t.Errorf("expected ErrConnNotFound, got %v", err)
 	}
 }
@@ -101,7 +102,7 @@ func TestRegistryCloseNotFound(t *testing.T) {
 	r := NewRegistry(table)
 
 	err := r.Close(999, 0, "")
-	if err != ErrConnNotFound {
+	if !errors.Is(err, ErrConnNotFound) {
 		t.Errorf("expected ErrConnNotFound, got %v", err)
 	}
 }
@@ -158,7 +159,7 @@ func TestRegistryClose(t *testing.T) {
 	}
 
 	_, err = r.Get(id)
-	if err != ErrConnNotFound {
+	if !errors.Is(err, ErrConnNotFound) {
 		t.Errorf("expected ErrConnNotFound after close, got %v", err)
 	}
 }

@@ -2,6 +2,7 @@ package clock
 
 import (
 	"context"
+	"errors"
 	"math"
 	"math/rand"
 	"runtime"
@@ -358,7 +359,7 @@ func TestMixedOperationsChaos(t *testing.T) {
 
 					if err == nil {
 						waits.Add(1)
-					} else if err == context.DeadlineExceeded {
+					} else if errors.Is(err, context.DeadlineExceeded) {
 						timeouts.Add(1)
 						_, _ = r.Stop(id)
 					} else {
@@ -661,7 +662,7 @@ func TestContextCancellationUnderLoad(t *testing.T) {
 				}()
 
 				_, err := r.Wait(ctx, id)
-				if err == context.Canceled {
+				if errors.Is(err, context.Canceled) {
 					cancelled.Add(1)
 				}
 				_, _ = r.Stop(id)

@@ -214,9 +214,9 @@ func resolvePID(l *lua.LState, pidOrName string, permission string) (relay.PID, 
 	return pid, nil
 }
 
-func createPayloadsFromArgs(l *lua.LState, startIndex int) payload.Payloads {
+func createPayloadsFromArgs(l *lua.LState) payload.Payloads {
 	var payloads payload.Payloads // todo: properly presize!
-	for i := startIndex; i <= l.GetTop(); i++ {
+	for i := 3; i <= l.GetTop(); i++ {
 		payloads = append(payloads, luaconv.ExportPayload(l.Get(i)))
 	}
 	return payloads
@@ -359,7 +359,7 @@ func spawn(l *lua.LState) int {
 		return 2
 	}
 
-	payloads := createPayloadsFromArgs(l, 3)
+	payloads := createPayloadsFromArgs(l)
 
 	options := attrs.NewBag()
 	options.Set(process.LifecycleParentKey, self)
@@ -414,7 +414,7 @@ func spawnMonitored(l *lua.LState) int {
 		return 2
 	}
 
-	payloads := createPayloadsFromArgs(l, 3)
+	payloads := createPayloadsFromArgs(l)
 
 	options := attrs.NewBag()
 	options.Set(process.LifecycleParentKey, self)
@@ -470,7 +470,7 @@ func spawnLinked(l *lua.LState) int {
 		return 2
 	}
 
-	payloads := createPayloadsFromArgs(l, 3)
+	payloads := createPayloadsFromArgs(l)
 
 	options := attrs.NewBag()
 	options.Set(process.LifecycleParentKey, self)
@@ -532,7 +532,7 @@ func spawnLinkedMonitored(l *lua.LState) int {
 		return 2
 	}
 
-	payloads := createPayloadsFromArgs(l, 3)
+	payloads := createPayloadsFromArgs(l)
 
 	options := attrs.NewBag()
 	options.Set(process.LifecycleParentKey, self)
@@ -904,7 +904,7 @@ func inbox(l *lua.LState) int {
 	// Create channel for inbox and subscribe to @pid/inbox topic
 	ch := engine.NewChannel(0)
 	req := &engine.SubscribeRequest{
-		Topic:   string(topology.TopicInbox),
+		Topic:   topology.TopicInbox,
 		Channel: ch,
 	}
 	l.Push(req)
@@ -915,7 +915,7 @@ func events(l *lua.LState) int {
 	// Create channel for events and subscribe to @pid/events topic
 	ch := engine.NewChannel(0)
 	req := &engine.SubscribeRequest{
-		Topic:   string(topology.TopicEvents),
+		Topic:   topology.TopicEvents,
 		Channel: ch,
 	}
 	l.Push(req)

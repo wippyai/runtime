@@ -79,7 +79,7 @@ func (y *sqlLikeYield) CmdID() dispatcher.CommandID   { return y.cmdID }
 func (y *sqlLikeYield) ToCommand() dispatcher.Command { return y }
 func (y *sqlLikeYield) Release()                      {}
 
-func (y *sqlLikeYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+func (y *sqlLikeYield) HandleResult(_ *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
 	}

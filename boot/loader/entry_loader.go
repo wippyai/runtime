@@ -178,11 +178,12 @@ func (ep *EntryProcessor) processRawEntry(_ context.Context, content *FileConten
 	return entry, nil
 }
 
-// processSingleEntry processes a single entry format if applicable
+// processSingleEntry processes a single entry format if applicable.
+// Returns nil, nil when the content is not a single entry format.
 func (ep *EntryProcessor) processSingleEntry(_ context.Context, content *FileContent) (*registry.Entry, error) {
 	// Only process if no batch entries and single entry fields are present
 	if len(content.RawEntries) > 0 || content.Name == "" || content.Kind == "" {
-		return nil, nil
+		return nil, nil //nolint:nilnil // intentional: nil means not applicable
 	}
 
 	// Validate single entry
@@ -347,10 +348,4 @@ func (ev *EntryValidator) ValidateSingleEntry(content *FileContent) error {
 func ExtractDependenciesToEntries(p payload.Payload, dtt payload.Transcoder) ([]registry.Entry, error) {
 	processor := NewEntryProcessor(dtt)
 	return processor.ExtractDependenciesToEntries(ctxapi.NewRootContext(), p)
-}
-
-// mergeMeta merges base and override metadata (legacy function for backward compatibility)
-func mergeMeta(baseMeta, overrideMeta attrs.Bag) attrs.Bag {
-	processor := NewEntryProcessor(nil)
-	return processor.mergeMetadata(baseMeta, overrideMeta)
 }

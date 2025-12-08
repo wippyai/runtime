@@ -283,8 +283,8 @@ func TestBindPrint(t *testing.T) {
 
 	BindPrint(l)
 
-	print := l.GetGlobal("print")
-	if print == lua.LNil {
+	printFn := l.GetGlobal("print")
+	if printFn == lua.LNil {
 		t.Error("print global should be set")
 	}
 }

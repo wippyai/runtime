@@ -13,19 +13,7 @@ import (
 )
 
 // Lazy creates processes on demand and destroys them after idle timeout.
-// Zero memory footprint when no work is happening.
-// Implements relay.Receiver for message delivery to running processes.
-//
-// Lifecycle:
-//   - No processes at init
-//   - Creates process when call arrives and no idle process available
-//   - Reuses idle processes for subsequent calls
-//   - Destroys all processes after idle timeout
-//
-// Use cases:
-//   - Rarely called functions
-//   - Memory-constrained environments
-//   - Functions that may never be called but need to exist
+// Starts with zero processes, scales up to MaxWorkers based on load.
 type Lazy struct {
 	factory     Factory
 	dispatcher  Dispatcher
@@ -145,7 +133,7 @@ func (l *Lazy) Call(ctx context.Context, method string, input payload.Payloads) 
 func (l *Lazy) Send(pkg *relay.Package) error {
 	v, ok := l.activeExec.Load(pkg.Target.UniqID)
 	if !ok {
-		return ErrProcessNotFound
+		return process.ErrProcessNotFound
 	}
 	return v.(*Executor).Send(pkg)
 }

@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"errors"
 	"testing"
 
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
@@ -70,7 +71,7 @@ func TestSubscribeContext(t *testing.T) {
 
 	// Test remove non-subscribed channel
 	err = ctx.remove(ch2)
-	if err != luaapi.ErrChannelNotFound {
+	if !errors.Is(err, luaapi.ErrChannelNotFound) {
 		t.Errorf("remove non-subscribed channel should return ErrChannelNotFound, got %v", err)
 	}
 }
@@ -240,7 +241,7 @@ func TestSubscribeContextTopicChannelMapping(t *testing.T) {
 	}
 
 	ch := NewChannel(1)
-	ctx.add("my-topic", ch)
+	_, _ = ctx.add("my-topic", ch)
 
 	// Check byChannel mapping
 	if topic, ok := ctx.byChannel[ch]; !ok || topic != "my-topic" {

@@ -15,7 +15,6 @@ import (
 
 var (
 	moduleTable      *lua.LTable
-	registration     *luaapi.Registration
 	programMetatable *lua.LTable
 	initOnce         sync.Once
 )

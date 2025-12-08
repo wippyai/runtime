@@ -11,7 +11,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func MetricsInterceptor() boot.Component {
+func Interceptor() boot.Component {
 	return boot.New(boot.P{
 		Name:      MetricsInterceptorName,
 		DependsOn: []boot.Name{MetricsName, interceptorName},

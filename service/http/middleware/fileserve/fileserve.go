@@ -28,7 +28,7 @@ const (
 // getOption retrieves an option value, checking the new dot-separated key first,
 // then falling back to the legacy underscore key for backward compatibility
 //
-//nolint:unparam // newKey currently has single value but function designed for reusability
+
 func getOption(options map[string]string, newKey, legacyKey string) string {
 	if val, ok := options[newKey]; ok {
 		return val

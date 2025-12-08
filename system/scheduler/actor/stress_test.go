@@ -11,45 +11,11 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/dispatcher"
-	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	apiruntime "github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/system/scheduler"
 )
-
-// RandomYieldProcess yields random commands with random data
-type RandomYieldProcess struct {
-	steps    int
-	maxSteps int
-}
-
-func (p *RandomYieldProcess) Init(_ context.Context, _ string, input payload.Payloads) error {
-	if len(input) > 0 {
-		if v, ok := input[0].Data().(int); ok {
-			p.maxSteps = v
-		}
-	}
-	if p.maxSteps == 0 {
-		p.maxSteps = 5
-	}
-	return nil
-}
-
-func (p *RandomYieldProcess) Step(_ []Event, out *StepOutput) error {
-	p.steps++
-	if p.steps >= p.maxSteps {
-		out.Done(nil)
-		return nil
-	}
-
-	out.Yield(YieldCmd{}, 0)
-	out.Continue()
-	return nil
-}
-
-func (p *RandomYieldProcess) Send(_ *relay.Package) error { return nil }
-func (p *RandomYieldProcess) Close()                      {}
 
 // RandomSleepHandler simulates IO with random sleep
 type RandomSleepHandler struct {
@@ -341,12 +307,4 @@ func TestStressWorkerBalance(t *testing.T) {
 			t.Logf("Warning: poor balance for %s", cfg.Name)
 		}
 	}
-}
-
-// InstantHandler completes immediately (used by stress tests)
-type InstantHandler struct{}
-
-func (h *InstantHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
-	receiver.CompleteYield(tag, nil, nil)
-	return nil
 }

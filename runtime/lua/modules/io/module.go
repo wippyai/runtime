@@ -3,7 +3,6 @@ package io
 
 import (
 	"bufio"
-	"fmt"
 	"sync"
 
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
@@ -218,48 +217,4 @@ func ioFlush(l *lua.LState) int {
 
 	l.Push(lua.LTrue)
 	return 1
-}
-
-// Printf writes formatted string to stdout.
-// io.printf(format, ...) -> bool, err
-func ioPrintf(l *lua.LState) int {
-	tc := terminal.GetTerminalContext(l.Context())
-	if tc == nil || tc.Stdout == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no terminal context"))
-		return 2
-	}
-
-	format := l.CheckString(1)
-	args := make([]interface{}, l.GetTop()-1)
-	for i := 2; i <= l.GetTop(); i++ {
-		args[i-2] = luaValueToGo(l.Get(i))
-	}
-
-	_, err := fmt.Fprintf(tc.Stdout, format, args...)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	l.Push(lua.LTrue)
-	return 1
-}
-
-func luaValueToGo(v lua.LValue) interface{} {
-	switch v.Type() {
-	case lua.LTNil:
-		return nil
-	case lua.LTBool:
-		return bool(v.(lua.LBool))
-	case lua.LTNumber:
-		return float64(v.(lua.LNumber))
-	case lua.LTInteger:
-		return int64(v.(lua.LInteger))
-	case lua.LTString:
-		return string(v.(lua.LString))
-	default:
-		return v.String()
-	}
 }

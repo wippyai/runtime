@@ -52,16 +52,13 @@ func (w *Worker) run() {
 
 		spins = 0
 		s.wakeMu.Lock()
-		atomic.AddUint32(&s.idle, 1)
 		for {
 			if s.stopping.Load() {
-				atomic.AddUint32(&s.idle, ^uint32(0))
 				s.wakeMu.Unlock()
 				return
 			}
 			if proc := w.findWork(); proc != nil {
 				n := s.global.Len()
-				atomic.AddUint32(&s.idle, ^uint32(0))
 				if n > 0 {
 					s.wakeCond.Signal()
 				}
@@ -188,7 +185,7 @@ func (w *Worker) dispatchYields(ctx context.Context, proc *Processor, yields []Y
 			proc.queue.PushDirect(process.Event{
 				Type:  process.EventYieldComplete,
 				Tag:   y.Tag,
-				Error: &UnknownCommandError{ID: y.Cmd.CmdID()},
+				Error: &process.UnknownCommandError{CmdID: y.Cmd.CmdID()},
 			})
 			continue
 		}

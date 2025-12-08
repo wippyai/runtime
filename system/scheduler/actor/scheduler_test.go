@@ -3,7 +3,6 @@ package actor
 import (
 	"context"
 	"fmt"
-	goruntime "runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/system/scheduler"
@@ -624,13 +624,13 @@ func TestSendByPID(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	// After completion, Send should return ProcessNotFoundError
+	// After completion, Send should return ErrProcessNotFound
 	err = sched.Send(pkg)
 	if err == nil {
 		t.Fatal("expected error for completed PID")
 	}
-	if _, ok := err.(*ProcessNotFoundError); !ok {
-		t.Fatalf("expected ProcessNotFoundError, got %T", err)
+	if err != process.ErrProcessNotFound {
+		t.Fatalf("expected ErrProcessNotFound, got %T", err)
 	}
 }
 
@@ -723,126 +723,6 @@ func TestSchedulerSubmitAlloc(t *testing.T) {
 	}
 
 	t.Logf("Submit allocs per op: %f", allocs)
-}
-
-// Benchmarks
-
-func BenchmarkSchedulerSubmit(b *testing.B) {
-	var completed atomic.Int64
-
-	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
-			completed.Add(1)
-		},
-	}
-	sched := newTestSchedulerWithLifecycle(goruntime.GOMAXPROCS(0), lc)
-
-	sched.Start()
-	defer sched.Stop()
-
-	ctx := context.Background()
-	pid := testPID()
-	input := testInput(1)
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		sched.Submit(ctx, pid, &CounterProcess{}, "", input)
-	}
-
-	for completed.Load() < int64(b.N) {
-		goruntime.Gosched()
-	}
-}
-
-func BenchmarkSchedulerThroughput(b *testing.B) {
-	var completed atomic.Int64
-
-	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
-			completed.Add(1)
-		},
-	}
-	sched := newTestSchedulerWithLifecycle(goruntime.GOMAXPROCS(0), lc)
-
-	sched.Start()
-	defer sched.Stop()
-
-	ctx := context.Background()
-	pid := testPID()
-	input := testInput(10)
-
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		sched.Submit(ctx, pid, &CounterProcess{}, "", input)
-	}
-
-	for completed.Load() < int64(b.N) {
-		goruntime.Gosched()
-	}
-}
-
-func BenchmarkSchedulerParallelSubmit(b *testing.B) {
-	var completed atomic.Int64
-
-	lc := &testLifecycle{
-		onComplete: func(ctx context.Context, pid relay.PID, result *runtime.Result) {
-			completed.Add(1)
-		},
-	}
-	sched := newTestSchedulerWithLifecycle(goruntime.GOMAXPROCS(0), lc)
-
-	sched.Start()
-	defer sched.Stop()
-
-	ctx := context.Background()
-	pid := testPID()
-	input := testInput(1)
-
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			sched.Submit(ctx, pid, &CounterProcess{}, "", input)
-		}
-	})
-
-	for completed.Load() < int64(b.N) {
-		goruntime.Gosched()
-	}
-}
-
-func BenchmarkSchedulerExecute(b *testing.B) {
-	te := newTestExecutor(goruntime.GOMAXPROCS(0))
-	te.Start()
-	defer te.Stop()
-
-	ctx := context.Background()
-	input := testInput(1)
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		pid := relay.PID{UniqID: fmt.Sprintf("bench-%d", i)}
-		te.Execute(ctx, pid, &CounterProcess{}, "", input)
-	}
-}
-
-func BenchmarkSchedulerParallelExecute(b *testing.B) {
-	te := newTestExecutor(goruntime.GOMAXPROCS(0))
-	te.Start()
-	defer te.Stop()
-
-	ctx := context.Background()
-	input := testInput(1)
-	var counter atomic.Int64
-
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			i := counter.Add(1)
-			pid := relay.PID{UniqID: fmt.Sprintf("bench-%d", i)}
-			te.Execute(ctx, pid, &CounterProcess{}, "", input)
-		}
-	})
 }
 
 // Memory leak tests

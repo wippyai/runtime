@@ -29,16 +29,16 @@ func Finder() boot.Component {
 			var opts []finder.Option
 			cfg := boot.GetConfig(ctx)
 			if cfg != nil {
-				finderCfg := cfg.Sub(string(FinderName))
+				finderCfg := cfg.Sub(FinderName)
 
 				// Query cache size configuration
-				queryCacheSize := finderCfg.GetInt(string(FinderQueryCacheSize), 1000)
+				queryCacheSize := finderCfg.GetInt(FinderQueryCacheSize, 1000)
 				if queryCacheSize > 0 {
 					opts = append(opts, finder.WithQueryCacheSize(queryCacheSize))
 				}
 
 				// Regex cache size configuration
-				regexCacheSize := finderCfg.GetInt(string(FinderRegexCacheSize), 100)
+				regexCacheSize := finderCfg.GetInt(FinderRegexCacheSize, 100)
 				if regexCacheSize > 0 {
 					opts = append(opts, finder.WithRegexCacheSize(regexCacheSize))
 				}

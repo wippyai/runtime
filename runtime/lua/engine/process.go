@@ -583,7 +583,7 @@ func (p *Process) processSubscribeYields(tasks []*Task, messages []*relay.Packag
 	// Route incoming messages to subscribed channels
 	for _, pkg := range messages {
 		for _, msg := range pkg.Messages {
-			topic := string(msg.Topic)
+			topic := msg.Topic
 			sub, exists := subs.get(topic)
 			if !exists {
 				continue

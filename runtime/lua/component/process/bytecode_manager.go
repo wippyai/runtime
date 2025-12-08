@@ -37,7 +37,7 @@ func NewBytecodeManager(log *zap.Logger, code *code.Manager, bus event.Bus, fsRe
 // Add loads and registers a new bytecode process.
 func (m *BytecodeManager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindProcessBytecode {
-		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindProcessBytecode))
+		return api.NewInvalidEntryKindError(entry.Kind, api.KindProcessBytecode)
 	}
 
 	cfg, err := component.UnpackConfig[api.BytecodeProcessConfig](ctx, entry)

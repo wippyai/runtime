@@ -2,6 +2,7 @@ package clock
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -48,7 +49,7 @@ func TestTickerRegistryNextNotFound(t *testing.T) {
 
 	ctx := context.Background()
 	_, err := r.Next(ctx, 999)
-	if err != ErrTickerNotFound {
+	if !errors.Is(err, ErrTickerNotFound) {
 		t.Errorf("expected ErrTickerNotFound, got %v", err)
 	}
 }
@@ -64,7 +65,7 @@ func TestTickerRegistryStop(t *testing.T) {
 	}
 
 	err = r.Stop(id)
-	if err != ErrTickerNotFound {
+	if !errors.Is(err, ErrTickerNotFound) {
 		t.Errorf("expected ErrTickerNotFound on double stop, got %v", err)
 	}
 }
@@ -80,7 +81,7 @@ func TestTickerRegistryClose(t *testing.T) {
 
 	ctx := context.Background()
 	_, err := r.Next(ctx, 1)
-	if err != ErrTickerNotFound {
+	if !errors.Is(err, ErrTickerNotFound) {
 		t.Errorf("expected ErrTickerNotFound after close, got %v", err)
 	}
 }
@@ -98,7 +99,7 @@ func TestTickerRegistryContextCancel(t *testing.T) {
 	}()
 
 	_, err := r.Next(ctx, id)
-	if err != context.Canceled {
+	if !errors.Is(err, context.Canceled) {
 		t.Errorf("expected context.Canceled, got %v", err)
 	}
 }

@@ -52,7 +52,7 @@ func (h *Host) CreateProcess(_ context.Context, program *Program) (process.Proce
 }
 
 // CreateProcessFromID creates a process from a prototype ID.
-func (h *Host) CreateProcessFromID(ctx context.Context, id registry.ID) (process.Process, error) {
+func (h *Host) CreateProcessFromID(_ context.Context, id registry.ID) (process.Process, error) {
 	if h.processFactory == nil {
 		return nil, ErrProcessFactoryNotAvailable
 	}
@@ -106,13 +106,13 @@ func (h *Host) Run(ctx context.Context, cmd RunCmd) (any, error) {
 		if output.IsDone() {
 			result := output.Result()
 			if result == nil {
-				return nil, nil
+				return nil, ErrNoResult
 			}
 			return result.Data(), nil
 		}
 
 		if output.IsIdle() {
-			return nil, nil
+			return nil, ErrProcessIdle
 		}
 	}
 }

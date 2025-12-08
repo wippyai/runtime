@@ -80,12 +80,50 @@ func (p *NYieldProcess) Step(_ []Event, out *StepOutput) error {
 func (p *NYieldProcess) Send(*relay.Package) error { return nil }
 func (p *NYieldProcess) Close()                    {}
 
-// Immediate sync handler - no goroutine
+type RandomYieldProcess struct {
+	steps    int
+	maxSteps int
+}
+
+func (p *RandomYieldProcess) Init(_ context.Context, _ string, input payload.Payloads) error {
+	if len(input) > 0 {
+		if v, ok := input[0].Data().(int); ok {
+			p.maxSteps = v
+		}
+	}
+	if p.maxSteps == 0 {
+		p.maxSteps = 5
+	}
+	return nil
+}
+
+func (p *RandomYieldProcess) Step(_ []Event, out *StepOutput) error {
+	p.steps++
+	if p.steps >= p.maxSteps {
+		out.Done(nil)
+		return nil
+	}
+
+	out.Yield(YieldCmd{}, 0)
+	out.Continue()
+	return nil
+}
+
+func (p *RandomYieldProcess) Send(_ *relay.Package) error { return nil }
+func (p *RandomYieldProcess) Close()                      {}
+
 func benchImmediateHandler() dispatcher.Handler {
 	return dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 		receiver.CompleteYield(tag, nil, nil)
 		return nil
 	})
+}
+
+type InstantHandler struct{}
+
+func (h *InstantHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+	receiver.CompleteYield(tag, nil, nil)
+	return nil
 }
 
 // BenchmarkSingleStep measures overhead of single-step process execution.
@@ -393,4 +431,122 @@ func BenchmarkWakeupLatency(b *testing.B) {
 		pid := relay.PID{UniqID: fmt.Sprintf("wake-%d", i)}
 		te.Execute(context.Background(), pid, &CounterProcess{}, "", testInput(1))
 	}
+}
+
+func BenchmarkSchedulerSubmit(b *testing.B) {
+	var completed atomic.Int64
+
+	lc := &testLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
+			completed.Add(1)
+		},
+	}
+	sched := newTestSchedulerWithLifecycle(runtime.GOMAXPROCS(0), lc)
+
+	sched.Start()
+	defer sched.Stop()
+
+	ctx := context.Background()
+	pid := testPID()
+	input := testInput(1)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		sched.Submit(ctx, pid, &CounterProcess{}, "", input)
+	}
+
+	for completed.Load() < int64(b.N) {
+		runtime.Gosched()
+	}
+}
+
+func BenchmarkSchedulerThroughput(b *testing.B) {
+	var completed atomic.Int64
+
+	lc := &testLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
+			completed.Add(1)
+		},
+	}
+	sched := newTestSchedulerWithLifecycle(runtime.GOMAXPROCS(0), lc)
+
+	sched.Start()
+	defer sched.Stop()
+
+	ctx := context.Background()
+	pid := testPID()
+	input := testInput(10)
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		sched.Submit(ctx, pid, &CounterProcess{}, "", input)
+	}
+
+	for completed.Load() < int64(b.N) {
+		runtime.Gosched()
+	}
+}
+
+func BenchmarkSchedulerParallelSubmit(b *testing.B) {
+	var completed atomic.Int64
+
+	lc := &testLifecycle{
+		onComplete: func(ctx context.Context, pid relay.PID, result *apiruntime.Result) {
+			completed.Add(1)
+		},
+	}
+	sched := newTestSchedulerWithLifecycle(runtime.GOMAXPROCS(0), lc)
+
+	sched.Start()
+	defer sched.Stop()
+
+	ctx := context.Background()
+	pid := testPID()
+	input := testInput(1)
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			sched.Submit(ctx, pid, &CounterProcess{}, "", input)
+		}
+	})
+
+	for completed.Load() < int64(b.N) {
+		runtime.Gosched()
+	}
+}
+
+func BenchmarkSchedulerExecute(b *testing.B) {
+	te := newTestExecutor(runtime.GOMAXPROCS(0))
+	te.Start()
+	defer te.Stop()
+
+	ctx := context.Background()
+	input := testInput(1)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		pid := relay.PID{UniqID: fmt.Sprintf("bench-%d", i)}
+		te.Execute(ctx, pid, &CounterProcess{}, "", input)
+	}
+}
+
+func BenchmarkSchedulerParallelExecute(b *testing.B) {
+	te := newTestExecutor(runtime.GOMAXPROCS(0))
+	te.Start()
+	defer te.Stop()
+
+	ctx := context.Background()
+	input := testInput(1)
+	var counter atomic.Int64
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			i := counter.Add(1)
+			pid := relay.PID{UniqID: fmt.Sprintf("bench-%d", i)}
+			te.Execute(ctx, pid, &CounterProcess{}, "", input)
+		}
+	})
 }

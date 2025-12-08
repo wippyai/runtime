@@ -10,7 +10,7 @@ func TestTaskPool(t *testing.T) {
 	state := lua.NewState()
 	defer state.Close()
 
-	fn := state.NewFunction(func(l *lua.LState) int { return 0 })
+	fn := state.NewFunction(func(_ *lua.LState) int { return 0 })
 	thread, _ := state.NewThread()
 
 	task := NewTask(thread, fn)
@@ -46,7 +46,7 @@ func TestTaskResumeWith(t *testing.T) {
 	state := lua.NewState()
 	defer state.Close()
 
-	fn := state.NewFunction(func(l *lua.LState) int { return 0 })
+	fn := state.NewFunction(func(_ *lua.LState) int { return 0 })
 	thread, _ := state.NewThread()
 
 	task := NewTask(thread, fn)
@@ -81,7 +81,7 @@ func TestTaskQueueBasic(t *testing.T) {
 	state := lua.NewState()
 	defer state.Close()
 
-	fn := state.NewFunction(func(l *lua.LState) int { return 0 })
+	fn := state.NewFunction(func(_ *lua.LState) int { return 0 })
 
 	t1, _ := state.NewThread()
 	t2, _ := state.NewThread()
@@ -137,7 +137,7 @@ func TestTaskQueueDrain(t *testing.T) {
 	state := lua.NewState()
 	defer state.Close()
 
-	fn := state.NewFunction(func(l *lua.LState) int { return 0 })
+	fn := state.NewFunction(func(_ *lua.LState) int { return 0 })
 
 	tasks := make([]*Task, 5)
 	for i := range tasks {
@@ -178,7 +178,7 @@ func TestTaskQueueGrow(t *testing.T) {
 	state := lua.NewState()
 	defer state.Close()
 
-	fn := state.NewFunction(func(l *lua.LState) int { return 0 })
+	fn := state.NewFunction(func(_ *lua.LState) int { return 0 })
 
 	// Push more than initial capacity (8)
 	tasks := make([]*Task, 20)
@@ -213,7 +213,7 @@ func TestTaskQueueSequential(t *testing.T) {
 	state := lua.NewState()
 	defer state.Close()
 
-	fn := state.NewFunction(func(l *lua.LState) int { return 0 })
+	fn := state.NewFunction(func(_ *lua.LState) int { return 0 })
 
 	pushCount := 100
 	tasks := make([]*Task, 0, pushCount)
@@ -254,7 +254,7 @@ func TestTaskQueueWrapAround(t *testing.T) {
 	state := lua.NewState()
 	defer state.Close()
 
-	fn := state.NewFunction(func(l *lua.LState) int { return 0 })
+	fn := state.NewFunction(func(_ *lua.LState) int { return 0 })
 
 	// Push and pop to move head/tail
 	for i := 0; i < 5; i++ {

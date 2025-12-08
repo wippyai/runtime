@@ -1,10 +1,19 @@
 package process
 
-import "github.com/wippyai/runtime/api/attrs"
+import (
+	"fmt"
+	"strconv"
+
+	"github.com/wippyai/runtime/api/attrs"
+	"github.com/wippyai/runtime/api/dispatcher"
+	apierror "github.com/wippyai/runtime/api/error"
+)
 
 // Error kind constants.
 const (
 	KindLimitExceeded Kind = "LimitExceeded"
+	KindNotFound      Kind = "NotFound"
+	KindInvalidState  Kind = "InvalidState"
 )
 
 // Errors returned by process operations.
@@ -13,7 +22,44 @@ var (
 		kind:    KindLimitExceeded,
 		message: "max processes limit exceeded",
 	}
+
+	ErrProcessClosed = fmt.Errorf("process closed")
+
+	ErrProcessNotFound = &Error{
+		kind:    KindNotFound,
+		message: "process not found",
+	}
+
+	ErrProcessNotIdle = &Error{
+		kind:    KindInvalidState,
+		message: "process is not idle",
+	}
 )
+
+// UnknownCommandError indicates an unregistered command.
+type UnknownCommandError struct {
+	CmdID   dispatcher.CommandID
+	details attrs.Attributes
+}
+
+func (e *UnknownCommandError) Error() string {
+	return "unknown command: " + strconv.Itoa(int(e.CmdID))
+}
+
+func (e *UnknownCommandError) Kind() apierror.Kind {
+	return apierror.KindNotFound
+}
+
+func (e *UnknownCommandError) Retryable() apierror.Ternary {
+	return apierror.False
+}
+
+func (e *UnknownCommandError) Details() attrs.Attributes {
+	if e.details == nil {
+		e.details = attrs.NewBagFrom(map[string]any{"command_id": int(e.CmdID)})
+	}
+	return e.details
+}
 
 type (
 	// Kind categorizes process errors.

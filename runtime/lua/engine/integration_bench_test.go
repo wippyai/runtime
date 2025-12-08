@@ -19,18 +19,6 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// mockHandler implements process.Handler for testing yields.
-type mockHandler struct {
-	delay time.Duration
-}
-
-func (h *mockHandler) Handle(ctx context.Context, cmd process.Command) (any, error) {
-	if h.delay > 0 {
-		time.Sleep(h.delay)
-	}
-	return map[string]any{"status": "ok"}, nil
-}
-
 // mockRegistry implements process.Registry for testing.
 type mockRegistry struct {
 	handlers map[process.CommandID]process.Handler
@@ -58,7 +46,6 @@ func (r *mockRegistry) Has(id process.CommandID) bool {
 // mockProcess wraps engine.Process for scheduler compatibility.
 type mockProcess struct {
 	*Process
-	output process.StepOutput
 }
 
 func (m *mockProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
@@ -96,9 +83,9 @@ type benchLifecycle struct {
 	executor *benchExecutor
 }
 
-func (l *benchLifecycle) OnStart(ctx context.Context, pid relay.PID, proc scheduler.Process) {}
+func (l *benchLifecycle) OnStart(_ context.Context, _ relay.PID, _ scheduler.Process) {}
 
-func (l *benchLifecycle) OnComplete(ctx context.Context, pid relay.PID, result *runtime.Result) {
+func (l *benchLifecycle) OnComplete(_ context.Context, pid relay.PID, result *runtime.Result) {
 	l.executor.mu.Lock()
 	if ch, ok := l.executor.pending[pid.UniqID]; ok {
 		delete(l.executor.pending, pid.UniqID)

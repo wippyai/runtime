@@ -43,6 +43,18 @@ var ErrProcessFactoryNotAvailable = &Error{
 	retryable: apierror.False,
 }
 
+var ErrNoResult = &Error{
+	kind:      apierror.KindInternal,
+	message:   "process completed with no result",
+	retryable: apierror.False,
+}
+
+var ErrProcessIdle = &Error{
+	kind:      apierror.KindInternal,
+	message:   "process became idle",
+	retryable: apierror.False,
+}
+
 func NewCreateProcessFromIDError(id string, cause error) *Error {
 	return &Error{
 		kind:      apierror.KindInternal,

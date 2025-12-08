@@ -2,6 +2,7 @@ package clock
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -282,7 +283,7 @@ func TestTimerResetHandlerNotFound(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
-	if emitErr != ErrTimerNotFound {
+	if !errors.Is(emitErr, ErrTimerNotFound) {
 		t.Errorf("expected ErrTimerNotFound, got %v", emitErr)
 	}
 }

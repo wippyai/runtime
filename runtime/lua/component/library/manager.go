@@ -21,7 +21,7 @@ func NewManager(log *zap.Logger, code *lua.Manager) *Manager {
 
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindLibrary {
-		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindLibrary))
+		return api.NewInvalidEntryKindError(entry.Kind, api.KindLibrary)
 	}
 
 	cfg, err := component.UnpackConfig[api.LibraryConfig](ctx, entry)
@@ -45,7 +45,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindLibrary {
-		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindLibrary))
+		return api.NewInvalidEntryKindError(entry.Kind, api.KindLibrary)
 	}
 
 	cfg, err := component.UnpackConfig[api.LibraryConfig](ctx, entry)

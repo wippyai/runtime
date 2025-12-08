@@ -22,7 +22,7 @@ var messageMethods = map[string]lua.LGoFunc{
 }
 
 func messageTopic(l *lua.LState) int {
-	msg := checkMessage(l, 1)
+	msg := checkMessage(l)
 	if msg == nil {
 		return 0
 	}
@@ -31,7 +31,7 @@ func messageTopic(l *lua.LState) int {
 }
 
 func messagePayload(l *lua.LState) int {
-	msg := checkMessage(l, 1)
+	msg := checkMessage(l)
 	if msg == nil {
 		return 0
 	}
@@ -39,7 +39,7 @@ func messagePayload(l *lua.LState) int {
 }
 
 func messageFrom(l *lua.LState) int {
-	msg := checkMessage(l, 1)
+	msg := checkMessage(l)
 	if msg == nil {
 		return 0
 	}
@@ -53,12 +53,12 @@ func messageFrom(l *lua.LState) int {
 	return 1
 }
 
-func checkMessage(l *lua.LState, idx int) *Message {
-	ud := l.CheckUserData(idx)
+func checkMessage(l *lua.LState) *Message {
+	ud := l.CheckUserData(1)
 	if msg, ok := ud.Value.(*Message); ok {
 		return msg
 	}
-	l.ArgError(idx, "message expected")
+	l.ArgError(1, "message expected")
 	return nil
 }
 
@@ -78,7 +78,7 @@ func WrapMessage(l *lua.LState, m *Message) lua.LValue {
 }
 
 func messageToString(l *lua.LState) int {
-	msg := checkMessage(l, 1)
+	msg := checkMessage(l)
 	if msg == nil {
 		return 0
 	}

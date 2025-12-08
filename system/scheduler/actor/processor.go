@@ -59,8 +59,7 @@ type Processor struct {
 	id  uint64    // Internal fast routing ID (for maps, queues)
 	pid relay.PID // External identity (for messages, logs, callbacks)
 
-	Process  Process // The wrapped user process
-	Priority int     // Higher = more urgent (for future use)
+	Process Process // The wrapped user process
 
 	// State machine for single-owner guarantee.
 	// Lower 4 bits = state, bit 4 = wakeup flag.
@@ -224,7 +223,6 @@ func releaseProcessor(p *Processor) {
 	p.pid = relay.PID{}
 	p.Process = nil
 	p.state.Store(0) // Clears both state and wakeup flag
-	p.Priority = 0
 	p.ctx = nil
 	p.gen.Store(0)
 	p.output.Reset()

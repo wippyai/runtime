@@ -29,14 +29,8 @@ type staticWorker struct {
 	wg       *sync.WaitGroup
 }
 
-// Static is a fixed-size pool using a channel-based work queue.
-// Workers block on the shared channel - Go runtime handles scheduling.
-// Implements relay.Receiver for message delivery to running processes.
-//
-// Use cases:
-//   - HTTP handlers with steady high load
-//   - Functions called at predictable rates
-//   - When work-stealing overhead is not needed
+// Static is a fixed-size pool with pre-allocated workers.
+// Each worker owns one process and pulls from a shared channel queue.
 type Static struct {
 	workers    []*staticWorker
 	tasks      chan *request
@@ -123,7 +117,7 @@ func (s *Static) Stop() {
 func (s *Static) Send(pkg *relay.Package) error {
 	v, ok := s.active.Load(pkg.Target.UniqID)
 	if !ok {
-		return ErrProcessNotFound
+		return process.ErrProcessNotFound
 	}
 	return v.(*Executor).Send(pkg)
 }

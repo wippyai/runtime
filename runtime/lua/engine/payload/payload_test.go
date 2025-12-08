@@ -878,9 +878,8 @@ func TestGoToLua_EdgeCases(t *testing.T) {
 		err := assert.AnError
 		lv, convErr := GoToLua(err)
 		require.NoError(t, convErr)
-		// Should be wrapped as lua.Error
-		_, ok := lv.(lua.LValue)
-		assert.True(t, ok)
+		// Should return a valid LValue
+		assert.NotNil(t, lv)
 	})
 }
 
