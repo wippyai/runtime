@@ -117,9 +117,9 @@ func TestSubscribeContextMultipleTopics(t *testing.T) {
 	ch2 := NewChannel(1)
 	ch3 := NewChannel(1)
 
-	ctx.add("topic1", ch1)
-	ctx.add("topic2", ch2)
-	ctx.add("topic3", ch3)
+	_ = ctx.add("topic1", ch1)
+	_ = ctx.add("topic2", ch2)
+	_ = ctx.add("topic3", ch3)
 
 	// Verify all exist
 	if _, ok := ctx.get("topic1"); !ok {
@@ -133,7 +133,7 @@ func TestSubscribeContextMultipleTopics(t *testing.T) {
 	}
 
 	// Remove middle one
-	ctx.remove(ch2)
+	_ = ctx.remove(ch2)
 
 	if _, ok := ctx.get("topic1"); !ok {
 		t.Error("topic1 should still exist")
@@ -253,7 +253,7 @@ func TestSubscribeContextTopicChannelMapping(t *testing.T) {
 	}
 
 	// After remove, both should be cleared
-	ctx.remove(ch)
+	_ = ctx.remove(ch)
 
 	if _, ok := ctx.byChannel[ch]; ok {
 		t.Error("byChannel should be cleared after remove")

@@ -173,7 +173,7 @@ func BenchmarkIntegrationFullPath(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		ctx, fc := ctxapi.AcquireFrameContext(context.Background())
 		store := resource.NewStore()
-		resource.SetStore(ctx, store)
+		_ = resource.SetStore(ctx, store)
 
 		proc := NewProcess(WithProto(proto))
 		mp := &mockProcess{Process: proc}
@@ -218,7 +218,7 @@ func BenchmarkIntegrationWithCoroutines(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		ctx, fc := ctxapi.AcquireFrameContext(context.Background())
 		store := resource.NewStore()
-		resource.SetStore(ctx, store)
+		_ = resource.SetStore(ctx, store)
 
 		proc := NewProcess(WithProto(proto))
 		mp := &mockProcess{Process: proc}
@@ -259,7 +259,7 @@ func BenchmarkIntegrationConcurrent(b *testing.B) {
 			i := counter.Add(1)
 			ctx, fc := ctxapi.AcquireFrameContext(context.Background())
 			store := resource.NewStore()
-			resource.SetStore(ctx, store)
+			_ = resource.SetStore(ctx, store)
 
 			proc := NewProcess(WithProto(proto))
 			mp := &mockProcess{Process: proc}
@@ -317,7 +317,7 @@ func TestIntegration1000ConcurrentGoroutines(t *testing.T) {
 			for p := 0; p < processesPerGoroutine; p++ {
 				ctx, fc := ctxapi.AcquireFrameContext(context.Background())
 				store := resource.NewStore()
-				resource.SetStore(ctx, store)
+				_ = resource.SetStore(ctx, store)
 
 				proc := NewProcess(WithProto(proto))
 				mp := &mockProcess{Process: proc}
@@ -438,7 +438,7 @@ func TestIntegrationProfileHotPath(t *testing.T) {
 
 				ctx, fc := ctxapi.AcquireFrameContext(context.Background())
 				store := resource.NewStore()
-				resource.SetStore(ctx, store)
+				_ = resource.SetStore(ctx, store)
 
 				proc := NewProcess(WithProto(proto))
 				mp := &mockProcess{Process: proc}
@@ -507,7 +507,7 @@ func BenchmarkIntegrationWithCoreBinders(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		ctx, fc := ctxapi.AcquireFrameContext(context.Background())
 		store := resource.NewStore()
-		resource.SetStore(ctx, store)
+		_ = resource.SetStore(ctx, store)
 
 		proc, err := factory()
 		if err != nil {
@@ -555,7 +555,7 @@ func BenchmarkIntegrationManyCoroutineYields(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		ctx, fc := ctxapi.AcquireFrameContext(context.Background())
 		store := resource.NewStore()
-		resource.SetStore(ctx, store)
+		_ = resource.SetStore(ctx, store)
 
 		proc := NewProcess(WithProto(proto))
 		mp := &mockProcess{Process: proc}
@@ -604,7 +604,7 @@ func TestIntegrationMemoryStability(t *testing.T) {
 		for p := 0; p < processesPerIteration; p++ {
 			ctx, fc := ctxapi.AcquireFrameContext(context.Background())
 			store := resource.NewStore()
-			resource.SetStore(ctx, store)
+			_ = resource.SetStore(ctx, store)
 
 			proc := NewProcess(WithProto(proto))
 			mp := &mockProcess{Process: proc}
@@ -675,7 +675,7 @@ func BenchmarkIntegrationSpawnCoroutines(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		ctx, fc := ctxapi.AcquireFrameContext(context.Background())
 		store := resource.NewStore()
-		resource.SetStore(ctx, store)
+		_ = resource.SetStore(ctx, store)
 
 		proc := NewProcess(WithProto(proto))
 		mp := &mockProcess{Process: proc}
