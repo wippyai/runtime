@@ -5,7 +5,7 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
-	storesystem "github.com/wippyai/runtime/system/store"
+	storeservice "github.com/wippyai/runtime/service/store"
 )
 
 // DefaultWorkers is the default number of workers for the store dispatcher.
@@ -17,7 +17,7 @@ func Dispatcher(workers int) boot.Component {
 		workers = DefaultWorkers
 	}
 
-	var d *storesystem.Dispatcher
+	var d *storeservice.Dispatcher
 
 	return boot.New(boot.P{
 		Name:      DispatcherName,
@@ -28,7 +28,7 @@ func Dispatcher(workers int) boot.Component {
 				return ctx, ErrDispatcherNotFound
 			}
 
-			d = storesystem.NewDispatcher(workers)
+			d = storeservice.NewDispatcher(workers)
 			d.RegisterAll(reg.Register)
 
 			return ctx, nil

@@ -7,7 +7,7 @@ import (
 	apifunction "github.com/wippyai/runtime/api/function"
 	logapi "github.com/wippyai/runtime/api/logs"
 	api "github.com/wippyai/runtime/api/metrics"
-	"github.com/wippyai/runtime/system/metrics/interceptor"
+	"github.com/wippyai/runtime/service/metrics/interceptor"
 	"go.uber.org/zap"
 )
 

@@ -14,6 +14,7 @@ const (
 	KindLimitExceeded Kind = "LimitExceeded"
 	KindNotFound      Kind = "NotFound"
 	KindInvalidState  Kind = "InvalidState"
+	KindInternal      Kind = "Internal"
 )
 
 // Errors returned by process operations.
@@ -96,5 +97,61 @@ func (e *Error) WithDetails(details attrs.Attributes) *Error {
 		message: e.message,
 		details: details,
 		cause:   e.cause,
+	}
+}
+
+// NewFactoryNotFoundError creates an error for missing factory.
+func NewFactoryNotFoundError(factoryID string) *Error {
+	return &Error{
+		kind:    KindNotFound,
+		message: "no factory registered for: " + factoryID,
+		details: attrs.NewBagFrom(map[string]any{"factory_id": factoryID}),
+	}
+}
+
+// NewInvalidFactoryEntryError creates an error for invalid factory entry.
+func NewInvalidFactoryEntryError(factoryID string) *Error {
+	return &Error{
+		kind:    KindInternal,
+		message: "invalid factory entry for: " + factoryID,
+		details: attrs.NewBagFrom(map[string]any{"factory_id": factoryID}),
+	}
+}
+
+// NewProcessCreateError creates an error for process creation failures.
+func NewProcessCreateError(err error) *Error {
+	return &Error{
+		kind:    KindInternal,
+		message: "failed to create process: " + err.Error(),
+		details: attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
+		cause:   err,
+	}
+}
+
+// NewHostNotFoundError creates an error for missing host.
+func NewHostNotFoundError(hostID string) *Error {
+	return &Error{
+		kind:    KindNotFound,
+		message: "host not found: " + hostID,
+		details: attrs.NewBagFrom(map[string]any{"host_id": hostID}),
+	}
+}
+
+// NewInvalidHostError creates an error for host that doesn't implement process.Host.
+func NewInvalidHostError(hostID string) *Error {
+	return &Error{
+		kind:    KindInternal,
+		message: "host " + hostID + " does not implement process.Host",
+		details: attrs.NewBagFrom(map[string]any{"host_id": hostID}),
+	}
+}
+
+// NewSubscriberError creates an error for event subscriber failures.
+func NewSubscriberError(err error) *Error {
+	return &Error{
+		kind:    KindInternal,
+		message: "failed to create subscriber: " + err.Error(),
+		details: attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
+		cause:   err,
 	}
 }

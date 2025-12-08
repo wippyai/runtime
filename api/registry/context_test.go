@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
@@ -108,4 +109,183 @@ func (m *mockRegistry) Current() (Version, error) { return nil, nil } //nolint:n
 func (m *mockRegistry) History() History          { return nil }
 func (m *mockRegistry) RegisterDependencyPattern(_ DependencyPattern) error {
 	return nil
+}
+
+type mockFinder struct{}
+
+func (m *mockFinder) Find(_ attrs.Bag) ([]Entry, error) { return nil, nil }
+
+type mockResolver struct{}
+
+func (m *mockResolver) Extract(_ Entry) []string                  { return nil }
+func (m *mockResolver) RegisterPattern(_ DependencyPattern) error { return nil }
+
+func TestWithFinder(t *testing.T) {
+	tests := []struct {
+		name     string
+		setupCtx func() context.Context
+		finder   Finder
+		want     bool
+	}{
+		{
+			name:     "add finder to context with app context",
+			setupCtx: ctxapi.NewRootContext,
+			finder:   &mockFinder{},
+			want:     true,
+		},
+		{
+			name:     "add finder to context without app context",
+			setupCtx: context.Background,
+			finder:   &mockFinder{},
+			want:     false,
+		},
+		{
+			name: "add finder when already exists",
+			setupCtx: func() context.Context {
+				ctx := ctxapi.NewRootContext()
+				return WithFinder(ctx, &mockFinder{})
+			},
+			finder: &mockFinder{},
+			want:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := tt.setupCtx()
+			resultCtx := WithFinder(ctx, tt.finder)
+
+			f := GetFinder(resultCtx)
+			if tt.want {
+				assert.NotNil(t, f)
+			} else {
+				assert.Nil(t, f)
+			}
+		})
+	}
+}
+
+func TestGetFinder(t *testing.T) {
+	tests := []struct {
+		name     string
+		setupCtx func() context.Context
+		wantNil  bool
+	}{
+		{
+			name: "get finder from context with finder",
+			setupCtx: func() context.Context {
+				ctx := ctxapi.NewRootContext()
+				return WithFinder(ctx, &mockFinder{})
+			},
+			wantNil: false,
+		},
+		{
+			name:     "get finder from context without finder",
+			setupCtx: ctxapi.NewRootContext,
+			wantNil:  true,
+		},
+		{
+			name:     "get finder from context without app context",
+			setupCtx: context.Background,
+			wantNil:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := tt.setupCtx()
+			f := GetFinder(ctx)
+
+			if tt.wantNil {
+				assert.Nil(t, f)
+			} else {
+				assert.NotNil(t, f)
+			}
+		})
+	}
+}
+
+func TestWithResolver(t *testing.T) {
+	tests := []struct {
+		name     string
+		setupCtx func() context.Context
+		resolver DependencyResolver
+		want     bool
+	}{
+		{
+			name:     "add resolver to context with app context",
+			setupCtx: ctxapi.NewRootContext,
+			resolver: &mockResolver{},
+			want:     true,
+		},
+		{
+			name:     "add resolver to context without app context",
+			setupCtx: context.Background,
+			resolver: &mockResolver{},
+			want:     false,
+		},
+		{
+			name: "add resolver when already exists",
+			setupCtx: func() context.Context {
+				ctx := ctxapi.NewRootContext()
+				return WithResolver(ctx, &mockResolver{})
+			},
+			resolver: &mockResolver{},
+			want:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := tt.setupCtx()
+			resultCtx := WithResolver(ctx, tt.resolver)
+
+			r := GetResolver(resultCtx)
+			if tt.want {
+				assert.NotNil(t, r)
+			} else {
+				assert.Nil(t, r)
+			}
+		})
+	}
+}
+
+func TestGetResolver(t *testing.T) {
+	tests := []struct {
+		name     string
+		setupCtx func() context.Context
+		wantNil  bool
+	}{
+		{
+			name: "get resolver from context with resolver",
+			setupCtx: func() context.Context {
+				ctx := ctxapi.NewRootContext()
+				return WithResolver(ctx, &mockResolver{})
+			},
+			wantNil: false,
+		},
+		{
+			name:     "get resolver from context without resolver",
+			setupCtx: ctxapi.NewRootContext,
+			wantNil:  true,
+		},
+		{
+			name:     "get resolver from context without app context",
+			setupCtx: context.Background,
+			wantNil:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := tt.setupCtx()
+			r := GetResolver(ctx)
+
+			if tt.wantNil {
+				assert.Nil(t, r)
+			} else {
+				assert.NotNil(t, r)
+			}
+		})
+	}
 }

@@ -177,3 +177,199 @@ func TestNewRootContext(t *testing.T) {
 		t.Errorf("Get(test.key) = %v, want test.value", got)
 	}
 }
+
+func TestAppContext_Update(t *testing.T) {
+	ac := NewAppContext()
+
+	ac.Update("key1", "value1")
+	if got := ac.Get("key1"); got != "value1" {
+		t.Errorf("Get(key1) = %v, want value1", got)
+	}
+
+	ac.Update("key1", "value2")
+	if got := ac.Get("key1"); got != "value2" {
+		t.Errorf("Get(key1) = %v, want value2", got)
+	}
+}
+
+func TestKey_String(t *testing.T) {
+	key := &Key{Name: "test.key", Inherit: true}
+	if got := key.String(); got != "test.key" {
+		t.Errorf("String() = %v, want test.key", got)
+	}
+}
+
+func TestNewValues(t *testing.T) {
+	values := NewValues()
+	if values == nil {
+		t.Fatal("NewValues() returned nil")
+	}
+	values["key"] = "value"
+	if got := values["key"]; got != "value" {
+		t.Errorf("values[key] = %v, want value", got)
+	}
+}
+
+func TestValuesPair(t *testing.T) {
+	values := NewValues()
+	values["test"] = "data"
+
+	pair := ValuesPair(values)
+	if pair.Key != ValuesCtx {
+		t.Errorf("ValuesPair().Key = %v, want ValuesCtx", pair.Key)
+	}
+	if pair.Value == nil {
+		t.Errorf("ValuesPair().Value = nil, want values")
+	}
+}
+
+func TestSetValues_NoFrameContext(t *testing.T) {
+	ctx := context.Background()
+	values := NewValues()
+
+	err := SetValues(ctx, values)
+	if err != ErrNoFrameContext {
+		t.Errorf("SetValues() error = %v, want ErrNoFrameContext", err)
+	}
+}
+
+func TestSetValues_WithFrameContext(t *testing.T) {
+	ctx := NewRootContext()
+	ctx, fc := AcquireFrameContext(ctx)
+	defer ReleaseFrameContext(fc)
+
+	values := NewValues()
+	values["key"] = "value"
+
+	err := SetValues(ctx, values)
+	if err != nil {
+		t.Errorf("SetValues() error = %v, want nil", err)
+	}
+
+	retrieved := GetValues(ctx)
+	if retrieved == nil {
+		t.Fatal("GetValues() returned nil")
+	}
+	if got := retrieved["key"]; got != "value" {
+		t.Errorf("retrieved[key] = %v, want value", got)
+	}
+}
+
+func TestGetValues_NoFrameContext(t *testing.T) {
+	ctx := context.Background()
+	values := GetValues(ctx)
+	if values != nil {
+		t.Errorf("GetValues() = %v, want nil", values)
+	}
+}
+
+func TestGetValues_WrongType(t *testing.T) {
+	ctx := NewRootContext()
+	ctx, fc := AcquireFrameContext(ctx)
+	defer ReleaseFrameContext(fc)
+
+	fc.Set(ValuesCtx, "not values")
+
+	values := GetValues(ctx)
+	if values != nil {
+		t.Errorf("GetValues() = %v, want nil when wrong type", values)
+	}
+}
+
+func TestGetOrCreateValues_NoFrameContext(t *testing.T) {
+	ctx := context.Background()
+	values, err := GetOrCreateValues(ctx)
+	if err != ErrNoFrameContext {
+		t.Errorf("GetOrCreateValues() error = %v, want ErrNoFrameContext", err)
+	}
+	if values != nil {
+		t.Errorf("GetOrCreateValues() = %v, want nil", values)
+	}
+}
+
+func TestGetOrCreateValues_Creates(t *testing.T) {
+	ctx := NewRootContext()
+	ctx, fc := AcquireFrameContext(ctx)
+	defer ReleaseFrameContext(fc)
+
+	values, err := GetOrCreateValues(ctx)
+	if err != nil {
+		t.Errorf("GetOrCreateValues() error = %v, want nil", err)
+	}
+	if values == nil {
+		t.Fatal("GetOrCreateValues() returned nil")
+	}
+
+	values["key"] = "value"
+
+	retrieved, err := GetOrCreateValues(ctx)
+	if err != nil {
+		t.Errorf("GetOrCreateValues() error = %v, want nil", err)
+	}
+	if got := retrieved["key"]; got != "value" {
+		t.Errorf("retrieved[key] = %v, want value", got)
+	}
+}
+
+func TestGetOrCreateValues_WrongTypeCreatesNew(t *testing.T) {
+	ctx := NewRootContext()
+	ctx, fc := AcquireFrameContext(ctx)
+	defer ReleaseFrameContext(fc)
+
+	fc.Set(ValuesCtx, "not values")
+
+	values, err := GetOrCreateValues(ctx)
+	if err != nil {
+		t.Errorf("GetOrCreateValues() error = %v, want nil", err)
+	}
+	if values == nil {
+		t.Fatal("GetOrCreateValues() returned nil")
+	}
+}
+
+func TestErrorInterface(t *testing.T) {
+	err := ErrNoFrameContext
+	if got := err.Error(); got != "no frame context available" {
+		t.Errorf("Error() = %v, want 'no frame context available'", got)
+	}
+	if got := err.Kind(); got != "Invalid" {
+		t.Errorf("Kind() = %v, want Invalid", got)
+	}
+	if got := err.Retryable(); got.String() != "False" {
+		t.Errorf("Retryable() = %v, want False", got)
+	}
+	if got := err.Details(); got != nil {
+		t.Errorf("Details() = %v, want nil", got)
+	}
+	if got := err.Unwrap(); got != nil {
+		t.Errorf("Unwrap() = %v, want nil", got)
+	}
+}
+
+func TestErrNoAppContext(t *testing.T) {
+	err := ErrNoAppContext
+	if got := err.Error(); got != "no app context available" {
+		t.Errorf("Error() = %v, want 'no app context available'", got)
+	}
+}
+
+func TestErrFrameSealed(t *testing.T) {
+	err := ErrFrameSealed
+	if got := err.Error(); got != "frame is sealed" {
+		t.Errorf("Error() = %v, want 'frame is sealed'", got)
+	}
+}
+
+func TestNewFrameSealedError(t *testing.T) {
+	key := &Key{Name: "test.key"}
+	err := NewFrameSealedError(key)
+	if got := err.Error(); got != "cannot set key in sealed frame" {
+		t.Errorf("Error() = %v, want 'cannot set key in sealed frame'", got)
+	}
+	if err.Details() == nil {
+		t.Fatal("Details() returned nil")
+	}
+	if val, _ := err.Details().Get("key"); val != key {
+		t.Errorf("Details().Get(key) = %v, want key", val)
+	}
+}

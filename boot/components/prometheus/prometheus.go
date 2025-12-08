@@ -10,7 +10,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	logapi "github.com/wippyai/runtime/api/logs"
 	metricsapi "github.com/wippyai/runtime/api/metrics"
-	"github.com/wippyai/runtime/service/prometheus"
+	"github.com/wippyai/runtime/service/metrics/prometheus"
 	"go.uber.org/zap"
 )
 

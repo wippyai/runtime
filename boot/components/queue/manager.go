@@ -8,8 +8,8 @@ import (
 	queueapi "github.com/wippyai/runtime/api/queue"
 	regapi "github.com/wippyai/runtime/api/registry"
 	bootcore "github.com/wippyai/runtime/boot/components/core"
-	queuemgr "github.com/wippyai/runtime/system/queue"
-	"github.com/wippyai/runtime/system/queue/interceptor"
+	queuemgr "github.com/wippyai/runtime/service/queue"
+	"github.com/wippyai/runtime/service/queue/interceptor"
 	"go.uber.org/zap"
 )
 

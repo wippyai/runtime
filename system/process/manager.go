@@ -32,13 +32,13 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (relay.PID, error
 		m.logger.Warn("host not found",
 			zap.String("host_id", start.HostID),
 			zap.String("source", start.Source.String()))
-		return relay.PID{}, NewHostNotFoundError(start.HostID)
+		return relay.PID{}, api.NewHostNotFoundError(start.HostID)
 	}
 
 	// Cast to process.Host
 	host, ok := relayHost.(api.Host)
 	if !ok {
-		return relay.PID{}, NewInvalidHostError(start.HostID)
+		return relay.PID{}, api.NewInvalidHostError(start.HostID)
 	}
 
 	m.logger.Debug("starting process",
@@ -53,7 +53,7 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (relay.PID, error
 func (m *Manager) Cancel(_ context.Context, from, pid relay.PID, deadline time.Time) error {
 	relayHost, exists := m.node.GetHost(pid.Host)
 	if !exists {
-		return NewHostNotFoundError(pid.Host)
+		return api.NewHostNotFoundError(pid.Host)
 	}
 
 	if err := relayHost.Send(topology.Cancel(from, pid, deadline)); err != nil {
@@ -70,12 +70,12 @@ func (m *Manager) Cancel(_ context.Context, from, pid relay.PID, deadline time.T
 func (m *Manager) Terminate(ctx context.Context, pid relay.PID) error {
 	relayHost, exists := m.node.GetHost(pid.Host)
 	if !exists {
-		return NewHostNotFoundError(pid.Host)
+		return api.NewHostNotFoundError(pid.Host)
 	}
 
 	host, ok := relayHost.(api.Host)
 	if !ok {
-		return NewInvalidHostError(pid.Host)
+		return api.NewInvalidHostError(pid.Host)
 	}
 
 	return host.Terminate(ctx, pid)

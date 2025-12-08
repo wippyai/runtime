@@ -48,7 +48,7 @@ func (r *FactoryRegistry) Start(ctx context.Context) error {
 		r.handleEvent,
 	)
 	if err != nil {
-		return NewSubscriberError(err)
+		return api.NewSubscriberError(err)
 	}
 	r.subscriber = sub
 
@@ -137,17 +137,17 @@ func (r *FactoryRegistry) sendReject(path event.Path, reason string) {
 func (r *FactoryRegistry) Create(id registry.ID) (api.Process, *api.Meta, error) {
 	val, ok := r.factories.Load(id)
 	if !ok {
-		return nil, nil, NewFactoryNotFoundError(id)
+		return nil, nil, api.NewFactoryNotFoundError(id.String())
 	}
 
 	entry, ok := val.(*factoryEntry)
 	if !ok {
-		return nil, nil, NewInvalidFactoryEntryError(id)
+		return nil, nil, api.NewInvalidFactoryEntryError(id.String())
 	}
 
 	proc, err := entry.factory()
 	if err != nil {
-		return nil, nil, NewProcessCreateError(err)
+		return nil, nil, api.NewProcessCreateError(err)
 	}
 
 	r.log.Debug("process created",

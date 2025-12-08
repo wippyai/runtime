@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
@@ -171,6 +173,190 @@ func TestErrors(t *testing.T) {
 	assert.EqualError(t, queue.ErrQueueFull, "queue is full")
 	assert.EqualError(t, queue.ErrMessageExpired, "message expired")
 	assert.EqualError(t, queue.ErrConsumerClosed, "consumer closed")
+	assert.EqualError(t, queue.ErrQueueClosed, "queue is closed")
+	assert.EqualError(t, queue.ErrNoPublishFunc, "no publish function configured")
+	assert.EqualError(t, queue.ErrDriverIDRequired, "driver ID is required")
+	assert.EqualError(t, queue.ErrQueueIDRequired, "queue ID is required")
+	assert.EqualError(t, queue.ErrFunctionIDRequired, "function ID is required")
+}
+
+func TestErrorInterface(t *testing.T) {
+	t.Run("ErrDriverNotFound", func(t *testing.T) {
+		err := queue.ErrDriverNotFound
+		assert.Equal(t, "queue driver not found", err.Error())
+		assert.Equal(t, apierror.KindNotFound, err.Kind())
+		assert.Equal(t, apierror.False, err.Retryable())
+		assert.Nil(t, err.Details())
+		assert.Nil(t, err.Unwrap())
+	})
+
+	t.Run("ErrQueueNotFound", func(t *testing.T) {
+		err := queue.ErrQueueNotFound
+		assert.Equal(t, apierror.KindNotFound, err.Kind())
+		assert.Equal(t, apierror.False, err.Retryable())
+	})
+
+	t.Run("ErrDriverNotStarted", func(t *testing.T) {
+		err := queue.ErrDriverNotStarted
+		assert.Equal(t, apierror.KindUnavailable, err.Kind())
+		assert.Equal(t, apierror.True, err.Retryable())
+	})
+
+	t.Run("ErrQueueFull", func(t *testing.T) {
+		err := queue.ErrQueueFull
+		assert.Equal(t, apierror.KindUnavailable, err.Kind())
+		assert.Equal(t, apierror.True, err.Retryable())
+	})
+
+	t.Run("ErrQueueClosed", func(t *testing.T) {
+		err := queue.ErrQueueClosed
+		assert.Equal(t, apierror.KindUnavailable, err.Kind())
+		assert.Equal(t, apierror.False, err.Retryable())
+	})
+
+	t.Run("ErrMessageExpired", func(t *testing.T) {
+		err := queue.ErrMessageExpired
+		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		assert.Equal(t, apierror.False, err.Retryable())
+	})
+
+	t.Run("ErrConsumerClosed", func(t *testing.T) {
+		err := queue.ErrConsumerClosed
+		assert.Equal(t, apierror.KindUnavailable, err.Kind())
+		assert.Equal(t, apierror.False, err.Retryable())
+	})
+
+	t.Run("ErrNoPublishFunc", func(t *testing.T) {
+		err := queue.ErrNoPublishFunc
+		assert.Equal(t, apierror.KindUnavailable, err.Kind())
+		assert.Equal(t, apierror.False, err.Retryable())
+	})
+
+	t.Run("ErrDriverIDRequired", func(t *testing.T) {
+		err := queue.ErrDriverIDRequired
+		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		assert.Equal(t, apierror.False, err.Retryable())
+	})
+
+	t.Run("ErrQueueIDRequired", func(t *testing.T) {
+		err := queue.ErrQueueIDRequired
+		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		assert.Equal(t, apierror.False, err.Retryable())
+	})
+
+	t.Run("ErrFunctionIDRequired", func(t *testing.T) {
+		err := queue.ErrFunctionIDRequired
+		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		assert.Equal(t, apierror.False, err.Retryable())
+	})
+}
+
+func TestErrorMethods(t *testing.T) {
+	t.Run("WithCause", func(t *testing.T) {
+		causeErr := assert.AnError
+		err := queue.ErrDriverNotFound.WithCause(causeErr)
+		assert.Equal(t, "queue driver not found", err.Error())
+		assert.Equal(t, causeErr, err.Unwrap())
+	})
+
+	t.Run("WithMessage", func(t *testing.T) {
+		err := queue.ErrDriverNotFound.WithMessage("custom driver error")
+		assert.Equal(t, "custom driver error", err.Error())
+		assert.Equal(t, apierror.KindNotFound, err.Kind())
+	})
+
+	t.Run("WithDetails", func(t *testing.T) {
+		details := attrs.NewBag()
+		details.Set("key", "value")
+		err := queue.ErrDriverNotFound.WithDetails(details)
+		assert.Equal(t, "queue driver not found", err.Error())
+		assert.Equal(t, details, err.Details())
+	})
+}
+
+func TestErrorConstructors(t *testing.T) {
+	t.Run("NewDriverNotFoundError", func(t *testing.T) {
+		id := registry.NewID("test", "my-driver")
+		err := queue.NewDriverNotFoundError(id)
+		assert.Contains(t, err.Error(), id.String())
+		assert.Equal(t, apierror.KindNotFound, err.Kind())
+		assert.Equal(t, apierror.False, err.Retryable())
+		assert.NotNil(t, err.Details())
+		val, ok := err.Details().Get("driver_id")
+		assert.True(t, ok)
+		assert.Equal(t, id.String(), val)
+	})
+
+	t.Run("NewQueueNotFoundError", func(t *testing.T) {
+		id := registry.NewID("test", "my-queue")
+		err := queue.NewQueueNotFoundError(id)
+		assert.Contains(t, err.Error(), id.String())
+		assert.Equal(t, apierror.KindNotFound, err.Kind())
+		val, ok := err.Details().Get("queue_id")
+		assert.True(t, ok)
+		assert.Equal(t, id.String(), val)
+	})
+
+	t.Run("NewDriverExistsError", func(t *testing.T) {
+		id := registry.NewID("test", "my-driver")
+		err := queue.NewDriverExistsError(id)
+		assert.Contains(t, err.Error(), id.String())
+		assert.Equal(t, apierror.KindAlreadyExists, err.Kind())
+		val, ok := err.Details().Get("driver_id")
+		assert.True(t, ok)
+		assert.Equal(t, id.String(), val)
+	})
+
+	t.Run("NewQueueClosedError", func(t *testing.T) {
+		id := registry.NewID("test", "my-queue")
+		err := queue.NewQueueClosedError(id)
+		assert.Contains(t, err.Error(), id.String())
+		assert.Equal(t, apierror.KindUnavailable, err.Kind())
+		val, ok := err.Details().Get("queue_id")
+		assert.True(t, ok)
+		assert.Equal(t, id.String(), val)
+	})
+
+	t.Run("NewConfigError", func(t *testing.T) {
+		cause := assert.AnError
+		err := queue.NewConfigError("invalid config", cause)
+		assert.Equal(t, "invalid config", err.Error())
+		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		assert.Equal(t, cause, err.Unwrap())
+	})
+
+	t.Run("NewUnsupportedKindError", func(t *testing.T) {
+		err := queue.NewUnsupportedKindError("unknown.kind")
+		assert.Contains(t, err.Error(), "unknown.kind")
+		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		val, ok := err.Details().Get("kind")
+		assert.True(t, ok)
+		assert.Equal(t, "unknown.kind", val)
+	})
+
+	t.Run("NewConcurrencyExceededError", func(t *testing.T) {
+		err := queue.NewConcurrencyExceededError(20, 10)
+		assert.Equal(t, "concurrency exceeds maximum", err.Error())
+		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		concVal, ok := err.Details().Get("concurrency")
+		assert.True(t, ok)
+		assert.Equal(t, 20, concVal)
+		maxVal, ok := err.Details().Get("max")
+		assert.True(t, ok)
+		assert.Equal(t, 10, maxVal)
+	})
+
+	t.Run("NewPrefetchExceededError", func(t *testing.T) {
+		err := queue.NewPrefetchExceededError(100, 50)
+		assert.Equal(t, "prefetch exceeds maximum", err.Error())
+		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		prefVal, ok := err.Details().Get("prefetch")
+		assert.True(t, ok)
+		assert.Equal(t, 100, prefVal)
+		maxVal, ok := err.Details().Get("max")
+		assert.True(t, ok)
+		assert.Equal(t, 50, maxVal)
+	})
 }
 
 func TestDriverInterface(t *testing.T) {
@@ -362,3 +548,192 @@ func TestQueueDeclarationFlow(t *testing.T) {
 
 	manager.AssertExpectations(t)
 }
+
+func TestContextFunctions(t *testing.T) {
+	t.Run("WithManager_NoAppContext", func(t *testing.T) {
+		ctx := context.Background()
+		result := queue.WithManager(ctx, nil)
+		assert.Equal(t, ctx, result)
+	})
+
+	t.Run("GetManager_NoAppContext", func(t *testing.T) {
+		ctx := context.Background()
+		mgr := queue.GetManager(ctx)
+		assert.Nil(t, mgr)
+	})
+
+	t.Run("WithPublishChain_NoAppContext", func(t *testing.T) {
+		ctx := context.Background()
+		result := queue.WithPublishChain(ctx, nil)
+		assert.Equal(t, ctx, result)
+	})
+
+	t.Run("GetPublishChain_NoAppContext", func(t *testing.T) {
+		ctx := context.Background()
+		chain := queue.GetPublishChain(ctx)
+		assert.Nil(t, chain)
+	})
+
+	t.Run("WithPublishInterceptorRegistry_NoAppContext", func(t *testing.T) {
+		ctx := context.Background()
+		result := queue.WithPublishInterceptorRegistry(ctx, nil)
+		assert.Equal(t, ctx, result)
+	})
+
+	t.Run("GetPublishInterceptorRegistry_NoAppContext", func(t *testing.T) {
+		ctx := context.Background()
+		reg := queue.GetPublishInterceptorRegistry(ctx)
+		assert.Nil(t, reg)
+	})
+
+	t.Run("WithDelivery_NoFrameContext", func(t *testing.T) {
+		ctx := context.Background()
+		delivery := &queue.Delivery{Message: queue.NewMessage(payload.New("test"))}
+		err := queue.WithDelivery(ctx, delivery)
+		assert.Error(t, err)
+	})
+
+	t.Run("GetDelivery_NoFrameContext", func(t *testing.T) {
+		ctx := context.Background()
+		delivery, ok := queue.GetDelivery(ctx)
+		assert.Nil(t, delivery)
+		assert.False(t, ok)
+	})
+
+	t.Run("DeliveryPair", func(t *testing.T) {
+		delivery := &queue.Delivery{Message: queue.NewMessage(payload.New("test"))}
+		pair := queue.DeliveryPair(delivery)
+		assert.NotNil(t, pair.Key)
+		assert.Equal(t, delivery, pair.Value)
+	})
+
+	t.Run("Manager_WithAppContext", func(t *testing.T) {
+		appCtx := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+
+		mockMgr := new(MockManager)
+		result := queue.WithManager(ctx, mockMgr)
+		assert.Equal(t, ctx, result)
+
+		retrieved := queue.GetManager(ctx)
+		assert.Equal(t, mockMgr, retrieved)
+
+		// Test idempotent - second set doesn't override
+		mockMgr2 := new(MockManager)
+		queue.WithManager(ctx, mockMgr2)
+		assert.Equal(t, mockMgr, queue.GetManager(ctx))
+	})
+
+	t.Run("GetManager_WrongType", func(t *testing.T) {
+		appCtx := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+
+		// Set a non-Manager value
+		appCtx.With(&ctxapi.Key{Name: "queue.manager"}, "not a manager")
+
+		mgr := queue.GetManager(ctx)
+		assert.Nil(t, mgr)
+	})
+
+	t.Run("PublishChain_WithAppContext", func(t *testing.T) {
+		appCtx := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+
+		mockChain := &testPublishChain{}
+		result := queue.WithPublishChain(ctx, mockChain)
+		assert.Equal(t, ctx, result)
+
+		retrieved := queue.GetPublishChain(ctx)
+		assert.Equal(t, mockChain, retrieved)
+
+		// Test idempotent
+		mockChain2 := &testPublishChain{}
+		queue.WithPublishChain(ctx, mockChain2)
+		assert.Equal(t, mockChain, queue.GetPublishChain(ctx))
+	})
+
+	t.Run("GetPublishChain_WrongType", func(t *testing.T) {
+		appCtx := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+
+		appCtx.With(&ctxapi.Key{Name: "queue.publish_chain"}, "not a chain")
+
+		chain := queue.GetPublishChain(ctx)
+		assert.Nil(t, chain)
+	})
+
+	t.Run("InterceptorRegistry_WithAppContext", func(t *testing.T) {
+		appCtx := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+
+		mockReg := &testInterceptorRegistry{}
+		result := queue.WithPublishInterceptorRegistry(ctx, mockReg)
+		assert.Equal(t, ctx, result)
+
+		retrieved := queue.GetPublishInterceptorRegistry(ctx)
+		assert.Equal(t, mockReg, retrieved)
+
+		// Test idempotent
+		mockReg2 := &testInterceptorRegistry{}
+		queue.WithPublishInterceptorRegistry(ctx, mockReg2)
+		assert.Equal(t, mockReg, queue.GetPublishInterceptorRegistry(ctx))
+	})
+
+	t.Run("GetPublishInterceptorRegistry_WrongType", func(t *testing.T) {
+		appCtx := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+
+		appCtx.With(&ctxapi.Key{Name: "queue.interceptor_registry"}, "not a registry")
+
+		reg := queue.GetPublishInterceptorRegistry(ctx)
+		assert.Nil(t, reg)
+	})
+
+	t.Run("Delivery_WithFrameContext", func(t *testing.T) {
+		appCtx := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+
+		ctx, frameCtx := ctxapi.AcquireFrameContext(ctx)
+		defer ctxapi.ReleaseFrameContext(frameCtx)
+
+		delivery := &queue.Delivery{Message: queue.NewMessage(payload.New("test"))}
+		err := queue.WithDelivery(ctx, delivery)
+		assert.NoError(t, err)
+
+		retrieved, ok := queue.GetDelivery(ctx)
+		assert.True(t, ok)
+		assert.Equal(t, delivery, retrieved)
+	})
+
+	t.Run("GetDelivery_WrongType", func(t *testing.T) {
+		appCtx := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+
+		ctx, frameCtx := ctxapi.AcquireFrameContext(ctx)
+		defer ctxapi.ReleaseFrameContext(frameCtx)
+
+		frameCtx.Set(&ctxapi.Key{Name: "queue.delivery", Inherit: true}, "not a delivery")
+
+		delivery, ok := queue.GetDelivery(ctx)
+		assert.Nil(t, delivery)
+		assert.False(t, ok)
+	})
+}
+
+// testPublishChain implements PublishChain for testing
+type testPublishChain struct{}
+
+func (t *testPublishChain) Publish(_ context.Context, _ registry.ID, _ ...*queue.Message) error {
+	return nil
+}
+
+// testInterceptorRegistry implements PublishInterceptorRegistry for testing
+type testInterceptorRegistry struct{}
+
+func (t *testInterceptorRegistry) Publish(_ context.Context, _ registry.ID, _ ...*queue.Message) error {
+	return nil
+}
+
+func (t *testInterceptorRegistry) Register(_ string, _ queue.PublishInterceptor, _ int) {}
+
+func (t *testInterceptorRegistry) Unregister(_ string) {}

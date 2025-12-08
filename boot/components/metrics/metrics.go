@@ -5,7 +5,7 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	api "github.com/wippyai/runtime/api/metrics"
-	impl "github.com/wippyai/runtime/system/metrics"
+	impl "github.com/wippyai/runtime/service/metrics"
 )
 
 func Metrics() boot.Component {

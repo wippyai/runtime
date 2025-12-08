@@ -2,8 +2,14 @@
 package boot
 
 import (
+	"context"
+	"io/fs"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 func TestConfig_Get(t *testing.T) {
@@ -285,4 +291,220 @@ func TestConfig_Keys(t *testing.T) {
 			t.Errorf("expected 0 keys, got %d", len(keys))
 		}
 	})
+}
+
+func TestWithConfig(t *testing.T) {
+	t.Run("with app context", func(t *testing.T) {
+		ctx := ctxapi.NewRootContext()
+		cfg := NewConfig(WithSection("test", map[string]any{"key": "value"}))
+
+		ctx = WithConfig(ctx, cfg)
+
+		retrieved := GetConfig(ctx)
+		assert.NotNil(t, retrieved)
+		v, ok := retrieved.Get("test.key")
+		assert.True(t, ok)
+		assert.Equal(t, "value", v)
+	})
+
+	t.Run("without app context", func(t *testing.T) {
+		ctx := context.Background()
+		cfg := NewConfig(WithSection("test", map[string]any{"key": "value"}))
+
+		result := WithConfig(ctx, cfg)
+
+		assert.Equal(t, ctx, result)
+		assert.Nil(t, GetConfig(result))
+	})
+
+	t.Run("idempotent", func(t *testing.T) {
+		ctx := ctxapi.NewRootContext()
+		cfg1 := NewConfig(WithSection("test", map[string]any{"key": "value1"}))
+		cfg2 := NewConfig(WithSection("test", map[string]any{"key": "value2"}))
+
+		ctx = WithConfig(ctx, cfg1)
+		WithConfig(ctx, cfg2)
+
+		retrieved := GetConfig(ctx)
+		v, _ := retrieved.Get("test.key")
+		assert.Equal(t, "value1", v)
+	})
+}
+
+func TestGetConfig(t *testing.T) {
+	t.Run("without app context", func(t *testing.T) {
+		ctx := context.Background()
+		cfg := GetConfig(ctx)
+		assert.Nil(t, cfg)
+	})
+
+	t.Run("with app context but no config", func(t *testing.T) {
+		ctx := ctxapi.NewRootContext()
+		cfg := GetConfig(ctx)
+		assert.Nil(t, cfg)
+	})
+
+	t.Run("with wrong type", func(t *testing.T) {
+		ctx := ctxapi.NewRootContext()
+		ac := ctxapi.AppFromContext(ctx)
+		ac.With(configCtxKey, "not a config")
+
+		cfg := GetConfig(ctx)
+		assert.Nil(t, cfg)
+	})
+}
+
+func TestWithLoader(t *testing.T) {
+	t.Run("with app context", func(t *testing.T) {
+		ctx := ctxapi.NewRootContext()
+		ldr := &mockLoader{}
+
+		ctx = WithLoader(ctx, ldr)
+
+		retrieved := GetLoader(ctx)
+		assert.NotNil(t, retrieved)
+		assert.Equal(t, ldr, retrieved)
+	})
+
+	t.Run("without app context", func(t *testing.T) {
+		ctx := context.Background()
+		ldr := &mockLoader{}
+
+		result := WithLoader(ctx, ldr)
+
+		assert.Equal(t, ctx, result)
+		assert.Nil(t, GetLoader(result))
+	})
+
+	t.Run("idempotent", func(t *testing.T) {
+		ctx := ctxapi.NewRootContext()
+		ldr1 := &mockLoader{}
+		ldr2 := &mockLoader{}
+
+		ctx = WithLoader(ctx, ldr1)
+		WithLoader(ctx, ldr2)
+
+		retrieved := GetLoader(ctx)
+		assert.Equal(t, ldr1, retrieved)
+	})
+}
+
+func TestGetLoader(t *testing.T) {
+	t.Run("without app context", func(t *testing.T) {
+		ctx := context.Background()
+		ldr := GetLoader(ctx)
+		assert.Nil(t, ldr)
+	})
+
+	t.Run("with app context but no loader", func(t *testing.T) {
+		ctx := ctxapi.NewRootContext()
+		ldr := GetLoader(ctx)
+		assert.Nil(t, ldr)
+	})
+
+	t.Run("with wrong type", func(t *testing.T) {
+		ctx := ctxapi.NewRootContext()
+		ac := ctxapi.AppFromContext(ctx)
+		ac.With(loaderKey{}, "not a loader")
+
+		ldr := GetLoader(ctx)
+		assert.Nil(t, ldr)
+	})
+}
+
+func TestFuncComponent(t *testing.T) {
+	t.Run("Name and DependsOn", func(t *testing.T) {
+		comp := New(P{
+			Name:      "test-component",
+			DependsOn: []string{"dep1", "dep2"},
+		})
+
+		assert.Equal(t, "test-component", comp.Name())
+		assert.Equal(t, []string{"dep1", "dep2"}, comp.DependsOn())
+	})
+
+	t.Run("Load with function", func(t *testing.T) {
+		loadCalled := false
+		comp := New(P{
+			Name: "test",
+			Load: func(ctx context.Context) (context.Context, error) {
+				loadCalled = true
+				return ctx, nil
+			},
+		})
+
+		ctx := context.Background()
+		_, err := comp.Load(ctx)
+		assert.NoError(t, err)
+		assert.True(t, loadCalled)
+	})
+
+	t.Run("Load without function", func(t *testing.T) {
+		comp := New(P{Name: "test"})
+
+		ctx := context.Background()
+		result, err := comp.Load(ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, ctx, result)
+	})
+
+	t.Run("Start with function", func(t *testing.T) {
+		startCalled := false
+		comp := New(P{
+			Name: "test",
+			Start: func(ctx context.Context) error {
+				startCalled = true
+				return nil
+			},
+		})
+
+		starter := comp.(Starter)
+		err := starter.Start(context.Background())
+		assert.NoError(t, err)
+		assert.True(t, startCalled)
+	})
+
+	t.Run("Start without function", func(t *testing.T) {
+		comp := New(P{Name: "test"})
+
+		starter := comp.(Starter)
+		err := starter.Start(context.Background())
+		assert.NoError(t, err)
+	})
+
+	t.Run("Stop with function", func(t *testing.T) {
+		stopCalled := false
+		comp := New(P{
+			Name: "test",
+			Stop: func(ctx context.Context) error {
+				stopCalled = true
+				return nil
+			},
+		})
+
+		stopper := comp.(Stopper)
+		err := stopper.Stop(context.Background())
+		assert.NoError(t, err)
+		assert.True(t, stopCalled)
+	})
+
+	t.Run("Stop without function", func(t *testing.T) {
+		comp := New(P{Name: "test"})
+
+		stopper := comp.(Stopper)
+		err := stopper.Stop(context.Background())
+		assert.NoError(t, err)
+	})
+}
+
+type mockLoader struct{}
+
+func (m *mockLoader) LoadFS(ctx context.Context, filesystem fs.FS) ([]registry.Entry, error) {
+	return nil, nil
+}
+func (m *mockLoader) LoadDir(ctx context.Context, filesystem fs.FS, dirPath string) ([]registry.Entry, error) {
+	return nil, nil
+}
+func (m *mockLoader) LoadFile(ctx context.Context, filesystem fs.FS, filePath string) ([]registry.Entry, error) {
+	return nil, nil
 }

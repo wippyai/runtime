@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -177,7 +178,7 @@ func TestError_WithCause(t *testing.T) {
 }
 
 func TestError_WithDetails(t *testing.T) {
-	details := ctxapi.NewPairBag([]ctxapi.Pair{{Key: "pid", Value: "12345"}})
+	details := attrs.NewBagFrom(map[string]any{"pid": "12345"})
 	err := ErrProcessNotFound.WithDetails(details)
 
 	assert.Equal(t, "process not found", err.Error())
@@ -349,117 +350,6 @@ func TestMessageSender_StaleAfterReset(t *testing.T) {
 	assert.False(t, ok)
 }
 
-func TestContextFunctions(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("nil app context returns nil", func(t *testing.T) {
-		assert.Nil(t, GetManager(ctx))
-		assert.Nil(t, GetFactory(ctx))
-		assert.Nil(t, GetPIDGenerator(ctx))
-		assert.Nil(t, GetLifecycleRegistry(ctx))
-	})
-
-	t.Run("with app context", func(t *testing.T) {
-		appCtx := ctxapi.New()
-		ctx := ctxapi.WithApp(context.Background(), appCtx)
-
-		assert.Nil(t, GetManager(ctx))
-		assert.Nil(t, GetFactory(ctx))
-		assert.Nil(t, GetPIDGenerator(ctx))
-		assert.Nil(t, GetLifecycleRegistry(ctx))
-	})
-}
-
-func TestWithManager(t *testing.T) {
-	t.Run("nil app context", func(t *testing.T) {
-		ctx := context.Background()
-		result := WithManager(ctx, nil)
-		assert.Equal(t, ctx, result)
-	})
-
-	t.Run("with app context", func(t *testing.T) {
-		appCtx := ctxapi.New()
-		ctx := ctxapi.WithApp(context.Background(), appCtx)
-
-		mockMgr := &mockManager{}
-		result := WithManager(ctx, mockMgr)
-		assert.Equal(t, ctx, result)
-
-		mgr := GetManager(ctx)
-		assert.Equal(t, mockMgr, mgr)
-
-		WithManager(ctx, &mockManager{})
-		mgr2 := GetManager(ctx)
-		assert.Equal(t, mockMgr, mgr2)
-	})
-}
-
-func TestWithFactory(t *testing.T) {
-	t.Run("nil app context", func(t *testing.T) {
-		ctx := context.Background()
-		WithFactory(ctx, nil)
-	})
-
-	t.Run("with app context", func(t *testing.T) {
-		appCtx := ctxapi.New()
-		ctx := ctxapi.WithApp(context.Background(), appCtx)
-
-		mockFac := &mockFactory{}
-		WithFactory(ctx, mockFac)
-
-		fac := GetFactory(ctx)
-		assert.Equal(t, mockFac, fac)
-	})
-}
-
-func TestWithPIDGenerator(t *testing.T) {
-	t.Run("nil app context", func(t *testing.T) {
-		ctx := context.Background()
-		result := WithPIDGenerator(ctx, nil)
-		assert.Equal(t, ctx, result)
-	})
-
-	t.Run("with app context", func(t *testing.T) {
-		appCtx := ctxapi.New()
-		ctx := ctxapi.WithApp(context.Background(), appCtx)
-
-		gen := uniqid.NewPIDGenerator(1)
-		result := WithPIDGenerator(ctx, gen)
-		assert.Equal(t, ctx, result)
-
-		retrieved := GetPIDGenerator(ctx)
-		assert.Equal(t, gen, retrieved)
-
-		WithPIDGenerator(ctx, uniqid.NewPIDGenerator(2))
-		retrieved2 := GetPIDGenerator(ctx)
-		assert.Equal(t, gen, retrieved2)
-	})
-}
-
-func TestWithLifecycleRegistry(t *testing.T) {
-	t.Run("nil app context", func(t *testing.T) {
-		ctx := context.Background()
-		result := WithLifecycleRegistry(ctx, nil)
-		assert.Equal(t, ctx, result)
-	})
-
-	t.Run("with app context", func(t *testing.T) {
-		appCtx := ctxapi.New()
-		ctx := ctxapi.WithApp(context.Background(), appCtx)
-
-		mockReg := &mockLifecycleRegistry{}
-		result := WithLifecycleRegistry(ctx, mockReg)
-		assert.Equal(t, ctx, result)
-
-		reg := GetLifecycleRegistry(ctx)
-		assert.Equal(t, mockReg, reg)
-
-		WithLifecycleRegistry(ctx, &mockLifecycleRegistry{})
-		reg2 := GetLifecycleRegistry(ctx)
-		assert.Equal(t, mockReg, reg2)
-	})
-}
-
 func TestEventTypes(t *testing.T) {
 	assert.Equal(t, EventType(0), EventYieldComplete)
 	assert.Equal(t, EventType(1), EventMessage)
@@ -478,15 +368,13 @@ func TestSchedulerKind(t *testing.T) {
 
 func TestStart(t *testing.T) {
 	start := Start{
-		Source:  registry.NewID("test", "func"),
-		Input:   payload.Payloads{payload.New("arg1")},
-		Context: []ctxapi.Pair{{Key: "user", Value: "test"}},
+		Source: registry.NewID("test", "func"),
+		Input:  payload.Payloads{payload.New("arg1")},
 	}
 
 	assert.Equal(t, "test", start.Source.NS)
 	assert.Equal(t, "func", start.Source.Name)
 	assert.Len(t, start.Input, 1)
-	assert.Len(t, start.Context, 1)
 }
 
 func TestMeta(t *testing.T) {
@@ -501,6 +389,138 @@ func TestFactoryEntry(t *testing.T) {
 	}
 	assert.NotNil(t, entry.Factory)
 	assert.Equal(t, "test", entry.Meta.Method)
+}
+
+func TestEventStruct(t *testing.T) {
+	e := Event{
+		Type:  EventYieldComplete,
+		Tag:   123,
+		Data:  "result",
+		Error: nil,
+	}
+	assert.Equal(t, EventYieldComplete, e.Type)
+	assert.Equal(t, uint64(123), e.Tag)
+	assert.Equal(t, "result", e.Data)
+	assert.Nil(t, e.Error)
+
+	e2 := Event{
+		Type:  EventMessage,
+		Data:  "msg",
+		Error: errors.New("test error"),
+	}
+	assert.Equal(t, EventMessage, e2.Type)
+	assert.Error(t, e2.Error)
+}
+
+func TestYieldStruct(t *testing.T) {
+	cmd := &mockCommand{id: 42}
+	y := Yield{Cmd: cmd, Tag: 999}
+	assert.Equal(t, cmd, y.Cmd)
+	assert.Equal(t, uint64(999), y.Tag)
+}
+
+func TestLifecycleOptionKeys(t *testing.T) {
+	assert.Equal(t, "lifecycle.parent", LifecycleParentKey)
+	assert.Equal(t, "lifecycle.monitor", LifecycleMonitorKey)
+	assert.Equal(t, "lifecycle.link", LifecycleLinkKey)
+	assert.Equal(t, "pid", OptionPID)
+}
+
+func TestEventKinds(t *testing.T) {
+	assert.Equal(t, "factory.register", string(FactoryRegister))
+	assert.Equal(t, "factory.delete", string(FactoryDelete))
+	assert.Equal(t, "factory.accept", string(FactoryAccept))
+	assert.Equal(t, "factory.reject", string(FactoryReject))
+}
+
+func TestSystemConstant(t *testing.T) {
+	assert.Equal(t, "process", string(System))
+}
+
+func TestContextFunctions_NoAppContext(t *testing.T) {
+	ctx := context.Background()
+
+	assert.Nil(t, GetManager(ctx))
+	assert.Nil(t, GetFactory(ctx))
+	assert.Nil(t, GetPIDGenerator(ctx))
+	assert.Nil(t, GetLifecycleRegistry(ctx))
+
+	result := WithManager(ctx, nil)
+	assert.Equal(t, ctx, result)
+
+	result = WithPIDGenerator(ctx, nil)
+	assert.Equal(t, ctx, result)
+
+	result = WithLifecycleRegistry(ctx, nil)
+	assert.Equal(t, ctx, result)
+
+	WithFactory(ctx, nil)
+}
+
+func TestContextFunctions_WithAppContext(t *testing.T) {
+	appCtx := ctxapi.NewAppContext()
+	ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+
+	t.Run("Manager", func(t *testing.T) {
+		assert.Nil(t, GetManager(ctx))
+
+		mockMgr := &mockManager{}
+		result := WithManager(ctx, mockMgr)
+		assert.Equal(t, ctx, result)
+
+		mgr := GetManager(ctx)
+		assert.Equal(t, mockMgr, mgr)
+	})
+
+	t.Run("Factory", func(t *testing.T) {
+		appCtx2 := ctxapi.NewAppContext()
+		ctx2 := ctxapi.WithAppContext(context.Background(), appCtx2)
+
+		assert.Nil(t, GetFactory(ctx2))
+
+		mockFac := &mockFactory{}
+		WithFactory(ctx2, mockFac)
+
+		fac := GetFactory(ctx2)
+		assert.Equal(t, mockFac, fac)
+	})
+
+	t.Run("PIDGenerator", func(t *testing.T) {
+		appCtx2 := ctxapi.NewAppContext()
+		ctx2 := ctxapi.WithAppContext(context.Background(), appCtx2)
+
+		assert.Nil(t, GetPIDGenerator(ctx2))
+
+		baseGen := uniqid.NewGenerator()
+		gen := uniqid.NewPIDGenerator(baseGen, relay.NodeID("1"))
+		result := WithPIDGenerator(ctx2, gen)
+		assert.Equal(t, ctx2, result)
+
+		retrieved := GetPIDGenerator(ctx2)
+		assert.Equal(t, gen, retrieved)
+	})
+
+	t.Run("LifecycleRegistry", func(t *testing.T) {
+		appCtx2 := ctxapi.NewAppContext()
+		ctx2 := ctxapi.WithAppContext(context.Background(), appCtx2)
+
+		assert.Nil(t, GetLifecycleRegistry(ctx2))
+
+		mockReg := &mockLifecycleRegistry{}
+		result := WithLifecycleRegistry(ctx2, mockReg)
+		assert.Equal(t, ctx2, result)
+
+		reg := GetLifecycleRegistry(ctx2)
+		assert.Equal(t, mockReg, reg)
+	})
+}
+
+func TestDispatcherFunctions(t *testing.T) {
+	ctx := context.Background()
+
+	assert.Nil(t, GetRegistry(ctx))
+	assert.Nil(t, GetRegistrar(ctx))
+	assert.Nil(t, GetDispatcher(ctx))
 }
 
 type mockCommand struct {

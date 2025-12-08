@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
 )
@@ -149,5 +150,171 @@ func TestContext_Registry(t *testing.T) {
 
 		reg = GetRegistry(ctx)
 		assert.Nil(t, reg)
+	})
+
+	t.Run("idempotent", func(t *testing.T) {
+		ctx := ctxapi.NewRootContext()
+
+		type mockRegistry struct{ Registry }
+		mockReg := &mockRegistry{}
+
+		ctx = WithRegistry(ctx, mockReg)
+
+		type mockRegistry2 struct{ Registry }
+		mockReg2 := &mockRegistry2{}
+
+		WithRegistry(ctx, mockReg2)
+
+		retrieved := GetRegistry(ctx)
+		assert.Equal(t, mockReg, retrieved)
+	})
+}
+
+func TestErrorInterface(t *testing.T) {
+	t.Run("ErrNotFound", func(t *testing.T) {
+		err := ErrNotFound
+		assert.Equal(t, "resource not found", err.Error())
+		assert.Equal(t, apierror.KindNotFound, err.Kind())
+		assert.Equal(t, apierror.False, err.Retryable())
+		assert.Nil(t, err.Details())
+		assert.Nil(t, err.Unwrap())
+	})
+
+	t.Run("ErrLocked", func(t *testing.T) {
+		err := ErrLocked
+		assert.Equal(t, "resource is locked", err.Error())
+		assert.Equal(t, apierror.KindUnavailable, err.Kind())
+		assert.Equal(t, apierror.True, err.Retryable())
+	})
+
+	t.Run("ErrReleased", func(t *testing.T) {
+		err := ErrReleased
+		assert.Equal(t, "resource has been released", err.Error())
+		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		assert.Equal(t, apierror.False, err.Retryable())
+	})
+
+	t.Run("ErrClosed", func(t *testing.T) {
+		err := ErrClosed
+		assert.Equal(t, "resource provider is closed", err.Error())
+		assert.Equal(t, apierror.KindUnavailable, err.Kind())
+		assert.Equal(t, apierror.False, err.Retryable())
+	})
+
+	t.Run("ErrInUse", func(t *testing.T) {
+		err := ErrInUse
+		assert.Equal(t, "resource is in use", err.Error())
+		assert.Equal(t, apierror.KindUnavailable, err.Kind())
+		assert.Equal(t, apierror.True, err.Retryable())
+	})
+}
+
+func TestErrorIs(t *testing.T) {
+	t.Run("same error type", func(t *testing.T) {
+		assert.True(t, ErrNotFound.Is(ErrNotFound))
+		assert.True(t, ErrLocked.Is(ErrLocked))
+		assert.False(t, ErrNotFound.Is(ErrLocked))
+	})
+
+	t.Run("different error type", func(t *testing.T) {
+		assert.False(t, ErrNotFound.Is(errors.New("other error")))
+	})
+}
+
+func TestNewSubscriberError(t *testing.T) {
+	cause := errors.New("connection failed")
+	err := NewSubscriberError(cause)
+
+	assert.Contains(t, err.Error(), "failed to create subscriber")
+	assert.Contains(t, err.Error(), "connection failed")
+	assert.Equal(t, apierror.KindInternal, err.Kind())
+	assert.Equal(t, apierror.True, err.Retryable())
+	assert.Equal(t, cause, err.Unwrap())
+	assert.NotNil(t, err.Details())
+
+	causeVal, ok := err.Details().Get("cause")
+	assert.True(t, ok)
+	assert.Equal(t, "connection failed", causeVal)
+}
+
+type mockResource struct {
+	value    any
+	released bool
+}
+
+func (m *mockResource) Get() (any, error) {
+	if m.released {
+		return nil, ErrReleased
+	}
+	return m.value, nil
+}
+
+func (m *mockResource) Release() {
+	m.released = true
+}
+
+func TestTrackedResource(t *testing.T) {
+	t.Run("Get_Success", func(t *testing.T) {
+		inner := &mockResource{value: "test-value"}
+		releaseCalled := false
+		tr := NewTrackedResource(inner, func() { releaseCalled = true })
+
+		val, err := tr.Get()
+		assert.NoError(t, err)
+		assert.Equal(t, "test-value", val)
+		assert.False(t, releaseCalled)
+	})
+
+	t.Run("Get_AfterRelease", func(t *testing.T) {
+		inner := &mockResource{value: "test-value"}
+		tr := NewTrackedResource(inner, nil)
+
+		tr.Release()
+
+		val, err := tr.Get()
+		assert.Nil(t, val)
+		assert.ErrorIs(t, err, ErrReleased)
+	})
+
+	t.Run("Release_CallsOnRelease", func(t *testing.T) {
+		inner := &mockResource{value: "test"}
+		releaseCalled := false
+		tr := NewTrackedResource(inner, func() { releaseCalled = true })
+
+		tr.Release()
+
+		assert.True(t, releaseCalled)
+		assert.True(t, inner.released)
+	})
+
+	t.Run("Release_IdempotentRelease", func(t *testing.T) {
+		inner := &mockResource{value: "test"}
+		releaseCount := 0
+		tr := NewTrackedResource(inner, func() { releaseCount++ })
+
+		tr.Release()
+		tr.Release()
+		tr.Release()
+
+		assert.Equal(t, 1, releaseCount)
+	})
+
+	t.Run("Release_NilOnRelease", func(t *testing.T) {
+		inner := &mockResource{value: "test"}
+		tr := NewTrackedResource(inner, nil)
+
+		tr.Release()
+
+		assert.True(t, inner.released)
+	})
+
+	t.Run("PoolReuse", func(t *testing.T) {
+		for i := 0; i < 10; i++ {
+			inner := &mockResource{value: i}
+			tr := NewTrackedResource(inner, nil)
+			val, _ := tr.Get()
+			assert.Equal(t, i, val)
+			tr.Release()
+		}
 	})
 }

@@ -2,12 +2,17 @@
 package supervisor
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/event"
 )
 
@@ -115,4 +120,313 @@ func TestEntry_MarshalUnmarshal(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestErrorInterface(t *testing.T) {
+	t.Run("ErrTerminated", func(t *testing.T) {
+		err := ErrTerminated
+		assert.Equal(t, "service terminated", err.Error())
+		assert.Equal(t, KindTerminated, err.Kind())
+		assert.Equal(t, apierror.False, err.Retryable())
+		assert.Nil(t, err.Details())
+		assert.Nil(t, err.Unwrap())
+	})
+
+	t.Run("ErrExit", func(t *testing.T) {
+		err := ErrExit
+		assert.Equal(t, "service exited", err.Error())
+		assert.Equal(t, KindExited, err.Kind())
+		assert.Equal(t, apierror.False, err.Retryable())
+	})
+
+	t.Run("ErrStartTimeout", func(t *testing.T) {
+		err := ErrStartTimeout
+		assert.Equal(t, "service start timed out", err.Error())
+		assert.Equal(t, apierror.KindTimeout, err.Kind())
+		assert.Equal(t, apierror.True, err.Retryable())
+	})
+
+	t.Run("ErrOutsideTransaction", func(t *testing.T) {
+		err := ErrOutsideTransaction
+		assert.Equal(t, "action received outside of transaction", err.Error())
+		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		assert.Equal(t, apierror.False, err.Retryable())
+	})
+}
+
+func TestErrorMethods(t *testing.T) {
+	t.Run("WithCause", func(t *testing.T) {
+		cause := errors.New("underlying cause")
+		err := ErrTerminated.WithCause(cause)
+		assert.Equal(t, "service terminated", err.Error())
+		assert.Equal(t, cause, err.Unwrap())
+	})
+
+	t.Run("WithMessage", func(t *testing.T) {
+		err := ErrTerminated.WithMessage("custom message")
+		assert.Equal(t, "custom message", err.Error())
+		assert.Equal(t, KindTerminated, err.Kind())
+	})
+}
+
+func TestErrorConstructors(t *testing.T) {
+	cause := errors.New("test cause")
+
+	t.Run("NewInvalidDurationError", func(t *testing.T) {
+		err := NewInvalidDurationError("timeout", cause)
+		assert.Contains(t, err.Error(), "invalid")
+		assert.Contains(t, err.Error(), "timeout")
+		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		assert.Equal(t, cause, err.Unwrap())
+		val, ok := err.Details().Get("field")
+		assert.True(t, ok)
+		assert.Equal(t, "timeout", val)
+	})
+
+	t.Run("NewServiceNotFoundError", func(t *testing.T) {
+		err := NewServiceNotFoundError("my-service")
+		assert.Contains(t, err.Error(), "my-service")
+		assert.Equal(t, apierror.KindNotFound, err.Kind())
+		val, ok := err.Details().Get("service_id")
+		assert.True(t, ok)
+		assert.Equal(t, "my-service", val)
+	})
+
+	t.Run("NewSubscriberError", func(t *testing.T) {
+		err := NewSubscriberError(cause)
+		assert.Contains(t, err.Error(), "failed to create event subscriber")
+		assert.Equal(t, apierror.KindInternal, err.Kind())
+		assert.Equal(t, apierror.True, err.Retryable())
+		assert.Equal(t, cause, err.Unwrap())
+	})
+
+	t.Run("NewDependencyResolveError", func(t *testing.T) {
+		err := NewDependencyResolveError("my-service", cause)
+		assert.Contains(t, err.Error(), "my-service")
+		assert.Equal(t, apierror.KindInternal, err.Kind())
+		assert.Equal(t, cause, err.Unwrap())
+	})
+
+	t.Run("NewStartOperationsError", func(t *testing.T) {
+		err := NewStartOperationsError(cause)
+		assert.Contains(t, err.Error(), "start operations")
+		assert.Equal(t, apierror.KindInternal, err.Kind())
+	})
+
+	t.Run("NewTransitionError", func(t *testing.T) {
+		err := NewTransitionError(cause)
+		assert.Contains(t, err.Error(), "transitions")
+		assert.Equal(t, apierror.KindInternal, err.Kind())
+	})
+
+	t.Run("NewStopError", func(t *testing.T) {
+		err := NewStopError(cause)
+		assert.Contains(t, err.Error(), "stop service")
+		assert.Equal(t, apierror.KindInternal, err.Kind())
+	})
+
+	t.Run("NewSupervisorStoppedError", func(t *testing.T) {
+		err := NewSupervisorStoppedError(cause)
+		assert.Contains(t, err.Error(), "supervisor is stopped")
+		assert.Equal(t, apierror.KindUnavailable, err.Kind())
+	})
+
+	t.Run("NewStopTimeoutError", func(t *testing.T) {
+		err := NewStopTimeoutError(5 * time.Second)
+		assert.Contains(t, err.Error(), "timed out")
+		assert.Contains(t, err.Error(), "5s")
+		assert.Equal(t, apierror.KindTimeout, err.Kind())
+	})
+
+	t.Run("NewServiceStartError", func(t *testing.T) {
+		err := NewServiceStartError("my-service", cause)
+		assert.Contains(t, err.Error(), "my-service")
+		assert.Equal(t, apierror.KindInternal, err.Kind())
+		assert.Equal(t, apierror.True, err.Retryable())
+	})
+
+	t.Run("NewServiceStopError", func(t *testing.T) {
+		err := NewServiceStopError("my-service", cause)
+		assert.Contains(t, err.Error(), "my-service")
+		assert.Equal(t, apierror.KindInternal, err.Kind())
+	})
+
+	t.Run("NewStartSequenceError", func(t *testing.T) {
+		err := NewStartSequenceError(cause)
+		assert.Contains(t, err.Error(), "start sequence")
+		assert.Equal(t, apierror.KindInternal, err.Kind())
+	})
+
+	t.Run("NewStopSequenceError", func(t *testing.T) {
+		err := NewStopSequenceError(cause)
+		assert.Contains(t, err.Error(), "stop sequence")
+		assert.Equal(t, apierror.KindInternal, err.Kind())
+	})
+
+	t.Run("NewDependencyLevelsError", func(t *testing.T) {
+		err := NewDependencyLevelsError("start", cause)
+		assert.Contains(t, err.Error(), "start")
+		assert.Contains(t, err.Error(), "dependency levels")
+		assert.Equal(t, apierror.KindInternal, err.Kind())
+	})
+
+	t.Run("NewMultiStartError", func(t *testing.T) {
+		err := NewMultiStartError(3, cause)
+		assert.Contains(t, err.Error(), "multiple services")
+		assert.Equal(t, apierror.KindInternal, err.Kind())
+		val, ok := err.Details().Get("failed_count")
+		assert.True(t, ok)
+		assert.Equal(t, 3, val)
+	})
+
+	t.Run("NewMultiStopError", func(t *testing.T) {
+		err := NewMultiStopError(2, cause)
+		assert.Contains(t, err.Error(), "multiple services")
+		assert.Equal(t, apierror.KindInternal, err.Kind())
+	})
+
+	t.Run("NewCommitRemoveError", func(t *testing.T) {
+		err := NewCommitRemoveError("my-service", cause)
+		assert.Contains(t, err.Error(), "remove")
+		assert.Contains(t, err.Error(), "my-service")
+		assert.Equal(t, apierror.KindInternal, err.Kind())
+	})
+
+	t.Run("NewCommitRegisterError", func(t *testing.T) {
+		err := NewCommitRegisterError("my-service", cause)
+		assert.Contains(t, err.Error(), "register")
+		assert.Contains(t, err.Error(), "my-service")
+		assert.Equal(t, apierror.KindInternal, err.Kind())
+	})
+}
+
+func TestSupervisorContext(t *testing.T) {
+	t.Run("GetSupervisor_NoAppContext", func(t *testing.T) {
+		ctx := context.Background()
+		sup := GetSupervisor(ctx)
+		assert.Nil(t, sup)
+	})
+
+	t.Run("WithSupervisor_NoAppContext", func(t *testing.T) {
+		ctx := context.Background()
+		result := WithSupervisor(ctx, "mock-supervisor")
+		assert.Equal(t, ctx, result)
+	})
+
+	t.Run("WithSupervisor_WithAppContext", func(t *testing.T) {
+		appCtx := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+
+		result := WithSupervisor(ctx, "mock-supervisor")
+		assert.Equal(t, ctx, result)
+
+		sup := GetSupervisor(ctx)
+		assert.Equal(t, "mock-supervisor", sup)
+	})
+
+	t.Run("WithSupervisor_Idempotent", func(t *testing.T) {
+		appCtx := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+
+		WithSupervisor(ctx, "first-supervisor")
+		WithSupervisor(ctx, "second-supervisor")
+
+		sup := GetSupervisor(ctx)
+		assert.Equal(t, "first-supervisor", sup)
+	})
+}
+
+func TestShutdownContext(t *testing.T) {
+	t.Run("GetExitCode_NoAppContext", func(t *testing.T) {
+		ctx := context.Background()
+		code := GetExitCode(ctx)
+		assert.Equal(t, 0, code)
+	})
+
+	t.Run("GetExitCode_Default", func(t *testing.T) {
+		appCtx := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+
+		code := GetExitCode(ctx)
+		assert.Equal(t, 0, code)
+	})
+
+	t.Run("SetAndGetExitCode", func(t *testing.T) {
+		appCtx := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+
+		setExitCode(ctx, 42)
+		code := GetExitCode(ctx)
+		assert.Equal(t, 42, code)
+	})
+
+	t.Run("SetSignalChannel_NoAppContext", func(t *testing.T) {
+		ctx := context.Background()
+		ch := make(chan os.Signal, 1)
+		SetSignalChannel(ctx, ch)
+	})
+
+	t.Run("SetAndGetSignalChannel", func(t *testing.T) {
+		appCtx := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+
+		ch := make(chan os.Signal, 1)
+		SetSignalChannel(ctx, ch)
+
+		retrieved := getSignalChannel(ctx)
+		assert.NotNil(t, retrieved)
+	})
+
+	t.Run("getSignalChannel_NoAppContext", func(t *testing.T) {
+		ctx := context.Background()
+		ch := getSignalChannel(ctx)
+		assert.Nil(t, ch)
+	})
+
+	t.Run("getSignalChannel_WrongType", func(t *testing.T) {
+		appCtx := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+
+		appCtx.Update(&ctxapi.Key{Name: "supervisor.signalChannelCtxKey"}, "not a channel")
+
+		ch := getSignalChannel(ctx)
+		assert.Nil(t, ch)
+	})
+
+	t.Run("GetExitCode_WrongType", func(t *testing.T) {
+		appCtx := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+
+		appCtx.Update(&ctxapi.Key{Name: "supervisor.exitCodeCtxKey"}, "not an int")
+
+		code := GetExitCode(ctx)
+		assert.Equal(t, 0, code)
+	})
+
+	t.Run("TriggerShutdown_WithChannel", func(t *testing.T) {
+		appCtx := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+
+		ch := make(chan os.Signal, 1)
+		SetSignalChannel(ctx, ch)
+
+		TriggerShutdown(ctx, 1)
+
+		assert.Equal(t, 1, GetExitCode(ctx))
+		select {
+		case sig := <-ch:
+			assert.NotNil(t, sig)
+		default:
+			t.Fatal("expected signal to be sent")
+		}
+	})
+
+	t.Run("TriggerShutdown_NoChannel", func(t *testing.T) {
+		appCtx := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+
+		TriggerShutdown(ctx, 2)
+
+		assert.Equal(t, 2, GetExitCode(ctx))
+	})
 }

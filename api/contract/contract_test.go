@@ -2,6 +2,7 @@
 package contract
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
 )
@@ -372,4 +374,160 @@ func TestContext_Instantiator(t *testing.T) {
 		inst = GetInstantiator(ctx)
 		assert.Equal(t, mockInst, inst)
 	})
+}
+
+func TestCommandPools(t *testing.T) {
+	t.Run("OpenCmd", func(t *testing.T) {
+		cmd := AcquireOpenCmd()
+		assert.NotNil(t, cmd)
+		assert.Equal(t, Open, cmd.CmdID())
+
+		cmd.BindingID = registry.NewID("test", "binding")
+		cmd.Scope = attrs.NewBag()
+		cmd.Scope.Set("key", "value")
+		cmd.HasActor = true
+		cmd.HasScope = true
+
+		cmd.Release()
+
+		cmd2 := AcquireOpenCmd()
+		assert.NotNil(t, cmd2)
+		assert.Equal(t, registry.ID{}, cmd2.BindingID)
+		assert.Nil(t, cmd2.Scope)
+		assert.False(t, cmd2.HasActor)
+		assert.False(t, cmd2.HasScope)
+	})
+
+	t.Run("CallCmd", func(t *testing.T) {
+		cmd := AcquireCallCmd()
+		assert.NotNil(t, cmd)
+		assert.Equal(t, Call, cmd.CmdID())
+
+		cmd.Method = "testMethod"
+
+		cmd.Release()
+
+		cmd2 := AcquireCallCmd()
+		assert.NotNil(t, cmd2)
+		assert.Equal(t, "", cmd2.Method)
+		assert.Nil(t, cmd2.Instance)
+		assert.Nil(t, cmd2.Args)
+	})
+
+	t.Run("AsyncCallCmd", func(t *testing.T) {
+		cmd := AcquireAsyncCallCmd()
+		assert.NotNil(t, cmd)
+		assert.Equal(t, AsyncCall, cmd.CmdID())
+
+		cmd.Method = "asyncMethod"
+		cmd.Topic = "result-topic"
+
+		cmd.Release()
+
+		cmd2 := AcquireAsyncCallCmd()
+		assert.NotNil(t, cmd2)
+		assert.Equal(t, "", cmd2.Method)
+		assert.Equal(t, "", cmd2.Topic)
+		assert.Nil(t, cmd2.Instance)
+		assert.Nil(t, cmd2.Args)
+	})
+
+	t.Run("AsyncCancelCmd", func(t *testing.T) {
+		cmd := AcquireAsyncCancelCmd()
+		assert.NotNil(t, cmd)
+		assert.Equal(t, AsyncCancel, cmd.CmdID())
+
+		cmd.Topic = "cancel-topic"
+
+		cmd.Release()
+
+		cmd2 := AcquireAsyncCancelCmd()
+		assert.NotNil(t, cmd2)
+		assert.Equal(t, "", cmd2.Topic)
+	})
+}
+
+func TestCommandIDs(t *testing.T) {
+	assert.Equal(t, Open, dispatcher.CommandID(300))
+	assert.Equal(t, Call, dispatcher.CommandID(301))
+	assert.Equal(t, AsyncCall, dispatcher.CommandID(302))
+	assert.Equal(t, AsyncCancel, dispatcher.CommandID(303))
+}
+
+func TestResultTypes(t *testing.T) {
+	t.Run("OpenResult", func(t *testing.T) {
+		result := OpenResult{Instance: nil, Error: nil}
+		assert.Nil(t, result.Instance)
+		assert.NoError(t, result.Error)
+	})
+
+	t.Run("CallResult", func(t *testing.T) {
+		result := CallResult{Value: "test", Error: nil}
+		assert.Equal(t, "test", result.Value)
+		assert.NoError(t, result.Error)
+	})
+
+	t.Run("AsyncCallResult", func(t *testing.T) {
+		result := AsyncCallResult{Error: nil}
+		assert.NoError(t, result.Error)
+	})
+}
+
+func TestContext_NoAppContext(t *testing.T) {
+	t.Run("GetRegistry_NoAppContext", func(t *testing.T) {
+		ctx := context.Background()
+		reg := GetRegistry(ctx)
+		assert.Nil(t, reg)
+	})
+
+	t.Run("GetInstantiator_NoAppContext", func(t *testing.T) {
+		ctx := context.Background()
+		inst := GetInstantiator(ctx)
+		assert.Nil(t, inst)
+	})
+}
+
+func TestContext_WrongType(t *testing.T) {
+	t.Run("GetRegistry_WrongType", func(t *testing.T) {
+		appCtx := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+
+		appCtx.With(&ctxapi.Key{Name: "contracts"}, "not a contractServices")
+
+		reg := GetRegistry(ctx)
+		assert.Nil(t, reg)
+	})
+
+	t.Run("GetInstantiator_WrongType", func(t *testing.T) {
+		appCtx := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+
+		appCtx.With(&ctxapi.Key{Name: "contracts"}, "not a contractServices")
+
+		inst := GetInstantiator(ctx)
+		assert.Nil(t, inst)
+	})
+}
+
+func TestContext_Idempotent(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+
+	type mockRegistry struct{ Registry }
+	mockReg := &mockRegistry{}
+
+	type mockInstantiator struct{ Instantiator }
+	mockInst := &mockInstantiator{}
+
+	ctx = WithContracts(ctx, mockReg, mockInst)
+
+	type mockRegistry2 struct{ Registry }
+	mockReg2 := &mockRegistry2{}
+
+	type mockInstantiator2 struct{ Instantiator }
+	mockInst2 := &mockInstantiator2{}
+
+	WithContracts(ctx, mockReg2, mockInst2)
+
+	assert.Equal(t, mockReg, GetRegistry(ctx))
+	assert.Equal(t, mockInst, GetInstantiator(ctx))
 }

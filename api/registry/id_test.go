@@ -329,3 +329,100 @@ func TestID_WithDefaultNS(t *testing.T) {
 		})
 	}
 }
+
+func TestID_Equal(t *testing.T) {
+	tests := []struct {
+		name     string
+		id1      ID
+		id2      ID
+		expected bool
+	}{
+		{
+			name:     "equal IDs",
+			id1:      ID{NS: "ns", Name: "name"},
+			id2:      ID{NS: "ns", Name: "name"},
+			expected: true,
+		},
+		{
+			name:     "different namespaces",
+			id1:      ID{NS: "ns1", Name: "name"},
+			id2:      ID{NS: "ns2", Name: "name"},
+			expected: false,
+		},
+		{
+			name:     "different names",
+			id1:      ID{NS: "ns", Name: "name1"},
+			id2:      ID{NS: "ns", Name: "name2"},
+			expected: false,
+		},
+		{
+			name:     "both empty",
+			id1:      ID{},
+			id2:      ID{},
+			expected: true,
+		},
+		{
+			name:     "one empty",
+			id1:      ID{NS: "ns", Name: "name"},
+			id2:      ID{},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.id1.Equal(tt.id2)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestNewID(t *testing.T) {
+	tests := []struct {
+		name     string
+		ns       string
+		idName   string
+		expected ID
+	}{
+		{
+			name:     "normal ID",
+			ns:       "test-ns",
+			idName:   "test-name",
+			expected: ID{NS: "test-ns", Name: "test-name"},
+		},
+		{
+			name:     "empty namespace",
+			ns:       "",
+			idName:   "test-name",
+			expected: ID{NS: "", Name: "test-name"},
+		},
+		{
+			name:     "empty name",
+			ns:       "test-ns",
+			idName:   "",
+			expected: ID{NS: "test-ns", Name: ""},
+		},
+		{
+			name:     "both empty",
+			ns:       "",
+			idName:   "",
+			expected: ID{NS: "", Name: ""},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := NewID(tt.ns, tt.idName)
+			assertIDEqual(t, tt.expected, result)
+			assert.Equal(t, tt.ns+":"+tt.idName, result.String())
+		})
+	}
+}
+
+func TestID_String_WithCachedStr(t *testing.T) {
+	id := NewID("ns", "name")
+	assert.Equal(t, "ns:name", id.String())
+
+	id2 := ParseID("ns:name")
+	assert.Equal(t, "ns:name", id2.String())
+}
