@@ -4,9 +4,11 @@ package logs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -130,4 +132,160 @@ func TestConfigJSON(t *testing.T) {
 	assert.Equal(t, config.PropagateDownstream, unmarshaledConfig.PropagateDownstream)
 	assert.Equal(t, config.StreamToEvents, unmarshaledConfig.StreamToEvents)
 	assert.Equal(t, config.MinLevel, unmarshaledConfig.MinLevel)
+}
+
+func TestEventConstants(t *testing.T) {
+	assert.Equal(t, "logs", string(System))
+	assert.Equal(t, "logs.entry", string(Entry))
+	assert.Equal(t, "logs.config.set", string(SetConfig))
+	assert.Equal(t, "logs.config.get", string(GetConfig))
+	assert.Equal(t, "logs.config.state", string(ConfigState))
+}
+
+func TestUpdateLogger(t *testing.T) {
+	t.Run("with app context", func(t *testing.T) {
+		ctx := ctxapi.NewRootContext()
+		logger1 := zap.NewExample()
+		logger2 := zap.NewNop()
+
+		ctx = WithLogger(ctx, logger1)
+		assert.Equal(t, logger1, GetLogger(ctx))
+
+		ctx = UpdateLogger(ctx, logger2)
+		assert.Equal(t, logger2, GetLogger(ctx))
+	})
+
+	t.Run("without app context", func(t *testing.T) {
+		ctx := context.Background()
+		logger := zap.NewExample()
+
+		ctx = UpdateLogger(ctx, logger)
+		assert.Equal(t, context.Background(), ctx)
+	})
+}
+
+func TestWithLogger_NoAppContext(t *testing.T) {
+	ctx := context.Background()
+	logger := zap.NewExample()
+
+	ctx = WithLogger(ctx, logger)
+	assert.Equal(t, context.Background(), ctx)
+}
+
+func TestGetLogger_NoAppContext(t *testing.T) {
+	ctx := context.Background()
+	logger := GetLogger(ctx)
+	assert.NotNil(t, logger)
+}
+
+type mockManager struct {
+	config Config
+}
+
+func (m *mockManager) Start(ctx context.Context) error { return nil }
+func (m *mockManager) Stop() error                     { return nil }
+func (m *mockManager) GetConfig() Config               { return m.config }
+
+func TestContext_Manager(t *testing.T) {
+	t.Run("with app context", func(t *testing.T) {
+		ctx := ctxapi.NewRootContext()
+
+		mgr := GetManager(ctx)
+		assert.Nil(t, mgr)
+
+		mockMgr := &mockManager{}
+		ctx = WithManager(ctx, mockMgr)
+
+		retrieved := GetManager(ctx)
+		assert.Equal(t, mockMgr, retrieved)
+	})
+
+	t.Run("without app context", func(t *testing.T) {
+		ctx := context.Background()
+
+		mgr := GetManager(ctx)
+		assert.Nil(t, mgr)
+
+		mockMgr := &mockManager{}
+		ctx = WithManager(ctx, mockMgr)
+		assert.Equal(t, context.Background(), ctx)
+
+		mgr = GetManager(ctx)
+		assert.Nil(t, mgr)
+	})
+}
+
+func TestSentinelErrors(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      *Error
+		expected string
+		kind     string
+	}{
+		{"ErrGetConfigTimeout", ErrGetConfigTimeout, "timeout waiting for log config", "Timeout"},
+		{"ErrSetConfigTimeout", ErrSetConfigTimeout, "timeout waiting for config confirmation", "Timeout"},
+		{"ErrGetLoggingConfigTimeout", ErrGetLoggingConfigTimeout, "failed to get logging config", "Timeout"},
+		{"ErrSetTempConfigTimeout", ErrSetTempConfigTimeout, "failed to set temporary config", "Timeout"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.err.Error())
+			assert.Equal(t, tt.kind, tt.err.Kind().String())
+			assert.True(t, tt.err.Retryable().Bool())
+			assert.Nil(t, tt.err.Unwrap())
+			assert.Nil(t, tt.err.Details())
+		})
+	}
+}
+
+func TestErrorConstructors(t *testing.T) {
+	cause := errors.New("test cause")
+
+	t.Run("NewSubscriberError", func(t *testing.T) {
+		err := NewSubscriberError(cause)
+		assert.Contains(t, err.Error(), "failed to create subscriber")
+		assert.Equal(t, "Internal", err.Kind().String())
+		assert.True(t, err.Retryable().Bool())
+		assert.Equal(t, cause, err.Unwrap())
+		require.NotNil(t, err.Details())
+	})
+
+	t.Run("NewContextCanceledError", func(t *testing.T) {
+		err := NewContextCanceledError(cause)
+		assert.Contains(t, err.Error(), "context canceled")
+		assert.Equal(t, "Canceled", err.Kind().String())
+		assert.False(t, err.Retryable().Bool())
+		assert.Equal(t, cause, err.Unwrap())
+	})
+
+	t.Run("NewConfigMismatchError", func(t *testing.T) {
+		err := NewConfigMismatchError("requested", "got")
+		assert.Contains(t, err.Error(), "config mismatch")
+		assert.Equal(t, "Internal", err.Kind().String())
+		details := err.Details()
+		require.NotNil(t, details)
+		req, _ := details.Get("requested")
+		assert.Equal(t, "requested", req)
+		g, _ := details.Get("got")
+		assert.Equal(t, "got", g)
+	})
+
+	t.Run("NewGetLoggingConfigError", func(t *testing.T) {
+		err := NewGetLoggingConfigError(cause)
+		assert.Contains(t, err.Error(), "failed to get logging config")
+		assert.Equal(t, cause, err.Unwrap())
+	})
+
+	t.Run("NewSetTempConfigError", func(t *testing.T) {
+		err := NewSetTempConfigError(cause)
+		assert.Contains(t, err.Error(), "failed to set temporary config")
+		assert.Equal(t, cause, err.Unwrap())
+	})
+
+	t.Run("NewSubscribeEventsError", func(t *testing.T) {
+		err := NewSubscribeEventsError(cause)
+		assert.Contains(t, err.Error(), "failed to subscribe to events")
+		assert.Equal(t, cause, err.Unwrap())
+	})
 }

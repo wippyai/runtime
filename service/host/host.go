@@ -82,7 +82,7 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (relay.PID, error)
 // Terminate implements process.Host.
 func (h *Host) Terminate(_ context.Context, pid relay.PID) error {
 	h.log.Debug("process terminate requested", zap.String("pid", pid.String()))
-	return nil
+	return h.scheduler.Terminate(pid)
 }
 
 // Send implements relay.Receiver.

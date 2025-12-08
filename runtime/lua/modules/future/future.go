@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
@@ -57,7 +58,7 @@ func New(topic string, ch *engine.Channel) *Future {
 
 // CreateHandler returns a topic handler that processes async results.
 func (f *Future) CreateHandler() engine.TopicHandler {
-	return func(ctx context.Context, l *lua.LState, payloads []payload.Payload) lua.LValue {
+	return func(ctx context.Context, l *lua.LState, _ relay.PID, _ string, payloads []payload.Payload) lua.LValue {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 

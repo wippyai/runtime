@@ -99,7 +99,7 @@ func (y *EventSubscribeYield) HandleResult(l *lua.LState, data any, err error) [
 }
 
 // eventMessageHandler converts event payloads to Lua tables.
-func eventMessageHandler(_ context.Context, _ *lua.LState, payloads []payload.Payload) lua.LValue {
+func eventMessageHandler(_ context.Context, _ *lua.LState, _ relay.PID, _ string, payloads []payload.Payload) lua.LValue {
 	if len(payloads) == 0 {
 		return lua.LNil
 	}

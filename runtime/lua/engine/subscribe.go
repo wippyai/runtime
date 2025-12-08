@@ -61,6 +61,7 @@ type subscription struct {
 type SubscribeRequest struct {
 	Topic   string
 	Channel *Channel
+	Handler TopicHandler
 }
 
 func (r *SubscribeRequest) String() string       { return "<subscribe_request>" }

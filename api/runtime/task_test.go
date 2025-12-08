@@ -191,3 +191,43 @@ func TestContext_FramePID(t *testing.T) {
 		assert.Contains(t, err.Error(), "no frame context available")
 	})
 }
+
+func TestContext_FrameLifecycleOptions(t *testing.T) {
+	t.Run("with frame context and lifecycle options", func(t *testing.T) {
+		ctx := ctxapi.NewRootContext()
+		ctx, fc := ctxapi.OpenFrameContext(ctx)
+
+		opts := map[string]any{"timeout": 30}
+		fc.Set(FrameLifecycleOptionsKey, opts)
+
+		retrieved := GetFrameLifecycleOptions(ctx)
+		assert.NotNil(t, retrieved)
+		assert.Equal(t, opts, retrieved)
+	})
+
+	t.Run("with frame context but no lifecycle options", func(t *testing.T) {
+		ctx := ctxapi.NewRootContext()
+		ctx, _ = ctxapi.OpenFrameContext(ctx)
+
+		retrieved := GetFrameLifecycleOptions(ctx)
+		assert.Nil(t, retrieved)
+	})
+
+	t.Run("without frame context", func(t *testing.T) {
+		ctx := ctxapi.NewRootContext()
+
+		retrieved := GetFrameLifecycleOptions(ctx)
+		assert.Nil(t, retrieved)
+	})
+}
+
+func TestErrorInterface(t *testing.T) {
+	t.Run("ErrNoFrameContext", func(t *testing.T) {
+		err := ErrNoFrameContext
+		assert.Equal(t, "no frame context available", err.Error())
+		assert.Equal(t, "Internal", err.Kind().String())
+		assert.False(t, err.Retryable().Bool())
+		assert.Nil(t, err.Details())
+		assert.Nil(t, err.Unwrap())
+	})
+}

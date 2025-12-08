@@ -635,6 +635,148 @@ func TestSendByPID(t *testing.T) {
 	}
 }
 
+func TestTerminate(t *testing.T) {
+	var completed atomic.Bool
+	var result *runtime.Result
+	var completedPID relay.PID
+
+	lc := &testLifecycle{
+		onComplete: func(_ context.Context, pid relay.PID, res *runtime.Result) {
+			completedPID = pid
+			result = res
+			completed.Store(true)
+		},
+	}
+
+	registry := scheduler.NewRegistry()
+	registry.Register(CmdYield, YieldHandler())
+	registry.Register(CmdComplete, CompleteHandler())
+	registry.Register(CmdSleep, SleepHandler())
+
+	sched := NewScheduler(registry, WithWorkers(1), WithLifecycle(lc))
+	sched.Start()
+	defer sched.Stop()
+
+	// Submit a blocking process
+	pid := relay.PID{UniqID: "term-test"}
+	_, err := sched.Submit(context.Background(), pid, &SleepProcess{duration: 10 * time.Second}, "", nil)
+	if err != nil {
+		t.Fatalf("submit error: %v", err)
+	}
+
+	// Give it time to start
+	time.Sleep(50 * time.Millisecond)
+
+	// Terminate the process
+	err = sched.Terminate(pid)
+	if err != nil {
+		t.Fatalf("terminate error: %v", err)
+	}
+
+	// Wait for completion callback
+	deadline := time.Now().Add(2 * time.Second)
+	for !completed.Load() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if !completed.Load() {
+		t.Fatal("process was not terminated")
+	}
+
+	if completedPID != pid {
+		t.Fatalf("wrong pid: got %v, want %v", completedPID, pid)
+	}
+
+	if !errors.Is(result.Error, process.ErrTerminated) {
+		t.Fatalf("expected ErrTerminated, got %v", result.Error)
+	}
+
+	// Verify process is gone
+	err = sched.Send(&relay.Package{Target: pid})
+	if !errors.Is(err, process.ErrProcessNotFound) {
+		t.Fatalf("expected ErrProcessNotFound, got %v", err)
+	}
+}
+
+func TestTerminateNotFound(t *testing.T) {
+	sched := newTestScheduler(1)
+	sched.Start()
+	defer sched.Stop()
+
+	err := sched.Terminate(relay.PID{UniqID: "nonexistent"})
+	if !errors.Is(err, process.ErrProcessNotFound) {
+		t.Fatalf("expected ErrProcessNotFound, got %v", err)
+	}
+}
+
+// IdleProcess goes idle immediately and waits for messages
+type IdleProcess struct {
+	ctx context.Context
+}
+
+func (p *IdleProcess) Init(ctx context.Context, _ string, _ payload.Payloads) error {
+	p.ctx = ctx
+	return nil
+}
+
+func (p *IdleProcess) Step(_ []Event, out *StepOutput) error {
+	out.Idle()
+	return nil
+}
+
+func (p *IdleProcess) Close() {}
+
+func TestTerminateIdleProcess(t *testing.T) {
+	var completed atomic.Bool
+	var result *runtime.Result
+
+	lc := &testLifecycle{
+		onComplete: func(_ context.Context, _ relay.PID, res *runtime.Result) {
+			result = res
+			completed.Store(true)
+		},
+	}
+
+	sched := newTestSchedulerWithLifecycle(1, lc)
+	sched.Start()
+	defer sched.Stop()
+
+	pid := relay.PID{UniqID: "idle-term-test"}
+	_, err := sched.Submit(context.Background(), pid, &IdleProcess{}, "", nil)
+	if err != nil {
+		t.Fatalf("submit error: %v", err)
+	}
+
+	// Give it time to become idle
+	time.Sleep(50 * time.Millisecond)
+
+	// Terminate the idle process
+	err = sched.Terminate(pid)
+	if err != nil {
+		t.Fatalf("terminate error: %v", err)
+	}
+
+	// Wait for completion callback
+	deadline := time.Now().Add(2 * time.Second)
+	for !completed.Load() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if !completed.Load() {
+		t.Fatal("idle process was not terminated")
+	}
+
+	if !errors.Is(result.Error, process.ErrTerminated) {
+		t.Fatalf("expected ErrTerminated, got %v", result.Error)
+	}
+
+	// Verify process is gone
+	err = sched.Send(&relay.Package{Target: pid})
+	if !errors.Is(err, process.ErrProcessNotFound) {
+		t.Fatalf("expected ErrProcessNotFound, got %v", err)
+	}
+}
+
 // Single worker tests
 
 func TestSchedulerSingleWorker(t *testing.T) {

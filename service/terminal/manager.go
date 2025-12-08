@@ -10,6 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/service/terminal"
 	"github.com/wippyai/runtime/api/supervisor"
 	entryutil "github.com/wippyai/runtime/internal/entry"
@@ -57,12 +58,12 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	logCtrl := logs.NewConfigurator(m.bus, m.log)
 
-	// Create host first, then scheduler with host as lifecycle
 	h := NewHost(entry.ID, cfg, nil, m.factory, logCtrl, m.log)
 
-	lifecycle := process.GetLifecycleRegistry(ctx)
-	if lifecycle != nil {
-		lifecycle.Register(entry.ID.String(), h)
+	// Create composite lifecycle: global handlers first, then host-specific
+	lifecycle := &compositeLifecycle{
+		global: process.GetLifecycleRegistry(ctx),
+		host:   h,
 	}
 
 	scheduler := actor.NewScheduler(m.commandRegistry,
@@ -117,10 +118,6 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	delete(m.hosts, entry.ID)
 	m.mu.Unlock()
 
-	if lifecycle := process.GetLifecycleRegistry(ctx); lifecycle != nil {
-		lifecycle.Unregister(entry.ID.String())
-	}
-
 	// Unregister from supervisor
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
@@ -155,4 +152,28 @@ func (m *Manager) GetHost(hostID string) (process.Host, bool) {
 		}
 	}
 	return nil, false
+}
+
+// compositeLifecycle wraps global lifecycle with host-specific handlers.
+type compositeLifecycle struct {
+	global process.Lifecycle
+	host   process.Lifecycle
+}
+
+func (c *compositeLifecycle) OnStart(ctx context.Context, pid relay.PID, proc process.Process) {
+	if c.global != nil {
+		c.global.OnStart(ctx, pid, proc)
+	}
+	if c.host != nil {
+		c.host.OnStart(ctx, pid, proc)
+	}
+}
+
+func (c *compositeLifecycle) OnComplete(ctx context.Context, pid relay.PID, result *runtime.Result) {
+	if c.global != nil {
+		c.global.OnComplete(ctx, pid, result)
+	}
+	if c.host != nil {
+		c.host.OnComplete(ctx, pid, result)
+	}
 }

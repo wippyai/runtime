@@ -151,12 +151,12 @@ func (s *Scheduler) Submit(ctx context.Context, pid relay.PID, p Process, method
 	s.processorCount.Add(1)
 	s.byPID.Store(pid, proc)
 
-	s.global.Push(proc)
-	s.wake()
-
 	if s.lifecycle != nil {
 		s.lifecycle.OnStart(ctx, pid, p)
 	}
+
+	s.global.Push(proc)
+	s.wake()
 
 	return proc, nil
 }
@@ -184,6 +184,40 @@ func (s *Scheduler) SendTo(procID uint64, pkg *relay.Package) error {
 
 func (s *Scheduler) Cancel(procID uint64) {
 	s.idleProcs.Delete(procID)
+}
+
+// Terminate forcibly terminates a process by PID with an error.
+// This immediately completes the process and triggers LINK_DOWN for linked processes.
+func (s *Scheduler) Terminate(pid relay.PID) error {
+	v, ok := s.byPID.Load(pid)
+	if !ok {
+		return process.ErrProcessNotFound
+	}
+	proc := v.(*Processor)
+
+	// Close the queue to reject new events
+	proc.queue.Close()
+
+	// Remove from idle tracking if present
+	s.idleProcs.Delete(proc.id)
+
+	// Attempt to transition to complete state
+	// If already complete, this is a no-op
+	if proc.casState(StateIdle, StateComplete) ||
+		proc.casState(StateBlocked, StateComplete) ||
+		proc.casState(StateReady, StateComplete) {
+		// Successfully transitioned from a non-running state
+		s.complete(proc, nil, process.ErrTerminated)
+		return nil
+	}
+
+	// Process is running - push a terminate event that will cause step to error
+	proc.queue.PushDirect(process.Event{
+		Type:  process.EventYieldComplete,
+		Error: process.ErrTerminated,
+	})
+
+	return nil
 }
 
 func (s *Scheduler) complete(proc *Processor, result *StepOutput, err error) {

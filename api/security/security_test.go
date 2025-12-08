@@ -220,3 +220,124 @@ func TestPolicyEntry_MarshalUnmarshal(t *testing.T) {
 		})
 	}
 }
+
+func TestSentinelErrors(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      *Error
+		expected string
+		kind     Kind
+	}{
+		{"ErrNoFrameContext", ErrNoFrameContext, "no frame context available", KindInvalid},
+		{"ErrScopeNotFound", ErrScopeNotFound, "security scope not found in context", KindNotFound},
+		{"ErrRegistryNotFound", ErrRegistryNotFound, "security registry not found in context", KindNotFound},
+		{"ErrPolicyNotFound", ErrPolicyNotFound, "policy not found", KindNotFound},
+		{"ErrGroupNotFound", ErrGroupNotFound, "policy group not found", KindNotFound},
+		{"ErrTokenInvalid", ErrTokenInvalid, "invalid token format", KindInvalid},
+		{"ErrTokenExpired", ErrTokenExpired, "token expired", KindExpired},
+		{"ErrTokenRevoked", ErrTokenRevoked, "token revoked", KindRevoked},
+		{"ErrTokenNotFound", ErrTokenNotFound, "token not found", KindNotFound},
+		{"ErrUnsupportedTokenType", ErrUnsupportedTokenType, "unsupported token type", KindInvalid},
+		{"ErrPermissionDenied", ErrPermissionDenied, "permission denied", KindDenied},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.err.Error())
+			assert.Equal(t, tt.kind, tt.err.Kind())
+			assert.Nil(t, tt.err.Details())
+			assert.Nil(t, tt.err.Unwrap())
+		})
+	}
+}
+
+func TestErrorMethods(t *testing.T) {
+	t.Run("WithCause", func(t *testing.T) {
+		cause := errors.New("underlying cause")
+		newErr := ErrPolicyNotFound.WithCause(cause)
+		assert.Equal(t, cause, newErr.Unwrap())
+		assert.Equal(t, ErrPolicyNotFound.Error(), newErr.Error())
+	})
+
+	t.Run("WithDetails", func(t *testing.T) {
+		details := attrs.NewBagFrom(map[string]any{"key": "value"})
+		newErr := ErrPolicyNotFound.WithDetails(details)
+		assert.NotNil(t, newErr.Details())
+		val, _ := newErr.Details().Get("key")
+		assert.Equal(t, "value", val)
+	})
+}
+
+func TestKindConstants(t *testing.T) {
+	assert.Equal(t, Kind("NotFound"), KindNotFound)
+	assert.Equal(t, Kind("Invalid"), KindInvalid)
+	assert.Equal(t, Kind("Expired"), KindExpired)
+	assert.Equal(t, Kind("Revoked"), KindRevoked)
+	assert.Equal(t, Kind("Denied"), KindDenied)
+}
+
+func TestCommandPools(t *testing.T) {
+	t.Run("TokenValidateCmd", func(t *testing.T) {
+		cmd := AcquireTokenValidateCmd()
+		assert.NotNil(t, cmd)
+		cmd.Token = "test-token"
+		assert.Equal(t, CmdTokenValidate, cmd.CmdID())
+		cmd.Release()
+		assert.Empty(t, cmd.Token)
+	})
+
+	t.Run("TokenCreateCmd", func(t *testing.T) {
+		cmd := AcquireTokenCreateCmd()
+		assert.NotNil(t, cmd)
+		cmd.Actor = Actor{ID: "test"}
+		assert.Equal(t, CmdTokenCreate, cmd.CmdID())
+		cmd.Release()
+		assert.Empty(t, cmd.Actor.ID)
+	})
+
+	t.Run("TokenRevokeCmd", func(t *testing.T) {
+		cmd := AcquireTokenRevokeCmd()
+		assert.NotNil(t, cmd)
+		cmd.Token = "test-token"
+		assert.Equal(t, CmdTokenRevoke, cmd.CmdID())
+		cmd.Release()
+		assert.Empty(t, cmd.Token)
+	})
+}
+
+func TestCommandIDs(t *testing.T) {
+	assert.Equal(t, 140, int(CmdTokenValidate))
+	assert.Equal(t, 141, int(CmdTokenCreate))
+	assert.Equal(t, 142, int(CmdTokenRevoke))
+}
+
+func TestResponseTypes(t *testing.T) {
+	t.Run("TokenValidateResponse", func(t *testing.T) {
+		resp := TokenValidateResponse{
+			Actor: Actor{ID: "user1"},
+			Error: nil,
+		}
+		assert.Equal(t, "user1", resp.Actor.ID)
+		assert.Nil(t, resp.Error)
+	})
+
+	t.Run("TokenCreateResponse", func(t *testing.T) {
+		resp := TokenCreateResponse{
+			Token: "new-token",
+			Error: nil,
+		}
+		assert.Equal(t, Token("new-token"), resp.Token)
+	})
+
+	t.Run("TokenRevokeResponse", func(t *testing.T) {
+		resp := TokenRevokeResponse{Error: nil}
+		assert.Nil(t, resp.Error)
+	})
+}
+
+func TestNewTokenDetails(t *testing.T) {
+	meta := attrs.NewBagFrom(map[string]any{"scope": "read"})
+	details := NewTokenDetails(3600, meta)
+	assert.Equal(t, 3600, int(details.Expiration))
+	assert.Equal(t, meta, details.Meta)
+}

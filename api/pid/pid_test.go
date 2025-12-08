@@ -1,6 +1,7 @@
 package pid
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -90,5 +91,88 @@ func TestParsePID(t *testing.T) {
 	t.Run("too short", func(t *testing.T) {
 		_, err := ParsePID("{}")
 		require.Error(t, err)
+	})
+}
+
+func TestPID_MarshalJSON(t *testing.T) {
+	t.Run("with node", func(t *testing.T) {
+		pid := PID{Node: "node1", Host: "host1", UniqID: "proc1"}
+		data, err := json.Marshal(pid)
+		require.NoError(t, err)
+		assert.Equal(t, `"{node1@host1|proc1}"`, string(data))
+	})
+
+	t.Run("without node", func(t *testing.T) {
+		pid := PID{Host: "host1", UniqID: "proc1"}
+		data, err := json.Marshal(pid)
+		require.NoError(t, err)
+		assert.Equal(t, `"{host1|proc1}"`, string(data))
+	})
+}
+
+func TestPID_UnmarshalJSON(t *testing.T) {
+	t.Run("with node", func(t *testing.T) {
+		var pid PID
+		err := json.Unmarshal([]byte(`"{node1@host1|proc1}"`), &pid)
+		require.NoError(t, err)
+		assert.Equal(t, "node1", pid.Node)
+		assert.Equal(t, "host1", pid.Host)
+		assert.Equal(t, "proc1", pid.UniqID)
+	})
+
+	t.Run("without node", func(t *testing.T) {
+		var pid PID
+		err := json.Unmarshal([]byte(`"{host1|proc1}"`), &pid)
+		require.NoError(t, err)
+		assert.Equal(t, "", pid.Node)
+		assert.Equal(t, "host1", pid.Host)
+		assert.Equal(t, "proc1", pid.UniqID)
+	})
+
+	t.Run("too short", func(t *testing.T) {
+		var pid PID
+		err := json.Unmarshal([]byte(`"{}"`), &pid)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing braces")
+	})
+
+	t.Run("missing quotes", func(t *testing.T) {
+		var pid PID
+		err := pid.UnmarshalJSON([]byte(`{host1|proc1}`))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing quotes")
+	})
+}
+
+func TestPID_JSONRoundTrip(t *testing.T) {
+	original := PID{Node: "node1", Host: "host1", UniqID: "proc1"}
+
+	data, err := json.Marshal(original)
+	require.NoError(t, err)
+
+	var parsed PID
+	err = json.Unmarshal(data, &parsed)
+	require.NoError(t, err)
+
+	assert.Equal(t, original.Node, parsed.Node)
+	assert.Equal(t, original.Host, parsed.Host)
+	assert.Equal(t, original.UniqID, parsed.UniqID)
+}
+
+func TestErrorInterface(t *testing.T) {
+	t.Run("ErrInvalidPIDFormat", func(t *testing.T) {
+		err := ErrInvalidPIDFormat
+		assert.Equal(t, "invalid pid format", err.Error())
+		assert.Equal(t, "Invalid", err.Kind().String())
+		assert.False(t, err.Retryable().Bool())
+		assert.Nil(t, err.Details())
+		assert.Nil(t, err.Unwrap())
+	})
+
+	t.Run("WithMessage", func(t *testing.T) {
+		err := ErrInvalidPIDFormat.WithMessage("custom message")
+		assert.Equal(t, "custom message", err.Error())
+		assert.Equal(t, ErrInvalidPIDFormat.Kind(), err.Kind())
+		assert.Equal(t, ErrInvalidPIDFormat.Retryable(), err.Retryable())
 	})
 }

@@ -35,6 +35,11 @@ var (
 		kind:    KindInvalidState,
 		message: "process is not idle",
 	}
+
+	ErrTerminated = &Error{
+		kind:    KindInternal,
+		message: "process terminated",
+	}
 )
 
 // UnknownCommandError indicates an unregistered command.

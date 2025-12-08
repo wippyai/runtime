@@ -3,10 +3,12 @@ package relay
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 )
@@ -276,5 +278,123 @@ func TestWithHost_GetHost(t *testing.T) {
 
 		host := GetHost(ctx)
 		assert.Equal(t, first, host)
+	})
+}
+
+func TestSentinelErrors(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      *Error
+		expected string
+		kind     string
+	}{
+		{"ErrAlreadyAttached", ErrAlreadyAttached, "receiver already attached", "AlreadyExists"},
+		{"ErrHostNotFound", ErrHostNotFound, "host not found", "NotFound"},
+		{"ErrHostAlreadyExists", ErrHostAlreadyExists, "host already exists", "AlreadyExists"},
+		{"ErrInvalidPIDFormat", ErrInvalidPIDFormat, "invalid pid format", "Invalid"},
+		{"ErrNilPackage", ErrNilPackage, "cannot send nil package", "Invalid"},
+		{"ErrEmptyNodeID", ErrEmptyNodeID, "nodeID cannot be empty", "Invalid"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.err.Error())
+			assert.Equal(t, tt.kind, tt.err.Kind().String())
+			assert.False(t, tt.err.Retryable().Bool())
+			assert.Nil(t, tt.err.Unwrap())
+		})
+	}
+}
+
+func TestErrorMethods(t *testing.T) {
+	t.Run("WithCause", func(t *testing.T) {
+		cause := errors.New("underlying cause")
+		newErr := ErrHostNotFound.WithCause(cause)
+		assert.Equal(t, cause, newErr.Unwrap())
+		assert.Equal(t, ErrHostNotFound.Error(), newErr.Error())
+	})
+
+	t.Run("WithDetails", func(t *testing.T) {
+		details := attrs.NewBagFrom(map[string]any{"key": "value"})
+		newErr := ErrHostNotFound.WithDetails(details)
+		assert.NotNil(t, newErr.Details())
+		val, _ := newErr.Details().Get("key")
+		assert.Equal(t, "value", val)
+	})
+
+	t.Run("WithMessage", func(t *testing.T) {
+		newErr := ErrHostNotFound.WithMessage("custom message")
+		assert.Equal(t, "custom message", newErr.Error())
+	})
+}
+
+func TestErrorConstructors(t *testing.T) {
+	t.Run("NewHostExistsError", func(t *testing.T) {
+		err := NewHostExistsError("host1", "node1")
+		assert.Contains(t, err.Error(), "host1")
+		assert.Contains(t, err.Error(), "already exists")
+		assert.Equal(t, "AlreadyExists", err.Kind().String())
+		details := err.Details()
+		require.NotNil(t, details)
+		hostID, _ := details.Get("host_id")
+		assert.Equal(t, "host1", hostID)
+	})
+
+	t.Run("NewHostNotFoundError", func(t *testing.T) {
+		err := NewHostNotFoundError("host1", "node1")
+		assert.Contains(t, err.Error(), "host1")
+		assert.Contains(t, err.Error(), "not found")
+		assert.Equal(t, "NotFound", err.Kind().String())
+	})
+
+	t.Run("NewInvalidHostTypeError", func(t *testing.T) {
+		err := NewInvalidHostTypeError("host1", "node1")
+		assert.Contains(t, err.Error(), "invalid type")
+		assert.Equal(t, "Internal", err.Kind().String())
+	})
+
+	t.Run("NewExternalNodeError", func(t *testing.T) {
+		err := NewExternalNodeError("node1")
+		assert.Contains(t, err.Error(), "cannot route to external node")
+		assert.Equal(t, "Unavailable", err.Kind().String())
+	})
+
+	t.Run("NewNodeNotFoundError", func(t *testing.T) {
+		err := NewNodeNotFoundError("node1")
+		assert.Contains(t, err.Error(), "not found")
+		assert.Equal(t, "NotFound", err.Kind().String())
+	})
+
+	t.Run("NewHostNotAttachableError", func(t *testing.T) {
+		err := NewHostNotAttachableError("host1")
+		assert.Contains(t, err.Error(), "does not support attachment")
+		assert.Equal(t, "Invalid", err.Kind().String())
+	})
+
+	t.Run("NewPeerExistsError", func(t *testing.T) {
+		err := NewPeerExistsError("node1")
+		assert.Contains(t, err.Error(), "peer node already registered")
+		assert.Equal(t, "AlreadyExists", err.Kind().String())
+	})
+
+	t.Run("NewPeerConflictError", func(t *testing.T) {
+		err := NewPeerConflictError("node1")
+		assert.Contains(t, err.Error(), "conflicts with local node")
+		assert.Equal(t, "Conflict", err.Kind().String())
+	})
+
+	t.Run("NewSubscriberError", func(t *testing.T) {
+		cause := errors.New("subscriber error")
+		err := NewSubscriberError(cause)
+		assert.Contains(t, err.Error(), "failed to create subscriber")
+		assert.True(t, err.Retryable().Bool())
+		assert.Equal(t, cause, err.Unwrap())
+	})
+
+	t.Run("NewAlreadyAttachedError", func(t *testing.T) {
+		pid := PID{Host: "host1", UniqID: "proc1"}
+		err := NewAlreadyAttachedError(pid)
+		assert.Contains(t, err.Error(), "already attached")
+		assert.Equal(t, ErrAlreadyAttached, err.Unwrap())
 	})
 }

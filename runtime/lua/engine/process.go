@@ -607,7 +607,7 @@ func (p *Process) processSubscribeYields(tasks []*Task, messages []*relay.Packag
 			// Check for topic handler
 			var value lua.LValue
 			if handler, ok := p.GetTopicHandler(topic); ok {
-				value = handler(p.ctx, p.state, payloads)
+				value = handler(p.ctx, p.state, pkg.Source, topic, payloads)
 				if value == nil {
 					// Handler processed but doesn't want to send to channel
 					if hasTerminal {
@@ -667,7 +667,17 @@ func (p *Process) processSubscribeYields(tasks []*Task, messages []*relay.Packag
 			if err != nil {
 				task.ResumeWith(lua.LNil, lua.LString(err.Error()))
 			} else {
-				task.ResumeWith(sub.channel.Value())
+				if req.Handler != nil {
+					p.SetTopicHandler(req.Topic, req.Handler)
+				}
+				// Wrap channel as userdata if not already wrapped
+				chValue := sub.channel.Value()
+				if chValue == nil {
+					PushChannel(task.thread, sub.channel)
+					chValue = task.thread.Get(-1)
+					task.thread.Pop(1)
+				}
+				task.ResumeWith(chValue)
 			}
 			p.queue.Push(task)
 			continue

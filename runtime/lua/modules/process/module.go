@@ -22,8 +22,6 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-const defaultCancelTimeout = "30s"
-
 var (
 	moduleTable      *lua.LTable
 	registration     *luaapi.Registration
@@ -628,9 +626,6 @@ func cancel(l *lua.LState) int {
 			l.Push(lua.LString("deadline must be either a duration string or milliseconds number"))
 			return 2
 		}
-	} else {
-		duration, _ := time.ParseDuration(defaultCancelTimeout)
-		deadline = time.Now().Add(duration)
 	}
 
 	if err := manager.Cancel(l.Context(), self, pid, deadline); err != nil {
@@ -906,6 +901,7 @@ func inbox(l *lua.LState) int {
 	req := &engine.SubscribeRequest{
 		Topic:   topology.TopicInbox,
 		Channel: ch,
+		Handler: MessageHandler,
 	}
 	l.Push(req)
 	return -1
@@ -941,6 +937,7 @@ func listen(l *lua.LState) int {
 	req := &engine.SubscribeRequest{
 		Topic:   topic,
 		Channel: ch,
+		Handler: MessageHandler,
 	}
 	l.Push(req)
 	return -1

@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/relay"
@@ -56,6 +57,79 @@ func TestErrors(t *testing.T) {
 	t.Run("name already registered", func(t *testing.T) {
 		assert.Equal(t, "name already registered", ErrNameAlreadyRegistered.Error())
 		assert.True(t, errors.Is(ErrNameAlreadyRegistered, ErrNameAlreadyRegistered))
+	})
+
+	t.Run("pid not found", func(t *testing.T) {
+		assert.Equal(t, "pid not found", ErrPIDNotFound.Error())
+		assert.Equal(t, "NotFound", ErrPIDNotFound.Kind().String())
+	})
+
+	t.Run("pid not registered", func(t *testing.T) {
+		assert.Equal(t, "pid not registered", ErrPIDNotRegistered.Error())
+		assert.Equal(t, "NotFound", ErrPIDNotRegistered.Kind().String())
+	})
+
+	t.Run("already monitoring", func(t *testing.T) {
+		assert.Equal(t, "already monitoring pid", ErrAlreadyMonitoring.Error())
+		assert.Equal(t, "AlreadyExists", ErrAlreadyMonitoring.Kind().String())
+	})
+}
+
+func TestErrorInterface(t *testing.T) {
+	err := ErrNameAlreadyRegistered
+	assert.Equal(t, "AlreadyExists", err.Kind().String())
+	assert.Equal(t, "Unknown", err.Retryable().String())
+	assert.Nil(t, err.Details())
+	assert.Nil(t, err.Unwrap())
+}
+
+func TestErrorMethods(t *testing.T) {
+	t.Run("WithCause", func(t *testing.T) {
+		cause := errors.New("underlying cause")
+		newErr := ErrPIDNotFound.WithCause(cause)
+		assert.Equal(t, cause, newErr.Unwrap())
+		assert.Equal(t, ErrPIDNotFound.Error(), newErr.Error())
+	})
+
+	t.Run("WithDetails", func(t *testing.T) {
+		bag := make(attrs.Bag)
+		bag["pid"] = "test-pid"
+		newErr := ErrPIDNotFound.WithDetails(bag)
+		assert.NotNil(t, newErr.Details())
+	})
+
+	t.Run("WithMessage", func(t *testing.T) {
+		newErr := ErrPIDNotFound.WithMessage("custom message")
+		assert.Equal(t, "custom message", newErr.Error())
+	})
+}
+
+func TestErrorIs(t *testing.T) {
+	t.Run("same error", func(t *testing.T) {
+		assert.True(t, ErrPIDNotFound.Is(ErrPIDNotFound))
+	})
+
+	t.Run("different error same kind and message", func(t *testing.T) {
+		err1 := &Error{kind: "test", message: "msg"}
+		err2 := &Error{kind: "test", message: "msg"}
+		assert.True(t, err1.Is(err2))
+	})
+
+	t.Run("different kind", func(t *testing.T) {
+		err1 := &Error{kind: "kind1", message: "msg"}
+		err2 := &Error{kind: "kind2", message: "msg"}
+		assert.False(t, err1.Is(err2))
+	})
+
+	t.Run("different message", func(t *testing.T) {
+		err1 := &Error{kind: "test", message: "msg1"}
+		err2 := &Error{kind: "test", message: "msg2"}
+		assert.False(t, err1.Is(err2))
+	})
+
+	t.Run("different error type", func(t *testing.T) {
+		err := errors.New("standard error")
+		assert.False(t, ErrPIDNotFound.Is(err))
 	})
 }
 

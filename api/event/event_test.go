@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/pid"
 )
 
 func TestEvent_MarshalUnmarshal(t *testing.T) {
@@ -143,4 +144,74 @@ func TestContext_Bus(t *testing.T) {
 		bus = GetBus(ctx)
 		assert.Nil(t, bus)
 	})
+}
+
+func TestErrorInterface(t *testing.T) {
+	t.Run("NewRouterCanceledError", func(t *testing.T) {
+		cause := context.Canceled
+		err := NewRouterCanceledError(cause)
+		assert.Contains(t, err.Error(), "router context canceled")
+		assert.Equal(t, "Canceled", err.Kind().String())
+		assert.False(t, err.Retryable().Bool())
+		assert.Equal(t, cause, err.Unwrap())
+		details := err.Details()
+		require.NotNil(t, details)
+	})
+
+	t.Run("NewSubscriberError", func(t *testing.T) {
+		cause := context.DeadlineExceeded
+		err := NewSubscriberError(cause)
+		assert.Contains(t, err.Error(), "failed to create subscriber")
+		assert.Equal(t, "Internal", err.Kind().String())
+		assert.True(t, err.Retryable().Bool())
+		assert.Equal(t, cause, err.Unwrap())
+	})
+}
+
+func TestCommands(t *testing.T) {
+	t.Run("EventsSubscribeCmd", func(t *testing.T) {
+		cmd := EventsSubscribeCmd{
+			System: "test-system",
+			Kind:   "test-kind",
+			Topic:  "test-topic",
+			PID:    pid.PID{Node: "node1", Host: "host1", UniqID: "123"},
+		}
+		assert.Equal(t, CmdEventsSubscribe, cmd.CmdID())
+		assert.Equal(t, "test-system", cmd.System)
+		assert.Equal(t, "test-kind", cmd.Kind)
+		assert.Equal(t, "test-topic", cmd.Topic)
+	})
+
+	t.Run("EventsSendCmd", func(t *testing.T) {
+		cmd := EventsSendCmd{
+			System: "test-system",
+			Kind:   "test-kind",
+			Path:   "test-path",
+			Data:   map[string]any{"key": "value"},
+		}
+		assert.Equal(t, CmdEventsSend, cmd.CmdID())
+		assert.Equal(t, "test-system", cmd.System)
+		assert.Equal(t, "test-path", cmd.Path)
+	})
+
+	t.Run("command ID constants", func(t *testing.T) {
+		assert.Equal(t, 90, int(CmdEventsSubscribe))
+		assert.Equal(t, 91, int(CmdEventsSend))
+	})
+}
+
+func TestSubscription(t *testing.T) {
+	called := false
+	sub := Subscription{
+		System:      "test-system",
+		Kind:        "test-kind",
+		Topic:       "test-topic",
+		Unsubscribe: func() { called = true },
+	}
+	assert.Equal(t, "test-system", sub.System)
+	assert.Equal(t, "test-kind", sub.Kind)
+	assert.Equal(t, "test-topic", sub.Topic)
+
+	sub.Unsubscribe()
+	assert.True(t, called)
 }

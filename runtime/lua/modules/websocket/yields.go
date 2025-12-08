@@ -215,7 +215,7 @@ func (y *WsSubscribeYield) HandleResult(l *lua.LState, _ any, err error) []lua.L
 
 // wsMessageHandler converts websocket message payloads to Lua tables.
 // Terminal payloads are handled by the process layer (closes channel automatically).
-func wsMessageHandler(_ context.Context, l *lua.LState, payloads []payload.Payload) lua.LValue {
+func wsMessageHandler(_ context.Context, l *lua.LState, _ relay.PID, _ string, payloads []payload.Payload) lua.LValue {
 	if len(payloads) == 0 {
 		return lua.LNil
 	}
