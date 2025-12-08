@@ -621,11 +621,13 @@ func (p *Process) processSubscribeYields(tasks []*Task, messages []*relay.Packag
 				value = PayloadsToLua(p.ctx, p.state, payloads)
 			}
 			result := sub.channel.Send(nil, value, nil)
+			if result == nil {
+				continue
+			}
 
 			// Wake any blocked receivers
-			updates := result.GetUpdates()
-			if result.Yields && len(updates) > 0 {
-				for _, upd := range updates {
+			if result.Yields {
+				for _, upd := range result.GetUpdates() {
 					if upd.State == nil {
 						continue
 					}
