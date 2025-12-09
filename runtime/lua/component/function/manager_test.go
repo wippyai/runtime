@@ -5,8 +5,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/wippyai/runtime/api/dispatcher"
-	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	api "github.com/wippyai/runtime/api/runtime/lua"
@@ -15,26 +13,6 @@ import (
 	"github.com/wippyai/runtime/system/payload/json"
 	"go.uber.org/zap"
 )
-
-type mockEventBus struct {
-	events []event.Event
-}
-
-func (m *mockEventBus) Send(ctx context.Context, e event.Event) {
-	m.events = append(m.events, e)
-}
-
-func (m *mockEventBus) Subscribe(ctx context.Context, filter event.Filter, ch chan event.Event) {
-}
-
-func (m *mockEventBus) Unsubscribe(ctx context.Context, ch chan event.Event) {
-}
-
-type mockDispatcher struct{}
-
-func (m *mockDispatcher) Dispatch(ctx context.Context, cmd dispatcher.Command) (*dispatcher.Result, error) {
-	return nil, nil
-}
 
 func TestNewManager(t *testing.T) {
 	log := zap.NewNop()
@@ -128,7 +106,7 @@ func TestManager_Delete_InvalidKind(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid entry kind")
 }
 
-func TestManager_Invalidate(t *testing.T) {
+func TestManager_Invalidate(_ *testing.T) {
 	log := zap.NewNop()
 	codeManager := &code.Manager{}
 	bus := &mockEventBus{}

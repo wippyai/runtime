@@ -63,6 +63,7 @@ var statementMethods = map[string]lua.LGoFunc{
 	"close":   stmtClose,
 }
 
+//nolint:unparam // idx kept for API consistency with other check functions
 func checkStatement(l *lua.LState, idx int) *Statement {
 	ud := l.CheckUserData(idx)
 	if v, ok := ud.Value.(*Statement); ok {

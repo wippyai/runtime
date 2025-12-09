@@ -1,8 +1,11 @@
 package funcs
 
 import (
+	"errors"
 	"testing"
 
+	"github.com/wippyai/runtime/api/function"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/modules/future"
 	lua "github.com/yuin/gopher-lua"
@@ -138,9 +141,336 @@ func TestCallYieldPooling(t *testing.T) {
 	yield2 := AcquireCallYield()
 	defer ReleaseCallYield(yield2)
 
-	// After release, acquire should return a yield from pool
 	if yield1 != yield2 {
-		// Not strictly required but expected behavior
-		t.Log("pooling working as expected")
+		t.Error("pool should reuse yield objects")
+	}
+}
+
+func TestAsyncStartYieldPooling(t *testing.T) {
+	y1 := AcquireAsyncStartYield()
+	ReleaseAsyncStartYield(y1)
+
+	y2 := AcquireAsyncStartYield()
+	defer ReleaseAsyncStartYield(y2)
+
+	if y1 != y2 {
+		t.Error("pool should reuse yield objects")
+	}
+}
+
+func TestAsyncCancelYieldPooling(t *testing.T) {
+	y1 := AcquireAsyncCancelYield()
+	ReleaseAsyncCancelYield(y1)
+
+	y2 := AcquireAsyncCancelYield()
+	defer ReleaseAsyncCancelYield(y2)
+
+	if y1 != y2 {
+		t.Error("pool should reuse yield objects")
+	}
+}
+
+func TestCallYieldHandleResult(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    any
+		err     error
+		wantErr bool
+	}{
+		{
+			name:    "success",
+			data:    function.CallResult{Value: payload.NewString("result"), Error: nil},
+			err:     nil,
+			wantErr: false,
+		},
+		{
+			name:    "call error",
+			data:    nil,
+			err:     errors.New("call failed"),
+			wantErr: true,
+		},
+		{
+			name:    "no response",
+			data:    nil,
+			err:     nil,
+			wantErr: true,
+		},
+		{
+			name:    "invalid response type",
+			data:    "invalid",
+			err:     nil,
+			wantErr: true,
+		},
+		{
+			name:    "response with error",
+			data:    function.CallResult{Error: errors.New("function error")},
+			err:     nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+
+			y := AcquireCallYield()
+			defer ReleaseCallYield(y)
+
+			result := y.HandleResult(l, tt.data, tt.err)
+
+			if len(result) != 2 {
+				t.Fatalf("expected 2 return values, got %d", len(result))
+			}
+
+			if tt.wantErr {
+				if result[1] == lua.LNil {
+					t.Error("expected error, got nil")
+				}
+			} else {
+				if result[1] != lua.LNil {
+					t.Errorf("expected no error, got %v", result[1])
+				}
+			}
+		})
+	}
+}
+
+func TestAsyncStartYieldHandleResult(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    any
+		err     error
+		wantErr bool
+	}{
+		{
+			name:    "success",
+			data:    function.AsyncStartResult{Error: nil},
+			err:     nil,
+			wantErr: false,
+		},
+		{
+			name:    "start error",
+			data:    nil,
+			err:     errors.New("start failed"),
+			wantErr: true,
+		},
+		{
+			name:    "invalid response type",
+			data:    "invalid",
+			err:     nil,
+			wantErr: true,
+		},
+		{
+			name:    "response with error",
+			data:    function.AsyncStartResult{Error: errors.New("async error")},
+			err:     nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+
+			y := AcquireAsyncStartYield()
+			y.Future = future.New("test", nil)
+			defer ReleaseAsyncStartYield(y)
+
+			result := y.HandleResult(l, tt.data, tt.err)
+
+			if len(result) != 2 {
+				t.Fatalf("expected 2 return values, got %d", len(result))
+			}
+
+			if tt.wantErr {
+				if result[1] == lua.LNil {
+					t.Error("expected error, got nil")
+				}
+			} else {
+				if result[1] != lua.LNil {
+					t.Errorf("expected no error, got %v", result[1])
+				}
+			}
+		})
+	}
+}
+
+func TestAsyncCancelYieldHandleResult(t *testing.T) {
+	tests := []struct {
+		name    string
+		err     error
+		wantErr bool
+	}{
+		{
+			name:    "success",
+			err:     nil,
+			wantErr: false,
+		},
+		{
+			name:    "cancel error",
+			err:     errors.New("cancel failed"),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+
+			y := AcquireAsyncCancelYield()
+			defer ReleaseAsyncCancelYield(y)
+
+			result := y.HandleResult(l, nil, tt.err)
+
+			if len(result) != 2 {
+				t.Fatalf("expected 2 return values, got %d", len(result))
+			}
+
+			if tt.wantErr {
+				if result[1] == lua.LNil {
+					t.Error("expected error, got nil")
+				}
+			} else {
+				if result[1] != lua.LNil {
+					t.Errorf("expected no error, got %v", result[1])
+				}
+				if result[0] != lua.LTrue {
+					t.Error("expected true on success")
+				}
+			}
+		})
+	}
+}
+
+func TestCallYieldCommandID(t *testing.T) {
+	y := AcquireCallYield()
+	defer ReleaseCallYield(y)
+
+	if y.CmdID() != function.Call {
+		t.Errorf("expected CmdID %v, got %v", function.Call, y.CmdID())
+	}
+}
+
+func TestAsyncStartYieldCommandID(t *testing.T) {
+	y := AcquireAsyncStartYield()
+	defer ReleaseAsyncStartYield(y)
+
+	if y.CmdID() != function.AsyncStart {
+		t.Errorf("expected CmdID %v, got %v", function.AsyncStart, y.CmdID())
+	}
+}
+
+func TestAsyncCancelYieldCommandID(t *testing.T) {
+	y := AcquireAsyncCancelYield()
+	defer ReleaseAsyncCancelYield(y)
+
+	if y.CmdID() != function.AsyncCancel {
+		t.Errorf("expected CmdID %v, got %v", function.AsyncCancel, y.CmdID())
+	}
+}
+
+func TestCallYieldToCommand(t *testing.T) {
+	y := AcquireCallYield()
+	defer ReleaseCallYield(y)
+
+	cmd := y.ToCommand()
+	if cmd == nil {
+		t.Error("ToCommand should return a command")
+	}
+	if cmd != y.CallCmd {
+		t.Error("ToCommand should return the CallCmd")
+	}
+}
+
+func TestAsyncStartYieldToCommand(t *testing.T) {
+	y := AcquireAsyncStartYield()
+	defer ReleaseAsyncStartYield(y)
+
+	cmd := y.ToCommand()
+	if cmd == nil {
+		t.Error("ToCommand should return a command")
+	}
+	if cmd != y.AsyncStartCmd {
+		t.Error("ToCommand should return the AsyncStartCmd")
+	}
+}
+
+func TestAsyncCancelYieldToCommand(t *testing.T) {
+	y := AcquireAsyncCancelYield()
+	defer ReleaseAsyncCancelYield(y)
+
+	cmd := y.ToCommand()
+	if cmd == nil {
+		t.Error("ToCommand should return a command")
+	}
+	if cmd != y.AsyncCancelCmd {
+		t.Error("ToCommand should return the AsyncCancelCmd")
+	}
+}
+
+func TestExecutorState(t *testing.T) {
+	e := &Executor{}
+
+	if e.hasActor {
+		t.Error("new executor should not have actor")
+	}
+	if e.hasScope {
+		t.Error("new executor should not have scope")
+	}
+	if e.hasOptions {
+		t.Error("new executor should not have options")
+	}
+}
+
+func TestValidateTarget(t *testing.T) {
+	tests := []struct {
+		name    string
+		target  string
+		wantErr bool
+	}{
+		{
+			name:    "valid target",
+			target:  "ns:name",
+			wantErr: false,
+		},
+		{
+			name:    "empty target",
+			target:  "",
+			wantErr: true,
+		},
+		{
+			name:    "missing namespace",
+			target:  "name",
+			wantErr: true,
+		},
+		{
+			name:    "missing name",
+			target:  "ns:",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+
+			l.Push(lua.LString(tt.target))
+
+			_, retCount := validateTarget(l, tt.target)
+
+			if tt.wantErr {
+				if retCount != 2 {
+					t.Errorf("expected error return (2), got %d", retCount)
+				}
+			} else {
+				if retCount != 0 {
+					t.Errorf("expected success (0), got %d", retCount)
+				}
+			}
+		})
 	}
 }

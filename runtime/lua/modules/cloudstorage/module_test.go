@@ -1,6 +1,8 @@
 package cloudstorage
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	csapi "github.com/wippyai/runtime/api/cloudstorage"
@@ -207,5 +209,407 @@ func TestYieldTypes_LuaType(t *testing.T) {
 		if y.Type() != lua.LTUserData {
 			t.Errorf("expected LTUserData, got %v for %s", y.Type(), y.String())
 		}
+	}
+}
+
+func TestListObjectsYieldHandleResult(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    any
+		err     error
+		wantErr bool
+	}{
+		{
+			name: "success",
+			data: csapi.ListObjectsResponse{
+				Result: &csapi.ListObjectsResult{
+					Objects: []csapi.ObjectMetadata{
+						{Key: "test.txt", Size: 100, ContentType: "text/plain", ETag: "etag1"},
+					},
+					IsTruncated:           false,
+					NextContinuationToken: "",
+				},
+				Error: nil,
+			},
+			err:     nil,
+			wantErr: false,
+		},
+		{
+			name:    "error",
+			data:    nil,
+			err:     errors.New("list failed"),
+			wantErr: true,
+		},
+		{
+			name:    "invalid response type",
+			data:    "invalid",
+			err:     nil,
+			wantErr: true,
+		},
+		{
+			name: "response with error",
+			data: csapi.ListObjectsResponse{
+				Error: errors.New("operation error"),
+			},
+			err:     nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+
+			y := AcquireListObjectsYield()
+			defer ReleaseListObjectsYield(y)
+
+			result := y.HandleResult(l, tt.data, tt.err)
+
+			if len(result) != 2 {
+				t.Fatalf("expected 2 return values, got %d", len(result))
+			}
+
+			if tt.wantErr {
+				if result[1] == lua.LNil {
+					t.Error("expected error, got nil")
+				}
+			}
+		})
+	}
+}
+
+func TestDownloadObjectYieldHandleResult(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    any
+		err     error
+		wantErr bool
+	}{
+		{
+			name:    "success",
+			data:    csapi.DownloadObjectResponse{Error: nil},
+			err:     nil,
+			wantErr: false,
+		},
+		{
+			name:    "error",
+			data:    nil,
+			err:     errors.New("download failed"),
+			wantErr: true,
+		},
+		{
+			name:    "invalid response type",
+			data:    "invalid",
+			err:     nil,
+			wantErr: true,
+		},
+		{
+			name:    "response with error",
+			data:    csapi.DownloadObjectResponse{Error: errors.New("operation error")},
+			err:     nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+
+			y := AcquireDownloadObjectYield()
+			defer ReleaseDownloadObjectYield(y)
+
+			result := y.HandleResult(l, tt.data, tt.err)
+
+			if tt.wantErr {
+				if len(result) != 2 {
+					t.Fatalf("expected 2 return values for error, got %d", len(result))
+				}
+				if result[1] == lua.LNil {
+					t.Error("expected error, got nil")
+				}
+			}
+		})
+	}
+}
+
+func TestUploadObjectYieldHandleResult(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    any
+		err     error
+		wantErr bool
+	}{
+		{
+			name:    "success",
+			data:    csapi.UploadObjectResponse{Error: nil},
+			err:     nil,
+			wantErr: false,
+		},
+		{
+			name:    "error",
+			data:    nil,
+			err:     errors.New("upload failed"),
+			wantErr: true,
+		},
+		{
+			name:    "invalid response type",
+			data:    "invalid",
+			err:     nil,
+			wantErr: true,
+		},
+		{
+			name:    "response with error",
+			data:    csapi.UploadObjectResponse{Error: errors.New("operation error")},
+			err:     nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+
+			y := AcquireUploadObjectYield()
+			defer ReleaseUploadObjectYield(y)
+
+			result := y.HandleResult(l, tt.data, tt.err)
+
+			if len(result) != 2 {
+				t.Fatalf("expected 2 return values, got %d", len(result))
+			}
+
+			if tt.wantErr {
+				if result[1] == lua.LNil {
+					t.Error("expected error, got nil")
+				}
+			}
+		})
+	}
+}
+
+func TestUploadObjectYieldToCommand(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	y := AcquireUploadObjectYield()
+	defer ReleaseUploadObjectYield(y)
+
+	y.Content = lua.LString("test content")
+	cmd := y.ToCommand()
+
+	if cmd == nil {
+		t.Fatal("expected non-nil command")
+	}
+}
+
+func TestUploadObjectYieldToCommandUserData(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	y := AcquireUploadObjectYield()
+	defer ReleaseUploadObjectYield(y)
+
+	reader := strings.NewReader("test")
+	ud := l.NewUserData()
+	ud.Value = reader
+	y.Content = ud
+
+	cmd := y.ToCommand()
+
+	if cmd == nil {
+		t.Fatal("expected non-nil command")
+	}
+}
+
+func TestDeleteObjectsYieldHandleResult(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    any
+		err     error
+		wantErr bool
+	}{
+		{
+			name:    "success",
+			data:    csapi.DeleteObjectsResponse{Error: nil},
+			err:     nil,
+			wantErr: false,
+		},
+		{
+			name:    "error",
+			data:    nil,
+			err:     errors.New("delete failed"),
+			wantErr: true,
+		},
+		{
+			name:    "invalid response type",
+			data:    "invalid",
+			err:     nil,
+			wantErr: true,
+		},
+		{
+			name:    "response with error",
+			data:    csapi.DeleteObjectsResponse{Error: errors.New("operation error")},
+			err:     nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+
+			y := AcquireDeleteObjectsYield()
+			defer ReleaseDeleteObjectsYield(y)
+
+			result := y.HandleResult(l, tt.data, tt.err)
+
+			if len(result) != 2 {
+				t.Fatalf("expected 2 return values, got %d", len(result))
+			}
+
+			if tt.wantErr {
+				if result[1] == lua.LNil {
+					t.Error("expected error, got nil")
+				}
+			}
+		})
+	}
+}
+
+func TestPresignedGetURLYieldHandleResult(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    any
+		err     error
+		wantErr bool
+	}{
+		{
+			name:    "success",
+			data:    csapi.PresignedGetURLResponse{URL: "https://example.com", Error: nil},
+			err:     nil,
+			wantErr: false,
+		},
+		{
+			name:    "error",
+			data:    nil,
+			err:     errors.New("presign failed"),
+			wantErr: true,
+		},
+		{
+			name:    "invalid response type",
+			data:    "invalid",
+			err:     nil,
+			wantErr: true,
+		},
+		{
+			name:    "response with error",
+			data:    csapi.PresignedGetURLResponse{Error: errors.New("operation error")},
+			err:     nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+
+			y := AcquirePresignedGetURLYield()
+			defer ReleasePresignedGetURLYield(y)
+
+			result := y.HandleResult(l, tt.data, tt.err)
+
+			if len(result) != 2 {
+				t.Fatalf("expected 2 return values, got %d", len(result))
+			}
+
+			if tt.wantErr {
+				if result[1] == lua.LNil {
+					t.Error("expected error, got nil")
+				}
+			}
+		})
+	}
+}
+
+func TestPresignedPutURLYieldHandleResult(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    any
+		err     error
+		wantErr bool
+	}{
+		{
+			name:    "success",
+			data:    csapi.PresignedPutURLResponse{URL: "https://example.com", Error: nil},
+			err:     nil,
+			wantErr: false,
+		},
+		{
+			name:    "error",
+			data:    nil,
+			err:     errors.New("presign failed"),
+			wantErr: true,
+		},
+		{
+			name:    "invalid response type",
+			data:    "invalid",
+			err:     nil,
+			wantErr: true,
+		},
+		{
+			name:    "response with error",
+			data:    csapi.PresignedPutURLResponse{Error: errors.New("operation error")},
+			err:     nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+
+			y := AcquirePresignedPutURLYield()
+			defer ReleasePresignedPutURLYield(y)
+
+			result := y.HandleResult(l, tt.data, tt.err)
+
+			if len(result) != 2 {
+				t.Fatalf("expected 2 return values, got %d", len(result))
+			}
+
+			if tt.wantErr {
+				if result[1] == lua.LNil {
+					t.Error("expected error, got nil")
+				}
+			}
+		})
+	}
+}
+
+func TestStorageWrapper(t *testing.T) {
+	w := &storageWrapper{
+		released: false,
+	}
+
+	if w.released {
+		t.Error("new wrapper should not be released")
+	}
+}
+
+func TestModuleInfo(t *testing.T) {
+	if Module.Name != "cloudstorage" {
+		t.Errorf("expected name 'cloudstorage', got '%s'", Module.Name)
+	}
+	if Module.Description == "" {
+		t.Error("module should have a description")
+	}
+	if len(Module.Class) == 0 {
+		t.Error("module should have at least one class")
 	}
 }

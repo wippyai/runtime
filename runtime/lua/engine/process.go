@@ -435,9 +435,10 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		out.Continue()
 	} else if yieldCount == 0 && len(p.threads) > 0 {
 		// Check if we're waiting for external operations
-		//nolint:gocritic // if-else is clearer than switch for state checks
 		if len(p.pendingYields) > 0 {
-			out.Continue()
+			// Still waiting for previously dispatched yields - stay blocked.
+			// The scheduler will keep us blocked until CompleteYield arrives.
+			out.WaitYields()
 		} else if p.HasSubscriptions() || len(p.channels) > 0 {
 			out.Idle()
 		} else {

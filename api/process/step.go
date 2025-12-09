@@ -5,6 +5,7 @@ const (
 	StepContinue StepStatus = iota
 	StepIdle
 	StepDone
+	StepWaitYields // waiting for previously dispatched yields to complete
 )
 
 // MaxYields is the maximum yields per step that fit in the fixed buffer.
@@ -67,6 +68,11 @@ func (o *StepOutput) Done(result Payload) {
 // Idle marks process as waiting for external events (messages).
 func (o *StepOutput) Idle() {
 	o.status = StepIdle
+}
+
+// WaitYields marks process as waiting for previously dispatched yields.
+func (o *StepOutput) WaitYields() {
+	o.status = StepWaitYields
 }
 
 // Continue marks process as ready to continue (default).

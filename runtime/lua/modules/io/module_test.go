@@ -2,9 +2,9 @@ package io
 
 import (
 	"bytes"
-	"context"
 	"testing"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/service/terminal"
 	lua "github.com/yuin/gopher-lua"
@@ -89,10 +89,10 @@ func TestWrite_WithTerminalContext(t *testing.T) {
 	bindIO(l)
 
 	stdout := &bytes.Buffer{}
-	tc := &terminal.Context{
-		Stdout: stdout,
-	}
-	ctx := terminal.WithTerminalContext(context.Background(), tc)
+	tc := terminal.NewTerminalContext(nil, stdout, nil)
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	_ = terminal.SetTerminalContext(ctx, tc)
 	l.SetContext(ctx)
 
 	err := l.DoString(`
@@ -114,10 +114,10 @@ func TestPrint_WithTerminalContext(t *testing.T) {
 	bindIO(l)
 
 	stdout := &bytes.Buffer{}
-	tc := &terminal.Context{
-		Stdout: stdout,
-	}
-	ctx := terminal.WithTerminalContext(context.Background(), tc)
+	tc := terminal.NewTerminalContext(nil, stdout, nil)
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	_ = terminal.SetTerminalContext(ctx, tc)
 	l.SetContext(ctx)
 
 	err := l.DoString(`
@@ -139,10 +139,10 @@ func TestEprint_WithTerminalContext(t *testing.T) {
 	bindIO(l)
 
 	stderr := &bytes.Buffer{}
-	tc := &terminal.Context{
-		Stderr: stderr,
-	}
-	ctx := terminal.WithTerminalContext(context.Background(), tc)
+	tc := terminal.NewTerminalContext(nil, nil, stderr)
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	_ = terminal.SetTerminalContext(ctx, tc)
 	l.SetContext(ctx)
 
 	err := l.DoString(`
@@ -164,10 +164,10 @@ func TestRead_WithTerminalContext(t *testing.T) {
 	bindIO(l)
 
 	stdin := bytes.NewBufferString("test input")
-	tc := &terminal.Context{
-		Stdin: stdin,
-	}
-	ctx := terminal.WithTerminalContext(context.Background(), tc)
+	tc := terminal.NewTerminalContext(stdin, nil, nil)
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	_ = terminal.SetTerminalContext(ctx, tc)
 	l.SetContext(ctx)
 
 	err := l.DoString(`
@@ -186,10 +186,10 @@ func TestReadline_WithTerminalContext(t *testing.T) {
 	bindIO(l)
 
 	stdin := bytes.NewBufferString("test line\n")
-	tc := &terminal.Context{
-		Stdin: stdin,
-	}
-	ctx := terminal.WithTerminalContext(context.Background(), tc)
+	tc := terminal.NewTerminalContext(stdin, nil, nil)
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	_ = terminal.SetTerminalContext(ctx, tc)
 	l.SetContext(ctx)
 
 	err := l.DoString(`
@@ -208,10 +208,10 @@ func TestFlush_WithTerminalContext(t *testing.T) {
 	bindIO(l)
 
 	stdout := &bytes.Buffer{}
-	tc := &terminal.Context{
-		Stdout: stdout,
-	}
-	ctx := terminal.WithTerminalContext(context.Background(), tc)
+	tc := terminal.NewTerminalContext(nil, stdout, nil)
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	_ = terminal.SetTerminalContext(ctx, tc)
 	l.SetContext(ctx)
 
 	err := l.DoString(`

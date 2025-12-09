@@ -22,6 +22,7 @@ const (
 	StepContinue       = process.StepContinue
 	StepIdle           = process.StepIdle
 	StepDone           = process.StepDone
+	StepWaitYields     = process.StepWaitYields
 	MaxYields          = process.MaxYields
 	EventYieldComplete = process.EventYieldComplete
 	EventMessage       = process.EventMessage

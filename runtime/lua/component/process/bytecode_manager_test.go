@@ -17,16 +17,8 @@ import (
 
 type mockFSRegistry struct{}
 
-func (m *mockFSRegistry) Register(name string, fs fs.FS) error {
-	return nil
-}
-
-func (m *mockFSRegistry) Get(name string) (fs.FS, bool) {
+func (m *mockFSRegistry) GetFS(_ string) (fs.FS, bool) {
 	return nil, false
-}
-
-func (m *mockFSRegistry) Unregister(name string) bool {
-	return false
 }
 
 func TestNewBytecodeManager(t *testing.T) {
@@ -121,7 +113,7 @@ func TestBytecodeManager_Delete_InvalidKind(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid entry kind")
 }
 
-func TestBytecodeManager_Invalidate(t *testing.T) {
+func TestBytecodeManager_Invalidate(_ *testing.T) {
 	log := zap.NewNop()
 	codeManager := &code.Manager{}
 	bus := &mockEventBus{}

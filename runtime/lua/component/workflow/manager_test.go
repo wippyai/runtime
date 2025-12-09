@@ -19,14 +19,19 @@ type mockEventBus struct {
 	events []event.Event
 }
 
-func (m *mockEventBus) Send(ctx context.Context, e event.Event) {
+func (m *mockEventBus) Send(_ context.Context, e event.Event) {
 	m.events = append(m.events, e)
 }
 
-func (m *mockEventBus) Subscribe(ctx context.Context, filter event.Filter, ch chan event.Event) {
+func (m *mockEventBus) Subscribe(_ context.Context, _ event.System, _ chan<- event.Event) (event.SubscriberID, error) {
+	return "", nil
 }
 
-func (m *mockEventBus) Unsubscribe(ctx context.Context, ch chan event.Event) {
+func (m *mockEventBus) SubscribeP(_ context.Context, _ event.System, _ event.Kind, _ chan<- event.Event) (event.SubscriberID, error) {
+	return "", nil
+}
+
+func (m *mockEventBus) Unsubscribe(_ context.Context, _ event.SubscriberID) {
 }
 
 func TestNewManager(t *testing.T) {
@@ -115,7 +120,7 @@ func TestManager_Delete_InvalidKind(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid entry kind")
 }
 
-func TestManager_Invalidate(t *testing.T) {
+func TestManager_Invalidate(_ *testing.T) {
 	log := zap.NewNop()
 	codeManager := &code.Manager{}
 	bus := &mockEventBus{}

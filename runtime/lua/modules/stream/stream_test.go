@@ -174,3 +174,370 @@ func TestStreamMethods(t *testing.T) {
 		t.Fatalf("DoString failed: %v", err)
 	}
 }
+
+func TestWriteYieldPool(t *testing.T) {
+	y1 := AcquireWriteYield(123, []byte("data1"))
+	if y1.StreamID != 123 {
+		t.Errorf("expected StreamID=123, got %v", y1.StreamID)
+	}
+	if string(y1.Data) != "data1" {
+		t.Errorf("expected Data='data1', got %s", string(y1.Data))
+	}
+	ReleaseWriteYield(y1)
+
+	y2 := AcquireWriteYield(456, []byte("data2"))
+	defer ReleaseWriteYield(y2)
+	if y2.StreamID != 456 {
+		t.Errorf("expected StreamID=456, got %v", y2.StreamID)
+	}
+}
+
+func TestWriteYieldString(t *testing.T) {
+	y := AcquireWriteYield(1, []byte("test"))
+	defer ReleaseWriteYield(y)
+
+	if y.String() != "<stream_write_yield>" {
+		t.Errorf("unexpected String(): %s", y.String())
+	}
+}
+
+func TestSeekYieldPool(t *testing.T) {
+	y1 := AcquireSeekYield(100, 200, 1)
+	if y1.StreamID != 100 {
+		t.Errorf("expected StreamID=100, got %v", y1.StreamID)
+	}
+	if y1.Offset != 200 {
+		t.Errorf("expected Offset=200, got %v", y1.Offset)
+	}
+	if y1.Whence != 1 {
+		t.Errorf("expected Whence=1, got %v", y1.Whence)
+	}
+	ReleaseSeekYield(y1)
+
+	y2 := AcquireSeekYield(200, 300, 2)
+	defer ReleaseSeekYield(y2)
+	if y2.StreamID != 200 {
+		t.Errorf("expected StreamID=200, got %v", y2.StreamID)
+	}
+}
+
+func TestSeekYieldString(t *testing.T) {
+	y := AcquireSeekYield(1, 0, 0)
+	defer ReleaseSeekYield(y)
+
+	if y.String() != "<stream_seek_yield>" {
+		t.Errorf("unexpected String(): %s", y.String())
+	}
+}
+
+func TestFlushYieldPool(t *testing.T) {
+	y1 := AcquireFlushYield(50)
+	if y1.StreamID != 50 {
+		t.Errorf("expected StreamID=50, got %v", y1.StreamID)
+	}
+	ReleaseFlushYield(y1)
+
+	y2 := AcquireFlushYield(60)
+	defer ReleaseFlushYield(y2)
+	if y2.StreamID != 60 {
+		t.Errorf("expected StreamID=60, got %v", y2.StreamID)
+	}
+}
+
+func TestFlushYieldString(t *testing.T) {
+	y := AcquireFlushYield(1)
+	defer ReleaseFlushYield(y)
+
+	if y.String() != "<stream_flush_yield>" {
+		t.Errorf("unexpected String(): %s", y.String())
+	}
+}
+
+func TestStatYieldPool(t *testing.T) {
+	y1 := AcquireStatYield(70)
+	if y1.StreamID != 70 {
+		t.Errorf("expected StreamID=70, got %v", y1.StreamID)
+	}
+	ReleaseStatYield(y1)
+
+	y2 := AcquireStatYield(80)
+	defer ReleaseStatYield(y2)
+	if y2.StreamID != 80 {
+		t.Errorf("expected StreamID=80, got %v", y2.StreamID)
+	}
+}
+
+func TestStatYieldString(t *testing.T) {
+	y := AcquireStatYield(1)
+	defer ReleaseStatYield(y)
+
+	if y.String() != "<stream_stat_yield>" {
+		t.Errorf("unexpected String(): %s", y.String())
+	}
+}
+
+func TestReadYieldHandleResult(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    any
+		err     error
+		wantErr bool
+	}{
+		{
+			name:    "success with data",
+			data:    []byte("test data"),
+			err:     nil,
+			wantErr: false,
+		},
+		{
+			name:    "success with nil (EOF)",
+			data:    nil,
+			err:     nil,
+			wantErr: false,
+		},
+		{
+			name:    "read error",
+			data:    nil,
+			err:     errors.New("read failed"),
+			wantErr: true,
+		},
+		{
+			name:    "invalid response type",
+			data:    "invalid",
+			err:     nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+
+			y := AcquireReadYield(1, 100)
+			defer ReleaseReadYield(y)
+
+			result := y.HandleResult(l, tt.data, tt.err)
+
+			if len(result) != 2 {
+				t.Fatalf("expected 2 return values, got %d", len(result))
+			}
+
+			if tt.wantErr {
+				if result[1] == lua.LNil {
+					t.Error("expected error, got nil")
+				}
+			}
+		})
+	}
+}
+
+func TestWriteYieldHandleResult(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    any
+		err     error
+		wantErr bool
+	}{
+		{
+			name:    "success",
+			data:    int64(10),
+			err:     nil,
+			wantErr: false,
+		},
+		{
+			name:    "write error",
+			data:    nil,
+			err:     errors.New("write failed"),
+			wantErr: true,
+		},
+		{
+			name:    "invalid response type",
+			data:    "invalid",
+			err:     nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+
+			y := AcquireWriteYield(1, []byte("test"))
+			defer ReleaseWriteYield(y)
+
+			result := y.HandleResult(l, tt.data, tt.err)
+
+			if len(result) != 2 {
+				t.Fatalf("expected 2 return values, got %d", len(result))
+			}
+
+			if tt.wantErr {
+				if result[1] == lua.LNil {
+					t.Error("expected error, got nil")
+				}
+			}
+		})
+	}
+}
+
+func TestSeekYieldHandleResult(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    any
+		err     error
+		wantErr bool
+	}{
+		{
+			name:    "success",
+			data:    int64(100),
+			err:     nil,
+			wantErr: false,
+		},
+		{
+			name:    "seek error",
+			data:    nil,
+			err:     errors.New("seek failed"),
+			wantErr: true,
+		},
+		{
+			name:    "invalid response type",
+			data:    "invalid",
+			err:     nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+
+			y := AcquireSeekYield(1, 0, 0)
+			defer ReleaseSeekYield(y)
+
+			result := y.HandleResult(l, tt.data, tt.err)
+
+			if len(result) != 2 {
+				t.Fatalf("expected 2 return values, got %d", len(result))
+			}
+
+			if tt.wantErr {
+				if result[1] == lua.LNil {
+					t.Error("expected error, got nil")
+				}
+			}
+		})
+	}
+}
+
+func TestFlushYieldHandleResult(t *testing.T) {
+	tests := []struct {
+		name    string
+		err     error
+		wantErr bool
+	}{
+		{
+			name:    "success",
+			err:     nil,
+			wantErr: false,
+		},
+		{
+			name:    "flush error",
+			err:     errors.New("flush failed"),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+
+			y := AcquireFlushYield(1)
+			defer ReleaseFlushYield(y)
+
+			result := y.HandleResult(l, nil, tt.err)
+
+			if len(result) != 2 {
+				t.Fatalf("expected 2 return values, got %d", len(result))
+			}
+
+			if tt.wantErr {
+				if result[1] == lua.LNil {
+					t.Error("expected error, got nil")
+				}
+			}
+		})
+	}
+}
+
+func TestCloseYieldHandleResult(t *testing.T) {
+	tests := []struct {
+		name    string
+		err     error
+		wantErr bool
+	}{
+		{
+			name:    "success",
+			err:     nil,
+			wantErr: false,
+		},
+		{
+			name:    "close error",
+			err:     errors.New("close failed"),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+
+			y := AcquireCloseYield(1)
+			defer ReleaseCloseYield(y)
+
+			result := y.HandleResult(l, nil, tt.err)
+
+			if len(result) != 2 {
+				t.Fatalf("expected 2 return values, got %d", len(result))
+			}
+
+			if tt.wantErr {
+				if result[1] == lua.LNil {
+					t.Error("expected error, got nil")
+				}
+			}
+		})
+	}
+}
+
+func TestModuleBuild(t *testing.T) {
+	table, yields := Module.Build()
+
+	if table == nil {
+		t.Fatal("Build() returned nil table")
+	}
+
+	if !table.Immutable {
+		t.Error("module table should be immutable")
+	}
+
+	if len(yields) != 6 {
+		t.Errorf("expected 6 yield types, got %d", len(yields))
+	}
+}
+
+func TestModuleInfo(t *testing.T) {
+	if Module.Name != "stream" {
+		t.Errorf("expected name 'stream', got '%s'", Module.Name)
+	}
+	if Module.Description == "" {
+		t.Error("module should have a description")
+	}
+	if len(Module.Class) == 0 {
+		t.Error("module should have at least one class")
+	}
+}

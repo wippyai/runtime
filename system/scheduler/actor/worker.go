@@ -186,6 +186,18 @@ func (w *Worker) executeOne(proc *Processor) {
 		// Dispatch yields while keeping StateRunning.
 		// This prevents CompleteYield from re-queueing while we're still dispatching.
 		w.dispatchYields(proc.ctx, proc, yields)
+
+	case StepWaitYields:
+		// Process is waiting for previously dispatched yields.
+		// Transition to Blocked so CompleteYield can wake us.
+		proc.setState(StateBlocked)
+		// Check for events that arrived during state transition.
+		if proc.queue.HasEvents() {
+			if proc.casState(StateBlocked, StateReady) {
+				w.scheduler.global.Push(proc)
+				w.scheduler.wake()
+			}
+		}
 	}
 }
 

@@ -282,6 +282,26 @@ func (e *Executor) Run(ctx context.Context, proc process.Process, method string,
 				}
 				return result
 			}
+
+		case process.StepWaitYields:
+			// Process is waiting for previously dispatched yields.
+			// Check if events arrived during step - if so, continue immediately
+			if e.queue.HasEvents() {
+				continue
+			}
+			// Wait for yield completion
+			select {
+			case <-e.wake:
+				continue
+			case <-e.queue.Signal():
+				continue
+			case <-ctx.Done():
+				result := &runtime.Result{Error: ctx.Err()}
+				if e.hooks.OnComplete != nil {
+					e.hooks.OnComplete(ctx, result)
+				}
+				return result
+			}
 		}
 	}
 }

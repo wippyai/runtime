@@ -110,22 +110,34 @@ local function short_name(id)
     return id:match(":([^:]+)$") or id
 end
 
--- Run single test
+-- Run single test with retry for pool registration race
 local function run_test(entry)
-    local ok, result, err = pcall(function()
-        return funcs.call(entry.id)
-    end)
+    local max_retries = 3
+    local retry_delay = 10 * time.MILLISECOND
 
-    if not ok then
-        return false, result
+    for attempt = 1, max_retries do
+        local ok, result, err = pcall(function()
+            return funcs.call(entry.id)
+        end)
+
+        if not ok then
+            -- Check if it's a pool not found error - retry
+            local err_str = tostring(result)
+            if err_str:match("pool not found") and attempt < max_retries then
+                time.sleep(retry_delay)
+            else
+                return false, result
+            end
+        elseif err then
+            return false, err
+        elseif result == false then
+            return false, "test returned false"
+        else
+            return true, nil
+        end
     end
-    if err then
-        return false, err
-    end
-    if result == false then
-        return false, "test returned false"
-    end
-    return true, nil
+
+    return false, "max retries exceeded"
 end
 
 -- Run suite with live progress
@@ -279,6 +291,9 @@ local function run_tests()
 end
 
 local function main()
+    -- Small startup delay for pprof to attach
+    time.sleep(500 * time.MILLISECOND)
+
     -- Hide cursor during test run
     io.write(hide_cursor())
     io.flush()

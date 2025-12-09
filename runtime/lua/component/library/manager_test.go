@@ -103,9 +103,71 @@ func TestManager_Invalidate(_ *testing.T) {
 	codeManager := &code.Manager{}
 	manager := NewManager(log, codeManager)
 
-	// Test with some IDs
 	ids := []registry.ID{{Name: "test1"}, {Name: "test2"}}
 	manager.Invalidate(context.Background(), ids)
+}
 
-	// Should not panic and just log
+func TestNewBytecodeManager(t *testing.T) {
+	log := zap.NewNop()
+	codeManager := &code.Manager{}
+
+	manager := NewBytecodeManager(log, codeManager, nil)
+
+	assert.NotNil(t, manager)
+	assert.Equal(t, log, manager.log)
+	assert.Equal(t, codeManager, manager.code)
+}
+
+func TestBytecodeManager_Add_InvalidKind(t *testing.T) {
+	log := zap.NewNop()
+	codeManager := &code.Manager{}
+	manager := NewBytecodeManager(log, codeManager, nil)
+
+	entry := registry.Entry{
+		Kind: registry.Kind("invalid"),
+	}
+
+	err := manager.Add(context.Background(), entry)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid entry kind")
+}
+
+func TestBytecodeManager_Update_InvalidKind(t *testing.T) {
+	log := zap.NewNop()
+	codeManager := &code.Manager{}
+	manager := NewBytecodeManager(log, codeManager, nil)
+
+	entry := registry.Entry{
+		Kind: registry.Kind("invalid"),
+	}
+
+	err := manager.Update(context.Background(), entry)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid entry kind")
+}
+
+func TestBytecodeManager_Delete_InvalidKind(t *testing.T) {
+	log := zap.NewNop()
+	codeManager := &code.Manager{}
+	manager := NewBytecodeManager(log, codeManager, nil)
+
+	entry := registry.Entry{
+		Kind: registry.Kind("invalid"),
+	}
+
+	err := manager.Delete(context.Background(), entry)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid entry kind")
+}
+
+func TestBytecodeManager_Invalidate(_ *testing.T) {
+	log := zap.NewNop()
+	codeManager := &code.Manager{}
+	manager := NewBytecodeManager(log, codeManager, nil)
+
+	ids := []registry.ID{{Name: "test1"}, {Name: "test2"}}
+	manager.Invalidate(context.Background(), ids)
 }
