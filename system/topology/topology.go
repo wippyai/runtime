@@ -1,6 +1,7 @@
 package topology
 
 import (
+	"strings"
 	"sync"
 	"time"
 
@@ -50,6 +51,7 @@ func (t *Topology) Register(pid relay.PID) error {
 		t.processes[key] = &processState{
 			watchers: make(map[string]bool),
 			links:    make(map[string]bool),
+			watching: make(map[string]bool),
 		}
 	}
 	return nil
@@ -59,19 +61,21 @@ func (t *Topology) Register(pid relay.PID) error {
 func (t *Topology) Wait(caller, pid relay.PID) error {
 	// Check if PID is on remote node.
 	if pid.Node != "" && pid.Node != t.localNodeID {
-		// Track outbound monitor locally before sending remote request
+		callerKey := caller.String()
+		pidKey := pid.String()
+
+		// Send first, then track locally on success
+		pkg := topology.MonitorRequest(caller, pid)
+		if err := t.router.Send(pkg); err != nil {
+			return err
+		}
+
 		t.mu.Lock()
-		callerState, exists := t.processes[caller.String()]
-		if exists {
-			if callerState.watching == nil {
-				callerState.watching = make(map[string]bool)
-			}
-			callerState.watching[pid.String()] = true
+		if callerState, exists := t.processes[callerKey]; exists {
+			callerState.watching[pidKey] = true
 		}
 		t.mu.Unlock()
-
-		pkg := topology.MonitorRequest(caller, pid)
-		return t.router.Send(pkg)
+		return nil
 	}
 
 	t.mu.Lock()
@@ -126,52 +130,68 @@ func (t *Topology) Release(caller, pid relay.PID) error {
 
 // Link establishes a bidirectional link between two processes.
 func (t *Topology) Link(from, to relay.PID) error {
-	t.mu.Lock()
+	fromKey := from.String()
+	toKey := to.String()
 
-	fromState, fromExists := t.processes[from.String()]
+	// Check if to PID is on remote node.
+	if to.Node != "" && to.Node != t.localNodeID {
+		t.mu.Lock()
+		fromState, fromExists := t.processes[fromKey]
+		if !fromExists {
+			t.mu.Unlock()
+			return topology.ErrPIDNotRegistered.WithDetails(attrs.Bag{
+				"pid":       fromKey,
+				"operation": "link",
+				"role":      "from",
+			})
+		}
+		if fromState.links[toKey] {
+			t.mu.Unlock()
+			return nil // Already linked.
+		}
+		t.mu.Unlock()
+
+		// Send first, then track locally on success
+		pkg := topology.LinkRequest(from, to)
+		if err := t.router.Send(pkg); err != nil {
+			return err
+		}
+
+		t.mu.Lock()
+		if fromState, exists := t.processes[fromKey]; exists {
+			fromState.links[toKey] = true
+		}
+		t.mu.Unlock()
+		return nil
+	}
+
+	// Local linking.
+	t.mu.Lock()
+	fromState, fromExists := t.processes[fromKey]
 	if !fromExists {
 		t.mu.Unlock()
 		return topology.ErrPIDNotRegistered.WithDetails(attrs.Bag{
-			"pid":       from.String(),
+			"pid":       fromKey,
 			"operation": "link",
 			"role":      "from",
 		})
 	}
 
-	// Check if to PID is on remote node.
-	if to.Node != "" && to.Node != t.localNodeID {
-		toKey := to.String()
-		if fromState.links[toKey] {
-			t.mu.Unlock()
-			return nil // Already linked.
-		}
-		fromState.links[toKey] = true
-		t.mu.Unlock()
-
-		pkg := topology.LinkRequest(from, to)
-		return t.router.Send(pkg)
-	}
-
-	// Local linking.
-	toState, toExists := t.processes[to.String()]
+	toState, toExists := t.processes[toKey]
 	if !toExists {
 		t.mu.Unlock()
 		return topology.ErrPIDNotRegistered.WithDetails(attrs.Bag{
-			"pid":       to.String(),
+			"pid":       toKey,
 			"operation": "link",
 			"role":      "to",
 		})
 	}
-
-	fromKey := from.String()
-	toKey := to.String()
 
 	if fromState.links[toKey] {
 		t.mu.Unlock()
 		return nil // Already linked.
 	}
 
-	// Bidirectional link.
 	fromState.links[toKey] = true
 	toState.links[fromKey] = true
 	t.mu.Unlock()
@@ -408,48 +428,48 @@ func (t *Topology) watcherCount(pid relay.PID) int {
 // HandleNodeExit handles node failure by notifying all local processes
 // that were watching or linked to PIDs on the failed node.
 func (t *Topology) HandleNodeExit(nodeID relay.NodeID, exitErr error) {
+	// Build prefix for fast string matching: "{nodeID@"
+	nodePrefix := "{" + string(nodeID) + "@"
+
 	t.mu.RLock()
 	type notification struct {
-		caller relay.PID
-		target relay.PID
+		callerKey string
+		targetKey string
 	}
-	var toNotify []notification
+	// Pre-allocate with estimated capacity
+	toNotify := make([]notification, 0, 64)
 
 	for callerKey, state := range t.processes {
-		callerPID, err := relay.ParsePID(callerKey)
-		if err != nil {
-			continue
-		}
-
 		// Check outbound monitors (watching)
 		for targetKey := range state.watching {
-			targetPID, err := relay.ParsePID(targetKey)
-			if err != nil {
-				continue
-			}
-			if targetPID.Node == nodeID {
-				toNotify = append(toNotify, notification{callerPID, targetPID})
+			if strings.HasPrefix(targetKey, nodePrefix) {
+				toNotify = append(toNotify, notification{callerKey, targetKey})
 			}
 		}
 
 		// Check links to remote node
 		for linkedKey := range state.links {
-			linkedPID, err := relay.ParsePID(linkedKey)
-			if err != nil {
-				continue
-			}
-			if linkedPID.Node == nodeID {
-				toNotify = append(toNotify, notification{callerPID, linkedPID})
+			if strings.HasPrefix(linkedKey, nodePrefix) {
+				toNotify = append(toNotify, notification{callerKey, linkedKey})
 			}
 		}
 	}
 	t.mu.RUnlock()
 
-	// Send notifications outside lock
+	// Send notifications outside lock - parse PIDs only for matched entries
 	for _, n := range toNotify {
+		callerPID, err := relay.ParsePID(n.callerKey)
+		if err != nil {
+			continue
+		}
+		targetPID, err := relay.ParsePID(n.targetKey)
+		if err != nil {
+			continue
+		}
+
 		linkDownPayload := payload.New(&topology.ExitEvent{
 			At:   time.Now(),
-			From: n.target,
+			From: targetPID,
 			Kind: topology.KindLinkDown,
 			Result: &runtime.Result{
 				Error: exitErr,
@@ -457,31 +477,23 @@ func (t *Topology) HandleNodeExit(nodeID relay.NodeID, exitErr error) {
 		})
 		pkg := relay.NewPackage(
 			relay.PID{UniqID: "topology"},
-			n.caller,
+			callerPID,
 			topology.TopicEvents,
 			linkDownPayload,
 		)
 		_ = t.router.Send(pkg)
 	}
 
-	// Cleanup: remove entries for dead node
+	// Cleanup: remove entries for dead node using prefix match
 	t.mu.Lock()
 	for _, state := range t.processes {
 		for targetKey := range state.watching {
-			targetPID, err := relay.ParsePID(targetKey)
-			if err != nil {
-				continue
-			}
-			if targetPID.Node == nodeID {
+			if strings.HasPrefix(targetKey, nodePrefix) {
 				delete(state.watching, targetKey)
 			}
 		}
 		for linkedKey := range state.links {
-			linkedPID, err := relay.ParsePID(linkedKey)
-			if err != nil {
-				continue
-			}
-			if linkedPID.Node == nodeID {
+			if strings.HasPrefix(linkedKey, nodePrefix) {
 				delete(state.links, linkedKey)
 			}
 		}
