@@ -111,13 +111,13 @@ func (l *topologyEventListener) Start(ctx context.Context) error {
 	return nil
 }
 
-func (l *topologyEventListener) Stop(ctx context.Context) error {
-	l.cancel()
-
+func (l *topologyEventListener) Stop(_ context.Context) error {
+	// Unsubscribe before canceling to ensure clean removal
 	for _, subID := range l.subIDs {
-		l.bus.Unsubscribe(ctx, subID)
+		l.bus.Unsubscribe(l.ctx, subID)
 	}
 
+	l.cancel()
 	close(l.events)
 	l.wg.Wait()
 	return nil

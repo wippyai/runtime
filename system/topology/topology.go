@@ -81,10 +81,11 @@ func (t *Topology) Wait(caller, pid relay.PID) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	state, exists := t.processes[pid.String()]
+	pidKey := pid.String()
+	state, exists := t.processes[pidKey]
 	if !exists {
 		return topology.ErrPIDNotRegistered.WithDetails(attrs.Bag{
-			"pid":       pid.String(),
+			"pid":       pidKey,
 			"operation": "monitor",
 		})
 	}
@@ -92,12 +93,18 @@ func (t *Topology) Wait(caller, pid relay.PID) error {
 	callerKey := caller.String()
 	if state.watchers[callerKey] {
 		return topology.ErrAlreadyMonitoring.WithDetails(attrs.Bag{
-			"pid":    pid.String(),
+			"pid":    pidKey,
 			"caller": callerKey,
 		})
 	}
 
 	state.watchers[callerKey] = true
+
+	// Track outbound monitor in caller's state
+	if callerState, ok := t.processes[callerKey]; ok {
+		callerState.watching[pidKey] = true
+	}
+
 	return nil
 }
 
@@ -119,12 +126,21 @@ func (t *Topology) Release(caller, pid relay.PID) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	state, exists := t.processes[pid.String()]
+	pidKey := pid.String()
+	callerKey := caller.String()
+
+	state, exists := t.processes[pidKey]
 	if !exists {
 		return nil
 	}
 
-	delete(state.watchers, caller.String())
+	delete(state.watchers, callerKey)
+
+	// Clean up caller's watching map
+	if callerState, ok := t.processes[callerKey]; ok {
+		delete(callerState.watching, pidKey)
+	}
+
 	return nil
 }
 
@@ -332,6 +348,11 @@ func (t *Topology) Remove(pid relay.PID) {
 		if linkedState, ok := t.processes[linkedKey]; ok {
 			delete(linkedState.links, pidKey)
 		}
+	}
+
+	// Remove this pid from watching maps of other processes.
+	for _, otherState := range t.processes {
+		delete(otherState.watching, pidKey)
 	}
 
 	delete(t.processes, pidKey)

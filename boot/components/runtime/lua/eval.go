@@ -2,6 +2,7 @@ package lua
 
 import (
 	"context"
+
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
 	logapi "github.com/wippyai/runtime/api/logs"
@@ -33,7 +34,7 @@ func Eval() boot.Component {
 			// Get process factory from context for ID-based sandbox creation
 			factory := process.GetFactory(ctx)
 
-			// Modules available for eval'd code (safe, class-filtered subset)
+			// Modules available for eval'd code
 			modules := []luaapi.Module{
 				json.Module,
 				timemod.Module,
@@ -49,7 +50,7 @@ func Eval() boot.Component {
 				factory,
 			)
 
-			// Register eval host in context
+			// Register eval host in context (we need local factories)
 			evalhost.WithHost(ctx, host)
 
 			// Register dispatcher handlers

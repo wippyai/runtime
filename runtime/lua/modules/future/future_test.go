@@ -135,7 +135,7 @@ func TestCreateHandler_Success(t *testing.T) {
 
 	// Simulate successful result
 	p := payload.New(map[string]any{"key": "value"})
-	result := handler(context.Background(), l, []payload.Payload{p})
+	result := handler(context.Background(), l, "", "", []payload.Payload{p})
 
 	if result == nil {
 		t.Error("handler should return a value")
@@ -159,7 +159,7 @@ func TestCreateHandler_Error(t *testing.T) {
 	// Simulate error result
 	testErr := errors.New("async error")
 	p := payload.NewError(testErr)
-	result := handler(context.Background(), l, []payload.Payload{p})
+	result := handler(context.Background(), l, "", "", []payload.Payload{p})
 
 	if result == nil {
 		t.Error("handler should return error value")
@@ -184,11 +184,11 @@ func TestCreateHandler_IgnoresDuplicate(t *testing.T) {
 
 	// First call
 	p1 := payload.New("first")
-	handler(context.Background(), l, []payload.Payload{p1})
+	handler(context.Background(), l, "", "", []payload.Payload{p1})
 
 	// Second call should be ignored
 	p2 := payload.New("second")
-	result := handler(context.Background(), l, []payload.Payload{p2})
+	result := handler(context.Background(), l, "", "", []payload.Payload{p2})
 
 	if result != nil {
 		t.Error("duplicate call should return nil")

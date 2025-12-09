@@ -104,7 +104,7 @@ func newLuaProcessWithChannels(script string) *engine.Process {
 	proto, _ := lua.CompileString(script, "test.lua")
 	return engine.NewProcess(
 		engine.WithProto(proto),
-		engine.WithModuleBinder(engine.BindChannelFunctions),
+		engine.WithModuleBinder(func(l *lua.LState) { engine.ChannelModule.Load(l) }),
 		engine.WithModuleBinder(bindTimeModule),
 	)
 }
