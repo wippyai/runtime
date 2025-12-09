@@ -273,6 +273,7 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 		}
 	} else {
 		// No method - run the script directly (legacy behavior)
+		//nolint:gocritic // if-else is clearer than switch for nil/empty checks
 		if p.proto != nil {
 			fn = p.state.LoadProto(p.proto)
 		} else if p.script != "" {
@@ -307,6 +308,7 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 func (p *Process) extractMethod(method string) error {
 	// Load script function
 	var scriptFn *lua.LFunction
+	//nolint:gocritic // if-else is clearer than switch for nil/empty checks
 	if p.proto != nil {
 		scriptFn = p.state.LoadProto(p.proto)
 	} else if p.script != "" {
@@ -433,6 +435,7 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		out.Continue()
 	} else if yieldCount == 0 && len(p.threads) > 0 {
 		// Check if we're waiting for external operations
+		//nolint:gocritic // if-else is clearer than switch for state checks
 		if len(p.pendingYields) > 0 {
 			out.Continue()
 		} else if p.HasSubscriptions() || len(p.channels) > 0 {
@@ -574,6 +577,8 @@ func (p *Process) updateChannelRefs(channels map[*Channel]int, blocks, releases 
 
 // processSubscribeYields routes incoming messages and handles subscribe/unsubscribe.
 // messages are received via EventMessage events from the scheduler.
+//
+//nolint:unparam // error return kept for API consistency
 func (p *Process) processSubscribeYields(tasks []*Task, messages []*relay.Package) ([]*Task, error) {
 	if p.subs == nil {
 		return tasks, nil
@@ -590,9 +595,9 @@ func (p *Process) processSubscribeYields(tasks []*Task, messages []*relay.Packag
 			if !exists {
 				// Fallback to inbox for non-@ topics
 				if !strings.HasPrefix(topic, "@") {
-					sub, exists = subs.get(string(topology.TopicInbox))
+					sub, exists = subs.get(topology.TopicInbox)
 					if exists {
-						handlerTopic = string(topology.TopicInbox)
+						handlerTopic = topology.TopicInbox
 					}
 				}
 				if !exists {

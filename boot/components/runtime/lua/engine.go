@@ -2,6 +2,7 @@ package lua
 
 import (
 	"context"
+
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
@@ -15,7 +16,7 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/component/library"
 	proclua "github.com/wippyai/runtime/runtime/lua/component/process"
 	workflowlua "github.com/wippyai/runtime/runtime/lua/component/workflow"
-	"github.com/wippyai/runtime/runtime/lua/modules/channel"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/modules/ostime"
 	processmod "github.com/wippyai/runtime/runtime/lua/modules/process"
 	reghandler "github.com/wippyai/runtime/system/registry/events"
@@ -51,7 +52,7 @@ func Engine() boot.Component {
 					Modules: []luaapi.Module{
 						ostime.Module,
 						processmod.Module,
-						channel.Module,
+						engine.ChannelModule,
 					},
 					ProtoCacheSize: protoCacheSize,
 					MainCacheSize:  mainCacheSize,

@@ -59,10 +59,23 @@ func (t *Topology) Register(pid relay.PID) error {
 
 // Wait attaches a caller to monitor a specific pid.
 func (t *Topology) Wait(caller, pid relay.PID) error {
+	callerKey := caller.String()
+	pidKey := pid.String()
+
 	// Check if PID is on remote node.
 	if pid.Node != "" && pid.Node != t.localNodeID {
-		callerKey := caller.String()
-		pidKey := pid.String()
+		// Validate caller exists before sending remote request
+		t.mu.Lock()
+		_, callerExists := t.processes[callerKey]
+		if !callerExists {
+			t.mu.Unlock()
+			return topology.ErrPIDNotRegistered.WithDetails(attrs.Bag{
+				"pid":       callerKey,
+				"operation": "monitor",
+				"role":      "caller",
+			})
+		}
+		t.mu.Unlock()
 
 		// Send first, then track locally on success
 		pkg := topology.MonitorRequest(caller, pid)
@@ -81,7 +94,6 @@ func (t *Topology) Wait(caller, pid relay.PID) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	pidKey := pid.String()
 	state, exists := t.processes[pidKey]
 	if !exists {
 		return topology.ErrPIDNotRegistered.WithDetails(attrs.Bag{
@@ -90,7 +102,6 @@ func (t *Topology) Wait(caller, pid relay.PID) error {
 		})
 	}
 
-	callerKey := caller.String()
 	if state.watchers[callerKey] {
 		return topology.ErrAlreadyMonitoring.WithDetails(attrs.Bag{
 			"pid":    pidKey,
@@ -534,6 +545,21 @@ func (t *Topology) HandleNodeExit(nodeID relay.NodeID, exitErr error) {
 
 	// Cleanup: remove entries for dead node using prefix match
 	t.mu.Lock()
+
+	// Collect PIDs to remove (belonging to dead node)
+	var toRemove []string
+	for pidKey := range t.processes {
+		if strings.HasPrefix(pidKey, nodePrefix) {
+			toRemove = append(toRemove, pidKey)
+		}
+	}
+
+	// Remove dead node PIDs from processes map
+	for _, pidKey := range toRemove {
+		delete(t.processes, pidKey)
+	}
+
+	// Clean up references to dead node in remaining processes
 	for _, state := range t.processes {
 		for targetKey := range state.watching {
 			if strings.HasPrefix(targetKey, nodePrefix) {
@@ -543,6 +569,11 @@ func (t *Topology) HandleNodeExit(nodeID relay.NodeID, exitErr error) {
 		for linkedKey := range state.links {
 			if strings.HasPrefix(linkedKey, nodePrefix) {
 				delete(state.links, linkedKey)
+			}
+		}
+		for watcherKey := range state.watchers {
+			if strings.HasPrefix(watcherKey, nodePrefix) {
+				delete(state.watchers, watcherKey)
 			}
 		}
 	}

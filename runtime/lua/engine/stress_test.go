@@ -113,7 +113,7 @@ func TestStress10KProcesses(t *testing.T) {
 		m3.Alloc/(1024*1024), m1.Alloc/(1024*1024))
 
 	// Check for leaks
-	leaked := int64(m3.Alloc) - int64(m1.Alloc)
+	leaked := int64(m3.Alloc) - int64(m1.Alloc) //#nosec G115
 	leakPerProcess := float64(leaked) / float64(processCount)
 	t.Logf("Memory delta after cleanup: %d bytes (%.1f bytes/process)", leaked, leakPerProcess)
 
@@ -357,7 +357,7 @@ func TestStressMemoryLeak(t *testing.T) {
 
 	// Check for growth trend
 	if iterations >= 3 {
-		growth := int64(memoryAfter[iterations-1]) - int64(memoryAfter[0])
+		growth := int64(memoryAfter[iterations-1]) - int64(memoryAfter[0]) //#nosec G115
 		growthPerIter := float64(growth) / float64(iterations-1)
 		t.Logf("Memory growth over %d iterations: %d bytes (%.0f bytes/iter)", iterations, growth, growthPerIter)
 

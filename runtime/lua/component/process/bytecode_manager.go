@@ -80,7 +80,7 @@ func (m *BytecodeManager) Add(ctx context.Context, entry registry.Entry) error {
 // Update updates an existing bytecode process.
 func (m *BytecodeManager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindProcessBytecode {
-		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindProcessBytecode))
+		return api.NewInvalidEntryKindError(entry.Kind, api.KindProcessBytecode)
 	}
 
 	cfg, err := component.UnpackConfig[api.BytecodeProcessConfig](ctx, entry)
@@ -116,7 +116,7 @@ func (m *BytecodeManager) Update(ctx context.Context, entry registry.Entry) erro
 // Delete removes a bytecode process.
 func (m *BytecodeManager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindProcessBytecode {
-		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindProcessBytecode))
+		return api.NewInvalidEntryKindError(entry.Kind, api.KindProcessBytecode)
 	}
 
 	if err := m.code.DeleteNode(ctx, entry.ID); err != nil {

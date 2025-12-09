@@ -112,13 +112,25 @@ func (l *topologyEventListener) Start(ctx context.Context) error {
 }
 
 func (l *topologyEventListener) Stop(_ context.Context) error {
-	// Unsubscribe before canceling to ensure clean removal
+	// Cancel context first to signal eventLoop to stop processing
+	l.cancel()
+
+	// Unsubscribe from bus
 	for _, subID := range l.subIDs {
 		l.bus.Unsubscribe(l.ctx, subID)
 	}
 
-	l.cancel()
+	// Drain any remaining events to prevent send-to-closed-channel panic
+	go func() {
+		//nolint:revive // intentionally empty drain loop
+		for range l.events {
+		}
+	}()
+
+	// Close channel to stop drain goroutine
 	close(l.events)
+
+	// Wait for eventLoop to finish
 	l.wg.Wait()
 	return nil
 }
@@ -126,17 +138,25 @@ func (l *topologyEventListener) Stop(_ context.Context) error {
 func (l *topologyEventListener) eventLoop() {
 	defer l.wg.Done()
 
-	for evt := range l.events {
-		if evt.Kind != relayapi.PeerDelete && evt.Kind != cluster.NodeLeftEventKind {
-			continue
+	for {
+		select {
+		case <-l.ctx.Done():
+			return
+		case evt, ok := <-l.events:
+			if !ok {
+				return
+			}
+			if evt.Kind != relayapi.PeerDelete && evt.Kind != cluster.NodeLeftEventKind {
+				continue
+			}
+
+			nodeID := evt.Path
+			l.logger.Debug("handling node exit",
+				zap.String("nodeID", nodeID),
+				zap.String("system", evt.System),
+				zap.String("kind", evt.Kind))
+
+			l.topo.HandleNodeExit(nodeID, errors.New("node disconnected"))
 		}
-
-		nodeID := evt.Path
-		l.logger.Debug("handling node exit",
-			zap.String("nodeID", nodeID),
-			zap.String("system", evt.System),
-			zap.String("kind", evt.Kind))
-
-		l.topo.HandleNodeExit(nodeID, errors.New("node disconnected"))
 	}
 }

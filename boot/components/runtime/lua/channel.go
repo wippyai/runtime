@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/wippyai/runtime/api/boot"
-	"github.com/wippyai/runtime/runtime/lua/modules/channel"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 )
 
 func Channel() boot.Component {
@@ -17,7 +17,7 @@ func Channel() boot.Component {
 				return ctx, nil
 			}
 
-			if err := AddModules(ctx, cm, channel.Module); err != nil {
+			if err := AddModules(ctx, cm, engine.ChannelModule); err != nil {
 				return ctx, err
 			}
 

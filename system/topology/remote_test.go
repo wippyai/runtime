@@ -19,6 +19,9 @@ func TestTopology_RemoteMonitoring(t *testing.T) {
 	localPID := relay.PID{Node: "local", Host: "host1", UniqID: "1"}.Precomputed()
 	remotePID := relay.PID{Node: "remote", Host: "host2", UniqID: "2"}.Precomputed()
 
+	// Register local caller for remote monitoring tests
+	_ = topo.Register(localPID)
+
 	t.Run("Wait on remote node sends MonitorRequest", func(t *testing.T) {
 		router.reset()
 

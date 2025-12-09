@@ -105,7 +105,6 @@ func BenchmarkMemoryPerProcess(b *testing.B) {
 	script := `return 1`
 
 	processes := make([]*Process, 0, b.N)
-	contexts := make([]context.Context, 0, b.N)
 
 	goruntime.GC()
 	var m1 goruntime.MemStats
@@ -122,7 +121,6 @@ func BenchmarkMemoryPerProcess(b *testing.B) {
 		var output process.StepOutput
 		_ = proc.Step(nil, &output)
 		processes = append(processes, proc)
-		contexts = append(contexts, ctx)
 	}
 
 	b.StopTimer()
@@ -291,7 +289,7 @@ func TestMemoryProfile(t *testing.T) {
 		goruntime.ReadMemStats(&m2)
 
 		bytesUsed := m2.Alloc - m1.Alloc
-		bytesPerProcess := bytesUsed / uint64(count)
+		bytesPerProcess := bytesUsed / uint64(count) //#nosec G115
 
 		t.Logf("%d processes: total=%dKB, per-process=%dKB",
 			count, bytesUsed/1024, bytesPerProcess/1024)
@@ -445,7 +443,7 @@ func BenchmarkRawVMYield(b *testing.B) {
 	task := proc.mainTask
 
 	// Warm up - execute first resume
-	_, _, _ = proc.state.ResumeInto(task.Thread(), task.Function(), task.retBuf, task.Resumed...)
+	_, _, _ = proc.state.ResumeInto(task.Thread(), task.Function(), task.retBuf, task.Resumed...) //nolint:dogsled
 
 	b.ResetTimer()
 	b.ReportAllocs()

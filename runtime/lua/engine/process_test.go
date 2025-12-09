@@ -742,13 +742,10 @@ func TestTaskQueueSequential(t *testing.T) {
 	fn := state.NewFunction(func(_ *lua.LState) int { return 0 })
 
 	pushCount := 100
-	tasks := make([]*Task, 0, pushCount)
-
 	for i := 0; i < pushCount; i++ {
 		thread, _ := state.NewThread()
 		task := NewTask(thread, fn)
 		q.Push(task)
-		tasks = append(tasks, task)
 	}
 
 	if q.Len() != pushCount {
