@@ -170,11 +170,6 @@ func (p *Processor) CompleteYield(tag uint64, data any, err error) {
 	p.setWakeup(StateRunning)
 }
 
-// Context returns the processor's context for cancellation checking.
-func (p *Processor) Context() context.Context {
-	return p.ctx
-}
-
 // Pool for processor reuse to reduce allocations.
 var processorPool = sync.Pool{
 	New: func() any {

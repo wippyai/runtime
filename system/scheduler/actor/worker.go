@@ -177,7 +177,7 @@ func (w *Worker) executeOne(proc *Processor) {
 
 		// Dispatch yields while keeping StateRunning.
 		// This prevents CompleteYield from re-queueing while we're still dispatching.
-		w.dispatchYields(proc.Context(), proc, yields)
+		w.dispatchYields(proc.ctx, proc, yields)
 	}
 }
 
