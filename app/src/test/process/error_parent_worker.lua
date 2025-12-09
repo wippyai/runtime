@@ -2,6 +2,11 @@
 local time = require("time")
 
 local function main()
+    local events_ch = process.events()
+    if not events_ch then
+        return false, "failed to get events channel"
+    end
+
     local inbox_ch = process.inbox()
     if not inbox_ch then
         return false, "failed to get inbox channel"

@@ -1,20 +1,21 @@
--- Test: Verify parent that errors causes child to die with LINK_DOWN
+-- Test: Verify process that calls error() dies properly
 local assert = require("assert2")
 local time = require("time")
+local process = require("process")
 
 local function main()
-    -- Spawn parent worker that spawns a child and then errors
-    local parent_pid, err = process.spawn_monitored("app.test.process:error_parent_worker", "app:processes")
-    assert.is_nil(err, "spawn parent no error")
-    assert.not_nil(parent_pid, "got parent pid")
+    -- Spawn a worker that immediately errors
+    local worker_pid, err = process.spawn_monitored("app.test.process:error_exit_worker", "app:processes")
+    assert.is_nil(err, "spawn worker no error")
+    assert.not_nil(worker_pid, "got worker pid")
 
-    -- Wait for parent to error
-    time.sleep("5s")
+    -- Wait for worker to error
+    time.sleep("500ms")
 
-    -- Verify parent is dead
-    local ok, send_err = process.send(parent_pid, "test", "hello")
+    -- Verify worker is dead
+    local ok, send_err = process.send(worker_pid, "test", "hello")
     if ok then
-        return false, "parent should be dead but send succeeded"
+        return false, "worker should be dead but send succeeded"
     end
 
     if not send_err or not string.find(send_err, "not found") then

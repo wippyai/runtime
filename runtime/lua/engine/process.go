@@ -13,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/runtime/resource"
+	"github.com/wippyai/runtime/api/topology"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -584,9 +585,19 @@ func (p *Process) processSubscribeYields(tasks []*Task, messages []*relay.Packag
 	for _, pkg := range messages {
 		for _, msg := range pkg.Messages {
 			topic := msg.Topic
+			handlerTopic := topic
 			sub, exists := subs.get(topic)
 			if !exists {
-				continue
+				// Fallback to inbox for non-@ topics
+				if !strings.HasPrefix(topic, "@") {
+					sub, exists = subs.get(string(topology.TopicInbox))
+					if exists {
+						handlerTopic = string(topology.TopicInbox)
+					}
+				}
+				if !exists {
+					continue
+				}
 			}
 
 			// Check for terminal payload - unsubscribe and close channel
@@ -606,7 +617,7 @@ func (p *Process) processSubscribeYields(tasks []*Task, messages []*relay.Packag
 
 			// Check for topic handler
 			var value lua.LValue
-			if handler, ok := p.GetTopicHandler(topic); ok {
+			if handler, ok := p.GetTopicHandler(handlerTopic); ok {
 				value = handler(p.ctx, p.state, pkg.Source, topic, payloads)
 				if value == nil {
 					// Handler processed but doesn't want to send to channel

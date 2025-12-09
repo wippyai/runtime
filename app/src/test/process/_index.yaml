@@ -353,6 +353,7 @@ entries:
     method: main
     modules:
       - time
+      - process
     imports:
       assert2: app.lib:assert
 
@@ -384,6 +385,7 @@ entries:
     method: main
     modules:
       - time
+      - process
     imports:
       assert2: app.lib:assert
 
@@ -415,6 +417,7 @@ entries:
     method: main
     modules:
       - time
+      - process
     imports:
       assert2: app.lib:assert
 
@@ -437,6 +440,7 @@ entries:
     method: main
     modules:
       - time
+      - process
     imports:
       assert2: app.lib:assert
 
@@ -450,5 +454,6 @@ entries:
     method: main
     modules:
       - time
+      - process
     imports:
       assert2: app.lib:assert

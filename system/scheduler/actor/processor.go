@@ -4,19 +4,11 @@ import (
 	"context"
 	"sync"
 	"sync/atomic"
-	_ "unsafe" // for nanotime linkname
 
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 )
-
-// nanotime returns monotonic time in nanoseconds.
-// Uses runtime.nanotime which is faster than time.Now().UnixNano()
-// because it skips wall clock calculation.
-//
-//go:linkname nanotime runtime.nanotime
-func nanotime() int64
 
 // ProcessState tracks a processor through the scheduler lifecycle.
 // Lower 4 bits store the state, bit 4 is the wakeup flag.
@@ -68,8 +60,9 @@ type Processor struct {
 	// CompleteYield can only transition from Blocked or set wakeup on Running.
 	state atomic.Int32
 
-	// Execution context (provided by caller, frame already set up)
-	ctx context.Context
+	// Execution context with cancellation support
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	// Event queue for yield completions (replaces old YieldResults)
 	queue *process.EventQueue
@@ -89,14 +82,8 @@ type Processor struct {
 	pooled bool
 }
 
-// State returns current processor state (without wakeup flag).
-func (p *Processor) State() ProcessState {
-	return ProcessState(p.state.Load()) & stateMask
-}
-
-// SetState sets processor state, clearing the wakeup flag.
-// For worker use only.
-func (p *Processor) SetState(s ProcessState) {
+// setState sets processor state, clearing the wakeup flag.
+func (p *Processor) setState(s ProcessState) {
 	p.state.Store(int32(s & stateMask))
 }
 
@@ -183,24 +170,9 @@ func (p *Processor) CompleteYield(tag uint64, data any, err error) {
 	p.setWakeup(StateRunning)
 }
 
-// ID returns the internal processor ID.
-func (p *Processor) ID() uint64 {
-	return p.id
-}
-
-// PID returns the external process ID.
-func (p *Processor) PID() relay.PID {
-	return p.pid
-}
-
 // Context returns the processor's context for cancellation checking.
 func (p *Processor) Context() context.Context {
 	return p.ctx
-}
-
-// Queue returns the event queue for message sender creation.
-func (p *Processor) Queue() *process.EventQueue {
-	return p.queue
 }
 
 // Pool for processor reuse to reduce allocations.
@@ -224,6 +196,7 @@ func releaseProcessor(p *Processor) {
 	p.Process = nil
 	p.state.Store(0) // Clears both state and wakeup flag
 	p.ctx = nil
+	p.cancel = nil
 	p.gen.Store(0)
 	p.output.Reset()
 	p.scheduler = nil

@@ -2,6 +2,7 @@
 -- When parent errors, all children should receive LINK_DOWN and die
 local assert = require("assert2")
 local time = require("time")
+local process = require("process")
 
 local function main()
     -- Spawn the parent worker and monitor it

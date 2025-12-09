@@ -39,8 +39,8 @@ func TestQueuePushPop(t *testing.T) {
 		if p == nil {
 			t.Fatalf("unexpected nil at position %d", i)
 		}
-		if p.ID() != uint64(i) {
-			t.Fatalf("expected ID %d, got %d", i, p.ID())
+		if p.id != uint64(i) {
+			t.Fatalf("expected ID %d, got %d", i, p.id)
 		}
 	}
 
@@ -70,8 +70,8 @@ func TestQueuePopN(t *testing.T) {
 
 	// Should be FIFO
 	for i := 0; i < n; i++ {
-		if buf[i].ID() != uint64(i) { //nolint:gosec // test: i is always small
-			t.Fatalf("buf[%d] expected ID %d, got %d", i, i, buf[i].ID())
+		if buf[i].id != uint64(i) { //nolint:gosec // test: i is always small
+			t.Fatalf("buf[%d] expected ID %d, got %d", i, i, buf[i].id)
 		}
 	}
 
@@ -114,7 +114,7 @@ func TestQueueGrow(t *testing.T) {
 	// Verify all items in FIFO order
 	for i := 0; i < 50; i++ {
 		p := q.Pop()
-		if p == nil || p.ID() != uint64(i) {
+		if p == nil || p.id != uint64(i) {
 			t.Fatalf("expected ID %d, got %v", i, p)
 		}
 	}
@@ -130,8 +130,8 @@ func TestQueueWrapAround(t *testing.T) {
 		}
 		for i := 0; i < 10; i++ {
 			p := q.Pop()
-			if p.ID() != uint64(round*10+i) { //nolint:gosec // test: values always small
-				t.Fatalf("round %d, expected ID %d, got %d", round, round*10+i, p.ID())
+			if p.id != uint64(round*10+i) { //nolint:gosec // test: values always small
+				t.Fatalf("round %d, expected ID %d, got %d", round, round*10+i, p.id)
 			}
 		}
 	}

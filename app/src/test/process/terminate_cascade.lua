@@ -1,6 +1,7 @@
 -- Test: Terminate kills process and triggers LINK_DOWN to linked processes
 local assert = require("assert2")
 local time = require("time")
+local process = require("process")
 
 local function main()
     -- Spawn a long-running worker that waits for events

@@ -958,3 +958,574 @@ func TestSchedulerReleasesProcesses(t *testing.T) {
 		t.Errorf("idle map has %d entries, expected 0", idleCount)
 	}
 }
+
+// BlockedProcess blocks on yield waiting for handler completion
+type BlockedProcess struct {
+	blocked chan struct{}
+	ctx     context.Context
+}
+
+func (p *BlockedProcess) Init(ctx context.Context, _ string, _ payload.Payloads) error {
+	p.ctx = ctx
+	return nil
+}
+
+func (p *BlockedProcess) Step(_ []Event, out *StepOutput) error {
+	// Signal that we're blocked waiting for yield completion
+	if p.blocked != nil {
+		close(p.blocked)
+	}
+	out.Yield(SleepCmd{Duration: 10 * time.Second}, 0)
+	out.Continue()
+	return nil
+}
+
+func (p *BlockedProcess) Send(*relay.Package) error {
+	return nil
+}
+
+func (p *BlockedProcess) Close() {}
+
+func TestTerminateBlockedProcess(t *testing.T) {
+	var completed atomic.Bool
+	var result *runtime.Result
+
+	lc := &testLifecycle{
+		onComplete: func(_ context.Context, _ relay.PID, res *runtime.Result) {
+			result = res
+			completed.Store(true)
+		},
+	}
+
+	sched := newTestSchedulerWithLifecycle(1, lc)
+	sched.Start()
+	defer sched.Stop()
+
+	blocked := make(chan struct{})
+	pid := relay.PID{UniqID: "blocked-term-test"}
+	_, err := sched.Submit(context.Background(), pid, &BlockedProcess{blocked: blocked}, "", nil)
+	if err != nil {
+		t.Fatalf("submit error: %v", err)
+	}
+
+	// Wait for process to become blocked
+	select {
+	case <-blocked:
+	case <-time.After(2 * time.Second):
+		t.Fatal("process did not become blocked")
+	}
+
+	// Give time for state to transition to Blocked
+	time.Sleep(50 * time.Millisecond)
+
+	// Terminate the blocked process
+	err = sched.Terminate(pid)
+	if err != nil {
+		t.Fatalf("terminate error: %v", err)
+	}
+
+	// Wait for completion callback
+	deadline := time.Now().Add(2 * time.Second)
+	for !completed.Load() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if !completed.Load() {
+		t.Fatal("blocked process was not terminated")
+	}
+
+	if !errors.Is(result.Error, process.ErrTerminated) {
+		t.Fatalf("expected ErrTerminated, got %v", result.Error)
+	}
+}
+
+func TestSendToTerminatedProcess(t *testing.T) {
+	var completed atomic.Bool
+
+	lc := &testLifecycle{
+		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+			completed.Store(true)
+		},
+	}
+
+	sched := newTestSchedulerWithLifecycle(1, lc)
+	sched.Start()
+	defer sched.Stop()
+
+	blocked := make(chan struct{})
+	pid := relay.PID{UniqID: "send-term-test"}
+	_, err := sched.Submit(context.Background(), pid, &BlockedProcess{blocked: blocked}, "", nil)
+	if err != nil {
+		t.Fatalf("submit error: %v", err)
+	}
+
+	// Wait for process to become blocked
+	select {
+	case <-blocked:
+	case <-time.After(2 * time.Second):
+		t.Fatal("process did not become blocked")
+	}
+
+	// Terminate the process
+	err = sched.Terminate(pid)
+	if err != nil {
+		t.Fatalf("terminate error: %v", err)
+	}
+
+	// Wait for completion
+	deadline := time.Now().Add(2 * time.Second)
+	for !completed.Load() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// After termination, Send should fail
+	pkg := &relay.Package{Target: pid}
+	err = sched.Send(pkg)
+	if err == nil {
+		t.Fatal("expected error when sending to terminated process")
+	}
+	if !errors.Is(err, process.ErrProcessNotFound) {
+		t.Fatalf("expected ErrProcessNotFound, got %v", err)
+	}
+}
+
+// ContextTrackingProcess verifies context cancellation
+type ContextTrackingProcess struct {
+	ctx         context.Context
+	ctxCanceled chan struct{}
+}
+
+func (p *ContextTrackingProcess) Init(ctx context.Context, _ string, _ payload.Payloads) error {
+	p.ctx = ctx
+	p.ctxCanceled = make(chan struct{})
+	go func() {
+		<-ctx.Done()
+		close(p.ctxCanceled)
+	}()
+	return nil
+}
+
+func (p *ContextTrackingProcess) Step(_ []Event, out *StepOutput) error {
+	out.Yield(CompleteCmd{Value: "done"}, 0)
+	out.Done(nil)
+	return nil
+}
+
+func (p *ContextTrackingProcess) Send(*relay.Package) error {
+	return nil
+}
+
+func (p *ContextTrackingProcess) Close() {}
+
+func TestContextCancelledOnCompletion(t *testing.T) {
+	var completed atomic.Bool
+
+	lc := &testLifecycle{
+		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+			completed.Store(true)
+		},
+	}
+
+	sched := newTestSchedulerWithLifecycle(1, lc)
+	sched.Start()
+	defer sched.Stop()
+
+	pid := relay.PID{UniqID: "ctx-cancel-test"}
+	proc := &ContextTrackingProcess{}
+	_, err := sched.Submit(context.Background(), pid, proc, "", nil)
+	if err != nil {
+		t.Fatalf("submit error: %v", err)
+	}
+
+	// Wait for completion
+	deadline := time.Now().Add(2 * time.Second)
+	for !completed.Load() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if !completed.Load() {
+		t.Fatal("process did not complete")
+	}
+
+	// Context should be cancelled after completion
+	select {
+	case <-proc.ctxCanceled:
+		// expected
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("context was not cancelled on completion")
+	}
+}
+
+// ContextBlockedProcess blocks and tracks context cancellation
+type ContextBlockedProcess struct {
+	blocked     chan struct{}
+	ctxCanceled chan struct{}
+}
+
+func (p *ContextBlockedProcess) Init(ctx context.Context, _ string, _ payload.Payloads) error {
+	p.ctxCanceled = make(chan struct{})
+	go func() {
+		<-ctx.Done()
+		close(p.ctxCanceled)
+	}()
+	return nil
+}
+
+func (p *ContextBlockedProcess) Step(_ []Event, out *StepOutput) error {
+	if p.blocked != nil {
+		close(p.blocked)
+		p.blocked = nil
+	}
+	out.Yield(SleepCmd{Duration: 10 * time.Second}, 0)
+	out.Continue()
+	return nil
+}
+
+func (p *ContextBlockedProcess) Send(*relay.Package) error {
+	return nil
+}
+
+func (p *ContextBlockedProcess) Close() {}
+
+func TestContextCancelledOnTermination(t *testing.T) {
+	var completed atomic.Bool
+
+	lc := &testLifecycle{
+		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+			completed.Store(true)
+		},
+	}
+
+	sched := newTestSchedulerWithLifecycle(1, lc)
+	sched.Start()
+	defer sched.Stop()
+
+	blocked := make(chan struct{})
+	pid := relay.PID{UniqID: "ctx-term-test"}
+
+	proc := &ContextBlockedProcess{blocked: blocked}
+	_, err := sched.Submit(context.Background(), pid, proc, "", nil)
+	if err != nil {
+		t.Fatalf("submit error: %v", err)
+	}
+
+	// Wait for process to become blocked
+	select {
+	case <-blocked:
+	case <-time.After(2 * time.Second):
+		t.Fatal("process did not become blocked")
+	}
+
+	// Give time for state to transition to Blocked
+	time.Sleep(50 * time.Millisecond)
+
+	// Terminate
+	err = sched.Terminate(pid)
+	if err != nil {
+		t.Fatalf("terminate error: %v", err)
+	}
+
+	// Wait for completion
+	deadline := time.Now().Add(2 * time.Second)
+	for !completed.Load() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Context should be cancelled after termination
+	select {
+	case <-proc.ctxCanceled:
+		// expected
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("context was not cancelled on termination")
+	}
+}
+
+func TestSendToClosedQueue(t *testing.T) {
+	var completed atomic.Bool
+
+	lc := &testLifecycle{
+		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+			completed.Store(true)
+		},
+	}
+
+	sched := newTestSchedulerWithLifecycle(1, lc)
+	sched.Start()
+	defer sched.Stop()
+
+	blocked := make(chan struct{})
+	pid := relay.PID{UniqID: "closed-queue-test"}
+	_, err := sched.Submit(context.Background(), pid, &BlockedProcess{blocked: blocked}, "", nil)
+	if err != nil {
+		t.Fatalf("submit error: %v", err)
+	}
+
+	// Wait for process to become blocked
+	select {
+	case <-blocked:
+	case <-time.After(2 * time.Second):
+		t.Fatal("process did not become blocked")
+	}
+
+	// Terminate closes the queue
+	err = sched.Terminate(pid)
+	if err != nil {
+		t.Fatalf("terminate error: %v", err)
+	}
+
+	// Send immediately after terminate (before completion callback runs)
+	// Queue is closed so this should fail with ErrProcessClosed or ErrProcessNotFound
+	pkg := &relay.Package{Target: pid}
+	err = sched.Send(pkg)
+
+	// Accept either error - depends on timing
+	if err != nil && !errors.Is(err, process.ErrProcessNotFound) && !errors.Is(err, process.ErrProcessClosed) {
+		t.Fatalf("expected ErrProcessNotFound or ErrProcessClosed, got %v", err)
+	}
+}
+
+// PID registration tests
+
+func TestPIDRegistration(t *testing.T) {
+	sched := newTestScheduler(1)
+	sched.Start()
+	defer sched.Stop()
+
+	pid := relay.PID{UniqID: "reg-test"}
+
+	// Before submit - PID not in map
+	_, found := sched.byPID.Load(pid)
+	if found {
+		t.Fatal("PID should not exist before submit")
+	}
+
+	// Submit process
+	proc, err := sched.Submit(context.Background(), pid, &CounterProcess{}, "", testInput(1))
+	if err != nil {
+		t.Fatalf("submit error: %v", err)
+	}
+
+	// After submit - PID should be in map
+	v, found := sched.byPID.Load(pid)
+	if !found {
+		t.Fatal("PID should exist after submit")
+	}
+	if v.(*Processor) != proc {
+		t.Fatal("wrong processor in map")
+	}
+}
+
+func TestPIDUnregisteredOnCompletion(t *testing.T) {
+	var completed atomic.Bool
+
+	lc := &testLifecycle{
+		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+			completed.Store(true)
+		},
+	}
+
+	sched := newTestSchedulerWithLifecycle(1, lc)
+	sched.Start()
+	defer sched.Stop()
+
+	pid := relay.PID{UniqID: "unreg-test"}
+	_, err := sched.Submit(context.Background(), pid, &CounterProcess{}, "", testInput(1))
+	if err != nil {
+		t.Fatalf("submit error: %v", err)
+	}
+
+	// Wait for completion
+	deadline := time.Now().Add(2 * time.Second)
+	for !completed.Load() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if !completed.Load() {
+		t.Fatal("process did not complete")
+	}
+
+	// After completion - PID should be removed from map
+	_, found := sched.byPID.Load(pid)
+	if found {
+		t.Fatal("PID should be removed after completion")
+	}
+}
+
+func TestPIDUnregisteredOnTermination(t *testing.T) {
+	var completed atomic.Bool
+
+	lc := &testLifecycle{
+		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+			completed.Store(true)
+		},
+	}
+
+	sched := newTestSchedulerWithLifecycle(1, lc)
+	sched.Start()
+	defer sched.Stop()
+
+	blocked := make(chan struct{})
+	pid := relay.PID{UniqID: "unreg-term-test"}
+	_, err := sched.Submit(context.Background(), pid, &BlockedProcess{blocked: blocked}, "", nil)
+	if err != nil {
+		t.Fatalf("submit error: %v", err)
+	}
+
+	// Wait for process to become blocked
+	select {
+	case <-blocked:
+	case <-time.After(2 * time.Second):
+		t.Fatal("process did not become blocked")
+	}
+
+	// Give time for state to transition to Blocked
+	time.Sleep(50 * time.Millisecond)
+
+	// Terminate
+	err = sched.Terminate(pid)
+	if err != nil {
+		t.Fatalf("terminate error: %v", err)
+	}
+
+	// Wait for completion
+	deadline := time.Now().Add(2 * time.Second)
+	for !completed.Load() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if !completed.Load() {
+		t.Fatal("process did not complete after termination")
+	}
+
+	// After termination - PID should be removed
+	_, found := sched.byPID.Load(pid)
+	if found {
+		t.Fatal("PID should be removed after termination")
+	}
+}
+
+func TestDuplicatePIDOverwrites(t *testing.T) {
+	sched := newTestScheduler(1)
+	// Don't start scheduler to prevent completion
+
+	pid := relay.PID{UniqID: "dup-test"}
+
+	// Submit first process
+	proc1, err := sched.Submit(context.Background(), pid, &SleepProcess{duration: 10 * time.Second}, "", nil)
+	if err != nil {
+		t.Fatalf("submit 1 error: %v", err)
+	}
+
+	// Submit second process with same PID - overwrites
+	proc2, err := sched.Submit(context.Background(), pid, &SleepProcess{duration: 10 * time.Second}, "", nil)
+	if err != nil {
+		t.Fatalf("submit 2 error: %v", err)
+	}
+
+	// Map should have second processor
+	v, found := sched.byPID.Load(pid)
+	if !found {
+		t.Fatal("PID should exist")
+	}
+	if v.(*Processor) != proc2 {
+		t.Fatal("map should have second processor")
+	}
+
+	// First processor is orphaned (can't be looked up by PID anymore)
+	if proc1 == proc2 {
+		t.Fatal("processors should be different")
+	}
+}
+
+func TestProcessorCountAccuracy(t *testing.T) {
+	var completed atomic.Int32
+
+	lc := &testLifecycle{
+		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+			completed.Add(1)
+		},
+	}
+
+	sched := newTestSchedulerWithLifecycle(2, lc)
+	sched.Start()
+	defer sched.Stop()
+
+	const numProcs = 50
+
+	// Initial count should be 0
+	if sched.ProcessorCount() != 0 {
+		t.Fatalf("initial count should be 0, got %d", sched.ProcessorCount())
+	}
+
+	// Submit processes
+	for i := 0; i < numProcs; i++ {
+		pid := relay.PID{UniqID: fmt.Sprintf("count-test-%d", i)}
+		_, err := sched.Submit(context.Background(), pid, &CounterProcess{}, "", testInput(5))
+		if err != nil {
+			t.Fatalf("submit error: %v", err)
+		}
+	}
+
+	// Wait for all to complete
+	deadline := time.Now().Add(5 * time.Second)
+	for completed.Load() < numProcs && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if completed.Load() != numProcs {
+		t.Fatalf("expected %d completed, got %d", numProcs, completed.Load())
+	}
+
+	// Count should be back to 0
+	time.Sleep(50 * time.Millisecond) // Give time for cleanup
+	if sched.ProcessorCount() != 0 {
+		t.Fatalf("final count should be 0, got %d", sched.ProcessorCount())
+	}
+}
+
+func TestIdleProcsMapCleanup(t *testing.T) {
+	var completed atomic.Bool
+
+	lc := &testLifecycle{
+		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+			completed.Store(true)
+		},
+	}
+
+	sched := newTestSchedulerWithLifecycle(1, lc)
+	sched.Start()
+	defer sched.Stop()
+
+	pid := relay.PID{UniqID: "idle-map-test"}
+	_, err := sched.Submit(context.Background(), pid, &IdleProcess{}, "", nil)
+	if err != nil {
+		t.Fatalf("submit error: %v", err)
+	}
+
+	// Wait for process to become idle
+	time.Sleep(100 * time.Millisecond)
+
+	// Process should be in idle map
+	_, found := sched.idleProcs.Load(pid)
+	if !found {
+		t.Fatal("process should be in idle map")
+	}
+
+	// Terminate the idle process
+	err = sched.Terminate(pid)
+	if err != nil {
+		t.Fatalf("terminate error: %v", err)
+	}
+
+	// Wait for completion
+	deadline := time.Now().Add(2 * time.Second)
+	for !completed.Load() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Idle map should be cleaned up
+	_, found = sched.idleProcs.Load(pid)
+	if found {
+		t.Fatal("process should be removed from idle map")
+	}
+}

@@ -1,6 +1,7 @@
 -- Test: Verify CANCEL event is properly delivered
 local assert = require("assert2")
 local time = require("time")
+local process = require("process")
 
 local function main()
     -- Spawn worker that will receive cancel and handle it

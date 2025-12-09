@@ -2,6 +2,7 @@
 -- Each node links to its parent. When root errors, cascade kills all.
 local assert = require("assert2")
 local time = require("time")
+local process = require("process")
 
 local function main()
     -- Spawn the chain root

@@ -132,7 +132,11 @@ func (s *Scheduler) Submit(ctx context.Context, pid relay.PID, p Process, method
 		return nil, process.ErrMaxProcessesExceeded
 	}
 
-	if err := p.Init(ctx, method, input); err != nil {
+	// Create cancellable context first so Init receives the right context
+	procCtx, cancel := context.WithCancel(ctx)
+
+	if err := p.Init(procCtx, method, input); err != nil {
+		cancel()
 		return nil, err
 	}
 
@@ -140,8 +144,9 @@ func (s *Scheduler) Submit(ctx context.Context, pid relay.PID, p Process, method
 	proc.id = s.nextID.Add(1)
 	proc.pid = pid
 	proc.Process = p
-	proc.SetState(StateReady)
-	proc.ctx = ctx
+	proc.setState(StateReady)
+	proc.ctx = procCtx
+	proc.cancel = cancel
 	proc.scheduler = s
 
 	// Reset queue for this execution and cache generation
@@ -152,7 +157,7 @@ func (s *Scheduler) Submit(ctx context.Context, pid relay.PID, p Process, method
 	s.byPID.Store(pid, proc)
 
 	if s.lifecycle != nil {
-		s.lifecycle.OnStart(ctx, pid, p)
+		s.lifecycle.OnStart(procCtx, pid, p)
 	}
 
 	s.global.Push(proc)
@@ -161,33 +166,8 @@ func (s *Scheduler) Submit(ctx context.Context, pid relay.PID, p Process, method
 	return proc, nil
 }
 
-func (s *Scheduler) SendTo(procID uint64, pkg *relay.Package) error {
-	val, ok := s.idleProcs.LoadAndDelete(procID)
-	if !ok {
-		return process.ErrProcessNotIdle
-	}
-
-	proc := val.(*Processor)
-	// Push message event to processor's queue with generation check
-	if !proc.queue.Push(process.Event{
-		Type: process.EventMessage,
-		Data: pkg,
-	}, proc.gen.Load()) {
-		return process.ErrProcessClosed
-	}
-
-	proc.SetState(StateReady)
-	s.global.Push(proc)
-	s.wake()
-	return nil
-}
-
-func (s *Scheduler) Cancel(procID uint64) {
-	s.idleProcs.Delete(procID)
-}
-
-// Terminate forcibly terminates a process by PID with an error.
-// This immediately completes the process and triggers LINK_DOWN for linked processes.
+// Terminate forcibly terminates a process by PID.
+// Cancels the process context - worker will detect and evict on next step.
 func (s *Scheduler) Terminate(pid relay.PID) error {
 	v, ok := s.byPID.Load(pid)
 	if !ok {
@@ -195,27 +175,25 @@ func (s *Scheduler) Terminate(pid relay.PID) error {
 	}
 	proc := v.(*Processor)
 
-	// Close the queue to reject new events
-	proc.queue.Close()
-
-	// Remove from idle tracking if present
-	s.idleProcs.Delete(proc.id)
-
-	// Attempt to transition to complete state
-	// If already complete, this is a no-op
-	if proc.casState(StateIdle, StateComplete) ||
-		proc.casState(StateBlocked, StateComplete) ||
-		proc.casState(StateReady, StateComplete) {
-		// Successfully transitioned from a non-running state
-		s.complete(proc, nil, process.ErrTerminated)
-		return nil
+	// Cancel context - worker checks ctx.Err() and evicts
+	if proc.cancel != nil {
+		proc.cancel()
 	}
 
-	// Process is running - push a terminate event that will cause step to error
-	proc.queue.PushDirect(process.Event{
-		Type:  process.EventYieldComplete,
-		Error: process.ErrTerminated,
-	})
+	// Close queue to reject new events
+	proc.queue.Close()
+
+	// Remove from idle tracking
+	s.idleProcs.Delete(pid)
+
+	// Try to transition to Ready and re-queue so worker can evict.
+	// Works for Idle, Blocked, and already-Ready states.
+	// Running state: worker will see ctx.Err() after current step.
+	if proc.casState(StateIdle, StateReady) ||
+		proc.casState(StateBlocked, StateReady) {
+		s.global.Push(proc)
+		s.wake()
+	}
 
 	return nil
 }
@@ -226,9 +204,11 @@ func (s *Scheduler) complete(proc *Processor, result *StepOutput, err error) {
 		res.Value = result.Result()
 	}
 
+	// Always remove from byPID - process is done regardless of pooling
+	s.byPID.Delete(proc.pid)
+	s.idleProcs.Delete(proc.pid)
+
 	if !proc.pooled {
-		s.byPID.Delete(proc.pid)
-		s.idleProcs.Delete(proc.id)
 		s.processorCount.Add(-1)
 	}
 
@@ -244,22 +224,30 @@ func (s *Scheduler) complete(proc *Processor, result *StepOutput, err error) {
 		return
 	}
 
+	if proc.cancel != nil {
+		proc.cancel()
+	}
 	if proc.Process != nil {
 		proc.Process.Close()
 	}
 	releaseProcessor(proc)
 }
 
-func (s *Scheduler) CreateProcessor(pid relay.PID, p Process) (*Processor, error) {
+func (s *Scheduler) CreateProcessor(ctx context.Context, pid relay.PID, p Process) (*Processor, error) {
 	if s.maxProcesses > 0 && s.processorCount.Load() >= s.maxProcesses {
 		return nil, process.ErrMaxProcessesExceeded
 	}
+
+	// Wrap context with cancel for Terminate support
+	procCtx, cancel := context.WithCancel(ctx)
 
 	proc := acquireProcessor()
 	proc.id = s.nextID.Add(1)
 	proc.pid = pid
 	proc.Process = p
-	proc.SetState(StateReady)
+	proc.setState(StateReady)
+	proc.ctx = procCtx
+	proc.cancel = cancel
 	proc.scheduler = s
 	proc.pooled = true
 	proc.resultCh = make(chan *runtime.Result, 1)
@@ -277,44 +265,53 @@ func (s *Scheduler) CreateProcessor(pid relay.PID, p Process) (*Processor, error
 func (s *Scheduler) ReleaseProcessor(proc *Processor) {
 	s.processorCount.Add(-1)
 	s.byPID.Delete(proc.pid)
+	s.idleProcs.Delete(proc.pid)
+	if proc.cancel != nil {
+		proc.cancel()
+	}
+	if proc.Process != nil {
+		proc.Process.Close()
+	}
+	releaseProcessor(proc)
 }
 
 // Send implements relay.Receiver. Routes package to target process.
 // Wakes the process if it's idle waiting for messages.
 func (s *Scheduler) Send(pkg *relay.Package) error {
-	v, ok := s.byPID.Load(pkg.Target)
+	target := pkg.Target // copy before push - pkg may be released after queue receives it
+
+	v, ok := s.byPID.Load(target)
 	if !ok {
 		return process.ErrProcessNotFound
 	}
 	proc := v.(*Processor)
+
+	// Try to wake idle process - O(1) lookup by PID
+	// Must happen before push since receiver may release pkg immediately
+	idleProc, wasIdle := s.idleProcs.LoadAndDelete(target)
 
 	// Push message event to processor's queue with generation check
 	if !proc.queue.Push(process.Event{
 		Type: process.EventMessage,
 		Data: pkg,
 	}, proc.gen.Load()) {
+		// Push failed - queue closed, process is terminating. Don't restore idle.
 		return process.ErrProcessClosed
 	}
 
-	// Try to wake idle process
-	s.idleProcs.Range(func(key, value any) bool {
-		idleProc := value.(*Processor)
-		if idleProc.pid == pkg.Target {
-			if s.idleProcs.CompareAndDelete(key, value) {
-				idleProc.SetState(StateReady)
-				s.global.Push(idleProc)
-				s.wake()
-			}
-			return false
-		}
-		return true
-	})
+	// Wake idle process if it was parked
+	if wasIdle {
+		idle := idleProc.(*Processor)
+		idle.setState(StateReady)
+		s.global.Push(idle)
+		s.wake()
+	}
 
 	return nil
 }
 
 func (s *Scheduler) parkIdle(proc *Processor) {
-	s.idleProcs.Store(proc.id, proc)
+	s.idleProcs.Store(proc.pid, proc)
 }
 
 func (s *Scheduler) Stats() map[string]uint64 {

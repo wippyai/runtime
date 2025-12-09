@@ -125,7 +125,19 @@ func (w *Worker) executeOne(proc *Processor) {
 		return
 	}
 
-	proc.SetState(StateRunning)
+	// Atomically transition Ready→Running. If CAS fails, process was
+	// terminated or is in unexpected state - skip execution.
+	if !proc.casState(StateReady, StateRunning) {
+		return
+	}
+
+	// Check context cancellation before executing (Terminate sets this)
+	if proc.ctx != nil && proc.ctx.Err() != nil {
+		proc.setState(StateComplete)
+		proc.queue.Close()
+		w.scheduler.complete(proc, nil, process.ErrTerminated)
+		return
+	}
 
 	// Drain events from queue
 	events := proc.queue.Drain()
@@ -137,7 +149,7 @@ func (w *Worker) executeOne(proc *Processor) {
 	err := proc.Process.Step(events, &proc.output)
 
 	if err != nil {
-		proc.SetState(StateComplete)
+		proc.setState(StateComplete)
 		proc.queue.Close()
 		w.scheduler.complete(proc, nil, err)
 		return
@@ -145,26 +157,21 @@ func (w *Worker) executeOne(proc *Processor) {
 
 	switch proc.output.Status() {
 	case StepDone:
-		proc.SetState(StateComplete)
+		proc.setState(StateComplete)
 		proc.queue.Close()
 		w.scheduler.complete(proc, &proc.output, nil)
 
 	case StepIdle:
-		proc.SetState(StateIdle)
+		proc.setState(StateIdle)
 		w.scheduler.parkIdle(proc)
 
 	case StepContinue:
 		yields := proc.output.Yields()
 		if len(yields) == 0 {
-			// No yields - continue immediately if events pending
-			if proc.queue.HasEvents() {
-				proc.SetState(StateReady)
-				w.scheduler.global.Push(proc)
-				w.scheduler.wake()
-			} else {
-				// Wait for events
-				proc.SetState(StateBlocked)
-			}
+			// No external yields - process has internal work, re-queue immediately
+			proc.setState(StateReady)
+			w.scheduler.global.Push(proc)
+			w.scheduler.wake()
 			return
 		}
 

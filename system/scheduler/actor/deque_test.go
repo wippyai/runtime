@@ -46,8 +46,8 @@ func TestDequePushPop(t *testing.T) {
 		if p == nil {
 			t.Fatalf("unexpected nil at position %d", i)
 		}
-		if p.ID() != uint64(i) { //nolint:gosec // test: i is always small
-			t.Fatalf("expected ID %d, got %d", i, p.ID())
+		if p.id != uint64(i) { //nolint:gosec // test: i is always small
+			t.Fatalf("expected ID %d, got %d", i, p.id)
 		}
 	}
 
@@ -69,12 +69,12 @@ func TestDequeSteal(t *testing.T) {
 
 	// Steal returns FIFO order (oldest first)
 	p := d.Steal()
-	if p == nil || p.ID() != 0 {
+	if p == nil || p.id != 0 {
 		t.Fatalf("expected ID 0, got %v", p)
 	}
 
 	p = d.Steal()
-	if p == nil || p.ID() != 1 {
+	if p == nil || p.id != 1 {
 		t.Fatalf("expected ID 1, got %v", p)
 	}
 
@@ -98,8 +98,8 @@ func TestDequeStealHalf(t *testing.T) {
 	}
 
 	for i := 0; i < count; i++ {
-		if buf[i].ID() != uint64(i) { //nolint:gosec // test: i is always small
-			t.Fatalf("stolen[%d] expected ID %d, got %d", i, i, buf[i].ID())
+		if buf[i].id != uint64(i) { //nolint:gosec // test: i is always small
+			t.Fatalf("stolen[%d] expected ID %d, got %d", i, i, buf[i].id)
 		}
 	}
 
@@ -121,7 +121,7 @@ func TestDequeGrow(t *testing.T) {
 
 	for i := 19; i >= 0; i-- {
 		p := d.Pop()
-		if p == nil || p.ID() != uint64(i) { //nolint:gosec // test: i is always small
+		if p == nil || p.id != uint64(i) { //nolint:gosec // test: i is always small
 			t.Fatalf("expected ID %d, got %v", i, p)
 		}
 	}
@@ -134,12 +134,12 @@ func TestDequeMixedOperations(t *testing.T) {
 	d.Push(&Processor{id: 2})
 	d.Push(&Processor{id: 3})
 
-	if p := d.Pop(); p.ID() != 3 {
-		t.Fatalf("expected 3, got %d", p.ID())
+	if p := d.Pop(); p.id != 3 {
+		t.Fatalf("expected 3, got %d", p.id)
 	}
 
-	if p := d.Steal(); p.ID() != 1 {
-		t.Fatalf("expected 1, got %d", p.ID())
+	if p := d.Steal(); p.id != 1 {
+		t.Fatalf("expected 1, got %d", p.id)
 	}
 
 	d.Push(&Processor{id: 4})
