@@ -671,3 +671,69 @@ func TestTopology_NotificationScenarios(t *testing.T) {
 		assert.Equal(t, 0, len(sends3), "no notifications should be sent for removed process")
 	})
 }
+
+func TestTopology_WatchingMapTracking(t *testing.T) {
+	t.Run("Wait tracks bidirectional relationship for local PIDs", func(t *testing.T) {
+		upstream := newMockUpstream()
+		topo := NewTopology(upstream, "local")
+
+		caller := relay.PID{Host: "host", UniqID: "caller"}.Precomputed()
+		target := relay.PID{Host: "host", UniqID: "target"}.Precomputed()
+
+		_ = topo.Register(caller)
+		_ = topo.Register(target)
+
+		err := topo.Wait(caller, target)
+		assert.NoError(t, err)
+
+		// Verify bidirectional tracking
+		assert.True(t, topo.hasWatcher(target, caller), "target should have caller as watcher")
+		assert.True(t, topo.isWatching(caller, target), "caller should be watching target")
+	})
+
+	t.Run("Release cleans up watching map for local PIDs", func(t *testing.T) {
+		upstream := newMockUpstream()
+		topo := NewTopology(upstream, "local")
+
+		caller := relay.PID{Host: "host", UniqID: "caller"}.Precomputed()
+		target := relay.PID{Host: "host", UniqID: "target"}.Precomputed()
+
+		_ = topo.Register(caller)
+		_ = topo.Register(target)
+		_ = topo.Wait(caller, target)
+
+		err := topo.Release(caller, target)
+		assert.NoError(t, err)
+
+		// Verify both sides cleaned up
+		assert.False(t, topo.hasWatcher(target, caller), "watcher should be removed")
+		assert.False(t, topo.isWatching(caller, target), "watching should be removed")
+	})
+
+	t.Run("Remove cleans up watching maps of watchers", func(t *testing.T) {
+		upstream := newMockUpstream()
+		topo := NewTopology(upstream, "local")
+
+		watcher1 := relay.PID{Host: "host", UniqID: "watcher1"}.Precomputed()
+		watcher2 := relay.PID{Host: "host", UniqID: "watcher2"}.Precomputed()
+		target := relay.PID{Host: "host", UniqID: "target"}.Precomputed()
+
+		_ = topo.Register(watcher1)
+		_ = topo.Register(watcher2)
+		_ = topo.Register(target)
+
+		_ = topo.Wait(watcher1, target)
+		_ = topo.Wait(watcher2, target)
+
+		// Verify watchers are tracking target
+		assert.True(t, topo.isWatching(watcher1, target))
+		assert.True(t, topo.isWatching(watcher2, target))
+
+		// Remove target
+		topo.Remove(target)
+
+		// Verify watching maps are cleaned up
+		assert.False(t, topo.isWatching(watcher1, target), "watcher1 watching map should be cleaned")
+		assert.False(t, topo.isWatching(watcher2, target), "watcher2 watching map should be cleaned")
+	})
+}

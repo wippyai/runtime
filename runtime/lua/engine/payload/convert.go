@@ -81,6 +81,7 @@ func GoToLua(v any) (lua.LValue, error) {
 
 	// Use reflection for complex types
 	rv := reflect.ValueOf(v)
+	//exhaustive:ignore
 	switch rv.Kind() {
 	case reflect.Ptr:
 		if rv.IsNil() {
@@ -133,6 +134,7 @@ func GoToLua(v any) (lua.LValue, error) {
 			var lval lua.LValue
 			var err error
 
+			//exhaustive:ignore
 			switch fieldValue.Kind() {
 			case reflect.Map:
 				if fieldValue.IsNil() {

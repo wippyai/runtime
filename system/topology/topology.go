@@ -112,15 +112,21 @@ func (t *Topology) Wait(caller, pid relay.PID) error {
 func (t *Topology) Release(caller, pid relay.PID) error {
 	// Check if PID is on remote node.
 	if pid.Node != "" && pid.Node != t.localNodeID {
-		// Clean up local tracking
+		callerKey := caller.String()
+		pidKey := pid.String()
+
+		// Send first, then cleanup locally on success
+		pkg := topology.MonitorRelease(caller, pid)
+		if err := t.router.Send(pkg); err != nil {
+			return err
+		}
+
 		t.mu.Lock()
-		if callerState, exists := t.processes[caller.String()]; exists && callerState.watching != nil {
-			delete(callerState.watching, pid.String())
+		if callerState, exists := t.processes[callerKey]; exists {
+			delete(callerState.watching, pidKey)
 		}
 		t.mu.Unlock()
-
-		pkg := topology.MonitorRelease(caller, pid)
-		return t.router.Send(pkg)
+		return nil
 	}
 
 	t.mu.Lock()
@@ -219,14 +225,21 @@ func (t *Topology) Link(from, to relay.PID) error {
 func (t *Topology) Unlink(from, to relay.PID) error {
 	// Check if to PID is on remote node.
 	if to.Node != "" && to.Node != t.localNodeID {
+		fromKey := from.String()
+		toKey := to.String()
+
+		// Send first, then cleanup locally on success
+		pkg := topology.UnlinkRequest(from, to)
+		if err := t.router.Send(pkg); err != nil {
+			return err
+		}
+
 		t.mu.Lock()
-		if fromState, exists := t.processes[from.String()]; exists {
-			delete(fromState.links, to.String())
+		if fromState, exists := t.processes[fromKey]; exists {
+			delete(fromState.links, toKey)
 		}
 		t.mu.Unlock()
-
-		pkg := topology.UnlinkRequest(from, to)
-		return t.router.Send(pkg)
+		return nil
 	}
 
 	t.mu.Lock()
@@ -350,9 +363,11 @@ func (t *Topology) Remove(pid relay.PID) {
 		}
 	}
 
-	// Remove this pid from watching maps of other processes.
-	for _, otherState := range t.processes {
-		delete(otherState.watching, pidKey)
+	// Remove this pid from watching maps of processes that watch us.
+	for watcherKey := range state.watchers {
+		if watcherState, ok := t.processes[watcherKey]; ok {
+			delete(watcherState.watching, pidKey)
+		}
 	}
 
 	delete(t.processes, pidKey)
@@ -446,11 +461,23 @@ func (t *Topology) watcherCount(pid relay.PID) int {
 	return len(state.watchers)
 }
 
+// isWatching checks if caller is watching target (for testing).
+func (t *Topology) isWatching(caller, target relay.PID) bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	state, exists := t.processes[caller.String()]
+	if !exists {
+		return false
+	}
+	return state.watching[target.String()]
+}
+
 // HandleNodeExit handles node failure by notifying all local processes
 // that were watching or linked to PIDs on the failed node.
 func (t *Topology) HandleNodeExit(nodeID relay.NodeID, exitErr error) {
 	// Build prefix for fast string matching: "{nodeID@"
-	nodePrefix := "{" + string(nodeID) + "@"
+	nodePrefix := "{" + nodeID + "@"
 
 	t.mu.RLock()
 	type notification struct {

@@ -131,9 +131,9 @@ func (l *topologyEventListener) eventLoop() {
 			continue
 		}
 
-		nodeID := relayapi.NodeID(evt.Path)
+		nodeID := evt.Path
 		l.logger.Debug("handling node exit",
-			zap.String("nodeID", string(nodeID)),
+			zap.String("nodeID", nodeID),
 			zap.String("system", evt.System),
 			zap.String("kind", evt.Kind))
 

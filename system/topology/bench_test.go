@@ -600,7 +600,7 @@ func BenchmarkConcurrentNodeExit(b *testing.B) {
 		}
 
 		for i := 0; i < numProcesses; i++ {
-			nodeID := relay.NodeID(fmt.Sprintf("node%d", i%numNodes))
+			nodeID := fmt.Sprintf("node%d", i%numNodes)
 			remotePID := relay.PID{Node: nodeID, Host: "host", UniqID: fmt.Sprintf("r%d", i)}.Precomputed()
 			_ = topo.Wait(localPIDs[i], remotePID)
 		}
@@ -609,8 +609,8 @@ func BenchmarkConcurrentNodeExit(b *testing.B) {
 		var wg sync.WaitGroup
 		for i := 0; i < numNodes; i++ {
 			wg.Add(1)
-			nodeID := relay.NodeID(fmt.Sprintf("node%d", i))
-			go func(nid relay.NodeID) {
+			nodeID := fmt.Sprintf("node%d", i)
+			go func(nid string) {
 				defer wg.Done()
 				topo.HandleNodeExit(nid, errors.New("exit"))
 			}(nodeID)

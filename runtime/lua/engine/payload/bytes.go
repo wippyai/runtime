@@ -66,23 +66,19 @@ func (t *ToBytes) Transcode(p payload.Payload) (payload.Payload, error) {
 
 	// Handle different Lua types
 	var result []byte
+	//exhaustive:ignore
 	switch lv.Type() {
 	case lua.LTString:
-		// Direct conversion to bytes
 		result = []byte(lv.(lua.LString))
 	case lua.LTNumber:
-		// Number to string to bytes
 		result = []byte(fmt.Sprintf("%v", float64(lv.(lua.LNumber))))
 	case lua.LTBool:
-		// Boolean to string to bytes
 		result = []byte(fmt.Sprintf("%t", bool(lv.(lua.LBool))))
 	case lua.LTNil:
 		// Nil to empty bytes
 	case lua.LTTable:
-		// For tables, convert to string representation first
 		result = []byte(fmt.Sprintf("%v", value.ToGoAny(lv)))
 	case lua.LTInteger:
-		// Integer to string to bytes
 		result = []byte(fmt.Sprintf("%d", int64(lv.(lua.LInteger))))
 	default:
 		result = []byte(lv.String())

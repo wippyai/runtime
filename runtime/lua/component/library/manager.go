@@ -68,7 +68,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindLibrary {
-		return api.NewInvalidEntryKindError(string(entry.Kind), string(api.KindLibrary))
+		return api.NewInvalidEntryKindError(entry.Kind, api.KindLibrary)
 	}
 
 	if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
