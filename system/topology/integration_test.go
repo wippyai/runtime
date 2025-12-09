@@ -320,7 +320,7 @@ func TestIntegration_CrossNodeMonitoring_EndToEnd(t *testing.T) {
 	// Setup: Create local node with router and topology
 	localNode := relaysys.NewNode("local")
 	router := relaysys.NewRouter(localNode, nil)
-	topo := NewTopology(localNode, router, "local")
+	topo := NewTopology(router, "local")
 
 	// Register dummy host for the local node
 	err := localNode.RegisterHost("myhost", &dummyHost{})
@@ -404,7 +404,7 @@ func TestIntegration_CrossNodeLinking_EndToEnd(t *testing.T) {
 	// Setup
 	localNode := relaysys.NewNode("local")
 	router := relaysys.NewRouter(localNode, nil)
-	topo := NewTopology(localNode, router, "local")
+	topo := NewTopology(router, "local")
 
 	// Register dummy host for the local node
 	err := localNode.RegisterHost("myhost", &dummyHost{})
@@ -480,7 +480,7 @@ func TestIntegration_MultipleWatchers(t *testing.T) {
 	// Setup
 	localNode := relaysys.NewNode("local")
 	router := relaysys.NewRouter(localNode, nil)
-	topo := NewTopology(localNode, router, "local")
+	topo := NewTopology(router, "local")
 
 	// Register hosts for all processes
 	err := localNode.RegisterHost("host1", &dummyHost{})
@@ -575,7 +575,7 @@ func TestIntegration_ReleaseMonitor(t *testing.T) {
 	// Setup
 	localNode := relaysys.NewNode("local")
 	router := relaysys.NewRouter(localNode, nil)
-	topo := NewTopology(localNode, router, "local")
+	topo := NewTopology(router, "local")
 
 	// Register host
 	err := localNode.RegisterHost("host1", &dummyHost{})
@@ -613,7 +613,7 @@ func TestIntegration_UnlinkBeforeFailure(t *testing.T) {
 	// Setup
 	localNode := relaysys.NewNode("local")
 	router := relaysys.NewRouter(localNode, nil)
-	topo := NewTopology(localNode, router, "local")
+	topo := NewTopology(router, "local")
 
 	// Register host
 	err := localNode.RegisterHost("host1", &dummyHost{})

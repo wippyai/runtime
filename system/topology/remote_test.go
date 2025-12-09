@@ -13,9 +13,8 @@ import (
 )
 
 func TestTopology_RemoteMonitoring(t *testing.T) {
-	upstream := newMockUpstream()
 	router := newMockUpstream()
-	topo := NewTopology(upstream, router, "local")
+	topo := NewTopology(router, "local")
 
 	localPID := relay.PID{Node: "local", Host: "host1", UniqID: "1"}.Precomputed()
 	remotePID := relay.PID{Node: "remote", Host: "host2", UniqID: "2"}.Precomputed()
@@ -88,9 +87,8 @@ func TestTopology_RemoteMonitoring(t *testing.T) {
 }
 
 func TestTopology_RemoteLinking(t *testing.T) {
-	upstream := newMockUpstream()
 	router := newMockUpstream()
-	topo := NewTopology(upstream, router, "local")
+	topo := NewTopology(router, "local")
 
 	localPID := relay.PID{Node: "local", Host: "host1", UniqID: "1"}.Precomputed()
 	remotePID := relay.PID{Node: "remote", Host: "host2", UniqID: "2"}.Precomputed()
@@ -191,7 +189,7 @@ func TestTopology_RemoteLinking(t *testing.T) {
 
 func TestTopology_HandleMonitorRequest(t *testing.T) {
 	upstream := newMockUpstream()
-	topo := NewTopology(upstream, upstream, "local")
+	topo := NewTopology(upstream, "local")
 
 	localPID := relay.PID{Node: "local", Host: "host1", UniqID: "1"}.Precomputed()
 	remotePID := relay.PID{Node: "remote", Host: "host2", UniqID: "2"}.Precomputed()
@@ -225,7 +223,7 @@ func TestTopology_HandleMonitorRequest(t *testing.T) {
 
 func TestTopology_HandleMonitorRelease(t *testing.T) {
 	upstream := newMockUpstream()
-	topo := NewTopology(upstream, upstream, "local")
+	topo := NewTopology(upstream, "local")
 
 	localPID := relay.PID{Node: "local", Host: "host1", UniqID: "1"}.Precomputed()
 	remotePID := relay.PID{Node: "remote", Host: "host2", UniqID: "2"}.Precomputed()
@@ -254,7 +252,7 @@ func TestTopology_HandleMonitorRelease(t *testing.T) {
 
 func TestTopology_HandleLinkRequest(t *testing.T) {
 	upstream := newMockUpstream()
-	topo := NewTopology(upstream, upstream, "local")
+	topo := NewTopology(upstream, "local")
 
 	localPID := relay.PID{Node: "local", Host: "host1", UniqID: "1"}.Precomputed()
 	remotePID := relay.PID{Node: "remote", Host: "host2", UniqID: "2"}.Precomputed()
@@ -290,7 +288,7 @@ func TestTopology_HandleLinkRequest(t *testing.T) {
 
 func TestTopology_HandleUnlinkRequest(t *testing.T) {
 	upstream := newMockUpstream()
-	topo := NewTopology(upstream, upstream, "local")
+	topo := NewTopology(upstream, "local")
 
 	localPID := relay.PID{Node: "local", Host: "host1", UniqID: "1"}.Precomputed()
 	remotePID := relay.PID{Node: "remote", Host: "host2", UniqID: "2"}.Precomputed()
@@ -317,7 +315,7 @@ func TestTopology_HandleUnlinkRequest(t *testing.T) {
 
 func TestTopology_RemoteMonitoringWithNotification(t *testing.T) {
 	upstream := newMockUpstream()
-	topo := NewTopology(upstream, upstream, "local")
+	topo := NewTopology(upstream, "local")
 
 	localPID := relay.PID{Node: "local", Host: "host1", UniqID: "1"}.Precomputed()
 	remotePID := relay.PID{Node: "remote", Host: "host2", UniqID: "2"}.Precomputed()
@@ -352,5 +350,112 @@ func TestTopology_RemoteMonitoringWithNotification(t *testing.T) {
 		require.NotNil(t, exitEvent, "should contain ExitEvent")
 		assert.Equal(t, topology.KindExit, exitEvent.Kind)
 		assert.Equal(t, localPID, exitEvent.From)
+	})
+}
+
+func TestTopology_HandleNodeExit(t *testing.T) {
+	router := newMockUpstream()
+	topo := NewTopology(router, "local")
+
+	localPID1 := relay.PID{Node: "local", Host: "host1", UniqID: "p1"}.Precomputed()
+	localPID2 := relay.PID{Node: "local", Host: "host2", UniqID: "p2"}.Precomputed()
+	remotePID1 := relay.PID{Node: "remote", Host: "host1", UniqID: "r1"}.Precomputed()
+	remotePID2 := relay.PID{Node: "remote", Host: "host2", UniqID: "r2"}.Precomputed()
+	otherRemotePID := relay.PID{Node: "other", Host: "host1", UniqID: "o1"}.Precomputed()
+
+	// Register local processes
+	require.NoError(t, topo.Register(localPID1))
+	require.NoError(t, topo.Register(localPID2))
+
+	t.Run("HandleNodeExit notifies processes watching remote PIDs", func(t *testing.T) {
+		router.reset()
+
+		// Local process watches remote PID
+		err := topo.Wait(localPID1, remotePID1)
+		require.NoError(t, err)
+
+		router.reset() // Clear the MonitorRequest
+
+		// Simulate node exit
+		topo.HandleNodeExit("remote", errors.New("node disconnected"))
+
+		pkgs := router.getSends(localPID1)
+		require.Len(t, pkgs, 1, "should send LinkDown to local watcher")
+
+		var exitEvent *topology.ExitEvent
+		for _, msg := range pkgs[0].Messages {
+			for _, p := range msg.Payloads {
+				if evt, ok := p.Data().(*topology.ExitEvent); ok {
+					exitEvent = evt
+					break
+				}
+			}
+		}
+
+		require.NotNil(t, exitEvent)
+		assert.Equal(t, topology.KindLinkDown, exitEvent.Kind)
+		assert.Equal(t, remotePID1, exitEvent.From)
+	})
+
+	t.Run("HandleNodeExit notifies processes linked to remote PIDs", func(t *testing.T) {
+		router.reset()
+
+		// Re-register since state was cleaned
+		require.NoError(t, topo.Register(localPID1))
+
+		// Local process links to remote PID
+		err := topo.Link(localPID1, remotePID2)
+		require.NoError(t, err)
+
+		router.reset() // Clear the LinkRequest
+
+		// Simulate node exit
+		topo.HandleNodeExit("remote", errors.New("node crashed"))
+
+		pkgs := router.getSends(localPID1)
+		require.Len(t, pkgs, 1, "should send LinkDown to linked process")
+	})
+
+	t.Run("HandleNodeExit does not affect other nodes", func(t *testing.T) {
+		router.reset()
+
+		// Re-register
+		require.NoError(t, topo.Register(localPID2))
+
+		// Watch a PID on a different node
+		err := topo.Wait(localPID2, otherRemotePID)
+		require.NoError(t, err)
+
+		router.reset()
+
+		// Exit different node
+		topo.HandleNodeExit("remote", errors.New("node gone"))
+
+		// Should not notify about "other" node
+		pkgs := router.getSends(localPID2)
+		assert.Len(t, pkgs, 0, "should not notify about different node")
+	})
+
+	t.Run("HandleNodeExit cleans up watching entries", func(t *testing.T) {
+		router.reset()
+
+		require.NoError(t, topo.Register(localPID1))
+
+		// Watch remote PID
+		remotePID := relay.PID{Node: "cleanup-test", Host: "h", UniqID: "r"}.Precomputed()
+		err := topo.Wait(localPID1, remotePID)
+		require.NoError(t, err)
+
+		router.reset()
+
+		// Handle node exit
+		topo.HandleNodeExit("cleanup-test", errors.New("cleanup"))
+
+		// Calling again should not send anything (already cleaned)
+		router.reset()
+		topo.HandleNodeExit("cleanup-test", errors.New("second"))
+
+		pkgs := router.getSends(localPID1)
+		assert.Len(t, pkgs, 0, "should not notify again after cleanup")
 	})
 }

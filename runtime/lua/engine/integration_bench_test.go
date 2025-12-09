@@ -268,6 +268,9 @@ func BenchmarkIntegrationConcurrent(b *testing.B) {
 
 // TestIntegration1000ConcurrentGoroutines tests 1000 goroutines launching processes.
 func TestIntegration1000ConcurrentGoroutines(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode")
+	}
 	const goroutines = 1000
 	const processesPerGoroutine = 100
 
@@ -563,6 +566,9 @@ func BenchmarkIntegrationManyCoroutineYields(b *testing.B) {
 
 // TestIntegrationMemoryStability tests memory stability under sustained load.
 func TestIntegrationMemoryStability(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode")
+	}
 	const iterations = 10
 	const processesPerIteration = 10000
 

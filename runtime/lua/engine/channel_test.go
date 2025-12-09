@@ -2,9 +2,11 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
@@ -15,7 +17,7 @@ func startChannelProcess(t *testing.T, script string) *Process {
 	proto, _ := lua.CompileString(script, "test.lua")
 	proc := NewProcess(
 		WithProto(proto),
-		WithModuleBinder(BindChannelFunctions),
+		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
@@ -1264,8 +1266,8 @@ func startSubscribeProcess(t *testing.T, script string) *Process {
 		t.Fatal(err)
 	}
 
-	BindChannelFunctions(proc.State())
-	BindSubscribeFunctions(proc.State())
+	ChannelModule.Load(proc.State())
+	loadPubSubGlobals(proc.State())
 	return proc
 }
 
@@ -2121,4 +2123,564 @@ func TestSelectBufferedImmediateIndex(t *testing.T) {
 		}
 	}
 	t.Log("Select buffered immediate index test passed")
+}
+
+// Subscribe context unit tests (from subscribe_test.go)
+
+func TestSubscribeContext(t *testing.T) {
+	ctx := &subscribeContext{
+		byTopic:   make(map[string]*subscription),
+		byChannel: make(map[*Channel]string),
+	}
+
+	ch1 := NewChannel(1)
+	ch2 := NewChannel(1)
+
+	sub, err := ctx.add("topic1", ch1)
+	if err != nil {
+		t.Fatalf("add failed: %v", err)
+	}
+	if sub.topic != "topic1" {
+		t.Errorf("sub.topic = %q, want %q", sub.topic, "topic1")
+	}
+	if sub.channel != ch1 {
+		t.Error("sub.channel should be ch1")
+	}
+
+	sub2, err := ctx.add("topic1", ch1)
+	if err != nil {
+		t.Fatalf("add same channel to same topic should succeed: %v", err)
+	}
+	if sub2 != sub {
+		t.Error("should return existing subscription")
+	}
+
+	_, err = ctx.add("topic1", ch2)
+	if err == nil {
+		t.Error("add different channel to same topic should fail")
+	}
+
+	gotSub, ok := ctx.get("topic1")
+	if !ok {
+		t.Error("get should find topic1")
+	}
+	if gotSub != sub {
+		t.Error("get should return correct subscription")
+	}
+
+	_, ok = ctx.get("nonexistent")
+	if ok {
+		t.Error("get should return false for nonexistent topic")
+	}
+
+	err = ctx.remove(ch1)
+	if err != nil {
+		t.Fatalf("remove failed: %v", err)
+	}
+
+	_, ok = ctx.get("topic1")
+	if ok {
+		t.Error("topic1 should be removed")
+	}
+
+	err = ctx.remove(ch2)
+	if !errors.Is(err, luaapi.ErrChannelNotFound) {
+		t.Errorf("remove non-subscribed channel should return ErrChannelNotFound, got %v", err)
+	}
+}
+
+func TestSubscribeContextConcurrentSafe(t *testing.T) {
+	ctx := &subscribeContext{
+		byTopic:   make(map[string]*subscription),
+		byChannel: make(map[*Channel]string),
+	}
+
+	ch := NewChannel(1)
+	_, err := ctx.add("topic", ch)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan bool)
+	go func() {
+		for i := 0; i < 100; i++ {
+			ctx.get("topic")
+		}
+		done <- true
+	}()
+
+	go func() {
+		for i := 0; i < 100; i++ {
+			ctx.get("topic")
+		}
+		done <- true
+	}()
+
+	<-done
+	<-done
+}
+
+func TestSubscribeContextMultipleTopics(t *testing.T) {
+	ctx := &subscribeContext{
+		byTopic:   make(map[string]*subscription),
+		byChannel: make(map[*Channel]string),
+	}
+
+	ch1 := NewChannel(1)
+	ch2 := NewChannel(1)
+	ch3 := NewChannel(1)
+
+	_, _ = ctx.add("topic1", ch1)
+	_, _ = ctx.add("topic2", ch2)
+	_, _ = ctx.add("topic3", ch3)
+
+	if _, ok := ctx.get("topic1"); !ok {
+		t.Error("topic1 should exist")
+	}
+	if _, ok := ctx.get("topic2"); !ok {
+		t.Error("topic2 should exist")
+	}
+	if _, ok := ctx.get("topic3"); !ok {
+		t.Error("topic3 should exist")
+	}
+
+	_ = ctx.remove(ch2)
+
+	if _, ok := ctx.get("topic1"); !ok {
+		t.Error("topic1 should still exist")
+	}
+	if _, ok := ctx.get("topic2"); ok {
+		t.Error("topic2 should be removed")
+	}
+	if _, ok := ctx.get("topic3"); !ok {
+		t.Error("topic3 should still exist")
+	}
+}
+
+func TestSubscription(t *testing.T) {
+	ch := NewChannel(1)
+	sub := &subscription{
+		topic:   "test-topic",
+		channel: ch,
+	}
+
+	if sub.topic != "test-topic" {
+		t.Errorf("topic = %q, want %q", sub.topic, "test-topic")
+	}
+	if sub.channel != ch {
+		t.Error("channel mismatch")
+	}
+}
+
+func TestSubscribeRequestString(t *testing.T) {
+	ch := NewChannel(1)
+	req := &SubscribeRequest{
+		Topic:   "my-topic",
+		Channel: ch,
+	}
+
+	if req.String() != "<subscribe_request>" {
+		t.Errorf("String() = %q, want %q", req.String(), "<subscribe_request>")
+	}
+	if req.Type() != lua.LTUserData {
+		t.Errorf("Type() = %v, want %v", req.Type(), lua.LTUserData)
+	}
+	if req.Topic != "my-topic" {
+		t.Errorf("Topic = %q, want %q", req.Topic, "my-topic")
+	}
+	if req.Channel != ch {
+		t.Error("Channel mismatch")
+	}
+}
+
+func TestUnsubscribeRequestString(t *testing.T) {
+	ch := NewChannel(1)
+	req := &UnsubscribeRequest{
+		Channel: ch,
+	}
+
+	if req.String() != "<unsubscribe_request>" {
+		t.Errorf("String() = %q, want %q", req.String(), "<unsubscribe_request>")
+	}
+	if req.Type() != lua.LTUserData {
+		t.Errorf("Type() = %v, want %v", req.Type(), lua.LTUserData)
+	}
+	if req.Channel != ch {
+		t.Error("Channel mismatch")
+	}
+}
+
+func TestSubscribeContextAddRemoveSequence(t *testing.T) {
+	ctx := &subscribeContext{
+		byTopic:   make(map[string]*subscription),
+		byChannel: make(map[*Channel]string),
+	}
+
+	ch := NewChannel(1)
+
+	_, err := ctx.add("topic", ch)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = ctx.remove(ch)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = ctx.add("topic", ch)
+	if err != nil {
+		t.Fatalf("resubscribe should work: %v", err)
+	}
+
+	ch2 := NewChannel(1)
+	_, err = ctx.add("topic", ch2)
+	if err == nil {
+		t.Error("adding different channel to occupied topic should fail")
+	}
+}
+
+func TestSubscribeContextTopicChannelMapping(t *testing.T) {
+	ctx := &subscribeContext{
+		byTopic:   make(map[string]*subscription),
+		byChannel: make(map[*Channel]string),
+	}
+
+	ch := NewChannel(1)
+	_, _ = ctx.add("my-topic", ch)
+
+	if topic, ok := ctx.byChannel[ch]; !ok || topic != "my-topic" {
+		t.Errorf("byChannel mapping incorrect: got %q", topic)
+	}
+
+	if sub, ok := ctx.byTopic["my-topic"]; !ok || sub.channel != ch {
+		t.Error("byTopic mapping incorrect")
+	}
+
+	_ = ctx.remove(ch)
+
+	if _, ok := ctx.byChannel[ch]; ok {
+		t.Error("byChannel should be cleared after remove")
+	}
+	if _, ok := ctx.byTopic["my-topic"]; ok {
+		t.Error("byTopic should be cleared after remove")
+	}
+}
+
+// Event message tests (from event_message_test.go)
+
+func sendMessageWithPayload(proc *Process, topic string, payloads payload.Payloads, output *process.StepOutput) error {
+	events := []process.Event{{
+		Type: process.EventMessage,
+		Data: &relay.Package{
+			Messages: []*relay.Message{{Topic: topic, Payloads: payloads}},
+		},
+	}}
+	output.Reset()
+	return proc.Step(events, output)
+}
+
+func startEventProcess(t *testing.T, script string) *Process {
+	t.Helper()
+
+	proto, _ := lua.CompileString(script, "test.lua")
+	proc := NewProcess(
+		WithProto(proto),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+
+	ChannelModule.Load(proc.State())
+	loadPubSubGlobals(proc.State())
+
+	return proc
+}
+
+func runEventUntilIdle(t *testing.T, proc *Process, maxSteps int) error {
+	t.Helper()
+	var output process.StepOutput
+	for i := 0; i < maxSteps; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			return err
+		}
+		if output.Status() == process.StepIdle {
+			return nil
+		}
+		if output.Status() == process.StepDone {
+			return nil
+		}
+	}
+	t.Fatalf("did not reach idle in %d steps", maxSteps)
+	return nil
+}
+
+func runEventUntilDone(t *testing.T, proc *Process, maxSteps int) error {
+	t.Helper()
+	var output process.StepOutput
+	for i := 0; i < maxSteps; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			return err
+		}
+		if output.Status() == process.StepDone {
+			return nil
+		}
+	}
+	t.Fatalf("did not reach done in %d steps", maxSteps)
+	return nil
+}
+
+func TestEventMessageWithStringPayload(t *testing.T) {
+	script := `
+		local inbox = channel.new(10)
+		subscribe("test_topic", inbox)
+		local msg = inbox:receive()
+		if msg ~= "hello world" then
+			return nil, "expected 'hello world', got: " .. tostring(msg)
+		end
+		return "success"
+	`
+
+	proc := startEventProcess(t, script)
+	defer proc.Close()
+
+	if err := runEventUntilIdle(t, proc, 20); err != nil {
+		t.Fatal(err)
+	}
+
+	if !proc.HasSubscriptions() {
+		t.Error("expected active subscription")
+	}
+
+	var output process.StepOutput
+	stringPayload := payload.NewString("hello world")
+	if err := sendMessageWithPayload(proc, "test_topic", payload.Payloads{stringPayload}, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runEventUntilDone(t, proc, 20); err != nil {
+		t.Fatalf("Process failed: %v", err)
+	}
+}
+
+func TestEventMessageWithTablePayload(t *testing.T) {
+	script := `
+		local inbox = channel.new(10)
+		subscribe("data_topic", inbox)
+		local msg = inbox:receive()
+
+		if type(msg) ~= "table" then
+			return nil, "expected table, got: " .. type(msg)
+		end
+		if msg.name ~= "test" then
+			return nil, "expected name='test', got: " .. tostring(msg.name)
+		end
+		if msg.count ~= 42 then
+			return nil, "expected count=42, got: " .. tostring(msg.count)
+		end
+		return "success"
+	`
+
+	proto, _ := lua.CompileString(script, "test.lua")
+	proc := NewProcess(WithProto(proto))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	defer proc.Close()
+
+	ChannelModule.Load(proc.State())
+	loadPubSubGlobals(proc.State())
+
+	if err := runEventUntilIdle(t, proc, 20); err != nil {
+		t.Fatal(err)
+	}
+
+	tbl := proc.State().CreateTable(0, 2)
+	tbl.RawSetString("name", lua.LString("test"))
+	tbl.RawSetString("count", lua.LNumber(42))
+
+	var output process.StepOutput
+	luaTablePayload := payload.NewPayload(tbl, payload.Lua)
+	if err := sendMessageWithPayload(proc, "data_topic", payload.Payloads{luaTablePayload}, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runEventUntilDone(t, proc, 20); err != nil {
+		t.Fatalf("Process failed: %v", err)
+	}
+}
+
+func TestEventMessageMultiplePayloads(t *testing.T) {
+	script := `
+		local inbox = channel.new(10)
+		subscribe("multi_topic", inbox)
+		local msg = inbox:receive()
+
+		if type(msg) ~= "table" then
+			return nil, "expected table (array), got: " .. type(msg)
+		end
+		if #msg ~= 2 then
+			return nil, "expected 2 items, got: " .. #msg
+		end
+		if msg[1] ~= "first" then
+			return nil, "expected first='first', got: " .. tostring(msg[1])
+		end
+		if msg[2] ~= "second" then
+			return nil, "expected second='second', got: " .. tostring(msg[2])
+		end
+		return "success"
+	`
+
+	proc := startEventProcess(t, script)
+	defer proc.Close()
+
+	if err := runEventUntilIdle(t, proc, 20); err != nil {
+		t.Fatal(err)
+	}
+
+	var output process.StepOutput
+	payloads := payload.Payloads{
+		payload.NewString("first"),
+		payload.NewString("second"),
+	}
+	if err := sendMessageWithPayload(proc, "multi_topic", payloads, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runEventUntilDone(t, proc, 20); err != nil {
+		t.Fatalf("Process failed: %v", err)
+	}
+}
+
+func TestEventMessageBlockedReceiver(t *testing.T) {
+	script := `
+		local inbox = channel.new(0)
+		subscribe("wake_topic", inbox)
+		local msg = inbox:receive()
+		return msg
+	`
+
+	proc := startEventProcess(t, script)
+	defer proc.Close()
+
+	if err := runEventUntilIdle(t, proc, 20); err != nil {
+		t.Fatal(err)
+	}
+
+	var output process.StepOutput
+	stringPayload := payload.NewString("wake up!")
+	if err := sendMessageWithPayload(proc, "wake_topic", payload.Payloads{stringPayload}, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runEventUntilDone(t, proc, 20); err != nil {
+		t.Fatalf("Process failed to complete after receiving message: %v", err)
+	}
+}
+
+func TestEventMessageRoutingByTopic(t *testing.T) {
+	script := `
+		local inbox1 = channel.new(10)
+		local inbox2 = channel.new(10)
+		subscribe("topic1", inbox1)
+		subscribe("topic2", inbox2)
+
+		coroutine.yield()
+		coroutine.yield()
+
+		local msg1 = inbox1:receive()
+		local msg2 = inbox2:receive()
+
+		if msg1 ~= "for topic1" then
+			return nil, "topic1 got wrong message: " .. tostring(msg1)
+		end
+		if msg2 ~= "for topic2" then
+			return nil, "topic2 got wrong message: " .. tostring(msg2)
+		end
+		return "success"
+	`
+
+	proc := startEventProcess(t, script)
+	defer proc.Close()
+
+	if err := runEventUntilIdle(t, proc, 30); err != nil {
+		t.Fatal(err)
+	}
+
+	var output process.StepOutput
+	if err := sendMessageWithPayload(proc, "topic1", payload.Payloads{payload.NewString("for topic1")}, &output); err != nil {
+		t.Fatal(err)
+	}
+	if err := sendMessageWithPayload(proc, "topic2", payload.Payloads{payload.NewString("for topic2")}, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runEventUntilDone(t, proc, 30); err != nil {
+		t.Fatalf("Process failed: %v", err)
+	}
+}
+
+func TestEventMessageLuaPayload(t *testing.T) {
+	script := `
+		local inbox = channel.new(10)
+		subscribe("lua_topic", inbox)
+		local msg = inbox:receive()
+		if type(msg) ~= "number" or msg ~= 42 then
+			return nil, "expected number 42, got: " .. type(msg) .. " " .. tostring(msg)
+		end
+		return "success"
+	`
+
+	proc := startEventProcess(t, script)
+	defer proc.Close()
+
+	if err := runEventUntilIdle(t, proc, 20); err != nil {
+		t.Fatal(err)
+	}
+
+	var output process.StepOutput
+	luaPayload := payload.NewPayload(lua.LNumber(42), payload.Lua)
+	if err := sendMessageWithPayload(proc, "lua_topic", payload.Payloads{luaPayload}, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runEventUntilDone(t, proc, 20); err != nil {
+		t.Fatalf("Process failed: %v", err)
+	}
+}
+
+func TestEventMessageNoSubscriber(t *testing.T) {
+	script := `
+		local inbox = channel.new(10)
+		subscribe("subscribed_topic", inbox)
+
+		coroutine.yield()
+
+		unsubscribe(inbox)
+		return "success"
+	`
+
+	proc := startEventProcess(t, script)
+	defer proc.Close()
+
+	if err := runEventUntilIdle(t, proc, 20); err != nil {
+		t.Fatal(err)
+	}
+
+	var output process.StepOutput
+	if err := sendMessageWithPayload(proc, "unsubscribed_topic", payload.Payloads{payload.NewString("ignored")}, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runEventUntilDone(t, proc, 30); err != nil {
+		t.Fatalf("Process failed: %v", err)
+	}
 }

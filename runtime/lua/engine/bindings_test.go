@@ -30,7 +30,7 @@ func TestCheckChannel(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	RegisterChannelMetatable()
+	ChannelModule.Load(l)
 
 	ch := NewChannel(1)
 	ud := l.NewUserData()
@@ -64,19 +64,27 @@ func TestCheckSelectCaseValue(t *testing.T) {
 	}
 }
 
-func TestGetChannelModuleTable(t *testing.T) {
-	tbl := getChannelModuleTable()
-	if tbl == nil {
-		t.Fatal("getChannelModuleTable returned nil")
+func TestChannelModuleBuild(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	ChannelModule.Load(l)
+
+	channel := l.GetGlobal("channel")
+	if channel == lua.LNil {
+		t.Fatal("channel global not set")
 	}
 
-	newFn := tbl.RawGetString("new")
-	if newFn == lua.LNil {
+	tbl, ok := channel.(*lua.LTable)
+	if !ok {
+		t.Fatalf("channel should be table, got %T", channel)
+	}
+
+	if tbl.RawGetString("new") == lua.LNil {
 		t.Error("module should have 'new' function")
 	}
 
-	selectFn := tbl.RawGetString("select")
-	if selectFn == lua.LNil {
+	if tbl.RawGetString("select") == lua.LNil {
 		t.Error("module should have 'select' function")
 	}
 
@@ -89,8 +97,7 @@ func TestChannelNewFunc(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	RegisterChannelMetatable()
-	BindChannelFunctions(l)
+	ChannelModule.Load(l)
 
 	err := l.DoString(`
 		local ch = channel.new(5)
@@ -107,7 +114,7 @@ func TestPushChannel(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	RegisterChannelMetatable()
+	ChannelModule.Load(l)
 
 	ch := NewChannel(2)
 	ud := PushChannel(l, ch)
@@ -133,8 +140,7 @@ func TestChannelMethods(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	RegisterChannelMetatable()
-	BindChannelFunctions(l)
+	ChannelModule.Load(l)
 
 	err := l.DoString(`
 		local ch = channel.new(2)
@@ -171,8 +177,8 @@ func TestChannelMethods(t *testing.T) {
 	}
 }
 
-func TestRegisterChannelMetatable(t *testing.T) {
-	RegisterChannelMetatable()
+func TestChannelMetatable(t *testing.T) {
+	ChannelModule.Load(lua.NewState())
 
 	mt := value.GetTypeMetatable(nil, ChannelTypeName)
 	if mt == nil {
@@ -184,36 +190,28 @@ func TestRegisterChannelMetatable(t *testing.T) {
 	}
 }
 
-func TestGetChannelModuleTableIsSingleton(t *testing.T) {
-	tbl1 := GetChannelModuleTable()
-	tbl2 := GetChannelModuleTable()
+func TestChannelModuleIsSingleton(t *testing.T) {
+	l1 := lua.NewState()
+	defer l1.Close()
+	l2 := lua.NewState()
+	defer l2.Close()
+
+	ChannelModule.Load(l1)
+	ChannelModule.Load(l2)
+
+	tbl1 := l1.GetGlobal("channel").(*lua.LTable)
+	tbl2 := l2.GetGlobal("channel").(*lua.LTable)
 
 	if tbl1 != tbl2 {
-		t.Error("GetChannelModuleTable should return the same table instance")
+		t.Error("ChannelModule should return the same table instance")
 	}
 }
 
-func TestBindChannelFunctions(t *testing.T) {
+func TestPubSubModule(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	BindChannelFunctions(l)
-
-	channel := l.GetGlobal("channel")
-	if channel == lua.LNil {
-		t.Error("channel global should be set")
-	}
-
-	if _, ok := channel.(*lua.LTable); !ok {
-		t.Errorf("channel should be a table, got %T", channel)
-	}
-}
-
-func TestBindSubscribeFunctions(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	BindSubscribeFunctions(l)
+	LoadCoreModules(l)
 
 	subscribe := l.GetGlobal("subscribe")
 	if subscribe == lua.LNil {
@@ -226,11 +224,11 @@ func TestBindSubscribeFunctions(t *testing.T) {
 	}
 }
 
-func TestBindErrorsModule(t *testing.T) {
+func TestErrorsModule(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	BindErrorsModule(l)
+	lua.OpenErrors(l)
 
 	err := l.DoString(`
 		local e = errors.new({message = "test error"})
@@ -243,11 +241,11 @@ func TestBindErrorsModule(t *testing.T) {
 	}
 }
 
-func TestBindPayloadModule(t *testing.T) {
+func TestLoadCoreModulesPayload(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	BindPayloadModule(l)
+	LoadCoreModules(l)
 
 	payload := l.GetGlobal("payload")
 	if payload == lua.LNil {
@@ -255,11 +253,11 @@ func TestBindPayloadModule(t *testing.T) {
 	}
 }
 
-func TestBindOsModule(t *testing.T) {
+func TestLoadCoreModulesOs(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	BindOsModule(l)
+	LoadCoreModules(l)
 
 	os := l.GetGlobal("os")
 	if os == lua.LNil {
@@ -277,11 +275,11 @@ func TestBindOsModule(t *testing.T) {
 	}
 }
 
-func TestBindPrint(t *testing.T) {
+func TestPrintModule(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	BindPrint(l)
+	PrintModule.Load(l)
 
 	printFn := l.GetGlobal("print")
 	if printFn == lua.LNil {
@@ -297,7 +295,7 @@ func TestPrintFuncWithLogger(t *testing.T) {
 	ctx := logs.WithLogger(context.Background(), logger)
 	l.SetContext(ctx)
 
-	BindPrint(l)
+	PrintModule.Load(l)
 
 	err := l.DoString(`print("test", "message", 123)`)
 	if err != nil {
@@ -310,7 +308,7 @@ func TestPrintFuncWithoutLogger(t *testing.T) {
 	defer l.Close()
 
 	l.SetContext(context.Background())
-	BindPrint(l)
+	PrintModule.Load(l)
 
 	err := l.DoString(`print("test message")`)
 	if err != nil {
@@ -339,6 +337,43 @@ func TestCoreBinders(t *testing.T) {
 	}
 	if l.GetGlobal("print") == lua.LNil {
 		t.Error("print should be bound after CoreBinders")
+	}
+}
+
+func TestLoadCoreModules(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	LoadCoreModules(l)
+
+	globals := []string{"channel", "subscribe", "unsubscribe", "print", "payload", "os"}
+	for _, name := range globals {
+		if l.GetGlobal(name) == lua.LNil {
+			t.Errorf("%s global should be set", name)
+		}
+	}
+}
+
+func TestCoreModulesReuse(t *testing.T) {
+	l1 := lua.NewState()
+	defer l1.Close()
+	l2 := lua.NewState()
+	defer l2.Close()
+
+	LoadCoreModules(l1)
+	LoadCoreModules(l2)
+
+	ch1 := l1.GetGlobal("channel").(*lua.LTable)
+	ch2 := l2.GetGlobal("channel").(*lua.LTable)
+	if ch1 != ch2 {
+		t.Error("channel table should be reused across states")
+	}
+
+	// Functions can't be compared directly, just verify they exist
+	pr1 := l1.GetGlobal("print")
+	pr2 := l2.GetGlobal("print")
+	if pr1 == lua.LNil || pr2 == lua.LNil {
+		t.Error("print function should be set in both states")
 	}
 }
 
@@ -400,8 +435,7 @@ func TestSelectWithDefaultFlag(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	RegisterChannelMetatable()
-	BindChannelFunctions(l)
+	ChannelModule.Load(l)
 
 	err := l.DoString(`
 		local ch1 = channel.new(0)
@@ -425,8 +459,7 @@ func TestSelectWithBufferedChannelReady(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	RegisterChannelMetatable()
-	BindChannelFunctions(l)
+	ChannelModule.Load(l)
 
 	err := l.DoString(`
 		local ch1 = channel.new(1)

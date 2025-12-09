@@ -1529,3 +1529,78 @@ func TestIdleProcsMapCleanup(t *testing.T) {
 		t.Fatal("process should be removed from idle map")
 	}
 }
+
+// IdleMessageProcess tests message delivery to idle processes.
+// Returns Idle on first step, then processes received messages.
+type IdleMessageProcess struct {
+	receivedMsg atomic.Bool
+	completed   atomic.Bool
+}
+
+func (p *IdleMessageProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
+	return nil
+}
+
+func (p *IdleMessageProcess) Step(events []Event, out *StepOutput) error {
+	for _, e := range events {
+		if e.Type == process.EventMessage {
+			p.receivedMsg.Store(true)
+			out.Done(nil)
+			p.completed.Store(true)
+			return nil
+		}
+	}
+	out.Idle()
+	return nil
+}
+
+func (p *IdleMessageProcess) Close() {}
+
+// TestSendToIdleProcessConcurrent tests that messages sent during
+// the idle state transition (race window) are not lost.
+func TestSendToIdleProcessConcurrent(t *testing.T) {
+	const iterations = 100
+
+	for i := 0; i < iterations; i++ {
+		func() {
+			var completed atomic.Bool
+
+			lc := &testLifecycle{
+				onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+					completed.Store(true)
+				},
+			}
+
+			sched := newTestSchedulerWithLifecycle(2, lc)
+			sched.Start()
+			defer sched.Stop()
+
+			pid := relay.PID{UniqID: fmt.Sprintf("idle-race-%d", i)}
+			proc := &IdleMessageProcess{}
+			_, err := sched.Submit(context.Background(), pid, proc, "", nil)
+			if err != nil {
+				t.Fatalf("submit error: %v", err)
+			}
+
+			// Send message immediately - may hit race window
+			go func() {
+				for j := 0; j < 10; j++ {
+					if err := sched.Send(&relay.Package{Target: pid}); err == nil {
+						return
+					}
+					time.Sleep(time.Millisecond)
+				}
+			}()
+
+			// Wait for process to complete (message received)
+			deadline := time.Now().Add(500 * time.Millisecond)
+			for !completed.Load() && time.Now().Before(deadline) {
+				time.Sleep(time.Millisecond)
+			}
+
+			if !completed.Load() {
+				t.Fatalf("iteration %d: process stuck - message lost during idle transition", i)
+			}
+		}()
+	}
+}

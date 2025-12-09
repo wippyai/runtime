@@ -2,11 +2,20 @@ package engine
 
 import (
 	"context"
-	"runtime"
+	"fmt"
+	goruntime "runtime"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/runtime/resource"
+	scheduler "github.com/wippyai/runtime/system/scheduler/actor"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -98,9 +107,9 @@ func BenchmarkMemoryPerProcess(b *testing.B) {
 	processes := make([]*Process, 0, b.N)
 	contexts := make([]context.Context, 0, b.N)
 
-	runtime.GC()
-	var m1 runtime.MemStats
-	runtime.ReadMemStats(&m1)
+	goruntime.GC()
+	var m1 goruntime.MemStats
+	goruntime.ReadMemStats(&m1)
 
 	b.ResetTimer()
 
@@ -118,9 +127,9 @@ func BenchmarkMemoryPerProcess(b *testing.B) {
 
 	b.StopTimer()
 
-	runtime.GC()
-	var m2 runtime.MemStats
-	runtime.ReadMemStats(&m2)
+	goruntime.GC()
+	var m2 goruntime.MemStats
+	goruntime.ReadMemStats(&m2)
 
 	bytesPerProcess := float64(m2.Alloc-m1.Alloc) / float64(b.N)
 	b.ReportMetric(bytesPerProcess, "bytes/process")
@@ -246,6 +255,9 @@ func BenchmarkSendMessage(b *testing.B) {
 
 // TestMemoryProfile creates many processes and reports memory stats.
 func TestMemoryProfile(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode")
+	}
 	script := `
 		local data = {}
 		for i = 1, 10 do
@@ -257,9 +269,9 @@ func TestMemoryProfile(t *testing.T) {
 	counts := []int{100, 500, 1000, 5000}
 
 	for _, count := range counts {
-		runtime.GC()
-		var m1 runtime.MemStats
-		runtime.ReadMemStats(&m1)
+		goruntime.GC()
+		var m1 goruntime.MemStats
+		goruntime.ReadMemStats(&m1)
 
 		processes := make([]*Process, count)
 		var output process.StepOutput
@@ -274,9 +286,9 @@ func TestMemoryProfile(t *testing.T) {
 			processes[i] = proc
 		}
 
-		runtime.GC()
-		var m2 runtime.MemStats
-		runtime.ReadMemStats(&m2)
+		goruntime.GC()
+		var m2 goruntime.MemStats
+		goruntime.ReadMemStats(&m2)
 
 		bytesUsed := m2.Alloc - m1.Alloc
 		bytesPerProcess := bytesUsed / uint64(count)
@@ -456,7 +468,7 @@ func setupChannelProc(b *testing.B, script string) *Process {
 		b.Fatal(err)
 	}
 
-	BindChannelFunctions(proc.State())
+	ChannelModule.Load(proc.State())
 	return proc
 }
 
@@ -616,9 +628,9 @@ func BenchmarkChannelMemory(b *testing.B) {
 	`
 
 	b.ResetTimer()
-	var m1, m2 runtime.MemStats
-	runtime.GC()
-	runtime.ReadMemStats(&m1)
+	var m1, m2 goruntime.MemStats
+	goruntime.GC()
+	goruntime.ReadMemStats(&m1)
 
 	for i := 0; i < b.N; i++ {
 		proc := setupChannelProc(b, script)
@@ -626,8 +638,8 @@ func BenchmarkChannelMemory(b *testing.B) {
 		proc.Close()
 	}
 
-	runtime.GC()
-	runtime.ReadMemStats(&m2)
+	goruntime.GC()
+	goruntime.ReadMemStats(&m2)
 
 	b.ReportMetric(float64(m2.TotalAlloc-m1.TotalAlloc)/float64(b.N), "bytes/op")
 }
@@ -715,10 +727,10 @@ func BenchmarkSelectCases4(b *testing.B) {
 // Memory Benchmarks (consolidated from memory_bench_test.go)
 
 func measureMemory() uint64 {
-	runtime.GC()
-	runtime.GC()
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
+	goruntime.GC()
+	goruntime.GC()
+	var m goruntime.MemStats
+	goruntime.ReadMemStats(&m)
 	return m.Alloc
 }
 
@@ -743,6 +755,9 @@ func BenchmarkMemoryBaseline(b *testing.B) {
 }
 
 func TestMemoryPerProcessDetailed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode")
+	}
 	script := `return 1`
 	proto, err := lua.CompileString(script, "test.lua")
 	if err != nil {
@@ -775,6 +790,9 @@ func TestMemoryPerProcessDetailed(t *testing.T) {
 
 // Test100CoroutinesMemory measures memory for 100 spawned coroutines.
 func Test100CoroutinesMemory(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode")
+	}
 	script := `
 		for i = 1, 100 do
 			coroutine.spawn(function()
@@ -790,10 +808,10 @@ func Test100CoroutinesMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	runtime.GC()
-	runtime.GC()
-	var m1 runtime.MemStats
-	runtime.ReadMemStats(&m1)
+	goruntime.GC()
+	goruntime.GC()
+	var m1 goruntime.MemStats
+	goruntime.ReadMemStats(&m1)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	proc := NewProcess(WithProto(proto))
@@ -813,8 +831,8 @@ func Test100CoroutinesMemory(t *testing.T) {
 		}
 	}
 
-	var m2 runtime.MemStats
-	runtime.ReadMemStats(&m2)
+	var m2 goruntime.MemStats
+	goruntime.ReadMemStats(&m2)
 
 	// Handle case where GC may have freed memory
 	var bytesUsed uint64

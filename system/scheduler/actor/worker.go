@@ -164,6 +164,14 @@ func (w *Worker) executeOne(proc *Processor) {
 	case StepIdle:
 		proc.setState(StateIdle)
 		w.scheduler.parkIdle(proc)
+		// Check for events that arrived during state transition.
+		// Send() may have pushed an event before we parked.
+		if proc.queue.HasEvents() {
+			if proc.casState(StateIdle, StateReady) {
+				w.scheduler.global.Push(proc)
+				w.scheduler.wake()
+			}
+		}
 
 	case StepContinue:
 		yields := proc.output.Yields()

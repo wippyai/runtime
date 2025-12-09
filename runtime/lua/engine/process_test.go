@@ -2,11 +2,15 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/runtime/resource"
+	"github.com/wippyai/runtime/system/clock"
+	funcpool "github.com/wippyai/runtime/system/scheduler/pool"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -426,7 +430,7 @@ func TestProcessReturnsLuaError(t *testing.T) {
 	factory := NewFactory(FactoryConfig{
 		Script:        script,
 		ScriptName:    "test.lua",
-		ModuleBinders: []ModuleBinder{BindErrorsModule},
+		ModuleBinders: []ModuleBinder{func(l *lua.LState) { lua.OpenErrors(l) }},
 	})
 
 	p, err := factory()
@@ -528,5 +532,450 @@ func TestProcessReturnsValueWithFalseSecond(t *testing.T) {
 
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
+	}
+}
+
+// Task queue tests (from task_test.go)
+
+func TestTaskPool(t *testing.T) {
+	state := lua.NewState()
+	defer state.Close()
+
+	fn := state.NewFunction(func(_ *lua.LState) int { return 0 })
+	thread, _ := state.NewThread()
+
+	task := NewTask(thread, fn)
+	if task == nil {
+		t.Fatal("NewTask returned nil")
+	}
+
+	if task.Thread() != thread {
+		t.Error("Thread() returned wrong value")
+	}
+
+	if task.Function() != fn {
+		t.Error("Function() returned wrong value")
+	}
+
+	if task.State != lua.ResumeYield {
+		t.Errorf("State = %v, want ResumeYield", task.State)
+	}
+
+	if task.Type() != lua.LTThread {
+		t.Errorf("Type() = %v, want LTThread", task.Type())
+	}
+
+	str := task.String()
+	if str == "" {
+		t.Error("String() returned empty")
+	}
+
+	task.Close()
+}
+
+func TestTaskResumeWith(t *testing.T) {
+	state := lua.NewState()
+	defer state.Close()
+
+	fn := state.NewFunction(func(_ *lua.LState) int { return 0 })
+	thread, _ := state.NewThread()
+
+	task := NewTask(thread, fn)
+	defer task.Close()
+
+	task.ResumeWith(lua.LString("a"), lua.LNumber(42))
+
+	if len(task.Resumed) != 2 {
+		t.Errorf("Resumed length = %d, want 2", len(task.Resumed))
+	}
+
+	if task.Resumed[0] != lua.LString("a") {
+		t.Error("Resumed[0] wrong value")
+	}
+
+	if task.Resumed[1] != lua.LNumber(42) {
+		t.Error("Resumed[1] wrong value")
+	}
+}
+
+func TestTaskQueueBasic(t *testing.T) {
+	q := NewTaskQueue()
+
+	if !q.IsEmpty() {
+		t.Error("new queue should be empty")
+	}
+
+	if q.Len() != 0 {
+		t.Errorf("Len() = %d, want 0", q.Len())
+	}
+
+	state := lua.NewState()
+	defer state.Close()
+
+	fn := state.NewFunction(func(_ *lua.LState) int { return 0 })
+
+	t1, _ := state.NewThread()
+	t2, _ := state.NewThread()
+	t3, _ := state.NewThread()
+	task1 := NewTask(t1, fn)
+	task2 := NewTask(t2, fn)
+	task3 := NewTask(t3, fn)
+
+	q.Push(task1)
+	q.Push(task2)
+	q.Push(task3)
+
+	if q.IsEmpty() {
+		t.Error("queue should not be empty after Push")
+	}
+
+	if q.Len() != 3 {
+		t.Errorf("Len() = %d, want 3", q.Len())
+	}
+
+	popped := q.Pop()
+	if popped != task1 {
+		t.Error("Pop() returned wrong task (FIFO order)")
+	}
+
+	if q.Len() != 2 {
+		t.Errorf("Len() = %d after Pop, want 2", q.Len())
+	}
+
+	popped = q.Pop()
+	if popped != task2 {
+		t.Error("second Pop() returned wrong task")
+	}
+
+	popped = q.Pop()
+	if popped != task3 {
+		t.Error("third Pop() returned wrong task")
+	}
+
+	popped = q.Pop()
+	if popped != nil {
+		t.Error("Pop() from empty queue should return nil")
+	}
+
+	task1.Close()
+	task2.Close()
+	task3.Close()
+}
+
+func TestTaskQueueDrain(t *testing.T) {
+	q := NewTaskQueue()
+
+	state := lua.NewState()
+	defer state.Close()
+
+	fn := state.NewFunction(func(_ *lua.LState) int { return 0 })
+
+	tasks := make([]*Task, 5)
+	for i := range tasks {
+		thread, _ := state.NewThread()
+		tasks[i] = NewTask(thread, fn)
+		q.Push(tasks[i])
+	}
+
+	drained := q.Drain()
+	if len(drained) != 5 {
+		t.Errorf("Drain() returned %d tasks, want 5", len(drained))
+	}
+
+	for i, task := range drained {
+		if task != tasks[i] {
+			t.Errorf("Drain()[%d] wrong task", i)
+		}
+	}
+
+	if !q.IsEmpty() {
+		t.Error("queue should be empty after Drain")
+	}
+
+	drained = q.Drain()
+	if drained != nil {
+		t.Error("Drain() on empty queue should return nil")
+	}
+
+	for _, task := range tasks {
+		task.Close()
+	}
+}
+
+func TestTaskQueueGrow(t *testing.T) {
+	q := NewTaskQueue()
+
+	state := lua.NewState()
+	defer state.Close()
+
+	fn := state.NewFunction(func(_ *lua.LState) int { return 0 })
+
+	tasks := make([]*Task, 20)
+	for i := range tasks {
+		thread, _ := state.NewThread()
+		tasks[i] = NewTask(thread, fn)
+		q.Push(tasks[i])
+	}
+
+	if q.Len() != 20 {
+		t.Errorf("Len() = %d, want 20", q.Len())
+	}
+
+	for i := 0; i < 20; i++ {
+		popped := q.Pop()
+		if popped != tasks[i] {
+			t.Errorf("Pop() at %d returned wrong task", i)
+		}
+	}
+
+	for _, task := range tasks {
+		task.Close()
+	}
+}
+
+func TestTaskQueueSequential(t *testing.T) {
+	q := NewTaskQueue()
+
+	state := lua.NewState()
+	defer state.Close()
+
+	fn := state.NewFunction(func(_ *lua.LState) int { return 0 })
+
+	pushCount := 100
+	tasks := make([]*Task, 0, pushCount)
+
+	for i := 0; i < pushCount; i++ {
+		thread, _ := state.NewThread()
+		task := NewTask(thread, fn)
+		q.Push(task)
+		tasks = append(tasks, task)
+	}
+
+	if q.Len() != pushCount {
+		t.Errorf("Len() = %d, want %d", q.Len(), pushCount)
+	}
+
+	popped := 0
+	for i := 0; i < pushCount; i++ {
+		if task := q.Pop(); task != nil {
+			task.Close()
+			popped++
+		}
+	}
+
+	if popped != pushCount {
+		t.Errorf("popped = %d, want %d", popped, pushCount)
+	}
+
+	if !q.IsEmpty() {
+		t.Error("queue should be empty after all pops")
+	}
+}
+
+func TestTaskQueueWrapAround(t *testing.T) {
+	q := NewTaskQueue()
+
+	state := lua.NewState()
+	defer state.Close()
+
+	fn := state.NewFunction(func(_ *lua.LState) int { return 0 })
+
+	for i := 0; i < 5; i++ {
+		thread, _ := state.NewThread()
+		task := NewTask(thread, fn)
+		q.Push(task)
+		q.Pop().Close()
+	}
+
+	tasks := make([]*Task, 6)
+	for i := range tasks {
+		thread, _ := state.NewThread()
+		tasks[i] = NewTask(thread, fn)
+		q.Push(tasks[i])
+	}
+
+	for i := 0; i < 6; i++ {
+		popped := q.Pop()
+		if popped != tasks[i] {
+			t.Errorf("Pop() at %d returned wrong task after wrap-around", i)
+		}
+		popped.Close()
+	}
+}
+
+// Pool tests (from pool_test.go)
+
+type poolTestDispatcher struct {
+	handlers map[dispatcher.CommandID]dispatcher.Handler
+	clock    *clock.Dispatcher
+}
+
+func newPoolTestDispatcher() *poolTestDispatcher {
+	d := &poolTestDispatcher{handlers: make(map[dispatcher.CommandID]dispatcher.Handler)}
+	d.clock = clock.NewDispatcher()
+	d.clock.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		d.handlers[id] = h
+	})
+	return d
+}
+
+func (d *poolTestDispatcher) Dispatch(cmd dispatcher.Command) dispatcher.Handler {
+	return d.handlers[cmd.CmdID()]
+}
+
+func (d *poolTestDispatcher) Stop() {
+	if d.clock != nil {
+		_ = d.clock.Stop(context.Background())
+	}
+}
+
+func newLuaFactory(script string) process.FactoryFunc {
+	return func() (process.Process, error) {
+		proto, err := lua.CompileString(script, "test.lua")
+		if err != nil {
+			return nil, err
+		}
+
+		proc := NewProcess(
+			WithProto(proto),
+		)
+
+		return proc, nil
+	}
+}
+
+func TestPoolBasicCall(t *testing.T) {
+	factory := newLuaFactory(`return 1 + 2`)
+	disp := newPoolTestDispatcher()
+	defer disp.Stop()
+
+	ps, err := funcpool.NewStatic(factory, disp, funcpool.Config{Workers: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ps.Start()
+	defer ps.Stop()
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	result, err := ps.Call(ctx, "", nil)
+	if err != nil {
+		t.Fatalf("Call failed: %v", err)
+	}
+	if result == nil {
+		t.Fatal("nil result")
+	}
+	t.Log("Basic pool call passed")
+}
+
+func TestPoolStateReuse(t *testing.T) {
+	factory := newLuaFactory(`
+		counter = (counter or 0) + 1
+		return counter
+	`)
+	disp := newPoolTestDispatcher()
+	defer disp.Stop()
+
+	ps, err := funcpool.NewStatic(factory, disp, funcpool.Config{Workers: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ps.Start()
+	defer ps.Stop()
+
+	for i := 1; i <= 3; i++ {
+		ctx, _ := ctxapi.OpenFrameContext(context.Background())
+		result, err := ps.Call(ctx, "", nil)
+		if err != nil {
+			t.Fatalf("Call %d failed: %v", i, err)
+		}
+		if result.Error != nil {
+			t.Fatalf("Call %d result error: %v", i, result.Error)
+		}
+		t.Logf("Call %d result: %v", i, result.Value)
+	}
+}
+
+func Benchmark8x8NoYield(b *testing.B) {
+	factory := newLuaFactory(`return 1 + 2`)
+	disp := newPoolTestDispatcher()
+	defer disp.Stop()
+
+	ps, err := funcpool.NewStatic(factory, disp, funcpool.Config{Workers: 8, QueueSize: 256})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	ps.Start()
+	defer ps.Stop()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+			_, _ = ps.Call(ctx, "", nil)
+			ctxapi.ReleaseFrameContext(fc)
+		}
+	})
+}
+
+func BenchmarkSingleWorker(b *testing.B) {
+	factory := newLuaFactory(`return 1`)
+	disp := newPoolTestDispatcher()
+	defer disp.Stop()
+
+	ps, err := funcpool.NewStatic(factory, disp, funcpool.Config{
+		Workers:   1,
+		QueueSize: 16,
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	ps.Start()
+	defer ps.Stop()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+		_, _ = ps.Call(ctx, "", nil)
+		ctxapi.ReleaseFrameContext(fc)
+	}
+}
+
+func BenchmarkWorkerScalingLua(b *testing.B) {
+	for _, workers := range []int{1, 2, 4, 8, 16} {
+		b.Run(fmt.Sprintf("W%d", workers), func(b *testing.B) {
+			factory := newLuaFactory(`return 1`)
+			disp := newPoolTestDispatcher()
+			defer disp.Stop()
+
+			ps, err := funcpool.NewStatic(factory, disp, funcpool.Config{
+				Workers:   workers,
+				QueueSize: 16,
+			})
+			if err != nil {
+				b.Fatal(err)
+			}
+
+			ps.Start()
+			defer ps.Stop()
+
+			b.ResetTimer()
+			b.ReportAllocs()
+
+			b.RunParallel(func(pb *testing.PB) {
+				for pb.Next() {
+					ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+					_, _ = ps.Call(ctx, "", nil)
+					ctxapi.ReleaseFrameContext(fc)
+				}
+			})
+		})
 	}
 }

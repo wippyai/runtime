@@ -1,25 +1,14 @@
 package engine
 
 import (
-	"fmt"
-	"strings"
-	"sync"
-
-	"github.com/wippyai/runtime/api/logs"
-	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/runtime/lua/engine/loadlib"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	"github.com/wippyai/runtime/runtime/lua/modules/ostime"
-	"github.com/wippyai/runtime/runtime/lua/modules/payload"
 	lua "github.com/yuin/gopher-lua"
 	"github.com/yuin/gopher-lua/inspect"
-	"go.uber.org/zap"
 )
 
 // ChannelTypeName is the Lua metatable type name for channels.
 const ChannelTypeName = "channel"
-
-var channelMetatableOnce sync.Once
 
 // SelectCase wraps a channel case for select operations.
 type SelectCase struct {
@@ -41,21 +30,6 @@ func checkChannel(l *lua.LState, idx int) *Channel {
 	return nil
 }
 
-var (
-	channelModuleTable *lua.LTable
-	channelInitOnce    sync.Once
-)
-
-func getChannelModuleTable() *lua.LTable {
-	channelInitOnce.Do(func() {
-		channelModuleTable = &lua.LTable{}
-		channelModuleTable.RawSetString("new", lua.LGoFunc(channelNewFunc))
-		channelModuleTable.RawSetString("select", lua.LGoFunc(channelSelectFunc))
-		channelModuleTable.Immutable = true
-	})
-	return channelModuleTable
-}
-
 // channelNewFunc creates a new channel with optional buffer size.
 func channelNewFunc(l *lua.LState) int {
 	bufSize := l.OptInt(1, 0)
@@ -75,9 +49,7 @@ func PushChannel(l *lua.LState, ch *Channel) *lua.LUserData {
 	return ud
 }
 
-// channelSelectFunc implements channel.select{cases...} matching V1 behavior.
-// Takes a table of cases and optional default flag.
-// Returns a table {channel, value, ok} or {default=true, ok=true} for default case.
+// channelSelectFunc implements channel.select{cases...}.
 func channelSelectFunc(l *lua.LState) int {
 	casesTable := l.CheckTable(1)
 	hasDefault := l.OptBool(2, false)
@@ -88,7 +60,6 @@ func channelSelectFunc(l *lua.LState) int {
 		HasDefault: hasDefault,
 	}
 
-	// Parse cases from table
 	casesTable.ForEach(func(key, value lua.LValue) {
 		if key.Type() == lua.LTString && key.String() == "default" {
 			if v, ok := value.(lua.LBool); ok && bool(v) {
@@ -108,7 +79,6 @@ func channelSelectFunc(l *lua.LState) int {
 		}
 	})
 
-	// Try immediate execution
 	for _, caseOp := range selectOp.Cases {
 		var canExecute bool
 		if caseOp.Kind == SendOp {
@@ -136,7 +106,6 @@ func channelSelectFunc(l *lua.LState) int {
 		}
 	}
 
-	// Handle default case
 	if selectOp.HasDefault {
 		result := l.CreateTable(0, 2)
 		result.RawSetString("default", lua.LTrue)
@@ -145,7 +114,6 @@ func channelSelectFunc(l *lua.LState) int {
 		return 1
 	}
 
-	// Must block - register all cases
 	nNext := &ChannelResult{
 		Yields:  true,
 		Block:   make([]*Channel, 0, len(selectOp.Cases)),
@@ -167,7 +135,6 @@ func channelSelectFunc(l *lua.LState) int {
 	return -1
 }
 
-// checkSelectCaseValue extracts a SelectCase from a lua value.
 func checkSelectCaseValue(v lua.LValue) *SelectCase {
 	ud, ok := v.(*lua.LUserData)
 	if !ok {
@@ -180,7 +147,7 @@ func checkSelectCaseValue(v lua.LValue) *SelectCase {
 	return sc
 }
 
-// channelMethods defines all channel instance methods using package-level functions.
+// channelMethods defines all channel instance methods.
 var channelMethods = map[string]lua.LGoFunc{
 	"send":         channelSend,
 	"receive":      channelReceive,
@@ -207,7 +174,6 @@ func channelSend(l *lua.LState) int {
 			l.RaiseError("%s", updates[0].Error.Error())
 			return 0
 		}
-		// Return the result from channel operation (e.g., [value, true] for buffered send)
 		res := updates[0].GetResult()
 		for _, v := range res {
 			l.Push(v)
@@ -292,24 +258,6 @@ func channelCaseReceive(l *lua.LState) int {
 	return 1
 }
 
-// RegisterChannelMetatable registers the shared channel metatable once.
-func RegisterChannelMetatable() {
-	channelMetatableOnce.Do(func() {
-		value.RegisterTypeMethods(nil, ChannelTypeName, nil, channelMethods)
-	})
-}
-
-// GetChannelModuleTable returns the channel module table.
-func GetChannelModuleTable() *lua.LTable {
-	return getChannelModuleTable()
-}
-
-// BindChannelFunctions binds channel.new and channel methods to Lua.
-func BindChannelFunctions(l *lua.LState) {
-	RegisterChannelMetatable()
-	l.SetGlobal("channel", getChannelModuleTable())
-}
-
 // subscribeFunc subscribes a channel to a topic.
 func subscribeFunc(l *lua.LState) int {
 	topic := l.CheckString(1)
@@ -335,19 +283,7 @@ func unsubscribeFunc(l *lua.LState) int {
 	return -1
 }
 
-// BindSubscribeFunctions binds subscribe/unsubscribe functions to Lua.
-func BindSubscribeFunctions(l *lua.LState) {
-	l.SetGlobal("subscribe", lua.LGoFunc(subscribeFunc))
-	l.SetGlobal("unsubscribe", lua.LGoFunc(unsubscribeFunc))
-}
-
-// BindErrorsModule registers the errors module from go-lua.
-func BindErrorsModule(l *lua.LState) {
-	lua.OpenErrors(l)
-}
-
 // OpenRestrictedPackage returns the restricted package loader that only supports preload.
-// Use this instead of lua.OpenPackage for sandboxed environments.
 func OpenRestrictedPackage(l *lua.LState) int {
 	return loadlib.OpenRestrictedPackage(l)
 }
@@ -365,69 +301,4 @@ func GetStackFrame(l *lua.LState, level int) (inspect.StackFrame, bool) {
 // GetCallerLine returns the line number of the caller at the given stack level.
 func GetCallerLine(l *lua.LState, level int) (int, bool) {
 	return inspect.GetCallerLine(l, level)
-}
-
-// BindPrint binds a custom print function that logs via the context logger.
-// Falls back to fmt.Print if no logger is available.
-func BindPrint(l *lua.LState) {
-	l.SetGlobal("print", lua.LGoFunc(printFunc))
-}
-
-// printFunc is the implementation of the custom print function.
-func printFunc(l *lua.LState) int {
-	log := logs.GetLogger(l.Context())
-
-	parts := make([]string, l.GetTop())
-	for i := 1; i <= l.GetTop(); i++ {
-		parts[i-1] = l.ToString(i)
-	}
-	msg := strings.Join(parts, " ")
-
-	if log == nil {
-		fmt.Print(msg)
-		return 0
-	}
-
-	fields := make([]zap.Field, 0, 2)
-
-	if pid, ok := runtime.GetFramePID(l.Context()); ok {
-		fields = append(fields, zap.String("pid", pid.String()))
-	}
-
-	if id, ok := runtime.GetFrameID(l.Context()); ok {
-		if line, ok := inspect.GetCallerLine(l, 1); ok {
-			location := fmt.Sprintf("%s:%d", id.String(), line)
-			fields = append(fields, zap.String("location", location))
-		}
-	}
-
-	log.Info(msg, fields...)
-	return 0
-}
-
-// BindPayloadModule registers the payload module.
-func BindPayloadModule(l *lua.LState) {
-	payload.Module.Load(l)
-}
-
-// BindOsModule registers the os module (time, date, clock, difftime, platform).
-func BindOsModule(l *lua.LState) {
-	ostime.Module.Load(l)
-}
-
-// coreBinders is the shared slice of stateless binders.
-var coreBinders = []ModuleBinder{
-	BindErrorsModule,
-	BindPayloadModule,
-	BindOsModule,
-	BindPrint,
-	BindChannelFunctions,
-	BindSubscribeFunctions,
-}
-
-// CoreBinders returns the base set of module binders shared by all components.
-// These are stateless binders that don't require Process reference.
-// Returns a shared slice - do not modify.
-func CoreBinders() []ModuleBinder {
-	return coreBinders
 }

@@ -50,7 +50,7 @@ func (m *mockUpstream) reset() {
 
 func TestTopology_BasicFunctionality(t *testing.T) {
 	upstream := newMockUpstream()
-	topo := NewTopology(upstream, upstream, "local")
+	topo := NewTopology(upstream, "local")
 
 	pid1 := relay.PID{
 		Host:   "host1",
@@ -126,7 +126,7 @@ func TestTopology_BasicFunctionality(t *testing.T) {
 
 func TestTopology_LinkFunctionality(t *testing.T) {
 	upstream := newMockUpstream()
-	topo := NewTopology(upstream, upstream, "local")
+	topo := NewTopology(upstream, "local")
 
 	pid1 := relay.PID{
 		Host:   "host1",
@@ -263,7 +263,7 @@ func TestTopology_LinkFunctionality(t *testing.T) {
 
 func TestTopology_Concurrency(t *testing.T) {
 	upstream := newMockUpstream()
-	topo := NewTopology(upstream, upstream, "local")
+	topo := NewTopology(upstream, "local")
 
 	mainPid := relay.PID{
 		Host:   "host1",
@@ -366,7 +366,7 @@ func TestTopology_Concurrency(t *testing.T) {
 func TestTopology_UpstreamError(t *testing.T) {
 	upstream := newMockUpstream()
 	upstream.sendErr = errors.New("send error")
-	topo := NewTopology(upstream, upstream, "local")
+	topo := NewTopology(upstream, "local")
 
 	pid1 := relay.PID{
 		Host:   "host1",
@@ -396,7 +396,7 @@ func TestTopology_UpstreamError(t *testing.T) {
 
 func TestTopology_EdgeCases(t *testing.T) {
 	upstream := newMockUpstream()
-	topo := NewTopology(upstream, upstream, "local")
+	topo := NewTopology(upstream, "local")
 
 	pid1 := relay.PID{
 		Host:   "host1",
@@ -452,7 +452,7 @@ func TestTopology_EdgeCases(t *testing.T) {
 
 func TestTopology_ConcurrentOperations(t *testing.T) {
 	upstream := newMockUpstream()
-	topo := NewTopology(upstream, upstream, "local")
+	topo := NewTopology(upstream, "local")
 
 	pid1 := relay.PID{
 		Host:   "host1",
@@ -615,7 +615,7 @@ func TestTopology_ConcurrentOperations(t *testing.T) {
 
 func TestTopology_NotificationScenarios(t *testing.T) {
 	upstream := newMockUpstream()
-	topo := NewTopology(upstream, upstream, "local")
+	topo := NewTopology(upstream, "local")
 
 	pid1 := relay.PID{
 		Host:   "host1",
