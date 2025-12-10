@@ -33,9 +33,6 @@ const (
 	OptionPID           = "pid"
 )
 
-// Payload is an alias for payload.Payload used in process results.
-type Payload = payload.Payload
-
 type (
 	// Meta contains metadata about a process type.
 	Meta struct {

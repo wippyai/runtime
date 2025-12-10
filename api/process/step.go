@@ -1,6 +1,9 @@
 package process
 
-import "github.com/wippyai/runtime/api/dispatcher"
+import (
+	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/payload"
+)
 
 // StepStatus indicates the process state after Step() returns.
 const (
@@ -48,7 +51,7 @@ type StepOutput struct {
 	ext    []Yield // overflow for > MaxYields yields
 	count  int
 	status StepStatus
-	result Payload
+	result payload.Payload
 }
 
 // Yield adds a command to be dispatched.
@@ -62,7 +65,7 @@ func (o *StepOutput) Yield(cmd dispatcher.Command, tag uint64) {
 }
 
 // Done marks execution as complete with result.
-func (o *StepOutput) Done(result Payload) {
+func (o *StepOutput) Done(result payload.Payload) {
 	o.status = StepDone
 	o.result = result
 }
@@ -113,7 +116,7 @@ func (o *StepOutput) IsIdle() bool {
 }
 
 // Result returns the completion result.
-func (o *StepOutput) Result() Payload {
+func (o *StepOutput) Result() payload.Payload {
 	return o.result
 }
 

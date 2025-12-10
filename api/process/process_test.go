@@ -20,7 +20,7 @@ import (
 func TestStepOutput_Result(t *testing.T) {
 	tests := []struct {
 		name   string
-		result Payload
+		result payload.Payload
 		want   any
 	}{
 		{
