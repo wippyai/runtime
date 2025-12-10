@@ -726,7 +726,6 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 	if commonDepPos > dep1Pos || commonDepPos > dep2Pos {
 		t.Errorf("commonDep should appear before dep1 and dep2 in dependencies")
 	}
-
 }
 
 func TestMemoryGraph_Build_AliasCollision(t *testing.T) {

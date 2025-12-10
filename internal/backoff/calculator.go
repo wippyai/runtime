@@ -19,7 +19,6 @@ type Calculator struct {
 // NewCalculator creates a new Calculator with the given retry policy.
 // MaxAttempts=0 means infinite retries.
 func NewCalculator(policy supervisor.RetryPolicy) *Calculator {
-
 	// Ensure BackoffFactor is not zero
 	if policy.BackoffFactor <= 0 {
 		policy.BackoffFactor = 1.0 // No backoff if factor is invalid
