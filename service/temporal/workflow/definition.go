@@ -7,6 +7,7 @@ import (
 
 	"github.com/wippyai/runtime/api/clock"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
@@ -189,7 +190,7 @@ func (d *Definition) completeWithResult() {
 	d.env.Complete(res, nil)
 }
 
-func (d *Definition) executeCommand(cmd process.Command) error {
+func (d *Definition) executeCommand(cmd dispatcher.Command) error {
 	switch c := cmd.(type) {
 	case *ActivityCommand:
 		return d.executeActivity(c)

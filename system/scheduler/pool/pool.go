@@ -78,7 +78,7 @@ type ExecutionHooks struct {
 // Executor runs a process to completion with yield handling.
 // This is the core execution logic shared across all pool types.
 // Implements relay.Receiver to handle incoming messages via EventQueue.
-// Implements process.ResultReceiver for zero-allocation handler completion.
+// Implements dispatcher.ResultReceiver for zero-allocation handler completion.
 type Executor struct {
 	dispatcher dispatcher.Dispatcher
 	hooks      ExecutionHooks
@@ -123,7 +123,7 @@ func (e *Executor) Reset() {
 	e.gen.Store(e.queue.Generation())
 }
 
-// CompleteYield implements process.ResultReceiver.
+// CompleteYield implements dispatcher.ResultReceiver.
 // Called by handlers to deliver yield completion.
 // Thread-safe: can be called from any goroutine.
 func (e *Executor) CompleteYield(tag uint64, data any, err error) {

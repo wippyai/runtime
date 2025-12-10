@@ -5,7 +5,6 @@ import (
 	"context"
 
 	"github.com/wippyai/runtime/api/dispatcher"
-	"github.com/wippyai/runtime/api/process"
 	execapi "github.com/wippyai/runtime/api/service/exec"
 )
 
@@ -37,7 +36,7 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(execapi.CmdProcessWait, dispatcher.HandlerFunc(d.handleProcessWait))
 }
 
-func (d *Dispatcher) handleProcessWait(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleProcessWait(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	waitCmd := cmd.(*execapi.ProcessWaitCmd)
 
 	go func() {

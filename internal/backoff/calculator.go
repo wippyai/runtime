@@ -17,11 +17,8 @@ type Calculator struct {
 }
 
 // NewCalculator creates a new Calculator with the given retry policy.
+// MaxAttempts=0 means infinite retries.
 func NewCalculator(policy supervisor.RetryPolicy) *Calculator {
-	// Handle edge case where MaxAttempts is 0
-	if policy.MaxAttempts == 0 {
-		policy.MaxAttempts = 1 // Ensure at least one attempt
-	}
 
 	// Ensure BackoffFactor is not zero
 	if policy.BackoffFactor <= 0 {
@@ -66,9 +63,10 @@ func (b *Calculator) Reset() {
 	b.baseBackoff = b.policy.InitialDelay
 }
 
-// hasRemainingAttempts is an helpers helper that checks if retries are available.
+// hasRemainingAttempts checks if retries are available.
+// MaxAttempts=0 means infinite retries.
 func (b *Calculator) hasRemainingAttempts() bool {
-	return b.attempt < b.policy.MaxAttempts
+	return b.policy.MaxAttempts == 0 || b.attempt < b.policy.MaxAttempts
 }
 
 // calculateIntervalWithJitter applies jitter to the base backoff interval.

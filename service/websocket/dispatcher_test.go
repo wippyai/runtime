@@ -18,7 +18,7 @@ import (
 	"github.com/coder/websocket"
 )
 
-// testReceiver implements process.ResultReceiver for tests.
+// testReceiver implements dispatcher.ResultReceiver for tests.
 type testReceiver struct {
 	fn func(tag uint64, data any, err error)
 }

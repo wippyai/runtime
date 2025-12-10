@@ -153,13 +153,13 @@ func (c *Cache[K, V]) Get(key K) (V, bool) {
 }
 
 // Set adds or updates a value in the cache.
-// No-op if the cache is closed.
-func (c *Cache[K, V]) Set(key K, value V) {
+// Returns ErrCacheClosed if the cache is closed.
+func (c *Cache[K, V]) Set(key K, value V) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.closed {
-		return
+		return ErrCacheClosed
 	}
 
 	if element, exists := c.items[key]; exists {
@@ -169,7 +169,7 @@ func (c *Cache[K, V]) Set(key K, value V) {
 		if c.ttl > 0 {
 			e.expiration = time.Now().Add(c.ttl)
 		}
-		return
+		return nil
 	}
 
 	e := &entry[K, V]{
@@ -186,6 +186,8 @@ func (c *Cache[K, V]) Set(key K, value V) {
 	if c.evictList.Len() > c.capacity {
 		c.evictOldest()
 	}
+
+	return nil
 }
 
 // Delete removes a key from the cache.

@@ -12,7 +12,6 @@ import (
 	"github.com/wippyai/runtime/api/cloudstorage"
 	csapi "github.com/wippyai/runtime/api/cloudstorage"
 	"github.com/wippyai/runtime/api/dispatcher"
-	"github.com/wippyai/runtime/api/process"
 )
 
 type testReceiver struct {
@@ -23,7 +22,7 @@ func (r *testReceiver) CompleteYield(tag uint64, data any, err error) {
 	r.fn(tag, data, err)
 }
 
-func newTestReceiver(fn func(tag uint64, data any, err error)) process.ResultReceiver {
+func newTestReceiver(fn func(tag uint64, data any, err error)) dispatcher.ResultReceiver {
 	return &testReceiver{fn: fn}
 }
 

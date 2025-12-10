@@ -6,7 +6,6 @@ import (
 	"github.com/wippyai/runtime/api/contract"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 )
@@ -48,7 +47,7 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(contract.AsyncCancel, d.asyncCancel)
 }
 
-func (d *Dispatcher) handleOpen(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleOpen(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	openCmd := cmd.(*contract.OpenCmd)
 
 	instantiator := contract.GetInstantiator(ctx)
@@ -73,7 +72,7 @@ func (d *Dispatcher) handleOpen(ctx context.Context, cmd dispatcher.Command, tag
 	return nil
 }
 
-func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	callCmd := cmd.(*contract.CallCmd)
 
 	if callCmd.Instance == nil {
@@ -101,7 +100,7 @@ func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, tag
 	return nil
 }
 
-func (d *Dispatcher) handleAsyncCall(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleAsyncCall(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	asyncCmd := cmd.(*contract.AsyncCallCmd)
 
 	if asyncCmd.Instance == nil {
@@ -147,7 +146,7 @@ func (d *Dispatcher) handleAsyncCall(ctx context.Context, cmd dispatcher.Command
 	return nil
 }
 
-func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	cancelCmd := cmd.(*contract.AsyncCancelCmd)
 
 	if d.node == nil {

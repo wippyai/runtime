@@ -324,32 +324,6 @@ func TestEventQueue_Concurrent(t *testing.T) {
 	assert.Len(t, events, 100)
 }
 
-func TestMessageSender(t *testing.T) {
-	q := NewEventQueue()
-	sender := q.NewMessageSender()
-
-	ok := sender.Send("hello")
-	assert.True(t, ok)
-
-	events := q.Drain()
-	assert.Len(t, events, 1)
-	assert.Equal(t, EventMessage, events[0].Type)
-	assert.Equal(t, "hello", events[0].Data)
-}
-
-func TestMessageSender_StaleAfterReset(t *testing.T) {
-	q := NewEventQueue()
-	sender := q.NewMessageSender()
-
-	ok := sender.Send("before reset")
-	assert.True(t, ok)
-
-	q.Reset()
-
-	ok = sender.Send("after reset")
-	assert.False(t, ok)
-}
-
 func TestEventTypes(t *testing.T) {
 	assert.Equal(t, EventType(0), EventYieldComplete)
 	assert.Equal(t, EventType(1), EventMessage)
@@ -359,11 +333,6 @@ func TestStepStatus(t *testing.T) {
 	assert.Equal(t, StepStatus(0), StepContinue)
 	assert.Equal(t, StepStatus(1), StepIdle)
 	assert.Equal(t, StepStatus(2), StepDone)
-}
-
-func TestSchedulerKind(t *testing.T) {
-	assert.Equal(t, SchedulerKind("global"), KindGlobal)
-	assert.Equal(t, SchedulerKind("stealing"), KindStealing)
 }
 
 func TestStart(t *testing.T) {

@@ -139,30 +139,6 @@ func (q *EventQueue) Reset() {
 	}
 }
 
-// MessageSender sends messages to the queue.
-// Bound to a specific generation for safety.
-type MessageSender struct {
-	queue *EventQueue
-	gen   uint64
-}
-
-// NewMessageSender creates a sender bound to current queue generation.
-func (q *EventQueue) NewMessageSender() *MessageSender {
-	return &MessageSender{
-		queue: q,
-		gen:   q.generation.Load(),
-	}
-}
-
-// Send pushes a message event to queue.
-// Returns false if queue was reset or closed.
-func (s *MessageSender) Send(data any) bool {
-	return s.queue.Push(Event{
-		Type: EventMessage,
-		Data: data,
-	}, s.gen)
-}
-
 // YieldScheduler is the subset of Scheduler needed for waking.
 type YieldScheduler interface {
 	WakeProcessor(q *EventQueue, gen uint64)

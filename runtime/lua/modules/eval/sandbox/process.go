@@ -7,6 +7,7 @@ import (
 
 	clockapi "github.com/wippyai/runtime/api/clock"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -28,7 +29,7 @@ type Process struct {
 type YieldInfo struct {
 	CmdID int
 	Tag   uint64
-	Cmd   process.Command
+	Cmd   dispatcher.Command
 }
 
 // NewProcess creates a new sandbox process wrapper.
@@ -267,7 +268,7 @@ func processStep(l *lua.LState) int {
 	return 1
 }
 
-func addCommandInfo(_ *lua.LState, tbl *lua.LTable, cmd process.Command) {
+func addCommandInfo(_ *lua.LState, tbl *lua.LTable, cmd dispatcher.Command) {
 	// Use type assertion to extract command-specific fields
 	if c, ok := cmd.(interface{ Duration() int64 }); ok {
 		tbl.RawSetString("duration", lua.LNumber(c.Duration()))

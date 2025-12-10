@@ -209,13 +209,10 @@ func OpenFrameContextOn(targetCtx context.Context, parentCtx context.Context) (c
 	parentFC := FrameFromContext(parentCtx)
 	newCtx, newFC := newFrameContext(targetCtx)
 
-	println("DEBUG OpenFrameContextOn: parentFC=", parentFC != nil)
 	if parentFC != nil {
-		println("DEBUG OpenFrameContextOn: parentFC.IsSealed=", parentFC.IsSealed())
 		inheritCount := 0
 		parentFC.Iterate(func(key any, value any) {
 			if ctxKey, ok := key.(*Key); ok {
-				println("DEBUG OpenFrameContextOn: key=", ctxKey.Name, "inherit=", ctxKey.Inherit)
 				if ctxKey.Inherit {
 					inheritCount++
 					if cloner, ok := value.(Cloner); ok {
@@ -226,9 +223,6 @@ func OpenFrameContextOn(targetCtx context.Context, parentCtx context.Context) (c
 				}
 			}
 		})
-		println("DEBUG OpenFrameContextOn: inherited", inheritCount, "keys")
-	} else {
-		println("DEBUG OpenFrameContextOn: NO PARENT FRAME CONTEXT")
 	}
 	return newCtx, newFC
 }

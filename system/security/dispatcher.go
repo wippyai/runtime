@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/dispatcher"
-	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/security"
 )
 
@@ -23,7 +22,7 @@ type job struct {
 	ctx      context.Context
 	cmd      dispatcher.Command
 	tag      uint64
-	receiver process.ResultReceiver
+	receiver dispatcher.ResultReceiver
 }
 
 // NewDispatcher creates a security dispatcher with the specified worker count.
@@ -61,7 +60,7 @@ func (d *Dispatcher) worker() {
 	}
 }
 
-func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) {
+func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) {
 	select {
 	case d.jobs <- job{ctx: ctx, cmd: cmd, tag: tag, receiver: receiver}:
 	case <-d.ctx.Done():
@@ -84,7 +83,7 @@ func (d *Dispatcher) execute(j job) {
 	}
 }
 
-func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	d.submit(ctx, cmd, tag, receiver)
 	return nil
 }

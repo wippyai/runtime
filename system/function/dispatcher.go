@@ -7,7 +7,6 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 )
@@ -46,7 +45,7 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(function.AsyncCancel, d.asyncCancel)
 }
 
-func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	callCmd := cmd.(*function.CallCmd)
 
 	registry := function.GetRegistry(ctx)
@@ -75,7 +74,7 @@ func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, tag
 	return nil
 }
 
-func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	startCmd := cmd.(*function.AsyncStartCmd)
 
 	registry := function.GetRegistry(ctx)
@@ -126,7 +125,7 @@ func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Comman
 	return nil
 }
 
-func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	cancelCmd := cmd.(*function.AsyncCancelCmd)
 
 	if d.node == nil {

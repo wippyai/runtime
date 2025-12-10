@@ -8,7 +8,6 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 )
 
@@ -130,7 +129,7 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(event.CmdEventsSend, dispatcher.HandlerFunc(d.handleSend))
 }
 
-func (d *Dispatcher) handleSubscribe(_ context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleSubscribe(_ context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	subCmd := cmd.(event.EventsSubscribeCmd)
 
 	d.mu.Lock()
@@ -155,7 +154,7 @@ func (d *Dispatcher) handleSubscribe(_ context.Context, cmd dispatcher.Command, 
 	return nil
 }
 
-func (d *Dispatcher) handleSend(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleSend(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	sendCmd := cmd.(event.EventsSendCmd)
 
 	evt := event.Event(sendCmd)

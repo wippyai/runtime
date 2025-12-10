@@ -16,7 +16,7 @@ import (
 	storeapi "github.com/wippyai/runtime/api/store"
 )
 
-// testReceiver implements process.ResultReceiver for tests.
+// testReceiver implements dispatcher.ResultReceiver for tests.
 type testReceiver struct {
 	onComplete func(tag uint64, data any, err error)
 }

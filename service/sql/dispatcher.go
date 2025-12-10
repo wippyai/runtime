@@ -6,7 +6,6 @@ import (
 	"database/sql"
 
 	"github.com/wippyai/runtime/api/dispatcher"
-	"github.com/wippyai/runtime/api/process"
 	sqlapi "github.com/wippyai/runtime/api/service/sql"
 )
 
@@ -44,7 +43,7 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(sqlapi.CmdTxRollback, dispatcher.HandlerFunc(d.handleTxRollback))
 }
 
-func (d *Dispatcher) handleQuery(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleQuery(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	qc := cmd.(*sqlapi.QueryCmd)
 	go func() {
 		resp := executeQuery(ctx, qc.DB, qc.Query, qc.Params)
@@ -55,7 +54,7 @@ func (d *Dispatcher) handleQuery(ctx context.Context, cmd dispatcher.Command, ta
 	return nil
 }
 
-func (d *Dispatcher) handleExecute(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleExecute(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	ec := cmd.(*sqlapi.ExecuteCmd)
 	go func() {
 		resp := executeExec(ctx, ec.DB, ec.Query, ec.Params)
@@ -66,7 +65,7 @@ func (d *Dispatcher) handleExecute(ctx context.Context, cmd dispatcher.Command, 
 	return nil
 }
 
-func (d *Dispatcher) handlePrepare(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handlePrepare(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	pc := cmd.(*sqlapi.PrepareCmd)
 	go func() {
 		stmt, err := pc.DB.PrepareContext(ctx, pc.Query)
@@ -77,7 +76,7 @@ func (d *Dispatcher) handlePrepare(ctx context.Context, cmd dispatcher.Command, 
 	return nil
 }
 
-func (d *Dispatcher) handleBegin(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleBegin(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	bc := cmd.(*sqlapi.BeginCmd)
 	go func() {
 		tx, err := bc.DB.BeginTx(ctx, bc.Options)
@@ -88,7 +87,7 @@ func (d *Dispatcher) handleBegin(ctx context.Context, cmd dispatcher.Command, ta
 	return nil
 }
 
-func (d *Dispatcher) handleStmtQuery(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleStmtQuery(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	sc := cmd.(*sqlapi.StmtQueryCmd)
 	go func() {
 		resp := executeStmtQuery(ctx, sc.Stmt, sc.Params)
@@ -99,7 +98,7 @@ func (d *Dispatcher) handleStmtQuery(ctx context.Context, cmd dispatcher.Command
 	return nil
 }
 
-func (d *Dispatcher) handleStmtExecute(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleStmtExecute(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	sc := cmd.(*sqlapi.StmtExecuteCmd)
 	go func() {
 		resp := executeStmtExec(ctx, sc.Stmt, sc.Params)
@@ -110,7 +109,7 @@ func (d *Dispatcher) handleStmtExecute(ctx context.Context, cmd dispatcher.Comma
 	return nil
 }
 
-func (d *Dispatcher) handleStmtClose(_ context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleStmtClose(_ context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	sc := cmd.(*sqlapi.StmtCloseCmd)
 	go func() {
 		err := sc.Stmt.Close()
@@ -119,7 +118,7 @@ func (d *Dispatcher) handleStmtClose(_ context.Context, cmd dispatcher.Command, 
 	return nil
 }
 
-func (d *Dispatcher) handleTxQuery(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleTxQuery(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	tc := cmd.(*sqlapi.TxQueryCmd)
 	go func() {
 		resp := executeTxQuery(ctx, tc.Tx, tc.Query, tc.Params)
@@ -130,7 +129,7 @@ func (d *Dispatcher) handleTxQuery(ctx context.Context, cmd dispatcher.Command, 
 	return nil
 }
 
-func (d *Dispatcher) handleTxExecute(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleTxExecute(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	tc := cmd.(*sqlapi.TxExecuteCmd)
 	go func() {
 		resp := executeTxExec(ctx, tc.Tx, tc.Query, tc.Params)
@@ -141,7 +140,7 @@ func (d *Dispatcher) handleTxExecute(ctx context.Context, cmd dispatcher.Command
 	return nil
 }
 
-func (d *Dispatcher) handleTxPrepare(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleTxPrepare(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	tc := cmd.(*sqlapi.TxPrepareCmd)
 	go func() {
 		stmt, err := tc.Tx.PrepareContext(ctx, tc.Query)
@@ -152,7 +151,7 @@ func (d *Dispatcher) handleTxPrepare(ctx context.Context, cmd dispatcher.Command
 	return nil
 }
 
-func (d *Dispatcher) handleTxCommit(_ context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleTxCommit(_ context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	tc := cmd.(*sqlapi.TxCommitCmd)
 	go func() {
 		err := tc.Tx.Commit()
@@ -161,7 +160,7 @@ func (d *Dispatcher) handleTxCommit(_ context.Context, cmd dispatcher.Command, t
 	return nil
 }
 
-func (d *Dispatcher) handleTxRollback(_ context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleTxRollback(_ context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	tc := cmd.(*sqlapi.TxRollbackCmd)
 	go func() {
 		err := tc.Tx.Rollback()

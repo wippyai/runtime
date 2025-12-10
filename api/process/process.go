@@ -3,6 +3,7 @@ package process
 
 import (
 	"context"
+	"time"
 
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
@@ -22,6 +23,14 @@ const (
 	FactoryDelete   event.Kind = "factory.delete"
 	FactoryAccept   event.Kind = "factory.accept"
 	FactoryReject   event.Kind = "factory.reject"
+)
+
+// Lifecycle option keys for process supervision.
+const (
+	LifecycleParentKey  = "lifecycle.parent"
+	LifecycleMonitorKey = "lifecycle.monitor"
+	LifecycleLinkKey    = "lifecycle.link"
+	OptionPID           = "pid"
 )
 
 // Payload is an alias for payload.Payload used in process results.
@@ -79,5 +88,27 @@ type (
 	Lifecycle interface {
 		OnStart(ctx context.Context, pid relay.PID, proc Process)
 		OnComplete(ctx context.Context, pid relay.PID, result *runtime.Result)
+	}
+
+	// LifecycleRegistry manages multiple lifecycle handlers that are called
+	// by schedulers during process lifecycle events.
+	LifecycleRegistry interface {
+		Lifecycle
+		Register(name string, lc Lifecycle)
+		Unregister(name string)
+	}
+
+	// Host is a unified interface for process execution environments.
+	Host interface {
+		relay.Receiver
+		Run(ctx context.Context, start *Start) (relay.PID, error)
+		Terminate(ctx context.Context, pid relay.PID) error
+	}
+
+	// Manager defines the interface for process lifecycle management.
+	Manager interface {
+		Start(ctx context.Context, start *Start) (relay.PID, error)
+		Cancel(ctx context.Context, from, pid relay.PID, deadline time.Time) error
+		Terminate(ctx context.Context, pid relay.PID) error
 	}
 )

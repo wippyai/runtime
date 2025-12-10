@@ -132,7 +132,7 @@ func (p *Processor) finishDispatch() bool {
 	}
 }
 
-// CompleteYield implements process.ResultReceiver.
+// CompleteYield implements dispatcher.ResultReceiver.
 // Called by handlers to deliver yield completion.
 // Thread-safe: can be called from any goroutine.
 func (p *Processor) CompleteYield(tag uint64, data any, err error) {

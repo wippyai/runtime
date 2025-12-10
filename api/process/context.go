@@ -4,7 +4,6 @@ import (
 	"context"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
-	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/internal/uniqid"
 )
 
@@ -62,26 +61,6 @@ func GetFactory(ctx context.Context) Factory {
 		}
 	}
 	return nil
-}
-
-// WithRegistry delegates to dispatcher.WithRegistry.
-func WithRegistry(ctx context.Context, r dispatcher.Registry) error {
-	return dispatcher.WithRegistry(ctx, r)
-}
-
-// GetRegistry delegates to dispatcher.GetRegistry.
-func GetRegistry(ctx context.Context) dispatcher.Registry {
-	return dispatcher.GetRegistry(ctx)
-}
-
-// GetRegistrar delegates to dispatcher.GetRegistrar.
-func GetRegistrar(ctx context.Context) dispatcher.Registrar {
-	return dispatcher.GetRegistrar(ctx)
-}
-
-// GetDispatcher delegates to dispatcher.GetDispatcher.
-func GetDispatcher(ctx context.Context) dispatcher.Dispatcher {
-	return dispatcher.GetDispatcher(ctx)
 }
 
 // WithPIDGenerator attaches a PID generator to the context.
