@@ -40,6 +40,11 @@ var (
 		kind:    KindInternal,
 		message: "process terminated",
 	}
+
+	ErrSchedulerStopping = &Error{
+		kind:    KindInvalidState,
+		message: "scheduler is stopping",
+	}
 )
 
 // UnknownCommandError indicates an unregistered command.

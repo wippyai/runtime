@@ -12,6 +12,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/runtime/resource"
@@ -937,7 +938,7 @@ func newBenchExecutorWithOptions(registry *mockRegistry, opts ...scheduler.Optio
 }
 
 func (be *benchExecutor) Start()                   { be.sched.Start() }
-func (be *benchExecutor) Stop()                    { be.sched.Stop() }
+func (be *benchExecutor) Stop()                    { be.sched.Stop(context.Background()) }
 func (be *benchExecutor) Stats() map[string]uint64 { return be.sched.Stats() }
 
 func (be *benchExecutor) Execute(ctx context.Context, pid relay.PID, p scheduler.Process, method string, input payload.Payloads) (*runtime.Result, error) {

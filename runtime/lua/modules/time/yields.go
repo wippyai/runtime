@@ -351,10 +351,10 @@ func (y *TimerStartYield) HandleResult(l *lua.LState, data any, err error) []lua
 	channelUD := engine.PushChannel(l, y.Channel)
 	l.Pop(1)
 
-	// Subscribe channel to topic
+	// Subscribe externally-owned channel to topic
 	proc := engine.GetProcess(l)
 	if proc != nil {
-		if err := proc.Subscribe(y.Topic, y.Channel); err != nil {
+		if err := proc.SubscribeExisting(y.Topic, y.Channel); err != nil {
 			return []lua.LValue{lua.LNil, wrapErrorValue(l, err, "timer subscribe")}
 		}
 		proc.SetTopicHandler(y.Topic, timerMessageHandler)
@@ -569,10 +569,10 @@ func (y *TickerStartYield) HandleResult(l *lua.LState, data any, err error) []lu
 	channelUD := engine.PushChannel(l, y.Channel)
 	l.Pop(1)
 
-	// Subscribe channel to topic
+	// Subscribe externally-owned channel to topic
 	proc := engine.GetProcess(l)
 	if proc != nil {
-		if err := proc.Subscribe(y.Topic, y.Channel); err != nil {
+		if err := proc.SubscribeExisting(y.Topic, y.Channel); err != nil {
 			return []lua.LValue{lua.LNil, wrapErrorValue(l, err, "ticker subscribe")}
 		}
 		proc.SetTopicHandler(y.Topic, tickerMessageHandler)

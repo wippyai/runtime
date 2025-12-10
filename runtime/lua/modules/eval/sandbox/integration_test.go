@@ -16,6 +16,7 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/evalhost"
 	"github.com/wippyai/runtime/runtime/lua/modules/json"
@@ -37,9 +38,10 @@ type testScheduler struct {
 }
 
 func (ts *testScheduler) Stop() {
-	ts.Scheduler.Stop()
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	ts.Scheduler.Stop(ctx)
 	if ts.clock != nil {
-		_ = ts.clock.Stop(context.Background())
+		_ = ts.clock.Stop(ctx)
 	}
 }
 
@@ -271,7 +273,7 @@ func TestSandbox_Process(t *testing.T) {
 
 	// Create a mock process for testing
 	mockProc := &mockProcess{}
-	ctx := context.Background()
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
 
 	sp := NewProcess(ctx, mockProc, clock)
 	require.NotNil(t, sp)
@@ -324,7 +326,7 @@ func (m *mockProcess) Close() {
 func TestSandbox_Process_WithMockProcess(t *testing.T) {
 	clock := NewMockClock(time.Now().UnixNano())
 	mockProc := &mockProcess{}
-	ctx := context.Background()
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
 
 	sp := NewProcess(ctx, mockProc, clock)
 	defer sp.Close()
@@ -365,7 +367,8 @@ func TestSandbox_Integration_Compile(t *testing.T) {
 		return program:method()
 	`
 
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	rootCtx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
 	proc := newLuaProcess(script)
 
 	result, err := sched.Execute(ctx, uniqueTestPID(), proc, "", nil)
@@ -402,7 +405,8 @@ func TestSandbox_Integration_CompileSyntaxError(t *testing.T) {
 		return "got_error"
 	`
 
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	rootCtx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
 	proc := newLuaProcess(script)
 
 	result, err := sched.Execute(ctx, uniqueTestPID(), proc, "", nil)
@@ -435,7 +439,8 @@ func TestSandbox_Integration_Clock(t *testing.T) {
 		return true
 	`
 
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	rootCtx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
 	proc := newLuaProcess(script)
 
 	result, err := sched.Execute(ctx, uniqueTestPID(), proc, "", nil)
@@ -474,7 +479,8 @@ func TestSandbox_ProgramMethods(t *testing.T) {
 		return true
 	`
 
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	rootCtx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
 	proc := newLuaProcess(script)
 
 	result, err := sched.Execute(ctx, uniqueTestPID(), proc, "", nil)
@@ -649,7 +655,8 @@ func TestSandbox_Integration_StepWithSleep(t *testing.T) {
 		return true
 	`
 
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	rootCtx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
 	proc := newLuaProcess(script)
 
 	result, err := sched.Execute(ctx, uniqueTestPID(), proc, "", nil)

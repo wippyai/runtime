@@ -4,6 +4,8 @@ import (
 	"os"
 	"testing"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/security"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -55,6 +57,9 @@ func TestLoadReuse(t *testing.T) {
 func TestMemoryFunctions(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
+
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	l.SetContext(ctx)
 
 	tbl, _ := Module.Build()
 	l.SetGlobal("system", tbl)
@@ -113,6 +118,9 @@ func TestGCFunctions(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	l.SetContext(ctx)
+
 	tbl, _ := Module.Build()
 	l.SetGlobal("system", tbl)
 
@@ -152,6 +160,9 @@ func TestGCFunctions(t *testing.T) {
 func TestRuntimeFunctions(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
+
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	l.SetContext(ctx)
 
 	tbl, _ := Module.Build()
 	l.SetGlobal("system", tbl)
@@ -218,6 +229,9 @@ func TestRuntimeFunctions(t *testing.T) {
 func TestProcessFunctions(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
+
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	l.SetContext(ctx)
 
 	tbl, _ := Module.Build()
 	l.SetGlobal("system", tbl)

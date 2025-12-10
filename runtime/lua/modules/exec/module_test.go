@@ -68,6 +68,7 @@ func TestGetNoContext(t *testing.T) {
 	lua.OpenErrors(l)
 	Module.Load(l)
 
+	// Without context, security strict mode blocks access with INVALID (permission denied)
 	err := l.DoString(`
 		local ok, err = exec.get("test:executor")
 		if ok ~= nil then
@@ -76,8 +77,8 @@ func TestGetNoContext(t *testing.T) {
 		if not err then
 			error("expected error")
 		end
-		if err:kind() ~= errors.INTERNAL then
-			error("expected INTERNAL error kind, got: " .. tostring(err:kind()))
+		if err:kind() ~= errors.INVALID then
+			error("expected INVALID error kind (security denial), got: " .. tostring(err:kind()))
 		end
 	`)
 	if err != nil {

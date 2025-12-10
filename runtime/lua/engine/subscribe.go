@@ -8,13 +8,36 @@ import (
 )
 
 // subscribeContext manages topic-to-channel mappings.
+// The subscription owns the channel - channels are created here, not by callers.
 type subscribeContext struct {
 	byTopic   map[string]*subscription
 	byChannel map[*Channel]string
 	mu        sync.RWMutex
 }
 
-func (m *subscribeContext) add(topic string, ch *Channel) (*subscription, error) {
+// add creates or returns an existing subscription for a topic.
+// If the topic is already subscribed, returns the existing subscription.
+// The bufSize parameter is only used when creating a new subscription.
+// Subscription owns the channel - callers should not create channels.
+func (m *subscribeContext) add(topic string, bufSize int) (*subscription, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if existing, exists := m.byTopic[topic]; exists {
+		return existing, nil
+	}
+
+	ch := NewChannel(bufSize)
+	sub := &subscription{topic: topic, channel: ch}
+	m.byTopic[topic] = sub
+	m.byChannel[ch] = topic
+	return sub, nil
+}
+
+// addExisting registers an externally-owned channel for a topic.
+// Used by modules that manage their own channel lifecycle (websocket, timer, etc.).
+// Returns error if topic already has a different channel subscribed.
+func (m *subscribeContext) addExisting(topic string, ch *Channel) (*subscription, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -58,10 +81,13 @@ type subscription struct {
 }
 
 // SubscribeRequest is yielded to request a topic subscription.
+// If ExistingChannel is nil, subscription creates the channel.
+// If ExistingChannel is set, it is used instead (for externally-owned channels).
 type SubscribeRequest struct {
-	Topic   string
-	Channel *Channel
-	Handler TopicHandler
+	Topic           string
+	BufSize         int
+	Handler         TopicHandler
+	ExistingChannel *Channel
 }
 
 func (r *SubscribeRequest) String() string       { return "<subscribe_request>" }

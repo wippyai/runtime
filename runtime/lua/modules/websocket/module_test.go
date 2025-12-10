@@ -1,12 +1,13 @@
 package websocket
 
 import (
-	"context"
 	"sync"
 	"testing"
 	"time"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/security"
 	wsapi "github.com/wippyai/runtime/api/websocket"
 	"github.com/yuin/gopher-lua"
 )
@@ -126,7 +127,8 @@ func TestConnectNoContext(t *testing.T) {
 func TestConnectWithContext(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(context.Background())
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	l.SetContext(ctx)
 
 	bind(l)
 
@@ -143,7 +145,8 @@ func TestConnectWithContext(t *testing.T) {
 func TestConnectWithOptions(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(context.Background())
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	l.SetContext(ctx)
 
 	bind(l)
 

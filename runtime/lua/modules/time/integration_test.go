@@ -28,7 +28,7 @@ type testScheduler struct {
 }
 
 func (ts *testScheduler) Stop() {
-	ts.Scheduler.Stop()
+	ts.Scheduler.Stop(context.Background())
 	if ts.clock != nil {
 		_ = ts.clock.Stop(context.Background())
 	}

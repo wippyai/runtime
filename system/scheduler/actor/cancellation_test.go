@@ -131,7 +131,7 @@ func TestActorConcurrentCancellationStress(t *testing.T) {
 	waitForCompletionInt64(&completed, 1000, 10*time.Second)
 
 	// Now stop the scheduler
-	sched.Stop()
+	sched.Stop(context.Background())
 
 	t.Logf("Completed: %d, Errors: %d", completed.Load(), errors.Load())
 }
@@ -178,7 +178,7 @@ func TestActorStopDuringExecution(t *testing.T) {
 	time.Sleep(5 * time.Millisecond)
 
 	// Stop while requests are in-flight
-	sched.Stop()
+	sched.Stop(context.Background())
 
 	t.Logf("Completed after stop: %d/50", completed.Load())
 }
@@ -233,7 +233,7 @@ func TestActorStealingConcurrentCancellation(t *testing.T) {
 	// Wait for completions
 	waitForCompletionInt64(&completed, 500, 10*time.Second)
 
-	sched.Stop()
+	sched.Stop(context.Background())
 
 	t.Logf("Completed: %d, Errors: %d", completed.Load(), errors.Load())
 }
@@ -295,7 +295,7 @@ func TestActorStopNoStepping(t *testing.T) {
 	time.Sleep(5 * time.Millisecond)
 
 	// Stop should wait for any in-flight Step calls
-	sched.Stop()
+	sched.Stop(context.Background())
 
 	// After Stop returns, NO process should be mid-step
 	for i, proc := range processes {
@@ -341,7 +341,10 @@ func TestActorStopNoSteppingStress(t *testing.T) {
 		// Random delay before stop
 		time.Sleep(time.Duration(iter%5) * time.Millisecond)
 
-		sched.Stop()
+		// Short timeout since these processes don't step
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		sched.Stop(stopCtx)
+		stopCancel()
 
 		// Verify no stepping after Stop
 		for i, proc := range processes {
@@ -380,9 +383,165 @@ func TestActorRapidStopStart(t *testing.T) {
 
 		// Don't wait for completion, just stop
 		time.Sleep(2 * time.Millisecond)
-		sched.Stop()
+		sched.Stop(context.Background())
 
 		// Wait for goroutines to finish
 		wg.Wait()
 	}
 }
+
+// cancelAwareProcess tracks whether it received a cancel event
+type cancelAwareProcess struct {
+	receivedCancel atomic.Bool
+	gracefulExit   atomic.Bool
+}
+
+func (p *cancelAwareProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
+	return nil
+}
+
+func (p *cancelAwareProcess) Step(events []Event, out *StepOutput) error {
+	// Check events for cancel message
+	for _, evt := range events {
+		if evt.Type == EventMessage {
+			if pkg, ok := evt.Data.(*relay.Package); ok {
+				for _, msg := range pkg.Messages {
+					if msg.Topic == "@pid/events" {
+						p.receivedCancel.Store(true)
+						p.gracefulExit.Store(true)
+						out.Done(nil)
+						return nil
+					}
+				}
+			}
+		}
+	}
+	// Wait for more events
+	out.Idle()
+	return nil
+}
+
+func (p *cancelAwareProcess) Close() {}
+
+// TestGracefulShutdownSendsCancel verifies Stop sends cancel events to processes
+// and gives them time to shut down gracefully
+func TestGracefulShutdownSendsCancel(t *testing.T) {
+	registry := scheduler.NewRegistry()
+	registry.Register(1, &InstantHandler{})
+
+	var completed atomic.Int64
+	var graceful atomic.Int64
+
+	lc := &testLifecycle{
+		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+			completed.Add(1)
+		},
+	}
+
+	sched := NewScheduler(registry, WithWorkers(4), WithLifecycle(lc))
+	sched.Start()
+
+	const numProcs = 10
+	processes := make([]*cancelAwareProcess, numProcs)
+
+	// Submit processes that will wait for messages
+	for i := 0; i < numProcs; i++ {
+		proc := &cancelAwareProcess{}
+		processes[i] = proc
+		pid := relay.PID{UniqID: fmt.Sprintf("cancel-test-%d", i)}
+		_, err := sched.Submit(context.Background(), pid, proc, "", nil)
+		if err != nil {
+			t.Fatalf("Submit failed: %v", err)
+		}
+	}
+
+	// Wait for processes to go idle
+	time.Sleep(50 * time.Millisecond)
+
+	// Stop with enough time for graceful shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	sched.Stop(ctx)
+
+	// Count graceful exits
+	for _, p := range processes {
+		if p.gracefulExit.Load() {
+			graceful.Add(1)
+		}
+	}
+
+	// All processes should have completed (either gracefully or force-terminated)
+	if completed.Load() != numProcs {
+		t.Errorf("expected %d completed, got %d", numProcs, completed.Load())
+	}
+
+	// All should have received cancel and exited gracefully
+	if graceful.Load() != numProcs {
+		t.Errorf("expected %d graceful exits, got %d (some may have been force-terminated)", numProcs, graceful.Load())
+	}
+
+	t.Logf("Graceful: %d/%d", graceful.Load(), numProcs)
+}
+
+// TestGracefulShutdownWithTimeout verifies force termination after deadline
+func TestGracefulShutdownWithTimeout(t *testing.T) {
+	registry := scheduler.NewRegistry()
+	registry.Register(1, &InstantHandler{})
+
+	var completed atomic.Int64
+
+	lc := &testLifecycle{
+		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+			completed.Add(1)
+		},
+	}
+
+	sched := NewScheduler(registry, WithWorkers(4), WithLifecycle(lc))
+	sched.Start()
+
+	// Submit a process that ignores cancel
+	stubbornProc := &stubbornProcess{}
+	pid := relay.PID{UniqID: "stubborn-1"}
+	_, err := sched.Submit(context.Background(), pid, stubbornProc, "", nil)
+	if err != nil {
+		t.Fatalf("Submit failed: %v", err)
+	}
+
+	// Wait for process to go idle
+	time.Sleep(50 * time.Millisecond)
+
+	// Stop with short timeout
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	sched.Stop(ctx)
+	elapsed := time.Since(start)
+
+	// Should have been force-terminated after timeout
+	if completed.Load() != 1 {
+		t.Errorf("expected 1 completed, got %d", completed.Load())
+	}
+
+	// Should not have taken much longer than timeout
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("Stop took too long: %v (expected ~200ms)", elapsed)
+	}
+
+	t.Logf("Stop completed in %v", elapsed)
+}
+
+// stubbornProcess ignores cancel and never exits
+type stubbornProcess struct{}
+
+func (p *stubbornProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
+	return nil
+}
+
+func (p *stubbornProcess) Step(_ []Event, out *StepOutput) error {
+	out.Idle()
+	return nil
+}
+
+func (p *stubbornProcess) Close() {}

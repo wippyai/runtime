@@ -172,7 +172,7 @@ func (h *Host) Stop(ctx context.Context) error {
 	h.shutdown.Store(true)
 	h.log.Info("terminal host stopping", zap.String("id", h.id.String()))
 
-	h.scheduler.Stop()
+	h.scheduler.Stop(ctx)
 	h.running.Store(false)
 	close(h.statusCh)
 

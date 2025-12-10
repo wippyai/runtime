@@ -143,10 +143,10 @@ func (y *EventSubscribeYield) HandleResult(l *lua.LState, data any, err error) [
 	channelUD := engine.PushChannel(l, y.Channel)
 	l.Pop(1) // Remove from stack since we return via slice
 
-	// Try to subscribe channel to topic if we're in a process context
+	// Try to subscribe externally-owned channel to topic if we're in a process context
 	proc := engine.GetProcess(l)
 	if proc != nil {
-		if err := proc.Subscribe(y.Topic, y.Channel); err != nil {
+		if err := proc.SubscribeExisting(y.Topic, y.Channel); err != nil {
 			return []lua.LValue{lua.LNil, lua.LString(err.Error())}
 		}
 		proc.SetTopicHandler(y.Topic, eventMessageHandler)

@@ -12,6 +12,7 @@ var (
 	actorCtxKey    = &ctxapi.Key{Name: "security.actor_ctx_key", Inherit: true}
 	scopeCtxKey    = &ctxapi.Key{Name: "security.scope_ctx_key", Inherit: true}
 	registryCtxKey = &ctxapi.Key{Name: "security.registry_ctx_key"}
+	strictModeKey  = &ctxapi.Key{Name: "security.strict_mode"}
 )
 
 // ActorPair creates a context.Pair for setting an actor.
@@ -136,4 +137,34 @@ func IsAllowed(ctx context.Context, action, resource string, meta attrs.Bag) boo
 
 	result := scope.Evaluate(actor, action, resource, meta)
 	return result == Allow
+}
+
+// SetStrictMode sets the security strict mode in the AppContext.
+// When strict mode is enabled, incomplete security contexts will deny access.
+func SetStrictMode(ctx context.Context, strict bool) context.Context {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return ctx
+	}
+	if ac.Get(strictModeKey) == nil {
+		ac.With(strictModeKey, strict)
+	} else {
+		ac.Update(strictModeKey, strict)
+	}
+	return ctx
+}
+
+// IsStrictMode checks if security strict mode is enabled.
+// Returns true (strict) by default if not explicitly set.
+func IsStrictMode(ctx context.Context) bool {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return true
+	}
+	if val := ac.Get(strictModeKey); val != nil {
+		if strict, ok := val.(bool); ok {
+			return strict
+		}
+	}
+	return true
 }

@@ -163,7 +163,6 @@ func (p *Processor) CompleteYield(tag uint64, data any, err error) {
 	p.setWakeup(StateRunning)
 }
 
-// Pool for processor reuse to reduce allocations.
 var processorPool = sync.Pool{
 	New: func() any {
 		return &Processor{
@@ -172,12 +171,10 @@ var processorPool = sync.Pool{
 	},
 }
 
-// acquireProcessor gets a processor from the pool.
 func acquireProcessor() *Processor {
 	return processorPool.Get().(*Processor)
 }
 
-// releaseProcessor returns a processor to the pool after clearing all fields.
 func releaseProcessor(p *Processor) {
 	p.id = 0
 	p.pid = relay.PID{}
@@ -185,11 +182,9 @@ func releaseProcessor(p *Processor) {
 	p.state.Store(0)
 	p.ctx = nil
 	p.cancel = nil
-	p.gen.Store(0)
-	p.output.Reset()
 	p.scheduler = nil
 	p.resultCh = nil
 	p.pooled = false
-
+	p.output.Reset()
 	processorPool.Put(p)
 }

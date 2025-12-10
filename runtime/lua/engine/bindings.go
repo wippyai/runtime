@@ -40,7 +40,15 @@ func channelNewFunc(l *lua.LState) int {
 
 // PushChannel creates a channel userdata, sets up the metatable,
 // links the channel value reference, pushes to stack, and returns the userdata.
+// If the channel already has a cached userdata value, reuses it for identity stability.
 func PushChannel(l *lua.LState, ch *Channel) *lua.LUserData {
+	if cached := ch.Value(); cached != nil {
+		if ud, ok := cached.(*lua.LUserData); ok {
+			l.Push(ud)
+			return ud
+		}
+	}
+
 	ud := l.NewUserData()
 	ud.Value = ch
 	ud.Metatable = value.GetTypeMetatable(nil, ChannelTypeName)
@@ -266,7 +274,7 @@ func subscribeFunc(l *lua.LState) int {
 		return 0
 	}
 
-	req := &SubscribeRequest{Topic: topic, Channel: ch}
+	req := &SubscribeRequest{Topic: topic, ExistingChannel: ch}
 	l.Push(req)
 	return -1
 }

@@ -128,7 +128,7 @@ func runStressTest(_ *testing.T, cfg StressConfig) StressResult {
 	runtime.GC()
 	runtime.ReadMemStats(&memAfter)
 
-	sched.Stop()
+	sched.Stop(context.Background())
 
 	stats := sched.Stats()
 

@@ -9,6 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/api/store"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -145,9 +146,8 @@ func setupStateWithContext(reg *mockRegistry) *lua.LState {
 	lua.OpenErrors(l)
 	Module.Load(l)
 
-	ctx := context.Background()
-	appCtx := ctxapi.NewAppContext()
-	ctx = ctxapi.WithAppContext(ctx, appCtx)
+	ctx := ctxapi.NewRootContext()
+	ctx = security.SetStrictMode(ctx, false)
 	ctx = resource.WithRegistry(ctx, reg)
 	ctx = payload.WithTranscoder(ctx, &mockTranscoder{})
 	l.SetContext(ctx)
@@ -201,8 +201,9 @@ func TestStoreGetNoAppContext(t *testing.T) {
 	l := setupState()
 	defer l.Close()
 
-	// LState has default context.Background() but no AppContext
-	// GetRegistry returns nil when no AppContext
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	l.SetContext(ctx)
+
 	err := l.DoString(`
 		local s, err = store.get("test:store")
 		if not err then
@@ -220,7 +221,8 @@ func TestStoreGetNoAppContext(t *testing.T) {
 func TestStoreGetEmptyID(t *testing.T) {
 	l := setupState()
 	defer l.Close()
-	l.SetContext(context.Background())
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	l.SetContext(ctx)
 
 	err := l.DoString(`
 		local s, err = store.get("")
@@ -240,9 +242,8 @@ func TestStoreGetNoRegistry(t *testing.T) {
 	l := setupState()
 	defer l.Close()
 
-	ctx := context.Background()
-	appCtx := ctxapi.NewAppContext()
-	ctx = ctxapi.WithAppContext(ctx, appCtx)
+	ctx := ctxapi.NewRootContext()
+	ctx = security.SetStrictMode(ctx, false)
 	l.SetContext(ctx)
 
 	err := l.DoString(`
@@ -368,7 +369,8 @@ func TestStoreReleaseIdempotent(t *testing.T) {
 func TestErrorKinds(t *testing.T) {
 	l := setupState()
 	defer l.Close()
-	l.SetContext(context.Background())
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	l.SetContext(ctx)
 
 	err := l.DoString(`
 		local s, err = store.get("")

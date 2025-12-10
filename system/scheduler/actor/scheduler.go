@@ -5,12 +5,14 @@ import (
 	goruntime "runtime"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/topology"
 )
 
 type Option func(*Scheduler)
@@ -70,6 +72,7 @@ type Scheduler struct {
 	lifecycle      process.Lifecycle
 
 	processorCount atomic.Int64
+	drainCh        chan struct{} // closed when processorCount reaches 0 during shutdown
 	byPID          sync.Map
 	idleProcs      sync.Map
 	byQueue        sync.Map // *EventQueue -> *Processor for wake routing
@@ -89,6 +92,7 @@ func NewScheduler(registry dispatcher.Registry, opts ...Option) *Scheduler {
 
 	s.global = NewQueue(s.queueSize)
 	s.wakeCond = sync.NewCond(&s.wakeMu)
+	s.drainCh = make(chan struct{}, 1)
 	s.workers = make([]*Worker, s.numWorkers)
 
 	for i := range s.workers {
@@ -97,8 +101,6 @@ func NewScheduler(registry dispatcher.Registry, opts ...Option) *Scheduler {
 
 	return s
 }
-
-func (s *Scheduler) ProcessorCount() int64 { return s.processorCount.Load() }
 
 func (s *Scheduler) getHandler(cmd dispatcher.Command) dispatcher.Handler {
 	return s.registry.Get(cmd.CmdID())
@@ -114,17 +116,91 @@ func (s *Scheduler) Start() {
 	}
 }
 
-func (s *Scheduler) Stop() {
+// Stop gracefully shuts down the scheduler.
+// Sends cancel events and waits for processes to complete or context deadline.
+func (s *Scheduler) Stop(ctx context.Context) {
+	// Set stopping first - prevents new submissions and pool release
 	s.stopping.Store(true)
-	s.wakeMu.Lock()
-	s.wakeCond.Broadcast()
-	s.wakeMu.Unlock()
+
+	// Determine deadline for cancel events
+	deadline := time.Now().Add(10 * time.Second)
+	if d, ok := ctx.Deadline(); ok {
+		deadline = d
+	}
+
+	// Push cancel event directly to each processor's queue.
+	// Safe because stopping=true prevents pool release.
+	// Wake idle/blocked processors so they process the cancel.
+	s.byPID.Range(func(_, value any) bool {
+		proc := value.(*Processor)
+		pkg := topology.Cancel(relay.PID{}, proc.pid, deadline)
+		proc.queue.PushDirect(process.Event{
+			Type: process.EventMessage,
+			Data: pkg,
+		})
+		// Wake if idle or blocked
+		if proc.casState(StateIdle, StateReady) || proc.casState(StateBlocked, StateReady) {
+			s.idleProcs.Delete(proc.pid)
+			s.global.Push(proc)
+		}
+		return true
+	})
+
+	// Wake workers to process cancel events
+	s.wakeAll()
+
+	// If already empty, we're done
+	if s.processorCount.Load() == 0 {
+		select {
+		case s.drainCh <- struct{}{}:
+		default:
+		}
+	}
+
+	// Wait for processes to complete or context timeout
+	waitCtx := ctx
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		waitCtx, cancel = context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+	}
+
+	select {
+	case <-s.drainCh:
+		// All processes completed gracefully
+	case <-waitCtx.Done():
+		// Timeout - cancel all process contexts to unblock stuck processes
+		s.byPID.Range(func(_, value any) bool {
+			proc := value.(*Processor)
+			if proc.cancel != nil {
+				proc.cancel()
+			}
+			proc.queue.Close()
+			return true
+		})
+	}
+
+	// Wake and wait for workers to exit
+	s.wakeAll()
 	s.wg.Wait()
+
+	// Force complete any remaining processes (workers stopped)
+	s.byPID.Range(func(_, value any) bool {
+		proc := value.(*Processor)
+		s.completeNoPool(proc, nil, context.Canceled)
+		return true
+	})
 }
 
 func (s *Scheduler) wake() {
 	s.wakeMu.Lock()
 	s.wakeCond.Signal()
+	s.wakeMu.Unlock()
+}
+
+func (s *Scheduler) wakeAll() {
+	s.wakeMu.Lock()
+	s.wakeCond.Broadcast()
 	s.wakeMu.Unlock()
 }
 
@@ -153,6 +229,9 @@ func (s *Scheduler) WakeProcessor(q *process.EventQueue, gen uint64) {
 }
 
 func (s *Scheduler) Submit(ctx context.Context, pid relay.PID, p Process, method string, input payload.Payloads) (*Processor, error) {
+	if s.stopping.Load() {
+		return nil, process.ErrSchedulerStopping
+	}
 	if s.maxProcesses > 0 && s.processorCount.Load() >= s.maxProcesses {
 		return nil, process.ErrMaxProcessesExceeded
 	}
@@ -173,9 +252,6 @@ func (s *Scheduler) Submit(ctx context.Context, pid relay.PID, p Process, method
 	proc.ctx = procCtx
 	proc.cancel = cancel
 	proc.scheduler = s
-	proc.resultCh = nil
-	proc.pooled = false
-	proc.output.Reset()
 
 	// Reset queue for this execution and cache generation
 	proc.queue.Reset()
@@ -209,17 +285,16 @@ func (s *Scheduler) Terminate(pid relay.PID) error {
 		proc.cancel()
 	}
 
-	// Close queue to reject new events
-	proc.queue.Close()
-
 	// Remove from idle tracking
 	s.idleProcs.Delete(pid)
 
+	// Push termination event via PushDirect (bypasses generation check).
+	// This ensures process wakes even if yields never complete.
+	// Don't close queue yet - let the event be processed first.
+	proc.queue.PushDirect(process.Event{Type: process.EventMessage})
+
 	// Try to transition to Ready and re-queue so worker can evict.
-	// Works for Idle, Blocked, and already-Ready states.
-	// Running state: worker will see ctx.Err() after current step.
-	if proc.casState(StateIdle, StateReady) ||
-		proc.casState(StateBlocked, StateReady) {
+	if proc.casState(StateIdle, StateReady) || proc.casState(StateBlocked, StateReady) {
 		s.global.Push(proc)
 		s.wake()
 	}
@@ -228,18 +303,31 @@ func (s *Scheduler) Terminate(pid relay.PID) error {
 }
 
 func (s *Scheduler) complete(proc *Processor, result *StepOutput, err error) {
+	s.finishProcessor(proc, result, err, true)
+}
+
+func (s *Scheduler) completeNoPool(proc *Processor, result *StepOutput, err error) {
+	s.finishProcessor(proc, result, err, false)
+}
+
+func (s *Scheduler) finishProcessor(proc *Processor, result *StepOutput, err error, allowPool bool) {
 	res := &runtime.Result{Error: err}
 	if result != nil && result.Result() != nil {
 		res.Value = result.Result()
 	}
 
-	// Remove from all maps - process is done regardless of pooling
 	s.byPID.Delete(proc.pid)
 	s.idleProcs.Delete(proc.pid)
 	s.byQueue.Delete(proc.queue)
 
+	stopping := s.stopping.Load()
 	if !proc.pooled {
-		s.processorCount.Add(-1)
+		if s.processorCount.Add(-1) == 0 && stopping {
+			select {
+			case s.drainCh <- struct{}{}:
+			default:
+			}
+		}
 	}
 
 	if proc.resultCh != nil {
@@ -260,10 +348,16 @@ func (s *Scheduler) complete(proc *Processor, result *StepOutput, err error) {
 	if proc.Process != nil {
 		proc.Process.Close()
 	}
-	releaseProcessor(proc)
+
+	if allowPool && !stopping {
+		releaseProcessor(proc)
+	}
 }
 
 func (s *Scheduler) CreateProcessor(ctx context.Context, pid relay.PID, p Process) (*Processor, error) {
+	if s.stopping.Load() {
+		return nil, process.ErrSchedulerStopping
+	}
 	if s.maxProcesses > 0 && s.processorCount.Load() >= s.maxProcesses {
 		return nil, process.ErrMaxProcessesExceeded
 	}
@@ -281,7 +375,6 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid relay.PID, p Proces
 	proc.scheduler = s
 	proc.pooled = true
 	proc.resultCh = make(chan *runtime.Result, 1)
-	proc.output.Reset()
 
 	// Reset queue for this execution and cache generation
 	proc.queue.Reset()
@@ -305,7 +398,6 @@ func (s *Scheduler) ReleaseProcessor(proc *Processor) {
 	if proc.Process != nil {
 		proc.Process.Close()
 	}
-	releaseProcessor(proc)
 }
 
 // Send implements relay.Receiver. Routes package to target process.

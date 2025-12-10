@@ -9,6 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/security"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -81,9 +82,10 @@ func setupStateWithManager(mgr *mockManager) *lua.LState {
 	lua.OpenErrors(l)
 	Module.Load(l)
 
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	appCtx := ctxapi.NewAppContext()
 	ctx = ctxapi.WithAppContext(ctx, appCtx)
+	ctx = security.SetStrictMode(ctx, false)
 	ctx = queueapi.WithManager(ctx, mgr)
 	l.SetContext(ctx)
 
@@ -95,9 +97,10 @@ func setupStateWithDelivery(msg *queueapi.Message) *lua.LState {
 	lua.OpenErrors(l)
 	Module.Load(l)
 
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	appCtx := ctxapi.NewAppContext()
 	ctx = ctxapi.WithAppContext(ctx, appCtx)
+	ctx = security.SetStrictMode(ctx, false)
 
 	ctx, _ = ctxapi.AcquireFrameContext(ctx)
 

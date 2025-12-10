@@ -428,9 +428,8 @@ func setupAsyncYield(l *lua.LState, regID registry.ID, payloads []payload.Payloa
 	}
 
 	topic := "@future:" + uuid.New().String()
-	ch := engine.NewChannel(1)
-
-	if subErr := proc.Subscribe(topic, ch); subErr != nil {
+	ch, subErr := proc.Subscribe(topic, 1)
+	if subErr != nil {
 		luaErr := lua.WrapErrorWithLua(l, subErr, "subscribe failed").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)

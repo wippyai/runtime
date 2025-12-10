@@ -107,7 +107,7 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 }
 
 // Stop implements supervisor.Service.
-func (h *Host) Stop(_ context.Context) error {
+func (h *Host) Stop(ctx context.Context) error {
 	if !h.running.Load() {
 		return nil
 	}
@@ -115,7 +115,7 @@ func (h *Host) Stop(_ context.Context) error {
 	h.shutdown.Store(true)
 	h.log.Info("host stopping", zap.String("id", h.id.String()))
 
-	h.scheduler.Stop()
+	h.scheduler.Stop(ctx)
 	h.running.Store(false)
 	close(h.statusCh)
 

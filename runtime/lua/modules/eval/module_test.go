@@ -146,7 +146,6 @@ func TestEvalModule_SandboxYieldTranscoding(t *testing.T) {
 	}{
 		{"sleep", clockapi.SleepCmd{Duration: 50 * time.Millisecond}, "sleep"},
 		{"ticker_start", clockapi.TickerStartCmd{Duration: 100 * time.Millisecond}, "ticker_start"},
-		{"ticker_next", clockapi.TickerNextCmd{TickerID: 1}, "ticker_next"},
 		{"ticker_stop", clockapi.TickerStopCmd{TickerID: 1}, "ticker_stop"},
 		{"timer_start", clockapi.TimerStartCmd{Duration: 200 * time.Millisecond}, "timer_start"},
 		{"timer_wait", clockapi.TimerWaitCmd{TimerID: 1}, "timer_wait"},

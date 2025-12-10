@@ -53,10 +53,6 @@ func (w *Worker) run() {
 		spins = 0
 		s.wakeMu.Lock()
 		for {
-			if s.stopping.Load() {
-				s.wakeMu.Unlock()
-				return
-			}
 			if proc := w.findWork(); proc != nil {
 				n := s.global.Len()
 				if n > 0 {
@@ -66,6 +62,11 @@ func (w *Worker) run() {
 				w.executeOne(proc)
 				w.executed.Add(1)
 				break
+			}
+			// Only exit when no work AND stopping
+			if s.stopping.Load() {
+				s.wakeMu.Unlock()
+				return
 			}
 			s.wakeCond.Wait()
 		}

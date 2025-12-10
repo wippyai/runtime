@@ -11,6 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/internal/uniqid"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	eventsmod "github.com/wippyai/runtime/runtime/lua/modules/events"
@@ -45,7 +46,8 @@ func TestEventsReceiveIntegration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	rootCtx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	ctx, cancel := context.WithTimeout(rootCtx, 5*time.Second)
 	defer cancel()
 
 	// Create event bus
@@ -162,7 +164,7 @@ return { main = main }
 	require.NoError(t, err)
 	t.Logf("Registered pool as host: %s", hostID)
 
-	// Create frame context with PID
+	// Create frame context with PID and relay node
 	frameCtx, fc := ctxapi.AcquireFrameContext(ctx)
 	defer ctxapi.ReleaseFrameContext(fc)
 
@@ -170,6 +172,9 @@ return { main = main }
 	t.Logf("Generated PID: Host=%s UniqID=%s", pid.Host, pid.UniqID)
 	err = runtime.SetFramePID(frameCtx, pid)
 	require.NoError(t, err)
+
+	// Set relay node in context for timer callbacks
+	frameCtx = relay.WithNode(frameCtx, realNode)
 
 	// Execute
 	result, err := realPool.Call(frameCtx, "main", nil)
@@ -189,7 +194,8 @@ return { main = main }
 }
 
 func TestEventsBasicSubscribe(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	rootCtx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	ctx, cancel := context.WithTimeout(rootCtx, 2*time.Second)
 	defer cancel()
 
 	// Create event bus

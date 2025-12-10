@@ -217,6 +217,7 @@ func TestIsAllowed_WithoutActor_NonStrictMode(t *testing.T) {
 	logger := zap.NewNop()
 	ctx := ctxapi.NewRootContext()
 	ctx = logs.WithLogger(ctx, logger)
+	ctx = secapi.SetStrictMode(ctx, false)
 
 	policy := newMockPolicy(registry.NewID("test", "policy"))
 	scope := newMockScope()
@@ -226,7 +227,7 @@ func TestIsAllowed_WithoutActor_NonStrictMode(t *testing.T) {
 	// Execute
 	result := IsAllowed(ctx, "read", "test-resource", nil)
 
-	// Assert - since STRICT is false, should allow access
+	// Assert - strict mode is disabled, should allow access
 	assert.True(t, result, "Should allow access in non-strict mode when actor is missing")
 }
 
@@ -235,6 +236,7 @@ func TestIsAllowed_WithoutScope_NonStrictMode(t *testing.T) {
 	logger := zap.NewNop()
 	ctx := ctxapi.NewRootContext()
 	ctx = logs.WithLogger(ctx, logger)
+	ctx = secapi.SetStrictMode(ctx, false)
 
 	actor := secapi.Actor{ID: "test-actor"}
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
@@ -243,7 +245,7 @@ func TestIsAllowed_WithoutScope_NonStrictMode(t *testing.T) {
 	// Execute
 	result := IsAllowed(ctx, "read", "test-resource", nil)
 
-	// Assert - since STRICT is false, should allow access
+	// Assert - strict mode is disabled, should allow access
 	assert.True(t, result, "Should allow access in non-strict mode when scope is missing")
 }
 
@@ -252,11 +254,12 @@ func TestIsAllowed_WithoutActorAndScope_NonStrictMode(t *testing.T) {
 	logger := zap.NewNop()
 	ctx := ctxapi.NewRootContext()
 	ctx = logs.WithLogger(ctx, logger)
+	ctx = secapi.SetStrictMode(ctx, false)
 
 	// Execute
 	result := IsAllowed(ctx, "read", "test-resource", nil)
 
-	// Assert - since STRICT is false, should allow access
+	// Assert - strict mode is disabled, should allow access
 	assert.True(t, result, "Should allow access in non-strict mode when both actor and scope are missing")
 }
 
@@ -377,7 +380,16 @@ func TestIsAllowed_WithRealSecurityScope(t *testing.T) {
 	assert.False(t, result, "Real scope with no policies should deny access")
 }
 
-func TestIsAllowed_STRICTConstant(t *testing.T) {
-	// Test that STRICT constant is properly defined
-	assert.False(t, STRICT, "STRICT should be false by default")
+func TestIsAllowed_StrictMode(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+
+	// Default strict mode should be true (deny when context incomplete)
+	assert.True(t, secapi.IsStrictMode(ctx), "Strict mode should be true by default")
+
+	// Test that SetStrictMode works
+	ctx = secapi.SetStrictMode(ctx, false)
+	assert.False(t, secapi.IsStrictMode(ctx), "Strict mode should be false after setting")
+
+	ctx = secapi.SetStrictMode(ctx, true)
+	assert.True(t, secapi.IsStrictMode(ctx), "Strict mode should be true after setting")
 }

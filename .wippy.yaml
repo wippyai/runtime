@@ -25,6 +25,11 @@ profiler:
   write_timeout: 15s          # HTTP write timeout
   idle_timeout: 60s           # HTTP idle timeout
 
+# Security configuration
+# Controls security enforcement behavior
+security:
+  strict_mode: false          # When true, deny access if security context is incomplete
+
 # Registry configuration
 # Controls registry history and rollback capabilities
 registry:

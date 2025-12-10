@@ -659,10 +659,9 @@ func callMethodAsync(l *lua.LState, wrapper *InstanceWrapper, method string, arg
 	}
 
 	topic := "@future:" + uuid.New().String()
-	ch := engine.NewChannel(1)
-
-	if err := proc.Subscribe(topic, ch); err != nil {
-		luaErr := lua.WrapErrorWithLua(l, err, "subscribe failed").
+	ch, subErr := proc.Subscribe(topic, 1)
+	if subErr != nil {
+		luaErr := lua.WrapErrorWithLua(l, subErr, "subscribe failed").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
 		l.Push(lua.LNil)

@@ -205,7 +205,7 @@ func TestSchedulerBasic(t *testing.T) {
 	sched := newTestSchedulerWithLifecycle(2, lc)
 
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	_, err := sched.Submit(context.Background(), testPID(), &CounterProcess{}, "", testInput(10))
 	if err != nil {
@@ -241,7 +241,7 @@ func TestSchedulerMultipleProcesses(t *testing.T) {
 	sched := newTestSchedulerWithLifecycle(2, lc)
 
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	const numProcesses = 10
 	for i := 0; i < numProcesses; i++ {
@@ -275,7 +275,7 @@ func TestSchedulerSleep(t *testing.T) {
 	sched := newTestSchedulerWithLifecycle(2, lc)
 
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	start := time.Now()
 	_, err := sched.Submit(context.Background(), testPID(), &SleepProcess{}, "", testInput(50*time.Millisecond))
@@ -309,7 +309,7 @@ func TestSchedulerWorkDistribution(t *testing.T) {
 	sched := newTestSchedulerWithLifecycle(4, lc)
 
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	for i := 0; i < 100; i++ {
 		_, _ = sched.Submit(context.Background(), testPID(), &CounterProcess{}, "", testInput(50))
@@ -343,7 +343,7 @@ func TestSchedulerSubmitBeforeStart(t *testing.T) {
 
 	// Now start and let it complete
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 }
 
 func TestSchedulerStats(t *testing.T) {
@@ -357,7 +357,7 @@ func TestSchedulerStats(t *testing.T) {
 	sched := newTestSchedulerWithLifecycle(2, lc)
 
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	for i := 0; i < 10; i++ {
 		_, _ = sched.Submit(context.Background(), testPID(), &CounterProcess{}, "", testInput(10))
@@ -395,7 +395,7 @@ func (p *StatsProcess) Stats() any {
 func TestSchedulerCollectProcessStats(t *testing.T) {
 	sched := newTestScheduler(2)
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	pid := relay.PID{UniqID: "stats-process"}
 	proc := &StatsProcess{customStats: "test-value"}
@@ -521,7 +521,7 @@ func TestOnStartCallback(t *testing.T) {
 	sched := newTestSchedulerWithLifecycle(2, lc)
 
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	// Submit multiple processes
 	for i := 0; i < 5; i++ {
@@ -564,7 +564,7 @@ func TestOnCompleteCallback(t *testing.T) {
 	sched := newTestSchedulerWithLifecycle(2, lc)
 
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	// Submit multiple processes
 	for i := 0; i < 5; i++ {
@@ -610,7 +610,7 @@ func TestSendByPID(t *testing.T) {
 
 	// Now start scheduler
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	// Send to active process should work
 	pkg := &relay.Package{Target: pid}
@@ -655,7 +655,7 @@ func TestTerminate(t *testing.T) {
 
 	sched := NewScheduler(registry, WithWorkers(1), WithLifecycle(lc))
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	// Submit a blocking process
 	pid := relay.PID{UniqID: "term-test"}
@@ -701,7 +701,7 @@ func TestTerminate(t *testing.T) {
 func TestTerminateNotFound(t *testing.T) {
 	sched := newTestScheduler(1)
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	err := sched.Terminate(relay.PID{UniqID: "nonexistent"})
 	if !errors.Is(err, process.ErrProcessNotFound) {
@@ -739,7 +739,7 @@ func TestTerminateIdleProcess(t *testing.T) {
 
 	sched := newTestSchedulerWithLifecycle(1, lc)
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	pid := relay.PID{UniqID: "idle-term-test"}
 	_, err := sched.Submit(context.Background(), pid, &IdleProcess{}, "", nil)
@@ -796,7 +796,7 @@ func TestSchedulerSingleWorker(t *testing.T) {
 
 	sched := NewScheduler(registry, WithWorkers(1), WithLifecycle(lc))
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	ctx := context.Background()
 	pid := relay.PID{UniqID: "single"}
@@ -840,7 +840,7 @@ func TestSchedulerSubmitAlloc(t *testing.T) {
 	sched := newTestSchedulerWithLifecycle(1, lc)
 
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	pid := testPID()
 	input := testInput(1)
@@ -909,7 +909,7 @@ func TestSchedulerReleasesProcesses(t *testing.T) {
 	sched := newTestSchedulerWithLifecycle(2, lc)
 
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	const numProcs = 1000
 	ctx := context.Background()
@@ -999,7 +999,7 @@ func TestTerminateBlockedProcess(t *testing.T) {
 
 	sched := newTestSchedulerWithLifecycle(1, lc)
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	blocked := make(chan struct{})
 	pid := relay.PID{UniqID: "blocked-term-test"}
@@ -1050,7 +1050,7 @@ func TestSendToTerminatedProcess(t *testing.T) {
 
 	sched := newTestSchedulerWithLifecycle(1, lc)
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	blocked := make(chan struct{})
 	pid := relay.PID{UniqID: "send-term-test"}
@@ -1128,7 +1128,7 @@ func TestContextCancelledOnCompletion(t *testing.T) {
 
 	sched := newTestSchedulerWithLifecycle(1, lc)
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	pid := relay.PID{UniqID: "ctx-cancel-test"}
 	proc := &ContextTrackingProcess{}
@@ -1198,7 +1198,7 @@ func TestContextCancelledOnTermination(t *testing.T) {
 
 	sched := newTestSchedulerWithLifecycle(1, lc)
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	blocked := make(chan struct{})
 	pid := relay.PID{UniqID: "ctx-term-test"}
@@ -1251,7 +1251,7 @@ func TestSendToClosedQueue(t *testing.T) {
 
 	sched := newTestSchedulerWithLifecycle(1, lc)
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	blocked := make(chan struct{})
 	pid := relay.PID{UniqID: "closed-queue-test"}
@@ -1289,7 +1289,7 @@ func TestSendToClosedQueue(t *testing.T) {
 func TestPIDRegistration(t *testing.T) {
 	sched := newTestScheduler(1)
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	pid := relay.PID{UniqID: "reg-test"}
 
@@ -1326,7 +1326,7 @@ func TestPIDUnregisteredOnCompletion(t *testing.T) {
 
 	sched := newTestSchedulerWithLifecycle(1, lc)
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	pid := relay.PID{UniqID: "unreg-test"}
 	_, err := sched.Submit(context.Background(), pid, &CounterProcess{}, "", testInput(1))
@@ -1362,7 +1362,7 @@ func TestPIDUnregisteredOnTermination(t *testing.T) {
 
 	sched := newTestSchedulerWithLifecycle(1, lc)
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	blocked := make(chan struct{})
 	pid := relay.PID{UniqID: "unreg-term-test"}
@@ -1437,7 +1437,7 @@ func TestDuplicatePIDOverwrites(t *testing.T) {
 	}
 }
 
-func TestProcessorCountAccuracy(t *testing.T) {
+func TestMultipleProcessCompletion(t *testing.T) {
 	var completed atomic.Int32
 
 	lc := &testLifecycle{
@@ -1448,14 +1448,9 @@ func TestProcessorCountAccuracy(t *testing.T) {
 
 	sched := newTestSchedulerWithLifecycle(2, lc)
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	const numProcs = 50
-
-	// Initial count should be 0
-	if sched.ProcessorCount() != 0 {
-		t.Fatalf("initial count should be 0, got %d", sched.ProcessorCount())
-	}
 
 	// Submit processes
 	for i := 0; i < numProcs; i++ {
@@ -1475,12 +1470,6 @@ func TestProcessorCountAccuracy(t *testing.T) {
 	if completed.Load() != numProcs {
 		t.Fatalf("expected %d completed, got %d", numProcs, completed.Load())
 	}
-
-	// Count should be back to 0
-	time.Sleep(50 * time.Millisecond) // Give time for cleanup
-	if sched.ProcessorCount() != 0 {
-		t.Fatalf("final count should be 0, got %d", sched.ProcessorCount())
-	}
 }
 
 func TestIdleProcsMapCleanup(t *testing.T) {
@@ -1494,7 +1483,7 @@ func TestIdleProcsMapCleanup(t *testing.T) {
 
 	sched := newTestSchedulerWithLifecycle(1, lc)
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	pid := relay.PID{UniqID: "idle-map-test"}
 	_, err := sched.Submit(context.Background(), pid, &IdleProcess{}, "", nil)
@@ -1573,7 +1562,7 @@ func TestSendToIdleProcessConcurrent(t *testing.T) {
 
 			sched := newTestSchedulerWithLifecycle(2, lc)
 			sched.Start()
-			defer sched.Stop()
+			defer sched.Stop(context.Background())
 
 			pid := relay.PID{UniqID: fmt.Sprintf("idle-race-%d", i)}
 			proc := &IdleMessageProcess{}

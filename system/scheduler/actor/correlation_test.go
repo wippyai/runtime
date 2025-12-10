@@ -191,7 +191,7 @@ func TestMultiYieldIndependentCompletion(t *testing.T) {
 
 	sched := NewScheduler(registry, WithWorkers(2), WithLifecycle(lc))
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	yields := []DelayedCompleteCmd{
 		{ID: 1, Delay: 100 * time.Millisecond, Value: "slow"},
@@ -300,7 +300,7 @@ func TestIndexCorrelationBreaks_ActorScheduler(t *testing.T) {
 
 	sched := NewScheduler(registry, WithWorkers(4), WithLifecycle(lc))
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	proc := &SequentialYieldProcess{}
 	_, err := sched.Submit(context.Background(), testPID(), proc, "", nil)
@@ -416,7 +416,7 @@ func TestStaggeredYields_IndexCollision(t *testing.T) {
 
 	sched := NewScheduler(registry, WithWorkers(4), WithLifecycle(lc))
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	proc := &StaggeredYieldProcess{}
 	_, err := sched.Submit(context.Background(), testPID(), proc, "", nil)
@@ -540,7 +540,7 @@ func TestParallelCoroutines_IndexCorrelation(t *testing.T) {
 
 	sched := NewScheduler(registry, WithWorkers(4), WithLifecycle(lc))
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	proc := &ParallelCoroutinesProcess{}
 	_, err := sched.Submit(context.Background(), testPID(), proc, "", nil)
@@ -647,7 +647,7 @@ func TestSingleYieldTagPropagation(t *testing.T) {
 
 	sched := NewScheduler(registry, WithWorkers(1), WithLifecycle(lc))
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	proc := &SingleYieldTagProcess{}
 	_, err := sched.Submit(context.Background(), testPID(), proc, "", nil)
@@ -748,7 +748,7 @@ func TestSequentialYieldTagCorrelation(t *testing.T) {
 
 	sched := NewScheduler(registry, WithWorkers(1), WithLifecycle(lc))
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	proc := &SequentialTagYieldProcess{}
 	_, err := sched.Submit(context.Background(), testPID(), proc, "", nil)
@@ -874,7 +874,7 @@ func TestStaggeredMultiYield(t *testing.T) {
 
 	sched := NewScheduler(registry, WithWorkers(1), WithLifecycle(lc))
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	proc := &StaggeredMultiYieldProcess{}
 	_, err := sched.Submit(context.Background(), testPID(), proc, "", nil)
@@ -929,7 +929,7 @@ func TestAsyncSingleYieldTagPropagation(t *testing.T) {
 
 	sched := NewScheduler(registry, WithWorkers(1), WithLifecycle(lc))
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	proc := &SingleYieldTagProcess{}
 	_, err := sched.Submit(context.Background(), testPID(), proc, "", nil)

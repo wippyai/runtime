@@ -135,12 +135,28 @@ func GetProcess(l *lua.LState) *Process {
 	return p
 }
 
-// Subscribe registers a channel to receive messages for a topic.
-func (p *Process) Subscribe(topic string, ch *Channel) error {
+// Subscribe creates or returns an existing subscription for a topic.
+// The subscription owns the channel - it is created internally.
+// Returns the channel for the subscription.
+func (p *Process) Subscribe(topic string, bufSize int) (*Channel, error) {
+	if p.subs == nil {
+		return nil, luaapi.ErrProcessContextNotAvailable
+	}
+	sub, err := p.subs.add(topic, bufSize)
+	if err != nil {
+		return nil, err
+	}
+	return sub.channel, nil
+}
+
+// SubscribeExisting registers an externally-owned channel for a topic.
+// Used by modules that manage their own channel lifecycle (websocket, timer, etc.).
+// Returns error if topic already has a different channel subscribed.
+func (p *Process) SubscribeExisting(topic string, ch *Channel) error {
 	if p.subs == nil {
 		return luaapi.ErrProcessContextNotAvailable
 	}
-	_, err := p.subs.add(topic, ch)
+	_, err := p.subs.addExisting(topic, ch)
 	return err
 }
 
@@ -648,7 +664,13 @@ func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, bool, error) {
 		// Handle subscribe request
 		if req, ok := lastYield.(*SubscribeRequest); ok {
 			hadSubscriptions = true
-			sub, err := subs.add(req.Topic, req.Channel)
+			var sub *subscription
+			var err error
+			if req.ExistingChannel != nil {
+				sub, err = subs.addExisting(req.Topic, req.ExistingChannel)
+			} else {
+				sub, err = subs.add(req.Topic, req.BufSize)
+			}
 			if err != nil {
 				task.ResumeWith(lua.LNil, lua.LString(err.Error()))
 			} else {

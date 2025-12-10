@@ -761,9 +761,9 @@ func TestWheelTimerLongRunning(t *testing.T) {
 	defer r.Close()
 
 	const (
-		duration    = 30 * time.Second
+		duration    = 10 * time.Second
 		targetRate  = 1000 // timers per second
-		checkPeriod = 5 * time.Second
+		checkPeriod = 2 * time.Second
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), duration)

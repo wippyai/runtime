@@ -19,6 +19,13 @@ func Security() boot.Component {
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			bus := event.GetBus(ctx)
+			cfg := boot.GetConfig(ctx)
+
+			strictMode := false
+			if cfg != nil {
+				strictMode = cfg.GetBool("security.strict_mode", false)
+			}
+			ctx = secapi.SetStrictMode(ctx, strictMode)
 
 			policyRegistry = security.NewPolicyRegistry(bus, logger.Named("security"))
 			return secapi.WithRegistry(ctx, policyRegistry), nil

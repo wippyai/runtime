@@ -913,11 +913,9 @@ func registryUnregister(l *lua.LState) int {
 }
 
 func inbox(l *lua.LState) int {
-	// Create channel and subscribe to inbox topic
-	ch := engine.NewChannel(0)
 	req := &engine.SubscribeRequest{
 		Topic:   topology.TopicInbox,
-		Channel: ch,
+		BufSize: 0,
 		Handler: MessageHandler,
 	}
 	l.Push(req)
@@ -925,11 +923,9 @@ func inbox(l *lua.LState) int {
 }
 
 func events(l *lua.LState) int {
-	// Create channel and subscribe to events topic
-	ch := engine.NewChannel(0)
 	req := &engine.SubscribeRequest{
 		Topic:   topology.TopicEvents,
-		Channel: ch,
+		BufSize: 0,
 		Handler: nil, // events use default PayloadsToLua conversion
 	}
 	l.Push(req)
@@ -950,11 +946,9 @@ func listen(l *lua.LState) int {
 		return 2
 	}
 
-	// Create channel and subscribe to the topic
-	ch := engine.NewChannel(1) // buffered for custom topics
 	req := &engine.SubscribeRequest{
 		Topic:   topic,
-		Channel: ch,
+		BufSize: 1, // buffered for custom topics
 		Handler: MessageHandler,
 	}
 	l.Push(req)

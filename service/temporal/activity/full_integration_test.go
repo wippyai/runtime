@@ -105,7 +105,7 @@ func TestFullStackActivityExecution(t *testing.T) {
 	defer funcRegistry.Stop()
 
 	// Register test function that will be called as activity
-	funcID := registry.ID{NS: "test.activity", Name: "echo_data"}
+	funcID := registry.NewID("test.activity", "echo_data")
 	var activityCalled bool
 	var receivedPayloads []payload.Payload
 
@@ -139,7 +139,7 @@ func TestFullStackActivityExecution(t *testing.T) {
 	clientResource := api.ClientResource{
 		Client: temporalClient,
 	}
-	clientID := registry.ID{NS: "test", Name: "client"}
+	clientID := registry.NewID("test", "client")
 	resourceReg.resources[clientID] = clientResource
 
 	// Create wippy worker
@@ -154,7 +154,7 @@ func TestFullStackActivityExecution(t *testing.T) {
 
 	wippyWorker := worker.NewWorker(
 		logger,
-		registry.ID{NS: "test", Name: "worker"},
+		registry.NewID("test", "worker"),
 		workerConfig,
 		resourceReg,
 		nil,

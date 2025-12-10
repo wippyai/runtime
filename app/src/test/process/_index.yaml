@@ -584,3 +584,209 @@ entries:
       - security
     imports:
       assert2: app.lib:assert
+
+  # Cancel event payload verification
+  - name: cancel_event_payload
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Verify CANCEL event payload structure
+    source: file://cancel_event_payload.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  # Monitor/unmonitor tests
+  - name: monitor_explicit
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Explicit process.monitor function
+    source: file://monitor_explicit.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: unmonitor_test
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Unmonitor stops EXIT event delivery
+    source: file://unmonitor_test.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  # Registry tests
+  - name: registry_basic
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Basic process registry operations
+    source: file://registry_basic.lua
+    method: main
+    modules:
+      - time
+      - os
+    imports:
+      assert2: app.lib:assert
+
+  - name: registry_resolve
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Registry name resolution in send
+    source: file://registry_resolve.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  # Inbox/events/listen ordering and combination tests
+  - name: inbox_order_worker
+    kind: process.lua
+    meta:
+      comment: Worker that verifies inbox message ordering
+    source: file://inbox_order_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: inbox_ordering
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Inbox messages arrive in order
+    source: file://inbox_ordering.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: multi_topic_worker
+    kind: process.lua
+    meta:
+      comment: Worker that listens on multiple topics
+    source: file://multi_topic_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: multi_topic
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Process listens on multiple topics
+    source: file://multi_topic.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: combined_channels_worker
+    kind: process.lua
+    meta:
+      comment: Worker using inbox, events, and listen together
+    source: file://combined_channels_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: combined_channels
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Combine inbox, events, and listen in select
+    source: file://combined_channels.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: unlisten_worker
+    kind: process.lua
+    meta:
+      comment: Worker that tests unlisten functionality
+    source: file://unlisten_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: unlisten_test
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Unlisten stops receiving messages
+    source: file://unlisten_test.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  # Channel identity tests (critical for actor pattern)
+  - name: instant_exit_worker
+    kind: process.lua
+    meta:
+      comment: Worker that exits immediately
+    source: file://instant_exit_worker.lua
+    method: main
+
+  - name: send_and_exit_worker
+    kind: process.lua
+    meta:
+      comment: Worker that sends message then exits
+    source: file://send_and_exit_worker.lua
+    method: main
+
+  - name: send_custom_worker
+    kind: process.lua
+    meta:
+      comment: Worker that sends to custom topic then exits
+    source: file://send_custom_worker.lua
+    method: main
+
+  - name: channel_identity
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Channel identity stability across calls
+    source: file://channel_identity.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: channel_identity_select
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Channel identity in select (actor pattern)
+    source: file://channel_identity_select.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert

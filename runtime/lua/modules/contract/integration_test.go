@@ -20,6 +20,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/internal/uniqid"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	contractmod "github.com/wippyai/runtime/runtime/lua/modules/contract"
@@ -41,7 +42,7 @@ type testScheduler struct {
 }
 
 func (ts *testScheduler) Stop() {
-	ts.Scheduler.Stop()
+	ts.Scheduler.Stop(context.Background())
 }
 
 func (ts *testScheduler) OnStart(_ context.Context, _ relay.PID, _ process.Process) {}
@@ -125,7 +126,7 @@ func setupIntegrationTest(t *testing.T, numWorkers int) *integrationTestContext 
 	functionRegistry := sysfunction.NewFunctionRegistry(bus, logger)
 	instantiator := syscontract.NewContractInstantiator(contractRegistry, functionRegistry)
 
-	ctx := ctxapi.NewRootContext()
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
 	ctx = relay.WithNode(ctx, node)
 	ctx = apicontract.WithContracts(ctx, contractRegistry, instantiator)
 	ctx = function.WithRegistry(ctx, functionRegistry)

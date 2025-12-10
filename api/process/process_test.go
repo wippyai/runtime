@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
@@ -71,7 +72,7 @@ func TestStepOutput_Yield(t *testing.T) {
 	var so StepOutput
 
 	for i := 0; i < MaxYields+2; i++ {
-		so.Yield(&mockCommand{id: CommandID(i)}, uint64(i+1)) //nolint:gosec // test iteration
+		so.Yield(&mockCommand{id: dispatcher.CommandID(i)}, uint64(i+1)) //nolint:gosec // test iteration
 	}
 
 	if so.Count() != MaxYields+2 {
@@ -487,16 +488,16 @@ func TestContextFunctions_WithAppContext(t *testing.T) {
 func TestDispatcherFunctions(t *testing.T) {
 	ctx := context.Background()
 
-	assert.Nil(t, GetRegistry(ctx))
-	assert.Nil(t, GetRegistrar(ctx))
-	assert.Nil(t, GetDispatcher(ctx))
+	assert.Nil(t, dispatcher.GetRegistry(ctx))
+	assert.Nil(t, dispatcher.GetRegistrar(ctx))
+	assert.Nil(t, dispatcher.GetDispatcher(ctx))
 }
 
 type mockCommand struct {
-	id CommandID
+	id dispatcher.CommandID
 }
 
-func (c *mockCommand) CmdID() CommandID { return c.id }
+func (c *mockCommand) CmdID() dispatcher.CommandID { return c.id }
 
 type mockManager struct{}
 

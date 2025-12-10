@@ -10,12 +10,6 @@ import (
 	"go.uber.org/zap"
 )
 
-const (
-	// STRICT determines if security checks are enforced when context is incomplete
-	// When false, incomplete security contexts will default to allow
-	STRICT = false
-)
-
 // IsAllowed checks if the action on the resource is allowed based on security context
 func IsAllowed(ctx context.Context, action, resource string, meta attrs.Bag) bool {
 	actor, hasActor := security.GetActor(ctx)
@@ -60,7 +54,7 @@ func IsAllowed(ctx context.Context, action, resource string, meta attrs.Bag) boo
 	}
 
 	// In strict mode, deny access when security context is incomplete
-	if STRICT { // todo: move to boot config option
+	if security.IsStrictMode(ctx) {
 		return false
 	}
 

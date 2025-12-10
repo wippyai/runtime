@@ -9,9 +9,9 @@ import (
 
 func TestErrorMethods(t *testing.T) {
 	err := &Error{
-		kind:      apierror.KindNotFound,
-		message:   "test message",
-		retryable: apierror.True,
+		ErrKind:     apierror.KindNotFound,
+		Msg:         "test message",
+		IsRetryable: apierror.True,
 	}
 
 	if err.Error() != "test message" {

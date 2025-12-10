@@ -62,7 +62,7 @@ func (te *testExecutor) Start() {
 }
 
 func (te *testExecutor) Stop() {
-	te.sched.Stop()
+	te.sched.Stop(context.Background())
 }
 
 func (te *testExecutor) Scheduler() *Scheduler {

@@ -82,9 +82,10 @@ func TestTimerStartHandler(t *testing.T) {
 	})
 
 	h := handlers[clockapi.TimerStart]
+	ctx := setupTestContext()
 
 	var emitted any
-	err := h.Handle(context.Background(), clockapi.TimerStartCmd{Duration: 10 * time.Millisecond}, 0, &testReceiver{fn: func(data any, _ error) {
+	err := h.Handle(ctx, clockapi.TimerStartCmd{Duration: 10 * time.Millisecond}, 0, &testReceiver{fn: func(data any, _ error) {
 		emitted = data
 	}})
 
@@ -136,16 +137,17 @@ func TestTimerWaitHandler(t *testing.T) {
 
 	startHandler := handlers[clockapi.TimerStart]
 	waitHandler := handlers[clockapi.TimerWait]
+	ctx := setupTestContext()
 
 	var timerID uint64
-	_ = startHandler.Handle(context.Background(), clockapi.TimerStartCmd{Duration: 10 * time.Millisecond}, 0, &testReceiver{fn: func(data any, _ error) {
+	_ = startHandler.Handle(ctx, clockapi.TimerStartCmd{Duration: 10 * time.Millisecond}, 0, &testReceiver{fn: func(data any, _ error) {
 		timerID = data.(clockapi.TimerStartResult).ID
 	}})
 
 	var emitted any
 	start := time.Now()
 	done := make(chan struct{})
-	err := waitHandler.Handle(context.Background(), clockapi.TimerWaitCmd{TimerID: timerID}, 0, &testReceiver{fn: func(data any, _ error) {
+	err := waitHandler.Handle(ctx, clockapi.TimerWaitCmd{TimerID: timerID}, 0, &testReceiver{fn: func(data any, _ error) {
 		emitted = data
 		close(done)
 	}})
@@ -175,14 +177,15 @@ func TestTimerStopHandler(t *testing.T) {
 
 	startHandler := handlers[clockapi.TimerStart]
 	stopHandler := handlers[clockapi.TimerStop]
+	ctx := setupTestContext()
 
 	var timerID uint64
-	_ = startHandler.Handle(context.Background(), clockapi.TimerStartCmd{Duration: time.Hour}, 0, &testReceiver{fn: func(data any, _ error) {
+	_ = startHandler.Handle(ctx, clockapi.TimerStartCmd{Duration: time.Hour}, 0, &testReceiver{fn: func(data any, _ error) {
 		timerID = data.(clockapi.TimerStartResult).ID
 	}})
 
 	var emitted any
-	err := stopHandler.Handle(context.Background(), clockapi.TimerStopCmd{TimerID: timerID}, 0, &testReceiver{fn: func(data any, _ error) {
+	err := stopHandler.Handle(ctx, clockapi.TimerStopCmd{TimerID: timerID}, 0, &testReceiver{fn: func(data any, _ error) {
 		emitted = data
 	}})
 
@@ -210,14 +213,15 @@ func TestTimerResetHandler(t *testing.T) {
 
 	startHandler := handlers[clockapi.TimerStart]
 	resetHandler := handlers[clockapi.TimerReset]
+	ctx := setupTestContext()
 
 	var timerID uint64
-	_ = startHandler.Handle(context.Background(), clockapi.TimerStartCmd{Duration: time.Hour}, 0, &testReceiver{fn: func(data any, _ error) {
+	_ = startHandler.Handle(ctx, clockapi.TimerStartCmd{Duration: time.Hour}, 0, &testReceiver{fn: func(data any, _ error) {
 		timerID = data.(clockapi.TimerStartResult).ID
 	}})
 
 	var emitted any
-	err := resetHandler.Handle(context.Background(), clockapi.TimerResetCmd{TimerID: timerID, Duration: 10 * time.Millisecond}, 0, &testReceiver{fn: func(data any, _ error) {
+	err := resetHandler.Handle(ctx, clockapi.TimerResetCmd{TimerID: timerID, Duration: 10 * time.Millisecond}, 0, &testReceiver{fn: func(data any, _ error) {
 		emitted = data
 	}})
 
@@ -245,14 +249,15 @@ func TestTimerResetHandlerZeroDuration(t *testing.T) {
 
 	startHandler := handlers[clockapi.TimerStart]
 	resetHandler := handlers[clockapi.TimerReset]
+	ctx := setupTestContext()
 
 	var timerID uint64
-	_ = startHandler.Handle(context.Background(), clockapi.TimerStartCmd{Duration: time.Hour}, 0, &testReceiver{fn: func(data any, _ error) {
+	_ = startHandler.Handle(ctx, clockapi.TimerStartCmd{Duration: time.Hour}, 0, &testReceiver{fn: func(data any, _ error) {
 		timerID = data.(clockapi.TimerStartResult).ID
 	}})
 
 	var emitted bool
-	err := resetHandler.Handle(context.Background(), clockapi.TimerResetCmd{TimerID: timerID, Duration: 0}, 0, &testReceiver{fn: func(_ any, _ error) {
+	err := resetHandler.Handle(ctx, clockapi.TimerResetCmd{TimerID: timerID, Duration: 0}, 0, &testReceiver{fn: func(_ any, _ error) {
 		emitted = true
 	}})
 

@@ -1,9 +1,10 @@
 package env
 
 import (
-	"context"
 	"testing"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/security"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -114,7 +115,8 @@ func TestGetAllNoContext(t *testing.T) {
 func TestGetWithEmptyContext(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(context.Background())
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	l.SetContext(ctx)
 
 	Module.Load(l)
 
@@ -132,15 +134,15 @@ func TestGetWithEmptyContext(t *testing.T) {
 func TestGetEmptyKey(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	l.SetContext(ctx)
 
 	Module.Load(l)
 
 	err := l.DoString(`
-		local ok, err = pcall(function()
-			env.get("")
-		end)
-		if ok then
-			error("expected error for empty key")
+		local val, err = env.get("")
+		if val ~= nil or err == nil then
+			error("expected nil value and error for empty key")
 		end
 	`)
 	if err != nil {
@@ -151,15 +153,15 @@ func TestGetEmptyKey(t *testing.T) {
 func TestSetEmptyKey(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	l.SetContext(ctx)
 
 	Module.Load(l)
 
 	err := l.DoString(`
-		local ok, err = pcall(function()
-			env.set("", "value")
-		end)
-		if ok then
-			error("expected error for empty key")
+		local ok, err = env.set("", "value")
+		if ok ~= nil or err == nil then
+			error("expected nil result and error for empty key")
 		end
 	`)
 	if err != nil {

@@ -138,7 +138,7 @@ func BenchmarkSingleStep(b *testing.B) {
 	registry := scheduler.NewRegistry()
 	sched := NewScheduler(registry, WithWorkers(1), WithLifecycle(lc))
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	ctx := context.Background()
 
@@ -166,7 +166,7 @@ func BenchmarkOneYield(b *testing.B) {
 	registry.Register(CmdYield, benchImmediateHandler())
 	sched := NewScheduler(registry, WithWorkers(1), WithLifecycle(lc))
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	ctx := context.Background()
 
@@ -194,7 +194,7 @@ func BenchmarkManyYieldsPerExecute(b *testing.B) {
 	registry.Register(CmdYield, benchImmediateHandler())
 	sched := NewScheduler(registry, WithWorkers(1), WithLifecycle(lc))
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	ctx := context.Background()
 	input := payload.Payloads{payload.New(100)}
@@ -327,7 +327,7 @@ func benchmarkScheduler(b *testing.B, workers int) {
 
 	sched := NewScheduler(registry, WithWorkers(workers), WithLifecycle(lc))
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	var counter atomic.Int64
 	b.ResetTimer()
@@ -362,7 +362,7 @@ func BenchmarkSchedulerHighContention(b *testing.B) {
 
 			sched := NewScheduler(registry, WithWorkers(workers), WithLifecycle(lc))
 			sched.Start()
-			defer sched.Stop()
+			defer sched.Stop(context.Background())
 
 			var counter atomic.Uint64
 			b.ResetTimer()
@@ -396,7 +396,7 @@ func BenchmarkSchedulerMemory(b *testing.B) {
 
 	sched := NewScheduler(registry, WithWorkers(runtime.GOMAXPROCS(0)), WithLifecycle(lc))
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -416,7 +416,7 @@ func BenchmarkSchedulerMemory(b *testing.B) {
 func BenchmarkIdleOverhead(b *testing.B) {
 	sched := newTestScheduler(runtime.GOMAXPROCS(0))
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -449,7 +449,7 @@ func BenchmarkSchedulerSubmit(b *testing.B) {
 	sched := newTestSchedulerWithLifecycle(runtime.GOMAXPROCS(0), lc)
 
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	ctx := context.Background()
 	pid := testPID()
@@ -476,7 +476,7 @@ func BenchmarkSchedulerThroughput(b *testing.B) {
 	sched := newTestSchedulerWithLifecycle(runtime.GOMAXPROCS(0), lc)
 
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	ctx := context.Background()
 	pid := testPID()
@@ -504,7 +504,7 @@ func BenchmarkSchedulerParallelSubmit(b *testing.B) {
 	sched := newTestSchedulerWithLifecycle(runtime.GOMAXPROCS(0), lc)
 
 	sched.Start()
-	defer sched.Stop()
+	defer sched.Stop(context.Background())
 
 	ctx := context.Background()
 	pid := testPID()

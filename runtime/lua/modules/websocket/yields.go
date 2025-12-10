@@ -196,8 +196,8 @@ func (y *WsSubscribeYield) HandleResult(l *lua.LState, _ any, err error) []lua.L
 		return []lua.LValue{lua.LNil, lua.LString("no process context")}
 	}
 
-	// Subscribe the channel to the topic
-	if err := proc.Subscribe(y.Topic, y.Channel); err != nil {
+	// Subscribe the externally-owned channel to the topic
+	if err := proc.SubscribeExisting(y.Topic, y.Channel); err != nil {
 		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
 	}
 

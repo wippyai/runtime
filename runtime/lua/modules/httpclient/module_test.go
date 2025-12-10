@@ -1,9 +1,10 @@
 package httpclient
 
 import (
-	"context"
 	"testing"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/security"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -124,7 +125,8 @@ func TestGetNoContext(t *testing.T) {
 func TestGetWithContext(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(context.Background())
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	l.SetContext(ctx)
 
 	bind(l)
 
@@ -144,7 +146,8 @@ func TestGetWithContext(t *testing.T) {
 func TestRequestMethod(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(context.Background())
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	l.SetContext(ctx)
 
 	bind(l)
 
