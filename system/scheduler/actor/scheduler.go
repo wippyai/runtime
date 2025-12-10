@@ -72,6 +72,7 @@ type Scheduler struct {
 	processorCount atomic.Int64
 	byPID          sync.Map
 	idleProcs      sync.Map
+	byQueue        sync.Map // *EventQueue -> *Processor for wake routing
 }
 
 func NewScheduler(registry dispatcher.Registry, opts ...Option) *Scheduler {
@@ -127,6 +128,30 @@ func (s *Scheduler) wake() {
 	s.wakeMu.Unlock()
 }
 
+// WakeProcessor implements process.YieldScheduler.
+// Called by YieldCompleter after pushing an event to wake a blocked processor.
+// Uses queue pointer to look up processor safely - avoids direct processor reference.
+func (s *Scheduler) WakeProcessor(q *process.EventQueue, gen uint64) {
+	v, ok := s.byQueue.Load(q)
+	if !ok {
+		return
+	}
+	proc := v.(*Processor)
+
+	// Verify generation matches to avoid waking wrong processor
+	if proc.gen.Load() != gen {
+		return
+	}
+
+	// Same wake logic as processor.CompleteYield
+	if proc.casState(StateBlocked, StateReady) {
+		s.global.Push(proc)
+		s.wake()
+		return
+	}
+	proc.setWakeup(StateRunning)
+}
+
 func (s *Scheduler) Submit(ctx context.Context, pid relay.PID, p Process, method string, input payload.Payloads) (*Processor, error) {
 	if s.maxProcesses > 0 && s.processorCount.Load() >= s.maxProcesses {
 		return nil, process.ErrMaxProcessesExceeded
@@ -144,10 +169,13 @@ func (s *Scheduler) Submit(ctx context.Context, pid relay.PID, p Process, method
 	proc.id = s.nextID.Add(1)
 	proc.pid = pid
 	proc.Process = p
-	proc.setState(StateReady)
+	proc.state.Store(int32(StateReady))
 	proc.ctx = procCtx
 	proc.cancel = cancel
 	proc.scheduler = s
+	proc.resultCh = nil
+	proc.pooled = false
+	proc.output.Reset()
 
 	// Reset queue for this execution and cache generation
 	proc.queue.Reset()
@@ -155,6 +183,7 @@ func (s *Scheduler) Submit(ctx context.Context, pid relay.PID, p Process, method
 
 	s.processorCount.Add(1)
 	s.byPID.Store(pid, proc)
+	s.byQueue.Store(proc.queue, proc)
 
 	if s.lifecycle != nil {
 		s.lifecycle.OnStart(procCtx, pid, p)
@@ -204,9 +233,10 @@ func (s *Scheduler) complete(proc *Processor, result *StepOutput, err error) {
 		res.Value = result.Result()
 	}
 
-	// Always remove from byPID - process is done regardless of pooling
+	// Remove from all maps - process is done regardless of pooling
 	s.byPID.Delete(proc.pid)
 	s.idleProcs.Delete(proc.pid)
+	s.byQueue.Delete(proc.queue)
 
 	if !proc.pooled {
 		s.processorCount.Add(-1)
@@ -245,12 +275,13 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid relay.PID, p Proces
 	proc.id = s.nextID.Add(1)
 	proc.pid = pid
 	proc.Process = p
-	proc.setState(StateReady)
+	proc.state.Store(int32(StateReady))
 	proc.ctx = procCtx
 	proc.cancel = cancel
 	proc.scheduler = s
 	proc.pooled = true
 	proc.resultCh = make(chan *runtime.Result, 1)
+	proc.output.Reset()
 
 	// Reset queue for this execution and cache generation
 	proc.queue.Reset()
@@ -258,6 +289,7 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid relay.PID, p Proces
 
 	s.processorCount.Add(1)
 	s.byPID.Store(pid, proc)
+	s.byQueue.Store(proc.queue, proc)
 
 	return proc, nil
 }
@@ -266,6 +298,7 @@ func (s *Scheduler) ReleaseProcessor(proc *Processor) {
 	s.processorCount.Add(-1)
 	s.byPID.Delete(proc.pid)
 	s.idleProcs.Delete(proc.pid)
+	s.byQueue.Delete(proc.queue)
 	if proc.cancel != nil {
 		proc.cancel()
 	}
@@ -299,12 +332,14 @@ func (s *Scheduler) Send(pkg *relay.Package) error {
 		return process.ErrProcessClosed
 	}
 
-	// Wake idle process if it was parked
+	// Wake idle process if it was parked.
+	// Use CAS to avoid double-push if worker already self-woke.
 	if wasIdle {
 		idle := idleProc.(*Processor)
-		idle.setState(StateReady)
-		s.global.Push(idle)
-		s.wake()
+		if idle.casState(StateIdle, StateReady) {
+			s.global.Push(idle)
+			s.wake()
+		}
 	}
 
 	return nil

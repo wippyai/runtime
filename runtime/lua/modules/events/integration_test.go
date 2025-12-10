@@ -42,6 +42,9 @@ func (d *DebugPool) Send(pkg *relay.Package) error {
 }
 
 func TestEventsReceiveIntegration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -85,10 +88,12 @@ local events = require("events")
 local time = require("time")
 
 local function main()
-    local ch, err = events.subscribe("test.system")
+    local sub, err = events.subscribe("test.system")
     if err then
         return nil, "subscribe error: " .. tostring(err)
     end
+
+    local ch = sub:channel()
 
     -- Send event directly (no spawn)
     events.send("test.system", "test.kind", "/test/path", {key = "value"})

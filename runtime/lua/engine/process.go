@@ -8,6 +8,7 @@ import (
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
@@ -111,6 +112,17 @@ type Process struct {
 
 	// Topic handlers for custom message processing
 	handlers map[string]TopicHandler
+
+	// messageQueue stores all incoming messages until they can be delivered
+	// Messages are kept in order and only removed when delivered to a channel
+	messageQueue []queuedMessage
+}
+
+// queuedMessage stores a message waiting to be delivered
+type queuedMessage struct {
+	Source   relay.PID
+	Topic    string
+	Payloads []payload.Payload
 }
 
 // GetProcess retrieves the Process from LState via Owner.
@@ -248,6 +260,9 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 		p.channelQueue.Drain()
 	}
 
+	// Clear message queue
+	p.messageQueue = p.messageQueue[:0]
+
 	// Seal the frame - no more modifications allowed after this
 	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
 		fc.Seal()
@@ -380,20 +395,50 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		}
 	}
 
-	// Process channel yields (inner layer)
-	externalTasks, err := p.processChannelYields()
-	if err != nil {
-		p.clearExecution()
-		out.Done(nil)
-		return err
+	// Add incoming messages to queue first (before any processing)
+	for _, pkg := range messages {
+		for _, msg := range pkg.Messages {
+			p.messageQueue = append(p.messageQueue, queuedMessage{
+				Source:   pkg.Source,
+				Topic:    msg.Topic,
+				Payloads: msg.Payloads,
+			})
+		}
+		relay.ReleasePackage(pkg)
 	}
 
-	// Process subscribe yields (outer layer)
-	externalTasks, err = p.processSubscribeYields(externalTasks, messages)
-	if err != nil {
-		p.clearExecution()
-		out.Done(nil)
-		return err
+	// Process in a loop until stable (no new subscriptions trigger channel work)
+	var externalTasks []*Task
+	var err error
+	for {
+		// Flush any pending messages to subscribed channels BEFORE processing
+		// This ensures messages that arrived while tasks were blocked get delivered
+		if p.subs != nil {
+			p.flushMessageQueue(p.subs)
+		}
+
+		// Process channel yields (inner layer)
+		externalTasks, err = p.processChannelYields()
+		if err != nil {
+			p.clearExecution()
+			out.Done(nil)
+			return toAPIError(err)
+		}
+
+		// Process subscribe yields (outer layer) - may add tasks to queue
+		hadSubscriptions := false
+		externalTasks, hadSubscriptions, err = p.processSubscribeYields(externalTasks)
+		if err != nil {
+			p.clearExecution()
+			out.Done(nil)
+			return toAPIError(err)
+		}
+
+		// Continue looping if subscriptions were handled (may have added tasks)
+		// or if queue has tasks to process
+		if !hadSubscriptions && p.queue.IsEmpty() {
+			break
+		}
 	}
 
 	// Check completion
@@ -402,7 +447,7 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		execErr := p.execErr
 		p.clearExecution()
 		out.Done(result)
-		return execErr
+		return toAPIError(execErr)
 	}
 
 	// Initialize pendingYields map if needed
@@ -435,6 +480,7 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		out.Continue()
 	} else if yieldCount == 0 && len(p.threads) > 0 {
 		// Check if we're waiting for external operations
+		//nolint:gocritic // if-else is clearer than switch for heterogeneous state checks
 		if len(p.pendingYields) > 0 {
 			// Still waiting for previously dispatched yields - stay blocked.
 			// The scheduler will keep us blocked until CompleteYield arrives.
@@ -576,97 +622,18 @@ func (p *Process) updateChannelRefs(channels map[*Channel]int, blocks, releases 
 	}
 }
 
-// processSubscribeYields routes incoming messages and handles subscribe/unsubscribe.
-// messages are received via EventMessage events from the scheduler.
+// processSubscribeYields handles subscribe/unsubscribe yields.
+// Returns tasks not handled, whether any subscriptions were processed, and error.
+// Message queue is managed by Step() before calling this.
 //
 //nolint:unparam // error return kept for API consistency
-func (p *Process) processSubscribeYields(tasks []*Task, messages []*relay.Package) ([]*Task, error) {
+func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, bool, error) {
 	if p.subs == nil {
-		return tasks, nil
+		return tasks, false, nil
 	}
 
 	subs := p.subs
-
-	// Route incoming messages to subscribed channels
-	for _, pkg := range messages {
-		for _, msg := range pkg.Messages {
-			topic := msg.Topic
-			handlerTopic := topic
-			sub, exists := subs.get(topic)
-			if !exists {
-				// Fallback to inbox for non-@ topics
-				if !strings.HasPrefix(topic, "@") {
-					sub, exists = subs.get(topology.TopicInbox)
-					if exists {
-						handlerTopic = topology.TopicInbox
-					}
-				}
-				if !exists {
-					continue
-				}
-			}
-
-			// Check for terminal payload - unsubscribe and close channel
-			if len(msg.Payloads) == 1 && payload.IsTerminal(msg.Payloads[0]) {
-				p.RemoveTopicHandler(topic)
-				_ = subs.remove(sub.channel)
-				sub.channel.Close(nil)
-				continue
-			}
-
-			// Check for terminal at end of multi-payload message (result + terminal pattern)
-			hasTerminal := len(msg.Payloads) > 1 && payload.IsTerminal(msg.Payloads[len(msg.Payloads)-1])
-			payloads := msg.Payloads
-			if hasTerminal {
-				payloads = msg.Payloads[:len(msg.Payloads)-1]
-			}
-
-			// Check for topic handler
-			var value lua.LValue
-			if handler, ok := p.GetTopicHandler(handlerTopic); ok {
-				value = handler(p.ctx, p.state, pkg.Source, topic, payloads)
-				if value == nil {
-					// Handler processed but doesn't want to send to channel
-					if hasTerminal {
-						p.RemoveTopicHandler(topic)
-						_ = subs.remove(sub.channel)
-						sub.channel.Close(nil)
-					}
-					continue
-				}
-			} else {
-				value = PayloadsToLua(p.ctx, p.state, payloads)
-			}
-			result := sub.channel.Send(nil, value, nil)
-			if result == nil {
-				continue
-			}
-
-			// Wake any blocked receivers
-			if result.Yields {
-				for _, upd := range result.GetUpdates() {
-					if upd.State == nil {
-						continue
-					}
-					t, err := p.GetTask(upd.State)
-					if err == nil {
-						t.ResumeWith(upd.GetResult()...)
-						p.queue.Push(t)
-					}
-				}
-			}
-
-			ReleaseResult(result)
-
-			// Close channel after sending if terminal was present
-			if hasTerminal {
-				p.RemoveTopicHandler(topic)
-				_ = subs.remove(sub.channel)
-				sub.channel.Close(nil)
-			}
-		}
-		relay.ReleasePackage(pkg)
-	}
+	hadSubscriptions := false
 
 	// Handle subscribe/unsubscribe yields from incoming tasks
 	p.outTasks = p.outTasks[:0]
@@ -680,6 +647,7 @@ func (p *Process) processSubscribeYields(tasks []*Task, messages []*relay.Packag
 
 		// Handle subscribe request
 		if req, ok := lastYield.(*SubscribeRequest); ok {
+			hadSubscriptions = true
 			sub, err := subs.add(req.Topic, req.Channel)
 			if err != nil {
 				task.ResumeWith(lua.LNil, lua.LString(err.Error()))
@@ -687,6 +655,10 @@ func (p *Process) processSubscribeYields(tasks []*Task, messages []*relay.Packag
 				if req.Handler != nil {
 					p.SetTopicHandler(req.Topic, req.Handler)
 				}
+
+				// Flush queued messages for this topic BEFORE returning channel
+				p.flushMessageQueue(subs)
+
 				// Wrap channel as userdata if not already wrapped
 				chValue := sub.channel.Value()
 				if chValue == nil {
@@ -716,7 +688,106 @@ func (p *Process) processSubscribeYields(tasks []*Task, messages []*relay.Packag
 		p.outTasks = append(p.outTasks, task)
 	}
 
-	return p.outTasks, nil
+	return p.outTasks, hadSubscriptions, nil
+}
+
+// flushMessageQueue delivers queued messages to subscribed channels.
+// Messages that can't be delivered stay in the queue (preserve order).
+func (p *Process) flushMessageQueue(subs *subscribeContext) {
+	if len(p.messageQueue) == 0 {
+		return
+	}
+
+	// Process queue, keeping undelivered messages
+	remaining := p.messageQueue[:0]
+	for _, qm := range p.messageQueue {
+		if p.deliverMessage(subs, qm) {
+			continue // delivered, don't keep
+		}
+		remaining = append(remaining, qm) // not delivered, keep in queue
+	}
+	p.messageQueue = remaining
+}
+
+// deliverMessage attempts to deliver a queued message to its subscription.
+// Returns true if delivered (or terminal handled), false if no subscription exists.
+func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool {
+	topic := qm.Topic
+	handlerTopic := topic
+
+	// Find subscription for topic
+	sub, exists := subs.get(topic)
+	if !exists {
+		// Fallback to inbox for non-@ topics
+		if !strings.HasPrefix(topic, "@") {
+			sub, exists = subs.get(topology.TopicInbox)
+			if exists {
+				handlerTopic = topology.TopicInbox
+			}
+		}
+		if !exists {
+			return false // no subscription, keep in queue
+		}
+	}
+
+	// Check for terminal payload - unsubscribe and close channel
+	if len(qm.Payloads) == 1 && payload.IsTerminal(qm.Payloads[0]) {
+		p.RemoveTopicHandler(topic)
+		_ = subs.remove(sub.channel)
+		sub.channel.Close(nil)
+		return true
+	}
+
+	// Check for terminal at end of multi-payload message (result + terminal pattern)
+	hasTerminal := len(qm.Payloads) > 1 && payload.IsTerminal(qm.Payloads[len(qm.Payloads)-1])
+	payloads := qm.Payloads
+	if hasTerminal {
+		payloads = qm.Payloads[:len(qm.Payloads)-1]
+	}
+
+	// Check for topic handler
+	var value lua.LValue
+	if handler, ok := p.GetTopicHandler(handlerTopic); ok {
+		value = handler(p.ctx, p.state, qm.Source, topic, payloads)
+		if value == nil {
+			// Handler processed but doesn't want to send to channel
+			if hasTerminal {
+				p.RemoveTopicHandler(topic)
+				_ = subs.remove(sub.channel)
+				sub.channel.Close(nil)
+			}
+			return true
+		}
+	} else {
+		value = PayloadsToLua(p.ctx, p.state, payloads)
+	}
+
+	result := sub.channel.Send(nil, value, nil)
+	if result != nil {
+		// Wake any blocked receivers
+		if result.Yields {
+			for _, upd := range result.GetUpdates() {
+				if upd.State == nil {
+					continue
+				}
+				t, err := p.GetTask(upd.State)
+				if err == nil {
+					t.ResumeWith(upd.GetResult()...)
+					p.queue.Push(t)
+				}
+			}
+		}
+		ReleaseResult(result)
+	}
+
+	// Close channel after sending if terminal was present
+	if hasTerminal {
+		p.RemoveTopicHandler(topic)
+		_ = subs.remove(sub.channel)
+		sub.channel.Close(nil)
+	}
+
+	return true
 }
 
 // PayloadsToLua converts a slice of payloads to Lua value.
@@ -1083,4 +1154,41 @@ func (p *Process) wrapError(thread *lua.LState, err error) error {
 	}
 
 	return lua.WrapErrorWithLua(l, err, "")
+}
+
+// toAPIError converts a lua.Error to apierror.Error for crossing the runtime boundary.
+// This ensures errors returned from Step() implement the standard error interface.
+func toAPIError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	var luaErr *lua.Error
+	if !errors.As(err, &luaErr) {
+		return err
+	}
+
+	// Convert lua.Ternary to apierror.Ternary
+	var retryable apierror.Ternary
+	switch luaErr.Retryable() {
+	case lua.TernaryTrue:
+		retryable = apierror.True
+	case lua.TernaryFalse:
+		retryable = apierror.False
+	default:
+		retryable = apierror.Unknown
+	}
+
+	// Convert lua.Kind to apierror.Kind
+	kind := apierror.Kind(luaErr.Kind())
+	if kind == "" {
+		kind = apierror.KindInternal
+	}
+
+	return &luaapi.Error{
+		Msg:         luaErr.Error(),
+		ErrKind:     kind,
+		IsRetryable: retryable,
+		ErrCause:    luaErr,
+	}
 }

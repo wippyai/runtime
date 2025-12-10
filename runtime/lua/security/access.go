@@ -5,6 +5,7 @@ import (
 
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/security"
 	"go.uber.org/zap"
 )
@@ -29,17 +30,33 @@ func IsAllowed(ctx context.Context, action, resource string, meta attrs.Bag) boo
 		return result == security.Allow
 	}
 
-	// Security context is incomplete
+	// Security context is incomplete - get PID and ID for debugging
+	pid, hasPID := runtime.GetFramePID(ctx)
+	pidStr := ""
+	if hasPID {
+		pidStr = pid.String()
+	}
+
+	frameID, hasFrameID := runtime.GetFrameID(ctx)
+	idStr := ""
+	if hasFrameID {
+		idStr = frameID.String()
+	}
+
 	if !hasActor {
 		logger.Debug("security check with missing actor",
 			zap.String("action", action),
-			zap.String("resource", resource))
+			zap.String("resource", resource),
+			zap.String("pid", pidStr),
+			zap.String("id", idStr))
 	}
 
 	if !hasScope {
 		logger.Debug("security check with missing policy scope",
 			zap.String("action", action),
-			zap.String("resource", resource))
+			zap.String("resource", resource),
+			zap.String("pid", pidStr),
+			zap.String("id", idStr))
 	}
 
 	// In strict mode, deny access when security context is incomplete

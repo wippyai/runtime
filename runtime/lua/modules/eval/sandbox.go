@@ -200,6 +200,9 @@ func sandboxStep(l *lua.LState) int {
 			yieldsTable.RawSetInt(i+1, cmdTable)
 		}
 		t.RawSetString("yields", yieldsTable)
+
+	case process.StepWaitYields:
+		t.RawSetString("status", lua.LString("waiting"))
 	}
 
 	l.Push(t)

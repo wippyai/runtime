@@ -8,56 +8,113 @@ import (
 	"time"
 
 	clockapi "github.com/wippyai/runtime/api/clock"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/relay"
 )
+
+type mockNode struct {
+	mu       sync.Mutex
+	packages []*relay.Package
+}
+
+func (m *mockNode) Send(pkg *relay.Package) error {
+	m.mu.Lock()
+	m.packages = append(m.packages, pkg)
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *mockNode) ID() relay.NodeID                                { return "" }
+func (m *mockNode) RegisterHost(_ relay.HostID, _ relay.Host) error { return nil }
+func (m *mockNode) UnregisterHost(_ relay.HostID)                   {}
+func (m *mockNode) GetHost(_ relay.HostID) (relay.Host, bool)       { return nil, false }
+func (m *mockNode) Attach(_ relay.PID, _ chan *relay.Package) (context.CancelFunc, error) {
+	return func() {}, nil
+}
+func (m *mockNode) Detach(_ relay.PID) {}
+
+func (m *mockNode) getPackages() []*relay.Package {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.packages
+}
 
 func TestTickerRegistry(t *testing.T) {
 	r := NewTickerRegistry()
 	defer r.Close()
 
-	id := r.Start(10 * time.Millisecond)
+	ctx := context.Background()
+	node := &mockNode{}
+	pid := relay.PID{}
+
+	id := r.Start(ctx, 10*time.Millisecond, pid, "test", node)
 	if id != 1 {
 		t.Errorf("expected first ID to be 1, got %d", id)
 	}
 
-	id2 := r.Start(20 * time.Millisecond)
+	id2 := r.Start(ctx, 20*time.Millisecond, pid, "test", node)
 	if id2 != 2 {
 		t.Errorf("expected second ID to be 2, got %d", id2)
 	}
 }
 
-func TestTickerRegistryNext(t *testing.T) {
-	r := NewTickerRegistry()
-	defer r.Close()
-
-	id := r.Start(5 * time.Millisecond)
-
-	ctx := context.Background()
-	tick, err := r.Next(ctx, id)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if tick.IsZero() {
-		t.Error("expected non-zero tick time")
-	}
-}
-
-func TestTickerRegistryNextNotFound(t *testing.T) {
+func TestTickerRegistrySendsTicks(t *testing.T) {
 	r := NewTickerRegistry()
 	defer r.Close()
 
 	ctx := context.Background()
-	_, err := r.Next(ctx, 999)
-	if !errors.Is(err, ErrTickerNotFound) {
-		t.Errorf("expected ErrTickerNotFound, got %v", err)
+	node := &mockNode{}
+	targetPID := relay.PID{Host: "test", UniqID: "1"}
+	topic := "ticker@1"
+
+	r.Start(ctx, 5*time.Millisecond, targetPID, topic, node)
+
+	time.Sleep(20 * time.Millisecond)
+
+	packages := node.getPackages()
+	if len(packages) == 0 {
+		t.Error("expected at least one tick package")
+	}
+
+	for _, pkg := range packages {
+		if pkg.Target != targetPID {
+			t.Errorf("expected Target=%v, got %v", targetPID, pkg.Target)
+		}
+		if len(pkg.Messages) != 1 {
+			t.Errorf("expected 1 message, got %d", len(pkg.Messages))
+			continue
+		}
+		if pkg.Messages[0].Topic != relay.Topic(topic) {
+			t.Errorf("expected topic=%q, got %q", topic, pkg.Messages[0].Topic)
+		}
+		if len(pkg.Messages[0].Payloads) != 1 {
+			t.Errorf("expected 1 payload, got %d", len(pkg.Messages[0].Payloads))
+			continue
+		}
+		p := pkg.Messages[0].Payloads[0]
+		if p.Format() != payload.Golang {
+			t.Errorf("expected Golang format, got %v", p.Format())
+		}
+		nsec, ok := p.Data().(int64)
+		if !ok {
+			t.Errorf("expected int64 data, got %T", p.Data())
+		}
+		if nsec <= 0 {
+			t.Error("expected positive nanoseconds")
+		}
 	}
 }
 
 func TestTickerRegistryStop(t *testing.T) {
 	r := NewTickerRegistry()
 
-	id := r.Start(10 * time.Millisecond)
+	ctx := context.Background()
+	node := &mockNode{}
+	pid := relay.PID{}
+
+	id := r.Start(ctx, 10*time.Millisecond, pid, "test", node)
 
 	err := r.Stop(id)
 	if err != nil {
@@ -73,56 +130,49 @@ func TestTickerRegistryStop(t *testing.T) {
 func TestTickerRegistryClose(t *testing.T) {
 	r := NewTickerRegistry()
 
-	r.Start(10 * time.Millisecond)
-	r.Start(10 * time.Millisecond)
-	r.Start(10 * time.Millisecond)
+	ctx := context.Background()
+	node := &mockNode{}
+	pid := relay.PID{}
+
+	r.Start(ctx, 10*time.Millisecond, pid, "test", node)
+	r.Start(ctx, 10*time.Millisecond, pid, "test", node)
+	r.Start(ctx, 10*time.Millisecond, pid, "test", node)
 
 	r.Close()
 
-	ctx := context.Background()
-	_, err := r.Next(ctx, 1)
-	if !errors.Is(err, ErrTickerNotFound) {
-		t.Errorf("expected ErrTickerNotFound after close, got %v", err)
+	if count := r.Count(); count != 0 {
+		t.Errorf("expected 0 tickers after close, got %d", count)
 	}
 }
 
-func TestTickerRegistryContextCancel(t *testing.T) {
-	r := NewTickerRegistry()
-	defer r.Close()
-
-	id := r.Start(time.Hour)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		time.Sleep(5 * time.Millisecond)
-		cancel()
-	}()
-
-	_, err := r.Next(ctx, id)
-	if !errors.Is(err, context.Canceled) {
-		t.Errorf("expected context.Canceled, got %v", err)
-	}
-}
-
-func getTickerHandlers(_ *testing.T) (start, next, stop dispatcher.Handler, cleanup func()) {
+func getTickerHandlers(_ *testing.T) (start, stop dispatcher.Handler, cleanup func()) {
 	d := NewDispatcher()
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		handlers[id] = h
 	})
 	return handlers[clockapi.TickerStart],
-		handlers[clockapi.TickerNext],
 		handlers[clockapi.TickerStop],
 		func() { _ = d.Stop(context.Background()) }
 }
 
+func setupTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	node := &mockNode{}
+	return relay.WithNode(ctx, node)
+}
+
 func TestTickerStartHandler(t *testing.T) {
-	ctx := context.Background()
-	startH, _, _, cleanup := getTickerHandlers(t)
+	ctx := setupTestContext()
+	startH, _, cleanup := getTickerHandlers(t)
 	defer cleanup()
 
 	var emitted any
-	err := startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 10 * time.Millisecond}, 0, &testReceiver{fn: func(data any, _ error) {
+	err := startH.Handle(ctx, clockapi.TickerStartCmd{
+		Duration: 10 * time.Millisecond,
+		PID:      relay.PID{Host: "test", UniqID: "1"},
+		Topic:    "ticker@1",
+	}, 0, &testReceiver{fn: func(data any, _ error) {
 		emitted = data
 	}})
 
@@ -142,44 +192,17 @@ func TestTickerStartHandler(t *testing.T) {
 	}
 }
 
-func TestTickerNextHandler(t *testing.T) {
-	ctx := context.Background()
-	startH, nextH, _, cleanup := getTickerHandlers(t)
-	defer cleanup()
-
-	var tickerID uint64
-	_ = startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 5 * time.Millisecond}, 0, &testReceiver{fn: func(data any, _ error) {
-		tickerID = data.(clockapi.TickerStartResult).ID
-	}})
-
-	var emitted any
-	done := make(chan struct{})
-	err := nextH.Handle(ctx, clockapi.TickerNextCmd{TickerID: tickerID}, 0, &testReceiver{fn: func(data any, _ error) {
-		emitted = data
-		close(done)
-	}})
-	<-done
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	nanos, ok := emitted.(int64)
-	if !ok {
-		t.Fatalf("expected int64, got %T", emitted)
-	}
-	if nanos <= 0 {
-		t.Error("expected positive nanoseconds")
-	}
-}
-
 func TestTickerStopHandler(t *testing.T) {
-	ctx := context.Background()
-	startH, _, stopH, cleanup := getTickerHandlers(t)
+	ctx := setupTestContext()
+	startH, stopH, cleanup := getTickerHandlers(t)
 	defer cleanup()
 
 	var tickerID uint64
-	_ = startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 10 * time.Millisecond}, 0, &testReceiver{fn: func(data any, _ error) {
+	_ = startH.Handle(ctx, clockapi.TickerStartCmd{
+		Duration: 10 * time.Millisecond,
+		PID:      relay.PID{Host: "test", UniqID: "1"},
+		Topic:    "ticker@1",
+	}, 0, &testReceiver{fn: func(data any, _ error) {
 		tickerID = data.(clockapi.TickerStartResult).ID
 	}})
 
@@ -196,46 +219,9 @@ func TestTickerStopHandler(t *testing.T) {
 	}
 }
 
-func TestTickerFullCycle(t *testing.T) {
-	ctx := context.Background()
-	startH, nextH, stopH, cleanup := getTickerHandlers(t)
-	defer cleanup()
-
-	var tickerID uint64
-	_ = startH.Handle(ctx, clockapi.TickerStartCmd{Duration: 2 * time.Millisecond}, 0, &testReceiver{fn: func(data any, _ error) {
-		tickerID = data.(clockapi.TickerStartResult).ID
-	}})
-
-	ticks := make([]int64, 0, 3)
-	for i := 0; i < 3; i++ {
-		var tick int64
-		done := make(chan struct{})
-		err := nextH.Handle(ctx, clockapi.TickerNextCmd{TickerID: tickerID}, 0, &testReceiver{fn: func(data any, _ error) {
-			tick = data.(int64)
-			close(done)
-		}})
-		<-done
-		if err != nil {
-			t.Fatalf("tick %d error: %v", i, err)
-		}
-		ticks = append(ticks, tick)
-	}
-
-	for i := 1; i < len(ticks); i++ {
-		if ticks[i] <= ticks[i-1] {
-			t.Errorf("ticks should be increasing: %v", ticks)
-		}
-	}
-
-	err := stopH.Handle(ctx, clockapi.TickerStopCmd{TickerID: tickerID}, 0, &testReceiver{fn: func(_ any, _ error) {}})
-	if err != nil {
-		t.Fatalf("stop error: %v", err)
-	}
-}
-
 func TestTickerStartHandlerInvalidDuration(t *testing.T) {
-	ctx := context.Background()
-	startH, _, _, cleanup := getTickerHandlers(t)
+	ctx := setupTestContext()
+	startH, _, cleanup := getTickerHandlers(t)
 	defer cleanup()
 
 	var emitted bool
@@ -266,10 +252,14 @@ func TestTickerRegistryScalability(t *testing.T) {
 	registry := NewTickerRegistry()
 	defer registry.Close()
 
+	ctx := context.Background()
+	node := &mockNode{}
+	pid := relay.PID{}
+
 	ids := make([]uint64, numTickers)
 	start := time.Now()
 	for i := 0; i < numTickers; i++ {
-		ids[i] = registry.Start(time.Hour)
+		ids[i] = registry.Start(ctx, time.Hour, pid, "test", node)
 	}
 	createTime := time.Since(start)
 	t.Logf("Created %d tickers in %v", numTickers, createTime)
@@ -303,6 +293,10 @@ func TestTickerRegistryConcurrentOperations(t *testing.T) {
 	registry := NewTickerRegistry()
 	defer registry.Close()
 
+	ctx := context.Background()
+	node := &mockNode{}
+	pid := relay.PID{}
+
 	var wg sync.WaitGroup
 	for g := 0; g < goroutines; g++ {
 		wg.Add(1)
@@ -311,7 +305,7 @@ func TestTickerRegistryConcurrentOperations(t *testing.T) {
 			ids := make([]uint64, 0, opsPerGoroutine)
 
 			for i := 0; i < opsPerGoroutine; i++ {
-				id := registry.Start(time.Hour)
+				id := registry.Start(ctx, time.Hour, pid, "test", node)
 				ids = append(ids, id)
 			}
 

@@ -6,8 +6,9 @@ local function main()
     local time = require("time")
 
     -- Subscribe to test.* pattern (matches test.match, test.also, etc.)
-    local ch, err = events.subscribe("test.*")
+    local sub, err = events.subscribe("test.*")
     assert.is_nil(err, "subscribe should succeed")
+    local ch = sub:channel()
 
     -- Send matching and non-matching events
     coroutine.spawn(function()

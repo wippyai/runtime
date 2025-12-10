@@ -99,11 +99,14 @@ type Executor struct {
 
 // NewExecutor creates an executor with the given dispatcher.
 func NewExecutor(d dispatcher.Dispatcher) *Executor {
+	queue := process.NewEventQueue()
 	e := &Executor{
 		dispatcher: d,
 		wake:       make(chan struct{}, 1),
-		queue:      process.NewEventQueue(),
+		queue:      queue,
 	}
+	// Initialize gen to match queue generation so Send works immediately
+	e.gen.Store(queue.Generation())
 	return e
 }
 
@@ -139,11 +142,8 @@ func (e *Executor) CompleteYield(tag uint64, data any, err error) {
 }
 
 // Send implements relay.Receiver. Delivers message via EventQueue.
-// Safe to call concurrently - returns error if executor is not active.
+// Safe to call concurrently. Messages can be queued before Run() starts.
 func (e *Executor) Send(pkg *relay.Package) error {
-	if !e.active.Load() {
-		return process.ErrProcessNotFound
-	}
 	// Push message event to queue with generation check
 	if !e.queue.Push(process.Event{
 		Type: process.EventMessage,

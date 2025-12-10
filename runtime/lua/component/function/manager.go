@@ -20,6 +20,7 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/component"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	processmod "github.com/wippyai/runtime/runtime/lua/modules/process"
+	"github.com/wippyai/runtime/system/eventbus"
 	funcpool "github.com/wippyai/runtime/system/scheduler/pool"
 	lua "github.com/yuin/gopher-lua"
 
@@ -44,6 +45,7 @@ type Manager struct {
 	topo       topology.Topology
 	pidReg     topology.PIDRegistry
 	node       relay.Node
+	awaiter    *eventbus.Awaiter
 
 	pools   sync.Map // map[registry.ID]*poolEntry - lock-free for hot path
 	configs sync.Map
@@ -58,6 +60,7 @@ func NewManager(log *zap.Logger, code *code.Manager, bus event.Bus, disp dispatc
 		code:       code,
 		bus:        bus,
 		dispatcher: disp,
+		awaiter:    eventbus.NewAwaiter(bus, function.System, "function.(accept|reject)"),
 	}
 }
 
@@ -128,11 +131,16 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	// Store config for invalidation
 	m.configs.Store(entry.ID, cfg)
 
-	// Register function caller
+	// Register function caller and wait for confirmation
 	opts, _ := cfg.Meta.GetBag("options")
-	m.registerCaller(ctx, entry.ID, opts)
+	if err := m.registerCaller(ctx, entry.ID, opts); err != nil {
+		m.removePool(entry.ID)
+		m.configs.Delete(entry.ID)
+		_ = m.code.DeleteNode(ctx, entry.ID)
+		return err
+	}
 
-	m.log.Info("function added",
+	m.log.Debug("function added",
 		zap.String("id", entry.ID.String()),
 		zap.Int("workers", cfg.Pool.Workers),
 	)
@@ -170,9 +178,11 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	// Update config
 	m.configs.Store(entry.ID, cfg)
 
-	// Re-register function caller
+	// Re-register function caller and wait for confirmation
 	opts, _ := cfg.Meta.GetBag("options")
-	m.registerCaller(ctx, entry.ID, opts)
+	if err := m.registerCaller(ctx, entry.ID, opts); err != nil {
+		return err
+	}
 
 	m.log.Info("function updated", zap.String("id", entry.ID.String()))
 	return nil
@@ -426,17 +436,31 @@ func functionBuildOptions() *code.BuildOptions {
 		WithMode(code.AllowAll)
 }
 
-// registerCaller registers function in the function system.
-func (m *Manager) registerCaller(ctx context.Context, id registry.ID, options runtime.Options) {
+// registerCaller registers function in the function system and waits for confirmation.
+func (m *Manager) registerCaller(ctx context.Context, id registry.ID, options runtime.Options) error {
+	path := id.String()
+
+	// Subscribe BEFORE sending to avoid race condition
+	waiter, err := m.awaiter.Prepare(ctx, path)
+	if err != nil {
+		return api.NewRegisterCallerError(id, err)
+	}
+
 	m.bus.Send(ctx, event.Event{
 		System: function.System,
 		Kind:   function.Register,
-		Path:   id.String(),
+		Path:   path,
 		Data: &function.FuncEntry{
 			Handler: m.Execute,
 			Options: options,
 		},
 	})
+
+	result := waiter.Wait()
+	if !result.Accepted {
+		return api.NewRegisterCallerError(id, result.Error)
+	}
+	return nil
 }
 
 // unregisterCaller removes function from the function system.

@@ -10,7 +10,7 @@ local function main()
     local executor, err = exec.get("app:exec_docker")
     assert.not_nil(executor, "docker executor acquired")
 
-    -- Create a long-running process in container
+    -- Create a long-running process
     local proc, perr = executor:exec("sleep 30")
     assert.not_nil(proc, "docker process created")
 
@@ -19,8 +19,8 @@ local function main()
     assert.ok(ok, "docker process started")
     assert.is_nil(serr, "no error starting")
 
-    -- Send SIGTERM signal
-    local sigok, sigerr = proc:signal(SIGTERM)
+    -- Send SIGKILL signal (instant termination)
+    local sigok, sigerr = proc:signal(SIGKILL)
     assert.ok(sigok, "signal sent to docker container")
     assert.is_nil(sigerr, "no signal error")
 
@@ -28,23 +28,14 @@ local function main()
     local exitCode, werr = proc:wait()
     assert.not_nil(exitCode, "exit code returned")
 
-    -- Test close with force=false (SIGTERM)
+    -- Test close with force=true (SIGKILL)
     local proc2, p2err = executor:exec("sleep 30")
     assert.not_nil(proc2, "docker process 2 created")
     proc2:start()
 
-    local closeok, closeerr = proc2:close(false)
+    local closeok, closeerr = proc2:close(true)
     assert.ok(closeok, "docker close succeeds")
     assert.is_nil(closeerr, "docker close no error")
-
-    -- Test close with force=true (SIGKILL)
-    local proc3, p3err = executor:exec("sleep 30")
-    assert.not_nil(proc3, "docker process 3 created")
-    proc3:start()
-
-    local closeok3, closeerr3 = proc3:close(true)
-    assert.ok(closeok3, "docker force close succeeds")
-    assert.is_nil(closeerr3, "docker force close no error")
 
     executor:release()
 

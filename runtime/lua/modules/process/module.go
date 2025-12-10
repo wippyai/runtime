@@ -14,6 +14,7 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	secapi "github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
@@ -77,7 +78,7 @@ func BindGlobal(l *lua.LState) { // todo: we dont allow global stuff, has to be 
 }
 
 func createModuleTable() *lua.LTable {
-	mod := lua.CreateTable(0, 24)
+	mod := lua.CreateTable(0, 25)
 
 	mod.RawSetString("id", lua.LGoFunc(processID))
 	mod.RawSetString("pid", lua.LGoFunc(processPID))
@@ -94,6 +95,7 @@ func createModuleTable() *lua.LTable {
 	mod.RawSetString("unmonitor", lua.LGoFunc(unmonitor))
 	mod.RawSetString("link", lua.LGoFunc(link))
 	mod.RawSetString("unlink", lua.LGoFunc(unlink))
+	mod.RawSetString("with_context", lua.LGoFunc(spawnerNew))
 
 	mod.RawSetString("inbox", lua.LGoFunc(inbox))
 	mod.RawSetString("events", lua.LGoFunc(events))
@@ -188,7 +190,7 @@ func resolvePID(l *lua.LState, pidOrName string, permission string) (relay.PID, 
 	pid, err := relay.ParsePID(pidOrName)
 	if err == nil {
 		if !security.IsAllowed(l.Context(), permission, pid.String(), nil) {
-			return relay.PID{}, NewNotAllowedError(
+			return relay.PID{}, luaapi.NewNotAllowedError(
 				strings.TrimPrefix(permission, "process."), pidOrName)
 		}
 		return pid, nil
@@ -196,16 +198,16 @@ func resolvePID(l *lua.LState, pidOrName string, permission string) (relay.PID, 
 
 	reg, ok := getRegistry(l)
 	if !ok {
-		return relay.PID{}, ErrCouldNotAccessRegistry
+		return relay.PID{}, luaapi.ErrCouldNotAccessRegistry
 	}
 
 	pid, found := reg.Lookup(pidOrName)
 	if !found {
-		return relay.PID{}, NewCouldNotResolveError(pidOrName)
+		return relay.PID{}, luaapi.NewCouldNotResolveError(pidOrName)
 	}
 
 	if !security.IsAllowed(l.Context(), permission, pid.String(), nil) {
-		return relay.PID{}, NewNotAllowedError(
+		return relay.PID{}, luaapi.NewNotAllowedError(
 			strings.TrimPrefix(permission, "process."), pidOrName)
 	}
 
@@ -218,6 +220,25 @@ func createPayloadsFromArgs(l *lua.LState) payload.Payloads {
 		payloads = append(payloads, luaconv.ExportPayload(l.Get(i)))
 	}
 	return payloads
+}
+
+func buildSecurityContext(l *lua.LState) []ctxapi.Pair {
+	ctx := l.Context()
+	if ctx == nil {
+		return nil
+	}
+
+	var pairs []ctxapi.Pair
+	if actor, ok := secapi.GetActor(ctx); ok {
+		pairs = append(pairs, secapi.ActorPair(actor))
+	}
+	if scope, ok := secapi.GetScope(ctx); ok {
+		pairs = append(pairs, secapi.ScopePair(scope))
+	}
+	if values := ctxapi.GetValues(ctx); values != nil && values.Len() > 0 {
+		pairs = append(pairs, ctxapi.ValuesPair(values))
+	}
+	return pairs
 }
 
 func processPID(l *lua.LState) int {
@@ -317,14 +338,6 @@ func send(l *lua.LState) int {
 	return 1
 }
 
-// TODO: spawn should be converted to a yield-based command instead of a direct Go call!!!!!!!!!!!!!!!!!!!!!!!!!!
-// todo: this is wrong approach!
-// Currently spawn() calls manager.Start() synchronously which runs on the caller's goroutine.
-// This prevents proper context isolation and can cause memory leaks when spawning from
-// function pools, as the spawned process context inherits references from the pool worker.
-// The fix is to make spawn yield a command that gets executed by the scheduler's command
-// dispatcher, ensuring the spawned process runs on its own scheduler goroutine with
-// proper context setup similar to how http.response() and other yields work.
 func spawn(l *lua.LState) int {
 	manager, ok := getProcessManager(l)
 	if !ok {
@@ -366,6 +379,7 @@ func spawn(l *lua.LState) int {
 		HostID:  hostID,
 		Source:  registry.ParseID(id),
 		Input:   payloads,
+		Context: buildSecurityContext(l),
 		Options: options,
 	}
 
@@ -422,6 +436,7 @@ func spawnMonitored(l *lua.LState) int {
 		HostID:  hostID,
 		Source:  registry.ParseID(id),
 		Input:   payloads,
+		Context: buildSecurityContext(l),
 		Options: options,
 	}
 
@@ -478,6 +493,7 @@ func spawnLinked(l *lua.LState) int {
 		HostID:  hostID,
 		Source:  registry.ParseID(id),
 		Input:   payloads,
+		Context: buildSecurityContext(l),
 		Options: options,
 	}
 
@@ -541,6 +557,7 @@ func spawnLinkedMonitored(l *lua.LState) int {
 		HostID:  hostID,
 		Source:  registry.ParseID(id),
 		Input:   payloads,
+		Context: buildSecurityContext(l),
 		Options: options,
 	}
 
@@ -896,7 +913,7 @@ func registryUnregister(l *lua.LState) int {
 }
 
 func inbox(l *lua.LState) int {
-	// Create channel for inbox and subscribe to @pid/inbox topic
+	// Create channel and subscribe to inbox topic
 	ch := engine.NewChannel(0)
 	req := &engine.SubscribeRequest{
 		Topic:   topology.TopicInbox,
@@ -904,18 +921,19 @@ func inbox(l *lua.LState) int {
 		Handler: MessageHandler,
 	}
 	l.Push(req)
-	return -1
+	return -1 // yield
 }
 
 func events(l *lua.LState) int {
-	// Create channel for events and subscribe to @pid/events topic
+	// Create channel and subscribe to events topic
 	ch := engine.NewChannel(0)
 	req := &engine.SubscribeRequest{
 		Topic:   topology.TopicEvents,
 		Channel: ch,
+		Handler: nil, // events use default PayloadsToLua conversion
 	}
 	l.Push(req)
-	return -1
+	return -1 // yield
 }
 
 func listen(l *lua.LState) int {

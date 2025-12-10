@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/relay"
 )
 
 // Command IDs for clock operations.
@@ -14,9 +15,8 @@ import (
 const (
 	Sleep dispatcher.CommandID = 10 // Pause execution for duration (one-shot)
 
-	// Decomposed ticker pattern (one-shot commands)
-	TickerStart dispatcher.CommandID = 14 // Create ticker, returns ID
-	TickerNext  dispatcher.CommandID = 15 // Wait for next tick, returns time
+	// Ticker commands - uses topic-based delivery like events/websocket
+	TickerStart dispatcher.CommandID = 14 // Create ticker, sends ticks to topic
 	TickerStop  dispatcher.CommandID = 16 // Stop and cleanup ticker
 
 	// Decomposed timer pattern (one-shot commands)
@@ -36,7 +36,7 @@ var (
 func init() {
 	dispatcher.MustRegisterCommands("clock",
 		Sleep,
-		TickerStart, TickerNext, TickerStop,
+		TickerStart, TickerStop,
 		TimerStart, TimerWait, TimerStop, TimerReset,
 	)
 }
@@ -51,29 +51,27 @@ type (
 		Duration time.Duration
 	}
 
-	// TickerStartCmd creates a new ticker with given interval.
-	// Returns ticker ID (uint64) via emit. One-shot command.
+	// TickerStartCmd creates a new ticker that sends ticks to a topic.
+	// The dispatcher sends tick times to the process via relay topic.
+	// Returns ticker ID (uint64) via emit. Ticker runs until stopped.
 	TickerStartCmd struct {
 		Duration time.Duration
-	}
-
-	// TickerNextCmd waits for the next tick from an existing ticker.
-	// Returns tick time (int64 nanoseconds) via emit. Blocks until tick available.
-	// One-shot command - call repeatedly to receive multiple ticks.
-	TickerNextCmd struct {
-		TickerID uint64
+		PID      relay.PID // Target process to send ticks to
+		Topic    string    // Topic for tick delivery (e.g., "ticker@123")
 	}
 
 	// TickerStopCmd stops and cleans up a ticker.
-	// One-shot command, no emit.
 	TickerStopCmd struct {
 		TickerID uint64
 	}
 
 	// TimerStartCmd creates a new one-shot timer with given duration.
-	// Returns timer ID (uint64) via emit. One-shot command.
+	// Uses topic-based delivery like ticker - sends fire time to topic when complete.
+	// Returns timer ID (uint64) via emit.
 	TimerStartCmd struct {
 		Duration time.Duration
+		PID      relay.PID // Target process to send fire event to
+		Topic    string    // Topic for fire delivery (e.g., "timer@123")
 	}
 
 	// TimerWaitCmd waits for a timer to fire.
@@ -102,9 +100,6 @@ func (c SleepCmd) CmdID() dispatcher.CommandID { return Sleep }
 
 // CmdID implements dispatcher.Command.
 func (c TickerStartCmd) CmdID() dispatcher.CommandID { return TickerStart }
-
-// CmdID implements dispatcher.Command.
-func (c TickerNextCmd) CmdID() dispatcher.CommandID { return TickerNext }
 
 // CmdID implements dispatcher.Command.
 func (c TickerStopCmd) CmdID() dispatcher.CommandID { return TickerStop }

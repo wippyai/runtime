@@ -82,26 +82,19 @@ type Processor struct {
 	pooled bool
 }
 
-// setState sets processor state, clearing the wakeup flag.
-func (p *Processor) setState(s ProcessState) {
-	p.state.Store(int32(s & stateMask))
-}
-
 // casState atomically compares-and-swaps state (ignoring wakeup flag).
 // Returns true if swap succeeded.
+// NOTE: This does NOT retry on CAS failure - if state doesn't match, returns false.
+// This prevents race where processor finishes quickly and gets re-queued before
+// a competing worker's CAS retry sees the new Ready state.
 func (p *Processor) casState(old, newState ProcessState) bool {
-	for {
-		current := ProcessState(p.state.Load())
-		if current&stateMask != old {
-			return false
-		}
-		// Preserve wakeup flag in new state
-		newWithFlags := (newState & stateMask) | (current & wakeupFlag)
-		if p.state.CompareAndSwap(int32(current), int32(newWithFlags)) {
-			return true
-		}
-		// Retry - someone changed state concurrently
+	current := ProcessState(p.state.Load())
+	if current&stateMask != old {
+		return false
 	}
+	// Preserve wakeup flag in new state
+	newWithFlags := (newState & stateMask) | (current & wakeupFlag)
+	return p.state.CompareAndSwap(int32(current), int32(newWithFlags))
 }
 
 // setWakeup atomically sets the wakeup flag if state matches expected.
@@ -189,7 +182,7 @@ func releaseProcessor(p *Processor) {
 	p.id = 0
 	p.pid = relay.PID{}
 	p.Process = nil
-	p.state.Store(0) // Clears both state and wakeup flag
+	p.state.Store(0)
 	p.ctx = nil
 	p.cancel = nil
 	p.gen.Store(0)
@@ -197,7 +190,6 @@ func releaseProcessor(p *Processor) {
 	p.scheduler = nil
 	p.resultCh = nil
 	p.pooled = false
-	// Queue is reset on next use
 
 	processorPool.Put(p)
 }

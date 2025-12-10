@@ -200,7 +200,7 @@ func NewPostMiddlewareCreateError(name string, err error) *Error {
 func NewServerError(err error) *Error {
 	return &Error{
 		kind:    apierror.KindInternal,
-		message: "server error",
+		message: "http server error: " + err.Error(),
 		cause:   err,
 	}
 }

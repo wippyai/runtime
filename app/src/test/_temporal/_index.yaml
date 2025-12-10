@@ -1,0 +1,27 @@
+ns: app.test.temporal
+
+# Temporal client configuration
+- kind: temporal.client
+  name: test_client
+  data:
+    host_port: ${TEMPORAL_HOST_PORT:localhost:7233}
+    namespace: ${TEMPORAL_NAMESPACE:default}
+
+# Temporal worker configuration
+- kind: temporal.worker
+  name: test_worker
+  data:
+    client: test_client
+    task_queue: wippy-test-queue
+    worker_options:
+      max_concurrent_activity_execution_size: 10
+
+# Activity function
+- kind: process.lua
+  name: echo_activity
+  data:
+    file: echo_activity.lua
+  meta:
+    temporal:
+      activity:
+        worker: test_worker

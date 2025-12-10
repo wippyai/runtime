@@ -10,8 +10,8 @@ import (
 	"time"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/runtime/resource"
@@ -850,24 +850,24 @@ func Test100CoroutinesMemory(t *testing.T) {
 // Integration benchmarks (from integration_bench_test.go)
 
 type mockRegistry struct {
-	handlers map[process.CommandID]process.Handler
+	handlers map[dispatcher.CommandID]dispatcher.Handler
 }
 
 func newMockRegistry() *mockRegistry {
 	return &mockRegistry{
-		handlers: make(map[process.CommandID]process.Handler),
+		handlers: make(map[dispatcher.CommandID]dispatcher.Handler),
 	}
 }
 
-func (r *mockRegistry) Register(id process.CommandID, h process.Handler) {
+func (r *mockRegistry) Register(id dispatcher.CommandID, h dispatcher.Handler) {
 	r.handlers[id] = h
 }
 
-func (r *mockRegistry) Get(id process.CommandID) process.Handler {
+func (r *mockRegistry) Get(id dispatcher.CommandID) dispatcher.Handler {
 	return r.handlers[id]
 }
 
-func (r *mockRegistry) Has(id process.CommandID) bool {
+func (r *mockRegistry) Has(id dispatcher.CommandID) bool {
 	_, ok := r.handlers[id]
 	return ok
 }

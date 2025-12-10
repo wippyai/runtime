@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/supervisor"
 )
 
@@ -36,9 +37,23 @@ func isTerminalError(err error) bool {
 	if err == nil {
 		return false
 	}
-	return errors.Is(err, context.Canceled) ||
+
+	// Check sentinel errors first
+	if errors.Is(err, context.Canceled) ||
 		errors.Is(err, supervisor.ErrTerminated) ||
-		errors.Is(err, supervisor.ErrExit)
+		errors.Is(err, supervisor.ErrExit) {
+		return true
+	}
+
+	// Check if error implements apierror.Error and is explicitly not retryable
+	var apiErr apierror.Error
+	if errors.As(err, &apiErr) {
+		if apiErr.Retryable() == apierror.False {
+			return true
+		}
+	}
+
+	return false
 }
 
 // newServiceState creates a new internalState instance

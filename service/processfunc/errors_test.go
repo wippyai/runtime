@@ -61,21 +61,21 @@ func TestErrorConstructors(t *testing.T) {
 	t.Run("newRegisterPIDError", func(t *testing.T) {
 		err := newRegisterPIDError(cause)
 		assert.Equal(t, apierror.KindInternal, err.Kind())
-		assert.Equal(t, "register caller pid", err.Error())
+		assert.Equal(t, "register caller pid: cause", err.Error())
 		assert.Equal(t, cause, err.Unwrap())
 	})
 
 	t.Run("newAttachRelayError", func(t *testing.T) {
 		err := newAttachRelayError(cause)
 		assert.Equal(t, apierror.KindInternal, err.Kind())
-		assert.Equal(t, "attach to relay", err.Error())
+		assert.Equal(t, "attach to relay: cause", err.Error())
 		assert.Equal(t, cause, err.Unwrap())
 	})
 
 	t.Run("newStartProcessError", func(t *testing.T) {
 		err := newStartProcessError(cause)
 		assert.Equal(t, apierror.KindInternal, err.Kind())
-		assert.Equal(t, "start process", err.Error())
+		assert.Equal(t, "start process: cause", err.Error())
 		assert.Equal(t, cause, err.Unwrap())
 	})
 }

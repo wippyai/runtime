@@ -1,28 +1,34 @@
 -- Test: Verify CANCEL event is properly delivered
+-- Note: This test spawns a worker that will receive CANCEL and verifies via EXIT event
 local assert = require("assert2")
 local time = require("time")
-local process = require("process")
 
 local function main()
-    -- Spawn worker that will receive cancel and handle it
-    local worker_pid, err = process.spawn_monitored("app.test.process:cancel_receiver_worker", "app:processes")
+    -- Spawn a long-running worker that waits for cancel
+    local worker_pid, err = process.spawn_monitored("app.test.process:long_worker", "app:processes")
     assert.is_nil(err, "spawn worker no error")
     assert.not_nil(worker_pid, "got worker pid")
 
-    -- Send setup message
-    process.send(worker_pid, "setup", process.pid())
+    local events_ch = process.events()
 
     -- Give worker time to start
-    time.sleep("100ms")
+    time.sleep("5ms")
 
-    -- Cancel the worker with 3 second timeout
-    local ok, cancel_err = process.cancel(worker_pid, "3s")
+    -- Cancel the worker with 100ms timeout
+    local ok, cancel_err = process.cancel(worker_pid, "100ms")
     assert.is_nil(cancel_err, "cancel no error")
 
-    -- Wait for worker to handle cancel and exit
-    time.sleep("5s")
+    -- Wait for EXIT event from the cancelled worker
+    local event = events_ch:receive()
+    if event.kind ~= process.event.EXIT then
+        return false, "expected EXIT event, got: " .. tostring(event.kind)
+    end
 
-    -- Verify worker is dead
+    if event.from ~= worker_pid then
+        return false, "expected event from worker " .. worker_pid .. ", got: " .. tostring(event.from)
+    end
+
+    -- Verify worker is dead by trying to send to it
     ok, err = process.send(worker_pid, "test", "hello")
     if ok then
         return false, "worker should be dead but send succeeded"

@@ -1,22 +1,22 @@
 package workflow
 
 import (
+	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/process"
 )
 
 // Command IDs for Temporal-specific workflow operations.
 // These are processed by the workflow definition, not the standard scheduler.
 // Timer/sleep uses the standard clock.CmdSleep command.
 const (
-	CmdActivity      process.CommandID = 300
-	CmdLocalActivity process.CommandID = 301
-	CmdChildWorkflow process.CommandID = 302
-	CmdSignal        process.CommandID = 303 // Signal external workflow (outgoing only)
+	CmdActivity      dispatcher.CommandID = 300
+	CmdLocalActivity dispatcher.CommandID = 301
+	CmdChildWorkflow dispatcher.CommandID = 302
+	CmdSignal        dispatcher.CommandID = 303 // Signal external workflow (outgoing only)
 )
 
 func init() {
-	process.MustRegisterCommands("temporal.workflow",
+	dispatcher.MustRegisterCommands("temporal.workflow",
 		CmdActivity,
 		CmdLocalActivity,
 		CmdChildWorkflow,
@@ -31,7 +31,7 @@ type ActivityCommand struct {
 	Args    payload.Payloads `json:"args,omitempty"`
 }
 
-func (c *ActivityCommand) CmdID() process.CommandID { return CmdActivity }
+func (c *ActivityCommand) CmdID() dispatcher.CommandID { return CmdActivity }
 
 // LocalActivityCommand requests execution of a local activity.
 type LocalActivityCommand struct {
@@ -40,7 +40,7 @@ type LocalActivityCommand struct {
 	Args    payload.Payloads      `json:"args,omitempty"`
 }
 
-func (c *LocalActivityCommand) CmdID() process.CommandID { return CmdLocalActivity }
+func (c *LocalActivityCommand) CmdID() dispatcher.CommandID { return CmdLocalActivity }
 
 // ChildWorkflowCommand requests execution of a child workflow.
 type ChildWorkflowCommand struct {
@@ -49,7 +49,7 @@ type ChildWorkflowCommand struct {
 	Args    payload.Payloads      `json:"args,omitempty"`
 }
 
-func (c *ChildWorkflowCommand) CmdID() process.CommandID { return CmdChildWorkflow }
+func (c *ChildWorkflowCommand) CmdID() dispatcher.CommandID { return CmdChildWorkflow }
 
 // SignalCommand sends a signal to an external workflow.
 type SignalCommand struct {
@@ -59,4 +59,4 @@ type SignalCommand struct {
 	Arg        payload.Payload `json:"arg,omitempty"`
 }
 
-func (c *SignalCommand) CmdID() process.CommandID { return CmdSignal }
+func (c *SignalCommand) CmdID() dispatcher.CommandID { return CmdSignal }

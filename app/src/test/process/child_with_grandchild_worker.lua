@@ -23,7 +23,7 @@ local function main()
     if result.channel == events_ch then
         local event = result.value
         if event then
-            return "event:" .. tostring(event:topic())
+            return "event:" .. tostring(event.kind)
         end
     end
 

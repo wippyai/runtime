@@ -97,7 +97,7 @@ func HTTP() boot.Component {
 			// Register built-in middleware
 			_ = midRegistry.Register(cors.MiddlewareName, cors.CreateCORSMiddleware)
 			_ = midRegistry.Register(realip.MiddlewareName, realip.CreateRealIPMiddleware)
-			_ = midRegistry.Register("wsrelay", relayManager.CreateMiddleware)
+			_ = midRegistry.Register("websocket_relay", relayManager.CreateMiddleware)
 			_ = midRegistry.Register(tokenstore.MiddlewareName, tokenstore.CreateTokenAuthMiddleware)
 			_ = midRegistry.Register(firewall.ResourceMiddlewareName, firewall.CreateResourceFirewallMiddleware)
 			_ = midRegistry.Register(firewall.EndpointMiddlewareName, firewall.CreateEndpointFirewallMiddleware)

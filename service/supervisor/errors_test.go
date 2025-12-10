@@ -67,28 +67,28 @@ func TestErrorConstructors(t *testing.T) {
 	t.Run("newRegisterPIDError", func(t *testing.T) {
 		err := newRegisterPIDError(cause)
 		assert.Equal(t, apierror.KindInternal, err.Kind())
-		assert.Equal(t, "register supervisor pid", err.Error())
+		assert.Equal(t, "register supervisor pid: cause", err.Error())
 		assert.Equal(t, cause, err.Unwrap())
 	})
 
 	t.Run("newAttachRelayError", func(t *testing.T) {
 		err := newAttachRelayError(cause)
 		assert.Equal(t, apierror.KindInternal, err.Kind())
-		assert.Equal(t, "attach to relay", err.Error())
+		assert.Equal(t, "attach to relay: cause", err.Error())
 		assert.Equal(t, cause, err.Unwrap())
 	})
 
 	t.Run("newStartProcessError", func(t *testing.T) {
 		err := newStartProcessError(cause)
 		assert.Equal(t, apierror.KindInternal, err.Kind())
-		assert.Equal(t, "start process", err.Error())
+		assert.Equal(t, "start process: cause", err.Error())
 		assert.Equal(t, cause, err.Unwrap())
 	})
 
 	t.Run("newDecodeConfigError", func(t *testing.T) {
 		err := newDecodeConfigError(cause)
 		assert.Equal(t, apierror.KindInvalid, err.Kind())
-		assert.Equal(t, "decode config", err.Error())
+		assert.Equal(t, "decode config: cause", err.Error())
 		assert.Equal(t, apierror.False, err.Retryable())
 		assert.Equal(t, cause, err.Unwrap())
 	})

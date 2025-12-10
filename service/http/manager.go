@@ -310,19 +310,19 @@ func (m *Manager) handleServerDelete(ctx context.Context, entry registry.Entry) 
 
 	// Clean up all mappings
 	for routerID, serverID := range m.routerServers {
-		if serverID == entry.ID {
+		if serverID.Equal(entry.ID) {
 			delete(m.routerServers, routerID)
 		}
 	}
 
 	for endpointID, routerID := range m.endpointRouters {
-		if serverID, exists := m.routerServers[routerID]; exists && serverID == entry.ID {
+		if serverID, exists := m.routerServers[routerID]; exists && serverID.Equal(entry.ID) {
 			delete(m.endpointRouters, endpointID)
 		}
 	}
 
 	for staticID, serverID := range m.staticServers {
-		if serverID == entry.ID {
+		if serverID.Equal(entry.ID) {
 			delete(m.staticServers, staticID)
 		}
 	}
@@ -449,7 +449,7 @@ func (m *Manager) handleRouterDelete(_ context.Context, entry registry.Entry) er
 
 	// Clean up endpoint mappings for this router
 	for endpointID, routerID := range m.endpointRouters {
-		if routerID == entry.ID {
+		if routerID.Equal(entry.ID) {
 			delete(m.endpointRouters, endpointID)
 		}
 	}

@@ -1,6 +1,5 @@
 -- Test: Basic process spawn
 local assert = require("assert2")
-local process = require("process")
 local time = require("time")
 
 local function main()

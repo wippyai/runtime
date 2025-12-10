@@ -13,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/component"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	processmod "github.com/wippyai/runtime/runtime/lua/modules/process"
+	"github.com/wippyai/runtime/system/eventbus"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -22,15 +23,17 @@ type Manager struct {
 	log     *zap.Logger
 	code    *code.Manager
 	bus     event.Bus
+	awaiter *eventbus.Awaiter
 	configs sync.Map // map[registry.ID]*api.ProcessConfig
 }
 
 // NewManager creates a new process manager.
 func NewManager(log *zap.Logger, code *code.Manager, bus event.Bus) *Manager {
 	return &Manager{
-		log:  log,
-		code: code,
-		bus:  bus,
+		log:     log,
+		code:    code,
+		bus:     bus,
+		awaiter: eventbus.NewAwaiter(bus, process.System, "factory.(accept|reject)"),
 	}
 }
 
@@ -133,7 +136,7 @@ func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) {
 	}
 }
 
-// registerFactory registers a process factory with the factory registry.
+// registerFactory registers a process factory with the factory registry and waits for confirmation.
 func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method string) error {
 	// Verify compilation works
 	_, err := m.code.Compile(id, processBuildOptions())
@@ -146,10 +149,18 @@ func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method st
 		method = "main"
 	}
 
+	path := id.String()
+
+	// Subscribe BEFORE sending to avoid race condition
+	waiter, err := m.awaiter.Prepare(ctx, path)
+	if err != nil {
+		return api.NewRegisterFactoryError(err)
+	}
+
 	m.bus.Send(ctx, event.Event{
 		System: process.System,
 		Kind:   process.FactoryRegister,
-		Path:   id.String(),
+		Path:   path,
 		Data: &process.FactoryEntry{
 			Factory: func() (process.Process, error) {
 				return m.createProcess(id)
@@ -159,6 +170,11 @@ func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method st
 			},
 		},
 	})
+
+	result := waiter.Wait()
+	if !result.Accepted {
+		return api.NewRegisterFactoryError(result.Error)
+	}
 
 	return nil
 }

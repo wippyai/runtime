@@ -6,8 +6,10 @@ local function main()
     local time = require("time")
 
     -- Subscribe to test events
-    local ch, err = events.subscribe("test.*")
+    local sub, err = events.subscribe("test.*")
     assert.is_nil(err, "subscribe should succeed: " .. tostring(err))
+    assert.not_nil(sub, "subscription should be returned")
+    local ch = sub:channel()
     assert.not_nil(ch, "channel should be returned")
 
     -- Spawn a coroutine to send event after small delay

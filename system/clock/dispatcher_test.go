@@ -299,7 +299,6 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 	expected := []dispatcher.CommandID{
 		clockapi.Sleep,
 		clockapi.TickerStart,
-		clockapi.TickerNext,
 		clockapi.TickerStop,
 		clockapi.TimerStart,
 		clockapi.TimerWait,

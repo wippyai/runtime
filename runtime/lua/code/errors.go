@@ -113,14 +113,30 @@ func NewDependencyNotFoundError(from, to registry.ID) *Error {
 }
 
 // NewAliasCollisionError creates an error for alias conflicts
-func NewAliasCollisionError(alias string, nodeID registry.ID) *Error {
+func NewAliasCollisionError(alias string, nodeID registry.ID, existingTarget registry.ID, existingDirect bool, newTarget registry.ID, newDirect bool) *Error {
+	describeSource := func(target registry.ID, direct bool) string {
+		if direct {
+			if target.NS == "" {
+				return "direct module"
+			}
+			return "direct import"
+		}
+		return fmt.Sprintf("transitive via %v", target)
+	}
+
 	return &Error{
-		kind:      apierror.KindConflict,
-		message:   fmt.Sprintf("alias collision: %s is already used for another dependency of %v", alias, nodeID),
+		kind: apierror.KindConflict,
+		message: fmt.Sprintf(
+			"alias '%s' collision: %v (%s) vs %v (%s)",
+			alias, existingTarget, describeSource(existingTarget, existingDirect), newTarget, describeSource(newTarget, newDirect)),
 		retryable: apierror.False,
 		details: attrs.NewBagFrom(map[string]any{
-			"alias":   alias,
-			"node_id": nodeID.String(),
+			"alias":           alias,
+			"node_id":         nodeID.String(),
+			"existing_target": existingTarget.String(),
+			"existing_direct": existingDirect,
+			"new_target":      newTarget.String(),
+			"new_direct":      newDirect,
 		}),
 	}
 }

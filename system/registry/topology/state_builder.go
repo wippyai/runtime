@@ -381,69 +381,65 @@ func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, 
 		}
 	}
 
-	// Build dependency relationships for all operations
-	opEntries := make([]registry.Entry, 0, len(operations))
+	// Separate deletes from creates/updates
+	var deleteOps, otherOps []registry.Operation
 	for _, op := range operations {
-		// For deletes, we need to invert dependencies
 		if op.Kind == registry.Delete {
-			invertedEntry := op.Entry
-			// Get all entries that depend on this one and make this entry depend on them
-			var dependedOnBy []string
-			for _, entry := range to {
-				if dependsOn, ok := entry.Meta[registry.TagDependsOn].([]string); ok {
-					for _, dep := range dependsOn {
-						if resolveDependencyID(entry.ID.NS, dep) == op.Entry.ID {
-							dependedOnBy = append(dependedOnBy, entry.ID.String())
-						}
-					}
-				}
-			}
-			if len(dependedOnBy) > 0 {
-				invertedEntry.Meta = make(map[string]any)
-				for k, v := range op.Entry.Meta {
-					invertedEntry.Meta[k] = v
-				}
-				invertedEntry.Meta[registry.TagDependsOn] = dependedOnBy
-			}
-			opEntries = append(opEntries, invertedEntry)
+			deleteOps = append(deleteOps, op)
 		} else {
-			opEntries = append(opEntries, op.Entry)
+			otherOps = append(otherOps, op)
 		}
 	}
 
-	// Sort entries respecting dependencies
-	sortedEntries, err := SortEntriesByDependency(opEntries, b.resolver)
-	if err != nil {
-		return nil, err
-	}
-
-	// Build map for O(1) lookup of operations by ID
-	opByID := make(map[registry.ID]registry.Operation, len(operations))
-	for _, op := range operations {
-		opByID[op.Entry.ID] = op
-	}
-
-	// Map back to operations maintaining the sorted order
 	result := make(registry.ChangeSet, 0, len(operations))
-	processed := make(map[registry.ID]bool, len(operations))
 
-	// First pass: handle deletes in reverse dependency order
-	for i := len(sortedEntries) - 1; i >= 0; i-- {
-		entry := sortedEntries[i]
-		if op, ok := opByID[entry.ID]; ok && op.Kind == registry.Delete {
-			result = append(result, op)
-			processed[op.Entry.ID] = true
+	// Sort deletes: use entries from 'from' state to get proper dependency order
+	if len(deleteOps) > 0 {
+		deleteEntries := make([]registry.Entry, 0, len(deleteOps))
+		for _, op := range deleteOps {
+			deleteEntries = append(deleteEntries, op.Entry)
+		}
+
+		sortedDeletes, err := SortEntriesByDependency(deleteEntries, b.resolver)
+		if err != nil {
+			return nil, err
+		}
+
+		// Reverse order: dependents must be deleted before their dependencies
+		deleteByID := make(map[registry.ID]registry.Operation, len(deleteOps))
+		for _, op := range deleteOps {
+			deleteByID[op.Entry.ID] = op
+		}
+
+		for i := len(sortedDeletes) - 1; i >= 0; i-- {
+			entry := sortedDeletes[i]
+			if op, ok := deleteByID[entry.ID]; ok {
+				result = append(result, op)
+			}
 		}
 	}
 
-	// Second pass: handle updates and creates in dependency order
-	for _, entry := range sortedEntries {
-		if processed[entry.ID] {
-			continue
+	// Sort creates/updates: use entries as-is for proper dependency order
+	if len(otherOps) > 0 {
+		otherEntries := make([]registry.Entry, 0, len(otherOps))
+		for _, op := range otherOps {
+			otherEntries = append(otherEntries, op.Entry)
 		}
-		if op, ok := opByID[entry.ID]; ok {
-			result = append(result, op)
-			processed[op.Entry.ID] = true
+
+		sortedOthers, err := SortEntriesByDependency(otherEntries, b.resolver)
+		if err != nil {
+			return nil, err
+		}
+
+		otherByID := make(map[registry.ID]registry.Operation, len(otherOps))
+		for _, op := range otherOps {
+			otherByID[op.Entry.ID] = op
+		}
+
+		for _, entry := range sortedOthers {
+			if op, ok := otherByID[entry.ID]; ok {
+				result = append(result, op)
+			}
 		}
 	}
 

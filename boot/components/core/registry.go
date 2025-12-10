@@ -87,7 +87,7 @@ func Registry() boot.Component {
 			// Create registry with resolver
 			reg := registry.NewRegistry(
 				hist,
-				runner.NewBusRunner(bus, logger.Named("runner")),
+				runner.NewBusRunner(bus, logger.Named("runner"), resolver),
 				regtop.NewStateBuilder(logger, resolver),
 				resolver,
 				logger.Named("registry"),

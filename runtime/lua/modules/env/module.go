@@ -13,7 +13,7 @@ var Module = &luaapi.ModuleDef{
 	Description: "Environment variable access",
 	Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
-		mod := &lua.LTable{}
+		mod := lua.CreateTable(0, 3)
 		mod.RawSetString("get", lua.LGoFunc(envGet))
 		mod.RawSetString("set", lua.LGoFunc(envSet))
 		mod.RawSetString("get_all", lua.LGoFunc(envGetAll))
@@ -25,76 +25,102 @@ var Module = &luaapi.ModuleDef{
 func envGet(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
+		luaErr := lua.NewLuaError(l, "no context found").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no context found"))
+		l.Push(luaErr)
 		return 2
 	}
 
 	key := l.CheckString(1)
 	if key == "" {
-		l.RaiseError("empty key")
-		return 0
+		luaErr := lua.NewLuaError(l, "empty key").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return 2
 	}
 
 	if !security.IsAllowed(ctx, "env.get", key, nil) {
+		luaErr := lua.NewLuaError(l, "not allowed to access environment variable: "+key).
+			WithKind(lua.KindPermissionDenied).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("not allowed to access environment variable: " + key))
+		l.Push(luaErr)
 		return 2
 	}
 
 	envRegistry := env.GetRegistry(ctx)
 	if envRegistry == nil {
+		luaErr := lua.NewLuaError(l, "environment registry not found").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("environment registry not found"))
+		l.Push(luaErr)
 		return 2
 	}
 
 	value, err := envRegistry.Get(ctx, key)
 	if err != nil {
+		luaErr := lua.WrapErrorWithLua(l, err, "get environment variable failed")
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(luaErr)
 		return 2
 	}
-
 	l.Push(lua.LString(value))
 	l.Push(lua.LNil)
 	return 2
 }
 
 func envSet(l *lua.LState) int {
-	key := l.CheckString(1)
-
 	ctx := l.Context()
 	if ctx == nil {
+		luaErr := lua.NewLuaError(l, "no context found").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no context found"))
+		l.Push(luaErr)
 		return 2
 	}
 
+	key := l.CheckString(1)
 	if key == "" {
-		l.RaiseError("empty key")
-		return 0
+		luaErr := lua.NewLuaError(l, "empty key").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return 2
 	}
 
 	value := l.CheckString(2)
 
 	if !security.IsAllowed(ctx, "env.set", key, nil) {
+		luaErr := lua.NewLuaError(l, "not allowed to set environment variable: "+key).
+			WithKind(lua.KindPermissionDenied).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("not allowed to set environment variable: " + key))
+		l.Push(luaErr)
 		return 2
 	}
 
 	envRegistry := env.GetRegistry(ctx)
 	if envRegistry == nil {
+		luaErr := lua.NewLuaError(l, "environment registry not found").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("environment registry not found"))
+		l.Push(luaErr)
 		return 2
 	}
 
 	err := envRegistry.Set(ctx, key, value)
 	if err != nil {
+		luaErr := lua.WrapErrorWithLua(l, err, "set environment variable failed")
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(luaErr)
 		return 2
 	}
 
@@ -106,22 +132,29 @@ func envSet(l *lua.LState) int {
 func envGetAll(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
+		luaErr := lua.NewLuaError(l, "no context found").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no context found"))
+		l.Push(luaErr)
 		return 2
 	}
 
 	envRegistry := env.GetRegistry(ctx)
 	if envRegistry == nil {
+		luaErr := lua.NewLuaError(l, "environment registry not found").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("environment registry not found"))
+		l.Push(luaErr)
 		return 2
 	}
 
 	variables, err := envRegistry.All(ctx)
 	if err != nil {
+		luaErr := lua.WrapErrorWithLua(l, err, "get all environment variables failed")
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(luaErr)
 		return 2
 	}
 

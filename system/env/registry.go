@@ -178,7 +178,7 @@ func (r *Registry) updateVariable(e event.Event) {
 	envName := r.getEnvName(&variable)
 
 	if existingID, exists := r.variablesByName.Load(envName); exists {
-		if existingVarID, ok := existingID.(registry.ID); ok && existingVarID != variable.ID {
+		if existingVarID, ok := existingID.(registry.ID); ok && !existingVarID.Equal(variable.ID) {
 			r.log.Error("variable name already exists", zap.String("path", e.Path), zap.String("base_name", envName))
 			r.sendReject(e.Path, env.NewVariableNameExistsError(envName).Error())
 			return
@@ -302,7 +302,11 @@ func (r *Registry) getValue(ctx context.Context, variable *env.Variable) (string
 		return "", err
 	}
 	if !found {
-		return variable.DefaultValue, nil
+		// Return default if set, otherwise return not found error
+		if variable.DefaultValue != "" {
+			return variable.DefaultValue, nil
+		}
+		return "", env.ErrVariableNotFound
 	}
 	return value, nil
 }
@@ -320,6 +324,10 @@ func (r *Registry) lookupValue(ctx context.Context, variable *env.Variable) (str
 			return "", false, nil
 		}
 		return "", false, err
+	}
+	// Empty string is treated as not set
+	if value == "" {
+		return "", false, nil
 	}
 	return value, true, nil
 }

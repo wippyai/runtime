@@ -1,5 +1,7 @@
 package process
 
+import "github.com/wippyai/runtime/api/dispatcher"
+
 // StepStatus indicates the process state after Step() returns.
 const (
 	StepContinue StepStatus = iota
@@ -34,7 +36,7 @@ type Event struct {
 // Yield associates a command with a correlation tag.
 // The tag is returned with the result for O(1) lookup.
 type Yield struct {
-	Cmd Command
+	Cmd dispatcher.Command
 	Tag uint64
 }
 
@@ -50,7 +52,7 @@ type StepOutput struct {
 }
 
 // Yield adds a command to be dispatched.
-func (o *StepOutput) Yield(cmd Command, tag uint64) {
+func (o *StepOutput) Yield(cmd dispatcher.Command, tag uint64) {
 	if o.count < len(o.buf) {
 		o.buf[o.count] = Yield{Cmd: cmd, Tag: tag}
 	} else {

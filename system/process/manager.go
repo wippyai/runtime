@@ -43,7 +43,8 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (relay.PID, error
 
 	m.logger.Debug("starting process",
 		zap.String("host", start.HostID),
-		zap.String("source", start.Source.String()))
+		zap.String("source", start.Source.String()),
+		zap.Int("context_pairs", len(start.Context)))
 
 	// Delegate to host - it assigns PID internally
 	return host.Run(ctx, start)

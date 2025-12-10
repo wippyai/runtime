@@ -142,7 +142,7 @@ func (m *BytecodeManager) Add(ctx context.Context, entry registry.Entry) error {
 	opts, _ := cfg.Meta.GetBag("options")
 	m.registerCaller(ctx, entry.ID, opts)
 
-	m.log.Info("bytecode function added",
+	m.log.Debug("bytecode function added",
 		zap.String("id", entry.ID.String()),
 		zap.String("fs", cfg.FS),
 		zap.String("path", cfg.Path),

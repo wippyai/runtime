@@ -1,16 +1,30 @@
 -- Test: Linked processes - verify linked child terminates properly
--- Spawns a test worker process
 local assert = require("assert2")
 local time = require("time")
 
 local function main()
-    -- Spawn the test worker that does the actual test
+    local events_ch = process.events()
+    assert.not_nil(events_ch, "got events channel")
+
+    -- Spawn the test worker
     local worker_pid, err = process.spawn_monitored("app.test.process:lifecycle_link_worker", "app:processes")
     assert.is_nil(err, "spawn worker no error")
     assert.not_nil(worker_pid, "got worker pid")
 
-    -- Wait for worker to complete (up to 3s)
-    time.sleep("3s")
+    -- Wait for EXIT event
+    local timeout = time.after("3s")
+    local result = channel.select {
+        events_ch:case_receive(),
+        timeout:case_receive(),
+    }
+
+    if result.channel ~= events_ch then
+        return false, "timeout waiting for EXIT event"
+    end
+
+    local event = result.value
+    assert.eq(event.kind, process.event.EXIT, "got EXIT event")
+    assert.eq(event.from, worker_pid, "event from worker")
 
     return true
 end

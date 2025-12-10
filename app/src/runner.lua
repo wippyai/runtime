@@ -207,8 +207,28 @@ local function run_suite(name, tests, suite_idx, total_suites, completed_tests, 
     return #tests, failures
 end
 
+-- Filter tests by patterns (args)
+local function filter_tests(entries, patterns)
+    if not patterns or #patterns == 0 then
+        return entries
+    end
+
+    local filtered = {}
+    for _, entry in ipairs(entries) do
+        for _, pattern in ipairs(patterns) do
+            if entry.id:find(pattern, 1, true) then
+                table.insert(filtered, entry)
+                break
+            end
+        end
+    end
+    return filtered
+end
+
 -- Main test runner logic (called via pcall for safety)
 local function run_tests()
+    local args = io.args()
+
     io.print("")
     io.print(bold(cyan("  Running Tests")))
     io.print("")
@@ -223,6 +243,16 @@ local function run_tests()
     if not entries or #entries == 0 then
         io.print(yellow("  No tests found"))
         return 0
+    end
+
+    -- Filter tests if patterns provided
+    if args and #args > 0 then
+        entries = filter_tests(entries, args)
+        if #entries == 0 then
+            io.print(yellow("  No tests match filter: " .. table.concat(args, ", ")))
+            return 0
+        end
+        io.print(dim("  Filter: " .. table.concat(args, ", ")))
     end
 
     -- Group by suite

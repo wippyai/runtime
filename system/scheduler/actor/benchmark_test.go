@@ -226,7 +226,7 @@ func BenchmarkWorkerExecute(b *testing.B) {
 			scheduler: sched,
 			queue:     process.NewEventQueue(),
 		}
-		proc.setState(StateReady)
+		proc.state.Store(int32(StateReady))
 
 		worker.executeOne(proc)
 	}

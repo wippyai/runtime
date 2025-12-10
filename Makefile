@@ -309,15 +309,39 @@ build-app-from-lock:
 	@rm /tmp/$(OUTPUT).wapp
 	@echo "✓ Complete: ./dist/$(OUTPUT)"
 
-# Platform-specific app builds
+# Platform-specific app builds from current lock file
 .PHONY: build-app-linux-amd64
 build-app-linux-amd64:
-	$(MAKE) build-app GOOS=linux GOARCH=amd64 PACK=$(PACK) OUTPUT=$(OUTPUT)
+	@echo "Creating pack from lock file..."
+	./wippy pack /tmp/app-build.wapp $(META_FLAGS)
+	@echo "Building application..."
+	@mkdir -p cmd/app dist
+	@cp /tmp/app-build.wapp cmd/app/app.wapp
+	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build --tags "fts5 sqlite_vec" \
+		-ldflags="-s -w" -trimpath -o ./dist/app-linux-amd64 ./cmd/app/
+	@rm cmd/app/app.wapp /tmp/app-build.wapp
+	@echo "✓ Built: ./dist/app-linux-amd64"
 
 .PHONY: build-app-darwin-amd64
 build-app-darwin-amd64:
-	$(MAKE) build-app GOOS=darwin GOARCH=amd64 PACK=$(PACK) OUTPUT=$(OUTPUT)
+	@echo "Creating pack from lock file..."
+	./wippy pack /tmp/app-build.wapp $(META_FLAGS)
+	@echo "Building application..."
+	@mkdir -p cmd/app dist
+	@cp /tmp/app-build.wapp cmd/app/app.wapp
+	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build --tags "fts5 sqlite_vec" \
+		-ldflags="-s -w" -trimpath -o ./dist/app-darwin-amd64 ./cmd/app/
+	@rm cmd/app/app.wapp /tmp/app-build.wapp
+	@echo "✓ Built: ./dist/app-darwin-amd64"
 
 .PHONY: build-app-darwin-arm64
 build-app-darwin-arm64:
-	$(MAKE) build-app GOOS=darwin GOARCH=arm64 PACK=$(PACK) OUTPUT=$(OUTPUT)
+	@echo "Creating pack from lock file..."
+	./wippy pack /tmp/app-build.wapp $(META_FLAGS)
+	@echo "Building application..."
+	@mkdir -p cmd/app dist
+	@cp /tmp/app-build.wapp cmd/app/app.wapp
+	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build --tags "fts5 sqlite_vec" \
+		-ldflags="-s -w" -trimpath -o ./dist/app-darwin-arm64 ./cmd/app/
+	@rm cmd/app/app.wapp /tmp/app-build.wapp
+	@echo "✓ Built: ./dist/app-darwin-arm64"

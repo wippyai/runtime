@@ -624,6 +624,9 @@ func TestIntegration_IsContract(t *testing.T) {
 }
 
 func TestIntegration_Concurrent(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping concurrent test in short mode")
+	}
 	tc := setupIntegrationTest(t, 8)
 	defer tc.Close(t)
 

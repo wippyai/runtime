@@ -10,7 +10,28 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/wippyai/runtime/api/relay"
 )
+
+type stressMockNode struct {
+	ticks *atomic.Int64
+}
+
+func (m *stressMockNode) Send(_ *relay.Package) error {
+	if m.ticks != nil {
+		m.ticks.Add(1)
+	}
+	return nil
+}
+func (m *stressMockNode) ID() relay.NodeID                                { return "" }
+func (m *stressMockNode) RegisterHost(_ relay.HostID, _ relay.Host) error { return nil }
+func (m *stressMockNode) UnregisterHost(_ relay.HostID)                   {}
+func (m *stressMockNode) GetHost(_ relay.HostID) (relay.Host, bool)       { return nil, false }
+func (m *stressMockNode) Attach(_ relay.PID, _ chan *relay.Package) (context.CancelFunc, error) {
+	return func() {}, nil
+}
+func (m *stressMockNode) Detach(_ relay.PID) {}
 
 // TestTimerWaveLoad simulates realistic wave-based load patterns.
 // Creates timers in waves with varying intensity over time.
@@ -128,6 +149,8 @@ func TestTickerWaveLoad(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testDuration)
 	defer cancel()
 
+	node := &stressMockNode{ticks: &totalTicks}
+	pid := relay.PID{}
 	activeTickers := make(chan uint64, 1000)
 	var wg sync.WaitGroup
 
@@ -151,7 +174,7 @@ func TestTickerWaveLoad(t *testing.T) {
 					return
 				}
 				interval := time.Duration(20+rand.Intn(80)) * time.Millisecond //nolint:gosec // test simulation
-				id := r.Start(interval)
+				id := r.Start(ctx, interval, pid, "ticker", node)
 				totalCreated.Add(1)
 
 				select {
@@ -163,7 +186,7 @@ func TestTickerWaveLoad(t *testing.T) {
 		}
 	}()
 
-	// Ticker consumers - read from tickers
+	// Ticker consumers - stop tickers after random delays
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func() {
@@ -173,14 +196,8 @@ func TestTickerWaveLoad(t *testing.T) {
 				case <-ctx.Done():
 					return
 				case id := <-activeTickers:
-					// Read a few ticks then stop
-					for j := 0; j < rand.Intn(5)+1; j++ { //nolint:gosec // test simulation
-						ctx2, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
-						if _, err := r.Next(ctx2, id); err == nil {
-							totalTicks.Add(1)
-						}
-						cancel()
-					}
+					// Wait a bit then stop
+					time.Sleep(time.Duration(rand.Intn(50)+10) * time.Millisecond) //nolint:gosec // test simulation
 					_ = r.Stop(id)
 					totalStopped.Add(1)
 				}
@@ -624,8 +641,10 @@ func TestLeakDetection(t *testing.T) {
 
 	// Ticker registry
 	tkr := NewTickerRegistry()
+	tkrNode := &stressMockNode{}
+	tkrPID := relay.PID{}
 	for i := 0; i < 1000; i++ {
-		id := tkr.Start(time.Hour)
+		id := tkr.Start(context.Background(), time.Hour, tkrPID, "test", tkrNode)
 		_ = tkr.Stop(id)
 	}
 	tkr.Close()

@@ -65,22 +65,22 @@ func GetFactory(ctx context.Context) Factory {
 }
 
 // WithRegistry delegates to dispatcher.WithRegistry.
-func WithRegistry(ctx context.Context, r Registry) error {
+func WithRegistry(ctx context.Context, r dispatcher.Registry) error {
 	return dispatcher.WithRegistry(ctx, r)
 }
 
 // GetRegistry delegates to dispatcher.GetRegistry.
-func GetRegistry(ctx context.Context) Registry {
+func GetRegistry(ctx context.Context) dispatcher.Registry {
 	return dispatcher.GetRegistry(ctx)
 }
 
 // GetRegistrar delegates to dispatcher.GetRegistrar.
-func GetRegistrar(ctx context.Context) Registrar {
+func GetRegistrar(ctx context.Context) dispatcher.Registrar {
 	return dispatcher.GetRegistrar(ctx)
 }
 
 // GetDispatcher delegates to dispatcher.GetDispatcher.
-func GetDispatcher(ctx context.Context) Dispatcher {
+func GetDispatcher(ctx context.Context) dispatcher.Dispatcher {
 	return dispatcher.GetDispatcher(ctx)
 }
 

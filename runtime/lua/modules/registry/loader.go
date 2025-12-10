@@ -54,6 +54,16 @@ func (m *LoaderModule) Info() luaapi.ModuleInfo {
 
 // Loader loads the module into the Lua state
 func (m *LoaderModule) Loader(l *lua.LState) int {
+	reg := m.Register(l)
+	if reg != nil && reg.Table != nil {
+		l.Push(reg.Table)
+		return 1
+	}
+	return 0
+}
+
+// Register returns the module registration with table and yield types.
+func (m *LoaderModule) Register(l *lua.LState) *luaapi.Registration {
 	m.once.Do(func() {
 		mod := l.CreateTable(0, 1)
 
@@ -69,8 +79,9 @@ func (m *LoaderModule) Loader(l *lua.LState) int {
 		mod.Immutable = true
 		m.moduleTable = mod
 	})
-	l.Push(m.moduleTable)
-	return 1
+	return &luaapi.Registration{
+		Table: m.moduleTable,
+	}
 }
 
 // createLoader creates a new loader instance bound to a filesystem

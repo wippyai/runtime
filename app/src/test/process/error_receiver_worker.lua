@@ -51,13 +51,13 @@ local function main()
         return false, "nil event"
     end
 
-    local topic = event:topic()
+    local topic = event.kind
     if topic ~= process.event.LINK_DOWN then
         return false, "expected LINK_DOWN, got: " .. tostring(topic)
     end
 
     -- Extract event details
-    local from_pid = event:from()
+    local from_pid = event.from
     local payload = event:payload()
 
     -- Verify from is the parent

@@ -2684,3 +2684,147 @@ func TestEventMessageNoSubscriber(t *testing.T) {
 		t.Fatalf("Process failed: %v", err)
 	}
 }
+
+// TestSelectWithExternalSubscribedChannel tests channel.select with a subscribed channel
+// that receives external messages. This reproduces the bug where select blocks on
+// time.after even when subscribed channel receives data first.
+func TestSelectWithExternalSubscribedChannel(t *testing.T) {
+	script := `
+		local inbox = channel.new(10)
+		subscribe("test_topic", inbox)
+
+		local timeout_ch = channel.new(1)
+
+		local step_count = 0
+		local result_channel = nil
+		local result_value = nil
+
+		local result = channel.select{
+			inbox:case_receive(),
+			timeout_ch:case_receive()
+		}
+
+		result_channel = result.channel
+		result_value = result.value
+
+		return {
+			got_inbox = (result_channel == inbox),
+			value = result_value
+		}
+	`
+
+	proc := startSubscribeProcess(t, script)
+	defer proc.Close()
+
+	// Run until idle (blocking on select)
+	if err := runUntilIdle(t, proc, 20); err != nil {
+		t.Fatal(err)
+	}
+
+	// Count steps before sending message
+	stepsBefore := 0
+
+	// Send message to subscribed topic
+	var output process.StepOutput
+	if err := sendMessage(proc, "test_topic", &output); err != nil {
+		t.Fatal(err)
+	}
+
+	// Run until done - should complete quickly since inbox got a message
+	for i := 0; i < 10; i++ {
+		output.Reset()
+		err := proc.Step(nil, &output)
+		if err != nil {
+			t.Fatalf("Step error: %v", err)
+		}
+		stepsBefore++
+		if output.Status() == process.StepDone {
+			break
+		}
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatal("Select did not complete after message sent to subscribed channel")
+	}
+
+	// Verify result
+	if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
+		tbl, ok := proc.mainTask.Yielded[0].(*lua.LTable)
+		if !ok {
+			t.Fatal("expected table result")
+		}
+		gotInbox := tbl.RawGetString("got_inbox")
+		if gotInbox != lua.LTrue {
+			t.Errorf("expected got_inbox=true (select should have received from inbox), got %v", gotInbox)
+		}
+	}
+
+	t.Logf("Select with external subscribed channel completed in %d steps", stepsBefore)
+}
+
+// TestSelectWakesOnExternalSend tests that select wakes up immediately when
+// an external send is made to one of the channels in the select.
+func TestSelectWakesOnExternalSend(t *testing.T) {
+	script := `
+		local external_ch = channel.new(0)  -- unbuffered
+		local internal_ch = channel.new(0)  -- unbuffered
+
+		subscribe("external_topic", external_ch)
+
+		local result = channel.select{
+			external_ch:case_receive(),
+			internal_ch:case_receive()
+		}
+
+		return {
+			channel_is_external = (result.channel == external_ch),
+			value = result.value
+		}
+	`
+
+	proc := startSubscribeProcess(t, script)
+	defer proc.Close()
+
+	// Run until idle (blocking on select)
+	if err := runUntilIdle(t, proc, 20); err != nil {
+		t.Fatal(err)
+	}
+
+	// Now external_ch should be registered as receiver in select
+	// Send message via subscription mechanism
+	var output process.StepOutput
+	if err := sendMessage(proc, "external_topic", &output); err != nil {
+		t.Fatal(err)
+	}
+
+	// Select should wake up and complete
+	stepCount := 0
+	for i := 0; i < 20; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step error: %v", err)
+		}
+		stepCount++
+		if output.Status() == process.StepDone {
+			break
+		}
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("Select did not complete after external message (ran %d steps)", stepCount)
+	}
+
+	// Verify external channel was selected
+	if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
+		tbl, ok := proc.mainTask.Yielded[0].(*lua.LTable)
+		if !ok {
+			t.Fatal("expected table result")
+		}
+		isExternal := tbl.RawGetString("channel_is_external")
+		if isExternal != lua.LTrue {
+			t.Error("expected channel_is_external=true, select should have woken on external channel")
+		}
+	}
+
+	t.Logf("Select woke on external send in %d steps", stepCount)
+}

@@ -162,3 +162,45 @@ func (s *MessageSender) Send(data any) bool {
 		Data: data,
 	}, s.gen)
 }
+
+// YieldScheduler is the subset of Scheduler needed for waking.
+type YieldScheduler interface {
+	WakeProcessor(q *EventQueue, gen uint64)
+}
+
+// YieldCompleter delivers yield completion results to a queue.
+// Bound to a specific generation - stale completers silently no-op.
+// This breaks the direct reference to Processor, preventing races
+// when processor is released to pool while handler goroutines are still running.
+type YieldCompleter struct {
+	queue     *EventQueue
+	gen       uint64
+	scheduler YieldScheduler
+}
+
+// NewYieldCompleter creates a completer bound to current queue generation.
+func (q *EventQueue) NewYieldCompleter(sched YieldScheduler) *YieldCompleter {
+	return &YieldCompleter{
+		queue:     q,
+		gen:       q.generation.Load(),
+		scheduler: sched,
+	}
+}
+
+// CompleteYield implements dispatcher.ResultReceiver.
+// Safe to call from any goroutine - uses generation to detect staleness.
+func (c *YieldCompleter) CompleteYield(tag uint64, data any, err error) {
+	if !c.queue.Push(Event{
+		Type:  EventYieldComplete,
+		Tag:   tag,
+		Data:  data,
+		Error: err,
+	}, c.gen) {
+		return
+	}
+
+	// Wake processor if waiting
+	if c.scheduler != nil {
+		c.scheduler.WakeProcessor(c.queue, c.gen)
+	}
+}

@@ -5,9 +5,11 @@ import (
 
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/relay"
-	"github.com/wippyai/runtime/runtime/lua/engine"
+	payloadmod "github.com/wippyai/runtime/runtime/lua/modules/payload"
 	lua "github.com/yuin/gopher-lua"
 )
+
+// context is used in MessageHandler signature
 
 const messageTypeName = "process.Message"
 
@@ -37,12 +39,21 @@ func messagePayload(l *lua.LState) int {
 	if msg == nil {
 		return 0
 	}
-	ctx := l.Context()
-	if ctx == nil {
-		ctx = context.Background()
+
+	if len(msg.Payloads) == 0 {
+		l.Push(lua.LNil)
+		return 1
 	}
-	result := engine.PayloadsToLua(ctx, l, msg.Payloads)
-	l.Push(result)
+
+	if len(msg.Payloads) == 1 {
+		return payloadmod.PushPayload(l, msg.Payloads[0])
+	}
+
+	tbl := l.CreateTable(len(msg.Payloads), 0)
+	for i, pl := range msg.Payloads {
+		tbl.RawSetInt(i+1, payloadmod.WrapPayload(l, pl))
+	}
+	l.Push(tbl)
 	return 1
 }
 

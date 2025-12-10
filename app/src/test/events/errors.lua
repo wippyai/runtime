@@ -5,8 +5,8 @@ local function main()
     local events = require("events")
 
     -- Empty system should fail
-    local ch, err = events.subscribe("")
-    assert.is_nil(ch, "empty system should return nil channel")
+    local sub, err = events.subscribe("")
+    assert.is_nil(sub, "empty system should return nil subscription")
     assert.not_nil(err, "empty system should return error")
 
     -- Send with empty system should fail

@@ -43,13 +43,13 @@ local function main()
         return false, "nil event"
     end
 
-    local topic = event:topic()
+    local topic = event.kind
     if topic ~= process.event.CANCEL then
         return false, "expected CANCEL, got: " .. tostring(topic)
     end
 
     -- Extract cancel event details
-    local from = event:from()
+    local from = event.from
     local payload = event:payload()
 
     -- Return details for verification

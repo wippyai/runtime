@@ -1780,3 +1780,271 @@ func TestBuildDelta_ComplexTransformations(t *testing.T) {
 		verifyDeltaWithinLevel(t, delta, expectedDelta)
 	})
 }
+
+func TestBuildDelta_RollbackToEmptyState(t *testing.T) {
+	builder := NewStateBuilder(zap.NewNop(), nil)
+
+	t.Run("HTTP-like hierarchy rollback", func(t *testing.T) {
+		// Simulates HTTP server -> router -> endpoint -> static handler hierarchy
+		server := testEntry{
+			ns: "app", name: "gateway",
+			kind: "http.service", data: "server",
+		}.toEntry()
+
+		router := testEntry{
+			ns: "app", name: "api",
+			kind: "http.router", data: "router",
+			dependsOn: []string{"gateway"},
+		}.toEntry()
+
+		endpoint := testEntry{
+			ns: "app", name: "hello",
+			kind: "http.endpoint", data: "endpoint",
+			dependsOn: []string{"api"},
+		}.toEntry()
+
+		staticHandler := testEntry{
+			ns: "app", name: "frontend",
+			kind: "http.static", data: "static",
+			dependsOn: []string{"gateway"},
+		}.toEntry()
+
+		// Rollback scenario: from populated state to empty
+		from := registry.State{server, router, endpoint, staticHandler}
+		to := registry.State{}
+
+		delta, err := builder.BuildDelta(from, to)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// All operations should be deletes
+		if len(delta) != 4 {
+			t.Fatalf("expected 4 delete operations, got %d", len(delta))
+		}
+
+		for _, op := range delta {
+			if op.Kind != registry.Delete {
+				t.Errorf("expected delete operation, got %s", op.Kind)
+			}
+		}
+
+		// Verify delete order: dependents before dependencies
+		// endpoint must be deleted before router
+		// router must be deleted before server
+		// staticHandler must be deleted before server
+		validateDependencyOrder(t, delta, []struct {
+			entry           registry.Entry
+			mustBeforeNames []string
+		}{
+			{entry: endpoint, mustBeforeNames: []string{"api", "gateway"}},
+			{entry: router, mustBeforeNames: []string{"gateway"}},
+			{entry: staticHandler, mustBeforeNames: []string{"gateway"}},
+		})
+	})
+
+	t.Run("Deep dependency chain rollback", func(t *testing.T) {
+		// A -> B -> C -> D (D depends on C, C on B, B on A)
+		entryA := testEntry{
+			ns: "test", name: "a",
+			kind: "service", data: "a",
+		}.toEntry()
+
+		entryB := testEntry{
+			ns: "test", name: "b",
+			kind: "service", data: "b",
+			dependsOn: []string{"a"},
+		}.toEntry()
+
+		entryC := testEntry{
+			ns: "test", name: "c",
+			kind: "service", data: "c",
+			dependsOn: []string{"b"},
+		}.toEntry()
+
+		entryD := testEntry{
+			ns: "test", name: "d",
+			kind: "service", data: "d",
+			dependsOn: []string{"c"},
+		}.toEntry()
+
+		from := registry.State{entryA, entryB, entryC, entryD}
+		to := registry.State{}
+
+		delta, err := builder.BuildDelta(from, to)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Must delete in order: D, C, B, A
+		validateDependencyOrder(t, delta, []struct {
+			entry           registry.Entry
+			mustBeforeNames []string
+		}{
+			{entry: entryD, mustBeforeNames: []string{"c", "b", "a"}},
+			{entry: entryC, mustBeforeNames: []string{"b", "a"}},
+			{entry: entryB, mustBeforeNames: []string{"a"}},
+		})
+	})
+
+	t.Run("Diamond dependency rollback", func(t *testing.T) {
+		// Diamond: A -> B, A -> C, B -> D, C -> D
+		entryA := testEntry{
+			ns: "test", name: "a",
+			kind: "service", data: "a",
+		}.toEntry()
+
+		entryB := testEntry{
+			ns: "test", name: "b",
+			kind: "service", data: "b",
+			dependsOn: []string{"a"},
+		}.toEntry()
+
+		entryC := testEntry{
+			ns: "test", name: "c",
+			kind: "service", data: "c",
+			dependsOn: []string{"a"},
+		}.toEntry()
+
+		entryD := testEntry{
+			ns: "test", name: "d",
+			kind: "service", data: "d",
+			dependsOn: []string{"b", "c"},
+		}.toEntry()
+
+		from := registry.State{entryA, entryB, entryC, entryD}
+		to := registry.State{}
+
+		delta, err := builder.BuildDelta(from, to)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// D must be deleted first, then B and C (any order), then A
+		validateDependencyOrder(t, delta, []struct {
+			entry           registry.Entry
+			mustBeforeNames []string
+		}{
+			{entry: entryD, mustBeforeNames: []string{"b", "c", "a"}},
+			{entry: entryB, mustBeforeNames: []string{"a"}},
+			{entry: entryC, mustBeforeNames: []string{"a"}},
+		})
+	})
+
+	t.Run("Multiple independent trees rollback", func(t *testing.T) {
+		// Tree 1: server1 -> router1
+		server1 := testEntry{
+			ns: "app1", name: "server",
+			kind: "http.service", data: "server1",
+		}.toEntry()
+
+		router1 := testEntry{
+			ns: "app1", name: "router",
+			kind: "http.router", data: "router1",
+			dependsOn: []string{"server"},
+		}.toEntry()
+
+		// Tree 2: server2 -> router2
+		server2 := testEntry{
+			ns: "app2", name: "server",
+			kind: "http.service", data: "server2",
+		}.toEntry()
+
+		router2 := testEntry{
+			ns: "app2", name: "router",
+			kind: "http.router", data: "router2",
+			dependsOn: []string{"server"},
+		}.toEntry()
+
+		from := registry.State{server1, router1, server2, router2}
+		to := registry.State{}
+
+		delta, err := builder.BuildDelta(from, to)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Each router must be deleted before its server
+		validateDependencyOrder(t, delta, []struct {
+			entry           registry.Entry
+			mustBeforeNames []string
+		}{
+			{entry: router1, mustBeforeNames: []string{"server"}},
+			{entry: router2, mustBeforeNames: []string{"server"}},
+		})
+	})
+
+	t.Run("Namespace dependency rollback", func(t *testing.T) {
+		// infra namespace with db and cache
+		infraDB := testEntry{
+			ns: "infra", name: "db",
+			kind: "service", data: "db",
+		}.toEntry()
+
+		infraCache := testEntry{
+			ns: "infra", name: "cache",
+			kind: "service", data: "cache",
+		}.toEntry()
+
+		// app namespace depends on infra
+		appService := testEntry{
+			ns: "app", name: "service",
+			kind: "service", data: "service",
+			dependsOn: []string{"ns:infra"},
+		}.toEntry()
+
+		from := registry.State{infraDB, infraCache, appService}
+		to := registry.State{}
+
+		delta, err := builder.BuildDelta(from, to)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// app:service must be deleted before any infra entry
+		validateDependencyOrder(t, delta, []struct {
+			entry           registry.Entry
+			mustBeforeNames []string
+		}{
+			{entry: appService, mustBeforeNames: []string{"db", "cache"}},
+		})
+	})
+
+	t.Run("Group dependency rollback", func(t *testing.T) {
+		// Storage group
+		db := testEntry{
+			ns: "infra", name: "db",
+			kind: "service", data: "db",
+			groups: []string{"storage"},
+		}.toEntry()
+
+		cache := testEntry{
+			ns: "infra", name: "cache",
+			kind: "service", data: "cache",
+			groups: []string{"storage"},
+		}.toEntry()
+
+		// Service depends on storage group
+		service := testEntry{
+			ns: "app", name: "service",
+			kind: "service", data: "service",
+			dependsOn: []string{"group:storage"},
+		}.toEntry()
+
+		from := registry.State{db, cache, service}
+		to := registry.State{}
+
+		delta, err := builder.BuildDelta(from, to)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// service must be deleted before any storage group member
+		validateDependencyOrder(t, delta, []struct {
+			entry           registry.Entry
+			mustBeforeNames []string
+		}{
+			{entry: service, mustBeforeNames: []string{"db", "cache"}},
+		})
+	})
+}

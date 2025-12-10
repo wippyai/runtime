@@ -5,8 +5,9 @@ local function main()
     local events = require("events")
     local time = require("time")
 
-    local ch, err = events.subscribe("test.multi")
+    local sub, err = events.subscribe("test.multi")
     assert.is_nil(err, "subscribe should succeed")
+    local ch = sub:channel()
 
     -- Send 3 events
     coroutine.spawn(function()

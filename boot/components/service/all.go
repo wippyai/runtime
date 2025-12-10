@@ -19,7 +19,7 @@ func All() []boot.Component {
 		Template(),
 		Terminal2(),
 		Exec(),
-		Host2(),
+		Host(),
 		ProcessSupervisor(),
 		ProcessFunc(),
 		Contract(),

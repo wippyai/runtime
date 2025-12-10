@@ -443,7 +443,7 @@ func treePrintDotGraph(l *lua.LState) int {
 	// Read from the pipe in a goroutine
 	var buf bytes.Buffer
 	var readErr error
-	go func() {
+	go func() { // todo: WTF
 		defer wg.Done()
 		_, readErr = buf.ReadFrom(r)
 	}()

@@ -1,12 +1,17 @@
 package time
 
 import (
+	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	stdtime "time"
 
 	clockapi "github.com/wippyai/runtime/api/clock"
 	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/runtime/lua/engine"
@@ -15,14 +20,18 @@ import (
 )
 
 const (
-	tickerTypeName        = "time.Ticker"
-	tickerChannelTypeName = "time.TickerChannel"
-	timerTypeName         = "time.Timer"
-	timerChannelTypeName  = "time.TimerChannel"
-	timeTypeName          = "time.Time"
-	durationTypeName      = "time.Duration"
-	locationTypeName      = "time.Location"
+	tickerTypeName   = "time.Ticker"
+	timerTypeName    = "time.Timer"
+	timeTypeName     = "time.Time"
+	durationTypeName = "time.Duration"
+	locationTypeName = "time.Location"
 )
+
+// tickerCounter generates unique topic names for tickers.
+var tickerCounter uint64
+
+// timerCounter generates unique topic names for timers.
+var timerCounter uint64
 
 // Error helpers for structured errors
 
@@ -69,9 +78,7 @@ func init() {
 	registerDurationMethods()
 	registerLocationMethods()
 	registerTickerMethods()
-	registerTickerChannelMethods()
 	registerTimerMethods()
-	registerTimerChannelMethods()
 
 	// Create module table
 	initModuleTable()
@@ -81,11 +88,9 @@ func init() {
 		{Sample: &SleepYield{}, CmdID: clockapi.Sleep},
 		{Sample: &TimerStartYield{}, CmdID: clockapi.TimerStart},
 		{Sample: &AfterStartYield{}, CmdID: clockapi.TimerStart},
-		{Sample: &TimerWaitYield{}, CmdID: clockapi.TimerWait},
 		{Sample: &TimerStopYield{}, CmdID: clockapi.TimerStop},
 		{Sample: &TimerResetYield{}, CmdID: clockapi.TimerReset},
 		{Sample: &TickerStartYield{}, CmdID: clockapi.TickerStart},
-		{Sample: &TickerNextYield{}, CmdID: clockapi.TickerNext},
 		{Sample: &TickerStopYield{}, CmdID: clockapi.TickerStop},
 	}
 }
@@ -289,22 +294,32 @@ func (y *SleepYield) CmdID() dispatcher.CommandID   { return clockapi.Sleep }
 func (y *SleepYield) ToCommand() dispatcher.Command { return clockapi.SleepCmd{Duration: y.Duration} }
 
 // TimerStartYield is yielded to create a new timer.
+// Uses topic-based delivery like Ticker - scheduler sends to channel when timer fires.
 type TimerStartYield struct {
 	Duration stdtime.Duration
+	Channel  *engine.Channel
+	PID      relay.PID
+	Topic    string
 }
 
 var timerStartYieldPool = sync.Pool{
 	New: func() interface{} { return &TimerStartYield{} },
 }
 
-func acquireTimerStartYield(d stdtime.Duration) *TimerStartYield {
+func acquireTimerStartYield(d stdtime.Duration, ch *engine.Channel, pid relay.PID, topic string) *TimerStartYield {
 	y := timerStartYieldPool.Get().(*TimerStartYield)
 	y.Duration = d
+	y.Channel = ch
+	y.PID = pid
+	y.Topic = topic
 	return y
 }
 
 func ReleaseTimerStartYield(y *TimerStartYield) {
 	y.Duration = 0
+	y.Channel = nil
+	y.PID = relay.PID{}
+	y.Topic = ""
 	timerStartYieldPool.Put(y)
 }
 
@@ -313,10 +328,11 @@ func (y *TimerStartYield) String() string              { return "<timer_start_yi
 func (y *TimerStartYield) Type() lua.LValueType        { return lua.LTUserData }
 func (y *TimerStartYield) CmdID() dispatcher.CommandID { return clockapi.TimerStart }
 func (y *TimerStartYield) ToCommand() dispatcher.Command {
-	return clockapi.TimerStartCmd{Duration: y.Duration}
+	return clockapi.TimerStartCmd{Duration: y.Duration, PID: y.PID, Topic: y.Topic}
 }
 
-// HandleResult implements HandledYield to convert timer ID to Timer userdata.
+// HandleResult implements HandledYield to set up topic subscription.
+// Returns a Timer with an engine.Channel that works with channel.select.
 func (y *TimerStartYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		return []lua.LValue{lua.LNil, wrapErrorValue(l, err, "timer start")}
@@ -324,7 +340,6 @@ func (y *TimerStartYield) HandleResult(l *lua.LState, data any, err error) []lua
 
 	result, ok := data.(clockapi.TimerStartResult)
 	if !ok {
-		// Fallback for backward compatibility with tests that return uint64
 		if id, ok := data.(uint64); ok {
 			result = clockapi.TimerStartResult{ID: id}
 		} else {
@@ -332,9 +347,25 @@ func (y *TimerStartYield) HandleResult(l *lua.LState, data any, err error) []lua
 		}
 	}
 
-	// Create timer channel that yields TimerWaitYield on receive
-	timerCh := &TimerChannel{TimerID: result.ID}
-	timer := &Timer{ID: result.ID, Channel: timerCh}
+	// Create channel userdata
+	channelUD := engine.PushChannel(l, y.Channel)
+	l.Pop(1)
+
+	// Subscribe channel to topic
+	proc := engine.GetProcess(l)
+	if proc != nil {
+		if err := proc.Subscribe(y.Topic, y.Channel); err != nil {
+			return []lua.LValue{lua.LNil, wrapErrorValue(l, err, "timer subscribe")}
+		}
+		proc.SetTopicHandler(y.Topic, timerMessageHandler)
+	}
+
+	// Create timer with engine.Channel
+	timer := &Timer{
+		ID:        result.ID,
+		channelUD: channelUD,
+		channel:   y.Channel,
+	}
 
 	ud := l.NewUserData()
 	ud.Value = timer
@@ -356,92 +387,58 @@ func (y *TimerStartYield) HandleResult(l *lua.LState, data any, err error) []lua
 	return []lua.LValue{ud}
 }
 
+// timerMessageHandler converts timer fire payloads to time userdata.
+func timerMessageHandler(_ context.Context, l *lua.LState, _ relay.PID, _ string, payloads []payload.Payload) lua.LValue {
+	if len(payloads) == 0 {
+		return lua.LNil
+	}
+
+	p := payloads[0]
+	nsec, ok := p.Data().(int64)
+	if !ok {
+		return lua.LNil
+	}
+
+	t := stdtime.Unix(0, nsec)
+	ud := l.NewUserData()
+	ud.Value = &Time{time: t}
+	ud.Metatable = value.GetTypeMetatable(l, timeTypeName)
+	return ud
+}
+
 // AfterStartYield is yielded by time.after() to create a timer channel.
-// Uses Sleep command and sends time.Now() to channel when complete.
-// The channel is a standard engine.Channel that works with channel.select.
+// Uses TimerStart command with topic-based delivery - returns channel immediately,
+// channel receives when timer fires asynchronously.
+// This is essentially TimerStartYield but returns only the channel (not Timer object).
 type AfterStartYield struct {
-	Duration stdtime.Duration
-	Channel  *engine.Channel
+	TimerStartYield
 }
 
-var afterStartYieldPool = sync.Pool{
-	New: func() interface{} { return &AfterStartYield{} },
-}
-
-func acquireAfterStartYield(d stdtime.Duration, ch *engine.Channel) *AfterStartYield {
-	y := afterStartYieldPool.Get().(*AfterStartYield)
-	y.Duration = d
-	y.Channel = ch
-	return y
-}
-
-func ReleaseAfterStartYield(y *AfterStartYield) {
-	y.Duration = 0
-	y.Channel = nil
-	afterStartYieldPool.Put(y)
-}
-
-func (y *AfterStartYield) Release()                    { ReleaseAfterStartYield(y) }
-func (y *AfterStartYield) String() string              { return "<after_start_yield>" }
-func (y *AfterStartYield) Type() lua.LValueType        { return lua.LTUserData }
-func (y *AfterStartYield) CmdID() dispatcher.CommandID { return clockapi.Sleep }
-func (y *AfterStartYield) ToCommand() dispatcher.Command {
-	return clockapi.SleepCmd{Duration: y.Duration}
-}
-
-// HandleResult implements HandledYield. Called when sleep completes.
-// Sends time.Now() to the channel and returns the channel.
-func (y *AfterStartYield) HandleResult(l *lua.LState, _ any, err error) []lua.LValue {
-	if err != nil {
-		return []lua.LValue{lua.LNil, wrapErrorValue(l, err, "time.after")}
+func acquireAfterStartYield(d stdtime.Duration, ch *engine.Channel, pid relay.PID, topic string) *AfterStartYield {
+	return &AfterStartYield{
+		TimerStartYield: TimerStartYield{
+			Duration: d,
+			Channel:  ch,
+			PID:      pid,
+			Topic:    topic,
+		},
 	}
+}
 
-	// Get current time
-	var t stdtime.Time
-	if ref := clockapi.GetTimeReference(l.Context()); ref != nil {
-		t = ref.Now()
-	} else {
-		t = stdtime.Now()
+func (y *AfterStartYield) String() string { return "<after_start_yield>" }
+
+// HandleResult returns just the channel, not a Timer object.
+func (y *AfterStartYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	results := y.TimerStartYield.HandleResult(l, data, err)
+	if len(results) == 1 {
+		// Got Timer userdata, extract channel
+		if ud, ok := results[0].(*lua.LUserData); ok {
+			if timer, ok := ud.Value.(*Timer); ok {
+				return []lua.LValue{timer.channelUD}
+			}
+		}
 	}
-
-	// Create time userdata
-	timeUD := l.NewUserData()
-	timeUD.Value = &Time{time: t}
-	timeUD.Metatable = value.GetTypeMetatable(l, timeTypeName)
-
-	// Send time to channel (buffered, won't block)
-	y.Channel.Send(nil, timeUD, nil)
-
-	// Return the channel
-	return []lua.LValue{y.Channel.Value()}
-}
-
-// TimerWaitYield is yielded to wait for timer to fire.
-type TimerWaitYield struct {
-	TimerID uint64
-}
-
-var timerWaitYieldPool = sync.Pool{
-	New: func() interface{} { return &TimerWaitYield{} },
-}
-
-func acquireTimerWaitYield(id uint64) *TimerWaitYield {
-	y := timerWaitYieldPool.Get().(*TimerWaitYield)
-	y.TimerID = id
-	return y
-}
-
-func ReleaseTimerWaitYield(y *TimerWaitYield) {
-	y.TimerID = 0
-	timerWaitYieldPool.Put(y)
-}
-
-func (y *TimerWaitYield) Release()                    { ReleaseTimerWaitYield(y) }
-func (y *TimerWaitYield) String() string              { return "<timer_wait_yield>" }
-func (y *TimerWaitYield) Type() lua.LValueType        { return lua.LTUserData }
-func (y *TimerWaitYield) CmdID() dispatcher.CommandID { return clockapi.TimerWait }
-func (y *TimerWaitYield) ToCommand() dispatcher.Command {
-	return clockapi.TimerWaitCmd{TimerID: y.TimerID}
+	return results
 }
 
 // TimerStopYield is yielded to stop a timer.
@@ -515,22 +512,32 @@ func (y *TimerResetYield) ToCommand() dispatcher.Command {
 }
 
 // TickerStartYield is yielded to create a new ticker.
+// Uses topic-based delivery like events/websocket.
 type TickerStartYield struct {
 	Duration stdtime.Duration
+	Channel  *engine.Channel
+	PID      relay.PID
+	Topic    string
 }
 
 var tickerStartYieldPool = sync.Pool{
 	New: func() interface{} { return &TickerStartYield{} },
 }
 
-func acquireTickerStartYield(d stdtime.Duration) *TickerStartYield {
+func acquireTickerStartYield(d stdtime.Duration, ch *engine.Channel, pid relay.PID, topic string) *TickerStartYield {
 	y := tickerStartYieldPool.Get().(*TickerStartYield)
 	y.Duration = d
+	y.Channel = ch
+	y.PID = pid
+	y.Topic = topic
 	return y
 }
 
 func ReleaseTickerStartYield(y *TickerStartYield) {
 	y.Duration = 0
+	y.Channel = nil
+	y.PID = relay.PID{}
+	y.Topic = ""
 	tickerStartYieldPool.Put(y)
 }
 
@@ -539,11 +546,11 @@ func (y *TickerStartYield) String() string              { return "<ticker_start_
 func (y *TickerStartYield) Type() lua.LValueType        { return lua.LTUserData }
 func (y *TickerStartYield) CmdID() dispatcher.CommandID { return clockapi.TickerStart }
 func (y *TickerStartYield) ToCommand() dispatcher.Command {
-	return clockapi.TickerStartCmd{Duration: y.Duration}
+	return clockapi.TickerStartCmd{Duration: y.Duration, PID: y.PID, Topic: y.Topic}
 }
 
-// HandleResult implements HandledYield to convert ticker ID to Ticker userdata.
-// Returns a Ticker with a TickerChannel that yields on receive operations.
+// HandleResult implements HandledYield to set up topic subscription.
+// Returns a Ticker with an engine.Channel that works with channel.select.
 func (y *TickerStartYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		return []lua.LValue{lua.LNil, wrapErrorValue(l, err, "ticker start")}
@@ -551,7 +558,6 @@ func (y *TickerStartYield) HandleResult(l *lua.LState, data any, err error) []lu
 
 	result, ok := data.(clockapi.TickerStartResult)
 	if !ok {
-		// Fallback for backward compatibility with tests that return uint64
 		if id, ok := data.(uint64); ok {
 			result = clockapi.TickerStartResult{ID: id}
 		} else {
@@ -559,9 +565,25 @@ func (y *TickerStartYield) HandleResult(l *lua.LState, data any, err error) []lu
 		}
 	}
 
-	// Create ticker channel that yields TickerNextYield on receive
-	tickerCh := &TickerChannel{TickerID: result.ID}
-	ticker := &Ticker{ID: result.ID, Channel: tickerCh}
+	// Create channel userdata
+	channelUD := engine.PushChannel(l, y.Channel)
+	l.Pop(1)
+
+	// Subscribe channel to topic
+	proc := engine.GetProcess(l)
+	if proc != nil {
+		if err := proc.Subscribe(y.Topic, y.Channel); err != nil {
+			return []lua.LValue{lua.LNil, wrapErrorValue(l, err, "ticker subscribe")}
+		}
+		proc.SetTopicHandler(y.Topic, tickerMessageHandler)
+	}
+
+	// Create ticker with cached channel
+	ticker := &Ticker{
+		ID:        result.ID,
+		channelUD: channelUD,
+		channel:   y.Channel,
+	}
 
 	ud := l.NewUserData()
 	ud.Value = ticker
@@ -583,32 +605,23 @@ func (y *TickerStartYield) HandleResult(l *lua.LState, data any, err error) []lu
 	return []lua.LValue{ud}
 }
 
-// TickerNextYield is yielded to wait for the next tick.
-type TickerNextYield struct {
-	TickerID uint64
-}
+// tickerMessageHandler converts tick payloads to time userdata.
+func tickerMessageHandler(_ context.Context, l *lua.LState, _ relay.PID, _ string, payloads []payload.Payload) lua.LValue {
+	if len(payloads) == 0 {
+		return lua.LNil
+	}
 
-var tickerNextYieldPool = sync.Pool{
-	New: func() interface{} { return &TickerNextYield{} },
-}
+	p := payloads[0]
+	nsec, ok := p.Data().(int64)
+	if !ok {
+		return lua.LNil
+	}
 
-func acquireTickerNextYield(id uint64) *TickerNextYield {
-	y := tickerNextYieldPool.Get().(*TickerNextYield)
-	y.TickerID = id
-	return y
-}
-
-func ReleaseTickerNextYield(y *TickerNextYield) {
-	y.TickerID = 0
-	tickerNextYieldPool.Put(y)
-}
-
-func (y *TickerNextYield) Release()                    { ReleaseTickerNextYield(y) }
-func (y *TickerNextYield) String() string              { return "<ticker_next_yield>" }
-func (y *TickerNextYield) Type() lua.LValueType        { return lua.LTUserData }
-func (y *TickerNextYield) CmdID() dispatcher.CommandID { return clockapi.TickerNext }
-func (y *TickerNextYield) ToCommand() dispatcher.Command {
-	return clockapi.TickerNextCmd{TickerID: y.TickerID}
+	t := stdtime.Unix(0, nsec)
+	ud := l.NewUserData()
+	ud.Value = &Time{time: t}
+	ud.Metatable = value.GetTypeMetatable(l, timeTypeName)
+	return ud
 }
 
 // TickerStopYield is yielded to stop a ticker.
@@ -640,63 +653,19 @@ func (y *TickerStopYield) ToCommand() dispatcher.Command {
 }
 
 // Ticker is the Lua userdata for ticker operations.
+// Uses engine.Channel for receiving ticks via topic subscription.
 type Ticker struct {
-	ID      uint64
-	Channel *TickerChannel
-}
-
-// TickerChannel is a channel-like type that yields TickerNextYield on receive.
-type TickerChannel struct {
-	TickerID uint64
-}
-
-// tickerChannelReceive yields TickerNextYield to wait for next tick.
-func tickerChannelReceive(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	ch, ok := ud.Value.(*TickerChannel)
-	if !ok {
-		l.ArgError(1, "ticker channel expected")
-		return 0
-	}
-	yield := acquireTickerNextYield(ch.TickerID)
-	l.Push(yield)
-	return -1
-}
-
-func registerTickerChannelMethods() {
-	value.RegisterMethods(nil, tickerChannelTypeName, map[string]lua.LGoFunc{
-		"receive": tickerChannelReceive,
-	})
+	ID        uint64
+	channelUD *lua.LUserData  // Cached channel userdata
+	channel   *engine.Channel // The underlying channel
 }
 
 // Timer is the Lua userdata for timer operations.
+// Uses engine.Channel for receiving timer fires via topic subscription.
 type Timer struct {
-	ID      uint64
-	Channel *TimerChannel
-}
-
-// TimerChannel is a channel-like type that yields TimerWaitYield on receive.
-type TimerChannel struct {
-	TimerID uint64
-}
-
-// timerChannelReceive yields TimerWaitYield to wait for timer to fire.
-func timerChannelReceive(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	ch, ok := ud.Value.(*TimerChannel)
-	if !ok {
-		l.ArgError(1, "timer channel expected")
-		return 0
-	}
-	yield := acquireTimerWaitYield(ch.TimerID)
-	l.Push(yield)
-	return -1
-}
-
-func registerTimerChannelMethods() {
-	value.RegisterMethods(nil, timerChannelTypeName, map[string]lua.LGoFunc{
-		"receive": timerChannelReceive,
-	})
+	ID        uint64
+	channelUD *lua.LUserData  // Cached channel userdata
+	channel   *engine.Channel // The underlying channel
 }
 
 func registerTimerMethods() {
@@ -718,14 +687,11 @@ func checkTimer(l *lua.LState, idx int) *Timer {
 
 func timerChannelMethod(l *lua.LState) int {
 	timer := checkTimer(l, 1)
-	if timer.Channel == nil {
+	if timer.channelUD == nil {
 		l.RaiseError("timer has no channel")
 		return 0
 	}
-	ud := l.NewUserData()
-	ud.Value = timer.Channel
-	ud.Metatable = value.GetTypeMetatable(nil, timerChannelTypeName)
-	l.Push(ud)
+	l.Push(timer.channelUD)
 	return 1
 }
 
@@ -766,6 +732,12 @@ func sleepFunc(l *lua.LState) int {
 }
 
 func timerFunc(l *lua.LState) int {
+	ctx := l.Context()
+	if ctx == nil {
+		l.RaiseError("time.timer: no context")
+		return 0
+	}
+
 	duration, err := ParseDuration(l, 1)
 	if err != nil {
 		l.RaiseError("time.timer: %s", err.Error())
@@ -775,7 +747,19 @@ func timerFunc(l *lua.LState) int {
 		l.RaiseError("time.timer: duration must be > 0")
 		return 0
 	}
-	yield := acquireTimerStartYield(duration)
+
+	pid, ok := runtime.GetFramePID(ctx)
+	if !ok {
+		l.RaiseError("time.timer: no process PID")
+		return 0
+	}
+
+	// Create channel and unique topic
+	ch := engine.NewChannel(1)
+	timerID := atomic.AddUint64(&timerCounter, 1)
+	topic := fmt.Sprintf("timer@%d", timerID)
+
+	yield := acquireTimerStartYield(duration, ch, pid, topic)
 	l.Push(yield)
 	return -1
 }
@@ -783,6 +767,12 @@ func timerFunc(l *lua.LState) int {
 // afterFunc returns a channel that receives once after the duration.
 // Returns a standard engine.Channel that works with channel.select.
 func afterFunc(l *lua.LState) int {
+	ctx := l.Context()
+	if ctx == nil {
+		l.RaiseError("time.after: no context")
+		return 0
+	}
+
 	duration, err := ParseDuration(l, 1)
 	if err != nil {
 		l.RaiseError("time.after: %s", err.Error())
@@ -793,12 +783,18 @@ func afterFunc(l *lua.LState) int {
 		return 0
 	}
 
-	// Create buffered channel (size 1) for the timer result
-	ch := engine.NewChannel(1)
-	engine.PushChannel(l, ch)
-	l.Pop(1)
+	pid, ok := runtime.GetFramePID(ctx)
+	if !ok {
+		l.RaiseError("time.after: no process PID")
+		return 0
+	}
 
-	yield := acquireAfterStartYield(duration, ch)
+	// Create channel and unique topic
+	ch := engine.NewChannel(1)
+	timerID := atomic.AddUint64(&timerCounter, 1)
+	topic := fmt.Sprintf("after@%d", timerID)
+
+	yield := acquireAfterStartYield(duration, ch, pid, topic)
 	l.Push(yield)
 	return -1
 }
@@ -821,6 +817,12 @@ func nowFunc(l *lua.LState) int {
 
 // tickerFunc creates a ticker and returns Ticker userdata with channel.
 func tickerFunc(l *lua.LState) int {
+	ctx := l.Context()
+	if ctx == nil {
+		l.RaiseError("time.ticker: no context")
+		return 0
+	}
+
 	duration, err := ParseDuration(l, 1)
 	if err != nil {
 		l.RaiseError("time.ticker: %s", err.Error())
@@ -830,7 +832,19 @@ func tickerFunc(l *lua.LState) int {
 		l.RaiseError("time.ticker: duration must be > 0")
 		return 0
 	}
-	yield := acquireTickerStartYield(duration)
+
+	pid, ok := runtime.GetFramePID(ctx)
+	if !ok {
+		l.RaiseError("time.ticker: no process PID")
+		return 0
+	}
+
+	// Create channel and unique topic
+	ch := engine.NewChannel(16)
+	tickerID := atomic.AddUint64(&tickerCounter, 1)
+	topic := fmt.Sprintf("ticker@%d", tickerID)
+
+	yield := acquireTickerStartYield(duration, ch, pid, topic)
 	l.Push(yield)
 	return -1
 }
@@ -855,14 +869,11 @@ func tickerStopMethod(l *lua.LState) int {
 
 func tickerChannelMethod(l *lua.LState) int {
 	ticker := checkTicker(l, 1)
-	if ticker.Channel == nil {
+	if ticker.channelUD == nil {
 		l.RaiseError("ticker has no channel")
 		return 0
 	}
-	ud := l.NewUserData()
-	ud.Value = ticker.Channel
-	ud.Metatable = value.GetTypeMetatable(nil, tickerChannelTypeName)
-	l.Push(ud)
+	l.Push(ticker.channelUD)
 	return 1
 }
 

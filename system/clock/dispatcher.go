@@ -8,7 +8,8 @@ import (
 
 	clockapi "github.com/wippyai/runtime/api/clock"
 	"github.com/wippyai/runtime/api/dispatcher"
-	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/relay"
 )
 
 // Dispatcher handles clock commands using timing wheel for async operations.
@@ -45,7 +46,6 @@ func (d *Dispatcher) Stop(_ context.Context) error {
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
 	register(clockapi.Sleep, dispatcher.HandlerFunc(d.handleSleep))
 	register(clockapi.TickerStart, dispatcher.HandlerFunc(d.handleTickerStart))
-	register(clockapi.TickerNext, dispatcher.HandlerFunc(d.handleTickerNext))
 	register(clockapi.TickerStop, dispatcher.HandlerFunc(d.handleTickerStop))
 	register(clockapi.TimerStart, dispatcher.HandlerFunc(d.handleTimerStart))
 	register(clockapi.TimerWait, dispatcher.HandlerFunc(d.handleTimerWait))
@@ -57,7 +57,7 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 // Short sleeps use Go's optimized timer heap directly.
 const shortSleepThreshold = 10 * time.Millisecond
 
-func (d *Dispatcher) handleSleep(_ context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleSleep(_ context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	c := cmd.(clockapi.SleepCmd)
 	if c.Duration <= 0 {
 		receiver.CompleteYield(tag, nil, nil)
@@ -75,12 +75,18 @@ func (d *Dispatcher) handleSleep(_ context.Context, cmd dispatcher.Command, tag 
 	return nil
 }
 
-func (d *Dispatcher) handleTickerStart(_ context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleTickerStart(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	c := cmd.(clockapi.TickerStartCmd)
 	if c.Duration <= 0 {
 		return nil
 	}
-	id := d.tickers.Start(c.Duration)
+
+	node := relay.GetNode(ctx)
+	if node == nil {
+		return nil
+	}
+
+	id := d.tickers.Start(ctx, c.Duration, c.PID, c.Topic, node)
 	receiver.CompleteYield(tag, clockapi.TickerStartResult{
 		ID: id,
 		Stop: func() {
@@ -90,24 +96,7 @@ func (d *Dispatcher) handleTickerStart(_ context.Context, cmd dispatcher.Command
 	return nil
 }
 
-func (d *Dispatcher) handleTickerNext(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
-	c := cmd.(clockapi.TickerNextCmd)
-	go func() {
-		t, err := d.tickers.Next(ctx, c.TickerID)
-		if ctx.Err() != nil {
-			receiver.CompleteYield(tag, nil, ctx.Err())
-			return
-		}
-		if err != nil {
-			receiver.CompleteYield(tag, nil, err)
-			return
-		}
-		receiver.CompleteYield(tag, t.UnixNano(), nil)
-	}()
-	return nil
-}
-
-func (d *Dispatcher) handleTickerStop(_ context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleTickerStop(_ context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	c := cmd.(clockapi.TickerStopCmd)
 	if err := d.tickers.Stop(c.TickerID); err != nil {
 		receiver.CompleteYield(tag, nil, err)
@@ -117,12 +106,25 @@ func (d *Dispatcher) handleTickerStop(_ context.Context, cmd dispatcher.Command,
 	return nil
 }
 
-func (d *Dispatcher) handleTimerStart(_ context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleTimerStart(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	c := cmd.(clockapi.TimerStartCmd)
 	if c.Duration <= 0 {
 		return nil
 	}
-	id := d.wheel.Start(c.Duration)
+
+	node := relay.GetNode(ctx)
+	if node == nil {
+		return nil
+	}
+
+	// Start timer with callback that sends to topic when it fires
+	id := d.wheel.StartWithCallback(c.Duration, func() {
+		t := time.Now()
+		p := payload.NewPayload(t.UnixNano(), payload.Golang)
+		pkg := relay.NewPackage(relay.PID{}, c.PID, c.Topic, p)
+		_ = node.Send(pkg)
+	})
+
 	receiver.CompleteYield(tag, clockapi.TimerStartResult{
 		ID: id,
 		Stop: func() {
@@ -132,7 +134,7 @@ func (d *Dispatcher) handleTimerStart(_ context.Context, cmd dispatcher.Command,
 	return nil
 }
 
-func (d *Dispatcher) handleTimerWait(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleTimerWait(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	c := cmd.(clockapi.TimerWaitCmd)
 	go func() {
 		t, err := d.wheel.Wait(ctx, c.TimerID)
@@ -149,7 +151,7 @@ func (d *Dispatcher) handleTimerWait(ctx context.Context, cmd dispatcher.Command
 	return nil
 }
 
-func (d *Dispatcher) handleTimerStop(_ context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleTimerStop(_ context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	c := cmd.(clockapi.TimerStopCmd)
 	stopped, err := d.wheel.Stop(c.TimerID)
 	if err != nil {
@@ -160,7 +162,7 @@ func (d *Dispatcher) handleTimerStop(_ context.Context, cmd dispatcher.Command, 
 	return nil
 }
 
-func (d *Dispatcher) handleTimerReset(_ context.Context, cmd dispatcher.Command, tag uint64, receiver process.ResultReceiver) error {
+func (d *Dispatcher) handleTimerReset(_ context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	c := cmd.(clockapi.TimerResetCmd)
 	if c.Duration <= 0 {
 		return nil
@@ -172,11 +174,6 @@ func (d *Dispatcher) handleTimerReset(_ context.Context, cmd dispatcher.Command,
 	}
 	receiver.CompleteYield(tag, wasActive, nil)
 	return nil
-}
-
-// AfterResult contains the channel ID for time.after().
-type AfterResult struct {
-	ChannelID uint64
 }
 
 // TickerCount returns the number of active tickers.

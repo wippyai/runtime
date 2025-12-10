@@ -10,8 +10,78 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
+
+const subscriptionTypeName = "events.Subscription"
+
+type Subscription struct {
+	channelUD   *lua.LUserData
+	channel     *engine.Channel
+	unsubscribe func()
+	closed      bool
+	mu          sync.Mutex
+}
+
+func init() {
+	value.RegisterTypeMethods(nil, subscriptionTypeName,
+		map[string]lua.LGoFunc{"__tostring": subscriptionToString},
+		map[string]lua.LGoFunc{
+			"channel": subscriptionChannel,
+			"close":   subscriptionClose,
+		})
+}
+
+func checkSubscription(l *lua.LState) *Subscription {
+	ud := l.CheckUserData(1)
+	if sub, ok := ud.Value.(*Subscription); ok {
+		return sub
+	}
+	l.ArgError(1, "subscription expected")
+	return nil
+}
+
+func subscriptionToString(l *lua.LState) int {
+	l.Push(lua.LString("events.Subscription{}"))
+	return 1
+}
+
+func subscriptionChannel(l *lua.LState) int {
+	sub := checkSubscription(l)
+	if sub == nil {
+		return 0
+	}
+	l.Push(sub.channelUD)
+	return 1
+}
+
+func subscriptionClose(l *lua.LState) int {
+	sub := checkSubscription(l)
+	if sub == nil {
+		return 0
+	}
+
+	sub.mu.Lock()
+	defer sub.mu.Unlock()
+
+	if sub.closed {
+		l.Push(lua.LTrue)
+		return 1
+	}
+
+	sub.closed = true
+	if sub.unsubscribe != nil {
+		sub.unsubscribe()
+		sub.unsubscribe = nil
+	}
+	if sub.channel != nil {
+		sub.channel.Close(nil)
+	}
+
+	l.Push(lua.LTrue)
+	return 1
+}
 
 // EventSubscribeYield is yielded to subscribe to events from the bus.
 type EventSubscribeYield struct {
@@ -63,14 +133,14 @@ func (y *EventSubscribeYield) ToCommand() dispatcher.Command {
 
 func (y *EventSubscribeYield) Release() { ReleaseEventSubscribeYield(y) }
 
-// HandleResult sets up the topic subscription and returns the channel.
+// HandleResult sets up the topic subscription and returns a Subscription object.
 func (y *EventSubscribeYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
 	}
 
 	// Create channel userdata (PushChannel also sets ch.Value internally)
-	ud := engine.PushChannel(l, y.Channel)
+	channelUD := engine.PushChannel(l, y.Channel)
 	l.Pop(1) // Remove from stack since we return via slice
 
 	// Try to subscribe channel to topic if we're in a process context
@@ -82,20 +152,38 @@ func (y *EventSubscribeYield) HandleResult(l *lua.LState, data any, err error) [
 		proc.SetTopicHandler(y.Topic, eventMessageHandler)
 	}
 
-	// Register cleanup to unsubscribe from dispatcher when frame is released
-	if sub, ok := data.(event.Subscription); ok && sub.Unsubscribe != nil {
+	// Create subscription with channel and unsubscribe function
+	sub := &Subscription{
+		channelUD: channelUD,
+		channel:   y.Channel,
+	}
+
+	// Store unsubscribe function from dispatcher
+	if eventSub, ok := data.(event.Subscription); ok && eventSub.Unsubscribe != nil {
+		sub.unsubscribe = eventSub.Unsubscribe
+
+		// Register cleanup to unsubscribe from dispatcher when frame is released
 		ctx := l.Context()
 		if ctx != nil {
 			if store := resource.GetStore(ctx); store != nil {
 				store.AddCleanup(func() error {
-					sub.Unsubscribe()
+					sub.mu.Lock()
+					defer sub.mu.Unlock()
+					if !sub.closed && sub.unsubscribe != nil {
+						sub.unsubscribe()
+						sub.unsubscribe = nil
+					}
 					return nil
 				})
 			}
 		}
 	}
 
-	return []lua.LValue{ud, lua.LNil}
+	// Wrap in Subscription userdata
+	subUD := value.PushTypedUserData(l, sub, subscriptionTypeName)
+	l.Pop(1) // Remove from stack since we return via slice
+
+	return []lua.LValue{subUD, lua.LNil}
 }
 
 // eventMessageHandler converts event payloads to Lua tables.

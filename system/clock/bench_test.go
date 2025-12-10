@@ -9,7 +9,28 @@ import (
 	clockapi "github.com/wippyai/runtime/api/clock"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/relay"
 )
+
+type mockRelayNode struct{}
+
+func (m *mockRelayNode) Send(_ *relay.Package) error                     { return nil }
+func (m *mockRelayNode) ID() relay.NodeID                                { return "" }
+func (m *mockRelayNode) RegisterHost(_ relay.HostID, _ relay.Host) error { return nil }
+func (m *mockRelayNode) UnregisterHost(_ relay.HostID)                   {}
+func (m *mockRelayNode) GetHost(_ relay.HostID) (relay.Host, bool)       { return nil, false }
+func (m *mockRelayNode) Attach(_ relay.PID, _ chan *relay.Package) (context.CancelFunc, error) {
+	return func() {}, nil
+}
+func (m *mockRelayNode) Detach(_ relay.PID) {}
+
+var mockPID = relay.PID{}
+
+func setupTickerTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	node := &mockRelayNode{}
+	return relay.WithNode(ctx, node)
+}
 
 // Wheel Timer Benchmarks
 
@@ -72,23 +93,16 @@ func BenchmarkWheelTimerWaitShort(b *testing.B) {
 
 // Ticker Benchmarks
 
-func BenchmarkTickerStart(b *testing.B) {
-	r := NewTickerRegistry()
-	defer r.Close()
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		r.Start(time.Hour)
-	}
-}
-
 func BenchmarkTickerStartStop(b *testing.B) {
 	r := NewTickerRegistry()
 	defer r.Close()
 
+	ctx := context.Background()
+	node := &mockRelayNode{}
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		id := r.Start(time.Hour)
+		id := r.Start(ctx, time.Hour, mockPID, "test", node)
 		_ = r.Stop(id)
 	}
 }
@@ -97,25 +111,16 @@ func BenchmarkTickerStartStopParallel(b *testing.B) {
 	r := NewTickerRegistry()
 	defer r.Close()
 
+	ctx := context.Background()
+	node := &mockRelayNode{}
+
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			id := r.Start(time.Hour)
+			id := r.Start(ctx, time.Hour, mockPID, "test", node)
 			_ = r.Stop(id)
 		}
 	})
-}
-
-func BenchmarkTickerNext(b *testing.B) {
-	r := NewTickerRegistry()
-	defer r.Close()
-
-	id := r.Start(time.Nanosecond)
-	ctx := context.Background()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, _ = r.Next(ctx, id)
-	}
 }
 
 // Dispatcher Benchmarks
@@ -202,7 +207,7 @@ func BenchmarkDispatcherTimerStartStop(b *testing.B) {
 	}
 }
 
-func BenchmarkDispatcherTickerStartNext(b *testing.B) {
+func BenchmarkDispatcherTickerStartStop(b *testing.B) {
 	d := NewDispatcher()
 	defer func() { _ = d.Stop(context.Background()) }()
 
@@ -211,26 +216,17 @@ func BenchmarkDispatcherTickerStartNext(b *testing.B) {
 		handlers[id] = h
 	})
 	startH := handlers[clockapi.TickerStart]
-	nextH := handlers[clockapi.TickerNext]
 	stopH := handlers[clockapi.TickerStop]
 
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-
-	var tickerID uint64
-	_ = startH.Handle(ctx, clockapi.TickerStartCmd{Duration: time.Nanosecond}, 0, &testReceiver{fn: func(data any, _ error) {
-		tickerID = data.(clockapi.TickerStartResult).ID
-	}})
-	defer func() {
-		_ = stopH.Handle(ctx, clockapi.TickerStopCmd{TickerID: tickerID}, 0, &testReceiver{fn: func(_ any, _ error) {}})
-	}()
+	ctx := setupTickerTestContext()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		done := make(chan struct{})
-		_ = nextH.Handle(ctx, clockapi.TickerNextCmd{TickerID: tickerID}, 0, &testReceiver{fn: func(_ any, _ error) {
-			close(done)
+		var tickerID uint64
+		_ = startH.Handle(ctx, clockapi.TickerStartCmd{Duration: time.Hour, PID: mockPID, Topic: "bench"}, 0, &testReceiver{fn: func(data any, _ error) {
+			tickerID = data.(clockapi.TickerStartResult).ID
 		}})
-		<-done
+		_ = stopH.Handle(ctx, clockapi.TickerStopCmd{TickerID: tickerID}, 0, &testReceiver{fn: func(_ any, _ error) {}})
 	}
 }
 
@@ -259,6 +255,9 @@ func BenchmarkTicker1000Concurrent(b *testing.B) {
 	r := NewTickerRegistry()
 	defer r.Close()
 
+	ctx := context.Background()
+	node := &mockRelayNode{}
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var wg sync.WaitGroup
@@ -266,7 +265,7 @@ func BenchmarkTicker1000Concurrent(b *testing.B) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				id := r.Start(time.Hour)
+				id := r.Start(ctx, time.Hour, mockPID, "test", node)
 				_ = r.Stop(id)
 			}()
 		}
@@ -292,10 +291,13 @@ func BenchmarkTickerAllocations(b *testing.B) {
 	r := NewTickerRegistry()
 	defer r.Close()
 
+	ctx := context.Background()
+	node := &mockRelayNode{}
+
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		id := r.Start(time.Hour)
+		id := r.Start(ctx, time.Hour, mockPID, "test", node)
 		_ = r.Stop(id)
 	}
 }

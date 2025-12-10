@@ -56,6 +56,7 @@ func createModuleTable() *lua.LTable {
 	mod.RawSetString("read", lua.LGoFunc(ioRead))
 	mod.RawSetString("readline", lua.LGoFunc(ioReadline))
 	mod.RawSetString("flush", lua.LGoFunc(ioFlush))
+	mod.RawSetString("args", lua.LGoFunc(ioArgs))
 
 	mod.Immutable = true
 	return mod
@@ -216,5 +217,23 @@ func ioFlush(l *lua.LState) int {
 	}
 
 	l.Push(lua.LTrue)
+	return 1
+}
+
+// ioArgs returns command line arguments as a Lua table.
+// io.args() -> table
+func ioArgs(l *lua.LState) int {
+	tc := terminal.GetTerminalContext(l.Context())
+	if tc == nil {
+		l.Push(lua.CreateTable(0, 0))
+		return 1
+	}
+
+	t := lua.CreateTable(len(tc.Args), 0)
+	for i, arg := range tc.Args {
+		t.RawSetInt(i+1, lua.LString(arg))
+	}
+
+	l.Push(t)
 	return 1
 }

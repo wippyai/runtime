@@ -201,11 +201,19 @@ func (h *Host) preparePID(ctx context.Context, start *process.Start) relay.PID {
 func (h *Host) prepareContext(ctx context.Context, pid relay.PID, start *process.Start) context.Context {
 	pCtx, fc := ctxapi.OpenFrameContextOn(h.ctx, ctx)
 
+	// Extract args from Input payloads
+	var args []string
+	for _, p := range start.Input {
+		if s, ok := p.Data().(string); ok {
+			args = append(args, s)
+		}
+	}
+
 	pairsLen := 3 + len(start.Context)
 	pairs := make([]ctxapi.Pair, pairsLen)
 	pairs[0] = ctxapi.Pair{Key: runtime.FrameIDKey, Value: start.Source}
 	pairs[1] = ctxapi.Pair{Key: runtime.FramePIDKey, Value: pid}
-	pairs[2] = ctxapi.Pair{Key: terminal.TerminalCtxKey, Value: terminal.NewTerminalContext(os.Stdin, os.Stdout, os.Stderr)}
+	pairs[2] = ctxapi.Pair{Key: terminal.TerminalCtxKey, Value: terminal.NewTerminalContextWithArgs(os.Stdin, os.Stdout, os.Stderr, args)}
 	copy(pairs[3:], start.Context)
 
 	if err := fc.SetMultiple(pairs...); err != nil {

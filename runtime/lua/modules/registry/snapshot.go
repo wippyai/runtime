@@ -27,7 +27,7 @@ func (s *Snapshot) GetAllEntries() ([]regapi.Entry, error) {
 // GetEntry returns a specific entry by ID
 func (s *Snapshot) GetEntry(id regapi.ID) (regapi.Entry, error) {
 	for _, entry := range s.entries {
-		if entry.ID == id {
+		if entry.ID.Equal(id) {
 			return entry, nil
 		}
 	}

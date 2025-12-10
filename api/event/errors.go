@@ -41,3 +41,13 @@ func NewSubscriberError(err error) *Error {
 		cause:     err,
 	}
 }
+
+// NewAwaitTimeoutError creates an error for event await timeout.
+func NewAwaitTimeoutError(path Path) *Error {
+	return &Error{
+		kind:      apierror.KindTimeout,
+		message:   "await timeout waiting for event: " + string(path),
+		retryable: apierror.True,
+		details:   attrs.NewBagFrom(map[string]any{"path": string(path)}),
+	}
+}

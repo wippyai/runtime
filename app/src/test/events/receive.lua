@@ -6,9 +6,11 @@ local function main()
     local time = require("time")
 
     -- Subscribe to test events
-    local ch, err = events.subscribe("test.system")
+    local sub, err = events.subscribe("test.system")
     assert.is_nil(err, "subscribe should succeed")
-    assert.not_nil(ch, "channel should be returned")
+    assert.not_nil(sub, "subscription should be returned")
+
+    local ch = sub:channel()
 
     -- Spawn sender coroutine
     coroutine.spawn(function()

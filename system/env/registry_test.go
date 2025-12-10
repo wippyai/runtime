@@ -343,11 +343,11 @@ func TestRegistry_Lookup(t *testing.T) {
 		assert.Equal(t, "existing_value", value)
 	})
 
-	t.Run("found with empty value", func(t *testing.T) {
+	t.Run("empty value treated as not found", func(t *testing.T) {
 		value, found, err := reg.Lookup(ctx, "empty_var")
 		require.NoError(t, err)
-		assert.True(t, found)
-		assert.Equal(t, "", value) // Empty string is valid
+		assert.False(t, found, "empty string should be treated as not found")
+		assert.Equal(t, "", value)
 	})
 
 	t.Run("not found", func(t *testing.T) {
@@ -1101,4 +1101,64 @@ func TestRegistry_ConcurrentAccess(t *testing.T) {
 	value, err := reg.Get(ctx, "concurrent_var")
 	require.NoError(t, err)
 	assert.NotEmpty(t, value)
+}
+
+func TestRegistry_Get_EmptyStringTreatedAsNotSet(t *testing.T) {
+	reg, _, ctx := setupTestRegistry()
+	require.NoError(t, reg.Start(ctx))
+	defer safeStop(t, reg)
+
+	// Setup storage with empty string value
+	storage := newMockStorage(map[string]string{
+		"empty_var": "",
+	})
+	storageID := registry.ParseID("app:storage")
+	reg.storages.Store(storageID, storage)
+
+	// Register variable with default value
+	variable := env.Variable{
+		ID:           registry.ParseID("app:empty_var"),
+		Name:         "empty_var",
+		StorageID:    storageID,
+		DefaultValue: "default_value",
+	}
+	reg.variablesByID.Store(variable.ID, variable)
+	reg.variablesByName.Store("empty_var", variable.ID)
+
+	// Empty string should be treated as not set, so default value should be returned
+	value, err := reg.Get(ctx, "empty_var")
+	require.NoError(t, err)
+	assert.Equal(t, "default_value", value, "empty string should be treated as not set, returning default value")
+
+	// Lookup should also report not found
+	value, found, err := reg.Lookup(ctx, "empty_var")
+	require.NoError(t, err)
+	assert.False(t, found, "empty string should be treated as not found")
+	assert.Empty(t, value)
+}
+
+func TestRegistry_Get_EmptyStringNoDefault(t *testing.T) {
+	reg, _, ctx := setupTestRegistry()
+	require.NoError(t, reg.Start(ctx))
+	defer safeStop(t, reg)
+
+	// Setup storage with empty string value
+	storage := newMockStorage(map[string]string{
+		"empty_var": "",
+	})
+	storageID := registry.ParseID("app:storage")
+	reg.storages.Store(storageID, storage)
+
+	// Register variable without default value
+	variable := env.Variable{
+		ID:        registry.ParseID("app:empty_var"),
+		Name:      "empty_var",
+		StorageID: storageID,
+	}
+	reg.variablesByID.Store(variable.ID, variable)
+	reg.variablesByName.Store("empty_var", variable.ID)
+
+	// Empty string with no default should return ErrVariableNotFound
+	_, err := reg.Get(ctx, "empty_var")
+	assert.ErrorIs(t, err, env.ErrVariableNotFound, "empty string with no default should return not found error")
 }

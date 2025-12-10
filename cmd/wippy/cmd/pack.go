@@ -47,7 +47,7 @@ func init() {
 	packCmd.Flags().StringP("lock-file", "l", "wippy.lock", "path to lock file")
 	packCmd.Flags().StringP("description", "d", "", "pack description")
 	packCmd.Flags().StringSliceP("tags", "t", nil, "pack tags")
-	packCmd.Flags().StringArrayP("meta", "m", nil, "custom metadata (key=value, supports dotted notation)")
+	packCmd.Flags().StringArray("meta", nil, "custom metadata (key=value, supports dotted notation)")
 	packCmd.Flags().StringSlice("embed", nil, "embed patterns (entry IDs or names to embed, e.g., app:assets,app:static)")
 	packCmd.Flags().Bool("list", false, "list all fs.directory entries and exit (dry-run mode)")
 	packCmd.Flags().StringSlice("exclude-ns", nil, "exclude entries by namespace patterns (e.g., app.**,test.*)")

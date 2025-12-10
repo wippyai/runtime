@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/boot"
 	logapi "github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
@@ -51,7 +52,7 @@ func init() {
 	runCmd.Flags().String("method", "", "Method to call on exec process (default: entry point)")
 }
 
-func runApp(cmd *cobra.Command, _ []string) error {
+func runApp(cmd *cobra.Command, args []string) error {
 	// Set memory limit early, before any significant allocations
 	memLimit := initMemoryLimit()
 
@@ -146,7 +147,7 @@ func runApp(cmd *cobra.Command, _ []string) error {
 	execSpec, _ := cmd.Flags().GetString("exec")
 	if execSpec != "" {
 		execMethod, _ := cmd.Flags().GetString("method")
-		if err := launchExecProcess(ctx, logger, execSpec, execMethod); err != nil {
+		if err := launchExecProcess(ctx, logger, execSpec, execMethod, args); err != nil {
 			logger.Error("exec launch failed", zap.Error(err))
 			return err
 		}
@@ -354,7 +355,7 @@ func parseExecSpec(spec string) (hostID, namespace, entry string, err error) {
 }
 
 // launchExecProcess launches a process and triggers shutdown on completion
-func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, method string) error {
+func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, method string, args []string) error {
 	hostID, namespace, entry, err := parseExecSpec(execSpec)
 	if err != nil {
 		return NewInvalidExecSpecError(err)
@@ -372,9 +373,15 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, method
 
 	source := registry.NewID(namespace, entry)
 
+	var input payload.Payloads
+	for _, arg := range args {
+		input = append(input, payload.NewString(arg))
+	}
+
 	start := &process.Start{
 		HostID: hostID,
 		Source: source,
+		Input:  input,
 	}
 
 	pid, err := manager.Start(ctx, start)
@@ -386,7 +393,8 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, method
 		zap.String("pid", pid.String()),
 		zap.String("host", hostID),
 		zap.String("source", source.String()),
-		zap.String("method", method))
+		zap.String("method", method),
+		zap.Strings("args", args))
 
 	return nil
 }

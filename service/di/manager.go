@@ -255,7 +255,7 @@ func (m *Manager) handleDefinitionUpdate(ctx context.Context, entry registry.Ent
 	for bindingID, binding := range m.bindings {
 		usesUpdatedDef := false
 		for _, boundContract := range binding.Contracts {
-			if boundContract.Contract == entry.ID {
+			if boundContract.Contract.Equal(entry.ID) {
 				usesUpdatedDef = true
 				break
 			}
@@ -299,7 +299,7 @@ func (m *Manager) handleDefinitionDelete(ctx context.Context, entry registry.Ent
 	// Check if any binding refers to this definition
 	for bindingID, binding := range m.bindings {
 		for _, boundContract := range binding.Contracts {
-			if boundContract.Contract == entry.ID {
+			if boundContract.Contract.Equal(entry.ID) {
 				return errDefinitionInUse(entry.ID, bindingID)
 			}
 		}

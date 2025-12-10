@@ -160,7 +160,7 @@ func setupTestEnvironment(t *testing.T) (context.Context, event.Bus, *BusRunner,
 	ctx, cancel := context.WithCancel(context.Background())
 
 	bus := eventbus.NewBus()
-	busRunner := NewBusRunner(bus, zap.NewNop())
+	busRunner := NewBusRunner(bus, zap.NewNop(), nil)
 	component := newTestComponent(bus)
 
 	componentCleanup := attachComponent(ctx, t, bus, component)
@@ -597,7 +597,7 @@ func TestBusRunner_ErrorPropagation(t *testing.T) {
 	defer cancel()
 
 	bus := eventbus.NewBus()
-	busRunner := NewBusRunner(bus, zap.NewNop())
+	busRunner := NewBusRunner(bus, zap.NewNop(), nil)
 	expectedError := errors2.New("component configuration not allowed")
 
 	// Spawn a test component specifically for error testing
@@ -703,4 +703,164 @@ func TestBusRunner_BeginAndDiscardEvents(t *testing.T) {
 	assert.Equal(t, 2, len(receivedEvents), "Expected 2 events (Begin and Discard)")
 	assert.Equal(t, registry.Begin, receivedEvents[0].Kind, "First event should be Begin")
 	assert.Equal(t, registry.Discard, receivedEvents[1].Kind, "Second event should be Discard")
+}
+
+// TestBusRunner_RollbackOrderWithResolver verifies that rollback deletes dependents before dependencies
+// when using a resolver that can extract dependencies from metadata.
+func TestBusRunner_RollbackOrderWithResolver(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	bus := eventbus.NewBus()
+
+	// Create resolver with meta.server pattern (like HTTP components use)
+	resolver := &testResolver{
+		deps: map[string][]string{
+			"app:router":  {"app:server"},
+			"app:static":  {"app:server"},
+			"app:handler": {"app:router"},
+		},
+	}
+
+	busRunner := NewBusRunner(bus, zap.NewNop(), resolver)
+
+	// Track deletion order
+	var mu sync.Mutex
+	deleteOrder := []string{}
+
+	// Component that tracks operation order and rejects the last one
+	listener, err := eventbus.NewSubscriber(ctx, bus, registry.System, "", func(evt event.Event) {
+		if evt.System != registry.System {
+			return
+		}
+
+		entry, ok := evt.Data.(registry.Entry)
+		if !ok {
+			return
+		}
+
+		if entry.Kind != "http" {
+			return
+		}
+
+		switch evt.Kind {
+		case registry.Create:
+			// Accept creates, but reject "app:handler" to trigger rollback
+			if entry.ID.String() == "app:handler" {
+				bus.Send(context.Background(), event.Event{
+					System: registry.System,
+					Kind:   registry.Reject,
+					Path:   entry.ID.String(),
+					Data:   errors2.New("handler rejected"),
+				})
+				return
+			}
+			bus.Send(context.Background(), event.Event{
+				System: registry.System,
+				Kind:   registry.Accept,
+				Path:   entry.ID.String(),
+			})
+
+		case registry.Delete:
+			mu.Lock()
+			deleteOrder = append(deleteOrder, entry.ID.String())
+			mu.Unlock()
+			bus.Send(context.Background(), event.Event{
+				System: registry.System,
+				Kind:   registry.Accept,
+				Path:   entry.ID.String(),
+			})
+		}
+	})
+	require.NoError(t, err)
+	defer listener.Close()
+
+	// Create entries in dependency order: server -> router -> static -> handler
+	serverID := registry.ParseID("app:server")
+	routerID := registry.ParseID("app:router")
+	staticID := registry.ParseID("app:static")
+	handlerID := registry.ParseID("app:handler")
+
+	changeSet := registry.ChangeSet{
+		{
+			Kind: registry.Create,
+			Entry: registry.Entry{
+				ID:   serverID,
+				Kind: "http",
+				Data: payload.NewString("server"),
+			},
+		},
+		{
+			Kind: registry.Create,
+			Entry: registry.Entry{
+				ID:   routerID,
+				Kind: "http",
+				Data: payload.NewString("router"),
+				Meta: attrs.Bag{"server": serverID.String()},
+			},
+		},
+		{
+			Kind: registry.Create,
+			Entry: registry.Entry{
+				ID:   staticID,
+				Kind: "http",
+				Data: payload.NewString("static"),
+				Meta: attrs.Bag{"server": serverID.String()},
+			},
+		},
+		{
+			Kind: registry.Create,
+			Entry: registry.Entry{
+				ID:   handlerID,
+				Kind: "http",
+				Data: payload.NewString("handler"),
+				Meta: attrs.Bag{"router": routerID.String()},
+			},
+		},
+	}
+
+	_, err = busRunner.Transition(ctx, registry.State{}, changeSet)
+	require.Error(t, err, "Should fail because handler is rejected")
+
+	// Verify deletion order: dependents must be deleted before dependencies
+	// Expected: router, static deleted before server (handler was never created)
+	mu.Lock()
+	defer mu.Unlock()
+
+	require.Len(t, deleteOrder, 3, "Should delete server, router, and static")
+
+	// Find positions
+	serverPos := -1
+	routerPos := -1
+	staticPos := -1
+	for i, id := range deleteOrder {
+		switch id {
+		case "app:server":
+			serverPos = i
+		case "app:router":
+			routerPos = i
+		case "app:static":
+			staticPos = i
+		}
+	}
+
+	// Router and static must be deleted before server
+	assert.Greater(t, serverPos, routerPos, "router must be deleted before server, got order: %v", deleteOrder)
+	assert.Greater(t, serverPos, staticPos, "static must be deleted before server, got order: %v", deleteOrder)
+}
+
+// testResolver implements registry.DependencyResolver for testing
+type testResolver struct {
+	deps map[string][]string
+}
+
+func (r *testResolver) Extract(entry registry.Entry) []string {
+	if deps, ok := r.deps[entry.ID.String()]; ok {
+		return deps
+	}
+	return nil
+}
+
+func (r *testResolver) RegisterPattern(pattern registry.DependencyPattern) error {
+	return nil
 }

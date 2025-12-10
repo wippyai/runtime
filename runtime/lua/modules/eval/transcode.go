@@ -44,7 +44,6 @@ func (t *CommandTranscoder) registerBuiltins() {
 	// Clock commands
 	t.Register(clockapi.Sleep, transcodeSleep)
 	t.Register(clockapi.TickerStart, transcodeTickerStart)
-	t.Register(clockapi.TickerNext, transcodeTickerNext)
 	t.Register(clockapi.TickerStop, transcodeTickerStop)
 	t.Register(clockapi.TimerStart, transcodeTimerStart)
 	t.Register(clockapi.TimerWait, transcodeTimerWait)
@@ -67,15 +66,6 @@ func transcodeTickerStart(l *lua.LState, cmd dispatcher.Command) *lua.LTable {
 	tbl.RawSetString("id", lua.LNumber(clockapi.TickerStart))
 	tbl.RawSetString("type", lua.LString("ticker_start"))
 	tbl.RawSetString("duration", lua.LNumber(ticker.Duration))
-	return tbl
-}
-
-func transcodeTickerNext(l *lua.LState, cmd dispatcher.Command) *lua.LTable {
-	ticker := cmd.(clockapi.TickerNextCmd)
-	tbl := l.CreateTable(0, 3)
-	tbl.RawSetString("id", lua.LNumber(clockapi.TickerNext))
-	tbl.RawSetString("type", lua.LString("ticker_next"))
-	tbl.RawSetString("ticker_id", lua.LNumber(ticker.TickerID))
 	return tbl
 }
 

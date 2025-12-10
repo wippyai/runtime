@@ -6,6 +6,8 @@ import (
 	stdtime "time"
 
 	clockapi "github.com/wippyai/runtime/api/clock"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -81,14 +83,18 @@ func TestSleepYieldPoolConcurrent(t *testing.T) {
 }
 
 func TestTimerStartYieldPool(t *testing.T) {
-	y1 := acquireTimerStartYield(stdtime.Second)
+	ch := engine.NewChannel(1)
+	pid := relay.PID{}
+	topic := "timer-test"
+
+	y1 := acquireTimerStartYield(stdtime.Second, ch, pid, topic)
 	if y1.Duration != stdtime.Second {
 		t.Errorf("expected Duration=%v, got %v", stdtime.Second, y1.Duration)
 	}
 
 	ReleaseTimerStartYield(y1)
 
-	y2 := acquireTimerStartYield(stdtime.Millisecond)
+	y2 := acquireTimerStartYield(stdtime.Millisecond, ch, pid, topic)
 	if y2.Duration != stdtime.Millisecond {
 		t.Errorf("expected Duration=%v, got %v", stdtime.Millisecond, y2.Duration)
 	}
@@ -96,7 +102,11 @@ func TestTimerStartYieldPool(t *testing.T) {
 }
 
 func TestTimerStartYieldToCommand(t *testing.T) {
-	y := acquireTimerStartYield(50 * stdtime.Millisecond)
+	ch := engine.NewChannel(1)
+	pid := relay.PID{}
+	topic := "timer-test-topic"
+
+	y := acquireTimerStartYield(50*stdtime.Millisecond, ch, pid, topic)
 	defer ReleaseTimerStartYield(y)
 
 	cmd := y.ToCommand()
@@ -108,35 +118,8 @@ func TestTimerStartYieldToCommand(t *testing.T) {
 	if timerCmd.Duration != 50*stdtime.Millisecond {
 		t.Errorf("expected Duration=50ms, got %v", timerCmd.Duration)
 	}
-}
-
-func TestTimerWaitYieldPool(t *testing.T) {
-	y1 := acquireTimerWaitYield(42)
-	if y1.TimerID != 42 {
-		t.Errorf("expected TimerID=42, got %v", y1.TimerID)
-	}
-
-	ReleaseTimerWaitYield(y1)
-
-	y2 := acquireTimerWaitYield(99)
-	if y2.TimerID != 99 {
-		t.Errorf("expected TimerID=99, got %v", y2.TimerID)
-	}
-	ReleaseTimerWaitYield(y2)
-}
-
-func TestTimerWaitYieldToCommand(t *testing.T) {
-	y := acquireTimerWaitYield(123)
-	defer ReleaseTimerWaitYield(y)
-
-	cmd := y.ToCommand()
-	waitCmd, ok := cmd.(clockapi.TimerWaitCmd)
-	if !ok {
-		t.Fatalf("expected clockapi.TimerWaitCmd, got %T", cmd)
-	}
-
-	if waitCmd.TimerID != 123 {
-		t.Errorf("expected TimerID=123, got %v", waitCmd.TimerID)
+	if timerCmd.Topic != topic {
+		t.Errorf("expected Topic=%q, got %q", topic, timerCmd.Topic)
 	}
 }
 
@@ -210,14 +193,18 @@ func TestTimerResetYieldToCommand(t *testing.T) {
 }
 
 func TestTickerStartYieldPool(t *testing.T) {
-	y1 := acquireTickerStartYield(stdtime.Second)
+	ch := engine.NewChannel(1)
+	pid := relay.PID{}
+	topic := "test"
+
+	y1 := acquireTickerStartYield(stdtime.Second, ch, pid, topic)
 	if y1.Duration != stdtime.Second {
 		t.Errorf("expected Duration=%v, got %v", stdtime.Second, y1.Duration)
 	}
 
 	ReleaseTickerStartYield(y1)
 
-	y2 := acquireTickerStartYield(stdtime.Millisecond)
+	y2 := acquireTickerStartYield(stdtime.Millisecond, ch, pid, topic)
 	if y2.Duration != stdtime.Millisecond {
 		t.Errorf("expected Duration=%v, got %v", stdtime.Millisecond, y2.Duration)
 	}
@@ -225,7 +212,11 @@ func TestTickerStartYieldPool(t *testing.T) {
 }
 
 func TestTickerStartYieldToCommand(t *testing.T) {
-	y := acquireTickerStartYield(100 * stdtime.Millisecond)
+	ch := engine.NewChannel(1)
+	pid := relay.PID{}
+	topic := "test-topic"
+
+	y := acquireTickerStartYield(100*stdtime.Millisecond, ch, pid, topic)
 	defer ReleaseTickerStartYield(y)
 
 	cmd := y.ToCommand()
@@ -237,35 +228,8 @@ func TestTickerStartYieldToCommand(t *testing.T) {
 	if startCmd.Duration != 100*stdtime.Millisecond {
 		t.Errorf("expected Duration=100ms, got %v", startCmd.Duration)
 	}
-}
-
-func TestTickerNextYieldPool(t *testing.T) {
-	y1 := acquireTickerNextYield(42)
-	if y1.TickerID != 42 {
-		t.Errorf("expected TickerID=42, got %v", y1.TickerID)
-	}
-
-	ReleaseTickerNextYield(y1)
-
-	y2 := acquireTickerNextYield(99)
-	if y2.TickerID != 99 {
-		t.Errorf("expected TickerID=99, got %v", y2.TickerID)
-	}
-	ReleaseTickerNextYield(y2)
-}
-
-func TestTickerNextYieldToCommand(t *testing.T) {
-	y := acquireTickerNextYield(123)
-	defer ReleaseTickerNextYield(y)
-
-	cmd := y.ToCommand()
-	nextCmd, ok := cmd.(clockapi.TickerNextCmd)
-	if !ok {
-		t.Fatalf("expected clockapi.TickerNextCmd, got %T", cmd)
-	}
-
-	if nextCmd.TickerID != 123 {
-		t.Errorf("expected TickerID=123, got %v", nextCmd.TickerID)
+	if startCmd.Topic != topic {
+		t.Errorf("expected Topic=%q, got %q", topic, startCmd.Topic)
 	}
 }
 

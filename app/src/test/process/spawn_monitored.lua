@@ -1,6 +1,5 @@
 -- Test: Spawn with monitoring and wait for exit
 local assert = require("assert2")
-local process = require("process")
 local time = require("time")
 
 local function main()

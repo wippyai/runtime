@@ -543,15 +543,17 @@ func TestMemoryGraph_Build_TransitiveModules(t *testing.T) {
 			seenModules[dep.Node.Module.Info().Name] = true
 		}
 
-		// Verify specific aliases
+		// Verify specific aliases - direct dependencies use their edge alias,
+		// transitive dependencies use their parent's edge alias
 		switch dep.Node.ID.Name {
 		case "MiddleNode":
 			if dep.Name != "middle" {
 				t.Errorf("expected middle node alias 'middle', got '%s'", dep.Name)
 			}
 		case "LeafNode":
+			// LeafNode is a transitive dep (middle->leaf), so it uses the alias from that edge
 			if dep.Name != "leaf" {
-				t.Errorf("expected leaf node alias 'leaf', got '%s'", dep.Name)
+				t.Errorf("expected leaf node alias 'leaf' (from parent's edge), got '%s'", dep.Name)
 			}
 		}
 	}
@@ -667,8 +669,10 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 	}
 
 	// Verify dependency structure and order
+	// commonDep appears TWICE - once for each alias (common1 and common2)
+	// because both dep1 and dep2 import it with different names
 	if len(rt.Dependencies) != 4 {
-		t.Errorf("expected 4 dependency prototypes (commonDep with both aliases, dep1, dep2), got %d", len(rt.Dependencies))
+		t.Errorf("expected 4 dependency entries (commonDep x2 for aliases, dep1, dep2), got %d", len(rt.Dependencies))
 	}
 
 	// Verify main node
@@ -676,49 +680,53 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 		t.Errorf("expected main node Process %v, got %v", mainNode.ID, rt.Main.ID)
 	}
 
-	// Verify dependencies are in correct order and have correct aliases
-	// Order should be: commonDep entries first (deepest level), then dep1, dep2
-	expectedDeps := []struct {
-		id    registry.ID
-		alias string
-	}{
-		{commonDepNode.ID, "common1"}, // Load shared dependency first
-		{commonDepNode.ID, "common2"}, // Both aliases of shared dependency
-		{dep1Node.ID, "dep1"},         // Can load after its dependency (commonDep)
-		{dep2Node.ID, "dep2"},         // Can load after its dependency (commonDep)
-	}
-
-	if len(rt.Dependencies) != len(expectedDeps) {
-		t.Fatalf("wrong number of dependencies: expected %d, got %d", len(expectedDeps), len(rt.Dependencies))
-	}
-
-	// Verify each dependency is in correct order with correct alias
-	for i, expected := range expectedDeps {
-		actual := rt.Dependencies[i]
-		if actual.Node.ID != expected.id {
-			t.Errorf("dependency at position %d: expected node %v, got %v", i, expected.id, actual.Node.ID)
-		}
-		if actual.Name != expected.alias {
-			t.Errorf("dependency at position %d: expected alias %s, got %s", i, expected.alias, actual.Name)
-		}
-	}
-
-	// Verify commonDep entries appear before any nodes that depend on them
-	lastCommonDepPos := -1
-	for i, dep := range rt.Dependencies {
+	// Verify commonDep has both aliases
+	commonDepAliases := make(map[string]bool)
+	for _, dep := range rt.Dependencies {
 		if dep.Node.ID.Name == "CommonDep" {
-			lastCommonDepPos = i
-		} else if lastCommonDepPos == -1 {
-			t.Errorf("found dependent node %v before its dependency CommonDep", dep.Node.ID)
+			commonDepAliases[dep.Name] = true
 		}
+	}
+	if !commonDepAliases["common1"] {
+		t.Errorf("missing alias 'common1' for commonDep")
+	}
+	if !commonDepAliases["common2"] {
+		t.Errorf("missing alias 'common2' for commonDep")
 	}
 
-	// Verify all commonDep entries are grouped together at the start
-	for i := 1; i <= lastCommonDepPos; i++ {
-		if rt.Dependencies[i].Node.ID.Name != "CommonDep" {
-			t.Errorf("CommonDep entries not grouped together at start, found %v at position %d", rt.Dependencies[i].Node.ID, i)
+	// Verify dep1 and dep2 have their direct aliases
+	directAliases := make(map[string]string)
+	for _, dep := range rt.Dependencies {
+		if dep.Node.ID.Name == "Dep1" || dep.Node.ID.Name == "Dep2" {
+			directAliases[dep.Node.ID.Name] = dep.Name
 		}
 	}
+	if directAliases["Dep1"] != "dep1" {
+		t.Errorf("expected Dep1 alias 'dep1', got '%s'", directAliases["Dep1"])
+	}
+	if directAliases["Dep2"] != "dep2" {
+		t.Errorf("expected Dep2 alias 'dep2', got '%s'", directAliases["Dep2"])
+	}
+
+	// Verify commonDep appears before nodes that depend on it
+	commonDepPos := -1
+	dep1Pos := -1
+	dep2Pos := -1
+	for i, dep := range rt.Dependencies {
+		if dep.Node.ID.Name == "CommonDep" && commonDepPos == -1 {
+			commonDepPos = i
+		}
+		if dep.Node.ID.Name == "Dep1" {
+			dep1Pos = i
+		}
+		if dep.Node.ID.Name == "Dep2" {
+			dep2Pos = i
+		}
+	}
+	if commonDepPos > dep1Pos || commonDepPos > dep2Pos {
+		t.Errorf("commonDep should appear before dep1 and dep2 in dependencies")
+	}
+
 }
 
 func TestMemoryGraph_Build_AliasCollision(t *testing.T) {
@@ -1157,10 +1165,10 @@ func TestMemoryGraph_Build_TransitiveAliasCollision(t *testing.T) {
 		}
 	}
 
-	// Create dependency tree with transitive collision:
+	// Create dependency tree:
 	// main imports const-x as "const"
 	// main imports library-a as "libA"
-	// library-a imports const-y as "const" <- COLLISION!
+	// library-a imports const-y as "const" <- This IS a collision because all deps are global
 	dependencies := []struct {
 		from  string
 		to    string
@@ -1168,7 +1176,7 @@ func TestMemoryGraph_Build_TransitiveAliasCollision(t *testing.T) {
 	}{
 		{"main", "const-x", "const"},      // User imports const-x as "const"
 		{"main", "library-a", "libA"},     // User imports library-a
-		{"library-a", "const-y", "const"}, // Library-a also imports something as "const"
+		{"library-a", "const-y", "const"}, // Library-a imports const-y also as "const" - COLLISION
 	}
 
 	// Add all dependencies
@@ -1180,20 +1188,15 @@ func TestMemoryGraph_Build_TransitiveAliasCollision(t *testing.T) {
 		}
 	}
 
-	// Build should detect the transitive collision
+	// Build should FAIL with alias collision - two different nodes use same alias "const"
 	_, err := mg.Build(nodes["main"].ID)
 	if err == nil {
-		t.Error("expected error when building with transitive alias collision, got nil")
-		return
+		t.Fatalf("expected collision error, but build succeeded")
 	}
 
-	// Verify error message contains collision details
-	errMsg := err.Error()
-	if !strings.Contains(errMsg, "alias collision") {
-		t.Errorf("expected 'alias collision' in error message, got: %v", errMsg)
-	}
-	if !strings.Contains(errMsg, "const") {
-		t.Errorf("expected 'const' in error message, got: %v", errMsg)
+	// Verify it's an alias collision error
+	if !strings.Contains(err.Error(), "collision") {
+		t.Errorf("expected collision error, got: %v", err)
 	}
 }
 

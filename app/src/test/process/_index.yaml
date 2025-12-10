@@ -176,7 +176,6 @@ entries:
     imports:
       assert2: app.lib:assert
     modules:
-      - process
       - time
 
   - name: spawn_monitored
@@ -190,7 +189,6 @@ entries:
     imports:
       assert2: app.lib:assert
     modules:
-      - process
       - time
 
   - name: inbox_send
@@ -204,7 +202,6 @@ entries:
     imports:
       assert2: app.lib:assert
     modules:
-      - process
       - time
 
   - name: echo_roundtrip
@@ -353,7 +350,6 @@ entries:
     method: main
     modules:
       - time
-      - process
     imports:
       assert2: app.lib:assert
 
@@ -385,7 +381,6 @@ entries:
     method: main
     modules:
       - time
-      - process
     imports:
       assert2: app.lib:assert
 
@@ -417,7 +412,6 @@ entries:
     method: main
     modules:
       - time
-      - process
     imports:
       assert2: app.lib:assert
 
@@ -440,7 +434,6 @@ entries:
     method: main
     modules:
       - time
-      - process
     imports:
       assert2: app.lib:assert
 
@@ -454,6 +447,140 @@ entries:
     method: main
     modules:
       - time
-      - process
+    imports:
+      assert2: app.lib:assert
+
+  - name: cancel_simple
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Simple cancel test
+    source: file://cancel_simple.lua
+    method: main
+    modules:
+      - time
+
+  - name: select_timeout
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Test channel.select with process.events and time.after
+    source: file://select_timeout.lua
+    method: main
+    modules:
+      - time
+
+  # Context passing workers
+  - name: context_validator_worker
+    kind: process.lua
+    meta:
+      comment: Worker that validates context values and errors if they dont match
+    source: file://context_validator_worker.lua
+    method: main
+    modules:
+      - ctx
+
+  - name: context_kv_validator_worker
+    kind: process.lua
+    meta:
+      comment: Worker that validates chained context key/value pairs
+    source: file://context_kv_validator_worker.lua
+    method: main
+    modules:
+      - ctx
+
+  - name: actor_validator_worker
+    kind: process.lua
+    meta:
+      comment: Worker that validates actor injection
+    source: file://actor_validator_worker.lua
+    method: main
+    modules:
+      - security
+
+  - name: scope_validator_worker
+    kind: process.lua
+    meta:
+      comment: Worker that validates scope and actor injection
+    source: file://scope_validator_worker.lua
+    method: main
+    modules:
+      - security
+
+  # Context passing tests
+  - name: context_passing
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Context passing through process.with_context spawn
+    source: file://context_passing.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: ctx_actor
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Actor injection through process.with_context spawn
+    source: file://ctx_actor.lua
+    method: main
+    modules:
+      - time
+      - security
+    imports:
+      assert2: app.lib:assert
+
+  - name: ctx_scope
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Scope injection through process.with_context spawn
+    source: file://ctx_scope.lua
+    method: main
+    modules:
+      - time
+      - security
+    imports:
+      assert2: app.lib:assert
+
+  # Multi-level context inheritance test
+  - name: ctx_inherit_worker
+    kind: process.lua
+    meta:
+      comment: Worker that spawns grandchild to test inheritance
+    source: file://ctx_inherit_worker.lua
+    method: main
+    modules:
+      - time
+      - security
+
+  - name: ctx_inherit_grandchild_worker
+    kind: process.lua
+    meta:
+      comment: Grandchild that validates inherited security context
+    source: file://ctx_inherit_grandchild_worker.lua
+    method: main
+    modules:
+      - security
+
+  - name: ctx_inherit
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Multi-level security context inheritance
+    source: file://ctx_inherit.lua
+    method: main
+    modules:
+      - time
+      - security
     imports:
       assert2: app.lib:assert

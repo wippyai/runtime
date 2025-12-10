@@ -95,7 +95,7 @@ func SortEntriesByDependency(entries []registry.Entry, resolver registry.Depende
 				// Handle group dependency
 				if members, exists := groupMap[value]; exists {
 					for _, memberID := range members {
-						if memberID != entry.ID { // Avoid self-dependency
+						if !memberID.Equal(entry.ID) { // Avoid self-dependency
 							g.AddEdge(memberID, entry.ID, 1, nil)
 						}
 					}
@@ -105,7 +105,7 @@ func SortEntriesByDependency(entries []registry.Entry, resolver registry.Depende
 				// Handle namespace dependency
 				if members, exists := nsMap[value]; exists {
 					for _, memberID := range members {
-						if memberID != entry.ID { // Avoid self-dependency
+						if !memberID.Equal(entry.ID) { // Avoid self-dependency
 							g.AddEdge(memberID, entry.ID, 1, nil)
 						}
 					}

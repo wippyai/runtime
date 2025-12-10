@@ -7,6 +7,8 @@ import (
 	"time"
 
 	clockapi "github.com/wippyai/runtime/api/clock"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/relay"
 )
 
 // ErrTickerNotFound is an alias for the API error.
@@ -20,27 +22,14 @@ const (
 	tickerShardMask  = tickerShardCount - 1
 )
 
-// tickerEntry holds an active ticker and its channel.
+// tickerEntry holds an active ticker with its target process info.
 type tickerEntry struct {
 	ticker *time.Ticker
-	ch     <-chan time.Time
+	pid    relay.PID
+	topic  string
+	ctx    context.Context
+	cancel context.CancelFunc
 	closed atomic.Bool
-}
-
-// tickerEntryPool reduces allocations for ticker entries.
-var tickerEntryPool = sync.Pool{
-	New: func() any { return &tickerEntry{} },
-}
-
-func acquireTickerEntry() *tickerEntry {
-	return tickerEntryPool.Get().(*tickerEntry)
-}
-
-func releaseTickerEntry(e *tickerEntry) {
-	e.ticker = nil
-	e.ch = nil
-	e.closed.Store(false)
-	tickerEntryPool.Put(e)
 }
 
 // tickerShard is a single shard of the ticker registry.
@@ -68,48 +57,55 @@ func (r *TickerRegistry) getShard(id uint64) *tickerShard {
 	return &r.shards[id&tickerShardMask]
 }
 
-// Start creates a new ticker with given duration, returns its ID.
-func (r *TickerRegistry) Start(d time.Duration) uint64 {
+// Start creates a new ticker that sends ticks to the given process/topic via relay.
+// Returns the ticker ID.
+func (r *TickerRegistry) Start(ctx context.Context, d time.Duration, pid relay.PID, topic string, node relay.Node) uint64 {
 	id := r.nextID.Add(1)
 	shard := r.getShard(id)
 
-	t := time.NewTicker(d)
-	entry := acquireTickerEntry()
-	entry.ticker = t
-	entry.ch = t.C
+	tickerCtx, cancel := context.WithCancel(ctx)
+
+	entry := &tickerEntry{
+		ticker: time.NewTicker(d),
+		pid:    pid,
+		topic:  topic,
+		ctx:    tickerCtx,
+		cancel: cancel,
+	}
 
 	shard.mu.Lock()
 	shard.tickers[id] = entry
 	shard.mu.Unlock()
 
+	// Start goroutine that forwards ticks to the process via relay
+	go r.forwardTicks(entry, node)
+
 	return id
 }
 
-// Next waits for the next tick from ticker with given ID.
-// Returns tick time or error if ticker not found or closed.
-func (r *TickerRegistry) Next(ctx context.Context, id uint64) (time.Time, error) {
-	shard := r.getShard(id)
+// forwardTicks reads from the ticker and sends ticks to the process.
+func (r *TickerRegistry) forwardTicks(entry *tickerEntry, node relay.Node) {
+	ticker := entry.ticker
+	defer ticker.Stop()
 
-	shard.mu.Lock()
-	entry, ok := shard.tickers[id]
-	shard.mu.Unlock()
+	for {
+		select {
+		case <-entry.ctx.Done():
+			return
+		case t, ok := <-ticker.C:
+			if !ok {
+				return
+			}
 
-	if !ok {
-		return time.Time{}, ErrTickerNotFound
-	}
+			if entry.closed.Load() {
+				return
+			}
 
-	if entry.closed.Load() {
-		return time.Time{}, ErrTickerClosed
-	}
-
-	select {
-	case <-ctx.Done():
-		return time.Time{}, ctx.Err()
-	case t, ok := <-entry.ch:
-		if !ok {
-			return time.Time{}, ErrTickerClosed
+			// Send tick time as nanoseconds via relay
+			p := payload.NewPayload(t.UnixNano(), payload.Golang)
+			pkg := relay.NewPackage(relay.PID{}, entry.pid, entry.topic, p)
+			_ = node.Send(pkg)
 		}
-		return t, nil
 	}
 }
 
@@ -129,29 +125,9 @@ func (r *TickerRegistry) Stop(id uint64) error {
 	}
 
 	entry.closed.Store(true)
-	entry.ticker.Stop()
-	releaseTickerEntry(entry)
+	entry.cancel()
+	// Don't release entry here - goroutine still holds reference to fields
 	return nil
-}
-
-// GetTickChan returns the tick channel for the given ticker ID.
-// Used by modules that need direct access to the underlying Go channel.
-func (r *TickerRegistry) GetTickChan(id uint64) (<-chan time.Time, error) {
-	shard := r.getShard(id)
-
-	shard.mu.Lock()
-	entry, ok := shard.tickers[id]
-	shard.mu.Unlock()
-
-	if !ok {
-		return nil, ErrTickerNotFound
-	}
-
-	if entry.closed.Load() {
-		return nil, ErrTickerClosed
-	}
-
-	return entry.ch, nil
 }
 
 // Close stops all tickers and clears the registry.
@@ -161,9 +137,9 @@ func (r *TickerRegistry) Close() {
 		shard.mu.Lock()
 		for id, entry := range shard.tickers {
 			entry.closed.Store(true)
-			entry.ticker.Stop()
+			entry.cancel()
 			delete(shard.tickers, id)
-			releaseTickerEntry(entry)
+			// Don't release entry here - goroutine still holds reference
 		}
 		shard.mu.Unlock()
 	}

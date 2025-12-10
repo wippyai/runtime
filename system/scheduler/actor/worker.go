@@ -125,7 +125,7 @@ func (w *Worker) executeOne(proc *Processor) {
 		return
 	}
 
-	// Atomically transition Ready→Running. If CAS fails, process was
+	// Atomically transition Ready->Running. If CAS fails, process was
 	// terminated or is in unexpected state - skip execution.
 	if !proc.casState(StateReady, StateRunning) {
 		return
@@ -133,7 +133,9 @@ func (w *Worker) executeOne(proc *Processor) {
 
 	// Check context cancellation before executing (Terminate sets this)
 	if proc.ctx != nil && proc.ctx.Err() != nil {
-		proc.setState(StateComplete)
+		if !proc.casState(StateRunning, StateComplete) {
+			return
+		}
 		proc.queue.Close()
 		w.scheduler.complete(proc, nil, process.ErrTerminated)
 		return
@@ -149,7 +151,9 @@ func (w *Worker) executeOne(proc *Processor) {
 	err := proc.Process.Step(events, &proc.output)
 
 	if err != nil {
-		proc.setState(StateComplete)
+		if !proc.casState(StateRunning, StateComplete) {
+			return
+		}
 		proc.queue.Close()
 		w.scheduler.complete(proc, nil, err)
 		return
@@ -157,15 +161,18 @@ func (w *Worker) executeOne(proc *Processor) {
 
 	switch proc.output.Status() {
 	case StepDone:
-		proc.setState(StateComplete)
+		if !proc.casState(StateRunning, StateComplete) {
+			return
+		}
 		proc.queue.Close()
 		w.scheduler.complete(proc, &proc.output, nil)
 
 	case StepIdle:
-		proc.setState(StateIdle)
+		if !proc.casState(StateRunning, StateIdle) {
+			return
+		}
 		w.scheduler.parkIdle(proc)
 		// Check for events that arrived during state transition.
-		// Send() may have pushed an event before we parked.
 		if proc.queue.HasEvents() {
 			if proc.casState(StateIdle, StateReady) {
 				w.scheduler.global.Push(proc)
@@ -176,21 +183,23 @@ func (w *Worker) executeOne(proc *Processor) {
 	case StepContinue:
 		yields := proc.output.Yields()
 		if len(yields) == 0 {
-			// No external yields - process has internal work, re-queue immediately
-			proc.setState(StateReady)
+			// No external yields - re-queue immediately.
+			if !proc.casState(StateRunning, StateReady) {
+				return
+			}
 			w.scheduler.global.Push(proc)
 			w.scheduler.wake()
 			return
 		}
 
 		// Dispatch yields while keeping StateRunning.
-		// This prevents CompleteYield from re-queueing while we're still dispatching.
 		w.dispatchYields(proc.ctx, proc, yields)
 
 	case StepWaitYields:
-		// Process is waiting for previously dispatched yields.
-		// Transition to Blocked so CompleteYield can wake us.
-		proc.setState(StateBlocked)
+		// CAS Running->Blocked so CompleteYield can wake us.
+		if !proc.casState(StateRunning, StateBlocked) {
+			return
+		}
 		// Check for events that arrived during state transition.
 		if proc.queue.HasEvents() {
 			if proc.casState(StateBlocked, StateReady) {
@@ -202,10 +211,11 @@ func (w *Worker) executeOne(proc *Processor) {
 }
 
 // dispatchYields sends all yields to handlers.
-// IMPORTANT: Processor state is StateRunning during this call.
-// This guarantees single-worker ownership during the dispatch phase.
+// Processor state is StateRunning during this call.
 // CompleteYield sets wakeup flag instead of re-queueing while Running.
 func (w *Worker) dispatchYields(ctx context.Context, proc *Processor, yields []Yield) {
+	completer := proc.queue.NewYieldCompleter(w.scheduler)
+
 	for _, y := range yields {
 		handler := w.scheduler.getHandler(y.Cmd)
 		if handler == nil {
@@ -216,7 +226,7 @@ func (w *Worker) dispatchYields(ctx context.Context, proc *Processor, yields []Y
 			})
 			continue
 		}
-		if err := handler.Handle(ctx, y.Cmd, y.Tag, proc); err != nil {
+		if err := handler.Handle(ctx, y.Cmd, y.Tag, completer); err != nil {
 			proc.queue.PushDirect(process.Event{
 				Type:  process.EventYieldComplete,
 				Tag:   y.Tag,
@@ -225,18 +235,16 @@ func (w *Worker) dispatchYields(ctx context.Context, proc *Processor, yields []Y
 		}
 	}
 
-	// All yields dispatched. Atomically transition to final state.
-	// If wakeup was set by CompleteYield during dispatch, state becomes Ready - re-queue.
-	// If not, state becomes Blocked - CompleteYield will wake us later.
+	// Atomically transition to final state.
+	// If wakeup was set by CompleteYield, state becomes Ready - re-queue.
+	// Otherwise, state becomes Blocked.
 	if proc.finishDispatch() {
 		w.scheduler.global.Push(proc)
 		w.scheduler.wake()
 		return
 	}
 
-	// No wakeup - now in StateBlocked.
-	// CompleteYield will CAS(Blocked→Ready) and re-queue when results arrive.
-	// Or events may already be in queue from PushDirect above - check and re-queue if so.
+	// Now in StateBlocked. Check for events from PushDirect above.
 	if proc.queue.HasEvents() {
 		if proc.casState(StateBlocked, StateReady) {
 			w.scheduler.global.Push(proc)

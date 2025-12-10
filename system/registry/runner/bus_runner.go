@@ -28,13 +28,13 @@ type BusRunner struct {
 const eventWaitTimeout = 30 * time.Second
 
 // NewBusRunner creates a new BusRunner. This is a sequential bus, order of operations matter.
-func NewBusRunner(bus event.Bus, log *zap.Logger) *BusRunner {
+func NewBusRunner(bus event.Bus, log *zap.Logger, resolver registry.DependencyResolver) *BusRunner {
 	return &BusRunner{
 		bus:        bus,
 		log:        log,
 		acceptChan: make(chan event.Event),
 		rejectChan: make(chan event.Event),
-		builder:    topology.NewStateBuilder(log, nil),
+		builder:    topology.NewStateBuilder(log, resolver),
 	}
 }
 
@@ -67,7 +67,7 @@ func (br *BusRunner) Transition(
 				return nil, err
 			}
 
-			br.log.Warn("operation failed, initiating rollback", zap.Any("operation", op), zap.Error(err))
+			br.log.Error("operation failed, initiating rollback", zap.Any("operation", op), zap.Error(err))
 			newState = br.rollback(ctx, originalState, newState)
 
 			// Only send Discard if there was an error, and rollback already happened
@@ -145,16 +145,14 @@ func (br *BusRunner) applyOperation(
 			br.log.Debug("received accept event",
 				zap.String("id", id.String()),
 				zap.String("expected", op.Entry.ID.String()),
-				zap.Any("data", confirmation.Data),
 				zap.String("system", confirmation.System),
 				zap.String("kind", confirmation.Kind))
 
-			if id != op.Entry.ID {
+			if !id.Equal(op.Entry.ID) {
 				br.log.Error("unrelated accept event details",
 					zap.String("received_id", id.String()),
 					zap.String("expected_id", op.Entry.ID.String()),
-					zap.String("expected_kind", op.Entry.Kind),
-					zap.Any("event_data", confirmation.Data))
+					zap.String("expected_kind", op.Entry.Kind))
 				return state, ErrUnrelatedAcceptEvent
 			}
 
@@ -170,10 +168,9 @@ func (br *BusRunner) applyOperation(
 			id := registry.ParseID(rejection.Path)
 			br.log.Debug("received reject event",
 				zap.String("id", id.String()),
-				zap.String("expected", op.Entry.ID.String()),
-				zap.Any("data", rejection.Data))
+				zap.String("expected", op.Entry.ID.String()))
 
-			if id != op.Entry.ID {
+			if !id.Equal(op.Entry.ID) {
 				return state, ErrUnrelatedRejectEvent
 			}
 

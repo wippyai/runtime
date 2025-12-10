@@ -216,7 +216,7 @@ func (m *MemoryGraph) AddDependency(from, to registry.ID, alias string) error {
 		for _, neighbor := range neighbors {
 			if edge, ok := m.graph.GetEdge(from, neighbor); ok {
 				if edge.Data.As == alias && neighbor != to {
-					return NewAliasCollisionError(alias, from)
+					return NewAliasCollisionError(alias, from, neighbor, true, to, true)
 				}
 			}
 		}
@@ -453,6 +453,7 @@ func (m *MemoryGraph) reachableFromLocked(entrypoint registry.ID) map[registry.I
 // Build resolves dependencies starting from the entrypoint node and builds a Main configuration.
 // The entrypoint becomes the main node, and all other reachable nodes are wrapped as dependency prototypes.
 // If an incoming dependency edge carries a non‑empty alias, that alias is used.
+// A node may appear multiple times in dependencies if different parents import it with different aliases.
 func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -471,7 +472,6 @@ func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 	reachable := m.reachableFromLocked(entrypoint)
 
 	// Process levels in reverse order (deepest dependencies first)
-	// Pre-allocate with estimated capacity
 	ordered := make([]*Node, 0, len(reachable))
 	for i := len(levels) - 1; i >= 0; i-- {
 		level := levels[i]
@@ -502,7 +502,8 @@ func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 		}
 	}
 
-	// Build alias map efficiently using pre-built edge map
+	// Build alias map: collect ALL aliases for each node from ALL edges pointing to it
+	// A node can have multiple aliases if different parents import it with different names
 	aliasMap := make(map[registry.ID]map[string]bool)
 	for _, node := range ordered {
 		if node.ID.Equal(entrypoint) {
@@ -510,7 +511,7 @@ func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 		}
 		aliasMap[node.ID] = make(map[string]bool)
 
-		// Use edge map instead of scanning all nodes
+		// Collect all aliases from all edges pointing to this node
 		for _, edgeTargets := range edgeMap {
 			if alias, hasEdge := edgeTargets[node.ID]; hasEdge && alias != "" {
 				aliasMap[node.ID][alias] = true
@@ -522,22 +523,21 @@ func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 	processedModules := make(map[string]bool)
 
 	// Build dependency nodes in correct order
-	depNodes := make([]Dependency, 0, len(ordered)) // Pre-allocate capacity
+	depNodes := make([]Dependency, 0, len(ordered))
 	for _, node := range ordered {
 		if node.ID.Equal(entrypoint) {
 			continue
 		}
 
-		// Get all aliases for this node
+		// Get all aliases for this node, sorted for consistent ordering
 		aliases := make([]string, 0, len(aliasMap[node.ID]))
 		for alias := range aliasMap[node.ID] {
 			aliases = append(aliases, alias)
 		}
-		sort.Strings(aliases) // Sort for consistent ordering
+		sort.Strings(aliases)
 
-		// Process explicit aliases
+		// Add dependency entry for each alias
 		if len(aliases) > 0 {
-			// Add node once for each unique alias
 			for _, alias := range aliases {
 				depNodes = append(depNodes, Dependency{
 					Name: alias,
@@ -549,7 +549,7 @@ func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 				processedModules[node.Module.Info().Name] = true
 			}
 		} else {
-			// No aliases found and no module, add node with default name
+			// No aliases - use node name as default
 			depNodes = append(depNodes, Dependency{
 				Name: node.ID.Name,
 				Node: node,
@@ -557,12 +557,12 @@ func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 		}
 	}
 
-	// Validate no duplicate names in final dependency list
+	// Validate no duplicate names pointing to different nodes
 	nameToNode := make(map[string]registry.ID)
 	for _, dep := range depNodes {
 		if existingNodeID, exists := nameToNode[dep.Name]; exists {
-			if existingNodeID != dep.Node.ID {
-				return nil, NewAliasCollisionError(dep.Name, existingNodeID)
+			if !existingNodeID.Equal(dep.Node.ID) {
+				return nil, NewAliasCollisionError(dep.Name, entrypoint, existingNodeID, false, dep.Node.ID, false)
 			}
 		}
 		nameToNode[dep.Name] = dep.Node.ID

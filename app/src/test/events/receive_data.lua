@@ -5,8 +5,9 @@ local function main()
     local events = require("events")
     local time = require("time")
 
-    local ch, err = events.subscribe("test.data")
+    local sub, err = events.subscribe("test.data")
     assert.is_nil(err, "subscribe should succeed")
+    local ch = sub:channel()
 
     coroutine.spawn(function()
         time.sleep(10 * time.MILLISECOND)

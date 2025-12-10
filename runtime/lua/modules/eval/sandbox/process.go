@@ -241,6 +241,8 @@ func processStep(l *lua.LState) int {
 		if result.Result != nil {
 			resultTbl.RawSetString("result", transcodeToLua(l, result.Result))
 		}
+	case process.StepWaitYields:
+		resultTbl.RawSetString("status", lua.LString("waiting"))
 	}
 
 	resultTbl.RawSetString("yield_count", lua.LNumber(result.YieldCount))

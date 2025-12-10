@@ -16,6 +16,7 @@ type PipeContext struct {
 	Stdin  io.Reader
 	Stdout io.Writer
 	Stderr io.Writer
+	Args   []string
 }
 
 // NewTerminalContext creates a new terminal context with the provided input/output streams.
@@ -24,6 +25,16 @@ func NewTerminalContext(stdin io.Reader, stdout, stderr io.Writer) *PipeContext 
 		Stdin:  stdin,
 		Stdout: stdout,
 		Stderr: stderr,
+	}
+}
+
+// NewTerminalContextWithArgs creates a terminal context with args.
+func NewTerminalContextWithArgs(stdin io.Reader, stdout, stderr io.Writer, args []string) *PipeContext {
+	return &PipeContext{
+		Stdin:  stdin,
+		Stdout: stdout,
+		Stderr: stderr,
+		Args:   args,
 	}
 }
 

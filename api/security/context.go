@@ -39,6 +39,7 @@ func GetActor(ctx context.Context) (Actor, bool) {
 	if fc == nil {
 		return Actor{}, false
 	}
+
 	if val, ok := fc.Get(actorCtxKey); ok {
 		if actor, ok := val.(Actor); ok {
 			return actor, true
@@ -67,6 +68,7 @@ func GetScope(ctx context.Context) (Scope, bool) {
 			return scope, true
 		}
 	}
+
 	return nil, false
 }
 

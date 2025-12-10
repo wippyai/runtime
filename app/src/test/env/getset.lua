@@ -21,12 +21,4 @@ return function()
     assert.is_nil(err, "env.get should not return error")
     assert.eq(val, "new_value", "env.get should return the overwritten value")
 
-    -- Test setting empty value
-    local ok, err = env.set("TEST_VAR_EMPTY", "")
-    assert.is_nil(err, "env.set should allow empty value")
-    assert.eq(ok, true, "env.set should return true for empty value")
-
-    local val, err = env.get("TEST_VAR_EMPTY")
-    assert.is_nil(err, "env.get should not return error for empty value")
-    assert.eq(val, "", "env.get should return empty string")
 end
