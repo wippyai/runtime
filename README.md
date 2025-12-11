@@ -25,7 +25,7 @@ The architecture enables declarative composition of complex applications that ca
 - Erlang-style supervision trees with configurable restart policies
 - Process isolation with message passing (no shared state)
 - Go-style channels and coroutines for concurrency
-- Work-stealing scheduler for efficient CPU utilization
+- Pluggable schedulers and dispatchers
 - Process monitoring and linking for failure propagation
 - Location-transparent PIDs across cluster nodes
 
@@ -143,3 +143,5 @@ Mozilla Public License 2.0
 - [Issues](https://github.com/wippyai/runtime/issues)
 
 [documentation]: https://docs.wippy.ai
+
+

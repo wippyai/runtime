@@ -32,15 +32,21 @@ type FrameContext interface {
 	// IsSealed returns true if this frame is sealed.
 	IsSealed() bool
 
-	// Close marks the frame as closed.
+	// IncRef increments reference count. Returns Closer to decrement when done.
+	// Call before spawning async work, defer the returned Closer in the goroutine.
+	IncRef() Closer
+
+	// Close decrements refcount and releases frame when zero.
 	Close() error
 }
 
 type frameContext struct {
-	sealed atomic.Bool
-	mu     sync.RWMutex
-	values map[any]any
-	closed bool
+	sealed   atomic.Bool
+	refcount atomic.Int32
+	mu       sync.RWMutex
+	values   map[any]any
+	parent   *frameContext
+	closed   bool
 }
 
 var frameContextPool = sync.Pool{
@@ -125,10 +131,16 @@ func (f *frameContext) IsSealed() bool {
 	return f.sealed.Load()
 }
 
+func (f *frameContext) IncRef() Closer {
+	f.refcount.Add(1)
+	return CloserFunc(func() error {
+		releaseFrame(f)
+		return nil
+	})
+}
+
 func (f *frameContext) Close() error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.closed = true
+	releaseFrame(f)
 	return nil
 }
 
@@ -150,20 +162,29 @@ func CallFromContext(ctx context.Context) FrameContext {
 	return FrameFromContext(ctx)
 }
 
-// AcquireFrameContext gets a frame context from pool.
+// AcquireFrameContext is deprecated. Use OpenFrameContext instead.
+// This function does not inherit values from sealed parent frames.
+// Deprecated: Use OpenFrameContext which properly inherits from sealed parents.
 func AcquireFrameContext(parent context.Context) (context.Context, FrameContext) {
-	fc := frameContextPool.Get().(*frameContext)
-	fc.sealed.Store(false)
-	fc.closed = false
-	return WithFrameContext(parent, fc), fc
+	return OpenFrameContext(parent)
 }
 
-// ReleaseFrameContext closes any Closer values, clears the map, and returns to pool.
+// ReleaseFrameContext decrements refcount and triggers chain collapse when zero.
+// Only pools the frame when all references (including children) are released.
 func ReleaseFrameContext(fc FrameContext) {
 	f, ok := fc.(*frameContext)
 	if !ok {
 		return
 	}
+	releaseFrame(f)
+}
+
+func releaseFrame(f *frameContext) {
+	newCount := f.refcount.Add(-1)
+	if newCount > 0 {
+		return
+	}
+
 	f.mu.Lock()
 	var closers []Closer
 	for _, v := range f.values {
@@ -172,6 +193,8 @@ func ReleaseFrameContext(fc FrameContext) {
 		}
 	}
 	clear(f.values)
+	parent := f.parent
+	f.parent = nil
 	f.sealed.Store(false)
 	f.closed = false
 	f.mu.Unlock()
@@ -179,57 +202,70 @@ func ReleaseFrameContext(fc FrameContext) {
 	for _, closer := range closers {
 		_ = closer.Close()
 	}
+
+	if parent != nil {
+		releaseFrame(parent)
+	}
+
 	frameContextPool.Put(f)
 }
 
 // OpenFrameContext returns an existing unsealed frame, or creates a new one if needed.
 // When creating a new frame from a sealed parent, automatically copies all keys marked with Inherit: true.
+// Uses reference counting to ensure parent frame stays alive while child iterates.
 func OpenFrameContext(ctx context.Context) (context.Context, FrameContext) {
 	fc := FrameFromContext(ctx)
 	if fc == nil || fc.IsSealed() {
-		newCtx, newFC := newFrameContext(ctx)
-		if fc != nil && fc.IsSealed() {
-			fc.Iterate(func(key any, value any) {
-				if ctxKey, ok := key.(*Key); ok && ctxKey.Inherit {
-					if cloner, ok := value.(Cloner); ok {
-						_ = newFC.Set(key, cloner.Clone())
-					} else {
-						_ = newFC.Set(key, value)
-					}
-				}
-			})
-		}
+		parentFC, _ := fc.(*frameContext)
+		newCtx, newFC := forkFrameContext(ctx, parentFC)
 		return newCtx, newFC
 	}
 	return ctx, fc
 }
 
 // OpenFrameContextOn creates a new frame on targetCtx, inheriting from parentCtx.
+// Uses reference counting to ensure parent frame stays alive while child iterates.
 func OpenFrameContextOn(targetCtx context.Context, parentCtx context.Context) (context.Context, FrameContext) {
-	parentFC := FrameFromContext(parentCtx)
-	newCtx, newFC := newFrameContext(targetCtx)
-
-	if parentFC != nil {
-		inheritCount := 0
-		parentFC.Iterate(func(key any, value any) {
-			if ctxKey, ok := key.(*Key); ok {
-				if ctxKey.Inherit {
-					inheritCount++
-					if cloner, ok := value.(Cloner); ok {
-						_ = newFC.Set(key, cloner.Clone())
-					} else {
-						_ = newFC.Set(key, value)
-					}
-				}
-			}
-		})
-	}
-	return newCtx, newFC
+	parentFC, _ := FrameFromContext(parentCtx).(*frameContext)
+	return forkFrameContext(targetCtx, parentFC)
 }
 
 func newFrameContext(parent context.Context) (context.Context, FrameContext) {
 	fc := frameContextPool.Get().(*frameContext)
 	fc.sealed.Store(false)
+	fc.refcount.Store(1)
+	fc.parent = nil
 	fc.closed = false
 	return WithFrameContext(parent, fc), fc
+}
+
+// forkFrameContext creates a new child frame from a parent frame.
+// Increments parent refcount to keep parent alive until child releases.
+// Copies inheritable values under parent's lock to prevent races.
+func forkFrameContext(ctx context.Context, parent *frameContext) (context.Context, *frameContext) {
+	if parent != nil {
+		parent.refcount.Add(1)
+	}
+
+	fc := frameContextPool.Get().(*frameContext)
+	fc.sealed.Store(false)
+	fc.refcount.Store(1)
+	fc.parent = parent
+	fc.closed = false
+
+	if parent != nil {
+		parent.mu.RLock()
+		for k, v := range parent.values {
+			if ctxKey, ok := k.(*Key); ok && ctxKey.Inherit {
+				if cloner, ok := v.(Cloner); ok {
+					fc.values[k] = cloner.Clone()
+				} else {
+					fc.values[k] = v
+				}
+			}
+		}
+		parent.mu.RUnlock()
+	}
+
+	return WithFrameContext(ctx, fc), fc
 }

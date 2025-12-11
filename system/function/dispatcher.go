@@ -4,6 +4,7 @@ package function
 import (
 	"context"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/payload"
@@ -54,7 +55,16 @@ func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, tag
 		return nil
 	}
 
+	// Increment frame refcount before goroutine to keep frame alive
+	var closer ctxapi.Closer
+	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
+		closer = fc.IncRef()
+	}
+
 	go func() {
+		if closer != nil {
+			defer closer.Close()
+		}
 		result, err := registry.Call(ctx, callCmd.Task)
 		if ctx.Err() != nil {
 			receiver.CompleteYield(tag, function.CallResult{Error: ctx.Err()}, nil)
@@ -100,8 +110,17 @@ func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Comman
 	// Copy task before goroutine - the yield/command will be released after handler returns
 	task := startCmd.Task
 
+	// Increment frame refcount before goroutine to keep frame alive
+	var closer ctxapi.Closer
+	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
+		closer = fc.IncRef()
+	}
+
 	// Start async call in goroutine
 	go func() {
+		if closer != nil {
+			defer closer.Close()
+		}
 		result, err := registry.Call(ctx, task)
 
 		// Build result payload

@@ -701,23 +701,23 @@ func TestSendHandlerNotFound(t *testing.T) {
 		handlers[id] = h
 	})
 
-	var emitted bool
+	var gotErr atomic.Value
 	err := handlers[wsapi.CmdWsSend].Handle(ctx, wsapi.WsSendCmd{
 		ConnID: 99999,
 		Data:   []byte("test"),
-	}, 1, &testReceiver{fn: func(_ uint64, _ any, _ error) {
-		emitted = true
+	}, 1, &testReceiver{fn: func(_ uint64, _ any, e error) {
+		gotErr.Store(e)
 	}})
 
 	if err != nil {
-		t.Errorf("expected no error (silent failure), got %v", err)
+		t.Errorf("Handle should return nil, got %v", err)
 	}
 
 	// Give time for async execution
 	time.Sleep(50 * time.Millisecond)
 
-	if emitted {
-		t.Error("should not emit on not found")
+	if gotErr.Load() == nil {
+		t.Error("should complete with error on not found")
 	}
 }
 
@@ -735,20 +735,20 @@ func TestReceiveHandlerNotFound(t *testing.T) {
 		handlers[id] = h
 	})
 
-	var emitted bool
-	err := handlers[wsapi.CmdWsReceive].Handle(ctx, wsapi.WsReceiveCmd{ConnID: 99999}, 1, &testReceiver{fn: func(_ uint64, _ any, _ error) {
-		emitted = true
+	var gotErr atomic.Value
+	err := handlers[wsapi.CmdWsReceive].Handle(ctx, wsapi.WsReceiveCmd{ConnID: 99999}, 1, &testReceiver{fn: func(_ uint64, _ any, e error) {
+		gotErr.Store(e)
 	}})
 
 	if err != nil {
-		t.Errorf("expected no error (silent failure), got %v", err)
+		t.Errorf("Handle should return nil, got %v", err)
 	}
 
 	// Give time for async execution
 	time.Sleep(50 * time.Millisecond)
 
-	if emitted {
-		t.Error("should not emit on not found")
+	if gotErr.Load() == nil {
+		t.Error("should complete with error on not found")
 	}
 }
 

@@ -946,10 +946,20 @@ func listen(l *lua.LState) int {
 		return 2
 	}
 
+	// Check for options table (second argument)
+	// Options: { message = true } to receive Message objects instead of raw payloads
+	var handler engine.TopicHandler // default: nil = raw payloads (Lua tables/strings)
+	if l.GetTop() >= 2 && l.Get(2).Type() == lua.LTTable {
+		options := l.CheckTable(2)
+		if msgMode := options.RawGetString("message"); msgMode == lua.LTrue {
+			handler = MessageHandler // Message objects with :from(), :payload(), :topic()
+		}
+	}
+
 	req := &engine.SubscribeRequest{
 		Topic:   topic,
-		BufSize: 1, // buffered for custom topics
-		Handler: MessageHandler,
+		BufSize: 1,
+		Handler: handler,
 	}
 	l.Push(req)
 	return -1

@@ -18,6 +18,22 @@ entries:
       comment: Public API router
       server: gateway
     prefix: /
+    middleware:
+      - cors
+    options:
+      cors.allow.origins: "localhost"
+
+  # app:api.ws - WebSocket router with wsrelay middleware
+  - name: api.ws
+    kind: http.router
+    meta:
+      comment: WebSocket API router
+      server: gateway
+    prefix: /ws
+    middleware:
+      - websocket_relay
+    options:
+      wsrelay.allowed.origins: "*"
 
   # app:processes - process host
   - name: processes
@@ -35,7 +51,7 @@ entries:
     kind: terminal.host
     meta:
       comment: Terminal host for CLI processes
-    hide_logs: true
+    hide_logs: false
     lifecycle:
       auto_start: true
 

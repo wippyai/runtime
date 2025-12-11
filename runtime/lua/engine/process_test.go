@@ -3,16 +3,77 @@ package engine
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/system/clock"
 	funcpool "github.com/wippyai/runtime/system/scheduler/pool"
 	lua "github.com/yuin/gopher-lua"
 )
+
+// testYieldCmdID is a test command ID for simulating external yields
+const testYieldCmdID dispatcher.CommandID = 999
+
+// testYieldCmd is the dispatcher command for test yield
+type testYieldCmd struct {
+	Duration time.Duration
+}
+
+func (testYieldCmd) CmdID() dispatcher.CommandID { return testYieldCmdID }
+
+// testYield simulates an external yield like time.sleep or SQL query
+// Implements HandledYield to test the yield result handling path
+type testYield struct {
+	duration time.Duration
+	released bool
+}
+
+func (y *testYield) Release()                      { y.released = true }
+func (y *testYield) String() string                { return "<test_yield>" }
+func (y *testYield) Type() lua.LValueType          { return lua.LTUserData }
+func (y *testYield) CmdID() dispatcher.CommandID   { return testYieldCmdID }
+func (y *testYield) ToCommand() dispatcher.Command { return testYieldCmd{Duration: y.duration} }
+
+// HandleResult implements luaapi.HandledYield
+func (y *testYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+	}
+	if data == nil {
+		return []lua.LValue{lua.LTrue}
+	}
+	// Pass through lua values
+	if vals, ok := data.([]lua.LValue); ok {
+		return vals
+	}
+	return []lua.LValue{lua.LString(fmt.Sprintf("%v", data))}
+}
+
+// luaTestYield is a Lua function that yields testYield
+func luaTestYield(L *lua.LState) int {
+	ms := L.CheckNumber(1)
+	duration := time.Duration(ms) * time.Millisecond
+	yield := &testYield{duration: duration}
+	L.Push(yield)
+	return -1
+}
+
+// bindTestYield binds test_yield function to Lua state
+func bindTestYield(L *lua.LState) {
+	L.SetGlobal("test_yield", L.NewFunction(luaTestYield))
+}
+
+// testPID creates a test PID for unit tests
+func testPID(id string) relay.PID {
+	return relay.PID{Host: "test", UniqID: id}
+}
 
 func TestProcessBasicExecution(t *testing.T) {
 	script := `
@@ -974,5 +1035,2832 @@ func BenchmarkWorkerScalingLua(b *testing.B) {
 				}
 			})
 		})
+	}
+}
+
+// TestProcessExternalYieldWithChannelSelect tests that channel select works correctly
+// after an external yield completes. This is a unit test that calls Process.Step() directly.
+func TestProcessExternalYieldWithChannelSelect(t *testing.T) {
+	script := `
+		local ops_channel = channel.new(256)
+		local stop_signal = channel.new(0)
+		local bus_done = channel.new(0)
+		local result_channel = channel.new(1)
+
+		coroutine.spawn(function()
+			while true do
+				local result = channel.select({
+					stop_signal:case_receive(),
+					ops_channel:case_receive()
+				})
+
+				if result.channel == stop_signal then
+					bus_done:send(true)
+					return
+				end
+
+				if result.channel == ops_channel then
+					result_channel:send({success = true, data = result.value})
+					stop_signal:send(true)
+				end
+			end
+		end)
+
+		-- External yield (simulates time.sleep or SQL query)
+		test_yield(10)
+
+		-- Send to buffered ops_channel
+		ops_channel:send({type = "test_op"})
+
+		-- Main enters blocking select on multiple channels
+		local final = channel.select({
+			result_channel:case_receive(),
+			bus_done:case_receive()
+		})
+
+		if final.channel == result_channel then
+			local res = final.value
+			if res.success then
+				return "success"
+			end
+		end
+
+		return "unexpected"
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+		WithModuleBinder(bindTestYield),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+
+	// Step 1: should yield test_yield (external yield)
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatalf("Step 1 failed: %v", err)
+	}
+
+	if output.Count() != 1 {
+		t.Fatalf("Step 1: expected 1 yield, got %d", output.Count())
+	}
+
+	yields := output.Yields()
+	if yields[0].Cmd.CmdID() != testYieldCmdID {
+		t.Fatalf("Step 1: expected test_yield (cmd %d), got %d", testYieldCmdID, yields[0].Cmd.CmdID())
+	}
+	tag := yields[0].Tag
+
+	// Step 2: complete the external yield, process should continue and complete
+	events := []process.Event{
+		{Type: process.EventYieldComplete, Tag: tag, Data: nil, Error: nil},
+	}
+	output.Reset()
+	if err := proc.Step(events, &output); err != nil {
+		t.Fatalf("Step 2 failed: %v", err)
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("Expected StepDone, got status %d (yields=%d)", output.Status(), output.Count())
+	}
+}
+
+// TestProcessExternalYieldBasic tests simple external yield and completion
+func TestProcessExternalYieldBasic(t *testing.T) {
+	script := `
+		test_yield(10)
+		return "done"
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(bindTestYield),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatalf("Step 1 failed: %v", err)
+	}
+
+	if output.Count() != 1 {
+		t.Fatalf("expected 1 yield, got %d", output.Count())
+	}
+
+	if output.Status() != process.StepWaitYields {
+		t.Fatalf("expected StepWaitYields, got %d", output.Status())
+	}
+
+	tag := output.Yields()[0].Tag
+	events := []process.Event{
+		{Type: process.EventYieldComplete, Tag: tag},
+	}
+	output.Reset()
+	if err := proc.Step(events, &output); err != nil {
+		t.Fatalf("Step 2 failed: %v", err)
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("expected StepDone, got %d", output.Status())
+	}
+}
+
+// TestProcessMultipleExternalYields tests multiple sequential external yields
+func TestProcessMultipleExternalYields(t *testing.T) {
+	script := `
+		test_yield(10)
+		test_yield(20)
+		test_yield(30)
+		return "done"
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(bindTestYield),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	var events []process.Event
+
+	for i := 1; i <= 3; i++ {
+		output.Reset()
+		if err := proc.Step(events, &output); err != nil {
+			t.Fatalf("Step %d failed: %v", i, err)
+		}
+		events = nil
+
+		if output.Count() != 1 {
+			t.Fatalf("step %d: expected 1 yield, got %d", i, output.Count())
+		}
+
+		tag := output.Yields()[0].Tag
+		events = []process.Event{
+			{Type: process.EventYieldComplete, Tag: tag},
+		}
+	}
+
+	// Final step with last completion event
+	output.Reset()
+	if err := proc.Step(events, &output); err != nil {
+		t.Fatalf("Final step failed: %v", err)
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("expected StepDone, got %d", output.Status())
+	}
+}
+
+// TestProcessYieldWithError tests external yield completing with error
+func TestProcessYieldWithError(t *testing.T) {
+	script := `
+		local ok, err = pcall(function()
+			test_yield(10)
+		end)
+		if err then
+			return "error: " .. tostring(err)
+		end
+		return "success"
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(bindTestYield),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatalf("Step 1 failed: %v", err)
+	}
+
+	tag := output.Yields()[0].Tag
+	events := []process.Event{
+		{Type: process.EventYieldComplete, Tag: tag, Error: fmt.Errorf("simulated error")},
+	}
+	output.Reset()
+	if err := proc.Step(events, &output); err != nil {
+		t.Fatalf("Step 2 failed: %v", err)
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("expected StepDone, got %d", output.Status())
+	}
+}
+
+// TestProcessYieldInCoroutine tests external yield inside spawned coroutine
+func TestProcessYieldInCoroutine(t *testing.T) {
+	script := `
+		local result = nil
+		coroutine.spawn(function()
+			test_yield(10)
+			result = "from_coroutine"
+		end)
+
+		-- yield to let coroutine start
+		coroutine.yield()
+
+		return result or "pending"
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(bindTestYield),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+
+	// First step - coroutine yields externally
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatalf("Step 1 failed: %v", err)
+	}
+
+	if output.Count() != 1 {
+		t.Fatalf("expected 1 yield, got %d", output.Count())
+	}
+
+	tag := output.Yields()[0].Tag
+	events := []process.Event{
+		{Type: process.EventYieldComplete, Tag: tag},
+	}
+	output.Reset()
+
+	// Complete the yield - should finish
+	if err := proc.Step(events, &output); err != nil {
+		t.Fatalf("Step 2 failed: %v", err)
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("expected StepDone, got %d", output.Status())
+	}
+}
+
+// TestProcessConcurrentYieldsFromCoroutines tests multiple coroutines yielding externally
+func TestProcessConcurrentYieldsFromCoroutines(t *testing.T) {
+	script := `
+		local results = {}
+
+		coroutine.spawn(function()
+			test_yield(10)
+			results[1] = "a"
+		end)
+
+		coroutine.spawn(function()
+			test_yield(20)
+			results[2] = "b"
+		end)
+
+		-- main also yields
+		test_yield(30)
+		results[3] = "c"
+
+		return #results
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(bindTestYield),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	maxSteps := 20
+	steps := 0
+
+	for steps < maxSteps {
+		steps++
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step %d failed: %v", steps, err)
+		}
+
+		if output.Status() == process.StepDone {
+			break
+		}
+
+		// Complete all pending yields
+		if output.Count() > 0 {
+			var events []process.Event
+			for _, y := range output.Yields() {
+				events = append(events, process.Event{
+					Type: process.EventYieldComplete,
+					Tag:  y.Tag,
+				})
+			}
+			output.Reset()
+			if err := proc.Step(events, &output); err != nil {
+				t.Fatalf("Step complete failed: %v", err)
+			}
+			if output.Status() == process.StepDone {
+				break
+			}
+		}
+	}
+
+	if steps >= maxSteps {
+		t.Fatal("did not complete in expected steps")
+	}
+}
+
+// TestProcessYieldTagCorrelation tests that yield tags correctly correlate responses
+func TestProcessYieldTagCorrelation(t *testing.T) {
+	script := `
+		local a, b = nil, nil
+
+		coroutine.spawn(function()
+			test_yield(1)
+			a = "first"
+		end)
+
+		coroutine.spawn(function()
+			test_yield(2)
+			b = "second"
+		end)
+
+		-- wait for both
+		while a == nil or b == nil do
+			coroutine.yield()
+		end
+
+		return a .. "_" .. b
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(bindTestYield),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatalf("Step 1 failed: %v", err)
+	}
+
+	// Should have 2 yields from 2 coroutines
+	if output.Count() != 2 {
+		t.Fatalf("expected 2 yields, got %d", output.Count())
+	}
+
+	// Complete in reverse order to test tag correlation
+	yields := output.Yields()
+	events := []process.Event{
+		{Type: process.EventYieldComplete, Tag: yields[1].Tag},
+		{Type: process.EventYieldComplete, Tag: yields[0].Tag},
+	}
+
+	output.Reset()
+	if err := proc.Step(events, &output); err != nil {
+		t.Fatalf("Step 2 failed: %v", err)
+	}
+
+	// May need more steps to complete
+	for i := 0; i < 10 && output.Status() != process.StepDone; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step %d failed: %v", i+3, err)
+		}
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("expected StepDone, got %d", output.Status())
+	}
+}
+
+// TestProcessStepStatusTransitions tests all step status transitions
+func TestProcessStepStatusTransitions(t *testing.T) {
+	tests := []struct {
+		name           string
+		script         string
+		expectedStatus process.StepStatus
+	}{
+		{
+			name:           "immediate_done",
+			script:         `return 1`,
+			expectedStatus: process.StepDone,
+		},
+		{
+			name:           "yield_wait",
+			script:         `test_yield(10); return 1`,
+			expectedStatus: process.StepWaitYields,
+		},
+		{
+			name:           "continue_with_coroutines",
+			script:         `coroutine.spawn(function() end); coroutine.yield(); return 1`,
+			expectedStatus: process.StepDone,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			proc := NewProcess(
+				WithScript(tt.script, "test.lua"),
+				WithModuleBinder(bindTestYield),
+			)
+
+			ctx, _ := ctxapi.OpenFrameContext(context.Background())
+			if err := proc.Init(ctx, "", nil); err != nil {
+				t.Fatal(err)
+			}
+			defer proc.Close()
+
+			var output process.StepOutput
+			for i := 0; i < 10; i++ {
+				output.Reset()
+				if err := proc.Step(nil, &output); err != nil {
+					t.Fatalf("Step failed: %v", err)
+				}
+
+				if output.Status() == tt.expectedStatus {
+					return
+				}
+
+				// If waiting for yields, complete them
+				if output.Count() > 0 {
+					var events []process.Event
+					for _, y := range output.Yields() {
+						events = append(events, process.Event{
+							Type: process.EventYieldComplete,
+							Tag:  y.Tag,
+						})
+					}
+					output.Reset()
+					_ = proc.Step(events, &output)
+				}
+
+				if output.Status() == process.StepDone {
+					break
+				}
+			}
+
+			if output.Status() != tt.expectedStatus {
+				t.Errorf("expected status %d, got %d", tt.expectedStatus, output.Status())
+			}
+		})
+	}
+}
+
+// TestProcessPendingYieldsCleanup tests that pendingYields are properly cleaned up
+func TestProcessPendingYieldsCleanup(t *testing.T) {
+	script := `
+		test_yield(10)
+		test_yield(20)
+		return "done"
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(bindTestYield),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+
+	// First yield
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatal(err)
+	}
+	if len(proc.pendingYields) != 1 {
+		t.Fatalf("expected 1 pending yield, got %d", len(proc.pendingYields))
+	}
+
+	tag1 := output.Yields()[0].Tag
+	events := []process.Event{{Type: process.EventYieldComplete, Tag: tag1}}
+	output.Reset()
+	if err := proc.Step(events, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	// Second yield - step continues to next yield point
+	if output.Count() != 1 {
+		t.Fatalf("expected 1 yield, got %d", output.Count())
+	}
+	// pendingYields should contain the new yield (old one was cleaned up internally)
+	if len(proc.pendingYields) != 1 {
+		t.Fatalf("expected 1 pending yield, got %d", len(proc.pendingYields))
+	}
+
+	tag2 := output.Yields()[0].Tag
+	events = []process.Event{{Type: process.EventYieldComplete, Tag: tag2}}
+	output.Reset()
+	if err := proc.Step(events, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("expected StepDone, got %d", output.Status())
+	}
+	if len(proc.pendingYields) != 0 {
+		t.Fatalf("expected 0 pending yields at end, got %d", len(proc.pendingYields))
+	}
+}
+
+// TestProcessYieldWithData tests external yield completing with data
+func TestProcessYieldWithData(t *testing.T) {
+	script := `
+		local result = test_yield(10)
+		return result or "no_data"
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(bindTestYield),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	tag := output.Yields()[0].Tag
+	events := []process.Event{
+		{Type: process.EventYieldComplete, Tag: tag, Data: "test_data"},
+	}
+	output.Reset()
+	if err := proc.Step(events, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("expected StepDone, got %d", output.Status())
+	}
+}
+
+// TestProcessInitNoScript tests Init with no script or proto
+func TestProcessInitNoScript(t *testing.T) {
+	proc := NewProcess()
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	err := proc.Init(ctx, "", nil)
+
+	if err == nil {
+		t.Fatal("expected error for no script")
+	}
+}
+
+// TestProcessInitInvalidMethod tests Init with non-existent method
+func TestProcessInitInvalidMethod(t *testing.T) {
+	script := `return {}`
+
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	err := proc.Init(ctx, "nonexistent", nil)
+
+	if err == nil {
+		t.Fatal("expected error for missing method")
+	}
+	proc.Close()
+}
+
+// TestProcessInitSyntaxError tests Init with malformed Lua
+func TestProcessInitSyntaxError(t *testing.T) {
+	script := `this is not valid lua {{{{`
+
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	err := proc.Init(ctx, "", nil)
+
+	if err == nil {
+		t.Fatal("expected error for syntax error")
+	}
+}
+
+// TestProcessInitWithInputPayloads tests Init with input arguments
+func TestProcessInitWithInputPayloads(t *testing.T) {
+	script := `
+		return {
+			main = function(a, b)
+				return a + b
+			end
+		}
+	`
+
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	p1 := &testPayload{val: lua.LNumber(10)}
+	p2 := &testPayload{val: lua.LNumber(20)}
+
+	if err := proc.Init(ctx, "main", payload.Payloads{p1, p2}); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatalf("Step failed: %v", err)
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("expected StepDone, got %d", output.Status())
+	}
+}
+
+// testPayload implements payload.Payload interface for testing
+type testPayload struct {
+	val lua.LValue
+}
+
+func (p *testPayload) Format() payload.Format { return payload.Lua }
+func (p *testPayload) Data() any              { return p.val }
+
+// TestProcessStepWithEmptyEvents tests Step with empty events array
+func TestProcessStepWithEmptyEvents(t *testing.T) {
+	script := `
+		test_yield(10)
+		return "done"
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(bindTestYield),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	// Now step with empty events while yield is pending
+	output.Reset()
+	if err := proc.Step([]process.Event{}, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	// Should still be waiting
+	if output.Count() != 0 && len(proc.pendingYields) != 1 {
+		t.Fatalf("expected pending yield to remain")
+	}
+}
+
+// TestProcessStepEventWithInvalidTag tests yield complete with wrong tag
+func TestProcessStepEventWithInvalidTag(t *testing.T) {
+	script := `
+		test_yield(10)
+		return "done"
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(bindTestYield),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	// Send completion with wrong tag
+	events := []process.Event{
+		{Type: process.EventYieldComplete, Tag: 99999},
+	}
+	output.Reset()
+	if err := proc.Step(events, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	// Original yield should still be pending
+	if len(proc.pendingYields) != 1 {
+		t.Fatalf("expected 1 pending yield, got %d", len(proc.pendingYields))
+	}
+}
+
+// TestProcessStepEventWithZeroTag tests yield complete with tag 0
+func TestProcessStepEventWithZeroTag(t *testing.T) {
+	script := `
+		test_yield(10)
+		return "done"
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(bindTestYield),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	events := []process.Event{
+		{Type: process.EventYieldComplete, Tag: 0},
+	}
+	output.Reset()
+	if err := proc.Step(events, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(proc.pendingYields) != 1 {
+		t.Fatalf("expected 1 pending yield, got %d", len(proc.pendingYields))
+	}
+}
+
+// TestProcessChannelWithoutChannelModule tests process without channel operations
+func TestProcessChannelWithoutChannelModule(t *testing.T) {
+	script := `
+		local x = 1 + 2
+		return x
+	`
+
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("expected StepDone, got %d", output.Status())
+	}
+}
+
+// TestProcessDeadlockDetection tests deadlock when all coroutines blocked
+func TestProcessDeadlockDetection(t *testing.T) {
+	script := `
+		local ch = channel.new(0)
+
+		coroutine.spawn(function()
+			ch:receive()
+		end)
+
+		coroutine.spawn(function()
+			ch:receive()
+		end)
+
+		return "unreachable"
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	for i := 0; i < 20; i++ {
+		output.Reset()
+		err := proc.Step(nil, &output)
+		if err != nil {
+			// Deadlock error expected
+			return
+		}
+		if output.Status() == process.StepDone {
+			t.Fatal("should not complete - deadlock expected")
+		}
+		if output.Status() == process.StepIdle {
+			// Idle with channels means blocked - this is the deadlock state
+			return
+		}
+	}
+}
+
+// TestProcessChannelClosedReceive tests receiving from closed channel
+func TestProcessChannelClosedReceive(t *testing.T) {
+	script := `
+		local ch = channel.new(0)
+		ch:close()
+
+		local val, ok = ch:receive()
+		return ok
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	for i := 0; i < 10; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step failed: %v", err)
+		}
+		if output.Status() == process.StepDone {
+			return
+		}
+	}
+	t.Fatal("did not complete")
+}
+
+// TestProcessChannelBufferedFull tests sending to full buffered channel
+func TestProcessChannelBufferedFull(t *testing.T) {
+	script := `
+		local ch = channel.new(1)
+		ch:send("first")
+
+		local sent = false
+		coroutine.spawn(function()
+			ch:send("second")
+			sent = true
+		end)
+
+		coroutine.yield()
+		local val = ch:receive()
+		coroutine.yield()
+
+		return sent
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	for i := 0; i < 20; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step failed: %v", err)
+		}
+		if output.Status() == process.StepDone {
+			return
+		}
+	}
+	t.Fatal("did not complete")
+}
+
+// TestProcessSelectWithDefault tests select with default case
+func TestProcessSelectWithDefault(t *testing.T) {
+	script := `
+		local ch = channel.new(0)
+
+		local result = channel.select({
+			ch:case_receive(),
+			default = true
+		})
+
+		return result.default
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	for i := 0; i < 10; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step failed: %v", err)
+		}
+		if output.Status() == process.StepDone {
+			return
+		}
+	}
+	t.Fatal("did not complete")
+}
+
+// TestProcessSelectMultipleChannels tests select with multiple ready channels
+func TestProcessSelectMultipleChannels(t *testing.T) {
+	script := `
+		local ch1 = channel.new(1)
+		local ch2 = channel.new(1)
+
+		ch1:send("from_ch1")
+		ch2:send("from_ch2")
+
+		local result = channel.select({
+			ch1:case_receive(),
+			ch2:case_receive()
+		})
+
+		return result.ok
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	for i := 0; i < 10; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step failed: %v", err)
+		}
+		if output.Status() == process.StepDone {
+			return
+		}
+	}
+	t.Fatal("did not complete")
+}
+
+// TestProcessCoroutineError tests error in spawned coroutine
+func TestProcessCoroutineError(t *testing.T) {
+	script := `
+		local err_val = nil
+
+		coroutine.spawn(function()
+			error("coroutine error")
+		end)
+
+		coroutine.yield()
+		return "main completed"
+	`
+
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	var lastErr error
+	for i := 0; i < 10; i++ {
+		output.Reset()
+		lastErr = proc.Step(nil, &output)
+		if lastErr != nil {
+			// Error from coroutine expected
+			return
+		}
+		if output.Status() == process.StepDone {
+			return
+		}
+	}
+}
+
+// TestProcessNestedCoroutines tests coroutines spawning coroutines
+func TestProcessNestedCoroutines(t *testing.T) {
+	script := `
+		local result = 0
+
+		coroutine.spawn(function()
+			coroutine.spawn(function()
+				coroutine.spawn(function()
+					result = result + 1
+				end)
+				result = result + 10
+			end)
+			result = result + 100
+		end)
+
+		for i = 1, 10 do
+			coroutine.yield()
+		end
+
+		return result
+	`
+
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	for i := 0; i < 20; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step failed: %v", err)
+		}
+		if output.Status() == process.StepDone {
+			return
+		}
+	}
+	t.Fatal("did not complete")
+}
+
+// TestProcessYieldResumeOrder tests that yields resume in correct order
+func TestProcessYieldResumeOrder(t *testing.T) {
+	script := `
+		local order = {}
+
+		coroutine.spawn(function()
+			test_yield(1)
+			table.insert(order, "a")
+		end)
+
+		coroutine.spawn(function()
+			test_yield(2)
+			table.insert(order, "b")
+		end)
+
+		coroutine.spawn(function()
+			test_yield(3)
+			table.insert(order, "c")
+		end)
+
+		while #order < 3 do
+			coroutine.yield()
+		end
+
+		return table.concat(order, ",")
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(bindTestYield),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	maxSteps := 30
+
+	for step := 0; step < maxSteps; step++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step failed: %v", err)
+		}
+
+		if output.Status() == process.StepDone {
+			return
+		}
+
+		// Complete any pending yields
+		if output.Count() > 0 {
+			var events []process.Event
+			for _, y := range output.Yields() {
+				events = append(events, process.Event{
+					Type: process.EventYieldComplete,
+					Tag:  y.Tag,
+				})
+			}
+			output.Reset()
+			if err := proc.Step(events, &output); err != nil {
+				t.Fatalf("Step with events failed: %v", err)
+			}
+			if output.Status() == process.StepDone {
+				return
+			}
+		}
+	}
+	t.Fatal("did not complete")
+}
+
+// TestProcessMixedYieldsAndChannels tests external yields mixed with channel ops
+func TestProcessMixedYieldsAndChannels(t *testing.T) {
+	script := `
+		local ch = channel.new(1)
+		local result = nil
+
+		coroutine.spawn(function()
+			test_yield(10)
+			ch:send("from_yield")
+		end)
+
+		coroutine.spawn(function()
+			result = ch:receive()
+		end)
+
+		while result == nil do
+			coroutine.yield()
+		end
+
+		return result
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+		WithModuleBinder(bindTestYield),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	maxSteps := 30
+
+	for step := 0; step < maxSteps; step++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step failed: %v", err)
+		}
+
+		if output.Status() == process.StepDone {
+			return
+		}
+
+		if output.Count() > 0 {
+			var events []process.Event
+			for _, y := range output.Yields() {
+				events = append(events, process.Event{
+					Type: process.EventYieldComplete,
+					Tag:  y.Tag,
+				})
+			}
+			output.Reset()
+			if err := proc.Step(events, &output); err != nil {
+				t.Fatalf("Step with events failed: %v", err)
+			}
+			if output.Status() == process.StepDone {
+				return
+			}
+		}
+	}
+	t.Fatal("did not complete")
+}
+
+// TestProcessTaskQueueDrainOrder tests FIFO order of task queue
+func TestProcessTaskQueueDrainOrder(t *testing.T) {
+	script := `
+		local order = {}
+
+		coroutine.spawn(function()
+			table.insert(order, 1)
+		end)
+
+		coroutine.spawn(function()
+			table.insert(order, 2)
+		end)
+
+		coroutine.spawn(function()
+			table.insert(order, 3)
+		end)
+
+		coroutine.yield()
+		coroutine.yield()
+		coroutine.yield()
+
+		return order[1] == 1 and order[2] == 2 and order[3] == 3
+	`
+
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	for i := 0; i < 20; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step failed: %v", err)
+		}
+		if output.Status() == process.StepDone {
+			return
+		}
+	}
+	t.Fatal("did not complete")
+}
+
+// TestProcessGetTask tests GetTask method
+func TestProcessGetTask(t *testing.T) {
+	script := `
+		coroutine.spawn(function()
+			coroutine.yield()
+		end)
+		return 1
+	`
+
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	// Before step, main task exists
+	if proc.mainTask == nil {
+		t.Fatal("expected mainTask to exist")
+	}
+
+	thread := proc.mainTask.Thread()
+	task, err := proc.GetTask(thread)
+	if err != nil {
+		t.Fatalf("GetTask failed: %v", err)
+	}
+	if task != proc.mainTask {
+		t.Fatal("GetTask should return mainTask for main thread")
+	}
+
+	// Non-existent thread
+	fakeThread, _ := proc.state.NewThread()
+	task, err = proc.GetTask(fakeThread)
+	if err == nil {
+		t.Fatal("GetTask should return error for unknown thread")
+	}
+}
+
+// TestProcessMultipleReturnValues tests handling of multiple return values
+func TestProcessMultipleReturnValues(t *testing.T) {
+	script := `
+		return 1, 2, 3
+	`
+
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("expected StepDone, got %d", output.Status())
+	}
+
+	if output.Result() == nil {
+		t.Fatal("expected result")
+	}
+}
+
+// TestProcessReturnNil tests explicit nil return
+func TestProcessReturnNil(t *testing.T) {
+	script := `return nil`
+
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("expected StepDone, got %d", output.Status())
+	}
+}
+
+// TestProcessNoReturn tests script with no return statement
+func TestProcessNoReturn(t *testing.T) {
+	script := `local x = 1`
+
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("expected StepDone, got %d", output.Status())
+	}
+}
+
+// TestProcessSubscribe tests Subscribe method
+func TestProcessSubscribe(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	// Subscribe to a topic
+	ch, err := proc.Subscribe("test-topic", 10)
+	if err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
+	if ch == nil {
+		t.Fatal("expected non-nil channel")
+	}
+
+	// Subscribe again to same topic returns same channel
+	ch2, err := proc.Subscribe("test-topic", 10)
+	if err != nil {
+		t.Fatalf("second Subscribe failed: %v", err)
+	}
+	if ch2 != ch {
+		t.Fatal("expected same channel for same topic")
+	}
+
+	// HasSubscriptions should return true
+	if !proc.HasSubscriptions() {
+		t.Fatal("expected HasSubscriptions to return true")
+	}
+}
+
+// TestProcessSubscribeWithoutInit tests Subscribe before Init
+func TestProcessSubscribeWithoutInit(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	// Subscribe without Init should fail
+	ch, err := proc.Subscribe("test-topic", 10)
+	if err == nil {
+		t.Fatal("expected error when subscribing before Init")
+	}
+	if ch != nil {
+		t.Fatal("expected nil channel")
+	}
+}
+
+// TestProcessSubscribeExisting tests SubscribeExisting method
+func TestProcessSubscribeExisting(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	// Create external channel
+	externalCh := NewChannel(5)
+
+	// Subscribe with existing channel
+	err := proc.SubscribeExisting("external-topic", externalCh)
+	if err != nil {
+		t.Fatalf("SubscribeExisting failed: %v", err)
+	}
+
+	// Subscribe again with same channel is ok
+	err = proc.SubscribeExisting("external-topic", externalCh)
+	if err != nil {
+		t.Fatalf("second SubscribeExisting failed: %v", err)
+	}
+
+	// Subscribe with different channel to same topic should fail
+	differentCh := NewChannel(5)
+	err = proc.SubscribeExisting("external-topic", differentCh)
+	if err == nil {
+		t.Fatal("expected error when subscribing different channel to same topic")
+	}
+}
+
+// TestProcessSubscribeExistingWithoutInit tests SubscribeExisting before Init
+func TestProcessSubscribeExistingWithoutInit(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ch := NewChannel(5)
+	err := proc.SubscribeExisting("test-topic", ch)
+	if err == nil {
+		t.Fatal("expected error when subscribing before Init")
+	}
+}
+
+// TestProcessTopicHandler tests SetTopicHandler/GetTopicHandler/RemoveTopicHandler
+func TestProcessTopicHandler(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	// No handler initially
+	_, ok := proc.GetTopicHandler("test-topic")
+	if ok {
+		t.Fatal("expected no handler initially")
+	}
+
+	// Set handler
+	proc.SetTopicHandler("test-topic", func(ctx context.Context, l *lua.LState, source relay.PID, topic string, payloads []payload.Payload) lua.LValue {
+		return lua.LTrue
+	})
+
+	// Get handler
+	h, ok := proc.GetTopicHandler("test-topic")
+	if !ok {
+		t.Fatal("expected handler to exist")
+	}
+	if h == nil {
+		t.Fatal("expected non-nil handler")
+	}
+
+	// Remove handler
+	proc.RemoveTopicHandler("test-topic")
+	_, ok = proc.GetTopicHandler("test-topic")
+	if ok {
+		t.Fatal("expected no handler after removal")
+	}
+}
+
+// TestProcessChannelQueue tests ChannelQueue method
+func TestProcessChannelQueue(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	// Get channel queue (creates if needed)
+	q := proc.ChannelQueue()
+	if q == nil {
+		t.Fatal("expected non-nil queue")
+	}
+
+	// Getting again returns same queue
+	q2 := proc.ChannelQueue()
+	if q2 != q {
+		t.Fatal("expected same queue instance")
+	}
+}
+
+// TestProcessHasSubscriptionsEmpty tests HasSubscriptions with no subscriptions
+func TestProcessHasSubscriptionsEmpty(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	if proc.HasSubscriptions() {
+		t.Fatal("expected no subscriptions")
+	}
+}
+
+// TestProcessHasSubscriptionsNilSubs tests HasSubscriptions before Init
+func TestProcessHasSubscriptionsNilSubs(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	// Before Init, subs is nil
+	if proc.HasSubscriptions() {
+		t.Fatal("expected false when subs is nil")
+	}
+}
+
+// TestProcessGetProcess tests GetProcess helper
+func TestProcessGetProcess(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	// GetProcess from state should return the process
+	retrieved := GetProcess(proc.state)
+	if retrieved != proc {
+		t.Fatal("expected GetProcess to return the process")
+	}
+
+	// GetProcess from state with nil G.Owner should return nil
+	emptyState := lua.NewState()
+	defer emptyState.Close()
+	retrieved = GetProcess(emptyState)
+	if retrieved != nil {
+		t.Fatal("expected nil for state without Owner")
+	}
+}
+
+// TestProcessSubscribeYieldsBasic tests processSubscribeYields with subscribe request
+func TestProcessSubscribeYieldsBasic(t *testing.T) {
+	script := `
+		local topic = process.subscribe("test-topic", 10)
+		return topic ~= nil
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+		WithModuleBinder(bindProcessModule),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	for i := 0; i < 10; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step %d failed: %v", i, err)
+		}
+		if output.Status() == process.StepDone {
+			return
+		}
+	}
+	t.Fatal("did not complete")
+}
+
+// TestProcessSubscribeYieldsUnsubscribe tests processSubscribeYields with unsubscribe
+func TestProcessSubscribeYieldsUnsubscribe(t *testing.T) {
+	script := `
+		local ch = process.subscribe("test-topic", 10)
+		local ok = process.unsubscribe(ch)
+		return ok
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+		WithModuleBinder(bindProcessModule),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	for i := 0; i < 10; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step %d failed: %v", i, err)
+		}
+		if output.Status() == process.StepDone {
+			return
+		}
+	}
+	t.Fatal("did not complete")
+}
+
+// bindProcessModule binds a minimal process module for subscribe testing
+func bindProcessModule(L *lua.LState) {
+	mod := L.NewTable()
+
+	// subscribe(topic, bufsize) -> channel
+	mod.RawSetString("subscribe", L.NewFunction(func(L *lua.LState) int {
+		topic := L.CheckString(1)
+		bufSize := L.OptInt(2, 0)
+
+		req := &SubscribeRequest{
+			Topic:   topic,
+			BufSize: bufSize,
+		}
+		L.Push(req)
+		return -1 // yield
+	}))
+
+	// unsubscribe(channel) -> bool
+	mod.RawSetString("unsubscribe", L.NewFunction(func(L *lua.LState) int {
+		ud := L.CheckUserData(1)
+		ch, ok := ud.Value.(*Channel)
+		if !ok {
+			L.Push(lua.LFalse)
+			L.Push(lua.LString("not a channel"))
+			return 2
+		}
+
+		req := &UnsubscribeRequest{Channel: ch}
+		L.Push(req)
+		return -1 // yield
+	}))
+
+	L.SetGlobal("process", mod)
+}
+
+// TestProcessDeliverMessageBasic tests deliverMessage
+func TestProcessDeliverMessageBasic(t *testing.T) {
+	script := `
+		local ch = process.subscribe("test-topic", 10)
+		-- Wait for message
+		local msg = ch:receive()
+		return msg
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+		WithModuleBinder(bindProcessModule),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+
+	// Run until subscribed and waiting for message
+	for i := 0; i < 5; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step %d failed: %v", i, err)
+		}
+		if output.Status() == process.StepDone {
+			t.Fatal("completed too early")
+		}
+		if output.Status() == process.StepIdle {
+			break
+		}
+	}
+
+	// Queue a message to the topic
+	testPayload := payload.New("hello")
+	proc.messageQueue = append(proc.messageQueue, queuedMessage{
+		Topic:    "test-topic",
+		Source:   testPID("source"),
+		Payloads: []payload.Payload{testPayload},
+	})
+
+	// Step should deliver the message
+	for i := 0; i < 10; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step %d failed: %v", i, err)
+		}
+		if output.Status() == process.StepDone {
+			return
+		}
+	}
+	t.Fatal("did not complete")
+}
+
+// TestProcessDeliverMessageWithHandler tests deliverMessage with topic handler
+func TestProcessDeliverMessageWithHandler(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	// Subscribe to topic
+	ch, err := proc.Subscribe("test-topic", 10)
+	if err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
+
+	// Set topic handler that transforms the message
+	proc.SetTopicHandler("test-topic", func(ctx context.Context, l *lua.LState, source relay.PID, topic string, payloads []payload.Payload) lua.LValue {
+		return lua.LString("handled")
+	})
+
+	// Deliver message
+	testPayload := payload.New("original")
+	proc.messageQueue = append(proc.messageQueue, queuedMessage{
+		Topic:    "test-topic",
+		Source:   testPID("source"),
+		Payloads: []payload.Payload{testPayload},
+	})
+
+	// Flush messages
+	proc.flushMessageQueue(proc.subs)
+
+	// Check channel received transformed message
+	result := ch.Receive(nil, nil)
+	if result == nil {
+		t.Fatal("expected receive result")
+	}
+	updates := result.GetUpdates()
+	if len(updates) != 1 {
+		t.Fatal("expected one update")
+	}
+	if updates[0].GetResult()[0].String() != "handled" {
+		t.Fatalf("expected 'handled', got %v", updates[0].GetResult()[0])
+	}
+	ReleaseResult(result)
+}
+
+// TestProcessDeliverMessageToInboxFallback tests deliverMessage inbox fallback
+func TestProcessDeliverMessageToInboxFallback(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	// Subscribe to inbox topic
+	ch, err := proc.Subscribe("@inbox", 10)
+	if err != nil {
+		t.Fatalf("Subscribe to inbox failed: %v", err)
+	}
+
+	// Queue message to unknown topic (should fallback to inbox)
+	testPayload := payload.New("fallback-message")
+	proc.messageQueue = append(proc.messageQueue, queuedMessage{
+		Topic:    "unknown-topic",
+		Source:   testPID("source"),
+		Payloads: []payload.Payload{testPayload},
+	})
+
+	// Flush messages
+	proc.flushMessageQueue(proc.subs)
+
+	// Check inbox received the message
+	result := ch.Receive(nil, nil)
+	if result == nil {
+		t.Fatal("expected inbox to receive message")
+	}
+	ReleaseResult(result)
+}
+
+// TestProcessDeliverMessageNoSubscription tests deliverMessage with no subscription
+func TestProcessDeliverMessageNoSubscription(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	// Queue message to non-existent topic
+	testPayload := payload.New("lost")
+	proc.messageQueue = append(proc.messageQueue, queuedMessage{
+		Topic:    "nonexistent",
+		Source:   testPID("source"),
+		Payloads: []payload.Payload{testPayload},
+	})
+
+	// Flush - message should stay in queue
+	proc.flushMessageQueue(proc.subs)
+
+	if len(proc.messageQueue) != 1 {
+		t.Fatalf("expected message to remain in queue, got %d", len(proc.messageQueue))
+	}
+}
+
+// TestProcessDeliverMessageTerminal tests deliverMessage with terminal payload
+func TestProcessDeliverMessageTerminal(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	// Subscribe to topic
+	ch, err := proc.Subscribe("test-topic", 10)
+	if err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
+
+	// Queue terminal payload
+	terminalPayload := payload.NewPayload(nil, payload.Terminal)
+	proc.messageQueue = append(proc.messageQueue, queuedMessage{
+		Topic:    "test-topic",
+		Source:   testPID("source"),
+		Payloads: []payload.Payload{terminalPayload},
+	})
+
+	// Flush - terminal should close channel
+	proc.flushMessageQueue(proc.subs)
+
+	if len(proc.messageQueue) != 0 {
+		t.Fatalf("expected empty queue after terminal, got %d", len(proc.messageQueue))
+	}
+
+	// Channel should be closed
+	if !ch.IsClosed() {
+		t.Fatal("channel should be closed after terminal")
+	}
+}
+
+// TestProcessDeliverMessageWithTerminalAtEnd tests multi-payload message with terminal at end
+func TestProcessDeliverMessageWithTerminalAtEnd(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	// Subscribe to topic
+	ch, err := proc.Subscribe("test-topic", 10)
+	if err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
+
+	// Queue message with result + terminal pattern
+	dataPayload := payload.New("result-data")
+	terminalPayload := payload.NewPayload(nil, payload.Terminal)
+	proc.messageQueue = append(proc.messageQueue, queuedMessage{
+		Topic:    "test-topic",
+		Source:   testPID("source"),
+		Payloads: []payload.Payload{dataPayload, terminalPayload},
+	})
+
+	// Flush - should deliver data then close channel
+	proc.flushMessageQueue(proc.subs)
+
+	if len(proc.messageQueue) != 0 {
+		t.Fatalf("expected empty queue, got %d", len(proc.messageQueue))
+	}
+
+	// Channel should be closed
+	if !ch.IsClosed() {
+		t.Fatal("channel should be closed after terminal")
+	}
+}
+
+// TestProcessDeliverMessageHandlerReturnsNil tests handler that returns nil
+func TestProcessDeliverMessageHandlerReturnsNil(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	// Subscribe to topic
+	_, err := proc.Subscribe("test-topic", 10)
+	if err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
+
+	// Set handler that returns nil (doesn't want to send to channel)
+	proc.SetTopicHandler("test-topic", func(ctx context.Context, l *lua.LState, source relay.PID, topic string, payloads []payload.Payload) lua.LValue {
+		return nil
+	})
+
+	// Queue message
+	dataPayload := payload.New("data")
+	proc.messageQueue = append(proc.messageQueue, queuedMessage{
+		Topic:    "test-topic",
+		Source:   testPID("source"),
+		Payloads: []payload.Payload{dataPayload},
+	})
+
+	// Flush - handler returns nil, message handled but nothing sent to channel
+	proc.flushMessageQueue(proc.subs)
+
+	if len(proc.messageQueue) != 0 {
+		t.Fatalf("expected empty queue, got %d", len(proc.messageQueue))
+	}
+}
+
+// TestProcessDeliverMessageHandlerWithTerminal tests handler returning nil with terminal
+func TestProcessDeliverMessageHandlerWithTerminal(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	// Subscribe to topic
+	ch, err := proc.Subscribe("test-topic", 10)
+	if err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
+
+	// Set handler that returns nil
+	proc.SetTopicHandler("test-topic", func(ctx context.Context, l *lua.LState, source relay.PID, topic string, payloads []payload.Payload) lua.LValue {
+		return nil
+	})
+
+	// Queue message with data + terminal
+	dataPayload := payload.New("data")
+	terminalPayload := payload.NewPayload(nil, payload.Terminal)
+	proc.messageQueue = append(proc.messageQueue, queuedMessage{
+		Topic:    "test-topic",
+		Source:   testPID("source"),
+		Payloads: []payload.Payload{dataPayload, terminalPayload},
+	})
+
+	// Flush - handler returns nil + terminal should close channel
+	proc.flushMessageQueue(proc.subs)
+
+	if !ch.IsClosed() {
+		t.Fatal("channel should be closed after handler with terminal")
+	}
+}
+
+// TestProcessDeliverMessageAtTopic tests message to @ prefixed topic without inbox fallback
+func TestProcessDeliverMessageAtTopic(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	// Subscribe to inbox
+	_, err := proc.Subscribe("@inbox", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Queue message to @ prefixed topic that doesn't exist
+	dataPayload := payload.New("data")
+	proc.messageQueue = append(proc.messageQueue, queuedMessage{
+		Topic:    "@nonexistent",
+		Source:   testPID("source"),
+		Payloads: []payload.Payload{dataPayload},
+	})
+
+	// Flush - @ topics don't fallback to inbox, so message stays in queue
+	proc.flushMessageQueue(proc.subs)
+
+	if len(proc.messageQueue) != 1 {
+		t.Fatalf("expected 1 message in queue (no fallback for @ topics), got %d", len(proc.messageQueue))
+	}
+}
+
+// TestProcessResumeTaskWithResultHandledYield tests resumeTaskWithResult with HandledYield
+func TestProcessResumeTaskWithResultHandledYield(t *testing.T) {
+	script := `
+		local result = test_yield(10)
+		return result
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(bindTestYield),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	// Should yield external
+	if output.Count() != 1 {
+		t.Fatalf("expected 1 yield, got %d", output.Count())
+	}
+
+	// Resume with result
+	events := []process.Event{{
+		Type: process.EventYieldComplete,
+		Tag:  output.Yields()[0].Tag,
+		Data: []lua.LValue{lua.LString("test-result")},
+	}}
+
+	output.Reset()
+	if err := proc.Step(events, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("expected StepDone, got %d", output.Status())
+	}
+}
+
+// TestProcessResumeTaskWithResultLuaValues tests resumeTaskWithResult with raw LValues
+func TestProcessResumeTaskWithResultLuaValues(t *testing.T) {
+	script := `
+		local result = test_yield(10)
+		return result
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(bindTestYield),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if output.Count() != 1 {
+		t.Fatalf("expected 1 yield, got %d", output.Count())
+	}
+
+	// Resume with raw lua values
+	events := []process.Event{{
+		Type: process.EventYieldComplete,
+		Tag:  output.Yields()[0].Tag,
+		Data: []lua.LValue{lua.LNumber(42)},
+	}}
+
+	output.Reset()
+	if err := proc.Step(events, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("expected StepDone, got %d", output.Status())
+	}
+}
+
+// TestProcessState tests State method
+func TestProcessState(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	state := proc.State()
+	if state == nil {
+		t.Fatal("expected non-nil state")
+	}
+	if state != proc.state {
+		t.Fatal("State() should return internal state")
+	}
+}
+
+// TestProcessGetTasks tests GetTasks method
+func TestProcessGetTasks(t *testing.T) {
+	script := `
+		coroutine.spawn(function() coroutine.yield() end)
+		coroutine.spawn(function() coroutine.yield() end)
+		return 1
+	`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	// Step to create spawned threads
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	tasks := proc.GetTasks()
+	// Should have at least the spawned tasks
+	if len(tasks) < 2 {
+		t.Fatalf("expected at least 2 tasks, got %d", len(tasks))
+	}
+}
+
+// TestProcessQueue tests Queue method
+func TestProcessQueue(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	queue := proc.Queue()
+	if queue == nil {
+		t.Fatal("expected non-nil queue")
+	}
+	if queue != proc.queue {
+		t.Fatal("Queue() should return internal queue")
+	}
+}
+
+// TestProcessWithProto tests WithProto option
+func TestProcessWithProto(t *testing.T) {
+	// First compile script to proto
+	script := `return 42`
+	state := lua.NewState()
+	defer state.Close()
+
+	fn, err := state.Load(strings.NewReader(script), "test.lua")
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	proto := fn.Proto
+
+	// Create process with proto
+	proc := NewProcess(WithProto(proto))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("expected StepDone, got %d", output.Status())
+	}
+}
+
+// TestProcessWithStateOptions tests WithStateOptions
+func TestProcessWithStateOptions(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithStateOptions(lua.Options{SkipOpenLibs: false}),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("expected StepDone, got %d", output.Status())
+	}
+}
+
+// TestProcessTranscodeToLua tests transcodeToLua paths
+func TestProcessTranscodeToLua(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	// Test nil payload
+	result := transcodeToLua(ctx, nil)
+	if result != lua.LNil {
+		t.Fatal("expected LNil for nil payload")
+	}
+
+	// Test Lua format payload
+	luaPayload := payload.NewPayload(lua.LNumber(123), payload.Lua)
+	result = transcodeToLua(ctx, luaPayload)
+	if result != lua.LNumber(123) {
+		t.Fatal("expected lua value to pass through")
+	}
+
+	// Test non-Lua payload (falls back to string representation)
+	stringPayload := payload.New("test-string")
+	result = transcodeToLua(ctx, stringPayload)
+	if result == lua.LNil {
+		t.Fatal("expected non-nil result")
+	}
+}
+
+// TestProcessPayloadsToLua tests PayloadsToLua function
+func TestProcessPayloadsToLua(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	// Empty payloads
+	result := PayloadsToLua(ctx, proc.state, nil)
+	if result != lua.LNil {
+		t.Fatal("expected LNil for empty payloads")
+	}
+
+	// Single payload
+	p1 := payload.NewPayload(lua.LString("single"), payload.Lua)
+	result = PayloadsToLua(ctx, proc.state, []payload.Payload{p1})
+	if result.String() != "single" {
+		t.Fatalf("expected 'single', got %v", result)
+	}
+
+	// Multiple payloads
+	p2 := payload.NewPayload(lua.LString("second"), payload.Lua)
+	result = PayloadsToLua(ctx, proc.state, []payload.Payload{p1, p2})
+	tbl, ok := result.(*lua.LTable)
+	if !ok {
+		t.Fatal("expected table for multiple payloads")
+	}
+	if tbl.Len() != 2 {
+		t.Fatalf("expected 2 elements, got %d", tbl.Len())
+	}
+}
+
+// TestProcessSyncExecute tests SyncExecute method
+func TestProcessSyncExecute(t *testing.T) {
+	// Compile script to proto first
+	script := `return 42`
+	state := lua.NewState()
+	fn, err := state.Load(strings.NewReader(script), "test.lua")
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	proto := fn.Proto
+	state.Close()
+
+	proc := NewProcess(WithProto(proto))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	// SyncExecute doesn't need Init - it runs directly
+	result, err := proc.SyncExecute(ctx)
+	if err != nil {
+		t.Fatalf("SyncExecute failed: %v", err)
+	}
+	// Result can be LNumber or LInteger depending on Lua VM
+	if result.String() != "42" {
+		t.Fatalf("expected 42, got %v", result)
+	}
+}
+
+// TestProcessWithModuleBinderFirst tests WithModuleBinder as first option (factory init)
+func TestProcessWithModuleBinderFirst(t *testing.T) {
+	binderCalled := false
+	binder := func(L *lua.LState) {
+		binderCalled = true
+		L.SetGlobal("test_var", lua.LNumber(123))
+	}
+
+	// WithModuleBinder as first option - exercises factory nil check
+	proc := NewProcess(
+		WithModuleBinder(binder),
+		WithScript(`return test_var`, "test.lua"),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if !binderCalled {
+		t.Fatal("binder was not called")
+	}
+	if output.Status() != process.StepDone {
+		t.Fatalf("expected StepDone, got %d", output.Status())
+	}
+}
+
+// TestProcessWithStateOptionsFirst tests WithStateOptions as first option (factory init)
+func TestProcessWithStateOptionsFirst(t *testing.T) {
+	// WithStateOptions as first option - exercises factory nil check
+	proc := NewProcess(
+		WithStateOptions(lua.Options{SkipOpenLibs: false}),
+		WithScript(`return 1`, "test.lua"),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("expected StepDone, got %d", output.Status())
+	}
+}
+
+// mockTranscoder implements payload.Transcoder for testing
+type mockTranscoder struct{}
+
+func (m *mockTranscoder) Transcode(p payload.Payload, f payload.Format) (payload.Payload, error) {
+	// Convert to Lua format by wrapping data as LString
+	if f == payload.Lua {
+		return payload.NewPayload(lua.LString(fmt.Sprintf("%v", p.Data())), payload.Lua), nil
+	}
+	return payload.NewPayload(p.Data(), f), nil
+}
+
+func (m *mockTranscoder) Unmarshal(_ payload.Payload, _ interface{}) error {
+	return nil
+}
+
+// TestProcessTranscodeToLuaWithTranscoder tests transcodeToLua with context transcoder
+func TestProcessTranscodeToLuaWithTranscoder(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	// Create context with AppContext and attach transcoder
+	ctx := context.Background()
+	ctx = ctxapi.WithAppContext(ctx, ctxapi.NewAppContext())
+	ctx = payload.WithTranscoder(ctx, &mockTranscoder{})
+
+	// Wrap with frame context for process
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	// Test transcoding with transcoder in context
+	jsonPayload := payload.NewPayload("test-data", payload.JSON)
+	result := transcodeToLua(ctx, jsonPayload)
+
+	// Should use transcoder to convert to Lua
+	if result == lua.LNil {
+		t.Fatal("expected non-nil result from transcoder")
+	}
+	if result.String() != "test-data" {
+		t.Fatalf("expected 'test-data', got %v", result)
+	}
+}
+
+// TestProcessWrapErrorNil tests wrapError with nil error
+func TestProcessWrapErrorNil(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	// wrapError with nil should return nil
+	result := proc.wrapError(proc.state, nil)
+	if result != nil {
+		t.Fatal("expected nil for nil error")
+	}
+}
+
+// TestProcessWrapErrorAlreadyWrapped tests wrapError with already-wrapped lua.Error
+func TestProcessWrapErrorAlreadyWrapped(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	// Create a lua.Error directly
+	luaErr := lua.NewLuaError(proc.state, "already wrapped error")
+
+	// wrapError should return the same error
+	result := proc.wrapError(proc.state, luaErr)
+	if result != luaErr {
+		t.Fatal("expected same lua.Error to be returned")
+	}
+}
+
+// TestProcessWrapErrorNilThread tests wrapError with nil thread (fallback to p.state)
+func TestProcessWrapErrorNilThread(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	// wrapError with nil thread should use p.state
+	plainErr := fmt.Errorf("plain error")
+	result := proc.wrapError(nil, plainErr)
+
+	if result == nil {
+		t.Fatal("expected wrapped error")
+	}
+
+	// Should be wrapped as lua.Error
+	luaErr := lua.GetError(result)
+	if luaErr == nil {
+		t.Fatal("expected lua.Error wrapper")
+	}
+}
+
+// TestProcessWrapErrorPlainError tests wrapError with plain error
+func TestProcessWrapErrorPlainError(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	// wrapError with plain error should wrap it
+	plainErr := fmt.Errorf("plain error message")
+	result := proc.wrapError(proc.state, plainErr)
+
+	if result == nil {
+		t.Fatal("expected wrapped error")
+	}
+
+	// Should contain original message
+	if !strings.Contains(result.Error(), "plain error message") {
+		t.Fatalf("expected error to contain message, got: %v", result)
+	}
+}
+
+// TestProcessSubscribeError tests Subscribe returning error path
+func TestProcessSubscribeError(t *testing.T) {
+	script := `return 1`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	// Don't init - subs will be nil
+	_, err := proc.Subscribe("topic", 10)
+	if err == nil {
+		t.Fatal("expected error when subscribing without init")
+	}
+}
+
+// TestProcessMultipleModuleBinders tests multiple WithModuleBinder calls
+func TestProcessMultipleModuleBinders(t *testing.T) {
+	binder1Called := false
+	binder2Called := false
+
+	proc := NewProcess(
+		WithModuleBinder(func(L *lua.LState) {
+			binder1Called = true
+			L.SetGlobal("var1", lua.LNumber(1))
+		}),
+		WithModuleBinder(func(L *lua.LState) {
+			binder2Called = true
+			L.SetGlobal("var2", lua.LNumber(2))
+		}),
+		WithScript(`return var1 + var2`, "test.lua"),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if !binder1Called || !binder2Called {
+		t.Fatal("both binders should be called")
+	}
+}
+
+// TestProcessSyncExecuteNotInitialized tests SyncExecute with nil state
+func TestProcessSyncExecuteNotInitialized(t *testing.T) {
+	proc := NewProcess(WithScript(`return 1`, "test.lua"))
+	// Don't initialize state
+	_, err := proc.SyncExecute(context.Background())
+	if err == nil {
+		t.Fatal("expected error for uninitialized state")
+	}
+}
+
+// TestProcessSyncExecuteError tests SyncExecute with script error
+func TestProcessSyncExecuteError(t *testing.T) {
+	script := `error("test error")`
+	state := lua.NewState()
+	fn, err := state.Load(strings.NewReader(script), "test.lua")
+	if err != nil {
+		t.Fatal(err)
+	}
+	proto := fn.Proto
+	state.Close()
+
+	proc := NewProcess(WithProto(proto))
+	// Create state manually
+	proc.state = lua.NewState()
+	defer proc.Close()
+
+	_, err = proc.SyncExecute(context.Background())
+	if err == nil {
+		t.Fatal("expected error from script")
+	}
+}
+
+// TestProcessDistributeEventZeroTag tests distributeEvent with tag=0
+func TestProcessDistributeEventZeroTag(t *testing.T) {
+	proc := NewProcess(WithScript(`return 1`, "test.lua"))
+	proc.state = lua.NewState()
+	defer proc.Close()
+
+	proc.pendingYields = make(map[uint64]*Task)
+	task := &Task{State: lua.ResumeYield}
+	proc.pendingYields[1] = task
+
+	// Call distributeEvent directly with tag=0 - should return early
+	proc.distributeEvent(process.Event{Type: process.EventYieldComplete, Tag: 0})
+
+	// Task should still be pending (not processed)
+	if _, exists := proc.pendingYields[1]; !exists {
+		t.Fatal("task should still be pending when tag=0")
+	}
+}
+
+// TestProcessDistributeEventNoPendingYields tests distributeEvent with empty pendingYields
+func TestProcessDistributeEventNoPendingYields(t *testing.T) {
+	proc := NewProcess(WithScript(`return 1`, "test.lua"))
+	proc.state = lua.NewState()
+	defer proc.Close()
+
+	// Don't set pendingYields
+	proc.distributeEvent(process.Event{Type: process.EventYieldComplete, Tag: 1})
+	// Should return early without panic
+}
+
+// TestProcessDistributeEventNonExistentTag tests distributeEvent with non-existent tag
+func TestProcessDistributeEventNonExistentTag(t *testing.T) {
+	proc := NewProcess(WithScript(`return 1`, "test.lua"))
+	proc.state = lua.NewState()
+	defer proc.Close()
+
+	proc.pendingYields = make(map[uint64]*Task)
+	proc.pendingYields[1] = &Task{State: lua.ResumeYield}
+
+	// Call with non-existent tag
+	proc.distributeEvent(process.Event{Type: process.EventYieldComplete, Tag: 999})
+
+	// Original task should still be pending
+	if _, exists := proc.pendingYields[1]; !exists {
+		t.Fatal("task should still be pending")
+	}
+}
+
+// TestProcessExtractMethodWithScript tests extractMethod using script string
+func TestProcessExtractMethodWithScript(t *testing.T) {
+	script := `return { handle = function() return "ok" end }`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "handle", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	// Verify method was extracted
+	if proc.exported == nil || proc.exported["handle"] == nil {
+		t.Fatal("handle method should be extracted")
+	}
+}
+
+// TestProcessExtractMethodNotFound tests extractMethod with missing method
+func TestProcessExtractMethodNotFound(t *testing.T) {
+	script := `return { other = function() return "ok" end }`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	err := proc.Init(ctx, "nonexistent", nil)
+	if err == nil {
+		t.Fatal("expected error for missing method")
+	}
+}
+
+// TestProcessExtractMethodScriptReturnsFunction tests extractMethod with direct function return
+func TestProcessExtractMethodScriptReturnsFunction(t *testing.T) {
+	script := `return function() return "direct" end`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "handle", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	// Should work - direct function return gets stored
+	if proc.exported == nil || proc.exported["handle"] == nil {
+		t.Fatal("direct function should be extracted")
+	}
+}
+
+// TestProcessExtractMethodScriptError tests extractMethod with script execution error
+func TestProcessExtractMethodScriptError(t *testing.T) {
+	script := `error("init error")`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	err := proc.Init(ctx, "handle", nil)
+	if err == nil {
+		t.Fatal("expected error from script execution")
+	}
+}
+
+// TestProcessExtractMethodLoadError tests extractMethod with invalid script
+func TestProcessExtractMethodLoadError(t *testing.T) {
+	script := `this is not valid lua`
+	proc := NewProcess(WithScript(script, "test.lua"))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	err := proc.Init(ctx, "handle", nil)
+	if err == nil {
+		t.Fatal("expected load error")
+	}
+}
+
+// TestProcessYieldToCommandEmpty tests yieldToCommand with empty yields
+func TestProcessYieldToCommandEmpty(t *testing.T) {
+	proc := NewProcess(WithScript(`return 1`, "test.lua"))
+	task := &Task{Yielded: nil}
+	cmd := proc.yieldToCommand(task)
+	if cmd != nil {
+		t.Fatal("expected nil command for empty yields")
+	}
+}
+
+// TestProcessResumeTaskNonHandledYield tests resumeTaskWithResult with plain LValues
+func TestProcessResumeTaskNonHandledYield(t *testing.T) {
+	proc := NewProcess(WithScript(`return 1`, "test.lua"))
+	proc.state = lua.NewState()
+	defer proc.Close()
+
+	proc.queue = NewTaskQueue()
+
+	// Task with non-HandledYield value
+	task := &Task{
+		State:   lua.ResumeYield,
+		Yielded: []lua.LValue{lua.LString("not a handled yield")},
+	}
+
+	// Pass lua values directly
+	proc.resumeTaskWithResult(task, []lua.LValue{lua.LNumber(42)}, nil)
+
+	// Task should be queued
+	if proc.queue.IsEmpty() {
+		t.Fatal("task should be queued")
+	}
+}
+
+// TestProcessResumeTaskEmptyYieldsWithLValues tests resumeTaskWithResult with empty yields but LValues data
+func TestProcessResumeTaskEmptyYieldsWithLValues(t *testing.T) {
+	proc := NewProcess(WithScript(`return 1`, "test.lua"))
+	proc.state = lua.NewState()
+	defer proc.Close()
+
+	proc.queue = NewTaskQueue()
+
+	task := &Task{
+		State:   lua.ResumeYield,
+		Yielded: nil, // empty
+	}
+
+	proc.resumeTaskWithResult(task, []lua.LValue{lua.LNumber(99)}, nil)
+
+	if proc.queue.IsEmpty() {
+		t.Fatal("task should be queued")
+	}
+	if len(task.Resumed) != 1 {
+		t.Fatalf("expected 1 resumed value, got %d", len(task.Resumed))
+	}
+}
+
+// TestProcessResumeTaskNotYieldState tests resumeTaskWithResult when task not in yield state
+func TestProcessResumeTaskNotYieldState(t *testing.T) {
+	proc := NewProcess(WithScript(`return 1`, "test.lua"))
+	proc.state = lua.NewState()
+	defer proc.Close()
+
+	proc.queue = NewTaskQueue()
+
+	task := &Task{
+		State:   lua.ResumeOK, // not yielded
+		Yielded: nil,
+	}
+
+	proc.resumeTaskWithResult(task, []lua.LValue{lua.LNumber(1)}, nil)
+
+	// Task should NOT be queued since state is not ResumeYield
+	if !proc.queue.IsEmpty() {
+		t.Fatal("task should not be queued when not in yield state")
 	}
 }

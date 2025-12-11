@@ -1,6 +1,7 @@
 package process
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 )
@@ -166,15 +167,18 @@ func (q *EventQueue) NewYieldCompleter(sched YieldScheduler) *YieldCompleter {
 // CompleteYield implements dispatcher.ResultReceiver.
 // Safe to call from any goroutine - uses generation to detect staleness.
 func (c *YieldCompleter) CompleteYield(tag uint64, data any, err error) {
+	fmt.Printf("[QUEUE] CompleteYield tag=%d, data=%T, err=%v, gen=%d\n", tag, data, err, c.gen)
 	if !c.queue.Push(Event{
 		Type:  EventYieldComplete,
 		Tag:   tag,
 		Data:  data,
 		Error: err,
 	}, c.gen) {
+		fmt.Printf("[QUEUE] CompleteYield Push failed (gen mismatch or closed)\n")
 		return
 	}
 
+	fmt.Printf("[QUEUE] CompleteYield Push succeeded, waking processor\n")
 	// Wake processor if waiting
 	if c.scheduler != nil {
 		c.scheduler.WakeProcessor(c.queue, c.gen)

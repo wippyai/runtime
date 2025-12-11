@@ -30,6 +30,7 @@ var (
 	ErrTopologyNotFound     = &Error{kind: apierror.KindInternal, message: "Topology not found in context"}
 	ErrServerIDNotFound     = &Error{kind: apierror.KindInternal, message: "Server ID not found in context"}
 	ErrInvalidServerID      = &Error{kind: apierror.KindInvalid, message: "invalid server ID in context"}
+	ErrHostNotAttachable    = &Error{kind: apierror.KindInvalid, message: "server host does not implement AttachableHost"}
 	ErrExpectedBytesPayload = &Error{kind: apierror.KindInvalid, message: "expected bytes payload but got different type"}
 )
 

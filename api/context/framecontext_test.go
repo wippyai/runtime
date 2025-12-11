@@ -431,3 +431,267 @@ func TestOpenFrameContext_InheritWithValuesCloner(t *testing.T) {
 		t.Errorf("parent Values should not have child's new values, got %v", got)
 	}
 }
+
+// Reference counting tests for frame pooling safety in polyglot runtime.
+// The mechanism exists because in polyglot runtimes (Lua, WebAssembly, Temporal workflows),
+// the context propagation path is not deterministic and context cancellation doesn't
+// always work immediately, which complicates knowing when frames can be safely pooled.
+
+func TestFrameContext_RefCount_ParentReleasesFirst(t *testing.T) {
+	parentCtx, parent := newFrameContext(context.Background())
+	inheritKey := &Key{Name: "test.actor", Inherit: true}
+	_ = parent.Set(inheritKey, "user123")
+	parent.Seal()
+
+	_, child := OpenFrameContext(parentCtx)
+
+	parentFC := parent.(*frameContext)
+	if parentFC.refcount.Load() != 2 {
+		t.Errorf("parent refcount should be 2 (self + child), got %d", parentFC.refcount.Load())
+	}
+
+	ReleaseFrameContext(parent)
+
+	if parentFC.refcount.Load() != 1 {
+		t.Errorf("parent refcount after release should be 1 (child still holds ref), got %d", parentFC.refcount.Load())
+	}
+
+	val, ok := child.Get(inheritKey)
+	if !ok || val != "user123" {
+		t.Errorf("child should still see inherited value after parent release, got %v", val)
+	}
+
+	ReleaseFrameContext(child)
+}
+
+func TestFrameContext_RefCount_ChildReleasesFirst(t *testing.T) {
+	parentCtx, parent := newFrameContext(context.Background())
+	inheritKey := &Key{Name: "test.actor", Inherit: true}
+	_ = parent.Set(inheritKey, "user123")
+	parent.Seal()
+
+	_, child := OpenFrameContext(parentCtx)
+	parentFC := parent.(*frameContext)
+
+	if parentFC.refcount.Load() != 2 {
+		t.Errorf("parent refcount should be 2, got %d", parentFC.refcount.Load())
+	}
+
+	ReleaseFrameContext(child)
+
+	if parentFC.refcount.Load() != 1 {
+		t.Errorf("parent refcount after child release should be 1, got %d", parentFC.refcount.Load())
+	}
+
+	ReleaseFrameContext(parent)
+}
+
+func TestFrameContext_RefCount_MultipleChildren(t *testing.T) {
+	parentCtx, parent := newFrameContext(context.Background())
+	inheritKey := &Key{Name: "test.actor", Inherit: true}
+	_ = parent.Set(inheritKey, "user123")
+	parent.Seal()
+
+	_, child1 := OpenFrameContext(parentCtx)
+	_, child2 := OpenFrameContext(parentCtx)
+	_, child3 := OpenFrameContext(parentCtx)
+
+	parentFC := parent.(*frameContext)
+	if parentFC.refcount.Load() != 4 {
+		t.Errorf("parent refcount should be 4 (self + 3 children), got %d", parentFC.refcount.Load())
+	}
+
+	ReleaseFrameContext(parent)
+	if parentFC.refcount.Load() != 3 {
+		t.Errorf("parent refcount after parent.Release() should be 3, got %d", parentFC.refcount.Load())
+	}
+
+	ReleaseFrameContext(child1)
+	if parentFC.refcount.Load() != 2 {
+		t.Errorf("parent refcount after child1.Release() should be 2, got %d", parentFC.refcount.Load())
+	}
+
+	ReleaseFrameContext(child2)
+	ReleaseFrameContext(child3)
+}
+
+func TestFrameContext_RefCount_ChainCollapse(t *testing.T) {
+	grandparentCtx, grandparent := newFrameContext(context.Background())
+	inheritKey := &Key{Name: "test.actor", Inherit: true}
+	_ = grandparent.Set(inheritKey, "admin")
+	grandparent.Seal()
+
+	parentCtx, parent := OpenFrameContext(grandparentCtx)
+	inheritScope := &Key{Name: "test.scope", Inherit: true}
+	_ = parent.Set(inheritScope, "read")
+	parent.Seal()
+
+	_, child := OpenFrameContext(parentCtx)
+
+	val, ok := child.Get(inheritKey)
+	if !ok || val != "admin" {
+		t.Errorf("child should inherit from grandparent, got %v", val)
+	}
+	val, ok = child.Get(inheritScope)
+	if !ok || val != "read" {
+		t.Errorf("child should inherit scope from parent, got %v", val)
+	}
+
+	ReleaseFrameContext(grandparent)
+	ReleaseFrameContext(parent)
+	ReleaseFrameContext(child)
+}
+
+func TestFrameContext_RefCount_AsyncForkBeforeGoroutine(t *testing.T) {
+	parentCtx, parent := newFrameContext(context.Background())
+	inheritKey := &Key{Name: "test.actor", Inherit: true}
+	_ = parent.Set(inheritKey, "async_user")
+	parent.Seal()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	_, child := OpenFrameContext(parentCtx)
+
+	go func() {
+		defer wg.Done()
+		val, ok := child.Get(inheritKey)
+		if !ok || val != "async_user" {
+			t.Errorf("async child should see inherited value, got %v", val)
+		}
+		ReleaseFrameContext(child)
+	}()
+
+	ReleaseFrameContext(parent)
+
+	wg.Wait()
+}
+
+func TestFrameContext_RefCount_ConcurrentForks(t *testing.T) {
+	parentCtx, parent := newFrameContext(context.Background())
+	inheritKey := &Key{Name: "test.actor", Inherit: true}
+	scopeKey := &Key{Name: "test.scope", Inherit: true}
+	_ = parent.Set(inheritKey, "stress_user")
+	_ = parent.Set(scopeKey, "admin")
+	parent.Seal()
+
+	const numChildren = 50
+	var wg sync.WaitGroup
+	wg.Add(numChildren)
+
+	children := make([]FrameContext, numChildren)
+	for i := 0; i < numChildren; i++ {
+		_, children[i] = OpenFrameContext(parentCtx)
+	}
+
+	parentFC := parent.(*frameContext)
+	expectedRefcount := int32(numChildren + 1)
+	if parentFC.refcount.Load() != expectedRefcount {
+		t.Errorf("parent refcount should be %d, got %d", expectedRefcount, parentFC.refcount.Load())
+	}
+
+	for i := 0; i < numChildren; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			child := children[idx]
+
+			actor, _ := child.Get(inheritKey)
+			scope, _ := child.Get(scopeKey)
+			if actor != "stress_user" || scope != "admin" {
+				t.Errorf("child %d: bad inherited values: actor=%v scope=%v", idx, actor, scope)
+			}
+
+			ReleaseFrameContext(child)
+		}(i)
+	}
+
+	ReleaseFrameContext(parent)
+
+	wg.Wait()
+}
+
+func TestFrameContext_RefCount_NestedAsyncOperations(t *testing.T) {
+	rootCtx, root := newFrameContext(context.Background())
+	actorKey := &Key{Name: "test.actor", Inherit: true}
+	requestKey := &Key{Name: "test.request_id", Inherit: true}
+	_ = root.Set(actorKey, "http_user")
+	_ = root.Set(requestKey, "req-123")
+	root.Seal()
+
+	var wg sync.WaitGroup
+
+	processCtx, process := OpenFrameContext(rootCtx)
+	process.Seal()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		funcCtx, funcFrame := OpenFrameContext(processCtx)
+		funcFrame.Seal()
+
+		asyncCtx, asyncOp := OpenFrameContext(funcCtx)
+		_ = asyncCtx
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			actor, _ := asyncOp.Get(actorKey)
+			reqID, _ := asyncOp.Get(requestKey)
+			if actor != "http_user" {
+				t.Errorf("async_op should see actor, got %v", actor)
+			}
+			if reqID != "req-123" {
+				t.Errorf("async_op should see request_id, got %v", reqID)
+			}
+
+			ReleaseFrameContext(asyncOp)
+		}()
+
+		ReleaseFrameContext(funcFrame)
+		ReleaseFrameContext(process)
+	}()
+
+	ReleaseFrameContext(root)
+
+	wg.Wait()
+}
+
+func BenchmarkFrameContext_ForkAndRelease(b *testing.B) {
+	parentCtx, parent := newFrameContext(context.Background())
+	actorKey := &Key{Name: "test.actor", Inherit: true}
+	scopeKey := &Key{Name: "test.scope", Inherit: true}
+	requestKey := &Key{Name: "test.request_id", Inherit: true}
+	_ = parent.Set(actorKey, "bench_user")
+	_ = parent.Set(scopeKey, "admin")
+	_ = parent.Set(requestKey, "req-123")
+	parent.Seal()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, child := OpenFrameContext(parentCtx)
+		ReleaseFrameContext(child)
+	}
+
+	ReleaseFrameContext(parent)
+}
+
+func BenchmarkFrameContext_ConcurrentForkRelease(b *testing.B) {
+	parentCtx, parent := newFrameContext(context.Background())
+	actorKey := &Key{Name: "test.actor", Inherit: true}
+	scopeKey := &Key{Name: "test.scope", Inherit: true}
+	_ = parent.Set(actorKey, "bench_user")
+	_ = parent.Set(scopeKey, "admin")
+	parent.Seal()
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			_, child := OpenFrameContext(parentCtx)
+			ReleaseFrameContext(child)
+		}
+	})
+
+	ReleaseFrameContext(parent)
+}

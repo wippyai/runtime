@@ -2,6 +2,7 @@ package actor
 
 import (
 	"context"
+	"fmt"
 	goruntime "runtime"
 	"sync"
 	"sync/atomic"
@@ -208,23 +209,31 @@ func (s *Scheduler) wakeAll() {
 // Called by YieldCompleter after pushing an event to wake a blocked processor.
 // Uses queue pointer to look up processor safely - avoids direct processor reference.
 func (s *Scheduler) WakeProcessor(q *process.EventQueue, gen uint64) {
+	fmt.Printf("[SCHEDULER] WakeProcessor called, gen=%d\n", gen)
 	v, ok := s.byQueue.Load(q)
 	if !ok {
+		fmt.Printf("[SCHEDULER] WakeProcessor: queue not found in byQueue map\n")
 		return
 	}
 	proc := v.(*Processor)
 
 	// Verify generation matches to avoid waking wrong processor
 	if proc.gen.Load() != gen {
+		fmt.Printf("[SCHEDULER] WakeProcessor: gen mismatch proc.gen=%d vs gen=%d\n", proc.gen.Load(), gen)
 		return
 	}
 
+	state := proc.state.Load()
+	fmt.Printf("[SCHEDULER] WakeProcessor pid=%v, state=%d (Blocked=3)\n", proc.pid, state)
+
 	// Same wake logic as processor.CompleteYield
 	if proc.casState(StateBlocked, StateReady) {
+		fmt.Printf("[SCHEDULER] WakeProcessor: CAS Blocked->Ready succeeded, pushing to global queue\n")
 		s.global.Push(proc)
 		s.wake()
 		return
 	}
+	fmt.Printf("[SCHEDULER] WakeProcessor: CAS Blocked->Ready failed, setting wakeup flag\n")
 	proc.setWakeup(StateRunning)
 }
 

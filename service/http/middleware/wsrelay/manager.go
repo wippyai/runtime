@@ -3,7 +3,6 @@ package wsrelay
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -38,17 +37,23 @@ func getOption(options map[string]string, newKey, legacyKey string) string {
 
 // RelayManager manages WebSocket connections and their relay to the relay system
 type RelayManager struct {
-	appCtx context.Context
-	logger *zap.Logger
-	pidGen *uniqid.PIDGenerator
+	appCtx     context.Context
+	logger     *zap.Logger
+	pidGen     *uniqid.PIDGenerator
+	node       relay.Node
+	topo       topology.Topology
+	transcoder payload.Transcoder
 }
 
 // NewWebSocketRelay creates a new WebSocket relay manager
 func NewWebSocketRelay(ctx context.Context, logger *zap.Logger, pidGen *uniqid.PIDGenerator) *RelayManager {
 	return &RelayManager{
-		appCtx: ctx,
-		logger: logger,
-		pidGen: pidGen,
+		appCtx:     ctx,
+		logger:     logger,
+		pidGen:     pidGen,
+		node:       relay.GetNode(ctx),
+		topo:       topology.GetTopology(ctx),
+		transcoder: payload.GetTranscoder(ctx),
 	}
 }
 
@@ -75,77 +80,12 @@ func (m *RelayManager) CreateMiddleware(options map[string]string) func(http.Han
 	}
 
 	return func(h http.Handler) http.Handler {
-		return m.middlewareWithOrigins(h, originPatterns)
+		return m.middlewareHandler(h, originPatterns)
 	}
 }
 
-// Middleware creates an HTTP middleware function with default wildcard origin
-func (m *RelayManager) Middleware(h http.Handler) http.Handler {
-	return m.middlewareWithOrigins(h, []string{"*"})
-}
-
-// wsDeps holds dependencies extracted from request context for WebSocket upgrade
-type wsDeps struct {
-	host       relay.AttachableHost
-	node       relay.Node
-	topo       topology.Topology
-	transcoder payload.Transcoder
-	serverID   registry.ID
-}
-
-// extractDeps extracts WebSocket dependencies from request context
-func extractDeps(r *http.Request) (*wsDeps, error) {
-	fc := contextapi.FrameFromContext(r.Context())
-	if fc == nil {
-		return nil, ErrFrameContextNotFound
-	}
-
-	hostVal, ok := fc.Get(httpapi.ServerCtxKey())
-	if !ok {
-		return nil, ErrServerHostNotFound
-	}
-
-	relayHost, ok := hostVal.(relay.AttachableHost)
-	if !ok {
-		return nil, NewHostAttachmentError(fmt.Sprintf("%T", hostVal))
-	}
-
-	node := relay.GetNode(r.Context())
-	if node == nil {
-		return nil, ErrNodeNotFound
-	}
-
-	transcoder := payload.GetTranscoder(r.Context())
-	if transcoder == nil {
-		return nil, ErrTranscoderNotFound
-	}
-
-	topo := topology.GetTopology(r.Context())
-	if topo == nil {
-		return nil, ErrTopologyNotFound
-	}
-
-	serverIDVal, ok := fc.Get(httpapi.ServerIDCtxKey())
-	if !ok {
-		return nil, ErrServerIDNotFound
-	}
-
-	serverID, ok := serverIDVal.(registry.ID)
-	if !ok || serverID.String() == "" {
-		return nil, ErrInvalidServerID
-	}
-
-	return &wsDeps{
-		host:       relayHost,
-		node:       node,
-		topo:       topo,
-		transcoder: transcoder,
-		serverID:   serverID,
-	}, nil
-}
-
-// middlewareWithOrigins creates the actual middleware handler with specified origin patterns
-func (m *RelayManager) middlewareWithOrigins(h http.Handler, originPatterns []string) http.Handler {
+// middlewareHandler creates the actual middleware handler with specified origin patterns
+func (m *RelayManager) middlewareHandler(h http.Handler, originPatterns []string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		wrappedWriter := newResponseWrapper(w)
 		h.ServeHTTP(wrappedWriter, r)
@@ -179,10 +119,44 @@ func (m *RelayManager) middlewareWithOrigins(h http.Handler, originPatterns []st
 			messageTopic = config.MessageTopic
 		}
 
-		deps, err := extractDeps(r)
-		if err != nil {
-			logger.Error(err.Error())
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		// Get host and serverID from request context
+		fc := contextapi.FrameFromContext(r.Context())
+		if fc == nil {
+			logger.Error("frame context not found")
+			http.Error(w, ErrFrameContextNotFound.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		hostVal, ok := fc.Get(httpapi.ServerCtxKey())
+		if !ok {
+			logger.Error("server host not found in context")
+			http.Error(w, ErrServerHostNotFound.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		host, ok := hostVal.(relay.AttachableHost)
+		if !ok {
+			logger.Error("server host does not implement AttachableHost")
+			http.Error(w, ErrHostNotAttachable.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		serverIDVal, ok := fc.Get(httpapi.ServerIDCtxKey())
+		if !ok {
+			logger.Error("server ID not found in context")
+			http.Error(w, ErrServerIDNotFound.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		var serverID registry.ID
+		switch v := serverIDVal.(type) {
+		case registry.ID:
+			serverID = v
+		case string:
+			serverID = registry.ParseID(v)
+		default:
+			logger.Error("invalid server ID type in context")
+			http.Error(w, ErrInvalidServerID.Error(), http.StatusInternalServerError)
 			return
 		}
 
@@ -195,7 +169,7 @@ func (m *RelayManager) middlewareWithOrigins(h http.Handler, originPatterns []st
 		}
 
 		wsCtx, wsFC := contextapi.OpenFrameContext(m.appCtx)
-		if err := wsFC.Set(httpapi.ServerIDCtxKey(), deps.serverID); err != nil {
+		if err := wsFC.Set(httpapi.ServerIDCtxKey(), serverID); err != nil {
 			logger.Error("Failed to set server ID in frame context", zap.Error(err))
 			_ = conn.Close(websocket.StatusInternalError, "Failed to set server ID")
 			return
@@ -207,11 +181,11 @@ func (m *RelayManager) middlewareWithOrigins(h http.Handler, originPatterns []st
 			targetPID,
 			config,
 			messageTopic,
-			deps.serverID,
-			deps.host,
-			deps.node,
-			deps.topo,
-			deps.transcoder,
+			serverID,
+			host,
+			m.node,
+			m.topo,
+			m.transcoder,
 			m.pidGen,
 			logger,
 		)

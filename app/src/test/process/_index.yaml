@@ -790,3 +790,70 @@ entries:
       - time
     imports:
       assert2: app.lib:assert
+
+  # Inbox fallback test
+  - name: inbox_fallback_worker
+    kind: process.lua
+    meta:
+      comment: Worker that tests inbox fallback behavior
+    source: file://inbox_fallback_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: inbox_fallback
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Inbox receives only unmatched topic messages
+    source: file://inbox_fallback.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  # listen default behavior test
+  - name: listen_default
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: process.listen default returns raw payloads
+    source: file://listen_default.lua
+    method: main
+    modules:
+      - time
+      - uuid
+    imports:
+      assert2: app.lib:assert
+
+  # spawn_monitored with reply pattern (gov-like)
+  - name: spawn_monitored_service
+    kind: process.lua
+    meta:
+      comment: Service that handles requests and spawns monitored workers
+    source: file://spawn_monitored_service.lua
+    method: main
+
+  - name: spawn_monitored_worker
+    kind: process.lua
+    meta:
+      comment: Simple worker that processes data and exits
+    source: file://spawn_monitored_worker.lua
+    method: main
+
+  - name: spawn_monitored_reply
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Spawn monitored with reply pattern
+    source: file://spawn_monitored_reply.lua
+    method: main
+    modules:
+      - time
+      - uuid
+    imports:
+      assert2: app.lib:assert

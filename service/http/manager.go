@@ -356,7 +356,9 @@ func (m *Manager) handleRouterCreate(_ context.Context, entry registry.Entry) er
 	m.log.Debug("added router",
 		zap.String("router", entry.ID.String()),
 		zap.String("prefix", cfg.Prefix),
-		zap.String("server", serverID.String()))
+		zap.String("server", serverID.String()),
+		zap.Strings("middleware", cfg.Middleware),
+		zap.Strings("post_middleware", cfg.PostMiddleware))
 
 	m.routerServers[entry.ID] = serverID
 	m.pending[serverID] = true

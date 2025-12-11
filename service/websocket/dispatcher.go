@@ -314,6 +314,7 @@ func (d *Dispatcher) executeConnect(ctx context.Context, cmd wsapi.WsConnectCmd,
 		_ = resp.Body.Close()
 	}
 	if err != nil {
+		receiver.CompleteYield(tag, nil, err)
 		return
 	}
 
@@ -329,11 +330,13 @@ func (d *Dispatcher) executeConnect(ctx context.Context, cmd wsapi.WsConnectCmd,
 func (d *Dispatcher) executeSend(ctx context.Context, cmd wsapi.WsSendCmd, tag uint64, receiver dispatcher.ResultReceiver) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
+		receiver.CompleteYield(tag, nil, errors.New("no websocket registry"))
 		return
 	}
 
 	entry, err := registry.Get(cmd.ConnID)
 	if err != nil {
+		receiver.CompleteYield(tag, nil, err)
 		return
 	}
 
@@ -343,6 +346,7 @@ func (d *Dispatcher) executeSend(ctx context.Context, cmd wsapi.WsSendCmd, tag u
 	}
 
 	if err := entry.conn.Write(ctx, msgType, cmd.Data); err != nil {
+		receiver.CompleteYield(tag, nil, err)
 		return
 	}
 	receiver.CompleteYield(tag, nil, nil)
@@ -351,11 +355,13 @@ func (d *Dispatcher) executeSend(ctx context.Context, cmd wsapi.WsSendCmd, tag u
 func (d *Dispatcher) executeReceive(ctx context.Context, cmd wsapi.WsReceiveCmd, tag uint64, receiver dispatcher.ResultReceiver) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
+		receiver.CompleteYield(tag, nil, errors.New("no websocket registry"))
 		return
 	}
 
 	msgCh, err := registry.GetMessageChan(cmd.ConnID)
 	if err != nil {
+		receiver.CompleteYield(tag, nil, err)
 		return
 	}
 
@@ -367,6 +373,7 @@ func (d *Dispatcher) executeReceive(ctx context.Context, cmd wsapi.WsReceiveCmd,
 		}
 		receiver.CompleteYield(tag, msg, nil)
 	case <-ctx.Done():
+		receiver.CompleteYield(tag, nil, ctx.Err())
 		return
 	}
 }
@@ -374,10 +381,12 @@ func (d *Dispatcher) executeReceive(ctx context.Context, cmd wsapi.WsReceiveCmd,
 func (d *Dispatcher) executeClose(ctx context.Context, cmd wsapi.WsCloseCmd, tag uint64, receiver dispatcher.ResultReceiver) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
+		receiver.CompleteYield(tag, nil, errors.New("no websocket registry"))
 		return
 	}
 
 	if err := registry.Close(cmd.ConnID, cmd.Code, cmd.Reason); err != nil {
+		receiver.CompleteYield(tag, nil, err)
 		return
 	}
 	receiver.CompleteYield(tag, nil, nil)
@@ -386,15 +395,18 @@ func (d *Dispatcher) executeClose(ctx context.Context, cmd wsapi.WsCloseCmd, tag
 func (d *Dispatcher) executePing(ctx context.Context, cmd wsapi.WsPingCmd, tag uint64, receiver dispatcher.ResultReceiver) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
+		receiver.CompleteYield(tag, nil, errors.New("no websocket registry"))
 		return
 	}
 
 	entry, err := registry.Get(cmd.ConnID)
 	if err != nil {
+		receiver.CompleteYield(tag, nil, err)
 		return
 	}
 
 	if err := entry.conn.Ping(ctx); err != nil {
+		receiver.CompleteYield(tag, nil, err)
 		return
 	}
 	receiver.CompleteYield(tag, nil, nil)
@@ -403,16 +415,19 @@ func (d *Dispatcher) executePing(ctx context.Context, cmd wsapi.WsPingCmd, tag u
 func (d *Dispatcher) executeSubscribe(ctx context.Context, cmd wsapi.WsSubscribeCmd, tag uint64, receiver dispatcher.ResultReceiver) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
+		receiver.CompleteYield(tag, nil, errors.New("no websocket registry"))
 		return
 	}
 
 	entry, err := registry.Get(cmd.ConnID)
 	if err != nil {
+		receiver.CompleteYield(tag, nil, err)
 		return
 	}
 
 	node := relay.GetNode(ctx)
 	if node == nil {
+		receiver.CompleteYield(tag, nil, errors.New("no relay node"))
 		return
 	}
 

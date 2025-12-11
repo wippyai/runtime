@@ -42,3 +42,55 @@ entries:
       - http_client
     imports:
       assert2: app.lib:assert
+
+  - name: cors_preflight
+    kind: function.lua
+    meta:
+      type: test
+      suite: http
+      description: CORS preflight OPTIONS request handling
+    source: file://cors_preflight.lua
+    method: main
+    modules:
+      - http_client
+    imports:
+      assert2: app.lib:assert
+
+  - name: cors_actual
+    kind: function.lua
+    meta:
+      type: test
+      suite: http
+      description: CORS headers on actual requests
+    source: file://cors_actual.lua
+    method: main
+    modules:
+      - http_client
+    imports:
+      assert2: app.lib:assert
+
+  - name: cors_localhost
+    kind: function.lua
+    meta:
+      type: test
+      suite: http
+      description: CORS localhost origin matching with different ports
+    source: file://cors_localhost.lua
+    method: main
+    modules:
+      - http_client
+    imports:
+      assert2: app.lib:assert
+
+  - name: cors_reject
+    kind: function.lua
+    meta:
+      type: test
+      suite: http
+      description: CORS rejects disallowed origins
+    source: file://cors_reject.lua
+    method: main
+    modules:
+      - http_client
+    imports:
+      assert2: app.lib:assert

@@ -185,4 +185,3 @@ entries:
     method: POST
     func: test_echo
     path: /test/echo
-

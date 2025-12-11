@@ -75,8 +75,10 @@ func (r *MiddlewareRegistry) CreateMiddleware(name string, options map[string]st
 	if creator, exists := r.middlewareMap[name]; exists {
 		handler := creator(options)
 		if handler != nil {
+			r.logger.Debug("middleware created", zap.String("name", name))
 			return handler, nil
 		}
+		r.logger.Warn("middleware creator returned nil", zap.String("name", name))
 	}
 
 	return nil, errors.New("middleware not found: " + name)

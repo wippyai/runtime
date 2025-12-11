@@ -355,7 +355,7 @@ func TestEndpointFirewallWithActorAndScope(t *testing.T) {
 		handler.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
-		assert.Contains(t, w.Body.String(), "No route information")
+		assert.Contains(t, w.Body.String(), "Configuration error")
 	})
 
 	t.Run("deny access when scope denies", func(t *testing.T) {

@@ -46,16 +46,18 @@ type HeartbeatInfo struct {
 	Metadata     map[string]any `json:"metadata,omitempty"`
 }
 
-// responseWrapper wraps the ResponseWriter to capture headers
+// responseWrapper wraps the ResponseWriter to capture headers and status
 type responseWrapper struct {
 	http.ResponseWriter
-	headers http.Header
+	headers    http.Header
+	statusCode int
 }
 
 func newResponseWrapper(w http.ResponseWriter) *responseWrapper {
 	return &responseWrapper{
 		ResponseWriter: w,
 		headers:        w.Header(),
+		statusCode:     200,
 	}
 }
 
@@ -64,11 +66,11 @@ func (rw *responseWrapper) Header() http.Header {
 }
 
 func (rw *responseWrapper) Write(data []byte) (int, error) {
-	// Capture the response body if needed
 	return rw.ResponseWriter.Write(data)
 }
 
 func (rw *responseWrapper) WriteHeader(statusCode int) {
+	rw.statusCode = statusCode
 	rw.ResponseWriter.WriteHeader(statusCode)
 }
 

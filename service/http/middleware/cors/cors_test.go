@@ -232,4 +232,100 @@ func TestCreateCORSMiddleware(t *testing.T) {
 		assert.Equal(t, DefaultAllowMethods, w.Header().Get("Access-Control-Allow-Methods"))
 		assert.Equal(t, DefaultMaxAge, w.Header().Get("Access-Control-Max-Age"))
 	})
+
+	t.Run("localhost with port", func(t *testing.T) {
+		middleware := CreateCORSMiddleware(map[string]string{
+			CORSOptionAllowOrigins: "localhost",
+		})
+
+		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		req := httptest.NewRequest("GET", "http://api.example.com/test", nil)
+		req.Header.Set("Origin", "http://localhost:8085")
+		w := httptest.NewRecorder()
+
+		handler.ServeHTTP(w, req)
+
+		assert.Equal(t, "http://localhost:8085", w.Header().Get("Access-Control-Allow-Origin"))
+	})
+
+	t.Run("localhost without port", func(t *testing.T) {
+		middleware := CreateCORSMiddleware(map[string]string{
+			CORSOptionAllowOrigins: "localhost",
+		})
+
+		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		req := httptest.NewRequest("GET", "http://api.example.com/test", nil)
+		req.Header.Set("Origin", "http://localhost")
+		w := httptest.NewRecorder()
+
+		handler.ServeHTTP(w, req)
+
+		assert.Equal(t, "http://localhost", w.Header().Get("Access-Control-Allow-Origin"))
+	})
+
+	t.Run("localhost https with port", func(t *testing.T) {
+		middleware := CreateCORSMiddleware(map[string]string{
+			CORSOptionAllowOrigins: "localhost",
+		})
+
+		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		req := httptest.NewRequest("GET", "http://api.example.com/test", nil)
+		req.Header.Set("Origin", "https://localhost:3000")
+		w := httptest.NewRecorder()
+
+		handler.ServeHTTP(w, req)
+
+		assert.Equal(t, "https://localhost:3000", w.Header().Get("Access-Control-Allow-Origin"))
+	})
+
+	t.Run("localhost combined with other origins", func(t *testing.T) {
+		middleware := CreateCORSMiddleware(map[string]string{
+			CORSOptionAllowOrigins: "*.example.com,localhost",
+		})
+
+		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		// Test localhost
+		req := httptest.NewRequest("GET", "http://api.example.com/test", nil)
+		req.Header.Set("Origin", "http://localhost:5173")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		assert.Equal(t, "http://localhost:5173", w.Header().Get("Access-Control-Allow-Origin"))
+
+		// Test wildcard subdomain
+		req2 := httptest.NewRequest("GET", "http://api.example.com/test", nil)
+		req2.Header.Set("Origin", "https://app.example.com")
+		w2 := httptest.NewRecorder()
+		handler.ServeHTTP(w2, req2)
+		assert.Equal(t, "https://app.example.com", w2.Header().Get("Access-Control-Allow-Origin"))
+	})
+
+	t.Run("localhost does not match non-localhost origins", func(t *testing.T) {
+		middleware := CreateCORSMiddleware(map[string]string{
+			CORSOptionAllowOrigins: "localhost",
+		})
+
+		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		req := httptest.NewRequest("GET", "http://api.example.com/test", nil)
+		req.Header.Set("Origin", "https://example.com")
+		w := httptest.NewRecorder()
+
+		handler.ServeHTTP(w, req)
+
+		assert.Equal(t, "", w.Header().Get("Access-Control-Allow-Origin"))
+	})
 }

@@ -40,3 +40,4 @@ entries:
       - websocket
     imports:
       assert2: app.lib:assert
+

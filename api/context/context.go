@@ -31,12 +31,18 @@ type (
 		Close() error
 	}
 
+	// CloserFunc is a function that implements Closer interface.
+	CloserFunc func() error
+
 	// Values is an alias to attrs.Bag for storing arbitrary key-value pairs.
 	Values = attrs.Bag
 )
 
 // String returns the key name.
 func (ck *Key) String() string { return ck.Name }
+
+// Close implements Closer interface.
+func (f CloserFunc) Close() error { return f() }
 
 // NewValues creates a new Values instance.
 func NewValues() Values {

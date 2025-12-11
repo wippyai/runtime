@@ -60,12 +60,12 @@ func CreateEndpointFirewallMiddleware(options map[string]string) func(http.Handl
 			// Get the route information which will provide the endpoint ID
 			rInfo, ok := httpapi.GetRouteInfo(ctx)
 			if !ok {
-				logs.GetLogger(ctx).Debug("endpoint firewall: no route info in context",
+				logs.GetLogger(ctx).Error("endpoint firewall: no route info in context - this middleware must be used as post-middleware on endpoints, not as router-level middleware",
 					zap.String("actor_id", actor.ID),
 					zap.String("path", r.URL.Path))
 				WriteJSONError(w, http.StatusInternalServerError, false,
-					"Internal error",
-					"No route information available")
+					"Configuration error",
+					"endpoint_firewall middleware must be configured as post-middleware on endpoints, not as router-level middleware")
 				return
 			}
 

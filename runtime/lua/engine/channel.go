@@ -2,6 +2,7 @@ package engine
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 
 	lua "github.com/yuin/gopher-lua"
@@ -150,6 +151,13 @@ func (c *Channel) IsClosed() bool {
 	return c.closed
 }
 
+// Size returns the current number of items in the buffer.
+func (c *Channel) Size() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.size
+}
+
 // Slots returns available send slots (buffer space + waiting receivers).
 func (c *Channel) Slots() int {
 	c.mu.Lock()
@@ -176,21 +184,26 @@ func (c *Channel) Send(task *lua.LState, value lua.LValue, selectOp *SelectOp) *
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	fmt.Printf("[CHANNEL Send] closed=%v, receivers.Len=%d, size=%d, capacity=%d\n", c.closed, c.receivers.Len(), c.size, c.capacity)
+
 	if c.closed {
 		return c.errorResult(task, errors.New("send on closed channel"))
 	}
 
 	// Try direct handoff to waiting receiver
 	if recvOp := c.receivers.Pop(); recvOp != nil {
+		fmt.Printf("[CHANNEL Send] found waiting receiver, doing direct handoff\n")
 		return c.completeSendToReceiver(task, value, selectOp, recvOp)
 	}
 
 	// Try buffering
 	if c.size < c.capacity {
+		fmt.Printf("[CHANNEL Send] buffering (size=%d < capacity=%d)\n", c.size, c.capacity)
 		return c.bufferSend(task, value, selectOp)
 	}
 
 	// Must block
+	fmt.Printf("[CHANNEL Send] must block\n")
 	return c.blockSend(task, value, selectOp)
 }
 
@@ -201,7 +214,24 @@ func (c *Channel) Receive(task *lua.LState, selectOp *SelectOp) *ChannelResult {
 
 	// Try to get value from sender
 	if sendOp := c.senders.Pop(); sendOp != nil {
-		c.size--
+		// Only decrement size for buffered sends (Task == nil means it was buffered)
+		if sendOp.Task == nil {
+			c.size--
+			// After consuming buffered value, check if blocked sender can now proceed
+			if c.size < c.capacity {
+				if nextSend := c.senders.Peek(); nextSend != nil && nextSend.Task != nil {
+					// There's a blocked sender that can now buffer their value
+					c.senders.Pop()
+					unblockedTask := nextSend.Task
+					nextSend.Task = nil // Mark as buffered (no longer blocking)
+					c.size++
+					// Push the now-buffered value back to senders queue
+					c.senders.Push(nextSend)
+					// Return result that wakes both original receiver and the now-unblocked sender
+					return c.completeReceiveAndUnblockSender(task, selectOp, sendOp, nextSend, unblockedTask)
+				}
+			}
+		}
 		return c.completeReceiveFromSender(task, selectOp, sendOp)
 	}
 
@@ -323,7 +353,7 @@ func (c *Channel) blockSend(task *lua.LState, value lua.LValue, selectOp *Select
 	op.Task = task
 	op.SelectOp = selectOp
 	c.senders.Push(op)
-	c.size++
+	// Don't increment size for blocked senders - size represents actual buffered values
 
 	r := acquireResult()
 	r.Yields = true
@@ -383,6 +413,43 @@ func (c *Channel) completeReceiveFromSender(receiver *lua.LState, receiverSelect
 	return r
 }
 
+// completeReceiveAndUnblockSender handles the case where receiving a buffered value
+// frees space for a blocked sender to buffer their value.
+func (c *Channel) completeReceiveAndUnblockSender(receiver *lua.LState, receiverSelect *SelectOp, bufferedOp, nowBufferedOp *ChannelOp, unblockedSenderTask *lua.LState) *ChannelResult {
+	defer releaseChannelOp(bufferedOp)
+	// Don't release nowBufferedOp - it's still in the senders queue as a buffered value
+
+	r := acquireResult()
+	r.Yields = true
+
+	// Receiver gets the buffered value
+	u1 := acquireTaskUpdate()
+	u1.State = receiver
+	if receiverSelect != nil && receiver != nil {
+		u1.setSelectResult(receiver, c.value, bufferedOp.Value, true)
+	} else {
+		u1.setResult2(bufferedOp.Value, lua.LTrue)
+	}
+	r.updatesBuf[0] = u1
+
+	// Previously blocked sender now succeeded (their value is now buffered)
+	u2 := acquireTaskUpdate()
+	u2.State = unblockedSenderTask
+	if nowBufferedOp.SelectOp != nil {
+		u2.setSelectResult(unblockedSenderTask, c.value, nowBufferedOp.Value, true)
+	} else {
+		u2.setResult1(lua.LTrue)
+	}
+	r.updatesBuf[1] = u2
+	r.updatesLen = 2
+
+	r.Release = append(r.Release, c)
+	r.Release = append(r.Release, c.flushSelectLocked(nowBufferedOp.SelectOp)...)
+	r.Release = append(r.Release, c.flushSelectLocked(receiverSelect)...)
+
+	return r
+}
+
 func (c *Channel) closedReceiveResult(task *lua.LState, selectOp *SelectOp) *ChannelResult {
 	r := acquireResult()
 	u := acquireTaskUpdate()
@@ -398,6 +465,7 @@ func (c *Channel) closedReceiveResult(task *lua.LState, selectOp *SelectOp) *Cha
 }
 
 func (c *Channel) blockReceive(task *lua.LState, selectOp *SelectOp) *ChannelResult {
+	fmt.Printf("[CHANNEL blockReceive] task blocking on channel, receivers will be %d\n", c.receivers.Len()+1)
 	op := acquireChannelOp()
 	op.Kind = ReceiveOp
 	op.Channel = c
@@ -419,7 +487,7 @@ func (c *Channel) closeBlockedSenders(r *ChannelResult) {
 			break
 		}
 		if op.Task != nil {
-			c.size--
+			// Blocked senders don't have size incremented, no decrement needed
 			u := acquireTaskUpdate()
 			u.State = op.Task
 			u.Error = errors.New("send on closed channel")
@@ -528,6 +596,13 @@ func (q *opQueue) Pop() *ChannelOp {
 	q.head = (q.head + 1) % len(q.ops)
 	q.len--
 	return op
+}
+
+func (q *opQueue) Peek() *ChannelOp {
+	if q.len == 0 {
+		return nil
+	}
+	return q.ops[q.head]
 }
 
 func (q *opQueue) grow() {

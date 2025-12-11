@@ -88,12 +88,13 @@ func CreateCORSMiddleware(options map[string]string) func(http.Handler) http.Han
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			origin := r.Header.Get("Origin")
+
 			// Handle preflight OPTIONS requests
 			if r.Method == http.MethodOptions {
 				// Check if it's a preflight request with Access-Control-Request-Method header
 				reqMethod := r.Header.Get("Access-Control-Request-Method")
 				if reqMethod != "" {
-					origin := r.Header.Get("Origin")
 					if origin == "" {
 						// Not a CORS request, continue without CORS headers
 						next.ServeHTTP(w, r)
@@ -117,7 +118,6 @@ func CreateCORSMiddleware(options map[string]string) func(http.Handler) http.Han
 			}
 
 			// For all requests, handle CORS headers
-			origin := r.Header.Get("Origin")
 			if origin != "" {
 				// Check if origin is allowed
 				if !checkOrigin || isAllowedOrigin(origin, origins) {
@@ -152,6 +152,14 @@ func isAllowedOrigin(origin string, allowedOrigins []string) bool {
 				if len(withoutSuffix) > 0 {
 					return true
 				}
+			}
+		}
+
+		// Support "localhost" to match any localhost origin (any port)
+		if allowed == "localhost" {
+			if strings.HasPrefix(origin, "http://localhost:") || strings.HasPrefix(origin, "https://localhost:") ||
+				origin == "http://localhost" || origin == "https://localhost" {
+				return true
 			}
 		}
 	}

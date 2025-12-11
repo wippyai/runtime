@@ -102,6 +102,7 @@ func (f *Factory) CreateState() *lua.LState {
 		SkipOpenLibs:        true,
 		CallStackSize:       128,
 		MinimizeStackMemory: true,
+		IncludeGoStackTrace: true,
 	}
 	if f.stateOpts != nil {
 		opts = *f.stateOpts

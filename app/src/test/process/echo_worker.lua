@@ -1,7 +1,7 @@
 -- Worker: Echo messages back to sender
 local function main()
-    -- Subscribe to "echo" topic
-    local ch = process.listen("echo")
+    -- Subscribe to "echo" topic with message mode to get :from()
+    local ch = process.listen("echo", { message = true })
 
     -- Wait for one message and echo it back
     local msg = ch:receive()

@@ -207,8 +207,8 @@ func (f *Registry) Call(ctx context.Context, task runtimeapi.Task) (*runtimeapi.
 // This is called as the final step in the interceptor chain or directly if no chain exists.
 // PID is generated with Host set to the function ID - each function is its own mini-host.
 func (f *Registry) executor(ctx context.Context, handler function.Func, task runtimeapi.Task) (*runtimeapi.Result, error) {
-	// Acquire pooled frame context
-	ctx, fc := ctxapi.AcquireFrameContext(ctx)
+	// Open frame context with inheritance from sealed parent (actor, scope, etc.)
+	ctx, fc := ctxapi.OpenFrameContext(ctx)
 
 	// Generate PID with function ID as Host - function is its own host for message routing
 	gen := process.GetPIDGenerator(ctx)

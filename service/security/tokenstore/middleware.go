@@ -89,7 +89,8 @@ func CreateTokenAuthMiddleware(options map[string]string) func(http.Handler) htt
 					if storeImpl, err := tokenStoreRes.Get(); err == nil {
 						if tokenStore, ok := storeImpl.(security.TokenStore); ok {
 							// Validate token
-							if actor, scope, err := tokenStore.Validate(ctx, security.Token(tokenStr)); err == nil {
+							actor, scope, err := tokenStore.Validate(ctx, security.Token(tokenStr))
+							if err == nil {
 								// Token is valid - add actor and scope to context
 								if err := security.SetActor(ctx, actor); err != nil {
 									logger.Error("failed to set actor in context",
@@ -103,13 +104,16 @@ func CreateTokenAuthMiddleware(options map[string]string) func(http.Handler) htt
 										zap.Int("policies", len(scope.Policies())))
 								}
 							} else {
-								// Log token validation error at debug level
-								logger.Debug("token validation failed", zap.Error(err), zap.String("actor_id", actor.ID))
+								logger.Debug("token validation failed", zap.Error(err))
 							}
+						} else {
+							logger.Error("token store type assertion failed")
 						}
+					} else {
+						logger.Error("failed to get token store impl", zap.Error(err))
 					}
 				} else {
-					logger.Error("invalid auth context",
+					logger.Error("failed to acquire token store resource",
 						zap.String("store", tokenStoreID.String()),
 						zap.Error(err))
 				}

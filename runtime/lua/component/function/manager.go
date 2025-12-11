@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/function"
@@ -229,22 +228,15 @@ func (m *Manager) Invalidate(_ context.Context, ids []registry.ID) {
 }
 
 // Execute runs a function with given task.
+// Note: task.Context pairs are set by the function registry's executor,
+// not here. The executor creates a new frame with OpenFrameContext which
+// inherits from sealed parent and then applies task.Context overrides.
 func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 	v, exists := m.pools.Load(task.ID)
 	if !exists {
 		return nil, api.NewPoolNotFoundError(task.ID.String())
 	}
 	entry := v.(*poolEntry)
-
-	// Add task.Context pairs to the frame context
-	if len(task.Context) > 0 {
-		fc := ctxapi.FrameFromContext(ctx)
-		if fc != nil {
-			for _, pair := range task.Context {
-				_ = fc.Set(pair.Key, pair.Value)
-			}
-		}
-	}
 
 	result, err := entry.pool.Call(ctx, entry.method, task.Payloads)
 	return result, err
