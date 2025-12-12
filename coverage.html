@@ -1,0 +1,2903 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>engine: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">github.com/wippyai/runtime/runtime/lua/engine/bindings.go (88.6%)</option>
+				
+				<option value="file1">github.com/wippyai/runtime/runtime/lua/engine/channel.go (90.5%)</option>
+				
+				<option value="file2">github.com/wippyai/runtime/runtime/lua/engine/core_modules.go (84.6%)</option>
+				
+				<option value="file3">github.com/wippyai/runtime/runtime/lua/engine/factory.go (81.8%)</option>
+				
+				<option value="file4">github.com/wippyai/runtime/runtime/lua/engine/process.go (90.4%)</option>
+				
+				<option value="file5">github.com/wippyai/runtime/runtime/lua/engine/subscribe.go (100.0%)</option>
+				
+				<option value="file6">github.com/wippyai/runtime/runtime/lua/engine/task.go (100.0%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">not covered</span>
+				<span class="cov8">covered</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">package engine
+
+import (
+        "github.com/wippyai/runtime/runtime/lua/engine/loadlib"
+        "github.com/wippyai/runtime/runtime/lua/engine/value"
+        lua "github.com/yuin/gopher-lua"
+        "github.com/yuin/gopher-lua/inspect"
+)
+
+// ChannelTypeName is the Lua metatable type name for channels.
+const ChannelTypeName = "channel"
+
+// SelectCase wraps a channel case for select operations.
+type SelectCase struct {
+        Kind    ChannelOpKind
+        Channel *Channel
+        Value   lua.LValue
+}
+
+func (s *SelectCase) String() string       <span class="cov8" title="1">{ return "&lt;select_case&gt;" }</span>
+func (s *SelectCase) Type() lua.LValueType <span class="cov8" title="1">{ return lua.LTUserData }</span>
+
+// checkChannel extracts a Channel from userdata with proper error handling.
+func checkChannel(l *lua.LState, idx int) *Channel <span class="cov8" title="1">{
+        ud := l.CheckUserData(idx)
+        if ch, ok := ud.Value.(*Channel); ok </span><span class="cov8" title="1">{
+                return ch
+        }</span>
+        <span class="cov0" title="0">l.ArgError(idx, "channel expected")
+        return nil</span>
+}
+
+// channelNewFunc creates a new channel with optional buffer size.
+func channelNewFunc(l *lua.LState) int <span class="cov8" title="1">{
+        bufSize := l.OptInt(1, 0)
+        ch := NewChannel(bufSize)
+        PushChannel(l, ch)
+        return 1
+}</span>
+
+// PushChannel creates a channel userdata, sets up the metatable,
+// links the channel value reference, pushes to stack, and returns the userdata.
+// If the channel already has a cached userdata value, reuses it for identity stability.
+func PushChannel(l *lua.LState, ch *Channel) *lua.LUserData <span class="cov8" title="1">{
+        if cached := ch.Value(); cached != nil </span><span class="cov8" title="1">{
+                if ud, ok := cached.(*lua.LUserData); ok </span><span class="cov8" title="1">{
+                        l.Push(ud)
+                        return ud
+                }</span>
+        }
+
+        <span class="cov8" title="1">ud := l.NewUserData()
+        ud.Value = ch
+        ud.Metatable = value.GetTypeMetatable(nil, ChannelTypeName)
+        ch.SetValue(ud)
+        l.Push(ud)
+        return ud</span>
+}
+
+// channelSelectFunc implements channel.select{cases...}.
+func channelSelectFunc(l *lua.LState) int <span class="cov8" title="1">{
+        casesTable := l.CheckTable(1)
+        hasDefault := l.OptBool(2, false)
+
+        selectOp := &amp;SelectOp{
+                Task:       l,
+                Cases:      make([]*ChannelOp, 0, casesTable.Len()),
+                HasDefault: hasDefault,
+        }
+
+        casesTable.ForEach(func(key, value lua.LValue) </span><span class="cov8" title="1">{
+                if key.Type() == lua.LTString &amp;&amp; key.String() == "default" </span><span class="cov8" title="1">{
+                        if v, ok := value.(lua.LBool); ok &amp;&amp; bool(v) </span><span class="cov8" title="1">{
+                                selectOp.HasDefault = true
+                        }</span>
+                        <span class="cov8" title="1">return</span>
+                }
+                <span class="cov8" title="1">sc := checkSelectCaseValue(value)
+                if sc != nil </span><span class="cov8" title="1">{
+                        selectOp.Cases = append(selectOp.Cases, &amp;ChannelOp{
+                                Kind:     sc.Kind,
+                                Channel:  sc.Channel,
+                                Value:    sc.Value,
+                                Task:     l,
+                                SelectOp: selectOp,
+                        })
+                }</span>
+        })
+
+        <span class="cov8" title="1">for _, caseOp := range selectOp.Cases </span><span class="cov8" title="1">{
+                var canExecute bool
+                if caseOp.Kind == SendOp </span><span class="cov8" title="1">{
+                        canExecute = caseOp.Channel.CanSend()
+                }</span> else<span class="cov8" title="1"> {
+                        canExecute = caseOp.Channel.CanReceive()
+                }</span>
+
+                <span class="cov8" title="1">if canExecute </span><span class="cov8" title="1">{
+                        var result *ChannelResult
+                        if caseOp.Kind == SendOp </span><span class="cov8" title="1">{
+                                result = caseOp.Channel.Send(l, caseOp.Value, selectOp)
+                        }</span> else<span class="cov8" title="1"> {
+                                result = caseOp.Channel.Receive(l, selectOp)
+                        }</span>
+
+                        <span class="cov8" title="1">updates := result.GetUpdates()
+                        if len(updates) &gt; 0 </span><span class="cov8" title="1">{
+                                res := updates[0].GetResult()
+                                if len(res) &gt; 0 </span><span class="cov8" title="1">{
+                                        l.Push(res[0])
+                                        return 1
+                                }</span>
+                        }
+                }
+        }
+
+        <span class="cov8" title="1">if selectOp.HasDefault </span><span class="cov8" title="1">{
+                result := l.CreateTable(0, 2)
+                result.RawSetString("default", lua.LTrue)
+                result.RawSetString("ok", lua.LTrue)
+                l.Push(result)
+                return 1
+        }</span>
+
+        <span class="cov8" title="1">nNext := &amp;ChannelResult{
+                Yields:  true,
+                Block:   make([]*Channel, 0, len(selectOp.Cases)),
+                Release: make([]*Channel, 0),
+        }
+
+        for _, caseOp := range selectOp.Cases </span><span class="cov8" title="1">{
+                var m *ChannelResult
+                if caseOp.Kind == SendOp </span><span class="cov8" title="1">{
+                        m = caseOp.Channel.Send(l, caseOp.Value, selectOp)
+                }</span> else<span class="cov8" title="1"> {
+                        m = caseOp.Channel.Receive(l, selectOp)
+                }</span>
+                <span class="cov8" title="1">nNext.Block = append(nNext.Block, m.Block...)
+                nNext.Release = append(nNext.Release, m.Release...)</span>
+        }
+
+        <span class="cov8" title="1">l.Push(nNext)
+        return -1</span>
+}
+
+func checkSelectCaseValue(v lua.LValue) *SelectCase <span class="cov8" title="1">{
+        ud, ok := v.(*lua.LUserData)
+        if !ok </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+        <span class="cov8" title="1">sc, ok := ud.Value.(*SelectCase)
+        if !ok </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+        <span class="cov8" title="1">return sc</span>
+}
+
+// channelMethods defines all channel instance methods.
+var channelMethods = map[string]lua.LGoFunc{
+        "send":         channelSend,
+        "receive":      channelReceive,
+        "close":        channelClose,
+        "case_send":    channelCaseSend,
+        "case_receive": channelCaseReceive,
+}
+
+func channelSend(l *lua.LState) int <span class="cov8" title="1">{
+        ch := checkChannel(l, 1)
+        if ch == nil </span><span class="cov0" title="0">{
+                return 0
+        }</span>
+        <span class="cov8" title="1">val := l.Get(2)
+
+        result := ch.Send(l, val, nil)
+        if result.Yields </span><span class="cov8" title="1">{
+                l.Push(result)
+                return -1
+        }</span>
+        <span class="cov8" title="1">updates := result.GetUpdates()
+        if len(updates) &gt; 0 </span><span class="cov8" title="1">{
+                if updates[0].Error != nil </span><span class="cov0" title="0">{
+                        l.RaiseError("%s", updates[0].Error.Error())
+                        return 0
+                }</span>
+                <span class="cov8" title="1">res := updates[0].GetResult()
+                for _, v := range res </span><span class="cov8" title="1">{
+                        l.Push(v)
+                }</span>
+                <span class="cov8" title="1">return len(res)</span>
+        }
+        <span class="cov0" title="0">l.Push(lua.LTrue)
+        return 1</span>
+}
+
+func channelReceive(l *lua.LState) int <span class="cov8" title="1">{
+        ch := checkChannel(l, 1)
+        if ch == nil </span><span class="cov0" title="0">{
+                return 0
+        }</span>
+
+        <span class="cov8" title="1">result := ch.Receive(l, nil)
+        if result.Yields </span><span class="cov8" title="1">{
+                l.Push(result)
+                return -1
+        }</span>
+        <span class="cov8" title="1">updates := result.GetUpdates()
+        if len(updates) &gt; 0 </span><span class="cov8" title="1">{
+                res := updates[0].GetResult()
+                if len(res) &gt; 0 </span><span class="cov8" title="1">{
+                        for _, v := range res </span><span class="cov8" title="1">{
+                                l.Push(v)
+                        }</span>
+                        <span class="cov8" title="1">return len(res)</span>
+                }
+        }
+        <span class="cov0" title="0">l.Push(lua.LNil)
+        l.Push(lua.LFalse)
+        return 2</span>
+}
+
+func channelClose(l *lua.LState) int <span class="cov8" title="1">{
+        ch := checkChannel(l, 1)
+        if ch == nil </span><span class="cov0" title="0">{
+                return 0
+        }</span>
+
+        <span class="cov8" title="1">result := ch.Close(l)
+        if result != nil &amp;&amp; result.Yields </span><span class="cov8" title="1">{
+                l.Push(result)
+                return -1
+        }</span>
+        <span class="cov8" title="1">return 0</span>
+}
+
+func channelCaseSend(l *lua.LState) int <span class="cov8" title="1">{
+        ch := checkChannel(l, 1)
+        if ch == nil </span><span class="cov0" title="0">{
+                return 0
+        }</span>
+        <span class="cov8" title="1">val := l.Get(2)
+
+        sc := &amp;SelectCase{
+                Kind:    SendOp,
+                Channel: ch,
+                Value:   val,
+        }
+        caseUd := l.NewUserData()
+        caseUd.Value = sc
+        l.Push(caseUd)
+        return 1</span>
+}
+
+func channelCaseReceive(l *lua.LState) int <span class="cov8" title="1">{
+        ch := checkChannel(l, 1)
+        if ch == nil </span><span class="cov0" title="0">{
+                return 0
+        }</span>
+
+        <span class="cov8" title="1">sc := &amp;SelectCase{
+                Kind:    ReceiveOp,
+                Channel: ch,
+        }
+        caseUd := l.NewUserData()
+        caseUd.Value = sc
+        l.Push(caseUd)
+        return 1</span>
+}
+
+// subscribeFunc subscribes a channel to a topic.
+func subscribeFunc(l *lua.LState) int <span class="cov8" title="1">{
+        topic := l.CheckString(1)
+        ch := checkChannel(l, 2)
+        if ch == nil </span><span class="cov0" title="0">{
+                return 0
+        }</span>
+
+        <span class="cov8" title="1">req := &amp;SubscribeRequest{Topic: topic, ExistingChannel: ch}
+        l.Push(req)
+        return -1</span>
+}
+
+// unsubscribeFunc unsubscribes a channel.
+func unsubscribeFunc(l *lua.LState) int <span class="cov8" title="1">{
+        ch := checkChannel(l, 1)
+        if ch == nil </span><span class="cov0" title="0">{
+                return 0
+        }</span>
+
+        <span class="cov8" title="1">req := &amp;UnsubscribeRequest{Channel: ch}
+        l.Push(req)
+        return -1</span>
+}
+
+// OpenRestrictedPackage returns the restricted package loader that only supports preload.
+func OpenRestrictedPackage(l *lua.LState) int <span class="cov8" title="1">{
+        return loadlib.OpenRestrictedPackage(l)
+}</span>
+
+// GetStackTrace captures a complete stack trace from a Lua state.
+func GetStackTrace(l *lua.LState) *inspect.StackTrace <span class="cov8" title="1">{
+        return inspect.GetStackTrace(l)
+}</span>
+
+// GetStackFrame captures information about a single stack frame at given level.
+func GetStackFrame(l *lua.LState, level int) (inspect.StackFrame, bool) <span class="cov8" title="1">{
+        return inspect.GetStackFrame(l, level)
+}</span>
+
+// GetCallerLine returns the line number of the caller at the given stack level.
+func GetCallerLine(l *lua.LState, level int) (int, bool) <span class="cov8" title="1">{
+        return inspect.GetCallerLine(l, level)
+}</span>
+</pre>
+		
+		<pre class="file" id="file1" style="display: none">package engine
+
+import (
+        "errors"
+        "fmt"
+        "sync"
+
+        lua "github.com/yuin/gopher-lua"
+)
+
+// ChannelOpKind indicates send or receive operation type.
+type ChannelOpKind int
+
+const (
+        SendOp ChannelOpKind = iota
+        ReceiveOp
+)
+
+// ChannelOp represents a pending channel operation.
+type ChannelOp struct {
+        Kind     ChannelOpKind
+        Channel  *Channel
+        Value    lua.LValue
+        Task     *lua.LState
+        SelectOp *SelectOp
+}
+
+// SelectOp represents a select operation across multiple channels.
+type SelectOp struct {
+        Cases      []*ChannelOp
+        HasDefault bool
+        Task       *lua.LState
+}
+
+// TaskUpdate represents an update to resume a blocked task.
+type TaskUpdate struct {
+        State     *lua.LState
+        Error     error
+        resultBuf [3]lua.LValue
+        resultLen int
+}
+
+// GetResult returns the result values to pass back to Lua.
+func (u *TaskUpdate) GetResult() []lua.LValue <span class="cov8" title="1">{
+        return u.resultBuf[:u.resultLen]
+}</span>
+
+func (u *TaskUpdate) setResult1(v lua.LValue) <span class="cov8" title="1">{
+        u.resultBuf[0] = v
+        u.resultLen = 1
+}</span>
+
+func (u *TaskUpdate) setResult2(v1, v2 lua.LValue) <span class="cov8" title="1">{
+        u.resultBuf[0] = v1
+        u.resultBuf[1] = v2
+        u.resultLen = 2
+}</span>
+
+func (u *TaskUpdate) setSelectResult(l *lua.LState, ch, value lua.LValue, ok bool) <span class="cov8" title="1">{
+        result := l.CreateTable(0, 3)
+        result.RawSetString("channel", ch)
+        result.RawSetString("value", value)
+        result.RawSetString("ok", lua.LBool(ok))
+        u.resultBuf[0] = result
+        u.resultLen = 1
+}</span>
+
+func (u *TaskUpdate) reset() <span class="cov8" title="1">{
+        u.State = nil
+        u.Error = nil
+        u.resultBuf[0] = nil
+        u.resultBuf[1] = nil
+        u.resultBuf[2] = nil
+        u.resultLen = 0
+}</span>
+
+// ChannelResult represents the result of a channel operation.
+type ChannelResult struct {
+        Yields     bool
+        Block      []*Channel
+        Release    []*Channel
+        updatesBuf [2]*TaskUpdate
+        updatesLen int
+        updates    []*TaskUpdate
+}
+
+func (r *ChannelResult) String() string       <span class="cov0" title="0">{ return "&lt;channel_result&gt;" }</span>
+func (r *ChannelResult) Type() lua.LValueType <span class="cov0" title="0">{ return lua.LTUserData }</span>
+
+// GetUpdates returns all task updates from this result.
+func (r *ChannelResult) GetUpdates() []*TaskUpdate <span class="cov8" title="1">{
+        if r.updates != nil </span><span class="cov8" title="1">{
+                return r.updates
+        }</span>
+        <span class="cov8" title="1">return r.updatesBuf[:r.updatesLen]</span>
+}
+
+func (r *ChannelResult) addUpdate(u *TaskUpdate) <span class="cov8" title="1">{
+        if r.updates != nil </span><span class="cov8" title="1">{
+                r.updates = append(r.updates, u)
+                return
+        }</span>
+        <span class="cov8" title="1">if r.updatesLen &lt; 2 </span><span class="cov8" title="1">{
+                r.updatesBuf[r.updatesLen] = u
+                r.updatesLen++
+                return
+        }</span>
+        <span class="cov8" title="1">r.updates = make([]*TaskUpdate, 0, 8)
+        r.updates = append(r.updates, r.updatesBuf[0], r.updatesBuf[1], u)</span>
+}
+
+func (r *ChannelResult) reset() <span class="cov8" title="1">{
+        r.Yields = false
+        r.updatesLen = 0
+        r.updatesBuf[0] = nil
+        r.updatesBuf[1] = nil
+        r.updates = nil
+        r.Block = r.Block[:0]
+        r.Release = r.Release[:0]
+}</span>
+
+// Channel represents a Go-like channel with optional buffering.
+type Channel struct {
+        mu        sync.Mutex
+        capacity  int
+        size      int
+        closed    bool
+        value     lua.LValue
+        senders   *opQueue
+        receivers *opQueue
+}
+
+// NewChannel creates a channel with the given buffer capacity.
+func NewChannel(capacity int) *Channel <span class="cov8" title="1">{
+        if capacity &lt; 0 </span><span class="cov0" title="0">{
+                capacity = 0
+        }</span>
+        <span class="cov8" title="1">return &amp;Channel{
+                capacity:  capacity,
+                senders:   newOpQueue(4),
+                receivers: newOpQueue(4),
+        }</span>
+}
+
+func (c *Channel) Value() lua.LValue     <span class="cov8" title="1">{ return c.value }</span>
+func (c *Channel) SetValue(v lua.LValue) <span class="cov8" title="1">{ c.value = v }</span>
+
+func (c *Channel) IsClosed() bool <span class="cov8" title="1">{
+        c.mu.Lock()
+        defer c.mu.Unlock()
+        return c.closed
+}</span>
+
+// Size returns the current number of items in the buffer.
+func (c *Channel) Size() int <span class="cov0" title="0">{
+        c.mu.Lock()
+        defer c.mu.Unlock()
+        return c.size
+}</span>
+
+// Slots returns available send slots (buffer space + waiting receivers).
+func (c *Channel) Slots() int <span class="cov0" title="0">{
+        c.mu.Lock()
+        defer c.mu.Unlock()
+        return (c.capacity - c.size) + c.receivers.Len()
+}</span>
+
+// CanSend returns true if a send would not block.
+func (c *Channel) CanSend() bool <span class="cov8" title="1">{
+        c.mu.Lock()
+        defer c.mu.Unlock()
+        return c.receivers.Len() &gt; 0 || (!c.closed &amp;&amp; c.size &lt; c.capacity)
+}</span>
+
+// CanReceive returns true if a receive would not block.
+func (c *Channel) CanReceive() bool <span class="cov8" title="1">{
+        c.mu.Lock()
+        defer c.mu.Unlock()
+        return c.senders.Len() &gt; 0
+}</span>
+
+// Send attempts to send a value. Returns result indicating if operation completed or must block.
+func (c *Channel) Send(task *lua.LState, value lua.LValue, selectOp *SelectOp) *ChannelResult <span class="cov8" title="1">{
+        c.mu.Lock()
+        defer c.mu.Unlock()
+
+        fmt.Printf("[CHANNEL Send] closed=%v, receivers.Len=%d, size=%d, capacity=%d\n", c.closed, c.receivers.Len(), c.size, c.capacity)
+
+        if c.closed </span><span class="cov0" title="0">{
+                return c.errorResult(task, errors.New("send on closed channel"))
+        }</span>
+
+        // Try direct handoff to waiting receiver
+        <span class="cov8" title="1">if recvOp := c.receivers.Pop(); recvOp != nil </span><span class="cov8" title="1">{
+                fmt.Printf("[CHANNEL Send] found waiting receiver, doing direct handoff\n")
+                return c.completeSendToReceiver(task, value, selectOp, recvOp)
+        }</span>
+
+        // Try buffering
+        <span class="cov8" title="1">if c.size &lt; c.capacity </span><span class="cov8" title="1">{
+                fmt.Printf("[CHANNEL Send] buffering (size=%d &lt; capacity=%d)\n", c.size, c.capacity)
+                return c.bufferSend(task, value, selectOp)
+        }</span>
+
+        // Must block
+        <span class="cov8" title="1">fmt.Printf("[CHANNEL Send] must block\n")
+        return c.blockSend(task, value, selectOp)</span>
+}
+
+// Receive attempts to receive a value. Returns result indicating if operation completed or must block.
+func (c *Channel) Receive(task *lua.LState, selectOp *SelectOp) *ChannelResult <span class="cov8" title="1">{
+        c.mu.Lock()
+        defer c.mu.Unlock()
+
+        // Try to get value from sender
+        if sendOp := c.senders.Pop(); sendOp != nil </span><span class="cov8" title="1">{
+                c.size--
+                return c.completeReceiveFromSender(task, selectOp, sendOp)
+        }</span>
+
+        // Channel empty
+        <span class="cov8" title="1">if c.closed </span><span class="cov8" title="1">{
+                return c.closedReceiveResult(task, selectOp)
+        }</span>
+
+        // Must block
+        <span class="cov8" title="1">return c.blockReceive(task, selectOp)</span>
+}
+
+// Close closes the channel, waking all blocked operations.
+func (c *Channel) Close(caller *lua.LState) *ChannelResult <span class="cov8" title="1">{
+        c.mu.Lock()
+        defer c.mu.Unlock()
+
+        if c.closed </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+        <span class="cov8" title="1">c.closed = true
+
+        r := acquireResult()
+
+        // Error blocked senders but keep buffered values
+        c.closeBlockedSenders(r)
+
+        // Wake blocked receivers with (nil, false)
+        c.wakeBlockedReceivers(r)
+
+        if len(r.GetUpdates()) == 0 </span><span class="cov8" title="1">{
+                ReleaseResult(r)
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">if caller != nil </span><span class="cov8" title="1">{
+                u := acquireTaskUpdate()
+                u.State = caller
+                r.addUpdate(u)
+        }</span>
+        <span class="cov8" title="1">r.Yields = true
+        return r</span>
+}
+
+func (c *Channel) errorResult(task *lua.LState, err error) *ChannelResult <span class="cov0" title="0">{
+        r := acquireResult()
+        u := acquireTaskUpdate()
+        u.State = task
+        u.Error = err
+        r.updatesBuf[0] = u
+        r.updatesLen = 1
+        return r
+}</span>
+
+func (c *Channel) completeSendToReceiver(sender *lua.LState, value lua.LValue, senderSelect *SelectOp, recvOp *ChannelOp) *ChannelResult <span class="cov8" title="1">{
+        defer releaseChannelOp(recvOp)
+
+        if recvOp.Task == nil </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">r := acquireResult()
+        r.Yields = true
+
+        // Receiver update
+        u1 := acquireTaskUpdate()
+        u1.State = recvOp.Task
+        if recvOp.SelectOp != nil </span><span class="cov8" title="1">{
+                u1.setSelectResult(recvOp.Task, c.value, value, true)
+        }</span> else<span class="cov8" title="1"> {
+                u1.setResult2(value, lua.LTrue)
+        }</span>
+        <span class="cov8" title="1">r.updatesBuf[0] = u1
+
+        // Sender update
+        u2 := acquireTaskUpdate()
+        u2.State = sender
+        if senderSelect != nil &amp;&amp; sender != nil </span><span class="cov0" title="0">{
+                u2.setSelectResult(sender, c.value, nil, true)
+        }</span> else<span class="cov8" title="1"> {
+                u2.setResult1(lua.LTrue)
+        }</span>
+        <span class="cov8" title="1">r.updatesBuf[1] = u2
+        r.updatesLen = 2
+
+        r.Release = append(r.Release, c)
+        r.Release = append(r.Release, c.flushSelectLocked(senderSelect)...)
+        r.Release = append(r.Release, c.flushSelectLocked(recvOp.SelectOp)...)
+
+        return r</span>
+}
+
+func (c *Channel) bufferSend(task *lua.LState, value lua.LValue, selectOp *SelectOp) *ChannelResult <span class="cov8" title="1">{
+        op := acquireChannelOp()
+        op.Kind = SendOp
+        op.Channel = c
+        op.Value = value
+        c.senders.Push(op)
+        c.size++
+
+        r := acquireResult()
+        u := acquireTaskUpdate()
+        u.State = task
+        if selectOp != nil &amp;&amp; task != nil </span><span class="cov8" title="1">{
+                u.setSelectResult(task, c.value, value, true)
+        }</span> else<span class="cov8" title="1"> {
+                u.setResult2(value, lua.LTrue)
+        }</span>
+        <span class="cov8" title="1">r.updatesBuf[0] = u
+        r.updatesLen = 1
+        return r</span>
+}
+
+func (c *Channel) blockSend(task *lua.LState, value lua.LValue, selectOp *SelectOp) *ChannelResult <span class="cov8" title="1">{
+        op := acquireChannelOp()
+        op.Kind = SendOp
+        op.Channel = c
+        op.Value = value
+        op.Task = task
+        op.SelectOp = selectOp
+        c.senders.Push(op)
+        c.size++
+
+        r := acquireResult()
+        r.Yields = true
+        r.Block = append(r.Block, c)
+        return r
+}</span>
+
+func (c *Channel) completeReceiveFromSender(receiver *lua.LState, receiverSelect *SelectOp, sendOp *ChannelOp) *ChannelResult <span class="cov8" title="1">{
+        defer releaseChannelOp(sendOp)
+
+        value := sendOp.Value
+
+        // Buffered value (no blocked sender)
+        if sendOp.Task == nil </span><span class="cov8" title="1">{
+                r := acquireResult()
+                u := acquireTaskUpdate()
+                u.State = receiver
+                if receiverSelect != nil &amp;&amp; receiver != nil </span><span class="cov8" title="1">{
+                        u.setSelectResult(receiver, c.value, value, true)
+                }</span> else<span class="cov8" title="1"> {
+                        u.setResult2(value, lua.LTrue)
+                }</span>
+                <span class="cov8" title="1">r.updatesBuf[0] = u
+                r.updatesLen = 1
+                return r</span>
+        }
+
+        // Blocked sender
+        <span class="cov8" title="1">r := acquireResult()
+        r.Yields = true
+
+        // Sender update
+        u1 := acquireTaskUpdate()
+        u1.State = sendOp.Task
+        if sendOp.SelectOp != nil </span><span class="cov0" title="0">{
+                u1.setSelectResult(sendOp.Task, c.value, value, true)
+        }</span> else<span class="cov8" title="1"> {
+                u1.setResult1(lua.LTrue)
+        }</span>
+        <span class="cov8" title="1">r.updatesBuf[0] = u1
+
+        // Receiver update
+        u2 := acquireTaskUpdate()
+        u2.State = receiver
+        if receiverSelect != nil &amp;&amp; receiver != nil </span><span class="cov0" title="0">{
+                u2.setSelectResult(receiver, c.value, value, true)
+        }</span> else<span class="cov8" title="1"> {
+                u2.setResult2(value, lua.LTrue)
+        }</span>
+        <span class="cov8" title="1">r.updatesBuf[1] = u2
+        r.updatesLen = 2
+
+        r.Release = append(r.Release, c)
+        r.Release = append(r.Release, c.flushSelectLocked(sendOp.SelectOp)...)
+        r.Release = append(r.Release, c.flushSelectLocked(receiverSelect)...)
+
+        return r</span>
+}
+
+func (c *Channel) closedReceiveResult(task *lua.LState, selectOp *SelectOp) *ChannelResult <span class="cov8" title="1">{
+        r := acquireResult()
+        u := acquireTaskUpdate()
+        u.State = task
+        if selectOp != nil &amp;&amp; task != nil </span><span class="cov0" title="0">{
+                u.setSelectResult(task, c.value, lua.LNil, false)
+        }</span> else<span class="cov8" title="1"> {
+                u.setResult2(lua.LNil, lua.LFalse)
+        }</span>
+        <span class="cov8" title="1">r.updatesBuf[0] = u
+        r.updatesLen = 1
+        return r</span>
+}
+
+func (c *Channel) blockReceive(task *lua.LState, selectOp *SelectOp) *ChannelResult <span class="cov8" title="1">{
+        fmt.Printf("[CHANNEL blockReceive] task blocking on channel, receivers will be %d\n", c.receivers.Len()+1)
+        op := acquireChannelOp()
+        op.Kind = ReceiveOp
+        op.Channel = c
+        op.Task = task
+        op.SelectOp = selectOp
+        c.receivers.Push(op)
+
+        r := acquireResult()
+        r.Yields = true
+        r.Block = append(r.Block, c)
+        return r
+}</span>
+
+func (c *Channel) closeBlockedSenders(r *ChannelResult) <span class="cov8" title="1">{
+        var buffered []*ChannelOp
+        for </span><span class="cov8" title="1">{
+                op := c.senders.Pop()
+                if op == nil </span><span class="cov8" title="1">{
+                        break</span>
+                }
+                <span class="cov8" title="1">if op.Task != nil </span><span class="cov8" title="1">{
+                        c.size--
+                        u := acquireTaskUpdate()
+                        u.State = op.Task
+                        u.Error = errors.New("send on closed channel")
+                        r.addUpdate(u)
+                        r.Release = append(r.Release, c)
+                        r.Release = append(r.Release, c.flushSelectLocked(op.SelectOp)...)
+                        releaseChannelOp(op)
+                }</span> else<span class="cov8" title="1"> {
+                        buffered = append(buffered, op)
+                }</span>
+        }
+        <span class="cov8" title="1">for _, op := range buffered </span><span class="cov8" title="1">{
+                c.senders.Push(op)
+        }</span>
+}
+
+func (c *Channel) wakeBlockedReceivers(r *ChannelResult) <span class="cov8" title="1">{
+        for </span><span class="cov8" title="1">{
+                op := c.receivers.Pop()
+                if op == nil </span><span class="cov8" title="1">{
+                        break</span>
+                }
+                <span class="cov8" title="1">if op.Task != nil </span><span class="cov8" title="1">{
+                        u := acquireTaskUpdate()
+                        u.State = op.Task
+                        if op.SelectOp != nil </span><span class="cov8" title="1">{
+                                u.setSelectResult(op.Task, c.value, lua.LNil, false)
+                                r.Release = append(r.Release, c.flushSelectLocked(op.SelectOp)...)
+                        }</span> else<span class="cov8" title="1"> {
+                                u.setResult2(lua.LNil, lua.LFalse)
+                        }</span>
+                        <span class="cov8" title="1">r.addUpdate(u)
+                        r.Release = append(r.Release, c)</span>
+                }
+                <span class="cov8" title="1">releaseChannelOp(op)</span>
+        }
+}
+
+func (c *Channel) flushSelectLocked(s *SelectOp) []*Channel <span class="cov8" title="1">{
+        if s == nil </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+        <span class="cov8" title="1">releases := make([]*Channel, 0, len(s.Cases))
+        for _, caseOp := range s.Cases </span><span class="cov8" title="1">{
+                if caseOp.Channel == nil </span><span class="cov0" title="0">{
+                        continue</span>
+                }
+                <span class="cov8" title="1">releases = append(releases, caseOp.Channel)
+                if caseOp.Channel == c </span><span class="cov8" title="1">{
+                        caseOp.Channel.discardSelectLocked(s)
+                }</span> else<span class="cov8" title="1"> {
+                        caseOp.Channel.discardSelect(s)
+                }</span>
+        }
+        <span class="cov8" title="1">return releases</span>
+}
+
+func (c *Channel) discardSelect(selectOp *SelectOp) <span class="cov8" title="1">{
+        c.mu.Lock()
+        defer c.mu.Unlock()
+        c.discardSelectLocked(selectOp)
+}</span>
+
+func (c *Channel) discardSelectLocked(selectOp *SelectOp) <span class="cov8" title="1">{
+        if op := c.senders.removeBySelectOp(selectOp); op != nil </span><span class="cov8" title="1">{
+                c.size--
+                releaseChannelOp(op)
+        }</span>
+        <span class="cov8" title="1">if op := c.receivers.removeBySelectOp(selectOp); op != nil </span><span class="cov8" title="1">{
+                releaseChannelOp(op)
+        }</span>
+}
+
+// opQueue is a circular buffer queue for channel operations.
+type opQueue struct {
+        ops  []*ChannelOp
+        head int
+        tail int
+        len  int
+}
+
+func newOpQueue(capacity int) *opQueue <span class="cov8" title="1">{
+        if capacity &lt; 4 </span><span class="cov0" title="0">{
+                capacity = 4
+        }</span>
+        <span class="cov8" title="1">return &amp;opQueue{ops: make([]*ChannelOp, capacity)}</span>
+}
+
+func (q *opQueue) Len() int <span class="cov8" title="1">{ return q.len }</span>
+
+func (q *opQueue) Push(op *ChannelOp) <span class="cov8" title="1">{
+        if q.len == len(q.ops) </span><span class="cov8" title="1">{
+                q.grow()
+        }</span>
+        <span class="cov8" title="1">q.ops[q.tail] = op
+        q.tail = (q.tail + 1) % len(q.ops)
+        q.len++</span>
+}
+
+func (q *opQueue) Pop() *ChannelOp <span class="cov8" title="1">{
+        if q.len == 0 </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+        <span class="cov8" title="1">op := q.ops[q.head]
+        q.ops[q.head] = nil
+        q.head = (q.head + 1) % len(q.ops)
+        q.len--
+        return op</span>
+}
+
+func (q *opQueue) grow() <span class="cov8" title="1">{
+        newOps := make([]*ChannelOp, len(q.ops)*2)
+        if q.head &lt; q.tail </span><span class="cov0" title="0">{
+                copy(newOps, q.ops[q.head:q.tail])
+        }</span> else<span class="cov8" title="1"> {
+                n := copy(newOps, q.ops[q.head:])
+                copy(newOps[n:], q.ops[:q.tail])
+        }</span>
+        <span class="cov8" title="1">q.ops = newOps
+        q.head = 0
+        q.tail = q.len</span>
+}
+
+func (q *opQueue) removeBySelectOp(selectOp *SelectOp) *ChannelOp <span class="cov8" title="1">{
+        for i := 0; i &lt; q.len; i++ </span><span class="cov8" title="1">{
+                idx := (q.head + i) % len(q.ops)
+                if q.ops[idx].SelectOp == selectOp </span><span class="cov8" title="1">{
+                        op := q.ops[idx]
+                        for j := i; j &gt; 0; j-- </span><span class="cov0" title="0">{
+                                curr := (q.head + j) % len(q.ops)
+                                prev := (q.head + j - 1) % len(q.ops)
+                                q.ops[curr] = q.ops[prev]
+                        }</span>
+                        <span class="cov8" title="1">q.ops[q.head] = nil
+                        q.head = (q.head + 1) % len(q.ops)
+                        q.len--
+                        return op</span>
+                }
+        }
+        <span class="cov8" title="1">return nil</span>
+}
+
+// Object pools to reduce allocations
+var (
+        channelOpPool  = sync.Pool{New: func() interface{} <span class="cov8" title="1">{ return &amp;ChannelOp{} }</span>}
+        taskUpdatePool = sync.Pool{New: func() interface{} <span class="cov8" title="1">{ return &amp;TaskUpdate{} }</span>}
+        resultPool     = sync.Pool{
+                New: func() interface{} <span class="cov8" title="1">{
+                        return &amp;ChannelResult{
+                                Block:   make([]*Channel, 0, 2),
+                                Release: make([]*Channel, 0, 2),
+                        }
+                }</span>,
+        }
+)
+
+func acquireChannelOp() *ChannelOp <span class="cov8" title="1">{
+        return channelOpPool.Get().(*ChannelOp)
+}</span>
+
+func releaseChannelOp(op *ChannelOp) <span class="cov8" title="1">{
+        op.Kind = 0
+        op.Channel = nil
+        op.Value = nil
+        op.Task = nil
+        op.SelectOp = nil
+        channelOpPool.Put(op)
+}</span>
+
+func acquireTaskUpdate() *TaskUpdate <span class="cov8" title="1">{
+        return taskUpdatePool.Get().(*TaskUpdate)
+}</span>
+
+func releaseTaskUpdate(u *TaskUpdate) <span class="cov8" title="1">{
+        u.reset()
+        taskUpdatePool.Put(u)
+}</span>
+
+func acquireResult() *ChannelResult <span class="cov8" title="1">{
+        r := resultPool.Get().(*ChannelResult)
+        r.reset()
+        return r
+}</span>
+
+// ReleaseResult returns a result and its updates to the pool.
+func ReleaseResult(r *ChannelResult) <span class="cov8" title="1">{
+        if r == nil </span><span class="cov0" title="0">{
+                return
+        }</span>
+        <span class="cov8" title="1">if r.updates != nil </span><span class="cov8" title="1">{
+                for _, u := range r.updates </span><span class="cov8" title="1">{
+                        if u != nil </span><span class="cov8" title="1">{
+                                releaseTaskUpdate(u)
+                        }</span>
+                }
+        } else<span class="cov8" title="1"> {
+                for i := 0; i &lt; r.updatesLen; i++ </span><span class="cov8" title="1">{
+                        if r.updatesBuf[i] != nil </span><span class="cov8" title="1">{
+                                releaseTaskUpdate(r.updatesBuf[i])
+                        }</span>
+                }
+        }
+        <span class="cov8" title="1">resultPool.Put(r)</span>
+}
+</pre>
+		
+		<pre class="file" id="file2" style="display: none">package engine
+
+import (
+        "fmt"
+        "strings"
+
+        "github.com/wippyai/runtime/api/logs"
+        "github.com/wippyai/runtime/api/runtime"
+        luaapi "github.com/wippyai/runtime/api/runtime/lua"
+        "github.com/wippyai/runtime/runtime/lua/engine/value"
+        "github.com/wippyai/runtime/runtime/lua/modules/ostime"
+        "github.com/wippyai/runtime/runtime/lua/modules/payload"
+        lua "github.com/yuin/gopher-lua"
+        "github.com/yuin/gopher-lua/inspect"
+        "go.uber.org/zap"
+)
+
+// ChannelModule provides Go-style channels for Lua.
+var ChannelModule = &amp;luaapi.ModuleDef{
+        Name:        "channel",
+        Description: "Go-style channels for inter-coroutine communication",
+        Class:       []string{luaapi.ClassProcess},
+        Build:       buildChannelModule,
+}
+
+func init() <span class="cov8" title="1">{
+        value.RegisterTypeMethods(nil, ChannelTypeName, nil, channelMethods)
+}</span>
+
+func buildChannelModule() (*lua.LTable, []luaapi.YieldType) <span class="cov8" title="1">{
+        tbl := lua.CreateTable(0, 2)
+        tbl.RawSetString("new", lua.LGoFunc(channelNewFunc))
+        tbl.RawSetString("select", lua.LGoFunc(channelSelectFunc))
+        tbl.Immutable = true
+        return tbl, nil
+}</span>
+
+// PubSubModule provides subscribe/unsubscribe global functions.
+var PubSubModule = &amp;luaapi.ModuleDef{
+        Name:        "pubsub",
+        Description: "Pub/sub channel subscription functions",
+        Class:       []string{luaapi.ClassProcess},
+        Build:       buildPubSubModule,
+}
+
+func buildPubSubModule() (*lua.LTable, []luaapi.YieldType) <span class="cov8" title="1">{
+        tbl := lua.CreateTable(0, 2)
+        tbl.RawSetString("subscribe", lua.LGoFunc(subscribeFunc))
+        tbl.RawSetString("unsubscribe", lua.LGoFunc(unsubscribeFunc))
+        tbl.Immutable = true
+        return tbl, nil
+}</span>
+
+// PrintModule provides the custom print function.
+var PrintModule = &amp;luaapi.ModuleDef{
+        Name:        "print",
+        Description: "Custom print function with logging support",
+        Class:       []string{luaapi.ClassIO},
+        BuildValue:  buildPrintModule,
+}
+
+func buildPrintModule() (lua.LValue, []luaapi.YieldType) <span class="cov8" title="1">{
+        return lua.LGoFunc(printFunc), nil
+}</span>
+
+// ErrorsModule wraps lua.OpenErrors as a ModuleDef.
+var ErrorsModule = &amp;luaapi.ModuleDef{
+        Name:        "errors",
+        Description: "Lua errors module",
+        Class:       []string{luaapi.ClassDeterministic},
+}
+
+// printFunc is the implementation of the custom print function.
+func printFunc(l *lua.LState) int <span class="cov8" title="1">{
+        log := logs.GetLogger(l.Context())
+
+        parts := make([]string, l.GetTop())
+        for i := 1; i &lt;= l.GetTop(); i++ </span><span class="cov8" title="1">{
+                parts[i-1] = l.ToString(i)
+        }</span>
+        <span class="cov8" title="1">msg := strings.Join(parts, " ")
+
+        if log == nil </span><span class="cov0" title="0">{
+                fmt.Print(msg)
+                return 0
+        }</span>
+
+        <span class="cov8" title="1">fields := make([]zap.Field, 0, 2)
+
+        if pid, ok := runtime.GetFramePID(l.Context()); ok </span><span class="cov0" title="0">{
+                fields = append(fields, zap.String("pid", pid.String()))
+        }</span>
+
+        <span class="cov8" title="1">if id, ok := runtime.GetFrameID(l.Context()); ok </span><span class="cov0" title="0">{
+                if line, ok := inspect.GetCallerLine(l, 1); ok </span><span class="cov0" title="0">{
+                        location := fmt.Sprintf("%s:%d", id.String(), line)
+                        fields = append(fields, zap.String("location", location))
+                }</span>
+        }
+
+        <span class="cov8" title="1">log.Info(msg, fields...)
+        return 0</span>
+}
+
+// CoreModules is the list of core module definitions.
+// All modules use zero-allocation after initialization.
+var CoreModules = []*luaapi.ModuleDef{
+        ErrorsModule,
+        payload.Module,
+        ostime.Module,
+        PrintModule,
+        ChannelModule,
+        PubSubModule,
+}
+
+// LoadCoreModules loads all core modules into the LState.
+func LoadCoreModules(l *lua.LState) <span class="cov8" title="1">{
+        lua.OpenErrors(l)
+        payload.Module.Load(l)
+        ostime.Module.Load(l)
+        PrintModule.Load(l)
+        ChannelModule.Load(l)
+        loadPubSubGlobals(l)
+}</span>
+
+// loadPubSubGlobals loads subscribe/unsubscribe as global functions.
+func loadPubSubGlobals(l *lua.LState) <span class="cov8" title="1">{
+        PubSubModule.Register(l)
+        l.SetGlobal("subscribe", lua.LGoFunc(subscribeFunc))
+        l.SetGlobal("unsubscribe", lua.LGoFunc(unsubscribeFunc))
+}</span>
+
+// CoreBinders returns the core module loader as a single binder.
+func CoreBinders() []ModuleBinder <span class="cov8" title="1">{
+        return []ModuleBinder{LoadCoreModules}
+}</span>
+</pre>
+		
+		<pre class="file" id="file3" style="display: none">package engine
+
+import (
+        "github.com/wippyai/runtime/api/process"
+        lua "github.com/yuin/gopher-lua"
+)
+
+// todo: redo most of it
+
+// FactoryConfig configures a Lua process factory.
+type FactoryConfig struct {
+        // Proto is a precompiled Lua function (faster than Script).
+        Proto *lua.FunctionProto
+
+        // Script and ScriptName for on-the-fly compilation.
+        Script     string
+        ScriptName string
+
+        // ModuleBinders are called after state creation to bind modules.
+        ModuleBinders []ModuleBinder
+
+        // StateOptions customize Lua state (memory, stack, etc).
+        StateOptions *lua.Options
+}
+
+// Factory creates Lua processes with shared configuration.
+// Holds binders and options - processes only store script/proto.
+type Factory struct {
+        proto         *lua.FunctionProto
+        script        string
+        scriptName    string
+        moduleBinders []ModuleBinder
+        stateOpts     *lua.Options
+}
+
+// NewFactory creates a ProcessFactory for Lua processes.
+// The factory returns processes that are already initialized.
+func NewFactory(cfg FactoryConfig) process.FactoryFunc <span class="cov8" title="1">{
+        f := &amp;Factory{
+                proto:         cfg.Proto,
+                script:        cfg.Script,
+                scriptName:    cfg.ScriptName,
+                moduleBinders: cfg.ModuleBinders,
+                stateOpts:     cfg.StateOptions,
+        }
+        return f.Create
+}</span>
+
+// Create produces a new initialized Process.
+func (f *Factory) Create() (process.Process, error) <span class="cov8" title="1">{
+        proc := &amp;Process{
+                threads:  make([]*Task, 0, 4),
+                queue:    NewTaskQueue(),
+                yieldBuf: make([]*Task, 0, 4),
+                factory:  f,
+                state:    f.CreateState(),
+        }
+
+        if f.proto != nil </span><span class="cov8" title="1">{
+                proc.proto = f.proto
+        }</span> else<span class="cov8" title="1"> if f.script != "" </span><span class="cov8" title="1">{
+                proc.script = f.script
+                proc.scriptName = f.scriptName
+        }</span>
+
+        <span class="cov8" title="1">return proc, nil</span>
+}
+
+// NewFactoryFromProto creates a factory from a precompiled proto with default module bindings.
+func NewFactoryFromProto(proto *lua.FunctionProto, binders ...ModuleBinder) process.FactoryFunc <span class="cov0" title="0">{
+        return NewFactory(FactoryConfig{
+                Proto:         proto,
+                ModuleBinders: binders,
+        })
+}</span>
+
+// NewFactoryFromScript creates a factory from a script string.
+func NewFactoryFromScript(script, name string, binders ...ModuleBinder) process.FactoryFunc <span class="cov0" title="0">{
+        return NewFactory(FactoryConfig{
+                Script:        script,
+                ScriptName:    name,
+                ModuleBinders: binders,
+        })
+}</span>
+
+// CompileFactory compiles a script and returns a factory using the compiled proto.
+// Returns error if compilation fails.
+func CompileFactory(script, name string, binders ...ModuleBinder) (process.FactoryFunc, error) <span class="cov0" title="0">{
+        proto, err := lua.CompileString(script, name)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+        <span class="cov0" title="0">return NewFactoryFromProto(proto, binders...), nil</span>
+}
+
+// CreateState creates and initializes a new Lua state with core libs and module binders.
+func (f *Factory) CreateState() *lua.LState <span class="cov8" title="1">{
+        opts := lua.Options{
+                RegistrySize:        128,
+                RegistryMaxSize:     256 * 256,
+                RegistryGrowStep:    16,
+                SkipOpenLibs:        true,
+                CallStackSize:       128,
+                MinimizeStackMemory: true,
+                IncludeGoStackTrace: true,
+        }
+        if f.stateOpts != nil </span><span class="cov8" title="1">{
+                opts = *f.stateOpts
+        }</span>
+
+        <span class="cov8" title="1">state := lua.NewState(opts)
+
+        // Base functions
+        state.Push(state.NewFunction(lua.OpenBase))
+        state.Push(lua.LString(lua.BaseLibName))
+        state.Call(1, 0)
+
+        // Standard libraries
+        lua.OpenTable(state)
+        lua.OpenString(state)
+        lua.OpenMath(state)
+        lua.OpenCoroutine(state)
+        lua.OpenErrors(state)
+
+        // Restricted package loader (wippy-specific)
+        state.Push(lua.LGoFunc(OpenRestrictedPackage))
+        state.Push(lua.LString(lua.LoadLibName))
+        state.Call(1, 0)
+
+        // Apply module binders
+        for _, binder := range f.moduleBinders </span><span class="cov8" title="1">{
+                binder(state)
+        }</span>
+
+        <span class="cov8" title="1">return state</span>
+}
+</pre>
+		
+		<pre class="file" id="file4" style="display: none">package engine
+
+import (
+        "context"
+        "errors"
+        "fmt"
+        "strings"
+
+        ctxapi "github.com/wippyai/runtime/api/context"
+        "github.com/wippyai/runtime/api/dispatcher"
+        apierror "github.com/wippyai/runtime/api/error"
+        "github.com/wippyai/runtime/api/payload"
+        "github.com/wippyai/runtime/api/process"
+        "github.com/wippyai/runtime/api/relay"
+        luaapi "github.com/wippyai/runtime/api/runtime/lua"
+        "github.com/wippyai/runtime/api/runtime/resource"
+        "github.com/wippyai/runtime/api/topology"
+        luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
+        lua "github.com/yuin/gopher-lua"
+)
+
+// ProcessOption configures a Process.
+type ProcessOption func(*Process)
+
+// WithScript sets the Lua script to execute (will be compiled on Start).
+func WithScript(script, name string) ProcessOption <span class="cov8" title="1">{
+        return func(p *Process) </span><span class="cov8" title="1">{
+                p.script = script
+                p.scriptName = name
+        }</span>
+}
+
+// WithProto sets a precompiled FunctionProto to execute (faster startup).
+func WithProto(proto *lua.FunctionProto) ProcessOption <span class="cov8" title="1">{
+        return func(p *Process) </span><span class="cov8" title="1">{
+                p.proto = proto
+        }</span>
+}
+
+// ModuleBinder is a function that binds modules to a Lua state.
+type ModuleBinder func(*lua.LState)
+
+// WithModuleBinder adds module binders via inline factory.
+// For high-performance use cases, prefer creating a Factory directly.
+func WithModuleBinder(binder ModuleBinder) ProcessOption <span class="cov8" title="1">{
+        return func(p *Process) </span><span class="cov8" title="1">{
+                if p.factory == nil </span><span class="cov0" title="0">{
+                        p.factory = &amp;Factory{}
+                }</span>
+                <span class="cov8" title="1">p.factory.moduleBinders = append(p.factory.moduleBinders, binder)</span>
+        }
+}
+
+// WithStateOptions sets custom Lua state options via inline factory.
+// For high-performance use cases, prefer creating a Factory directly.
+func WithStateOptions(opts lua.Options) ProcessOption <span class="cov8" title="1">{
+        return func(p *Process) </span><span class="cov8" title="1">{
+                if p.factory == nil </span><span class="cov0" title="0">{
+                        p.factory = &amp;Factory{}
+                }</span>
+                <span class="cov8" title="1">p.factory.stateOpts = &amp;opts</span>
+        }
+}
+
+// Process implements scheduler.Process for Lua execution.
+// Combines VM + CVM + Runner into a single unit.
+// Module binders and state options are stored in Factory for sharing across processes.
+type Process struct {
+        state   *lua.LState
+        threads []*Task
+        queue   *TaskQueue
+
+        script     string
+        scriptName string
+        proto      *lua.FunctionProto
+        mainTask   *Task
+        ctx        context.Context
+
+        // result holds the mainTask's return value when it completes
+        result payload.Payload
+
+        // execErr holds an error returned in second return value (Go's value, error pattern)
+        execErr error
+
+        // factory holds shared config (binders, state options)
+        factory *Factory
+
+        // reusable buffer for yielded tasks
+        yieldBuf []*Task
+
+        // pendingYields tracks yields waiting for external operations
+        pendingYields map[uint64]*Task
+
+        // yieldSeq is a monotonic counter for generating unique yield tags
+        yieldSeq uint64
+
+        // externalTasks reusable slice for non-channel tasks in processChannelYields
+        externalTasks []*Task
+
+        // outTasks reusable slice for output tasks in processSubscribeYields
+        outTasks []*Task
+
+        // exported caches method functions extracted from module table
+        exported map[string]*lua.LFunction
+
+        // Channel layer state (moved from ProcessContext)
+        channelQueue *TaskQueue
+        channels     map[*Channel]int
+
+        // Subscribe layer state (moved from ProcessContext)
+        subs *subscribeContext
+
+        // Topic handlers for custom message processing
+        handlers map[string]TopicHandler
+
+        // messageQueue stores all incoming messages until they can be delivered
+        // Messages are kept in order and only removed when delivered to a channel
+        messageQueue []queuedMessage
+}
+
+// queuedMessage stores a message waiting to be delivered
+type queuedMessage struct {
+        Source   relay.PID
+        Topic    string
+        Payloads []payload.Payload
+}
+
+// GetProcess retrieves the Process from LState via Owner.
+// Returns nil if Owner is not set or not a Process.
+func GetProcess(l *lua.LState) *Process <span class="cov8" title="1">{
+        if l.G == nil || l.G.Owner == nil </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+        <span class="cov8" title="1">p, _ := l.G.Owner.(*Process)
+        return p</span>
+}
+
+// Subscribe creates or returns an existing subscription for a topic.
+// The subscription owns the channel - it is created internally.
+// Returns the channel for the subscription.
+func (p *Process) Subscribe(topic string, bufSize int) (*Channel, error) <span class="cov8" title="1">{
+        if p.subs == nil </span><span class="cov8" title="1">{
+                return nil, luaapi.ErrProcessContextNotAvailable
+        }</span>
+        <span class="cov8" title="1">sub, err := p.subs.add(topic, bufSize)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+        <span class="cov8" title="1">return sub.channel, nil</span>
+}
+
+// SubscribeExisting registers an externally-owned channel for a topic.
+// Used by modules that manage their own channel lifecycle (websocket, timer, etc.).
+// Returns error if topic already has a different channel subscribed.
+func (p *Process) SubscribeExisting(topic string, ch *Channel) error <span class="cov8" title="1">{
+        if p.subs == nil </span><span class="cov8" title="1">{
+                return luaapi.ErrProcessContextNotAvailable
+        }</span>
+        <span class="cov8" title="1">_, err := p.subs.addExisting(topic, ch)
+        return err</span>
+}
+
+// SetTopicHandler registers a handler for a topic.
+func (p *Process) SetTopicHandler(topic string, handler TopicHandler) <span class="cov8" title="1">{
+        if p.handlers == nil </span><span class="cov8" title="1">{
+                p.handlers = make(map[string]TopicHandler, 4)
+        }</span>
+        <span class="cov8" title="1">p.handlers[topic] = handler</span>
+}
+
+// GetTopicHandler retrieves a handler for a topic.
+func (p *Process) GetTopicHandler(topic string) (TopicHandler, bool) <span class="cov8" title="1">{
+        if p.handlers == nil </span><span class="cov8" title="1">{
+                return nil, false
+        }</span>
+        <span class="cov8" title="1">h, ok := p.handlers[topic]
+        return h, ok</span>
+}
+
+// RemoveTopicHandler removes a handler for a topic.
+func (p *Process) RemoveTopicHandler(topic string) <span class="cov8" title="1">{
+        delete(p.handlers, topic)
+}</span>
+
+// ChannelQueue returns the channel layer task queue, creating it if needed.
+func (p *Process) ChannelQueue() *TaskQueue <span class="cov8" title="1">{
+        if p.channelQueue == nil </span><span class="cov8" title="1">{
+                p.channelQueue = NewTaskQueue()
+        }</span>
+        <span class="cov8" title="1">return p.channelQueue</span>
+}
+
+// HasSubscriptions returns true if there are active subscriptions.
+func (p *Process) HasSubscriptions() bool <span class="cov8" title="1">{
+        if p.subs == nil </span><span class="cov8" title="1">{
+                return false
+        }</span>
+        <span class="cov8" title="1">p.subs.mu.RLock()
+        defer p.subs.mu.RUnlock()
+        return len(p.subs.byTopic) &gt; 0</span>
+}
+
+// NewProcess creates a new Lua process with options.
+// Uses Factory internally to ensure state is properly initialized.
+func NewProcess(opts ...ProcessOption) *Process <span class="cov8" title="1">{
+        // Create a temporary process to extract options
+        tmp := &amp;Process{factory: &amp;Factory{}}
+        for _, opt := range opts </span><span class="cov8" title="1">{
+                opt(tmp)
+        }</span>
+
+        // Merge options into factory
+        <span class="cov8" title="1">tmp.factory.proto = tmp.proto
+        tmp.factory.script = tmp.script
+        tmp.factory.scriptName = tmp.scriptName
+
+        // Initialize state via factory
+        tmp.threads = make([]*Task, 0, 4)
+        tmp.queue = NewTaskQueue()
+        tmp.yieldBuf = make([]*Task, 0, 4)
+        tmp.externalTasks = make([]*Task, 0, 8)
+        tmp.outTasks = make([]*Task, 0, 8)
+        tmp.state = tmp.factory.CreateState()
+
+        return tmp</span>
+}
+
+// Execute starts execution of a method with context and input payloads.
+// State must be initialized by Factory - processes are created via Factory.Create().
+// Only one Execute can run at a time per process - results come from Step(StepDone).
+// If method is specified, the script is run once to get module table, then the method is called.
+func (p *Process) Init(ctx context.Context, method string, input payload.Payloads) error <span class="cov8" title="1">{
+        if p.state == nil </span><span class="cov0" title="0">{
+                return luaapi.ErrStateNotInitialized
+        }</span>
+
+        // Clear state from previous execution (for pooled processes)
+        <span class="cov8" title="1">p.threads = p.threads[:0]
+        p.queue.Drain()
+        p.mainTask = nil
+        p.pendingYields = nil
+
+        // Set context for this execution
+        p.ctx = ctx
+        p.state.SetContext(ctx)
+
+        // Set Owner for fast access from modules
+        p.state.G.Owner = p
+
+        // Create and store resource.Store in FrameContext
+        store := resource.NewStore()
+        if err := resource.SetStore(ctx, store); err != nil </span><span class="cov0" title="0">{
+                if p.state != nil </span><span class="cov0" title="0">{
+                        p.state.Close()
+                }</span>
+                <span class="cov0" title="0">return luaapi.NewStoreResourcesError(err)</span>
+        }
+
+        // Initialize channel and subscription state
+        <span class="cov8" title="1">if p.channels == nil </span><span class="cov8" title="1">{
+                p.channels = make(map[*Channel]int, 4)
+        }</span> else<span class="cov8" title="1"> {
+                clear(p.channels)
+        }</span>
+        <span class="cov8" title="1">if p.subs == nil </span><span class="cov8" title="1">{
+                p.subs = &amp;subscribeContext{
+                        byTopic:   make(map[string]*subscription, 4),
+                        byChannel: make(map[*Channel]string, 4),
+                }
+        }</span> else<span class="cov8" title="1"> {
+                clear(p.subs.byTopic)
+                clear(p.subs.byChannel)
+        }</span>
+        <span class="cov8" title="1">clear(p.handlers)
+        if p.channelQueue != nil </span><span class="cov8" title="1">{
+                p.channelQueue.Drain()
+        }</span>
+
+        // Clear message queue
+        <span class="cov8" title="1">p.messageQueue = p.messageQueue[:0]
+
+        // Seal the frame - no more modifications allowed after this
+        if fc := ctxapi.FrameFromContext(ctx); fc != nil </span><span class="cov8" title="1">{
+                fc.Seal()
+        }</span>
+
+        // Determine which function to execute
+        <span class="cov8" title="1">var fn *lua.LFunction
+
+        // If method specified, try to use cached function or extract from module
+        if method != "" </span><span class="cov8" title="1">{
+                if p.exported != nil </span><span class="cov0" title="0">{
+                        if cached, ok := p.exported[method]; ok </span><span class="cov0" title="0">{
+                                fn = cached
+                        }</span>
+                }
+
+                // No cached function - need to run script to get module and extract method
+                <span class="cov8" title="1">if fn == nil </span><span class="cov8" title="1">{
+                        if err := p.extractMethod(method); err != nil </span><span class="cov8" title="1">{
+                                return err
+                        }</span>
+                        <span class="cov8" title="1">fn = p.exported[method]</span>
+                }
+        } else<span class="cov8" title="1"> {
+                // No method - run the script directly (legacy behavior)
+                //nolint:gocritic // if-else is clearer than switch for nil/empty checks
+                if p.proto != nil </span><span class="cov8" title="1">{
+                        fn = p.state.LoadProto(p.proto)
+                }</span> else<span class="cov8" title="1"> if p.script != "" </span><span class="cov8" title="1">{
+                        var err error
+                        fn, err = p.state.Load(strings.NewReader(p.script), p.scriptName)
+                        if err != nil </span><span class="cov8" title="1">{
+                                p.state.Close()
+                                return luaapi.NewLoadScriptError(err)
+                        }</span>
+                } else<span class="cov8" title="1"> {
+                        p.state.Close()
+                        return luaapi.ErrNoScriptOrProto
+                }</span>
+        }
+
+        // Create main task
+        <span class="cov8" title="1">p.mainTask = p.createTask(fn)
+
+        // Convert input payloads to Lua values as arguments
+        if len(input) &gt; 0 </span><span class="cov8" title="1">{
+                args := make([]lua.LValue, 0, len(input))
+                for _, pl := range input </span><span class="cov8" title="1">{
+                        args = append(args, transcodeToLua(ctx, pl))
+                }</span>
+                <span class="cov8" title="1">p.mainTask.Resumed = args</span>
+        }
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+// extractMethod runs the script to get module table and extracts the method function.
+func (p *Process) extractMethod(method string) error <span class="cov8" title="1">{
+        // Load script function
+        var scriptFn *lua.LFunction
+        //nolint:gocritic // if-else is clearer than switch for nil/empty checks
+        if p.proto != nil </span><span class="cov0" title="0">{
+                scriptFn = p.state.LoadProto(p.proto)
+        }</span> else<span class="cov8" title="1"> if p.script != "" </span><span class="cov8" title="1">{
+                var err error
+                scriptFn, err = p.state.Load(strings.NewReader(p.script), p.scriptName)
+                if err != nil </span><span class="cov0" title="0">{
+                        return luaapi.NewLoadScriptError(err)
+                }</span>
+        } else<span class="cov0" title="0"> {
+                return luaapi.ErrNoScriptOrProto
+        }</span>
+
+        // Run script synchronously to get module table
+        <span class="cov8" title="1">if err := p.state.CallByParam(lua.P{
+                Fn:      scriptFn,
+                NRet:    1,
+                Protect: true,
+        }); err != nil </span><span class="cov0" title="0">{
+                return luaapi.NewExecuteScriptError(err)
+        }</span>
+
+        // Get return value
+        <span class="cov8" title="1">ret := p.state.Get(-1)
+        p.state.Pop(1)
+
+        // Initialize exported map
+        if p.exported == nil </span><span class="cov8" title="1">{
+                p.exported = make(map[string]*lua.LFunction)
+        }</span>
+
+        // Extract function from return value
+        <span class="cov8" title="1">var fn *lua.LFunction
+        switch v := ret.(type) </span>{
+        case *lua.LFunction:<span class="cov0" title="0">
+                // Script returned function directly
+                fn = v</span>
+        case *lua.LTable:<span class="cov8" title="1">
+                // Script returned module table - extract method by name
+                val := v.RawGetString(method)
+                if val.Type() == lua.LTFunction </span><span class="cov8" title="1">{
+                        fn = val.(*lua.LFunction)
+                }</span>
+        }
+
+        <span class="cov8" title="1">if fn == nil </span><span class="cov8" title="1">{
+                return luaapi.NewMethodNotFoundError(method)
+        }</span>
+
+        <span class="cov8" title="1">p.exported[method] = fn
+        return nil</span>
+}
+
+// Step advances the process by one iteration.
+// events contains yield completions and messages from the scheduler.
+// out is the scheduler-owned buffer where the process writes yields and status.
+func (p *Process) Step(events []process.Event, out *process.StepOutput) error <span class="cov8" title="1">{
+        fmt.Printf("\n----- [PROCESS STEP] events=%d, pendingYields=%d, threads=%d, queue.IsEmpty=%v -----\n",
+                len(events), len(p.pendingYields), len(p.threads), p.queue.IsEmpty())
+
+        // Collect messages from events
+        var messages []*relay.Package
+        for _, ev := range events </span><span class="cov8" title="1">{
+                switch ev.Type </span>{
+                case process.EventYieldComplete:<span class="cov8" title="1">
+                        fmt.Printf("[PROCESS STEP] EventYieldComplete tag=%d, data=%T, err=%v\n", ev.Tag, ev.Data, ev.Error)
+                        if len(p.pendingYields) &gt; 0 </span><span class="cov8" title="1">{
+                                fmt.Printf("[PROCESS STEP] pendingYields tags: ")
+                                for tag := range p.pendingYields </span><span class="cov8" title="1">{
+                                        fmt.Printf("%d ", tag)
+                                }</span>
+                                <span class="cov8" title="1">fmt.Println()
+                                p.distributeEvent(ev)
+                                fmt.Printf("[PROCESS STEP] after distributeEvent: pendingYields=%d, queue.IsEmpty=%v\n",
+                                        len(p.pendingYields), p.queue.IsEmpty())</span>
+                        } else<span class="cov0" title="0"> {
+                                fmt.Printf("[PROCESS STEP] WARNING: YieldComplete but no pendingYields!\n")
+                        }</span>
+                case process.EventMessage:<span class="cov8" title="1">
+                        if pkg, ok := ev.Data.(*relay.Package); ok </span><span class="cov8" title="1">{
+                                messages = append(messages, pkg)
+                        }</span>
+                }
+        }
+
+        // Add incoming messages to queue first (before any processing)
+        <span class="cov8" title="1">for _, pkg := range messages </span><span class="cov8" title="1">{
+                for _, msg := range pkg.Messages </span><span class="cov8" title="1">{
+                        p.messageQueue = append(p.messageQueue, queuedMessage{
+                                Source:   pkg.Source,
+                                Topic:    msg.Topic,
+                                Payloads: msg.Payloads,
+                        })
+                }</span>
+                <span class="cov8" title="1">relay.ReleasePackage(pkg)</span>
+        }
+
+        // Process in a loop until stable (no new subscriptions trigger channel work)
+        <span class="cov8" title="1">var externalTasks []*Task
+        var err error
+        loopIter := 0
+        for </span><span class="cov8" title="1">{
+                loopIter++
+                fmt.Printf("[PROCESS STEP LOOP] iter=%d, queue.IsEmpty=%v\n", loopIter, p.queue.IsEmpty())
+
+                // Flush any pending messages to subscribed channels BEFORE processing
+                // This ensures messages that arrived while tasks were blocked get delivered
+                if p.subs != nil </span><span class="cov8" title="1">{
+                        p.flushMessageQueue(p.subs)
+                }</span>
+
+                // Process channel yields (inner layer)
+                <span class="cov8" title="1">fmt.Printf("[PROCESS STEP LOOP] iter=%d BEFORE processChannelYields, externalTasks=%d\n", loopIter, len(externalTasks))
+                externalTasks, err = p.processChannelYields()
+                fmt.Printf("[PROCESS STEP LOOP] iter=%d AFTER processChannelYields, externalTasks=%d\n", loopIter, len(externalTasks))
+                if err != nil </span><span class="cov8" title="1">{
+                        p.clearExecution()
+                        out.Done(nil)
+                        return toAPIError(err)
+                }</span>
+
+                // Process subscribe yields (outer layer) - may add tasks to queue
+                <span class="cov8" title="1">hadSubscriptions := false
+                fmt.Printf("[PROCESS STEP LOOP] iter=%d BEFORE processSubscribeYields, externalTasks=%d\n", loopIter, len(externalTasks))
+                externalTasks, hadSubscriptions, err = p.processSubscribeYields(externalTasks)
+                fmt.Printf("[PROCESS STEP LOOP] iter=%d AFTER processSubscribeYields, externalTasks=%d, hadSubs=%v, queue.IsEmpty=%v\n", loopIter, len(externalTasks), hadSubscriptions, p.queue.IsEmpty())
+                if err != nil </span><span class="cov0" title="0">{
+                        p.clearExecution()
+                        out.Done(nil)
+                        return toAPIError(err)
+                }</span>
+
+                // Continue looping if subscriptions were handled (may have added tasks)
+                // or if queue has tasks to process
+                <span class="cov8" title="1">if !hadSubscriptions &amp;&amp; p.queue.IsEmpty() </span><span class="cov8" title="1">{
+                        fmt.Printf("[PROCESS STEP LOOP] iter=%d BREAKING, externalTasks=%d\n", loopIter, len(externalTasks))
+                        break</span>
+                }
+                <span class="cov8" title="1">fmt.Printf("[PROCESS STEP LOOP] iter=%d CONTINUING (hadSubs=%v, queue.IsEmpty=%v), externalTasks=%d WILL BE LOST!\n", loopIter, hadSubscriptions, p.queue.IsEmpty(), len(externalTasks))</span>
+        }
+
+        // Check completion
+        <span class="cov8" title="1">if len(externalTasks) == 0 &amp;&amp; p.queue.IsEmpty() &amp;&amp; len(p.threads) == 0 </span><span class="cov8" title="1">{
+                result := p.result
+                execErr := p.execErr
+                p.clearExecution()
+                out.Done(result)
+                return toAPIError(execErr)
+        }</span>
+
+        // Initialize pendingYields map if needed
+        <span class="cov8" title="1">if p.pendingYields == nil </span><span class="cov8" title="1">{
+                p.pendingYields = make(map[uint64]*Task, 4)
+        }</span>
+
+        // Convert external yields to commands
+        <span class="cov8" title="1">yieldCount := 0
+        fmt.Printf("[PROCESS STEP] externalTasks=%d, existing pendingYields=%d\n", len(externalTasks), len(p.pendingYields))
+        for _, task := range externalTasks </span><span class="cov8" title="1">{
+                if len(task.Yielded) == 0 </span><span class="cov0" title="0">{
+                        p.queue.Push(task)
+                        continue</span>
+                }
+
+                // Check for scheduler commands in yielded values
+                <span class="cov8" title="1">cmd := p.yieldToCommand(task)
+                if cmd != nil </span><span class="cov8" title="1">{
+                        p.yieldSeq++
+                        p.pendingYields[p.yieldSeq] = task
+                        out.Yield(cmd, p.yieldSeq)
+                        yieldCount++
+                        fmt.Printf("[PROCESS STEP] added pendingYield tag=%d, now pendingYields=%d\n", p.yieldSeq, len(p.pendingYields))
+                }</span> else<span class="cov8" title="1"> {
+                        p.queue.Push(task)
+                }</span>
+        }
+
+        // Determine status
+        <span class="cov8" title="1">fmt.Printf("[PROCESS STEP] determining status: yieldCount=%d, queue.IsEmpty=%v, threads=%d, pendingYields=%d, hasSubs=%v, channels=%d\n",
+                yieldCount, p.queue.IsEmpty(), len(p.threads), len(p.pendingYields), p.HasSubscriptions(), len(p.channels))
+
+        if yieldCount == 0 &amp;&amp; !p.queue.IsEmpty() </span><span class="cov8" title="1">{
+                fmt.Printf("[PROCESS STEP] -&gt; Continue (queue not empty)\n")
+                out.Continue()
+        }</span> else<span class="cov8" title="1"> if yieldCount == 0 &amp;&amp; len(p.threads) &gt; 0 </span><span class="cov8" title="1">{
+                // Check if we're waiting for external operations
+                //nolint:gocritic // if-else is clearer than switch for heterogeneous state checks
+                if len(p.pendingYields) &gt; 0 </span><span class="cov8" title="1">{
+                        // Still waiting for previously dispatched yields - stay blocked.
+                        // The scheduler will keep us blocked until CompleteYield arrives.
+                        fmt.Printf("[PROCESS STEP] -&gt; WaitYields (pendingYields=%d)\n", len(p.pendingYields))
+                        out.WaitYields()
+                }</span> else<span class="cov8" title="1"> if p.HasSubscriptions() || len(p.channels) &gt; 0 </span><span class="cov8" title="1">{
+                        fmt.Printf("[PROCESS STEP] -&gt; Idle (hasSubs or channels)\n")
+                        out.Idle()
+                }</span> else<span class="cov0" title="0"> {
+                        fmt.Printf("[PROCESS STEP] -&gt; DEADLOCK\n")
+                        p.clearExecution()
+                        out.Done(nil)
+                        return &amp;luaapi.DeadlockError{
+                                ThreadCount: len(p.threads),
+                                Message:     "all coroutines blocked with no pending operations",
+                        }
+                }</span>
+        } else<span class="cov8" title="1"> if yieldCount &gt; 0 </span><span class="cov8" title="1">{
+                fmt.Printf("[PROCESS STEP] -&gt; WaitYields (yieldCount=%d dispatched)\n", yieldCount)
+        }</span> else<span class="cov0" title="0"> {
+                fmt.Printf("[PROCESS STEP] -&gt; default (no explicit status set)\n")
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+// State returns the underlying Lua state.
+func (p *Process) State() *lua.LState <span class="cov8" title="1">{
+        return p.state
+}</span>
+
+// GetTask retrieves a Task by its thread state.
+func (p *Process) GetTask(thread *lua.LState) (*Task, error) <span class="cov8" title="1">{
+        for _, task := range p.threads </span><span class="cov8" title="1">{
+                if task.Thread() == thread </span><span class="cov8" title="1">{
+                        return task, nil
+                }</span>
+        }
+        <span class="cov8" title="1">return nil, luaapi.ErrTaskNotFound</span>
+}
+
+// GetTasks returns all tasks.
+func (p *Process) GetTasks() []*Task <span class="cov8" title="1">{
+        return p.threads
+}</span>
+
+// Queue returns the task queue.
+func (p *Process) Queue() *TaskQueue <span class="cov8" title="1">{
+        return p.queue
+}</span>
+
+// processChannelYields handles channel operations internally.
+func (p *Process) processChannelYields() ([]*Task, error) <span class="cov8" title="1">{
+        // Fast path: no channels, run vmStep directly
+        if p.channels == nil </span><span class="cov0" title="0">{
+                fmt.Printf("[processChannelYields] fast path (no channels)\n")
+                return p.vmStep(p.queue.Drain()...)
+        }</span>
+
+        <span class="cov8" title="1">channels := p.channels
+        channelQueue := p.ChannelQueue()
+        fmt.Printf("[processChannelYields] CLEARING p.externalTasks (was %d)\n", len(p.externalTasks))
+        p.externalTasks = p.externalTasks[:0]
+
+        // Transfer tasks from process queue to channel queue
+        drained := p.queue.Drain()
+        fmt.Printf("[processChannelYields] drained %d tasks from queue\n", len(drained))
+        for _, task := range drained </span><span class="cov8" title="1">{
+                channelQueue.Push(task)
+        }</span>
+
+        // Process all queued tasks
+        <span class="cov8" title="1">boot := true
+        innerIter := 0
+        for !channelQueue.IsEmpty() || boot </span><span class="cov8" title="1">{
+                boot = false
+                innerIter++
+
+                // Drain to batch
+                batch := channelQueue.Drain()
+                fmt.Printf("[processChannelYields] inner iter=%d, batch=%d tasks\n", innerIter, len(batch))
+
+                // Run through VM step
+                vmTasks, err := p.vmStep(batch...)
+                if err != nil </span><span class="cov8" title="1">{
+                        return nil, err
+                }</span>
+                <span class="cov8" title="1">fmt.Printf("[processChannelYields] inner iter=%d, vmStep returned %d tasks\n", innerIter, len(vmTasks))
+
+                // Process each yielded task
+                for _, task := range vmTasks </span><span class="cov8" title="1">{
+                        if len(task.Yielded) == 0 </span><span class="cov0" title="0">{
+                                fmt.Printf("[processChannelYields] task has no yields, skipping\n")
+                                continue</span>
+                        }
+
+                        // Check if yield is a channel operation
+                        <span class="cov8" title="1">value := task.Yielded[len(task.Yielded)-1]
+                        result, ok := value.(*ChannelResult)
+                        if !ok || result == nil </span><span class="cov8" title="1">{
+                                fmt.Printf("[processChannelYields] task yielded NON-channel op (type=%T), adding to externalTasks (now %d)\n", value, len(p.externalTasks)+1)
+                                p.externalTasks = append(p.externalTasks, task)
+                                continue</span>
+                        }
+                        <span class="cov8" title="1">fmt.Printf("[processChannelYields] task yielded ChannelResult, Yields=%v, updates=%d\n", result.Yields, len(result.GetUpdates()))
+
+                        // Update channel references
+                        p.updateChannelRefs(channels, result.Block, result.Release)
+
+                        // Process updates from channel operation
+                        updates := result.GetUpdates()
+                        fmt.Printf("[processChannelYields] ChannelResult: Yields=%v, updates=%d, Block=%d, Release=%d\n",
+                                result.Yields, len(updates), len(result.Block), len(result.Release))
+                        if result.Yields &amp;&amp; len(updates) &gt; 0 </span><span class="cov8" title="1">{
+                                fmt.Printf("[processChannelYields] processing %d updates (waking blocked tasks)\n", len(updates))
+                                for _, upd := range updates </span><span class="cov8" title="1">{
+                                        if upd.State == nil </span><span class="cov0" title="0">{
+                                                fmt.Printf("[processChannelYields] update has nil State, skipping\n")
+                                                continue</span>
+                                        }
+
+                                        <span class="cov8" title="1">t, err := p.GetTask(upd.State)
+                                        if err != nil </span><span class="cov0" title="0">{
+                                                ReleaseResult(result)
+                                                return nil, luaapi.NewTaskNotFoundForChannelError(err)
+                                        }</span>
+
+                                        <span class="cov8" title="1">fmt.Printf("[processChannelYields] waking task, pushing to channelQueue\n")
+                                        if upd.Error != nil </span><span class="cov8" title="1">{
+                                                t.ResumeWith(lua.LNil, lua.LString(upd.Error.Error()))
+                                        }</span> else<span class="cov8" title="1"> {
+                                                t.ResumeWith(upd.GetResult()...)
+                                        }</span>
+
+                                        <span class="cov8" title="1">channelQueue.Push(t)</span>
+                                }
+                        } else<span class="cov8" title="1"> if result.Yields &amp;&amp; len(updates) == 0 </span><span class="cov8" title="1">{
+                                fmt.Printf("[processChannelYields] ChannelResult Yields=true but NO updates - task is BLOCKED on channel internally!\n")
+                        }</span>
+
+                        <span class="cov8" title="1">ReleaseResult(result)</span>
+                }
+        }
+
+        <span class="cov8" title="1">fmt.Printf("[processChannelYields] RETURNING externalTasks=%d\n", len(p.externalTasks))
+        return p.externalTasks, nil</span>
+}
+
+// updateChannelRefs handles reference counting for channels.
+func (p *Process) updateChannelRefs(channels map[*Channel]int, blocks, releases []*Channel) <span class="cov8" title="1">{
+        for _, ch := range blocks </span><span class="cov8" title="1">{
+                if _, exists := channels[ch]; !exists </span><span class="cov8" title="1">{
+                        channels[ch] = 0
+                }</span>
+                <span class="cov8" title="1">channels[ch]++</span>
+        }
+
+        <span class="cov8" title="1">for _, ch := range releases </span><span class="cov8" title="1">{
+                if _, exists := channels[ch]; exists </span><span class="cov8" title="1">{
+                        channels[ch]--
+                        if channels[ch] == 0 </span><span class="cov8" title="1">{
+                                delete(channels, ch)
+                        }</span>
+                }
+        }
+}
+
+// processSubscribeYields handles subscribe/unsubscribe yields.
+// Returns tasks not handled, whether any subscriptions were processed, and error.
+// Message queue is managed by Step() before calling this.
+//
+//nolint:unparam // error return kept for API consistency
+func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, bool, error) <span class="cov8" title="1">{
+        if p.subs == nil </span><span class="cov0" title="0">{
+                return tasks, false, nil
+        }</span>
+
+        <span class="cov8" title="1">subs := p.subs
+        hadSubscriptions := false
+
+        // Handle subscribe/unsubscribe yields from incoming tasks
+        p.outTasks = p.outTasks[:0]
+        for _, task := range tasks </span><span class="cov8" title="1">{
+                if len(task.Yielded) == 0 </span><span class="cov0" title="0">{
+                        p.outTasks = append(p.outTasks, task)
+                        continue</span>
+                }
+
+                <span class="cov8" title="1">lastYield := task.Yielded[len(task.Yielded)-1]
+
+                // Handle subscribe request
+                if req, ok := lastYield.(*SubscribeRequest); ok </span><span class="cov8" title="1">{
+                        hadSubscriptions = true
+                        var sub *subscription
+                        var err error
+                        if req.ExistingChannel != nil </span><span class="cov8" title="1">{
+                                sub, err = subs.addExisting(req.Topic, req.ExistingChannel)
+                        }</span> else<span class="cov8" title="1"> {
+                                sub, err = subs.add(req.Topic, req.BufSize)
+                        }</span>
+                        <span class="cov8" title="1">if err != nil </span><span class="cov8" title="1">{
+                                task.ResumeWith(lua.LNil, lua.LString(err.Error()))
+                        }</span> else<span class="cov8" title="1"> {
+                                if req.Handler != nil </span><span class="cov0" title="0">{
+                                        p.SetTopicHandler(req.Topic, req.Handler)
+                                }</span>
+
+                                // Flush queued messages for this topic BEFORE returning channel
+                                <span class="cov8" title="1">p.flushMessageQueue(subs)
+
+                                // Wrap channel as userdata if not already wrapped
+                                chValue := sub.channel.Value()
+                                if chValue == nil </span><span class="cov8" title="1">{
+                                        PushChannel(task.thread, sub.channel)
+                                        chValue = task.thread.Get(-1)
+                                        task.thread.Pop(1)
+                                }</span>
+                                <span class="cov8" title="1">task.ResumeWith(chValue)</span>
+                        }
+                        <span class="cov8" title="1">p.queue.Push(task)
+                        continue</span>
+                }
+
+                // Handle unsubscribe request
+                <span class="cov8" title="1">if req, ok := lastYield.(*UnsubscribeRequest); ok </span><span class="cov8" title="1">{
+                        err := subs.remove(req.Channel)
+                        if err != nil </span><span class="cov8" title="1">{
+                                task.ResumeWith(lua.LFalse, lua.LString(err.Error()))
+                        }</span> else<span class="cov8" title="1"> {
+                                req.Channel.Close(nil)
+                                task.ResumeWith(lua.LTrue)
+                        }</span>
+                        <span class="cov8" title="1">p.queue.Push(task)
+                        continue</span>
+                }
+
+                <span class="cov8" title="1">p.outTasks = append(p.outTasks, task)</span>
+        }
+
+        <span class="cov8" title="1">return p.outTasks, hadSubscriptions, nil</span>
+}
+
+// flushMessageQueue delivers queued messages to subscribed channels.
+// Messages that can't be delivered stay in the queue (preserve order).
+func (p *Process) flushMessageQueue(subs *subscribeContext) <span class="cov8" title="1">{
+        if len(p.messageQueue) == 0 </span><span class="cov8" title="1">{
+                return
+        }</span>
+
+        // Process queue, keeping undelivered messages
+        <span class="cov8" title="1">remaining := p.messageQueue[:0]
+        for _, qm := range p.messageQueue </span><span class="cov8" title="1">{
+                if p.deliverMessage(subs, qm) </span><span class="cov8" title="1">{
+                        continue</span> // delivered, don't keep
+                }
+                <span class="cov8" title="1">remaining = append(remaining, qm)</span> // not delivered, keep in queue
+        }
+        <span class="cov8" title="1">p.messageQueue = remaining</span>
+}
+
+// deliverMessage attempts to deliver a queued message to its subscription.
+// Returns true if delivered (or terminal handled), false if no subscription exists.
+func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool <span class="cov8" title="1">{
+        topic := qm.Topic
+        handlerTopic := topic
+
+        // Find subscription for topic
+        sub, exists := subs.get(topic)
+        if !exists </span><span class="cov8" title="1">{
+                // Fallback to inbox for non-@ topics
+                if !strings.HasPrefix(topic, "@") </span><span class="cov8" title="1">{
+                        sub, exists = subs.get(topology.TopicInbox)
+                        if exists </span><span class="cov8" title="1">{
+                                handlerTopic = topology.TopicInbox
+                        }</span>
+                }
+                <span class="cov8" title="1">if !exists </span><span class="cov8" title="1">{
+                        return false // no subscription, keep in queue
+                }</span>
+        }
+
+        // Check for terminal payload - unsubscribe and close channel
+        <span class="cov8" title="1">if len(qm.Payloads) == 1 &amp;&amp; payload.IsTerminal(qm.Payloads[0]) </span><span class="cov8" title="1">{
+                p.RemoveTopicHandler(topic)
+                _ = subs.remove(sub.channel)
+                sub.channel.Close(nil)
+                return true
+        }</span>
+
+        // Check for terminal at end of multi-payload message (result + terminal pattern)
+        <span class="cov8" title="1">hasTerminal := len(qm.Payloads) &gt; 1 &amp;&amp; payload.IsTerminal(qm.Payloads[len(qm.Payloads)-1])
+        payloads := qm.Payloads
+        if hasTerminal </span><span class="cov8" title="1">{
+                payloads = qm.Payloads[:len(qm.Payloads)-1]
+        }</span>
+
+        // Check for topic handler
+        <span class="cov8" title="1">var value lua.LValue
+        if handler, ok := p.GetTopicHandler(handlerTopic); ok </span><span class="cov8" title="1">{
+                value = handler(p.ctx, p.state, qm.Source, topic, payloads)
+                if value == nil </span><span class="cov8" title="1">{
+                        // Handler processed but doesn't want to send to channel
+                        if hasTerminal </span><span class="cov8" title="1">{
+                                p.RemoveTopicHandler(topic)
+                                _ = subs.remove(sub.channel)
+                                sub.channel.Close(nil)
+                        }</span>
+                        <span class="cov8" title="1">return true</span>
+                }
+        } else<span class="cov8" title="1"> {
+                value = PayloadsToLua(p.ctx, p.state, payloads)
+        }</span>
+
+        <span class="cov8" title="1">result := sub.channel.Send(nil, value, nil)
+        if result != nil </span><span class="cov8" title="1">{
+                // Wake any blocked receivers
+                if result.Yields </span><span class="cov8" title="1">{
+                        for _, upd := range result.GetUpdates() </span><span class="cov8" title="1">{
+                                if upd.State == nil </span><span class="cov8" title="1">{
+                                        continue</span>
+                                }
+                                <span class="cov8" title="1">t, err := p.GetTask(upd.State)
+                                if err == nil </span><span class="cov8" title="1">{
+                                        t.ResumeWith(upd.GetResult()...)
+                                        p.queue.Push(t)
+                                }</span>
+                        }
+                }
+                <span class="cov8" title="1">ReleaseResult(result)</span>
+        }
+
+        // Close channel after sending if terminal was present
+        <span class="cov8" title="1">if hasTerminal </span><span class="cov8" title="1">{
+                p.RemoveTopicHandler(topic)
+                _ = subs.remove(sub.channel)
+                sub.channel.Close(nil)
+        }</span>
+
+        <span class="cov8" title="1">return true</span>
+}
+
+// PayloadsToLua converts a slice of payloads to Lua value.
+func PayloadsToLua(ctx context.Context, l *lua.LState, payloads []payload.Payload) lua.LValue <span class="cov8" title="1">{
+        if len(payloads) == 0 </span><span class="cov8" title="1">{
+                return lua.LNil
+        }</span>
+
+        <span class="cov8" title="1">if len(payloads) == 1 </span><span class="cov8" title="1">{
+                return transcodeToLua(ctx, payloads[0])
+        }</span>
+
+        <span class="cov8" title="1">tbl := l.CreateTable(len(payloads), 0)
+        for i, pl := range payloads </span><span class="cov8" title="1">{
+                tbl.RawSetInt(i+1, transcodeToLua(ctx, pl))
+        }</span>
+        <span class="cov8" title="1">return tbl</span>
+}
+
+// vmStep executes VM step on tasks, returns yielded tasks.
+func (p *Process) vmStep(tasks ...*Task) ([]*Task, error) <span class="cov8" title="1">{
+        for _, t := range tasks </span><span class="cov8" title="1">{
+                p.queue.Push(t)
+        }</span>
+
+        // Reuse yield buffer
+        <span class="cov8" title="1">p.yieldBuf = p.yieldBuf[:0]
+
+        for !p.queue.IsEmpty() </span><span class="cov8" title="1">{
+                task := p.queue.Pop()
+                if task == nil </span><span class="cov0" title="0">{
+                        continue</span>
+                }
+
+                <span class="cov8" title="1">if task.State != lua.ResumeYield </span><span class="cov0" title="0">{
+                        continue</span>
+                }
+
+                <span class="cov8" title="1">thread := task.Thread()
+                state, err, values := p.state.ResumeInto(thread, task.Function(), task.retBuf, task.Resumed...)
+                if err != nil </span><span class="cov8" title="1">{
+                        // Wrap error BEFORE removing task - removeTask closes the thread
+                        // which returns it to pool, causing race if another goroutine reuses it
+                        wrapped := p.wrapError(thread, err)
+                        p.removeTask(task)
+                        return nil, wrapped
+                }</span>
+
+                <span class="cov8" title="1">task.State = state
+                task.Yielded = values
+                task.retBuf = values[:0:cap(values)]
+                task.Resumed = nil
+
+                switch state </span>{
+                case lua.ResumeYield:<span class="cov8" title="1">
+                        // Check for SpawnRequest
+                        if p.handleSpawnRequest(task, values) </span><span class="cov8" title="1">{
+                                continue</span>
+                        }
+                        <span class="cov8" title="1">p.yieldBuf = append(p.yieldBuf, task)</span>
+                case lua.ResumeOK:<span class="cov8" title="1">
+                        // Capture mainTask's return value before removing
+                        if task == p.mainTask &amp;&amp; len(values) &gt; 0 </span><span class="cov8" title="1">{
+                                // Check for error in second return value (Go's value, error pattern)
+                                if len(values) &gt;= 2 </span><span class="cov8" title="1">{
+                                        if err := extractReturnError(values[1]); err != nil </span><span class="cov8" title="1">{
+                                                p.result = nil
+                                                p.execErr = err
+                                                p.removeTask(task)
+                                                continue</span>
+                                        }
+                                }
+                                <span class="cov8" title="1">p.result = luaconv.ExportPayload(values[0])</span>
+                        }
+                        <span class="cov8" title="1">p.removeTask(task)</span>
+                case lua.ResumeError:<span class="cov0" title="0">
+                        p.removeTask(task)</span>
+                }
+        }
+
+        <span class="cov8" title="1">return p.yieldBuf, nil</span>
+}
+
+// createTask creates a new coroutine task.
+func (p *Process) createTask(fn *lua.LFunction) *Task <span class="cov8" title="1">{
+        thread := p.state.NewThreadWithContext(p.ctx)
+        task := NewTask(thread, fn)
+        p.threads = append(p.threads, task)
+        p.queue.Push(task)
+
+        return task
+}</span>
+
+// removeTask removes a task from tracking.
+func (p *Process) removeTask(task *Task) <span class="cov8" title="1">{
+        n := len(p.threads)
+        if n == 0 </span><span class="cov0" title="0">{
+                return
+        }</span>
+        <span class="cov8" title="1">for i := 0; i &lt; n; i++ </span><span class="cov8" title="1">{
+                if p.threads[i] == task </span><span class="cov8" title="1">{
+                        task.Close()
+                        // Remove by swap-with-last (O(1), order doesn't matter)
+                        last := n - 1
+                        if i != last &amp;&amp; last &gt;= 0 </span><span class="cov8" title="1">{
+                                p.threads[i] = p.threads[last]
+                        }</span>
+                        <span class="cov8" title="1">p.threads = p.threads[:last]
+                        return</span>
+                }
+        }
+}
+
+// handleSpawnRequest checks if yielded values contain a SpawnRequest and handles it.
+func (p *Process) handleSpawnRequest(task *Task, values []lua.LValue) bool <span class="cov8" title="1">{
+        if len(values) == 0 </span><span class="cov0" title="0">{
+                return false
+        }</span>
+
+        // SpawnRequest is yielded directly
+        <span class="cov8" title="1">req, ok := values[len(values)-1].(*lua.SpawnRequest)
+        if !ok </span><span class="cov8" title="1">{
+                return false
+        }</span>
+
+        // Create new task and queue it
+        <span class="cov8" title="1">newTask := p.createTask(req.Fn)
+        lua.ReleaseSpawnRequest(req)
+
+        // Resume original task with the new thread
+        task.ResumeWith(newTask.Thread())
+        task.Yielded = nil
+        p.queue.Push(task)
+
+        return true</span>
+}
+
+// yieldToCommand converts yielded Lua values to scheduler commands.
+func (p *Process) yieldToCommand(task *Task) dispatcher.Command <span class="cov8" title="1">{
+        if len(task.Yielded) == 0 </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+
+        // Check last yielded value for convertible types
+        <span class="cov8" title="1">lastValue := task.Yielded[len(task.Yielded)-1]
+        var cmd dispatcher.Command
+        if converter, ok := lastValue.(luaapi.YieldConverter); ok </span><span class="cov8" title="1">{
+                cmd = converter.ToCommand()
+        }</span>
+
+        // NOTE: Do NOT release the yield object here - the cmd shares the same
+        // underlying data (e.g., CallYield.CallCmd). The yield object should be
+        // released after the handler has processed the command (in handleYieldResults).
+        // TODO: Rethink
+
+        <span class="cov8" title="1">return cmd</span>
+}
+
+// Close releases all process resources.
+// Called by scheduler when process completes or pool shuts down.
+// Note: Per-execution resources (Store, ProcessContext) are automatically
+// released when FrameContext is released - they implement ctxapi.Closer.
+func (p *Process) Close() <span class="cov8" title="1">{
+        // Close all threads
+        for _, task := range p.threads </span><span class="cov8" title="1">{
+                task.Close()
+        }</span>
+        <span class="cov8" title="1">p.threads = nil
+
+        // Drain queue
+        p.queue.Drain()
+
+        // Close main state
+        if p.state != nil </span><span class="cov8" title="1">{
+                p.state.Close()
+                p.state = nil
+        }</span>
+
+        // Clear context reference
+        <span class="cov8" title="1">p.ctx = nil</span>
+}
+
+// SyncExecute runs the script directly without coroutines or scheduler.
+// This is a fast path for simple synchronous calls that don't need yields.
+// The Lua state must be initialized via Start first.
+func (p *Process) SyncExecute(ctx context.Context, args ...lua.LValue) (lua.LValue, error) <span class="cov8" title="1">{
+        if p.state == nil </span><span class="cov0" title="0">{
+                return lua.LNil, luaapi.ErrProcessNotInitialized
+        }</span>
+
+        <span class="cov8" title="1">p.state.SetContext(ctx)
+
+        // Load function from proto
+        fn := p.state.LoadProto(p.proto)
+
+        // Call function directly
+        if err := p.state.CallByParam(lua.P{
+                Fn:      fn,
+                NRet:    1,
+                Protect: true,
+        }, args...); err != nil </span><span class="cov0" title="0">{
+                return lua.LNil, err
+        }</span>
+
+        // Get result
+        <span class="cov8" title="1">result := p.state.Get(-1)
+        p.state.Pop(1)
+
+        return result, nil</span>
+}
+
+// distributeEvent routes a yield completion event to the correct pending task.
+// Uses tag-based correlation for O(1) direct lookup.
+func (p *Process) distributeEvent(ev process.Event) <span class="cov8" title="1">{
+        if len(p.pendingYields) == 0 </span><span class="cov0" title="0">{
+                return
+        }</span>
+
+        <span class="cov8" title="1">if ev.Tag == 0 </span><span class="cov8" title="1">{
+                return
+        }</span>
+
+        <span class="cov8" title="1">task, exists := p.pendingYields[ev.Tag]
+        if !exists || task == nil </span><span class="cov8" title="1">{
+                return
+        }</span>
+
+        <span class="cov8" title="1">p.resumeTaskWithResult(task, ev.Data, ev.Error)
+
+        // Remove completed task from pending map
+        delete(p.pendingYields, ev.Tag)</span>
+}
+
+// resumeTaskWithResult converts handler result to Lua values and queues task.
+func (p *Process) resumeTaskWithResult(task *Task, data any, err error) <span class="cov8" title="1">{
+        if len(task.Yielded) &gt; 0 </span><span class="cov8" title="1">{
+                lastYield := task.Yielded[len(task.Yielded)-1]
+                if hy, ok := lastYield.(luaapi.HandledYield); ok </span><span class="cov8" title="1">{
+                        task.Resumed = hy.HandleResult(p.state, data, err)
+                        if releasable, ok := lastYield.(luaapi.Releasable); ok </span><span class="cov8" title="1">{
+                                releasable.Release()
+                        }</span>
+                } else<span class="cov0" title="0"> if luaVals, ok := data.([]lua.LValue); ok </span><span class="cov0" title="0">{
+                        task.Resumed = luaVals
+                }</span>
+        } else<span class="cov0" title="0"> if luaVals, ok := data.([]lua.LValue); ok </span><span class="cov0" title="0">{
+                task.Resumed = luaVals
+        }</span>
+        <span class="cov8" title="1">if task.State == lua.ResumeYield </span><span class="cov8" title="1">{
+                p.queue.Push(task)
+        }</span>
+}
+
+// clearExecution clears coroutine tracking after execution completes.
+// Called automatically by Step when returning StepDone.
+// The Lua state is preserved for reuse.
+// Note: Does NOT clear p.ctx - that is done by Reset() which is called
+// by the scheduler after removing the process from the active map.
+func (p *Process) clearExecution() <span class="cov8" title="1">{
+        // Close all spawned threads but keep them referenced for GC
+        for _, task := range p.threads </span><span class="cov8" title="1">{
+                task.Close()
+        }</span>
+        <span class="cov8" title="1">p.threads = p.threads[:0]
+
+        // Drain queue
+        p.queue.Drain()
+
+        // Clear main task reference and result
+        p.mainTask = nil
+        p.pendingYields = nil
+        p.result = nil
+        p.execErr = nil
+
+        // Clear channel/subscription state
+        clear(p.channels)
+        if p.subs != nil </span><span class="cov8" title="1">{
+                clear(p.subs.byTopic)
+                clear(p.subs.byChannel)
+        }</span>
+        <span class="cov8" title="1">clear(p.handlers)
+        if p.channelQueue != nil </span><span class="cov8" title="1">{
+                p.channelQueue.Drain()
+        }</span>
+
+        // Clear yield buffer
+        <span class="cov8" title="1">p.yieldBuf = p.yieldBuf[:0]
+
+        // Clear context from LState to release all references
+        if p.state != nil </span><span class="cov8" title="1">{
+                p.state.RemoveContext()
+        }</span>
+
+        // Note: p.ctx is cleared by Reset(), not here
+}
+
+// transcodeToLua converts a payload to Lua value using context transcoder.
+func transcodeToLua(ctx context.Context, pl payload.Payload) lua.LValue <span class="cov8" title="1">{
+        if pl == nil </span><span class="cov8" title="1">{
+                return lua.LNil
+        }</span>
+
+        // Already a Lua value
+        <span class="cov8" title="1">if pl.Format() == payload.Lua </span><span class="cov8" title="1">{
+                if lv, ok := pl.Data().(lua.LValue); ok </span><span class="cov8" title="1">{
+                        return lv
+                }</span>
+        }
+
+        // Try transcoding via context transcoder
+        <span class="cov8" title="1">dtt := payload.GetTranscoder(ctx)
+        if dtt != nil </span><span class="cov8" title="1">{
+                transcoded, err := dtt.Transcode(pl, payload.Lua)
+                if err == nil </span><span class="cov8" title="1">{
+                        if lv, ok := transcoded.Data().(lua.LValue); ok </span><span class="cov8" title="1">{
+                                return lv
+                        }</span>
+                }
+        }
+
+        // Fallback: return as string representation
+        <span class="cov8" title="1">return lua.LString(fmt.Sprintf("%v", pl.Data()))</span>
+}
+
+// extractReturnError checks if a Lua value represents an error in the
+// second return position (following Go's value, error pattern).
+// Returns the error if val is a string or a LuaError userdata, nil otherwise.
+func extractReturnError(val lua.LValue) error <span class="cov8" title="1">{
+        if val == nil || val == lua.LNil </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+
+        // String error
+        <span class="cov8" title="1">if s, ok := val.(lua.LString); ok </span><span class="cov8" title="1">{
+                return luaapi.NewScriptReturnError(string(s))
+        }</span>
+
+        // LuaError userdata
+        <span class="cov8" title="1">if e, ok := lua.AsError(val); ok </span><span class="cov8" title="1">{
+                return e
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+// wrapError wraps an error with Lua stack trace and metadata.
+// If the error is already a lua.Error, extracts and returns it.
+// Otherwise creates a new lua.Error with the current Lua stack.
+func (p *Process) wrapError(thread *lua.LState, err error) error <span class="cov8" title="1">{
+        if err == nil </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+
+        // Check if already wrapped
+        <span class="cov8" title="1">var e *lua.Error
+        if errors.As(err, &amp;e) </span><span class="cov0" title="0">{
+                return e
+        }</span>
+
+        // Wrap with stack trace from the provided thread (or main state)
+        <span class="cov8" title="1">l := thread
+        if l == nil </span><span class="cov0" title="0">{
+                l = p.state
+        }</span>
+
+        <span class="cov8" title="1">return lua.WrapErrorWithLua(l, err, "")</span>
+}
+
+// toAPIError converts a lua.Error to apierror.Error for crossing the runtime boundary.
+// This ensures errors returned from Step() implement the standard error interface.
+func toAPIError(err error) error <span class="cov8" title="1">{
+        if err == nil </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">var luaErr *lua.Error
+        if !errors.As(err, &amp;luaErr) </span><span class="cov8" title="1">{
+                return err
+        }</span>
+
+        // Convert lua.Ternary to apierror.Ternary
+        <span class="cov8" title="1">var retryable apierror.Ternary
+        switch luaErr.Retryable() </span>{
+        case lua.TernaryTrue:<span class="cov0" title="0">
+                retryable = apierror.True</span>
+        case lua.TernaryFalse:<span class="cov8" title="1">
+                retryable = apierror.False</span>
+        default:<span class="cov8" title="1">
+                retryable = apierror.Unknown</span>
+        }
+
+        // Convert lua.Kind to apierror.Kind
+        <span class="cov8" title="1">kind := apierror.Kind(luaErr.Kind())
+        if kind == "" </span><span class="cov8" title="1">{
+                kind = apierror.KindInternal
+        }</span>
+
+        <span class="cov8" title="1">return &amp;luaapi.Error{
+                Msg:         luaErr.Error(),
+                ErrKind:     kind,
+                IsRetryable: retryable,
+                ErrCause:    luaErr,
+        }</span>
+}
+</pre>
+		
+		<pre class="file" id="file5" style="display: none">package engine
+
+import (
+        "sync"
+
+        luaapi "github.com/wippyai/runtime/api/runtime/lua"
+        lua "github.com/yuin/gopher-lua"
+)
+
+// subscribeContext manages topic-to-channel mappings.
+// The subscription owns the channel - channels are created here, not by callers.
+type subscribeContext struct {
+        byTopic   map[string]*subscription
+        byChannel map[*Channel]string
+        mu        sync.RWMutex
+}
+
+// add creates or returns an existing subscription for a topic.
+// If the topic is already subscribed, returns the existing subscription.
+// The bufSize parameter is only used when creating a new subscription.
+// Subscription owns the channel - callers should not create channels.
+func (m *subscribeContext) add(topic string, bufSize int) (*subscription, error) <span class="cov8" title="1">{
+        m.mu.Lock()
+        defer m.mu.Unlock()
+
+        if existing, exists := m.byTopic[topic]; exists </span><span class="cov8" title="1">{
+                return existing, nil
+        }</span>
+
+        <span class="cov8" title="1">ch := NewChannel(bufSize)
+        sub := &amp;subscription{topic: topic, channel: ch}
+        m.byTopic[topic] = sub
+        m.byChannel[ch] = topic
+        return sub, nil</span>
+}
+
+// addExisting registers an externally-owned channel for a topic.
+// Used by modules that manage their own channel lifecycle (websocket, timer, etc.).
+// Returns error if topic already has a different channel subscribed.
+func (m *subscribeContext) addExisting(topic string, ch *Channel) (*subscription, error) <span class="cov8" title="1">{
+        m.mu.Lock()
+        defer m.mu.Unlock()
+
+        if existing, exists := m.byTopic[topic]; exists </span><span class="cov8" title="1">{
+                if existing.channel != ch </span><span class="cov8" title="1">{
+                        return nil, luaapi.NewTopicAlreadySubscribedError(topic)
+                }</span>
+                <span class="cov8" title="1">return existing, nil</span>
+        }
+
+        <span class="cov8" title="1">sub := &amp;subscription{topic: topic, channel: ch}
+        m.byTopic[topic] = sub
+        m.byChannel[ch] = topic
+        return sub, nil</span>
+}
+
+func (m *subscribeContext) remove(ch *Channel) error <span class="cov8" title="1">{
+        m.mu.Lock()
+        defer m.mu.Unlock()
+
+        topic, exists := m.byChannel[ch]
+        if !exists </span><span class="cov8" title="1">{
+                return luaapi.ErrChannelNotFound
+        }</span>
+        <span class="cov8" title="1">delete(m.byTopic, topic)
+        delete(m.byChannel, ch)
+        return nil</span>
+}
+
+func (m *subscribeContext) get(topic string) (*subscription, bool) <span class="cov8" title="1">{
+        m.mu.RLock()
+        defer m.mu.RUnlock()
+        sub, exists := m.byTopic[topic]
+        return sub, exists
+}</span>
+
+// subscription links a topic to a channel.
+type subscription struct {
+        topic   string
+        channel *Channel
+}
+
+// SubscribeRequest is yielded to request a topic subscription.
+// If ExistingChannel is nil, subscription creates the channel.
+// If ExistingChannel is set, it is used instead (for externally-owned channels).
+type SubscribeRequest struct {
+        Topic           string
+        BufSize         int
+        Handler         TopicHandler
+        ExistingChannel *Channel
+}
+
+func (r *SubscribeRequest) String() string       <span class="cov8" title="1">{ return "&lt;subscribe_request&gt;" }</span>
+func (r *SubscribeRequest) Type() lua.LValueType <span class="cov8" title="1">{ return lua.LTUserData }</span>
+
+// UnsubscribeRequest is yielded to unsubscribe a channel.
+type UnsubscribeRequest struct {
+        Channel *Channel
+}
+
+func (r *UnsubscribeRequest) String() string       <span class="cov8" title="1">{ return "&lt;unsubscribe_request&gt;" }</span>
+func (r *UnsubscribeRequest) Type() lua.LValueType <span class="cov8" title="1">{ return lua.LTUserData }</span>
+</pre>
+		
+		<pre class="file" id="file6" style="display: none">package engine
+
+import (
+        "fmt"
+        "sync"
+
+        lua "github.com/yuin/gopher-lua"
+)
+
+// Task pool for reuse
+var taskPool = sync.Pool{
+        New: func() interface{} <span class="cov8" title="1">{
+                return &amp;Task{
+                        retBuf:    make([]lua.LValue, 0, 8),
+                        resumeBuf: make([]lua.LValue, 0, 4),
+                }
+        }</span>,
+}
+
+const defaultQueueCap = 8
+
+// TaskQueue manages a queue of coroutine tasks waiting for execution.
+// Uses a slice-based ring buffer to avoid allocations.
+// Note: Lock-free - single-threaded process model guarantees no concurrent access.
+type TaskQueue struct {
+        items    []*Task
+        head     int
+        tail     int
+        count    int
+        drainBuf []*Task
+}
+
+// NewTaskQueue creates and initializes a new TaskQueue instance.
+func NewTaskQueue() *TaskQueue <span class="cov8" title="1">{
+        return &amp;TaskQueue{
+                items:    make([]*Task, defaultQueueCap),
+                drainBuf: make([]*Task, 0, defaultQueueCap),
+        }
+}</span>
+
+// Push adds a task to the end of the queue.
+func (q *TaskQueue) Push(task *Task) <span class="cov8" title="1">{
+        if q.count == len(q.items) </span><span class="cov8" title="1">{
+                q.grow()
+        }</span>
+        <span class="cov8" title="1">q.items[q.tail] = task
+        q.tail = (q.tail + 1) % len(q.items)
+        q.count++</span>
+}
+
+// grow doubles the capacity of the ring buffer.
+func (q *TaskQueue) grow() <span class="cov8" title="1">{
+        newCap := len(q.items) * 2
+        newItems := make([]*Task, newCap)
+
+        for i := 0; i &lt; q.count; i++ </span><span class="cov8" title="1">{
+                newItems[i] = q.items[(q.head+i)%len(q.items)]
+        }</span>
+        <span class="cov8" title="1">q.items = newItems
+        q.head = 0
+        q.tail = q.count</span>
+}
+
+// Pop removes and returns the first task in the queue.
+// Returns nil if the queue is empty.
+func (q *TaskQueue) Pop() *Task <span class="cov8" title="1">{
+        if q.count == 0 </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+        <span class="cov8" title="1">task := q.items[q.head]
+        q.items[q.head] = nil
+        q.head = (q.head + 1) % len(q.items)
+        q.count--
+        return task</span>
+}
+
+// Drain removes and returns all tasks from the queue.
+// Reuses internal buffer to avoid allocations.
+func (q *TaskQueue) Drain() []*Task <span class="cov8" title="1">{
+        if q.count == 0 </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">if cap(q.drainBuf) &lt; q.count </span><span class="cov8" title="1">{
+                q.drainBuf = make([]*Task, 0, q.count*2)
+        }</span>
+        <span class="cov8" title="1">q.drainBuf = q.drainBuf[:0]
+
+        for i := 0; i &lt; q.count; i++ </span><span class="cov8" title="1">{
+                idx := (q.head + i) % len(q.items)
+                q.drainBuf = append(q.drainBuf, q.items[idx])
+                q.items[idx] = nil
+        }</span>
+
+        <span class="cov8" title="1">q.head = 0
+        q.tail = 0
+        q.count = 0
+
+        return q.drainBuf</span>
+}
+
+// IsEmpty returns true if the queue contains no tasks.
+// Note: Single-threaded process model - count check is safe without lock.
+func (q *TaskQueue) IsEmpty() bool <span class="cov8" title="1">{
+        return q.count == 0
+}</span>
+
+// Len returns the number of tasks currently in the queue.
+// Note: Single-threaded process model - count check is safe without lock.
+func (q *TaskQueue) Len() int <span class="cov8" title="1">{
+        return q.count
+}</span>
+
+// Task represents a coroutine execution unit in the Lua VM.
+type Task struct {
+        thread *lua.LState
+        fn     *lua.LFunction
+
+        State   lua.ResumeState
+        Yielded []lua.LValue
+        Resumed []lua.LValue
+
+        // retBuf is a reusable buffer for Resume return values
+        retBuf []lua.LValue
+
+        // resumeBuf is a reusable buffer for Resumed values
+        resumeBuf []lua.LValue
+}
+
+// NewTask creates a task from an existing thread and function.
+func NewTask(thread *lua.LState, fn *lua.LFunction) *Task <span class="cov8" title="1">{
+        t := taskPool.Get().(*Task)
+        t.thread = thread
+        t.fn = fn
+        t.State = lua.ResumeYield
+        t.Yielded = nil
+        t.Resumed = nil
+        t.retBuf = t.retBuf[:0]
+        return t
+}</span>
+
+// Thread returns the Lua state associated with this task's coroutine.
+func (t *Task) Thread() *lua.LState <span class="cov8" title="1">{
+        return t.thread
+}</span>
+
+// Function returns the Lua function being executed.
+func (t *Task) Function() *lua.LFunction <span class="cov8" title="1">{
+        return t.fn
+}</span>
+
+// Type returns the Lua type of this task (LTThread).
+func (t *Task) Type() lua.LValueType <span class="cov8" title="1">{
+        return lua.LTThread
+}</span>
+
+func (t *Task) String() string <span class="cov8" title="1">{
+        return fmt.Sprintf("&lt;coroutine %p&gt;", t.thread)
+}</span>
+
+// ResumeWith sets the Resumed slice using the internal buffer.
+func (t *Task) ResumeWith(values ...lua.LValue) <span class="cov8" title="1">{
+        t.resumeBuf = t.resumeBuf[:0]
+        t.resumeBuf = append(t.resumeBuf, values...)
+        t.Resumed = t.resumeBuf
+}</span>
+
+// Close releases the task's resources and returns it to the pool.
+func (t *Task) Close() <span class="cov8" title="1">{
+        if t.thread != nil </span><span class="cov8" title="1">{
+                t.thread.Close()
+                t.thread = nil
+        }</span>
+        <span class="cov8" title="1">t.fn = nil
+        t.Yielded = nil
+        t.Resumed = nil
+        t.State = 0
+        taskPool.Put(t)</span>
+}
+</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>
