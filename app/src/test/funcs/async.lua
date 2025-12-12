@@ -24,13 +24,12 @@ local function main()
     assert.not_nil(future.channel, "future has channel method")
     assert.eq(type(future.channel), "function", "future.channel is function")
 
-    -- Test awaiting the future returns result
-    -- Channel semantics: (value, ok) where ok is true/false
+    -- Test awaiting the future returns (value, ok)
     local result, ok = future:await()
-    assert.eq(ok, true, "future:await returns ok=true")
+    assert.eq(ok, true, "future:await ok=true")
     assert.not_nil(result, "future:await returns result")
-    assert.eq(result.ok, true, "async result ok")
-    assert.eq(result.echo, "async test", "async result has input")
+    assert.eq(result:get("ok"), true, "async result ok")
+    assert.eq(result:get("echo"), "async test", "async result has input")
 
     -- Test multiple concurrent async calls
     local f1 = funcs.async("app.test.funcs:echo", "first")
@@ -41,9 +40,9 @@ local function main()
     local r2 = f2:await()
     local r3 = f3:await()
 
-    assert.eq(r1.echo, "first", "first async result")
-    assert.eq(r2.echo, "second", "second async result")
-    assert.eq(r3.echo, "third", "third async result")
+    assert.eq(r1:get("echo"), "first", "first async result")
+    assert.eq(r2:get("echo"), "second", "second async result")
+    assert.eq(r3:get("echo"), "third", "third async result")
 
     -- Test executor-based async
     local exec = funcs.new()
@@ -54,8 +53,8 @@ local function main()
     assert.not_nil(ef, "executor async returns future")
 
     local er = ef:await()
-    assert.eq(er.ok, true, "executor async result ok")
-    assert.eq(er.echo, "executor async", "executor async result has input")
+    assert.eq(er:get("ok"), true, "executor async result ok")
+    assert.eq(er:get("echo"), "executor async", "executor async result has input")
 
     return true
 end

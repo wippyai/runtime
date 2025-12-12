@@ -38,7 +38,7 @@ local function main()
     -- Wait for slow one too
     local slow_result = slow:await()
     assert.not_nil(slow_result, "slow result available")
-    assert.eq(slow_result.value, "slow", "slow result correct")
+    assert.eq(slow_result:get("value"), "slow", "slow result correct")
 
     return true
 end

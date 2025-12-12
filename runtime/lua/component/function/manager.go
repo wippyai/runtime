@@ -252,52 +252,17 @@ func (m *Manager) createPool(id registry.ID, cfg *api.FunctionConfig) error {
 	// Create process factory
 	factory := m.createFactory(compiled)
 
-	// Determine pool config
-	workers := cfg.Pool.Workers
-	if workers == 0 {
-		workers = cfg.Pool.Size
-	}
-	if workers == 0 {
-		workers = 8
-	}
-	queueSize := cfg.Pool.Buffer
-	if queueSize == 0 {
-		queueSize = workers * 64
-	}
-
-	// Select pool type based on config
-	var pool funcpool.Pool
-	poolType := cfg.Pool.Type
-	if poolType == "" {
-		poolType = api.PoolTypeInline // Default to inline for max performance (no pooling)
-	}
-
-	maxWorkers := cfg.Pool.MaxSize
-	if maxWorkers == 0 {
-		maxWorkers = 16
-	}
-
 	// Create execution hooks for topology integration
 	execHooks := m.createExecutionHooks()
 
-	switch poolType {
-	case api.PoolTypeInline:
-		pool, err = funcpool.NewInline(factory, m.dispatcher, execHooks)
+	var pool funcpool.Pool
 
-	case api.PoolTypeLazy:
-		pool, err = funcpool.NewLazy(factory, m.dispatcher, funcpool.LazyConfig{
-			MaxWorkers:  maxWorkers,
-			IdleTimeout: 30 * time.Second,
-		}, execHooks)
-
-	case api.PoolTypeStatic:
-		pool, err = funcpool.NewStatic(factory, m.dispatcher, funcpool.Config{
-			Workers:   workers,
-			QueueSize: queueSize,
-		}, execHooks)
-
-	default:
-		return api.NewUnknownPoolTypeError(poolType)
+	// If explicit type is set, use it directly
+	if cfg.Pool.Type != "" {
+		pool, err = m.createPoolByType(cfg.Pool.Type, factory, cfg, execHooks)
+	} else {
+		// Auto-select pool type based on config (legacy behavior)
+		pool, err = m.autoSelectPool(factory, cfg, execHooks)
 	}
 
 	if err != nil {
@@ -426,6 +391,79 @@ func createProcess(compiled *code.CompiledMain) (process.Process, error) {
 func functionBuildOptions() *code.BuildOptions {
 	return code.NewBuildOptions().
 		WithMode(code.AllowAll)
+}
+
+// autoSelectPool automatically selects pool type based on config options (legacy behavior).
+// Logic:
+//   - workers=0, size=0 (or max_size>0) → lazy pool (on-demand, no preloading)
+//   - workers>0 → static pool with worker goroutines and task queue
+//   - size>0, workers=0 → inline pool (single process, mutex serialized)
+func (m *Manager) autoSelectPool(factory process.FactoryFunc, cfg *api.FunctionConfig, hooks funcpool.ExecutionHooks) (funcpool.Pool, error) {
+	// Lazy pool: no workers, no size (or has max_size)
+	isLazyPool := cfg.Pool.Workers == 0 && (cfg.Pool.Size == 0 || cfg.Pool.MaxSize > 0)
+	if isLazyPool {
+		maxWorkers := cfg.Pool.MaxSize
+		if maxWorkers <= 0 {
+			maxWorkers = api.DefaultMaxSize
+		}
+		return funcpool.NewLazy(factory, m.dispatcher, funcpool.LazyConfig{
+			MaxWorkers:  maxWorkers,
+			IdleTimeout: 30 * time.Second,
+		}, hooks)
+	}
+
+	// Static pool: workers > 0
+	if cfg.Pool.Workers > 0 {
+		queueSize := cfg.Pool.Buffer
+		if queueSize == 0 {
+			queueSize = cfg.Pool.Workers * 64
+		}
+		return funcpool.NewStatic(factory, m.dispatcher, funcpool.Config{
+			Workers:   cfg.Pool.Workers,
+			QueueSize: queueSize,
+		}, hooks)
+	}
+
+	// Inline pool: size > 0, workers = 0
+	return funcpool.NewInline(factory, m.dispatcher, hooks)
+}
+
+// createPoolByType creates a pool of the specified type.
+func (m *Manager) createPoolByType(poolType string, factory process.FactoryFunc, cfg *api.FunctionConfig, hooks funcpool.ExecutionHooks) (funcpool.Pool, error) {
+	switch poolType {
+	case api.PoolTypeInline:
+		return funcpool.NewInline(factory, m.dispatcher, hooks)
+
+	case api.PoolTypeLazy:
+		maxWorkers := cfg.Pool.MaxSize
+		if maxWorkers == 0 {
+			maxWorkers = 16
+		}
+		return funcpool.NewLazy(factory, m.dispatcher, funcpool.LazyConfig{
+			MaxWorkers:  maxWorkers,
+			IdleTimeout: 30 * time.Second,
+		}, hooks)
+
+	case api.PoolTypeStatic:
+		workers := cfg.Pool.Workers
+		if workers == 0 {
+			workers = cfg.Pool.Size
+		}
+		if workers == 0 {
+			workers = 8
+		}
+		queueSize := cfg.Pool.Buffer
+		if queueSize == 0 {
+			queueSize = workers * 64
+		}
+		return funcpool.NewStatic(factory, m.dispatcher, funcpool.Config{
+			Workers:   workers,
+			QueueSize: queueSize,
+		}, hooks)
+
+	default:
+		return nil, api.NewUnknownPoolTypeError(poolType)
+	}
 }
 
 // registerCaller registers function in the function system and waits for confirmation.
