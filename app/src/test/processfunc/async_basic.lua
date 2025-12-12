@@ -9,10 +9,11 @@ local function main()
     assert.not_nil(future, "future returned")
 
     -- Wait for result
-    local result = future:await()
+    local result, err = future:await()
+    assert.is_nil(err, "await no error")
     assert.not_nil(result, "await returns result")
-    assert.eq(result:get("ok"), true, "result ok")
-    assert.eq(result:get("echo"), "async input", "async result matches input")
+    assert.eq(result.ok, true, "result ok")
+    assert.eq(result.echo, "async input", "async result matches input")
 
     return true
 end

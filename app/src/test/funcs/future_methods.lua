@@ -12,10 +12,10 @@ local function main()
     local complete = future:is_complete()
     assert.eq(complete, false, "future not complete initially")
 
-    -- result() returns (nil, false) when not complete
-    local val, ok = future:result()
+    -- result() returns (nil, error) when not complete
+    local val, rerr = future:result()
     assert.is_nil(val, "result() returns nil value when not complete")
-    assert.eq(ok, false, "result() returns false when not complete")
+    assert.is_nil(rerr, "result() returns nil error when not complete")
 
     -- error() returns (nil, false) when not complete
     local err, ok2 = future:error()
@@ -31,9 +31,9 @@ local function main()
     complete = future:is_complete()
     assert.eq(complete, true, "future complete after await")
 
-    -- result() returns (value, true) after successful completion
-    val, ok = future:result()
-    assert.eq(ok, true, "result() returns true after completion")
+    -- result() returns (value, nil) after successful completion
+    val, rerr = future:result()
+    assert.is_nil(rerr, "result() returns nil error after completion")
     assert.not_nil(val, "result() returns value after completion")
 
     -- error() still returns nil, false (no error)

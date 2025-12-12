@@ -35,9 +35,10 @@ const (
 
 // Pool type constants for selecting scheduler implementation.
 const (
-	PoolTypeLazy   = "lazy"   // Zero processes at idle, creates on demand
-	PoolTypeStatic = "static" // Fixed-size channel-based pool (default for high load)
-	PoolTypeInline = "inline" // Synchronous inline execution
+	PoolTypeLazy     = "lazy"     // Zero processes at idle, creates on demand
+	PoolTypeStatic   = "static"   // Fixed-size channel-based pool (default for high load)
+	PoolTypeInline   = "inline"   // Synchronous inline execution
+	PoolTypeAdaptive = "adaptive" // Auto-scaling pool, scales up under load, down when idle
 )
 
 type (

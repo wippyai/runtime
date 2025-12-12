@@ -20,9 +20,9 @@ local function main()
     local r2 = f2:await()
     local r3 = f3:await()
 
-    assert.eq(r1:get("completed"), true, "r1 completed")
-    assert.eq(r2:get("completed"), true, "r2 completed")
-    assert.eq(r3:get("completed"), true, "r3 completed")
+    assert.eq(r1.completed, true, "r1 completed")
+    assert.eq(r2.completed, true, "r2 completed")
+    assert.eq(r3.completed, true, "r3 completed")
 
     -- Total time should be ~50ms (parallel), not ~150ms (sequential)
     local elapsed = time.now():sub(start)

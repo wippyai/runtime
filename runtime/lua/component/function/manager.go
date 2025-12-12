@@ -342,7 +342,7 @@ func createProcess(compiled *code.CompiledMain) (process.Process, error) {
 		if dep.Proto != nil {
 			proto := dep.Proto
 			name := dep.Name
-			binders = append(binders, func(L *lua.LState) { // wait what??
+			binders = append(binders, func(L *lua.LState) {
 				L.PreloadModule(name, func(L *lua.LState) int {
 					fn := L.LoadProto(proto)
 					L.Push(fn)
@@ -461,6 +461,16 @@ func (m *Manager) createPoolByType(poolType string, factory process.FactoryFunc,
 			QueueSize: queueSize,
 		}, hooks)
 
+	case api.PoolTypeAdaptive:
+		maxWorkers := cfg.Pool.MaxSize
+		if maxWorkers == 0 {
+			maxWorkers = 16
+		}
+
+		return funcpool.NewAdaptive(factory, m.dispatcher,
+			funcpool.WithMaxWorkers(maxWorkers),
+			funcpool.WithExecutionHooks(hooks),
+		)
 	default:
 		return nil, api.NewUnknownPoolTypeError(poolType)
 	}

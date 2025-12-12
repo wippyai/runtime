@@ -24,7 +24,7 @@ local function main()
     assert.not_nil(future, "executor async returns future")
 
     local aresult = future:await()
-    assert.eq(aresult:get("echo"), "executor async", "executor async result correct")
+    assert.eq(aresult.echo, "executor async", "executor async result correct")
 
     -- Test chaining
     local chained = funcs.new():with_options({ key = "value" })

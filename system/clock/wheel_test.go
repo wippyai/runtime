@@ -311,3 +311,62 @@ func TestWheelTimerUnderLoad(t *testing.T) {
 		t.Errorf("p99 jitter under load too high: %v", p99)
 	}
 }
+
+// TestWheelTimerCallbackCleanup verifies that StartWithCallback cleans up after firing.
+// This is a regression test for the memory leak where fired timers weren't removed from shard map.
+func TestWheelTimerCallbackCleanup(t *testing.T) {
+	r := NewWheelTimerRegistry()
+	defer r.Close()
+
+	const timerCount = 1000
+
+	var wg sync.WaitGroup
+	wg.Add(timerCount)
+
+	// Start many callback timers
+	for i := 0; i < timerCount; i++ {
+		r.StartWithCallback(5*time.Millisecond, func() {
+			wg.Done()
+		})
+	}
+
+	// Wait for all callbacks to fire
+	wg.Wait()
+
+	// Give cleanup a moment
+	time.Sleep(10 * time.Millisecond)
+
+	// Check that all timers were cleaned up
+	count := r.Count()
+	if count != 0 {
+		t.Errorf("timer leak: %d timers still in registry after firing", count)
+	}
+}
+
+// TestWheelTimerStartCleanup verifies that Start+Wait cleans up after firing.
+func TestWheelTimerStartCleanup(t *testing.T) {
+	r := NewWheelTimerRegistry()
+	defer r.Close()
+
+	const timerCount = 100
+
+	var wg sync.WaitGroup
+	ctx := context.Background()
+
+	for i := 0; i < timerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			id := r.Start(5 * time.Millisecond)
+			r.Wait(ctx, id)
+		}()
+	}
+
+	wg.Wait()
+
+	// Check cleanup
+	count := r.Count()
+	if count != 0 {
+		t.Errorf("timer leak: %d timers still in registry after Wait", count)
+	}
+}

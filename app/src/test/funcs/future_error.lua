@@ -16,10 +16,10 @@ local function main()
     local complete = future:is_complete()
     assert.eq(complete, true, "future complete after error")
 
-    -- result() returns (nil, false) on error
-    local val, ok = future:result()
+    -- result() returns (nil, error) on error
+    local val, rerr = future:result()
     assert.is_nil(val, "result() returns nil value on error")
-    assert.eq(ok, false, "result() returns false on error")
+    assert.not_nil(rerr, "result() returns error on error")
 
     -- error() returns (error, ok) - when error exists ok is true
     local ferr, eok = future:error()

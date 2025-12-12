@@ -36,31 +36,14 @@ type Pool interface {
 	Stop()
 }
 
-// Config contains common pool configuration.
+// Config contains static pool configuration.
 type Config struct {
 	// Workers is the number of worker goroutines/processes.
-	// For elastic pools, this is the initial size.
 	Workers int
 
 	// QueueSize is the capacity of the work queue.
 	// Calls block when queue is full.
 	QueueSize int
-
-	// MaxWorkers is the maximum workers for elastic pools.
-	// Ignored by fixed-size pools.
-	MaxWorkers int
-
-	// IdleTimeout controls when elastic pools shrink.
-	// Ignored by fixed-size pools.
-	IdleTimeout int
-}
-
-// DefaultConfig returns sensible defaults.
-func DefaultConfig() Config {
-	return Config{
-		Workers:   4,
-		QueueSize: 256,
-	}
 }
 
 // OnExecutionStart is called before each execution with context and process.

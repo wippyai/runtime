@@ -353,6 +353,54 @@ func TestCancelFunc_Set(t *testing.T) {
 	}
 }
 
+func TestFutureAwaitYieldHandleResult(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	yield := &FutureAwaitYield{
+		Result:        nil, // not used by HandleResult
+		ReturnPayload: false,
+	}
+
+	// Test with valid data: [value, true]
+	data := []lua.LValue{lua.LString("test-value"), lua.LTrue}
+	result := yield.HandleResult(l, data, nil)
+
+	if len(result) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(result))
+	}
+	if result[0] != lua.LString("test-value") {
+		t.Errorf("expected 'test-value', got %v", result[0])
+	}
+	if result[1] != lua.LNil {
+		t.Errorf("expected nil error, got %v", result[1])
+	}
+}
+
+func TestFutureAwaitYieldHandleResultChannelClosed(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	yield := &FutureAwaitYield{
+		Result:        nil, // not used by HandleResult
+		ReturnPayload: false,
+	}
+
+	// Test channel closed: [value, false]
+	data := []lua.LValue{lua.LNil, lua.LFalse}
+	result := yield.HandleResult(l, data, nil)
+
+	if len(result) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(result))
+	}
+	if result[0] != lua.LNil {
+		t.Errorf("expected nil value, got %v", result[0])
+	}
+	if result[1] == lua.LNil {
+		t.Error("expected error, got nil")
+	}
+}
+
 func TestConcurrentAccess(*testing.T) {
 	ch := engine.NewChannel(1)
 	f := New("test", ch)

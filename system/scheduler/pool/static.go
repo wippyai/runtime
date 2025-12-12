@@ -25,9 +25,6 @@ type staticWorker struct {
 	pool     *Static
 	process  process.Process
 	executor *Executor
-	tasks    <-chan *request
-	done     <-chan struct{}
-	wg       *sync.WaitGroup
 }
 
 // Static is a fixed-size pool with pre-allocated workers.
@@ -41,13 +38,13 @@ type Static struct {
 	done       chan struct{}
 	wg         sync.WaitGroup
 	closed     atomic.Bool
+	reqPool    sync.Pool
 
-	// Active executions indexed by PID.UniqID for message routing
-	active sync.Map // map[string]*Executor
+	active sync.Map
 }
 
 // NewStatic creates a static pool with the given configuration.
-func NewStatic(factory process.FactoryFunc, dispatcher dispatcher.Dispatcher, cfg Config, hooks ...ExecutionHooks) (*Static, error) {
+func NewStatic(factory process.FactoryFunc, d dispatcher.Dispatcher, cfg Config, hooks ...ExecutionHooks) (*Static, error) {
 	if cfg.Workers <= 0 {
 		cfg.Workers = 4
 	}
@@ -63,10 +60,14 @@ func NewStatic(factory process.FactoryFunc, dispatcher dispatcher.Dispatcher, cf
 	s := &Static{
 		workers:    make([]*staticWorker, cfg.Workers),
 		tasks:      make(chan *request, cfg.QueueSize),
-		dispatcher: dispatcher,
+		dispatcher: d,
 		factory:    factory,
 		hooks:      hooksCfg,
 		done:       make(chan struct{}),
+	}
+
+	s.reqPool.New = func() any {
+		return &request{resultCh: make(chan *runtime.Result, 1)}
 	}
 
 	for i := 0; i < cfg.Workers; i++ {
@@ -78,16 +79,10 @@ func NewStatic(factory process.FactoryFunc, dispatcher dispatcher.Dispatcher, cf
 			return nil, err
 		}
 
-		// Each worker needs its own Executor to avoid races on multiCtx
-		executor := NewExecutor(dispatcher).WithExecutionHooks(hooksCfg)
-
 		s.workers[i] = &staticWorker{
 			pool:     s,
 			process:  proc,
-			executor: executor,
-			tasks:    s.tasks,
-			done:     s.done,
-			wg:       &s.wg,
+			executor: NewExecutor(d).WithExecutionHooks(hooksCfg),
 		}
 	}
 
@@ -114,7 +109,7 @@ func (s *Static) Stop() {
 	}
 }
 
-// Send implements relay.Receiver. Routes package to target execution.
+// Send implements relay.Receiver for message routing.
 func (s *Static) Send(pkg *relay.Package) error {
 	v, ok := s.active.Load(pkg.Target.UniqID)
 	if !ok {
@@ -129,52 +124,48 @@ func (s *Static) Call(ctx context.Context, method string, input payload.Payloads
 		return nil, ErrPoolClosed
 	}
 
-	req := &request{
-		ctx:      ctx,
-		method:   method,
-		input:    input,
-		resultCh: make(chan *runtime.Result, 1),
-	}
+	req := s.reqPool.Get().(*request)
+	req.ctx = ctx
+	req.method = method
+	req.input = input
 
-	// Fast path: try non-blocking send first (avoids select overhead when queue has room)
 	select {
 	case s.tasks <- req:
 	default:
-		// Queue full - fall back to blocking with cancellation
 		select {
 		case s.tasks <- req:
 		case <-ctx.Done():
+			s.reqPool.Put(req)
 			return nil, ctx.Err()
 		case <-s.done:
+			s.reqPool.Put(req)
 			return nil, ErrPoolClosed
 		}
 	}
 
-	// Wait for result - worker always sends result even during shutdown
-	// Worker drains tasks during shutdown, so result will arrive
-	return <-req.resultCh, nil
+	result := <-req.resultCh
+	s.reqPool.Put(req)
+	return result, nil
 }
 
-// run is the worker's main loop.
 func (w *staticWorker) run() {
-	defer w.wg.Done()
+	defer w.pool.wg.Done()
 
 	for {
 		select {
-		case <-w.done:
+		case <-w.pool.done:
 			w.drain()
 			return
-		case req := <-w.tasks:
+		case req := <-w.pool.tasks:
 			w.execute(req)
 		}
 	}
 }
 
-// drain processes remaining tasks during shutdown.
 func (w *staticWorker) drain() {
 	for {
 		select {
-		case req := <-w.tasks:
+		case req := <-w.pool.tasks:
 			w.execute(req)
 		default:
 			return
@@ -182,7 +173,6 @@ func (w *staticWorker) drain() {
 	}
 }
 
-// execute runs a single request.
 func (w *staticWorker) execute(req *request) {
 	pid, _ := runtime.GetFramePID(req.ctx)
 	w.pool.active.Store(pid.UniqID, w.executor)

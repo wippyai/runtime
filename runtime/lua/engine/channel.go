@@ -49,6 +49,11 @@ func (u *TaskUpdate) reset() {
 	u.resultLen = 0
 }
 
+// ChannelResultProvider is implemented by types that wrap a ChannelResult.
+type ChannelResultProvider interface {
+	GetChannelResult() *ChannelResult
+}
+
 // ChannelResult is the outcome of a channel operation
 type ChannelResult struct {
 	Yields  bool

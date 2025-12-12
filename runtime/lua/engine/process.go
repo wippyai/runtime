@@ -586,8 +586,13 @@ func (p *Process) processChannelYields() ([]*Task, error) {
 
 			// Check if yield is a channel operation
 			value := task.Yielded[len(task.Yielded)-1]
-			result, ok := value.(*ChannelResult)
-			if !ok || result == nil {
+			var result *ChannelResult
+			if cr, ok := value.(*ChannelResult); ok {
+				result = cr
+			} else if provider, ok := value.(ChannelResultProvider); ok {
+				result = provider.GetChannelResult()
+			}
+			if result == nil {
 				p.externalTasks = append(p.externalTasks, task)
 				continue
 			}
@@ -608,7 +613,21 @@ func (p *Process) processChannelYields() ([]*Task, error) {
 						return nil, luaapi.NewTaskNotFoundForChannelError(err)
 					}
 
-					if upd.Error != nil {
+					// Check if the resumed task's yield implements HandledYield
+					var hy luaapi.HandledYield
+					if len(t.Yielded) > 0 {
+						lastYield := t.Yielded[len(t.Yielded)-1]
+						hy, _ = lastYield.(luaapi.HandledYield)
+					}
+					if hy != nil {
+						var resumed []lua.LValue
+						if upd.Error != nil {
+							resumed = hy.HandleResult(p.state, nil, upd.Error)
+						} else {
+							resumed = hy.HandleResult(p.state, upd.GetResult(), nil)
+						}
+						t.ResumeWith(resumed...)
+					} else if upd.Error != nil {
 						t.ResumeWith(lua.LNil, lua.LString(upd.Error.Error()))
 					} else {
 						t.ResumeWith(upd.GetResult()...)

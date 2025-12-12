@@ -14,15 +14,11 @@ import (
 // Inline executes calls synchronously in the caller's goroutine.
 // Single process, serialized via mutex.
 type Inline struct {
-	factory    process.FactoryFunc
 	dispatcher dispatcher.Dispatcher
-	hooks      ExecutionHooks
 	executor   *Executor
 	process    process.Process
 	mu         sync.Mutex
-
-	// Active execution tracking for message routing
-	active sync.Map // map[string]*Executor
+	active     sync.Map
 }
 
 // NewInline creates an inline executor.
@@ -37,13 +33,9 @@ func NewInline(factory process.FactoryFunc, dispatcher dispatcher.Dispatcher, ho
 		hooksCfg = hooks[0]
 	}
 
-	executor := NewExecutor(dispatcher).WithExecutionHooks(hooksCfg)
-
 	return &Inline{
-		factory:    factory,
 		dispatcher: dispatcher,
-		hooks:      hooksCfg,
-		executor:   executor,
+		executor:   NewExecutor(dispatcher).WithExecutionHooks(hooksCfg),
 		process:    proc,
 	}, nil
 }

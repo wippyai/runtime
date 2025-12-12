@@ -24,7 +24,7 @@ local function main()
     -- All should have results
     for i, r in ipairs(results) do
         assert.not_nil(r, "result " .. i .. " not nil")
-        assert.eq(r:get("value"), "task-" .. i, "result " .. i .. " has correct value")
+        assert.eq(r.value, "task-" .. i, "result " .. i .. " has correct value")
     end
 
     -- Parallel execution should be faster than sequential (5*100=500ms)
