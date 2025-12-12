@@ -8,6 +8,7 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	payloadmod "github.com/wippyai/runtime/runtime/lua/modules/payload"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -20,8 +21,10 @@ var CancelFunc func(l *lua.LState) int
 func init() {
 	value.RegisterTypeMethods(nil, TypeName, nil, map[string]lua.LGoFunc{
 		"await":       futureAwait,
-		"channel":     futureChannel,
+		"response":    futureResponse,
+		"channel":     futureResponse, // alias for backwards compatibility
 		"is_complete": futureIsComplete,
+		"is_canceled": futureIsCanceled,
 		"result":      futureResult,
 		"error":       futureError,
 		"cancel":      futureCancel,
@@ -44,6 +47,7 @@ type Future struct {
 
 	mu        sync.Mutex
 	completed bool
+	canceled  bool
 	result    lua.LValue
 	err       error
 }
@@ -77,8 +81,16 @@ func (f *Future) CreateHandler() engine.TopicHandler {
 			}
 		}
 
-		// Normal result
-		f.result = engine.PayloadsToLua(ctx, l, payloads)
+		// Store result as payload wrapper (single payload) or table of payloads
+		if len(payloads) == 1 {
+			f.result = payloadmod.WrapPayload(l, payloads[0])
+		} else if len(payloads) > 1 {
+			tbl := l.CreateTable(len(payloads), 0)
+			for i, pl := range payloads {
+				tbl.RawSetInt(i+1, payloadmod.WrapPayload(l, pl))
+			}
+			f.result = tbl
+		}
 		return f.result
 	}
 }
@@ -88,6 +100,20 @@ func (f *Future) IsComplete() bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.completed
+}
+
+// IsCanceled returns true if cancel was called on this future.
+func (f *Future) IsCanceled() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.canceled
+}
+
+// MarkCanceled marks the future as canceled.
+func (f *Future) MarkCanceled() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.canceled = true
 }
 
 // Result returns the cached result if completed successfully.
@@ -204,8 +230,8 @@ func handleChannelResult(l *lua.LState, _ *Future, result *engine.ChannelResult)
 	return 2
 }
 
-// futureChannel returns the underlying channel.
-func futureChannel(l *lua.LState) int {
+// futureResponse returns the underlying channel.
+func futureResponse(l *lua.LState) int {
 	ud := l.CheckUserData(1)
 	f, ok := ud.Value.(*Future)
 	if !ok {
@@ -239,7 +265,24 @@ func futureIsComplete(l *lua.LState) int {
 	return 1
 }
 
-// futureResult returns (value, true) if completed successfully, (nil, false) otherwise.
+// futureIsCanceled returns true if cancel was called on this future.
+func futureIsCanceled(l *lua.LState) int {
+	ud := l.CheckUserData(1)
+	f, ok := ud.Value.(*Future)
+	if !ok {
+		l.ArgError(1, "Future expected")
+		return 0
+	}
+
+	if f.IsCanceled() {
+		l.Push(lua.LTrue)
+	} else {
+		l.Push(lua.LFalse)
+	}
+	return 1
+}
+
+// futureResult returns (value, error) - value on success, error if failed/canceled.
 func futureResult(l *lua.LState) int {
 	ud := l.CheckUserData(1)
 	f, ok := ud.Value.(*Future)
@@ -248,13 +291,34 @@ func futureResult(l *lua.LState) int {
 		return 0
 	}
 
-	if result, ok := f.Result(); ok {
-		l.Push(result)
-		l.Push(lua.LTrue)
+	// Check if canceled
+	if f.IsCanceled() {
+		luaErr := lua.NewLuaError(l, "canceled").
+			WithKind(lua.KindCanceled).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(luaErr)
 		return 2
 	}
+
+	// Check if completed with error
+	if hasErr, err := f.Error(); hasErr {
+		luaErr := lua.WrapErrorWithLua(l, err, "")
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return 2
+	}
+
+	// Check if completed successfully
+	if result, ok := f.Result(); ok {
+		l.Push(result)
+		l.Push(lua.LNil)
+		return 2
+	}
+
+	// Not completed yet
 	l.Push(lua.LNil)
-	l.Push(lua.LFalse)
+	l.Push(lua.LNil)
 	return 2
 }
 

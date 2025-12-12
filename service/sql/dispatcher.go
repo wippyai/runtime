@@ -4,7 +4,6 @@ package sql
 import (
 	"context"
 	"database/sql"
-	"fmt"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	sqlapi "github.com/wippyai/runtime/api/service/sql"
@@ -46,17 +45,10 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 
 func (d *Dispatcher) handleQuery(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	qc := cmd.(*sqlapi.QueryCmd)
-	fmt.Printf("[SQL] handleQuery tag=%d, query=%s\n", tag, qc.Query)
 	go func() {
-		fmt.Printf("[SQL] executing query tag=%d\n", tag)
 		resp := executeQuery(ctx, qc.DB, qc.Query, qc.Params)
-		fmt.Printf("[SQL] query done tag=%d, err=%v, ctx.Err=%v\n", tag, resp.Error, ctx.Err())
 		if ctx.Err() == nil {
-			fmt.Printf("[SQL] calling CompleteYield tag=%d\n", tag)
 			receiver.CompleteYield(tag, resp, nil)
-			fmt.Printf("[SQL] CompleteYield returned tag=%d\n", tag)
-		} else {
-			fmt.Printf("[SQL] ctx cancelled, not calling CompleteYield tag=%d\n", tag)
 		}
 	}()
 	return nil

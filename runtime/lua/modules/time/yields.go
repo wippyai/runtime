@@ -260,8 +260,9 @@ func registerLocationMethods() {
 
 func registerTickerMethods() {
 	value.RegisterMethods(nil, tickerTypeName, map[string]lua.LGoFunc{
-		"stop":    tickerStopMethod,
-		"channel": tickerChannelMethod,
+		"stop":     tickerStopMethod,
+		"response": tickerResponseMethod,
+		"channel":  tickerResponseMethod, // alias for backwards compatibility
 	})
 }
 
@@ -670,9 +671,10 @@ type Timer struct {
 
 func registerTimerMethods() {
 	value.RegisterMethods(nil, timerTypeName, map[string]lua.LGoFunc{
-		"channel": timerChannelMethod,
-		"stop":    timerStopMethod,
-		"reset":   timerResetMethod,
+		"response": timerResponseMethod,
+		"channel":  timerResponseMethod, // alias for backwards compatibility
+		"stop":     timerStopMethod,
+		"reset":    timerResetMethod,
 	})
 }
 
@@ -685,7 +687,7 @@ func checkTimer(l *lua.LState, idx int) *Timer {
 	return nil
 }
 
-func timerChannelMethod(l *lua.LState) int {
+func timerResponseMethod(l *lua.LState) int {
 	timer := checkTimer(l, 1)
 	if timer.channelUD == nil {
 		l.RaiseError("timer has no channel")
@@ -867,7 +869,7 @@ func tickerStopMethod(l *lua.LState) int {
 	return -1
 }
 
-func tickerChannelMethod(l *lua.LState) int {
+func tickerResponseMethod(l *lua.LState) int {
 	ticker := checkTicker(l, 1)
 	if ticker.channelUD == nil {
 		l.RaiseError("ticker has no channel")

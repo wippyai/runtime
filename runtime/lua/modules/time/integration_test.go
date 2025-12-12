@@ -121,7 +121,7 @@ func TestTickerBasic(t *testing.T) {
 
 		-- Receive 3 ticks via channel
 		for i = 1, 3 do
-			local tick = ticker:channel():receive()
+			local tick = ticker:response():receive()
 			table.insert(results, "tick")
 		end
 
@@ -180,7 +180,7 @@ func TestMultipleTickersStaggered(t *testing.T) {
 		-- Collect from each ticker in separate coroutines
 		coroutine.spawn(function()
 			for i = 1, 3 do
-				ticker1:channel():receive()
+				ticker1:response():receive()
 				table.insert(order, 1)
 			end
 			done:send(1)
@@ -188,14 +188,14 @@ func TestMultipleTickersStaggered(t *testing.T) {
 
 		coroutine.spawn(function()
 			for i = 1, 2 do
-				ticker2:channel():receive()
+				ticker2:response():receive()
 				table.insert(order, 2)
 			end
 			done:send(2)
 		end)
 
 		coroutine.spawn(function()
-			ticker3:channel():receive()
+			ticker3:response():receive()
 			table.insert(order, 3)
 			done:send(3)
 		end)
@@ -241,7 +241,7 @@ func TestTickerStop(t *testing.T) {
 
 		-- Collect a few ticks
 		for i = 1, 3 do
-			ticker:channel():receive()
+			ticker:response():receive()
 			count = count + 1
 		end
 
@@ -285,7 +285,7 @@ func TestTickerCleanupOnProcessExit(t *testing.T) {
 		local ticker3 = time.ticker(300 * time.MILLISECOND)
 
 		-- Just receive one tick to prove they work
-		ticker1:channel():receive()
+		ticker1:response():receive()
 
 		-- Exit WITHOUT calling stop() - cleanup should happen automatically
 		return "done"

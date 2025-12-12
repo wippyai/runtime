@@ -941,21 +941,14 @@ func TestSchedulerReleasesProcesses(t *testing.T) {
 	}
 
 	// Check maps are empty
-	var byPIDCount, idleCount int
+	var byPIDCount int
 	sched.byPID.Range(func(_, _ any) bool {
 		byPIDCount++
-		return true
-	})
-	sched.idleProcs.Range(func(_, _ any) bool {
-		idleCount++
 		return true
 	})
 
 	if byPIDCount != 0 {
 		t.Errorf("byPID map has %d entries, expected 0", byPIDCount)
-	}
-	if idleCount != 0 {
-		t.Errorf("idle map has %d entries, expected 0", idleCount)
 	}
 }
 
@@ -1472,7 +1465,7 @@ func TestMultipleProcessCompletion(t *testing.T) {
 	}
 }
 
-func TestIdleProcsMapCleanup(t *testing.T) {
+func TestIdleProcessTermination(t *testing.T) {
 	var completed atomic.Bool
 
 	lc := &testLifecycle{
@@ -1486,18 +1479,18 @@ func TestIdleProcsMapCleanup(t *testing.T) {
 	defer sched.Stop(context.Background())
 
 	pid := relay.PID{UniqID: "idle-map-test"}
-	_, err := sched.Submit(context.Background(), pid, &IdleProcess{}, "", nil)
+	proc, err := sched.Submit(context.Background(), pid, &IdleProcess{}, "", nil)
 	if err != nil {
 		t.Fatalf("submit error: %v", err)
 	}
 
 	// Wait for process to become idle
-	time.Sleep(100 * time.Millisecond)
-
-	// Process should be in idle map
-	_, found := sched.idleProcs.Load(pid)
-	if !found {
-		t.Fatal("process should be in idle map")
+	deadline := time.Now().Add(2 * time.Second)
+	for proc.state.Load() != int32(StateIdle) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if proc.state.Load() != int32(StateIdle) {
+		t.Fatalf("process should be idle, got state %d", proc.state.Load())
 	}
 
 	// Terminate the idle process
@@ -1507,15 +1500,13 @@ func TestIdleProcsMapCleanup(t *testing.T) {
 	}
 
 	// Wait for completion
-	deadline := time.Now().Add(2 * time.Second)
+	deadline = time.Now().Add(2 * time.Second)
 	for !completed.Load() && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	// Idle map should be cleaned up
-	_, found = sched.idleProcs.Load(pid)
-	if found {
-		t.Fatal("process should be removed from idle map")
+	if !completed.Load() {
+		t.Fatal("process should have completed")
 	}
 }
 

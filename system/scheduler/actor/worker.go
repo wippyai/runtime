@@ -2,7 +2,6 @@ package actor
 
 import (
 	"context"
-	"fmt"
 	"runtime"
 	"sync/atomic"
 
@@ -130,11 +129,8 @@ func (w *Worker) executeOne(proc *Processor) {
 	// Atomically transition Ready->Running. If CAS fails, process was
 	// terminated or is in unexpected state - skip execution.
 	if !proc.casState(StateReady, StateRunning) {
-		fmt.Printf("[WORKER %d] CAS Ready->Running failed for pid=%v\n", w.id, proc.pid)
 		return
 	}
-
-	fmt.Printf("[WORKER %d] executeOne pid=%v\n", w.id, proc.pid)
 
 	// Check context cancellation before executing (Terminate sets this)
 	if proc.ctx != nil && proc.ctx.Err() != nil {
@@ -148,7 +144,6 @@ func (w *Worker) executeOne(proc *Processor) {
 
 	// Drain events from queue
 	events := proc.queue.Drain()
-	fmt.Printf("[WORKER %d] drained %d events\n", w.id, len(events))
 
 	// Reset output for this step
 	proc.output.Reset()
@@ -166,60 +161,50 @@ func (w *Worker) executeOne(proc *Processor) {
 	}
 
 	status := proc.output.Status()
-	fmt.Printf("[WORKER %d] Step returned status=%d (Done=0,Idle=1,Continue=2,WaitYields=3)\n", w.id, status)
 
-	switch status {
-	case StepDone:
-		fmt.Printf("[WORKER %d] StepDone pid=%v\n", w.id, proc.pid)
+	// Handle Done first - no yields to dispatch
+	if status == StepDone {
 		if !proc.casState(StateRunning, StateComplete) {
 			return
 		}
 		proc.queue.Close()
 		w.scheduler.complete(proc, &proc.output, nil)
+		return
+	}
 
-	case StepIdle:
-		fmt.Printf("[WORKER %d] StepIdle pid=%v -> parking\n", w.id, proc.pid)
-		if !proc.casState(StateRunning, StateIdle) {
+	// Dispatch any yields (for all statuses except Done)
+	yields := proc.output.Yields()
+	if len(yields) > 0 {
+		w.dispatchYields(proc.ctx, proc, yields)
+		return
+	}
+
+	// No yields - handle status
+	switch status {
+	case StepContinue:
+		if !proc.casState(StateRunning, StateReady) {
 			return
 		}
-		w.scheduler.parkIdle(proc)
-		// Check for events that arrived during state transition.
+		w.scheduler.global.Push(proc)
+		w.scheduler.wake()
+
+	case StepYield:
+		if !proc.casState(StateRunning, StateBlocked) {
+			return
+		}
 		if proc.queue.HasEvents() {
-			fmt.Printf("[WORKER %d] StepIdle but queue has events, re-queueing\n", w.id)
-			if proc.casState(StateIdle, StateReady) {
+			if proc.casState(StateBlocked, StateReady) {
 				w.scheduler.global.Push(proc)
 				w.scheduler.wake()
 			}
 		}
 
-	case StepContinue:
-		yields := proc.output.Yields()
-		fmt.Printf("[WORKER %d] StepContinue pid=%v yields=%d\n", w.id, proc.pid, len(yields))
-		if len(yields) == 0 {
-			// No external yields - re-queue immediately.
-			if !proc.casState(StateRunning, StateReady) {
-				return
-			}
-			w.scheduler.global.Push(proc)
-			w.scheduler.wake()
+	case StepIdle:
+		if !proc.casState(StateRunning, StateIdle) {
 			return
 		}
-
-		// Dispatch yields while keeping StateRunning.
-		fmt.Printf("[WORKER %d] dispatching %d yields\n", w.id, len(yields))
-		w.dispatchYields(proc.ctx, proc, yields)
-
-	case StepWaitYields:
-		fmt.Printf("[WORKER %d] StepWaitYields pid=%v -> blocking\n", w.id, proc.pid)
-		// CAS Running->Blocked so CompleteYield can wake us.
-		if !proc.casState(StateRunning, StateBlocked) {
-			fmt.Printf("[WORKER %d] CAS Running->Blocked failed\n", w.id)
-			return
-		}
-		// Check for events that arrived during state transition.
 		if proc.queue.HasEvents() {
-			fmt.Printf("[WORKER %d] StepWaitYields but queue has events, re-queueing\n", w.id)
-			if proc.casState(StateBlocked, StateReady) {
+			if proc.casState(StateIdle, StateReady) {
 				w.scheduler.global.Push(proc)
 				w.scheduler.wake()
 			}
@@ -231,14 +216,11 @@ func (w *Worker) executeOne(proc *Processor) {
 // Processor state is StateRunning during this call.
 // CompleteYield sets wakeup flag instead of re-queueing while Running.
 func (w *Worker) dispatchYields(ctx context.Context, proc *Processor, yields []Yield) {
-	fmt.Printf("[WORKER %d] dispatchYields pid=%v, yields=%d\n", w.id, proc.pid, len(yields))
 	completer := proc.queue.NewYieldCompleter(w.scheduler)
 
 	for _, y := range yields {
-		fmt.Printf("[WORKER %d] dispatching yield tag=%d, cmd=%v\n", w.id, y.Tag, y.Cmd.CmdID())
 		handler := w.scheduler.getHandler(y.Cmd)
 		if handler == nil {
-			fmt.Printf("[WORKER %d] no handler for cmd=%v\n", w.id, y.Cmd.CmdID())
 			proc.queue.PushDirect(process.Event{
 				Type:  process.EventYieldComplete,
 				Tag:   y.Tag,
@@ -247,7 +229,6 @@ func (w *Worker) dispatchYields(ctx context.Context, proc *Processor, yields []Y
 			continue
 		}
 		if err := handler.Handle(ctx, y.Cmd, y.Tag, completer); err != nil {
-			fmt.Printf("[WORKER %d] handler.Handle error: %v\n", w.id, err)
 			proc.queue.PushDirect(process.Event{
 				Type:  process.EventYieldComplete,
 				Tag:   y.Tag,
@@ -259,18 +240,14 @@ func (w *Worker) dispatchYields(ctx context.Context, proc *Processor, yields []Y
 	// Atomically transition to final state.
 	// If wakeup was set by CompleteYield, state becomes Ready - re-queue.
 	// Otherwise, state becomes Blocked.
-	fmt.Printf("[WORKER %d] finishDispatch...\n", w.id)
 	if proc.finishDispatch() {
-		fmt.Printf("[WORKER %d] finishDispatch returned true (wakeup set), re-queueing\n", w.id)
 		w.scheduler.global.Push(proc)
 		w.scheduler.wake()
 		return
 	}
 
-	fmt.Printf("[WORKER %d] finishDispatch returned false -> StateBlocked\n", w.id)
 	// Now in StateBlocked. Check for events from PushDirect above.
 	if proc.queue.HasEvents() {
-		fmt.Printf("[WORKER %d] but queue has events, re-queueing\n", w.id)
 		if proc.casState(StateBlocked, StateReady) {
 			w.scheduler.global.Push(proc)
 			w.scheduler.wake()

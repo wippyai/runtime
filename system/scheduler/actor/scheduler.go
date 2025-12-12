@@ -2,7 +2,6 @@ package actor
 
 import (
 	"context"
-	"fmt"
 	goruntime "runtime"
 	"sync"
 	"sync/atomic"
@@ -75,7 +74,6 @@ type Scheduler struct {
 	processorCount atomic.Int64
 	drainCh        chan struct{} // closed when processorCount reaches 0 during shutdown
 	byPID          sync.Map
-	idleProcs      sync.Map
 	byQueue        sync.Map // *EventQueue -> *Processor for wake routing
 }
 
@@ -141,7 +139,6 @@ func (s *Scheduler) Stop(ctx context.Context) {
 		})
 		// Wake if idle or blocked
 		if proc.casState(StateIdle, StateReady) || proc.casState(StateBlocked, StateReady) {
-			s.idleProcs.Delete(proc.pid)
 			s.global.Push(proc)
 		}
 		return true
@@ -209,31 +206,23 @@ func (s *Scheduler) wakeAll() {
 // Called by YieldCompleter after pushing an event to wake a blocked processor.
 // Uses queue pointer to look up processor safely - avoids direct processor reference.
 func (s *Scheduler) WakeProcessor(q *process.EventQueue, gen uint64) {
-	fmt.Printf("[SCHEDULER] WakeProcessor called, gen=%d\n", gen)
 	v, ok := s.byQueue.Load(q)
 	if !ok {
-		fmt.Printf("[SCHEDULER] WakeProcessor: queue not found in byQueue map\n")
 		return
 	}
 	proc := v.(*Processor)
 
 	// Verify generation matches to avoid waking wrong processor
 	if proc.gen.Load() != gen {
-		fmt.Printf("[SCHEDULER] WakeProcessor: gen mismatch proc.gen=%d vs gen=%d\n", proc.gen.Load(), gen)
 		return
 	}
 
-	state := proc.state.Load()
-	fmt.Printf("[SCHEDULER] WakeProcessor pid=%v, state=%d (Blocked=3)\n", proc.pid, state)
-
 	// Same wake logic as processor.CompleteYield
 	if proc.casState(StateBlocked, StateReady) {
-		fmt.Printf("[SCHEDULER] WakeProcessor: CAS Blocked->Ready succeeded, pushing to global queue\n")
 		s.global.Push(proc)
 		s.wake()
 		return
 	}
-	fmt.Printf("[SCHEDULER] WakeProcessor: CAS Blocked->Ready failed, setting wakeup flag\n")
 	proc.setWakeup(StateRunning)
 }
 
@@ -294,9 +283,6 @@ func (s *Scheduler) Terminate(pid relay.PID) error {
 		proc.cancel()
 	}
 
-	// Remove from idle tracking
-	s.idleProcs.Delete(pid)
-
 	// Push termination event via PushDirect (bypasses generation check).
 	// This ensures process wakes even if yields never complete.
 	// Don't close queue yet - let the event be processed first.
@@ -326,7 +312,6 @@ func (s *Scheduler) finishProcessor(proc *Processor, result *StepOutput, err err
 	}
 
 	s.byPID.Delete(proc.pid)
-	s.idleProcs.Delete(proc.pid)
 	s.byQueue.Delete(proc.queue)
 
 	stopping := s.stopping.Load()
@@ -399,7 +384,6 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid relay.PID, p Proces
 func (s *Scheduler) ReleaseProcessor(proc *Processor) {
 	s.processorCount.Add(-1)
 	s.byPID.Delete(proc.pid)
-	s.idleProcs.Delete(proc.pid)
 	s.byQueue.Delete(proc.queue)
 	if proc.cancel != nil {
 		proc.cancel()
@@ -420,34 +404,23 @@ func (s *Scheduler) Send(pkg *relay.Package) error {
 	}
 	proc := v.(*Processor)
 
-	// Try to wake idle process - O(1) lookup by PID
-	// Must happen before push since receiver may release pkg immediately
-	idleProc, wasIdle := s.idleProcs.LoadAndDelete(target)
-
 	// Push message event to processor's queue with generation check
 	if !proc.queue.Push(process.Event{
 		Type: process.EventMessage,
 		Data: pkg,
 	}, proc.gen.Load()) {
-		// Push failed - queue closed, process is terminating. Don't restore idle.
+		// Push failed - queue closed, process is terminating
 		return process.ErrProcessClosed
 	}
 
-	// Wake idle process if it was parked.
-	// Use CAS to avoid double-push if worker already self-woke.
-	if wasIdle {
-		idle := idleProc.(*Processor)
-		if idle.casState(StateIdle, StateReady) {
-			s.global.Push(idle)
-			s.wake()
-		}
+	// Wake idle process. CAS ensures exactly-once wake even with concurrent senders.
+	// The state transition is the synchronization point - if CAS succeeds, we own the wake.
+	if proc.casState(StateIdle, StateReady) {
+		s.global.Push(proc)
+		s.wake()
 	}
 
 	return nil
-}
-
-func (s *Scheduler) parkIdle(proc *Processor) {
-	s.idleProcs.Store(proc.pid, proc)
 }
 
 func (s *Scheduler) Stats() map[string]uint64 {
@@ -459,17 +432,14 @@ func (s *Scheduler) Stats() map[string]uint64 {
 		stolen += w.stolen.Load()
 	}
 
-	var byPIDCount, idleCount uint64
-	s.byPID.Range(func(_, _ any) bool { byPIDCount++; return true })
-	s.idleProcs.Range(func(_, _ any) bool { idleCount++; return true })
+	var processCount uint64
+	s.byPID.Range(func(_, _ any) bool { processCount++; return true })
 
 	stats["executed"] = executed
 	stats["stolen"] = stolen
 	stats["global_queue"] = uint64(max(0, s.global.Len())) //nolint:gosec // queue length is always non-negative and bounded
 	stats["workers"] = uint64(len(s.workers))
-	stats["by_pid"] = byPIDCount
-	stats["idle"] = idleCount
-	stats["processors"] = uint64(max(0, s.processorCount.Load())) //nolint:gosec // processor count is always non-negative
+	stats["processes"] = processCount
 
 	return stats
 }

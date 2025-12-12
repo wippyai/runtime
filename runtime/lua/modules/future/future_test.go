@@ -295,7 +295,7 @@ func TestFutureChannel_Lua(t *testing.T) {
 	l.SetGlobal("future", ud)
 
 	err := l.DoString(`
-		local ch = future:channel()
+		local ch = future:response()
 		if ch == nil then
 			error("expected channel")
 		end

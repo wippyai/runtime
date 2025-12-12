@@ -236,10 +236,13 @@ func deleteRunWith(l *lua.LState) int {
 		return 0
 	}
 
-	db := checkDB(l, 2)
-	if db == nil {
-		return 0
+	ud := l.CheckUserData(2)
+	if db, ok := ud.Value.(*DB); ok {
+		return newQueryExecutorFromDelete(l, db, wrapper.builder)
 	}
-
-	return newQueryExecutorFromDelete(l, db, wrapper.builder)
+	if tx, ok := ud.Value.(*Transaction); ok {
+		return newQueryExecutorFromDeleteTx(l, tx, wrapper.builder)
+	}
+	l.ArgError(2, "database or transaction expected")
+	return 0
 }

@@ -884,3 +884,313 @@ func TestDeleteExecutorAutoDetection(t *testing.T) {
 		t.Errorf("expected postgres dollar placeholders, got: %s", executor.query)
 	}
 }
+
+func TestSelectExecutorWithTransaction(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	builder := squirrel.Select("id", "name").From("users").Where(squirrel.Eq{"id": 1})
+
+	db := &DB{
+		db:     nil,
+		dbType: "db.sql.postgres",
+	}
+	txWrapper := &Transaction{
+		tx:     nil,
+		db:     db,
+		active: true,
+	}
+
+	newQueryExecutorFromSelectTx(l, txWrapper, builder)
+
+	result := l.Get(-1)
+	ud, ok := result.(*lua.LUserData)
+	if !ok {
+		t.Fatalf("expected userdata, got %T", result)
+	}
+
+	executor, ok := ud.Value.(*queryExecutorWrapper)
+	if !ok {
+		t.Fatalf("expected queryExecutorWrapper, got %T", ud.Value)
+	}
+
+	if executor.db != nil {
+		t.Error("expected db to be nil for transaction executor")
+	}
+
+	if !strings.Contains(executor.query, "$1") {
+		t.Errorf("expected postgres dollar placeholders, got: %s", executor.query)
+	}
+}
+
+func TestInsertExecutorWithTransaction(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	builder := squirrel.Insert("users").Columns("name", "email").Values("test", "test@example.com")
+
+	db := &DB{
+		db:     nil,
+		dbType: "db.sql.mysql",
+	}
+	txWrapper := &Transaction{
+		tx:     nil,
+		db:     db,
+		active: true,
+	}
+
+	newQueryExecutorFromInsertTx(l, txWrapper, builder)
+
+	result := l.Get(-1)
+	ud, ok := result.(*lua.LUserData)
+	if !ok {
+		t.Fatalf("expected userdata, got %T", result)
+	}
+
+	executor, ok := ud.Value.(*queryExecutorWrapper)
+	if !ok {
+		t.Fatalf("expected queryExecutorWrapper, got %T", ud.Value)
+	}
+
+	if executor.db != nil {
+		t.Error("expected db to be nil for transaction executor")
+	}
+
+	if !strings.Contains(executor.query, "?") {
+		t.Errorf("expected question mark placeholders, got: %s", executor.query)
+	}
+}
+
+func TestUpdateExecutorWithTransaction(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	builder := squirrel.Update("users").Set("name", "updated").Where(squirrel.Eq{"id": 1})
+
+	db := &DB{
+		db:     nil,
+		dbType: "db.sql.postgres",
+	}
+	txWrapper := &Transaction{
+		tx:     nil,
+		db:     db,
+		active: true,
+	}
+
+	newQueryExecutorFromUpdateTx(l, txWrapper, builder)
+
+	result := l.Get(-1)
+	ud, ok := result.(*lua.LUserData)
+	if !ok {
+		t.Fatalf("expected userdata, got %T", result)
+	}
+
+	executor, ok := ud.Value.(*queryExecutorWrapper)
+	if !ok {
+		t.Fatalf("expected queryExecutorWrapper, got %T", ud.Value)
+	}
+
+	if executor.db != nil {
+		t.Error("expected db to be nil for transaction executor")
+	}
+
+	if !strings.Contains(executor.query, "$") {
+		t.Errorf("expected postgres dollar placeholders, got: %s", executor.query)
+	}
+}
+
+func TestDeleteExecutorWithTransaction(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	builder := squirrel.Delete("users").Where(squirrel.Eq{"id": 1})
+
+	db := &DB{
+		db:     nil,
+		dbType: "db.sql.postgres",
+	}
+	txWrapper := &Transaction{
+		tx:     nil,
+		db:     db,
+		active: true,
+	}
+
+	newQueryExecutorFromDeleteTx(l, txWrapper, builder)
+
+	result := l.Get(-1)
+	ud, ok := result.(*lua.LUserData)
+	if !ok {
+		t.Fatalf("expected userdata, got %T", result)
+	}
+
+	executor, ok := ud.Value.(*queryExecutorWrapper)
+	if !ok {
+		t.Fatalf("expected queryExecutorWrapper, got %T", ud.Value)
+	}
+
+	if executor.db != nil {
+		t.Error("expected db to be nil for transaction executor")
+	}
+
+	if !strings.Contains(executor.query, "$1") {
+		t.Errorf("expected postgres dollar placeholders, got: %s", executor.query)
+	}
+}
+
+func TestRunWithAcceptsBothDBAndTransaction(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	selectWrapper := &selectBuilderWrapper{
+		builder: squirrel.Select("*").From("users"),
+	}
+	insertWrapper := &insertBuilderWrapper{
+		builder: squirrel.Insert("users").Columns("name").Values("test"),
+	}
+	updateWrapper := &updateBuilderWrapper{
+		builder: squirrel.Update("users").Set("name", "updated"),
+	}
+	deleteWrapper := &deleteBuilderWrapper{
+		builder: squirrel.Delete("users"),
+	}
+
+	db := &DB{
+		db:     nil,
+		dbType: "db.sql.sqlite3",
+	}
+	tx := &Transaction{
+		tx:     nil,
+		db:     db,
+		active: true,
+	}
+
+	tests := []struct {
+		name        string
+		setupFunc   func()
+		runWithFunc func(*lua.LState) int
+	}{
+		{
+			name: "select with DB",
+			setupFunc: func() {
+				ud := l.NewUserData()
+				ud.Value = selectWrapper
+				l.Push(ud)
+				dbUD := l.NewUserData()
+				dbUD.Value = db
+				l.Push(dbUD)
+			},
+			runWithFunc: selectRunWith,
+		},
+		{
+			name: "select with TX",
+			setupFunc: func() {
+				ud := l.NewUserData()
+				ud.Value = selectWrapper
+				l.Push(ud)
+				txUD := l.NewUserData()
+				txUD.Value = tx
+				l.Push(txUD)
+			},
+			runWithFunc: selectRunWith,
+		},
+		{
+			name: "insert with DB",
+			setupFunc: func() {
+				ud := l.NewUserData()
+				ud.Value = insertWrapper
+				l.Push(ud)
+				dbUD := l.NewUserData()
+				dbUD.Value = db
+				l.Push(dbUD)
+			},
+			runWithFunc: insertRunWith,
+		},
+		{
+			name: "insert with TX",
+			setupFunc: func() {
+				ud := l.NewUserData()
+				ud.Value = insertWrapper
+				l.Push(ud)
+				txUD := l.NewUserData()
+				txUD.Value = tx
+				l.Push(txUD)
+			},
+			runWithFunc: insertRunWith,
+		},
+		{
+			name: "update with DB",
+			setupFunc: func() {
+				ud := l.NewUserData()
+				ud.Value = updateWrapper
+				l.Push(ud)
+				dbUD := l.NewUserData()
+				dbUD.Value = db
+				l.Push(dbUD)
+			},
+			runWithFunc: updateRunWith,
+		},
+		{
+			name: "update with TX",
+			setupFunc: func() {
+				ud := l.NewUserData()
+				ud.Value = updateWrapper
+				l.Push(ud)
+				txUD := l.NewUserData()
+				txUD.Value = tx
+				l.Push(txUD)
+			},
+			runWithFunc: updateRunWith,
+		},
+		{
+			name: "delete with DB",
+			setupFunc: func() {
+				ud := l.NewUserData()
+				ud.Value = deleteWrapper
+				l.Push(ud)
+				dbUD := l.NewUserData()
+				dbUD.Value = db
+				l.Push(dbUD)
+			},
+			runWithFunc: deleteRunWith,
+		},
+		{
+			name: "delete with TX",
+			setupFunc: func() {
+				ud := l.NewUserData()
+				ud.Value = deleteWrapper
+				l.Push(ud)
+				txUD := l.NewUserData()
+				txUD.Value = tx
+				l.Push(txUD)
+			},
+			runWithFunc: deleteRunWith,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l.SetTop(0)
+			tt.setupFunc()
+
+			count := tt.runWithFunc(l)
+			if count != 1 {
+				t.Errorf("expected 1 return value, got %d", count)
+			}
+
+			result := l.Get(-1)
+			if result == lua.LNil {
+				t.Error("expected non-nil result")
+			}
+
+			ud, ok := result.(*lua.LUserData)
+			if !ok {
+				t.Fatalf("expected userdata, got %T", result)
+			}
+
+			_, ok = ud.Value.(*queryExecutorWrapper)
+			if !ok {
+				t.Fatalf("expected queryExecutorWrapper, got %T", ud.Value)
+			}
+		})
+	}
+}

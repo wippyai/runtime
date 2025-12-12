@@ -396,26 +396,13 @@ func (p *Process) extractMethod(method string) error {
 // events contains yield completions and messages from the scheduler.
 // out is the scheduler-owned buffer where the process writes yields and status.
 func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
-	fmt.Printf("\n----- [PROCESS STEP] events=%d, pendingYields=%d, threads=%d, queue.IsEmpty=%v -----\n",
-		len(events), len(p.pendingYields), len(p.threads), p.queue.IsEmpty())
-
 	// Collect messages from events
 	var messages []*relay.Package
 	for _, ev := range events {
 		switch ev.Type {
 		case process.EventYieldComplete:
-			fmt.Printf("[PROCESS STEP] EventYieldComplete tag=%d, data=%T, err=%v\n", ev.Tag, ev.Data, ev.Error)
 			if len(p.pendingYields) > 0 {
-				fmt.Printf("[PROCESS STEP] pendingYields tags: ")
-				for tag := range p.pendingYields {
-					fmt.Printf("%d ", tag)
-				}
-				fmt.Println()
 				p.distributeEvent(ev)
-				fmt.Printf("[PROCESS STEP] after distributeEvent: pendingYields=%d, queue.IsEmpty=%v\n",
-					len(p.pendingYields), p.queue.IsEmpty())
-			} else {
-				fmt.Printf("[PROCESS STEP] WARNING: YieldComplete but no pendingYields!\n")
 			}
 		case process.EventMessage:
 			if pkg, ok := ev.Data.(*relay.Package); ok {
@@ -439,11 +426,12 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 	// Process in a loop until stable (no new subscriptions trigger channel work)
 	var externalTasks []*Task
 	var err error
-	loopIter := 0
-	for {
-		loopIter++
-		fmt.Printf("[PROCESS STEP LOOP] iter=%d, queue.IsEmpty=%v\n", loopIter, p.queue.IsEmpty())
 
+	// Clear externalTasks ONCE at start of Step (not in processChannelYields)
+	// This prevents losing external yields when loop continues due to subscriptions
+	p.externalTasks = p.externalTasks[:0]
+
+	for {
 		// Flush any pending messages to subscribed channels BEFORE processing
 		// This ensures messages that arrived while tasks were blocked get delivered
 		if p.subs != nil {
@@ -451,9 +439,7 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		}
 
 		// Process channel yields (inner layer)
-		fmt.Printf("[PROCESS STEP LOOP] iter=%d BEFORE processChannelYields, externalTasks=%d\n", loopIter, len(externalTasks))
 		externalTasks, err = p.processChannelYields()
-		fmt.Printf("[PROCESS STEP LOOP] iter=%d AFTER processChannelYields, externalTasks=%d\n", loopIter, len(externalTasks))
 		if err != nil {
 			p.clearExecution()
 			out.Done(nil)
@@ -461,23 +447,24 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		}
 
 		// Process subscribe yields (outer layer) - may add tasks to queue
-		hadSubscriptions := false
-		fmt.Printf("[PROCESS STEP LOOP] iter=%d BEFORE processSubscribeYields, externalTasks=%d\n", loopIter, len(externalTasks))
+		var hadSubscriptions bool
 		externalTasks, hadSubscriptions, err = p.processSubscribeYields(externalTasks)
-		fmt.Printf("[PROCESS STEP LOOP] iter=%d AFTER processSubscribeYields, externalTasks=%d, hadSubs=%v, queue.IsEmpty=%v\n", loopIter, len(externalTasks), hadSubscriptions, p.queue.IsEmpty())
 		if err != nil {
 			p.clearExecution()
 			out.Done(nil)
 			return toAPIError(err)
 		}
 
+		// Sync p.externalTasks with local externalTasks after processSubscribeYields
+		// This ensures that if loop continues, processChannelYields starts fresh
+		// with only the unhandled tasks (subscription yields were removed)
+		p.externalTasks = externalTasks
+
 		// Continue looping if subscriptions were handled (may have added tasks)
 		// or if queue has tasks to process
 		if !hadSubscriptions && p.queue.IsEmpty() {
-			fmt.Printf("[PROCESS STEP LOOP] iter=%d BREAKING, externalTasks=%d\n", loopIter, len(externalTasks))
 			break
 		}
-		fmt.Printf("[PROCESS STEP LOOP] iter=%d CONTINUING (hadSubs=%v, queue.IsEmpty=%v), externalTasks=%d WILL BE LOST!\n", loopIter, hadSubscriptions, p.queue.IsEmpty(), len(externalTasks))
 	}
 
 	// Check completion
@@ -496,7 +483,6 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 
 	// Convert external yields to commands
 	yieldCount := 0
-	fmt.Printf("[PROCESS STEP] externalTasks=%d, existing pendingYields=%d\n", len(externalTasks), len(p.pendingYields))
 	for _, task := range externalTasks {
 		if len(task.Yielded) == 0 {
 			p.queue.Push(task)
@@ -510,32 +496,23 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 			p.pendingYields[p.yieldSeq] = task
 			out.Yield(cmd, p.yieldSeq)
 			yieldCount++
-			fmt.Printf("[PROCESS STEP] added pendingYield tag=%d, now pendingYields=%d\n", p.yieldSeq, len(p.pendingYields))
 		} else {
 			p.queue.Push(task)
 		}
 	}
 
 	// Determine status
-	fmt.Printf("[PROCESS STEP] determining status: yieldCount=%d, queue.IsEmpty=%v, threads=%d, pendingYields=%d, hasSubs=%v, channels=%d\n",
-		yieldCount, p.queue.IsEmpty(), len(p.threads), len(p.pendingYields), p.HasSubscriptions(), len(p.channels))
-
 	if yieldCount == 0 && !p.queue.IsEmpty() {
-		fmt.Printf("[PROCESS STEP] -> Continue (queue not empty)\n")
 		out.Continue()
 	} else if yieldCount == 0 && len(p.threads) > 0 {
 		// Check if we're waiting for external operations
 		//nolint:gocritic // if-else is clearer than switch for heterogeneous state checks
 		if len(p.pendingYields) > 0 {
 			// Still waiting for previously dispatched yields - stay blocked.
-			// The scheduler will keep us blocked until CompleteYield arrives.
-			fmt.Printf("[PROCESS STEP] -> WaitYields (pendingYields=%d)\n", len(p.pendingYields))
-			out.WaitYields()
+			out.WaitForYields()
 		} else if p.HasSubscriptions() || len(p.channels) > 0 {
-			fmt.Printf("[PROCESS STEP] -> Idle (hasSubs or channels)\n")
 			out.Idle()
 		} else {
-			fmt.Printf("[PROCESS STEP] -> DEADLOCK\n")
 			p.clearExecution()
 			out.Done(nil)
 			return &luaapi.DeadlockError{
@@ -544,10 +521,7 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 			}
 		}
 	} else if yieldCount > 0 {
-		fmt.Printf("[PROCESS STEP] -> WaitYields (yieldCount=%d dispatched)\n", yieldCount)
-		out.WaitYields()
-	} else {
-		fmt.Printf("[PROCESS STEP] -> default (no explicit status set)\n")
+		out.WaitForYields()
 	}
 
 	return nil
@@ -582,44 +556,31 @@ func (p *Process) Queue() *TaskQueue {
 func (p *Process) processChannelYields() ([]*Task, error) {
 	// Fast path: no channels, run vmStep directly
 	if p.channels == nil {
-		fmt.Printf("[processChannelYields] fast path (no channels)\n")
 		return p.vmStep(p.queue.Drain()...)
 	}
 
 	channels := p.channels
 	channelQueue := p.ChannelQueue()
-	fmt.Printf("[processChannelYields] CLEARING p.externalTasks (was %d)\n", len(p.externalTasks))
-	p.externalTasks = p.externalTasks[:0]
 
 	// Transfer tasks from process queue to channel queue
-	drained := p.queue.Drain()
-	fmt.Printf("[processChannelYields] drained %d tasks from queue\n", len(drained))
-	for _, task := range drained {
+	for _, task := range p.queue.Drain() {
 		channelQueue.Push(task)
 	}
 
 	// Process all queued tasks
 	boot := true
-	innerIter := 0
 	for !channelQueue.IsEmpty() || boot {
 		boot = false
-		innerIter++
-
-		// Drain to batch
-		batch := channelQueue.Drain()
-		fmt.Printf("[processChannelYields] inner iter=%d, batch=%d tasks\n", innerIter, len(batch))
 
 		// Run through VM step
-		vmTasks, err := p.vmStep(batch...)
+		vmTasks, err := p.vmStep(channelQueue.Drain()...)
 		if err != nil {
 			return nil, err
 		}
-		fmt.Printf("[processChannelYields] inner iter=%d, vmStep returned %d tasks\n", innerIter, len(vmTasks))
 
 		// Process each yielded task
 		for _, task := range vmTasks {
 			if len(task.Yielded) == 0 {
-				fmt.Printf("[processChannelYields] task has no yields, skipping\n")
 				continue
 			}
 
@@ -627,24 +588,17 @@ func (p *Process) processChannelYields() ([]*Task, error) {
 			value := task.Yielded[len(task.Yielded)-1]
 			result, ok := value.(*ChannelResult)
 			if !ok || result == nil {
-				fmt.Printf("[processChannelYields] task yielded NON-channel op (type=%T), adding to externalTasks (now %d)\n", value, len(p.externalTasks)+1)
 				p.externalTasks = append(p.externalTasks, task)
 				continue
 			}
-			fmt.Printf("[processChannelYields] task yielded ChannelResult, Yields=%v, updates=%d\n", result.Yields, len(result.GetUpdates()))
 
 			// Update channel references
 			p.updateChannelRefs(channels, result.Block, result.Release)
 
 			// Process updates from channel operation
-			updates := result.GetUpdates()
-			fmt.Printf("[processChannelYields] ChannelResult: Yields=%v, updates=%d, Block=%d, Release=%d\n",
-				result.Yields, len(updates), len(result.Block), len(result.Release))
-			if result.Yields && len(updates) > 0 {
-				fmt.Printf("[processChannelYields] processing %d updates (waking blocked tasks)\n", len(updates))
-				for _, upd := range updates {
+			if result.Yields {
+				for _, upd := range result.GetUpdates() {
 					if upd.State == nil {
-						fmt.Printf("[processChannelYields] update has nil State, skipping\n")
 						continue
 					}
 
@@ -654,7 +608,6 @@ func (p *Process) processChannelYields() ([]*Task, error) {
 						return nil, luaapi.NewTaskNotFoundForChannelError(err)
 					}
 
-					fmt.Printf("[processChannelYields] waking task, pushing to channelQueue\n")
 					if upd.Error != nil {
 						t.ResumeWith(lua.LNil, lua.LString(upd.Error.Error()))
 					} else {
@@ -663,15 +616,12 @@ func (p *Process) processChannelYields() ([]*Task, error) {
 
 					channelQueue.Push(t)
 				}
-			} else if result.Yields && len(updates) == 0 {
-				fmt.Printf("[processChannelYields] ChannelResult Yields=true but NO updates - task is BLOCKED on channel internally!\n")
 			}
 
 			ReleaseResult(result)
 		}
 	}
 
-	fmt.Printf("[processChannelYields] RETURNING externalTasks=%d\n", len(p.externalTasks))
 	return p.externalTasks, nil
 }
 
@@ -928,17 +878,23 @@ func (p *Process) vmStep(tasks ...*Task) ([]*Task, error) {
 			p.yieldBuf = append(p.yieldBuf, task)
 		case lua.ResumeOK:
 			// Capture mainTask's return value before removing
-			if task == p.mainTask && len(values) > 0 {
-				// Check for error in second return value (Go's value, error pattern)
-				if len(values) >= 2 {
-					if err := extractReturnError(values[1]); err != nil {
-						p.result = nil
-						p.execErr = err
-						p.removeTask(task)
-						continue
+			if task == p.mainTask {
+				if len(values) > 0 {
+					// Check for error in second return value (Go's value, error pattern)
+					if len(values) >= 2 {
+						if err := extractReturnError(values[1]); err != nil {
+							p.result = nil
+							p.execErr = err
+							p.removeTask(task)
+							p.killAllThreads()
+							return nil, nil
+						}
 					}
+					p.result = luaconv.ExportPayload(values[0])
 				}
-				p.result = luaconv.ExportPayload(values[0])
+				p.removeTask(task)
+				p.killAllThreads()
+				return nil, nil
 			}
 			p.removeTask(task)
 		case lua.ResumeError:
@@ -977,6 +933,15 @@ func (p *Process) removeTask(task *Task) {
 			return
 		}
 	}
+}
+
+// killAllThreads closes all remaining threads when main completes.
+func (p *Process) killAllThreads() {
+	for _, task := range p.threads {
+		task.Close()
+	}
+	p.threads = p.threads[:0]
+	p.queue.Drain()
 }
 
 // handleSpawnRequest checks if yielded values contain a SpawnRequest and handles it.

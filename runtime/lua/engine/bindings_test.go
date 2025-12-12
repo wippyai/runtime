@@ -145,8 +145,8 @@ func TestChannelMethods(t *testing.T) {
 	err := l.DoString(`
 		local ch = channel.new(2)
 
-		-- Test send to buffered channel
-		local v, ok = ch:send("hello")
+		-- Test send to buffered channel (returns true on success)
+		local ok = ch:send("hello")
 		if not ok then
 			error("send to buffered channel should succeed")
 		end

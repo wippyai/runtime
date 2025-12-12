@@ -208,88 +208,86 @@ func (e *Executor) Run(ctx context.Context, proc process.Process, method string,
 			return result
 		}
 
-		switch e.output.Status() {
-		case process.StepDone:
+		status := e.output.Status()
+
+		// Handle Done first - no yields to dispatch
+		if status == process.StepDone {
 			ret := runtime.Result{Value: e.output.Result()}
 			if e.hooks.OnComplete != nil {
 				e.hooks.OnComplete(ctx, &ret)
 			}
 			return &ret
+		}
+
+		// Dispatch any yields (for all statuses except Done)
+		yields := e.output.Yields()
+		for _, y := range yields {
+			handler := e.dispatcher.Dispatch(y.Cmd)
+			if handler == nil {
+				e.queue.PushDirect(process.Event{
+					Type:  process.EventYieldComplete,
+					Tag:   y.Tag,
+					Error: &process.UnknownCommandError{CmdID: y.Cmd.CmdID()},
+				})
+				continue
+			}
+			if err := handler.Handle(ctx, y.Cmd, y.Tag, e); err != nil {
+				e.queue.PushDirect(process.Event{
+					Type:  process.EventYieldComplete,
+					Tag:   y.Tag,
+					Error: err,
+				})
+			}
+		}
+
+		// Handle status after dispatching yields
+		switch status {
+		case process.StepContinue:
+			// Check if events arrived, otherwise step again immediately
+			if e.queue.HasEvents() {
+				continue
+			}
+			if len(yields) == 0 {
+				// No yields dispatched, step again immediately
+				continue
+			}
+			// Yields were dispatched, wait for completions
+			select {
+			case <-e.wake:
+				continue
+			case <-e.queue.Signal():
+				continue
+			case <-ctx.Done():
+				result := &runtime.Result{Error: ctx.Err()}
+				if e.hooks.OnComplete != nil {
+					e.hooks.OnComplete(ctx, result)
+				}
+				return result
+			}
+
+		case process.StepYield:
+			// Wait for yield completions
+			if e.queue.HasEvents() {
+				continue
+			}
+			select {
+			case <-e.wake:
+				continue
+			case <-e.queue.Signal():
+				continue
+			case <-ctx.Done():
+				result := &runtime.Result{Error: ctx.Err()}
+				if e.hooks.OnComplete != nil {
+					e.hooks.OnComplete(ctx, result)
+				}
+				return result
+			}
 
 		case process.StepIdle:
-			// Check if events arrived during step - if so, continue immediately
+			// Wait for messages
 			if e.queue.HasEvents() {
 				continue
 			}
-			// Wait for wake signal or context cancellation
-			select {
-			case <-e.wake:
-				continue
-			case <-e.queue.Signal():
-				continue
-			case <-ctx.Done():
-				result := &runtime.Result{Error: ctx.Err()}
-				if e.hooks.OnComplete != nil {
-					e.hooks.OnComplete(ctx, result)
-				}
-				return result
-			}
-
-		case process.StepContinue:
-			yields := e.output.Yields()
-			if len(yields) == 0 {
-				// No yields means step again immediately
-				continue
-			}
-
-			// Dispatch yields - pass e as ResultReceiver (zero allocation!)
-			for _, y := range yields {
-				handler := e.dispatcher.Dispatch(y.Cmd)
-				if handler == nil {
-					// Unknown command - complete with error immediately
-					e.queue.PushDirect(process.Event{
-						Type:  process.EventYieldComplete,
-						Tag:   y.Tag,
-						Error: &process.UnknownCommandError{CmdID: y.Cmd.CmdID()},
-					})
-					continue
-				}
-				if err := handler.Handle(ctx, y.Cmd, y.Tag, e); err != nil {
-					// Handler returned error - complete with error
-					e.queue.PushDirect(process.Event{
-						Type:  process.EventYieldComplete,
-						Tag:   y.Tag,
-						Error: err,
-					})
-				}
-			}
-
-			// Check if results are already ready before blocking
-			if e.queue.HasEvents() {
-				continue
-			}
-
-			// Wait for first completion
-			select {
-			case <-e.wake:
-				continue
-			case <-e.queue.Signal():
-				continue
-			case <-ctx.Done():
-				result := &runtime.Result{Error: ctx.Err()}
-				if e.hooks.OnComplete != nil {
-					e.hooks.OnComplete(ctx, result)
-				}
-				return result
-			}
-
-		case process.StepWaitYields:
-			// Process is waiting for previously dispatched yields.
-			// Check if events arrived during step - if so, continue immediately
-			if e.queue.HasEvents() {
-				continue
-			}
-			// Wait for yield completion
 			select {
 			case <-e.wake:
 				continue

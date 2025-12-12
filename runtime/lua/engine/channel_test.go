@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
@@ -44,19 +45,13 @@ func runUntilDone(t *testing.T, proc *Process, maxSteps int) error {
 }
 
 // TestChannelSendReturnValues tests that send returns correct values.
-// OLD behavior: send returns [value, true] when buffered
-// This test verifies compatibility with the old channel semantics.
+// Per spec: send returns true on success (no value returned).
 func TestChannelSendReturnValues(t *testing.T) {
-	// Test: Buffered send should return (value, true)
 	script := `
 		local ch = channel.new(1)
-		local r1, r2 = ch:send("hello")
-		-- Buffered send: OLD returns [value, true]
-		if r1 ~= "hello" then
-			error("buffered send r1: expected 'hello', got " .. tostring(r1))
-		end
-		if r2 ~= true then
-			error("buffered send r2: expected true, got " .. tostring(r2))
+		local ok = ch:send("hello")
+		if ok ~= true then
+			error("buffered send: expected true, got " .. tostring(ok))
 		end
 		return "ok"
 	`
@@ -1462,6 +1457,8 @@ func TestActorPatternWithSubscribe(t *testing.T) {
 	t.Log("Actor pattern with subscribe test passed")
 }
 
+// TestSubscribeWithCoroutineSpawn tests that spawned workers can receive from subscribed channels
+// Note: main returning kills all threads (like Go), so main must block to keep workers alive
 func TestSubscribeWithCoroutineSpawn(t *testing.T) {
 	script := `
 		local inbox = channel.new(10)
@@ -1475,9 +1472,8 @@ func TestSubscribeWithCoroutineSpawn(t *testing.T) {
 			end)
 		end
 
-		for i = 1, 10 do coroutine.yield() end
-
-		return "waiting"
+		-- main blocks to keep workers alive (they're waiting on inbox)
+		inbox:receive()
 	`
 
 	proc := startSubscribeProcess(t, script)
@@ -2822,4 +2818,1206 @@ func TestSelectWakesOnExternalSend(t *testing.T) {
 	}
 
 	t.Logf("Select woke on external send in %d steps", stepCount)
+}
+
+// TestSubscriptionBufferedMessageWakesBlockedTask verifies that when a message
+// arrives on a subscribed buffered channel, tasks blocked on that channel
+// should be woken even if they're not currently in recvq (e.g., after a select
+// completed on a different channel).
+//
+// Scenario:
+// 1. Main does select{result_ch, timer_ch}
+// 2. result_ch gets data first, main continues
+// 3. Main blocks on stop_ch:send (unbuffered)
+// 4. Timer fires, message arrives on timer_ch
+// 5. Expected: Since timer_ch has buffered data, the next receive should get it
+//
+// This test spawns a worker that will receive from stop_ch, allowing main to
+// continue and eventually receive from timer_ch.
+func TestSubscriptionBufferedMessageWakesBlockedTask(t *testing.T) {
+	script := `
+		local timer_ch = channel.new(1)  -- buffered like time.after channel
+		local result_ch = channel.new(1) -- buffered result channel
+		local stop_ch = channel.new(0)   -- unbuffered sync channel
+		local got_timer = false
+
+		subscribe("timer_topic", timer_ch)
+		subscribe("result_topic", result_ch)
+
+		-- Worker that will unblock stop_ch after we signal
+		coroutine.spawn(function()
+			-- Wait for timer message to arrive first
+			local timer_val = timer_ch:receive()
+			-- Now receive from stop_ch to unblock main
+			stop_ch:receive()
+		end)
+
+		-- First: select on result_ch and timer_ch
+		local sel = channel.select{
+			result_ch:case_receive(),
+			timer_ch:case_receive()
+		}
+
+		if sel.channel == result_ch then
+			-- Main got result, now send on stop_ch
+			-- Worker will receive this after timer arrives
+			stop_ch:send("done")
+			got_timer = true
+		end
+
+		return got_timer
+	`
+
+	proc := startSubscribeProcess(t, script)
+	defer proc.Close()
+
+	var output process.StepOutput
+
+	// Run until idle - main blocks on select, worker blocks on timer_ch:receive
+	for i := 0; i < 30; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step error: %v", err)
+		}
+		if output.Status() == process.StepIdle {
+			break
+		}
+	}
+
+	if output.Status() != process.StepIdle {
+		t.Fatalf("Expected idle, got %d", output.Status())
+	}
+
+	// Send result first - wakes main's select
+	if err := sendMessage(proc, "result_topic", &output); err != nil {
+		t.Fatal(err)
+	}
+
+	// Run until idle - main now blocked on stop_ch:send, worker on timer_ch:receive
+	for i := 0; i < 30; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step error: %v", err)
+		}
+		if output.Status() == process.StepIdle || output.Status() == process.StepDone {
+			break
+		}
+	}
+
+	// Send timer message - should wake worker waiting on timer_ch:receive
+	if err := sendMessage(proc, "timer_topic", &output); err != nil {
+		t.Fatal(err)
+	}
+
+	// Process should complete: worker gets timer, receives stop_ch, main unblocks
+	for i := 0; i < 30; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step error: %v", err)
+		}
+		if output.Status() == process.StepDone {
+			t.Log("Process completed successfully")
+			return
+		}
+	}
+
+	t.Fatalf("Process did not complete - stuck in status %d", output.Status())
+}
+
+// TestSelectFlushDoesNotLoseMessages verifies that when a select completes
+// on one channel, messages arriving on other channels in the select are not lost.
+//
+// Bug scenario (from bus_pattern.lua):
+// 1. Main does select{result_ch, timeout_ch} where timeout_ch is subscribed to timer
+// 2. result_ch gets data first, main continues (select flushes timeout_ch from recvq)
+// 3. Main blocks on another channel (stop_ch:send)
+// 4. Timer fires, message sent to timeout_ch via subscription
+// 5. No receiver in timeout_ch's recvq (was flushed by select) -> message goes to buffer
+// 6. Task that SHOULD receive this message is blocked elsewhere
+// 7. Expected: when that task later receives from timeout_ch, it should get the buffered message
+func TestSelectFlushDoesNotLoseMessages(t *testing.T) {
+	script := `
+		local timeout_ch = channel.new(1)  -- buffered like time.after channel
+		local result_ch = channel.new(1)   -- buffered result channel
+		local sync_ch = channel.new(0)     -- unbuffered for sync
+
+		subscribe("timeout_topic", timeout_ch)
+		subscribe("result_topic", result_ch)
+
+		-- Worker that will unblock sync_ch
+		coroutine.spawn(function()
+			-- First wait to ensure main is blocked on sync_ch:send
+			sync_ch:receive()
+			-- Signal done
+			sync_ch:send("ack")
+		end)
+
+		-- Main: select on result_ch and timeout_ch
+		local sel = channel.select{
+			result_ch:case_receive(),
+			timeout_ch:case_receive()
+		}
+
+		-- Result came first, timeout_ch was flushed from select
+		-- But timeout message might arrive later
+		if sel.channel == result_ch then
+			-- Block on sync_ch while timer message might arrive
+			sync_ch:send("sync")
+			-- Wait for ack
+			sync_ch:receive()
+
+			-- Now check if timeout_ch has buffered message
+			-- This should NOT block forever if message is buffered
+			local timeout_val = timeout_ch:receive()
+			if timeout_val ~= nil then
+				return "got_buffered_timeout"
+			end
+		end
+
+		return "no_timeout"
+	`
+
+	proc := startSubscribeProcess(t, script)
+	defer proc.Close()
+
+	var output process.StepOutput
+
+	// Run until idle - main blocks on select, worker blocks on sync_ch:receive
+	for i := 0; i < 30; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step error: %v", err)
+		}
+		if output.Status() == process.StepIdle {
+			break
+		}
+	}
+
+	if output.Status() != process.StepIdle {
+		t.Fatalf("Expected idle after initial setup, got %d", output.Status())
+	}
+
+	// Send result first - wakes main's select, main continues and blocks on sync_ch:send
+	if err := sendMessage(proc, "result_topic", &output); err != nil {
+		t.Fatal(err)
+	}
+
+	// Run until idle - main blocked on sync_ch:send, worker wakes and receives
+	for i := 0; i < 30; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step error: %v", err)
+		}
+		if output.Status() == process.StepIdle || output.Status() == process.StepDone {
+			break
+		}
+	}
+
+	// Now send timeout message - main is NOT in timeout_ch's recvq!
+	// This should go to buffer, but main should still get it when it receives later
+	if err := sendMessage(proc, "timeout_topic", &output); err != nil {
+		t.Fatal(err)
+	}
+
+	// Run to completion
+	for i := 0; i < 50; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step error: %v", err)
+		}
+		if output.Status() == process.StepDone {
+			t.Log("Test completed - buffered message was received")
+			return
+		}
+	}
+
+	t.Fatalf("Process did not complete - stuck in status %d (likely main blocked on timeout_ch:receive but message was lost)", output.Status())
+}
+
+// TestBusPatternWorkerSendsResultThenSelfSignals tests the bus pattern where:
+// 1. Worker receives operation from ops_channel
+// 2. Worker processes and sends result to result_channel (buffered)
+// 3. Worker sends to stop_signal to trigger its own exit on next select iteration
+// 4. Main selects on {result_channel, bus_done, timeout_ch}
+// 5. Main receives result and completes
+// 6. Worker should exit cleanly via stop_signal
+func TestBusPatternWorkerSendsResultThenSelfSignals(t *testing.T) {
+	script := `
+		local ops_channel = channel.new(256)
+		local stop_signal = channel.new(0)   -- unbuffered (matches app test)
+		local bus_done = channel.new(0)      -- unbuffered (matches app test)
+		local result_channel = channel.new(1)
+		local timeout_ch = channel.new(1)
+
+		subscribe("timeout_topic", timeout_ch)
+
+		-- Worker coroutine (simulates bus pattern)
+		coroutine.spawn(function()
+			while true do
+				local result = channel.select{
+					stop_signal:case_receive(),
+					ops_channel:case_receive()
+				}
+
+				if result.channel == stop_signal then
+					bus_done:send(true)
+					return
+				end
+
+				if result.channel == ops_channel then
+					-- Send result (buffered channel - won't block)
+					result_channel:send({success = true})
+
+					-- Send stop signal (buffered - won't block, worker receives on next iteration)
+					stop_signal:send(true)
+				end
+			end
+		end)
+
+		-- Main: send to ops_channel (worker will receive this)
+		ops_channel:send({type = "test_op"})
+
+		-- Main: select on result, bus_done, timeout
+		local final = channel.select{
+			result_channel:case_receive(),
+			bus_done:case_receive(),
+			timeout_ch:case_receive()
+		}
+
+		if final.channel == timeout_ch then
+			return "timeout"
+		end
+
+		if final.channel == result_channel then
+			return "result"
+		end
+
+		if final.channel == bus_done then
+			return "bus_done"
+		end
+
+		return "unknown"
+	`
+
+	proc := startSubscribeProcess(t, script)
+	defer proc.Close()
+
+	var output process.StepOutput
+
+	// Run until idle or done
+	for i := 0; i < 100; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step %d error: %v", i, err)
+		}
+		t.Logf("Step %d: status=%d, threads=%d", i, output.Status(), len(proc.threads))
+
+		if output.Status() == process.StepDone {
+			t.Log("Process completed successfully!")
+			return
+		}
+
+		if output.Status() == process.StepIdle {
+			// Check if we're stuck - main should have completed but worker is blocked
+			t.Logf("Idle at step %d with %d threads", i, len(proc.threads))
+			if len(proc.threads) == 1 {
+				t.Log("DEADLOCK: 1 thread stuck, main completed but worker blocked on stop_signal:send")
+				t.Fatal("Deadlock detected - worker blocked on unbuffered channel send with no receiver")
+			}
+		}
+	}
+
+	t.Fatal("Process did not complete in 100 steps")
+}
+
+// TestAppBusPatternDeadlock reproduces the exact deadlock from app/src/test/coroutine_sql/bus_pattern.lua
+// DO NOT MODIFY THIS TEST - it must match the app behavior exactly
+// Expected: main blocks on select{result_channel, bus_done, timeout}
+//
+//	worker sends to result_channel (buffered)
+//	main should wake and receive from result_channel
+//
+// Bug: main does not wake when worker sends to buffered result_channel
+func TestAppBusPatternDeadlock(t *testing.T) {
+	script := `
+		local ops_channel = channel.new(256)
+		local stop_signal = channel.new(0)
+		local bus_done = channel.new(0)
+		local result_channel = channel.new(1)
+		local timeout_ch = channel.new(1)
+
+		subscribe("timeout_topic", timeout_ch)
+
+		coroutine.spawn(function()
+			while true do
+				local result = channel.select({
+					stop_signal:case_receive(),
+					ops_channel:case_receive()
+				})
+
+				if result.channel == stop_signal then
+					bus_done:send(true)
+					return
+				end
+
+				if result.channel == ops_channel then
+					result_channel:send({success = true, data = "test"})
+					stop_signal:send(true)
+				end
+			end
+		end)
+
+		ops_channel:send({type = "test_op"})
+
+		local final = channel.select({
+			result_channel:case_receive(),
+			bus_done:case_receive(),
+			timeout_ch:case_receive()
+		})
+
+		if final.channel == timeout_ch then
+			return "timeout"
+		end
+
+		if final.channel == result_channel then
+			return "result"
+		end
+
+		if final.channel == bus_done then
+			return "bus_done"
+		end
+
+		return "unknown"
+	`
+
+	proc := startSubscribeProcess(t, script)
+	defer proc.Close()
+
+	var output process.StepOutput
+
+	// Run until done or stuck
+	for i := 0; i < 100; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step %d error: %v", i, err)
+		}
+		t.Logf("Step %d: status=%d, threads=%d", i, output.Status(), len(proc.threads))
+
+		if output.Status() == process.StepDone {
+			t.Log("Process completed - bug is fixed!")
+			return
+		}
+
+		if output.Status() == process.StepIdle {
+			if len(proc.threads) > 0 {
+				t.Logf("DEADLOCK: %d threads stuck at step %d", len(proc.threads), i)
+				t.Fatal("Bug reproduced: main blocked on select but worker sent to result_channel - main should have woken")
+			}
+		}
+	}
+
+	t.Fatal("Process did not complete in 100 steps")
+}
+
+// TestSelectReceiveFromBlockedSender tests select receiving from unbuffered channel
+// where sender is already blocked waiting for receiver.
+func TestSelectReceiveFromBlockedSender(t *testing.T) {
+	script := `
+		local ch = channel.new(0)  -- unbuffered
+		local result_ok = false
+
+		-- Worker sends to unbuffered channel (blocks until receiver)
+		coroutine.spawn(function()
+			ch:send("test_value")
+		end)
+
+		-- Main does select, should receive table with .ok field
+		local result = channel.select({
+			ch:case_receive()
+		})
+
+		-- This must not error with "attempt to index boolean"
+		if result.ok then
+			result_ok = true
+		end
+
+		if result.value ~= "test_value" then
+			error("expected test_value, got " .. tostring(result.value))
+		end
+
+		return result_ok
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	for i := 0; i < 50; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step %d error: %v", i, err)
+		}
+		if output.Status() == process.StepDone {
+			result := output.Result()
+			if result == nil {
+				t.Fatal("expected result, got nil")
+			}
+			// Result could be lua.LBool or bool depending on export
+			switch v := result.Data().(type) {
+			case bool:
+				if !v {
+					t.Fatal("expected true, got false")
+				}
+			case lua.LBool:
+				if !bool(v) {
+					t.Fatal("expected true, got false")
+				}
+			default:
+				t.Fatalf("expected bool, got %v (type %T)", result.Data(), result.Data())
+			}
+			t.Log("Select correctly returned table with .ok field")
+			return
+		}
+	}
+
+	t.Fatal("Process did not complete")
+}
+
+// TestSelectSendToBlockedReceiver tests select sending to unbuffered channel
+// where receiver is already blocked waiting for sender.
+func TestSelectSendToBlockedReceiver(t *testing.T) {
+	script := `
+		local ch = channel.new(0)  -- unbuffered
+		local received_value = nil
+
+		-- Worker receives from unbuffered channel (blocks until sender)
+		coroutine.spawn(function()
+			received_value = ch:receive()
+		end)
+
+		-- Let worker block first
+		coroutine.yield()
+
+		-- Main does select send, should complete and wake receiver
+		local result = channel.select({
+			ch:case_send("test_value")
+		})
+
+		-- Select should return table with .ok field
+		if not result.ok then
+			error("expected ok=true")
+		end
+
+		-- Give worker chance to set received_value
+		coroutine.yield()
+
+		if received_value ~= "test_value" then
+			error("expected test_value, got " .. tostring(received_value))
+		end
+
+		return true
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	for i := 0; i < 50; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step %d error: %v", i, err)
+		}
+		if output.Status() == process.StepDone {
+			result := output.Result()
+			if result == nil {
+				t.Fatal("expected result, got nil")
+			}
+			t.Log("Select send to blocked receiver completed")
+			return
+		}
+	}
+
+	t.Fatal("Process did not complete")
+}
+
+// TestSelectReceiveFromBufferWithBlockedSender tests select receiving from buffered channel
+// when buffer has data AND there's a blocked sender waiting.
+func TestSelectReceiveFromBufferWithBlockedSender(t *testing.T) {
+	script := `
+		local ch = channel.new(1)  -- buffered, capacity 1
+		local sender_done = false
+
+		-- Fill the buffer
+		ch:send("first")
+
+		-- Worker tries to send second value (blocks because buffer full)
+		coroutine.spawn(function()
+			ch:send("second")
+			sender_done = true
+		end)
+
+		-- Let worker block
+		coroutine.yield()
+
+		-- Main does select receive - should get "first" from buffer and wake sender
+		local result = channel.select({
+			ch:case_receive()
+		})
+
+		if not result.ok then
+			error("expected ok=true")
+		end
+
+		if result.value ~= "first" then
+			error("expected first, got " .. tostring(result.value))
+		end
+
+		-- Give sender chance to complete
+		coroutine.yield()
+
+		if not sender_done then
+			error("sender should have completed")
+		end
+
+		-- Buffer should now have "second"
+		local val = ch:receive()
+		if val ~= "second" then
+			error("expected second, got " .. tostring(val))
+		end
+
+		return true
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	for i := 0; i < 50; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step %d error: %v", i, err)
+		}
+		if output.Status() == process.StepDone {
+			result := output.Result()
+			if result == nil {
+				t.Fatal("expected result, got nil")
+			}
+			t.Log("Select receive from buffer with blocked sender completed")
+			return
+		}
+	}
+
+	t.Fatal("Process did not complete")
+}
+
+// TestMainReturnKillsWorkers verifies that when main returns, all spawned workers are killed.
+// This matches Go semantics where main goroutine exit terminates the program.
+func TestMainReturnKillsWorkers(t *testing.T) {
+	script := `
+		local ch = channel.new(0)
+
+		-- Worker that would block forever if not killed
+		coroutine.spawn(function()
+			ch:receive()
+			error("worker should have been killed, not reached here")
+		end)
+
+		-- Main returns immediately, should kill the worker
+		return "main done"
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	for i := 0; i < 10; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step %d error: %v", i, err)
+		}
+		if output.Status() == process.StepDone {
+			// Verify no threads remain
+			if len(proc.GetTasks()) != 0 {
+				t.Fatalf("expected 0 threads after main return, got %d", len(proc.GetTasks()))
+			}
+			t.Log("Main return correctly killed worker threads")
+			return
+		}
+		if output.Status() == process.StepIdle {
+			t.Fatal("should not be idle - main should have completed and killed workers")
+		}
+	}
+
+	t.Fatal("Process did not complete - main return did not kill workers")
+}
+
+// TestSelectInLoopWakesOnExternalSend reproduces the app deadlock where:
+// - Worker has select in a while loop waiting on multiple channels
+// - External send happens to one of the channels
+// - Select should wake and return the value, not re-evaluate from scratch
+// This tests the handoff->select resume path.
+func TestSelectInLoopWakesOnExternalSend(t *testing.T) {
+	script := `
+		local stop_signal = channel.new(0)
+		local inbox = channel.new(0)
+		local result_ch = channel.new(1)
+		local iterations = 0
+
+		-- Worker with select in a loop (like session.process pattern)
+		coroutine.spawn(function()
+			while true do
+				iterations = iterations + 1
+				if iterations > 10 then
+					result_ch:send("loop_limit_exceeded")
+					return
+				end
+
+				local result = channel.select{
+					stop_signal:case_receive(),
+					inbox:case_receive()
+				}
+
+				if result.channel == stop_signal then
+					result_ch:send("stopped")
+					return
+				elseif result.channel == inbox then
+					result_ch:send("inbox:" .. tostring(result.value))
+					return
+				end
+			end
+		end)
+
+		-- Let worker block on select
+		for i = 1, 5 do coroutine.yield() end
+
+		-- External send to inbox - should wake the select
+		inbox:send("test_message")
+
+		-- Wait for worker to process
+		for i = 1, 10 do coroutine.yield() end
+
+		-- Get result from worker
+		local result = result_ch:receive()
+		return result
+	`
+
+	proc := startChannelProcess(t, script)
+	defer proc.Close()
+
+	var output process.StepOutput
+	for i := 0; i < 50; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step %d error: %v", i, err)
+		}
+		if output.Status() == process.StepDone {
+			if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
+				result := proc.mainTask.Yielded[0].String()
+				if result != "inbox:test_message" {
+					t.Errorf("expected 'inbox:test_message', got '%s'", result)
+				} else {
+					t.Log("Select in loop wakes correctly on external send")
+				}
+			}
+			return
+		}
+	}
+
+	t.Fatal("Process did not complete - select in loop did not wake on external send")
+}
+
+// TestSelectInLoopWithSubscribedChannel tests select in loop with external message delivery
+// This more closely matches the app pattern where messages arrive via subscription
+func TestSelectInLoopWithSubscribedChannel(t *testing.T) {
+	script := `
+		local stop_signal = channel.new(0)
+		local inbox = process.subscribe("inbox", 0)
+
+		local result_ch = channel.new(1)
+		local iterations = 0
+
+		-- Worker with select in a loop (like session.process pattern)
+		coroutine.spawn(function()
+			while true do
+				iterations = iterations + 1
+				if iterations > 10 then
+					result_ch:send("loop_limit_exceeded")
+					return
+				end
+
+				local result = channel.select{
+					stop_signal:case_receive(),
+					inbox:case_receive()
+				}
+
+				if result.channel == stop_signal then
+					result_ch:send("stopped")
+					return
+				elseif result.channel == inbox then
+					result_ch:send("inbox:" .. tostring(result.value))
+					return
+				end
+			end
+		end)
+
+		-- Block main waiting for result
+		local result = result_ch:receive()
+		return result
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+		WithModuleBinder(bindProcessModule),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	// Run until idle (select blocks)
+	var output process.StepOutput
+	for i := 0; i < 20; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step %d error: %v", i, err)
+		}
+		if output.Status() == process.StepIdle {
+			break
+		}
+	}
+
+	// Queue message to the topic
+	testPayload := payload.New("test_message")
+	proc.messageQueue = append(proc.messageQueue, queuedMessage{
+		Topic:    "inbox",
+		Source:   testPID("source"),
+		Payloads: []payload.Payload{testPayload},
+	})
+
+	// Continue until done
+	for i := 0; i < 50; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step %d error: %v", i, err)
+		}
+		if output.Status() == process.StepDone {
+			if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
+				result := proc.mainTask.Yielded[0].String()
+				t.Logf("Result: %s", result)
+				if result == "loop_limit_exceeded" {
+					t.Error("Select loop did not wake on external message - got loop_limit_exceeded")
+				}
+			}
+			return
+		}
+	}
+
+	t.Fatal("Process did not complete")
+}
+
+// TestSessionProcessPattern tests a pattern with two coroutines doing selects:
+// - Main loop does select on {inbox, events, bus_done}
+// - Bus worker does select on {stop_signal, ops_channel}
+// Message flow: inbox -> main -> ops_channel -> bus worker
+func TestSessionProcessPattern(t *testing.T) {
+	script := `
+		local ops_channel = channel.new(256)
+		local stop_signal = channel.new(1)
+		local bus_done = channel.new(0)
+		local inbox = process.subscribe("inbox", 0)
+		local events = channel.new(0)
+
+		-- Bus worker coroutine
+		coroutine.spawn(function()
+			local running = true
+			local iteration = 0
+			while running do
+				iteration = iteration + 1
+				if iteration > 20 then
+					return
+				end
+
+				local result = channel.select{
+					stop_signal:case_receive(),
+					ops_channel:case_receive()
+				}
+
+				if result.channel == stop_signal then
+					running = false
+				elseif result.channel == ops_channel then
+					-- Process op and signal stop
+					stop_signal:send(true)
+				end
+			end
+			bus_done:send(true)
+		end)
+
+		-- Main loop does select on {inbox, events, bus_done}
+		local main_iteration = 0
+		while main_iteration < 20 do
+			main_iteration = main_iteration + 1
+
+			local result = channel.select{
+				inbox:case_receive(),
+				events:case_receive(),
+				bus_done:case_receive()
+			}
+
+			if result.channel == inbox then
+				-- Queue message as op to bus
+				ops_channel:send({type = "handle_message", data = result.value})
+			elseif result.channel == bus_done then
+				return "bus_done"
+			end
+		end
+
+		return "main_timeout"
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+		WithModuleBinder(bindProcessModule),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	// Run until idle (waiting for message)
+	var output process.StepOutput
+	for i := 0; i < 30; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step %d error: %v", i, err)
+		}
+		if output.Status() == process.StepIdle {
+			break
+		}
+	}
+
+	// Queue message to inbox
+	testPayload := payload.New(map[string]any{"type": "test"})
+	proc.messageQueue = append(proc.messageQueue, queuedMessage{
+		Topic:    "inbox",
+		Source:   testPID("source"),
+		Payloads: []payload.Payload{testPayload},
+	})
+
+	// Continue until done
+	for i := 0; i < 100; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step %d error: %v", i, err)
+		}
+		if output.Status() == process.StepDone {
+			if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
+				result := proc.mainTask.Yielded[0].String()
+				t.Logf("Result: %s", result)
+				if result == "main_timeout" {
+					t.Error("Main timed out - message not flowing through correctly")
+				} else if result == "bus_done" {
+					t.Log("Two-coroutine select pattern completed successfully")
+				}
+			}
+			return
+		}
+	}
+
+	t.Fatal("Process did not complete")
+}
+
+// TestBusPatternWorkerBlockedThenMainSends reproduces the exact app deadlock:
+// 1. Main yields externally (simulating SQL query)
+// 2. Worker runs, blocks on select{stop_signal, ops_channel} - both empty
+// 3. Task yields ChannelResult{Yields=true, updates=0} and is DROPPED (bug!)
+// 4. Step ends with external yield pending
+// 5. External yield completes, main resumes
+// 6. Main sends to ops_channel (buffered) - data goes to buffer, recvq=0
+// 7. Worker task is lost - never wakes to receive the data
+// 8. Main blocks on select{inbox, events, bus_done} - all empty
+// 9. Process goes IDLE with 2 threads - DEADLOCK
+// busTestYield is an external yield type for testing bus pattern multi-step scenarios.
+// It implements YieldConverter so the engine treats it as an external yield.
+type busTestYield struct {
+	id int
+}
+
+const busTestYieldCmdID dispatcher.CommandID = 9998
+
+func (y *busTestYield) String() string                { return "<bus_test_yield>" }
+func (y *busTestYield) Type() lua.LValueType          { return lua.LTUserData }
+func (y *busTestYield) CmdID() dispatcher.CommandID   { return busTestYieldCmdID }
+func (y *busTestYield) ToCommand() dispatcher.Command { return y }
+func (y *busTestYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+	}
+	if s, ok := data.(string); ok {
+		return []lua.LValue{lua.LString(s), lua.LNil}
+	}
+	return []lua.LValue{lua.LTrue, lua.LNil}
+}
+
+var _ luaapi.YieldConverter = (*busTestYield)(nil)
+var _ luaapi.HandledYield = (*busTestYield)(nil)
+
+func TestBusPatternWorkerBlockedThenMainSends(t *testing.T) {
+	yieldCounter := 0
+	testYieldFunc := func(l *lua.LState) int {
+		yieldCounter++
+		y := &busTestYield{id: yieldCounter}
+		l.Push(y) // push the yield directly, it implements LValue
+		return -1 // yield externally
+	}
+
+	script := `
+		local ops_channel = channel.new(256)  -- buffered
+		local stop_signal = channel.new(1)
+		local bus_done = channel.new(0)
+		local inbox = process.subscribe("inbox", 0)
+		local events = channel.new(0)
+
+		-- Bus worker coroutine
+		coroutine.spawn(function()
+			local iteration = 0
+			while true do
+				iteration = iteration + 1
+				if iteration > 10 then
+					bus_done:send("worker_timeout")
+					return
+				end
+
+				-- Worker blocks here (both channels empty)
+				local result = channel.select{
+					stop_signal:case_receive(),
+					ops_channel:case_receive()
+				}
+
+				if result.channel == stop_signal then
+					bus_done:send("stopped")
+					return
+				elseif result.channel == ops_channel then
+					stop_signal:send(true)
+				end
+			end
+		end)
+
+		-- Main yields externally FIRST - this lets worker run and block
+		-- Simulates SQL query in the real app
+		test_yield()
+
+		-- After external yield completes, main sends to ops_channel
+		-- Worker should wake but can't (task was dropped when it blocked)
+		ops_channel:send({type = "initial_op"})
+
+		-- Main blocks on select
+		local main_iteration = 0
+		while main_iteration < 10 do
+			main_iteration = main_iteration + 1
+
+			local result = channel.select{
+				inbox:case_receive(),
+				events:case_receive(),
+				bus_done:case_receive()
+			}
+
+			if result.channel == inbox then
+				ops_channel:send({type = "handle_message", data = result.value})
+			elseif result.channel == bus_done then
+				return "bus_done:" .. tostring(result.value)
+			end
+		end
+
+		return "main_timeout"
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+		WithModuleBinder(bindProcessModule),
+		WithModuleBinder(func(l *lua.LState) {
+			l.SetGlobal("test_yield", l.NewFunction(testYieldFunc))
+		}),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+
+	// Step 1: Run until we get an external yield
+	// Main will yield externally, worker will spawn and block on select
+	output.Reset()
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatalf("Step 1 error: %v", err)
+	}
+	t.Logf("Step 1: status=%d, threads=%d, pendingYields=%d",
+		output.Status(), len(proc.threads), len(proc.pendingYields))
+
+	// Should have yielded externally (WaitYields status)
+	if output.Status() != process.StepYield {
+		t.Fatalf("Expected StepYield (3), got status=%d", output.Status())
+	}
+	if len(proc.threads) != 2 {
+		t.Fatalf("Expected 2 threads, got %d", len(proc.threads))
+	}
+	t.Log("Phase 1: Main yielded externally, worker should have blocked on select")
+
+	// Get the yield tag to complete it
+	var yieldTag uint64
+	for tag := range proc.pendingYields {
+		yieldTag = tag
+		break
+	}
+
+	// Step 2: Complete the external yield - this resumes main
+	// Main will send to ops_channel, but worker's task was dropped
+	yieldEvent := process.Event{
+		Type: process.EventYieldComplete,
+		Tag:  yieldTag,
+		Data: "yield_done",
+	}
+
+	output.Reset()
+	if err := proc.Step([]process.Event{yieldEvent}, &output); err != nil {
+		t.Fatalf("Step 2 error: %v", err)
+	}
+	t.Logf("Step 2 (after yield complete): status=%d, threads=%d",
+		output.Status(), len(proc.threads))
+
+	// Bug condition: IDLE with 2 threads means deadlock
+	if output.Status() == process.StepIdle && len(proc.threads) == 2 {
+		t.Log("BUG REPRODUCED: IDLE with 2 threads")
+		t.Log("Main sent to ops_channel but worker task was lost")
+		t.Log("Worker blocked on select, task dropped, never re-queued")
+		t.Fatal("Deadlock: worker task lost when it blocked on channel select")
+	}
+
+	// Continue running to see if it completes
+	for i := 0; i < 50; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step %d error: %v", i+3, err)
+		}
+		t.Logf("Step %d: status=%d, threads=%d", i+3, output.Status(), len(proc.threads))
+
+		if output.Status() == process.StepDone {
+			t.Logf("Process completed with result: %v", proc.result)
+			t.Log("SUCCESS: Bug is fixed")
+			return
+		}
+
+		if output.Status() == process.StepIdle && len(proc.threads) == 2 {
+			t.Fatal("Deadlock: IDLE with 2 threads")
+		}
+	}
+
+	t.Fatal("Process did not complete")
+}
+
+// TestSelectSendWakesOnClose tests that select with send case wakes when channel is closed.
+func TestSelectSendWakesOnClose(t *testing.T) {
+	script := `
+		local ch = channel.new(0)
+		local select_result = nil
+		local select_error = nil
+
+		-- Worker does select send (blocks because no receiver)
+		coroutine.spawn(function()
+			local ok, err = pcall(function()
+				select_result = channel.select({
+					ch:case_send("value")
+				})
+			end)
+			if not ok then
+				select_error = err
+			end
+		end)
+
+		-- Let worker block on select
+		coroutine.yield()
+
+		-- Close channel - should wake the blocked select send
+		ch:close()
+
+		-- Let worker process the wake
+		for i = 1, 5 do coroutine.yield() end
+
+		-- Select should have errored or returned with ok=false
+		if select_error then
+			return "error: " .. tostring(select_error)
+		end
+		if select_result and not select_result.ok then
+			return "ok=false"
+		end
+		return "unexpected: " .. tostring(select_result)
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	for i := 0; i < 20; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			// Error from send on closed is expected
+			t.Logf("Process error (expected): %v", err)
+			return
+		}
+		if output.Status() == process.StepDone {
+			t.Log("Select send wakes on close completed")
+			return
+		}
+	}
+
+	t.Fatal("Process did not complete")
 }

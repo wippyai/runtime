@@ -362,7 +362,7 @@ func createProcess(compiled *code.CompiledMain) (process.Process, error) {
 	binders := engine.CoreBinders()
 	binders = append(binders, processmod.BindGlobal)
 
-	// Add module binders for dependencies
+	// Add module binders for dependencies // todo: why the it's here? why it's in manager and not in proper factory?
 	for _, dep := range compiled.Dependencies {
 		if dep.Node != nil && dep.Node.Module != nil {
 			mod := dep.Node.Module
@@ -377,7 +377,7 @@ func createProcess(compiled *code.CompiledMain) (process.Process, error) {
 		if dep.Proto != nil {
 			proto := dep.Proto
 			name := dep.Name
-			binders = append(binders, func(L *lua.LState) {
+			binders = append(binders, func(L *lua.LState) { // wait what??
 				L.PreloadModule(name, func(L *lua.LState) int {
 					fn := L.LoadProto(proto)
 					L.Push(fn)

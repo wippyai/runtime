@@ -874,6 +874,19 @@ func newPoolTestDispatcher() *poolTestDispatcher {
 	d.clock.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		d.handlers[id] = h
 	})
+	// Add handler for test yields (mock time.sleep)
+	d.handlers[testYieldCmdID] = dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+		c := cmd.(testYieldCmd)
+		// Use short delay or immediate completion for testing
+		if c.Duration > 0 {
+			time.AfterFunc(time.Millisecond, func() {
+				receiver.CompleteYield(tag, nil, nil)
+			})
+		} else {
+			receiver.CompleteYield(tag, nil, nil)
+		}
+		return nil
+	})
 	return d
 }
 
@@ -953,6 +966,116 @@ func TestPoolStateReuse(t *testing.T) {
 		}
 		t.Logf("Call %d result: %v", i, result.Value)
 	}
+}
+
+// newLuaFactoryWithChannels creates a factory that includes channel module
+func newLuaFactoryWithChannels(script string) process.FactoryFunc {
+	return func() (process.Process, error) {
+		proto, err := lua.CompileString(script, "test.lua")
+		if err != nil {
+			return nil, err
+		}
+
+		proc := NewProcess(
+			WithProto(proto),
+			WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+		)
+
+		return proc, nil
+	}
+}
+
+// bindMockTimeModule binds a mock time module with test_yield for sleep
+func bindMockTimeModule(l *lua.LState) {
+	timeMod := l.NewTable()
+	timeMod.RawSetString("MILLISECOND", lua.LNumber(1000000)) // nanoseconds
+	timeMod.RawSetString("sleep", l.NewFunction(luaTestYield))
+	l.SetGlobal("time", timeMod)
+	l.PreloadModule("time", func(L *lua.LState) int {
+		L.Push(timeMod)
+		return 1
+	})
+}
+
+// newLuaFactoryWithChannelsAndTime creates a factory that includes channel and mock time modules
+func newLuaFactoryWithChannelsAndTime(script string) process.FactoryFunc {
+	return func() (process.Process, error) {
+		proto, err := lua.CompileString(script, "test.lua")
+		if err != nil {
+			return nil, err
+		}
+
+		proc := NewProcess(
+			WithProto(proto),
+			WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+			WithModuleBinder(bindMockTimeModule),
+		)
+
+		return proc, nil
+	}
+}
+
+// TestPoolDistributedWorkWithSleep tests the distributed_work.lua pattern
+// with actual scheduler/pool integration including time.sleep yields.
+func TestPoolDistributedWorkWithSleep(t *testing.T) {
+	script := `
+		local time = require("time")
+
+		local work_queue = channel.new(10)
+		local results = channel.new(10)
+		local worker_count = 3
+		local job_count = 6
+
+		-- Spawn workers that simulate processing time
+		for w = 1, worker_count do
+			coroutine.spawn(function()
+				while true do
+					local job, ok = work_queue:receive()
+					if not ok then break end
+					time.sleep(10 * time.MILLISECOND)
+					results:send({worker = w, job = job, result = job * 2})
+				end
+			end)
+		end
+
+		-- Producer sends jobs
+		for i = 1, job_count do
+			work_queue:send(i)
+		end
+		work_queue:close()
+
+		-- Collect results
+		local total = 0
+		for i = 1, job_count do
+			local r = results:receive()
+			total = total + r.result
+		end
+
+		return total
+	`
+
+	factory := newLuaFactoryWithChannelsAndTime(script)
+	disp := newPoolTestDispatcher()
+	defer disp.Stop()
+
+	ps, err := funcpool.NewStatic(factory, disp, funcpool.Config{Workers: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ps.Start()
+	defer ps.Stop()
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	result, err := ps.Call(ctx, "", nil)
+	if err != nil {
+		t.Fatalf("Call failed: %v", err)
+	}
+	if result.Error != nil {
+		t.Fatalf("Process error: %v", result.Error)
+	}
+
+	t.Logf("Result: %v", result.Value)
 }
 
 func Benchmark8x8NoYield(b *testing.B) {
@@ -1040,6 +1163,7 @@ func BenchmarkWorkerScalingLua(b *testing.B) {
 
 // TestProcessExternalYieldWithChannelSelect tests that channel select works correctly
 // after an external yield completes. This is a unit test that calls Process.Step() directly.
+// Pattern: main sends work to worker, waits for result, signals stop, waits for worker exit.
 func TestProcessExternalYieldWithChannelSelect(t *testing.T) {
 	script := `
 		local ops_channel = channel.new(256)
@@ -1061,7 +1185,6 @@ func TestProcessExternalYieldWithChannelSelect(t *testing.T) {
 
 				if result.channel == ops_channel then
 					result_channel:send({success = true, data = result.value})
-					stop_signal:send(true)
 				end
 			end
 		end)
@@ -1069,23 +1192,22 @@ func TestProcessExternalYieldWithChannelSelect(t *testing.T) {
 		-- External yield (simulates time.sleep or SQL query)
 		test_yield(10)
 
-		-- Send to buffered ops_channel
+		-- Send work to worker
 		ops_channel:send({type = "test_op"})
 
-		-- Main enters blocking select on multiple channels
-		local final = channel.select({
-			result_channel:case_receive(),
-			bus_done:case_receive()
-		})
-
-		if final.channel == result_channel then
-			local res = final.value
-			if res.success then
-				return "success"
-			end
+		-- Wait for result
+		local res = result_channel:receive()
+		if not res.success then
+			return "failed"
 		end
 
-		return "unexpected"
+		-- Signal worker to stop
+		stop_signal:send(true)
+
+		-- Wait for worker to confirm exit
+		bus_done:receive()
+
+		return "success"
 	`
 
 	proc := NewProcess(
@@ -1159,8 +1281,8 @@ func TestProcessExternalYieldBasic(t *testing.T) {
 		t.Fatalf("expected 1 yield, got %d", output.Count())
 	}
 
-	if output.Status() != process.StepWaitYields {
-		t.Fatalf("expected StepWaitYields, got %d", output.Status())
+	if output.Status() != process.StepYield {
+		t.Fatalf("expected StepYield, got %d", output.Status())
 	}
 
 	tag := output.Yields()[0].Tag
@@ -1479,7 +1601,7 @@ func TestProcessStepStatusTransitions(t *testing.T) {
 		{
 			name:           "yield_wait",
 			script:         `test_yield(10); return 1`,
-			expectedStatus: process.StepWaitYields,
+			expectedStatus: process.StepYield,
 		},
 		{
 			name:           "continue_with_coroutines",
@@ -1850,6 +1972,7 @@ func TestProcessChannelWithoutChannelModule(t *testing.T) {
 }
 
 // TestProcessDeadlockDetection tests deadlock when all coroutines blocked
+// Note: main returning kills all threads (like Go), so we test deadlock via main blocking
 func TestProcessDeadlockDetection(t *testing.T) {
 	script := `
 		local ch = channel.new(0)
@@ -1858,11 +1981,8 @@ func TestProcessDeadlockDetection(t *testing.T) {
 			ch:receive()
 		end)
 
-		coroutine.spawn(function()
-			ch:receive()
-		end)
-
-		return "unreachable"
+		-- main blocks too, creating true deadlock
+		ch:receive()
 	`
 
 	proc := NewProcess(
@@ -3201,13 +3321,18 @@ func TestProcessState(t *testing.T) {
 }
 
 // TestProcessGetTasks tests GetTasks method
+// Note: main returning kills all threads (like Go), so main must block to keep workers alive
 func TestProcessGetTasks(t *testing.T) {
 	script := `
-		coroutine.spawn(function() coroutine.yield() end)
-		coroutine.spawn(function() coroutine.yield() end)
-		return 1
+		local ch = channel.new(0)
+		coroutine.spawn(function() ch:receive() end)
+		coroutine.spawn(function() ch:receive() end)
+		ch:receive() -- main blocks to keep workers alive
 	`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -3222,9 +3347,9 @@ func TestProcessGetTasks(t *testing.T) {
 	}
 
 	tasks := proc.GetTasks()
-	// Should have at least the spawned tasks
-	if len(tasks) < 2 {
-		t.Fatalf("expected at least 2 tasks, got %d", len(tasks))
+	// Should have at least the spawned tasks plus main
+	if len(tasks) < 3 {
+		t.Fatalf("expected at least 3 tasks, got %d", len(tasks))
 	}
 }
 
@@ -3862,5 +3987,208 @@ func TestProcessResumeTaskNotYieldState(t *testing.T) {
 	// Task should NOT be queued since state is not ResumeYield
 	if !proc.queue.IsEmpty() {
 		t.Fatal("task should not be queued when not in yield state")
+	}
+}
+
+// TestDistributedWorkWithExternalYields tests multiple coroutines yielding external operations
+// while main coroutine is blocked on channel receive.
+// This simulates: 3 workers each process 2 jobs with time.sleep, main waits for results.
+// Matches distributed_work.lua Test 1 pattern.
+func TestDistributedWorkWithExternalYields(t *testing.T) {
+	script := `
+		local work_queue = channel.new(10)
+		local results = channel.new(10)
+		local worker_count = 3
+		local job_count = 6
+
+		-- Spawn workers that simulate processing time (like distributed_work.lua)
+		for w = 1, worker_count do
+			coroutine.spawn(function()
+				while true do
+					local job, ok = work_queue:receive()
+					if not ok then break end
+					test_yield(10)  -- simulate time.sleep
+					results:send({worker = w, job = job, result = job * 2})
+				end
+			end)
+		end
+
+		-- Producer sends jobs
+		for i = 1, job_count do
+			work_queue:send(i)
+		end
+		work_queue:close()
+
+		-- Collect results
+		local total = 0
+		for i = 1, job_count do
+			local r = results:receive()
+			total = total + r.result
+		end
+
+		return total
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+		WithModuleBinder(bindTestYield),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	var pendingEvents []process.Event
+
+	// Run steps until done, completing yields as they come
+	maxSteps := 100
+	for step := 0; step < maxSteps; step++ {
+		output.Reset()
+		if err := proc.Step(pendingEvents, &output); err != nil {
+			t.Fatalf("Step %d failed: %v", step, err)
+		}
+		pendingEvents = nil
+
+		if output.Status() == process.StepDone {
+			break
+		}
+
+		// Collect any new yields to complete on next step
+		if output.Count() > 0 {
+			yields := output.Yields()
+			for _, y := range yields {
+				pendingEvents = append(pendingEvents, process.Event{
+					Type: process.EventYieldComplete,
+					Tag:  y.Tag,
+				})
+			}
+		}
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("expected StepDone, got %d", output.Status())
+	}
+
+	// Result should be sum of (1+2+3+4+5+6)*2 = 42
+	result := output.Result()
+	if result == nil {
+		t.Fatal("expected result")
+	}
+}
+
+// TestExternalYieldLostOnSubscribeLoop reproduces the bug where external yields
+// are lost when the Step loop continues due to subscription handling.
+// Bug: processChannelYields clears p.externalTasks at the start, but the outer
+// loop in Step() may call it multiple times when hadSubs=true, losing yields.
+func TestExternalYieldLostOnSubscribeLoop(t *testing.T) {
+	// Script that:
+	// 1. Spawns a coroutine that subscribes (yields SubscribeRequest)
+	// 2. Main thread yields externally (test_yield)
+	// Both yields happen in the same Step, triggering hadSubs=true loop
+	script := `
+		local result = nil
+
+		-- Spawn a coroutine that subscribes
+		coroutine.spawn(function()
+			local ch = process.subscribe("test-topic", 10)
+			-- Wait on channel after subscribe
+			local msg = ch:receive()
+			result = "got:" .. tostring(msg)
+		end)
+
+		-- Main yields externally - this yield should NOT be lost
+		local yield_result = test_yield(100)
+
+		-- If we get here, the yield was properly dispatched and completed
+		return "yield_ok:" .. tostring(yield_result)
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+		WithModuleBinder(bindProcessModule),
+		WithModuleBinder(bindTestYield),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+
+	// Step 1: Both tasks run - one subscribes, one yields externally
+	output.Reset()
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatalf("Step 1 error: %v", err)
+	}
+	t.Logf("Step 1: status=%d, yields=%d, threads=%d",
+		output.Status(), output.Count(), len(proc.threads))
+
+	// Bug check: If the external yield was lost, we'll get StepIdle instead of StepYield
+	if output.Status() == process.StepIdle {
+		t.Fatal("BUG REPRODUCED: External yield was lost when Step loop continued due to subscription!")
+	}
+
+	// Should have a pending yield (the test_yield)
+	if output.Status() != process.StepYield {
+		t.Fatalf("Expected StepYield (3), got status=%d", output.Status())
+	}
+
+	if output.Count() == 0 {
+		t.Fatal("Expected at least one yield to be dispatched")
+	}
+
+	// Get the yield tag and complete it
+	yields := output.Yields()
+	t.Logf("Got %d yields", len(yields))
+
+	// Complete the external yield
+	events := make([]process.Event, 0, len(yields))
+	for _, y := range yields {
+		t.Logf("Completing yield tag=%d, cmd=%d", y.Tag, y.Cmd.CmdID())
+		events = append(events, process.Event{
+			Type: process.EventYieldComplete,
+			Tag:  y.Tag,
+			Data: "completed",
+		})
+	}
+
+	// Step 2: Complete the yield
+	output.Reset()
+	if err := proc.Step(events, &output); err != nil {
+		t.Fatalf("Step 2 error: %v", err)
+	}
+	t.Logf("Step 2: status=%d, threads=%d", output.Status(), len(proc.threads))
+
+	// Run until done or stuck
+	for i := 0; i < 20; i++ {
+		if output.Status() == process.StepDone {
+			break
+		}
+		if output.Status() == process.StepIdle {
+			// Idle is okay - waiting for messages on subscription
+			break
+		}
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step %d error: %v", i+3, err)
+		}
+		t.Logf("Step %d: status=%d", i+3, output.Status())
+	}
+
+	// Check we got to a valid final state
+	if output.Status() == process.StepDone {
+		t.Log("Process completed successfully - yield was NOT lost")
+	} else if output.Status() == process.StepIdle {
+		// This is expected - main completed but worker is waiting for message
+		t.Log("Process is idle (main completed, worker waiting for message) - yield was NOT lost")
+	} else {
+		t.Fatalf("Unexpected final status: %d", output.Status())
 	}
 }

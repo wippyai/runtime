@@ -857,3 +857,83 @@ entries:
       - uuid
     imports:
       assert2: app.lib:assert
+
+  # process.id and process.pid tests
+  - name: process_id
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: process.id returns registry ID
+    source: file://process_id.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: process_pid
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: process.pid returns PID
+    source: file://process_pid.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  # process options tests
+  - name: options_test
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: process.get_options and set_options
+    source: file://options_test.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  # explicit link/unlink tests
+  - name: link_explicit_worker
+    kind: process.lua
+    meta:
+      comment: Worker that explicitly links to target PID
+    source: file://link_explicit_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: link_explicit
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: process.link explicit function
+    source: file://link_explicit.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: unlink_test_worker
+    kind: process.lua
+    meta:
+      comment: Worker that links then unlinks
+    source: file://unlink_test_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: unlink_explicit
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: process.unlink explicit function
+    source: file://unlink_explicit.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert

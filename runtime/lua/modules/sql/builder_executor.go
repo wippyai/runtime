@@ -14,6 +14,7 @@ const queryExecutorTypeName = "sql.QueryExecutor"
 
 type queryExecutorWrapper struct {
 	db    *sql.DB
+	tx    *sql.Tx
 	query string
 	args  []any
 }
@@ -36,31 +37,59 @@ func newQueryExecutorFromSelect(l *lua.LState, dbWrapper *DB, builder squirrel.S
 	if dbWrapper.dbType == servicesql.KindPostgres {
 		builder = builder.PlaceholderFormat(squirrel.Dollar)
 	}
-	return newQueryExecutorFromSqlizer(l, dbWrapper.db, builder)
+	return newQueryExecutorFromSqlizer(l, dbWrapper.db, nil, builder)
 }
 
 func newQueryExecutorFromInsert(l *lua.LState, dbWrapper *DB, builder squirrel.InsertBuilder) int {
 	if dbWrapper.dbType == servicesql.KindPostgres {
 		builder = builder.PlaceholderFormat(squirrel.Dollar)
 	}
-	return newQueryExecutorFromSqlizer(l, dbWrapper.db, builder)
+	return newQueryExecutorFromSqlizer(l, dbWrapper.db, nil, builder)
 }
 
 func newQueryExecutorFromUpdate(l *lua.LState, dbWrapper *DB, builder squirrel.UpdateBuilder) int {
 	if dbWrapper.dbType == servicesql.KindPostgres {
 		builder = builder.PlaceholderFormat(squirrel.Dollar)
 	}
-	return newQueryExecutorFromSqlizer(l, dbWrapper.db, builder)
+	return newQueryExecutorFromSqlizer(l, dbWrapper.db, nil, builder)
 }
 
 func newQueryExecutorFromDelete(l *lua.LState, dbWrapper *DB, builder squirrel.DeleteBuilder) int {
 	if dbWrapper.dbType == servicesql.KindPostgres {
 		builder = builder.PlaceholderFormat(squirrel.Dollar)
 	}
-	return newQueryExecutorFromSqlizer(l, dbWrapper.db, builder)
+	return newQueryExecutorFromSqlizer(l, dbWrapper.db, nil, builder)
 }
 
-func newQueryExecutorFromSqlizer(l *lua.LState, db *sql.DB, builder squirrel.Sqlizer) int {
+func newQueryExecutorFromSelectTx(l *lua.LState, txWrapper *Transaction, builder squirrel.SelectBuilder) int {
+	if txWrapper.GetDBType() == servicesql.KindPostgres {
+		builder = builder.PlaceholderFormat(squirrel.Dollar)
+	}
+	return newQueryExecutorFromSqlizer(l, nil, txWrapper.tx, builder)
+}
+
+func newQueryExecutorFromInsertTx(l *lua.LState, txWrapper *Transaction, builder squirrel.InsertBuilder) int {
+	if txWrapper.GetDBType() == servicesql.KindPostgres {
+		builder = builder.PlaceholderFormat(squirrel.Dollar)
+	}
+	return newQueryExecutorFromSqlizer(l, nil, txWrapper.tx, builder)
+}
+
+func newQueryExecutorFromUpdateTx(l *lua.LState, txWrapper *Transaction, builder squirrel.UpdateBuilder) int {
+	if txWrapper.GetDBType() == servicesql.KindPostgres {
+		builder = builder.PlaceholderFormat(squirrel.Dollar)
+	}
+	return newQueryExecutorFromSqlizer(l, nil, txWrapper.tx, builder)
+}
+
+func newQueryExecutorFromDeleteTx(l *lua.LState, txWrapper *Transaction, builder squirrel.DeleteBuilder) int {
+	if txWrapper.GetDBType() == servicesql.KindPostgres {
+		builder = builder.PlaceholderFormat(squirrel.Dollar)
+	}
+	return newQueryExecutorFromSqlizer(l, nil, txWrapper.tx, builder)
+}
+
+func newQueryExecutorFromSqlizer(l *lua.LState, db *sql.DB, tx *sql.Tx, builder squirrel.Sqlizer) int {
 	query, args, err := builder.ToSql()
 	if err != nil {
 		l.Push(lua.LNil)
@@ -70,6 +99,7 @@ func newQueryExecutorFromSqlizer(l *lua.LState, db *sql.DB, builder squirrel.Sql
 
 	wrapper := &queryExecutorWrapper{
 		db:    db,
+		tx:    tx,
 		query: query,
 		args:  args,
 	}
@@ -114,6 +144,15 @@ func executorExec(l *lua.LState) int {
 		return 0
 	}
 
+	if wrapper.tx != nil {
+		yield := AcquireTxExecuteYield()
+		yield.Tx = wrapper.tx
+		yield.Query = wrapper.query
+		yield.Params = wrapper.args
+		l.Push(yield)
+		return -1
+	}
+
 	yield := AcquireExecuteYield()
 	yield.DB = wrapper.db
 	yield.Query = wrapper.query
@@ -126,6 +165,15 @@ func executorQuery(l *lua.LState) int {
 	wrapper := checkQueryExecutor(l)
 	if wrapper == nil {
 		return 0
+	}
+
+	if wrapper.tx != nil {
+		yield := AcquireTxQueryYield()
+		yield.Tx = wrapper.tx
+		yield.Query = wrapper.query
+		yield.Params = wrapper.args
+		l.Push(yield)
+		return -1
 	}
 
 	yield := AcquireQueryYield()

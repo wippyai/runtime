@@ -492,6 +492,8 @@ func futureCancelImpl(l *lua.LState) int {
 		return 0
 	}
 
+	f.MarkCanceled()
+
 	yield := AcquireAsyncCancelYield()
 	yield.AsyncCancelCmd.Topic = f.Topic
 	l.Push(yield)
