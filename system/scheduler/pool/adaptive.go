@@ -2,7 +2,6 @@ package pool
 
 import (
 	"context"
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,6 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	"go.uber.org/zap"
 )
 
 // Controller states for the hill-climbing state machine.
@@ -71,6 +71,7 @@ type Adaptive struct {
 	factory    process.FactoryFunc
 	dispatcher dispatcher.Dispatcher
 	hooks      ExecutionHooks
+	log        *zap.Logger
 
 	// Configuration (set via functional options)
 	minWorkers                 int
@@ -395,6 +396,13 @@ func WithExecutionHooks(hooks ExecutionHooks) AdaptiveOption {
 	}
 }
 
+// WithLogger sets the logger for the adaptive pool.
+func WithLogger(log *zap.Logger) AdaptiveOption {
+	return func(a *Adaptive) {
+		a.log = log
+	}
+}
+
 // NewAdaptive creates an adaptive pool that scales workers based on throughput.
 //
 // The pool uses hill-climbing optimization: it probes by adding workers, measures
@@ -465,12 +473,18 @@ func NewAdaptive(factory process.FactoryFunc, d dispatcher.Dispatcher, opts ...A
 // Start launches the pool and begins accepting calls.
 func (a *Adaptive) Start() {
 	a.startOnce.Do(func() {
-		log.Printf("[adaptive] starting pool: min=%d max=%d queue=%d",
-			a.minWorkers, a.maxWorkers, cap(a.tasks))
+		if a.log != nil {
+			a.log.Info("starting pool",
+				zap.Int("min", a.minWorkers),
+				zap.Int("max", a.maxWorkers),
+				zap.Int("queue", cap(a.tasks)))
+		}
 
 		for i := 0; i < a.minWorkers; i++ {
 			if err := a.spawnWorker(); err != nil {
-				log.Printf("[adaptive] failed to spawn initial worker: %v", err)
+				if a.log != nil {
+					a.log.Error("failed to spawn initial worker", zap.Error(err))
+				}
 				break
 			}
 		}
@@ -502,7 +516,9 @@ func (a *Adaptive) Stop() {
 	a.workers = nil
 	a.mu.Unlock()
 
-	log.Printf("[adaptive] pool stopped")
+	if a.log != nil {
+		a.log.Info("pool stopped")
+	}
 }
 
 // EMA returns the current exponential moving average throughput (for testing/debugging).
@@ -680,9 +696,6 @@ func (a *Adaptive) control() {
 	}
 
 	inCooldown := now.Before(a.cooldownUntil)
-	log.Printf("[adaptive] workers=%d/%d busy=%d idle=%d queue=%d/%d (%.0f%%) | throughput=%.0f ema=%.0f | state=%d learned=%d@%.0f qTicks=%d idleHist=%d cooldown=%v",
-		workers, a.maxWorkers, busy, idle, queueLen, cap(a.tasks), queuePct*100, throughput, a.ema, a.state, a.learnedWorkers, a.learnedThroughput, a.highQueueTicks, a.recentIdleTicks, inCooldown)
-
 	if inCooldown {
 		return
 	}
@@ -723,13 +736,18 @@ func (a *Adaptive) handleStable(workers, idle int32, queueLen int) {
 							break
 						}
 					}
-					log.Printf("[adaptive] AGGRESSIVE scale DOWN: removed %d workers (%.0f%% idle) -> %d workers",
-						removed, idleRatio*100, a.workerCount.Load())
+					if a.log != nil {
+						a.log.Debug("aggressive scale down",
+							zap.Int("removed", removed),
+							zap.Float64("idleRatio", idleRatio),
+							zap.Int32("workers", a.workerCount.Load()))
+					}
 				}
 			} else {
-				// Normal scale-down: remove one worker
 				a.removeWorker()
-				log.Printf("[adaptive] scaled DOWN (idle) -> %d workers", a.workerCount.Load())
+				if a.log != nil {
+					a.log.Debug("scale down", zap.Int32("workers", a.workerCount.Load()))
+				}
 			}
 
 			a.idleTicks = 0
@@ -752,7 +770,6 @@ func (a *Adaptive) handleStable(workers, idle int32, queueLen int) {
 		// 3. Significant backlog with all workers busy (requests waiting > workers/2)
 		significantBacklog := queueLen > int(workers)/2
 		if a.highQueueTicks >= a.queuePressureOverrideTicks || queuePct > 0.90 || significantBacklog {
-			log.Printf("[adaptive] queue pressure override (qTicks=%d queuePct=%.0f%% backlog=%d)", a.highQueueTicks, queuePct*100, queueLen)
 			learningValid = false
 			a.highQueueTicks = 0
 		}
@@ -781,7 +798,12 @@ func (a *Adaptive) handleStable(workers, idle int32, queueLen int) {
 			}
 			a.learnedWorkers = a.workerCount.Load()
 			a.cooldownUntil = time.Now().Add(a.scaleDownCooldown)
-			log.Printf("[adaptive] HIGH-SCALE: added %d workers (backlog=%d) -> %d workers", added, queueLen, a.workerCount.Load())
+			if a.log != nil {
+				a.log.Debug("high-scale add",
+					zap.Int("added", added),
+					zap.Int("backlog", queueLen),
+					zap.Int32("workers", a.workerCount.Load()))
+			}
 			return
 		}
 
@@ -790,8 +812,12 @@ func (a *Adaptive) handleStable(workers, idle int32, queueLen int) {
 		a.state = stateProbing
 		a.spawnWorker()
 		a.cooldownUntil = time.Now().Add(a.probeCooldown)
-		log.Printf("[adaptive] PROBING UP -> %d workers (baseline=%.0f queue=%d, learned=%d@%.0f)",
-			a.workerCount.Load(), a.baseline, a.baselineQueue, a.learnedWorkers, a.learnedThroughput)
+		if a.log != nil {
+			a.log.Debug("probing up",
+				zap.Int32("workers", a.workerCount.Load()),
+				zap.Float64("baseline", a.baseline),
+				zap.Int("queue", a.baselineQueue))
+		}
 	}
 }
 
@@ -830,8 +856,6 @@ func (a *Adaptive) handleProbing(workers int32) {
 		(highScale && queueImproved && noRegression && allBusy) // queue going down = worker helping
 
 	if success {
-		log.Printf("[adaptive] probe SUCCESS: %.1f%% improvement (%.0f%% efficiency), queue %d->%d",
-			improvement*100, efficiency*100, a.baselineQueue, queueLen)
 		a.state = stateStable
 		a.learnedWorkers = workers
 		a.learnedThroughput = a.ema
@@ -853,15 +877,12 @@ func (a *Adaptive) handleProbing(workers int32) {
 				}
 			}
 			if predictedJump > 0 {
-				log.Printf("[adaptive] BURST: added %d workers (streak=%d) -> %d workers",
-					predictedJump, a.consecutiveSuccess, a.workerCount.Load())
 				a.learnedWorkers = a.workerCount.Load()
 			}
 		}
 
 		a.cooldownUntil = time.Now().Add(a.probeCooldown / time.Duration(a.successCooldownDivisor))
 	} else {
-		log.Printf("[adaptive] probe FAILED: %.1f%% change, queue %d->%d", improvement*100, a.baselineQueue, queueLen)
 		a.removeWorker()
 		a.learnedWorkers = workers - 1
 		a.learnedThroughput = a.ema

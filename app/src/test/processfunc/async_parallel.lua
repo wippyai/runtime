@@ -16,13 +16,13 @@ local function main()
     assert.is_nil(err3, "async 3 no error")
 
     -- Wait for all
-    local r1 = f1:await()
-    local r2 = f2:await()
-    local r3 = f3:await()
+    local p1 = f1:response():receive()
+    local p2 = f2:response():receive()
+    local p3 = f3:response():receive()
 
-    assert.eq(r1.completed, true, "r1 completed")
-    assert.eq(r2.completed, true, "r2 completed")
-    assert.eq(r3.completed, true, "r3 completed")
+    assert.eq(p1:data().completed, true, "r1 completed")
+    assert.eq(p2:data().completed, true, "r2 completed")
+    assert.eq(p3:data().completed, true, "r3 completed")
 
     -- Total time should be ~50ms (parallel), not ~150ms (sequential)
     local elapsed = time.now():sub(start)

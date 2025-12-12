@@ -28,9 +28,8 @@ local function main()
     assert.eq(err:kind(), errors.PERMISSION_DENIED, "PERMISSION_DENIED kind via executor")
 
     -- Test async error propagation preserves kind
-    -- future:await() returns channel semantics (value, ok) where value is error on failure
     local future = funcs.async("app.test.funcs:error_with_kind", errors.INTERNAL, "internal failure")
-    local aerr, ok = future:await()
+    local aerr, ok = future:response():receive()
     assert.eq(ok, true, "channel ok is true when value received")
     assert.not_nil(aerr, "error from async")
     assert.eq(aerr:kind(), errors.INTERNAL, "INTERNAL kind via async")

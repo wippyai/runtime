@@ -36,9 +36,9 @@ local function main()
     assert.eq(is_fast or is_slow, true, "result channel is one of the expected channels")
 
     -- Wait for slow one too
-    local slow_result = slow:await()
-    assert.not_nil(slow_result, "slow result available")
-    assert.eq(slow_result.value, "slow", "slow result correct")
+    local slow_payload = slow:response():receive()
+    assert.not_nil(slow_payload, "slow result available")
+    assert.eq(slow_payload:data().value, "slow", "slow result correct")
 
     return true
 end

@@ -19,13 +19,13 @@ local function main()
     assert.is_nil(err3, "multiply_async no error")
     assert.not_nil(future2, "got future from multiply_async")
 
-    -- Await first result
-    local result1 = future1:await()
-    assert.eq(result1, 30, "add_async 10+20=30")
+    -- Receive first result
+    local p1 = future1:response():receive()
+    assert.eq(p1:data(), 30, "add_async 10+20=30")
 
-    -- Await second result
-    local result2 = future2:await()
-    assert.eq(result2, 30, "multiply_async 5*6=30")
+    -- Receive second result
+    local p2 = future2:response():receive()
+    assert.eq(p2:data(), 30, "multiply_async 5*6=30")
 
     -- Test multiple async calls in parallel
     local greeter, err6 = contract.open("app.test.contract:greeter_impl")
@@ -35,14 +35,14 @@ local function main()
     local f2, _ = greeter:greet_with_name_async("Bob")
     local f3, _ = calc:add_async(100, 200)
 
-    -- Await all
-    local r1 = f1:await()
-    local r2 = f2:await()
-    local r3 = f3:await()
+    -- Receive all
+    local r1 = f1:response():receive()
+    local r2 = f2:response():receive()
+    local r3 = f3:response():receive()
 
-    assert.eq(r1, "Hello, World!", "parallel greet")
-    assert.eq(r2, "Hello, Bob!", "parallel greet_with_name")
-    assert.eq(r3, 300, "parallel add")
+    assert.eq(r1:data(), "Hello, World!", "parallel greet")
+    assert.eq(r2:data(), "Hello, Bob!", "parallel greet_with_name")
+    assert.eq(r3:data(), 300, "parallel add")
 
     return true
 end

@@ -7,10 +7,11 @@ local function main()
     local future = funcs.async("app.test.funcs:error_func", true, "async error test")
     assert.not_nil(future, "future created for error case")
 
-    -- Await should return result and error (result may contain error details)
-    local result, err = future:await()
-    -- On error, we expect err to be non-nil
-    assert.not_nil(err, "error returned from await")
+    -- Receive returns error payload
+    local result, ok = future:response():receive()
+    assert.eq(ok, true, "channel ok")
+    -- On error, result is an error object
+    assert.not_nil(result, "error payload returned")
 
     -- After error completion, is_complete is true
     local complete = future:is_complete()

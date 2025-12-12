@@ -12,10 +12,11 @@ local function main()
         futures[i] = funcs.async("app.test.funcs:slow", 100, "task-" .. i)
     end
 
-    -- Await all
+    -- Receive all
     local results = {}
     for i, f in ipairs(futures) do
-        results[i] = f:await()
+        local payload = f:response():receive()
+        results[i] = payload:data()
     end
 
     local elapsed = time.now():sub(start)

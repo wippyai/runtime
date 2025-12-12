@@ -23,9 +23,9 @@ local function main()
     assert.is_nil(err, "error() returns nil when not complete")
 
     -- Wait for completion
-    local result = future:await()
-    assert.not_nil(result, "await returns result")
-    assert.eq(result.delayed, true, "result is from slow func")
+    local payload = future:response():receive()
+    assert.not_nil(payload, "receive returns payload")
+    assert.eq(payload:data().delayed, true, "result is from slow func")
 
     -- After completion, is_complete returns true
     complete = future:is_complete()
