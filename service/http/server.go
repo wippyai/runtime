@@ -43,6 +43,7 @@ type ServerService struct {
 	mu            sync.RWMutex
 	statusChan    chan any
 	started       atomic.Bool              // Track if server has been started
+	shutdownOnce  sync.Once                // Ensure shutdown goroutine starts only once
 	mountPaths    map[registry.ID]string   // Track mount paths by Source
 	host          relay.AttachableReceiver // pubsub host
 	middlewareFac MiddlewareAPI            // Middleware factory
@@ -273,19 +274,21 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 		return nil, NewStartupCheckError(err)
 	}
 
-	// Handle shutdown via context
-	go func() {
-		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
+	// Handle shutdown via context (only once)
+	s.shutdownOnce.Do(func() {
+		go func() {
+			<-ctx.Done()
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
 
-		if err := s.Stop(shutdownCtx); err != nil {
-			select {
-			case s.statusChan <- NewShutdownError(err):
-			default:
+			if err := s.Stop(shutdownCtx); err != nil {
+				select {
+				case s.statusChan <- NewShutdownError(err):
+				default:
+				}
 			}
-		}
-	}()
+		}()
+	})
 
 	select {
 	case s.statusChan <- fmt.Sprintf("service listening on %s", s.config.Addr):

@@ -55,7 +55,8 @@ type Connection struct {
 	readDone chan struct{}
 
 	// Close handling
-	closeReason string
+	closeOnce   sync.Once
+	closeReason atomic.Value
 
 	// Logger
 	logger *zap.Logger
@@ -597,13 +598,14 @@ func (c *Connection) sendHeartbeat() {
 
 // Close closes the WebSocket connection with the specified reason
 func (c *Connection) Close(reason string) {
-	// Store the reason for later use in the notify
-	c.closeReason = reason
+	c.closeOnce.Do(func() {
+		c.closeReason.Store(reason)
 
-	if err := c.conn.Close(websocket.StatusNormalClosure, reason); err != nil {
-		c.logger.Error("error closing WebSocket connection", zap.Error(err))
-	}
-	c.cancelCtx()
+		if err := c.conn.Close(websocket.StatusNormalClosure, reason); err != nil {
+			c.logger.Error("error closing WebSocket connection", zap.Error(err))
+		}
+		c.cancelCtx()
+	})
 }
 
 // cleanup performs cleanup operations when the connection is closed

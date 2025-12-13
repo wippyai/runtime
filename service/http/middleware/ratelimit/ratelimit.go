@@ -38,8 +38,7 @@ const (
 
 // Manager manages rate limiter stores with proper lifecycle management
 type Manager struct {
-	ctx    context.Context
-	stores sync.Map
+	ctx context.Context
 }
 
 // NewManager creates a new rate limit manager with lifecycle tied to context

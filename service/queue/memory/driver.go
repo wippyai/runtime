@@ -158,7 +158,6 @@ func (d *Driver) DeclareQueue(_ context.Context, queueID registry.ID, opts attrs
 		id:       queueID,
 		opts:     opts,
 		messages: make(chan *queueapi.Message, maxLength),
-		closed:   false,
 	}
 
 	d.queues[queueID] = q
@@ -187,6 +186,9 @@ func (d *Driver) GetQueueInfo(_ context.Context, queueID registry.ID) (attrs.Att
 	return info, nil
 }
 
+// neverClosedChan is a channel that never closes, used when driver is not started
+var neverClosedChan = make(chan struct{})
+
 func (d *Driver) lifecycleCtxDone() <-chan struct{} {
 	d.mu.RLock()
 	ctx := d.ctx
@@ -194,7 +196,7 @@ func (d *Driver) lifecycleCtxDone() <-chan struct{} {
 	if ctx != nil {
 		return ctx.Done()
 	}
-	return make(chan struct{})
+	return neverClosedChan
 }
 
 func (d *Driver) Start(ctx context.Context) (<-chan any, error) {
@@ -207,7 +209,9 @@ func (d *Driver) Start(ctx context.Context) (<-chan any, error) {
 }
 
 func (d *Driver) Stop(_ context.Context) error {
-	d.cancel()
+	if d.cancel != nil {
+		d.cancel()
+	}
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
