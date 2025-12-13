@@ -5,9 +5,16 @@ package json
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 
 	lua "github.com/yuin/gopher-lua"
 )
+
+// maxNestingDepth limits JSON nesting to prevent stack overflow attacks.
+const maxNestingDepth = 128
+
+// ErrMaxDepthExceeded is returned when JSON nesting exceeds the limit.
+var ErrMaxDepthExceeded = errors.New("json: maximum nesting depth exceeded")
 
 // Decode parses JSON data and returns a Lua value.
 // This is the v1 implementation using encoding/json with intermediate Go types.
@@ -18,38 +25,56 @@ func Decode(data []byte) (lua.LValue, error) {
 	if err := dec.Decode(&value); err != nil {
 		return nil, err
 	}
-	return DecodeValue(value), nil
+	return decodeValueWithDepth(value, 0)
 }
 
 // DecodeValue converts Go value to Lua value with proper indexing.
 func DecodeValue(value any) lua.LValue {
+	result, _ := decodeValueWithDepth(value, 0)
+	return result
+}
+
+// decodeValueWithDepth converts Go value to Lua value with depth tracking.
+func decodeValueWithDepth(value any, depth int) (lua.LValue, error) {
+	if depth > maxNestingDepth {
+		return nil, ErrMaxDepthExceeded
+	}
+
 	switch converted := value.(type) {
 	case bool:
-		return lua.LBool(converted)
+		return lua.LBool(converted), nil
 	case json.Number:
 		if i, err := converted.Int64(); err == nil {
-			return lua.LInteger(i)
+			return lua.LInteger(i), nil
 		}
 		if f, err := converted.Float64(); err == nil {
-			return lua.LNumber(f)
+			return lua.LNumber(f), nil
 		}
-		return lua.LString(converted.String())
+		return lua.LString(converted.String()), nil
 	case string:
-		return lua.LString(converted)
+		return lua.LString(converted), nil
 	case []any:
 		arr := lua.CreateTable(len(converted), 0)
 		for i, item := range converted {
-			arr.RawSetInt(i+1, DecodeValue(item))
+			val, err := decodeValueWithDepth(item, depth+1)
+			if err != nil {
+				return nil, err
+			}
+			arr.RawSetInt(i+1, val)
 		}
-		return arr
+		return arr, nil
 	case map[string]any:
 		tbl := lua.CreateTable(0, len(converted))
 		for key, item := range converted {
-			tbl.RawSetH(lua.LString(key), DecodeValue(item))
+			val, err := decodeValueWithDepth(item, depth+1)
+			if err != nil {
+				return nil, err
+			}
+			tbl.RawSetH(lua.LString(key), val)
 		}
-		return tbl
+		return tbl, nil
 	case nil:
-		return lua.LNil
+		return lua.LNil, nil
 	}
-	return lua.LNil
+	return lua.LNil, nil
 }

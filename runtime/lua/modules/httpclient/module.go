@@ -11,6 +11,25 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+// parseDuration parses a Lua value into time.Duration.
+// Supports numbers (as seconds) and strings (Go duration format like "5m", "30s", "1h").
+func parseDuration(lv lua.LValue) (time.Duration, bool) {
+	switch v := lv.(type) {
+	case lua.LString:
+		d, err := time.ParseDuration(string(v))
+		if err != nil {
+			return 0, false
+		}
+		return d, true
+	case lua.LNumber:
+		return time.Duration(v) * time.Second, true
+	case lua.LInteger:
+		return time.Duration(v) * time.Second, true
+	default:
+		return 0, false
+	}
+}
+
 var responseMetatable *lua.LTable
 
 // Module is the http_client module definition.
@@ -143,6 +162,8 @@ func populateYield(yield *RequestYield, method, url string, opts *requestOptions
 	yield.BasicAuthUser = opts.basicAuthUser
 	yield.BasicAuthPass = opts.basicAuthPass
 	yield.Stream = opts.stream
+	yield.MaxResponseBody = opts.maxResponseBody
+	yield.AllowPrivateIPs = opts.allowPrivateIPs
 
 	// Convert files
 	if len(opts.files) > 0 {
@@ -178,17 +199,19 @@ func populateYield(yield *RequestYield, method, url string, opts *requestOptions
 }
 
 type requestOptions struct {
-	headers       map[string]string
-	body          []byte
-	timeout       time.Duration
-	unixSocket    string
-	query         map[string]string
-	cookies       map[string]string
-	form          map[string]string
-	files         []fileUpload
-	basicAuthUser string
-	basicAuthPass string
-	stream        bool
+	headers         map[string]string
+	body            []byte
+	timeout         time.Duration
+	unixSocket      string
+	query           map[string]string
+	cookies         map[string]string
+	form            map[string]string
+	files           []fileUpload
+	basicAuthUser   string
+	basicAuthPass   string
+	stream          bool
+	maxResponseBody int64
+	allowPrivateIPs bool
 }
 
 type fileUpload struct {
@@ -224,8 +247,10 @@ func parseOptions(l *lua.LState, idx int) *requestOptions {
 		opts.body = []byte(body.String())
 	}
 
-	if timeout := tbl.RawGetString("timeout"); timeout.Type() == lua.LTNumber || timeout.Type() == lua.LTInteger {
-		opts.timeout = time.Duration(lua.LVAsNumber(timeout) * lua.LNumber(time.Second))
+	if timeout := tbl.RawGetString("timeout"); timeout != lua.LNil {
+		if d, ok := parseDuration(timeout); ok {
+			opts.timeout = d
+		}
 	}
 
 	if socket := tbl.RawGetString("unix_socket"); socket.Type() == lua.LTString {
@@ -307,6 +332,16 @@ func parseOptions(l *lua.LState, idx int) *requestOptions {
 	// Stream response
 	if stream := tbl.RawGetString("stream"); stream.Type() == lua.LTBool {
 		opts.stream = bool(stream.(lua.LBool))
+	}
+
+	// Max response body size (0 = use default)
+	if maxBody := tbl.RawGetString("max_response_body"); maxBody.Type() == lua.LTNumber || maxBody.Type() == lua.LTInteger {
+		opts.maxResponseBody = int64(lua.LVAsNumber(maxBody))
+	}
+
+	// Allow private IPs (disabled by default for SSRF protection)
+	if allowPrivate := tbl.RawGetString("allow_private_ips"); allowPrivate.Type() == lua.LTBool {
+		opts.allowPrivateIPs = bool(allowPrivate.(lua.LBool))
 	}
 
 	return opts
@@ -412,6 +447,8 @@ func requestBatch(l *lua.LState) int {
 		req.Form = opts.form
 		req.BasicAuthUser = opts.basicAuthUser
 		req.BasicAuthPass = opts.basicAuthPass
+		req.MaxResponseBody = opts.maxResponseBody
+		req.AllowPrivateIPs = opts.allowPrivateIPs
 
 		if len(opts.files) > 0 {
 			req.Files = make([]httpapi.FileUpload, len(opts.files))
@@ -455,8 +492,10 @@ func parseOptionsFromTable(tbl *lua.LTable) *requestOptions {
 		opts.body = []byte(body.String())
 	}
 
-	if timeout := tbl.RawGetString("timeout"); timeout.Type() == lua.LTNumber || timeout.Type() == lua.LTInteger {
-		opts.timeout = time.Duration(lua.LVAsNumber(timeout) * lua.LNumber(time.Second))
+	if timeout := tbl.RawGetString("timeout"); timeout != lua.LNil {
+		if d, ok := parseDuration(timeout); ok {
+			opts.timeout = d
+		}
 	}
 
 	if socket := tbl.RawGetString("unix_socket"); socket.Type() == lua.LTString {
@@ -532,6 +571,14 @@ func parseOptionsFromTable(tbl *lua.LTable) *requestOptions {
 
 	if stream := tbl.RawGetString("stream"); stream.Type() == lua.LTBool {
 		opts.stream = bool(stream.(lua.LBool))
+	}
+
+	if maxBody := tbl.RawGetString("max_response_body"); maxBody.Type() == lua.LTNumber || maxBody.Type() == lua.LTInteger {
+		opts.maxResponseBody = int64(lua.LVAsNumber(maxBody))
+	}
+
+	if allowPrivate := tbl.RawGetString("allow_private_ips"); allowPrivate.Type() == lua.LTBool {
+		opts.allowPrivateIPs = bool(allowPrivate.(lua.LBool))
 	}
 
 	return opts

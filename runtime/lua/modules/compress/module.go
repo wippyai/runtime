@@ -5,6 +5,7 @@ import (
 	"compress/flate"
 	"compress/gzip"
 	"compress/zlib"
+	"errors"
 	"io"
 
 	"github.com/andybalholm/brotli"
@@ -21,6 +22,8 @@ const (
 	zstdMaxLevel     = 22
 	brotliMinLevel   = 0
 	zstdDefaultLevel = 3
+	defaultMaxSize   = 128 * 1024 * 1024  // 128MB default decompression limit
+	absoluteMaxSize  = 1024 * 1024 * 1024 // 1GB absolute maximum
 )
 
 // Module is the compress module definition.
@@ -99,6 +102,33 @@ func getLevel(l *lua.LState, defaultVal, minVal, maxVal int) int {
 	return level
 }
 
+func getMaxSize(l *lua.LState) int64 {
+	maxSize := int64(defaultMaxSize)
+	if l.GetTop() >= 2 && l.Get(2).Type() == lua.LTTable {
+		opts := l.ToTable(2)
+		lv := opts.RawGetString("max_size")
+		if lv.Type() == lua.LTNumber || lv.Type() == lua.LTInteger {
+			v := int64(lua.LVAsNumber(lv))
+			if v > 0 && v <= absoluteMaxSize {
+				maxSize = v
+			}
+		}
+	}
+	return maxSize
+}
+
+func limitedReadAll(r io.Reader, maxSize int64) ([]byte, error) {
+	limited := io.LimitReader(r, maxSize+1)
+	data, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxSize {
+		return nil, errors.New("decompressed size exceeds limit")
+	}
+	return data, nil
+}
+
 func gzipEncode(l *lua.LState) int {
 	if l.Get(1).Type() != lua.LTString {
 		return invalidInputError(l, "string expected")
@@ -144,13 +174,15 @@ func gzipDecode(l *lua.LState) int {
 		return invalidInputError(l, "input data cannot be empty")
 	}
 
+	maxSize := getMaxSize(l)
+
 	reader, err := gzip.NewReader(bytes.NewReader([]byte(data)))
 	if err != nil {
 		return invalidInputError(l, "invalid gzip data")
 	}
 	defer reader.Close()
 
-	decompressed, err := io.ReadAll(reader)
+	decompressed, err := limitedReadAll(reader, maxSize)
 	if err != nil {
 		return internalError(l, err, "gzip decode failed")
 	}
@@ -205,10 +237,12 @@ func deflateDecode(l *lua.LState) int {
 		return invalidInputError(l, "input data cannot be empty")
 	}
 
+	maxSize := getMaxSize(l)
+
 	reader := flate.NewReader(bytes.NewReader([]byte(data)))
 	defer reader.Close()
 
-	decompressed, err := io.ReadAll(reader)
+	decompressed, err := limitedReadAll(reader, maxSize)
 	if err != nil {
 		return invalidInputError(l, "invalid deflate data")
 	}
@@ -263,13 +297,15 @@ func zlibDecode(l *lua.LState) int {
 		return invalidInputError(l, "input data cannot be empty")
 	}
 
+	maxSize := getMaxSize(l)
+
 	reader, err := zlib.NewReader(bytes.NewReader([]byte(data)))
 	if err != nil {
 		return invalidInputError(l, "invalid zlib data")
 	}
 	defer reader.Close()
 
-	decompressed, err := io.ReadAll(reader)
+	decompressed, err := limitedReadAll(reader, maxSize)
 	if err != nil {
 		return internalError(l, err, "zlib decode failed")
 	}
@@ -321,8 +357,10 @@ func brotliDecode(l *lua.LState) int {
 		return invalidInputError(l, "input data cannot be empty")
 	}
 
+	maxSize := getMaxSize(l)
+
 	reader := brotli.NewReader(bytes.NewReader([]byte(data)))
-	decompressed, err := io.ReadAll(reader)
+	decompressed, err := limitedReadAll(reader, maxSize)
 	if err != nil {
 		return invalidInputError(l, "invalid brotli data")
 	}
@@ -389,13 +427,15 @@ func zstdDecode(l *lua.LState) int {
 		return invalidInputError(l, "input data cannot be empty")
 	}
 
+	maxSize := getMaxSize(l)
+
 	reader, err := zstd.NewReader(bytes.NewReader([]byte(data)))
 	if err != nil {
 		return invalidInputError(l, "invalid zstd data")
 	}
 	defer reader.Close()
 
-	decompressed, err := io.ReadAll(reader)
+	decompressed, err := limitedReadAll(reader, maxSize)
 	if err != nil {
 		return internalError(l, err, "zstd decode failed")
 	}

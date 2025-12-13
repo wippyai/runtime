@@ -10,42 +10,41 @@ import (
 
 func TestNewLoaderModule(t *testing.T) {
 	log := zap.NewNop()
-	module := NewLoaderModule(log)
+	module := NewLoaderModule(LoaderOptions{Log: log})
 
 	if module == nil {
 		t.Fatal("expected module to be non-nil")
 	}
 
-	if module.log == nil {
-		t.Error("expected log to be set")
+	if module.Name != loaderModuleName {
+		t.Errorf("expected name %s, got %s", loaderModuleName, module.Name)
 	}
 }
 
-func TestNewLoaderModuleWithNilLogger(t *testing.T) {
-	module := NewLoaderModule(nil)
+func TestNewLoaderModuleWithDefaultOptions(t *testing.T) {
+	module := NewLoaderModule(DefaultLoaderOptions())
 
 	if module == nil {
 		t.Fatal("expected module to be non-nil")
 	}
 
-	if module.log == nil {
-		t.Error("expected default logger to be set")
+	if module.Name != loaderModuleName {
+		t.Errorf("expected name %s, got %s", loaderModuleName, module.Name)
 	}
 }
 
 func TestLoaderModuleInfo(t *testing.T) {
-	module := NewLoaderModule(nil)
-	info := module.Info()
+	module := NewLoaderModule(DefaultLoaderOptions())
 
-	if info.Name != loaderModuleName {
-		t.Errorf("expected name %s, got %s", loaderModuleName, info.Name)
+	if module.Name != loaderModuleName {
+		t.Errorf("expected name %s, got %s", loaderModuleName, module.Name)
 	}
 
-	if info.Description == "" {
+	if module.Description == "" {
 		t.Error("expected non-empty description")
 	}
 
-	if len(info.Class) == 0 {
+	if len(module.Class) == 0 {
 		t.Error("expected at least one class")
 	}
 }

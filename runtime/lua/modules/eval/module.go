@@ -2,8 +2,6 @@
 package eval
 
 import (
-	"sync"
-
 	"github.com/wippyai/runtime/api/payload"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -11,65 +9,39 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-var (
-	moduleTable      *lua.LTable
-	registration     *luaapi.Registration
-	programMetatable *lua.LTable
-	sandboxMetatable *lua.LTable
-	initOnce         sync.Once
-)
-
 const (
 	programTypeName = "eval.Program"
 	sandboxTypeName = "eval.Sandbox"
 )
 
-// Module is the singleton eval module instance.
-var Module = &evalModule{}
+var sandboxMetatable *lua.LTable
 
-type evalModule struct{}
-
-func (m *evalModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        "eval",
-		Description: "Dynamic Lua code compilation and execution",
-		Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
-	}
+func init() {
+	value.RegisterTypeMethods(nil, programTypeName, nil, programMethods)
+	sandboxMetatable = value.RegisterTypeMethods(nil, sandboxTypeName, nil, sandboxMethods)
 }
 
-func (m *evalModule) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	if reg != nil && reg.Table != nil {
-		l.Push(reg.Table)
-		return 1
-	}
-	return 0
+// Module is the eval module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "eval",
+	Description: "Dynamic Lua code compilation and execution",
+	Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
+	Build:       buildModule,
 }
 
-func (m *evalModule) Register(*lua.LState) *luaapi.Registration {
-	initOnce.Do(func() {
-		moduleTable = createModuleTable()
-		programMetatable = value.RegisterTypeMethods(nil, programTypeName, nil, programMethods)
-		sandboxMetatable = value.RegisterTypeMethods(nil, sandboxTypeName, nil, sandboxMethods)
-		registration = &luaapi.Registration{
-			Table: moduleTable,
-			YieldTypes: []luaapi.YieldType{
-				{Sample: &CompileYield{}, CmdID: evalhost.CmdCompile},
-				{Sample: &RunYield{}, CmdID: evalhost.CmdRun},
-			},
-		}
-	})
-
-	return registration
-}
-
-func createModuleTable() *lua.LTable {
+func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	mod := lua.CreateTable(0, 3)
 	mod.RawSetString("compile", lua.LGoFunc(compileFunc))
 	mod.RawSetString("run", lua.LGoFunc(runFunc))
 	mod.RawSetString("sandbox", lua.LGoFunc(sandboxFunc))
 	mod.Immutable = true
-	return mod
+
+	yields := []luaapi.YieldType{
+		{Sample: &CompileYield{}, CmdID: evalhost.CmdCompile},
+		{Sample: &RunYield{}, CmdID: evalhost.CmdRun},
+	}
+
+	return mod, yields
 }
 
 // compileFunc is eval.compile(source, method, options?) -> Program

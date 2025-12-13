@@ -5,6 +5,7 @@ import (
 
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	payloadmod "github.com/wippyai/runtime/runtime/lua/modules/payload"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -90,10 +91,7 @@ func NewMessage(from relay.PID, topic string, payloads payload.Payloads) *Messag
 }
 
 func WrapMessage(l *lua.LState, m *Message) lua.LValue {
-	ud := l.NewUserData()
-	ud.Value = m
-	ud.Metatable = messageMetatable
-	return ud
+	return value.NewTypedUserData(l, m, messageTypeName)
 }
 
 func messageToString(l *lua.LState) int {

@@ -2,6 +2,7 @@ package httpclient
 
 import (
 	"testing"
+	"time"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/security"
@@ -442,4 +443,121 @@ func (m *mockReader) Read(p []byte) (n int, err error) {
 		err = nil
 	}
 	return n, err
+}
+
+func TestParseDurationOptions(t *testing.T) {
+	t.Run("number timeout in seconds", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		opts := l.CreateTable(0, 1)
+		opts.RawSetString("timeout", lua.LNumber(30))
+		l.Push(opts)
+
+		parsed := parseOptions(l, 1)
+		if parsed.timeout != 30*1e9 {
+			t.Errorf("expected 30s, got %v", parsed.timeout)
+		}
+	})
+
+	t.Run("string timeout minutes", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		opts := l.CreateTable(0, 1)
+		opts.RawSetString("timeout", lua.LString("5m"))
+		l.Push(opts)
+
+		parsed := parseOptions(l, 1)
+		if parsed.timeout != 5*60*1e9 {
+			t.Errorf("expected 5m (300s), got %v", parsed.timeout)
+		}
+	})
+
+	t.Run("string timeout seconds", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		opts := l.CreateTable(0, 1)
+		opts.RawSetString("timeout", lua.LString("30s"))
+		l.Push(opts)
+
+		parsed := parseOptions(l, 1)
+		if parsed.timeout != 30*1e9 {
+			t.Errorf("expected 30s, got %v", parsed.timeout)
+		}
+	})
+
+	t.Run("string timeout hours", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		opts := l.CreateTable(0, 1)
+		opts.RawSetString("timeout", lua.LString("1h"))
+		l.Push(opts)
+
+		parsed := parseOptions(l, 1)
+		if parsed.timeout != 3600*1e9 {
+			t.Errorf("expected 1h, got %v", parsed.timeout)
+		}
+	})
+
+	t.Run("string timeout combined", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		opts := l.CreateTable(0, 1)
+		opts.RawSetString("timeout", lua.LString("1h30m"))
+		l.Push(opts)
+
+		parsed := parseOptions(l, 1)
+		expected := time.Hour + 30*time.Minute
+		if parsed.timeout != expected {
+			t.Errorf("expected 1h30m, got %v", parsed.timeout)
+		}
+	})
+
+	t.Run("invalid string timeout ignored", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		opts := l.CreateTable(0, 1)
+		opts.RawSetString("timeout", lua.LString("invalid"))
+		l.Push(opts)
+
+		parsed := parseOptions(l, 1)
+		if parsed.timeout != 0 {
+			t.Errorf("expected 0 for invalid timeout, got %v", parsed.timeout)
+		}
+	})
+
+	t.Run("integer timeout", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		opts := l.CreateTable(0, 1)
+		opts.RawSetString("timeout", lua.LInteger(60))
+		l.Push(opts)
+
+		parsed := parseOptions(l, 1)
+		if parsed.timeout != 60*1e9 {
+			t.Errorf("expected 60s, got %v", parsed.timeout)
+		}
+	})
+}
+
+func TestParseOptionsFromTableDuration(t *testing.T) {
+	t.Run("string timeout in batch request", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		opts := l.CreateTable(0, 1)
+		opts.RawSetString("timeout", lua.LString("2m30s"))
+
+		parsed := parseOptionsFromTable(opts)
+		expected := 2*time.Minute + 30*time.Second
+		if parsed.timeout != expected {
+			t.Errorf("expected 2m30s, got %v", parsed.timeout)
+		}
+	})
 }

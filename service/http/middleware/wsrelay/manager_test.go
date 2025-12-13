@@ -8,40 +8,41 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestGetOption(t *testing.T) {
-	t.Run("returns new key value when present", func(t *testing.T) {
+func TestGetOrigins(t *testing.T) {
+	t.Run("returns module-specific key first", func(t *testing.T) {
 		options := map[string]string{
-			"new.key":    "new_value",
-			"legacy_key": "legacy_value",
+			"wsrelay.allowed.origins": "example.com",
+			"allow_origins":           "shared.com",
+			"allowed_origins":         "legacy.com",
 		}
 
-		result := getOption(options, "new.key", "legacy_key")
-		assert.Equal(t, "new_value", result)
+		result := getOrigins(options)
+		assert.Equal(t, "example.com", result)
 	})
 
-	t.Run("falls back to legacy key when new key missing", func(t *testing.T) {
+	t.Run("falls back to shared key", func(t *testing.T) {
 		options := map[string]string{
-			"legacy_key": "legacy_value",
+			"allow_origins":   "shared.com",
+			"allowed_origins": "legacy.com",
 		}
 
-		result := getOption(options, "new.key", "legacy_key")
-		assert.Equal(t, "legacy_value", result)
+		result := getOrigins(options)
+		assert.Equal(t, "shared.com", result)
 	})
 
-	t.Run("returns empty string when both keys missing", func(t *testing.T) {
+	t.Run("falls back to legacy key", func(t *testing.T) {
+		options := map[string]string{
+			"allowed_origins": "legacy.com",
+		}
+
+		result := getOrigins(options)
+		assert.Equal(t, "legacy.com", result)
+	})
+
+	t.Run("returns empty when no keys present", func(t *testing.T) {
 		options := map[string]string{}
 
-		result := getOption(options, "new.key", "legacy_key")
-		assert.Equal(t, "", result)
-	})
-
-	t.Run("prefers new key even when empty string", func(t *testing.T) {
-		options := map[string]string{
-			"new.key":    "",
-			"legacy_key": "legacy_value",
-		}
-
-		result := getOption(options, "new.key", "legacy_key")
+		result := getOrigins(options)
 		assert.Equal(t, "", result)
 	})
 }
@@ -169,6 +170,7 @@ func trim(s string) string {
 func TestRelayCommandConstants(t *testing.T) {
 	t.Run("option keys defined", func(t *testing.T) {
 		assert.Equal(t, "wsrelay.allowed.origins", OptionAllowedOrigins)
+		assert.Equal(t, "allow_origins", sharedAllowOrigins)
 		assert.Equal(t, "allowed_origins", legacyAllowedOrigins)
 	})
 

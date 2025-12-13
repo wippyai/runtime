@@ -4,8 +4,8 @@ local funcs = require("funcs")
 
 local function main()
     -- Start two async operations with different delays
-    local fast = funcs.async("app.test.funcs:slow", 20, "fast")
-    local slow = funcs.async("app.test.funcs:slow", 100, "slow")
+    local fast = funcs.async("app.test.funcs:slow", "20ms", "fast")
+    local slow = funcs.async("app.test.funcs:slow", "200ms", "slow")
 
     -- Get channels from futures
     local fast_ch = fast:channel()

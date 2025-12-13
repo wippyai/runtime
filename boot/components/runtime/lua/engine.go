@@ -71,33 +71,30 @@ func Engine() boot.Component {
 				return ctx, ErrDispatcherNotFound
 			}
 
-			// Create function manager with dispatcher
+			// Get filesystem registry
+			fsReg := fsapi.GetRegistry(ctx)
+
+			// Create ProcessFactory for use by all managers
+			processFactory := engine.NewProcessFactory(codeManager, engine.LoadCoreModules, nil)
+
+			// Create consolidated managers
 			funcs = funclua.NewManager(
 				logger.Named("lua.func"),
 				codeManager,
 				bus,
 				disp,
+				fsReg,
+				processFactory,
 			)
-			libraries := library.NewManager(logger.Named("lua.lib"), codeManager)
+			libraries := library.NewManager(logger.Named("lua.lib"), codeManager, fsReg)
+			processes := proclua.NewManager(logger.Named("lua.process"), codeManager, bus, fsReg, processFactory)
+			workflows := workflowlua.NewManager(logger.Named("lua.workflow"), codeManager, bus, processFactory)
 
 			handlers.Register(reghandler.NewTransactionHandler(codeManager))
-			handlers.Register(component.NewHandler("function.lua", funcs))
-			handlers.Register(component.NewHandler("library.lua", libraries))
-
-			// Register process and workflow managers
-			processes := proclua.NewManager(logger.Named("lua.process"), codeManager, bus)
-			workflows := workflowlua.NewManager(logger.Named("lua.workflow"), codeManager, bus)
-			handlers.Register(component.NewHandler("process.lua", processes))
+			handlers.Register(component.NewHandler("function.lua.**", funcs))
+			handlers.Register(component.NewHandler("library.lua.**", libraries))
+			handlers.Register(component.NewHandler("process.lua.**", processes))
 			handlers.Register(component.NewHandler("workflow.lua", workflows))
-
-			// Register bytecode managers
-			fsReg := fsapi.GetRegistry(ctx)
-			bcFuncs := funclua.NewBytecodeManager(logger.Named("lua.func.bc"), codeManager, bus, disp, fsReg)
-			bcLibs := library.NewBytecodeManager(logger.Named("lua.lib.bc"), codeManager, fsReg)
-			bcProcs := proclua.NewBytecodeManager(logger.Named("lua.process.bc"), codeManager, bus, fsReg)
-			handlers.Register(component.NewHandler("function.lua.bc", bcFuncs))
-			handlers.Register(component.NewHandler("library.lua.bc", bcLibs))
-			handlers.Register(component.NewHandler("process.lua.bc", bcProcs))
 
 			return ctx, nil
 		},

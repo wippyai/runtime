@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
@@ -35,12 +36,13 @@ var (
 
 // connEntry holds an active WebSocket connection with its message channel.
 type connEntry struct {
-	conn      *websocket.Conn
-	msgCh     chan wsapi.WsMessage
-	ctx       context.Context
-	cancel    context.CancelFunc
-	closed    atomic.Bool
-	closeOnce sync.Once
+	conn        *websocket.Conn
+	msgCh       chan wsapi.WsMessage
+	ctx         context.Context
+	cancel      context.CancelFunc
+	closed      atomic.Bool
+	closeOnce   sync.Once
+	readTimeout time.Duration
 }
 
 // Drop implements resource.Dropper for automatic cleanup.
@@ -71,7 +73,19 @@ func (e *connEntry) readLoop() {
 		default:
 		}
 
-		msgType, data, err := e.conn.Read(e.ctx)
+		// Use read timeout if configured
+		readCtx := e.ctx
+		var cancel context.CancelFunc
+		if e.readTimeout > 0 {
+			readCtx, cancel = context.WithTimeout(e.ctx, e.readTimeout)
+		}
+
+		msgType, data, err := e.conn.Read(readCtx)
+
+		if cancel != nil {
+			cancel()
+		}
+
 		if err != nil {
 			closeStatus := websocket.CloseStatus(err)
 			if closeStatus >= 0 || e.ctx.Err() != nil {
@@ -115,17 +129,18 @@ func NewRegistry(table *resource.Table) *Registry {
 }
 
 // Register adds a connection to the registry and starts the read loop.
-func (r *Registry) Register(ctx context.Context, conn *websocket.Conn, bufferSize int) uint64 {
+func (r *Registry) Register(ctx context.Context, conn *websocket.Conn, bufferSize int, readTimeout time.Duration) uint64 {
 	if bufferSize <= 0 {
 		bufferSize = 16
 	}
 
 	connCtx, cancel := context.WithCancel(ctx)
 	entry := &connEntry{
-		conn:   conn,
-		msgCh:  make(chan wsapi.WsMessage, bufferSize),
-		ctx:    connCtx,
-		cancel: cancel,
+		conn:        conn,
+		msgCh:       make(chan wsapi.WsMessage, bufferSize),
+		ctx:         connCtx,
+		cancel:      cancel,
+		readTimeout: readTimeout,
 	}
 
 	go entry.readLoop()
@@ -318,12 +333,15 @@ func (d *Dispatcher) executeConnect(ctx context.Context, cmd wsapi.WsConnectCmd,
 		return
 	}
 
+	// Default 16MB message limit, apply user limit if specified
+	readLimit := int64(16 * 1024 * 1024)
 	if cmd.ReadLimit > 0 {
-		conn.SetReadLimit(cmd.ReadLimit)
+		readLimit = cmd.ReadLimit
 	}
+	conn.SetReadLimit(readLimit)
 
 	registry := GetOrCreateRegistry(ctx)
-	id := registry.Register(ctx, conn, 16)
+	id := registry.Register(ctx, conn, 16, cmd.ReadTimeout)
 	receiver.CompleteYield(tag, id, nil)
 }
 

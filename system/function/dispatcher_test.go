@@ -404,3 +404,65 @@ func (m *mockRelayNode) Attach(relay.PID, chan *relay.Package) (context.CancelFu
 	return func() {}, nil
 }
 func (m *mockRelayNode) Detach(relay.PID) {}
+
+// TestCallHandler_ContextInheritance tests that context values are inherited
+// through the dispatcher when the parent frame is sealed.
+func TestCallHandler_ContextInheritance(t *testing.T) {
+	d := NewDispatcher(nil)
+
+	// Registry that verifies context values
+	resultCh := make(chan string, 1)
+	mock := &mockRegistry{
+		callFn: func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
+			values := ctxapi.GetValues(ctx)
+			if values == nil {
+				resultCh <- "no values"
+				return &runtime.Result{}, nil
+			}
+			if v, ok := values.Get("trace_id"); ok {
+				resultCh <- v.(string)
+			} else {
+				resultCh <- "trace_id not found"
+			}
+			return &runtime.Result{}, nil
+		},
+	}
+
+	// Setup context with frame containing values
+	ctx := ctxapi.NewRootContext()
+	ctx = function.WithRegistry(ctx, mock)
+	ctx, fc := ctxapi.OpenFrameContext(ctx)
+
+	// Set values on the frame
+	values := ctxapi.NewValues()
+	values.Set("trace_id", "trace-dispatch-123")
+	require.NoError(t, fc.Set(ctxapi.ValuesCtx, values))
+
+	// Seal the frame - this is what happens when Lua yields
+	fc.Seal()
+
+	cmd := function.AcquireCallCmd()
+	cmd.Task = runtime.Task{ID: registry.NewID("test", "func")}
+
+	done := make(chan function.CallResult, 1)
+	err := d.call.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
+		done <- data.(function.CallResult)
+	}})
+
+	require.NoError(t, err)
+
+	select {
+	case <-done:
+		// Wait for registry call to complete
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for call result")
+	}
+
+	// Check what the registry received
+	select {
+	case received := <-resultCh:
+		assert.Equal(t, "trace-dispatch-123", received, "context values should be inherited through dispatcher")
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for context check")
+	}
+}

@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"hash"
 	"io"
-	"sync"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -27,89 +26,59 @@ import (
 	"golang.org/x/crypto/pbkdf2"
 )
 
-var (
-	moduleTable  *lua.LTable
-	registration *luaapi.Registration
-	initOnce     sync.Once
-)
-
-// Module is the singleton crypto module instance.
-var Module = &cryptoModule{}
-
-type cryptoModule struct{}
-
-func (m *cryptoModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        "crypto",
-		Description: "Cryptographic operations (hashing, encryption, JWT)",
-		Class:       []string{luaapi.ClassSecurity, luaapi.ClassNondeterministic},
-	}
+// Module is the crypto module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "crypto",
+	Description: "Cryptographic operations (hashing, encryption, JWT)",
+	Class:       []string{luaapi.ClassSecurity, luaapi.ClassNondeterministic},
+	Build:       buildModule,
 }
 
-func (m *cryptoModule) Register(*lua.LState) *luaapi.Registration {
-	initOnce.Do(func() {
-		mod := &lua.LTable{}
+func buildModule() (*lua.LTable, []luaapi.YieldType) {
+	mod := lua.CreateTable(0, 6)
 
-		// Random submodule
-		randomMod := &lua.LTable{}
-		randomMod.RawSetString("bytes", lua.LGoFunc(randomBytes))
-		randomMod.RawSetString("string", lua.LGoFunc(randomString))
-		randomMod.RawSetString("uuid", lua.LGoFunc(randomUUID))
-		randomMod.Immutable = true
-		mod.RawSetString("random", randomMod)
+	// Random submodule
+	randomMod := lua.CreateTable(0, 3)
+	randomMod.RawSetString("bytes", lua.LGoFunc(randomBytes))
+	randomMod.RawSetString("string", lua.LGoFunc(randomString))
+	randomMod.RawSetString("uuid", lua.LGoFunc(randomUUID))
+	randomMod.Immutable = true
+	mod.RawSetString("random", randomMod)
 
-		// HMAC submodule
-		hmacMod := &lua.LTable{}
-		hmacMod.RawSetString("sha256", lua.LGoFunc(hmacSha256))
-		hmacMod.RawSetString("sha512", lua.LGoFunc(hmacSha512))
-		hmacMod.Immutable = true
-		mod.RawSetString("hmac", hmacMod)
+	// HMAC submodule
+	hmacMod := lua.CreateTable(0, 2)
+	hmacMod.RawSetString("sha256", lua.LGoFunc(hmacSha256))
+	hmacMod.RawSetString("sha512", lua.LGoFunc(hmacSha512))
+	hmacMod.Immutable = true
+	mod.RawSetString("hmac", hmacMod)
 
-		// Encrypt submodule
-		encryptMod := &lua.LTable{}
-		encryptMod.RawSetString("aes", lua.LGoFunc(encryptAES))
-		encryptMod.RawSetString("chacha20", lua.LGoFunc(encryptChaCha20))
-		encryptMod.Immutable = true
-		mod.RawSetString("encrypt", encryptMod)
+	// Encrypt submodule
+	encryptMod := lua.CreateTable(0, 2)
+	encryptMod.RawSetString("aes", lua.LGoFunc(encryptAES))
+	encryptMod.RawSetString("chacha20", lua.LGoFunc(encryptChaCha20))
+	encryptMod.Immutable = true
+	mod.RawSetString("encrypt", encryptMod)
 
-		// Decrypt submodule
-		decryptMod := &lua.LTable{}
-		decryptMod.RawSetString("aes", lua.LGoFunc(decryptAES))
-		decryptMod.RawSetString("chacha20", lua.LGoFunc(decryptChaCha20))
-		decryptMod.Immutable = true
-		mod.RawSetString("decrypt", decryptMod)
+	// Decrypt submodule
+	decryptMod := lua.CreateTable(0, 2)
+	decryptMod.RawSetString("aes", lua.LGoFunc(decryptAES))
+	decryptMod.RawSetString("chacha20", lua.LGoFunc(decryptChaCha20))
+	decryptMod.Immutable = true
+	mod.RawSetString("decrypt", decryptMod)
 
-		// JWT submodule
-		jwtMod := &lua.LTable{}
-		jwtMod.RawSetString("encode", lua.LGoFunc(jwtEncode))
-		jwtMod.RawSetString("verify", lua.LGoFunc(jwtVerify))
-		jwtMod.Immutable = true
-		mod.RawSetString("jwt", jwtMod)
+	// JWT submodule
+	jwtMod := lua.CreateTable(0, 2)
+	jwtMod.RawSetString("encode", lua.LGoFunc(jwtEncode))
+	jwtMod.RawSetString("verify", lua.LGoFunc(jwtVerify))
+	jwtMod.Immutable = true
+	mod.RawSetString("jwt", jwtMod)
 
-		// Top-level functions
-		mod.RawSetString("pbkdf2", lua.LGoFunc(pbkdf2Derive))
-		mod.RawSetString("constant_time_compare", lua.LGoFunc(constantTimeCompare))
+	// Top-level functions
+	mod.RawSetString("pbkdf2", lua.LGoFunc(pbkdf2Derive))
+	mod.RawSetString("constant_time_compare", lua.LGoFunc(constantTimeCompare))
 
-		mod.Immutable = true
-		moduleTable = mod
-
-		registration = &luaapi.Registration{
-			Table:      moduleTable,
-			YieldTypes: nil,
-		}
-	})
-	return registration
-}
-
-func (m *cryptoModule) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	l.Push(reg.Table)
-	return 1
-}
-
-// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
-func Bind(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
+	mod.Immutable = true
+	return mod, nil
 }
 
 // Error helpers
@@ -457,18 +426,22 @@ func jwtVerify(l *lua.LState) int {
 	tokenString := l.CheckString(1)
 	key := l.CheckString(2)
 	alg := l.OptString(3, "HS256")
+	requireExp := l.OptBool(4, true)
+
+	parserOpts := []jwt.ParserOption{
+		jwt.WithValidMethods([]string{alg}),
+	}
+	if requireExp {
+		parserOpts = append(parserOpts, jwt.WithExpirationRequired())
+	}
 
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if token.Method.Alg() != alg {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-
 		if alg == "RS256" {
 			return parsePublicKey(key)
 		}
 
 		return []byte(key), nil
-	})
+	}, parserOpts...)
 
 	if err != nil {
 		return internalError(l, err, "verify token")
@@ -561,6 +534,8 @@ func parsePublicKey(pemString string) (*rsa.PublicKey, error) {
 
 // Utility functions
 
+const maxPBKDF2Iterations = 10_000_000 // 10M max to prevent CPU exhaustion
+
 func pbkdf2Derive(l *lua.LState) int {
 	password := l.CheckString(1)
 	salt := l.CheckString(2)
@@ -577,6 +552,10 @@ func pbkdf2Derive(l *lua.LState) int {
 
 	if iterations <= 0 {
 		return invalidError(l, "iterations must be positive")
+	}
+
+	if iterations > maxPBKDF2Iterations {
+		return invalidError(l, fmt.Sprintf("iterations exceeds maximum (%d)", maxPBKDF2Iterations))
 	}
 
 	if keyLength <= 0 {

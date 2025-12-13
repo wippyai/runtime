@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	ctxapi "github.com/wippyai/runtime/api/context"
-
 	"github.com/stretchr/testify/assert"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	api "github.com/wippyai/runtime/api/runtime/lua"
@@ -16,21 +16,30 @@ import (
 	"go.uber.org/zap"
 )
 
+type mockFSRegistry struct{}
+
+func (m *mockFSRegistry) GetFS(_ string) (fs.FS, bool) {
+	return nil, false
+}
+
 func TestNewManager(t *testing.T) {
 	log := zap.NewNop()
 	codeManager := &code.Manager{}
+	fsReg := &mockFSRegistry{}
 
-	manager := NewManager(log, codeManager)
+	manager := NewManager(log, codeManager, fsReg)
 
 	assert.NotNil(t, manager)
 	assert.Equal(t, log, manager.log)
 	assert.Equal(t, codeManager, manager.code)
+	assert.Equal(t, fsReg, manager.fsRegistry)
 }
 
 func TestManager_Add_InvalidKind(t *testing.T) {
 	log := zap.NewNop()
 	codeManager := &code.Manager{}
-	manager := NewManager(log, codeManager)
+	fsReg := &mockFSRegistry{}
+	manager := NewManager(log, codeManager, fsReg)
 
 	entry := registry.Entry{
 		Kind: registry.Kind("invalid"),
@@ -45,9 +54,9 @@ func TestManager_Add_InvalidKind(t *testing.T) {
 func TestManager_Add_InvalidConfig(t *testing.T) {
 	log := zap.NewNop()
 	codeManager := &code.Manager{}
-	manager := NewManager(log, codeManager)
+	fsReg := &mockFSRegistry{}
+	manager := NewManager(log, codeManager, fsReg)
 
-	// Create invalid JSON
 	testData := `{"source": "test", "invalid": }`
 
 	payloadData := payload.NewPayload(testData, payload.JSON)
@@ -56,7 +65,6 @@ func TestManager_Add_InvalidConfig(t *testing.T) {
 		Data: payloadData,
 	}
 
-	// Create context with transcoder
 	ctx := ctxapi.NewRootContext()
 	transcoder := systempayload.NewTranscoder()
 	json.Register(transcoder)
@@ -71,7 +79,8 @@ func TestManager_Add_InvalidConfig(t *testing.T) {
 func TestManager_Update_InvalidKind(t *testing.T) {
 	log := zap.NewNop()
 	codeManager := &code.Manager{}
-	manager := NewManager(log, codeManager)
+	fsReg := &mockFSRegistry{}
+	manager := NewManager(log, codeManager, fsReg)
 
 	entry := registry.Entry{
 		Kind: registry.Kind("invalid"),
@@ -86,7 +95,8 @@ func TestManager_Update_InvalidKind(t *testing.T) {
 func TestManager_Delete_InvalidKind(t *testing.T) {
 	log := zap.NewNop()
 	codeManager := &code.Manager{}
-	manager := NewManager(log, codeManager)
+	fsReg := &mockFSRegistry{}
+	manager := NewManager(log, codeManager, fsReg)
 
 	entry := registry.Entry{
 		Kind: registry.Kind("invalid"),
@@ -101,27 +111,18 @@ func TestManager_Delete_InvalidKind(t *testing.T) {
 func TestManager_Invalidate(_ *testing.T) {
 	log := zap.NewNop()
 	codeManager := &code.Manager{}
-	manager := NewManager(log, codeManager)
+	fsReg := &mockFSRegistry{}
+	manager := NewManager(log, codeManager, fsReg)
 
 	ids := []registry.ID{{Name: "test1"}, {Name: "test2"}}
 	manager.Invalidate(context.Background(), ids)
 }
 
-func TestNewBytecodeManager(t *testing.T) {
+func TestManager_Add_BytecodeKind_InvalidKind(t *testing.T) {
 	log := zap.NewNop()
 	codeManager := &code.Manager{}
-
-	manager := NewBytecodeManager(log, codeManager, nil)
-
-	assert.NotNil(t, manager)
-	assert.Equal(t, log, manager.log)
-	assert.Equal(t, codeManager, manager.code)
-}
-
-func TestBytecodeManager_Add_InvalidKind(t *testing.T) {
-	log := zap.NewNop()
-	codeManager := &code.Manager{}
-	manager := NewBytecodeManager(log, codeManager, nil)
+	fsReg := &mockFSRegistry{}
+	manager := NewManager(log, codeManager, fsReg)
 
 	entry := registry.Entry{
 		Kind: registry.Kind("invalid"),
@@ -131,43 +132,4 @@ func TestBytecodeManager_Add_InvalidKind(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid entry kind")
-}
-
-func TestBytecodeManager_Update_InvalidKind(t *testing.T) {
-	log := zap.NewNop()
-	codeManager := &code.Manager{}
-	manager := NewBytecodeManager(log, codeManager, nil)
-
-	entry := registry.Entry{
-		Kind: registry.Kind("invalid"),
-	}
-
-	err := manager.Update(context.Background(), entry)
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid entry kind")
-}
-
-func TestBytecodeManager_Delete_InvalidKind(t *testing.T) {
-	log := zap.NewNop()
-	codeManager := &code.Manager{}
-	manager := NewBytecodeManager(log, codeManager, nil)
-
-	entry := registry.Entry{
-		Kind: registry.Kind("invalid"),
-	}
-
-	err := manager.Delete(context.Background(), entry)
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid entry kind")
-}
-
-func TestBytecodeManager_Invalidate(_ *testing.T) {
-	log := zap.NewNop()
-	codeManager := &code.Manager{}
-	manager := NewBytecodeManager(log, codeManager, nil)
-
-	ids := []registry.ID{{Name: "test1"}, {Name: "test2"}}
-	manager.Invalidate(context.Background(), ids)
 }

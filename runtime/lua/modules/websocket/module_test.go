@@ -500,3 +500,61 @@ func TestCloseCodesComplete(t *testing.T) {
 		t.Errorf("close codes test failed: %v", err)
 	}
 }
+
+func TestSafeIntBoundsChecking(t *testing.T) {
+	tests := []struct {
+		name   string
+		value  lua.LValue
+		min    int
+		max    int
+		wantOk bool
+		want   int
+	}{
+		{"valid int", lua.LNumber(5), 0, 10, true, 5},
+		{"valid at min", lua.LNumber(0), 0, 10, true, 0},
+		{"valid at max", lua.LNumber(10), 0, 10, true, 10},
+		{"below min", lua.LNumber(-1), 0, 10, false, 0},
+		{"above max", lua.LNumber(11), 0, 10, false, 0},
+		{"very large", lua.LNumber(1e18), 0, 100, false, 0},
+		{"negative large", lua.LNumber(-1e18), 0, 100, false, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := safeInt(tt.value, tt.min, tt.max)
+			if ok != tt.wantOk {
+				t.Errorf("safeInt() ok = %v, want %v", ok, tt.wantOk)
+			}
+			if ok && got != tt.want {
+				t.Errorf("safeInt() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSafeInt64BoundsChecking(t *testing.T) {
+	tests := []struct {
+		name   string
+		value  lua.LValue
+		min    int64
+		max    int64
+		wantOk bool
+		want   int64
+	}{
+		{"valid int64", lua.LNumber(1000000), 0, 1e12, true, 1000000},
+		{"below min", lua.LNumber(-1), 0, 1e12, false, 0},
+		{"above max", lua.LNumber(2e12), 0, 1e12, false, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := safeInt64(tt.value, tt.min, tt.max)
+			if ok != tt.wantOk {
+				t.Errorf("safeInt64() ok = %v, want %v", ok, tt.wantOk)
+			}
+			if ok && got != tt.want {
+				t.Errorf("safeInt64() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

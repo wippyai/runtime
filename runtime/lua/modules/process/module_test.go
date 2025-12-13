@@ -184,18 +184,6 @@ func TestSetOptions_InvalidType(t *testing.T) {
 	}
 }
 
-func TestBindGlobal(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	BindGlobal(l)
-
-	mod := l.GetGlobal("process")
-	if mod.Type() != lua.LTTable {
-		t.Fatal("process module not registered globally")
-	}
-}
-
 type mockScope struct{ security.Scope }
 
 func TestBuildSecurityContext_NoContext(t *testing.T) {
@@ -273,5 +261,90 @@ func TestBuildSecurityContext_EmptyFrameContext(t *testing.T) {
 
 	if len(pairs) != 0 {
 		t.Errorf("expected 0 pairs when no security context, got %d", len(pairs))
+	}
+}
+
+func TestBuildSecurityContext_WithValues(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+	defer ctxapi.ReleaseFrameContext(fc)
+
+	// Set context values
+	values := ctxapi.NewValues()
+	values.Set("trace_id", "test-trace-123")
+	values.Set("request_id", "req-456")
+	if err := fc.Set(ctxapi.ValuesCtx, values); err != nil {
+		t.Fatalf("failed to set values: %v", err)
+	}
+
+	l.SetContext(ctx)
+
+	// buildSecurityContext includes values along with actor/scope
+	pairs := buildSecurityContext(l)
+	if len(pairs) != 1 {
+		t.Errorf("expected 1 pair for values-only context, got %d", len(pairs))
+	}
+
+	// Verify values are accessible via context
+	gotValues := ctxapi.GetValues(ctx)
+	if gotValues == nil {
+		t.Fatal("values should be accessible from context")
+	}
+	if v, ok := gotValues.Get("trace_id"); !ok || v != "test-trace-123" {
+		t.Error("trace_id not found or incorrect")
+	}
+}
+
+func TestContextValuesInheritance(t *testing.T) {
+	// Test that context values are properly set up for inheritance
+	ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+	defer ctxapi.ReleaseFrameContext(fc)
+
+	// Set values on parent frame
+	values := ctxapi.NewValues()
+	values.Set("parent_key", "parent_value")
+	if err := fc.Set(ctxapi.ValuesCtx, values); err != nil {
+		t.Fatalf("failed to set values: %v", err)
+	}
+
+	// Seal parent frame (simulating yield)
+	fc.Seal()
+
+	// Open child frame (simulating nested call)
+	childCtx, childFC := ctxapi.OpenFrameContext(ctx)
+	defer ctxapi.ReleaseFrameContext(childFC)
+
+	// Child should inherit values
+	childValues := ctxapi.GetValues(childCtx)
+	if childValues == nil {
+		t.Fatal("child should inherit values from parent")
+	}
+
+	if v, ok := childValues.Get("parent_key"); !ok || v != "parent_value" {
+		t.Error("child should have parent's value")
+	}
+}
+
+func TestSpawnerContextValues(t *testing.T) {
+	// Test that Spawner properly stores context values
+	spawner := &Spawner{}
+
+	if spawner.values != nil {
+		t.Error("new spawner should have nil values")
+	}
+
+	// Set values
+	values := ctxapi.NewValues()
+	values.Set("spawn_key", "spawn_value")
+	spawner.values = values
+
+	if spawner.values == nil || spawner.values.Len() == 0 {
+		t.Error("spawner should have values after setting")
+	}
+
+	if v, ok := spawner.values.Get("spawn_key"); !ok || v != "spawn_value" {
+		t.Error("spawner values incorrect")
 	}
 }

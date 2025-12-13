@@ -52,3 +52,82 @@ entries:
       - funcs
     imports:
       assert2: app.lib:assert
+
+  # Helper: calls ctx_reader via funcs.new():call() without with_context
+  - name: nested_func_caller
+    kind: function.lua
+    meta:
+      comment: Helper that calls another function without explicit with_context
+    source: file://nested_func_caller.lua
+    method: main
+    modules:
+      - funcs
+
+  - name: nested_func
+    kind: function.lua
+    meta:
+      type: test
+      suite: ctx
+      description: Context inheritance through nested funcs.call
+    source: file://nested_func.lua
+    method: main
+    modules:
+      - funcs
+    imports:
+      assert2: app.lib:assert
+
+  # Helper: spawns a process via process.spawn_monitored() without with_context
+  - name: func_spawns_process
+    kind: function.lua
+    meta:
+      comment: Helper that spawns process without explicit with_context
+    source: file://func_spawns_process.lua
+    method: main
+    modules:
+      - time
+
+  # Worker: validates context inherited from parent function
+  - name: func_spawns_process_worker
+    kind: process.lua
+    meta:
+      comment: Worker that validates context from parent function
+    source: file://func_spawns_process_worker.lua
+    method: main
+    modules:
+      - ctx
+
+  - name: func_to_process
+    kind: function.lua
+    meta:
+      type: test
+      suite: ctx
+      description: Context inheritance from function to spawned process
+    source: file://func_to_process.lua
+    method: main
+    modules:
+      - funcs
+    imports:
+      assert2: app.lib:assert
+
+  # Worker: calls funcs.new():call() to test process->func context inheritance
+  - name: process_calls_func_worker
+    kind: process.lua
+    meta:
+      comment: Worker that calls a function without explicit with_context
+    source: file://process_calls_func_worker.lua
+    method: main
+    modules:
+      - funcs
+
+  - name: process_to_func
+    kind: function.lua
+    meta:
+      type: test
+      suite: ctx
+      description: Context inheritance from process to function call
+    source: file://process_to_func.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert

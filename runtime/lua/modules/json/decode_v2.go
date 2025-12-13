@@ -5,10 +5,17 @@ package json
 import (
 	"bytes"
 	"encoding/json/jsontext"
+	"errors"
 	"sync"
 
 	lua "github.com/yuin/gopher-lua"
 )
+
+// maxNestingDepth limits JSON nesting to prevent stack overflow attacks.
+const maxNestingDepth = 128
+
+// ErrMaxDepthExceeded is returned when JSON nesting exceeds the limit.
+var ErrMaxDepthExceeded = errors.New("json: maximum nesting depth exceeded")
 
 // Reader pool to reduce allocations
 var readerPool = sync.Pool{
@@ -26,11 +33,19 @@ func Decode(data []byte) (lua.LValue, error) {
 	defer readerPool.Put(reader)
 
 	dec := jsontext.NewDecoder(reader)
-	return decodeValue(dec)
+	return decodeValueWithDepth(dec, 0)
+}
+
+// decodeValueWithDepth decodes the next JSON value with depth tracking.
+func decodeValueWithDepth(dec *jsontext.Decoder, depth int) (lua.LValue, error) {
+	if depth > maxNestingDepth {
+		return nil, ErrMaxDepthExceeded
+	}
+	return decodeValue(dec, depth)
 }
 
 // decodeValue decodes the next JSON value from the decoder.
-func decodeValue(dec *jsontext.Decoder) (lua.LValue, error) {
+func decodeValue(dec *jsontext.Decoder, depth int) (lua.LValue, error) {
 	kind := dec.PeekKind()
 
 	switch kind {
@@ -62,10 +77,10 @@ func decodeValue(dec *jsontext.Decoder) (lua.LValue, error) {
 		return decodeNumber(tok), nil
 
 	case '[': // array
-		return decodeArray(dec)
+		return decodeArray(dec, depth)
 
 	case '{': // object
-		return decodeObject(dec)
+		return decodeObject(dec, depth)
 
 	default:
 		// Handle negative numbers and other cases
@@ -97,7 +112,7 @@ func decodeNumber(tok jsontext.Token) lua.LValue {
 
 // decodeArray decodes a JSON array directly to a Lua table.
 // Writes directly to Array slice, bypassing RawSetInt overhead.
-func decodeArray(dec *jsontext.Decoder) (lua.LValue, error) {
+func decodeArray(dec *jsontext.Decoder, depth int) (lua.LValue, error) {
 	// Read opening '['
 	if _, err := dec.ReadToken(); err != nil {
 		return nil, err
@@ -110,7 +125,7 @@ func decodeArray(dec *jsontext.Decoder) (lua.LValue, error) {
 	}
 
 	for dec.PeekKind() != ']' {
-		val, err := decodeValue(dec)
+		val, err := decodeValueWithDepth(dec, depth+1)
 		if err != nil {
 			return nil, err
 		}
@@ -127,7 +142,7 @@ func decodeArray(dec *jsontext.Decoder) (lua.LValue, error) {
 
 // decodeObject decodes a JSON object directly to a Lua table.
 // Writes directly to Strdict map, bypassing RawSetString overhead.
-func decodeObject(dec *jsontext.Decoder) (lua.LValue, error) {
+func decodeObject(dec *jsontext.Decoder, depth int) (lua.LValue, error) {
 	// Read opening '{'
 	if _, err := dec.ReadToken(); err != nil {
 		return nil, err
@@ -148,7 +163,7 @@ func decodeObject(dec *jsontext.Decoder) (lua.LValue, error) {
 		key := keyTok.String()
 
 		// Read value
-		val, err := decodeValue(dec)
+		val, err := decodeValueWithDepth(dec, depth+1)
 		if err != nil {
 			return nil, err
 		}

@@ -123,7 +123,7 @@ func executorToString(l *lua.LState) int {
 		return 0
 	}
 
-	l.Push(lua.LString(fmt.Sprintf("QueryExecutor: %s [Args: %v]", wrapper.query, wrapper.args)))
+	l.Push(lua.LString(fmt.Sprintf("QueryExecutor: %s [Args: %d]", wrapper.query, len(wrapper.args))))
 	return 1
 }
 

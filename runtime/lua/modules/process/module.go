@@ -3,7 +3,6 @@ package process
 import (
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/wippyai/runtime/api/attrs"
@@ -23,62 +22,22 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-var (
-	moduleTable      *lua.LTable
-	registration     *luaapi.Registration
-	messageMetatable *lua.LTable
-	initOnce         sync.Once
-)
-
-// Module is the singleton process module instance.
-var Module = &processModule{}
-
-type processModule struct{}
-
-func (m *processModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        "process",
-		Description: "Process management and messaging",
-		Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
-	}
+func init() {
+	value.RegisterTypeMethods(nil, messageTypeName,
+		map[string]lua.LGoFunc{"__tostring": messageToString},
+		messageMethods)
 }
 
-func (m *processModule) Register(_ *lua.LState) *luaapi.Registration {
-	initOnce.Do(func() {
-		moduleTable = createModuleTable()
-
-		messageMetatable = value.RegisterTypeMethods(nil, messageTypeName,
-			map[string]lua.LGoFunc{"__tostring": messageToString},
-			messageMethods)
-
-		registration = &luaapi.Registration{
-			Table:      moduleTable,
-			YieldTypes: nil,
-		}
-	})
-
-	return registration
+// Module is the process module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "process",
+	Description: "Process management and messaging",
+	Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
+	Build:       buildModule,
 }
 
-func (m *processModule) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	l.Push(reg.Table)
-	return 1
-}
-
-// Bind is deprecated. Use luaapi.LoadModule(l, Module) instead.
-func Bind(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
-}
-
-// BindGlobal sets the process module as a global variable.
-func BindGlobal(l *lua.LState) { // todo: we dont allow global stuff, has to be removed!!
-	Module.Register(l)
-	l.SetGlobal("process", moduleTable)
-}
-
-func createModuleTable() *lua.LTable {
-	mod := lua.CreateTable(0, 25)
+func buildModule() (*lua.LTable, []luaapi.YieldType) {
+	mod := lua.CreateTable(0, 21)
 
 	mod.RawSetString("id", lua.LGoFunc(processID))
 	mod.RawSetString("pid", lua.LGoFunc(processPID))
@@ -117,7 +76,13 @@ func createModuleTable() *lua.LTable {
 	mod.RawSetString("registry", reg)
 
 	mod.Immutable = true
-	return mod
+	return mod, nil
+}
+
+// BindGlobal loads the process module and sets it as a global variable.
+// TODO: refactor callers to use Module.Load directly - this is redundant
+func BindGlobal(l *lua.LState) {
+	Module.Load(l)
 }
 
 func checkPID(l *lua.LState) (relay.PID, bool) {

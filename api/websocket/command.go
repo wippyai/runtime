@@ -55,7 +55,7 @@ type WsConnectCmd struct {
 	CompressionThreshold int // Min message size for compression (0 = default 512)
 
 	// Read limits
-	ReadLimit int64 // Max message size in bytes (0 = default 32KB)
+	ReadLimit int64 // Max message size in bytes (0 = default 16MB)
 
 	// Channel options
 	ChannelCapacity int // Capacity for receive channel (0 = unbuffered)

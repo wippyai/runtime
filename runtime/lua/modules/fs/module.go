@@ -2,7 +2,6 @@ package fs
 
 import (
 	"io/fs"
-	"sync"
 
 	fsapi "github.com/wippyai/runtime/api/fs"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
@@ -24,55 +23,32 @@ const (
 )
 
 var (
-	moduleTable          *lua.LTable
-	registration         *luaapi.Registration
 	fsMetatable          *lua.LTable
 	fileMetatable        *lua.LTable
 	fileScannerMetatable *lua.LTable
-	initOnce             sync.Once
 )
 
-// Module is the singleton fs module instance.
-var Module = &fsModule{}
-
-type fsModule struct{}
-
-func (m *fsModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        "fs",
-		Description: "Filesystem operations",
-		Class:       []string{luaapi.ClassStorage, luaapi.ClassIO, luaapi.ClassNondeterministic},
-	}
+func init() {
+	fsMetatable = value.RegisterTypeMethods(nil, fsTypeName,
+		map[string]lua.LGoFunc{"__tostring": fsToString},
+		fsMethods)
+	fileMetatable = value.RegisterTypeMethods(nil, fileTypeName,
+		map[string]lua.LGoFunc{"__tostring": fileToString},
+		fileMethods)
+	fileScannerMetatable = value.RegisterTypeMethods(nil, fileScannerTypeName,
+		nil,
+		fileScannerMethods)
 }
 
-func (m *fsModule) Register(_ *lua.LState) *luaapi.Registration {
-	initOnce.Do(func() {
-		moduleTable = createModuleTable()
-		fsMetatable = value.RegisterTypeMethods(nil, fsTypeName,
-			map[string]lua.LGoFunc{"__tostring": fsToString},
-			fsMethods)
-		fileMetatable = value.RegisterTypeMethods(nil, fileTypeName,
-			map[string]lua.LGoFunc{"__tostring": fileToString},
-			fileMethods)
-		fileScannerMetatable = value.RegisterTypeMethods(nil, fileScannerTypeName,
-			nil,
-			fileScannerMethods)
-		registration = &luaapi.Registration{
-			Table:      moduleTable,
-			YieldTypes: nil,
-		}
-	})
-
-	return registration
+// Module is the fs module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "fs",
+	Description: "Filesystem operations",
+	Class:       []string{luaapi.ClassStorage, luaapi.ClassIO, luaapi.ClassNondeterministic},
+	Build:       buildModule,
 }
 
-func (m *fsModule) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	l.Push(reg.Table)
-	return 1
-}
-
-func createModuleTable() *lua.LTable {
+func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	mod := lua.CreateTable(0, 4)
 
 	typeTable := lua.CreateTable(0, 2)
@@ -91,7 +67,7 @@ func createModuleTable() *lua.LTable {
 	mod.RawSetString("get", lua.LGoFunc(fsGet))
 
 	mod.Immutable = true
-	return mod
+	return mod, nil
 }
 
 func fsGet(l *lua.LState) int {

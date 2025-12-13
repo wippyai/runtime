@@ -752,6 +752,62 @@ func TestDispatcher_RequestFileUploadMissingFieldName(t *testing.T) {
 	}
 }
 
+func TestSSRFProtection(t *testing.T) {
+	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer ts.Close()
+
+	// Create pool with SSRF protection enabled
+	pool := NewClientPoolWithConfig(PoolConfig{BlockPrivateIPs: true})
+
+	// Should block request to localhost
+	client := pool.GetClient(time.Second, "")
+	resp, err := client.Get(ts.URL)
+	if err == nil {
+		resp.Body.Close()
+		t.Fatal("expected SSRF protection to block localhost request")
+	}
+	if !strings.Contains(err.Error(), "SSRF protection") {
+		t.Errorf("expected SSRF error, got: %v", err)
+	}
+}
+
+func TestSSRFProtectionDisabled(t *testing.T) {
+	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer ts.Close()
+
+	// Default pool has SSRF protection disabled
+	pool := NewClientPool()
+
+	client := pool.GetClient(time.Second, "")
+	resp, err := client.Get(ts.URL)
+	if err != nil {
+		t.Fatalf("expected request to succeed with SSRF disabled: %v", err)
+	}
+	resp.Body.Close()
+}
+
+func TestSSRFProtectionOverride(t *testing.T) {
+	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer ts.Close()
+
+	// Pool with SSRF enabled, but request overrides
+	pool := NewClientPoolWithConfig(PoolConfig{BlockPrivateIPs: true})
+
+	// GetClientWithSSRF with blockPrivateIPs=false should allow
+	client := pool.GetClientWithSSRF(time.Second, "", false)
+	resp, err := client.Get(ts.URL)
+	if err != nil {
+		t.Fatalf("expected override to allow request: %v", err)
+	}
+	resp.Body.Close()
+}
+
 func BenchmarkClientPoolGetDefault(b *testing.B) {
 	pool := NewClientPool()
 	b.ResetTimer()

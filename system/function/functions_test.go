@@ -619,3 +619,215 @@ func TestFunctions_ConcurrentExecution(t *testing.T) {
 
 	wg.Wait()
 }
+
+// TestFunctions_ContextInheritance_NestedCalls tests that context values are inherited
+// when function A calls function B. This is the core scenario from the bug report:
+// - Function A is called with context values
+// - Function A calls Function B (without explicit context passing)
+// - Function B should still see the context values from A
+func TestFunctions_ContextInheritance_NestedCalls(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	ctx = relayapi.WithNode(ctx, relay.NewNode("test"))
+
+	uniqGen := uniqid.NewGenerator()
+	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
+	ctx = process.WithPIDGenerator(ctx, pidGen)
+
+	executor, _ := setupTest()
+	require.NoError(t, executor.Start(ctx))
+	defer func() {
+		require.NoError(t, executor.Stop())
+	}()
+
+	// Make executor available via context for nested calls
+	ctx = function.WithRegistry(ctx, executor)
+
+	// Channel to capture what function B sees
+	resultCh := make(chan map[string]any, 1)
+
+	// Register function B - reads context values and reports them
+	funcBID := registry.ParseID("test:func-b")
+	executor.handlers.Store(funcBID, function.Func(func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
+		values := ctxapi.GetValues(ctx)
+		result := make(map[string]any)
+		if values != nil {
+			if v, ok := values.Get("request_id"); ok {
+				result["request_id"] = v
+			}
+			if v, ok := values.Get("user_id"); ok {
+				result["user_id"] = v
+			}
+		}
+		resultCh <- result
+		return &runtime.Result{Value: payload.New("ok")}, nil
+	}))
+
+	// Register function A - sets context values, then calls function B
+	funcAID := registry.ParseID("test:func-a")
+	executor.handlers.Store(funcAID, function.Func(func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
+		// Call function B without explicit context - it should inherit from A's context
+		_, err := executor.Call(ctx, runtime.Task{ID: funcBID})
+		return &runtime.Result{Value: payload.New("done")}, err
+	}))
+
+	// Call function A with context values
+	values := ctxapi.NewValues()
+	values.Set("request_id", "req-123")
+	values.Set("user_id", 42)
+
+	task := runtime.Task{
+		ID:      funcAID,
+		Context: []ctxapi.Pair{ctxapi.ValuesPair(values)},
+	}
+
+	result, err := executor.Call(ctx, task)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Check what function B received
+	select {
+	case received := <-resultCh:
+		assert.Equal(t, "req-123", received["request_id"], "request_id should be inherited")
+		assert.Equal(t, 42, received["user_id"], "user_id should be inherited")
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for function B result")
+	}
+}
+
+// TestFunctions_ContextInheritance_EmptyTaskContext tests the scenario where
+// a function is called with Task.Context = nil (simulating funcs.new():call() without with_context()).
+// The nested call should still inherit context values from the parent frame.
+func TestFunctions_ContextInheritance_EmptyTaskContext(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	ctx = relayapi.WithNode(ctx, relay.NewNode("test"))
+
+	uniqGen := uniqid.NewGenerator()
+	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
+	ctx = process.WithPIDGenerator(ctx, pidGen)
+
+	executor, _ := setupTest()
+	require.NoError(t, executor.Start(ctx))
+	defer func() {
+		require.NoError(t, executor.Stop())
+	}()
+
+	ctx = function.WithRegistry(ctx, executor)
+
+	resultCh := make(chan string, 1)
+
+	// Function B - reads context values
+	funcBID := registry.ParseID("test:func-b")
+	executor.handlers.Store(funcBID, function.Func(func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
+		values := ctxapi.GetValues(ctx)
+		if values == nil {
+			resultCh <- "no values"
+			return &runtime.Result{}, nil
+		}
+		if v, ok := values.Get("trace_id"); ok {
+			resultCh <- v.(string)
+		} else {
+			resultCh <- "trace_id not found"
+		}
+		return &runtime.Result{}, nil
+	}))
+
+	// Function A - calls B with EMPTY Task.Context (simulates funcs.new():call() without with_context())
+	funcAID := registry.ParseID("test:func-a")
+	executor.handlers.Store(funcAID, function.Func(func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
+		// Call B with empty Task.Context - this simulates funcs.new():call() behavior
+		_, err := executor.Call(ctx, runtime.Task{
+			ID:      funcBID,
+			Context: nil, // No explicit context - should still inherit from parent
+		})
+		return &runtime.Result{}, err
+	}))
+
+	// Call A with context values
+	values := ctxapi.NewValues()
+	values.Set("trace_id", "trace-xyz-789")
+
+	task := runtime.Task{
+		ID:      funcAID,
+		Context: []ctxapi.Pair{ctxapi.ValuesPair(values)},
+	}
+
+	_, err := executor.Call(ctx, task)
+	require.NoError(t, err)
+
+	select {
+	case received := <-resultCh:
+		assert.Equal(t, "trace-xyz-789", received, "trace_id should be inherited even with empty Task.Context")
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for function B result")
+	}
+}
+
+// TestFunctions_ContextInheritance_ThreeLevels tests context inheritance through
+// 3 levels of nested function calls: A -> B -> C
+func TestFunctions_ContextInheritance_ThreeLevels(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	ctx = relayapi.WithNode(ctx, relay.NewNode("test"))
+
+	uniqGen := uniqid.NewGenerator()
+	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
+	ctx = process.WithPIDGenerator(ctx, pidGen)
+
+	executor, _ := setupTest()
+	require.NoError(t, executor.Start(ctx))
+	defer func() {
+		require.NoError(t, executor.Stop())
+	}()
+
+	ctx = function.WithRegistry(ctx, executor)
+
+	resultCh := make(chan string, 1)
+
+	// Function C - deepest level, reads context
+	funcCID := registry.ParseID("test:func-c")
+	executor.handlers.Store(funcCID, function.Func(func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
+		values := ctxapi.GetValues(ctx)
+		if values == nil {
+			resultCh <- "no values"
+			return &runtime.Result{}, nil
+		}
+		if v, ok := values.Get("trace_id"); ok {
+			resultCh <- v.(string)
+		} else {
+			resultCh <- "trace_id not found"
+		}
+		return &runtime.Result{}, nil
+	}))
+
+	// Function B - middle level, calls C
+	funcBID := registry.ParseID("test:func-b")
+	executor.handlers.Store(funcBID, function.Func(func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
+		_, err := executor.Call(ctx, runtime.Task{ID: funcCID})
+		return &runtime.Result{}, err
+	}))
+
+	// Function A - top level, calls B
+	funcAID := registry.ParseID("test:func-a")
+	executor.handlers.Store(funcAID, function.Func(func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
+		_, err := executor.Call(ctx, runtime.Task{ID: funcBID})
+		return &runtime.Result{}, err
+	}))
+
+	// Call A with context
+	values := ctxapi.NewValues()
+	values.Set("trace_id", "trace-abc-123")
+
+	task := runtime.Task{
+		ID:      funcAID,
+		Context: []ctxapi.Pair{ctxapi.ValuesPair(values)},
+	}
+
+	_, err := executor.Call(ctx, task)
+	require.NoError(t, err)
+
+	select {
+	case received := <-resultCh:
+		assert.Equal(t, "trace-abc-123", received, "trace_id should propagate through 3 levels")
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for function C result")
+	}
+}

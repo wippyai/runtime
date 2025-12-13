@@ -13,9 +13,18 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/component"
 	"github.com/wippyai/runtime/runtime/lua/engine"
-	lua "github.com/yuin/gopher-lua"
+	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
+
+// workflowAllowedIDs are the modules allowed in workflow execution.
+var workflowAllowedIDs = []registry.ID{
+	{Name: "json"},
+	{Name: "base64"},
+	{Name: "payload"},
+	{Name: "workflow"},
+	{Name: "channel"},
+}
 
 // Manager handles Lua workflow components for engine2.
 // Workflows have restricted module access compared to processes.
@@ -23,15 +32,19 @@ type Manager struct {
 	log     *zap.Logger
 	code    *code.Manager
 	bus     event.Bus
+	factory engine.CompiledFactory
+	awaiter *eventbus.Awaiter
 	configs sync.Map // map[registry.ID]*api.WorkflowConfig
 }
 
 // NewManager creates a new workflow manager.
-func NewManager(log *zap.Logger, code *code.Manager, bus event.Bus) *Manager {
+func NewManager(log *zap.Logger, code *code.Manager, bus event.Bus, factory engine.CompiledFactory) *Manager {
 	return &Manager{
-		log:  log,
-		code: code,
-		bus:  bus,
+		log:     log,
+		code:    code,
+		bus:     bus,
+		factory: factory,
+		awaiter: eventbus.NewAwaiter(bus, process.System, "factory.(accept|reject)"),
 	}
 }
 
@@ -61,6 +74,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	if err := m.registerFactory(ctx, entry.ID, cfg.Method); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
+		m.configs.Delete(entry.ID)
 		return api.NewRegisterFactoryError(err)
 	}
 
@@ -136,30 +150,43 @@ func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) {
 
 // registerFactory registers a workflow factory with the factory registry.
 func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method string) error {
-	// Verify compilation works
-	_, err := m.code.Compile(id, workflowBuildOptions())
+	// Create factory using ProcessFactory with workflow-specific restrictions
+	factoryFn, err := m.factory.CreateFactory(id,
+		engine.WithMode(code.AllowListed),
+		engine.WithAllowed(append(workflowAllowedIDs, id)...),
+		engine.WithoutDefaultModule("process"), // Workflows don't get process module
+	)
 	if err != nil {
 		return api.NewCompileError(err)
 	}
 
-	// Default method
 	if method == "" {
 		method = "main"
+	}
+
+	path := id.String()
+
+	waiter, err := m.awaiter.Prepare(ctx, path)
+	if err != nil {
+		return api.NewRegisterFactoryError(err)
 	}
 
 	m.bus.Send(ctx, event.Event{
 		System: process.System,
 		Kind:   process.FactoryRegister,
-		Path:   id.String(),
+		Path:   path,
 		Data: &process.FactoryEntry{
-			Factory: func() (process.Process, error) {
-				return m.createProcess(id)
-			},
+			Factory: factoryFn,
 			Meta: process.Meta{
 				Method: method,
 			},
 		},
 	})
+
+	result := waiter.Wait()
+	if !result.Accepted {
+		return api.NewRegisterFactoryError(result.Error)
+	}
 
 	return nil
 }
@@ -173,91 +200,5 @@ func (m *Manager) unregisterFactory(ctx context.Context, id registry.ID) {
 	})
 }
 
-// createProcess creates a new workflow process instance.
-func (m *Manager) createProcess(id registry.ID) (process.Process, error) {
-	compiled, err := m.code.Compile(id, workflowBuildOptions())
-	if err != nil {
-		return nil, api.NewCompileError(err)
-	}
-
-	return createProcess(compiled)
-}
-
-// createProcess creates a workflow process from compiled code.
-// Uses restricted module set for deterministic execution.
-func createProcess(compiled *code.CompiledMain) (process.Process, error) {
-	// Workflows use restricted binders - no HTTP, no time yields
-	binders := engine.CoreBinders()
-
-	// Add module binders for dependencies
-	for _, dep := range compiled.Dependencies {
-		if dep.Node != nil && dep.Node.Module != nil {
-			mod := dep.Node.Module
-			name := dep.Name
-			binders = append(binders, func(L *lua.LState) {
-				L.PreloadModule(name, func(L *lua.LState) int {
-					return mod.Loader(L)
-				})
-			})
-		}
-		if dep.Proto != nil {
-			proto := dep.Proto
-			name := dep.Name
-			binders = append(binders, func(L *lua.LState) {
-				L.PreloadModule(name, func(L *lua.LState) int {
-					fn := L.LoadProto(proto)
-					L.Push(fn)
-					L.Call(0, 1)
-					return 1
-				})
-			})
-		}
-	}
-
-	// Add preloaded modules
-	for _, pre := range compiled.Preloaded {
-		if pre.Node != nil && pre.Node.Module != nil {
-			mod := pre.Node.Module
-			name := pre.Name
-			binders = append(binders, func(L *lua.LState) {
-				L.PreloadModule(name, func(L *lua.LState) int {
-					return mod.Loader(L)
-				})
-			})
-		}
-		if pre.Proto != nil {
-			proto := pre.Proto
-			name := pre.Name
-			binders = append(binders, func(L *lua.LState) {
-				L.PreloadModule(name, func(L *lua.LState) int {
-					fn := L.LoadProto(proto)
-					L.Push(fn)
-					L.Call(0, 1)
-					return 1
-				})
-			})
-		}
-	}
-
-	cfg := engine.FactoryConfig{
-		Proto:         compiled.Main,
-		ModuleBinders: binders,
-	}
-
-	factory := engine.NewFactory(cfg)
-	return factory()
-}
-
-// workflowBuildOptions returns build options for workflows.
-// Uses AllowListed mode to restrict available modules for determinism.
-func workflowBuildOptions() *code.BuildOptions {
-	return code.NewBuildOptions().
-		WithMode(code.AllowListed).
-		WithAllowed(
-			registry.ID{Name: "json"},
-			registry.ID{Name: "base64"},
-			registry.ID{Name: "payload"},
-			registry.ID{Name: "workflow"},
-			registry.ID{Name: "channel"},
-		)
-}
+// Compile-time check
+var _ registry.EntryListener = (*Manager)(nil)

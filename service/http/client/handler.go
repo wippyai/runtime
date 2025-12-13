@@ -43,6 +43,7 @@ type PoolConfig struct {
 	MaxIdleConns    int
 	MaxIdlePerHost  int
 	IdleConnTimeout time.Duration
+	BlockPrivateIPs bool // Enable SSRF protection (default false for backward compatibility)
 }
 
 // Dispatcher handles HTTP client commands.
@@ -151,6 +152,8 @@ func (d *Dispatcher) handleRequestBatch(ctx context.Context, cmd dispatcher.Comm
 	return nil
 }
 
+const defaultMaxResponseBody int64 = 120 * 1024 * 1024 // 120MB default limit
+
 // executeRequest performs a single HTTP request and returns the response.
 func executeRequest(ctx context.Context, pool *Pool, req *httpapi.RequestCmd, allowStream bool) httpapi.Response {
 	reqURL := req.URL
@@ -225,7 +228,9 @@ func executeRequest(ctx context.Context, pool *Pool, req *httpapi.RequestCmd, al
 		httpReq.SetBasicAuth(req.BasicAuthUser, req.BasicAuthPass)
 	}
 
-	client := pool.GetClient(req.Timeout, req.UnixSocket)
+	// Request can override pool's SSRF setting by allowing private IPs
+	blockPrivate := pool.blockPrivateIPs && !req.AllowPrivateIPs
+	client := pool.GetClientWithSSRF(req.Timeout, req.UnixSocket, blockPrivate)
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return httpapi.Response{Error: err.Error()}
@@ -261,9 +266,19 @@ func executeRequest(ctx context.Context, pool *Pool, req *httpapi.RequestCmd, al
 
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	maxBody := req.MaxResponseBody
+	if maxBody <= 0 {
+		maxBody = defaultMaxResponseBody
+	}
+
+	limitedReader := io.LimitReader(resp.Body, maxBody+1)
+	respBody, err := io.ReadAll(limitedReader)
 	if err != nil {
 		return httpapi.Response{Error: err.Error()}
+	}
+
+	if int64(len(respBody)) > maxBody {
+		return httpapi.Response{Error: fmt.Sprintf("response body too large (max %d bytes)", maxBody)}
 	}
 
 	return httpapi.Response{

@@ -810,7 +810,7 @@ func (a *Adaptive) handleStable(workers, idle int32, queueLen int) {
 		a.baseline = a.ema
 		a.baselineQueue = queueLen
 		a.state = stateProbing
-		a.spawnWorker()
+		a.spawnWorker() // todo: error not handled
 		a.cooldownUntil = time.Now().Add(a.probeCooldown)
 		if a.log != nil {
 			a.log.Debug("probing up",
@@ -847,7 +847,7 @@ func (a *Adaptive) handleProbing(workers int32) {
 	// 4. Throughput stable/improved AND queue dropped significantly
 	// 5. Good per-worker efficiency (>50% of theoretical max) when busy
 	// 6. At high scale: queue improved AND no significant regression (noise-tolerant)
-	highScale := workers > 100
+	highScale := workers > 100 // todo: meh we need unified
 	success := improvement > a.improvementThreshold ||
 		(improvement > a.minImprovementThreshold && queuePct > a.queuePressureThreshold) ||
 		(improvement > a.minImprovementThreshold && allBusy && hasBacklog) ||

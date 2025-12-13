@@ -47,6 +47,12 @@ type RequestCmd struct {
 
 	// Streaming response (returns stream ID instead of body)
 	Stream bool
+
+	// MaxResponseBody limits response body size (0 = use default 120MB)
+	MaxResponseBody int64
+
+	// AllowPrivateIPs disables SSRF protection (default false = block private IPs)
+	AllowPrivateIPs bool
 }
 
 // FileUpload represents a file to upload in multipart form.
@@ -85,6 +91,8 @@ func (c *RequestCmd) Release() {
 	c.BasicAuthUser = ""
 	c.BasicAuthPass = ""
 	c.Stream = false
+	c.MaxResponseBody = 0
+	c.AllowPrivateIPs = false
 	requestCmdPool.Put(c)
 }
 

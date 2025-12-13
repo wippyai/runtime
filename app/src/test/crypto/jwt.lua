@@ -5,7 +5,8 @@ local function main()
     local crypto = require("crypto")
 
     -- Basic JWT encode/verify
-    local payload = { sub = "user123", name = "Test User" }
+    local exp = os.time() + 3600 -- 1 hour from now
+    local payload = { sub = "user123", name = "Test User", exp = exp }
     local token, err = crypto.jwt.encode(payload, "secret")
     assert.is_nil(err, "jwt.encode should not error")
     assert.not_nil(token, "jwt.encode returns token")
@@ -46,6 +47,7 @@ local function main()
     -- Custom header via _header field
     local payload_header = {
         sub = "user123",
+        exp = exp,
         _header = { kid = "key-123" }
     }
     local t_header, err10 = crypto.jwt.encode(payload_header, "secret")

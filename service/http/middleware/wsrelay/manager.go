@@ -22,17 +22,25 @@ const (
 	// Option keys (dot-separated, preferred)
 	OptionAllowedOrigins = "wsrelay.allowed.origins"
 
+	// Shared option key (can be used across modules)
+	sharedAllowOrigins = "allow_origins"
+
 	// Legacy option keys (deprecated, for backward compatibility)
 	legacyAllowedOrigins = "allowed_origins"
 )
 
-// getOption retrieves an option value, checking the new dot-separated key first,
-// then falling back to the legacy underscore key for backward compatibility
-func getOption(options map[string]string, newKey, legacyKey string) string {
-	if val, ok := options[newKey]; ok {
+// getOrigins retrieves allowed origins, checking in order:
+// 1. wsrelay.allowed.origins (module-specific)
+// 2. allow_origins (shared across modules)
+// 3. allowed_origins (legacy)
+func getOrigins(options map[string]string) string {
+	if val, ok := options[OptionAllowedOrigins]; ok {
 		return val
 	}
-	return options[legacyKey]
+	if val, ok := options[sharedAllowOrigins]; ok {
+		return val
+	}
+	return options[legacyAllowedOrigins]
 }
 
 // RelayManager manages WebSocket connections and their relay to the relay system
@@ -60,10 +68,8 @@ func NewWebSocketRelay(ctx context.Context, logger *zap.Logger, pidGen *uniqid.P
 // CreateMiddleware creates a configurable WebSocket relay middleware
 func (m *RelayManager) CreateMiddleware(options map[string]string) func(http.Handler) http.Handler {
 	// Parse allowed origins from options (comma-separated)
-	allowedOrigins := getOption(options, OptionAllowedOrigins, legacyAllowedOrigins)
-	if allowedOrigins == "" {
-		allowedOrigins = "*"
-	}
+	// Checks: wsrelay.allowed.origins -> allow_origins -> allowed_origins
+	allowedOrigins := getOrigins(options)
 
 	// Split by comma and trim spaces
 	var originPatterns []string
@@ -74,9 +80,10 @@ func (m *RelayManager) CreateMiddleware(options map[string]string) func(http.Han
 		}
 	}
 
-	// If no patterns after parsing, default to wildcard
+	// If no patterns configured, log warning but allow same-origin only
+	// This is safer than defaulting to "*" which allows any origin
 	if len(originPatterns) == 0 {
-		originPatterns = []string{"*"}
+		m.logger.Warn("wsrelay: no allowed origins configured, using same-origin only")
 	}
 
 	return func(h http.Handler) http.Handler {

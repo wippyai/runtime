@@ -16,6 +16,7 @@ type HTTPConfig struct {
 	MaxIdleConns    int
 	MaxIdlePerHost  int
 	IdleConnTimeout time.Duration
+	BlockPrivateIPs bool      // Enable SSRF protection (default false for backward compatibility)
 	Debug           io.Writer // TODO: remove after testing is complete
 }
 
@@ -36,16 +37,25 @@ func HTTP(cfg ...HTTPConfig) boot.Component {
 				return ctx, ErrDispatcherNotFound
 			}
 
+			// Read from yaml config if no explicit config provided
+			if len(cfg) == 0 {
+				if bootCfg := boot.GetConfig(ctx); bootCfg != nil {
+					httpCfg := bootCfg.Sub("http_client")
+					config.BlockPrivateIPs = httpCfg.GetBool("block_private_ips", false)
+				}
+			}
+
 			var opts []httpclient.Option
 			if config.Debug != nil {
 				opts = append(opts, httpclient.WithDebug(config.Debug))
 			}
-			if config.Timeout > 0 || config.MaxIdleConns > 0 {
+			if config.Timeout > 0 || config.MaxIdleConns > 0 || config.BlockPrivateIPs {
 				opts = append(opts, httpclient.WithPoolConfig(httpclient.PoolConfig{
 					Timeout:         config.Timeout,
 					MaxIdleConns:    config.MaxIdleConns,
 					MaxIdlePerHost:  config.MaxIdlePerHost,
 					IdleConnTimeout: config.IdleConnTimeout,
+					BlockPrivateIPs: config.BlockPrivateIPs,
 				}))
 			}
 

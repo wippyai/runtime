@@ -3,52 +3,22 @@ package io
 
 import (
 	"bufio"
-	"sync"
 
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/service/terminal"
 	lua "github.com/yuin/gopher-lua"
 )
 
-var (
-	moduleTable  *lua.LTable
-	registration *luaapi.Registration
-	initOnce     sync.Once
-)
-
-// Module is the singleton io module instance.
-var Module = &ioModule{}
-
-type ioModule struct{}
-
-func (m *ioModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        "io",
-		Description: "Terminal IO operations (stdin, stdout, stderr)",
-		Class:       []string{luaapi.ClassIO, luaapi.ClassNondeterministic},
-	}
+// Module is the io module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "io",
+	Description: "Terminal IO operations (stdin, stdout, stderr)",
+	Class:       []string{luaapi.ClassIO, luaapi.ClassNondeterministic},
+	Build:       buildModule,
 }
 
-func (m *ioModule) Register(*lua.LState) *luaapi.Registration {
-	initOnce.Do(func() {
-		moduleTable = createModuleTable()
-		registration = &luaapi.Registration{
-			Table:      moduleTable,
-			YieldTypes: nil,
-		}
-	})
-
-	return registration
-}
-
-func (m *ioModule) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	l.Push(reg.Table)
-	return 1
-}
-
-func createModuleTable() *lua.LTable {
-	mod := lua.CreateTable(0, 8)
+func buildModule() (*lua.LTable, []luaapi.YieldType) {
+	mod := lua.CreateTable(0, 7)
 
 	mod.RawSetString("write", lua.LGoFunc(ioWrite))
 	mod.RawSetString("print", lua.LGoFunc(ioPrint))
@@ -59,7 +29,7 @@ func createModuleTable() *lua.LTable {
 	mod.RawSetString("args", lua.LGoFunc(ioArgs))
 
 	mod.Immutable = true
-	return mod
+	return mod, nil
 }
 
 // ioWrite writes strings to stdout without newline.

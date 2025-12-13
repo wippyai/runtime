@@ -30,6 +30,25 @@ func parseDuration(lv lua.LValue) (time.Duration, bool) {
 	}
 }
 
+// safeInt converts a Lua number to int with bounds checking.
+// Returns the value and true if valid, or 0 and false if out of range.
+func safeInt(lv lua.LValue, min, max int) (int, bool) {
+	n := float64(lua.LVAsNumber(lv))
+	if n < float64(min) || n > float64(max) {
+		return 0, false
+	}
+	return int(n), true
+}
+
+// safeInt64 converts a Lua number to int64 with bounds checking.
+func safeInt64(lv lua.LValue, min, max int64) (int64, bool) {
+	n := float64(lua.LVAsNumber(lv))
+	if n < float64(min) || n > float64(max) {
+		return 0, false
+	}
+	return int64(n), true
+}
+
 const (
 	wsConnTypeName = "websocket.Client"
 )
@@ -179,7 +198,9 @@ func connect(l *lua.LState) int {
 		if compression := opts.RawGetString("compression"); compression != lua.LNil {
 			switch compression.Type() { //nolint:exhaustive // only number/string types valid
 			case lua.LTNumber, lua.LTInteger:
-				yield.CompressionMode = int(lua.LVAsNumber(compression))
+				if v, ok := safeInt(compression, 0, 2); ok {
+					yield.CompressionMode = v
+				}
 			case lua.LTString:
 				switch compression.String() {
 				case "context_takeover":
@@ -192,19 +213,25 @@ func connect(l *lua.LState) int {
 			}
 		}
 
-		// Compression threshold
+		// Compression threshold (must be positive, max 100MB)
 		if threshold := opts.RawGetString("compression_threshold"); threshold.Type() == lua.LTNumber || threshold.Type() == lua.LTInteger {
-			yield.CompressionThreshold = int(lua.LVAsNumber(threshold))
+			if v, ok := safeInt(threshold, 0, 100*1024*1024); ok {
+				yield.CompressionThreshold = v
+			}
 		}
 
-		// Read limit
+		// Read limit (must be positive, max 128MB)
 		if limit := opts.RawGetString("read_limit"); limit.Type() == lua.LTNumber || limit.Type() == lua.LTInteger {
-			yield.ReadLimit = int64(lua.LVAsNumber(limit))
+			if v, ok := safeInt64(limit, 0, 128*1024*1024); ok {
+				yield.ReadLimit = v
+			}
 		}
 
-		// Channel capacity
+		// Channel capacity (must be positive, max 10000)
 		if capacity := opts.RawGetString("channel_capacity"); capacity.Type() == lua.LTNumber || capacity.Type() == lua.LTInteger {
-			yield.ChannelCapacity = int(lua.LVAsNumber(capacity))
+			if v, ok := safeInt(capacity, 1, 10000); ok {
+				yield.ChannelCapacity = v
+			}
 		}
 	}
 
@@ -241,7 +268,9 @@ func connSend(l *lua.LState) int {
 	data := l.CheckString(2)
 	msgType := wsapi.MessageText
 	if l.GetTop() >= 3 {
-		msgType = int(l.CheckNumber(3))
+		if v, ok := safeInt(l.Get(3), wsapi.MessageText, wsapi.MessageBinary); ok {
+			msgType = v
+		}
 	}
 
 	yield := AcquireWsSendYield(conn.ID, []byte(data), msgType)
@@ -300,7 +329,10 @@ func connClose(l *lua.LState) int {
 	code := 1000
 	reason := ""
 	if l.GetTop() >= 2 {
-		code = int(l.CheckNumber(2))
+		// Valid WebSocket close codes: 1000-1015, 3000-4999
+		if v, ok := safeInt(l.Get(2), 1000, 4999); ok {
+			code = v
+		}
 	}
 	if l.GetTop() >= 3 {
 		reason = l.CheckString(3)

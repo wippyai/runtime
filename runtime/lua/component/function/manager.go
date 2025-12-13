@@ -5,61 +5,78 @@ package function
 import (
 	"context"
 	"sync"
-	"time"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
+	fsapi "github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/function"
-	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	api "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/runtime/lua/code"
-	"github.com/wippyai/runtime/runtime/lua/component"
 	"github.com/wippyai/runtime/runtime/lua/engine"
-	processmod "github.com/wippyai/runtime/runtime/lua/modules/process"
 	"github.com/wippyai/runtime/system/eventbus"
 	funcpool "github.com/wippyai/runtime/system/scheduler/pool"
-	lua "github.com/yuin/gopher-lua"
-
-	api "github.com/wippyai/runtime/api/runtime/lua"
 	"go.uber.org/zap"
 )
+
+// configEntry holds config for either source or bytecode function.
+type configEntry struct {
+	method   string
+	pool     api.PoolConfig
+	options  runtime.Options
+	source   *api.FunctionConfig
+	bytecode *api.BytecodeFunctionConfig
+}
 
 // poolEntry wraps a pool with its config.
 type poolEntry struct {
 	pool   funcpool.Pool
-	config api.PoolConfig
 	method string
 }
 
-// Manager handles Lua function compilation, pooling and execution.
+// Manager handles both source and bytecode Lua function compilation, pooling and execution.
 type Manager struct {
 	ctx        context.Context
 	log        *zap.Logger
 	code       *code.Manager
 	bus        event.Bus
 	dispatcher dispatcher.Dispatcher
+	fsRegistry fsapi.Registry
+	factory    engine.CompiledFactory
 	topo       topology.Topology
 	pidReg     topology.PIDRegistry
 	node       relay.Node
 	awaiter    *eventbus.Awaiter
 
-	pools   sync.Map // map[registry.ID]*poolEntry - lock-free for hot path
-	configs sync.Map
-	mu      sync.Mutex // only for start/stop coordination
+	mu      sync.RWMutex
+	pools   map[registry.ID]*poolEntry
+	configs map[registry.ID]*configEntry
 	started bool
 }
 
 // NewManager creates a new function manager.
-func NewManager(log *zap.Logger, code *code.Manager, bus event.Bus, disp dispatcher.Dispatcher) *Manager {
+// fsRegistry can be nil if bytecode functions are not used.
+func NewManager(
+	log *zap.Logger,
+	code *code.Manager,
+	bus event.Bus,
+	disp dispatcher.Dispatcher,
+	fsRegistry fsapi.Registry,
+	factory engine.CompiledFactory,
+) *Manager {
 	return &Manager{
 		log:        log,
 		code:       code,
 		bus:        bus,
 		dispatcher: disp,
+		fsRegistry: fsRegistry,
+		factory:    factory,
 		awaiter:    eventbus.NewAwaiter(bus, function.System, "function.(accept|reject)"),
+		pools:      make(map[registry.ID]*poolEntry),
+		configs:    make(map[registry.ID]*configEntry),
 	}
 }
 
@@ -81,470 +98,42 @@ func (m *Manager) Start(ctx context.Context) error {
 // Stop stops all pools gracefully.
 func (m *Manager) Stop() {
 	m.mu.Lock()
-	m.started = false
-	m.mu.Unlock()
+	defer m.mu.Unlock()
 
-	m.pools.Range(func(key, value any) bool {
-		id := key.(registry.ID)
-		entry := value.(*poolEntry)
+	for id, entry := range m.pools {
 		entry.pool.Stop()
 		if m.node != nil {
 			m.node.UnregisterHost(id.String())
 		}
-		m.pools.Delete(id)
 		m.log.Debug("pool stopped", zap.String("id", id.String()))
-		return true
-	})
+	}
+	m.pools = make(map[registry.ID]*poolEntry)
+	m.started = false
 
 	m.log.Info("function manager stopped")
 }
 
-// Add creates and registers a new function.
-func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != api.KindFunction {
-		return api.NewInvalidEntryKindError(entry.Kind, api.KindFunction)
-	}
-
-	cfg, err := component.UnpackConfig[api.FunctionConfig](ctx, entry)
-	if err != nil {
-		return api.NewUnpackConfigError("function", err)
-	}
-
-	// Add to code manager
-	node := code.Node{
-		ID:     entry.ID,
-		Kind:   api.KindFunction,
-		Source: cfg.Source,
-		Method: cfg.Method,
-	}
-	imports := component.BuildImports(cfg.Imports, cfg.Modules)
-	if err := m.code.AddNode(ctx, node, imports); err != nil {
-		return api.NewAddNodeError("function", err)
-	}
-
-	if err := m.createPool(entry.ID, cfg); err != nil {
-		_ = m.code.DeleteNode(ctx, entry.ID)
-		return api.NewCreatePoolError(err)
-	}
-
-	// Store config for invalidation
-	m.configs.Store(entry.ID, cfg)
-
-	// Register function caller and wait for confirmation
-	opts, _ := cfg.Meta.GetBag("options")
-	if err := m.registerCaller(ctx, entry.ID, opts); err != nil {
-		m.removePool(entry.ID)
-		m.configs.Delete(entry.ID)
-		_ = m.code.DeleteNode(ctx, entry.ID)
-		return err
-	}
-
-	m.log.Debug("function added",
-		zap.String("id", entry.ID.String()),
-		zap.Int("workers", cfg.Pool.Workers),
-	)
-
-	return nil
-}
-
-// Update updates an existing function.
-func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != api.KindFunction {
-		return api.NewInvalidEntryKindError(entry.Kind, api.KindFunction)
-	}
-
-	cfg, err := component.UnpackConfig[api.FunctionConfig](ctx, entry)
-	if err != nil {
-		return api.NewUnpackConfigError("function", err)
-	}
-
-	// Update code manager
-	node := code.Node{
-		ID:     entry.ID,
-		Kind:   api.KindFunction,
-		Source: cfg.Source,
-		Method: cfg.Method,
-	}
-	imports := component.BuildImports(cfg.Imports, cfg.Modules)
-	if err := m.code.UpdateNode(ctx, node, imports); err != nil {
-		return api.NewUpdateNodeError("function", err)
-	}
-
-	if err := m.replacePool(entry.ID, cfg); err != nil {
-		return api.NewReplacePoolError(err)
-	}
-
-	// Update config
-	m.configs.Store(entry.ID, cfg)
-
-	// Re-register function caller and wait for confirmation
-	opts, _ := cfg.Meta.GetBag("options")
-	if err := m.registerCaller(ctx, entry.ID, opts); err != nil {
-		return err
-	}
-
-	m.log.Info("function updated", zap.String("id", entry.ID.String()))
-	return nil
-}
-
-// Delete removes a function.
-func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != api.KindFunction {
-		return api.NewInvalidEntryKindError(entry.Kind, api.KindFunction)
-	}
-
-	if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
-		return api.NewDeleteNodeError("function", err)
-	}
-
-	// Stop and remove pool
-	m.removePool(entry.ID)
-
-	// Remove config
-	m.configs.Delete(entry.ID)
-
-	// Unregister function caller
-	m.unregisterCaller(ctx, entry.ID)
-
-	m.log.Info("function deleted", zap.String("id", entry.ID.String()))
-	return nil
-}
-
-// Invalidate handles code invalidation for hot reload.
-func (m *Manager) Invalidate(_ context.Context, ids []registry.ID) {
-	for _, id := range ids {
-		cfgAny, exists := m.configs.Load(id)
-		if !exists {
-			continue
-		}
-		cfg := cfgAny.(*api.FunctionConfig)
-
-		m.log.Debug("invalidating function", zap.String("id", id.String()))
-
-		if err := m.replacePool(id, cfg); err != nil {
-			m.log.Error("failed to invalidate function", zap.Error(err))
-		}
-	}
-}
-
-// Execute runs a function with given task.
-// Note: task.Context pairs are set by the function registry's executor,
-// not here. The executor creates a new frame with OpenFrameContext which
-// inherits from sealed parent and then applies task.Context overrides.
-func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
-	v, exists := m.pools.Load(task.ID)
-	if !exists {
-		return nil, api.NewPoolNotFoundError(task.ID.String())
-	}
-	entry := v.(*poolEntry)
-
-	result, err := entry.pool.Call(ctx, entry.method, task.Payloads)
-	return result, err
-}
-
-// createPool creates a new pool for a function.
-func (m *Manager) createPool(id registry.ID, cfg *api.FunctionConfig) error {
-	compiled, err := m.code.Compile(id, functionBuildOptions())
-	if err != nil {
-		return api.NewCompileError(err)
-	}
-
-	// Create process factory
-	factory := m.createFactory(compiled)
-
-	// Create execution hooks for topology integration
-	execHooks := m.createExecutionHooks()
-
-	var pool funcpool.Pool
-
-	// If explicit type is set, use it directly
-	if cfg.Pool.Type != "" {
-		pool, err = m.createPoolByType(cfg.Pool.Type, factory, cfg, execHooks)
-	} else {
-		// Auto-select pool type based on config (legacy behavior)
-		pool, err = m.autoSelectPool(factory, cfg, execHooks)
-	}
-
-	if err != nil {
-		return api.NewCreatePoolError(err)
-	}
-
-	entry := &poolEntry{
-		pool:   pool,
-		config: cfg.Pool,
-		method: cfg.Method,
-	}
-	m.pools.Store(id, entry)
-
-	// Register pool as relay host using function ID
-	if m.node != nil {
-		if err := m.node.RegisterHost(id.String(), pool); err != nil {
-			m.log.Warn("failed to register pool as host", zap.String("id", id.String()), zap.Error(err))
-		}
-	}
-
+// storeConfig stores a config entry.
+func (m *Manager) storeConfig(id registry.ID, cfg *configEntry) {
 	m.mu.Lock()
-	started := m.started
+	m.configs[id] = cfg
 	m.mu.Unlock()
-
-	if started {
-		pool.Start()
-	}
-
-	return nil
 }
 
-// replacePool stops old pool and creates new one.
-func (m *Manager) replacePool(id registry.ID, cfg *api.FunctionConfig) error {
-	m.removePool(id)
-	return m.createPool(id, cfg)
+// getConfig retrieves a config entry.
+func (m *Manager) getConfig(id registry.ID) *configEntry {
+	m.mu.RLock()
+	cfg := m.configs[id]
+	m.mu.RUnlock()
+	return cfg
 }
 
-// removePool stops and removes a pool.
-func (m *Manager) removePool(id registry.ID) {
-	v, exists := m.pools.LoadAndDelete(id)
-	if !exists {
-		return
-	}
-	entry := v.(*poolEntry)
-	entry.pool.Stop()
-
-	// Unregister pool from relay
-	if m.node != nil {
-		m.node.UnregisterHost(id.String())
-	}
+// deleteConfig removes a config entry.
+func (m *Manager) deleteConfig(id registry.ID) {
+	m.mu.Lock()
+	delete(m.configs, id)
+	m.mu.Unlock()
 }
 
-// createFactory creates a ProcessFactory from compiled code.
-func (m *Manager) createFactory(compiled *code.CompiledMain) process.FactoryFunc {
-	return func() (process.Process, error) {
-		return createProcess(compiled)
-	}
-}
-
-// createProcess creates a new process with standard bindings.
-func createProcess(compiled *code.CompiledMain) (process.Process, error) {
-	binders := engine.CoreBinders()
-	binders = append(binders, processmod.BindGlobal)
-
-	// Add module binders for dependencies // todo: why the it's here? why it's in manager and not in proper factory?
-	for _, dep := range compiled.Dependencies {
-		if dep.Node != nil && dep.Node.Module != nil {
-			mod := dep.Node.Module
-			name := dep.Name
-			binders = append(binders, func(L *lua.LState) {
-				L.PreloadModule(name, func(L *lua.LState) int {
-					return mod.Loader(L)
-				})
-			})
-		}
-		// Handle compiled proto dependencies (libraries)
-		if dep.Proto != nil {
-			proto := dep.Proto
-			name := dep.Name
-			binders = append(binders, func(L *lua.LState) {
-				L.PreloadModule(name, func(L *lua.LState) int {
-					fn := L.LoadProto(proto)
-					L.Push(fn)
-					L.Call(0, 1)
-					return 1
-				})
-			})
-		}
-	}
-
-	// Add preloaded modules
-	for _, pre := range compiled.Preloaded {
-		if pre.Node != nil && pre.Node.Module != nil {
-			mod := pre.Node.Module
-			name := pre.Name
-			binders = append(binders, func(L *lua.LState) {
-				L.PreloadModule(name, func(L *lua.LState) int {
-					return mod.Loader(L)
-				})
-			})
-		}
-		if pre.Proto != nil {
-			proto := pre.Proto
-			name := pre.Name
-			binders = append(binders, func(L *lua.LState) {
-				L.PreloadModule(name, func(L *lua.LState) int {
-					fn := L.LoadProto(proto)
-					L.Push(fn)
-					L.Call(0, 1)
-					return 1
-				})
-			})
-		}
-	}
-
-	cfg := engine.FactoryConfig{
-		Proto:         compiled.Main,
-		ModuleBinders: binders,
-	}
-
-	factory := engine.NewFactory(cfg)
-	return factory()
-}
-
-// functionBuildOptions returns build options for functions.
-func functionBuildOptions() *code.BuildOptions {
-	return code.NewBuildOptions().
-		WithMode(code.AllowAll)
-}
-
-// autoSelectPool automatically selects pool type based on config options (legacy behavior).
-// Logic:
-//   - workers=0, size=0 (or max_size>0) → lazy pool (on-demand, no preloading)
-//   - workers>0 → static pool with worker goroutines and task queue
-//   - size>0, workers=0 → inline pool (single process, mutex serialized)
-func (m *Manager) autoSelectPool(factory process.FactoryFunc, cfg *api.FunctionConfig, hooks funcpool.ExecutionHooks) (funcpool.Pool, error) {
-	// Lazy pool: no workers, no size (or has max_size)
-	isLazyPool := cfg.Pool.Workers == 0 && (cfg.Pool.Size == 0 || cfg.Pool.MaxSize > 0)
-	if isLazyPool {
-		maxWorkers := cfg.Pool.MaxSize
-		if maxWorkers <= 0 {
-			maxWorkers = api.DefaultMaxSize
-		}
-		return funcpool.NewLazy(factory, m.dispatcher, funcpool.LazyConfig{
-			MaxWorkers:  maxWorkers,
-			IdleTimeout: 30 * time.Second,
-		}, hooks)
-	}
-
-	// Static pool: workers > 0
-	if cfg.Pool.Workers > 0 {
-		queueSize := cfg.Pool.Buffer
-		if queueSize == 0 {
-			queueSize = cfg.Pool.Workers * 64
-		}
-		return funcpool.NewStatic(factory, m.dispatcher, funcpool.Config{
-			Workers:   cfg.Pool.Workers,
-			QueueSize: queueSize,
-		}, hooks)
-	}
-
-	// Inline pool: size > 0, workers = 0
-	return funcpool.NewInline(factory, m.dispatcher, hooks)
-}
-
-// createPoolByType creates a pool of the specified type.
-func (m *Manager) createPoolByType(poolType string, factory process.FactoryFunc, cfg *api.FunctionConfig, hooks funcpool.ExecutionHooks) (funcpool.Pool, error) {
-	switch poolType {
-	case api.PoolTypeInline:
-		return funcpool.NewInline(factory, m.dispatcher, hooks)
-
-	case api.PoolTypeLazy:
-		maxWorkers := cfg.Pool.MaxSize
-		if maxWorkers == 0 {
-			maxWorkers = 16
-		}
-		return funcpool.NewLazy(factory, m.dispatcher, funcpool.LazyConfig{
-			MaxWorkers:  maxWorkers,
-			IdleTimeout: 30 * time.Second,
-		}, hooks)
-
-	case api.PoolTypeStatic:
-		workers := cfg.Pool.Workers
-		if workers == 0 {
-			workers = cfg.Pool.Size
-		}
-		if workers == 0 {
-			workers = 8
-		}
-		queueSize := cfg.Pool.Buffer
-		if queueSize == 0 {
-			queueSize = workers * 64
-		}
-		return funcpool.NewStatic(factory, m.dispatcher, funcpool.Config{
-			Workers:   workers,
-			QueueSize: queueSize,
-		}, hooks)
-
-	case api.PoolTypeAdaptive:
-		maxWorkers := cfg.Pool.MaxSize
-		if maxWorkers == 0 {
-			maxWorkers = 16
-		}
-
-		return funcpool.NewAdaptive(factory, m.dispatcher,
-			funcpool.WithMaxWorkers(maxWorkers),
-			funcpool.WithExecutionHooks(hooks),
-		)
-	default:
-		return nil, api.NewUnknownPoolTypeError(poolType)
-	}
-}
-
-// registerCaller registers function in the function system and waits for confirmation.
-func (m *Manager) registerCaller(ctx context.Context, id registry.ID, options runtime.Options) error {
-	path := id.String()
-
-	// Subscribe BEFORE sending to avoid race condition
-	waiter, err := m.awaiter.Prepare(ctx, path)
-	if err != nil {
-		return api.NewRegisterCallerError(id, err)
-	}
-
-	m.bus.Send(ctx, event.Event{
-		System: function.System,
-		Kind:   function.Register,
-		Path:   path,
-		Data: &function.FuncEntry{
-			Handler: m.Execute,
-			Options: options,
-		},
-	})
-
-	result := waiter.Wait()
-	if !result.Accepted {
-		return api.NewRegisterCallerError(id, result.Error)
-	}
-	return nil
-}
-
-// unregisterCaller removes function from the function system.
-func (m *Manager) unregisterCaller(ctx context.Context, id registry.ID) {
-	m.bus.Send(ctx, event.Event{
-		System: function.System,
-		Kind:   function.Delete,
-		Path:   id.String(),
-	})
-}
-
-// createExecutionHooks creates execution hooks for topology integration.
-// Functions are virtual processes - they don't need topology registration
-// for simple request/response patterns. This eliminates lock contention.
-func (m *Manager) createExecutionHooks() funcpool.ExecutionHooks {
-	if m.topo == nil || m.pidReg == nil {
-		return funcpool.ExecutionHooks{}
-	}
-
-	onStart := func(ctx context.Context, _ process.Process) { // todo: why do we pass process here? should we also pass pid so it's much faster?
-		pid, ok := runtime.GetFramePID(ctx)
-		if !ok || pid.String() == "" {
-			return
-		}
-
-		if err := m.topo.Register(pid); err != nil {
-			m.log.Warn("failed to register function PID in topology",
-				zap.String("pid", pid.String()),
-				zap.Error(err))
-		}
-	}
-
-	onComplete := func(ctx context.Context, result *runtime.Result) {
-		pid, ok := runtime.GetFramePID(ctx)
-		if !ok || pid.String() == "" {
-			return
-		}
-
-		m.topo.Notify(pid, result)
-		m.topo.Remove(pid)
-	}
-
-	return funcpool.ExecutionHooks{
-		OnStart:    onStart,
-		OnComplete: onComplete,
-	}
-}
+// Compile-time check
+var _ registry.EntryListener = (*Manager)(nil)

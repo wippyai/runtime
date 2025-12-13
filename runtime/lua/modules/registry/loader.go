@@ -1,13 +1,12 @@
 package registry
 
 import (
-	"sync"
-
 	fsapi "github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/payload"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/boot/loader"
 	"github.com/wippyai/runtime/boot/loader/interpolate"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -17,11 +16,12 @@ const (
 	loaderInstanceMetatable = "registry.Loader"
 )
 
-// LoaderModule represents the registry.loader submodule
-type LoaderModule struct {
-	log         *zap.Logger
-	once        sync.Once
-	moduleTable *lua.LTable
+func init() {
+	value.RegisterTypeMethods(nil, loaderInstanceMetatable, nil,
+		map[string]lua.LGoFunc{
+			"load_directory": loaderLoadDirectory,
+			"load_file":      loaderLoadFile,
+		})
 }
 
 // LoaderInstance represents a filesystem-bound loader instance
@@ -33,121 +33,103 @@ type LoaderInstance struct {
 	folderLoader *loader.Loader
 }
 
-// NewLoaderModule creates a new loader module
-func NewLoaderModule(log *zap.Logger) *LoaderModule {
-	if log == nil {
-		log = zap.NewNop()
-	}
-	return &LoaderModule{
-		log: log,
+// LoaderOptions for loader module configuration.
+type LoaderOptions struct {
+	Log *zap.Logger
+}
+
+// DefaultLoaderOptions returns default configuration.
+func DefaultLoaderOptions() LoaderOptions {
+	return LoaderOptions{
+		Log: zap.NewNop(),
 	}
 }
 
-// Info returns module metadata
-func (m *LoaderModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
+// LoaderModule is the default loader module with default options.
+var LoaderModule = NewLoaderModule(DefaultLoaderOptions())
+
+// NewLoaderModule creates a loader module with given options.
+func NewLoaderModule(opts LoaderOptions) *luaapi.ModuleDef {
+	if opts.Log == nil {
+		opts.Log = zap.NewNop()
+	}
+
+	return &luaapi.ModuleDef{
 		Name:        loaderModuleName,
 		Description: "Registry loader for filesystem-bound loading",
 		Class:       []string{luaapi.ClassStorage, luaapi.ClassIO},
+		Build: func() (*lua.LTable, []luaapi.YieldType) {
+			mod := lua.CreateTable(0, 1)
+			mod.RawSetString("new", lua.LGoFunc(makeCreateLoader(opts.Log)))
+			mod.Immutable = true
+			return mod, nil
+		},
 	}
 }
 
-// Loader loads the module into the Lua state
-func (m *LoaderModule) Loader(l *lua.LState) int {
-	reg := m.Register(l)
-	if reg != nil && reg.Table != nil {
-		l.Push(reg.Table)
-		return 1
-	}
-	return 0
-}
+// makeCreateLoader creates a loader factory function with the given logger
+func makeCreateLoader(log *zap.Logger) lua.LGoFunc {
+	return func(l *lua.LState) int {
+		ctx := l.Context()
 
-// Register returns the module registration with table and yield types.
-func (m *LoaderModule) Register(l *lua.LState) *luaapi.Registration {
-	m.once.Do(func() {
-		mod := l.CreateTable(0, 1)
+		dtt := payload.GetTranscoder(ctx)
+		if dtt == nil {
+			err := lua.NewLuaError(l, "transcoder not found in context").
+				WithKind(lua.KindInternal).
+				WithRetryable(false)
+			l.Push(lua.LNil)
+			l.Push(err)
+			return 2
+		}
 
-		mt := l.NewTypeMetatable(loaderInstanceMetatable)
-		methods := l.CreateTable(0, 2)
-		l.SetGoFuncs(methods, map[string]lua.LGoFunc{
-			"load_directory": loaderLoadDirectory,
-			"load_file":      loaderLoadFile,
-		})
-		mt.RawSetString("__index", methods)
+		fsRegistry := fsapi.GetRegistry(ctx)
+		if fsRegistry == nil {
+			err := lua.NewLuaError(l, "filesystem registry not found in context").
+				WithKind(lua.KindInternal).
+				WithRetryable(false)
+			l.Push(lua.LNil)
+			l.Push(err)
+			return 2
+		}
 
-		mod.RawSetString("new", l.NewFunction(m.createLoader))
-		mod.Immutable = true
-		m.moduleTable = mod
-	})
-	return &luaapi.Registration{
-		Table: m.moduleTable,
-	}
-}
+		fsName := l.CheckString(1)
+		if fsName == "" {
+			err := lua.NewLuaError(l, "filesystem name required").
+				WithKind(lua.KindInvalid).
+				WithRetryable(false)
+			l.Push(lua.LNil)
+			l.Push(err)
+			return 2
+		}
 
-// createLoader creates a new loader instance bound to a filesystem
-func (m *LoaderModule) createLoader(l *lua.LState) int {
-	ctx := l.Context()
+		fsys, ok := fsRegistry.GetFS(fsName)
+		if !ok {
+			err := lua.NewLuaError(l, "filesystem '"+fsName+"' not found").
+				WithKind(lua.KindNotFound).
+				WithRetryable(false)
+			l.Push(lua.LNil)
+			l.Push(err)
+			return 2
+		}
 
-	dtt := payload.GetTranscoder(ctx)
-	if dtt == nil {
-		err := lua.NewLuaError(l, "transcoder not found in context").
-			WithKind(lua.KindInternal).
-			WithRetryable(false)
+		interpolators := interpolate.NewEntryInterpolator(dtt,
+			interpolate.WithInterpolator(interpolate.LoadFile),
+		)
+
+		folderLoader := loader.NewLoader(dtt, log, interpolators)
+
+		loaderInstance := &LoaderInstance{
+			fs:           fsys,
+			dtt:          dtt,
+			log:          log,
+			interpolator: interpolators,
+			folderLoader: folderLoader,
+		}
+
+		value.PushTypedUserData(l, loaderInstance, loaderInstanceMetatable)
 		l.Push(lua.LNil)
-		l.Push(err)
 		return 2
 	}
-
-	fsRegistry := fsapi.GetRegistry(ctx)
-	if fsRegistry == nil {
-		err := lua.NewLuaError(l, "filesystem registry not found in context").
-			WithKind(lua.KindInternal).
-			WithRetryable(false)
-		l.Push(lua.LNil)
-		l.Push(err)
-		return 2
-	}
-
-	fsName := l.CheckString(1)
-	if fsName == "" {
-		err := lua.NewLuaError(l, "filesystem name required").
-			WithKind(lua.KindInvalid).
-			WithRetryable(false)
-		l.Push(lua.LNil)
-		l.Push(err)
-		return 2
-	}
-
-	fsys, ok := fsRegistry.GetFS(fsName)
-	if !ok {
-		err := lua.NewLuaError(l, "filesystem '"+fsName+"' not found").
-			WithKind(lua.KindNotFound).
-			WithRetryable(false)
-		l.Push(lua.LNil)
-		l.Push(err)
-		return 2
-	}
-
-	interpolators := interpolate.NewEntryInterpolator(dtt,
-		interpolate.WithInterpolator(interpolate.LoadFile),
-	)
-
-	folderLoader := loader.NewLoader(dtt, m.log, interpolators)
-
-	loaderInstance := &LoaderInstance{
-		fs:           fsys,
-		dtt:          dtt,
-		log:          m.log,
-		interpolator: interpolators,
-		folderLoader: folderLoader,
-	}
-
-	ud := l.NewUserData()
-	ud.Value = loaderInstance
-	l.SetMetatable(ud, l.GetTypeMetatable(loaderInstanceMetatable))
-
-	l.Push(ud)
-	return 1
 }
 
 // loaderLoadDirectory loads entries from a directory

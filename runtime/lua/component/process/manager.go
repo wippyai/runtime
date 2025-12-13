@@ -1,4 +1,4 @@
-// Package process2 provides Lua process management for engine2.
+// Package process provides Lua process management.
 package process
 
 import (
@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/event"
+	fsapi "github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	api "github.com/wippyai/runtime/api/runtime/lua"
@@ -14,35 +15,110 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	processmod "github.com/wippyai/runtime/runtime/lua/modules/process"
 	"github.com/wippyai/runtime/system/eventbus"
-	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 
-// Manager handles Lua process components for engine2.
+// configEntry holds config for either source or bytecode process.
+type configEntry struct {
+	method   string
+	source   *api.ProcessConfig
+	bytecode *api.BytecodeProcessConfig
+}
+
+// Manager handles both source and bytecode Lua process components.
 type Manager struct {
-	log     *zap.Logger
-	code    *code.Manager
-	bus     event.Bus
-	awaiter *eventbus.Awaiter
-	configs sync.Map // map[registry.ID]*api.ProcessConfig
+	log        *zap.Logger
+	code       *code.Manager
+	bus        event.Bus
+	fsRegistry fsapi.Registry
+	factory    engine.CompiledFactory
+	awaiter    *eventbus.Awaiter
+	configs    sync.Map // map[registry.ID]*configEntry
 }
 
 // NewManager creates a new process manager.
-func NewManager(log *zap.Logger, code *code.Manager, bus event.Bus) *Manager {
+// fsRegistry can be nil if bytecode processes are not used.
+func NewManager(
+	log *zap.Logger,
+	code *code.Manager,
+	bus event.Bus,
+	fsRegistry fsapi.Registry,
+	factory engine.CompiledFactory,
+) *Manager {
 	return &Manager{
-		log:     log,
-		code:    code,
-		bus:     bus,
-		awaiter: eventbus.NewAwaiter(bus, process.System, "factory.(accept|reject)"),
+		log:        log,
+		code:       code,
+		bus:        bus,
+		fsRegistry: fsRegistry,
+		factory:    factory,
+		awaiter:    eventbus.NewAwaiter(bus, process.System, "factory.(accept|reject)"),
 	}
 }
 
-// Add implements registry.EntryListener.
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != api.KindProcess {
+	switch entry.Kind {
+	case api.KindProcess:
+		return m.addSource(ctx, entry)
+	case api.KindProcessBytecode:
+		return m.addBytecode(ctx, entry)
+	default:
 		return api.NewInvalidEntryKindError(entry.Kind, api.KindProcess)
 	}
+}
 
+func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
+	switch entry.Kind {
+	case api.KindProcess:
+		return m.updateSource(ctx, entry)
+	case api.KindProcessBytecode:
+		return m.updateBytecode(ctx, entry)
+	default:
+		return api.NewInvalidEntryKindError(entry.Kind, api.KindProcess)
+	}
+}
+
+func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
+	switch entry.Kind {
+	case api.KindProcess, api.KindProcessBytecode:
+		if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
+			return api.NewDeleteNodeError("process", err)
+		}
+		m.configs.Delete(entry.ID)
+		m.unregisterFactory(ctx, entry.ID)
+		m.log.Debug("process deleted", zap.String("id", entry.ID.String()))
+		return nil
+	default:
+		return api.NewInvalidEntryKindError(entry.Kind, api.KindProcess)
+	}
+}
+
+// Invalidate handles code invalidation for hot reload.
+func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) {
+	for _, id := range ids {
+		cfgAny, exists := m.configs.Load(id)
+		if !exists {
+			continue
+		}
+		cfg := cfgAny.(*configEntry)
+
+		m.log.Debug("invalidating process", zap.String("id", id.String()))
+
+		// For bytecode, verify the file is still valid
+		if cfg.bytecode != nil {
+			if _, err := component.LoadAndVerifyBytecode(m.fsRegistry, cfg.bytecode.FS, cfg.bytecode.Path, cfg.bytecode.Hash); err != nil {
+				m.log.Error("failed to reload bytecode", zap.Error(err))
+				continue
+			}
+		}
+
+		if err := m.registerFactory(ctx, id, cfg.method); err != nil {
+			m.log.Error("failed to invalidate process", zap.Error(err))
+		}
+	}
+}
+
+// addSource adds a source-based process.
+func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 	cfg, err := component.UnpackConfig[api.ProcessConfig](ctx, entry)
 	if err != nil {
 		return api.NewUnpackConfigError("process", err)
@@ -59,23 +135,58 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return api.NewAddNodeError("process", err)
 	}
 
-	m.configs.Store(entry.ID, cfg)
+	m.configs.Store(entry.ID, &configEntry{method: cfg.Method, source: cfg})
 
 	if err := m.registerFactory(ctx, entry.ID, cfg.Method); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
+		m.configs.Delete(entry.ID)
 		return api.NewRegisterFactoryError(err)
 	}
 
-	m.log.Debug("added process", zap.String("id", entry.ID.String()))
+	m.log.Debug("process added", zap.String("id", entry.ID.String()))
 	return nil
 }
 
-// Update implements registry.EntryListener.
-func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != api.KindProcess {
-		return api.NewInvalidEntryKindError(entry.Kind, api.KindProcess)
+// addBytecode adds a bytecode-based process.
+func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
+	cfg, err := component.UnpackConfig[api.BytecodeProcessConfig](ctx, entry)
+	if err != nil {
+		return api.NewUnpackConfigError("process", err)
 	}
 
+	proto, err := component.LoadAndVerifyBytecode(m.fsRegistry, cfg.FS, cfg.Path, cfg.Hash)
+	if err != nil {
+		return api.NewLoadBytecodeError(err)
+	}
+
+	node := code.Node{
+		ID:     entry.ID,
+		Kind:   api.KindProcessBytecode,
+		Method: cfg.Method,
+	}
+
+	if err := m.code.AddNodeWithProto(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules), proto); err != nil {
+		return api.NewAddNodeError("process", err)
+	}
+
+	m.configs.Store(entry.ID, &configEntry{method: cfg.Method, bytecode: cfg})
+
+	if err := m.registerFactory(ctx, entry.ID, cfg.Method); err != nil {
+		_ = m.code.DeleteNode(ctx, entry.ID)
+		m.configs.Delete(entry.ID)
+		return api.NewRegisterFactoryError(err)
+	}
+
+	m.log.Debug("bytecode process added",
+		zap.String("id", entry.ID.String()),
+		zap.String("fs", cfg.FS),
+		zap.String("path", cfg.Path),
+	)
+	return nil
+}
+
+// updateSource updates a source-based process.
+func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error {
 	cfg, err := component.UnpackConfig[api.ProcessConfig](ctx, entry)
 	if err != nil {
 		return api.NewUnpackConfigError("process", err)
@@ -92,59 +203,56 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return api.NewUpdateNodeError("process", err)
 	}
 
-	m.configs.Store(entry.ID, cfg)
+	m.configs.Store(entry.ID, &configEntry{method: cfg.Method, source: cfg})
 
 	if err := m.registerFactory(ctx, entry.ID, cfg.Method); err != nil {
 		return api.NewUpdateFactoryError(err)
 	}
 
-	m.log.Debug("updated process", zap.String("id", entry.ID.String()))
+	m.log.Debug("process updated", zap.String("id", entry.ID.String()))
 	return nil
 }
 
-// Delete implements registry.EntryListener.
-func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != api.KindProcess {
-		return api.NewInvalidEntryKindError(entry.Kind, api.KindProcess)
+// updateBytecode updates a bytecode-based process.
+func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) error {
+	cfg, err := component.UnpackConfig[api.BytecodeProcessConfig](ctx, entry)
+	if err != nil {
+		return api.NewUnpackConfigError("process", err)
 	}
 
-	if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
-		return api.NewDeleteNodeError("process", err)
+	proto, err := component.LoadAndVerifyBytecode(m.fsRegistry, cfg.FS, cfg.Path, cfg.Hash)
+	if err != nil {
+		return api.NewLoadBytecodeError(err)
 	}
 
-	m.configs.Delete(entry.ID)
-	m.unregisterFactory(ctx, entry.ID)
+	node := code.Node{
+		ID:     entry.ID,
+		Kind:   api.KindProcessBytecode,
+		Method: cfg.Method,
+	}
 
-	m.log.Debug("deleted process", zap.String("id", entry.ID.String()))
+	if err := m.code.UpdateNodeWithProto(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules), proto); err != nil {
+		return api.NewUpdateNodeError("process", err)
+	}
+
+	m.configs.Store(entry.ID, &configEntry{method: cfg.Method, bytecode: cfg})
+
+	if err := m.registerFactory(ctx, entry.ID, cfg.Method); err != nil {
+		return api.NewUpdateFactoryError(err)
+	}
+
+	m.log.Debug("bytecode process updated", zap.String("id", entry.ID.String()))
 	return nil
-}
-
-// Invalidate handles code invalidation for hot reload.
-func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) {
-	for _, id := range ids {
-		cfgAny, exists := m.configs.Load(id)
-		if !exists {
-			continue
-		}
-		cfg := cfgAny.(*api.ProcessConfig)
-
-		m.log.Debug("invalidating process", zap.String("id", id.String()))
-
-		if err := m.registerFactory(ctx, id, cfg.Method); err != nil {
-			m.log.Error("failed to invalidate process", zap.Error(err))
-		}
-	}
 }
 
 // registerFactory registers a process factory with the factory registry and waits for confirmation.
 func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method string) error {
-	// Verify compilation works
-	_, err := m.code.Compile(id, processBuildOptions())
+	// Create factory using ProcessFactory
+	factoryFn, err := m.factory.CreateFactory(id, engine.WithModule(processmod.Module))
 	if err != nil {
 		return api.NewCompileError(err)
 	}
 
-	// Default method
 	if method == "" {
 		method = "main"
 	}
@@ -162,9 +270,7 @@ func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method st
 		Kind:   process.FactoryRegister,
 		Path:   path,
 		Data: &process.FactoryEntry{
-			Factory: func() (process.Process, error) {
-				return m.createProcess(id)
-			},
+			Factory: factoryFn,
 			Meta: process.Meta{
 				Method: method,
 			},
@@ -188,82 +294,5 @@ func (m *Manager) unregisterFactory(ctx context.Context, id registry.ID) {
 	})
 }
 
-// createProcess creates a new process instance.
-func (m *Manager) createProcess(id registry.ID) (process.Process, error) {
-	compiled, err := m.code.Compile(id, processBuildOptions())
-	if err != nil {
-		return nil, api.NewCompileError(err)
-	}
-
-	return createProcess(compiled)
-}
-
-// createProcess creates a process from compiled code.
-func createProcess(compiled *code.CompiledMain) (process.Process, error) {
-	binders := engine.CoreBinders()
-	binders = append(binders, processmod.BindGlobal)
-
-	// Add module binders for dependencies
-	for _, dep := range compiled.Dependencies {
-		if dep.Node != nil && dep.Node.Module != nil {
-			mod := dep.Node.Module
-			name := dep.Name
-			binders = append(binders, func(L *lua.LState) {
-				L.PreloadModule(name, func(L *lua.LState) int {
-					return mod.Loader(L)
-				})
-			})
-		}
-		if dep.Proto != nil {
-			proto := dep.Proto
-			name := dep.Name
-			binders = append(binders, func(L *lua.LState) {
-				L.PreloadModule(name, func(L *lua.LState) int {
-					fn := L.LoadProto(proto)
-					L.Push(fn)
-					L.Call(0, 1)
-					return 1
-				})
-			})
-		}
-	}
-
-	// Add preloaded modules
-	for _, pre := range compiled.Preloaded {
-		if pre.Node != nil && pre.Node.Module != nil {
-			mod := pre.Node.Module
-			name := pre.Name
-			binders = append(binders, func(L *lua.LState) {
-				L.PreloadModule(name, func(L *lua.LState) int {
-					return mod.Loader(L)
-				})
-			})
-		}
-		if pre.Proto != nil {
-			proto := pre.Proto
-			name := pre.Name
-			binders = append(binders, func(L *lua.LState) {
-				L.PreloadModule(name, func(L *lua.LState) int {
-					fn := L.LoadProto(proto)
-					L.Push(fn)
-					L.Call(0, 1)
-					return 1
-				})
-			})
-		}
-	}
-
-	cfg := engine.FactoryConfig{
-		Proto:         compiled.Main,
-		ModuleBinders: binders,
-	}
-
-	factory := engine.NewFactory(cfg)
-	return factory()
-}
-
-// processBuildOptions returns build options for processes.
-func processBuildOptions() *code.BuildOptions {
-	return code.NewBuildOptions().
-		WithMode(code.AllowAll)
-}
+// Compile-time check
+var _ registry.EntryListener = (*Manager)(nil)

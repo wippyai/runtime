@@ -14,6 +14,7 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/evalhost"
 	"github.com/wippyai/runtime/runtime/lua/modules/json"
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
@@ -440,13 +441,11 @@ func TestEvalModule_ProgramMethods(t *testing.T) {
 	defer state.Close()
 
 	// Register the program metatable
-	Module.Register(state)
+	Module.Load(state)
 
 	// Wrap program
 	wrapper := &Program{program: program}
-	ud := state.NewUserData()
-	ud.Value = wrapper
-	ud.Metatable = programMetatable
+	ud := value.NewTypedUserData(state, wrapper, programTypeName)
 	state.SetGlobal("prog", ud)
 
 	// Test method()

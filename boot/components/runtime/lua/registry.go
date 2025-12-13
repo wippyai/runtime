@@ -23,8 +23,7 @@ func Registry() boot.Component {
 			}
 
 			// Add loader module (available as standalone "loader" module)
-			loaderMod := registrymod.NewLoaderModule(nil)
-			if err := AddModules(ctx, cm, loaderMod); err != nil {
+			if err := AddModules(ctx, cm, registrymod.LoaderModule); err != nil {
 				return ctx, err
 			}
 

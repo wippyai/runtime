@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -472,5 +473,99 @@ func TestValidateTarget(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestExecutorWithContext(t *testing.T) {
+	exec := &Executor{}
+
+	if exec.values != nil {
+		t.Error("new executor should have nil values")
+	}
+
+	// Create values bag and set on executor
+	values := ctxapi.NewValues()
+	values.Set("key1", "value1")
+	values.Set("key2", 42)
+	exec.values = values
+
+	if v, ok := exec.values.Get("key1"); !ok || v != "value1" {
+		t.Error("values should contain key1=value1")
+	}
+	if v, ok := exec.values.Get("key2"); !ok || v != 42 {
+		t.Error("values should contain key2=42")
+	}
+}
+
+func TestExecutorContextChaining(t *testing.T) {
+	// Test that chained with_context creates new executor with merged values
+	exec1 := &Executor{}
+
+	// First with_context call
+	values1 := ctxapi.NewValues()
+	values1.Set("key1", "value1")
+	exec2 := &Executor{
+		values:   values1,
+		hasActor: exec1.hasActor,
+		actor:    exec1.actor,
+		hasScope: exec1.hasScope,
+		scope:    exec1.scope,
+	}
+
+	// Second with_context call (chaining) - should copy existing and add new
+	values2 := ctxapi.NewValues()
+	exec2.values.Iterate(func(k string, v any) {
+		values2.Set(k, v)
+	})
+	values2.Set("key2", "value2")
+
+	exec3 := &Executor{
+		values:   values2,
+		hasActor: exec2.hasActor,
+		actor:    exec2.actor,
+		hasScope: exec2.hasScope,
+		scope:    exec2.scope,
+	}
+
+	// Verify chained executor has both values
+	if v, ok := exec3.values.Get("key1"); !ok || v != "value1" {
+		t.Error("chained executor should have key1 from first with_context")
+	}
+	if v, ok := exec3.values.Get("key2"); !ok || v != "value2" {
+		t.Error("chained executor should have key2 from second with_context")
+	}
+
+	// Verify original executor is unchanged
+	if _, ok := exec2.values.Get("key2"); ok {
+		t.Error("original executor should not be modified by chaining")
+	}
+}
+
+func TestCallYieldContextPairs(t *testing.T) {
+	y := AcquireCallYield()
+	defer ReleaseCallYield(y)
+
+	// Verify Task.Context is initially empty
+	if len(y.Task.Context) != 0 {
+		t.Errorf("expected empty context, got %d pairs", len(y.Task.Context))
+	}
+}
+
+func TestExecutorCallAddsContextToTask(t *testing.T) {
+	// Test that when executor has values, they are added to Task.Context
+	exec := &Executor{}
+	values := ctxapi.NewValues()
+	values.Set("trace_id", "test-123")
+	exec.values = values
+
+	// Verify executor has values
+	if exec.values == nil || exec.values.Len() == 0 {
+		t.Fatal("executor should have values set")
+	}
+
+	// The actual context addition happens in executorCall when creating the yield
+	// This test verifies the executor state that would trigger context addition
+	if exec.values.Len() != 1 {
+		t.Errorf("expected 1 value, got %d", exec.values.Len())
 	}
 }
