@@ -8,7 +8,7 @@ import (
 )
 
 // Error implements apierror.Error for native executor errors
-type Error struct {
+type Error struct { // todo: why here?!!!
 	kind      apierror.Kind
 	message   string
 	retryable apierror.Ternary

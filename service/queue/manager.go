@@ -139,6 +139,10 @@ func (m *Manager) handleQueueDeclare(e event.Event) {
 	ctx := m.ctx
 	m.mu.RUnlock()
 
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	if err := driver.DeclareQueue(ctx, queueEntry.ID, queueEntry.Options); err != nil {
 		m.logger.Error("failed to declare queue on driver",
 			zap.String("path", e.Path),
@@ -224,6 +228,10 @@ func (m *Manager) sendAccept(path event.Path) {
 	ctx := m.ctx
 	m.mu.RUnlock()
 
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	m.bus.Send(ctx, event.Event{
 		System: queueapi.System,
 		Kind:   event.Kind("queue.accept"),
@@ -235,6 +243,10 @@ func (m *Manager) sendReject(path event.Path, reason string) {
 	m.mu.RLock()
 	ctx := m.ctx
 	m.mu.RUnlock()
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
 	m.bus.Send(ctx, event.Event{
 		System: queueapi.System,

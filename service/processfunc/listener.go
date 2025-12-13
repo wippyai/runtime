@@ -81,23 +81,29 @@ func (l *Listener) processEntry(ctx context.Context, kind event.Kind, entry regi
 		return
 	}
 
-	// Extract default_host - check options bag first, then meta
-	var defaultHostStr string
-	var opts attrs.Bag
+	// Extract options bag if present
+	opts, hasOptions := entry.Meta.GetBag("options")
 
-	if optsBag, hasOptions := entry.Meta.GetBag("options"); hasOptions {
-		defaultHostStr = optsBag.GetString("default_host", "")
-		if defaultHostStr != "" {
-			opts = optsBag
-		}
+	// Get default_host from options first, fallback to meta
+	defaultHostStr := ""
+	if hasOptions {
+		defaultHostStr = opts.GetString("default_host", "")
 	}
 
 	if defaultHostStr == "" {
 		defaultHostStr = entry.Meta.GetString("default_host", "")
 		if defaultHostStr != "" {
-			opts = attrs.NewBag()
+			// Ensure options bag exists and has default_host
+			if !hasOptions {
+				opts = attrs.NewBag()
+			}
 			opts.Set("default_host", defaultHostStr)
 		}
+	}
+
+	// No default_host found anywhere - skip or unregister
+	if defaultHostStr == "" {
+		opts = nil
 	}
 
 	defaultHost := pid.HostID(defaultHostStr)
@@ -196,7 +202,7 @@ type processHandler struct {
 	node      relay.Node
 	topo      topapi.Topology
 	manager   process.Manager
-	processID registry.ID
+	processID string
 	hostID    pid.HostID
 }
 
@@ -229,7 +235,7 @@ func (h *processHandler) Call(ctx context.Context, task runtime.Task) (*runtime.
 	// - Call topology.Wait(callerPID, childPID)
 	processPID, err := h.manager.Start(ctx, &process.Start{
 		HostID:  h.hostID,
-		Source:  h.processID,
+		Source:  registry.ParseID(h.processID),
 		Input:   task.Payloads,
 		Options: options,
 	})
@@ -237,9 +243,10 @@ func (h *processHandler) Call(ctx context.Context, task runtime.Task) (*runtime.
 		return nil, newStartProcessError(err)
 	}
 
+	pidStr := processPID.String()
 	h.log.Debug("started process function",
-		zap.String("process_id", h.processID.String()),
-		zap.String("pid", processPID.String()))
+		zap.String("process_id", h.processID),
+		zap.String("pid", pidStr))
 
 	// Monitor for exit (blocking)
 	for {
@@ -254,7 +261,7 @@ func (h *processHandler) Call(ctx context.Context, task runtime.Task) (*runtime.
 				time.Now().Add(DefaultCancelTimeout),
 			)); err != nil {
 				h.log.Warn("failed to send cancel",
-					zap.String("pid", processPID.String()),
+					zap.String("pid", pidStr),
 					zap.Error(err))
 			}
 
@@ -274,8 +281,8 @@ func (h *processHandler) Call(ctx context.Context, task runtime.Task) (*runtime.
 				for _, p := range msg.Payloads {
 					if e, ok := p.Data().(*topapi.ExitEvent); ok {
 						h.log.Debug("received exit event",
-							zap.String("process_id", h.processID.String()),
-							zap.String("pid", processPID.String()))
+							zap.String("process_id", h.processID),
+							zap.String("pid", pidStr))
 						return e.Result, nil
 					}
 				}

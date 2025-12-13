@@ -7,11 +7,9 @@ import (
 
 // Error represents a process function error.
 type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
+	kind    apierror.Kind
+	message string
+	cause   error
 }
 
 func (e *Error) Error() string {
@@ -21,8 +19,8 @@ func (e *Error) Error() string {
 	return e.message
 }
 func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
+func (e *Error) Retryable() apierror.Ternary { return apierror.Unknown }
+func (e *Error) Details() attrs.Attributes   { return nil }
 func (e *Error) Unwrap() error               { return e.cause }
 
 var ErrMonitorChannelClosed = &Error{

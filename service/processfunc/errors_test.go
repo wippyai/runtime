@@ -24,8 +24,13 @@ func TestError_Kind(t *testing.T) {
 }
 
 func TestError_Retryable(t *testing.T) {
-	err := &Error{retryable: apierror.False}
-	assert.Equal(t, apierror.False, err.Retryable())
+	err := &Error{}
+	assert.Equal(t, apierror.Unknown, err.Retryable())
+}
+
+func TestError_Details(t *testing.T) {
+	err := &Error{}
+	assert.Nil(t, err.Details())
 }
 
 func TestError_Unwrap(t *testing.T) {

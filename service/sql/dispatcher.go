@@ -9,7 +9,17 @@ import (
 	sqlapi "github.com/wippyai/runtime/api/service/sql"
 )
 
-// Dispatcher handles SQL commands.
+// Dispatcher handles SQL commands using a stateless goroutine pattern.
+//
+// Each command spawns a goroutine that executes the SQL operation and
+// delivers results via the receiver. Goroutine lifecycle is tied to context:
+// when context is cancelled, operations check ctx.Err() and skip result
+// delivery, allowing natural termination.
+//
+// Resource cleanup is handled by the Store layer (Store.Close releases
+// connections) and FrameContext cleanup (commits/rollbacks transactions).
+// This pattern is consistent with other stateless dispatchers in the system
+// (contract, function) where explicit goroutine tracking isn't needed.
 type Dispatcher struct{}
 
 // NewDispatcher creates a new SQL dispatcher.
@@ -17,12 +27,12 @@ func NewDispatcher() *Dispatcher {
 	return &Dispatcher{}
 }
 
-// Start is a no-op for SQL dispatcher.
+// Start is a no-op since this dispatcher has no background workers.
 func (d *Dispatcher) Start(_ context.Context) error {
 	return nil
 }
 
-// Stop is a no-op for SQL dispatcher.
+// Stop is a no-op since goroutine cleanup is handled via context cancellation.
 func (d *Dispatcher) Stop(_ context.Context) error {
 	return nil
 }

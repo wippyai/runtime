@@ -217,6 +217,38 @@ func TestListener_OptionsFromMeta(t *testing.T) {
 	assert.Equal(t, "30s", funcEntry.Options.GetString("timeout", ""))
 }
 
+func TestListener_HostInMetaOptionsPreserved(t *testing.T) {
+	l, _, events := newTestListener(t)
+
+	// Options bag exists with timeout but NOT default_host
+	options := attrs.NewBag()
+	options.Set("timeout", "60s")
+	options.Set("retry", "3")
+
+	meta := attrs.NewBag()
+	meta.Set("options", options)
+	meta.Set("default_host", "meta-host") // default_host in meta, not options
+
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "proc1"),
+		Kind: "process.lua",
+		Meta: meta,
+	}
+
+	err := l.Add(context.Background(), entry)
+	require.NoError(t, err)
+
+	evt := waitForEvent(t, events, 100*time.Millisecond)
+	funcEntry, ok := evt.Data.(*function.FuncEntry)
+	require.True(t, ok)
+	require.NotNil(t, funcEntry.Options)
+
+	// Both original options AND default_host should be present
+	assert.Equal(t, "60s", funcEntry.Options.GetString("timeout", ""))
+	assert.Equal(t, "3", funcEntry.Options.GetString("retry", ""))
+	assert.Equal(t, "meta-host", funcEntry.Options.GetString("default_host", ""))
+}
+
 func TestListener_Update_NoChange(t *testing.T) {
 	l, _, events := newTestListener(t)
 
@@ -284,7 +316,7 @@ func TestProcessHandler_Call_RegisterPIDError(t *testing.T) {
 		node:      &mockNode{},
 		topo:      topo,
 		manager:   &mockManager{},
-		processID: registry.NewID("test", "proc1"),
+		processID: "test:proc1",
 		hostID:    "test-host",
 	}
 
@@ -300,7 +332,7 @@ func TestProcessHandler_Call_AttachRelayError(t *testing.T) {
 		node:      &mockNode{attachErr: assert.AnError},
 		topo:      &mockTopology{},
 		manager:   &mockManager{},
-		processID: registry.NewID("test", "proc1"),
+		processID: "test:proc1",
 		hostID:    "test-host",
 	}
 
@@ -316,7 +348,7 @@ func TestProcessHandler_Call_StartProcessError(t *testing.T) {
 		node:      &mockNode{},
 		topo:      &mockTopology{},
 		manager:   &mockManager{startErr: assert.AnError},
-		processID: registry.NewID("test", "proc1"),
+		processID: "test:proc1",
 		hostID:    "test-host",
 	}
 
@@ -332,7 +364,7 @@ func TestProcessHandler_Call_ContextCanceled(t *testing.T) {
 		node:      &mockNode{},
 		topo:      &mockTopology{},
 		manager:   &mockManager{startPID: pid.PID{Node: "test", Host: "test-host", UniqID: "123"}},
-		processID: registry.NewID("test", "proc1"),
+		processID: "test:proc1",
 		hostID:    "test-host",
 	}
 
@@ -355,7 +387,7 @@ func TestProcessHandler_Call_ExitEvent(t *testing.T) {
 		node:      node,
 		topo:      &mockTopology{},
 		manager:   &mockManager{startPID: pid.PID{Node: "test", Host: "test-host", UniqID: "123"}},
-		processID: registry.NewID("test", "proc1"),
+		processID: "test:proc1",
 		hostID:    "test-host",
 	}
 
@@ -383,7 +415,7 @@ func TestProcessHandler_Call_MonitorChannelClosed(t *testing.T) {
 		node:      node,
 		topo:      &mockTopology{},
 		manager:   &mockManager{startPID: pid.PID{Node: "test", Host: "test-host", UniqID: "123"}},
-		processID: registry.NewID("test", "proc1"),
+		processID: "test:proc1",
 		hostID:    "test-host",
 	}
 
@@ -518,7 +550,7 @@ func BenchmarkProcessHandler_Call(b *testing.B) {
 		node:      &mockNode{},
 		topo:      &mockTopology{},
 		manager:   &mockManager{startPID: pid.PID{Node: "test", Host: "test-host", UniqID: "123"}},
-		processID: registry.NewID("test", "proc1"),
+		processID: "test:proc1",
 		hostID:    "test-host",
 	}
 
