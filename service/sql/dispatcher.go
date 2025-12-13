@@ -79,9 +79,13 @@ func (d *Dispatcher) handlePrepare(ctx context.Context, cmd dispatcher.Command, 
 	pc := cmd.(*sqlapi.PrepareCmd)
 	go func() {
 		stmt, err := pc.DB.PrepareContext(ctx, pc.Query)
-		if ctx.Err() == nil {
-			receiver.CompleteYield(tag, sqlapi.PrepareResponse{Stmt: stmt, Error: err}, nil)
+		if ctx.Err() != nil {
+			if stmt != nil {
+				stmt.Close()
+			}
+			return
 		}
+		receiver.CompleteYield(tag, sqlapi.PrepareResponse{Stmt: stmt, Error: err}, nil)
 	}()
 	return nil
 }
@@ -90,9 +94,13 @@ func (d *Dispatcher) handleBegin(ctx context.Context, cmd dispatcher.Command, ta
 	bc := cmd.(*sqlapi.BeginCmd)
 	go func() {
 		tx, err := bc.DB.BeginTx(ctx, bc.Options)
-		if ctx.Err() == nil {
-			receiver.CompleteYield(tag, sqlapi.BeginResponse{Tx: tx, Error: err}, nil)
+		if ctx.Err() != nil {
+			if tx != nil {
+				tx.Rollback()
+			}
+			return
 		}
+		receiver.CompleteYield(tag, sqlapi.BeginResponse{Tx: tx, Error: err}, nil)
 	}()
 	return nil
 }
@@ -154,9 +162,13 @@ func (d *Dispatcher) handleTxPrepare(ctx context.Context, cmd dispatcher.Command
 	tc := cmd.(*sqlapi.TxPrepareCmd)
 	go func() {
 		stmt, err := tc.Tx.PrepareContext(ctx, tc.Query)
-		if ctx.Err() == nil {
-			receiver.CompleteYield(tag, sqlapi.PrepareResponse{Stmt: stmt, Error: err}, nil)
+		if ctx.Err() != nil {
+			if stmt != nil {
+				stmt.Close()
+			}
+			return
 		}
+		receiver.CompleteYield(tag, sqlapi.PrepareResponse{Stmt: stmt, Error: err}, nil)
 	}()
 	return nil
 }
@@ -190,16 +202,19 @@ func executeQuery(ctx context.Context, db *sql.DB, query string, params []any) s
 	return scanRows(rows)
 }
 
-// executeExec runs an exec statement and returns the result.
-func executeExec(ctx context.Context, db *sql.DB, query string, params []any) sqlapi.ExecuteResponse {
-	result, err := db.ExecContext(ctx, query, params...)
+// buildExecResponse creates ExecuteResponse from sql.Result.
+func buildExecResponse(result sql.Result, err error) sqlapi.ExecuteResponse {
 	if err != nil {
 		return sqlapi.ExecuteResponse{Error: err}
 	}
-
 	lastID, _ := result.LastInsertId()
 	affected, _ := result.RowsAffected()
 	return sqlapi.ExecuteResponse{LastInsertID: lastID, RowsAffected: affected}
+}
+
+// executeExec runs an exec statement and returns the result.
+func executeExec(ctx context.Context, db *sql.DB, query string, params []any) sqlapi.ExecuteResponse {
+	return buildExecResponse(db.ExecContext(ctx, query, params...))
 }
 
 // executeStmtQuery runs a prepared statement query.
@@ -209,20 +224,12 @@ func executeStmtQuery(ctx context.Context, stmt *sql.Stmt, params []any) sqlapi.
 		return sqlapi.QueryResponse{Error: err}
 	}
 	defer rows.Close()
-
 	return scanRows(rows)
 }
 
 // executeStmtExec runs a prepared statement exec.
 func executeStmtExec(ctx context.Context, stmt *sql.Stmt, params []any) sqlapi.ExecuteResponse {
-	result, err := stmt.ExecContext(ctx, params...)
-	if err != nil {
-		return sqlapi.ExecuteResponse{Error: err}
-	}
-
-	lastID, _ := result.LastInsertId()
-	affected, _ := result.RowsAffected()
-	return sqlapi.ExecuteResponse{LastInsertID: lastID, RowsAffected: affected}
+	return buildExecResponse(stmt.ExecContext(ctx, params...))
 }
 
 // executeTxQuery runs a query within a transaction.
@@ -232,20 +239,12 @@ func executeTxQuery(ctx context.Context, tx *sql.Tx, query string, params []any)
 		return sqlapi.QueryResponse{Error: err}
 	}
 	defer rows.Close()
-
 	return scanRows(rows)
 }
 
 // executeTxExec runs an exec within a transaction.
 func executeTxExec(ctx context.Context, tx *sql.Tx, query string, params []any) sqlapi.ExecuteResponse {
-	result, err := tx.ExecContext(ctx, query, params...)
-	if err != nil {
-		return sqlapi.ExecuteResponse{Error: err}
-	}
-
-	lastID, _ := result.LastInsertId()
-	affected, _ := result.RowsAffected()
-	return sqlapi.ExecuteResponse{LastInsertID: lastID, RowsAffected: affected}
+	return buildExecResponse(tx.ExecContext(ctx, query, params...))
 }
 
 // scanRows scans all rows into the response.

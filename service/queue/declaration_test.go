@@ -129,6 +129,11 @@ func (m *mockQueueManagerForDecl) GetQueue(_ registry.ID) (*queueapi.Queue, bool
 	return nil, false
 }
 
+func (m *mockQueueManagerForDecl) RegisterInterceptor(_ string, _ queueapi.PublishInterceptor, _ int) {
+}
+
+func (m *mockQueueManagerForDecl) UnregisterInterceptor(_ string) {}
+
 type mockDriverForDecl struct{}
 
 func (m *mockDriverForDecl) Publish(_ context.Context, _ registry.ID, _ ...*queueapi.Message) error {

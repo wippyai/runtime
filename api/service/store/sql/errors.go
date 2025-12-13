@@ -85,6 +85,12 @@ var (
 		message:   "expire_column_name is invalid",
 		retryable: apierror.False,
 	}
+
+	ErrInvalidResourceType = &Error{
+		kind:      apierror.KindInvalid,
+		message:   "acquired resource is not a valid database connection",
+		retryable: apierror.False,
+	}
 )
 
 func NewInvalidCleanupIntervalError(cause error) *Error {

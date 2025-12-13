@@ -40,6 +40,47 @@ type Store struct {
 	wg         sync.WaitGroup // For tracking active goroutines
 }
 
+// dbHandle holds an acquired database connection and its release function.
+type dbHandle struct {
+	db      *sql.DB
+	dbType  registry.Kind
+	release func()
+}
+
+// acquireDB acquires a database connection from the resource registry.
+// Returns a dbHandle that must have release() called when done.
+func (s *Store) acquireDB(ctx context.Context) (*dbHandle, error) {
+	reg := resource.GetRegistry(ctx)
+	res, err := reg.Acquire(ctx, s.config.Database, resource.ModeNormal)
+	if err != nil {
+		s.log.Error("failed to acquire database resource",
+			zap.String("error", err.Error()),
+			zap.String("resource", s.config.Database.Name))
+		return nil, err
+	}
+
+	conn, err := res.Get()
+	if err != nil {
+		res.Release()
+		s.log.Error("failed to get database connection",
+			zap.String("error", err.Error()),
+			zap.String("resource", s.config.Database.Name))
+		return nil, err
+	}
+
+	dbRes, ok := conn.(servicesql.DBResource)
+	if !ok {
+		res.Release()
+		return nil, sqlstore.ErrInvalidResourceType
+	}
+
+	return &dbHandle{
+		db:      dbRes.DB,
+		dbType:  dbRes.Type,
+		release: res.Release,
+	}, nil
+}
+
 // NewStore creates a new SQL-based key-value store
 func NewStore(id registry.ID, config *sqlstore.Config, log *zap.Logger) *Store {
 	if config == nil {
@@ -64,27 +105,13 @@ func (s *Store) Get(ctx context.Context, key registry.ID) (payload.Payload, erro
 	}
 	s.mu.RUnlock()
 
-	reg := resource.GetRegistry(ctx)
-	res, err := reg.Acquire(ctx, s.config.Database, resource.ModeNormal)
+	h, err := s.acquireDB(ctx)
 	if err != nil {
-		s.log.Error("failed to acquire database resource",
-			zap.String("error", err.Error()),
-			zap.String("resource", s.config.Database.Name))
 		return nil, err
 	}
-	defer res.Release()
+	defer h.release()
 
-	conn, err := res.Get()
-	if err != nil {
-		s.log.Error("failed to get database connection",
-			zap.String("error", err.Error()),
-			zap.String("resource", s.config.Database.Name))
-		return nil, err
-	}
-
-	db := conn.(servicesql.DBResource).DB
-	dbType := conn.(servicesql.DBResource).Type
-	qb := statementBuilder(dbType)
+	qb := statementBuilder(h.dbType)
 
 	// Build query to retrieve value and check expiration
 	query := qb.
@@ -105,7 +132,7 @@ func (s *Store) Get(ctx context.Context, key registry.ID) (payload.Payload, erro
 	}
 
 	var data []byte
-	err = db.QueryRowContext(ctx, querySQL, args...).Scan(&data)
+	err = h.db.QueryRowContext(ctx, querySQL, args...).Scan(&data)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, store.ErrKeyNotFound
@@ -130,27 +157,13 @@ func (s *Store) Set(ctx context.Context, entry store.Entry) error {
 	}
 	s.mu.RUnlock()
 
-	reg := resource.GetRegistry(ctx)
-	res, err := reg.Acquire(ctx, s.config.Database, resource.ModeNormal)
+	h, err := s.acquireDB(ctx)
 	if err != nil {
-		s.log.Error("failed to acquire database resource",
-			zap.String("error", err.Error()),
-			zap.String("resource", s.config.Database.Name))
 		return err
 	}
-	defer res.Release()
+	defer h.release()
 
-	conn, err := res.Get()
-	if err != nil {
-		s.log.Error("failed to get database connection",
-			zap.String("error", err.Error()),
-			zap.String("resource", s.config.Database.Name))
-		return err
-	}
-
-	db := conn.(servicesql.DBResource).DB
-	dbType := conn.(servicesql.DBResource).Type
-	qb := statementBuilder(dbType)
+	qb := statementBuilder(h.dbType)
 
 	// Check if entry already exists
 	existsQuery := qb.
@@ -184,7 +197,7 @@ func (s *Store) Set(ctx context.Context, entry store.Entry) error {
 	}
 
 	var exists bool
-	err = db.QueryRowContext(ctx, existsSQL, existsArgs...).Scan(&exists)
+	err = h.db.QueryRowContext(ctx, existsSQL, existsArgs...).Scan(&exists)
 
 	var querySQL string
 	var args []interface{}
@@ -222,7 +235,7 @@ func (s *Store) Set(ctx context.Context, entry store.Entry) error {
 	}
 
 	// Execute the query
-	_, err = db.ExecContext(ctx, querySQL, args...)
+	_, err = h.db.ExecContext(ctx, querySQL, args...)
 	if err != nil {
 		s.log.Error("failed to execute set query",
 			zap.String("error", err.Error()),
@@ -242,27 +255,13 @@ func (s *Store) Delete(ctx context.Context, key registry.ID) error {
 	}
 	s.mu.RUnlock()
 
-	reg := resource.GetRegistry(ctx)
-	res, err := reg.Acquire(ctx, s.config.Database, resource.ModeNormal)
+	h, err := s.acquireDB(ctx)
 	if err != nil {
-		s.log.Error("failed to acquire database resource",
-			zap.String("error", err.Error()),
-			zap.String("resource", s.config.Database.Name))
 		return err
 	}
-	defer res.Release()
+	defer h.release()
 
-	conn, err := res.Get()
-	if err != nil {
-		s.log.Error("failed to get database connection",
-			zap.String("error", err.Error()),
-			zap.String("resource", s.config.Database.Name))
-		return err
-	}
-
-	db := conn.(servicesql.DBResource).DB
-	dbType := conn.(servicesql.DBResource).Type
-	qb := statementBuilder(dbType)
+	qb := statementBuilder(h.dbType)
 
 	// Delete the key
 	deleteQuery := qb.
@@ -277,7 +276,7 @@ func (s *Store) Delete(ctx context.Context, key registry.ID) error {
 		return err
 	}
 
-	result, err := db.ExecContext(ctx, querySQL, args...)
+	result, err := h.db.ExecContext(ctx, querySQL, args...)
 	if err != nil {
 		s.log.Error("failed to execute delete query",
 			zap.String("error", err.Error()),
@@ -306,27 +305,13 @@ func (s *Store) Has(ctx context.Context, key registry.ID) (bool, error) {
 	}
 	s.mu.RUnlock()
 
-	reg := resource.GetRegistry(ctx)
-	res, err := reg.Acquire(ctx, s.config.Database, resource.ModeNormal)
+	h, err := s.acquireDB(ctx)
 	if err != nil {
-		s.log.Error("failed to acquire database resource",
-			zap.String("error", err.Error()),
-			zap.String("resource", s.config.Database.Name))
 		return false, err
 	}
-	defer res.Release()
+	defer h.release()
 
-	conn, err := res.Get()
-	if err != nil {
-		s.log.Error("failed to get database connection",
-			zap.String("error", err.Error()),
-			zap.String("resource", s.config.Database.Name))
-		return false, err
-	}
-
-	db := conn.(servicesql.DBResource).DB
-	dbType := conn.(servicesql.DBResource).Type
-	qb := statementBuilder(dbType)
+	qb := statementBuilder(h.dbType)
 
 	// Build query to check if key exists and is not expired
 	query := qb.
@@ -347,7 +332,7 @@ func (s *Store) Has(ctx context.Context, key registry.ID) (bool, error) {
 	}
 
 	var exists bool
-	err = db.QueryRowContext(ctx, querySQL, args...).Scan(&exists)
+	err = h.db.QueryRowContext(ctx, querySQL, args...).Scan(&exists)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, nil
@@ -432,27 +417,13 @@ func (s *Store) cleanup(ctx context.Context) {
 	}
 	s.mu.RUnlock()
 
-	reg := resource.GetRegistry(ctx)
-	res, err := reg.Acquire(ctx, s.config.Database, resource.ModeNormal)
+	h, err := s.acquireDB(ctx)
 	if err != nil {
-		s.log.Error("failed to acquire database resource",
-			zap.String("error", err.Error()),
-			zap.String("resource", s.config.Database.Name))
 		return
 	}
-	defer res.Release()
+	defer h.release()
 
-	conn, err := res.Get()
-	if err != nil {
-		s.log.Error("failed to get database connection",
-			zap.String("error", err.Error()),
-			zap.String("resource", s.config.Database.Name))
-		return
-	}
-
-	db := conn.(servicesql.DBResource).DB
-	dbType := conn.(servicesql.DBResource).Type
-	qb := statementBuilder(dbType)
+	qb := statementBuilder(h.dbType)
 
 	// Build cleanup query using Squirrel
 	cleanupQuery := qb.
@@ -468,7 +439,7 @@ func (s *Store) cleanup(ctx context.Context) {
 		return
 	}
 
-	ret, err := db.ExecContext(ctx, querySQL, args...)
+	ret, err := h.db.ExecContext(ctx, querySQL, args...)
 	if err != nil {
 		s.log.Error("failed to execute cleanup query",
 			zap.String("error", err.Error()),
@@ -548,10 +519,3 @@ func statementBuilder(dbType registry.Kind) sq.StatementBuilderType {
 		return sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 	}
 }
-
-// Ensure Store implements all required interfaces
-var (
-	_ store.Store        = (*Store)(nil)
-	_ resource.Provider  = (*Store)(nil)
-	_ supervisor.Service = (*Store)(nil)
-)

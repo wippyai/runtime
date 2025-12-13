@@ -13,26 +13,22 @@ func Queue() boot.Component {
 		Name:      OTelQueueName,
 		DependsOn: []boot.Name{OTelName, queueManagerName},
 		Load: func(ctx context.Context) (context.Context, error) {
-			// Get OTEL service
 			svc := otelapi.GetService(ctx)
 			if svc == nil {
 				return ctx, nil
 			}
 
-			// Get publish interceptor from service
 			publishInterceptor := svc.QueuePublishInterceptor()
 			if publishInterceptor == nil {
 				return ctx, nil
 			}
 
-			// Get publish interceptor registry
-			registry := queueapi.GetPublishInterceptorRegistry(ctx)
-			if registry == nil {
+			mgr := queueapi.GetManager(ctx)
+			if mgr == nil {
 				return ctx, nil
 			}
 
-			// Register the interceptor
-			registry.Register("otel", publishInterceptor, 100)
+			mgr.RegisterInterceptor("otel", publishInterceptor, 100)
 
 			return ctx, nil
 		},

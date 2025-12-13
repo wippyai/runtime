@@ -27,14 +27,10 @@ type Queue struct {
 	Options  attrs.Attributes // Queue configuration options
 }
 
-// Manager manages queue drivers, queues, and consumers
 type Manager interface {
-	// Publish sends messages to a queue with interceptor chain applied
 	Publish(ctx context.Context, queue registry.ID, msgs ...*Message) error
-
-	// GetDriver returns a driver by its registry ID
 	GetDriver(id registry.ID) (Driver, bool)
-
-	// GetQueue returns a queue declaration by its registry ID
 	GetQueue(id registry.ID) (*Queue, bool)
+	RegisterInterceptor(name string, interceptor PublishInterceptor, priority int)
+	UnregisterInterceptor(name string)
 }

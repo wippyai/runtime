@@ -10,6 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	apierror "github.com/wippyai/runtime/api/error"
+	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
@@ -87,6 +88,14 @@ func (m *MockManager) GetQueue(id registry.ID) (*queue.Queue, bool) {
 	return args.Get(0).(*queue.Queue), args.Bool(1)
 }
 
+func (m *MockManager) RegisterInterceptor(name string, interceptor queue.PublishInterceptor, priority int) {
+	m.Called(name, interceptor, priority)
+}
+
+func (m *MockManager) UnregisterInterceptor(name string) {
+	m.Called(name)
+}
+
 func TestQueueTypes(t *testing.T) {
 	t.Run("Queue struct", func(t *testing.T) {
 		queueID := registry.NewID("test", "my-queue")
@@ -145,25 +154,12 @@ func TestQueueTypes(t *testing.T) {
 }
 
 func TestEventConstants(t *testing.T) {
-	// Verify event system
-	assert.Equal(t, queue.System, queue.System)
-	assert.Equal(t, "queue", queue.System)
+	assert.Equal(t, event.System("queue"), queue.System)
 
-	// Verify driver events
-	assert.Equal(t, "queue.driver.register", queue.DriverRegister)
-	assert.Equal(t, "queue.driver.start", queue.DriverStart)
-	assert.Equal(t, "queue.driver.stop", queue.DriverStop)
-	assert.Equal(t, "queue.driver.delete", queue.DriverDelete)
-
-	// Verify queue events
-	assert.Equal(t, "queue.queue.declare", queue.QueueDeclare)
-	assert.Equal(t, "queue.queue.delete", queue.QueueDelete)
-
-	// Verify consumer events
-	assert.Equal(t, "queue.consumer.register", queue.ConsumerRegister)
-	assert.Equal(t, "queue.consumer.start", queue.ConsumerStart)
-	assert.Equal(t, "queue.consumer.stop", queue.ConsumerStop)
-	assert.Equal(t, "queue.consumer.delete", queue.ConsumerDelete)
+	assert.Equal(t, event.Kind("queue.driver.register"), queue.KindDriverRegister)
+	assert.Equal(t, event.Kind("queue.driver.delete"), queue.KindDriverDelete)
+	assert.Equal(t, event.Kind("queue.queue.declare"), queue.KindQueueDeclare)
+	assert.Equal(t, event.Kind("queue.queue.delete"), queue.KindQueueDelete)
 }
 
 func TestErrors(t *testing.T) {
@@ -562,30 +558,6 @@ func TestContextFunctions(t *testing.T) {
 		assert.Nil(t, mgr)
 	})
 
-	t.Run("WithPublishChain_NoAppContext", func(t *testing.T) {
-		ctx := context.Background()
-		result := queue.WithPublishChain(ctx, nil)
-		assert.Equal(t, ctx, result)
-	})
-
-	t.Run("GetPublishChain_NoAppContext", func(t *testing.T) {
-		ctx := context.Background()
-		chain := queue.GetPublishChain(ctx)
-		assert.Nil(t, chain)
-	})
-
-	t.Run("WithPublishInterceptorRegistry_NoAppContext", func(t *testing.T) {
-		ctx := context.Background()
-		result := queue.WithPublishInterceptorRegistry(ctx, nil)
-		assert.Equal(t, ctx, result)
-	})
-
-	t.Run("GetPublishInterceptorRegistry_NoAppContext", func(t *testing.T) {
-		ctx := context.Background()
-		reg := queue.GetPublishInterceptorRegistry(ctx)
-		assert.Nil(t, reg)
-	})
-
 	t.Run("WithDelivery_NoFrameContext", func(t *testing.T) {
 		ctx := context.Background()
 		delivery := &queue.Delivery{Message: queue.NewMessage(payload.New("test"))}
@@ -628,65 +600,10 @@ func TestContextFunctions(t *testing.T) {
 		appCtx := ctxapi.NewAppContext()
 		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
 
-		// Set a non-Manager value
 		appCtx.With(&ctxapi.Key{Name: "queue.manager"}, "not a manager")
 
 		mgr := queue.GetManager(ctx)
 		assert.Nil(t, mgr)
-	})
-
-	t.Run("PublishChain_WithAppContext", func(t *testing.T) {
-		appCtx := ctxapi.NewAppContext()
-		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
-
-		mockChain := &testPublishChain{}
-		result := queue.WithPublishChain(ctx, mockChain)
-		assert.Equal(t, ctx, result)
-
-		retrieved := queue.GetPublishChain(ctx)
-		assert.Equal(t, mockChain, retrieved)
-
-		// Test idempotent
-		mockChain2 := &testPublishChain{}
-		queue.WithPublishChain(ctx, mockChain2)
-		assert.Equal(t, mockChain, queue.GetPublishChain(ctx))
-	})
-
-	t.Run("GetPublishChain_WrongType", func(t *testing.T) {
-		appCtx := ctxapi.NewAppContext()
-		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
-
-		appCtx.With(&ctxapi.Key{Name: "queue.publish_chain"}, "not a chain")
-
-		chain := queue.GetPublishChain(ctx)
-		assert.Nil(t, chain)
-	})
-
-	t.Run("InterceptorRegistry_WithAppContext", func(t *testing.T) {
-		appCtx := ctxapi.NewAppContext()
-		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
-
-		mockReg := &testInterceptorRegistry{}
-		result := queue.WithPublishInterceptorRegistry(ctx, mockReg)
-		assert.Equal(t, ctx, result)
-
-		retrieved := queue.GetPublishInterceptorRegistry(ctx)
-		assert.Equal(t, mockReg, retrieved)
-
-		// Test idempotent
-		mockReg2 := &testInterceptorRegistry{}
-		queue.WithPublishInterceptorRegistry(ctx, mockReg2)
-		assert.Equal(t, mockReg, queue.GetPublishInterceptorRegistry(ctx))
-	})
-
-	t.Run("GetPublishInterceptorRegistry_WrongType", func(t *testing.T) {
-		appCtx := ctxapi.NewAppContext()
-		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
-
-		appCtx.With(&ctxapi.Key{Name: "queue.interceptor_registry"}, "not a registry")
-
-		reg := queue.GetPublishInterceptorRegistry(ctx)
-		assert.Nil(t, reg)
 	})
 
 	t.Run("Delivery_WithFrameContext", func(t *testing.T) {
@@ -719,21 +636,3 @@ func TestContextFunctions(t *testing.T) {
 		assert.False(t, ok)
 	})
 }
-
-// testPublishChain implements PublishChain for testing
-type testPublishChain struct{}
-
-func (t *testPublishChain) Publish(_ context.Context, _ registry.ID, _ ...*queue.Message) error {
-	return nil
-}
-
-// testInterceptorRegistry implements PublishInterceptorRegistry for testing
-type testInterceptorRegistry struct{}
-
-func (t *testInterceptorRegistry) Publish(_ context.Context, _ registry.ID, _ ...*queue.Message) error {
-	return nil
-}
-
-func (t *testInterceptorRegistry) Register(_ string, _ queue.PublishInterceptor, _ int) {}
-
-func (t *testInterceptorRegistry) Unregister(_ string) {}

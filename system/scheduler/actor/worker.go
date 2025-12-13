@@ -224,7 +224,7 @@ func (w *Worker) dispatchYields(ctx context.Context, proc *Processor, yields []Y
 			proc.queue.PushDirect(process.Event{
 				Type:  process.EventYieldComplete,
 				Tag:   y.Tag,
-				Error: &process.UnknownCommandError{CmdID: y.Cmd.CmdID()},
+				Error: process.NewUnknownCommandError(y.Cmd.CmdID()),
 			})
 			continue
 		}

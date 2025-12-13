@@ -220,6 +220,10 @@ func (m *mockQueueManager) GetQueue(id registry.ID) (*queueapi.Queue, bool) {
 	}, true
 }
 
+func (m *mockQueueManager) RegisterInterceptor(_ string, _ queueapi.PublishInterceptor, _ int) {}
+
+func (m *mockQueueManager) UnregisterInterceptor(_ string) {}
+
 type mockDTT struct{}
 
 func (m *mockDTT) Unmarshal(p payload.Payload, v interface{}) error {

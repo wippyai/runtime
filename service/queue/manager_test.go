@@ -172,7 +172,7 @@ func TestManager_Publish(t *testing.T) {
 	mgr.queues.Store(queueID, queueEntry)
 
 	msg := queueapi.NewMessage(payload.New("test message"))
-	err := mgr.PublishDirect(ctx, queueID, msg)
+	err := mgr.Publish(ctx, queueID, msg)
 
 	require.NoError(t, err)
 	assert.True(t, driver.publishCalled, "Publish should have been called on driver")
@@ -187,7 +187,7 @@ func TestManager_Publish_QueueNotFound(t *testing.T) {
 	queueID := registry.NewID("test", "nonexistent")
 	msg := queueapi.NewMessage(payload.New("test"))
 
-	err := mgr.PublishDirect(ctx, queueID, msg)
+	err := mgr.Publish(ctx, queueID, msg)
 	assert.ErrorIs(t, err, queueapi.ErrQueueNotFound)
 }
 
@@ -208,7 +208,7 @@ func TestManager_Publish_DriverNotFound(t *testing.T) {
 	mgr.queues.Store(queueID, queueEntry)
 
 	msg := queueapi.NewMessage(payload.New("test"))
-	err := mgr.PublishDirect(ctx, queueID, msg)
+	err := mgr.Publish(ctx, queueID, msg)
 	assert.ErrorIs(t, err, queueapi.ErrDriverNotFound)
 }
 
@@ -267,7 +267,7 @@ func TestManager_QueueDelete(t *testing.T) {
 	}, 1000000000, 10000000, "queue should be deleted")
 }
 
-func TestManager_PublishWithChain(t *testing.T) {
+func TestManager_PublishWithInterceptor(t *testing.T) {
 	ctx := context.Background()
 	mgr, _ := setupTest()
 	require.NoError(t, mgr.Start(ctx))
@@ -286,28 +286,28 @@ func TestManager_PublishWithChain(t *testing.T) {
 	}
 	mgr.queues.Store(queueID, queueEntry)
 
-	chainCalled := false
-	mgr.SetPublishChain(&mockPublishChain{
-		publishFunc: func(ctx context.Context, q registry.ID, msgs ...*queueapi.Message) error {
-			chainCalled = true
-			return mgr.PublishDirect(ctx, q, msgs...)
+	interceptorCalled := false
+	mgr.RegisterInterceptor("test", &mockInterceptor{
+		handleFunc: func(ctx context.Context, q registry.ID, msgs []*queueapi.Message, next queueapi.PublishNext) error {
+			interceptorCalled = true
+			return next(ctx, q, msgs)
 		},
-	})
+	}, 100)
 
 	msg := queueapi.NewMessage(payload.New("test"))
 	err := mgr.Publish(ctx, queueID, msg)
 
 	require.NoError(t, err)
-	assert.True(t, chainCalled, "chain should be called")
-	assert.True(t, driver.publishCalled, "driver should be called through chain")
+	assert.True(t, interceptorCalled, "interceptor should be called")
+	assert.True(t, driver.publishCalled, "driver should be called through interceptor")
 }
 
-type mockPublishChain struct {
-	publishFunc func(context.Context, registry.ID, ...*queueapi.Message) error
+type mockInterceptor struct {
+	handleFunc func(context.Context, registry.ID, []*queueapi.Message, queueapi.PublishNext) error
 }
 
-func (m *mockPublishChain) Publish(ctx context.Context, q registry.ID, msgs ...*queueapi.Message) error {
-	return m.publishFunc(ctx, q, msgs...)
+func (m *mockInterceptor) Handle(ctx context.Context, q registry.ID, msgs []*queueapi.Message, next queueapi.PublishNext) error {
+	return m.handleFunc(ctx, q, msgs, next)
 }
 
 type mockDriver struct {

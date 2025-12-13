@@ -1,7 +1,6 @@
 package process
 
 import (
-	"fmt"
 	"strconv"
 
 	"github.com/wippyai/runtime/api/attrs"
@@ -24,7 +23,10 @@ var (
 		message: "max processes limit exceeded",
 	}
 
-	ErrProcessClosed = fmt.Errorf("process closed")
+	ErrProcessClosed = &Error{
+		kind:    KindInvalidState,
+		message: "process closed",
+	}
 
 	ErrProcessNotFound = &Error{
 		kind:    KindNotFound,
@@ -53,6 +55,14 @@ type UnknownCommandError struct {
 	details attrs.Attributes
 }
 
+// NewUnknownCommandError creates an error for unregistered commands.
+func NewUnknownCommandError(cmdID dispatcher.CommandID) *UnknownCommandError {
+	return &UnknownCommandError{
+		CmdID:   cmdID,
+		details: attrs.NewBagFrom(map[string]any{"command_id": int(cmdID)}),
+	}
+}
+
 func (e *UnknownCommandError) Error() string {
 	return "unknown command: " + strconv.Itoa(int(e.CmdID))
 }
@@ -66,9 +76,6 @@ func (e *UnknownCommandError) Retryable() apierror.Ternary {
 }
 
 func (e *UnknownCommandError) Details() attrs.Attributes {
-	if e.details == nil {
-		e.details = attrs.NewBagFrom(map[string]any{"command_id": int(e.CmdID)})
-	}
 	return e.details
 }
 
@@ -132,8 +139,7 @@ func NewInvalidFactoryEntryError(factoryID string) *Error {
 func NewProcessCreateError(err error) *Error {
 	return &Error{
 		kind:    KindInternal,
-		message: "failed to create process: " + err.Error(),
-		details: attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
+		message: "failed to create process",
 		cause:   err,
 	}
 }
@@ -160,8 +166,7 @@ func NewInvalidHostError(hostID string) *Error {
 func NewSubscriberError(err error) *Error {
 	return &Error{
 		kind:    KindInternal,
-		message: "failed to create subscriber: " + err.Error(),
-		details: attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
+		message: "failed to create subscriber",
 		cause:   err,
 	}
 }

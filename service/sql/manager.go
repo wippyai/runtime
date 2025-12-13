@@ -134,7 +134,7 @@ func (m *Manager) handleStandardDBAdd(ctx context.Context, entry registry.Entry)
 		cfg.Password = v
 	}
 
-	pool, err := m.factory.CreateStandardPool(entry.Kind, cfg)
+	pool, err := m.factory.CreateStandardPool(ctx, entry.Kind, cfg)
 	if err != nil {
 		return NewConnectionPoolCreationError(err)
 	}
@@ -152,7 +152,7 @@ func (m *Manager) handleSQLiteAdd(ctx context.Context, entry registry.Entry) err
 		return err
 	}
 
-	pool, err := m.factory.CreateSQLitePool(cfg)
+	pool, err := m.factory.CreateSQLitePool(ctx, cfg)
 	if err != nil {
 		return NewSQLiteConnectionCreationError(err)
 	}

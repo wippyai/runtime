@@ -11,10 +11,10 @@ import (
 // PoolFactoryAPI defines the interface for creating database connection pools
 type PoolFactoryAPI interface {
 	// CreateStandardPool creates a connection pool for standard SQL databases (Postgres, MySQL)
-	CreateStandardPool(kind registry.Kind, cfg *config.DBConfig) (*ConnPool, error)
+	CreateStandardPool(ctx context.Context, kind registry.Kind, cfg *config.DBConfig) (*ConnPool, error)
 
 	// CreateSQLitePool creates a connection pool for SQLite databases
-	CreateSQLitePool(cfg *config.SQLiteConfig) (*ConnPool, error)
+	CreateSQLitePool(ctx context.Context, cfg *config.SQLiteConfig) (*ConnPool, error)
 }
 
 // DefaultPoolFactory is the default implementation of PoolFactoryAPI
@@ -26,7 +26,7 @@ func NewDefaultPoolFactory() PoolFactoryAPI {
 }
 
 // CreateStandardPool implements PoolFactoryAPI.CreateStandardPool
-func (f *DefaultPoolFactory) CreateStandardPool(kind registry.Kind, cfg *config.DBConfig) (*ConnPool, error) {
+func (f *DefaultPoolFactory) CreateStandardPool(ctx context.Context, kind registry.Kind, cfg *config.DBConfig) (*ConnPool, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, NewInvalidConfigError(err)
 	}
@@ -59,7 +59,7 @@ func (f *DefaultPoolFactory) CreateStandardPool(kind registry.Kind, cfg *config.
 }
 
 // CreateSQLitePool implements PoolFactoryAPI.CreateSQLitePool
-func (f *DefaultPoolFactory) CreateSQLitePool(cfg *config.SQLiteConfig) (*ConnPool, error) {
+func (f *DefaultPoolFactory) CreateSQLitePool(ctx context.Context, cfg *config.SQLiteConfig) (*ConnPool, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, NewInvalidConfigError(err)
 	}
@@ -80,7 +80,7 @@ func (f *DefaultPoolFactory) CreateSQLitePool(cfg *config.SQLiteConfig) (*ConnPo
 	}
 
 	// Enable WAL mode for better concurrency
-	if _, err := db.ExecContext(context.Background(), "PRAGMA journal_mode=WAL;"); err != nil {
+	if _, err := db.ExecContext(ctx, "PRAGMA journal_mode=WAL;"); err != nil {
 		_ = db.Close()
 		return nil, NewWALModeError(err)
 	}

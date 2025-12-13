@@ -162,7 +162,7 @@ func NewTestPoolFactory() *TestPoolFactory {
 	}
 }
 
-func (f *TestPoolFactory) CreateStandardPool(kind registry.Kind, cfg *apiconfig.DBConfig) (*ConnPool, error) {
+func (f *TestPoolFactory) CreateStandardPool(_ context.Context, kind registry.Kind, cfg *apiconfig.DBConfig) (*ConnPool, error) {
 	f.standardPoolCalls = append(f.standardPoolCalls, struct {
 		Kind registry.Kind
 		Cfg  *apiconfig.DBConfig
@@ -177,7 +177,7 @@ func (f *TestPoolFactory) CreateStandardPool(kind registry.Kind, cfg *apiconfig.
 	return NewMockConnPool(kind), nil
 }
 
-func (f *TestPoolFactory) CreateSQLitePool(cfg *apiconfig.SQLiteConfig) (*ConnPool, error) {
+func (f *TestPoolFactory) CreateSQLitePool(_ context.Context, cfg *apiconfig.SQLiteConfig) (*ConnPool, error) {
 	f.sqlitePoolCalls = append(f.sqlitePoolCalls, struct {
 		Cfg *apiconfig.SQLiteConfig
 	}{

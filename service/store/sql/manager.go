@@ -103,7 +103,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	_, exists := m.stores[entry.ID]
+	oldStore, exists := m.stores[entry.ID]
 	if !exists {
 		return storeapi.NewStoreNotFoundError(entry.ID.String())
 	}
@@ -112,6 +112,13 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	cfg, err := entryutil.DecodeEntryConfig[sqlstore.Config](ctx, m.dtt, entry)
 	if err != nil {
 		return err
+	}
+
+	// Stop old store to clean up its goroutines
+	if err := oldStore.Stop(ctx); err != nil {
+		m.log.Warn("failed to stop old store during update",
+			zap.String("id", entry.ID.String()),
+			zap.Error(err))
 	}
 
 	// Create new store with updated config

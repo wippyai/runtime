@@ -6,11 +6,12 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 )
 
+// PublishNext is the function type for calling the next interceptor in chain
+type PublishNext = func(context.Context, registry.ID, []*Message) error
+
 // PublishInterceptor intercepts message publishing for cross-cutting concerns
 type PublishInterceptor interface {
-	// Handle processes the publish operation and calls next in chain
-	Handle(ctx context.Context, queue registry.ID, msgs []*Message,
-		next func(context.Context, registry.ID, []*Message) error) error
+	Handle(ctx context.Context, queue registry.ID, msgs []*Message, next PublishNext) error
 }
 
 // PublishChain executes a chain of interceptors

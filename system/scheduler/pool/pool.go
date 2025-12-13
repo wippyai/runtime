@@ -210,7 +210,7 @@ func (e *Executor) Run(ctx context.Context, proc process.Process, method string,
 				e.queue.PushDirect(process.Event{
 					Type:  process.EventYieldComplete,
 					Tag:   y.Tag,
-					Error: &process.UnknownCommandError{CmdID: y.Cmd.CmdID()},
+					Error: process.NewUnknownCommandError(y.Cmd.CmdID()),
 				})
 				continue
 			}

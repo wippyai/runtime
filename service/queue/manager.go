@@ -8,26 +8,29 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/service/queue/interceptor"
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 
 type Manager struct {
-	ctx        context.Context
-	bus        event.Bus
-	logger     *zap.Logger
-	drivers    sync.Map
-	queues     sync.Map
-	subscriber *eventbus.Subscriber
-	chain      queueapi.PublishChain
-	mu         sync.RWMutex
+	ctx          context.Context
+	bus          event.Bus
+	logger       *zap.Logger
+	drivers      sync.Map
+	queues       sync.Map
+	subscriber   *eventbus.Subscriber
+	interceptors *interceptor.Registry
+	mu           sync.RWMutex
 }
 
 func NewManager(bus event.Bus, logger *zap.Logger) *Manager {
-	return &Manager{
+	m := &Manager{
 		bus:    bus,
 		logger: logger,
 	}
+	m.interceptors = interceptor.NewRegistry(logger, m.publishDirect)
+	return m
 }
 
 func (m *Manager) Start(ctx context.Context) error {
@@ -58,12 +61,6 @@ func (m *Manager) Stop() error {
 
 	m.logger.Debug("queue manager stopped")
 	return nil
-}
-
-func (m *Manager) SetPublishChain(chain queueapi.PublishChain) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.chain = chain
 }
 
 func (m *Manager) handleEvent(e event.Event) {
@@ -164,18 +161,10 @@ func (m *Manager) handleQueueDelete(e event.Event) {
 }
 
 func (m *Manager) Publish(ctx context.Context, q registry.ID, msgs ...*queueapi.Message) error {
-	m.mu.RLock()
-	chain := m.chain
-	m.mu.RUnlock()
-
-	if chain != nil {
-		return chain.Publish(ctx, q, msgs...)
-	}
-
-	return m.PublishDirect(ctx, q, msgs...)
+	return m.interceptors.Publish(ctx, q, msgs...)
 }
 
-func (m *Manager) PublishDirect(ctx context.Context, q registry.ID, msgs ...*queueapi.Message) error {
+func (m *Manager) publishDirect(ctx context.Context, q registry.ID, msgs ...*queueapi.Message) error {
 	queueVal, ok := m.queues.Load(q)
 	if !ok {
 		return queueapi.ErrQueueNotFound
@@ -221,6 +210,14 @@ func (m *Manager) GetQueue(id registry.ID) (*queueapi.Queue, bool) {
 	}
 	queue, ok := val.(*queueapi.Queue)
 	return queue, ok
+}
+
+func (m *Manager) RegisterInterceptor(name string, interceptor queueapi.PublishInterceptor, priority int) {
+	m.interceptors.Register(name, interceptor, priority)
+}
+
+func (m *Manager) UnregisterInterceptor(name string) {
+	m.interceptors.Unregister(name)
 }
 
 func (m *Manager) sendAccept(path event.Path) {

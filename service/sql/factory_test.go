@@ -1,6 +1,7 @@
 package sql
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -163,7 +164,7 @@ func TestDefaultPoolFactory_CreateStandardPool(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pool, err := factory.CreateStandardPool(tt.kind, tt.cfg)
+			pool, err := factory.CreateStandardPool(context.Background(), tt.kind, tt.cfg)
 
 			if tt.isError {
 				assert.Error(t, err)
@@ -200,7 +201,7 @@ func TestDefaultPoolFactory_CreateSQLitePoolValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pool, err := factory.CreateSQLitePool(tt.cfg)
+			pool, err := factory.CreateSQLitePool(context.Background(), tt.cfg)
 
 			if tt.isError {
 				assert.Error(t, err)

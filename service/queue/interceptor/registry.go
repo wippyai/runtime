@@ -30,11 +30,14 @@ type Registry struct {
 	chain       atomic.Pointer[sealedChain]
 }
 
-func NewRegistry(logger *zap.Logger) *Registry {
-	return &Registry{
-		logger:  logger,
-		entries: make([]entry, 0),
+func NewRegistry(logger *zap.Logger, publishFunc func(context.Context, registry.ID, ...*queueapi.Message) error) *Registry {
+	r := &Registry{
+		logger:      logger,
+		entries:     make([]entry, 0),
+		publishFunc: publishFunc,
 	}
+	r.rebuild()
+	return r
 }
 
 func (r *Registry) Register(name string, interceptor queueapi.PublishInterceptor, priority int) {
@@ -78,23 +81,10 @@ func (r *Registry) Unregister(name string) {
 	r.logger.Warn("interceptor not found for unregister", zap.String("name", name))
 }
 
-func (r *Registry) SetPublishFunc(f func(context.Context, registry.ID, ...*queueapi.Message) error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.publishFunc = f
-	r.rebuild()
-}
-
 func (r *Registry) rebuild() {
 	sort.Slice(r.entries, func(i, j int) bool {
 		return r.entries[i].priority < r.entries[j].priority
 	})
-
-	if len(r.entries) == 0 && r.publishFunc == nil {
-		r.chain.Store(nil)
-		return
-	}
 
 	interceptors := make([]queueapi.PublishInterceptor, len(r.entries))
 	for i, e := range r.entries {
@@ -109,15 +99,9 @@ func (r *Registry) rebuild() {
 
 func (r *Registry) Publish(ctx context.Context, queue registry.ID, msgs ...*queueapi.Message) error {
 	chain := r.chain.Load()
-	if chain == nil {
-		return queueapi.ErrNoPublishFunc
-	}
 
 	if len(chain.interceptors) == 0 {
-		if chain.publishFunc != nil {
-			return chain.publishFunc(ctx, queue, msgs...)
-		}
-		return queueapi.ErrNoPublishFunc
+		return chain.publishFunc(ctx, queue, msgs...)
 	}
 
 	return r.publishAt(ctx, queue, msgs, chain, 0)
@@ -125,10 +109,7 @@ func (r *Registry) Publish(ctx context.Context, queue registry.ID, msgs ...*queu
 
 func (r *Registry) publishAt(ctx context.Context, queue registry.ID, msgs []*queueapi.Message, chain *sealedChain, i int) error {
 	if i >= len(chain.interceptors) {
-		if chain.publishFunc != nil {
-			return chain.publishFunc(ctx, queue, msgs...)
-		}
-		return queueapi.ErrNoPublishFunc
+		return chain.publishFunc(ctx, queue, msgs...)
 	}
 
 	return chain.interceptors[i].Handle(ctx, queue, msgs, func(ctx context.Context, q registry.ID, m []*queueapi.Message) error {

@@ -13,8 +13,12 @@ import (
 	"go.uber.org/zap"
 )
 
+func noopPublish(_ context.Context, _ registry.ID, _ ...*queueapi.Message) error {
+	return nil
+}
+
 func TestRegistry_RegisterUnregister(t *testing.T) {
-	reg := NewRegistry(zap.NewNop())
+	reg := NewRegistry(zap.NewNop(), noopPublish)
 
 	interceptor := &testInterceptor{name: "test"}
 	reg.Register("test", interceptor, 100)
@@ -28,7 +32,7 @@ func TestRegistry_RegisterUnregister(t *testing.T) {
 }
 
 func TestRegistry_RegisterDuplicate(t *testing.T) {
-	reg := NewRegistry(zap.NewNop())
+	reg := NewRegistry(zap.NewNop(), noopPublish)
 
 	interceptor1 := &testInterceptor{name: "test1"}
 	interceptor2 := &testInterceptor{name: "test2"}
@@ -41,7 +45,7 @@ func TestRegistry_RegisterDuplicate(t *testing.T) {
 }
 
 func TestRegistry_PriorityOrdering(t *testing.T) {
-	reg := NewRegistry(zap.NewNop())
+	reg := NewRegistry(zap.NewNop(), noopPublish)
 
 	int1 := &testInterceptor{name: "high-priority"}
 	int2 := &testInterceptor{name: "low-priority"}
@@ -58,10 +62,8 @@ func TestRegistry_PriorityOrdering(t *testing.T) {
 }
 
 func TestRegistry_Publish_NoInterceptors(t *testing.T) {
-	reg := NewRegistry(zap.NewNop())
-
 	publishCalled := false
-	reg.SetPublishFunc(func(_ context.Context, _ registry.ID, _ ...*queueapi.Message) error {
+	reg := NewRegistry(zap.NewNop(), func(_ context.Context, _ registry.ID, _ ...*queueapi.Message) error {
 		publishCalled = true
 		return nil
 	})
@@ -76,7 +78,11 @@ func TestRegistry_Publish_NoInterceptors(t *testing.T) {
 }
 
 func TestRegistry_Publish_WithInterceptors(t *testing.T) {
-	reg := NewRegistry(zap.NewNop())
+	publishCalled := false
+	reg := NewRegistry(zap.NewNop(), func(_ context.Context, _ registry.ID, _ ...*queueapi.Message) error {
+		publishCalled = true
+		return nil
+	})
 
 	int1 := &testInterceptor{name: "int1"}
 	int2 := &testInterceptor{name: "int2"}
@@ -85,12 +91,6 @@ func TestRegistry_Publish_WithInterceptors(t *testing.T) {
 	reg.Register("int1", int1, 100)
 	reg.Register("int2", int2, 200)
 	reg.Register("int3", int3, 300)
-
-	publishCalled := false
-	reg.SetPublishFunc(func(_ context.Context, _ registry.ID, _ ...*queueapi.Message) error {
-		publishCalled = true
-		return nil
-	})
 
 	ctx := context.Background()
 	queueID := registry.NewID("test", "queue")
@@ -106,9 +106,12 @@ func TestRegistry_Publish_WithInterceptors(t *testing.T) {
 }
 
 func TestRegistry_Publish_InterceptorOrder(t *testing.T) {
-	reg := NewRegistry(zap.NewNop())
-
 	var callOrder []string
+
+	reg := NewRegistry(zap.NewNop(), func(_ context.Context, _ registry.ID, _ ...*queueapi.Message) error {
+		callOrder = append(callOrder, "publish")
+		return nil
+	})
 
 	int1 := &orderInterceptor{name: "high", callOrder: &callOrder}
 	int2 := &orderInterceptor{name: "mid", callOrder: &callOrder}
@@ -117,11 +120,6 @@ func TestRegistry_Publish_InterceptorOrder(t *testing.T) {
 	reg.Register("low", int3, 300)
 	reg.Register("high", int1, 100)
 	reg.Register("mid", int2, 200)
-
-	reg.SetPublishFunc(func(_ context.Context, _ registry.ID, _ ...*queueapi.Message) error {
-		callOrder = append(callOrder, "publish")
-		return nil
-	})
 
 	ctx := context.Background()
 	queueID := registry.NewID("test", "queue")
@@ -134,17 +132,13 @@ func TestRegistry_Publish_InterceptorOrder(t *testing.T) {
 }
 
 func TestRegistry_Unregister_Rebuilds(t *testing.T) {
-	reg := NewRegistry(zap.NewNop())
+	reg := NewRegistry(zap.NewNop(), noopPublish)
 
 	int1 := &testInterceptor{name: "int1"}
 	int2 := &testInterceptor{name: "int2"}
 
 	reg.Register("int1", int1, 100)
 	reg.Register("int2", int2, 200)
-
-	reg.SetPublishFunc(func(_ context.Context, _ registry.ID, _ ...*queueapi.Message) error {
-		return nil
-	})
 
 	reg.Unregister("int1")
 
@@ -164,7 +158,7 @@ type testInterceptor struct {
 	called atomic.Bool
 }
 
-func (i *testInterceptor) Handle(ctx context.Context, queue registry.ID, msgs []*queueapi.Message, next func(context.Context, registry.ID, []*queueapi.Message) error) error {
+func (i *testInterceptor) Handle(ctx context.Context, queue registry.ID, msgs []*queueapi.Message, next queueapi.PublishNext) error {
 	i.called.Store(true)
 	return next(ctx, queue, msgs)
 }
@@ -174,7 +168,7 @@ type orderInterceptor struct {
 	callOrder *[]string
 }
 
-func (i *orderInterceptor) Handle(ctx context.Context, queue registry.ID, msgs []*queueapi.Message, next func(context.Context, registry.ID, []*queueapi.Message) error) error {
+func (i *orderInterceptor) Handle(ctx context.Context, queue registry.ID, msgs []*queueapi.Message, next queueapi.PublishNext) error {
 	*i.callOrder = append(*i.callOrder, i.name)
 	return next(ctx, queue, msgs)
 }

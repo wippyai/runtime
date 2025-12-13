@@ -190,7 +190,7 @@ func TestError_WithDetails(t *testing.T) {
 }
 
 func TestUnknownCommandError(t *testing.T) {
-	err := &UnknownCommandError{CmdID: 999}
+	err := NewUnknownCommandError(999)
 
 	assert.Equal(t, "unknown command: 999", err.Error())
 	assert.Equal(t, "NotFound", string(err.Kind()))
