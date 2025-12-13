@@ -61,9 +61,10 @@ func TestNewHost(t *testing.T) {
 	cfg := &host.EntryConfig{}
 	scheduler := actor.NewScheduler(nil)
 	factory := &mockFactory{proc: &mockProcess{}}
+	pidGen := newTestPIDGen()
 	logger := zap.NewNop()
 
-	h := NewHost(id, cfg, scheduler, factory, logger)
+	h := NewHost(id, cfg, scheduler, factory, pidGen, logger)
 
 	assert.NotNil(t, h)
 	assert.Equal(t, id, h.id)
@@ -76,9 +77,10 @@ func TestHost_RunNotRunning(t *testing.T) {
 	cfg := &host.EntryConfig{}
 	scheduler := actor.NewScheduler(nil)
 	factory := &mockFactory{proc: &mockProcess{}}
+	pidGen := newTestPIDGen()
 	logger := zap.NewNop()
 
-	h := NewHost(id, cfg, scheduler, factory, logger)
+	h := NewHost(id, cfg, scheduler, factory, pidGen, logger)
 
 	_, err := h.Run(context.Background(), &process.Start{
 		Source: registry.NewID("test", "proc"),
@@ -92,13 +94,13 @@ func TestHost_StartStop(t *testing.T) {
 	cfg := &host.EntryConfig{}
 	scheduler := actor.NewScheduler(nil)
 	factory := &mockFactory{proc: &mockProcess{}}
+	pidGen := newTestPIDGen()
 	logger := zap.NewNop()
 
-	h := NewHost(id, cfg, scheduler, factory, logger)
+	h := NewHost(id, cfg, scheduler, factory, pidGen, logger)
 
-	statusCh, err := h.Start(context.Background())
+	_, err := h.Start(context.Background())
 	require.NoError(t, err)
-	assert.NotNil(t, statusCh)
 
 	err = h.Stop(context.Background())
 	require.NoError(t, err)
@@ -109,9 +111,10 @@ func TestHost_StartAlreadyRunning(t *testing.T) {
 	cfg := &host.EntryConfig{}
 	scheduler := actor.NewScheduler(nil)
 	factory := &mockFactory{proc: &mockProcess{}}
+	pidGen := newTestPIDGen()
 	logger := zap.NewNop()
 
-	h := NewHost(id, cfg, scheduler, factory, logger)
+	h := NewHost(id, cfg, scheduler, factory, pidGen, logger)
 
 	_, err := h.Start(context.Background())
 	require.NoError(t, err)
@@ -127,9 +130,10 @@ func TestHost_StopNotRunning(t *testing.T) {
 	cfg := &host.EntryConfig{}
 	scheduler := actor.NewScheduler(nil)
 	factory := &mockFactory{proc: &mockProcess{}}
+	pidGen := newTestPIDGen()
 	logger := zap.NewNop()
 
-	h := NewHost(id, cfg, scheduler, factory, logger)
+	h := NewHost(id, cfg, scheduler, factory, pidGen, logger)
 
 	err := h.Stop(context.Background())
 	assert.NoError(t, err)
@@ -140,9 +144,10 @@ func TestHost_SendShuttingDown(t *testing.T) {
 	cfg := &host.EntryConfig{}
 	scheduler := actor.NewScheduler(nil)
 	factory := &mockFactory{proc: &mockProcess{}}
+	pidGen := newTestPIDGen()
 	logger := zap.NewNop()
 
-	h := NewHost(id, cfg, scheduler, factory, logger)
+	h := NewHost(id, cfg, scheduler, factory, pidGen, logger)
 	h.shutdown.Store(true)
 
 	err := h.Send(&relay.Package{})
@@ -154,9 +159,10 @@ func TestHost_RunShuttingDown(t *testing.T) {
 	cfg := &host.EntryConfig{}
 	scheduler := actor.NewScheduler(nil)
 	factory := &mockFactory{proc: &mockProcess{}}
+	pidGen := newTestPIDGen()
 	logger := zap.NewNop()
 
-	h := NewHost(id, cfg, scheduler, factory, logger)
+	h := NewHost(id, cfg, scheduler, factory, pidGen, logger)
 	h.running.Store(true)
 	h.shutdown.Store(true)
 
@@ -172,9 +178,10 @@ func TestHost_OnStartOnComplete(t *testing.T) {
 	cfg := &host.EntryConfig{}
 	scheduler := actor.NewScheduler(nil)
 	factory := &mockFactory{proc: &mockProcess{}}
+	pidGen := newTestPIDGen()
 	logger := zap.NewNop()
 
-	h := NewHost(id, cfg, scheduler, factory, logger)
+	h := NewHost(id, cfg, scheduler, factory, pidGen, logger)
 
 	h.OnStart(context.Background(), pid.PID{}, &mockProcess{})
 	h.OnComplete(context.Background(), pid.PID{}, &runtime.Result{})
@@ -185,9 +192,10 @@ func TestHost_SendSuccess(t *testing.T) {
 	cfg := &host.EntryConfig{}
 	scheduler := actor.NewScheduler(nil)
 	factory := &mockFactory{proc: &mockProcess{}}
+	pidGen := newTestPIDGen()
 	logger := zap.NewNop()
 
-	h := NewHost(id, cfg, scheduler, factory, logger)
+	h := NewHost(id, cfg, scheduler, factory, pidGen, logger)
 
 	_, err := h.Start(context.Background())
 	require.NoError(t, err)
@@ -204,9 +212,10 @@ func TestHost_Terminate(t *testing.T) {
 	cfg := &host.EntryConfig{}
 	scheduler := actor.NewScheduler(nil)
 	factory := &mockFactory{proc: &mockProcess{}}
+	pidGen := newTestPIDGen()
 	logger := zap.NewNop()
 
-	h := NewHost(id, cfg, scheduler, factory, logger)
+	h := NewHost(id, cfg, scheduler, factory, pidGen, logger)
 
 	_, err := h.Start(context.Background())
 	require.NoError(t, err)
@@ -224,9 +233,10 @@ func TestHost_RunFactoryError(t *testing.T) {
 	scheduler := actor.NewScheduler(nil)
 	factoryErr := errors.New("factory error")
 	factory := &mockFactory{err: factoryErr}
+	pidGen := newTestPIDGen()
 	logger := zap.NewNop()
 
-	h := NewHost(id, cfg, scheduler, factory, logger)
+	h := NewHost(id, cfg, scheduler, factory, pidGen, logger)
 	h.running.Store(true)
 
 	_, err := h.Run(ctxWithPIDGen(), &process.Start{
@@ -241,9 +251,10 @@ func TestHost_PreparePID_ExplicitPID(t *testing.T) {
 	cfg := &host.EntryConfig{}
 	scheduler := actor.NewScheduler(nil)
 	factory := &mockFactory{proc: &mockProcess{}}
+	pidGen := newTestPIDGen()
 	logger := zap.NewNop()
 
-	h := NewHost(id, cfg, scheduler, factory, logger)
+	h := NewHost(id, cfg, scheduler, factory, pidGen, logger)
 
 	explicitPID := pid.PID{Node: "test-node", Host: "test:host", UniqID: "explicit-123"}
 	opts := attrs.NewBag()
@@ -262,9 +273,10 @@ func TestHost_PreparePID_Generated(t *testing.T) {
 	cfg := &host.EntryConfig{}
 	scheduler := actor.NewScheduler(nil)
 	factory := &mockFactory{proc: &mockProcess{}}
+	pidGen := newTestPIDGen()
 	logger := zap.NewNop()
 
-	h := NewHost(id, cfg, scheduler, factory, logger)
+	h := NewHost(id, cfg, scheduler, factory, pidGen, logger)
 
 	resultPID := h.preparePID(ctxWithPIDGen(), &process.Start{
 		Source: registry.NewID("test", "proc"),

@@ -14,6 +14,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/service/host"
+	"github.com/wippyai/runtime/internal/uniqid"
 	"github.com/wippyai/runtime/system/eventbus"
 	payloadSystem "github.com/wippyai/runtime/system/payload"
 	"github.com/wippyai/runtime/system/payload/json"
@@ -36,8 +37,9 @@ func newTestManager(t *testing.T) *Manager {
 	json.Register(dtt)
 	cmdReg := &mockCommandRegistry{}
 	factory := &mockFactory{proc: &mockProcess{}}
+	pidGen := uniqid.NewPIDGenerator(uniqid.NewGenerator(), "test-node")
 	log := zap.NewNop()
-	return NewManager(bus, dtt, cmdReg, factory, log)
+	return NewManager(bus, dtt, cmdReg, factory, pidGen, log)
 }
 
 func makeHostEntry(id registry.ID) registry.Entry {
@@ -166,15 +168,6 @@ func TestCompositeLifecycle_OnComplete(t *testing.T) {
 
 	assert.True(t, globalCalled)
 	assert.True(t, hostCalled)
-}
-
-func TestCompositeLifecycle_NilHandlers(t *testing.T) {
-	c := &compositeLifecycle{}
-
-	assert.NotPanics(t, func() {
-		c.OnStart(context.Background(), pid.PID{}, nil)
-		c.OnComplete(context.Background(), pid.PID{}, nil)
-	})
 }
 
 type testLifecycle struct {

@@ -6,8 +6,7 @@ import (
 	"github.com/wippyai/runtime/api/security"
 )
 
-// todo: move to api
-// WithSecurityConfig configures the security context based on the provided configuration
+// WithSecurityConfig configures the security context based on the provided configuration.
 func WithSecurityConfig(ctx context.Context, config *security.Config) context.Context {
 	if config == nil {
 		return ctx

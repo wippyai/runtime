@@ -84,7 +84,7 @@ func (m *Manager) addOrUpdateQueue(ctx context.Context, entry registry.Entry, ac
 
 	m.bus.Send(ctx, event.Event{
 		System: queueapi.System,
-		Kind:   queueapi.QueueDeclare,
+		Kind:   queueapi.KindQueueDeclare,
 		Path:   entry.ID.String(),
 		Data:   queue,
 	})
@@ -101,7 +101,7 @@ func (m *Manager) deleteQueue(ctx context.Context, id registry.ID) error {
 
 	m.bus.Send(ctx, event.Event{
 		System: queueapi.System,
-		Kind:   queueapi.QueueDelete,
+		Kind:   queueapi.KindQueueDelete,
 		Path:   id.String(),
 	})
 

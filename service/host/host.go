@@ -12,6 +12,7 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/service/host"
+	"github.com/wippyai/runtime/internal/uniqid"
 	"github.com/wippyai/runtime/system/scheduler/actor"
 	"go.uber.org/zap"
 )
@@ -23,22 +24,22 @@ type Host struct {
 	log       *zap.Logger
 	scheduler *actor.Scheduler
 	factory   process.Factory
+	pidGen    *uniqid.PIDGenerator
 	ctx       context.Context
-	statusCh  chan any
 
 	running  atomic.Bool
 	shutdown atomic.Bool
 }
 
-// NewHost creates a new V2 host with actor scheduler.
-func NewHost(id registry.ID, cfg *host.EntryConfig, scheduler *actor.Scheduler, factory process.Factory, logger *zap.Logger) *Host {
+// NewHost creates a new host with actor scheduler.
+func NewHost(id registry.ID, cfg *host.EntryConfig, scheduler *actor.Scheduler, factory process.Factory, pidGen *uniqid.PIDGenerator, logger *zap.Logger) *Host {
 	return &Host{
 		id:        id,
 		cfg:       cfg,
 		log:       logger,
 		scheduler: scheduler,
 		factory:   factory,
-		statusCh:  make(chan any, 1),
+		pidGen:    pidGen,
 	}
 }
 
@@ -101,12 +102,12 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 	h.scheduler.Start()
 
 	h.log.Info("host started", zap.String("id", h.id.String()))
-	return h.statusCh, nil
+	return nil, nil
 }
 
 // Stop implements supervisor.Service.
 func (h *Host) Stop(ctx context.Context) error {
-	if !h.running.Load() {
+	if !h.running.Swap(false) {
 		return nil
 	}
 
@@ -114,15 +115,13 @@ func (h *Host) Stop(ctx context.Context) error {
 	h.log.Info("host stopping", zap.String("id", h.id.String()))
 
 	h.scheduler.Stop(ctx)
-	h.running.Store(false)
-	close(h.statusCh)
 
 	h.log.Info("host stopped", zap.String("id", h.id.String()))
 	return nil
 }
 
 // preparePID generates a PID or uses one from options.
-func (h *Host) preparePID(ctx context.Context, start *process.Start) pid.PID {
+func (h *Host) preparePID(_ context.Context, start *process.Start) pid.PID {
 	if start.Options != nil {
 		if pidVal, ok := start.Options.Get(process.OptionPID); ok {
 			if processID, ok := pidVal.(pid.PID); ok {
@@ -131,8 +130,7 @@ func (h *Host) preparePID(ctx context.Context, start *process.Start) pid.PID {
 		}
 	}
 
-	gen := process.GetPIDGenerator(ctx)
-	return gen.Generate(h.id.String())
+	return h.pidGen.Generate(h.id.String())
 }
 
 // prepareContext creates a frame context for the process.
@@ -154,6 +152,7 @@ func (h *Host) prepareContext(ctx context.Context, processID pid.PID, start *pro
 }
 
 // OnStart implements scheduler.Lifecycle.
+// Host-specific lifecycle is empty; global lifecycle handles process registration.
 func (h *Host) OnStart(_ context.Context, _ pid.PID, _ process.Process) {}
 
 // OnComplete implements scheduler.Lifecycle.

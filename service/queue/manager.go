@@ -31,7 +31,9 @@ func NewManager(bus event.Bus, logger *zap.Logger) *Manager {
 }
 
 func (m *Manager) Start(ctx context.Context) error {
+	m.mu.Lock()
 	m.ctx = ctx
+	m.mu.Unlock()
 
 	sub, err := eventbus.NewSubscriber(
 		ctx,
@@ -66,13 +68,13 @@ func (m *Manager) SetPublishChain(chain queueapi.PublishChain) {
 
 func (m *Manager) handleEvent(e event.Event) {
 	switch e.Kind {
-	case queueapi.DriverRegister:
+	case queueapi.KindDriverRegister:
 		m.handleDriverRegister(e)
-	case queueapi.DriverDelete:
+	case queueapi.KindDriverDelete:
 		m.handleDriverDelete(e)
-	case queueapi.QueueDeclare:
+	case queueapi.KindQueueDeclare:
 		m.handleQueueDeclare(e)
-	case queueapi.QueueDelete:
+	case queueapi.KindQueueDelete:
 		m.handleQueueDelete(e)
 	default:
 		m.logger.Warn("unknown event kind",
@@ -133,7 +135,11 @@ func (m *Manager) handleQueueDeclare(e event.Event) {
 		return
 	}
 
-	if err := driver.DeclareQueue(m.ctx, queueEntry.ID, queueEntry.Options); err != nil {
+	m.mu.RLock()
+	ctx := m.ctx
+	m.mu.RUnlock()
+
+	if err := driver.DeclareQueue(ctx, queueEntry.ID, queueEntry.Options); err != nil {
 		m.logger.Error("failed to declare queue on driver",
 			zap.String("path", e.Path),
 			zap.Error(err))
@@ -214,7 +220,11 @@ func (m *Manager) GetQueue(id registry.ID) (*queueapi.Queue, bool) {
 }
 
 func (m *Manager) sendAccept(path event.Path) {
-	m.bus.Send(m.ctx, event.Event{
+	m.mu.RLock()
+	ctx := m.ctx
+	m.mu.RUnlock()
+
+	m.bus.Send(ctx, event.Event{
 		System: queueapi.System,
 		Kind:   event.Kind("queue.accept"),
 		Path:   path,
@@ -222,7 +232,11 @@ func (m *Manager) sendAccept(path event.Path) {
 }
 
 func (m *Manager) sendReject(path event.Path, reason string) {
-	m.bus.Send(m.ctx, event.Event{
+	m.mu.RLock()
+	ctx := m.ctx
+	m.mu.RUnlock()
+
+	m.bus.Send(ctx, event.Event{
 		System: queueapi.System,
 		Kind:   event.Kind("queue.reject"),
 		Path:   path,

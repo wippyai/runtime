@@ -22,25 +22,25 @@ type sealedChain struct {
 	interceptors []function.Interceptor
 }
 
-// InterceptorRegistry manages available interceptors.
+// Registry manages available interceptors.
 // Uses atomic pointer for lock-free Execute() on hot path.
-type InterceptorRegistry struct {
+type Registry struct {
 	logger  *zap.Logger
 	entries []entry
 	mu      sync.Mutex
 	chain   atomic.Pointer[sealedChain]
 }
 
-// NewInterceptorRegistry creates a new interceptor registry.
-func NewInterceptorRegistry(logger *zap.Logger) *InterceptorRegistry {
-	return &InterceptorRegistry{
+// NewRegistry creates a new interceptor registry.
+func NewRegistry(logger *zap.Logger) *Registry {
+	return &Registry{
 		logger:  logger,
 		entries: make([]entry, 0),
 	}
 }
 
 // Register adds an interceptor to the registry.
-func (r *InterceptorRegistry) Register(name string, interceptor function.Interceptor, order int) error {
+func (r *Registry) Register(name string, interceptor function.Interceptor, order int) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -66,7 +66,7 @@ func (r *InterceptorRegistry) Register(name string, interceptor function.Interce
 }
 
 // Unregister removes an interceptor from the registry.
-func (r *InterceptorRegistry) Unregister(name string) error {
+func (r *Registry) Unregister(name string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -86,7 +86,7 @@ func (r *InterceptorRegistry) Unregister(name string) error {
 }
 
 // rebuild creates the sealed chain (called with lock held)
-func (r *InterceptorRegistry) rebuild() {
+func (r *Registry) rebuild() {
 	sort.Slice(r.entries, func(i, j int) bool {
 		return r.entries[i].order < r.entries[j].order
 	})
@@ -105,7 +105,7 @@ func (r *InterceptorRegistry) rebuild() {
 }
 
 // Execute runs the interceptor chain. Lock-free on hot path.
-func (r *InterceptorRegistry) Execute(ctx context.Context, f function.Func, task runtime.Task) (*runtime.Result, error) {
+func (r *Registry) Execute(ctx context.Context, f function.Func, task runtime.Task) (*runtime.Result, error) {
 	chain := r.chain.Load()
 	if chain == nil || len(chain.interceptors) == 0 {
 		return f(ctx, task)
@@ -115,7 +115,7 @@ func (r *InterceptorRegistry) Execute(ctx context.Context, f function.Func, task
 }
 
 // executeAt runs interceptor at index i
-func (r *InterceptorRegistry) executeAt(ctx context.Context, f function.Func, task runtime.Task, interceptors []function.Interceptor, i int) (*runtime.Result, error) {
+func (r *Registry) executeAt(ctx context.Context, f function.Func, task runtime.Task, interceptors []function.Interceptor, i int) (*runtime.Result, error) {
 	if i >= len(interceptors) {
 		return f(ctx, task)
 	}

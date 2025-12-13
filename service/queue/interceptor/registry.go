@@ -33,7 +33,7 @@ type Registry struct {
 	chain       atomic.Pointer[sealedChain]
 }
 
-func NewInterceptorRegistry(logger *zap.Logger) *Registry {
+func NewRegistry(logger *zap.Logger) *Registry {
 	return &Registry{
 		logger:  logger,
 		entries: make([]entry, 0),

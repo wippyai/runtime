@@ -1,5 +1,4 @@
-// Package events provides event bus dispatcher for routing events to Lua processes.
-package events
+package eventbus
 
 import (
 	"context"

@@ -10,14 +10,14 @@ import (
 )
 
 func Interceptor() boot.Component {
-	var registry *interceptor.InterceptorRegistry
+	var registry *interceptor.Registry
 	return boot.New(boot.P{
 		Name:      InterceptorName,
 		DependsOn: []boot.Name{},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 
-			registry = interceptor.NewInterceptorRegistry(logger.Named("interceptor"))
+			registry = interceptor.NewRegistry(logger.Named("interceptor"))
 			ctx = function.WithInterceptorRegistry(ctx, registry)
 
 			return ctx, nil

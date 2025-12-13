@@ -202,19 +202,20 @@ func (d *Driver) lifecycleCtxDone() <-chan struct{} {
 func (d *Driver) Start(ctx context.Context) (<-chan any, error) {
 	d.mu.Lock()
 	d.ctx, d.cancel = context.WithCancel(ctx)
-	d.mu.Unlock()
-	d.logger.Info("memory driver started", zap.String("id", d.id.String()))
 	d.statusChan = make(chan any, 1)
+	d.mu.Unlock()
+
+	d.logger.Info("memory driver started", zap.String("id", d.id.String()))
 	return d.statusChan, nil
 }
 
 func (d *Driver) Stop(_ context.Context) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	if d.cancel != nil {
 		d.cancel()
 	}
-
-	d.mu.Lock()
-	defer d.mu.Unlock()
 
 	for id, q := range d.queues {
 		q.mu.Lock()
@@ -224,7 +225,10 @@ func (d *Driver) Stop(_ context.Context) error {
 		delete(d.queues, id)
 	}
 
-	close(d.statusChan)
+	if d.statusChan != nil {
+		close(d.statusChan)
+	}
+
 	d.logger.Info("memory driver stopped", zap.String("id", d.id.String()))
 	return nil
 }

@@ -26,9 +26,6 @@ type Config struct {
 	Workers        int `json:"workers"`          // Number of worker goroutines (default: NumCPU)
 	QueueSize      int `json:"queue_size"`       // Global queue capacity (default: 1024)
 	LocalQueueSize int `json:"local_queue_size"` // Per-worker local deque size (default: 256)
-
-	// Deprecated: use QueueSize instead
-	BufferSize int `json:"buffer_size"`
 }
 
 func (cfg *EntryConfig) initDefaults() {
@@ -38,13 +35,8 @@ func (cfg *EntryConfig) initDefaults() {
 		cfg.HostConfig.Workers = runtime.NumCPU()
 	}
 
-	// Support deprecated BufferSize -> QueueSize migration
 	if cfg.HostConfig.QueueSize == 0 {
-		if cfg.HostConfig.BufferSize > 0 {
-			cfg.HostConfig.QueueSize = cfg.HostConfig.BufferSize
-		} else {
-			cfg.HostConfig.QueueSize = 1024
-		}
+		cfg.HostConfig.QueueSize = 1024
 	}
 
 	if cfg.HostConfig.LocalQueueSize == 0 {

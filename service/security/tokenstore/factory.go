@@ -12,8 +12,6 @@ import (
 	entryutil "github.com/wippyai/runtime/internal/entry"
 )
 
-// todo: WRONG NAMESPCAE!!!! PART OF SECUROTY
-
 // Factory creates token stores from configuration
 type Factory struct {
 	dtt              payload.Transcoder

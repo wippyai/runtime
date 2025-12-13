@@ -12,7 +12,7 @@ import (
 
 // BenchmarkRegistryNoInterceptors benchmarks execution without interceptors
 func BenchmarkRegistryNoInterceptors(b *testing.B) {
-	reg := NewInterceptorRegistry(zap.NewNop())
+	reg := NewRegistry(zap.NewNop())
 
 	mockFunc := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		return &runtime.Result{}, nil
@@ -29,7 +29,7 @@ func BenchmarkRegistryNoInterceptors(b *testing.B) {
 
 // BenchmarkRegistryOneInterceptor benchmarks registry with one interceptor
 func BenchmarkRegistryOneInterceptor(b *testing.B) {
-	reg := NewInterceptorRegistry(zap.NewNop())
+	reg := NewRegistry(zap.NewNop())
 	_ = reg.Register("int1", &benchInterceptor{name: "int1"}, 100)
 
 	mockFunc := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
@@ -47,7 +47,7 @@ func BenchmarkRegistryOneInterceptor(b *testing.B) {
 
 // BenchmarkRegistryThreeInterceptors benchmarks registry with three interceptors
 func BenchmarkRegistryThreeInterceptors(b *testing.B) {
-	reg := NewInterceptorRegistry(zap.NewNop())
+	reg := NewRegistry(zap.NewNop())
 	_ = reg.Register("int1", &benchInterceptor{name: "int1"}, 100)
 	_ = reg.Register("int2", &benchInterceptor{name: "int2"}, 200)
 	_ = reg.Register("int3", &benchInterceptor{name: "int3"}, 300)
@@ -67,7 +67,7 @@ func BenchmarkRegistryThreeInterceptors(b *testing.B) {
 
 // BenchmarkRegistryTenInterceptors benchmarks registry with ten interceptors
 func BenchmarkRegistryTenInterceptors(b *testing.B) {
-	reg := NewInterceptorRegistry(zap.NewNop())
+	reg := NewRegistry(zap.NewNop())
 	for i := 0; i < 10; i++ {
 		_ = reg.Register("int"+strconv.Itoa(i), &benchInterceptor{name: "int"}, i*100)
 	}
@@ -90,7 +90,7 @@ func BenchmarkContextValuePropagation(b *testing.B) {
 	type ctxKey string
 	const testKey ctxKey = "test"
 
-	reg := NewInterceptorRegistry(zap.NewNop())
+	reg := NewRegistry(zap.NewNop())
 	_ = reg.Register("modifier", &benchModifyingInterceptor{key: testKey, value: "modified"}, 100)
 
 	mockFunc := func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
@@ -109,7 +109,7 @@ func BenchmarkContextValuePropagation(b *testing.B) {
 
 // BenchmarkParallelExecution benchmarks parallel registry execution
 func BenchmarkParallelExecution(b *testing.B) {
-	reg := NewInterceptorRegistry(zap.NewNop())
+	reg := NewRegistry(zap.NewNop())
 	_ = reg.Register("int1", &benchInterceptor{name: "int1"}, 100)
 	_ = reg.Register("int2", &benchInterceptor{name: "int2"}, 200)
 

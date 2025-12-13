@@ -67,7 +67,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	m.bus.Send(ctx, event.Event{
 		System: queueapi.System,
-		Kind:   queueapi.DriverRegister,
+		Kind:   queueapi.KindDriverRegister,
 		Path:   entry.ID.String(),
 		Data:   driver,
 	})
@@ -132,7 +132,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 
 	m.bus.Send(ctx, event.Event{
 		System: queueapi.System,
-		Kind:   queueapi.DriverDelete,
+		Kind:   queueapi.KindDriverDelete,
 		Path:   entry.ID.String(),
 	})
 

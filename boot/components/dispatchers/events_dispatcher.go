@@ -7,13 +7,13 @@ import (
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/relay"
-	"github.com/wippyai/runtime/system/events"
+	"github.com/wippyai/runtime/system/eventbus"
 )
 
 const EventsDispatcherName boot.Name = "dispatcher.events"
 
 func Events() boot.Component {
-	var d *events.Dispatcher
+	var d *eventbus.Dispatcher
 
 	return boot.New(boot.P{
 		Name:      EventsDispatcherName,
@@ -34,7 +34,7 @@ func Events() boot.Component {
 				return ctx, nil
 			}
 
-			d = events.NewDispatcher(bus, node)
+			d = eventbus.NewDispatcher(bus, node)
 			d.RegisterAll(reg.Register)
 
 			return ctx, nil

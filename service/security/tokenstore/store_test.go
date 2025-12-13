@@ -72,7 +72,6 @@ func (t *jsonTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
 		}
 		return json.Unmarshal(data, v)
 	case payload.YAML, payload.String, payload.Lua, payload.Bytes, payload.GoError:
-		// FIXME rework on demand
 		fallthrough
 	default:
 		return nil
@@ -713,11 +712,8 @@ func TestStoreResourceCleanup(t *testing.T) {
 
 	// This should return an error but might not in some implementations
 	// that don't check ctx.Done() early enough
-	//nolint:ineffassign,staticcheck // ignore for now
+	//nolint:ineffassign,staticcheck
 	_, _, err = ts.Validate(cancelCtx, token)
-	// FIXME maybe add require.NoError(t, err)
-	// We don't assert on the error here, as the implementation might handle
-	// the canceled context differently
 
 	// We should still be able to validate with a valid context
 	_, _, err = ts.Validate(ctx, token)

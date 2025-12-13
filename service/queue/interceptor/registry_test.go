@@ -14,7 +14,7 @@ import (
 )
 
 func TestRegistry_RegisterUnregister(t *testing.T) {
-	reg := NewInterceptorRegistry(zap.NewNop())
+	reg := NewRegistry(zap.NewNop())
 
 	interceptor := &testInterceptor{name: "test"}
 	reg.Register("test", interceptor, 100)
@@ -28,7 +28,7 @@ func TestRegistry_RegisterUnregister(t *testing.T) {
 }
 
 func TestRegistry_RegisterDuplicate(t *testing.T) {
-	reg := NewInterceptorRegistry(zap.NewNop())
+	reg := NewRegistry(zap.NewNop())
 
 	interceptor1 := &testInterceptor{name: "test1"}
 	interceptor2 := &testInterceptor{name: "test2"}
@@ -41,7 +41,7 @@ func TestRegistry_RegisterDuplicate(t *testing.T) {
 }
 
 func TestRegistry_PriorityOrdering(t *testing.T) {
-	reg := NewInterceptorRegistry(zap.NewNop())
+	reg := NewRegistry(zap.NewNop())
 
 	int1 := &testInterceptor{name: "high-priority"}
 	int2 := &testInterceptor{name: "low-priority"}
@@ -58,7 +58,7 @@ func TestRegistry_PriorityOrdering(t *testing.T) {
 }
 
 func TestRegistry_Publish_NoInterceptors(t *testing.T) {
-	reg := NewInterceptorRegistry(zap.NewNop())
+	reg := NewRegistry(zap.NewNop())
 
 	publishCalled := false
 	reg.SetPublishFunc(func(_ context.Context, _ registry.ID, _ ...*queueapi.Message) error {
@@ -76,7 +76,7 @@ func TestRegistry_Publish_NoInterceptors(t *testing.T) {
 }
 
 func TestRegistry_Publish_WithInterceptors(t *testing.T) {
-	reg := NewInterceptorRegistry(zap.NewNop())
+	reg := NewRegistry(zap.NewNop())
 
 	int1 := &testInterceptor{name: "int1"}
 	int2 := &testInterceptor{name: "int2"}
@@ -106,7 +106,7 @@ func TestRegistry_Publish_WithInterceptors(t *testing.T) {
 }
 
 func TestRegistry_Publish_InterceptorOrder(t *testing.T) {
-	reg := NewInterceptorRegistry(zap.NewNop())
+	reg := NewRegistry(zap.NewNop())
 
 	var callOrder []string
 
@@ -134,7 +134,7 @@ func TestRegistry_Publish_InterceptorOrder(t *testing.T) {
 }
 
 func TestRegistry_Unregister_Rebuilds(t *testing.T) {
-	reg := NewInterceptorRegistry(zap.NewNop())
+	reg := NewRegistry(zap.NewNop())
 
 	int1 := &testInterceptor{name: "int1"}
 	int2 := &testInterceptor{name: "int2"}

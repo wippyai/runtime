@@ -47,6 +47,11 @@ func Host() boot.Component {
 				return ctx, ErrProcessFactoryNotAvailable
 			}
 
+			pidGen := process.GetPIDGenerator(ctx)
+			if pidGen == nil {
+				return ctx, ErrPIDGeneratorNotAvailable
+			}
+
 			// Get shared dispatcher registry (contains all registered handlers)
 			registry := dispatcherapi.GetRegistry(ctx)
 			if registry == nil {
@@ -69,7 +74,7 @@ func Host() boot.Component {
 				}
 			}
 
-			manager := host.NewManager(bus, dtt, registry, factory, logger)
+			manager := host.NewManager(bus, dtt, registry, factory, pidGen, logger)
 			handlers.RegisterListener("process.host", manager)
 
 			logger.Info("host manager registered")

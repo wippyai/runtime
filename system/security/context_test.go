@@ -13,6 +13,7 @@ import (
 func TestWithSecurityConfig(t *testing.T) {
 	rootCtx := ctxapi.NewRootContext()
 	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
+
 	result := WithSecurityConfig(ctx, nil)
 	assert.Equal(t, ctx, result)
 
@@ -45,7 +46,6 @@ func TestWithSecurityConfig(t *testing.T) {
 
 	_, ok = security.GetActor(result)
 	assert.True(t, ok)
-
 	_, ok = security.GetScope(result)
 	assert.False(t, ok)
 }

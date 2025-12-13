@@ -18,7 +18,6 @@ import (
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
 	"github.com/wippyai/runtime/system/clock"
 	"github.com/wippyai/runtime/system/eventbus"
-	"github.com/wippyai/runtime/system/events"
 	sysrelay "github.com/wippyai/runtime/system/relay"
 	"github.com/wippyai/runtime/system/scheduler"
 	pool "github.com/wippyai/runtime/system/scheduler/pool"
@@ -67,7 +66,7 @@ func TestEventsReceiveIntegration(t *testing.T) {
 	})
 
 	// Create events dispatcher
-	eventsSvc := events.NewDispatcher(bus, realNode)
+	eventsSvc := eventbus.NewDispatcher(bus, realNode)
 	err := eventsSvc.Start(ctx)
 	require.NoError(t, err)
 	defer func() { _ = eventsSvc.Stop(ctx) }()
@@ -208,7 +207,7 @@ func TestEventsBasicSubscribe(t *testing.T) {
 	reg := scheduler.NewRegistry()
 
 	// Create events dispatcher
-	eventsSvc := events.NewDispatcher(bus, node)
+	eventsSvc := eventbus.NewDispatcher(bus, node)
 	err := eventsSvc.Start(ctx)
 	require.NoError(t, err)
 	defer func() { _ = eventsSvc.Stop(ctx) }()

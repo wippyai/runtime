@@ -6,58 +6,48 @@ import (
 	"github.com/wippyai/runtime/api/security"
 )
 
-// scopeImpl implements the Scope interface to provide an immutable
-// collection of security policies
-type scopeImpl struct {
+type scope struct {
 	policies map[registry.ID]security.Policy
 }
 
-// NewScope creates a new Scope with the given policies
+// NewScope creates a new Scope with the given policies.
 func NewScope(policies []security.Policy) security.Scope {
-	scope := &scopeImpl{
+	s := &scope{
 		policies: make(map[registry.ID]security.Policy),
 	}
-
 	for _, policy := range policies {
-		scope.policies[policy.ID()] = policy
+		s.policies[policy.ID()] = policy
 	}
-
-	return scope
+	return s
 }
 
-func (s *scopeImpl) With(policy security.Policy) security.Scope {
-	newScope := &scopeImpl{
+func (s *scope) With(policy security.Policy) security.Scope {
+	newScope := &scope{
 		policies: make(map[registry.ID]security.Policy, len(s.policies)+1),
 	}
-
 	for id, p := range s.policies {
 		newScope.policies[id] = p
 	}
-
 	newScope.policies[policy.ID()] = policy
-
 	return newScope
 }
 
-func (s *scopeImpl) Without(policyID registry.ID) security.Scope {
+func (s *scope) Without(policyID registry.ID) security.Scope {
 	if _, exists := s.policies[policyID]; !exists {
 		return s
 	}
-
-	newScope := &scopeImpl{
+	newScope := &scope{
 		policies: make(map[registry.ID]security.Policy, len(s.policies)-1),
 	}
-
 	for id, policy := range s.policies {
 		if id != policyID {
 			newScope.policies[id] = policy
 		}
 	}
-
 	return newScope
 }
 
-func (s *scopeImpl) Evaluate(actor security.Actor, action, resource string, meta attrs.Bag) security.Result {
+func (s *scope) Evaluate(actor security.Actor, action, resource string, meta attrs.Bag) security.Result {
 	if len(s.policies) == 0 {
 		return security.Undefined
 	}
@@ -67,14 +57,11 @@ func (s *scopeImpl) Evaluate(actor security.Actor, action, resource string, meta
 
 	for _, policy := range s.policies {
 		result := policy.Evaluate(actor, action, resource, meta)
-
 		if result == security.Undefined {
 			continue
 		}
-
 		foundDecision = true
 		lastResult = result
-
 		if result == security.Deny {
 			return security.Deny
 		}
@@ -83,16 +70,15 @@ func (s *scopeImpl) Evaluate(actor security.Actor, action, resource string, meta
 	if !foundDecision {
 		return security.Undefined
 	}
-
 	return lastResult
 }
 
-func (s *scopeImpl) Contains(policyID registry.ID) bool {
+func (s *scope) Contains(policyID registry.ID) bool {
 	_, exists := s.policies[policyID]
 	return exists
 }
 
-func (s *scopeImpl) Policies() []security.Policy {
+func (s *scope) Policies() []security.Policy {
 	policies := make([]security.Policy, 0, len(s.policies))
 	for _, policy := range s.policies {
 		policies = append(policies, policy)
@@ -100,4 +86,4 @@ func (s *scopeImpl) Policies() []security.Policy {
 	return policies
 }
 
-var _ security.Scope = (*scopeImpl)(nil)
+var _ security.Scope = (*scope)(nil)

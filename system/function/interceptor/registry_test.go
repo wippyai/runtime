@@ -21,9 +21,9 @@ func (m *mockInterceptor) Handle(ctx context.Context, task runtime.Task, next fu
 	return next(ctx, task)
 }
 
-func setupRegistryTest() *InterceptorRegistry {
+func setupRegistryTest() *Registry {
 	logger := zap.NewNop()
-	reg := NewInterceptorRegistry(logger)
+	reg := NewRegistry(logger)
 	return reg
 }
 

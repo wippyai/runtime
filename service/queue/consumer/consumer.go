@@ -94,10 +94,14 @@ func (c *Consumer) Stop(ctx context.Context) error {
 			zap.String("func", c.funcID.String()))
 
 		// Cancel driver attachment (stops new deliveries)
-		c.cancel()
+		if c.cancel != nil {
+			c.cancel()
+		}
 
 		// Cancel worker contexts (stops workers immediately)
-		c.workerCancel()
+		if c.workerCancel != nil {
+			c.workerCancel()
+		}
 
 		// Wait for workers to finish processing current messages
 		done := make(chan struct{})

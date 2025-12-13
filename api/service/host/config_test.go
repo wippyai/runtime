@@ -158,16 +158,6 @@ func TestEntryConfig_Validate(t *testing.T) {
 			wantErr: true,
 			errMsg:  "local_queue_size must be greater than 0",
 		},
-		{
-			name: "deprecated BufferSize migration",
-			config: EntryConfig{
-				HostConfig: Config{
-					Workers:    2,
-					BufferSize: 2048,
-				},
-			},
-			wantErr: false,
-		},
 	}
 
 	for _, tt := range tests {
@@ -181,18 +171,6 @@ func TestEntryConfig_Validate(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestEntryConfig_BufferSizeMigration(t *testing.T) {
-	cfg := EntryConfig{
-		HostConfig: Config{
-			Workers:    2,
-			BufferSize: 2048,
-		},
-	}
-	err := cfg.Validate()
-	require.NoError(t, err)
-	assert.Equal(t, 2048, cfg.HostConfig.QueueSize)
 }
 
 func TestSentinelErrors(t *testing.T) {

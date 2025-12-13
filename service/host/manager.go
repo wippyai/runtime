@@ -15,30 +15,33 @@ import (
 	"github.com/wippyai/runtime/api/service/host"
 	"github.com/wippyai/runtime/api/supervisor"
 	entryutil "github.com/wippyai/runtime/internal/entry"
+	"github.com/wippyai/runtime/internal/uniqid"
 	"github.com/wippyai/runtime/system/scheduler/actor"
 	"go.uber.org/zap"
 )
 
-// Manager manages process.host v2 instances.
+// Manager manages process host instances.
 type Manager struct {
 	log             *zap.Logger
 	bus             event.Bus
 	dtt             payload.Transcoder
 	commandRegistry dispatcherapi.Registry
 	factory         process.Factory
+	pidGen          *uniqid.PIDGenerator
 
 	mu    sync.RWMutex
 	hosts map[registry.ID]*Host
 }
 
 // NewManager creates a new host manager.
-func NewManager(bus event.Bus, dtt payload.Transcoder, cmdRegistry dispatcherapi.Registry, factory process.Factory, logger *zap.Logger) *Manager {
+func NewManager(bus event.Bus, dtt payload.Transcoder, cmdRegistry dispatcherapi.Registry, factory process.Factory, pidGen *uniqid.PIDGenerator, logger *zap.Logger) *Manager {
 	return &Manager{
 		log:             logger,
 		bus:             bus,
 		dtt:             dtt,
 		commandRegistry: cmdRegistry,
 		factory:         factory,
+		pidGen:          pidGen,
 		hosts:           make(map[registry.ID]*Host),
 	}
 }
@@ -50,7 +53,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return host.NewDecodeConfigError(err)
 	}
 
-	h := NewHost(entry.ID, cfg, nil, m.factory, m.log)
+	h := NewHost(entry.ID, cfg, nil, m.factory, m.pidGen, m.log)
 
 	// Create composite lifecycle: global handlers first, then host-specific
 	lifecycle := &compositeLifecycle{
@@ -146,19 +149,11 @@ type compositeLifecycle struct {
 }
 
 func (c *compositeLifecycle) OnStart(ctx context.Context, processID pid.PID, proc process.Process) {
-	if c.global != nil {
-		c.global.OnStart(ctx, processID, proc)
-	}
-	if c.host != nil {
-		c.host.OnStart(ctx, processID, proc)
-	}
+	c.global.OnStart(ctx, processID, proc)
+	c.host.OnStart(ctx, processID, proc)
 }
 
 func (c *compositeLifecycle) OnComplete(ctx context.Context, processID pid.PID, result *runtime.Result) {
-	if c.global != nil {
-		c.global.OnComplete(ctx, processID, result)
-	}
-	if c.host != nil {
-		c.host.OnComplete(ctx, processID, result)
-	}
+	c.global.OnComplete(ctx, processID, result)
+	c.host.OnComplete(ctx, processID, result)
 }

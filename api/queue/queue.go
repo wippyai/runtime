@@ -15,20 +15,20 @@ const (
 	System event.System = "queue"
 
 	// Driver lifecycle events
-	DriverRegister event.Kind = "queue.driver.register"
-	DriverStart    event.Kind = "queue.driver.start"
-	DriverStop     event.Kind = "queue.driver.stop"
-	DriverDelete   event.Kind = "queue.driver.delete"
+	KindDriverRegister event.Kind = "queue.driver.register"
+	KindDriverStart    event.Kind = "queue.driver.start"
+	KindDriverStop     event.Kind = "queue.driver.stop"
+	KindDriverDelete   event.Kind = "queue.driver.delete"
 
 	// Queue management events
-	QueueDeclare event.Kind = "queue.queue.declare"
-	QueueDelete  event.Kind = "queue.queue.delete"
+	KindQueueDeclare event.Kind = "queue.queue.declare"
+	KindQueueDelete  event.Kind = "queue.queue.delete"
 
 	// Consumer lifecycle events
-	ConsumerRegister event.Kind = "queue.consumer.register"
-	ConsumerStart    event.Kind = "queue.consumer.start"
-	ConsumerStop     event.Kind = "queue.consumer.stop"
-	ConsumerDelete   event.Kind = "queue.consumer.delete"
+	KindConsumerRegister event.Kind = "queue.consumer.register"
+	KindConsumerStart    event.Kind = "queue.consumer.start"
+	KindConsumerStop     event.Kind = "queue.consumer.stop"
+	KindConsumerDelete   event.Kind = "queue.consumer.delete"
 )
 
 // Queue represents a queue declaration with its configuration

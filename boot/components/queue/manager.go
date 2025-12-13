@@ -43,7 +43,7 @@ func Manager() boot.Component {
 				logger.Warn("failed to register queue dependency pattern", zap.Error(err))
 			}
 
-			interceptorReg = interceptor.NewInterceptorRegistry(logger.Named("interceptor"))
+			interceptorReg = interceptor.NewRegistry(logger.Named("interceptor"))
 
 			mgr = queuemgr.NewManager(bus, logger)
 
