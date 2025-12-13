@@ -50,7 +50,7 @@ func TestDefaultFactory_CreateConditionPolicy(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "policy1"),
-		Kind: policyapi.Kind,
+		Kind: policyapi.KindPolicy,
 		Data: payload.New(config),
 	}
 
@@ -125,7 +125,7 @@ func TestDefaultFactory_InvalidConditionPolicyConfig(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "invalid"),
-		Kind: policyapi.Kind,
+		Kind: policyapi.KindPolicy,
 		Data: payload.New(config),
 	}
 
@@ -176,7 +176,7 @@ func TestDefaultFactory_MultipleGroups(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "multi-group"),
-		Kind: policyapi.Kind,
+		Kind: policyapi.KindPolicy,
 		Data: payload.New(config),
 	}
 

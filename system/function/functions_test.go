@@ -473,6 +473,14 @@ func TestFunctions_CallErrorHandling(t *testing.T) {
 	}
 }
 
+func TestFunctions_CallNilContext(t *testing.T) {
+	executor, _ := setupTest()
+
+	result, err := executor.Call(nil, runtime.Task{ID: registry.NewID("test", "func")})
+	assert.ErrorIs(t, err, function.ErrNilContext)
+	assert.Nil(t, result)
+}
+
 func TestFunctions_CallNoPIDGenerator(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 	ctx = relayapi.WithNode(ctx, relay.NewNode("test"))

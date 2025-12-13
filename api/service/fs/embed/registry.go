@@ -4,12 +4,11 @@ import (
 	"context"
 	"io/fs"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/registry"
 )
 
-type embedRegistryKeyType struct{}
-
-var embedRegistryKey = embedRegistryKeyType{}
+var registryKey = &ctxapi.Key{Name: "fs.embed.registry"}
 
 // Registry provides access to embedded filesystem resources.
 // Implementation is backed by pack readers but the interface abstracts this detail.
@@ -24,14 +23,25 @@ type Registry interface {
 
 // WithRegistry stores the Registry in the context.
 func WithRegistry(ctx context.Context, reg Registry) context.Context {
-	return context.WithValue(ctx, embedRegistryKey, reg)
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return ctx
+	}
+	if ac.Get(registryKey) == nil {
+		ac.With(registryKey, reg)
+	}
+	return ctx
 }
 
 // GetRegistry retrieves the Registry from the context.
 // Returns nil if not found.
 func GetRegistry(ctx context.Context) Registry {
-	if reg, ok := ctx.Value(embedRegistryKey).(Registry); ok {
-		return reg
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil
+	}
+	if reg := ac.Get(registryKey); reg != nil {
+		return reg.(Registry)
 	}
 	return nil
 }

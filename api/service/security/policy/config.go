@@ -11,8 +11,8 @@ import (
 var ErrFieldNotFound = errors.New("field not found")
 
 const (
-	// Kind represents the kind of policy entries in the registry
-	Kind registry.Kind = "security.policy"
+	// KindPolicy represents the kind of policy entries in the registry
+	KindPolicy registry.Kind = "security.policy"
 )
 
 // Condition represents a policy condition

@@ -137,42 +137,41 @@ func parsePolicy(opts map[string]any) supervisor.RetryPolicy {
 		MaxAttempts:   0,
 	}
 
-	policy.MaxAttempts = getInt(opts, optionKeyMaxAttempts, 0)
-	if d := getDuration(opts, optionKeyInitialDelay); d > 0 {
-		policy.InitialDelay = d
+	if v, ok := opts[optionKeyMaxAttempts]; ok {
+		switch val := v.(type) {
+		case int:
+			policy.MaxAttempts = val
+		case float64:
+			policy.MaxAttempts = int(val)
+		}
 	}
-	if d := getDuration(opts, optionKeyMaxDelay); d > 0 {
-		policy.MaxDelay = d
+
+	if v, ok := opts[optionKeyInitialDelay]; ok {
+		if d := toDuration(v); d > 0 {
+			policy.InitialDelay = d
+		}
 	}
-	if f := getFloat(opts, optionKeyBackoffFactor); f > 0 {
-		policy.BackoffFactor = f
+
+	if v, ok := opts[optionKeyMaxDelay]; ok {
+		if d := toDuration(v); d > 0 {
+			policy.MaxDelay = d
+		}
 	}
-	if _, ok := opts[optionKeyJitter]; ok {
-		policy.Jitter = getFloat(opts, optionKeyJitter)
+
+	if v, ok := opts[optionKeyBackoffFactor]; ok {
+		if f := toFloat(v); f > 0 {
+			policy.BackoffFactor = f
+		}
+	}
+
+	if v, ok := opts[optionKeyJitter]; ok {
+		policy.Jitter = toFloat(v)
 	}
 
 	return policy
 }
 
-func getInt(opts map[string]any, key string, def int) int {
-	v, ok := opts[key]
-	if !ok {
-		return def
-	}
-	switch val := v.(type) {
-	case int:
-		return val
-	case float64:
-		return int(val)
-	}
-	return def
-}
-
-func getFloat(opts map[string]any, key string) float64 {
-	v, ok := opts[key]
-	if !ok {
-		return 0
-	}
+func toFloat(v any) float64 {
 	switch val := v.(type) {
 	case float64:
 		return val
@@ -182,11 +181,7 @@ func getFloat(opts map[string]any, key string) float64 {
 	return 0
 }
 
-func getDuration(opts map[string]any, key string) time.Duration {
-	v, ok := opts[key]
-	if !ok {
-		return 0
-	}
+func toDuration(v any) time.Duration {
 	switch val := v.(type) {
 	case int:
 		return time.Duration(val) * time.Millisecond

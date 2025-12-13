@@ -308,3 +308,17 @@ func TestBindingConfig_ToBinding(t *testing.T) {
 	assert.Len(t, binding.Contracts, 1)
 	assert.True(t, binding.Contracts[0].Default)
 }
+
+func TestDefinitionConfig_Validate(t *testing.T) {
+	// Validate() is a no-op for DefinitionConfig.
+	// Semantic validation is done by the DI manager.
+	config := DefinitionConfig{}
+	assert.NoError(t, config.Validate())
+}
+
+func TestBindingConfig_Validate(t *testing.T) {
+	// Validate() is a no-op for BindingConfig.
+	// Semantic validation is done by the DI manager.
+	config := BindingConfig{}
+	assert.NoError(t, config.Validate())
+}

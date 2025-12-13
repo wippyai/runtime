@@ -15,9 +15,9 @@ const System event.System = "security"
 
 // Event kinds for policy operations.
 const (
-	PolicyRegister event.Kind = "policy.register"
-	PolicyUpdate   event.Kind = "policy.update"
-	PolicyDelete   event.Kind = "policy.delete"
+	KindPolicyRegister event.Kind = "policy.register"
+	KindPolicyUpdate   event.Kind = "policy.update"
+	KindPolicyDelete   event.Kind = "policy.delete"
 )
 
 // Result values for policy decisions.

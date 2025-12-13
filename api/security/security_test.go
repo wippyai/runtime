@@ -21,9 +21,9 @@ func TestEventConstants(t *testing.T) {
 		expected string
 	}{
 		{"system", System, "", "security"},
-		{"policy register", "", PolicyRegister, "policy.register"},
-		{"policy update", "", PolicyUpdate, "policy.update"},
-		{"policy delete", "", PolicyDelete, "policy.delete"},
+		{"policy register", "", KindPolicyRegister, "policy.register"},
+		{"policy update", "", KindPolicyUpdate, "policy.update"},
+		{"policy delete", "", KindPolicyDelete, "policy.delete"},
 	}
 
 	for _, tt := range tests {

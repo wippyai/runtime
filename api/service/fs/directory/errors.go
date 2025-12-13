@@ -5,6 +5,13 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
+// ErrEmptyDirectoryPath is returned when the directory path is empty.
+var ErrEmptyDirectoryPath = &Error{
+	kind:      apierror.KindInvalid,
+	message:   "directory path cannot be empty",
+	retryable: apierror.False,
+}
+
 type Error struct {
 	kind      apierror.Kind
 	message   string

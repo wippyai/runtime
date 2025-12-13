@@ -57,13 +57,10 @@ func (r *Registry) GetFS(id registry.ID) (fs.ReadDirFS, error) {
 }
 
 // Close implements embedapi.Registry.Close.
-// It closes all pack readers.
 func (r *Registry) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Note: Reader doesn't currently have a Close method
-	// If it's added in the future, we should close all readers here
 	r.readers = make(map[string]*pack.Reader)
 	return nil
 }

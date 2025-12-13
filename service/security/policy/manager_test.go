@@ -62,7 +62,7 @@ func TestManager_Add_ConditionPolicy(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "policy1"),
-		Kind: policyapi.Kind,
+		Kind: policyapi.KindPolicy,
 	}
 
 	err = manager.Add(ctx, entry)
@@ -71,7 +71,7 @@ func TestManager_Add_ConditionPolicy(t *testing.T) {
 	select {
 	case evt := <-eventCh:
 		assert.Equal(t, security.System, evt.System)
-		assert.Equal(t, security.PolicyRegister, evt.Kind)
+		assert.Equal(t, security.KindPolicyRegister, evt.Kind)
 		assert.Equal(t, "test:policy1", evt.Path)
 		assert.NotNil(t, evt.Data)
 	case <-ctx.Done():
@@ -98,7 +98,7 @@ func TestManager_Add_ExprPolicy(t *testing.T) {
 
 	select {
 	case evt := <-eventCh:
-		assert.Equal(t, security.PolicyRegister, evt.Kind)
+		assert.Equal(t, security.KindPolicyRegister, evt.Kind)
 		assert.Equal(t, "test:expr1", evt.Path)
 	case <-ctx.Done():
 		t.Fatal("timeout waiting for event")
@@ -141,7 +141,7 @@ func TestManager_Update_ConditionPolicy(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "policy1"),
-		Kind: policyapi.Kind,
+		Kind: policyapi.KindPolicy,
 	}
 
 	err = manager.Update(ctx, entry)
@@ -149,7 +149,7 @@ func TestManager_Update_ConditionPolicy(t *testing.T) {
 
 	select {
 	case evt := <-eventCh:
-		assert.Equal(t, security.PolicyUpdate, evt.Kind)
+		assert.Equal(t, security.KindPolicyUpdate, evt.Kind)
 		assert.Equal(t, "test:policy1", evt.Path)
 	case <-ctx.Done():
 		t.Fatal("timeout waiting for event")
@@ -175,7 +175,7 @@ func TestManager_Update_ExprPolicy(t *testing.T) {
 
 	select {
 	case evt := <-eventCh:
-		assert.Equal(t, security.PolicyUpdate, evt.Kind)
+		assert.Equal(t, security.KindPolicyUpdate, evt.Kind)
 		assert.Equal(t, "test:expr1", evt.Path)
 	case <-ctx.Done():
 		t.Fatal("timeout waiting for event")
@@ -193,7 +193,7 @@ func TestManager_Delete_ConditionPolicy(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "policy1"),
-		Kind: policyapi.Kind,
+		Kind: policyapi.KindPolicy,
 	}
 
 	err = manager.Delete(ctx, entry)
@@ -201,7 +201,7 @@ func TestManager_Delete_ConditionPolicy(t *testing.T) {
 
 	select {
 	case evt := <-eventCh:
-		assert.Equal(t, security.PolicyDelete, evt.Kind)
+		assert.Equal(t, security.KindPolicyDelete, evt.Kind)
 		assert.Equal(t, "test:policy1", evt.Path)
 		assert.Nil(t, evt.Data)
 	case <-ctx.Done():
@@ -228,7 +228,7 @@ func TestManager_Delete_ExprPolicy(t *testing.T) {
 
 	select {
 	case evt := <-eventCh:
-		assert.Equal(t, security.PolicyDelete, evt.Kind)
+		assert.Equal(t, security.KindPolicyDelete, evt.Kind)
 		assert.Equal(t, "test:expr1", evt.Path)
 	case <-ctx.Done():
 		t.Fatal("timeout waiting for event")
@@ -253,7 +253,7 @@ func TestManager_Add_FactoryError(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "policy1"),
-		Kind: policyapi.Kind,
+		Kind: policyapi.KindPolicy,
 	}
 
 	err = manager.Add(ctx, entry)
@@ -285,7 +285,7 @@ func TestManager_Update_FactoryError(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "policy1"),
-		Kind: policyapi.Kind,
+		Kind: policyapi.KindPolicy,
 	}
 
 	err = manager.Update(ctx, entry)

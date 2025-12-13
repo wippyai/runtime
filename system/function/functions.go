@@ -184,8 +184,8 @@ func (f *Registry) Call(ctx context.Context, task runtimeapi.Task) (*runtimeapi.
 	}
 
 	// Execute through interceptor chain if available
-	if registry := function.GetInterceptorRegistry(ctx); registry != nil {
-		return registry.Execute(ctx, executorFunc, task)
+	if interceptors := function.GetInterceptorRegistry(ctx); interceptors != nil {
+		return interceptors.Execute(ctx, executorFunc, task)
 	}
 
 	return executorFunc(ctx, task)

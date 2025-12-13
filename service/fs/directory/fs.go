@@ -1,7 +1,6 @@
 package directory
 
 import (
-	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -143,7 +142,7 @@ func (d *FS) OpenFile(name string, flag int, perm fs.FileMode) (fsapi.File, erro
 		return nil, &fs.PathError{
 			Op:   "open",
 			Path: displayName,
-			Err:  errors.New("invalid file mode: contains bits outside of fs.ModePerm"),
+			Err:  fsapi.ErrInvalidFileMode,
 		}
 	}
 
@@ -183,11 +182,11 @@ func (d *FS) OpenFile(name string, flag int, perm fs.FileMode) (fsapi.File, erro
 }
 
 // ReadDir implements fs.ReadDirFS.
-func (d *FS) ReadDir(name string) ([]fs.DirEntry, error) {
+func (d *FS) ReadDir(name string) (entries []fs.DirEntry, err error) {
 	displayName := name
 	norm := d.normalizePath(name)
 
-	if err := d.checkPermissions("readdir", displayName, permRead|permExec); err != nil {
+	if err = d.checkPermissions("readdir", displayName, permRead|permExec); err != nil {
 		return nil, err
 	}
 
@@ -200,10 +199,8 @@ func (d *FS) ReadDir(name string) ([]fs.DirEntry, error) {
 		}
 	}
 	defer func() {
-		if cerr := f.Close(); cerr != nil {
-			if err == nil {
-				err = cerr
-			}
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
 		}
 	}()
 

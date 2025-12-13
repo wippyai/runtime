@@ -11,6 +11,7 @@ import (
 var (
 	ErrClosed           = errors.New("filesystem is closed")
 	ErrPermissionDenied = errors.New("permission denied")
+	ErrInvalidFileMode  = errors.New("invalid file mode: contains bits outside of fs.ModePerm")
 )
 
 // Error implements apierror.Error for filesystem errors.

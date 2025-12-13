@@ -31,7 +31,7 @@ func NewDefaultFactory(dtt payload.Transcoder) *DefaultFactory {
 // CreatePolicyEntry implements FactoryAPI
 func (f *DefaultFactory) CreatePolicyEntry(ctx context.Context, entry registry.Entry) (*security.PolicyEntry, error) {
 	switch entry.Kind {
-	case policy.Kind:
+	case policy.KindPolicy:
 		return f.createConditionPolicy(ctx, entry)
 	case policy.ExprKind:
 		return f.createExprPolicy(ctx, entry)

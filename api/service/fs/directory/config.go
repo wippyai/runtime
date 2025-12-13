@@ -2,7 +2,6 @@
 package directory
 
 import (
-	"errors"
 	"fmt"
 	"io/fs"
 
@@ -43,7 +42,7 @@ func (c *Config) GetMode() fs.FileMode {
 // Validate checks if the configuration is valid
 func (c *Config) Validate() error {
 	if c.Directory == "" {
-		return errors.New("directory path cannot be empty")
+		return ErrEmptyDirectoryPath
 	}
 
 	if c.Mode != "" {

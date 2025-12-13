@@ -56,10 +56,21 @@ type BoundContractConfig struct {
 	Default         bool              `json:"default,omitempty"` // Whether this is the default binding for the contract
 }
 
+// Validate checks that DefinitionConfig is valid.
+// Semantic validation (method names, schema formats) is done by the manager.
+func (c *DefinitionConfig) Validate() error {
+	return nil
+}
+
+// Validate checks that BindingConfig is valid.
+// Semantic validation (contract exists, methods bound) is done by the manager.
+func (c *BindingConfig) Validate() error {
+	return nil
+}
+
 // ToDefinition converts a DefinitionConfig to a Definition
 func (c *DefinitionConfig) ToDefinition() *contract.Definition {
 	def := &contract.Definition{
-		// Description is no longer set from DefinitionConfig
 		Methods: make([]contract.MethodDef, len(c.Methods)),
 	}
 

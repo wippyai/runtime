@@ -10,7 +10,7 @@ import (
 )
 
 func Interceptor() boot.Component {
-	var registry *interceptor.Registry
+	var registry *interceptor.InterceptorRegistry
 	return boot.New(boot.P{
 		Name:      InterceptorName,
 		DependsOn: []boot.Name{},
