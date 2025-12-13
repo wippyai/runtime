@@ -15,16 +15,6 @@ type (
 	// Labels are key-value pairs attached to metrics.
 	Labels map[string]string
 
-	// Config holds metrics configuration.
-	Config struct {
-		Interceptor struct {
-			Enabled bool
-		}
-		Buffer struct {
-			Size int
-		}
-	}
-
 	// Collector fans out metrics to registered exporters.
 	Collector interface {
 		// CounterInc increments a counter by 1.

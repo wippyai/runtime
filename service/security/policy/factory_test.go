@@ -156,7 +156,7 @@ func TestDefaultFactory_InvalidExprPolicyConfig(t *testing.T) {
 
 	policyEntry, err := factory.CreatePolicyEntry(ctx, entry)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to create expr policy")
+	assert.Contains(t, err.Error(), "failed to decode expr policy config")
 	assert.Nil(t, policyEntry)
 }
 

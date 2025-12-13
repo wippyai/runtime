@@ -40,10 +40,17 @@ func NewManager(
 	}
 }
 
-// Add implements registry.EntryListener.
-func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
+func (m *Manager) validateEntryKind(entry registry.Entry) error {
 	if entry.Kind != supervisorapi.KindProcessService {
 		return newInvalidEntryKindError(entry.Kind, supervisorapi.KindProcessService)
+	}
+	return nil
+}
+
+// Add implements registry.EntryListener.
+func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
+	if err := m.validateEntryKind(entry); err != nil {
+		return err
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[supervisorapi.ServiceConfig](ctx, m.dtt, entry)
@@ -73,11 +80,11 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 // Update implements registry.EntryListener.
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != supervisorapi.KindProcessService {
-		return newInvalidEntryKindError(entry.Kind, supervisorapi.KindProcessService)
+	if err := m.validateEntryKind(entry); err != nil {
+		return err
 	}
 
-	_, exists := m.services.Load(entry.ID)
+	svc, exists := m.services.Load(entry.ID)
 	if !exists {
 		return newServiceNotFoundError(entry.ID.String())
 	}
@@ -89,7 +96,9 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	cfg.Process = cfg.Process.WithDefaultNS(entry.ID.NS)
 
-	// Update supervisor config
+	// Update stored service config
+	svc.(*Service).config = *cfg
+
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.ServiceUpdate,
@@ -105,8 +114,8 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 // Delete implements registry.EntryListener.
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != supervisorapi.KindProcessService {
-		return newInvalidEntryKindError(entry.Kind, supervisorapi.KindProcessService)
+	if err := m.validateEntryKind(entry); err != nil {
+		return err
 	}
 
 	m.bus.Send(ctx, event.Event{

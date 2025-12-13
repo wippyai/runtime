@@ -278,6 +278,10 @@ func TestStatYieldString(t *testing.T) {
 }
 
 func TestReadYieldHandleResult(t *testing.T) {
+	buf := streamapi.AcquireBuffer(100)
+	copy(buf.Data, []byte("buffered data"))
+	buf.N = 13
+
 	tests := []struct {
 		name    string
 		data    any
@@ -287,6 +291,12 @@ func TestReadYieldHandleResult(t *testing.T) {
 		{
 			name:    "success with data",
 			data:    []byte("test data"),
+			err:     nil,
+			wantErr: false,
+		},
+		{
+			name:    "success with buffer",
+			data:    buf,
 			err:     nil,
 			wantErr: false,
 		},

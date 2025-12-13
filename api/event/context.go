@@ -6,7 +6,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
-var busCtx = &ctxapi.Key{Name: "bus"}
+var busKey = &ctxapi.Key{Name: "event.bus"}
 
 // WithBus returns a new context with the provided Bus instance attached.
 // This allows the Bus to be retrieved later using the GetBus function.
@@ -15,8 +15,8 @@ func WithBus(ctx context.Context, bus Bus) context.Context {
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(busCtx) == nil {
-		ac.With(busCtx, bus)
+	if ac.Get(busKey) == nil {
+		ac.With(busKey, bus)
 	}
 	return ctx
 }
@@ -28,7 +28,7 @@ func GetBus(ctx context.Context) Bus {
 	if ac == nil {
 		return nil
 	}
-	if b := ac.Get(busCtx); b != nil {
+	if b := ac.Get(busKey); b != nil {
 		return b.(Bus)
 	}
 	return nil

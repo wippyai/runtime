@@ -124,7 +124,7 @@ func TestContext_ActorPair(t *testing.T) {
 	testActor := Actor{ID: "user123"}
 	pair := ActorPair(testActor)
 
-	assert.Equal(t, actorCtxKey, pair.Key)
+	assert.Equal(t, actorKey, pair.Key)
 	assert.Equal(t, testActor, pair.Value)
 }
 
@@ -133,7 +133,7 @@ func TestContext_ScopePair(t *testing.T) {
 	testScope := &mockScope{}
 	pair := ScopePair(testScope)
 
-	assert.Equal(t, scopeCtxKey, pair.Key)
+	assert.Equal(t, scopeKey, pair.Key)
 	assert.Equal(t, testScope, pair.Value)
 }
 

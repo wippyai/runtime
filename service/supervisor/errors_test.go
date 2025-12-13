@@ -111,4 +111,11 @@ func TestErrorConstructors(t *testing.T) {
 		details := err.Details().(attrs.Bag)
 		assert.Equal(t, "svc-id", details["id"])
 	})
+
+	t.Run("newSendCancelError", func(t *testing.T) {
+		err := newSendCancelError(cause)
+		assert.Equal(t, apierror.KindInternal, err.Kind())
+		assert.Equal(t, "send cancel: cause", err.Error())
+		assert.Equal(t, cause, err.Unwrap())
+	})
 }

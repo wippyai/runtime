@@ -161,12 +161,13 @@ func TestStreamReadHandler(t *testing.T) {
 
 	<-done
 
-	chunk, ok := emitted.([]byte)
+	buf, ok := emitted.(*streamapi.Buffer)
 	if !ok {
-		t.Fatalf("expected []byte, got %T", emitted)
+		t.Fatalf("expected *streamapi.Buffer, got %T", emitted)
 	}
-	if string(chunk) != "hello" {
-		t.Errorf("expected 'hello', got '%s'", string(chunk))
+	defer buf.Release()
+	if string(buf.Bytes()) != "hello" {
+		t.Errorf("expected 'hello', got '%s'", string(buf.Bytes()))
 	}
 }
 
@@ -274,8 +275,9 @@ func TestStreamFullCycle(t *testing.T) {
 			t.Fatalf("read %d error: %v", i, err)
 		}
 		<-done
-		if chunk, ok := emitted.([]byte); ok {
-			chunks = append(chunks, string(chunk))
+		if buf, ok := emitted.(*streamapi.Buffer); ok {
+			chunks = append(chunks, string(buf.Bytes()))
+			buf.Release()
 		}
 	}
 
@@ -748,38 +750,6 @@ func TestErrString(t *testing.T) {
 	}
 	if errString(errors.New("test")) != "test" {
 		t.Error("expected 'test' for non-nil error")
-	}
-}
-
-func TestWithDebug(t *testing.T) {
-	var buf bytes.Buffer
-	d := NewDispatcher(WithDebug(&buf))
-	if d.debug == nil {
-		t.Error("expected debug writer to be set")
-	}
-
-	ctx, store := setupTestContext()
-	defer store.Close()
-
-	table := resource.GetTable(ctx)
-	id := Insert(table, io.NopCloser(strings.NewReader("test")))
-
-	_ = d.Start(ctx)
-	defer func() { _ = d.Stop(ctx) }()
-
-	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
-	d.RegisterAll(func(cmdID dispatcher.CommandID, h dispatcher.Handler) {
-		handlers[cmdID] = h
-	})
-
-	done := make(chan struct{})
-	_ = handlers[streamapi.CmdRead].Handle(ctx, streamapi.ReadCmd{StreamID: id, Size: 4}, 0, &testReceiver{fn: func(_ any) {
-		close(done)
-	}})
-	<-done
-
-	if buf.Len() == 0 {
-		t.Error("expected debug output")
 	}
 }
 

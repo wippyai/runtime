@@ -90,3 +90,5 @@ func (p *ExprPolicy) matchesActions(action string) bool {
 func (p *ExprPolicy) matchesResources(resource string) bool {
 	return matchesFilter(p.config.Policy.Resources, resource)
 }
+
+var _ security.Policy = (*ExprPolicy)(nil)

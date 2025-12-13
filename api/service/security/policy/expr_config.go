@@ -36,6 +36,49 @@ type ExprConfig struct {
 	Groups []string `json:"groups,omitempty" yaml:"groups,omitempty"`
 }
 
+// Validate checks if the configuration is valid
+func (c *ExprConfig) Validate() error {
+	// Validate policy effect
+	if c.Policy.Effect != Allow && c.Policy.Effect != Deny {
+		return NewInvalidPolicyEffectError(c.Policy.Effect)
+	}
+
+	// Validate actions
+	switch actions := c.Policy.Actions.(type) {
+	case string:
+		if actions == "" {
+			return ErrActionsStringEmpty
+		}
+	case []any:
+		if len(actions) == 0 {
+			return ErrActionsListEmpty
+		}
+	default:
+		return ErrActionsInvalidType
+	}
+
+	// Validate resources
+	switch resources := c.Policy.Resources.(type) {
+	case string:
+		if resources == "" {
+			return ErrResourcesStringEmpty
+		}
+	case []any:
+		if len(resources) == 0 {
+			return ErrResourcesListEmpty
+		}
+	default:
+		return ErrResourcesInvalidType
+	}
+
+	// Validate expression
+	if c.Policy.Expression == "" {
+		return ErrExpressionEmpty
+	}
+
+	return nil
+}
+
 // GetGroupIDs converts group names to fully qualified registry IDs
 func (c *ExprConfig) GetGroupIDs(namespace registry.Namespace) []registry.ID {
 	ids := make([]registry.ID, len(c.Groups))

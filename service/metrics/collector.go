@@ -6,10 +6,11 @@ import (
 	"time"
 
 	api "github.com/wippyai/runtime/api/metrics"
+	apicfg "github.com/wippyai/runtime/api/service/metrics"
 )
 
 type collector struct {
-	cfg       api.Config
+	cfg       apicfg.Config
 	exporters []api.Exporter
 	exportMu  sync.RWMutex
 	recordCh  chan recordEvent
@@ -25,15 +26,11 @@ type recordEvent struct {
 	labels api.Labels
 }
 
-func NewCollector(cfg api.Config) api.Collector {
-	bufSize := cfg.Buffer.Size
-	if bufSize == 0 {
-		bufSize = 10000
-	}
+func NewCollector(cfg apicfg.Config) api.Collector {
 	c := &collector{
 		cfg:       cfg,
 		exporters: make([]api.Exporter, 0),
-		recordCh:  make(chan recordEvent, bufSize),
+		recordCh:  make(chan recordEvent, cfg.BufferSize()),
 		stopCh:    make(chan struct{}),
 	}
 	c.wg.Add(1)

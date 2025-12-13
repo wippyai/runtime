@@ -66,6 +66,14 @@ func newStartProcessError(cause error) *Error {
 	}
 }
 
+func newSendCancelError(cause error) *Error {
+	return &Error{
+		kind:    apierror.KindInternal,
+		message: "send cancel",
+		cause:   cause,
+	}
+}
+
 func newDecodeConfigError(cause error) *Error {
 	return &Error{
 		kind:      apierror.KindInvalid,

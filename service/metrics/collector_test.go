@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	api "github.com/wippyai/runtime/api/metrics"
+	apicfg "github.com/wippyai/runtime/api/service/metrics"
 )
 
 type mockExporter struct {
@@ -32,8 +33,8 @@ func (m *mockExporter) count() int {
 }
 
 func TestCollector_Counter(t *testing.T) {
-	c := NewCollector(api.Config{Buffer: struct {
-		Size int
+	c := NewCollector(apicfg.Config{Buffer: struct {
+		Size int `json:"size"`
 	}{Size: 1000}})
 	defer c.Close()
 
@@ -48,8 +49,8 @@ func TestCollector_Counter(t *testing.T) {
 }
 
 func TestCollector_Gauge(t *testing.T) {
-	c := NewCollector(api.Config{Buffer: struct {
-		Size int
+	c := NewCollector(apicfg.Config{Buffer: struct {
+		Size int `json:"size"`
 	}{Size: 1000}})
 	defer c.Close()
 
@@ -65,8 +66,8 @@ func TestCollector_Gauge(t *testing.T) {
 }
 
 func TestCollector_Histogram(t *testing.T) {
-	c := NewCollector(api.Config{Buffer: struct {
-		Size int
+	c := NewCollector(apicfg.Config{Buffer: struct {
+		Size int `json:"size"`
 	}{Size: 1000}})
 	defer c.Close()
 
@@ -80,8 +81,8 @@ func TestCollector_Histogram(t *testing.T) {
 }
 
 func TestCollector_ExporterFanout(t *testing.T) {
-	c := NewCollector(api.Config{Buffer: struct {
-		Size int
+	c := NewCollector(apicfg.Config{Buffer: struct {
+		Size int `json:"size"`
 	}{Size: 1000}})
 	defer c.Close()
 
@@ -97,8 +98,8 @@ func TestCollector_ExporterFanout(t *testing.T) {
 }
 
 func TestCollector_GracefulShutdown(t *testing.T) {
-	c := NewCollector(api.Config{Buffer: struct {
-		Size int
+	c := NewCollector(apicfg.Config{Buffer: struct {
+		Size int `json:"size"`
 	}{Size: 1000}})
 	mock := &mockExporter{}
 	_ = c.RegisterExporter(mock)
@@ -112,7 +113,7 @@ func TestCollector_GracefulShutdown(t *testing.T) {
 }
 
 func TestCollector_DefaultBufferSize(t *testing.T) {
-	c := NewCollector(api.Config{})
+	c := NewCollector(apicfg.Config{})
 	defer c.Close()
 
 	mock := &mockExporter{}
@@ -124,8 +125,8 @@ func TestCollector_DefaultBufferSize(t *testing.T) {
 }
 
 func TestCollector_BatchFlush(t *testing.T) {
-	c := NewCollector(api.Config{Buffer: struct {
-		Size int
+	c := NewCollector(apicfg.Config{Buffer: struct {
+		Size int `json:"size"`
 	}{Size: 10000}})
 	mock := &mockExporter{}
 	_ = c.RegisterExporter(mock)
@@ -139,4 +140,91 @@ func TestCollector_BatchFlush(t *testing.T) {
 
 	c.Close()
 	assert.Equal(t, 150, mock.count())
+}
+
+type nopExporter struct{}
+
+func (n *nopExporter) Name() string                                             { return "nop" }
+func (n *nopExporter) Record(string, api.MetricType, float64, api.Labels) error { return nil }
+func (n *nopExporter) Close() error                                             { return nil }
+
+func BenchmarkCollector_CounterInc(b *testing.B) {
+	c := NewCollector(apicfg.Config{Buffer: struct {
+		Size int `json:"size"`
+	}{Size: 100000}})
+	_ = c.RegisterExporter(&nopExporter{})
+	defer c.Close()
+
+	labels := api.Labels{"method": "GET", "status": "200"}
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		c.CounterInc("http_requests_total", labels)
+	}
+}
+
+func BenchmarkCollector_GaugeSet(b *testing.B) {
+	c := NewCollector(apicfg.Config{Buffer: struct {
+		Size int `json:"size"`
+	}{Size: 100000}})
+	_ = c.RegisterExporter(&nopExporter{})
+	defer c.Close()
+
+	labels := api.Labels{"pool": "workers"}
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		c.GaugeSet("active_connections", float64(i%100), labels)
+	}
+}
+
+func BenchmarkCollector_HistogramObserve(b *testing.B) {
+	c := NewCollector(apicfg.Config{Buffer: struct {
+		Size int `json:"size"`
+	}{Size: 100000}})
+	_ = c.RegisterExporter(&nopExporter{})
+	defer c.Close()
+
+	labels := api.Labels{"endpoint": "/api/v1/users"}
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		c.HistogramObserve("request_duration", 0.125, labels)
+	}
+}
+
+func BenchmarkCollector_Parallel(b *testing.B) {
+	c := NewCollector(apicfg.Config{Buffer: struct {
+		Size int `json:"size"`
+	}{Size: 100000}})
+	_ = c.RegisterExporter(&nopExporter{})
+	defer c.Close()
+
+	labels := api.Labels{"method": "GET"}
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			c.CounterInc("parallel_counter", labels)
+		}
+	})
+}
+
+func BenchmarkCollector_NoLabels(b *testing.B) {
+	c := NewCollector(apicfg.Config{Buffer: struct {
+		Size int `json:"size"`
+	}{Size: 100000}})
+	_ = c.RegisterExporter(&nopExporter{})
+	defer c.Close()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		c.CounterInc("simple_counter", nil)
+	}
 }

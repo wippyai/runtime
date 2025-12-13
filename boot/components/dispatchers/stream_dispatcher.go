@@ -2,7 +2,6 @@ package dispatchers
 
 import (
 	"context"
-	"io"
 
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
@@ -12,7 +11,6 @@ import (
 // StreamConfig configures the stream dispatcher.
 type StreamConfig struct {
 	Workers int
-	Debug   io.Writer // TODO: remove after testing is complete
 }
 
 // Stream creates the stream dispatcher component.
@@ -35,9 +33,6 @@ func Stream(cfg ...StreamConfig) boot.Component {
 			var opts []stream.Option
 			if config.Workers > 0 {
 				opts = append(opts, stream.WithWorkers(config.Workers))
-			}
-			if config.Debug != nil {
-				opts = append(opts, stream.WithDebug(config.Debug))
 			}
 
 			svc = stream.NewDispatcher(opts...)

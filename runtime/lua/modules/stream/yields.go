@@ -60,6 +60,11 @@ func (y *ReadYield) HandleResult(l *lua.LState, data any, err error) []lua.LValu
 	if data == nil {
 		return []lua.LValue{lua.LNil, lua.LNil}
 	}
+	if buf, ok := data.(*streamapi.Buffer); ok {
+		result := lua.LString(buf.Bytes())
+		buf.Release()
+		return []lua.LValue{result, lua.LNil}
+	}
 	if bytes, ok := data.([]byte); ok {
 		return []lua.LValue{lua.LString(bytes), lua.LNil}
 	}

@@ -363,13 +363,6 @@ func WithWorkers(n int) Option {
 	}
 }
 
-// WithDebug enables debug output to the given writer.
-func WithDebug(w io.Writer) Option {
-	return func(d *Dispatcher) {
-		d.debug = w
-	}
-}
-
 // Dispatcher handles stream commands via async worker pool.
 type Dispatcher struct {
 	workers int
@@ -377,7 +370,6 @@ type Dispatcher struct {
 	wg      sync.WaitGroup
 	ctx     context.Context
 	cancel  context.CancelFunc
-	debug   io.Writer
 }
 
 type job struct {
@@ -405,24 +397,14 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 		d.wg.Add(1)
 		go d.worker()
 	}
-
-	if d.debug != nil {
-		fmt.Fprintf(d.debug, "[stream] dispatcher started workers=%d\n", d.workers)
-	}
 	return nil
 }
 
 // Stop shuts down the dispatcher and drains pending jobs.
 func (d *Dispatcher) Stop(_ context.Context) error {
-	if d.debug != nil {
-		fmt.Fprintf(d.debug, "[stream] dispatcher stopping\n")
-	}
 	d.cancel()
 	close(d.jobs)
 	d.wg.Wait()
-	if d.debug != nil {
-		fmt.Fprintf(d.debug, "[stream] dispatcher stopped\n")
-	}
 	return nil
 }
 
@@ -443,113 +425,58 @@ func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, tag uin
 func (d *Dispatcher) execute(j job) {
 	table := resource.GetTable(j.ctx)
 	if table == nil {
-		if d.debug != nil {
-			fmt.Fprintf(d.debug, "[stream] execute error: no table\n")
-		}
 		j.receiver.CompleteYield(j.tag, nil, streamapi.ErrNoTable)
 		return
 	}
 
 	switch c := j.cmd.(type) {
 	case streamapi.ReadCmd:
-		if d.debug != nil {
-			fmt.Fprintf(d.debug, "[stream] read id=%d size=%d\n", c.StreamID, c.Size)
-		}
 		buf, err := ReadBuffered(table, c.StreamID, c.Size)
 		if errors.Is(err, io.EOF) {
-			if d.debug != nil {
-				fmt.Fprintf(d.debug, "[stream] read id=%d EOF\n", c.StreamID)
-			}
 			j.receiver.CompleteYield(j.tag, nil, nil)
 			return
 		}
 		if err != nil {
-			if d.debug != nil {
-				fmt.Fprintf(d.debug, "[stream] read id=%d error=%v\n", c.StreamID, err)
-			}
 			j.receiver.CompleteYield(j.tag, nil, err)
 			return
-		}
-		if d.debug != nil {
-			fmt.Fprintf(d.debug, "[stream] read id=%d bytes=%d\n", c.StreamID, buf.N)
 		}
 		j.receiver.CompleteYield(j.tag, buf, nil)
 
 	case streamapi.WriteCmd:
-		if d.debug != nil {
-			fmt.Fprintf(d.debug, "[stream] write id=%d len=%d\n", c.StreamID, len(c.Data))
-		}
 		n, err := Write(table, c.StreamID, c.Data)
 		if err != nil {
-			if d.debug != nil {
-				fmt.Fprintf(d.debug, "[stream] write id=%d error=%v\n", c.StreamID, err)
-			}
 			j.receiver.CompleteYield(j.tag, nil, err)
 			return
-		}
-		if d.debug != nil {
-			fmt.Fprintf(d.debug, "[stream] write id=%d written=%d\n", c.StreamID, n)
 		}
 		j.receiver.CompleteYield(j.tag, int64(n), nil)
 
 	case streamapi.CloseCmd:
-		if d.debug != nil {
-			fmt.Fprintf(d.debug, "[stream] close id=%d\n", c.StreamID)
-		}
 		if err := Close(table, c.StreamID); err != nil {
-			if d.debug != nil {
-				fmt.Fprintf(d.debug, "[stream] close id=%d error=%v\n", c.StreamID, err)
-			}
 			j.receiver.CompleteYield(j.tag, nil, err)
 			return
 		}
 		j.receiver.CompleteYield(j.tag, nil, nil)
 
 	case streamapi.SeekCmd:
-		if d.debug != nil {
-			fmt.Fprintf(d.debug, "[stream] seek id=%d offset=%d whence=%d\n", c.StreamID, c.Offset, c.Whence)
-		}
 		pos, err := Seek(table, c.StreamID, c.Offset, c.Whence)
 		if err != nil {
-			if d.debug != nil {
-				fmt.Fprintf(d.debug, "[stream] seek id=%d error=%v\n", c.StreamID, err)
-			}
 			j.receiver.CompleteYield(j.tag, nil, err)
 			return
-		}
-		if d.debug != nil {
-			fmt.Fprintf(d.debug, "[stream] seek id=%d pos=%d\n", c.StreamID, pos)
 		}
 		j.receiver.CompleteYield(j.tag, pos, nil)
 
 	case streamapi.FlushCmd:
-		if d.debug != nil {
-			fmt.Fprintf(d.debug, "[stream] flush id=%d\n", c.StreamID)
-		}
 		if err := Flush(table, c.StreamID); err != nil {
-			if d.debug != nil {
-				fmt.Fprintf(d.debug, "[stream] flush id=%d error=%v\n", c.StreamID, err)
-			}
 			j.receiver.CompleteYield(j.tag, nil, err)
 			return
 		}
 		j.receiver.CompleteYield(j.tag, nil, nil)
 
 	case streamapi.StatCmd:
-		if d.debug != nil {
-			fmt.Fprintf(d.debug, "[stream] stat id=%d\n", c.StreamID)
-		}
 		size, pos, caps, err := Stat(table, c.StreamID)
 		if err != nil {
-			if d.debug != nil {
-				fmt.Fprintf(d.debug, "[stream] stat id=%d error=%v\n", c.StreamID, err)
-			}
 			j.receiver.CompleteYield(j.tag, nil, err)
 			return
-		}
-		if d.debug != nil {
-			fmt.Fprintf(d.debug, "[stream] stat id=%d size=%d pos=%d readable=%v writable=%v seekable=%v\n",
-				c.StreamID, size, pos, caps.Readable, caps.Writable, caps.Seekable)
 		}
 		j.receiver.CompleteYield(j.tag, streamapi.Info{
 			Size:     size,
@@ -560,36 +487,18 @@ func (d *Dispatcher) execute(j job) {
 		}, nil)
 
 	case streamapi.ScannerCreateCmd:
-		if d.debug != nil {
-			fmt.Fprintf(d.debug, "[stream] scanner_create stream_id=%d split=%d\n", c.StreamID, c.SplitType)
-		}
 		scannerID, err := CreateScanner(table, c.StreamID, c.SplitType)
 		if err != nil {
-			if d.debug != nil {
-				fmt.Fprintf(d.debug, "[stream] scanner_create error=%v\n", err)
-			}
 			j.receiver.CompleteYield(j.tag, nil, err)
 			return
-		}
-		if d.debug != nil {
-			fmt.Fprintf(d.debug, "[stream] scanner_create id=%d\n", scannerID)
 		}
 		j.receiver.CompleteYield(j.tag, scannerID, nil)
 
 	case streamapi.ScannerScanCmd:
-		if d.debug != nil {
-			fmt.Fprintf(d.debug, "[stream] scanner_scan id=%d\n", c.ScannerID)
-		}
 		result, err := ScanNext(table, c.ScannerID)
 		if err != nil {
-			if d.debug != nil {
-				fmt.Fprintf(d.debug, "[stream] scanner_scan id=%d error=%v\n", c.ScannerID, err)
-			}
 			j.receiver.CompleteYield(j.tag, nil, err)
 			return
-		}
-		if d.debug != nil {
-			fmt.Fprintf(d.debug, "[stream] scanner_scan id=%d has_token=%v\n", c.ScannerID, result.HasToken)
 		}
 		j.receiver.CompleteYield(j.tag, result, nil)
 

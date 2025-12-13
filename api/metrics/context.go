@@ -6,7 +6,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
-var collectorCtx = &ctxapi.Key{Name: "metrics.collector"}
+var collectorKey = &ctxapi.Key{Name: "metrics.collector"}
 
 // WithCollector attaches a Collector to the context.
 func WithCollector(ctx context.Context, c Collector) context.Context {
@@ -14,8 +14,8 @@ func WithCollector(ctx context.Context, c Collector) context.Context {
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(collectorCtx) == nil {
-		ac.With(collectorCtx, c)
+	if ac.Get(collectorKey) == nil {
+		ac.With(collectorKey, c)
 	}
 	return ctx
 }
@@ -26,7 +26,7 @@ func GetCollector(ctx context.Context) Collector {
 	if ac == nil {
 		return nil
 	}
-	if c, ok := ac.Get(collectorCtx).(Collector); ok {
+	if c, ok := ac.Get(collectorKey).(Collector); ok {
 		return c
 	}
 	return nil

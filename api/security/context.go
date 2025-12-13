@@ -9,20 +9,20 @@ import (
 )
 
 var (
-	actorCtxKey    = &ctxapi.Key{Name: "security.actor_ctx_key", Inherit: true}
-	scopeCtxKey    = &ctxapi.Key{Name: "security.scope_ctx_key", Inherit: true}
-	registryCtxKey = &ctxapi.Key{Name: "security.registry_ctx_key"}
-	strictModeKey  = &ctxapi.Key{Name: "security.strict_mode"}
+	actorKey    = &ctxapi.Key{Name: "security.actor", Inherit: true}
+	scopeKey    = &ctxapi.Key{Name: "security.scope", Inherit: true}
+	registryKey = &ctxapi.Key{Name: "security.registry"}
+	strictKey   = &ctxapi.Key{Name: "security.strict"}
 )
 
 // ActorPair creates a context.Pair for setting an actor.
 func ActorPair(actor Actor) ctxapi.Pair {
-	return ctxapi.Pair{Key: actorCtxKey, Value: actor}
+	return ctxapi.Pair{Key: actorKey, Value: actor}
 }
 
 // ScopePair creates a context.Pair for setting a scope.
 func ScopePair(scope Scope) ctxapi.Pair {
-	return ctxapi.Pair{Key: scopeCtxKey, Value: scope}
+	return ctxapi.Pair{Key: scopeKey, Value: scope}
 }
 
 // SetActor sets the actor in the FrameContext.
@@ -31,7 +31,7 @@ func SetActor(ctx context.Context, actor Actor) error {
 	if fc == nil {
 		return ErrNoFrameContext
 	}
-	return fc.Set(actorCtxKey, actor)
+	return fc.Set(actorKey, actor)
 }
 
 // GetActor retrieves the actor from the FrameContext.
@@ -41,7 +41,7 @@ func GetActor(ctx context.Context) (Actor, bool) {
 		return Actor{}, false
 	}
 
-	if val, ok := fc.Get(actorCtxKey); ok {
+	if val, ok := fc.Get(actorKey); ok {
 		if actor, ok := val.(Actor); ok {
 			return actor, true
 		}
@@ -55,7 +55,7 @@ func SetScope(ctx context.Context, scope Scope) error {
 	if fc == nil {
 		return ErrNoFrameContext
 	}
-	return fc.Set(scopeCtxKey, scope)
+	return fc.Set(scopeKey, scope)
 }
 
 // GetScope retrieves the scope from the FrameContext.
@@ -64,7 +64,7 @@ func GetScope(ctx context.Context) (Scope, bool) {
 	if fc == nil {
 		return nil, false
 	}
-	if val, ok := fc.Get(scopeCtxKey); ok {
+	if val, ok := fc.Get(scopeKey); ok {
 		if scope, ok := val.(Scope); ok {
 			return scope, true
 		}
@@ -88,8 +88,8 @@ func WithRegistry(ctx context.Context, reg Registry) context.Context {
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(registryCtxKey) == nil {
-		ac.With(registryCtxKey, reg)
+	if ac.Get(registryKey) == nil {
+		ac.With(registryKey, reg)
 	}
 	return ctx
 }
@@ -100,7 +100,7 @@ func GetRegistry(ctx context.Context) (Registry, bool) {
 	if ac == nil {
 		return nil, false
 	}
-	if val := ac.Get(registryCtxKey); val != nil {
+	if val := ac.Get(registryKey); val != nil {
 		if reg, ok := val.(Registry); ok {
 			return reg, true
 		}
@@ -146,10 +146,10 @@ func SetStrictMode(ctx context.Context, strict bool) context.Context {
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(strictModeKey) == nil {
-		ac.With(strictModeKey, strict)
+	if ac.Get(strictKey) == nil {
+		ac.With(strictKey, strict)
 	} else {
-		ac.Update(strictModeKey, strict)
+		ac.Update(strictKey, strict)
 	}
 	return ctx
 }
@@ -161,7 +161,7 @@ func IsStrictMode(ctx context.Context) bool {
 	if ac == nil {
 		return true
 	}
-	if val := ac.Get(strictModeKey); val != nil {
+	if val := ac.Get(strictKey); val != nil {
 		if strict, ok := val.(bool); ok {
 			return strict
 		}

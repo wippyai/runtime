@@ -7,7 +7,7 @@ import (
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/relay"
-	"github.com/wippyai/runtime/service/events"
+	"github.com/wippyai/runtime/system/events"
 )
 
 const EventsDispatcherName boot.Name = "dispatcher.events"

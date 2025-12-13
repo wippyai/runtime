@@ -310,3 +310,5 @@ func splitToken(token string) []string {
 	}
 	return []string{token, ""}
 }
+
+var _ security.TokenStore = (*TokenStore)(nil)

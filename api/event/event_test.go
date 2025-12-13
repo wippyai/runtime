@@ -166,6 +166,17 @@ func TestErrorInterface(t *testing.T) {
 		assert.True(t, err.Retryable().Bool())
 		assert.Equal(t, cause, err.Unwrap())
 	})
+
+	t.Run("NewAwaitTimeoutError", func(t *testing.T) {
+		err := NewAwaitTimeoutError("/test/path")
+		assert.Contains(t, err.Error(), "await timeout")
+		assert.Contains(t, err.Error(), "/test/path")
+		assert.Equal(t, "Timeout", err.Kind().String())
+		assert.True(t, err.Retryable().Bool())
+		assert.Nil(t, err.Unwrap())
+		details := err.Details()
+		require.NotNil(t, details)
+	})
 }
 
 func TestCommands(t *testing.T) {

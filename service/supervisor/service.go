@@ -116,7 +116,8 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 
 // Stop terminates the supervised process gracefully.
 func (svc *Service) Stop(ctx context.Context) error {
-	if svc.childPID.UniqID == "" {
+	// Not started or already stopped
+	if svc.statusCh == nil {
 		return nil
 	}
 
@@ -127,7 +128,9 @@ func (svc *Service) Stop(ctx context.Context) error {
 
 	deadline := time.Now().Add(svc.config.Lifecycle.StopTimeout)
 	cancelPkg := topologyapi.Cancel(svc.supervisorPID, svc.childPID, deadline)
-	_ = node.Send(cancelPkg)
+	if err := node.Send(cancelPkg); err != nil {
+		return newSendCancelError(err)
+	}
 
 	// Wait for status channel to close (indicating process exit)
 	select {

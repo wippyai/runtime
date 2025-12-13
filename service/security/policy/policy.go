@@ -75,3 +75,5 @@ func (p *Policy) getResult() security.Result {
 		return security.Undefined
 	}
 }
+
+var _ security.Policy = (*Policy)(nil)

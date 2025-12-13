@@ -5,6 +5,7 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	api "github.com/wippyai/runtime/api/metrics"
+	apicfg "github.com/wippyai/runtime/api/service/metrics"
 	impl "github.com/wippyai/runtime/service/metrics"
 )
 
@@ -29,8 +30,8 @@ func Metrics() boot.Component {
 	})
 }
 
-func loadConfig(ctx context.Context) api.Config {
-	var cfg api.Config
+func loadConfig(ctx context.Context) apicfg.Config {
+	var cfg apicfg.Config
 
 	bootCfg := boot.GetConfig(ctx)
 	if bootCfg == nil {
