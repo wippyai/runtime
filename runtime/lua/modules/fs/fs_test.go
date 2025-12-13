@@ -422,3 +422,227 @@ func TestFSWritefileWithStream(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, fileContent, string(written))
 }
+
+func TestNullByteInjectionPrevention(t *testing.T) {
+	f, cleanup := createTestFS(t)
+	defer cleanup()
+
+	pathsWithNullByte := []string{
+		"/test\x00.txt",
+		"test\x00file",
+		"/dir\x00name/file",
+		"normal/\x00hidden",
+	}
+
+	t.Run("resolvePath rejects null bytes", func(t *testing.T) {
+		for _, p := range pathsWithNullByte {
+			_, err := f.resolvePath(p)
+			require.Error(t, err, "resolvePath should reject path with null byte: %q", p)
+			assert.Equal(t, ErrNullBytePath, err)
+		}
+	})
+
+	t.Run("stat rejects null bytes", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		for _, p := range pathsWithNullByte {
+			l.SetTop(0)
+			ud := l.NewUserData()
+			ud.Value = f
+			l.Push(ud)
+			l.Push(lua.LString(p))
+
+			nret := fsStat(l)
+			require.Equal(t, 2, nret)
+			assert.Equal(t, lua.LNil, l.Get(-2), "stat should return nil for null byte path")
+			luaErr, ok := l.Get(-1).(*lua.Error)
+			require.True(t, ok, "should return error")
+			assert.Equal(t, string(lua.KindInvalid), string(luaErr.Kind()))
+		}
+	})
+
+	t.Run("open rejects null bytes", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+		l.SetContext(t.Context())
+
+		for _, p := range pathsWithNullByte {
+			l.SetTop(0)
+			ud := l.NewUserData()
+			ud.Value = f
+			l.Push(ud)
+			l.Push(lua.LString(p))
+			l.Push(lua.LString("r"))
+
+			nret := fsOpen(l)
+			require.Equal(t, 2, nret)
+			assert.Equal(t, lua.LNil, l.Get(-2), "open should return nil for null byte path")
+			luaErr, ok := l.Get(-1).(*lua.Error)
+			require.True(t, ok, "should return error")
+			assert.Equal(t, string(lua.KindInvalid), string(luaErr.Kind()))
+		}
+	})
+
+	t.Run("mkdir rejects null bytes", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		for _, p := range pathsWithNullByte {
+			l.SetTop(0)
+			ud := l.NewUserData()
+			ud.Value = f
+			l.Push(ud)
+			l.Push(lua.LString(p))
+
+			nret := fsMkdir(l)
+			require.Equal(t, 2, nret)
+			assert.Equal(t, lua.LFalse, l.Get(-2), "mkdir should return false for null byte path")
+			luaErr, ok := l.Get(-1).(*lua.Error)
+			require.True(t, ok, "should return error")
+			assert.Equal(t, string(lua.KindInvalid), string(luaErr.Kind()))
+		}
+	})
+
+	t.Run("remove rejects null bytes", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		for _, p := range pathsWithNullByte {
+			l.SetTop(0)
+			ud := l.NewUserData()
+			ud.Value = f
+			l.Push(ud)
+			l.Push(lua.LString(p))
+
+			nret := fsRemove(l)
+			require.Equal(t, 2, nret)
+			assert.Equal(t, lua.LFalse, l.Get(-2), "remove should return false for null byte path")
+			luaErr, ok := l.Get(-1).(*lua.Error)
+			require.True(t, ok, "should return error")
+			assert.Equal(t, string(lua.KindInvalid), string(luaErr.Kind()))
+		}
+	})
+
+	t.Run("readdir rejects null bytes", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		for _, p := range pathsWithNullByte {
+			l.SetTop(0)
+			ud := l.NewUserData()
+			ud.Value = f
+			l.Push(ud)
+			l.Push(lua.LString(p))
+
+			nret := fsReaddir(l)
+			require.Equal(t, 2, nret)
+			assert.Equal(t, lua.LNil, l.Get(-2), "readdir should return nil for null byte path")
+			luaErr, ok := l.Get(-1).(*lua.Error)
+			require.True(t, ok, "should return error")
+			assert.Equal(t, string(lua.KindInvalid), string(luaErr.Kind()))
+		}
+	})
+
+	t.Run("exists rejects null bytes", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		for _, p := range pathsWithNullByte {
+			l.SetTop(0)
+			ud := l.NewUserData()
+			ud.Value = f
+			l.Push(ud)
+			l.Push(lua.LString(p))
+
+			nret := fsExists(l)
+			require.Equal(t, 2, nret)
+			assert.Equal(t, lua.LFalse, l.Get(-2), "exists should return false for null byte path")
+			luaErr, ok := l.Get(-1).(*lua.Error)
+			require.True(t, ok, "should return error")
+			assert.Equal(t, string(lua.KindInvalid), string(luaErr.Kind()))
+		}
+	})
+
+	t.Run("isdir rejects null bytes", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		for _, p := range pathsWithNullByte {
+			l.SetTop(0)
+			ud := l.NewUserData()
+			ud.Value = f
+			l.Push(ud)
+			l.Push(lua.LString(p))
+
+			nret := fsIsdir(l)
+			require.Equal(t, 2, nret)
+			assert.Equal(t, lua.LFalse, l.Get(-2), "isdir should return false for null byte path")
+			luaErr, ok := l.Get(-1).(*lua.Error)
+			require.True(t, ok, "should return error")
+			assert.Equal(t, string(lua.KindInvalid), string(luaErr.Kind()))
+		}
+	})
+
+	t.Run("readfile rejects null bytes", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		for _, p := range pathsWithNullByte {
+			l.SetTop(0)
+			ud := l.NewUserData()
+			ud.Value = f
+			l.Push(ud)
+			l.Push(lua.LString(p))
+
+			nret := fsReadfile(l)
+			require.Equal(t, 2, nret)
+			assert.Equal(t, lua.LNil, l.Get(-2), "readfile should return nil for null byte path")
+			luaErr, ok := l.Get(-1).(*lua.Error)
+			require.True(t, ok, "should return error")
+			assert.Equal(t, string(lua.KindInvalid), string(luaErr.Kind()))
+		}
+	})
+
+	t.Run("writefile rejects null bytes", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+		l.SetContext(t.Context())
+
+		for _, p := range pathsWithNullByte {
+			l.SetTop(0)
+			ud := l.NewUserData()
+			ud.Value = f
+			l.Push(ud)
+			l.Push(lua.LString(p))
+			l.Push(lua.LString("content"))
+
+			nret := fsWritefile(l)
+			require.Equal(t, 2, nret)
+			assert.Equal(t, lua.LFalse, l.Get(-2), "writefile should return false for null byte path")
+			luaErr, ok := l.Get(-1).(*lua.Error)
+			require.True(t, ok, "should return error")
+			assert.Equal(t, string(lua.KindInvalid), string(luaErr.Kind()))
+		}
+	})
+
+	t.Run("chdir rejects null bytes", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		for _, p := range pathsWithNullByte {
+			l.SetTop(0)
+			ud := l.NewUserData()
+			ud.Value = f
+			l.Push(ud)
+			l.Push(lua.LString(p))
+
+			nret := fsChdir(l)
+			require.Equal(t, 2, nret)
+			assert.Equal(t, lua.LFalse, l.Get(-2), "chdir should return false for null byte path")
+			luaErr, ok := l.Get(-1).(*lua.Error)
+			require.True(t, ok, "should return error")
+			assert.Equal(t, string(lua.KindInvalid), string(luaErr.Kind()))
+		}
+	})
+}

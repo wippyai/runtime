@@ -1251,3 +1251,94 @@ func TestModuleImmutability(t *testing.T) {
 	`)
 	assert.NoError(t, err)
 }
+
+func TestRequestBodySizeLimit(t *testing.T) {
+	t.Run("body exceeds configured max_body", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+		bind(l)
+
+		ctx, fc := newTestContext()
+		largeBody := strings.Repeat("x", 1000)
+		req := httptest.NewRequest("POST", "/test", strings.NewReader(largeBody))
+		recorder := httptest.NewRecorder()
+		reqCtx := httpservice.NewRequestContext(req, recorder)
+		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		l.SetContext(ctx)
+
+		err := l.DoString(`
+			local req = http.request({max_body = 100})
+			local body, err = req:body()
+			assert(body == nil, "body should be nil when exceeding limit")
+			assert(err ~= nil, "should return error when exceeding limit")
+		`)
+		assert.NoError(t, err)
+	})
+
+	t.Run("body within configured max_body", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+		bind(l)
+
+		ctx, fc := newTestContext()
+		body := strings.NewReader("small body")
+		req := httptest.NewRequest("POST", "/test", body)
+		recorder := httptest.NewRecorder()
+		reqCtx := httpservice.NewRequestContext(req, recorder)
+		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		l.SetContext(ctx)
+
+		err := l.DoString(`
+			local req = http.request({max_body = 1000})
+			local body, err = req:body()
+			assert(err == nil, "should not error when within limit")
+			assert(body == "small body", "body should match")
+		`)
+		assert.NoError(t, err)
+	})
+
+	t.Run("body_json exceeds configured max_body", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+		bind(l)
+
+		ctx, fc := newTestContext()
+		largeJSON := `{"data": "` + strings.Repeat("x", 1000) + `"}`
+		req := httptest.NewRequest("POST", "/test", strings.NewReader(largeJSON))
+		req.Header.Set("Content-Type", "application/json")
+		recorder := httptest.NewRecorder()
+		reqCtx := httpservice.NewRequestContext(req, recorder)
+		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		l.SetContext(ctx)
+
+		err := l.DoString(`
+			local req = http.request({max_body = 100})
+			local body, err = req:body_json()
+			assert(body == nil, "body should be nil when exceeding limit")
+			assert(err ~= nil, "should return error when exceeding limit")
+		`)
+		assert.NoError(t, err)
+	})
+
+	t.Run("default limit prevents extremely large bodies", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+		bind(l)
+
+		ctx, fc := newTestContext()
+		req := httptest.NewRequest("POST", "/test", nil)
+		req.ContentLength = 200 * 1024 * 1024 // 200MB claimed
+		recorder := httptest.NewRecorder()
+		reqCtx := httpservice.NewRequestContext(req, recorder)
+		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		l.SetContext(ctx)
+
+		err := l.DoString(`
+			local req = http.request()
+			local body, err = req:body()
+			assert(body == nil, "body should be nil for oversized content-length")
+			assert(err ~= nil, "should return error for oversized content-length")
+		`)
+		assert.NoError(t, err)
+	})
+}

@@ -18,6 +18,8 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+const defaultMaxBodySize = 120 * 1024 * 1024 // 120MB default limit
+
 type Request struct {
 	request *basehttp.Request
 	config  RequestConfig
@@ -270,7 +272,12 @@ func requestBody(l *lua.LState) int {
 		return 2
 	}
 
-	if req.config.MaxBody > 0 && req.request.ContentLength > req.config.MaxBody {
+	maxBody := req.config.MaxBody
+	if maxBody <= 0 {
+		maxBody = defaultMaxBodySize
+	}
+
+	if req.request.ContentLength > maxBody {
 		err := lua.NewLuaError(l, "request body too large").
 			WithKind(lua.KindInvalid).
 			WithRetryable(false)
@@ -278,6 +285,9 @@ func requestBody(l *lua.LState) int {
 		l.Push(err)
 		return 2
 	}
+
+	// Use LimitReader to enforce actual byte limit (Content-Length can be spoofed)
+	limitedReader := io.LimitReader(req.request.Body, maxBody+1)
 
 	var body []byte
 	var readErr error
@@ -293,7 +303,7 @@ func requestBody(l *lua.LState) int {
 		errChan := make(chan error)
 
 		go func() {
-			b, err := io.ReadAll(req.request.Body)
+			b, err := io.ReadAll(limitedReader)
 			if err != nil {
 				errChan <- err
 				return
@@ -311,7 +321,7 @@ func requestBody(l *lua.LState) int {
 			readErr = fmt.Errorf("request timeout after %dms", req.config.Timeout)
 		}
 	} else {
-		body, readErr = io.ReadAll(req.request.Body)
+		body, readErr = io.ReadAll(limitedReader)
 	}
 
 	defer func() { _ = req.request.Body.Close() }()
@@ -324,6 +334,16 @@ func requestBody(l *lua.LState) int {
 		l.Push(luaErr)
 		return 2
 	}
+
+	if int64(len(body)) > maxBody {
+		err := lua.NewLuaError(l, "request body too large").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
+	}
+
 	l.Push(lua.LString(body))
 	l.Push(lua.LNil)
 	return 2
@@ -343,7 +363,12 @@ func requestBodyJSON(l *lua.LState) int {
 		return 2
 	}
 
-	if req.config.MaxBody > 0 && req.request.ContentLength > req.config.MaxBody {
+	maxBody := req.config.MaxBody
+	if maxBody <= 0 {
+		maxBody = defaultMaxBodySize
+	}
+
+	if req.request.ContentLength > maxBody {
 		err := lua.NewLuaError(l, "request body too large").
 			WithKind(lua.KindInvalid).
 			WithRetryable(false)
@@ -352,7 +377,10 @@ func requestBodyJSON(l *lua.LState) int {
 		return 2
 	}
 
-	body, err := io.ReadAll(req.request.Body)
+	// Use LimitReader to enforce actual byte limit (Content-Length can be spoofed)
+	limitedReader := io.LimitReader(req.request.Body, maxBody+1)
+
+	body, err := io.ReadAll(limitedReader)
 	defer func() { _ = req.request.Body.Close() }()
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "failed to read body").
@@ -362,6 +390,16 @@ func requestBodyJSON(l *lua.LState) int {
 		l.Push(luaErr)
 		return 2
 	}
+
+	if int64(len(body)) > maxBody {
+		err := lua.NewLuaError(l, "request body too large").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
+	}
+
 	val, err := jsonmod.Decode(body)
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "invalid JSON").

@@ -143,10 +143,15 @@ func internalErrorMsg(l *lua.LState, msg string) int {
 
 // Random functions
 
+const maxRandomSize = 1024 * 1024 // 1MB limit for random data
+
 func randomBytes(l *lua.LState) int {
 	length := l.CheckInt(1)
 	if length <= 0 {
 		return invalidError(l, "length must be a positive integer")
+	}
+	if length > maxRandomSize {
+		return invalidError(l, "length exceeds maximum allowed size (1MB)")
 	}
 
 	buf := make([]byte, length)
@@ -163,6 +168,9 @@ func randomString(l *lua.LState) int {
 	length := l.CheckInt(1)
 	if length <= 0 {
 		return invalidError(l, "length must be a positive integer")
+	}
+	if length > maxRandomSize {
+		return invalidError(l, "length exceeds maximum allowed size (1MB)")
 	}
 
 	charset := "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"

@@ -680,3 +680,58 @@ func TestJWTAlgorithms(t *testing.T) {
 		t.Errorf("JWT algorithms test failed: %v", err)
 	}
 }
+
+// Security hardening tests
+
+func TestRandomBytesMaxSizeLimit(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	// Test that exceeding max size returns error
+	err := l.DoString(`
+		local _, err = crypto.random.bytes(1024 * 1024 + 1)
+		if err == nil then error("expected error for exceeding max size") end
+		if not string.find(tostring(err), "exceeds maximum") then
+			error("expected 'exceeds maximum' in error message")
+		end
+	`)
+	if err != nil {
+		t.Errorf("max size limit test failed: %v", err)
+	}
+
+	// Test that max size exactly works
+	err = l.DoString(`
+		local bytes, err = crypto.random.bytes(1024 * 1024)
+		if not bytes then error(err) end
+		if #bytes ~= 1024 * 1024 then error("expected 1MB bytes") end
+	`)
+	if err != nil {
+		t.Errorf("max size exact test failed: %v", err)
+	}
+}
+
+func TestRandomStringMaxSizeLimit(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Bind(l)
+
+	// Test that exceeding max size returns error
+	err := l.DoString(`
+		local _, err = crypto.random.string(1024 * 1024 + 1)
+		if err == nil then error("expected error for exceeding max size") end
+		if not string.find(tostring(err), "exceeds maximum") then
+			error("expected 'exceeds maximum' in error message")
+		end
+	`)
+	if err != nil {
+		t.Errorf("max size limit test failed: %v", err)
+	}
+}
+
+func TestRandomBytesDoSPrevention(t *testing.T) {
+	// Verify the constant is set correctly
+	if maxRandomSize != 1024*1024 {
+		t.Errorf("maxRandomSize should be 1MB, got %d", maxRandomSize)
+	}
+}

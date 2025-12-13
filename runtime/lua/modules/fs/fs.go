@@ -32,7 +32,13 @@ func NewFS(fs fsapi.FS, cwd string) *FS {
 	return &FS{fs: fs, cwd: cwd}
 }
 
-func (f *FS) resolvePath(p string) string {
+// ErrNullBytePath is returned when a path contains a null byte
+var ErrNullBytePath = fmt.Errorf("path contains null byte")
+
+func (f *FS) resolvePath(p string) (string, error) {
+	if strings.ContainsRune(p, 0) {
+		return "", ErrNullBytePath
+	}
 	var res string
 	switch {
 	case p == "":
@@ -43,9 +49,9 @@ func (f *FS) resolvePath(p string) string {
 		res = filepath.Join(f.cwd, p)
 	}
 	if res == "" {
-		return "."
+		return ".", nil
 	}
-	return res
+	return res, nil
 }
 
 var fsMethods = map[string]lua.LGoFunc{
@@ -75,7 +81,12 @@ func fsChdir(l *lua.LState) int {
 		l.Push(lua.NewLuaError(l, "path required").WithKind(lua.KindInvalid))
 		return 2
 	}
-	target := fs.resolvePath(path)
+	target, err := fs.resolvePath(path)
+	if err != nil {
+		l.Push(lua.LFalse)
+		l.Push(lua.WrapErrorWithLua(l, err, "invalid path").WithKind(lua.KindInvalid))
+		return 2
+	}
 	info, err := fs.fs.Stat(target)
 	if err != nil {
 		l.Push(lua.LFalse)
@@ -142,7 +153,12 @@ func fsOpen(l *lua.LState) int {
 		return 2
 	}
 
-	resolved := fs.resolvePath(path)
+	resolved, err := fs.resolvePath(path)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.WrapErrorWithLua(l, err, "invalid path").WithKind(lua.KindInvalid))
+		return 2
+	}
 	file, err := fs.fs.OpenFile(resolved, flag, 0644)
 	if err != nil {
 		l.Push(lua.LNil)
@@ -166,7 +182,12 @@ func fsStat(l *lua.LState) int {
 		l.Push(lua.NewLuaError(l, "path required").WithKind(lua.KindInvalid))
 		return 2
 	}
-	resolved := fs.resolvePath(path)
+	resolved, err := fs.resolvePath(path)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.WrapErrorWithLua(l, err, "invalid path").WithKind(lua.KindInvalid))
+		return 2
+	}
 	info, err := fs.fs.Stat(resolved)
 	if err != nil {
 		l.Push(lua.LNil)
@@ -189,8 +210,13 @@ func fsMkdir(l *lua.LState) int {
 		l.Push(lua.NewLuaError(l, "path required").WithKind(lua.KindInvalid))
 		return 2
 	}
-	resolved := fs.resolvePath(path)
-	_, err := fs.fs.Stat(resolved)
+	resolved, err := fs.resolvePath(path)
+	if err != nil {
+		l.Push(lua.LFalse)
+		l.Push(lua.WrapErrorWithLua(l, err, "invalid path").WithKind(lua.KindInvalid))
+		return 2
+	}
+	_, err = fs.fs.Stat(resolved)
 	if err == nil {
 		l.Push(lua.LFalse)
 		l.Push(lua.NewLuaError(l, "path already exists: "+path).WithKind(lua.KindAlreadyExists))
@@ -217,7 +243,12 @@ func fsRemove(l *lua.LState) int {
 		l.Push(lua.NewLuaError(l, "path required").WithKind(lua.KindInvalid))
 		return 2
 	}
-	resolved := fs.resolvePath(path)
+	resolved, err := fs.resolvePath(path)
+	if err != nil {
+		l.Push(lua.LFalse)
+		l.Push(lua.WrapErrorWithLua(l, err, "invalid path").WithKind(lua.KindInvalid))
+		return 2
+	}
 	info, err := fs.fs.Stat(resolved)
 	if err == nil && info.IsDir() {
 		entries, err := fs.fs.ReadDir(resolved)
@@ -248,7 +279,12 @@ func fsReaddir(l *lua.LState) int {
 		l.Push(lua.NewLuaError(l, "path required").WithKind(lua.KindInvalid))
 		return 2
 	}
-	resolved := fs.resolvePath(path)
+	resolved, err := fs.resolvePath(path)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.WrapErrorWithLua(l, err, "invalid path").WithKind(lua.KindInvalid))
+		return 2
+	}
 	info, err := fs.fs.Stat(resolved)
 	if err != nil {
 		l.Push(lua.LNil)
@@ -311,8 +347,13 @@ func fsExists(l *lua.LState) int {
 		return 0
 	}
 	path := l.CheckString(2)
-	resolved := fs.resolvePath(path)
-	_, err := fs.fs.Stat(resolved)
+	resolved, err := fs.resolvePath(path)
+	if err != nil {
+		l.Push(lua.LFalse)
+		l.Push(lua.WrapErrorWithLua(l, err, "invalid path").WithKind(lua.KindInvalid))
+		return 2
+	}
+	_, err = fs.fs.Stat(resolved)
 	l.Push(lua.LBool(err == nil))
 	l.Push(lua.LNil)
 	return 2
@@ -324,7 +365,12 @@ func fsIsdir(l *lua.LState) int {
 		return 0
 	}
 	path := l.CheckString(2)
-	resolved := fs.resolvePath(path)
+	resolved, err := fs.resolvePath(path)
+	if err != nil {
+		l.Push(lua.LFalse)
+		l.Push(lua.WrapErrorWithLua(l, err, "invalid path").WithKind(lua.KindInvalid))
+		return 2
+	}
 	info, err := fs.fs.Stat(resolved)
 	if err != nil {
 		l.Push(lua.LFalse)
@@ -347,7 +393,12 @@ func fsReadfile(l *lua.LState) int {
 		l.Push(lua.NewLuaError(l, "path required").WithKind(lua.KindInvalid))
 		return 2
 	}
-	resolved := fs.resolvePath(path)
+	resolved, err := fs.resolvePath(path)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.WrapErrorWithLua(l, err, "invalid path").WithKind(lua.KindInvalid))
+		return 2
+	}
 	file, err := fs.fs.OpenFile(resolved, os.O_RDONLY, 0)
 	if err != nil {
 		l.Push(lua.LNil)
@@ -400,7 +451,12 @@ func fsWritefile(l *lua.LState) int {
 		return 2
 	}
 
-	resolved := fs.resolvePath(path)
+	resolved, err := fs.resolvePath(path)
+	if err != nil {
+		l.Push(lua.LFalse)
+		l.Push(lua.WrapErrorWithLua(l, err, "invalid path").WithKind(lua.KindInvalid))
+		return 2
+	}
 	dstFile, err := fs.fs.OpenFile(resolved, flag, 0644)
 	if err != nil {
 		l.Push(lua.LFalse)
