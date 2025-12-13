@@ -166,3 +166,25 @@ entries:
     modules:
       - funcs
 
+  # Helper for module restriction test - intentionally has NO modules list
+  - name: undeclared_module
+    kind: function.lua
+    meta:
+      comment: Function that tries to require undeclared module (should fail)
+    source: file://undeclared_module.lua
+    method: main
+    # Note: deliberately no modules list - require("json") should fail
+
+  - name: module_restriction
+    kind: function.lua
+    meta:
+      type: test
+      suite: funcs
+      description: Module restriction enforcement
+    source: file://module_restriction.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - funcs
+

@@ -1,0 +1,461 @@
+# process
+
+Process management, spawning, messaging, and lifecycle events. Process, nondeterministic.
+
+Global. No require needed.
+
+```lua
+process.spawn(...)  -- direct access
+```
+
+## Constants
+
+```lua
+process.event.CANCEL     -- "pid.cancel"
+process.event.EXIT       -- "pid.exit"
+process.event.LINK_DOWN  -- "pid.link.down"
+```
+
+## Dependencies
+
+### channel (from engine)
+
+Used by `process.inbox()`, `process.events()`, `process.listen()` for receiving messages.
+
+| Method | Signature | Returns |
+|--------|-----------|---------|
+| receive | () | value, ok: boolean |
+| close | () | - |
+| case_receive | () | case |
+| case_send | (value: any) | case |
+
+See: `runtime/lua/engine/spec.md`
+
+## Functions
+
+### id() -> string, error
+
+Returns the frame ID (call chain identifier) for the current process.
+
+**Returns:** `string` - frame ID, or `nil, error` on failure
+
+**Errors (strings):**
+- `"no context found"` - no Lua context
+- `"FrameContext not found"` - no frame context
+- `"call ID not found in context"` - missing call ID
+
+### pid() -> string, error
+
+Returns the process ID (PID) for the current process.
+
+**Returns:** `string` - PID string (e.g., `"{host|process|1234}"`), or `nil, error` on failure
+
+**Errors (strings):**
+- `"no context found"` - no Lua context
+
+### send(destination: string, topic: string, ...) -> boolean, error
+
+Sends message(s) to a process.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| destination | string | yes | - | PID string or registered name |
+| topic | string | yes | - | Topic name (cannot start with `@`) |
+| ... | any | no | - | Payload values to send |
+
+**Returns:** `true` on success, or `nil, error` on failure
+
+**Errors (strings):**
+- `"send requires at least destination and topic arguments"`
+- `"cannot send to @ topics"` - reserved topic prefix
+- `"no router found"`
+- `"could not resolve: <name>"` - name not registered
+- `"not allowed to send to: <pid>"` - permission denied
+
+### spawn(id: string, host: string, ...) -> string, error
+
+Spawns a new process.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| id | string | yes | - | Process source ID (e.g., `"app.workers:my_worker"`) |
+| host | string | yes | - | Host ID (e.g., `"app:processes"`) |
+| ... | any | no | - | Arguments passed to spawned process |
+
+**Returns:** `string` - PID of spawned process, or `nil, error` on failure
+
+**Errors (strings):**
+- `"spawn requires at least id and host arguments"`
+- `"not allowed to spawn process: <id>"` - permission denied
+- `"not allowed to spawn on host: <host>"` - permission denied
+- Various spawn errors from process manager
+
+### spawn_monitored(id: string, host: string, ...) -> string, error
+
+Spawns a new process and automatically monitors it. Parent receives EXIT events.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| id | string | yes | - | Process source ID |
+| host | string | yes | - | Host ID |
+| ... | any | no | - | Arguments passed to spawned process |
+
+**Returns:** `string` - PID of spawned process, or `nil, error` on failure
+
+**Errors (strings):**
+- `"spawn_monitored requires at least id and host arguments"`
+- `"not allowed to spawn process: <id>"` - permission denied
+- `"not allowed to spawn monitored process: <id>"` - permission denied
+
+### spawn_linked(id: string, host: string, ...) -> string, error
+
+Spawns a new process with bidirectional link. If either process exits abnormally, the other receives LINK_DOWN event.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| id | string | yes | - | Process source ID |
+| host | string | yes | - | Host ID |
+| ... | any | no | - | Arguments passed to spawned process |
+
+**Returns:** `string` - PID of spawned process, or `nil, error` on failure
+
+**Errors (strings):**
+- `"spawn_linked requires at least id and host arguments"`
+- `"not allowed to spawn process: <id>"` - permission denied
+- `"not allowed to spawn linked process: <id>"` - permission denied
+
+### spawn_linked_monitored(id: string, host: string, ...) -> string, error
+
+Spawns a new process with both linking and monitoring.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| id | string | yes | - | Process source ID |
+| host | string | yes | - | Host ID |
+| ... | any | no | - | Arguments passed to spawned process |
+
+**Returns:** `string` - PID of spawned process, or `nil, error` on failure
+
+**Errors (strings):**
+- `"spawn_linked_monitored requires at least id and host arguments"`
+- Permission errors (see spawn, spawn_monitored, spawn_linked)
+
+### terminate(destination: string) -> boolean, error
+
+Forcefully terminates a process.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| destination | string | yes | - | PID string or registered name |
+
+**Returns:** `true` on success, or `nil, error` on failure
+
+**Errors (strings):**
+- `"not allowed to terminate: <pid>"` - permission denied
+- `"could not resolve: <name>"` - name not registered
+
+### cancel(destination: string, deadline?: integer|string) -> boolean, error
+
+Requests graceful cancellation of a process. Sends CANCEL event to target.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| destination | string | yes | - | PID string or registered name |
+| deadline | integer\|string | no | 0 | Deadline: ms (integer) or Go duration (e.g., `"5s"`) |
+
+**Returns:** `true` on success, or `nil, error` on failure
+
+**Errors (strings):**
+- `"cancel requires at least destination argument"`
+- `"invalid duration format: <err>"` - bad duration string
+- `"deadline must be either a duration string or milliseconds number"`
+- `"not allowed to cancel: <pid>"` - permission denied
+
+### monitor(destination: string) -> boolean, error
+
+Starts monitoring a process. Parent will receive EXIT events when monitored process exits.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| destination | string | yes | - | PID string or registered name |
+
+**Returns:** `true` on success, or `nil, error` on failure
+
+**Errors (strings):**
+- `"monitor requires a destination argument"`
+- `"not allowed to monitor: <pid>"` - permission denied
+
+### unmonitor(destination: string) -> boolean, error
+
+Stops monitoring a process.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| destination | string | yes | - | PID string or registered name |
+
+**Returns:** `true` on success, or `nil, error` on failure
+
+**Errors (strings):**
+- `"unmonitor requires a destination argument"`
+- `"not allowed to unmonitor: <pid>"` - permission denied
+
+### link(destination: string) -> boolean, error
+
+Creates bidirectional link with another process. LINK_DOWN events are sent when linked process exits abnormally.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| destination | string | yes | - | PID string or registered name |
+
+**Returns:** `true` on success, or `nil, error` on failure
+
+**Errors (strings):**
+- `"link requires a destination argument"`
+- `"not allowed to link: <pid>"` - permission denied
+
+**Notes:**
+- LINK_DOWN is only received if `trap_links = true` in process options
+- Normal exit does not trigger LINK_DOWN
+
+### unlink(destination: string) -> boolean, error
+
+Removes bidirectional link with another process.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| destination | string | yes | - | PID string or registered name |
+
+**Returns:** `true` on success, or `nil, error` on failure
+
+**Errors (strings):**
+- `"unlink requires a destination argument"`
+- `"not allowed to unlink: <pid>"` - permission denied
+
+### get_options() -> table
+
+Returns current process options.
+
+**Returns:** `table` with fields:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| trap_links | boolean | Whether LINK_DOWN events are delivered |
+
+### set_options(options: table) -> boolean, error
+
+Sets process options.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| options | table | yes | - | Options table |
+
+**options fields:**
+
+| Field | Type | Notes |
+|-------|------|-------|
+| trap_links | boolean | Enable/disable LINK_DOWN event delivery |
+
+**Returns:** `true, nil` on success, or `false, error` on failure
+
+**Errors (strings):**
+- `"options parameter must be a table"`
+- `"no process context"`
+- `"trap_links must be a boolean"`
+- `"option <name> is not supported"`
+
+### inbox() -> channel
+
+Returns channel for receiving inbox messages. Messages are wrapped as Message objects.
+
+**Returns:** `channel` - yields until subscribed
+
+**Yields:** until subscription established
+
+### events() -> channel
+
+Returns channel for receiving lifecycle events (CANCEL, EXIT, LINK_DOWN).
+
+**Returns:** `channel` - yields until subscribed
+
+**Yields:** until subscription established
+
+**Event structure (received as table):**
+
+| Field | Type | Notes |
+|-------|------|-------|
+| kind | string | Event type (`process.event.CANCEL`, `EXIT`, `LINK_DOWN`) |
+| from | string | Source PID |
+| result | table? | For EXIT: `{value: any}` or `{error: string}` |
+| deadline | string? | For CANCEL: deadline timestamp |
+
+### listen(topic: string, options?: table) -> channel
+
+Subscribes to a custom topic.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| topic | string | yes | - | Topic name (cannot start with `@`) |
+| options | table | no | nil | Subscription options |
+
+**options fields:**
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| message | boolean | false | If true, receive Message objects; if false, receive raw payloads |
+
+**Returns:** `channel` - yields until subscribed
+
+**Yields:** until subscription established
+
+**Errors (strings):**
+- `"topic cannot be empty"`
+- `"cannot listen to @ topics"` - reserved prefix
+
+**Notes:**
+- Default: receives raw Lua values (tables, strings, etc.)
+- With `{message = true}`: receives Message objects with `:topic()`, `:payload()`, `:from()` methods
+
+### unlisten(channel: channel) -> nil
+
+Unsubscribes from a topic.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| channel | channel | yes | - | Channel returned by `listen()` |
+
+**Yields:** until unsubscription complete
+
+### with_context(values: table) -> Spawner
+
+Creates a Spawner with custom context values for child processes.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| values | table | yes | - | Key-value pairs to pass to child context |
+
+**Returns:** `Spawner` object
+
+## process.registry
+
+Subtable for process name registration.
+
+### process.registry.register(name: string, pid?: string) -> boolean, error
+
+Registers a name for a process.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| name | string | yes | - | Name to register |
+| pid | string | no | self | PID to register (defaults to current process) |
+
+**Returns:** `true` on success, or `nil, error` on failure
+
+**Errors (strings):**
+- `"not allowed to register name: <name>"` - permission denied
+- `"name already registered"` - name taken by another process
+
+### process.registry.lookup(name: string) -> string, error
+
+Looks up PID by registered name.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| name | string | yes | - | Registered name |
+
+**Returns:** `string` - PID string, or `nil, error` if not found
+
+**Errors (strings):**
+- `"name not registered"`
+
+### process.registry.unregister(name: string) -> boolean
+
+Removes a name registration.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| name | string | yes | - | Name to unregister |
+
+**Returns:** `true` if name was registered and removed, `false` if not registered
+
+**Errors (strings):**
+- `"not allowed to unregister name: <name>"` - permission denied
+
+## Types
+
+### Message
+
+Returned by `process.inbox()` receive or `process.listen()` with `{message = true}`.
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| topic | () | string | Topic the message was sent to |
+| payload | () | any | Message payload(s) - single value or table of values |
+| from | () | string? | Sender PID, or nil if unknown |
+
+### Spawner
+
+Returned by `process.with_context()`. Used to spawn processes with custom context.
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| with_context | (values: table) | Spawner | Add more context values (chainable) |
+| with_actor | (actor: Actor) | Spawner | Set security actor |
+| with_scope | (scope: Scope) | Spawner | Set security scope |
+| spawn | (id: string, host: string, ...) | string, error | Spawn with context |
+| spawn_monitored | (id: string, host: string, ...) | string, error | Spawn monitored with context |
+| spawn_linked | (id: string, host: string, ...) | string, error | Spawn linked with context |
+| spawn_linked_monitored | (id: string, host: string, ...) | string, error | Spawn linked+monitored with context |
+
+## Example
+
+```lua
+-- Basic spawn and messaging
+local child_pid, err = process.spawn_monitored("app.workers:echo", "app:processes", "hello")
+if err then error(err) end
+
+local events_ch = process.events()
+
+-- Send message to child
+process.send(child_pid, "request", {id = 1, data = "test"})
+
+-- Wait for child to exit
+local event = events_ch:receive()
+if event.kind == process.event.EXIT then
+    print("Child exited, from:", event.from)
+end
+
+-- Listen to custom topic
+local ch = process.listen("responses")
+local timeout = time.after("5s")
+
+local result = channel.select {
+    ch:case_receive(),
+    timeout:case_receive()
+}
+
+if result.channel == ch then
+    local data = result.value  -- raw Lua table/value
+    print("Got response:", data.id)
+end
+
+-- Registry usage
+process.registry.register("my_service")
+local pid = process.registry.lookup("my_service")
+process.send("my_service", "inbox", "hello")  -- send by name
+
+-- Context passing to child
+local spawner = process.with_context({
+    request_id = "req-123",
+    user_id = 42
+})
+local worker_pid = spawner:spawn_monitored("app.workers:handler", "app:processes")
+
+-- Linked processes with trap_links
+process.set_options({trap_links = true})
+local linked_pid = process.spawn_linked("app.workers:partner", "app:processes")
+
+local event = events_ch:receive()
+if event.kind == process.event.LINK_DOWN then
+    print("Partner died:", event.from)
+end
+```

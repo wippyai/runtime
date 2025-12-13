@@ -1,124 +1,157 @@
-# Lua JSON Module Specification
+# json
 
-## Overview
+JSON encoding and decoding with schema validation. Encoding, deterministic.
 
-The `json` module provides functions for encoding Lua values into JSON strings and decoding JSON strings into Lua values. It handles basic Lua types (strings, numbers, booleans, nil) as well as tables used as arrays or objects. The module also supports JSON Schema validation.
-
-## Module Interface
-
-### Module Loading
+## Loading
 
 ```lua
 local json = require("json")
 ```
 
-### Functions
+## Functions
 
-#### json.encode(value: any)
+### encode(value: any) → string
 
 Encodes a Lua value into a JSON string.
 
-Parameters:
-- `value`: The Lua value to encode.
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| value | any | yes | - | Any Lua value (nil, boolean, number, string, table) |
 
-Returns:
-- `encoded`: The JSON string representation of the value (or nil on error).
-- `error`: Structured error (or nil on success).
+**Returns:** `string` - JSON string representation (nil encodes as "null")
 
-#### json.decode(str: string)
+**Errors (structured):**
+
+| Condition | Kind | Retryable | Notes |
+|-----------|------|-----------|-------|
+| recursively nested table | errors.INTERNAL | no | Table contains itself |
+| sparse array | errors.INTERNAL | no | Non-contiguous numeric keys (e.g., {[1]="a", [3]="c"}) |
+| mixed-key table | errors.INTERNAL | no | Table has both numeric and non-numeric keys |
+| max depth exceeded | errors.INTERNAL | no | Exceeds 128 levels of nesting |
+
+**Encoding rules:**
+- `nil` → `"null"`
+- Booleans → `"true"` or `"false"`
+- Numbers → JSON numbers (Inf/NaN → `"null"`)
+- Strings → JSON strings with escaping
+- Tables with sequential numeric keys (1-based) → JSON arrays
+- Tables with string keys → JSON objects
+- Empty tables → `"[]"`
+
+### decode(str: string) → any, error
 
 Decodes a JSON string into a Lua value.
 
-Parameters:
-- `str`: The JSON string to decode.
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| str | string | yes | - | JSON string to decode |
 
-Returns:
-- `decoded`: The Lua value represented by the JSON string (or nil on error).
-- `error`: Structured error (or nil on success).
+**Returns:**
+- Success: Lua value (nil for "null")
+- Error: `nil, error` - error is structured
 
-#### json.validate(schema: table|string, data: any)
+**Errors (structured):**
 
-Validates a Lua value against a JSON schema.
+| Condition | Kind | Retryable | Notes |
+|-----------|------|-----------|-------|
+| input not string | errors.INVALID | no | Non-string argument |
+| empty string | errors.INVALID | no | Empty string is not valid JSON |
+| invalid JSON | errors.INTERNAL | no | Malformed JSON syntax |
 
-Parameters:
-- `schema`: The JSON schema as a Lua table or JSON string.
-- `data`: The Lua value to validate against the schema.
+**Decoding rules:**
+- `"null"` → `nil`
+- JSON booleans → Lua booleans
+- JSON numbers → Lua numbers
+- JSON strings → Lua strings
+- JSON arrays → 1-indexed Lua tables
+- JSON objects → Lua tables with string keys
 
-Returns:
-- `valid`: Boolean `true` if validation succeeds, `false` on error.
-- `error`: Structured error (or nil on success).
+### validate(schema: table | string, data: any) → boolean, error
 
-#### json.validate_string(schema: table|string, json_str: string)
+Validates a Lua value against a JSON Schema.
 
-Validates a JSON string against a JSON schema without decoding it first.
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| schema | table \| string | yes | - | JSON Schema as Lua table or JSON string |
+| data | any | yes | - | Lua value to validate |
 
-Parameters:
-- `schema`: The JSON schema as a Lua table or JSON string.
-- `json_str`: The JSON string to validate.
+**Returns:**
+- Success: `true` - data is valid
+- Error: `false, error` - error is structured
 
-Returns:
-- `valid`: Boolean `true` if validation succeeds, `false` on error.
-- `error`: Structured error (or nil on success).
+**Errors (structured):**
 
-## Error Handling
+| Condition | Kind | Retryable | Notes |
+|-----------|------|-----------|-------|
+| schema is nil | errors.INVALID | no | Schema parameter required |
+| data is nil | errors.INVALID | no | Data parameter required |
+| schema invalid | errors.INVALID | no | Schema not table or string |
+| schema compile error | errors.INVALID | no | Invalid JSON Schema |
+| validation failed | errors.INVALID | no | Data doesn't match schema |
 
-All errors are returned as structured error objects with:
-- `message`: Human-readable error description
-- `kind`: Error kind (e.g., "invalid", "internal")
-- `retryable`: Boolean indicating if the operation can be retried
+**Schema caching:** Schemas are cached internally by SHA256 hash (cache size: 100).
 
-Common error scenarios:
+### validate_string(schema: table | string, json_str: string) → boolean, error
 
-1. **Invalid Input Type**: Non-string input to `decode`
-2. **Empty String**: Empty string input to `decode`
-3. **Invalid JSON**: Malformed JSON string
-4. **Recursive Tables**: Tables containing themselves
-5. **Sparse Arrays**: Non-contiguous numeric keys
-6. **Mixed Keys**: Tables with both numeric and string keys
+Validates a JSON string against a JSON Schema without decoding it first.
 
-## Behavior
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| schema | table \| string | yes | - | JSON Schema as Lua table or JSON string |
+| json_str | string | yes | - | JSON string to validate |
 
-### Encoding
+**Returns:**
+- Success: `true` - JSON string is valid
+- Error: `false, error` - error is structured
 
-- `nil` encodes as `null`
-- Booleans encode as `true` or `false`
-- Numbers encode as JSON numbers
-- Strings encode as JSON strings with proper escaping
-- Tables with sequential numeric keys (1-based) encode as arrays
-- Tables with string keys encode as objects
-- Nested tables are supported (no recursion allowed)
+**Errors (structured):**
 
-### Decoding
+| Condition | Kind | Retryable | Notes |
+|-----------|------|-----------|-------|
+| schema is nil | errors.INVALID | no | Schema parameter required |
+| data not string | errors.INVALID | no | Second parameter must be string |
+| schema invalid | errors.INVALID | no | Schema not table or string |
+| schema compile error | errors.INVALID | no | Invalid JSON Schema |
+| validation failed | errors.INVALID | no | JSON doesn't match schema |
 
-- `null` decodes as `nil`
-- JSON booleans decode as Lua booleans
-- JSON numbers decode as Lua numbers
-- JSON strings decode as Lua strings
-- JSON arrays decode as 1-indexed Lua tables
-- JSON objects decode as Lua tables with string keys
+## Errors
 
-## Example Usage
+This module returns structured errors. Check kind with `errors.*` constants:
+
+```lua
+local result, err = json.decode("invalid")
+if err then
+    if err:kind() == errors.INVALID then
+        -- bad input
+    elseif err:kind() == errors.INTERNAL then
+        -- encoding/decoding failed
+    end
+    print(err:message())
+    print(err:retryable())  -- always false for this module
+end
+```
+
+**Possible kinds:** `errors.INVALID`, `errors.INTERNAL`
+
+## Example
 
 ```lua
 local json = require("json")
 
--- Encode a table
+-- Encode a table to JSON
 local data = {name = "John", age = 30, active = true}
-local encoded, err = json.encode(data)
-if err then
-    print("Error:", err.message)
-else
-    print(encoded) -- {"name":"John","age":30,"active":true}
-end
+local encoded = json.encode(data)
+-- Result: {"name":"John","age":30,"active":true} (order may vary)
 
--- Decode JSON
+-- Decode JSON to Lua table
 local decoded, err = json.decode('{"name":"Jane","items":[1,2,3]}')
-if decoded then
-    print(decoded.name)     -- Jane
-    print(decoded.items[1]) -- 1
+if err then
+    error(err:message())
 end
+print(decoded.name)     -- "Jane"
+print(decoded.items[1]) -- 1
 
--- Validate with schema
+-- Validate data against schema
 local schema = {
     type = "object",
     properties = {
@@ -128,11 +161,19 @@ local schema = {
     required = {"name"}
 }
 
-local valid, err = json.validate(schema, {name = "John", age = 30})
-if valid then
-    print("Data is valid")
+local valid, err2 = json.validate(schema, {name = "John", age = 30})
+if not valid then
+    error(err2:message())
 end
 
 -- Validate JSON string directly
-local valid, err = json.validate_string(schema, '{"name":"Jane","age":25}')
+local valid2, err3 = json.validate_string(schema, '{"name":"Jane","age":25}')
+if not valid2 then
+    error(err3:message())
+end
+
+-- Round-trip encode/decode
+local original = {items = {1, 2, 3}, meta = {ok = true}}
+local json_str = json.encode(original)
+local restored = json.decode(json_str)
 ```

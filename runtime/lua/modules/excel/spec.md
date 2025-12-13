@@ -1,278 +1,298 @@
-# Lua Excel Module Specification
+# excel
 
-## Overview
+Excel file operations for reading and writing .xlsx workbooks. IO, encoding, deterministic.
 
-The `excel` module provides Excel file operations for Lua. It allows creating, reading, and writing Excel workbooks using the `.xlsx` format.
-
-## Module Interface
-
-### Module Loading
+## Loading
 
 ```lua
 local excel = require("excel")
 ```
 
-### Functions
+## Functions
 
-#### excel.new()
+### new() → Workbook, error
 
 Creates a new empty Excel workbook.
 
-Returns:
+**Returns:**
+- Success: `Workbook, nil` - new workbook with default "Sheet1"
+- Error: `nil, error` - structured error
 
-- `workbook`: Workbook object (or nil on error).
-- `error`: Structured error object (or nil on success).
+**Errors (structured):**
 
-#### excel.open(reader: userdata)
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| no context | errors.INTERNAL | no |
+
+### open(reader: File) → Workbook, error
 
 Opens an Excel workbook from a reader object.
 
-Parameters:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| reader | File | yes | - | Must implement io.Reader (e.g., fs.File) |
 
-- `reader`: Object implementing `io.Reader` (e.g., file handle, buffer).
+**Returns:**
+- Success: `Workbook, nil` - opened workbook
+- Error: `nil, error` - structured error
 
-Returns:
+**Errors (structured):**
 
-- `workbook`: Workbook object (or nil on error).
-- `error`: Structured error object (or nil on success).
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| no context | errors.INTERNAL | no |
+| not a reader | argument error (Lua runtime) | - |
+| invalid Excel file | errors.INTERNAL | no |
+| empty file | errors.INTERNAL | no |
 
-## Workbook Methods
+## Types
 
-### workbook:new_sheet(name: string)
+### Workbook
 
-Creates a new sheet in the workbook.
+Returned by `excel.new()` and `excel.open()`. Represents an Excel .xlsx workbook.
 
-Parameters:
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| new_sheet | (name: string) → integer, error | Sheet index | Creates sheet or returns existing index |
+| get_sheet_list | () → string[], error | Sheet names | Returns all sheet names as array |
+| get_rows | (sheet: string) → string[][], error | 2D array of cells | All values as strings |
+| set_cell_value | (sheet: string, cell: string, value: any) → error | - | Sets single cell value |
+| write_to | (writer: File) → error | - | Writes workbook to writer |
+| close | () → error | - | Closes workbook, releases resources |
 
-- `name`: Name of the new sheet.
+#### workbook:new_sheet(name: string) → integer, error
 
-Returns:
+Creates a new sheet or returns existing sheet index.
 
-- `index`: Sheet index number (or nil on error).
-- `error`: Structured error object (or nil on success).
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| name | string | yes | - | Sheet name |
 
-### workbook:get_sheet_list()
+**Returns:**
+- Success: `integer, nil` - sheet index (1-based)
+- Error: `nil, error` - structured error
 
-Gets a list of all sheet names in the workbook.
+**Errors (structured):**
 
-Returns:
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| invalid workbook | errors.INVALID | no |
+| workbook closed | errors.INTERNAL | no |
 
-- `sheets`: Array of sheet names (or nil on error).
-- `error`: Structured error object (or nil on success).
+**Notes:**
+- If sheet with same name exists, returns existing sheet index
+- No error on duplicate name
 
-### workbook:get_rows(sheet_name: string)
+#### workbook:get_sheet_list() → string[], error
 
-Gets all rows from a sheet.
+Returns list of all sheet names in workbook.
 
-Parameters:
+**Returns:**
+- Success: `string[], nil` - array of sheet names
+- Error: `nil, error` - structured error
 
-- `sheet_name`: Name of the sheet to read.
+**Errors (structured):**
 
-Returns:
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| invalid workbook | errors.INVALID | no |
+| workbook closed | errors.INTERNAL | no |
 
-- `rows`: 2D array of cell values as strings (or nil on error).
-- `error`: Structured error object (or nil on success).
+**Notes:**
+- New workbooks have at least one default sheet (typically "Sheet1")
+- Order matches sheet order in workbook
 
-### workbook:set_cell_value(sheet_name: string, cell: string, value: any)
+#### workbook:get_rows(sheet: string) → string[][], error
 
-Sets a cell value in the workbook.
+Gets all rows from a sheet as 2D array.
 
-Parameters:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| sheet | string | yes | - | Sheet name |
 
-- `sheet_name`: Name of the sheet.
-- `cell`: Cell reference (e.g., "A1", "B2").
-- `value`: Value to set (string, number, integer, boolean).
+**Returns:**
+- Success: `string[][], nil` - 2D array where rows[row][col] is cell value
+- Error: `nil, error` - structured error
 
-Returns:
+**Errors (structured):**
 
-- `error`: Structured error object (or nil on success).
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| invalid workbook | errors.INVALID | no |
+| workbook closed | errors.INTERNAL | no |
+| non-existent sheet | errors.INTERNAL | no |
 
-### workbook:write_to(writer: userdata)
+**Notes:**
+- All cell values returned as strings (numbers, booleans converted)
+- Empty sheet returns empty table `{}`
+- Booleans returned as "TRUE" or "FALSE" (uppercase)
+- Numbers returned as string representation ("123", "45.67")
+- Arrays are 1-indexed (Lua convention)
 
-Writes the workbook to a writer object.
+#### workbook:set_cell_value(sheet: string, cell: string, value: any) → error
 
-Parameters:
+Sets value of a single cell.
 
-- `writer`: Object implementing `io.Writer`.
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| sheet | string | yes | - | Sheet name |
+| cell | string | yes | - | Cell reference ("A1", "B2", "AA100") |
+| value | any | yes | - | string, integer, number, boolean |
 
-Returns:
+**Returns:**
+- Success: `nil`
+- Error: `error` - structured error
 
-- `error`: Structured error object (or nil on success).
+**Errors (structured):**
 
-### workbook:close()
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| invalid workbook | errors.INTERNAL | no |
+| workbook closed | errors.INTERNAL | no |
+| non-existent sheet | errors.INTERNAL | no |
+| invalid cell reference | errors.INTERNAL | no |
 
-Closes the workbook and releases resources.
+**Notes:**
+- Cell reference format: column letter(s) + row number
+- Column letters are case-insensitive but uppercase preferred
+- Supports types: string, integer (Lua 5.3), number (float), boolean
+- Create sheet first with `new_sheet()` before setting cells
 
-Returns:
+#### workbook:write_to(writer: File) → error
 
-- `error`: Structured error object (or nil on success).
+Writes workbook to a writer object.
 
-## Error Handling
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| writer | File | yes | - | Must implement io.Writer (e.g., fs.File) |
 
-The module returns structured errors using the `lua.Error` type.
+**Returns:**
+- Success: `nil`
+- Error: `error` - structured error
 
-### Error Types
+**Errors (structured):**
 
-1. **Invalid Workbook:** If the workbook object is invalid.
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| invalid workbook | errors.INTERNAL | no |
+| workbook closed | errors.INTERNAL | no |
+| not a writer | errors.INTERNAL | no |
+| write failed | errors.INTERNAL | no |
+
+**Notes:**
+- Writer must be opened for writing before calling
+- Does not close the writer
+- Call `writer:close()` separately after writing
+
+#### workbook:close() → error
+
+Closes workbook and releases resources.
+
+**Returns:**
+- Success: `nil`
+- Error: `error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| invalid workbook | errors.INTERNAL | no |
+
+**Notes:**
+- Idempotent - safe to call multiple times
+- All operations after close will error with "workbook is closed"
+- Workbooks are automatically closed when Lua context ends
+- Best practice: always call close when done
+
+## Dependencies
+
+### File (from fs module)
+
+File objects implement Go's io.Reader and io.Writer interfaces, used by `excel.open()` and `workbook:write_to()`.
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| close | () → error | - | Close file handle |
+
+See: `runtime/lua/modules/fs/spec.md`
+
+## Errors
+
+This module returns structured errors. Check kind with `errors.*` constants:
 
 ```lua
--- fake_wb is userdata but not a valid Workbook
-local index, err = fake_wb:new_sheet("Test")
--- index: nil
--- err:kind() == errors.INVALID
--- err:retryable() == false
-```
-
-2. **Internal Error:** For operation failures.
-
-```lua
-local rows, err = wb:get_rows("NonExistentSheet")
--- rows: nil
--- err:kind() == errors.INTERNAL
--- err:retryable() == false
-```
-
-3. **Closed Workbook:** Operations on a closed workbook.
-
-```lua
-wb:close()
-local sheets, err = wb:get_sheet_list()
--- sheets: nil
--- err:kind() == errors.INTERNAL
--- tostring(err) contains "workbook is closed"
-```
-
-### Error Kind Comparison
-
-Always use `errors.*` constants for kind comparison:
-
-```lua
-local rows, err = wb:get_rows(sheet_name)
+local wb, err = excel.open(file)
 if err then
     if err:kind() == errors.INVALID then
-        -- handle invalid workbook
+        -- invalid workbook userdata
     elseif err:kind() == errors.INTERNAL then
-        -- handle operation error
+        -- operation failed (non-existent sheet, closed workbook, etc.)
     end
 end
 ```
 
-## Behavior
+**Possible kinds:** `errors.INVALID`, `errors.INTERNAL`
 
-1. **Value Types**
-   - Strings are stored as text.
-   - Numbers (integer and float) are stored as numeric values.
-   - Booleans are stored as TRUE/FALSE.
-   - All values are returned as strings from `get_rows`.
+All errors are non-retryable (`err:retryable() == false`).
 
-2. **Cell References**
-   - Use Excel-style references: "A1", "B2", "AA100", etc.
-   - Column letters are uppercase.
-
-3. **Sheet Management**
-   - New workbooks have a default "Sheet1".
-   - Creating a sheet with an existing name returns the existing sheet index.
-
-4. **Resource Management**
-   - Always call `close()` when done with a workbook.
-   - Resources are automatically cleaned up when the Lua context ends.
-
-## Thread Safety
-
-- Workbook objects are single-thread owned.
-- Each Lua state should use its own workbook instances.
-
-## Module Classification
-
-- **Class**: `io`, `encoding`
-- Operations involve file I/O and data encoding/decoding.
-
-## Example Usage
+## Example
 
 ```lua
 local excel = require("excel")
+local fs = require("fs")
 
--- Create a new workbook
-local wb, err = excel.new()
-if err then
-    print("Error:", err)
-    return
-end
+-- Create new workbook
+local wb = excel.new()
 
--- Create a sheet
+-- Create sheet
 wb:new_sheet("Sales")
 
--- Set cell values
-wb:set_cell_value("Sales", "A1", "Product")
-wb:set_cell_value("Sales", "B1", "Price")
-wb:set_cell_value("Sales", "A2", "Widget")
-wb:set_cell_value("Sales", "B2", 29.99)
-wb:set_cell_value("Sales", "A3", "Gadget")
-wb:set_cell_value("Sales", "B3", 49.99)
+-- Set headers
+wb:set_cell_value("Sales", "A1", "Month")
+wb:set_cell_value("Sales", "B1", "Revenue")
+wb:set_cell_value("Sales", "C1", "Expenses")
+
+-- Set data
+wb:set_cell_value("Sales", "A2", "Jan")
+wb:set_cell_value("Sales", "B2", 10000)
+wb:set_cell_value("Sales", "C2", 8000)
+
+wb:set_cell_value("Sales", "A3", "Feb")
+wb:set_cell_value("Sales", "B3", 12000)
+wb:set_cell_value("Sales", "C3", 8500)
 
 -- Read rows back
 local rows, err = wb:get_rows("Sales")
-if err then
-    print("Error:", err)
-else
-    for i, row in ipairs(rows) do
-        print("Row " .. i .. ":", table.concat(row, ", "))
-    end
+if err then error(err) end
+
+for i, row in ipairs(rows) do
+    print("Row " .. i .. ": " .. row[1] .. ", " .. row[2] .. ", " .. row[3])
 end
 -- Output:
--- Row 1: Product, Price
--- Row 2: Widget, 29.99
--- Row 3: Gadget, 49.99
+-- Row 1: Month, Revenue, Expenses
+-- Row 2: Jan, 10000, 8000
+-- Row 3: Feb, 12000, 8500
 
--- Get sheet list
-local sheets = wb:get_sheet_list()
-for _, name in ipairs(sheets) do
-    print("Sheet:", name)
-end
+-- Write to file
+local file, err = fs.create("report.xlsx")
+if err then error(err) end
 
--- Write to file (using fs module)
-local fs = require("fs")
-local file = fs.create("report.xlsx")
-wb:write_to(file)
+local err = wb:write_to(file)
+if err then error(err) end
+
 file:close()
-
--- Close workbook
 wb:close()
 
 -- Open existing file
-local file = fs.open("report.xlsx")
-local wb2 = excel.open(file)
-local rows = wb2:get_rows("Sales")
+local file2, err = fs.open("report.xlsx")
+if err then error(err) end
+
+local wb2, err = excel.open(file2)
+if err then error(err) end
+
+local rows2 = wb2:get_rows("Sales")
+-- Access data: rows2[2][1] == "Jan"
+
 wb2:close()
-file:close()
-```
-
-## Implementation Notes
-
-- Uses Go's `github.com/xuri/excelize/v2` library.
-- Module uses `ModuleDef` struct for definition.
-- Module table is created once and shared across all Lua states.
-- Workbook type is registered as "excel.Workbook".
-- Errors include Lua stack traces for debugging.
-
-## Go Implementation
-
-```go
-var Module = &luaapi.ModuleDef{
-    Name:        "excel",
-    Description: "Excel file operations",
-    Class:       []string{luaapi.ClassIO, luaapi.ClassEncoding},
-    Build: func() (*lua.LTable, []luaapi.YieldType) {
-        mod := lua.CreateTable(0, 2)
-        mod.RawSetString("new", lua.LGoFunc(excelNew))
-        mod.RawSetString("open", lua.LGoFunc(excelOpen))
-        mod.Immutable = true
-
-        workbookMetatable = value.RegisterTypeMethods(nil, workbookTypeName,
-            map[string]lua.LGoFunc{"__tostring": workbookToString},
-            workbookMethods)
-
-        return mod, nil
-    },
-}
+file2:close()
 ```

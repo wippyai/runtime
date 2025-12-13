@@ -1,198 +1,204 @@
-# Lua WebSocket Module Specification
+# websocket
 
-## Overview
+WebSocket client connections. Network, io, nondeterministic.
 
-The `websocket` module provides a Lua interface for WebSocket client connections. It supports connecting to WebSocket servers, sending/receiving messages, and handling connection lifecycle.
-
-## Module Interface
-
-### Module Loading
+## Loading
 
 ```lua
 local websocket = require("websocket")
 ```
 
-### Functions
+## Constants
 
-#### websocket.connect(url: string, options?: table)
+```lua
+websocket.TYPE_TEXT                    -- "text"
+websocket.TYPE_BINARY                  -- "binary"
+websocket.TYPE_PING                    -- "ping"
+websocket.TYPE_PONG                    -- "pong"
+websocket.TYPE_CLOSE                   -- "close"
+websocket.TEXT                         -- 1
+websocket.BINARY                       -- 2
+websocket.COMPRESSION.DISABLED         -- 0
+websocket.COMPRESSION.CONTEXT_TAKEOVER -- 1
+websocket.COMPRESSION.NO_CONTEXT       -- 2
+websocket.CLOSE_CODES.NORMAL           -- 1000
+websocket.CLOSE_CODES.GOING_AWAY       -- 1001
+websocket.CLOSE_CODES.PROTOCOL_ERROR   -- 1002
+websocket.CLOSE_CODES.UNSUPPORTED_DATA -- 1003
+websocket.CLOSE_CODES.RESERVED         -- 1004
+websocket.CLOSE_CODES.NO_STATUS        -- 1005
+websocket.CLOSE_CODES.ABNORMAL_CLOSURE -- 1006
+websocket.CLOSE_CODES.INVALID_PAYLOAD  -- 1007
+websocket.CLOSE_CODES.POLICY_VIOLATION -- 1008
+websocket.CLOSE_CODES.MESSAGE_TOO_BIG  -- 1009
+websocket.CLOSE_CODES.MANDATORY_EXTENSION -- 1010
+websocket.CLOSE_CODES.INTERNAL_ERROR   -- 1011
+websocket.CLOSE_CODES.SERVICE_RESTART  -- 1012
+websocket.CLOSE_CODES.TRY_AGAIN_LATER  -- 1013
+websocket.CLOSE_CODES.BAD_GATEWAY      -- 1014
+websocket.CLOSE_CODES.TLS_HANDSHAKE    -- 1015
+```
+
+## Dependencies
+
+### channel (from engine)
+
+Used by `client:channel()` for receiving messages.
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| receive | () | value, ok: boolean | Blocks until value available. ok=false when closed |
+| close | () | - | Closes channel |
+
+See: `runtime/lua/engine/spec.md`
+
+## Functions
+
+### connect(url: string, options?: table) -> Client, error
 
 Establishes a WebSocket connection.
 
-Parameters:
-- `url`: WebSocket URL (ws:// or wss://)
-- `options`: (Optional) Connection options table:
-  - `headers`: Table of HTTP headers to send during handshake
-  - `dial_timeout`: Connection timeout in seconds
-  - `compression`: Compression mode ("disabled", "context_takeover", "no_context_takeover")
-  - `compression_threshold`: Minimum message size for compression
-  - `read_limit`: Maximum message size in bytes
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| url | string | yes | - | WebSocket URL (ws:// or wss://) |
+| options | table | no | nil | Connection options |
 
-Returns:
-- `client, error`: WebSocket client object on success, or `nil` and error message on failure
+**options fields:**
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| headers | {[string]: string} | nil | HTTP headers for handshake |
+| protocols | string[] | nil | WebSocket subprotocols |
+| dial_timeout | integer\|string | 0 | Milliseconds or Go duration ("5s") |
+| read_timeout | integer\|string | 0 | Milliseconds or Go duration ("5s") |
+| write_timeout | integer\|string | 0 | Milliseconds or Go duration ("5s") |
+| compression | integer\|string | 0 | Mode: 0/"disabled", 1/"context_takeover", 2/"no_context_takeover" |
+| compression_threshold | integer | 0 | Minimum message size for compression (0-104857600 bytes) |
+| read_limit | integer | 0 | Maximum message size in bytes (0-134217728) |
+| channel_capacity | integer | 32 | Channel buffer size (1-10000) |
+
+**Returns:**
+- Success: `Client, nil` - Client userdata
+- Error: `nil, error` - error is string
+
+**Errors (strings):**
+- `"no context"` - missing context
+- `"websocket connections not allowed"` - security policy
+- `"not allowed: {url}"` - URL not allowed by policy
+- Connection errors from underlying transport
+
+**Yields:** until connection established or timeout
 
 ```lua
-local client, err = websocket.connect("wss://echo.websocket.org", {
+local client, err = websocket.connect("wss://echo.example.com", {
     headers = { Authorization = "Bearer token" },
-    dial_timeout = 5,
+    dial_timeout = 5000,
     compression = "context_takeover"
 })
 ```
 
-## Client Methods
+## Types
 
-### client:send(data: string, messageType?: number)
+### Client
+
+Returned by `websocket.connect()`.
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| send | (data: string, type?: integer) | - | Yields until sent. type: websocket.TEXT (1) or websocket.BINARY (2) |
+| channel | () | channel | First call yields to subscribe, subsequent calls return same channel |
+| receive | () | channel | Alias for channel() |
+| ping | () | - | Yields until ping sent |
+| close | (code?: integer, reason?: string) | - | Yields until close sent. code default 1000 |
+
+#### client:send(data: string, type?: integer)
 
 Sends a message to the server.
 
-Parameters:
-- `data`: Message data as string
-- `messageType`: (Optional) Message type (websocket.TEXT or websocket.BINARY, defaults to TEXT)
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | Message data |
+| type | integer | no | 1 | websocket.TEXT (1) or websocket.BINARY (2) |
+
+**Yields:** until message sent
 
 ```lua
-client:send("Hello, WebSocket!")
+client:send("Hello")
 client:send("\x00\x01\x02", websocket.BINARY)
 ```
 
-### client:channel()
+#### client:channel() -> channel
 
-Returns a channel object for receiving messages.
+Returns channel for receiving messages. First call yields to subscribe and returns channel. Subsequent calls return the same channel without yielding.
 
-Returns:
-- `channel`: WebSocket channel object
+**Returns:** channel userdata
+
+**Yields:** on first call only, until subscription established
+
+**Channel messages:**
+
+Messages received on the channel are tables with:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| type | string | "text" or "binary" |
+| data | string | Message data |
 
 ```lua
-local ch = client:channel()
+local ch = client:channel()  -- first call yields
+while true do
+    local msg, ok = ch:receive()
+    if not ok then break end   -- channel closed
+    print(msg.type, msg.data)
+end
 ```
 
-### client:receive()
+#### client:receive() -> channel
 
-Alias for `client:channel()` for v1 API compatibility.
+Alias for `client:channel()`. Provided for v1 API compatibility.
 
-### client:ping()
+#### client:ping()
 
 Sends a ping to the server.
+
+**Yields:** until ping sent
 
 ```lua
 client:ping()
 ```
 
-### client:close(code?: number, reason?: string)
+#### client:close(code?: integer, reason?: string)
 
-Closes the connection.
+Closes the WebSocket connection.
 
-Parameters:
-- `code`: (Optional) Close status code (default: 1000)
-- `reason`: (Optional) Close reason string
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| code | integer | no | 1000 | Close code (1000-4999) |
+| reason | string | no | "" | Close reason |
+
+**Yields:** until close sent
 
 ```lua
 client:close(websocket.CLOSE_CODES.NORMAL, "done")
 ```
 
-## Channel Methods
-
-### channel:receive()
-
-Waits for and returns the next message.
-
-Returns:
-- `message, ok`: Message table and boolean success flag
-
-Message table fields:
-- `type`: Message type ("text", "binary", or "close")
-- `data`: Message data (string)
-
-```lua
-local ch = client:channel()
-local msg, ok = ch:receive()
-if ok and msg.type == "text" then
-    print("Received:", msg.data)
-end
-```
-
-## Constants
-
-### Message Types (Strings)
-
-```lua
-websocket.TYPE_TEXT    -- "text"
-websocket.TYPE_BINARY  -- "binary"
-websocket.TYPE_PING    -- "ping"
-websocket.TYPE_PONG    -- "pong"
-websocket.TYPE_CLOSE   -- "close"
-```
-
-### Message Types (Numeric)
-
-```lua
-websocket.TEXT    -- 1
-websocket.BINARY  -- 2
-```
-
-### Compression Modes
-
-```lua
-websocket.COMPRESSION.DISABLED         -- 0
-websocket.COMPRESSION.CONTEXT_TAKEOVER -- 1
-websocket.COMPRESSION.NO_CONTEXT       -- 2
-```
-
-### Close Codes
-
-```lua
-websocket.CLOSE_CODES.NORMAL              -- 1000
-websocket.CLOSE_CODES.GOING_AWAY          -- 1001
-websocket.CLOSE_CODES.PROTOCOL_ERROR      -- 1002
-websocket.CLOSE_CODES.UNSUPPORTED_DATA    -- 1003
-websocket.CLOSE_CODES.RESERVED            -- 1004
-websocket.CLOSE_CODES.NO_STATUS           -- 1005
-websocket.CLOSE_CODES.ABNORMAL_CLOSURE    -- 1006
-websocket.CLOSE_CODES.INVALID_PAYLOAD     -- 1007
-websocket.CLOSE_CODES.POLICY_VIOLATION    -- 1008
-websocket.CLOSE_CODES.MESSAGE_TOO_BIG     -- 1009
-websocket.CLOSE_CODES.MANDATORY_EXTENSION -- 1010
-websocket.CLOSE_CODES.INTERNAL_ERROR      -- 1011
-websocket.CLOSE_CODES.SERVICE_RESTART     -- 1012
-websocket.CLOSE_CODES.TRY_AGAIN_LATER     -- 1013
-websocket.CLOSE_CODES.BAD_GATEWAY         -- 1014
-websocket.CLOSE_CODES.TLS_HANDSHAKE       -- 1015
-```
-
-## Example Usage
+## Example
 
 ```lua
 local websocket = require("websocket")
 
--- Connect to echo server
-local client, err = websocket.connect("wss://echo.websocket.org")
-if err then
-    error("connect failed: " .. err)
-end
+local client, err = websocket.connect("wss://echo.websocket.org", {
+    dial_timeout = 5000
+})
+if err then error(err) end
 
--- Send a message
-client:send("Hello, WebSocket!")
+client:send("Hello WebSocket!")
 
--- Receive the echo
 local ch = client:channel()
 local msg, ok = ch:receive()
 if ok and msg.type == "text" then
     print("Received:", msg.data)
 end
 
--- Close connection
-client:close(websocket.CLOSE_CODES.NORMAL, "done")
-```
-
-## Module Classification
-
-- **Class**: `network`, `io`, `nondeterministic`
-
-## Go Implementation
-
-```go
-var Module = &luaapi.ModuleDef{
-    Name:        "websocket",
-    Description: "WebSocket client connections",
-    Class:       []string{luaapi.ClassNetwork, luaapi.ClassIO, luaapi.ClassNondeterministic},
-    Build:       buildModule,
-}
+client:close(websocket.CLOSE_CODES.NORMAL)
 ```

@@ -982,3 +982,61 @@ func TestDuplicateValuesPairsOverwrite(t *testing.T) {
 
 	// The fix: use buildMergedContextPairs which creates ONE ValuesPair with merged values
 }
+
+func TestMergedContextPairsAppliedCorrectly(t *testing.T) {
+	// This test verifies the FIX: merged pairs when applied to a new frame
+	// preserve BOTH inherited and explicit values.
+	l := lua.NewState()
+	defer l.Close()
+
+	// Set up caller's frame context with session_id (simulating session process)
+	callerCtx, callerFC := ctxapi.AcquireFrameContext(l.Context())
+	defer ctxapi.ReleaseFrameContext(callerFC)
+
+	frameValues := ctxapi.NewValues()
+	frameValues.Set("session_id", "sess-123")
+	frameValues.Set("user_id", "user-456")
+	callerFC.Set(ctxapi.ValuesCtx, frameValues)
+	l.SetContext(callerCtx)
+
+	// Create explicit values (simulating with_context({agent_id=...}))
+	execValues := ctxapi.NewValues()
+	execValues.Set("agent_id", "agent-789")
+	execValues.Set("call_id", "call-abc")
+
+	// Build merged pairs (this is what the fix does)
+	mergedPairs := buildMergedContextPairs(l, execValues)
+
+	// Apply merged pairs to a NEW frame (simulating scheduler creating callee frame)
+	calleeCtx, calleeFC := ctxapi.AcquireFrameContext(context.Background())
+	defer ctxapi.ReleaseFrameContext(calleeFC)
+
+	for _, p := range mergedPairs {
+		calleeFC.Set(p.Key, p.Value)
+	}
+
+	// Verify BOTH inherited AND explicit values are present in the callee's context
+	resultValues := ctxapi.GetValues(calleeCtx)
+	if resultValues == nil {
+		t.Fatal("resultValues should not be nil")
+	}
+
+	sessionID, hasSessionID := resultValues.Get("session_id")
+	userID, hasUserID := resultValues.Get("user_id")
+	agentID, hasAgentID := resultValues.Get("agent_id")
+	callID, hasCallID := resultValues.Get("call_id")
+
+	// All values should be present
+	if !hasSessionID || sessionID != "sess-123" {
+		t.Errorf("session_id should be preserved, got hasSessionID=%v, value=%v", hasSessionID, sessionID)
+	}
+	if !hasUserID || userID != "user-456" {
+		t.Errorf("user_id should be preserved, got hasUserID=%v, value=%v", hasUserID, userID)
+	}
+	if !hasAgentID || agentID != "agent-789" {
+		t.Errorf("agent_id should be present, got hasAgentID=%v, value=%v", hasAgentID, agentID)
+	}
+	if !hasCallID || callID != "call-abc" {
+		t.Errorf("call_id should be present, got hasCallID=%v, value=%v", hasCallID, callID)
+	}
+}

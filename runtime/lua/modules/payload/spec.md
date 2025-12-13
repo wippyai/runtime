@@ -1,156 +1,130 @@
-# Lua Payload Module Specification
+# payload
 
-## Overview
+Data transcoding and format conversion. Encoding, deterministic.
 
-The `payload` module provides payload transcoding and format conversion. This module is preloaded by default and available globally without requiring `require()`.
-
-## Module Interface
-
-The module is available globally as `payload`.
+## Constants
 
 ```lua
-local p = payload.new({key = "value"})
+payload.format.JSON     -- "json/plain"
+payload.format.YAML     -- "yaml/plain"
+payload.format.STRING   -- "text/plain"
+payload.format.BYTES    -- "application/octet-stream"
+payload.format.MSGPACK  -- "application/msgpack"
+payload.format.LUA      -- "lua/any"
+payload.format.GOLANG   -- "golang/any"
+payload.format.ERROR    -- "golang/error"
 ```
-
-## Format Constants
-
-### payload.format
-
-A table of format constants:
-
-- `payload.format.JSON` - `"json/plain"`
-- `payload.format.YAML` - `"yaml/plain"`
-- `payload.format.STRING` - `"text/plain"`
-- `payload.format.BYTES` - `"application/octet-stream"`
-- `payload.format.MSGPACK` - `"application/msgpack"`
-- `payload.format.LUA` - `"lua/any"`
-- `payload.format.GOLANG` - `"golang/any"`
-- `payload.format.ERROR` - `"golang/error"`
 
 ## Functions
 
-### payload.new(value)
+### new(value: any) -> Payload
 
 Creates a new payload from a Lua value.
 
-Parameters:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| value | any | yes | - | string, number, boolean, table, nil, or error |
 
-- `value`: Any Lua value (string, number, boolean, table, nil, or error).
-
-Returns:
-
-- `payload`: A payload object.
+**Returns:** `Payload` - wrapper with format `payload.format.LUA` (or `payload.format.ERROR` if value is an error)
 
 ```lua
 local p = payload.new({key = "value"})
-local str_p = payload.new("hello")
-local num_p = payload.new(42)
+local err_p = payload.new(errors.new("failed"))  -- format = ERROR
 ```
 
-## Payload Methods
+## Types
 
-### p:get_format()
+### Payload
 
-Returns the format of the payload.
+Returned by `payload.new()` or received from other modules.
 
-Returns:
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| get_format | () | string | One of `payload.format.*` values |
+| data | () | value, error | Extracts Lua value, transcodes if needed |
+| unmarshal | () | value, error | Same as `data()` |
+| transcode | (format: string) | Payload, error | Converts to target format |
+| tostring | () | string | `"payload{format=...}"` |
 
-- `format`: String format identifier (one of the `payload.format` constants).
+#### p:get_format() -> string
+
+Returns the payload format.
+
+**Returns:** One of `payload.format.*` constant values.
+
+#### p:data() -> any, error
+
+Extracts the Lua value from the payload.
+
+- For `payload.format.LUA`: Returns original value directly
+- For other formats: Transcodes to Lua format first using context transcoder
+
+**Returns:**
+- Success: `value` - the Lua value
+- Error: `nil, error` - structured error if transcoding fails
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| Transcoding failure | errors.INTERNAL | no |
+
+#### p:unmarshal() -> any, error
+
+Same as `data()`. Unmarshals payload to Lua value.
+
+**Returns:**
+- Success: `value` - the Lua value
+- Error: `nil, error` - structured error if transcoding fails
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| Transcoding failure | errors.INTERNAL | no |
+| Result not valid Lua value | errors.INTERNAL | no |
+
+#### p:transcode(format: string) -> Payload, error
+
+Transcodes payload to a different format.
+
+| Param | Type | Required | Notes |
+|-------|------|----------|-------|
+| format | string | yes | Target format from `payload.format.*` |
+
+**Returns:**
+- Success: `Payload, nil` - new payload in target format
+- Error: `nil, error` - structured error if transcoding fails
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| Transcoding failure | errors.INTERNAL | no |
 
 ```lua
-local p = payload.new({key = "value"})
-local fmt = p:get_format()  -- "lua/any"
-```
-
-### p:data()
-
-Returns the raw data from the payload. For Lua format payloads, returns the original value. For other formats, transcodes to Lua format first.
-
-Returns:
-
-- `value`: The Lua value.
-- `error`: Structured error if transcoding fails (or nil on success).
-
-```lua
-local p = payload.new({name = "test"})
-local data = p:data()
-print(data.name)  -- "test"
-```
-
-### p:transcode(format)
-
-Transcodes the payload to a different format.
-
-Parameters:
-
-- `format`: Target format (one of `payload.format` constants).
-
-Returns:
-
-- `payload`: New payload in the target format (or nil on error).
-- `error`: Structured error (or nil on success).
-
-```lua
-local p = payload.new({key = "value"})
 local json_p, err = p:transcode(payload.format.JSON)
 if err then
     print(err:kind())  -- errors.INTERNAL
 end
 ```
 
-### p:unmarshal()
+## Errors
 
-Unmarshals the payload to a Lua value. Same as `data()` for Lua format payloads.
-
-Returns:
-
-- `value`: The Lua value (or nil on error).
-- `error`: Structured error (or nil on success).
+This module returns structured errors. Check kind with `errors.*` constants:
 
 ```lua
-local p = payload.new({a = 1, b = 2})
-local data = p:unmarshal()
-print(data.a)  -- 1
-```
-
-### tostring(p)
-
-Returns a string representation of the payload.
-
-```lua
-local p = payload.new("hello")
-print(tostring(p))  -- "payload{format=lua/any}"
-```
-
-## Error Handling
-
-The module returns structured errors using the standard error type.
-
-### Error Types
-
-1. **Internal Error:** Transcoding or unmarshaling failure.
-
-```lua
-local result, err = p:transcode(payload.format.JSON)
+local data, err = p:data()
 if err then
-    -- err:kind() == errors.INTERNAL
-    -- err:retryable() == false
+    if err:kind() == errors.INTERNAL then
+        -- transcoding failed
+    end
 end
 ```
 
-## Thread Safety
+**Possible kinds:** `errors.INTERNAL`
 
-- The `payload` module is thread-safe.
-- Module table is immutable and shared across Lua states.
-- Type metatable is registered once globally via `value.RegisterTypeMethods`.
-
-## Module Classification
-
-- **Class**: `encoding`, `deterministic`
-- Operations are pure functions with no side effects.
-- Same input always produces the same output.
-
-## Example Usage
+## Example
 
 ```lua
 -- Create payload from table
@@ -160,50 +134,25 @@ local p = payload.new({
 })
 
 -- Check format
-assert(p:get_format() == payload.format.LUA)
+print(p:get_format())  -- "lua/any"
 
 -- Get data back
 local data = p:data()
 print(data.name)  -- "test"
 
--- Create payload from different types
-local str_payload = payload.new("hello world")
-local num_payload = payload.new(123.456)
-local bool_payload = payload.new(true)
-
--- Transcode to JSON (requires context with transcoder)
+-- Transcode to JSON
 local json_p, err = p:transcode(payload.format.JSON)
 if not err then
     print(json_p:get_format())  -- "json/plain"
 end
-```
 
-## Go Implementation
+-- Common types
+local str_p = payload.new("hello")
+local num_p = payload.new(123)
+local bool_p = payload.new(true)
+local nil_p = payload.new(nil)
 
-```go
-var Module = &luaapi.ModuleDef{
-    Name:        "payload",
-    Description: "Payload transcoding and format conversion",
-    Class:       []string{luaapi.ClassEncoding, luaapi.ClassDeterministic},
-    Build:       buildModule,
-}
-
-func init() {
-    value.RegisterTypeMethods(nil, typeName,
-        map[string]lua.LGFunction{"__tostring": payloadToString},
-        payloadMethods)
-}
-
-func buildModule() (*lua.LTable, []luaapi.YieldType) {
-    mod := lua.CreateTable(0, 2)
-    mod.RawSetString("new", lua.LGoFunc(newPayload))
-
-    formats := lua.CreateTable(0, 8)
-    formats.RawSetString("JSON", lua.LString(payload.JSON))
-    // ... more formats
-    mod.RawSetString("format", formats)
-
-    mod.Immutable = true
-    return mod, nil
-}
+-- Error payloads
+local err_p = payload.new(errors.new("failed"))
+print(err_p:get_format())  -- "golang/error"
 ```

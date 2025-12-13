@@ -1,20 +1,16 @@
-# Lua Compress Module Specification
+# compress
 
-## Overview
+Data compression and decompression supporting gzip, deflate, zlib, brotli, and zstd. Encoding, deterministic.
 
-The `compress` module provides data compression and decompression functions supporting multiple algorithms: gzip, deflate, zlib, brotli, and zstd.
-
-## Module Interface
-
-### Module Loading
+## Loading
 
 ```lua
 local compress = require("compress")
 ```
 
-### Sub-modules
+## Functions
 
-The module exposes algorithm-specific sub-tables:
+The module provides five compression algorithms, each with identical `encode` and `decode` functions:
 
 - `compress.gzip` - GZIP compression (RFC 1952)
 - `compress.deflate` - DEFLATE compression (RFC 1951)
@@ -22,203 +18,331 @@ The module exposes algorithm-specific sub-tables:
 - `compress.brotli` - Brotli compression (RFC 7932)
 - `compress.zstd` - Zstandard compression (RFC 8878)
 
-### Functions
+### gzip.encode(data: string, options?: table) → string, error
 
-Each sub-module provides identical function signatures:
+Compresses data using GZIP.
 
-#### {algorithm}.encode(data: string [, options: table])
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | String to compress (supports binary) |
+| options | table | no | nil | Compression options |
 
-Compresses a string using the specified algorithm.
+**options fields:**
 
-Parameters:
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| level | integer | 6 | Compression level (1-9) |
 
-- `data`: String to compress (must not be empty).
-- `options` (optional): Table with compression options.
-  - `level`: Compression level (algorithm-specific range).
+**Returns:** `string` - Compressed data, or `nil, error` on failure
 
-Returns:
+**Errors (structured):**
 
-- `compressed`: Compressed data as string (or nil on error).
-- `error`: Structured error object (or nil on success).
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| Input not a string | errors.INVALID | no |
+| Input is empty | errors.INVALID | no |
+| Level out of range (1-9) | errors.INVALID | no |
+| Compression failed | errors.INTERNAL | no |
 
-#### {algorithm}.decode(data: string)
+### gzip.decode(data: string, options?: table) → string, error
 
-Decompresses data using the specified algorithm.
+Decompresses GZIP data.
 
-Parameters:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | GZIP compressed string |
+| options | table | no | nil | Decompression options |
 
-- `data`: Compressed string to decompress (must not be empty).
+**options fields:**
 
-Returns:
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| max_size | integer | 134217728 | Maximum decompressed size in bytes (128MB), max 1GB |
 
-- `decompressed`: Original data as string (or nil on error).
-- `error`: Structured error object (or nil on success).
+**Returns:** `string` - Decompressed data, or `nil, error` on failure
 
-### Compression Levels
+**Errors (structured):**
 
-| Algorithm | Default | Min | Max |
-|-----------|---------|-----|-----|
-| gzip      | 6       | 1   | 9   |
-| deflate   | 6       | 1   | 9   |
-| zlib      | 6       | 1   | 9   |
-| brotli    | 6       | 0   | 11  |
-| zstd      | 3       | 1   | 22  |
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| Input not a string | errors.INVALID | no |
+| Input is empty | errors.INVALID | no |
+| Invalid GZIP data | errors.INVALID | no |
+| Decompressed size exceeds limit | errors.INTERNAL | no |
 
-## Error Handling
+### deflate.encode(data: string, options?: table) → string, error
 
-The module returns structured errors using the `lua.Error` type. See [errors.md](../errors.md) for full error specification.
+Compresses data using DEFLATE.
 
-### Error Types
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | String to compress (supports binary) |
+| options | table | no | nil | Compression options |
 
-1. **Invalid Input Type:** If input is not a string.
+**options fields:**
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| level | integer | 6 | Compression level (1-9) |
+
+**Returns:** `string` - Compressed data, or `nil, error` on failure
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| Input not a string | errors.INVALID | no |
+| Input is empty | errors.INVALID | no |
+| Level out of range (1-9) | errors.INVALID | no |
+| Compression failed | errors.INTERNAL | no |
+
+### deflate.decode(data: string, options?: table) → string, error
+
+Decompresses DEFLATE data.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | DEFLATE compressed string |
+| options | table | no | nil | Decompression options |
+
+**options fields:**
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| max_size | integer | 134217728 | Maximum decompressed size in bytes (128MB), max 1GB |
+
+**Returns:** `string` - Decompressed data, or `nil, error` on failure
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| Input not a string | errors.INVALID | no |
+| Input is empty | errors.INVALID | no |
+| Invalid DEFLATE data | errors.INVALID | no |
+| Decompressed size exceeds limit | errors.INTERNAL | no |
+
+### zlib.encode(data: string, options?: table) → string, error
+
+Compresses data using zlib.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | String to compress (supports binary) |
+| options | table | no | nil | Compression options |
+
+**options fields:**
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| level | integer | 6 | Compression level (1-9) |
+
+**Returns:** `string` - Compressed data, or `nil, error` on failure
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| Input not a string | errors.INVALID | no |
+| Input is empty | errors.INVALID | no |
+| Level out of range (1-9) | errors.INVALID | no |
+| Compression failed | errors.INTERNAL | no |
+
+### zlib.decode(data: string, options?: table) → string, error
+
+Decompresses zlib data.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | zlib compressed string |
+| options | table | no | nil | Decompression options |
+
+**options fields:**
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| max_size | integer | 134217728 | Maximum decompressed size in bytes (128MB), max 1GB |
+
+**Returns:** `string` - Decompressed data, or `nil, error` on failure
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| Input not a string | errors.INVALID | no |
+| Input is empty | errors.INVALID | no |
+| Invalid zlib data | errors.INVALID | no |
+| Decompressed size exceeds limit | errors.INTERNAL | no |
+
+### brotli.encode(data: string, options?: table) → string, error
+
+Compresses data using Brotli.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | String to compress (supports binary) |
+| options | table | no | nil | Compression options |
+
+**options fields:**
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| level | integer | 6 | Compression level (0-11) |
+
+**Returns:** `string` - Compressed data, or `nil, error` on failure
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| Input not a string | errors.INVALID | no |
+| Input is empty | errors.INVALID | no |
+| Level out of range (0-11) | errors.INVALID | no |
+| Compression failed | errors.INTERNAL | no |
+
+### brotli.decode(data: string, options?: table) → string, error
+
+Decompresses Brotli data.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | Brotli compressed string |
+| options | table | no | nil | Decompression options |
+
+**options fields:**
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| max_size | integer | 134217728 | Maximum decompressed size in bytes (128MB), max 1GB |
+
+**Returns:** `string` - Decompressed data, or `nil, error` on failure
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| Input not a string | errors.INVALID | no |
+| Input is empty | errors.INVALID | no |
+| Invalid Brotli data | errors.INVALID | no |
+| Decompressed size exceeds limit | errors.INTERNAL | no |
+
+### zstd.encode(data: string, options?: table) → string, error
+
+Compresses data using Zstandard.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | String to compress (supports binary) |
+| options | table | no | nil | Compression options |
+
+**options fields:**
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| level | integer | 3 | Compression level (1-22) |
+
+**Returns:** `string` - Compressed data, or `nil, error` on failure
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| Input not a string | errors.INVALID | no |
+| Input is empty | errors.INVALID | no |
+| Level out of range (1-22) | errors.INVALID | no |
+| Compression failed | errors.INTERNAL | no |
+
+**Notes:**
+- Level 1-3: fastest compression
+- Level 4-6: default compression
+- Level 7-9: better compression
+- Level 10-22: best compression
+
+### zstd.decode(data: string, options?: table) → string, error
+
+Decompresses Zstandard data.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | Zstandard compressed string |
+| options | table | no | nil | Decompression options |
+
+**options fields:**
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| max_size | integer | 134217728 | Maximum decompressed size in bytes (128MB), max 1GB |
+
+**Returns:** `string` - Decompressed data, or `nil, error` on failure
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| Input not a string | errors.INVALID | no |
+| Input is empty | errors.INVALID | no |
+| Invalid Zstandard data | errors.INVALID | no |
+| Decompressed size exceeds limit | errors.INTERNAL | no |
+
+## Errors
+
+This module returns structured errors. Check kind with `errors.*` constants:
 
 ```lua
-local result, err = compress.gzip.encode(123)
--- result: nil
--- err:kind() == errors.INVALID
--- err:retryable() == false
--- tostring(err) == "string expected"
-```
-
-2. **Empty Input:** If input string is empty.
-
-```lua
-local result, err = compress.gzip.encode("")
--- result: nil
--- err:kind() == errors.INVALID
--- err:retryable() == false
--- tostring(err) contains "empty"
-```
-
-3. **Invalid Level:** If compression level is out of range.
-
-```lua
-local result, err = compress.gzip.encode("data", { level = 99 })
--- result: nil
--- err:kind() == errors.INVALID
--- err:retryable() == false
-```
-
-4. **Invalid Compressed Data:** If data cannot be decompressed.
-
-```lua
-local result, err = compress.gzip.decode("not valid gzip")
--- result: nil
--- err:kind() == errors.INVALID
--- err:retryable() == false
-```
-
-### Error Kind Comparison
-
-Always use `errors.*` constants for kind comparison:
-
-```lua
-local result, err = compress.gzip.decode(input)
+local result, err = compress.gzip.encode(data)
 if err then
     if err:kind() == errors.INVALID then
-        -- handle invalid input
+        -- bad input type, empty input, or invalid compression level
+    elseif err:kind() == errors.INTERNAL then
+        -- compression/decompression failed
     end
 end
 ```
 
-## Behavior
+**Possible kinds:** `errors.INVALID`, `errors.INTERNAL`
 
-1. **Empty String Handling**
-   - Empty strings are rejected with an error.
-   - This differs from base64 which accepts empty strings.
-
-2. **Binary Data**
-   - The module handles binary data (strings with null bytes and non-ASCII characters).
-   - Binary data is preserved during encode/decode round-trips.
-
-3. **Compression Ratio**
-   - Higher compression levels produce smaller output but take longer.
-   - Highly compressible data (repeated patterns) achieves better ratios.
-   - Already compressed or random data may not compress well.
-
-## Thread Safety
-
-- The `compress` module is thread-safe.
-- It uses immutable module tables shared across Lua states.
-- No internal mutable state is maintained.
-
-## Module Classification
-
-- **Class**: `encoding`, `deterministic`
-- Operations are pure functions with no side effects.
-- Same input always produces the same output.
-
-## Example Usage
+## Example
 
 ```lua
 local compress = require("compress")
 
 -- Basic gzip compression
-local compressed, err = compress.gzip.encode("Hello, World!")
-if err then
-    print("Error:", err)
-    return
-end
+local data = "Hello, World! This is a test string for compression."
+local compressed, err = compress.gzip.encode(data)
+if err then error(err) end
 
--- Decompress
-local original, err = compress.gzip.decode(compressed)
-print(original)  -- "Hello, World!"
+local decompressed, err = compress.gzip.decode(compressed)
+if err then error(err) end
+print(decompressed)  -- "Hello, World! This is a test string for compression."
 
 -- With compression level
-local fast, _ = compress.gzip.encode("data", { level = 1 })
-local small, _ = compress.gzip.encode("data", { level = 9 })
+local fast, _ = compress.gzip.encode(data, { level = 1 })
+local small, _ = compress.gzip.encode(data, { level = 9 })
 
 -- Different algorithms
-local br = compress.brotli.encode("data")
-local zs = compress.zstd.encode("data")
-local df = compress.deflate.encode("data")
-local zl = compress.zlib.encode("data")
+local br = compress.brotli.encode(data, { level = 11 })
+local zs = compress.zstd.encode(data, { level = 22 })
+local df = compress.deflate.encode(data)
+local zl = compress.zlib.encode(data)
 
--- Round-trip with binary data
+-- Binary data round-trip
 local binary = "binary\x00data\xff"
 local enc, _ = compress.zstd.encode(binary)
 local dec, _ = compress.zstd.decode(enc)
-assert(dec == binary)  -- true
+assert(dec == binary)
 
 -- Error handling
 local result, err = compress.gzip.decode("invalid data")
 if err then
-    print("Decode failed:", err:message())
     if err:kind() == errors.INVALID then
         print("Invalid input provided")
     end
 end
-```
 
-## Implementation Notes
-
-- Uses Go standard library for gzip, deflate, zlib.
-- Uses `github.com/andybalholm/brotli` for Brotli.
-- Uses `github.com/klauspost/compress/zstd` for Zstandard.
-- Module uses `ModuleDef` struct for definition.
-- Module table is created once and shared across all Lua states.
-- Errors include Lua stack traces for debugging.
-
-## Go Implementation
-
-```go
-var Module = &luaapi.ModuleDef{
-    Name:        "compress",
-    Description: "Data compression (gzip, deflate, zlib, brotli, zstd)",
-    Class:       []string{luaapi.ClassEncoding, luaapi.ClassDeterministic},
-    Build: func() (*lua.LTable, []luaapi.YieldType) {
-        mod := &lua.LTable{}
-
-        gzipTable := &lua.LTable{}
-        gzipTable.RawSetString("encode", lua.LGoFunc(gzipEncode))
-        gzipTable.RawSetString("decode", lua.LGoFunc(gzipDecode))
-        gzipTable.Immutable = true
-        mod.RawSetString("gzip", gzipTable)
-
-        // ... similar for deflate, zlib, brotli, zstd
-
-        mod.Immutable = true
-        return mod, []luaapi.YieldType{}
-    },
-}
+-- With decompression size limit
+local huge_compressed, _ = compress.gzip.encode(string.rep("data", 1000000))
+local limited, err = compress.gzip.decode(huge_compressed, { max_size = 1024 })
+if err then
+    print("Decompressed size exceeds 1KB limit")
+end
 ```

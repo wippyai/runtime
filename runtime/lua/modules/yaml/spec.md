@@ -1,156 +1,94 @@
-# Lua YAML Module Specification
+# yaml
 
-## Overview
+YAML encoding and decoding. Encoding, deterministic.
 
-The `yaml` module provides YAML encoding and decoding functions for Lua tables. It uses YAML 1.1/1.2 compatible parsing.
-
-## Module Interface
-
-### Module Loading
+## Loading
 
 ```lua
 local yaml = require("yaml")
 ```
 
-### Functions
+## Functions
 
-#### yaml.encode(data: table)
+### encode(data: table) → string, error
 
-Encodes a Lua table to YAML format.
+Encodes a Lua table to YAML format string.
 
-Parameters:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | table | yes | - | Table to encode (arrays and maps supported) |
 
-- `data`: Lua table to encode.
+**Returns:**
+- Success: `string` - YAML formatted string
+- Error: `nil, error` - structured error
 
-Returns:
+**Errors (structured):**
 
-- `encoded`: YAML string (or nil on error).
-- `error`: Structured error object (or nil on success).
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| data not table | errors.INVALID | no |
+| data missing | errors.INVALID | no |
+| encode failed | errors.INTERNAL | no |
 
-#### yaml.decode(data: string)
+### decode(data: string) → table, error
 
 Decodes a YAML string to a Lua table.
 
-Parameters:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | YAML string to decode |
 
-- `data`: YAML string to decode.
+**Returns:**
+- Success: `table` - decoded Lua table
+- Error: `nil, error` - structured error
 
-Returns:
+**Errors (structured):**
 
-- `decoded`: Lua table (or nil on error).
-- `error`: Structured error object (or nil on success).
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| data not string | errors.INVALID | no |
+| data empty | errors.INVALID | no |
+| invalid YAML syntax | errors.INTERNAL | no |
+| decode failed | errors.INTERNAL | no |
+| convert to Lua failed | errors.INTERNAL | no |
 
-## Error Handling
+## Errors
 
-The module returns structured errors using the `lua.Error` type.
-
-### Error Types
-
-1. **Invalid Input Type:** If input is not the expected type.
-
-```lua
-local result, err = yaml.encode(123)
--- result: nil
--- err:kind() == errors.INVALID
--- err:retryable() == false
--- tostring(err) == "table expected"
-
-local result, err = yaml.decode(123)
--- result: nil
--- err:kind() == errors.INVALID
--- tostring(err) == "string expected"
-```
-
-2. **Empty Input:** If decode input is empty.
-
-```lua
-local result, err = yaml.decode("")
--- result: nil
--- err:kind() == errors.INVALID
--- tostring(err) == "input cannot be empty"
-```
-
-3. **Invalid YAML Data:** If input contains invalid YAML syntax.
-
-```lua
-local result, err = yaml.decode(":\n  :\n  invalid")
--- result: nil
--- err:kind() == errors.INTERNAL
--- err:retryable() == false
-```
-
-### Error Kind Comparison
-
-Always use `errors.*` constants for kind comparison:
+This module returns structured errors. Check kind with `errors.*` constants:
 
 ```lua
 local result, err = yaml.decode(input)
 if err then
     if err:kind() == errors.INVALID then
-        -- handle invalid input
+        -- bad input type or empty string
     elseif err:kind() == errors.INTERNAL then
-        -- handle parse error
+        -- YAML parse error or internal failure
     end
 end
 ```
 
-## Behavior
+**Possible kinds:** `errors.INVALID`, `errors.INTERNAL`
 
-1. **Table Encoding**
-   - Both array-style and map-style tables are supported.
-   - Nested tables are encoded recursively.
-
-2. **Empty Input Handling**
-   - `encode` requires a table input.
-   - `decode` does not accept empty strings.
-
-3. **Type Preservation**
-   - Numbers, strings, booleans, and nil are preserved.
-   - Nested structures maintain their hierarchy.
-
-## Thread Safety
-
-- The `yaml` module is thread-safe.
-- It uses immutable module tables shared across Lua states.
-- No internal mutable state is maintained.
-
-## Module Classification
-
-- **Class**: `encoding`, `deterministic`
-- Operations are pure functions with no side effects.
-- Same input always produces the same output.
-
-## Example Usage
+## Example
 
 ```lua
 local yaml = require("yaml")
 
--- Basic encoding
+-- Encode table to YAML
 local encoded, err = yaml.encode({name = "test", value = 123})
-if err then
-    print("Error:", err)
-else
-    print(encoded)
-end
--- Output:
--- name: test
--- value: 123
+if err then error(err) end
+-- Result: "name: test\nvalue: 123\n"
 
--- Basic decoding
+-- Decode YAML to table
 local decoded, err = yaml.decode("name: test\nvalue: 123")
-if err then
-    print("Error:", err)
-else
-    print(decoded.name)   -- "test"
-    print(decoded.value)  -- 123
-end
+if err then error(err) end
+print(decoded.name)   -- "test"
+print(decoded.value)  -- 123
 
--- Array encoding
-local arr_encoded = yaml.encode({1, 2, 3})
--- Output:
--- - 1
--- - 2
--- - 3
+-- Arrays
+local arr_encoded, err = yaml.encode({1, 2, 3})
+if err then error(err) end
+-- Result: "- 1\n- 2\n- 3\n"
 
 -- Nested structures
 local nested = yaml.decode([[
@@ -166,35 +104,11 @@ local encoded = yaml.encode(original)
 local decoded = yaml.decode(encoded)
 assert(decoded.name == original.name)
 
--- Error handling with kind constants
-local result, err = yaml.decode("invalid: :")
+-- Error handling
+local result, err = yaml.decode(123)
 if err then
-    if err:kind() == errors.INTERNAL then
-        print("Parse error:", err)
+    if err:kind() == errors.INVALID then
+        print("Invalid input type")
     end
 end
-```
-
-## Implementation Notes
-
-- Uses Go's `gopkg.in/yaml.v3` library.
-- Module uses `ModuleDef` struct for definition.
-- Module table is created once and shared across all Lua states.
-- Errors include Lua stack traces for debugging.
-
-## Go Implementation
-
-```go
-var Module = &luaapi.ModuleDef{
-    Name:        "yaml",
-    Description: "YAML encoding and decoding",
-    Class:       []string{luaapi.ClassEncoding, luaapi.ClassDeterministic},
-    Build: func() (*lua.LTable, []luaapi.YieldType) {
-        mod := lua.CreateTable(0, 2)
-        mod.RawSetString("encode", lua.LGoFunc(encodeFunc))
-        mod.RawSetString("decode", lua.LGoFunc(decodeFunc))
-        mod.Immutable = true
-        return mod, nil
-    },
-}
 ```
