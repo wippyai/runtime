@@ -158,7 +158,7 @@ func (r *timerRegistry) close() {
 		for id, entry := range shard.timers {
 			entry.stopped.Store(true)
 			entry.timer.Stop()
-			delete(shard.timers, id)
+			delete(shard.timers, id) // todo: why we need it?
 		}
 		shard.mu.Unlock()
 	}

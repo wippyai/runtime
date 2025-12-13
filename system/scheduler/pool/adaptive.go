@@ -17,10 +17,12 @@ import (
 // Controller states for the hill-climbing state machine.
 // The algorithm probes by adding workers, measures throughput change,
 // and keeps the change only if it improves performance.
+type stateKind int
+
 const (
-	stateStable   = iota // Normal operation, monitoring for scaling triggers
-	stateProbing         // Testing if adding a worker helps throughput
-	stateCooldown        // Waiting after a scaling decision before next action
+	stateStable   stateKind = iota // Normal operation, monitoring for scaling triggers
+	stateProbing                   // Testing if adding a worker helps throughput
+	stateCooldown                  // Waiting after a scaling decision before next action
 )
 
 // Default values for adaptive pool configuration.
@@ -112,7 +114,7 @@ type Adaptive struct {
 
 	// Controller state (protected by ctrlMu)
 	ctrlMu         sync.Mutex
-	state          int
+	state          stateKind
 	ema            float64
 	baseline       float64
 	baselineQueue  int

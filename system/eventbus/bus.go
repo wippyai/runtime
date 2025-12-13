@@ -11,19 +11,19 @@ import (
 	"github.com/wippyai/runtime/internal/wildcard"
 )
 
-type actionType int
+type actKind int
 
 const (
-	actionSubscribe actionType = iota
-	actionUnsubscribe
-	actionSend
-	actionStop
+	actSubscribe actKind = iota
+	actUnsubscribe
+	actSend
+	actStop
 )
 
 const defaultQueueCap = 64
 
 type action struct {
-	actionType  actionType
+	kind        actKind
 	subscribe   *subscribeRequest
 	unsubscribe *unsubscribeRequest
 	// Inline send event fields to avoid allocation
@@ -131,8 +131,8 @@ func (b *Bus) SubscribeP(
 
 	// Enqueue subscribe request
 	if err := b.enqueueAction(action{
-		actionType: actionSubscribe,
-		subscribe:  req,
+		kind:      actSubscribe,
+		subscribe: req,
 	}); err != nil {
 		return "", err
 	}
@@ -159,7 +159,7 @@ func (b *Bus) Unsubscribe(ctx context.Context, subID event.SubscriberID) {
 
 	// Enqueue unsubscribe request (ignore error, already closed)
 	_ = b.enqueueAction(action{
-		actionType:  actionUnsubscribe,
+		kind:        actUnsubscribe,
 		unsubscribe: req,
 	})
 
@@ -179,9 +179,9 @@ func (b *Bus) Send(ctx context.Context, e event.Event) {
 
 	// Enqueue send event (ignore error if closed)
 	_ = b.enqueueAction(action{
-		actionType: actionSend,
-		event:      e,
-		ctx:        ctx,
+		kind:  actSend,
+		event: e,
+		ctx:   ctx,
 	})
 }
 
@@ -194,7 +194,7 @@ func (b *Bus) Stop() {
 		return // Already closed
 	}
 	b.actionQueue = append(b.actionQueue, action{
-		actionType: actionStop,
+		kind: actStop,
 	})
 	b.actionMu.Unlock()
 
@@ -215,14 +215,14 @@ func (b *Bus) enqueueAction(a action) error {
 	if b.closed.Load() {
 		b.actionMu.Unlock()
 		// Respond to control operations immediately
-		switch a.actionType {
-		case actionSubscribe:
+		switch a.kind {
+		case actSubscribe:
 			a.subscribe.doneCh <- errors.New("bus is closed")
-		case actionUnsubscribe:
+		case actUnsubscribe:
 			a.unsubscribe.doneCh <- struct{}{}
-		case actionSend:
+		case actSend:
 			// Silently drop send operations when closed
-		case actionStop:
+		case actStop:
 			// Should not happen, but handle gracefully
 		}
 		return errors.New("bus is closed")
@@ -274,16 +274,16 @@ func (b *Bus) processActions() bool {
 	for i := range actions {
 		a := actions[i]
 
-		switch a.actionType {
-		case actionSubscribe:
+		switch a.kind {
+		case actSubscribe:
 			b.subscribers[a.subscribe.sub.subID] = a.subscribe.sub
 			a.subscribe.doneCh <- nil
 
-		case actionUnsubscribe:
+		case actUnsubscribe:
 			delete(b.subscribers, a.unsubscribe.subID)
 			a.unsubscribe.doneCh <- struct{}{}
 
-		case actionSend:
+		case actSend:
 			if a.ctx.Err() != nil {
 				continue
 			}
@@ -319,7 +319,7 @@ func (b *Bus) processActions() bool {
 				delete(b.subscribers, id)
 			}
 
-		case actionStop:
+		case actStop:
 			// Clean up all subscribers
 			b.subscribers = make(map[event.SubscriberID]sub)
 
@@ -354,16 +354,16 @@ func (b *Bus) drainQueue() {
 	for i := range remaining {
 		a := remaining[i]
 
-		switch a.actionType {
-		case actionSubscribe:
+		switch a.kind {
+		case actSubscribe:
 			// Reject with error
 			a.subscribe.doneCh <- errors.New("bus is closed")
-		case actionUnsubscribe:
+		case actUnsubscribe:
 			// Acknowledge unsubscribe (no-op since we're stopping)
 			a.unsubscribe.doneCh <- struct{}{}
-		case actionSend:
+		case actSend:
 			// Drop send events during shutdown
-		case actionStop:
+		case actStop:
 			// Ignore additional stop actions
 		}
 	}

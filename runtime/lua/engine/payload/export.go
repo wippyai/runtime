@@ -73,7 +73,16 @@ func processAndDeepCopy(value lua.LValue) lua.LValue {
 func makeTableImmutableRecursive(value lua.LValue, visited map[*lua.LTable]bool) lua.LValue {
 	table, ok := value.(*lua.LTable)
 	if !ok {
-		if _, isUserdata := value.(*lua.LUserData); isUserdata {
+		if _, isError := value.(*lua.Error); isError {
+			return value
+		}
+		if ud, isUserdata := value.(*lua.LUserData); isUserdata {
+			if ud.Value == nil {
+				return lua.LNil
+			}
+			if err, ok := ud.Value.(error); ok {
+				return lua.LString(err.Error())
+			}
 			return lua.LNil
 		}
 		return value
@@ -158,7 +167,15 @@ func copyValue(value lua.LValue, visited map[*lua.LTable]*lua.LTable) lua.LValue
 	switch v := value.(type) {
 	case *lua.LTable:
 		return deepCopyTable(v, visited)
+	case *lua.Error:
+		return v
 	case *lua.LUserData:
+		if v.Value == nil {
+			return lua.LNil
+		}
+		if err, ok := v.Value.(error); ok {
+			return lua.LString(err.Error())
+		}
 		return lua.LNil
 	default:
 		return value
