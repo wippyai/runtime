@@ -14,7 +14,6 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
-	"github.com/wippyai/runtime/api/relay"
 	apiruntime "github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/system/scheduler"
 )

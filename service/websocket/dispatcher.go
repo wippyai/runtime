@@ -153,7 +153,9 @@ func (d *Dispatcher) executeConnect(ctx context.Context, cmd wsapi.WsConnectCmd,
 
 	conn, resp, err := websocket.Dial(dialCtx, cmd.URL, opts)
 	if resp != nil && resp.Body != nil {
-		resp.Body.Close()
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			d.log.Debug("failed to close response body", zap.Error(closeErr))
+		}
 	}
 	if err != nil {
 		receiver.CompleteYield(tag, nil, wssvc.NewDialError(cmd.URL, err))
@@ -283,7 +285,7 @@ func (d *Dispatcher) executeSubscribe(ctx context.Context, cmd wsapi.WsSubscribe
 			select {
 			case msg, ok := <-entry.msgCh:
 				if !ok {
-					pkg := relay.NewPackage(pid.PID{}, pidVal, topic, payload.NewTerminal())
+					pkg := relay.NewPackage(pid.Zero(), pidVal, topic, payload.NewTerminal())
 					if err := node.Send(pkg); err != nil {
 						log.Debug("failed to send terminal on channel close",
 							zap.Uint64("conn_id", cmd.ConnID),
@@ -293,7 +295,7 @@ func (d *Dispatcher) executeSubscribe(ctx context.Context, cmd wsapi.WsSubscribe
 				}
 
 				if msg.EOF {
-					pkg := relay.NewPackage(pid.PID{}, pidVal, topic, payload.NewTerminal())
+					pkg := relay.NewPackage(pid.Zero(), pidVal, topic, payload.NewTerminal())
 					if err := node.Send(pkg); err != nil {
 						log.Debug("failed to send terminal on EOF",
 							zap.Uint64("conn_id", cmd.ConnID),
@@ -307,7 +309,7 @@ func (d *Dispatcher) executeSubscribe(ctx context.Context, cmd wsapi.WsSubscribe
 					p = payload.NewPayload(msg.Data, payload.String)
 				}
 
-				pkg := relay.NewPackage(pid.PID{}, pidVal, topic, p)
+				pkg := relay.NewPackage(pid.Zero(), pidVal, topic, p)
 				if err := node.Send(pkg); err != nil {
 					log.Debug("failed to relay message",
 						zap.Uint64("conn_id", cmd.ConnID),
@@ -316,7 +318,7 @@ func (d *Dispatcher) executeSubscribe(ctx context.Context, cmd wsapi.WsSubscribe
 			case <-ctx.Done():
 				return
 			case <-entry.ctx.Done():
-				pkg := relay.NewPackage(pid.PID{}, pidVal, topic, payload.NewTerminal())
+				pkg := relay.NewPackage(pid.Zero(), pidVal, topic, payload.NewTerminal())
 				if err := node.Send(pkg); err != nil {
 					log.Debug("failed to send terminal on connection close",
 						zap.Uint64("conn_id", cmd.ConnID),

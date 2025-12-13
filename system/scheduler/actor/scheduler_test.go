@@ -145,15 +145,15 @@ type testLifecycle struct {
 	onComplete func(context.Context, pid.PID, *runtime.Result)
 }
 
-func (l *testLifecycle) OnStart(ctx context.Context, pid pid.PID, proc Process) {
+func (l *testLifecycle) OnStart(ctx context.Context, p pid.PID, proc Process) {
 	if l.onStart != nil {
-		l.onStart(ctx, pid, proc)
+		l.onStart(ctx, p, proc)
 	}
 }
 
-func (l *testLifecycle) OnComplete(ctx context.Context, pid pid.PID, result *runtime.Result) {
+func (l *testLifecycle) OnComplete(ctx context.Context, p pid.PID, result *runtime.Result) {
 	if l.onComplete != nil {
-		l.onComplete(ctx, pid, result)
+		l.onComplete(ctx, p, result)
 	}
 }
 
@@ -512,10 +512,10 @@ func TestOnStartCallback(t *testing.T) {
 	var mu sync.Mutex
 
 	lc := &testLifecycle{
-		onStart: func(_ context.Context, pid pid.PID, _ Process) {
+		onStart: func(_ context.Context, p pid.PID, _ Process) {
 			startCalls.Add(1)
 			mu.Lock()
-			startPIDs = append(startPIDs, pid)
+			startPIDs = append(startPIDs, p)
 			mu.Unlock()
 		},
 	}
@@ -554,10 +554,10 @@ func TestOnCompleteCallback(t *testing.T) {
 	var mu sync.Mutex
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, pid pid.PID, result *runtime.Result) {
+		onComplete: func(_ context.Context, p pid.PID, result *runtime.Result) {
 			completeCalls.Add(1)
 			mu.Lock()
-			completePIDs = append(completePIDs, pid)
+			completePIDs = append(completePIDs, p)
 			completeResults = append(completeResults, result)
 			mu.Unlock()
 		},
@@ -642,8 +642,8 @@ func TestTerminate(t *testing.T) {
 	var completedPID pid.PID
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, pid pid.PID, res *runtime.Result) {
-			completedPID = pid
+		onComplete: func(_ context.Context, p pid.PID, res *runtime.Result) {
+			completedPID = p
 			result = res
 			completed.Store(true)
 		},

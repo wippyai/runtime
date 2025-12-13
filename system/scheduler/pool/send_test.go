@@ -223,11 +223,11 @@ func TestStaticSendMultipleWorkers(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < 4; i++ {
 		wg.Add(1)
-		pid := fmt.Sprintf("pid-%d", i+1)
+		testPID := fmt.Sprintf("pid-%d", i+1)
 		go func(p string) {
 			defer wg.Done()
 			_, _ = pool.Call(testContextWithPID(p), "test", nil)
-		}(pid)
+		}(testPID)
 	}
 
 	// Wait for all processes to enter idle state
@@ -366,15 +366,15 @@ func TestSendStressInline(t *testing.T) {
 			t.Fatalf("iteration %d: NewInline: %v", i, err)
 		}
 
-		pid := fmt.Sprintf("pid-%d", i)
+		testPID := fmt.Sprintf("pid-%d", i)
 		done := make(chan struct{})
 		go func(p string) {
 			_, _ = pool.Call(testContextWithPID(p), "test", nil)
 			close(done)
-		}(pid)
+		}(testPID)
 
 		time.Sleep(time.Millisecond)
-		pkg := &relay.Package{Target: pid.PID{UniqID: pid}}
+		pkg := &relay.Package{Target: pid.PID{UniqID: testPID}}
 		_ = pool.Send(pkg)
 
 		select {
@@ -410,15 +410,15 @@ func TestSendStressStatic(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
-			pid := fmt.Sprintf("pid-%d", nextPID.Add(1))
+			testPID := fmt.Sprintf("pid-%d", nextPID.Add(1))
 			doneCh := make(chan struct{})
 			go func(p string) {
 				_, _ = pool.Call(testContextWithPID(p), "test", nil)
 				close(doneCh)
-			}(pid)
+			}(testPID)
 
 			time.Sleep(time.Millisecond)
-			pkg := &relay.Package{Target: pid.PID{UniqID: pid}}
+			pkg := &relay.Package{Target: pid.PID{UniqID: testPID}}
 			_ = pool.Send(pkg)
 
 			select {
@@ -454,15 +454,15 @@ func TestSendStressLazy(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
-			pid := fmt.Sprintf("pid-%d", nextPID.Add(1))
+			testPID := fmt.Sprintf("pid-%d", nextPID.Add(1))
 			doneCh := make(chan struct{})
 			go func(p string) {
 				_, _ = pool.Call(testContextWithPID(p), "test", nil)
 				close(doneCh)
-			}(pid)
+			}(testPID)
 
 			time.Sleep(5 * time.Millisecond)
-			pkg := &relay.Package{Target: pid.PID{UniqID: pid}}
+			pkg := &relay.Package{Target: pid.PID{UniqID: testPID}}
 			_ = pool.Send(pkg)
 
 			select {

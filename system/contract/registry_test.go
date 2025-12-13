@@ -942,3 +942,99 @@ func TestContractRegistry_ConcurrentAccess(t *testing.T) {
 		assert.Equal(t, fmt.Sprintf("method%d", i), contractObj.Methods()[0].Name)
 	}
 }
+
+func TestContractImpl_ID_Meta(t *testing.T) {
+	ctx := context.Background()
+	contractRegistry, bus := setupRegistryTest()
+
+	err := contractRegistry.Start(ctx)
+	require.NoError(t, err)
+	defer contractRegistry.Stop()
+
+	contractID := registry.NewID("test", "meta-contract")
+
+	done := make(chan struct{})
+	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.KindRegisterDefinition+".*", func(e event.Event) {
+		if e.Kind == contract.KindAcceptDefinition {
+			close(done)
+		}
+	})
+	require.NoError(t, err)
+	defer sub.Close()
+
+	bus.Send(ctx, event.Event{
+		System: contract.System,
+		Kind:   contract.KindRegisterDefinition,
+		Path:   contractID.String(),
+		Data: &contract.Definition{
+			Name: "meta-contract",
+			Meta: attrs.Bag{"key": "value"},
+			Methods: []contract.Method{
+				{Name: "method1"},
+			},
+		},
+	})
+
+	<-done
+
+	contractObj, err := contractRegistry.GetContract(ctx, contractID)
+	require.NoError(t, err)
+
+	assert.Equal(t, contractID, contractObj.ID())
+	assert.Equal(t, "value", contractObj.Meta()["key"])
+}
+
+func TestContractRegistry_UnknownEventKind(t *testing.T) {
+	ctx := context.Background()
+	contractRegistry, bus := setupRegistryTest()
+
+	err := contractRegistry.Start(ctx)
+	require.NoError(t, err)
+	defer contractRegistry.Stop()
+
+	bus.Send(ctx, event.Event{
+		System: contract.System,
+		Kind:   "unknown.kind",
+		Path:   "test:contract",
+		Data:   nil,
+	})
+
+	time.Sleep(10 * time.Millisecond)
+}
+
+func TestContractRegistry_NilMetaInit(t *testing.T) {
+	ctx := context.Background()
+	contractRegistry, bus := setupRegistryTest()
+
+	err := contractRegistry.Start(ctx)
+	require.NoError(t, err)
+	defer contractRegistry.Stop()
+
+	contractID := registry.NewID("test", "nil-meta")
+
+	done := make(chan struct{})
+	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.KindRegisterDefinition+".*", func(e event.Event) {
+		if e.Kind == contract.KindAcceptDefinition {
+			close(done)
+		}
+	})
+	require.NoError(t, err)
+	defer sub.Close()
+
+	bus.Send(ctx, event.Event{
+		System: contract.System,
+		Kind:   contract.KindRegisterDefinition,
+		Path:   contractID.String(),
+		Data: &contract.Definition{
+			Name:    "nil-meta",
+			Meta:    nil,
+			Methods: []contract.Method{{Name: "method1"}},
+		},
+	})
+
+	<-done
+
+	contractObj, err := contractRegistry.GetContract(ctx, contractID)
+	require.NoError(t, err)
+	assert.NotNil(t, contractObj.Meta())
+}

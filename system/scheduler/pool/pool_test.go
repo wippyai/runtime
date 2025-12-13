@@ -63,9 +63,9 @@ func testContext() context.Context {
 }
 
 // testContextWithPID creates a context with a specific PID for testing.
-func testContextWithPID(pid string) context.Context {
+func testContextWithPID(testPID string) context.Context {
 	ctx, _ := ctxapi.AcquireFrameContext(context.Background())
-	_ = runtime.SetFramePID(ctx, pid.PID{UniqID: pid})
+	_ = runtime.SetFramePID(ctx, pid.PID{UniqID: testPID})
 	return ctx
 }
 

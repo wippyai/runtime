@@ -581,3 +581,137 @@ func TestAsyncCancelHandler_NoPID(t *testing.T) {
 		t.Fatal("timeout waiting for result")
 	}
 }
+
+func setupAsyncTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	_ = runtime.SetFramePID(ctx, pid.PID{Node: "test", Host: "host", UniqID: "1"})
+	return ctx
+}
+
+func TestAsyncCallHandler_NoNode(t *testing.T) {
+	d := NewDispatcher(nil)
+
+	mockInstance := &mockInstance{
+		callFn: func(_ context.Context, _ string, _ payload.Payloads) (*runtime.Result, error) {
+			return &runtime.Result{Value: payload.New("result")}, nil
+		},
+	}
+
+	ctx := setupAsyncTestContext()
+
+	cmd := contract.AcquireAsyncCallCmd()
+	cmd.Instance = mockInstance
+	cmd.Method = "test"
+	cmd.Topic = "@future:test-123"
+
+	done := make(chan contract.AsyncCallResult, 1)
+	err := d.asyncCall.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
+		done <- data.(contract.AsyncCallResult)
+	}})
+	require.NoError(t, err)
+
+	select {
+	case result := <-done:
+		assert.ErrorIs(t, result.Error, contract.ErrNodeNotFound)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for result")
+	}
+}
+
+func TestAsyncCancelHandler_NoNode(t *testing.T) {
+	d := NewDispatcher(nil)
+
+	ctx := setupAsyncTestContext()
+
+	cmd := contract.AcquireAsyncCancelCmd()
+	cmd.Topic = "@future:test-123"
+
+	done := make(chan struct{}, 1)
+	err := d.asyncCancel.Handle(ctx, cmd, 0, &testReceiver{cb: func(_ any, _ error) {
+		done <- struct{}{}
+	}})
+	require.NoError(t, err)
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for result")
+	}
+}
+
+func TestAsyncCallHandler_CallError(t *testing.T) {
+	mockNode := &mockRelayNode{packages: make(chan *relay.Package, 1)}
+	d := NewDispatcher(mockNode)
+
+	callErr := errors.New("call failed")
+	mockInstance := &mockInstance{
+		callFn: func(_ context.Context, _ string, _ payload.Payloads) (*runtime.Result, error) {
+			return nil, callErr
+		},
+	}
+
+	ctx := setupAsyncTestContext()
+
+	cmd := contract.AcquireAsyncCallCmd()
+	cmd.Instance = mockInstance
+	cmd.Method = "test"
+	cmd.Topic = "@future:test-123"
+
+	done := make(chan contract.AsyncCallResult, 1)
+	err := d.asyncCall.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
+		done <- data.(contract.AsyncCallResult)
+	}})
+	require.NoError(t, err)
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for result")
+	}
+
+	select {
+	case pkg := <-mockNode.packages:
+		assert.NotNil(t, pkg)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for package")
+	}
+}
+
+func TestAsyncCallHandler_ResultError(t *testing.T) {
+	mockNode := &mockRelayNode{packages: make(chan *relay.Package, 1)}
+	d := NewDispatcher(mockNode)
+
+	resultErr := errors.New("result error")
+	mockInstance := &mockInstance{
+		callFn: func(_ context.Context, _ string, _ payload.Payloads) (*runtime.Result, error) {
+			return &runtime.Result{Error: resultErr}, nil
+		},
+	}
+
+	ctx := setupAsyncTestContext()
+
+	cmd := contract.AcquireAsyncCallCmd()
+	cmd.Instance = mockInstance
+	cmd.Method = "test"
+	cmd.Topic = "@future:test-123"
+
+	done := make(chan contract.AsyncCallResult, 1)
+	err := d.asyncCall.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
+		done <- data.(contract.AsyncCallResult)
+	}})
+	require.NoError(t, err)
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for result")
+	}
+
+	select {
+	case pkg := <-mockNode.packages:
+		assert.NotNil(t, pkg)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for package")
+	}
+}

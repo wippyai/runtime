@@ -28,6 +28,11 @@ type PID struct {
 	cachedString string
 }
 
+// Zero returns a zero-value PID representing no process.
+func Zero() PID {
+	return PID{}
+}
+
 // String formats the PID as a pipe-delimited string wrapped in curly braces.
 func (p PID) String() string {
 	if p.cachedString != "" {
