@@ -11,7 +11,7 @@ import (
 	regapi "github.com/wippyai/runtime/api/registry"
 	bootpkg "github.com/wippyai/runtime/boot"
 	bootcore "github.com/wippyai/runtime/boot/components/core"
-	queuemgr "github.com/wippyai/runtime/service/queue/queue"
+	queuesvc "github.com/wippyai/runtime/service/queue"
 	"go.uber.org/zap"
 )
 
@@ -37,14 +37,14 @@ func Queues() boot.Component {
 				logger.Warn("failed to register driver dependency pattern", zap.Error(err))
 			}
 
-			manager := queuemgr.NewManager(
+			handler := queuesvc.NewDeclarationHandler(
 				bus,
 				queueManager,
 				dtt,
 				logger,
 			)
 
-			handlers.RegisterListener("queue.queue", manager)
+			handlers.RegisterListener("queue.queue", handler)
 			return ctx, nil
 		},
 	})

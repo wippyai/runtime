@@ -200,3 +200,76 @@ func TestMemoryDriver_Stop(t *testing.T) {
 
 	assert.Equal(t, 0, queueCount)
 }
+
+func TestMemoryDriver_PublishBeforeStart(t *testing.T) {
+	logger := zaptest.NewLogger(t)
+	driver := NewDriver(registry.ParseID("test:driver"), logger)
+
+	ctx := context.Background()
+	queueID := registry.ParseID("test:queue1")
+
+	err := driver.DeclareQueue(ctx, queueID, attrs.NewBag())
+	require.NoError(t, err)
+
+	msg := queueapi.AcquireMessage(payload.New("test"))
+	msg.ID = "msg1"
+
+	err = driver.Publish(ctx, queueID, msg)
+	require.NoError(t, err, "publish should work before start")
+}
+
+func TestMemoryDriver_PublishAfterStop(t *testing.T) {
+	logger := zaptest.NewLogger(t)
+	driver := NewDriver(registry.ParseID("test:driver"), logger)
+
+	ctx := context.Background()
+	queueID := registry.ParseID("test:queue1")
+
+	err := driver.DeclareQueue(ctx, queueID, attrs.NewBag())
+	require.NoError(t, err)
+
+	_, err = driver.Start(ctx)
+	require.NoError(t, err)
+
+	err = driver.Stop(ctx)
+	require.NoError(t, err)
+
+	msg := queueapi.AcquireMessage(payload.New("test"))
+	msg.ID = "msg1"
+
+	err = driver.Publish(ctx, queueID, msg)
+	assert.ErrorIs(t, err, queueapi.ErrQueueNotFound, "publish should fail after stop")
+}
+
+func TestMemoryDriver_AttachNonExistent(t *testing.T) {
+	logger := zaptest.NewLogger(t)
+	driver := NewDriver(registry.ParseID("test:driver"), logger)
+
+	ctx := context.Background()
+	queueID := registry.ParseID("test:nonexistent")
+
+	deliveries := make(chan *queueapi.Delivery, 10)
+	_, err := driver.Attach(ctx, queueID, deliveries)
+	assert.ErrorIs(t, err, queueapi.ErrQueueNotFound)
+}
+
+func TestMemoryDriver_PublishNonExistent(t *testing.T) {
+	logger := zaptest.NewLogger(t)
+	driver := NewDriver(registry.ParseID("test:driver"), logger)
+
+	ctx := context.Background()
+	queueID := registry.ParseID("test:nonexistent")
+
+	msg := queueapi.AcquireMessage(payload.New("test"))
+	err := driver.Publish(ctx, queueID, msg)
+	assert.ErrorIs(t, err, queueapi.ErrQueueNotFound)
+}
+
+func TestMemoryDriver_StopWithoutStart(t *testing.T) {
+	logger := zaptest.NewLogger(t)
+	driver := NewDriver(registry.ParseID("test:driver"), logger)
+
+	ctx := context.Background()
+	err := driver.Stop(ctx)
+	require.NoError(t, err, "stop without start should not panic")
+}

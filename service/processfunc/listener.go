@@ -81,85 +81,84 @@ func (l *Listener) processEntry(ctx context.Context, kind event.Kind, entry regi
 		return
 	}
 
-	processIDStr := entry.ID.String()
-
-	// Extract options bag or create one for normalization
+	// Extract default_host - check options bag first, then meta
+	var defaultHostStr string
 	var opts attrs.Bag
-	if optsBag, hasOptions := entry.Meta.GetBag("options"); hasOptions {
-		opts = optsBag
-	} else {
-		opts = attrs.NewBag()
-	}
 
-	// Get default_host from options or fallback to Meta
-	defaultHost := opts.GetString("default_host", "")
-	if defaultHost == "" {
-		defaultHost = entry.Meta.GetString("default_host", "")
-		if defaultHost != "" {
-			opts.Set("default_host", defaultHost)
+	if optsBag, hasOptions := entry.Meta.GetBag("options"); hasOptions {
+		defaultHostStr = optsBag.GetString("default_host", "")
+		if defaultHostStr != "" {
+			opts = optsBag
 		}
 	}
 
-	if len(opts) == 0 {
-		opts = nil
+	if defaultHostStr == "" {
+		defaultHostStr = entry.Meta.GetString("default_host", "")
+		if defaultHostStr != "" {
+			opts = attrs.NewBag()
+			opts.Set("default_host", defaultHostStr)
+		}
 	}
+
+	defaultHost := pid.HostID(defaultHostStr)
+	idStr := entry.ID.String()
 
 	// No default_host - unregister if previously registered
 	if defaultHost == "" {
 		l.mu.RLock()
-		_, exists := l.registered[processIDStr]
+		_, exists := l.registered[idStr]
 		l.mu.RUnlock()
 		if exists {
-			l.unregisterFunction(ctx, entry.ID)
+			l.unregisterFunction(ctx, idStr)
 		}
 		return
 	}
 
 	switch kind {
 	case registry.Create:
-		l.registerFunction(ctx, entry.ID, defaultHost, opts)
+		l.registerFunction(ctx, idStr, defaultHost, opts)
 
 	case registry.Update:
 		l.mu.RLock()
-		existingHost, exists := l.registered[processIDStr]
+		existingHost, exists := l.registered[idStr]
 		l.mu.RUnlock()
 
 		if exists && existingHost != defaultHost {
-			l.unregisterFunction(ctx, entry.ID)
-			l.registerFunction(ctx, entry.ID, defaultHost, opts)
+			l.unregisterFunction(ctx, idStr)
+			l.registerFunction(ctx, idStr, defaultHost, opts)
 			return
 		}
 
 		if !exists {
-			l.registerFunction(ctx, entry.ID, defaultHost, opts)
+			l.registerFunction(ctx, idStr, defaultHost, opts)
 		}
 
 	case registry.Delete:
 		l.mu.RLock()
-		_, exists := l.registered[processIDStr]
+		_, exists := l.registered[idStr]
 		l.mu.RUnlock()
 		if exists {
-			l.unregisterFunction(ctx, entry.ID)
+			l.unregisterFunction(ctx, idStr)
 		}
 	}
 }
 
 // registerFunction registers a process function handler.
-func (l *Listener) registerFunction(ctx context.Context, id registry.ID, hostID pid.HostID, opts attrs.Bag) {
+func (l *Listener) registerFunction(ctx context.Context, idStr string, hostID pid.HostID, opts attrs.Bag) {
 	handler := &processHandler{
 		log:       l.log,
 		pidGen:    l.pidGen,
 		node:      l.node,
 		topo:      l.topo,
 		manager:   l.manager,
-		processID: id,
+		processID: idStr,
 		hostID:    hostID,
 	}
 
 	l.bus.Send(ctx, event.Event{
 		System: function.System,
 		Kind:   function.Register,
-		Path:   id.String(),
+		Path:   idStr,
 		Data: &function.FuncEntry{
 			Handler: handler.Call,
 			Options: opts,
@@ -167,18 +166,16 @@ func (l *Listener) registerFunction(ctx context.Context, id registry.ID, hostID 
 	})
 
 	l.mu.Lock()
-	l.registered[id.String()] = hostID
+	l.registered[idStr] = hostID
 	l.mu.Unlock()
 
 	l.log.Debug("registered process function handler",
-		zap.String("id", id.String()),
+		zap.String("id", idStr),
 		zap.String("host", hostID))
 }
 
 // unregisterFunction removes a process function handler.
-func (l *Listener) unregisterFunction(ctx context.Context, id registry.ID) {
-	idStr := id.String()
-
+func (l *Listener) unregisterFunction(ctx context.Context, idStr string) {
 	l.bus.Send(ctx, event.Event{
 		System: function.System,
 		Kind:   function.Delete,

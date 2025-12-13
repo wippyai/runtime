@@ -212,6 +212,104 @@ func TestManager_Publish_DriverNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, queueapi.ErrDriverNotFound)
 }
 
+func TestManager_DriverDelete(t *testing.T) {
+	ctx := context.Background()
+	mgr, bus := setupTest()
+	require.NoError(t, mgr.Start(ctx))
+	defer func() { _ = mgr.Stop() }()
+
+	driverID := registry.NewID("test", "mock-driver")
+	driver := &mockDriver{}
+	mgr.drivers.Store(driverID, driver)
+
+	_, ok := mgr.GetDriver(driverID)
+	require.True(t, ok)
+
+	bus.Send(ctx, event.Event{
+		System: queueapi.System,
+		Kind:   queueapi.KindDriverDelete,
+		Path:   driverID.String(),
+	})
+
+	assert.Eventually(t, func() bool {
+		_, ok := mgr.GetDriver(driverID)
+		return !ok
+	}, 1000000000, 10000000, "driver should be deleted")
+}
+
+func TestManager_QueueDelete(t *testing.T) {
+	ctx := context.Background()
+	mgr, bus := setupTest()
+	require.NoError(t, mgr.Start(ctx))
+	defer func() { _ = mgr.Stop() }()
+
+	queueID := registry.NewID("test", "my-queue")
+	queueEntry := &queueapi.Queue{
+		ID:       queueID,
+		DriverID: registry.NewID("test", "driver"),
+		Name:     "my-queue",
+		Options:  attrs.NewBag(),
+	}
+	mgr.queues.Store(queueID, queueEntry)
+
+	_, ok := mgr.GetQueue(queueID)
+	require.True(t, ok)
+
+	bus.Send(ctx, event.Event{
+		System: queueapi.System,
+		Kind:   queueapi.KindQueueDelete,
+		Path:   queueID.String(),
+	})
+
+	assert.Eventually(t, func() bool {
+		_, ok := mgr.GetQueue(queueID)
+		return !ok
+	}, 1000000000, 10000000, "queue should be deleted")
+}
+
+func TestManager_PublishWithChain(t *testing.T) {
+	ctx := context.Background()
+	mgr, _ := setupTest()
+	require.NoError(t, mgr.Start(ctx))
+	defer func() { _ = mgr.Stop() }()
+
+	driverID := registry.NewID("test", "mock-driver")
+	driver := &mockDriver{}
+	mgr.drivers.Store(driverID, driver)
+
+	queueID := registry.NewID("test", "my-queue")
+	queueEntry := &queueapi.Queue{
+		ID:       queueID,
+		DriverID: driverID,
+		Name:     "my-queue",
+		Options:  attrs.NewBag(),
+	}
+	mgr.queues.Store(queueID, queueEntry)
+
+	chainCalled := false
+	mgr.SetPublishChain(&mockPublishChain{
+		publishFunc: func(ctx context.Context, q registry.ID, msgs ...*queueapi.Message) error {
+			chainCalled = true
+			return mgr.PublishDirect(ctx, q, msgs...)
+		},
+	})
+
+	msg := queueapi.NewMessage(payload.New("test"))
+	err := mgr.Publish(ctx, queueID, msg)
+
+	require.NoError(t, err)
+	assert.True(t, chainCalled, "chain should be called")
+	assert.True(t, driver.publishCalled, "driver should be called through chain")
+}
+
+type mockPublishChain struct {
+	publishFunc func(context.Context, registry.ID, ...*queueapi.Message) error
+}
+
+func (m *mockPublishChain) Publish(ctx context.Context, q registry.ID, msgs ...*queueapi.Message) error {
+	return m.publishFunc(ctx, q, msgs...)
+}
+
 type mockDriver struct {
 	publishCalled      bool
 	attachCalled       bool

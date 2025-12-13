@@ -17,14 +17,11 @@ type entry struct {
 	name        string
 }
 
-// sealedChain holds the immutable interceptor slice after rebuild
 type sealedChain struct {
 	interceptors []queueapi.PublishInterceptor
 	publishFunc  func(context.Context, registry.ID, ...*queueapi.Message) error
 }
 
-// Registry manages publish interceptors.
-// Uses atomic pointer for lock-free Publish() on hot path.
 type Registry struct {
 	logger      *zap.Logger
 	entries     []entry
@@ -89,7 +86,6 @@ func (r *Registry) SetPublishFunc(f func(context.Context, registry.ID, ...*queue
 	r.rebuild()
 }
 
-// rebuild creates the sealed chain (called with lock held)
 func (r *Registry) rebuild() {
 	sort.Slice(r.entries, func(i, j int) bool {
 		return r.entries[i].priority < r.entries[j].priority
@@ -111,7 +107,6 @@ func (r *Registry) rebuild() {
 	})
 }
 
-// Publish executes the interceptor chain. Lock-free on hot path.
 func (r *Registry) Publish(ctx context.Context, queue registry.ID, msgs ...*queueapi.Message) error {
 	chain := r.chain.Load()
 	if chain == nil {
@@ -128,7 +123,6 @@ func (r *Registry) Publish(ctx context.Context, queue registry.ID, msgs ...*queu
 	return r.publishAt(ctx, queue, msgs, chain, 0)
 }
 
-// publishAt runs interceptor at index i
 func (r *Registry) publishAt(ctx context.Context, queue registry.ID, msgs []*queueapi.Message, chain *sealedChain, i int) error {
 	if i >= len(chain.interceptors) {
 		if chain.publishFunc != nil {

@@ -636,3 +636,105 @@ func TestDecode_NilPayload(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "configuration data is required")
 }
+
+func TestManager_ResolveEnv(t *testing.T) {
+	manager, _, _ := newTestManager(t)
+	ctx := ctxapi.NewRootContext()
+
+	// Create env registry with test values
+	envRegistry := NewMockEnvRegistry()
+	require.NoError(t, envRegistry.Set(ctx, "TEST_HOST", "test-host-value"))
+	require.NoError(t, envRegistry.Set(ctx, "TEST_PORT", "5432"))
+	manager.env = envRegistry
+
+	tests := []struct {
+		name     string
+		envVar   string
+		field    string
+		expected string
+	}{
+		{
+			name:     "Empty env var returns empty",
+			envVar:   "",
+			field:    "host",
+			expected: "",
+		},
+		{
+			name:     "Found env var returns value",
+			envVar:   "TEST_HOST",
+			field:    "host",
+			expected: "test-host-value",
+		},
+		{
+			name:     "Not found env var returns empty",
+			envVar:   "NONEXISTENT_VAR",
+			field:    "database",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := manager.resolveEnv(ctx, tt.envVar, tt.field)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestManager_AddWithEnvVars(t *testing.T) {
+	manager, _, _ := newTestManager(t)
+	ctx := ctxapi.NewRootContext()
+
+	// Create env registry with test values
+	envRegistry := NewMockEnvRegistry()
+	require.NoError(t, envRegistry.Set(ctx, "DB_HOST", "env-host"))
+	require.NoError(t, envRegistry.Set(ctx, "DB_PORT", "9999"))
+	require.NoError(t, envRegistry.Set(ctx, "DB_NAME", "env-db"))
+	require.NoError(t, envRegistry.Set(ctx, "DB_USER", "env-user"))
+	require.NoError(t, envRegistry.Set(ctx, "DB_PASS", "env-pass"))
+	manager.env = envRegistry
+
+	// Create a custom transcoder that uses env var fields
+	manager.dtt = &EnvConfigTranscoder{}
+
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "env-db"),
+		Kind: apiconfig.KindPostgres,
+		Data: payload.New(map[string]string{"test": "data"}),
+	}
+
+	err := manager.Add(ctx, entry)
+	assert.NoError(t, err)
+}
+
+// EnvConfigTranscoder returns a config with env var fields set
+type EnvConfigTranscoder struct{}
+
+func (t *EnvConfigTranscoder) Marshal(v interface{}) (payload.Payload, error) {
+	return payload.New(v), nil
+}
+
+func (t *EnvConfigTranscoder) Unmarshal(_ payload.Payload, v interface{}) error {
+	switch target := v.(type) {
+	case *apiconfig.DBConfig:
+		*target = apiconfig.DBConfig{
+			HostEnv:     "DB_HOST",
+			PortEnv:     "DB_PORT",
+			DatabaseEnv: "DB_NAME",
+			UsernameEnv: "DB_USER",
+			PasswordEnv: "DB_PASS",
+			Pool: apiconfig.PoolConfig{
+				MaxOpen:     10,
+				MaxIdle:     5,
+				MaxLifetime: time.Hour,
+			},
+		}
+	default:
+		return fmt.Errorf("unsupported type: %T", v)
+	}
+	return nil
+}
+
+func (t *EnvConfigTranscoder) Transcode(p payload.Payload, format payload.Format) (payload.Payload, error) {
+	return payload.NewPayload(p.Data(), format), nil
+}

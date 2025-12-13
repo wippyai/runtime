@@ -115,63 +115,23 @@ func (m *Manager) handleStandardDBAdd(ctx context.Context, entry registry.Entry)
 		return err
 	}
 
-	if cfg.HostEnv != "" {
-		val, found, err := m.env.Lookup(ctx, cfg.HostEnv)
-		switch {
-		case err != nil:
-			m.log.Warn("failed to lookup host env var", zap.String("var", cfg.HostEnv), zap.Error(err))
-		case found:
-			cfg.Host = val
-		default:
-			m.log.Warn("host env var not found", zap.String("var", cfg.HostEnv))
+	if v := m.resolveEnv(ctx, cfg.HostEnv, "host"); v != "" {
+		cfg.Host = v
+	}
+	if v := m.resolveEnv(ctx, cfg.PortEnv, "port"); v != "" {
+		cfg.Port, err = strconv.Atoi(v)
+		if err != nil {
+			return NewInvalidPortError(cfg.PortEnv, err)
 		}
 	}
-	if cfg.PortEnv != "" {
-		val, found, err := m.env.Lookup(ctx, cfg.PortEnv)
-		switch {
-		case err != nil:
-			m.log.Warn("failed to lookup port env var", zap.String("var", cfg.PortEnv), zap.Error(err))
-		case found:
-			cfg.Port, err = strconv.Atoi(val)
-			if err != nil {
-				return NewInvalidPortError(cfg.PortEnv, err)
-			}
-		default:
-			m.log.Warn("port env var not found", zap.String("var", cfg.PortEnv))
-		}
+	if v := m.resolveEnv(ctx, cfg.DatabaseEnv, "database"); v != "" {
+		cfg.Database = v
 	}
-	if cfg.DatabaseEnv != "" {
-		val, found, err := m.env.Lookup(ctx, cfg.DatabaseEnv)
-		switch {
-		case err != nil:
-			m.log.Warn("failed to lookup database env var", zap.String("var", cfg.DatabaseEnv), zap.Error(err))
-		case found:
-			cfg.Database = val
-		default:
-			m.log.Warn("database env var not found", zap.String("var", cfg.DatabaseEnv))
-		}
+	if v := m.resolveEnv(ctx, cfg.UsernameEnv, "username"); v != "" {
+		cfg.Username = v
 	}
-	if cfg.UsernameEnv != "" {
-		val, found, err := m.env.Lookup(ctx, cfg.UsernameEnv)
-		switch {
-		case err != nil:
-			m.log.Warn("failed to lookup username env var", zap.String("var", cfg.UsernameEnv), zap.Error(err))
-		case found:
-			cfg.Username = val
-		default:
-			m.log.Warn("username env var not found", zap.String("var", cfg.UsernameEnv))
-		}
-	}
-	if cfg.PasswordEnv != "" {
-		val, found, err := m.env.Lookup(ctx, cfg.PasswordEnv)
-		switch {
-		case err != nil:
-			m.log.Warn("failed to lookup password env var", zap.String("var", cfg.PasswordEnv), zap.Error(err))
-		case found:
-			cfg.Password = val
-		default:
-			m.log.Warn("password env var not found", zap.String("var", cfg.PasswordEnv))
-		}
+	if v := m.resolveEnv(ctx, cfg.PasswordEnv, "password"); v != "" {
+		cfg.Password = v
 	}
 
 	pool, err := m.factory.CreateStandardPool(entry.Kind, cfg)
@@ -318,4 +278,22 @@ func (m *Manager) unregisterService(ctx context.Context, entry registry.Entry) {
 
 	m.log.Info("removed database service",
 		zap.String("id", entry.ID.String()))
+}
+
+// resolveEnv looks up an environment variable and returns its value.
+// Returns empty string if envVar is empty, lookup fails, or var not found.
+func (m *Manager) resolveEnv(ctx context.Context, envVar, field string) string {
+	if envVar == "" {
+		return ""
+	}
+	val, found, err := m.env.Lookup(ctx, envVar)
+	if err != nil {
+		m.log.Warn("failed to lookup env var", zap.String("field", field), zap.String("var", envVar), zap.Error(err))
+		return ""
+	}
+	if !found {
+		m.log.Warn("env var not found", zap.String("field", field), zap.String("var", envVar))
+		return ""
+	}
+	return val
 }

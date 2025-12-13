@@ -425,8 +425,12 @@ func (s *Store) cleanupLoop(ctx context.Context) {
 }
 
 func (s *Store) cleanup(ctx context.Context) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	if s.closed {
+		s.mu.RUnlock()
+		return
+	}
+	s.mu.RUnlock()
 
 	reg := resource.GetRegistry(ctx)
 	res, err := reg.Acquire(ctx, s.config.Database, resource.ModeNormal)
@@ -448,11 +452,6 @@ func (s *Store) cleanup(ctx context.Context) {
 
 	db := conn.(servicesql.DBResource).DB
 	dbType := conn.(servicesql.DBResource).Type
-
-	if s.closed {
-		return
-	}
-
 	qb := statementBuilder(dbType)
 
 	// Build cleanup query using Squirrel

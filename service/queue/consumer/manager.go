@@ -15,7 +15,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// Manager manages queue consumers
 type Manager struct {
 	bus       event.Bus
 	queueMgr  queueapi.Manager
@@ -25,7 +24,6 @@ type Manager struct {
 	consumers sync.Map
 }
 
-// NewManager creates a new consumer manager
 func NewManager(
 	bus event.Bus,
 	queueMgr queueapi.Manager,
@@ -42,12 +40,10 @@ func NewManager(
 	}
 }
 
-// Add handles new consumer registry entries
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	return m.addOrUpdate(ctx, entry, "registered")
 }
 
-// Update handles consumer configuration updates
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	m.deleteConsumer(ctx, entry.ID)
 	return m.addOrUpdate(ctx, entry, "updated")
@@ -114,7 +110,6 @@ func (m *Manager) addOrUpdate(ctx context.Context, entry registry.Entry, action 
 	return nil
 }
 
-// Delete handles consumer removal
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	m.deleteConsumer(ctx, entry.ID)
 	return nil

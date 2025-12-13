@@ -35,24 +35,9 @@ func TestError_Unwrap(t *testing.T) {
 	assert.True(t, errors.Is(err, cause))
 }
 
-func TestSentinelErrors(t *testing.T) {
-	tests := []struct {
-		err     *Error
-		kind    apierror.Kind
-		message string
-	}{
-		{ErrNoRelayNode, apierror.KindInternal, "no relay node in context"},
-		{ErrNoTopology, apierror.KindInternal, "no topology in context"},
-		{ErrNoProcessManager, apierror.KindInternal, "no process manager in context"},
-		{ErrMonitorChannelClosed, apierror.KindInternal, "monitor channel closed unexpectedly"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.message, func(t *testing.T) {
-			assert.Equal(t, tt.kind, tt.err.Kind())
-			assert.Equal(t, tt.message, tt.err.Error())
-		})
-	}
+func TestErrMonitorChannelClosed(t *testing.T) {
+	assert.Equal(t, apierror.KindInternal, ErrMonitorChannelClosed.Kind())
+	assert.Equal(t, "monitor channel closed unexpectedly", ErrMonitorChannelClosed.Error())
 }
 
 func TestErrorConstructors(t *testing.T) {
