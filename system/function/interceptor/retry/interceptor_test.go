@@ -124,7 +124,7 @@ func TestInterceptor_RetryableError(t *testing.T) {
 	ctx := context.Background()
 
 	opts := runtime.Bag{}
-	opts.Set("retry", map[string]any{"max_attempts": 3, "backoff_ms": 1})
+	opts.Set("retry", map[string]any{"max_attempts": 3, "initial_delay": 1, "jitter": 0.0})
 	task := makeTask(opts)
 
 	attempts := 0
@@ -148,7 +148,7 @@ func TestInterceptor_MaxAttemptsReached(t *testing.T) {
 	ctx := context.Background()
 
 	opts := runtime.Bag{}
-	opts.Set("retry", map[string]any{"max_attempts": 3, "backoff_ms": 1})
+	opts.Set("retry", map[string]any{"max_attempts": 3, "initial_delay": 1, "jitter": 0.0})
 	task := makeTask(opts)
 
 	attempts := 0
@@ -181,7 +181,7 @@ func TestInterceptor_NonRetryableErrorKind(t *testing.T) {
 			ctx := context.Background()
 
 			opts := runtime.Bag{}
-			opts.Set("retry", map[string]any{"max_attempts": 3, "backoff_ms": 1})
+			opts.Set("retry", map[string]any{"max_attempts": 3, "initial_delay": 1})
 			task := makeTask(opts)
 
 			attempts := 0
@@ -205,7 +205,7 @@ func TestInterceptor_RetryableFlagFalse(t *testing.T) {
 	ctx := context.Background()
 
 	opts := runtime.Bag{}
-	opts.Set("retry", map[string]any{"max_attempts": 3, "backoff_ms": 1})
+	opts.Set("retry", map[string]any{"max_attempts": 3, "initial_delay": 1})
 	task := makeTask(opts)
 
 	attempts := 0
@@ -227,7 +227,7 @@ func TestInterceptor_UnknownError(t *testing.T) {
 	ctx := context.Background()
 
 	opts := runtime.Bag{}
-	opts.Set("retry", map[string]any{"max_attempts": 3, "backoff_ms": 1})
+	opts.Set("retry", map[string]any{"max_attempts": 3, "initial_delay": 1, "jitter": 0.0})
 	task := makeTask(opts)
 
 	attempts := 0
@@ -247,12 +247,17 @@ func TestInterceptor_UnknownError(t *testing.T) {
 	assert.Equal(t, 2, attempts, "Unknown errors should be retryable")
 }
 
-func TestInterceptor_FixedBackoff(t *testing.T) {
+func TestInterceptor_ExponentialBackoff(t *testing.T) {
 	interceptor := New()
 	ctx := context.Background()
 
 	opts := runtime.Bag{}
-	opts.Set("retry", map[string]any{"max_attempts": 3, "backoff_ms": 50})
+	opts.Set("retry", map[string]any{
+		"max_attempts":   4,
+		"initial_delay":  50,
+		"backoff_factor": 2.0,
+		"jitter":         0.0,
+	})
 	task := makeTask(opts)
 
 	attempts := 0
@@ -267,17 +272,52 @@ func TestInterceptor_FixedBackoff(t *testing.T) {
 	_, _ = interceptor.Handle(ctx, task, next)
 	duration := time.Since(start)
 
-	assert.Equal(t, 3, attempts)
-	require.Len(t, timestamps, 3)
+	assert.Equal(t, 4, attempts)
+	require.Len(t, timestamps, 4)
 
 	delay1 := timestamps[1].Sub(timestamps[0])
 	delay2 := timestamps[2].Sub(timestamps[1])
+	delay3 := timestamps[3].Sub(timestamps[2])
 
-	assert.GreaterOrEqual(t, delay1.Milliseconds(), int64(50), "First retry should wait at least 50ms")
-	assert.GreaterOrEqual(t, delay2.Milliseconds(), int64(50), "Second retry should wait at least 50ms")
+	assert.GreaterOrEqual(t, delay1.Milliseconds(), int64(45), "First retry delay")
+	assert.GreaterOrEqual(t, delay2.Milliseconds(), int64(90), "Second retry delay (2x)")
+	assert.GreaterOrEqual(t, delay3.Milliseconds(), int64(180), "Third retry delay (4x)")
 
-	expectedTotal := 100
-	assert.GreaterOrEqual(t, duration.Milliseconds(), int64(expectedTotal), "Total duration should include backoff")
+	assert.GreaterOrEqual(t, duration.Milliseconds(), int64(300), "Total duration should include backoff")
+}
+
+func TestInterceptor_MaxDelayLimit(t *testing.T) {
+	interceptor := New()
+	ctx := context.Background()
+
+	opts := runtime.Bag{}
+	opts.Set("retry", map[string]any{
+		"max_attempts":   4,
+		"initial_delay":  50,
+		"max_delay":      100,
+		"backoff_factor": 10.0,
+		"jitter":         0.0,
+	})
+	task := makeTask(opts)
+
+	attempts := 0
+	var timestamps []time.Time
+	next := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+		attempts++
+		timestamps = append(timestamps, time.Now())
+		return &runtime.Result{Error: &testError{kind: apierror.KindUnavailable}}, nil
+	}
+
+	_, _ = interceptor.Handle(ctx, task, next)
+
+	assert.Equal(t, 4, attempts)
+	require.Len(t, timestamps, 4)
+
+	delay2 := timestamps[2].Sub(timestamps[1])
+	delay3 := timestamps[3].Sub(timestamps[2])
+
+	assert.LessOrEqual(t, delay2.Milliseconds(), int64(120), "Delay should be capped at max_delay")
+	assert.LessOrEqual(t, delay3.Milliseconds(), int64(120), "Delay should be capped at max_delay")
 }
 
 func TestInterceptor_DefaultBackoff(t *testing.T) {
@@ -285,7 +325,7 @@ func TestInterceptor_DefaultBackoff(t *testing.T) {
 	ctx := context.Background()
 
 	opts := runtime.Bag{}
-	opts.Set("retry", map[string]any{"max_attempts": 2, "backoff_ms": 0})
+	opts.Set("retry", map[string]any{"max_attempts": 2, "jitter": 0.0})
 	task := makeTask(opts)
 
 	attempts := 0
@@ -303,7 +343,36 @@ func TestInterceptor_DefaultBackoff(t *testing.T) {
 	assert.Equal(t, 2, attempts)
 	require.Len(t, timestamps, 2)
 
-	assert.GreaterOrEqual(t, duration.Milliseconds(), int64(100), "Should use default 100ms backoff")
+	assert.GreaterOrEqual(t, duration.Milliseconds(), int64(90), "Should use default 100ms initial delay")
+}
+
+func TestInterceptor_DurationStringParsing(t *testing.T) {
+	interceptor := New()
+	ctx := context.Background()
+
+	opts := runtime.Bag{}
+	opts.Set("retry", map[string]any{
+		"max_attempts":  2,
+		"initial_delay": "50ms",
+		"max_delay":     "1s",
+		"jitter":        0.0,
+	})
+	task := makeTask(opts)
+
+	attempts := 0
+	var timestamps []time.Time
+	next := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+		attempts++
+		timestamps = append(timestamps, time.Now())
+		return &runtime.Result{Error: &testError{kind: apierror.KindUnavailable}}, nil
+	}
+
+	start := time.Now()
+	_, _ = interceptor.Handle(ctx, task, next)
+	duration := time.Since(start)
+
+	assert.Equal(t, 2, attempts)
+	assert.GreaterOrEqual(t, duration.Milliseconds(), int64(45), "Should parse duration string")
 }
 
 func TestInterceptor_ContextCancellation(t *testing.T) {
@@ -311,7 +380,7 @@ func TestInterceptor_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	opts := runtime.Bag{}
-	opts.Set("retry", map[string]any{"max_attempts": 10, "backoff_ms": 100})
+	opts.Set("retry", map[string]any{"max_attempts": 10, "initial_delay": 100})
 	task := makeTask(opts)
 
 	attempts := 0
@@ -348,8 +417,6 @@ func TestInterceptor_ContextCancelledBeforeStart(t *testing.T) {
 
 	result, _ := interceptor.Handle(ctx, task, next)
 
-	// Interceptor executes first call, then checks retry config on error
-	// Since first call succeeds with no error, it returns success
 	assert.NotNil(t, result)
 	assert.NoError(t, result.Error)
 	assert.Equal(t, 1, attempts, "Should execute first call regardless of context")
@@ -361,13 +428,13 @@ func TestInterceptor_WithRetryKinds(t *testing.T) {
 
 	opts := runtime.Bag{}
 	opts.Set("retry", map[string]any{
-		"max_attempts": 3,
-		"backoff_ms":   10,
-		"retry_kinds":  []string{"Unavailable", "Timeout"},
+		"max_attempts":  3,
+		"initial_delay": 1,
+		"jitter":        0.0,
+		"retry_kinds":   []string{"Unavailable", "Timeout"},
 	})
 	task := makeTask(opts)
 
-	// Test that Unavailable is retried
 	attempts := 0
 	next := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		attempts++
@@ -382,7 +449,6 @@ func TestInterceptor_WithRetryKinds(t *testing.T) {
 	assert.Nil(t, result.Error)
 	assert.Equal(t, 2, attempts, "Unavailable should be retried")
 
-	// Test that Invalid is NOT retried (not in retry_kinds)
 	attempts = 0
 	testErr := &testError{kind: apierror.KindInvalid}
 	next = func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
@@ -402,13 +468,13 @@ func TestInterceptor_WithSkipKinds(t *testing.T) {
 
 	opts := runtime.Bag{}
 	opts.Set("retry", map[string]any{
-		"max_attempts": 3,
-		"backoff_ms":   10,
-		"skip_kinds":   []string{"Timeout"},
+		"max_attempts":  3,
+		"initial_delay": 1,
+		"jitter":        0.0,
+		"skip_kinds":    []string{"Timeout"},
 	})
 	task := makeTask(opts)
 
-	// Test that Unavailable is retried (not in skip_kinds)
 	attempts := 0
 	next := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		attempts++
@@ -423,7 +489,6 @@ func TestInterceptor_WithSkipKinds(t *testing.T) {
 	assert.Nil(t, result.Error)
 	assert.Equal(t, 2, attempts, "Unavailable should be retried")
 
-	// Test that Timeout is NOT retried (in skip_kinds)
 	attempts = 0
 	testErr := &testError{kind: apierror.KindTimeout}
 	next = func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
@@ -435,4 +500,92 @@ func TestInterceptor_WithSkipKinds(t *testing.T) {
 	assert.NotNil(t, result)
 	assert.Equal(t, testErr, result.Error)
 	assert.Equal(t, 1, attempts, "Timeout should not be retried when in skip_kinds")
+}
+
+func TestInterceptor_ParsePolicy(t *testing.T) {
+	interceptor := New()
+
+	tests := []struct {
+		name     string
+		opts     map[string]any
+		expected struct {
+			maxAttempts   int
+			initialDelay  time.Duration
+			maxDelay      time.Duration
+			backoffFactor float64
+			jitter        float64
+		}
+	}{
+		{
+			name: "all defaults",
+			opts: map[string]any{},
+			expected: struct {
+				maxAttempts   int
+				initialDelay  time.Duration
+				maxDelay      time.Duration
+				backoffFactor float64
+				jitter        float64
+			}{0, defaultInitialDelay, defaultMaxDelay, defaultBackoffFactor, defaultJitter},
+		},
+		{
+			name: "int values",
+			opts: map[string]any{
+				"max_attempts":   5,
+				"initial_delay":  200,
+				"max_delay":      5000,
+				"backoff_factor": 3,
+				"jitter":         0,
+			},
+			expected: struct {
+				maxAttempts   int
+				initialDelay  time.Duration
+				maxDelay      time.Duration
+				backoffFactor float64
+				jitter        float64
+			}{5, 200 * time.Millisecond, 5000 * time.Millisecond, 3.0, 0.0},
+		},
+		{
+			name: "float64 values",
+			opts: map[string]any{
+				"max_attempts":   float64(4),
+				"initial_delay":  float64(150),
+				"max_delay":      float64(3000),
+				"backoff_factor": 2.5,
+				"jitter":         0.2,
+			},
+			expected: struct {
+				maxAttempts   int
+				initialDelay  time.Duration
+				maxDelay      time.Duration
+				backoffFactor float64
+				jitter        float64
+			}{4, 150 * time.Millisecond, 3000 * time.Millisecond, 2.5, 0.2},
+		},
+		{
+			name: "string duration values",
+			opts: map[string]any{
+				"max_attempts":  3,
+				"initial_delay": "500ms",
+				"max_delay":     "30s",
+			},
+			expected: struct {
+				maxAttempts   int
+				initialDelay  time.Duration
+				maxDelay      time.Duration
+				backoffFactor float64
+				jitter        float64
+			}{3, 500 * time.Millisecond, 30 * time.Second, defaultBackoffFactor, defaultJitter},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			policy := interceptor.parsePolicy(tt.opts)
+			assert.Equal(t, tt.expected.maxAttempts, policy.MaxAttempts)
+			assert.Equal(t, tt.expected.initialDelay, policy.InitialDelay)
+			assert.Equal(t, tt.expected.maxDelay, policy.MaxDelay)
+			assert.Equal(t, tt.expected.backoffFactor, policy.BackoffFactor)
+			assert.Equal(t, tt.expected.jitter, policy.Jitter)
+		})
+	}
 }
