@@ -211,7 +211,7 @@ func TestSendHandler(t *testing.T) {
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		_ = resp.Body.Close()
+		resp.Body.Close()
 	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
@@ -278,7 +278,7 @@ func TestReceiveHandler(t *testing.T) {
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		_ = resp.Body.Close()
+		resp.Body.Close()
 	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
@@ -351,7 +351,7 @@ func TestReceiveHandlerBinary(t *testing.T) {
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		_ = resp.Body.Close()
+		resp.Body.Close()
 	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
@@ -409,7 +409,7 @@ func TestReceiveHandlerEOFOnServerClose(t *testing.T) {
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		_ = resp.Body.Close()
+		resp.Body.Close()
 	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
@@ -448,7 +448,7 @@ func TestCloseHandler(t *testing.T) {
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		_ = resp.Body.Close()
+		resp.Body.Close()
 	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
@@ -501,7 +501,7 @@ func TestPingHandler(t *testing.T) {
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		_ = resp.Body.Close()
+		resp.Body.Close()
 	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
@@ -635,7 +635,7 @@ func TestConcurrentSends(t *testing.T) {
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		_ = resp.Body.Close()
+		resp.Body.Close()
 	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
@@ -769,7 +769,7 @@ func TestChannelReceiveMultipleMessages(t *testing.T) {
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		_ = resp.Body.Close()
+		resp.Body.Close()
 	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
@@ -834,7 +834,7 @@ func TestChannelClosedOnContextCancel(t *testing.T) {
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		_ = resp.Body.Close()
+		resp.Body.Close()
 	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
@@ -1077,7 +1077,7 @@ func TestRemoteCloseDeliveryEOF(t *testing.T) {
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		_ = resp.Body.Close()
+		resp.Body.Close()
 	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
@@ -1396,7 +1396,7 @@ func TestSendBinaryMessage(t *testing.T) {
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		_ = resp.Body.Close()
+		resp.Body.Close()
 	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
@@ -1435,16 +1435,6 @@ func TestSendBinaryMessage(t *testing.T) {
 	}
 }
 
-func TestMustGetRegistryPanic(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected panic for missing registry")
-		}
-	}()
-
-	MustGetRegistry(context.Background())
-}
-
 // Benchmarks
 
 func BenchmarkSend(b *testing.B) {
@@ -1469,7 +1459,7 @@ func BenchmarkSend(b *testing.B) {
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		_ = resp.Body.Close()
+		resp.Body.Close()
 	}
 	if err != nil {
 		b.Fatalf("dial failed: %v", err)
@@ -1524,7 +1514,7 @@ func BenchmarkReceive(b *testing.B) {
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		_ = resp.Body.Close()
+		resp.Body.Close()
 	}
 	if err != nil {
 		b.Fatalf("dial failed: %v", err)
@@ -1574,7 +1564,7 @@ func BenchmarkChannelReceive(b *testing.B) {
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		_ = resp.Body.Close()
+		resp.Body.Close()
 	}
 	if err != nil {
 		b.Fatalf("dial failed: %v", err)

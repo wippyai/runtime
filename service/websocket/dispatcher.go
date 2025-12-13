@@ -16,6 +16,9 @@ import (
 	"go.uber.org/zap"
 )
 
+// DefaultReadLimit is the maximum message size in bytes (16 MB).
+const DefaultReadLimit = 16 * 1024 * 1024
+
 // Dispatcher handles WebSocket commands via async worker pool.
 type Dispatcher struct {
 	workers int
@@ -157,7 +160,7 @@ func (d *Dispatcher) executeConnect(ctx context.Context, cmd wsapi.WsConnectCmd,
 		return
 	}
 
-	readLimit := int64(16 * 1024 * 1024)
+	readLimit := int64(DefaultReadLimit)
 	if cmd.ReadLimit > 0 {
 		readLimit = cmd.ReadLimit
 	}

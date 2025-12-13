@@ -32,10 +32,10 @@ func newTestExecutorWithRegistryAndOptions(workers int, registry *scheduler.Regi
 	}
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, pid pid.PID, result *runtime.Result) {
+		onComplete: func(_ context.Context, p pid.PID, result *runtime.Result) {
 			te.mu.Lock()
-			if ch, ok := te.pending[pid.UniqID]; ok {
-				delete(te.pending, pid.UniqID)
+			if ch, ok := te.pending[p.UniqID]; ok {
+				delete(te.pending, p.UniqID)
 				te.mu.Unlock()
 				ch <- result
 			} else {
@@ -70,17 +70,17 @@ func (te *testExecutor) Scheduler() *Scheduler {
 	return te.sched
 }
 
-func (te *testExecutor) Execute(ctx context.Context, pid pid.PID, p Process, method string, input payload.Payloads) (*runtime.Result, error) {
+func (te *testExecutor) Execute(ctx context.Context, p pid.PID, proc Process, method string, input payload.Payloads) (*runtime.Result, error) {
 	resultCh := make(chan *runtime.Result, 1)
 
 	te.mu.Lock()
-	te.pending[pid.UniqID] = resultCh
+	te.pending[p.UniqID] = resultCh
 	te.mu.Unlock()
 
-	_, err := te.sched.Submit(ctx, pid, p, method, input)
+	_, err := te.sched.Submit(ctx, p, proc, method, input)
 	if err != nil {
 		te.mu.Lock()
-		delete(te.pending, pid.UniqID)
+		delete(te.pending, p.UniqID)
 		te.mu.Unlock()
 		return nil, err
 	}
@@ -90,7 +90,7 @@ func (te *testExecutor) Execute(ctx context.Context, pid pid.PID, p Process, met
 		return result, nil
 	case <-ctx.Done():
 		te.mu.Lock()
-		delete(te.pending, pid.UniqID)
+		delete(te.pending, p.UniqID)
 		te.mu.Unlock()
 		return nil, ctx.Err()
 	}

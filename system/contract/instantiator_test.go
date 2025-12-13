@@ -376,6 +376,15 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 	require.NoError(t, err)
 	defer sub.Close()
 
+	// Subscribe to function events for waiting on registration
+	funcSub, err := eventbus.NewSubscriber(ctx, bus, function.System, "function.*", func(evt event.Event) {
+		if evt.Kind == function.Accept {
+			wg.Done()
+		}
+	})
+	require.NoError(t, err)
+	defer funcSub.Close()
+
 	// Function that checks context values
 	funcID := registry.NewID("test", "context_func")
 	testFunc := function.Func(func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
@@ -399,6 +408,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 		return &runtime.Result{Value: payload.New(result)}, nil
 	})
 
+	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: function.System,
 		Kind:   function.Register,
@@ -408,6 +418,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 			Options: nil,
 		},
 	})
+	wg.Wait()
 
 	// Register contract and binding
 	contractID := registry.NewID("test", "context_contract")
@@ -668,12 +679,22 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 	require.NoError(t, err)
 	defer sub.Close()
 
+	// Subscribe to function events for waiting on registration
+	funcSub, err := eventbus.NewSubscriber(ctx, bus, function.System, "function.*", func(evt event.Event) {
+		if evt.Kind == function.Accept {
+			wg.Done()
+		}
+	})
+	require.NoError(t, err)
+	defer funcSub.Close()
+
 	// Register function that returns a test result
 	funcID := registry.NewID("test", "context_test_func")
 	testFunc := function.Func(func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		return &runtime.Result{Value: payload.New("validation_and_execution_success")}, nil
 	})
 
+	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: function.System,
 		Kind:   function.Register,
@@ -683,6 +704,7 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 			Options: nil,
 		},
 	})
+	wg.Wait()
 
 	// Register contract that requires origin_id
 	contractID := registry.NewID("test", "context_validation_contract")
