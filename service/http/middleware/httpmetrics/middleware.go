@@ -62,12 +62,24 @@ func CreateHTTPMetricsMiddleware(collector metrics.Collector) func(options map[s
 
 type statusWriter struct {
 	http.ResponseWriter
-	statusCode int
+	statusCode    int
+	headerWritten bool
 }
 
 func (w *statusWriter) WriteHeader(code int) {
+	if w.headerWritten {
+		return
+	}
 	w.statusCode = code
+	w.headerWritten = true
 	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *statusWriter) Write(b []byte) (int, error) {
+	if !w.headerWritten {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(b)
 }
 
 func (w *statusWriter) Flush() {

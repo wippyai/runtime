@@ -119,3 +119,16 @@ type DockerExecutorConfig struct {
 	// Tmpfs mounts for writable directories when using read-only rootfs
 	Tmpfs map[string]string `json:"tmpfs"`
 }
+
+// Validate validates the NativeExecutorConfig
+func (c *NativeExecutorConfig) Validate() error {
+	return nil
+}
+
+// Validate validates the DockerExecutorConfig
+func (c *DockerExecutorConfig) Validate() error {
+	if c.Image == "" {
+		return ErrImageRequired
+	}
+	return nil
+}

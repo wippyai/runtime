@@ -42,7 +42,7 @@ type Connection struct {
 	currentMessageTopic relay.Topic
 	config              RelayCommand
 
-	// Heartbeat (ticker is thread-safe, interval read after initial setup)
+	// Heartbeat (ticker is thread-safe, interval protected by mu)
 	heartbeatTicker   *time.Ticker
 	heartbeatInterval time.Duration
 
@@ -131,6 +131,7 @@ func NewConnection(
 	_, err := host.Attach(wsPID, conn.msgCh)
 	if err != nil {
 		logger.Error("Failed to attach to host", zap.Error(err))
+		conn.heartbeatTicker.Stop()
 		cancel()
 		return nil, NewAttachToRelayError(err)
 	}
@@ -349,7 +350,9 @@ func (c *Connection) handleControlMessage(p payload.Payload) {
 	// Update heartbeat interval if provided (ticker is thread-safe)
 	if command.HeartbeatInterval != "" {
 		if interval, err := time.ParseDuration(command.HeartbeatInterval); err == nil {
+			c.mu.Lock()
 			c.heartbeatInterval = interval
+			c.mu.Unlock()
 			c.heartbeatTicker.Reset(interval)
 		}
 	}
@@ -632,8 +635,11 @@ func (c *Connection) cleanup() {
 	c.topo.Notify(c.wsPID, result)
 	c.topo.Remove(c.wsPID)
 
-	// Detach from host
+	// Detach from host (must happen before closing msgCh)
 	c.host.Detach(c.wsPID)
+
+	// Close message channel to prevent leaks
+	close(c.msgCh)
 
 	c.logger.Debug("websocket connection closed")
 }

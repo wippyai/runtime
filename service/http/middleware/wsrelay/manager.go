@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/wippyai/runtime/api/topology"
-
 	"github.com/coder/websocket"
 	contextapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
@@ -15,9 +13,44 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	httpapi "github.com/wippyai/runtime/api/service/http"
+	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/internal/uniqid"
 	"go.uber.org/zap"
 )
+
+// responseWrapper wraps http.ResponseWriter to capture headers before passing to handlers
+type responseWrapper struct {
+	http.ResponseWriter
+	headers    http.Header
+	statusCode int
+}
+
+func newResponseWrapper(w http.ResponseWriter) *responseWrapper {
+	return &responseWrapper{
+		ResponseWriter: w,
+		headers:        w.Header(),
+		statusCode:     200,
+	}
+}
+
+func (rw *responseWrapper) Header() http.Header {
+	return rw.headers
+}
+
+func (rw *responseWrapper) Write(data []byte) (int, error) {
+	return rw.ResponseWriter.Write(data)
+}
+
+func (rw *responseWrapper) WriteHeader(statusCode int) {
+	rw.statusCode = statusCode
+	rw.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (rw *responseWrapper) Flush() {
+	if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
 
 const (
 	// Option keys (dot-separated, preferred)
@@ -102,7 +135,7 @@ func (m *RelayManager) middlewareHandler(h http.Handler, originPatterns []string
 		if relayConfigStr == "" {
 			return
 		}
-		w.Header().Del(WSRelayHeader)
+		wrappedWriter.Header().Del(WSRelayHeader)
 
 		logger := m.logger.With(
 			zap.String("path", r.URL.Path),

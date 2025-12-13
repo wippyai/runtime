@@ -104,7 +104,8 @@ func HTTP() boot.Component {
 
 			// Register new middleware
 			_ = midRegistry.Register(compress.MiddlewareName, compress.CreateCompressMiddleware)
-			_ = midRegistry.Register(ratelimit.MiddlewareName, ratelimit.CreateRateLimitMiddleware)
+			rateLimitManager := ratelimit.NewManager(ctx)
+			_ = midRegistry.Register(ratelimit.MiddlewareName, rateLimitManager.CreateMiddleware)
 			_ = midRegistry.Register(fileserve.MiddlewareName, func(options map[string]string) func(nethttp.Handler) nethttp.Handler {
 				return fileserve.CreateFileServeMiddleware(options, fsRegistry)
 			})

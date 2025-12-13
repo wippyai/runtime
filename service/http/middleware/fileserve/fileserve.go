@@ -129,8 +129,12 @@ func CreateFileServeMiddleware(options map[string]string, fsRegistry FSRegistry)
 			}
 
 			// Serve file using http.ServeContent
-			// fsapi.File implements io.ReadSeeker
-			http.ServeContent(w, r, filepath.Base(filePath), stat.ModTime(), file.(io.ReadSeeker))
+			seeker, ok := file.(io.ReadSeeker)
+			if !ok {
+				http.Error(w, "sendfile middleware: file does not support seeking", http.StatusInternalServerError)
+				return
+			}
+			http.ServeContent(w, r, filepath.Base(filePath), stat.ModTime(), seeker)
 		})
 	}
 }

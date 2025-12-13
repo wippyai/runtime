@@ -1,6 +1,7 @@
 package ratelimit
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"strconv"
@@ -35,6 +36,17 @@ const (
 	DefaultMaxEntries      = 100000
 )
 
+// Manager manages rate limiter stores with proper lifecycle management
+type Manager struct {
+	ctx    context.Context
+	stores sync.Map
+}
+
+// NewManager creates a new rate limit manager with lifecycle tied to context
+func NewManager(ctx context.Context) *Manager {
+	return &Manager{ctx: ctx}
+}
+
 // limiterEntry holds a rate limiter with last access time
 type limiterEntry struct {
 	limiter    *rate.Limiter
@@ -49,25 +61,22 @@ type limiterStore struct {
 	burst      int
 	ttl        time.Duration
 	maxEntries int
-	stopCh     chan struct{}
-	stopped    bool
 }
 
-func newLimiterStore(limit rate.Limit, burst int, cleanupInterval, ttl time.Duration, maxEntries int) *limiterStore {
+func newLimiterStore(ctx context.Context, limit rate.Limit, burst int, cleanupInterval, ttl time.Duration, maxEntries int) *limiterStore {
 	s := &limiterStore{
 		limiters:   make(map[string]*limiterEntry),
 		limit:      limit,
 		burst:      burst,
 		ttl:        ttl,
 		maxEntries: maxEntries,
-		stopCh:     make(chan struct{}),
 	}
 
-	go s.cleanupLoop(cleanupInterval)
+	go s.cleanupLoop(ctx, cleanupInterval)
 	return s
 }
 
-func (s *limiterStore) cleanupLoop(interval time.Duration) {
+func (s *limiterStore) cleanupLoop(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -75,7 +84,7 @@ func (s *limiterStore) cleanupLoop(interval time.Duration) {
 		select {
 		case <-ticker.C:
 			s.cleanup()
-		case <-s.stopCh:
+		case <-ctx.Done():
 			return
 		}
 	}
@@ -95,26 +104,18 @@ func (s *limiterStore) cleanup() {
 	}
 }
 
-func (s *limiterStore) stop() {
-	s.mu.Lock()
-	if !s.stopped {
-		s.stopped = true
-		close(s.stopCh)
-	}
-	s.mu.Unlock()
-}
-
 func (s *limiterStore) getLimiter(key string) *rate.Limiter {
 	now := time.Now().UnixNano()
 
+	// Try fast path with read lock, keeping lock until after atomic update
 	s.mu.RLock()
-	entry, exists := s.limiters[key]
-	s.mu.RUnlock()
-
-	if exists {
+	if entry, exists := s.limiters[key]; exists {
 		atomic.StoreInt64(&entry.lastAccess, now)
-		return entry.limiter
+		limiter := entry.limiter
+		s.mu.RUnlock()
+		return limiter
 	}
+	s.mu.RUnlock()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -161,8 +162,19 @@ func (s *limiterStore) len() int {
 	return len(s.limiters)
 }
 
-// CreateRateLimitMiddleware creates a rate limiting middleware using token bucket algorithm
+// CreateMiddleware creates a rate limiting middleware with lifecycle tied to the manager's context
+func (m *Manager) CreateMiddleware(options map[string]string) func(http.Handler) http.Handler {
+	return createRateLimitMiddlewareWithContext(m.ctx, options)
+}
+
+// CreateRateLimitMiddleware creates a rate limiting middleware using token bucket algorithm.
+// Note: The cleanup goroutine runs until the process exits. For proper lifecycle management,
+// use Manager.CreateMiddleware instead.
 func CreateRateLimitMiddleware(options map[string]string) func(http.Handler) http.Handler {
+	return createRateLimitMiddlewareWithContext(context.Background(), options)
+}
+
+func createRateLimitMiddlewareWithContext(ctx context.Context, options map[string]string) func(http.Handler) http.Handler {
 	// Parse requests per window
 	requests := DefaultRequests
 	if reqStr := options[OptionRequests]; reqStr != "" {
@@ -223,10 +235,13 @@ func CreateRateLimitMiddleware(options map[string]string) func(http.Handler) htt
 		}
 	}
 
-	// Calculate rate limit
+	// Calculate rate limit (ensure window is at least 1 second to prevent division by zero)
+	if window < time.Second {
+		window = time.Second
+	}
 	limit := rate.Limit(float64(requests) / window.Seconds())
 
-	store := newLimiterStore(limit, burst, cleanupInterval, entryTTL, maxEntries)
+	store := newLimiterStore(ctx, limit, burst, cleanupInterval, entryTTL, maxEntries)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

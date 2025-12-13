@@ -1,7 +1,6 @@
 package wsrelay
 
 import (
-	"net/http"
 	"time"
 
 	"github.com/wippyai/runtime/api/relay"
@@ -44,38 +43,4 @@ type HeartbeatInfo struct {
 	Uptime       string         `json:"uptime"`
 	MessageCount int64          `json:"message_count"`
 	Metadata     map[string]any `json:"metadata,omitempty"`
-}
-
-// responseWrapper wraps the ResponseWriter to capture headers and status
-type responseWrapper struct {
-	http.ResponseWriter
-	headers    http.Header
-	statusCode int
-}
-
-func newResponseWrapper(w http.ResponseWriter) *responseWrapper {
-	return &responseWrapper{
-		ResponseWriter: w,
-		headers:        w.Header(),
-		statusCode:     200,
-	}
-}
-
-func (rw *responseWrapper) Header() http.Header {
-	return rw.headers
-}
-
-func (rw *responseWrapper) Write(data []byte) (int, error) {
-	return rw.ResponseWriter.Write(data)
-}
-
-func (rw *responseWrapper) WriteHeader(statusCode int) {
-	rw.statusCode = statusCode
-	rw.ResponseWriter.WriteHeader(statusCode)
-}
-
-func (rw *responseWrapper) Flush() {
-	if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
-		flusher.Flush()
-	}
 }

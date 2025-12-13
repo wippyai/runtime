@@ -3,10 +3,12 @@ package host
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/supervisor"
 )
 
@@ -156,6 +158,16 @@ func TestEntryConfig_Validate(t *testing.T) {
 			wantErr: true,
 			errMsg:  "local_queue_size must be greater than 0",
 		},
+		{
+			name: "deprecated BufferSize migration",
+			config: EntryConfig{
+				HostConfig: Config{
+					Workers:    2,
+					BufferSize: 2048,
+				},
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -169,4 +181,56 @@ func TestEntryConfig_Validate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEntryConfig_BufferSizeMigration(t *testing.T) {
+	cfg := EntryConfig{
+		HostConfig: Config{
+			Workers:    2,
+			BufferSize: 2048,
+		},
+	}
+	err := cfg.Validate()
+	require.NoError(t, err)
+	assert.Equal(t, 2048, cfg.HostConfig.QueueSize)
+}
+
+func TestSentinelErrors(t *testing.T) {
+	assert.EqualError(t, ErrHostNotRunning, "host is not running")
+	assert.EqualError(t, ErrHostShuttingDown, "host is shutting down")
+	assert.EqualError(t, ErrHostAlreadyRunning, "host already running")
+}
+
+func TestError_Interface(t *testing.T) {
+	t.Run("ErrInvalidWorkers", func(t *testing.T) {
+		err := ErrInvalidWorkers
+		assert.Equal(t, "workers must be greater than 0", err.Error())
+		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		assert.Equal(t, apierror.False, err.Retryable())
+		assert.Nil(t, err.Details())
+		assert.Nil(t, err.Unwrap())
+	})
+
+	t.Run("ErrInvalidQueueSize", func(t *testing.T) {
+		err := ErrInvalidQueueSize
+		assert.Equal(t, "queue_size must be greater than 0", err.Error())
+		assert.Equal(t, apierror.KindInvalid, err.Kind())
+	})
+
+	t.Run("ErrInvalidLocalQueueSize", func(t *testing.T) {
+		err := ErrInvalidLocalQueueSize
+		assert.Equal(t, "local_queue_size must be greater than 0", err.Error())
+		assert.Equal(t, apierror.KindInvalid, err.Kind())
+	})
+}
+
+func TestNewDecodeConfigError(t *testing.T) {
+	cause := errors.New("parse error")
+	err := NewDecodeConfigError(cause)
+
+	assert.Contains(t, err.Error(), "failed to decode host config")
+	assert.Equal(t, apierror.KindInvalid, err.Kind())
+	assert.Equal(t, apierror.False, err.Retryable())
+	assert.Nil(t, err.Details())
+	assert.Equal(t, cause, err.Unwrap())
 }

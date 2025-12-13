@@ -233,6 +233,10 @@ func executeRequest(ctx context.Context, pool *Pool, req *httpapi.RequestCmd, al
 	client := pool.GetClientWithSSRF(req.Timeout, req.UnixSocket, blockPrivate)
 	resp, err := client.Do(httpReq)
 	if err != nil {
+		// Per Go docs, resp may be non-nil even on error and body needs closing
+		if resp != nil && resp.Body != nil {
+			resp.Body.Close()
+		}
 		return httpapi.Response{Error: err.Error()}
 	}
 

@@ -47,7 +47,7 @@ func NewManager(bus event.Bus, dtt payload.Transcoder, cmdRegistry dispatcherapi
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	cfg, err := entryutil.DecodeEntryConfig[host.EntryConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return newDecodeConfigError(err)
+		return host.NewDecodeConfigError(err)
 	}
 
 	h := NewHost(entry.ID, cfg, nil, m.factory, m.log)
@@ -135,12 +135,8 @@ func (m *Manager) GetHost(hostID string) (process.Host, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	for id, h := range m.hosts {
-		if id.String() == hostID {
-			return h, true
-		}
-	}
-	return nil, false
+	h, ok := m.hosts[registry.ParseID(hostID)]
+	return h, ok
 }
 
 // compositeLifecycle wraps global lifecycle with host-specific handlers.

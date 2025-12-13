@@ -5,7 +5,6 @@ import (
 
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
-	"github.com/wippyai/runtime/api/registry"
 )
 
 // Error implements apierror.Error for Docker executor errors
@@ -17,32 +16,13 @@ type Error struct {
 	cause     error
 }
 
-// Error implements error interface
-func (e *Error) Error() string {
-	return e.message
-}
+func (e *Error) Error() string               { return e.message }
+func (e *Error) Kind() apierror.Kind         { return e.kind }
+func (e *Error) Retryable() apierror.Ternary { return e.retryable }
+func (e *Error) Details() attrs.Attributes   { return e.details }
+func (e *Error) Unwrap() error               { return e.cause }
 
-// Kind implements apierror.Error
-func (e *Error) Kind() apierror.Kind {
-	return e.kind
-}
-
-// Retryable implements apierror.Error
-func (e *Error) Retryable() apierror.Ternary {
-	return e.retryable
-}
-
-// Details implements apierror.Error
-func (e *Error) Details() attrs.Attributes {
-	return e.details
-}
-
-// Unwrap implements error unwrapping
-func (e *Error) Unwrap() error {
-	return e.cause
-}
-
-// Sentinel errors
+// Sentinel errors for docker container operations
 var (
 	ErrContainerNotStarted = &Error{
 		kind:      apierror.KindInvalid,
@@ -59,12 +39,6 @@ var (
 	ErrContainerStopped = &Error{
 		kind:      apierror.KindInvalid,
 		message:   "container already stopped",
-		retryable: apierror.False,
-	}
-
-	ErrImageRequired = &Error{
-		kind:      apierror.KindInvalid,
-		message:   "docker image is required",
 		retryable: apierror.False,
 	}
 
@@ -91,27 +65,19 @@ type ExitError struct {
 	details attrs.Attributes
 }
 
-// Error implements error interface
 func (e *ExitError) Error() string {
 	return fmt.Sprintf("container exited with code %d", e.Code)
 }
 
-// Kind implements apierror.Error
 func (e *ExitError) Kind() apierror.Kind {
 	if e.Code == 137 || e.Code == 143 {
-		// SIGKILL (137) or SIGTERM (143) - canceled
 		return apierror.KindCanceled
 	}
 	return apierror.KindInternal
 }
 
-// Retryable implements apierror.Error
-func (e *ExitError) Retryable() apierror.Ternary {
-	// Non-zero exit codes are generally not retryable
-	return apierror.False
-}
+func (e *ExitError) Retryable() apierror.Ternary { return apierror.False }
 
-// Details implements apierror.Error
 func (e *ExitError) Details() attrs.Attributes {
 	if e.details == nil {
 		e.details = attrs.NewBagFrom(map[string]any{"exit_code": e.Code})
@@ -119,70 +85,7 @@ func (e *ExitError) Details() attrs.Attributes {
 	return e.details
 }
 
-// ExitCode returns the exit code
-func (e *ExitError) ExitCode() int {
-	return e.Code
-}
-
-// WrapError wraps a standard error with Docker error context
-func WrapError(kind apierror.Kind, err error, retryable apierror.Ternary) *Error {
-	return &Error{
-		kind:      kind,
-		message:   err.Error(),
-		retryable: retryable,
-		cause:     err,
-	}
-}
-
-// NewUnsupportedEntryKindError creates an error for unsupported entry kinds
-func NewUnsupportedEntryKindError(kind registry.Kind) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   fmt.Sprintf("unsupported entry kind: %s", kind),
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"kind": kind}),
-	}
-}
-
-// NewExecutorAlreadyExistsError creates an error when executor already exists
-func NewExecutorAlreadyExistsError(id string) *Error {
-	return &Error{
-		kind:      apierror.KindAlreadyExists,
-		message:   fmt.Sprintf("executor %s already exists", id),
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"executor_id": id}),
-	}
-}
-
-// NewExecutorNotFoundError creates an error when executor is not found
-func NewExecutorNotFoundError(id string) *Error {
-	return &Error{
-		kind:      apierror.KindNotFound,
-		message:   fmt.Sprintf("executor %s not found", id),
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"executor_id": id}),
-	}
-}
-
-// NewConfigDecodeError creates an error for configuration decode failures
-func NewConfigDecodeError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   fmt.Sprintf("failed to decode configuration: %v", err),
-		retryable: apierror.False,
-		cause:     err,
-	}
-}
-
-// NewExecutorCreateError creates an error for executor creation failures
-func NewExecutorCreateError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   fmt.Sprintf("failed to create executor: %v", err),
-		retryable: apierror.True,
-		cause:     err,
-	}
-}
+func (e *ExitError) ExitCode() int { return e.Code }
 
 // NewDockerClientError creates an error for Docker client creation failures
 func NewDockerClientError(err error) *Error {

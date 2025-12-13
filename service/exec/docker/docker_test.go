@@ -46,7 +46,7 @@ func TestDockerExecutor_RequiresImage(t *testing.T) {
 	config := &execapi.DockerExecutorConfig{}
 
 	_, err := NewDockerExecutor(log, config)
-	assert.ErrorIs(t, err, ErrImageRequired)
+	assert.ErrorIs(t, err, execapi.ErrImageRequired)
 }
 
 func TestDockerExecutor_Whitelist(t *testing.T) {
@@ -380,7 +380,6 @@ func TestDockerError(t *testing.T) {
 
 	assert.Equal(t, apierror.KindAlreadyExists, ErrContainerAlreadyStart.Kind())
 	assert.Equal(t, apierror.KindInvalid, ErrContainerStopped.Kind())
-	assert.Equal(t, apierror.KindInvalid, ErrImageRequired.Kind())
 	assert.Equal(t, apierror.KindUnavailable, ErrStdinNotAvailable.Kind())
 }
 
@@ -395,16 +394,6 @@ func TestNewCommandNotAllowedError(t *testing.T) {
 	assert.NotNil(t, details)
 	cmd, _ := details.Get("command")
 	assert.Equal(t, "rm -rf /", cmd)
-}
-
-func TestWrapError(t *testing.T) {
-	originalErr := errors.New("connection refused")
-	wrapped := WrapError(apierror.KindUnavailable, originalErr, apierror.True)
-
-	assert.Equal(t, apierror.KindUnavailable, wrapped.Kind())
-	assert.Equal(t, apierror.True, wrapped.Retryable())
-	assert.Equal(t, "connection refused", wrapped.Error())
-	assert.Nil(t, wrapped.Details())
 }
 
 func TestSignalName(t *testing.T) {

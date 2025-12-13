@@ -17,6 +17,12 @@ import (
 	"go.uber.org/zap"
 )
 
+var (
+	_ execapi.ProcessExecutor = (*Executor)(nil)
+	_ execapi.Process         = (*Process)(nil)
+	_ io.Closer               = (*Executor)(nil)
+)
+
 // Executor implements exec.ProcessExecutor for Docker containers
 type Executor struct {
 	log              *zap.Logger
@@ -42,8 +48,8 @@ type Executor struct {
 
 // NewDockerExecutor creates a new Docker executor
 func NewDockerExecutor(log *zap.Logger, config *execapi.DockerExecutorConfig) (*Executor, error) {
-	if config.Image == "" {
-		return nil, ErrImageRequired
+	if err := config.Validate(); err != nil {
+		return nil, err
 	}
 
 	opts := []client.Opt{client.FromEnv, client.WithAPIVersionNegotiation()}

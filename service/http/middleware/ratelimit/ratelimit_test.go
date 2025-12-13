@@ -1,6 +1,7 @@
 package ratelimit
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -333,8 +334,9 @@ func TestParseDuration(t *testing.T) {
 
 func TestLimiterStoreCleanup(t *testing.T) {
 	t.Run("cleanup removes expired entries", func(t *testing.T) {
-		store := newLimiterStore(rate.Limit(1), 1, 50*time.Millisecond, 100*time.Millisecond, 1000)
-		defer store.stop()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		store := newLimiterStore(ctx, rate.Limit(1), 1, 50*time.Millisecond, 100*time.Millisecond, 1000)
 
 		// Add some limiters
 		store.getLimiter("key1")
@@ -349,8 +351,9 @@ func TestLimiterStoreCleanup(t *testing.T) {
 	})
 
 	t.Run("active entries not cleaned up", func(t *testing.T) {
-		store := newLimiterStore(rate.Limit(1), 1, 50*time.Millisecond, 100*time.Millisecond, 1000)
-		defer store.stop()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		store := newLimiterStore(ctx, rate.Limit(1), 1, 50*time.Millisecond, 100*time.Millisecond, 1000)
 
 		// Add and keep accessing key1
 		store.getLimiter("key1")
@@ -365,8 +368,9 @@ func TestLimiterStoreCleanup(t *testing.T) {
 	})
 
 	t.Run("max entries enforced with eviction", func(t *testing.T) {
-		store := newLimiterStore(rate.Limit(1), 1, time.Hour, time.Hour, 3)
-		defer store.stop()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		store := newLimiterStore(ctx, rate.Limit(1), 1, time.Hour, time.Hour, 3)
 
 		store.getLimiter("key1")
 		time.Sleep(10 * time.Millisecond)
@@ -381,10 +385,12 @@ func TestLimiterStoreCleanup(t *testing.T) {
 		assert.Equal(t, 3, store.len())
 	})
 
-	t.Run("stop prevents goroutine leak", func(_ *testing.T) {
-		store := newLimiterStore(rate.Limit(1), 1, time.Millisecond, time.Millisecond, 1000)
-		store.stop()
-		store.stop() // double stop should be safe
+	t.Run("context cancellation stops cleanup goroutine", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		_ = newLimiterStore(ctx, rate.Limit(1), 1, time.Millisecond, time.Millisecond, 1000)
+		cancel()
+		// Give goroutine time to exit
+		time.Sleep(10 * time.Millisecond)
 	})
 }
 

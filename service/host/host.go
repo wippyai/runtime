@@ -1,9 +1,8 @@
-// Package host2 provides V2 process host using the actor scheduler.
+// Package host provides process host implementation using the actor scheduler.
 package host
 
 import (
 	"context"
-	"errors"
 	"sync/atomic"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
@@ -43,16 +42,13 @@ func NewHost(id registry.ID, cfg *host.EntryConfig, scheduler *actor.Scheduler, 
 	}
 }
 
-// ErrHostNotRunning is returned when Run is called before Start.
-var ErrHostNotRunning = errors.New("host is not running")
-
 // Run implements process.Host.
 func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 	if !h.running.Load() {
-		return pid.PID{}, ErrHostNotRunning
+		return pid.PID{}, host.ErrHostNotRunning
 	}
 	if h.shutdown.Load() {
-		return pid.PID{}, errors.New("host is shutting down")
+		return pid.PID{}, host.ErrHostShuttingDown
 	}
 
 	proc, meta, err := h.factory.Create(start.Source)
@@ -69,6 +65,7 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 	}
 
 	if _, err = h.scheduler.Submit(frameCtx, processID, proc, method, start.Input); err != nil {
+		proc.Close()
 		return pid.PID{}, err
 	}
 
@@ -89,7 +86,7 @@ func (h *Host) Terminate(_ context.Context, processID pid.PID) error {
 // Send implements relay.Receiver.
 func (h *Host) Send(pkg *relay.Package) error {
 	if h.shutdown.Load() {
-		return errors.New("host is shutting down")
+		return host.ErrHostShuttingDown
 	}
 	return h.scheduler.Send(pkg)
 }
@@ -97,7 +94,7 @@ func (h *Host) Send(pkg *relay.Package) error {
 // Start implements supervisor.Service.
 func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 	if h.running.Swap(true) {
-		return nil, errors.New("host already running")
+		return nil, host.ErrHostAlreadyRunning
 	}
 
 	h.ctx = ctx

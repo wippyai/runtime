@@ -12,6 +12,7 @@ import (
 	"time"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	apierror "github.com/wippyai/runtime/api/error"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/wippyai/runtime/api/service/exec"
@@ -763,6 +764,198 @@ func TestNativeExecutor_Whitelist(t *testing.T) {
 				assert.Contains(t, err.Error(), tt.errorContains)
 			}
 		})
+	}
+}
+
+func TestProcessExecutor_Signal(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Signal test not supported on Windows")
+	}
+
+	logger := zap.NewNop()
+	executor := NewNativeExecutor(logger, &exec.NativeExecutorConfig{})
+
+	process, err := executor.NewProcess("sleep 10", exec.ProcessOptions{})
+	assert.NoError(t, err)
+
+	// Signal before start should fail
+	err = process.Signal(15)
+	assert.ErrorIs(t, err, ErrProcessNotRunning)
+
+	// Start the process
+	err = process.Start()
+	assert.NoError(t, err)
+
+	// Give process time to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Signal should work
+	err = process.Signal(15) // SIGTERM
+	assert.NoError(t, err)
+
+	// Wait should return an error (process killed)
+	_ = process.Wait()
+}
+
+func TestProcessExecutor_State(t *testing.T) {
+	logger := zap.NewNop()
+	executor := NewNativeExecutor(logger, &exec.NativeExecutorConfig{})
+
+	process, err := executor.NewProcess("echo test", exec.ProcessOptions{})
+	assert.NoError(t, err)
+
+	pe := process.(*ProcessExecutor)
+	assert.Equal(t, "not_started", pe.State())
+
+	err = process.Start()
+	assert.NoError(t, err)
+	assert.Equal(t, "running", pe.State())
+
+	_ = process.Wait()
+	assert.Equal(t, "terminated", pe.State())
+}
+
+func TestNativeError(t *testing.T) {
+	// Test sentinel error interface methods
+	assert.Equal(t, "process is not running", ErrProcessNotRunning.Error())
+	assert.Equal(t, apierror.KindInvalid, ErrProcessNotRunning.Kind())
+	assert.Equal(t, apierror.False, ErrProcessNotRunning.Retryable())
+	assert.Nil(t, ErrProcessNotRunning.Details())
+	assert.Nil(t, ErrProcessNotRunning.Unwrap())
+
+	assert.Equal(t, "process not started", ErrProcessNotStarted.Error())
+	assert.Equal(t, "pid is not a positive int, process is possibly not running", ErrInvalidPID.Error())
+}
+
+func TestNewCommandNotAllowedError(t *testing.T) {
+	err := NewCommandNotAllowedError("rm -rf /")
+	assert.Equal(t, apierror.KindPermissionDenied, err.Kind())
+	assert.Equal(t, apierror.False, err.Retryable())
+	assert.Contains(t, err.Error(), "rm -rf /")
+
+	details := err.Details()
+	assert.NotNil(t, details)
+	cmd, _ := details.Get("command")
+	assert.Equal(t, "rm -rf /", cmd)
+}
+
+func TestExitError(t *testing.T) {
+	err := &ExitError{Code: 42}
+	assert.Equal(t, "process exited with code 42", err.Error())
+	assert.Equal(t, 42, err.ExitCode())
+	assert.Equal(t, apierror.KindInternal, err.Kind())
+	assert.Equal(t, apierror.False, err.Retryable())
+
+	details := err.Details()
+	assert.NotNil(t, details)
+	code, _ := details.Get("exit_code")
+	assert.Equal(t, 42, code)
+
+	// Test SIGKILL (137) returns Canceled
+	sigkillErr := &ExitError{Code: 137}
+	assert.Equal(t, apierror.KindCanceled, sigkillErr.Kind())
+
+	// Test SIGTERM (143) returns Canceled
+	sigtermErr := &ExitError{Code: 143}
+	assert.Equal(t, apierror.KindCanceled, sigtermErr.Kind())
+}
+
+func TestAPIErrors(t *testing.T) {
+	t.Run("NewUnsupportedEntryKindError", func(t *testing.T) {
+		err := exec.NewUnsupportedEntryKindError("unknown.kind")
+		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		assert.Contains(t, err.Error(), "unknown.kind")
+	})
+
+	t.Run("NewExecutorAlreadyExistsError", func(t *testing.T) {
+		err := exec.NewExecutorAlreadyExistsError("exec-1")
+		assert.Equal(t, apierror.KindAlreadyExists, err.Kind())
+		assert.Contains(t, err.Error(), "exec-1")
+	})
+
+	t.Run("NewExecutorNotFoundError", func(t *testing.T) {
+		err := exec.NewExecutorNotFoundError("exec-1")
+		assert.Equal(t, apierror.KindNotFound, err.Kind())
+		assert.Contains(t, err.Error(), "exec-1")
+	})
+
+	t.Run("NewConfigDecodeError", func(t *testing.T) {
+		originalErr := errors.New("invalid json")
+		err := exec.NewConfigDecodeError(originalErr)
+		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		assert.Contains(t, err.Error(), "invalid json")
+		assert.Equal(t, originalErr, err.Unwrap())
+	})
+
+	t.Run("NewExecutorCreateError", func(t *testing.T) {
+		originalErr := errors.New("failed to init")
+		err := exec.NewExecutorCreateError(originalErr)
+		assert.Equal(t, apierror.KindInternal, err.Kind())
+		assert.Equal(t, apierror.True, err.Retryable())
+		assert.Contains(t, err.Error(), "failed to init")
+	})
+}
+
+func BenchmarkParseCommand(b *testing.B) {
+	commands := []string{
+		"echo hello",
+		"ls -la /tmp",
+		"docker run -it --name test -v \"$(pwd):/app\" alpine:latest sh",
+		"find . -type f -name \"*.go\" -not -path \"*/vendor/*\"",
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		parseCommand(commands[i%len(commands)])
+	}
+}
+
+func BenchmarkNewProcessExecutor(b *testing.B) {
+	logger := zap.NewNop()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		NewProcessExecutor(
+			logger,
+			WithCmd("echo hello"),
+			WithWorkingDir("/tmp"),
+			WithEnv(map[string]string{"FOO": "bar"}),
+		)
+	}
+}
+
+func BenchmarkExecutor_NewProcess(b *testing.B) {
+	logger := zap.NewNop()
+	executor := NewNativeExecutor(logger, &exec.NativeExecutorConfig{
+		DefaultWorkDir: "/tmp",
+		DefaultEnv:     map[string]string{"PATH": "/usr/bin"},
+	})
+
+	options := exec.ProcessOptions{
+		WorkDir: "/var/tmp",
+		Env:     map[string]string{"FOO": "bar"},
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		_, _ = executor.NewProcess("echo hello", options)
+	}
+}
+
+func BenchmarkParseCommand_Complex(b *testing.B) {
+	cmd := `psql "postgresql://user:password@localhost:5432/dbname"`
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		parseCommand(cmd)
 	}
 }
 

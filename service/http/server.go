@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	relaysys "github.com/wippyai/runtime/system/relay"
@@ -32,9 +33,6 @@ const (
 	StatusBuffer = 10
 )
 
-// ContextListener is the context key for the HTTP listener
-var ContextListener = &contextapi.Key{Name: "http.listener"}
-
 // ServerService combines HTTP server and router functionality
 type ServerService struct {
 	ctx           context.Context
@@ -44,7 +42,7 @@ type ServerService struct {
 	server        *http.Server
 	mu            sync.RWMutex
 	statusChan    chan any
-	started       bool                     // Track if server has been started
+	started       atomic.Bool              // Track if server has been started
 	mountPaths    map[registry.ID]string   // Track mount paths by Source
 	host          relay.AttachableReceiver // pubsub host
 	middlewareFac MiddlewareAPI            // Middleware factory
@@ -82,7 +80,7 @@ func (s *ServerService) UpdateConfig(cfg *config.ServerConfig) error {
 	defer s.mu.Unlock()
 
 	// Check if address changes while server is running
-	if s.started {
+	if s.started.Load() {
 		if s.config.Addr != cfg.Addr {
 			return ErrServerAddressChangeWhileRunning
 		}
@@ -188,7 +186,7 @@ func (s *ServerService) Rebuild(_ context.Context) error {
 	}
 
 	// If server is running, we need to update its handler
-	if s.started && s.server != nil {
+	if s.started.Load() && s.server != nil {
 		s.server.Handler = s.routeMgr
 	}
 
@@ -253,7 +251,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 			return s.ctx
 		},
 	}
-	s.started = true
+	s.started.Store(true)
 
 	s.mu.Unlock()
 
@@ -267,15 +265,11 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 			}
 		}
 
-		s.mu.Lock()
-		s.started = false
-		s.mu.Unlock()
+		s.started.Store(false)
 	}()
 
 	if err := s.ensureRunning(ctx); err != nil {
-		s.mu.Lock()
-		s.started = false
-		s.mu.Unlock()
+		s.started.Store(false)
 		return nil, NewStartupCheckError(err)
 	}
 
@@ -316,7 +310,7 @@ func (s *ServerService) Stop(ctx context.Context) error {
 
 	// Host will be cleaned up via context cancellation
 	s.host = nil
-	s.started = false
+	s.started.Store(false)
 
 	return nil
 }

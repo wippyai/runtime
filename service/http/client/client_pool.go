@@ -39,7 +39,6 @@ const (
 	defaultExpectContinue  = 1 * time.Second
 	defaultKeepAlive       = 30 * time.Second
 	defaultDialTimeout     = 30 * time.Second
-	maxPooledClients       = 64 // prevent unbounded growth
 )
 
 // NewClientPool creates a new HTTP client pool with default settings.
@@ -180,11 +179,6 @@ func safeDialContext(dialer *net.Dialer) func(ctx context.Context, network, addr
 		// Connect to the first resolved IP
 		return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].String(), port))
 	}
-}
-
-// createClient builds an HTTP client with proper transport configuration.
-func createClient(timeout time.Duration, unixSocket string, maxIdleConns, maxIdlePerHost int, idleConnTimeout time.Duration) *gohttp.Client {
-	return createClientWithSSRF(timeout, unixSocket, maxIdleConns, maxIdlePerHost, idleConnTimeout, true)
 }
 
 // createClientWithSSRF builds an HTTP client with optional SSRF protection.

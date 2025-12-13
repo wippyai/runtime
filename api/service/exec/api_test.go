@@ -123,3 +123,84 @@ func TestNativeExecutorConfig_MarshalUnmarshal(t *testing.T) {
 		})
 	}
 }
+
+func TestNativeExecutorConfig_Validate(t *testing.T) {
+	t.Run("empty config is valid", func(t *testing.T) {
+		cfg := &NativeExecutorConfig{}
+		assert.NoError(t, cfg.Validate())
+	})
+
+	t.Run("complete config is valid", func(t *testing.T) {
+		cfg := &NativeExecutorConfig{
+			DefaultWorkDir:   "/tmp",
+			DefaultEnv:       map[string]string{"PATH": "/bin"},
+			CommandWhitelist: []string{"echo"},
+		}
+		assert.NoError(t, cfg.Validate())
+	})
+}
+
+func TestDockerExecutorConfig_Validate(t *testing.T) {
+	t.Run("empty image returns error", func(t *testing.T) {
+		cfg := &DockerExecutorConfig{}
+		err := cfg.Validate()
+		assert.ErrorIs(t, err, ErrImageRequired)
+	})
+
+	t.Run("with image is valid", func(t *testing.T) {
+		cfg := &DockerExecutorConfig{Image: "alpine:latest"}
+		assert.NoError(t, cfg.Validate())
+	})
+
+	t.Run("complete config is valid", func(t *testing.T) {
+		cfg := &DockerExecutorConfig{
+			Image:           "ubuntu:22.04",
+			Host:            "unix:///var/run/docker.sock",
+			DefaultWorkDir:  "/app",
+			NetworkMode:     "bridge",
+			MemoryLimit:     512 * 1024 * 1024,
+			CPUQuota:        100000,
+			AutoRemove:      true,
+			ReadOnlyRootfs:  true,
+			NoNewPrivileges: true,
+			CapDrop:         []string{"ALL"},
+			CapAdd:          []string{"NET_BIND_SERVICE"},
+			PidsLimit:       100,
+		}
+		assert.NoError(t, cfg.Validate())
+	})
+}
+
+func TestErrorConstructors(t *testing.T) {
+	t.Run("NewUnsupportedEntryKindError", func(t *testing.T) {
+		err := NewUnsupportedEntryKindError("test.kind")
+		assert.Contains(t, err.Error(), "test.kind")
+		assert.NotNil(t, err.Details())
+	})
+
+	t.Run("NewExecutorAlreadyExistsError", func(t *testing.T) {
+		err := NewExecutorAlreadyExistsError("exec-1")
+		assert.Contains(t, err.Error(), "exec-1")
+		assert.NotNil(t, err.Details())
+	})
+
+	t.Run("NewExecutorNotFoundError", func(t *testing.T) {
+		err := NewExecutorNotFoundError("exec-1")
+		assert.Contains(t, err.Error(), "exec-1")
+		assert.NotNil(t, err.Details())
+	})
+
+	t.Run("NewConfigDecodeError", func(t *testing.T) {
+		cause := assert.AnError
+		err := NewConfigDecodeError(cause)
+		assert.Contains(t, err.Error(), cause.Error())
+		assert.Equal(t, cause, err.Unwrap())
+	})
+
+	t.Run("NewExecutorCreateError", func(t *testing.T) {
+		cause := assert.AnError
+		err := NewExecutorCreateError(cause)
+		assert.Contains(t, err.Error(), cause.Error())
+		assert.Equal(t, cause, err.Unwrap())
+	})
+}

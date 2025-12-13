@@ -48,24 +48,24 @@ func NewManager(
 // Add implements registry.EntryListener for Docker executors
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != exec.KindDockerExecutor {
-		return NewUnsupportedEntryKindError(entry.Kind)
+		return exec.NewUnsupportedEntryKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, exists := m.executors[entry.ID]; exists {
-		return NewExecutorAlreadyExistsError(entry.ID.String())
+		return exec.NewExecutorAlreadyExistsError(entry.ID.String())
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[exec.DockerExecutorConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return NewConfigDecodeError(err)
+		return exec.NewConfigDecodeError(err)
 	}
 
 	executor, err := m.factory.CreateExecutor(entry.ID, cfg)
 	if err != nil {
-		return NewExecutorCreateError(err)
+		return exec.NewExecutorCreateError(err)
 	}
 
 	provider := newExecutorProvider(executor)
@@ -92,7 +92,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update implements registry.EntryListener
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != exec.KindDockerExecutor {
-		return NewUnsupportedEntryKindError(entry.Kind)
+		return exec.NewUnsupportedEntryKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -100,17 +100,17 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	oldProvider, exists := m.executors[entry.ID]
 	if !exists {
-		return NewExecutorNotFoundError(entry.ID.String())
+		return exec.NewExecutorNotFoundError(entry.ID.String())
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[exec.DockerExecutorConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return NewConfigDecodeError(err)
+		return exec.NewConfigDecodeError(err)
 	}
 
 	executor, err := m.factory.CreateExecutor(entry.ID, cfg)
 	if err != nil {
-		return NewExecutorCreateError(err)
+		return exec.NewExecutorCreateError(err)
 	}
 
 	provider := newExecutorProvider(executor)
@@ -143,7 +143,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete implements registry.EntryListener
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != exec.KindDockerExecutor {
-		return NewUnsupportedEntryKindError(entry.Kind)
+		return exec.NewUnsupportedEntryKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -151,7 +151,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 
 	provider, exists := m.executors[entry.ID]
 	if !exists {
-		return NewExecutorNotFoundError(entry.ID.String())
+		return exec.NewExecutorNotFoundError(entry.ID.String())
 	}
 
 	if err := provider.Close(); err != nil {
