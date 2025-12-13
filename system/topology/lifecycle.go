@@ -65,7 +65,7 @@ func (t *Lifecycle) OnStart(ctx context.Context, pid relay.PID, _ process.Proces
 	link := attributes.GetBool(process.LifecycleLinkKey, false)
 
 	if monitor {
-		if err := t.topo.Wait(parentPID, pid); err != nil {
+		if err := t.topo.Monitor(parentPID, pid); err != nil {
 			t.logger.Warn("failed to monitor process",
 				zap.String("pid", pid.String()),
 				zap.String("parent", parentPID.String()),

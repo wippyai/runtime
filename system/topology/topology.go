@@ -1,7 +1,6 @@
 package topology
 
 import (
-	"strings"
 	"sync"
 	"time"
 
@@ -14,16 +13,18 @@ import (
 
 // processState holds all state for a single registered process.
 type processState struct {
-	watchers map[string]bool // PIDs monitoring this process (inbound)
-	links    map[string]bool // PIDs linked to this process
-	watching map[string]bool // PIDs this process is monitoring (outbound)
+	pid      relay.PID            // the PID this state belongs to
+	watchers map[string]relay.PID // PIDs monitoring this process (inbound)
+	links    map[string]relay.PID // PIDs linked to this process
+	watching map[string]relay.PID // PIDs this process is monitoring (outbound)
 }
 
 // Topology implements process monitoring, linking, and lifecycle management.
 type Topology struct {
 	mu          sync.RWMutex
-	processes   map[string]*processState // registered processes by PID string
-	router      relay.Receiver           // handles both local and remote routing
+	processes   map[string]*processState  // registered processes by PID string
+	nodeIndex   map[relay.NodeID][]string // index of PID keys by node for fast cleanup
+	router      relay.Receiver            // handles both local and remote routing
 	localNodeID relay.NodeID
 }
 
@@ -31,29 +32,42 @@ type Topology struct {
 func NewTopology(router relay.Receiver, localNodeID relay.NodeID) *Topology {
 	return &Topology{
 		processes:   make(map[string]*processState),
+		nodeIndex:   make(map[relay.NodeID][]string),
 		router:      router,
 		localNodeID: localNodeID,
 	}
 }
 
 // Register adds a process ID to the registry.
+// Returns error if PID is already registered (Erlang-style semantics).
 func (t *Topology) Register(pid relay.PID) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	key := pid.String()
-	if _, exists := t.processes[key]; !exists {
-		t.processes[key] = &processState{
-			watchers: make(map[string]bool),
-			links:    make(map[string]bool),
-			watching: make(map[string]bool),
-		}
+	if _, exists := t.processes[key]; exists {
+		return topology.ErrPIDAlreadyRegistered.WithDetails(attrs.Bag{
+			"pid": key,
+		})
 	}
+
+	t.processes[key] = &processState{
+		pid:      pid,
+		watchers: make(map[string]relay.PID),
+		links:    make(map[string]relay.PID),
+		watching: make(map[string]relay.PID),
+	}
+
+	// Index by node for fast cleanup
+	if pid.Node != "" {
+		t.nodeIndex[pid.Node] = append(t.nodeIndex[pid.Node], key)
+	}
+
 	return nil
 }
 
-// Wait attaches a caller to monitor a specific pid.
-func (t *Topology) Wait(caller, pid relay.PID) error {
+// Monitor attaches a caller to monitor a specific pid.
+func (t *Topology) Monitor(caller, pid relay.PID) error {
 	callerKey := caller.String()
 	pidKey := pid.String()
 
@@ -80,7 +94,7 @@ func (t *Topology) Wait(caller, pid relay.PID) error {
 
 		t.mu.Lock()
 		if callerState, exists := t.processes[callerKey]; exists {
-			callerState.watching[pidKey] = true
+			callerState.watching[pidKey] = pid
 		}
 		t.mu.Unlock()
 		return nil
@@ -97,25 +111,25 @@ func (t *Topology) Wait(caller, pid relay.PID) error {
 		})
 	}
 
-	if state.watchers[callerKey] {
+	if _, alreadyMonitoring := state.watchers[callerKey]; alreadyMonitoring {
 		return topology.ErrAlreadyMonitoring.WithDetails(attrs.Bag{
 			"pid":    pidKey,
 			"caller": callerKey,
 		})
 	}
 
-	state.watchers[callerKey] = true
+	state.watchers[callerKey] = caller
 
 	// Track outbound monitor in caller's state
 	if callerState, ok := t.processes[callerKey]; ok {
-		callerState.watching[pidKey] = true
+		callerState.watching[pidKey] = pid
 	}
 
 	return nil
 }
 
-// Release removes a caller's monitoring of a specific pid.
-func (t *Topology) Release(caller, pid relay.PID) error {
+// Demonitor removes a caller's monitoring of a specific pid.
+func (t *Topology) Demonitor(caller, pid relay.PID) error {
 	// Check if PID is on remote node.
 	if pid.Node != "" && pid.Node != t.localNodeID {
 		callerKey := caller.String()
@@ -173,7 +187,7 @@ func (t *Topology) Link(from, to relay.PID) error {
 				"role":      "from",
 			})
 		}
-		if fromState.links[toKey] {
+		if _, alreadyLinked := fromState.links[toKey]; alreadyLinked {
 			t.mu.Unlock()
 			return nil // Already linked.
 		}
@@ -187,7 +201,7 @@ func (t *Topology) Link(from, to relay.PID) error {
 
 		t.mu.Lock()
 		if fromState, exists := t.processes[fromKey]; exists {
-			fromState.links[toKey] = true
+			fromState.links[toKey] = to
 		}
 		t.mu.Unlock()
 		return nil
@@ -215,13 +229,13 @@ func (t *Topology) Link(from, to relay.PID) error {
 		})
 	}
 
-	if fromState.links[toKey] {
+	if _, alreadyLinked := fromState.links[toKey]; alreadyLinked {
 		t.mu.Unlock()
 		return nil // Already linked.
 	}
 
-	fromState.links[toKey] = true
-	toState.links[fromKey] = true
+	fromState.links[toKey] = to
+	toState.links[fromKey] = from
 	t.mu.Unlock()
 
 	return nil
@@ -276,11 +290,8 @@ func (t *Topology) GetLinks(pid relay.PID) []relay.PID {
 	}
 
 	result := make([]relay.PID, 0, len(state.links))
-	for pidStr := range state.links {
-		linkedPID, err := relay.ParsePID(pidStr)
-		if err == nil {
-			result = append(result, linkedPID)
-		}
+	for _, linkedPID := range state.links {
+		result = append(result, linkedPID)
 	}
 	return result
 }
@@ -295,16 +306,16 @@ func (t *Topology) Notify(pid relay.PID, result *runtime.Result) {
 	}
 
 	// Copy watchers and links to avoid holding lock during sends.
-	watchers := make([]string, 0, len(state.watchers))
-	for w := range state.watchers {
-		watchers = append(watchers, w)
+	watchers := make([]relay.PID, 0, len(state.watchers))
+	for _, wPID := range state.watchers {
+		watchers = append(watchers, wPID)
 	}
 
-	var linkedPIDs []string
+	var linkedPIDs []relay.PID
 	if result.Error != nil {
-		linkedPIDs = make([]string, 0, len(state.links))
-		for l := range state.links {
-			linkedPIDs = append(linkedPIDs, l)
+		linkedPIDs = make([]relay.PID, 0, len(state.links))
+		for _, lPID := range state.links {
+			linkedPIDs = append(linkedPIDs, lPID)
 		}
 	}
 	t.mu.RUnlock()
@@ -317,11 +328,7 @@ func (t *Topology) Notify(pid relay.PID, result *runtime.Result) {
 		Result: result,
 	})
 
-	for _, watcherStr := range watchers {
-		wPID, err := relay.ParsePID(watcherStr)
-		if err != nil {
-			continue
-		}
+	for _, wPID := range watchers {
 		pkg := relay.NewPackage(pid, wPID, topology.TopicEvents, exitPayload)
 		_ = t.router.Send(pkg)
 	}
@@ -335,13 +342,9 @@ func (t *Topology) Notify(pid relay.PID, result *runtime.Result) {
 			Result: result,
 		})
 
-		for _, linkedStr := range linkedPIDs {
-			linkedPID, err := relay.ParsePID(linkedStr)
-			if err != nil {
-				continue
-			}
+		for _, linkedPID := range linkedPIDs {
 			pkg := relay.NewPackage(
-				relay.PID{UniqID: "topology"},
+				topology.SystemPID,
 				linkedPID,
 				topology.TopicEvents,
 				linkDownPayload,
@@ -393,7 +396,7 @@ func (t *Topology) handleMonitorRequest(caller, target relay.PID) error {
 		})
 	}
 
-	state.watchers[caller.String()] = true
+	state.watchers[caller.String()] = caller
 	return nil
 }
 
@@ -425,7 +428,7 @@ func (t *Topology) handleLinkRequest(from, to relay.PID) error {
 		})
 	}
 
-	state.links[from.String()] = true
+	state.links[from.String()] = from
 	return nil
 }
 
@@ -452,7 +455,8 @@ func (t *Topology) hasWatcher(pid, caller relay.PID) bool {
 	if !exists {
 		return false
 	}
-	return state.watchers[caller.String()]
+	_, found := state.watchers[caller.String()]
+	return found
 }
 
 // watcherCount returns the number of watchers for a pid (for testing).
@@ -476,98 +480,89 @@ func (t *Topology) isWatching(caller, target relay.PID) bool {
 	if !exists {
 		return false
 	}
-	return state.watching[target.String()]
+	_, found := state.watching[target.String()]
+	return found
 }
 
 // HandleNodeExit handles node failure by notifying all local processes
 // that were watching or linked to PIDs on the failed node.
 func (t *Topology) HandleNodeExit(nodeID relay.NodeID, exitErr error) {
-	// Build prefix for fast string matching: "{nodeID@"
-	nodePrefix := "{" + nodeID + "@"
-
 	t.mu.RLock()
-	type notification struct {
-		callerKey string
-		targetKey string
+
+	// Use nodeIndex for O(1) lookup of dead node's PIDs
+	deadPIDKeys := t.nodeIndex[nodeID]
+
+	// Build set for fast lookup
+	deadKeySet := make(map[string]bool, len(deadPIDKeys))
+	for _, key := range deadPIDKeys {
+		deadKeySet[key] = true
 	}
-	// Pre-allocate with estimated capacity
+
+	type notification struct {
+		caller relay.PID
+		target relay.PID
+	}
 	toNotify := make([]notification, 0, 64)
 
-	for callerKey, state := range t.processes {
-		// Check outbound monitors (watching)
-		for targetKey := range state.watching {
-			if strings.HasPrefix(targetKey, nodePrefix) {
-				toNotify = append(toNotify, notification{callerKey, targetKey})
+	for _, state := range t.processes {
+		// Check outbound monitors (watching) for dead PIDs
+		for targetKey, targetPID := range state.watching {
+			if deadKeySet[targetKey] || targetPID.Node == nodeID {
+				toNotify = append(toNotify, notification{state.pid, targetPID})
 			}
 		}
 
-		// Check links to remote node
-		for linkedKey := range state.links {
-			if strings.HasPrefix(linkedKey, nodePrefix) {
-				toNotify = append(toNotify, notification{callerKey, linkedKey})
+		// Check links to dead node
+		for linkedKey, linkedPID := range state.links {
+			if deadKeySet[linkedKey] || linkedPID.Node == nodeID {
+				toNotify = append(toNotify, notification{state.pid, linkedPID})
 			}
 		}
 	}
 	t.mu.RUnlock()
 
-	// Send notifications outside lock - parse PIDs only for matched entries
+	// Send notifications outside lock
 	for _, n := range toNotify {
-		callerPID, err := relay.ParsePID(n.callerKey)
-		if err != nil {
-			continue
-		}
-		targetPID, err := relay.ParsePID(n.targetKey)
-		if err != nil {
-			continue
-		}
-
 		linkDownPayload := payload.New(&topology.ExitEvent{
 			At:   time.Now(),
-			From: targetPID,
+			From: n.target,
 			Kind: topology.KindLinkDown,
 			Result: &runtime.Result{
 				Error: exitErr,
 			},
 		})
 		pkg := relay.NewPackage(
-			relay.PID{UniqID: "topology"},
-			callerPID,
+			topology.SystemPID,
+			n.caller,
 			topology.TopicEvents,
 			linkDownPayload,
 		)
 		_ = t.router.Send(pkg)
 	}
 
-	// Cleanup: remove entries for dead node using prefix match
+	// Cleanup
 	t.mu.Lock()
 
-	// Collect PIDs to remove (belonging to dead node)
-	var toRemove []string
-	for pidKey := range t.processes {
-		if strings.HasPrefix(pidKey, nodePrefix) {
-			toRemove = append(toRemove, pidKey)
-		}
-	}
-
-	// Remove dead node PIDs from processes map
-	for _, pidKey := range toRemove {
+	// Remove dead node PIDs from processes map using nodeIndex
+	for _, pidKey := range deadPIDKeys {
 		delete(t.processes, pidKey)
 	}
+	delete(t.nodeIndex, nodeID)
 
 	// Clean up references to dead node in remaining processes
 	for _, state := range t.processes {
-		for targetKey := range state.watching {
-			if strings.HasPrefix(targetKey, nodePrefix) {
+		for targetKey, targetPID := range state.watching {
+			if deadKeySet[targetKey] || targetPID.Node == nodeID {
 				delete(state.watching, targetKey)
 			}
 		}
-		for linkedKey := range state.links {
-			if strings.HasPrefix(linkedKey, nodePrefix) {
+		for linkedKey, linkedPID := range state.links {
+			if deadKeySet[linkedKey] || linkedPID.Node == nodeID {
 				delete(state.links, linkedKey)
 			}
 		}
-		for watcherKey := range state.watchers {
-			if strings.HasPrefix(watcherKey, nodePrefix) {
+		for watcherKey, watcherPID := range state.watchers {
+			if deadKeySet[watcherKey] || watcherPID.Node == nodeID {
 				delete(state.watchers, watcherKey)
 			}
 		}

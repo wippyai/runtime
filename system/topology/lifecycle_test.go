@@ -49,7 +49,7 @@ func (m *mockTopology) Register(pid relay.PID) error {
 	return nil
 }
 
-func (m *mockTopology) Wait(caller, pid relay.PID) error {
+func (m *mockTopology) Monitor(caller, pid relay.PID) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.waitErr != nil {
@@ -59,7 +59,7 @@ func (m *mockTopology) Wait(caller, pid relay.PID) error {
 	return nil
 }
 
-func (m *mockTopology) Release(_, _ relay.PID) error {
+func (m *mockTopology) Demonitor(_, _ relay.PID) error {
 	return nil
 }
 

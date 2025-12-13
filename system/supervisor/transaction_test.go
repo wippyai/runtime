@@ -16,7 +16,7 @@ func noopLogger() *zap.Logger {
 }
 
 func TestTransactionHelper_Begin(t *testing.T) {
-	th := newTransactionHelper(noopLogger())
+	th := newRegTx(noopLogger())
 
 	// First begin should open the transaction
 	th.begin()
@@ -38,7 +38,7 @@ func TestTransactionHelper_Begin(t *testing.T) {
 }
 
 func TestTransactionHelper_Commit_Success(t *testing.T) {
-	th := newTransactionHelper(noopLogger())
+	th := newRegTx(noopLogger())
 	th.begin()
 
 	registered := make(map[string]*supervisor.Entry)
@@ -89,7 +89,7 @@ func TestTransactionHelper_Commit_Success(t *testing.T) {
 }
 
 func TestTransactionHelper_Commit_RemoveError(t *testing.T) {
-	th := newTransactionHelper(noopLogger())
+	th := newRegTx(noopLogger())
 	th.begin()
 
 	removeFn := func(id string) error {
@@ -118,7 +118,7 @@ func TestTransactionHelper_Commit_RemoveError(t *testing.T) {
 }
 
 func TestTransactionHelper_Commit_RegisterError(t *testing.T) {
-	th := newTransactionHelper(noopLogger())
+	th := newRegTx(noopLogger())
 	th.begin()
 
 	removeFn := func(_ string) error {
@@ -148,7 +148,7 @@ func TestTransactionHelper_Commit_RegisterError(t *testing.T) {
 }
 
 func TestTransactionHelper_Commit_NoTransaction(t *testing.T) {
-	th := newTransactionHelper(noopLogger())
+	th := newRegTx(noopLogger())
 
 	err := th.commit(nil, nil)
 	if err != nil {
@@ -157,7 +157,7 @@ func TestTransactionHelper_Commit_NoTransaction(t *testing.T) {
 }
 
 func TestTransactionHelper_Discard(t *testing.T) {
-	th := newTransactionHelper(noopLogger())
+	th := newRegTx(noopLogger())
 	th.begin()
 
 	assert.NoError(t, th.registerService("service1", &supervisor.Entry{}))
@@ -174,12 +174,12 @@ func TestTransactionHelper_Discard(t *testing.T) {
 }
 
 func TestTransactionHelper_Discard_NoTransaction(_ *testing.T) {
-	th := newTransactionHelper(noopLogger())
+	th := newRegTx(noopLogger())
 	th.discard() // Should not panic or error
 }
 
 func TestTransactionHelper_RegisterService(t *testing.T) {
-	th := newTransactionHelper(noopLogger())
+	th := newRegTx(noopLogger())
 	th.begin()
 
 	assert.NoError(t, th.registerService("service1", &supervisor.Entry{}))
@@ -199,7 +199,7 @@ func TestTransactionHelper_RegisterService(t *testing.T) {
 }
 
 func TestTransactionHelper_RegisterService_NoTransaction(t *testing.T) {
-	th := newTransactionHelper(noopLogger())
+	th := newRegTx(noopLogger())
 
 	err := th.registerService("service1", &supervisor.Entry{})
 	if err == nil {
@@ -208,7 +208,7 @@ func TestTransactionHelper_RegisterService_NoTransaction(t *testing.T) {
 }
 
 func TestTransactionHelper_RemoveService(t *testing.T) {
-	th := newTransactionHelper(noopLogger())
+	th := newRegTx(noopLogger())
 	th.begin()
 
 	assert.NoError(t, th.removeService("service1"))
@@ -228,7 +228,7 @@ func TestTransactionHelper_RemoveService(t *testing.T) {
 }
 
 func TestTransactionHelper_RemoveService_NoTransaction(t *testing.T) {
-	th := newTransactionHelper(noopLogger())
+	th := newRegTx(noopLogger())
 
 	err := th.removeService("service1")
 	if err == nil {

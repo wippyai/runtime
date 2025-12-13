@@ -463,7 +463,7 @@ func (s *Scheduler) WorkerStats() []map[string]uint64 {
 // StatsProvider can be implemented by Process to expose runtime statistics.
 // This is an optional interface for debug/observability purposes.
 type StatsProvider interface {
-	Stats() any
+	Stats() any // todo: why not in api?
 }
 
 // CollectProcessStats gathers statistics from all active processes.

@@ -314,7 +314,7 @@ func TestSupervisor_MultipleServices(t *testing.T) {
 
 	// Launch service-2 manually
 	h.sup.actions <- action{
-		kind:      actionStart,
+		kind:      actStart,
 		serviceID: "service-2",
 	}
 
@@ -397,11 +397,11 @@ func TestSupervisor_TargetedServiceControl(t *testing.T) {
 
 	// Launch both services manually
 	h.sup.actions <- action{
-		kind:      actionStart,
+		kind:      actStart,
 		serviceID: "service-1",
 	}
 	h.sup.actions <- action{
-		kind:      actionStart,
+		kind:      actStart,
 		serviceID: "service-2",
 	}
 
@@ -413,7 +413,7 @@ func TestSupervisor_TargetedServiceControl(t *testing.T) {
 
 	// stop service-1 specifically
 	h.sup.actions <- action{
-		kind:      actionStop,
+		kind:      actStop,
 		serviceID: "service-1",
 	}
 
@@ -424,7 +424,7 @@ func TestSupervisor_TargetedServiceControl(t *testing.T) {
 
 	// Launch service-1 again
 	h.sup.actions <- action{
-		kind:      actionStart,
+		kind:      actStart,
 		serviceID: "service-1",
 	}
 
@@ -587,7 +587,7 @@ func TestSupervisor_ServiceStoppingStates(t *testing.T) {
 
 	// Initiate stop and immediately check state
 	h.sup.actions <- action{
-		kind:      actionStop,
+		kind:      actStop,
 		serviceID: "slow-stop",
 	}
 
@@ -649,7 +649,7 @@ func TestSupervisor_GetAllStates(t *testing.T) {
 
 	// Launch manual service
 	h.sup.actions <- action{
-		kind:      actionStart,
+		kind:      actStart,
 		serviceID: "manual-start",
 	}
 

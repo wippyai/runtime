@@ -147,7 +147,7 @@ func (c *Connection) Serve() {
 	}
 
 	// Start monitoring the target PID
-	if err := c.topo.Wait(c.wsPID, c.currentTargetPID); err != nil {
+	if err := c.topo.Monitor(c.wsPID, c.currentTargetPID); err != nil {
 		c.logger.Error("failed to monitor target PID", zap.Error(err))
 		c.Close("Failed to monitor target PID")
 		return
@@ -375,12 +375,12 @@ func (c *Connection) handleTargetPIDChange(command RelayCommand) {
 
 	if changed {
 		// Stop monitoring the old target
-		if err := c.topo.Release(c.wsPID, oldTarget); err != nil {
+		if err := c.topo.Demonitor(c.wsPID, oldTarget); err != nil {
 			c.logger.Warn("error releasing monitor for old target", zap.Error(err))
 		}
 
 		// Start monitoring the new target
-		if err := c.topo.Wait(c.wsPID, newTarget); err != nil {
+		if err := c.topo.Monitor(c.wsPID, newTarget); err != nil {
 			c.logger.Error("failed to monitor new target PID", zap.Error(err))
 			c.Close("Failed to monitor new target PID")
 			return
@@ -613,7 +613,7 @@ func (c *Connection) cleanup() {
 	c.mu.RUnlock()
 
 	// Release monitoring of the target PID
-	if err := c.topo.Release(c.wsPID, targetPID); err != nil {
+	if err := c.topo.Demonitor(c.wsPID, targetPID); err != nil {
 		c.logger.Warn("error releasing monitor during cleanup", zap.Error(err))
 	}
 

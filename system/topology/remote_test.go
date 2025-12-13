@@ -25,7 +25,7 @@ func TestTopology_RemoteMonitoring(t *testing.T) {
 	t.Run("Wait on remote node sends MonitorRequest", func(t *testing.T) {
 		router.reset()
 
-		err := topo.Wait(localPID, remotePID)
+		err := topo.Monitor(localPID, remotePID)
 		require.NoError(t, err)
 
 		pkgs := router.getSends(remotePID)
@@ -52,7 +52,7 @@ func TestTopology_RemoteMonitoring(t *testing.T) {
 	t.Run("Release on remote node sends MonitorRelease", func(t *testing.T) {
 		router.reset()
 
-		err := topo.Release(localPID, remotePID)
+		err := topo.Demonitor(localPID, remotePID)
 		require.NoError(t, err)
 
 		pkgs := router.getSends(remotePID)
@@ -77,11 +77,9 @@ func TestTopology_RemoteMonitoring(t *testing.T) {
 	t.Run("Wait on local node does not use router", func(t *testing.T) {
 		router.reset()
 
-		err := topo.Register(localPID)
-		require.NoError(t, err)
-
+		// localPID already registered above
 		localPID2 := relay.PID{Node: "local", Host: "host2", UniqID: "2"}.Precomputed()
-		err = topo.Wait(localPID2, localPID)
+		err := topo.Monitor(localPID2, localPID)
 		require.NoError(t, err)
 
 		pkgs := router.getSends(localPID)
@@ -374,7 +372,7 @@ func TestTopology_HandleNodeExit(t *testing.T) {
 		router.reset()
 
 		// Local process watches remote PID
-		err := topo.Wait(localPID1, remotePID1)
+		err := topo.Monitor(localPID1, remotePID1)
 		require.NoError(t, err)
 
 		router.reset() // Clear the MonitorRequest
@@ -403,9 +401,7 @@ func TestTopology_HandleNodeExit(t *testing.T) {
 	t.Run("HandleNodeExit notifies processes linked to remote PIDs", func(t *testing.T) {
 		router.reset()
 
-		// Re-register since state was cleaned
-		require.NoError(t, topo.Register(localPID1))
-
+		// localPID1 still registered (HandleNodeExit only removes remote PIDs)
 		// Local process links to remote PID
 		err := topo.Link(localPID1, remotePID2)
 		require.NoError(t, err)
@@ -422,11 +418,9 @@ func TestTopology_HandleNodeExit(t *testing.T) {
 	t.Run("HandleNodeExit does not affect other nodes", func(t *testing.T) {
 		router.reset()
 
-		// Re-register
-		require.NoError(t, topo.Register(localPID2))
-
+		// localPID2 still registered (HandleNodeExit only removes remote PIDs)
 		// Watch a PID on a different node
-		err := topo.Wait(localPID2, otherRemotePID)
+		err := topo.Monitor(localPID2, otherRemotePID)
 		require.NoError(t, err)
 
 		router.reset()
@@ -442,11 +436,10 @@ func TestTopology_HandleNodeExit(t *testing.T) {
 	t.Run("HandleNodeExit cleans up watching entries", func(t *testing.T) {
 		router.reset()
 
-		require.NoError(t, topo.Register(localPID1))
-
+		// localPID1 still registered
 		// Watch remote PID
 		remotePID := relay.PID{Node: "cleanup-test", Host: "h", UniqID: "r"}.Precomputed()
-		err := topo.Wait(localPID1, remotePID)
+		err := topo.Monitor(localPID1, remotePID)
 		require.NoError(t, err)
 
 		router.reset()

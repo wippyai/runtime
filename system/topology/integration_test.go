@@ -355,7 +355,7 @@ func TestIntegration_CrossNodeMonitoring_EndToEnd(t *testing.T) {
 	defer cancel()
 
 	// ACT: Local process starts monitoring the workflow
-	err = topo.Wait(localProcessPID, workflowPID)
+	err = topo.Monitor(localProcessPID, workflowPID)
 	require.NoError(t, err)
 
 	// Give time for message propagation
@@ -522,11 +522,11 @@ func TestIntegration_MultipleWatchers(t *testing.T) {
 	defer cancel3()
 
 	// ACT: All three processes monitor the same workflow
-	err = topo.Wait(process1PID, workflowPID)
+	err = topo.Monitor(process1PID, workflowPID)
 	require.NoError(t, err)
-	err = topo.Wait(process2PID, workflowPID)
+	err = topo.Monitor(process2PID, workflowPID)
 	require.NoError(t, err)
-	err = topo.Wait(process3PID, workflowPID)
+	err = topo.Monitor(process3PID, workflowPID)
 	require.NoError(t, err)
 
 	time.Sleep(10 * time.Millisecond)
@@ -592,13 +592,13 @@ func TestIntegration_ReleaseMonitor(t *testing.T) {
 	require.NoError(t, err)
 
 	// ACT: Monitor then release
-	err = topo.Wait(localPID, workflowPID)
+	err = topo.Monitor(localPID, workflowPID)
 	require.NoError(t, err)
 
 	time.Sleep(10 * time.Millisecond)
 	assert.Len(t, peerNode.GetWatchers(workflowPID), 1)
 
-	err = topo.Release(localPID, workflowPID)
+	err = topo.Demonitor(localPID, workflowPID)
 	require.NoError(t, err)
 
 	time.Sleep(10 * time.Millisecond)

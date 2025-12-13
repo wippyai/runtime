@@ -708,7 +708,7 @@ func monitor(l *lua.LState) int {
 		return 2
 	}
 
-	if err := topo.Wait(self, pid); err != nil {
+	if err := topo.Monitor(self, pid); err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
@@ -744,7 +744,7 @@ func unmonitor(l *lua.LState) int {
 		return 2
 	}
 
-	if err := topo.Release(self, pid); err != nil {
+	if err := topo.Demonitor(self, pid); err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2

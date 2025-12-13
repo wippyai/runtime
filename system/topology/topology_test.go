@@ -63,7 +63,7 @@ func TestTopology_BasicFunctionality(t *testing.T) {
 	}.Precomputed()
 
 	t.Run("cannot monitor unregistered process", func(t *testing.T) {
-		err := topo.Wait(pid2, pid1)
+		err := topo.Monitor(pid2, pid1)
 		assert.Error(t, err, "expected error when monitoring unregistered process")
 		assert.True(t, errors.Is(err, topology.ErrPIDNotRegistered), "expected ErrPIDNotRegistered")
 	})
@@ -73,19 +73,19 @@ func TestTopology_BasicFunctionality(t *testing.T) {
 			t.Errorf("unexpected error registering process: %v", err)
 		}
 
-		// Double registration should pass also
-		if err := topo.Register(pid1); err != nil {
-			t.Error("expected no error on double registration")
+		// Double registration should fail (Erlang-style)
+		if err := topo.Register(pid1); err == nil {
+			t.Error("expected error on double registration")
 		}
 	})
 
 	t.Run("can monitor registered process", func(t *testing.T) {
-		if err := topo.Wait(pid2, pid1); err != nil {
+		if err := topo.Monitor(pid2, pid1); err != nil {
 			t.Errorf("unexpected error monitoring process: %v", err)
 		}
 
 		// Double monitoring should fail
-		if err := topo.Wait(pid2, pid1); err == nil {
+		if err := topo.Monitor(pid2, pid1); err == nil {
 			t.Error("expected error on double monitoring")
 		}
 	})
@@ -104,12 +104,12 @@ func TestTopology_BasicFunctionality(t *testing.T) {
 	})
 
 	t.Run("release stops monitoring", func(t *testing.T) {
-		if err := topo.Release(pid2, pid1); err != nil {
+		if err := topo.Demonitor(pid2, pid1); err != nil {
 			t.Errorf("unexpected error releasing monitor: %v", err)
 		}
 
 		// Can monitor again after release
-		if err := topo.Wait(pid2, pid1); err != nil {
+		if err := topo.Monitor(pid2, pid1); err != nil {
 			t.Errorf("unexpected error re-monitoring: %v", err)
 		}
 	})
@@ -118,7 +118,7 @@ func TestTopology_BasicFunctionality(t *testing.T) {
 		topo.Remove(pid1)
 
 		// Cannot monitor removed process
-		if err := topo.Wait(pid2, pid1); err == nil {
+		if err := topo.Monitor(pid2, pid1); err == nil {
 			t.Error("expected error monitoring removed process")
 		}
 	})
@@ -381,7 +381,7 @@ func TestTopology_UpstreamError(t *testing.T) {
 	// Register and monitor
 	assert.NoError(t, topo.Register(pid1))
 	assert.NoError(t, topo.Register(pid2))
-	assert.NoError(t, topo.Wait(pid2, pid1))
+	assert.NoError(t, topo.Monitor(pid2, pid1))
 	assert.NoError(t, topo.Link(pid1, pid2))
 
 	// Notify should not panic on upstream error
@@ -417,12 +417,12 @@ func TestTopology_EdgeCases(t *testing.T) {
 	t.Run("wait with empty caller PID", func(t *testing.T) {
 		assert.NoError(t, topo.Register(pid1))
 		emptyPID := relay.PID{}
-		err := topo.Wait(emptyPID, pid1)
+		err := topo.Monitor(emptyPID, pid1)
 		assert.NoError(t, err, "waiting with empty caller PID should not error")
 	})
 
 	t.Run("release non-existent monitor", func(t *testing.T) {
-		err := topo.Release(pid2, pid1)
+		err := topo.Demonitor(pid2, pid1)
 		assert.NoError(t, err, "releasing non-existent monitor should not error")
 	})
 
@@ -545,7 +545,7 @@ func TestTopology_ConcurrentOperations(t *testing.T) {
 
 	t.Run("concurrent wait and release", func(t *testing.T) {
 		// First ensure pid2 is not monitoring pid1
-		_ = topo.Release(pid2, pid1)
+		_ = topo.Demonitor(pid2, pid1)
 
 		var wg sync.WaitGroup
 		iterations := 100
@@ -558,12 +558,12 @@ func TestTopology_ConcurrentOperations(t *testing.T) {
 			go func() {
 				defer wg.Done()
 				<-start
-				_ = topo.Wait(pid2, pid1)
+				_ = topo.Monitor(pid2, pid1)
 			}()
 			go func() {
 				defer wg.Done()
 				<-start
-				_ = topo.Release(pid2, pid1)
+				_ = topo.Demonitor(pid2, pid1)
 			}()
 		}
 
@@ -638,7 +638,7 @@ func TestTopology_NotificationScenarios(t *testing.T) {
 	assert.NoError(t, topo.Register(pid3))
 
 	// Set up monitoring and linking
-	assert.NoError(t, topo.Wait(pid2, pid1))
+	assert.NoError(t, topo.Monitor(pid2, pid1))
 	assert.NoError(t, topo.Link(pid1, pid3))
 
 	t.Run("notify with empty result", func(t *testing.T) {
@@ -683,7 +683,7 @@ func TestTopology_WatchingMapTracking(t *testing.T) {
 		_ = topo.Register(caller)
 		_ = topo.Register(target)
 
-		err := topo.Wait(caller, target)
+		err := topo.Monitor(caller, target)
 		assert.NoError(t, err)
 
 		// Verify bidirectional tracking
@@ -700,9 +700,9 @@ func TestTopology_WatchingMapTracking(t *testing.T) {
 
 		_ = topo.Register(caller)
 		_ = topo.Register(target)
-		_ = topo.Wait(caller, target)
+		_ = topo.Monitor(caller, target)
 
-		err := topo.Release(caller, target)
+		err := topo.Demonitor(caller, target)
 		assert.NoError(t, err)
 
 		// Verify both sides cleaned up
@@ -722,8 +722,8 @@ func TestTopology_WatchingMapTracking(t *testing.T) {
 		_ = topo.Register(watcher2)
 		_ = topo.Register(target)
 
-		_ = topo.Wait(watcher1, target)
-		_ = topo.Wait(watcher2, target)
+		_ = topo.Monitor(watcher1, target)
+		_ = topo.Monitor(watcher2, target)
 
 		// Verify watchers are tracking target
 		assert.True(t, topo.isWatching(watcher1, target))

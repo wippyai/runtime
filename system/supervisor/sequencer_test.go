@@ -92,7 +92,7 @@ func verifyOrderedGroups(t *testing.T, events chan operationEvent, groups [][]st
 
 func TestSequencer_BasicDependencyOrder(t *testing.T) {
 	logger := zap.NewNop()
-	sp := NewSequencer(logger)
+	sp := newSequencer(logger)
 
 	events := make(chan operationEvent, 10)
 
@@ -104,30 +104,30 @@ func TestSequencer_BasicDependencyOrder(t *testing.T) {
 		"service-c": newTestController("service-c", events),
 	}
 
-	ops := []Operation{
+	ops := []operation{
 		{
-			Type:         OperationStart,
-			ID:           "service-a",
-			Controller:   services["service-a"],
-			Dependencies: []string{"service-b"},
+			kind:         opStart,
+			id:           "service-a",
+			controller:   services["service-a"],
+			dependencies: []string{"service-b"},
 		},
 		{
-			Type:         OperationStart,
-			ID:           "service-b",
-			Controller:   services["service-b"],
-			Dependencies: []string{"service-c"},
+			kind:         opStart,
+			id:           "service-b",
+			controller:   services["service-b"],
+			dependencies: []string{"service-c"},
 		},
 		{
-			Type:         OperationStart,
-			ID:           "service-c",
-			Controller:   services["service-c"],
-			Dependencies: []string{},
+			kind:         opStart,
+			id:           "service-c",
+			controller:   services["service-c"],
+			dependencies: []string{},
 		},
 	}
 
 	// execute operations
 	ctx := context.Background()
-	err := sp.Transition(ctx, ops...)
+	err := sp.transition(ctx, ops...)
 	require.NoError(t, err)
 
 	// Read start events in order
@@ -143,28 +143,28 @@ func TestSequencer_BasicDependencyOrder(t *testing.T) {
 	require.Equal(t, expectedStartOrder, startOrder, "Services started in wrong order")
 
 	// Now stop all services
-	stopOps := []Operation{
+	stopOps := []operation{
 		{
-			Type:         OperationStop,
-			ID:           "service-a",
-			Controller:   services["service-a"],
-			Dependencies: []string{"service-b"},
+			kind:         opStop,
+			id:           "service-a",
+			controller:   services["service-a"],
+			dependencies: []string{"service-b"},
 		},
 		{
-			Type:         OperationStop,
-			ID:           "service-b",
-			Controller:   services["service-b"],
-			Dependencies: []string{"service-c"},
+			kind:         opStop,
+			id:           "service-b",
+			controller:   services["service-b"],
+			dependencies: []string{"service-c"},
 		},
 		{
-			Type:         OperationStop,
-			ID:           "service-c",
-			Controller:   services["service-c"],
-			Dependencies: []string{},
+			kind:         opStop,
+			id:           "service-c",
+			controller:   services["service-c"],
+			dependencies: []string{},
 		},
 	}
 
-	err = sp.Transition(ctx, stopOps...)
+	err = sp.transition(ctx, stopOps...)
 	require.NoError(t, err)
 
 	// Read stop events in order
@@ -182,7 +182,7 @@ func TestSequencer_BasicDependencyOrder(t *testing.T) {
 
 func TestSequencer_ParallelExecution(t *testing.T) {
 	logger := zap.NewNop()
-	sp := NewSequencer(logger)
+	sp := newSequencer(logger)
 
 	events := make(chan operationEvent, 10)
 
@@ -196,30 +196,30 @@ func TestSequencer_ParallelExecution(t *testing.T) {
 		"service-c": newTestController("service-c", events),
 	}
 
-	ops := []Operation{
+	ops := []operation{
 		{
-			Type:         OperationStart,
-			ID:           "service-c",
-			Controller:   services["service-c"],
-			Dependencies: []string{"service-a", "service-b"},
+			kind:         opStart,
+			id:           "service-c",
+			controller:   services["service-c"],
+			dependencies: []string{"service-a", "service-b"},
 		},
 		{
-			Type:         OperationStart,
-			ID:           "service-a",
-			Controller:   services["service-a"],
-			Dependencies: []string{},
+			kind:         opStart,
+			id:           "service-a",
+			controller:   services["service-a"],
+			dependencies: []string{},
 		},
 		{
-			Type:         OperationStart,
-			ID:           "service-b",
-			Controller:   services["service-b"],
-			Dependencies: []string{},
+			kind:         opStart,
+			id:           "service-b",
+			controller:   services["service-b"],
+			dependencies: []string{},
 		},
 	}
 
 	// execute operations
 	ctx := context.Background()
-	err := sp.Transition(ctx, ops...)
+	err := sp.transition(ctx, ops...)
 	require.NoError(t, err)
 
 	// Read first two events (should be A and B in any order)
@@ -243,7 +243,7 @@ func TestSequencer_ParallelExecution(t *testing.T) {
 
 func TestSequencer_MixedOperations(t *testing.T) {
 	logger := zap.NewNop()
-	sp := NewSequencer(logger)
+	sp := newSequencer(logger)
 
 	events := make(chan operationEvent, 10)
 
@@ -262,34 +262,34 @@ func TestSequencer_MixedOperations(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	ops := []Operation{
+	ops := []operation{
 		{
-			Type:         OperationStart,
-			ID:           "start-1",
-			Controller:   services["start-1"],
-			Dependencies: []string{},
+			kind:         opStart,
+			id:           "start-1",
+			controller:   services["start-1"],
+			dependencies: []string{},
 		},
 		{
-			Type:         OperationStart,
-			ID:           "start-2",
-			Controller:   services["start-2"],
-			Dependencies: []string{"start-1"},
+			kind:         opStart,
+			id:           "start-2",
+			controller:   services["start-2"],
+			dependencies: []string{"start-1"},
 		},
 		{
-			Type:         OperationStop,
-			ID:           "stop-1",
-			Controller:   services["stop-1"],
-			Dependencies: []string{"stop-2"},
+			kind:         opStop,
+			id:           "stop-1",
+			controller:   services["stop-1"],
+			dependencies: []string{"stop-2"},
 		},
 		{
-			Type:         OperationStop,
-			ID:           "stop-2",
-			Controller:   services["stop-2"],
-			Dependencies: []string{},
+			kind:         opStop,
+			id:           "stop-2",
+			controller:   services["stop-2"],
+			dependencies: []string{},
 		},
 	}
 
-	err := sp.Transition(ctx, ops...)
+	err := sp.transition(ctx, ops...)
 	require.NoError(t, err)
 
 	// Read all events in order
@@ -320,7 +320,7 @@ func TestSequencer_MixedOperations(t *testing.T) {
 
 func TestSequencer_OutOfOrderDependencies(t *testing.T) {
 	logger := zap.NewNop()
-	sp := NewSequencer(logger)
+	sp := newSequencer(logger)
 	events := make(chan operationEvent, 10)
 
 	// Spawn test services and register them in reverse dependency order
@@ -332,30 +332,30 @@ func TestSequencer_OutOfOrderDependencies(t *testing.T) {
 		"service-b": newTestController("service-b", events),
 	}
 
-	ops := []Operation{
+	ops := []operation{
 		{
-			Type:         OperationStart,
-			ID:           "service-c",
-			Controller:   services["service-c"],
-			Dependencies: []string{},
+			kind:         opStart,
+			id:           "service-c",
+			controller:   services["service-c"],
+			dependencies: []string{},
 		},
 		{
-			Type:         OperationStart,
-			ID:           "service-a",
-			Controller:   services["service-a"],
-			Dependencies: []string{"service-b"},
+			kind:         opStart,
+			id:           "service-a",
+			controller:   services["service-a"],
+			dependencies: []string{"service-b"},
 		},
 		{
-			Type:         OperationStart,
-			ID:           "service-b",
-			Controller:   services["service-b"],
-			Dependencies: []string{"service-c"},
+			kind:         opStart,
+			id:           "service-b",
+			controller:   services["service-b"],
+			dependencies: []string{"service-c"},
 		},
 	}
 
 	// execute operations
 	ctx := context.Background()
-	err := sp.Transition(ctx, ops...)
+	err := sp.transition(ctx, ops...)
 	require.NoError(t, err)
 
 	// Even though registered out of order, should start in correct dependency order
@@ -366,7 +366,7 @@ func TestSequencer_OutOfOrderDependencies(t *testing.T) {
 
 func TestSequencer_ComplexDependencyChain(t *testing.T) {
 	logger := zap.NewNop()
-	sp := NewSequencer(logger)
+	sp := newSequencer(logger)
 	events := make(chan operationEvent, 20)
 
 	// Spawn dependency chain with parallel groups:
@@ -384,47 +384,47 @@ func TestSequencer_ComplexDependencyChain(t *testing.T) {
 	}
 
 	// Register in mixed order
-	ops := []Operation{
+	ops := []operation{
 		{
-			Type:         OperationStart,
-			ID:           "service-d",
-			Controller:   services["service-d"],
-			Dependencies: []string{"service-c1", "service-c2"},
+			kind:         opStart,
+			id:           "service-d",
+			controller:   services["service-d"],
+			dependencies: []string{"service-c1", "service-c2"},
 		},
 		{
-			Type:         OperationStart,
-			ID:           "service-c1",
-			Controller:   services["service-c1"],
-			Dependencies: []string{"service-b"},
+			kind:         opStart,
+			id:           "service-c1",
+			controller:   services["service-c1"],
+			dependencies: []string{"service-b"},
 		},
 		{
-			Type:         OperationStart,
-			ID:           "service-b",
-			Controller:   services["service-b"],
-			Dependencies: []string{"service-a1", "service-a2"},
+			kind:         opStart,
+			id:           "service-b",
+			controller:   services["service-b"],
+			dependencies: []string{"service-a1", "service-a2"},
 		},
 		{
-			Type:         OperationStart,
-			ID:           "service-c2",
-			Controller:   services["service-c2"],
-			Dependencies: []string{"service-b"},
+			kind:         opStart,
+			id:           "service-c2",
+			controller:   services["service-c2"],
+			dependencies: []string{"service-b"},
 		},
 		{
-			Type:         OperationStart,
-			ID:           "service-a1",
-			Controller:   services["service-a1"],
-			Dependencies: []string{},
+			kind:         opStart,
+			id:           "service-a1",
+			controller:   services["service-a1"],
+			dependencies: []string{},
 		},
 		{
-			Type:         OperationStart,
-			ID:           "service-a2",
-			Controller:   services["service-a2"],
-			Dependencies: []string{},
+			kind:         opStart,
+			id:           "service-a2",
+			controller:   services["service-a2"],
+			dependencies: []string{},
 		},
 	}
 
 	ctx := context.Background()
-	err := sp.Transition(ctx, ops...)
+	err := sp.transition(ctx, ops...)
 	require.NoError(t, err)
 
 	// Verify start sequence
@@ -439,46 +439,46 @@ func TestSequencer_ComplexDependencyChain(t *testing.T) {
 	// Now test stopping - should be exact reverse of start order
 	// For stopping, we invert the dependency relationships:
 	// - If A depends on B for starting, then B depends on A for stopping
-	stopOps := []Operation{
+	stopOps := []operation{
 		{
-			Type:         OperationStop,
-			ID:           "service-d",
-			Controller:   services["service-d"],
-			Dependencies: []string{"service-c1", "service-c2"}, // Same deps as start
+			kind:         opStop,
+			id:           "service-d",
+			controller:   services["service-d"],
+			dependencies: []string{"service-c1", "service-c2"}, // Same deps as start
 		},
 		{
-			Type:         OperationStop,
-			ID:           "service-c1",
-			Controller:   services["service-c1"],
-			Dependencies: []string{"service-b"}, // Same as start
+			kind:         opStop,
+			id:           "service-c1",
+			controller:   services["service-c1"],
+			dependencies: []string{"service-b"}, // Same as start
 		},
 		{
-			Type:         OperationStop,
-			ID:           "service-c2",
-			Controller:   services["service-c2"],
-			Dependencies: []string{"service-b"}, // Same as start
+			kind:         opStop,
+			id:           "service-c2",
+			controller:   services["service-c2"],
+			dependencies: []string{"service-b"}, // Same as start
 		},
 		{
-			Type:         OperationStop,
-			ID:           "service-b",
-			Controller:   services["service-b"],
-			Dependencies: []string{"service-a1", "service-a2"}, // Same as start
+			kind:         opStop,
+			id:           "service-b",
+			controller:   services["service-b"],
+			dependencies: []string{"service-a1", "service-a2"}, // Same as start
 		},
 		{
-			Type:         OperationStop,
-			ID:           "service-a1",
-			Controller:   services["service-a1"],
-			Dependencies: []string{}, // Same as start
+			kind:         opStop,
+			id:           "service-a1",
+			controller:   services["service-a1"],
+			dependencies: []string{}, // Same as start
 		},
 		{
-			Type:         OperationStop,
-			ID:           "service-a2",
-			Controller:   services["service-a2"],
-			Dependencies: []string{}, // Same as start
+			kind:         opStop,
+			id:           "service-a2",
+			controller:   services["service-a2"],
+			dependencies: []string{}, // Same as start
 		},
 	}
 
-	err = sp.Transition(ctx, stopOps...)
+	err = sp.transition(ctx, stopOps...)
 	require.NoError(t, err)
 
 	// Verify stop sequence (reverse of start groups)
@@ -516,28 +516,28 @@ func (f *failingController) Stop() error {
 
 func TestSequencer_StopErrorAbortsRemainingLevels(t *testing.T) {
 	logger := zap.NewNop()
-	sp := NewSequencer(logger)
+	sp := newSequencer(logger)
 
 	serviceA := newFailingController("service-a", errors.New("service-a failed to stop"))
 	database := newFailingController("database", nil)
 
-	ops := []Operation{
+	ops := []operation{
 		{
-			Type:         OperationStop,
-			ID:           "service-a",
-			Controller:   serviceA,
-			Dependencies: []string{"database"},
+			kind:         opStop,
+			id:           "service-a",
+			controller:   serviceA,
+			dependencies: []string{"database"},
 		},
 		{
-			Type:         OperationStop,
-			ID:           "database",
-			Controller:   database,
-			Dependencies: []string{},
+			kind:         opStop,
+			id:           "database",
+			controller:   database,
+			dependencies: []string{},
 		},
 	}
 
 	ctx := context.Background()
-	err := sp.Transition(ctx, ops...)
+	err := sp.transition(ctx, ops...)
 
 	require.Error(t, err, "Expected error from service-a failure")
 	require.Contains(t, err.Error(), "service-a", "Error should mention service-a")
@@ -550,35 +550,35 @@ func TestSequencer_StopErrorAbortsRemainingLevels(t *testing.T) {
 
 func TestSequencer_StopCollectsMultipleLevelErrors(t *testing.T) {
 	logger := zap.NewNop()
-	sp := NewSequencer(logger)
+	sp := newSequencer(logger)
 
 	serviceA := newFailingController("service-a", errors.New("service-a failed"))
 	serviceB := newFailingController("service-b", nil)
 	database := newFailingController("database", errors.New("database failed"))
 
-	ops := []Operation{
+	ops := []operation{
 		{
-			Type:         OperationStop,
-			ID:           "service-a",
-			Controller:   serviceA,
-			Dependencies: []string{"database"},
+			kind:         opStop,
+			id:           "service-a",
+			controller:   serviceA,
+			dependencies: []string{"database"},
 		},
 		{
-			Type:         OperationStop,
-			ID:           "service-b",
-			Controller:   serviceB,
-			Dependencies: []string{"database"},
+			kind:         opStop,
+			id:           "service-b",
+			controller:   serviceB,
+			dependencies: []string{"database"},
 		},
 		{
-			Type:         OperationStop,
-			ID:           "database",
-			Controller:   database,
-			Dependencies: []string{},
+			kind:         opStop,
+			id:           "database",
+			controller:   database,
+			dependencies: []string{},
 		},
 	}
 
 	ctx := context.Background()
-	err := sp.Transition(ctx, ops...)
+	err := sp.transition(ctx, ops...)
 
 	require.Error(t, err, "Expected errors from service-a and database")
 
@@ -595,35 +595,35 @@ func TestSequencer_StopCollectsMultipleLevelErrors(t *testing.T) {
 
 func TestSequencer_StopPartialLevelFailure(t *testing.T) {
 	logger := zap.NewNop()
-	sp := NewSequencer(logger)
+	sp := newSequencer(logger)
 
 	serviceA := newFailingController("service-a", nil)
 	serviceB := newFailingController("service-b", errors.New("service-b failed"))
 	serviceC := newFailingController("service-c", nil)
 
-	ops := []Operation{
+	ops := []operation{
 		{
-			Type:         OperationStop,
-			ID:           "service-a",
-			Controller:   serviceA,
-			Dependencies: []string{},
+			kind:         opStop,
+			id:           "service-a",
+			controller:   serviceA,
+			dependencies: []string{},
 		},
 		{
-			Type:         OperationStop,
-			ID:           "service-b",
-			Controller:   serviceB,
-			Dependencies: []string{},
+			kind:         opStop,
+			id:           "service-b",
+			controller:   serviceB,
+			dependencies: []string{},
 		},
 		{
-			Type:         OperationStop,
-			ID:           "service-c",
-			Controller:   serviceC,
-			Dependencies: []string{},
+			kind:         opStop,
+			id:           "service-c",
+			controller:   serviceC,
+			dependencies: []string{},
 		},
 	}
 
 	ctx := context.Background()
-	err := sp.Transition(ctx, ops...)
+	err := sp.transition(ctx, ops...)
 
 	require.Error(t, err, "Expected error from service-b")
 	require.Contains(t, err.Error(), "service-b", "Error should mention service-b")

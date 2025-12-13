@@ -12,6 +12,11 @@ var (
 		message: "name already registered",
 	}
 
+	ErrPIDAlreadyRegistered = &Error{
+		kind:    apierror.KindAlreadyExists,
+		message: "pid already registered",
+	}
+
 	ErrPIDNotFound = &Error{
 		kind:    apierror.KindNotFound,
 		message: "pid not found",

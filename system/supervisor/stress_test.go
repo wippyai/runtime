@@ -185,13 +185,13 @@ func TestStressSequencerManyOperations(t *testing.T) {
 	skipUnlessStress(t)
 
 	logger := zap.NewNop()
-	seq := NewSequencer(logger)
+	seq := newSequencer(logger)
 	ctx := context.Background()
 
 	const serviceCount = 100
 
 	// Create a diamond dependency pattern
-	ops := make([]Operation, serviceCount)
+	ops := make([]operation, serviceCount)
 	for i := 0; i < serviceCount; i++ {
 		deps := []string{}
 		if i > 0 && i < serviceCount-1 {
@@ -213,15 +213,15 @@ func TestStressSequencerManyOperations(t *testing.T) {
 			id = "svc-" + string(rune('A'+i%26)) + string(rune('0'+i/26))
 		}
 
-		ops[i] = Operation{
-			Type:         OperationStart,
-			ID:           id,
-			Controller:   &benchControllable{},
-			Dependencies: deps,
+		ops[i] = operation{
+			kind:         opStart,
+			id:           id,
+			controller:   &benchControllable{},
+			dependencies: deps,
 		}
 	}
 
-	err := seq.Transition(ctx, ops...)
+	err := seq.transition(ctx, ops...)
 	require.NoError(t, err)
 }
 
@@ -240,16 +240,16 @@ func TestStressSequencerConcurrentTransitions(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
-			seq := NewSequencer(logger)
+			seq := newSequencer(logger)
 			ctx := context.Background()
 
 			for i := 0; i < transitionsPerGoroutine; i++ {
-				ops := []Operation{
-					{Type: OperationStart, ID: "svc-a", Controller: &benchControllable{}},
-					{Type: OperationStart, ID: "svc-b", Controller: &benchControllable{}, Dependencies: []string{"svc-a"}},
-					{Type: OperationStart, ID: "svc-c", Controller: &benchControllable{}, Dependencies: []string{"svc-b"}},
+				ops := []operation{
+					{kind: opStart, id: "svc-a", controller: &benchControllable{}},
+					{kind: opStart, id: "svc-b", controller: &benchControllable{}, dependencies: []string{"svc-a"}},
+					{kind: opStart, id: "svc-c", controller: &benchControllable{}, dependencies: []string{"svc-b"}},
 				}
-				_ = seq.Transition(ctx, ops...)
+				_ = seq.transition(ctx, ops...)
 			}
 		}()
 	}
@@ -394,7 +394,7 @@ func TestStressSupervisorConcurrentEvents(t *testing.T) {
 func TestStressInternalStateConcurrentAccess(t *testing.T) {
 	skipUnlessStress(t)
 
-	state := newServiceState()
+	state := newInternalState()
 
 	const goroutines = 20
 	const opsPerGoroutine = 1000
@@ -437,7 +437,7 @@ func TestStressTransactionManyOperations(t *testing.T) {
 	const servicesPerIteration = 100
 
 	for iter := 0; iter < iterations; iter++ {
-		tx := newTransactionHelper(logger)
+		tx := newRegTx(logger)
 		tx.begin()
 
 		// Register many services
@@ -550,19 +550,19 @@ func TestStressSequencerWithFailures(t *testing.T) {
 	skipUnlessStress(t)
 
 	logger := zap.NewNop()
-	seq := NewSequencer(logger)
+	seq := newSequencer(logger)
 	ctx := context.Background()
 
 	var failingCtrl = &failingControllable{shouldFail: true}
 	var workingCtrl = &benchControllable{}
 
-	ops := []Operation{
-		{Type: OperationStop, ID: "svc-a", Controller: workingCtrl},
-		{Type: OperationStop, ID: "svc-b", Controller: failingCtrl},
-		{Type: OperationStop, ID: "svc-c", Controller: workingCtrl},
+	ops := []operation{
+		{kind: opStop, id: "svc-a", controller: workingCtrl},
+		{kind: opStop, id: "svc-b", controller: failingCtrl},
+		{kind: opStop, id: "svc-c", controller: workingCtrl},
 	}
 
-	err := seq.Transition(ctx, ops...)
+	err := seq.transition(ctx, ops...)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "svc-b")
 }
@@ -613,7 +613,7 @@ func (c *benchControllable) Stop() error  { return nil }
 // State Benchmarks
 
 func BenchmarkInternalStateUpdate(b *testing.B) {
-	state := newServiceState()
+	state := newInternalState()
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -623,7 +623,7 @@ func BenchmarkInternalStateUpdate(b *testing.B) {
 }
 
 func BenchmarkInternalStateUpdateParallel(b *testing.B) {
-	state := newServiceState()
+	state := newInternalState()
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -635,7 +635,7 @@ func BenchmarkInternalStateUpdateParallel(b *testing.B) {
 }
 
 func BenchmarkInternalStateSnapshot(b *testing.B) {
-	state := newServiceState()
+	state := newInternalState()
 	state.updateState(supervisor.StatusRunning, "test details")
 
 	b.ReportAllocs()
@@ -646,7 +646,7 @@ func BenchmarkInternalStateSnapshot(b *testing.B) {
 }
 
 func BenchmarkInternalStateSnapshotParallel(b *testing.B) {
-	state := newServiceState()
+	state := newInternalState()
 	state.updateState(supervisor.StatusRunning, "test details")
 
 	b.ReportAllocs()
@@ -659,7 +659,7 @@ func BenchmarkInternalStateSnapshotParallel(b *testing.B) {
 }
 
 func BenchmarkStateAllocations(b *testing.B) {
-	state := newServiceState()
+	state := newInternalState()
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -673,7 +673,7 @@ func BenchmarkStateAllocations(b *testing.B) {
 
 func BenchmarkTransactionRegister(b *testing.B) {
 	logger := zap.NewNop()
-	tx := newTransactionHelper(logger)
+	tx := newRegTx(logger)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -688,7 +688,7 @@ func BenchmarkTransactionRegister(b *testing.B) {
 
 func BenchmarkTransactionCommit(b *testing.B) {
 	logger := zap.NewNop()
-	tx := newTransactionHelper(logger)
+	tx := newRegTx(logger)
 
 	removeFn := func(_ string) error { return nil }
 	registerFn := func(_ string, _ *supervisor.Entry) error { return nil }
@@ -711,7 +711,7 @@ func BenchmarkTransactionCommit(b *testing.B) {
 
 func BenchmarkSequencerLinearChain(b *testing.B) {
 	logger := zap.NewNop()
-	seq := NewSequencer(logger)
+	seq := newSequencer(logger)
 	ctx := context.Background()
 
 	sizes := []int{5, 10, 20}
@@ -723,24 +723,24 @@ func BenchmarkSequencerLinearChain(b *testing.B) {
 		name += string(rune('0' + size%10))
 
 		b.Run(name+"_services", func(b *testing.B) {
-			ops := make([]Operation, size)
+			ops := make([]operation, size)
 			for i := 0; i < size; i++ {
 				deps := []string{}
 				if i > 0 {
 					deps = []string{"svc" + string(rune('0'+i-1))}
 				}
-				ops[i] = Operation{
-					Type:         OperationStart,
-					ID:           "svc" + string(rune('0'+i)),
-					Controller:   &benchControllable{},
-					Dependencies: deps,
+				ops[i] = operation{
+					kind:         opStart,
+					id:           "svc" + string(rune('0'+i)),
+					controller:   &benchControllable{},
+					dependencies: deps,
 				}
 			}
 
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_ = seq.Transition(ctx, ops...)
+				_ = seq.transition(ctx, ops...)
 			}
 		})
 	}
@@ -748,7 +748,7 @@ func BenchmarkSequencerLinearChain(b *testing.B) {
 
 func BenchmarkSequencerParallelServices(b *testing.B) {
 	logger := zap.NewNop()
-	seq := NewSequencer(logger)
+	seq := newSequencer(logger)
 	ctx := context.Background()
 
 	sizes := []int{10, 20, 50}
@@ -760,20 +760,20 @@ func BenchmarkSequencerParallelServices(b *testing.B) {
 		name += string(rune('0' + size%10))
 
 		b.Run(name+"_parallel", func(b *testing.B) {
-			ops := make([]Operation, size)
+			ops := make([]operation, size)
 			for i := 0; i < size; i++ {
-				ops[i] = Operation{
-					Type:         OperationStart,
-					ID:           "svc" + string(rune('A'+i%26)) + string(rune('0'+i/26)),
-					Controller:   &benchControllable{},
-					Dependencies: nil,
+				ops[i] = operation{
+					kind:         opStart,
+					id:           "svc" + string(rune('A'+i%26)) + string(rune('0'+i/26)),
+					controller:   &benchControllable{},
+					dependencies: nil,
 				}
 			}
 
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_ = seq.Transition(ctx, ops...)
+				_ = seq.transition(ctx, ops...)
 			}
 		})
 	}
@@ -781,20 +781,20 @@ func BenchmarkSequencerParallelServices(b *testing.B) {
 
 func BenchmarkSequencerMixedOperations(b *testing.B) {
 	logger := zap.NewNop()
-	seq := NewSequencer(logger)
+	seq := newSequencer(logger)
 	ctx := context.Background()
 
-	ops := []Operation{
-		{Type: OperationStop, ID: "stop1", Controller: &benchControllable{}},
-		{Type: OperationStop, ID: "stop2", Controller: &benchControllable{}},
-		{Type: OperationStart, ID: "start1", Controller: &benchControllable{}},
-		{Type: OperationStart, ID: "start2", Controller: &benchControllable{}, Dependencies: []string{"start1"}},
+	ops := []operation{
+		{kind: opStop, id: "stop1", controller: &benchControllable{}},
+		{kind: opStop, id: "stop2", controller: &benchControllable{}},
+		{kind: opStart, id: "start1", controller: &benchControllable{}},
+		{kind: opStart, id: "start2", controller: &benchControllable{}, dependencies: []string{"start1"}},
 	}
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = seq.Transition(ctx, ops...)
+		_ = seq.transition(ctx, ops...)
 	}
 }
 

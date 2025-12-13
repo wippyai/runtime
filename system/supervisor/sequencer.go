@@ -9,54 +9,42 @@ import (
 	"go.uber.org/zap"
 )
 
-// OperationType defines the kind of lifecycle operation to perform on a service.
-// It distinguishes between starting and stopping operations, which have different
-// dependency ordering requirements.
-type OperationType int
+type opKind int
 
 const (
-	// OperationStart indicates an operation to start a service.
-	// Services are started in dependency order (dependencies before dependents).
-	OperationStart OperationType = iota
-
-	// OperationStop indicates an operation to stop a service.
-	// Services are stopped in reverse dependency order (dependents before dependencies).
-	OperationStop
+	opStart opKind = iota
+	opStop
 )
 
-// Operation represents a single service lifecycle operation
-type Operation struct {
-	Type         OperationType
-	ID           string
-	Controller   Controllable
-	Dependencies []string
+type operation struct {
+	kind         opKind
+	id           string
+	controller   controllable
+	dependencies []string
 }
 
-// Sequencer handles ordered processing of service operations based on dependencies
-type Sequencer struct {
+type sequencer struct {
 	logger *zap.Logger
 }
 
-// NewSequencer creates a new sequence processor
-func NewSequencer(logger *zap.Logger) *Sequencer {
-	return &Sequencer{
+func newSequencer(logger *zap.Logger) *sequencer {
+	return &sequencer{
 		logger: logger,
 	}
 }
 
-// Transition executes a set of service operations in the correct dependency order
-func (sp *Sequencer) Transition(ctx context.Context, operations ...Operation) error {
+func (sp *sequencer) transition(ctx context.Context, operations ...operation) error {
 	if len(operations) == 0 {
 		return nil
 	}
 
 	// Separate start and stop operations
-	var startOps, stopOps []Operation
+	var startOps, stopOps []operation
 	for _, op := range operations {
-		switch op.Type {
-		case OperationStart:
+		switch op.kind {
+		case opStart:
 			startOps = append(startOps, op)
-		case OperationStop:
+		case opStop:
 			stopOps = append(stopOps, op)
 		}
 	}
@@ -78,20 +66,20 @@ func (sp *Sequencer) Transition(ctx context.Context, operations ...Operation) er
 	return nil
 }
 
-func (sp *Sequencer) processStartOperations(_ context.Context, operations []Operation) error {
+func (sp *sequencer) processStartOperations(_ context.Context, operations []operation) error {
 	// Build dependency graph for starts
 	g := graph.New[string, any]()
 
-	// AddCleanup all services as nodes
+	// Add all services as nodes
 	for _, op := range operations {
-		g.AddNode(op.ID)
+		g.AddNode(op.id)
 	}
 
-	// AddCleanup dependency edges
+	// Add dependency edges
 	for _, op := range operations {
-		for _, dep := range op.Dependencies {
-			// AddCleanup edge from dependency to dependent
-			g.AddEdge(dep, op.ID, 1, nil)
+		for _, dep := range op.dependencies {
+			// Add edge from dependency to dependent
+			g.AddEdge(dep, op.id, 1, nil)
 		}
 	}
 
@@ -101,10 +89,10 @@ func (sp *Sequencer) processStartOperations(_ context.Context, operations []Oper
 		return supervisor.NewDependencyLevelsError("start", err)
 	}
 
-	// Spawn operation lookup map
-	opMap := make(map[string]Operation)
+	// Build operation lookup map
+	opMap := make(map[string]operation)
 	for _, op := range operations {
-		opMap[op.ID] = op
+		opMap[op.id] = op
 	}
 
 	// Process each level in sequence
@@ -117,15 +105,15 @@ func (sp *Sequencer) processStartOperations(_ context.Context, operations []Oper
 		for _, serviceID := range levelNodes {
 			if op, exists := opMap[serviceID]; exists {
 				wg.Add(1)
-				go func(op Operation) {
+				go func(op operation) {
 					defer wg.Done()
 
 					sp.logger.Info("starting service",
-						zap.String("service_id", op.ID),
+						zap.String("service_id", op.id),
 						zap.Int("level", i))
 
-					if err := op.Controller.Start(); err != nil {
-						errChan <- supervisor.NewServiceStartError(op.ID, err)
+					if err := op.controller.Start(); err != nil {
+						errChan <- supervisor.NewServiceStartError(op.id, err)
 					}
 				}(op)
 			}
@@ -146,24 +134,24 @@ func (sp *Sequencer) processStartOperations(_ context.Context, operations []Oper
 	return nil
 }
 
-func (sp *Sequencer) processStopOperations(_ context.Context, operations []Operation) error {
+func (sp *sequencer) processStopOperations(_ context.Context, operations []operation) error {
 	g := graph.New[string, any]()
-	opMap := make(map[string]Operation)
+	opMap := make(map[string]operation)
 
-	// AddCleanup all nodes first
+	// Add all nodes first
 	for _, op := range operations {
-		g.AddNode(op.ID)
-		opMap[op.ID] = op
+		g.AddNode(op.id)
+		opMap[op.id] = op
 	}
 
 	// For stop operations, if A depends on B, we need to stop A before B
 	// So we add edges from dependent to dependency
 	for _, op := range operations {
-		for _, depID := range op.Dependencies {
+		for _, depID := range op.dependencies {
 			if _, exists := opMap[depID]; exists {
-				// AddCleanup edge FROM dependent TO dependency
+				// Add edge FROM dependent TO dependency
 				// This ensures dependent is processed before its dependencies
-				g.AddEdge(op.ID, depID, 1, nil)
+				g.AddEdge(op.id, depID, 1, nil)
 			}
 		}
 	}
@@ -185,15 +173,15 @@ func (sp *Sequencer) processStopOperations(_ context.Context, operations []Opera
 		for _, serviceID := range levelNodes {
 			if op, exists := opMap[serviceID]; exists {
 				wg.Add(1)
-				go func(op Operation) {
+				go func(op operation) {
 					defer wg.Done()
 
 					sp.logger.Info("stopping service",
-						zap.String("service_id", op.ID),
+						zap.String("service_id", op.id),
 						zap.Int("level", i))
 
-					if err := op.Controller.Stop(); err != nil {
-						errChan <- supervisor.NewServiceStopError(op.ID, err)
+					if err := op.controller.Stop(); err != nil {
+						errChan <- supervisor.NewServiceStopError(op.id, err)
 					}
 				}(op)
 			}

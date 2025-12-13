@@ -13,25 +13,23 @@ import (
 	"github.com/wippyai/runtime/internal/backoff"
 )
 
-type controlAction int
+type ctrlKind int
 
 const (
-	controlStart controlAction = iota
-	controlStop
-	controlFailed
-	controlExit
+	ctrlStart ctrlKind = iota
+	ctrlStop
+	ctrlFailed
+	ctrlExit
 )
 
-// Controllable defines the interface for service lifecycle control operations.
-// Any service managed by the supervisor must implement these methods for
-// proper lifecycle management.
-type Controllable interface {
+// controllable defines the interface for service lifecycle control operations.
+type controllable interface {
 	Start() error
 	Stop() error
 }
 
-type controlOp struct {
-	kind    controlAction
+type ctrlOp struct {
+	kind    ctrlKind
 	attempt int32
 	result  chan error
 }
@@ -51,7 +49,7 @@ type Controller struct {
 	cancel context.CancelFunc
 
 	// Active ops.
-	ops chan controlOp
+	ops chan ctrlOp
 
 	// runStart records the time when the service started successfully.
 	// It is used to determine whether the service has run for long enough
@@ -70,10 +68,10 @@ func NewController(
 	ctrl := &Controller{
 		service:       service,
 		config:        config,
-		state:         newServiceState(),
+		state:         newInternalState(),
 		onStateChange: onStateChange,
 		root:          ctx,
-		ops:           make(chan controlOp, 10),
+		ops:           make(chan ctrlOp, 10),
 	}
 
 	// Create FrameContext for this service lifecycle
@@ -95,23 +93,16 @@ func NewController(
 // Start initiates the service and transitions it to the running state.
 func (c *Controller) Start() error {
 	c.state.setDesiredStatus(supervisor.StatusRunning)
-	return c.runCommand(controlOp{kind: controlStart})
+	return c.runCommand(ctrlOp{kind: ctrlStart})
 }
 
 // Stop gracefully stops the service and transitions it to the stopped state.
 func (c *Controller) Stop() error {
 	c.state.setDesiredStatus(supervisor.StatusStopped)
-	return c.runCommand(controlOp{kind: controlStop})
+	return c.runCommand(ctrlOp{kind: ctrlStop})
 }
 
-// CanRestart determines if a service is eligible for restart based on its
-// current state. A service can be restarted if it has not been explicitly
-// marked as exited.
-func (c *Controller) CanRestart() bool {
-	return c.state.getDesiredStatus() != supervisor.StatusExited
-}
-
-func (c *Controller) runCommand(op controlOp) error {
+func (c *Controller) runCommand(op ctrlOp) error {
 	op.result = make(chan error, 1)
 	select {
 	case c.ops <- op:
@@ -171,7 +162,7 @@ func (c *Controller) supervise() {
 		case op := <-c.ops:
 			var err error
 			switch op.kind {
-			case controlStop:
+			case ctrlStop:
 				if ctx == nil {
 					break
 				}
@@ -189,7 +180,7 @@ func (c *Controller) supervise() {
 				}
 				respondAndCancel(context.Canceled)
 
-			case controlExit:
+			case ctrlExit:
 				c.updateState(supervisor.StatusExited, nil)
 				respondAndCancel(context.Canceled)
 				if cancel != nil {
@@ -197,7 +188,7 @@ func (c *Controller) supervise() {
 					cancel = nil
 				}
 
-			case controlFailed:
+			case ctrlFailed:
 				attempt := c.state.incRetryCount()
 				c.updateState(supervisor.StatusFailed, c.state.details)
 				if c.state.getDesiredStatus() == supervisor.StatusRunning {
@@ -212,7 +203,7 @@ func (c *Controller) supervise() {
 				}
 				continue
 
-			case controlStart:
+			case ctrlStart:
 				if c.state.getCurrentStatus() == supervisor.StatusRunning {
 					break
 				}
@@ -266,7 +257,7 @@ func (c *Controller) monitor(ctx context.Context, exitCh chan<- any, detailsCh <
 			if !ok {
 				if c.state.getDesiredStatus() == supervisor.StatusRunning {
 					select {
-					case c.ops <- controlOp{kind: controlFailed}:
+					case c.ops <- ctrlOp{kind: ctrlFailed}:
 					case <-ctx.Done():
 					}
 				}
@@ -274,7 +265,7 @@ func (c *Controller) monitor(ctx context.Context, exitCh chan<- any, detailsCh <
 			}
 			if err, isErr := details.(error); isErr && isTerminalError(err) {
 				select {
-				case c.ops <- controlOp{kind: controlExit}:
+				case c.ops <- ctrlOp{kind: ctrlExit}:
 				case <-ctx.Done():
 				}
 				return
@@ -364,7 +355,7 @@ func (c *Controller) tryRetry(attempt int32) {
 	select {
 	case <-time.After(delay):
 		select {
-		case c.ops <- controlOp{kind: controlStart, attempt: attempt}:
+		case c.ops <- ctrlOp{kind: ctrlStart, attempt: attempt}:
 		case <-c.ctx.Done():
 		}
 	case <-c.ctx.Done():

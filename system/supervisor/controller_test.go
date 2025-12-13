@@ -485,7 +485,7 @@ func TestController_ServiceFailedRecovery(t *testing.T) {
 }
 
 func TestController_ServiceStateSnapshot(t *testing.T) {
-	state := newServiceState()
+	state := newInternalState()
 	state.status = supervisor.StatusRunning
 	state.desired = supervisor.StatusRunning
 	state.retryCount = 5
@@ -512,7 +512,7 @@ func TestController_ServiceStateSnapshot(t *testing.T) {
 }
 
 func TestController_ServiceDetailsUpdate(t *testing.T) {
-	state := newServiceState()
+	state := newInternalState()
 	initialStatus := supervisor.StatusRunning
 	state.status = initialStatus
 

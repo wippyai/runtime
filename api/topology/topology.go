@@ -20,6 +20,9 @@ const (
 	TopicEvents relay.Topic = "@pid/events"
 )
 
+// SystemPID is the sender PID for topology system messages.
+var SystemPID = relay.PID{UniqID: "topology"}
+
 // Event kind constants for process lifecycle events.
 const (
 	// KindCancel indicates a cancellation request.
@@ -62,12 +65,12 @@ type (
 
 	// Monitor defines the interface for process monitoring
 	Monitor interface {
-		// Wait attaches a caller to monitor a specific pid.
+		// Monitor attaches a caller to monitor a specific pid.
 		// Returns error if pid is not registered or already being monitored by caller.
-		Wait(caller, pid relay.PID) error
+		Monitor(caller, pid relay.PID) error
 
-		// Release removes a caller's monitoring of a specific pid.
-		Release(caller, pid relay.PID) error
+		// Demonitor removes a caller's monitoring of a specific pid.
+		Demonitor(caller, pid relay.PID) error
 	}
 
 	// Links defines the interface for managing process links
@@ -160,7 +163,7 @@ type (
 // The package is sent to the target process with a specified deadline.
 func Cancel(from, to relay.PID, deadline time.Time) *relay.Package {
 	return relay.NewPackage(
-		relay.PID{UniqID: "topology"},
+		SystemPID,
 		to,
 		TopicEvents,
 		payload.New(&CancelEvent{
@@ -176,7 +179,7 @@ func Cancel(from, to relay.PID, deadline time.Time) *relay.Package {
 // The package includes the process result and any error that occurred.
 func Exit(pid relay.PID, result payload.Payload, err error) *relay.Package {
 	return relay.NewPackage(
-		relay.PID{UniqID: "topology"},
+		SystemPID,
 		pid,
 		TopicEvents,
 		payload.New(&ExitEvent{

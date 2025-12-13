@@ -56,8 +56,8 @@ func isTerminalError(err error) bool {
 	return false
 }
 
-// newServiceState creates a new internalState instance
-func newServiceState() *internalState {
+// newInternalState creates a new internalState instance
+func newInternalState() *internalState {
 	return &internalState{
 		status:     supervisor.StatusUnknown,
 		desired:    supervisor.StatusUnknown,

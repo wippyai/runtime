@@ -98,7 +98,7 @@ func BenchmarkNotify(b *testing.B) {
 	for i := range watchers {
 		watchers[i] = relay.PID{Host: "host", UniqID: fmt.Sprintf("watcher-%d", i)}.Precomputed()
 		_ = topo.Register(watchers[i])
-		_ = topo.Wait(watchers[i], monitored)
+		_ = topo.Monitor(watchers[i], monitored)
 	}
 
 	result := &runtimeapi.Result{Value: payload.New("test")}
@@ -178,7 +178,7 @@ func BenchmarkWait(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = topo.Wait(callers[i], target)
+		_ = topo.Monitor(callers[i], target)
 	}
 }
 
@@ -291,8 +291,8 @@ func BenchmarkMapLookup(b *testing.B) {
 	for i := 0; i < 100000; i++ {
 		key := fmt.Sprintf("{host|%d}", i)
 		m[key] = &processState{
-			watchers: make(map[string]bool),
-			links:    make(map[string]bool),
+			watchers: make(map[string]relay.PID),
+			links:    make(map[string]relay.PID),
 		}
 	}
 
@@ -314,8 +314,8 @@ func BenchmarkMapDelete(b *testing.B) {
 				for i := 0; i < size; i++ {
 					keys[i] = fmt.Sprintf("{host|%d}", i)
 					m[keys[i]] = &processState{
-						watchers: make(map[string]bool),
-						links:    make(map[string]bool),
+						watchers: make(map[string]relay.PID),
+						links:    make(map[string]relay.PID),
 					}
 				}
 				b.StartTimer()
@@ -376,11 +376,11 @@ func BenchmarkHighContention(b *testing.B) {
 			case 0:
 				_ = topo.Register(pids[idx])
 			case 1:
-				_ = topo.Wait(pids[(idx+1)%numProcesses], pids[idx])
+				_ = topo.Monitor(pids[(idx+1)%numProcesses], pids[idx])
 			case 2:
 				_ = topo.Link(pids[idx], pids[(idx+1)%numProcesses])
 			case 3:
-				_ = topo.Release(pids[(idx+1)%numProcesses], pids[idx])
+				_ = topo.Demonitor(pids[(idx+1)%numProcesses], pids[idx])
 			}
 			i++
 		}
@@ -512,7 +512,7 @@ func BenchmarkRemoteWait(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = topo.Wait(localPID, remotePIDs[i])
+		_ = topo.Monitor(localPID, remotePIDs[i])
 	}
 }
 
@@ -544,7 +544,7 @@ func benchHandleNodeExit(b *testing.B, numWatchers int) {
 
 		remotePID := relay.PID{Node: "remote", Host: "host", UniqID: "target"}.Precomputed()
 		for _, pid := range localPIDs {
-			_ = topo.Wait(pid, remotePID)
+			_ = topo.Monitor(pid, remotePID)
 		}
 		b.StartTimer()
 
@@ -573,8 +573,8 @@ func BenchmarkConcurrentRemoteWatch(b *testing.B) {
 		i := 0
 		for pb.Next() {
 			idx := i % numProcesses
-			_ = topo.Wait(localPIDs[idx], remotePID)
-			_ = topo.Release(localPIDs[idx], remotePID)
+			_ = topo.Monitor(localPIDs[idx], remotePID)
+			_ = topo.Demonitor(localPIDs[idx], remotePID)
 			i++
 		}
 	})
@@ -602,7 +602,7 @@ func BenchmarkConcurrentNodeExit(b *testing.B) {
 		for i := 0; i < numProcesses; i++ {
 			nodeID := fmt.Sprintf("node%d", i%numNodes)
 			remotePID := relay.PID{Node: nodeID, Host: "host", UniqID: fmt.Sprintf("r%d", i)}.Precomputed()
-			_ = topo.Wait(localPIDs[i], remotePID)
+			_ = topo.Monitor(localPIDs[i], remotePID)
 		}
 		b.StartTimer()
 

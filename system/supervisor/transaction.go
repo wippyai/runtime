@@ -5,22 +5,22 @@ import (
 	"go.uber.org/zap"
 )
 
-type registryTX struct {
+type regTx struct {
 	open     bool
 	register map[string]*supervisor.Entry
 	remove   map[string]struct{}
 	logger   *zap.Logger
 }
 
-func newTransactionHelper(logger *zap.Logger) *registryTX {
-	return &registryTX{
+func newRegTx(logger *zap.Logger) *regTx {
+	return &regTx{
 		register: make(map[string]*supervisor.Entry),
 		remove:   make(map[string]struct{}),
 		logger:   logger,
 	}
 }
 
-func (th *registryTX) begin() {
+func (th *regTx) begin() {
 	if th.open {
 		th.logger.Warn("received begin transaction while already in transaction, resetting state")
 	}
@@ -30,7 +30,7 @@ func (th *registryTX) begin() {
 	th.remove = make(map[string]struct{})
 }
 
-func (th *registryTX) commit(removeFn func(string) error, registerFn func(string, *supervisor.Entry) error) error {
+func (th *regTx) commit(removeFn func(string) error, registerFn func(string, *supervisor.Entry) error) error {
 	if !th.open {
 		th.logger.Warn("received commit without active transaction")
 		return nil
@@ -53,7 +53,7 @@ func (th *registryTX) commit(removeFn func(string) error, registerFn func(string
 	return nil
 }
 
-func (th *registryTX) discard() {
+func (th *regTx) discard() {
 	if !th.open {
 		th.logger.Warn("received discard without active transaction")
 		return
@@ -66,7 +66,7 @@ func (th *registryTX) discard() {
 	th.reset()
 }
 
-func (th *registryTX) registerService(id string, entry *supervisor.Entry) error {
+func (th *regTx) registerService(id string, entry *supervisor.Entry) error {
 	if !th.open {
 		return supervisor.ErrOutsideTransaction
 	}
@@ -76,7 +76,7 @@ func (th *registryTX) registerService(id string, entry *supervisor.Entry) error 
 	return nil
 }
 
-func (th *registryTX) removeService(id string) error {
+func (th *regTx) removeService(id string) error {
 	if !th.open {
 		return supervisor.ErrOutsideTransaction
 	}
@@ -92,7 +92,7 @@ func (th *registryTX) removeService(id string) error {
 	return nil
 }
 
-func (th *registryTX) reset() {
+func (th *regTx) reset() {
 	th.open = false
 	th.register = make(map[string]*supervisor.Entry)
 	th.remove = make(map[string]struct{})

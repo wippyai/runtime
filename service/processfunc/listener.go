@@ -249,7 +249,7 @@ func (h *processHandler) Call(ctx context.Context, task runtime.Task) (*runtime.
 		select {
 		case <-ctx.Done():
 			// Context canceled - release monitor and send cancel
-			_ = topo.Release(callerPID, pid)
+			_ = topo.Demonitor(callerPID, pid)
 
 			if err := node.Send(topology.Cancel(
 				callerPID,
