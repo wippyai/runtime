@@ -190,33 +190,33 @@ func TestTopology_RemoteLinking(t *testing.T) {
 	})
 }
 
-func TestTopology_HandleMonitorRequest(t *testing.T) {
+func TestTopology_handleMonitorRequest(t *testing.T) {
 	upstream := newMockUpstream()
 	topo := NewTopology(upstream, "local")
 
 	localPID := relay.PID{Node: "local", Host: "host1", UniqID: "1"}.Precomputed()
 	remotePID := relay.PID{Node: "remote", Host: "host2", UniqID: "2"}.Precomputed()
 
-	t.Run("HandleMonitorRequest adds caller to watchers", func(t *testing.T) {
+	t.Run("handleMonitorRequest adds caller to watchers", func(t *testing.T) {
 		err := topo.Register(localPID)
 		require.NoError(t, err)
 
-		err = topo.HandleMonitorRequest(remotePID, localPID)
+		err = topo.handleMonitorRequest(remotePID, localPID)
 		require.NoError(t, err)
 
 		assert.True(t, topo.hasWatcher(localPID, remotePID), "remotePID should be in watchers")
 	})
 
-	t.Run("HandleMonitorRequest on unregistered PID fails", func(t *testing.T) {
+	t.Run("handleMonitorRequest on unregistered PID fails", func(t *testing.T) {
 		unregisteredPID := relay.PID{Node: "local", Host: "host3", UniqID: "3"}.Precomputed()
 
-		err := topo.HandleMonitorRequest(remotePID, unregisteredPID)
+		err := topo.handleMonitorRequest(remotePID, unregisteredPID)
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, topology.ErrPIDNotRegistered), "expected ErrPIDNotRegistered")
 	})
 
-	t.Run("HandleMonitorRequest is idempotent", func(t *testing.T) {
-		err := topo.HandleMonitorRequest(remotePID, localPID)
+	t.Run("handleMonitorRequest is idempotent", func(t *testing.T) {
+		err := topo.handleMonitorRequest(remotePID, localPID)
 		require.NoError(t, err)
 
 		count := topo.watcherCount(localPID)
@@ -224,7 +224,7 @@ func TestTopology_HandleMonitorRequest(t *testing.T) {
 	})
 }
 
-func TestTopology_HandleMonitorRelease(t *testing.T) {
+func TestTopology_handleMonitorRelease(t *testing.T) {
 	upstream := newMockUpstream()
 	topo := NewTopology(upstream, "local")
 
@@ -234,26 +234,26 @@ func TestTopology_HandleMonitorRelease(t *testing.T) {
 	err := topo.Register(localPID)
 	require.NoError(t, err)
 
-	err = topo.HandleMonitorRequest(remotePID, localPID)
+	err = topo.handleMonitorRequest(remotePID, localPID)
 	require.NoError(t, err)
 
-	t.Run("HandleMonitorRelease removes caller from watchers", func(t *testing.T) {
-		err := topo.HandleMonitorRelease(remotePID, localPID)
+	t.Run("handleMonitorRelease removes caller from watchers", func(t *testing.T) {
+		err := topo.handleMonitorRelease(remotePID, localPID)
 		require.NoError(t, err)
 
 		count := topo.watcherCount(localPID)
 		assert.Equal(t, 0, count, "should have no watchers after release")
 	})
 
-	t.Run("HandleMonitorRelease on non-monitored PID is safe", func(t *testing.T) {
+	t.Run("handleMonitorRelease on non-monitored PID is safe", func(t *testing.T) {
 		unmonitoredPID := relay.PID{Node: "local", Host: "host3", UniqID: "3"}.Precomputed()
 
-		err := topo.HandleMonitorRelease(remotePID, unmonitoredPID)
+		err := topo.handleMonitorRelease(remotePID, unmonitoredPID)
 		require.NoError(t, err)
 	})
 }
 
-func TestTopology_HandleLinkRequest(t *testing.T) {
+func TestTopology_handleLinkRequest(t *testing.T) {
 	upstream := newMockUpstream()
 	topo := NewTopology(upstream, "local")
 
@@ -263,8 +263,8 @@ func TestTopology_HandleLinkRequest(t *testing.T) {
 	err := topo.Register(localPID)
 	require.NoError(t, err)
 
-	t.Run("HandleLinkRequest establishes remote side of link", func(t *testing.T) {
-		err := topo.HandleLinkRequest(remotePID, localPID)
+	t.Run("handleLinkRequest establishes remote side of link", func(t *testing.T) {
+		err := topo.handleLinkRequest(remotePID, localPID)
 		require.NoError(t, err)
 
 		links := topo.GetLinks(localPID)
@@ -272,16 +272,16 @@ func TestTopology_HandleLinkRequest(t *testing.T) {
 		assert.Equal(t, remotePID, links[0])
 	})
 
-	t.Run("HandleLinkRequest on unregistered to PID fails", func(t *testing.T) {
+	t.Run("handleLinkRequest on unregistered to PID fails", func(t *testing.T) {
 		unregisteredPID := relay.PID{Node: "local", Host: "host3", UniqID: "3"}.Precomputed()
 
-		err := topo.HandleLinkRequest(remotePID, unregisteredPID)
+		err := topo.handleLinkRequest(remotePID, unregisteredPID)
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, topology.ErrPIDNotRegistered), "expected ErrPIDNotRegistered")
 	})
 
-	t.Run("HandleLinkRequest is idempotent", func(t *testing.T) {
-		err := topo.HandleLinkRequest(remotePID, localPID)
+	t.Run("handleLinkRequest is idempotent", func(t *testing.T) {
+		err := topo.handleLinkRequest(remotePID, localPID)
 		require.NoError(t, err)
 
 		links := topo.GetLinks(localPID)
@@ -289,7 +289,7 @@ func TestTopology_HandleLinkRequest(t *testing.T) {
 	})
 }
 
-func TestTopology_HandleUnlinkRequest(t *testing.T) {
+func TestTopology_handleUnlinkRequest(t *testing.T) {
 	upstream := newMockUpstream()
 	topo := NewTopology(upstream, "local")
 
@@ -299,19 +299,19 @@ func TestTopology_HandleUnlinkRequest(t *testing.T) {
 	err := topo.Register(localPID)
 	require.NoError(t, err)
 
-	err = topo.HandleLinkRequest(remotePID, localPID)
+	err = topo.handleLinkRequest(remotePID, localPID)
 	require.NoError(t, err)
 
-	t.Run("HandleUnlinkRequest removes link", func(t *testing.T) {
-		err := topo.HandleUnlinkRequest(remotePID, localPID)
+	t.Run("handleUnlinkRequest removes link", func(t *testing.T) {
+		err := topo.handleUnlinkRequest(remotePID, localPID)
 		require.NoError(t, err)
 
 		links := topo.GetLinks(localPID)
 		assert.Len(t, links, 0, "should remove link")
 	})
 
-	t.Run("HandleUnlinkRequest on non-linked PID is safe", func(t *testing.T) {
-		err := topo.HandleUnlinkRequest(remotePID, localPID)
+	t.Run("handleUnlinkRequest on non-linked PID is safe", func(t *testing.T) {
+		err := topo.handleUnlinkRequest(remotePID, localPID)
 		require.NoError(t, err)
 	})
 }
@@ -327,7 +327,7 @@ func TestTopology_RemoteMonitoringWithNotification(t *testing.T) {
 		err := topo.Register(localPID)
 		require.NoError(t, err)
 
-		err = topo.HandleMonitorRequest(remotePID, localPID)
+		err = topo.handleMonitorRequest(remotePID, localPID)
 		require.NoError(t, err)
 
 		upstream.reset()

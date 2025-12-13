@@ -36,11 +36,6 @@ func NewTopology(router relay.Receiver, localNodeID relay.NodeID) *Topology {
 	}
 }
 
-// Send forwards a package to the router.
-func (t *Topology) Send(pkg *relay.Package) error {
-	return t.router.Send(pkg)
-}
-
 // Register adds a process ID to the registry.
 func (t *Topology) Register(pid relay.PID) error {
 	t.mu.Lock()
@@ -384,8 +379,8 @@ func (t *Topology) Remove(pid relay.PID) {
 	delete(t.processes, pidKey)
 }
 
-// HandleMonitorRequest processes incoming monitor requests from remote nodes.
-func (t *Topology) HandleMonitorRequest(caller, target relay.PID) error {
+// handleMonitorRequest processes incoming monitor requests from remote nodes.
+func (t *Topology) handleMonitorRequest(caller, target relay.PID) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -402,8 +397,8 @@ func (t *Topology) HandleMonitorRequest(caller, target relay.PID) error {
 	return nil
 }
 
-// HandleMonitorRelease processes incoming release requests from remote nodes.
-func (t *Topology) HandleMonitorRelease(caller, target relay.PID) error {
+// handleMonitorRelease processes incoming release requests from remote nodes.
+func (t *Topology) handleMonitorRelease(caller, target relay.PID) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -416,8 +411,8 @@ func (t *Topology) HandleMonitorRelease(caller, target relay.PID) error {
 	return nil
 }
 
-// HandleLinkRequest processes incoming link requests from remote nodes.
-func (t *Topology) HandleLinkRequest(from, to relay.PID) error {
+// handleLinkRequest processes incoming link requests from remote nodes.
+func (t *Topology) handleLinkRequest(from, to relay.PID) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -434,8 +429,8 @@ func (t *Topology) HandleLinkRequest(from, to relay.PID) error {
 	return nil
 }
 
-// HandleUnlinkRequest processes incoming unlink requests from remote nodes.
-func (t *Topology) HandleUnlinkRequest(from, to relay.PID) error {
+// handleUnlinkRequest processes incoming unlink requests from remote nodes.
+func (t *Topology) handleUnlinkRequest(from, to relay.PID) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
