@@ -94,7 +94,7 @@ func TestConfig_Validate(t *testing.T) {
 				AWSConfig: "aws-cfg",
 			},
 			wantErr: true,
-			errMsg:  "bucket name cannot be empty",
+			errMsg:  "bucket name is required",
 		},
 		{
 			name: "empty bucket",
@@ -103,7 +103,7 @@ func TestConfig_Validate(t *testing.T) {
 				AWSConfig: "aws-cfg",
 			},
 			wantErr: true,
-			errMsg:  "bucket name cannot be empty",
+			errMsg:  "bucket name is required",
 		},
 		{
 			name: "missing aws config",
@@ -111,7 +111,7 @@ func TestConfig_Validate(t *testing.T) {
 				Bucket: "my-bucket",
 			},
 			wantErr: true,
-			errMsg:  "aws config can't be empty",
+			errMsg:  "aws config is required",
 		},
 		{
 			name: "empty aws config",
@@ -120,7 +120,7 @@ func TestConfig_Validate(t *testing.T) {
 				AWSConfig: "",
 			},
 			wantErr: true,
-			errMsg:  "aws config can't be empty",
+			errMsg:  "aws config is required",
 		},
 	}
 

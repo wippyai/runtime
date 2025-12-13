@@ -25,11 +25,11 @@ type Config struct {
 // Validate checks if the configuration is valid.
 func (c *Config) Validate() error {
 	if c.Bucket == "" {
-		return errors.New("bucket name cannot be empty")
+		return errors.New("bucket name is required")
 	}
 
 	if c.AWSConfig == "" {
-		return errors.New("aws config can't be empty")
+		return errors.New("aws config is required")
 	}
 
 	return nil

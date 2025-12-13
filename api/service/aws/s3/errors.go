@@ -5,6 +5,7 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
+// Error represents an S3 service error.
 type Error struct {
 	kind      apierror.Kind
 	message   string
@@ -19,7 +20,8 @@ func (e *Error) Retryable() apierror.Ternary { return e.retryable }
 func (e *Error) Details() attrs.Attributes   { return e.details }
 func (e *Error) Unwrap() error               { return e.cause }
 
-func newUnsupportedKindError(kind string) error {
+// NewUnsupportedKindError creates an error for unsupported entry kinds.
+func NewUnsupportedKindError(kind string) error {
 	return &Error{
 		kind:      apierror.KindInvalid,
 		message:   "unsupported entry kind: " + kind,
@@ -28,7 +30,8 @@ func newUnsupportedKindError(kind string) error {
 	}
 }
 
-func newStorageAlreadyExistsError(id string) error {
+// NewStorageAlreadyExistsError creates an error when storage already exists.
+func NewStorageAlreadyExistsError(id string) error {
 	return &Error{
 		kind:      apierror.KindAlreadyExists,
 		message:   "storage " + id + " already exists",
@@ -37,16 +40,18 @@ func newStorageAlreadyExistsError(id string) error {
 	}
 }
 
-func newAddEntryError(cause error) error {
+// NewAddEntryError creates an error for add entry failures.
+func NewAddEntryError(cause error) error {
 	return &Error{
 		kind:      apierror.KindInternal,
-		message:   "add entry",
+		message:   "failed to add entry",
 		retryable: apierror.Unknown,
 		cause:     cause,
 	}
 }
 
-func newStorageNotFoundError(id string) error {
+// NewStorageNotFoundError creates an error when storage is not found.
+func NewStorageNotFoundError(id string) error {
 	return &Error{
 		kind:      apierror.KindNotFound,
 		message:   "storage " + id + " not found",
@@ -55,46 +60,51 @@ func newStorageNotFoundError(id string) error {
 	}
 }
 
-func newUpdateEntryError(cause error) error {
+// NewUpdateEntryError creates an error for update entry failures.
+func NewUpdateEntryError(cause error) error {
 	return &Error{
 		kind:      apierror.KindInternal,
-		message:   "update entry",
+		message:   "failed to update entry",
 		retryable: apierror.Unknown,
 		cause:     cause,
 	}
 }
 
-func newDecodeConfigError(cause error) error {
+// NewDecodeConfigError creates an error for config decode failures.
+func NewDecodeConfigError(cause error) error {
 	return &Error{
 		kind:      apierror.KindInvalid,
-		message:   "decode config",
+		message:   "failed to decode config",
 		retryable: apierror.False,
 		cause:     cause,
 	}
 }
 
-func newAcquireResourceError(cause error) error {
+// NewAcquireResourceError creates an error for resource acquisition failures.
+func NewAcquireResourceError(cause error) error {
 	return &Error{
 		kind:      apierror.KindInternal,
-		message:   "acquire resource",
+		message:   "failed to acquire resource",
 		retryable: apierror.Unknown,
 		cause:     cause,
 	}
 }
 
-func newGetConfigError(cause error) error {
+// NewGetConfigError creates an error for config retrieval failures.
+func NewGetConfigError(cause error) error {
 	return &Error{
 		kind:      apierror.KindInternal,
-		message:   "get config",
+		message:   "failed to get config",
 		retryable: apierror.Unknown,
 		cause:     cause,
 	}
 }
 
-func newAWSConfigNotConfigError() error {
+// NewAWSConfigInvalidError creates an error when AWS config resource is not a valid config.
+func NewAWSConfigInvalidError() error {
 	return &Error{
 		kind:      apierror.KindInternal,
-		message:   "aws config not config",
+		message:   "aws config resource is not a valid config",
 		retryable: apierror.False,
 	}
 }

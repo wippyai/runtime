@@ -10,7 +10,7 @@ import (
 )
 
 // MailboxConfig holds configuration for a Mailbox.
-type MailboxConfig struct {
+type MailboxConfig struct { // todo: functional pattern
 	BufferSize  int         // Internal job channel buffer size.
 	WorkerCount int         // Number of concurrent worker goroutines.
 	Logger      *zap.Logger // Logger for operational events.

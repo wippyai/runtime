@@ -15,6 +15,12 @@ import (
 	"go.uber.org/zap"
 )
 
+var (
+	_ store.Store        = (*Store)(nil)
+	_ resource.Provider  = (*Store)(nil)
+	_ supervisor.Service = (*Store)(nil)
+)
+
 // Store is an in-memory implementation of the store.Store interface
 // that also functions as a resource.Provider and a supervisor.Service
 type Store struct {

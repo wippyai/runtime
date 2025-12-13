@@ -3,7 +3,6 @@ package cloudstorage
 import (
 	"context"
 
-	"github.com/wippyai/runtime/api/cloudstorage"
 	csapi "github.com/wippyai/runtime/api/cloudstorage"
 	"github.com/wippyai/runtime/api/dispatcher"
 )
@@ -78,7 +77,7 @@ func (d *Dispatcher) handleDeleteObjects(ctx context.Context, cmd dispatcher.Com
 func (d *Dispatcher) handlePresignedGetURL(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	c := cmd.(*csapi.PresignedGetURLCmd)
 	go func() {
-		opts := &cloudstorage.PresignedGetOptions{Expiration: c.Expiration}
+		opts := &csapi.PresignedGetOptions{Expiration: c.Expiration}
 		url, err := c.Storage.PresignedGetURL(ctx, c.Key, opts)
 		if ctx.Err() == nil {
 			receiver.CompleteYield(tag, csapi.PresignedGetURLResponse{URL: url, Error: err}, nil)
@@ -90,7 +89,7 @@ func (d *Dispatcher) handlePresignedGetURL(ctx context.Context, cmd dispatcher.C
 func (d *Dispatcher) handlePresignedPutURL(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	c := cmd.(*csapi.PresignedPutURLCmd)
 	go func() {
-		opts := &cloudstorage.PresignedPutOptions{
+		opts := &csapi.PresignedPutOptions{
 			Expiration:    c.Expiration,
 			ContentType:   c.ContentType,
 			ContentLength: c.ContentLength,

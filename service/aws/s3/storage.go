@@ -9,31 +9,24 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/wippyai/runtime/api/cloudstorage"
-	services3 "github.com/wippyai/runtime/api/service/aws/s3"
 	"go.uber.org/zap"
 )
 
+// Compile-time interface check.
+var _ cloudstorage.Storage = (*Storage)(nil)
+
 // Storage implements the cloudstorage.Storage interface for AWS S3
 type Storage struct {
-	// client is the AWS S3 client instance
 	client *s3.Client
-
-	// bucket is the default S3 bucket name
 	bucket string
-
-	// config holds the provider configuration
-	config *services3.Config
-
-	// log is the logger instance
-	log *zap.Logger
+	log    *zap.Logger
 }
 
-// NewStorage creates a new Storage instance with the provided client and bucket
-func NewStorage(client *s3.Client, bucket string, config *services3.Config, log *zap.Logger) *Storage {
+// NewStorage creates a new Storage instance.
+func NewStorage(client *s3.Client, bucket string, log *zap.Logger) *Storage {
 	return &Storage{
 		client: client,
 		bucket: bucket,
-		config: config,
 		log:    log.With(zap.String("component", "s3storage"), zap.String("bucket", bucket)),
 	}
 }

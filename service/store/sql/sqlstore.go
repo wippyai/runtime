@@ -21,6 +21,12 @@ import (
 	"go.uber.org/zap"
 )
 
+var (
+	_ store.Store        = (*Store)(nil)
+	_ resource.Provider  = (*Store)(nil)
+	_ supervisor.Service = (*Store)(nil)
+)
+
 // Store is a SQL-backed key-value store that also functions as a resource.Provider
 type Store struct {
 	id     registry.ID

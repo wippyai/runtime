@@ -43,7 +43,7 @@ func NewManager(
 // Add implements registry.EntryListener
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != services3.Kind {
-		return newUnsupportedKindError(entry.Kind)
+		return services3.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -51,12 +51,12 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	// Check if storage already exists
 	if _, exists := m.storages[entry.ID]; exists {
-		return newStorageAlreadyExistsError(entry.ID.String())
+		return services3.NewStorageAlreadyExistsError(entry.ID.String())
 	}
 
 	meta, err := m.set(ctx, entry)
 	if err != nil {
-		return newAddEntryError(err)
+		return services3.NewAddEntryError(err)
 	}
 
 	// Register Manager as resource provider
@@ -82,7 +82,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update implements registry.EntryListener
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != services3.Kind {
-		return newUnsupportedKindError(entry.Kind)
+		return services3.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -90,12 +90,12 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	// Check if storage already exists
 	if _, exists := m.storages[entry.ID]; !exists {
-		return newStorageNotFoundError(entry.ID.String())
+		return services3.NewStorageNotFoundError(entry.ID.String())
 	}
 
 	meta, err := m.set(ctx, entry)
 	if err != nil {
-		return newUpdateEntryError(err)
+		return services3.NewUpdateEntryError(err)
 	}
 
 	// Update resource provider metadata (provider remains the same)
@@ -121,7 +121,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete implements registry.EntryListener
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != services3.Kind {
-		return newUnsupportedKindError(entry.Kind)
+		return services3.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -130,7 +130,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	// Check if storage exists
 	_, exists := m.storages[entry.ID]
 	if !exists {
-		return newStorageNotFoundError(entry.ID.String())
+		return services3.NewStorageNotFoundError(entry.ID.String())
 	}
 
 	// Unregister resource provider
@@ -156,7 +156,7 @@ func (m *Manager) Acquire(_ context.Context, id registry.ID, mode resource.Acces
 
 	_, exists := m.storages[id]
 	if !exists {
-		return nil, newStorageNotFoundError(id.String())
+		return nil, services3.NewStorageNotFoundError(id.String())
 	}
 
 	// Only support normal mode for now
@@ -174,22 +174,22 @@ func (m *Manager) set(ctx context.Context, entry registry.Entry) (attrs.Bag, err
 	// Decode and initialize configuration
 	cfg, err := entryutil.DecodeEntryConfig[services3.Config](ctx, m.dtt, entry)
 	if err != nil {
-		return nil, newDecodeConfigError(err)
+		return nil, services3.NewDecodeConfigError(err)
 	}
 
 	resourceRegistry := resource.GetRegistry(ctx)
 	rsc, err := resourceRegistry.Acquire(ctx, registry.ParseID(cfg.AWSConfig), resource.ModeNormal)
 	if err != nil {
-		return nil, newAcquireResourceError(err)
+		return nil, services3.NewAcquireResourceError(err)
 	}
 
 	gotConfig, err := rsc.Get()
 	if err != nil {
-		return nil, newGetConfigError(err)
+		return nil, services3.NewGetConfigError(err)
 	}
 	awsCfg, ok := gotConfig.(aws.Config)
 	if !ok {
-		return nil, newAWSConfigNotConfigError()
+		return nil, services3.NewAWSConfigInvalidError()
 	}
 
 	// Create S3 client
@@ -201,7 +201,7 @@ func (m *Manager) set(ctx context.Context, entry registry.Entry) (attrs.Bag, err
 	})
 
 	// Create S3 storage
-	storage := NewStorage(client, cfg.Bucket, cfg, m.log)
+	storage := NewStorage(client, cfg.Bucket, m.log)
 	m.storages[entry.ID] = storage
 	return map[string]any{
 		"bucket": cfg.Bucket,

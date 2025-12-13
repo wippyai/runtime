@@ -11,6 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 )
 
 func TestPackage_Pool(t *testing.T) {
@@ -19,8 +20,8 @@ func TestPackage_Pool(t *testing.T) {
 		require.NotNil(t, p)
 		require.NotNil(t, p.Messages)
 
-		p.Source = PID{Host: "host1", UniqID: "proc1"}
-		p.Target = PID{Host: "host2", UniqID: "proc2"}
+		p.Source = pid.PID{Host: "host1", UniqID: "proc1"}
+		p.Target = pid.PID{Host: "host2", UniqID: "proc2"}
 		p.Messages = append(p.Messages, &Message{Topic: "test"})
 
 		ReleasePackage(p)
@@ -36,8 +37,8 @@ func TestPackage_Pool(t *testing.T) {
 }
 
 func TestNewPackage(t *testing.T) {
-	source := PID{Host: "host1", UniqID: "proc1"}
-	target := PID{Host: "host2", UniqID: "proc2"}
+	source := pid.PID{Host: "host1", UniqID: "proc1"}
+	target := pid.PID{Host: "host2", UniqID: "proc2"}
 	p1 := payload.New("test")
 	p2 := payload.New(123)
 
@@ -52,8 +53,8 @@ func TestNewPackage(t *testing.T) {
 }
 
 func TestNewMessagePackage(t *testing.T) {
-	source := PID{Host: "host1", UniqID: "proc1"}
-	target := PID{Host: "host2", UniqID: "proc2"}
+	source := pid.PID{Host: "host1", UniqID: "proc1"}
+	target := pid.PID{Host: "host2", UniqID: "proc2"}
 	msg1 := &Message{Topic: "topic1"}
 	msg2 := &Message{Topic: "topic2"}
 
@@ -84,15 +85,15 @@ func TestPackage_AddMessage(t *testing.T) {
 
 type mockNode struct{}
 
-func (m *mockNode) ID() NodeID          { return "mock-node" }
+func (m *mockNode) ID() pid.NodeID      { return "mock-node" }
 func (m *mockNode) Send(*Package) error { return nil }
-func (m *mockNode) Attach(PID, chan *Package) (context.CancelFunc, error) {
+func (m *mockNode) Attach(pid.PID, chan *Package) (context.CancelFunc, error) {
 	return func() {}, nil
 }
-func (m *mockNode) Detach(PID)                          {}
-func (m *mockNode) RegisterHost(HostID, Receiver) error { return nil }
-func (m *mockNode) UnregisterHost(HostID)               {}
-func (m *mockNode) GetHost(HostID) (Receiver, bool)     { return nil, false }
+func (m *mockNode) Detach(pid.PID)                          {}
+func (m *mockNode) RegisterHost(pid.HostID, Receiver) error { return nil }
+func (m *mockNode) UnregisterHost(pid.HostID)               {}
+func (m *mockNode) GetHost(pid.HostID) (Receiver, bool)     { return nil, false }
 
 type mockReceiver struct{}
 
@@ -291,7 +292,6 @@ func TestSentinelErrors(t *testing.T) {
 		{"ErrAlreadyAttached", ErrAlreadyAttached, "receiver already attached", "AlreadyExists"},
 		{"ErrHostNotFound", ErrHostNotFound, "host not found", "NotFound"},
 		{"ErrHostAlreadyExists", ErrHostAlreadyExists, "host already exists", "AlreadyExists"},
-		{"ErrInvalidPIDFormat", ErrInvalidPIDFormat, "invalid pid format", "Invalid"},
 		{"ErrNilPackage", ErrNilPackage, "cannot send nil package", "Invalid"},
 		{"ErrEmptyNodeID", ErrEmptyNodeID, "nodeID cannot be empty", "Invalid"},
 	}
@@ -392,8 +392,8 @@ func TestErrorConstructors(t *testing.T) {
 	})
 
 	t.Run("NewAlreadyAttachedError", func(t *testing.T) {
-		pid := PID{Host: "host1", UniqID: "proc1"}
-		err := NewAlreadyAttachedError(pid)
+		p := pid.PID{Host: "host1", UniqID: "proc1"}
+		err := NewAlreadyAttachedError(p)
 		assert.Contains(t, err.Error(), "already attached")
 		assert.Equal(t, ErrAlreadyAttached, err.Unwrap())
 	})

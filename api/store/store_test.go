@@ -294,3 +294,56 @@ func TestEntry_Marshal(t *testing.T) {
 		})
 	}
 }
+
+// Benchmarks
+
+func BenchmarkAcquireGetCmd(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		cmd := AcquireGetCmd()
+		cmd.Key = registry.NewID("test", "key")
+		cmd.Release()
+	}
+}
+
+func BenchmarkAcquireSetCmd(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		cmd := AcquireSetCmd()
+		cmd.Entry = Entry{Key: registry.NewID("test", "key")}
+		cmd.Release()
+	}
+}
+
+func BenchmarkAcquireDeleteCmd(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		cmd := AcquireDeleteCmd()
+		cmd.Key = registry.NewID("test", "key")
+		cmd.Release()
+	}
+}
+
+func BenchmarkAcquireHasCmd(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		cmd := AcquireHasCmd()
+		cmd.Key = registry.NewID("test", "key")
+		cmd.Release()
+	}
+}
+
+func BenchmarkNewKeyNotFoundError(b *testing.B) {
+	key := registry.NewID("test", "key")
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = NewKeyNotFoundError(key)
+	}
+}
+
+func BenchmarkNewStoreNotFoundError(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = NewStoreNotFoundError("test:store")
+	}
+}
