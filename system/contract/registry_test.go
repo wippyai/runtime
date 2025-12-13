@@ -955,7 +955,7 @@ func TestContractImpl_ID_Meta(t *testing.T) {
 
 	done := make(chan struct{})
 	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.KindRegisterDefinition+".*", func(e event.Event) {
-		if e.Kind == contract.KindAcceptDefinition {
+		if e.Kind == contract.KindAccept {
 			close(done)
 		}
 	})
@@ -967,9 +967,8 @@ func TestContractImpl_ID_Meta(t *testing.T) {
 		Kind:   contract.KindRegisterDefinition,
 		Path:   contractID.String(),
 		Data: &contract.Definition{
-			Name: "meta-contract",
 			Meta: attrs.Bag{"key": "value"},
-			Methods: []contract.Method{
+			Methods: []contract.MethodDef{
 				{Name: "method1"},
 			},
 		},
@@ -1014,7 +1013,7 @@ func TestContractRegistry_NilMetaInit(t *testing.T) {
 
 	done := make(chan struct{})
 	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.KindRegisterDefinition+".*", func(e event.Event) {
-		if e.Kind == contract.KindAcceptDefinition {
+		if e.Kind == contract.KindAccept {
 			close(done)
 		}
 	})
@@ -1026,9 +1025,8 @@ func TestContractRegistry_NilMetaInit(t *testing.T) {
 		Kind:   contract.KindRegisterDefinition,
 		Path:   contractID.String(),
 		Data: &contract.Definition{
-			Name:    "nil-meta",
 			Meta:    nil,
-			Methods: []contract.Method{{Name: "method1"}},
+			Methods: []contract.MethodDef{{Name: "method1"}},
 		},
 	})
 
