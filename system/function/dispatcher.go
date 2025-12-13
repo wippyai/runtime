@@ -16,11 +16,8 @@ import (
 
 // Dispatcher handles function call commands.
 type Dispatcher struct {
-	call        dispatcher.HandlerFunc
-	asyncStart  dispatcher.HandlerFunc
-	asyncCancel dispatcher.HandlerFunc
-	node        relay.Node
-	logger      *zap.Logger
+	node   relay.Node
+	logger *zap.Logger
 }
 
 // NewDispatcher creates a new function dispatcher with relay node for message routing.
@@ -28,11 +25,7 @@ func NewDispatcher(node relay.Node, logger *zap.Logger) *Dispatcher {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	d := &Dispatcher{node: node, logger: logger}
-	d.call = d.handleCall
-	d.asyncStart = d.handleAsyncStart
-	d.asyncCancel = d.handleAsyncCancel
-	return d
+	return &Dispatcher{node: node, logger: logger}
 }
 
 // Start is a no-op for function dispatcher.
@@ -47,9 +40,31 @@ func (d *Dispatcher) Stop(_ context.Context) error {
 
 // RegisterAll registers all function command handlers.
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
-	register(function.Call, d.call)
-	register(function.AsyncStart, d.asyncStart)
-	register(function.AsyncCancel, d.asyncCancel)
+	register(function.Call, dispatcher.HandlerFunc(d.handleCall))
+	register(function.AsyncStart, dispatcher.HandlerFunc(d.handleAsyncStart))
+	register(function.AsyncCancel, dispatcher.HandlerFunc(d.handleAsyncCancel))
+}
+
+// acquireCloser gets a frame closer if available.
+func acquireCloser(ctx context.Context) ctxapi.Closer {
+	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
+		return fc.IncRef()
+	}
+	return nil
+}
+
+// extractCallError returns the first non-nil error from context, err, or result.
+func extractCallError(ctx context.Context, result *runtime.Result, err error) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if err != nil {
+		return err
+	}
+	if result != nil && result.Error != nil {
+		return result.Error
+	}
+	return nil
 }
 
 func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
@@ -61,26 +76,14 @@ func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, tag
 		return nil
 	}
 
-	var closer ctxapi.Closer
-	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
-		closer = fc.IncRef()
-	}
-
+	closer := acquireCloser(ctx)
 	go func() {
 		if closer != nil {
 			defer closer.Close()
 		}
 		result, err := registry.Call(ctx, callCmd.Task)
-		if ctx.Err() != nil {
-			receiver.CompleteYield(tag, function.CallResult{Error: ctx.Err()}, nil)
-			return
-		}
-		if err != nil {
-			receiver.CompleteYield(tag, function.CallResult{Error: err}, nil)
-			return
-		}
-		if result.Error != nil {
-			receiver.CompleteYield(tag, function.CallResult{Error: result.Error}, nil)
+		if callErr := extractCallError(ctx, result, err); callErr != nil {
+			receiver.CompleteYield(tag, function.CallResult{Error: callErr}, nil)
 			return
 		}
 		receiver.CompleteYield(tag, function.CallResult{Value: result.Value}, nil)
@@ -113,11 +116,7 @@ func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Comman
 	node := d.node
 	task := startCmd.Task
 	logger := d.logger
-
-	var closer ctxapi.Closer
-	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
-		closer = fc.IncRef()
-	}
+	closer := acquireCloser(ctx)
 
 	go func() {
 		if closer != nil {
@@ -125,16 +124,7 @@ func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Comman
 		}
 		result, err := registry.Call(ctx, task)
 
-		var resultPayload payload.Payload
-		switch {
-		case err != nil:
-			resultPayload = payload.NewError(err)
-		case result.Error != nil:
-			resultPayload = payload.NewError(result.Error)
-		default:
-			resultPayload = result.Value
-		}
-
+		resultPayload := resultToPayload(result, err)
 		pkg := relay.NewPackage(pid.PID{}, framePID, topic, resultPayload, payload.NewTerminal())
 		if err := node.Send(pkg); err != nil {
 			logger.Warn("failed to send async result",
@@ -145,6 +135,20 @@ func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Comman
 	}()
 
 	receiver.CompleteYield(tag, function.AsyncStartResult{}, nil)
+	return nil
+}
+
+// resultToPayload converts result/error to payload.
+func resultToPayload(result *runtime.Result, err error) payload.Payload {
+	if err != nil {
+		return payload.NewError(err)
+	}
+	if result != nil && result.Error != nil {
+		return payload.NewError(result.Error)
+	}
+	if result != nil {
+		return result.Value
+	}
 	return nil
 }
 

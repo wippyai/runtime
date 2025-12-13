@@ -163,31 +163,19 @@ func (f *Registry) Call(ctx context.Context, task runtimeapi.Task) (*runtimeapi.
 	}
 
 	// Merge preset and runtime options into task.Options before calling interceptors
-	storedOptions, hasPreset := f.options.Load(task.ID)
-	hasRuntime := task.Options != nil
-
-	if hasPreset || hasRuntime {
-		var bag runtimeapi.Bag
-
-		if hasPreset {
-			if presetBag, ok := storedOptions.(runtimeapi.Bag); ok {
-				bag = presetBag
-			}
-		}
-
-		if hasRuntime {
-			if runtimeBag, ok := task.Options.(runtimeapi.Bag); ok {
-				if bag != nil {
-					bag = bag.Merge(runtimeBag)
-				} else {
-					bag = runtimeBag
-				}
-			}
-		}
-
+	var bag runtimeapi.Bag
+	if storedOptions, ok := f.options.Load(task.ID); ok {
+		bag, _ = storedOptions.(runtimeapi.Bag)
+	}
+	if runtimeBag, ok := task.Options.(runtimeapi.Bag); ok {
 		if bag != nil {
-			task.Options = bag
+			bag = bag.Merge(runtimeBag)
+		} else {
+			bag = runtimeBag
 		}
+	}
+	if bag != nil {
+		task.Options = bag
 	}
 
 	// Create executor wrapper that will be called by chain or directly
