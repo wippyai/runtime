@@ -206,21 +206,15 @@ func (f *Registry) executor(ctx context.Context, handler function.Func, task run
 	}
 	pid := gen.Generate(task.ID.String())
 
-	// Fast path: no task context overrides (most common case)
-	if len(task.Context) == 0 {
-		_ = fc.Set(runtimeapi.FrameIDKey, task.ID)
-		_ = fc.Set(runtimeapi.FramePIDKey, pid)
-	} else {
-		pairsLen := 2 + len(task.Context)
-		pairs := make([]ctxapi.Pair, pairsLen)
-		pairs[0] = ctxapi.Pair{Key: runtimeapi.FrameIDKey, Value: task.ID}
-		pairs[1] = ctxapi.Pair{Key: runtimeapi.FramePIDKey, Value: pid}
-		copy(pairs[2:], task.Context)
+	// Build pairs slice with capacity for base pairs + task context
+	pairs := make([]ctxapi.Pair, 2, 2+len(task.Context))
+	pairs[0] = ctxapi.Pair{Key: runtimeapi.FrameIDKey, Value: task.ID}
+	pairs[1] = ctxapi.Pair{Key: runtimeapi.FramePIDKey, Value: pid}
+	pairs = append(pairs, task.Context...)
 
-		if err := fc.SetMultiple(pairs...); err != nil {
-			ctxapi.ReleaseFrameContext(fc)
-			return nil, function.NewFrameContextError(err)
-		}
+	if err := fc.SetMultiple(pairs...); err != nil {
+		ctxapi.ReleaseFrameContext(fc)
+		return nil, function.NewFrameContextError(err)
 	}
 
 	// Execute function handler

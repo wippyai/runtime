@@ -473,6 +473,30 @@ func TestFunctions_CallErrorHandling(t *testing.T) {
 	}
 }
 
+func TestFunctions_CallNoPIDGenerator(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	ctx = relayapi.WithNode(ctx, relay.NewNode("test"))
+	// No PID generator set
+
+	executor, _ := setupTest()
+	require.NoError(t, executor.Start(ctx))
+	defer func() {
+		require.NoError(t, executor.Stop())
+	}()
+
+	// Register a valid handler
+	handlerCalled := false
+	handlerID := registry.NewID("test", "func")
+	executor.handlers.Store(handlerID, function.Func(func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+		handlerCalled = true
+		return &runtime.Result{}, nil
+	}))
+
+	_, err := executor.Call(ctx, runtime.Task{ID: handlerID})
+	assert.ErrorIs(t, err, function.ErrPIDGeneratorNotFound)
+	assert.False(t, handlerCalled, "handler should not be called when PID generator is missing")
+}
+
 func TestFunctions_FrameContextHandling(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 	ctx = relayapi.WithNode(ctx, relay.NewNode("test"))

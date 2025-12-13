@@ -6,7 +6,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
-var registryCtxKey = &ctxapi.Key{Name: "env.registry"}
+var registryKey = &ctxapi.Key{Name: "env.registry"}
 
 // WithRegistry attaches the provided Registry to the context.
 func WithRegistry(ctx context.Context, reg Registry) context.Context {
@@ -14,8 +14,8 @@ func WithRegistry(ctx context.Context, reg Registry) context.Context {
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(registryCtxKey) == nil {
-		ac.With(registryCtxKey, reg)
+	if ac.Get(registryKey) == nil {
+		ac.With(registryKey, reg)
 	}
 	return ctx
 }
@@ -26,7 +26,7 @@ func GetRegistry(ctx context.Context) Registry {
 	if ac == nil {
 		return nil
 	}
-	if reg := ac.Get(registryCtxKey); reg != nil {
+	if reg := ac.Get(registryKey); reg != nil {
 		return reg.(Registry)
 	}
 	return nil

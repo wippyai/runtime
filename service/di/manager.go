@@ -378,7 +378,7 @@ func (m *Manager) handleBindingUpdate(ctx context.Context, entry registry.Entry)
 	defer m.mu.Unlock()
 
 	if _, exists := m.bindings[entry.ID]; !exists {
-		return errBindingNotFoundForUpdate(entry.ID)
+		return apidi.NewBindingNotFoundForUpdateError(entry.ID)
 	}
 
 	if err := m.validateBindingAgainstDefinitions(updatedBinding, entry.ID); err != nil {
@@ -411,7 +411,7 @@ func (m *Manager) handleBindingDelete(ctx context.Context, entry registry.Entry)
 	defer m.mu.Unlock()
 
 	if _, exists := m.bindings[entry.ID]; !exists {
-		return errBindingNotFoundForDelete(entry.ID)
+		return apidi.NewBindingNotFoundForDeleteError(entry.ID)
 	}
 
 	delete(m.bindings, entry.ID)
