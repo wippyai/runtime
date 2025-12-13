@@ -397,9 +397,9 @@ func (m *mockRelayNode) Send(pkg *relay.Package) error {
 	return nil
 }
 
-func (m *mockRelayNode) RegisterHost(relay.HostID, relay.Host) error { return nil }
-func (m *mockRelayNode) UnregisterHost(relay.HostID)                 {}
-func (m *mockRelayNode) GetHost(relay.HostID) (relay.Host, bool)     { return nil, false }
+func (m *mockRelayNode) RegisterHost(relay.HostID, relay.Receiver) error { return nil }
+func (m *mockRelayNode) UnregisterHost(relay.HostID)                     {}
+func (m *mockRelayNode) GetHost(relay.HostID) (relay.Receiver, bool)     { return nil, false }
 func (m *mockRelayNode) Attach(relay.PID, chan *relay.Package) (context.CancelFunc, error) {
 	return func() {}, nil
 }

@@ -273,16 +273,6 @@ func registrySnapshot(l *lua.LState) int {
 		return 2
 	}
 
-	hist := reg.History()
-	if hist == nil {
-		err := lua.NewLuaError(l, "history not available").
-			WithKind(lua.KindInternal).
-			WithRetryable(false)
-		l.Push(lua.LNil)
-		l.Push(err)
-		return 2
-	}
-
 	version, verErr := reg.Current()
 	if verErr != nil {
 		err := lua.WrapErrorWithLua(l, verErr, "get current version").
@@ -293,12 +283,10 @@ func registrySnapshot(l *lua.LState) int {
 		return 2
 	}
 
-	resolver := regapi.GetResolver(ctx)
-	stateBuilder := topology.NewStateBuilder(zap.NewNop(), resolver)
-
-	state, stateErr := stateBuilder.BuildState(hist, version)
-	if stateErr != nil {
-		err := lua.WrapErrorWithLua(l, stateErr, "build snapshot state").
+	// Get entries directly from registry state (includes baseline + all applied changes)
+	entries, entriesErr := reg.GetAllEntries()
+	if entriesErr != nil {
+		err := lua.WrapErrorWithLua(l, entriesErr, "get registry entries").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
@@ -309,7 +297,7 @@ func registrySnapshot(l *lua.LState) int {
 	snap := &Snapshot{
 		reg:     reg,
 		version: version,
-		entries: state,
+		entries: entries,
 		log:     zap.NewNop(),
 	}
 

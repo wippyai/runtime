@@ -23,8 +23,7 @@ type Manager struct {
 	sub    *eventbus.Subscriber
 }
 
-// NewManager creates a new logging service instance
-// Note: level parameter is kept for API compatibility but ignored since Core no longer filters by level
+// NewManager creates a new logging service instance.
 func NewManager(
 	bus event.Bus,
 	core api.Core,
@@ -44,7 +43,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	// Subscribe to log configuration events and config requests
 	sub, err := eventbus.NewSubscriber(ctx, m.bus, api.System, "logs.config.(set|get)", m.handleEvent)
 	if err != nil {
-		return api.NewSubscribeEventsError(err)
+		return api.NewSubscriberError(err)
 	}
 	m.sub = sub
 
@@ -56,7 +55,6 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.log.Info("logging service started",
 		zap.Bool("propagate", m.config.PropagateDownstream),
 		zap.Bool("stream", m.config.StreamToEvents),
-		// Removed min_level logging since we don't filter by level anymore
 	)
 
 	return nil
@@ -110,7 +108,6 @@ func (m *Manager) handleConfigEvent(ctx context.Context, e event.Event) {
 		zap.Bool("new_propagate", cfg.PropagateDownstream),
 		zap.Bool("old_stream", m.config.StreamToEvents),
 		zap.Bool("new_stream", cfg.StreamToEvents),
-		// Removed level logging since we don't use MinLevel anymore
 	)
 
 	m.handleSetConfigEvent(ctx, e.Path, cfg)

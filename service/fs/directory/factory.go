@@ -13,21 +13,21 @@ type CreateFSConfig struct {
 	AutoInit bool
 }
 
-// FSFactoryAPI defines the interface for creating filesystem instances
-type FSFactoryAPI interface {
-	// CreateFS creates a new filesystem instance
+// FactoryAPI defines the interface for creating filesystem instances.
+type FactoryAPI interface {
+	// CreateFS creates a new filesystem instance.
 	CreateFS(cfg CreateFSConfig) (fsapi.FS, error)
 }
 
-// FSFactory implements FSFactoryAPI to create directory-based filesystems
-type FSFactory struct{}
+// Factory implements FactoryAPI to create directory-based filesystems.
+type Factory struct{}
 
-// NewDirectoryFSFactory creates a new factory instance for directory filesystems
-func NewDirectoryFSFactory() *FSFactory {
-	return &FSFactory{}
+// NewFactory creates a new factory instance for directory filesystems.
+func NewFactory() *Factory {
+	return &Factory{}
 }
 
-// CreateFS creates a new directory filesystem
-func (f *FSFactory) CreateFS(cfg CreateFSConfig) (fsapi.FS, error) {
+// CreateFS creates a new directory filesystem.
+func (f *Factory) CreateFS(cfg CreateFSConfig) (fsapi.FS, error) {
 	return NewDirectoryFS(cfg.DirPath, cfg.Mode, cfg.AutoInit)
 }

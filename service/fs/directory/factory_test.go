@@ -8,20 +8,20 @@ import (
 	"github.com/wippyai/runtime/tests/tempfiles"
 )
 
-func TestNewDirectoryFSFactory(t *testing.T) {
-	factory := NewDirectoryFSFactory()
+func TestNewFactory(t *testing.T) {
+	factory := NewFactory()
 	assert.NotNil(t, factory, "Factory should not be nil")
-	assert.IsType(t, &FSFactory{}, factory, "Factory should be of type *FSFactory")
+	assert.IsType(t, &Factory{}, factory, "Factory should be of type *Factory")
 }
 
-func TestFSFactory_CreateFS(t *testing.T) {
+func TestFactory_CreateFS(t *testing.T) {
 	// Create a temp directory with test files
 	root, cleanup := tempfiles.TempDirWithFiles(t, "factory_test", map[string]string{
 		"file1.txt": "test content",
 	})
 	defer cleanup()
 
-	factory := NewDirectoryFSFactory()
+	factory := NewFactory()
 
 	t.Run("DirectoryFS", func(t *testing.T) {
 		// Create a directory filesystem (empty type name)

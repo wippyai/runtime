@@ -257,6 +257,37 @@ func TestErrorInterface(t *testing.T) {
 	})
 }
 
+func TestNewTerminal(t *testing.T) {
+	p := NewTerminal()
+	assert.Equal(t, Terminal, p.Format())
+	assert.Nil(t, p.Data())
+
+	// Verify singleton behavior
+	p2 := NewTerminal()
+	assert.Equal(t, p, p2)
+}
+
+func TestIsTerminal(t *testing.T) {
+	t.Run("terminal payload", func(t *testing.T) {
+		p := NewTerminal()
+		assert.True(t, IsTerminal(p))
+	})
+
+	t.Run("non-terminal payload", func(t *testing.T) {
+		p := New("data")
+		assert.False(t, IsTerminal(p))
+	})
+
+	t.Run("nil payload", func(t *testing.T) {
+		assert.False(t, IsTerminal(nil))
+	})
+
+	t.Run("payload with terminal format but different instance", func(t *testing.T) {
+		p := NewPayload(nil, Terminal)
+		assert.True(t, IsTerminal(p))
+	})
+}
+
 func TestErrorConstructors(t *testing.T) {
 	t.Run("NewNoTranscodingPathError", func(t *testing.T) {
 		err := NewNoTranscodingPathError(JSON, Golang)
@@ -264,9 +295,9 @@ func TestErrorConstructors(t *testing.T) {
 		assert.Contains(t, err.Error(), "golang")
 		assert.Equal(t, apierror.KindNotFound, err.Kind())
 		from, _ := err.Details().Get("from")
-		assert.Equal(t, string(JSON), from)
+		assert.Equal(t, JSON, from)
 		to, _ := err.Details().Get("to")
-		assert.Equal(t, string(Golang), to)
+		assert.Equal(t, Golang, to)
 	})
 
 	t.Run("NewNoTranscoderError", func(t *testing.T) {

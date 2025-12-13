@@ -20,20 +20,20 @@ import (
 	"go.uber.org/zap"
 )
 
-// MockFSFactory is a mock implementation of FSFactoryAPI for testing
-type MockFSFactory struct {
+// MockFactory is a mock implementation of FactoryAPI for testing.
+type MockFactory struct {
 	mockFS fsapi.FS
 	err    error
 }
 
-func NewMockFSFactory(mockFS fsapi.FS, err error) *MockFSFactory {
-	return &MockFSFactory{
+func NewMockFactory(mockFS fsapi.FS, err error) *MockFactory {
+	return &MockFactory{
 		mockFS: mockFS,
 		err:    err,
 	}
 }
 
-func (f *MockFSFactory) CreateFS(CreateFSConfig) (fsapi.FS, error) {
+func (f *MockFactory) CreateFS(CreateFSConfig) (fsapi.FS, error) {
 	return f.mockFS, f.err
 }
 
@@ -132,7 +132,7 @@ func newTestDirectoryManager(_ *testing.T) (*Manager, event.Bus) {
 	mockFS := &MockFS{}
 
 	// Create a factory that returns our mock
-	factory := NewMockFSFactory(mockFS, nil)
+	factory := NewMockFactory(mockFS, nil)
 
 	manager := NewDirectoryManager(bus, transcoder, factory, logger)
 	return manager, bus
@@ -481,7 +481,7 @@ func TestManager_FactoryError(t *testing.T) {
 	transcoder := &MockTranscoder{}
 
 	expectedErr := fmt.Errorf("factory error")
-	factory := NewMockFSFactory(nil, expectedErr)
+	factory := NewMockFactory(nil, expectedErr)
 
 	manager := NewDirectoryManager(bus, transcoder, factory, logger)
 

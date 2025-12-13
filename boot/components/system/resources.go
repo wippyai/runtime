@@ -20,7 +20,7 @@ func Resources() boot.Component {
 			logger := logapi.GetLogger(ctx)
 			bus := event.GetBus(ctx)
 
-			resources = resource.NewResourceRegistry(bus, logger.Named("resources"))
+			resources = resource.NewRegistry(bus, logger.Named("resources"))
 			return resapi.WithRegistry(ctx, resources), nil
 		},
 		Start: func(ctx context.Context) error {

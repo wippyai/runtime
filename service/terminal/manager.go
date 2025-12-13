@@ -81,7 +81,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		System: relay.System,
 		Kind:   relay.HostRegister,
 		Path:   entry.ID.String(),
-		Data:   relay.Host(h),
+		Data:   relay.Receiver(h),
 	})
 
 	// Register with supervisor

@@ -44,7 +44,7 @@ func (r *Registry) Start(ctx context.Context) error {
 
 func (r *Registry) Stop() error {
 	if r.subscriber != nil {
-		r.bus.Unsubscribe(r.ctx, r.subscriber.ID())
+		r.subscriber.Close()
 	}
 	return nil
 }
@@ -56,22 +56,21 @@ func (r *Registry) getEnvName(variable *env.Variable) string {
 	return variable.ID.String()
 }
 
-// getCurrentNamespaceFromContext returns the current namespace from the provided context
-func (r *Registry) getCurrentNamespaceFromContext(ctx context.Context) string {
+func (r *Registry) nsFromCtx(ctx context.Context) string {
 	if ctx == nil {
 		return ""
 	}
-
-	// Try to get namespace from FrameContext
-	cc := ctxapi.FrameFromContext(ctx)
-	if cc != nil {
-		if idValue, ok := cc.Get(runtime.FrameIDKey); ok {
-			if callID, ok := idValue.(registry.ID); ok {
-				return callID.NS
-			}
-		}
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return ""
 	}
-
+	idValue, ok := fc.Get(runtime.FrameIDKey)
+	if !ok {
+		return ""
+	}
+	if id, ok := idValue.(registry.ID); ok {
+		return id.NS
+	}
 	return ""
 }
 
@@ -87,7 +86,6 @@ func (r *Registry) handleEvent(e event.Event) {
 		r.updateVariable(e)
 	case env.VariableDelete:
 		r.deleteVariable(e)
-	case registry.Accept, registry.Reject:
 	default:
 		r.log.Warn("unknown event kind", zap.String("kind", e.Kind), zap.String("path", e.Path))
 	}
@@ -240,7 +238,7 @@ func (r *Registry) findVariable(ctx context.Context, name string) (*env.Variable
 
 	// If no namespace provided, try to add current namespace from context
 	if nameID.NS == "" {
-		currentNS := r.getCurrentNamespaceFromContext(ctx)
+		currentNS := r.nsFromCtx(ctx)
 		if currentNS != "" {
 			// Try with current namespace
 			fullNameID := nameID.WithDefaultNS(currentNS)

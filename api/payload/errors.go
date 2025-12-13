@@ -33,9 +33,9 @@ func (e *Error) Unwrap() error               { return e.cause }
 func NewNoTranscodingPathError(from, to Format) *Error {
 	return &Error{
 		kind:      apierror.KindNotFound,
-		message:   "no transcoding path found from " + string(from) + " to " + string(to),
+		message:   "no transcoding path found from " + from + " to " + to,
 		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"from": string(from), "to": string(to)}),
+		details:   attrs.NewBagFrom(map[string]any{"from": from, "to": to}),
 	}
 }
 
@@ -64,9 +64,9 @@ func NewTranscodeError(from, to string, err error) *Error {
 func NewNoUnmarshalPathError(format Format) *Error {
 	return &Error{
 		kind:      apierror.KindNotFound,
-		message:   "no unmarshaling path found for format " + string(format),
+		message:   "no unmarshaling path found for format " + format,
 		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"format": string(format)}),
+		details:   attrs.NewBagFrom(map[string]any{"format": format}),
 	}
 }
 
@@ -95,9 +95,9 @@ func NewUnmarshalerNotFoundError(format string) *Error {
 func NewInvalidFormatError(direction string, expected, got Format) *Error {
 	return &Error{
 		kind:      apierror.KindInvalid,
-		message:   direction + " can only transcode from " + string(expected) + " format, got " + string(got),
+		message:   direction + " can only transcode from " + expected + " format, got " + got,
 		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"direction": direction, "expected": string(expected), "got": string(got)}),
+		details:   attrs.NewBagFrom(map[string]any{"direction": direction, "expected": expected, "got": got}),
 	}
 }
 

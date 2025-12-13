@@ -114,7 +114,7 @@ func (m *Manager) registerFS(ctx context.Context, id registry.ID) error {
 	}
 
 	// Wrap in read-only adapter
-	fs := NewReadOnlyFS(packFS)
+	fs := fsapi.NewReadOnlyFS(packFS)
 
 	// Store in filesystems map
 	m.filesystems.Store(id.String(), fs)

@@ -522,8 +522,8 @@ func TestBuildState_Empty(t *testing.T) {
 		t.Errorf("expected empty state, got %d entries", len(state))
 	}
 
-	// Path(v0, v0) returns empty array (no changesets to apply)
-	expectedCallStack := []string{"Save", "Versions"}
+	// Path(v0, v0) returns empty array, but we still Get v0's changeset
+	expectedCallStack := []string{"Save", "Versions", "Get(0)"}
 	verifyCallStack(t, history.callStack, expectedCallStack)
 }
 

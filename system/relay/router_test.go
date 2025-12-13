@@ -20,10 +20,10 @@ type mockNode struct {
 	sendErr      error
 }
 
-func (m *mockNode) ID() api.NodeID                          { return m.id }
-func (m *mockNode) RegisterHost(api.HostID, api.Host) error { return nil }
-func (m *mockNode) UnregisterHost(api.HostID)               {}
-func (m *mockNode) GetHost(api.HostID) (api.Host, bool)     { return nil, false }
+func (m *mockNode) ID() api.NodeID                              { return m.id }
+func (m *mockNode) RegisterHost(api.HostID, api.Receiver) error { return nil }
+func (m *mockNode) UnregisterHost(api.HostID)                   {}
+func (m *mockNode) GetHost(api.HostID) (api.Receiver, bool)     { return nil, false }
 func (m *mockNode) Send(_ *api.Package) error {
 	atomic.AddInt32(&m.sendCalled, 1)
 	return m.sendErr

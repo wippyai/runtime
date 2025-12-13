@@ -104,9 +104,8 @@ Creates a snapshot of the current registry state.
 |-----------|------|-----------|
 | No context available | errors.INTERNAL | no |
 | Registry not in context | errors.INTERNAL | no |
-| History not available | errors.INTERNAL | no |
 | Get current version failed | errors.INTERNAL | no |
-| Build snapshot state failed | errors.INTERNAL | no |
+| Get registry entries failed | errors.INTERNAL | no |
 
 ### snapshot_at(version_id: integer) → Snapshot, error
 

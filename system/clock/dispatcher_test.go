@@ -18,11 +18,11 @@ type testReceiver struct {
 
 type mockNode struct{}
 
-func (m *mockNode) Send(_ *relay.Package) error                     { return nil }
-func (m *mockNode) ID() relay.NodeID                                { return "" }
-func (m *mockNode) RegisterHost(_ relay.HostID, _ relay.Host) error { return nil }
-func (m *mockNode) UnregisterHost(_ relay.HostID)                   {}
-func (m *mockNode) GetHost(_ relay.HostID) (relay.Host, bool)       { return nil, false }
+func (m *mockNode) Send(_ *relay.Package) error                         { return nil }
+func (m *mockNode) ID() relay.NodeID                                    { return "" }
+func (m *mockNode) RegisterHost(_ relay.HostID, _ relay.Receiver) error { return nil }
+func (m *mockNode) UnregisterHost(_ relay.HostID)                       {}
+func (m *mockNode) GetHost(_ relay.HostID) (relay.Receiver, bool)       { return nil, false }
 func (m *mockNode) Attach(_ relay.PID, _ chan *relay.Package) (context.CancelFunc, error) {
 	return func() {}, nil
 }

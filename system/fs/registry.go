@@ -2,7 +2,6 @@ package fs
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/wippyai/runtime/api/event"
@@ -20,8 +19,8 @@ type Registry struct {
 	subscriber  *eventbus.Subscriber
 }
 
-// NewFSRegistry creates a new filesystem registry instance
-func NewFSRegistry(bus event.Bus, log *zap.Logger) *Registry {
+// NewRegistry creates a new filesystem registry instance.
+func NewRegistry(bus event.Bus, log *zap.Logger) *Registry {
 	return &Registry{
 		log: log,
 		bus: bus,
@@ -69,7 +68,7 @@ func (r *Registry) registerFS(e event.Event) {
 	if !ok {
 		r.log.Error("invalid filesystem payload",
 			zap.String("fs", e.Path),
-			zap.String("type", fmt.Sprintf("%T", e.Data)))
+			zap.Any("data", e.Data))
 
 		r.sendReject(e.Path, "invalid filesystem data type")
 		return

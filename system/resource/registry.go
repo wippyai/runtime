@@ -24,12 +24,11 @@ type Registry struct {
 	subscriber  *eventbus.Subscriber
 }
 
-// NewResourceRegistry creates a new resource service instance
-func NewResourceRegistry(bus event.Bus, logger *zap.Logger) *Registry {
+// NewRegistry creates a new resource registry instance
+func NewRegistry(bus event.Bus, logger *zap.Logger) *Registry {
 	return &Registry{
-		bus:       bus,
-		logger:    logger,
-		resources: sync.Map{},
+		bus:    bus,
+		logger: logger,
 	}
 }
 
@@ -118,7 +117,7 @@ func (s *Registry) handleUpdate(e event.Event) {
 func (s *Registry) handleRemove(e event.Event) {
 	id, ok := e.Data.(registry.ID)
 	if !ok {
-		s.logger.Error("invalid resource Source payload",
+		s.logger.Error("invalid resource ID payload",
 			zap.String("resource", e.Path),
 			zap.String("type", fmt.Sprintf("%T", e.Data)))
 		return

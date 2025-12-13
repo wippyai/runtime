@@ -42,7 +42,7 @@ func Filesystem() boot.Component {
 				logger.Warn("failed to register filesystem dependency pattern", zap.Error(err))
 			}
 
-			fsRegistry = fs.NewFSRegistry(bus, logger.Named("fs"))
+			fsRegistry = fs.NewRegistry(bus, logger.Named("fs"))
 			return fsapi.WithRegistry(ctx, fsRegistry), nil
 		},
 		Start: func(ctx context.Context) error {

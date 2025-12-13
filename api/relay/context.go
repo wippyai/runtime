@@ -91,8 +91,8 @@ func GetNodeManager(ctx context.Context) NodeManager {
 	return nil
 }
 
-// WithHost attaches a Host to the context.
-func WithHost(ctx context.Context, host Host) context.Context {
+// WithHost attaches a Receiver to the context.
+func WithHost(ctx context.Context, host Receiver) context.Context {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return ctx
@@ -103,14 +103,14 @@ func WithHost(ctx context.Context, host Host) context.Context {
 	return ctx
 }
 
-// GetHost retrieves the Host from the context.
-func GetHost(ctx context.Context) Host {
+// GetHost retrieves the Receiver from the context.
+func GetHost(ctx context.Context) Receiver {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return nil
 	}
 	if val := ac.Get(hostCtxKey); val != nil {
-		if h, ok := val.(Host); ok {
+		if h, ok := val.(Receiver); ok {
 			return h
 		}
 	}

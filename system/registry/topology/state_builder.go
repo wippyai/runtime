@@ -175,6 +175,25 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 
 	state := make(StateMap)
 
+	// If path is empty but first == target, we still need to apply the first version's changeset
+	// because Path excludes the source version
+	if len(path) == 0 && first.ID() == targetVersion.ID() {
+		changeSet, err := history.Get(first)
+		if err != nil {
+			return nil, NewGetChangesetError(first.String(), err)
+		}
+		for _, operation := range changeSet {
+			newState, err := b.ApplyOperation(state, operation)
+			if err != nil {
+				b.log.Error("failed to apply operation",
+					zap.String("version", first.String()),
+					zap.Error(err))
+				continue
+			}
+			state = newState
+		}
+	}
+
 	for _, ver := range path {
 		b.log.Debug("building version transition", zap.String("version", ver.String()))
 

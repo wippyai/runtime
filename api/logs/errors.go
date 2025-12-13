@@ -81,14 +81,3 @@ func NewSetTempConfigError(err error) *Error {
 		cause:     err,
 	}
 }
-
-// NewSubscribeEventsError creates an error when subscribing to events fails
-func NewSubscribeEventsError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "failed to subscribe to events: " + err.Error(),
-		retryable: apierror.True,
-		details:   attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
-		cause:     err,
-	}
-}

@@ -1162,3 +1162,246 @@ func TestRegistry_Get_EmptyStringNoDefault(t *testing.T) {
 	_, err := reg.Get(ctx, "empty_var")
 	assert.ErrorIs(t, err, env.ErrVariableNotFound, "empty string with no default should return not found error")
 }
+
+func TestRegistry_RegisterStorageDirect(t *testing.T) {
+	reg, _, ctx := setupTestRegistry()
+	require.NoError(t, reg.Start(ctx))
+	defer safeStop(t, reg)
+
+	storage := newMockStorage(map[string]string{"key": "value"})
+	storageID := registry.ParseID("app:direct-storage")
+
+	// Direct registration without events
+	reg.RegisterStorage(storageID, storage)
+
+	// Verify storage is accessible
+	retrieved, err := reg.GetStorage(ctx, storageID)
+	require.NoError(t, err)
+	assert.Equal(t, storage, retrieved)
+}
+
+func TestRegistry_UpdateVariable_NameChange(t *testing.T) {
+	reg, bus, ctx := setupTestRegistry()
+	require.NoError(t, reg.Start(ctx))
+	defer safeStop(t, reg)
+
+	storage := newMockStorage(map[string]string{
+		"old_name": "value1",
+		"new_name": "value2",
+	})
+	storageID := registry.ParseID("app:storage")
+	reg.storages.Store(storageID, storage)
+
+	varID := registry.ParseID("app:myvar")
+
+	// Register variable with old name
+	bus.Send(ctx, event.Event{
+		System: env.System,
+		Kind:   env.VariableRegister,
+		Path:   varID.String(),
+		Data: env.Variable{
+			ID:        varID,
+			Name:      "old_name",
+			StorageID: storageID,
+		},
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	// Update variable with new name
+	bus.Send(ctx, event.Event{
+		System: env.System,
+		Kind:   env.VariableUpdate,
+		Path:   varID.String(),
+		Data: env.Variable{
+			ID:        varID,
+			Name:      "new_name",
+			StorageID: storageID,
+		},
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	// Old name should not work
+	_, err := reg.Get(ctx, "old_name")
+	assert.ErrorIs(t, err, env.ErrVariableNotFound)
+
+	// New name should work
+	value, err := reg.Get(ctx, "new_name")
+	require.NoError(t, err)
+	assert.Equal(t, "value2", value)
+}
+
+func TestRegistry_UpdateVariable_InvalidPayload(t *testing.T) {
+	reg, bus, ctx := setupTestRegistry()
+	require.NoError(t, reg.Start(ctx))
+	defer safeStop(t, reg)
+
+	// Send update with invalid payload
+	bus.Send(ctx, event.Event{
+		System: env.System,
+		Kind:   env.VariableUpdate,
+		Path:   "app:var",
+		Data:   "invalid",
+	})
+	time.Sleep(10 * time.Millisecond)
+	// Should not panic, just log error
+}
+
+func TestRegistry_UpdateVariable_InvalidVariable(t *testing.T) {
+	reg, bus, ctx := setupTestRegistry()
+	require.NoError(t, reg.Start(ctx))
+	defer safeStop(t, reg)
+
+	// Send update with invalid variable (missing storage ID)
+	bus.Send(ctx, event.Event{
+		System: env.System,
+		Kind:   env.VariableUpdate,
+		Path:   "app:var",
+		Data: env.Variable{
+			ID:   registry.ParseID("app:var"),
+			Name: "test",
+		},
+	})
+	time.Sleep(10 * time.Millisecond)
+	// Should not panic, just log error
+}
+
+func TestRegistry_UpdateVariable_StorageNotFound(t *testing.T) {
+	reg, bus, ctx := setupTestRegistry()
+	require.NoError(t, reg.Start(ctx))
+	defer safeStop(t, reg)
+
+	// Send update referencing non-existent storage
+	bus.Send(ctx, event.Event{
+		System: env.System,
+		Kind:   env.VariableUpdate,
+		Path:   "app:var",
+		Data: env.Variable{
+			ID:        registry.ParseID("app:var"),
+			Name:      "test",
+			StorageID: registry.ParseID("app:nonexistent"),
+		},
+	})
+	time.Sleep(10 * time.Millisecond)
+	// Should not panic, just log error
+}
+
+func TestRegistry_UpdateVariable_NameConflict(t *testing.T) {
+	reg, bus, ctx := setupTestRegistry()
+	require.NoError(t, reg.Start(ctx))
+	defer safeStop(t, reg)
+
+	storage := newMockStorage(map[string]string{
+		"shared_name": "value1",
+		"other_name":  "value2",
+	})
+	storageID := registry.ParseID("app:storage")
+	reg.storages.Store(storageID, storage)
+
+	// Register first variable
+	bus.Send(ctx, event.Event{
+		System: env.System,
+		Kind:   env.VariableRegister,
+		Path:   "app:var1",
+		Data: env.Variable{
+			ID:        registry.ParseID("app:var1"),
+			Name:      "shared_name",
+			StorageID: storageID,
+		},
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	// Register second variable with different name
+	bus.Send(ctx, event.Event{
+		System: env.System,
+		Kind:   env.VariableRegister,
+		Path:   "app:var2",
+		Data: env.Variable{
+			ID:        registry.ParseID("app:var2"),
+			Name:      "other_name",
+			StorageID: storageID,
+		},
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	// Try to update second variable to use first variable's name - should be rejected
+	bus.Send(ctx, event.Event{
+		System: env.System,
+		Kind:   env.VariableUpdate,
+		Path:   "app:var2",
+		Data: env.Variable{
+			ID:        registry.ParseID("app:var2"),
+			Name:      "shared_name",
+			StorageID: storageID,
+		},
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	// Second variable should still be accessible by its original name
+	value, err := reg.Get(ctx, "other_name")
+	require.NoError(t, err)
+	assert.Equal(t, "value2", value)
+}
+
+func TestRegistry_GetStorage_InvalidType(t *testing.T) {
+	reg, _, ctx := setupTestRegistry()
+	require.NoError(t, reg.Start(ctx))
+	defer safeStop(t, reg)
+
+	// Store invalid type in storages map
+	storageID := registry.ParseID("app:invalid")
+	reg.storages.Store(storageID, "not a storage")
+
+	_, err := reg.GetStorage(ctx, storageID)
+	assert.Error(t, err)
+}
+
+func TestRegistry_FindVariable_ByFullID(t *testing.T) {
+	reg, _, ctx := setupTestRegistry()
+	require.NoError(t, reg.Start(ctx))
+	defer safeStop(t, reg)
+
+	storage := newMockStorage(map[string]string{"myvar": "value"})
+	storageID := registry.ParseID("testns:storage")
+	reg.storages.Store(storageID, storage)
+
+	// Register variable with namespace
+	variable := env.Variable{
+		ID:        registry.ParseID("testns:myvar"),
+		Name:      "myvar",
+		StorageID: storageID,
+	}
+	reg.variablesByID.Store(variable.ID, variable)
+	reg.variablesByName.Store("myvar", variable.ID)
+
+	// Test finding by full ID string
+	value, err := reg.Get(ctx, "testns:myvar")
+	require.NoError(t, err)
+	assert.Equal(t, "value", value)
+}
+
+func TestRegistry_NsFromCtx_NilContext(t *testing.T) {
+	reg, _, _ := setupTestRegistry()
+
+	// Test nil context directly via findVariable which calls nsFromCtx
+	_, err := reg.findVariable(nil, "test")
+	assert.Error(t, err)
+}
+
+func TestRegistry_All_WithStorageError(t *testing.T) {
+	reg, _, ctx := setupTestRegistry()
+	require.NoError(t, reg.Start(ctx))
+	defer safeStop(t, reg)
+
+	// Store a valid storage
+	storage := newMockStorage(map[string]string{"key": "value"})
+	storageID := registry.ParseID("app:storage")
+	reg.storages.Store(storageID, storage)
+
+	// Store invalid type that will fail type assertion
+	reg.storages.Store(registry.ParseID("app:invalid"), "not a storage")
+
+	// All should still return results from valid storages
+	result, err := reg.All(ctx)
+	require.NoError(t, err)
+	assert.Contains(t, result, "key")
+}

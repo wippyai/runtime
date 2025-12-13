@@ -89,10 +89,10 @@ func (m *mockNode) Send(*Package) error { return nil }
 func (m *mockNode) Attach(PID, chan *Package) (context.CancelFunc, error) {
 	return func() {}, nil
 }
-func (m *mockNode) Detach(PID)                      {}
-func (m *mockNode) RegisterHost(HostID, Host) error { return nil }
-func (m *mockNode) UnregisterHost(HostID)           {}
-func (m *mockNode) GetHost(HostID) (Host, bool)     { return nil, false }
+func (m *mockNode) Detach(PID)                          {}
+func (m *mockNode) RegisterHost(HostID, Receiver) error { return nil }
+func (m *mockNode) UnregisterHost(HostID)               {}
+func (m *mockNode) GetHost(HostID) (Receiver, bool)     { return nil, false }
 
 type mockReceiver struct{}
 

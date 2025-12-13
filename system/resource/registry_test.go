@@ -20,7 +20,7 @@ import (
 func setupTest() (*Registry, event.Bus) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
-	return NewResourceRegistry(bus, logger), bus
+	return NewRegistry(bus, logger), bus
 }
 
 type mockResourceProvider struct {
@@ -715,4 +715,108 @@ func TestService_ResourceListingEdgeCases(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, ids, len(resources)-1)
 	assert.NotContains(t, ids, resources[0])
+}
+
+func TestService_AcquireProviderError(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	service, bus := setupTest()
+	require.NoError(t, service.Start(ctx))
+	defer func() { assert.NoError(t, service.Stop()) }()
+
+	provider := newMockResourceProvider()
+	id := registry.NewID("test", "missing")
+
+	// Register resource but don't add to provider's internal map
+	entry := resource.Entry{
+		ID:       id,
+		Provider: provider,
+		Meta:     map[string]interface{}{"type": "test"},
+	}
+
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Register,
+		Path:   id.String(),
+		Data:   entry,
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	// Acquire should fail because provider doesn't have the resource
+	_, err := service.Acquire(ctx, id, resource.ModeNormal)
+	assert.Equal(t, resource.ErrNotFound, err)
+}
+
+func TestService_DeleteNonExistentResource(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	service, bus := setupTest()
+	require.NoError(t, service.Start(ctx))
+	defer func() { assert.NoError(t, service.Stop()) }()
+
+	id := registry.NewID("test", "nonexistent")
+
+	// Try to delete non-existent resource - should log warning but not panic
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Delete,
+		Path:   id.String(),
+		Data:   id,
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	assert.False(t, service.Exists(id))
+}
+
+func TestService_DeleteBorrowedResource(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	service, bus := setupTest()
+	require.NoError(t, service.Start(ctx))
+	defer func() { assert.NoError(t, service.Stop()) }()
+
+	provider := newMockResourceProvider()
+	id := registry.NewID("test", "borrowed")
+	provider.resources[id] = "borrowed-data"
+
+	entry := resource.Entry{
+		ID:       id,
+		Provider: provider,
+		Meta:     map[string]interface{}{"type": "test"},
+	}
+
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Register,
+		Path:   id.String(),
+		Data:   entry,
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	// Acquire resource (borrow it)
+	res, err := service.Acquire(ctx, id, resource.ModeNormal)
+	require.NoError(t, err)
+
+	// Try to delete while borrowed - should fail silently
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Delete,
+		Path:   id.String(),
+		Data:   id,
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	// Resource should still exist
+	assert.True(t, service.Exists(id))
+
+	// Release the resource
+	res.Release()
+
+	// Now delete should succeed
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Delete,
+		Path:   id.String(),
+		Data:   id,
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	assert.False(t, service.Exists(id))
 }

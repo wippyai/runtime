@@ -72,7 +72,7 @@ func (m *NodeManager) handleEvent(e event.Event) {
 }
 
 func (m *NodeManager) handleRegisterHost(e event.Event) {
-	host, ok := e.Data.(api.Host)
+	host, ok := e.Data.(api.Receiver)
 	if !ok {
 		m.logger.Error("invalid host payload",
 			zap.String("host", e.Path),

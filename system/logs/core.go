@@ -96,7 +96,7 @@ func (c *Core) Sync() error {
 	return nil
 }
 
-type LogEntry struct {
+type logEntry struct {
 	Level      int    `json:"level"`
 	Time       int64  `json:"time"`
 	LoggerName string `json:"logger_name"`
@@ -105,7 +105,7 @@ type LogEntry struct {
 	Stack      string `json:"stack"`
 }
 
-type LogField struct {
+type logField struct {
 	Key    string `json:"key"`
 	Type   string `json:"type"`
 	String string `json:"string"`
@@ -132,7 +132,7 @@ func fieldTypeToString(ft zapcore.FieldType) string {
 }
 
 func (c *Core) publishLogEvent(ent zapcore.Entry, fields []zapcore.Field) {
-	logEntry := LogEntry{
+	entry := logEntry{
 		Level:      int(ent.Level),
 		Time:       ent.Time.UnixNano(),
 		LoggerName: ent.LoggerName,
@@ -141,9 +141,9 @@ func (c *Core) publishLogEvent(ent zapcore.Entry, fields []zapcore.Field) {
 		Stack:      ent.Stack,
 	}
 
-	logFields := make([]LogField, 0, len(fields))
+	logFields := make([]logField, 0, len(fields))
 	for _, f := range fields {
-		field := LogField{
+		field := logField{
 			Key:  f.Key,
 			Type: fieldTypeToString(f.Type),
 		}
@@ -165,10 +165,10 @@ func (c *Core) publishLogEvent(ent zapcore.Entry, fields []zapcore.Field) {
 		Kind:   api.Entry,
 		Path:   ent.LoggerName,
 		Data: struct {
-			Entry  LogEntry   `json:"entry"`
-			Fields []LogField `json:"fields"`
+			Entry  logEntry   `json:"entry"`
+			Fields []logField `json:"fields"`
 		}{
-			Entry:  logEntry,
+			Entry:  entry,
 			Fields: logFields,
 		},
 	})

@@ -141,9 +141,9 @@ func (m *RelayManager) middlewareHandler(h http.Handler, originPatterns []string
 			return
 		}
 
-		host, ok := hostVal.(relay.AttachableHost)
+		host, ok := hostVal.(relay.AttachableReceiver)
 		if !ok {
-			logger.Error("server host does not implement AttachableHost")
+			logger.Error("server host does not implement AttachableReceiver")
 			http.Error(w, ErrHostNotAttachable.Error(), http.StatusInternalServerError)
 			return
 		}

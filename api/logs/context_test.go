@@ -282,10 +282,4 @@ func TestErrorConstructors(t *testing.T) {
 		assert.Contains(t, err.Error(), "failed to set temporary config")
 		assert.Equal(t, cause, err.Unwrap())
 	})
-
-	t.Run("NewSubscribeEventsError", func(t *testing.T) {
-		err := NewSubscribeEventsError(cause)
-		assert.Contains(t, err.Error(), "failed to subscribe to events")
-		assert.Equal(t, cause, err.Unwrap())
-	})
 }

@@ -1,7 +1,7 @@
 // Package payload provides abstractions for handling different data formats and conversions.
 package payload
 
-// Format constants for supported payload formats.
+// Payload format constants.
 const (
 	JSON     Format = "json/plain"
 	YAML     Format = "yaml/plain"
@@ -11,12 +11,12 @@ const (
 	Bytes    Format = "application/octet-stream"
 	GoError  Format = "golang/error"
 	MsgPack  Format = "application/msgpack"
-	Terminal Format = "channel/terminal" // Signals channel should close after this message
+	Terminal Format = "channel/terminal"
 )
 
 type (
 	// Format represents the data format of a payload.
-	Format string
+	Format = string
 
 	// Payloads is a slice of Payload objects.
 	Payloads = []Payload

@@ -66,25 +66,20 @@ type (
 		Send(*Package) error
 	}
 
-	// Host defines an interface for components that receive and forward messages.
-	Host interface {
+	// AttachableReceiver extends Receiver with channel-based message delivery.
+	AttachableReceiver interface {
 		Receiver
-	}
-
-	// AttachableHost extends Host with channel-based message delivery.
-	AttachableHost interface {
-		Host
 		Attach(PID, chan *Package) (context.CancelFunc, error)
 		Detach(PID)
 	}
 
 	// Node represents a messaging node that hosts and routes messages.
 	Node interface {
-		Host
+		Receiver
 		ID() NodeID
-		RegisterHost(HostID, Host) error
+		RegisterHost(HostID, Receiver) error
 		UnregisterHost(HostID)
-		GetHost(HostID) (Host, bool)
+		GetHost(HostID) (Receiver, bool)
 		Attach(PID, chan *Package) (context.CancelFunc, error)
 		Detach(PID)
 	}

@@ -192,6 +192,10 @@ func (j *jsonValue) MarshalJSON() ([]byte, error) {
 			return json.Marshal(err.Error())
 		}
 		return []byte("null"), nil
+	case *lua.Error:
+		return json.Marshal(converted.Error())
+	case error:
+		return json.Marshal(converted.Error())
 	default:
 		return []byte("null"), nil
 	}

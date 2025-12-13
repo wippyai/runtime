@@ -19,14 +19,13 @@ var (
 
 var _ fsapi.FS = (*FS)(nil)
 
-// Define permission flags as proper bit flags.
+// Permission flags for filesystem operations.
 type permCheck uint32
 
 const (
-	_ permCheck = 1 << iota
-	checkRead
-	checkWrite
-	checkExec
+	permRead permCheck = 1 << iota
+	permWrite
+	permExec
 )
 
 // FS implements both ReadFS and WriteFS interfaces.
@@ -93,13 +92,13 @@ func (d *FS) checkPermissions(op, displayPath string, check permCheck) error {
 	}
 
 	var required fs.FileMode
-	if check&checkRead != 0 {
+	if check&permRead != 0 {
 		required |= 0400
 	}
-	if check&checkWrite != 0 {
+	if check&permWrite != 0 {
 		required |= 0200
 	}
-	if check&checkExec != 0 {
+	if check&permExec != 0 {
 		required |= 0100
 	}
 
@@ -119,12 +118,12 @@ func (d *FS) Open(name string) (fs.File, error) {
 	displayName := name
 	norm := d.normalizePath(name)
 
-	if err := d.checkPermissions("open", displayName, checkRead); err != nil {
+	if err := d.checkPermissions("open", displayName, permRead); err != nil {
 		return nil, err
 	}
 
 	if info, err := d.root.Stat(norm); err == nil && info.IsDir() {
-		if err := d.checkPermissions("open", displayName, checkExec); err != nil {
+		if err := d.checkPermissions("open", displayName, permExec); err != nil {
 			return nil, err
 		}
 	}
@@ -165,12 +164,12 @@ func (d *FS) OpenFile(name string, flag int, perm fs.FileMode) (fsapi.File, erro
 
 	// Check permissions based on flags.
 	if flag&(os.O_WRONLY|os.O_RDWR) != 0 {
-		if err := d.checkPermissions("open", displayName, checkWrite); err != nil {
+		if err := d.checkPermissions("open", displayName, permWrite); err != nil {
 			return nil, err
 		}
 	}
 	if flag&os.O_RDWR != 0 {
-		if err := d.checkPermissions("open", displayName, checkRead); err != nil {
+		if err := d.checkPermissions("open", displayName, permRead); err != nil {
 			return nil, err
 		}
 	}
@@ -195,7 +194,7 @@ func (d *FS) ReadDir(name string) ([]fs.DirEntry, error) {
 	displayName := name
 	norm := d.normalizePath(name)
 
-	if err := d.checkPermissions("readdir", displayName, checkRead|checkExec); err != nil {
+	if err := d.checkPermissions("readdir", displayName, permRead|permExec); err != nil {
 		return nil, err
 	}
 
@@ -223,7 +222,7 @@ func (d *FS) Stat(name string) (fs.FileInfo, error) {
 	displayName := name
 	norm := d.normalizePath(name)
 
-	if err := d.checkPermissions("stat", displayName, checkRead); err != nil {
+	if err := d.checkPermissions("stat", displayName, permRead); err != nil {
 		return nil, err
 	}
 
@@ -244,7 +243,7 @@ func (d *FS) Remove(name string) error {
 	displayName := name
 	norm := d.normalizePath(name)
 
-	if err := d.checkPermissions("remove", displayName, checkWrite); err != nil {
+	if err := d.checkPermissions("remove", displayName, permWrite); err != nil {
 		return err
 	}
 
@@ -264,10 +263,10 @@ func (d *FS) Mkdir(name string, perm fs.FileMode) error {
 	displayName := name
 	norm := d.normalizePath(name)
 
-	if err := d.checkPermissions("mkdir", displayName, checkWrite); err != nil {
+	if err := d.checkPermissions("mkdir", displayName, permWrite); err != nil {
 		return err
 	}
-	if err := d.checkPermissions("mkdir", displayName, checkExec); err != nil {
+	if err := d.checkPermissions("mkdir", displayName, permExec); err != nil {
 		return err
 	}
 

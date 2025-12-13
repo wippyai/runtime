@@ -17,25 +17,25 @@ import (
 
 type mockNode struct {
 	mu    sync.RWMutex
-	hosts map[relay.HostID]relay.Host
+	hosts map[relay.HostID]relay.Receiver
 }
 
 func newMockNode() *mockNode {
 	return &mockNode{
-		hosts: make(map[relay.HostID]relay.Host),
+		hosts: make(map[relay.HostID]relay.Receiver),
 	}
 }
 
 func (n *mockNode) ID() relay.NodeID { return "test-node" }
 
-func (n *mockNode) GetHost(id relay.HostID) (relay.Host, bool) {
+func (n *mockNode) GetHost(id relay.HostID) (relay.Receiver, bool) {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 	h, ok := n.hosts[id]
 	return h, ok
 }
 
-func (n *mockNode) RegisterHost(id relay.HostID, host relay.Host) error {
+func (n *mockNode) RegisterHost(id relay.HostID, host relay.Receiver) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.hosts[id] = host

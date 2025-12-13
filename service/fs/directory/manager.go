@@ -18,15 +18,15 @@ type Manager struct {
 	log         *zap.Logger
 	bus         event.Bus
 	dtt         payload.Transcoder
-	factory     FSFactoryAPI
+	factory     FactoryAPI
 	mu          sync.RWMutex
 	directories sync.Map // map[string]*FS
 }
 
 // NewDirectoryManager creates a new directory manager instance
-func NewDirectoryManager(bus event.Bus, dtt payload.Transcoder, factory FSFactoryAPI, logger *zap.Logger) *Manager {
+func NewDirectoryManager(bus event.Bus, dtt payload.Transcoder, factory FactoryAPI, logger *zap.Logger) *Manager {
 	if factory == nil {
-		factory = NewDirectoryFSFactory()
+		factory = NewFactory()
 	}
 	return &Manager{
 		log:     logger,

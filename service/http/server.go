@@ -43,11 +43,11 @@ type ServerService struct {
 	server        *http.Server
 	mu            sync.RWMutex
 	statusChan    chan any
-	started       bool                   // Track if server has been started
-	mountPaths    map[registry.ID]string // Track mount paths by Source
-	host          relay.AttachableHost   // pubsub host
-	middlewareFac MiddlewareAPI          // Middleware factory
-	handlerFunc   http.Handler           // Optional server-level handler
+	started       bool                     // Track if server has been started
+	mountPaths    map[registry.ID]string   // Track mount paths by Source
+	host          relay.AttachableReceiver // pubsub host
+	middlewareFac MiddlewareAPI            // Middleware factory
+	handlerFunc   http.Handler             // Optional server-level handler
 }
 
 // NewServerService creates a new ServerService instance
@@ -345,9 +345,9 @@ func (s *ServerService) ensureRunning(ctx context.Context) error {
 	}
 }
 
-// Implement Host interface methods by delegating to embedded host
+// Implement Receiver interface methods by delegating to embedded host
 
-// Attach implements relay.Host Attach method
+// Attach implements relay.AttachableReceiver
 func (s *ServerService) Attach(pid relay.PID, ch chan *relay.Package) (context.CancelFunc, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -359,7 +359,7 @@ func (s *ServerService) Attach(pid relay.PID, ch chan *relay.Package) (context.C
 	return s.host.Attach(pid, ch)
 }
 
-// Detach implements relay.Host Detach method
+// Detach implements relay.AttachableReceiver
 func (s *ServerService) Detach(pid relay.PID) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -371,7 +371,7 @@ func (s *ServerService) Detach(pid relay.PID) {
 	s.host.Detach(pid)
 }
 
-// Send implements relay.Host Send method
+// Send implements relay.Receiver
 func (s *ServerService) Send(pkg *relay.Package) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

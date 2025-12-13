@@ -36,7 +36,7 @@ type StaticFactoryAPI interface {
 // Server represents an HTTP server with routing capabilities
 type Server interface {
 	supervisor.Service
-	relay.Host
+	relay.Receiver
 
 	// UpdateConfig updates the server configuration
 	UpdateConfig(cfg *config.ServerConfig) error
@@ -251,7 +251,7 @@ func (m *Manager) handleServerCreate(ctx context.Context, entry registry.Entry) 
 		System: relay.System,
 		Kind:   relay.HostRegister,
 		Path:   entry.ID.String(),
-		Data:   relay.Host(server),
+		Data:   relay.Receiver(server),
 	})
 
 	return nil

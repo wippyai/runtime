@@ -122,7 +122,7 @@ func (m *mockDirEntry) Info() (fs.FileInfo, error) {
 func newTestFSRegistry(_ *testing.T) (*Registry, event.Bus) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
-	reg := NewFSRegistry(bus, logger)
+	reg := NewRegistry(bus, logger)
 	return reg, bus
 }
 

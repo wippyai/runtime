@@ -59,9 +59,9 @@ func (n *mockNode) Send(pkg *relay.Package) error {
 	return nil
 }
 
-func (n *mockNode) RegisterHost(relay.HostID, relay.Host) error { return nil }
-func (n *mockNode) UnregisterHost(relay.HostID)                 {}
-func (n *mockNode) GetHost(relay.HostID) (relay.Host, bool)     { return nil, false }
+func (n *mockNode) RegisterHost(relay.HostID, relay.Receiver) error { return nil }
+func (n *mockNode) UnregisterHost(relay.HostID)                     {}
+func (n *mockNode) GetHost(relay.HostID) (relay.Receiver, bool)     { return nil, false }
 func (n *mockNode) Attach(relay.PID, chan *relay.Package) (context.CancelFunc, error) {
 	return func() {}, nil
 }
