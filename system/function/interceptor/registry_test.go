@@ -2,6 +2,7 @@ package interceptor
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,6 +10,16 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 	"go.uber.org/zap"
 )
+
+type mockInterceptor struct {
+	name   string
+	called atomic.Bool
+}
+
+func (m *mockInterceptor) Handle(ctx context.Context, task runtime.Task, next func(context.Context, runtime.Task) (*runtime.Result, error)) (*runtime.Result, error) {
+	m.called.Store(true)
+	return next(ctx, task)
+}
 
 func setupRegistryTest() *Registry {
 	logger := zap.NewNop()

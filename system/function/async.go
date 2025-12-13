@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"sync"
-	"unsafe"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/function"
@@ -12,17 +11,6 @@ import (
 )
 
 var asyncCallRegistryKey = &ctxapi.Key{Name: "func.async_calls", Inherit: false}
-
-// resultChanPool reduces allocations for result channels in hot path.
-var resultChanPool = sync.Pool{
-	New: func() any { return make(chan *CallResult, 1) },
-}
-
-// CallResult holds the result of an async function call.
-type CallResult struct {
-	Result *runtime.Result
-	Error  error
-}
 
 // asyncCallEntry tracks a single async call.
 type asyncCallEntry struct {
@@ -168,67 +156,4 @@ func GetOrCreateAsyncCallRegistry(ctx context.Context) *AsyncCallRegistry {
 	r := NewAsyncCallRegistry()
 	_ = fc.Set(asyncCallRegistryKey, r)
 	return r
-}
-
-// CallAsync executes a function call asynchronously using pooled channels.
-// Returns a channel that receives the result when the call completes.
-// The caller MUST call ReleaseResultChan after reading the result.
-func (f *Registry) CallAsync(ctx context.Context, task runtime.Task) (<-chan *CallResult, error) {
-	handler, exists := f.handlers.Load(task.ID)
-	if !exists {
-		return nil, function.NewHandlerNotFoundError(task.ID)
-	}
-
-	_, ok := handler.(function.Func)
-	if !ok {
-		return nil, function.NewInvalidHandlerError(task.ID)
-	}
-
-	ch := resultChanPool.Get().(chan *CallResult)
-
-	go func() {
-		result, err := f.Call(ctx, task)
-		ch <- &CallResult{Result: result, Error: err}
-	}()
-
-	return ch, nil
-}
-
-// CallAsyncCallback executes a function call asynchronously with a callback.
-// This is the most efficient async pattern - no channel allocation.
-// The callback is invoked in the goroutine that executes the function.
-func (f *Registry) CallAsyncCallback(ctx context.Context, task runtime.Task, callback func(*runtime.Result, error)) error {
-	if callback == nil {
-		return function.ErrNilCallback
-	}
-
-	handler, exists := f.handlers.Load(task.ID)
-	if !exists {
-		return function.NewHandlerNotFoundError(task.ID)
-	}
-
-	_, ok := handler.(function.Func)
-	if !ok {
-		return function.NewInvalidHandlerError(task.ID)
-	}
-
-	go func() {
-		result, err := f.Call(ctx, task)
-		callback(result, err)
-	}()
-
-	return nil
-}
-
-// ReleaseResultChan returns a result channel to the pool for reuse.
-// Must be called after reading the result from CallAsync.
-func ReleaseResultChan(ch <-chan *CallResult) {
-	// Convert receive-only channel to bidirectional for pool
-	// This is safe because we created it as bidirectional
-	c := *(*chan *CallResult)(unsafe.Pointer(&ch))
-	select {
-	case <-c:
-	default:
-	}
-	resultChanPool.Put(c)
 }

@@ -83,3 +83,33 @@ func NewInvalidKeyError(key string, reason string) *Error {
 		details:   attrs.NewBagFrom(map[string]any{"key": key, "reason": reason}),
 	}
 }
+
+// NewUnsupportedKindError creates an unsupported kind error.
+func NewUnsupportedKindError(kind string) *Error {
+	return &Error{
+		kind:      apierror.KindInvalid,
+		message:   "unsupported entry kind: " + kind,
+		retryable: apierror.False,
+		details:   attrs.NewBagFrom(map[string]any{"kind": kind}),
+	}
+}
+
+// NewStoreAlreadyExistsError creates a store already exists error.
+func NewStoreAlreadyExistsError(id string) *Error {
+	return &Error{
+		kind:      apierror.KindAlreadyExists,
+		message:   "store " + id + " already exists",
+		retryable: apierror.False,
+		details:   attrs.NewBagFrom(map[string]any{"id": id}),
+	}
+}
+
+// NewStoreNotFoundError creates a store not found error.
+func NewStoreNotFoundError(id string) *Error {
+	return &Error{
+		kind:      apierror.KindNotFound,
+		message:   "store " + id + " not found",
+		retryable: apierror.False,
+		details:   attrs.NewBagFrom(map[string]any{"id": id}),
+	}
+}

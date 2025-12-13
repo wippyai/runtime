@@ -4,12 +4,12 @@ import (
 	"context"
 	"sync"
 
-	memstore "github.com/wippyai/runtime/api/service/store/memory"
-
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
+	memstore "github.com/wippyai/runtime/api/service/store/memory"
+	storeapi "github.com/wippyai/runtime/api/store"
 	"github.com/wippyai/runtime/api/supervisor"
 	entryutil "github.com/wippyai/runtime/internal/entry"
 	"go.uber.org/zap"
@@ -41,14 +41,14 @@ func NewManager(
 // Add implements registry.EntryListener
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != memstore.KindMemoryKV {
-		return newUnsupportedKindError(entry.Kind)
+		return storeapi.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, exists := m.stores[entry.ID]; exists {
-		return newStoreAlreadyExistsError(entry.ID.String())
+		return storeapi.NewStoreAlreadyExistsError(entry.ID.String())
 	}
 
 	// Decode and initialize configuration
@@ -94,7 +94,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update implements registry.EntryListener
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != memstore.KindMemoryKV {
-		return newUnsupportedKindError(entry.Kind)
+		return storeapi.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -102,7 +102,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	store, exists := m.stores[entry.ID]
 	if !exists {
-		return newStoreNotFoundError(entry.ID.String())
+		return storeapi.NewStoreNotFoundError(entry.ID.String())
 	}
 
 	// Decode and initialize updated configuration
@@ -149,7 +149,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete implements registry.EntryListener
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != memstore.KindMemoryKV {
-		return newUnsupportedKindError(entry.Kind)
+		return storeapi.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -157,7 +157,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 
 	store, exists := m.stores[entry.ID]
 	if !exists {
-		return newStoreNotFoundError(entry.ID.String())
+		return storeapi.NewStoreNotFoundError(entry.ID.String())
 	}
 
 	// Get configuration for stop timeout

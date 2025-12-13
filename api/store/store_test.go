@@ -109,6 +109,45 @@ func TestNewInvalidKeyError(t *testing.T) {
 	assert.Equal(t, "contains invalid characters", reasonVal)
 }
 
+func TestNewUnsupportedKindError(t *testing.T) {
+	err := NewUnsupportedKindError("unknown.kind")
+
+	assert.Equal(t, "unsupported entry kind: unknown.kind", err.Error())
+	assert.Equal(t, apierror.KindInvalid, err.Kind())
+	assert.Equal(t, apierror.False, err.Retryable())
+	assert.NotNil(t, err.Details())
+
+	kindVal, ok := err.Details().Get("kind")
+	assert.True(t, ok)
+	assert.Equal(t, "unknown.kind", kindVal)
+}
+
+func TestNewStoreAlreadyExistsError(t *testing.T) {
+	err := NewStoreAlreadyExistsError("test:mystore")
+
+	assert.Equal(t, "store test:mystore already exists", err.Error())
+	assert.Equal(t, apierror.KindAlreadyExists, err.Kind())
+	assert.Equal(t, apierror.False, err.Retryable())
+	assert.NotNil(t, err.Details())
+
+	idVal, ok := err.Details().Get("id")
+	assert.True(t, ok)
+	assert.Equal(t, "test:mystore", idVal)
+}
+
+func TestNewStoreNotFoundError(t *testing.T) {
+	err := NewStoreNotFoundError("test:missing")
+
+	assert.Equal(t, "store test:missing not found", err.Error())
+	assert.Equal(t, apierror.KindNotFound, err.Kind())
+	assert.Equal(t, apierror.False, err.Retryable())
+	assert.NotNil(t, err.Details())
+
+	idVal, ok := err.Details().Get("id")
+	assert.True(t, ok)
+	assert.Equal(t, "test:missing", idVal)
+}
+
 func TestCommandPools(t *testing.T) {
 	t.Run("GetCmd pool", func(t *testing.T) {
 		cmd := AcquireGetCmd()

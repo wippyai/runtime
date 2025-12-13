@@ -4,99 +4,14 @@ import (
 	"context"
 	"testing"
 
-	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	"go.uber.org/zap"
 )
 
-// BenchmarkChainExecuteNoInterceptors benchmarks chain execution without interceptors
-func BenchmarkChainExecuteNoInterceptors(b *testing.B) {
-	chain := newChain(nil, zap.NewNop())
-
-	mockFunc := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
-		return &runtime.Result{}, nil
-	}
-
-	ctx := context.Background()
-	task := runtime.Task{ID: registry.NewID("bench", "func")}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, _ = chain.Execute(ctx, mockFunc, task)
-	}
-}
-
-// BenchmarkChainExecuteOneInterceptor benchmarks chain with one interceptor
-func BenchmarkChainExecuteOneInterceptor(b *testing.B) {
-	int1 := &benchInterceptor{name: "int1"}
-	chain := newChain([]function.Interceptor{int1}, zap.NewNop())
-
-	mockFunc := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
-		return &runtime.Result{}, nil
-	}
-
-	ctx := context.Background()
-	task := runtime.Task{ID: registry.NewID("bench", "func")}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, _ = chain.Execute(ctx, mockFunc, task)
-	}
-}
-
-// BenchmarkChainExecuteThreeInterceptors benchmarks chain with three interceptors
-func BenchmarkChainExecuteThreeInterceptors(b *testing.B) {
-	int1 := &benchInterceptor{name: "int1"}
-	int2 := &benchInterceptor{name: "int2"}
-	int3 := &benchInterceptor{name: "int3"}
-	chain := newChain([]function.Interceptor{int1, int2, int3}, zap.NewNop())
-
-	mockFunc := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
-		return &runtime.Result{}, nil
-	}
-
-	ctx := context.Background()
-	task := runtime.Task{ID: registry.NewID("bench", "func")}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, _ = chain.Execute(ctx, mockFunc, task)
-	}
-}
-
-// BenchmarkChainExecuteTenInterceptors benchmarks chain with ten interceptors
-func BenchmarkChainExecuteTenInterceptors(b *testing.B) {
-	interceptors := make([]function.Interceptor, 10)
-	for i := 0; i < 10; i++ {
-		interceptors[i] = &benchInterceptor{name: "int"}
-	}
-	chain := newChain(interceptors, zap.NewNop())
-
-	mockFunc := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
-		return &runtime.Result{}, nil
-	}
-
-	ctx := context.Background()
-	task := runtime.Task{ID: registry.NewID("bench", "func")}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, _ = chain.Execute(ctx, mockFunc, task)
-	}
-}
-
-// BenchmarkRegistryGetChain benchmarks getting chain from registry
-func BenchmarkRegistryGetChain(b *testing.B) {
+// BenchmarkRegistryNoInterceptors benchmarks execution without interceptors
+func BenchmarkRegistryNoInterceptors(b *testing.B) {
 	reg := NewInterceptorRegistry(zap.NewNop())
-
-	int1 := &benchInterceptor{name: "int1"}
-	int2 := &benchInterceptor{name: "int2"}
-	int3 := &benchInterceptor{name: "int3"}
-
-	_ = reg.Register("int1", int1, 100)
-	_ = reg.Register("int2", int2, 200)
-	_ = reg.Register("int3", int3, 300)
 
 	mockFunc := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		return &runtime.Result{}, nil
@@ -111,14 +26,71 @@ func BenchmarkRegistryGetChain(b *testing.B) {
 	}
 }
 
-// BenchmarkContextValuePropagation benchmarks context value propagation through chain
+// BenchmarkRegistryOneInterceptor benchmarks registry with one interceptor
+func BenchmarkRegistryOneInterceptor(b *testing.B) {
+	reg := NewInterceptorRegistry(zap.NewNop())
+	_ = reg.Register("int1", &benchInterceptor{name: "int1"}, 100)
+
+	mockFunc := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+		return &runtime.Result{}, nil
+	}
+
+	ctx := context.Background()
+	task := runtime.Task{ID: registry.NewID("bench", "func")}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = reg.Execute(ctx, mockFunc, task)
+	}
+}
+
+// BenchmarkRegistryThreeInterceptors benchmarks registry with three interceptors
+func BenchmarkRegistryThreeInterceptors(b *testing.B) {
+	reg := NewInterceptorRegistry(zap.NewNop())
+	_ = reg.Register("int1", &benchInterceptor{name: "int1"}, 100)
+	_ = reg.Register("int2", &benchInterceptor{name: "int2"}, 200)
+	_ = reg.Register("int3", &benchInterceptor{name: "int3"}, 300)
+
+	mockFunc := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+		return &runtime.Result{}, nil
+	}
+
+	ctx := context.Background()
+	task := runtime.Task{ID: registry.NewID("bench", "func")}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = reg.Execute(ctx, mockFunc, task)
+	}
+}
+
+// BenchmarkRegistryTenInterceptors benchmarks registry with ten interceptors
+func BenchmarkRegistryTenInterceptors(b *testing.B) {
+	reg := NewInterceptorRegistry(zap.NewNop())
+	for i := 0; i < 10; i++ {
+		_ = reg.Register("int"+string(rune('0'+i)), &benchInterceptor{name: "int"}, i*100)
+	}
+
+	mockFunc := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+		return &runtime.Result{}, nil
+	}
+
+	ctx := context.Background()
+	task := runtime.Task{ID: registry.NewID("bench", "func")}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = reg.Execute(ctx, mockFunc, task)
+	}
+}
+
+// BenchmarkContextValuePropagation benchmarks context value propagation through interceptors
 func BenchmarkContextValuePropagation(b *testing.B) {
 	type ctxKey string
 	const testKey ctxKey = "test"
 
-	modifyingInterceptor := &benchModifyingInterceptor{key: testKey, value: "modified"}
-
-	chain := newChain([]function.Interceptor{modifyingInterceptor}, zap.NewNop())
+	reg := NewInterceptorRegistry(zap.NewNop())
+	_ = reg.Register("modifier", &benchModifyingInterceptor{key: testKey, value: "modified"}, 100)
 
 	mockFunc := func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
 		_ = ctx.Value(testKey)
@@ -130,15 +102,15 @@ func BenchmarkContextValuePropagation(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = chain.Execute(ctx, mockFunc, task)
+		_, _ = reg.Execute(ctx, mockFunc, task)
 	}
 }
 
-// BenchmarkParallelChainExecution benchmarks parallel chain execution
-func BenchmarkParallelChainExecution(b *testing.B) {
-	int1 := &benchInterceptor{name: "int1"}
-	int2 := &benchInterceptor{name: "int2"}
-	chain := newChain([]function.Interceptor{int1, int2}, zap.NewNop())
+// BenchmarkParallelExecution benchmarks parallel registry execution
+func BenchmarkParallelExecution(b *testing.B) {
+	reg := NewInterceptorRegistry(zap.NewNop())
+	_ = reg.Register("int1", &benchInterceptor{name: "int1"}, 100)
+	_ = reg.Register("int2", &benchInterceptor{name: "int2"}, 200)
 
 	mockFunc := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		return &runtime.Result{}, nil
@@ -150,7 +122,7 @@ func BenchmarkParallelChainExecution(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			_, _ = chain.Execute(ctx, mockFunc, task)
+			_, _ = reg.Execute(ctx, mockFunc, task)
 		}
 	})
 }

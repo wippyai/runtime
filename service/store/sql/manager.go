@@ -9,6 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	sqlstore "github.com/wippyai/runtime/api/service/store/sql"
+	storeapi "github.com/wippyai/runtime/api/store"
 	"github.com/wippyai/runtime/api/supervisor"
 	entryutil "github.com/wippyai/runtime/internal/entry"
 	"go.uber.org/zap"
@@ -40,14 +41,14 @@ func NewManager(
 // Add implements registry.EntryListener
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != sqlstore.KindSQLKV {
-		return newUnsupportedKindError(entry.Kind)
+		return storeapi.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, exists := m.stores[entry.ID]; exists {
-		return newStoreAlreadyExistsError(entry.ID.String())
+		return storeapi.NewStoreAlreadyExistsError(entry.ID.String())
 	}
 
 	// Decode and initialize configuration
@@ -85,9 +86,9 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	m.log.Info("added SQL store",
 		zap.String("id", entry.ID.String()),
 		zap.String("table", cfg.TableName),
-		zap.String("id", cfg.IDColumnName),
-		zap.String("payload", cfg.PayloadColumnName),
-		zap.String("expired", cfg.ExpireColumnName),
+		zap.String("id_column", cfg.IDColumnName),
+		zap.String("payload_column", cfg.PayloadColumnName),
+		zap.String("expire_column", cfg.ExpireColumnName),
 	)
 
 	return nil
@@ -96,7 +97,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update implements registry.EntryListener
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != sqlstore.KindSQLKV {
-		return newUnsupportedKindError(entry.Kind)
+		return storeapi.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -104,7 +105,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	_, exists := m.stores[entry.ID]
 	if !exists {
-		return newStoreNotFoundError(entry.ID.String())
+		return storeapi.NewStoreNotFoundError(entry.ID.String())
 	}
 
 	// Decode and initialize updated configuration
@@ -138,7 +139,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete implements registry.EntryListener
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != sqlstore.KindSQLKV {
-		return newUnsupportedKindError(entry.Kind)
+		return storeapi.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -146,7 +147,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 
 	_, exists := m.stores[entry.ID]
 	if !exists {
-		return newStoreNotFoundError(entry.ID.String())
+		return storeapi.NewStoreNotFoundError(entry.ID.String())
 	}
 
 	// Unregister from supervisor

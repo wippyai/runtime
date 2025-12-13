@@ -112,18 +112,6 @@ func BenchmarkTickerRegistry_GetShard(b *testing.B) {
 	}
 }
 
-// Dispatcher benchmarks
-
-func BenchmarkDispatcher_Sleep(b *testing.B) {
-	d := NewDispatcher()
-	ctx := context.Background()
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, _ = d.handleSleep(ctx, time.Nanosecond)
-	}
-}
-
 // Concurrent contention benchmark
 
 func BenchmarkTimerRegistry_HighContention(b *testing.B) {
