@@ -5,9 +5,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	api "github.com/wippyai/runtime/api/relay"
-
 	"github.com/stretchr/testify/assert"
+	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/relay"
 )
 
 // dummyHost is a stub that implements the Host interface.
@@ -16,18 +16,18 @@ type dummyHost struct {
 	attachCalled int32
 }
 
-func (d *dummyHost) Send(_ *api.Package) error {
+func (d *dummyHost) Send(_ *relay.Package) error {
 	atomic.AddInt32(&d.sendCalled, 1)
 	return nil
 }
 
-func (d *dummyHost) Attach(_ api.PID, _ chan *api.Package) (context.CancelFunc, error) {
+func (d *dummyHost) Attach(_ pid.PID, _ chan *relay.Package) (context.CancelFunc, error) {
 	atomic.AddInt32(&d.attachCalled, 1)
 	cancel := func() {}
 	return cancel, nil
 }
 
-func (d *dummyHost) Detach(_ api.PID) {
+func (d *dummyHost) Detach(_ pid.PID) {
 	// No-op for testing
 }
 
@@ -39,14 +39,14 @@ func TestNodeSendLocal(t *testing.T) {
 	assert.NoError(t, node.RegisterHost("host1", dhost))
 
 	// Case 1: Local message with empty pid.Node.
-	pidLocalEmpty := api.PID{
+	pidLocalEmpty := pid.PID{
 		Node:   "",
 		Host:   "host1",
 		UniqID: "uniq",
 	}
-	pkg := &api.Package{
+	pkg := &relay.Package{
 		Target: pidLocalEmpty,
-		Messages: []*api.Message{
+		Messages: []*relay.Message{
 			{Topic: "local"},
 		},
 	}
@@ -55,7 +55,7 @@ func TestNodeSendLocal(t *testing.T) {
 	assert.Equal(t, int32(1), dhost.sendCalled)
 
 	// Case 2: Local message with pid.Node equal to node's nodeID.
-	pidLocal := api.PID{
+	pidLocal := pid.PID{
 		Node:   nodeID,
 		Host:   "host1",
 		UniqID: "uniq",
@@ -68,14 +68,14 @@ func TestNodeSendLocal(t *testing.T) {
 
 func TestNodeSendHostNotFound(t *testing.T) {
 	node := NewNode("node1")
-	pid := api.PID{
+	pid := pid.PID{
 		Node:   "",
 		Host:   "nonexistent",
 		UniqID: "uniq",
 	}
-	pkg := &api.Package{
+	pkg := &relay.Package{
 		Target: pid,
-		Messages: []*api.Message{
+		Messages: []*relay.Message{
 			{Topic: "notfound"},
 		},
 	}
@@ -89,14 +89,14 @@ func TestNodeSendInvalidHostType(t *testing.T) {
 	node := NewNode("node1")
 	// Store an invalid type under a host id.
 	node.hosts.Store("host1", "not a host")
-	pid := api.PID{
+	pid := pid.PID{
 		Node:   "",
 		Host:   "host1",
 		UniqID: "uniq",
 	}
-	pkg := &api.Package{
+	pkg := &relay.Package{
 		Target: pid,
-		Messages: []*api.Message{
+		Messages: []*relay.Message{
 			{Topic: "invalid"},
 		},
 	}
@@ -108,14 +108,14 @@ func TestNodeSendInvalidHostType(t *testing.T) {
 
 func TestNodeSendNonLocalNoUpstream(t *testing.T) {
 	node := NewNode("node1")
-	pid := api.PID{
+	pid := pid.PID{
 		Node:   "remoteNode",
 		Host:   "host1",
 		UniqID: "uniq",
 	}
-	pkg := &api.Package{
+	pkg := &relay.Package{
 		Target: pid,
-		Messages: []*api.Message{
+		Messages: []*relay.Message{
 			{Topic: "nonlocal"},
 		},
 	}
@@ -132,12 +132,12 @@ func TestNodeAttachLocal(t *testing.T) {
 	assert.NoError(t, node.RegisterHost("host1", dhost))
 
 	// Use a local pid.
-	pidLocal := api.PID{
+	pidLocal := pid.PID{
 		Node:   "",
 		Host:   "host1",
 		UniqID: "uniq",
 	}
-	ch := make(chan *api.Package, 1)
+	ch := make(chan *relay.Package, 1)
 	cancel, err := node.Attach(pidLocal, ch)
 	assert.NoError(t, err)
 	assert.NotNil(t, cancel)
@@ -146,12 +146,12 @@ func TestNodeAttachLocal(t *testing.T) {
 
 func TestNodeAttachNonLocal(t *testing.T) {
 	node := NewNode("node1")
-	pid := api.PID{
+	pid := pid.PID{
 		Node:   "remoteNode",
 		Host:   "host1",
 		UniqID: "uniq",
 	}
-	ch := make(chan *api.Package, 1)
+	ch := make(chan *relay.Package, 1)
 	cancel, err := node.Attach(pid, ch)
 	assert.Nil(t, cancel)
 	if assert.Error(t, err) {
@@ -163,12 +163,12 @@ func TestNodeAttachInvalidHostType(t *testing.T) {
 	node := NewNode("node1")
 	// Store an invalid type under a host id.
 	node.hosts.Store("host1", "not a host")
-	pid := api.PID{
+	pid := pid.PID{
 		Node:   "",
 		Host:   "host1",
 		UniqID: "uniq",
 	}
-	ch := make(chan *api.Package, 1)
+	ch := make(chan *relay.Package, 1)
 	cancel, err := node.Attach(pid, ch)
 	assert.Nil(t, cancel)
 	if assert.Error(t, err) {
@@ -183,7 +183,7 @@ func TestNodeDetach(t *testing.T) {
 	assert.NoError(t, node.RegisterHost("host1", dhost))
 
 	// Test detach with local pid
-	pidLocal := api.PID{
+	pidLocal := pid.PID{
 		Node:   "",
 		Host:   "host1",
 		UniqID: "uniq",
@@ -191,7 +191,7 @@ func TestNodeDetach(t *testing.T) {
 	node.Detach(pidLocal) // Should not panic
 
 	// Test detach with non-local pid
-	pidNonLocal := api.PID{
+	pidNonLocal := pid.PID{
 		Node:   "remoteNode",
 		Host:   "host1",
 		UniqID: "uniq",
@@ -199,7 +199,7 @@ func TestNodeDetach(t *testing.T) {
 	node.Detach(pidNonLocal) // Should not panic
 
 	// Test detach with invalid host
-	pidInvalidHost := api.PID{
+	pidInvalidHost := pid.PID{
 		Node:   "",
 		Host:   "nonexistent",
 		UniqID: "uniq",
@@ -229,23 +229,23 @@ func TestNodeRegisterHostInvalidType(t *testing.T) {
 	node.hosts.Store("host1", "not a host")
 
 	// Try to use the invalid host
-	pid := api.PID{
+	pid := pid.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "test",
 	}
 
 	// Try to attach to the invalid host
-	ch := make(chan *api.Package)
+	ch := make(chan *relay.Package)
 	_, err := node.Attach(pid, ch)
 	if assert.Error(t, err) {
 		assert.Contains(t, err.Error(), "does not support attachment")
 	}
 
 	// Try to send to the invalid host
-	pkg := &api.Package{
+	pkg := &relay.Package{
 		Target: pid,
-		Messages: []*api.Message{
+		Messages: []*relay.Message{
 			{Topic: "test"},
 		},
 	}

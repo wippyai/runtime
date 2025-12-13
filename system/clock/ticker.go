@@ -12,8 +12,6 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 )
 
-var errTickerNotFound = clockapi.ErrTickerNotFound
-
 const tickerShardCount = 64
 
 type tickerEntry struct {
@@ -101,7 +99,7 @@ func (r *tickerRegistry) stop(id uint64) error {
 	shard.mu.Unlock()
 
 	if !ok {
-		return errTickerNotFound
+		return clockapi.ErrTickerNotFound
 	}
 
 	entry.closed.Store(true)

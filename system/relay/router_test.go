@@ -8,31 +8,32 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	api "github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/pid"
+	relayapi "github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/system/relay"
 )
 
 // mockNode is a mock implementation of the relay.Node interface.
 type mockNode struct {
-	id           api.NodeID
+	id           pid.NodeID
 	sendCalled   int32
 	attachCalled int32
 	sendErr      error
 }
 
-func (m *mockNode) ID() api.NodeID                              { return m.id }
-func (m *mockNode) RegisterHost(api.HostID, api.Receiver) error { return nil }
-func (m *mockNode) UnregisterHost(api.HostID)                   {}
-func (m *mockNode) GetHost(api.HostID) (api.Receiver, bool)     { return nil, false }
-func (m *mockNode) Send(_ *api.Package) error {
+func (m *mockNode) ID() pid.NodeID                                   { return m.id }
+func (m *mockNode) RegisterHost(pid.HostID, relayapi.Receiver) error { return nil }
+func (m *mockNode) UnregisterHost(pid.HostID)                        {}
+func (m *mockNode) GetHost(pid.HostID) (relayapi.Receiver, bool)     { return nil, false }
+func (m *mockNode) Send(_ *relayapi.Package) error {
 	atomic.AddInt32(&m.sendCalled, 1)
 	return m.sendErr
 }
-func (m *mockNode) Attach(api.PID, chan *api.Package) (context.CancelFunc, error) {
+func (m *mockNode) Attach(pid.PID, chan *relayapi.Package) (context.CancelFunc, error) {
 	atomic.AddInt32(&m.attachCalled, 1)
 	return func() {}, nil
 }
-func (m *mockNode) Detach(api.PID) {}
+func (m *mockNode) Detach(pid.PID) {}
 
 // mockReceiver is a mock implementation of the relay.Receiver interface.
 type mockReceiver struct {
@@ -40,7 +41,7 @@ type mockReceiver struct {
 	sendErr    error
 }
 
-func (m *mockReceiver) Send(_ *api.Package) error {
+func (m *mockReceiver) Send(_ *relayapi.Package) error {
 	atomic.AddInt32(&m.sendCalled, 1)
 	return m.sendErr
 }
@@ -49,9 +50,9 @@ func TestRouter_Send(t *testing.T) {
 	localNode := &mockNode{id: "local"}
 	internode := &mockReceiver{}
 
-	pkgToLocal := &api.Package{Target: api.PID{Node: "local", Host: "h1"}}
-	pkgToLocalImplicit := &api.Package{Target: api.PID{Node: "", Host: "h1"}}
-	pkgToRemote := &api.Package{Target: api.PID{Node: "remote", Host: "h2"}}
+	pkgToLocal := &relayapi.Package{Target: pid.PID{Node: "local", Host: "h1"}}
+	pkgToLocalImplicit := &relayapi.Package{Target: pid.PID{Node: "", Host: "h1"}}
+	pkgToRemote := &relayapi.Package{Target: pid.PID{Node: "remote", Host: "h2"}}
 
 	t.Run("Route to local node", func(t *testing.T) {
 		localNode.sendCalled = 0
@@ -195,7 +196,7 @@ func TestRouter_PeerNodes(t *testing.T) {
 		err := router.RegisterPeer("peer1", peerReceiver)
 		require.NoError(t, err)
 
-		pkgToPeer := &api.Package{Target: api.PID{Node: "peer1", Host: "queue", UniqID: "wf-123"}}
+		pkgToPeer := &relayapi.Package{Target: pid.PID{Node: "peer1", Host: "queue", UniqID: "wf-123"}}
 		err = router.Send(pkgToPeer)
 		require.NoError(t, err)
 
@@ -207,7 +208,7 @@ func TestRouter_PeerNodes(t *testing.T) {
 		localNode.sendCalled = 0
 		router := relay.NewRouter(localNode, nil)
 
-		pkgToPeer := &api.Package{Target: api.PID{Node: "nonexistent", Host: "queue", UniqID: "wf-123"}}
+		pkgToPeer := &relayapi.Package{Target: pid.PID{Node: "nonexistent", Host: "queue", UniqID: "wf-123"}}
 		err := router.Send(pkgToPeer)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
@@ -220,7 +221,7 @@ func TestRouter_PeerNodes(t *testing.T) {
 		err := router.RegisterPeer("peer1", peerReceiver)
 		require.NoError(t, err)
 
-		pkgToPeer := &api.Package{Target: api.PID{Node: "peer1", Host: "queue", UniqID: "wf-123"}}
+		pkgToPeer := &relayapi.Package{Target: pid.PID{Node: "peer1", Host: "queue", UniqID: "wf-123"}}
 		err = router.Send(pkgToPeer)
 		require.NoError(t, err)
 
@@ -235,7 +236,7 @@ func TestRouter_PeerNodes(t *testing.T) {
 		err := router.RegisterPeer("peer1", peerReceiver)
 		require.NoError(t, err)
 
-		pkgToPeer := &api.Package{Target: api.PID{Node: "peer1", Host: "queue", UniqID: "wf-123"}}
+		pkgToPeer := &relayapi.Package{Target: pid.PID{Node: "peer1", Host: "queue", UniqID: "wf-123"}}
 		err = router.Send(pkgToPeer)
 		require.Error(t, err)
 		assert.Equal(t, errToSend, err)

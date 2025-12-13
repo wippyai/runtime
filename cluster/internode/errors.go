@@ -201,7 +201,7 @@ func NewMessageSizeExceedsMaxError(size, maxSize int) *Error {
 func NewRegisterPIDExtensionError(cause error) *Error {
 	return &Error{
 		kind:      apierror.KindInternal,
-		message:   "failed to register relay.PID extension",
+		message:   "failed to register pid.PID extension",
 		retryable: apierror.False,
 		cause:     cause,
 	}

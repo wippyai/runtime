@@ -9,8 +9,6 @@ import (
 	clockapi "github.com/wippyai/runtime/api/clock"
 )
 
-var errTimerNotFound = clockapi.ErrTimerNotFound
-
 const timerShardCount = 64
 
 type timerEntry struct {
@@ -87,7 +85,7 @@ func (r *timerRegistry) wait(ctx context.Context, id uint64) (time.Time, error) 
 	shard.mu.Unlock()
 
 	if !ok || entry.stopped.Load() {
-		return time.Time{}, errTimerNotFound
+		return time.Time{}, clockapi.ErrTimerNotFound
 	}
 
 	select {
@@ -111,7 +109,7 @@ func (r *timerRegistry) stop(id uint64) (bool, error) {
 	shard.mu.Unlock()
 
 	if !ok {
-		return false, errTimerNotFound
+		return false, clockapi.ErrTimerNotFound
 	}
 
 	entry.stopped.Store(true)
@@ -126,14 +124,14 @@ func (r *timerRegistry) reset(id uint64, d time.Duration) (bool, error) {
 	shard.mu.Unlock()
 
 	if !ok {
-		return false, errTimerNotFound
+		return false, clockapi.ErrTimerNotFound
 	}
 
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
 
 	if entry.stopped.Load() {
-		return false, errTimerNotFound
+		return false, clockapi.ErrTimerNotFound
 	}
 
 	wasActive := entry.timer.Reset(d)
@@ -158,7 +156,7 @@ func (r *timerRegistry) close() {
 		for id, entry := range shard.timers {
 			entry.stopped.Store(true)
 			entry.timer.Stop()
-			delete(shard.timers, id) // todo: why we need it?
+			delete(shard.timers, id)
 		}
 		shard.mu.Unlock()
 	}

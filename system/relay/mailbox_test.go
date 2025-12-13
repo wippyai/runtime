@@ -7,7 +7,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	api "github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/relay"
 	"go.uber.org/zap"
 )
 
@@ -53,23 +54,23 @@ func TestMailbox_Attach(t *testing.T) {
 		WorkerCount: 4,
 	})
 
-	pid := api.PID{
+	pid := pid.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",
 	}
 
 	// First attachment
-	ch1 := make(chan *api.Package, 10)
+	ch1 := make(chan *relay.Package, 10)
 	cancel1, err1 := mailbox.Attach(pid, ch1)
 	assert.NoError(t, err1)
 	assert.NotNil(t, cancel1)
 
 	// Try duplicate attachment
-	ch2 := make(chan *api.Package, 10)
+	ch2 := make(chan *relay.Package, 10)
 	_, err2 := mailbox.Attach(pid, ch2)
 	assert.Error(t, err2)
-	assert.ErrorIs(t, err2, api.ErrAlreadyAttached)
+	assert.ErrorIs(t, err2, relay.ErrAlreadyAttached)
 
 	// Test cancellation
 	cancel1()
@@ -87,19 +88,19 @@ func TestMailbox_Send(t *testing.T) {
 		WorkerCount: 1,
 	})
 
-	pid := api.PID{
+	pid := pid.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",
 	}
 
-	receiverCh := make(chan *api.Package, 1)
+	receiverCh := make(chan *relay.Package, 1)
 	_, err := mailbox.Attach(pid, receiverCh)
 	assert.NoError(t, err)
 
-	pkg := &api.Package{
+	pkg := &relay.Package{
 		Target: pid,
-		Messages: []*api.Message{
+		Messages: []*relay.Message{
 			{Topic: "test", Payloads: nil},
 		},
 	}
@@ -124,16 +125,16 @@ func TestMailbox_SendCancelledContext(t *testing.T) {
 		WorkerCount: 0, // no workers so jobCh is never drained
 	})
 
-	pid := api.PID{
+	pid := pid.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",
 	}
 
 	// Pre-fill the job channel
-	pkg := &api.Package{
+	pkg := &relay.Package{
 		Target: pid,
-		Messages: []*api.Message{
+		Messages: []*relay.Message{
 			{Topic: "dummy"},
 		},
 	}
@@ -150,16 +151,16 @@ func TestMailbox_NoReceiver(t *testing.T) {
 		WorkerCount: 1,
 	})
 
-	pid := api.PID{
+	pid := pid.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",
 	}
 
 	// send message without attaching a receiver
-	pkg := &api.Package{
+	pkg := &relay.Package{
 		Target: pid,
-		Messages: []*api.Message{
+		Messages: []*relay.Message{
 			{Topic: "test"},
 		},
 	}
@@ -176,21 +177,21 @@ func TestMailbox_DetachDuringDelivery(t *testing.T) {
 		WorkerCount: 1,
 	})
 
-	pid := api.PID{
+	pid := pid.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",
 	}
 
 	// Create a blocked receiver
-	receiverCh := make(chan *api.Package)
+	receiverCh := make(chan *relay.Package)
 	_, err := mailbox.Attach(pid, receiverCh)
 	assert.NoError(t, err)
 
 	// send message
-	pkg := &api.Package{
+	pkg := &relay.Package{
 		Target: pid,
-		Messages: []*api.Message{
+		Messages: []*relay.Message{
 			{Topic: "test"},
 		},
 	}
@@ -214,13 +215,13 @@ func TestMailbox_MultipleWorkers(t *testing.T) {
 		WorkerCount: 4, // Multiple workers
 	})
 
-	pid := api.PID{
+	pid := pid.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",
 	}
 
-	receiverCh := make(chan *api.Package, 100)
+	receiverCh := make(chan *relay.Package, 100)
 	_, err := mailbox.Attach(pid, receiverCh)
 	assert.NoError(t, err)
 
@@ -232,9 +233,9 @@ func TestMailbox_MultipleWorkers(t *testing.T) {
 	// send messages
 	for i := 0; i < messageCount; i++ {
 		go func(i int) {
-			pkg := &api.Package{
+			pkg := &relay.Package{
 				Target: pid,
-				Messages: []*api.Message{
+				Messages: []*relay.Message{
 					{Topic: fmt.Sprintf("test-%d", i)},
 				},
 			}
@@ -272,20 +273,20 @@ func TestMailbox_Shutdown(t *testing.T) {
 		WorkerCount: 1,
 	})
 
-	pid := api.PID{
+	pid := pid.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",
 	}
 
-	receiverCh := make(chan *api.Package, 1)
+	receiverCh := make(chan *relay.Package, 1)
 	_, err := mailbox.Attach(pid, receiverCh)
 	assert.NoError(t, err)
 
 	// First ensure sending works before shutdown
-	pkg := &api.Package{
+	pkg := &relay.Package{
 		Target: pid,
-		Messages: []*api.Message{
+		Messages: []*relay.Message{
 			{Topic: "test"},
 		},
 	}
@@ -402,20 +403,20 @@ func TestMailbox_SendMultipleMessages(t *testing.T) {
 		WorkerCount: 1,
 	})
 
-	pid := api.PID{
+	pid := pid.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",
 	}
 
-	receiverCh := make(chan *api.Package, 1)
+	receiverCh := make(chan *relay.Package, 1)
 	_, err := mailbox.Attach(pid, receiverCh)
 	assert.NoError(t, err)
 
 	// Create a package with multiple messages
-	pkg := &api.Package{
+	pkg := &relay.Package{
 		Target: pid,
-		Messages: []*api.Message{
+		Messages: []*relay.Message{
 			{Topic: "test1", Payloads: nil},
 			{Topic: "test2", Payloads: nil},
 			{Topic: "test3", Payloads: nil},
@@ -446,20 +447,20 @@ func TestMailbox_SendEmptyMessages(t *testing.T) {
 		WorkerCount: 1,
 	})
 
-	pid := api.PID{
+	pid := pid.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",
 	}
 
-	receiverCh := make(chan *api.Package, 1)
+	receiverCh := make(chan *relay.Package, 1)
 	_, err := mailbox.Attach(pid, receiverCh)
 	assert.NoError(t, err)
 
 	// Create a package with empty messages array
-	pkg := &api.Package{
+	pkg := &relay.Package{
 		Target:   pid,
-		Messages: []*api.Message{},
+		Messages: []*relay.Message{},
 	}
 
 	err = mailbox.Send(pkg)
@@ -483,18 +484,18 @@ func TestMailbox_SendNilMessages(t *testing.T) {
 		WorkerCount: 1,
 	})
 
-	pid := api.PID{
+	pid := pid.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",
 	}
 
-	receiverCh := make(chan *api.Package, 1)
+	receiverCh := make(chan *relay.Package, 1)
 	_, err := mailbox.Attach(pid, receiverCh)
 	assert.NoError(t, err)
 
 	// Create a package with nil messages array
-	pkg := &api.Package{
+	pkg := &relay.Package{
 		Target:   pid,
 		Messages: nil,
 	}

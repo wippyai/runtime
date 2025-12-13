@@ -9,7 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/event"
-	api "github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
@@ -47,7 +48,7 @@ type mockPeerReceiver struct {
 	mu         sync.Mutex
 }
 
-func (r *mockPeerReceiver) Send(_ *api.Package) error {
+func (r *mockPeerReceiver) Send(_ *relay.Package) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.sendCalled++
@@ -65,7 +66,7 @@ func TestPeerManager_Register(t *testing.T) {
 
 	collector := &testEventCollector{}
 	eventCh := make(chan event.Event, 10)
-	_, err := bus.Subscribe(ctx, api.System, eventCh)
+	_, err := bus.Subscribe(ctx, relay.System, eventCh)
 	require.NoError(t, err)
 
 	go func() {
@@ -81,10 +82,10 @@ func TestPeerManager_Register(t *testing.T) {
 
 	peerReceiver := &mockPeerReceiver{}
 	bus.Send(ctx, event.Event{
-		System: api.System,
-		Kind:   api.PeerRegister,
+		System: relay.System,
+		Kind:   relay.PeerRegister,
 		Path:   "peer1",
-		Data: api.PeerInfo{
+		Data: relay.PeerInfo{
 			NodeID:   "peer1",
 			Receiver: peerReceiver,
 		},
@@ -92,12 +93,12 @@ func TestPeerManager_Register(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	acceptEvent := collector.findEvent(api.PeerAccept)
+	acceptEvent := collector.findEvent(relay.PeerAccept)
 	require.NotNil(t, acceptEvent, "PeerAccept event should be sent")
-	assert.Equal(t, api.System, acceptEvent.System)
+	assert.Equal(t, relay.System, acceptEvent.System)
 	assert.Equal(t, "peer1", acceptEvent.Path)
 
-	pkg := &api.Package{Target: api.PID{Node: "peer1", Host: "test", UniqID: "test"}}
+	pkg := &relay.Package{Target: pid.PID{Node: "peer1", Host: "test", UniqID: "test"}}
 	err = router.Send(pkg)
 	require.NoError(t, err)
 	assert.Equal(t, 1, peerReceiver.sendCalled, "Peer node should receive package")
@@ -114,7 +115,7 @@ func TestPeerManager_RegisterInvalidPayload(t *testing.T) {
 
 	collector := &testEventCollector{}
 	eventCh := make(chan event.Event, 10)
-	_, err := bus.Subscribe(ctx, api.System, eventCh)
+	_, err := bus.Subscribe(ctx, relay.System, eventCh)
 	require.NoError(t, err)
 
 	go func() {
@@ -129,17 +130,17 @@ func TestPeerManager_RegisterInvalidPayload(t *testing.T) {
 	defer func() { _ = manager.Stop() }()
 
 	bus.Send(ctx, event.Event{
-		System: api.System,
-		Kind:   api.PeerRegister,
+		System: relay.System,
+		Kind:   relay.PeerRegister,
 		Path:   "peer1",
 		Data:   "invalid payload",
 	})
 
 	time.Sleep(50 * time.Millisecond)
 
-	rejectEvent := collector.findEvent(api.PeerReject)
+	rejectEvent := collector.findEvent(relay.PeerReject)
 	require.NotNil(t, rejectEvent, "PeerReject event should be sent")
-	assert.Equal(t, api.System, rejectEvent.System)
+	assert.Equal(t, relay.System, rejectEvent.System)
 	assert.Equal(t, "peer1", rejectEvent.Path)
 	assert.Contains(t, rejectEvent.Data.(string), "invalid payload")
 }
@@ -155,7 +156,7 @@ func TestPeerManager_RegisterDuplicate(t *testing.T) {
 
 	collector := &testEventCollector{}
 	eventCh := make(chan event.Event, 10)
-	_, err := bus.Subscribe(ctx, api.System, eventCh)
+	_, err := bus.Subscribe(ctx, relay.System, eventCh)
 	require.NoError(t, err)
 
 	go func() {
@@ -171,10 +172,10 @@ func TestPeerManager_RegisterDuplicate(t *testing.T) {
 
 	peerReceiver1 := &mockPeerReceiver{}
 	bus.Send(ctx, event.Event{
-		System: api.System,
-		Kind:   api.PeerRegister,
+		System: relay.System,
+		Kind:   relay.PeerRegister,
 		Path:   "peer1",
-		Data: api.PeerInfo{
+		Data: relay.PeerInfo{
 			NodeID:   "peer1",
 			Receiver: peerReceiver1,
 		},
@@ -185,10 +186,10 @@ func TestPeerManager_RegisterDuplicate(t *testing.T) {
 
 	peerReceiver2 := &mockPeerReceiver{}
 	bus.Send(ctx, event.Event{
-		System: api.System,
-		Kind:   api.PeerRegister,
+		System: relay.System,
+		Kind:   relay.PeerRegister,
 		Path:   "peer1",
-		Data: api.PeerInfo{
+		Data: relay.PeerInfo{
 			NodeID:   "peer1",
 			Receiver: peerReceiver2,
 		},
@@ -196,7 +197,7 @@ func TestPeerManager_RegisterDuplicate(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	rejectEvent := collector.findEvent(api.PeerReject)
+	rejectEvent := collector.findEvent(relay.PeerReject)
 	require.NotNil(t, rejectEvent, "PeerReject event should be sent for duplicate")
 	assert.Equal(t, "peer1", rejectEvent.Path)
 	assert.Contains(t, rejectEvent.Data.(string), "already registered")
@@ -213,7 +214,7 @@ func TestPeerManager_RegisterConflictWithLocalNode(t *testing.T) {
 
 	collector := &testEventCollector{}
 	eventCh := make(chan event.Event, 10)
-	_, err := bus.Subscribe(ctx, api.System, eventCh)
+	_, err := bus.Subscribe(ctx, relay.System, eventCh)
 	require.NoError(t, err)
 
 	go func() {
@@ -229,10 +230,10 @@ func TestPeerManager_RegisterConflictWithLocalNode(t *testing.T) {
 
 	peerReceiver := &mockPeerReceiver{}
 	bus.Send(ctx, event.Event{
-		System: api.System,
-		Kind:   api.PeerRegister,
+		System: relay.System,
+		Kind:   relay.PeerRegister,
 		Path:   "local",
-		Data: api.PeerInfo{
+		Data: relay.PeerInfo{
 			NodeID:   "local",
 			Receiver: peerReceiver,
 		},
@@ -240,7 +241,7 @@ func TestPeerManager_RegisterConflictWithLocalNode(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	rejectEvent := collector.findEvent(api.PeerReject)
+	rejectEvent := collector.findEvent(relay.PeerReject)
 	require.NotNil(t, rejectEvent, "PeerReject event should be sent for conflict")
 	assert.Equal(t, "local", rejectEvent.Path)
 	assert.Contains(t, rejectEvent.Data.(string), "conflicts with local node")
@@ -257,7 +258,7 @@ func TestPeerManager_Unregister(t *testing.T) {
 
 	collector := &testEventCollector{}
 	eventCh := make(chan event.Event, 10)
-	_, err := bus.Subscribe(ctx, api.System, eventCh)
+	_, err := bus.Subscribe(ctx, relay.System, eventCh)
 	require.NoError(t, err)
 
 	go func() {
@@ -273,10 +274,10 @@ func TestPeerManager_Unregister(t *testing.T) {
 
 	peerReceiver := &mockPeerReceiver{}
 	bus.Send(ctx, event.Event{
-		System: api.System,
-		Kind:   api.PeerRegister,
+		System: relay.System,
+		Kind:   relay.PeerRegister,
 		Path:   "peer1",
-		Data: api.PeerInfo{
+		Data: relay.PeerInfo{
 			NodeID:   "peer1",
 			Receiver: peerReceiver,
 		},
@@ -286,18 +287,18 @@ func TestPeerManager_Unregister(t *testing.T) {
 	collector.reset()
 
 	bus.Send(ctx, event.Event{
-		System: api.System,
-		Kind:   api.PeerDelete,
+		System: relay.System,
+		Kind:   relay.PeerDelete,
 		Path:   "peer1",
 	})
 
 	time.Sleep(50 * time.Millisecond)
 
-	acceptEvent := collector.findEvent(api.PeerAccept)
+	acceptEvent := collector.findEvent(relay.PeerAccept)
 	require.NotNil(t, acceptEvent, "PeerAccept event should be sent")
 	assert.Equal(t, "peer1", acceptEvent.Path)
 
-	pkg := &api.Package{Target: api.PID{Node: "peer1", Host: "test", UniqID: "test"}}
+	pkg := &relay.Package{Target: pid.PID{Node: "peer1", Host: "test", UniqID: "test"}}
 	err = router.Send(pkg)
 	require.Error(t, err, "Routing should fail after unregistration")
 	assert.Contains(t, err.Error(), "not found")
@@ -314,7 +315,7 @@ func TestPeerManager_UnregisterNonexistent(t *testing.T) {
 
 	collector := &testEventCollector{}
 	eventCh := make(chan event.Event, 10)
-	_, err := bus.Subscribe(ctx, api.System, eventCh)
+	_, err := bus.Subscribe(ctx, relay.System, eventCh)
 	require.NoError(t, err)
 
 	go func() {
@@ -329,14 +330,14 @@ func TestPeerManager_UnregisterNonexistent(t *testing.T) {
 	defer func() { _ = manager.Stop() }()
 
 	bus.Send(ctx, event.Event{
-		System: api.System,
-		Kind:   api.PeerDelete,
+		System: relay.System,
+		Kind:   relay.PeerDelete,
 		Path:   "nonexistent",
 	})
 
 	time.Sleep(50 * time.Millisecond)
 
-	acceptEvent := collector.findEvent(api.PeerAccept)
+	acceptEvent := collector.findEvent(relay.PeerAccept)
 	require.NotNil(t, acceptEvent, "PeerAccept event should be sent even for nonexistent node")
 	assert.Equal(t, "nonexistent", acceptEvent.Path)
 }

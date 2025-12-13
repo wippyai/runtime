@@ -83,7 +83,7 @@ func TestSandbox_ManualStepping(t *testing.T) {
 	t.Logf("Yield command ID: %d", cmd.CmdID())
 
 	// Should be a sleep command
-	assert.Equal(t, clockapi.Sleep, cmd.CmdID())
+	assert.Equal(t, clockapi.CmdSleep, cmd.CmdID())
 
 	sleepCmd, ok := cmd.(clockapi.SleepCmd)
 	require.True(t, ok)

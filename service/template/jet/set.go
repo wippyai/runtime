@@ -83,7 +83,7 @@ func (s *Set) AddTemplate(name string, source string) error {
 
 	// Check if template already exists
 	if _, exists := s.sources[name]; exists {
-		return newTemplateExistsInSetError(name)
+		return template.NewTemplateExistsInSetError(name)
 	}
 
 	// Register the template with Jet's InMemLoader
@@ -170,7 +170,7 @@ func (s *Set) RenderTemplate(name string, vars map[string]any) (string, error) {
 	// Get the Jet template
 	jetTemplate, err := s.jetSet.GetTemplate(name)
 	if err != nil {
-		return "", newGetCompiledTemplateError(err)
+		return "", template.NewGetCompiledTemplateError(err)
 	}
 
 	// Create a buffer for the output
@@ -184,7 +184,7 @@ func (s *Set) RenderTemplate(name string, vars map[string]any) (string, error) {
 
 	// Render the template
 	if err := jetTemplate.Execute(&buf, jetVars, nil); err != nil {
-		return "", newRenderFailedError(err)
+		return "", template.NewRenderFailedError(err)
 	}
 
 	return buf.String(), nil
@@ -195,7 +195,7 @@ func (s *Set) RenderPayload(name string, data payload.Payload) (string, error) {
 	// Extract data from payload using transcoder
 	var vars any
 	if err := s.dtt.Unmarshal(data, &vars); err != nil {
-		return "", newUnmarshalPayloadError(err)
+		return "", template.NewUnmarshalPayloadError(err)
 	}
 
 	mvars, ok := vars.(map[string]any)
@@ -221,7 +221,7 @@ func (s *Set) Acquire(
 ) (resource.Resource[any], error) {
 	// Only support normal mode for now
 	if mode != resource.ModeNormal {
-		return nil, newUnsupportedAccessModeError(string(mode))
+		return nil, template.NewUnsupportedAccessModeError(string(mode))
 	}
 
 	s.mu.RLock()

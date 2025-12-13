@@ -126,14 +126,15 @@ func templateSetRender(l *lua.LState) int {
 	}
 
 	ts.mu.Lock()
-	if ts.released {
-		ts.mu.Unlock()
+	released := ts.released
+	templates := ts.templates
+	ts.mu.Unlock()
+
+	if released {
 		return pushError(l, lua.NewLuaError(l, "template set is released").
 			WithKind(lua.KindInternal).
 			WithRetryable(false))
 	}
-	templates := ts.templates
-	ts.mu.Unlock()
 
 	name := l.CheckString(2)
 	if name == "" {

@@ -21,7 +21,7 @@ func WS() boot.Component {
 				return ctx, ErrDispatcherNotFound
 			}
 
-			d = websocket.NewDispatcher(WSDefaultWorkers)
+			d = websocket.NewDispatcher(websocket.WithWorkers(WSDefaultWorkers))
 			d.RegisterAll(reg.Register)
 
 			return ctx, nil

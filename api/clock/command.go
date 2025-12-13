@@ -3,7 +3,6 @@
 package clock
 
 import (
-	"errors"
 	"time"
 
 	"github.com/wippyai/runtime/api/dispatcher"
@@ -13,31 +12,24 @@ import (
 // Command IDs for clock operations.
 // Range 10-29 is reserved for time commands.
 const (
-	Sleep dispatcher.CommandID = 10 // Pause execution for duration (one-shot)
+	CmdSleep dispatcher.CommandID = 10 // Pause execution for duration (one-shot)
 
 	// Ticker commands - uses topic-based delivery like events/websocket
-	TickerStart dispatcher.CommandID = 14 // Create ticker, sends ticks to topic
-	TickerStop  dispatcher.CommandID = 16 // Stop and cleanup ticker
+	CmdTickerStart dispatcher.CommandID = 14 // Create ticker, sends ticks to topic
+	CmdTickerStop  dispatcher.CommandID = 16 // Stop and cleanup ticker
 
 	// Decomposed timer pattern (one-shot commands)
-	TimerStart dispatcher.CommandID = 18 // Create timer, returns ID
-	TimerWait  dispatcher.CommandID = 19 // Wait for timer to fire, returns time
-	TimerStop  dispatcher.CommandID = 20 // Stop and cleanup timer
-	TimerReset dispatcher.CommandID = 21 // Reset timer with new duration
-)
-
-// Errors returned by clock handlers.
-var (
-	ErrTimerNotFound  = errors.New("timer not found")
-	ErrTickerNotFound = errors.New("ticker not found")
-	ErrTickerClosed   = errors.New("ticker closed")
+	CmdTimerStart dispatcher.CommandID = 18 // Create timer, returns ID
+	CmdTimerWait  dispatcher.CommandID = 19 // Wait for timer to fire, returns time
+	CmdTimerStop  dispatcher.CommandID = 20 // Stop and cleanup timer
+	CmdTimerReset dispatcher.CommandID = 21 // Reset timer with new duration
 )
 
 func init() {
 	dispatcher.MustRegisterCommands("clock",
-		Sleep,
-		TickerStart, TickerStop,
-		TimerStart, TimerWait, TimerStop, TimerReset,
+		CmdSleep,
+		CmdTickerStart, CmdTickerStop,
+		CmdTimerStart, CmdTimerWait, CmdTimerStop, CmdTimerReset,
 	)
 }
 
@@ -96,25 +88,25 @@ type (
 )
 
 // CmdID implements dispatcher.Command.
-func (c SleepCmd) CmdID() dispatcher.CommandID { return Sleep }
+func (c SleepCmd) CmdID() dispatcher.CommandID { return CmdSleep }
 
 // CmdID implements dispatcher.Command.
-func (c TickerStartCmd) CmdID() dispatcher.CommandID { return TickerStart }
+func (c TickerStartCmd) CmdID() dispatcher.CommandID { return CmdTickerStart }
 
 // CmdID implements dispatcher.Command.
-func (c TickerStopCmd) CmdID() dispatcher.CommandID { return TickerStop }
+func (c TickerStopCmd) CmdID() dispatcher.CommandID { return CmdTickerStop }
 
 // CmdID implements dispatcher.Command.
-func (c TimerStartCmd) CmdID() dispatcher.CommandID { return TimerStart }
+func (c TimerStartCmd) CmdID() dispatcher.CommandID { return CmdTimerStart }
 
 // CmdID implements dispatcher.Command.
-func (c TimerWaitCmd) CmdID() dispatcher.CommandID { return TimerWait }
+func (c TimerWaitCmd) CmdID() dispatcher.CommandID { return CmdTimerWait }
 
 // CmdID implements dispatcher.Command.
-func (c TimerStopCmd) CmdID() dispatcher.CommandID { return TimerStop }
+func (c TimerStopCmd) CmdID() dispatcher.CommandID { return CmdTimerStop }
 
 // CmdID implements dispatcher.Command.
-func (c TimerResetCmd) CmdID() dispatcher.CommandID { return TimerReset }
+func (c TimerResetCmd) CmdID() dispatcher.CommandID { return CmdTimerReset }
 
 // TickerStartResult is returned by TickerStart command with cleanup callback.
 type TickerStartResult struct {

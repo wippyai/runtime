@@ -146,3 +146,32 @@ func NewSubscriberError(err error) *Error {
 		cause:     err,
 	}
 }
+
+// NewInterceptorExistsError creates an error when interceptor already exists.
+func NewInterceptorExistsError(name string) *Error {
+	return &Error{
+		kind:      apierror.KindAlreadyExists,
+		message:   "interceptor \"" + name + "\" already registered",
+		retryable: apierror.False,
+		details:   attrs.NewBagFrom(map[string]any{"name": name}),
+	}
+}
+
+// NewInterceptorNotFoundError creates an error when interceptor not found.
+func NewInterceptorNotFoundError(name string) *Error {
+	return &Error{
+		kind:      apierror.KindNotFound,
+		message:   "interceptor \"" + name + "\" not found",
+		retryable: apierror.False,
+		details:   attrs.NewBagFrom(map[string]any{"name": name}),
+	}
+}
+
+// NewInterceptorSealedError creates an error when registry is sealed.
+func NewInterceptorSealedError() *Error {
+	return &Error{
+		kind:      apierror.KindInvalid,
+		message:   "interceptor registry is sealed",
+		retryable: apierror.False,
+	}
+}

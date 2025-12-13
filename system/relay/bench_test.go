@@ -10,7 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	api "github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/relay"
 )
 
 // TestMailbox_MessageOrdering verifies that messages from the same source
@@ -24,8 +25,8 @@ func TestMailbox_MessageOrdering(t *testing.T) {
 		WorkerCount: 8,
 	})
 
-	targetPID := api.PID{Host: "test", UniqID: "receiver"}
-	receiverCh := make(chan *api.Package, 1000)
+	targetPID := pid.PID{Host: "test", UniqID: "receiver"}
+	receiverCh := make(chan *relay.Package, 1000)
 	_, err := mailbox.Attach(targetPID, receiverCh)
 	require.NoError(t, err)
 
@@ -39,12 +40,12 @@ func TestMailbox_MessageOrdering(t *testing.T) {
 		go func(senderID int) {
 			defer wg.Done()
 			// Use unique string for each sender so hash is consistent
-			sourcePID := api.PID{Host: "sender", UniqID: fmt.Sprintf("sender-%d", senderID)}
+			sourcePID := pid.PID{Host: "sender", UniqID: fmt.Sprintf("sender-%d", senderID)}
 			for i := 0; i < messagesPerSender; i++ {
-				pkg := &api.Package{
+				pkg := &relay.Package{
 					Source: sourcePID,
 					Target: targetPID,
-					Messages: []*api.Message{{
+					Messages: []*relay.Message{{
 						// Encode sequence in topic for easy parsing
 						Topic: fmt.Sprintf("%d:%d", senderID, i),
 					}},
@@ -61,7 +62,7 @@ func TestMailbox_MessageOrdering(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Collect all messages
-	received := make([]*api.Package, 0, numSenders*messagesPerSender)
+	received := make([]*relay.Package, 0, numSenders*messagesPerSender)
 	for {
 		select {
 		case pkg := <-receiverCh:
@@ -104,8 +105,8 @@ func BenchmarkMailbox_Send(b *testing.B) {
 		WorkerCount: 8,
 	})
 
-	targetPID := api.PID{Host: "bench", UniqID: "target"}
-	receiverCh := make(chan *api.Package, 10000)
+	targetPID := pid.PID{Host: "bench", UniqID: "target"}
+	receiverCh := make(chan *relay.Package, 10000)
 	_, _ = mailbox.Attach(targetPID, receiverCh)
 
 	// Drain receiver in background
@@ -114,8 +115,8 @@ func BenchmarkMailbox_Send(b *testing.B) {
 		}
 	}()
 
-	sourcePID := api.PID{Host: "bench", UniqID: "source"}
-	pkg := &api.Package{
+	sourcePID := pid.PID{Host: "bench", UniqID: "source"}
+	pkg := &relay.Package{
 		Source: sourcePID,
 		Target: targetPID,
 	}
@@ -138,8 +139,8 @@ func BenchmarkMailbox_SendParallel(b *testing.B) {
 		WorkerCount: 8,
 	})
 
-	targetPID := api.PID{Host: "bench", UniqID: "target"}
-	receiverCh := make(chan *api.Package, 100000)
+	targetPID := pid.PID{Host: "bench", UniqID: "target"}
+	receiverCh := make(chan *relay.Package, 100000)
 	_, _ = mailbox.Attach(targetPID, receiverCh)
 
 	// Drain receiver in background
@@ -155,8 +156,8 @@ func BenchmarkMailbox_SendParallel(b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		id := counter.Add(1)
-		sourcePID := api.PID{Host: "bench", UniqID: string(rune(id))}
-		pkg := &api.Package{
+		sourcePID := pid.PID{Host: "bench", UniqID: string(rune(id))}
+		pkg := &relay.Package{
 			Source: sourcePID,
 			Target: targetPID,
 		}
@@ -180,8 +181,8 @@ func BenchmarkRouter_Send(b *testing.B) {
 
 	router := NewRouter(node, nil)
 
-	targetPID := api.PID{Host: "bench", UniqID: "target"}
-	receiverCh := make(chan *api.Package, 10000)
+	targetPID := pid.PID{Host: "bench", UniqID: "target"}
+	receiverCh := make(chan *relay.Package, 10000)
 	_, _ = mailbox.Attach(targetPID, receiverCh)
 
 	// Drain receiver in background
@@ -190,8 +191,8 @@ func BenchmarkRouter_Send(b *testing.B) {
 		}
 	}()
 
-	sourcePID := api.PID{Host: "bench", UniqID: "source"}
-	pkg := &api.Package{
+	sourcePID := pid.PID{Host: "bench", UniqID: "source"}
+	pkg := &relay.Package{
 		Source: sourcePID,
 		Target: targetPID,
 	}
@@ -213,9 +214,9 @@ func BenchmarkRouter_SendToPeer(b *testing.B) {
 	peerReceiver := &benchReceiver{received: &received}
 	_ = router.RegisterPeer("peer1", peerReceiver)
 
-	pkg := &api.Package{
-		Source: api.PID{Host: "bench", UniqID: "source"},
-		Target: api.PID{Node: "peer1", Host: "bench", UniqID: "target"},
+	pkg := &relay.Package{
+		Source: pid.PID{Host: "bench", UniqID: "source"},
+		Target: pid.PID{Node: "peer1", Host: "bench", UniqID: "target"},
 	}
 
 	b.ResetTimer()
@@ -230,7 +231,7 @@ type benchReceiver struct {
 	received *atomic.Int64
 }
 
-func (r *benchReceiver) Send(_ *api.Package) error {
+func (r *benchReceiver) Send(_ *relay.Package) error {
 	r.received.Add(1)
 	return nil
 }
@@ -255,7 +256,7 @@ func BenchmarkHashString(b *testing.B) {
 
 // BenchmarkBaseline_SendDirect measures direct channel send (baseline).
 func BenchmarkBaseline_SendDirect(b *testing.B) {
-	ch := make(chan *api.Package, 10000)
+	ch := make(chan *relay.Package, 10000)
 
 	// Drain in background
 	go func() {
@@ -263,7 +264,7 @@ func BenchmarkBaseline_SendDirect(b *testing.B) {
 		}
 	}()
 
-	pkg := &api.Package{}
+	pkg := &relay.Package{}
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -288,7 +289,7 @@ func BenchmarkBaseline_ContextCheck(b *testing.B) {
 // BenchmarkBaseline_SelectSend measures select with channel send.
 func BenchmarkBaseline_SelectSend(b *testing.B) {
 	ctx := context.Background()
-	ch := make(chan *api.Package, 10000)
+	ch := make(chan *relay.Package, 10000)
 
 	// Drain in background
 	go func() {
@@ -296,7 +297,7 @@ func BenchmarkBaseline_SelectSend(b *testing.B) {
 		}
 	}()
 
-	pkg := &api.Package{}
+	pkg := &relay.Package{}
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -312,8 +313,8 @@ func BenchmarkBaseline_SelectSend(b *testing.B) {
 // BenchmarkSyncMapLoad measures sync.Map Load performance.
 func BenchmarkSyncMapLoad(b *testing.B) {
 	var m sync.Map
-	pid := api.PID{Host: "test", UniqID: "target"}
-	ch := make(chan *api.Package, 1)
+	pid := pid.PID{Host: "test", UniqID: "target"}
+	ch := make(chan *relay.Package, 1)
 	m.Store(pid, ch)
 
 	b.ResetTimer()
@@ -334,9 +335,9 @@ func BenchmarkMailbox_SendEnqueueOnly(b *testing.B) {
 	})
 
 	// Don't attach any receiver - workers will just drop
-	sourcePID := api.PID{Host: "bench", UniqID: "source"}
-	targetPID := api.PID{Host: "bench", UniqID: "target"}
-	pkg := &api.Package{
+	sourcePID := pid.PID{Host: "bench", UniqID: "source"}
+	targetPID := pid.PID{Host: "bench", UniqID: "target"}
+	pkg := &relay.Package{
 		Source: sourcePID,
 		Target: targetPID,
 	}

@@ -11,7 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 )
 
-var AsyncCallRegistryKey = &ctxapi.Key{Name: "func.async_calls", Inherit: false}
+var asyncCallRegistryKey = &ctxapi.Key{Name: "func.async_calls", Inherit: false}
 
 // resultChanPool reduces allocations for result channels in hot path.
 var resultChanPool = sync.Pool{
@@ -140,7 +140,7 @@ func GetAsyncCallRegistry(ctx context.Context) *AsyncCallRegistry {
 	if fc == nil {
 		return nil
 	}
-	if val, ok := fc.Get(AsyncCallRegistryKey); ok {
+	if val, ok := fc.Get(asyncCallRegistryKey); ok {
 		return val.(*AsyncCallRegistry)
 	}
 	return nil
@@ -152,7 +152,7 @@ func SetAsyncCallRegistry(ctx context.Context, r *AsyncCallRegistry) error {
 	if fc == nil {
 		return ctxapi.ErrNoFrameContext
 	}
-	return fc.Set(AsyncCallRegistryKey, r)
+	return fc.Set(asyncCallRegistryKey, r)
 }
 
 // GetOrCreateAsyncCallRegistry returns the async call registry from context,
@@ -162,11 +162,11 @@ func GetOrCreateAsyncCallRegistry(ctx context.Context) *AsyncCallRegistry {
 	if fc == nil {
 		return nil
 	}
-	if val, ok := fc.Get(AsyncCallRegistryKey); ok {
+	if val, ok := fc.Get(asyncCallRegistryKey); ok {
 		return val.(*AsyncCallRegistry)
 	}
 	r := NewAsyncCallRegistry()
-	_ = fc.Set(AsyncCallRegistryKey, r)
+	_ = fc.Set(asyncCallRegistryKey, r)
 	return r
 }
 

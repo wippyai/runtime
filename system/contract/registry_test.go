@@ -954,8 +954,8 @@ func TestContractImpl_ID_Meta(t *testing.T) {
 	contractID := registry.NewID("test", "meta-contract")
 
 	done := make(chan struct{})
-	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.KindRegisterDefinition+".*", func(e event.Event) {
-		if e.Kind == contract.KindAccept {
+	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, "contract.*", func(e event.Event) {
+		if e.Kind == contract.KindAccept && e.Path == contractID.String() {
 			close(done)
 		}
 	})
@@ -1012,8 +1012,8 @@ func TestContractRegistry_NilMetaInit(t *testing.T) {
 	contractID := registry.NewID("test", "nil-meta")
 
 	done := make(chan struct{})
-	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.KindRegisterDefinition+".*", func(e event.Event) {
-		if e.Kind == contract.KindAccept {
+	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, "contract.*", func(e event.Event) {
+		if e.Kind == contract.KindAccept && e.Path == contractID.String() {
 			close(done)
 		}
 	})

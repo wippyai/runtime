@@ -8,7 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/event"
-	api "github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
@@ -18,7 +19,7 @@ type mockHost struct {
 	sendErr error
 }
 
-func (h *mockHost) Send(_ *api.Package) error {
+func (h *mockHost) Send(_ *relay.Package) error {
 	return h.sendErr
 }
 
@@ -55,7 +56,7 @@ func TestManager_HandleRegisterHost(t *testing.T) {
 	sub, err := eventbus.NewSubscriber(
 		ctx,
 		bus,
-		api.System,
+		relay.System,
 		"host.(accept|reject)",
 		func(e event.Event) {
 			responses <- e
@@ -75,20 +76,20 @@ func TestManager_HandleRegisterHost(t *testing.T) {
 			name:         "successful registration",
 			hostID:       "host1",
 			host:         &mockHost{},
-			expectedKind: api.HostAccept,
+			expectedKind: relay.HostAccept,
 		},
 		{
 			name:          "invalid host type",
 			hostID:        "host2",
 			host:          "invalid",
-			expectedKind:  api.HostReject,
+			expectedKind:  relay.HostReject,
 			expectedError: "invalid host payload",
 		},
 		{
 			name:          "duplicate host",
 			hostID:        "host1",
 			host:          &mockHost{},
-			expectedKind:  api.HostReject,
+			expectedKind:  relay.HostReject,
 			expectedError: "already exists",
 		},
 	}
@@ -97,8 +98,8 @@ func TestManager_HandleRegisterHost(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// send register event
 			bus.Send(ctx, event.Event{
-				System: api.System,
-				Kind:   api.HostRegister,
+				System: relay.System,
+				Kind:   relay.HostRegister,
 				Path:   tt.hostID,
 				Data:   tt.host,
 			})
@@ -119,7 +120,7 @@ func TestManager_HandleRegisterHost(t *testing.T) {
 				t.Fatal("timeout waiting for response")
 			}
 
-			if tt.expectedKind == api.HostAccept {
+			if tt.expectedKind == relay.HostAccept {
 				// Verify host was registered
 				_, exists := node.hosts.Load(tt.hostID)
 				assert.True(t, exists)
@@ -143,7 +144,7 @@ func TestManager_HandleDeleteHost(t *testing.T) {
 	sub, err := eventbus.NewSubscriber(
 		ctx,
 		bus,
-		api.System,
+		relay.System,
 		"host.accept",
 		func(e event.Event) {
 			responses <- e
@@ -154,15 +155,15 @@ func TestManager_HandleDeleteHost(t *testing.T) {
 
 	// send delete event
 	bus.Send(ctx, event.Event{
-		System: api.System,
-		Kind:   api.HostDelete,
+		System: relay.System,
+		Kind:   relay.HostDelete,
 		Path:   "host1",
 	})
 
 	// Wait for response
 	select {
 	case resp := <-responses:
-		assert.Equal(t, api.HostAccept, resp.Kind)
+		assert.Equal(t, relay.HostAccept, resp.Kind)
 		assert.Equal(t, "host1", resp.Path)
 	case <-time.After(time.Second):
 		t.Fatal("timeout waiting for response")
@@ -181,7 +182,7 @@ func TestManager_HandleUnknownEvent(t *testing.T) {
 
 	// send unknown event
 	bus.Send(ctx, event.Event{
-		System: api.System,
+		System: relay.System,
 		Kind:   "unknown.event",
 		Path:   "test",
 	})
@@ -197,15 +198,15 @@ func TestManager_Send(t *testing.T) {
 	defer func() { assert.NoError(t, manager.Stop()) }()
 
 	t.Run("send to unregistered host returns error", func(t *testing.T) {
-		pid := api.PID{
+		pid := pid.PID{
 			Node:   "test-node",
 			Host:   "nonexistent-host",
 			UniqID: "test",
 		}
 
-		pkg := &api.Package{
+		pkg := &relay.Package{
 			Target: pid,
-			Messages: []*api.Message{
+			Messages: []*relay.Message{
 				{Topic: "test"},
 			},
 		}
@@ -218,15 +219,15 @@ func TestManager_Send(t *testing.T) {
 		host := &mockHost{}
 		require.NoError(t, node.RegisterHost("test-host", host))
 
-		pid := api.PID{
+		pid := pid.PID{
 			Node:   "test-node",
 			Host:   "test-host",
 			UniqID: "test",
 		}
 
-		pkg := &api.Package{
+		pkg := &relay.Package{
 			Target: pid,
-			Messages: []*api.Message{
+			Messages: []*relay.Message{
 				{Topic: "test"},
 			},
 		}
@@ -248,12 +249,12 @@ func TestManager_Attach(t *testing.T) {
 	attachableMailbox := NewMailbox(ctx, MailboxConfig{WorkerCount: 1, BufferSize: 10})
 	require.NoError(t, node.RegisterHost("test-host", attachableMailbox))
 
-	pid := api.PID{
+	pid := pid.PID{
 		Node:   "test-node",
 		Host:   "test-host",
 		UniqID: "test",
 	}
-	ch := make(chan *api.Package, 1)
+	ch := make(chan *relay.Package, 1)
 
 	detach, err := manager.Attach(pid, ch)
 	require.NoError(t, err)

@@ -2,24 +2,8 @@
 package template
 
 import (
-	"errors"
-
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
-)
-
-var (
-	// ErrTemplateNotFound is returned when a template cannot be found
-	ErrTemplateNotFound = errors.New("template not found")
-
-	// ErrSetNotFound is returned when a template set cannot be found
-	ErrSetNotFound = errors.New("template set not found")
-
-	// ErrRenderFailed is returned when template rendering fails
-	ErrRenderFailed = errors.New("template rendering failed")
-
-	// ErrSetNotEmpty is returned when attempting to delete a set with templates
-	ErrSetNotEmpty = errors.New("template set is not empty")
 )
 
 // Registry kind constants for Template components
@@ -53,7 +37,7 @@ type EngineConfig struct {
 	Extensions []string `json:"extensions"`
 
 	// Globals defines global variables available to all templates
-	Globals map[string]interface{} `json:"globals"`
+	Globals map[string]any `json:"globals"`
 }
 
 // DelimiterConfig allows customizing template delimiters
@@ -100,7 +84,7 @@ func (e *EngineConfig) initDefaults() {
 
 	// Initialize globals map if nil
 	if e.Globals == nil {
-		e.Globals = make(map[string]interface{})
+		e.Globals = make(map[string]any)
 	}
 }
 

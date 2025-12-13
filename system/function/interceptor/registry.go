@@ -46,7 +46,7 @@ func (r *Registry) Register(name string, interceptor function.Interceptor, order
 
 	for _, e := range r.entries {
 		if e.name == name {
-			return NewInterceptorExistsError(name)
+			return function.NewInterceptorExistsError(name)
 		}
 	}
 
@@ -82,7 +82,7 @@ func (r *Registry) Unregister(name string) error {
 		}
 	}
 
-	return NewInterceptorNotFoundError(name)
+	return function.NewInterceptorNotFoundError(name)
 }
 
 // rebuild creates the sealed chain (called with lock held)
