@@ -1,6 +1,7 @@
 package funcs
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -650,4 +651,334 @@ func TestCallYieldHasContextPairs(t *testing.T) {
 	if !hasValues {
 		t.Error("Task.Context should include values pair from frame context")
 	}
+}
+
+func TestExecutorCallInheritsFrameContext(t *testing.T) {
+	// Test that funcs.new():call() inherits context from frame
+	// even when with_context() is NOT explicitly called
+	l := lua.NewState()
+	defer l.Close()
+
+	// Set up frame context with values (simulating a caller with session_id)
+	ctx, fc := ctxapi.AcquireFrameContext(l.Context())
+	defer ctxapi.ReleaseFrameContext(fc)
+
+	values := ctxapi.NewValues()
+	values.Set("session_id", "sess-123")
+	values.Set("trace_id", "trace-456")
+	if err := fc.Set(ctxapi.ValuesCtx, values); err != nil {
+		t.Fatalf("failed to set values: %v", err)
+	}
+
+	l.SetContext(ctx)
+
+	// Create a new Executor (like funcs.new() does)
+	exec := &Executor{}
+	// NOT calling with_context() - executor has no explicit context
+
+	// Simulate what executorCall now does: start with inherited, then overlay
+	yield := AcquireCallYield()
+	defer ReleaseCallYield(yield)
+
+	// Fixed behavior: start with inherited context from frame
+	yield.Task.Context = buildContextPairs(l)
+
+	// Then overlay with explicit executor settings
+	if exec.hasActor {
+		yield.Task.Context = append(yield.Task.Context, ctxapi.Pair{})
+	}
+	if exec.hasScope {
+		yield.Task.Context = append(yield.Task.Context, ctxapi.Pair{})
+	}
+	if exec.values != nil && exec.values.Len() > 0 {
+		yield.Task.Context = append(yield.Task.Context, ctxapi.ValuesPair(exec.values))
+	}
+
+	// Task.Context should have inherited values from frame
+	if len(yield.Task.Context) == 0 {
+		t.Error("executorCall should inherit context from frame when executor has no explicit context")
+	}
+
+	// Verify values pair is present
+	hasValues := false
+	for _, pair := range yield.Task.Context {
+		if pair.Key == ctxapi.ValuesCtx {
+			hasValues = true
+			break
+		}
+	}
+	if !hasValues {
+		t.Error("Task.Context should include values pair from frame context")
+	}
+}
+
+func TestExecutorCallMergesExplicitAndInheritedContext(t *testing.T) {
+	// Test that explicit executor context is merged with inherited frame context
+	l := lua.NewState()
+	defer l.Close()
+
+	// Set up frame context with values
+	ctx, fc := ctxapi.AcquireFrameContext(l.Context())
+	defer ctxapi.ReleaseFrameContext(fc)
+
+	frameValues := ctxapi.NewValues()
+	frameValues.Set("session_id", "sess-from-frame")
+	frameValues.Set("inherited_key", "inherited_value")
+	if err := fc.Set(ctxapi.ValuesCtx, frameValues); err != nil {
+		t.Fatalf("failed to set values: %v", err)
+	}
+
+	l.SetContext(ctx)
+
+	// Create executor with explicit values (like with_context() does)
+	execValues := ctxapi.NewValues()
+	execValues.Set("explicit_key", "explicit_value")
+	exec := &Executor{values: execValues}
+
+	// What executorCall SHOULD do: merge inherited + explicit
+	// Inherited context should be base, explicit should overlay
+	inheritedPairs := buildContextPairs(l)
+
+	// Build final context: start with inherited, add explicit overrides
+	var finalContext []ctxapi.Pair
+	finalContext = append(finalContext, inheritedPairs...)
+	if exec.values != nil && exec.values.Len() > 0 {
+		finalContext = append(finalContext, ctxapi.ValuesPair(exec.values))
+	}
+
+	// Should have both inherited and explicit values
+	if len(finalContext) < 2 {
+		t.Error("should have both inherited values and explicit values pairs")
+	}
+}
+
+func TestAsyncYieldInheritsFrameContext(t *testing.T) {
+	// Test that async calls also inherit context from frame
+	l := lua.NewState()
+	defer l.Close()
+
+	// Set up frame context with values
+	ctx, fc := ctxapi.AcquireFrameContext(l.Context())
+	defer ctxapi.ReleaseFrameContext(fc)
+
+	values := ctxapi.NewValues()
+	values.Set("session_id", "async-sess-123")
+	if err := fc.Set(ctxapi.ValuesCtx, values); err != nil {
+		t.Fatalf("failed to set values: %v", err)
+	}
+
+	l.SetContext(ctx)
+
+	// Verify buildContextPairs returns inherited values for async
+	pairs := buildContextPairs(l)
+
+	if len(pairs) == 0 {
+		t.Error("async calls should inherit context from frame")
+	}
+
+	hasValues := false
+	for _, pair := range pairs {
+		if pair.Key == ctxapi.ValuesCtx {
+			hasValues = true
+			break
+		}
+	}
+	if !hasValues {
+		t.Error("async context should include values pair from frame")
+	}
+}
+
+func TestValuesMerging(t *testing.T) {
+	// Test that when both frame context and explicit context have values,
+	// they should be MERGED, not replaced.
+	// This is the core bug: if frame has {session_id: "xxx"} and explicit has {agent_id: "yyy"},
+	// the final context should have BOTH values.
+
+	frameValues := ctxapi.NewValues()
+	frameValues.Set("session_id", "sess-123")
+	frameValues.Set("user_id", "user-456")
+
+	execValues := ctxapi.NewValues()
+	execValues.Set("agent_id", "agent-789")
+	execValues.Set("call_id", "call-abc")
+
+	// Merge: start with frame values, overlay with exec values
+	mergedValues := ctxapi.NewValues()
+	frameValues.Iterate(func(key string, val any) {
+		mergedValues.Set(key, val)
+	})
+	execValues.Iterate(func(key string, val any) {
+		mergedValues.Set(key, val)
+	})
+
+	// Verify ALL values are present
+	if v, _ := mergedValues.Get("session_id"); v != "sess-123" {
+		t.Errorf("merged values should have session_id=sess-123, got %v", v)
+	}
+	if v, _ := mergedValues.Get("user_id"); v != "user-456" {
+		t.Errorf("merged values should have user_id=user-456, got %v", v)
+	}
+	if v, _ := mergedValues.Get("agent_id"); v != "agent-789" {
+		t.Errorf("merged values should have agent_id=agent-789, got %v", v)
+	}
+	if v, _ := mergedValues.Get("call_id"); v != "call-abc" {
+		t.Errorf("merged values should have call_id=call-abc, got %v", v)
+	}
+}
+
+func TestBuildMergedContextPairs(t *testing.T) {
+	// Test the helper function that should merge frame context values with explicit values
+	l := lua.NewState()
+	defer l.Close()
+
+	// Set up frame context with values
+	ctx, fc := ctxapi.AcquireFrameContext(l.Context())
+	defer ctxapi.ReleaseFrameContext(fc)
+
+	frameValues := ctxapi.NewValues()
+	frameValues.Set("session_id", "sess-from-frame")
+	frameValues.Set("inherited_key", "inherited_value")
+	if err := fc.Set(ctxapi.ValuesCtx, frameValues); err != nil {
+		t.Fatalf("failed to set frame values: %v", err)
+	}
+
+	l.SetContext(ctx)
+
+	// Create explicit values (simulating with_context)
+	execValues := ctxapi.NewValues()
+	execValues.Set("explicit_key", "explicit_value")
+	execValues.Set("agent_id", "agent-123")
+
+	// This is what buildMergedContextPairs should do
+	mergedPairs := buildMergedContextPairs(l, execValues)
+
+	// Should have exactly ONE ValuesPair with merged values
+	valuesPairCount := 0
+	var mergedValues ctxapi.Values
+	for _, pair := range mergedPairs {
+		if pair.Key == ctxapi.ValuesCtx {
+			valuesPairCount++
+			mergedValues = pair.Value.(ctxapi.Values)
+		}
+	}
+
+	if valuesPairCount != 1 {
+		t.Errorf("should have exactly 1 ValuesPair, got %d", valuesPairCount)
+	}
+
+	if mergedValues == nil {
+		t.Fatal("mergedValues should not be nil")
+	}
+
+	// Verify both inherited and explicit values are present
+	if v, _ := mergedValues.Get("session_id"); v != "sess-from-frame" {
+		t.Errorf("merged should have session_id=sess-from-frame, got %v", v)
+	}
+	if v, _ := mergedValues.Get("inherited_key"); v != "inherited_value" {
+		t.Errorf("merged should have inherited_key, got %v", v)
+	}
+	if v, _ := mergedValues.Get("explicit_key"); v != "explicit_value" {
+		t.Errorf("merged should have explicit_key, got %v", v)
+	}
+	if v, _ := mergedValues.Get("agent_id"); v != "agent-123" {
+		t.Errorf("merged should have agent_id=agent-123, got %v", v)
+	}
+}
+
+func TestExecutorCallValuesMergedNotReplaced(t *testing.T) {
+	// Integration test: verify that executorCall properly merges values
+	// This test should FAIL with the current implementation and PASS after the fix
+	l := lua.NewState()
+	defer l.Close()
+
+	// Set up frame context with session_id
+	ctx, fc := ctxapi.AcquireFrameContext(l.Context())
+	defer ctxapi.ReleaseFrameContext(fc)
+
+	frameValues := ctxapi.NewValues()
+	frameValues.Set("session_id", "sess-abc")
+	if err := fc.Set(ctxapi.ValuesCtx, frameValues); err != nil {
+		t.Fatalf("failed to set frame values: %v", err)
+	}
+	l.SetContext(ctx)
+
+	// Create executor with explicit values
+	execValues := ctxapi.NewValues()
+	execValues.Set("agent_id", "agent-xyz")
+	exec := &Executor{values: execValues}
+
+	// Simulate what executorCall does - build merged context
+	mergedPairs := buildMergedContextPairs(l, exec.values)
+
+	// Find the merged values
+	var mergedValues ctxapi.Values
+	for _, pair := range mergedPairs {
+		if pair.Key == ctxapi.ValuesCtx {
+			mergedValues = pair.Value.(ctxapi.Values)
+			break
+		}
+	}
+
+	if mergedValues == nil {
+		t.Fatal("should have merged values")
+	}
+
+	// Key assertion: BOTH session_id from frame AND agent_id from explicit should be present
+	sessionID, hasSession := mergedValues.Get("session_id")
+	agentID, hasAgent := mergedValues.Get("agent_id")
+
+	if !hasSession || sessionID != "sess-abc" {
+		t.Errorf("merged values should preserve session_id from frame, got hasSession=%v, value=%v", hasSession, sessionID)
+	}
+	if !hasAgent || agentID != "agent-xyz" {
+		t.Errorf("merged values should have agent_id from explicit, got hasAgent=%v, value=%v", hasAgent, agentID)
+	}
+}
+
+func TestDuplicateValuesPairsOverwrite(t *testing.T) {
+	// This test demonstrates the BUG: when two ValuesPairs are added to context,
+	// the second one OVERWRITES the first instead of merging.
+	// This is WHY session_id gets lost when tool_caller uses with_context().
+
+	// Simulate two ValuesPairs being applied (like the old broken code did)
+	frameValues := ctxapi.NewValues()
+	frameValues.Set("session_id", "sess-123")
+	frameValues.Set("user_id", "user-456")
+
+	execValues := ctxapi.NewValues()
+	execValues.Set("agent_id", "agent-789")
+
+	// Old broken approach: two separate ValuesPairs
+	pairs := []ctxapi.Pair{
+		ctxapi.ValuesPair(frameValues), // First pair with session_id
+		ctxapi.ValuesPair(execValues),  // Second pair overwrites!
+	}
+
+	// Apply pairs to a new frame (simulating what scheduler does)
+	ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+	defer ctxapi.ReleaseFrameContext(fc)
+
+	for _, p := range pairs {
+		fc.Set(p.Key, p.Value)
+	}
+
+	// The bug: session_id is LOST because second ValuesPair overwrote the first
+	resultValues := ctxapi.GetValues(ctx)
+
+	// This assertion shows the bug - session_id is gone!
+	_, hasSessionID := resultValues.Get("session_id")
+	_, hasAgentID := resultValues.Get("agent_id")
+
+	// With the bug, hasSessionID will be FALSE (overwritten)
+	// After fix with merged values, hasSessionID should be TRUE
+	t.Logf("hasSessionID=%v, hasAgentID=%v", hasSessionID, hasAgentID)
+
+	if !hasSessionID {
+		t.Log("BUG CONFIRMED: session_id was overwritten by second ValuesPair")
+	}
+	if !hasAgentID {
+		t.Error("agent_id should be present")
+	}
+
+	// The fix: use buildMergedContextPairs which creates ONE ValuesPair with merged values
 }

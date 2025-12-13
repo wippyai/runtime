@@ -7,11 +7,31 @@ import (
 	"time"
 
 	clockapi "github.com/wippyai/runtime/api/clock"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/relay"
 )
 
 type testReceiver struct {
 	fn func(data any, err error)
+}
+
+type mockNode struct{}
+
+func (m *mockNode) Send(_ *relay.Package) error                     { return nil }
+func (m *mockNode) ID() relay.NodeID                                { return "" }
+func (m *mockNode) RegisterHost(_ relay.HostID, _ relay.Host) error { return nil }
+func (m *mockNode) UnregisterHost(_ relay.HostID)                   {}
+func (m *mockNode) GetHost(_ relay.HostID) (relay.Host, bool)       { return nil, false }
+func (m *mockNode) Attach(_ relay.PID, _ chan *relay.Package) (context.CancelFunc, error) {
+	return func() {}, nil
+}
+func (m *mockNode) Detach(_ relay.PID) {}
+
+func setupTestContext() context.Context {
+	appCtx := ctxapi.NewAppContext()
+	ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+	return relay.WithNode(ctx, &mockNode{})
 }
 
 func (r *testReceiver) CompleteYield(_ uint64, data any, err error) {

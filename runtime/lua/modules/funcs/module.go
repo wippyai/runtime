@@ -280,14 +280,15 @@ func executorCall(l *lua.LState) int {
 		Payloads: payloads,
 	}
 
+	// Build context with merged values (frame values + explicit values in one ValuesPair)
+	yield.Task.Context = buildMergedContextPairs(l, exec.values)
+
+	// Overlay with explicit actor/scope if set (these take precedence over inherited)
 	if exec.hasActor {
 		yield.Task.Context = append(yield.Task.Context, secapi.ActorPair(exec.actor))
 	}
 	if exec.hasScope {
 		yield.Task.Context = append(yield.Task.Context, secapi.ScopePair(exec.scope))
-	}
-	if exec.values != nil && exec.values.Len() > 0 {
-		yield.Task.Context = append(yield.Task.Context, contextapi.ValuesPair(exec.values))
 	}
 
 	if exec.hasOptions {
@@ -327,19 +328,17 @@ func executorAsync(l *lua.LState) int {
 		payloads = append(payloads, luaconv.ExportPayload(l.Get(i)))
 	}
 
-	yield, retCount := setupAsyncYield(l, regID, payloads)
+	yield, retCount := setupAsyncYieldWithValues(l, regID, payloads, exec.values)
 	if retCount != 0 {
 		return retCount
 	}
 
+	// Overlay with explicit actor/scope if set (these take precedence over inherited)
 	if exec.hasActor {
 		yield.Task.Context = append(yield.Task.Context, secapi.ActorPair(exec.actor))
 	}
 	if exec.hasScope {
 		yield.Task.Context = append(yield.Task.Context, secapi.ScopePair(exec.scope))
-	}
-	if exec.values != nil && exec.values.Len() > 0 {
-		yield.Task.Context = append(yield.Task.Context, contextapi.ValuesPair(exec.values))
 	}
 
 	if exec.hasOptions {
@@ -418,6 +417,11 @@ func async(l *lua.LState) int {
 
 // setupAsyncYield creates the async yield with topic, channel, and future.
 func setupAsyncYield(l *lua.LState, regID registry.ID, payloads []payload.Payload) (*AsyncStartYield, int) {
+	return setupAsyncYieldWithValues(l, regID, payloads, nil)
+}
+
+// setupAsyncYieldWithValues creates the async yield with merged context values.
+func setupAsyncYieldWithValues(l *lua.LState, regID registry.ID, payloads []payload.Payload, explicitValues contextapi.Values) (*AsyncStartYield, int) {
 	proc := engine.GetProcess(l)
 	if proc == nil {
 		luaErr := lua.NewLuaError(l, "no process context").
@@ -446,7 +450,7 @@ func setupAsyncYield(l *lua.LState, regID registry.ID, payloads []payload.Payloa
 	yield.Task = runtime.Task{
 		ID:       regID,
 		Payloads: payloads,
-		Context:  buildContextPairs(l),
+		Context:  buildMergedContextPairs(l, explicitValues),
 	}
 	yield.AsyncStartCmd.Topic = topic
 	yield.Future = f
@@ -520,5 +524,53 @@ func buildContextPairs(l *lua.LState) []contextapi.Pair {
 	if values := contextapi.GetValues(ctx); values != nil && values.Len() > 0 {
 		pairs = append(pairs, contextapi.ValuesPair(values))
 	}
+	return pairs
+}
+
+// buildMergedContextPairs extracts context pairs from the Lua state's frame context
+// and merges them with explicit values, ensuring only ONE ValuesPair with merged values.
+// This prevents the second ValuesPair from overwriting the first when context pairs are applied.
+func buildMergedContextPairs(l *lua.LState, explicitValues contextapi.Values) []contextapi.Pair {
+	ctx := l.Context()
+	if ctx == nil && (explicitValues == nil || explicitValues.Len() == 0) {
+		return nil
+	}
+
+	var pairs []contextapi.Pair
+
+	// Add actor and scope from frame context
+	if ctx != nil {
+		if actor, ok := secapi.GetActor(ctx); ok {
+			pairs = append(pairs, secapi.ActorPair(actor))
+		}
+		if scope, ok := secapi.GetScope(ctx); ok {
+			pairs = append(pairs, secapi.ScopePair(scope))
+		}
+	}
+
+	// Merge values: frame values first, then explicit values (explicit takes precedence)
+	var mergedValues contextapi.Values
+	frameValues := contextapi.GetValues(ctx)
+
+	if (frameValues != nil && frameValues.Len() > 0) || (explicitValues != nil && explicitValues.Len() > 0) {
+		mergedValues = contextapi.NewValues()
+
+		// First, copy all frame values
+		if frameValues != nil {
+			frameValues.Iterate(func(key string, val any) {
+				mergedValues.Set(key, val)
+			})
+		}
+
+		// Then overlay explicit values (these take precedence for conflicts)
+		if explicitValues != nil {
+			explicitValues.Iterate(func(key string, val any) {
+				mergedValues.Set(key, val)
+			})
+		}
+
+		pairs = append(pairs, contextapi.ValuesPair(mergedValues))
+	}
+
 	return pairs
 }

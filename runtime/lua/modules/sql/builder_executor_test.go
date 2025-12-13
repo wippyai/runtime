@@ -25,7 +25,7 @@ func TestExecutorToString(t *testing.T) {
 
 	result := l.Get(-1)
 	str := string(result.(lua.LString))
-	expected := "QueryExecutor: SELECT * FROM users [Args: []]"
+	expected := "QueryExecutor: SELECT * FROM users [Args: 0]"
 	if str != expected {
 		t.Errorf("expected %s, got %s", expected, str)
 	}

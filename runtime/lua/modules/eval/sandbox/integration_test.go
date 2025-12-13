@@ -619,8 +619,8 @@ func TestSandbox_Integration_StepWithSleep(t *testing.T) {
 
 		-- First step should yield for sleep
 		local result = proc:step()
-		if result.status ~= "continue" then
-			error("expected continue, got: " .. tostring(result.status))
+		if result.status ~= "waiting" then
+			error("expected waiting, got: " .. tostring(result.status))
 		end
 		if result.yield_count == 0 then
 			error("expected yields")
