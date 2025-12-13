@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"go.uber.org/zap"
 )
@@ -12,13 +13,13 @@ func TestPIDRegistry_Register(t *testing.T) {
 	reg := NewPIDRegistry(WithLogger(zap.NewNop()))
 
 	// Create test PIDs
-	pid1 := relay.PID{
+	pid1 := pid.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",
 	}
 
-	pid2 := relay.PID{
+	pid2 := pid.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq2",
@@ -48,7 +49,7 @@ func TestPIDRegistry_Register(t *testing.T) {
 func TestPIDRegistry_Lookup(t *testing.T) {
 	reg := NewPIDRegistry(WithLogger(zap.NewNop()))
 
-	pid := relay.PID{
+	pid := pid.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",
@@ -71,7 +72,7 @@ func TestPIDRegistry_Lookup(t *testing.T) {
 func TestPIDRegistry_Unregister(t *testing.T) {
 	reg := NewPIDRegistry(WithLogger(zap.NewNop()))
 
-	pid := relay.PID{
+	pid := pid.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",
@@ -104,13 +105,13 @@ func TestPIDRegistry_WithParent(t *testing.T) {
 	childReg := NewPIDRegistry(WithParent(parentReg), WithLogger(logger))
 
 	// Create test PIDs
-	parentPID := relay.PID{
+	parentPID := pid.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",
 	}
 
-	childPID := relay.PID{
+	childPID := pid.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq2",
@@ -149,11 +150,11 @@ func TestPIDRegistry_ThreadSafety(t *testing.T) {
 	const numRoutines = 100
 
 	// Create a bunch of unique PIDs and names
-	pids := make([]relay.PID, numRoutines)
+	pids := make([]pid.PID, numRoutines)
 	names := make([]string, numRoutines)
 
 	for i := 0; i < numRoutines; i++ {
-		pids[i] = relay.PID{
+		pids[i] = pid.PID{
 			Node:   "node1",
 			Host:   "host1",
 			UniqID: "uniq" + string(rune(i)),
@@ -221,7 +222,7 @@ func TestPIDRegistry_ThreadSafety(t *testing.T) {
 func TestPIDRegistry_Remove(t *testing.T) {
 	reg := NewPIDRegistry(WithLogger(zap.NewNop()))
 
-	pid := relay.PID{Node: "node1", Host: "host1", UniqID: "uniq1"}
+	pid := pid.PID{Node: "node1", Host: "host1", UniqID: "uniq1"}
 
 	// Register multiple names for the same PID
 	_ = reg.Register("name1", pid)
@@ -252,7 +253,7 @@ func TestPIDRegistry_RemoveWithParent(t *testing.T) {
 	parent := NewPIDRegistry(WithLogger(zap.NewNop()))
 	child := NewPIDRegistry(WithParent(parent), WithLogger(zap.NewNop()))
 
-	pid := relay.PID{Node: "node1", Host: "host1", UniqID: "uniq1"}
+	pid := pid.PID{Node: "node1", Host: "host1", UniqID: "uniq1"}
 
 	// Register in both
 	_ = parent.Register("parent-name", pid)

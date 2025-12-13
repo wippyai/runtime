@@ -1,225 +1,20 @@
-// Package websocket provides WebSocket command handlers for the dispatcher system.
 package websocket
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"sync"
-	"sync/atomic"
-	"time"
 
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
-	"github.com/wippyai/runtime/api/runtime/resource"
+	wssvc "github.com/wippyai/runtime/api/service/websocket"
 	wsapi "github.com/wippyai/runtime/api/websocket"
 
 	"github.com/coder/websocket"
+	"go.uber.org/zap"
 )
-
-// TypeWsConn is the type ID for WebSocket connections in the resource table.
-const TypeWsConn uint32 = 0x20
-
-// TopicWsMessage is the relay topic for WebSocket messages delivered via subscription.
-const TopicWsMessage relay.Topic = "ws.message"
-
-// registryKey is the FrameContext key for caching the websocket Registry.
-var registryKey = &ctxapi.Key{Name: "websocket.registry", Inherit: false}
-
-// Errors
-var (
-	ErrConnNotFound = errors.New("websocket connection not found")
-	ErrConnClosed   = errors.New("websocket connection closed")
-)
-
-// connEntry holds an active WebSocket connection with its message channel.
-type connEntry struct {
-	conn        *websocket.Conn
-	msgCh       chan wsapi.WsMessage
-	ctx         context.Context
-	cancel      context.CancelFunc
-	closed      atomic.Bool
-	closeOnce   sync.Once
-	readTimeout time.Duration
-}
-
-// Drop implements resource.Dropper for automatic cleanup.
-func (e *connEntry) Drop() {
-	e.Close(websocket.StatusGoingAway, "resource dropped")
-}
-
-// Close closes the connection and stops the read loop.
-func (e *connEntry) Close(code websocket.StatusCode, reason string) {
-	e.closeOnce.Do(func() {
-		e.closed.Store(true)
-		e.cancel()
-		_ = e.conn.Close(code, reason)
-	})
-}
-
-// readLoop continuously reads messages from the websocket and sends to channel.
-func (e *connEntry) readLoop() {
-	defer func() {
-		close(e.msgCh)
-		e.Close(websocket.StatusGoingAway, "read loop ended")
-	}()
-
-	for {
-		select {
-		case <-e.ctx.Done():
-			return
-		default:
-		}
-
-		// Use read timeout if configured
-		readCtx := e.ctx
-		var cancel context.CancelFunc
-		if e.readTimeout > 0 {
-			readCtx, cancel = context.WithTimeout(e.ctx, e.readTimeout)
-		}
-
-		msgType, data, err := e.conn.Read(readCtx)
-
-		if cancel != nil {
-			cancel()
-		}
-
-		if err != nil {
-			closeStatus := websocket.CloseStatus(err)
-			if closeStatus >= 0 || e.ctx.Err() != nil {
-				select {
-				case e.msgCh <- wsapi.WsMessage{EOF: true}:
-				case <-e.ctx.Done():
-				}
-			}
-			return
-		}
-
-		mt := wsapi.MessageText
-		if msgType == websocket.MessageBinary {
-			mt = wsapi.MessageBinary
-		}
-
-		msg := wsapi.WsMessage{
-			Data:        data,
-			MessageType: mt,
-			EOF:         false,
-		}
-
-		select {
-		case e.msgCh <- msg:
-		case <-e.ctx.Done():
-			return
-		}
-	}
-}
-
-// Registry manages active WebSocket connections using the resource table.
-type Registry struct {
-	conns *resource.TypedTable[*connEntry]
-}
-
-// NewRegistry creates a WebSocket registry backed by the given table.
-func NewRegistry(table *resource.Table) *Registry {
-	return &Registry{
-		conns: resource.NewTypedTable[*connEntry](table, TypeWsConn),
-	}
-}
-
-// Register adds a connection to the registry and starts the read loop.
-func (r *Registry) Register(ctx context.Context, conn *websocket.Conn, bufferSize int, readTimeout time.Duration) uint64 {
-	if bufferSize <= 0 {
-		bufferSize = 16
-	}
-
-	connCtx, cancel := context.WithCancel(ctx)
-	entry := &connEntry{
-		conn:        conn,
-		msgCh:       make(chan wsapi.WsMessage, bufferSize),
-		ctx:         connCtx,
-		cancel:      cancel,
-		readTimeout: readTimeout,
-	}
-
-	go entry.readLoop()
-
-	handle := r.conns.Insert(entry)
-	return uint64(handle)
-}
-
-// Get returns a connection entry by ID.
-func (r *Registry) Get(id uint64) (*connEntry, error) { //nolint:revive // internal use only
-	entry, ok := r.conns.Get(resource.Handle(id))
-	if !ok {
-		return nil, ErrConnNotFound
-	}
-	if entry.closed.Load() {
-		return nil, ErrConnClosed
-	}
-	return entry, nil
-}
-
-// GetMessageChan returns the message channel for the given connection ID.
-func (r *Registry) GetMessageChan(id uint64) (<-chan wsapi.WsMessage, error) {
-	entry, err := r.Get(id)
-	if err != nil {
-		return nil, err
-	}
-	return entry.msgCh, nil
-}
-
-// Close closes a connection with a custom close code.
-func (r *Registry) Close(id uint64, code int, reason string) error {
-	entry, ok := r.conns.Get(resource.Handle(id))
-	if !ok {
-		return ErrConnNotFound
-	}
-
-	statusCode := websocket.StatusNormalClosure
-	if code > 0 {
-		statusCode = websocket.StatusCode(code)
-	}
-
-	entry.Close(statusCode, reason)
-	r.conns.Remove(resource.Handle(id))
-	return nil
-}
-
-// GetRegistry returns a Registry backed by the Table from context.
-func GetRegistry(ctx context.Context) *Registry {
-	fc := ctxapi.FrameFromContext(ctx)
-	if fc == nil {
-		table := resource.GetTable(ctx)
-		if table == nil {
-			return nil
-		}
-		return NewRegistry(table)
-	}
-
-	if val, ok := fc.Get(registryKey); ok {
-		return val.(*Registry)
-	}
-
-	table := resource.GetTable(ctx)
-	if table == nil {
-		return nil
-	}
-	reg := NewRegistry(table)
-	_ = fc.Set(registryKey, reg)
-	return reg
-}
-
-// GetOrCreateRegistry returns a Registry for the context.
-func GetOrCreateRegistry(ctx context.Context) *Registry {
-	registry := GetRegistry(ctx)
-	if registry == nil {
-		panic("websocket: no resource.Store in context - engine must set it during initialization")
-	}
-	return registry
-}
 
 // Dispatcher handles WebSocket commands via async worker pool.
 type Dispatcher struct {
@@ -228,6 +23,7 @@ type Dispatcher struct {
 	wg      sync.WaitGroup
 	ctx     context.Context
 	cancel  context.CancelFunc
+	log     *zap.Logger
 }
 
 type job struct {
@@ -237,12 +33,35 @@ type job struct {
 	receiver dispatcher.ResultReceiver
 }
 
-// NewDispatcher creates a WebSocket dispatcher with the specified worker count.
-func NewDispatcher(workers int) *Dispatcher {
-	if workers <= 0 {
-		workers = 4
+// Option configures a Dispatcher.
+type Option func(*Dispatcher)
+
+// WithWorkers sets the number of worker goroutines.
+func WithWorkers(n int) Option {
+	return func(d *Dispatcher) {
+		if n > 0 {
+			d.workers = n
+		}
 	}
-	return &Dispatcher{workers: workers}
+}
+
+// WithLogger sets the logger for the dispatcher.
+func WithLogger(log *zap.Logger) Option {
+	return func(d *Dispatcher) {
+		d.log = log
+	}
+}
+
+// NewDispatcher creates a WebSocket dispatcher with default 4 workers.
+func NewDispatcher(opts ...Option) *Dispatcher {
+	d := &Dispatcher{workers: 4}
+	for _, opt := range opts {
+		opt(d)
+	}
+	if d.log == nil {
+		d.log = zap.NewNop()
+	}
+	return d
 }
 
 // Start initializes the worker pool.
@@ -306,6 +125,10 @@ func (d *Dispatcher) executeConnect(ctx context.Context, cmd wsapi.WsConnectCmd,
 		}
 	}
 
+	if len(cmd.Protocols) > 0 {
+		opts.Subprotocols = cmd.Protocols
+	}
+
 	switch cmd.CompressionMode {
 	case wsapi.CompressionContextTakeover:
 		opts.CompressionMode = websocket.CompressionContextTakeover
@@ -327,33 +150,32 @@ func (d *Dispatcher) executeConnect(ctx context.Context, cmd wsapi.WsConnectCmd,
 
 	conn, resp, err := websocket.Dial(dialCtx, cmd.URL, opts)
 	if resp != nil && resp.Body != nil {
-		_ = resp.Body.Close()
+		resp.Body.Close()
 	}
 	if err != nil {
-		receiver.CompleteYield(tag, nil, err)
+		receiver.CompleteYield(tag, nil, wssvc.NewDialError(cmd.URL, err))
 		return
 	}
 
-	// Default 16MB message limit, apply user limit if specified
 	readLimit := int64(16 * 1024 * 1024)
 	if cmd.ReadLimit > 0 {
 		readLimit = cmd.ReadLimit
 	}
 	conn.SetReadLimit(readLimit)
 
-	registry := GetOrCreateRegistry(ctx)
-	id := registry.Register(ctx, conn, 16, cmd.ReadTimeout)
+	registry := MustGetRegistry(ctx)
+	id := registry.Register(ctx, conn, cmd.ChannelCapacity, cmd.ReadTimeout)
 	receiver.CompleteYield(tag, id, nil)
 }
 
 func (d *Dispatcher) executeSend(ctx context.Context, cmd wsapi.WsSendCmd, tag uint64, receiver dispatcher.ResultReceiver) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
-		receiver.CompleteYield(tag, nil, errors.New("no websocket registry"))
+		receiver.CompleteYield(tag, nil, wssvc.NewNoRegistryError())
 		return
 	}
 
-	entry, err := registry.Get(cmd.ConnID)
+	entry, err := registry.get(cmd.ConnID)
 	if err != nil {
 		receiver.CompleteYield(tag, nil, err)
 		return
@@ -365,7 +187,7 @@ func (d *Dispatcher) executeSend(ctx context.Context, cmd wsapi.WsSendCmd, tag u
 	}
 
 	if err := entry.conn.Write(ctx, msgType, cmd.Data); err != nil {
-		receiver.CompleteYield(tag, nil, err)
+		receiver.CompleteYield(tag, nil, wssvc.NewSendError(cmd.ConnID, err))
 		return
 	}
 	receiver.CompleteYield(tag, nil, nil)
@@ -374,7 +196,7 @@ func (d *Dispatcher) executeSend(ctx context.Context, cmd wsapi.WsSendCmd, tag u
 func (d *Dispatcher) executeReceive(ctx context.Context, cmd wsapi.WsReceiveCmd, tag uint64, receiver dispatcher.ResultReceiver) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
-		receiver.CompleteYield(tag, nil, errors.New("no websocket registry"))
+		receiver.CompleteYield(tag, nil, wssvc.NewNoRegistryError())
 		return
 	}
 
@@ -392,15 +214,14 @@ func (d *Dispatcher) executeReceive(ctx context.Context, cmd wsapi.WsReceiveCmd,
 		}
 		receiver.CompleteYield(tag, msg, nil)
 	case <-ctx.Done():
-		receiver.CompleteYield(tag, nil, ctx.Err())
-		return
+		receiver.CompleteYield(tag, nil, wssvc.NewReceiveError(cmd.ConnID, ctx.Err()))
 	}
 }
 
 func (d *Dispatcher) executeClose(ctx context.Context, cmd wsapi.WsCloseCmd, tag uint64, receiver dispatcher.ResultReceiver) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
-		receiver.CompleteYield(tag, nil, errors.New("no websocket registry"))
+		receiver.CompleteYield(tag, nil, wssvc.NewNoRegistryError())
 		return
 	}
 
@@ -414,18 +235,18 @@ func (d *Dispatcher) executeClose(ctx context.Context, cmd wsapi.WsCloseCmd, tag
 func (d *Dispatcher) executePing(ctx context.Context, cmd wsapi.WsPingCmd, tag uint64, receiver dispatcher.ResultReceiver) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
-		receiver.CompleteYield(tag, nil, errors.New("no websocket registry"))
+		receiver.CompleteYield(tag, nil, wssvc.NewNoRegistryError())
 		return
 	}
 
-	entry, err := registry.Get(cmd.ConnID)
+	entry, err := registry.get(cmd.ConnID)
 	if err != nil {
 		receiver.CompleteYield(tag, nil, err)
 		return
 	}
 
 	if err := entry.conn.Ping(ctx); err != nil {
-		receiver.CompleteYield(tag, nil, err)
+		receiver.CompleteYield(tag, nil, wssvc.NewPingError(cmd.ConnID, err))
 		return
 	}
 	receiver.CompleteYield(tag, nil, nil)
@@ -434,11 +255,11 @@ func (d *Dispatcher) executePing(ctx context.Context, cmd wsapi.WsPingCmd, tag u
 func (d *Dispatcher) executeSubscribe(ctx context.Context, cmd wsapi.WsSubscribeCmd, tag uint64, receiver dispatcher.ResultReceiver) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
-		receiver.CompleteYield(tag, nil, errors.New("no websocket registry"))
+		receiver.CompleteYield(tag, nil, wssvc.NewNoRegistryError())
 		return
 	}
 
-	entry, err := registry.Get(cmd.ConnID)
+	entry, err := registry.get(cmd.ConnID)
 	if err != nil {
 		receiver.CompleteYield(tag, nil, err)
 		return
@@ -446,29 +267,35 @@ func (d *Dispatcher) executeSubscribe(ctx context.Context, cmd wsapi.WsSubscribe
 
 	node := relay.GetNode(ctx)
 	if node == nil {
-		receiver.CompleteYield(tag, nil, errors.New("no relay node"))
+		receiver.CompleteYield(tag, nil, wssvc.NewNoRelayNodeError())
 		return
 	}
 
-	// Use PID and topic from command
 	pidVal := cmd.PID
 	topic := cmd.Topic
+	log := d.log
 
 	go func() {
 		for {
 			select {
 			case msg, ok := <-entry.msgCh:
 				if !ok {
-					// Channel closed - send terminal to close subscriber channel
 					pkg := relay.NewPackage(pid.PID{}, pidVal, topic, payload.NewTerminal())
-					_ = node.Send(pkg)
+					if err := node.Send(pkg); err != nil {
+						log.Debug("failed to send terminal on channel close",
+							zap.Uint64("conn_id", cmd.ConnID),
+							zap.Error(err))
+					}
 					return
 				}
 
 				if msg.EOF {
-					// EOF received - send terminal to close subscriber channel
 					pkg := relay.NewPackage(pid.PID{}, pidVal, topic, payload.NewTerminal())
-					_ = node.Send(pkg)
+					if err := node.Send(pkg); err != nil {
+						log.Debug("failed to send terminal on EOF",
+							zap.Uint64("conn_id", cmd.ConnID),
+							zap.Error(err))
+					}
 					return
 				}
 
@@ -478,14 +305,20 @@ func (d *Dispatcher) executeSubscribe(ctx context.Context, cmd wsapi.WsSubscribe
 				}
 
 				pkg := relay.NewPackage(pid.PID{}, pidVal, topic, p)
-				_ = node.Send(pkg)
+				if err := node.Send(pkg); err != nil {
+					log.Debug("failed to relay message",
+						zap.Uint64("conn_id", cmd.ConnID),
+						zap.Error(err))
+				}
 			case <-ctx.Done():
-				// Request context canceled - process finished, stop forwarding
 				return
 			case <-entry.ctx.Done():
-				// Connection closed - send terminal to close subscriber channel
 				pkg := relay.NewPackage(pid.PID{}, pidVal, topic, payload.NewTerminal())
-				_ = node.Send(pkg)
+				if err := node.Send(pkg); err != nil {
+					log.Debug("failed to send terminal on connection close",
+						zap.Uint64("conn_id", cmd.ConnID),
+						zap.Error(err))
+				}
 				return
 			}
 		}

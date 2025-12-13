@@ -6,7 +6,7 @@ import (
 	stdtime "time"
 
 	clockapi "github.com/wippyai/runtime/api/clock"
-	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -84,17 +84,17 @@ func TestSleepYieldPoolConcurrent(t *testing.T) {
 
 func TestTimerStartYieldPool(t *testing.T) {
 	ch := engine.NewChannel(1)
-	pid := relay.PID{}
+	p := pid.PID{}
 	topic := "timer-test"
 
-	y1 := acquireTimerStartYield(stdtime.Second, ch, pid, topic)
+	y1 := acquireTimerStartYield(stdtime.Second, ch, p, topic)
 	if y1.Duration != stdtime.Second {
 		t.Errorf("expected Duration=%v, got %v", stdtime.Second, y1.Duration)
 	}
 
 	ReleaseTimerStartYield(y1)
 
-	y2 := acquireTimerStartYield(stdtime.Millisecond, ch, pid, topic)
+	y2 := acquireTimerStartYield(stdtime.Millisecond, ch, p, topic)
 	if y2.Duration != stdtime.Millisecond {
 		t.Errorf("expected Duration=%v, got %v", stdtime.Millisecond, y2.Duration)
 	}
@@ -103,10 +103,10 @@ func TestTimerStartYieldPool(t *testing.T) {
 
 func TestTimerStartYieldToCommand(t *testing.T) {
 	ch := engine.NewChannel(1)
-	pid := relay.PID{}
+	p := pid.PID{}
 	topic := "timer-test-topic"
 
-	y := acquireTimerStartYield(50*stdtime.Millisecond, ch, pid, topic)
+	y := acquireTimerStartYield(50*stdtime.Millisecond, ch, p, topic)
 	defer ReleaseTimerStartYield(y)
 
 	cmd := y.ToCommand()
@@ -194,17 +194,17 @@ func TestTimerResetYieldToCommand(t *testing.T) {
 
 func TestTickerStartYieldPool(t *testing.T) {
 	ch := engine.NewChannel(1)
-	pid := relay.PID{}
+	p := pid.PID{}
 	topic := "test"
 
-	y1 := acquireTickerStartYield(stdtime.Second, ch, pid, topic)
+	y1 := acquireTickerStartYield(stdtime.Second, ch, p, topic)
 	if y1.Duration != stdtime.Second {
 		t.Errorf("expected Duration=%v, got %v", stdtime.Second, y1.Duration)
 	}
 
 	ReleaseTickerStartYield(y1)
 
-	y2 := acquireTickerStartYield(stdtime.Millisecond, ch, pid, topic)
+	y2 := acquireTickerStartYield(stdtime.Millisecond, ch, p, topic)
 	if y2.Duration != stdtime.Millisecond {
 		t.Errorf("expected Duration=%v, got %v", stdtime.Millisecond, y2.Duration)
 	}
@@ -213,10 +213,10 @@ func TestTickerStartYieldPool(t *testing.T) {
 
 func TestTickerStartYieldToCommand(t *testing.T) {
 	ch := engine.NewChannel(1)
-	pid := relay.PID{}
+	p := pid.PID{}
 	topic := "test-topic"
 
-	y := acquireTickerStartYield(100*stdtime.Millisecond, ch, pid, topic)
+	y := acquireTickerStartYield(100*stdtime.Millisecond, ch, p, topic)
 	defer ReleaseTickerStartYield(y)
 
 	cmd := y.ToCommand()

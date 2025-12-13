@@ -9,6 +9,7 @@ import (
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/system/scheduler"
@@ -184,7 +185,7 @@ func TestMultiYieldIndependentCompletion(t *testing.T) {
 	var completed atomic.Bool
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, _ *runtime.Result) {
 			completed.Store(true)
 		},
 	}
@@ -293,7 +294,7 @@ func TestIndexCorrelationBreaks_ActorScheduler(t *testing.T) {
 	var completed atomic.Bool
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, _ *runtime.Result) {
 			completed.Store(true)
 		},
 	}
@@ -409,7 +410,7 @@ func TestStaggeredYields_IndexCollision(t *testing.T) {
 	var completed atomic.Bool
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, _ *runtime.Result) {
 			completed.Store(true)
 		},
 	}
@@ -533,7 +534,7 @@ func TestParallelCoroutines_IndexCorrelation(t *testing.T) {
 	var completed atomic.Bool
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, _ *runtime.Result) {
 			completed.Store(true)
 		},
 	}
@@ -639,7 +640,7 @@ func TestSingleYieldTagPropagation(t *testing.T) {
 	var result *runtime.Result
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, res *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, res *runtime.Result) {
 			result = res
 			completed.Store(true)
 		},
@@ -740,7 +741,7 @@ func TestSequentialYieldTagCorrelation(t *testing.T) {
 	var result *runtime.Result
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, res *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, res *runtime.Result) {
 			result = res
 			completed.Store(true)
 		},
@@ -866,7 +867,7 @@ func TestStaggeredMultiYield(t *testing.T) {
 	var result *runtime.Result
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, res *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, res *runtime.Result) {
 			result = res
 			completed.Store(true)
 		},
@@ -921,7 +922,7 @@ func TestAsyncSingleYieldTagPropagation(t *testing.T) {
 	var result *runtime.Result
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, res *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, res *runtime.Result) {
 			result = res
 			completed.Store(true)
 		},

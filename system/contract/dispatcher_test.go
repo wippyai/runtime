@@ -14,6 +14,7 @@ import (
 	"github.com/wippyai/runtime/api/contract"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
@@ -79,7 +80,7 @@ func TestOpenHandler_NoInstantiator(t *testing.T) {
 
 	require.NoError(t, err)
 	result := <-done
-	assert.ErrorIs(t, result.Error, ErrInstantiatorNotFound)
+	assert.ErrorIs(t, result.Error, contract.ErrInstantiatorNotFound)
 }
 
 func TestOpenHandler_Error(t *testing.T) {
@@ -151,7 +152,7 @@ func TestCallHandler_NilInstance(t *testing.T) {
 
 	require.NoError(t, err)
 	result := <-done
-	assert.ErrorIs(t, result.Error, ErrInstanceNil)
+	assert.ErrorIs(t, result.Error, contract.ErrInstanceNil)
 }
 
 func TestCallHandler_Error(t *testing.T) {
@@ -222,7 +223,7 @@ func TestAsyncCallHandler(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 	frameCtx, _ := ctxapi.OpenFrameContext(ctx)
 
-	testPID := relay.PID{Host: "test", UniqID: "1"}
+	testPID := pid.PID{Host: "test", UniqID: "1"}
 	_ = runtime.SetFramePID(frameCtx, testPID)
 
 	cmd := contract.AcquireAsyncCallCmd()
@@ -268,7 +269,7 @@ func TestAsyncCallHandler_NilInstance(t *testing.T) {
 
 	require.NoError(t, err)
 	result := <-done
-	assert.ErrorIs(t, result.Error, ErrInstanceNil)
+	assert.ErrorIs(t, result.Error, contract.ErrInstanceNil)
 }
 
 func TestAsyncCancelHandler(t *testing.T) {
@@ -278,7 +279,7 @@ func TestAsyncCancelHandler(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 	frameCtx, _ := ctxapi.OpenFrameContext(ctx)
 
-	testPID := relay.PID{Host: "test", UniqID: "1"}
+	testPID := pid.PID{Host: "test", UniqID: "1"}
 	_ = runtime.SetFramePID(frameCtx, testPID)
 
 	cmd := contract.AcquireAsyncCancelCmd()
@@ -313,10 +314,10 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 
 	d.RegisterAll(register)
 
-	assert.True(t, registered[uint16(contract.Open)])
-	assert.True(t, registered[uint16(contract.Call)])
-	assert.True(t, registered[uint16(contract.AsyncCall)])
-	assert.True(t, registered[uint16(contract.AsyncCancel)])
+	assert.True(t, registered[uint16(contract.CmdOpen)])
+	assert.True(t, registered[uint16(contract.CmdCall)])
+	assert.True(t, registered[uint16(contract.CmdAsyncCall)])
+	assert.True(t, registered[uint16(contract.CmdAsyncCancel)])
 }
 
 func TestCallHandler_Stress(t *testing.T) {
@@ -409,7 +410,7 @@ func (m *mockInstantiator) Instantiate(ctx context.Context, bindingID registry.I
 	if m.instantiateFn != nil {
 		return m.instantiateFn(ctx, bindingID, scope)
 	}
-	return nil, ErrInstantiatorNotFound
+	return nil, contract.ErrInstantiatorNotFound
 }
 
 type mockInstance struct {
@@ -426,14 +427,14 @@ func (m *mockInstance) Call(ctx context.Context, method string, input payload.Pa
 	if m.callFn != nil {
 		return m.callFn(ctx, method, input)
 	}
-	return nil, ErrInstanceNil
+	return nil, contract.ErrInstanceNil
 }
 
 type mockRelayNode struct {
 	packages chan *relay.Package
 }
 
-func (m *mockRelayNode) ID() relay.NodeID { return "test" }
+func (m *mockRelayNode) ID() pid.NodeID { return "test" }
 
 func (m *mockRelayNode) Send(pkg *relay.Package) error {
 	if m.packages != nil {
@@ -445,10 +446,10 @@ func (m *mockRelayNode) Send(pkg *relay.Package) error {
 	return nil
 }
 
-func (m *mockRelayNode) RegisterHost(relay.HostID, relay.Receiver) error { return nil }
-func (m *mockRelayNode) UnregisterHost(relay.HostID)                     {}
-func (m *mockRelayNode) GetHost(relay.HostID) (relay.Receiver, bool)     { return nil, false }
-func (m *mockRelayNode) Attach(relay.PID, chan *relay.Package) (context.CancelFunc, error) {
+func (m *mockRelayNode) RegisterHost(pid.HostID, relay.Receiver) error { return nil }
+func (m *mockRelayNode) UnregisterHost(pid.HostID)                     {}
+func (m *mockRelayNode) GetHost(pid.HostID) (relay.Receiver, bool)     { return nil, false }
+func (m *mockRelayNode) Attach(pid.PID, chan *relay.Package) (context.CancelFunc, error) {
 	return func() {}, nil
 }
-func (m *mockRelayNode) Detach(relay.PID) {}
+func (m *mockRelayNode) Detach(pid.PID) {}

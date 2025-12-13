@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 )
 
@@ -52,20 +53,20 @@ type mockNode struct {
 	packages []*relay.Package
 }
 
-func (n *mockNode) ID() relay.NodeID { return "test" }
+func (n *mockNode) ID() pid.NodeID { return "test" }
 
 func (n *mockNode) Send(pkg *relay.Package) error {
 	n.packages = append(n.packages, pkg)
 	return nil
 }
 
-func (n *mockNode) RegisterHost(relay.HostID, relay.Receiver) error { return nil }
-func (n *mockNode) UnregisterHost(relay.HostID)                     {}
-func (n *mockNode) GetHost(relay.HostID) (relay.Receiver, bool)     { return nil, false }
-func (n *mockNode) Attach(relay.PID, chan *relay.Package) (context.CancelFunc, error) {
+func (n *mockNode) RegisterHost(pid.HostID, relay.Receiver) error { return nil }
+func (n *mockNode) UnregisterHost(pid.HostID)                     {}
+func (n *mockNode) GetHost(pid.HostID) (relay.Receiver, bool)     { return nil, false }
+func (n *mockNode) Attach(pid.PID, chan *relay.Package) (context.CancelFunc, error) {
 	return func() {}, nil
 }
-func (n *mockNode) Detach(relay.PID) {}
+func (n *mockNode) Detach(pid.PID) {}
 
 func TestDispatcher_StartStop(t *testing.T) {
 	bus := newMockBus()
@@ -90,7 +91,7 @@ func TestDispatcher_Subscribe(t *testing.T) {
 	defer func() { _ = d.Stop(ctx) }()
 
 	// Subscribe
-	pid := relay.PID{UniqID: "test-1"}
+	p := pid.PID{UniqID: "test-1"}
 	completed := make(chan struct{})
 	var result any
 
@@ -105,7 +106,7 @@ func TestDispatcher_Subscribe(t *testing.T) {
 		System: "test.system",
 		Kind:   "test.kind",
 		Topic:  "events@1",
-		PID:    pid,
+		PID:    p,
 	}
 
 	err = d.handleSubscribe(ctx, cmd, 0, receiver)
@@ -130,10 +131,10 @@ func TestDispatcher_RouteEvent(t *testing.T) {
 	defer func() { _ = d.Stop(ctx) }()
 
 	// Add subscription
-	pid := relay.PID{UniqID: "test-1"}
+	p := pid.PID{UniqID: "test-1"}
 	d.mu.Lock()
 	d.subs["events@1"] = &subscription{
-		pid:    pid,
+		pid:    p,
 		system: "test.*",
 		kind:   "",
 		topic:  "events@1",

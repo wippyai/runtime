@@ -12,8 +12,8 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/internal/uniqid"
 )
@@ -462,7 +462,7 @@ func TestContextFunctions_WithAppContext(t *testing.T) {
 		assert.Nil(t, GetPIDGenerator(ctx2))
 
 		baseGen := uniqid.NewGenerator()
-		gen := uniqid.NewPIDGenerator(baseGen, relay.NodeID("1"))
+		gen := uniqid.NewPIDGenerator(baseGen, pid.NodeID("1"))
 		result := WithPIDGenerator(ctx2, gen)
 		assert.Equal(t, ctx2, result)
 
@@ -501,11 +501,11 @@ func (c *mockCommand) CmdID() dispatcher.CommandID { return c.id }
 
 type mockManager struct{}
 
-func (m *mockManager) Start(_ context.Context, _ *Start) (relay.PID, error) {
-	return relay.PID{}, nil
+func (m *mockManager) Start(_ context.Context, _ *Start) (pid.PID, error) {
+	return pid.PID{}, nil
 }
-func (m *mockManager) Cancel(_ context.Context, _, _ relay.PID, _ time.Time) error { return nil }
-func (m *mockManager) Terminate(_ context.Context, _ relay.PID) error              { return nil }
+func (m *mockManager) Cancel(_ context.Context, _, _ pid.PID, _ time.Time) error { return nil }
+func (m *mockManager) Terminate(_ context.Context, _ pid.PID) error              { return nil }
 
 type mockFactory struct{}
 
@@ -515,7 +515,7 @@ func (f *mockFactory) Create(_ registry.ID) (Process, *Meta, error) {
 
 type mockLifecycleRegistry struct{}
 
-func (r *mockLifecycleRegistry) OnStart(_ context.Context, _ relay.PID, _ Process)            {}
-func (r *mockLifecycleRegistry) OnComplete(_ context.Context, _ relay.PID, _ *runtime.Result) {}
-func (r *mockLifecycleRegistry) Register(_ string, _ Lifecycle)                               {}
-func (r *mockLifecycleRegistry) Unregister(_ string)                                          {}
+func (r *mockLifecycleRegistry) OnStart(_ context.Context, _ pid.PID, _ Process)            {}
+func (r *mockLifecycleRegistry) OnComplete(_ context.Context, _ pid.PID, _ *runtime.Result) {}
+func (r *mockLifecycleRegistry) Register(_ string, _ Lifecycle)                             {}
+func (r *mockLifecycleRegistry) Unregister(_ string)                                        {}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
@@ -17,32 +18,32 @@ import (
 
 type mockNode struct {
 	mu    sync.RWMutex
-	hosts map[relay.HostID]relay.Receiver
+	hosts map[pid.HostID]relay.Receiver
 }
 
 func newMockNode() *mockNode {
 	return &mockNode{
-		hosts: make(map[relay.HostID]relay.Receiver),
+		hosts: make(map[pid.HostID]relay.Receiver),
 	}
 }
 
-func (n *mockNode) ID() relay.NodeID { return "test-node" }
+func (n *mockNode) ID() pid.NodeID { return "test-node" }
 
-func (n *mockNode) GetHost(id relay.HostID) (relay.Receiver, bool) {
+func (n *mockNode) GetHost(id pid.HostID) (relay.Receiver, bool) {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 	h, ok := n.hosts[id]
 	return h, ok
 }
 
-func (n *mockNode) RegisterHost(id relay.HostID, host relay.Receiver) error {
+func (n *mockNode) RegisterHost(id pid.HostID, host relay.Receiver) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.hosts[id] = host
 	return nil
 }
 
-func (n *mockNode) UnregisterHost(id relay.HostID) {
+func (n *mockNode) UnregisterHost(id pid.HostID) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	delete(n.hosts, id)
@@ -50,11 +51,11 @@ func (n *mockNode) UnregisterHost(id relay.HostID) {
 
 func (n *mockNode) Send(_ *relay.Package) error { return nil }
 
-func (n *mockNode) Attach(_ relay.PID, _ chan *relay.Package) (context.CancelFunc, error) {
+func (n *mockNode) Attach(_ pid.PID, _ chan *relay.Package) (context.CancelFunc, error) {
 	return func() {}, nil
 }
 
-func (n *mockNode) Detach(_ relay.PID) {}
+func (n *mockNode) Detach(_ pid.PID) {}
 
 type mockHost struct {
 	runCalled       bool
@@ -63,27 +64,27 @@ type mockHost struct {
 	runErr          error
 	terminateErr    error
 	sendErr         error
-	returnPID       relay.PID
+	returnPID       pid.PID
 	mu              sync.Mutex
 }
 
-func (h *mockHost) Run(_ context.Context, start *process.Start) (relay.PID, error) {
+func (h *mockHost) Run(_ context.Context, start *process.Start) (pid.PID, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.runCalled = true
 	if h.runErr != nil {
-		return relay.PID{}, h.runErr
+		return pid.PID{}, h.runErr
 	}
 	if h.returnPID.UniqID != "" {
 		return h.returnPID, nil
 	}
-	return relay.PID{
+	return pid.PID{
 		Host:   start.HostID,
 		UniqID: "proc-1",
 	}, nil
 }
 
-func (h *mockHost) Terminate(_ context.Context, _ relay.PID) error {
+func (h *mockHost) Terminate(_ context.Context, _ pid.PID) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.terminateCalled = true
@@ -123,13 +124,13 @@ func TestManager_Start_HostNotFound(t *testing.T) {
 	node := newMockNode()
 	mgr := NewManager(node, zap.NewNop())
 
-	pid, err := mgr.Start(context.Background(), &process.Start{
+	p, err := mgr.Start(context.Background(), &process.Start{
 		HostID: "nonexistent",
 		Source: registry.NewID("test", "source"),
 	})
 
 	assert.Error(t, err)
-	assert.Equal(t, relay.PID{}, pid)
+	assert.Equal(t, pid.PID{}, p)
 	assert.Contains(t, err.Error(), "host not found")
 }
 
@@ -139,13 +140,13 @@ func TestManager_Start_InvalidHost(t *testing.T) {
 
 	mgr := NewManager(node, zap.NewNop())
 
-	pid, err := mgr.Start(context.Background(), &process.Start{
+	p, err := mgr.Start(context.Background(), &process.Start{
 		HostID: "invalid-host",
 		Source: registry.NewID("test", "source"),
 	})
 
 	assert.Error(t, err)
-	assert.Equal(t, relay.PID{}, pid)
+	assert.Equal(t, pid.PID{}, p)
 	assert.Contains(t, err.Error(), "does not implement process.Host")
 }
 
@@ -156,13 +157,13 @@ func TestManager_Start_HostError(t *testing.T) {
 
 	mgr := NewManager(node, zap.NewNop())
 
-	pid, err := mgr.Start(context.Background(), &process.Start{
+	p, err := mgr.Start(context.Background(), &process.Start{
 		HostID: "error-host",
 		Source: registry.NewID("test", "source"),
 	})
 
 	assert.Error(t, err)
-	assert.Equal(t, relay.PID{}, pid)
+	assert.Equal(t, pid.PID{}, p)
 	assert.Contains(t, err.Error(), "host run failed")
 }
 
@@ -173,11 +174,11 @@ func TestManager_Cancel(t *testing.T) {
 
 	mgr := NewManager(node, zap.NewNop())
 
-	from := relay.PID{Host: "caller", UniqID: "caller-1"}
-	pid := relay.PID{Host: "test-host", UniqID: "proc-1"}
+	from := pid.PID{Host: "caller", UniqID: "caller-1"}
+	p := pid.PID{Host: "test-host", UniqID: "proc-1"}
 	deadline := time.Now().Add(time.Second)
 
-	err := mgr.Cancel(context.Background(), from, pid, deadline)
+	err := mgr.Cancel(context.Background(), from, p, deadline)
 
 	require.NoError(t, err)
 	assert.True(t, host.sendCalled)
@@ -187,11 +188,11 @@ func TestManager_Cancel_HostNotFound(t *testing.T) {
 	node := newMockNode()
 	mgr := NewManager(node, zap.NewNop())
 
-	from := relay.PID{Host: "caller", UniqID: "caller-1"}
-	pid := relay.PID{Host: "nonexistent", UniqID: "proc-1"}
+	from := pid.PID{Host: "caller", UniqID: "caller-1"}
+	p := pid.PID{Host: "nonexistent", UniqID: "proc-1"}
 	deadline := time.Now().Add(time.Second)
 
-	err := mgr.Cancel(context.Background(), from, pid, deadline)
+	err := mgr.Cancel(context.Background(), from, p, deadline)
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "host not found")
@@ -204,11 +205,11 @@ func TestManager_Cancel_SendError(t *testing.T) {
 
 	mgr := NewManager(node, zap.NewNop())
 
-	from := relay.PID{Host: "caller", UniqID: "caller-1"}
-	pid := relay.PID{Host: "test-host", UniqID: "proc-1"}
+	from := pid.PID{Host: "caller", UniqID: "caller-1"}
+	p := pid.PID{Host: "test-host", UniqID: "proc-1"}
 	deadline := time.Now().Add(time.Second)
 
-	err := mgr.Cancel(context.Background(), from, pid, deadline)
+	err := mgr.Cancel(context.Background(), from, p, deadline)
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "send failed")
@@ -221,8 +222,8 @@ func TestManager_Terminate(t *testing.T) {
 
 	mgr := NewManager(node, zap.NewNop())
 
-	pid := relay.PID{Host: "test-host", UniqID: "proc-1"}
-	err := mgr.Terminate(context.Background(), pid)
+	p := pid.PID{Host: "test-host", UniqID: "proc-1"}
+	err := mgr.Terminate(context.Background(), p)
 
 	require.NoError(t, err)
 	assert.True(t, host.terminateCalled)
@@ -232,8 +233,8 @@ func TestManager_Terminate_HostNotFound(t *testing.T) {
 	node := newMockNode()
 	mgr := NewManager(node, zap.NewNop())
 
-	pid := relay.PID{Host: "nonexistent", UniqID: "proc-1"}
-	err := mgr.Terminate(context.Background(), pid)
+	p := pid.PID{Host: "nonexistent", UniqID: "proc-1"}
+	err := mgr.Terminate(context.Background(), p)
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "host not found")
@@ -245,8 +246,8 @@ func TestManager_Terminate_InvalidHost(t *testing.T) {
 
 	mgr := NewManager(node, zap.NewNop())
 
-	pid := relay.PID{Host: "invalid-host", UniqID: "proc-1"}
-	err := mgr.Terminate(context.Background(), pid)
+	p := pid.PID{Host: "invalid-host", UniqID: "proc-1"}
+	err := mgr.Terminate(context.Background(), p)
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "does not implement process.Host")
@@ -259,8 +260,8 @@ func TestManager_Terminate_HostError(t *testing.T) {
 
 	mgr := NewManager(node, zap.NewNop())
 
-	pid := relay.PID{Host: "error-host", UniqID: "proc-1"}
-	err := mgr.Terminate(context.Background(), pid)
+	p := pid.PID{Host: "error-host", UniqID: "proc-1"}
+	err := mgr.Terminate(context.Background(), p)
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "terminate failed")

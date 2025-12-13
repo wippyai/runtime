@@ -11,6 +11,7 @@ import (
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
@@ -140,17 +141,17 @@ func (p *SleepProcess) Close() {}
 
 // testLifecycle implements process.Lifecycle for tests
 type testLifecycle struct {
-	onStart    func(context.Context, relay.PID, Process)
-	onComplete func(context.Context, relay.PID, *runtime.Result)
+	onStart    func(context.Context, pid.PID, Process)
+	onComplete func(context.Context, pid.PID, *runtime.Result)
 }
 
-func (l *testLifecycle) OnStart(ctx context.Context, pid relay.PID, proc Process) {
+func (l *testLifecycle) OnStart(ctx context.Context, pid pid.PID, proc Process) {
 	if l.onStart != nil {
 		l.onStart(ctx, pid, proc)
 	}
 }
 
-func (l *testLifecycle) OnComplete(ctx context.Context, pid relay.PID, result *runtime.Result) {
+func (l *testLifecycle) OnComplete(ctx context.Context, pid pid.PID, result *runtime.Result) {
 	if l.onComplete != nil {
 		l.onComplete(ctx, pid, result)
 	}
@@ -173,8 +174,8 @@ func newTestSchedulerWithLifecycle(workers int, lc *testLifecycle) *Scheduler {
 	return NewScheduler(registry, WithWorkers(workers), WithLifecycle(lc))
 }
 
-func testPID() relay.PID {
-	return relay.PID{UniqID: "test"}
+func testPID() pid.PID {
+	return pid.PID{UniqID: "test"}
 }
 
 func testInput(v any) payload.Payloads {
@@ -197,7 +198,7 @@ func TestSchedulerBasic(t *testing.T) {
 	var result *runtime.Result
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, res *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, res *runtime.Result) {
 			result = res
 			completed.Store(true)
 		},
@@ -230,7 +231,7 @@ func TestSchedulerMultipleProcesses(t *testing.T) {
 	var completedCount atomic.Int32
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, result *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, result *runtime.Result) {
 			if result.Error != nil {
 				t.Errorf("process error: %v", result.Error)
 				return
@@ -265,7 +266,7 @@ func TestSchedulerSleep(t *testing.T) {
 	var completed atomic.Bool
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, result *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, result *runtime.Result) {
 			if result.Error != nil {
 				t.Errorf("error: %v", result.Error)
 			}
@@ -302,7 +303,7 @@ func TestSchedulerWorkDistribution(t *testing.T) {
 	var completed atomic.Int32
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, _ *runtime.Result) {
 			completed.Add(1)
 		},
 	}
@@ -350,7 +351,7 @@ func TestSchedulerStats(t *testing.T) {
 	var completed atomic.Int32
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, _ *runtime.Result) {
 			completed.Add(1)
 		},
 	}
@@ -397,7 +398,7 @@ func TestSchedulerCollectProcessStats(t *testing.T) {
 	sched.Start()
 	defer sched.Stop(context.Background())
 
-	pid := relay.PID{UniqID: "stats-process"}
+	pid := pid.PID{UniqID: "stats-process"}
 	proc := &StatsProcess{customStats: "test-value"}
 
 	_, err := sched.Submit(context.Background(), pid, proc, "", testInput(1000))
@@ -460,7 +461,7 @@ func TestSchedulerExecuteMultiple(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			// Use unique PID per goroutine to avoid collision in pending map
-			pid := relay.PID{UniqID: fmt.Sprintf("test-%d", idx)}
+			pid := pid.PID{UniqID: fmt.Sprintf("test-%d", idx)}
 			result, err := te.Execute(context.Background(), pid, &CounterProcess{}, "", testInput((idx+1)*10))
 			if err != nil {
 				errors[idx] = err
@@ -507,11 +508,11 @@ func TestSchedulerExecuteWithSleep(t *testing.T) {
 
 func TestOnStartCallback(t *testing.T) {
 	var startCalls atomic.Int32
-	var startPIDs []relay.PID
+	var startPIDs []pid.PID
 	var mu sync.Mutex
 
 	lc := &testLifecycle{
-		onStart: func(_ context.Context, pid relay.PID, _ Process) {
+		onStart: func(_ context.Context, pid pid.PID, _ Process) {
 			startCalls.Add(1)
 			mu.Lock()
 			startPIDs = append(startPIDs, pid)
@@ -525,7 +526,7 @@ func TestOnStartCallback(t *testing.T) {
 
 	// Submit multiple processes
 	for i := 0; i < 5; i++ {
-		pid := relay.PID{UniqID: fmt.Sprintf("test-%d", i)}
+		pid := pid.PID{UniqID: fmt.Sprintf("test-%d", i)}
 		_, _ = sched.Submit(context.Background(), pid, &CounterProcess{}, "", testInput(1))
 	}
 
@@ -548,12 +549,12 @@ func TestOnStartCallback(t *testing.T) {
 
 func TestOnCompleteCallback(t *testing.T) {
 	var completeCalls atomic.Int32
-	var completePIDs []relay.PID
+	var completePIDs []pid.PID
 	var completeResults []*runtime.Result
 	var mu sync.Mutex
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, pid relay.PID, result *runtime.Result) {
+		onComplete: func(_ context.Context, pid pid.PID, result *runtime.Result) {
 			completeCalls.Add(1)
 			mu.Lock()
 			completePIDs = append(completePIDs, pid)
@@ -568,7 +569,7 @@ func TestOnCompleteCallback(t *testing.T) {
 
 	// Submit multiple processes
 	for i := 0; i < 5; i++ {
-		pid := relay.PID{UniqID: fmt.Sprintf("test-%d", i)}
+		pid := pid.PID{UniqID: fmt.Sprintf("test-%d", i)}
 		_, _ = sched.Submit(context.Background(), pid, &CounterProcess{}, "", testInput(1))
 	}
 
@@ -595,14 +596,14 @@ func TestSendByPID(t *testing.T) {
 	var completed atomic.Bool
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, _ *runtime.Result) {
 			completed.Store(true)
 		},
 	}
 	sched := newTestSchedulerWithLifecycle(1, lc)
 
 	// Don't start scheduler yet - this ensures process won't complete before Send()
-	pid := relay.PID{UniqID: "send-test"}
+	pid := pid.PID{UniqID: "send-test"}
 	_, err := sched.Submit(context.Background(), pid, &SleepProcess{duration: 100 * time.Millisecond}, "", nil)
 	if err != nil {
 		t.Fatalf("submit error: %v", err)
@@ -638,10 +639,10 @@ func TestSendByPID(t *testing.T) {
 func TestTerminate(t *testing.T) {
 	var completed atomic.Bool
 	var result *runtime.Result
-	var completedPID relay.PID
+	var completedPID pid.PID
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, pid relay.PID, res *runtime.Result) {
+		onComplete: func(_ context.Context, pid pid.PID, res *runtime.Result) {
 			completedPID = pid
 			result = res
 			completed.Store(true)
@@ -658,7 +659,7 @@ func TestTerminate(t *testing.T) {
 	defer sched.Stop(context.Background())
 
 	// Submit a blocking process
-	pid := relay.PID{UniqID: "term-test"}
+	pid := pid.PID{UniqID: "term-test"}
 	_, err := sched.Submit(context.Background(), pid, &SleepProcess{duration: 10 * time.Second}, "", nil)
 	if err != nil {
 		t.Fatalf("submit error: %v", err)
@@ -703,7 +704,7 @@ func TestTerminateNotFound(t *testing.T) {
 	sched.Start()
 	defer sched.Stop(context.Background())
 
-	err := sched.Terminate(relay.PID{UniqID: "nonexistent"})
+	err := sched.Terminate(pid.PID{UniqID: "nonexistent"})
 	if !errors.Is(err, process.ErrProcessNotFound) {
 		t.Fatalf("expected ErrProcessNotFound, got %v", err)
 	}
@@ -731,7 +732,7 @@ func TestTerminateIdleProcess(t *testing.T) {
 	var result *runtime.Result
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, res *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, res *runtime.Result) {
 			result = res
 			completed.Store(true)
 		},
@@ -741,7 +742,7 @@ func TestTerminateIdleProcess(t *testing.T) {
 	sched.Start()
 	defer sched.Stop(context.Background())
 
-	pid := relay.PID{UniqID: "idle-term-test"}
+	pid := pid.PID{UniqID: "idle-term-test"}
 	_, err := sched.Submit(context.Background(), pid, &IdleProcess{}, "", nil)
 	if err != nil {
 		t.Fatalf("submit error: %v", err)
@@ -784,7 +785,7 @@ func TestSchedulerSingleWorker(t *testing.T) {
 	var result *runtime.Result
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, res *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, res *runtime.Result) {
 			result = res
 			completed.Store(true)
 		},
@@ -799,7 +800,7 @@ func TestSchedulerSingleWorker(t *testing.T) {
 	defer sched.Stop(context.Background())
 
 	ctx := context.Background()
-	pid := relay.PID{UniqID: "single"}
+	pid := pid.PID{UniqID: "single"}
 
 	_, err := sched.Submit(ctx, pid, &CounterProcess{}, "", testInput(5))
 	if err != nil {
@@ -833,7 +834,7 @@ func TestSchedulerSubmitAlloc(t *testing.T) {
 	var completed atomic.Int32
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, _ *runtime.Result) {
 			completed.Add(1)
 		},
 	}
@@ -902,7 +903,7 @@ func TestSchedulerReleasesProcesses(t *testing.T) {
 	var completed atomic.Int32
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, _ *runtime.Result) {
 			completed.Add(1)
 		},
 	}
@@ -915,7 +916,7 @@ func TestSchedulerReleasesProcesses(t *testing.T) {
 	ctx := context.Background()
 
 	for i := 0; i < numProcs; i++ {
-		pid := relay.PID{Host: "test", UniqID: fmt.Sprintf("%d", i)}
+		pid := pid.PID{Host: "test", UniqID: fmt.Sprintf("%d", i)}
 		proc := &TrackingProcess{closeCalled: &closeCalls}
 		_, err := sched.Submit(ctx, pid, proc, "", nil)
 		if err != nil {
@@ -984,7 +985,7 @@ func TestTerminateBlockedProcess(t *testing.T) {
 	var result *runtime.Result
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, res *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, res *runtime.Result) {
 			result = res
 			completed.Store(true)
 		},
@@ -995,7 +996,7 @@ func TestTerminateBlockedProcess(t *testing.T) {
 	defer sched.Stop(context.Background())
 
 	blocked := make(chan struct{})
-	pid := relay.PID{UniqID: "blocked-term-test"}
+	pid := pid.PID{UniqID: "blocked-term-test"}
 	_, err := sched.Submit(context.Background(), pid, &BlockedProcess{blocked: blocked}, "", nil)
 	if err != nil {
 		t.Fatalf("submit error: %v", err)
@@ -1036,7 +1037,7 @@ func TestSendToTerminatedProcess(t *testing.T) {
 	var completed atomic.Bool
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, _ *runtime.Result) {
 			completed.Store(true)
 		},
 	}
@@ -1046,7 +1047,7 @@ func TestSendToTerminatedProcess(t *testing.T) {
 	defer sched.Stop(context.Background())
 
 	blocked := make(chan struct{})
-	pid := relay.PID{UniqID: "send-term-test"}
+	pid := pid.PID{UniqID: "send-term-test"}
 	_, err := sched.Submit(context.Background(), pid, &BlockedProcess{blocked: blocked}, "", nil)
 	if err != nil {
 		t.Fatalf("submit error: %v", err)
@@ -1114,7 +1115,7 @@ func TestContextCancelledOnCompletion(t *testing.T) {
 	var completed atomic.Bool
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, _ *runtime.Result) {
 			completed.Store(true)
 		},
 	}
@@ -1123,7 +1124,7 @@ func TestContextCancelledOnCompletion(t *testing.T) {
 	sched.Start()
 	defer sched.Stop(context.Background())
 
-	pid := relay.PID{UniqID: "ctx-cancel-test"}
+	pid := pid.PID{UniqID: "ctx-cancel-test"}
 	proc := &ContextTrackingProcess{}
 	_, err := sched.Submit(context.Background(), pid, proc, "", nil)
 	if err != nil {
@@ -1184,7 +1185,7 @@ func TestContextCancelledOnTermination(t *testing.T) {
 	var completed atomic.Bool
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, _ *runtime.Result) {
 			completed.Store(true)
 		},
 	}
@@ -1194,7 +1195,7 @@ func TestContextCancelledOnTermination(t *testing.T) {
 	defer sched.Stop(context.Background())
 
 	blocked := make(chan struct{})
-	pid := relay.PID{UniqID: "ctx-term-test"}
+	pid := pid.PID{UniqID: "ctx-term-test"}
 
 	proc := &ContextBlockedProcess{blocked: blocked}
 	_, err := sched.Submit(context.Background(), pid, proc, "", nil)
@@ -1237,7 +1238,7 @@ func TestSendToClosedQueue(t *testing.T) {
 	var completed atomic.Bool
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, _ *runtime.Result) {
 			completed.Store(true)
 		},
 	}
@@ -1247,7 +1248,7 @@ func TestSendToClosedQueue(t *testing.T) {
 	defer sched.Stop(context.Background())
 
 	blocked := make(chan struct{})
-	pid := relay.PID{UniqID: "closed-queue-test"}
+	pid := pid.PID{UniqID: "closed-queue-test"}
 	_, err := sched.Submit(context.Background(), pid, &BlockedProcess{blocked: blocked}, "", nil)
 	if err != nil {
 		t.Fatalf("submit error: %v", err)
@@ -1284,7 +1285,7 @@ func TestPIDRegistration(t *testing.T) {
 	sched.Start()
 	defer sched.Stop(context.Background())
 
-	pid := relay.PID{UniqID: "reg-test"}
+	pid := pid.PID{UniqID: "reg-test"}
 
 	// Before submit - PID not in map
 	_, found := sched.byPID.Load(pid)
@@ -1312,7 +1313,7 @@ func TestPIDUnregisteredOnCompletion(t *testing.T) {
 	var completed atomic.Bool
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, _ *runtime.Result) {
 			completed.Store(true)
 		},
 	}
@@ -1321,7 +1322,7 @@ func TestPIDUnregisteredOnCompletion(t *testing.T) {
 	sched.Start()
 	defer sched.Stop(context.Background())
 
-	pid := relay.PID{UniqID: "unreg-test"}
+	pid := pid.PID{UniqID: "unreg-test"}
 	_, err := sched.Submit(context.Background(), pid, &CounterProcess{}, "", testInput(1))
 	if err != nil {
 		t.Fatalf("submit error: %v", err)
@@ -1348,7 +1349,7 @@ func TestPIDUnregisteredOnTermination(t *testing.T) {
 	var completed atomic.Bool
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, _ *runtime.Result) {
 			completed.Store(true)
 		},
 	}
@@ -1358,7 +1359,7 @@ func TestPIDUnregisteredOnTermination(t *testing.T) {
 	defer sched.Stop(context.Background())
 
 	blocked := make(chan struct{})
-	pid := relay.PID{UniqID: "unreg-term-test"}
+	pid := pid.PID{UniqID: "unreg-term-test"}
 	_, err := sched.Submit(context.Background(), pid, &BlockedProcess{blocked: blocked}, "", nil)
 	if err != nil {
 		t.Fatalf("submit error: %v", err)
@@ -1401,7 +1402,7 @@ func TestDuplicatePIDOverwrites(t *testing.T) {
 	sched := newTestScheduler(1)
 	// Don't start scheduler to prevent completion
 
-	pid := relay.PID{UniqID: "dup-test"}
+	pid := pid.PID{UniqID: "dup-test"}
 
 	// Submit first process
 	proc1, err := sched.Submit(context.Background(), pid, &SleepProcess{duration: 10 * time.Second}, "", nil)
@@ -1434,7 +1435,7 @@ func TestMultipleProcessCompletion(t *testing.T) {
 	var completed atomic.Int32
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, _ *runtime.Result) {
 			completed.Add(1)
 		},
 	}
@@ -1447,7 +1448,7 @@ func TestMultipleProcessCompletion(t *testing.T) {
 
 	// Submit processes
 	for i := 0; i < numProcs; i++ {
-		pid := relay.PID{UniqID: fmt.Sprintf("count-test-%d", i)}
+		pid := pid.PID{UniqID: fmt.Sprintf("count-test-%d", i)}
 		_, err := sched.Submit(context.Background(), pid, &CounterProcess{}, "", testInput(5))
 		if err != nil {
 			t.Fatalf("submit error: %v", err)
@@ -1469,7 +1470,7 @@ func TestIdleProcessTermination(t *testing.T) {
 	var completed atomic.Bool
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, _ *runtime.Result) {
 			completed.Store(true)
 		},
 	}
@@ -1478,7 +1479,7 @@ func TestIdleProcessTermination(t *testing.T) {
 	sched.Start()
 	defer sched.Stop(context.Background())
 
-	pid := relay.PID{UniqID: "idle-map-test"}
+	pid := pid.PID{UniqID: "idle-map-test"}
 	proc, err := sched.Submit(context.Background(), pid, &IdleProcess{}, "", nil)
 	if err != nil {
 		t.Fatalf("submit error: %v", err)
@@ -1546,7 +1547,7 @@ func TestSendToIdleProcessConcurrent(t *testing.T) {
 			var completed atomic.Bool
 
 			lc := &testLifecycle{
-				onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+				onComplete: func(_ context.Context, _ pid.PID, _ *runtime.Result) {
 					completed.Store(true)
 				},
 			}
@@ -1555,7 +1556,7 @@ func TestSendToIdleProcessConcurrent(t *testing.T) {
 			sched.Start()
 			defer sched.Stop(context.Background())
 
-			pid := relay.PID{UniqID: fmt.Sprintf("idle-race-%d", i)}
+			pid := pid.PID{UniqID: fmt.Sprintf("idle-race-%d", i)}
 			proc := &IdleMessageProcess{}
 			_, err := sched.Submit(context.Background(), pid, proc, "", nil)
 			if err != nil {

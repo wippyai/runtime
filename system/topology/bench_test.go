@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
 )
@@ -21,16 +22,16 @@ func BenchmarkRegister(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		pid := relay.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
-		_ = topo.Register(pid)
+		p := pid.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
+		_ = topo.Register(p)
 	}
 }
 
 func BenchmarkRegisterPrecomputed(b *testing.B) {
 	topo := NewTopology(&discardReceiver{}, "local")
-	pids := make([]relay.PID, b.N)
+	pids := make([]pid.PID, b.N)
 	for i := range pids {
-		pids[i] = relay.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
+		pids[i] = pid.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
 	}
 
 	b.ResetTimer()
@@ -41,9 +42,9 @@ func BenchmarkRegisterPrecomputed(b *testing.B) {
 
 func BenchmarkRemove(b *testing.B) {
 	topo := NewTopology(&discardReceiver{}, "local")
-	pids := make([]relay.PID, b.N)
+	pids := make([]pid.PID, b.N)
 	for i := range pids {
-		pids[i] = relay.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
+		pids[i] = pid.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
 		_ = topo.Register(pids[i])
 	}
 
@@ -58,7 +59,7 @@ func BenchmarkRegisterAndRemove(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		pid := relay.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
+		pid := pid.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
 		_ = topo.Register(pid)
 		topo.Remove(pid)
 	}
@@ -73,11 +74,11 @@ func BenchmarkRegisterRemove100k(b *testing.B) {
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
 		topo := NewTopology(&discardReceiver{}, "local")
-		pids := make([]relay.PID, numProcesses)
+		pids := make([]pid.PID, numProcesses)
 
 		// Register all
 		for i := 0; i < numProcesses; i++ {
-			pids[i] = relay.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
+			pids[i] = pid.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
 			_ = topo.Register(pids[i])
 		}
 
@@ -91,12 +92,12 @@ func BenchmarkRegisterRemove100k(b *testing.B) {
 func BenchmarkNotify(b *testing.B) {
 	topo := NewTopology(&discardReceiver{}, "local")
 
-	monitored := relay.PID{Host: "host", UniqID: "monitored"}.Precomputed()
+	monitored := pid.PID{Host: "host", UniqID: "monitored"}.Precomputed()
 	_ = topo.Register(monitored)
 
-	watchers := make([]relay.PID, 10)
+	watchers := make([]pid.PID, 10)
 	for i := range watchers {
-		watchers[i] = relay.PID{Host: "host", UniqID: fmt.Sprintf("watcher-%d", i)}.Precomputed()
+		watchers[i] = pid.PID{Host: "host", UniqID: fmt.Sprintf("watcher-%d", i)}.Precomputed()
 		_ = topo.Register(watchers[i])
 		_ = topo.Monitor(watchers[i], monitored)
 	}
@@ -112,12 +113,12 @@ func BenchmarkNotify(b *testing.B) {
 func BenchmarkNotifyWithLinks(b *testing.B) {
 	topo := NewTopology(&discardReceiver{}, "local")
 
-	main := relay.PID{Host: "host", UniqID: "main"}.Precomputed()
+	main := pid.PID{Host: "host", UniqID: "main"}.Precomputed()
 	_ = topo.Register(main)
 
-	linked := make([]relay.PID, 10)
+	linked := make([]pid.PID, 10)
 	for i := range linked {
-		linked[i] = relay.PID{Host: "host", UniqID: fmt.Sprintf("linked-%d", i)}.Precomputed()
+		linked[i] = pid.PID{Host: "host", UniqID: fmt.Sprintf("linked-%d", i)}.Precomputed()
 		_ = topo.Register(linked[i])
 		_ = topo.Link(main, linked[i])
 	}
@@ -133,9 +134,9 @@ func BenchmarkNotifyWithLinks(b *testing.B) {
 func BenchmarkLink(b *testing.B) {
 	topo := NewTopology(&discardReceiver{}, "local")
 
-	pids := make([]relay.PID, b.N+1)
+	pids := make([]pid.PID, b.N+1)
 	for i := range pids {
-		pids[i] = relay.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
+		pids[i] = pid.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
 		_ = topo.Register(pids[i])
 	}
 
@@ -150,11 +151,11 @@ func BenchmarkLink(b *testing.B) {
 func BenchmarkGetLinks(b *testing.B) {
 	topo := NewTopology(&discardReceiver{}, "local")
 
-	main := relay.PID{Host: "host", UniqID: "main"}.Precomputed()
+	main := pid.PID{Host: "host", UniqID: "main"}.Precomputed()
 	_ = topo.Register(main)
 
 	for i := 0; i < 100; i++ {
-		linked := relay.PID{Host: "host", UniqID: fmt.Sprintf("linked-%d", i)}.Precomputed()
+		linked := pid.PID{Host: "host", UniqID: fmt.Sprintf("linked-%d", i)}.Precomputed()
 		_ = topo.Register(linked)
 		_ = topo.Link(main, linked)
 	}
@@ -168,12 +169,12 @@ func BenchmarkGetLinks(b *testing.B) {
 func BenchmarkWait(b *testing.B) {
 	topo := NewTopology(&discardReceiver{}, "local")
 
-	target := relay.PID{Host: "host", UniqID: "target"}.Precomputed()
+	target := pid.PID{Host: "host", UniqID: "target"}.Precomputed()
 	_ = topo.Register(target)
 
-	callers := make([]relay.PID, b.N)
+	callers := make([]pid.PID, b.N)
 	for i := range callers {
-		callers[i] = relay.PID{Host: "host", UniqID: fmt.Sprintf("caller-%d", i)}.Precomputed()
+		callers[i] = pid.PID{Host: "host", UniqID: fmt.Sprintf("caller-%d", i)}.Precomputed()
 	}
 
 	b.ResetTimer()
@@ -190,7 +191,7 @@ func BenchmarkConcurrentRegisterRemove(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		i := 0
 		for pb.Next() {
-			pid := relay.PID{Host: "host", UniqID: fmt.Sprintf("%d-%d", i, numGoroutines)}.Precomputed()
+			pid := pid.PID{Host: "host", UniqID: fmt.Sprintf("%d-%d", i, numGoroutines)}.Precomputed()
 			_ = topo.Register(pid)
 			topo.Remove(pid)
 			i++
@@ -201,12 +202,12 @@ func BenchmarkConcurrentRegisterRemove(b *testing.B) {
 func BenchmarkConcurrentLink(b *testing.B) {
 	topo := NewTopology(&discardReceiver{}, "local")
 
-	main := relay.PID{Host: "host", UniqID: "main"}.Precomputed()
+	main := pid.PID{Host: "host", UniqID: "main"}.Precomputed()
 	_ = topo.Register(main)
 
-	pids := make([]relay.PID, b.N)
+	pids := make([]pid.PID, b.N)
 	for i := range pids {
-		pids[i] = relay.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
+		pids[i] = pid.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
 		_ = topo.Register(pids[i])
 	}
 
@@ -228,7 +229,7 @@ func BenchmarkConcurrentLink(b *testing.B) {
 }
 
 func BenchmarkPIDString(b *testing.B) {
-	pid := relay.PID{Host: "host", UniqID: "12345"}.Precomputed()
+	pid := pid.PID{Host: "host", UniqID: "12345"}.Precomputed()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = pid.String()
@@ -238,7 +239,7 @@ func BenchmarkPIDString(b *testing.B) {
 func BenchmarkPIDStringNotPrecomputed(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		pid := relay.PID{Host: "host", UniqID: "12345"}
+		pid := pid.PID{Host: "host", UniqID: "12345"}
 		_ = pid.String()
 	}
 }
@@ -247,7 +248,7 @@ func BenchmarkParsePID(b *testing.B) {
 	s := "{host|12345}"
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = relay.ParsePID(s)
+		_, _ = pid.ParsePID(s)
 	}
 }
 
@@ -261,9 +262,9 @@ func BenchmarkManyProcessesWithLinks(b *testing.B) {
 			for n := 0; n < b.N; n++ {
 				b.StopTimer()
 				topo := NewTopology(&discardReceiver{}, "local")
-				pids := make([]relay.PID, numProcesses)
+				pids := make([]pid.PID, numProcesses)
 				for i := range pids {
-					pids[i] = relay.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
+					pids[i] = pid.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
 				}
 				b.StartTimer()
 
@@ -291,8 +292,8 @@ func BenchmarkMapLookup(b *testing.B) {
 	for i := 0; i < 100000; i++ {
 		key := fmt.Sprintf("{host|%d}", i)
 		m[key] = &processState{
-			watchers: make(map[string]relay.PID),
-			links:    make(map[string]relay.PID),
+			watchers: make(map[string]pid.PID),
+			links:    make(map[string]pid.PID),
 		}
 	}
 
@@ -314,8 +315,8 @@ func BenchmarkMapDelete(b *testing.B) {
 				for i := 0; i < size; i++ {
 					keys[i] = fmt.Sprintf("{host|%d}", i)
 					m[keys[i]] = &processState{
-						watchers: make(map[string]relay.PID),
-						links:    make(map[string]relay.PID),
+						watchers: make(map[string]pid.PID),
+						links:    make(map[string]pid.PID),
 					}
 				}
 				b.StartTimer()
@@ -344,7 +345,7 @@ func BenchmarkParallelRegisterRemove(b *testing.B) {
 				go func(gid int) {
 					defer wg.Done()
 					for i := 0; i < opsPerGoroutine; i++ {
-						pid := relay.PID{Host: "host", UniqID: fmt.Sprintf("%d-%d", gid, i)}.Precomputed()
+						pid := pid.PID{Host: "host", UniqID: fmt.Sprintf("%d-%d", gid, i)}.Precomputed()
 						_ = topo.Register(pid)
 						topo.Remove(pid)
 					}
@@ -360,9 +361,9 @@ func BenchmarkHighContention(b *testing.B) {
 
 	// Pre-register some processes
 	const numProcesses = 10000
-	pids := make([]relay.PID, numProcesses)
+	pids := make([]pid.PID, numProcesses)
 	for i := range pids {
-		pids[i] = relay.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
+		pids[i] = pid.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
 		_ = topo.Register(pids[i])
 	}
 
@@ -392,7 +393,7 @@ func BenchmarkWriteHeavy(b *testing.B) {
 		topo := NewTopology(&discardReceiver{}, "local")
 		var i int
 		for pb.Next() {
-			pid := relay.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
+			pid := pid.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
 			_ = topo.Register(pid)
 			topo.Remove(pid)
 			i++
@@ -404,9 +405,9 @@ func BenchmarkWriteHeavy(b *testing.B) {
 
 func BenchmarkOriginalRegister(b *testing.B) {
 	topo := NewTopology(&discardReceiver{}, "local")
-	pids := make([]relay.PID, b.N)
+	pids := make([]pid.PID, b.N)
 	for i := range pids {
-		pids[i] = relay.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
+		pids[i] = pid.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
 	}
 
 	b.ResetTimer()
@@ -422,7 +423,7 @@ func BenchmarkOriginalParallel(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		var i int
 		for pb.Next() {
-			pid := relay.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
+			pid := pid.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
 			_ = topo.Register(pid)
 			topo.Remove(pid)
 			i++
@@ -439,10 +440,10 @@ func BenchmarkOriginal100k(b *testing.B) {
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
 		topo := NewTopology(&discardReceiver{}, "local")
-		pids := make([]relay.PID, numProcesses)
+		pids := make([]pid.PID, numProcesses)
 
 		for i := 0; i < numProcesses; i++ {
-			pids[i] = relay.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
+			pids[i] = pid.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
 			_ = topo.Register(pids[i])
 		}
 
@@ -460,9 +461,9 @@ func BenchmarkOriginal100kParallel(b *testing.B) {
 
 	for n := 0; n < b.N; n++ {
 		topo := NewTopology(&discardReceiver{}, "local")
-		pids := make([]relay.PID, numProcesses)
+		pids := make([]pid.PID, numProcesses)
 		for i := range pids {
-			pids[i] = relay.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
+			pids[i] = pid.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
 		}
 
 		b.StopTimer()
@@ -502,12 +503,12 @@ func BenchmarkOriginal100kParallel(b *testing.B) {
 
 func BenchmarkRemoteWait(b *testing.B) {
 	topo := NewTopology(&discardReceiver{}, "local")
-	localPID := relay.PID{Host: "host", UniqID: "local"}.Precomputed()
+	localPID := pid.PID{Host: "host", UniqID: "local"}.Precomputed()
 	_ = topo.Register(localPID)
 
-	remotePIDs := make([]relay.PID, b.N)
+	remotePIDs := make([]pid.PID, b.N)
 	for i := range remotePIDs {
-		remotePIDs[i] = relay.PID{Node: "remote", Host: "host", UniqID: fmt.Sprintf("r%d", i)}.Precomputed()
+		remotePIDs[i] = pid.PID{Node: "remote", Host: "host", UniqID: fmt.Sprintf("r%d", i)}.Precomputed()
 	}
 
 	b.ResetTimer()
@@ -536,13 +537,13 @@ func benchHandleNodeExit(b *testing.B, numWatchers int) {
 		b.StopTimer()
 		topo := NewTopology(&discardReceiver{}, "local")
 
-		localPIDs := make([]relay.PID, numWatchers)
+		localPIDs := make([]pid.PID, numWatchers)
 		for i := range localPIDs {
-			localPIDs[i] = relay.PID{Host: "host", UniqID: fmt.Sprintf("p%d", i)}.Precomputed()
+			localPIDs[i] = pid.PID{Host: "host", UniqID: fmt.Sprintf("p%d", i)}.Precomputed()
 			_ = topo.Register(localPIDs[i])
 		}
 
-		remotePID := relay.PID{Node: "remote", Host: "host", UniqID: "target"}.Precomputed()
+		remotePID := pid.PID{Node: "remote", Host: "host", UniqID: "target"}.Precomputed()
 		for _, pid := range localPIDs {
 			_ = topo.Monitor(pid, remotePID)
 		}
@@ -560,13 +561,13 @@ func BenchmarkConcurrentRemoteWatch(b *testing.B) {
 	topo := NewTopology(&discardReceiver{}, "local")
 
 	const numProcesses = 1000
-	localPIDs := make([]relay.PID, numProcesses)
+	localPIDs := make([]pid.PID, numProcesses)
 	for i := range localPIDs {
-		localPIDs[i] = relay.PID{Host: "host", UniqID: fmt.Sprintf("p%d", i)}.Precomputed()
+		localPIDs[i] = pid.PID{Host: "host", UniqID: fmt.Sprintf("p%d", i)}.Precomputed()
 		_ = topo.Register(localPIDs[i])
 	}
 
-	remotePID := relay.PID{Node: "remote", Host: "host", UniqID: "target"}.Precomputed()
+	remotePID := pid.PID{Node: "remote", Host: "host", UniqID: "target"}.Precomputed()
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
@@ -593,15 +594,15 @@ func BenchmarkConcurrentNodeExit(b *testing.B) {
 		b.StopTimer()
 		topo := NewTopology(&discardReceiver{}, "local")
 
-		localPIDs := make([]relay.PID, numProcesses)
+		localPIDs := make([]pid.PID, numProcesses)
 		for i := range localPIDs {
-			localPIDs[i] = relay.PID{Host: "host", UniqID: fmt.Sprintf("p%d", i)}.Precomputed()
+			localPIDs[i] = pid.PID{Host: "host", UniqID: fmt.Sprintf("p%d", i)}.Precomputed()
 			_ = topo.Register(localPIDs[i])
 		}
 
 		for i := 0; i < numProcesses; i++ {
 			nodeID := fmt.Sprintf("node%d", i%numNodes)
-			remotePID := relay.PID{Node: nodeID, Host: "host", UniqID: fmt.Sprintf("r%d", i)}.Precomputed()
+			remotePID := pid.PID{Node: nodeID, Host: "host", UniqID: fmt.Sprintf("r%d", i)}.Precomputed()
 			_ = topo.Monitor(localPIDs[i], remotePID)
 		}
 		b.StartTimer()

@@ -11,8 +11,8 @@ import (
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/api/relay"
 )
 
 func TestTask_MarshalUnmarshal(t *testing.T) {
@@ -165,11 +165,11 @@ func TestContext_FramePID(t *testing.T) {
 		ctx := ctxapi.NewRootContext()
 		ctx, _ = ctxapi.OpenFrameContext(ctx)
 
-		pid, ok := GetFramePID(ctx)
+		p, ok := GetFramePID(ctx)
 		assert.False(t, ok)
-		assert.Equal(t, relay.PID{}, pid)
+		assert.Equal(t, pid.PID{}, p)
 
-		testPID := relay.PID{UniqID: "test-pid-123"}
+		testPID := pid.PID{UniqID: "test-pid-123"}
 		err := SetFramePID(ctx, testPID)
 		require.NoError(t, err)
 
@@ -181,11 +181,11 @@ func TestContext_FramePID(t *testing.T) {
 	t.Run("without frame context", func(t *testing.T) {
 		ctx := ctxapi.NewRootContext()
 
-		pid, ok := GetFramePID(ctx)
+		p, ok := GetFramePID(ctx)
 		assert.False(t, ok)
-		assert.Equal(t, relay.PID{}, pid)
+		assert.Equal(t, pid.PID{}, p)
 
-		testPID := relay.PID{UniqID: "test-pid-123"}
+		testPID := pid.PID{UniqID: "test-pid-123"}
 		err := SetFramePID(ctx, testPID)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no frame context available")

@@ -10,6 +10,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
@@ -64,7 +65,7 @@ func testContext() context.Context {
 // testContextWithPID creates a context with a specific PID for testing.
 func testContextWithPID(pid string) context.Context {
 	ctx, _ := ctxapi.AcquireFrameContext(context.Background())
-	_ = runtime.SetFramePID(ctx, relay.PID{UniqID: pid})
+	_ = runtime.SetFramePID(ctx, pid.PID{UniqID: pid})
 	return ctx
 }
 

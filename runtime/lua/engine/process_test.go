@@ -10,8 +10,8 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
-	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/system/clock"
 	funcpool "github.com/wippyai/runtime/system/scheduler/pool"
@@ -71,8 +71,8 @@ func bindTestYield(L *lua.LState) {
 }
 
 // testPID creates a test PID for unit tests
-func testPID(id string) relay.PID {
-	return relay.PID{Host: "test", UniqID: id}
+func testPID(id string) pid.PID {
+	return pid.PID{Host: "test", UniqID: id}
 }
 
 func TestProcessBasicExecution(t *testing.T) {
@@ -2657,7 +2657,7 @@ func TestProcessTopicHandler(t *testing.T) {
 	}
 
 	// Set handler
-	proc.SetTopicHandler("test-topic", func(ctx context.Context, l *lua.LState, source relay.PID, topic string, payloads []payload.Payload) lua.LValue {
+	proc.SetTopicHandler("test-topic", func(ctx context.Context, l *lua.LState, source pid.PID, topic string, payloads []payload.Payload) lua.LValue {
 		return lua.LTrue
 	})
 
@@ -2931,7 +2931,7 @@ func TestProcessDeliverMessageWithHandler(t *testing.T) {
 	}
 
 	// Set topic handler that transforms the message
-	proc.SetTopicHandler("test-topic", func(ctx context.Context, l *lua.LState, source relay.PID, topic string, payloads []payload.Payload) lua.LValue {
+	proc.SetTopicHandler("test-topic", func(ctx context.Context, l *lua.LState, source pid.PID, topic string, payloads []payload.Payload) lua.LValue {
 		return lua.LString("handled")
 	})
 
@@ -3119,7 +3119,7 @@ func TestProcessDeliverMessageHandlerReturnsNil(t *testing.T) {
 	}
 
 	// Set handler that returns nil (doesn't want to send to channel)
-	proc.SetTopicHandler("test-topic", func(ctx context.Context, l *lua.LState, source relay.PID, topic string, payloads []payload.Payload) lua.LValue {
+	proc.SetTopicHandler("test-topic", func(ctx context.Context, l *lua.LState, source pid.PID, topic string, payloads []payload.Payload) lua.LValue {
 		return nil
 	})
 
@@ -3157,7 +3157,7 @@ func TestProcessDeliverMessageHandlerWithTerminal(t *testing.T) {
 	}
 
 	// Set handler that returns nil
-	proc.SetTopicHandler("test-topic", func(ctx context.Context, l *lua.LState, source relay.PID, topic string, payloads []payload.Payload) lua.LValue {
+	proc.SetTopicHandler("test-topic", func(ctx context.Context, l *lua.LState, source pid.PID, topic string, payloads []payload.Payload) lua.LValue {
 		return nil
 	})
 

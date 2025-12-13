@@ -9,6 +9,7 @@ import (
 	clockapi "github.com/wippyai/runtime/api/clock"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 )
 
@@ -18,15 +19,15 @@ type testReceiver struct {
 
 type mockNode struct{}
 
-func (m *mockNode) Send(_ *relay.Package) error                         { return nil }
-func (m *mockNode) ID() relay.NodeID                                    { return "" }
-func (m *mockNode) RegisterHost(_ relay.HostID, _ relay.Receiver) error { return nil }
-func (m *mockNode) UnregisterHost(_ relay.HostID)                       {}
-func (m *mockNode) GetHost(_ relay.HostID) (relay.Receiver, bool)       { return nil, false }
-func (m *mockNode) Attach(_ relay.PID, _ chan *relay.Package) (context.CancelFunc, error) {
+func (m *mockNode) Send(_ *relay.Package) error                       { return nil }
+func (m *mockNode) ID() pid.NodeID                                    { return "" }
+func (m *mockNode) RegisterHost(_ pid.HostID, _ relay.Receiver) error { return nil }
+func (m *mockNode) UnregisterHost(_ pid.HostID)                       {}
+func (m *mockNode) GetHost(_ pid.HostID) (relay.Receiver, bool)       { return nil, false }
+func (m *mockNode) Attach(_ pid.PID, _ chan *relay.Package) (context.CancelFunc, error) {
 	return func() {}, nil
 }
-func (m *mockNode) Detach(_ relay.PID) {}
+func (m *mockNode) Detach(_ pid.PID) {}
 
 func setupTestContext() context.Context {
 	appCtx := ctxapi.NewAppContext()

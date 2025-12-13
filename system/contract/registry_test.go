@@ -69,7 +69,7 @@ func TestContractRegistry_DefinitionEvents(t *testing.T) {
 		contract.System,
 		"contract.*",
 		func(evt event.Event) {
-			if evt.Kind == contract.Accept || evt.Kind == contract.Reject {
+			if evt.Kind == contract.KindAccept || evt.Kind == contract.KindReject {
 				mu.Lock()
 				responses = append(responses, evt)
 				mu.Unlock()
@@ -109,33 +109,33 @@ func TestContractRegistry_DefinitionEvents(t *testing.T) {
 	}{
 		{
 			name:         "register definition success",
-			eventKind:    contract.RegisterDefinition,
+			eventKind:    contract.KindRegisterDefinition,
 			eventData:    testDef,
-			expectedKind: contract.Accept,
+			expectedKind: contract.KindAccept,
 		},
 		{
 			name:         "update definition success",
-			eventKind:    contract.UpdateDefinition,
+			eventKind:    contract.KindUpdateDefinition,
 			eventData:    testDef,
-			expectedKind: contract.Accept,
+			expectedKind: contract.KindAccept,
 		},
 		{
 			name:         "delete definition success",
-			eventKind:    contract.DeleteDefinition,
+			eventKind:    contract.KindDeleteDefinition,
 			eventData:    nil,
-			expectedKind: contract.Accept,
+			expectedKind: contract.KindAccept,
 		},
 		{
 			name:         "register definition with invalid payload",
-			eventKind:    contract.RegisterDefinition,
+			eventKind:    contract.KindRegisterDefinition,
 			eventData:    "invalid",
-			expectedKind: contract.Reject,
+			expectedKind: contract.KindReject,
 		},
 		{
 			name:         "update definition with invalid payload",
-			eventKind:    contract.UpdateDefinition,
+			eventKind:    contract.KindUpdateDefinition,
 			eventData:    123,
-			expectedKind: contract.Reject,
+			expectedKind: contract.KindReject,
 		},
 	}
 
@@ -199,7 +199,7 @@ func TestContractRegistry_BindingEvents(t *testing.T) {
 		contract.System,
 		"contract.*",
 		func(evt event.Event) {
-			if evt.Kind == contract.Accept || evt.Kind == contract.Reject {
+			if evt.Kind == contract.KindAccept || evt.Kind == contract.KindReject {
 				mu.Lock()
 				responses = append(responses, evt)
 				mu.Unlock()
@@ -228,33 +228,33 @@ func TestContractRegistry_BindingEvents(t *testing.T) {
 	}{
 		{
 			name:         "register binding success",
-			eventKind:    contract.RegisterBinding,
+			eventKind:    contract.KindRegisterBinding,
 			eventData:    testBinding,
-			expectedKind: contract.Accept,
+			expectedKind: contract.KindAccept,
 		},
 		{
 			name:         "update binding success",
-			eventKind:    contract.UpdateBinding,
+			eventKind:    contract.KindUpdateBinding,
 			eventData:    testBinding,
-			expectedKind: contract.Accept,
+			expectedKind: contract.KindAccept,
 		},
 		{
 			name:         "delete binding success",
-			eventKind:    contract.DeleteBinding,
+			eventKind:    contract.KindDeleteBinding,
 			eventData:    nil,
-			expectedKind: contract.Accept,
+			expectedKind: contract.KindAccept,
 		},
 		{
 			name:         "register binding with invalid payload",
-			eventKind:    contract.RegisterBinding,
+			eventKind:    contract.KindRegisterBinding,
 			eventData:    "invalid",
-			expectedKind: contract.Reject,
+			expectedKind: contract.KindReject,
 		},
 		{
 			name:         "update binding with invalid payload",
-			eventKind:    contract.UpdateBinding,
+			eventKind:    contract.KindUpdateBinding,
 			eventData:    []string{"invalid"},
-			expectedKind: contract.Reject,
+			expectedKind: contract.KindReject,
 		},
 	}
 
@@ -335,7 +335,7 @@ func TestContractRegistry_GetContract(t *testing.T) {
 		contract.System,
 		"contract.*",
 		func(evt event.Event) {
-			if evt.Kind == contract.Accept {
+			if evt.Kind == contract.KindAccept {
 				wg.Done()
 			}
 		},
@@ -357,7 +357,7 @@ func TestContractRegistry_GetContract(t *testing.T) {
 	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.RegisterDefinition,
+		Kind:   contract.KindRegisterDefinition,
 		Path:   contractID.String(),
 		Data:   testDef,
 	})
@@ -402,7 +402,7 @@ func TestContractRegistry_GetBinding(t *testing.T) {
 		contract.System,
 		"contract.*",
 		func(evt event.Event) {
-			if evt.Kind == contract.Accept {
+			if evt.Kind == contract.KindAccept {
 				wg.Done()
 			}
 		},
@@ -425,7 +425,7 @@ func TestContractRegistry_GetBinding(t *testing.T) {
 	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.RegisterBinding,
+		Kind:   contract.KindRegisterBinding,
 		Path:   bindingID.String(),
 		Data:   testBinding,
 	})
@@ -460,7 +460,7 @@ func TestContractRegistry_GetBindingsForContract(t *testing.T) {
 		contract.System,
 		"contract.*",
 		func(evt event.Event) {
-			if evt.Kind == contract.Accept {
+			if evt.Kind == contract.KindAccept {
 				wg.Done()
 			}
 		},
@@ -504,19 +504,19 @@ func TestContractRegistry_GetBindingsForContract(t *testing.T) {
 	wg.Add(3) // Expect 3 registrations
 	bus.Send(ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.RegisterBinding,
+		Kind:   contract.KindRegisterBinding,
 		Path:   binding1ID.String(),
 		Data:   testBinding1,
 	})
 	bus.Send(ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.RegisterBinding,
+		Kind:   contract.KindRegisterBinding,
 		Path:   binding2ID.String(),
 		Data:   testBinding2,
 	})
 	bus.Send(ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.RegisterBinding,
+		Kind:   contract.KindRegisterBinding,
 		Path:   binding3ID.String(),
 		Data:   testBinding3,
 	})
@@ -564,7 +564,7 @@ func TestContractRegistry_GetDefaultBinding(t *testing.T) {
 		contract.System,
 		"contract.*",
 		func(evt event.Event) {
-			if evt.Kind == contract.Accept {
+			if evt.Kind == contract.KindAccept {
 				wg.Done()
 			}
 		},
@@ -597,7 +597,7 @@ func TestContractRegistry_GetDefaultBinding(t *testing.T) {
 		wg.Add(1)
 		bus.Send(ctx, event.Event{
 			System: contract.System,
-			Kind:   contract.RegisterBinding,
+			Kind:   contract.KindRegisterBinding,
 			Path:   defaultBindingID.String(),
 			Data:   defaultBinding,
 		})
@@ -623,7 +623,7 @@ func TestContractRegistry_GetDefaultBinding(t *testing.T) {
 		wg.Add(1)
 		bus.Send(ctx, event.Event{
 			System: contract.System,
-			Kind:   contract.RegisterBinding,
+			Kind:   contract.KindRegisterBinding,
 			Path:   nonDefaultBindingID.String(),
 			Data:   nonDefaultBinding,
 		})
@@ -649,7 +649,7 @@ func TestContractRegistry_GetDefaultBinding(t *testing.T) {
 		wg.Add(1)
 		bus.Send(ctx, event.Event{
 			System: contract.System,
-			Kind:   contract.UpdateBinding,
+			Kind:   contract.KindUpdateBinding,
 			Path:   defaultBindingID.String(),
 			Data:   nonDefaultBinding,
 		})
@@ -675,7 +675,7 @@ func TestContractRegistry_GetDefaultBinding(t *testing.T) {
 		wg.Add(1)
 		bus.Send(ctx, event.Event{
 			System: contract.System,
-			Kind:   contract.UpdateBinding,
+			Kind:   contract.KindUpdateBinding,
 			Path:   nonDefaultBindingID.String(),
 			Data:   newDefaultBinding,
 		})
@@ -691,7 +691,7 @@ func TestContractRegistry_GetDefaultBinding(t *testing.T) {
 		wg.Add(1)
 		bus.Send(ctx, event.Event{
 			System: contract.System,
-			Kind:   contract.DeleteBinding,
+			Kind:   contract.KindDeleteBinding,
 			Path:   nonDefaultBindingID.String(),
 		})
 		wg.Wait()
@@ -719,7 +719,7 @@ func TestContractRegistry_DefaultBindingCleanupOnContractDelete(t *testing.T) {
 		contract.System,
 		"contract.*",
 		func(evt event.Event) {
-			if evt.Kind == contract.Accept {
+			if evt.Kind == contract.KindAccept {
 				wg.Done()
 			}
 		},
@@ -738,7 +738,7 @@ func TestContractRegistry_DefaultBindingCleanupOnContractDelete(t *testing.T) {
 	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.RegisterDefinition,
+		Kind:   contract.KindRegisterDefinition,
 		Path:   contractID.String(),
 		Data:   testDef,
 	})
@@ -758,7 +758,7 @@ func TestContractRegistry_DefaultBindingCleanupOnContractDelete(t *testing.T) {
 	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.RegisterBinding,
+		Kind:   contract.KindRegisterBinding,
 		Path:   bindingID.String(),
 		Data:   defaultBinding,
 	})
@@ -773,7 +773,7 @@ func TestContractRegistry_DefaultBindingCleanupOnContractDelete(t *testing.T) {
 	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.DeleteDefinition,
+		Kind:   contract.KindDeleteDefinition,
 		Path:   contractID.String(),
 	})
 	wg.Wait()
@@ -800,7 +800,7 @@ func TestContractRegistry_MultipleContractsInBinding(t *testing.T) {
 		contract.System,
 		"contract.*",
 		func(evt event.Event) {
-			if evt.Kind == contract.Accept {
+			if evt.Kind == contract.KindAccept {
 				wg.Done()
 			}
 		},
@@ -831,7 +831,7 @@ func TestContractRegistry_MultipleContractsInBinding(t *testing.T) {
 	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.RegisterBinding,
+		Kind:   contract.KindRegisterBinding,
 		Path:   bindingID.String(),
 		Data:   multiBinding,
 	})
@@ -866,7 +866,7 @@ func TestContractRegistry_MultipleContractsInBinding(t *testing.T) {
 	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.UpdateBinding,
+		Kind:   contract.KindUpdateBinding,
 		Path:   bindingID.String(),
 		Data:   updatedBinding,
 	})
@@ -901,7 +901,7 @@ func TestContractRegistry_ConcurrentAccess(t *testing.T) {
 		contract.System,
 		"contract.*",
 		func(evt event.Event) {
-			if evt.Kind == contract.Accept {
+			if evt.Kind == contract.KindAccept {
 				wg.Done()
 			}
 		},
@@ -924,7 +924,7 @@ func TestContractRegistry_ConcurrentAccess(t *testing.T) {
 
 			bus.Send(ctx, event.Event{
 				System: contract.System,
-				Kind:   contract.RegisterDefinition,
+				Kind:   contract.KindRegisterDefinition,
 				Path:   fmt.Sprintf("test:contract-%d", idx),
 				Data:   def,
 			})

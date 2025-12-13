@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/topology"
@@ -36,7 +37,7 @@ func (m *mockUpstream) Send(pkg *relay.Package) error {
 	return nil
 }
 
-func (m *mockUpstream) getSends(pid relay.PID) []*relay.Package {
+func (m *mockUpstream) getSends(pid pid.PID) []*relay.Package {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.sends[pid.String()]
@@ -52,12 +53,12 @@ func TestTopology_BasicFunctionality(t *testing.T) {
 	upstream := newMockUpstream()
 	topo := NewTopology(upstream, "local")
 
-	pid1 := relay.PID{
+	pid1 := pid.PID{
 		Host:   "host1",
 		UniqID: "1",
 	}.Precomputed()
 
-	pid2 := relay.PID{
+	pid2 := pid.PID{
 		Host:   "host2",
 		UniqID: "2",
 	}.Precomputed()
@@ -128,17 +129,17 @@ func TestTopology_LinkFunctionality(t *testing.T) {
 	upstream := newMockUpstream()
 	topo := NewTopology(upstream, "local")
 
-	pid1 := relay.PID{
+	pid1 := pid.PID{
 		Host:   "host1",
 		UniqID: "1",
 	}.Precomputed()
 
-	pid2 := relay.PID{
+	pid2 := pid.PID{
 		Host:   "host2",
 		UniqID: "2",
 	}.Precomputed()
 
-	pid3 := relay.PID{
+	pid3 := pid.PID{
 		Host:   "host3",
 		UniqID: "3",
 	}.Precomputed()
@@ -149,7 +150,7 @@ func TestTopology_LinkFunctionality(t *testing.T) {
 	assert.NoError(t, topo.Register(pid3))
 
 	t.Run("cannot link unregistered process", func(t *testing.T) {
-		unregisteredPid := relay.PID{
+		unregisteredPid := pid.PID{
 			Host:   "host4",
 			UniqID: "4",
 		}
@@ -265,7 +266,7 @@ func TestTopology_Concurrency(t *testing.T) {
 	upstream := newMockUpstream()
 	topo := NewTopology(upstream, "local")
 
-	mainPid := relay.PID{
+	mainPid := pid.PID{
 		Host:   "host1",
 		UniqID: "main",
 	}
@@ -275,9 +276,9 @@ func TestTopology_Concurrency(t *testing.T) {
 
 	// Create multiple PIDs
 	workerCount := 10
-	workers := make([]relay.PID, workerCount)
+	workers := make([]pid.PID, workerCount)
 	for i := 0; i < workerCount; i++ {
-		workers[i] = relay.PID{
+		workers[i] = pid.PID{
 			Host:   "worker",
 			UniqID: string(rune('0' + i)),
 		}
@@ -368,12 +369,12 @@ func TestTopology_UpstreamError(t *testing.T) {
 	upstream.sendErr = errors.New("send error")
 	topo := NewTopology(upstream, "local")
 
-	pid1 := relay.PID{
+	pid1 := pid.PID{
 		Host:   "host1",
 		UniqID: "1",
 	}
 
-	pid2 := relay.PID{
+	pid2 := pid.PID{
 		Host:   "host2",
 		UniqID: "2",
 	}
@@ -398,25 +399,25 @@ func TestTopology_EdgeCases(t *testing.T) {
 	upstream := newMockUpstream()
 	topo := NewTopology(upstream, "local")
 
-	pid1 := relay.PID{
+	pid1 := pid.PID{
 		Host:   "host1",
 		UniqID: "1",
 	}
 
-	pid2 := relay.PID{
+	pid2 := pid.PID{
 		Host:   "host2",
 		UniqID: "2",
 	}
 
 	t.Run("register empty PID", func(t *testing.T) {
-		emptyPID := relay.PID{}
+		emptyPID := pid.PID{}
 		err := topo.Register(emptyPID)
 		assert.NoError(t, err, "registering empty PID should not error")
 	})
 
 	t.Run("wait with empty caller PID", func(t *testing.T) {
 		assert.NoError(t, topo.Register(pid1))
-		emptyPID := relay.PID{}
+		emptyPID := pid.PID{}
 		err := topo.Monitor(emptyPID, pid1)
 		assert.NoError(t, err, "waiting with empty caller PID should not error")
 	})
@@ -454,12 +455,12 @@ func TestTopology_ConcurrentOperations(t *testing.T) {
 	upstream := newMockUpstream()
 	topo := NewTopology(upstream, "local")
 
-	pid1 := relay.PID{
+	pid1 := pid.PID{
 		Host:   "host1",
 		UniqID: "1",
 	}
 
-	pid2 := relay.PID{
+	pid2 := pid.PID{
 		Host:   "host2",
 		UniqID: "2",
 	}
@@ -617,17 +618,17 @@ func TestTopology_NotificationScenarios(t *testing.T) {
 	upstream := newMockUpstream()
 	topo := NewTopology(upstream, "local")
 
-	pid1 := relay.PID{
+	pid1 := pid.PID{
 		Host:   "host1",
 		UniqID: "1",
 	}
 
-	pid2 := relay.PID{
+	pid2 := pid.PID{
 		Host:   "host2",
 		UniqID: "2",
 	}
 
-	pid3 := relay.PID{
+	pid3 := pid.PID{
 		Host:   "host3",
 		UniqID: "3",
 	}
@@ -677,8 +678,8 @@ func TestTopology_WatchingMapTracking(t *testing.T) {
 		upstream := newMockUpstream()
 		topo := NewTopology(upstream, "local")
 
-		caller := relay.PID{Host: "host", UniqID: "caller"}.Precomputed()
-		target := relay.PID{Host: "host", UniqID: "target"}.Precomputed()
+		caller := pid.PID{Host: "host", UniqID: "caller"}.Precomputed()
+		target := pid.PID{Host: "host", UniqID: "target"}.Precomputed()
 
 		_ = topo.Register(caller)
 		_ = topo.Register(target)
@@ -695,8 +696,8 @@ func TestTopology_WatchingMapTracking(t *testing.T) {
 		upstream := newMockUpstream()
 		topo := NewTopology(upstream, "local")
 
-		caller := relay.PID{Host: "host", UniqID: "caller"}.Precomputed()
-		target := relay.PID{Host: "host", UniqID: "target"}.Precomputed()
+		caller := pid.PID{Host: "host", UniqID: "caller"}.Precomputed()
+		target := pid.PID{Host: "host", UniqID: "target"}.Precomputed()
 
 		_ = topo.Register(caller)
 		_ = topo.Register(target)
@@ -714,9 +715,9 @@ func TestTopology_WatchingMapTracking(t *testing.T) {
 		upstream := newMockUpstream()
 		topo := NewTopology(upstream, "local")
 
-		watcher1 := relay.PID{Host: "host", UniqID: "watcher1"}.Precomputed()
-		watcher2 := relay.PID{Host: "host", UniqID: "watcher2"}.Precomputed()
-		target := relay.PID{Host: "host", UniqID: "target"}.Precomputed()
+		watcher1 := pid.PID{Host: "host", UniqID: "watcher1"}.Precomputed()
+		watcher2 := pid.PID{Host: "host", UniqID: "watcher2"}.Precomputed()
+		target := pid.PID{Host: "host", UniqID: "target"}.Precomputed()
 
 		_ = topo.Register(watcher1)
 		_ = topo.Register(watcher2)

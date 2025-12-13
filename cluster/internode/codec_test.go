@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	luapayload "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	transcoder "github.com/wippyai/runtime/system/payload"
@@ -40,13 +41,13 @@ func TestMessageCodec_PackagePIDs_SourceTarget(t *testing.T) {
 	codec := NewMessageCodec(&mockTranscoder{})
 
 	// Create PIDs with actual values
-	sourcePID := relay.PID{
+	sourcePID := pid.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "src123",
 	}
 
-	targetPID := relay.PID{
+	targetPID := pid.PID{
 		Node:   "node2",
 		Host:   "host2",
 		UniqID: "tgt456",
@@ -120,8 +121,8 @@ func TestMessageCodec_EmptyPIDs(t *testing.T) {
 
 	// Package with empty PIDs (this is what we're seeing in logs)
 	originalPkg := &relay.Package{
-		Source: relay.PID{}, // Empty
-		Target: relay.PID{}, // Empty
+		Source: pid.PID{}, // Empty
+		Target: pid.PID{}, // Empty
 		Messages: []*relay.Message{
 			{
 				Topic: "test.topic",
@@ -178,8 +179,8 @@ func TestMessageCodec_EndToEnd_LuaPayload(t *testing.T) {
 	tbl.RawSetString("enabled", lua.LTrue)
 
 	originalPkg := &relay.Package{
-		Source: relay.PID{Node: "node1", Host: "host1", UniqID: "src123"},
-		Target: relay.PID{Node: "node2", Host: "host2", UniqID: "tgt456"},
+		Source: pid.PID{Node: "node1", Host: "host1", UniqID: "src123"},
+		Target: pid.PID{Node: "node2", Host: "host2", UniqID: "tgt456"},
 		Messages: []*relay.Message{
 			{
 				Topic:    "lua.test",
@@ -249,8 +250,8 @@ func TestMessageCodec_EndToEnd_MixedPayloads(t *testing.T) {
 	luaTbl.RawSetString("lua", lua.LString("value"))
 
 	originalPkg := &relay.Package{
-		Source: relay.PID{Node: "node1", Host: "host1", UniqID: "src123"},
-		Target: relay.PID{Node: "node2", Host: "host2", UniqID: "tgt456"},
+		Source: pid.PID{Node: "node1", Host: "host1", UniqID: "src123"},
+		Target: pid.PID{Node: "node2", Host: "host2", UniqID: "tgt456"},
 		Messages: []*relay.Message{
 			{
 				Topic: "mixed.test",
@@ -321,7 +322,7 @@ func TestMessageCodec_EndToEnd_NestedLuaTables(t *testing.T) {
 	root.RawSetString("value", lua.LNumber(42))
 
 	originalPkg := &relay.Package{
-		Source: relay.PID{Node: "node1", Host: "host1", UniqID: "src"},
+		Source: pid.PID{Node: "node1", Host: "host1", UniqID: "src"},
 		Messages: []*relay.Message{
 			{
 				Topic:    "nested.test",
@@ -369,8 +370,8 @@ func TestMessageCodec_EndToEnd_MultipleMessages(t *testing.T) {
 	codec := NewMessageCodec(createRealTranscoder())
 
 	originalPkg := &relay.Package{
-		Source: relay.PID{Node: "node1", Host: "host1", UniqID: "src"},
-		Target: relay.PID{Node: "node2", Host: "host2", UniqID: "tgt"},
+		Source: pid.PID{Node: "node1", Host: "host1", UniqID: "src"},
+		Target: pid.PID{Node: "node2", Host: "host2", UniqID: "tgt"},
 		Messages: []*relay.Message{
 			{Topic: "topic1", Payloads: []payload.Payload{payload.NewString("msg1")}},
 			{Topic: "topic2", Payloads: []payload.Payload{payload.NewString("msg2")}},
@@ -413,7 +414,7 @@ func TestMessageCodec_EndToEnd_LargePayload(t *testing.T) {
 	}
 
 	originalPkg := &relay.Package{
-		Source: relay.PID{Node: "node1", Host: "host1", UniqID: "src"},
+		Source: pid.PID{Node: "node1", Host: "host1", UniqID: "src"},
 		Messages: []*relay.Message{
 			{
 				Topic:    "large.test",
@@ -456,8 +457,8 @@ func BenchmarkMessageCodec_Encode_LuaPayload(b *testing.B) {
 	tbl.RawSetString("tags", lua.LString("a,b,c"))
 
 	pkg := &relay.Package{
-		Source: relay.PID{Node: "node1", Host: "host1", UniqID: "src123"},
-		Target: relay.PID{Node: "node2", Host: "host2", UniqID: "tgt456"},
+		Source: pid.PID{Node: "node1", Host: "host1", UniqID: "src123"},
+		Target: pid.PID{Node: "node2", Host: "host2", UniqID: "tgt456"},
 		Messages: []*relay.Message{
 			{
 				Topic:    "bench.test",
@@ -484,8 +485,8 @@ func BenchmarkMessageCodec_Decode_LuaPayload(b *testing.B) {
 	tbl.RawSetString("enabled", lua.LTrue)
 
 	pkg := &relay.Package{
-		Source: relay.PID{Node: "node1", Host: "host1", UniqID: "src123"},
-		Target: relay.PID{Node: "node2", Host: "host2", UniqID: "tgt456"},
+		Source: pid.PID{Node: "node1", Host: "host1", UniqID: "src123"},
+		Target: pid.PID{Node: "node2", Host: "host2", UniqID: "tgt456"},
 		Messages: []*relay.Message{
 			{
 				Topic:    "bench.test",
@@ -514,8 +515,8 @@ func BenchmarkMessageCodec_RoundTrip_LuaPayload(b *testing.B) {
 	tbl.RawSetString("enabled", lua.LTrue)
 
 	pkg := &relay.Package{
-		Source: relay.PID{Node: "node1", Host: "host1", UniqID: "src123"},
-		Target: relay.PID{Node: "node2", Host: "host2", UniqID: "tgt456"},
+		Source: pid.PID{Node: "node1", Host: "host1", UniqID: "src123"},
+		Target: pid.PID{Node: "node2", Host: "host2", UniqID: "tgt456"},
 		Messages: []*relay.Message{
 			{
 				Topic:    "bench.test",
@@ -549,8 +550,8 @@ func BenchmarkMessageCodec_Encode_GolangPayload(b *testing.B) {
 	}
 
 	pkg := &relay.Package{
-		Source: relay.PID{Node: "node1", Host: "host1", UniqID: "src123"},
-		Target: relay.PID{Node: "node2", Host: "host2", UniqID: "tgt456"},
+		Source: pid.PID{Node: "node1", Host: "host1", UniqID: "src123"},
+		Target: pid.PID{Node: "node2", Host: "host2", UniqID: "tgt456"},
 		Messages: []*relay.Message{
 			{
 				Topic:    "bench.test",
@@ -586,7 +587,7 @@ func BenchmarkMessageCodec_NestedLuaTable(b *testing.B) {
 	root.RawSetString("value", lua.LNumber(42))
 
 	pkg := &relay.Package{
-		Source: relay.PID{Node: "node1", Host: "host1", UniqID: "src"},
+		Source: pid.PID{Node: "node1", Host: "host1", UniqID: "src"},
 		Messages: []*relay.Message{
 			{
 				Topic:    "bench.nested",
@@ -615,7 +616,7 @@ func BenchmarkMessageCodec_MixedPayloads(b *testing.B) {
 	luaTbl.RawSetString("lua", lua.LString("value"))
 
 	pkg := &relay.Package{
-		Source: relay.PID{Node: "node1", Host: "host1", UniqID: "src123"},
+		Source: pid.PID{Node: "node1", Host: "host1", UniqID: "src123"},
 		Messages: []*relay.Message{
 			{
 				Topic: "mixed.bench",
@@ -647,7 +648,7 @@ func BenchmarkMessageCodec_MultipleMessages(b *testing.B) {
 	codec := NewMessageCodec(createRealTranscoder())
 
 	pkg := &relay.Package{
-		Source:   relay.PID{Node: "node1", Host: "host1", UniqID: "src"},
+		Source:   pid.PID{Node: "node1", Host: "host1", UniqID: "src"},
 		Messages: make([]*relay.Message, 10),
 	}
 
@@ -768,7 +769,7 @@ func TestMessageCodec_MsgPackFormat(t *testing.T) {
 
 	// Now use the codec with MsgPack payload
 	pkg := &relay.Package{
-		Source: relay.PID{Node: "node1", Host: "host1", UniqID: "src"},
+		Source: pid.PID{Node: "node1", Host: "host1", UniqID: "src"},
 		Messages: []*relay.Message{
 			{
 				Topic:    "msgpack.test",
@@ -800,7 +801,7 @@ func TestMessageCodec_JSONBytesPreserved(t *testing.T) {
 
 	jsonBytes := []byte(`{"key":"value","num":123}`)
 	pkg := &relay.Package{
-		Source: relay.PID{Node: "node1", Host: "host1", UniqID: "src"},
+		Source: pid.PID{Node: "node1", Host: "host1", UniqID: "src"},
 		Messages: []*relay.Message{
 			{
 				Topic:    "json.test",

@@ -16,6 +16,7 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
@@ -45,13 +46,13 @@ func (ts *testScheduler) Stop() {
 	ts.Scheduler.Stop(context.Background())
 }
 
-func (ts *testScheduler) OnStart(_ context.Context, _ relay.PID, _ process.Process) {}
+func (ts *testScheduler) OnStart(_ context.Context, _ pid.PID, _ process.Process) {}
 
-func (ts *testScheduler) OnComplete(_ context.Context, pid relay.PID, result *runtime.Result) {
+func (ts *testScheduler) OnComplete(_ context.Context, p pid.PID, result *runtime.Result) {
 	ts.mu.Lock()
-	ch, ok := ts.pending[pid.UniqID]
+	ch, ok := ts.pending[p.UniqID]
 	if ok {
-		delete(ts.pending, pid.UniqID)
+		delete(ts.pending, p.UniqID)
 	}
 	ts.mu.Unlock()
 	if ok {
@@ -59,17 +60,17 @@ func (ts *testScheduler) OnComplete(_ context.Context, pid relay.PID, result *ru
 	}
 }
 
-func (ts *testScheduler) Execute(ctx context.Context, pid relay.PID, p actor.Process, method string, input payload.Payloads) (*runtime.Result, error) {
+func (ts *testScheduler) Execute(ctx context.Context, p pid.PID, proc actor.Process, method string, input payload.Payloads) (*runtime.Result, error) {
 	resultCh := make(chan *runtime.Result, 1)
 
 	ts.mu.Lock()
-	ts.pending[pid.UniqID] = resultCh
+	ts.pending[p.UniqID] = resultCh
 	ts.mu.Unlock()
 
-	_, err := ts.Scheduler.Submit(ctx, pid, p, method, input)
+	_, err := ts.Scheduler.Submit(ctx, p, proc, method, input)
 	if err != nil {
 		ts.mu.Lock()
-		delete(ts.pending, pid.UniqID)
+		delete(ts.pending, p.UniqID)
 		ts.mu.Unlock()
 		return nil, err
 	}
@@ -79,7 +80,7 @@ func (ts *testScheduler) Execute(ctx context.Context, pid relay.PID, p actor.Pro
 		return result, nil
 	case <-ctx.Done():
 		ts.mu.Lock()
-		delete(ts.pending, pid.UniqID)
+		delete(ts.pending, p.UniqID)
 		ts.mu.Unlock()
 		return nil, ctx.Err()
 	}
@@ -87,8 +88,8 @@ func (ts *testScheduler) Execute(ctx context.Context, pid relay.PID, p actor.Pro
 
 var testPIDCounter atomic.Int64
 
-func uniqueTestPID() relay.PID {
-	return relay.PID{UniqID: stdtime.Now().Format("20060102150405.000000000") + "-" + string(rune(testPIDCounter.Add(1)))}
+func uniqueTestPID() pid.PID {
+	return pid.PID{UniqID: stdtime.Now().Format("20060102150405.000000000") + "-" + string(rune(testPIDCounter.Add(1)))}
 }
 
 // extractInt64 extracts an int64 from various types (Lua or Go)
@@ -206,7 +207,7 @@ func (tc *integrationTestContext) registerFunction(t *testing.T, funcID registry
 func (tc *integrationTestContext) registerContract(t *testing.T, contractID registry.ID, def *apicontract.Definition) {
 	var wg sync.WaitGroup
 	sub, err := eventbus.NewSubscriber(tc.ctx, tc.bus, apicontract.System, "contract.*", func(evt event.Event) {
-		if evt.Kind == apicontract.Accept && evt.Path == contractID.String() {
+		if evt.Kind == apicontract.KindAccept && evt.Path == contractID.String() {
 			wg.Done()
 		}
 	})
@@ -216,7 +217,7 @@ func (tc *integrationTestContext) registerContract(t *testing.T, contractID regi
 	wg.Add(1)
 	tc.bus.Send(tc.ctx, event.Event{
 		System: apicontract.System,
-		Kind:   apicontract.RegisterDefinition,
+		Kind:   apicontract.KindRegisterDefinition,
 		Path:   contractID.String(),
 		Data:   def,
 	})
@@ -226,7 +227,7 @@ func (tc *integrationTestContext) registerContract(t *testing.T, contractID regi
 func (tc *integrationTestContext) registerBinding(t *testing.T, bindingID registry.ID, binding *apicontract.Binding) {
 	var wg sync.WaitGroup
 	sub, err := eventbus.NewSubscriber(tc.ctx, tc.bus, apicontract.System, "contract.*", func(evt event.Event) {
-		if evt.Kind == apicontract.Accept && evt.Path == bindingID.String() {
+		if evt.Kind == apicontract.KindAccept && evt.Path == bindingID.String() {
 			wg.Done()
 		}
 	})
@@ -236,7 +237,7 @@ func (tc *integrationTestContext) registerBinding(t *testing.T, bindingID regist
 	wg.Add(1)
 	tc.bus.Send(tc.ctx, event.Event{
 		System: apicontract.System,
-		Kind:   apicontract.RegisterBinding,
+		Kind:   apicontract.KindRegisterBinding,
 		Path:   bindingID.String(),
 		Data:   binding,
 	})

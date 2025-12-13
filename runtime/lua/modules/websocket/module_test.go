@@ -6,7 +6,7 @@ import (
 	"time"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
-	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/security"
 	wsapi "github.com/wippyai/runtime/api/websocket"
 	"github.com/yuin/gopher-lua"
@@ -266,8 +266,8 @@ func TestWsSendYield(t *testing.T) {
 }
 
 func TestWsSubscribeYield(t *testing.T) {
-	pid := relay.PID{UniqID: "test-pid"}
-	yield := AcquireWsSubscribeYield(456, nil, pid, "ws@456", nil)
+	p := pid.PID{UniqID: "test-pid"}
+	yield := AcquireWsSubscribeYield(456, nil, p, "ws@456", nil)
 
 	if yield.CmdID() != wsapi.CmdWsSubscribe {
 		t.Errorf("expected CmdWsSubscribe, got %d", yield.CmdID())
@@ -408,7 +408,7 @@ func TestYieldPooling(_ *testing.T) {
 			y2 := AcquireWsSendYield(1, []byte("test"), 1)
 			ReleaseWsSendYield(y2)
 
-			y3 := AcquireWsSubscribeYield(1, nil, relay.PID{}, "ws@1", nil)
+			y3 := AcquireWsSubscribeYield(1, nil, pid.PID{}, "ws@1", nil)
 			ReleaseWsSubscribeYield(y3)
 
 			y4 := AcquireWsCloseYield(1, 1000, "")

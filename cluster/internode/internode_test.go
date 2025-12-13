@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
@@ -132,7 +133,7 @@ func (m *mockCodec) Decode(_ []byte) (*relay.Package, error) {
 		return nil, m.decodeError
 	}
 	pkg := relay.AcquirePackage()
-	pkg.Source = relay.PID{Node: "remote-node", Host: "remote-host", UniqID: "123"}
+	pkg.Source = pid.PID{Node: "remote-node", Host: "remote-host", UniqID: "123"}
 	return pkg, nil
 }
 
@@ -281,7 +282,7 @@ func TestService_Send_Success(t *testing.T) {
 	defer func() { _ = service.Stop() }()
 
 	pkg := relay.AcquirePackage()
-	pkg.Target = relay.PID{Node: "remote-node", Host: "remote-host", UniqID: "123"}
+	pkg.Target = pid.PID{Node: "remote-node", Host: "remote-host", UniqID: "123"}
 	pkg.Messages = []*relay.Message{
 		{Topic: "test.topic"},
 	}
@@ -303,7 +304,7 @@ func TestService_Send_EncodeError(t *testing.T) {
 	codec.encodeError = errors.New("encoding failed")
 
 	pkg := relay.AcquirePackage()
-	pkg.Target = relay.PID{Node: "remote-node"}
+	pkg.Target = pid.PID{Node: "remote-node"}
 
 	err = service.Send(pkg)
 	assert.Error(t, err)
@@ -321,7 +322,7 @@ func TestService_Send_SendError(t *testing.T) {
 	connMan.sendError = errors.New("send failed")
 
 	pkg := relay.AcquirePackage()
-	pkg.Target = relay.PID{Node: "remote-node"}
+	pkg.Target = pid.PID{Node: "remote-node"}
 
 	err = service.Send(pkg)
 	assert.Error(t, err)

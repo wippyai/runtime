@@ -37,7 +37,7 @@ func (i *Instantiator) Instantiate(ctx context.Context, bindingID registry.ID, s
 	for _, bc := range binding.Contracts {
 		contractObj, err := i.registry.GetContract(ctx, bc.Contract)
 		if err != nil {
-			return nil, NewContractLoadError(bc.Contract, err)
+			return nil, contract.NewContractLoadError(bc.Contract, err)
 		}
 		contracts = append(contracts, contractObj)
 	}
@@ -84,7 +84,7 @@ func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Pay
 	}
 
 	if !found {
-		return nil, NewMethodNotBoundError(method)
+		return nil, contract.NewMethodNotBoundError(method)
 	}
 
 	// Validate required context keys - now checks BOTH scope and Go context
@@ -155,7 +155,7 @@ func (i *instanceImpl) validateContext(ctx context.Context, requiredKeys []strin
 	}
 
 	if len(missing) > 0 {
-		return NewMissingContextKeysError(missing)
+		return contract.NewMissingContextKeysError(missing)
 	}
 
 	return nil

@@ -5,7 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	pidpkg "github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/runtime"
 )
@@ -48,8 +48,8 @@ const (
 //	- Worker uses CAS loop to atomically check wakeup and transition state
 type Processor struct {
 	// Identity
-	id  uint64     // Internal fast routing ID (for maps, queues)
-	pid pidpkg.PID // External identity (for messages, logs, callbacks)
+	id  uint64  // Internal fast routing ID (for maps, queues)
+	pid pid.PID // External identity (for messages, logs, callbacks)
 
 	Process Process // The wrapped user process
 
@@ -177,7 +177,7 @@ func acquireProcessor() *Processor {
 
 func releaseProcessor(p *Processor) {
 	p.id = 0
-	p.pid = pidpkg.PID{}
+	p.pid = pid.PID{}
 	p.Process = nil
 	p.state.Store(0)
 	p.ctx = nil

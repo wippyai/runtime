@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 )
@@ -91,7 +92,7 @@ func TestInlineSend(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	// Send message to the pool using the known test PID
-	pkg := &relay.Package{Target: relay.PID{UniqID: "test-pid"}}
+	pkg := &relay.Package{Target: pid.PID{UniqID: "test-pid"}}
 	err = pool.Send(pkg)
 	if err != nil {
 		t.Fatalf("Send: %v", err)
@@ -123,7 +124,7 @@ func TestInlineSendToNonExistent(t *testing.T) {
 	pool.Start()
 
 	// Send to non-existent PID should return error
-	pkg := &relay.Package{Target: relay.PID{UniqID: "nonexistent"}}
+	pkg := &relay.Package{Target: pid.PID{UniqID: "nonexistent"}}
 	err = pool.Send(pkg)
 	if !errors.Is(err, process.ErrProcessNotFound) {
 		t.Fatalf("expected ErrProcessNotFound, got %v", err)
@@ -161,7 +162,7 @@ func TestStaticSend(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 
 	// Send message to the pool using the known test PID
-	pkg := &relay.Package{Target: relay.PID{UniqID: "test-pid"}}
+	pkg := &relay.Package{Target: pid.PID{UniqID: "test-pid"}}
 	err = pool.Send(pkg)
 	if err != nil {
 		t.Fatalf("Send: %v", err)
@@ -193,7 +194,7 @@ func TestStaticSendToNonExistent(t *testing.T) {
 	defer pool.Stop()
 	pool.Start()
 
-	pkg := &relay.Package{Target: relay.PID{UniqID: "nonexistent"}}
+	pkg := &relay.Package{Target: pid.PID{UniqID: "nonexistent"}}
 	err = pool.Send(pkg)
 	if !errors.Is(err, process.ErrProcessNotFound) {
 		t.Fatalf("expected ErrProcessNotFound, got %v", err)
@@ -234,7 +235,7 @@ func TestStaticSendMultipleWorkers(t *testing.T) {
 
 	// Send messages to each active execution
 	for i := 1; i <= 4; i++ {
-		pkg := &relay.Package{Target: relay.PID{UniqID: fmt.Sprintf("pid-%d", i)}}
+		pkg := &relay.Package{Target: pid.PID{UniqID: fmt.Sprintf("pid-%d", i)}}
 		err = pool.Send(pkg)
 		if err != nil {
 			t.Fatalf("Send to %d: %v", i, err)
@@ -286,7 +287,7 @@ func TestLazySend(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 
 	// Send message to the pool using the known test PID
-	pkg := &relay.Package{Target: relay.PID{UniqID: "test-pid"}}
+	pkg := &relay.Package{Target: pid.PID{UniqID: "test-pid"}}
 	err = pool.Send(pkg)
 	if err != nil {
 		t.Fatalf("Send: %v", err)
@@ -319,7 +320,7 @@ func TestLazySendToNonExistent(t *testing.T) {
 	defer pool.Stop()
 	pool.Start()
 
-	pkg := &relay.Package{Target: relay.PID{UniqID: "nonexistent"}}
+	pkg := &relay.Package{Target: pid.PID{UniqID: "nonexistent"}}
 	err = pool.Send(pkg)
 	if !errors.Is(err, process.ErrProcessNotFound) {
 		t.Fatalf("expected ErrProcessNotFound, got %v", err)
@@ -341,7 +342,7 @@ func TestLazySendAfterCompletion(t *testing.T) {
 	}
 
 	// Send to completed execution should return ErrProcessNotFound
-	pkg := &relay.Package{Target: relay.PID{UniqID: "1"}}
+	pkg := &relay.Package{Target: pid.PID{UniqID: "1"}}
 	err = pool.Send(pkg)
 	if !errors.Is(err, process.ErrProcessNotFound) {
 		t.Fatalf("expected ErrProcessNotFound, got %v", err)
@@ -373,7 +374,7 @@ func TestSendStressInline(t *testing.T) {
 		}(pid)
 
 		time.Sleep(time.Millisecond)
-		pkg := &relay.Package{Target: relay.PID{UniqID: pid}}
+		pkg := &relay.Package{Target: pid.PID{UniqID: pid}}
 		_ = pool.Send(pkg)
 
 		select {
@@ -417,7 +418,7 @@ func TestSendStressStatic(t *testing.T) {
 			}(pid)
 
 			time.Sleep(time.Millisecond)
-			pkg := &relay.Package{Target: relay.PID{UniqID: pid}}
+			pkg := &relay.Package{Target: pid.PID{UniqID: pid}}
 			_ = pool.Send(pkg)
 
 			select {
@@ -461,7 +462,7 @@ func TestSendStressLazy(t *testing.T) {
 			}(pid)
 
 			time.Sleep(5 * time.Millisecond)
-			pkg := &relay.Package{Target: relay.PID{UniqID: pid}}
+			pkg := &relay.Package{Target: pid.PID{UniqID: pid}}
 			_ = pool.Send(pkg)
 
 			select {

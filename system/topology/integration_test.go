@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/topology"
@@ -33,21 +34,21 @@ func (d *dummyHost) Send(pkg *relay.Package) error {
 	return nil
 }
 
-func (d *dummyHost) Attach(pid relay.PID, ch chan *relay.Package) (context.CancelFunc, error) {
+func (d *dummyHost) Attach(pid pid.PID, ch chan *relay.Package) (context.CancelFunc, error) {
 	d.receivers.Store(pid.String(), ch)
 	return func() {
 		d.receivers.Delete(pid.String())
 	}, nil
 }
 
-func (d *dummyHost) Detach(pid relay.PID) {
+func (d *dummyHost) Detach(pid pid.PID) {
 	d.receivers.Delete(pid.String())
 }
 
 // MockPeerNode simulates a peer node (like Temporal) for testing.
 // It can receive packages, handle monitoring/linking requests, and simulate completions.
 type MockPeerNode struct {
-	nodeID   relay.NodeID
+	nodeID   pid.NodeID
 	router   relay.Receiver
 	monitors sync.Map // map[workflowID]*monitorState
 	links    sync.Map // map[workflowID]*linkState
@@ -55,17 +56,17 @@ type MockPeerNode struct {
 }
 
 type monitorState struct {
-	targetPID relay.PID
+	targetPID pid.PID
 	watchers  sync.Map // map[callerPID]bool
 }
 
 type linkState struct {
-	targetPID relay.PID
+	targetPID pid.PID
 	linked    sync.Map // map[remotePID]bool
 }
 
 // NewMockPeerNode creates a new mock peer node.
-func NewMockPeerNode(nodeID relay.NodeID, router relay.Receiver, t *testing.T) *MockPeerNode {
+func NewMockPeerNode(nodeID pid.NodeID, router relay.Receiver, t *testing.T) *MockPeerNode {
 	return &MockPeerNode{
 		nodeID: nodeID,
 		router: router,
@@ -94,7 +95,7 @@ func (n *MockPeerNode) Send(pkg *relay.Package) error {
 	return fmt.Errorf("unknown event type in package")
 }
 
-func (n *MockPeerNode) handleMonitorRequest(caller, target relay.PID) error {
+func (n *MockPeerNode) handleMonitorRequest(caller, target pid.PID) error {
 	n.logger.Logf("MockPeerNode %s: received monitor request from %s for %s",
 		n.nodeID, caller, target)
 
@@ -107,7 +108,7 @@ func (n *MockPeerNode) handleMonitorRequest(caller, target relay.PID) error {
 	return nil
 }
 
-func (n *MockPeerNode) handleMonitorRelease(caller, target relay.PID) error {
+func (n *MockPeerNode) handleMonitorRelease(caller, target pid.PID) error {
 	n.logger.Logf("MockPeerNode %s: received release request from %s for %s",
 		n.nodeID, caller, target)
 
@@ -131,7 +132,7 @@ func (n *MockPeerNode) handleMonitorRelease(caller, target relay.PID) error {
 	return nil
 }
 
-func (n *MockPeerNode) handleLinkRequest(from, to relay.PID) error {
+func (n *MockPeerNode) handleLinkRequest(from, to pid.PID) error {
 	n.logger.Logf("MockPeerNode %s: received link request from %s to %s",
 		n.nodeID, from, to)
 
@@ -144,7 +145,7 @@ func (n *MockPeerNode) handleLinkRequest(from, to relay.PID) error {
 	return nil
 }
 
-func (n *MockPeerNode) handleUnlinkRequest(from, to relay.PID) error {
+func (n *MockPeerNode) handleUnlinkRequest(from, to pid.PID) error {
 	n.logger.Logf("MockPeerNode %s: received unlink request from %s to %s",
 		n.nodeID, from, to)
 
@@ -170,7 +171,7 @@ func (n *MockPeerNode) handleUnlinkRequest(from, to relay.PID) error {
 
 // SimulateCompletion simulates a workflow/process completing on the peer node.
 // Sends exit events to all watchers.
-func (n *MockPeerNode) SimulateCompletion(targetPID relay.PID, result interface{}, err error) error {
+func (n *MockPeerNode) SimulateCompletion(targetPID pid.PID, result interface{}, err error) error {
 	n.logger.Logf("MockPeerNode %s: simulating completion for %s", n.nodeID, targetPID)
 
 	value, ok := n.monitors.Load(targetPID.UniqID)
@@ -182,7 +183,7 @@ func (n *MockPeerNode) SimulateCompletion(targetPID relay.PID, result interface{
 
 	state.watchers.Range(func(key, _ interface{}) bool {
 		callerPIDStr := key.(string)
-		callerPID, parseErr := relay.ParsePID(callerPIDStr)
+		callerPID, parseErr := pid.ParsePID(callerPIDStr)
 		if parseErr != nil {
 			n.logger.Logf("MockPeerNode %s: failed to parse watcher PID %s: %v",
 				n.nodeID, callerPIDStr, parseErr)
@@ -209,8 +210,8 @@ func (n *MockPeerNode) SimulateCompletion(targetPID relay.PID, result interface{
 }
 
 // GetWatchers returns all PIDs monitoring the given target PID.
-func (n *MockPeerNode) GetWatchers(targetPID relay.PID) []relay.PID {
-	var watchers []relay.PID
+func (n *MockPeerNode) GetWatchers(targetPID pid.PID) []pid.PID {
+	var watchers []pid.PID
 
 	value, ok := n.monitors.Load(targetPID.UniqID)
 	if !ok {
@@ -220,7 +221,7 @@ func (n *MockPeerNode) GetWatchers(targetPID relay.PID) []relay.PID {
 	state := value.(*monitorState)
 	state.watchers.Range(func(key, _ interface{}) bool {
 		callerPIDStr := key.(string)
-		callerPID, err := relay.ParsePID(callerPIDStr)
+		callerPID, err := pid.ParsePID(callerPIDStr)
 		if err == nil {
 			watchers = append(watchers, callerPID)
 		}
@@ -231,8 +232,8 @@ func (n *MockPeerNode) GetWatchers(targetPID relay.PID) []relay.PID {
 }
 
 // GetLinkedProcesses returns all PIDs linked to the given target PID.
-func (n *MockPeerNode) GetLinkedProcesses(targetPID relay.PID) []relay.PID {
-	var linked []relay.PID
+func (n *MockPeerNode) GetLinkedProcesses(targetPID pid.PID) []pid.PID {
+	var linked []pid.PID
 
 	value, ok := n.links.Load(targetPID.UniqID)
 	if !ok {
@@ -242,7 +243,7 @@ func (n *MockPeerNode) GetLinkedProcesses(targetPID relay.PID) []relay.PID {
 	state := value.(*linkState)
 	state.linked.Range(func(key, _ interface{}) bool {
 		linkedPIDStr := key.(string)
-		linkedPID, err := relay.ParsePID(linkedPIDStr)
+		linkedPID, err := pid.ParsePID(linkedPIDStr)
 		if err == nil {
 			linked = append(linked, linkedPID)
 		}
@@ -254,7 +255,7 @@ func (n *MockPeerNode) GetLinkedProcesses(targetPID relay.PID) []relay.PID {
 
 // SimulateFailure simulates a workflow/process failing on the peer node.
 // Sends link-down events to linked processes (if error is not nil).
-func (n *MockPeerNode) SimulateFailure(targetPID relay.PID, err error) error {
+func (n *MockPeerNode) SimulateFailure(targetPID pid.PID, err error) error {
 	n.logger.Logf("MockPeerNode %s: simulating failure for %s", n.nodeID, targetPID)
 
 	if monValue, ok := n.monitors.Load(targetPID.UniqID); ok {
@@ -262,7 +263,7 @@ func (n *MockPeerNode) SimulateFailure(targetPID relay.PID, err error) error {
 
 		monState.watchers.Range(func(key, _ interface{}) bool {
 			callerPIDStr := key.(string)
-			callerPID, parseErr := relay.ParsePID(callerPIDStr)
+			callerPID, parseErr := pid.ParsePID(callerPIDStr)
 			if parseErr != nil {
 				return true
 			}
@@ -285,13 +286,13 @@ func (n *MockPeerNode) SimulateFailure(targetPID relay.PID, err error) error {
 
 		lnkState.linked.Range(func(key, _ interface{}) bool {
 			linkedPIDStr := key.(string)
-			linkedPID, parseErr := relay.ParsePID(linkedPIDStr)
+			linkedPID, parseErr := pid.ParsePID(linkedPIDStr)
 			if parseErr != nil {
 				return true
 			}
 
 			linkDownPkg := relay.NewPackage(
-				relay.PID{UniqID: "topology"},
+				pid.PID{UniqID: "topology"},
 				linkedPID,
 				topology.TopicEvents,
 				payload.New(&topology.ExitEvent{
@@ -332,13 +333,13 @@ func TestIntegration_CrossNodeMonitoring_EndToEnd(t *testing.T) {
 	require.NoError(t, err)
 
 	// Setup PIDs
-	localProcessPID := relay.PID{
+	localProcessPID := pid.PID{
 		Node:   "local",
 		Host:   "myhost",
 		UniqID: "process-1",
 	}.Precomputed()
 
-	workflowPID := relay.PID{
+	workflowPID := pid.PID{
 		Node:   "temporal-prod",
 		Host:   "my-task-queue",
 		UniqID: "workflow-123",
@@ -414,13 +415,13 @@ func TestIntegration_CrossNodeLinking_EndToEnd(t *testing.T) {
 	err = router.RegisterPeer("temporal-prod", peerNode)
 	require.NoError(t, err)
 
-	localProcessPID := relay.PID{
+	localProcessPID := pid.PID{
 		Node:   "local",
 		Host:   "myhost",
 		UniqID: "process-1",
 	}.Precomputed()
 
-	workflowPID := relay.PID{
+	workflowPID := pid.PID{
 		Node:   "temporal-prod",
 		Host:   "my-task-queue",
 		UniqID: "workflow-456",
@@ -495,11 +496,11 @@ func TestIntegration_MultipleWatchers(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create multiple local processes
-	process1PID := relay.PID{Node: "local", Host: "host1", UniqID: "p1"}.Precomputed()
-	process2PID := relay.PID{Node: "local", Host: "host2", UniqID: "p2"}.Precomputed()
-	process3PID := relay.PID{Node: "local", Host: "host3", UniqID: "p3"}.Precomputed()
+	process1PID := pid.PID{Node: "local", Host: "host1", UniqID: "p1"}.Precomputed()
+	process2PID := pid.PID{Node: "local", Host: "host2", UniqID: "p2"}.Precomputed()
+	process3PID := pid.PID{Node: "local", Host: "host3", UniqID: "p3"}.Precomputed()
 
-	workflowPID := relay.PID{Node: "temporal-prod", Host: "queue", UniqID: "wf-789"}.Precomputed()
+	workflowPID := pid.PID{Node: "temporal-prod", Host: "queue", UniqID: "wf-789"}.Precomputed()
 
 	err = topo.Register(process1PID)
 	require.NoError(t, err)
@@ -585,8 +586,8 @@ func TestIntegration_ReleaseMonitor(t *testing.T) {
 	err = router.RegisterPeer("temporal-prod", peerNode)
 	require.NoError(t, err)
 
-	localPID := relay.PID{Node: "local", Host: "host1", UniqID: "p1"}.Precomputed()
-	workflowPID := relay.PID{Node: "temporal-prod", Host: "queue", UniqID: "wf-release"}.Precomputed()
+	localPID := pid.PID{Node: "local", Host: "host1", UniqID: "p1"}.Precomputed()
+	workflowPID := pid.PID{Node: "temporal-prod", Host: "queue", UniqID: "wf-release"}.Precomputed()
 
 	err = topo.Register(localPID)
 	require.NoError(t, err)
@@ -623,8 +624,8 @@ func TestIntegration_UnlinkBeforeFailure(t *testing.T) {
 	err = router.RegisterPeer("temporal-prod", peerNode)
 	require.NoError(t, err)
 
-	localPID := relay.PID{Node: "local", Host: "host1", UniqID: "p1"}.Precomputed()
-	workflowPID := relay.PID{Node: "temporal-prod", Host: "queue", UniqID: "wf-unlink"}.Precomputed()
+	localPID := pid.PID{Node: "local", Host: "host1", UniqID: "p1"}.Precomputed()
+	workflowPID := pid.PID{Node: "temporal-prod", Host: "queue", UniqID: "wf-unlink"}.Precomputed()
 
 	err = topo.Register(localPID)
 	require.NoError(t, err)

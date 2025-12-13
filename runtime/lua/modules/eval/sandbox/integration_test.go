@@ -12,8 +12,8 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
-	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/security"
@@ -45,13 +45,13 @@ func (ts *testScheduler) Stop() {
 	}
 }
 
-func (ts *testScheduler) OnStart(_ context.Context, _ relay.PID, _ process.Process) {}
+func (ts *testScheduler) OnStart(_ context.Context, _ pid.PID, _ process.Process) {}
 
-func (ts *testScheduler) OnComplete(_ context.Context, pid relay.PID, result *runtime.Result) {
+func (ts *testScheduler) OnComplete(_ context.Context, p pid.PID, result *runtime.Result) {
 	ts.mu.Lock()
-	ch, ok := ts.pending[pid.UniqID]
+	ch, ok := ts.pending[p.UniqID]
 	if ok {
-		delete(ts.pending, pid.UniqID)
+		delete(ts.pending, p.UniqID)
 	}
 	ts.mu.Unlock()
 	if ok {
@@ -59,17 +59,17 @@ func (ts *testScheduler) OnComplete(_ context.Context, pid relay.PID, result *ru
 	}
 }
 
-func (ts *testScheduler) Execute(ctx context.Context, pid relay.PID, p actor.Process, method string, input payload.Payloads) (*runtime.Result, error) {
+func (ts *testScheduler) Execute(ctx context.Context, p pid.PID, proc actor.Process, method string, input payload.Payloads) (*runtime.Result, error) {
 	resultCh := make(chan *runtime.Result, 1)
 
 	ts.mu.Lock()
-	ts.pending[pid.UniqID] = resultCh
+	ts.pending[p.UniqID] = resultCh
 	ts.mu.Unlock()
 
-	_, err := ts.Scheduler.Submit(ctx, pid, p, method, input)
+	_, err := ts.Scheduler.Submit(ctx, p, proc, method, input)
 	if err != nil {
 		ts.mu.Lock()
-		delete(ts.pending, pid.UniqID)
+		delete(ts.pending, p.UniqID)
 		ts.mu.Unlock()
 		return nil, err
 	}
@@ -79,7 +79,7 @@ func (ts *testScheduler) Execute(ctx context.Context, pid relay.PID, p actor.Pro
 		return result, nil
 	case <-ctx.Done():
 		ts.mu.Lock()
-		delete(ts.pending, pid.UniqID)
+		delete(ts.pending, p.UniqID)
 		ts.mu.Unlock()
 		return nil, ctx.Err()
 	}
@@ -87,8 +87,8 @@ func (ts *testScheduler) Execute(ctx context.Context, pid relay.PID, p actor.Pro
 
 var testPIDCounter atomic.Int64
 
-func uniqueTestPID() relay.PID {
-	return relay.PID{UniqID: time.Now().Format("20060102150405.000000000") + "-" + string(rune(testPIDCounter.Add(1)))}
+func uniqueTestPID() pid.PID {
+	return pid.PID{UniqID: time.Now().Format("20060102150405.000000000") + "-" + string(rune(testPIDCounter.Add(1)))}
 }
 
 func newTestScheduler() *testScheduler {

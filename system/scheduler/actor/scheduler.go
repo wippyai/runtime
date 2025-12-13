@@ -9,7 +9,7 @@ import (
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
-	pidpkg "github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
@@ -133,7 +133,7 @@ func (s *Scheduler) Stop(ctx context.Context) {
 	// Wake idle/blocked processors so they process the cancel.
 	s.byPID.Range(func(_, value any) bool {
 		proc := value.(*Processor)
-		pkg := topology.Cancel(pidpkg.PID{}, proc.pid, deadline)
+		pkg := topology.Cancel(pid.PID{}, proc.pid, deadline)
 		proc.queue.PushDirect(process.Event{
 			Type: process.EventMessage,
 			Data: pkg,
@@ -227,7 +227,7 @@ func (s *Scheduler) WakeProcessor(q *process.EventQueue, gen uint64) {
 	proc.setWakeup(StateRunning)
 }
 
-func (s *Scheduler) Submit(ctx context.Context, pid pidpkg.PID, p Process, method string, input payload.Payloads) (*Processor, error) {
+func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p Process, method string, input payload.Payloads) (*Processor, error) {
 	if s.stopping.Load() {
 		return nil, process.ErrSchedulerStopping
 	}
@@ -272,7 +272,7 @@ func (s *Scheduler) Submit(ctx context.Context, pid pidpkg.PID, p Process, metho
 
 // Terminate forcibly terminates a process by PID.
 // Cancels the process context - worker will detect and evict on next step.
-func (s *Scheduler) Terminate(pid pidpkg.PID) error {
+func (s *Scheduler) Terminate(pid pid.PID) error {
 	v, ok := s.byPID.Load(pid)
 	if !ok {
 		return process.ErrProcessNotFound
@@ -349,7 +349,7 @@ func (s *Scheduler) finishProcessor(proc *Processor, result *StepOutput, err err
 	}
 }
 
-func (s *Scheduler) CreateProcessor(ctx context.Context, pid pidpkg.PID, p Process) (*Processor, error) {
+func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p Process) (*Processor, error) {
 	if s.stopping.Load() {
 		return nil, process.ErrSchedulerStopping
 	}

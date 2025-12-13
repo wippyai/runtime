@@ -23,14 +23,14 @@ func TestEventConstants(t *testing.T) {
 		expected string
 	}{
 		{"system", System, "", "contract"},
-		{"register definition", "", RegisterDefinition, "contract.definition.register"},
-		{"update definition", "", UpdateDefinition, "contract.definition.update"},
-		{"delete definition", "", DeleteDefinition, "contract.definition.delete"},
-		{"register binding", "", RegisterBinding, "contract.binding.register"},
-		{"update binding", "", UpdateBinding, "contract.binding.update"},
-		{"delete binding", "", DeleteBinding, "contract.binding.delete"},
-		{"accept", "", Accept, "contract.accept"},
-		{"reject", "", Reject, "contract.reject"},
+		{"register definition", "", KindRegisterDefinition, "contract.definition.register"},
+		{"update definition", "", KindUpdateDefinition, "contract.definition.update"},
+		{"delete definition", "", KindDeleteDefinition, "contract.definition.delete"},
+		{"register binding", "", KindRegisterBinding, "contract.binding.register"},
+		{"update binding", "", KindUpdateBinding, "contract.binding.update"},
+		{"delete binding", "", KindDeleteBinding, "contract.binding.delete"},
+		{"accept", "", KindAccept, "contract.accept"},
+		{"reject", "", KindReject, "contract.reject"},
 	}
 
 	for _, tt := range tests {
@@ -380,7 +380,7 @@ func TestCommandPools(t *testing.T) {
 	t.Run("OpenCmd", func(t *testing.T) {
 		cmd := AcquireOpenCmd()
 		assert.NotNil(t, cmd)
-		assert.Equal(t, Open, cmd.CmdID())
+		assert.Equal(t, CmdOpen, cmd.CmdID())
 
 		cmd.BindingID = registry.NewID("test", "binding")
 		cmd.Scope = attrs.NewBag()
@@ -401,7 +401,7 @@ func TestCommandPools(t *testing.T) {
 	t.Run("CallCmd", func(t *testing.T) {
 		cmd := AcquireCallCmd()
 		assert.NotNil(t, cmd)
-		assert.Equal(t, Call, cmd.CmdID())
+		assert.Equal(t, CmdCall, cmd.CmdID())
 
 		cmd.Method = "testMethod"
 
@@ -417,7 +417,7 @@ func TestCommandPools(t *testing.T) {
 	t.Run("AsyncCallCmd", func(t *testing.T) {
 		cmd := AcquireAsyncCallCmd()
 		assert.NotNil(t, cmd)
-		assert.Equal(t, AsyncCall, cmd.CmdID())
+		assert.Equal(t, CmdAsyncCall, cmd.CmdID())
 
 		cmd.Method = "asyncMethod"
 		cmd.Topic = "result-topic"
@@ -435,7 +435,7 @@ func TestCommandPools(t *testing.T) {
 	t.Run("AsyncCancelCmd", func(t *testing.T) {
 		cmd := AcquireAsyncCancelCmd()
 		assert.NotNil(t, cmd)
-		assert.Equal(t, AsyncCancel, cmd.CmdID())
+		assert.Equal(t, CmdAsyncCancel, cmd.CmdID())
 
 		cmd.Topic = "cancel-topic"
 
@@ -448,10 +448,10 @@ func TestCommandPools(t *testing.T) {
 }
 
 func TestCommandIDs(t *testing.T) {
-	assert.Equal(t, Open, dispatcher.CommandID(300))
-	assert.Equal(t, Call, dispatcher.CommandID(301))
-	assert.Equal(t, AsyncCall, dispatcher.CommandID(302))
-	assert.Equal(t, AsyncCancel, dispatcher.CommandID(303))
+	assert.Equal(t, CmdOpen, dispatcher.CommandID(300))
+	assert.Equal(t, CmdCall, dispatcher.CommandID(301))
+	assert.Equal(t, CmdAsyncCall, dispatcher.CommandID(302))
+	assert.Equal(t, CmdAsyncCancel, dispatcher.CommandID(303))
 }
 
 func TestResultTypes(t *testing.T) {
@@ -484,6 +484,22 @@ func TestContext_NoAppContext(t *testing.T) {
 		ctx := context.Background()
 		inst := GetInstantiator(ctx)
 		assert.Nil(t, inst)
+	})
+
+	t.Run("WithContracts_NoAppContext", func(t *testing.T) {
+		ctx := context.Background()
+
+		type mockRegistry struct{ Registry }
+		mockReg := &mockRegistry{}
+
+		type mockInstantiator struct{ Instantiator }
+		mockInst := &mockInstantiator{}
+
+		result := WithContracts(ctx, mockReg, mockInst)
+		assert.Equal(t, ctx, result)
+
+		reg := GetRegistry(result)
+		assert.Nil(t, reg)
 	})
 }
 
@@ -530,4 +546,122 @@ func TestContext_Idempotent(t *testing.T) {
 
 	assert.Equal(t, mockReg, GetRegistry(ctx))
 	assert.Equal(t, mockInst, GetInstantiator(ctx))
+}
+
+func TestSentinelErrors(t *testing.T) {
+	assert.NotNil(t, ErrInstantiatorNotFound)
+	assert.NotNil(t, ErrInstanceNil)
+	assert.NotNil(t, ErrNodeNotFound)
+	assert.NotNil(t, ErrPIDNotFound)
+
+	assert.Contains(t, ErrInstantiatorNotFound.Error(), "instantiator")
+	assert.Contains(t, ErrInstanceNil.Error(), "nil")
+	assert.Contains(t, ErrNodeNotFound.Error(), "node")
+	assert.Contains(t, ErrPIDNotFound.Error(), "PID")
+}
+
+func TestContractLoadError(t *testing.T) {
+	cause := assert.AnError
+	contractID := registry.NewID("test", "contract")
+
+	err := NewContractLoadError(contractID, cause)
+
+	assert.Contains(t, err.Error(), "test:contract")
+	assert.Contains(t, err.Error(), "failed to load")
+	assert.Equal(t, cause, err.Unwrap())
+	assert.NotNil(t, err.Details())
+	val, _ := err.Details().Get("contract_id")
+	assert.Equal(t, "test:contract", val)
+}
+
+func TestMethodNotBoundError(t *testing.T) {
+	err := NewMethodNotBoundError("testMethod")
+
+	assert.Contains(t, err.Error(), "testMethod")
+	assert.Contains(t, err.Error(), "not bound")
+	assert.Nil(t, err.Unwrap())
+	assert.NotNil(t, err.Details())
+	val, _ := err.Details().Get("method")
+	assert.Equal(t, "testMethod", val)
+}
+
+func TestMissingContextKeysError(t *testing.T) {
+	keys := []string{"key1", "key2", "key3"}
+	err := NewMissingContextKeysError(keys)
+
+	assert.Contains(t, err.Error(), "key1")
+	assert.Contains(t, err.Error(), "key2")
+	assert.Contains(t, err.Error(), "key3")
+	assert.Contains(t, err.Error(), "missing required context keys")
+	assert.Nil(t, err.Unwrap())
+	assert.NotNil(t, err.Details())
+}
+
+func TestSubscriberError(t *testing.T) {
+	cause := assert.AnError
+	err := NewSubscriberError(cause)
+
+	assert.Contains(t, err.Error(), "subscriber")
+	assert.Equal(t, cause, err.Unwrap())
+	assert.NotNil(t, err.Details())
+}
+
+func TestContractNotFoundError(t *testing.T) {
+	contractID := registry.NewID("ns", "name")
+	err := NewContractNotFoundError(contractID)
+
+	assert.Contains(t, err.Error(), "ns:name")
+	assert.Contains(t, err.Error(), "not found")
+	assert.Nil(t, err.Unwrap())
+	assert.NotNil(t, err.Details())
+	val, _ := err.Details().Get("contract_id")
+	assert.Equal(t, "ns:name", val)
+}
+
+func TestBindingNotFoundError(t *testing.T) {
+	bindingID := registry.NewID("bindings", "impl")
+	err := NewBindingNotFoundError(bindingID)
+
+	assert.Contains(t, err.Error(), "bindings:impl")
+	assert.Contains(t, err.Error(), "not found")
+	assert.Nil(t, err.Unwrap())
+	assert.NotNil(t, err.Details())
+	val, _ := err.Details().Get("binding_id")
+	assert.Equal(t, "bindings:impl", val)
+}
+
+func TestNoDefaultBindingError(t *testing.T) {
+	contractID := registry.NewID("contracts", "service")
+	err := NewNoDefaultBindingError(contractID)
+
+	assert.Contains(t, err.Error(), "contracts:service")
+	assert.Contains(t, err.Error(), "no default binding")
+	assert.Nil(t, err.Unwrap())
+	assert.NotNil(t, err.Details())
+	val, _ := err.Details().Get("contract_id")
+	assert.Equal(t, "contracts:service", val)
+}
+
+func TestMethodNotFoundError(t *testing.T) {
+	contractID := registry.NewID("contracts", "api")
+	err := NewMethodNotFoundError("getData", contractID)
+
+	assert.Contains(t, err.Error(), "getData")
+	assert.Contains(t, err.Error(), "contracts:api")
+	assert.Contains(t, err.Error(), "not found")
+	assert.Nil(t, err.Unwrap())
+	assert.NotNil(t, err.Details())
+	method, _ := err.Details().Get("method")
+	assert.Equal(t, "getData", method)
+	cid, _ := err.Details().Get("contract_id")
+	assert.Equal(t, "contracts:api", cid)
+}
+
+func TestErrorInterface(t *testing.T) {
+	err := NewContractNotFoundError(registry.NewID("test", "contract"))
+
+	assert.NotEmpty(t, err.Error())
+	assert.NotEmpty(t, err.Kind())
+	assert.NotNil(t, err.Retryable())
+	assert.NotNil(t, err.Details())
 }

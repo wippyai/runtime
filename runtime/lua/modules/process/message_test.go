@@ -5,18 +5,18 @@ import (
 	"testing"
 
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/pid"
 	lua "github.com/yuin/gopher-lua"
 )
 
 func TestNewMessage(t *testing.T) {
-	pid := relay.PID{}
+	p := pid.PID{}
 	topic := "test-topic"
 	payloads := payload.Payloads{
 		payload.NewPayload("test", payload.String),
 	}
 
-	msg := NewMessage(pid, topic, payloads)
+	msg := NewMessage(p, topic, payloads)
 
 	if msg == nil {
 		t.Fatal("NewMessage returned nil")
@@ -27,7 +27,7 @@ func TestNewMessage(t *testing.T) {
 	if len(msg.Payloads) != 1 {
 		t.Errorf("expected 1 payload, got %d", len(msg.Payloads))
 	}
-	if msg.From != pid {
+	if msg.From != p {
 		t.Error("PID mismatch")
 	}
 }
@@ -36,7 +36,7 @@ func TestWrapMessage(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	msg := NewMessage(relay.PID{}, "topic", nil)
+	msg := NewMessage(pid.PID{}, "topic", nil)
 	wrapped := WrapMessage(l, msg)
 
 	if wrapped.Type() != lua.LTUserData {
@@ -57,7 +57,7 @@ func TestMessageToString(t *testing.T) {
 	defer l.Close()
 
 	Module.Register(l)
-	msg := NewMessage(relay.PID{}, "test-topic", nil)
+	msg := NewMessage(pid.PID{}, "test-topic", nil)
 	wrapped := WrapMessage(l, msg)
 	l.SetGlobal("msg", wrapped)
 
@@ -77,7 +77,7 @@ func TestMessageTopic(t *testing.T) {
 	defer l.Close()
 
 	Module.Register(l)
-	msg := NewMessage(relay.PID{}, "my-topic", nil)
+	msg := NewMessage(pid.PID{}, "my-topic", nil)
 	wrapped := WrapMessage(l, msg)
 	l.SetGlobal("msg", wrapped)
 
@@ -97,8 +97,8 @@ func TestMessageFrom(t *testing.T) {
 	defer l.Close()
 
 	Module.Register(l)
-	pid, _ := relay.ParsePID("{node1|process1|123}")
-	msg := NewMessage(pid, "topic", nil)
+	p, _ := pid.ParsePID("{node1|process1|123}")
+	msg := NewMessage(p, "topic", nil)
 	wrapped := WrapMessage(l, msg)
 	l.SetGlobal("msg", wrapped)
 
@@ -121,7 +121,7 @@ func TestMessageFrom_EmptyPID(t *testing.T) {
 	defer l.Close()
 
 	Module.Register(l)
-	msg := NewMessage(relay.PID{}, "topic", nil)
+	msg := NewMessage(pid.PID{}, "topic", nil)
 	wrapped := WrapMessage(l, msg)
 	l.SetGlobal("msg", wrapped)
 
@@ -141,7 +141,7 @@ func TestMessagePayload(t *testing.T) {
 	payloads := payload.Payloads{
 		payload.NewPayload("test-data", payload.String),
 	}
-	msg := NewMessage(relay.PID{}, "topic", payloads)
+	msg := NewMessage(pid.PID{}, "topic", payloads)
 	wrapped := WrapMessage(l, msg)
 	l.SetGlobal("msg", wrapped)
 	l.SetContext(context.Background())
@@ -164,13 +164,13 @@ func TestMessageHandler(t *testing.T) {
 	Module.Register(l)
 
 	ctx := context.Background()
-	pid, _ := relay.ParsePID("{node1|process1|123}")
+	p, _ := pid.ParsePID("{node1|process1|123}")
 	topic := "test-topic"
 	payloads := []payload.Payload{
 		payload.NewPayload("data", payload.String),
 	}
 
-	result := MessageHandler(ctx, l, pid, topic, payloads)
+	result := MessageHandler(ctx, l, p, topic, payloads)
 
 	if result.Type() != lua.LTUserData {
 		t.Errorf("expected userdata, got %s", result.Type())
@@ -184,7 +184,7 @@ func TestMessageHandler(t *testing.T) {
 	if msg.Topic != topic {
 		t.Errorf("expected topic %s, got %s", topic, msg.Topic)
 	}
-	if msg.From != pid {
+	if msg.From != p {
 		t.Error("PID mismatch")
 	}
 	if len(msg.Payloads) != 1 {

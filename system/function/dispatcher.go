@@ -8,7 +8,7 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/payload"
-	pidpkg "github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 )
@@ -99,7 +99,7 @@ func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Comman
 		return nil
 	}
 
-	pid, ok := runtime.GetFramePID(ctx)
+	framePID, ok := runtime.GetFramePID(ctx)
 	if !ok {
 		receiver.CompleteYield(tag, function.AsyncStartResult{Error: function.ErrPIDNotFound}, nil)
 		return nil
@@ -135,8 +135,8 @@ func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Comman
 			resultPayload = result.Value
 		}
 
-		// Send result via relay node - routes based on pid.Host (function ID)
-		pkg := relay.NewPackage(pidpkg.PID{}, pid, topic, resultPayload, payload.NewTerminal())
+		// Send result via relay node
+		pkg := relay.NewPackage(pid.PID{}, framePID, topic, resultPayload, payload.NewTerminal())
 		_ = node.Send(pkg)
 	}()
 
@@ -153,7 +153,7 @@ func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Comma
 		return nil
 	}
 
-	pid, ok := runtime.GetFramePID(ctx)
+	framePID, ok := runtime.GetFramePID(ctx)
 	if !ok {
 		receiver.CompleteYield(tag, nil, nil)
 		return nil
@@ -162,7 +162,7 @@ func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Comma
 	topic := cancelCmd.Topic
 
 	// Send terminal via relay node to close the channel
-	pkg := relay.NewPackage(pidpkg.PID{}, pid, topic, payload.NewTerminal())
+	pkg := relay.NewPackage(pid.PID{}, framePID, topic, payload.NewTerminal())
 	_ = d.node.Send(pkg)
 
 	receiver.CompleteYield(tag, nil, nil)

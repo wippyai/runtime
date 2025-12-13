@@ -9,8 +9,8 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
-	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
@@ -34,13 +34,13 @@ func (ts *testScheduler) Stop() {
 	}
 }
 
-func (ts *testScheduler) OnStart(context.Context, relay.PID, process.Process) {}
+func (ts *testScheduler) OnStart(context.Context, pid.PID, process.Process) {}
 
-func (ts *testScheduler) OnComplete(_ context.Context, pid relay.PID, result *runtime.Result) {
+func (ts *testScheduler) OnComplete(_ context.Context, p pid.PID, result *runtime.Result) {
 	ts.mu.Lock()
-	ch, ok := ts.pending[pid.UniqID]
+	ch, ok := ts.pending[p.UniqID]
 	if ok {
-		delete(ts.pending, pid.UniqID)
+		delete(ts.pending, p.UniqID)
 	}
 	ts.mu.Unlock()
 	if ok {
@@ -48,17 +48,17 @@ func (ts *testScheduler) OnComplete(_ context.Context, pid relay.PID, result *ru
 	}
 }
 
-func (ts *testScheduler) Execute(ctx context.Context, pid relay.PID, p actor.Process, method string, input payload.Payloads) (*runtime.Result, error) {
+func (ts *testScheduler) Execute(ctx context.Context, p pid.PID, proc actor.Process, method string, input payload.Payloads) (*runtime.Result, error) {
 	resultCh := make(chan *runtime.Result, 1)
 
 	ts.mu.Lock()
-	ts.pending[pid.UniqID] = resultCh
+	ts.pending[p.UniqID] = resultCh
 	ts.mu.Unlock()
 
-	_, err := ts.Scheduler.Submit(ctx, pid, p, method, input)
+	_, err := ts.Scheduler.Submit(ctx, p, proc, method, input)
 	if err != nil {
 		ts.mu.Lock()
-		delete(ts.pending, pid.UniqID)
+		delete(ts.pending, p.UniqID)
 		ts.mu.Unlock()
 		return nil, err
 	}
@@ -68,7 +68,7 @@ func (ts *testScheduler) Execute(ctx context.Context, pid relay.PID, p actor.Pro
 		return result, nil
 	case <-ctx.Done():
 		ts.mu.Lock()
-		delete(ts.pending, pid.UniqID)
+		delete(ts.pending, p.UniqID)
 		ts.mu.Unlock()
 		return nil, ctx.Err()
 	}
@@ -92,8 +92,8 @@ func newTestScheduler() *testScheduler {
 	return ts
 }
 
-func testPID() relay.PID {
-	return relay.PID{UniqID: "time-test"}
+func testPID() pid.PID {
+	return pid.PID{UniqID: "time-test"}
 }
 
 func bindTimeModule(l *lua.LState) {

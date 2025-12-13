@@ -13,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
@@ -148,7 +149,7 @@ func TestAsyncStartHandler(t *testing.T) {
 	ctx = function.WithRegistry(ctx, mock)
 	frameCtx, _ := ctxapi.OpenFrameContext(ctx)
 
-	testPID := relay.PID{Host: "test", UniqID: "1"}
+	testPID := pid.PID{Host: "test", UniqID: "1"}
 	_ = runtime.SetFramePID(frameCtx, testPID)
 
 	cmd := function.AcquireAsyncStartCmd()
@@ -204,7 +205,7 @@ func TestAsyncCancelHandler(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 	frameCtx, _ := ctxapi.OpenFrameContext(ctx)
 
-	testPID := relay.PID{Host: "test", UniqID: "1"}
+	testPID := pid.PID{Host: "test", UniqID: "1"}
 	_ = runtime.SetFramePID(frameCtx, testPID)
 
 	cmd := function.AcquireAsyncCancelCmd()
@@ -337,7 +338,7 @@ func BenchmarkAsyncStartHandler(b *testing.B) {
 	ctx = function.WithRegistry(ctx, mock)
 	frameCtx, _ := ctxapi.OpenFrameContext(ctx)
 
-	testPID := relay.PID{Host: "test", UniqID: "1"}
+	testPID := pid.PID{Host: "test", UniqID: "1"}
 	_ = runtime.SetFramePID(frameCtx, testPID)
 
 	cmd := function.AcquireAsyncStartCmd()
@@ -364,7 +365,7 @@ func BenchmarkAsyncStartHandler_Parallel(b *testing.B) {
 	ctx = function.WithRegistry(ctx, mock)
 	frameCtx, _ := ctxapi.OpenFrameContext(ctx)
 
-	testPID := relay.PID{Host: "test", UniqID: "1"}
+	testPID := pid.PID{Host: "test", UniqID: "1"}
 	_ = runtime.SetFramePID(frameCtx, testPID)
 
 	cmd := function.AcquireAsyncStartCmd()
@@ -385,7 +386,7 @@ type mockRelayNode struct {
 	packages chan *relay.Package
 }
 
-func (m *mockRelayNode) ID() relay.NodeID { return "test" }
+func (m *mockRelayNode) ID() pid.NodeID { return "test" }
 
 func (m *mockRelayNode) Send(pkg *relay.Package) error {
 	if m.packages != nil {
@@ -397,13 +398,13 @@ func (m *mockRelayNode) Send(pkg *relay.Package) error {
 	return nil
 }
 
-func (m *mockRelayNode) RegisterHost(relay.HostID, relay.Receiver) error { return nil }
-func (m *mockRelayNode) UnregisterHost(relay.HostID)                     {}
-func (m *mockRelayNode) GetHost(relay.HostID) (relay.Receiver, bool)     { return nil, false }
-func (m *mockRelayNode) Attach(relay.PID, chan *relay.Package) (context.CancelFunc, error) {
+func (m *mockRelayNode) RegisterHost(pid.HostID, relay.Receiver) error { return nil }
+func (m *mockRelayNode) UnregisterHost(pid.HostID)                     {}
+func (m *mockRelayNode) GetHost(pid.HostID) (relay.Receiver, bool)     { return nil, false }
+func (m *mockRelayNode) Attach(pid.PID, chan *relay.Package) (context.CancelFunc, error) {
 	return func() {}, nil
 }
-func (m *mockRelayNode) Detach(relay.PID) {}
+func (m *mockRelayNode) Detach(pid.PID) {}
 
 // TestCallHandler_ContextInheritance tests that context values are inherited
 // through the dispatcher when the parent frame is sealed.

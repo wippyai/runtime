@@ -3,6 +3,7 @@ package pool
 import (
 	"testing"
 
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 )
 
@@ -48,7 +49,7 @@ func BenchmarkExecutorSend(b *testing.B) {
 	executor.active.Store(true)
 	executor.queue.Reset()
 	executor.gen.Store(executor.queue.Generation())
-	pkg := &relay.Package{Target: relay.PID{UniqID: "1"}}
+	pkg := &relay.Package{Target: pid.PID{UniqID: "1"}}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -67,7 +68,7 @@ func BenchmarkStaticSendLookup(b *testing.B) {
 	executor.queue.Reset()
 	executor.gen.Store(executor.queue.Generation())
 	pool.active.Store("bench-1", executor)
-	pkg := &relay.Package{Target: relay.PID{UniqID: "bench-1"}}
+	pkg := &relay.Package{Target: pid.PID{UniqID: "bench-1"}}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -86,7 +87,7 @@ func BenchmarkLazySendLookup(b *testing.B) {
 	executor.queue.Reset()
 	executor.gen.Store(executor.queue.Generation())
 	pool.activeExec.Store("bench-1", executor)
-	pkg := &relay.Package{Target: relay.PID{UniqID: "bench-1"}}
+	pkg := &relay.Package{Target: pid.PID{UniqID: "bench-1"}}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -105,7 +106,7 @@ func BenchmarkInlineSendLookup(b *testing.B) {
 	executor.queue.Reset()
 	executor.gen.Store(executor.queue.Generation())
 	pool.active.Store("bench-1", executor)
-	pkg := &relay.Package{Target: relay.PID{UniqID: "bench-1"}}
+	pkg := &relay.Package{Target: pid.PID{UniqID: "bench-1"}}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

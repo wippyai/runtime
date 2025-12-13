@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
@@ -295,7 +295,7 @@ func TestGoToLuaExtended(t *testing.T) {
 			input: topology.CancelEvent{
 				Kind: topology.KindCancel,
 				At:   fixedTime,
-				From: relay.PID{
+				From: pid.PID{
 					Node:   "node",
 					Host:   "host",
 					UniqID: "id",

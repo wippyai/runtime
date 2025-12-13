@@ -6,7 +6,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
-var contractsCtx = &ctxapi.Key{Name: "contracts"}
+var contractsKey = &ctxapi.Key{Name: "contracts"}
 
 // contractServices holds both registry and instantiator for context storage.
 type contractServices struct {
@@ -16,13 +16,16 @@ type contractServices struct {
 
 // WithContracts attaches both contract Registry and Instantiator to context.
 func WithContracts(ctx context.Context, registry Registry, instantiator Instantiator) context.Context {
-	services := &contractServices{
-		Registry:     registry,
-		Instantiator: instantiator,
-	}
 	ac := ctxapi.AppFromContext(ctx)
-	if ac.Get(contractsCtx) == nil {
-		ac.With(contractsCtx, services)
+	if ac == nil {
+		return ctx
+	}
+	if ac.Get(contractsKey) == nil {
+		services := &contractServices{
+			Registry:     registry,
+			Instantiator: instantiator,
+		}
+		ac.With(contractsKey, services)
 	}
 	return ctx
 }
@@ -33,7 +36,7 @@ func GetRegistry(ctx context.Context) Registry {
 	if ac == nil {
 		return nil
 	}
-	if val := ac.Get(contractsCtx); val != nil {
+	if val := ac.Get(contractsKey); val != nil {
 		if services, ok := val.(*contractServices); ok {
 			return services.Registry
 		}
@@ -47,7 +50,7 @@ func GetInstantiator(ctx context.Context) Instantiator {
 	if ac == nil {
 		return nil
 	}
-	if val := ac.Get(contractsCtx); val != nil {
+	if val := ac.Get(contractsKey); val != nil {
 		if services, ok := val.(*contractServices); ok {
 			return services.Instantiator
 		}

@@ -10,6 +10,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
@@ -92,7 +93,7 @@ func (d *testDispatcher) Dispatch(cmd dispatcher.Command) dispatcher.Handler {
 // poolTestContext creates context with frame for pool tests
 func poolTestContext() context.Context {
 	ctx, _ := ctxapi.AcquireFrameContext(context.Background())
-	_ = runtime.SetFramePID(ctx, relay.PID{UniqID: "pool-test"})
+	_ = runtime.SetFramePID(ctx, pid.PID{UniqID: "pool-test"})
 	return ctx
 }
 

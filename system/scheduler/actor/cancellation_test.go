@@ -10,6 +10,7 @@ import (
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/system/scheduler"
@@ -81,7 +82,7 @@ func TestActorConcurrentCancellationStress(t *testing.T) {
 	var completed, errors atomic.Int64
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, result *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, result *runtime.Result) {
 			if result.Error != nil {
 				errors.Add(1)
 			} else {
@@ -114,7 +115,7 @@ func TestActorConcurrentCancellationStress(t *testing.T) {
 			}
 
 			proc := &slowProcess{}
-			pid := relay.PID{UniqID: fmt.Sprintf("cancel-test-%d", id)}
+			pid := pid.PID{UniqID: fmt.Sprintf("cancel-test-%d", id)}
 
 			_, err := sched.Submit(ctx, pid, proc, "", nil)
 			if err != nil {
@@ -145,7 +146,7 @@ func TestActorStopDuringExecution(t *testing.T) {
 	var completed atomic.Int64
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, result *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, result *runtime.Result) {
 			if result.Error == nil {
 				completed.Add(1)
 			}
@@ -166,7 +167,7 @@ func TestActorStopDuringExecution(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			proc := &slowProcess{}
-			pid := relay.PID{UniqID: fmt.Sprintf("stop-test-%d", id)}
+			pid := pid.PID{UniqID: fmt.Sprintf("stop-test-%d", id)}
 			_, _ = sched.Submit(context.Background(), pid, proc, "", nil)
 		}(i)
 	}
@@ -192,7 +193,7 @@ func TestActorStealingConcurrentCancellation(t *testing.T) {
 	var completed, errors atomic.Int64
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, result *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, result *runtime.Result) {
 			if result.Error != nil {
 				errors.Add(1)
 			} else {
@@ -222,7 +223,7 @@ func TestActorStealingConcurrentCancellation(t *testing.T) {
 			}
 
 			proc := &slowProcess{}
-			pid := relay.PID{UniqID: fmt.Sprintf("steal-test-%d", id)}
+			pid := pid.PID{UniqID: fmt.Sprintf("steal-test-%d", id)}
 
 			_, _ = sched.Submit(ctx, pid, proc, "", nil)
 		}(i)
@@ -287,7 +288,7 @@ func TestActorStopNoStepping(t *testing.T) {
 		mu.Lock()
 		processes = append(processes, proc)
 		mu.Unlock()
-		pid := relay.PID{UniqID: fmt.Sprintf("step-test-%d", i)}
+		pid := pid.PID{UniqID: fmt.Sprintf("step-test-%d", i)}
 		_, _ = sched.Submit(context.Background(), pid, proc, "", nil)
 	}
 
@@ -331,7 +332,7 @@ func TestActorStopNoSteppingStress(t *testing.T) {
 				mu.Lock()
 				processes = append(processes, proc)
 				mu.Unlock()
-				pid := relay.PID{UniqID: fmt.Sprintf("iter%d-proc%d", iter, id)}
+				pid := pid.PID{UniqID: fmt.Sprintf("iter%d-proc%d", iter, id)}
 				_, _ = sched.Submit(context.Background(), pid, proc, "", nil)
 			}(i)
 		}
@@ -376,7 +377,7 @@ func TestActorRapidStopStart(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
 				defer cancel()
 				proc := &slowProcess{}
-				pid := relay.PID{UniqID: fmt.Sprintf("rapid-%d", id)}
+				pid := pid.PID{UniqID: fmt.Sprintf("rapid-%d", id)}
 				_, _ = sched.Submit(ctx, pid, proc, "", nil)
 			}(i)
 		}
@@ -433,7 +434,7 @@ func TestGracefulShutdownSendsCancel(t *testing.T) {
 	var graceful atomic.Int64
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, _ *runtime.Result) {
 			completed.Add(1)
 		},
 	}
@@ -448,7 +449,7 @@ func TestGracefulShutdownSendsCancel(t *testing.T) {
 	for i := 0; i < numProcs; i++ {
 		proc := &cancelAwareProcess{}
 		processes[i] = proc
-		pid := relay.PID{UniqID: fmt.Sprintf("cancel-test-%d", i)}
+		pid := pid.PID{UniqID: fmt.Sprintf("cancel-test-%d", i)}
 		_, err := sched.Submit(context.Background(), pid, proc, "", nil)
 		if err != nil {
 			t.Fatalf("Submit failed: %v", err)
@@ -492,7 +493,7 @@ func TestGracefulShutdownWithTimeout(t *testing.T) {
 	var completed atomic.Int64
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ relay.PID, _ *runtime.Result) {
+		onComplete: func(_ context.Context, _ pid.PID, _ *runtime.Result) {
 			completed.Add(1)
 		},
 	}
@@ -502,7 +503,7 @@ func TestGracefulShutdownWithTimeout(t *testing.T) {
 
 	// Submit a process that ignores cancel
 	stubbornProc := &stubbornProcess{}
-	pid := relay.PID{UniqID: "stubborn-1"}
+	pid := pid.PID{UniqID: "stubborn-1"}
 	_, err := sched.Submit(context.Background(), pid, stubbornProc, "", nil)
 	if err != nil {
 		t.Fatalf("Submit failed: %v", err)

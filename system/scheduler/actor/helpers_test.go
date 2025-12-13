@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/system/scheduler"
@@ -31,7 +32,7 @@ func newTestExecutorWithRegistryAndOptions(workers int, registry *scheduler.Regi
 	}
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, pid relay.PID, result *runtime.Result) {
+		onComplete: func(_ context.Context, pid pid.PID, result *runtime.Result) {
 			te.mu.Lock()
 			if ch, ok := te.pending[pid.UniqID]; ok {
 				delete(te.pending, pid.UniqID)
@@ -69,7 +70,7 @@ func (te *testExecutor) Scheduler() *Scheduler {
 	return te.sched
 }
 
-func (te *testExecutor) Execute(ctx context.Context, pid relay.PID, p Process, method string, input payload.Payloads) (*runtime.Result, error) {
+func (te *testExecutor) Execute(ctx context.Context, pid pid.PID, p Process, method string, input payload.Payloads) (*runtime.Result, error) {
 	resultCh := make(chan *runtime.Result, 1)
 
 	te.mu.Lock()

@@ -12,8 +12,8 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
-	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	scheduler "github.com/wippyai/runtime/system/scheduler/actor"
@@ -889,12 +889,12 @@ func (m *mockProcess) Close() {
 	m.Process.Close()
 }
 
-func (m *mockProcess) Send(_ *relay.Package) error {
+func (m *mockProcess) Send(_ *pid.Package) error {
 	return nil
 }
 
-func newTestPID(id string) relay.PID {
-	return relay.PID{
+func newTestPID(id string) pid.PID {
+	return pid.PID{
 		Host:   "test",
 		UniqID: id,
 	}
@@ -910,12 +910,12 @@ type benchLifecycle struct {
 	executor *benchExecutor
 }
 
-func (l *benchLifecycle) OnStart(_ context.Context, _ relay.PID, _ scheduler.Process) {}
+func (l *benchLifecycle) OnStart(_ context.Context, _ pid.PID, _ scheduler.Process) {}
 
-func (l *benchLifecycle) OnComplete(_ context.Context, pid relay.PID, result *runtime.Result) {
+func (l *benchLifecycle) OnComplete(_ context.Context, p pid.PID, result *runtime.Result) {
 	l.executor.mu.Lock()
-	if ch, ok := l.executor.pending[pid.UniqID]; ok {
-		delete(l.executor.pending, pid.UniqID)
+	if ch, ok := l.executor.pending[p.UniqID]; ok {
+		delete(l.executor.pending, p.UniqID)
 		l.executor.mu.Unlock()
 		ch <- result
 	} else {
@@ -941,17 +941,17 @@ func (be *benchExecutor) Start()                   { be.sched.Start() }
 func (be *benchExecutor) Stop()                    { be.sched.Stop(context.Background()) }
 func (be *benchExecutor) Stats() map[string]uint64 { return be.sched.Stats() }
 
-func (be *benchExecutor) Execute(ctx context.Context, pid relay.PID, p scheduler.Process, method string, input payload.Payloads) (*runtime.Result, error) {
+func (be *benchExecutor) Execute(ctx context.Context, p pid.PID, proc scheduler.Process, method string, input payload.Payloads) (*runtime.Result, error) {
 	resultCh := make(chan *runtime.Result, 1)
 
 	be.mu.Lock()
-	be.pending[pid.UniqID] = resultCh
+	be.pending[p.UniqID] = resultCh
 	be.mu.Unlock()
 
-	_, err := be.sched.Submit(ctx, pid, p, method, input)
+	_, err := be.sched.Submit(ctx, p, proc, method, input)
 	if err != nil {
 		be.mu.Lock()
-		delete(be.pending, pid.UniqID)
+		delete(be.pending, p.UniqID)
 		be.mu.Unlock()
 		return nil, err
 	}
@@ -961,7 +961,7 @@ func (be *benchExecutor) Execute(ctx context.Context, pid relay.PID, p scheduler
 		return result, nil
 	case <-ctx.Done():
 		be.mu.Lock()
-		delete(be.pending, pid.UniqID)
+		delete(be.pending, p.UniqID)
 		be.mu.Unlock()
 		return nil, ctx.Err()
 	}

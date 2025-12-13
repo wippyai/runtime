@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
@@ -14,24 +15,24 @@ import (
 type mockLifecycle struct {
 	onStartCalled    bool
 	onCompleteCalled bool
-	startPID         relay.PID
-	completePID      relay.PID
+	startPID         pid.PID
+	completePID      pid.PID
 	completeResult   *runtime.Result
 	mu               sync.Mutex
 }
 
-func (m *mockLifecycle) OnStart(_ context.Context, pid relay.PID, _ process.Process) {
+func (m *mockLifecycle) OnStart(_ context.Context, p pid.PID, _ process.Process) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.onStartCalled = true
-	m.startPID = pid
+	m.startPID = p
 }
 
-func (m *mockLifecycle) OnComplete(_ context.Context, pid relay.PID, result *runtime.Result) {
+func (m *mockLifecycle) OnComplete(_ context.Context, p pid.PID, result *runtime.Result) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.onCompleteCalled = true
-	m.completePID = pid
+	m.completePID = p
 	m.completeResult = result
 }
 
@@ -44,13 +45,13 @@ func TestLifecycleRegistry_Register(t *testing.T) {
 	reg.Register("lc1", lc1)
 	reg.Register("lc2", lc2)
 
-	pid := relay.PID{UniqID: "test-pid"}
-	reg.OnStart(context.Background(), pid, nil)
+	p := pid.PID{UniqID: "test-pid"}
+	reg.OnStart(context.Background(), p, nil)
 
 	assert.True(t, lc1.onStartCalled)
 	assert.True(t, lc2.onStartCalled)
-	assert.Equal(t, pid, lc1.startPID)
-	assert.Equal(t, pid, lc2.startPID)
+	assert.Equal(t, p, lc1.startPID)
+	assert.Equal(t, p, lc2.startPID)
 }
 
 func TestLifecycleRegistry_Unregister(t *testing.T) {
@@ -63,8 +64,8 @@ func TestLifecycleRegistry_Unregister(t *testing.T) {
 	reg.Register("lc2", lc2)
 	reg.Unregister("lc1")
 
-	pid := relay.PID{UniqID: "test-pid"}
-	reg.OnStart(context.Background(), pid, nil)
+	p := pid.PID{UniqID: "test-pid"}
+	reg.OnStart(context.Background(), p, nil)
 
 	assert.False(t, lc1.onStartCalled)
 	assert.True(t, lc2.onStartCalled)
@@ -76,13 +77,13 @@ func TestLifecycleRegistry_OnComplete(t *testing.T) {
 	lc := &mockLifecycle{}
 	reg.Register("lc", lc)
 
-	pid := relay.PID{UniqID: "test-pid"}
+	p := pid.PID{UniqID: "test-pid"}
 	result := &runtime.Result{Value: nil, Error: nil}
 
-	reg.OnComplete(context.Background(), pid, result)
+	reg.OnComplete(context.Background(), p, result)
 
 	assert.True(t, lc.onCompleteCalled)
-	assert.Equal(t, pid, lc.completePID)
+	assert.Equal(t, p, lc.completePID)
 	assert.Equal(t, result, lc.completeResult)
 }
 
@@ -95,8 +96,8 @@ func TestLifecycleRegistry_ReplaceExisting(t *testing.T) {
 	reg.Register("same-name", lc1)
 	reg.Register("same-name", lc2)
 
-	pid := relay.PID{UniqID: "test-pid"}
-	reg.OnStart(context.Background(), pid, nil)
+	p := pid.PID{UniqID: "test-pid"}
+	reg.OnStart(context.Background(), p, nil)
 
 	assert.False(t, lc1.onStartCalled)
 	assert.True(t, lc2.onStartCalled)
@@ -120,8 +121,8 @@ func TestLifecycleRegistry_OrderPreserved(t *testing.T) {
 	reg.Register("second", makeLC("second"))
 	reg.Register("third", makeLC("third"))
 
-	pid := relay.PID{UniqID: "test-pid"}
-	reg.OnStart(context.Background(), pid, nil)
+	p := pid.PID{UniqID: "test-pid"}
+	reg.OnStart(context.Background(), p, nil)
 
 	assert.Equal(t, []string{"first", "second", "third"}, order)
 }
@@ -132,13 +133,13 @@ type orderTrackingLifecycle struct {
 	mu    *sync.Mutex
 }
 
-func (o *orderTrackingLifecycle) OnStart(_ context.Context, _ relay.PID, _ process.Process) {
+func (o *orderTrackingLifecycle) OnStart(_ context.Context, _ pid.PID, _ process.Process) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	*o.order = append(*o.order, o.name)
 }
 
-func (o *orderTrackingLifecycle) OnComplete(_ context.Context, _ relay.PID, _ *runtime.Result) {
+func (o *orderTrackingLifecycle) OnComplete(_ context.Context, _ pid.PID, _ *runtime.Result) {
 }
 
 func TestLifecycleRegistry_ConcurrentAccess(_ *testing.T) {
@@ -152,7 +153,7 @@ func TestLifecycleRegistry_ConcurrentAccess(_ *testing.T) {
 			lc := &mockLifecycle{}
 			name := string(rune('a' + i%26))
 			reg.Register(name, lc)
-			reg.OnStart(context.Background(), relay.PID{UniqID: "test"}, nil)
+			reg.OnStart(context.Background(), pid.PID{UniqID: "test"}, nil)
 		}(i)
 	}
 	wg.Wait()

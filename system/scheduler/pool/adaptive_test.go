@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 )
 
@@ -568,7 +569,7 @@ func BenchmarkAdaptiveSendLookup(b *testing.B) {
 	executor.queue.Reset()
 	executor.gen.Store(executor.queue.Generation())
 	pool.active.Store("bench-1", executor)
-	pkg := &relay.Package{Target: relay.PID{UniqID: "bench-1"}}
+	pkg := &relay.Package{Target: pid.PID{UniqID: "bench-1"}}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

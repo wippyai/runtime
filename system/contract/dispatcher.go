@@ -6,7 +6,7 @@ import (
 	"github.com/wippyai/runtime/api/contract"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
-	pidpkg "github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 )
@@ -42,10 +42,10 @@ func (d *Dispatcher) Stop(_ context.Context) error {
 
 // RegisterAll registers all contract command handlers.
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
-	register(contract.Open, d.open)
-	register(contract.Call, d.call)
-	register(contract.AsyncCall, d.asyncCall)
-	register(contract.AsyncCancel, d.asyncCancel)
+	register(contract.CmdOpen, d.open)
+	register(contract.CmdCall, d.call)
+	register(contract.CmdAsyncCall, d.asyncCall)
+	register(contract.CmdAsyncCancel, d.asyncCancel)
 }
 
 func (d *Dispatcher) handleOpen(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
@@ -53,7 +53,7 @@ func (d *Dispatcher) handleOpen(ctx context.Context, cmd dispatcher.Command, tag
 
 	instantiator := contract.GetInstantiator(ctx)
 	if instantiator == nil {
-		receiver.CompleteYield(tag, contract.OpenResult{Error: ErrInstantiatorNotFound}, nil)
+		receiver.CompleteYield(tag, contract.OpenResult{Error: contract.ErrInstantiatorNotFound}, nil)
 		return nil
 	}
 
@@ -77,7 +77,7 @@ func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, tag
 	callCmd := cmd.(*contract.CallCmd)
 
 	if callCmd.Instance == nil {
-		receiver.CompleteYield(tag, contract.CallResult{Error: ErrInstanceNil}, nil)
+		receiver.CompleteYield(tag, contract.CallResult{Error: contract.ErrInstanceNil}, nil)
 		return nil
 	}
 
@@ -105,18 +105,18 @@ func (d *Dispatcher) handleAsyncCall(ctx context.Context, cmd dispatcher.Command
 	asyncCmd := cmd.(*contract.AsyncCallCmd)
 
 	if asyncCmd.Instance == nil {
-		receiver.CompleteYield(tag, contract.AsyncCallResult{Error: ErrInstanceNil}, nil)
+		receiver.CompleteYield(tag, contract.AsyncCallResult{Error: contract.ErrInstanceNil}, nil)
 		return nil
 	}
 
 	if d.node == nil {
-		receiver.CompleteYield(tag, contract.AsyncCallResult{Error: ErrNodeNotFound}, nil)
+		receiver.CompleteYield(tag, contract.AsyncCallResult{Error: contract.ErrNodeNotFound}, nil)
 		return nil
 	}
 
-	pid, ok := runtime.GetFramePID(ctx)
+	framePID, ok := runtime.GetFramePID(ctx)
 	if !ok {
-		receiver.CompleteYield(tag, contract.AsyncCallResult{Error: ErrPIDNotFound}, nil)
+		receiver.CompleteYield(tag, contract.AsyncCallResult{Error: contract.ErrPIDNotFound}, nil)
 		return nil
 	}
 
@@ -139,7 +139,7 @@ func (d *Dispatcher) handleAsyncCall(ctx context.Context, cmd dispatcher.Command
 			resultPayload = result.Value
 		}
 
-		pkg := relay.NewPackage(pidpkg.PID{}, pid, topic, resultPayload, payload.NewTerminal())
+		pkg := relay.NewPackage(pid.PID{}, framePID, topic, resultPayload, payload.NewTerminal())
 		_ = node.Send(pkg)
 	}()
 
@@ -155,23 +155,15 @@ func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Comma
 		return nil
 	}
 
-	pid, ok := runtime.GetFramePID(ctx)
+	framePID, ok := runtime.GetFramePID(ctx)
 	if !ok {
 		receiver.CompleteYield(tag, nil, nil)
 		return nil
 	}
 
-	pkg := relay.NewPackage(pidpkg.PID{}, pid, cancelCmd.Topic, payload.NewTerminal())
+	pkg := relay.NewPackage(pid.PID{}, framePID, cancelCmd.Topic, payload.NewTerminal())
 	_ = d.node.Send(pkg)
 
 	receiver.CompleteYield(tag, nil, nil)
 	return nil
 }
-
-// Sentinel errors for dispatcher
-var (
-	ErrInstantiatorNotFound = &Error{message: "contract instantiator not found in context"}
-	ErrInstanceNil          = &Error{message: "contract instance is nil"}
-	ErrNodeNotFound         = &Error{message: "relay node not found"}
-	ErrPIDNotFound          = &Error{message: "process PID not found in context"}
-)

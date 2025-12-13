@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	"github.com/wippyai/runtime/api/attrs"
-	pidpkg "github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/supervisor"
@@ -32,7 +32,7 @@ func NewLifecycle(topo topology.Topology, pidReg topology.PIDRegistry, logger *z
 
 // OnStart registers the process in topology and sets up monitoring/linking
 // based on lifecycle options from frame context.
-func (t *Lifecycle) OnStart(ctx context.Context, p pidpkg.PID, _ process.Process) {
+func (t *Lifecycle) OnStart(ctx context.Context, p pid.PID, _ process.Process) {
 	if err := t.topo.Register(p); err != nil {
 		t.logger.Warn("failed to register pid in topology",
 			zap.String("pid", p.String()),
@@ -50,9 +50,9 @@ func (t *Lifecycle) OnStart(ctx context.Context, p pidpkg.PID, _ process.Process
 		return
 	}
 
-	var parentPID pidpkg.PID
+	var parentPID pid.PID
 	if parent, ok := attributes.Get(process.LifecycleParentKey); ok {
-		if pp, ok := parent.(pidpkg.PID); ok {
+		if pp, ok := parent.(pid.PID); ok {
 			parentPID = pp
 		}
 	}
@@ -84,7 +84,7 @@ func (t *Lifecycle) OnStart(ctx context.Context, p pidpkg.PID, _ process.Process
 }
 
 // OnComplete notifies watchers and linked processes, then cleans up topology.
-func (t *Lifecycle) OnComplete(_ context.Context, p pidpkg.PID, result *runtime.Result) {
+func (t *Lifecycle) OnComplete(_ context.Context, p pid.PID, result *runtime.Result) {
 	notifyResult := result
 	if result.Error != nil && errors.Is(result.Error, supervisor.ErrExit) {
 		notifyResult = &runtime.Result{Value: result.Value}

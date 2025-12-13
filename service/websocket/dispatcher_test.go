@@ -13,9 +13,11 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/runtime/resource"
+	wssvc "github.com/wippyai/runtime/api/service/websocket"
 	wsapi "github.com/wippyai/runtime/api/websocket"
 
 	"github.com/coder/websocket"
+	"go.uber.org/zap"
 )
 
 // testReceiver implements dispatcher.ResultReceiver for tests.
@@ -76,157 +78,6 @@ func readOnlyServer(*testing.T) *httptest.Server {
 	}))
 }
 
-func TestRegistry(t *testing.T) {
-	table := resource.NewTable()
-	defer table.Close()
-	r := NewRegistry(table)
-	if r == nil {
-		t.Fatal("expected non-nil registry")
-	}
-}
-
-func TestRegistryGetNotFound(t *testing.T) {
-	table := resource.NewTable()
-	defer table.Close()
-	r := NewRegistry(table)
-
-	_, err := r.Get(999)
-	if !errors.Is(err, ErrConnNotFound) {
-		t.Errorf("expected ErrConnNotFound, got %v", err)
-	}
-}
-
-func TestRegistryCloseNotFound(t *testing.T) {
-	table := resource.NewTable()
-	defer table.Close()
-	r := NewRegistry(table)
-
-	err := r.Close(999, 0, "")
-	if !errors.Is(err, ErrConnNotFound) {
-		t.Errorf("expected ErrConnNotFound, got %v", err)
-	}
-}
-
-func TestRegistryRegisterAndGet(t *testing.T) {
-	ts := readOnlyServer(t)
-	defer ts.Close()
-
-	wsURL := "ws" + ts.URL[4:]
-	conn, resp, err := websocket.Dial(context.Background(), wsURL, nil)
-	if resp != nil && resp.Body != nil {
-		_ = resp.Body.Close()
-	}
-	if err != nil {
-		t.Fatalf("dial failed: %v", err)
-	}
-	defer conn.CloseNow()
-
-	ctx, store := setupTestContext()
-	defer store.Close()
-
-	r := NewRegistry(store.Table())
-	id := r.Register(ctx, conn, 16)
-
-	if id == 0 {
-		t.Error("expected non-zero connection ID")
-	}
-
-	entry, err := r.Get(id)
-	if err != nil {
-		t.Fatalf("get failed: %v", err)
-	}
-	if entry.conn != conn {
-		t.Error("connection mismatch")
-	}
-}
-
-func TestRegistryClose(t *testing.T) {
-	ts := readOnlyServer(t)
-	defer ts.Close()
-
-	wsURL := "ws" + ts.URL[4:]
-	conn, resp, err := websocket.Dial(context.Background(), wsURL, nil)
-	if resp != nil && resp.Body != nil {
-		_ = resp.Body.Close()
-	}
-	if err != nil {
-		t.Fatalf("dial failed: %v", err)
-	}
-
-	ctx, store := setupTestContext()
-	defer store.Close()
-
-	r := NewRegistry(store.Table())
-	id := r.Register(ctx, conn, 16)
-
-	err = r.Close(id, 1000, "test close")
-	if err != nil {
-		t.Errorf("close failed: %v", err)
-	}
-
-	_, err = r.Get(id)
-	if !errors.Is(err, ErrConnNotFound) {
-		t.Errorf("expected ErrConnNotFound after close, got %v", err)
-	}
-}
-
-func TestRegistryCloseAll(t *testing.T) {
-	ts := readOnlyServer(t)
-	defer ts.Close()
-
-	wsURL := "ws" + ts.URL[4:]
-
-	ctx, store := setupTestContext()
-	r := NewRegistry(store.Table())
-
-	for i := 0; i < 5; i++ {
-		conn, resp, err := websocket.Dial(context.Background(), wsURL, nil)
-		if resp != nil && resp.Body != nil {
-			_ = resp.Body.Close()
-		}
-		if err != nil {
-			t.Fatalf("dial %d failed: %v", i, err)
-		}
-		r.Register(ctx, conn, 16)
-	}
-
-	store.Close()
-
-	if store.Table().Len() != 0 {
-		t.Errorf("expected 0 connections after Close, got %d", store.Table().Len())
-	}
-}
-
-func TestRegistryDoubleClose(t *testing.T) {
-	ts := readOnlyServer(t)
-	defer ts.Close()
-
-	wsURL := "ws" + ts.URL[4:]
-	conn, resp, err := websocket.Dial(context.Background(), wsURL, nil)
-	if resp != nil && resp.Body != nil {
-		_ = resp.Body.Close()
-	}
-	if err != nil {
-		t.Fatalf("dial failed: %v", err)
-	}
-
-	ctx, store := setupTestContext()
-	defer store.Close()
-
-	r := NewRegistry(store.Table())
-	id := r.Register(ctx, conn, 16)
-
-	err = r.Close(id, 1000, "first close")
-	if err != nil {
-		t.Errorf("first close failed: %v", err)
-	}
-
-	err = r.Close(id, 1000, "second close")
-	if !errors.Is(err, ErrConnNotFound) {
-		t.Errorf("expected ErrConnNotFound on second close, got %v", err)
-	}
-}
-
 func TestConnectHandler(t *testing.T) {
 	ts := readOnlyServer(t)
 	defer ts.Close()
@@ -236,7 +87,7 @@ func TestConnectHandler(t *testing.T) {
 	ctx, store := setupTestContext()
 	defer store.Close()
 
-	d := NewDispatcher(4)
+	d := NewDispatcher()
 	_ = d.Start(ctx)
 	defer func() { _ = d.Stop(ctx) }()
 
@@ -271,12 +122,12 @@ func TestConnectHandler(t *testing.T) {
 		t.Fatal("expected registry in context")
 	}
 
-	entry, err := registry.Get(connID)
+	msgCh, err := registry.GetMessageChan(connID)
 	if err != nil {
 		t.Fatalf("get connection failed: %v", err)
 	}
-	if entry == nil {
-		t.Error("expected connection entry")
+	if msgCh == nil {
+		t.Error("expected non-nil message channel")
 	}
 }
 
@@ -302,7 +153,7 @@ func TestConnectHandlerWithHeaders(t *testing.T) {
 	ctx, store := setupTestContext()
 	defer store.Close()
 
-	d := NewDispatcher(4)
+	d := NewDispatcher()
 	_ = d.Start(ctx)
 	defer func() { _ = d.Stop(ctx) }()
 
@@ -366,10 +217,10 @@ func TestSendHandler(t *testing.T) {
 		t.Fatalf("dial failed: %v", err)
 	}
 
-	registry := GetOrCreateRegistry(ctx)
-	connID := registry.Register(ctx, conn, 16)
+	registry := GetRegistry(ctx)
+	connID := registry.Register(ctx, conn, 16, 0)
 
-	d := NewDispatcher(4)
+	d := NewDispatcher()
 	_ = d.Start(ctx)
 	defer func() { _ = d.Stop(ctx) }()
 
@@ -433,13 +284,13 @@ func TestReceiveHandler(t *testing.T) {
 		t.Fatalf("dial failed: %v", err)
 	}
 
-	registry := GetOrCreateRegistry(ctx)
-	connID := registry.Register(ctx, conn, 16)
+	registry := GetRegistry(ctx)
+	connID := registry.Register(ctx, conn, 16, 0)
 
 	// Wait for message to arrive in channel
 	time.Sleep(50 * time.Millisecond)
 
-	d := NewDispatcher(4)
+	d := NewDispatcher()
 	_ = d.Start(ctx)
 	defer func() { _ = d.Stop(ctx) }()
 
@@ -506,12 +357,12 @@ func TestReceiveHandlerBinary(t *testing.T) {
 		t.Fatalf("dial failed: %v", err)
 	}
 
-	registry := GetOrCreateRegistry(ctx)
-	connID := registry.Register(ctx, conn, 16)
+	registry := GetRegistry(ctx)
+	connID := registry.Register(ctx, conn, 16, 0)
 
 	time.Sleep(50 * time.Millisecond)
 
-	d := NewDispatcher(4)
+	d := NewDispatcher()
 	_ = d.Start(ctx)
 	defer func() { _ = d.Stop(ctx) }()
 
@@ -564,8 +415,8 @@ func TestReceiveHandlerEOFOnServerClose(t *testing.T) {
 		t.Fatalf("dial failed: %v", err)
 	}
 
-	registry := GetOrCreateRegistry(ctx)
-	connID := registry.Register(ctx, conn, 16)
+	registry := GetRegistry(ctx)
+	connID := registry.Register(ctx, conn, 16, 0)
 
 	// Use channel directly to wait for EOF
 	msgCh, err := registry.GetMessageChan(connID)
@@ -603,10 +454,10 @@ func TestCloseHandler(t *testing.T) {
 		t.Fatalf("dial failed: %v", err)
 	}
 
-	registry := GetOrCreateRegistry(ctx)
-	connID := registry.Register(ctx, conn, 16)
+	registry := GetRegistry(ctx)
+	connID := registry.Register(ctx, conn, 16, 0)
 
-	d := NewDispatcher(4)
+	d := NewDispatcher()
 	_ = d.Start(ctx)
 	defer func() { _ = d.Stop(ctx) }()
 
@@ -634,8 +485,8 @@ func TestCloseHandler(t *testing.T) {
 		t.Fatal("timeout waiting for close")
 	}
 
-	_, err = registry.Get(connID)
-	if !errors.Is(err, ErrConnNotFound) {
+	_, err = registry.GetMessageChan(connID)
+	if !errors.Is(err, wssvc.ErrConnNotFound) {
 		t.Errorf("expected ErrConnNotFound after close, got %v", err)
 	}
 }
@@ -656,13 +507,13 @@ func TestPingHandler(t *testing.T) {
 		t.Fatalf("dial failed: %v", err)
 	}
 
-	registry := GetOrCreateRegistry(ctx)
-	connID := registry.Register(ctx, conn, 16)
+	registry := GetRegistry(ctx)
+	connID := registry.Register(ctx, conn, 16, 0)
 
 	pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
-	d := NewDispatcher(4)
+	d := NewDispatcher()
 	_ = d.Start(pingCtx)
 	defer func() { _ = d.Stop(pingCtx) }()
 
@@ -690,9 +541,9 @@ func TestPingHandler(t *testing.T) {
 func TestSendHandlerNotFound(t *testing.T) {
 	ctx, store := setupTestContext()
 	defer store.Close()
-	GetOrCreateRegistry(ctx)
+	GetRegistry(ctx)
 
-	d := NewDispatcher(4)
+	d := NewDispatcher()
 	_ = d.Start(ctx)
 	defer func() { _ = d.Stop(ctx) }()
 
@@ -724,9 +575,9 @@ func TestSendHandlerNotFound(t *testing.T) {
 func TestReceiveHandlerNotFound(t *testing.T) {
 	ctx, store := setupTestContext()
 	defer store.Close()
-	GetOrCreateRegistry(ctx)
+	GetRegistry(ctx)
 
-	d := NewDispatcher(4)
+	d := NewDispatcher()
 	_ = d.Start(ctx)
 	defer func() { _ = d.Stop(ctx) }()
 
@@ -790,10 +641,10 @@ func TestConcurrentSends(t *testing.T) {
 		t.Fatalf("dial failed: %v", err)
 	}
 
-	registry := GetOrCreateRegistry(ctx)
-	connID := registry.Register(ctx, conn, 16)
+	registry := GetRegistry(ctx)
+	connID := registry.Register(ctx, conn, 16, 0)
 
-	d := NewDispatcher(4)
+	d := NewDispatcher()
 	_ = d.Start(ctx)
 	defer func() { _ = d.Stop(ctx) }()
 
@@ -831,7 +682,7 @@ func TestFullCycle(t *testing.T) {
 	ctx, store := setupTestContext()
 	defer store.Close()
 
-	d := NewDispatcher(4)
+	d := NewDispatcher()
 	_ = d.Start(ctx)
 	defer func() { _ = d.Stop(ctx) }()
 
@@ -924,8 +775,8 @@ func TestChannelReceiveMultipleMessages(t *testing.T) {
 		t.Fatalf("dial failed: %v", err)
 	}
 
-	registry := GetOrCreateRegistry(ctx)
-	connID := registry.Register(ctx, conn, 16)
+	registry := GetRegistry(ctx)
+	connID := registry.Register(ctx, conn, 16, 0)
 
 	// Get message channel directly
 	msgCh, err := registry.GetMessageChan(connID)
@@ -989,8 +840,8 @@ func TestChannelClosedOnContextCancel(t *testing.T) {
 		t.Fatalf("dial failed: %v", err)
 	}
 
-	registry := GetOrCreateRegistry(baseCtx)
-	connID := registry.Register(ctx, conn, 16)
+	registry := GetRegistry(baseCtx)
+	connID := registry.Register(ctx, conn, 16, 0)
 
 	msgCh, err := registry.GetMessageChan(connID)
 	if err != nil {
@@ -1035,7 +886,7 @@ func TestCleanupOnStoreClose(t *testing.T) {
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := setupTestContext()
 
-	d := NewDispatcher(4)
+	d := NewDispatcher()
 	_ = d.Start(ctx)
 	defer func() { _ = d.Stop(ctx) }()
 
@@ -1059,7 +910,7 @@ func TestCleanupOnStoreClose(t *testing.T) {
 	if registry == nil {
 		t.Fatal("registry should exist")
 	}
-	_, err = registry.Get(connID)
+	_, err = registry.GetMessageChan(connID)
 	if err != nil {
 		t.Fatalf("connection should be active: %v", err)
 	}
@@ -1095,7 +946,7 @@ func TestCleanupMultipleConnections(t *testing.T) {
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := setupTestContext()
 
-	d := NewDispatcher(4)
+	d := NewDispatcher()
 	_ = d.Start(ctx)
 	defer func() { _ = d.Stop(ctx) }()
 
@@ -1129,7 +980,7 @@ func TestCleanupMultipleConnections(t *testing.T) {
 }
 
 func TestDispatcher_RegisterAll(t *testing.T) {
-	d := NewDispatcher(4)
+	d := NewDispatcher()
 
 	handlers := make(map[dispatcher.CommandID]bool)
 	d.RegisterAll(func(id dispatcher.CommandID, _ dispatcher.Handler) {
@@ -1160,7 +1011,7 @@ func TestDispatcherWithWorkers(t *testing.T) {
 	ctx, store := setupTestContext()
 	defer store.Close()
 
-	d := NewDispatcher(2)
+	d := NewDispatcher(WithWorkers(2))
 	err := d.Start(ctx)
 	if err != nil {
 		t.Fatalf("start failed: %v", err)
@@ -1232,8 +1083,8 @@ func TestRemoteCloseDeliveryEOF(t *testing.T) {
 		t.Fatalf("dial failed: %v", err)
 	}
 
-	registry := GetOrCreateRegistry(ctx)
-	connID := registry.Register(ctx, conn, 16)
+	registry := GetRegistry(ctx)
+	connID := registry.Register(ctx, conn, 16, 0)
 
 	msgCh, err := registry.GetMessageChan(connID)
 	if err != nil {
@@ -1275,6 +1126,325 @@ loop:
 	}
 }
 
+func TestDispatcherWithLogger(t *testing.T) {
+	d := NewDispatcher(WithLogger(zap.NewNop()))
+	if d.log == nil {
+		t.Error("expected logger to be set")
+	}
+}
+
+func TestNoRegistryErrors(t *testing.T) {
+	// Context without resource.Store
+	ctx := context.Background()
+
+	d := NewDispatcher()
+	_ = d.Start(ctx)
+	defer func() { _ = d.Stop(ctx) }()
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
+
+	testCases := []struct {
+		name string
+		cmd  dispatcher.Command
+		id   dispatcher.CommandID
+	}{
+		{"send", wsapi.WsSendCmd{ConnID: 1, Data: []byte("x")}, wsapi.CmdWsSend},
+		{"receive", wsapi.WsReceiveCmd{ConnID: 1}, wsapi.CmdWsReceive},
+		{"close", wsapi.WsCloseCmd{ConnID: 1}, wsapi.CmdWsClose},
+		{"ping", wsapi.WsPingCmd{ConnID: 1}, wsapi.CmdWsPing},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotErr error
+			done := make(chan struct{})
+			_ = handlers[tc.id].Handle(ctx, tc.cmd, 1, &testReceiver{fn: func(_ uint64, _ any, err error) {
+				gotErr = err
+				close(done)
+			}})
+
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("timeout")
+			}
+
+			if gotErr == nil {
+				t.Errorf("%s: expected error for no registry", tc.name)
+			}
+		})
+	}
+}
+
+func TestConnectWithProtocols(t *testing.T) {
+	var receivedProtocol string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedProtocol = r.Header.Get("Sec-Websocket-Protocol")
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+			Subprotocols: []string{"proto1"},
+		})
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		for {
+			_, _, err := conn.Read(r.Context())
+			if err != nil {
+				return
+			}
+		}
+	}))
+	defer ts.Close()
+
+	wsURL := "ws" + ts.URL[4:]
+	ctx, store := setupTestContext()
+	defer store.Close()
+
+	d := NewDispatcher()
+	_ = d.Start(ctx)
+	defer func() { _ = d.Stop(ctx) }()
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
+
+	done := make(chan struct{})
+	_ = handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{
+		URL:       wsURL,
+		Protocols: []string{"proto1", "proto2"},
+	}, 1, &testReceiver{fn: func(_ uint64, _ any, _ error) {
+		close(done)
+	}})
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout")
+	}
+
+	if receivedProtocol == "" {
+		t.Error("expected Sec-Websocket-Protocol header")
+	}
+}
+
+func TestConnectWithCompression(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+			CompressionMode: websocket.CompressionContextTakeover,
+		})
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		for {
+			_, _, err := conn.Read(r.Context())
+			if err != nil {
+				return
+			}
+		}
+	}))
+	defer ts.Close()
+
+	wsURL := "ws" + ts.URL[4:]
+	ctx, store := setupTestContext()
+	defer store.Close()
+
+	d := NewDispatcher()
+	_ = d.Start(ctx)
+	defer func() { _ = d.Stop(ctx) }()
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
+
+	compressionModes := []int{
+		wsapi.CompressionContextTakeover,
+		wsapi.CompressionNoContext,
+		99, // Unknown mode - should fall back to disabled
+	}
+
+	for _, mode := range compressionModes {
+		done := make(chan struct{})
+		var connID uint64
+		var gotErr error
+		_ = handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{
+			URL:             wsURL,
+			CompressionMode: mode,
+		}, 1, &testReceiver{fn: func(_ uint64, data any, err error) {
+			if data != nil {
+				connID = data.(uint64)
+			}
+			gotErr = err
+			close(done)
+		}})
+
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timeout for compression mode %d", mode)
+		}
+
+		if gotErr != nil {
+			t.Errorf("connect with compression mode %d failed: %v", mode, gotErr)
+		}
+		if connID == 0 {
+			t.Errorf("expected connection ID for compression mode %d", mode)
+		}
+	}
+}
+
+func TestConnectWithDialTimeout(t *testing.T) {
+	ctx, store := setupTestContext()
+	defer store.Close()
+
+	d := NewDispatcher()
+	_ = d.Start(ctx)
+	defer func() { _ = d.Stop(ctx) }()
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
+
+	done := make(chan struct{})
+	var gotErr error
+	_ = handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{
+		URL:         "ws://192.0.2.1:12345", // Non-routable IP
+		DialTimeout: 50 * time.Millisecond,
+	}, 1, &testReceiver{fn: func(_ uint64, _ any, err error) {
+		gotErr = err
+		close(done)
+	}})
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout")
+	}
+
+	if gotErr == nil {
+		t.Error("expected dial timeout error")
+	}
+}
+
+func TestConnectWithReadLimit(t *testing.T) {
+	ts := readOnlyServer(t)
+	defer ts.Close()
+
+	wsURL := "ws" + ts.URL[4:]
+	ctx, store := setupTestContext()
+	defer store.Close()
+
+	d := NewDispatcher()
+	_ = d.Start(ctx)
+	defer func() { _ = d.Stop(ctx) }()
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
+
+	done := make(chan struct{})
+	var connID uint64
+	_ = handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{
+		URL:       wsURL,
+		ReadLimit: 1024,
+	}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
+		connID = data.(uint64)
+		close(done)
+	}})
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout")
+	}
+
+	if connID == 0 {
+		t.Error("expected non-zero connection ID")
+	}
+}
+
+func TestSendBinaryMessage(t *testing.T) {
+	var receivedType websocket.MessageType
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+
+		msgType, _, err := conn.Read(r.Context())
+		if err == nil {
+			receivedType = msgType
+		}
+		wg.Done()
+	}))
+	defer ts.Close()
+
+	wsURL := "ws" + ts.URL[4:]
+	ctx, store := setupTestContext()
+	defer store.Close()
+
+	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
+	if err != nil {
+		t.Fatalf("dial failed: %v", err)
+	}
+
+	registry := GetRegistry(ctx)
+	connID := registry.Register(ctx, conn, 16, 0)
+
+	d := NewDispatcher()
+	_ = d.Start(ctx)
+	defer func() { _ = d.Stop(ctx) }()
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
+
+	done := make(chan struct{})
+	_ = handlers[wsapi.CmdWsSend].Handle(ctx, wsapi.WsSendCmd{
+		ConnID:      connID,
+		Data:        []byte{0x00, 0x01, 0x02},
+		MessageType: wsapi.MessageBinary,
+	}, 1, &testReceiver{fn: func(_ uint64, _ any, _ error) {
+		close(done)
+	}})
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout")
+	}
+
+	wg.Wait()
+	if receivedType != websocket.MessageBinary {
+		t.Errorf("expected binary message, got %v", receivedType)
+	}
+}
+
+func TestMustGetRegistryPanic(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for missing registry")
+		}
+	}()
+
+	MustGetRegistry(context.Background())
+}
+
 // Benchmarks
 
 func BenchmarkSend(b *testing.B) {
@@ -1305,10 +1475,10 @@ func BenchmarkSend(b *testing.B) {
 		b.Fatalf("dial failed: %v", err)
 	}
 
-	registry := GetOrCreateRegistry(ctx)
-	connID := registry.Register(ctx, conn, 16)
+	registry := GetRegistry(ctx)
+	connID := registry.Register(ctx, conn, 16, 0)
 
-	d := NewDispatcher(4)
+	d := NewDispatcher()
 	_ = d.Start(ctx)
 	defer func() { _ = d.Stop(ctx) }()
 
@@ -1360,13 +1530,13 @@ func BenchmarkReceive(b *testing.B) {
 		b.Fatalf("dial failed: %v", err)
 	}
 
-	registry := GetOrCreateRegistry(ctx)
-	connID := registry.Register(ctx, conn, 1024)
+	registry := GetRegistry(ctx)
+	connID := registry.Register(ctx, conn, 1024, 0)
 
 	// Wait for buffer to fill
 	time.Sleep(100 * time.Millisecond)
 
-	d := NewDispatcher(4)
+	d := NewDispatcher()
 	_ = d.Start(ctx)
 	defer func() { _ = d.Stop(ctx) }()
 
@@ -1410,8 +1580,8 @@ func BenchmarkChannelReceive(b *testing.B) {
 		b.Fatalf("dial failed: %v", err)
 	}
 
-	registry := GetOrCreateRegistry(ctx)
-	connID := registry.Register(ctx, conn, 1024)
+	registry := GetRegistry(ctx)
+	connID := registry.Register(ctx, conn, 1024, 0)
 
 	msgCh, err := registry.GetMessageChan(connID)
 	if err != nil {

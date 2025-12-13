@@ -13,8 +13,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// Note: fmt is kept for Sprintf in logging
-
 // bindingWithMeta wraps a binding with its ID and metadata for runtime use
 type bindingWithMeta struct {
 	ID      registry.ID
@@ -59,7 +57,7 @@ func (r *Registry) Start(ctx context.Context) error {
 		r.handleEvent,
 	)
 	if err != nil {
-		return NewSubscriberError(err)
+		return contract.NewSubscriberError(err)
 	}
 	r.subscriber = sub
 
@@ -76,17 +74,17 @@ func (r *Registry) Stop() error {
 
 func (r *Registry) handleEvent(e event.Event) {
 	switch e.Kind {
-	case contract.RegisterDefinition:
+	case contract.KindRegisterDefinition:
 		r.registerDefinition(e)
-	case contract.UpdateDefinition:
+	case contract.KindUpdateDefinition:
 		r.updateDefinition(e)
-	case contract.DeleteDefinition:
+	case contract.KindDeleteDefinition:
 		r.deleteDefinition(e)
-	case contract.RegisterBinding:
+	case contract.KindRegisterBinding:
 		r.registerBinding(e)
-	case contract.UpdateBinding:
+	case contract.KindUpdateBinding:
 		r.updateBinding(e)
-	case contract.DeleteBinding:
+	case contract.KindDeleteBinding:
 		r.deleteBinding(e)
 	default:
 		r.logger.Warn("unknown event kind",
@@ -255,7 +253,7 @@ func (r *Registry) removeDefaultBindings(bindingID registry.ID) {
 func (r *Registry) sendAccept(path event.Path) {
 	r.bus.Send(r.ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.Accept,
+		Kind:   contract.KindAccept,
 		Path:   path,
 	})
 }
@@ -263,7 +261,7 @@ func (r *Registry) sendAccept(path event.Path) {
 func (r *Registry) sendReject(path event.Path, reason string) {
 	r.bus.Send(r.ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.Reject,
+		Kind:   contract.KindReject,
 		Path:   path,
 		Data:   reason,
 	})
@@ -276,7 +274,7 @@ func (r *Registry) GetContract(_ context.Context, id registry.ID) (contract.Cont
 	r.mu.RUnlock()
 
 	if !exists {
-		return nil, NewContractNotFoundError(id)
+		return nil, contract.NewContractNotFoundError(id)
 	}
 
 	return &contractImpl{
@@ -292,7 +290,7 @@ func (r *Registry) GetBinding(_ context.Context, id registry.ID) (*contract.Bind
 	r.mu.RUnlock()
 
 	if !exists {
-		return nil, NewBindingNotFoundError(id)
+		return nil, contract.NewBindingNotFoundError(id)
 	}
 
 	return bindingWithMeta.Binding, nil
@@ -323,7 +321,7 @@ func (r *Registry) GetDefaultBinding(_ context.Context, contractID registry.ID) 
 	r.mu.RUnlock()
 
 	if !exists {
-		return registry.NewID("", ""), NewNoDefaultBindingError(contractID)
+		return registry.NewID("", ""), contract.NewNoDefaultBindingError(contractID)
 	}
 
 	return bindingID, nil
@@ -353,7 +351,7 @@ func (c *contractImpl) Method(name string) (*contract.MethodDef, error) {
 			return &method, nil
 		}
 	}
-	return nil, NewMethodNotFoundError(name, c.id)
+	return nil, contract.NewMethodNotFoundError(name, c.id)
 }
 
 // Ensure Registry implements contract.Registry interface
