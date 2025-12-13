@@ -9,6 +9,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
@@ -41,7 +42,7 @@ type (
 
 	// Start contains the configuration needed to start a new process.
 	Start struct {
-		HostID  relay.HostID
+		HostID  pid.HostID
 		Source  registry.ID
 		Input   payload.Payloads
 		Context []ctxapi.Pair
@@ -83,8 +84,8 @@ type (
 
 	// Lifecycle handles process lifecycle events for schedulers.
 	Lifecycle interface {
-		OnStart(ctx context.Context, pid relay.PID, proc Process)
-		OnComplete(ctx context.Context, pid relay.PID, result *runtime.Result)
+		OnStart(ctx context.Context, p pid.PID, proc Process)
+		OnComplete(ctx context.Context, p pid.PID, result *runtime.Result)
 	}
 
 	// LifecycleRegistry manages multiple lifecycle handlers that are called
@@ -98,14 +99,14 @@ type (
 	// Host is a unified interface for process execution environments.
 	Host interface {
 		relay.Receiver
-		Run(ctx context.Context, start *Start) (relay.PID, error)
-		Terminate(ctx context.Context, pid relay.PID) error
+		Run(ctx context.Context, start *Start) (pid.PID, error)
+		Terminate(ctx context.Context, p pid.PID) error
 	}
 
 	// Manager defines the interface for process lifecycle management.
 	Manager interface {
-		Start(ctx context.Context, start *Start) (relay.PID, error)
-		Cancel(ctx context.Context, from, pid relay.PID, deadline time.Time) error
-		Terminate(ctx context.Context, pid relay.PID) error
+		Start(ctx context.Context, start *Start) (pid.PID, error)
+		Cancel(ctx context.Context, from, target pid.PID, deadline time.Time) error
+		Terminate(ctx context.Context, p pid.PID) error
 	}
 )

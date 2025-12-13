@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/wippyai/runtime/api/pid"
 	api "github.com/wippyai/runtime/api/relay"
 )
 
@@ -14,25 +15,25 @@ import (
 // This implementation does not handle routing to external nodes; all messages
 // must be targeted to a host registered within this Node instance.
 type Node struct {
-	nodeID api.NodeID
+	nodeID pid.NodeID
 	hosts  sync.Map // stores mapping: HostID -> api.Receiver
 }
 
 // NewNode creates a new, isolated messaging node with the specified ID.
-func NewNode(nodeID api.NodeID) *Node {
+func NewNode(nodeID pid.NodeID) *Node {
 	return &Node{
 		nodeID: nodeID,
 	}
 }
 
 // ID returns the node's identifier.
-func (n *Node) ID() api.NodeID {
+func (n *Node) ID() pid.NodeID {
 	return n.nodeID
 }
 
 // RegisterHost adds a new host to the node with the specified host ID.
 // Returns an error if a host with the same ID is already registered.
-func (n *Node) RegisterHost(hostID api.HostID, host api.Receiver) error {
+func (n *Node) RegisterHost(hostID pid.HostID, host api.Receiver) error {
 	_, loaded := n.hosts.LoadOrStore(hostID, host)
 	if loaded {
 		return api.NewHostExistsError(hostID, n.nodeID)
@@ -41,12 +42,12 @@ func (n *Node) RegisterHost(hostID api.HostID, host api.Receiver) error {
 }
 
 // UnregisterHost removes a host from the node by its host ID.
-func (n *Node) UnregisterHost(hostID api.HostID) {
+func (n *Node) UnregisterHost(hostID pid.HostID) {
 	n.hosts.Delete(hostID)
 }
 
 // GetHost returns a host by ID if it exists.
-func (n *Node) GetHost(hostID api.HostID) (api.Receiver, bool) {
+func (n *Node) GetHost(hostID pid.HostID) (api.Receiver, bool) {
 	h, ok := n.hosts.Load(hostID)
 	if !ok {
 		return nil, false
@@ -76,36 +77,36 @@ func (n *Node) Send(pkg *api.Package) error {
 
 // Attach connects a process ID to a channel for receiving packages.
 // Only works with hosts that implement AttachableHost.
-func (n *Node) Attach(pid api.PID, ch chan *api.Package) (context.CancelFunc, error) {
-	if pid.Node != "" && pid.Node != n.nodeID {
-		return nil, api.NewExternalNodeError(pid.Node)
+func (n *Node) Attach(p pid.PID, ch chan *api.Package) (context.CancelFunc, error) {
+	if p.Node != "" && p.Node != n.nodeID {
+		return nil, api.NewExternalNodeError(p.Node)
 	}
 
-	h, ok := n.hosts.Load(pid.Host)
+	h, ok := n.hosts.Load(p.Host)
 	if !ok {
-		return nil, api.NewHostNotFoundError(pid.Host, n.nodeID)
+		return nil, api.NewHostNotFoundError(p.Host, n.nodeID)
 	}
 
 	attachable, ok := h.(api.AttachableReceiver)
 	if !ok {
-		return nil, api.NewHostNotAttachableError(pid.Host)
+		return nil, api.NewHostNotAttachableError(p.Host)
 	}
 
-	return attachable.Attach(pid, ch)
+	return attachable.Attach(p, ch)
 }
 
 // Detach disconnects a process ID from its receive channel.
-func (n *Node) Detach(pid api.PID) {
-	if pid.Node != "" && pid.Node != n.nodeID {
+func (n *Node) Detach(p pid.PID) {
+	if p.Node != "" && p.Node != n.nodeID {
 		return
 	}
 
-	h, ok := n.hosts.Load(pid.Host)
+	h, ok := n.hosts.Load(p.Host)
 	if !ok {
 		return
 	}
 
 	if attachable, ok := h.(api.AttachableReceiver); ok {
-		attachable.Detach(pid)
+		attachable.Detach(p)
 	}
 }

@@ -10,13 +10,6 @@ import (
 	fsapi "github.com/wippyai/runtime/api/fs"
 )
 
-var (
-	// ErrClosed is returned when an operation is attempted on a closed filesystem
-	ErrClosed = errors.New("filesystem is closed")
-	// ErrPermissionDenied is returned when an operation lacks required permissions
-	ErrPermissionDenied = errors.New("permission denied")
-)
-
 var _ fsapi.FS = (*FS)(nil)
 
 // Permission flags for filesystem operations.
@@ -36,9 +29,9 @@ type FS struct {
 	closed  atomic.Bool
 }
 
-// NewDirectoryFS creates a new FS instance. It automatically adds execute bits
+// NewFS creates a new FS instance. It automatically adds execute bits
 // if the read bits are set but the execute bits are missing.
-func NewDirectoryFS(dirPath string, mode fs.FileMode, autoInit bool) (*FS, error) {
+func NewFS(dirPath string, mode fs.FileMode, autoInit bool) (*FS, error) {
 	absPath, err := filepath.Abs(dirPath)
 	if err != nil {
 		return nil, fsapi.NewInvalidPathError(err)
@@ -87,7 +80,7 @@ func (d *FS) checkPermissions(op, displayPath string, check permCheck) error {
 		return &fs.PathError{
 			Op:   op,
 			Path: displayPath,
-			Err:  ErrClosed,
+			Err:  fsapi.ErrClosed,
 		}
 	}
 
@@ -107,7 +100,7 @@ func (d *FS) checkPermissions(op, displayPath string, check permCheck) error {
 		return &fs.PathError{
 			Op:   op,
 			Path: displayPath,
-			Err:  fsapi.NewPermissionDeniedError(required, ownerMode, ErrPermissionDenied),
+			Err:  fsapi.NewPermissionDeniedError(required, ownerMode, fsapi.ErrPermissionDenied),
 		}
 	}
 	return nil
@@ -158,7 +151,7 @@ func (d *FS) OpenFile(name string, flag int, perm fs.FileMode) (fsapi.File, erro
 		return nil, &fs.PathError{
 			Op:   "open",
 			Path: displayName,
-			Err:  ErrClosed,
+			Err:  fsapi.ErrClosed,
 		}
 	}
 

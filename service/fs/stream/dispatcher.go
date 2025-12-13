@@ -22,17 +22,6 @@ const TypeStream uint32 = 0x10
 // TypeScanner is the type ID for scanner entries in the resource table.
 const TypeScanner uint32 = 0x11
 
-// Errors
-var (
-	ErrNotFound        = errors.New("stream not found")
-	ErrClosed          = errors.New("stream closed")
-	ErrNotReadable     = errors.New("stream is not readable")
-	ErrNotWritable     = errors.New("stream is not writable")
-	ErrNotSeekable     = errors.New("stream is not seekable")
-	ErrNoTable         = errors.New("resource table not available")
-	ErrScannerNotFound = errors.New("scanner not found")
-)
-
 // Capabilities describes what a stream can do.
 type Capabilities struct {
 	Readable bool
@@ -142,11 +131,11 @@ func Get(table *resource.Table, id uint64) (*Entry, error) {
 		if v, exists := table.Get(resource.Handle(id)); exists {
 			return nil, fmt.Errorf("stream %d exists but wrong type: %T", id, v)
 		}
-		return nil, ErrNotFound
+		return nil, streamapi.ErrNotFound
 	}
 	entry := val.(*Entry)
 	if entry.closed {
-		return nil, ErrClosed
+		return nil, streamapi.ErrClosed
 	}
 	return entry, nil
 }
@@ -158,7 +147,7 @@ func Read(table *resource.Table, id uint64, size int64) ([]byte, error) {
 		return nil, err
 	}
 	if entry.reader == nil {
-		return nil, ErrNotReadable
+		return nil, streamapi.ErrNotReadable
 	}
 
 	if size <= 0 {
@@ -189,7 +178,7 @@ func Write(table *resource.Table, id uint64, data []byte) (int, error) {
 		return 0, err
 	}
 	if entry.writer == nil {
-		return 0, ErrNotWritable
+		return 0, streamapi.ErrNotWritable
 	}
 
 	return entry.writer.Write(data)
@@ -202,7 +191,7 @@ func Seek(table *resource.Table, id uint64, offset int64, whence int) (int64, er
 		return 0, err
 	}
 	if entry.seeker == nil {
-		return 0, ErrNotSeekable
+		return 0, streamapi.ErrNotSeekable
 	}
 
 	return entry.seeker.Seek(offset, whence)
@@ -246,7 +235,7 @@ func Stat(table *resource.Table, id uint64) (size int64, position int64, caps Ca
 func Close(table *resource.Table, id uint64) error {
 	val, ok := table.Remove(resource.Handle(id))
 	if !ok {
-		return ErrNotFound
+		return streamapi.ErrNotFound
 	}
 	entry := val.(*Entry)
 	if entry.closed {
@@ -266,7 +255,7 @@ func CreateScanner(table *resource.Table, streamID uint64, splitType int) (uint6
 		return 0, err
 	}
 	if entry.reader == nil {
-		return 0, ErrNotReadable
+		return 0, streamapi.ErrNotReadable
 	}
 
 	scanner := bufio.NewScanner(entry.reader)
@@ -295,7 +284,7 @@ func CreateScanner(table *resource.Table, streamID uint64, splitType int) (uint6
 func GetScanner(table *resource.Table, id uint64) (*ScannerEntry, error) {
 	val, ok := table.GetTyped(resource.Handle(id), TypeScanner)
 	if !ok {
-		return nil, ErrScannerNotFound
+		return nil, streamapi.ErrScannerNotFound
 	}
 	return val.(*ScannerEntry), nil
 }
@@ -435,7 +424,7 @@ func (d *Dispatcher) execute(j job) {
 		if d.debug != nil {
 			fmt.Fprintf(d.debug, "[stream] execute error: no table\n")
 		}
-		j.receiver.CompleteYield(j.tag, nil, ErrNoTable)
+		j.receiver.CompleteYield(j.tag, nil, streamapi.ErrNoTable)
 		return
 	}
 

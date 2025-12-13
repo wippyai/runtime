@@ -32,7 +32,7 @@ type Config struct {
 	parsedMode fs.FileMode
 }
 
-func (c *Config) FileMode() fs.FileMode {
+func (c *Config) GetMode() fs.FileMode {
 	if c.parsedMode == 0 {
 		return 0755 // Default mode if not set
 	}

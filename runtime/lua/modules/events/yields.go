@@ -7,7 +7,7 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -88,7 +88,7 @@ type EventSubscribeYield struct {
 	System  string
 	Kind    string
 	Channel *engine.Channel
-	PID     relay.PID
+	PID     pid.PID
 	Topic   string
 }
 
@@ -96,12 +96,12 @@ var eventSubscribeYieldPool = sync.Pool{
 	New: func() interface{} { return &EventSubscribeYield{} },
 }
 
-func AcquireEventSubscribeYield(system, kind string, ch *engine.Channel, pid relay.PID, topic string) *EventSubscribeYield {
+func AcquireEventSubscribeYield(system, kind string, ch *engine.Channel, p pid.PID, topic string) *EventSubscribeYield {
 	y := eventSubscribeYieldPool.Get().(*EventSubscribeYield)
 	y.System = system
 	y.Kind = kind
 	y.Channel = ch
-	y.PID = pid
+	y.PID = p
 	y.Topic = topic
 	return y
 }
@@ -110,7 +110,7 @@ func ReleaseEventSubscribeYield(y *EventSubscribeYield) {
 	y.System = ""
 	y.Kind = ""
 	y.Channel = nil
-	y.PID = relay.PID{}
+	y.PID = pid.PID{}
 	y.Topic = ""
 	eventSubscribeYieldPool.Put(y)
 }
@@ -187,7 +187,7 @@ func (y *EventSubscribeYield) HandleResult(l *lua.LState, data any, err error) [
 }
 
 // eventMessageHandler converts event payloads to Lua tables.
-func eventMessageHandler(_ context.Context, _ *lua.LState, _ relay.PID, _ string, payloads []payload.Payload) lua.LValue {
+func eventMessageHandler(_ context.Context, _ *lua.LState, _ pid.PID, _ string, payloads []payload.Payload) lua.LValue {
 	if len(payloads) == 0 {
 		return lua.LNil
 	}

@@ -1,5 +1,7 @@
 package native
 
+// todo: why separate file while otehrs not, need proper normalization
+
 // Options defines function type for process executor configuration
 type Options func(*ProcessExecutor)
 

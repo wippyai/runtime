@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/pid"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 
 	lua "github.com/yuin/gopher-lua"
@@ -70,7 +70,7 @@ func GoToLua(v any) (lua.LValue, error) {
 		return lua.LNumber(val.Unix()), nil
 	case payload.Payload:
 		return GoToLua(val.Data())
-	case relay.PID:
+	case pid.PID:
 		return lua.LString(val.String()), nil
 	case []byte:
 		return lua.LString(val), nil

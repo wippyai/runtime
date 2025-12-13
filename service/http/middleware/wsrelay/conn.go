@@ -11,6 +11,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
@@ -29,7 +30,7 @@ type Connection struct {
 	conn *websocket.Conn
 
 	// Relay components (immutable after creation)
-	wsPID      relay.PID
+	wsPID      pid.PID
 	host       relay.AttachableReceiver
 	node       relay.Node
 	topo       topology.Topology
@@ -37,7 +38,7 @@ type Connection struct {
 
 	// Mutable relay state protected by mu
 	mu                  sync.RWMutex
-	currentTargetPID    relay.PID
+	currentTargetPID    pid.PID
 	currentMessageTopic relay.Topic
 	config              RelayCommand
 
@@ -64,7 +65,7 @@ type Connection struct {
 func NewConnection(
 	appCtx context.Context,
 	wsConn *websocket.Conn,
-	targetPID relay.PID,
+	targetPID pid.PID,
 	config RelayCommand,
 	messageTopic relay.Topic,
 	serverID registry.ID,
@@ -356,7 +357,7 @@ func (c *Connection) handleControlMessage(p payload.Payload) {
 
 // handleTargetPIDChange processes a change in target PID
 func (c *Connection) handleTargetPIDChange(command RelayCommand) {
-	newTarget, err := relay.ParsePID(command.TargetPID)
+	newTarget, err := pid.ParsePID(command.TargetPID)
 	if err != nil {
 		c.logger.Error("invalid target PID in control command", zap.Error(err))
 		return
@@ -499,7 +500,7 @@ func (c *Connection) forwardPayloadToWebSocket(topic relay.Topic, payloads ...pa
 }
 
 // sendJoinNotification sends a join notification to the target PID
-func (c *Connection) sendJoinNotification(targetPID relay.PID) error {
+func (c *Connection) sendJoinNotification(targetPID pid.PID) error {
 	c.mu.RLock()
 	metadata := c.config.Metadata
 	c.mu.RUnlock()
@@ -528,7 +529,7 @@ func (c *Connection) sendJoinNotification(targetPID relay.PID) error {
 }
 
 // sendLeaveNotification sends a leave notification to the target PID
-func (c *Connection) sendLeaveNotification(targetPID relay.PID) error {
+func (c *Connection) sendLeaveNotification(targetPID pid.PID) error {
 	c.mu.RLock()
 	metadata := c.config.Metadata
 	c.mu.RUnlock()

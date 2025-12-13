@@ -14,6 +14,7 @@ import (
 
 	contextapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	config "github.com/wippyai/runtime/api/service/http"
@@ -348,7 +349,7 @@ func (s *ServerService) ensureRunning(ctx context.Context) error {
 // Implement Receiver interface methods by delegating to embedded host
 
 // Attach implements relay.AttachableReceiver
-func (s *ServerService) Attach(pid relay.PID, ch chan *relay.Package) (context.CancelFunc, error) {
+func (s *ServerService) Attach(p pid.PID, ch chan *relay.Package) (context.CancelFunc, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -356,11 +357,11 @@ func (s *ServerService) Attach(pid relay.PID, ch chan *relay.Package) (context.C
 		return nil, ErrServerHostNotInitialized
 	}
 
-	return s.host.Attach(pid, ch)
+	return s.host.Attach(p, ch)
 }
 
 // Detach implements relay.AttachableReceiver
-func (s *ServerService) Detach(pid relay.PID) {
+func (s *ServerService) Detach(p pid.PID) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -368,7 +369,7 @@ func (s *ServerService) Detach(pid relay.PID) {
 		return
 	}
 
-	s.host.Detach(pid)
+	s.host.Detach(p)
 }
 
 // Send implements relay.Receiver

@@ -2,8 +2,8 @@
 package supervisor
 
 import (
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/api/topology"
 )
@@ -16,7 +16,7 @@ type ServiceConfig struct {
 	Process registry.ID `json:"process" yaml:"process"`
 
 	// Host Process where the process should be started
-	HostID relay.HostID `json:"host" yaml:"host"`
+	HostID pid.HostID `json:"host" yaml:"host"`
 
 	// Input to be passed to the process as input
 	Input []any `json:"input" yaml:"input"`

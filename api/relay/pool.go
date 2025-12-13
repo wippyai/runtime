@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 )
 
 var packagePool = sync.Pool{
@@ -24,14 +25,14 @@ func ReleasePackage(p *Package) {
 	if p == nil {
 		return
 	}
-	p.Source = PID{}
-	p.Target = PID{}
+	p.Source = pid.PID{}
+	p.Target = pid.PID{}
 	p.Messages = p.Messages[:0]
 	packagePool.Put(p)
 }
 
 // NewPackage creates a new package with source, target, topic and payloads.
-func NewPackage(source, target PID, topic Topic, payloads ...payload.Payload) *Package {
+func NewPackage(source, target pid.PID, topic Topic, payloads ...payload.Payload) *Package {
 	p := AcquirePackage()
 	p.Source = source
 	p.Target = target
@@ -43,7 +44,7 @@ func NewPackage(source, target PID, topic Topic, payloads ...payload.Payload) *P
 }
 
 // NewMessagePackage creates a new package with pre-built messages.
-func NewMessagePackage(source, target PID, msgs ...*Message) *Package {
+func NewMessagePackage(source, target pid.PID, msgs ...*Message) *Package {
 	p := AcquirePackage()
 	p.Source = source
 	p.Target = target

@@ -8,6 +8,7 @@ import (
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
@@ -85,16 +86,16 @@ func BindGlobal(l *lua.LState) {
 	Module.Load(l)
 }
 
-func checkPID(l *lua.LState) (relay.PID, bool) {
+func checkPID(l *lua.LState) (pid.PID, bool) {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("no context found"))
-		return relay.PID{}, false
+		return pid.PID{}, false
 	}
 
-	pid, ok := runtime.GetFramePID(ctx)
-	return pid, ok
+	p, ok := runtime.GetFramePID(ctx)
+	return p, ok
 }
 
 func getProcessManager(l *lua.LState) (process.Manager, bool) {
@@ -151,32 +152,32 @@ func getTopology(l *lua.LState) (topology.Topology, bool) {
 	return topo, true
 }
 
-func resolvePID(l *lua.LState, pidOrName string, permission string) (relay.PID, error) {
-	pid, err := relay.ParsePID(pidOrName)
+func resolvePID(l *lua.LState, pidOrName string, permission string) (pid.PID, error) {
+	p, err := pid.ParsePID(pidOrName)
 	if err == nil {
-		if !security.IsAllowed(l.Context(), permission, pid.String(), nil) {
-			return relay.PID{}, luaapi.NewNotAllowedError(
+		if !security.IsAllowed(l.Context(), permission, p.String(), nil) {
+			return pid.PID{}, luaapi.NewNotAllowedError(
 				strings.TrimPrefix(permission, "process."), pidOrName)
 		}
-		return pid, nil
+		return p, nil
 	}
 
 	reg, ok := getRegistry(l)
 	if !ok {
-		return relay.PID{}, luaapi.ErrCouldNotAccessRegistry
+		return pid.PID{}, luaapi.ErrCouldNotAccessRegistry
 	}
 
-	pid, found := reg.Lookup(pidOrName)
+	p, found := reg.Lookup(pidOrName)
 	if !found {
-		return relay.PID{}, luaapi.NewCouldNotResolveError(pidOrName)
+		return pid.PID{}, luaapi.NewCouldNotResolveError(pidOrName)
 	}
 
-	if !security.IsAllowed(l.Context(), permission, pid.String(), nil) {
-		return relay.PID{}, luaapi.NewNotAllowedError(
+	if !security.IsAllowed(l.Context(), permission, p.String(), nil) {
+		return pid.PID{}, luaapi.NewNotAllowedError(
 			strings.TrimPrefix(permission, "process."), pidOrName)
 	}
 
-	return pid, nil
+	return p, nil
 }
 
 func createPayloadsFromArgs(l *lua.LState) payload.Payloads {
@@ -845,21 +846,21 @@ func registryRegister(l *lua.LState) int {
 		return 2
 	}
 
-	var pid relay.PID
+	var p pid.PID
 	if l.GetTop() >= 2 {
 		pidStr := l.CheckString(2)
 		var err error
-		pid, err = relay.ParsePID(pidStr)
+		p, err = pid.ParsePID(pidStr)
 		if err != nil {
 			l.Push(lua.LNil)
 			l.Push(lua.LString(err.Error()))
 			return 2
 		}
 	} else {
-		pid = self
+		p = self
 	}
 
-	err := reg.Register(name, pid)
+	err := reg.Register(name, p)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -878,14 +879,14 @@ func registryLookup(l *lua.LState) int {
 
 	name := l.CheckString(1)
 
-	pid, found := reg.Lookup(name)
+	p, found := reg.Lookup(name)
 	if !found {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("name not registered"))
 		return 2
 	}
 
-	l.Push(lua.LString(pid.String()))
+	l.Push(lua.LString(p.String()))
 	return 1
 }
 

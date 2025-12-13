@@ -5,8 +5,8 @@ import (
 	"context"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/api/relay"
 )
 
 // Frame context keys
@@ -48,27 +48,27 @@ func GetFrameID(ctx context.Context) (registry.ID, bool) {
 
 // SetFramePID sets the PID in the FrameContext.
 // Returns error if no frame context or frame is sealed.
-func SetFramePID(ctx context.Context, pid relay.PID) error {
+func SetFramePID(ctx context.Context, p pid.PID) error {
 	fc := ctxapi.FrameFromContext(ctx)
 	if fc == nil {
 		return ErrNoFrameContext
 	}
-	return fc.Set(FramePIDKey, pid)
+	return fc.Set(FramePIDKey, p)
 }
 
 // GetFramePID retrieves the PID from the FrameContext.
 // Returns zero PID and false if not found.
-func GetFramePID(ctx context.Context) (relay.PID, bool) {
+func GetFramePID(ctx context.Context) (pid.PID, bool) {
 	fc := ctxapi.FrameFromContext(ctx)
 	if fc == nil {
-		return relay.PID{}, false
+		return pid.PID{}, false
 	}
 	if val, ok := fc.Get(FramePIDKey); ok {
-		if pid, ok := val.(relay.PID); ok {
-			return pid, true
+		if p, ok := val.(pid.PID); ok {
+			return p, true
 		}
 	}
-	return relay.PID{}, false
+	return pid.PID{}, false
 }
 
 // GetFrameLifecycleOptions retrieves lifecycle options from the FrameContext.

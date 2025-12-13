@@ -12,6 +12,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	wsapi "github.com/wippyai/runtime/api/websocket"
@@ -450,7 +451,7 @@ func (d *Dispatcher) executeSubscribe(ctx context.Context, cmd wsapi.WsSubscribe
 	}
 
 	// Use PID and topic from command
-	pid := cmd.PID
+	pidVal := cmd.PID
 	topic := cmd.Topic
 
 	go func() {
@@ -459,14 +460,14 @@ func (d *Dispatcher) executeSubscribe(ctx context.Context, cmd wsapi.WsSubscribe
 			case msg, ok := <-entry.msgCh:
 				if !ok {
 					// Channel closed - send terminal to close subscriber channel
-					pkg := relay.NewPackage(relay.PID{}, pid, topic, payload.NewTerminal())
+					pkg := relay.NewPackage(pid.PID{}, pidVal, topic, payload.NewTerminal())
 					_ = node.Send(pkg)
 					return
 				}
 
 				if msg.EOF {
 					// EOF received - send terminal to close subscriber channel
-					pkg := relay.NewPackage(relay.PID{}, pid, topic, payload.NewTerminal())
+					pkg := relay.NewPackage(pid.PID{}, pidVal, topic, payload.NewTerminal())
 					_ = node.Send(pkg)
 					return
 				}
@@ -476,14 +477,14 @@ func (d *Dispatcher) executeSubscribe(ctx context.Context, cmd wsapi.WsSubscribe
 					p = payload.NewPayload(msg.Data, payload.String)
 				}
 
-				pkg := relay.NewPackage(relay.PID{}, pid, topic, p)
+				pkg := relay.NewPackage(pid.PID{}, pidVal, topic, p)
 				_ = node.Send(pkg)
 			case <-ctx.Done():
 				// Request context canceled - process finished, stop forwarding
 				return
 			case <-entry.ctx.Done():
 				// Connection closed - send terminal to close subscriber channel
-				pkg := relay.NewPackage(relay.PID{}, pid, topic, payload.NewTerminal())
+				pkg := relay.NewPackage(pid.PID{}, pidVal, topic, payload.NewTerminal())
 				_ = node.Send(pkg)
 				return
 			}

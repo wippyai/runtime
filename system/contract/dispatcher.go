@@ -6,6 +6,7 @@ import (
 	"github.com/wippyai/runtime/api/contract"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
+	pidpkg "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 )
@@ -138,7 +139,7 @@ func (d *Dispatcher) handleAsyncCall(ctx context.Context, cmd dispatcher.Command
 			resultPayload = result.Value
 		}
 
-		pkg := relay.NewPackage(relay.PID{}, pid, topic, resultPayload, payload.NewTerminal())
+		pkg := relay.NewPackage(pidpkg.PID{}, pid, topic, resultPayload, payload.NewTerminal())
 		_ = node.Send(pkg)
 	}()
 
@@ -160,7 +161,7 @@ func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Comma
 		return nil
 	}
 
-	pkg := relay.NewPackage(relay.PID{}, pid, cancelCmd.Topic, payload.NewTerminal())
+	pkg := relay.NewPackage(pidpkg.PID{}, pid, cancelCmd.Topic, payload.NewTerminal())
 	_ = d.node.Send(pkg)
 
 	receiver.CompleteYield(tag, nil, nil)

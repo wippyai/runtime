@@ -10,7 +10,7 @@ import (
 	clockapi "github.com/wippyai/runtime/api/clock"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/runtime/resource"
@@ -299,7 +299,7 @@ func (y *SleepYield) ToCommand() dispatcher.Command { return clockapi.SleepCmd{D
 type TimerStartYield struct {
 	Duration stdtime.Duration
 	Channel  *engine.Channel
-	PID      relay.PID
+	PID      pid.PID
 	Topic    string
 }
 
@@ -307,11 +307,11 @@ var timerStartYieldPool = sync.Pool{
 	New: func() interface{} { return &TimerStartYield{} },
 }
 
-func acquireTimerStartYield(d stdtime.Duration, ch *engine.Channel, pid relay.PID, topic string) *TimerStartYield {
+func acquireTimerStartYield(d stdtime.Duration, ch *engine.Channel, p pid.PID, topic string) *TimerStartYield {
 	y := timerStartYieldPool.Get().(*TimerStartYield)
 	y.Duration = d
 	y.Channel = ch
-	y.PID = pid
+	y.PID = p
 	y.Topic = topic
 	return y
 }
@@ -319,7 +319,7 @@ func acquireTimerStartYield(d stdtime.Duration, ch *engine.Channel, pid relay.PI
 func ReleaseTimerStartYield(y *TimerStartYield) {
 	y.Duration = 0
 	y.Channel = nil
-	y.PID = relay.PID{}
+	y.PID = pid.PID{}
 	y.Topic = ""
 	timerStartYieldPool.Put(y)
 }
@@ -389,7 +389,7 @@ func (y *TimerStartYield) HandleResult(l *lua.LState, data any, err error) []lua
 }
 
 // timerMessageHandler converts timer fire payloads to time userdata.
-func timerMessageHandler(_ context.Context, l *lua.LState, _ relay.PID, _ string, payloads []payload.Payload) lua.LValue {
+func timerMessageHandler(_ context.Context, l *lua.LState, _ pid.PID, _ string, payloads []payload.Payload) lua.LValue {
 	if len(payloads) == 0 {
 		return lua.LNil
 	}
@@ -415,12 +415,12 @@ type AfterStartYield struct {
 	TimerStartYield
 }
 
-func acquireAfterStartYield(d stdtime.Duration, ch *engine.Channel, pid relay.PID, topic string) *AfterStartYield {
+func acquireAfterStartYield(d stdtime.Duration, ch *engine.Channel, p pid.PID, topic string) *AfterStartYield {
 	return &AfterStartYield{
 		TimerStartYield: TimerStartYield{
 			Duration: d,
 			Channel:  ch,
-			PID:      pid,
+			PID:      p,
 			Topic:    topic,
 		},
 	}
@@ -517,7 +517,7 @@ func (y *TimerResetYield) ToCommand() dispatcher.Command {
 type TickerStartYield struct {
 	Duration stdtime.Duration
 	Channel  *engine.Channel
-	PID      relay.PID
+	PID      pid.PID
 	Topic    string
 }
 
@@ -525,11 +525,11 @@ var tickerStartYieldPool = sync.Pool{
 	New: func() interface{} { return &TickerStartYield{} },
 }
 
-func acquireTickerStartYield(d stdtime.Duration, ch *engine.Channel, pid relay.PID, topic string) *TickerStartYield {
+func acquireTickerStartYield(d stdtime.Duration, ch *engine.Channel, p pid.PID, topic string) *TickerStartYield {
 	y := tickerStartYieldPool.Get().(*TickerStartYield)
 	y.Duration = d
 	y.Channel = ch
-	y.PID = pid
+	y.PID = p
 	y.Topic = topic
 	return y
 }
@@ -537,7 +537,7 @@ func acquireTickerStartYield(d stdtime.Duration, ch *engine.Channel, pid relay.P
 func ReleaseTickerStartYield(y *TickerStartYield) {
 	y.Duration = 0
 	y.Channel = nil
-	y.PID = relay.PID{}
+	y.PID = pid.PID{}
 	y.Topic = ""
 	tickerStartYieldPool.Put(y)
 }
@@ -607,7 +607,7 @@ func (y *TickerStartYield) HandleResult(l *lua.LState, data any, err error) []lu
 }
 
 // tickerMessageHandler converts tick payloads to time userdata.
-func tickerMessageHandler(_ context.Context, l *lua.LState, _ relay.PID, _ string, payloads []payload.Payload) lua.LValue {
+func tickerMessageHandler(_ context.Context, l *lua.LState, _ pid.PID, _ string, payloads []payload.Payload) lua.LValue {
 	if len(payloads) == 0 {
 		return lua.LNil
 	}
@@ -750,7 +750,7 @@ func timerFunc(l *lua.LState) int {
 		return 0
 	}
 
-	pid, ok := runtime.GetFramePID(ctx)
+	p, ok := runtime.GetFramePID(ctx)
 	if !ok {
 		l.RaiseError("time.timer: no process PID")
 		return 0
@@ -761,7 +761,7 @@ func timerFunc(l *lua.LState) int {
 	timerID := atomic.AddUint64(&timerCounter, 1)
 	topic := fmt.Sprintf("timer@%d", timerID)
 
-	yield := acquireTimerStartYield(duration, ch, pid, topic)
+	yield := acquireTimerStartYield(duration, ch, p, topic)
 	l.Push(yield)
 	return -1
 }
@@ -785,7 +785,7 @@ func afterFunc(l *lua.LState) int {
 		return 0
 	}
 
-	pid, ok := runtime.GetFramePID(ctx)
+	p, ok := runtime.GetFramePID(ctx)
 	if !ok {
 		l.RaiseError("time.after: no process PID")
 		return 0
@@ -796,7 +796,7 @@ func afterFunc(l *lua.LState) int {
 	timerID := atomic.AddUint64(&timerCounter, 1)
 	topic := fmt.Sprintf("after@%d", timerID)
 
-	yield := acquireAfterStartYield(duration, ch, pid, topic)
+	yield := acquireAfterStartYield(duration, ch, p, topic)
 	l.Push(yield)
 	return -1
 }
@@ -835,7 +835,7 @@ func tickerFunc(l *lua.LState) int {
 		return 0
 	}
 
-	pid, ok := runtime.GetFramePID(ctx)
+	p, ok := runtime.GetFramePID(ctx)
 	if !ok {
 		l.RaiseError("time.ticker: no process PID")
 		return 0
@@ -846,7 +846,7 @@ func tickerFunc(l *lua.LState) int {
 	tickerID := atomic.AddUint64(&tickerCounter, 1)
 	topic := fmt.Sprintf("ticker@%d", tickerID)
 
-	yield := acquireTickerStartYield(duration, ch, pid, topic)
+	yield := acquireTickerStartYield(duration, ch, p, topic)
 	l.Push(yield)
 	return -1
 }

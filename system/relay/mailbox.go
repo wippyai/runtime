@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/wippyai/runtime/api/pid"
 	api "github.com/wippyai/runtime/api/relay"
 	"go.uber.org/zap"
 )
@@ -74,23 +75,23 @@ func hashString(s string) uint32 {
 
 // Attach attaches a receiver channel for Package messages.
 // Only one receiver may be attached per PID; if one already exists, an error is returned.
-func (m *Mailbox) Attach(pid api.PID, ch chan *api.Package) (context.CancelFunc, error) {
-	_, loaded := m.receivers.LoadOrStore(pid, ch)
+func (m *Mailbox) Attach(p pid.PID, ch chan *api.Package) (context.CancelFunc, error) {
+	_, loaded := m.receivers.LoadOrStore(p, ch)
 	if loaded {
 		m.config.Logger.Warn("attempt to attach an already existing package receiver",
-			zap.String("pid", pid.String()),
-			zap.String("host", pid.Host),
-			zap.String("uniq_id", pid.UniqID))
-		return nil, api.NewAlreadyAttachedError(pid)
+			zap.String("pid", p.String()),
+			zap.String("host", p.Host),
+			zap.String("uniq_id", p.UniqID))
+		return nil, api.NewAlreadyAttachedError(p)
 	}
 
-	return func() { m.receivers.Delete(pid) }, nil
+	return func() { m.receivers.Delete(p) }, nil
 }
 
 // Detach removes a receiver channel from a pid.
-func (m *Mailbox) Detach(pid api.PID) {
-	m.receivers.Delete(pid)
-	m.config.Logger.Debug("receiver detached", zap.String("pid", pid.String()))
+func (m *Mailbox) Detach(p pid.PID) {
+	m.receivers.Delete(p)
+	m.config.Logger.Debug("receiver detached", zap.String("pid", p.String()))
 }
 
 // Send enqueues a package for delivery. Messages from the same source

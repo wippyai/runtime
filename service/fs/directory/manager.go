@@ -128,7 +128,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 func (m *Manager) registerFS(ctx context.Context, id registry.ID, cfg *dirapi.Config) error {
 	fs, err := m.factory.CreateFS(CreateFSConfig{
 		DirPath:  cfg.Directory,
-		Mode:     cfg.FileMode(),
+		Mode:     cfg.GetMode(),
 		AutoInit: cfg.AutoInit,
 	})
 	if err != nil {
@@ -145,7 +145,7 @@ func (m *Manager) registerFS(ctx context.Context, id registry.ID, cfg *dirapi.Co
 	// Register with filesystem registry
 	m.bus.Send(ctx, event.Event{
 		System: fsapi.System,
-		Kind:   fsapi.Register,
+		Kind:   fsapi.KindRegister,
 		Path:   id.String(),
 		Data:   fs,
 	})
@@ -162,13 +162,13 @@ func (m *Manager) removeFS(ctx context.Context, id registry.ID) {
 	m.log.Debug("sending filesystem deletion event",
 		zap.String("id", id.String()),
 		zap.String("system", fsapi.System),
-		zap.String("kind", fsapi.Delete),
+		zap.String("kind", fsapi.KindDelete),
 		zap.String("path", id.String()))
 
-	// Done regular registration
+	// Do regular registration
 	m.bus.Send(ctx, event.Event{
 		System: fsapi.System,
-		Kind:   fsapi.Delete,
+		Kind:   fsapi.KindDelete,
 		Path:   id.String(),
 	})
 }

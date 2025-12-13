@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 )
@@ -12,7 +13,7 @@ import (
 // System constants for host and topic identifiers
 const (
 	// ControlHost identifies the control node in the pub/sub system
-	ControlHost relay.HostID = "node:control"
+	ControlHost pid.HostID = "node:control"
 
 	// TopicInbox is the inbox topic for process messages
 	TopicInbox relay.Topic = "@pid/inbox"
@@ -21,7 +22,7 @@ const (
 )
 
 // SystemPID is the sender PID for topology system messages.
-var SystemPID = relay.PID{UniqID: "topology"}
+var SystemPID = pid.PID{UniqID: "topology"}
 
 // Event kind constants for process lifecycle events.
 const (
@@ -49,7 +50,7 @@ type (
 	PIDRegistry interface {
 		// Register associates a name with a Target
 		// Returns error if name is already taken
-		Register(name string, pid relay.PID) error
+		Register(name string, p pid.PID) error
 
 		// Unregister removes a name registration
 		// Returns true if the name was registered and has been removed
@@ -57,33 +58,33 @@ type (
 
 		// Lookup finds the Target registered with a given name
 		// Returns the Target and true if found, empty Target and false if not found
-		Lookup(name string) (relay.PID, bool)
+		Lookup(name string) (pid.PID, bool)
 
 		// Remove completely removes a pid from a registry
-		Remove(pid relay.PID)
+		Remove(p pid.PID)
 	}
 
 	// Monitor defines the interface for process monitoring
 	Monitor interface {
 		// Monitor attaches a caller to monitor a specific pid.
 		// Returns error if pid is not registered or already being monitored by caller.
-		Monitor(caller, pid relay.PID) error
+		Monitor(caller, target pid.PID) error
 
 		// Demonitor removes a caller's monitoring of a specific pid.
-		Demonitor(caller, pid relay.PID) error
+		Demonitor(caller, target pid.PID) error
 	}
 
 	// Links defines the interface for managing process links
 	Links interface {
 		// Link establishes a bidirectional link between two processes.
 		// Both processes must be registered first.
-		Link(from, to relay.PID) error
+		Link(from, to pid.PID) error
 
 		// Unlink removes a bidirectional link between two processes.
-		Unlink(from, to relay.PID) error
+		Unlink(from, to pid.PID) error
 
 		// GetLinks returns all processes linked to the given pid
-		GetLinks(pid relay.PID) []relay.PID
+		GetLinks(p pid.PID) []pid.PID
 	}
 
 	// Topology combines monitoring and linking capabilities
@@ -93,13 +94,13 @@ type (
 
 		// Register registers a pid that can be monitored.
 		// This should be called before any process can be monitored.
-		Register(pid relay.PID) error
+		Register(p pid.PID) error
 
 		// Notify sends exit event to all watchers and links of a pid.
-		Notify(pid relay.PID, result *runtime.Result)
+		Notify(p pid.PID, result *runtime.Result)
 
 		// Remove completely removes a pid and all its watchers, destroying all links.
-		Remove(pid relay.PID)
+		Remove(p pid.PID)
 	}
 
 	// ExitEvent represents a process exit notification
@@ -109,7 +110,7 @@ type (
 		// Kind identifies the type of event
 		Kind Kind `json:"kind"`
 		// From identifies the source process
-		From relay.PID `json:"from"`
+		From pid.PID `json:"from"`
 		// Result contains the exit result information
 		Result *runtime.Result `json:"result"`
 	}
@@ -121,7 +122,7 @@ type (
 		// Kind identifies the type of event
 		Kind Kind `json:"kind"`
 		// From identifies the source process
-		From relay.PID `json:"from"`
+		From pid.PID `json:"from"`
 		// Deadline specifies when the cancellation should take effect
 		Deadline time.Time `json:"deadline"`
 	}
@@ -130,38 +131,38 @@ type (
 	MonitorRequestEvent struct {
 		At     time.Time `json:"at"`
 		Kind   Kind      `json:"kind"`
-		Caller relay.PID `json:"caller"`
-		Target relay.PID `json:"target"`
+		Caller pid.PID   `json:"caller"`
+		Target pid.PID   `json:"target"`
 	}
 
 	// MonitorReleaseEvent releases monitoring of a PID
 	MonitorReleaseEvent struct {
 		At     time.Time `json:"at"`
 		Kind   Kind      `json:"kind"`
-		Caller relay.PID `json:"caller"`
-		Target relay.PID `json:"target"`
+		Caller pid.PID   `json:"caller"`
+		Target pid.PID   `json:"target"`
 	}
 
 	// LinkRequestEvent requests bidirectional link with a PID
 	LinkRequestEvent struct {
 		At   time.Time `json:"at"`
 		Kind Kind      `json:"kind"`
-		From relay.PID `json:"from"`
-		To   relay.PID `json:"to"`
+		From pid.PID   `json:"from"`
+		To   pid.PID   `json:"to"`
 	}
 
 	// UnlinkRequestEvent requests removing bidirectional link
 	UnlinkRequestEvent struct {
 		At   time.Time `json:"at"`
 		Kind Kind      `json:"kind"`
-		From relay.PID `json:"from"`
-		To   relay.PID `json:"to"`
+		From pid.PID   `json:"from"`
+		To   pid.PID   `json:"to"`
 	}
 )
 
 // Cancel creates a package for requesting cancellation of a process.
 // The package is sent to the target process with a specified deadline.
-func Cancel(from, to relay.PID, deadline time.Time) *relay.Package {
+func Cancel(from, to pid.PID, deadline time.Time) *relay.Package {
 	return relay.NewPackage(
 		SystemPID,
 		to,
@@ -177,14 +178,14 @@ func Cancel(from, to relay.PID, deadline time.Time) *relay.Package {
 
 // Exit creates a package for notifying about a process exit.
 // The package includes the process result and any error that occurred.
-func Exit(pid relay.PID, result payload.Payload, err error) *relay.Package {
+func Exit(p pid.PID, result payload.Payload, err error) *relay.Package {
 	return relay.NewPackage(
 		SystemPID,
-		pid,
+		p,
 		TopicEvents,
 		payload.New(&ExitEvent{
 			At:   time.Now(),
-			From: pid,
+			From: p,
 			Kind: KindExit,
 			Result: &runtime.Result{
 				Value: result,
@@ -195,7 +196,7 @@ func Exit(pid relay.PID, result payload.Payload, err error) *relay.Package {
 }
 
 // MonitorRequest creates a package for requesting monitoring of a remote PID.
-func MonitorRequest(caller, target relay.PID) *relay.Package {
+func MonitorRequest(caller, target pid.PID) *relay.Package {
 	return relay.NewPackage(
 		caller,
 		target,
@@ -210,7 +211,7 @@ func MonitorRequest(caller, target relay.PID) *relay.Package {
 }
 
 // MonitorRelease creates a package for releasing monitoring of a remote PID.
-func MonitorRelease(caller, target relay.PID) *relay.Package {
+func MonitorRelease(caller, target pid.PID) *relay.Package {
 	return relay.NewPackage(
 		caller,
 		target,
@@ -225,7 +226,7 @@ func MonitorRelease(caller, target relay.PID) *relay.Package {
 }
 
 // LinkRequest creates a package for requesting a link with a remote PID.
-func LinkRequest(from, to relay.PID) *relay.Package {
+func LinkRequest(from, to pid.PID) *relay.Package {
 	return relay.NewPackage(
 		from,
 		to,
@@ -240,7 +241,7 @@ func LinkRequest(from, to relay.PID) *relay.Package {
 }
 
 // UnlinkRequest creates a package for requesting unlinking from a remote PID.
-func UnlinkRequest(from, to relay.PID) *relay.Package {
+func UnlinkRequest(from, to pid.PID) *relay.Package {
 	return relay.NewPackage(
 		from,
 		to,

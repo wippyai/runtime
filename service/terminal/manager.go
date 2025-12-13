@@ -7,6 +7,7 @@ import (
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
@@ -160,20 +161,20 @@ type compositeLifecycle struct {
 	host   process.Lifecycle
 }
 
-func (c *compositeLifecycle) OnStart(ctx context.Context, pid relay.PID, proc process.Process) {
+func (c *compositeLifecycle) OnStart(ctx context.Context, processID pid.PID, proc process.Process) {
 	if c.global != nil {
-		c.global.OnStart(ctx, pid, proc)
+		c.global.OnStart(ctx, processID, proc)
 	}
 	if c.host != nil {
-		c.host.OnStart(ctx, pid, proc)
+		c.host.OnStart(ctx, processID, proc)
 	}
 }
 
-func (c *compositeLifecycle) OnComplete(ctx context.Context, pid relay.PID, result *runtime.Result) {
+func (c *compositeLifecycle) OnComplete(ctx context.Context, processID pid.PID, result *runtime.Result) {
 	if c.global != nil {
-		c.global.OnComplete(ctx, pid, result)
+		c.global.OnComplete(ctx, processID, result)
 	}
 	if c.host != nil {
-		c.host.OnComplete(ctx, pid, result)
+		c.host.OnComplete(ctx, processID, result)
 	}
 }

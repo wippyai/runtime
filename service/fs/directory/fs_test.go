@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	fsapi "github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/tests/tempfiles"
 
 	"github.com/stretchr/testify/assert"
@@ -47,7 +48,7 @@ func TestFS(t *testing.T) {
 			defer cleanup()
 
 			// Create filesystem with specified mode
-			fs, err := NewDirectoryFS(root, tt.mode, false)
+			fs, err := NewFS(root, tt.mode, false)
 			require.NoError(t, err)
 			defer func() {
 				require.NoError(t, fs.Close())
@@ -81,12 +82,12 @@ func testReadOnlyFS(t *testing.T, fs *FS) {
 	assert.Error(t, err)
 	var pathErr *iofs.PathError
 	assert.ErrorAs(t, err, &pathErr)
-	assert.ErrorIs(t, pathErr.Err, ErrPermissionDenied)
+	assert.ErrorIs(t, pathErr.Err, fsapi.ErrPermissionDenied)
 
 	err = fs.Remove("file1.txt")
 	assert.Error(t, err)
 	assert.ErrorAs(t, err, &pathErr)
-	assert.ErrorIs(t, pathErr.Err, ErrPermissionDenied)
+	assert.ErrorIs(t, pathErr.Err, fsapi.ErrPermissionDenied)
 }
 
 func testReadWriteFS(t *testing.T, fs *FS) {
@@ -158,7 +159,7 @@ func TestFS_Root(t *testing.T) {
 	})
 	defer cleanup()
 
-	fs, err := NewDirectoryFS(root, 0755, false)
+	fs, err := NewFS(root, 0755, false)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, fs.Close())
@@ -186,13 +187,13 @@ func TestFS_Closed(t *testing.T) {
 	})
 	defer cleanup()
 
-	fs, err := NewDirectoryFS(root, 0755, false)
+	fs, err := NewFS(root, 0755, false)
 	require.NoError(t, err)
 
 	// close filesystem
 	require.NoError(t, fs.Close())
 
-	// All operations should fail with ErrClosed
+	// All operations should fail with fsapi.ErrClosed
 	operations := []struct {
 		name string
 		op   func() error
@@ -242,7 +243,7 @@ func TestFS_Closed(t *testing.T) {
 	for _, op := range operations {
 		t.Run(op.name, func(t *testing.T) {
 			err := op.op()
-			assert.ErrorIs(t, err, ErrClosed)
+			assert.ErrorIs(t, err, fsapi.ErrClosed)
 		})
 	}
 
@@ -269,13 +270,13 @@ func TestFS_NormalizePath(t *testing.T) {
 	assert.Equal(t, "already/normalized", result, "Path without leading slash should remain unchanged")
 }
 
-func TestNewDirectoryFS_WithPermissionAdjustment(t *testing.T) {
+func TestNewFS_WithPermissionAdjustment(t *testing.T) {
 	// Test that read permissions automatically add execute permissions
 	root, cleanup := tempfiles.TempDirWithFiles(t, "fs_perm_test", nil)
 	defer cleanup()
 
 	// Test with read-only permission 0444 (r--r--r--)
-	fs, err := NewDirectoryFS(root, 0444, false)
+	fs, err := NewFS(root, 0444, false)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, fs.Close())
@@ -285,7 +286,7 @@ func TestNewDirectoryFS_WithPermissionAdjustment(t *testing.T) {
 	assert.Equal(t, os.FileMode(0555), fs.mode&0777, "Execute bits should be added to read-only mode")
 
 	// Test with mixed read/write but no execute: 0644 (rw-r--r--)
-	fs2, err := NewDirectoryFS(root, 0644, false)
+	fs2, err := NewFS(root, 0644, false)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, fs2.Close())
@@ -295,9 +296,9 @@ func TestNewDirectoryFS_WithPermissionAdjustment(t *testing.T) {
 	assert.Equal(t, os.FileMode(0755), fs2.mode&0777, "Execute bits should be added when read bits are present")
 }
 
-func TestNewDirectoryFS_InvalidPath(t *testing.T) {
+func TestNewFS_InvalidPath(t *testing.T) {
 	// Using a path that should not exist on any system
-	_, err := NewDirectoryFS("/path/that/cannot/possibly/exist/for/test", 0755, false)
+	_, err := NewFS("/path/that/cannot/possibly/exist/for/test", 0755, false)
 	require.Error(t, err, "Should return error for invalid path")
 	assert.Contains(t, err.Error(), "failed to open directory", "Error should mention the failure to open directory")
 }
@@ -310,7 +311,7 @@ func TestFS_OpenErrorCases(t *testing.T) {
 	defer cleanup()
 
 	// Test with read-only filesystem
-	fs, err := NewDirectoryFS(root, 0400, false) // r--------
+	fs, err := NewFS(root, 0400, false) // r--------
 	require.NoError(t, err)
 
 	// Test opening a directory without execute permission
@@ -327,7 +328,7 @@ func TestFS_OpenErrorCases(t *testing.T) {
 
 	// Test opening any file on closed filesystem
 	_, err = fs.Open("file1.txt")
-	assert.ErrorIs(t, err, ErrClosed, "Opening a file on closed filesystem should return ErrClosed")
+	assert.ErrorIs(t, err, fsapi.ErrClosed, "Opening a file on closed filesystem should return fsapi.ErrClosed")
 }
 
 func TestFS_OpenFile_ExtraFlags(t *testing.T) {
@@ -336,7 +337,7 @@ func TestFS_OpenFile_ExtraFlags(t *testing.T) {
 	})
 	defer cleanup()
 
-	fs, err := NewDirectoryFS(root, 0755, false)
+	fs, err := NewFS(root, 0755, false)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, fs.Close())
@@ -353,7 +354,7 @@ func TestFS_OpenFile_ExtraFlags(t *testing.T) {
 	require.NoError(t, err, "Opening with RDWR should work with read+write permissions")
 
 	// Test with read-only filesystem
-	fsReadOnly, err := NewDirectoryFS(root, 0444, false) // r--r--r--
+	fsReadOnly, err := NewFS(root, 0444, false) // r--r--r--
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, fsReadOnly.Close())
@@ -372,7 +373,7 @@ func TestFS_ReadDir_ErrorCases(t *testing.T) {
 	defer cleanup()
 
 	// Create FS with read permission but no execute permission
-	fs, err := NewDirectoryFS(root, 0400, false) // r--------
+	fs, err := NewFS(root, 0400, false) // r--------
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, fs.Close())
@@ -391,7 +392,7 @@ func TestFS_ReadDir_ErrorCases(t *testing.T) {
 	require.NoError(t, fs.Close())
 	_, err = fs.ReadDir(".")
 	assert.Error(t, err, "ReadDir on closed filesystem should fail")
-	assert.ErrorIs(t, err, ErrClosed, "Error should be ErrClosed")
+	assert.ErrorIs(t, err, fsapi.ErrClosed, "Error should be fsapi.ErrClosed")
 }
 
 func TestFS_MkdirAndRemove_ErrorCases(t *testing.T) {
@@ -399,7 +400,7 @@ func TestFS_MkdirAndRemove_ErrorCases(t *testing.T) {
 	defer cleanup()
 
 	// Test with read-only filesystem
-	fs, err := NewDirectoryFS(root, 0444, false) // r--r--r--
+	fs, err := NewFS(root, 0444, false) // r--r--r--
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, fs.Close())
@@ -418,7 +419,7 @@ func TestFS_MkdirAndRemove_ErrorCases(t *testing.T) {
 	}
 
 	// Create writable FS to test other error conditions
-	fsRW, err := NewDirectoryFS(root, 0755, false)
+	fsRW, err := NewFS(root, 0755, false)
 	require.NoError(t, err)
 
 	// Test removing non-existent file
@@ -429,11 +430,11 @@ func TestFS_MkdirAndRemove_ErrorCases(t *testing.T) {
 	require.NoError(t, fsRW.Close())
 	err = fsRW.Mkdir("newdir", 0755)
 	assert.Error(t, err, "Mkdir on closed filesystem should fail")
-	assert.ErrorIs(t, err, ErrClosed, "Error should be ErrClosed")
+	assert.ErrorIs(t, err, fsapi.ErrClosed, "Error should be fsapi.ErrClosed")
 
 	err = fsRW.Remove("something")
 	assert.Error(t, err, "Done on closed filesystem should fail")
-	assert.ErrorIs(t, err, ErrClosed, "Error should be ErrClosed")
+	assert.ErrorIs(t, err, fsapi.ErrClosed, "Error should be fsapi.ErrClosed")
 }
 
 // Test that Stat method properly handles error cases
@@ -444,7 +445,7 @@ func TestFS_Stat_ErrorCases(t *testing.T) {
 	defer cleanup()
 
 	// Create FS with no read permission
-	fs, err := NewDirectoryFS(root, 0, false)
+	fs, err := NewFS(root, 0, false)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, fs.Close())
@@ -456,7 +457,7 @@ func TestFS_Stat_ErrorCases(t *testing.T) {
 	assert.Contains(t, err.Error(), "permission denied", "Error should mention permission denied")
 
 	// Test non-existent file
-	fsRW, err := NewDirectoryFS(root, 0755, false)
+	fsRW, err := NewFS(root, 0755, false)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, fsRW.Close())
@@ -469,5 +470,5 @@ func TestFS_Stat_ErrorCases(t *testing.T) {
 	require.NoError(t, fsRW.Close())
 	_, err = fsRW.Stat("file1.txt")
 	assert.Error(t, err, "Stat on closed filesystem should fail")
-	assert.ErrorIs(t, err, ErrClosed, "Error should be ErrClosed")
+	assert.ErrorIs(t, err, fsapi.ErrClosed, "Error should be fsapi.ErrClosed")
 }

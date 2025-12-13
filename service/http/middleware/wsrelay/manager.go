@@ -11,6 +11,7 @@ import (
 	"github.com/coder/websocket"
 	contextapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	httpapi "github.com/wippyai/runtime/api/service/http"
@@ -114,7 +115,7 @@ func (m *RelayManager) middlewareHandler(h http.Handler, originPatterns []string
 			return
 		}
 
-		targetPID, err := relay.ParsePID(config.TargetPID)
+		targetPID, err := pid.ParsePID(config.TargetPID)
 		if err != nil {
 			logger.Error("Invalid target PID", zap.Error(err), zap.String("pid", config.TargetPID))
 			http.Error(w, "Invalid target PID: "+err.Error(), http.StatusBadRequest)

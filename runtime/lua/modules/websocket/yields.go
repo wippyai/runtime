@@ -7,7 +7,7 @@ import (
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/pid"
 	wsapi "github.com/wippyai/runtime/api/websocket"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -142,7 +142,7 @@ func (y *WsSendYield) Release() { ReleaseWsSendYield(y) }
 type WsSubscribeYield struct {
 	ConnID  uint64
 	Channel *engine.Channel
-	PID     relay.PID
+	PID     pid.PID
 	Topic   string
 	Conn    *WsConn
 }
@@ -151,11 +151,11 @@ var wsSubscribeYieldPool = sync.Pool{
 	New: func() interface{} { return &WsSubscribeYield{} },
 }
 
-func AcquireWsSubscribeYield(connID uint64, ch *engine.Channel, pid relay.PID, topic string, conn *WsConn) *WsSubscribeYield {
+func AcquireWsSubscribeYield(connID uint64, ch *engine.Channel, p pid.PID, topic string, conn *WsConn) *WsSubscribeYield {
 	y := wsSubscribeYieldPool.Get().(*WsSubscribeYield)
 	y.ConnID = connID
 	y.Channel = ch
-	y.PID = pid
+	y.PID = p
 	y.Topic = topic
 	y.Conn = conn
 	return y
@@ -164,7 +164,7 @@ func AcquireWsSubscribeYield(connID uint64, ch *engine.Channel, pid relay.PID, t
 func ReleaseWsSubscribeYield(y *WsSubscribeYield) {
 	y.ConnID = 0
 	y.Channel = nil
-	y.PID = relay.PID{}
+	y.PID = pid.PID{}
 	y.Topic = ""
 	y.Conn = nil
 	wsSubscribeYieldPool.Put(y)
@@ -215,7 +215,7 @@ func (y *WsSubscribeYield) HandleResult(l *lua.LState, _ any, err error) []lua.L
 
 // wsMessageHandler converts websocket message payloads to Lua tables.
 // Terminal payloads are handled by the process layer (closes channel automatically).
-func wsMessageHandler(_ context.Context, l *lua.LState, _ relay.PID, _ string, payloads []payload.Payload) lua.LValue {
+func wsMessageHandler(_ context.Context, l *lua.LState, _ pid.PID, _ string, payloads []payload.Payload) lua.LValue {
 	if len(payloads) == 0 {
 		return lua.LNil
 	}

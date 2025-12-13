@@ -10,6 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
@@ -129,7 +130,7 @@ type Process struct {
 
 // queuedMessage stores a message waiting to be delivered
 type queuedMessage struct {
-	Source   relay.PID
+	Source   pid.PID
 	Topic    string
 	Payloads []payload.Payload
 }

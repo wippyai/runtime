@@ -9,9 +9,9 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	commonpb "go.temporal.io/api/common/v1"
 	"go.temporal.io/sdk/converter"
@@ -96,7 +96,7 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, _ *commonpb.Heade
 		return
 	}
 
-	pid := relay.PID{
+	processPID := pid.PID{
 		Node:   "",
 		Host:   "temporal",
 		UniqID: env.WorkflowInfo().WorkflowExecution.ID,
@@ -105,7 +105,7 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, _ *commonpb.Heade
 	execCtx, fc := ctxapi.OpenFrameContextOn(d.ctx, d.ctx)
 	pairs := []ctxapi.Pair{
 		{Key: runtime.FrameIDKey, Value: d.id},
-		{Key: runtime.FramePIDKey, Value: pid},
+		{Key: runtime.FramePIDKey, Value: processPID},
 	}
 
 	if err := fc.SetMultiple(pairs...); err != nil {

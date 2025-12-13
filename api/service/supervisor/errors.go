@@ -5,7 +5,7 @@ import (
 
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
-	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/pid"
 )
 
 type Error struct {
@@ -36,7 +36,7 @@ var (
 	}
 )
 
-func NewInvalidHostError(hostID relay.HostID) *Error {
+func NewInvalidHostError(hostID pid.HostID) *Error {
 	return &Error{
 		kind:      apierror.KindInvalid,
 		message:   fmt.Sprintf("host Process cannot be %s", hostID),

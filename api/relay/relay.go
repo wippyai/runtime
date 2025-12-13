@@ -30,12 +30,6 @@ const (
 )
 
 type (
-	// NodeID uniquely identifies a node in the relay network.
-	NodeID = pid.NodeID
-
-	// HostID uniquely identifies a host within a node.
-	HostID = pid.HostID
-
 	// Topic represents a message channel identifier.
 	Topic = string
 
@@ -47,15 +41,15 @@ type (
 
 	// Package combines source, target and messages for delivery.
 	Package struct {
-		Source   PID
-		Target   PID
+		Source   pid.PID
+		Target   pid.PID
 		Messages []*Message
 	}
 
 	// PeerInfo contains metadata about a peer node.
 	// Peer nodes are external receivers (e.g., Temporal) registered at runtime.
 	PeerInfo struct {
-		NodeID   NodeID
+		NodeID   pid.NodeID
 		Receiver Receiver
 	}
 )
@@ -69,19 +63,19 @@ type (
 	// AttachableReceiver extends Receiver with channel-based message delivery.
 	AttachableReceiver interface {
 		Receiver
-		Attach(PID, chan *Package) (context.CancelFunc, error)
-		Detach(PID)
+		Attach(pid.PID, chan *Package) (context.CancelFunc, error)
+		Detach(pid.PID)
 	}
 
 	// Node represents a messaging node that hosts and routes messages.
 	Node interface {
 		Receiver
-		ID() NodeID
-		RegisterHost(HostID, Receiver) error
-		UnregisterHost(HostID)
-		GetHost(HostID) (Receiver, bool)
-		Attach(PID, chan *Package) (context.CancelFunc, error)
-		Detach(PID)
+		ID() pid.NodeID
+		RegisterHost(pid.HostID, Receiver) error
+		UnregisterHost(pid.HostID)
+		GetHost(pid.HostID) (Receiver, bool)
+		Attach(pid.PID, chan *Package) (context.CancelFunc, error)
+		Detach(pid.PID)
 	}
 
 	// NodeManager manages relay nodes and hosts.

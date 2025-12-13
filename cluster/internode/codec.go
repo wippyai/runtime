@@ -9,6 +9,7 @@ import (
 
 	"github.com/hashicorp/go-msgpack/v2/codec"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 )
 
@@ -24,8 +25,8 @@ type encodedMessage struct {
 }
 
 type encodedPackage struct {
-	Source   relay.PID
-	Target   relay.PID
+	Source   pid.PID
+	Target   pid.PID
 	Messages []*encodedMessage
 }
 
@@ -63,8 +64,8 @@ func NewMessageCodec(transcoder payload.Transcoder) *MessageCodec {
 }
 
 func (c *MessageCodec) resetEncodedPackage(p *encodedPackage) {
-	p.Source = relay.PID{}
-	p.Target = relay.PID{}
+	p.Source = pid.PID{}
+	p.Target = pid.PID{}
 
 	for i := range p.Messages {
 		p.Messages[i] = nil
@@ -175,32 +176,32 @@ func (c *MessageCodec) normalizePayload(p payload.Payload) (payload.Payload, err
 type pidExtension struct{}
 
 func (pidExtension) WriteExt(v interface{}) []byte {
-	pid, ok := v.(*relay.PID)
+	p, ok := v.(*pid.PID)
 	if !ok {
-		p, ok := v.(relay.PID)
+		pv, ok := v.(pid.PID)
 		if ok {
-			pid = &p
+			p = &pv
 		} else {
 			return nil
 		}
 	}
-	return []byte(pid.String())
+	return []byte(p.String())
 }
 
 func (pidExtension) ReadExt(dst interface{}, src []byte) {
-	pid, err := relay.ParsePID(string(src))
+	p, err := pid.ParsePID(string(src))
 	if err != nil {
 		return
 	}
 
-	if pidPtr, ok := dst.(*relay.PID); ok {
-		*pidPtr = pid
+	if pidPtr, ok := dst.(*pid.PID); ok {
+		*pidPtr = p
 	}
 }
 
 func registerPIDExtension(mh *codec.MsgpackHandle) error {
 	return mh.SetBytesExt(
-		reflect.TypeOf(relay.PID{}),
+		reflect.TypeOf(pid.PID{}),
 		1,
 		pidExtension{},
 	)

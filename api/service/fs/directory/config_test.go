@@ -171,7 +171,7 @@ func TestConfig_FileMode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.config.Validate()
 			require.NoError(t, err)
-			assert.Equal(t, tt.expected, uint32(tt.config.FileMode()))
+			assert.Equal(t, tt.expected, uint32(tt.config.GetMode()))
 		})
 	}
 }

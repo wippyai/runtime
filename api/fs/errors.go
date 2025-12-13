@@ -1,8 +1,16 @@
 package fs
 
 import (
+	"errors"
+
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
+)
+
+// Sentinel errors for filesystem operations.
+var (
+	ErrClosed           = errors.New("filesystem is closed")
+	ErrPermissionDenied = errors.New("permission denied")
 )
 
 // Error implements apierror.Error for filesystem errors.

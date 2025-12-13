@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/wippyai/runtime/api/pid"
 	api "github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
@@ -25,20 +26,20 @@ func NewManager(node relay.Node, logger *zap.Logger) *Manager {
 }
 
 // Start launches a process on the specified host.
-func (m *Manager) Start(ctx context.Context, start *api.Start) (relay.PID, error) {
+func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) {
 	// Look up host
 	relayHost, exists := m.node.GetHost(start.HostID)
 	if !exists {
 		m.logger.Warn("host not found",
 			zap.String("host_id", start.HostID),
 			zap.String("source", start.Source.String()))
-		return relay.PID{}, api.NewHostNotFoundError(start.HostID)
+		return pid.PID{}, api.NewHostNotFoundError(start.HostID)
 	}
 
 	// Cast to process.Host
 	host, ok := relayHost.(api.Host)
 	if !ok {
-		return relay.PID{}, api.NewInvalidHostError(start.HostID)
+		return pid.PID{}, api.NewInvalidHostError(start.HostID)
 	}
 
 	m.logger.Debug("starting process",
@@ -51,15 +52,15 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (relay.PID, error
 }
 
 // Cancel sends a cancellation event to the process.
-func (m *Manager) Cancel(_ context.Context, from, pid relay.PID, deadline time.Time) error {
-	relayHost, exists := m.node.GetHost(pid.Host)
+func (m *Manager) Cancel(_ context.Context, from, pidArg pid.PID, deadline time.Time) error {
+	relayHost, exists := m.node.GetHost(pidArg.Host)
 	if !exists {
-		return api.NewHostNotFoundError(pid.Host)
+		return api.NewHostNotFoundError(pidArg.Host)
 	}
 
-	if err := relayHost.Send(topology.Cancel(from, pid, deadline)); err != nil {
+	if err := relayHost.Send(topology.Cancel(from, pidArg, deadline)); err != nil {
 		m.logger.Error("failed to send cancel",
-			zap.String("pid", pid.String()),
+			zap.String("pid", pidArg.String()),
 			zap.Error(err))
 		return err
 	}
@@ -68,16 +69,16 @@ func (m *Manager) Cancel(_ context.Context, from, pid relay.PID, deadline time.T
 }
 
 // Terminate forcefully stops a running process.
-func (m *Manager) Terminate(ctx context.Context, pid relay.PID) error {
-	relayHost, exists := m.node.GetHost(pid.Host)
+func (m *Manager) Terminate(ctx context.Context, pidArg pid.PID) error {
+	relayHost, exists := m.node.GetHost(pidArg.Host)
 	if !exists {
-		return api.NewHostNotFoundError(pid.Host)
+		return api.NewHostNotFoundError(pidArg.Host)
 	}
 
 	host, ok := relayHost.(api.Host)
 	if !ok {
-		return api.NewInvalidHostError(pid.Host)
+		return api.NewInvalidHostError(pidArg.Host)
 	}
 
-	return host.Terminate(ctx, pid)
+	return host.Terminate(ctx, pidArg)
 }

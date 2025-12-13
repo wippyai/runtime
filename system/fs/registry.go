@@ -50,11 +50,11 @@ func (r *Registry) Stop() error {
 
 func (r *Registry) handleEvent(e event.Event) {
 	switch e.Kind {
-	case fsapi.Register:
+	case fsapi.KindRegister:
 		r.registerFS(e)
-	case fsapi.Delete:
+	case fsapi.KindDelete:
 		r.deleteFS(e)
-	case fsapi.Accept, fsapi.Reject:
+	case fsapi.KindAccept, fsapi.KindReject:
 		// nothing, self emitted
 	default:
 		r.log.Warn("unknown event kind",
@@ -93,7 +93,7 @@ func (r *Registry) deleteFS(e event.Event) {
 func (r *Registry) sendAccept(path event.Path) {
 	r.bus.Send(r.ctx, event.Event{
 		System: fsapi.System,
-		Kind:   fsapi.Accept,
+		Kind:   fsapi.KindAccept,
 		Path:   path,
 	})
 }
@@ -101,7 +101,7 @@ func (r *Registry) sendAccept(path event.Path) {
 func (r *Registry) sendReject(path event.Path, reason string) {
 	r.bus.Send(r.ctx, event.Event{
 		System: fsapi.System,
-		Kind:   fsapi.Reject,
+		Kind:   fsapi.KindReject,
 		Path:   path,
 		Data:   reason,
 	})
@@ -117,5 +117,5 @@ func (r *Registry) GetFS(path string) (fsapi.FS, bool) {
 	return nil, false
 }
 
-// Ensure Registry implements the operation.Registry interface
+// Ensure Registry implements the fsapi.Registry interface
 var _ fsapi.Registry = (*Registry)(nil)

@@ -18,7 +18,7 @@ import (
 
 func createTestFS(t *testing.T) (*FS, func()) {
 	tmpDir := t.TempDir()
-	fsys, err := directory.NewDirectoryFS(tmpDir, 0755, false)
+	fsys, err := directory.NewFS(tmpDir, 0755, false)
 	require.NoError(t, err)
 	return NewFS(fsys, ""), func() { fsys.Close() }
 }
@@ -248,7 +248,7 @@ func TestFSStructuredErrors(t *testing.T) {
 
 func TestFSMkdirAlreadyExists(t *testing.T) {
 	tmpDir := t.TempDir()
-	fsys, err := directory.NewDirectoryFS(tmpDir, 0755, false)
+	fsys, err := directory.NewFS(tmpDir, 0755, false)
 	require.NoError(t, err)
 	defer fsys.Close()
 	f := NewFS(fsys, "")
@@ -278,7 +278,7 @@ func TestFSMkdirAlreadyExists(t *testing.T) {
 
 func TestFSChdirNotDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
-	fsys, err := directory.NewDirectoryFS(tmpDir, 0755, false)
+	fsys, err := directory.NewFS(tmpDir, 0755, false)
 	require.NoError(t, err)
 	defer fsys.Close()
 	f := NewFS(fsys, "")
@@ -308,7 +308,7 @@ func TestFSChdirNotDirectory(t *testing.T) {
 
 func TestFSReaddirNotDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
-	fsys, err := directory.NewDirectoryFS(tmpDir, 0755, false)
+	fsys, err := directory.NewFS(tmpDir, 0755, false)
 	require.NoError(t, err)
 	defer fsys.Close()
 	f := NewFS(fsys, "")
@@ -338,7 +338,7 @@ func TestFSReaddirNotDirectory(t *testing.T) {
 
 func TestFSRemoveNonEmpty(t *testing.T) {
 	tmpDir := t.TempDir()
-	fsys, err := directory.NewDirectoryFS(tmpDir, 0755, false)
+	fsys, err := directory.NewFS(tmpDir, 0755, false)
 	require.NoError(t, err)
 	defer fsys.Close()
 	f := NewFS(fsys, "")
@@ -377,7 +377,7 @@ func (t *testReaderCloser) Close() error { return nil }
 
 func TestFSWritefileWithStream(t *testing.T) {
 	tmpDir := t.TempDir()
-	fsys, err := directory.NewDirectoryFS(tmpDir, 0755, false)
+	fsys, err := directory.NewFS(tmpDir, 0755, false)
 	require.NoError(t, err)
 	defer fsys.Close()
 	f := NewFS(fsys, "")

@@ -8,12 +8,13 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 )
 
 // subscription tracks a single process subscription.
 type subscription struct {
-	pid    relay.PID
+	pid    pid.PID
 	system string
 	kind   string
 	topic  string
@@ -104,7 +105,7 @@ func (d *Dispatcher) routeEvent(evt event.Event) {
 			data["data"] = evt.Data
 		}
 
-		pkg := relay.NewPackage(relay.PID{}, sub.pid, sub.topic, payload.New(data))
+		pkg := relay.NewPackage(pid.PID{}, sub.pid, sub.topic, payload.New(data))
 		_ = d.node.Send(pkg)
 	}
 }

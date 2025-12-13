@@ -11,6 +11,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/function"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
@@ -30,7 +31,7 @@ type Listener struct {
 	bus        event.Bus
 	pidGen     *uniqid.PIDGenerator
 	mu         sync.RWMutex
-	registered map[string]relay.HostID
+	registered map[string]pid.HostID
 }
 
 // NewListener creates a new process function bridge listener.
@@ -39,7 +40,7 @@ func NewListener(log *zap.Logger, bus event.Bus, pidGen *uniqid.PIDGenerator) *L
 		log:        log,
 		bus:        bus,
 		pidGen:     pidGen,
-		registered: make(map[string]relay.HostID),
+		registered: make(map[string]pid.HostID),
 	}
 }
 
@@ -131,7 +132,7 @@ func (l *Listener) processEntry(ctx context.Context, kind event.Kind, entry regi
 }
 
 // registerFunction registers a process function handler.
-func (l *Listener) registerFunction(ctx context.Context, id registry.ID, hostID relay.HostID, opts attrs.Bag) {
+func (l *Listener) registerFunction(ctx context.Context, id registry.ID, hostID pid.HostID, opts attrs.Bag) {
 	handler := &processHandler{
 		log:       l.log,
 		pidGen:    l.pidGen,
@@ -180,7 +181,7 @@ type processHandler struct {
 	log       *zap.Logger
 	pidGen    *uniqid.PIDGenerator
 	processID registry.ID
-	hostID    relay.HostID
+	hostID    pid.HostID
 }
 
 // Call implements function.Func via TOCTOU-safe monitoring.
@@ -230,7 +231,7 @@ func (h *processHandler) Call(ctx context.Context, task runtime.Task) (*runtime.
 	// Start process - lifecycle.OnStart will atomically:
 	// - Register child PID in topology
 	// - Call topology.Wait(callerPID, childPID)
-	pid, err := manager.Start(ctx, &process.Start{
+	processPID, err := manager.Start(ctx, &process.Start{
 		HostID:  h.hostID,
 		Source:  h.processID,
 		Input:   task.Payloads,
@@ -242,22 +243,22 @@ func (h *processHandler) Call(ctx context.Context, task runtime.Task) (*runtime.
 
 	h.log.Debug("started process function",
 		zap.String("process_id", h.processID.String()),
-		zap.String("pid", pid.String()))
+		zap.String("pid", processPID.String()))
 
 	// Monitor for exit (blocking)
 	for {
 		select {
 		case <-ctx.Done():
 			// Context canceled - release monitor and send cancel
-			_ = topo.Demonitor(callerPID, pid)
+			_ = topo.Demonitor(callerPID, processPID)
 
 			if err := node.Send(topology.Cancel(
 				callerPID,
-				pid,
+				processPID,
 				time.Now().Add(DefaultCancelTimeout),
 			)); err != nil {
 				h.log.Warn("failed to send cancel",
-					zap.String("pid", pid.String()),
+					zap.String("pid", processPID.String()),
 					zap.Error(err))
 			}
 
@@ -278,7 +279,7 @@ func (h *processHandler) Call(ctx context.Context, task runtime.Task) (*runtime.
 					if e, ok := p.Data().(*topology.ExitEvent); ok {
 						h.log.Debug("received exit event",
 							zap.String("process_id", h.processID.String()),
-							zap.String("pid", pid.String()))
+							zap.String("pid", processPID.String()))
 						return e.Result, nil
 					}
 				}

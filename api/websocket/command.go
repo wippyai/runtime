@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/dispatcher"
-	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/pid"
 )
 
 func init() {
@@ -125,8 +125,8 @@ type WsMessage struct {
 // Each message is delivered to the specified topic via relay.
 type WsSubscribeCmd struct {
 	ConnID uint64
-	Topic  string    // Per-connection topic (e.g., "ws@123")
-	PID    relay.PID // Target process PID to send messages to
+	Topic  string  // Per-connection topic (e.g., "ws@123")
+	PID    pid.PID // Target process PID to send messages to
 }
 
 // CmdID implements dispatcher.Command.

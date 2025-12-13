@@ -8,6 +8,7 @@ import (
 
 	clockapi "github.com/wippyai/runtime/api/clock"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 )
 
@@ -17,7 +18,7 @@ const tickerShardCount = 64
 
 type tickerEntry struct {
 	ticker *time.Ticker
-	pid    relay.PID
+	pid    pid.PID
 	topic  string
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -46,7 +47,7 @@ func (r *tickerRegistry) getShard(id uint64) *tickerShard {
 	return &r.shards[id&(tickerShardCount-1)]
 }
 
-func (r *tickerRegistry) start(ctx context.Context, d time.Duration, pid relay.PID, topic string, node relay.Node) uint64 {
+func (r *tickerRegistry) start(ctx context.Context, d time.Duration, p pid.PID, topic string, node relay.Node) uint64 {
 	id := r.nextID.Add(1)
 	shard := r.getShard(id)
 
@@ -54,7 +55,7 @@ func (r *tickerRegistry) start(ctx context.Context, d time.Duration, pid relay.P
 
 	entry := &tickerEntry{
 		ticker: time.NewTicker(d),
-		pid:    pid,
+		pid:    p,
 		topic:  topic,
 		ctx:    tickerCtx,
 		cancel: cancel,
@@ -82,8 +83,8 @@ func (r *tickerRegistry) forwardTicks(entry *tickerEntry, node relay.Node) {
 				return
 			}
 
-			p := payload.NewPayload(t.UnixNano(), payload.Golang)
-			pkg := relay.NewPackage(relay.PID{}, entry.pid, entry.topic, p)
+			pl := payload.NewPayload(t.UnixNano(), payload.Golang)
+			pkg := relay.NewPackage(pid.PID{}, entry.pid, entry.topic, pl)
 			_ = node.Send(pkg)
 		}
 	}

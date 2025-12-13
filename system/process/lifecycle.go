@@ -4,8 +4,8 @@ import (
 	"context"
 	"sync"
 
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
-	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 )
 
@@ -55,7 +55,7 @@ func (r *LifecycleRegistry) Unregister(name string) {
 }
 
 // OnStart calls all registered lifecycle handlers' OnStart methods.
-func (r *LifecycleRegistry) OnStart(ctx context.Context, pid relay.PID, proc process.Process) {
+func (r *LifecycleRegistry) OnStart(ctx context.Context, pid pid.PID, proc process.Process) {
 	r.mu.RLock()
 	handlers := make([]process.Lifecycle, len(r.handlers))
 	for i, h := range r.handlers {
@@ -69,7 +69,7 @@ func (r *LifecycleRegistry) OnStart(ctx context.Context, pid relay.PID, proc pro
 }
 
 // OnComplete calls all registered lifecycle handlers' OnComplete methods.
-func (r *LifecycleRegistry) OnComplete(ctx context.Context, pid relay.PID, result *runtime.Result) {
+func (r *LifecycleRegistry) OnComplete(ctx context.Context, pid pid.PID, result *runtime.Result) {
 	r.mu.RLock()
 	handlers := make([]process.Lifecycle, len(r.handlers))
 	for i, h := range r.handlers {

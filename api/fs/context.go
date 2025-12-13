@@ -6,7 +6,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
-var registryCtx = &ctxapi.Key{Name: "fs.registry"}
+var registryKey = &ctxapi.Key{Name: "fs.registry"}
 
 // WithRegistry returns a new context with the provided filesystem Registry attached.
 // This allows the Registry to be retrieved later using the GetRegistry function.
@@ -15,8 +15,8 @@ func WithRegistry(ctx context.Context, reg Registry) context.Context {
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(registryCtx) == nil {
-		ac.With(registryCtx, reg)
+	if ac.Get(registryKey) == nil {
+		ac.With(registryKey, reg)
 	}
 	return ctx
 }
@@ -28,7 +28,7 @@ func GetRegistry(ctx context.Context) Registry {
 	if ac == nil {
 		return nil
 	}
-	if reg := ac.Get(registryCtx); reg != nil {
+	if reg := ac.Get(registryKey); reg != nil {
 		return reg.(Registry)
 	}
 	return nil

@@ -5,8 +5,8 @@ import (
 	"errors"
 
 	"github.com/wippyai/runtime/api/attrs"
+	pidpkg "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
-	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/api/topology"
@@ -32,10 +32,10 @@ func NewLifecycle(topo topology.Topology, pidReg topology.PIDRegistry, logger *z
 
 // OnStart registers the process in topology and sets up monitoring/linking
 // based on lifecycle options from frame context.
-func (t *Lifecycle) OnStart(ctx context.Context, pid relay.PID, _ process.Process) {
-	if err := t.topo.Register(pid); err != nil {
+func (t *Lifecycle) OnStart(ctx context.Context, p pidpkg.PID, _ process.Process) {
+	if err := t.topo.Register(p); err != nil {
 		t.logger.Warn("failed to register pid in topology",
-			zap.String("pid", pid.String()),
+			zap.String("pid", p.String()),
 			zap.Error(err))
 		return
 	}
@@ -50,10 +50,10 @@ func (t *Lifecycle) OnStart(ctx context.Context, pid relay.PID, _ process.Proces
 		return
 	}
 
-	var parentPID relay.PID
+	var parentPID pidpkg.PID
 	if parent, ok := attributes.Get(process.LifecycleParentKey); ok {
-		if p, ok := parent.(relay.PID); ok {
-			parentPID = p
+		if pp, ok := parent.(pidpkg.PID); ok {
+			parentPID = pp
 		}
 	}
 
@@ -65,18 +65,18 @@ func (t *Lifecycle) OnStart(ctx context.Context, pid relay.PID, _ process.Proces
 	link := attributes.GetBool(process.LifecycleLinkKey, false)
 
 	if monitor {
-		if err := t.topo.Monitor(parentPID, pid); err != nil {
+		if err := t.topo.Monitor(parentPID, p); err != nil {
 			t.logger.Warn("failed to monitor process",
-				zap.String("pid", pid.String()),
+				zap.String("pid", p.String()),
 				zap.String("parent", parentPID.String()),
 				zap.Error(err))
 		}
 	}
 
 	if link {
-		if err := t.topo.Link(parentPID, pid); err != nil {
+		if err := t.topo.Link(parentPID, p); err != nil {
 			t.logger.Warn("failed to link process",
-				zap.String("pid", pid.String()),
+				zap.String("pid", p.String()),
 				zap.String("parent", parentPID.String()),
 				zap.Error(err))
 		}
@@ -84,19 +84,19 @@ func (t *Lifecycle) OnStart(ctx context.Context, pid relay.PID, _ process.Proces
 }
 
 // OnComplete notifies watchers and linked processes, then cleans up topology.
-func (t *Lifecycle) OnComplete(_ context.Context, pid relay.PID, result *runtime.Result) {
+func (t *Lifecycle) OnComplete(_ context.Context, p pidpkg.PID, result *runtime.Result) {
 	notifyResult := result
 	if result.Error != nil && errors.Is(result.Error, supervisor.ErrExit) {
 		notifyResult = &runtime.Result{Value: result.Value}
 	}
 
-	t.topo.Notify(pid, notifyResult)
+	t.topo.Notify(p, notifyResult)
 
 	if t.pidReg != nil {
-		t.pidReg.Remove(pid)
+		t.pidReg.Remove(p)
 	}
 
-	t.topo.Remove(pid)
+	t.topo.Remove(p)
 }
 
 var _ process.Lifecycle = (*Lifecycle)(nil)

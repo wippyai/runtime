@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/pid"
 	api "github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
@@ -137,8 +138,8 @@ func (m *NodeManager) Send(pkg *api.Package) error {
 }
 
 // Attach delegates attachment to the underlying node
-func (m *NodeManager) Attach(pid api.PID, ch chan *api.Package) (context.CancelFunc, error) {
-	return m.node.Attach(pid, ch)
+func (m *NodeManager) Attach(p pid.PID, ch chan *api.Package) (context.CancelFunc, error) {
+	return m.node.Attach(p, ch)
 }
 
 // Node returns the underlying Node instance

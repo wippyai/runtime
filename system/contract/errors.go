@@ -8,6 +8,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 )
 
+// todo: TO DELETYE!
 // Error implements apierror.Error for contract errors
 type Error struct {
 	kind      apierror.Kind

@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	payloadmod "github.com/wippyai/runtime/runtime/lua/modules/payload"
 	lua "github.com/yuin/gopher-lua"
@@ -17,7 +17,7 @@ const messageTypeName = "process.Message"
 type Message struct {
 	Topic    string
 	Payloads payload.Payloads
-	From     relay.PID
+	From     pid.PID
 }
 
 var messageMethods = map[string]lua.LGoFunc{
@@ -82,7 +82,7 @@ func checkMessage(l *lua.LState) *Message {
 	return nil
 }
 
-func NewMessage(from relay.PID, topic string, payloads payload.Payloads) *Message {
+func NewMessage(from pid.PID, topic string, payloads payload.Payloads) *Message {
 	return &Message{
 		Topic:    topic,
 		Payloads: payloads,
@@ -104,7 +104,7 @@ func messageToString(l *lua.LState) int {
 }
 
 // MessageHandler creates messages from incoming payloads for channel delivery.
-func MessageHandler(_ context.Context, l *lua.LState, source relay.PID, topic string, payloads []payload.Payload) lua.LValue {
+func MessageHandler(_ context.Context, l *lua.LState, source pid.PID, topic string, payloads []payload.Payload) lua.LValue {
 	msg := NewMessage(source, topic, payloads)
 	return WrapMessage(l, msg)
 }

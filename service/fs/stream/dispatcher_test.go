@@ -79,8 +79,8 @@ func TestStreamReadNotFound(t *testing.T) {
 	table := resource.NewTable()
 
 	_, err := Read(table, 999, 10)
-	if !errors.Is(err, ErrNotFound) {
-		t.Errorf("expected ErrNotFound, got %v", err)
+	if !errors.Is(err, streamapi.ErrNotFound) {
+		t.Errorf("expected streamapi.ErrNotFound, got %v", err)
 	}
 }
 
@@ -112,8 +112,8 @@ func TestStreamClose(t *testing.T) {
 	}
 
 	err = Close(table, id)
-	if !errors.Is(err, ErrNotFound) {
-		t.Errorf("expected ErrNotFound on double close, got %v", err)
+	if !errors.Is(err, streamapi.ErrNotFound) {
+		t.Errorf("expected streamapi.ErrNotFound on double close, got %v", err)
 	}
 }
 
@@ -127,8 +127,8 @@ func TestStreamTableClose(t *testing.T) {
 	table.Close()
 
 	_, err := Read(table, 1, 10)
-	if !errors.Is(err, ErrNotFound) {
-		t.Errorf("expected ErrNotFound after table close, got %v", err)
+	if !errors.Is(err, streamapi.ErrNotFound) {
+		t.Errorf("expected streamapi.ErrNotFound after table close, got %v", err)
 	}
 }
 
@@ -366,4 +366,448 @@ func TestStreamCleanupIdempotent(*testing.T) {
 	store.Close()
 	store.Close()
 	store.Close()
+}
+
+// rwsStream implements Reader, Writer, Seeker, Closer, Flusher, and Stater
+type rwsStream struct {
+	*bytes.Buffer
+	closed    bool
+	flushed   bool
+	seekPos   int64
+	statCalls int
+}
+
+func newRWSStream(data string) *rwsStream {
+	return &rwsStream{Buffer: bytes.NewBufferString(data)}
+}
+
+func (s *rwsStream) Close() error {
+	s.closed = true
+	return nil
+}
+
+func (s *rwsStream) Seek(offset int64, whence int) (int64, error) {
+	switch whence {
+	case io.SeekStart:
+		s.seekPos = offset
+	case io.SeekCurrent:
+		s.seekPos += offset
+	case io.SeekEnd:
+		s.seekPos = int64(s.Buffer.Len()) + offset
+	}
+	return s.seekPos, nil
+}
+
+func (s *rwsStream) Flush() error {
+	s.flushed = true
+	return nil
+}
+
+func (s *rwsStream) Stat() (int64, error) {
+	s.statCalls++
+	return int64(s.Buffer.Len()), nil
+}
+
+func TestEntry_Caps(t *testing.T) {
+	table := resource.NewTable()
+	stream := newRWSStream("test")
+	id := Insert(table, stream)
+
+	entry, err := Get(table, id)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	caps := entry.Caps()
+	if !caps.Readable {
+		t.Error("expected Readable to be true")
+	}
+	if !caps.Writable {
+		t.Error("expected Writable to be true")
+	}
+	if !caps.Seekable {
+		t.Error("expected Seekable to be true")
+	}
+}
+
+func TestEntry_Reader(t *testing.T) {
+	table := resource.NewTable()
+	stream := newRWSStream("test")
+	id := Insert(table, stream)
+
+	entry, err := Get(table, id)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	reader := entry.Reader()
+	if reader == nil {
+		t.Error("expected Reader to be non-nil")
+	}
+}
+
+func TestEntry_Writer(t *testing.T) {
+	table := resource.NewTable()
+	stream := newRWSStream("")
+	id := Insert(table, stream)
+
+	entry, err := Get(table, id)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	writer := entry.Writer()
+	if writer == nil {
+		t.Error("expected Writer to be non-nil")
+	}
+}
+
+func TestScannerEntry_Drop(t *testing.T) {
+	entry := &ScannerEntry{}
+	entry.Drop()
+}
+
+func TestStreamWrite(t *testing.T) {
+	table := resource.NewTable()
+	stream := newRWSStream("")
+	id := Insert(table, stream)
+
+	n, err := Write(table, id, []byte("hello"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if n != 5 {
+		t.Errorf("expected 5 bytes written, got %d", n)
+	}
+	if stream.String() != "hello" {
+		t.Errorf("expected 'hello', got '%s'", stream.String())
+	}
+}
+
+func TestStreamWriteNotFound(t *testing.T) {
+	table := resource.NewTable()
+	_, err := Write(table, 999, []byte("hello"))
+	if !errors.Is(err, streamapi.ErrNotFound) {
+		t.Errorf("expected streamapi.ErrNotFound, got %v", err)
+	}
+}
+
+func TestStreamWriteNotWritable(t *testing.T) {
+	table := resource.NewTable()
+	reader := io.NopCloser(strings.NewReader("test"))
+	id := Insert(table, reader)
+
+	_, err := Write(table, id, []byte("hello"))
+	if !errors.Is(err, streamapi.ErrNotWritable) {
+		t.Errorf("expected streamapi.ErrNotWritable, got %v", err)
+	}
+}
+
+func TestStreamSeek(t *testing.T) {
+	table := resource.NewTable()
+	stream := newRWSStream("test data")
+	id := Insert(table, stream)
+
+	pos, err := Seek(table, id, 5, io.SeekStart)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if pos != 5 {
+		t.Errorf("expected position 5, got %d", pos)
+	}
+}
+
+func TestStreamSeekNotFound(t *testing.T) {
+	table := resource.NewTable()
+	_, err := Seek(table, 999, 0, io.SeekStart)
+	if !errors.Is(err, streamapi.ErrNotFound) {
+		t.Errorf("expected streamapi.ErrNotFound, got %v", err)
+	}
+}
+
+func TestStreamSeekNotSeekable(t *testing.T) {
+	table := resource.NewTable()
+	reader := io.NopCloser(strings.NewReader("test"))
+	id := Insert(table, reader)
+
+	_, err := Seek(table, id, 0, io.SeekStart)
+	if !errors.Is(err, streamapi.ErrNotSeekable) {
+		t.Errorf("expected streamapi.ErrNotSeekable, got %v", err)
+	}
+}
+
+func TestStreamFlush(t *testing.T) {
+	table := resource.NewTable()
+	stream := newRWSStream("")
+	id := Insert(table, stream)
+
+	err := Flush(table, id)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !stream.flushed {
+		t.Error("expected stream to be flushed")
+	}
+}
+
+func TestStreamFlushNotFound(t *testing.T) {
+	table := resource.NewTable()
+	err := Flush(table, 999)
+	if !errors.Is(err, streamapi.ErrNotFound) {
+		t.Errorf("expected streamapi.ErrNotFound, got %v", err)
+	}
+}
+
+func TestStreamFlushNoFlusher(t *testing.T) {
+	table := resource.NewTable()
+	reader := io.NopCloser(strings.NewReader("test"))
+	id := Insert(table, reader)
+
+	err := Flush(table, id)
+	if err != nil {
+		t.Errorf("expected nil error for stream without Flusher, got %v", err)
+	}
+}
+
+func TestStreamStat(t *testing.T) {
+	table := resource.NewTable()
+	stream := newRWSStream("test data")
+	id := InsertWithSize(table, stream, -1)
+
+	size, pos, caps, err := Stat(table, id)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if size != 9 {
+		t.Errorf("expected size 9, got %d", size)
+	}
+	if pos != 0 {
+		t.Errorf("expected position 0, got %d", pos)
+	}
+	if !caps.Readable || !caps.Writable || !caps.Seekable {
+		t.Error("expected all capabilities to be true")
+	}
+}
+
+func TestStreamStatWithKnownSize(t *testing.T) {
+	table := resource.NewTable()
+	stream := newRWSStream("test data")
+	id := InsertWithSize(table, stream, 100)
+
+	size, _, _, err := Stat(table, id)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if size != 100 {
+		t.Errorf("expected size 100, got %d", size)
+	}
+}
+
+func TestStreamStatNotFound(t *testing.T) {
+	table := resource.NewTable()
+	_, _, _, err := Stat(table, 999)
+	if !errors.Is(err, streamapi.ErrNotFound) {
+		t.Errorf("expected streamapi.ErrNotFound, got %v", err)
+	}
+}
+
+func TestCreateScanner(t *testing.T) {
+	table := resource.NewTable()
+	data := "line1\nline2\nline3"
+	reader := io.NopCloser(strings.NewReader(data))
+	streamID := Insert(table, reader)
+
+	scannerID, err := CreateScanner(table, streamID, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if scannerID == 0 {
+		t.Error("expected non-zero scanner ID")
+	}
+}
+
+func TestCreateScannerNotFound(t *testing.T) {
+	table := resource.NewTable()
+	_, err := CreateScanner(table, 999, 0)
+	if !errors.Is(err, streamapi.ErrNotFound) {
+		t.Errorf("expected streamapi.ErrNotFound, got %v", err)
+	}
+}
+
+func TestCreateScannerNotReadable(t *testing.T) {
+	table := resource.NewTable()
+
+	type writeOnlyCloser struct{ io.WriteCloser }
+	stream := &writeOnlyCloser{WriteCloser: nopWriteCloser{bytes.NewBuffer(nil)}}
+	id := Insert(table, stream)
+
+	_, err := CreateScanner(table, id, 0)
+	if !errors.Is(err, streamapi.ErrNotReadable) {
+		t.Errorf("expected streamapi.ErrNotReadable, got %v", err)
+	}
+}
+
+type nopWriteCloser struct{ io.Writer }
+
+func (nopWriteCloser) Close() error { return nil }
+
+func TestGetScanner(t *testing.T) {
+	table := resource.NewTable()
+	data := "test"
+	reader := io.NopCloser(strings.NewReader(data))
+	streamID := Insert(table, reader)
+
+	scannerID, err := CreateScanner(table, streamID, 0)
+	if err != nil {
+		t.Fatalf("unexpected error creating scanner: %v", err)
+	}
+
+	entry, err := GetScanner(table, scannerID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if entry == nil {
+		t.Error("expected non-nil scanner entry")
+	}
+}
+
+func TestGetScannerNotFound(t *testing.T) {
+	table := resource.NewTable()
+	_, err := GetScanner(table, 999)
+	if !errors.Is(err, streamapi.ErrScannerNotFound) {
+		t.Errorf("expected streamapi.ErrScannerNotFound, got %v", err)
+	}
+}
+
+func TestScanNext(t *testing.T) {
+	table := resource.NewTable()
+	data := "line1\nline2\nline3"
+	reader := io.NopCloser(strings.NewReader(data))
+	streamID := Insert(table, reader)
+
+	scannerID, err := CreateScanner(table, streamID, 0)
+	if err != nil {
+		t.Fatalf("unexpected error creating scanner: %v", err)
+	}
+
+	result, err := ScanNext(table, scannerID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.HasToken {
+		t.Error("expected HasToken to be true")
+	}
+	if result.Text != "line1" {
+		t.Errorf("expected 'line1', got '%s'", result.Text)
+	}
+
+	result, err = ScanNext(table, scannerID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Text != "line2" {
+		t.Errorf("expected 'line2', got '%s'", result.Text)
+	}
+
+	result, err = ScanNext(table, scannerID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Text != "line3" {
+		t.Errorf("expected 'line3', got '%s'", result.Text)
+	}
+
+	result, err = ScanNext(table, scannerID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.HasToken {
+		t.Error("expected HasToken to be false at EOF")
+	}
+
+	result, err = ScanNext(table, scannerID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.HasToken {
+		t.Error("expected HasToken to remain false after EOF")
+	}
+}
+
+func TestScanNextNotFound(t *testing.T) {
+	table := resource.NewTable()
+	_, err := ScanNext(table, 999)
+	if !errors.Is(err, streamapi.ErrScannerNotFound) {
+		t.Errorf("expected streamapi.ErrScannerNotFound, got %v", err)
+	}
+}
+
+func TestErrString(t *testing.T) {
+	if errString(nil) != "" {
+		t.Error("expected empty string for nil error")
+	}
+	if errString(errors.New("test")) != "test" {
+		t.Error("expected 'test' for non-nil error")
+	}
+}
+
+func TestWithDebug(t *testing.T) {
+	var buf bytes.Buffer
+	d := NewDispatcher(WithDebug(&buf))
+	if d.debug == nil {
+		t.Error("expected debug writer to be set")
+	}
+
+	ctx, store := setupTestContext()
+	defer store.Close()
+
+	table := resource.GetTable(ctx)
+	id := Insert(table, io.NopCloser(strings.NewReader("test")))
+
+	_ = d.Start(ctx)
+	defer func() { _ = d.Stop(ctx) }()
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(cmdID dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[cmdID] = h
+	})
+
+	done := make(chan struct{})
+	_ = handlers[streamapi.CmdRead].Handle(ctx, streamapi.ReadCmd{StreamID: id, Size: 4}, 0, &testReceiver{fn: func(_ any) {
+		close(done)
+	}})
+	<-done
+
+	if buf.Len() == 0 {
+		t.Error("expected debug output")
+	}
+}
+
+func TestGetWrongType(t *testing.T) {
+	table := resource.NewTable()
+	table.Insert(TypeScanner, &ScannerEntry{})
+
+	_, err := Get(table, 1)
+	if err == nil {
+		t.Error("expected error for wrong type")
+	}
+	if !strings.Contains(err.Error(), "wrong type") {
+		t.Errorf("expected 'wrong type' in error, got: %v", err)
+	}
+}
+
+func TestGetClosed(t *testing.T) {
+	table := resource.NewTable()
+	reader := io.NopCloser(strings.NewReader("test"))
+	id := Insert(table, reader)
+
+	_ = Close(table, id)
+
+	entry, ok := table.GetTyped(resource.Handle(id), TypeStream)
+	if ok {
+		t.Error("expected entry to be removed after close")
+	}
+	if entry != nil {
+		t.Error("expected nil entry after close")
+	}
 }

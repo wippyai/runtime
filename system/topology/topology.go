@@ -6,6 +6,7 @@ import (
 
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
+	pidpkg "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/topology"
@@ -13,26 +14,26 @@ import (
 
 // processState holds all state for a single registered process.
 type processState struct {
-	pid      relay.PID            // the PID this state belongs to
-	watchers map[string]relay.PID // PIDs monitoring this process (inbound)
-	links    map[string]relay.PID // PIDs linked to this process
-	watching map[string]relay.PID // PIDs this process is monitoring (outbound)
+	pid      pidpkg.PID            // the PID this state belongs to
+	watchers map[string]pidpkg.PID // PIDs monitoring this process (inbound)
+	links    map[string]pidpkg.PID // PIDs linked to this process
+	watching map[string]pidpkg.PID // PIDs this process is monitoring (outbound)
 }
 
 // Topology implements process monitoring, linking, and lifecycle management.
 type Topology struct {
 	mu          sync.RWMutex
-	processes   map[string]*processState  // registered processes by PID string
-	nodeIndex   map[relay.NodeID][]string // index of PID keys by node for fast cleanup
-	router      relay.Receiver            // handles both local and remote routing
-	localNodeID relay.NodeID
+	processes   map[string]*processState   // registered processes by PID string
+	nodeIndex   map[pidpkg.NodeID][]string // index of PID keys by node for fast cleanup
+	router      relay.Receiver             // handles both local and remote routing
+	localNodeID pidpkg.NodeID
 }
 
 // NewTopology creates a new Topology instance.
-func NewTopology(router relay.Receiver, localNodeID relay.NodeID) *Topology {
+func NewTopology(router relay.Receiver, localNodeID pidpkg.NodeID) *Topology {
 	return &Topology{
 		processes:   make(map[string]*processState),
-		nodeIndex:   make(map[relay.NodeID][]string),
+		nodeIndex:   make(map[pidpkg.NodeID][]string),
 		router:      router,
 		localNodeID: localNodeID,
 	}
@@ -40,11 +41,11 @@ func NewTopology(router relay.Receiver, localNodeID relay.NodeID) *Topology {
 
 // Register adds a process ID to the registry.
 // Returns error if PID is already registered (Erlang-style semantics).
-func (t *Topology) Register(pid relay.PID) error {
+func (t *Topology) Register(p pidpkg.PID) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	key := pid.String()
+	key := p.String()
 	if _, exists := t.processes[key]; exists {
 		return topology.ErrPIDAlreadyRegistered.WithDetails(attrs.Bag{
 			"pid": key,
@@ -52,22 +53,22 @@ func (t *Topology) Register(pid relay.PID) error {
 	}
 
 	t.processes[key] = &processState{
-		pid:      pid,
-		watchers: make(map[string]relay.PID),
-		links:    make(map[string]relay.PID),
-		watching: make(map[string]relay.PID),
+		pid:      p,
+		watchers: make(map[string]pidpkg.PID),
+		links:    make(map[string]pidpkg.PID),
+		watching: make(map[string]pidpkg.PID),
 	}
 
 	// Index by node for fast cleanup
-	if pid.Node != "" {
-		t.nodeIndex[pid.Node] = append(t.nodeIndex[pid.Node], key)
+	if p.Node != "" {
+		t.nodeIndex[p.Node] = append(t.nodeIndex[p.Node], key)
 	}
 
 	return nil
 }
 
 // Monitor attaches a caller to monitor a specific pid.
-func (t *Topology) Monitor(caller, pid relay.PID) error {
+func (t *Topology) Monitor(caller, pid pidpkg.PID) error {
 	callerKey := caller.String()
 	pidKey := pid.String()
 
@@ -129,7 +130,7 @@ func (t *Topology) Monitor(caller, pid relay.PID) error {
 }
 
 // Demonitor removes a caller's monitoring of a specific pid.
-func (t *Topology) Demonitor(caller, pid relay.PID) error {
+func (t *Topology) Demonitor(caller, pid pidpkg.PID) error {
 	// Check if PID is on remote node.
 	if pid.Node != "" && pid.Node != t.localNodeID {
 		callerKey := caller.String()
@@ -171,7 +172,7 @@ func (t *Topology) Demonitor(caller, pid relay.PID) error {
 }
 
 // Link establishes a bidirectional link between two processes.
-func (t *Topology) Link(from, to relay.PID) error {
+func (t *Topology) Link(from, to pidpkg.PID) error {
 	fromKey := from.String()
 	toKey := to.String()
 
@@ -242,7 +243,7 @@ func (t *Topology) Link(from, to relay.PID) error {
 }
 
 // Unlink removes a bidirectional link between two processes.
-func (t *Topology) Unlink(from, to relay.PID) error {
+func (t *Topology) Unlink(from, to pidpkg.PID) error {
 	// Check if to PID is on remote node.
 	if to.Node != "" && to.Node != t.localNodeID {
 		fromKey := from.String()
@@ -280,7 +281,7 @@ func (t *Topology) Unlink(from, to relay.PID) error {
 }
 
 // GetLinks returns all processes linked to the given pid.
-func (t *Topology) GetLinks(pid relay.PID) []relay.PID {
+func (t *Topology) GetLinks(pid pidpkg.PID) []pidpkg.PID {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
@@ -289,7 +290,7 @@ func (t *Topology) GetLinks(pid relay.PID) []relay.PID {
 		return nil
 	}
 
-	result := make([]relay.PID, 0, len(state.links))
+	result := make([]pidpkg.PID, 0, len(state.links))
 	for _, linkedPID := range state.links {
 		result = append(result, linkedPID)
 	}
@@ -297,7 +298,7 @@ func (t *Topology) GetLinks(pid relay.PID) []relay.PID {
 }
 
 // Notify sends exit event to all watchers and links of a pid.
-func (t *Topology) Notify(pid relay.PID, result *runtime.Result) {
+func (t *Topology) Notify(pid pidpkg.PID, result *runtime.Result) {
 	t.mu.RLock()
 	state, exists := t.processes[pid.String()]
 	if !exists {
@@ -306,14 +307,14 @@ func (t *Topology) Notify(pid relay.PID, result *runtime.Result) {
 	}
 
 	// Copy watchers and links to avoid holding lock during sends.
-	watchers := make([]relay.PID, 0, len(state.watchers))
+	watchers := make([]pidpkg.PID, 0, len(state.watchers))
 	for _, wPID := range state.watchers {
 		watchers = append(watchers, wPID)
 	}
 
-	var linkedPIDs []relay.PID
+	var linkedPIDs []pidpkg.PID
 	if result.Error != nil {
-		linkedPIDs = make([]relay.PID, 0, len(state.links))
+		linkedPIDs = make([]pidpkg.PID, 0, len(state.links))
 		for _, lPID := range state.links {
 			linkedPIDs = append(linkedPIDs, lPID)
 		}
@@ -355,7 +356,7 @@ func (t *Topology) Notify(pid relay.PID, result *runtime.Result) {
 }
 
 // Remove completely removes a pid and all its watchers and links.
-func (t *Topology) Remove(pid relay.PID) {
+func (t *Topology) Remove(pid pidpkg.PID) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -383,7 +384,7 @@ func (t *Topology) Remove(pid relay.PID) {
 }
 
 // handleMonitorRequest processes incoming monitor requests from remote nodes.
-func (t *Topology) handleMonitorRequest(caller, target relay.PID) error {
+func (t *Topology) handleMonitorRequest(caller, target pidpkg.PID) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -401,7 +402,7 @@ func (t *Topology) handleMonitorRequest(caller, target relay.PID) error {
 }
 
 // handleMonitorRelease processes incoming release requests from remote nodes.
-func (t *Topology) handleMonitorRelease(caller, target relay.PID) error {
+func (t *Topology) handleMonitorRelease(caller, target pidpkg.PID) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -415,7 +416,7 @@ func (t *Topology) handleMonitorRelease(caller, target relay.PID) error {
 }
 
 // handleLinkRequest processes incoming link requests from remote nodes.
-func (t *Topology) handleLinkRequest(from, to relay.PID) error {
+func (t *Topology) handleLinkRequest(from, to pidpkg.PID) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -433,7 +434,7 @@ func (t *Topology) handleLinkRequest(from, to relay.PID) error {
 }
 
 // handleUnlinkRequest processes incoming unlink requests from remote nodes.
-func (t *Topology) handleUnlinkRequest(from, to relay.PID) error {
+func (t *Topology) handleUnlinkRequest(from, to pidpkg.PID) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -447,7 +448,7 @@ func (t *Topology) handleUnlinkRequest(from, to relay.PID) error {
 }
 
 // hasWatcher checks if a caller is watching a pid (for testing).
-func (t *Topology) hasWatcher(pid, caller relay.PID) bool {
+func (t *Topology) hasWatcher(pid, caller pidpkg.PID) bool {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
@@ -460,7 +461,7 @@ func (t *Topology) hasWatcher(pid, caller relay.PID) bool {
 }
 
 // watcherCount returns the number of watchers for a pid (for testing).
-func (t *Topology) watcherCount(pid relay.PID) int {
+func (t *Topology) watcherCount(pid pidpkg.PID) int {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
@@ -472,7 +473,7 @@ func (t *Topology) watcherCount(pid relay.PID) int {
 }
 
 // isWatching checks if caller is watching target (for testing).
-func (t *Topology) isWatching(caller, target relay.PID) bool {
+func (t *Topology) isWatching(caller, target pidpkg.PID) bool {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
@@ -486,7 +487,7 @@ func (t *Topology) isWatching(caller, target relay.PID) bool {
 
 // HandleNodeExit handles node failure by notifying all local processes
 // that were watching or linked to PIDs on the failed node.
-func (t *Topology) HandleNodeExit(nodeID relay.NodeID, exitErr error) {
+func (t *Topology) HandleNodeExit(nodeID pidpkg.NodeID, exitErr error) {
 	t.mu.RLock()
 
 	// Use nodeIndex for O(1) lookup of dead node's PIDs
@@ -499,8 +500,8 @@ func (t *Topology) HandleNodeExit(nodeID relay.NodeID, exitErr error) {
 	}
 
 	type notification struct {
-		caller relay.PID
-		target relay.PID
+		caller pidpkg.PID
+		target pidpkg.PID
 	}
 	toNotify := make([]notification, 0, 64)
 

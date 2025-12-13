@@ -10,6 +10,7 @@ import (
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	logsapi "github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
@@ -59,10 +60,10 @@ func NewHost(
 }
 
 // OnStart implements scheduler.Lifecycle.
-func (h *Host) OnStart(context.Context, relay.PID, process.Process) {}
+func (h *Host) OnStart(context.Context, pid.PID, process.Process) {}
 
 // OnComplete implements scheduler.Lifecycle.
-func (h *Host) OnComplete(ctx context.Context, _ relay.PID, result *runtime.Result) {
+func (h *Host) OnComplete(ctx context.Context, _ pid.PID, result *runtime.Result) {
 	h.logCtrl.RestoreBaseConfig(ctx)
 	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
 		_ = fc.Close()
@@ -96,20 +97,20 @@ func (h *Host) Done() <-chan struct{} {
 var ErrHostNotRunning = errors.New("host is not running")
 
 // Run implements process.Host.
-func (h *Host) Run(ctx context.Context, start *process.Start) (relay.PID, error) {
+func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 	if !h.running.Load() {
-		return relay.PID{}, ErrHostNotRunning
+		return pid.PID{}, ErrHostNotRunning
 	}
 	if h.shutdown.Load() {
-		return relay.PID{}, errors.New("host is shutting down")
+		return pid.PID{}, errors.New("host is shutting down")
 	}
 
 	proc, meta, err := h.factory.Create(start.Source)
 	if err != nil {
-		return relay.PID{}, err
+		return pid.PID{}, err
 	}
 
-	pid := h.preparePID(ctx, start)
+	processID := h.preparePID(ctx, start)
 
 	if h.cfg.HideLogs {
 		if err := h.setupLogging(ctx); err != nil {
@@ -117,28 +118,28 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (relay.PID, error)
 		}
 	}
 
-	frameCtx := h.prepareContext(ctx, pid, start)
+	frameCtx := h.prepareContext(ctx, processID, start)
 
 	method := "main"
 	if meta != nil && meta.Method != "" {
 		method = meta.Method
 	}
 
-	if _, err = h.scheduler.Submit(frameCtx, pid, proc, method, start.Input); err != nil {
-		return relay.PID{}, err
+	if _, err = h.scheduler.Submit(frameCtx, processID, proc, method, start.Input); err != nil {
+		return pid.PID{}, err
 	}
 
 	h.log.Debug("terminal process started",
-		zap.String("pid", pid.String()),
+		zap.String("pid", processID.String()),
 		zap.String("source", start.Source.String()),
 		zap.String("method", method))
 
-	return pid, nil
+	return processID, nil
 }
 
 // Terminate implements process.Host.
-func (h *Host) Terminate(_ context.Context, pid relay.PID) error {
-	h.log.Debug("process terminate requested", zap.String("pid", pid.String()))
+func (h *Host) Terminate(_ context.Context, processID pid.PID) error {
+	h.log.Debug("process terminate requested", zap.String("pid", processID.String()))
 	return nil
 }
 
@@ -184,11 +185,11 @@ func (h *Host) Stop(ctx context.Context) error {
 }
 
 // preparePID generates a PID or uses one from options.
-func (h *Host) preparePID(ctx context.Context, start *process.Start) relay.PID {
+func (h *Host) preparePID(ctx context.Context, start *process.Start) pid.PID {
 	if start.Options != nil {
 		if pidVal, ok := start.Options.Get(process.OptionPID); ok {
-			if pid, ok := pidVal.(relay.PID); ok {
-				return pid
+			if processID, ok := pidVal.(pid.PID); ok {
+				return processID
 			}
 		}
 	}
@@ -198,7 +199,7 @@ func (h *Host) preparePID(ctx context.Context, start *process.Start) relay.PID {
 }
 
 // prepareContext creates a frame context for the terminal process.
-func (h *Host) prepareContext(ctx context.Context, pid relay.PID, start *process.Start) context.Context {
+func (h *Host) prepareContext(ctx context.Context, processID pid.PID, start *process.Start) context.Context {
 	pCtx, fc := ctxapi.OpenFrameContextOn(h.ctx, ctx)
 
 	// Extract args from Input payloads
@@ -212,7 +213,7 @@ func (h *Host) prepareContext(ctx context.Context, pid relay.PID, start *process
 	pairsLen := 3 + len(start.Context)
 	pairs := make([]ctxapi.Pair, pairsLen)
 	pairs[0] = ctxapi.Pair{Key: runtime.FrameIDKey, Value: start.Source}
-	pairs[1] = ctxapi.Pair{Key: runtime.FramePIDKey, Value: pid}
+	pairs[1] = ctxapi.Pair{Key: runtime.FramePIDKey, Value: processID}
 	pairs[2] = ctxapi.Pair{Key: terminal.TerminalCtxKey, Value: terminal.NewTerminalContextWithArgs(os.Stdin, os.Stdout, os.Stderr, args)}
 	copy(pairs[3:], start.Context)
 

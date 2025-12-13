@@ -8,6 +8,7 @@ import (
 	clockapi "github.com/wippyai/runtime/api/clock"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 )
 
@@ -109,7 +110,7 @@ func (d *Dispatcher) handleTimerStart(ctx context.Context, cmd dispatcher.Comman
 	id := d.timers.startWithCallback(c.Duration, func() {
 		t := time.Now()
 		p := payload.NewPayload(t.UnixNano(), payload.Golang)
-		pkg := relay.NewPackage(relay.PID{}, c.PID, c.Topic, p)
+		pkg := relay.NewPackage(pid.PID{}, c.PID, c.Topic, p)
 		_ = node.Send(pkg)
 	})
 

@@ -3,6 +3,7 @@ package relay
 import (
 	"sync"
 
+	"github.com/wippyai/runtime/api/pid"
 	api "github.com/wippyai/runtime/api/relay"
 )
 
@@ -26,7 +27,7 @@ func NewRouter(localNode api.Node, internode api.Receiver) *Router {
 
 // RegisterPeer registers a peer node receiver with the router.
 // Peer nodes are external receivers (e.g., Temporal) that can receive packages.
-func (r *Router) RegisterPeer(nodeID api.NodeID, receiver api.Receiver) error {
+func (r *Router) RegisterPeer(nodeID pid.NodeID, receiver api.Receiver) error {
 	if nodeID == "" {
 		return api.ErrEmptyNodeID
 	}
@@ -43,7 +44,7 @@ func (r *Router) RegisterPeer(nodeID api.NodeID, receiver api.Receiver) error {
 
 // UnregisterPeer removes a peer node from the router.
 // Returns true if the peer existed and was removed, false if it didn't exist.
-func (r *Router) UnregisterPeer(nodeID api.NodeID) bool {
+func (r *Router) UnregisterPeer(nodeID pid.NodeID) bool {
 	_, existed := r.peers.LoadAndDelete(nodeID)
 	return existed
 }

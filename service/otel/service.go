@@ -6,9 +6,9 @@ import (
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	apiinterceptor "github.com/wippyai/runtime/api/function"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	queueapi "github.com/wippyai/runtime/api/queue"
-	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	httpapi "github.com/wippyai/runtime/api/service/http"
 	otelapi "github.com/wippyai/runtime/api/service/otel"
@@ -88,7 +88,7 @@ func (s *Service) HTTPMiddleware() func(http.Handler) http.Handler {
 }
 
 // OnStart implements scheduler.Lifecycle.
-func (s *Service) OnStart(ctx stdcontext.Context, pid relay.PID, _ process.Process) {
+func (s *Service) OnStart(ctx stdcontext.Context, p pid.PID, _ process.Process) {
 	if !s.cfg.Process.Enabled || !s.cfg.Process.TraceLifecycle {
 		return
 	}
@@ -109,7 +109,7 @@ func (s *Service) OnStart(ctx stdcontext.Context, pid relay.PID, _ process.Proce
 		trace.WithSpanKind(trace.SpanKindInternal))
 
 	startSpan.SetAttributes(
-		attribute.String("process.pid", pid.String()),
+		attribute.String("process.pid", p.String()),
 		attribute.String("lifecycle.event", "started"),
 	)
 	if hasSource {
@@ -119,7 +119,7 @@ func (s *Service) OnStart(ctx stdcontext.Context, pid relay.PID, _ process.Proce
 }
 
 // OnComplete implements scheduler.Lifecycle.
-func (s *Service) OnComplete(ctx stdcontext.Context, pid relay.PID, result *runtime.Result) {
+func (s *Service) OnComplete(ctx stdcontext.Context, p pid.PID, result *runtime.Result) {
 	if !s.cfg.Process.Enabled || !s.cfg.Process.TraceLifecycle {
 		return
 	}
@@ -140,7 +140,7 @@ func (s *Service) OnComplete(ctx stdcontext.Context, pid relay.PID, result *runt
 		trace.WithSpanKind(trace.SpanKindInternal))
 
 	attrs := []attribute.KeyValue{
-		attribute.String("process.pid", pid.String()),
+		attribute.String("process.pid", p.String()),
 		attribute.String("lifecycle.event", "terminated"),
 	}
 

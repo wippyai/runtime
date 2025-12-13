@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/dispatcher"
-	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/pid"
 )
 
 // Command IDs for clock operations.
@@ -56,8 +56,8 @@ type (
 	// Returns ticker ID (uint64) via emit. Ticker runs until stopped.
 	TickerStartCmd struct {
 		Duration time.Duration
-		PID      relay.PID // Target process to send ticks to
-		Topic    string    // Topic for tick delivery (e.g., "ticker@123")
+		PID      pid.PID // Target process to send ticks to
+		Topic    string  // Topic for tick delivery (e.g., "ticker@123")
 	}
 
 	// TickerStopCmd stops and cleans up a ticker.
@@ -70,8 +70,8 @@ type (
 	// Returns timer ID (uint64) via emit.
 	TimerStartCmd struct {
 		Duration time.Duration
-		PID      relay.PID // Target process to send fire event to
-		Topic    string    // Topic for fire delivery (e.g., "timer@123")
+		PID      pid.PID // Target process to send fire event to
+		Topic    string  // Topic for fire delivery (e.g., "timer@123")
 	}
 
 	// TimerWaitCmd waits for a timer to fire.

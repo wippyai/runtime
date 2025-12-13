@@ -14,10 +14,10 @@ const System event.System = "fs"
 
 // Event kinds for filesystem operations.
 const (
-	Register event.Kind = "fs.register"
-	Delete   event.Kind = "fs.delete"
-	Accept   event.Kind = "fs.accept"
-	Reject   event.Kind = "fs.reject"
+	KindRegister event.Kind = "fs.register"
+	KindDelete   event.Kind = "fs.delete"
+	KindAccept   event.Kind = "fs.accept"
+	KindReject   event.Kind = "fs.reject"
 )
 
 type (

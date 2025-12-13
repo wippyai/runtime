@@ -29,5 +29,5 @@ func NewFactory() *Factory {
 
 // CreateFS creates a new directory filesystem.
 func (f *Factory) CreateFS(cfg CreateFSConfig) (fsapi.FS, error) {
-	return NewDirectoryFS(cfg.DirPath, cfg.Mode, cfg.AutoInit)
+	return NewFS(cfg.DirPath, cfg.Mode, cfg.AutoInit)
 }

@@ -3,7 +3,7 @@ package topology
 import (
 	"sync"
 
-	"github.com/wippyai/runtime/api/relay"
+	pidpkg "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/topology"
 	"go.uber.org/zap"
 )
@@ -55,7 +55,7 @@ func NewPIDRegistry(opts ...PIDRegistryOption) *PIDRegistry {
 
 // Register associates a name with a PID.
 // Overwrites if the name is already registered.
-func (r *PIDRegistry) Register(name string, pid relay.PID) error {
+func (r *PIDRegistry) Register(name string, pid pidpkg.PID) error {
 	r.nameToID.Store(name, pid)
 
 	// Get or create pidNames for this PID
@@ -92,7 +92,7 @@ func (r *PIDRegistry) Unregister(name string) bool {
 		return false
 	}
 
-	pid := pidVal.(relay.PID)
+	pid := pidVal.(pidpkg.PID)
 	pidKey := pid.String()
 
 	// Update the reverse mapping
@@ -123,21 +123,21 @@ func (r *PIDRegistry) Unregister(name string) bool {
 
 // Lookup finds the PID registered with a given name.
 // Returns the PID and true if found, empty PID and false if not found.
-func (r *PIDRegistry) Lookup(name string) (relay.PID, bool) {
+func (r *PIDRegistry) Lookup(name string) (pidpkg.PID, bool) {
 	if pidVal, exists := r.nameToID.Load(name); exists {
-		return pidVal.(relay.PID), true
+		return pidVal.(pidpkg.PID), true
 	}
 
 	if r.parent != nil {
 		return r.parent.Lookup(name)
 	}
 
-	return relay.PID{}, false
+	return pidpkg.PID{}, false
 }
 
 // Remove completely removes a PID from the registry,
 // removing all name associations for that PID.
-func (r *PIDRegistry) Remove(pid relay.PID) {
+func (r *PIDRegistry) Remove(pid pidpkg.PID) {
 	pidKey := pid.String()
 
 	val, exists := r.idToName.LoadAndDelete(pidKey)

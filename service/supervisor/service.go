@@ -8,6 +8,7 @@ import (
 
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	processapi "github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
@@ -23,8 +24,8 @@ type Service struct {
 	id            registry.ID
 	config        supervisorapi.ServiceConfig
 	pidGen        *uniqid.PIDGenerator
-	supervisorPID relay.PID
-	childPID      relay.PID
+	supervisorPID pid.PID
+	childPID      pid.PID
 	statusCh      chan any
 	detachFn      context.CancelFunc
 }
