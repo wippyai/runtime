@@ -1,4 +1,4 @@
-// Package workflow2 provides Lua workflow management for engine2.
+// Package workflow provides Lua workflow management.
 // Workflows have restricted module access for deterministic execution.
 package workflow
 

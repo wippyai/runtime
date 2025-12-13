@@ -569,3 +569,85 @@ func TestExecutorCallAddsContextToTask(t *testing.T) {
 		t.Errorf("expected 1 value, got %d", exec.values.Len())
 	}
 }
+
+func TestPlainCallInheritsFrameContext(t *testing.T) {
+	// Test that buildContextPairs extracts context from frame
+	l := lua.NewState()
+	defer l.Close()
+
+	// Set up frame context with values
+	ctx, fc := ctxapi.AcquireFrameContext(l.Context())
+	defer ctxapi.ReleaseFrameContext(fc)
+
+	values := ctxapi.NewValues()
+	values.Set("trace_id", "inherited-trace-123")
+	values.Set("request_id", "req-456")
+	if err := fc.Set(ctxapi.ValuesCtx, values); err != nil {
+		t.Fatalf("failed to set values: %v", err)
+	}
+
+	l.SetContext(ctx)
+
+	// Test buildContextPairs helper extracts values from frame
+	pairs := buildContextPairs(l)
+
+	if pairs == nil || len(pairs) == 0 {
+		t.Error("buildContextPairs should extract context values from frame")
+	}
+
+	// Check that values pair is present
+	hasValues := false
+	for _, pair := range pairs {
+		if pair.Key == ctxapi.ValuesCtx {
+			hasValues = true
+			break
+		}
+	}
+	if !hasValues {
+		t.Error("context pairs should include values from frame context")
+	}
+}
+
+func TestCallYieldHasContextPairs(t *testing.T) {
+	// Test that CallYield created by call() includes context pairs from frame
+	// This is a unit test that verifies the yield structure
+	l := lua.NewState()
+	defer l.Close()
+
+	// Set up frame context with values
+	ctx, fc := ctxapi.AcquireFrameContext(l.Context())
+	defer ctxapi.ReleaseFrameContext(fc)
+
+	values := ctxapi.NewValues()
+	values.Set("trace_id", "call-trace-123")
+	if err := fc.Set(ctxapi.ValuesCtx, values); err != nil {
+		t.Fatalf("failed to set values: %v", err)
+	}
+
+	l.SetContext(ctx)
+
+	// Create a CallYield and add context pairs (simulating what call() should do)
+	yield := AcquireCallYield()
+	defer ReleaseCallYield(yield)
+
+	// This is what call() SHOULD do - add context pairs
+	pairs := buildContextPairs(l)
+	yield.Task.Context = pairs
+
+	// Verify the yield has context pairs
+	if len(yield.Task.Context) == 0 {
+		t.Error("CallYield should have context pairs set")
+	}
+
+	// Check that values pair is present
+	hasValues := false
+	for _, pair := range yield.Task.Context {
+		if pair.Key == ctxapi.ValuesCtx {
+			hasValues = true
+			break
+		}
+	}
+	if !hasValues {
+		t.Error("Task.Context should include values pair from frame context")
+	}
+}

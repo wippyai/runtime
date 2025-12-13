@@ -33,3 +33,4 @@ dist/
 /.wippy/
 *.log
 /.cursor/
+/protocols/

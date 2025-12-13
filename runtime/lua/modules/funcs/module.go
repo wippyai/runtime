@@ -377,6 +377,7 @@ func call(l *lua.LState) int {
 	yield.Task = runtime.Task{
 		ID:       regID,
 		Payloads: payloads,
+		Context:  buildContextPairs(l),
 	}
 
 	l.Push(yield)
@@ -445,6 +446,7 @@ func setupAsyncYield(l *lua.LState, regID registry.ID, payloads []payload.Payloa
 	yield.Task = runtime.Task{
 		ID:       regID,
 		Payloads: payloads,
+		Context:  buildContextPairs(l),
 	}
 	yield.AsyncStartCmd.Topic = topic
 	yield.Future = f
@@ -498,4 +500,25 @@ func futureCancelImpl(l *lua.LState) int {
 	yield.AsyncCancelCmd.Topic = f.Topic
 	l.Push(yield)
 	return -1
+}
+
+// buildContextPairs extracts context pairs from the Lua state's frame context
+// to be passed to called functions for context inheritance.
+func buildContextPairs(l *lua.LState) []contextapi.Pair {
+	ctx := l.Context()
+	if ctx == nil {
+		return nil
+	}
+
+	var pairs []contextapi.Pair
+	if actor, ok := secapi.GetActor(ctx); ok {
+		pairs = append(pairs, secapi.ActorPair(actor))
+	}
+	if scope, ok := secapi.GetScope(ctx); ok {
+		pairs = append(pairs, secapi.ScopePair(scope))
+	}
+	if values := contextapi.GetValues(ctx); values != nil && values.Len() > 0 {
+		pairs = append(pairs, contextapi.ValuesPair(values))
+	}
+	return pairs
 }

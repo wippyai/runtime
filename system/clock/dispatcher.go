@@ -1,5 +1,4 @@
 // Package clock provides time-related command handlers for the dispatcher system.
-// Uses timing wheel for efficient timer management with callback-based async execution.
 package clock
 
 import (

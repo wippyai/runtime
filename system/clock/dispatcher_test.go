@@ -288,7 +288,7 @@ func TestTimerResetHandlerNotFound(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
-	if !errors.Is(emitErr, ErrTimerNotFound) {
+	if !errors.Is(emitErr, clockapi.ErrTimerNotFound) {
 		t.Errorf("expected ErrTimerNotFound, got %v", emitErr)
 	}
 }

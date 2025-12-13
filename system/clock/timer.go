@@ -43,10 +43,6 @@ func (r *timerRegistry) getShard(id uint64) *timerShard {
 	return &r.shards[id&(timerShardCount-1)]
 }
 
-func (r *timerRegistry) start(d time.Duration) uint64 {
-	return r.startWithCallback(d, nil)
-}
-
 func (r *timerRegistry) startWithCallback(d time.Duration, callback func()) uint64 {
 	id := r.nextID.Add(1)
 	shard := r.getShard(id)
