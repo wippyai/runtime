@@ -79,27 +79,25 @@ func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, tag
 
 	go func() {
 		result, err := callCmd.Instance.Call(ctx, callCmd.Method, callCmd.Args)
-		if callErr := extractCallError(ctx, result, err); callErr != nil {
-			receiver.CompleteYield(tag, contract.CallResult{Error: callErr}, nil)
+		if ctx.Err() != nil {
+			receiver.CompleteYield(tag, contract.CallResult{Error: ctx.Err()}, nil)
 			return
 		}
-		receiver.CompleteYield(tag, contract.CallResult{Value: result.Value}, nil)
+		if err != nil {
+			receiver.CompleteYield(tag, contract.CallResult{Error: err}, nil)
+			return
+		}
+		if result != nil && result.Error != nil {
+			receiver.CompleteYield(tag, contract.CallResult{Error: result.Error}, nil)
+			return
+		}
+		if result != nil {
+			receiver.CompleteYield(tag, contract.CallResult{Value: result.Value}, nil)
+		} else {
+			receiver.CompleteYield(tag, contract.CallResult{}, nil)
+		}
 	}()
 
-	return nil
-}
-
-// extractCallError returns the first non-nil error from context, err, or result.
-func extractCallError(ctx context.Context, result *runtime.Result, err error) error {
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-	if err != nil {
-		return err
-	}
-	if result != nil && result.Error != nil {
-		return result.Error
-	}
 	return nil
 }
 

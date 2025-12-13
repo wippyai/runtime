@@ -141,7 +141,26 @@ func Get(table *resource.Table, id uint64) (*Entry, error) {
 }
 
 // Read reads a chunk from stream with given ID.
+// This allocates a new buffer. For high-performance code, use ReadBuffered.
 func Read(table *resource.Table, id uint64, size int64) ([]byte, error) {
+	buf, err := ReadBuffered(table, id, size)
+	if err != nil {
+		return nil, err
+	}
+	if buf == nil {
+		return nil, nil
+	}
+	defer buf.Release()
+
+	result := make([]byte, buf.N)
+	copy(result, buf.Data[:buf.N])
+	return result, nil
+}
+
+// ReadBuffered reads a chunk from stream using a pooled buffer.
+// The caller MUST call buf.Release() when done with the data.
+// Returns nil buffer on EOF with no data.
+func ReadBuffered(table *resource.Table, id uint64, size int64) (*streamapi.Buffer, error) {
 	entry, err := Get(table, id)
 	if err != nil {
 		return nil, err
@@ -154,21 +173,24 @@ func Read(table *resource.Table, id uint64, size int64) ([]byte, error) {
 		size = DefaultChunkSize
 	}
 
-	buf := make([]byte, size)
-	n, err := entry.reader.Read(buf)
+	buf := streamapi.AcquireBuffer(int(size))
+	n, err := entry.reader.Read(buf.Data[:size])
+	buf.N = n
 
 	if errors.Is(err, io.EOF) {
 		if n > 0 {
-			return buf[:n], nil
+			return buf, nil
 		}
+		buf.Release()
 		return nil, io.EOF
 	}
 
 	if err != nil {
+		buf.Release()
 		return nil, err
 	}
 
-	return buf[:n], nil
+	return buf, nil
 }
 
 // Write writes data to stream with given ID.
@@ -433,7 +455,7 @@ func (d *Dispatcher) execute(j job) {
 		if d.debug != nil {
 			fmt.Fprintf(d.debug, "[stream] read id=%d size=%d\n", c.StreamID, c.Size)
 		}
-		data, err := Read(table, c.StreamID, c.Size)
+		buf, err := ReadBuffered(table, c.StreamID, c.Size)
 		if errors.Is(err, io.EOF) {
 			if d.debug != nil {
 				fmt.Fprintf(d.debug, "[stream] read id=%d EOF\n", c.StreamID)
@@ -449,9 +471,9 @@ func (d *Dispatcher) execute(j job) {
 			return
 		}
 		if d.debug != nil {
-			fmt.Fprintf(d.debug, "[stream] read id=%d bytes=%d\n", c.StreamID, len(data))
+			fmt.Fprintf(d.debug, "[stream] read id=%d bytes=%d\n", c.StreamID, buf.N)
 		}
-		j.receiver.CompleteYield(j.tag, data, nil)
+		j.receiver.CompleteYield(j.tag, buf, nil)
 
 	case streamapi.WriteCmd:
 		if d.debug != nil {
