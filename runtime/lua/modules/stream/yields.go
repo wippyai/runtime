@@ -1,11 +1,16 @@
 package stream
 
 import (
+	"context"
+	"errors"
+	"io"
 	"sync"
 
 	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/runtime/resource"
 	streamapi "github.com/wippyai/runtime/api/stream"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	streamservice "github.com/wippyai/runtime/service/fs/stream"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -318,6 +323,22 @@ type Stream struct {
 	ID uint64
 }
 
+// GetReader implements fs.ReaderProvider interface.
+func (s *Stream) GetReader(ctx context.Context) (io.Reader, error) {
+	table := resource.GetTable(ctx)
+	if table == nil {
+		return nil, errors.New("no resource table available")
+	}
+	entry, err := streamservice.Get(table, s.ID)
+	if err != nil {
+		return nil, err
+	}
+	if !entry.Caps().Readable {
+		return nil, errors.New("stream is not readable")
+	}
+	return entry.Reader(), nil
+}
+
 const streamTypeName = "stream.Stream"
 
 var (
@@ -342,12 +363,13 @@ func NewStream(l *lua.LState, id uint64) lua.LValue {
 }
 
 var streamMethods = map[string]lua.LGoFunc{
-	"read":  streamReadMethod,
-	"write": streamWriteMethod,
-	"seek":  streamSeekMethod,
-	"flush": streamFlushMethod,
-	"stat":  streamStatMethod,
-	"close": streamCloseMethod,
+	"read":    streamReadMethod,
+	"write":   streamWriteMethod,
+	"seek":    streamSeekMethod,
+	"flush":   streamFlushMethod,
+	"stat":    streamStatMethod,
+	"close":   streamCloseMethod,
+	"scanner": streamScannerMethod,
 }
 
 func checkStream(l *lua.LState, _ int) *Stream {
@@ -425,4 +447,208 @@ func streamStatMethod(l *lua.LState) int {
 	yield := AcquireStatYield(stream.ID)
 	l.Push(yield)
 	return -1
+}
+
+func streamScannerMethod(l *lua.LState) int {
+	stream := checkStream(l, 1)
+
+	splitType := streamapi.SplitLines
+	if l.GetTop() >= 2 {
+		splitStr := l.CheckString(2)
+		switch splitStr {
+		case "lines":
+			splitType = streamapi.SplitLines
+		case "words":
+			splitType = streamapi.SplitWords
+		case "bytes":
+			splitType = streamapi.SplitBytes
+		case "runes":
+			splitType = streamapi.SplitRunes
+		default:
+			l.ArgError(2, "invalid split type: must be 'lines', 'words', 'bytes', or 'runes'")
+			return 0
+		}
+	}
+
+	yield := AcquireScannerCreateYield(stream.ID, splitType)
+	l.Push(yield)
+	return -1
+}
+
+// ScannerCreateYield is yielded to create a scanner from a stream.
+type ScannerCreateYield struct {
+	StreamID  uint64
+	SplitType int
+}
+
+var scannerCreateYieldPool = sync.Pool{
+	New: func() interface{} { return &ScannerCreateYield{} },
+}
+
+func AcquireScannerCreateYield(streamID uint64, splitType int) *ScannerCreateYield {
+	y := scannerCreateYieldPool.Get().(*ScannerCreateYield)
+	y.StreamID = streamID
+	y.SplitType = splitType
+	return y
+}
+
+func ReleaseScannerCreateYield(y *ScannerCreateYield) {
+	y.StreamID = 0
+	y.SplitType = 0
+	scannerCreateYieldPool.Put(y)
+}
+
+func (y *ScannerCreateYield) String() string       { return "<scanner_create_yield>" }
+func (y *ScannerCreateYield) Type() lua.LValueType { return lua.LTUserData }
+
+func (y *ScannerCreateYield) CmdID() dispatcher.CommandID {
+	return streamapi.CmdScannerCreate
+}
+
+func (y *ScannerCreateYield) ToCommand() dispatcher.Command {
+	return streamapi.ScannerCreateCmd{StreamID: y.StreamID, SplitType: y.SplitType}
+}
+
+func (y *ScannerCreateYield) Release() { ReleaseScannerCreateYield(y) }
+
+func (y *ScannerCreateYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		luaErr := lua.WrapErrorWithLua(l, err, "scanner create").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		return []lua.LValue{lua.LNil, luaErr}
+	}
+	scannerID, ok := data.(uint64)
+	if !ok {
+		luaErr := lua.NewLuaError(l, "invalid response type").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		return []lua.LValue{lua.LNil, luaErr}
+	}
+	return []lua.LValue{NewScanner(l, scannerID), lua.LNil}
+}
+
+// ScannerScanYield is yielded to scan next token.
+type ScannerScanYield struct {
+	ScannerID uint64
+	scanner   *Scanner
+}
+
+var scannerScanYieldPool = sync.Pool{
+	New: func() interface{} { return &ScannerScanYield{} },
+}
+
+func AcquireScannerScanYield(scannerID uint64, scanner *Scanner) *ScannerScanYield {
+	y := scannerScanYieldPool.Get().(*ScannerScanYield)
+	y.ScannerID = scannerID
+	y.scanner = scanner
+	return y
+}
+
+func ReleaseScannerScanYield(y *ScannerScanYield) {
+	y.ScannerID = 0
+	y.scanner = nil
+	scannerScanYieldPool.Put(y)
+}
+
+func (y *ScannerScanYield) String() string       { return "<scanner_scan_yield>" }
+func (y *ScannerScanYield) Type() lua.LValueType { return lua.LTUserData }
+
+func (y *ScannerScanYield) CmdID() dispatcher.CommandID {
+	return streamapi.CmdScannerScan
+}
+
+func (y *ScannerScanYield) ToCommand() dispatcher.Command {
+	return streamapi.ScannerScanCmd{ScannerID: y.ScannerID}
+}
+
+func (y *ScannerScanYield) Release() { ReleaseScannerScanYield(y) }
+
+func (y *ScannerScanYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		luaErr := lua.WrapErrorWithLua(l, err, "scanner scan").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		return []lua.LValue{lua.LFalse, luaErr}
+	}
+	result, ok := data.(streamapi.ScanResult)
+	if !ok {
+		luaErr := lua.NewLuaError(l, "invalid response type").
+			WithKind(lua.KindInternal).
+			WithRetryable(false)
+		return []lua.LValue{lua.LFalse, luaErr}
+	}
+	// Update scanner state for text() and err() methods
+	if y.scanner != nil {
+		y.scanner.lastText = result.Text
+		y.scanner.lastErr = result.Error
+	}
+	return []lua.LValue{lua.LBool(result.HasToken), lua.LNil}
+}
+
+// Scanner is the Lua userdata for scanner operations.
+type Scanner struct {
+	ID       uint64
+	lastText string
+	lastErr  string
+}
+
+const scannerTypeName = "stream.Scanner"
+
+var (
+	scannerMetatableOnce sync.Once
+	scannerMetatable     *lua.LTable
+)
+
+func registerScannerMetatable() {
+	scannerMetatableOnce.Do(func() {
+		scannerMetatable = value.RegisterTypeMethods(nil, scannerTypeName, nil, scannerMethods)
+	})
+}
+
+// NewScanner creates a Scanner userdata from an ID.
+func NewScanner(l *lua.LState, id uint64) lua.LValue {
+	registerScannerMetatable()
+	ud := l.NewUserData()
+	ud.Value = &Scanner{ID: id}
+	ud.Metatable = scannerMetatable
+	return ud
+}
+
+var scannerMethods = map[string]lua.LGoFunc{
+	"scan": scannerScanMethod,
+	"text": scannerTextMethod,
+	"err":  scannerErrMethod,
+}
+
+func checkScanner(l *lua.LState, _ int) *Scanner {
+	ud := l.CheckUserData(1)
+	if v, ok := ud.Value.(*Scanner); ok {
+		return v
+	}
+	l.ArgError(1, "Scanner expected")
+	return nil
+}
+
+func scannerScanMethod(l *lua.LState) int {
+	scanner := checkScanner(l, 1)
+	yield := AcquireScannerScanYield(scanner.ID, scanner)
+	l.Push(yield)
+	return -1
+}
+
+func scannerTextMethod(l *lua.LState) int {
+	scanner := checkScanner(l, 1)
+	l.Push(lua.LString(scanner.lastText))
+	return 1
+}
+
+func scannerErrMethod(l *lua.LState) int {
+	scanner := checkScanner(l, 1)
+	if scanner.lastErr == "" {
+		l.Push(lua.LNil)
+	} else {
+		l.Push(lua.LString(scanner.lastErr))
+	}
+	return 1
 }

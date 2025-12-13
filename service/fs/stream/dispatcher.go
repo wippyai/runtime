@@ -2,6 +2,7 @@
 package stream
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -18,14 +19,18 @@ const DefaultChunkSize = 32 * 1024 // 32KB
 // TypeStream is the type ID for stream entries in the resource table.
 const TypeStream uint32 = 0x10
 
+// TypeScanner is the type ID for scanner entries in the resource table.
+const TypeScanner uint32 = 0x11
+
 // Errors
 var (
-	ErrNotFound    = errors.New("stream not found")
-	ErrClosed      = errors.New("stream closed")
-	ErrNotReadable = errors.New("stream is not readable")
-	ErrNotWritable = errors.New("stream is not writable")
-	ErrNotSeekable = errors.New("stream is not seekable")
-	ErrNoTable     = errors.New("resource table not available")
+	ErrNotFound        = errors.New("stream not found")
+	ErrClosed          = errors.New("stream closed")
+	ErrNotReadable     = errors.New("stream is not readable")
+	ErrNotWritable     = errors.New("stream is not writable")
+	ErrNotSeekable     = errors.New("stream is not seekable")
+	ErrNoTable         = errors.New("resource table not available")
+	ErrScannerNotFound = errors.New("scanner not found")
 )
 
 // Capabilities describes what a stream can do.
@@ -54,6 +59,34 @@ func (e *Entry) Drop() {
 		e.closed = true
 		e.closer.Close()
 	}
+}
+
+// Caps returns the stream capabilities.
+func (e *Entry) Caps() Capabilities {
+	return e.caps
+}
+
+// Reader returns the underlying io.Reader, or nil if not readable.
+func (e *Entry) Reader() io.Reader {
+	return e.reader
+}
+
+// Writer returns the underlying io.Writer, or nil if not writable.
+func (e *Entry) Writer() io.Writer {
+	return e.writer
+}
+
+// ScannerEntry holds an active scanner.
+type ScannerEntry struct {
+	scanner  *bufio.Scanner
+	lastText string
+	lastErr  error
+	done     bool
+}
+
+// Drop implements resource.Dropper for automatic cleanup.
+func (s *ScannerEntry) Drop() {
+	// Scanner doesn't need explicit cleanup, stream handles it
 }
 
 // Flusher is an optional interface for streams that support flush.
@@ -224,6 +257,87 @@ func Close(table *resource.Table, id uint64) error {
 		return entry.closer.Close()
 	}
 	return nil
+}
+
+// CreateScanner creates a scanner from a stream.
+func CreateScanner(table *resource.Table, streamID uint64, splitType int) (uint64, error) {
+	entry, err := Get(table, streamID)
+	if err != nil {
+		return 0, err
+	}
+	if entry.reader == nil {
+		return 0, ErrNotReadable
+	}
+
+	scanner := bufio.NewScanner(entry.reader)
+
+	switch splitType {
+	case streamapi.SplitLines:
+		scanner.Split(bufio.ScanLines)
+	case streamapi.SplitWords:
+		scanner.Split(bufio.ScanWords)
+	case streamapi.SplitBytes:
+		scanner.Split(bufio.ScanBytes)
+	case streamapi.SplitRunes:
+		scanner.Split(bufio.ScanRunes)
+	default:
+		scanner.Split(bufio.ScanLines)
+	}
+
+	scanEntry := &ScannerEntry{
+		scanner: scanner,
+	}
+
+	return uint64(table.Insert(TypeScanner, scanEntry)), nil
+}
+
+// GetScanner retrieves a scanner entry by handle.
+func GetScanner(table *resource.Table, id uint64) (*ScannerEntry, error) {
+	val, ok := table.GetTyped(resource.Handle(id), TypeScanner)
+	if !ok {
+		return nil, ErrScannerNotFound
+	}
+	return val.(*ScannerEntry), nil
+}
+
+// ScanNext advances the scanner and returns the result.
+func ScanNext(table *resource.Table, scannerID uint64) (streamapi.ScanResult, error) {
+	entry, err := GetScanner(table, scannerID)
+	if err != nil {
+		return streamapi.ScanResult{}, err
+	}
+
+	if entry.done {
+		return streamapi.ScanResult{
+			HasToken: false,
+			Text:     "",
+			Error:    errString(entry.lastErr),
+		}, nil
+	}
+
+	if entry.scanner.Scan() {
+		entry.lastText = entry.scanner.Text()
+		return streamapi.ScanResult{
+			HasToken: true,
+			Text:     entry.lastText,
+			Error:    "",
+		}, nil
+	}
+
+	entry.done = true
+	entry.lastErr = entry.scanner.Err()
+	return streamapi.ScanResult{
+		HasToken: false,
+		Text:     "",
+		Error:    errString(entry.lastErr),
+	}, nil
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 // Option configures a Dispatcher.
@@ -434,6 +548,40 @@ func (d *Dispatcher) execute(j job) {
 			Seekable: caps.Seekable,
 		}, nil)
 
+	case streamapi.ScannerCreateCmd:
+		if d.debug != nil {
+			fmt.Fprintf(d.debug, "[stream] scanner_create stream_id=%d split=%d\n", c.StreamID, c.SplitType)
+		}
+		scannerID, err := CreateScanner(table, c.StreamID, c.SplitType)
+		if err != nil {
+			if d.debug != nil {
+				fmt.Fprintf(d.debug, "[stream] scanner_create error=%v\n", err)
+			}
+			j.receiver.CompleteYield(j.tag, nil, err)
+			return
+		}
+		if d.debug != nil {
+			fmt.Fprintf(d.debug, "[stream] scanner_create id=%d\n", scannerID)
+		}
+		j.receiver.CompleteYield(j.tag, scannerID, nil)
+
+	case streamapi.ScannerScanCmd:
+		if d.debug != nil {
+			fmt.Fprintf(d.debug, "[stream] scanner_scan id=%d\n", c.ScannerID)
+		}
+		result, err := ScanNext(table, c.ScannerID)
+		if err != nil {
+			if d.debug != nil {
+				fmt.Fprintf(d.debug, "[stream] scanner_scan id=%d error=%v\n", c.ScannerID, err)
+			}
+			j.receiver.CompleteYield(j.tag, nil, err)
+			return
+		}
+		if d.debug != nil {
+			fmt.Fprintf(d.debug, "[stream] scanner_scan id=%d has_token=%v\n", c.ScannerID, result.HasToken)
+		}
+		j.receiver.CompleteYield(j.tag, result, nil)
+
 	default:
 		j.receiver.CompleteYield(j.tag, nil, fmt.Errorf("unknown stream command: %T", j.cmd))
 	}
@@ -453,4 +601,6 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(streamapi.CmdSeek, h)
 	register(streamapi.CmdFlush, h)
 	register(streamapi.CmdStat, h)
+	register(streamapi.CmdScannerCreate, h)
+	register(streamapi.CmdScannerScan, h)
 }

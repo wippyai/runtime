@@ -1,6 +1,12 @@
 -- Chain worker: receives depth, spawns next in chain if depth > 0
 -- Links to parent (passed via inbox), waits for LINK_DOWN
 local function main()
+    -- Enable trap_links to receive LINK_DOWN events
+    local ok, err = process.set_options({ trap_links = true })
+    if not ok then
+        return false, "set_options failed: " .. tostring(err)
+    end
+
     local events_ch = process.events()
     local inbox_ch = process.inbox()
 
@@ -10,7 +16,7 @@ local function main()
         return false, "expected setup message"
     end
 
-    local payload = msg:payload()
+    local payload = msg:payload():data()
     local link_to = payload.link_to
     local root_pid = payload.root_pid
     local depth = payload.depth or 0

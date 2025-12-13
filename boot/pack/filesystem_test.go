@@ -395,6 +395,161 @@ func TestFilesystemPack(t *testing.T) {
 	})
 }
 
+func TestPackWithMultipleResources(t *testing.T) {
+	transcoder := systempayload.NewTranscoder()
+	pw := NewWriter(transcoder)
+
+	t.Run("multiple filesystem resources roundtrip", func(t *testing.T) {
+		// Create first filesystem
+		tmpDir1 := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir1, "file1.txt"), []byte("content from fs1"), 0600))
+		require.NoError(t, os.MkdirAll(filepath.Join(tmpDir1, "subdir"), 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir1, "subdir", "nested.txt"), []byte("nested in fs1"), 0600))
+
+		// Create second filesystem
+		tmpDir2 := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir2, "file2.txt"), []byte("content from fs2"), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir2, "another.txt"), []byte("another file in fs2"), 0600))
+
+		// Create third filesystem
+		tmpDir3 := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir3, "file3.txt"), []byte("content from fs3"), 0600))
+
+		resources := []ResourceSpec{
+			{
+				ID:   registry.ParseID("test:fs1"),
+				FS:   os.DirFS(tmpDir1),
+				Meta: map[string]interface{}{"name": "first"},
+			},
+			{
+				ID:   registry.ParseID("test:fs2"),
+				FS:   os.DirFS(tmpDir2),
+				Meta: map[string]interface{}{"name": "second"},
+			},
+			{
+				ID:   registry.ParseID("test:fs3"),
+				FS:   os.DirFS(tmpDir3),
+				Meta: map[string]interface{}{"name": "third"},
+			},
+		}
+
+		var buf bytes.Buffer
+		err := pw.PackWithResources(
+			map[string]interface{}{"test": "multiple"},
+			nil,
+			resources,
+			&buf,
+		)
+		require.NoError(t, err)
+
+		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
+		require.NoError(t, err)
+
+		// Verify first filesystem
+		fs1, err := pr.GetFS(registry.ParseID("test:fs1"))
+		require.NoError(t, err)
+
+		file1, err := fs1.Open("file1.txt")
+		require.NoError(t, err)
+		content1, err := io.ReadAll(file1)
+		file1.Close()
+		require.NoError(t, err)
+		assert.Equal(t, "content from fs1", string(content1))
+
+		nested, err := fs1.Open("subdir/nested.txt")
+		require.NoError(t, err)
+		nestedContent, err := io.ReadAll(nested)
+		nested.Close()
+		require.NoError(t, err)
+		assert.Equal(t, "nested in fs1", string(nestedContent))
+
+		// Verify second filesystem
+		fs2, err := pr.GetFS(registry.ParseID("test:fs2"))
+		require.NoError(t, err)
+
+		file2, err := fs2.Open("file2.txt")
+		require.NoError(t, err)
+		content2, err := io.ReadAll(file2)
+		file2.Close()
+		require.NoError(t, err)
+		assert.Equal(t, "content from fs2", string(content2))
+
+		another, err := fs2.Open("another.txt")
+		require.NoError(t, err)
+		anotherContent, err := io.ReadAll(another)
+		another.Close()
+		require.NoError(t, err)
+		assert.Equal(t, "another file in fs2", string(anotherContent))
+
+		// Verify third filesystem
+		fs3, err := pr.GetFS(registry.ParseID("test:fs3"))
+		require.NoError(t, err)
+
+		file3, err := fs3.Open("file3.txt")
+		require.NoError(t, err)
+		content3, err := io.ReadAll(file3)
+		file3.Close()
+		require.NoError(t, err)
+		assert.Equal(t, "content from fs3", string(content3))
+	})
+
+	t.Run("multiple resources with entries", func(t *testing.T) {
+		tmpDir1 := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir1, "data.bin"), []byte{0x01, 0x02, 0x03, 0x04}, 0600))
+
+		tmpDir2 := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir2, "config.txt"), []byte("config data"), 0600))
+
+		entries := []registry.Entry{
+			{
+				ID:   registry.ParseID("app:entry1"),
+				Kind: "test.kind",
+				Data: nil,
+			},
+		}
+
+		resources := []ResourceSpec{
+			{ID: registry.ParseID("res:data"), FS: os.DirFS(tmpDir1)},
+			{ID: registry.ParseID("res:config"), FS: os.DirFS(tmpDir2)},
+		}
+
+		var buf bytes.Buffer
+		err := pw.PackWithResources(
+			map[string]interface{}{"version": "1.0"},
+			entries,
+			resources,
+			&buf,
+		)
+		require.NoError(t, err)
+
+		pr, err := NewReader(bytes.NewReader(buf.Bytes()), transcoder)
+		require.NoError(t, err)
+
+		// Verify entries
+		unpacked, err := pr.GetEntries()
+		require.NoError(t, err)
+		require.Len(t, unpacked, 1)
+		assert.Equal(t, "app:entry1", unpacked[0].ID.String())
+
+		// Verify both filesystems work
+		dataFS, err := pr.GetFS(registry.ParseID("res:data"))
+		require.NoError(t, err)
+		dataFile, err := dataFS.Open("data.bin")
+		require.NoError(t, err)
+		dataContent, _ := io.ReadAll(dataFile)
+		dataFile.Close()
+		assert.Equal(t, []byte{0x01, 0x02, 0x03, 0x04}, dataContent)
+
+		configFS, err := pr.GetFS(registry.ParseID("res:config"))
+		require.NoError(t, err)
+		configFile, err := configFS.Open("config.txt")
+		require.NoError(t, err)
+		configContent, _ := io.ReadAll(configFile)
+		configFile.Close()
+		assert.Equal(t, "config data", string(configContent))
+	})
+}
+
 func TestPackFSErrors(t *testing.T) {
 	transcoder := systempayload.NewTranscoder()
 	pw := NewWriter(transcoder)

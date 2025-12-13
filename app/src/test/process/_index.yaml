@@ -654,6 +654,50 @@ entries:
     imports:
       assert2: app.lib:assert
 
+  - name: registry_echo_worker
+    kind: process.lua
+    meta:
+      comment: Worker that registers itself and echoes messages
+    source: file://registry_echo_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: registry_send_to_name
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Send to registered name without resolving PID
+    source: file://registry_send_to_name.lua
+    method: main
+    modules:
+      - time
+      - os
+    imports:
+      assert2: app.lib:assert
+
+  - name: registry_exit_worker
+    kind: process.lua
+    meta:
+      comment: Worker that registers name then exits
+    source: file://registry_exit_worker.lua
+    method: main
+
+  - name: registry_auto_release
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Names auto-released when process exits
+    source: file://registry_auto_release.lua
+    method: main
+    modules:
+      - time
+      - os
+    imports:
+      assert2: app.lib:assert
+
   # Inbox/events/listen ordering and combination tests
   - name: inbox_order_worker
     kind: process.lua
@@ -894,6 +938,15 @@ entries:
       assert2: app.lib:assert
 
   # explicit link/unlink tests
+  - name: link_target
+    kind: process.lua
+    meta:
+      comment: Simple target process that exits on command
+    source: file://link_target.lua
+    method: main
+    modules:
+      - time
+
   - name: link_explicit_worker
     kind: process.lua
     meta:
@@ -932,6 +985,51 @@ entries:
       suite: process
       description: process.unlink explicit function
     source: file://unlink_explicit.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  # trap_links tests
+  - name: trap_links_default_worker
+    kind: process.lua
+    meta:
+      comment: Worker that links without trap_links (should fail)
+    source: file://trap_links_default_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: trap_links_default
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Without trap_links process fails on LINK_DOWN
+    source: file://trap_links_default.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: trap_links_enabled_worker
+    kind: process.lua
+    meta:
+      comment: Worker that links with trap_links=true (should receive event)
+    source: file://trap_links_enabled_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: trap_links_enabled
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: With trap_links=true process receives LINK_DOWN
+    source: file://trap_links_enabled.lua
     method: main
     modules:
       - time

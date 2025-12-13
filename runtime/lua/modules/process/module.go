@@ -656,7 +656,16 @@ func cancel(l *lua.LState) int {
 }
 
 func getOptions(l *lua.LState) int {
-	l.Push(l.CreateTable(0, 0))
+	proc := engine.GetProcess(l)
+
+	options := l.CreateTable(0, 1)
+	if proc != nil {
+		options.RawSetString("trap_links", lua.LBool(proc.IsTrapLinks()))
+	} else {
+		options.RawSetString("trap_links", lua.LBool(false))
+	}
+
+	l.Push(options)
 	return 1
 }
 
@@ -667,17 +676,39 @@ func setOptions(l *lua.LState) int {
 		return 2
 	}
 
+	proc := engine.GetProcess(l)
+	if proc == nil {
+		l.Push(lua.LBool(false))
+		l.Push(lua.LString("no process context"))
+		return 2
+	}
+
 	options := l.CheckTable(1)
-	var firstKey string
-	options.ForEach(func(k lua.LValue, _ lua.LValue) {
-		if firstKey == "" && k.Type() == lua.LTString {
-			firstKey = string(k.(lua.LString))
+	var unsupportedOption string
+
+	options.ForEach(func(k lua.LValue, v lua.LValue) {
+		if k.Type() != lua.LTString {
+			return
+		}
+		key := string(k.(lua.LString))
+
+		switch key {
+		case "trap_links":
+			if v.Type() != lua.LTBool {
+				unsupportedOption = "trap_links must be a boolean"
+				return
+			}
+			proc.SetTrapLinks(bool(v.(lua.LBool)))
+		default:
+			if unsupportedOption == "" {
+				unsupportedOption = fmt.Sprintf("option %s is not supported", key)
+			}
 		}
 	})
 
-	if firstKey != "" {
+	if unsupportedOption != "" {
 		l.Push(lua.LBool(false))
-		l.Push(lua.LString(fmt.Sprintf("option %s is not supported", firstKey)))
+		l.Push(lua.LString(unsupportedOption))
 	} else {
 		l.Push(lua.LBool(true))
 		l.Push(lua.LNil)

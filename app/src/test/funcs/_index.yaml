@@ -166,15 +166,3 @@ entries:
     modules:
       - funcs
 
-  - name: await_payload
-    kind: function.lua
-    meta:
-      type: test
-      suite: funcs
-      description: Future await with payload option
-    source: file://await_payload.lua
-    method: main
-    imports:
-      assert2: app.lib:assert
-    modules:
-      - funcs

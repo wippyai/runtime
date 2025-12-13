@@ -2,6 +2,12 @@
 local time = require("time")
 
 local function main()
+    -- Enable trap_links to receive LINK_DOWN events
+    local ok, err = process.set_options({ trap_links = true })
+    if not ok then
+        return false, "set_options failed: " .. tostring(err)
+    end
+
     local events_ch = process.events()
     if not events_ch then
         return false, "failed to get events channel"
@@ -24,7 +30,7 @@ local function main()
     end
 
     local msg = result.value
-    local parent_pid = msg:payload()
+    local parent_pid = msg:payload():data()
 
     -- Link to parent
     local ok, err = process.link(parent_pid)

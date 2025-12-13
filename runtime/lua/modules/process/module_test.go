@@ -153,14 +153,16 @@ func TestGetOptions(t *testing.T) {
 	}
 }
 
-func TestSetOptions_ValidEmpty(t *testing.T) {
+func TestSetOptions_NoProcessContext(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	bindProcess(l)
 
+	// Without a process context, set_options should fail gracefully
 	err := l.DoString(`
 		local ok, err = process.set_options({})
-		if not ok then error("set_options with empty table should succeed") end
+		if ok then error("set_options without process context should fail") end
+		if err ~= "no process context" then error("expected 'no process context' error, got: " .. tostring(err)) end
 	`)
 	if err != nil {
 		t.Errorf("test failed: %v", err)

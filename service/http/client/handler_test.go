@@ -5,6 +5,7 @@ import (
 	"io"
 	gohttp "net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -591,6 +592,162 @@ func TestDispatcher_RequestBatchConcurrent(t *testing.T) {
 			t.Errorf("batch not concurrent: took %v", elapsed)
 		}
 	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+}
+
+func TestDispatcher_RequestFileUpload(t *testing.T) {
+	var receivedContentType string
+	var receivedFiles = make(map[string][]byte)
+
+	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
+		receivedContentType = r.Header.Get("Content-Type")
+		err := r.ParseMultipartForm(10 << 20)
+		if err != nil {
+			w.WriteHeader(gohttp.StatusBadRequest)
+			return
+		}
+		for name, files := range r.MultipartForm.File {
+			for _, fh := range files {
+				f, _ := fh.Open()
+				data, _ := io.ReadAll(f)
+				f.Close()
+				receivedFiles[name] = data
+			}
+		}
+		w.WriteHeader(gohttp.StatusOK)
+	}))
+	defer ts.Close()
+
+	d := NewDispatcher()
+	done := make(chan httpapi.Response, 1)
+
+	err := d.handleRequest(context.Background(), &httpapi.RequestCmd{
+		Method: "POST",
+		URL:    ts.URL,
+		Files: []httpapi.FileUpload{
+			{FieldName: "document", FileName: "test.txt", Data: []byte("hello world")},
+		},
+	}, 0, &testReceiver{fn: func(data any) {
+		done <- data.(httpapi.Response)
+	}})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	select {
+	case resp := <-done:
+		if resp.Error != "" {
+			t.Fatalf("unexpected response error: %s", resp.Error)
+		}
+		if resp.StatusCode != 200 {
+			t.Errorf("expected 200, got %d", resp.StatusCode)
+		}
+		if !strings.HasPrefix(receivedContentType, "multipart/form-data") {
+			t.Errorf("expected multipart content type, got %s", receivedContentType)
+		}
+		if string(receivedFiles["document"]) != "hello world" {
+			t.Errorf("file content mismatch: %s", receivedFiles["document"])
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout")
+	}
+}
+
+func TestDispatcher_RequestMultipleFilesWithForm(t *testing.T) {
+	var receivedForm = make(map[string]string)
+	var receivedFiles = make(map[string][]byte)
+
+	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
+		_ = r.ParseMultipartForm(10 << 20)
+		for k, v := range r.MultipartForm.Value {
+			if len(v) > 0 {
+				receivedForm[k] = v[0]
+			}
+		}
+		for name, files := range r.MultipartForm.File {
+			for _, fh := range files {
+				f, _ := fh.Open()
+				data, _ := io.ReadAll(f)
+				f.Close()
+				receivedFiles[name] = data
+			}
+		}
+		w.WriteHeader(gohttp.StatusOK)
+	}))
+	defer ts.Close()
+
+	d := NewDispatcher()
+	done := make(chan httpapi.Response, 1)
+
+	err := d.handleRequest(context.Background(), &httpapi.RequestCmd{
+		Method: "POST",
+		URL:    ts.URL,
+		Form:   map[string]string{"title": "My Upload", "description": "Test files"},
+		Files: []httpapi.FileUpload{
+			{FieldName: "file1", FileName: "doc1.txt", Data: []byte("first file")},
+			{FieldName: "file2", FileName: "doc2.txt", Data: []byte("second file")},
+		},
+	}, 0, &testReceiver{fn: func(data any) {
+		done <- data.(httpapi.Response)
+	}})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	select {
+	case resp := <-done:
+		if resp.Error != "" {
+			t.Fatalf("unexpected response error: %s", resp.Error)
+		}
+		if receivedForm["title"] != "My Upload" {
+			t.Errorf("form field mismatch: %s", receivedForm["title"])
+		}
+		if string(receivedFiles["file1"]) != "first file" {
+			t.Errorf("file1 content mismatch")
+		}
+		if string(receivedFiles["file2"]) != "second file" {
+			t.Errorf("file2 content mismatch")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout")
+	}
+}
+
+func TestDispatcher_RequestFileUploadMissingFieldName(t *testing.T) {
+	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
+		w.WriteHeader(gohttp.StatusOK)
+	}))
+	defer ts.Close()
+
+	d := NewDispatcher()
+	done := make(chan httpapi.Response, 1)
+
+	err := d.handleRequest(context.Background(), &httpapi.RequestCmd{
+		Method: "POST",
+		URL:    ts.URL,
+		Files: []httpapi.FileUpload{
+			{FieldName: "", FileName: "test.txt", Data: []byte("data")},
+		},
+	}, 0, &testReceiver{fn: func(data any) {
+		done <- data.(httpapi.Response)
+	}})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	select {
+	case resp := <-done:
+		if resp.Error == "" {
+			t.Error("expected error for empty field name")
+		}
+		if !strings.Contains(resp.Error, "field name required") {
+			t.Errorf("unexpected error: %s", resp.Error)
+		}
+	case <-time.After(time.Second):
 		t.Fatal("timeout")
 	}
 }

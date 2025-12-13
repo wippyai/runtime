@@ -2,11 +2,17 @@ package fs
 
 import (
 	"os"
+	"strings"
 	"testing"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/runtime/resource"
+	"github.com/wippyai/runtime/runtime/lua/modules/stream"
+	"github.com/wippyai/runtime/service/fs/directory"
+	streamservice "github.com/wippyai/runtime/service/fs/stream"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wippyai/runtime/service/fs/directory"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -361,4 +367,58 @@ func TestFSRemoveNonEmpty(t *testing.T) {
 	luaErr, ok := errVal.(*lua.Error)
 	require.True(t, ok, "error should be lua.Error")
 	assert.Equal(t, string(lua.KindInvalid), string(luaErr.Kind()))
+}
+
+type testReaderCloser struct {
+	*strings.Reader
+}
+
+func (t *testReaderCloser) Close() error { return nil }
+
+func TestFSWritefileWithStream(t *testing.T) {
+	tmpDir := t.TempDir()
+	fsys, err := directory.NewDirectoryFS(tmpDir, 0755, false)
+	require.NoError(t, err)
+	defer fsys.Close()
+	f := NewFS(fsys, "")
+
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	store := resource.NewStore()
+	defer store.Close()
+	err = resource.SetStore(ctx, store)
+	require.NoError(t, err)
+	table := resource.GetTable(ctx)
+	require.NotNil(t, table)
+
+	fileContent := "uploaded file content from multipart form"
+	reader := strings.NewReader(fileContent)
+	rc := &testReaderCloser{reader}
+
+	streamID := streamservice.Insert(table, rc)
+
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(ctx)
+
+	ud := l.NewUserData()
+	ud.Value = f
+	ud.Metatable = fsMetatable
+	l.Push(ud)
+	l.Push(lua.LString("/uploaded.txt"))
+
+	streamUD := stream.NewStream(l, streamID)
+	l.Push(streamUD)
+
+	nret := fsWritefile(l)
+	require.Equal(t, 2, nret)
+
+	result := l.Get(-2)
+	errVal := l.Get(-1)
+	assert.Equal(t, lua.LTrue, result, "should succeed, error: %v", errVal)
+	assert.Equal(t, lua.LNil, errVal, "should not have error")
+
+	written, err := os.ReadFile(tmpDir + "/uploaded.txt")
+	require.NoError(t, err)
+	assert.Equal(t, fileContent, string(written))
 }

@@ -2,9 +2,17 @@ package resource
 
 import (
 	"context"
+	"io"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 )
+
+// ReaderProvider is implemented by types that can provide an io.Reader from context.
+// This allows streams and other abstractions to be used as input sources without
+// requiring direct type coupling.
+type ReaderProvider interface {
+	GetReader(ctx context.Context) (io.Reader, error)
+}
 
 // StoreKey is the context key for Store in FrameContext.
 var StoreKey = &ctxapi.Key{Name: "resource.store", Inherit: false}

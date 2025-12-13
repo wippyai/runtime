@@ -52,6 +52,7 @@ func init() {
 	packCmd.Flags().Bool("list", false, "list all fs.directory entries and exit (dry-run mode)")
 	packCmd.Flags().StringSlice("exclude-ns", nil, "exclude entries by namespace patterns (e.g., app.**,test.*)")
 	packCmd.Flags().StringSlice("exclude", nil, "exclude entries by ID patterns (e.g., app:internal,test:*)")
+	packCmd.Flags().StringSlice("bytecode", nil, "compile Lua to bytecode (** for all, or patterns: app:**, lib:utils)")
 }
 
 type packStage string
@@ -389,6 +390,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	embedPatterns, _ := cmd.Flags().GetStringSlice("embed")
 	excludeNS, _ := cmd.Flags().GetStringSlice("exclude-ns")
 	excludeEntries, _ := cmd.Flags().GetStringSlice("exclude")
+	bytecodePatterns, _ := cmd.Flags().GetStringSlice("bytecode")
 
 	p.Send(progressMsg{stage: stageLoadLock, percent: 0.1, status: "Loading lock file..."})
 	p.Send(logMsg{level: "info", message: "Starting pack process"})
@@ -457,6 +459,28 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 
 	pipelineStages = append(pipelineStages, stages.Disable(), stages.Link())
 
+	// Bytecode compilation (before EmbedFS so bytecode FS can be collected)
+	if len(bytecodePatterns) > 0 {
+		// Check for "all" patterns: **, **:** means compile everything
+		compileAll := false
+		for _, pat := range bytecodePatterns {
+			if pat == "**" || pat == "**:**" {
+				compileAll = true
+				break
+			}
+		}
+
+		if compileAll {
+			p.Send(logMsg{level: "info", message: "Adding bytecode compilation (all entries)"})
+			pipelineStages = append(pipelineStages, stages.Bytecode())
+		} else {
+			p.Send(logMsg{level: "info", message: "Adding bytecode compilation", fields: map[string]interface{}{
+				"patterns": bytecodePatterns,
+			}})
+			pipelineStages = append(pipelineStages, stages.Bytecode(bytecodePatterns...))
+		}
+	}
+
 	if len(embedPatterns) > 0 {
 		p.Send(progressMsg{
 			stage:   stagePipeline,
@@ -473,6 +497,12 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	}
 
 	resources := stages.GetResources(app.Ctx)
+
+	// Add bytecode resource if compiled
+	if bcRes := stages.GetBytecodeResource(); bcRes != nil {
+		resources = append(resources, *bcRes)
+	}
+
 	var resInfos []resourceInfo
 	if len(resources) > 0 {
 		p.Send(logMsg{level: "info", message: "Collecting embedded resources", fields: map[string]interface{}{

@@ -204,7 +204,7 @@ func TestResponse(t *testing.T) {
 			error("expected body 'hello'")
 		end
 		if test_response.body_size ~= 5 then
-			error("expected body_size 5")
+			error("expected body_size 5, got " .. tostring(test_response.body_size))
 		end
 		if test_response.url ~= "http://example.com" then
 			error("expected url")
@@ -238,4 +238,208 @@ func TestResponseUnknownField(t *testing.T) {
 	if err != nil {
 		t.Errorf("response unknown field test failed: %v", err)
 	}
+}
+
+func TestParseFileOptions(t *testing.T) {
+	t.Run("valid file with content", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		files := l.CreateTable(1, 0)
+		file1 := l.CreateTable(0, 3)
+		file1.RawSetString("name", lua.LString("document"))
+		file1.RawSetString("filename", lua.LString("test.txt"))
+		file1.RawSetString("content", lua.LString("hello world"))
+		files.RawSetInt(1, file1)
+
+		opts := l.CreateTable(0, 1)
+		opts.RawSetString("files", files)
+
+		parsed := parseOptions(l, 1)
+		l.Push(opts)
+		parsed = parseOptions(l, 1)
+
+		if len(parsed.files) != 1 {
+			t.Errorf("expected 1 file, got %d", len(parsed.files))
+		}
+		if parsed.files[0].fieldName != "document" {
+			t.Errorf("expected fieldName 'document', got '%s'", parsed.files[0].fieldName)
+		}
+		if parsed.files[0].fileName != "test.txt" {
+			t.Errorf("expected fileName 'test.txt', got '%s'", parsed.files[0].fileName)
+		}
+		if string(parsed.files[0].data) != "hello world" {
+			t.Errorf("expected content 'hello world', got '%s'", parsed.files[0].data)
+		}
+		if parsed.files[0].contentType != "application/octet-stream" {
+			t.Errorf("expected default contentType 'application/octet-stream', got '%s'", parsed.files[0].contentType)
+		}
+	})
+
+	t.Run("file without name is skipped", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		files := l.CreateTable(1, 0)
+		file1 := l.CreateTable(0, 2)
+		file1.RawSetString("filename", lua.LString("test.txt"))
+		file1.RawSetString("content", lua.LString("hello"))
+		files.RawSetInt(1, file1)
+
+		opts := l.CreateTable(0, 1)
+		opts.RawSetString("files", files)
+		l.Push(opts)
+
+		parsed := parseOptions(l, 1)
+		if len(parsed.files) != 0 {
+			t.Errorf("expected 0 files (invalid file should be skipped), got %d", len(parsed.files))
+		}
+	})
+
+	t.Run("file without content is skipped", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		files := l.CreateTable(1, 0)
+		file1 := l.CreateTable(0, 2)
+		file1.RawSetString("name", lua.LString("document"))
+		file1.RawSetString("filename", lua.LString("test.txt"))
+		files.RawSetInt(1, file1)
+
+		opts := l.CreateTable(0, 1)
+		opts.RawSetString("files", files)
+		l.Push(opts)
+
+		parsed := parseOptions(l, 1)
+		if len(parsed.files) != 0 {
+			t.Errorf("expected 0 files (no content should be skipped), got %d", len(parsed.files))
+		}
+	})
+
+	t.Run("multiple files", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		files := l.CreateTable(2, 0)
+
+		file1 := l.CreateTable(0, 3)
+		file1.RawSetString("name", lua.LString("file1"))
+		file1.RawSetString("filename", lua.LString("doc1.txt"))
+		file1.RawSetString("content", lua.LString("content1"))
+		files.RawSetInt(1, file1)
+
+		file2 := l.CreateTable(0, 3)
+		file2.RawSetString("name", lua.LString("file2"))
+		file2.RawSetString("filename", lua.LString("doc2.txt"))
+		file2.RawSetString("content", lua.LString("content2"))
+		files.RawSetInt(2, file2)
+
+		opts := l.CreateTable(0, 1)
+		opts.RawSetString("files", files)
+		l.Push(opts)
+
+		parsed := parseOptions(l, 1)
+		if len(parsed.files) != 2 {
+			t.Errorf("expected 2 files, got %d", len(parsed.files))
+		}
+	})
+
+	t.Run("form data with files", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		form := l.CreateTable(0, 2)
+		form.RawSetString("title", lua.LString("My Document"))
+		form.RawSetString("description", lua.LString("A test file"))
+
+		files := l.CreateTable(1, 0)
+		file1 := l.CreateTable(0, 3)
+		file1.RawSetString("name", lua.LString("attachment"))
+		file1.RawSetString("filename", lua.LString("test.pdf"))
+		file1.RawSetString("content", lua.LString("pdf content"))
+		files.RawSetInt(1, file1)
+
+		opts := l.CreateTable(0, 2)
+		opts.RawSetString("form", form)
+		opts.RawSetString("files", files)
+		l.Push(opts)
+
+		parsed := parseOptions(l, 1)
+		if len(parsed.files) != 1 {
+			t.Errorf("expected 1 file, got %d", len(parsed.files))
+		}
+		if parsed.form["title"] != "My Document" {
+			t.Errorf("expected form title 'My Document', got '%s'", parsed.form["title"])
+		}
+	})
+
+	t.Run("file with custom content_type", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		files := l.CreateTable(1, 0)
+		file1 := l.CreateTable(0, 4)
+		file1.RawSetString("name", lua.LString("image"))
+		file1.RawSetString("filename", lua.LString("photo.jpg"))
+		file1.RawSetString("content_type", lua.LString("image/jpeg"))
+		file1.RawSetString("content", lua.LString("jpeg data"))
+		files.RawSetInt(1, file1)
+
+		opts := l.CreateTable(0, 1)
+		opts.RawSetString("files", files)
+		l.Push(opts)
+
+		parsed := parseOptions(l, 1)
+		if len(parsed.files) != 1 {
+			t.Errorf("expected 1 file, got %d", len(parsed.files))
+		}
+		if parsed.files[0].contentType != "image/jpeg" {
+			t.Errorf("expected contentType 'image/jpeg', got '%s'", parsed.files[0].contentType)
+		}
+	})
+
+	t.Run("file with reader", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		reader := &mockReader{data: []byte("reader content")}
+		ud := l.NewUserData()
+		ud.Value = reader
+
+		files := l.CreateTable(1, 0)
+		file1 := l.CreateTable(0, 3)
+		file1.RawSetString("name", lua.LString("document"))
+		file1.RawSetString("filename", lua.LString("file.txt"))
+		file1.RawSetString("reader", ud)
+		files.RawSetInt(1, file1)
+
+		opts := l.CreateTable(0, 1)
+		opts.RawSetString("files", files)
+		l.Push(opts)
+
+		parsed := parseOptions(l, 1)
+		if len(parsed.files) != 1 {
+			t.Errorf("expected 1 file, got %d", len(parsed.files))
+		}
+		if parsed.files[0].reader == nil {
+			t.Error("expected reader to be set")
+		}
+	})
+}
+
+type mockReader struct {
+	data []byte
+	pos  int
+}
+
+func (m *mockReader) Read(p []byte) (n int, err error) {
+	if m.pos >= len(m.data) {
+		return 0, nil
+	}
+	n = copy(p, m.data[m.pos:])
+	m.pos += n
+	if m.pos >= len(m.data) {
+		err = nil
+	}
+	return n, err
 }

@@ -52,7 +52,12 @@ local function main()
     assert.eq(result.value.kind, process.event.EXIT, "got EXIT event")
 
     -- Verify worker returned NO_LINK_DOWN (didn't receive LINK_DOWN after unlink)
-    assert.eq(result.value.result, "NO_LINK_DOWN", "worker did not receive LINK_DOWN after unlink")
+    -- Result is wrapped in {value=...} table
+    local result_value = result.value.result
+    if type(result_value) == "table" then
+        result_value = result_value.value
+    end
+    assert.eq(result_value, "NO_LINK_DOWN", "worker did not receive LINK_DOWN after unlink")
 
     return true
 end

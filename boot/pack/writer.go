@@ -272,8 +272,11 @@ func (pw *Writer) PackWithResources(
 	resourceFrames := make([]rawFrame, 0, len(resources))
 	allDataFrames := make([]rawFrame, 0)
 
+	// Data frames start after: metadata(1) + entries(1) + resource trees(N)
+	dataFrameStartIndex := uint32(2 + len(resources))
+
 	for _, spec := range resources {
-		tree, dataFrames, err := pw.processFilesystem(spec.FS, spec.ID, spec.Meta)
+		tree, dataFrames, err := pw.processFilesystemWithOffset(spec.FS, spec.ID, spec.Meta, dataFrameStartIndex+uint32(len(allDataFrames)))
 		if err != nil {
 			return NewProcessResourceFilesystemError(spec.ID.String(), err)
 		}
@@ -319,6 +322,16 @@ func (pw *Writer) processFilesystem(
 	id registry.ID,
 	meta attrs.Bag,
 ) (*TreeResource, []rawFrame, error) {
+	return pw.processFilesystemWithOffset(fsys, id, meta, 3)
+}
+
+// processFilesystemWithOffset walks filesystem with explicit starting frame index
+func (pw *Writer) processFilesystemWithOffset(
+	fsys fs.FS,
+	id registry.ID,
+	meta attrs.Bag,
+	startFrameIndex uint32,
+) (*TreeResource, []rawFrame, error) {
 	tree := &TreeResource{
 		ID:    id,
 		Meta:  meta,
@@ -340,7 +353,7 @@ func (pw *Writer) processFilesystem(
 
 	var dataFrames []rawFrame
 	currentFrame := &bytes.Buffer{}
-	frameIndex := uint32(3) // Frames 0,1,2 are metadata, entries, resource
+	frameIndex := startFrameIndex
 	filesProcessed := 0
 
 	err := fs.WalkDir(fsys, ".", func(filePath string, d fs.DirEntry, err error) error {

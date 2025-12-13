@@ -175,16 +175,25 @@ func executeRequest(ctx context.Context, pool *Pool, req *httpapi.RequestCmd, al
 		var buf bytes.Buffer
 		writer := multipart.NewWriter(&buf)
 		for k, v := range req.Form {
-			_ = writer.WriteField(k, v)
+			if err := writer.WriteField(k, v); err != nil {
+				return httpapi.Response{Error: fmt.Sprintf("write form field: %v", err)}
+			}
 		}
 		for _, f := range req.Files {
+			if f.FieldName == "" {
+				return httpapi.Response{Error: "file field name required"}
+			}
 			part, err := writer.CreateFormFile(f.FieldName, f.FileName)
 			if err != nil {
-				return httpapi.Response{Error: err.Error()}
+				return httpapi.Response{Error: fmt.Sprintf("create form file: %v", err)}
 			}
-			_, _ = part.Write(f.Data)
+			if _, err := part.Write(f.Data); err != nil {
+				return httpapi.Response{Error: fmt.Sprintf("write file data: %v", err)}
+			}
 		}
-		_ = writer.Close()
+		if err := writer.Close(); err != nil {
+			return httpapi.Response{Error: fmt.Sprintf("close multipart: %v", err)}
+		}
 		body = &buf
 		contentType = writer.FormDataContentType()
 	case len(req.Form) > 0:

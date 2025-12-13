@@ -394,7 +394,7 @@ func (s *Scheduler) ReleaseProcessor(proc *Processor) {
 }
 
 // Send implements relay.Receiver. Routes package to target process.
-// Wakes the process if it's idle waiting for messages.
+// Wakes the process if it's idle or blocked waiting for messages.
 func (s *Scheduler) Send(pkg *relay.Package) error {
 	target := pkg.Target // copy before push - pkg may be released after queue receives it
 
@@ -413,9 +413,13 @@ func (s *Scheduler) Send(pkg *relay.Package) error {
 		return process.ErrProcessClosed
 	}
 
-	// Wake idle process. CAS ensures exactly-once wake even with concurrent senders.
-	// The state transition is the synchronization point - if CAS succeeds, we own the wake.
+	// Wake process if waiting for messages.
+	// CAS ensures exactly-once wake even with concurrent senders.
+	// Try both Idle (waiting on select) and Blocked (waiting on yield completion).
 	if proc.casState(StateIdle, StateReady) {
+		s.global.Push(proc)
+		s.wake()
+	} else if proc.casState(StateBlocked, StateReady) {
 		s.global.Push(proc)
 		s.wake()
 	}

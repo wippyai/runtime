@@ -24,7 +24,7 @@ local function main()
     end
 
     local msg = result.value
-    local caller_pid = msg:payload()
+    local caller_pid = msg:payload():data()
     process.send(caller_pid, "ready", process.pid())
 
     -- Wait for CANCEL event

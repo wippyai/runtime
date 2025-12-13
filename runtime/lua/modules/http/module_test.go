@@ -8,8 +8,10 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"strings"
 	"testing"
+	"time"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/runtime/resource"
@@ -1024,6 +1026,217 @@ func TestMultipartFile_Stream(t *testing.T) {
 		assert(stream ~= nil, "stream should not be nil")
 	`)
 	assert.NoError(t, err)
+}
+
+func TestMultipartFile_Header(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	bindWithStream(l)
+
+	ctx, fc := newTestContext()
+	store := resource.NewStore()
+	defer store.Close()
+	_ = resource.SetStore(ctx, store)
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition", `form-data; name="file"; filename="image.jpg"`)
+	h.Set("Content-Type", "image/jpeg")
+	fileWriter, _ := writer.CreatePart(h)
+	_, _ = io.WriteString(fileWriter, "fake image data")
+	writer.Close()
+
+	req := httptest.NewRequest("POST", "/upload", &buf)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	recorder := httptest.NewRecorder()
+	reqCtx := httpservice.NewRequestContext(req, recorder)
+	require.NoError(t, fc.Set(httpservice.RequestCtxKey(), reqCtx))
+	l.SetContext(ctx)
+
+	err := l.DoString(`
+		local req = http.request()
+		local form = req:parse_multipart()
+		local file = form.files.file[1]
+
+		local ct = file:header("Content-Type")
+		assert(ct == "image/jpeg", "content type should be image/jpeg, got: " .. tostring(ct))
+
+		local ct_lower = file:header("content-type")
+		assert(ct_lower == "image/jpeg", "header lookup should be case-insensitive")
+
+		local missing = file:header("X-Custom")
+		assert(missing == nil, "missing header should be nil")
+	`)
+	assert.NoError(t, err)
+}
+
+func TestRequest_MaxBody(t *testing.T) {
+	t.Run("max_body limit exceeded", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+		bind(l)
+
+		ctx, fc := newTestContext()
+		bodyContent := "This is a test body that is too large"
+		req, _ := http.NewRequest("POST", "/test", strings.NewReader(bodyContent))
+		req.ContentLength = int64(len(bodyContent))
+		recorder := httptest.NewRecorder()
+		reqCtx := httpservice.NewRequestContext(req, recorder)
+		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		l.SetContext(ctx)
+
+		err := l.DoString(`
+			local req = http.request({max_body = 10})
+			local body, err = req:body()
+			assert(body == nil, "body should be nil when max_body exceeded")
+			assert(err ~= nil, "should return error when max_body exceeded")
+		`)
+		assert.NoError(t, err)
+	})
+
+	t.Run("max_body limit not exceeded", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+		bind(l)
+
+		ctx, fc := newTestContext()
+		body := strings.NewReader("Small")
+		req := httptest.NewRequest("POST", "/test", body)
+		recorder := httptest.NewRecorder()
+		reqCtx := httpservice.NewRequestContext(req, recorder)
+		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		l.SetContext(ctx)
+
+		err := l.DoString(`
+			local req = http.request({max_body = 100})
+			local body, err = req:body()
+			assert(err == nil, "should not error when max_body not exceeded")
+			assert(body == "Small", "body should match")
+		`)
+		assert.NoError(t, err)
+	})
+
+	t.Run("max_body limit exceeded for JSON", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+		bind(l)
+
+		ctx, fc := newTestContext()
+		bodyContent := `{"key":"value that is very long"}`
+		req, _ := http.NewRequest("POST", "/test", strings.NewReader(bodyContent))
+		req.ContentLength = int64(len(bodyContent))
+		recorder := httptest.NewRecorder()
+		reqCtx := httpservice.NewRequestContext(req, recorder)
+		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		l.SetContext(ctx)
+
+		err := l.DoString(`
+			local req = http.request({max_body = 10})
+			local data, err = req:body_json()
+			assert(data == nil, "data should be nil when max_body exceeded")
+			assert(err ~= nil, "should return error when max_body exceeded")
+		`)
+		assert.NoError(t, err)
+	})
+}
+
+func TestRequest_Timeout(t *testing.T) {
+	t.Run("timeout during body read", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+		bind(l)
+
+		ctx, fc := newTestContext()
+		pr, pw := io.Pipe()
+		req, _ := http.NewRequest("POST", "/test", pr)
+		recorder := httptest.NewRecorder()
+		reqCtx := httpservice.NewRequestContext(req, recorder)
+		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		l.SetContext(ctx)
+
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			pw.Write([]byte("delayed data"))
+			pw.Close()
+		}()
+
+		err := l.DoString(`
+			local req = http.request({timeout = 50})
+			local body, err = req:body()
+			assert(body == nil, "body should be nil on timeout")
+			assert(err ~= nil, "should return error on timeout")
+		`)
+		assert.NoError(t, err)
+	})
+
+	t.Run("no timeout when data arrives in time", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+		bind(l)
+
+		ctx, fc := newTestContext()
+		body := strings.NewReader("Quick response")
+		req := httptest.NewRequest("POST", "/test", body)
+		recorder := httptest.NewRecorder()
+		reqCtx := httpservice.NewRequestContext(req, recorder)
+		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		l.SetContext(ctx)
+
+		err := l.DoString(`
+			local req = http.request({timeout = 5000})
+			local body, err = req:body()
+			assert(err == nil, "should not error when timeout not exceeded")
+			assert(body == "Quick response", "body should match")
+		`)
+		assert.NoError(t, err)
+	})
+}
+
+func TestRequest_ConfigOptions(t *testing.T) {
+	t.Run("request without options", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+		bind(l)
+
+		ctx, fc := newTestContext()
+		body := strings.NewReader("Test body")
+		req := httptest.NewRequest("POST", "/test", body)
+		recorder := httptest.NewRecorder()
+		reqCtx := httpservice.NewRequestContext(req, recorder)
+		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		l.SetContext(ctx)
+
+		err := l.DoString(`
+			local req = http.request()
+			local body, err = req:body()
+			assert(err == nil, "should not error without options")
+			assert(body == "Test body", "body should match")
+		`)
+		assert.NoError(t, err)
+	})
+
+	t.Run("request with both timeout and max_body", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+		bind(l)
+
+		ctx, fc := newTestContext()
+		body := strings.NewReader("Test")
+		req := httptest.NewRequest("POST", "/test", body)
+		recorder := httptest.NewRecorder()
+		reqCtx := httpservice.NewRequestContext(req, recorder)
+		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		l.SetContext(ctx)
+
+		err := l.DoString(`
+			local req = http.request({timeout = 5000, max_body = 100})
+			local body, err = req:body()
+			assert(err == nil, "should not error with both options")
+			assert(body == "Test", "body should match")
+		`)
+		assert.NoError(t, err)
+	})
 }
 
 func TestModuleImmutability(t *testing.T) {

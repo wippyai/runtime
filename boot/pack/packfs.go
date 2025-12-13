@@ -233,7 +233,7 @@ func (pf *packFile) readChunked(offset, size uint64) ([]byte, error) {
 
 // getFrameInfo gets frame info for a data frame index.
 func (pf *packFile) getFrameInfo(frameIdx uint32) *FrameInfo {
-	return getDataFrameInfo(frameIdx, pf.reader.toc.DataFrames)
+	return getDataFrameInfo(frameIdx, pf.reader.toc.DataFrames, len(pf.reader.toc.Resources))
 }
 
 // Close implements fs.File.
@@ -407,7 +407,7 @@ func (br *blobReader) readChunked(offset, size uint64) ([]byte, error) {
 
 // getFrameInfo gets frame info for a data frame index.
 func (br *blobReader) getFrameInfo(frameIdx uint32) *FrameInfo {
-	return getDataFrameInfo(frameIdx, br.reader.toc.DataFrames)
+	return getDataFrameInfo(frameIdx, br.reader.toc.DataFrames, len(br.reader.toc.Resources))
 }
 
 // Size implements apipack.BlobReader.
@@ -499,12 +499,15 @@ func readChunkedData[C chunkInfo](chunks []C, offset, size uint64, reader FrameR
 }
 
 // getDataFrameInfo gets frame info for a data frame index from TOC.
-func getDataFrameInfo(frameIdx uint32, dataFrames []FrameInfo) *FrameInfo {
-	if frameIdx < FirstDataFrameIndex {
+// numResources is the number of resource trees in the pack.
+func getDataFrameInfo(frameIdx uint32, dataFrames []FrameInfo, numResources int) *FrameInfo {
+	// Data frames start after: metadata(1) + entries(1) + resource trees(N)
+	firstDataFrameIndex := uint32(2 + numResources)
+	if frameIdx < firstDataFrameIndex {
 		return nil
 	}
 
-	dataFrameIdx := int(frameIdx - FirstDataFrameIndex)
+	dataFrameIdx := int(frameIdx - firstDataFrameIndex)
 	if dataFrameIdx >= len(dataFrames) {
 		return nil
 	}

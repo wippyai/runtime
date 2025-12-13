@@ -16,6 +16,7 @@ var Module = &luaapi.ModuleDef{
 
 func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	registerStreamMetatable()
+	registerScannerMetatable()
 
 	mod := lua.CreateTable(0, 0)
 	mod.Immutable = true
@@ -27,6 +28,8 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 		{Sample: &FlushYield{}, CmdID: streamapi.CmdFlush},
 		{Sample: &StatYield{}, CmdID: streamapi.CmdStat},
 		{Sample: &CloseYield{}, CmdID: streamapi.CmdClose},
+		{Sample: &ScannerCreateYield{}, CmdID: streamapi.CmdScannerCreate},
+		{Sample: &ScannerScanYield{}, CmdID: streamapi.CmdScannerScan},
 	}
 
 	return mod, yields

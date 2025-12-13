@@ -1,6 +1,12 @@
 -- Child worker that links TO the parent PID passed via inbox
 -- When parent errors/terminates, this process receives LINK_DOWN
 local function main()
+    -- Enable trap_links to receive LINK_DOWN events
+    local ok, err = process.set_options({ trap_links = true })
+    if not ok then
+        return false, "set_options failed: " .. tostring(err)
+    end
+
     local events_ch = process.events()
     local inbox_ch = process.inbox()
 
@@ -10,7 +16,7 @@ local function main()
         return false, "nil message"
     end
 
-    local parent_pid = msg:payload()
+    local parent_pid = msg:payload():data()
     if not parent_pid then
         return false, "no parent pid in message"
     end

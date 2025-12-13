@@ -66,14 +66,14 @@ func makeMethod(method string) lua.LGoFunc {
 		}
 
 		if opts.unixSocket != "" {
-			if !security.IsAllowed(ctx, "http.unix_socket", opts.unixSocket, nil) {
+			if !security.IsAllowed(ctx, "http_client.unix_socket", opts.unixSocket, nil) {
 				l.Push(lua.LNil)
 				l.Push(lua.LString("not allowed: unix socket " + opts.unixSocket))
 				return 2
 			}
 		}
 
-		if !security.IsAllowed(ctx, "http.request", urlStr, nil) {
+		if !security.IsAllowed(ctx, "http_client.request", urlStr, nil) {
 			l.Push(lua.LNil)
 			l.Push(lua.LString("not allowed: " + urlStr))
 			return 2
@@ -110,14 +110,14 @@ func request(l *lua.LState) int {
 	}
 
 	if opts.unixSocket != "" {
-		if !security.IsAllowed(ctx, "http.unix_socket", opts.unixSocket, nil) {
+		if !security.IsAllowed(ctx, "http_client.unix_socket", opts.unixSocket, nil) {
 			l.Push(lua.LNil)
 			l.Push(lua.LString("not allowed: unix socket " + opts.unixSocket))
 			return 2
 		}
 	}
 
-	if !security.IsAllowed(ctx, "http.request", urlStr, nil) {
+	if !security.IsAllowed(ctx, "http_client.request", urlStr, nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("not allowed: " + urlStr))
 		return 2
@@ -148,10 +148,30 @@ func populateYield(yield *RequestYield, method, url string, opts *requestOptions
 	if len(opts.files) > 0 {
 		yield.Files = make([]httpapi.FileUpload, len(opts.files))
 		for i, f := range opts.files {
+			data := f.data
+
+			// If reader is provided, read data from it
+			if f.reader != nil {
+				if r, ok := f.reader.(interface{ Read([]byte) (int, error) }); ok {
+					buf := make([]byte, 0, 4096)
+					tmp := make([]byte, 4096)
+					for {
+						n, err := r.Read(tmp)
+						if n > 0 {
+							buf = append(buf, tmp[:n]...)
+						}
+						if err != nil {
+							break
+						}
+					}
+					data = buf
+				}
+			}
+
 			yield.Files[i] = httpapi.FileUpload{
 				FieldName: f.fieldName,
 				FileName:  f.fileName,
-				Data:      f.data,
+				Data:      data,
 			}
 		}
 	}
@@ -172,9 +192,11 @@ type requestOptions struct {
 }
 
 type fileUpload struct {
-	fieldName string
-	fileName  string
-	data      []byte
+	fieldName   string
+	fileName    string
+	contentType string
+	data        []byte
+	reader      any
 }
 
 func parseOptions(l *lua.LState, idx int) *requestOptions {
@@ -240,7 +262,7 @@ func parseOptions(l *lua.LState, idx int) *requestOptions {
 		})
 	}
 
-	// Files (array of {name, filename, content})
+	// Files (array of {name, filename, content_type?, content?, reader?})
 	if files := tbl.RawGetString("files"); files.Type() == lua.LTTable {
 		files.(*lua.LTable).ForEach(func(_, v lua.LValue) {
 			if ft, ok := v.(*lua.LTable); ok {
@@ -251,10 +273,20 @@ func parseOptions(l *lua.LState, idx int) *requestOptions {
 				if filename := ft.RawGetString("filename"); filename.Type() == lua.LTString {
 					f.fileName = filename.String()
 				}
+				if contentType := ft.RawGetString("content_type"); contentType.Type() == lua.LTString {
+					f.contentType = contentType.String()
+				} else {
+					f.contentType = "application/octet-stream"
+				}
+
+				// Support both content (string) and reader (io.Reader)
 				if content := ft.RawGetString("content"); content.Type() == lua.LTString {
 					f.data = []byte(content.String())
+				} else if reader := ft.RawGetString("reader"); reader.Type() == lua.LTUserData {
+					f.reader = reader.(*lua.LUserData).Value
 				}
-				if f.fieldName != "" && len(f.data) > 0 {
+
+				if f.fieldName != "" && (len(f.data) > 0 || f.reader != nil) {
 					opts.files = append(opts.files, f)
 				}
 			}
@@ -343,7 +375,7 @@ func requestBatch(l *lua.LState) int {
 		urlStr := urlVal.String()
 
 		// Check security
-		if !security.IsAllowed(ctx, "http.request", urlStr, nil) {
+		if !security.IsAllowed(ctx, "http_client.request", urlStr, nil) {
 			parseErr = "not allowed: " + urlStr
 			return
 		}
@@ -354,7 +386,7 @@ func requestBatch(l *lua.LState) int {
 			opts = parseOptionsFromTable(optsVal.(*lua.LTable))
 			// Check unix socket security
 			if opts.unixSocket != "" {
-				if !security.IsAllowed(ctx, "http.unix_socket", opts.unixSocket, nil) {
+				if !security.IsAllowed(ctx, "http_client.unix_socket", opts.unixSocket, nil) {
 					parseErr = "not allowed: unix socket " + opts.unixSocket
 					return
 				}
@@ -468,10 +500,20 @@ func parseOptionsFromTable(tbl *lua.LTable) *requestOptions {
 				if filename := ft.RawGetString("filename"); filename.Type() == lua.LTString {
 					f.fileName = filename.String()
 				}
+				if contentType := ft.RawGetString("content_type"); contentType.Type() == lua.LTString {
+					f.contentType = contentType.String()
+				} else {
+					f.contentType = "application/octet-stream"
+				}
+
+				// Support both content (string) and reader (io.Reader)
 				if content := ft.RawGetString("content"); content.Type() == lua.LTString {
 					f.data = []byte(content.String())
+				} else if reader := ft.RawGetString("reader"); reader.Type() == lua.LTUserData {
+					f.reader = reader.(*lua.LUserData).Value
 				}
-				if f.fieldName != "" && len(f.data) > 0 {
+
+				if f.fieldName != "" && (len(f.data) > 0 || f.reader != nil) {
 					opts.files = append(opts.files, f)
 				}
 			}

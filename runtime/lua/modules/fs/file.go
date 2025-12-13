@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"io"
@@ -9,6 +10,7 @@ import (
 
 	fsapi "github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/runtime/resource"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -142,12 +144,13 @@ func (f *File) Close() error {
 }
 
 var fileMethods = map[string]lua.LGoFunc{
-	"read":  fileRead,
-	"write": fileWrite,
-	"seek":  fileSeek,
-	"close": fileClose,
-	"stat":  fileStat,
-	"sync":  fileSync,
+	"read":    fileRead,
+	"write":   fileWrite,
+	"seek":    fileSeek,
+	"close":   fileClose,
+	"stat":    fileStat,
+	"sync":    fileSync,
+	"scanner": fileScanner,
 }
 
 func fileRead(l *lua.LState) int {
@@ -296,6 +299,120 @@ func fileToString(l *lua.LState) int {
 		l.Push(lua.LString("fs.File{closed}"))
 	} else {
 		l.Push(lua.LString("fs.File{}"))
+	}
+	return 1
+}
+
+const (
+	splitLines = 0
+	splitWords = 1
+	splitBytes = 2
+	splitRunes = 3
+)
+
+func fileScanner(l *lua.LState) int {
+	f := checkFile(l, 1)
+	if f == nil {
+		return 0
+	}
+	if f.closed {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "file is closed").WithKind(lua.KindInvalid))
+		return 2
+	}
+
+	splitType := splitLines
+	if l.GetTop() >= 2 {
+		splitStr := l.CheckString(2)
+		switch splitStr {
+		case "lines":
+			splitType = splitLines
+		case "words":
+			splitType = splitWords
+		case "bytes":
+			splitType = splitBytes
+		case "runes":
+			splitType = splitRunes
+		default:
+			l.Push(lua.LNil)
+			l.Push(lua.NewLuaError(l, "invalid split type: must be 'lines', 'words', 'bytes', or 'runes'").WithKind(lua.KindInvalid))
+			return 2
+		}
+	}
+
+	scanner := bufio.NewScanner(f.file)
+	switch splitType {
+	case splitLines:
+		scanner.Split(bufio.ScanLines)
+	case splitWords:
+		scanner.Split(bufio.ScanWords)
+	case splitBytes:
+		scanner.Split(bufio.ScanBytes)
+	case splitRunes:
+		scanner.Split(bufio.ScanRunes)
+	}
+
+	fs := &FileScanner{scanner: scanner}
+	value.PushUserData(l, fs, fileScannerMetatable)
+	l.Push(lua.LNil)
+	return 2
+}
+
+type FileScanner struct {
+	scanner  *bufio.Scanner
+	lastText string
+	lastErr  error
+}
+
+const fileScannerTypeName = "fs.Scanner"
+
+var fileScannerMethods = map[string]lua.LGoFunc{
+	"scan": fileScannerScan,
+	"text": fileScannerText,
+	"err":  fileScannerErr,
+}
+
+func checkFileScanner(l *lua.LState, n int) *FileScanner {
+	ud := l.CheckUserData(n)
+	if v, ok := ud.Value.(*FileScanner); ok {
+		return v
+	}
+	l.ArgError(n, "Scanner expected")
+	return nil
+}
+
+func fileScannerScan(l *lua.LState) int {
+	s := checkFileScanner(l, 1)
+	if s == nil {
+		return 0
+	}
+
+	hasToken := s.scanner.Scan()
+	s.lastText = s.scanner.Text()
+	s.lastErr = s.scanner.Err()
+
+	l.Push(lua.LBool(hasToken))
+	return 1
+}
+
+func fileScannerText(l *lua.LState) int {
+	s := checkFileScanner(l, 1)
+	if s == nil {
+		return 0
+	}
+	l.Push(lua.LString(s.lastText))
+	return 1
+}
+
+func fileScannerErr(l *lua.LState) int {
+	s := checkFileScanner(l, 1)
+	if s == nil {
+		return 0
+	}
+	if s.lastErr == nil {
+		l.Push(lua.LNil)
+	} else {
+		l.Push(lua.LString(s.lastErr.Error()))
 	}
 	return 1
 }

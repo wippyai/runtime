@@ -861,6 +861,7 @@ func (a *Adaptive) handleProbing(workers int32) {
 		a.learnedThroughput = a.ema
 		a.consecutiveSuccess++
 
+		burstAdded := 0
 		if hasBacklog && workers < int32(a.maxWorkers) && a.consecutiveSuccess >= 2 {
 			predictedJump := 1 << min(a.consecutiveSuccess, 4)
 			available := a.maxWorkers - int(workers)
@@ -875,10 +876,18 @@ func (a *Adaptive) handleProbing(workers int32) {
 				if err := a.spawnWorker(); err != nil {
 					break
 				}
+				burstAdded++
 			}
-			if predictedJump > 0 {
+			if burstAdded > 0 {
 				a.learnedWorkers = a.workerCount.Load()
 			}
+		}
+
+		if a.log != nil {
+			a.log.Debug("probe success",
+				zap.Int32("workers", a.workerCount.Load()),
+				zap.Float64("improvement", improvement),
+				zap.Int("burst", burstAdded))
 		}
 
 		a.cooldownUntil = time.Now().Add(a.probeCooldown / time.Duration(a.successCooldownDivisor))
@@ -890,6 +899,12 @@ func (a *Adaptive) handleProbing(workers int32) {
 		a.cooldownUntil = time.Now().Add(a.probeFailedCooldown)
 		a.highQueueTicks = 0
 		a.consecutiveSuccess = 0
+
+		if a.log != nil {
+			a.log.Debug("probe failed",
+				zap.Int32("workers", a.workerCount.Load()),
+				zap.Float64("improvement", improvement))
+		}
 	}
 }
 

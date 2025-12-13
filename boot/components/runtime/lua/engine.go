@@ -6,6 +6,7 @@ import (
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
+	fsapi "github.com/wippyai/runtime/api/fs"
 	logapi "github.com/wippyai/runtime/api/logs"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	bootpkg "github.com/wippyai/runtime/boot"
@@ -88,6 +89,15 @@ func Engine() boot.Component {
 			workflows := workflowlua.NewManager(logger.Named("lua.workflow"), codeManager, bus)
 			handlers.Register(component.NewHandler("process.lua", processes))
 			handlers.Register(component.NewHandler("workflow.lua", workflows))
+
+			// Register bytecode managers
+			fsReg := fsapi.GetRegistry(ctx)
+			bcFuncs := funclua.NewBytecodeManager(logger.Named("lua.func.bc"), codeManager, bus, disp, fsReg)
+			bcLibs := library.NewBytecodeManager(logger.Named("lua.lib.bc"), codeManager, fsReg)
+			bcProcs := proclua.NewBytecodeManager(logger.Named("lua.process.bc"), codeManager, bus, fsReg)
+			handlers.Register(component.NewHandler("function.lua.bc", bcFuncs))
+			handlers.Register(component.NewHandler("library.lua.bc", bcLibs))
+			handlers.Register(component.NewHandler("process.lua.bc", bcProcs))
 
 			return ctx, nil
 		},

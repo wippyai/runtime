@@ -1,11 +1,13 @@
 package http
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"mime/multipart"
 	basehttp "net/http"
 	"strings"
+	"time"
 
 	"github.com/wippyai/runtime/api/runtime/resource"
 	httpservice "github.com/wippyai/runtime/api/service/http"
@@ -18,6 +20,12 @@ import (
 
 type Request struct {
 	request *basehttp.Request
+	config  RequestConfig
+}
+
+type RequestConfig struct {
+	Timeout int64
+	MaxBody int64
 }
 
 // MultipartFile represents a file from a multipart form.
@@ -51,6 +59,7 @@ var multipartFileMethods = map[string]lua.LGoFunc{
 	"stream": multipartFileStream,
 	"size":   multipartFileSize,
 	"name":   multipartFileName,
+	"header": multipartFileHeader,
 }
 
 func pushRequest(l *lua.LState, req *Request) {
@@ -58,6 +67,11 @@ func pushRequest(l *lua.LState, req *Request) {
 }
 
 func newRequest(l *lua.LState) int {
+	var cfg RequestConfig
+	if l.GetTop() > 0 {
+		cfg = parseRequestOptions(l, 1)
+	}
+
 	ctx := l.Context()
 	if ctx == nil {
 		err := lua.NewLuaError(l, "no context available").
@@ -78,7 +92,10 @@ func newRequest(l *lua.LState) int {
 		return 2
 	}
 
-	pushRequest(l, &Request{request: reqCtx.Request()})
+	pushRequest(l, &Request{
+		request: reqCtx.Request(),
+		config:  cfg,
+	})
 	l.Push(lua.LNil)
 	return 2
 }
@@ -90,6 +107,37 @@ func checkRequest(l *lua.LState, idx int) *Request { //nolint:unparam
 	}
 	l.ArgError(idx, "http.Request expected")
 	return nil
+}
+
+func parseRequestOptions(l *lua.LState, idx int) RequestConfig {
+	cfg := RequestConfig{}
+
+	if l.GetTop() < idx {
+		return cfg
+	}
+
+	opts := l.CheckTable(idx)
+	if opts == nil {
+		return cfg
+	}
+
+	timeoutLV := l.GetField(opts, "timeout")
+	switch v := timeoutLV.(type) {
+	case lua.LNumber:
+		cfg.Timeout = int64(v)
+	case lua.LInteger:
+		cfg.Timeout = int64(v)
+	}
+
+	maxBodyLV := l.GetField(opts, "max_body")
+	switch v := maxBodyLV.(type) {
+	case lua.LNumber:
+		cfg.MaxBody = int64(v)
+	case lua.LInteger:
+		cfg.MaxBody = int64(v)
+	}
+
+	return cfg
 }
 
 func requestMethod(l *lua.LState) int {
@@ -221,10 +269,55 @@ func requestBody(l *lua.LState) int {
 		l.Push(err)
 		return 2
 	}
-	body, err := io.ReadAll(req.request.Body)
+
+	if req.config.MaxBody > 0 && req.request.ContentLength > req.config.MaxBody {
+		err := lua.NewLuaError(l, "request body too large").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
+	}
+
+	var body []byte
+	var readErr error
+
+	if req.config.Timeout > 0 {
+		ctx, cancel := context.WithTimeout(
+			req.request.Context(),
+			time.Duration(req.config.Timeout)*time.Millisecond,
+		)
+		defer cancel()
+
+		bodyChan := make(chan []byte)
+		errChan := make(chan error)
+
+		go func() {
+			b, err := io.ReadAll(req.request.Body)
+			if err != nil {
+				errChan <- err
+				return
+			}
+			select {
+			case bodyChan <- b:
+			case <-ctx.Done():
+			}
+		}()
+
+		select {
+		case body = <-bodyChan:
+		case readErr = <-errChan:
+		case <-ctx.Done():
+			readErr = fmt.Errorf("request timeout after %dms", req.config.Timeout)
+		}
+	} else {
+		body, readErr = io.ReadAll(req.request.Body)
+	}
+
 	defer func() { _ = req.request.Body.Close() }()
-	if err != nil {
-		luaErr := lua.WrapErrorWithLua(l, err, "failed to read body").
+
+	if readErr != nil {
+		luaErr := lua.WrapErrorWithLua(l, readErr, "failed to read body").
 			WithKind(lua.KindInternal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
@@ -249,6 +342,16 @@ func requestBodyJSON(l *lua.LState) int {
 		l.Push(err)
 		return 2
 	}
+
+	if req.config.MaxBody > 0 && req.request.ContentLength > req.config.MaxBody {
+		err := lua.NewLuaError(l, "request body too large").
+			WithKind(lua.KindInvalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
+	}
+
 	body, err := io.ReadAll(req.request.Body)
 	defer func() { _ = req.request.Body.Close() }()
 	if err != nil {
@@ -545,6 +648,21 @@ func multipartFileName(l *lua.LState) int {
 	l.Push(lua.LString(mf.fileHeader.Filename))
 	l.Push(lua.LNil)
 	return 2
+}
+
+func multipartFileHeader(l *lua.LState) int {
+	mf := checkMultipartFile(l, 1)
+	if mf == nil {
+		return 0
+	}
+	name := l.CheckString(2)
+	value := mf.fileHeader.Header.Get(name)
+	if value == "" {
+		l.Push(lua.LNil)
+	} else {
+		l.Push(lua.LString(value))
+	}
+	return 1
 }
 
 func multipartFileToString(l *lua.LState) int {

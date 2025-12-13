@@ -80,7 +80,9 @@ func NewLazy(factory process.FactoryFunc, dispatcher dispatcher.Dispatcher, cfg 
 // Start begins the idle reaper.
 func (l *Lazy) Start() {
 	l.startOnce.Do(func() {
+		l.mu.Lock()
 		l.reaper = time.NewTicker(l.idleTimeout / 2)
+		l.mu.Unlock()
 		go l.runReaper()
 	})
 }
@@ -92,17 +94,18 @@ func (l *Lazy) Stop() {
 	}
 	close(l.done)
 
-	if l.reaper != nil {
-		l.reaper.Stop()
-		close(l.reaperDone)
-	}
-
 	l.mu.Lock()
+	reaper := l.reaper
 	for _, proc := range l.idle {
 		proc.Close()
 	}
 	l.idle = nil
 	l.mu.Unlock()
+
+	if reaper != nil {
+		reaper.Stop()
+		close(l.reaperDone)
+	}
 }
 
 // Call executes using an idle or newly created process.

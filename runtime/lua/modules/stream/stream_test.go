@@ -525,8 +525,8 @@ func TestModuleBuild(t *testing.T) {
 		t.Error("module table should be immutable")
 	}
 
-	if len(yields) != 6 {
-		t.Errorf("expected 6 yield types, got %d", len(yields))
+	if len(yields) != 8 {
+		t.Errorf("expected 8 yield types, got %d", len(yields))
 	}
 }
 
@@ -539,5 +539,182 @@ func TestModuleInfo(t *testing.T) {
 	}
 	if len(Module.Class) == 0 {
 		t.Error("module should have at least one class")
+	}
+}
+
+func TestScannerCreateYieldPool(t *testing.T) {
+	y1 := AcquireScannerCreateYield(42, 0)
+	if y1.StreamID != 42 {
+		t.Errorf("expected StreamID=42, got %v", y1.StreamID)
+	}
+	if y1.SplitType != 0 {
+		t.Errorf("expected SplitType=0, got %v", y1.SplitType)
+	}
+	ReleaseScannerCreateYield(y1)
+
+	y2 := AcquireScannerCreateYield(99, 1)
+	if y2.StreamID != 99 {
+		t.Errorf("expected StreamID=99, got %v", y2.StreamID)
+	}
+	if y2.SplitType != 1 {
+		t.Errorf("expected SplitType=1, got %v", y2.SplitType)
+	}
+	ReleaseScannerCreateYield(y2)
+}
+
+func TestScannerCreateYieldString(t *testing.T) {
+	y := AcquireScannerCreateYield(1, 0)
+	defer ReleaseScannerCreateYield(y)
+
+	if y.String() != "<scanner_create_yield>" {
+		t.Errorf("unexpected String(): %s", y.String())
+	}
+}
+
+func TestScannerScanYieldPool(t *testing.T) {
+	scanner := &Scanner{ID: 100}
+	y1 := AcquireScannerScanYield(100, scanner)
+	if y1.ScannerID != 100 {
+		t.Errorf("expected ScannerID=100, got %v", y1.ScannerID)
+	}
+	if y1.scanner != scanner {
+		t.Error("expected scanner reference to be stored")
+	}
+	ReleaseScannerScanYield(y1)
+
+	y2 := AcquireScannerScanYield(200, nil)
+	if y2.ScannerID != 200 {
+		t.Errorf("expected ScannerID=200, got %v", y2.ScannerID)
+	}
+	ReleaseScannerScanYield(y2)
+}
+
+func TestScannerScanYieldString(t *testing.T) {
+	y := AcquireScannerScanYield(1, nil)
+	defer ReleaseScannerScanYield(y)
+
+	if y.String() != "<scanner_scan_yield>" {
+		t.Errorf("unexpected String(): %s", y.String())
+	}
+}
+
+func TestNewScanner(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	scanner := NewScanner(l, 42)
+	if scanner == lua.LNil {
+		t.Fatal("NewScanner returned nil")
+	}
+
+	ud, ok := scanner.(*lua.LUserData)
+	if !ok {
+		t.Fatal("expected LUserData")
+	}
+
+	s, ok := ud.Value.(*Scanner)
+	if !ok {
+		t.Fatal("expected *Scanner")
+	}
+	if s.ID != 42 {
+		t.Errorf("expected ID=42, got %v", s.ID)
+	}
+}
+
+func TestScannerServiceIntegration(t *testing.T) {
+	table := resource.NewTable()
+
+	data := "line1\nline2\nline3"
+	reader := io.NopCloser(strings.NewReader(data))
+	streamID := streamsvc.Insert(table, reader)
+	if streamID == 0 {
+		t.Fatal("expected non-zero stream ID")
+	}
+
+	scannerID, err := streamsvc.CreateScanner(table, streamID, 0)
+	if err != nil {
+		t.Fatalf("CreateScanner error: %v", err)
+	}
+	if scannerID == 0 {
+		t.Fatal("expected non-zero scanner ID")
+	}
+
+	result1, err := streamsvc.ScanNext(table, scannerID)
+	if err != nil {
+		t.Fatalf("ScanNext error: %v", err)
+	}
+	if !result1.HasToken {
+		t.Error("expected HasToken=true for first line")
+	}
+	if result1.Text != "line1" {
+		t.Errorf("expected 'line1', got '%s'", result1.Text)
+	}
+
+	result2, err := streamsvc.ScanNext(table, scannerID)
+	if err != nil {
+		t.Fatalf("ScanNext error: %v", err)
+	}
+	if !result2.HasToken {
+		t.Error("expected HasToken=true for second line")
+	}
+	if result2.Text != "line2" {
+		t.Errorf("expected 'line2', got '%s'", result2.Text)
+	}
+
+	result3, err := streamsvc.ScanNext(table, scannerID)
+	if err != nil {
+		t.Fatalf("ScanNext error: %v", err)
+	}
+	if !result3.HasToken {
+		t.Error("expected HasToken=true for third line")
+	}
+	if result3.Text != "line3" {
+		t.Errorf("expected 'line3', got '%s'", result3.Text)
+	}
+
+	result4, err := streamsvc.ScanNext(table, scannerID)
+	if err != nil {
+		t.Fatalf("ScanNext error: %v", err)
+	}
+	if result4.HasToken {
+		t.Error("expected HasToken=false at EOF")
+	}
+	if result4.Error != "" {
+		t.Errorf("expected no error at EOF, got '%s'", result4.Error)
+	}
+}
+
+func TestScannerSplitWords(t *testing.T) {
+	table := resource.NewTable()
+
+	data := "hello world foo bar"
+	reader := io.NopCloser(strings.NewReader(data))
+	streamID := streamsvc.Insert(table, reader)
+
+	scannerID, err := streamsvc.CreateScanner(table, streamID, 1)
+	if err != nil {
+		t.Fatalf("CreateScanner error: %v", err)
+	}
+
+	words := []string{}
+	for {
+		result, err := streamsvc.ScanNext(table, scannerID)
+		if err != nil {
+			t.Fatalf("ScanNext error: %v", err)
+		}
+		if !result.HasToken {
+			break
+		}
+		words = append(words, result.Text)
+	}
+
+	expected := []string{"hello", "world", "foo", "bar"}
+	if len(words) != len(expected) {
+		t.Fatalf("expected %d words, got %d", len(expected), len(words))
+	}
+	for i, w := range words {
+		if w != expected[i] {
+			t.Errorf("word[%d]: expected '%s', got '%s'", i, expected[i], w)
+		}
 	}
 }

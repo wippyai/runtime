@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	fsapi "github.com/wippyai/runtime/api/fs"
+	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -414,6 +415,14 @@ func fsWritefile(l *lua.LState) int {
 		reader = strings.NewReader(string(v))
 	case *lua.LUserData:
 		if r, ok := v.Value.(io.Reader); ok {
+			reader = r
+		} else if rp, ok := v.Value.(resource.ReaderProvider); ok {
+			r, err := rp.GetReader(l.Context())
+			if err != nil {
+				l.Push(lua.LFalse)
+				l.Push(lua.WrapErrorWithLua(l, err, "failed to get reader").WithKind(lua.KindInternal))
+				return 2
+			}
 			reader = r
 		} else {
 			l.Push(lua.LFalse)

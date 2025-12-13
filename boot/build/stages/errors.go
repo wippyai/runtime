@@ -212,3 +212,72 @@ func NewConvertEntryError(entryID string, cause error) *Error {
 		cause:   cause,
 	}
 }
+
+// Bytecode stage errors
+
+var (
+	ErrBytecodeNoData = &Error{
+		kind:    apierror.KindInvalid,
+		message: "entry has no data",
+	}
+	ErrBytecodeInvalidData = &Error{
+		kind:    apierror.KindInvalid,
+		message: "entry data is not a map",
+	}
+	ErrBytecodeNoSource = &Error{
+		kind:    apierror.KindInvalid,
+		message: "entry has no source field",
+	}
+	ErrBytecodeUnsupportedKind = &Error{
+		kind:    apierror.KindInvalid,
+		message: "unsupported entry kind for bytecode compilation",
+	}
+)
+
+func NewBytecodeCompileError(entryID fmt.Stringer, cause error) *Error {
+	return &Error{
+		kind:    apierror.KindInternal,
+		message: fmt.Sprintf("failed to compile bytecode for %s", entryID),
+		cause:   cause,
+	}
+}
+
+func NewBytecodeTransformError(entryID fmt.Stringer, cause error) *Error {
+	return &Error{
+		kind:    apierror.KindInternal,
+		message: fmt.Sprintf("failed to transform entry %s to bytecode config", entryID),
+		cause:   cause,
+	}
+}
+
+func NewBytecodeParseError(cause error) *Error {
+	return &Error{
+		kind:    apierror.KindInvalid,
+		message: "failed to parse Lua source",
+		cause:   cause,
+	}
+}
+
+func NewBytecodeCompileLuaError(cause error) *Error {
+	return &Error{
+		kind:    apierror.KindInternal,
+		message: "failed to compile Lua source",
+		cause:   cause,
+	}
+}
+
+func NewBytecodeDumpError(cause error) *Error {
+	return &Error{
+		kind:    apierror.KindInternal,
+		message: "failed to dump bytecode",
+		cause:   cause,
+	}
+}
+
+func NewBytecodeTranscodeError(cause error) *Error {
+	return &Error{
+		kind:    apierror.KindInternal,
+		message: "failed to transcode entry data",
+		cause:   cause,
+	}
+}

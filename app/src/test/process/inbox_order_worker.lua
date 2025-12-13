@@ -18,7 +18,7 @@ local function main()
         end
 
         local msg = result.value
-        local payload = msg:payload()
+        local payload = msg:payload():data()
         table.insert(received, payload)
     end
 

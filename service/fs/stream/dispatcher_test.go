@@ -303,8 +303,8 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 	d.RegisterAll(func(_ dispatcher.CommandID, _ dispatcher.Handler) {
 		count++
 	})
-	if count != 6 {
-		t.Errorf("expected 6 handlers registered, got %d", count)
+	if count != 8 {
+		t.Errorf("expected 8 handlers registered, got %d", count)
 	}
 }
 

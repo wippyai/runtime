@@ -9,18 +9,21 @@ func init() {
 	dispatcher.MustRegisterCommands("stream",
 		CmdRead, CmdClose, CmdWrite,
 		CmdSeek, CmdFlush, CmdStat,
+		CmdScannerCreate, CmdScannerScan,
 	)
 }
 
 // Command IDs for stream operations.
 // Range 50-59 is reserved for stream I/O commands.
 const (
-	CmdRead  dispatcher.CommandID = 50 // Read chunk from stream
-	CmdClose dispatcher.CommandID = 51 // Close stream
-	CmdWrite dispatcher.CommandID = 52 // Write data to stream
-	CmdSeek  dispatcher.CommandID = 53 // Seek within stream
-	CmdFlush dispatcher.CommandID = 54 // Flush buffered data
-	CmdStat  dispatcher.CommandID = 55 // Get stream info (size, etc)
+	CmdRead          dispatcher.CommandID = 50 // Read chunk from stream
+	CmdClose         dispatcher.CommandID = 51 // Close stream
+	CmdWrite         dispatcher.CommandID = 52 // Write data to stream
+	CmdSeek          dispatcher.CommandID = 53 // Seek within stream
+	CmdFlush         dispatcher.CommandID = 54 // Flush buffered data
+	CmdStat          dispatcher.CommandID = 55 // Get stream info (size, etc)
+	CmdScannerCreate dispatcher.CommandID = 56 // Create scanner from stream
+	CmdScannerScan   dispatcher.CommandID = 57 // Scan next token
 )
 
 // Seek whence constants (matching io.Seek*)
@@ -105,4 +108,38 @@ type Info struct {
 	Readable bool
 	Writable bool
 	Seekable bool
+}
+
+// Scanner split type constants.
+const (
+	SplitLines = 0 // Split on newlines (default)
+	SplitWords = 1 // Split on whitespace
+	SplitBytes = 2 // Split on individual bytes
+	SplitRunes = 3 // Split on UTF-8 runes
+)
+
+// ScannerCreateCmd creates a scanner from a stream.
+type ScannerCreateCmd struct {
+	StreamID  uint64
+	SplitType int
+}
+
+func (c ScannerCreateCmd) CmdID() dispatcher.CommandID {
+	return CmdScannerCreate
+}
+
+// ScannerScanCmd advances scanner to next token.
+type ScannerScanCmd struct {
+	ScannerID uint64
+}
+
+func (c ScannerScanCmd) CmdID() dispatcher.CommandID {
+	return CmdScannerScan
+}
+
+// ScanResult contains the result of a scan operation.
+type ScanResult struct {
+	HasToken bool
+	Text     string
+	Error    string
 }

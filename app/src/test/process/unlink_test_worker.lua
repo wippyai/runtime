@@ -2,6 +2,12 @@
 local time = require("time")
 
 local function main()
+    -- Enable trap_links to receive LINK_DOWN events (for verification it doesn't arrive after unlink)
+    local ok, err = process.set_options({ trap_links = true })
+    if not ok then
+        return false, "set_options failed: " .. tostring(err)
+    end
+
     local events_ch = process.events()
     local inbox_ch = process.inbox()
 
@@ -11,7 +17,7 @@ local function main()
         return false, "nil message"
     end
 
-    local target_pid = msg:payload()
+    local target_pid = msg:payload():data()
     if not target_pid then
         return false, "no target pid"
     end
@@ -47,11 +53,17 @@ local function main()
         timeout:case_receive(),
     }
 
-    if result.channel == events_ch then
-        return false, "unexpected event after unlink: " .. tostring(result.value.kind)
+    if result.channel == timeout then
+        return "NO_LINK_DOWN"
     end
 
-    return "NO_LINK_DOWN"
+    -- Got an event when we shouldn't have after unlink
+    local event = result.value
+    local kind_str = "nil"
+    if event then
+        kind_str = tostring(event.kind)
+    end
+    return false, "unexpected event after unlink: kind=" .. kind_str
 end
 
 return { main = main }

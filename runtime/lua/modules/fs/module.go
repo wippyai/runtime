@@ -24,11 +24,12 @@ const (
 )
 
 var (
-	moduleTable   *lua.LTable
-	registration  *luaapi.Registration
-	fsMetatable   *lua.LTable
-	fileMetatable *lua.LTable
-	initOnce      sync.Once
+	moduleTable          *lua.LTable
+	registration         *luaapi.Registration
+	fsMetatable          *lua.LTable
+	fileMetatable        *lua.LTable
+	fileScannerMetatable *lua.LTable
+	initOnce             sync.Once
 )
 
 // Module is the singleton fs module instance.
@@ -53,6 +54,9 @@ func (m *fsModule) Register(_ *lua.LState) *luaapi.Registration {
 		fileMetatable = value.RegisterTypeMethods(nil, fileTypeName,
 			map[string]lua.LGoFunc{"__tostring": fileToString},
 			fileMethods)
+		fileScannerMetatable = value.RegisterTypeMethods(nil, fileScannerTypeName,
+			nil,
+			fileScannerMethods)
 		registration = &luaapi.Registration{
 			Table:      moduleTable,
 			YieldTypes: nil,

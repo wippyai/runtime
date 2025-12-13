@@ -307,6 +307,12 @@ func (m *BytecodeManager) createPool(_ context.Context, id registry.ID, cfg *api
 			QueueSize: queueSize,
 		}, execHooks)
 
+	case api.PoolTypeAdaptive:
+		pool, err = funcpool.NewAdaptive(factory, m.dispatcher,
+			funcpool.WithMaxWorkers(maxWorkers),
+			funcpool.WithExecutionHooks(execHooks),
+		)
+
 	default:
 		return api.NewUnknownPoolTypeError(poolType)
 	}

@@ -116,6 +116,15 @@ type Process struct {
 	// messageQueue stores all incoming messages until they can be delivered
 	// Messages are kept in order and only removed when delivered to a channel
 	messageQueue []queuedMessage
+
+	// trapLinks controls LINK_DOWN behavior:
+	// false (default): process terminates when linked process fails
+	// true: process receives LINK_DOWN event and can handle it
+	trapLinks bool
+
+	// linkDownError is set when LINK_DOWN is received with trap_links=false
+	// This causes the process to terminate on next Step
+	linkDownError error
 }
 
 // queuedMessage stores a message waiting to be delivered
@@ -180,6 +189,18 @@ func (p *Process) GetTopicHandler(topic string) (TopicHandler, bool) {
 // RemoveTopicHandler removes a handler for a topic.
 func (p *Process) RemoveTopicHandler(topic string) {
 	delete(p.handlers, topic)
+}
+
+// SetTrapLinks enables or disables trapping of LINK_DOWN events.
+// When false (default), process terminates when linked process fails.
+// When true, process receives LINK_DOWN event and can handle it.
+func (p *Process) SetTrapLinks(trap bool) {
+	p.trapLinks = trap
+}
+
+// IsTrapLinks returns whether LINK_DOWN events are trapped.
+func (p *Process) IsTrapLinks() bool {
+	return p.trapLinks
 }
 
 // ChannelQueue returns the channel layer task queue, creating it if needed.
@@ -436,6 +457,13 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		// This ensures messages that arrived while tasks were blocked get delivered
 		if p.subs != nil {
 			p.flushMessageQueue(p.subs)
+		}
+
+		// Check if LINK_DOWN triggered termination (trap_links=false)
+		if p.linkDownError != nil {
+			p.clearExecution()
+			out.Done(nil)
+			return toAPIError(p.linkDownError)
 		}
 
 		// Process channel yields (inner layer)
@@ -739,9 +767,19 @@ func (p *Process) flushMessageQueue(subs *subscribeContext) {
 
 // deliverMessage attempts to deliver a queued message to its subscription.
 // Returns true if delivered (or terminal handled), false if no subscription exists.
+// Returns error if process should terminate (e.g., LINK_DOWN with trap_links=false).
 func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool {
 	topic := qm.Topic
 	handlerTopic := topic
+
+	// Check for LINK_DOWN events when trap_links is false
+	// Per spec: without trap_links, process should fail when linked process fails
+	if topic == string(topology.TopicEvents) && !p.trapLinks {
+		if isLinkDownEvent(qm.Payloads) {
+			p.linkDownError = errors.New("linked process failed")
+			return true // consume the message
+		}
+	}
 
 	// Find subscription for topic
 	sub, exists := subs.get(topic)
@@ -816,6 +854,44 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool 
 	}
 
 	return true
+}
+
+// isLinkDownEvent checks if the payload contains a LINK_DOWN event.
+func isLinkDownEvent(payloads []payload.Payload) bool {
+	if len(payloads) == 0 {
+		return false
+	}
+
+	// Try to extract the event from the first payload
+	pl := payloads[0]
+	if pl == nil {
+		return false
+	}
+
+	// Check if payload data is an ExitEvent with LINK_DOWN kind
+	data := pl.Data()
+	if data == nil {
+		return false
+	}
+
+	// Type assertion for ExitEvent
+	if event, ok := data.(*topology.ExitEvent); ok {
+		return event.Kind == topology.KindLinkDown
+	}
+
+	// Also check if it's a map (json decoded)
+	if m, ok := data.(map[string]any); ok {
+		if kind, ok := m["kind"].(string); ok {
+			return kind == topology.KindLinkDown
+		}
+	}
+
+	return false
+}
+
+// LinkDownError returns the link down error if set.
+func (p *Process) LinkDownError() error {
+	return p.linkDownError
 }
 
 // PayloadsToLua converts a slice of payloads to Lua value.

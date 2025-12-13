@@ -526,28 +526,21 @@ func (m *Manager) createExecutionHooks() funcpool.ExecutionHooks {
 			return
 		}
 
-		// if err := m.topo.Register(pid); err != nil {
-		//	m.log.Warn("failed to register function PID in topology",
-		//		zap.String("pid", pid.String()),
-		//		zap.Error(err))
-		//}
+		if err := m.topo.Register(pid); err != nil {
+			m.log.Warn("failed to register function PID in topology",
+				zap.String("pid", pid.String()),
+				zap.Error(err))
+		}
 	}
 
-	onComplete := func(ctx context.Context, _ *runtime.Result) {
+	onComplete := func(ctx context.Context, result *runtime.Result) {
 		pid, ok := runtime.GetFramePID(ctx)
 		if !ok || pid.String() == "" {
 			return
 		}
 
-		// if result.Error != nil {
-		//	if errors.Is(result.Error, supervisor.ErrExit) {
-		//		result.Error = nil
-		//	}
-		//}
-
-		// m.topo.Notify(pid, result)
-		// m.pidReg.Remove(pid)
-		// m.topo.Remove(pid)
+		m.topo.Notify(pid, result)
+		m.topo.Remove(pid)
 	}
 
 	return funcpool.ExecutionHooks{
