@@ -5,6 +5,7 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/relay"
 	syscontract "github.com/wippyai/runtime/system/contract"
 )
@@ -19,7 +20,8 @@ func Contract() boot.Component {
 				return ctx, ErrDispatcherNotFound
 			}
 			node := relay.GetNode(ctx)
-			d := syscontract.NewDispatcher(node)
+			logger := logs.GetLogger(ctx).Named("dispatcher.contract")
+			d := syscontract.NewDispatcher(node, logger)
 			d.RegisterAll(reg.Register)
 			return ctx, nil
 		},

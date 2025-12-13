@@ -3,7 +3,7 @@ package tokenstore
 import (
 	"context"
 
-	"github.com/wippyai/runtime/api/service/security/tokenstore"
+	tokenstoreapi "github.com/wippyai/runtime/api/service/security/tokenstore"
 
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -37,9 +37,9 @@ func NewFactory(
 // CreateTokenStore creates a token store from a registry entry
 func (f *Factory) CreateTokenStore(ctx context.Context, entry registry.Entry) (security.TokenStore, error) {
 	// Decode configuration
-	cfg, err := entryutil.DecodeEntryConfig[tokenstore.Config](ctx, f.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[tokenstoreapi.Config](ctx, f.dtt, entry)
 	if err != nil {
-		return nil, NewDecodeTokenStoreConfigError(err)
+		return nil, tokenstoreapi.NewDecodeTokenStoreConfigError(err)
 	}
 
 	// Create token store with lazy loading capability

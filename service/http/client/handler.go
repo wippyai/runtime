@@ -16,7 +16,7 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	httpapi "github.com/wippyai/runtime/api/service/http"
-	streamhandler "github.com/wippyai/runtime/service/fs/stream"
+	streamhandler "github.com/wippyai/runtime/system/stream"
 )
 
 // Option configures a Dispatcher.

@@ -9,7 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/runtime/lua/modules/stream"
 	"github.com/wippyai/runtime/service/fs/directory"
-	streamservice "github.com/wippyai/runtime/service/fs/stream"
+	streamsys "github.com/wippyai/runtime/system/stream"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -395,7 +395,7 @@ func TestFSWritefileWithStream(t *testing.T) {
 	reader := strings.NewReader(fileContent)
 	rc := &testReaderCloser{reader}
 
-	streamID := streamservice.Insert(table, rc)
+	streamID := streamsys.Insert(table, rc)
 
 	l := lua.NewState()
 	defer l.Close()

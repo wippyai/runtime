@@ -6,7 +6,7 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
-	"github.com/wippyai/runtime/service/fs/stream"
+	"github.com/wippyai/runtime/system/stream"
 )
 
 // StreamConfig configures the stream dispatcher.

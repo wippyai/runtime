@@ -9,25 +9,21 @@ import (
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	"go.uber.org/zap"
 )
 
 // Dispatcher handles contract commands.
 type Dispatcher struct {
-	open        dispatcher.HandlerFunc
-	call        dispatcher.HandlerFunc
-	asyncCall   dispatcher.HandlerFunc
-	asyncCancel dispatcher.HandlerFunc
-	node        relay.Node
+	node   relay.Node
+	logger *zap.Logger
 }
 
 // NewDispatcher creates a new contract dispatcher with relay node for async routing.
-func NewDispatcher(node relay.Node) *Dispatcher {
-	d := &Dispatcher{node: node}
-	d.open = d.handleOpen
-	d.call = d.handleCall
-	d.asyncCall = d.handleAsyncCall
-	d.asyncCancel = d.handleAsyncCancel
-	return d
+func NewDispatcher(node relay.Node, logger *zap.Logger) *Dispatcher {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+	return &Dispatcher{node: node, logger: logger}
 }
 
 // Start is a no-op for contract dispatcher.
@@ -42,10 +38,10 @@ func (d *Dispatcher) Stop(_ context.Context) error {
 
 // RegisterAll registers all contract command handlers.
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
-	register(contract.CmdOpen, d.open)
-	register(contract.CmdCall, d.call)
-	register(contract.CmdAsyncCall, d.asyncCall)
-	register(contract.CmdAsyncCancel, d.asyncCancel)
+	register(contract.CmdOpen, dispatcher.HandlerFunc(d.handleOpen))
+	register(contract.CmdCall, dispatcher.HandlerFunc(d.handleCall))
+	register(contract.CmdAsyncCall, dispatcher.HandlerFunc(d.handleAsyncCall))
+	register(contract.CmdAsyncCancel, dispatcher.HandlerFunc(d.handleAsyncCancel))
 }
 
 func (d *Dispatcher) handleOpen(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
@@ -83,21 +79,27 @@ func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, tag
 
 	go func() {
 		result, err := callCmd.Instance.Call(ctx, callCmd.Method, callCmd.Args)
-		if ctx.Err() != nil {
-			receiver.CompleteYield(tag, contract.CallResult{Error: ctx.Err()}, nil)
-			return
-		}
-		if err != nil {
-			receiver.CompleteYield(tag, contract.CallResult{Error: err}, nil)
-			return
-		}
-		if result.Error != nil {
-			receiver.CompleteYield(tag, contract.CallResult{Error: result.Error}, nil)
+		if callErr := extractCallError(ctx, result, err); callErr != nil {
+			receiver.CompleteYield(tag, contract.CallResult{Error: callErr}, nil)
 			return
 		}
 		receiver.CompleteYield(tag, contract.CallResult{Value: result.Value}, nil)
 	}()
 
+	return nil
+}
+
+// extractCallError returns the first non-nil error from context, err, or result.
+func extractCallError(ctx context.Context, result *runtime.Result, err error) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if err != nil {
+		return err
+	}
+	if result != nil && result.Error != nil {
+		return result.Error
+	}
 	return nil
 }
 
@@ -125,25 +127,36 @@ func (d *Dispatcher) handleAsyncCall(ctx context.Context, cmd dispatcher.Command
 	instance := asyncCmd.Instance
 	method := asyncCmd.Method
 	args := asyncCmd.Args
+	logger := d.logger
 
 	go func() {
 		result, err := instance.Call(ctx, method, args)
 
-		var resultPayload payload.Payload
-		switch {
-		case err != nil:
-			resultPayload = payload.NewError(err)
-		case result.Error != nil:
-			resultPayload = payload.NewError(result.Error)
-		default:
-			resultPayload = result.Value
-		}
-
+		resultPayload := resultToPayload(result, err)
 		pkg := relay.NewPackage(pid.PID{}, framePID, topic, resultPayload, payload.NewTerminal())
-		_ = node.Send(pkg)
+		if err := node.Send(pkg); err != nil {
+			logger.Warn("failed to send async result",
+				zap.String("topic", string(topic)),
+				zap.String("target", framePID.String()),
+				zap.Error(err))
+		}
 	}()
 
 	receiver.CompleteYield(tag, contract.AsyncCallResult{}, nil)
+	return nil
+}
+
+// resultToPayload converts result/error to payload.
+func resultToPayload(result *runtime.Result, err error) payload.Payload {
+	if err != nil {
+		return payload.NewError(err)
+	}
+	if result != nil && result.Error != nil {
+		return payload.NewError(result.Error)
+	}
+	if result != nil {
+		return result.Value
+	}
 	return nil
 }
 
@@ -162,7 +175,12 @@ func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Comma
 	}
 
 	pkg := relay.NewPackage(pid.PID{}, framePID, cancelCmd.Topic, payload.NewTerminal())
-	_ = d.node.Send(pkg)
+	if err := d.node.Send(pkg); err != nil {
+		d.logger.Warn("failed to send async cancel",
+			zap.String("topic", string(cancelCmd.Topic)),
+			zap.String("target", framePID.String()),
+			zap.Error(err))
+	}
 
 	receiver.CompleteYield(tag, nil, nil)
 	return nil

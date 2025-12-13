@@ -5,6 +5,7 @@ import (
 
 	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/vm"
+	policyapi "github.com/wippyai/runtime/api/service/security/policy"
 )
 
 // ExprEvaluator compiles and evaluates expr-lang expressions for policy evaluation
@@ -16,7 +17,7 @@ type ExprEvaluator struct {
 // NewExprEvaluator creates a new evaluator with a pre-compiled expression
 func NewExprEvaluator(expression string) (*ExprEvaluator, error) {
 	if expression == "" {
-		return nil, ErrExpressionEmpty
+		return nil, policyapi.ErrExpressionEmpty
 	}
 
 	// Compile expression with AsBool to ensure boolean result
@@ -26,7 +27,7 @@ func NewExprEvaluator(expression string) (*ExprEvaluator, error) {
 		expr.AllowUndefinedVariables(), // Allow dynamic field access
 	)
 	if err != nil {
-		return nil, NewExprCompilationError(err)
+		return nil, policyapi.NewExprCompilationError(err)
 	}
 
 	return &ExprEvaluator{
@@ -41,13 +42,13 @@ func (e *ExprEvaluator) Evaluate(env map[string]any) (bool, error) {
 	// Run the compiled program
 	output, err := vm.Run(e.program, env)
 	if err != nil {
-		return false, NewExprEvaluationError(err)
+		return false, policyapi.NewExprEvaluationError(err)
 	}
 
 	// Type assert to bool
 	result, ok := output.(bool)
 	if !ok {
-		return false, NewExprNotBooleanError(fmt.Sprintf("%T", output))
+		return false, policyapi.NewExprNotBooleanError(fmt.Sprintf("%T", output))
 	}
 
 	return result, nil

@@ -17,7 +17,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	"github.com/wippyai/runtime/api/security"
-	"github.com/wippyai/runtime/api/service/security/tokenstore"
+	tokenstoreapi "github.com/wippyai/runtime/api/service/security/tokenstore"
 	"github.com/wippyai/runtime/api/store"
 )
 
@@ -44,7 +44,7 @@ type tokenData struct {
 
 // TokenStore implements security.TokenStore using a key-value store
 type TokenStore struct {
-	config    *tokenstore.Config
+	config    *tokenstoreapi.Config
 	dtt       payload.Transcoder
 	resources resource.Registry
 	registry  security.Registry
@@ -52,15 +52,13 @@ type TokenStore struct {
 
 // NewStoreTokenStore creates a new token store that uses a key-value store for backend storage
 func NewStoreTokenStore(
-	config *tokenstore.Config,
+	config *tokenstoreapi.Config,
 	dtt payload.Transcoder,
 	resources resource.Registry,
 	securityRegistry security.Registry,
 ) (*TokenStore, error) {
 	if err := config.Validate(); err != nil {
-		e := ErrInvalidTokenStoreConfig
-		e.cause = err
-		return nil, e
+		return nil, tokenstoreapi.ErrInvalidTokenStoreConfig.WithCause(err)
 	}
 
 	return &TokenStore{
@@ -76,21 +74,21 @@ func (s *TokenStore) acquireStore(ctx context.Context) (store.Store, resource.Re
 	// Acquire the backing store
 	storeRes, err := s.resources.Acquire(ctx, s.config.Store, resource.ModeNormal)
 	if err != nil {
-		return nil, nil, NewAcquireBackingStoreError(s.config.Store.String(), err)
+		return nil, nil, tokenstoreapi.NewAcquireBackingStoreError(s.config.Store.String(), err)
 	}
 
 	// Get the store implementation
 	storeImpl, err := storeRes.Get()
 	if err != nil {
 		storeRes.Release()
-		return nil, nil, NewGetStoreImplementationError(err)
+		return nil, nil, tokenstoreapi.NewGetStoreImplementationError(err)
 	}
 
 	// Ensure it's a store.Store
 	kvStore, ok := storeImpl.(store.Store)
 	if !ok {
 		storeRes.Release()
-		return nil, nil, NewResourceNotKVStoreError(s.config.Store.String())
+		return nil, nil, tokenstoreapi.NewResourceNotKVStoreError(s.config.Store.String())
 	}
 
 	return kvStore, storeRes, nil
@@ -113,7 +111,7 @@ func (s *TokenStore) Create(
 	// Generate token string
 	tokenStr, err := s.generateToken()
 	if err != nil {
-		return "", NewGenerateTokenError(err)
+		return "", tokenstoreapi.NewGenerateTokenError(err)
 	}
 
 	// Extract the base token (without signature) for storage key
@@ -160,7 +158,7 @@ func (s *TokenStore) Create(
 	})
 
 	if err != nil {
-		return "", NewStoreTokenError(err)
+		return "", tokenstoreapi.NewStoreTokenError(err)
 	}
 
 	return security.Token(tokenStr), nil
@@ -204,13 +202,13 @@ func (s *TokenStore) Validate(ctx context.Context, token security.Token) (securi
 		if errors.Is(err, store.ErrKeyNotFound) {
 			return security.Actor{}, nil, security.ErrTokenNotFound
 		}
-		return security.Actor{}, nil, NewRetrieveTokenError(err)
+		return security.Actor{}, nil, tokenstoreapi.NewRetrieveTokenError(err)
 	}
 
 	// Unmarshal token data
 	var data tokenData
 	if err := s.dtt.Unmarshal(value, &data); err != nil {
-		return security.Actor{}, nil, NewUnmarshalTokenDataError(err)
+		return security.Actor{}, nil, tokenstoreapi.NewUnmarshalTokenDataError(err)
 	}
 
 	// Reconstruct actor
@@ -265,7 +263,7 @@ func (s *TokenStore) Revoke(ctx context.Context, token security.Token) error {
 		if errors.Is(err, store.ErrKeyNotFound) {
 			return security.ErrTokenNotFound
 		}
-		return NewDeleteTokenError(err)
+		return tokenstoreapi.NewDeleteTokenError(err)
 	}
 
 	return nil
@@ -276,7 +274,7 @@ func (s *TokenStore) generateToken() (string, error) {
 	// Generate random bytes
 	tokenBytes := make([]byte, s.config.TokenLength)
 	if _, err := rand.Read(tokenBytes); err != nil {
-		return "", NewGenerateRandomTokenError(err)
+		return "", tokenstoreapi.NewGenerateRandomTokenError(err)
 	}
 
 	// Base64-encode the token

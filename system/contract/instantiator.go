@@ -163,3 +163,6 @@ func (i *instanceImpl) validateContext(ctx context.Context, requiredKeys []strin
 
 // Ensure Instantiator implements contract.Instantiator interface
 var _ contract.Instantiator = (*Instantiator)(nil)
+
+// Ensure instanceImpl implements contract.Instance interface
+var _ contract.Instance = (*instanceImpl)(nil)

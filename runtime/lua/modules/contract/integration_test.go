@@ -142,7 +142,7 @@ func setupIntegrationTest(t *testing.T, numWorkers int) *integrationTestContext 
 
 	reg := scheduler.NewRegistry()
 
-	contractDisp := syscontract.NewDispatcher(node)
+	contractDisp := syscontract.NewDispatcher(node, nil)
 	contractDisp.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		reg.Register(id, h)
 	})

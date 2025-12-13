@@ -472,3 +472,125 @@ func TestFS_Stat_ErrorCases(t *testing.T) {
 	assert.Error(t, err, "Stat on closed filesystem should fail")
 	assert.ErrorIs(t, err, fsapi.ErrClosed, "Error should be fsapi.ErrClosed")
 }
+
+func benchSetup(b *testing.B, files map[string]string) (string, func()) {
+	b.Helper()
+	root, err := os.MkdirTemp("", "bench_fs")
+	if err != nil {
+		b.Fatal(err)
+	}
+	for name, content := range files {
+		path := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			os.RemoveAll(root)
+			b.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			os.RemoveAll(root)
+			b.Fatal(err)
+		}
+	}
+	return root, func() { os.RemoveAll(root) }
+}
+
+func BenchmarkFSOpen(b *testing.B) {
+	root, cleanup := benchSetup(b, map[string]string{
+		"file.txt": "benchmark content",
+	})
+	defer cleanup()
+
+	fs, err := NewFS(root, 0755, false)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer fs.Close()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		f, err := fs.Open("file.txt")
+		if err != nil {
+			b.Fatal(err)
+		}
+		f.Close()
+	}
+}
+
+func BenchmarkFSRead(b *testing.B) {
+	content := make([]byte, 4096)
+	for i := range content {
+		content[i] = byte(i % 256)
+	}
+	root, cleanup := benchSetup(b, map[string]string{
+		"file.txt": string(content),
+	})
+	defer cleanup()
+
+	fs, err := NewFS(root, 0755, false)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer fs.Close()
+
+	buf := make([]byte, 1024)
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		f, err := fs.Open("file.txt")
+		if err != nil {
+			b.Fatal(err)
+		}
+		_, _ = io.ReadFull(f, buf)
+		f.Close()
+	}
+}
+
+func BenchmarkFSStat(b *testing.B) {
+	root, cleanup := benchSetup(b, map[string]string{
+		"file.txt": "benchmark content",
+	})
+	defer cleanup()
+
+	fs, err := NewFS(root, 0755, false)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer fs.Close()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		_, err := fs.Stat("file.txt")
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkFSReadDir(b *testing.B) {
+	files := map[string]string{}
+	for i := 0; i < 100; i++ {
+		files[filepath.Join("dir", "file"+string(rune('0'+i%10))+string(rune('0'+i/10))+".txt")] = "content"
+	}
+	root, cleanup := benchSetup(b, files)
+	defer cleanup()
+
+	fs, err := NewFS(root, 0755, false)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer fs.Close()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		_, err := fs.ReadDir("dir")
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}

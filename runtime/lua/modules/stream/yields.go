@@ -10,7 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/runtime/resource"
 	streamapi "github.com/wippyai/runtime/api/stream"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	streamservice "github.com/wippyai/runtime/service/fs/stream"
+	streamsys "github.com/wippyai/runtime/system/stream"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -329,7 +329,7 @@ func (s *Stream) GetReader(ctx context.Context) (io.Reader, error) {
 	if table == nil {
 		return nil, errors.New("no resource table available")
 	}
-	entry, err := streamservice.Get(table, s.ID)
+	entry, err := streamsys.Get(table, s.ID)
 	if err != nil {
 		return nil, err
 	}

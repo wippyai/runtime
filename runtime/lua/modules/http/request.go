@@ -14,7 +14,7 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	jsonmod "github.com/wippyai/runtime/runtime/lua/modules/json"
 	streammod "github.com/wippyai/runtime/runtime/lua/modules/stream"
-	streamservice "github.com/wippyai/runtime/service/fs/stream"
+	streamsys "github.com/wippyai/runtime/system/stream"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -547,7 +547,7 @@ func requestStream(l *lua.LState) int {
 		return 2
 	}
 
-	id := streamservice.InsertWithSize(table, req.request.Body, req.request.ContentLength)
+	id := streamsys.InsertWithSize(table, req.request.Body, req.request.ContentLength)
 	l.Push(streammod.NewStream(l, id))
 	l.Push(lua.LNil)
 	return 2
@@ -662,7 +662,7 @@ func multipartFileStream(l *lua.LState) int {
 		return 2
 	}
 
-	id := streamservice.InsertWithSize(table, file, mf.fileHeader.Size)
+	id := streamsys.InsertWithSize(table, file, mf.fileHeader.Size)
 	l.Push(streammod.NewStream(l, id))
 	l.Push(lua.LNil)
 	return 2

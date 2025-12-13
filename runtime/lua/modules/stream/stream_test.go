@@ -7,7 +7,8 @@ import (
 	"testing"
 
 	"github.com/wippyai/runtime/api/runtime/resource"
-	streamsvc "github.com/wippyai/runtime/service/fs/stream"
+	streamapi "github.com/wippyai/runtime/api/stream"
+	streamsys "github.com/wippyai/runtime/system/stream"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -16,12 +17,12 @@ func TestStreamTableIntegration(t *testing.T) {
 
 	data := "hello world stream data"
 	reader := io.NopCloser(strings.NewReader(data))
-	id := streamsvc.Insert(table, reader)
+	id := streamsys.Insert(table, reader)
 	if id == 0 {
 		t.Fatal("expected non-zero stream ID")
 	}
 
-	chunk1, err := streamsvc.Read(table, id, 5)
+	chunk1, err := streamsys.Read(table, id, 5)
 	if err != nil {
 		t.Fatalf("read error: %v", err)
 	}
@@ -29,7 +30,7 @@ func TestStreamTableIntegration(t *testing.T) {
 		t.Errorf("expected 'hello', got '%s'", string(chunk1))
 	}
 
-	chunk2, err := streamsvc.Read(table, id, 6)
+	chunk2, err := streamsys.Read(table, id, 6)
 	if err != nil {
 		t.Fatalf("read error: %v", err)
 	}
@@ -37,13 +38,13 @@ func TestStreamTableIntegration(t *testing.T) {
 		t.Errorf("expected ' world', got '%s'", string(chunk2))
 	}
 
-	err = streamsvc.Close(table, id)
+	err = streamsys.Close(table, id)
 	if err != nil {
 		t.Fatalf("close error: %v", err)
 	}
 
-	_, err = streamsvc.Read(table, id, 10)
-	if !errors.Is(err, streamsvc.ErrNotFound) {
+	_, err = streamsys.Read(table, id, 10)
+	if !errors.Is(err, streamapi.ErrNotFound) {
 		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }
@@ -626,12 +627,12 @@ func TestScannerServiceIntegration(t *testing.T) {
 
 	data := "line1\nline2\nline3"
 	reader := io.NopCloser(strings.NewReader(data))
-	streamID := streamsvc.Insert(table, reader)
+	streamID := streamsys.Insert(table, reader)
 	if streamID == 0 {
 		t.Fatal("expected non-zero stream ID")
 	}
 
-	scannerID, err := streamsvc.CreateScanner(table, streamID, 0)
+	scannerID, err := streamsys.CreateScanner(table, streamID, 0)
 	if err != nil {
 		t.Fatalf("CreateScanner error: %v", err)
 	}
@@ -639,7 +640,7 @@ func TestScannerServiceIntegration(t *testing.T) {
 		t.Fatal("expected non-zero scanner ID")
 	}
 
-	result1, err := streamsvc.ScanNext(table, scannerID)
+	result1, err := streamsys.ScanNext(table, scannerID)
 	if err != nil {
 		t.Fatalf("ScanNext error: %v", err)
 	}
@@ -650,7 +651,7 @@ func TestScannerServiceIntegration(t *testing.T) {
 		t.Errorf("expected 'line1', got '%s'", result1.Text)
 	}
 
-	result2, err := streamsvc.ScanNext(table, scannerID)
+	result2, err := streamsys.ScanNext(table, scannerID)
 	if err != nil {
 		t.Fatalf("ScanNext error: %v", err)
 	}
@@ -661,7 +662,7 @@ func TestScannerServiceIntegration(t *testing.T) {
 		t.Errorf("expected 'line2', got '%s'", result2.Text)
 	}
 
-	result3, err := streamsvc.ScanNext(table, scannerID)
+	result3, err := streamsys.ScanNext(table, scannerID)
 	if err != nil {
 		t.Fatalf("ScanNext error: %v", err)
 	}
@@ -672,7 +673,7 @@ func TestScannerServiceIntegration(t *testing.T) {
 		t.Errorf("expected 'line3', got '%s'", result3.Text)
 	}
 
-	result4, err := streamsvc.ScanNext(table, scannerID)
+	result4, err := streamsys.ScanNext(table, scannerID)
 	if err != nil {
 		t.Fatalf("ScanNext error: %v", err)
 	}
@@ -689,16 +690,16 @@ func TestScannerSplitWords(t *testing.T) {
 
 	data := "hello world foo bar"
 	reader := io.NopCloser(strings.NewReader(data))
-	streamID := streamsvc.Insert(table, reader)
+	streamID := streamsys.Insert(table, reader)
 
-	scannerID, err := streamsvc.CreateScanner(table, streamID, 1)
+	scannerID, err := streamsys.CreateScanner(table, streamID, 1)
 	if err != nil {
 		t.Fatalf("CreateScanner error: %v", err)
 	}
 
 	words := []string{}
 	for {
-		result, err := streamsvc.ScanNext(table, scannerID)
+		result, err := streamsys.ScanNext(table, scannerID)
 		if err != nil {
 			t.Fatalf("ScanNext error: %v", err)
 		}

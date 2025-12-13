@@ -25,7 +25,7 @@ func NewConditionEvaluator(conditions []policy.Condition) (*ConditionEvaluator, 
 				if _, exists := patterns[patternStr]; !exists {
 					compiled, err := regexp.Compile(patternStr)
 					if err != nil {
-						return nil, NewInvalidRegexPatternError(patternStr, err)
+						return nil, policy.NewInvalidRegexPatternError(patternStr, err)
 					}
 					patterns[patternStr] = compiled
 				}
@@ -68,18 +68,18 @@ func (e *ConditionEvaluator) extractField(
 ) (any, error) {
 	parts := strings.Split(fieldPath, ".")
 	if len(parts) == 0 {
-		return nil, ErrEmptyFieldPath
+		return nil, policy.ErrEmptyFieldPath
 	}
 
 	switch parts[0] {
 	case "actor":
 		if len(parts) < 2 {
-			return nil, NewInvalidActorFieldPathError(fieldPath)
+			return nil, policy.NewInvalidActorFieldPathError(fieldPath)
 		}
 		return e.extractActorField(actor, parts[1:])
 	case "meta":
 		if len(parts) < 2 {
-			return nil, NewInvalidMetaFieldPathError(fieldPath)
+			return nil, policy.NewInvalidMetaFieldPathError(fieldPath)
 		}
 		return e.extractMetaField(meta, parts[1:])
 	case "action":
@@ -93,11 +93,11 @@ func (e *ConditionEvaluator) extractField(
 
 func (e *ConditionEvaluator) extractActorField(actor security.Actor, parts []string) (any, error) {
 	if actor.ID == "" && actor.Meta == nil {
-		return nil, ErrNilOrEmptyActor
+		return nil, policy.ErrNilOrEmptyActor
 	}
 
 	if len(parts) == 0 {
-		return nil, ErrNoActorFieldSpecified
+		return nil, policy.ErrNoActorFieldSpecified
 	}
 
 	switch parts[0] {
@@ -128,7 +128,7 @@ func (e *ConditionEvaluator) extractActorField(actor security.Actor, parts []str
 
 		return nil, policy.ErrFieldNotFound
 	default:
-		return nil, NewUnknownActorFieldError(parts[0])
+		return nil, policy.NewUnknownActorFieldError(parts[0])
 	}
 }
 
@@ -138,7 +138,7 @@ func (e *ConditionEvaluator) extractMetaField(meta attrs.Bag, parts []string) (a
 	}
 
 	if len(parts) == 0 {
-		return nil, ErrNoMetadataFieldSpecified
+		return nil, policy.ErrNoMetadataFieldSpecified
 	}
 
 	key := parts[0]
@@ -236,7 +236,7 @@ func (e *ConditionEvaluator) compare(fieldValue, compareValue any, operator stri
 		return !result, err
 
 	default:
-		return false, NewUnsupportedOperatorError(operator)
+		return false, policy.NewUnsupportedOperatorError(operator)
 	}
 }
 
@@ -264,7 +264,7 @@ func (e *ConditionEvaluator) compareNumeric(fieldValue, compareValue any, operat
 	fieldNum, fieldOk := e.toFloat64(fieldValue)
 	compareNum, compareOk := e.toFloat64(compareValue)
 	if !fieldOk || !compareOk {
-		return false, ErrNumericComparisonRequired
+		return false, policy.ErrNumericComparisonRequired
 	}
 
 	switch operator {
@@ -277,7 +277,7 @@ func (e *ConditionEvaluator) compareNumeric(fieldValue, compareValue any, operat
 	case "gte":
 		return fieldNum >= compareNum, nil
 	default:
-		return false, NewUnknownNumericOperatorError(operator)
+		return false, policy.NewUnknownNumericOperatorError(operator)
 	}
 }
 
@@ -301,7 +301,7 @@ func (e *ConditionEvaluator) isIn(fieldValue, compareValue any) (bool, error) {
 		equal, _ := e.equals(fieldValue, cv)
 		return equal, nil
 	default:
-		return false, ErrInOperatorRequiresSlice
+		return false, policy.ErrInOperatorRequiresSlice
 	}
 
 	for _, item := range slice {
@@ -331,19 +331,19 @@ func (e *ConditionEvaluator) contains(fieldValue, compareValue any) (bool, error
 		return false, nil
 	}
 
-	return false, ErrContainsRequiresString
+	return false, policy.ErrContainsRequiresString
 }
 
 func (e *ConditionEvaluator) matches(fieldValue, compareValue any) (bool, error) {
 	fieldStr, isFieldStr := toString(fieldValue)
 	patternStr, isPatternStr := toString(compareValue)
 	if !isFieldStr || !isPatternStr {
-		return false, ErrMatchesRequiresString
+		return false, policy.ErrMatchesRequiresString
 	}
 
 	pattern, exists := e.compiledPatterns[patternStr]
 	if !exists {
-		return false, NewRegexPatternNotCompiledError(patternStr)
+		return false, policy.NewRegexPatternNotCompiledError(patternStr)
 	}
 
 	return pattern.MatchString(fieldStr), nil

@@ -36,7 +36,7 @@ func (f *DefaultFactory) CreatePolicyEntry(ctx context.Context, entry registry.E
 	case policy.ExprKind:
 		return f.createExprPolicy(ctx, entry)
 	default:
-		return nil, NewUnsupportedPolicyKindError(entry.Kind)
+		return nil, policy.NewUnsupportedPolicyKindError(entry.Kind)
 	}
 }
 
@@ -45,13 +45,13 @@ func (f *DefaultFactory) createConditionPolicy(ctx context.Context, entry regist
 	// Extract payload from registry entry
 	cfg, err := entryutil.DecodeEntryConfig[policy.Config](ctx, f.dtt, entry)
 	if err != nil {
-		return nil, NewDecodePolicyConfigError(err)
+		return nil, policy.NewDecodePolicyConfigError(err)
 	}
 
 	// Create the policy
 	policyObj, err := NewPolicy(entry.ID, cfg)
 	if err != nil {
-		return nil, NewCreatePolicyError(err)
+		return nil, policy.NewCreatePolicyError(err)
 	}
 
 	// Create policy entry
@@ -68,13 +68,13 @@ func (f *DefaultFactory) createExprPolicy(ctx context.Context, entry registry.En
 	// Extract payload from registry entry
 	cfg, err := entryutil.DecodeEntryConfig[policy.ExprConfig](ctx, f.dtt, entry)
 	if err != nil {
-		return nil, NewDecodeExprPolicyConfigError(err)
+		return nil, policy.NewDecodeExprPolicyConfigError(err)
 	}
 
 	// Create the policy
 	policyObj, err := NewExprPolicy(entry.ID, cfg)
 	if err != nil {
-		return nil, NewCreateExprPolicyError(err)
+		return nil, policy.NewCreateExprPolicyError(err)
 	}
 
 	// Create policy entry

@@ -17,13 +17,13 @@ type ExprPolicy struct {
 // NewExprPolicy creates a new expression-based policy
 func NewExprPolicy(id registry.ID, config *policyapi.ExprConfig) (*ExprPolicy, error) {
 	if config == nil {
-		return nil, ErrConfigNil
+		return nil, policyapi.ErrConfigNil
 	}
 
 	// Create evaluator with pre-compiled expression
 	evaluator, err := NewExprEvaluator(config.Policy.Expression)
 	if err != nil {
-		return nil, NewCompileExpressionError(err)
+		return nil, policyapi.NewCompileExpressionError(err)
 	}
 
 	return &ExprPolicy{

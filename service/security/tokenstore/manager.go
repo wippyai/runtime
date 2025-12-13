@@ -9,7 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	"github.com/wippyai/runtime/api/security"
-	"github.com/wippyai/runtime/api/service/security/tokenstore"
+	tokenstoreapi "github.com/wippyai/runtime/api/service/security/tokenstore"
 	entryutil "github.com/wippyai/runtime/internal/entry"
 	"go.uber.org/zap"
 )
@@ -22,7 +22,7 @@ type Manager struct {
 	resources   resource.Registry
 	secRegistry security.Registry
 	mu          sync.RWMutex
-	configs     map[registry.ID]*tokenstore.Config
+	configs     map[registry.ID]*tokenstoreapi.Config
 	stores      map[registry.ID]*TokenStore // Cache of created token stores
 }
 
@@ -40,26 +40,26 @@ func NewManager(
 		bus:         bus,
 		resources:   resources,
 		secRegistry: secRegistry,
-		configs:     make(map[registry.ID]*tokenstore.Config),
+		configs:     make(map[registry.ID]*tokenstoreapi.Config),
 		stores:      make(map[registry.ID]*TokenStore),
 	}
 }
 
 // Add implements registry.EntryListener - registers token store configuration
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != tokenstore.KindTokenStore {
-		return NewUnsupportedEntryKindError(entry.Kind)
+	if entry.Kind != tokenstoreapi.KindTokenStore {
+		return tokenstoreapi.NewUnsupportedEntryKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, exists := m.configs[entry.ID]; exists {
-		return NewTokenStoreAlreadyExistsError(entry.ID.String())
+		return tokenstoreapi.NewTokenStoreAlreadyExistsError(entry.ID.String())
 	}
 
 	// Decode and initialize configuration
-	cfg, err := entryutil.DecodeEntryConfig[tokenstore.Config](ctx, m.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[tokenstoreapi.Config](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}
@@ -90,19 +90,19 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 // Update implements registry.EntryListener - updates token store configuration
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != tokenstore.KindTokenStore {
-		return NewUnsupportedEntryKindError(entry.Kind)
+	if entry.Kind != tokenstoreapi.KindTokenStore {
+		return tokenstoreapi.NewUnsupportedEntryKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, exists := m.configs[entry.ID]; !exists {
-		return NewTokenStoreNotFoundError(entry.ID.String())
+		return tokenstoreapi.NewTokenStoreNotFoundError(entry.ID.String())
 	}
 
 	// Decode and initialize updated configuration
-	cfg, err := entryutil.DecodeEntryConfig[tokenstore.Config](ctx, m.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[tokenstoreapi.Config](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}
@@ -137,15 +137,15 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 // Delete implements registry.EntryListener - removes token store configuration
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != tokenstore.KindTokenStore {
-		return NewUnsupportedEntryKindError(entry.Kind)
+	if entry.Kind != tokenstoreapi.KindTokenStore {
+		return tokenstoreapi.NewUnsupportedEntryKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, exists := m.configs[entry.ID]; !exists {
-		return NewTokenStoreNotFoundError(entry.ID.String())
+		return tokenstoreapi.NewTokenStoreNotFoundError(entry.ID.String())
 	}
 
 	// Remove configuration and any cached store
@@ -176,7 +176,7 @@ func (m *Manager) Acquire(_ context.Context, id registry.ID, mode resource.Acces
 	m.mu.RUnlock()
 
 	if !exists {
-		return nil, NewTokenStoreNotFoundError(id.String())
+		return nil, tokenstoreapi.NewTokenStoreNotFoundError(id.String())
 	}
 
 	// Only support normal mode
@@ -194,7 +194,7 @@ func (m *Manager) Acquire(_ context.Context, id registry.ID, mode resource.Acces
 			store, err = NewStoreTokenStore(cfg, m.dtt, m.resources, m.secRegistry)
 			if err != nil {
 				m.mu.Unlock()
-				return nil, NewCreateTokenStoreError(err)
+				return nil, tokenstoreapi.NewCreateTokenStoreError(err)
 			}
 			m.stores[id] = store
 		}

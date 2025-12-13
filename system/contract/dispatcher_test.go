@@ -41,7 +41,7 @@ func (r *testReceiver) CompleteYield(_ uint64, data any, err error) {
 }
 
 func TestOpenHandler(t *testing.T) {
-	d := NewDispatcher(nil)
+	d := NewDispatcher(nil, nil)
 	mockInst := &mockInstantiator{
 		instantiateFn: func(_ context.Context, _ registry.ID, _ attrs.Bag) (contract.Instance, error) {
 			return &mockInstance{id: registry.NewID("test", "binding")}, nil
@@ -53,7 +53,7 @@ func TestOpenHandler(t *testing.T) {
 	cmd.BindingID = registry.NewID("test", "binding")
 
 	done := make(chan contract.OpenResult, 1)
-	err := d.open.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
+	err := d.handleOpen(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(contract.OpenResult)
 	}})
 
@@ -68,13 +68,13 @@ func TestOpenHandler(t *testing.T) {
 }
 
 func TestOpenHandler_NoInstantiator(t *testing.T) {
-	d := NewDispatcher(nil)
+	d := NewDispatcher(nil, nil)
 	ctx := context.Background()
 	cmd := contract.AcquireOpenCmd()
 	cmd.BindingID = registry.NewID("test", "binding")
 
 	done := make(chan contract.OpenResult, 1)
-	err := d.open.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
+	err := d.handleOpen(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(contract.OpenResult)
 	}})
 
@@ -84,7 +84,7 @@ func TestOpenHandler_NoInstantiator(t *testing.T) {
 }
 
 func TestOpenHandler_Error(t *testing.T) {
-	d := NewDispatcher(nil)
+	d := NewDispatcher(nil, nil)
 	expectedErr := errors.New("instantiate error")
 	mockInst := &mockInstantiator{
 		instantiateFn: func(_ context.Context, _ registry.ID, _ attrs.Bag) (contract.Instance, error) {
@@ -97,7 +97,7 @@ func TestOpenHandler_Error(t *testing.T) {
 	cmd.BindingID = registry.NewID("test", "binding")
 
 	done := make(chan contract.OpenResult, 1)
-	err := d.open.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
+	err := d.handleOpen(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(contract.OpenResult)
 	}})
 
@@ -111,7 +111,7 @@ func TestOpenHandler_Error(t *testing.T) {
 }
 
 func TestCallHandler(t *testing.T) {
-	d := NewDispatcher(nil)
+	d := NewDispatcher(nil, nil)
 	mockInstance := &mockInstance{
 		callFn: func(_ context.Context, _ string, _ payload.Payloads) (*runtime.Result, error) {
 			return &runtime.Result{Value: payload.New("result")}, nil
@@ -124,7 +124,7 @@ func TestCallHandler(t *testing.T) {
 	cmd.Method = "test_method"
 
 	done := make(chan contract.CallResult, 1)
-	err := d.call.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
+	err := d.handleCall(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(contract.CallResult)
 	}})
 
@@ -139,14 +139,14 @@ func TestCallHandler(t *testing.T) {
 }
 
 func TestCallHandler_NilInstance(t *testing.T) {
-	d := NewDispatcher(nil)
+	d := NewDispatcher(nil, nil)
 	ctx := context.Background()
 	cmd := contract.AcquireCallCmd()
 	cmd.Instance = nil
 	cmd.Method = "test_method"
 
 	done := make(chan contract.CallResult, 1)
-	err := d.call.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
+	err := d.handleCall(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(contract.CallResult)
 	}})
 
@@ -156,7 +156,7 @@ func TestCallHandler_NilInstance(t *testing.T) {
 }
 
 func TestCallHandler_Error(t *testing.T) {
-	d := NewDispatcher(nil)
+	d := NewDispatcher(nil, nil)
 	expectedErr := errors.New("call error")
 	mockInstance := &mockInstance{
 		callFn: func(_ context.Context, _ string, _ payload.Payloads) (*runtime.Result, error) {
@@ -170,7 +170,7 @@ func TestCallHandler_Error(t *testing.T) {
 	cmd.Method = "test_method"
 
 	done := make(chan contract.CallResult, 1)
-	err := d.call.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
+	err := d.handleCall(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(contract.CallResult)
 	}})
 
@@ -184,7 +184,7 @@ func TestCallHandler_Error(t *testing.T) {
 }
 
 func TestCallHandler_ResultError(t *testing.T) {
-	d := NewDispatcher(nil)
+	d := NewDispatcher(nil, nil)
 	expectedErr := errors.New("result error")
 	mockInstance := &mockInstance{
 		callFn: func(_ context.Context, _ string, _ payload.Payloads) (*runtime.Result, error) {
@@ -198,7 +198,7 @@ func TestCallHandler_ResultError(t *testing.T) {
 	cmd.Method = "test_method"
 
 	done := make(chan contract.CallResult, 1)
-	err := d.call.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
+	err := d.handleCall(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(contract.CallResult)
 	}})
 
@@ -213,7 +213,7 @@ func TestCallHandler_ResultError(t *testing.T) {
 
 func TestAsyncCallHandler(t *testing.T) {
 	mockNode := &mockRelayNode{packages: make(chan *relay.Package, 10)}
-	d := NewDispatcher(mockNode)
+	d := NewDispatcher(mockNode, nil)
 	mockInstance := &mockInstance{
 		callFn: func(_ context.Context, _ string, _ payload.Payloads) (*runtime.Result, error) {
 			return &runtime.Result{Value: payload.New("async result")}, nil
@@ -232,7 +232,7 @@ func TestAsyncCallHandler(t *testing.T) {
 	cmd.Topic = "@future:test-123"
 
 	done := make(chan contract.AsyncCallResult, 1)
-	err := d.asyncCall.Handle(frameCtx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
+	err := d.handleAsyncCall(frameCtx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(contract.AsyncCallResult)
 	}})
 
@@ -256,14 +256,14 @@ func TestAsyncCallHandler(t *testing.T) {
 }
 
 func TestAsyncCallHandler_NilInstance(t *testing.T) {
-	d := NewDispatcher(&mockRelayNode{})
+	d := NewDispatcher(&mockRelayNode{}, nil)
 	ctx := context.Background()
 	cmd := contract.AcquireAsyncCallCmd()
 	cmd.Instance = nil
 	cmd.Topic = "@future:test-123"
 
 	done := make(chan contract.AsyncCallResult, 1)
-	err := d.asyncCall.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
+	err := d.handleAsyncCall(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(contract.AsyncCallResult)
 	}})
 
@@ -274,7 +274,7 @@ func TestAsyncCallHandler_NilInstance(t *testing.T) {
 
 func TestAsyncCancelHandler(t *testing.T) {
 	mockNode := &mockRelayNode{packages: make(chan *relay.Package, 10)}
-	d := NewDispatcher(mockNode)
+	d := NewDispatcher(mockNode, nil)
 
 	ctx := ctxapi.NewRootContext()
 	frameCtx, _ := ctxapi.OpenFrameContext(ctx)
@@ -286,7 +286,7 @@ func TestAsyncCancelHandler(t *testing.T) {
 	cmd.Topic = "@future:test-123"
 
 	done := make(chan struct{}, 1)
-	err := d.asyncCancel.Handle(frameCtx, cmd, 0, &testReceiver{cb: func(_ any, _ error) {
+	err := d.handleAsyncCancel(frameCtx, cmd, 0, &testReceiver{cb: func(_ any, _ error) {
 		done <- struct{}{}
 	}})
 	require.NoError(t, err)
@@ -305,7 +305,7 @@ func TestAsyncCancelHandler(t *testing.T) {
 }
 
 func TestDispatcher_RegisterAll(t *testing.T) {
-	d := NewDispatcher(nil)
+	d := NewDispatcher(nil, nil)
 
 	registered := make(map[uint16]bool)
 	register := func(id dispatcher.CommandID, _ dispatcher.Handler) {
@@ -321,7 +321,7 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 }
 
 func TestCallHandler_Stress(t *testing.T) {
-	d := NewDispatcher(nil)
+	d := NewDispatcher(nil, nil)
 	mockInstance := &mockInstance{
 		callFn: func(_ context.Context, _ string, _ payload.Payloads) (*runtime.Result, error) {
 			return &runtime.Result{Value: payload.New("result")}, nil
@@ -341,7 +341,7 @@ func TestCallHandler_Stress(t *testing.T) {
 			cmd.Instance = mockInstance
 			cmd.Method = "test"
 			done := make(chan contract.CallResult, 1)
-			err := d.call.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
+			err := d.handleCall(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
 				done <- data.(contract.CallResult)
 			}})
 			assert.NoError(t, err)
@@ -359,7 +359,7 @@ func TestCallHandler_Stress(t *testing.T) {
 }
 
 func BenchmarkCallHandler(b *testing.B) {
-	d := NewDispatcher(nil)
+	d := NewDispatcher(nil, nil)
 	mockInstance := &mockInstance{
 		callFn: func(_ context.Context, _ string, _ payload.Payloads) (*runtime.Result, error) {
 			return &runtime.Result{Value: payload.New("result")}, nil
@@ -374,12 +374,12 @@ func BenchmarkCallHandler(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = d.call.Handle(ctx, cmd, 0, recv)
+		_ = d.handleCall(ctx, cmd, 0, recv)
 	}
 }
 
 func BenchmarkCallHandler_Parallel(b *testing.B) {
-	d := NewDispatcher(nil)
+	d := NewDispatcher(nil, nil)
 	mockInstance := &mockInstance{
 		callFn: func(_ context.Context, _ string, _ payload.Payloads) (*runtime.Result, error) {
 			return &runtime.Result{Value: payload.New("result")}, nil
@@ -395,7 +395,7 @@ func BenchmarkCallHandler_Parallel(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			_ = d.call.Handle(ctx, cmd, 0, recv)
+			_ = d.handleCall(ctx, cmd, 0, recv)
 		}
 	})
 }
@@ -455,7 +455,7 @@ func (m *mockRelayNode) Attach(pid.PID, chan *relay.Package) (context.CancelFunc
 func (m *mockRelayNode) Detach(pid.PID) {}
 
 func TestDispatcher_StartStop(t *testing.T) {
-	d := NewDispatcher(nil)
+	d := NewDispatcher(nil, nil)
 
 	err := d.Start(context.Background())
 	assert.NoError(t, err)
@@ -465,7 +465,7 @@ func TestDispatcher_StartStop(t *testing.T) {
 }
 
 func TestOpenHandler_ContextCanceled(t *testing.T) {
-	d := NewDispatcher(nil)
+	d := NewDispatcher(nil, nil)
 	mockInst := &mockInstantiator{
 		instantiateFn: func(ctx context.Context, _ registry.ID, _ attrs.Bag) (contract.Instance, error) {
 			<-ctx.Done()
@@ -479,7 +479,7 @@ func TestOpenHandler_ContextCanceled(t *testing.T) {
 	cmd.BindingID = registry.NewID("test", "binding")
 
 	done := make(chan contract.OpenResult, 1)
-	err := d.open.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
+	err := d.handleOpen(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(contract.OpenResult)
 	}})
 	require.NoError(t, err)
@@ -496,7 +496,7 @@ func TestOpenHandler_ContextCanceled(t *testing.T) {
 }
 
 func TestCallHandler_ContextCanceled(t *testing.T) {
-	d := NewDispatcher(nil)
+	d := NewDispatcher(nil, nil)
 	mockInstance := &mockInstance{
 		callFn: func(ctx context.Context, _ string, _ payload.Payloads) (*runtime.Result, error) {
 			<-ctx.Done()
@@ -511,7 +511,7 @@ func TestCallHandler_ContextCanceled(t *testing.T) {
 	cmd.Method = "test"
 
 	done := make(chan contract.CallResult, 1)
-	err := d.call.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
+	err := d.handleCall(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(contract.CallResult)
 	}})
 	require.NoError(t, err)
@@ -529,7 +529,7 @@ func TestCallHandler_ContextCanceled(t *testing.T) {
 
 func TestAsyncCallHandler_NoPID(t *testing.T) {
 	mockNode := &mockRelayNode{packages: make(chan *relay.Package, 1)}
-	d := NewDispatcher(mockNode)
+	d := NewDispatcher(mockNode, nil)
 
 	mockInstance := &mockInstance{
 		callFn: func(_ context.Context, _ string, _ payload.Payloads) (*runtime.Result, error) {
@@ -546,7 +546,7 @@ func TestAsyncCallHandler_NoPID(t *testing.T) {
 	cmd.Topic = "@future:test-123"
 
 	done := make(chan contract.AsyncCallResult, 1)
-	err := d.asyncCall.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
+	err := d.handleAsyncCall(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(contract.AsyncCallResult)
 	}})
 	require.NoError(t, err)
@@ -561,7 +561,7 @@ func TestAsyncCallHandler_NoPID(t *testing.T) {
 
 func TestAsyncCancelHandler_NoPID(t *testing.T) {
 	mockNode := &mockRelayNode{packages: make(chan *relay.Package, 1)}
-	d := NewDispatcher(mockNode)
+	d := NewDispatcher(mockNode, nil)
 
 	ctx := ctxapi.NewRootContext()
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
@@ -570,7 +570,7 @@ func TestAsyncCancelHandler_NoPID(t *testing.T) {
 	cmd.Topic = "@future:test-123"
 
 	done := make(chan struct{}, 1)
-	err := d.asyncCancel.Handle(ctx, cmd, 0, &testReceiver{cb: func(_ any, _ error) {
+	err := d.handleAsyncCancel(ctx, cmd, 0, &testReceiver{cb: func(_ any, _ error) {
 		done <- struct{}{}
 	}})
 	require.NoError(t, err)
@@ -590,7 +590,7 @@ func setupAsyncTestContext() context.Context {
 }
 
 func TestAsyncCallHandler_NoNode(t *testing.T) {
-	d := NewDispatcher(nil)
+	d := NewDispatcher(nil, nil)
 
 	mockInstance := &mockInstance{
 		callFn: func(_ context.Context, _ string, _ payload.Payloads) (*runtime.Result, error) {
@@ -606,7 +606,7 @@ func TestAsyncCallHandler_NoNode(t *testing.T) {
 	cmd.Topic = "@future:test-123"
 
 	done := make(chan contract.AsyncCallResult, 1)
-	err := d.asyncCall.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
+	err := d.handleAsyncCall(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(contract.AsyncCallResult)
 	}})
 	require.NoError(t, err)
@@ -620,7 +620,7 @@ func TestAsyncCallHandler_NoNode(t *testing.T) {
 }
 
 func TestAsyncCancelHandler_NoNode(t *testing.T) {
-	d := NewDispatcher(nil)
+	d := NewDispatcher(nil, nil)
 
 	ctx := setupAsyncTestContext()
 
@@ -628,7 +628,7 @@ func TestAsyncCancelHandler_NoNode(t *testing.T) {
 	cmd.Topic = "@future:test-123"
 
 	done := make(chan struct{}, 1)
-	err := d.asyncCancel.Handle(ctx, cmd, 0, &testReceiver{cb: func(_ any, _ error) {
+	err := d.handleAsyncCancel(ctx, cmd, 0, &testReceiver{cb: func(_ any, _ error) {
 		done <- struct{}{}
 	}})
 	require.NoError(t, err)
@@ -642,7 +642,7 @@ func TestAsyncCancelHandler_NoNode(t *testing.T) {
 
 func TestAsyncCallHandler_CallError(t *testing.T) {
 	mockNode := &mockRelayNode{packages: make(chan *relay.Package, 1)}
-	d := NewDispatcher(mockNode)
+	d := NewDispatcher(mockNode, nil)
 
 	callErr := errors.New("call failed")
 	mockInstance := &mockInstance{
@@ -659,7 +659,7 @@ func TestAsyncCallHandler_CallError(t *testing.T) {
 	cmd.Topic = "@future:test-123"
 
 	done := make(chan contract.AsyncCallResult, 1)
-	err := d.asyncCall.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
+	err := d.handleAsyncCall(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(contract.AsyncCallResult)
 	}})
 	require.NoError(t, err)
@@ -680,7 +680,7 @@ func TestAsyncCallHandler_CallError(t *testing.T) {
 
 func TestAsyncCallHandler_ResultError(t *testing.T) {
 	mockNode := &mockRelayNode{packages: make(chan *relay.Package, 1)}
-	d := NewDispatcher(mockNode)
+	d := NewDispatcher(mockNode, nil)
 
 	resultErr := errors.New("result error")
 	mockInstance := &mockInstance{
@@ -697,7 +697,7 @@ func TestAsyncCallHandler_ResultError(t *testing.T) {
 	cmd.Topic = "@future:test-123"
 
 	done := make(chan contract.AsyncCallResult, 1)
-	err := d.asyncCall.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
+	err := d.handleAsyncCall(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
 		done <- data.(contract.AsyncCallResult)
 	}})
 	require.NoError(t, err)

@@ -811,3 +811,64 @@ func TestGetClosed(t *testing.T) {
 		t.Error("expected nil entry after close")
 	}
 }
+
+func BenchmarkStreamInsert(b *testing.B) {
+	table := resource.NewTable()
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		reader := io.NopCloser(strings.NewReader("benchmark data"))
+		Insert(table, reader)
+	}
+}
+
+func BenchmarkStreamRead(b *testing.B) {
+	table := resource.NewTable()
+	data := strings.Repeat("x", 1024)
+	ids := make([]uint64, 100)
+	for i := range ids {
+		ids[i] = Insert(table, io.NopCloser(strings.NewReader(data)))
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		id := ids[i%len(ids)]
+		_, _ = Read(table, id, 64)
+	}
+}
+
+func BenchmarkStreamInsertClose(b *testing.B) {
+	table := resource.NewTable()
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		reader := io.NopCloser(strings.NewReader("benchmark data"))
+		id := Insert(table, reader)
+		_ = Close(table, id)
+	}
+}
+
+func BenchmarkStreamWrite(b *testing.B) {
+	table := resource.NewTable()
+	buf := &bytes.Buffer{}
+	id := Insert(table, struct {
+		io.Reader
+		io.Writer
+		io.Closer
+	}{
+		Reader: buf,
+		Writer: buf,
+		Closer: io.NopCloser(nil),
+	})
+	data := []byte("benchmark write data")
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		buf.Reset()
+		_, _ = Write(table, id, data)
+	}
+}
