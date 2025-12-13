@@ -39,8 +39,20 @@ func (r *testReceiver) CompleteYield(_ uint64, data any, err error) {
 	}
 }
 
+// mockRegistry implements function.Registry for tests
+type mockRegistry struct {
+	callFn func(context.Context, runtime.Task) (*runtime.Result, error)
+}
+
+func (m *mockRegistry) Call(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
+	if m.callFn != nil {
+		return m.callFn(ctx, task)
+	}
+	return nil, nil
+}
+
 func TestCallHandler(t *testing.T) {
-	d := NewDispatcher(nil)
+	d := NewDispatcher(nil, nil)
 	mock := &mockRegistry{
 		callFn: func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 			return &runtime.Result{Value: payload.New("result")}, nil
@@ -67,7 +79,7 @@ func TestCallHandler(t *testing.T) {
 }
 
 func TestCallHandler_NoRegistry(t *testing.T) {
-	d := NewDispatcher(nil)
+	d := NewDispatcher(nil, nil)
 	ctx := context.Background()
 	cmd := function.AcquireCallCmd()
 	cmd.Task = runtime.Task{ID: registry.NewID("test", "func")}
@@ -83,7 +95,7 @@ func TestCallHandler_NoRegistry(t *testing.T) {
 }
 
 func TestCallHandler_Error(t *testing.T) {
-	d := NewDispatcher(nil)
+	d := NewDispatcher(nil, nil)
 	expectedErr := errors.New("call error")
 	mock := &mockRegistry{
 		callFn: func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
@@ -110,7 +122,7 @@ func TestCallHandler_Error(t *testing.T) {
 }
 
 func TestCallHandler_ResultError(t *testing.T) {
-	d := NewDispatcher(nil)
+	d := NewDispatcher(nil, nil)
 	expectedErr := errors.New("result error")
 	mock := &mockRegistry{
 		callFn: func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
@@ -138,7 +150,7 @@ func TestCallHandler_ResultError(t *testing.T) {
 
 func TestAsyncStartHandler(t *testing.T) {
 	mockNode := &mockRelayNode{packages: make(chan *relay.Package, 10)}
-	d := NewDispatcher(mockNode)
+	d := NewDispatcher(mockNode, nil)
 	mock := &mockRegistry{
 		callFn: func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 			return &runtime.Result{Value: payload.New("async result")}, nil
@@ -182,7 +194,7 @@ func TestAsyncStartHandler(t *testing.T) {
 }
 
 func TestAsyncStartHandler_NoRegistry(t *testing.T) {
-	d := NewDispatcher(&mockRelayNode{})
+	d := NewDispatcher(&mockRelayNode{}, nil)
 	ctx := context.Background()
 	cmd := function.AcquireAsyncStartCmd()
 	cmd.Task = runtime.Task{ID: registry.NewID("test", "func")}
@@ -198,9 +210,100 @@ func TestAsyncStartHandler_NoRegistry(t *testing.T) {
 	assert.ErrorIs(t, result.Error, function.ErrRegistryNotFound)
 }
 
+func TestAsyncStartHandler_NoNode(t *testing.T) {
+	d := NewDispatcher(nil, nil)
+	mock := &mockRegistry{
+		callFn: func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+			return &runtime.Result{Value: payload.New("result")}, nil
+		},
+	}
+
+	ctx := setupDispatcherTestContext(mock)
+	cmd := function.AcquireAsyncStartCmd()
+	cmd.Task = runtime.Task{ID: registry.NewID("test", "func")}
+	cmd.Topic = "@future:test-123"
+
+	done := make(chan function.AsyncStartResult, 1)
+	err := d.asyncStart.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
+		done <- data.(function.AsyncStartResult)
+	}})
+
+	require.NoError(t, err)
+	result := <-done
+	assert.ErrorIs(t, result.Error, function.ErrNodeNotFound)
+}
+
+func TestAsyncStartHandler_NoPID(t *testing.T) {
+	mockNode := &mockRelayNode{packages: make(chan *relay.Package, 10)}
+	d := NewDispatcher(mockNode, nil)
+	mock := &mockRegistry{
+		callFn: func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+			return &runtime.Result{Value: payload.New("result")}, nil
+		},
+	}
+
+	ctx := setupDispatcherTestContext(mock)
+	cmd := function.AcquireAsyncStartCmd()
+	cmd.Task = runtime.Task{ID: registry.NewID("test", "func")}
+	cmd.Topic = "@future:test-123"
+
+	done := make(chan function.AsyncStartResult, 1)
+	err := d.asyncStart.Handle(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
+		done <- data.(function.AsyncStartResult)
+	}})
+
+	require.NoError(t, err)
+	result := <-done
+	assert.ErrorIs(t, result.Error, function.ErrPIDNotFound)
+}
+
+func TestAsyncCancelHandler_NoNode(t *testing.T) {
+	d := NewDispatcher(nil, nil)
+
+	ctx := ctxapi.NewRootContext()
+	frameCtx, _ := ctxapi.OpenFrameContext(ctx)
+
+	testPID := pid.PID{Host: "test", UniqID: "1"}
+	_ = runtime.SetFramePID(frameCtx, testPID)
+
+	cmd := function.AcquireAsyncCancelCmd()
+	cmd.Topic = "@future:test-123"
+
+	done := make(chan struct{}, 1)
+	err := d.asyncCancel.Handle(frameCtx, cmd, 0, &testReceiver{cb: func(_ any, _ error) {
+		done <- struct{}{}
+	}})
+	require.NoError(t, err)
+	<-done
+}
+
+func TestAsyncCancelHandler_NoPID(t *testing.T) {
+	mockNode := &mockRelayNode{packages: make(chan *relay.Package, 10)}
+	d := NewDispatcher(mockNode, nil)
+
+	ctx := ctxapi.NewRootContext()
+	frameCtx, _ := ctxapi.OpenFrameContext(ctx)
+
+	cmd := function.AcquireAsyncCancelCmd()
+	cmd.Topic = "@future:test-123"
+
+	done := make(chan struct{}, 1)
+	err := d.asyncCancel.Handle(frameCtx, cmd, 0, &testReceiver{cb: func(_ any, _ error) {
+		done <- struct{}{}
+	}})
+	require.NoError(t, err)
+	<-done
+
+	select {
+	case <-mockNode.packages:
+		t.Fatal("should not have sent package without PID")
+	default:
+	}
+}
+
 func TestAsyncCancelHandler(t *testing.T) {
 	mockNode := &mockRelayNode{packages: make(chan *relay.Package, 10)}
-	d := NewDispatcher(mockNode)
+	d := NewDispatcher(mockNode, nil)
 
 	ctx := ctxapi.NewRootContext()
 	frameCtx, _ := ctxapi.OpenFrameContext(ctx)
@@ -232,7 +335,7 @@ func TestAsyncCancelHandler(t *testing.T) {
 }
 
 func TestDispatcher_RegisterAll(t *testing.T) {
-	d := NewDispatcher(nil)
+	d := NewDispatcher(nil, nil)
 
 	registered := make(map[uint16]bool)
 	register := func(id dispatcher.CommandID, _ dispatcher.Handler) {
@@ -247,7 +350,7 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 }
 
 func BenchmarkCallHandler(b *testing.B) {
-	d := NewDispatcher(nil)
+	d := NewDispatcher(nil, nil)
 	mock := &mockRegistry{
 		callFn: func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 			return &runtime.Result{Value: payload.New("result")}, nil
@@ -266,7 +369,7 @@ func BenchmarkCallHandler(b *testing.B) {
 }
 
 func BenchmarkCallHandler_Parallel(b *testing.B) {
-	d := NewDispatcher(nil)
+	d := NewDispatcher(nil, nil)
 	mock := &mockRegistry{
 		callFn: func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 			return &runtime.Result{Value: payload.New("result")}, nil
@@ -289,7 +392,7 @@ func BenchmarkCallHandler_Parallel(b *testing.B) {
 // Stress tests
 
 func TestCallHandler_Stress(t *testing.T) {
-	d := NewDispatcher(nil)
+	d := NewDispatcher(nil, nil)
 	mock := &mockRegistry{
 		callFn: func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 			return &runtime.Result{Value: payload.New("result")}, nil
@@ -327,7 +430,7 @@ func TestCallHandler_Stress(t *testing.T) {
 
 func BenchmarkAsyncStartHandler(b *testing.B) {
 	mockNode := &mockRelayNode{packages: make(chan *relay.Package, 100000)}
-	d := NewDispatcher(mockNode)
+	d := NewDispatcher(mockNode, nil)
 	mock := &mockRegistry{
 		callFn: func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 			return &runtime.Result{Value: payload.New("result")}, nil
@@ -354,7 +457,7 @@ func BenchmarkAsyncStartHandler(b *testing.B) {
 
 func BenchmarkAsyncStartHandler_Parallel(b *testing.B) {
 	mockNode := &mockRelayNode{packages: make(chan *relay.Package, 100000)}
-	d := NewDispatcher(mockNode)
+	d := NewDispatcher(mockNode, nil)
 	mock := &mockRegistry{
 		callFn: func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 			return &runtime.Result{Value: payload.New("result")}, nil
@@ -409,7 +512,7 @@ func (m *mockRelayNode) Detach(pid.PID) {}
 // TestCallHandler_ContextInheritance tests that context values are inherited
 // through the dispatcher when the parent frame is sealed.
 func TestCallHandler_ContextInheritance(t *testing.T) {
-	d := NewDispatcher(nil)
+	d := NewDispatcher(nil, nil)
 
 	// Registry that verifies context values
 	resultCh := make(chan string, 1)

@@ -192,7 +192,7 @@ func setupResourceEventsListener(ctx context.Context, bus event.Bus) (chan event
 
 // waitForResourceEvent waits for a resource event with the specified kind
 //
-//nolint:unparam // bool return value is required by testing pattern but not used
+//nolint:unparam // timeout parameter always receives same value
 func waitForResourceEvent(t *testing.T, eventChan chan event.Event, expectedKind event.Kind, timeout time.Duration) event.Event {
 	t.Helper()
 
@@ -409,7 +409,7 @@ func TestManager_Update(t *testing.T) {
 
 		err := manager.Update(ctx, entry)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to unmarshal")
+		assert.Contains(t, err.Error(), "decode config")
 
 		// Reset transcoder for other tests
 		manager.dtt = NewMockTranscoder()

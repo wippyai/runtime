@@ -212,6 +212,10 @@ func (f *Registry) executor(ctx context.Context, handler function.Func, task run
 
 	// Generate PID with function ID as Host - function is its own host for message routing
 	gen := process.GetPIDGenerator(ctx)
+	if gen == nil {
+		ctxapi.ReleaseFrameContext(fc)
+		return nil, function.ErrPIDGeneratorNotFound
+	}
 	pid := gen.Generate(task.ID.String())
 
 	// Fast path: no task context overrides (most common case)

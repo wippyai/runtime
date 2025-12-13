@@ -90,7 +90,7 @@ func TestConfig_Validate(t *testing.T) {
 			name:    "missing region",
 			config:  Config{},
 			wantErr: true,
-			errMsg:  "region or endpoint must be specified",
+			errMsg:  "region is required",
 		},
 		{
 			name: "empty region",
@@ -98,7 +98,7 @@ func TestConfig_Validate(t *testing.T) {
 				Region: "",
 			},
 			wantErr: true,
-			errMsg:  "region or endpoint must be specified",
+			errMsg:  "region is required",
 		},
 	}
 

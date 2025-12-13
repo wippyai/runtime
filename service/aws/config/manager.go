@@ -4,21 +4,19 @@ import (
 	"context"
 	"sync"
 
-	envapi "github.com/wippyai/runtime/api/env"
-
-	serviceaws "github.com/wippyai/runtime/api/service/aws/config"
-
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+	envapi "github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
+	serviceaws "github.com/wippyai/runtime/api/service/aws/config"
 	entryutil "github.com/wippyai/runtime/internal/entry"
 	"go.uber.org/zap"
 )
 
-// Manager handles S3 storage lifecycle and functions as a resource provider
+// Manager handles AWS config lifecycle and functions as a resource provider
 type Manager struct {
 	log     *zap.Logger
 	dtt     payload.Transcoder
@@ -28,7 +26,7 @@ type Manager struct {
 	env     envapi.Registry
 }
 
-// NewManager creates a new S3 storage manager
+// NewManager creates a new AWS config manager
 func NewManager(
 	bus event.Bus,
 	dtt payload.Transcoder,
@@ -47,27 +45,27 @@ func NewManager(
 // Add implements registry.EntryListener
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != serviceaws.Kind {
-		return newUnsupportedKindError(entry.Kind)
+		return serviceaws.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check if storage already exists
+	// Check if config already exists
 	if _, exists := m.configs[entry.ID]; exists {
-		return newStorageAlreadyExistsError(entry.ID.String())
+		return serviceaws.NewConfigAlreadyExistsError(entry.ID.String())
 	}
 
 	// Decode and initialize configuration
 	cfg, err := entryutil.DecodeEntryConfig[serviceaws.Config](ctx, m.dtt, entry)
 	if err != nil {
-		return newDecodeConfigError(err)
+		return serviceaws.NewDecodeConfigError(err)
 	}
 
 	// Create AWS config
 	awsCfg, err := m.createAWSConfig(ctx, cfg)
 	if err != nil {
-		return newCreateAWSConfigError(err)
+		return serviceaws.NewCreateAWSConfigError(err)
 	}
 
 	m.configs[entry.ID] = awsCfg
@@ -96,28 +94,28 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update implements registry.EntryListener
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != serviceaws.Kind {
-		return newUnsupportedKindError(entry.Kind)
+		return serviceaws.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check if storage exists
+	// Check if config exists
 	_, exists := m.configs[entry.ID]
 	if !exists {
-		return newStorageNotFoundError(entry.ID.String())
+		return serviceaws.NewConfigNotFoundError(entry.ID.String())
 	}
 
 	// Decode and initialize updated configuration
 	cfg, err := entryutil.DecodeEntryConfig[serviceaws.Config](ctx, m.dtt, entry)
 	if err != nil {
-		return err
+		return serviceaws.NewDecodeConfigError(err)
 	}
 
 	// Create new AWS config
 	awsCfg, err := m.createAWSConfig(ctx, cfg)
 	if err != nil {
-		return newCreateAWSConfigError(err)
+		return serviceaws.NewCreateAWSConfigError(err)
 	}
 
 	m.configs[entry.ID] = awsCfg
@@ -146,7 +144,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete implements registry.EntryListener
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != serviceaws.Kind {
-		return newUnsupportedKindError(entry.Kind)
+		return serviceaws.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -155,7 +153,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	// Check if config exists
 	_, exists := m.configs[entry.ID]
 	if !exists {
-		return newConfigNotFoundError(entry.ID.String())
+		return serviceaws.NewConfigNotFoundError(entry.ID.String())
 	}
 
 	// Unregister resource provider
@@ -181,7 +179,7 @@ func (m *Manager) Acquire(_ context.Context, id registry.ID, mode resource.Acces
 
 	_, exists := m.configs[id]
 	if !exists {
-		return nil, newConfigNotFoundError(id.String())
+		return nil, serviceaws.NewConfigNotFoundError(id.String())
 	}
 
 	// Only support normal mode for now
@@ -212,7 +210,7 @@ func (r *configResource) Get() (any, error) {
 		return nil, resource.ErrReleased
 	}
 
-	// Ensure storage still exists in manager
+	// Ensure config still exists in manager
 	r.manager.mu.RLock()
 	c, exists := r.manager.configs[r.id]
 	r.manager.mu.RUnlock()
@@ -233,11 +231,10 @@ func (r *configResource) Release() {
 		return
 	}
 
-	delete(r.manager.configs, r.id)
 	r.closed = true
 }
 
-// createAWSConfig creates an AWS configuration from S3Config
+// createAWSConfig creates an AWS configuration from Config
 func (m *Manager) createAWSConfig(ctx context.Context, cfg *serviceaws.Config) (aws.Config, error) {
 	options := []func(*config.LoadOptions) error{
 		config.WithRegion(cfg.Region),

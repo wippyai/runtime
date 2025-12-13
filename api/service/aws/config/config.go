@@ -10,7 +10,7 @@ import (
 // Kind identifies the aws config service type.
 const Kind registry.Kind = "config.aws"
 
-// Config represents configuration for an S3 storage provider.
+// Config represents configuration for AWS services.
 type Config struct {
 	// Region is the AWS region where the bucket is located.
 	Region string `json:"region"`
@@ -25,7 +25,7 @@ type Config struct {
 // Validate checks if the configuration is valid.
 func (c *Config) Validate() error {
 	if c.Region == "" {
-		return errors.New("either region or endpoint must be specified")
+		return errors.New("region is required")
 	}
 
 	return nil

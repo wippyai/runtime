@@ -54,6 +54,12 @@ var (
 		message:   "at least one storage must be provided",
 		retryable: apierror.False,
 	}
+
+	ErrEmptyFilePath = &Error{
+		kind:      apierror.KindInvalid,
+		message:   "file path must not be empty",
+		retryable: apierror.False,
+	}
 )
 
 // Error represents an env error with additional metadata.

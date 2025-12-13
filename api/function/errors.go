@@ -55,6 +55,12 @@ var (
 		message:   "frame PID not found in context",
 		retryable: apierror.False,
 	}
+
+	ErrPIDGeneratorNotFound = &Error{
+		kind:      apierror.KindNotFound,
+		message:   "PID generator not found in context",
+		retryable: apierror.False,
+	}
 )
 
 // Error represents a function error with metadata.

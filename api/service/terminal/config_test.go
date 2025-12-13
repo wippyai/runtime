@@ -1,4 +1,4 @@
-// Package terminal2 provides terminal service configuration.
+// Package terminal provides terminal service configuration.
 package terminal
 
 import (

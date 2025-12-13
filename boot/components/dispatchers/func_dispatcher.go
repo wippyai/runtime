@@ -5,6 +5,7 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/relay"
 	sysfunction "github.com/wippyai/runtime/system/function"
 )
@@ -19,7 +20,8 @@ func Func() boot.Component {
 				return ctx, ErrDispatcherNotFound
 			}
 			node := relay.GetNode(ctx)
-			d := sysfunction.NewDispatcher(node)
+			logger := logs.GetLogger(ctx).Named("dispatcher.func")
+			d := sysfunction.NewDispatcher(node, logger)
 			d.RegisterAll(reg.Register)
 			return ctx, nil
 		},

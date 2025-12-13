@@ -60,7 +60,7 @@ func (c *MemoryStorageConfig) Validate() error {
 
 func (c *FileStorageConfig) Validate() error {
 	if c.FilePath == "" {
-		return env.ErrInvalidVariableName
+		return env.ErrEmptyFilePath
 	}
 	return nil
 }

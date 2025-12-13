@@ -11,6 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	"go.uber.org/zap"
 )
 
 // Dispatcher handles function call commands.
@@ -19,11 +20,15 @@ type Dispatcher struct {
 	asyncStart  dispatcher.HandlerFunc
 	asyncCancel dispatcher.HandlerFunc
 	node        relay.Node
+	logger      *zap.Logger
 }
 
 // NewDispatcher creates a new function dispatcher with relay node for message routing.
-func NewDispatcher(node relay.Node) *Dispatcher {
-	d := &Dispatcher{node: node}
+func NewDispatcher(node relay.Node, logger *zap.Logger) *Dispatcher {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+	d := &Dispatcher{node: node, logger: logger}
 	d.call = d.handleCall
 	d.asyncStart = d.handleAsyncStart
 	d.asyncCancel = d.handleAsyncCancel
@@ -56,7 +61,6 @@ func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, tag
 		return nil
 	}
 
-	// Increment frame refcount before goroutine to keep frame alive
 	var closer ctxapi.Closer
 	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
 		closer = fc.IncRef()
@@ -107,24 +111,20 @@ func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Comman
 
 	topic := startCmd.Topic
 	node := d.node
-
-	// Copy task before goroutine - the yield/command will be released after handler returns
 	task := startCmd.Task
+	logger := d.logger
 
-	// Increment frame refcount before goroutine to keep frame alive
 	var closer ctxapi.Closer
 	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
 		closer = fc.IncRef()
 	}
 
-	// Start async call in goroutine
 	go func() {
 		if closer != nil {
 			defer closer.Close()
 		}
 		result, err := registry.Call(ctx, task)
 
-		// Build result payload
 		var resultPayload payload.Payload
 		switch {
 		case err != nil:
@@ -135,12 +135,15 @@ func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Comman
 			resultPayload = result.Value
 		}
 
-		// Send result via relay node
 		pkg := relay.NewPackage(pid.PID{}, framePID, topic, resultPayload, payload.NewTerminal())
-		_ = node.Send(pkg)
+		if err := node.Send(pkg); err != nil {
+			logger.Warn("failed to send async result",
+				zap.String("topic", string(topic)),
+				zap.String("target", framePID.String()),
+				zap.Error(err))
+		}
 	}()
 
-	// Confirm start immediately
 	receiver.CompleteYield(tag, function.AsyncStartResult{}, nil)
 	return nil
 }
@@ -161,9 +164,13 @@ func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Comma
 
 	topic := cancelCmd.Topic
 
-	// Send terminal via relay node to close the channel
 	pkg := relay.NewPackage(pid.PID{}, framePID, topic, payload.NewTerminal())
-	_ = d.node.Send(pkg)
+	if err := d.node.Send(pkg); err != nil {
+		d.logger.Warn("failed to send async cancel",
+			zap.String("topic", string(topic)),
+			zap.String("target", framePID.String()),
+			zap.Error(err))
+	}
 
 	receiver.CompleteYield(tag, nil, nil)
 	return nil

@@ -1,4 +1,4 @@
-// Package terminal2 provides terminal service configuration.
+// Package terminal provides terminal service configuration.
 package terminal
 
 import (
@@ -37,7 +37,7 @@ func TestGetTerminalContext(t *testing.T) {
 		stderr := &bytes.Buffer{}
 		termCtx := NewTerminalContext(stdin, stdout, stderr)
 
-		err := fc.Set(TerminalCtxKey, termCtx)
+		err := fc.Set(terminalKey, termCtx)
 		require.NoError(t, err)
 
 		retrieved := GetTerminalContext(ctx)
@@ -55,7 +55,7 @@ func TestGetTerminalContext(t *testing.T) {
 		ctx := contextapi.NewRootContext()
 		ctx, fc := contextapi.OpenFrameContext(ctx)
 
-		err := fc.Set(TerminalCtxKey, "wrong type")
+		err := fc.Set(terminalKey, "wrong type")
 		require.NoError(t, err)
 
 		tc := GetTerminalContext(ctx)
@@ -63,7 +63,7 @@ func TestGetTerminalContext(t *testing.T) {
 	})
 }
 
-func TestSetTerminalContext(t *testing.T) {
+func TestWithTerminalContext(t *testing.T) {
 	t.Run("with frame context", func(t *testing.T) {
 		ctx := contextapi.NewRootContext()
 		ctx, _ = contextapi.OpenFrameContext(ctx)
@@ -73,7 +73,7 @@ func TestSetTerminalContext(t *testing.T) {
 		stderr := &bytes.Buffer{}
 		termCtx := NewTerminalContext(stdin, stdout, stderr)
 
-		err := SetTerminalContext(ctx, termCtx)
+		err := WithTerminalContext(ctx, termCtx)
 		require.NoError(t, err)
 
 		retrieved := GetTerminalContext(ctx)
@@ -88,7 +88,7 @@ func TestSetTerminalContext(t *testing.T) {
 		stderr := &bytes.Buffer{}
 		termCtx := NewTerminalContext(stdin, stdout, stderr)
 
-		err := SetTerminalContext(ctx, termCtx)
+		err := WithTerminalContext(ctx, termCtx)
 		assert.Equal(t, contextapi.ErrNoFrameContext, err)
 	})
 
@@ -102,7 +102,7 @@ func TestSetTerminalContext(t *testing.T) {
 		stderr := &bytes.Buffer{}
 		termCtx := NewTerminalContext(stdin, stdout, stderr)
 
-		err := SetTerminalContext(ctx, termCtx)
+		err := WithTerminalContext(ctx, termCtx)
 		assert.Error(t, err)
 	})
 }

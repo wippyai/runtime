@@ -80,6 +80,7 @@ func TestError_Interface(t *testing.T) {
 		assert.Equal(t, "router storage must have at least one storage", ErrEmptyStorageList.Error())
 		assert.Equal(t, "storage is read-only", ErrStorageReadOnly.Error())
 		assert.Equal(t, "at least one storage must be provided", ErrNoStorages.Error())
+		assert.Equal(t, "file path must not be empty", ErrEmptyFilePath.Error())
 	})
 
 	t.Run("NewVariableNotFoundError has details", func(t *testing.T) {

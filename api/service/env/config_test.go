@@ -121,6 +121,7 @@ func TestFileStorageConfig_Validate(t *testing.T) {
 		name    string
 		config  FileStorageConfig
 		wantErr bool
+		errMsg  string
 	}{
 		{
 			name:    "valid config",
@@ -131,6 +132,7 @@ func TestFileStorageConfig_Validate(t *testing.T) {
 			name:    "empty filepath",
 			config:  FileStorageConfig{},
 			wantErr: true,
+			errMsg:  "file path must not be empty",
 		},
 	}
 
@@ -138,7 +140,8 @@ func TestFileStorageConfig_Validate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.config.Validate()
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
 			} else {
 				assert.NoError(t, err)
 			}

@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/env"
-	apierr "github.com/wippyai/runtime/api/env"
 )
 
 // Storage is an in-memory implementation of env.Storage.
@@ -34,12 +33,12 @@ func NewStorage(defaultValues map[string]string) *Storage {
 func (s *Storage) Get(_ context.Context, key string) (string, error) {
 	value, exists := s.values.Load(key)
 	if !exists {
-		return "", apierr.ErrVariableNotFound
+		return "", env.ErrVariableNotFound
 	}
 
 	strValue, ok := value.(string)
 	if !ok {
-		return "", apierr.ErrVariableNotFound
+		return "", env.ErrVariableNotFound
 	}
 
 	return strValue, nil

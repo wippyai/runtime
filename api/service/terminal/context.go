@@ -1,4 +1,4 @@
-// Package terminal2 provides terminal service configuration.
+// Package terminal provides terminal service configuration.
 package terminal
 
 import (
@@ -8,8 +8,12 @@ import (
 	contextapi "github.com/wippyai/runtime/api/context"
 )
 
-// TerminalCtxKey represents the terminal manager context key
-var TerminalCtxKey = &contextapi.Key{Name: "terminal"}
+var terminalKey = &contextapi.Key{Name: "terminal"}
+
+// TerminalKey returns the context key for terminal context.
+func TerminalKey() *contextapi.Key {
+	return terminalKey
+}
 
 // PipeContext holds the standard input/output/error streams for terminal operations.
 type PipeContext struct {
@@ -44,7 +48,7 @@ func GetTerminalContext(ctx context.Context) *PipeContext {
 	if fc == nil {
 		return nil
 	}
-	if val, ok := fc.Get(TerminalCtxKey); ok {
+	if val, ok := fc.Get(terminalKey); ok {
 		if tc, ok := val.(*PipeContext); ok {
 			return tc
 		}
@@ -52,11 +56,11 @@ func GetTerminalContext(ctx context.Context) *PipeContext {
 	return nil
 }
 
-// SetTerminalContext sets the terminal context in the given context.
-func SetTerminalContext(ctx context.Context, tc *PipeContext) error {
+// WithTerminalContext sets the terminal context in the given context.
+func WithTerminalContext(ctx context.Context, tc *PipeContext) error {
 	fc := contextapi.FrameFromContext(ctx)
 	if fc == nil {
 		return contextapi.ErrNoFrameContext
 	}
-	return fc.Set(TerminalCtxKey, tc)
+	return fc.Set(terminalKey, tc)
 }

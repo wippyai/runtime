@@ -92,7 +92,7 @@ func TestWrite_WithTerminalContext(t *testing.T) {
 	tc := terminal.NewTerminalContext(nil, stdout, nil)
 	ctx := ctxapi.NewRootContext()
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
-	_ = terminal.SetTerminalContext(ctx, tc)
+	_ = terminal.WithTerminalContext(ctx, tc)
 	l.SetContext(ctx)
 
 	err := l.DoString(`
@@ -117,7 +117,7 @@ func TestPrint_WithTerminalContext(t *testing.T) {
 	tc := terminal.NewTerminalContext(nil, stdout, nil)
 	ctx := ctxapi.NewRootContext()
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
-	_ = terminal.SetTerminalContext(ctx, tc)
+	_ = terminal.WithTerminalContext(ctx, tc)
 	l.SetContext(ctx)
 
 	err := l.DoString(`
@@ -142,7 +142,7 @@ func TestEprint_WithTerminalContext(t *testing.T) {
 	tc := terminal.NewTerminalContext(nil, nil, stderr)
 	ctx := ctxapi.NewRootContext()
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
-	_ = terminal.SetTerminalContext(ctx, tc)
+	_ = terminal.WithTerminalContext(ctx, tc)
 	l.SetContext(ctx)
 
 	err := l.DoString(`
@@ -167,7 +167,7 @@ func TestRead_WithTerminalContext(t *testing.T) {
 	tc := terminal.NewTerminalContext(stdin, nil, nil)
 	ctx := ctxapi.NewRootContext()
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
-	_ = terminal.SetTerminalContext(ctx, tc)
+	_ = terminal.WithTerminalContext(ctx, tc)
 	l.SetContext(ctx)
 
 	err := l.DoString(`
@@ -189,7 +189,7 @@ func TestReadline_WithTerminalContext(t *testing.T) {
 	tc := terminal.NewTerminalContext(stdin, nil, nil)
 	ctx := ctxapi.NewRootContext()
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
-	_ = terminal.SetTerminalContext(ctx, tc)
+	_ = terminal.WithTerminalContext(ctx, tc)
 	l.SetContext(ctx)
 
 	err := l.DoString(`
@@ -211,7 +211,7 @@ func TestFlush_WithTerminalContext(t *testing.T) {
 	tc := terminal.NewTerminalContext(nil, stdout, nil)
 	ctx := ctxapi.NewRootContext()
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
-	_ = terminal.SetTerminalContext(ctx, tc)
+	_ = terminal.WithTerminalContext(ctx, tc)
 	l.SetContext(ctx)
 
 	err := l.DoString(`

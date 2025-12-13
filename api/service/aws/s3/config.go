@@ -18,7 +18,7 @@ type Config struct {
 	// AWSConfig is a resource name of aws config.
 	AWSConfig string `json:"config"`
 
-	// Endpoint is a custom endpoint.
+	// Endpoint is the custom S3 endpoint URL (optional, for S3-compatible services).
 	Endpoint string `json:"endpoint"`
 }
 

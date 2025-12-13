@@ -503,8 +503,6 @@ func TestInterceptor_WithSkipKinds(t *testing.T) {
 }
 
 func TestInterceptor_ParsePolicy(t *testing.T) {
-	interceptor := New()
-
 	tests := []struct {
 		name     string
 		opts     map[string]any
@@ -580,7 +578,7 @@ func TestInterceptor_ParsePolicy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			policy := interceptor.parsePolicy(tt.opts)
+			policy := parsePolicy(tt.opts)
 			assert.Equal(t, tt.expected.maxAttempts, policy.MaxAttempts)
 			assert.Equal(t, tt.expected.initialDelay, policy.InitialDelay)
 			assert.Equal(t, tt.expected.maxDelay, policy.MaxDelay)

@@ -12,6 +12,9 @@ import (
 	"go.uber.org/zap"
 )
 
+// DefaultPresignExpiration is the default expiration time for presigned URLs.
+const DefaultPresignExpiration = 15 * time.Minute
+
 // Compile-time interface check.
 var _ cloudstorage.Storage = (*Storage)(nil)
 
@@ -171,8 +174,7 @@ func (s *Storage) DeleteObjects(ctx context.Context, keys []string) error {
 
 // PresignedGetURL generates a presigned URL for downloading an object from S3
 func (s *Storage) PresignedGetURL(ctx context.Context, key string, opts *cloudstorage.PresignedGetOptions) (string, error) {
-	// Set default expiration if not provided
-	expiration := 15 * time.Minute
+	expiration := DefaultPresignExpiration
 	if opts != nil && opts.Expiration > 0 {
 		expiration = opts.Expiration
 	}
@@ -202,8 +204,7 @@ func (s *Storage) PresignedGetURL(ctx context.Context, key string, opts *cloudst
 
 // PresignedPutURL generates a presigned URL for uploading an object to S3
 func (s *Storage) PresignedPutURL(ctx context.Context, key string, opts *cloudstorage.PresignedPutOptions) (string, error) {
-	// Set default expiration if not provided
-	expiration := 15 * time.Minute
+	expiration := DefaultPresignExpiration
 	if opts != nil && opts.Expiration > 0 {
 		expiration = opts.Expiration
 	}

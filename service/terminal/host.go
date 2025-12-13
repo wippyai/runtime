@@ -1,9 +1,8 @@
-// Package terminal2 provides terminal host using the actor scheduler.
+// Package terminal provides terminal host using the actor scheduler.
 package terminal
 
 import (
 	"context"
-	"errors"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -93,16 +92,13 @@ func (h *Host) Done() <-chan struct{} {
 	return h.doneCh
 }
 
-// ErrHostNotRunning is returned when Run is called before Start.
-var ErrHostNotRunning = errors.New("host is not running")
-
 // Run implements process.Host.
 func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 	if !h.running.Load() {
-		return pid.PID{}, ErrHostNotRunning
+		return pid.PID{}, terminal.ErrHostNotRunning
 	}
 	if h.shutdown.Load() {
-		return pid.PID{}, errors.New("host is shutting down")
+		return pid.PID{}, terminal.ErrHostShuttingDown
 	}
 
 	proc, meta, err := h.factory.Create(start.Source)
@@ -146,7 +142,7 @@ func (h *Host) Terminate(_ context.Context, processID pid.PID) error {
 // Send implements relay.Receiver.
 func (h *Host) Send(pkg *relay.Package) error {
 	if h.shutdown.Load() {
-		return errors.New("host is shutting down")
+		return terminal.ErrHostShuttingDown
 	}
 	return h.scheduler.Send(pkg)
 }
@@ -154,7 +150,7 @@ func (h *Host) Send(pkg *relay.Package) error {
 // Start implements supervisor.Service.
 func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 	if h.running.Swap(true) {
-		return nil, errors.New("host already running")
+		return nil, terminal.ErrHostAlreadyRunning
 	}
 
 	h.ctx = ctx
@@ -214,7 +210,7 @@ func (h *Host) prepareContext(ctx context.Context, processID pid.PID, start *pro
 	pairs := make([]ctxapi.Pair, pairsLen)
 	pairs[0] = ctxapi.Pair{Key: runtime.FrameIDKey, Value: start.Source}
 	pairs[1] = ctxapi.Pair{Key: runtime.FramePIDKey, Value: processID}
-	pairs[2] = ctxapi.Pair{Key: terminal.TerminalCtxKey, Value: terminal.NewTerminalContextWithArgs(os.Stdin, os.Stdout, os.Stderr, args)}
+	pairs[2] = ctxapi.Pair{Key: terminal.TerminalKey(), Value: terminal.NewTerminalContextWithArgs(os.Stdin, os.Stdout, os.Stderr, args)}
 	copy(pairs[3:], start.Context)
 
 	if err := fc.SetMultiple(pairs...); err != nil {

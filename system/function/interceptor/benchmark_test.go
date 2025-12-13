@@ -2,6 +2,7 @@ package interceptor
 
 import (
 	"context"
+	"strconv"
 	"testing"
 
 	"github.com/wippyai/runtime/api/registry"
@@ -68,7 +69,7 @@ func BenchmarkRegistryThreeInterceptors(b *testing.B) {
 func BenchmarkRegistryTenInterceptors(b *testing.B) {
 	reg := NewInterceptorRegistry(zap.NewNop())
 	for i := 0; i < 10; i++ {
-		_ = reg.Register("int"+string(rune('0'+i)), &benchInterceptor{name: "int"}, i*100)
+		_ = reg.Register("int"+strconv.Itoa(i), &benchInterceptor{name: "int"}, i*100)
 	}
 
 	mockFunc := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {

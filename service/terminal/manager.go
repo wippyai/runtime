@@ -54,7 +54,7 @@ func NewManager(
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	cfg, err := entryutil.DecodeEntryConfig[terminal.HostConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return newDecodeConfigError(err)
+		return terminal.NewDecodeConfigError(err)
 	}
 
 	logCtrl := logs.NewConfigurator(m.bus, m.log)

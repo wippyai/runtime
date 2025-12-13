@@ -9,7 +9,6 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/internal/backoff"
-	"go.uber.org/zap"
 )
 
 const (
@@ -28,31 +27,20 @@ const (
 )
 
 // Interceptor implements retry functionality with exponential backoff.
-type Interceptor struct {
-	logger *zap.Logger
-}
+type Interceptor struct{}
 
 // New creates a new retry interceptor.
 func New() *Interceptor {
 	return &Interceptor{}
 }
 
-// NewWithLogger creates a new retry interceptor with logger.
-func NewWithLogger(logger *zap.Logger) *Interceptor {
-	return &Interceptor{logger: logger}
-}
-
 // Handle implements the interceptor interface.
 func (i *Interceptor) Handle(ctx context.Context, task runtime.Task, next func(context.Context, runtime.Task) (*runtime.Result, error)) (*runtime.Result, error) {
 	result, err := next(ctx, task)
 
-	if err == nil && (result == nil || result.Error == nil) {
+	checkErr := extractError(result, err)
+	if checkErr == nil {
 		return result, nil
-	}
-
-	checkErr := err
-	if checkErr == nil && result != nil {
-		checkErr = result.Error
 	}
 
 	if errors.Is(checkErr, context.Canceled) || errors.Is(checkErr, context.DeadlineExceeded) {
@@ -83,7 +71,7 @@ func (i *Interceptor) Handle(ctx context.Context, task runtime.Task, next func(c
 		return result, err
 	}
 
-	policy := i.parsePolicy(retryOpts)
+	policy := parsePolicy(retryOpts)
 	if policy.MaxAttempts <= 1 {
 		return result, err
 	}
@@ -92,13 +80,12 @@ func (i *Interceptor) Handle(ctx context.Context, task runtime.Task, next func(c
 	retryKinds := bag.GetSlice(optionKeyRetryKinds)
 	skipKinds := bag.GetSlice(optionKeySkipKinds)
 
-	if !i.isRetryable(checkErr, retryKinds, skipKinds) {
+	if !isRetryable(checkErr, retryKinds, skipKinds) {
 		return result, err
 	}
 
 	calc := backoff.NewCalculator(policy)
-	// We already did attempt 0, so consume the first interval
-	_ = calc.NextInterval()
+	_ = calc.NextInterval() // consume first interval (attempt 0 already done)
 
 	for attempt := 1; attempt < policy.MaxAttempts; attempt++ {
 		interval := calc.NextInterval()
@@ -106,24 +93,22 @@ func (i *Interceptor) Handle(ctx context.Context, task runtime.Task, next func(c
 			break
 		}
 
+		timer := time.NewTimer(interval)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return &runtime.Result{Error: ctx.Err()}, ctx.Err()
-		case <-time.After(interval):
+		case <-timer.C:
 		}
 
 		result, err = next(ctx, task)
 
-		if err == nil && (result == nil || result.Error == nil) {
+		checkErr = extractError(result, err)
+		if checkErr == nil {
 			return result, nil
 		}
 
-		checkErr = err
-		if checkErr == nil && result != nil {
-			checkErr = result.Error
-		}
-
-		if !i.isRetryable(checkErr, retryKinds, skipKinds) {
+		if !isRetryable(checkErr, retryKinds, skipKinds) {
 			return result, err
 		}
 	}
@@ -131,7 +116,19 @@ func (i *Interceptor) Handle(ctx context.Context, task runtime.Task, next func(c
 	return result, err
 }
 
-func (i *Interceptor) parsePolicy(opts map[string]any) supervisor.RetryPolicy {
+// extractError returns the error from result or err, preferring err.
+func extractError(result *runtime.Result, err error) error {
+	if err != nil {
+		return err
+	}
+	if result != nil && result.Error != nil {
+		return result.Error
+	}
+	return nil
+}
+
+// parsePolicy extracts retry policy from options map.
+func parsePolicy(opts map[string]any) supervisor.RetryPolicy {
 	policy := supervisor.RetryPolicy{
 		InitialDelay:  defaultInitialDelay,
 		MaxDelay:      defaultMaxDelay,
@@ -140,80 +137,83 @@ func (i *Interceptor) parsePolicy(opts map[string]any) supervisor.RetryPolicy {
 		MaxAttempts:   0,
 	}
 
-	if ma, ok := opts[optionKeyMaxAttempts]; ok {
-		switch v := ma.(type) {
-		case int:
-			policy.MaxAttempts = v
-		case float64:
-			policy.MaxAttempts = int(v)
-		}
+	policy.MaxAttempts = getInt(opts, optionKeyMaxAttempts, 0)
+	if d := getDuration(opts, optionKeyInitialDelay); d > 0 {
+		policy.InitialDelay = d
 	}
-
-	if id, ok := opts[optionKeyInitialDelay]; ok {
-		switch v := id.(type) {
-		case int:
-			policy.InitialDelay = time.Duration(v) * time.Millisecond
-		case float64:
-			policy.InitialDelay = time.Duration(v) * time.Millisecond
-		case string:
-			if d, err := time.ParseDuration(v); err == nil {
-				policy.InitialDelay = d
-			}
-		}
+	if d := getDuration(opts, optionKeyMaxDelay); d > 0 {
+		policy.MaxDelay = d
 	}
-
-	if md, ok := opts[optionKeyMaxDelay]; ok {
-		switch v := md.(type) {
-		case int:
-			policy.MaxDelay = time.Duration(v) * time.Millisecond
-		case float64:
-			policy.MaxDelay = time.Duration(v) * time.Millisecond
-		case string:
-			if d, err := time.ParseDuration(v); err == nil {
-				policy.MaxDelay = d
-			}
-		}
+	if f := getFloat(opts, optionKeyBackoffFactor); f > 0 {
+		policy.BackoffFactor = f
 	}
-
-	if bf, ok := opts[optionKeyBackoffFactor]; ok {
-		switch v := bf.(type) {
-		case float64:
-			policy.BackoffFactor = v
-		case int:
-			policy.BackoffFactor = float64(v)
-		}
-	}
-
-	if j, ok := opts[optionKeyJitter]; ok {
-		switch v := j.(type) {
-		case float64:
-			policy.Jitter = v
-		case int:
-			policy.Jitter = float64(v)
-		}
+	if _, ok := opts[optionKeyJitter]; ok {
+		policy.Jitter = getFloat(opts, optionKeyJitter)
 	}
 
 	return policy
 }
 
-func (i *Interceptor) isRetryable(err error, retryKinds, skipKinds []string) bool {
+func getInt(opts map[string]any, key string, def int) int {
+	v, ok := opts[key]
+	if !ok {
+		return def
+	}
+	switch val := v.(type) {
+	case int:
+		return val
+	case float64:
+		return int(val)
+	}
+	return def
+}
+
+func getFloat(opts map[string]any, key string) float64 {
+	v, ok := opts[key]
+	if !ok {
+		return 0
+	}
+	switch val := v.(type) {
+	case float64:
+		return val
+	case int:
+		return float64(val)
+	}
+	return 0
+}
+
+func getDuration(opts map[string]any, key string) time.Duration {
+	v, ok := opts[key]
+	if !ok {
+		return 0
+	}
+	switch val := v.(type) {
+	case int:
+		return time.Duration(val) * time.Millisecond
+	case float64:
+		return time.Duration(val) * time.Millisecond
+	case string:
+		if d, err := time.ParseDuration(val); err == nil {
+			return d
+		}
+	}
+	return 0
+}
+
+func isRetryable(err error, retryKinds, skipKinds []string) bool {
 	var apiErr apierror.Error
 	if !errors.As(err, &apiErr) {
-		if len(skipKinds) > 0 {
-			return !containsKind(skipKinds, apierror.KindUnknown)
-		}
-		if len(retryKinds) > 0 {
-			return containsKind(retryKinds, apierror.KindUnknown)
-		}
-		return true
+		return isKindAllowed(apierror.KindUnknown, retryKinds, skipKinds)
 	}
 
 	if apiErr.Retryable() == apierror.False {
 		return false
 	}
 
-	kind := apiErr.Kind()
+	return isKindAllowed(apiErr.Kind(), retryKinds, skipKinds)
+}
 
+func isKindAllowed(kind apierror.Kind, retryKinds, skipKinds []string) bool {
 	if len(skipKinds) > 0 && containsKind(skipKinds, kind) {
 		return false
 	}
@@ -223,9 +223,7 @@ func (i *Interceptor) isRetryable(err error, retryKinds, skipKinds []string) boo
 	}
 
 	switch kind {
-	case apierror.KindInvalid,
-		apierror.KindPermissionDenied,
-		apierror.KindInternal:
+	case apierror.KindInvalid, apierror.KindPermissionDenied, apierror.KindInternal:
 		return false
 	default:
 		return true

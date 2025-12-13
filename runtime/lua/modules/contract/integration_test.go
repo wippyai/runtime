@@ -147,7 +147,7 @@ func setupIntegrationTest(t *testing.T, numWorkers int) *integrationTestContext 
 		reg.Register(id, h)
 	})
 
-	funcDisp := sysfunction.NewDispatcher(node)
+	funcDisp := sysfunction.NewDispatcher(node, zap.NewNop())
 	funcDisp.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		reg.Register(id, h)
 	})

@@ -120,6 +120,7 @@ func TestSentinelErrors(t *testing.T) {
 		{"ErrNilCallback", ErrNilCallback, "nil callback", "Invalid"},
 		{"ErrNodeNotFound", ErrNodeNotFound, "relay node not configured", "NotFound"},
 		{"ErrPIDNotFound", ErrPIDNotFound, "frame PID not found in context", "NotFound"},
+		{"ErrPIDGeneratorNotFound", ErrPIDGeneratorNotFound, "PID generator not found in context", "NotFound"},
 	}
 
 	for _, tt := range tests {
