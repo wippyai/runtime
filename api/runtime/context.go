@@ -14,7 +14,7 @@ var (
 	// FrameIDKey stores the registry ID of the called function/process
 	FrameIDKey = &ctxapi.Key{Name: "runtime.frame_id"}
 
-	// FramePIDKey stores the full PID (relay.PID)
+	// FramePIDKey stores the full PID (pid.PID)
 	FramePIDKey = &ctxapi.Key{Name: "runtime.frame_pid"}
 
 	// FrameLifecycleOptionsKey stores lifecycle options (attrs.Attributes)
