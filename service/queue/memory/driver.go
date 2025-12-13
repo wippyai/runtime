@@ -179,9 +179,13 @@ func (d *Driver) GetQueueInfo(_ context.Context, queueID registry.ID) (attrs.Att
 		return nil, queueapi.ErrQueueNotFound
 	}
 
+	q.mu.RLock()
+	msgCount := len(q.messages)
+	q.mu.RUnlock()
+
 	info := attrs.NewBag()
-	info.Set(queueapi.StatsMessageCount, len(q.messages))
-	info.Set(queueapi.StatsReady, len(q.messages))
+	info.Set(queueapi.StatsMessageCount, msgCount)
+	info.Set(queueapi.StatsReady, msgCount)
 
 	return info, nil
 }

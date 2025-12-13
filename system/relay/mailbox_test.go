@@ -521,8 +521,8 @@ func TestMailbox_SendNilPackage(t *testing.T) {
 		WorkerCount: 1,
 	})
 
-	// Try to send nil package - this should panic due to nil pointer dereference
-	assert.Panics(t, func() {
-		_ = mailbox.Send(nil)
-	})
+	// Try to send nil package - this should return an error
+	err := mailbox.Send(nil)
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, relay.ErrNilPackage)
 }

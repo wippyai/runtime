@@ -41,12 +41,15 @@ func GetManager(ctx context.Context) Manager {
 }
 
 // WithFactory stores a factory in the app context.
-func WithFactory(ctx context.Context, f Factory) {
+func WithFactory(ctx context.Context, f Factory) context.Context {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
-		return
+		return ctx
 	}
-	ac.With(factoryCtxKey, f)
+	if ac.Get(factoryCtxKey) == nil {
+		ac.With(factoryCtxKey, f)
+	}
+	return ctx
 }
 
 // GetFactory retrieves the factory from context.

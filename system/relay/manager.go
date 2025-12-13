@@ -3,9 +3,9 @@ package relay
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/wippyai/runtime/api/event"
-	"github.com/wippyai/runtime/api/pid"
 	api "github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
@@ -18,6 +18,7 @@ type NodeManager struct {
 	bus        event.Bus
 	node       *Node
 	subscriber *eventbus.Subscriber
+	stopOnce   sync.Once
 }
 
 // NewNodeManager creates a new node manager instance that wraps a Node
@@ -51,9 +52,11 @@ func (m *NodeManager) Start(ctx context.Context) error {
 
 // Stop gracefully shuts down the manager
 func (m *NodeManager) Stop() error {
-	if m.subscriber != nil {
-		m.subscriber.Close()
-	}
+	m.stopOnce.Do(func() {
+		if m.subscriber != nil {
+			m.subscriber.Close()
+		}
+	})
 	return nil
 }
 
@@ -130,16 +133,6 @@ func (m *NodeManager) sendReject(path event.Path, reason string) {
 		Path:   path,
 		Data:   reason,
 	})
-}
-
-// Send delegates message sending to the underlying node
-func (m *NodeManager) Send(pkg *api.Package) error {
-	return m.node.Send(pkg)
-}
-
-// Attach delegates attachment to the underlying node
-func (m *NodeManager) Attach(p pid.PID, ch chan *api.Package) (context.CancelFunc, error) {
-	return m.node.Attach(p, ch)
 }
 
 // Node returns the underlying Node instance

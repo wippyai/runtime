@@ -211,7 +211,7 @@ func TestManager_Send(t *testing.T) {
 			},
 		}
 
-		err := manager.Send(pkg)
+		err := manager.Node().Send(pkg)
 		assert.Error(t, err)
 	})
 
@@ -232,7 +232,7 @@ func TestManager_Send(t *testing.T) {
 			},
 		}
 
-		err := manager.Send(pkg)
+		err := manager.Node().Send(pkg)
 		assert.NoError(t, err)
 	})
 }
@@ -256,7 +256,7 @@ func TestManager_Attach(t *testing.T) {
 	}
 	ch := make(chan *relay.Package, 1)
 
-	detach, err := manager.Attach(pid, ch)
+	detach, err := manager.Node().Attach(pid, ch)
 	require.NoError(t, err)
 	assert.NotNil(t, detach)
 

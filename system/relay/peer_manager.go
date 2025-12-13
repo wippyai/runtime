@@ -3,6 +3,7 @@ package relay
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/wippyai/runtime/api/event"
 	api "github.com/wippyai/runtime/api/relay"
@@ -19,6 +20,7 @@ type PeerManager struct {
 	bus        event.Bus
 	router     *Router
 	subscriber *eventbus.Subscriber
+	stopOnce   sync.Once
 }
 
 // NewPeerManager creates a new PeerManager.
@@ -51,9 +53,11 @@ func (m *PeerManager) Start(ctx context.Context) error {
 
 // Stop cleans up manager resources.
 func (m *PeerManager) Stop() error {
-	if m.subscriber != nil {
-		m.subscriber.Close()
-	}
+	m.stopOnce.Do(func() {
+		if m.subscriber != nil {
+			m.subscriber.Close()
+		}
+	})
 	return nil
 }
 

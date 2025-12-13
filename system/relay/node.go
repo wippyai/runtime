@@ -58,6 +58,10 @@ func (n *Node) GetHost(hostID pid.HostID) (api.Receiver, bool) {
 // Send delivers a package to its destination. The destination must be a host
 // registered within this node.
 func (n *Node) Send(pkg *api.Package) error {
+	if pkg == nil {
+		return api.NewNilPackageError()
+	}
+
 	if pkg.Target.Node != "" && pkg.Target.Node != n.nodeID {
 		return api.NewExternalNodeError(pkg.Target.Node)
 	}

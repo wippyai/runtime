@@ -97,6 +97,11 @@ func (m *Mailbox) Detach(p pid.PID) {
 // Send enqueues a package for delivery. Messages from the same source
 // are routed to the same worker to preserve per-sender FIFO ordering.
 func (m *Mailbox) Send(pkg *api.Package) error {
+	if pkg == nil {
+		return api.NewNilPackageError()
+	}
+
+	// Check context before attempting to send to avoid sending to closed channels
 	if err := m.ctx.Err(); err != nil {
 		m.config.Logger.Warn("send after mailbox shutdown", zap.String("pid", pkg.Target.String()))
 		return err
@@ -105,8 +110,13 @@ func (m *Mailbox) Send(pkg *api.Package) error {
 	// Hash by Source.UniqID to preserve per-sender ordering
 	workerIndex := int(hashString(pkg.Source.UniqID)) % m.config.WorkerCount
 
-	m.jobQueues[workerIndex] <- pkg
-	return nil
+	select {
+	case m.jobQueues[workerIndex] <- pkg:
+		return nil
+	case <-m.ctx.Done():
+		m.config.Logger.Warn("send after mailbox shutdown", zap.String("pid", pkg.Target.String()))
+		return m.ctx.Err()
+	}
 }
 
 // worker processes packages from its dedicated queue.
@@ -140,5 +150,10 @@ func (m *Mailbox) deliver(pkg *api.Package) {
 		return
 	}
 
-	ch <- pkg
+	select {
+	case ch <- pkg:
+	case <-m.ctx.Done():
+		m.config.Logger.Debug("delivery cancelled",
+			zap.String("target", pkg.Target.String()))
+	}
 }

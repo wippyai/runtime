@@ -159,3 +159,67 @@ func TestLifecycleRegistry_ConcurrentAccess(_ *testing.T) {
 }
 
 var _ process.LifecycleRegistry = (*LifecycleRegistry)(nil)
+
+func BenchmarkLifecycleRegistry_OnStart_2(b *testing.B) {
+	reg := NewLifecycleRegistry()
+	reg.Register("lc1", &mockLifecycle{})
+	reg.Register("lc2", &mockLifecycle{})
+
+	ctx := context.Background()
+	p := pid.PID{UniqID: "bench-pid"}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		reg.OnStart(ctx, p, nil)
+	}
+}
+
+func BenchmarkLifecycleRegistry_OnStart_10(b *testing.B) {
+	reg := NewLifecycleRegistry()
+	for i := 0; i < 10; i++ {
+		reg.Register(string(rune('a'+i)), &mockLifecycle{})
+	}
+
+	ctx := context.Background()
+	p := pid.PID{UniqID: "bench-pid"}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		reg.OnStart(ctx, p, nil)
+	}
+}
+
+func BenchmarkLifecycleRegistry_OnComplete_2(b *testing.B) {
+	reg := NewLifecycleRegistry()
+	reg.Register("lc1", &mockLifecycle{})
+	reg.Register("lc2", &mockLifecycle{})
+
+	ctx := context.Background()
+	p := pid.PID{UniqID: "bench-pid"}
+	result := &runtime.Result{}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		reg.OnComplete(ctx, p, result)
+	}
+}
+
+func BenchmarkLifecycleRegistry_OnComplete_10(b *testing.B) {
+	reg := NewLifecycleRegistry()
+	for i := 0; i < 10; i++ {
+		reg.Register(string(rune('a'+i)), &mockLifecycle{})
+	}
+
+	ctx := context.Background()
+	p := pid.PID{UniqID: "bench-pid"}
+	result := &runtime.Result{}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		reg.OnComplete(ctx, p, result)
+	}
+}

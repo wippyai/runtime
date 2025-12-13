@@ -188,3 +188,13 @@ func NewAlreadyAttachedError(p pid.PID) *Error {
 		cause:     ErrAlreadyAttached,
 	}
 }
+
+// NewNilPackageError creates an error when a nil package is passed to Send.
+func NewNilPackageError() *Error {
+	return &Error{
+		kind:      apierror.KindInvalid,
+		message:   "cannot send nil package",
+		retryable: apierror.False,
+		cause:     ErrNilPackage,
+	}
+}

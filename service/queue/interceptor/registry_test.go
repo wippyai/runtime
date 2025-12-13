@@ -153,6 +153,42 @@ func TestRegistry_Unregister_Rebuilds(t *testing.T) {
 	assert.True(t, int2.called.Load(), "remaining interceptor should be called")
 }
 
+func TestRegistry_Unregister_NonExistent(t *testing.T) {
+	reg := NewRegistry(zap.NewNop(), noopPublish)
+
+	reg.Register("existing", &testInterceptor{name: "existing"}, 100)
+
+	// Should not panic or cause issues
+	reg.Unregister("nonexistent")
+
+	assert.Len(t, reg.entries, 1)
+}
+
+func TestRegistry_Publish_InterceptorError(t *testing.T) {
+	publishCalled := false
+	reg := NewRegistry(zap.NewNop(), func(_ context.Context, _ registry.ID, _ ...*queueapi.Message) error {
+		publishCalled = true
+		return nil
+	})
+
+	errInterceptor := &errorInterceptor{err: assert.AnError}
+	afterInterceptor := &testInterceptor{name: "after"}
+
+	reg.Register("error", errInterceptor, 100)
+	reg.Register("after", afterInterceptor, 200)
+
+	ctx := context.Background()
+	queueID := registry.NewID("test", "queue")
+	msg := queueapi.NewMessage(payload.New("test"))
+
+	err := reg.Publish(ctx, queueID, msg)
+
+	assert.Error(t, err)
+	assert.Equal(t, assert.AnError, err)
+	assert.False(t, afterInterceptor.called.Load(), "interceptor after error should not be called")
+	assert.False(t, publishCalled, "publish should not be called when interceptor errors")
+}
+
 type testInterceptor struct {
 	name   string
 	called atomic.Bool
@@ -171,4 +207,12 @@ type orderInterceptor struct {
 func (i *orderInterceptor) Handle(ctx context.Context, queue registry.ID, msgs []*queueapi.Message, next queueapi.PublishNext) error {
 	*i.callOrder = append(*i.callOrder, i.name)
 	return next(ctx, queue, msgs)
+}
+
+type errorInterceptor struct {
+	err error
+}
+
+func (i *errorInterceptor) Handle(_ context.Context, _ registry.ID, _ []*queueapi.Message, _ queueapi.PublishNext) error {
+	return i.err
 }
