@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
@@ -87,7 +88,7 @@ func (p *CounterProcess) Init(ctx context.Context, _ string, input payload.Paylo
 	return nil
 }
 
-func (p *CounterProcess) Step(_ []Event, out *StepOutput) error {
+func (p *CounterProcess) Step(_ []process.Event, out *process.StepOutput) error {
 	if p.current >= p.target {
 		out.Yield(CompleteCmd{Value: p.current}, 0)
 		out.Done(nil)
@@ -120,7 +121,7 @@ func (p *SleepProcess) Init(ctx context.Context, _ string, input payload.Payload
 	return nil
 }
 
-func (p *SleepProcess) Step(_ []Event, out *StepOutput) error {
+func (p *SleepProcess) Step(_ []process.Event, out *process.StepOutput) error {
 	if !p.slept {
 		p.slept = true
 		out.Yield(SleepCmd{Duration: p.duration}, 0)
@@ -141,11 +142,11 @@ func (p *SleepProcess) Close() {}
 
 // testLifecycle implements process.Lifecycle for tests
 type testLifecycle struct {
-	onStart    func(context.Context, pid.PID, Process)
+	onStart    func(context.Context, pid.PID, process.Process)
 	onComplete func(context.Context, pid.PID, *runtime.Result)
 }
 
-func (l *testLifecycle) OnStart(ctx context.Context, p pid.PID, proc Process) {
+func (l *testLifecycle) OnStart(ctx context.Context, p pid.PID, proc process.Process) {
 	if l.onStart != nil {
 		l.onStart(ctx, p, proc)
 	}
@@ -383,14 +384,16 @@ func TestSchedulerStats(t *testing.T) {
 	}
 }
 
-// StatsProcess implements StatsProvider
+// StatsProcess implements process.StatsProvider
 type StatsProcess struct {
 	CounterProcess
 	customStats string
 }
 
-func (p *StatsProcess) Stats() any {
-	return map[string]string{"custom": p.customStats}
+var _ process.StatsProvider = (*StatsProcess)(nil)
+
+func (p *StatsProcess) Stats() attrs.Attributes {
+	return attrs.NewBagFrom(map[string]any{"custom": p.customStats})
 }
 
 func TestSchedulerCollectProcessStats(t *testing.T) {
@@ -418,11 +421,9 @@ func TestSchedulerCollectProcessStats(t *testing.T) {
 
 	var found bool
 	for _, s := range stats {
-		if info, ok := s.(map[string]string); ok {
-			if info["custom"] == "test-value" {
-				found = true
-				break
-			}
+		if s.GetString("custom", "") == "test-value" {
+			found = true
+			break
 		}
 	}
 
@@ -512,7 +513,7 @@ func TestOnStartCallback(t *testing.T) {
 	var mu sync.Mutex
 
 	lc := &testLifecycle{
-		onStart: func(_ context.Context, p pid.PID, _ Process) {
+		onStart: func(_ context.Context, p pid.PID, _ process.Process) {
 			startCalls.Add(1)
 			mu.Lock()
 			startPIDs = append(startPIDs, p)
@@ -720,7 +721,7 @@ func (p *IdleProcess) Init(ctx context.Context, _ string, _ payload.Payloads) er
 	return nil
 }
 
-func (p *IdleProcess) Step(_ []Event, out *StepOutput) error {
+func (p *IdleProcess) Step(_ []process.Event, out *process.StepOutput) error {
 	out.Idle()
 	return nil
 }
@@ -882,7 +883,7 @@ func (p *TrackingProcess) Init(ctx context.Context, _ string, _ payload.Payloads
 	return nil
 }
 
-func (p *TrackingProcess) Step(_ []Event, out *StepOutput) error {
+func (p *TrackingProcess) Step(_ []process.Event, out *process.StepOutput) error {
 	out.Yield(CompleteCmd{Value: "done"}, 0)
 	out.Done(nil)
 	return nil
@@ -964,7 +965,7 @@ func (p *BlockedProcess) Init(ctx context.Context, _ string, _ payload.Payloads)
 	return nil
 }
 
-func (p *BlockedProcess) Step(_ []Event, out *StepOutput) error {
+func (p *BlockedProcess) Step(_ []process.Event, out *process.StepOutput) error {
 	// Signal that we're blocked waiting for yield completion
 	if p.blocked != nil {
 		close(p.blocked)
@@ -1099,7 +1100,7 @@ func (p *ContextTrackingProcess) Init(ctx context.Context, _ string, _ payload.P
 	return nil
 }
 
-func (p *ContextTrackingProcess) Step(_ []Event, out *StepOutput) error {
+func (p *ContextTrackingProcess) Step(_ []process.Event, out *process.StepOutput) error {
 	out.Yield(CompleteCmd{Value: "done"}, 0)
 	out.Done(nil)
 	return nil
@@ -1165,7 +1166,7 @@ func (p *ContextBlockedProcess) Init(ctx context.Context, _ string, _ payload.Pa
 	return nil
 }
 
-func (p *ContextBlockedProcess) Step(_ []Event, out *StepOutput) error {
+func (p *ContextBlockedProcess) Step(_ []process.Event, out *process.StepOutput) error {
 	if p.blocked != nil {
 		close(p.blocked)
 		p.blocked = nil
@@ -1522,7 +1523,7 @@ func (p *IdleMessageProcess) Init(_ context.Context, _ string, _ payload.Payload
 	return nil
 }
 
-func (p *IdleMessageProcess) Step(events []Event, out *StepOutput) error {
+func (p *IdleMessageProcess) Step(events []process.Event, out *process.StepOutput) error {
 	for _, e := range events {
 		if e.Type == process.EventMessage {
 			p.receivedMsg.Store(true)

@@ -8,6 +8,7 @@ import (
 
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/system/scheduler"
 )
@@ -69,7 +70,7 @@ func (te *testExecutor) Scheduler() *Scheduler {
 	return te.sched
 }
 
-func (te *testExecutor) Execute(ctx context.Context, p pid.PID, proc Process, method string, input payload.Payloads) (*runtime.Result, error) {
+func (te *testExecutor) Execute(ctx context.Context, p pid.PID, proc process.Process, method string, input payload.Payloads) (*runtime.Result, error) {
 	resultCh := make(chan *runtime.Result, 1)
 
 	te.mu.Lock()

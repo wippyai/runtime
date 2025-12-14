@@ -14,6 +14,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	scheduler "github.com/wippyai/runtime/system/scheduler/actor"
@@ -889,7 +890,7 @@ func (m *mockProcess) Close() {
 	m.Process.Close()
 }
 
-func (m *mockProcess) Send(_ *pid.Package) error {
+func (m *mockProcess) Send(_ *relay.Package) error {
 	return nil
 }
 

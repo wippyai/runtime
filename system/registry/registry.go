@@ -9,7 +9,6 @@ import (
 
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/internal/version"
-	"github.com/wippyai/runtime/system/registry/topology"
 )
 
 type Reg struct {
@@ -63,7 +62,9 @@ func (r *Reg) rebuildIndex() {
 func (r *Reg) GetAllEntries() ([]registry.Entry, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.state, nil
+	result := make([]registry.Entry, len(r.state))
+	copy(result, r.state)
+	return result, nil
 }
 
 func (r *Reg) GetEntry(path registry.ID) (registry.Entry, error) {
@@ -124,123 +125,37 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.currentVersion.ID() == v.ID() {
+	if r.currentVersion != nil && r.currentVersion.ID() == v.ID() {
 		return nil
 	}
 
-	r.log.Debug("applying version", zap.Uint("target_version", v.ID()), zap.Uint("current_version", r.currentVersion.ID()))
+	var currentVersionID uint
+	if r.currentVersion != nil {
+		currentVersionID = r.currentVersion.ID()
+	}
 
-	// Lookup the version from history by ID to ensure we use the correct instance
-	versions, err := r.history.Versions()
+	targetVersion, path, err := r.computeVersionPath(v, currentVersionID)
 	if err != nil {
-		return NewGetVersionsError(err)
-	}
-
-	var targetVersion registry.Version
-	for _, ver := range versions {
-		if ver.ID() == v.ID() {
-			targetVersion = ver
-			break
-		}
-	}
-
-	if targetVersion == nil {
-		return NewVersionNotFoundError(v.ID())
-	}
-
-	// Build version map to compute path
-	vm := version.NewVersionMap()
-	for _, ver := range versions {
-		if err := vm.Add(ver); err != nil {
-			r.log.Warn("failed to add version to map", zap.Uint("version", ver.ID()), zap.Error(err))
-		}
-	}
-
-	// Compute path from current version to target version
-	path, err := vm.Path(r.currentVersion, targetVersion)
-	if err != nil {
-		return NewComputePathError(r.currentVersion.ID(), targetVersion.ID(), err)
+		return err
 	}
 
 	r.log.Debug("computed version path",
-		zap.Uint("from", r.currentVersion.ID()),
+		zap.Uint("from", currentVersionID),
 		zap.Uint("to", targetVersion.ID()),
 		zap.Int("steps", len(path)))
 
-	// Collect changesets and apply/reverse based on direction
-	isForward := r.currentVersion.ID() < targetVersion.ID()
-
+	isForward := currentVersionID < targetVersion.ID()
 	var changeset registry.ChangeSet
 
 	if isForward {
-		// Forward: collect and apply changesets in path
-		var changesets []registry.ChangeSet
-		for _, ver := range path {
-			cs, err := r.history.Get(ver)
-			if err != nil {
-				return NewGetChangesetError(ver.ID(), err)
-			}
-			changesets = append(changesets, cs)
-		}
-
-		// Squash if possible
-		if sb, ok := r.builder.(*topology.StateBuilder); ok {
-			changeset = sb.SquashChangesets(changesets)
-		} else {
-			for _, cs := range changesets {
-				changeset = append(changeset, cs...)
-			}
-		}
+		changeset, err = r.collectForwardChangesets(path)
 	} else {
-		// Backward: need to handle both direct parent-child and cross-branch transitions
-		// Use path to handle cross-branch cases (e.g., v4->v1->v3)
-		if sb, ok := r.builder.(*topology.StateBuilder); ok {
-			// Split path into two parts: reverse and forward
-			var commonAncestorIdx int
-			for i, ver := range path {
-				if ver.ID() <= r.currentVersion.ID() && ver.ID() <= targetVersion.ID() {
-					commonAncestorIdx = i
-					break
-				}
-			}
-
-			// Reverse: from current back to common ancestor
-			var reversedChangesets []registry.ChangeSet
-			current := r.currentVersion
-			for current != nil && current.ID() > path[commonAncestorIdx].ID() {
-				cs, err := r.history.Get(current)
-				if err != nil {
-					return NewGetChangesetError(current.ID(), err)
-				}
-				rev, err := sb.ReverseChangeset(cs)
-				if err != nil {
-					return NewReverseChangesetError(err)
-				}
-				reversedChangesets = append(reversedChangesets, rev)
-				current = current.Previous()
-			}
-
-			// Forward: from common ancestor to target
-			var forwardChangesets []registry.ChangeSet
-			for i := commonAncestorIdx; i < len(path); i++ {
-				if path[i].ID() > path[commonAncestorIdx].ID() {
-					cs, err := r.history.Get(path[i])
-					if err != nil {
-						return NewGetChangesetError(path[i].ID(), err)
-					}
-					forwardChangesets = append(forwardChangesets, cs)
-				}
-			}
-
-			// Combine reversed and forward changesets
-			reversedChangesets = append(reversedChangesets, forwardChangesets...)
-			changeset = sb.SquashChangesets(reversedChangesets)
-		} else {
-			return ErrBuilderNoChangesetReversal
-		}
+		changeset, err = r.collectBackwardChangesets(path, targetVersion)
+	}
+	if err != nil {
+		return err
 	}
 
-	// Apply the changeset
 	newState, err := r.runner.Transition(ctx, r.state, changeset)
 	if err != nil {
 		r.log.Error("failed to apply squashed changeset", zap.Error(err))
@@ -261,8 +176,95 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	r.currentVersion = targetVersion
 
 	r.log.Debug("version applied successfully", zap.Uint("version", targetVersion.ID()))
-
 	return nil
+}
+
+func (r *Reg) computeVersionPath(v registry.Version, currentVersionID uint) (registry.Version, []registry.Version, error) {
+	versions, err := r.history.Versions()
+	if err != nil {
+		return nil, nil, NewGetVersionsError(err)
+	}
+
+	var targetVersion registry.Version
+	for _, ver := range versions {
+		if ver.ID() == v.ID() {
+			targetVersion = ver
+			break
+		}
+	}
+	if targetVersion == nil {
+		return nil, nil, NewVersionNotFoundError(v.ID())
+	}
+
+	vm := version.NewVersionMap()
+	for _, ver := range versions {
+		if err := vm.Add(ver); err != nil {
+			r.log.Warn("failed to add version to map", zap.Uint("version", ver.ID()), zap.Error(err))
+		}
+	}
+
+	path, err := vm.Path(r.currentVersion, targetVersion)
+	if err != nil {
+		return nil, nil, NewComputePathError(currentVersionID, targetVersion.ID(), err)
+	}
+	if len(path) == 0 {
+		return nil, nil, NewComputePathError(currentVersionID, targetVersion.ID(), ErrEmptyVersionPath)
+	}
+
+	return targetVersion, path, nil
+}
+
+func (r *Reg) collectForwardChangesets(path []registry.Version) (registry.ChangeSet, error) {
+	var changesets []registry.ChangeSet
+	for _, ver := range path {
+		cs, err := r.history.Get(ver)
+		if err != nil {
+			return nil, NewGetChangesetError(ver.ID(), err)
+		}
+		changesets = append(changesets, cs)
+	}
+
+	return r.builder.SquashChangesets(changesets), nil
+}
+
+func (r *Reg) collectBackwardChangesets(path []registry.Version, targetVersion registry.Version) (registry.ChangeSet, error) {
+	commonAncestorIdx := -1
+	for i, ver := range path {
+		if ver.ID() <= r.currentVersion.ID() && ver.ID() <= targetVersion.ID() {
+			commonAncestorIdx = i
+			break
+		}
+	}
+	if commonAncestorIdx < 0 {
+		return nil, NewComputePathError(r.currentVersion.ID(), targetVersion.ID(), ErrNoCommonAncestor)
+	}
+
+	var reversedChangesets []registry.ChangeSet
+	current := r.currentVersion
+	for current != nil && current.ID() > path[commonAncestorIdx].ID() {
+		cs, err := r.history.Get(current)
+		if err != nil {
+			return nil, NewGetChangesetError(current.ID(), err)
+		}
+		rev, err := r.builder.ReverseChangeset(cs)
+		if err != nil {
+			return nil, NewReverseChangesetError(err)
+		}
+		reversedChangesets = append(reversedChangesets, rev)
+		current = current.Previous()
+	}
+
+	for i := commonAncestorIdx; i < len(path); i++ {
+		if path[i].ID() > path[commonAncestorIdx].ID() {
+			cs, err := r.history.Get(path[i])
+			if err != nil {
+				return nil, NewGetChangesetError(path[i].ID(), err)
+			}
+			reversedChangesets = append(reversedChangesets, cs)
+		}
+	}
+
+	return r.builder.SquashChangesets(reversedChangesets), nil
 }
 
 // LoadState initializes registry state from baseline and history without creating new version records.
@@ -412,6 +414,10 @@ func (r *Reg) enrichChangeset(changes registry.ChangeSet) registry.ChangeSet {
 		case registry.Update, registry.Delete:
 			if originalEntry, exists := stateMap[op.Entry.ID]; exists {
 				enriched[i].OriginalEntry = &originalEntry
+			} else {
+				r.log.Warn("entry not found in state for enrichment",
+					zap.String("operation", string(op.Kind)),
+					zap.String("entry_id", op.Entry.ID.String()))
 			}
 		}
 	}

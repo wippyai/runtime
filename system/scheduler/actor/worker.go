@@ -163,7 +163,7 @@ func (w *Worker) executeOne(proc *Processor) {
 	status := proc.output.Status()
 
 	// Handle Done first - no yields to dispatch
-	if status == StepDone {
+	if status == process.StepDone {
 		if !proc.casState(StateRunning, StateComplete) {
 			return
 		}
@@ -181,14 +181,14 @@ func (w *Worker) executeOne(proc *Processor) {
 
 	// No yields - handle status
 	switch status {
-	case StepContinue:
+	case process.StepContinue:
 		if !proc.casState(StateRunning, StateReady) {
 			return
 		}
 		w.scheduler.global.Push(proc)
 		w.scheduler.wake()
 
-	case StepYield:
+	case process.StepYield:
 		if !proc.casState(StateRunning, StateBlocked) {
 			return
 		}
@@ -199,7 +199,7 @@ func (w *Worker) executeOne(proc *Processor) {
 			}
 		}
 
-	case StepIdle:
+	case process.StepIdle:
 		if !proc.casState(StateRunning, StateIdle) {
 			return
 		}
@@ -215,7 +215,7 @@ func (w *Worker) executeOne(proc *Processor) {
 // dispatchYields sends all yields to handlers.
 // Processor state is StateRunning during this call.
 // CompleteYield sets wakeup flag instead of re-queueing while Running.
-func (w *Worker) dispatchYields(ctx context.Context, proc *Processor, yields []Yield) {
+func (w *Worker) dispatchYields(ctx context.Context, proc *Processor, yields []process.Yield) {
 	completer := proc.queue.NewYieldCompleter(w.scheduler)
 
 	for _, y := range yields {

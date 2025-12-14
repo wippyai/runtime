@@ -1026,6 +1026,73 @@ func TestRegistry_NilHistoryForwardOnly(t *testing.T) {
 	}
 }
 
+// TestRegistry_RegisterDependencyPattern tests the RegisterDependencyPattern method
+func TestRegistry_RegisterDependencyPattern(t *testing.T) {
+	hist := historymem.New()
+	runner := NewMockRunner()
+	stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
+	resolver := topology.NewResolver()
+
+	reg := NewRegistry(hist, runner, stateBuilder, resolver, zap.NewNop())
+
+	// Test successful pattern registration
+	pattern := registry.DependencyPattern{
+		Path:          "meta.database_id",
+		Description:   "Database dependency",
+		AllowWildcard: false,
+	}
+
+	err := reg.RegisterDependencyPattern(pattern)
+	assert.NoError(t, err)
+
+	// Verify DependencyResolver returns the resolver
+	assert.NotNil(t, reg.DependencyResolver())
+	assert.Equal(t, resolver, reg.DependencyResolver())
+}
+
+// TestRegistry_RegisterDependencyPatternNoResolver tests error when resolver is nil
+func TestRegistry_RegisterDependencyPatternNoResolver(t *testing.T) {
+	hist := historymem.New()
+	runner := NewMockRunner()
+	stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
+
+	// Create registry without resolver
+	reg := NewRegistry(hist, runner, stateBuilder, nil, zap.NewNop())
+
+	pattern := registry.DependencyPattern{
+		Path:        "meta.database_id",
+		Description: "Database dependency",
+	}
+
+	err := reg.RegisterDependencyPattern(pattern)
+	assert.Error(t, err)
+	assert.Equal(t, ErrDependencyResolverNotInit, err)
+}
+
+// TestRegistry_GetAllEntriesReturnsCopy tests that GetAllEntries returns a copy
+func TestRegistry_GetAllEntriesReturnsCopy(t *testing.T) {
+	state := registry.State{
+		{ID: registry.NewID("", "/foo"), Kind: "test", Data: payload.NewString("data1")},
+		{ID: registry.NewID("", "/bar"), Kind: "test", Data: payload.NewString("data2")},
+	}
+
+	reg := &Reg{
+		state:      state,
+		stateIndex: map[registry.ID]int{state[0].ID: 0, state[1].ID: 1},
+		mu:         sync.RWMutex{},
+	}
+
+	entries, err := reg.GetAllEntries()
+	assert.NoError(t, err)
+
+	// Modify returned slice
+	entries[0].Kind = "modified"
+
+	// Verify original state is unchanged
+	originalEntries, _ := reg.GetAllEntries()
+	assert.Equal(t, "test", originalEntries[0].Kind, "Original state should not be modified")
+}
+
 // TestInMemoryRegistry_RollbackPartialState tests that partial state is preserved on rollback failure
 func TestInMemoryRegistry_RollbackPartialState(t *testing.T) {
 	v0 := version.New(registry.RootVersion)
@@ -1092,4 +1159,73 @@ func TestInMemoryRegistry_RollbackPartialState(t *testing.T) {
 	if reg.state[1].ID.Name != "/partial" {
 		t.Errorf("Expected partial state to be preserved, got: %v", reg.state)
 	}
+}
+
+// TestErrorConstructors tests the error constructor functions
+func TestErrorConstructors(t *testing.T) {
+	t.Run("NewVersionNotFoundError", func(t *testing.T) {
+		err := NewVersionNotFoundError(42)
+		assert.Contains(t, err.Error(), "version not found")
+		versionID, ok := err.Details().Get("version_id")
+		assert.True(t, ok)
+		assert.Equal(t, uint(42), versionID)
+	})
+
+	t.Run("NewComputePathError", func(t *testing.T) {
+		cause := errors.New("path computation failed")
+		err := NewComputePathError(1, 5, cause)
+		assert.Contains(t, err.Error(), "v1")
+		assert.Contains(t, err.Error(), "v5")
+		assert.Equal(t, cause, err.Unwrap())
+	})
+
+	t.Run("NewGetChangesetError", func(t *testing.T) {
+		cause := errors.New("changeset fetch failed")
+		err := NewGetChangesetError(10, cause)
+		assert.Contains(t, err.Error(), "v10")
+		assert.Equal(t, cause, err.Unwrap())
+	})
+
+	t.Run("NewReverseChangesetError", func(t *testing.T) {
+		cause := errors.New("reversal failed")
+		err := NewReverseChangesetError(cause)
+		assert.Contains(t, err.Error(), "reverse")
+		assert.Equal(t, cause, err.Unwrap())
+	})
+
+	t.Run("NewApplyVersionChangesError", func(t *testing.T) {
+		cause := errors.New("apply failed")
+		err := NewApplyVersionChangesError(cause, nil)
+		assert.Contains(t, err.Error(), "apply version changes")
+		assert.Equal(t, cause, err.Unwrap())
+
+		rollbackErr := errors.New("rollback failed")
+		err = NewApplyVersionChangesError(cause, rollbackErr)
+		assert.Contains(t, err.Error(), "rollback")
+	})
+
+	t.Run("NewSetHeadError", func(t *testing.T) {
+		cause := errors.New("set head failed")
+		err := NewSetHeadError(7, cause)
+		assert.Contains(t, err.Error(), "7")
+		assert.Equal(t, cause, err.Unwrap())
+	})
+
+	t.Run("NewLoadStateError", func(t *testing.T) {
+		cause := errors.New("load failed")
+		err := NewLoadStateError(cause, nil)
+		assert.Contains(t, err.Error(), "load state")
+		assert.Equal(t, cause, err.Unwrap())
+
+		rollbackErr := errors.New("rollback failed")
+		err = NewLoadStateError(cause, rollbackErr)
+		assert.Contains(t, err.Error(), "rollback")
+	})
+
+	t.Run("NewComputeTransitionError", func(t *testing.T) {
+		cause := errors.New("transition failed")
+		err := NewComputeTransitionError(cause)
+		assert.Contains(t, err.Error(), "transition")
+		assert.Equal(t, cause, err.Unwrap())
+	})
 }

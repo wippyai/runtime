@@ -6,7 +6,7 @@ import (
 )
 
 // Error implements apierror.Error for event handler errors
-type Error struct { // todo: mo away ?????
+type Error struct {
 	kind      apierror.Kind
 	message   string
 	retryable apierror.Ternary

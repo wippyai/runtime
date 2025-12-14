@@ -10,6 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/system/scheduler"
@@ -136,7 +137,7 @@ func (p *MultiYieldProcess) Init(ctx context.Context, _ string, input payload.Pa
 	return nil
 }
 
-func (p *MultiYieldProcess) Step(events []Event, out *StepOutput) error {
+func (p *MultiYieldProcess) Step(events []process.Event, out *process.StepOutput) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -150,7 +151,7 @@ func (p *MultiYieldProcess) Step(events []Event, out *StepOutput) error {
 	}
 
 	for _, ev := range events {
-		if ev.Type == EventYieldComplete && ev.Tag != 0 {
+		if ev.Type == process.EventYieldComplete && ev.Tag != 0 {
 			p.resumeOrder = append(p.resumeOrder, int(ev.Tag)) //nolint:gosec // test: tag is always small
 		}
 	}
@@ -253,7 +254,7 @@ func (p *SequentialYieldProcess) Init(ctx context.Context, _ string, _ payload.P
 	return nil
 }
 
-func (p *SequentialYieldProcess) Step(events []Event, out *StepOutput) error {
+func (p *SequentialYieldProcess) Step(events []process.Event, out *process.StepOutput) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -266,7 +267,7 @@ func (p *SequentialYieldProcess) Step(events []Event, out *StepOutput) error {
 	}
 
 	for _, ev := range events {
-		if ev.Type == EventYieldComplete && ev.Data != nil {
+		if ev.Type == process.EventYieldComplete && ev.Data != nil {
 			tag := ev.Data.(string)
 			p.results = append(p.results, tag)
 		}
@@ -354,13 +355,13 @@ func (p *StaggeredYieldProcess) Init(ctx context.Context, _ string, _ payload.Pa
 	return nil
 }
 
-func (p *StaggeredYieldProcess) Step(events []Event, out *StepOutput) error {
+func (p *StaggeredYieldProcess) Step(events []process.Event, out *process.StepOutput) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	var gotB bool
 	for _, ev := range events {
-		if ev.Type == EventYieldComplete && ev.Data != nil {
+		if ev.Type == process.EventYieldComplete && ev.Data != nil {
 			tag := ev.Data.(string)
 			p.results[tag] = true
 			p.resultOrder = append(p.resultOrder, tag)
@@ -474,12 +475,12 @@ func (p *ParallelCoroutinesProcess) Init(ctx context.Context, _ string, _ payloa
 	return nil
 }
 
-func (p *ParallelCoroutinesProcess) Step(events []Event, out *StepOutput) error {
+func (p *ParallelCoroutinesProcess) Step(events []process.Event, out *process.StepOutput) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	for _, ev := range events {
-		if ev.Type == EventYieldComplete && ev.Data != nil {
+		if ev.Type == process.EventYieldComplete && ev.Data != nil {
 			tag := ev.Data.(string)
 			if len(tag) > 0 && tag[0] == 'X' {
 				p.xResults = append(p.xResults, tag)
@@ -599,7 +600,7 @@ func (p *SingleYieldTagProcess) Init(ctx context.Context, _ string, _ payload.Pa
 	return nil
 }
 
-func (p *SingleYieldTagProcess) Step(events []Event, out *StepOutput) error {
+func (p *SingleYieldTagProcess) Step(events []process.Event, out *process.StepOutput) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -612,7 +613,7 @@ func (p *SingleYieldTagProcess) Step(events []Event, out *StepOutput) error {
 
 	var data any
 	for _, ev := range events {
-		if ev.Type == EventYieldComplete {
+		if ev.Type == process.EventYieldComplete {
 			p.receivedTag = ev.Tag
 			data = ev.Data
 		}
@@ -693,12 +694,12 @@ func (p *SequentialTagYieldProcess) Init(ctx context.Context, _ string, _ payloa
 	return nil
 }
 
-func (p *SequentialTagYieldProcess) Step(events []Event, out *StepOutput) error {
+func (p *SequentialTagYieldProcess) Step(events []process.Event, out *process.StepOutput) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	for _, ev := range events {
-		if ev.Type == EventYieldComplete && ev.Tag != 0 {
+		if ev.Type == process.EventYieldComplete && ev.Tag != 0 {
 			if taskID, ok := p.pendingTasks[ev.Tag]; ok {
 				p.results = append(p.results, taskID)
 				delete(p.pendingTasks, ev.Tag)
@@ -798,13 +799,13 @@ func (p *StaggeredMultiYieldProcess) Init(ctx context.Context, _ string, _ paylo
 	return nil
 }
 
-func (p *StaggeredMultiYieldProcess) Step(events []Event, out *StepOutput) error {
+func (p *StaggeredMultiYieldProcess) Step(events []process.Event, out *process.StepOutput) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	var completedThisStep []uint64
 	for _, ev := range events {
-		if ev.Type == EventYieldComplete && ev.Tag != 0 {
+		if ev.Type == process.EventYieldComplete && ev.Tag != 0 {
 			delete(p.pendingYields, ev.Tag)
 			p.completedTags = append(p.completedTags, ev.Tag)
 			completedThisStep = append(completedThisStep, ev.Tag)

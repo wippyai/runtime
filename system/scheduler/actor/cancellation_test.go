@@ -11,6 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/system/scheduler"
@@ -31,7 +32,7 @@ func (p *slowProcess) Init(_ context.Context, _ string, _ payload.Payloads) erro
 	return nil
 }
 
-func (p *slowProcess) Step(_ []Event, out *StepOutput) error {
+func (p *slowProcess) Step(_ []process.Event, out *process.StepOutput) error {
 	p.mu.Lock()
 	p.steps++
 	step := p.steps
@@ -250,7 +251,7 @@ func (p *steppingProcess) Init(_ context.Context, _ string, _ payload.Payloads) 
 	return nil
 }
 
-func (p *steppingProcess) Step(_ []Event, out *StepOutput) error {
+func (p *steppingProcess) Step(_ []process.Event, out *process.StepOutput) error {
 	p.stepping.Store(true)
 	defer p.stepping.Store(false)
 
@@ -401,10 +402,10 @@ func (p *cancelAwareProcess) Init(_ context.Context, _ string, _ payload.Payload
 	return nil
 }
 
-func (p *cancelAwareProcess) Step(events []Event, out *StepOutput) error {
+func (p *cancelAwareProcess) Step(events []process.Event, out *process.StepOutput) error {
 	// Check events for cancel message
 	for _, evt := range events {
-		if evt.Type == EventMessage {
+		if evt.Type == process.EventMessage {
 			if pkg, ok := evt.Data.(*relay.Package); ok {
 				for _, msg := range pkg.Messages {
 					if msg.Topic == "@pid/events" {
@@ -540,7 +541,7 @@ func (p *stubbornProcess) Init(_ context.Context, _ string, _ payload.Payloads) 
 	return nil
 }
 
-func (p *stubbornProcess) Step(_ []Event, out *StepOutput) error {
+func (p *stubbornProcess) Step(_ []process.Event, out *process.StepOutput) error {
 	out.Idle()
 	return nil
 }

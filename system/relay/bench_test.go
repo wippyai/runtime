@@ -20,10 +20,10 @@ func TestMailbox_MessageOrdering(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mailbox := NewMailbox(ctx, MailboxConfig{
-		BufferSize:  1000,
-		WorkerCount: 8,
-	})
+	mailbox := NewMailbox(ctx,
+		WithBufferSize(1000),
+		WithWorkerCount(8),
+	)
 
 	targetPID := pid.PID{Host: "test", UniqID: "receiver"}
 	receiverCh := make(chan *relay.Package, 1000)
@@ -100,10 +100,10 @@ func BenchmarkMailbox_Send(b *testing.B) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mailbox := NewMailbox(ctx, MailboxConfig{
-		BufferSize:  10000,
-		WorkerCount: 8,
-	})
+	mailbox := NewMailbox(ctx,
+		WithBufferSize(10000),
+		WithWorkerCount(8),
+	)
 
 	targetPID := pid.PID{Host: "bench", UniqID: "target"}
 	receiverCh := make(chan *relay.Package, 10000)
@@ -134,10 +134,10 @@ func BenchmarkMailbox_SendParallel(b *testing.B) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mailbox := NewMailbox(ctx, MailboxConfig{
-		BufferSize:  100000,
-		WorkerCount: 8,
-	})
+	mailbox := NewMailbox(ctx,
+		WithBufferSize(100000),
+		WithWorkerCount(8),
+	)
 
 	targetPID := pid.PID{Host: "bench", UniqID: "target"}
 	receiverCh := make(chan *relay.Package, 100000)
@@ -173,10 +173,10 @@ func BenchmarkRouter_Send(b *testing.B) {
 	defer cancel()
 
 	node := NewNode("local")
-	mailbox := NewMailbox(ctx, MailboxConfig{
-		BufferSize:  10000,
-		WorkerCount: 8,
-	})
+	mailbox := NewMailbox(ctx,
+		WithBufferSize(10000),
+		WithWorkerCount(8),
+	)
 	_ = node.RegisterHost("bench", mailbox)
 
 	router := NewRouter(node, nil)
@@ -329,10 +329,10 @@ func BenchmarkSyncMapLoad(b *testing.B) {
 func BenchmarkMailbox_SendEnqueueOnly(b *testing.B) {
 	ctx := context.Background()
 
-	mailbox := NewMailbox(ctx, MailboxConfig{
-		BufferSize:  b.N + 1000, // Large buffer so we don't block
-		WorkerCount: 8,
-	})
+	mailbox := NewMailbox(ctx,
+		WithBufferSize(b.N+1000),
+		WithWorkerCount(8),
+	)
 
 	// Don't attach any receiver - workers will just drop
 	sourcePID := pid.PID{Host: "bench", UniqID: "source"}

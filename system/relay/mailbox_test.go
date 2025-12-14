@@ -16,43 +16,31 @@ func TestMailbox_NewMailbox(t *testing.T) {
 	ctx := context.Background()
 	logger := zap.NewNop()
 
-	tests := []struct {
-		name   string
-		config MailboxConfig
-	}{
-		{
-			name: "default configuration",
-			config: MailboxConfig{
-				BufferSize:  100,
-				WorkerCount: 4,
-				Logger:      logger,
-			},
-		},
-		{
-			name: "custom configuration",
-			config: MailboxConfig{
-				BufferSize:  1000,
-				WorkerCount: 8,
-				Logger:      logger,
-			},
-		},
-	}
+	t.Run("default configuration", func(t *testing.T) {
+		mailbox := NewMailbox(ctx,
+			WithBufferSize(100),
+			WithWorkerCount(4),
+			WithLogger(logger),
+		)
+		assert.NotNil(t, mailbox)
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mailbox := NewMailbox(ctx, tt.config)
-			assert.NotNil(t, mailbox)
-			assert.Equal(t, tt.config.Logger, mailbox.config.Logger)
-		})
-	}
+	t.Run("custom configuration", func(t *testing.T) {
+		mailbox := NewMailbox(ctx,
+			WithBufferSize(1000),
+			WithWorkerCount(8),
+			WithLogger(logger),
+		)
+		assert.NotNil(t, mailbox)
+	})
 }
 
 func TestMailbox_Attach(t *testing.T) {
 	ctx := context.Background()
-	mailbox := NewMailbox(ctx, MailboxConfig{
-		BufferSize:  100,
-		WorkerCount: 4,
-	})
+	mailbox := NewMailbox(ctx,
+		WithBufferSize(100),
+		WithWorkerCount(4),
+	)
 
 	pid := pid.PID{
 		Node:   "node1",
@@ -83,10 +71,10 @@ func TestMailbox_Send(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
-	mailbox := NewMailbox(ctx, MailboxConfig{
-		BufferSize:  2,
-		WorkerCount: 1,
-	})
+	mailbox := NewMailbox(ctx,
+		WithBufferSize(2),
+		WithWorkerCount(1),
+	)
 
 	pid := pid.PID{
 		Node:   "node1",
@@ -120,10 +108,10 @@ func TestMailbox_SendCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*1)
 	defer cancel()
 
-	mailbox := NewMailbox(ctx, MailboxConfig{
-		BufferSize:  1,
-		WorkerCount: 0, // no workers so jobCh is never drained
-	})
+	mailbox := NewMailbox(ctx,
+		WithBufferSize(1),
+		WithWorkerCount(0), // no workers so jobCh is never drained
+	)
 
 	pid := pid.PID{
 		Node:   "node1",
@@ -146,10 +134,10 @@ func TestMailbox_NoReceiver(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
-	mailbox := NewMailbox(ctx, MailboxConfig{
-		BufferSize:  2,
-		WorkerCount: 1,
-	})
+	mailbox := NewMailbox(ctx,
+		WithBufferSize(2),
+		WithWorkerCount(1),
+	)
 
 	pid := pid.PID{
 		Node:   "node1",
@@ -172,10 +160,10 @@ func TestMailbox_DetachDuringDelivery(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
-	mailbox := NewMailbox(ctx, MailboxConfig{
-		BufferSize:  2,
-		WorkerCount: 1,
-	})
+	mailbox := NewMailbox(ctx,
+		WithBufferSize(2),
+		WithWorkerCount(1),
+	)
 
 	pid := pid.PID{
 		Node:   "node1",
@@ -203,17 +191,17 @@ func TestMailbox_DetachDuringDelivery(t *testing.T) {
 
 	// Allow some time for message processing
 	time.Sleep(time.Millisecond * 100)
-	// Type should be dropped without error
+	// Message should be dropped without error
 }
 
 func TestMailbox_MultipleWorkers(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
-	mailbox := NewMailbox(ctx, MailboxConfig{
-		BufferSize:  100,
-		WorkerCount: 4, // Multiple workers
-	})
+	mailbox := NewMailbox(ctx,
+		WithBufferSize(100),
+		WithWorkerCount(4), // Multiple workers
+	)
 
 	pid := pid.PID{
 		Node:   "node1",
@@ -268,10 +256,10 @@ func TestMailbox_Shutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mailbox := NewMailbox(ctx, MailboxConfig{
-		BufferSize:  2,
-		WorkerCount: 1,
-	})
+	mailbox := NewMailbox(ctx,
+		WithBufferSize(2),
+		WithWorkerCount(1),
+	)
 
 	pid := pid.PID{
 		Node:   "node1",
@@ -306,102 +294,60 @@ func TestMailbox_Shutdown(t *testing.T) {
 
 func TestMailbox_InvalidConfig(t *testing.T) {
 	ctx := context.Background()
-	logger := zap.NewNop()
 
-	tests := []struct {
-		name           string
-		config         MailboxConfig
-		expectedConfig MailboxConfig
-		shouldPanic    bool
-	}{
-		{
-			name: "zero buffer size",
-			config: MailboxConfig{
-				BufferSize:  0,
-				WorkerCount: 4,
-				Logger:      logger,
-			},
-			expectedConfig: MailboxConfig{
-				BufferSize:  0, // Zero buffer size is allowed
-				WorkerCount: 4,
-				Logger:      logger,
-			},
-		},
-		{
-			name: "negative buffer size",
-			config: MailboxConfig{
-				BufferSize:  -1,
-				WorkerCount: 4,
-				Logger:      logger,
-			},
-			shouldPanic: true, // Negative buffer size will cause panic in make()
-		},
-		{
-			name: "zero worker count",
-			config: MailboxConfig{
-				BufferSize:  100,
-				WorkerCount: 0,
-				Logger:      logger,
-			},
-			expectedConfig: MailboxConfig{
-				BufferSize:  100,
-				WorkerCount: 1, // Zero worker count is set to 1
-				Logger:      logger,
-			},
-		},
-		{
-			name: "negative worker count",
-			config: MailboxConfig{
-				BufferSize:  100,
-				WorkerCount: -1,
-				Logger:      logger,
-			},
-			expectedConfig: MailboxConfig{
-				BufferSize:  100,
-				WorkerCount: 1, // Negative worker count is set to 1
-				Logger:      logger,
-			},
-		},
-		{
-			name: "nil logger",
-			config: MailboxConfig{
-				BufferSize:  100,
-				WorkerCount: 4,
-				Logger:      nil,
-			},
-			expectedConfig: MailboxConfig{
-				BufferSize:  100,
-				WorkerCount: 4,
-				Logger:      zap.NewNop(), // Nil logger is replaced with noop logger
-			},
-		},
-	}
+	t.Run("zero buffer size is allowed", func(t *testing.T) {
+		mailbox := NewMailbox(ctx,
+			WithBufferSize(0),
+			WithWorkerCount(4),
+		)
+		assert.NotNil(t, mailbox)
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.shouldPanic {
-				assert.Panics(t, func() {
-					NewMailbox(ctx, tt.config)
-				})
-			} else {
-				mailbox := NewMailbox(ctx, tt.config)
-				assert.NotNil(t, mailbox)
-				assert.Equal(t, tt.expectedConfig.WorkerCount, mailbox.config.WorkerCount)
-				assert.Equal(t, tt.expectedConfig.BufferSize, mailbox.config.BufferSize)
-				assert.NotNil(t, mailbox.config.Logger)
-			}
+	t.Run("negative buffer size panics", func(t *testing.T) {
+		assert.Panics(t, func() {
+			NewMailbox(ctx,
+				WithBufferSize(-1),
+				WithWorkerCount(4),
+			)
 		})
-	}
+	})
+
+	t.Run("zero worker count defaults to 1", func(t *testing.T) {
+		mailbox := NewMailbox(ctx,
+			WithBufferSize(100),
+			WithWorkerCount(0),
+		)
+		assert.NotNil(t, mailbox)
+		assert.Equal(t, 1, mailbox.config.workerCount)
+	})
+
+	t.Run("negative worker count defaults to 1", func(t *testing.T) {
+		mailbox := NewMailbox(ctx,
+			WithBufferSize(100),
+			WithWorkerCount(-1),
+		)
+		assert.NotNil(t, mailbox)
+		assert.Equal(t, 1, mailbox.config.workerCount)
+	})
+
+	t.Run("nil logger defaults to noop", func(t *testing.T) {
+		mailbox := NewMailbox(ctx,
+			WithBufferSize(100),
+			WithWorkerCount(4),
+		)
+		assert.NotNil(t, mailbox)
+		assert.NotNil(t, mailbox.config.logger)
+	})
 }
 
 func TestMailbox_SendMultipleMessages(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
-	mailbox := NewMailbox(ctx, MailboxConfig{
-		BufferSize:  100,
-		WorkerCount: 1,
-	})
+	mailbox := NewMailbox(ctx,
+		WithBufferSize(100),
+		WithWorkerCount(1),
+	)
 
 	pid := pid.PID{
 		Node:   "node1",
@@ -442,10 +388,10 @@ func TestMailbox_SendEmptyMessages(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
-	mailbox := NewMailbox(ctx, MailboxConfig{
-		BufferSize:  100,
-		WorkerCount: 1,
-	})
+	mailbox := NewMailbox(ctx,
+		WithBufferSize(100),
+		WithWorkerCount(1),
+	)
 
 	pid := pid.PID{
 		Node:   "node1",
@@ -479,10 +425,10 @@ func TestMailbox_SendNilMessages(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
-	mailbox := NewMailbox(ctx, MailboxConfig{
-		BufferSize:  100,
-		WorkerCount: 1,
-	})
+	mailbox := NewMailbox(ctx,
+		WithBufferSize(100),
+		WithWorkerCount(1),
+	)
 
 	pid := pid.PID{
 		Node:   "node1",
@@ -516,10 +462,10 @@ func TestMailbox_SendNilPackage(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
-	mailbox := NewMailbox(ctx, MailboxConfig{
-		BufferSize:  100,
-		WorkerCount: 1,
-	})
+	mailbox := NewMailbox(ctx,
+		WithBufferSize(100),
+		WithWorkerCount(1),
+	)
 
 	// Try to send nil package - this should return an error
 	err := mailbox.Send(nil)

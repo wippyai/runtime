@@ -109,4 +109,9 @@ type (
 		Cancel(ctx context.Context, from, target pid.PID, deadline time.Time) error
 		Terminate(ctx context.Context, p pid.PID) error
 	}
+
+	// StatsProvider can be implemented by Process or Host to expose runtime statistics.
+	StatsProvider interface {
+		Stats() attrs.Attributes
+	}
 )

@@ -61,6 +61,16 @@ func TestFinder_RootFieldMatching(t *testing.T) {
 			Kind: "database",
 			Meta: attrs.Bag{"meta.enabled": true},
 		},
+		{
+			ID:   registry.NewID("funcs", "handler"),
+			Kind: "function.lua",
+			Meta: attrs.Bag{"meta.enabled": true},
+		},
+		{
+			ID:   registry.NewID("funcs", "compiled"),
+			Kind: "function.bytecode",
+			Meta: attrs.Bag{"meta.enabled": true},
+		},
 	}
 
 	mockReg := &mockRegistry{entries: entries}
@@ -98,6 +108,26 @@ func TestFinder_RootFieldMatching(t *testing.T) {
 				".ns":   "app",
 			},
 			wantIDs: []string{"service-api", "service-queue"},
+		},
+		{
+			name:     "Find by .kind with prefix glob",
+			criteria: attrs.Bag{".kind": "function.*"},
+			wantIDs:  []string{"handler", "compiled"},
+		},
+		{
+			name:     "Find by .kind with suffix glob",
+			criteria: attrs.Bag{".kind": "*.lua"},
+			wantIDs:  []string{"handler"},
+		},
+		{
+			name:     "Find by .name with prefix glob",
+			criteria: attrs.Bag{".name": "service-*"},
+			wantIDs:  []string{"service-api", "service-queue"},
+		},
+		{
+			name:     "Find by .ns with glob",
+			criteria: attrs.Bag{".ns": "app*"},
+			wantIDs:  []string{"service-api", "service-queue"},
 		},
 	}
 
@@ -662,6 +692,60 @@ func TestFinder_RegexCacheEviction(t *testing.T) {
 	// Reusing first pattern should recompile it (but still work)
 	_, err = finder.Find(attrs.Bag{"~meta.desc": ".*pattern1.*"})
 	require.NoError(t, err)
+}
+
+// TestFinder_Fork tests that Fork creates a new finder sharing the regex cache
+func TestFinder_Fork(t *testing.T) {
+	entries := []registry.Entry{
+		{ID: registry.NewID("", "entry-1"), Kind: "test", Meta: attrs.Bag{"desc": "test pattern"}},
+	}
+
+	mockReg := &mockRegistry{entries: entries}
+	source := NewFinder(mockReg, nil)
+
+	// Use a regex to populate cache
+	_, err := source.Find(attrs.Bag{"~meta.desc": ".*pattern.*"})
+	require.NoError(t, err)
+
+	// Fork the finder with a different registry
+	snapshotEntries := []registry.Entry{
+		{ID: registry.NewID("", "snapshot-1"), Kind: "test", Meta: attrs.Bag{"desc": "snapshot pattern"}},
+	}
+	snapshotReg := &mockRegistry{entries: snapshotEntries}
+	forked := Fork(source, snapshotReg, nil)
+
+	// Verify forked finder works with its own registry
+	results, err := forked.Find(attrs.Bag{".name": "snapshot-1"})
+	require.NoError(t, err)
+	assert.Equal(t, 1, len(results))
+	assert.Equal(t, "snapshot-1", results[0].ID.Name)
+
+	// Verify regex cache is shared
+	sourceFinder := source.(*memoryFinder)
+	forkedFinder := forked.(*memoryFinder)
+	assert.Same(t, sourceFinder.regexCache, forkedFinder.regexCache, "Regex cache should be shared")
+
+	// Verify query caches are independent
+	assert.NotSame(t, sourceFinder.queryCache, forkedFinder.queryCache, "Query caches should be independent")
+}
+
+// TestFinder_ForkNonMemoryFinder tests Fork fallback when source is not memoryFinder
+func TestFinder_ForkNonMemoryFinder(t *testing.T) {
+	entries := []registry.Entry{
+		{ID: registry.NewID("", "entry-1"), Kind: "test"},
+	}
+	mockReg := &mockRegistry{entries: entries}
+
+	// Create a non-memoryFinder (wrap it to hide the type)
+	var source registry.Finder = struct{ registry.Finder }{NewFinder(mockReg, nil)}
+
+	forked := Fork(source, mockReg, nil)
+	require.NotNil(t, forked)
+
+	// Should work as a fresh finder
+	results, err := forked.Find(attrs.Bag{".kind": "test"})
+	require.NoError(t, err)
+	assert.Equal(t, 1, len(results))
 }
 
 // TestFinder_UnprefixedFieldsAreSkipped tests v2 behavior: fields without meta. prefix are skipped

@@ -493,10 +493,6 @@ func TestUnpackBytes(t *testing.T) {
 	})
 }
 
-func SkipTestVerifyChecksum(t *testing.T) {
-	t.Skip("verifyChecksum is an internal function removed in new API")
-}
-
 func TestNormalizePayload(t *testing.T) {
 	transcoder := systempayload.NewTranscoder()
 	packer := NewWriter(transcoder)

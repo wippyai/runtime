@@ -151,19 +151,6 @@ func TestTickerBasic(t *testing.T) {
 	t.Logf("Ticker basic: received ticks in %v", elapsed)
 }
 
-// TestTickerWithSelect tests ticker with channel.select (engine1 compatible API)
-// TODO: Select with ticker channels requires architectural changes to support
-// mixing dispatcher-based channels (TickerChannel) with in-memory channels (engine.Channel)
-func TestTickerWithSelect(t *testing.T) {
-	t.Skip("select with ticker channels not yet supported - requires dispatcher integration")
-}
-
-// TestOverlappingTickersSelect tests multiple tickers with select
-// TODO: Select with ticker channels requires architectural changes
-func TestOverlappingTickersSelect(t *testing.T) {
-	t.Skip("select with ticker channels not yet supported - requires dispatcher integration")
-}
-
 // TestMultipleTickersStaggered tests staggered tickers
 func TestMultipleTickersStaggered(t *testing.T) {
 	sched := newTestScheduler()

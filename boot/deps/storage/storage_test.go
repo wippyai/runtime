@@ -582,26 +582,6 @@ func TestFileSystemStorage_ErrorPaths(t *testing.T) {
 		}
 	})
 
-	t.Run("StoreProtoFiles handles os.MkdirAll error for file parent", func(t *testing.T) {
-		tmpDir := t.TempDir()
-
-		// Create org/module with a file where subdirectory needs to be
-		baseDir := filepath.Join(tmpDir, "org/module")
-		if err := os.MkdirAll(baseDir, 0755); err != nil {
-			t.Fatalf("setup failed: %v", err)
-		}
-
-		// Create a file named "subdir" to block directory creation
-		blocker := filepath.Join(baseDir, "subdir")
-		if err := os.WriteFile(blocker, []byte("blocker"), 0600); err != nil {
-			t.Fatalf("setup failed: %v", err)
-		}
-
-		// This test is not achievable with clean-before-write design
-		// because clean removes the blocker before MkdirAll is called
-		t.Skip("Cannot test MkdirAll error path with clean-before-write design")
-	})
-
 	t.Run("StoreProtoFiles handles os.WriteFile error", func(t *testing.T) {
 		tmpDir := t.TempDir()
 

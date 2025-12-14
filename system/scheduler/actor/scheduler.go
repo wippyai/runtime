@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
@@ -227,7 +228,7 @@ func (s *Scheduler) WakeProcessor(q *process.EventQueue, gen uint64) {
 	proc.setWakeup(StateRunning)
 }
 
-func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p Process, method string, input payload.Payloads) (*Processor, error) {
+func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, method string, input payload.Payloads) (*Processor, error) {
 	if s.stopping.Load() {
 		return nil, process.ErrSchedulerStopping
 	}
@@ -298,15 +299,15 @@ func (s *Scheduler) Terminate(pid pid.PID) error {
 	return nil
 }
 
-func (s *Scheduler) complete(proc *Processor, result *StepOutput, err error) {
+func (s *Scheduler) complete(proc *Processor, result *process.StepOutput, err error) {
 	s.finishProcessor(proc, result, err, true)
 }
 
-func (s *Scheduler) completeNoPool(proc *Processor, result *StepOutput, err error) {
+func (s *Scheduler) completeNoPool(proc *Processor, result *process.StepOutput, err error) {
 	s.finishProcessor(proc, result, err, false)
 }
 
-func (s *Scheduler) finishProcessor(proc *Processor, result *StepOutput, err error, allowPool bool) {
+func (s *Scheduler) finishProcessor(proc *Processor, result *process.StepOutput, err error, allowPool bool) {
 	res := &runtime.Result{Error: err}
 	if result != nil && result.Result() != nil {
 		res.Value = result.Result()
@@ -349,7 +350,7 @@ func (s *Scheduler) finishProcessor(proc *Processor, result *StepOutput, err err
 	}
 }
 
-func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p Process) (*Processor, error) {
+func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.Process) (*Processor, error) {
 	if s.stopping.Load() {
 		return nil, process.ErrSchedulerStopping
 	}
@@ -461,22 +462,16 @@ func (s *Scheduler) WorkerStats() []map[string]uint64 {
 	return result
 }
 
-// StatsProvider can be implemented by Process to expose runtime statistics.
-// This is an optional interface for debug/observability purposes.
-type StatsProvider interface {
-	Stats() any // todo: why not in api?
-}
-
 // CollectProcessStats gathers statistics from all active processes.
-// Each process can implement StatsProvider to expose custom stats.
-func (s *Scheduler) CollectProcessStats() []any {
-	var stats []any
+// Each process can implement process.StatsProvider to expose custom stats.
+func (s *Scheduler) CollectProcessStats() []attrs.Attributes {
+	var stats []attrs.Attributes
 
 	s.byPID.Range(func(_, value any) bool {
 		proc := value.(*Processor)
-		if sp, ok := proc.Process.(StatsProvider); ok {
-			if s := sp.Stats(); s != nil {
-				stats = append(stats, s)
+		if sp, ok := proc.Process.(process.StatsProvider); ok {
+			if st := sp.Stats(); st != nil {
+				stats = append(stats, st)
 			}
 		}
 		return true

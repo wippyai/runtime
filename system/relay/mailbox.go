@@ -9,11 +9,35 @@ import (
 	"go.uber.org/zap"
 )
 
-// MailboxConfig holds configuration for a Mailbox.
-type MailboxConfig struct { // todo: functional pattern
-	BufferSize  int         // Internal job channel buffer size.
-	WorkerCount int         // Number of concurrent worker goroutines.
-	Logger      *zap.Logger // Logger for operational events.
+// mailboxConfig holds internal configuration for a Mailbox.
+type mailboxConfig struct {
+	bufferSize  int
+	workerCount int
+	logger      *zap.Logger
+}
+
+// MailboxOption configures a Mailbox.
+type MailboxOption func(*mailboxConfig)
+
+// WithBufferSize sets the internal job channel buffer size.
+func WithBufferSize(size int) MailboxOption {
+	return func(c *mailboxConfig) {
+		c.bufferSize = size
+	}
+}
+
+// WithWorkerCount sets the number of concurrent worker goroutines.
+func WithWorkerCount(count int) MailboxOption {
+	return func(c *mailboxConfig) {
+		c.workerCount = count
+	}
+}
+
+// WithLogger sets the logger for operational events.
+func WithLogger(logger *zap.Logger) MailboxOption {
+	return func(c *mailboxConfig) {
+		c.logger = logger
+	}
 }
 
 // Mailbox implements a local message relay with asynchronous delivery.
@@ -22,23 +46,28 @@ type Mailbox struct {
 	ctx       context.Context
 	receivers sync.Map            // key: api.PID -> chan *api.Package
 	jobQueues []chan *api.Package // One queue per worker
-	config    MailboxConfig
+	config    mailboxConfig
 }
 
-// NewMailbox creates a new Mailbox instance with the provided configuration and context.
+// NewMailbox creates a new Mailbox instance with the provided options.
 // The supplied context will cancel all workers when done.
-func NewMailbox(ctx context.Context, config MailboxConfig) *Mailbox {
-	if config.Logger == nil {
-		config.Logger = zap.NewNop()
+func NewMailbox(ctx context.Context, opts ...MailboxOption) *Mailbox {
+	config := mailboxConfig{
+		workerCount: 1,
+		logger:      zap.NewNop(),
 	}
 
-	if config.WorkerCount < 1 {
-		config.WorkerCount = 1
+	for _, opt := range opts {
+		opt(&config)
 	}
 
-	jobQueues := make([]chan *api.Package, config.WorkerCount)
-	for i := 0; i < config.WorkerCount; i++ {
-		jobQueues[i] = make(chan *api.Package, config.BufferSize)
+	if config.workerCount < 1 {
+		config.workerCount = 1
+	}
+
+	jobQueues := make([]chan *api.Package, config.workerCount)
+	for i := 0; i < config.workerCount; i++ {
+		jobQueues[i] = make(chan *api.Package, config.bufferSize)
 	}
 
 	m := &Mailbox{
@@ -47,7 +76,7 @@ func NewMailbox(ctx context.Context, config MailboxConfig) *Mailbox {
 		config:    config,
 	}
 
-	for i := 0; i < config.WorkerCount; i++ {
+	for i := 0; i < config.workerCount; i++ {
 		go m.worker(i)
 	}
 
@@ -78,7 +107,7 @@ func hashString(s string) uint32 {
 func (m *Mailbox) Attach(p pid.PID, ch chan *api.Package) (context.CancelFunc, error) {
 	_, loaded := m.receivers.LoadOrStore(p, ch)
 	if loaded {
-		m.config.Logger.Warn("attempt to attach an already existing package receiver",
+		m.config.logger.Warn("attempt to attach an already existing package receiver",
 			zap.String("pid", p.String()),
 			zap.String("host", p.Host),
 			zap.String("uniq_id", p.UniqID))
@@ -91,7 +120,7 @@ func (m *Mailbox) Attach(p pid.PID, ch chan *api.Package) (context.CancelFunc, e
 // Detach removes a receiver channel from a pid.
 func (m *Mailbox) Detach(p pid.PID) {
 	m.receivers.Delete(p)
-	m.config.Logger.Debug("receiver detached", zap.String("pid", p.String()))
+	m.config.logger.Debug("receiver detached", zap.String("pid", p.String()))
 }
 
 // Send enqueues a package for delivery. Messages from the same source
@@ -103,18 +132,18 @@ func (m *Mailbox) Send(pkg *api.Package) error {
 
 	// Check context before attempting to send to avoid sending to closed channels
 	if err := m.ctx.Err(); err != nil {
-		m.config.Logger.Warn("send after mailbox shutdown", zap.String("pid", pkg.Target.String()))
+		m.config.logger.Warn("send after mailbox shutdown", zap.String("pid", pkg.Target.String()))
 		return err
 	}
 
 	// Hash by Source.UniqID to preserve per-sender ordering
-	workerIndex := int(hashString(pkg.Source.UniqID)) % m.config.WorkerCount
+	workerIndex := int(hashString(pkg.Source.UniqID)) % m.config.workerCount
 
 	select {
 	case m.jobQueues[workerIndex] <- pkg:
 		return nil
 	case <-m.ctx.Done():
-		m.config.Logger.Warn("send after mailbox shutdown", zap.String("pid", pkg.Target.String()))
+		m.config.logger.Warn("send after mailbox shutdown", zap.String("pid", pkg.Target.String()))
 		return m.ctx.Err()
 	}
 }
@@ -136,7 +165,7 @@ func (m *Mailbox) deliver(pkg *api.Package) {
 		if len(pkg.Messages) > 0 {
 			topic = pkg.Messages[0].Topic
 		}
-		m.config.Logger.Debug("no receiver found for target PID",
+		m.config.logger.Debug("no receiver found for target PID",
 			zap.String("target", pkg.Target.String()),
 			zap.String("source", pkg.Source.String()),
 			zap.String("topic", topic))
@@ -145,7 +174,7 @@ func (m *Mailbox) deliver(pkg *api.Package) {
 
 	ch, ok := rec.(chan *api.Package)
 	if !ok {
-		m.config.Logger.Error("receiver has invalid type",
+		m.config.logger.Error("receiver has invalid type",
 			zap.String("target", pkg.Target.String()))
 		return
 	}
@@ -153,7 +182,7 @@ func (m *Mailbox) deliver(pkg *api.Package) {
 	select {
 	case ch <- pkg:
 	case <-m.ctx.Done():
-		m.config.Logger.Debug("delivery cancelled",
+		m.config.logger.Debug("delivery cancelled",
 			zap.String("target", pkg.Target.String()))
 	}
 }

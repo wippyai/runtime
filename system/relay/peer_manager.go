@@ -78,7 +78,7 @@ func (m *PeerManager) handleRegister(e event.Event) {
 	info, ok := e.Data.(api.PeerInfo)
 	if !ok {
 		m.logger.Error("invalid peer node payload",
-			zap.String("nodeID", e.Path),
+			zap.String("node_id", e.Path),
 			zap.String("type", fmt.Sprintf("%T", e.Data)))
 		m.sendReject(e.Path, "invalid payload")
 		return
@@ -87,14 +87,14 @@ func (m *PeerManager) handleRegister(e event.Event) {
 	err := m.router.RegisterPeer(info.NodeID, info.Receiver)
 	if err != nil {
 		m.logger.Error("failed to register peer node",
-			zap.String("nodeID", info.NodeID),
+			zap.String("node_id", info.NodeID),
 			zap.Error(err))
 		m.sendReject(e.Path, err.Error())
 		return
 	}
 
 	m.logger.Info("peer node registered",
-		zap.String("nodeID", info.NodeID))
+		zap.String("node_id", info.NodeID))
 	m.sendAccept(e.Path)
 }
 
@@ -102,9 +102,9 @@ func (m *PeerManager) handleDelete(e event.Event) {
 	existed := m.router.UnregisterPeer(e.Path)
 
 	if !existed {
-		m.logger.Warn("peer node not found", zap.String("nodeID", e.Path))
+		m.logger.Warn("peer node not found", zap.String("node_id", e.Path))
 	} else {
-		m.logger.Info("peer node unregistered", zap.String("nodeID", e.Path))
+		m.logger.Info("peer node unregistered", zap.String("node_id", e.Path))
 	}
 
 	m.sendAccept(e.Path)

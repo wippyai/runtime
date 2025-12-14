@@ -9,7 +9,7 @@ import (
 )
 
 // Error implements apierror.Error for runner errors
-type Error struct { // todo: away
+type Error struct {
 	kind      apierror.Kind
 	message   string
 	retryable apierror.Ternary

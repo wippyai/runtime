@@ -246,7 +246,7 @@ func TestManager_Attach(t *testing.T) {
 	defer func() { assert.NoError(t, manager.Stop()) }()
 
 	// Register an attachable mailbox first
-	attachableMailbox := NewMailbox(ctx, MailboxConfig{WorkerCount: 1, BufferSize: 10})
+	attachableMailbox := NewMailbox(ctx, WithWorkerCount(1), WithBufferSize(10))
 	require.NoError(t, node.RegisterHost("test-host", attachableMailbox))
 
 	pid := pid.PID{

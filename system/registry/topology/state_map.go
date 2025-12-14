@@ -7,8 +7,8 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 )
 
-// StateMap is a representation of the registry state using a map for faster lookups.
-type StateMap map[registry.ID]registry.Entry
+// StateMap is an alias for registry.StateMap for internal use
+type StateMap = registry.StateMap
 
 // NewStateMap creates a new StateMap from a registry.State
 func NewStateMap(state registry.State) StateMap {

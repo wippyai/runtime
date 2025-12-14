@@ -199,23 +199,22 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 	s.mu.Lock()
 
 	// Initialize mailbox with config
-	mailboxConfig := relaysys.MailboxConfig{
-		BufferSize:  s.config.Host.BufferSize,
-		WorkerCount: s.config.Host.WorkerCount,
-		Logger:      logs.GetLogger(ctx),
+	bufferSize := s.config.Host.BufferSize
+	if bufferSize <= 0 {
+		bufferSize = 1024 // Default buffer size
 	}
 
-	// If values not specified, set reasonable defaults
-	if mailboxConfig.BufferSize <= 0 {
-		mailboxConfig.BufferSize = 1024 // Default buffer size
-	}
-
-	if mailboxConfig.WorkerCount <= 0 {
-		mailboxConfig.WorkerCount = runtime.NumCPU() // Default to number of CPUs
+	workerCount := s.config.Host.WorkerCount
+	if workerCount <= 0 {
+		workerCount = runtime.NumCPU() // Default to number of CPUs
 	}
 
 	// Create the mailbox
-	s.host = relaysys.NewMailbox(ctx, mailboxConfig)
+	s.host = relaysys.NewMailbox(ctx,
+		relaysys.WithBufferSize(bufferSize),
+		relaysys.WithWorkerCount(workerCount),
+		relaysys.WithLogger(logs.GetLogger(ctx)),
+	)
 
 	s.ctx = ctx
 

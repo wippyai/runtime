@@ -24,7 +24,7 @@ func (p *SingleStepProcess) Init(_ context.Context, _ string, _ payload.Payloads
 	return nil
 }
 
-func (p *SingleStepProcess) Step(_ []Event, out *StepOutput) error {
+func (p *SingleStepProcess) Step(_ []process.Event, out *process.StepOutput) error {
 	out.Done(nil)
 	return nil
 }
@@ -41,7 +41,7 @@ func (p *OneYieldProcess) Init(_ context.Context, _ string, _ payload.Payloads) 
 	return nil
 }
 
-func (p *OneYieldProcess) Step(_ []Event, out *StepOutput) error {
+func (p *OneYieldProcess) Step(_ []process.Event, out *process.StepOutput) error {
 	if p.done {
 		out.Done(nil)
 		return nil
@@ -67,7 +67,7 @@ func (p *NYieldProcess) Init(_ context.Context, _ string, input payload.Payloads
 	return nil
 }
 
-func (p *NYieldProcess) Step(_ []Event, out *StepOutput) error {
+func (p *NYieldProcess) Step(_ []process.Event, out *process.StepOutput) error {
 	if p.remaining <= 0 {
 		out.Done(nil)
 		return nil
@@ -98,7 +98,7 @@ func (p *RandomYieldProcess) Init(_ context.Context, _ string, input payload.Pay
 	return nil
 }
 
-func (p *RandomYieldProcess) Step(_ []Event, out *StepOutput) error {
+func (p *RandomYieldProcess) Step(_ []process.Event, out *process.StepOutput) error {
 	p.steps++
 	if p.steps >= p.maxSteps {
 		out.Done(nil)

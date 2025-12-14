@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"go.uber.org/zap"
@@ -47,6 +48,7 @@ type memoryFinder struct {
 	lastVersion atomic.Uint64                          // Last seen version ID
 	queryCache  *lru.Cache[queryCacheKey, queryResult] // Bounded query result cache
 	regexCache  *lru.Cache[string, *regexp.Regexp]     // Bounded regex cache - shared across forks
+	cacheMu     sync.RWMutex                           // Protects queryCache replacement
 }
 
 type queryCacheKey struct {
@@ -144,8 +146,9 @@ func (f *memoryFinder) Find(meta attrs.Bag) ([]registry.Entry, error) {
 	if currentVersion != lastVer && currentVersion > 0 {
 		f.lastVersion.Store(currentVersion)
 		if lastVer > 0 {
-			// Version changed - create new query cache (keep regex cache)
+			f.cacheMu.Lock()
 			f.queryCache = lru.New[queryCacheKey, queryResult](lru.WithCapacity(defaultQueryCacheSize))
+			f.cacheMu.Unlock()
 			f.log.Debug("finder cache invalidated due to version change",
 				zap.Uint64("old_version", lastVer),
 				zap.Uint64("new_version", currentVersion))
@@ -160,7 +163,10 @@ func (f *memoryFinder) Find(meta attrs.Bag) ([]registry.Entry, error) {
 	}
 
 	// Try cache lookup
-	if cached, ok := f.queryCache.Get(cacheKey); ok {
+	f.cacheMu.RLock()
+	cache := f.queryCache
+	f.cacheMu.RUnlock()
+	if cached, ok := cache.Get(cacheKey); ok {
 		return cached.entries, nil
 	}
 
@@ -278,10 +284,38 @@ func (f *memoryFinder) Find(meta attrs.Bag) ([]registry.Entry, error) {
 		}
 	}
 
-	// Cache result
+	// Cache result using current cache reference (re-acquire under lock to avoid stale reference)
+	f.cacheMu.RLock()
 	f.queryCache.Set(cacheKey, queryResult{entries: result})
+	f.cacheMu.RUnlock()
 
 	return result, nil
+}
+
+// matchGlob checks if a string matches a glob pattern with * wildcards.
+func matchGlob(value, pattern string) bool {
+	if !strings.Contains(pattern, "*") {
+		return value == pattern
+	}
+
+	// Handle *suffix pattern
+	if strings.HasPrefix(pattern, "*") && !strings.Contains(pattern[1:], "*") {
+		return strings.HasSuffix(value, pattern[1:])
+	}
+
+	// Handle prefix* pattern
+	if strings.HasSuffix(pattern, "*") && !strings.Contains(pattern[:len(pattern)-1], "*") {
+		return strings.HasPrefix(value, pattern[:len(pattern)-1])
+	}
+
+	// Handle prefix*suffix pattern
+	parts := strings.SplitN(pattern, "*", 2)
+	if len(parts) == 2 {
+		prefix, suffix := parts[0], parts[1]
+		return strings.HasPrefix(value, prefix) && strings.HasSuffix(value, suffix) && len(value) >= len(prefix)+len(suffix)
+	}
+
+	return false
 }
 
 // matchesAllCriteria checks if an entry matches all the search criteria
@@ -298,20 +332,20 @@ func matchesAllCriteria(
 	for field, value := range rootMatchers {
 		switch field {
 		case "kind":
-			if strVal, ok := value.(string); ok && entry.Kind != strVal {
+			if strVal, ok := value.(string); ok && !matchGlob(entry.Kind, strVal) {
 				return false
 			}
 		case "name":
-			if strVal, ok := value.(string); ok && entry.ID.Name != strVal {
+			if strVal, ok := value.(string); ok && !matchGlob(entry.ID.Name, strVal) {
 				return false
 			}
 		case "ns":
-			if strVal, ok := value.(string); ok && entry.ID.NS != strVal {
+			if strVal, ok := value.(string); ok && !matchGlob(entry.ID.NS, strVal) {
 				return false
 			}
 		case "id":
 			fullID := entry.ID.NS + ":" + entry.ID.Name
-			if strVal, ok := value.(string); ok && fullID != strVal {
+			if strVal, ok := value.(string); ok && !matchGlob(fullID, strVal) {
 				return false
 			}
 		}

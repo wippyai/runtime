@@ -51,7 +51,7 @@ type Processor struct {
 	id  uint64  // Internal fast routing ID (for maps, queues)
 	pid pid.PID // External identity (for messages, logs, callbacks)
 
-	Process Process // The wrapped user process
+	Process process.Process // The wrapped user process
 
 	// State machine for single-owner guarantee.
 	// Lower 4 bits = state, bit 4 = wakeup flag.
@@ -69,7 +69,7 @@ type Processor struct {
 	gen   atomic.Uint64 // cached generation for CompleteYield
 
 	// Step output buffer (reused across steps)
-	output StepOutput
+	output process.StepOutput
 
 	// Back-reference for zero-alloc completion callback
 	scheduler *Scheduler

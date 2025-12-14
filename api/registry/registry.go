@@ -148,12 +148,27 @@ type (
 		LoadState(context.Context, State, Version) error
 	}
 
+	// StateMap is a map-based representation of registry state for efficient lookups
+	StateMap map[ID]Entry
+
 	// StateBuilder defines methods for constructing registry states and calculating differences
 	StateBuilder interface {
 		// BuildState constructs the complete registry state at a specific version
 		BuildState(History, Version) (State, error)
 		// BuildDelta calculates the minimal ChangeSet required to transition between states
 		BuildDelta(State, State) (ChangeSet, error)
+		// SquashChangesets aggregates multiple changesets into a single changeset
+		SquashChangesets([]ChangeSet) ChangeSet
+		// ReverseChangeset creates a changeset that undoes the given changeset operations
+		ReverseChangeset(ChangeSet) (ChangeSet, error)
+	}
+
+	// OperationHandler defines methods for validating and applying registry operations
+	OperationHandler interface {
+		// ValidateOperation checks if an operation is valid for the given state
+		ValidateOperation(StateMap, Operation) error
+		// ApplyOperation applies an operation to the state and returns the new state
+		ApplyOperation(StateMap, Operation) (StateMap, error)
 	}
 
 	// EntryReader defines methods for reading entries from the registry

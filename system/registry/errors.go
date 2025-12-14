@@ -1,6 +1,8 @@
 package registry
 
 import (
+	"strconv"
+
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
@@ -23,9 +25,10 @@ func (e *Error) Unwrap() error               { return e.cause }
 
 // Sentinel errors
 var (
-	ErrNoCurrentVersion           = &Error{kind: apierror.KindNotFound, message: "no current version", retryable: apierror.False}
-	ErrDependencyResolverNotInit  = &Error{kind: apierror.KindInternal, message: "dependency resolver not initialized", retryable: apierror.False}
-	ErrBuilderNoChangesetReversal = &Error{kind: apierror.KindUnavailable, message: "builder does not support changeset reversal", retryable: apierror.False}
+	ErrNoCurrentVersion          = &Error{kind: apierror.KindNotFound, message: "no current version", retryable: apierror.False}
+	ErrDependencyResolverNotInit = &Error{kind: apierror.KindInternal, message: "dependency resolver not initialized", retryable: apierror.False}
+	ErrEmptyVersionPath          = &Error{kind: apierror.KindInternal, message: "empty version path", retryable: apierror.False}
+	ErrNoCommonAncestor          = &Error{kind: apierror.KindInternal, message: "no common ancestor found in version path", retryable: apierror.False}
 )
 
 // NewEntryNotFoundError creates an error when an entry is not found
@@ -103,7 +106,7 @@ func NewVersionNotFoundError(versionID uint) *Error {
 func NewComputePathError(fromID, toID uint, err error) *Error {
 	return &Error{
 		kind:      apierror.KindInternal,
-		message:   "failed to compute path from v" + uintToStr(fromID) + " to v" + uintToStr(toID) + ": " + err.Error(),
+		message:   "failed to compute path from v" + strconv.FormatUint(uint64(fromID), 10) + " to v" + strconv.FormatUint(uint64(toID), 10) + ": " + err.Error(),
 		retryable: apierror.False,
 		details:   attrs.NewBagFrom(map[string]any{"from_version": fromID, "to_version": toID, "cause": err.Error()}),
 		cause:     err,
@@ -114,7 +117,7 @@ func NewComputePathError(fromID, toID uint, err error) *Error {
 func NewGetChangesetError(versionID uint, err error) *Error {
 	return &Error{
 		kind:      apierror.KindInternal,
-		message:   "failed to get changeset for version v" + uintToStr(versionID) + ": " + err.Error(),
+		message:   "failed to get changeset for version v" + strconv.FormatUint(uint64(versionID), 10) + ": " + err.Error(),
 		retryable: apierror.True,
 		details:   attrs.NewBagFrom(map[string]any{"version_id": versionID, "cause": err.Error()}),
 		cause:     err,
@@ -156,7 +159,7 @@ func NewApplyVersionChangesError(err error, rollbackErr error) *Error {
 func NewSetHeadError(versionID uint, err error) *Error {
 	return &Error{
 		kind:      apierror.KindInternal,
-		message:   "history set head to " + uintToStr(versionID) + ": " + err.Error(),
+		message:   "history set head to " + strconv.FormatUint(uint64(versionID), 10) + ": " + err.Error(),
 		retryable: apierror.False,
 		details:   attrs.NewBagFrom(map[string]any{"version_id": versionID, "cause": err.Error()}),
 		cause:     err,
@@ -192,17 +195,4 @@ func NewComputeTransitionError(err error) *Error {
 		details:   attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
 		cause:     err,
 	}
-}
-
-// uintToStr converts uint to string without importing strconv
-func uintToStr(n uint) string {
-	if n == 0 {
-		return "0"
-	}
-	var digits []byte
-	for n > 0 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-		n /= 10
-	}
-	return string(digits)
 }
