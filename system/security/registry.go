@@ -21,6 +21,7 @@ type PolicyRegistry struct {
 	policies   sync.Map // map[registry.ID]PolicyEntry
 	groups     sync.Map // map[registry.ID][]registry.ID (group ID -> policy IDs)
 	subscriber *eventbus.Subscriber
+	groupMu    sync.Mutex // protects group slice modifications
 }
 
 // NewPolicyRegistry creates a new policy registry with the given event bus and logger
@@ -113,7 +114,12 @@ func (r *PolicyRegistry) updatePolicy(e event.Event) {
 		return
 	}
 
-	existing := existingVal.(*security.PolicyEntry)
+	existing, ok := existingVal.(*security.PolicyEntry)
+	if !ok {
+		r.logger.Error("invalid policy type in registry",
+			zap.String("policy", policyID.String()))
+		return
+	}
 
 	for _, oldGroup := range existing.Groups {
 		found := false
@@ -158,7 +164,13 @@ func (r *PolicyRegistry) deletePolicy(e event.Event) {
 		return
 	}
 
-	existing := existingVal.(*security.PolicyEntry)
+	existing, ok := existingVal.(*security.PolicyEntry)
+	if !ok {
+		r.logger.Error("invalid policy type in registry",
+			zap.String("policy", policyID.String()))
+		return
+	}
+
 	for _, groupID := range existing.Groups {
 		r.removePolicyFromGroup(groupID, policyID)
 	}
@@ -170,10 +182,18 @@ func (r *PolicyRegistry) deletePolicy(e event.Event) {
 }
 
 func (r *PolicyRegistry) addPolicyToGroup(groupID, policyID registry.ID) {
+	r.groupMu.Lock()
+	defer r.groupMu.Unlock()
+
 	var groupPolicies []registry.ID
 
 	if val, ok := r.groups.Load(groupID); ok {
-		groupPolicies = val.([]registry.ID)
+		groupPolicies, ok = val.([]registry.ID)
+		if !ok {
+			r.logger.Error("invalid group type in registry",
+				zap.String("group", groupID.String()))
+			return
+		}
 
 		for _, id := range groupPolicies {
 			if id == policyID {
@@ -187,12 +207,20 @@ func (r *PolicyRegistry) addPolicyToGroup(groupID, policyID registry.ID) {
 }
 
 func (r *PolicyRegistry) removePolicyFromGroup(groupID, policyID registry.ID) {
+	r.groupMu.Lock()
+	defer r.groupMu.Unlock()
+
 	val, ok := r.groups.Load(groupID)
 	if !ok {
 		return
 	}
 
-	groupPolicies := val.([]registry.ID)
+	groupPolicies, ok := val.([]registry.ID)
+	if !ok {
+		r.logger.Error("invalid group type in registry",
+			zap.String("group", groupID.String()))
+		return
+	}
 
 	newGroupPolicies := make([]registry.ID, 0, len(groupPolicies))
 	for _, id := range groupPolicies {
@@ -208,25 +236,29 @@ func (r *PolicyRegistry) removePolicyFromGroup(groupID, policyID registry.ID) {
 	}
 }
 
-// GetPolicy retrieves a policy by its ID
 func (r *PolicyRegistry) GetPolicy(id registry.ID) (security.Policy, error) {
 	val, ok := r.policies.Load(id)
 	if !ok {
 		return nil, security.ErrPolicyNotFound
 	}
 
-	entry := val.(*security.PolicyEntry)
+	entry, ok := val.(*security.PolicyEntry)
+	if !ok {
+		return nil, security.ErrPolicyNotFound
+	}
 	return entry.Policy, nil
 }
 
-// GetPolicyGroup retrieves all policies in a group as a scope
 func (r *PolicyRegistry) GetPolicyGroup(groupID registry.ID) (security.Scope, error) {
 	val, ok := r.groups.Load(groupID)
 	if !ok {
 		return nil, security.ErrGroupNotFound
 	}
 
-	policyIDs := val.([]registry.ID)
+	policyIDs, ok := val.([]registry.ID)
+	if !ok {
+		return nil, security.ErrGroupNotFound
+	}
 	policies := make([]security.Policy, 0, len(policyIDs))
 
 	for _, id := range policyIDs {
@@ -246,7 +278,9 @@ func (r *PolicyRegistry) ListGroups() []registry.ID {
 	var groups []registry.ID
 
 	r.groups.Range(func(key, _ interface{}) bool {
-		groups = append(groups, key.(registry.ID))
+		if id, ok := key.(registry.ID); ok {
+			groups = append(groups, id)
+		}
 		return true
 	})
 
@@ -257,7 +291,9 @@ func (r *PolicyRegistry) ListPolicies() []registry.ID {
 	var policies []registry.ID
 
 	r.policies.Range(func(key, _ interface{}) bool {
-		policies = append(policies, key.(registry.ID))
+		if id, ok := key.(registry.ID); ok {
+			policies = append(policies, id)
+		}
 		return true
 	})
 

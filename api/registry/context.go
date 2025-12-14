@@ -13,8 +13,6 @@ var (
 	resolverCtxKey = &ctxapi.Key{Name: "registry.resolverCtxKey"}
 )
 
-// WithRegistry attaches a Registry instance to the provided context.
-// This allows the Registry to be retrieved later using the GetRegistry function.
 func WithRegistry(ctx context.Context, registry Registry) context.Context {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
@@ -26,19 +24,19 @@ func WithRegistry(ctx context.Context, registry Registry) context.Context {
 	return ctx
 }
 
-// GetRegistry retrieves the Registry instance from the provided context.
 func GetRegistry(ctx context.Context) Registry {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return nil
 	}
-	if reg := ac.Get(registryCtxKey); reg != nil {
-		return reg.(Registry)
+	if val := ac.Get(registryCtxKey); val != nil {
+		if reg, ok := val.(Registry); ok {
+			return reg
+		}
 	}
 	return nil
 }
 
-// WithFinder attaches a Finder instance to the provided context.
 func WithFinder(ctx context.Context, finder Finder) context.Context {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
@@ -50,14 +48,15 @@ func WithFinder(ctx context.Context, finder Finder) context.Context {
 	return ctx
 }
 
-// GetFinder retrieves the Finder instance from the provided context.
 func GetFinder(ctx context.Context) Finder {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return nil
 	}
-	if f := ac.Get(finderCtxKey); f != nil {
-		return f.(Finder)
+	if val := ac.Get(finderCtxKey); val != nil {
+		if f, ok := val.(Finder); ok {
+			return f
+		}
 	}
 	return nil
 }
@@ -74,14 +73,15 @@ func WithResolver(ctx context.Context, resolver DependencyResolver) context.Cont
 	return ctx
 }
 
-// GetResolver retrieves the DependencyResolver instance from the provided context.
 func GetResolver(ctx context.Context) DependencyResolver {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return nil
 	}
-	if r := ac.Get(resolverCtxKey); r != nil {
-		return r.(DependencyResolver)
+	if val := ac.Get(resolverCtxKey); val != nil {
+		if r, ok := val.(DependencyResolver); ok {
+			return r
+		}
 	}
 	return nil
 }

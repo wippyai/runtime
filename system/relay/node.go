@@ -52,7 +52,11 @@ func (n *Node) GetHost(hostID pid.HostID) (api.Receiver, bool) {
 	if !ok {
 		return nil, false
 	}
-	return h.(api.Receiver), true
+	receiver, ok := h.(api.Receiver)
+	if !ok {
+		return nil, false
+	}
+	return receiver, true
 }
 
 // Send delivers a package to its destination. The destination must be a host
@@ -80,7 +84,7 @@ func (n *Node) Send(pkg *api.Package) error {
 }
 
 // Attach connects a process ID to a channel for receiving packages.
-// Only works with hosts that implement AttachableHost.
+// Only works with hosts that implement AttachableReceiver.
 func (n *Node) Attach(p pid.PID, ch chan *api.Package) (context.CancelFunc, error) {
 	if p.Node != "" && p.Node != n.nodeID {
 		return nil, api.NewExternalNodeError(p.Node)

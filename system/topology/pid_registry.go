@@ -58,10 +58,12 @@ func NewPIDRegistry(opts ...PIDRegistryOption) *PIDRegistry {
 func (r *PIDRegistry) Register(name string, p pid.PID) error {
 	r.nameToID.Store(name, p)
 
-	// Get or create pidNames for this PID
 	pidKey := p.String()
 	val, _ := r.idToName.LoadOrStore(pidKey, &pidNames{})
-	pn := val.(*pidNames)
+	pn, ok := val.(*pidNames)
+	if !ok {
+		return nil
+	}
 
 	pn.mu.Lock()
 	pn.names = append(pn.names, name)
@@ -92,12 +94,17 @@ func (r *PIDRegistry) Unregister(name string) bool {
 		return false
 	}
 
-	pid := pidVal.(pid.PID)
-	pidKey := pid.String()
+	p, ok := pidVal.(pid.PID)
+	if !ok {
+		return false
+	}
+	pidKey := p.String()
 
-	// Update the reverse mapping
 	if val, ok := r.idToName.Load(pidKey); ok {
-		pn := val.(*pidNames)
+		pn, ok := val.(*pidNames)
+		if !ok {
+			return true
+		}
 		pn.mu.Lock()
 		updatedNames := make([]string, 0, len(pn.names)-1)
 		for _, n := range pn.names {
@@ -121,11 +128,11 @@ func (r *PIDRegistry) Unregister(name string) bool {
 	return true
 }
 
-// Lookup finds the PID registered with a given name.
-// Returns the PID and true if found, empty PID and false if not found.
 func (r *PIDRegistry) Lookup(name string) (pid.PID, bool) {
 	if pidVal, exists := r.nameToID.Load(name); exists {
-		return pidVal.(pid.PID), true
+		if p, ok := pidVal.(pid.PID); ok {
+			return p, true
+		}
 	}
 
 	if r.parent != nil {
@@ -135,20 +142,21 @@ func (r *PIDRegistry) Lookup(name string) (pid.PID, bool) {
 	return pid.PID{}, false
 }
 
-// Remove completely removes a PID from the registry,
-// removing all name associations for that PID.
-func (r *PIDRegistry) Remove(pid pid.PID) {
-	pidKey := pid.String()
+func (r *PIDRegistry) Remove(p pid.PID) {
+	pidKey := p.String()
 
 	val, exists := r.idToName.LoadAndDelete(pidKey)
 	if !exists {
 		if r.parent != nil {
-			r.parent.Remove(pid)
+			r.parent.Remove(p)
 		}
 		return
 	}
 
-	pn := val.(*pidNames)
+	pn, ok := val.(*pidNames)
+	if !ok {
+		return
+	}
 	pn.mu.Lock()
 	names := pn.names
 	pn.names = nil
@@ -163,7 +171,7 @@ func (r *PIDRegistry) Remove(pid pid.PID) {
 		zap.Int("names_removed", len(names)))
 
 	if r.parent != nil {
-		r.parent.Remove(pid)
+		r.parent.Remove(p)
 	}
 }
 

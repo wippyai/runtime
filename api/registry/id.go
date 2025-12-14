@@ -41,15 +41,11 @@ func (t ID) Equal(other ID) bool {
 }
 
 // MarshalJSON implements the json.Marshaler interface.
-// Fixed to use simple concatenation instead of pool
 func (t ID) MarshalJSON() ([]byte, error) {
 	if t.NS == "" {
 		return json.Marshal(t.Name)
 	}
-
-	// Simple string concatenation - much faster than pool
-	str := t.NS + ":" + t.Name
-	return json.Marshal(str)
+	return json.Marshal(t.NS + ":" + t.Name)
 }
 
 // WithDefaultNS returns a new ID with the given default namespace if one is not already set.
@@ -66,60 +62,30 @@ func (t ID) WithDefaultNS(defaultNS Namespace) ID {
 	return unique.Make(id).Value()
 }
 
+// parseIDString parses a string in "namespace:name" or "name-only" format.
+func parseIDString(s string) ID {
+	if idx := strings.IndexByte(s, ':'); idx != -1 {
+		return ID{NS: s[:idx], Name: s[idx+1:], str: s}
+	}
+	return ID{NS: "", Name: s, str: ":" + s}
+}
+
 // ParseID parses a string in "namespace:name" or "name-only" format into an ID.
 func ParseID(s string) ID {
-	var id ID
-
-	// Fast path: find first colon using IndexByte (faster than strings.SplitN)
-	if idx := strings.IndexByte(s, ':'); idx != -1 {
-		// Has colon - parse as ns:name
-		id = ID{
-			NS:   s[:idx],
-			Name: s[idx+1:],
-			str:  s,
-		}
-	} else {
-		// Name-only format
-		id = ID{
-			NS:   "",
-			Name: s,
-			str:  ":" + s,
-		}
-	}
-
-	// Intern the entire ID struct for deduplication
-	return unique.Make(id).Value()
+	return unique.Make(parseIDString(s)).Value()
 }
 
 // UnmarshalJSON deserializes an ID from JSON, supporting both string and object formats.
 func (t *ID) UnmarshalJSON(data []byte) error {
 	var id ID
 
-	// Check if the data is a JSON string
 	if len(data) > 0 && data[0] == '"' {
 		var s string
 		if err := json.Unmarshal(data, &s); err != nil {
 			return err
 		}
-
-		// Fast path: find first colon using IndexByte
-		if idx := strings.IndexByte(s, ':'); idx != -1 {
-			// Has colon - parse as ns:name
-			id = ID{
-				NS:   s[:idx],
-				Name: s[idx+1:],
-				str:  s,
-			}
-		} else {
-			// Name-only format
-			id = ID{
-				NS:   "",
-				Name: s,
-				str:  ":" + s,
-			}
-		}
+		id = parseIDString(s)
 	} else {
-		// Handle object format
 		var obj struct {
 			NS   Namespace `json:"ns"`
 			Name Name      `json:"name"`
@@ -127,14 +93,9 @@ func (t *ID) UnmarshalJSON(data []byte) error {
 		if err := json.Unmarshal(data, &obj); err != nil {
 			return err
 		}
-		id = ID{
-			NS:   obj.NS,
-			Name: obj.Name,
-			str:  obj.NS + ":" + obj.Name,
-		}
+		id = ID{NS: obj.NS, Name: obj.Name, str: obj.NS + ":" + obj.Name}
 	}
 
-	// Intern the entire ID struct for deduplication
 	*t = unique.Make(id).Value()
 	return nil
 }
