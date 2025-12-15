@@ -8,9 +8,7 @@ import (
 )
 
 func init() {
-	dispatcher.MustRegisterCommands("function",
-		Call, AsyncStart, AsyncCancel,
-	)
+	dispatcher.MustRegisterCommands("function", Call, AsyncStart, AsyncCancel)
 }
 
 // Command IDs for function operations.
