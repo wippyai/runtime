@@ -8,10 +8,10 @@ import (
 )
 
 var (
-	managerCtxKey           = &ctxapi.Key{Name: "process.manager"}
-	factoryCtxKey           = &ctxapi.Key{Name: "process.factory"}
-	generatorCtxKey         = &ctxapi.Key{Name: "pidgen.generator"}
-	lifecycleRegistryCtxKey = &ctxapi.Key{Name: "process.lifecycle_registry"}
+	managerKey           = &ctxapi.Key{Name: "process.manager"}
+	factoryKey           = &ctxapi.Key{Name: "process.factory"}
+	generatorKey         = &ctxapi.Key{Name: "pidgen.generator"}
+	lifecycleRegistryKey = &ctxapi.Key{Name: "process.lifecycle_registry"}
 )
 
 // WithManager attaches a process Manager to the context.
@@ -20,8 +20,8 @@ func WithManager(ctx context.Context, m Manager) context.Context {
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(managerCtxKey) == nil {
-		ac.With(managerCtxKey, m)
+	if ac.Get(managerKey) == nil {
+		ac.With(managerKey, m)
 	}
 	return ctx
 }
@@ -32,7 +32,7 @@ func GetManager(ctx context.Context) Manager {
 	if ac == nil {
 		return nil
 	}
-	if val := ac.Get(managerCtxKey); val != nil {
+	if val := ac.Get(managerKey); val != nil {
 		if m, ok := val.(Manager); ok {
 			return m
 		}
@@ -46,8 +46,8 @@ func WithFactory(ctx context.Context, f Factory) context.Context {
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(factoryCtxKey) == nil {
-		ac.With(factoryCtxKey, f)
+	if ac.Get(factoryKey) == nil {
+		ac.With(factoryKey, f)
 	}
 	return ctx
 }
@@ -58,7 +58,7 @@ func GetFactory(ctx context.Context) Factory {
 	if ac == nil {
 		return nil
 	}
-	if val := ac.Get(factoryCtxKey); val != nil {
+	if val := ac.Get(factoryKey); val != nil {
 		if f, ok := val.(Factory); ok {
 			return f
 		}
@@ -72,8 +72,8 @@ func WithPIDGenerator(ctx context.Context, gen *uniqid.PIDGenerator) context.Con
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(generatorCtxKey) == nil {
-		ac.With(generatorCtxKey, gen)
+	if ac.Get(generatorKey) == nil {
+		ac.With(generatorKey, gen)
 	}
 	return ctx
 }
@@ -84,7 +84,7 @@ func GetPIDGenerator(ctx context.Context) *uniqid.PIDGenerator {
 	if ac == nil {
 		return nil
 	}
-	if val := ac.Get(generatorCtxKey); val != nil {
+	if val := ac.Get(generatorKey); val != nil {
 		if gen, ok := val.(*uniqid.PIDGenerator); ok {
 			return gen
 		}
@@ -98,8 +98,8 @@ func WithLifecycleRegistry(ctx context.Context, reg LifecycleRegistry) context.C
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(lifecycleRegistryCtxKey) == nil {
-		ac.With(lifecycleRegistryCtxKey, reg)
+	if ac.Get(lifecycleRegistryKey) == nil {
+		ac.With(lifecycleRegistryKey, reg)
 	}
 	return ctx
 }
@@ -110,7 +110,7 @@ func GetLifecycleRegistry(ctx context.Context) LifecycleRegistry {
 	if ac == nil {
 		return nil
 	}
-	if val := ac.Get(lifecycleRegistryCtxKey); val != nil {
+	if val := ac.Get(lifecycleRegistryKey); val != nil {
 		if reg, ok := val.(LifecycleRegistry); ok {
 			return reg
 		}

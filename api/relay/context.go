@@ -7,10 +7,10 @@ import (
 )
 
 var (
-	nodeCtxKey        = &ctxapi.Key{Name: "relay.nodeCtxKey"}
-	routerCtxKey      = &ctxapi.Key{Name: "relay.routerCtxKey"}
-	nodeManagerCtxKey = &ctxapi.Key{Name: "relay.nodeManagerCtxKey"}
-	hostCtxKey        = &ctxapi.Key{Name: "relay.hostCtxKey"}
+	nodeKey        = &ctxapi.Key{Name: "relay.node"}
+	routerKey      = &ctxapi.Key{Name: "relay.router"}
+	nodeManagerKey = &ctxapi.Key{Name: "relay.node_manager"}
+	hostKey        = &ctxapi.Key{Name: "relay.host"}
 )
 
 // WithNode attaches a Node to the context.
@@ -19,8 +19,8 @@ func WithNode(ctx context.Context, node Node) context.Context {
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(nodeCtxKey) == nil {
-		ac.With(nodeCtxKey, node)
+	if ac.Get(nodeKey) == nil {
+		ac.With(nodeKey, node)
 	}
 	return ctx
 }
@@ -31,7 +31,7 @@ func GetNode(ctx context.Context) Node {
 	if ac == nil {
 		return nil
 	}
-	if val := ac.Get(nodeCtxKey); val != nil {
+	if val := ac.Get(nodeKey); val != nil {
 		if n, ok := val.(Node); ok {
 			return n
 		}
@@ -45,8 +45,8 @@ func WithRouter(ctx context.Context, r Receiver) context.Context {
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(routerCtxKey) == nil {
-		ac.With(routerCtxKey, r)
+	if ac.Get(routerKey) == nil {
+		ac.With(routerKey, r)
 	}
 	return ctx
 }
@@ -57,7 +57,7 @@ func GetRouter(ctx context.Context) Receiver {
 	if ac == nil {
 		return nil
 	}
-	if val := ac.Get(routerCtxKey); val != nil {
+	if val := ac.Get(routerKey); val != nil {
 		if r, ok := val.(Receiver); ok {
 			return r
 		}
@@ -71,8 +71,8 @@ func WithNodeManager(ctx context.Context, nm NodeManager) context.Context {
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(nodeManagerCtxKey) == nil {
-		ac.With(nodeManagerCtxKey, nm)
+	if ac.Get(nodeManagerKey) == nil {
+		ac.With(nodeManagerKey, nm)
 	}
 	return ctx
 }
@@ -83,7 +83,7 @@ func GetNodeManager(ctx context.Context) NodeManager {
 	if ac == nil {
 		return nil
 	}
-	if val := ac.Get(nodeManagerCtxKey); val != nil {
+	if val := ac.Get(nodeManagerKey); val != nil {
 		if nm, ok := val.(NodeManager); ok {
 			return nm
 		}
@@ -97,8 +97,8 @@ func WithHost(ctx context.Context, host Receiver) context.Context {
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(hostCtxKey) == nil {
-		ac.With(hostCtxKey, host)
+	if ac.Get(hostKey) == nil {
+		ac.With(hostKey, host)
 	}
 	return ctx
 }
@@ -109,7 +109,7 @@ func GetHost(ctx context.Context) Receiver {
 	if ac == nil {
 		return nil
 	}
-	if val := ac.Get(hostCtxKey); val != nil {
+	if val := ac.Get(hostKey); val != nil {
 		if h, ok := val.(Receiver); ok {
 			return h
 		}

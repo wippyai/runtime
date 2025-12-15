@@ -126,7 +126,7 @@ func TestGetRegistry(t *testing.T) {
 	t.Run("app context with wrong type", func(t *testing.T) {
 		ac := ctxapi.NewAppContext()
 		ctx := ctxapi.WithAppContext(context.Background(), ac)
-		ac.With(registryCtxKey, "not a registry")
+		ac.With(registryKey, "not a registry")
 
 		got := GetRegistry(ctx)
 		assert.Nil(t, got)
@@ -145,7 +145,7 @@ func TestGetRegistrar(t *testing.T) {
 		ctx := ctxapi.WithAppContext(context.Background(), ac)
 
 		reg := &mockRegistry{handlers: make(map[CommandID]Handler)}
-		ac.With(registryCtxKey, reg)
+		ac.With(registryKey, reg)
 
 		got := GetRegistrar(ctx)
 		assert.Equal(t, reg, got)
@@ -154,7 +154,7 @@ func TestGetRegistrar(t *testing.T) {
 	t.Run("app context with non-registrar", func(t *testing.T) {
 		ac := ctxapi.NewAppContext()
 		ctx := ctxapi.WithAppContext(context.Background(), ac)
-		ac.With(registryCtxKey, "not a registrar")
+		ac.With(registryKey, "not a registrar")
 
 		got := GetRegistrar(ctx)
 		assert.Nil(t, got)
@@ -173,7 +173,7 @@ func TestGetDispatcher(t *testing.T) {
 		ctx := ctxapi.WithAppContext(context.Background(), ac)
 
 		reg := &mockRegistry{handlers: make(map[CommandID]Handler)}
-		ac.With(registryCtxKey, reg)
+		ac.With(registryKey, reg)
 
 		got := GetDispatcher(ctx)
 		assert.Equal(t, reg, got)
@@ -182,7 +182,7 @@ func TestGetDispatcher(t *testing.T) {
 	t.Run("app context with non-dispatcher", func(t *testing.T) {
 		ac := ctxapi.NewAppContext()
 		ctx := ctxapi.WithAppContext(context.Background(), ac)
-		ac.With(registryCtxKey, "not a dispatcher")
+		ac.With(registryKey, "not a dispatcher")
 
 		got := GetDispatcher(ctx)
 		assert.Nil(t, got)

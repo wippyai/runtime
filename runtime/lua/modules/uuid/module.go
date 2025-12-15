@@ -5,6 +5,8 @@ import (
 
 	"github.com/google/uuid"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/api/runtime/workflow"
+	luaworkflow "github.com/wippyai/runtime/runtime/lua/workflow"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -12,7 +14,7 @@ import (
 var Module = &luaapi.ModuleDef{
 	Name:        "uuid",
 	Description: "UUID generation and validation",
-	Class:       []string{luaapi.ClassNondeterministic},
+	Class:       []string{luaapi.ClassNondeterministic, luaapi.ClassWorkflow},
 	Build:       buildModule,
 }
 
@@ -29,7 +31,9 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	mod.RawSetString("parse", lua.LGoFunc(uuidParse))
 	mod.RawSetString("format", lua.LGoFunc(uuidFormat))
 	mod.Immutable = true
-	return mod, nil
+	return mod, []luaapi.YieldType{
+		{Sample: &luaworkflow.Yield{}, CmdID: workflow.SideEffect},
+	}
 }
 
 func invalidError(l *lua.LState, msg string) int {
@@ -51,6 +55,16 @@ func internalError(l *lua.LState, goErr error, context string) int {
 }
 
 func uuidV1(l *lua.LState) int {
+	if workflow.IsDeterministic(l.Context()) {
+		l.Push(luaworkflow.NewYield(func() (any, error) {
+			id, err := uuid.NewUUID()
+			if err != nil {
+				return nil, err
+			}
+			return id.String(), nil
+		}))
+		return -1
+	}
 	id, err := uuid.NewUUID()
 	if err != nil {
 		return internalError(l, err, "v1 generation failed")
@@ -77,6 +91,16 @@ func uuidV3(l *lua.LState) int {
 }
 
 func uuidV4(l *lua.LState) int {
+	if workflow.IsDeterministic(l.Context()) {
+		l.Push(luaworkflow.NewYield(func() (any, error) {
+			id, err := uuid.NewRandom()
+			if err != nil {
+				return nil, err
+			}
+			return id.String(), nil
+		}))
+		return -1
+	}
 	id, err := uuid.NewRandom()
 	if err != nil {
 		return internalError(l, err, "v4 generation failed")
@@ -103,6 +127,16 @@ func uuidV5(l *lua.LState) int {
 }
 
 func uuidV7(l *lua.LState) int {
+	if workflow.IsDeterministic(l.Context()) {
+		l.Push(luaworkflow.NewYield(func() (any, error) {
+			id, err := uuid.NewV7()
+			if err != nil {
+				return nil, err
+			}
+			return id.String(), nil
+		}))
+		return -1
+	}
 	id, err := uuid.NewV7()
 	if err != nil {
 		return internalError(l, err, "v7 generation failed")

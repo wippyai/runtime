@@ -8,8 +8,8 @@ import (
 )
 
 var (
-	loggerCtxKey  = &ctxapi.Key{Name: "logger"}
-	managerCtxKey = &ctxapi.Key{Name: "logs.manager"}
+	loggerKey  = &ctxapi.Key{Name: "logger"}
+	managerKey = &ctxapi.Key{Name: "logs.manager"}
 )
 
 // WithLogger attaches a logger to the context.
@@ -18,8 +18,8 @@ func WithLogger(ctx context.Context, logger *zap.Logger) context.Context {
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(loggerCtxKey) == nil {
-		ac.With(loggerCtxKey, logger)
+	if ac.Get(loggerKey) == nil {
+		ac.With(loggerKey, logger)
 	}
 	return ctx
 }
@@ -30,7 +30,7 @@ func GetLogger(ctx context.Context) *zap.Logger {
 	if ac == nil {
 		return zap.NewNop()
 	}
-	if l := ac.Get(loggerCtxKey); l != nil {
+	if l := ac.Get(loggerKey); l != nil {
 		return l.(*zap.Logger)
 	}
 	return zap.NewNop()
@@ -42,8 +42,8 @@ func WithManager(ctx context.Context, mgr Manager) context.Context {
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(managerCtxKey) == nil {
-		ac.With(managerCtxKey, mgr)
+	if ac.Get(managerKey) == nil {
+		ac.With(managerKey, mgr)
 	}
 	return ctx
 }
@@ -54,7 +54,7 @@ func GetManager(ctx context.Context) Manager {
 	if ac == nil {
 		return nil
 	}
-	if val := ac.Get(managerCtxKey); val != nil {
+	if val := ac.Get(managerKey); val != nil {
 		if mgr, ok := val.(Manager); ok {
 			return mgr
 		}

@@ -200,20 +200,20 @@ func TestRequestContext_Pooling(t *testing.T) {
 }
 
 func TestContextKeyAccessors(t *testing.T) {
-	t.Run("RequestCtxKey returns request key", func(t *testing.T) {
-		key := RequestCtxKey()
+	t.Run("RequestKey returns request key", func(t *testing.T) {
+		key := RequestKey()
 		assert.NotNil(t, key)
 		assert.Equal(t, "http.request", key.Name)
 	})
 
-	t.Run("ServerIDCtxKey returns server ID key", func(t *testing.T) {
-		key := ServerIDCtxKey()
+	t.Run("ServerIDKey returns server ID key", func(t *testing.T) {
+		key := ServerIDKey()
 		assert.NotNil(t, key)
 		assert.Equal(t, "http.server_id", key.Name)
 	})
 
-	t.Run("ServerCtxKey returns server key", func(t *testing.T) {
-		key := ServerCtxKey()
+	t.Run("ServerKey returns server key", func(t *testing.T) {
+		key := ServerKey()
 		assert.NotNil(t, key)
 		assert.Equal(t, "http.server", key.Name)
 	})

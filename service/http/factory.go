@@ -72,7 +72,7 @@ func (f *EndpointFactory) CreateHandler(_ context.Context, cfg *config.EndpointC
 		task := runtime.Task{
 			ID: cfg.Func,
 			Context: []contextapi.Pair{
-				{Key: config.RequestCtxKey(), Value: rCtx},
+				{Key: config.RequestKey(), Value: rCtx},
 			},
 		}
 

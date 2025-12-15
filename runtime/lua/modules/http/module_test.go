@@ -142,7 +142,7 @@ func TestRequest_Basic(t *testing.T) {
 		req := httptest.NewRequest("POST", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -164,7 +164,7 @@ func TestRequest_Basic(t *testing.T) {
 		req := httptest.NewRequest("GET", "/api/users/123", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -184,7 +184,7 @@ func TestRequest_Basic(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test?name=john&age=30", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -205,7 +205,7 @@ func TestRequest_Basic(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test?a=1&b=2&c=3", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -229,7 +229,7 @@ func TestRequest_Basic(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer token123")
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -252,7 +252,7 @@ func TestRequest_Basic(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -273,7 +273,7 @@ func TestRequest_Basic(t *testing.T) {
 		req.Host = "example.com"
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -293,7 +293,7 @@ func TestRequest_Basic(t *testing.T) {
 		req := httptest.NewRequest("POST", "/test", body)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -313,7 +313,7 @@ func TestRequest_Basic(t *testing.T) {
 		req.Header.Set("Accept", "application/json, text/html")
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -335,7 +335,7 @@ func TestRequest_Basic(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json; charset=utf-8")
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -358,7 +358,7 @@ func TestRequest_Body(t *testing.T) {
 		req := httptest.NewRequest("POST", "/test", body)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -381,7 +381,7 @@ func TestRequest_Body(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -404,7 +404,7 @@ func TestRequest_Body(t *testing.T) {
 		req := httptest.NewRequest("POST", "/test", body)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -439,7 +439,7 @@ func TestRequest_Stream(t *testing.T) {
 		req := httptest.NewRequest("POST", "/test", body)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -461,7 +461,7 @@ func TestRequest_Stream(t *testing.T) {
 		req := httptest.NewRequest("POST", "/test", body)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -497,7 +497,7 @@ func TestRequest_Multipart(t *testing.T) {
 		req.Header.Set("Content-Type", writer.FormDataContentType())
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -526,7 +526,7 @@ func TestRequest_Multipart(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -549,7 +549,7 @@ func TestResponse_Basic(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -569,7 +569,7 @@ func TestResponse_Basic(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -589,7 +589,7 @@ func TestResponse_Basic(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -611,7 +611,7 @@ func TestResponse_Basic(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -631,7 +631,7 @@ func TestResponse_Basic(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -657,7 +657,7 @@ func TestResponse_Basic(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -682,7 +682,7 @@ func TestResponse_SSE(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -704,7 +704,7 @@ func TestResponse_SSE(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -726,7 +726,7 @@ func TestResponse_SSE(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -753,7 +753,7 @@ func TestResponse_Chunked(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -778,7 +778,7 @@ func TestResponse_ErrorCases(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -799,7 +799,7 @@ func TestResponse_ErrorCases(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -820,7 +820,7 @@ func TestResponse_ErrorCases(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -841,7 +841,7 @@ func TestResponse_ErrorCases(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -879,7 +879,7 @@ func TestRequest_ToString(t *testing.T) {
 	req := httptest.NewRequest("POST", "/api/test", nil)
 	recorder := httptest.NewRecorder()
 	reqCtx := httpservice.NewRequestContext(req, recorder)
-	_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+	_ = fc.Set(httpservice.RequestKey(), reqCtx)
 	l.SetContext(ctx)
 
 	err := l.DoString(`
@@ -900,7 +900,7 @@ func TestResponse_ToString(t *testing.T) {
 	req := httptest.NewRequest("GET", "/test", nil)
 	recorder := httptest.NewRecorder()
 	reqCtx := httpservice.NewRequestContext(req, recorder)
-	_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+	_ = fc.Set(httpservice.RequestKey(), reqCtx)
 	l.SetContext(ctx)
 
 	err := l.DoString(`
@@ -921,7 +921,7 @@ func TestRequest_RemoteAddr(t *testing.T) {
 	req.RemoteAddr = "192.168.1.1:12345"
 	recorder := httptest.NewRecorder()
 	reqCtx := httpservice.NewRequestContext(req, recorder)
-	_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+	_ = fc.Set(httpservice.RequestKey(), reqCtx)
 	l.SetContext(ctx)
 
 	err := l.DoString(`
@@ -942,7 +942,7 @@ func TestRequest_BodyNoBody(t *testing.T) {
 	req.Body = nil
 	recorder := httptest.NewRecorder()
 	reqCtx := httpservice.NewRequestContext(req, recorder)
-	_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+	_ = fc.Set(httpservice.RequestKey(), reqCtx)
 	l.SetContext(ctx)
 
 	err := l.DoString(`
@@ -964,7 +964,7 @@ func TestRequest_AcceptsWildcard(t *testing.T) {
 	req.Header.Set("Accept", "*/*")
 	recorder := httptest.NewRecorder()
 	reqCtx := httpservice.NewRequestContext(req, recorder)
-	_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+	_ = fc.Set(httpservice.RequestKey(), reqCtx)
 	l.SetContext(ctx)
 
 	err := l.DoString(`
@@ -984,7 +984,7 @@ func TestRequest_AcceptsEmpty(t *testing.T) {
 	req := httptest.NewRequest("GET", "/test", nil)
 	recorder := httptest.NewRecorder()
 	reqCtx := httpservice.NewRequestContext(req, recorder)
-	_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+	_ = fc.Set(httpservice.RequestKey(), reqCtx)
 	l.SetContext(ctx)
 
 	err := l.DoString(`
@@ -1014,7 +1014,7 @@ func TestMultipartFile_Stream(t *testing.T) {
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	recorder := httptest.NewRecorder()
 	reqCtx := httpservice.NewRequestContext(req, recorder)
-	require.NoError(t, fc.Set(httpservice.RequestCtxKey(), reqCtx))
+	require.NoError(t, fc.Set(httpservice.RequestKey(), reqCtx))
 	l.SetContext(ctx)
 
 	err := l.DoString(`
@@ -1051,7 +1051,7 @@ func TestMultipartFile_Header(t *testing.T) {
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	recorder := httptest.NewRecorder()
 	reqCtx := httpservice.NewRequestContext(req, recorder)
-	require.NoError(t, fc.Set(httpservice.RequestCtxKey(), reqCtx))
+	require.NoError(t, fc.Set(httpservice.RequestKey(), reqCtx))
 	l.SetContext(ctx)
 
 	err := l.DoString(`
@@ -1083,7 +1083,7 @@ func TestRequest_MaxBody(t *testing.T) {
 		req.ContentLength = int64(len(bodyContent))
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -1105,7 +1105,7 @@ func TestRequest_MaxBody(t *testing.T) {
 		req := httptest.NewRequest("POST", "/test", body)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -1128,7 +1128,7 @@ func TestRequest_MaxBody(t *testing.T) {
 		req.ContentLength = int64(len(bodyContent))
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -1152,7 +1152,7 @@ func TestRequest_Timeout(t *testing.T) {
 		req, _ := http.NewRequest("POST", "/test", pr)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		go func() {
@@ -1180,7 +1180,7 @@ func TestRequest_Timeout(t *testing.T) {
 		req := httptest.NewRequest("POST", "/test", body)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -1204,7 +1204,7 @@ func TestRequest_ConfigOptions(t *testing.T) {
 		req := httptest.NewRequest("POST", "/test", body)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -1226,7 +1226,7 @@ func TestRequest_ConfigOptions(t *testing.T) {
 		req := httptest.NewRequest("POST", "/test", body)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -1263,7 +1263,7 @@ func TestRequestBodySizeLimit(t *testing.T) {
 		req := httptest.NewRequest("POST", "/test", strings.NewReader(largeBody))
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -1285,7 +1285,7 @@ func TestRequestBodySizeLimit(t *testing.T) {
 		req := httptest.NewRequest("POST", "/test", body)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -1308,7 +1308,7 @@ func TestRequestBodySizeLimit(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`
@@ -1330,7 +1330,7 @@ func TestRequestBodySizeLimit(t *testing.T) {
 		req.ContentLength = 200 * 1024 * 1024 // 200MB claimed
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
-		_ = fc.Set(httpservice.RequestCtxKey(), reqCtx)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
 		l.SetContext(ctx)
 
 		err := l.DoString(`

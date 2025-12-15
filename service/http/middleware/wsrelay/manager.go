@@ -168,7 +168,7 @@ func (m *RelayManager) middlewareHandler(h http.Handler, originPatterns []string
 			return
 		}
 
-		hostVal, ok := fc.Get(httpapi.ServerCtxKey())
+		hostVal, ok := fc.Get(httpapi.ServerKey())
 		if !ok {
 			logger.Error("server host not found in context")
 			http.Error(w, ErrServerHostNotFound.Error(), http.StatusInternalServerError)
@@ -182,7 +182,7 @@ func (m *RelayManager) middlewareHandler(h http.Handler, originPatterns []string
 			return
 		}
 
-		serverIDVal, ok := fc.Get(httpapi.ServerIDCtxKey())
+		serverIDVal, ok := fc.Get(httpapi.ServerIDKey())
 		if !ok {
 			logger.Error("server ID not found in context")
 			http.Error(w, ErrServerIDNotFound.Error(), http.StatusInternalServerError)
@@ -210,7 +210,7 @@ func (m *RelayManager) middlewareHandler(h http.Handler, originPatterns []string
 		}
 
 		wsCtx, wsFC := contextapi.OpenFrameContext(m.appCtx)
-		if err := wsFC.Set(httpapi.ServerIDCtxKey(), serverID); err != nil {
+		if err := wsFC.Set(httpapi.ServerIDKey(), serverID); err != nil {
 			logger.Error("Failed to set server ID in frame context", zap.Error(err))
 			_ = conn.Close(websocket.StatusInternalError, "Failed to set server ID")
 			return

@@ -235,7 +235,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 		// Set all HTTP-specific metadata in FrameContext in one place
 		_ = config.SetServerID(ctx, s.id.String())
 		_ = config.SetServerHost(ctx, s.config.Addr)
-		_ = fc.Set(config.ServerCtxKey(), s)
+		_ = fc.Set(config.ServerKey(), s)
 
 		baseHandler.ServeHTTP(w, r.WithContext(ctx))
 	})

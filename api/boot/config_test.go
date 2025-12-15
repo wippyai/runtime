@@ -347,7 +347,7 @@ func TestGetConfig(t *testing.T) {
 	t.Run("with wrong type", func(t *testing.T) {
 		ctx := ctxapi.NewRootContext()
 		ac := ctxapi.AppFromContext(ctx)
-		ac.With(configCtxKey, "not a config")
+		ac.With(configKey, "not a config")
 
 		cfg := GetConfig(ctx)
 		assert.Nil(t, cfg)
