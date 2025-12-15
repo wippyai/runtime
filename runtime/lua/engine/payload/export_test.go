@@ -318,3 +318,120 @@ func TestExportLuaValue(t *testing.T) {
 		assert.Same(t, copiedA, linkBackToA, "The link from B should point back to the new copied A")
 	})
 }
+
+// Test the internal makeTableImmutableRecursive function directly
+func TestMakeTableImmutableRecursive(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	t.Run("Basic table immutability", func(t *testing.T) {
+		tbl := l.NewTable()
+		l.SetTable(tbl, lua.LString("key"), lua.LString("value"))
+		l.SetTable(tbl, lua.LNumber(1), lua.LNumber(42))
+
+		visited := make(map[*lua.LTable]bool)
+		result := makeTableImmutableRecursive(tbl, visited)
+
+		resultTbl, ok := result.(*lua.LTable)
+		assert.True(t, ok)
+		assert.True(t, resultTbl.Immutable)
+		assert.Same(t, tbl, resultTbl)
+	})
+
+	t.Run("Nested table immutability", func(t *testing.T) {
+		outer := l.NewTable()
+		inner := l.NewTable()
+		l.SetTable(inner, lua.LString("inner_key"), lua.LString("inner_value"))
+		l.SetTable(outer, lua.LString("nested"), inner)
+
+		visited := make(map[*lua.LTable]bool)
+		result := makeTableImmutableRecursive(outer, visited)
+
+		outerTbl := result.(*lua.LTable)
+		assert.True(t, outerTbl.Immutable)
+
+		innerTbl := outerTbl.RawGetString("nested").(*lua.LTable)
+		assert.True(t, innerTbl.Immutable)
+	})
+
+	t.Run("Circular reference handling", func(t *testing.T) {
+		tbl := l.NewTable()
+		l.SetTable(tbl, lua.LString("self"), tbl)
+
+		visited := make(map[*lua.LTable]bool)
+		assert.NotPanics(t, func() {
+			makeTableImmutableRecursive(tbl, visited)
+		})
+		assert.True(t, tbl.Immutable)
+	})
+
+	t.Run("Non-table values pass through", func(t *testing.T) {
+		visited := make(map[*lua.LTable]bool)
+
+		assert.Equal(t, lua.LNil, makeTableImmutableRecursive(lua.LNil, visited))
+		assert.Equal(t, lua.LNumber(42), makeTableImmutableRecursive(lua.LNumber(42), visited))
+		assert.Equal(t, lua.LString("test"), makeTableImmutableRecursive(lua.LString("test"), visited))
+		assert.Equal(t, lua.LBool(true), makeTableImmutableRecursive(lua.LBool(true), visited))
+	})
+
+	t.Run("Userdata with nil value", func(t *testing.T) {
+		ud := l.NewUserData()
+		ud.Value = nil
+
+		visited := make(map[*lua.LTable]bool)
+		result := makeTableImmutableRecursive(ud, visited)
+		assert.Equal(t, lua.LNil, result)
+	})
+
+	t.Run("Userdata with error value", func(t *testing.T) {
+		ud := l.NewUserData()
+		ud.Value = fmt.Errorf("test error")
+
+		visited := make(map[*lua.LTable]bool)
+		result := makeTableImmutableRecursive(ud, visited)
+		assert.Equal(t, lua.LString("test error"), result)
+	})
+
+	t.Run("Userdata with non-error value", func(t *testing.T) {
+		ud := l.NewUserData()
+		ud.Value = "some value"
+
+		visited := make(map[*lua.LTable]bool)
+		result := makeTableImmutableRecursive(ud, visited)
+		assert.Equal(t, lua.LNil, result)
+	})
+}
+
+// Test the processAndImmutabilize function directly
+func TestProcessAndImmutabilize(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	t.Run("Basic value", func(t *testing.T) {
+		result := processAndImmutabilize(lua.LNumber(42))
+		assert.Equal(t, lua.LNumber(42), result)
+	})
+
+	t.Run("Table becomes immutable", func(t *testing.T) {
+		tbl := l.NewTable()
+		l.SetTable(tbl, lua.LString("key"), lua.LString("value"))
+
+		result := processAndImmutabilize(tbl)
+		resultTbl := result.(*lua.LTable)
+		assert.True(t, resultTbl.Immutable)
+	})
+
+	t.Run("Nested tables become immutable", func(t *testing.T) {
+		outer := l.NewTable()
+		inner := l.NewTable()
+		l.SetTable(inner, lua.LString("data"), lua.LNumber(123))
+		l.SetTable(outer, lua.LString("child"), inner)
+
+		result := processAndImmutabilize(outer)
+		outerTbl := result.(*lua.LTable)
+		innerTbl := outerTbl.RawGetString("child").(*lua.LTable)
+
+		assert.True(t, outerTbl.Immutable)
+		assert.True(t, innerTbl.Immutable)
+	})
+}

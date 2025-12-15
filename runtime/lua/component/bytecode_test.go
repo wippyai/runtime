@@ -1,13 +1,18 @@
 package component
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"io/fs"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	fsapi "github.com/wippyai/runtime/api/fs"
 	glua "github.com/yuin/gopher-lua"
 	"github.com/yuin/gopher-lua/bytecode"
 	"github.com/yuin/gopher-lua/parse"
@@ -481,4 +486,151 @@ func BenchmarkFullPipeline(b *testing.B) {
 			}
 		})
 	}
+}
+
+// Mock filesystem implementations for testing LoadBytecode
+
+type mockFile struct {
+	*bytes.Reader
+	name string
+}
+
+func (f *mockFile) Close() error { return nil }
+func (f *mockFile) Stat() (fs.FileInfo, error) {
+	return &mockFileInfo{name: f.name, size: int64(f.Len())}, nil
+}
+
+type mockFileInfo struct {
+	name string
+	size int64
+}
+
+func (fi *mockFileInfo) Name() string       { return fi.name }
+func (fi *mockFileInfo) Size() int64        { return fi.size }
+func (fi *mockFileInfo) Mode() fs.FileMode  { return 0644 }
+func (fi *mockFileInfo) ModTime() time.Time { return time.Now() }
+func (fi *mockFileInfo) IsDir() bool        { return false }
+func (fi *mockFileInfo) Sys() any           { return nil }
+
+type mockBytecodeFS struct {
+	files map[string][]byte
+}
+
+func (m *mockBytecodeFS) Open(path string) (fs.File, error) {
+	if data, ok := m.files[path]; ok {
+		return &mockFile{Reader: bytes.NewReader(data), name: path}, nil
+	}
+	return nil, fs.ErrNotExist
+}
+
+func (m *mockBytecodeFS) Stat(path string) (fs.FileInfo, error) {
+	if data, ok := m.files[path]; ok {
+		return &mockFileInfo{name: path, size: int64(len(data))}, nil
+	}
+	return nil, fs.ErrNotExist
+}
+
+func (m *mockBytecodeFS) ReadDir(_ string) ([]fs.DirEntry, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockBytecodeFS) OpenFile(_ string, _ int, _ fs.FileMode) (fsapi.File, error) {
+	return nil, errors.New("not implemented")
+}
+func (m *mockBytecodeFS) Remove(_ string) error               { return errors.New("not implemented") }
+func (m *mockBytecodeFS) Mkdir(_ string, _ fs.FileMode) error { return errors.New("not implemented") }
+
+type mockBytecodeRegistry struct {
+	filesystems map[string]fsapi.FS
+}
+
+func (r *mockBytecodeRegistry) GetFS(id string) (fsapi.FS, bool) {
+	fs, ok := r.filesystems[id]
+	return fs, ok
+}
+
+// TestLoadBytecode tests loading bytecode from filesystem
+func TestLoadBytecode(t *testing.T) {
+	// Create valid bytecode
+	proto, err := compileSource(simpleLua)
+	require.NoError(t, err)
+	bc, err := dumpProto(proto)
+	require.NoError(t, err)
+
+	mockFS := &mockBytecodeFS{files: map[string][]byte{
+		"/test.luac": bc,
+	}}
+	registry := &mockBytecodeRegistry{filesystems: map[string]fsapi.FS{
+		"code": mockFS,
+	}}
+
+	t.Run("successful load", func(t *testing.T) {
+		data, err := LoadBytecode(registry, "code", "/test.luac")
+		assert.NoError(t, err)
+		assert.Equal(t, bc, data)
+	})
+
+	t.Run("filesystem not found", func(t *testing.T) {
+		_, err := LoadBytecode(registry, "nonexistent", "/test.luac")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "nonexistent")
+	})
+
+	t.Run("file not found", func(t *testing.T) {
+		_, err := LoadBytecode(registry, "code", "/nonexistent.luac")
+		assert.Error(t, err)
+	})
+}
+
+// TestLoadAndVerifyBytecode tests loading and verifying bytecode
+func TestLoadAndVerifyBytecode(t *testing.T) {
+	// Create valid bytecode
+	proto, err := compileSource(simpleLua)
+	require.NoError(t, err)
+	bc, err := dumpProto(proto)
+	require.NoError(t, err)
+
+	// Calculate correct hash
+	h := sha256.Sum256(bc)
+	validHash := "sha256:" + hex.EncodeToString(h[:])
+
+	mockFS := &mockBytecodeFS{files: map[string][]byte{
+		"/test.luac": bc,
+	}}
+	registry := &mockBytecodeRegistry{filesystems: map[string]fsapi.FS{
+		"code": mockFS,
+	}}
+
+	t.Run("successful load and verify", func(t *testing.T) {
+		result, err := LoadAndVerifyBytecode(registry, "code", "/test.luac", validHash)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+	})
+
+	t.Run("filesystem not found", func(t *testing.T) {
+		_, err := LoadAndVerifyBytecode(registry, "nonexistent", "/test.luac", validHash)
+		assert.Error(t, err)
+	})
+
+	t.Run("hash mismatch", func(t *testing.T) {
+		wrongHash := "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+		_, err := LoadAndVerifyBytecode(registry, "code", "/test.luac", wrongHash)
+		assert.Error(t, err)
+	})
+
+	t.Run("invalid bytecode after load", func(t *testing.T) {
+		// Create filesystem with invalid bytecode
+		invalidFS := &mockBytecodeFS{files: map[string][]byte{
+			"/invalid.luac": []byte("not valid bytecode"),
+		}}
+		invalidReg := &mockBytecodeRegistry{filesystems: map[string]fsapi.FS{
+			"code": invalidFS,
+		}}
+		invalidData := []byte("not valid bytecode")
+		h := sha256.Sum256(invalidData)
+		invalidHash := "sha256:" + hex.EncodeToString(h[:])
+
+		_, err := LoadAndVerifyBytecode(invalidReg, "code", "/invalid.luac", invalidHash)
+		assert.Error(t, err)
+	})
 }
