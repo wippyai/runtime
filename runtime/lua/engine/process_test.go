@@ -2641,7 +2641,7 @@ func TestProcessTopicHandler(t *testing.T) {
 	}
 
 	// Set handler
-	proc.SetTopicHandler("test-topic", func(_ context.Context, l *lua.LState, source pid.PID, topic string, payloads []payload.Payload) lua.LValue {
+	proc.SetTopicHandler("test-topic", func(_ context.Context, _ *lua.LState, _ pid.PID, _ string, _ []payload.Payload) lua.LValue {
 		return lua.LTrue
 	})
 
@@ -2915,7 +2915,7 @@ func TestProcessDeliverMessageWithHandler(t *testing.T) {
 	}
 
 	// Set topic handler that transforms the message
-	proc.SetTopicHandler("test-topic", func(_ context.Context, l *lua.LState, source pid.PID, topic string, payloads []payload.Payload) lua.LValue {
+	proc.SetTopicHandler("test-topic", func(_ context.Context, _ *lua.LState, _ pid.PID, _ string, _ []payload.Payload) lua.LValue {
 		return lua.LString("handled")
 	})
 
@@ -3103,7 +3103,7 @@ func TestProcessDeliverMessageHandlerReturnsNil(t *testing.T) {
 	}
 
 	// Set handler that returns nil (doesn't want to send to channel)
-	proc.SetTopicHandler("test-topic", func(ctx context.Context, l *lua.LState, source pid.PID, topic string, payloads []payload.Payload) lua.LValue {
+	proc.SetTopicHandler("test-topic", func(_ context.Context, _ *lua.LState, _ pid.PID, _ string, _ []payload.Payload) lua.LValue {
 		return nil
 	})
 
@@ -3141,7 +3141,7 @@ func TestProcessDeliverMessageHandlerWithTerminal(t *testing.T) {
 	}
 
 	// Set handler that returns nil
-	proc.SetTopicHandler("test-topic", func(ctx context.Context, l *lua.LState, source pid.PID, topic string, payloads []payload.Payload) lua.LValue {
+	proc.SetTopicHandler("test-topic", func(_ context.Context, _ *lua.LState, _ pid.PID, _ string, _ []payload.Payload) lua.LValue {
 		return nil
 	})
 
@@ -4173,7 +4173,7 @@ func TestExternalYieldLostOnSubscribeLoop(t *testing.T) {
 	case process.StepIdle:
 		// This is expected - main completed but worker is waiting for message
 		t.Log("Process is idle (main completed, worker waiting for message) - yield was NOT lost")
-	default:
+	case process.StepContinue, process.StepYield:
 		t.Fatalf("Unexpected final status: %d", output.Status())
 	}
 }

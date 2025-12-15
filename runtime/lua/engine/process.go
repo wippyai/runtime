@@ -537,12 +537,13 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		out.Continue()
 	case yieldCount == 0 && len(p.threads) > 0:
 		// Check if we're waiting for external operations
-		if len(p.pendingYields) > 0 {
+		switch {
+		case len(p.pendingYields) > 0:
 			// Still waiting for previously dispatched yields - stay blocked.
 			out.WaitForYields()
-		} else if p.HasSubscriptions() || len(p.channels) > 0 {
+		case p.HasSubscriptions() || len(p.channels) > 0:
 			out.Idle()
-		} else {
+		default:
 			p.clearExecution()
 			out.Done(nil)
 			return &luaapi.DeadlockError{

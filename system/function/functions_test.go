@@ -476,7 +476,7 @@ func TestFunctions_CallErrorHandling(t *testing.T) {
 func TestFunctions_CallNilContext(t *testing.T) {
 	executor, _ := setupTest()
 
-	//lint:ignore SA1012 deliberately testing nil context handling
+	//nolint:staticcheck // deliberately testing nil context handling
 	result, err := executor.Call(nil, runtime.Task{ID: registry.NewID("test", "func")})
 	assert.ErrorIs(t, err, function.ErrNilContext)
 	assert.Nil(t, result)

@@ -20,7 +20,7 @@ func TestCheckDBValid(t *testing.T) {
 	ud.Value = db
 	l.Push(ud)
 
-	result := checkDB(l, 1)
+	result := checkDB(l)
 	if result == nil {
 		t.Error("expected non-nil DB")
 	}

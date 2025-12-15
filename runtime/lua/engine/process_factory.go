@@ -44,7 +44,6 @@ type processConfig struct {
 	allowedIDs     []registry.ID
 	deniedIDs      []registry.ID
 	requiredIDs    []registry.ID
-	deniedClasses  []string // Compile-time class deny
 	allowedClasses []string // Compile-time class allow
 
 	// Runtime class filtering
@@ -90,14 +89,6 @@ func WithAllowed(ids ...registry.ID) FactoryOption {
 func WithAllowedClasses(classes ...string) FactoryOption {
 	return func(c *processConfig) {
 		c.allowedClasses = append(c.allowedClasses, classes...)
-	}
-}
-
-// WithDeniedClasses sets compile-time denied classes.
-// Modules with any of these classes will be rejected.
-func WithDeniedClasses(classes ...string) FactoryOption {
-	return func(c *processConfig) {
-		c.deniedClasses = append(c.deniedClasses, classes...)
 	}
 }
 
@@ -168,9 +159,6 @@ func (f *ProcessFactory) CreateFactory(id registry.ID, opts ...FactoryOption) (p
 	}
 	if len(cfg.requiredIDs) > 0 {
 		buildOpts.WithRequired(cfg.requiredIDs...)
-	}
-	if len(cfg.deniedClasses) > 0 {
-		buildOpts.WithDeniedClasses(cfg.deniedClasses...)
 	}
 	if len(cfg.allowedClasses) > 0 {
 		buildOpts.WithAllowedClasses(cfg.allowedClasses...)

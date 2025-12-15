@@ -3535,7 +3535,7 @@ func TestSelectInLoopWithSubscribedChannel(t *testing.T) {
 	testPayload := payload.New("test_message")
 	proc.messageQueue = append(proc.messageQueue, queuedMessage{
 		Topic:    "inbox",
-		Source:   testPID("source"),
+		Source:   testPID(),
 		Payloads: []payload.Payload{testPayload},
 	})
 
@@ -3647,7 +3647,7 @@ func TestSessionProcessPattern(t *testing.T) {
 	testPayload := payload.New(map[string]any{"type": "test"})
 	proc.messageQueue = append(proc.messageQueue, queuedMessage{
 		Topic:    "inbox",
-		Source:   testPID("source"),
+		Source:   testPID(),
 		Payloads: []payload.Payload{testPayload},
 	})
 

@@ -225,7 +225,7 @@ func payloadToString(l *lua.LState) int {
 	if p == nil {
 		return 0
 	}
-	l.Push(lua.LString("payload{format=" + string(p.Payload.Format()) + "}"))
+	l.Push(lua.LString("payload{format=" + p.Payload.Format() + "}"))
 	return 1
 }
 

@@ -1149,7 +1149,7 @@ func TestRequest_Timeout(t *testing.T) {
 
 		ctx, fc := newTestContext()
 		pr, pw := io.Pipe()
-		req, _ := http.NewRequest("POST", "/test", pr)
+		req, _ := http.NewRequestWithContext(context.Background(), "POST", "/test", pr)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)

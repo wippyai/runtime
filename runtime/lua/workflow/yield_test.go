@@ -10,7 +10,7 @@ import (
 
 func TestNewYield(t *testing.T) {
 	y := NewYield(func() (any, error) {
-		return "test-value", nil //nolint:nilnil // test function for successful case
+		return "test-value", nil
 	})
 
 	if y == nil {
