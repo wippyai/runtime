@@ -12,7 +12,7 @@ const (
 	// MiddlewareName is the name to register this middleware with
 	MiddlewareName = "compress"
 
-	// Option keys (dot-separated)
+	// OptionLevel is an option key (dot-separated)
 	OptionLevel     = "compress.level"
 	OptionMinLength = "compress.min.length"
 

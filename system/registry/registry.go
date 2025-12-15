@@ -416,7 +416,7 @@ func (r *Reg) enrichChangeset(changes registry.ChangeSet) registry.ChangeSet {
 				enriched[i].OriginalEntry = &originalEntry
 			} else {
 				r.log.Warn("entry not found in state for enrichment",
-					zap.String("operation", string(op.Kind)),
+					zap.String("operation", op.Kind),
 					zap.String("entry_id", op.Entry.ID.String()))
 			}
 		}

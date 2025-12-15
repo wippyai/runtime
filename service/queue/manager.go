@@ -231,7 +231,7 @@ func (m *Manager) sendAccept(path event.Path) {
 
 	m.bus.Send(ctx, event.Event{
 		System: queueapi.System,
-		Kind:   event.Kind("queue.accept"),
+		Kind:   queue.accept,
 		Path:   path,
 	})
 }
@@ -247,7 +247,7 @@ func (m *Manager) sendReject(path event.Path, reason string) {
 
 	m.bus.Send(ctx, event.Event{
 		System: queueapi.System,
-		Kind:   event.Kind("queue.reject"),
+		Kind:   queue.reject,
 		Path:   path,
 		Data:   reason,
 	})

@@ -53,7 +53,7 @@ func (rw *responseWrapper) Flush() {
 }
 
 const (
-	// Option keys (dot-separated, preferred)
+	// OptionAllowedOrigins is an option key (dot-separated, preferred)
 	OptionAllowedOrigins = "wsrelay.allowed.origins"
 
 	// Shared option key (can be used across modules)

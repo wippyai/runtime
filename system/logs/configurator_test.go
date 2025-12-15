@@ -30,7 +30,7 @@ func newTestConfigBus() *testConfigBus {
 }
 
 func (t *testConfigBus) Subscribe(_ context.Context, system event.System, ch chan<- event.Event) (event.SubscriberID, error) {
-	t.subs[system][event.Kind("")] = append(t.subs[system][event.Kind("")], func(evt event.Event) {
+	t.subs[system][""] = append(t.subs[system][""], func(evt event.Event) {
 		ch <- evt
 	})
 	return "test", nil

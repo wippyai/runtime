@@ -2,6 +2,7 @@ package lazy
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"

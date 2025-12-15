@@ -9,6 +9,6 @@ func All() []boot.Component {
 		Interceptor(),
 		Queue(),
 		Metrics(),
-		OTelProcess(),
+		ProcessLifecycle(),
 	}
 }

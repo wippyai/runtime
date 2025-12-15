@@ -65,7 +65,7 @@ func TestToGoValueBool(t *testing.T) {
 
 func TestToGoValueNumber(t *testing.T) {
 	result := toGoValue(lua.LNumber(3.14))
-	if result != float64(3.14) {
+	if result != 3.14 {
 		t.Errorf("expected 3.14, got %v", result)
 	}
 }

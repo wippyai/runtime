@@ -106,7 +106,7 @@ func (l *Listener) processEntry(ctx context.Context, kind event.Kind, entry regi
 		opts = nil
 	}
 
-	defaultHost := pid.HostID(defaultHostStr)
+	defaultHost := defaultHostStr
 	idStr := entry.ID.String()
 
 	// No default_host - unregister if previously registered

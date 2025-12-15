@@ -14,7 +14,7 @@ const (
 	EndpointMiddlewareName = "endpoint_firewall"
 	EndpointDefaultAction  = "access"
 
-	// Option keys (dot-separated, preferred)
+	// EndpointOptionAction is an option key (dot-separated, preferred)
 	EndpointOptionAction = "endpoint_firewall.action"
 
 	// Legacy option keys (deprecated, for backward compatibility)

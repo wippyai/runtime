@@ -17,7 +17,7 @@ const (
 	// MiddlewareName is the name to register this middleware with
 	MiddlewareName = "ratelimit"
 
-	// Option keys (dot-separated)
+	// OptionRequests is an option key (dot-separated)
 	OptionRequests        = "ratelimit.requests"
 	OptionWindow          = "ratelimit.window"
 	OptionBurst           = "ratelimit.burst"

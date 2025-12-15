@@ -48,7 +48,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	case apidi.Binding:
 		return m.handleBindingAdd(ctx, entry)
 	default:
-		return NewUnsupportedEntryKindError(string(entry.Kind))
+		return NewUnsupportedEntryKindError(entry.Kind)
 	}
 }
 
@@ -60,7 +60,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	case apidi.Binding:
 		return m.handleBindingUpdate(ctx, entry)
 	default:
-		return NewUnsupportedEntryKindError(string(entry.Kind))
+		return NewUnsupportedEntryKindError(entry.Kind)
 	}
 }
 
@@ -72,7 +72,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	case apidi.Binding:
 		return m.handleBindingDelete(ctx, entry)
 	default:
-		return NewUnsupportedEntryKindError(string(entry.Kind))
+		return NewUnsupportedEntryKindError(entry.Kind)
 	}
 }
 

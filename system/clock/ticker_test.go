@@ -2,6 +2,7 @@ package clock
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"

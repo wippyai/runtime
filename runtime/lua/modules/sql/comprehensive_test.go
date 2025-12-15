@@ -14,9 +14,9 @@ func TestToGoValueEdgeCases(t *testing.T) {
 		want  interface{}
 	}{
 		{"empty string", lua.LString(""), ""},
-		{"zero number", lua.LNumber(0), float64(0)},
+		{"zero number", lua.LNumber(0), 0.0},
 		{"zero integer", lua.LInteger(0), int64(0)},
-		{"negative number", lua.LNumber(-3.14), float64(-3.14)},
+		{"negative number", lua.LNumber(-3.14), -3.14},
 		{"negative integer", lua.LInteger(-42), int64(-42)},
 		{"large integer", lua.LInteger(999999), int64(999999)},
 	}
@@ -96,7 +96,7 @@ func TestGoValueToLuaInteger(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	result := goValueToLua(l, int(42))
+	result := goValueToLua(l, 42)
 	if num, ok := result.(lua.LInteger); !ok {
 		t.Errorf("expected LInteger, got %T", result)
 	} else if num != 42 {
@@ -120,7 +120,7 @@ func TestGoValueToLuaFloat64(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	result := goValueToLua(l, float64(3.14))
+	result := goValueToLua(l, 3.14)
 	if num, ok := result.(lua.LNumber); !ok {
 		t.Errorf("expected LNumber, got %T", result)
 	} else if num != 3.14 {

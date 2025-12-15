@@ -30,7 +30,7 @@ const (
 	DefaultMaxSize = 100
 )
 
-// Pool type constants for selecting scheduler implementation.
+// PoolTypeLazy is a pool type constant for selecting scheduler implementation.
 const (
 	PoolTypeLazy     = "lazy"     // Zero processes at idle, creates on demand
 	PoolTypeStatic   = "static"   // Fixed-size channel-based pool (default for high load)

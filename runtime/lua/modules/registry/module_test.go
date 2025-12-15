@@ -382,7 +382,7 @@ func TestIsNumeric(t *testing.T) {
 	}{
 		{"int", 42, true},
 		{"int64", int64(42), true},
-		{"float64", float64(42.5), true},
+		{"float64", 42.5, true},
 		{"string", "42", false},
 		{"bool", true, false},
 		{"nil", nil, false},
@@ -415,7 +415,7 @@ func TestToFloat64(t *testing.T) {
 		{"uint32", uint32(42), 42.0},
 		{"uint64", uint64(42), 42.0},
 		{"float32", float32(42.5), 42.5},
-		{"float64", float64(42.5), 42.5},
+		{"float64", 42.5, 42.5},
 		{"unknown", "42", 0},
 	}
 

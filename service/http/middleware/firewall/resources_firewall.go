@@ -13,7 +13,7 @@ const (
 	ResourceMiddlewareName = "resource_firewall"
 	ResourceDefaultAction  = "access"
 
-	// Option keys (dot-separated, preferred)
+	// ResourceOptionAction is an option key (dot-separated, preferred)
 	ResourceOptionAction = "resource_firewall.action"
 	ResourceOptionTarget = "resource_firewall.target"
 

@@ -9,7 +9,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wippyai/runtime/api/cloudstorage"
 	csapi "github.com/wippyai/runtime/api/cloudstorage"
 	"github.com/wippyai/runtime/api/dispatcher"
 )
@@ -27,7 +26,7 @@ func newTestReceiver(fn func(tag uint64, data any, err error)) dispatcher.Result
 }
 
 type mockStorage struct {
-	listResult      *cloudstorage.ListObjectsResult
+	listResult      *csapi.ListObjectsResult
 	listErr         error
 	downloadContent []byte
 	downloadErr     error
@@ -39,11 +38,11 @@ type mockStorage struct {
 	presignPutErr   error
 }
 
-func (m *mockStorage) ListObjects(_ context.Context, _ *cloudstorage.ListObjectsOptions) (*cloudstorage.ListObjectsResult, error) {
+func (m *mockStorage) ListObjects(_ context.Context, _ *csapi.ListObjectsOptions) (*csapi.ListObjectsResult, error) {
 	return m.listResult, m.listErr
 }
 
-func (m *mockStorage) DownloadObject(_ context.Context, _ string, w io.Writer, _ *cloudstorage.DownloadOptions) error {
+func (m *mockStorage) DownloadObject(_ context.Context, _ string, w io.Writer, _ *csapi.DownloadOptions) error {
 	if m.downloadErr != nil {
 		return m.downloadErr
 	}
@@ -59,11 +58,11 @@ func (m *mockStorage) DeleteObjects(_ context.Context, _ []string) error {
 	return m.deleteErr
 }
 
-func (m *mockStorage) PresignedGetURL(_ context.Context, _ string, _ *cloudstorage.PresignedGetOptions) (string, error) {
+func (m *mockStorage) PresignedGetURL(_ context.Context, _ string, _ *csapi.PresignedGetOptions) (string, error) {
 	return m.presignGetURL, m.presignGetErr
 }
 
-func (m *mockStorage) PresignedPutURL(_ context.Context, _ string, _ *cloudstorage.PresignedPutOptions) (string, error) {
+func (m *mockStorage) PresignedPutURL(_ context.Context, _ string, _ *csapi.PresignedPutOptions) (string, error) {
 	return m.presignPutURL, m.presignPutErr
 }
 
@@ -106,8 +105,8 @@ func TestDispatcher_ListObjects(t *testing.T) {
 	})
 
 	storage := &mockStorage{
-		listResult: &cloudstorage.ListObjectsResult{
-			Objects: []cloudstorage.ObjectMetadata{
+		listResult: &csapi.ListObjectsResult{
+			Objects: []csapi.ObjectMetadata{
 				{Key: "file1.txt", Size: 100},
 				{Key: "file2.txt", Size: 200},
 			},
@@ -117,7 +116,7 @@ func TestDispatcher_ListObjects(t *testing.T) {
 
 	cmd := &csapi.ListObjectsCmd{
 		Storage: storage,
-		Options: &cloudstorage.ListObjectsOptions{Prefix: "test/"},
+		Options: &csapi.ListObjectsOptions{Prefix: "test/"},
 	}
 
 	done := make(chan csapi.ListObjectsResponse, 1)

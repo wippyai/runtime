@@ -18,6 +18,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const invalid registry.Kind = "invalid.kind"
+
 type mockEventBus struct {
 	events []event.Event
 }

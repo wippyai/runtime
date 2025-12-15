@@ -46,11 +46,11 @@ func (m *mockEventBus) Send(_ context.Context, evt event.Event) {
 }
 
 func (m *mockEventBus) Subscribe(_ context.Context, _ event.System, _ chan<- event.Event) (event.SubscriberID, error) {
-	return event.SubscriberID("mock"), nil
+	return mock, nil
 }
 
 func (m *mockEventBus) SubscribeP(_ context.Context, _ event.System, _ event.Kind, _ chan<- event.Event) (event.SubscriberID, error) {
-	return event.SubscriberID("mock"), nil
+	return mock, nil
 }
 
 func (m *mockEventBus) Unsubscribe(_ context.Context, _ event.SubscriberID) {

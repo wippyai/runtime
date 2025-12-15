@@ -248,7 +248,7 @@ func NewProcess(opts ...ProcessOption) *Process {
 	return tmp
 }
 
-// Execute starts execution of a method with context and input payloads.
+// Init starts execution of a method with context and input payloads.
 // State must be initialized by Factory - processes are created via Factory.Create().
 // Only one Execute can run at a time per process - results come from Step(StepDone).
 // If method is specified, the script is run once to get module table, then the method is called.

@@ -34,7 +34,7 @@ func NewAwaitTimeoutError(path event.Path) apierror.Error {
 		apierror.Timeout,
 		"await timeout waiting for event: "+string(path),
 		apierror.True,
-		attrs.NewBagFrom(map[string]any{"path": string(path)}),
+		attrs.NewBagFrom(map[string]any{"path": path}),
 		nil,
 	)
 }

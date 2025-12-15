@@ -375,9 +375,9 @@ func TestGoValueToLua(t *testing.T) {
 		{nil, lua.LNil},
 		{true, lua.LTrue},
 		{false, lua.LFalse},
-		{int(42), lua.LInteger(42)},
+		{42, lua.LInteger(42)},
 		{int64(100), lua.LInteger(100)},
-		{float64(3.14), lua.LNumber(3.14)},
+		{3.14, lua.LNumber(3.14)},
 		{"hello", lua.LString("hello")},
 		{[]byte("bytes"), lua.LString("bytes")},
 	}

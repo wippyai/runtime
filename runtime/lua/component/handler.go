@@ -51,7 +51,7 @@ func (h *Handler) Handle(ctx context.Context, evt event.Event) error {
 	return h.inner.Handle(ctx, evt)
 }
 
-// todo: see internal entry unpack
+// UnpackConfig unpacks entry configuration (todo: see internal entry unpack)
 func UnpackConfig[T any](ctx context.Context, entry registry.Entry) (*T, error) {
 	dtt := payload.GetTranscoder(ctx)
 	if dtt == nil {

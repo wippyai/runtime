@@ -134,7 +134,7 @@ func (d *Dispatcher) handleAsyncCall(ctx context.Context, cmd dispatcher.Command
 		pkg := relay.NewPackage(pid.PID{}, framePID, topic, resultPayload, payload.NewTerminal())
 		if err := node.Send(pkg); err != nil {
 			logger.Warn("failed to send async result",
-				zap.String("topic", string(topic)),
+				zap.String("topic", topic),
 				zap.String("target", framePID.String()),
 				zap.Error(err))
 		}
@@ -175,7 +175,7 @@ func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Comma
 	pkg := relay.NewPackage(pid.PID{}, framePID, cancelCmd.Topic, payload.NewTerminal())
 	if err := d.node.Send(pkg); err != nil {
 		d.logger.Warn("failed to send async cancel",
-			zap.String("topic", string(cancelCmd.Topic)),
+			zap.String("topic", cancelCmd.Topic),
 			zap.String("target", framePID.String()),
 			zap.Error(err))
 	}

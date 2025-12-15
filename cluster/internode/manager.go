@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// DefaultPortRangeStart defines the default start port for internode communication
 const (
 	DefaultPortRangeStart = 7950
 	DefaultPortRangeEnd   = 7959
@@ -23,6 +24,7 @@ const (
 
 type ConnectionState int
 
+// StateNone represents no connection state
 const (
 	StateNone ConnectionState = iota
 	StateConnecting

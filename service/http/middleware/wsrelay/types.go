@@ -6,12 +6,11 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 )
 
-// Constants for the WebSocket relay
 const (
 	// RelayHeader is the header that indicates a WebSocket connection request
 	RelayHeader = "X-WS-Relay"
 
-	// Topic constants
+	// MessageTopic is a topic constant for the WebSocket relay
 	MessageTopic   relay.Topic = "ws.message"
 	JoinTopic      relay.Topic = "ws.join"
 	LeaveTopic     relay.Topic = "ws.leave"

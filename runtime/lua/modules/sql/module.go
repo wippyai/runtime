@@ -4,7 +4,6 @@ import (
 	"sync"
 
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
-	servicesql "github.com/wippyai/runtime/api/service/sql"
 	sqlapi "github.com/wippyai/runtime/api/service/sql"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
@@ -103,15 +102,15 @@ var Module = &luaapi.ModuleDef{
 
 func mapDBTypeFromResourceKind(dbType string) string {
 	switch dbType {
-	case servicesql.Postgres:
+	case sqlapi.Postgres:
 		return TypePostgres
-	case servicesql.MySQL:
+	case sqlapi.MySQL:
 		return TypeMySQL
-	case servicesql.SQLite:
+	case sqlapi.SQLite:
 		return TypeSQLite
-	case servicesql.MSSQL:
+	case sqlapi.MSSQL:
 		return TypeMSSQL
-	case servicesql.Oracle:
+	case sqlapi.Oracle:
 		return TypeOracle
 	default:
 		return TypeUnknown

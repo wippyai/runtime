@@ -344,7 +344,7 @@ func (ev *EntryValidator) ValidateSingleEntry(content *FileContent) error {
 	return nil
 }
 
-// Legacy function for backward compatibility
+// ExtractDependenciesToEntries is a legacy function for backward compatibility
 func ExtractDependenciesToEntries(p payload.Payload, dtt payload.Transcoder) ([]registry.Entry, error) {
 	processor := NewEntryProcessor(dtt)
 	return processor.ExtractDependenciesToEntries(ctxapi.NewRootContext(), p)

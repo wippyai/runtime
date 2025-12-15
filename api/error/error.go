@@ -1,7 +1,11 @@
 // Package error provides error categorization and retry metadata.
 package error
 
-import "github.com/wippyai/runtime/api/attrs"
+import (
+	"errors"
+
+	"github.com/wippyai/runtime/api/attrs"
+)
 
 // Kind constants for error categorization.
 const (
@@ -108,7 +112,7 @@ func (e *err) Is(target error) bool {
 	return false
 }
 
-// Builder methods - immutable, return new copy.
+// WithRetryable is a Builder method - immutable, return new copy.
 func (e *err) WithRetryable(r Ternary) Builder {
 	return &err{kind: e.kind, message: e.message, retryable: r, details: e.details, cause: e.cause}
 }

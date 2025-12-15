@@ -12,7 +12,6 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/api/store"
 	storeapi "github.com/wippyai/runtime/api/store"
 )
 
@@ -45,12 +44,12 @@ func (s *mockStore) Get(_ context.Context, key registry.ID) (payload.Payload, er
 	defer s.mu.RUnlock()
 	v, ok := s.data[key.String()]
 	if !ok {
-		return nil, store.ErrKeyNotFound
+		return nil, storeapi.ErrKeyNotFound
 	}
 	return v, nil
 }
 
-func (s *mockStore) Set(_ context.Context, entry store.Entry) error {
+func (s *mockStore) Set(_ context.Context, entry storeapi.Entry) error {
 	if s.delay > 0 {
 		time.Sleep(s.delay)
 	}
@@ -92,7 +91,7 @@ func TestDispatcher(t *testing.T) {
 	setDone := make(chan storeapi.SetResponse, 1)
 	setCmd := &storeapi.SetCmd{
 		Store: ms,
-		Entry: store.Entry{
+		Entry: storeapi.Entry{
 			Key:   registry.NewID("test", "key1"),
 			Value: payload.New("value1"),
 		},
@@ -188,7 +187,7 @@ func TestDispatcher_Concurrent(t *testing.T) {
 			defer wg.Done()
 			cmd := &storeapi.SetCmd{
 				Store: ms,
-				Entry: store.Entry{
+				Entry: storeapi.Entry{
 					Key:   registry.NewID("test", "key"),
 					Value: payload.New("value"),
 				},
@@ -266,7 +265,7 @@ func TestDispatcher_ErrorHandling(t *testing.T) {
 
 	select {
 	case resp := <-getDone:
-		assert.ErrorIs(t, resp.Error, store.ErrKeyNotFound)
+		assert.ErrorIs(t, resp.Error, storeapi.ErrKeyNotFound)
 		assert.Nil(t, resp.Value)
 	case <-time.After(time.Second):
 		t.Fatal("timeout")
@@ -304,7 +303,7 @@ func TestDispatcher_GracefulShutdown(t *testing.T) {
 	done := make(chan struct{})
 	cmd := &storeapi.SetCmd{
 		Store: ms,
-		Entry: store.Entry{
+		Entry: storeapi.Entry{
 			Key:   registry.NewID("test", "key"),
 			Value: payload.New("value"),
 		},
@@ -333,7 +332,7 @@ func TestDispatcher_AllOperations(t *testing.T) {
 		done := make(chan storeapi.SetResponse, 1)
 		cmd := &storeapi.SetCmd{
 			Store: ms,
-			Entry: store.Entry{
+			Entry: storeapi.Entry{
 				Key:   registry.NewID("test", "async-key"),
 				Value: payload.New("async-value"),
 			},
@@ -466,7 +465,7 @@ func TestStress_HighConcurrency(t *testing.T) {
 				setDone := make(chan struct{})
 				setCmd := &storeapi.SetCmd{
 					Store: ms,
-					Entry: store.Entry{Key: key, Value: payload.New("value")},
+					Entry: storeapi.Entry{Key: key, Value: payload.New("value")},
 				}
 				if err := d.handle(ctx, setCmd, tag, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
 					resp := data.(storeapi.SetResponse)
@@ -519,7 +518,7 @@ func TestStress_RapidStartStop(t *testing.T) {
 		done := make(chan struct{})
 		cmd := &storeapi.SetCmd{
 			Store: ms,
-			Entry: store.Entry{
+			Entry: storeapi.Entry{
 				Key:   registry.NewID("test", "key"),
 				Value: payload.New("value"),
 			},
@@ -560,7 +559,7 @@ func TestStress_MixedOperations(t *testing.T) {
 			case 0:
 				cmd := &storeapi.SetCmd{
 					Store: ms,
-					Entry: store.Entry{Key: key, Value: payload.New(fmt.Sprintf("value-%d", i))},
+					Entry: storeapi.Entry{Key: key, Value: payload.New(fmt.Sprintf("value-%d", i))},
 				}
 				_ = d.handle(ctx, cmd, tag, receiver)
 			case 1:
@@ -595,7 +594,7 @@ func TestRace_ConcurrentSubmit(t *testing.T) {
 			key := registry.ID{NS: "race", Name: fmt.Sprintf("key-%d", i)}
 			cmd := &storeapi.SetCmd{
 				Store: ms,
-				Entry: store.Entry{Key: key, Value: payload.New("value")},
+				Entry: storeapi.Entry{Key: key, Value: payload.New("value")},
 			}
 			done := make(chan struct{})
 			_ = d.handle(ctx, cmd, uint64(i), &testReceiver{onComplete: func(_ uint64, _ any, _ error) { //nolint:gosec // test loop counter

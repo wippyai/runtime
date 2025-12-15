@@ -36,10 +36,10 @@ type Pool interface {
 	Stop()
 }
 
-// OnExecutionStart is called before each execution with context and process.
+// OnExecutionStart is a callback called before each execution with context and process.
 type OnExecutionStart func(ctx context.Context, proc process.Process)
 
-// OnExecutionComplete is called after each execution with context and result.
+// OnExecutionComplete is a callback called after each execution with context and result.
 type OnExecutionComplete func(ctx context.Context, result *runtime.Result)
 
 // ExecutionHooks contains per-execution lifecycle callbacks.

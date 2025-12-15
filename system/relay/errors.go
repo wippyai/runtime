@@ -6,7 +6,7 @@ import (
 	"github.com/wippyai/runtime/api/pid"
 )
 
-// Sentinel errors for relay operations.
+// ErrNilPackage is a sentinel error for relay operations.
 var (
 	ErrNilPackage = apierror.New(apierror.Invalid, "cannot send nil package").WithRetryable(apierror.False)
 )

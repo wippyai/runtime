@@ -225,12 +225,12 @@ type mockTranscoderRegister struct {
 }
 
 func (m *mockTranscoderRegister) RegisterTranscoder(from, to payload.Format, _ int, transcoder payload.FormatTranscoder) {
-	key := string(from) + "=>" + string(to)
+	key := from + "=>" + to
 	m.transcoders[key] = transcoder
 }
 
 func (m *mockTranscoderRegister) RegisterUnmarshaler(format payload.Format, unmarshaler payload.Unmarshaler) {
-	m.unmarshalers[string(format)] = unmarshaler
+	m.unmarshalers[format] = unmarshaler
 }
 
 func TestJsonToGolangTranscoder_Transcode_Complex(t *testing.T) {

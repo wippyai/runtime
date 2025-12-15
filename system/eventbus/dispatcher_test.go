@@ -152,7 +152,7 @@ func TestDispatcher_RouteEvent(t *testing.T) {
 
 	// Check that package was sent
 	require.Len(t, node.packages, 1)
-	assert.Equal(t, relay.Topic("events@1"), node.packages[0].Messages[0].Topic)
+	assert.Equal(t, "events@1", node.packages[0].Messages[0].Topic)
 }
 
 func TestDispatcher_PatternMatch(t *testing.T) {
@@ -226,8 +226,8 @@ func TestDispatcher_Send(t *testing.T) {
 
 	select {
 	case evt := <-received:
-		assert.Equal(t, event.System("test.system"), evt.System)
-		assert.Equal(t, event.Kind("test.kind"), evt.Kind)
+		assert.Equal(t, "test.system", evt.System)
+		assert.Equal(t, "test.kind", evt.Kind)
 		assert.Equal(t, "/test/path", evt.Path)
 	case <-time.After(time.Second):
 		t.Fatal("timeout waiting for event")

@@ -17,7 +17,7 @@ const (
 	// MiddlewareName is the name to register this middleware with
 	MiddlewareName = "token_auth"
 
-	// Option keys (dot-separated, preferred)
+	// OptionTokenStore is an option key (dot-separated, preferred)
 	OptionTokenStore   = "token_auth.store" //nolint:gosec // config key, not credentials
 	OptionHeaderName   = "token_auth.header.name"
 	OptionHeaderPrefix = "token_auth.header.prefix"

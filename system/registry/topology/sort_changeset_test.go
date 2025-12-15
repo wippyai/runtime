@@ -132,7 +132,7 @@ func (csb *ChangeSetBuilder) AddOp(builder *opBuilder) *ChangeSetBuilder {
 }
 
 func (csb *ChangeSetBuilder) Build() registry.ChangeSet {
-	return registry.ChangeSet(csb.operations)
+	return csb.operations
 }
 
 // verifyOperationOrder checks if operations respect their dependency order and operation type order

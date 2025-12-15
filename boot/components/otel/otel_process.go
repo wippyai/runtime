@@ -10,7 +10,7 @@ import (
 
 const lifecycleName boot.Name = "system.lifecycle"
 
-func OTelProcess() boot.Component {
+func ProcessLifecycle() boot.Component {
 	return boot.New(boot.P{
 		Name:      ProcessName,
 		DependsOn: []boot.Name{Name, lifecycleName},

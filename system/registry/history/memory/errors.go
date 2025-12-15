@@ -5,7 +5,7 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
-// Sentinel errors
+// ErrNoHeadVersion is a sentinel error
 var (
 	ErrNoHeadVersion = apierror.New(apierror.NotFound, "no head version set")
 )

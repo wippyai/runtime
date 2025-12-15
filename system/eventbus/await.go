@@ -142,6 +142,5 @@ func AwaitWithTimeout(ctx context.Context, bus event.Bus, system event.System, k
 }
 
 func isAcceptKind(kind event.Kind) bool {
-	s := string(kind)
-	return s == "accept" || strings.HasSuffix(s, ".accept") || strings.HasSuffix(s, ".accepted")
+	return kind == "accept" || strings.HasSuffix(kind, ".accept") || strings.HasSuffix(kind, ".accepted")
 }

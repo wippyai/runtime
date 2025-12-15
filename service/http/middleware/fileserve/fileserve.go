@@ -13,13 +13,13 @@ const (
 	// MiddlewareName is the name to register this middleware with
 	MiddlewareName = "sendfile"
 
-	// Option keys (dot-separated, preferred)
+	// OptionFS is an option key (dot-separated, preferred)
 	OptionFS = "sendfile.fs"
 
 	// Legacy option keys (deprecated, for backward compatibility)
 	legacyFS = "fs"
 
-	// Header names - support both RoadRunner standard and Wippy legacy
+	// XSendfileHeader is a header name - support both RoadRunner standard and Wippy legacy
 	XSendfileHeader = "X-Sendfile"  // RoadRunner standard
 	XFilePathHeader = "X-File-Path" // Wippy legacy
 	XFileNameHeader = "X-File-Name" // Download filename

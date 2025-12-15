@@ -198,7 +198,7 @@ func TestIsAcceptKind(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(string(tt.kind), func(t *testing.T) {
+		t.Run(tt.kind, func(t *testing.T) {
 			if got := isAcceptKind(tt.kind); got != tt.expected {
 				t.Errorf("isAcceptKind(%q) = %v, want %v", tt.kind, got, tt.expected)
 			}

@@ -204,7 +204,7 @@ func TestAsFloatFromInvalidType(t *testing.T) {
 		t.Fatalf("expected TypedValue, got %T", ud.Value)
 	}
 
-	if typed.Value != float64(0.0) {
+	if typed.Value != 0.0 {
 		t.Errorf("expected 0.0 for invalid type, got %v", typed.Value)
 	}
 }

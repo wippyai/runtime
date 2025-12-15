@@ -8,7 +8,7 @@ import (
 	"github.com/wippyai/runtime/api/supervisor"
 )
 
-// Queue declaration option keys
+// OptionQueueName is a queue declaration option key
 const (
 	OptionQueueName = "queue_name" // Override queue name (default: ID.Name)
 	OptionMaxLength = "max_length" // Maximum queue length

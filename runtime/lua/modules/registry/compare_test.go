@@ -38,9 +38,9 @@ func TestValuesEqualMixedNumbers(t *testing.T) {
 		a, b interface{}
 		want bool
 	}{
-		{"int equals float", int(42), float64(42), true},
-		{"float equals int", float64(42), int(42), true},
-		{"int64 equals float64", int64(100), float64(100), true},
+		{"int equals float", 42, 42.0, true},
+		{"float equals int", 42.0, 42, true},
+		{"int64 equals float64", int64(100), 100.0, true},
 		{"different numbers", int(42), float64(43), false},
 	}
 

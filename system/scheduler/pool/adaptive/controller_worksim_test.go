@@ -425,7 +425,7 @@ func TestControllerWorksim_DynamicBottleneck(t *testing.T) {
 			workerMu.Unlock()
 
 			elapsed := time.Since(start)
-			if elapsed.Milliseconds()%1000 < int64(cfg.ControlInterval.Milliseconds()) {
+			if elapsed.Milliseconds()%1000 < cfg.ControlInterval.Milliseconds() {
 				t.Logf("  t=%.1fs: workers=%d, busy=%d, ops=%d, maxActive=%d",
 					elapsed.Seconds(), workers.Load(), currentBusy, currentOps, workload.MaxActive())
 			}

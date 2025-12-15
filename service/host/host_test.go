@@ -283,7 +283,7 @@ func TestHost_PreparePID_Generated(t *testing.T) {
 	})
 
 	assert.NotEqual(t, pid.PID{}, resultPID)
-	assert.Equal(t, pid.NodeID("test-node"), resultPID.Node)
+	assert.Equal(t, "test-node", resultPID.Node)
 }
 
 var _ process.Host = (*Host)(nil)

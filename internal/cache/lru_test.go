@@ -1,6 +1,7 @@
 package lru
 
 import (
+	"errors"
 	"sync"
 	"testing"
 	"time"

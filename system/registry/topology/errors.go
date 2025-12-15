@@ -6,7 +6,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 )
 
-// Sentinel errors
+// ErrEmptyPatternPath is a sentinel error
 var (
 	ErrEmptyPatternPath = apierror.New(apierror.Invalid, "pattern path cannot be empty")
 )
