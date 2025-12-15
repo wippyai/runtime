@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/wippyai/runtime/api/payload"
-	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -24,7 +24,7 @@ type StringToLua struct{}
 // Transcode implements the payload.FormatTranscoder interface
 func (t *StringToLua) Transcode(p payload.Payload) (payload.Payload, error) {
 	if p.Format() != payload.String {
-		return nil, luaapi.NewInvalidFormatError(fmt.Sprintf("String=>Lua can only transcode from String format, got %s", p.Format()))
+		return nil, runtimelua.NewInvalidFormatError(fmt.Sprintf("String=>Lua can only transcode from String format, got %s", p.Format()))
 	}
 
 	var str string
@@ -34,7 +34,7 @@ func (t *StringToLua) Transcode(p payload.Payload) (payload.Payload, error) {
 	case []byte:
 		str = string(v)
 	default:
-		return nil, luaapi.NewInvalidTypeError(fmt.Sprintf("String=>Lua can only handle string or []byte, got %T", p.Data()))
+		return nil, runtimelua.NewInvalidTypeError(fmt.Sprintf("String=>Lua can only handle string or []byte, got %T", p.Data()))
 	}
 
 	// Convert the string to a Lua string value
@@ -48,12 +48,12 @@ type ToString struct{}
 // Transcode implements the payload.FormatTranscoder interface
 func (t *ToString) Transcode(p payload.Payload) (payload.Payload, error) {
 	if p.Format() != payload.Lua {
-		return nil, luaapi.NewInvalidFormatError(fmt.Sprintf("Lua=>String can only transcode from Lua format, got %s", p.Format()))
+		return nil, runtimelua.NewInvalidFormatError(fmt.Sprintf("Lua=>String can only transcode from Lua format, got %s", p.Format()))
 	}
 
 	lv, ok := p.Data().(lua.LValue)
 	if !ok {
-		return nil, luaapi.NewInvalidTypeError(fmt.Sprintf("Lua=>String expects data to be of type lua.LValue, got %T", p.Data()))
+		return nil, runtimelua.NewInvalidTypeError(fmt.Sprintf("Lua=>String expects data to be of type lua.LValue, got %T", p.Data()))
 	}
 
 	// Handle different Lua types

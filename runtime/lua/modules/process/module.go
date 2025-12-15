@@ -151,7 +151,7 @@ func resolvePID(l *lua.LState, pidOrName string, permission string) (pidapi.PID,
 	p, err := pidapi.ParsePID(pidOrName)
 	if err == nil {
 		if !security.IsAllowed(l.Context(), permission, p.String(), nil) {
-			return pidapi.PID{}, luaapi.NewNotAllowedError(
+			return pidapi.PID{}, runtimelua.NewNotAllowedError(
 				strings.TrimPrefix(permission, "process."), pidOrName)
 		}
 		return p, nil
@@ -164,11 +164,11 @@ func resolvePID(l *lua.LState, pidOrName string, permission string) (pidapi.PID,
 
 	p, found := reg.Lookup(pidOrName)
 	if !found {
-		return pidapi.PID{}, luaapi.NewCouldNotResolveError(pidOrName)
+		return pidapi.PID{}, runtimelua.NewCouldNotResolveError(pidOrName)
 	}
 
 	if !security.IsAllowed(l.Context(), permission, p.String(), nil) {
-		return pidapi.PID{}, luaapi.NewNotAllowedError(
+		return pidapi.PID{}, runtimelua.NewNotAllowedError(
 			strings.TrimPrefix(permission, "process."), pidOrName)
 	}
 

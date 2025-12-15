@@ -7,6 +7,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -50,7 +51,7 @@ func (m *subscribeContext) addExisting(topic string, ch *Channel) (*subscription
 
 	if existing, exists := m.byTopic[topic]; exists {
 		if existing.channel != ch {
-			return nil, luaapi.NewTopicAlreadySubscribedError(topic)
+			return nil, runtimelua.NewTopicAlreadySubscribedError(topic)
 		}
 		return existing, nil
 	}

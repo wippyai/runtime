@@ -224,7 +224,7 @@ func TestWsConnectYield(t *testing.T) {
 	yield.ReadLimit = 1024
 
 	if yield.CmdID() != wsapi.Connect {
-		t.Errorf("expected CmdWsConnect, got %d", yield.CmdID())
+		t.Errorf("expected wsapi.Connect, got %d", yield.CmdID())
 	}
 
 	cmd := yield.ToCommand().(wsapi.ConnectCmd)
@@ -248,7 +248,7 @@ func TestWsSendYield(t *testing.T) {
 	yield := AcquireWsSendYield(123, []byte("hello"), wsapi.MessageText)
 
 	if yield.CmdID() != wsapi.Send {
-		t.Errorf("expected CmdWsSend, got %d", yield.CmdID())
+		t.Errorf("expected wsapi.Send, got %d", yield.CmdID())
 	}
 
 	cmd := yield.ToCommand().(wsapi.SendCmd)
@@ -270,7 +270,7 @@ func TestWsSubscribeYield(t *testing.T) {
 	yield := AcquireWsSubscribeYield(456, nil, p, "ws@456", nil)
 
 	if yield.CmdID() != wsapi.Subscribe {
-		t.Errorf("expected CmdWsSubscribe, got %d", yield.CmdID())
+		t.Errorf("expected wsapi.Subscribe, got %d", yield.CmdID())
 	}
 
 	cmd := yield.ToCommand().(wsapi.SubscribeCmd)
@@ -291,7 +291,7 @@ func TestWsCloseYield(t *testing.T) {
 	yield := AcquireWsCloseYield(789, 1000, "normal close")
 
 	if yield.CmdID() != wsapi.Close {
-		t.Errorf("expected CmdWsClose, got %d", yield.CmdID())
+		t.Errorf("expected wsapi.Close, got %d", yield.CmdID())
 	}
 
 	cmd := yield.ToCommand().(wsapi.CloseCmd)
@@ -312,7 +312,7 @@ func TestWsPingYield(t *testing.T) {
 	yield := AcquireWsPingYield(111, []byte("ping"))
 
 	if yield.CmdID() != wsapi.Ping {
-		t.Errorf("expected CmdWsPing, got %d", yield.CmdID())
+		t.Errorf("expected wsapi.Ping, got %d", yield.CmdID())
 	}
 
 	cmd := yield.ToCommand().(wsapi.PingCmd)

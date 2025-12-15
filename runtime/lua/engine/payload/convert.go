@@ -8,7 +8,6 @@ import (
 
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
-	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	runtimelua "github.com/wippyai/runtime/runtime/lua"
 
 	lua "github.com/yuin/gopher-lua"
@@ -164,6 +163,6 @@ func GoToLua(v any) (lua.LValue, error) {
 		return table, nil
 
 	default:
-		return nil, luaapi.NewUnsupportedTypeError(fmt.Sprintf("unsupported type: %T", v))
+		return nil, runtimelua.NewUnsupportedTypeError(fmt.Sprintf("unsupported type: %T", v))
 	}
 }

@@ -29,9 +29,9 @@ func (d *Dispatcher) Stop(_ context.Context) error {
 
 // RegisterAll registers all eval handlers.
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
-	register(CmdCompile, dispatcher.HandlerFunc(d.handleCompile))
-	register(CmdRun, dispatcher.HandlerFunc(d.handleRun))
-	register(CmdCreateProcess, dispatcher.HandlerFunc(d.handleCreateProcess))
+	register(Compile, dispatcher.HandlerFunc(d.handleCompile))
+	register(Run, dispatcher.HandlerFunc(d.handleRun))
+	register(CreateProcess, dispatcher.HandlerFunc(d.handleCreateProcess))
 }
 
 func (d *Dispatcher) handleCompile(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {

@@ -46,7 +46,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		m.handleEvent,
 	)
 	if err != nil {
-		return queueapi.NewConfigError("failed to create queue event subscriber", err)
+		return NewConfigError("failed to create queue event subscriber", err)
 	}
 	m.subscriber = sub
 
@@ -119,7 +119,7 @@ func (m *Manager) handleQueueDeclare(e event.Event) {
 		m.logger.Error("driver not found for queue",
 			zap.String("path", e.Path),
 			zap.String("driver", queueEntry.DriverID.String()))
-		m.sendReject(e.Path, queueapi.NewDriverNotFoundError(queueEntry.DriverID).Error())
+		m.sendReject(e.Path, NewDriverNotFoundError(queueEntry.DriverID).Error())
 		return
 	}
 
@@ -144,7 +144,7 @@ func (m *Manager) handleQueueDeclare(e event.Event) {
 		m.logger.Error("failed to declare queue on driver",
 			zap.String("path", e.Path),
 			zap.Error(err))
-		m.sendReject(e.Path, queueapi.NewConfigError("failed to declare queue", err).Error())
+		m.sendReject(e.Path, NewConfigError("failed to declare queue", err).Error())
 		return
 	}
 
@@ -175,7 +175,7 @@ func (m *Manager) publishDirect(ctx context.Context, q registry.ID, msgs ...*que
 		m.logger.Error("queue has invalid type",
 			zap.String("queue", q.String()),
 			zap.String("type", fmt.Sprintf("%T", queueVal)))
-		return queueapi.NewConfigError("queue has invalid type: "+fmt.Sprintf("%T", queueVal), nil)
+		return NewConfigError("queue has invalid type: "+fmt.Sprintf("%T", queueVal), nil)
 	}
 
 	driverVal, ok := m.drivers.Load(queue.DriverID)
@@ -188,7 +188,7 @@ func (m *Manager) publishDirect(ctx context.Context, q registry.ID, msgs ...*que
 		m.logger.Error("driver has invalid type",
 			zap.String("driver", queue.DriverID.String()),
 			zap.String("type", fmt.Sprintf("%T", driverVal)))
-		return queueapi.NewConfigError("driver has invalid type: "+fmt.Sprintf("%T", driverVal), nil)
+		return NewConfigError("driver has invalid type: "+fmt.Sprintf("%T", driverVal), nil)
 	}
 
 	return driver.Publish(ctx, q, msgs...)

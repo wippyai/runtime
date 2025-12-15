@@ -9,9 +9,9 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	sqlstore "github.com/wippyai/runtime/api/service/store/sql"
-	storeapi "github.com/wippyai/runtime/api/store"
 	"github.com/wippyai/runtime/api/supervisor"
 	entryutil "github.com/wippyai/runtime/internal/entry"
+	storesvc "github.com/wippyai/runtime/service/store"
 	"go.uber.org/zap"
 )
 
@@ -41,14 +41,14 @@ func NewManager(
 // Add implements registry.EntryListener
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != sqlstore.KV {
-		return storeapi.NewUnsupportedKindError(entry.Kind)
+		return storesvc.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, exists := m.stores[entry.ID]; exists {
-		return storeapi.NewStoreAlreadyExistsError(entry.ID.String())
+		return storesvc.NewStoreAlreadyExistsError(entry.ID.String())
 	}
 
 	// Decode and initialize configuration
@@ -97,7 +97,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update implements registry.EntryListener
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != sqlstore.KV {
-		return storeapi.NewUnsupportedKindError(entry.Kind)
+		return storesvc.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -105,7 +105,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	oldStore, exists := m.stores[entry.ID]
 	if !exists {
-		return storeapi.NewStoreNotFoundError(entry.ID.String())
+		return storesvc.NewStoreNotFoundError(entry.ID.String())
 	}
 
 	// Decode and initialize updated configuration
@@ -146,7 +146,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete implements registry.EntryListener
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != sqlstore.KV {
-		return storeapi.NewUnsupportedKindError(entry.Kind)
+		return storesvc.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -154,7 +154,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 
 	_, exists := m.stores[entry.ID]
 	if !exists {
-		return storeapi.NewStoreNotFoundError(entry.ID.String())
+		return storesvc.NewStoreNotFoundError(entry.ID.String())
 	}
 
 	// Unregister from supervisor

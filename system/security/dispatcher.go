@@ -69,17 +69,17 @@ func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, tag uin
 
 func (d *Dispatcher) execute(j job) {
 	switch c := j.cmd.(type) {
-	case *security.TokenValidateCmd:
+	case *security.ValidateTokenCmd:
 		actor, scope, err := c.TokenStore.Validate(j.ctx, c.Token)
-		j.receiver.CompleteYield(j.tag, security.TokenValidateResponse{Actor: actor, Scope: scope, Error: err}, nil)
+		j.receiver.CompleteYield(j.tag, security.ValidateTokenResponse{Actor: actor, Scope: scope, Error: err}, nil)
 
-	case *security.TokenCreateCmd:
+	case *security.CreateTokenCmd:
 		token, err := c.TokenStore.Create(j.ctx, c.Actor, c.Scope, c.Details)
-		j.receiver.CompleteYield(j.tag, security.TokenCreateResponse{Token: token, Error: err}, nil)
+		j.receiver.CompleteYield(j.tag, security.CreateTokenResponse{Token: token, Error: err}, nil)
 
-	case *security.TokenRevokeCmd:
+	case *security.RevokeTokenCmd:
 		err := c.TokenStore.Revoke(j.ctx, c.Token)
-		j.receiver.CompleteYield(j.tag, security.TokenRevokeResponse{Error: err}, nil)
+		j.receiver.CompleteYield(j.tag, security.RevokeTokenResponse{Error: err}, nil)
 	}
 }
 

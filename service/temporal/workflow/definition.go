@@ -186,22 +186,22 @@ func (d *Definition) completeWithResult() {
 
 func (d *Definition) executeCommand(cmd dispatcher.Command) error {
 	switch c := cmd.(type) {
-	case *ActivityCommand:
+	case *ActivityCmd:
 		return d.executeActivity(c)
-	case *LocalActivityCommand:
+	case *LocalActivityCmd:
 		return d.executeLocalActivity(c)
 	case clock.SleepCmd:
 		return d.executeSleep(c)
-	case *ChildWorkflowCommand:
+	case *ChildWorkflowCmd:
 		return d.executeChildWorkflow(c)
-	case *SignalCommand:
+	case *SignalCmd:
 		return d.executeSignal(c)
 	default:
 		return fmt.Errorf("unknown command type: %T", cmd)
 	}
 }
 
-func (d *Definition) executeActivity(cmd *ActivityCommand) error {
+func (d *Definition) executeActivity(cmd *ActivityCmd) error {
 	opts, err := cmd.Options.ToExecuteActivityOptions()
 	if err != nil {
 		return fmt.Errorf("failed to convert activity options: %w", err)
@@ -223,7 +223,7 @@ func (d *Definition) executeActivity(cmd *ActivityCommand) error {
 	return nil
 }
 
-func (d *Definition) executeLocalActivity(cmd *LocalActivityCommand) error {
+func (d *Definition) executeLocalActivity(cmd *LocalActivityCmd) error {
 	opts, err := cmd.Options.ToLocalActivityOptions()
 	if err != nil {
 		return fmt.Errorf("failed to convert local activity options: %w", err)
@@ -292,7 +292,7 @@ func (d *Definition) executeSleep(cmd clock.SleepCmd) error {
 	return nil
 }
 
-func (d *Definition) executeChildWorkflow(cmd *ChildWorkflowCommand) error {
+func (d *Definition) executeChildWorkflow(cmd *ChildWorkflowCmd) error {
 	args, err := d.dc.ToPayloads(cmd.Args)
 	if err != nil {
 		return fmt.Errorf("failed to convert child workflow arguments: %w", err)
@@ -340,7 +340,7 @@ func (d *Definition) executeChildWorkflow(cmd *ChildWorkflowCommand) error {
 	return nil
 }
 
-func (d *Definition) executeSignal(cmd *SignalCommand) error {
+func (d *Definition) executeSignal(cmd *SignalCmd) error {
 	var arg *commonpb.Payloads
 	if cmd.Arg != nil {
 		var err error

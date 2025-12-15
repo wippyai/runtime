@@ -29,3 +29,21 @@ func NewSubscriberError(err error) apierror.Error {
 		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
 		WithCause(err)
 }
+
+func NewHandlerNotFoundError(id registry.ID) apierror.Error {
+	return apierror.New(apierror.NotFound, "no handler registered for target: "+id.String()).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"target": id.String()}))
+}
+
+func NewInterceptorExistsError(name string) apierror.Error {
+	return apierror.New(apierror.AlreadyExists, "interceptor \""+name+"\" already registered").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"name": name}))
+}
+
+func NewInterceptorNotFoundError(name string) apierror.Error {
+	return apierror.New(apierror.NotFound, "interceptor \""+name+"\" not found").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"name": name}))
+}

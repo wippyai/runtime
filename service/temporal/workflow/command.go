@@ -7,56 +7,56 @@ import (
 
 // Command IDs for Temporal-specific workflow operations.
 // These are processed by the workflow definition, not the standard scheduler.
-// Timer/sleep uses the standard clock.CmdSleep command.
+// Timer/sleep uses the standard clock.Sleep command.
 const (
-	CmdActivity      dispatcher.CommandID = 300
-	CmdLocalActivity dispatcher.CommandID = 301
-	CmdChildWorkflow dispatcher.CommandID = 302
-	CmdSignal        dispatcher.CommandID = 303 // Signal external workflow (outgoing only)
+	Activity      dispatcher.CommandID = 300
+	LocalActivity dispatcher.CommandID = 301
+	ChildWorkflow dispatcher.CommandID = 302
+	Signal        dispatcher.CommandID = 303 // Signal external workflow (outgoing only)
 )
 
 func init() {
 	dispatcher.MustRegisterCommands("temporal.workflow",
-		CmdActivity,
-		CmdLocalActivity,
-		CmdChildWorkflow,
-		CmdSignal,
+		Activity,
+		LocalActivity,
+		ChildWorkflow,
+		Signal,
 	)
 }
 
-// ActivityCommand requests execution of a Temporal activity.
-type ActivityCommand struct {
+// ActivityCmd requests execution of a Temporal activity.
+type ActivityCmd struct {
 	Name    string           `json:"name"`
 	Options *ActivityOptions `json:"options,omitempty"`
 	Args    payload.Payloads `json:"args,omitempty"`
 }
 
-func (c *ActivityCommand) CmdID() dispatcher.CommandID { return CmdActivity }
+func (c *ActivityCmd) CmdID() dispatcher.CommandID { return Activity }
 
-// LocalActivityCommand requests execution of a local activity.
-type LocalActivityCommand struct {
+// LocalActivityCmd requests execution of a local activity.
+type LocalActivityCmd struct {
 	Name    string                `json:"name"`
 	Options *LocalActivityOptions `json:"options,omitempty"`
 	Args    payload.Payloads      `json:"args,omitempty"`
 }
 
-func (c *LocalActivityCommand) CmdID() dispatcher.CommandID { return CmdLocalActivity }
+func (c *LocalActivityCmd) CmdID() dispatcher.CommandID { return LocalActivity }
 
-// ChildWorkflowCommand requests execution of a child workflow.
-type ChildWorkflowCommand struct {
+// ChildWorkflowCmd requests execution of a child workflow.
+type ChildWorkflowCmd struct {
 	Name    string                `json:"name"`
 	Options *ChildWorkflowOptions `json:"options,omitempty"`
 	Args    payload.Payloads      `json:"args,omitempty"`
 }
 
-func (c *ChildWorkflowCommand) CmdID() dispatcher.CommandID { return CmdChildWorkflow }
+func (c *ChildWorkflowCmd) CmdID() dispatcher.CommandID { return ChildWorkflow }
 
-// SignalCommand sends a signal to an external workflow.
-type SignalCommand struct {
+// SignalCmd sends a signal to an external workflow.
+type SignalCmd struct {
 	WorkflowID string          `json:"workflow_id"`
 	RunID      string          `json:"run_id,omitempty"`
 	SignalName string          `json:"signal_name"`
 	Arg        payload.Payload `json:"arg,omitempty"`
 }
 
-func (c *SignalCommand) CmdID() dispatcher.CommandID { return CmdSignal }
+func (c *SignalCmd) CmdID() dispatcher.CommandID { return Signal }

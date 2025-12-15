@@ -12,6 +12,7 @@ import (
 	consumerapi "github.com/wippyai/runtime/api/service/queue/consumer"
 	"github.com/wippyai/runtime/api/supervisor"
 	entryutil "github.com/wippyai/runtime/internal/entry"
+	queuesvc "github.com/wippyai/runtime/service/queue"
 	"go.uber.org/zap"
 )
 
@@ -55,14 +56,14 @@ func (m *Manager) addOrUpdate(ctx context.Context, entry registry.Entry, action 
 		m.logger.Error("failed to decode consumer config",
 			zap.String("id", entry.ID.String()),
 			zap.Error(err))
-		return queueapi.NewConfigError("failed to decode consumer config", err)
+		return queuesvc.NewConfigError("failed to decode consumer config", err)
 	}
 
 	if err := cfg.Validate(); err != nil {
 		m.logger.Error("invalid consumer config",
 			zap.String("id", entry.ID.String()),
 			zap.Error(err))
-		return queueapi.NewConfigError("invalid consumer config", err)
+		return queuesvc.NewConfigError("invalid consumer config", err)
 	}
 
 	queue, ok := m.queueMgr.GetQueue(cfg.Queue)
@@ -70,7 +71,7 @@ func (m *Manager) addOrUpdate(ctx context.Context, entry registry.Entry, action 
 		m.logger.Error("queue not found for consumer",
 			zap.String("id", entry.ID.String()),
 			zap.String("queue", cfg.Queue.String()))
-		return queueapi.NewQueueNotFoundError(cfg.Queue)
+		return queuesvc.NewQueueNotFoundError(cfg.Queue)
 	}
 
 	driver, ok := m.queueMgr.GetDriver(queue.DriverID)
@@ -79,7 +80,7 @@ func (m *Manager) addOrUpdate(ctx context.Context, entry registry.Entry, action 
 			zap.String("id", entry.ID.String()),
 			zap.String("queue", cfg.Queue.String()),
 			zap.String("driver", queue.DriverID.String()))
-		return queueapi.NewDriverNotFoundError(queue.DriverID)
+		return queuesvc.NewDriverNotFoundError(queue.DriverID)
 	}
 
 	consumer := NewConsumer(

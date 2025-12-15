@@ -134,7 +134,7 @@ func TestCompileYield_CmdID(t *testing.T) {
 	y := AcquireCompileYield()
 	defer ReleaseCompileYield(y)
 
-	assert.Equal(t, evalhost.CmdCompile, y.CmdID())
+	assert.Equal(t, evalhost.Compile, y.CmdID())
 }
 
 func TestCreateProcessYield_Pool(t *testing.T) {
@@ -157,7 +157,7 @@ func TestCreateProcessYield_CmdID(t *testing.T) {
 	y := AcquireCreateProcessYield()
 	defer ReleaseCreateProcessYield(y)
 
-	assert.Equal(t, evalhost.CmdCreateProcess, y.CmdID())
+	assert.Equal(t, evalhost.CreateProcess, y.CmdID())
 }
 
 func TestProgramWrapper(t *testing.T) {

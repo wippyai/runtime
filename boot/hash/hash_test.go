@@ -283,7 +283,7 @@ func TestDependencyEntries(t *testing.T) {
 		entries := []registry.Entry{
 			{
 				ID:   registry.ParseID("ns:my-dependency"),
-				Kind: registry.NamespaceDependencyKind,
+				Kind: registry.NamespaceDependency,
 				Meta: attrs.Bag{"parent": "some-parent"},
 				Data: payload.New(map[string]any{
 					"component": "wippy/actor",
@@ -307,7 +307,7 @@ func TestDependencyEntries(t *testing.T) {
 		entries := []registry.Entry{
 			{
 				ID:   registry.ParseID("ns:my-requirement"),
-				Kind: registry.NamespaceRequirementKind,
+				Kind: registry.NamespaceRequirement,
 				Meta: attrs.Bag{"parent": "ns:my-dependency"},
 				Data: payload.New(map[string]any{
 					"targets": []any{
@@ -331,7 +331,7 @@ func TestDependencyEntries(t *testing.T) {
 		entries := []registry.Entry{
 			{
 				ID:   registry.ParseID("ns:dep-a"),
-				Kind: registry.NamespaceDependencyKind,
+				Kind: registry.NamespaceDependency,
 				Meta: attrs.Bag{},
 				Data: payload.New(map[string]any{
 					"component":  "wippy/actor",
@@ -340,7 +340,7 @@ func TestDependencyEntries(t *testing.T) {
 			},
 			{
 				ID:   registry.ParseID("ns:dep-b"),
-				Kind: registry.NamespaceDependencyKind,
+				Kind: registry.NamespaceDependency,
 				Meta: attrs.Bag{},
 				Data: payload.New(map[string]any{
 					"component":  "wippy/logger",

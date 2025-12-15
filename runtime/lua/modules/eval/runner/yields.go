@@ -36,7 +36,7 @@ func ReleaseCompileYield(y *CompileYield) {
 func (y *CompileYield) Release()                    { ReleaseCompileYield(y) }
 func (y *CompileYield) String() string              { return "<runner_compile_yield>" }
 func (y *CompileYield) Type() lua.LValueType        { return lua.LTUserData }
-func (y *CompileYield) CmdID() dispatcher.CommandID { return evalhost.CmdCompile }
+func (y *CompileYield) CmdID() dispatcher.CommandID { return evalhost.Compile }
 func (y *CompileYield) ToCommand() dispatcher.Command {
 	return evalhost.CompileCmd{
 		Source:  y.Source,
@@ -99,7 +99,7 @@ func ReleaseRunYield(y *RunYield) {
 func (y *RunYield) Release()                    { ReleaseRunYield(y) }
 func (y *RunYield) String() string              { return "<runner_run_yield>" }
 func (y *RunYield) Type() lua.LValueType        { return lua.LTUserData }
-func (y *RunYield) CmdID() dispatcher.CommandID { return evalhost.CmdRun }
+func (y *RunYield) CmdID() dispatcher.CommandID { return evalhost.Run }
 func (y *RunYield) ToCommand() dispatcher.Command {
 	return evalhost.RunCmd{
 		Source:  y.Source,

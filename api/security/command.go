@@ -22,75 +22,75 @@ const (
 	RevokeToken   dispatcher.CommandID = 142 // Revoke token
 )
 
-// TokenValidateCmd validates a token.
-type TokenValidateCmd struct {
+// ValidateTokenCmd validates a token.
+type ValidateTokenCmd struct {
 	TokenStore TokenStore
 	Token      Token
 }
 
-var tokenValidateCmdPool = sync.Pool{New: func() any { return &TokenValidateCmd{} }}
+var validateTokenCmdPool = sync.Pool{New: func() any { return &ValidateTokenCmd{} }}
 
-func AcquireTokenValidateCmd() *TokenValidateCmd {
-	return tokenValidateCmdPool.Get().(*TokenValidateCmd)
+func AcquireValidateTokenCmd() *ValidateTokenCmd {
+	return validateTokenCmdPool.Get().(*ValidateTokenCmd)
 }
-func (c *TokenValidateCmd) CmdID() dispatcher.CommandID { return ValidateToken }
-func (c *TokenValidateCmd) Release() {
+func (c *ValidateTokenCmd) CmdID() dispatcher.CommandID { return ValidateToken }
+func (c *ValidateTokenCmd) Release() {
 	c.TokenStore = nil
 	c.Token = ""
-	tokenValidateCmdPool.Put(c)
+	validateTokenCmdPool.Put(c)
 }
 
-// TokenCreateCmd creates a new token.
-type TokenCreateCmd struct {
+// CreateTokenCmd creates a new token.
+type CreateTokenCmd struct {
 	TokenStore TokenStore
 	Actor      Actor
 	Scope      Scope
 	Details    TokenDetails
 }
 
-var tokenCreateCmdPool = sync.Pool{New: func() any { return &TokenCreateCmd{} }}
+var createTokenCmdPool = sync.Pool{New: func() any { return &CreateTokenCmd{} }}
 
-func AcquireTokenCreateCmd() *TokenCreateCmd          { return tokenCreateCmdPool.Get().(*TokenCreateCmd) }
-func (c *TokenCreateCmd) CmdID() dispatcher.CommandID { return CreateToken }
-func (c *TokenCreateCmd) Release() {
+func AcquireCreateTokenCmd() *CreateTokenCmd          { return createTokenCmdPool.Get().(*CreateTokenCmd) }
+func (c *CreateTokenCmd) CmdID() dispatcher.CommandID { return CreateToken }
+func (c *CreateTokenCmd) Release() {
 	c.TokenStore = nil
 	c.Actor = Actor{}
 	c.Scope = nil
 	c.Details = TokenDetails{}
-	tokenCreateCmdPool.Put(c)
+	createTokenCmdPool.Put(c)
 }
 
-// TokenRevokeCmd revokes a token.
-type TokenRevokeCmd struct {
+// RevokeTokenCmd revokes a token.
+type RevokeTokenCmd struct {
 	TokenStore TokenStore
 	Token      Token
 }
 
-var tokenRevokeCmdPool = sync.Pool{New: func() any { return &TokenRevokeCmd{} }}
+var revokeTokenCmdPool = sync.Pool{New: func() any { return &RevokeTokenCmd{} }}
 
-func AcquireTokenRevokeCmd() *TokenRevokeCmd          { return tokenRevokeCmdPool.Get().(*TokenRevokeCmd) }
-func (c *TokenRevokeCmd) CmdID() dispatcher.CommandID { return RevokeToken }
-func (c *TokenRevokeCmd) Release() {
+func AcquireRevokeTokenCmd() *RevokeTokenCmd          { return revokeTokenCmdPool.Get().(*RevokeTokenCmd) }
+func (c *RevokeTokenCmd) CmdID() dispatcher.CommandID { return RevokeToken }
+func (c *RevokeTokenCmd) Release() {
 	c.TokenStore = nil
 	c.Token = ""
-	tokenRevokeCmdPool.Put(c)
+	revokeTokenCmdPool.Put(c)
 }
 
-// TokenValidateResponse contains the result of a validate operation.
-type TokenValidateResponse struct {
+// ValidateTokenResponse contains the result of a validate operation.
+type ValidateTokenResponse struct {
 	Actor Actor
 	Scope Scope
 	Error error
 }
 
-// TokenCreateResponse contains the result of a create operation.
-type TokenCreateResponse struct {
+// CreateTokenResponse contains the result of a create operation.
+type CreateTokenResponse struct {
 	Token Token
 	Error error
 }
 
-// TokenRevokeResponse contains the result of a revoke operation.
-type TokenRevokeResponse struct {
+// RevokeTokenResponse contains the result of a revoke operation.
+type RevokeTokenResponse struct {
 	Error error
 }
 

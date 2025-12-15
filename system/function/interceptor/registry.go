@@ -8,6 +8,7 @@ import (
 
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/runtime"
+	sysfunc "github.com/wippyai/runtime/system/function"
 	"go.uber.org/zap"
 )
 
@@ -46,7 +47,7 @@ func (r *Registry) Register(name string, interceptor function.Interceptor, order
 
 	for _, e := range r.entries {
 		if e.name == name {
-			return function.NewInterceptorExistsError(name)
+			return sysfunc.NewInterceptorExistsError(name)
 		}
 	}
 
@@ -82,7 +83,7 @@ func (r *Registry) Unregister(name string) error {
 		}
 	}
 
-	return function.NewInterceptorNotFoundError(name)
+	return sysfunc.NewInterceptorNotFoundError(name)
 }
 
 // rebuild creates the sealed chain (called with lock held)

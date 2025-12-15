@@ -17,7 +17,7 @@ func TestLink_WithDefault(t *testing.T) {
 	entries := []registry.Entry{
 		{
 			ID:   registry.NewID("test", "req1"),
-			Kind: registry.NamespaceRequirementKind,
+			Kind: registry.NamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"default": "default_value",
 				"targets": []any{
@@ -52,7 +52,7 @@ func TestLink_FromDependency(t *testing.T) {
 	entries := []registry.Entry{
 		{
 			ID:   registry.NewID("app", "__dependency.module"),
-			Kind: registry.NamespaceDependencyKind,
+			Kind: registry.NamespaceDependency,
 			Data: payload.New(map[string]any{
 				"component": "vendor/module",
 				"parameters": []any{
@@ -65,7 +65,7 @@ func TestLink_FromDependency(t *testing.T) {
 		},
 		{
 			ID:   registry.NewID("test", "db_url"),
-			Kind: registry.NamespaceRequirementKind,
+			Kind: registry.NamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"targets": []any{
 					map[string]any{
@@ -100,7 +100,7 @@ func TestLink_ConflictError(t *testing.T) {
 	entries := []registry.Entry{
 		{
 			ID:   registry.NewID("app", "__dependency.module1"),
-			Kind: registry.NamespaceDependencyKind,
+			Kind: registry.NamespaceDependency,
 			Data: payload.New(map[string]any{
 				"component": "vendor/module",
 				"parameters": []any{
@@ -113,7 +113,7 @@ func TestLink_ConflictError(t *testing.T) {
 		},
 		{
 			ID:   registry.NewID("app", "__dependency.module2"),
-			Kind: registry.NamespaceDependencyKind,
+			Kind: registry.NamespaceDependency,
 			Data: payload.New(map[string]any{
 				"component": "vendor/module",
 				"parameters": []any{
@@ -126,7 +126,7 @@ func TestLink_ConflictError(t *testing.T) {
 		},
 		{
 			ID:   registry.NewID("test", "api_key"),
-			Kind: registry.NamespaceRequirementKind,
+			Kind: registry.NamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"targets": []any{
 					map[string]any{
@@ -155,7 +155,7 @@ func TestLink_NoValueError(t *testing.T) {
 	entries := []registry.Entry{
 		{
 			ID:   registry.NewID("test", "missing_param"),
-			Kind: registry.NamespaceRequirementKind,
+			Kind: registry.NamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"targets": []any{
 					map[string]any{
@@ -184,7 +184,7 @@ func TestLink_AppendOperator(t *testing.T) {
 	entries := []registry.Entry{
 		{
 			ID:   registry.NewID("test", "dep_req"),
-			Kind: registry.NamespaceRequirementKind,
+			Kind: registry.NamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"default": "new_dep",
 				"targets": []any{
@@ -222,7 +222,7 @@ func TestLink_SetValue(t *testing.T) {
 	entries := []registry.Entry{
 		{
 			ID:   registry.NewID("test", "host_req"),
-			Kind: registry.NamespaceRequirementKind,
+			Kind: registry.NamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"default": "localhost",
 				"targets": []any{
@@ -257,7 +257,7 @@ func TestLink_EmptyEntryError(t *testing.T) {
 	entries := []registry.Entry{
 		{
 			ID:   registry.NewID("test", "global_config"),
-			Kind: registry.NamespaceRequirementKind,
+			Kind: registry.NamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"default": "shared_value",
 				"targets": []any{
@@ -287,7 +287,7 @@ func TestLink_CrossNamespace(t *testing.T) {
 	entries := []registry.Entry{
 		{
 			ID:   registry.NewID("app", "api_url"),
-			Kind: registry.NamespaceRequirementKind,
+			Kind: registry.NamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"default": "https://api.example.com",
 				"targets": []any{
@@ -323,7 +323,7 @@ func TestLink_MultipleTargets(t *testing.T) {
 	entries := []registry.Entry{
 		{
 			ID:   registry.NewID("test", "db_url"),
-			Kind: registry.NamespaceRequirementKind,
+			Kind: registry.NamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"default": "postgres://db",
 				"targets": []any{
@@ -373,7 +373,7 @@ func TestLink_BarePath(t *testing.T) {
 	entries := []registry.Entry{
 		{
 			ID:   registry.NewID("test", "storage_req"),
-			Kind: registry.NamespaceRequirementKind,
+			Kind: registry.NamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"default": "/tmp/storage",
 				"targets": []any{
@@ -408,7 +408,7 @@ func TestLink_MetaPath(t *testing.T) {
 	entries := []registry.Entry{
 		{
 			ID:   registry.NewID("test", "router_req"),
-			Kind: registry.NamespaceRequirementKind,
+			Kind: registry.NamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"default": "app:api",
 				"targets": []any{
@@ -443,7 +443,7 @@ func TestLink_MultipleRequirements(t *testing.T) {
 	entries := []registry.Entry{
 		{
 			ID:   registry.NewID("test", "host"),
-			Kind: registry.NamespaceRequirementKind,
+			Kind: registry.NamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"default": "localhost",
 				"targets": []any{
@@ -456,7 +456,7 @@ func TestLink_MultipleRequirements(t *testing.T) {
 		},
 		{
 			ID:   registry.NewID("test", "port"),
-			Kind: registry.NamespaceRequirementKind,
+			Kind: registry.NamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"default": "8080",
 				"targets": []any{

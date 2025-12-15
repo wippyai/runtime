@@ -63,7 +63,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	case api.ProcessBytecode:
 		return m.addBytecode(ctx, entry)
 	default:
-		return api.NewInvalidEntryKindError(entry.Kind, api.Process)
+		return runtimelua.NewInvalidEntryKindError(entry.Kind, api.Process)
 	}
 }
 
@@ -74,7 +74,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	case api.ProcessBytecode:
 		return m.updateBytecode(ctx, entry)
 	default:
-		return api.NewInvalidEntryKindError(entry.Kind, api.Process)
+		return runtimelua.NewInvalidEntryKindError(entry.Kind, api.Process)
 	}
 }
 
@@ -89,7 +89,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 		m.log.Debug("process deleted", zap.String("id", entry.ID.String()))
 		return nil
 	default:
-		return api.NewInvalidEntryKindError(entry.Kind, api.Process)
+		return runtimelua.NewInvalidEntryKindError(entry.Kind, api.Process)
 	}
 }
 

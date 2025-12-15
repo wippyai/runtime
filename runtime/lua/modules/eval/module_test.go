@@ -181,7 +181,7 @@ func TestEvalModule_CompileYield(t *testing.T) {
 	yield.Modules = []string{"json", "time"}
 
 	// Test CmdID
-	assert.Equal(t, evalhost.CmdCompile, yield.CmdID())
+	assert.Equal(t, evalhost.Compile, yield.CmdID())
 
 	// Test ToCommand
 	cmd := yield.ToCommand()
@@ -233,7 +233,7 @@ func TestEvalModule_RunYield(t *testing.T) {
 	yield.Context = map[string]any{"key": "value"}
 
 	// Test CmdID
-	assert.Equal(t, evalhost.CmdRun, yield.CmdID())
+	assert.Equal(t, evalhost.Run, yield.CmdID())
 
 	// Test ToCommand
 	cmd := yield.ToCommand()

@@ -36,7 +36,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	case api.LibraryBytecode:
 		return m.addBytecode(ctx, entry)
 	default:
-		return api.NewInvalidEntryKindError(entry.Kind, api.Library)
+		return runtimelua.NewInvalidEntryKindError(entry.Kind, api.Library)
 	}
 }
 
@@ -47,7 +47,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	case api.LibraryBytecode:
 		return m.updateBytecode(ctx, entry)
 	default:
-		return api.NewInvalidEntryKindError(entry.Kind, api.Library)
+		return runtimelua.NewInvalidEntryKindError(entry.Kind, api.Library)
 	}
 }
 
@@ -60,7 +60,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 		m.log.Debug("library deleted", zap.String("id", entry.ID.String()))
 		return nil
 	default:
-		return api.NewInvalidEntryKindError(entry.Kind, api.Library)
+		return runtimelua.NewInvalidEntryKindError(entry.Kind, api.Library)
 	}
 }
 

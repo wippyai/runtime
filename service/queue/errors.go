@@ -25,3 +25,80 @@ func NewQueueClosedError(id registry.ID) apierror.Error {
 		nil,
 	)
 }
+
+// NewDriverNotFoundError creates a driver not found error with ID.
+func NewDriverNotFoundError(id registry.ID) apierror.Error {
+	return apierror.E(
+		apierror.NotFound,
+		"driver not found: "+id.String(),
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"driver_id": id.String()}),
+		nil,
+	)
+}
+
+// NewQueueNotFoundError creates a queue not found error with ID.
+func NewQueueNotFoundError(id registry.ID) apierror.Error {
+	return apierror.E(
+		apierror.NotFound,
+		"queue not found: "+id.String(),
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"queue_id": id.String()}),
+		nil,
+	)
+}
+
+// NewDriverExistsError creates a driver already exists error.
+func NewDriverExistsError(id registry.ID) apierror.Error {
+	return apierror.E(
+		apierror.AlreadyExists,
+		"driver already exists: "+id.String(),
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"driver_id": id.String()}),
+		nil,
+	)
+}
+
+// NewConfigError creates a configuration error.
+func NewConfigError(msg string, cause error) apierror.Error {
+	return apierror.E(
+		apierror.Invalid,
+		msg,
+		apierror.False,
+		nil,
+		cause,
+	)
+}
+
+// NewUnsupportedKindError creates an unsupported entry kind error.
+func NewUnsupportedKindError(kind string) apierror.Error {
+	return apierror.E(
+		apierror.Invalid,
+		"unsupported entry kind: "+kind,
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"kind": kind}),
+		nil,
+	)
+}
+
+// NewConcurrencyExceededError creates a concurrency limit error.
+func NewConcurrencyExceededError(value, maxValue int) apierror.Error {
+	return apierror.E(
+		apierror.Invalid,
+		"concurrency exceeds maximum",
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"concurrency": value, "max": maxValue}),
+		nil,
+	)
+}
+
+// NewPrefetchExceededError creates a prefetch limit error.
+func NewPrefetchExceededError(value, maxValue int) apierror.Error {
+	return apierror.E(
+		apierror.Invalid,
+		"prefetch exceeds maximum",
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"prefetch": value, "max": maxValue}),
+		nil,
+	)
+}

@@ -12,6 +12,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/service/temporal/dataconverter"
+	sysfunc "github.com/wippyai/runtime/system/function"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
@@ -39,7 +40,7 @@ func (r *mockFuncRegistry) Register(id registry.ID, fn function.Func) {
 func (r *mockFuncRegistry) Call(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 	fn, ok := r.funcs[task.ID.String()]
 	if !ok {
-		return nil, function.NewHandlerNotFoundError(task.ID)
+		return nil, sysfunc.NewHandlerNotFoundError(task.ID)
 	}
 	return fn(ctx, task)
 }

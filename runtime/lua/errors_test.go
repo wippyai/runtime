@@ -248,3 +248,138 @@ func TestErrorUnwrap(t *testing.T) {
 		t.Errorf("Unwrap() = %v, want %v", errors.Unwrap(err), root)
 	}
 }
+
+func TestConfigErrorFactories(t *testing.T) {
+	t.Run("NewInvalidPoolSizeError", func(t *testing.T) {
+		err := NewInvalidPoolSizeError()
+		if err.Kind() != apierror.Invalid {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Invalid)
+		}
+	})
+
+	t.Run("NewInvalidWorkerPoolSizeError", func(t *testing.T) {
+		err := NewInvalidWorkerPoolSizeError()
+		if err.Kind() != apierror.Invalid {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Invalid)
+		}
+	})
+
+	t.Run("NewEmptyImportNameError", func(t *testing.T) {
+		err := NewEmptyImportNameError()
+		if err.Kind() != apierror.Invalid {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Invalid)
+		}
+	})
+
+	t.Run("NewModuleNamespaceError", func(t *testing.T) {
+		err := NewModuleNamespaceError()
+		if err.Kind() != apierror.Invalid {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Invalid)
+		}
+	})
+}
+
+func TestComponentErrorFactories(t *testing.T) {
+	t.Run("NewInvalidEntryKindError", func(t *testing.T) {
+		err := NewInvalidEntryKindError("process", "function")
+		if err.Kind() != apierror.Invalid {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Invalid)
+		}
+		expected := "invalid entry kind process, expected function"
+		if err.Error() != expected {
+			t.Errorf("Error() = %q, want %q", err.Error(), expected)
+		}
+	})
+
+	t.Run("NewValidationError", func(t *testing.T) {
+		cause := errors.New("missing required field")
+		err := NewValidationError(cause)
+		if err.Kind() != apierror.Invalid {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Invalid)
+		}
+		expected := "invalid configuration: missing required field"
+		if err.Error() != expected {
+			t.Errorf("Error() = %q, want %q", err.Error(), expected)
+		}
+	})
+
+	t.Run("NewPoolNotFoundError", func(t *testing.T) {
+		err := NewPoolNotFoundError("app.functions.myFunc")
+		if err.Kind() != apierror.NotFound {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.NotFound)
+		}
+		expected := "pool not found: app.functions.myFunc"
+		if err.Error() != expected {
+			t.Errorf("Error() = %q, want %q", err.Error(), expected)
+		}
+	})
+
+	t.Run("NewUnknownPoolTypeError", func(t *testing.T) {
+		err := NewUnknownPoolTypeError("distributed")
+		if err.Kind() != apierror.Invalid {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Invalid)
+		}
+		expected := "unknown pool type: distributed"
+		if err.Error() != expected {
+			t.Errorf("Error() = %q, want %q", err.Error(), expected)
+		}
+	})
+}
+
+func TestBytecodeErrorFactories(t *testing.T) {
+	t.Run("NewHashVerificationError", func(t *testing.T) {
+		cause := errors.New("hash mismatch")
+		err := NewHashVerificationError(cause)
+		if err.Kind() != apierror.Invalid {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Invalid)
+		}
+	})
+
+	t.Run("NewFilesystemNotFoundError", func(t *testing.T) {
+		err := NewFilesystemNotFoundError("my-fs")
+		if err.Kind() != apierror.NotFound {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.NotFound)
+		}
+		expected := "filesystem not found: my-fs"
+		if err.Error() != expected {
+			t.Errorf("Error() = %q, want %q", err.Error(), expected)
+		}
+	})
+
+	t.Run("NewOpenFileError", func(t *testing.T) {
+		cause := errors.New("permission denied")
+		err := NewOpenFileError("/path/to/file.lua", cause)
+		if err.Kind() != apierror.NotFound {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.NotFound)
+		}
+		expected := "failed to open file: /path/to/file.lua"
+		if err.Error() != expected {
+			t.Errorf("Error() = %q, want %q", err.Error(), expected)
+		}
+	})
+
+	t.Run("NewInvalidHashFormatError", func(t *testing.T) {
+		err := NewInvalidHashFormatError("invalid")
+		if err.Kind() != apierror.Invalid {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Invalid)
+		}
+	})
+
+	t.Run("NewUnsupportedHashAlgorithmError", func(t *testing.T) {
+		err := NewUnsupportedHashAlgorithmError("md5")
+		if err.Kind() != apierror.Invalid {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Invalid)
+		}
+	})
+
+	t.Run("NewHashMismatchError", func(t *testing.T) {
+		err := NewHashMismatchError("abc123", "def456")
+		if err.Kind() != apierror.Invalid {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Invalid)
+		}
+		expected := "hash mismatch: expected abc123, got def456"
+		if err.Error() != expected {
+			t.Errorf("Error() = %q, want %q", err.Error(), expected)
+		}
+	})
+}

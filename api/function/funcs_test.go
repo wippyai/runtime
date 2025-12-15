@@ -7,12 +7,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/event"
-	"github.com/wippyai/runtime/api/registry"
 )
 
 func TestConstants(t *testing.T) {
@@ -153,19 +151,6 @@ func TestErrorMethods(t *testing.T) {
 		newErr := ErrCallNotFound.WithMessage("custom message")
 		assert.Equal(t, "custom message", newErr.Error())
 		assert.Equal(t, ErrCallNotFound.Kind(), newErr.Kind())
-	})
-}
-
-func TestErrorConstructors(t *testing.T) {
-	t.Run("NewHandlerNotFoundError", func(t *testing.T) {
-		id := registry.NewID("ns", "name")
-		err := NewHandlerNotFoundError(id)
-		assert.Contains(t, err.Error(), "no handler registered for target")
-		assert.Equal(t, "NotFound", err.Kind().String())
-		details := err.Details()
-		require.NotNil(t, details)
-		target, _ := details.Get("target")
-		assert.Equal(t, id.String(), target)
 	})
 }
 

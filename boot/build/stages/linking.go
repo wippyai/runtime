@@ -62,7 +62,7 @@ func (s *linkStage) Execute(ctx context.Context, entries *[]registry.Entry) erro
 	// Collect and decode requirements
 	requirements := make(map[string]decodedRequirement)
 	for _, e := range *entries {
-		if e.Kind != registry.NamespaceRequirementKind {
+		if e.Kind != registry.NamespaceRequirement {
 			continue
 		}
 
@@ -80,7 +80,7 @@ func (s *linkStage) Execute(ctx context.Context, entries *[]registry.Entry) erro
 	// Collect and decode dependencies
 	dependencies := make(map[string]decodedDependency)
 	for _, e := range *entries {
-		if e.Kind != registry.NamespaceDependencyKind {
+		if e.Kind != registry.NamespaceDependency {
 			continue
 		}
 

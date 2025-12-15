@@ -37,16 +37,16 @@ func NewManager(
 
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != envsvc.StorageRouter {
-		return env.NewUnsupportedKindError(entry.Kind)
+		return sysenv.NewUnsupportedKindError(entry.Kind)
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[envsvc.RouterStorageConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return env.NewDecodeConfigError(err)
+		return sysenv.NewDecodeConfigError(err)
 	}
 
 	if err := cfg.Validate(); err != nil {
-		return env.NewInvalidConfigError(err)
+		return sysenv.NewInvalidConfigError(err)
 	}
 
 	selectedStorages := make([]env.Storage, 0, len(cfg.Storages))
@@ -54,7 +54,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		storageID := registry.ParseID(storageName)
 		storage, err := m.findStorage(ctx, storageID)
 		if err != nil {
-			return env.NewStorageNotFoundError(storageName)
+			return sysenv.NewStorageNotFoundError(storageName)
 		}
 		selectedStorages = append(selectedStorages, storage)
 	}
@@ -104,7 +104,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != envsvc.StorageRouter {
-		return env.NewUnsupportedKindError(entry.Kind)
+		return sysenv.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()

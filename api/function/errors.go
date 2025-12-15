@@ -1,9 +1,7 @@
 package function
 
 import (
-	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
-	"github.com/wippyai/runtime/api/registry"
 )
 
 var (
@@ -23,21 +21,3 @@ var (
 
 	ErrPIDGeneratorNotFound = apierror.New(apierror.NotFound, "PID generator not found in context").WithRetryable(apierror.False)
 )
-
-func NewHandlerNotFoundError(id registry.ID) apierror.Error {
-	return apierror.New(apierror.NotFound, "no handler registered for target: "+id.String()).
-		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(map[string]any{"target": id.String()}))
-}
-
-func NewInterceptorExistsError(name string) apierror.Error {
-	return apierror.New(apierror.AlreadyExists, "interceptor \""+name+"\" already registered").
-		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(map[string]any{"name": name}))
-}
-
-func NewInterceptorNotFoundError(name string) apierror.Error {
-	return apierror.New(apierror.NotFound, "interceptor \""+name+"\" not found").
-		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(map[string]any{"name": name}))
-}

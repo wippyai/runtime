@@ -11,6 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	envsvc "github.com/wippyai/runtime/api/service/env"
 	entryutil "github.com/wippyai/runtime/internal/entry"
+	sysenv "github.com/wippyai/runtime/system/env"
 	"go.uber.org/zap"
 )
 
@@ -37,16 +38,16 @@ func NewManager(
 
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != envsvc.StorageFile {
-		return env.NewUnsupportedKindError(entry.Kind)
+		return sysenv.NewUnsupportedKindError(entry.Kind)
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[envsvc.FileStorageConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return env.NewDecodeConfigError(err)
+		return sysenv.NewDecodeConfigError(err)
 	}
 
 	if err := cfg.Validate(); err != nil {
-		return env.NewInvalidConfigError(err)
+		return sysenv.NewInvalidConfigError(err)
 	}
 
 	fileMode := os.FileMode(0644)
@@ -90,7 +91,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != envsvc.StorageFile {
-		return env.NewUnsupportedKindError(entry.Kind)
+		return sysenv.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()

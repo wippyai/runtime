@@ -180,3 +180,13 @@ func NewSupervisorStoppedError(err error) apierror.Error {
 		err,
 	)
 }
+
+func NewInvalidDurationError(field string, cause error) apierror.Error {
+	return apierror.E(
+		apierror.Invalid,
+		"invalid "+field+" duration format",
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"field": field}),
+		cause,
+	)
+}

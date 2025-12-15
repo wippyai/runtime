@@ -47,11 +47,11 @@ const (
 	// EntryKind stores value in registry without propagation, useful for app specific configs.
 	EntryKind Kind = "registry.entry"
 
-	// NamespaceRequirementKind represents namespace requirement variable which can be declared by export or any other source.
-	NamespaceRequirementKind Kind = "ns.requirement"
+	// NamespaceRequirement represents namespace requirement variable which can be declared by export or any other source.
+	NamespaceRequirement Kind = "ns.requirement"
 
-	// NamespaceDependencyKind represents a module dependency entry
-	NamespaceDependencyKind Kind = "ns.dependency"
+	// NamespaceDependency represents a module dependency entry
+	NamespaceDependency Kind = "ns.dependency"
 )
 
 type (

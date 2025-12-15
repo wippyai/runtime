@@ -7,7 +7,6 @@ import (
 
 	"github.com/hashicorp/go-msgpack/v2/codec"
 	"github.com/wippyai/runtime/api/payload"
-	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
@@ -52,12 +51,12 @@ type ToMsgPack struct{}
 // Transcode implements payload.FormatTranscoder
 func (t *ToMsgPack) Transcode(p payload.Payload) (payload.Payload, error) {
 	if p.Format() != payload.Lua {
-		return nil, luaapi.NewInvalidFormatError("Lua=>MsgPack can only transcode from Lua format, got " + string(p.Format()))
+		return nil, runtimelua.NewInvalidFormatError("Lua=>MsgPack can only transcode from Lua format, got " + string(p.Format()))
 	}
 
 	lv, ok := p.Data().(lua.LValue)
 	if !ok {
-		return nil, luaapi.NewInvalidTypeError("Lua=>MsgPack expects lua.LValue, got " + msgpackTypeName(p.Data()))
+		return nil, runtimelua.NewInvalidTypeError("Lua=>MsgPack expects lua.LValue, got " + msgpackTypeName(p.Data()))
 	}
 
 	goValue := value.ToGoAny(lv)
@@ -83,12 +82,12 @@ type MsgPackToLua struct{}
 // Transcode implements payload.FormatTranscoder
 func (t *MsgPackToLua) Transcode(p payload.Payload) (payload.Payload, error) {
 	if p.Format() != payload.MsgPack {
-		return nil, luaapi.NewInvalidFormatError("MsgPack=>Lua can only transcode from MsgPack format, got " + string(p.Format()))
+		return nil, runtimelua.NewInvalidFormatError("MsgPack=>Lua can only transcode from MsgPack format, got " + string(p.Format()))
 	}
 
 	data, ok := p.Data().([]byte)
 	if !ok {
-		return nil, luaapi.NewInvalidTypeError("MsgPack=>Lua expects []byte, got " + msgpackTypeName(p.Data()))
+		return nil, runtimelua.NewInvalidTypeError("MsgPack=>Lua expects []byte, got " + msgpackTypeName(p.Data()))
 	}
 
 	reader := msgpackReaderPool.Get().(*bytes.Reader)

@@ -37,8 +37,8 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	mod.Immutable = true
 
 	yields := []luaapi.YieldType{
-		{Sample: &CompileYield{}, CmdID: evalhost.CmdCompile},
-		{Sample: &RunYield{}, CmdID: evalhost.CmdRun},
+		{Sample: &CompileYield{}, CmdID: evalhost.Compile},
+		{Sample: &RunYield{}, CmdID: evalhost.Run},
 	}
 
 	return mod, yields

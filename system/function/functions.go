@@ -154,7 +154,7 @@ func (f *Registry) Call(ctx context.Context, task runtimeapi.Task) (*runtimeapi.
 
 	handler, exists := f.handlers.Load(task.ID)
 	if !exists {
-		return nil, function.NewHandlerNotFoundError(task.ID)
+		return nil, NewHandlerNotFoundError(task.ID)
 	}
 
 	execHandler, ok := handler.(function.Func)

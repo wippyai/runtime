@@ -10,6 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	envsvc "github.com/wippyai/runtime/api/service/env"
 	entryutil "github.com/wippyai/runtime/internal/entry"
+	sysenv "github.com/wippyai/runtime/system/env"
 	"go.uber.org/zap"
 )
 
@@ -57,16 +58,16 @@ func NewManager(
 // Add registers a new OS storage from registry entry.
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != envsvc.StorageOS {
-		return env.NewUnsupportedKindError(entry.Kind)
+		return sysenv.NewUnsupportedKindError(entry.Kind)
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[envsvc.OSStorageConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return env.NewDecodeConfigError(err)
+		return sysenv.NewDecodeConfigError(err)
 	}
 
 	if err := cfg.Validate(); err != nil {
-		return env.NewInvalidConfigError(err)
+		return sysenv.NewInvalidConfigError(err)
 	}
 
 	var storage env.Storage
@@ -106,14 +107,14 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete removes an OS storage.
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != envsvc.StorageOS {
-		return env.NewUnsupportedKindError(entry.Kind)
+		return sysenv.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
 	_, exists := m.storages[entry.ID]
 	if !exists {
 		m.mu.Unlock()
-		return env.NewStorageNotExistsError(entry.ID.String())
+		return sysenv.NewStorageNotExistsError(entry.ID.String())
 	}
 	delete(m.storages, entry.ID)
 	m.mu.Unlock()

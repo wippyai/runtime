@@ -9,6 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	envsvc "github.com/wippyai/runtime/api/service/env"
 	entryutil "github.com/wippyai/runtime/internal/entry"
+	sysenv "github.com/wippyai/runtime/system/env"
 	"go.uber.org/zap"
 )
 
@@ -32,12 +33,12 @@ func NewVariableManager(
 
 func (m *VariableManager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != envsvc.Variable {
-		return env.NewUnsupportedKindError(entry.Kind)
+		return sysenv.NewUnsupportedKindError(entry.Kind)
 	}
 
 	variable, err := entryutil.DecodeEntryConfig[env.Variable](ctx, m.dtt, entry)
 	if err != nil {
-		return env.NewDecodeVariableError(err)
+		return sysenv.NewDecodeVariableError(err)
 	}
 
 	m.bus.Send(ctx, event.Event{
@@ -56,12 +57,12 @@ func (m *VariableManager) Add(ctx context.Context, entry registry.Entry) error {
 
 func (m *VariableManager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != envsvc.Variable {
-		return env.NewUnsupportedKindError(entry.Kind)
+		return sysenv.NewUnsupportedKindError(entry.Kind)
 	}
 
 	variable, err := entryutil.DecodeEntryConfig[env.Variable](ctx, m.dtt, entry)
 	if err != nil {
-		return env.NewDecodeVariableError(err)
+		return sysenv.NewDecodeVariableError(err)
 	}
 
 	m.bus.Send(ctx, event.Event{
@@ -80,7 +81,7 @@ func (m *VariableManager) Update(ctx context.Context, entry registry.Entry) erro
 
 func (m *VariableManager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != envsvc.Variable {
-		return env.NewUnsupportedKindError(entry.Kind)
+		return sysenv.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.bus.Send(ctx, event.Event{

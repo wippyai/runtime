@@ -54,7 +54,7 @@ func TestCompileYield_CmdID(t *testing.T) {
 	y := AcquireCompileYield()
 	defer ReleaseCompileYield(y)
 
-	assert.Equal(t, evalhost.CmdCompile, y.CmdID())
+	assert.Equal(t, evalhost.Compile, y.CmdID())
 }
 
 func TestRunYield_Pool(t *testing.T) {
@@ -109,7 +109,7 @@ func TestRunYield_CmdID(t *testing.T) {
 	y := AcquireRunYield()
 	defer ReleaseRunYield(y)
 
-	assert.Equal(t, evalhost.CmdRun, y.CmdID())
+	assert.Equal(t, evalhost.Run, y.CmdID())
 }
 
 func TestGoToLua(t *testing.T) {

@@ -11,6 +11,7 @@ import (
 	memoryapi "github.com/wippyai/runtime/api/service/queue/memory"
 	"github.com/wippyai/runtime/api/supervisor"
 	entryutil "github.com/wippyai/runtime/internal/entry"
+	queuesvc "github.com/wippyai/runtime/service/queue"
 	"go.uber.org/zap"
 )
 
@@ -37,14 +38,14 @@ func NewManager(
 
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != memoryapi.Kind {
-		return queueapi.NewUnsupportedKindError(entry.Kind)
+		return queuesvc.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, exists := m.drivers[entry.ID]; exists {
-		return queueapi.NewDriverExistsError(entry.ID)
+		return queuesvc.NewDriverExistsError(entry.ID)
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[memoryapi.Config](ctx, m.dtt, entry)
@@ -79,7 +80,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != memoryapi.Kind {
-		return queueapi.NewUnsupportedKindError(entry.Kind)
+		return queuesvc.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.RLock()
@@ -87,7 +88,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	m.mu.RUnlock()
 
 	if !exists {
-		return queueapi.NewDriverNotFoundError(entry.ID)
+		return queuesvc.NewDriverNotFoundError(entry.ID)
 	}
 
 	cfg, err := entryutil.DecodeEntryConfig[memoryapi.Config](ctx, m.dtt, entry)
@@ -112,14 +113,14 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != memoryapi.Kind {
-		return queueapi.NewUnsupportedKindError(entry.Kind)
+		return queuesvc.NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, exists := m.drivers[entry.ID]; !exists {
-		return queueapi.NewDriverNotFoundError(entry.ID)
+		return queuesvc.NewDriverNotFoundError(entry.ID)
 	}
 
 	delete(m.drivers, entry.ID)

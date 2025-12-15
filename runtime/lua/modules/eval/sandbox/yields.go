@@ -36,7 +36,7 @@ func ReleaseCompileYield(y *CompileYield) {
 func (y *CompileYield) Release()                    { ReleaseCompileYield(y) }
 func (y *CompileYield) String() string              { return "<sandbox_compile_yield>" }
 func (y *CompileYield) Type() lua.LValueType        { return lua.LTUserData }
-func (y *CompileYield) CmdID() dispatcher.CommandID { return evalhost.CmdCompile }
+func (y *CompileYield) CmdID() dispatcher.CommandID { return evalhost.Compile }
 func (y *CompileYield) ToCommand() dispatcher.Command {
 	return evalhost.CompileCmd{
 		Source:  y.Source,
@@ -105,7 +105,7 @@ func (y *CreateProcessYield) Release()             { ReleaseCreateProcessYield(y
 func (y *CreateProcessYield) String() string       { return "<sandbox_create_process_yield>" }
 func (y *CreateProcessYield) Type() lua.LValueType { return lua.LTUserData }
 
-func (y *CreateProcessYield) CmdID() dispatcher.CommandID { return evalhost.CmdCreateProcess }
+func (y *CreateProcessYield) CmdID() dispatcher.CommandID { return evalhost.CreateProcess }
 
 func (y *CreateProcessYield) ToCommand() dispatcher.Command {
 	return evalhost.CreateProcessCmd{

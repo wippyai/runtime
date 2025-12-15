@@ -118,8 +118,8 @@ func (br *BusRunner) applyOperation(
 
 	allowProcess := []registry.Kind{
 		registry.EntryKind,
-		registry.NamespaceDependencyKind,
-		registry.NamespaceRequirementKind,
+		registry.NamespaceDependency,
+		registry.NamespaceRequirement,
 	}
 	if slices.Contains(allowProcess, op.Entry.Kind) {
 		// with entry events we dont propagate any events and handle them internally

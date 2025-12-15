@@ -6,7 +6,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	apierror "github.com/wippyai/runtime/api/error"
-	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	runtimelua "github.com/wippyai/runtime/runtime/lua"
 )
 
@@ -36,7 +35,7 @@ func TestErrorInterface(t *testing.T) {
 }
 
 func TestNewInvalidFormatError(t *testing.T) {
-	err := luaapi.NewInvalidFormatError("invalid format")
+	err := runtimelua.NewInvalidFormatError("invalid format")
 	assert.Equal(t, "invalid format", err.Error())
 	assert.Equal(t, apierror.Invalid, err.Kind())
 	assert.Equal(t, apierror.False, err.Retryable())
@@ -44,7 +43,7 @@ func TestNewInvalidFormatError(t *testing.T) {
 }
 
 func TestNewInvalidTypeError(t *testing.T) {
-	err := luaapi.NewInvalidTypeError("invalid type")
+	err := runtimelua.NewInvalidTypeError("invalid type")
 	assert.Equal(t, "invalid type", err.Error())
 	assert.Equal(t, apierror.Invalid, err.Kind())
 	assert.Equal(t, apierror.False, err.Retryable())
@@ -70,7 +69,7 @@ func TestNewConversionError(t *testing.T) {
 }
 
 func TestNewUnsupportedTypeError(t *testing.T) {
-	err := luaapi.NewUnsupportedTypeError("unsupported type: custom")
+	err := runtimelua.NewUnsupportedTypeError("unsupported type: custom")
 	assert.Equal(t, "unsupported type: custom", err.Error())
 	assert.Equal(t, apierror.Invalid, err.Kind())
 	assert.Equal(t, apierror.False, err.Retryable())

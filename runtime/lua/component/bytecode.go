@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	fsapi "github.com/wippyai/runtime/api/fs"
-	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	glua "github.com/yuin/gopher-lua"
 	"github.com/yuin/gopher-lua/bytecode"
@@ -17,12 +16,12 @@ import (
 func LoadBytecode(fsReg fsapi.Registry, fsID, path string) ([]byte, error) {
 	fs, ok := fsReg.GetFS(fsID)
 	if !ok {
-		return nil, luaapi.NewFilesystemNotFoundError(fsID)
+		return nil, runtimelua.NewFilesystemNotFoundError(fsID)
 	}
 
 	file, err := fs.Open(path)
 	if err != nil {
-		return nil, luaapi.NewOpenFileError(path, err)
+		return nil, runtimelua.NewOpenFileError(path, err)
 	}
 	defer func() { _ = file.Close() }()
 
@@ -34,7 +33,7 @@ func LoadBytecode(fsReg fsapi.Registry, fsID, path string) ([]byte, error) {
 func VerifyHash(data []byte, expected string) error {
 	parts := strings.SplitN(expected, ":", 2)
 	if len(parts) != 2 {
-		return luaapi.NewInvalidHashFormatError(expected)
+		return runtimelua.NewInvalidHashFormatError(expected)
 	}
 
 	algorithm := parts[0]
@@ -46,11 +45,11 @@ func VerifyHash(data []byte, expected string) error {
 		h := sha256.Sum256(data)
 		actualHash = hex.EncodeToString(h[:])
 	default:
-		return luaapi.NewUnsupportedHashAlgorithmError(algorithm)
+		return runtimelua.NewUnsupportedHashAlgorithmError(algorithm)
 	}
 
 	if actualHash != expectedHash {
-		return luaapi.NewHashMismatchError(expectedHash, actualHash)
+		return runtimelua.NewHashMismatchError(expectedHash, actualHash)
 	}
 
 	return nil

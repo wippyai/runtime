@@ -52,7 +52,7 @@ func NewManager(log *zap.Logger, code *code.Manager, bus event.Bus, factory engi
 // Add implements registry.EntryListener.
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.Workflow {
-		return api.NewInvalidEntryKindError(entry.Kind, api.Workflow)
+		return runtimelua.NewInvalidEntryKindError(entry.Kind, api.Workflow)
 	}
 
 	cfg, err := component.UnpackConfig[api.WorkflowConfig](ctx, entry)
@@ -86,7 +86,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update implements registry.EntryListener.
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.Workflow {
-		return api.NewInvalidEntryKindError(entry.Kind, api.Workflow)
+		return runtimelua.NewInvalidEntryKindError(entry.Kind, api.Workflow)
 	}
 
 	cfg, err := component.UnpackConfig[api.WorkflowConfig](ctx, entry)
@@ -118,7 +118,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete implements registry.EntryListener.
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.Workflow {
-		return api.NewInvalidEntryKindError(entry.Kind, api.Workflow)
+		return runtimelua.NewInvalidEntryKindError(entry.Kind, api.Workflow)
 	}
 
 	if err := m.code.DeleteNode(ctx, entry.ID); err != nil {

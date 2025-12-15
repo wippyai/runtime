@@ -408,7 +408,7 @@ func (p *Process) extractMethod(method string) error {
 	}
 
 	if fn == nil {
-		return luaapi.NewMethodNotFoundError(method)
+		return runtimelua.NewMethodNotFoundError(method)
 	}
 
 	p.exported[method] = fn
@@ -635,7 +635,7 @@ func (p *Process) processChannelYields() ([]*Task, error) {
 					t, err := p.GetTask(upd.State)
 					if err != nil {
 						ReleaseResult(result)
-						return nil, luaapi.NewTaskNotFoundForChannelError(err)
+						return nil, runtimelua.NewTaskNotFoundForChannelError(err)
 					}
 
 					if upd.Error != nil {

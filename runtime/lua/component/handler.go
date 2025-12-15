@@ -65,7 +65,7 @@ func UnpackConfig[T any](ctx context.Context, entry registry.Entry) (*T, error) 
 
 	if validator, ok := interface{}(cfg).(interface{ Validate() error }); ok {
 		if err := validator.Validate(); err != nil {
-			return nil, luaapi.NewValidationError(err)
+			return nil, runtimelua.NewValidationError(err)
 		}
 	}
 

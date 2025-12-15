@@ -20,7 +20,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	case api.FunctionBytecode:
 		return m.addBytecode(ctx, entry)
 	default:
-		return api.NewInvalidEntryKindError(entry.Kind, api.Function)
+		return runtimelua.NewInvalidEntryKindError(entry.Kind, api.Function)
 	}
 }
 
@@ -31,7 +31,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	case api.FunctionBytecode:
 		return m.updateBytecode(ctx, entry)
 	default:
-		return api.NewInvalidEntryKindError(entry.Kind, api.Function)
+		return runtimelua.NewInvalidEntryKindError(entry.Kind, api.Function)
 	}
 }
 
@@ -47,7 +47,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 		m.log.Debug("function deleted", zap.String("id", entry.ID.String()))
 		return nil
 	default:
-		return api.NewInvalidEntryKindError(entry.Kind, api.Function)
+		return runtimelua.NewInvalidEntryKindError(entry.Kind, api.Function)
 	}
 }
 
@@ -82,7 +82,7 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Resu
 	m.mu.RUnlock()
 
 	if !exists {
-		return nil, api.NewPoolNotFoundError(task.ID.String())
+		return nil, runtimelua.NewPoolNotFoundError(task.ID.String())
 	}
 
 	if len(task.Context) > 0 {

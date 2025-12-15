@@ -11,14 +11,14 @@ import (
 // Command IDs for eval operations.
 // Range 230-239 is reserved for eval commands.
 const (
-	CmdCompile       dispatcher.CommandID = 230 // Compile Lua source, return Program handle
-	CmdRun           dispatcher.CommandID = 231 // Compile + run, return result
-	CmdCreateProcess dispatcher.CommandID = 232 // Create steppable process from Program
+	Compile       dispatcher.CommandID = 230 // Compile Lua source, return Program handle
+	Run           dispatcher.CommandID = 231 // Compile + run, return result
+	CreateProcess dispatcher.CommandID = 232 // Create steppable process from Program
 )
 
 func init() {
 	dispatcher.MustRegisterCommands("eval",
-		CmdCompile, CmdRun, CmdCreateProcess,
+		Compile, Run, CreateProcess,
 	)
 }
 
@@ -30,7 +30,7 @@ type CompileCmd struct {
 }
 
 func (c CompileCmd) CmdID() dispatcher.CommandID {
-	return CmdCompile
+	return Compile
 }
 
 // RunCmd compiles and executes Lua code via the dispatcher.
@@ -43,7 +43,7 @@ type RunCmd struct {
 }
 
 func (c RunCmd) CmdID() dispatcher.CommandID {
-	return CmdRun
+	return Run
 }
 
 // CreateProcessCmd creates a steppable process from a compiled Program.
@@ -52,7 +52,7 @@ type CreateProcessCmd struct {
 }
 
 func (c CreateProcessCmd) CmdID() dispatcher.CommandID {
-	return CmdCreateProcess
+	return CreateProcess
 }
 
 // Context helpers

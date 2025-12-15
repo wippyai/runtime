@@ -277,8 +277,8 @@ func TestKindConstants(t *testing.T) {
 }
 
 func TestCommandPools(t *testing.T) {
-	t.Run("TokenValidateCmd", func(t *testing.T) {
-		cmd := AcquireTokenValidateCmd()
+	t.Run("ValidateTokenCmd", func(t *testing.T) {
+		cmd := AcquireValidateTokenCmd()
 		assert.NotNil(t, cmd)
 		cmd.Token = "test-token"
 		assert.Equal(t, ValidateToken, cmd.CmdID())
@@ -286,8 +286,8 @@ func TestCommandPools(t *testing.T) {
 		assert.Empty(t, cmd.Token)
 	})
 
-	t.Run("TokenCreateCmd", func(t *testing.T) {
-		cmd := AcquireTokenCreateCmd()
+	t.Run("CreateTokenCmd", func(t *testing.T) {
+		cmd := AcquireCreateTokenCmd()
 		assert.NotNil(t, cmd)
 		cmd.Actor = Actor{ID: "test"}
 		assert.Equal(t, CreateToken, cmd.CmdID())
@@ -295,8 +295,8 @@ func TestCommandPools(t *testing.T) {
 		assert.Empty(t, cmd.Actor.ID)
 	})
 
-	t.Run("TokenRevokeCmd", func(t *testing.T) {
-		cmd := AcquireTokenRevokeCmd()
+	t.Run("RevokeTokenCmd", func(t *testing.T) {
+		cmd := AcquireRevokeTokenCmd()
 		assert.NotNil(t, cmd)
 		cmd.Token = "test-token"
 		assert.Equal(t, RevokeToken, cmd.CmdID())
@@ -312,8 +312,8 @@ func TestCommandIDs(t *testing.T) {
 }
 
 func TestResponseTypes(t *testing.T) {
-	t.Run("TokenValidateResponse", func(t *testing.T) {
-		resp := TokenValidateResponse{
+	t.Run("ValidateTokenResponse", func(t *testing.T) {
+		resp := ValidateTokenResponse{
 			Actor: Actor{ID: "user1"},
 			Error: nil,
 		}
@@ -321,16 +321,16 @@ func TestResponseTypes(t *testing.T) {
 		assert.Nil(t, resp.Error)
 	})
 
-	t.Run("TokenCreateResponse", func(t *testing.T) {
-		resp := TokenCreateResponse{
+	t.Run("CreateTokenResponse", func(t *testing.T) {
+		resp := CreateTokenResponse{
 			Token: "new-token",
 			Error: nil,
 		}
 		assert.Equal(t, Token("new-token"), resp.Token)
 	})
 
-	t.Run("TokenRevokeResponse", func(t *testing.T) {
-		resp := TokenRevokeResponse{Error: nil}
+	t.Run("RevokeTokenResponse", func(t *testing.T) {
+		resp := RevokeTokenResponse{Error: nil}
 		assert.Nil(t, resp.Error)
 	})
 }

@@ -40,8 +40,8 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	})
 
 	return moduleTable, []luaapi.YieldType{
-		{Sample: &CompileYield{}, CmdID: evalhost.CmdCompile},
-		{Sample: &CreateProcessYield{}, CmdID: evalhost.CmdCreateProcess},
+		{Sample: &CompileYield{}, CmdID: evalhost.Compile},
+		{Sample: &CreateProcessYield{}, CmdID: evalhost.CreateProcess},
 	}
 }
 

@@ -36,4 +36,15 @@ func TestErrors(t *testing.T) {
 		assert.Contains(t, err.Error(), "failed to create subscriber")
 		assert.Equal(t, cause, errors.Unwrap(err))
 	})
+
+	t.Run("NewHandlerNotFoundError", func(t *testing.T) {
+		id := registry.NewID("ns", "name")
+		err := NewHandlerNotFoundError(id)
+		assert.Contains(t, err.Error(), "no handler registered for target")
+		assert.Equal(t, "NotFound", err.Kind().String())
+		details := err.Details()
+		assert.NotNil(t, details)
+		target, _ := details.Get("target")
+		assert.Equal(t, id.String(), target)
+	})
 }

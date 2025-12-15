@@ -160,7 +160,7 @@ func (m *Manager) createPoolByType(poolType string, factory process.FactoryFunc,
 		)
 
 	default:
-		return nil, api.NewUnknownPoolTypeError(poolType)
+		return nil, runtimelua.NewUnknownPoolTypeError(poolType)
 	}
 }
 

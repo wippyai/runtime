@@ -333,7 +333,7 @@ func (y *ValidateYield) String() string              { return "<token_validate_y
 func (y *ValidateYield) Type() lua.LValueType        { return lua.LTUserData }
 func (y *ValidateYield) CmdID() dispatcher.CommandID { return security.ValidateToken }
 func (y *ValidateYield) ToCommand() dispatcher.Command {
-	cmd := security.AcquireTokenValidateCmd()
+	cmd := security.AcquireValidateTokenCmd()
 	cmd.TokenStore = y.TokenStore
 	cmd.Token = y.Token
 	return cmd
@@ -343,7 +343,7 @@ func (y *ValidateYield) HandleResult(l *lua.LState, data any, err error) []lua.L
 	if err != nil {
 		return []lua.LValue{lua.LNil, lua.LNil, lua.WrapErrorWithLua(l, err, "validate token").WithKind(lua.Internal).WithRetryable(false)}
 	}
-	resp, ok := data.(security.TokenValidateResponse)
+	resp, ok := data.(security.ValidateTokenResponse)
 	if !ok {
 		return []lua.LValue{lua.LNil, lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal).WithRetryable(false)}
 	}
@@ -385,7 +385,7 @@ func (y *CreateYield) String() string              { return "<token_create_yield
 func (y *CreateYield) Type() lua.LValueType        { return lua.LTUserData }
 func (y *CreateYield) CmdID() dispatcher.CommandID { return security.CreateToken }
 func (y *CreateYield) ToCommand() dispatcher.Command {
-	cmd := security.AcquireTokenCreateCmd()
+	cmd := security.AcquireCreateTokenCmd()
 	cmd.TokenStore = y.TokenStore
 	cmd.Actor = y.Actor
 	cmd.Scope = y.Scope
@@ -397,7 +397,7 @@ func (y *CreateYield) HandleResult(l *lua.LState, data any, err error) []lua.LVa
 	if err != nil {
 		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "create token").WithKind(lua.Internal).WithRetryable(false)}
 	}
-	resp, ok := data.(security.TokenCreateResponse)
+	resp, ok := data.(security.CreateTokenResponse)
 	if !ok {
 		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal).WithRetryable(false)}
 	}
@@ -433,7 +433,7 @@ func (y *RevokeYield) String() string              { return "<token_revoke_yield
 func (y *RevokeYield) Type() lua.LValueType        { return lua.LTUserData }
 func (y *RevokeYield) CmdID() dispatcher.CommandID { return security.RevokeToken }
 func (y *RevokeYield) ToCommand() dispatcher.Command {
-	cmd := security.AcquireTokenRevokeCmd()
+	cmd := security.AcquireRevokeTokenCmd()
 	cmd.TokenStore = y.TokenStore
 	cmd.Token = y.Token
 	return cmd
@@ -443,7 +443,7 @@ func (y *RevokeYield) HandleResult(l *lua.LState, data any, err error) []lua.LVa
 	if err != nil {
 		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "revoke token").WithKind(lua.Internal).WithRetryable(false)}
 	}
-	resp, ok := data.(security.TokenRevokeResponse)
+	resp, ok := data.(security.RevokeTokenResponse)
 	if !ok {
 		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal).WithRetryable(false)}
 	}

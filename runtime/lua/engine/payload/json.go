@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/wippyai/runtime/api/payload"
-	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/modules/json"
 	lua "github.com/yuin/gopher-lua"
@@ -25,7 +24,7 @@ type JSONToLua struct{}
 // Transcode implements the payload.FormatTranscoder interface
 func (t *JSONToLua) Transcode(p payload.Payload) (payload.Payload, error) {
 	if p.Format() != payload.JSON {
-		return nil, luaapi.NewInvalidFormatError(fmt.Sprintf("JSON=>Lua can only transcode from JSON format, got %s", p.Format()))
+		return nil, runtimelua.NewInvalidFormatError(fmt.Sprintf("JSON=>Lua can only transcode from JSON format, got %s", p.Format()))
 	}
 
 	var data []byte
@@ -35,7 +34,7 @@ func (t *JSONToLua) Transcode(p payload.Payload) (payload.Payload, error) {
 	case []byte:
 		data = v
 	default:
-		return nil, luaapi.NewInvalidTypeError(fmt.Sprintf("JSON=>Lua can only handle string or []byte, got %T", p.Data()))
+		return nil, runtimelua.NewInvalidTypeError(fmt.Sprintf("JSON=>Lua can only handle string or []byte, got %T", p.Data()))
 	}
 
 	luaValue, err := json.Decode(data)
@@ -52,12 +51,12 @@ type ToJSON struct{}
 // Transcode implements the payload.FormatTranscoder interface
 func (t *ToJSON) Transcode(p payload.Payload) (payload.Payload, error) {
 	if p.Format() != payload.Lua {
-		return nil, luaapi.NewInvalidFormatError(fmt.Sprintf("Lua=>JSON can only transcode from Lua format, got %s", p.Format()))
+		return nil, runtimelua.NewInvalidFormatError(fmt.Sprintf("Lua=>JSON can only transcode from Lua format, got %s", p.Format()))
 	}
 
 	lv, ok := p.Data().(lua.LValue)
 	if !ok {
-		return nil, luaapi.NewInvalidTypeError(fmt.Sprintf("Lua=>JSON expects data to be of type lua.LValue, got %T", p.Data()))
+		return nil, runtimelua.NewInvalidTypeError(fmt.Sprintf("Lua=>JSON expects data to be of type lua.LValue, got %T", p.Data()))
 	}
 
 	jsonData, err := json.Encode(lv)
