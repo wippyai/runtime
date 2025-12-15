@@ -44,17 +44,6 @@ var factoryTestModuleB = &luaapi.ModuleDef{
 	},
 }
 
-var factoryTestModuleNetwork = &luaapi.ModuleDef{
-	Name:        "test_network",
-	Description: "Test network module",
-	Class:       []string{luaapi.ClassNetwork, luaapi.ClassIO},
-	Build: func() (*lua.LTable, []luaapi.YieldType) {
-		tbl := lua.CreateTable(0, 1)
-		tbl.RawSetString("value", lua.LString("network"))
-		return tbl, nil
-	},
-}
-
 var factoryMockProcessModule = &luaapi.ModuleDef{
 	Name:        "process",
 	Description: "Mock process module",
@@ -65,17 +54,6 @@ var factoryMockProcessModule = &luaapi.ModuleDef{
 		tbl.RawSetString("send", lua.LGoFunc(func(_ *lua.LState) int { return 0 }))
 		return tbl, nil
 	},
-}
-
-var factoryDefaultModules = []*luaapi.ModuleDef{
-	factoryTestModuleA,
-	factoryTestModuleB,
-}
-
-var factoryDefaultModulesWithProcess = []*luaapi.ModuleDef{
-	factoryTestModuleA,
-	factoryTestModuleB,
-	factoryMockProcessModule,
 }
 
 var factoryWorkflowAllowedIDs = []registry.ID{
