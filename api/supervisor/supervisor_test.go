@@ -225,7 +225,7 @@ func TestShutdownContext(t *testing.T) {
 		setExitCode(0) // reset
 	})
 
-	t.Run("SetSignalChannel_NoAppContext", func(t *testing.T) {
+	t.Run("SetSignalChannel_NoAppContext", func(_ *testing.T) {
 		ctx := context.Background()
 		ch := make(chan os.Signal, 1)
 		SetSignalChannel(ctx, ch)

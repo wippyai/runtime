@@ -351,7 +351,7 @@ func (m *mockMiddlewareRegistry) CreateMiddleware(name string, _ map[string]stri
 	if creator, ok := m.middlewares[name]; ok {
 		return creator(nil), nil
 	}
-	return nil, nil
+	return func(h http.Handler) http.Handler { return h }, nil
 }
 
 func TestMiddlewareRegistry(t *testing.T) {

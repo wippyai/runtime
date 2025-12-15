@@ -112,7 +112,7 @@ func (m *mockRegistry) Set(context.Context, string, string) error {
 }
 
 func (m *mockRegistry) All(context.Context) (map[string]string, error) {
-	return nil, nil
+	return map[string]string{}, nil
 }
 
 func (m *mockRegistry) GetStorage(_ context.Context, id registry.ID) (env.Storage, error) {

@@ -39,10 +39,10 @@ func runSimulation(t *testing.T, cfg ControllerConfig, workload *worksim.Workloa
 		workerDone = make(chan struct{})
 	)
 
-	workers.Store(int32(cfg.MinWorkers))
+	workers.Store(int32(cfg.MinWorkers)) //nolint:gosec // config-bounded
 
 	result := simResult{
-		minWorkers: int32(cfg.MaxWorkers),
+		minWorkers: int32(cfg.MaxWorkers), //nolint:gosec // config-bounded
 	}
 
 	startWorker := func() {
@@ -136,8 +136,8 @@ func runSimulation(t *testing.T, cfg ControllerConfig, workload *worksim.Workloa
 				// No action
 			case scaleUp:
 				toAdd := target
-				if currentWorkers+toAdd > int32(cfg.MaxWorkers) {
-					toAdd = int32(cfg.MaxWorkers) - currentWorkers
+				if currentWorkers+toAdd > int32(cfg.MaxWorkers) { //nolint:gosec // config-bounded
+					toAdd = int32(cfg.MaxWorkers) - currentWorkers //nolint:gosec // config-bounded
 				}
 				for i := int32(0); i < toAdd; i++ {
 					workers.Add(1)
@@ -150,15 +150,15 @@ func runSimulation(t *testing.T, cfg ControllerConfig, workload *worksim.Workloa
 				result.probeSuccesses++
 			case probeFail:
 				toRemove := target
-				if currentWorkers-toRemove < int32(cfg.MinWorkers) {
-					toRemove = currentWorkers - int32(cfg.MinWorkers)
+				if currentWorkers-toRemove < int32(cfg.MinWorkers) { //nolint:gosec // config-bounded
+					toRemove = currentWorkers - int32(cfg.MinWorkers) //nolint:gosec // config-bounded
 				}
 				workers.Add(-toRemove)
 				if toRemove > 0 {
 					result.probeFails++
 				}
 			case scaleDown:
-				if target >= int32(cfg.MinWorkers) && target < currentWorkers {
+				if target >= int32(cfg.MinWorkers) && target < currentWorkers { //nolint:gosec // config-bounded
 					diff := currentWorkers - target
 					workers.Store(target)
 					result.scaleDowns += int(diff)
@@ -422,8 +422,8 @@ func TestControllerWorksim_DynamicBottleneck(t *testing.T) {
 				// No action
 			case scaleUp:
 				toAdd := target
-				if currentWorkers+toAdd > int32(cfg.MaxWorkers) {
-					toAdd = int32(cfg.MaxWorkers) - currentWorkers
+				if currentWorkers+toAdd > int32(cfg.MaxWorkers) { //nolint:gosec // config-bounded
+					toAdd = int32(cfg.MaxWorkers) - currentWorkers //nolint:gosec // config-bounded
 				}
 				for i := int32(0); i < toAdd; i++ {
 					workers.Add(1)
@@ -431,12 +431,12 @@ func TestControllerWorksim_DynamicBottleneck(t *testing.T) {
 				}
 			case probeFail:
 				toRemove := target
-				if currentWorkers-toRemove < int32(cfg.MinWorkers) {
-					toRemove = currentWorkers - int32(cfg.MinWorkers)
+				if currentWorkers-toRemove < int32(cfg.MinWorkers) { //nolint:gosec // config-bounded
+					toRemove = currentWorkers - int32(cfg.MinWorkers) //nolint:gosec // config-bounded
 				}
 				workers.Add(-toRemove)
 			case scaleDown:
-				if target >= int32(cfg.MinWorkers) && target < currentWorkers {
+				if target >= int32(cfg.MinWorkers) && target < currentWorkers { //nolint:gosec // config-bounded
 					workers.Store(target)
 				}
 			}
@@ -581,8 +581,8 @@ func TestControllerWorksim_BurstyLoad(t *testing.T) {
 				// No action
 			case scaleUp:
 				toAdd := target
-				if currentWorkers+toAdd > int32(cfg.MaxWorkers) {
-					toAdd = int32(cfg.MaxWorkers) - currentWorkers
+				if currentWorkers+toAdd > int32(cfg.MaxWorkers) { //nolint:gosec // config-bounded
+					toAdd = int32(cfg.MaxWorkers) - currentWorkers //nolint:gosec // config-bounded
 				}
 				for i := int32(0); i < toAdd; i++ {
 					workers.Add(1)
@@ -593,12 +593,12 @@ func TestControllerWorksim_BurstyLoad(t *testing.T) {
 				}
 			case probeFail:
 				toRemove := target
-				if currentWorkers-toRemove < int32(cfg.MinWorkers) {
-					toRemove = currentWorkers - int32(cfg.MinWorkers)
+				if currentWorkers-toRemove < int32(cfg.MinWorkers) { //nolint:gosec // config-bounded
+					toRemove = currentWorkers - int32(cfg.MinWorkers) //nolint:gosec // config-bounded
 				}
 				workers.Add(-toRemove)
 			case scaleDown:
-				if target >= int32(cfg.MinWorkers) && target < currentWorkers {
+				if target >= int32(cfg.MinWorkers) && target < currentWorkers { //nolint:gosec // config-bounded
 					diff := currentWorkers - target
 					workers.Store(target)
 					scaleDowns += int(diff)
@@ -779,8 +779,8 @@ func TestControllerWorksim_GradualBottleneck(t *testing.T) {
 				// No action
 			case scaleUp:
 				toAdd := target
-				if currentWorkers+toAdd > int32(cfg.MaxWorkers) {
-					toAdd = int32(cfg.MaxWorkers) - currentWorkers
+				if currentWorkers+toAdd > int32(cfg.MaxWorkers) { //nolint:gosec // config-bounded
+					toAdd = int32(cfg.MaxWorkers) - currentWorkers //nolint:gosec // config-bounded
 				}
 				for i := int32(0); i < toAdd; i++ {
 					workers.Add(1)
@@ -788,12 +788,12 @@ func TestControllerWorksim_GradualBottleneck(t *testing.T) {
 				}
 			case probeFail:
 				toRemove := target
-				if currentWorkers-toRemove < int32(cfg.MinWorkers) {
-					toRemove = currentWorkers - int32(cfg.MinWorkers)
+				if currentWorkers-toRemove < int32(cfg.MinWorkers) { //nolint:gosec // config-bounded
+					toRemove = currentWorkers - int32(cfg.MinWorkers) //nolint:gosec // config-bounded
 				}
 				workers.Add(-toRemove)
 			case scaleDown:
-				if target >= int32(cfg.MinWorkers) && target < currentWorkers {
+				if target >= int32(cfg.MinWorkers) && target < currentWorkers { //nolint:gosec // config-bounded
 					workers.Store(target)
 				}
 			}

@@ -385,7 +385,7 @@ func TestLimiterStoreCleanup(t *testing.T) {
 		assert.Equal(t, 3, store.len())
 	})
 
-	t.Run("context cancellation stops cleanup goroutine", func(t *testing.T) {
+	t.Run("context cancellation stops cleanup goroutine", func(_ *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		_ = newLimiterStore(ctx, rate.Limit(1), 1, time.Millisecond, time.Millisecond, 1000)
 		cancel()

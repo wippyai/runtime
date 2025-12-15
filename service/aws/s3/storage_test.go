@@ -134,7 +134,7 @@ func listObjectsWithMock(ctx context.Context, client *mockListObjectsClient, buc
 			input.Prefix = aws.String(opts.Prefix)
 		}
 		if opts.MaxKeys > 0 {
-			input.MaxKeys = aws.Int32(int32(opts.MaxKeys))
+			input.MaxKeys = aws.Int32(int32(opts.MaxKeys)) //nolint:gosec // MaxKeys is API-bounded
 		}
 		if opts.ContinuationToken != "" {
 			input.ContinuationToken = aws.String(opts.ContinuationToken)
@@ -461,7 +461,7 @@ func presignedPutURLWithMock(ctx context.Context, client *mockPresignClient, buc
 	return result.URL, nil
 }
 
-func TestStorage_InterfaceCompliance(t *testing.T) {
+func TestStorage_InterfaceCompliance(_ *testing.T) {
 	var _ cloudstorage.Storage = (*Storage)(nil)
 }
 
@@ -478,7 +478,7 @@ func TestStorage_RealClientMethods(t *testing.T) {
 	client := s3.New(s3.Options{
 		Region:             "us-east-1",
 		EndpointResolverV2: &mockEndpointResolver{},
-		Credentials: aws.CredentialsProviderFunc(func(ctx context.Context) (aws.Credentials, error) {
+		Credentials: aws.CredentialsProviderFunc(func(_ context.Context) (aws.Credentials, error) {
 			return aws.Credentials{
 				AccessKeyID:     "test",
 				SecretAccessKey: "test",

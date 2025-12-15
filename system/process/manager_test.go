@@ -267,7 +267,7 @@ func TestManager_Terminate_HostError(t *testing.T) {
 	assert.Contains(t, err.Error(), "terminate failed")
 }
 
-func TestManager_ConcurrentOperations(t *testing.T) {
+func TestManager_ConcurrentOperations(_ *testing.T) {
 	node := newMockNode()
 	host := &mockHost{}
 	_ = node.RegisterHost("test-host", host)

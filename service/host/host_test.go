@@ -173,7 +173,7 @@ func TestHost_RunShuttingDown(t *testing.T) {
 	assert.ErrorIs(t, err, ErrHostShuttingDown)
 }
 
-func TestHost_OnStartOnComplete(t *testing.T) {
+func TestHost_OnStartOnComplete(_ *testing.T) {
 	id := registry.NewID("test", "host")
 	cfg := &hostapi.EntryConfig{}
 	scheduler := actor.NewScheduler(nil)

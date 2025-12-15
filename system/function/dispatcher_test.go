@@ -48,7 +48,7 @@ func (m *mockRegistry) Call(ctx context.Context, task runtime.Task) (*runtime.Re
 	if m.callFn != nil {
 		return m.callFn(ctx, task)
 	}
-	return nil, nil
+	return &runtime.Result{}, nil
 }
 
 func TestCallHandler(t *testing.T) {

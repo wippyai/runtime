@@ -49,7 +49,7 @@ func TestBufferNilSafe(t *testing.T) {
 	// Buffer methods are nil-safe by design (check method implementations)
 	var buf *Buffer
 
-	t.Run("Release", func(t *testing.T) {
+	t.Run("Release", func(_ *testing.T) {
 		buf.Release() // should not panic
 	})
 

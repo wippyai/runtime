@@ -38,7 +38,7 @@ func waitForEvent(t *testing.T, ch <-chan event.Event) event.Event {
 	}
 }
 
-func newTestListener(t *testing.T) (*Listener, event.Bus, <-chan event.Event) {
+func newTestListener(t *testing.T) (*Listener, <-chan event.Event) {
 	bus := eventbus.NewBus()
 	pidGen := newTestPIDGen()
 	log := zap.NewNop()
@@ -52,11 +52,11 @@ func newTestListener(t *testing.T) (*Listener, event.Bus, <-chan event.Event) {
 	t.Cleanup(func() { bus.Unsubscribe(context.Background(), sub) })
 
 	l := NewListener(log, bus, pidGen, node, topo, mgr)
-	return l, bus, events
+	return l, events
 }
 
 func TestListener_Add_WithDefaultHost(t *testing.T) {
-	l, _, events := newTestListener(t)
+	l, events := newTestListener(t)
 
 	meta := attrs.NewBag()
 	meta.Set("default_host", "test-host")
@@ -82,7 +82,7 @@ func TestListener_Add_WithDefaultHost(t *testing.T) {
 }
 
 func TestListener_Add_WithoutDefaultHost(t *testing.T) {
-	l, _, events := newTestListener(t)
+	l, events := newTestListener(t)
 
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "proc1"),
@@ -108,7 +108,7 @@ func TestListener_Add_WithoutDefaultHost(t *testing.T) {
 }
 
 func TestListener_Add_NonProcessKind(t *testing.T) {
-	l, _, events := newTestListener(t)
+	l, events := newTestListener(t)
 
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "svc1"),
@@ -129,7 +129,7 @@ func TestListener_Add_NonProcessKind(t *testing.T) {
 }
 
 func TestListener_Update_HostChange(t *testing.T) {
-	l, _, events := newTestListener(t)
+	l, events := newTestListener(t)
 
 	meta := attrs.NewBag()
 	meta.Set("default_host", "host1")
@@ -163,7 +163,7 @@ func TestListener_Update_HostChange(t *testing.T) {
 }
 
 func TestListener_Delete(t *testing.T) {
-	l, _, events := newTestListener(t)
+	l, events := newTestListener(t)
 
 	meta := attrs.NewBag()
 	meta.Set("default_host", "test-host")
@@ -194,7 +194,7 @@ func TestListener_Delete(t *testing.T) {
 }
 
 func TestListener_OptionsFromMeta(t *testing.T) {
-	l, _, events := newTestListener(t)
+	l, events := newTestListener(t)
 
 	options := attrs.NewBag()
 	options.Set("default_host", "test-host")
@@ -220,7 +220,7 @@ func TestListener_OptionsFromMeta(t *testing.T) {
 }
 
 func TestListener_HostInMetaOptionsPreserved(t *testing.T) {
-	l, _, events := newTestListener(t)
+	l, events := newTestListener(t)
 
 	// Options bag exists with timeout but NOT default_host
 	options := attrs.NewBag()
@@ -252,7 +252,7 @@ func TestListener_HostInMetaOptionsPreserved(t *testing.T) {
 }
 
 func TestListener_Update_NoChange(t *testing.T) {
-	l, _, events := newTestListener(t)
+	l, events := newTestListener(t)
 
 	meta := attrs.NewBag()
 	meta.Set("default_host", "test-host")
@@ -283,7 +283,7 @@ func TestListener_Update_NoChange(t *testing.T) {
 }
 
 func TestListener_Delete_NotRegistered(t *testing.T) {
-	l, _, events := newTestListener(t)
+	l, events := newTestListener(t)
 
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "proc1"),

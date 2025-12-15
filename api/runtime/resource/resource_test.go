@@ -134,7 +134,7 @@ func TestStore_AddCleanup(t *testing.T) {
 		assert.False(t, cleanupRan)
 	})
 
-	t.Run("cleanup on closed store returns noop cancel", func(t *testing.T) {
+	t.Run("cleanup on closed store returns noop cancel", func(_ *testing.T) {
 		store := NewStore()
 		_ = store.Close()
 
@@ -183,7 +183,7 @@ func TestStore_Close(t *testing.T) {
 		assert.NoError(t, err2)
 	})
 
-	t.Run("close resets table", func(t *testing.T) {
+	t.Run("close resets table", func(_ *testing.T) {
 		store := NewStore()
 		_ = store.Table().Insert(1, "test")
 		_ = store.Close()
@@ -622,7 +622,7 @@ func TestTypedTable(t *testing.T) {
 	})
 }
 
-func TestTable_Concurrent(t *testing.T) {
+func TestTable_Concurrent(_ *testing.T) {
 	table := NewTable()
 	defer func() { _ = table.Close() }()
 

@@ -289,16 +289,13 @@ func TestRegistryContextCancel(t *testing.T) {
 
 	select {
 	case _, ok := <-msgCh:
-		if ok {
-			// Got EOF message, that's fine
-		}
-		// Channel closed, that's also fine
+		_ = ok // Either got EOF message or channel closed, both are fine
 	case <-time.After(time.Second):
 		t.Error("channel should close on context cancel")
 	}
 }
 
-func TestRegistryConcurrentAccess(t *testing.T) {
+func TestRegistryConcurrentAccess(_ *testing.T) {
 	ts := newReadOnlyServer()
 	defer ts.Close()
 
@@ -389,10 +386,7 @@ func TestConnEntryDrop(t *testing.T) {
 
 	select {
 	case _, ok := <-msgCh:
-		if ok {
-			// May get EOF
-		}
-		// Channel closed, that's also fine
+		_ = ok // May get EOF or channel closed, both are fine
 	case <-time.After(time.Second):
 		t.Error("channel should close on Drop")
 	}

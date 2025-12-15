@@ -161,7 +161,7 @@ func (c *controller) tick(now time.Time, ops int64, workers, busy int32, queueLe
 	util := float64(busy) / float64(workers)
 
 	// Scale down check (not blocked by cooldown)
-	if util < scaleDownUtil && queueLen == 0 && workers > int32(c.MinWorkers) {
+	if util < scaleDownUtil && queueLen == 0 && workers > int32(c.MinWorkers) { //nolint:gosec // MinWorkers is config-bounded
 		c.idleCount++
 		if c.idleCount >= c.IdleTicks {
 			c.idleCount = 0
@@ -182,7 +182,7 @@ func (c *controller) tick(now time.Time, ops int64, workers, busy int32, queueLe
 	}
 
 	// Scale up check
-	if util >= scaleUpUtil && queueLen > 0 && workers < int32(c.MaxWorkers) {
+	if util >= scaleUpUtil && queueLen > 0 && workers < int32(c.MaxWorkers) { //nolint:gosec // MaxWorkers is config-bounded
 		return c.startProbe(now, workers, queueLen)
 	}
 
@@ -248,7 +248,7 @@ func (c *controller) startProbe(now time.Time, workers int32, queueLen int) (sca
 	}
 
 	// Cap at 25% of max capacity per probe
-	maxStep := int32(c.MaxWorkers) / 4
+	maxStep := int32(c.MaxWorkers) / 4 //nolint:gosec // MaxWorkers is config-bounded
 	if maxStep < 1 {
 		maxStep = 1
 	}
@@ -257,7 +257,7 @@ func (c *controller) startProbe(now time.Time, workers int32, queueLen int) (sca
 	}
 
 	// Cap at remaining capacity
-	remaining := int32(c.MaxWorkers) - workers
+	remaining := int32(c.MaxWorkers) - workers //nolint:gosec // MaxWorkers is config-bounded
 	if workersToAdd > remaining {
 		workersToAdd = remaining
 	}
@@ -387,8 +387,8 @@ func (c *controller) decideScaleDown(now time.Time, workers, busy int32) (scaleD
 		target = busy + 1
 	}
 
-	if target < int32(c.MinWorkers) {
-		target = int32(c.MinWorkers)
+	if target < int32(c.MinWorkers) { //nolint:gosec // MinWorkers is config-bounded
+		target = int32(c.MinWorkers) //nolint:gosec // MinWorkers is config-bounded
 	}
 
 	if target >= workers {

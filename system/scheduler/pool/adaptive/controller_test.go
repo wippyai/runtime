@@ -145,7 +145,7 @@ func TestControllerBottleneckSimulation(t *testing.T) {
 	c := newController(cfg)
 
 	now := time.Now()
-	var ops int64 = 0
+	var ops int64
 	workers := int32(1)
 
 	opsPerInterval := int64(10) // 100 ops/s constant (bottleneck)
@@ -201,7 +201,7 @@ func TestControllerIOBoundSimulation(t *testing.T) {
 	c := newController(cfg)
 
 	now := time.Now()
-	var ops int64 = 0
+	var ops int64
 	workers := int32(1)
 
 	scaleUps := 0

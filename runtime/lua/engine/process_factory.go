@@ -17,9 +17,8 @@ type CompiledFactory interface {
 
 // ProcessFactory creates processes from compiled code with configurable module binding.
 type ProcessFactory struct {
-	code         *code.Manager
-	modules      []*luaapi.ModuleDef // Additional default modules
-	skipCoreLoad bool                // Skip loading core modules (for isolated tests)
+	code    *code.Manager
+	modules []*luaapi.ModuleDef // Additional default modules
 }
 
 // Ensure ProcessFactory implements CompiledFactory
@@ -32,14 +31,6 @@ func NewProcessFactory(code *code.Manager, modules []*luaapi.ModuleDef) *Process
 	return &ProcessFactory{
 		code:    code,
 		modules: modules,
-	}
-}
-
-// WithoutCoreModules returns an option to skip loading core modules.
-// Use this for isolated tests that don't need core modules.
-func WithoutCoreModules() FactoryOption {
-	return func(c *processConfig) {
-		c.skipCoreLoad = true
 	}
 }
 
@@ -72,9 +63,6 @@ type processConfig struct {
 
 	// Custom filter (return false to exclude, error to fail)
 	filter func(name string, classes []string) (bool, error)
-
-	// Skip loading core modules (for isolated tests)
-	skipCoreLoad bool
 }
 
 func newProcessConfig() *processConfig {
@@ -195,12 +183,7 @@ func (f *ProcessFactory) CreateFactory(id registry.ID, opts ...FactoryOption) (p
 
 // buildBinders creates module binders with filtering applied.
 func (f *ProcessFactory) buildBinders(compiled *code.CompiledMain, cfg *processConfig) ([]ModuleBinder, error) {
-	binders := make([]ModuleBinder, 0)
-
-	// 1. Core modules (errors, channel, ostime, print, payload, pubsub)
-	if !cfg.skipCoreLoad && !f.skipCoreLoad {
-		binders = append(binders, LoadCoreModules)
-	}
+	binders := []ModuleBinder{LoadCoreModules}
 
 	// Build exclusion sets for O(1) lookup
 	excludeClassSet := toSet(cfg.excludeClasses)
