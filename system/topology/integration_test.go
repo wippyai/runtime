@@ -355,13 +355,15 @@ func TestIntegration_CrossNodeMonitoring_EndToEnd(t *testing.T) {
 		Node:   "local",
 		Host:   "myhost",
 		UniqID: "process-1",
-	}.Precomputed()
+	}
+	localProcessPID = localProcessPID.Precomputed()
 
 	workflowPID := pid.PID{
 		Node:   "temporal-prod",
 		Host:   "my-task-queue",
 		UniqID: "workflow-123",
-	}.Precomputed()
+	}
+	workflowPID = workflowPID.Precomputed()
 
 	// Register local process
 	err = topo.Register(localProcessPID)
@@ -437,13 +439,15 @@ func TestIntegration_CrossNodeLinking_EndToEnd(t *testing.T) {
 		Node:   "local",
 		Host:   "myhost",
 		UniqID: "process-1",
-	}.Precomputed()
+	}
+	localProcessPID = localProcessPID.Precomputed()
 
 	workflowPID := pid.PID{
 		Node:   "temporal-prod",
 		Host:   "my-task-queue",
 		UniqID: "workflow-456",
-	}.Precomputed()
+	}
+	workflowPID = workflowPID.Precomputed()
 
 	err = topo.Register(localProcessPID)
 	require.NoError(t, err)
@@ -514,11 +518,15 @@ func TestIntegration_MultipleWatchers(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create multiple local processes
-	process1PID := pid.PID{Node: "local", Host: "host1", UniqID: "p1"}.Precomputed()
-	process2PID := pid.PID{Node: "local", Host: "host2", UniqID: "p2"}.Precomputed()
-	process3PID := pid.PID{Node: "local", Host: "host3", UniqID: "p3"}.Precomputed()
+	process1PID := pid.PID{Node: "local", Host: "host1", UniqID: "p1"}
+	process1PID = process1PID.Precomputed()
+	process2PID := pid.PID{Node: "local", Host: "host2", UniqID: "p2"}
+	process2PID = process2PID.Precomputed()
+	process3PID := pid.PID{Node: "local", Host: "host3", UniqID: "p3"}
+	process3PID = process3PID.Precomputed()
 
-	workflowPID := pid.PID{Node: "temporal-prod", Host: "queue", UniqID: "wf-789"}.Precomputed()
+	workflowPID := pid.PID{Node: "temporal-prod", Host: "queue", UniqID: "wf-789"}
+	workflowPID = workflowPID.Precomputed()
 
 	err = topo.Register(process1PID)
 	require.NoError(t, err)
@@ -604,8 +612,10 @@ func TestIntegration_ReleaseMonitor(t *testing.T) {
 	err = router.RegisterPeer("temporal-prod", peerNode)
 	require.NoError(t, err)
 
-	localPID := pid.PID{Node: "local", Host: "host1", UniqID: "p1"}.Precomputed()
-	workflowPID := pid.PID{Node: "temporal-prod", Host: "queue", UniqID: "wf-release"}.Precomputed()
+	localPID := pid.PID{Node: "local", Host: "host1", UniqID: "p1"}
+	localPID = localPID.Precomputed()
+	workflowPID := pid.PID{Node: "temporal-prod", Host: "queue", UniqID: "wf-release"}
+	workflowPID = workflowPID.Precomputed()
 
 	err = topo.Register(localPID)
 	require.NoError(t, err)
@@ -642,8 +652,10 @@ func TestIntegration_UnlinkBeforeFailure(t *testing.T) {
 	err = router.RegisterPeer("temporal-prod", peerNode)
 	require.NoError(t, err)
 
-	localPID := pid.PID{Node: "local", Host: "host1", UniqID: "p1"}.Precomputed()
-	workflowPID := pid.PID{Node: "temporal-prod", Host: "queue", UniqID: "wf-unlink"}.Precomputed()
+	localPID := pid.PID{Node: "local", Host: "host1", UniqID: "p1"}
+	localPID = localPID.Precomputed()
+	workflowPID := pid.PID{Node: "temporal-prod", Host: "queue", UniqID: "wf-unlink"}
+	workflowPID = workflowPID.Precomputed()
 
 	err = topo.Register(localPID)
 	require.NoError(t, err)

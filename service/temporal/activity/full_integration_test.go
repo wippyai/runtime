@@ -32,7 +32,7 @@ import (
 // fullTestTranscoder implements payload.Transcoder for testing
 type fullTestTranscoder struct{}
 
-func (m *fullTestTranscoder) Transcode(p payload.Payload, format payload.Format) (payload.Payload, error) {
+func (m *fullTestTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
 	return p, nil
 }
 
@@ -102,7 +102,7 @@ func TestFullStackActivityExecution(t *testing.T) {
 	ctx = process.WithPIDGenerator(ctx, pidGen)
 
 	require.NoError(t, funcRegistry.Start(ctx))
-	defer funcRegistry.Stop()
+	defer func() { _ = funcRegistry.Stop() }()
 
 	// Register test function that will be called as activity
 	funcID := registry.NewID("test.activity", "echo_data")
@@ -129,7 +129,7 @@ func TestFullStackActivityExecution(t *testing.T) {
 		ClientOptions: &client.Options{DataConverter: dc},
 	})
 	require.NoError(t, err)
-	defer server.Stop()
+	defer func() { _ = server.Stop() }()
 
 	temporalClient := server.Client()
 	defer temporalClient.Close()
@@ -172,7 +172,7 @@ func TestFullStackActivityExecution(t *testing.T) {
 	status := <-statusCh
 	require.NotNil(t, status)
 
-	defer wippyWorker.Stop(ctx)
+	defer func() { _ = wippyWorker.Stop(ctx) }()
 
 	// Create a separate SDK worker just for workflow registration
 	// (wippy worker handles activities, this handles workflow)

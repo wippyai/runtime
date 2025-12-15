@@ -35,7 +35,7 @@ func (m *mockEventBus) Send(_ context.Context, e event.Event) {
 	m.events = append(m.events, e)
 }
 
-func newTestRegistry(*testing.T) *PolicyRegistry {
+func newTestRegistry(_ *testing.T) *PolicyRegistry {
 	bus := &mockEventBus{}
 	logger := zap.NewNop()
 	reg := NewPolicyRegistry(bus, logger)
@@ -60,18 +60,20 @@ func TestPolicyRegistry_ListGroupsAndPolicies(t *testing.T) {
 	policy2 := newMockPolicy("test", "policy2", security.Deny)
 	groupID := registry.NewID("test", "group1")
 
+	policy1ID := policy1.ID()
 	reg.handleEvent(event.Event{
 		Kind: security.PolicyRegister,
-		Path: policy1.ID().String(),
+		Path: policy1ID.String(),
 		Data: &security.PolicyEntry{
 			Policy: policy1,
 			Groups: []registry.ID{groupID},
 		},
 	})
 
+	policy2ID := policy2.ID()
 	reg.handleEvent(event.Event{
 		Kind: security.PolicyRegister,
-		Path: policy2.ID().String(),
+		Path: policy2ID.String(),
 		Data: &security.PolicyEntry{
 			Policy: policy2,
 			Groups: []registry.ID{groupID},
@@ -99,9 +101,10 @@ func TestPolicyRegistry_GetPolicyAndGroup(t *testing.T) {
 	policy := newMockPolicy("test", "policy1", security.Allow)
 	groupID := registry.NewID("test", "group1")
 
+	policyID := policy.ID()
 	reg.handleEvent(event.Event{
 		Kind: security.PolicyRegister,
-		Path: policy.ID().String(),
+		Path: policyID.String(),
 		Data: &security.PolicyEntry{
 			Policy: policy,
 			Groups: []registry.ID{groupID},
@@ -134,9 +137,10 @@ func TestPolicyRegistry_EventHandling(t *testing.T) {
 	policy := newMockPolicy("test", "policy1", security.Allow)
 	groupID := registry.NewID("test", "group1")
 
+	policyID := policy.ID()
 	reg.handleEvent(event.Event{
 		Kind: security.PolicyRegister,
-		Path: policy.ID().String(),
+		Path: policyID.String(),
 		Data: &security.PolicyEntry{
 			Policy: policy,
 			Groups: []registry.ID{groupID},
@@ -151,7 +155,7 @@ func TestPolicyRegistry_EventHandling(t *testing.T) {
 	updatedPolicy := newMockPolicy("test", "policy1", security.Deny)
 	reg.handleEvent(event.Event{
 		Kind: security.PolicyUpdate,
-		Path: policy.ID().String(),
+		Path: policyID.String(),
 		Data: &security.PolicyEntry{
 			Policy: updatedPolicy,
 			Groups: []registry.ID{groupID},
@@ -165,7 +169,7 @@ func TestPolicyRegistry_EventHandling(t *testing.T) {
 
 	reg.handleEvent(event.Event{
 		Kind: security.PolicyDelete,
-		Path: policy.ID().String(),
+		Path: policyID.String(),
 	})
 
 	_, err = reg.GetPolicy(policy.ID())

@@ -22,10 +22,10 @@ func main() {
 	if err := cmd.Execute(); err != nil {
 		if cmd.IsConsoleMode() {
 			red := color.New(color.FgRed, color.Bold)
-			red.Fprint(os.Stderr, "Error: ")
-			fmt.Fprintln(os.Stderr, err)
+			_, _ = red.Fprint(os.Stderr, "Error: ")
+			_, _ = fmt.Fprintln(os.Stderr, err)
 		} else {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			_, _ = fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		}
 		os.Exit(1)
 	}

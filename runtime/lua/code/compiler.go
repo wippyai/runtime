@@ -63,7 +63,7 @@ func (c *Compiler) getCompiledProto(node *Node) (*glua.FunctionProto, error) {
 		return nil, err
 	}
 
-	c.protoCache.Set(node.ID, compiled)
+	_ = c.protoCache.Set(node.ID, compiled)
 	return compiled, nil
 }
 
@@ -78,7 +78,7 @@ func (c *Compiler) Invalidate(ids []registry.ID) {
 // SetProto injects a precompiled prototype into the cache.
 // Used for bytecode entries that skip source compilation.
 func (c *Compiler) SetProto(id registry.ID, proto *glua.FunctionProto) {
-	c.protoCache.Set(id, proto)
+	_ = c.protoCache.Set(id, proto)
 }
 
 // Compile builds and compiles a main function and its dependencies
@@ -152,8 +152,7 @@ func (c *Compiler) Compile(
 	}
 
 	// Cache the compiled main
-
-	c.mainCache.Set(entrypoint, compiled)
+	_ = c.mainCache.Set(entrypoint, compiled)
 
 	return compiled, nil
 }

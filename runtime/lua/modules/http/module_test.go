@@ -432,7 +432,7 @@ func TestRequest_Stream(t *testing.T) {
 
 		ctx, fc := newTestContext()
 		store := resource.NewStore()
-		defer store.Close()
+		defer func() { _ = store.Close() }()
 		_ = resource.SetStore(ctx, store)
 
 		body := strings.NewReader("streaming body content")
@@ -482,7 +482,7 @@ func TestRequest_Multipart(t *testing.T) {
 
 		ctx, fc := newTestContext()
 		store := resource.NewStore()
-		defer store.Close()
+		defer func() { _ = store.Close() }()
 		_ = resource.SetStore(ctx, store)
 
 		var buf bytes.Buffer
@@ -491,7 +491,7 @@ func TestRequest_Multipart(t *testing.T) {
 		_ = writer.WriteField("value", "123")
 		fileWriter, _ := writer.CreateFormFile("file", "test.txt")
 		_, _ = fileWriter.Write([]byte("file content"))
-		writer.Close()
+		_ = writer.Close()
 
 		req := httptest.NewRequest("POST", "/upload", &buf)
 		req.Header.Set("Content-Type", writer.FormDataContentType())
@@ -1001,14 +1001,14 @@ func TestMultipartFile_Stream(t *testing.T) {
 
 	ctx, fc := newTestContext()
 	store := resource.NewStore()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	_ = resource.SetStore(ctx, store)
 
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 	fileWriter, _ := writer.CreateFormFile("file", "test.txt")
 	_, _ = io.WriteString(fileWriter, "file content here")
-	writer.Close()
+	_ = writer.Close()
 
 	req := httptest.NewRequest("POST", "/upload", &buf)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
@@ -1035,7 +1035,7 @@ func TestMultipartFile_Header(t *testing.T) {
 
 	ctx, fc := newTestContext()
 	store := resource.NewStore()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	_ = resource.SetStore(ctx, store)
 
 	var buf bytes.Buffer
@@ -1045,7 +1045,7 @@ func TestMultipartFile_Header(t *testing.T) {
 	h.Set("Content-Type", "image/jpeg")
 	fileWriter, _ := writer.CreatePart(h)
 	_, _ = io.WriteString(fileWriter, "fake image data")
-	writer.Close()
+	_ = writer.Close()
 
 	req := httptest.NewRequest("POST", "/upload", &buf)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
@@ -1157,8 +1157,8 @@ func TestRequest_Timeout(t *testing.T) {
 
 		go func() {
 			time.Sleep(200 * time.Millisecond)
-			pw.Write([]byte("delayed data"))
-			pw.Close()
+			_, _ = pw.Write([]byte("delayed data"))
+			_ = pw.Close()
 		}()
 
 		err := l.DoString(`

@@ -36,7 +36,7 @@ func TestCollector_Counter(t *testing.T) {
 	c := NewCollector(apicfg.Config{Buffer: struct {
 		Size int `json:"size"`
 	}{Size: 1000}})
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	mock := &mockExporter{}
 	_ = c.RegisterExporter(mock)
@@ -52,7 +52,7 @@ func TestCollector_Gauge(t *testing.T) {
 	c := NewCollector(apicfg.Config{Buffer: struct {
 		Size int `json:"size"`
 	}{Size: 1000}})
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	mock := &mockExporter{}
 	_ = c.RegisterExporter(mock)
@@ -69,7 +69,7 @@ func TestCollector_Histogram(t *testing.T) {
 	c := NewCollector(apicfg.Config{Buffer: struct {
 		Size int `json:"size"`
 	}{Size: 1000}})
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	mock := &mockExporter{}
 	_ = c.RegisterExporter(mock)
@@ -84,7 +84,7 @@ func TestCollector_ExporterFanout(t *testing.T) {
 	c := NewCollector(apicfg.Config{Buffer: struct {
 		Size int `json:"size"`
 	}{Size: 1000}})
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	mock1, mock2 := &mockExporter{}, &mockExporter{}
 	_ = c.RegisterExporter(mock1)
@@ -108,13 +108,13 @@ func TestCollector_GracefulShutdown(t *testing.T) {
 		c.CounterInc("test", nil)
 	}
 
-	c.Close()
+	_ = c.Close()
 	assert.Equal(t, 100, mock.count())
 }
 
 func TestCollector_DefaultBufferSize(t *testing.T) {
 	c := NewCollector(apicfg.Config{})
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	mock := &mockExporter{}
 	_ = c.RegisterExporter(mock)
@@ -138,7 +138,7 @@ func TestCollector_BatchFlush(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	assert.GreaterOrEqual(t, mock.count(), 100)
 
-	c.Close()
+	_ = c.Close()
 	assert.Equal(t, 150, mock.count())
 }
 
@@ -153,7 +153,7 @@ func BenchmarkCollector_CounterInc(b *testing.B) {
 		Size int `json:"size"`
 	}{Size: 100000}})
 	_ = c.RegisterExporter(&nopExporter{})
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	labels := api.Labels{"method": "GET", "status": "200"}
 	b.ReportAllocs()
@@ -169,7 +169,7 @@ func BenchmarkCollector_GaugeSet(b *testing.B) {
 		Size int `json:"size"`
 	}{Size: 100000}})
 	_ = c.RegisterExporter(&nopExporter{})
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	labels := api.Labels{"pool": "workers"}
 	b.ReportAllocs()
@@ -185,7 +185,7 @@ func BenchmarkCollector_HistogramObserve(b *testing.B) {
 		Size int `json:"size"`
 	}{Size: 100000}})
 	_ = c.RegisterExporter(&nopExporter{})
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	labels := api.Labels{"endpoint": "/api/v1/users"}
 	b.ReportAllocs()
@@ -201,7 +201,7 @@ func BenchmarkCollector_Parallel(b *testing.B) {
 		Size int `json:"size"`
 	}{Size: 100000}})
 	_ = c.RegisterExporter(&nopExporter{})
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	labels := api.Labels{"method": "GET"}
 	b.ReportAllocs()
@@ -219,7 +219,7 @@ func BenchmarkCollector_NoLabels(b *testing.B) {
 		Size int `json:"size"`
 	}{Size: 100000}})
 	_ = c.RegisterExporter(&nopExporter{})
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	b.ReportAllocs()
 	b.ResetTimer()

@@ -611,7 +611,7 @@ func TestDispatcher_RequestFileUpload(t *testing.T) {
 			for _, fh := range files {
 				f, _ := fh.Open()
 				data, _ := io.ReadAll(f)
-				f.Close()
+				_ = f.Close()
 				receivedFiles[name] = data
 			}
 		}
@@ -670,7 +670,7 @@ func TestDispatcher_RequestMultipleFilesWithForm(t *testing.T) {
 			for _, fh := range files {
 				f, _ := fh.Open()
 				data, _ := io.ReadAll(f)
-				f.Close()
+				_ = f.Close()
 				receivedFiles[name] = data
 			}
 		}
@@ -765,7 +765,7 @@ func TestSSRFProtection(t *testing.T) {
 	client := pool.GetClient(time.Second, "")
 	resp, err := client.Get(ts.URL)
 	if err == nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		t.Fatal("expected SSRF protection to block localhost request")
 	}
 	if !strings.Contains(err.Error(), "SSRF protection") {
@@ -787,7 +787,7 @@ func TestSSRFProtectionDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected request to succeed with SSRF disabled: %v", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 }
 
 func TestSSRFProtectionOverride(t *testing.T) {
@@ -805,7 +805,7 @@ func TestSSRFProtectionOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected override to allow request: %v", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 }
 
 func BenchmarkClientPoolGetDefault(b *testing.B) {

@@ -170,7 +170,7 @@ func (m *Manager) registerCaller(ctx context.Context, id registry.ID, options ru
 
 	waiter, err := m.awaiter.Prepare(ctx, path)
 	if err != nil {
-		return runtimelua.NewRegisterCallerError(id, err)
+		return runtimelua.NewRegisterCallerError(&id, err)
 	}
 
 	m.bus.Send(ctx, event.Event{
@@ -185,7 +185,7 @@ func (m *Manager) registerCaller(ctx context.Context, id registry.ID, options ru
 
 	result := waiter.Wait()
 	if !result.Accepted {
-		return runtimelua.NewRegisterCallerError(id, result.Error)
+		return runtimelua.NewRegisterCallerError(&id, result.Error)
 	}
 	return nil
 }

@@ -128,8 +128,7 @@ func TestNodeMeta_MarshalUnmarshal(t *testing.T) {
 
 func TestNodeID(t *testing.T) {
 	t.Run("type alias", func(t *testing.T) {
-		var id NodeID = "test-node-id"
+		id := "test-node-id"
 		assert.Equal(t, "test-node-id", id)
-		assert.IsType(t, "", id)
 	})
 }

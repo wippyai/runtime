@@ -56,8 +56,8 @@ func TestClientRegistry_Register(t *testing.T) {
 
 		all := registry.GetAll()
 		assert.Len(t, all, 10)
-		for i, interceptor := range all {
-			assert.Equal(t, interceptors[i], interceptor)
+		for i, inter := range all {
+			assert.Equal(t, interceptors[i], inter)
 		}
 	})
 }

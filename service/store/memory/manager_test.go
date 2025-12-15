@@ -52,7 +52,7 @@ func (m *mockBus) clearEvents() {
 	m.events = nil
 }
 
-func newTestManager(t *testing.T) (*Manager, *mockBus, payload.Transcoder) {
+func newTestManager(_ *testing.T) (*Manager, *mockBus, payload.Transcoder) {
 	transcoder := payloadSystem.GlobalTranscoder()
 	json.Register(transcoder)
 	bus := &mockBus{}

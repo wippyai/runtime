@@ -150,8 +150,8 @@ func (r *MockFSRegistry) Register(id string, fs fsapi.FS) {
 }
 
 func (r *MockFSRegistry) GetFS(id string) (fsapi.FS, bool) {
-	fs, ok := r.filesystems[id]
-	return fs, ok
+	f, ok := r.filesystems[id]
+	return f, ok
 }
 
 func TestCreateFileServeMiddleware(t *testing.T) {

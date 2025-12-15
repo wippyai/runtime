@@ -81,7 +81,7 @@ func (d *Dispatcher) handlePrepare(ctx context.Context, cmd dispatcher.Command, 
 		stmt, err := pc.DB.PrepareContext(ctx, pc.Query)
 		if ctx.Err() != nil {
 			if stmt != nil {
-				stmt.Close()
+				_ = stmt.Close()
 			}
 			return
 		}
@@ -96,7 +96,7 @@ func (d *Dispatcher) handleBegin(ctx context.Context, cmd dispatcher.Command, ta
 		tx, err := bc.DB.BeginTx(ctx, bc.Options)
 		if ctx.Err() != nil {
 			if tx != nil {
-				tx.Rollback()
+				_ = tx.Rollback()
 			}
 			return
 		}
@@ -164,7 +164,7 @@ func (d *Dispatcher) handleTxPrepare(ctx context.Context, cmd dispatcher.Command
 		stmt, err := tc.Tx.PrepareContext(ctx, tc.Query)
 		if ctx.Err() != nil {
 			if stmt != nil {
-				stmt.Close()
+				_ = stmt.Close()
 			}
 			return
 		}
@@ -197,7 +197,7 @@ func executeQuery(ctx context.Context, db *sql.DB, query string, params []any) s
 	if err != nil {
 		return sqlapi.QueryResponse{Error: err}
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	return scanRows(rows)
 }
@@ -223,7 +223,7 @@ func executeStmtQuery(ctx context.Context, stmt *sql.Stmt, params []any) sqlapi.
 	if err != nil {
 		return sqlapi.QueryResponse{Error: err}
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	return scanRows(rows)
 }
 
@@ -238,7 +238,7 @@ func executeTxQuery(ctx context.Context, tx *sql.Tx, query string, params []any)
 	if err != nil {
 		return sqlapi.QueryResponse{Error: err}
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	return scanRows(rows)
 }
 

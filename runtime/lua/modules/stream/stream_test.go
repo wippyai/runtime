@@ -279,7 +279,7 @@ func TestStatYieldString(t *testing.T) {
 
 func TestReadYieldHandleResult(t *testing.T) {
 	buf := streamapi.AcquireBuffer(100)
-	copy(buf.Data, []byte("buffered data"))
+	copy(buf.Data, "buffered data")
 	buf.N = 13
 
 	tests := []struct {

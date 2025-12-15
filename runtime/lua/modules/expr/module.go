@@ -181,7 +181,7 @@ func getCachedProgram(cache *lru.Cache[string, *vm.Program], expression string) 
 		return nil, err
 	}
 
-	cache.Set(expression, program)
+	_ = cache.Set(expression, program)
 	return program, nil
 }
 

@@ -47,7 +47,7 @@ func (r *mockFuncRegistry) Call(ctx context.Context, task runtime.Task) (*runtim
 // mockTranscoder implements payload.Transcoder for testing
 type mockTranscoder struct{}
 
-func (m *mockTranscoder) Transcode(p payload.Payload, format payload.Format) (payload.Payload, error) {
+func (m *mockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
 	return p, nil
 }
 
@@ -74,7 +74,7 @@ func TestWippyActivityWithDataConverter(t *testing.T) {
 		ClientOptions: &client.Options{DataConverter: dc},
 	})
 	require.NoError(t, err)
-	defer server.Stop()
+	defer func() { _ = server.Stop() }()
 
 	c := server.Client()
 	defer c.Close()
@@ -146,7 +146,7 @@ func createDataConverterActivityHandler(
 	ctx context.Context,
 	funcReg function.Registry,
 	funcID registry.ID,
-	dc converter.DataConverter,
+	_ converter.DataConverter,
 	_ *zap.Logger,
 ) func(context.Context, interface{}) (interface{}, error) {
 	return func(_ context.Context, input interface{}) (interface{}, error) {
@@ -280,12 +280,12 @@ func (l *testActivityListener) Add(ctx context.Context, entry registry.Entry) er
 		return nil
 	}
 
-	activity, ok := temporal.GetBag("activity")
+	activityBag, ok := temporal.GetBag("activity")
 	if !ok {
 		return nil
 	}
 
-	workerStr := activity.GetString("worker", "")
+	workerStr := activityBag.GetString("worker", "")
 	if workerStr == "" {
 		return nil
 	}

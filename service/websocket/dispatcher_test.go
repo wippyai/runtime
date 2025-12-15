@@ -46,7 +46,7 @@ func echoServer(t *testing.T) *httptest.Server {
 			t.Logf("accept error: %v", err)
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 
 		for {
 			msgType, data, err := conn.Read(r.Context())
@@ -61,13 +61,13 @@ func echoServer(t *testing.T) *httptest.Server {
 }
 
 // readOnlyServer creates a server that just reads messages
-func readOnlyServer(*testing.T) *httptest.Server {
+func readOnlyServer(_ *testing.T) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := websocket.Accept(w, r, nil)
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 		for {
 			_, _, err := conn.Read(r.Context())
 			if err != nil {
@@ -84,7 +84,7 @@ func TestConnectHandler(t *testing.T) {
 	wsURL := "ws" + ts.URL[4:]
 
 	ctx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	d := NewDispatcher()
 	_ = d.Start(ctx)
@@ -138,7 +138,7 @@ func TestConnectHandlerWithHeaders(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 		for {
 			_, _, err := conn.Read(r.Context())
 			if err != nil {
@@ -150,7 +150,7 @@ func TestConnectHandlerWithHeaders(t *testing.T) {
 
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	d := NewDispatcher()
 	_ = d.Start(ctx)
@@ -194,7 +194,7 @@ func TestSendHandler(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 
 		_, data, err := conn.Read(r.Context())
 		if err == nil {
@@ -206,11 +206,11 @@ func TestSendHandler(t *testing.T) {
 
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
@@ -259,7 +259,7 @@ func TestReceiveHandler(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 
 		_ = conn.Write(r.Context(), websocket.MessageText, []byte("server message"))
 		for {
@@ -273,11 +273,11 @@ func TestReceiveHandler(t *testing.T) {
 
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
@@ -332,7 +332,7 @@ func TestReceiveHandlerBinary(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 
 		_ = conn.Write(r.Context(), websocket.MessageBinary, []byte{0x00, 0x01, 0x02})
 		for {
@@ -346,11 +346,11 @@ func TestReceiveHandlerBinary(t *testing.T) {
 
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
@@ -398,17 +398,17 @@ func TestReceiveHandlerEOFOnServerClose(t *testing.T) {
 		if err != nil {
 			return
 		}
-		conn.Close(websocket.StatusNormalClosure, "closing")
+		_ = conn.Close(websocket.StatusNormalClosure, "closing")
 	}))
 	defer ts.Close()
 
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
@@ -443,11 +443,11 @@ func TestCloseHandler(t *testing.T) {
 
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
@@ -496,11 +496,11 @@ func TestPingHandler(t *testing.T) {
 
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
@@ -539,7 +539,7 @@ func TestPingHandler(t *testing.T) {
 
 func TestSendHandlerNotFound(t *testing.T) {
 	ctx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	GetRegistry(ctx)
 
 	d := NewDispatcher()
@@ -573,7 +573,7 @@ func TestSendHandlerNotFound(t *testing.T) {
 
 func TestReceiveHandlerNotFound(t *testing.T) {
 	ctx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	GetRegistry(ctx)
 
 	d := NewDispatcher()
@@ -613,7 +613,7 @@ func TestConcurrentSends(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 
 		for {
 			_, _, err := conn.Read(r.Context())
@@ -630,11 +630,11 @@ func TestConcurrentSends(t *testing.T) {
 
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
@@ -679,7 +679,7 @@ func TestFullCycle(t *testing.T) {
 
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	d := NewDispatcher()
 	_ = d.Start(ctx)
@@ -752,23 +752,23 @@ func TestChannelReceiveMultipleMessages(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 
 		for i := 0; i < numMessages; i++ {
 			_ = conn.Write(r.Context(), websocket.MessageText, []byte("msg"))
 			time.Sleep(10 * time.Millisecond)
 		}
-		conn.Close(websocket.StatusNormalClosure, "done")
+		_ = conn.Close(websocket.StatusNormalClosure, "done")
 	}))
 	defer ts.Close()
 
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
@@ -819,7 +819,7 @@ func TestChannelClosedOnContextCancel(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 		// Keep connection open
 		time.Sleep(10 * time.Second)
 	}))
@@ -827,13 +827,13 @@ func TestChannelClosedOnContextCancel(t *testing.T) {
 
 	wsURL := "ws" + ts.URL[4:]
 	baseCtx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	ctx, cancel := context.WithCancel(baseCtx)
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
@@ -871,7 +871,7 @@ func TestCleanupOnStoreClose(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 		for {
 			_, _, err := conn.Read(r.Context())
 			if err != nil {
@@ -915,7 +915,7 @@ func TestCleanupOnStoreClose(t *testing.T) {
 	}
 
 	// Close the store (simulates process end)
-	store.Close()
+	_ = store.Close()
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -931,7 +931,7 @@ func TestCleanupMultipleConnections(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 		for {
 			_, _, err := conn.Read(r.Context())
 			if err != nil {
@@ -969,7 +969,7 @@ func TestCleanupMultipleConnections(t *testing.T) {
 		t.Errorf("expected 5 connections, got %d", store.Table().Len())
 	}
 
-	store.Close()
+	_ = store.Close()
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -1008,7 +1008,7 @@ func TestDispatcherWithWorkers(t *testing.T) {
 
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	d := NewDispatcher(WithWorkers(2))
 	err := d.Start(ctx)
@@ -1066,17 +1066,17 @@ func TestRemoteCloseDeliveryEOF(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 
 		// Close connection
-		conn.Close(websocket.StatusNormalClosure, "server closing")
+		_ = conn.Close(websocket.StatusNormalClosure, "server closing")
 	}))
 	defer ts.Close()
 
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
@@ -1133,7 +1133,6 @@ func TestDispatcherWithLogger(t *testing.T) {
 }
 
 func TestNoRegistryErrors(t *testing.T) {
-	// Context without resource.Store
 	ctx := context.Background()
 
 	d := NewDispatcher()
@@ -1188,7 +1187,7 @@ func TestConnectWithProtocols(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 		for {
 			_, _, err := conn.Read(r.Context())
 			if err != nil {
@@ -1200,7 +1199,7 @@ func TestConnectWithProtocols(t *testing.T) {
 
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	d := NewDispatcher()
 	_ = d.Start(ctx)
@@ -1238,7 +1237,7 @@ func TestConnectWithCompression(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 		for {
 			_, _, err := conn.Read(r.Context())
 			if err != nil {
@@ -1250,7 +1249,7 @@ func TestConnectWithCompression(t *testing.T) {
 
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	d := NewDispatcher()
 	_ = d.Start(ctx)
@@ -1299,7 +1298,7 @@ func TestConnectWithCompression(t *testing.T) {
 
 func TestConnectWithDialTimeout(t *testing.T) {
 	ctx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	d := NewDispatcher()
 	_ = d.Start(ctx)
@@ -1337,7 +1336,7 @@ func TestConnectWithReadLimit(t *testing.T) {
 
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	d := NewDispatcher()
 	_ = d.Start(ctx)
@@ -1379,7 +1378,7 @@ func TestSendBinaryMessage(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 
 		msgType, _, err := conn.Read(r.Context())
 		if err == nil {
@@ -1391,11 +1390,11 @@ func TestSendBinaryMessage(t *testing.T) {
 
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
@@ -1442,7 +1441,7 @@ func BenchmarkSend(b *testing.B) {
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 		for {
 			_, _, err := conn.Read(r.Context())
 			if err != nil {
@@ -1454,11 +1453,11 @@ func BenchmarkSend(b *testing.B) {
 
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 	if err != nil {
 		b.Fatalf("dial failed: %v", err)
@@ -1494,7 +1493,7 @@ func BenchmarkReceive(b *testing.B) {
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 
 		// Send messages as fast as possible
 		for i := 0; i < b.N*10; i++ {
@@ -1509,11 +1508,11 @@ func BenchmarkReceive(b *testing.B) {
 
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 	if err != nil {
 		b.Fatalf("dial failed: %v", err)
@@ -1546,7 +1545,7 @@ func BenchmarkChannelReceive(b *testing.B) {
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 
 		for i := 0; i < b.N*10; i++ {
 			if err := conn.Write(r.Context(), websocket.MessageText, []byte("bench")); err != nil {
@@ -1559,11 +1558,11 @@ func BenchmarkChannelReceive(b *testing.B) {
 
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 	if err != nil {
 		b.Fatalf("dial failed: %v", err)

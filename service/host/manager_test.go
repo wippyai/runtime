@@ -32,7 +32,7 @@ func (m *mockCommandRegistry) Has(dispatcherapi.CommandID) bool {
 	return false
 }
 
-func newTestManager(*testing.T) *Manager {
+func newTestManager(_ *testing.T) *Manager {
 	bus := eventbus.NewBus()
 	dtt := payloadSystem.GlobalTranscoder()
 	json.Register(dtt)

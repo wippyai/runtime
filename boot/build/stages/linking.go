@@ -258,7 +258,7 @@ func (s *linkStage) findTargetEntries(
 	var results []*registry.Entry
 
 	for i := range *entries {
-		entry := &(*entries)[i]
+		e := &(*entries)[i]
 
 		// Empty entry is not supported
 		if targetEntry == "" {
@@ -271,16 +271,16 @@ func (s *linkStage) findTargetEntries(
 			if len(parts) == 2 {
 				targetNS := parts[0]
 				targetName := parts[1]
-				if entry.ID.NS == targetNS && entry.ID.Name == targetName {
-					results = append(results, entry)
+				if e.ID.NS == targetNS && e.ID.Name == targetName {
+					results = append(results, e)
 				}
 			}
 			continue
 		}
 
 		// Local namespace reference (just name)
-		if entry.ID.NS == requirementNS && entry.ID.Name == targetEntry {
-			results = append(results, entry)
+		if e.ID.NS == requirementNS && e.ID.Name == targetEntry {
+			results = append(results, e)
 		}
 	}
 

@@ -59,13 +59,13 @@ func Profiler() boot.Component {
 				runtime.GC()
 				var m runtime.MemStats
 				runtime.ReadMemStats(&m)
-				fmt.Fprintf(w, "GC done. HeapAlloc=%dMB HeapObjects=%d\n",
+				_, _ = fmt.Fprintf(w, "GC done. HeapAlloc=%dMB HeapObjects=%d\n",
 					m.HeapAlloc/1024/1024, m.HeapObjects)
 			})
 			mux.HandleFunc("/debug/stats", func(w httpbase.ResponseWriter, _ *httpbase.Request) {
 				var m runtime.MemStats
 				runtime.ReadMemStats(&m)
-				fmt.Fprintf(w, "HeapAlloc=%dMB HeapObjects=%d\n",
+				_, _ = fmt.Fprintf(w, "HeapAlloc=%dMB HeapObjects=%d\n",
 					m.HeapAlloc/1024/1024, m.HeapObjects)
 			})
 

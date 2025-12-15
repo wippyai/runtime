@@ -237,7 +237,8 @@ func isContract(l *lua.LState) int {
 
 	regID := registry.ParseID(contractID)
 	for _, c := range wrapper.instance.Implements() {
-		if c.ID().String() == regID.String() {
+		cID := c.ID()
+		if cID.String() == regID.String() {
 			l.Push(lua.LBool(true))
 			return 1
 		}
@@ -292,7 +293,8 @@ func findImplementations(l *lua.LState) int {
 
 func contractID(l *lua.LState) int {
 	wrapper := l.CheckUserData(1).Value.(*Wrapper)
-	l.Push(lua.LString(wrapper.definition.ID().String()))
+	id := wrapper.definition.ID()
+	l.Push(lua.LString(id.String()))
 	return 1
 }
 

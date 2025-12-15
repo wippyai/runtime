@@ -52,7 +52,7 @@ func TestPackUnpack(t *testing.T) {
 		file, err := os.Create(packPath)
 		require.NoError(t, err)
 		err = packer.PackEntries(testMetadata(len(entries)), entries, file)
-		file.Close()
+		_ = file.Close()
 		require.NoError(t, err)
 
 		// Verify file exists
@@ -63,7 +63,7 @@ func TestPackUnpack(t *testing.T) {
 		// Unpack
 		file, err = os.Open(packPath)
 		require.NoError(t, err)
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		data, err := io.ReadAll(file)
 		require.NoError(t, err)
@@ -90,13 +90,13 @@ func TestPackUnpack(t *testing.T) {
 		file, err := os.Create(packPath)
 		require.NoError(t, err)
 		err = packer.PackEntries(testMetadata(len(entries)), entries, file)
-		file.Close()
+		_ = file.Close()
 		require.NoError(t, err)
 
 		file, err = os.Open(packPath)
 		require.NoError(t, err)
 		data, err := io.ReadAll(file)
-		file.Close()
+		_ = file.Close()
 		require.NoError(t, err)
 
 		reader, err := NewReader(bytes.NewReader(data), transcoder)
@@ -126,13 +126,13 @@ func TestPackUnpack(t *testing.T) {
 		file, err := os.Create(packPath)
 		require.NoError(t, err)
 		err = packer.PackEntries(testMetadata(len(entries)), entries, file)
-		file.Close()
+		_ = file.Close()
 		require.NoError(t, err)
 
 		file, err = os.Open(packPath)
 		require.NoError(t, err)
 		data, err := io.ReadAll(file)
-		file.Close()
+		_ = file.Close()
 		require.NoError(t, err)
 
 		reader, err := NewReader(bytes.NewReader(data), transcoder)
@@ -158,13 +158,13 @@ func TestPackUnpack(t *testing.T) {
 		file, err := os.Create(packPath)
 		require.NoError(t, err)
 		err = packer.PackEntries(testMetadata(len(entries)), entries, file)
-		file.Close()
+		_ = file.Close()
 		require.NoError(t, err)
 
 		file, err = os.Open(packPath)
 		require.NoError(t, err)
 		data, err := io.ReadAll(file)
-		file.Close()
+		_ = file.Close()
 		require.NoError(t, err)
 
 		reader, err := NewReader(bytes.NewReader(data), transcoder)
@@ -208,13 +208,13 @@ func TestPackUnpack(t *testing.T) {
 		file, err := os.Create(packPath)
 		require.NoError(t, err)
 		err = packer.PackEntries(testMetadata(len(entries)), entries, file)
-		file.Close()
+		_ = file.Close()
 		require.NoError(t, err)
 
 		file, err = os.Open(packPath)
 		require.NoError(t, err)
 		data, err := io.ReadAll(file)
-		file.Close()
+		_ = file.Close()
 		require.NoError(t, err)
 
 		reader, err := NewReader(bytes.NewReader(data), transcoder)
@@ -233,7 +233,7 @@ func TestUnpackErrors(t *testing.T) {
 	t.Run("file does not exist", func(t *testing.T) {
 		file, err := os.Open("/nonexistent/file.pack")
 		if err == nil {
-			defer file.Close()
+			defer func() { _ = file.Close() }()
 		}
 		assert.Error(t, err)
 	})
@@ -304,7 +304,7 @@ func TestUnpackErrors(t *testing.T) {
 		file, err := os.Create(packPath)
 		require.NoError(t, err)
 		err = packer.PackEntries(testMetadata(len(entries)), entries, file)
-		file.Close()
+		_ = file.Close()
 		require.NoError(t, err)
 
 		// Corrupt the file by modifying data
@@ -342,7 +342,7 @@ func TestPackErrors(t *testing.T) {
 	t.Run("invalid path", func(t *testing.T) {
 		file, err := os.Create("/nonexistent/dir/file.pack")
 		if err == nil {
-			defer file.Close()
+			defer func() { _ = file.Close() }()
 		}
 		assert.Error(t, err)
 	})
@@ -374,7 +374,7 @@ func TestCompression(t *testing.T) {
 		file, err := os.Create(packPath)
 		require.NoError(t, err)
 		err = packer.PackEntries(testMetadata(len(entries)), entries, file)
-		file.Close()
+		_ = file.Close()
 		require.NoError(t, err)
 
 		info, err := os.Stat(packPath)

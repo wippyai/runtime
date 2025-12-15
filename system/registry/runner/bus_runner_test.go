@@ -861,7 +861,7 @@ func (r *testResolver) Extract(entry registry.Entry) []string {
 	return nil
 }
 
-func (r *testResolver) RegisterPattern(pattern registry.DependencyPattern) error {
+func (r *testResolver) RegisterPattern(_ registry.DependencyPattern) error {
 	return nil
 }
 

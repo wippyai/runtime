@@ -959,7 +959,7 @@ func TestDuplicateValuesPairsOverwrite(t *testing.T) {
 	defer ctxapi.ReleaseFrameContext(fc)
 
 	for _, p := range pairs {
-		fc.Set(p.Key, p.Value)
+		_ = fc.Set(p.Key, p.Value)
 	}
 
 	// The bug: session_id is LOST because second ValuesPair overwrote the first
@@ -996,7 +996,7 @@ func TestMergedContextPairsAppliedCorrectly(t *testing.T) {
 	frameValues := ctxapi.NewValues()
 	frameValues.Set("session_id", "sess-123")
 	frameValues.Set("user_id", "user-456")
-	callerFC.Set(ctxapi.ValuesCtx, frameValues)
+	_ = callerFC.Set(ctxapi.ValuesCtx, frameValues)
 	l.SetContext(callerCtx)
 
 	// Create explicit values (simulating with_context({agent_id=...}))
@@ -1012,7 +1012,7 @@ func TestMergedContextPairsAppliedCorrectly(t *testing.T) {
 	defer ctxapi.ReleaseFrameContext(calleeFC)
 
 	for _, p := range mergedPairs {
-		calleeFC.Set(p.Key, p.Value)
+		_ = calleeFC.Set(p.Key, p.Value)
 	}
 
 	// Verify BOTH inherited AND explicit values are present in the callee's context

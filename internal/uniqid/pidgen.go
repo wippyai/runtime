@@ -21,9 +21,10 @@ func NewPIDGenerator(gen *Generator, nodeID pid.NodeID) *PIDGenerator {
 // Generate creates a PID with host, auto-generating UniqID.
 // Uses the configured node ID if set.
 func (p *PIDGenerator) Generate(host pid.HostID) pid.PID {
-	return pid.PID{
+	result := pid.PID{
 		Node:   p.nodeID,
 		Host:   host,
 		UniqID: p.gen.Generate(),
-	}.Precomputed()
+	}
+	return result.Precomputed()
 }

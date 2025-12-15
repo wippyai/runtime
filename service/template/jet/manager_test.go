@@ -45,7 +45,7 @@ func (m *mockBus) getEvents() []event.Event {
 	return m.events
 }
 
-func newTestManager(t *testing.T) (*Manager, *mockBus, payload.Transcoder) {
+func newTestManager(_ *testing.T) (*Manager, *mockBus, payload.Transcoder) {
 	transcoder := payloadSystem.GlobalTranscoder()
 	json.Register(transcoder)
 	bus := &mockBus{}
@@ -218,7 +218,7 @@ func TestManager_UpdateTemplate(t *testing.T) {
 	setID := registry.NewID("test", "my-set")
 	setCfg := &template.SetConfig{}
 	setEntry := makeSetEntry(setID, setCfg)
-	m.Add(ctx, setEntry)
+	_ = m.Add(ctx, setEntry)
 
 	tplID := registry.NewID("test", "my-template")
 	tplCfg := &template.Config{
@@ -226,7 +226,7 @@ func TestManager_UpdateTemplate(t *testing.T) {
 		Set:    setID,
 	}
 	tplEntry := makeTemplateEntry(tplID, tplCfg)
-	m.Add(ctx, tplEntry)
+	_ = m.Add(ctx, tplEntry)
 
 	updatedCfg := &template.Config{
 		Source: "Updated Hello",
@@ -248,7 +248,7 @@ func TestManager_UpdateTemplateRename(t *testing.T) {
 	setID := registry.NewID("test", "my-set")
 	setCfg := &template.SetConfig{}
 	setEntry := makeSetEntry(setID, setCfg)
-	m.Add(ctx, setEntry)
+	_ = m.Add(ctx, setEntry)
 
 	tplID := registry.NewID("test", "my-template")
 	tplCfg := &template.Config{
@@ -256,7 +256,7 @@ func TestManager_UpdateTemplateRename(t *testing.T) {
 		Set:    setID,
 	}
 	tplEntry := makeTemplateEntry(tplID, tplCfg)
-	m.Add(ctx, tplEntry)
+	_ = m.Add(ctx, tplEntry)
 
 	updatedCfg := &template.Config{
 		Source: "Hello",
@@ -284,8 +284,8 @@ func TestManager_UpdateTemplateMoveSet(t *testing.T) {
 	setID2 := registry.NewID("test", "set-2")
 
 	setCfg := &template.SetConfig{}
-	m.Add(ctx, makeSetEntry(setID1, setCfg))
-	m.Add(ctx, makeSetEntry(setID2, setCfg))
+	_ = m.Add(ctx, makeSetEntry(setID1, setCfg))
+	_ = m.Add(ctx, makeSetEntry(setID2, setCfg))
 
 	tplID := registry.NewID("test", "my-template")
 	tplCfg := &template.Config{
@@ -293,7 +293,7 @@ func TestManager_UpdateTemplateMoveSet(t *testing.T) {
 		Set:    setID1,
 	}
 	tplEntry := makeTemplateEntry(tplID, tplCfg)
-	m.Add(ctx, tplEntry)
+	_ = m.Add(ctx, tplEntry)
 
 	updatedCfg := &template.Config{
 		Source: "Hello",
@@ -335,7 +335,7 @@ func TestManager_DeleteTemplate(t *testing.T) {
 	setID := registry.NewID("test", "my-set")
 	setCfg := &template.SetConfig{}
 	setEntry := makeSetEntry(setID, setCfg)
-	m.Add(ctx, setEntry)
+	_ = m.Add(ctx, setEntry)
 
 	tplID := registry.NewID("test", "my-template")
 	tplCfg := &template.Config{
@@ -343,7 +343,7 @@ func TestManager_DeleteTemplate(t *testing.T) {
 		Set:    setID,
 	}
 	tplEntry := makeTemplateEntry(tplID, tplCfg)
-	m.Add(ctx, tplEntry)
+	_ = m.Add(ctx, tplEntry)
 
 	err := m.Delete(ctx, tplEntry)
 	require.NoError(t, err)
@@ -373,7 +373,7 @@ func TestManager_UpdateSet(t *testing.T) {
 	setID := registry.NewID("test", "my-set")
 	setCfg := &template.SetConfig{}
 	setEntry := makeSetEntry(setID, setCfg)
-	m.Add(ctx, setEntry)
+	_ = m.Add(ctx, setEntry)
 
 	tplID := registry.NewID("test", "my-template")
 	tplCfg := &template.Config{
@@ -381,7 +381,7 @@ func TestManager_UpdateSet(t *testing.T) {
 		Set:    setID,
 	}
 	tplEntry := makeTemplateEntry(tplID, tplCfg)
-	m.Add(ctx, tplEntry)
+	_ = m.Add(ctx, tplEntry)
 
 	updatedSetCfg := &template.SetConfig{
 		Engine: template.EngineConfig{
@@ -414,7 +414,7 @@ func TestManager_DeleteSet(t *testing.T) {
 	setID := registry.NewID("test", "my-set")
 	setCfg := &template.SetConfig{}
 	setEntry := makeSetEntry(setID, setCfg)
-	m.Add(ctx, setEntry)
+	_ = m.Add(ctx, setEntry)
 
 	err := m.Delete(ctx, setEntry)
 	require.NoError(t, err)
@@ -440,7 +440,7 @@ func TestManager_DeleteSetNotEmpty(t *testing.T) {
 	setID := registry.NewID("test", "my-set")
 	setCfg := &template.SetConfig{}
 	setEntry := makeSetEntry(setID, setCfg)
-	m.Add(ctx, setEntry)
+	_ = m.Add(ctx, setEntry)
 
 	tplID := registry.NewID("test", "my-template")
 	tplCfg := &template.Config{
@@ -448,7 +448,7 @@ func TestManager_DeleteSetNotEmpty(t *testing.T) {
 		Set:    setID,
 	}
 	tplEntry := makeTemplateEntry(tplID, tplCfg)
-	m.Add(ctx, tplEntry)
+	_ = m.Add(ctx, tplEntry)
 
 	err := m.Delete(ctx, setEntry)
 	require.Error(t, err)
@@ -482,7 +482,7 @@ func TestManager_Acquire(t *testing.T) {
 	setID := registry.NewID("test", "my-set")
 	setCfg := &template.SetConfig{}
 	setEntry := makeSetEntry(setID, setCfg)
-	m.Add(ctx, setEntry)
+	_ = m.Add(ctx, setEntry)
 
 	res, err := m.Acquire(ctx, setID, resource.ModeNormal)
 	require.NoError(t, err)
@@ -511,7 +511,7 @@ func TestManager_ConcurrentOperations(t *testing.T) {
 	setID := registry.NewID("test", "my-set")
 	setCfg := &template.SetConfig{}
 	setEntry := makeSetEntry(setID, setCfg)
-	m.Add(ctx, setEntry)
+	_ = m.Add(ctx, setEntry)
 
 	var wg sync.WaitGroup
 	errs := make(chan error, 100)

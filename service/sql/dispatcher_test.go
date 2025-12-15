@@ -61,7 +61,7 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 
 func TestDispatcher_Query(t *testing.T) {
 	db := setupTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	_, err := db.Exec(`INSERT INTO test (name) VALUES ('alice'), ('bob')`)
 	require.NoError(t, err)
@@ -97,7 +97,7 @@ func TestDispatcher_Query(t *testing.T) {
 
 func TestDispatcher_Execute(t *testing.T) {
 	db := setupTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	d := NewDispatcher()
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
@@ -129,7 +129,7 @@ func TestDispatcher_Execute(t *testing.T) {
 
 func TestDispatcher_Transaction(t *testing.T) {
 	db := setupTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	d := NewDispatcher()
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
@@ -197,7 +197,7 @@ func TestDispatcher_Transaction(t *testing.T) {
 
 func TestDispatcher_PreparedStatement(t *testing.T) {
 	db := setupTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	d := NewDispatcher()
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
@@ -262,7 +262,7 @@ func TestDispatcher_PreparedStatement(t *testing.T) {
 
 func TestDispatcher_ContextCancellation(t *testing.T) {
 	db := setupTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	d := NewDispatcher()
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)

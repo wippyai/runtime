@@ -482,15 +482,15 @@ func benchSetup(b *testing.B, files map[string]string) (string, func()) {
 	for name, content := range files {
 		path := filepath.Join(root, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-			os.RemoveAll(root)
+			_ = os.RemoveAll(root)
 			b.Fatal(err)
 		}
 		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-			os.RemoveAll(root)
+			_ = os.RemoveAll(root)
 			b.Fatal(err)
 		}
 	}
-	return root, func() { os.RemoveAll(root) }
+	return root, func() { _ = os.RemoveAll(root) }
 }
 
 func BenchmarkFSOpen(b *testing.B) {
@@ -503,7 +503,7 @@ func BenchmarkFSOpen(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer fs.Close()
+	defer func() { _ = fs.Close() }()
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -513,7 +513,7 @@ func BenchmarkFSOpen(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		f.Close()
+		_ = f.Close()
 	}
 }
 
@@ -531,7 +531,7 @@ func BenchmarkFSRead(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer fs.Close()
+	defer func() { _ = fs.Close() }()
 
 	buf := make([]byte, 1024)
 	b.ReportAllocs()
@@ -543,7 +543,7 @@ func BenchmarkFSRead(b *testing.B) {
 			b.Fatal(err)
 		}
 		_, _ = io.ReadFull(f, buf)
-		f.Close()
+		_ = f.Close()
 	}
 }
 
@@ -557,7 +557,7 @@ func BenchmarkFSStat(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer fs.Close()
+	defer func() { _ = fs.Close() }()
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -582,7 +582,7 @@ func BenchmarkFSReadDir(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer fs.Close()
+	defer func() { _ = fs.Close() }()
 
 	b.ReportAllocs()
 	b.ResetTimer()

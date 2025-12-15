@@ -54,13 +54,13 @@ func TestDeterministicEncoding(t *testing.T) {
 		file1, err := os.Create(path1)
 		require.NoError(t, err)
 		err = packer.PackEntries(testMetadata(len(entries1)), entries1, file1)
-		file1.Close()
+		_ = file1.Close()
 		require.NoError(t, err)
 
 		file2, err := os.Create(path2)
 		require.NoError(t, err)
 		err = packer.PackEntries(testMetadata(len(entries2)), entries2, file2)
-		file2.Close()
+		_ = file2.Close()
 		require.NoError(t, err)
 
 		data1, err := os.ReadFile(path1)
@@ -88,7 +88,7 @@ func TestDeterministicEncoding(t *testing.T) {
 			file, err := os.Create(path)
 			require.NoError(t, err)
 			err = packer.PackEntries(testMetadata(len(entries)), entries, file)
-			file.Close()
+			_ = file.Close()
 			require.NoError(t, err)
 
 			data, err := os.ReadFile(path)
@@ -148,13 +148,13 @@ func TestDeterministicEncoding(t *testing.T) {
 		file1, err := os.Create(path1)
 		require.NoError(t, err)
 		err = packer.PackEntries(testMetadata(len(entries1)), entries1, file1)
-		file1.Close()
+		_ = file1.Close()
 		require.NoError(t, err)
 
 		file2, err := os.Create(path2)
 		require.NoError(t, err)
 		err = packer.PackEntries(testMetadata(len(entries2)), entries2, file2)
-		file2.Close()
+		_ = file2.Close()
 		require.NoError(t, err)
 
 		data1, err := os.ReadFile(path1)

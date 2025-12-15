@@ -219,7 +219,7 @@ func TestManager_Delete_AcceptsValidKinds(t *testing.T) {
 	// Test that invalid kind is rejected
 	invalidEntry := registry.Entry{
 		ID:   registry.NewID("test", "func"),
-		Kind: registry.Kind("invalid"),
+		Kind: "invalid",
 	}
 	err := manager.Delete(context.Background(), invalidEntry)
 	assert.Error(t, err)

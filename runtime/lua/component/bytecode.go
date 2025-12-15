@@ -24,7 +24,7 @@ func LoadBytecode(fsReg fsapi.Registry, fsID, path string) ([]byte, error) {
 	if err != nil {
 		return nil, luaapi.NewOpenFileError(path, err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	return io.ReadAll(file)
 }

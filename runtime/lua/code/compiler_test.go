@@ -302,7 +302,7 @@ func TestCompiler_GetCompiledProto(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			compiler := NewCompiler(tt.compileFn, 100, 200)
 			if !tt.expectError {
-				compiler.protoCache.Set(tt.node.ID, tt.expectedProto)
+				_ = compiler.protoCache.Set(tt.node.ID, tt.expectedProto)
 			}
 
 			proto, err := compiler.getCompiledProto(tt.node)
@@ -322,8 +322,8 @@ func TestCompiler_Invalidate(t *testing.T) {
 
 	// Add some test data
 	testID := registry.NewID("test", "id")
-	compiler.protoCache.Set(testID, &glua.FunctionProto{})
-	compiler.mainCache.Set(testID, &CompiledMain{})
+	_ = compiler.protoCache.Set(testID, &glua.FunctionProto{})
+	_ = compiler.mainCache.Set(testID, &CompiledMain{})
 
 	// Invalidate the test ID
 	compiler.Invalidate([]registry.ID{testID})

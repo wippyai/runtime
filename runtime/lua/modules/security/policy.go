@@ -34,7 +34,8 @@ func policyID(l *lua.LState) int {
 	if policy == nil {
 		return 0
 	}
-	l.Push(lua.LString(policy.ID().String()))
+	id := policy.ID()
+	l.Push(lua.LString(id.String()))
 	return 1
 }
 

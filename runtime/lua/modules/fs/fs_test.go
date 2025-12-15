@@ -1,7 +1,6 @@
 package fs
 
 import (
-	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -19,10 +18,8 @@ import (
 
 func requireLuaError(t *testing.T, val lua.LValue) *lua.Error {
 	t.Helper()
-	err, ok := val.(error)
-	require.True(t, ok, "expected error type, got %T", val)
-	var luaErr *lua.Error
-	require.True(t, errors.As(err, &luaErr), "expected *lua.Error, got %T", val)
+	luaErr, ok := val.(*lua.Error)
+	require.True(t, ok, "expected *lua.Error, got %T", val)
 	return luaErr
 }
 
@@ -30,7 +27,7 @@ func createTestFS(t *testing.T) (*FS, func()) {
 	tmpDir := t.TempDir()
 	fsys, err := directory.NewFS(tmpDir, 0755, false)
 	require.NoError(t, err)
-	return NewFS(fsys, ""), func() { fsys.Close() }
+	return NewFS(fsys, ""), func() { _ = fsys.Close() }
 }
 
 func TestFSStructuredErrors(t *testing.T) {
@@ -258,7 +255,7 @@ func TestFSMkdirAlreadyExists(t *testing.T) {
 	tmpDir := t.TempDir()
 	fsys, err := directory.NewFS(tmpDir, 0755, false)
 	require.NoError(t, err)
-	defer fsys.Close()
+	defer func() { _ = fsys.Close() }()
 	f := NewFS(fsys, "")
 
 	err = os.Mkdir(tmpDir+"/existing", 0755)
@@ -286,7 +283,7 @@ func TestFSChdirNotDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
 	fsys, err := directory.NewFS(tmpDir, 0755, false)
 	require.NoError(t, err)
-	defer fsys.Close()
+	defer func() { _ = fsys.Close() }()
 	f := NewFS(fsys, "")
 
 	err = os.WriteFile(tmpDir+"/file.txt", []byte("test"), 0600)
@@ -314,7 +311,7 @@ func TestFSReaddirNotDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
 	fsys, err := directory.NewFS(tmpDir, 0755, false)
 	require.NoError(t, err)
-	defer fsys.Close()
+	defer func() { _ = fsys.Close() }()
 	f := NewFS(fsys, "")
 
 	err = os.WriteFile(tmpDir+"/file.txt", []byte("test"), 0600)
@@ -342,7 +339,7 @@ func TestFSRemoveNonEmpty(t *testing.T) {
 	tmpDir := t.TempDir()
 	fsys, err := directory.NewFS(tmpDir, 0755, false)
 	require.NoError(t, err)
-	defer fsys.Close()
+	defer func() { _ = fsys.Close() }()
 	f := NewFS(fsys, "")
 
 	dir := tmpDir + "/nonempty"
@@ -379,13 +376,13 @@ func TestFSWritefileWithStream(t *testing.T) {
 	tmpDir := t.TempDir()
 	fsys, err := directory.NewFS(tmpDir, 0755, false)
 	require.NoError(t, err)
-	defer fsys.Close()
+	defer func() { _ = fsys.Close() }()
 	f := NewFS(fsys, "")
 
 	ctx := ctxapi.NewRootContext()
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	store := resource.NewStore()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	err = resource.SetStore(ctx, store)
 	require.NoError(t, err)
 	table := resource.GetTable(ctx)

@@ -414,7 +414,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	p.Send(progressMsg{stage: stageLoadEntries, percent: 0.2, status: fmt.Sprintf("Loading entries from %d paths...", len(paths))})
 	p.Send(logMsg{level: "info", message: fmt.Sprintf("Loading from %d paths", len(paths))})
 
-	var entries []regapi.Entry
+	var loadedEntries []regapi.Entry
 	for i, path := range paths {
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			logger.Warn("path not found, skipping", zap.String("path", path))
@@ -425,23 +425,23 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 		p.Send(logMsg{level: "info", message: "Loading entries", fields: map[string]interface{}{"path": path}})
 
 		dirFS := os.DirFS(path)
-		loadedEntries, err := app.Loader.LoadFS(app.Ctx, dirFS)
+		pathEntries, err := app.Loader.LoadFS(app.Ctx, dirFS)
 		if err != nil {
 			return NewLoadEntriesError(path, err)
 		}
 
-		entries = append(entries, loadedEntries...)
+		loadedEntries = append(loadedEntries, pathEntries...)
 
-		progress := 0.2 + (float64(i+1)/float64(len(paths)))*0.2
+		pct := 0.2 + (float64(i+1)/float64(len(paths)))*0.2
 		p.Send(progressMsg{
 			stage:   stageLoadEntries,
-			percent: progress,
-			status:  fmt.Sprintf("Loaded %d entries from %d/%d paths", len(entries), i+1, len(paths)),
+			percent: pct,
+			status:  fmt.Sprintf("Loaded %d entries from %d/%d paths", len(loadedEntries), i+1, len(paths)),
 		})
-		p.Send(logMsg{level: "info", message: fmt.Sprintf("Loaded %d entries total", len(entries))})
+		p.Send(logMsg{level: "info", message: fmt.Sprintf("Loaded %d entries total", len(loadedEntries))})
 	}
 
-	p.Send(statsMsg{entryCount: len(entries)})
+	p.Send(statsMsg{entryCount: len(loadedEntries)})
 
 	p.Send(progressMsg{stage: stagePipeline, percent: 0.5, status: "Executing pipeline stages..."})
 
@@ -492,7 +492,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 
 	pipeline := build.New(pipelineStages...)
 
-	if err := pipeline.Execute(app.Ctx, &entries); err != nil {
+	if err := pipeline.Execute(app.Ctx, &loadedEntries); err != nil {
 		return NewExecutePipelineError(err)
 	}
 
@@ -543,7 +543,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 		}
 
 		p.Send(statsMsg{
-			entryCount:    len(entries),
+			entryCount:    len(loadedEntries),
 			resourceCount: len(resources),
 			resources:     resInfos,
 		})
@@ -563,7 +563,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 		"wippy_commit":  version.Commit,
 		"wippy_date":    version.Date,
 		"packed_at":     time.Now().UTC().Format(time.RFC3339),
-		"entry_count":   len(entries),
+		"entry_count":   len(loadedEntries),
 	}
 
 	if description != "" {
@@ -600,11 +600,11 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	defer func() { _ = file.Close() }()
 
 	if len(resources) > 0 {
-		if err := packWriter.PackWithResources(metadata, entries, resources, file); err != nil {
+		if err := packWriter.PackWithResources(metadata, loadedEntries, resources, file); err != nil {
 			return NewPackWithResourcesError(err)
 		}
 	} else {
-		if err := packWriter.PackEntries(metadata, entries, file); err != nil {
+		if err := packWriter.PackEntries(metadata, loadedEntries, file); err != nil {
 			return NewPackEntriesError(err)
 		}
 	}
@@ -685,19 +685,19 @@ func runListMode(app *appinit.Context, lockPath, _ string) error {
 
 	paths := lockObj.GetLoadPaths()
 
-	var entries []regapi.Entry
+	var allEntries []regapi.Entry
 	for _, path := range paths {
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			continue
 		}
 
 		dirFS := os.DirFS(path)
-		loadedEntries, err := app.Loader.LoadFS(app.Ctx, dirFS)
+		pathEntries, err := app.Loader.LoadFS(app.Ctx, dirFS)
 		if err != nil {
 			return NewLoadEntriesError(path, err)
 		}
 
-		entries = append(entries, loadedEntries...)
+		allEntries = append(allEntries, pathEntries...)
 	}
 
 	titleStyle := lipgloss.NewStyle().
@@ -711,25 +711,25 @@ func runListMode(app *appinit.Context, lockPath, _ string) error {
 	fmt.Println()
 
 	count := 0
-	for _, entry := range entries {
-		if entry.Kind != "fs.directory" {
+	for _, e := range allEntries {
+		if e.Kind != "fs.directory" {
 			continue
 		}
 
 		count++
-		data := entry.Data.Data()
+		data := e.Data.Data()
 		cfg, ok := data.(map[string]interface{})
 		if !ok {
 			continue
 		}
 
 		directory, _ := cfg["directory"].(string)
-		fmt.Printf("  %s %s\n", labelStyle.Render("•"), entry.ID.String())
+		fmt.Printf("  %s %s\n", labelStyle.Render("•"), e.ID.String())
 		if directory != "" {
 			fmt.Printf("    %s %s\n", dimStyle.Render("Path:"), directory)
 		}
-		if entry.ID.NS != "" {
-			fmt.Printf("    %s %s\n", dimStyle.Render("Namespace:"), entry.ID.NS)
+		if e.ID.NS != "" {
+			fmt.Printf("    %s %s\n", dimStyle.Render("Namespace:"), e.ID.NS)
 		}
 		fmt.Println()
 	}

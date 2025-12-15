@@ -55,13 +55,6 @@ func WithForbiddenClasses(classes ...string) CompilerOption {
 	}
 }
 
-// WithAllowedClasses sets the allowed module classes.
-func WithAllowedClasses(classes ...string) CompilerOption {
-	return func(c *Compiler) {
-		c.allowedClasses = classes
-	}
-}
-
 // NewCompiler creates a compiler with available modules.
 func NewCompiler(modules []luaapi.Module, opts ...CompilerOption) *Compiler {
 	available := make(map[string]luaapi.Module)

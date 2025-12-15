@@ -70,7 +70,7 @@ func NewDispatcher(opts ...Option) *Dispatcher {
 // Start logs dispatcher start.
 func (d *Dispatcher) Start(_ context.Context) error {
 	if d.debug != nil {
-		fmt.Fprintf(d.debug, "[http] dispatcher started\n")
+		_, _ = fmt.Fprintf(d.debug, "[http] dispatcher started\n")
 	}
 	return nil
 }
@@ -78,7 +78,7 @@ func (d *Dispatcher) Start(_ context.Context) error {
 // Stop logs dispatcher stop.
 func (d *Dispatcher) Stop(_ context.Context) error {
 	if d.debug != nil {
-		fmt.Fprintf(d.debug, "[http] dispatcher stopped pool_size=%d\n", d.pool.Size())
+		_, _ = fmt.Fprintf(d.debug, "[http] dispatcher stopped pool_size=%d\n", d.pool.Size())
 	}
 	return nil
 }
@@ -93,7 +93,7 @@ func (d *Dispatcher) handleRequest(ctx context.Context, cmd dispatcher.Command, 
 	req := cmd.(*httpapi.RequestCmd)
 
 	if d.debug != nil {
-		fmt.Fprintf(d.debug, "[http] request %s %s stream=%v\n", req.Method, req.URL, req.Stream)
+		_, _ = fmt.Fprintf(d.debug, "[http] request %s %s stream=%v\n", req.Method, req.URL, req.Stream)
 	}
 
 	go func() {
@@ -101,7 +101,7 @@ func (d *Dispatcher) handleRequest(ctx context.Context, cmd dispatcher.Command, 
 		result := executeRequest(ctx, d.pool, req, true)
 
 		if d.debug != nil {
-			fmt.Fprintf(d.debug, "[http] response %s %s status=%d duration=%v err=%s\n",
+			_, _ = fmt.Fprintf(d.debug, "[http] response %s %s status=%d duration=%v err=%s\n",
 				req.Method, req.URL, result.StatusCode, time.Since(start), result.Error)
 		}
 
@@ -122,7 +122,7 @@ func (d *Dispatcher) handleRequestBatch(ctx context.Context, cmd dispatcher.Comm
 	}
 
 	if d.debug != nil {
-		fmt.Fprintf(d.debug, "[http] batch request count=%d\n", len(batch.Requests))
+		_, _ = fmt.Fprintf(d.debug, "[http] batch request count=%d\n", len(batch.Requests))
 	}
 
 	go func() {
@@ -141,7 +141,7 @@ func (d *Dispatcher) handleRequestBatch(ctx context.Context, cmd dispatcher.Comm
 		wg.Wait()
 
 		if d.debug != nil {
-			fmt.Fprintf(d.debug, "[http] batch response count=%d duration=%v\n", len(responses), time.Since(start))
+			_, _ = fmt.Fprintf(d.debug, "[http] batch response count=%d duration=%v\n", len(responses), time.Since(start))
 		}
 
 		if ctx.Err() == nil {
@@ -235,7 +235,7 @@ func executeRequest(ctx context.Context, pool *Pool, req *httpapi.RequestCmd, al
 	if err != nil {
 		// Per Go docs, resp may be non-nil even on error and body needs closing
 		if resp != nil && resp.Body != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 		return httpapi.Response{Error: err.Error()}
 	}
@@ -254,7 +254,7 @@ func executeRequest(ctx context.Context, pool *Pool, req *httpapi.RequestCmd, al
 	if allowStream && req.Stream {
 		table := resource.GetTable(ctx)
 		if table == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return httpapi.Response{Error: "resource table not available"}
 		}
 		streamID := streamhandler.Insert(table, resp.Body)
@@ -268,7 +268,7 @@ func executeRequest(ctx context.Context, pool *Pool, req *httpapi.RequestCmd, al
 		}
 	}
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	maxBody := req.MaxResponseBody
 	if maxBody <= 0 {

@@ -152,13 +152,8 @@ type TestPoolFactory struct {
 
 func NewTestPoolFactory() *TestPoolFactory {
 	return &TestPoolFactory{
-		standardPoolCalls: make([]struct {
-			Kind registry.Kind
-			Cfg  *apiconfig.DBConfig
-		}, 0),
-		sqlitePoolCalls: make([]struct {
-			Cfg *apiconfig.SQLiteConfig
-		}, 0),
+		standardPoolCalls: nil,
+		sqlitePoolCalls:   nil,
 	}
 }
 
@@ -323,14 +318,12 @@ func TestManager_Add(t *testing.T) {
 	require.NoError(t, err)
 	defer resourceSub.Close()
 
-	tests := []struct {
+	var tests []struct {
 		name          string
 		kind          registry.Kind
 		id            registry.ID
 		shouldFail    bool
 		expectSuccess bool
-	}{
-		// Test cases remain the same
 	}
 
 	for _, tt := range tests {

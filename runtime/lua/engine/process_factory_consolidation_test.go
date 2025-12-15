@@ -118,7 +118,7 @@ func TestConsolidation_UnifiedCreatePool(t *testing.T) {
 	bytecodeID := registry.NewID("test", "bytecode")
 
 	// Source
-	cm.AddNode(context.Background(), code.Node{
+	_ = cm.AddNode(context.Background(), code.Node{
 		ID:     sourceID,
 		Kind:   luaapi.Function,
 		Source: `return function() return 1 end`,
@@ -127,7 +127,7 @@ func TestConsolidation_UnifiedCreatePool(t *testing.T) {
 
 	// Bytecode
 	proto, _ := lua.CompileString(`return function() return 2 end`, "bc")
-	cm.AddNodeWithProto(context.Background(), code.Node{
+	_ = cm.AddNodeWithProto(context.Background(), code.Node{
 		ID:     bytecodeID,
 		Kind:   luaapi.FunctionBytecode,
 		Method: "main",
@@ -167,7 +167,7 @@ func TestConsolidation_SandboxWithoutProcess(t *testing.T) {
 	cm, _ := code.NewCodeManager(log, nil, code.Config{})
 
 	id := registry.NewID("test", "sandbox")
-	cm.AddNode(context.Background(), code.Node{
+	_ = cm.AddNode(context.Background(), code.Node{
 		ID:     id,
 		Kind:   luaapi.Function,
 		Source: `return function() return "sandbox" end`,
@@ -196,7 +196,7 @@ func TestConsolidation_WorkflowRestricted(t *testing.T) {
 	cm, _ := code.NewCodeManager(log, nil, code.Config{})
 
 	id := registry.NewID("test", "workflow")
-	cm.AddNode(context.Background(), code.Node{
+	_ = cm.AddNode(context.Background(), code.Node{
 		ID:     id,
 		Kind:   luaapi.Function,
 		Source: `return function() return "workflow" end`,

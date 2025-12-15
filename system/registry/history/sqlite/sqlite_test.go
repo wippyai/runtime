@@ -102,7 +102,7 @@ func TestHistory_Persistence(t *testing.T) {
 
 	err = hist1.Save(v1, cs, true)
 	require.NoError(t, err)
-	hist1.Close()
+	_ = hist1.Close()
 
 	hist2, err := NewSQLite(dbPath, zap.NewNop())
 	require.NoError(t, err)
@@ -223,7 +223,7 @@ func TestSQLitePersistence_OriginalEntry(t *testing.T) {
 	tmpFile, err := os.CreateTemp("", "test-*.db")
 	require.NoError(t, err)
 	_ = tmpFile.Close()
-	defer os.Remove(tmpFile.Name())
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	hist, err := NewSQLite(tmpFile.Name(), logger)
 	require.NoError(t, err)

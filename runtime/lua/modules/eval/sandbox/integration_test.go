@@ -269,17 +269,17 @@ func TestSandbox_YieldStringAndType(t *testing.T) {
 
 // TestSandbox_Process tests the Process wrapper directly
 func TestSandbox_Process(t *testing.T) {
-	clock := NewMockClock(0)
+	clk := NewMockClock(0)
 
 	// Create a mock process for testing
 	mockProc := &mockProcess{}
 	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
 
-	sp := NewProcess(ctx, mockProc, clock)
+	sp := NewProcess(ctx, mockProc, clk)
 	require.NotNil(t, sp)
 
 	// Test Clock
-	assert.Equal(t, clock, sp.Clock())
+	assert.Equal(t, clk, sp.Clock())
 
 	// Test IsClosed initial state
 	assert.False(t, sp.IsClosed())
@@ -324,11 +324,11 @@ func (m *mockProcess) Close() {
 
 // TestSandbox_Process_WithMockProcess tests Process with mock process
 func TestSandbox_Process_WithMockProcess(t *testing.T) {
-	clock := NewMockClock(time.Now().UnixNano())
+	clk := NewMockClock(time.Now().UnixNano())
 	mockProc := &mockProcess{}
 	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
 
-	sp := NewProcess(ctx, mockProc, clock)
+	sp := NewProcess(ctx, mockProc, clk)
 	defer sp.Close()
 
 	// Test Init
@@ -559,7 +559,7 @@ func TestSandbox_StepResult(t *testing.T) {
 
 // TestSandbox_ClockConcurrency tests MockClock under concurrent access
 func TestSandbox_ClockConcurrency(_ *testing.T) {
-	clock := NewMockClock(time.Now().UnixNano())
+	clk := NewMockClock(time.Now().UnixNano())
 
 	var wg sync.WaitGroup
 	wg.Add(100)
@@ -568,10 +568,10 @@ func TestSandbox_ClockConcurrency(_ *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 100; j++ {
-				clock.Now()
-				clock.NowNano()
-				clock.Elapsed()
-				clock.Advance(time.Millisecond)
+				clk.Now()
+				clk.NowNano()
+				clk.Elapsed()
+				clk.Advance(time.Millisecond)
 			}
 		}()
 	}

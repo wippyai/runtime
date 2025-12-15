@@ -143,7 +143,7 @@ func TestImplementationErrorFactories(t *testing.T) {
 	t.Run("NewRegisterCallerError", func(t *testing.T) {
 		id := registry.NewID("app", "myFunc")
 		cause := errors.New("register failed")
-		err := NewRegisterCallerError(id, cause)
+		err := NewRegisterCallerError(&id, cause)
 		if err.Kind() != apierror.Internal {
 			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}
@@ -152,7 +152,7 @@ func TestImplementationErrorFactories(t *testing.T) {
 	t.Run("NewUnregisterCallerError", func(t *testing.T) {
 		id := registry.NewID("app", "myFunc")
 		cause := errors.New("unregister failed")
-		err := NewUnregisterCallerError(id, cause)
+		err := NewUnregisterCallerError(&id, cause)
 		if err.Kind() != apierror.Internal {
 			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}

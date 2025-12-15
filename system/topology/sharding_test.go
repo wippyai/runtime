@@ -45,9 +45,11 @@ func TestShardIndex(t *testing.T) {
 func findSameShardPIDs() (pid.PID, pid.PID) {
 	// Find two PIDs that hash to the same shard
 	for i := 0; i < 10000; i++ {
-		p1 := pid.PID{Host: "host", UniqID: fmt.Sprintf("a%d", i)}.Precomputed()
+		p1 := pid.PID{Host: "host", UniqID: fmt.Sprintf("a%d", i)}
+		p1.Precomputed()
 		for j := i + 1; j < 10000; j++ {
-			p2 := pid.PID{Host: "host", UniqID: fmt.Sprintf("b%d", j)}.Precomputed()
+			p2 := pid.PID{Host: "host", UniqID: fmt.Sprintf("b%d", j)}
+			p2.Precomputed()
 			if shardIndex(p1.String()) == shardIndex(p2.String()) {
 				return p1, p2
 			}
@@ -58,9 +60,11 @@ func findSameShardPIDs() (pid.PID, pid.PID) {
 
 func findDifferentShardPIDs() (pid.PID, pid.PID) {
 	// Find two PIDs that hash to different shards
-	p1 := pid.PID{Host: "host", UniqID: "x0"}.Precomputed()
+	p1 := pid.PID{Host: "host", UniqID: "x0"}
+	p1.Precomputed()
 	for i := 1; i < 10000; i++ {
-		p2 := pid.PID{Host: "host", UniqID: fmt.Sprintf("y%d", i)}.Precomputed()
+		p2 := pid.PID{Host: "host", UniqID: fmt.Sprintf("y%d", i)}
+		p2.Precomputed()
 		if shardIndex(p1.String()) != shardIndex(p2.String()) {
 			return p1, p2
 		}
@@ -149,7 +153,8 @@ func TestSharding_LockOrdering(t *testing.T) {
 		// Create many processes across different shards
 		pids := make([]pid.PID, 100)
 		for i := range pids {
-			pids[i] = pid.PID{Host: "host", UniqID: fmt.Sprintf("p%d", i)}.Precomputed()
+			pids[i] = pid.PID{Host: "host", UniqID: fmt.Sprintf("p%d", i)}
+			pids[i].Precomputed()
 			require.NoError(t, topo.Register(pids[i]))
 		}
 
@@ -189,7 +194,8 @@ func TestSharding_LockOrdering(t *testing.T) {
 
 		pids := make([]pid.PID, 100)
 		for i := range pids {
-			pids[i] = pid.PID{Host: "host", UniqID: fmt.Sprintf("m%d", i)}.Precomputed()
+			pids[i] = pid.PID{Host: "host", UniqID: fmt.Sprintf("m%d", i)}
+			pids[i].Precomputed()
 			require.NoError(t, topo.Register(pids[i]))
 		}
 
@@ -255,7 +261,8 @@ func TestSharding_Complete(t *testing.T) {
 
 		pids := make([]pid.PID, 100)
 		for i := range pids {
-			pids[i] = pid.PID{Host: "host", UniqID: fmt.Sprintf("c%d", i)}.Precomputed()
+			pids[i] = pid.PID{Host: "host", UniqID: fmt.Sprintf("c%d", i)}
+			pids[i].Precomputed()
 			require.NoError(t, topo.Register(pids[i]))
 		}
 
@@ -296,7 +303,8 @@ func TestSharding_StatePooling(t *testing.T) {
 
 		// Register and complete many processes
 		for i := 0; i < 1000; i++ {
-			p := pid.PID{Host: "host", UniqID: fmt.Sprintf("r%d", i)}.Precomputed()
+			p := pid.PID{Host: "host", UniqID: fmt.Sprintf("r%d", i)}
+			p.Precomputed()
 			require.NoError(t, topo.Register(p))
 			topo.Complete(p, &runtime.Result{})
 		}
@@ -307,13 +315,15 @@ func TestSharding_StatePooling(t *testing.T) {
 	t.Run("large maps are discarded", func(t *testing.T) {
 		topo := NewTopology(&discardReceiver{}, "local")
 
-		main := pid.PID{Host: "host", UniqID: "main"}.Precomputed()
+		main := pid.PID{Host: "host", UniqID: "main"}
+		main.Precomputed()
 		require.NoError(t, topo.Register(main))
 
 		// Create many watchers to grow the map
 		watchers := make([]pid.PID, 50)
 		for i := range watchers {
-			watchers[i] = pid.PID{Host: "host", UniqID: fmt.Sprintf("w%d", i)}.Precomputed()
+			watchers[i] = pid.PID{Host: "host", UniqID: fmt.Sprintf("w%d", i)}
+			watchers[i].Precomputed()
 			require.NoError(t, topo.Register(watchers[i]))
 			require.NoError(t, topo.Monitor(watchers[i], main))
 		}
@@ -322,7 +332,8 @@ func TestSharding_StatePooling(t *testing.T) {
 		topo.Complete(main, &runtime.Result{})
 
 		// Register a new process - should work fine
-		p := pid.PID{Host: "host", UniqID: "new"}.Precomputed()
+		p := pid.PID{Host: "host", UniqID: "new"}
+		p.Precomputed()
 		require.NoError(t, topo.Register(p))
 	})
 }

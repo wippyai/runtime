@@ -235,8 +235,8 @@ func (i *interceptor) Handle(ctx stdcontext.Context, task runtime.Task, next fun
 
 	attrs := make([]attribute.KeyValue, 0, 8)
 
-	if pid, ok := runtime.GetFramePID(ctx); ok {
-		attrs = append(attrs, attribute.String("process.pid", pid.String()))
+	if procID, ok := runtime.GetFramePID(ctx); ok {
+		attrs = append(attrs, attribute.String("process.pid", procID.String()))
 	}
 
 	if fid, ok := runtime.GetFrameID(ctx); ok {

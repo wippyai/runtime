@@ -247,7 +247,7 @@ func TestLargeFileChunking(t *testing.T) {
 		file, err := packFS.Open("small.txt")
 		require.NoError(t, err)
 		data, err := io.ReadAll(file)
-		file.Close()
+		_ = file.Close()
 		require.NoError(t, err)
 		assert.Equal(t, smallContent, data)
 
@@ -255,7 +255,7 @@ func TestLargeFileChunking(t *testing.T) {
 		file, err = packFS.Open("large.bin")
 		require.NoError(t, err)
 		data, err = io.ReadAll(file)
-		file.Close()
+		_ = file.Close()
 		require.NoError(t, err)
 		assert.Equal(t, largeContent, data)
 
@@ -263,7 +263,7 @@ func TestLargeFileChunking(t *testing.T) {
 		file, err = packFS.Open("medium.txt")
 		require.NoError(t, err)
 		data, err = io.ReadAll(file)
-		file.Close()
+		_ = file.Close()
 		require.NoError(t, err)
 		assert.Equal(t, mediumContent, data)
 	})
@@ -517,7 +517,7 @@ func TestMultipleLargeFiles(t *testing.T) {
 
 			size := (i + 2) * 1024 * 1024
 			readContent, err := io.ReadAll(file)
-			file.Close()
+			_ = file.Close()
 			require.NoError(t, err)
 
 			assert.Equal(t, size, len(readContent))

@@ -28,13 +28,7 @@ const (
 	// StatsMessageCount is a queue stats key (returned by GetQueueInfo)
 	StatsMessageCount  = "message_count"  // Number of messages in queue
 	StatsConsumerCount = "consumer_count" // Number of active consumers
-	// StatsByteSize = "byte_size" // reserved for future use
-	// StatsDeliveryCount = "delivery_count" // reserved for future use
-	// StatsAckCount = "ack_count" // reserved for future use
-	// StatsNackCount = "nack_count" // reserved for future use
-	// StatsOldestMessage = "oldest_message" // reserved for future use
-	// StatsLastDelivery = "last_delivery" // reserved for future use
-	// StatsReady is a queue stats key for messages ready for delivery
+	// StatsReady is queue stats key for messages ready for delivery.
 	StatsReady = "ready"
 	// StatsUnacked = "unacked" // reserved for future use
 )

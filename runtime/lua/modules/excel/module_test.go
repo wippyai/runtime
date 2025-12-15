@@ -490,7 +490,7 @@ func TestWorkbook_WriteTo(t *testing.T) {
 			val, err := f.GetCellValue("TestSheet", "A1")
 			assert.NoError(t, err)
 			assert.Equal(t, "Test Data", val)
-			f.Close()
+			_ = f.Close()
 		}
 	})
 

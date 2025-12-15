@@ -949,7 +949,7 @@ func TestContractImpl_ID_Meta(t *testing.T) {
 
 	err := contractRegistry.Start(ctx)
 	require.NoError(t, err)
-	defer contractRegistry.Stop()
+	defer func() { _ = contractRegistry.Stop() }()
 
 	contractID := registry.NewID("test", "meta-contract")
 
@@ -989,7 +989,7 @@ func TestContractRegistry_UnknownEventKind(t *testing.T) {
 
 	err := contractRegistry.Start(ctx)
 	require.NoError(t, err)
-	defer contractRegistry.Stop()
+	defer func() { _ = contractRegistry.Stop() }()
 
 	bus.Send(ctx, event.Event{
 		System: contract.System,
@@ -1007,7 +1007,7 @@ func TestContractRegistry_NilMetaInit(t *testing.T) {
 
 	err := contractRegistry.Start(ctx)
 	require.NoError(t, err)
-	defer contractRegistry.Stop()
+	defer func() { _ = contractRegistry.Stop() }()
 
 	contractID := registry.NewID("test", "nil-meta")
 

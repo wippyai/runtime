@@ -88,8 +88,9 @@ func TestPolicy(t *testing.T) {
 		t.Fatalf("Failed to create policy: %v", err)
 	}
 
-	if p.ID().String() != "test:admin-policy" {
-		t.Errorf("Expected policy ID to be 'test:admin-policy', got %s", p.ID().String())
+	policyIDStr := p.ID()
+	if policyIDStr.String() != "test:admin-policy" {
+		t.Errorf("Expected policy ID to be 'test:admin-policy', got %s", policyIDStr.String())
 	}
 
 	adminActor := newMockActor("admin-user", attrs.Bag{"role": "admin"})

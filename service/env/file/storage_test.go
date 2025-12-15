@@ -177,7 +177,7 @@ func TestStorage_ListNonExistent(t *testing.T) {
 func TestStorage_AutoCreate(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "autocreate-test-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	testFile := filepath.Join(tmpDir, "subdir", "test.env")
 	storage := NewStorage(testFile, true, 0644, 0755)
@@ -224,7 +224,7 @@ func TestStorage_Concurrent(t *testing.T) {
 
 func BenchmarkStorage_Get(b *testing.B) {
 	tmpDir, _ := os.MkdirTemp("", "filestorage-bench-*")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	testFile := filepath.Join(tmpDir, "test.env")
 	_ = os.WriteFile(testFile, []byte("KEY=value\n"), 0600)
@@ -240,7 +240,7 @@ func BenchmarkStorage_Get(b *testing.B) {
 
 func BenchmarkStorage_Set(b *testing.B) {
 	tmpDir, _ := os.MkdirTemp("", "filestorage-bench-*")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	testFile := filepath.Join(tmpDir, "test.env")
 	_ = os.WriteFile(testFile, []byte("KEY=value\n"), 0600)
@@ -256,7 +256,7 @@ func BenchmarkStorage_Set(b *testing.B) {
 
 func BenchmarkStorage_List(b *testing.B) {
 	tmpDir, _ := os.MkdirTemp("", "filestorage-bench-*")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	testFile := filepath.Join(tmpDir, "test.env")
 	content := "KEY1=value1\nKEY2=value2\nKEY3=value3\n"

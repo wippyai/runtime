@@ -1262,10 +1262,14 @@ func (p *Process) wrapError(thread *lua.LState, err error) error {
 		return nil
 	}
 
-	// Check if already wrapped
-	var e *lua.Error
-	if errors.As(err, &e) {
-		return e
+	// Check if already a lua.Error (directly or wrapped)
+	if luaErr, ok := err.(*lua.Error); ok {
+		return luaErr
+	}
+	if unwrapped := errors.Unwrap(err); unwrapped != nil {
+		if luaErr, ok := unwrapped.(*lua.Error); ok {
+			return luaErr
+		}
 	}
 
 	// Wrap with stack trace from the provided thread (or main state)
@@ -1284,8 +1288,13 @@ func toAPIError(err error) error {
 		return nil
 	}
 
-	var luaErr *lua.Error
-	if !errors.As(err, &luaErr) {
+	luaErr, ok := err.(*lua.Error)
+	if !ok {
+		if unwrapped := errors.Unwrap(err); unwrapped != nil {
+			luaErr, ok = unwrapped.(*lua.Error)
+		}
+	}
+	if !ok {
 		return err
 	}
 

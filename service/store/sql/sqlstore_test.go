@@ -219,7 +219,7 @@ func MakeStore(t *testing.T) (*Store, *sql.DB, context.Context) {
 
 func TestSQLStore_Delete(t *testing.T) {
 	ss, db, ctx := MakeStore(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Set a test value
 	testKey := registry.ParseID("test:key1")
@@ -246,7 +246,7 @@ func TestSQLStore_Delete(t *testing.T) {
 
 func TestSQLStore_Has(t *testing.T) {
 	ss, db, ctx := MakeStore(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Set a test value
 	testKey := registry.ParseID("test:key1")
@@ -266,7 +266,7 @@ func TestSQLStore_Has(t *testing.T) {
 
 func TestSQLStore_SetGet(t *testing.T) {
 	ss, db, ctx := MakeStore(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Set a test value
 	testKey := registry.ParseID("test:key1")
@@ -295,7 +295,7 @@ func TestSQLStore_Get_ExpiredKey(t *testing.T) {
 
 	// Set up database
 	db := setupTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	setupSQLStoreTable(t, db, config)
 
 	// Create test data
@@ -349,10 +349,10 @@ func TestSQLStore_Get_ResourceAcquisitionError(t *testing.T) {
 
 	// Create store
 	logger := zap.NewNop()
-	store := NewStore(registry.NewID("test", "store"), config, logger)
+	s := NewStore(registry.NewID("test", "store"), config, logger)
 
 	// Test Get
-	result, err := store.Get(ctx, registry.NewID("test", "key"))
+	result, err := s.Get(ctx, registry.NewID("test", "key"))
 
 	// Verify results
 	assert.Error(t, err)
@@ -431,7 +431,7 @@ func TestSQLStore_sanitizeTCNames(t *testing.T) {
 
 func TestSQLStore_StartStop(t *testing.T) {
 	ss, db, ctx := MakeStore(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Start the store
 	statusChan, err := ss.Start(ctx)
@@ -453,7 +453,7 @@ func TestSQLStore_StartStop(t *testing.T) {
 
 func TestSQLStore_SetUpdate(t *testing.T) {
 	ss, db, ctx := MakeStore(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	key := registry.ParseID("test:updatekey")
 
@@ -476,7 +476,7 @@ func TestSQLStore_SetUpdate(t *testing.T) {
 
 func TestSQLStore_SetWithTTL(t *testing.T) {
 	ss, db, ctx := MakeStore(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	key := registry.ParseID("test:ttlkey")
 	entry := store.Entry{
@@ -513,7 +513,7 @@ func TestSQLStore_Cleanup(t *testing.T) {
 	}
 
 	db := setupTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	setupSQLStoreTable(t, db, config)
 
 	mockReg := NewMockRegistry()
@@ -557,7 +557,7 @@ func TestSQLStore_Cleanup(t *testing.T) {
 
 func TestSQLStore_Acquire(t *testing.T) {
 	ss, db, ctx := MakeStore(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Acquire in normal mode
 	res, err := ss.Acquire(ctx, registry.ParseID("test:resource"), resource.ModeNormal)
@@ -584,7 +584,7 @@ func TestSQLStore_Acquire(t *testing.T) {
 
 func TestSQLStore_ConcurrentReads(t *testing.T) {
 	ss, db, ctx := MakeStore(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Pre-populate with data
 	for i := 0; i < 50; i++ {
@@ -634,7 +634,7 @@ func TestSQLStore_ConcurrentReads(t *testing.T) {
 
 func TestSQLStore_SequentialOperations(t *testing.T) {
 	ss, db, ctx := MakeStore(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Sequential Set/Get/Delete cycle to ensure correctness
 	for i := 0; i < 100; i++ {
@@ -670,7 +670,7 @@ func BenchmarkSQLStore_Set(b *testing.B) {
 	config := createDefaultConfig()
 	db, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(b, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	ctx := context.Background()
 	createTable := `CREATE TABLE IF NOT EXISTS ` + config.TableName + ` (
@@ -706,7 +706,7 @@ func BenchmarkSQLStore_Get(b *testing.B) {
 	config := createDefaultConfig()
 	db, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(b, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	ctx := context.Background()
 	createTable := `CREATE TABLE IF NOT EXISTS ` + config.TableName + ` (
@@ -748,7 +748,7 @@ func BenchmarkSQLStore_Has(b *testing.B) {
 	config := createDefaultConfig()
 	db, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(b, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	ctx := context.Background()
 	createTable := `CREATE TABLE IF NOT EXISTS ` + config.TableName + ` (
@@ -791,7 +791,7 @@ func BenchmarkSQLStore_Delete(b *testing.B) {
 	config := createDefaultConfig()
 	db, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(b, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	ctx := context.Background()
 	createTable := `CREATE TABLE IF NOT EXISTS ` + config.TableName + ` (
@@ -832,7 +832,7 @@ func BenchmarkSQLStore_Delete(b *testing.B) {
 
 func TestSQLStore_GetReturnsCorrectPayloadFormat(t *testing.T) {
 	ss, db, ctx := MakeStore(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Use a simple string value that the transcoder handles
 	testValue := "test value"
@@ -858,7 +858,7 @@ func TestSQLStore_GetReturnsCorrectPayloadFormat(t *testing.T) {
 
 func TestSQLStore_HasDoesNotModifyData(t *testing.T) {
 	ss, db, ctx := MakeStore(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	key := registry.ParseID("test:immutable")
 	value := "original value"
@@ -881,7 +881,7 @@ func TestSQLStore_HasDoesNotModifyData(t *testing.T) {
 
 func TestSQLStore_DeleteIsIdempotent(t *testing.T) {
 	ss, db, ctx := MakeStore(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	key := registry.ParseID("test:deleteme")
 
@@ -903,7 +903,7 @@ func TestSQLStore_DeleteIsIdempotent(t *testing.T) {
 
 func TestSQLStore_SetOverwritesExistingValue(t *testing.T) {
 	ss, db, ctx := MakeStore(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	key := registry.ParseID("test:overwrite")
 
@@ -926,7 +926,7 @@ func TestSQLStore_SetOverwritesExistingValue(t *testing.T) {
 
 func TestSQLStore_TTLExpirationIsRespected(t *testing.T) {
 	ss, db, ctx := MakeStore(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	key := registry.ParseID("test:ttl")
 	entry := store.Entry{
@@ -961,7 +961,7 @@ func TestSQLStore_TTLExpirationIsRespected(t *testing.T) {
 
 func TestSQLStore_EmptyKeyBehavior(t *testing.T) {
 	ss, db, ctx := MakeStore(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Empty key
 	emptyKey := registry.ID{}
@@ -994,7 +994,7 @@ func TestSQLStore_EmptyKeyBehavior(t *testing.T) {
 
 func TestSQLStore_LargePayload(t *testing.T) {
 	ss, db, ctx := MakeStore(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Create a large string payload (100KB)
 	largeString := make([]byte, 100*1024)
@@ -1022,7 +1022,7 @@ func TestSQLStore_LargePayload(t *testing.T) {
 
 func TestSQLStore_SpecialCharactersInKey(t *testing.T) {
 	ss, db, ctx := MakeStore(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	specialKeys := []string{
 		"test:with spaces",
@@ -1062,7 +1062,7 @@ func TestSQLStore_SpecialCharactersInKey(t *testing.T) {
 
 func TestSQLStore_ResourceInterface(t *testing.T) {
 	ss, db, ctx := MakeStore(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Test Acquire returns correct type
 	res, err := ss.Acquire(ctx, registry.ParseID("test:resource"), resource.ModeNormal)
@@ -1096,7 +1096,7 @@ func TestSQLStore_ResourceInterface(t *testing.T) {
 
 func TestSQLStore_OperationsAfterClose(t *testing.T) {
 	ss, db, ctx := MakeStore(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Start store
 	_, err := ss.Start(ctx)
@@ -1136,7 +1136,7 @@ func TestSQLStore_OperationsAfterClose(t *testing.T) {
 
 func TestSQLStore_DoubleStop(t *testing.T) {
 	ss, db, ctx := MakeStore(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	_, err := ss.Start(ctx)
 	require.NoError(t, err)

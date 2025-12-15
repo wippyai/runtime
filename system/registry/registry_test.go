@@ -770,12 +770,12 @@ func TestInMemoryRegistry_Current(t *testing.T) {
 	reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
 
 	// Test when current version is initialized (v0)
-	version, err := reg.Current()
+	v, err := reg.Current()
 	if err != nil {
 		t.Errorf("Expected no error when current version is initialized, got: %v", err)
 	}
-	if version.ID() != 0 {
-		t.Errorf("Expected current version to be v0, got: %v", version)
+	if v.ID() != 0 {
+		t.Errorf("Expected current version to be v0, got: %v", v)
 	}
 }
 

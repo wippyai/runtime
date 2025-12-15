@@ -36,14 +36,14 @@ func Zero() PID {
 }
 
 // String formats the PID as a pipe-delimited string wrapped in curly braces.
-func (p PID) String() string {
+func (p *PID) String() string {
 	if p.cachedString != "" {
 		return p.cachedString
 	}
 	return p.toString()
 }
 
-func (p PID) toString() string {
+func (p *PID) toString() string {
 	b := builderPool.Get().(*strings.Builder)
 	b.Reset()
 	defer builderPool.Put(b)
@@ -65,7 +65,7 @@ func (p PID) toString() string {
 }
 
 // Precomputed returns a new PID with a cached string representation.
-func (p PID) Precomputed() PID {
+func (p *PID) Precomputed() PID {
 	return PID{
 		Node:         p.Node,
 		Host:         p.Host,
@@ -108,7 +108,7 @@ func ParsePID(s string) (PID, error) {
 }
 
 // MarshalJSON implements the json.Marshaler interface.
-func (p PID) MarshalJSON() ([]byte, error) {
+func (p *PID) MarshalJSON() ([]byte, error) {
 	b := builderPool.Get().(*strings.Builder)
 	b.Reset()
 	defer builderPool.Put(b)

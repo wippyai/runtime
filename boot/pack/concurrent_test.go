@@ -302,7 +302,7 @@ func TestConcurrentFSAccess(t *testing.T) {
 						return
 					}
 					_, err = io.ReadAll(file)
-					file.Close()
+					_ = file.Close()
 					if err != nil {
 						errors <- err
 						return

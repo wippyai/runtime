@@ -319,7 +319,7 @@ func TestExecutorProvider_Acquire_Exclusive(t *testing.T) {
 
 func TestExecutorProvider_Acquire_Closed(t *testing.T) {
 	provider := newExecutorProvider(&mockExecutor{})
-	provider.Close()
+	_ = provider.Close()
 
 	_, err := provider.Acquire(context.Background(), registry.ID{}, resource.ModeNormal)
 	assert.ErrorIs(t, err, systemresource.ErrClosed)

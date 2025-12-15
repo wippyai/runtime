@@ -79,7 +79,7 @@ func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, tag
 	closer := acquireCloser(ctx)
 	go func() {
 		if closer != nil {
-			defer closer.Close()
+			defer func() { _ = closer.Close() }()
 		}
 		result, err := registry.Call(ctx, callCmd.Task)
 		if callErr := extractCallError(ctx, result, err); callErr != nil {
@@ -120,7 +120,7 @@ func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Comman
 
 	go func() {
 		if closer != nil {
-			defer closer.Close()
+			defer func() { _ = closer.Close() }()
 		}
 		result, err := registry.Call(ctx, task)
 

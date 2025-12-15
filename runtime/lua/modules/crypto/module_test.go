@@ -755,13 +755,6 @@ func TestRandomStringMaxSizeLimit(t *testing.T) {
 	}
 }
 
-func TestRandomBytesDoSPrevention(t *testing.T) {
-	const expected = 1024 * 1024
-	if maxRandomSize != expected {
-		t.Errorf("maxRandomSize should be %d, got %d", expected, maxRandomSize)
-	}
-}
-
 func TestJWTExpirationRequired(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()

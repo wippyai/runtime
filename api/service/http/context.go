@@ -206,8 +206,8 @@ func GetMiddlewareRegistry(ctx context.Context) MiddlewareRegistry {
 		return nil
 	}
 	if val := ac.Get(middlewareRegistry); val != nil {
-		if registry, ok := val.(MiddlewareRegistry); ok {
-			return registry
+		if reg, ok := val.(MiddlewareRegistry); ok {
+			return reg
 		}
 	}
 	return nil

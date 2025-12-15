@@ -246,7 +246,7 @@ func (f *memoryFinder) Find(meta attrs.Bag) ([]registry.Entry, error) {
 							zap.Error(err))
 						continue
 					}
-					f.regexCache.Set(strVal, regex)
+					_ = f.regexCache.Set(strVal, regex)
 					regexMatchers[finalField] = regex
 				}
 			}
@@ -286,7 +286,7 @@ func (f *memoryFinder) Find(meta attrs.Bag) ([]registry.Entry, error) {
 
 	// Cache result using current cache reference (re-acquire under lock to avoid stale reference)
 	f.cacheMu.RLock()
-	f.queryCache.Set(cacheKey, queryResult{entries: result})
+	_ = f.queryCache.Set(cacheKey, queryResult{entries: result})
 	f.cacheMu.RUnlock()
 
 	return result, nil

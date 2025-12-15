@@ -56,12 +56,14 @@ func TestTopology_BasicFunctionality(t *testing.T) {
 	pid1 := pid.PID{
 		Host:   "host1",
 		UniqID: "1",
-	}.Precomputed()
+	}
+	pid1 = pid1.Precomputed()
 
 	pid2 := pid.PID{
 		Host:   "host2",
 		UniqID: "2",
-	}.Precomputed()
+	}
+	pid2 = pid2.Precomputed()
 
 	t.Run("cannot monitor unregistered process", func(t *testing.T) {
 		err := topo.Monitor(pid2, pid1)
@@ -136,17 +138,20 @@ func TestTopology_LinkFunctionality(t *testing.T) {
 	pid1 := pid.PID{
 		Host:   "host1",
 		UniqID: "1",
-	}.Precomputed()
+	}
+	pid1 = pid1.Precomputed()
 
 	pid2 := pid.PID{
 		Host:   "host2",
 		UniqID: "2",
-	}.Precomputed()
+	}
+	pid2 = pid2.Precomputed()
 
 	pid3 := pid.PID{
 		Host:   "host3",
 		UniqID: "3",
-	}.Precomputed()
+	}
+	pid3 = pid3.Precomputed()
 
 	// Register processes
 	assert.NoError(t, topo.Register(pid1))
@@ -678,8 +683,10 @@ func TestTopology_WatchingMapTracking(t *testing.T) {
 		upstream := newMockUpstream()
 		topo := NewTopology(upstream, "local")
 
-		caller := pid.PID{Host: "host", UniqID: "caller"}.Precomputed()
-		target := pid.PID{Host: "host", UniqID: "target"}.Precomputed()
+		caller := pid.PID{Host: "host", UniqID: "caller"}
+		caller = caller.Precomputed()
+		target := pid.PID{Host: "host", UniqID: "target"}
+		target = target.Precomputed()
 
 		_ = topo.Register(caller)
 		_ = topo.Register(target)
@@ -697,8 +704,10 @@ func TestTopology_WatchingMapTracking(t *testing.T) {
 		upstream := newMockUpstream()
 		topo := NewTopology(upstream, "local")
 
-		caller := pid.PID{Host: "host", UniqID: "caller"}.Precomputed()
-		target := pid.PID{Host: "host", UniqID: "target"}.Precomputed()
+		caller := pid.PID{Host: "host", UniqID: "caller"}
+		caller = caller.Precomputed()
+		target := pid.PID{Host: "host", UniqID: "target"}
+		target = target.Precomputed()
 
 		_ = topo.Register(caller)
 		_ = topo.Register(target)
@@ -717,9 +726,12 @@ func TestTopology_WatchingMapTracking(t *testing.T) {
 		upstream := newMockUpstream()
 		topo := NewTopology(upstream, "local")
 
-		watcher1 := pid.PID{Host: "host", UniqID: "watcher1"}.Precomputed()
-		watcher2 := pid.PID{Host: "host", UniqID: "watcher2"}.Precomputed()
-		target := pid.PID{Host: "host", UniqID: "target"}.Precomputed()
+		watcher1 := pid.PID{Host: "host", UniqID: "watcher1"}
+		watcher1 = watcher1.Precomputed()
+		watcher2 := pid.PID{Host: "host", UniqID: "watcher2"}
+		watcher2 = watcher2.Precomputed()
+		target := pid.PID{Host: "host", UniqID: "target"}
+		target = target.Precomputed()
 
 		_ = topo.Register(watcher1)
 		_ = topo.Register(watcher2)
@@ -732,7 +744,8 @@ func TestTopology_WatchingMapTracking(t *testing.T) {
 		topo.Remove(target)
 
 		// Verify watchers' tracking is cleaned by monitoring a new target
-		newTarget := pid.PID{Host: "host", UniqID: "newtarget"}.Precomputed()
+		newTarget := pid.PID{Host: "host", UniqID: "newtarget"}
+		newTarget = newTarget.Precomputed()
 		_ = topo.Register(newTarget)
 		_ = topo.Monitor(watcher1, newTarget)
 

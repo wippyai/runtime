@@ -399,7 +399,7 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, _metho
 
 // waitForHostRunning polls the supervisor until the host service is running
 // and the host is registered in the relay node.
-func waitForHostRunning(ctx context.Context, logger *zap.Logger, hostID string) error {
+func waitForHostRunning(ctx context.Context, _ *zap.Logger, hostID string) error {
 	sup, ok := supervisorapi.GetSupervisor(ctx).(*supervisorpkg.Supervisor)
 	if !ok || sup == nil {
 		return fmt.Errorf("supervisor not available")

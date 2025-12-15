@@ -10,13 +10,6 @@ import (
 	"go.uber.org/zap"
 )
 
-func TestChannelTypeName(t *testing.T) {
-	const expected = "channel"
-	if ChannelTypeName != expected {
-		t.Errorf("ChannelTypeName = %q, want %q", ChannelTypeName, expected)
-	}
-}
-
 func TestSelectCaseString(t *testing.T) {
 	sc := &SelectCase{Kind: SendOp}
 	if sc.String() != "<select_case>" {

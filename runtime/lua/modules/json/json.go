@@ -618,7 +618,7 @@ func compileSchema(schemaJSON []byte) (*jsonschema.Schema, error) {
 		return nil, err
 	}
 
-	globalSchemaCache.Set(cacheKey, schema)
+	_ = globalSchemaCache.Set(cacheKey, schema)
 	return schema, nil
 }
 

@@ -66,7 +66,7 @@ return { handler = handler }
 	// Verify bytecode file exists
 	f, err := res.FS.Open("app/hello.luac")
 	require.NoError(t, err)
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	stat, err := f.Stat()
 	require.NoError(t, err)
@@ -497,7 +497,7 @@ return {
 	// Read the compiled bytecode
 	bcFile, err := fsys.Open("test/math.luac")
 	require.NoError(t, err)
-	defer bcFile.Close()
+	defer func() { _ = bcFile.Close() }()
 
 	bcData, err := io.ReadAll(bcFile)
 	require.NoError(t, err)
@@ -594,7 +594,7 @@ return { handler = handler }
 
 	bcFile, err := fsys.Open("app/double.luac")
 	require.NoError(t, err)
-	defer bcFile.Close()
+	defer func() { _ = bcFile.Close() }()
 
 	bcData, err := io.ReadAll(bcFile)
 	require.NoError(t, err)

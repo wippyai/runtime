@@ -220,14 +220,14 @@ func TestCore_Write(t *testing.T) {
 				if len(bus.sendCalls) != 1 {
 					t.Error("expected one event send call")
 				}
-				event := bus.sendCalls[0]
-				if event.System != api.System {
+				ev := bus.sendCalls[0]
+				if ev.System != api.System {
 					t.Error("unexpected system in event")
 				}
-				if event.Kind != api.Entry {
+				if ev.Kind != api.Entry {
 					t.Error("unexpected kind in event")
 				}
-				if event.Path != entry.LoggerName {
+				if ev.Path != entry.LoggerName {
 					t.Error("unexpected path in event")
 				}
 			} else if len(bus.sendCalls) > 0 {

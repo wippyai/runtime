@@ -405,7 +405,7 @@ func fsReadfile(l *lua.LState) int {
 		l.Push(lua.WrapErrorWithLua(l, err, "failed to open file").WithKind(lua.NotFound))
 		return 2
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, file); err != nil {
@@ -463,7 +463,7 @@ func fsWritefile(l *lua.LState) int {
 		l.Push(lua.WrapErrorWithLua(l, err, "failed to open destination").WithKind(lua.NotFound))
 		return 2
 	}
-	defer dstFile.Close()
+	defer func() { _ = dstFile.Close() }()
 
 	var reader io.Reader
 	switch v := v.(type) {

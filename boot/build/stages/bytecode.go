@@ -89,7 +89,7 @@ func (s *bytecodeStage) Execute(ctx context.Context, entries *[]registry.Entry) 
 			log.Error("failed to compile entry",
 				zap.String("id", entry.ID.String()),
 				zap.Error(err))
-			return NewBytecodeCompileError(entry.ID, err)
+			return NewBytecodeCompileError(&entry.ID, err)
 		}
 
 		// Store bytecode in filesystem
@@ -110,7 +110,7 @@ func (s *bytecodeStage) Execute(ctx context.Context, entries *[]registry.Entry) 
 		entry := &(*entries)[idx]
 		result := compiled[entry.ID.String()]
 		if err := s.transformEntry(entry, result, transcoder); err != nil {
-			return NewBytecodeTransformError(entry.ID, err)
+			return NewBytecodeTransformError(&entry.ID, err)
 		}
 	}
 

@@ -104,7 +104,7 @@ func TestTickerRegistry_StopNotFound(t *testing.T) {
 	defer r.close()
 
 	err := r.stop(999)
-	if err != clockapi.ErrTickerNotFound {
+	if !errors.Is(err, clockapi.ErrTickerNotFound) {
 		t.Errorf("expected ErrTickerNotFound, got %v", err)
 	}
 }

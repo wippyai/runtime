@@ -283,7 +283,7 @@ func TestMemFile_Read(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Open failed: %v", err)
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		buf := make([]byte, 5)
 		n, err := file.Read(buf)
@@ -323,7 +323,7 @@ func TestMemFile_Read(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Open failed: %v", err)
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		buf := make([]byte, 10)
 		n, _ := file.Read(buf)
@@ -351,7 +351,7 @@ func TestMemDir_Read(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Open failed: %v", err)
 		}
-		defer dir.Close()
+		defer func() { _ = dir.Close() }()
 
 		buf := make([]byte, 10)
 		_, err = dir.Read(buf)

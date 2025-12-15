@@ -37,7 +37,7 @@ type mockTranscoder struct {
 	shouldFail bool
 }
 
-func (m *mockTranscoder) Unmarshal(_ payload.Payload, out any) error {
+func (m *mockTranscoder) Unmarshal(_ payload.Payload, _ any) error {
 	if m.shouldFail {
 		return assert.AnError
 	}

@@ -260,8 +260,8 @@ func (p *Process) Start() error {
 	p.stderrReader = stderrPipeR
 
 	go func() {
-		defer stdoutPipeW.Close()
-		defer stderrPipeW.Close()
+		defer func() { _ = stdoutPipeW.Close() }()
+		defer func() { _ = stderrPipeW.Close() }()
 		_, err := stdcopy.StdCopy(stdoutPipeW, stderrPipeW, attachResp.Reader)
 		if err != nil && !errors.Is(err, io.EOF) {
 			p.log.Debug("stdcopy error", zap.Error(err))

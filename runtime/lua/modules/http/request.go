@@ -653,7 +653,7 @@ func multipartFileStream(l *lua.LState) int {
 
 	table := resource.GetTable(l.Context())
 	if table == nil {
-		file.Close()
+		_ = file.Close()
 		err := lua.NewLuaError(l, "no resource table available").
 			WithKind(lua.Internal).
 			WithRetryable(false)
@@ -694,11 +694,11 @@ func multipartFileHeader(l *lua.LState) int {
 		return 0
 	}
 	name := l.CheckString(2)
-	value := mf.fileHeader.Header.Get(name)
-	if value == "" {
+	headerValue := mf.fileHeader.Header.Get(name)
+	if headerValue == "" {
 		l.Push(lua.LNil)
 	} else {
-		l.Push(lua.LString(value))
+		l.Push(lua.LString(headerValue))
 	}
 	return 1
 }

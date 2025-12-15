@@ -59,7 +59,7 @@ func (s *Storage) Get(_ context.Context, key string) (string, error) {
 		}
 		return "", err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -107,7 +107,7 @@ func (s *Storage) List(_ context.Context) (map[string]string, error) {
 		}
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -156,7 +156,7 @@ func (s *Storage) readAllLines() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	lines := make([]string, 0, 100)
 	scanner := bufio.NewScanner(file)

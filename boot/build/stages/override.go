@@ -131,9 +131,9 @@ func findEntries(entries []registry.Entry, namespace, name string) []*registry.E
 	var results []*registry.Entry
 
 	for i := range entries {
-		entry := &entries[i]
-		if entry.ID.NS == namespace && entry.ID.Name == name {
-			results = append(results, entry)
+		e := &entries[i]
+		if e.ID.NS == namespace && e.ID.Name == name {
+			results = append(results, e)
 		}
 	}
 

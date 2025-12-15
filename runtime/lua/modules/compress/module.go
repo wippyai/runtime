@@ -180,7 +180,7 @@ func gzipDecode(l *lua.LState) int {
 	if err != nil {
 		return invalidInputError(l, "invalid gzip data")
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	decompressed, err := limitedReadAll(reader, maxSize)
 	if err != nil {
@@ -240,7 +240,7 @@ func deflateDecode(l *lua.LState) int {
 	maxSize := getMaxSize(l)
 
 	reader := flate.NewReader(bytes.NewReader([]byte(data)))
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	decompressed, err := limitedReadAll(reader, maxSize)
 	if err != nil {
@@ -303,7 +303,7 @@ func zlibDecode(l *lua.LState) int {
 	if err != nil {
 		return invalidInputError(l, "invalid zlib data")
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	decompressed, err := limitedReadAll(reader, maxSize)
 	if err != nil {

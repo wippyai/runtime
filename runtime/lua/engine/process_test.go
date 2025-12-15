@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -42,7 +43,7 @@ func (y *testYield) CmdID() dispatcher.CommandID   { return testYieldCmdID }
 func (y *testYield) ToCommand() dispatcher.Command { return testYieldCmd{Duration: y.duration} }
 
 // HandleResult implements luaapi.HandledYield
-func (y *testYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+func (y *testYield) HandleResult(_ *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
 	}
@@ -3645,7 +3646,7 @@ func TestProcessWrapErrorAlreadyWrapped(t *testing.T) {
 
 	// wrapError should return the same error
 	result := proc.wrapError(proc.state, luaErr)
-	if result != luaErr {
+	if !errors.Is(result, luaErr) {
 		t.Fatal("expected same lua.Error to be returned")
 	}
 }

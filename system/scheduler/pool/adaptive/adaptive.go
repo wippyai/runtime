@@ -81,15 +81,6 @@ func WithMaxWorkers(n int) Option {
 	}
 }
 
-// WithQueueSize sets the task queue capacity.
-func WithQueueSize(n int) Option {
-	return func(a *Pool) {
-		if n > 0 {
-			a.queueSize = n
-		}
-	}
-}
-
 // WithControlInterval sets how often scaling decisions are evaluated.
 func WithControlInterval(d time.Duration) Option {
 	return func(a *Pool) {

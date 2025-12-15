@@ -214,7 +214,7 @@ func BenchmarkReadFiles(b *testing.B) {
 				}
 
 				_, err = io.ReadAll(file)
-				file.Close()
+				_ = file.Close()
 				if err != nil {
 					b.Fatal(err)
 				}

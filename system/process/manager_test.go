@@ -109,14 +109,14 @@ func TestManager_Start(t *testing.T) {
 
 	mgr := NewManager(node, zap.NewNop())
 
-	pid, err := mgr.Start(context.Background(), &process.Start{
+	procID, err := mgr.Start(context.Background(), &process.Start{
 		HostID: "test-host",
 		Source: registry.NewID("test", "source"),
 	})
 
 	require.NoError(t, err)
-	assert.Equal(t, "test-host", pid.Host)
-	assert.Equal(t, "proc-1", pid.UniqID)
+	assert.Equal(t, "test-host", procID.Host)
+	assert.Equal(t, "proc-1", procID.UniqID)
 	assert.True(t, host.runCalled)
 }
 

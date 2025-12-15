@@ -343,7 +343,8 @@ func (m *Manager) handleRouterCreate(_ context.Context, entry registry.Entry) er
 		return err
 	}
 
-	serverID := registry.ParseID(cfg.Meta.GetString(config.ServerID, "")).WithDefaultNS(entry.ID.NS)
+	parsedServerID := registry.ParseID(cfg.Meta.GetString(config.ServerID, ""))
+	serverID := parsedServerID.WithDefaultNS(entry.ID.NS)
 	server, exists := m.servers[serverID]
 	if !exists {
 		return NewServerNotFoundError(serverID.String())
@@ -381,7 +382,8 @@ func (m *Manager) handleRouterUpdate(_ context.Context, entry registry.Entry) er
 	}
 
 	// Get target server from updated config
-	newServerID := registry.ParseID(cfg.Meta.GetString(config.ServerID, "")).WithDefaultNS(entry.ID.NS)
+	parsedNewServerID := registry.ParseID(cfg.Meta.GetString(config.ServerID, ""))
+	newServerID := parsedNewServerID.WithDefaultNS(entry.ID.NS)
 	newServer, exists := m.servers[newServerID]
 	if !exists {
 		return NewServerNotFoundError(newServerID.String())
@@ -473,7 +475,8 @@ func (m *Manager) handleEndpointUpsert(ctx context.Context, entry registry.Entry
 		return err
 	}
 
-	routerID := registry.ParseID(cfg.Meta.GetString(config.RouterID, "")).WithDefaultNS(entry.ID.NS)
+	parsedRouterID := registry.ParseID(cfg.Meta.GetString(config.RouterID, ""))
+	routerID := parsedRouterID.WithDefaultNS(entry.ID.NS)
 	serverID, exists := m.routerServers[routerID]
 	if !exists {
 		return NewRouterNotFoundError(routerID.String())
@@ -553,13 +556,15 @@ func (m *Manager) handleStaticUpsert(ctx context.Context, entry registry.Entry) 
 		return err
 	}
 
-	serverID := registry.ParseID(cfg.Meta.GetString(config.ServerID, "")).WithDefaultNS(entry.ID.NS)
+	parsedServerID := registry.ParseID(cfg.Meta.GetString(config.ServerID, ""))
+	serverID := parsedServerID.WithDefaultNS(entry.ID.NS)
 	server, exists := m.servers[serverID]
 	if !exists {
 		return NewServerNotFoundError(serverID.String())
 	}
 
-	cfg.FS = registry.ParseID(cfg.FS.String()).WithDefaultNS(entry.ID.NS)
+	parsedFSID := registry.ParseID(cfg.FS.String())
+	cfg.FS = parsedFSID.WithDefaultNS(entry.ID.NS)
 
 	handler, err := m.staticFactory.CreateHandler(ctx, cfg)
 	if err != nil {

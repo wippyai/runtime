@@ -4,6 +4,7 @@ package banner
 import (
 	"fmt"
 	"math/rand/v2"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/wippyai/runtime/cmd/wippy/version"
@@ -96,8 +97,8 @@ func PrintWithTheme(silent bool, theme GradientTheme) {
 	}
 
 	buildDate := version.Date
-	if len(buildDate) >= 10 {
-		buildDate = buildDate[:10]
+	if idx := strings.Index(buildDate, "T"); idx > 0 {
+		buildDate = buildDate[:idx]
 	}
 
 	logo1 := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(fmt.Sprintf("%d", theme.Logo1)))

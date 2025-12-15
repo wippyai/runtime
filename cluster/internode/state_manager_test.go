@@ -20,7 +20,7 @@ func setupStateManager() *NodeStateManager {
 
 func createMockConnection(nodeID cluster.NodeID) *NodeConnection {
 	client, server := net.Pipe()
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 
 	config := DefaultNodeConnectionConfig()
 	logger := zap.NewNop()

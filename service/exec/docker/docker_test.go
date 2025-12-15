@@ -34,7 +34,7 @@ func TestDockerExecutor_NewProcess(t *testing.T) {
 
 	executor, err := NewDockerExecutor(log, config)
 	require.NoError(t, err)
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	proc, err := executor.NewProcess("echo hello", execapi.ProcessOptions{})
 	require.NoError(t, err)
@@ -61,7 +61,7 @@ func TestDockerExecutor_Whitelist(t *testing.T) {
 
 	executor, err := NewDockerExecutor(log, config)
 	require.NoError(t, err)
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	proc, err := executor.NewProcess("echo hello", execapi.ProcessOptions{})
 	require.NoError(t, err)
@@ -83,7 +83,7 @@ func TestDockerProcess_EchoCommand(t *testing.T) {
 
 	executor, err := NewDockerExecutor(log, config)
 	require.NoError(t, err)
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	proc, err := executor.NewProcess("echo hello world", execapi.ProcessOptions{})
 	require.NoError(t, err)
@@ -118,7 +118,7 @@ func TestDockerProcess_WithEnv(t *testing.T) {
 
 	executor, err := NewDockerExecutor(log, config)
 	require.NoError(t, err)
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	proc, err := executor.NewProcess("sh -c 'echo $TEST_VAR $DEFAULT_VAR'", execapi.ProcessOptions{
 		Env: map[string]string{"TEST_VAR": "test_value"},
@@ -151,7 +151,7 @@ func TestDockerProcess_WorkDir(t *testing.T) {
 
 	executor, err := NewDockerExecutor(log, config)
 	require.NoError(t, err)
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	proc, err := executor.NewProcess("pwd", execapi.ProcessOptions{
 		WorkDir: "/tmp",
@@ -182,7 +182,7 @@ func TestDockerProcess_Stderr(t *testing.T) {
 
 	executor, err := NewDockerExecutor(log, config)
 	require.NoError(t, err)
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	proc, err := executor.NewProcess("sh -c 'echo error message >&2'", execapi.ProcessOptions{})
 	require.NoError(t, err)
@@ -213,7 +213,7 @@ func TestDockerProcess_ExitCode(t *testing.T) {
 
 	executor, err := NewDockerExecutor(log, config)
 	require.NoError(t, err)
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	proc, err := executor.NewProcess("sh -c 'exit 42'", execapi.ProcessOptions{})
 	require.NoError(t, err)
@@ -240,7 +240,7 @@ func TestDockerProcess_Signal(t *testing.T) {
 
 	executor, err := NewDockerExecutor(log, config)
 	require.NoError(t, err)
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	proc, err := executor.NewProcess("sleep 60", execapi.ProcessOptions{})
 	require.NoError(t, err)
@@ -273,7 +273,7 @@ func TestDockerProcess_WriteStdin(t *testing.T) {
 
 	executor, err := NewDockerExecutor(log, config)
 	require.NoError(t, err)
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	proc, err := executor.NewProcess("sh -c 'read line && echo $line'", execapi.ProcessOptions{})
 	require.NoError(t, err)
@@ -304,7 +304,7 @@ func TestDockerProcess_NotStarted(t *testing.T) {
 
 	executor, err := NewDockerExecutor(log, config)
 	require.NoError(t, err)
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	proc, err := executor.NewProcess("echo test", execapi.ProcessOptions{})
 	require.NoError(t, err)
@@ -413,7 +413,7 @@ func TestDockerProcess_LongRunning(t *testing.T) {
 
 	executor, err := NewDockerExecutor(log, config)
 	require.NoError(t, err)
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	proc, err := executor.NewProcess("sh -c 'for i in 1 2 3; do echo line$i; sleep 0.1; done'", execapi.ProcessOptions{})
 	require.NoError(t, err)
@@ -464,7 +464,7 @@ func TestDockerProcess_SecurityOptions(t *testing.T) {
 
 	executor, err := NewDockerExecutor(log, config)
 	require.NoError(t, err)
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	proc, err := executor.NewProcess("echo security test", execapi.ProcessOptions{})
 	require.NoError(t, err)
@@ -495,7 +495,7 @@ func TestDockerProcess_MemoryLimit(t *testing.T) {
 
 	executor, err := NewDockerExecutor(log, config)
 	require.NoError(t, err)
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	proc, err := executor.NewProcess("echo memory test", execapi.ProcessOptions{})
 	require.NoError(t, err)
@@ -530,7 +530,7 @@ func BenchmarkDockerProcess_StartAndWait(b *testing.B) {
 	if err != nil {
 		b.Fatalf("failed to create executor: %v", err)
 	}
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

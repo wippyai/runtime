@@ -25,7 +25,7 @@ func TestActivityExecution_Integration(t *testing.T) {
 		LogLevel: "error",
 	})
 	require.NoError(t, err)
-	defer server.Stop()
+	defer func() { _ = server.Stop() }()
 
 	// Create client
 	c := server.Client()

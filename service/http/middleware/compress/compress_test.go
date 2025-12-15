@@ -138,7 +138,7 @@ func TestCreateCompressMiddleware(t *testing.T) {
 		// Decompress and verify
 		reader, err := gzip.NewReader(w.Body)
 		require.NoError(t, err)
-		defer reader.Close()
+		defer func() { _ = reader.Close() }()
 
 		decompressed, err := io.ReadAll(reader)
 		require.NoError(t, err)

@@ -1000,7 +1000,7 @@ func BenchmarkIntegrationFullPath(b *testing.B) {
 			b.Fatalf("Process error: %v", result.Error)
 		}
 
-		store.Close()
+		_ = store.Close()
 		ctxapi.ReleaseFrameContext(fc)
 	}
 }
@@ -1044,7 +1044,7 @@ func BenchmarkIntegrationWithCoroutines(b *testing.B) {
 			b.Fatalf("Process error: %v", result.Error)
 		}
 
-		store.Close()
+		_ = store.Close()
 		ctxapi.ReleaseFrameContext(fc)
 	}
 }
@@ -1084,7 +1084,7 @@ func BenchmarkIntegrationConcurrent(b *testing.B) {
 				b.Fatalf("Process error: %v", result.Error)
 			}
 
-			store.Close()
+			_ = store.Close()
 			ctxapi.ReleaseFrameContext(fc)
 		}
 	})
@@ -1143,7 +1143,7 @@ func TestIntegration1000ConcurrentGoroutines(t *testing.T) {
 					completed.Add(1)
 				}
 
-				store.Close()
+				_ = store.Close()
 				ctxapi.ReleaseFrameContext(fc)
 			}
 		}(g)
@@ -1257,7 +1257,7 @@ func TestIntegrationProfileHotPath(t *testing.T) {
 				pid := newTestPID(fmt.Sprintf("profile-%d-%d", id, localCount))
 				_, _ = executor.Execute(ctx, pid, mp, "", nil)
 
-				store.Close()
+				_ = store.Close()
 				ctxapi.ReleaseFrameContext(fc)
 				localCount++
 			}
@@ -1334,7 +1334,7 @@ func BenchmarkIntegrationWithCoreBinders(b *testing.B) {
 			b.Fatalf("Process error: %v", result.Error)
 		}
 
-		store.Close()
+		_ = store.Close()
 		ctxapi.ReleaseFrameContext(fc)
 	}
 }
@@ -1378,7 +1378,7 @@ func BenchmarkIntegrationManyCoroutineYields(b *testing.B) {
 			b.Fatalf("Process error: %v", result.Error)
 		}
 
-		store.Close()
+		_ = store.Close()
 		ctxapi.ReleaseFrameContext(fc)
 	}
 }
@@ -1423,7 +1423,7 @@ func TestIntegrationMemoryStability(t *testing.T) {
 			pid := newTestPID(fmt.Sprintf("iter%d-p%d", iter, p))
 			_, _ = exec.Execute(ctx, pid, mp, "", nil)
 
-			store.Close()
+			_ = store.Close()
 			ctxapi.ReleaseFrameContext(fc)
 		}
 
@@ -1497,7 +1497,7 @@ func BenchmarkIntegrationSpawnCoroutines(b *testing.B) {
 			b.Fatalf("Process error: %v", result.Error)
 		}
 
-		store.Close()
+		_ = store.Close()
 		ctxapi.ReleaseFrameContext(fc)
 	}
 }

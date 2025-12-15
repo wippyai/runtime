@@ -28,7 +28,7 @@ func NewID(ns, name string) ID {
 	return unique.Make(id).Value()
 }
 
-func (t ID) String() string {
+func (t *ID) String() string {
 	if t.str != "" {
 		return t.str
 	}
@@ -36,12 +36,12 @@ func (t ID) String() string {
 }
 
 // Equal returns true if both IDs have the same namespace and name.
-func (t ID) Equal(other ID) bool {
+func (t *ID) Equal(other ID) bool {
 	return t.NS == other.NS && t.Name == other.Name
 }
 
 // MarshalJSON implements the json.Marshaler interface.
-func (t ID) MarshalJSON() ([]byte, error) {
+func (t *ID) MarshalJSON() ([]byte, error) {
 	if t.NS == "" {
 		return json.Marshal(t.Name)
 	}
@@ -50,9 +50,9 @@ func (t ID) MarshalJSON() ([]byte, error) {
 
 // WithDefaultNS returns a new ID with the given default namespace if one is not already set.
 // If the ID already has a namespace, it returns the ID unchanged.
-func (t ID) WithDefaultNS(defaultNS Namespace) ID {
+func (t *ID) WithDefaultNS(defaultNS Namespace) ID {
 	if t.NS != "" {
-		return t
+		return *t
 	}
 	id := ID{
 		NS:   defaultNS,

@@ -46,7 +46,7 @@ type Entry struct {
 func (e *Entry) Drop() {
 	if !e.closed && e.closer != nil {
 		e.closed = true
-		e.closer.Close()
+		_ = e.closer.Close()
 	}
 }
 

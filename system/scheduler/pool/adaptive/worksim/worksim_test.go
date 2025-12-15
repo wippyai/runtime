@@ -65,7 +65,7 @@ func TestWorkloadBottleneck(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			w.Work(context.Background())
+			_ = w.Work(context.Background())
 		}()
 	}
 
@@ -305,7 +305,7 @@ func TestAdaptiveScalesDown(t *testing.T) {
 				case <-done:
 					return
 				default:
-					pool.Call(context.Background(), "", nil)
+					_, _ = pool.Call(context.Background(), "", nil)
 				}
 			}
 		}()
@@ -325,7 +325,7 @@ func TestAdaptiveScalesDown(t *testing.T) {
 	// Do a few calls to see current state
 	w.ResetMetrics()
 	for i := 0; i < 5; i++ {
-		pool.Call(context.Background(), "", nil)
+		_, _ = pool.Call(context.Background(), "", nil)
 	}
 	maxAfterScaleDown := w.MaxActive()
 	t.Logf("After scale-down: max active = %d", maxAfterScaleDown)
@@ -345,7 +345,7 @@ func TestWorkloadZeroLatency(t *testing.T) {
 	start := time.Now()
 
 	for i := 0; i < iterations; i++ {
-		w.Work(context.Background())
+		_ = w.Work(context.Background())
 	}
 
 	elapsed := time.Since(start)
@@ -391,7 +391,7 @@ func TestAdaptiveBottleneckOne(t *testing.T) {
 				case <-ctx.Done():
 					return
 				default:
-					pool.Call(context.Background(), "", nil)
+					_, _ = pool.Call(context.Background(), "", nil)
 				}
 			}
 		}()
@@ -441,7 +441,7 @@ func TestAdaptiveBottleneckEqualsMax(t *testing.T) {
 				case <-ctx.Done():
 					return
 				default:
-					pool.Call(context.Background(), "", nil)
+					_, _ = pool.Call(context.Background(), "", nil)
 				}
 			}
 		}()
@@ -493,7 +493,7 @@ func TestAdaptiveRapidLoadChange(t *testing.T) {
 					case <-done:
 						return
 					default:
-						pool.Call(context.Background(), "", nil)
+						_, _ = pool.Call(context.Background(), "", nil)
 					}
 				}
 			}()
@@ -543,7 +543,7 @@ func TestAdaptiveBurstyLoad(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				pool.Call(context.Background(), "", nil)
+				_, _ = pool.Call(context.Background(), "", nil)
 			}()
 		}
 		wg.Wait()
@@ -587,7 +587,7 @@ func TestAdaptiveHighLatencyLowBottleneck(t *testing.T) {
 				case <-ctx.Done():
 					return
 				default:
-					pool.Call(context.Background(), "", nil)
+					_, _ = pool.Call(context.Background(), "", nil)
 				}
 			}
 		}()

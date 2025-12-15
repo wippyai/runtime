@@ -232,7 +232,7 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 	dependents, err := cm.memGraph.GetAllDependents(node.ID)
 	if err != nil {
 		cm.log.Warn("failed to get dependents for cache invalidation",
-			zap.Stringer("node", node.ID),
+			zap.Stringer("node", &node.ID),
 			zap.Error(err))
 	}
 
@@ -364,7 +364,7 @@ func (cm *Manager) UpdateNodeWithProto(_ context.Context, node Node, deps []Impo
 	dependents, err := cm.memGraph.GetAllDependents(node.ID)
 	if err != nil {
 		cm.log.Warn("failed to get dependents for cache invalidation",
-			zap.Stringer("node", node.ID),
+			zap.Stringer("node", &node.ID),
 			zap.Error(err))
 	}
 

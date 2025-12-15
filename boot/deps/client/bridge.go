@@ -157,7 +157,7 @@ func (b *ManifestBridge) processRequest(
 		}
 	}
 
-	b.cache.Set(cacheKey, manifest)
+	_ = b.cache.Set(cacheKey, manifest)
 
 	return graph.ManifestResponse{
 		Request:       req,

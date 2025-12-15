@@ -124,7 +124,7 @@ func TestStreamTableClose(t *testing.T) {
 	Insert(table, io.NopCloser(strings.NewReader("b")))
 	Insert(table, io.NopCloser(strings.NewReader("c")))
 
-	table.Close()
+	_ = table.Close()
 
 	_, err := Read(table, 1, 10)
 	if !errors.Is(err, streamapi.ErrNotFound) {
@@ -134,7 +134,7 @@ func TestStreamTableClose(t *testing.T) {
 
 func TestStreamReadHandler(t *testing.T) {
 	ctx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	table := resource.GetTable(ctx)
 	data := "hello world"
@@ -173,7 +173,7 @@ func TestStreamReadHandler(t *testing.T) {
 
 func TestStreamReadHandlerEOF(t *testing.T) {
 	ctx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	table := resource.GetTable(ctx)
 	id := Insert(table, io.NopCloser(bytes.NewReader(nil)))
@@ -206,7 +206,7 @@ func TestStreamReadHandlerEOF(t *testing.T) {
 
 func TestStreamCloseHandler(t *testing.T) {
 	ctx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	table := resource.GetTable(ctx)
 	id := Insert(table, io.NopCloser(strings.NewReader("test")))
@@ -248,7 +248,7 @@ func TestStreamCloseHandler(t *testing.T) {
 
 func TestStreamFullCycle(t *testing.T) {
 	ctx, store := setupTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	table := resource.GetTable(ctx)
 	data := "chunk1chunk2chunk3"
@@ -346,7 +346,7 @@ func TestStreamCleanupOnStoreClose(t *testing.T) {
 		t.Errorf("stream 1 should be readable: %v", err)
 	}
 
-	store.Close()
+	_ = store.Close()
 
 	if !closed1 || !closed2 || !closed3 {
 		t.Errorf("expected all streams closed, got: %v %v %v", closed1, closed2, closed3)
@@ -365,9 +365,9 @@ func TestStreamCleanupIdempotent(*testing.T) {
 		}(),
 	})
 
-	store.Close()
-	store.Close()
-	store.Close()
+	_ = store.Close()
+	_ = store.Close()
+	_ = store.Close()
 }
 
 // rwsStream implements Reader, Writer, Seeker, Closer, Flusher, and Stater

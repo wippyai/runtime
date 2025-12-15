@@ -18,7 +18,7 @@ import (
 
 func TestRegistryNew(t *testing.T) {
 	table := resource.NewTable()
-	defer table.Close()
+	defer func() { _ = table.Close() }()
 
 	r := NewRegistry(table, nil)
 	if r == nil {
@@ -31,7 +31,7 @@ func TestRegistryNew(t *testing.T) {
 
 func TestRegistryGetMessageChanNotFound(t *testing.T) {
 	table := resource.NewTable()
-	defer table.Close()
+	defer func() { _ = table.Close() }()
 	r := NewRegistry(table, nil)
 
 	_, err := r.GetMessageChan(999)
@@ -42,7 +42,7 @@ func TestRegistryGetMessageChanNotFound(t *testing.T) {
 
 func TestRegistryCloseNotFound(t *testing.T) {
 	table := resource.NewTable()
-	defer table.Close()
+	defer func() { _ = table.Close() }()
 	r := NewRegistry(table, nil)
 
 	err := r.Close(999, 0, "")
@@ -63,10 +63,10 @@ func TestRegistryRegisterAndGetMessageChan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
 	}
-	defer conn.CloseNow()
+	defer func() { _ = conn.CloseNow() }()
 
 	ctx, store := newTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	r := NewRegistry(store.Table(), nil)
 	id := r.Register(ctx, conn, 16, 0)
@@ -98,7 +98,7 @@ func TestRegistryClose(t *testing.T) {
 	}
 
 	ctx, store := newTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	r := NewRegistry(store.Table(), nil)
 	id := r.Register(ctx, conn, 16, 0)
@@ -127,7 +127,7 @@ func TestRegistryDoubleClose(t *testing.T) {
 	}
 
 	ctx, store := newTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	r := NewRegistry(store.Table(), nil)
 	id := r.Register(ctx, conn, 16, 0)
@@ -166,7 +166,7 @@ func TestRegistryResourceCleanup(t *testing.T) {
 		t.Errorf("expected %d connections, got %d", numConns, store.Table().Len())
 	}
 
-	store.Close()
+	_ = store.Close()
 
 	if store.Table().Len() != 0 {
 		t.Errorf("expected 0 connections after Close, got %d", store.Table().Len())
@@ -180,18 +180,18 @@ func TestRegistryReadLoop(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 
 		for i := 0; i < numMessages; i++ {
-			conn.Write(r.Context(), websocket.MessageText, []byte("msg"))
+			_ = conn.Write(r.Context(), websocket.MessageText, []byte("msg"))
 		}
-		conn.Close(websocket.StatusNormalClosure, "done")
+		_ = conn.Close(websocket.StatusNormalClosure, "done")
 	}))
 	defer ts.Close()
 
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := newTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
@@ -225,16 +225,16 @@ func TestRegistryReadLoopBinary(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 
-		conn.Write(r.Context(), websocket.MessageBinary, []byte{0x01, 0x02})
-		conn.Close(websocket.StatusNormalClosure, "done")
+		_ = conn.Write(r.Context(), websocket.MessageBinary, []byte{0x01, 0x02})
+		_ = conn.Close(websocket.StatusNormalClosure, "done")
 	}))
 	defer ts.Close()
 
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := newTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil && resp.Body != nil {
@@ -261,14 +261,14 @@ func TestRegistryContextCancel(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 		time.Sleep(10 * time.Second)
 	}))
 	defer ts.Close()
 
 	wsURL := "ws" + ts.URL[4:]
 	_, store := newTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -303,7 +303,7 @@ func TestRegistryConcurrentAccess(t *testing.T) {
 
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := newTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	r := NewRegistry(store.Table(), nil)
 
@@ -323,8 +323,8 @@ func TestRegistryConcurrentAccess(t *testing.T) {
 			}
 
 			id := r.Register(ctx, conn, 16, 0)
-			r.GetMessageChan(id)
-			r.Close(id, 1000, "test")
+			_, _ = r.GetMessageChan(id)
+			_ = r.Close(id, 1000, "test")
 		}()
 	}
 
@@ -333,7 +333,7 @@ func TestRegistryConcurrentAccess(t *testing.T) {
 
 func TestGetRegistry(t *testing.T) {
 	ctx, store := newTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	r1 := GetRegistry(ctx)
 	if r1 == nil {
@@ -384,7 +384,7 @@ func TestConnEntryDrop(t *testing.T) {
 	msgCh, _ := r.GetMessageChan(id)
 
 	// Closing store triggers Drop on all entries
-	store.Close()
+	_ = store.Close()
 
 	select {
 	case _, ok := <-msgCh:
@@ -401,7 +401,7 @@ func TestConnEntryDrop(t *testing.T) {
 func newTestContext() (context.Context, *resource.Store) {
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	store := resource.NewStore()
-	resource.SetStore(ctx, store)
+	_ = resource.SetStore(ctx, store)
 	return ctx, store
 }
 
@@ -411,7 +411,7 @@ func newReadOnlyServer() *httptest.Server {
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 		for {
 			_, _, err := conn.Read(r.Context())
 			if err != nil {
@@ -429,7 +429,7 @@ func BenchmarkRegistryRegister(b *testing.B) {
 
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := newTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	r := NewRegistry(store.Table(), nil)
 
@@ -458,7 +458,7 @@ func BenchmarkRegistryGetMessageChan(b *testing.B) {
 
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := newTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	r := NewRegistry(store.Table(), nil)
 
@@ -474,7 +474,7 @@ func BenchmarkRegistryGetMessageChan(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		r.GetMessageChan(id)
+		_, _ = r.GetMessageChan(id)
 	}
 }
 
@@ -484,7 +484,7 @@ func BenchmarkRegistryClose(b *testing.B) {
 
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := newTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	r := NewRegistry(store.Table(), nil)
 
@@ -503,7 +503,7 @@ func BenchmarkRegistryClose(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		r.Close(ids[i], 1000, "bench")
+		_ = r.Close(ids[i], 1000, "bench")
 	}
 }
 
@@ -513,7 +513,7 @@ func BenchmarkRegistryConcurrentGet(b *testing.B) {
 
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := newTestContext()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	r := NewRegistry(store.Table(), nil)
 
@@ -530,7 +530,7 @@ func BenchmarkRegistryConcurrentGet(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			r.GetMessageChan(id)
+			_, _ = r.GetMessageChan(id)
 		}
 	})
 }

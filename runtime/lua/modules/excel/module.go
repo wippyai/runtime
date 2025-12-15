@@ -53,7 +53,7 @@ func newWorkbook(ctx context.Context, file *excelize.File) *Workbook {
 	if store := resource.GetStore(ctx); store != nil {
 		wb.cancelCleanup = store.AddCleanup(func() error {
 			if !wb.closed && wb.file != nil {
-				wb.file.Close()
+				_ = wb.file.Close()
 				wb.closed = true
 			}
 			return nil
@@ -70,7 +70,7 @@ func (wb *Workbook) Close() {
 	}
 
 	if wb.file != nil {
-		wb.file.Close()
+		_ = wb.file.Close()
 	}
 	wb.closed = true
 

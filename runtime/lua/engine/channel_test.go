@@ -287,7 +287,7 @@ func TestSelectWithDefault(t *testing.T) {
 
 	if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
 		if b, ok := proc.mainTask.Yielded[0].(lua.LBool); ok {
-			if !bool(b) {
+			if !b {
 				t.Errorf("expected default case to be selected")
 			}
 		}
@@ -431,7 +431,7 @@ func TestSelectBlockingThenWake(t *testing.T) {
 
 	if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
 		if b, ok := proc.mainTask.Yielded[0].(lua.LBool); ok {
-			if !bool(b) {
+			if !b {
 				t.Error("expected result.channel == ch2")
 			}
 		}
@@ -494,7 +494,7 @@ func TestMixedSelect(t *testing.T) {
 
 	if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
 		if b, ok := proc.mainTask.Yielded[0].(lua.LBool); ok {
-			if !bool(b) {
+			if !b {
 				t.Error("expected result.ok=true")
 			}
 		}
@@ -885,7 +885,7 @@ func TestCloseNotifiesBlockedReceivers(t *testing.T) {
 		if n, ok := count.(lua.LNumber); ok && int(n) != 3 {
 			t.Errorf("expected 3 results, got %d", int(n))
 		}
-		if b, ok := allFalse.(lua.LBool); ok && !bool(b) {
+		if b, ok := allFalse.(lua.LBool); ok && !b {
 			t.Error("expected all ok=false after close")
 		}
 	}
@@ -924,10 +924,10 @@ func TestSelectWakesOnClose(t *testing.T) {
 	}
 
 	if proc.mainTask != nil && len(proc.mainTask.Yielded) >= 2 {
-		if b, ok := proc.mainTask.Yielded[0].(lua.LBool); ok && !bool(b) {
+		if b, ok := proc.mainTask.Yielded[0].(lua.LBool); ok && !b {
 			t.Error("expected result.channel == ch1")
 		}
-		if b, ok := proc.mainTask.Yielded[1].(lua.LBool); ok && bool(b) {
+		if b, ok := proc.mainTask.Yielded[1].(lua.LBool); ok && b {
 			t.Error("expected result.ok=false for closed channel")
 		}
 	}
@@ -967,10 +967,10 @@ func TestBufferedCloseWithValues(t *testing.T) {
 		if int(v1) != 1 {
 			t.Errorf("expected first value 1, got %d", int(v1))
 		}
-		if !bool(ok1) {
+		if !ok1 {
 			t.Error("expected ok=true for buffered value")
 		}
-		if bool(ok4) {
+		if ok4 {
 			t.Error("expected ok=false after drain")
 		}
 	}
@@ -1090,7 +1090,7 @@ func TestSelectMultiChannelCleanup(t *testing.T) {
 	}
 
 	if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
-		if b, ok := proc.mainTask.Yielded[0].(lua.LBool); ok && !bool(b) {
+		if b, ok := proc.mainTask.Yielded[0].(lua.LBool); ok && !b {
 			t.Error("expected result.channel == ch2")
 		}
 	}
@@ -1958,7 +1958,7 @@ func TestSelectIndex1VsIndex2(t *testing.T) {
 	}
 
 	if proc1.mainTask != nil && len(proc1.mainTask.Yielded) > 0 {
-		if b, ok := proc1.mainTask.Yielded[0].(lua.LBool); ok && !bool(b) {
+		if b, ok := proc1.mainTask.Yielded[0].(lua.LBool); ok && !b {
 			t.Error("Test1: expected result.channel == ch1")
 		}
 	}
@@ -1989,7 +1989,7 @@ func TestSelectIndex1VsIndex2(t *testing.T) {
 	}
 
 	if proc2.mainTask != nil && len(proc2.mainTask.Yielded) > 0 {
-		if b, ok := proc2.mainTask.Yielded[0].(lua.LBool); ok && !bool(b) {
+		if b, ok := proc2.mainTask.Yielded[0].(lua.LBool); ok && !b {
 			t.Error("Test2: expected result.channel == ch2")
 		}
 	}
@@ -3698,7 +3698,7 @@ func (y *busTestYield) String() string                { return "<bus_test_yield>
 func (y *busTestYield) Type() lua.LValueType          { return lua.LTUserData }
 func (y *busTestYield) CmdID() dispatcher.CommandID   { return busTestYieldCmdID }
 func (y *busTestYield) ToCommand() dispatcher.Command { return y }
-func (y *busTestYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+func (y *busTestYield) HandleResult(_ *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
 	}

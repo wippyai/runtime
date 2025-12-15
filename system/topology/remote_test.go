@@ -16,8 +16,10 @@ func TestTopology_RemoteMonitoring(t *testing.T) {
 	router := newMockUpstream()
 	topo := NewTopology(router, "local")
 
-	localPID := pid.PID{Node: "local", Host: "host1", UniqID: "1"}.Precomputed()
-	remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}.Precomputed()
+	localPID := pid.PID{Node: "local", Host: "host1", UniqID: "1"}
+	localPID.Precomputed()
+	remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}
+	remotePID.Precomputed()
 
 	// Register local caller for remote monitoring tests
 	_ = topo.Register(localPID)
@@ -78,7 +80,8 @@ func TestTopology_RemoteMonitoring(t *testing.T) {
 		router.reset()
 
 		// localPID already registered above
-		localPID2 := pid.PID{Node: "local", Host: "host2", UniqID: "2"}.Precomputed()
+		localPID2 := pid.PID{Node: "local", Host: "host2", UniqID: "2"}
+		localPID2.Precomputed()
 		err := topo.Monitor(localPID2, localPID)
 		require.NoError(t, err)
 
@@ -91,8 +94,10 @@ func TestTopology_RemoteLinking(t *testing.T) {
 	router := newMockUpstream()
 	topo := NewTopology(router, "local")
 
-	localPID := pid.PID{Node: "local", Host: "host1", UniqID: "1"}.Precomputed()
-	remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}.Precomputed()
+	localPID := pid.PID{Node: "local", Host: "host1", UniqID: "1"}
+	localPID.Precomputed()
+	remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}
+	remotePID.Precomputed()
 
 	err := topo.Register(localPID)
 	require.NoError(t, err)
@@ -167,7 +172,8 @@ func TestTopology_RemoteLinking(t *testing.T) {
 	t.Run("Link to local node does not use router", func(t *testing.T) {
 		router.reset()
 
-		localPID2 := pid.PID{Node: "local", Host: "host2", UniqID: "2"}.Precomputed()
+		localPID2 := pid.PID{Node: "local", Host: "host2", UniqID: "2"}
+		localPID2.Precomputed()
 		err := topo.Register(localPID2)
 		require.NoError(t, err)
 
@@ -179,8 +185,10 @@ func TestTopology_RemoteLinking(t *testing.T) {
 	})
 
 	t.Run("Link with unregistered from PID fails", func(t *testing.T) {
-		unregisteredPID := pid.PID{Node: "local", Host: "host3", UniqID: "3"}.Precomputed()
-		remotePID2 := pid.PID{Node: "remote2", Host: "host4", UniqID: "4"}.Precomputed()
+		unregisteredPID := pid.PID{Node: "local", Host: "host3", UniqID: "3"}
+		unregisteredPID.Precomputed()
+		remotePID2 := pid.PID{Node: "remote2", Host: "host4", UniqID: "4"}
+		remotePID2.Precomputed()
 
 		err := topo.Link(unregisteredPID, remotePID2)
 		require.Error(t, err)
@@ -193,8 +201,10 @@ func TestTopology_handleMonitorRequest(t *testing.T) {
 		upstream := newMockUpstream()
 		topo := NewTopology(upstream, "local")
 
-		localPID := pid.PID{Node: "local", Host: "host1", UniqID: "1"}.Precomputed()
-		remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}.Precomputed()
+		localPID := pid.PID{Node: "local", Host: "host1", UniqID: "1"}
+		localPID.Precomputed()
+		remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}
+		remotePID.Precomputed()
 
 		err := topo.Register(localPID)
 		require.NoError(t, err)
@@ -211,8 +221,10 @@ func TestTopology_handleMonitorRequest(t *testing.T) {
 		upstream := newMockUpstream()
 		topo := NewTopology(upstream, "local")
 
-		remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}.Precomputed()
-		unregisteredPID := pid.PID{Node: "local", Host: "host3", UniqID: "3"}.Precomputed()
+		remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}
+		remotePID.Precomputed()
+		unregisteredPID := pid.PID{Node: "local", Host: "host3", UniqID: "3"}
+		unregisteredPID.Precomputed()
 
 		err := topo.handleMonitorRequest(remotePID, unregisteredPID)
 		require.Error(t, err)
@@ -223,8 +235,10 @@ func TestTopology_handleMonitorRequest(t *testing.T) {
 		upstream := newMockUpstream()
 		topo := NewTopology(upstream, "local")
 
-		localPID := pid.PID{Node: "local", Host: "host1", UniqID: "1"}.Precomputed()
-		remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}.Precomputed()
+		localPID := pid.PID{Node: "local", Host: "host1", UniqID: "1"}
+		localPID.Precomputed()
+		remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}
+		remotePID.Precomputed()
 
 		require.NoError(t, topo.Register(localPID))
 		require.NoError(t, topo.handleMonitorRequest(remotePID, localPID))
@@ -241,8 +255,10 @@ func TestTopology_handleMonitorRelease(t *testing.T) {
 		upstream := newMockUpstream()
 		topo := NewTopology(upstream, "local")
 
-		localPID := pid.PID{Node: "local", Host: "host1", UniqID: "1"}.Precomputed()
-		remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}.Precomputed()
+		localPID := pid.PID{Node: "local", Host: "host1", UniqID: "1"}
+		localPID.Precomputed()
+		remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}
+		remotePID.Precomputed()
 
 		require.NoError(t, topo.Register(localPID))
 		require.NoError(t, topo.handleMonitorRequest(remotePID, localPID))
@@ -259,8 +275,10 @@ func TestTopology_handleMonitorRelease(t *testing.T) {
 		upstream := newMockUpstream()
 		topo := NewTopology(upstream, "local")
 
-		remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}.Precomputed()
-		unmonitoredPID := pid.PID{Node: "local", Host: "host3", UniqID: "3"}.Precomputed()
+		remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}
+		remotePID.Precomputed()
+		unmonitoredPID := pid.PID{Node: "local", Host: "host3", UniqID: "3"}
+		unmonitoredPID.Precomputed()
 
 		err := topo.handleMonitorRelease(remotePID, unmonitoredPID)
 		require.NoError(t, err)
@@ -271,8 +289,10 @@ func TestTopology_handleLinkRequest(t *testing.T) {
 	upstream := newMockUpstream()
 	topo := NewTopology(upstream, "local")
 
-	localPID := pid.PID{Node: "local", Host: "host1", UniqID: "1"}.Precomputed()
-	remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}.Precomputed()
+	localPID := pid.PID{Node: "local", Host: "host1", UniqID: "1"}
+	localPID.Precomputed()
+	remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}
+	remotePID.Precomputed()
 
 	err := topo.Register(localPID)
 	require.NoError(t, err)
@@ -287,7 +307,8 @@ func TestTopology_handleLinkRequest(t *testing.T) {
 	})
 
 	t.Run("handleLinkRequest on unregistered to PID fails", func(t *testing.T) {
-		unregisteredPID := pid.PID{Node: "local", Host: "host3", UniqID: "3"}.Precomputed()
+		unregisteredPID := pid.PID{Node: "local", Host: "host3", UniqID: "3"}
+		unregisteredPID.Precomputed()
 
 		err := topo.handleLinkRequest(remotePID, unregisteredPID)
 		require.Error(t, err)
@@ -307,8 +328,10 @@ func TestTopology_handleUnlinkRequest(t *testing.T) {
 	upstream := newMockUpstream()
 	topo := NewTopology(upstream, "local")
 
-	localPID := pid.PID{Node: "local", Host: "host1", UniqID: "1"}.Precomputed()
-	remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}.Precomputed()
+	localPID := pid.PID{Node: "local", Host: "host1", UniqID: "1"}
+	localPID.Precomputed()
+	remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}
+	remotePID.Precomputed()
 
 	err := topo.Register(localPID)
 	require.NoError(t, err)
@@ -334,8 +357,10 @@ func TestTopology_RemoteMonitoringWithNotification(t *testing.T) {
 	upstream := newMockUpstream()
 	topo := NewTopology(upstream, "local")
 
-	localPID := pid.PID{Node: "local", Host: "host1", UniqID: "1"}.Precomputed()
-	remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}.Precomputed()
+	localPID := pid.PID{Node: "local", Host: "host1", UniqID: "1"}
+	localPID.Precomputed()
+	remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}
+	remotePID.Precomputed()
 
 	t.Run("Remote watcher receives exit notification", func(t *testing.T) {
 		err := topo.Register(localPID)
@@ -374,11 +399,16 @@ func TestTopology_HandleNodeExit(t *testing.T) {
 	router := newMockUpstream()
 	topo := NewTopology(router, "local")
 
-	localPID1 := pid.PID{Node: "local", Host: "host1", UniqID: "p1"}.Precomputed()
-	localPID2 := pid.PID{Node: "local", Host: "host2", UniqID: "p2"}.Precomputed()
-	remotePID1 := pid.PID{Node: "remote", Host: "host1", UniqID: "r1"}.Precomputed()
-	remotePID2 := pid.PID{Node: "remote", Host: "host2", UniqID: "r2"}.Precomputed()
-	otherRemotePID := pid.PID{Node: "other", Host: "host1", UniqID: "o1"}.Precomputed()
+	localPID1 := pid.PID{Node: "local", Host: "host1", UniqID: "p1"}
+	localPID1.Precomputed()
+	localPID2 := pid.PID{Node: "local", Host: "host2", UniqID: "p2"}
+	localPID2.Precomputed()
+	remotePID1 := pid.PID{Node: "remote", Host: "host1", UniqID: "r1"}
+	remotePID1.Precomputed()
+	remotePID2 := pid.PID{Node: "remote", Host: "host2", UniqID: "r2"}
+	remotePID2.Precomputed()
+	otherRemotePID := pid.PID{Node: "other", Host: "host1", UniqID: "o1"}
+	otherRemotePID.Precomputed()
 
 	// Register local processes
 	require.NoError(t, topo.Register(localPID1))
@@ -454,7 +484,8 @@ func TestTopology_HandleNodeExit(t *testing.T) {
 
 		// localPID1 still registered
 		// Watch remote PID
-		remotePID := pid.PID{Node: "cleanup-test", Host: "h", UniqID: "r"}.Precomputed()
+		remotePID := pid.PID{Node: "cleanup-test", Host: "h", UniqID: "r"}
+		remotePID.Precomputed()
 		err := topo.Monitor(localPID1, remotePID)
 		require.NoError(t, err)
 
