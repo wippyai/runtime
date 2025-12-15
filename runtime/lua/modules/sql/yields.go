@@ -97,7 +97,7 @@ func (y *QueryYield) HandleResult(l *lua.LState, data any, err error) []lua.LVal
 	}
 	resp, ok := data.(sqlapi.QueryResponse)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.KindInternal)}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal)}
 	}
 	if resp.Error != nil {
 		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "query")}
@@ -138,7 +138,7 @@ func (y *ExecuteYield) HandleResult(l *lua.LState, data any, err error) []lua.LV
 	}
 	resp, ok := data.(sqlapi.ExecuteResponse)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.KindInternal)}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal)}
 	}
 	if resp.Error != nil {
 		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "execute")}
@@ -182,13 +182,13 @@ func (y *PrepareYield) HandleResult(l *lua.LState, data any, err error) []lua.LV
 	}
 	resp, ok := data.(sqlapi.PrepareResponse)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.KindInternal)}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal)}
 	}
 	if resp.Error != nil {
 		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "prepare")}
 	}
 	if y.WrapStmt == nil {
-		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "no statement wrapper").WithKind(lua.KindInternal)}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "no statement wrapper").WithKind(lua.Internal)}
 	}
 	return []lua.LValue{y.WrapStmt(resp.Stmt), lua.LNil}
 }
@@ -229,13 +229,13 @@ func (y *BeginYield) HandleResult(l *lua.LState, data any, err error) []lua.LVal
 	}
 	resp, ok := data.(sqlapi.BeginResponse)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.KindInternal)}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal)}
 	}
 	if resp.Error != nil {
 		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "begin")}
 	}
 	if y.WrapTx == nil {
-		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "no transaction wrapper").WithKind(lua.KindInternal)}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "no transaction wrapper").WithKind(lua.Internal)}
 	}
 	return []lua.LValue{y.WrapTx(resp.Tx), lua.LNil}
 }
@@ -273,7 +273,7 @@ func (y *StmtQueryYield) HandleResult(l *lua.LState, data any, err error) []lua.
 	}
 	resp, ok := data.(sqlapi.QueryResponse)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.KindInternal)}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal)}
 	}
 	if resp.Error != nil {
 		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "stmt query")}
@@ -314,7 +314,7 @@ func (y *StmtExecuteYield) HandleResult(l *lua.LState, data any, err error) []lu
 	}
 	resp, ok := data.(sqlapi.ExecuteResponse)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.KindInternal)}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal)}
 	}
 	if resp.Error != nil {
 		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "stmt execute")}
@@ -395,7 +395,7 @@ func (y *TxQueryYield) HandleResult(l *lua.LState, data any, err error) []lua.LV
 	}
 	resp, ok := data.(sqlapi.QueryResponse)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.KindInternal)}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal)}
 	}
 	if resp.Error != nil {
 		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "tx query")}
@@ -436,7 +436,7 @@ func (y *TxExecuteYield) HandleResult(l *lua.LState, data any, err error) []lua.
 	}
 	resp, ok := data.(sqlapi.ExecuteResponse)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.KindInternal)}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal)}
 	}
 	if resp.Error != nil {
 		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "tx execute")}
@@ -477,7 +477,7 @@ func (y *TxSavepointYield) HandleResult(l *lua.LState, data any, err error) []lu
 	}
 	resp, ok := data.(sqlapi.ExecuteResponse)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.KindInternal)}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal)}
 	}
 	if resp.Error != nil {
 		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "savepoint")}
@@ -521,13 +521,13 @@ func (y *TxPrepareYield) HandleResult(l *lua.LState, data any, err error) []lua.
 	}
 	resp, ok := data.(sqlapi.PrepareResponse)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.KindInternal)}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal)}
 	}
 	if resp.Error != nil {
 		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "tx prepare")}
 	}
 	if y.WrapStmt == nil {
-		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "no statement wrapper").WithKind(lua.KindInternal)}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "no statement wrapper").WithKind(lua.Internal)}
 	}
 	return []lua.LValue{y.WrapStmt(resp.Stmt), lua.LNil}
 }

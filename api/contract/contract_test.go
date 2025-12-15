@@ -23,14 +23,14 @@ func TestEventConstants(t *testing.T) {
 		expected string
 	}{
 		{"system", System, "", "contract"},
-		{"register definition", "", KindRegisterDefinition, "contract.definition.register"},
-		{"update definition", "", KindUpdateDefinition, "contract.definition.update"},
-		{"delete definition", "", KindDeleteDefinition, "contract.definition.delete"},
-		{"register binding", "", KindRegisterBinding, "contract.binding.register"},
-		{"update binding", "", KindUpdateBinding, "contract.binding.update"},
-		{"delete binding", "", KindDeleteBinding, "contract.binding.delete"},
-		{"accept", "", KindAccept, "contract.accept"},
-		{"reject", "", KindReject, "contract.reject"},
+		{"register definition", "", RegisterDefinition, "contract.definition.register"},
+		{"update definition", "", UpdateDefinition, "contract.definition.update"},
+		{"delete definition", "", DeleteDefinition, "contract.definition.delete"},
+		{"register binding", "", RegisterBinding, "contract.binding.register"},
+		{"update binding", "", UpdateBinding, "contract.binding.update"},
+		{"delete binding", "", DeleteBinding, "contract.binding.delete"},
+		{"accept", "", Accept, "contract.accept"},
+		{"reject", "", Reject, "contract.reject"},
 	}
 
 	for _, tt := range tests {
@@ -380,7 +380,7 @@ func TestCommandPools(t *testing.T) {
 	t.Run("OpenCmd", func(t *testing.T) {
 		cmd := AcquireOpenCmd()
 		assert.NotNil(t, cmd)
-		assert.Equal(t, CmdOpen, cmd.CmdID())
+		assert.Equal(t, Open, cmd.CmdID())
 
 		cmd.BindingID = registry.NewID("test", "binding")
 		cmd.Scope = attrs.NewBag()
@@ -401,7 +401,7 @@ func TestCommandPools(t *testing.T) {
 	t.Run("CallCmd", func(t *testing.T) {
 		cmd := AcquireCallCmd()
 		assert.NotNil(t, cmd)
-		assert.Equal(t, CmdCall, cmd.CmdID())
+		assert.Equal(t, Call, cmd.CmdID())
 
 		cmd.Method = "testMethod"
 
@@ -417,7 +417,7 @@ func TestCommandPools(t *testing.T) {
 	t.Run("AsyncCallCmd", func(t *testing.T) {
 		cmd := AcquireAsyncCallCmd()
 		assert.NotNil(t, cmd)
-		assert.Equal(t, CmdAsyncCall, cmd.CmdID())
+		assert.Equal(t, AsyncCall, cmd.CmdID())
 
 		cmd.Method = "asyncMethod"
 		cmd.Topic = "result-topic"
@@ -435,7 +435,7 @@ func TestCommandPools(t *testing.T) {
 	t.Run("AsyncCancelCmd", func(t *testing.T) {
 		cmd := AcquireAsyncCancelCmd()
 		assert.NotNil(t, cmd)
-		assert.Equal(t, CmdAsyncCancel, cmd.CmdID())
+		assert.Equal(t, AsyncCancel, cmd.CmdID())
 
 		cmd.Topic = "cancel-topic"
 
@@ -448,10 +448,10 @@ func TestCommandPools(t *testing.T) {
 }
 
 func TestCommandIDs(t *testing.T) {
-	assert.Equal(t, CmdOpen, dispatcher.CommandID(300))
-	assert.Equal(t, CmdCall, dispatcher.CommandID(301))
-	assert.Equal(t, CmdAsyncCall, dispatcher.CommandID(302))
-	assert.Equal(t, CmdAsyncCancel, dispatcher.CommandID(303))
+	assert.Equal(t, Open, dispatcher.CommandID(300))
+	assert.Equal(t, Call, dispatcher.CommandID(301))
+	assert.Equal(t, AsyncCall, dispatcher.CommandID(302))
+	assert.Equal(t, AsyncCancel, dispatcher.CommandID(303))
 }
 
 func TestResultTypes(t *testing.T) {

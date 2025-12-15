@@ -77,7 +77,7 @@ func newRequest(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		err := lua.NewLuaError(l, "no context available").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -87,7 +87,7 @@ func newRequest(l *lua.LState) int {
 	reqCtx, ok := httpservice.GetRequestContext(ctx)
 	if !ok {
 		err := lua.NewLuaError(l, "no HTTP request context found").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -265,7 +265,7 @@ func requestBody(l *lua.LState) int {
 	}
 	if req.request.Body == nil {
 		err := lua.NewLuaError(l, "no body").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -279,7 +279,7 @@ func requestBody(l *lua.LState) int {
 
 	if req.request.ContentLength > maxBody {
 		err := lua.NewLuaError(l, "request body too large").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -328,7 +328,7 @@ func requestBody(l *lua.LState) int {
 
 	if readErr != nil {
 		luaErr := lua.WrapErrorWithLua(l, readErr, "failed to read body").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -337,7 +337,7 @@ func requestBody(l *lua.LState) int {
 
 	if int64(len(body)) > maxBody {
 		err := lua.NewLuaError(l, "request body too large").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -356,7 +356,7 @@ func requestBodyJSON(l *lua.LState) int {
 	}
 	if req.request.Body == nil {
 		err := lua.NewLuaError(l, "no body").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -370,7 +370,7 @@ func requestBodyJSON(l *lua.LState) int {
 
 	if req.request.ContentLength > maxBody {
 		err := lua.NewLuaError(l, "request body too large").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -384,7 +384,7 @@ func requestBodyJSON(l *lua.LState) int {
 	defer func() { _ = req.request.Body.Close() }()
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "failed to read body").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -393,7 +393,7 @@ func requestBodyJSON(l *lua.LState) int {
 
 	if int64(len(body)) > maxBody {
 		err := lua.NewLuaError(l, "request body too large").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -403,7 +403,7 @@ func requestBodyJSON(l *lua.LState) int {
 	val, err := jsonmod.Decode(body)
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "invalid JSON").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -471,7 +471,7 @@ func requestParam(l *lua.LState) int {
 	routeInfo, ok := httpservice.GetRouteInfo(req.request.Context())
 	if !ok {
 		err := lua.NewLuaError(l, "no route parameters found").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -496,7 +496,7 @@ func requestParams(l *lua.LState) int {
 	routeInfo, ok := httpservice.GetRouteInfo(req.request.Context())
 	if !ok {
 		err := lua.NewLuaError(l, "no route parameters found").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -530,7 +530,7 @@ func requestStream(l *lua.LState) int {
 
 	if req.request.Body == nil {
 		err := lua.NewLuaError(l, "no body").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -540,7 +540,7 @@ func requestStream(l *lua.LState) int {
 	table := resource.GetTable(l.Context())
 	if table == nil {
 		err := lua.NewLuaError(l, "no resource table available").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -563,7 +563,7 @@ func requestParseMultipart(l *lua.LState) int {
 	contentType := req.request.Header.Get("Content-Type")
 	if !strings.HasPrefix(contentType, "multipart/form-data") {
 		err := lua.NewLuaError(l, "content type is not multipart/form-data").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -577,7 +577,7 @@ func requestParseMultipart(l *lua.LState) int {
 
 	if err := req.request.ParseMultipartForm(maxMemory); err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "failed to parse multipart form").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -644,7 +644,7 @@ func multipartFileStream(l *lua.LState) int {
 	file, err := mf.fileHeader.Open()
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "failed to open file").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -655,7 +655,7 @@ func multipartFileStream(l *lua.LState) int {
 	if table == nil {
 		file.Close()
 		err := lua.NewLuaError(l, "no resource table available").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)

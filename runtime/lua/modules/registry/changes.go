@@ -33,7 +33,7 @@ func changesOps(l *lua.LState) int {
 		entryTable, convErr := entryToLuaTable(l, op.Entry)
 		if convErr != nil {
 			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
-				WithKind(lua.KindInternal).
+				WithKind(lua.Internal).
 				WithRetryable(false)
 			l.Push(lua.LNil)
 			l.Push(err)
@@ -60,7 +60,7 @@ func changesCreate(l *lua.LState) int {
 	entry, convErr := luaTableToEntry(l, entryTable)
 	if convErr != nil {
 		err := lua.WrapErrorWithLua(l, convErr, "convert entry").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -88,7 +88,7 @@ func changesUpdate(l *lua.LState) int {
 	entry, convErr := luaTableToEntry(l, entryTable)
 	if convErr != nil {
 		err := lua.WrapErrorWithLua(l, convErr, "convert entry").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -126,7 +126,7 @@ func changesDelete(l *lua.LState) int {
 		}
 	default:
 		err := lua.NewLuaError(l, "invalid ID format").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -153,7 +153,7 @@ func changesApply(l *lua.LState) int {
 
 	if len(changes.ops) == 0 {
 		err := lua.NewLuaError(l, "no changes to apply").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -162,7 +162,7 @@ func changesApply(l *lua.LState) int {
 
 	if !security.IsAllowed(l.Context(), "registry.apply", "", nil) {
 		err := lua.NewLuaError(l, "not allowed to apply registry changes").
-			WithKind(lua.KindPermissionDenied).
+			WithKind(lua.PermissionDenied).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -174,7 +174,7 @@ func changesApply(l *lua.LState) int {
 	sortedOps, sortErr := stateBuilder.SortChangeSet(changes.snapshot.entries, changes.ops)
 	if sortErr != nil {
 		err := lua.WrapErrorWithLua(l, sortErr, "sort operations").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -184,7 +184,7 @@ func changesApply(l *lua.LState) int {
 	version, applyErr := changes.snapshot.reg.Apply(l.Context(), sortedOps)
 	if applyErr != nil {
 		err := lua.WrapErrorWithLua(l, applyErr, "apply changes").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)

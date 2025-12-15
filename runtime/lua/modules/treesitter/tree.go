@@ -70,7 +70,7 @@ func treeRootNode(l *lua.LState) int {
 	tree := checkTree(l)
 	if tree.tree == nil {
 		err := lua.NewLuaError(l, "tree is closed").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -92,7 +92,7 @@ func treeRootNodeWithOffset(l *lua.LState) int {
 	tree := checkTree(l)
 	if tree.tree == nil {
 		err := lua.NewLuaError(l, "tree is closed").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -122,7 +122,7 @@ func treeLanguage(l *lua.LState) int {
 	tree := checkTree(l)
 	if tree.tree == nil {
 		err := lua.NewLuaError(l, "tree is closed").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -143,7 +143,7 @@ func treeCopy(l *lua.LState) int {
 	tree := checkTree(l)
 	if tree.tree == nil {
 		err := lua.NewLuaError(l, "tree is closed").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -159,7 +159,7 @@ func treeCopy(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		err := lua.NewLuaError(l, "no context found").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -174,7 +174,7 @@ func treeWalk(l *lua.LState) int {
 	tree := checkTree(l)
 	if tree.tree == nil {
 		err := lua.NewLuaError(l, "tree is closed").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -190,7 +190,7 @@ func treeWalk(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		err := lua.NewLuaError(l, "no context found").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -232,7 +232,7 @@ func treeEdit(l *lua.LState) int {
 	tree := checkTree(l)
 	if tree.tree == nil {
 		err := lua.NewLuaError(l, "tree is closed").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LFalse)
 		l.Push(err)
@@ -244,7 +244,7 @@ func treeEdit(l *lua.LState) int {
 	// Helper for validation errors
 	validationErr := func(msg string) int {
 		err := lua.NewLuaError(l, msg).
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LFalse)
 		l.Push(err)
@@ -326,7 +326,7 @@ func treeEdit(l *lua.LState) int {
 
 	if editErr := tree.edit(edit); editErr != nil {
 		err := lua.WrapErrorWithLua(l, editErr, "edit failed").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LFalse)
 		l.Push(err)
@@ -417,7 +417,7 @@ func treePrintDotGraph(l *lua.LState) int {
 	tree := checkTree(l)
 	if tree.tree == nil {
 		err := lua.NewLuaError(l, "tree is nil").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -428,7 +428,7 @@ func treePrintDotGraph(l *lua.LState) int {
 	r, w, pipeErr := os.Pipe()
 	if pipeErr != nil {
 		err := lua.WrapErrorWithLua(l, pipeErr, "failed to create pipe").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -457,7 +457,7 @@ func treePrintDotGraph(l *lua.LState) int {
 
 	if readErr != nil {
 		err := lua.WrapErrorWithLua(l, readErr, "failed to read DOT graph").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)

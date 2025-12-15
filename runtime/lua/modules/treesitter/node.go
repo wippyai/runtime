@@ -208,7 +208,7 @@ func nodeText(l *lua.LState) int {
 	} else {
 		if node.source == nil {
 			err := lua.NewLuaError(l, "source reference is empty").
-				WithKind(lua.KindInvalid).
+				WithKind(lua.Invalid).
 				WithRetryable(false)
 			l.Push(lua.LNil)
 			l.Push(err)
@@ -225,7 +225,7 @@ func nodeText(l *lua.LState) int {
 
 	if start > end || end > uint(sourceLen) {
 		err := lua.NewLuaError(l, "invalid byte range").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)

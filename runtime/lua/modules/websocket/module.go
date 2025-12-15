@@ -6,7 +6,7 @@ import (
 
 	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
-	wsapi "github.com/wippyai/runtime/api/websocket"
+	wsapi "github.com/wippyai/runtime/api/service/websocket"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"
@@ -110,11 +110,11 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	mod.Immutable = true
 
 	yields := []luaapi.YieldType{
-		{Sample: &WsConnectYield{}, CmdID: wsapi.CmdWsConnect},
-		{Sample: &WsSendYield{}, CmdID: wsapi.CmdWsSend},
-		{Sample: &WsCloseYield{}, CmdID: wsapi.CmdWsClose},
-		{Sample: &WsPingYield{}, CmdID: wsapi.CmdWsPing},
-		{Sample: &WsSubscribeYield{}, CmdID: wsapi.CmdWsSubscribe},
+		{Sample: &WsConnectYield{}, CmdID: wsapi.Connect},
+		{Sample: &WsSendYield{}, CmdID: wsapi.Send},
+		{Sample: &WsCloseYield{}, CmdID: wsapi.Close},
+		{Sample: &WsPingYield{}, CmdID: wsapi.Ping},
+		{Sample: &WsSubscribeYield{}, CmdID: wsapi.Subscribe},
 	}
 
 	return mod, yields

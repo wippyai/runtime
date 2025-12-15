@@ -147,34 +147,34 @@ func TestContext_Bus(t *testing.T) {
 }
 
 func TestCommands(t *testing.T) {
-	t.Run("EventsSubscribeCmd", func(t *testing.T) {
-		cmd := EventsSubscribeCmd{
+	t.Run("SubscribeCmd", func(t *testing.T) {
+		cmd := SubscribeCmd{
 			System: "test-system",
 			Kind:   "test-kind",
 			Topic:  "test-topic",
 			PID:    pid.PID{Node: "node1", Host: "host1", UniqID: "123"},
 		}
-		assert.Equal(t, CmdEventsSubscribe, cmd.CmdID())
+		assert.Equal(t, Subscribe, cmd.CmdID())
 		assert.Equal(t, "test-system", cmd.System)
 		assert.Equal(t, "test-kind", cmd.Kind)
 		assert.Equal(t, "test-topic", cmd.Topic)
 	})
 
-	t.Run("EventsSendCmd", func(t *testing.T) {
-		cmd := EventsSendCmd{
+	t.Run("SendCmd", func(t *testing.T) {
+		cmd := SendCmd{
 			System: "test-system",
 			Kind:   "test-kind",
 			Path:   "test-path",
 			Data:   map[string]any{"key": "value"},
 		}
-		assert.Equal(t, CmdEventsSend, cmd.CmdID())
+		assert.Equal(t, Send, cmd.CmdID())
 		assert.Equal(t, "test-system", cmd.System)
 		assert.Equal(t, "test-path", cmd.Path)
 	})
 
 	t.Run("command ID constants", func(t *testing.T) {
-		assert.Equal(t, 90, int(CmdEventsSubscribe))
-		assert.Equal(t, 91, int(CmdEventsSend))
+		assert.Equal(t, 90, int(Subscribe))
+		assert.Equal(t, 91, int(Send))
 	})
 }
 

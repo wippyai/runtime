@@ -17,10 +17,10 @@ func TestEventConstants(t *testing.T) {
 		expected string
 	}{
 		{"system", System, "", "fs"},
-		{"register", "", KindRegister, "fs.register"},
-		{"delete", "", KindDelete, "fs.delete"},
-		{"accept", "", KindAccept, "fs.accept"},
-		{"reject", "", KindReject, "fs.reject"},
+		{"register", "", Register, "fs.register"},
+		{"delete", "", Delete, "fs.delete"},
+		{"accept", "", Accept, "fs.accept"},
+		{"reject", "", Reject, "fs.reject"},
 	}
 
 	for _, tt := range tests {

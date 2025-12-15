@@ -25,7 +25,7 @@ func encodeFunc(l *lua.LState) int {
 	str, ok := l.Get(1).(lua.LString)
 	if !ok {
 		err := lua.NewLuaError(l, "string expected").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -46,7 +46,7 @@ func decodeFunc(l *lua.LState) int {
 	str, ok := l.Get(1).(lua.LString)
 	if !ok {
 		err := lua.NewLuaError(l, "string expected").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -61,7 +61,7 @@ func decodeFunc(l *lua.LState) int {
 	decoded, decErr := base64.StdEncoding.DecodeString(string(str))
 	if decErr != nil {
 		err := lua.WrapErrorWithLua(l, decErr, "decode failed").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)

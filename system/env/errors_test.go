@@ -36,7 +36,7 @@ func TestErrors(t *testing.T) {
 		cause := errors.New("access denied")
 		err := NewRenameTempFileError(3, cause)
 		assert.Contains(t, err.Error(), "failed to rename temp file")
-		assert.Equal(t, "Unknown", err.Retryable().String())
+		assert.Equal(t, "Unspecified", err.Retryable().String())
 		assert.Equal(t, cause, errors.Unwrap(err))
 		details := err.Details()
 		require.NotNil(t, details)

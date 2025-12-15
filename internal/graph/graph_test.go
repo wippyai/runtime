@@ -4,6 +4,8 @@ import (
 	"errors"
 	"sync"
 	"testing"
+
+	apierror "github.com/wippyai/runtime/api/error"
 )
 
 type TestEdgeData struct {
@@ -407,7 +409,7 @@ func TestGraphDependencyLevels(t *testing.T) {
 		}
 
 		// Check error has details via Details() method
-		var graphErr *Error
+		var graphErr apierror.Error
 		if !errors.As(err, &graphErr) {
 			t.Fatalf("expected *Error, got %T", err)
 		}

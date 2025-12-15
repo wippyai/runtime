@@ -74,7 +74,7 @@ func newQuery(l *lua.LState) int {
 	langInfo := languages.GetLanguageInfo(languageStr)
 	if langInfo == nil {
 		err := lua.NewLuaError(l, fmt.Sprintf("unsupported language: %s", languageStr)).
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -83,7 +83,7 @@ func newQuery(l *lua.LState) int {
 
 	if langInfo.Language == nil {
 		err := lua.NewLuaError(l, fmt.Sprintf("language '%s' does not have a Tree-sitter language binding", languageStr)).
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -94,7 +94,7 @@ func newQuery(l *lua.LState) int {
 	query, queryErr := treesitter.NewQuery(lang, pattern)
 	if queryErr != nil {
 		err := lua.NewLuaError(l, formatQueryError(queryErr)).
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -104,7 +104,7 @@ func newQuery(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		err := lua.NewLuaError(l, "no context found").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -154,7 +154,7 @@ func queryMatches(l *lua.LState) int {
 	node, ok := nodeUD.Value.(*NodeWrapper)
 	if !ok {
 		err := lua.NewLuaError(l, "Node expected").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -184,7 +184,7 @@ func queryCaptures(l *lua.LState) int {
 	node, ok := nodeUD.Value.(*NodeWrapper)
 	if !ok {
 		err := lua.NewLuaError(l, "Node expected").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)

@@ -74,17 +74,17 @@ func (r *Registry) Stop() error {
 
 func (r *Registry) handleEvent(e event.Event) {
 	switch e.Kind {
-	case contract.KindRegisterDefinition:
+	case contract.RegisterDefinition:
 		r.registerDefinition(e)
-	case contract.KindUpdateDefinition:
+	case contract.UpdateDefinition:
 		r.updateDefinition(e)
-	case contract.KindDeleteDefinition:
+	case contract.DeleteDefinition:
 		r.deleteDefinition(e)
-	case contract.KindRegisterBinding:
+	case contract.RegisterBinding:
 		r.registerBinding(e)
-	case contract.KindUpdateBinding:
+	case contract.UpdateBinding:
 		r.updateBinding(e)
-	case contract.KindDeleteBinding:
+	case contract.DeleteBinding:
 		r.deleteBinding(e)
 	default:
 		r.logger.Warn("unknown event kind",
@@ -253,7 +253,7 @@ func (r *Registry) removeDefaultBindings(bindingID registry.ID) {
 func (r *Registry) sendAccept(path event.Path) {
 	r.bus.Send(r.ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.KindAccept,
+		Kind:   contract.Accept,
 		Path:   path,
 	})
 }
@@ -261,7 +261,7 @@ func (r *Registry) sendAccept(path event.Path) {
 func (r *Registry) sendReject(path event.Path, reason string) {
 	r.bus.Send(r.ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.KindReject,
+		Kind:   contract.Reject,
 		Path:   path,
 		Data:   reason,
 	})

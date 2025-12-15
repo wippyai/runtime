@@ -8,7 +8,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/security"
-	wsapi "github.com/wippyai/runtime/api/websocket"
+	wsapi "github.com/wippyai/runtime/api/service/websocket"
 	"github.com/yuin/gopher-lua"
 )
 
@@ -194,11 +194,11 @@ func TestYieldTypes(t *testing.T) {
 	}
 
 	expectedCmds := map[int]bool{
-		int(wsapi.CmdWsConnect):   false,
-		int(wsapi.CmdWsSend):      false,
-		int(wsapi.CmdWsClose):     false,
-		int(wsapi.CmdWsPing):      false,
-		int(wsapi.CmdWsSubscribe): false,
+		int(wsapi.Connect):   false,
+		int(wsapi.Send):      false,
+		int(wsapi.Close):     false,
+		int(wsapi.Ping):      false,
+		int(wsapi.Subscribe): false,
 	}
 
 	for _, y := range yields {
@@ -223,11 +223,11 @@ func TestWsConnectYield(t *testing.T) {
 	yield.CompressionThreshold = 512
 	yield.ReadLimit = 1024
 
-	if yield.CmdID() != wsapi.CmdWsConnect {
+	if yield.CmdID() != wsapi.Connect {
 		t.Errorf("expected CmdWsConnect, got %d", yield.CmdID())
 	}
 
-	cmd := yield.ToCommand().(wsapi.WsConnectCmd)
+	cmd := yield.ToCommand().(wsapi.ConnectCmd)
 	if cmd.URL != "ws://example.com" {
 		t.Errorf("URL mismatch: %s", cmd.URL)
 	}
@@ -247,11 +247,11 @@ func TestWsConnectYield(t *testing.T) {
 func TestWsSendYield(t *testing.T) {
 	yield := AcquireWsSendYield(123, []byte("hello"), wsapi.MessageText)
 
-	if yield.CmdID() != wsapi.CmdWsSend {
+	if yield.CmdID() != wsapi.Send {
 		t.Errorf("expected CmdWsSend, got %d", yield.CmdID())
 	}
 
-	cmd := yield.ToCommand().(wsapi.WsSendCmd)
+	cmd := yield.ToCommand().(wsapi.SendCmd)
 	if cmd.ConnID != 123 {
 		t.Errorf("ConnID mismatch: %d", cmd.ConnID)
 	}
@@ -269,11 +269,11 @@ func TestWsSubscribeYield(t *testing.T) {
 	p := pid.PID{UniqID: "test-pid"}
 	yield := AcquireWsSubscribeYield(456, nil, p, "ws@456", nil)
 
-	if yield.CmdID() != wsapi.CmdWsSubscribe {
+	if yield.CmdID() != wsapi.Subscribe {
 		t.Errorf("expected CmdWsSubscribe, got %d", yield.CmdID())
 	}
 
-	cmd := yield.ToCommand().(wsapi.WsSubscribeCmd)
+	cmd := yield.ToCommand().(wsapi.SubscribeCmd)
 	if cmd.ConnID != 456 {
 		t.Errorf("ConnID mismatch: %d", cmd.ConnID)
 	}
@@ -290,11 +290,11 @@ func TestWsSubscribeYield(t *testing.T) {
 func TestWsCloseYield(t *testing.T) {
 	yield := AcquireWsCloseYield(789, 1000, "normal close")
 
-	if yield.CmdID() != wsapi.CmdWsClose {
+	if yield.CmdID() != wsapi.Close {
 		t.Errorf("expected CmdWsClose, got %d", yield.CmdID())
 	}
 
-	cmd := yield.ToCommand().(wsapi.WsCloseCmd)
+	cmd := yield.ToCommand().(wsapi.CloseCmd)
 	if cmd.ConnID != 789 {
 		t.Errorf("ConnID mismatch: %d", cmd.ConnID)
 	}
@@ -311,11 +311,11 @@ func TestWsCloseYield(t *testing.T) {
 func TestWsPingYield(t *testing.T) {
 	yield := AcquireWsPingYield(111, []byte("ping"))
 
-	if yield.CmdID() != wsapi.CmdWsPing {
+	if yield.CmdID() != wsapi.Ping {
 		t.Errorf("expected CmdWsPing, got %d", yield.CmdID())
 	}
 
-	cmd := yield.ToCommand().(wsapi.WsPingCmd)
+	cmd := yield.ToCommand().(wsapi.PingCmd)
 	if cmd.ConnID != 111 {
 		t.Errorf("ConnID mismatch: %d", cmd.ConnID)
 	}

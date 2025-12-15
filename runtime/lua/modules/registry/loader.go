@@ -75,7 +75,7 @@ func makeCreateLoader(log *zap.Logger) lua.LGoFunc {
 		dtt := payload.GetTranscoder(ctx)
 		if dtt == nil {
 			err := lua.NewLuaError(l, "transcoder not found in context").
-				WithKind(lua.KindInternal).
+				WithKind(lua.Internal).
 				WithRetryable(false)
 			l.Push(lua.LNil)
 			l.Push(err)
@@ -85,7 +85,7 @@ func makeCreateLoader(log *zap.Logger) lua.LGoFunc {
 		fsRegistry := fsapi.GetRegistry(ctx)
 		if fsRegistry == nil {
 			err := lua.NewLuaError(l, "filesystem registry not found in context").
-				WithKind(lua.KindInternal).
+				WithKind(lua.Internal).
 				WithRetryable(false)
 			l.Push(lua.LNil)
 			l.Push(err)
@@ -95,7 +95,7 @@ func makeCreateLoader(log *zap.Logger) lua.LGoFunc {
 		fsName := l.CheckString(1)
 		if fsName == "" {
 			err := lua.NewLuaError(l, "filesystem name required").
-				WithKind(lua.KindInvalid).
+				WithKind(lua.Invalid).
 				WithRetryable(false)
 			l.Push(lua.LNil)
 			l.Push(err)
@@ -105,7 +105,7 @@ func makeCreateLoader(log *zap.Logger) lua.LGoFunc {
 		fsys, ok := fsRegistry.GetFS(fsName)
 		if !ok {
 			err := lua.NewLuaError(l, "filesystem '"+fsName+"' not found").
-				WithKind(lua.KindNotFound).
+				WithKind(lua.NotFound).
 				WithRetryable(false)
 			l.Push(lua.LNil)
 			l.Push(err)
@@ -142,7 +142,7 @@ func loaderLoadDirectory(l *lua.LState) int {
 	dirPath := l.CheckString(2)
 	if dirPath == "" {
 		err := lua.NewLuaError(l, "directory path required").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -152,7 +152,7 @@ func loaderLoadDirectory(l *lua.LState) int {
 	entries, loadErr := fl.folderLoader.LoadDir(l.Context(), fl.fs, dirPath)
 	if loadErr != nil {
 		err := lua.WrapErrorWithLua(l, loadErr, "load entries").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -164,7 +164,7 @@ func loaderLoadDirectory(l *lua.LState) int {
 		entryTable, convErr := entryToLuaTable(l, entry)
 		if convErr != nil {
 			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
-				WithKind(lua.KindInternal).
+				WithKind(lua.Internal).
 				WithRetryable(false)
 			l.Push(lua.LNil)
 			l.Push(err)
@@ -188,7 +188,7 @@ func loaderLoadFile(l *lua.LState) int {
 	filePath := l.CheckString(2)
 	if filePath == "" {
 		err := lua.NewLuaError(l, "file path required").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -198,7 +198,7 @@ func loaderLoadFile(l *lua.LState) int {
 	entries, loadErr := fl.folderLoader.LoadFile(l.Context(), fl.fs, filePath)
 	if loadErr != nil {
 		err := lua.WrapErrorWithLua(l, loadErr, "load entries").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -210,7 +210,7 @@ func loaderLoadFile(l *lua.LState) int {
 		entryTable, convErr := entryToLuaTable(l, entry)
 		if convErr != nil {
 			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
-				WithKind(lua.KindInternal).
+				WithKind(lua.Internal).
 				WithRetryable(false)
 			l.Push(lua.LNil)
 			l.Push(err)

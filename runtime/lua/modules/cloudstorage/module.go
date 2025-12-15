@@ -74,7 +74,7 @@ func apiGet(l *lua.LState) int {
 	id := l.CheckString(1)
 	if id == "" {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "resource ID is required").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "resource ID is required").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
@@ -82,14 +82,14 @@ func apiGet(l *lua.LState) int {
 	store := rtresource.GetStore(ctx)
 	if store == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "resource store not found").WithKind(lua.KindInternal).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "resource store not found").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
 	reg := resource.GetRegistry(ctx)
 	if reg == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "resource registry not found").WithKind(lua.KindInternal).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "resource registry not found").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
@@ -103,7 +103,7 @@ func apiGet(l *lua.LState) int {
 	res, err := reg.Acquire(ctx, resID, resource.ModeNormal)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, err.Error()).WithKind(lua.KindNotFound).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, err.Error()).WithKind(lua.NotFound).WithRetryable(false))
 		return 2
 	}
 
@@ -116,7 +116,7 @@ func apiGet(l *lua.LState) int {
 	if err != nil {
 		res.Release()
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, err.Error()).WithKind(lua.KindInternal).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, err.Error()).WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
@@ -124,7 +124,7 @@ func apiGet(l *lua.LState) int {
 	if !ok {
 		res.Release()
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "resource is not a cloud storage provider").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "resource is not a cloud storage provider").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
@@ -178,7 +178,7 @@ func storageListObjects(l *lua.LState) int {
 
 	if wrapper.released {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "storage has been released").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "storage has been released").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
@@ -212,14 +212,14 @@ func storageDownloadObject(l *lua.LState) int {
 
 	if wrapper.released {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "storage has been released").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "storage has been released").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
 	key := l.CheckString(2)
 	if key == "" {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "key is required").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "key is required").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
@@ -228,7 +228,7 @@ func storageDownloadObject(l *lua.LState) int {
 	writer, ok := ud.Value.(io.Writer)
 	if !ok {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "third argument must implement io.Writer").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "third argument must implement io.Writer").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
@@ -259,21 +259,21 @@ func storageUploadObject(l *lua.LState) int {
 
 	if wrapper.released {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "storage has been released").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "storage has been released").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
 	key := l.CheckString(2)
 	if key == "" {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "key is required").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "key is required").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
 	content := l.Get(3)
 	if content == lua.LNil {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "content is required").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "content is required").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
@@ -294,7 +294,7 @@ func storageDeleteObjects(l *lua.LState) int {
 
 	if wrapper.released {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "storage has been released").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "storage has been released").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
@@ -325,14 +325,14 @@ func storagePresignedGetURL(l *lua.LState) int {
 
 	if wrapper.released {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "storage has been released").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "storage has been released").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
 	key := l.CheckString(2)
 	if key == "" {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "key is required").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "key is required").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
@@ -359,14 +359,14 @@ func storagePresignedPutURL(l *lua.LState) int {
 
 	if wrapper.released {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "storage has been released").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "storage has been released").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
 	key := l.CheckString(2)
 	if key == "" {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "key is required").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "key is required").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 

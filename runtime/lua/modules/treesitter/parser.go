@@ -79,7 +79,7 @@ func newParser(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		err := lua.NewLuaError(l, "no context found").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -122,7 +122,7 @@ func parserSetLanguage(l *lua.LState) int {
 	langInfo := languages.GetLanguageInfo(langAlias)
 	if langInfo == nil {
 		err := lua.NewLuaError(l, fmt.Sprintf("language %s is not found", langAlias)).
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LFalse)
 		l.Push(err)
@@ -131,7 +131,7 @@ func parserSetLanguage(l *lua.LState) int {
 
 	if langInfo.Language == nil {
 		err := lua.NewLuaError(l, fmt.Sprintf("language %s does not have a Tree-sitter language binding", langAlias)).
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LFalse)
 		l.Push(err)
@@ -141,7 +141,7 @@ func parserSetLanguage(l *lua.LState) int {
 	lang := langInfo.Language()
 	if setErr := p.parser.SetLanguage(treesitter.NewLanguage(lang)); setErr != nil {
 		err := lua.WrapErrorWithLua(l, setErr, "failed to set language").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LFalse)
 		l.Push(err)
@@ -158,7 +158,7 @@ func parserGetLanguage(l *lua.LState) int {
 
 	if p.lang == nil {
 		err := lua.NewLuaError(l, "language is not set").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -175,7 +175,7 @@ func parserParse(l *lua.LState) int {
 
 	if parser.parser.Language() == nil {
 		err := lua.NewLuaError(l, "language is not set").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -189,7 +189,7 @@ func parserParse(l *lua.LState) int {
 				oldTree = tw
 			} else {
 				err := lua.NewLuaError(l, "tree expected").
-					WithKind(lua.KindInvalid).
+					WithKind(lua.Invalid).
 					WithRetryable(false)
 				l.Push(lua.LNil)
 				l.Push(err)
@@ -201,7 +201,7 @@ func parserParse(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		err := lua.NewLuaError(l, "no context found").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -211,7 +211,7 @@ func parserParse(l *lua.LState) int {
 	tree, parseErr := parser.parseWithContext(ctx, []byte(code), oldTree)
 	if parseErr != nil {
 		err := lua.WrapErrorWithLua(l, parseErr, "parse failed").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -307,7 +307,7 @@ func parserSetRanges(l *lua.LState) int {
 
 	if parseError != nil {
 		err := lua.NewLuaError(l, parseError.Error()).
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LFalse)
 		l.Push(err)
@@ -316,7 +316,7 @@ func parserSetRanges(l *lua.LState) int {
 
 	if setErr := p.SetIncludedRanges(ranges); setErr != nil {
 		err := lua.WrapErrorWithLua(l, setErr, "failed to set ranges").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LFalse)
 		l.Push(err)

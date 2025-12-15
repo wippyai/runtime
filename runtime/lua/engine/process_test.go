@@ -528,7 +528,7 @@ func TestProcessReturnsLuaError(t *testing.T) {
 		t.Errorf("Expected message 'validation failed', got '%s'", luaErr.Message)
 	}
 
-	if luaErr.Kind() != lua.KindInvalid {
+	if luaErr.Kind() != lua.Invalid {
 		t.Errorf("Expected kind Invalid, got %s", luaErr.Kind())
 	}
 }

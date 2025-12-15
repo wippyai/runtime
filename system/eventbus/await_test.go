@@ -107,7 +107,7 @@ func TestAwaiter_WaitFor_Timeout(t *testing.T) {
 		apiErr = v
 	}
 	if apiErr == nil || apiErr.Kind() != apierror.Timeout {
-		t.Errorf("expected apierror.Error with KindTimeout, got %T: %v", result.Error, result.Error)
+		t.Errorf("expected apierror.Error with Timeout, got %T: %v", result.Error, result.Error)
 	}
 }
 

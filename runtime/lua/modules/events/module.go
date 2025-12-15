@@ -50,7 +50,7 @@ func subscribe(l *lua.LState) int {
 	if system == "" {
 		l.Push(lua.LNil)
 		err := lua.NewLuaError(l, "system pattern is required").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(err)
 		return 2
@@ -59,7 +59,7 @@ func subscribe(l *lua.LState) int {
 	if !security.IsAllowed(ctx, "events.subscribe", system, nil) {
 		l.Push(lua.LNil)
 		err := lua.NewLuaError(l, fmt.Sprintf("not allowed to subscribe to events from system: %s", system)).
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(err)
 		return 2
@@ -74,7 +74,7 @@ func subscribe(l *lua.LState) int {
 	if !ok {
 		l.Push(lua.LNil)
 		err := lua.NewLuaError(l, "no process PID").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(err)
 		return 2
@@ -102,7 +102,7 @@ func send(l *lua.LState) int {
 	if system == "" {
 		l.Push(lua.LNil)
 		err := lua.NewLuaError(l, "system is required").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(err)
 		return 2
@@ -112,7 +112,7 @@ func send(l *lua.LState) int {
 	if kind == "" {
 		l.Push(lua.LNil)
 		err := lua.NewLuaError(l, "kind is required").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(err)
 		return 2
@@ -122,7 +122,7 @@ func send(l *lua.LState) int {
 	if path == "" {
 		l.Push(lua.LNil)
 		err := lua.NewLuaError(l, "path is required").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(err)
 		return 2
@@ -131,7 +131,7 @@ func send(l *lua.LState) int {
 	if !security.IsAllowed(ctx, "events.send", system, nil) {
 		l.Push(lua.LNil)
 		err := lua.NewLuaError(l, fmt.Sprintf("not allowed to send events to system: %s", system)).
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(err)
 		return 2

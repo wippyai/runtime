@@ -1,6 +1,7 @@
 package sql
 
 import (
+	"errors"
 	"testing"
 
 	lua "github.com/yuin/gopher-lua"

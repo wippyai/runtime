@@ -64,7 +64,7 @@ func TestInstantiator_Instantiate(t *testing.T) {
 
 	var wg sync.WaitGroup
 	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, "contract.*", func(evt event.Event) {
-		if evt.Kind == contract.KindAccept {
+		if evt.Kind == contract.Accept {
 			wg.Done()
 		}
 	})
@@ -80,7 +80,7 @@ func TestInstantiator_Instantiate(t *testing.T) {
 	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.KindRegisterDefinition,
+		Kind:   contract.RegisterDefinition,
 		Path:   contractID.String(),
 		Data:   testDef,
 	})
@@ -102,7 +102,7 @@ func TestInstantiator_Instantiate(t *testing.T) {
 	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.KindRegisterBinding,
+		Kind:   contract.RegisterBinding,
 		Path:   bindingID.String(),
 		Data:   testBinding,
 	})
@@ -143,7 +143,7 @@ func TestInstanceImpl_ScopeValidation(t *testing.T) {
 
 	var wg sync.WaitGroup
 	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, "contract.*", func(evt event.Event) {
-		if evt.Kind == contract.KindAccept {
+		if evt.Kind == contract.Accept {
 			wg.Done()
 		}
 	})
@@ -159,7 +159,7 @@ func TestInstanceImpl_ScopeValidation(t *testing.T) {
 	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.KindRegisterDefinition,
+		Kind:   contract.RegisterDefinition,
 		Path:   contractID.String(),
 		Data:   testDef,
 	})
@@ -217,7 +217,7 @@ func TestInstanceImpl_ScopeValidation(t *testing.T) {
 			wg.Add(1)
 			bus.Send(ctx, event.Event{
 				System: contract.System,
-				Kind:   contract.KindRegisterBinding,
+				Kind:   contract.RegisterBinding,
 				Path:   bindingID.String(),
 				Data:   testBinding,
 			})
@@ -263,7 +263,7 @@ func TestInstanceImpl_Call_Integration(t *testing.T) {
 
 	// Subscribe to contract events
 	contractSub, err := eventbus.NewSubscriber(ctx, bus, contract.System, "contract.*", func(evt event.Event) {
-		if evt.Kind == contract.KindAccept {
+		if evt.Kind == contract.Accept {
 			wg.Done()
 		}
 	})
@@ -306,7 +306,7 @@ func TestInstanceImpl_Call_Integration(t *testing.T) {
 	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.KindRegisterDefinition,
+		Kind:   contract.RegisterDefinition,
 		Path:   contractID.String(),
 		Data:   testDef,
 	})
@@ -326,7 +326,7 @@ func TestInstanceImpl_Call_Integration(t *testing.T) {
 	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.KindRegisterBinding,
+		Kind:   contract.RegisterBinding,
 		Path:   bindingID.String(),
 		Data:   testBinding,
 	})
@@ -369,7 +369,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 
 	var wg sync.WaitGroup
 	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, "contract.*", func(evt event.Event) {
-		if evt.Kind == contract.KindAccept {
+		if evt.Kind == contract.Accept {
 			wg.Done()
 		}
 	})
@@ -429,7 +429,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.KindRegisterDefinition,
+		Kind:   contract.RegisterDefinition,
 		Path:   contractID.String(),
 		Data:   testDef,
 	})
@@ -448,7 +448,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.KindRegisterBinding,
+		Kind:   contract.RegisterBinding,
 		Path:   bindingID.String(),
 		Data:   testBinding,
 	})
@@ -515,7 +515,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 
 	var wg sync.WaitGroup
 	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, "contract.*", func(evt event.Event) {
-		if evt.Kind == contract.KindAccept {
+		if evt.Kind == contract.Accept {
 			wg.Done()
 		}
 	})
@@ -555,7 +555,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.KindRegisterDefinition,
+		Kind:   contract.RegisterDefinition,
 		Path:   contractID.String(),
 		Data:   testDef,
 	})
@@ -574,7 +574,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.KindRegisterBinding,
+		Kind:   contract.RegisterBinding,
 		Path:   bindingID.String(),
 		Data:   testBinding,
 	})
@@ -672,7 +672,7 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 
 	var wg sync.WaitGroup
 	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, "contract.*", func(evt event.Event) {
-		if evt.Kind == contract.KindAccept {
+		if evt.Kind == contract.Accept {
 			wg.Done()
 		}
 	})
@@ -715,7 +715,7 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.KindRegisterDefinition,
+		Kind:   contract.RegisterDefinition,
 		Path:   contractID.String(),
 		Data:   testDef,
 	})
@@ -736,7 +736,7 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.KindRegisterBinding,
+		Kind:   contract.RegisterBinding,
 		Path:   bindingID.String(),
 		Data:   testBinding,
 	})

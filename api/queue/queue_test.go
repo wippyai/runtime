@@ -158,10 +158,10 @@ func TestQueueTypes(t *testing.T) {
 func TestEventConstants(t *testing.T) {
 	assert.Equal(t, event.System("queue"), queue.System)
 
-	assert.Equal(t, event.Kind("queue.driver.register"), queue.KindDriverRegister)
-	assert.Equal(t, event.Kind("queue.driver.delete"), queue.KindDriverDelete)
-	assert.Equal(t, event.Kind("queue.queue.declare"), queue.KindQueueDeclare)
-	assert.Equal(t, event.Kind("queue.queue.delete"), queue.KindQueueDelete)
+	assert.Equal(t, event.Kind("queue.driver.register"), queue.DriverRegister)
+	assert.Equal(t, event.Kind("queue.driver.delete"), queue.DriverDelete)
+	assert.Equal(t, event.Kind("queue.queue.declare"), queue.QueueDeclare)
+	assert.Equal(t, event.Kind("queue.queue.delete"), queue.QueueDelete)
 }
 
 func TestErrors(t *testing.T) {

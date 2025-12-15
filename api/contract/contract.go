@@ -16,14 +16,14 @@ const System event.System = "contract"
 
 // Event kinds for contract operations.
 const (
-	KindRegisterDefinition event.Kind = "contract.definition.register"
-	KindUpdateDefinition   event.Kind = "contract.definition.update"
-	KindDeleteDefinition   event.Kind = "contract.definition.delete"
-	KindRegisterBinding    event.Kind = "contract.binding.register"
-	KindUpdateBinding      event.Kind = "contract.binding.update"
-	KindDeleteBinding      event.Kind = "contract.binding.delete"
-	KindAccept             event.Kind = "contract.accept"
-	KindReject             event.Kind = "contract.reject"
+	RegisterDefinition event.Kind = "contract.definition.register"
+	UpdateDefinition   event.Kind = "contract.definition.update"
+	DeleteDefinition   event.Kind = "contract.definition.delete"
+	RegisterBinding    event.Kind = "contract.binding.register"
+	UpdateBinding      event.Kind = "contract.binding.update"
+	DeleteBinding      event.Kind = "contract.binding.delete"
+	Accept             event.Kind = "contract.accept"
+	Reject             event.Kind = "contract.reject"
 )
 
 type (

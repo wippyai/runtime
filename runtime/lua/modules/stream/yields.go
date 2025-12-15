@@ -53,7 +53,7 @@ func (y *ReadYield) Release() { ReleaseReadYield(y) }
 func (y *ReadYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "stream read").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
@@ -69,7 +69,7 @@ func (y *ReadYield) HandleResult(l *lua.LState, data any, err error) []lua.LValu
 		return []lua.LValue{lua.LString(bytes), lua.LNil}
 	}
 	luaErr := lua.NewLuaError(l, "invalid response type").
-		WithKind(lua.KindInternal).
+		WithKind(lua.Internal).
 		WithRetryable(false)
 	return []lua.LValue{lua.LNil, luaErr}
 }
@@ -110,7 +110,7 @@ func (y *CloseYield) Release() { ReleaseCloseYield(y) }
 func (y *CloseYield) HandleResult(l *lua.LState, _ any, err error) []lua.LValue {
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "stream close").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		return []lua.LValue{lua.LFalse, luaErr}
 	}
@@ -156,7 +156,7 @@ func (y *WriteYield) Release() { ReleaseWriteYield(y) }
 func (y *WriteYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "stream write").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		return []lua.LValue{lua.LNumber(0), luaErr}
 	}
@@ -164,7 +164,7 @@ func (y *WriteYield) HandleResult(l *lua.LState, data any, err error) []lua.LVal
 		return []lua.LValue{lua.LNumber(n), lua.LNil}
 	}
 	luaErr := lua.NewLuaError(l, "invalid response type").
-		WithKind(lua.KindInternal).
+		WithKind(lua.Internal).
 		WithRetryable(false)
 	return []lua.LValue{lua.LNumber(0), luaErr}
 }
@@ -211,7 +211,7 @@ func (y *SeekYield) Release() { ReleaseSeekYield(y) }
 func (y *SeekYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "stream seek").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		return []lua.LValue{lua.LNumber(-1), luaErr}
 	}
@@ -219,7 +219,7 @@ func (y *SeekYield) HandleResult(l *lua.LState, data any, err error) []lua.LValu
 		return []lua.LValue{lua.LNumber(pos), lua.LNil}
 	}
 	luaErr := lua.NewLuaError(l, "invalid response type").
-		WithKind(lua.KindInternal).
+		WithKind(lua.Internal).
 		WithRetryable(false)
 	return []lua.LValue{lua.LNumber(-1), luaErr}
 }
@@ -260,7 +260,7 @@ func (y *FlushYield) Release() { ReleaseFlushYield(y) }
 func (y *FlushYield) HandleResult(l *lua.LState, _ any, err error) []lua.LValue {
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "stream flush").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		return []lua.LValue{lua.LFalse, luaErr}
 	}
@@ -303,14 +303,14 @@ func (y *StatYield) Release() { ReleaseStatYield(y) }
 func (y *StatYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "stream stat").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 	info, ok := data.(streamapi.Info)
 	if !ok {
 		luaErr := lua.NewLuaError(l, "invalid response type").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
@@ -519,14 +519,14 @@ func (y *ScannerCreateYield) Release() { ReleaseScannerCreateYield(y) }
 func (y *ScannerCreateYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "scanner create").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 	scannerID, ok := data.(uint64)
 	if !ok {
 		luaErr := lua.NewLuaError(l, "invalid response type").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
@@ -572,14 +572,14 @@ func (y *ScannerScanYield) Release() { ReleaseScannerScanYield(y) }
 func (y *ScannerScanYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "scanner scan").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		return []lua.LValue{lua.LFalse, luaErr}
 	}
 	result, ok := data.(streamapi.ScanResult)
 	if !ok {
 		luaErr := lua.NewLuaError(l, "invalid response type").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		return []lua.LValue{lua.LFalse, luaErr}
 	}

@@ -30,7 +30,7 @@ var Module = &luaapi.ModuleDef{
 
 func invalidError(l *lua.LState, msg string) int {
 	err := lua.NewLuaError(l, msg).
-		WithKind(lua.KindInvalid).
+		WithKind(lua.Invalid).
 		WithRetryable(false)
 	l.Push(lua.LNil)
 	l.Push(err)
@@ -39,7 +39,7 @@ func invalidError(l *lua.LState, msg string) int {
 
 func internalError(l *lua.LState, msg string) int {
 	err := lua.NewLuaError(l, msg).
-		WithKind(lua.KindInternal).
+		WithKind(lua.Internal).
 		WithRetryable(false)
 	l.Push(lua.LNil)
 	l.Push(err)
@@ -48,7 +48,7 @@ func internalError(l *lua.LState, msg string) int {
 
 func notFoundError(l *lua.LState, key string) int {
 	err := lua.NewLuaError(l, "key not found: "+key).
-		WithKind(lua.KindNotFound).
+		WithKind(lua.NotFound).
 		WithRetryable(false)
 	l.Push(lua.LNil)
 	l.Push(err)

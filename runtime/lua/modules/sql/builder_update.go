@@ -309,7 +309,7 @@ func updateToSQL(l *lua.LState) int {
 	query, args, err := wrapper.builder.ToSql()
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, err.Error()).WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, err.Error()).WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 

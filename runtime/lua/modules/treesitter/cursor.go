@@ -193,7 +193,7 @@ func cursorCopy(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		err := lua.NewLuaError(l, "no context found").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)

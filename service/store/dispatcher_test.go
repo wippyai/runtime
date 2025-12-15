@@ -221,10 +221,10 @@ func TestRegisterAll(t *testing.T) {
 	})
 
 	assert.Len(t, handlers, 4)
-	assert.NotNil(t, handlers[storeapi.CmdStoreGet])
-	assert.NotNil(t, handlers[storeapi.CmdStoreSet])
-	assert.NotNil(t, handlers[storeapi.CmdStoreDelete])
-	assert.NotNil(t, handlers[storeapi.CmdStoreHas])
+	assert.NotNil(t, handlers[storeapi.Get])
+	assert.NotNil(t, handlers[storeapi.Set])
+	assert.NotNil(t, handlers[storeapi.Delete])
+	assert.NotNil(t, handlers[storeapi.Has])
 }
 
 func TestDispatcher_Lifecycle(t *testing.T) {

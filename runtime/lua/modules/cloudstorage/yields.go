@@ -45,7 +45,7 @@ func (y *ListObjectsYield) HandleResult(l *lua.LState, data any, err error) []lu
 	}
 	resp, ok := data.(csapi.ListObjectsResponse)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.KindInternal)}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal)}
 	}
 	if resp.Error != nil {
 		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "list_objects")}
@@ -110,7 +110,7 @@ func (y *DownloadObjectYield) HandleResult(l *lua.LState, data any, err error) [
 	}
 	resp, ok := data.(csapi.DownloadObjectResponse)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.KindInternal)}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal)}
 	}
 	if resp.Error != nil {
 		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "download_object")}
@@ -163,7 +163,7 @@ func (y *UploadObjectYield) HandleResult(l *lua.LState, data any, err error) []l
 	}
 	resp, ok := data.(csapi.UploadObjectResponse)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.KindInternal)}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal)}
 	}
 	if resp.Error != nil {
 		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "upload_object")}
@@ -204,7 +204,7 @@ func (y *DeleteObjectsYield) HandleResult(l *lua.LState, data any, err error) []
 	}
 	resp, ok := data.(csapi.DeleteObjectsResponse)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.KindInternal)}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal)}
 	}
 	if resp.Error != nil {
 		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "delete_objects")}
@@ -254,7 +254,7 @@ func (y *PresignedGetURLYield) HandleResult(l *lua.LState, data any, err error) 
 	}
 	resp, ok := data.(csapi.PresignedGetURLResponse)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.KindInternal)}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal)}
 	}
 	if resp.Error != nil {
 		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "presigned_get_url")}
@@ -310,7 +310,7 @@ func (y *PresignedPutURLYield) HandleResult(l *lua.LState, data any, err error) 
 	}
 	resp, ok := data.(csapi.PresignedPutURLResponse)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.KindInternal)}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal)}
 	}
 	if resp.Error != nil {
 		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "presigned_put_url")}

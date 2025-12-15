@@ -117,7 +117,7 @@ func payloadData(l *lua.LState) int {
 	luaPayload, err := tc.Transcode(p.Payload, payload.Lua)
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "transcode failed").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -155,7 +155,7 @@ func payloadTranscode(l *lua.LState) int {
 	result, err := tc.Transcode(p.Payload, format)
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "transcode failed").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -195,7 +195,7 @@ func payloadUnmarshal(l *lua.LState) int {
 	luaPayload, err := tc.Transcode(p.Payload, payload.Lua)
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "unmarshal failed").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -208,7 +208,7 @@ func payloadUnmarshal(l *lua.LState) int {
 	}
 
 	luaErr := lua.NewLuaError(l, "transcoded data is not a valid Lua value").
-		WithKind(lua.KindInternal).
+		WithKind(lua.Internal).
 		WithRetryable(false)
 	l.Push(lua.LNil)
 	l.Push(luaErr)

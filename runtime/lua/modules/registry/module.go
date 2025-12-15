@@ -121,7 +121,7 @@ func registryGet(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		err := lua.NewLuaError(l, "no context").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -131,7 +131,7 @@ func registryGet(l *lua.LState) int {
 	reg := regapi.GetRegistry(ctx)
 	if reg == nil {
 		err := lua.NewLuaError(l, "registry not found in context").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -143,7 +143,7 @@ func registryGet(l *lua.LState) int {
 
 	if !security.IsAllowed(ctx, "registry.get", id.String(), nil) {
 		err := lua.NewLuaError(l, "not allowed to access entry: "+id.String()).
-			WithKind(lua.KindPermissionDenied).
+			WithKind(lua.PermissionDenied).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -153,7 +153,7 @@ func registryGet(l *lua.LState) int {
 	entry, getErr := reg.GetEntry(id)
 	if getErr != nil {
 		err := lua.NewLuaError(l, "entry not found: "+id.String()).
-			WithKind(lua.KindNotFound).
+			WithKind(lua.NotFound).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -163,7 +163,7 @@ func registryGet(l *lua.LState) int {
 	entryTable, convErr := entryToLuaTable(l, entry)
 	if convErr != nil {
 		err := lua.WrapErrorWithLua(l, convErr, "convert entry").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -179,7 +179,7 @@ func registryFind(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		err := lua.NewLuaError(l, "no context").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -189,7 +189,7 @@ func registryFind(l *lua.LState) int {
 	reg := regapi.GetRegistry(ctx)
 	if reg == nil {
 		err := lua.NewLuaError(l, "registry not found in context").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -199,7 +199,7 @@ func registryFind(l *lua.LState) int {
 	filterTable := l.CheckTable(1)
 	if filterTable == nil {
 		err := lua.NewLuaError(l, "filter criteria table required").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -211,7 +211,7 @@ func registryFind(l *lua.LState) int {
 	finder := regapi.GetFinder(ctx)
 	if finder == nil {
 		err := lua.NewLuaError(l, "finder not available in context").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -221,7 +221,7 @@ func registryFind(l *lua.LState) int {
 	entries, findErr := finder.Find(meta)
 	if findErr != nil {
 		err := lua.WrapErrorWithLua(l, findErr, "find entries").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -237,7 +237,7 @@ func registryFind(l *lua.LState) int {
 		entryTable, convErr := entryToLuaTable(l, entry)
 		if convErr != nil {
 			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
-				WithKind(lua.KindInternal).
+				WithKind(lua.Internal).
 				WithRetryable(false)
 			l.Push(lua.LNil)
 			l.Push(err)
@@ -256,7 +256,7 @@ func registrySnapshot(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		err := lua.NewLuaError(l, "no context").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -266,7 +266,7 @@ func registrySnapshot(l *lua.LState) int {
 	reg := regapi.GetRegistry(ctx)
 	if reg == nil {
 		err := lua.NewLuaError(l, "registry not found in context").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -276,7 +276,7 @@ func registrySnapshot(l *lua.LState) int {
 	version, verErr := reg.Current()
 	if verErr != nil {
 		err := lua.WrapErrorWithLua(l, verErr, "get current version").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -287,7 +287,7 @@ func registrySnapshot(l *lua.LState) int {
 	entries, entriesErr := reg.GetAllEntries()
 	if entriesErr != nil {
 		err := lua.WrapErrorWithLua(l, entriesErr, "get registry entries").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -310,7 +310,7 @@ func registryCurrentVersion(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		err := lua.NewLuaError(l, "no context").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -320,7 +320,7 @@ func registryCurrentVersion(l *lua.LState) int {
 	reg := regapi.GetRegistry(ctx)
 	if reg == nil {
 		err := lua.NewLuaError(l, "registry not found in context").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -330,7 +330,7 @@ func registryCurrentVersion(l *lua.LState) int {
 	version, verErr := reg.Current()
 	if verErr != nil {
 		err := lua.WrapErrorWithLua(l, verErr, "get current version").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -346,7 +346,7 @@ func registryVersions(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		err := lua.NewLuaError(l, "no context").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -356,7 +356,7 @@ func registryVersions(l *lua.LState) int {
 	reg := regapi.GetRegistry(ctx)
 	if reg == nil {
 		err := lua.NewLuaError(l, "registry not found in context").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -366,7 +366,7 @@ func registryVersions(l *lua.LState) int {
 	hist := reg.History()
 	if hist == nil {
 		err := lua.NewLuaError(l, "history not available").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -376,7 +376,7 @@ func registryVersions(l *lua.LState) int {
 	versions, versErr := hist.Versions()
 	if versErr != nil {
 		err := lua.WrapErrorWithLua(l, versErr, "get versions").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -399,7 +399,7 @@ func registryHistory(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		err := lua.NewLuaError(l, "no context").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -409,7 +409,7 @@ func registryHistory(l *lua.LState) int {
 	reg := regapi.GetRegistry(ctx)
 	if reg == nil {
 		err := lua.NewLuaError(l, "registry not found in context").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -419,7 +419,7 @@ func registryHistory(l *lua.LState) int {
 	hist := reg.History()
 	if hist == nil {
 		err := lua.NewLuaError(l, "history not available").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -442,7 +442,7 @@ func makeSnapshotAt(log *zap.Logger) lua.LGoFunc {
 		ctx := l.Context()
 		if ctx == nil {
 			err := lua.NewLuaError(l, "no context").
-				WithKind(lua.KindInternal).
+				WithKind(lua.Internal).
 				WithRetryable(false)
 			l.Push(lua.LNil)
 			l.Push(err)
@@ -452,7 +452,7 @@ func makeSnapshotAt(log *zap.Logger) lua.LGoFunc {
 		reg := regapi.GetRegistry(ctx)
 		if reg == nil {
 			err := lua.NewLuaError(l, "registry not found in context").
-				WithKind(lua.KindInternal).
+				WithKind(lua.Internal).
 				WithRetryable(false)
 			l.Push(lua.LNil)
 			l.Push(err)
@@ -462,7 +462,7 @@ func makeSnapshotAt(log *zap.Logger) lua.LGoFunc {
 		versionID := l.CheckNumber(1)
 		if versionID <= 0 {
 			err := lua.NewLuaError(l, "invalid version ID").
-				WithKind(lua.KindInvalid).
+				WithKind(lua.Invalid).
 				WithRetryable(false)
 			l.Push(lua.LNil)
 			l.Push(err)
@@ -472,7 +472,7 @@ func makeSnapshotAt(log *zap.Logger) lua.LGoFunc {
 		hist := reg.History()
 		if hist == nil {
 			err := lua.NewLuaError(l, "history not available").
-				WithKind(lua.KindInternal).
+				WithKind(lua.Internal).
 				WithRetryable(false)
 			l.Push(lua.LNil)
 			l.Push(err)
@@ -482,7 +482,7 @@ func makeSnapshotAt(log *zap.Logger) lua.LGoFunc {
 		versions, versErr := hist.Versions()
 		if versErr != nil {
 			err := lua.WrapErrorWithLua(l, versErr, "get versions").
-				WithKind(lua.KindInternal).
+				WithKind(lua.Internal).
 				WithRetryable(false)
 			l.Push(lua.LNil)
 			l.Push(err)
@@ -499,7 +499,7 @@ func makeSnapshotAt(log *zap.Logger) lua.LGoFunc {
 
 		if foundVersion == nil {
 			err := lua.NewLuaError(l, "version not found").
-				WithKind(lua.KindNotFound).
+				WithKind(lua.NotFound).
 				WithRetryable(false)
 			l.Push(lua.LNil)
 			l.Push(err)
@@ -512,7 +512,7 @@ func makeSnapshotAt(log *zap.Logger) lua.LGoFunc {
 		state, stateErr := stateBuilder.BuildState(hist, foundVersion)
 		if stateErr != nil {
 			err := lua.WrapErrorWithLua(l, stateErr, "build snapshot state").
-				WithKind(lua.KindInternal).
+				WithKind(lua.Internal).
 				WithRetryable(false)
 			l.Push(lua.LNil)
 			l.Push(err)
@@ -536,7 +536,7 @@ func registryApplyVersion(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		err := lua.NewLuaError(l, "no context").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -545,7 +545,7 @@ func registryApplyVersion(l *lua.LState) int {
 
 	if !security.IsAllowed(ctx, "registry.apply_version", "", nil) {
 		err := lua.NewLuaError(l, "registry version change is not allowed").
-			WithKind(lua.KindPermissionDenied).
+			WithKind(lua.PermissionDenied).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -555,7 +555,7 @@ func registryApplyVersion(l *lua.LState) int {
 	reg := regapi.GetRegistry(ctx)
 	if reg == nil {
 		err := lua.NewLuaError(l, "registry not found in context").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -566,7 +566,7 @@ func registryApplyVersion(l *lua.LState) int {
 	version, ok := ud.Value.(regapi.Version)
 	if !ok {
 		err := lua.NewLuaError(l, "expected version object").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -576,7 +576,7 @@ func registryApplyVersion(l *lua.LState) int {
 	applyErr := reg.ApplyVersion(ctx, version)
 	if applyErr != nil {
 		err := lua.WrapErrorWithLua(l, applyErr, "apply version").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LFalse)
 		l.Push(err)

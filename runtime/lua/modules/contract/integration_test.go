@@ -207,7 +207,7 @@ func (tc *integrationTestContext) registerFunction(t *testing.T, funcID registry
 func (tc *integrationTestContext) registerContract(t *testing.T, contractID registry.ID, def *apicontract.Definition) {
 	var wg sync.WaitGroup
 	sub, err := eventbus.NewSubscriber(tc.ctx, tc.bus, apicontract.System, "contract.*", func(evt event.Event) {
-		if evt.Kind == apicontract.KindAccept && evt.Path == contractID.String() {
+		if evt.Kind == apicontract.Accept && evt.Path == contractID.String() {
 			wg.Done()
 		}
 	})
@@ -217,7 +217,7 @@ func (tc *integrationTestContext) registerContract(t *testing.T, contractID regi
 	wg.Add(1)
 	tc.bus.Send(tc.ctx, event.Event{
 		System: apicontract.System,
-		Kind:   apicontract.KindRegisterDefinition,
+		Kind:   apicontract.RegisterDefinition,
 		Path:   contractID.String(),
 		Data:   def,
 	})
@@ -227,7 +227,7 @@ func (tc *integrationTestContext) registerContract(t *testing.T, contractID regi
 func (tc *integrationTestContext) registerBinding(t *testing.T, bindingID registry.ID, binding *apicontract.Binding) {
 	var wg sync.WaitGroup
 	sub, err := eventbus.NewSubscriber(tc.ctx, tc.bus, apicontract.System, "contract.*", func(evt event.Event) {
-		if evt.Kind == apicontract.KindAccept && evt.Path == bindingID.String() {
+		if evt.Kind == apicontract.Accept && evt.Path == bindingID.String() {
 			wg.Done()
 		}
 	})
@@ -237,7 +237,7 @@ func (tc *integrationTestContext) registerBinding(t *testing.T, bindingID regist
 	wg.Add(1)
 	tc.bus.Send(tc.ctx, event.Event{
 		System: apicontract.System,
-		Kind:   apicontract.KindRegisterBinding,
+		Kind:   apicontract.RegisterBinding,
 		Path:   bindingID.String(),
 		Data:   binding,
 	})

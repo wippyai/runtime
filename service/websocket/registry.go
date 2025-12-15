@@ -9,7 +9,7 @@ import (
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/runtime/resource"
-	wsapi "github.com/wippyai/runtime/api/websocket"
+	wsapi "github.com/wippyai/runtime/api/service/websocket"
 
 	"github.com/coder/websocket"
 	"go.uber.org/zap"
@@ -24,7 +24,7 @@ var registryKey = &ctxapi.Key{Name: "websocket.registry", Inherit: false}
 // connEntry holds an active WebSocket connection with its message channel.
 type connEntry struct {
 	conn        *websocket.Conn
-	msgCh       chan wsapi.WsMessage
+	msgCh       chan wsapi.Message
 	ctx         context.Context
 	cancel      context.CancelFunc
 	closed      atomic.Bool
@@ -79,7 +79,7 @@ func (e *connEntry) readLoop() {
 			closeStatus := websocket.CloseStatus(err)
 			if closeStatus >= 0 || e.ctx.Err() != nil {
 				select {
-				case e.msgCh <- wsapi.WsMessage{EOF: true}:
+				case e.msgCh <- wsapi.Message{EOF: true}:
 				case <-e.ctx.Done():
 				}
 			}
@@ -91,7 +91,7 @@ func (e *connEntry) readLoop() {
 			mt = wsapi.MessageBinary
 		}
 
-		msg := wsapi.WsMessage{
+		msg := wsapi.Message{
 			Data:        data,
 			MessageType: mt,
 			EOF:         false,
@@ -133,7 +133,7 @@ func (r *Registry) Register(ctx context.Context, conn *websocket.Conn, bufferSiz
 	connCtx, cancel := context.WithCancel(ctx)
 	entry := &connEntry{
 		conn:        conn,
-		msgCh:       make(chan wsapi.WsMessage, bufferSize),
+		msgCh:       make(chan wsapi.Message, bufferSize),
 		ctx:         connCtx,
 		cancel:      cancel,
 		readTimeout: readTimeout,
@@ -159,7 +159,7 @@ func (r *Registry) get(id uint64) (*connEntry, error) {
 }
 
 // GetMessageChan returns the message channel for the given connection ID.
-func (r *Registry) GetMessageChan(id uint64) (<-chan wsapi.WsMessage, error) {
+func (r *Registry) GetMessageChan(id uint64) (<-chan wsapi.Message, error) {
 	entry, err := r.get(id)
 	if err != nil {
 		return nil, err

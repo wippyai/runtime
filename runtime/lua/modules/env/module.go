@@ -26,7 +26,7 @@ func envGet(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		luaErr := lua.NewLuaError(l, "no context found").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -36,7 +36,7 @@ func envGet(l *lua.LState) int {
 	key := l.CheckString(1)
 	if key == "" {
 		luaErr := lua.NewLuaError(l, "empty key").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -45,7 +45,7 @@ func envGet(l *lua.LState) int {
 
 	if !security.IsAllowed(ctx, "env.get", key, nil) {
 		luaErr := lua.NewLuaError(l, "not allowed to access environment variable: "+key).
-			WithKind(lua.KindPermissionDenied).
+			WithKind(lua.PermissionDenied).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -55,7 +55,7 @@ func envGet(l *lua.LState) int {
 	envRegistry := env.GetRegistry(ctx)
 	if envRegistry == nil {
 		luaErr := lua.NewLuaError(l, "environment registry not found").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -78,7 +78,7 @@ func envSet(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		luaErr := lua.NewLuaError(l, "no context found").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -88,7 +88,7 @@ func envSet(l *lua.LState) int {
 	key := l.CheckString(1)
 	if key == "" {
 		luaErr := lua.NewLuaError(l, "empty key").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -99,7 +99,7 @@ func envSet(l *lua.LState) int {
 
 	if !security.IsAllowed(ctx, "env.set", key, nil) {
 		luaErr := lua.NewLuaError(l, "not allowed to set environment variable: "+key).
-			WithKind(lua.KindPermissionDenied).
+			WithKind(lua.PermissionDenied).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -109,7 +109,7 @@ func envSet(l *lua.LState) int {
 	envRegistry := env.GetRegistry(ctx)
 	if envRegistry == nil {
 		luaErr := lua.NewLuaError(l, "environment registry not found").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -133,7 +133,7 @@ func envGetAll(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		luaErr := lua.NewLuaError(l, "no context found").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -143,7 +143,7 @@ func envGetAll(l *lua.LState) int {
 	envRegistry := env.GetRegistry(ctx)
 	if envRegistry == nil {
 		luaErr := lua.NewLuaError(l, "environment registry not found").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)

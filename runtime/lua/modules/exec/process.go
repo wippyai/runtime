@@ -72,13 +72,13 @@ func procStart(l *lua.LState) int {
 	if p.closed {
 		p.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 	if p.started {
 		p.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "process already started").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "process already started").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 	handle := p.handle
@@ -88,7 +88,7 @@ func procStart(l *lua.LState) int {
 	err := handle.Start()
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "start process").WithKind(lua.KindInternal).WithRetryable(false))
+		l.Push(lua.WrapErrorWithLua(l, err, "start process").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
@@ -106,13 +106,13 @@ func procWait(l *lua.LState) int {
 	if p.closed {
 		p.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 	if !p.started {
 		p.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "process not started: call start() first").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "process not started: call start() first").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 	handle := p.handle
@@ -142,13 +142,13 @@ func procSignal(l *lua.LState) int {
 	if p.closed {
 		p.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 	if !p.started {
 		p.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "process not started: call start() first").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "process not started: call start() first").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 	handle := p.handle
@@ -158,7 +158,7 @@ func procSignal(l *lua.LState) int {
 	err := handle.Signal(sig)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "send signal").WithKind(lua.KindInternal).WithRetryable(false))
+		l.Push(lua.WrapErrorWithLua(l, err, "send signal").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
@@ -176,13 +176,13 @@ func procWriteStdin(l *lua.LState) int {
 	if p.closed {
 		p.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 	if !p.started {
 		p.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "process not started: call start() first").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "process not started: call start() first").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 	handle := p.handle
@@ -192,7 +192,7 @@ func procWriteStdin(l *lua.LState) int {
 	err := handle.WriteStdin([]byte(data))
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "write stdin").WithKind(lua.KindInternal).WithRetryable(false))
+		l.Push(lua.WrapErrorWithLua(l, err, "write stdin").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
@@ -212,7 +212,7 @@ func procStdout(l *lua.LState) int {
 	if p.closed {
 		p.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 	handle := p.handle
@@ -228,14 +228,14 @@ func procStdout(l *lua.LState) int {
 	reader := handle.Stdout()
 	if reader == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "stdout not available").WithKind(lua.KindInternal).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "stdout not available").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
 	table := resource.GetTable(ctx)
 	if table == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "resource table not available").WithKind(lua.KindInternal).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "resource table not available").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
@@ -261,7 +261,7 @@ func procStderr(l *lua.LState) int {
 	if p.closed {
 		p.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 	handle := p.handle
@@ -277,14 +277,14 @@ func procStderr(l *lua.LState) int {
 	reader := handle.Stderr()
 	if reader == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "stderr not available").WithKind(lua.KindInternal).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "stderr not available").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
 	table := resource.GetTable(ctx)
 	if table == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "resource table not available").WithKind(lua.KindInternal).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "resource table not available").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 

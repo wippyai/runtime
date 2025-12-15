@@ -53,14 +53,14 @@ func compileFunc(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "no context").WithKind(lua.KindInternal))
+		l.Push(lua.NewLuaError(l, "no context").WithKind(lua.Internal))
 		return 2
 	}
 
 	if !security.IsAllowed(ctx, "eval.compile", "", nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "permission denied: eval.compile").
-			WithKind(lua.KindPermissionDenied).WithRetryable(false))
+			WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -94,14 +94,14 @@ func runFunc(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "no context").WithKind(lua.KindInternal))
+		l.Push(lua.NewLuaError(l, "no context").WithKind(lua.Internal))
 		return 2
 	}
 
 	if !security.IsAllowed(ctx, "eval.run", "", nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "permission denied: eval.run").
-			WithKind(lua.KindPermissionDenied).WithRetryable(false))
+			WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 

@@ -40,13 +40,14 @@ type FrameContext interface {
 	Close() error
 }
 
+// frameContext is designed for single-threaded access before sealing.
+// Do NOT access from multiple goroutines until Seal() is called.
+// After sealing, concurrent reads are safe (values become immutable).
 type frameContext struct {
 	sealed   atomic.Bool
 	refcount atomic.Int32
-	mu       sync.RWMutex
 	values   map[any]any
 	parent   *frameContext
-	closed   bool
 }
 
 var frameContextPool = sync.Pool{
@@ -56,13 +57,7 @@ var frameContextPool = sync.Pool{
 }
 
 func (f *frameContext) Get(key any) (any, bool) {
-	if f.sealed.Load() {
-		val, exists := f.values[key]
-		return val, exists
-	}
-	f.mu.RLock()
 	val, exists := f.values[key]
-	f.mu.RUnlock()
 	return val, exists
 }
 
@@ -70,13 +65,7 @@ func (f *frameContext) Set(key any, value any) error {
 	if f.sealed.Load() {
 		return NewFrameSealedError(key)
 	}
-	f.mu.Lock()
-	if f.sealed.Load() {
-		f.mu.Unlock()
-		return NewFrameSealedError(key)
-	}
 	f.values[key] = value
-	f.mu.Unlock()
 	return nil
 }
 
@@ -84,47 +73,25 @@ func (f *frameContext) SetMultiple(pairs ...Pair) error {
 	if f.sealed.Load() {
 		return ErrFrameSealed
 	}
-	f.mu.Lock()
-	if f.sealed.Load() {
-		f.mu.Unlock()
-		return ErrFrameSealed
-	}
 	for _, p := range pairs {
 		f.values[p.Key] = p.Value
 	}
-	f.mu.Unlock()
 	return nil
 }
 
 func (f *frameContext) Has(key any) bool {
-	if f.sealed.Load() {
-		_, exists := f.values[key]
-		return exists
-	}
-	f.mu.RLock()
 	_, exists := f.values[key]
-	f.mu.RUnlock()
 	return exists
 }
 
 func (f *frameContext) Iterate(fn func(key any, value any)) {
-	if f.sealed.Load() {
-		for k, v := range f.values {
-			fn(k, v)
-		}
-		return
-	}
-	f.mu.RLock()
 	for k, v := range f.values {
 		fn(k, v)
 	}
-	f.mu.RUnlock()
 }
 
 func (f *frameContext) Seal() {
-	f.mu.Lock()
 	f.sealed.Store(true)
-	f.mu.Unlock()
 }
 
 func (f *frameContext) IsSealed() bool {
@@ -185,7 +152,7 @@ func releaseFrame(f *frameContext) {
 		return
 	}
 
-	f.mu.Lock()
+	// refcount == 0 means exclusive access, no lock needed
 	var closers []Closer
 	for _, v := range f.values {
 		if closer, ok := v.(Closer); ok {
@@ -196,8 +163,6 @@ func releaseFrame(f *frameContext) {
 	parent := f.parent
 	f.parent = nil
 	f.sealed.Store(false)
-	f.closed = false
-	f.mu.Unlock()
 
 	for _, closer := range closers {
 		_ = closer.Close()
@@ -235,13 +200,12 @@ func newFrameContext(parent context.Context) (context.Context, FrameContext) {
 	fc.sealed.Store(false)
 	fc.refcount.Store(1)
 	fc.parent = nil
-	fc.closed = false
 	return WithFrameContext(parent, fc), fc
 }
 
 // forkFrameContext creates a new child frame from a parent frame.
 // Increments parent refcount to keep parent alive until child releases.
-// Copies inheritable values under parent's lock to prevent races.
+// Parent is always sealed when forking, so no lock needed for copying.
 func forkFrameContext(ctx context.Context, parent *frameContext) (context.Context, *frameContext) {
 	if parent != nil {
 		parent.refcount.Add(1)
@@ -251,10 +215,9 @@ func forkFrameContext(ctx context.Context, parent *frameContext) (context.Contex
 	fc.sealed.Store(false)
 	fc.refcount.Store(1)
 	fc.parent = parent
-	fc.closed = false
 
+	// Parent is sealed (checked in OpenFrameContext), safe to read without lock
 	if parent != nil {
-		parent.mu.RLock()
 		for k, v := range parent.values {
 			if ctxKey, ok := k.(*Key); ok && ctxKey.Inherit {
 				if cloner, ok := v.(Cloner); ok {
@@ -264,7 +227,6 @@ func forkFrameContext(ctx context.Context, parent *frameContext) (context.Contex
 				}
 			}
 		}
-		parent.mu.RUnlock()
 	}
 
 	return WithFrameContext(ctx, fc), fc

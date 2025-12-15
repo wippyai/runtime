@@ -44,7 +44,7 @@ func TestFSStructuredErrors(t *testing.T) {
 				l.Push(lua.LString(""))
 			},
 			expectedErr: true,
-			checkKind:   string(lua.KindInvalid),
+			checkKind:   string(lua.Invalid),
 		},
 		{
 			name: "chdir non-existent",
@@ -56,7 +56,7 @@ func TestFSStructuredErrors(t *testing.T) {
 				l.Push(lua.LString("/nonexistent"))
 			},
 			expectedErr: true,
-			checkKind:   string(lua.KindNotFound),
+			checkKind:   string(lua.NotFound),
 		},
 		{
 			name: "open empty path",
@@ -70,7 +70,7 @@ func TestFSStructuredErrors(t *testing.T) {
 				l.Push(lua.LString("r"))
 			},
 			expectedErr: true,
-			checkKind:   string(lua.KindInvalid),
+			checkKind:   string(lua.Invalid),
 		},
 		{
 			name: "open invalid mode",
@@ -84,7 +84,7 @@ func TestFSStructuredErrors(t *testing.T) {
 				l.Push(lua.LString("xyz"))
 			},
 			expectedErr: true,
-			checkKind:   string(lua.KindInvalid),
+			checkKind:   string(lua.Invalid),
 		},
 		{
 			name: "open non-existent file",
@@ -98,7 +98,7 @@ func TestFSStructuredErrors(t *testing.T) {
 				l.Push(lua.LString("r"))
 			},
 			expectedErr: true,
-			checkKind:   string(lua.KindNotFound),
+			checkKind:   string(lua.NotFound),
 		},
 		{
 			name: "stat empty path",
@@ -110,7 +110,7 @@ func TestFSStructuredErrors(t *testing.T) {
 				l.Push(lua.LString(""))
 			},
 			expectedErr: true,
-			checkKind:   string(lua.KindInvalid),
+			checkKind:   string(lua.Invalid),
 		},
 		{
 			name: "stat non-existent",
@@ -122,7 +122,7 @@ func TestFSStructuredErrors(t *testing.T) {
 				l.Push(lua.LString("/nonexistent"))
 			},
 			expectedErr: true,
-			checkKind:   string(lua.KindNotFound),
+			checkKind:   string(lua.NotFound),
 		},
 		{
 			name: "mkdir empty path",
@@ -134,7 +134,7 @@ func TestFSStructuredErrors(t *testing.T) {
 				l.Push(lua.LString(""))
 			},
 			expectedErr: true,
-			checkKind:   string(lua.KindInvalid),
+			checkKind:   string(lua.Invalid),
 		},
 		{
 			name: "remove empty path",
@@ -146,7 +146,7 @@ func TestFSStructuredErrors(t *testing.T) {
 				l.Push(lua.LString(""))
 			},
 			expectedErr: true,
-			checkKind:   string(lua.KindInvalid),
+			checkKind:   string(lua.Invalid),
 		},
 		{
 			name: "readdir empty path",
@@ -158,7 +158,7 @@ func TestFSStructuredErrors(t *testing.T) {
 				l.Push(lua.LString(""))
 			},
 			expectedErr: true,
-			checkKind:   string(lua.KindInvalid),
+			checkKind:   string(lua.Invalid),
 		},
 		{
 			name: "readfile empty path",
@@ -170,7 +170,7 @@ func TestFSStructuredErrors(t *testing.T) {
 				l.Push(lua.LString(""))
 			},
 			expectedErr: true,
-			checkKind:   string(lua.KindInvalid),
+			checkKind:   string(lua.Invalid),
 		},
 		{
 			name: "readfile non-existent",
@@ -182,7 +182,7 @@ func TestFSStructuredErrors(t *testing.T) {
 				l.Push(lua.LString("/nonexistent.txt"))
 			},
 			expectedErr: true,
-			checkKind:   string(lua.KindNotFound),
+			checkKind:   string(lua.NotFound),
 		},
 		{
 			name: "writefile empty path",
@@ -195,7 +195,7 @@ func TestFSStructuredErrors(t *testing.T) {
 				l.Push(lua.LString("data"))
 			},
 			expectedErr: true,
-			checkKind:   string(lua.KindInvalid),
+			checkKind:   string(lua.Invalid),
 		},
 		{
 			name: "writefile no data",
@@ -208,7 +208,7 @@ func TestFSStructuredErrors(t *testing.T) {
 				l.Push(lua.LNil)
 			},
 			expectedErr: true,
-			checkKind:   string(lua.KindInvalid),
+			checkKind:   string(lua.Invalid),
 		},
 		{
 			name: "writefile invalid mode",
@@ -222,7 +222,7 @@ func TestFSStructuredErrors(t *testing.T) {
 				l.Push(lua.LString("xyz"))
 			},
 			expectedErr: true,
-			checkKind:   string(lua.KindInvalid),
+			checkKind:   string(lua.Invalid),
 		},
 	}
 
@@ -273,7 +273,7 @@ func TestFSMkdirAlreadyExists(t *testing.T) {
 	errVal := l.Get(-1)
 	luaErr, ok := errVal.(*lua.Error)
 	require.True(t, ok, "error should be lua.Error")
-	assert.Equal(t, string(lua.KindAlreadyExists), string(luaErr.Kind()))
+	assert.Equal(t, string(lua.AlreadyExists), string(luaErr.Kind()))
 }
 
 func TestFSChdirNotDirectory(t *testing.T) {
@@ -303,7 +303,7 @@ func TestFSChdirNotDirectory(t *testing.T) {
 	errVal := l.Get(-1)
 	luaErr, ok := errVal.(*lua.Error)
 	require.True(t, ok, "error should be lua.Error")
-	assert.Equal(t, string(lua.KindInvalid), string(luaErr.Kind()))
+	assert.Equal(t, string(lua.Invalid), string(luaErr.Kind()))
 }
 
 func TestFSReaddirNotDirectory(t *testing.T) {
@@ -333,7 +333,7 @@ func TestFSReaddirNotDirectory(t *testing.T) {
 	errVal := l.Get(-1)
 	luaErr, ok := errVal.(*lua.Error)
 	require.True(t, ok, "error should be lua.Error")
-	assert.Equal(t, string(lua.KindInvalid), string(luaErr.Kind()))
+	assert.Equal(t, string(lua.Invalid), string(luaErr.Kind()))
 }
 
 func TestFSRemoveNonEmpty(t *testing.T) {
@@ -366,7 +366,7 @@ func TestFSRemoveNonEmpty(t *testing.T) {
 	errVal := l.Get(-1)
 	luaErr, ok := errVal.(*lua.Error)
 	require.True(t, ok, "error should be lua.Error")
-	assert.Equal(t, string(lua.KindInvalid), string(luaErr.Kind()))
+	assert.Equal(t, string(lua.Invalid), string(luaErr.Kind()))
 }
 
 type testReaderCloser struct {
@@ -458,7 +458,7 @@ func TestNullByteInjectionPrevention(t *testing.T) {
 			assert.Equal(t, lua.LNil, l.Get(-2), "stat should return nil for null byte path")
 			luaErr, ok := l.Get(-1).(*lua.Error)
 			require.True(t, ok, "should return error")
-			assert.Equal(t, string(lua.KindInvalid), string(luaErr.Kind()))
+			assert.Equal(t, string(lua.Invalid), string(luaErr.Kind()))
 		}
 	})
 
@@ -480,7 +480,7 @@ func TestNullByteInjectionPrevention(t *testing.T) {
 			assert.Equal(t, lua.LNil, l.Get(-2), "open should return nil for null byte path")
 			luaErr, ok := l.Get(-1).(*lua.Error)
 			require.True(t, ok, "should return error")
-			assert.Equal(t, string(lua.KindInvalid), string(luaErr.Kind()))
+			assert.Equal(t, string(lua.Invalid), string(luaErr.Kind()))
 		}
 	})
 
@@ -500,7 +500,7 @@ func TestNullByteInjectionPrevention(t *testing.T) {
 			assert.Equal(t, lua.LFalse, l.Get(-2), "mkdir should return false for null byte path")
 			luaErr, ok := l.Get(-1).(*lua.Error)
 			require.True(t, ok, "should return error")
-			assert.Equal(t, string(lua.KindInvalid), string(luaErr.Kind()))
+			assert.Equal(t, string(lua.Invalid), string(luaErr.Kind()))
 		}
 	})
 
@@ -520,7 +520,7 @@ func TestNullByteInjectionPrevention(t *testing.T) {
 			assert.Equal(t, lua.LFalse, l.Get(-2), "remove should return false for null byte path")
 			luaErr, ok := l.Get(-1).(*lua.Error)
 			require.True(t, ok, "should return error")
-			assert.Equal(t, string(lua.KindInvalid), string(luaErr.Kind()))
+			assert.Equal(t, string(lua.Invalid), string(luaErr.Kind()))
 		}
 	})
 
@@ -540,7 +540,7 @@ func TestNullByteInjectionPrevention(t *testing.T) {
 			assert.Equal(t, lua.LNil, l.Get(-2), "readdir should return nil for null byte path")
 			luaErr, ok := l.Get(-1).(*lua.Error)
 			require.True(t, ok, "should return error")
-			assert.Equal(t, string(lua.KindInvalid), string(luaErr.Kind()))
+			assert.Equal(t, string(lua.Invalid), string(luaErr.Kind()))
 		}
 	})
 
@@ -560,7 +560,7 @@ func TestNullByteInjectionPrevention(t *testing.T) {
 			assert.Equal(t, lua.LFalse, l.Get(-2), "exists should return false for null byte path")
 			luaErr, ok := l.Get(-1).(*lua.Error)
 			require.True(t, ok, "should return error")
-			assert.Equal(t, string(lua.KindInvalid), string(luaErr.Kind()))
+			assert.Equal(t, string(lua.Invalid), string(luaErr.Kind()))
 		}
 	})
 
@@ -580,7 +580,7 @@ func TestNullByteInjectionPrevention(t *testing.T) {
 			assert.Equal(t, lua.LFalse, l.Get(-2), "isdir should return false for null byte path")
 			luaErr, ok := l.Get(-1).(*lua.Error)
 			require.True(t, ok, "should return error")
-			assert.Equal(t, string(lua.KindInvalid), string(luaErr.Kind()))
+			assert.Equal(t, string(lua.Invalid), string(luaErr.Kind()))
 		}
 	})
 
@@ -600,7 +600,7 @@ func TestNullByteInjectionPrevention(t *testing.T) {
 			assert.Equal(t, lua.LNil, l.Get(-2), "readfile should return nil for null byte path")
 			luaErr, ok := l.Get(-1).(*lua.Error)
 			require.True(t, ok, "should return error")
-			assert.Equal(t, string(lua.KindInvalid), string(luaErr.Kind()))
+			assert.Equal(t, string(lua.Invalid), string(luaErr.Kind()))
 		}
 	})
 
@@ -622,7 +622,7 @@ func TestNullByteInjectionPrevention(t *testing.T) {
 			assert.Equal(t, lua.LFalse, l.Get(-2), "writefile should return false for null byte path")
 			luaErr, ok := l.Get(-1).(*lua.Error)
 			require.True(t, ok, "should return error")
-			assert.Equal(t, string(lua.KindInvalid), string(luaErr.Kind()))
+			assert.Equal(t, string(lua.Invalid), string(luaErr.Kind()))
 		}
 	})
 
@@ -642,7 +642,7 @@ func TestNullByteInjectionPrevention(t *testing.T) {
 			assert.Equal(t, lua.LFalse, l.Get(-2), "chdir should return false for null byte path")
 			luaErr, ok := l.Get(-1).(*lua.Error)
 			require.True(t, ok, "should return error")
-			assert.Equal(t, string(lua.KindInvalid), string(luaErr.Kind()))
+			assert.Equal(t, string(lua.Invalid), string(luaErr.Kind()))
 		}
 	})
 }

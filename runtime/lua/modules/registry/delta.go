@@ -20,7 +20,7 @@ func buildDelta(l *lua.LState, log *zap.Logger) int {
 	fromTable := l.CheckTable(1)
 	if fromTable == nil {
 		err := lua.NewLuaError(l, "from_entries table required").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -30,7 +30,7 @@ func buildDelta(l *lua.LState, log *zap.Logger) int {
 	toTable := l.CheckTable(2)
 	if toTable == nil {
 		err := lua.NewLuaError(l, "to_entries table required").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -65,7 +65,7 @@ func buildDelta(l *lua.LState, log *zap.Logger) int {
 	dtt := payload.GetTranscoder(l.Context())
 	if dtt == nil {
 		err := lua.NewLuaError(l, "transcoder not available").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -94,7 +94,7 @@ func buildDelta(l *lua.LState, log *zap.Logger) int {
 	changeSet, buildErr := stateBuilder.BuildDelta(fromEntries, toEntries)
 	if buildErr != nil {
 		err := lua.WrapErrorWithLua(l, buildErr, "build delta").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -109,7 +109,7 @@ func buildDelta(l *lua.LState, log *zap.Logger) int {
 		entryTable, convErr := entryToLuaTable(l, op.Entry)
 		if convErr != nil {
 			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
-				WithKind(lua.KindInternal).
+				WithKind(lua.Internal).
 				WithRetryable(false)
 			l.Push(lua.LNil)
 			l.Push(err)

@@ -89,7 +89,7 @@ func executorWithContext(l *lua.LState) int {
 	ctx := l.Context()
 	if !security.IsAllowed(ctx, "funcs.context", "context", nil) {
 		err := lua.NewLuaError(l, "not allowed to call functions with custom context").
-			WithKind(lua.KindPermissionDenied).
+			WithKind(lua.PermissionDenied).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -138,7 +138,7 @@ func executorWithActor(l *lua.LState) int {
 	ctx := l.Context()
 	if !security.IsAllowed(ctx, "funcs.security", "security", nil) {
 		err := lua.NewLuaError(l, "not allowed to call functions with custom security context").
-			WithKind(lua.KindPermissionDenied).
+			WithKind(lua.PermissionDenied).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -182,7 +182,7 @@ func executorWithScope(l *lua.LState) int {
 	ctx := l.Context()
 	if !security.IsAllowed(ctx, "funcs.security", "security", nil) {
 		err := lua.NewLuaError(l, "not allowed to call functions with custom security context").
-			WithKind(lua.KindPermissionDenied).
+			WithKind(lua.PermissionDenied).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -262,7 +262,7 @@ func executorCall(l *lua.LState) int {
 	ctx := l.Context()
 	if !security.IsAllowed(ctx, "funcs.call", target, nil) {
 		luaErr := lua.NewLuaError(l, "not allowed: "+target).
-			WithKind(lua.KindPermissionDenied).
+			WithKind(lua.PermissionDenied).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -316,7 +316,7 @@ func executorAsync(l *lua.LState) int {
 	ctx := l.Context()
 	if !security.IsAllowed(ctx, "funcs.call", target, nil) {
 		luaErr := lua.NewLuaError(l, "not allowed: "+target).
-			WithKind(lua.KindPermissionDenied).
+			WithKind(lua.PermissionDenied).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -360,7 +360,7 @@ func call(l *lua.LState) int {
 	ctx := l.Context()
 	if !security.IsAllowed(ctx, "funcs.call", target, nil) {
 		luaErr := lua.NewLuaError(l, "not allowed: "+target).
-			WithKind(lua.KindPermissionDenied).
+			WithKind(lua.PermissionDenied).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -394,7 +394,7 @@ func async(l *lua.LState) int {
 	ctx := l.Context()
 	if !security.IsAllowed(ctx, "funcs.call", target, nil) {
 		luaErr := lua.NewLuaError(l, "not allowed: "+target).
-			WithKind(lua.KindPermissionDenied).
+			WithKind(lua.PermissionDenied).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -425,7 +425,7 @@ func setupAsyncYieldWithValues(l *lua.LState, regID registry.ID, payloads []payl
 	proc := engine.GetProcess(l)
 	if proc == nil {
 		luaErr := lua.NewLuaError(l, "no process context").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -436,7 +436,7 @@ func setupAsyncYieldWithValues(l *lua.LState, regID registry.ID, payloads []payl
 	ch, subErr := proc.Subscribe(topic, 1)
 	if subErr != nil {
 		luaErr := lua.WrapErrorWithLua(l, subErr, "subscribe failed").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -461,7 +461,7 @@ func setupAsyncYieldWithValues(l *lua.LState, regID registry.ID, payloads []payl
 func validateTarget(l *lua.LState, target string) (registry.ID, int) {
 	if target == "" {
 		err := lua.NewLuaError(l, "function ID required").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -471,7 +471,7 @@ func validateTarget(l *lua.LState, target string) (registry.ID, int) {
 	regID := registry.ParseID(target)
 	if regID.NS == "" {
 		err := lua.NewLuaError(l, "namespace required in function ID").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -479,7 +479,7 @@ func validateTarget(l *lua.LState, target string) (registry.ID, int) {
 	}
 	if regID.Name == "" {
 		err := lua.NewLuaError(l, "name required in function ID").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)

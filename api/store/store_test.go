@@ -139,7 +139,7 @@ func TestCommandPools(t *testing.T) {
 	t.Run("GetCmd pool", func(t *testing.T) {
 		cmd := AcquireGetCmd()
 		assert.NotNil(t, cmd)
-		assert.Equal(t, CmdStoreGet, cmd.CmdID())
+		assert.Equal(t, Get, cmd.CmdID())
 
 		cmd.Key = registry.NewID("test", "key")
 		cmd.Release()
@@ -152,7 +152,7 @@ func TestCommandPools(t *testing.T) {
 	t.Run("SetCmd pool", func(t *testing.T) {
 		cmd := AcquireSetCmd()
 		assert.NotNil(t, cmd)
-		assert.Equal(t, CmdStoreSet, cmd.CmdID())
+		assert.Equal(t, Set, cmd.CmdID())
 
 		cmd.Entry = Entry{Key: registry.NewID("test", "key")}
 		cmd.Release()
@@ -165,7 +165,7 @@ func TestCommandPools(t *testing.T) {
 	t.Run("DeleteCmd pool", func(t *testing.T) {
 		cmd := AcquireDeleteCmd()
 		assert.NotNil(t, cmd)
-		assert.Equal(t, CmdStoreDelete, cmd.CmdID())
+		assert.Equal(t, Delete, cmd.CmdID())
 
 		cmd.Key = registry.NewID("test", "key")
 		cmd.Release()
@@ -178,7 +178,7 @@ func TestCommandPools(t *testing.T) {
 	t.Run("HasCmd pool", func(t *testing.T) {
 		cmd := AcquireHasCmd()
 		assert.NotNil(t, cmd)
-		assert.Equal(t, CmdStoreHas, cmd.CmdID())
+		assert.Equal(t, Has, cmd.CmdID())
 
 		cmd.Key = registry.NewID("test", "key")
 		cmd.Release()

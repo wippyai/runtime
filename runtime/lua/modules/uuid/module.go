@@ -34,7 +34,7 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 
 func invalidError(l *lua.LState, msg string) int {
 	err := lua.NewLuaError(l, msg).
-		WithKind(lua.KindInvalid).
+		WithKind(lua.Invalid).
 		WithRetryable(false)
 	l.Push(lua.LNil)
 	l.Push(err)
@@ -43,7 +43,7 @@ func invalidError(l *lua.LState, msg string) int {
 
 func internalError(l *lua.LState, goErr error, context string) int {
 	err := lua.WrapErrorWithLua(l, goErr, context).
-		WithKind(lua.KindInternal).
+		WithKind(lua.Internal).
 		WithRetryable(false)
 	l.Push(lua.LNil)
 	l.Push(err)

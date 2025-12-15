@@ -24,7 +24,7 @@ func TestImplementationErrors(t *testing.T) {
 		err := NewGetFilesystemError(cause)
 		assert.Equal(t, "failed to get filesystem", err.Error())
 		assert.Equal(t, "Internal", err.Kind().String())
-		assert.Equal(t, "Unknown", err.Retryable().String())
+		assert.Equal(t, "Unspecified", err.Retryable().String())
 	})
 
 	t.Run("NewCreateFilesystemError", func(t *testing.T) {

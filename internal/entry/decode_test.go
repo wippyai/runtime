@@ -248,9 +248,8 @@ func TestDecodeEntryConfig_ValidationFailure(t *testing.T) {
 	assert.Nil(t, cfg)
 	assert.Contains(t, err.Error(), "invalid configuration")
 	// Validation error is wrapped as cause
-	var entryErr *Error
-	if errors.As(err, &entryErr) && errors.Unwrap(entryErr) != nil {
-		assert.Contains(t, errors.Unwrap(entryErr).Error(), "name is required")
+	if unwrapped := errors.Unwrap(err); unwrapped != nil {
+		assert.Contains(t, unwrapped.Error(), "name is required")
 	}
 }
 

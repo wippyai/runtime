@@ -74,27 +74,27 @@ func sqlGet(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "no context").WithKind(lua.KindInternal))
+		l.Push(lua.NewLuaError(l, "no context").WithKind(lua.Internal))
 		return 2
 	}
 
 	id := l.CheckString(1)
 	if id == "" {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "resource id is required").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "resource id is required").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
 	if !security.IsAllowed(ctx, "db.get", id, nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, fmt.Sprintf("not allowed to access database: %s", id)).WithKind(lua.KindPermissionDenied).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, fmt.Sprintf("not allowed to access database: %s", id)).WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
 	reg := resource.GetRegistry(ctx)
 	if reg == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "resource registry not found").WithKind(lua.KindInternal))
+		l.Push(lua.NewLuaError(l, "resource registry not found").WithKind(lua.Internal))
 		return 2
 	}
 
@@ -118,7 +118,7 @@ func sqlGet(l *lua.LState) int {
 	if !ok {
 		res.Release()
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, fmt.Sprintf("resource is not a database: %T", dbRes)).WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, fmt.Sprintf("resource is not a database: %T", dbRes)).WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
@@ -149,7 +149,7 @@ func dbQuery(l *lua.LState) int {
 	params, err := checkParams(l, 3)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "check params").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.WrapErrorWithLua(l, err, "check params").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
@@ -170,7 +170,7 @@ func dbExecute(l *lua.LState) int {
 	params, err := checkParams(l, 3)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "check params").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.WrapErrorWithLua(l, err, "check params").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 

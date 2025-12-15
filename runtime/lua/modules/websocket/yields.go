@@ -8,7 +8,7 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
-	wsapi "github.com/wippyai/runtime/api/websocket"
+	wsapi "github.com/wippyai/runtime/api/service/websocket"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
@@ -54,11 +54,11 @@ func (y *WsConnectYield) String() string       { return "<ws_connect_yield>" }
 func (y *WsConnectYield) Type() lua.LValueType { return lua.LTUserData }
 
 func (y *WsConnectYield) CmdID() dispatcher.CommandID {
-	return wsapi.CmdWsConnect
+	return wsapi.Connect
 }
 
 func (y *WsConnectYield) ToCommand() dispatcher.Command {
-	return wsapi.WsConnectCmd{
+	return wsapi.ConnectCmd{
 		URL:                  y.URL,
 		Headers:              y.Headers,
 		Protocols:            y.Protocols,
@@ -128,11 +128,11 @@ func (y *WsSendYield) String() string       { return "<ws_send_yield>" }
 func (y *WsSendYield) Type() lua.LValueType { return lua.LTUserData }
 
 func (y *WsSendYield) CmdID() dispatcher.CommandID {
-	return wsapi.CmdWsSend
+	return wsapi.Send
 }
 
 func (y *WsSendYield) ToCommand() dispatcher.Command {
-	return wsapi.WsSendCmd{ConnID: y.ConnID, Data: y.Data, MessageType: y.MessageType}
+	return wsapi.SendCmd{ConnID: y.ConnID, Data: y.Data, MessageType: y.MessageType}
 }
 
 func (y *WsSendYield) Release() { ReleaseWsSendYield(y) }
@@ -174,11 +174,11 @@ func (y *WsSubscribeYield) String() string       { return "<ws_subscribe_yield>"
 func (y *WsSubscribeYield) Type() lua.LValueType { return lua.LTUserData }
 
 func (y *WsSubscribeYield) CmdID() dispatcher.CommandID {
-	return wsapi.CmdWsSubscribe
+	return wsapi.Subscribe
 }
 
 func (y *WsSubscribeYield) ToCommand() dispatcher.Command {
-	return wsapi.WsSubscribeCmd{ConnID: y.ConnID, PID: y.PID, Topic: y.Topic}
+	return wsapi.SubscribeCmd{ConnID: y.ConnID, PID: y.PID, Topic: y.Topic}
 }
 
 func (y *WsSubscribeYield) Release() { ReleaseWsSubscribeYield(y) }
@@ -272,11 +272,11 @@ func (y *WsCloseYield) String() string       { return "<ws_close_yield>" }
 func (y *WsCloseYield) Type() lua.LValueType { return lua.LTUserData }
 
 func (y *WsCloseYield) CmdID() dispatcher.CommandID {
-	return wsapi.CmdWsClose
+	return wsapi.Close
 }
 
 func (y *WsCloseYield) ToCommand() dispatcher.Command {
-	return wsapi.WsCloseCmd{ConnID: y.ConnID, Code: y.Code, Reason: y.Reason}
+	return wsapi.CloseCmd{ConnID: y.ConnID, Code: y.Code, Reason: y.Reason}
 }
 
 func (y *WsCloseYield) Release() { ReleaseWsCloseYield(y) }
@@ -308,11 +308,11 @@ func (y *WsPingYield) String() string       { return "<ws_ping_yield>" }
 func (y *WsPingYield) Type() lua.LValueType { return lua.LTUserData }
 
 func (y *WsPingYield) CmdID() dispatcher.CommandID {
-	return wsapi.CmdWsPing
+	return wsapi.Ping
 }
 
 func (y *WsPingYield) ToCommand() dispatcher.Command {
-	return wsapi.WsPingCmd{ConnID: y.ConnID, Data: y.Data}
+	return wsapi.PingCmd{ConnID: y.ConnID, Data: y.Data}
 }
 
 func (y *WsPingYield) Release() { ReleaseWsPingYield(y) }

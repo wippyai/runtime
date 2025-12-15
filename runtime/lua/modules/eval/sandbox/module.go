@@ -59,14 +59,14 @@ func newClock(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "no context").WithKind(lua.KindInternal))
+		l.Push(lua.NewLuaError(l, "no context").WithKind(lua.Internal))
 		return 2
 	}
 
 	if !security.IsAllowed(ctx, "eval.sandbox", "", nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "permission denied: eval.sandbox").
-			WithKind(lua.KindPermissionDenied).WithRetryable(false))
+			WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -85,14 +85,14 @@ func compileFunc(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "no context").WithKind(lua.KindInternal))
+		l.Push(lua.NewLuaError(l, "no context").WithKind(lua.Internal))
 		return 2
 	}
 
 	if !security.IsAllowed(ctx, "eval.compile", "", nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "permission denied: eval.compile").
-			WithKind(lua.KindPermissionDenied).WithRetryable(false))
+			WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -126,14 +126,14 @@ func createProcessFunc(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "no context").WithKind(lua.KindInternal))
+		l.Push(lua.NewLuaError(l, "no context").WithKind(lua.Internal))
 		return 2
 	}
 
 	if !security.IsAllowed(ctx, "eval.sandbox", "", nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "permission denied: eval.sandbox").
-			WithKind(lua.KindPermissionDenied).WithRetryable(false))
+			WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -151,7 +151,7 @@ func createProcessFunc(l *lua.LState) int {
 	if program == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "invalid program").
-			WithKind(lua.KindInvalid).WithRetryable(false))
+			WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 

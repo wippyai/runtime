@@ -189,7 +189,7 @@ func language(l *lua.LState) int {
 	langInfo := languages.GetLanguageInfo(languageAlias)
 	if langInfo == nil {
 		err := lua.NewLuaError(l, fmt.Sprintf("unsupported language: %s", languageAlias)).
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -198,7 +198,7 @@ func language(l *lua.LState) int {
 
 	if langInfo.Language == nil {
 		err := lua.NewLuaError(l, fmt.Sprintf("language '%s' does not have a Tree-sitter language binding", languageAlias)).
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -226,7 +226,7 @@ func parse(l *lua.LState) int {
 	langInfo := languages.GetLanguageInfo(languageAlias)
 	if langInfo == nil {
 		err := lua.NewLuaError(l, fmt.Sprintf("unsupported language: %s", languageAlias)).
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -235,7 +235,7 @@ func parse(l *lua.LState) int {
 
 	if langInfo.Language == nil {
 		err := lua.NewLuaError(l, fmt.Sprintf("language '%s' does not have a Tree-sitter language binding", languageAlias)).
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -245,7 +245,7 @@ func parse(l *lua.LState) int {
 	lang := langInfo.Language()
 	if setErr := parser.SetLanguage(treesitter.NewLanguage(lang)); setErr != nil {
 		err := lua.WrapErrorWithLua(l, setErr, "failed to set language").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -255,7 +255,7 @@ func parse(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		err := lua.NewLuaError(l, "no context found").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -268,7 +268,7 @@ func parse(l *lua.LState) int {
 	tree := parser.ParseCtx(ctx, []byte(code), nil) //nolint:staticcheck // library update needed
 	if tree == nil {
 		err := lua.NewLuaError(l, "failed to parse code").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)

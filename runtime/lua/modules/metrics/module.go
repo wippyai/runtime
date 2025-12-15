@@ -135,7 +135,7 @@ func histogram(l *lua.LState) int {
 
 func collectorNotAvailable(l *lua.LState) int {
 	err := lua.NewLuaError(l, "metrics collector not available").
-		WithKind(lua.KindInternal).
+		WithKind(lua.Internal).
 		WithRetryable(false)
 	l.Push(lua.LNil)
 	l.Push(err)

@@ -125,7 +125,7 @@ func TestErrorInterface(t *testing.T) {
 	t.Run("ErrTerminated", func(t *testing.T) {
 		err := ErrTerminated
 		assert.Equal(t, "service terminated", err.Error())
-		assert.Equal(t, KindTerminated, err.Kind())
+		assert.Equal(t, Terminated, err.Kind())
 		assert.Equal(t, apierror.False, err.Retryable())
 		assert.Nil(t, err.Details())
 	})
@@ -133,7 +133,7 @@ func TestErrorInterface(t *testing.T) {
 	t.Run("ErrExit", func(t *testing.T) {
 		err := ErrExit
 		assert.Equal(t, "service exited", err.Error())
-		assert.Equal(t, KindExited, err.Kind())
+		assert.Equal(t, Exited, err.Kind())
 		assert.Equal(t, apierror.False, err.Retryable())
 	})
 
@@ -156,7 +156,7 @@ func TestErrorMethods(t *testing.T) {
 	t.Run("SetMessage", func(t *testing.T) {
 		err := apierror.SetMessage(ErrTerminated, "custom message")
 		assert.Equal(t, "custom message", err.Error())
-		assert.Equal(t, KindTerminated, err.Kind())
+		assert.Equal(t, Terminated, err.Kind())
 	})
 }
 

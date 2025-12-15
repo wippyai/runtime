@@ -48,20 +48,20 @@ func (y *CompileYield) ToCommand() dispatcher.Command {
 func (y *CompileYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "compile failed").
-			WithKind(lua.KindInternal).WithRetryable(false)
+			WithKind(lua.Internal).WithRetryable(false)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 
 	if data == nil {
 		luaErr := lua.NewLuaError(l, "compilation returned nil").
-			WithKind(lua.KindInternal).WithRetryable(false)
+			WithKind(lua.Internal).WithRetryable(false)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 
 	program, ok := data.(*evalhost.Program)
 	if !ok {
 		luaErr := lua.NewLuaError(l, "invalid program type").
-			WithKind(lua.KindInternal).WithRetryable(false)
+			WithKind(lua.Internal).WithRetryable(false)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 
@@ -116,20 +116,20 @@ func (y *CreateProcessYield) ToCommand() dispatcher.Command {
 func (y *CreateProcessYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "create process failed").
-			WithKind(lua.KindInternal).WithRetryable(false)
+			WithKind(lua.Internal).WithRetryable(false)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 
 	if data == nil {
 		luaErr := lua.NewLuaError(l, "create process returned nil").
-			WithKind(lua.KindInternal).WithRetryable(false)
+			WithKind(lua.Internal).WithRetryable(false)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 
 	proc, ok := data.(process.Process)
 	if !ok {
 		luaErr := lua.NewLuaError(l, "invalid process type").
-			WithKind(lua.KindInternal).WithRetryable(false)
+			WithKind(lua.Internal).WithRetryable(false)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 

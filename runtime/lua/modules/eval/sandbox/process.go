@@ -178,7 +178,7 @@ func processInit(l *lua.LState) int {
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.WrapErrorWithLua(l, err, "init failed").
-			WithKind(lua.KindInternal).WithRetryable(false))
+			WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 

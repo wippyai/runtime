@@ -13,7 +13,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/runtime/resource"
-	wsapi "github.com/wippyai/runtime/api/websocket"
+	wsapi "github.com/wippyai/runtime/api/service/websocket"
 
 	"github.com/coder/websocket"
 	"go.uber.org/zap"
@@ -97,7 +97,7 @@ func TestConnectHandler(t *testing.T) {
 
 	var connID uint64
 	done := make(chan struct{})
-	err := handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{URL: wsURL}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
+	err := handlers[wsapi.Connect].Handle(ctx, wsapi.ConnectCmd{URL: wsURL}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
 		connID = data.(uint64)
 		close(done)
 	}})
@@ -162,7 +162,7 @@ func TestConnectHandlerWithHeaders(t *testing.T) {
 	})
 
 	done := make(chan struct{})
-	err := handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{
+	err := handlers[wsapi.Connect].Handle(ctx, wsapi.ConnectCmd{
 		URL:     wsURL,
 		Headers: map[string]string{"X-Custom": "test-value"},
 	}, 1, &testReceiver{fn: func(_ uint64, _ any, _ error) {
@@ -229,7 +229,7 @@ func TestSendHandler(t *testing.T) {
 	})
 
 	done := make(chan struct{})
-	err = handlers[wsapi.CmdWsSend].Handle(ctx, wsapi.WsSendCmd{
+	err = handlers[wsapi.Send].Handle(ctx, wsapi.SendCmd{
 		ConnID:      connID,
 		Data:        []byte("hello"),
 		MessageType: wsapi.MessageText,
@@ -298,10 +298,10 @@ func TestReceiveHandler(t *testing.T) {
 		handlers[id] = h
 	})
 
-	var msg wsapi.WsMessage
+	var msg wsapi.Message
 	done := make(chan struct{})
-	err = handlers[wsapi.CmdWsReceive].Handle(ctx, wsapi.WsReceiveCmd{ConnID: connID}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
-		msg = data.(wsapi.WsMessage)
+	err = handlers[wsapi.Receive].Handle(ctx, wsapi.ReceiveCmd{ConnID: connID}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
+		msg = data.(wsapi.Message)
 		close(done)
 	}})
 
@@ -370,10 +370,10 @@ func TestReceiveHandlerBinary(t *testing.T) {
 		handlers[id] = h
 	})
 
-	var msg wsapi.WsMessage
+	var msg wsapi.Message
 	done := make(chan struct{})
-	err = handlers[wsapi.CmdWsReceive].Handle(ctx, wsapi.WsReceiveCmd{ConnID: connID}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
-		msg = data.(wsapi.WsMessage)
+	err = handlers[wsapi.Receive].Handle(ctx, wsapi.ReceiveCmd{ConnID: connID}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
+		msg = data.(wsapi.Message)
 		close(done)
 	}})
 
@@ -466,7 +466,7 @@ func TestCloseHandler(t *testing.T) {
 	})
 
 	done := make(chan struct{})
-	err = handlers[wsapi.CmdWsClose].Handle(ctx, wsapi.WsCloseCmd{
+	err = handlers[wsapi.Close].Handle(ctx, wsapi.CloseCmd{
 		ConnID: connID,
 		Code:   1000,
 		Reason: "normal close",
@@ -522,7 +522,7 @@ func TestPingHandler(t *testing.T) {
 	})
 
 	done := make(chan struct{})
-	err = handlers[wsapi.CmdWsPing].Handle(pingCtx, wsapi.WsPingCmd{ConnID: connID}, 1, &testReceiver{fn: func(_ uint64, _ any, _ error) {
+	err = handlers[wsapi.Ping].Handle(pingCtx, wsapi.PingCmd{ConnID: connID}, 1, &testReceiver{fn: func(_ uint64, _ any, _ error) {
 		close(done)
 	}})
 
@@ -552,7 +552,7 @@ func TestSendHandlerNotFound(t *testing.T) {
 	})
 
 	var gotErr atomic.Value
-	err := handlers[wsapi.CmdWsSend].Handle(ctx, wsapi.WsSendCmd{
+	err := handlers[wsapi.Send].Handle(ctx, wsapi.SendCmd{
 		ConnID: 99999,
 		Data:   []byte("test"),
 	}, 1, &testReceiver{fn: func(_ uint64, _ any, e error) {
@@ -586,7 +586,7 @@ func TestReceiveHandlerNotFound(t *testing.T) {
 	})
 
 	var gotErr atomic.Value
-	err := handlers[wsapi.CmdWsReceive].Handle(ctx, wsapi.WsReceiveCmd{ConnID: 99999}, 1, &testReceiver{fn: func(_ uint64, _ any, e error) {
+	err := handlers[wsapi.Receive].Handle(ctx, wsapi.ReceiveCmd{ConnID: 99999}, 1, &testReceiver{fn: func(_ uint64, _ any, e error) {
 		gotErr.Store(e)
 	}})
 
@@ -657,7 +657,7 @@ func TestConcurrentSends(t *testing.T) {
 		sendWg.Add(1)
 		go func() {
 			defer sendWg.Done()
-			_ = handlers[wsapi.CmdWsSend].Handle(ctx, wsapi.WsSendCmd{
+			_ = handlers[wsapi.Send].Handle(ctx, wsapi.SendCmd{
 				ConnID:      connID,
 				Data:        []byte("msg"),
 				MessageType: wsapi.MessageText,
@@ -692,7 +692,7 @@ func TestFullCycle(t *testing.T) {
 
 	var connID uint64
 	done := make(chan struct{})
-	err := handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{URL: wsURL}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
+	err := handlers[wsapi.Connect].Handle(ctx, wsapi.ConnectCmd{URL: wsURL}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
 		connID = data.(uint64)
 		close(done)
 	}})
@@ -702,7 +702,7 @@ func TestFullCycle(t *testing.T) {
 	<-done
 
 	done = make(chan struct{})
-	err = handlers[wsapi.CmdWsSend].Handle(ctx, wsapi.WsSendCmd{
+	err = handlers[wsapi.Send].Handle(ctx, wsapi.SendCmd{
 		ConnID:      connID,
 		Data:        []byte("hello"),
 		MessageType: wsapi.MessageText,
@@ -717,10 +717,10 @@ func TestFullCycle(t *testing.T) {
 	// Wait for echo
 	time.Sleep(50 * time.Millisecond)
 
-	var msg wsapi.WsMessage
+	var msg wsapi.Message
 	done = make(chan struct{})
-	err = handlers[wsapi.CmdWsReceive].Handle(ctx, wsapi.WsReceiveCmd{ConnID: connID}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
-		msg = data.(wsapi.WsMessage)
+	err = handlers[wsapi.Receive].Handle(ctx, wsapi.ReceiveCmd{ConnID: connID}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
+		msg = data.(wsapi.Message)
 		close(done)
 	}})
 	if err != nil {
@@ -732,7 +732,7 @@ func TestFullCycle(t *testing.T) {
 	}
 
 	done = make(chan struct{})
-	err = handlers[wsapi.CmdWsClose].Handle(ctx, wsapi.WsCloseCmd{
+	err = handlers[wsapi.Close].Handle(ctx, wsapi.CloseCmd{
 		ConnID: connID,
 		Code:   1000,
 		Reason: "done",
@@ -783,7 +783,7 @@ func TestChannelReceiveMultipleMessages(t *testing.T) {
 		t.Fatalf("get message chan failed: %v", err)
 	}
 
-	var received []wsapi.WsMessage
+	var received []wsapi.Message
 	timeout := time.After(2 * time.Second)
 
 	for {
@@ -896,7 +896,7 @@ func TestCleanupOnStoreClose(t *testing.T) {
 
 	var connID uint64
 	done := make(chan struct{})
-	err := handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{URL: wsURL}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
+	err := handlers[wsapi.Connect].Handle(ctx, wsapi.ConnectCmd{URL: wsURL}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
 		connID = data.(uint64)
 		close(done)
 	}})
@@ -956,7 +956,7 @@ func TestCleanupMultipleConnections(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		done := make(chan struct{})
-		err := handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{URL: wsURL}, 1, &testReceiver{fn: func(_ uint64, _ any, _ error) {
+		err := handlers[wsapi.Connect].Handle(ctx, wsapi.ConnectCmd{URL: wsURL}, 1, &testReceiver{fn: func(_ uint64, _ any, _ error) {
 			close(done)
 		}})
 		if err != nil {
@@ -987,12 +987,12 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 	})
 
 	expected := []dispatcher.CommandID{
-		wsapi.CmdWsConnect,
-		wsapi.CmdWsSend,
-		wsapi.CmdWsReceive,
-		wsapi.CmdWsClose,
-		wsapi.CmdWsPing,
-		wsapi.CmdWsSubscribe,
+		wsapi.Connect,
+		wsapi.Send,
+		wsapi.Receive,
+		wsapi.Close,
+		wsapi.Ping,
+		wsapi.Subscribe,
 	}
 
 	for _, id := range expected {
@@ -1025,7 +1025,7 @@ func TestDispatcherWithWorkers(t *testing.T) {
 	var connID uint64
 	var wg sync.WaitGroup
 	wg.Add(1)
-	err = handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{URL: wsURL}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
+	err = handlers[wsapi.Connect].Handle(ctx, wsapi.ConnectCmd{URL: wsURL}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
 		connID = data.(uint64)
 		wg.Done()
 	}})
@@ -1043,7 +1043,7 @@ func TestDispatcherWithWorkers(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = handlers[wsapi.CmdWsSend].Handle(ctx, wsapi.WsSendCmd{
+			_ = handlers[wsapi.Send].Handle(ctx, wsapi.SendCmd{
 				ConnID:      connID,
 				Data:        []byte("async"),
 				MessageType: wsapi.MessageText,
@@ -1090,7 +1090,7 @@ func TestRemoteCloseDeliveryEOF(t *testing.T) {
 		t.Fatalf("get message chan failed: %v", err)
 	}
 
-	var messages []wsapi.WsMessage
+	var messages []wsapi.Message
 	timeout := time.After(2 * time.Second)
 
 loop:
@@ -1150,10 +1150,10 @@ func TestNoRegistryErrors(t *testing.T) {
 		cmd  dispatcher.Command
 		id   dispatcher.CommandID
 	}{
-		{"send", wsapi.WsSendCmd{ConnID: 1, Data: []byte("x")}, wsapi.CmdWsSend},
-		{"receive", wsapi.WsReceiveCmd{ConnID: 1}, wsapi.CmdWsReceive},
-		{"close", wsapi.WsCloseCmd{ConnID: 1}, wsapi.CmdWsClose},
-		{"ping", wsapi.WsPingCmd{ConnID: 1}, wsapi.CmdWsPing},
+		{"send", wsapi.SendCmd{ConnID: 1, Data: []byte("x")}, wsapi.Send},
+		{"receive", wsapi.ReceiveCmd{ConnID: 1}, wsapi.Receive},
+		{"close", wsapi.CloseCmd{ConnID: 1}, wsapi.Close},
+		{"ping", wsapi.PingCmd{ConnID: 1}, wsapi.Ping},
 	}
 
 	for _, tc := range testCases {
@@ -1212,7 +1212,7 @@ func TestConnectWithProtocols(t *testing.T) {
 	})
 
 	done := make(chan struct{})
-	_ = handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{
+	_ = handlers[wsapi.Connect].Handle(ctx, wsapi.ConnectCmd{
 		URL:       wsURL,
 		Protocols: []string{"proto1", "proto2"},
 	}, 1, &testReceiver{fn: func(_ uint64, _ any, _ error) {
@@ -1271,7 +1271,7 @@ func TestConnectWithCompression(t *testing.T) {
 		done := make(chan struct{})
 		var connID uint64
 		var gotErr error
-		_ = handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{
+		_ = handlers[wsapi.Connect].Handle(ctx, wsapi.ConnectCmd{
 			URL:             wsURL,
 			CompressionMode: mode,
 		}, 1, &testReceiver{fn: func(_ uint64, data any, err error) {
@@ -1312,7 +1312,7 @@ func TestConnectWithDialTimeout(t *testing.T) {
 
 	done := make(chan struct{})
 	var gotErr error
-	_ = handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{
+	_ = handlers[wsapi.Connect].Handle(ctx, wsapi.ConnectCmd{
 		URL:         "ws://192.0.2.1:12345", // Non-routable IP
 		DialTimeout: 50 * time.Millisecond,
 	}, 1, &testReceiver{fn: func(_ uint64, _ any, err error) {
@@ -1350,7 +1350,7 @@ func TestConnectWithReadLimit(t *testing.T) {
 
 	done := make(chan struct{})
 	var connID uint64
-	_ = handlers[wsapi.CmdWsConnect].Handle(ctx, wsapi.WsConnectCmd{
+	_ = handlers[wsapi.Connect].Handle(ctx, wsapi.ConnectCmd{
 		URL:       wsURL,
 		ReadLimit: 1024,
 	}, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
@@ -1414,7 +1414,7 @@ func TestSendBinaryMessage(t *testing.T) {
 	})
 
 	done := make(chan struct{})
-	_ = handlers[wsapi.CmdWsSend].Handle(ctx, wsapi.WsSendCmd{
+	_ = handlers[wsapi.Send].Handle(ctx, wsapi.SendCmd{
 		ConnID:      connID,
 		Data:        []byte{0x00, 0x01, 0x02},
 		MessageType: wsapi.MessageBinary,
@@ -1479,7 +1479,7 @@ func BenchmarkSend(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			_ = handlers[wsapi.CmdWsSend].Handle(ctx, wsapi.WsSendCmd{
+			_ = handlers[wsapi.Send].Handle(ctx, wsapi.SendCmd{
 				ConnID:      connID,
 				Data:        []byte("benchmark"),
 				MessageType: wsapi.MessageText,
@@ -1536,7 +1536,7 @@ func BenchmarkReceive(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = handlers[wsapi.CmdWsReceive].Handle(ctx, wsapi.WsReceiveCmd{ConnID: connID}, 1, &testReceiver{fn: func(_ uint64, _ any, _ error) {}})
+		_ = handlers[wsapi.Receive].Handle(ctx, wsapi.ReceiveCmd{ConnID: connID}, 1, &testReceiver{fn: func(_ uint64, _ any, _ error) {}})
 	}
 }
 
@@ -1588,11 +1588,11 @@ func BenchmarkChannelReceive(b *testing.B) {
 
 // BenchmarkChannelReceiveOnly benchmarks pure channel receive without network
 func BenchmarkChannelReceiveOnly(b *testing.B) {
-	ch := make(chan wsapi.WsMessage, 1024)
+	ch := make(chan wsapi.Message, 1024)
 
 	// Pre-fill channel
 	for i := 0; i < 1024; i++ {
-		ch <- wsapi.WsMessage{Data: []byte("bench"), MessageType: wsapi.MessageText}
+		ch <- wsapi.Message{Data: []byte("bench"), MessageType: wsapi.MessageText}
 	}
 
 	b.ResetTimer()
@@ -1600,7 +1600,7 @@ func BenchmarkChannelReceiveOnly(b *testing.B) {
 		if len(ch) == 0 {
 			// Refill
 			for j := 0; j < 1024; j++ {
-				ch <- wsapi.WsMessage{Data: []byte("bench"), MessageType: wsapi.MessageText}
+				ch <- wsapi.Message{Data: []byte("bench"), MessageType: wsapi.MessageText}
 			}
 		}
 		<-ch

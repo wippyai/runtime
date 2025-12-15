@@ -130,7 +130,7 @@ func luaRegexpCompile(l *lua.LState) int {
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "regex compile error").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -731,7 +731,7 @@ func splitterSplitText(l *lua.LState) int {
 	chunks, err := wrapper.splitter.SplitText(text)
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "split_text").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)

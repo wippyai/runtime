@@ -25,7 +25,7 @@ func historyVersions(l *lua.LState) int {
 	versions, versErr := history.hist.Versions()
 	if versErr != nil {
 		err := lua.WrapErrorWithLua(l, versErr, "get versions").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -54,7 +54,7 @@ func historyGetVersion(l *lua.LState) int {
 	vID := l.CheckNumber(2)
 	if vID < 0 {
 		err := lua.NewLuaError(l, "invalid version ID").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -64,7 +64,7 @@ func historyGetVersion(l *lua.LState) int {
 	versions, versErr := history.hist.Versions()
 	if versErr != nil {
 		err := lua.WrapErrorWithLua(l, versErr, "get versions").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -81,7 +81,7 @@ func historyGetVersion(l *lua.LState) int {
 
 	if foundVersion == nil {
 		err := lua.NewLuaError(l, "version not found").
-			WithKind(lua.KindNotFound).
+			WithKind(lua.NotFound).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -104,7 +104,7 @@ func historySnapshotAt(l *lua.LState) int {
 	version, ok := ud.Value.(regapi.Version)
 	if !ok {
 		err := lua.NewLuaError(l, "expected version object").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -117,7 +117,7 @@ func historySnapshotAt(l *lua.LState) int {
 	state, buildErr := stateBuilder.BuildState(history.hist, version)
 	if buildErr != nil {
 		err := lua.WrapErrorWithLua(l, buildErr, "build snapshot state").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)

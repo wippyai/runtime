@@ -199,7 +199,7 @@ func futureResult(l *lua.LState) int {
 	// Check if canceled
 	if f.IsCanceled() {
 		luaErr := lua.NewLuaError(l, "canceled").
-			WithKind(lua.KindCanceled).
+			WithKind(lua.Canceled).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -238,7 +238,7 @@ func futureError(l *lua.LState) int {
 
 	if ok, err := f.Error(); ok {
 		luaErr := lua.WrapErrorWithLua(l, err, "async call failed").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(luaErr)
 		l.Push(lua.LTrue)

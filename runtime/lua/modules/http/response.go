@@ -36,7 +36,7 @@ func newResponse(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		err := lua.NewLuaError(l, "no context available").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -46,7 +46,7 @@ func newResponse(l *lua.LState) int {
 	reqCtx, ok := httpservice.GetRequestContext(ctx)
 	if !ok {
 		err := lua.NewLuaError(l, "no HTTP request context found").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -74,7 +74,7 @@ func responseSetStatus(l *lua.LState) int {
 	}
 	if res.headersSent {
 		err := lua.NewLuaError(l, "cannot set status after headers are sent").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(err)
 		return 1
@@ -94,7 +94,7 @@ func responseSetHeader(l *lua.LState) int {
 	}
 	if res.headersSent {
 		err := lua.NewLuaError(l, "cannot set headers after they are sent").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(err)
 		return 1
@@ -116,7 +116,7 @@ func responseWrite(l *lua.LState) int {
 	_, err := res.writer.Write([]byte(data))
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "write failed").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(luaErr)
 		return 1
@@ -150,7 +150,7 @@ func responseWriteJSON(l *lua.LState) int {
 	data, err := jsonmod.Encode(val)
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "failed to encode JSON").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(luaErr)
 		return 1
@@ -161,7 +161,7 @@ func responseWriteJSON(l *lua.LState) int {
 	_, err = res.writer.Write(data)
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "write failed").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(luaErr)
 		return 1
@@ -179,7 +179,7 @@ func responseSetContentType(l *lua.LState) int {
 	}
 	if res.headersSent {
 		err := lua.NewLuaError(l, "cannot set content type after headers are sent").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(err)
 		return 1
@@ -200,7 +200,7 @@ func responseWriteEvent(l *lua.LState) int {
 	if res.transferMode != "sse" {
 		if res.headersSent {
 			err := lua.NewLuaError(l, "cannot switch to SSE mode after headers are sent").
-				WithKind(lua.KindInvalid).
+				WithKind(lua.Invalid).
 				WithRetryable(false)
 			l.Push(err)
 			return 1
@@ -232,7 +232,7 @@ func responseWriteEvent(l *lua.LState) int {
 	data, err := jsonmod.Encode(dataLV)
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "failed to marshal event data").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(luaErr)
 		return 1
@@ -241,7 +241,7 @@ func responseWriteEvent(l *lua.LState) int {
 	_, writeErr := fmt.Fprintf(res.writer, "event: %s\ndata: %s\n\n", name, data)
 	if writeErr != nil {
 		luaErr := lua.WrapErrorWithLua(l, writeErr, "write event failed").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(luaErr)
 		return 1
@@ -264,7 +264,7 @@ func responseSetTransfer(l *lua.LState) int {
 	}
 	if res.headersSent {
 		err := lua.NewLuaError(l, "cannot set transfer mode after headers are sent").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(err)
 		return 1

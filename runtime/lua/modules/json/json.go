@@ -124,7 +124,7 @@ func initSchemaCache() {
 
 func validationError(l *lua.LState, goErr error, context string) int {
 	err := lua.WrapErrorWithLua(l, goErr, context).
-		WithKind(lua.KindInvalid).
+		WithKind(lua.Invalid).
 		WithRetryable(false)
 	l.Push(lua.LFalse)
 	l.Push(err)
@@ -512,7 +512,7 @@ func (j *jsonValue) writeValueOptimized(buf *bytes.Buffer, value lua.LValue) err
 
 func validationInputError(l *lua.LState, msg string) int {
 	err := lua.NewLuaError(l, msg).
-		WithKind(lua.KindInvalid).
+		WithKind(lua.Invalid).
 		WithRetryable(false)
 	l.Push(lua.LFalse)
 	l.Push(err)

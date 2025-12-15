@@ -18,13 +18,13 @@ func TestEventConstants(t *testing.T) {
 		expected string
 	}{
 		{"system", System, "", "cluster"},
-		{"node joined", "", NodeJoinedEventKind, "node.joined"},
-		{"node left", "", NodeLeftEventKind, "node.left"},
-		{"node updated", "", NodeUpdatedEventKind, "node.updated"},
-		{"kv put", "", KVPutEventKind, "kv.put"},
-		{"kv delete", "", KVDeleteEventKind, "kv.delete"},
-		{"raft leader elected", "", RaftLeaderElectedEventKind, "raft.leader.elected"},
-		{"raft leader lost", "", RaftLeaderLostEventKind, "raft.leader.lost"},
+		{"node joined", "", NodeJoined, "node.joined"},
+		{"node left", "", NodeLeft, "node.left"},
+		{"node updated", "", NodeUpdated, "node.updated"},
+		{"kv put", "", KVPut, "kv.put"},
+		{"kv delete", "", KVDelete, "kv.delete"},
+		{"raft leader elected", "", LeaderElected, "raft.leader.elected"},
+		{"raft leader lost", "", LeaderLost, "raft.leader.lost"},
 	}
 
 	for _, tt := range tests {

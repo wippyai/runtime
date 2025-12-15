@@ -12,21 +12,21 @@ import (
 func supervisorState(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "supervisor", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on supervisor").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on supervisor").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
 	serviceIDStr := l.CheckString(1)
 	if serviceIDStr == "" {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "service ID required").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "service ID required").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
 	serviceInfo := supervisor.GetServiceInfo(l.Context())
 	if serviceInfo == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "service info not available").WithKind(lua.KindInternal).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "service info not available").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
@@ -34,7 +34,7 @@ func supervisorState(l *lua.LState) int {
 	state, err := serviceInfo.GetState(serviceID)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "get service state").WithKind(lua.KindInternal).WithRetryable(false))
+		l.Push(lua.WrapErrorWithLua(l, err, "get service state").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
@@ -57,14 +57,14 @@ func supervisorState(l *lua.LState) int {
 func supervisorStates(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "supervisor", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on supervisor").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on supervisor").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
 	serviceInfo := supervisor.GetServiceInfo(l.Context())
 	if serviceInfo == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "service info not available").WithKind(lua.KindInternal).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "service info not available").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 

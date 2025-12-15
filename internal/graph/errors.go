@@ -3,6 +3,7 @@ package graph
 import (
 	"fmt"
 
+	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
@@ -31,11 +32,13 @@ func NewEdgeDoesNotExistError(from, to any) apierror.Error {
 }
 
 func NewCycleDetectedError(cycle any) apierror.Error {
-	return apierror.New(apierror.Invalid, fmt.Sprintf("cycle detected: %v", cycle)).WithRetryable(apierror.False)
+	details := attrs.NewBagFrom(map[string]any{"cycle": cycle})
+	return apierror.WithDetails(apierror.Invalid, fmt.Sprintf("cycle detected: %v", cycle), details)
 }
 
 func NewCycleDetectedWithStuckNodesError(info string) apierror.Error {
-	return apierror.New(apierror.Invalid, "cycle detected with stuck nodes: "+info).WithRetryable(apierror.False)
+	details := attrs.NewBagFrom(map[string]any{"stuck_nodes": info})
+	return apierror.WithDetails(apierror.Invalid, "cycle detected with stuck nodes: "+info, details)
 }
 
 func NewNoPathExistsError(from, to any) apierror.Error {

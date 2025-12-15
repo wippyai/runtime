@@ -1,6 +1,17 @@
 package template
 
-import apierror "github.com/wippyai/runtime/api/error"
+import (
+	"errors"
+
+	apierror "github.com/wippyai/runtime/api/error"
+)
+
+// Sentinel errors for template operations.
+var (
+	ErrTemplateNotFound = errors.New("template not found")
+	ErrSetNotFound      = errors.New("template set not found")
+	ErrSetNotEmpty      = errors.New("template set is not empty")
+)
 
 var (
 	ErrEmptySource            = apierror.New(apierror.Invalid, "source is required").WithRetryable(apierror.False)

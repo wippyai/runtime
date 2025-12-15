@@ -99,7 +99,7 @@ func checkWorkbook(l *lua.LState, _ int) *Workbook {
 
 func invalidError(l *lua.LState, msg string) int {
 	err := lua.NewLuaError(l, msg).
-		WithKind(lua.KindInvalid).
+		WithKind(lua.Invalid).
 		WithRetryable(false)
 	l.Push(lua.LNil)
 	l.Push(err)
@@ -108,7 +108,7 @@ func invalidError(l *lua.LState, msg string) int {
 
 func internalError(l *lua.LState, goErr error, context string) int {
 	err := lua.WrapErrorWithLua(l, goErr, context).
-		WithKind(lua.KindInternal).
+		WithKind(lua.Internal).
 		WithRetryable(false)
 	l.Push(lua.LNil)
 	l.Push(err)
@@ -117,7 +117,7 @@ func internalError(l *lua.LState, goErr error, context string) int {
 
 func internalErrorMsg(l *lua.LState, msg string) int {
 	err := lua.NewLuaError(l, msg).
-		WithKind(lua.KindInternal).
+		WithKind(lua.Internal).
 		WithRetryable(false)
 	l.Push(lua.LNil)
 	l.Push(err)
@@ -126,7 +126,7 @@ func internalErrorMsg(l *lua.LState, msg string) int {
 
 func singleError(l *lua.LState, goErr error, context string) int {
 	err := lua.WrapErrorWithLua(l, goErr, context).
-		WithKind(lua.KindInternal).
+		WithKind(lua.Internal).
 		WithRetryable(false)
 	l.Push(err)
 	return 1
@@ -134,7 +134,7 @@ func singleError(l *lua.LState, goErr error, context string) int {
 
 func singleErrorMsg(l *lua.LState, msg string) int {
 	err := lua.NewLuaError(l, msg).
-		WithKind(lua.KindInternal).
+		WithKind(lua.Internal).
 		WithRetryable(false)
 	l.Push(err)
 	return 1

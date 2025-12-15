@@ -113,20 +113,20 @@ func policy(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "no context").WithKind(lua.KindInternal).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "no context").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
 	if !luasec.IsAllowed(ctx, "security.policy.get", idStr, nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: access policy").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: access policy").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
 	pol, err := security.GetPolicy(ctx, id)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "get policy").WithKind(lua.KindInternal).WithRetryable(false))
+		l.Push(lua.WrapErrorWithLua(l, err, "get policy").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
@@ -142,20 +142,20 @@ func namedScope(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "no context").WithKind(lua.KindInternal).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "no context").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
 	if !luasec.IsAllowed(ctx, "security.policy_group.get", idStr, nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: access policy group").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: access policy group").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
 	sc, err := security.GetPolicyGroup(ctx, id)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "get policy group").WithKind(lua.KindInternal).WithRetryable(false))
+		l.Push(lua.WrapErrorWithLua(l, err, "get policy group").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 

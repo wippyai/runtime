@@ -338,7 +338,7 @@ func attrBuilderMatching(l *lua.LState) int {
 	regex, err := regexp.Compile(pattern)
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "regex compile error").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)

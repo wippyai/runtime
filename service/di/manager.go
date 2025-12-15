@@ -215,7 +215,7 @@ func (m *Manager) handleDefinitionAdd(ctx context.Context, entry registry.Entry)
 
 	m.bus.Send(ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.KindRegisterDefinition,
+		Kind:   contract.RegisterDefinition,
 		Path:   entry.ID.String(),
 		Data:   definition,
 	})
@@ -277,7 +277,7 @@ func (m *Manager) handleDefinitionUpdate(ctx context.Context, entry registry.Ent
 
 	m.bus.Send(ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.KindUpdateDefinition,
+		Kind:   contract.UpdateDefinition,
 		Path:   entry.ID.String(),
 		Data:   updatedDefinition,
 	})
@@ -309,7 +309,7 @@ func (m *Manager) handleDefinitionDelete(ctx context.Context, entry registry.Ent
 
 	m.bus.Send(ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.KindDeleteDefinition,
+		Kind:   contract.DeleteDefinition,
 		Path:   entry.ID.String(),
 	})
 
@@ -352,7 +352,7 @@ func (m *Manager) handleBindingAdd(ctx context.Context, entry registry.Entry) er
 
 	m.bus.Send(ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.KindRegisterBinding,
+		Kind:   contract.RegisterBinding,
 		Path:   entry.ID.String(),
 		Data:   binding,
 	})
@@ -395,7 +395,7 @@ func (m *Manager) handleBindingUpdate(ctx context.Context, entry registry.Entry)
 
 	m.bus.Send(ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.KindUpdateBinding,
+		Kind:   contract.UpdateBinding,
 		Path:   entry.ID.String(),
 		Data:   updatedBinding,
 	})
@@ -418,7 +418,7 @@ func (m *Manager) handleBindingDelete(ctx context.Context, entry registry.Entry)
 
 	m.bus.Send(ctx, event.Event{
 		System: contract.System,
-		Kind:   contract.KindDeleteBinding,
+		Kind:   contract.DeleteBinding,
 		Path:   entry.ID.String(),
 	})
 

@@ -228,17 +228,17 @@ func TestSentinelErrors(t *testing.T) {
 		expected string
 		kind     Kind
 	}{
-		{"ErrNoFrameContext", ErrNoFrameContext, "no frame context available", KindInvalid},
-		{"ErrScopeNotFound", ErrScopeNotFound, "security scope not found in context", KindNotFound},
-		{"ErrRegistryNotFound", ErrRegistryNotFound, "security registry not found in context", KindNotFound},
-		{"ErrPolicyNotFound", ErrPolicyNotFound, "policy not found", KindNotFound},
-		{"ErrGroupNotFound", ErrGroupNotFound, "policy group not found", KindNotFound},
-		{"ErrTokenInvalid", ErrTokenInvalid, "invalid token format", KindInvalid},
-		{"ErrTokenExpired", ErrTokenExpired, "token expired", KindExpired},
-		{"ErrTokenRevoked", ErrTokenRevoked, "token revoked", KindRevoked},
-		{"ErrTokenNotFound", ErrTokenNotFound, "token not found", KindNotFound},
-		{"ErrUnsupportedTokenType", ErrUnsupportedTokenType, "unsupported token type", KindInvalid},
-		{"ErrPermissionDenied", ErrPermissionDenied, "permission denied", KindDenied},
+		{"ErrNoFrameContext", ErrNoFrameContext, "no frame context available", Invalid},
+		{"ErrScopeNotFound", ErrScopeNotFound, "security scope not found in context", NotFound},
+		{"ErrRegistryNotFound", ErrRegistryNotFound, "security registry not found in context", NotFound},
+		{"ErrPolicyNotFound", ErrPolicyNotFound, "policy not found", NotFound},
+		{"ErrGroupNotFound", ErrGroupNotFound, "policy group not found", NotFound},
+		{"ErrTokenInvalid", ErrTokenInvalid, "invalid token format", Invalid},
+		{"ErrTokenExpired", ErrTokenExpired, "token expired", Expired},
+		{"ErrTokenRevoked", ErrTokenRevoked, "token revoked", Revoked},
+		{"ErrTokenNotFound", ErrTokenNotFound, "token not found", NotFound},
+		{"ErrUnsupportedTokenType", ErrUnsupportedTokenType, "unsupported token type", Invalid},
+		{"ErrPermissionDenied", ErrPermissionDenied, "permission denied", Denied},
 	}
 
 	for _, tt := range tests {
@@ -269,11 +269,11 @@ func TestErrorMethods(t *testing.T) {
 }
 
 func TestKindConstants(t *testing.T) {
-	assert.Equal(t, Kind("NotFound"), KindNotFound)
-	assert.Equal(t, Kind("Invalid"), KindInvalid)
-	assert.Equal(t, Kind("Expired"), KindExpired)
-	assert.Equal(t, Kind("Revoked"), KindRevoked)
-	assert.Equal(t, Kind("Denied"), KindDenied)
+	assert.Equal(t, Kind("NotFound"), NotFound)
+	assert.Equal(t, Kind("Invalid"), Invalid)
+	assert.Equal(t, Kind("Expired"), Expired)
+	assert.Equal(t, Kind("Revoked"), Revoked)
+	assert.Equal(t, Kind("Denied"), Denied)
 }
 
 func TestCommandPools(t *testing.T) {
@@ -281,7 +281,7 @@ func TestCommandPools(t *testing.T) {
 		cmd := AcquireTokenValidateCmd()
 		assert.NotNil(t, cmd)
 		cmd.Token = "test-token"
-		assert.Equal(t, CmdTokenValidate, cmd.CmdID())
+		assert.Equal(t, ValidateToken, cmd.CmdID())
 		cmd.Release()
 		assert.Empty(t, cmd.Token)
 	})
@@ -290,7 +290,7 @@ func TestCommandPools(t *testing.T) {
 		cmd := AcquireTokenCreateCmd()
 		assert.NotNil(t, cmd)
 		cmd.Actor = Actor{ID: "test"}
-		assert.Equal(t, CmdTokenCreate, cmd.CmdID())
+		assert.Equal(t, CreateToken, cmd.CmdID())
 		cmd.Release()
 		assert.Empty(t, cmd.Actor.ID)
 	})
@@ -299,16 +299,16 @@ func TestCommandPools(t *testing.T) {
 		cmd := AcquireTokenRevokeCmd()
 		assert.NotNil(t, cmd)
 		cmd.Token = "test-token"
-		assert.Equal(t, CmdTokenRevoke, cmd.CmdID())
+		assert.Equal(t, RevokeToken, cmd.CmdID())
 		cmd.Release()
 		assert.Empty(t, cmd.Token)
 	})
 }
 
 func TestCommandIDs(t *testing.T) {
-	assert.Equal(t, 140, int(CmdTokenValidate))
-	assert.Equal(t, 141, int(CmdTokenCreate))
-	assert.Equal(t, 142, int(CmdTokenRevoke))
+	assert.Equal(t, 140, int(ValidateToken))
+	assert.Equal(t, 141, int(CreateToken))
+	assert.Equal(t, 142, int(RevokeToken))
 }
 
 func TestResponseTypes(t *testing.T) {

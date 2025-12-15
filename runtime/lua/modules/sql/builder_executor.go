@@ -93,7 +93,7 @@ func newQueryExecutorFromSqlizer(l *lua.LState, db *sql.DB, tx *sql.Tx, builder 
 	query, args, err := builder.ToSql()
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, err.Error()).WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, err.Error()).WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 

@@ -9,7 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
-	wsapi "github.com/wippyai/runtime/api/websocket"
+	wsapi "github.com/wippyai/runtime/api/service/websocket"
 
 	"github.com/coder/websocket"
 	"go.uber.org/zap"
@@ -102,22 +102,22 @@ func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, tag uin
 
 func (d *Dispatcher) execute(j job) {
 	switch c := j.cmd.(type) {
-	case wsapi.WsConnectCmd:
+	case wsapi.ConnectCmd:
 		d.executeConnect(j.ctx, c, j.tag, j.receiver)
-	case wsapi.WsSendCmd:
+	case wsapi.SendCmd:
 		d.executeSend(j.ctx, c, j.tag, j.receiver)
-	case wsapi.WsReceiveCmd:
+	case wsapi.ReceiveCmd:
 		d.executeReceive(j.ctx, c, j.tag, j.receiver)
-	case wsapi.WsCloseCmd:
+	case wsapi.CloseCmd:
 		d.executeClose(j.ctx, c, j.tag, j.receiver)
-	case wsapi.WsPingCmd:
+	case wsapi.PingCmd:
 		d.executePing(j.ctx, c, j.tag, j.receiver)
-	case wsapi.WsSubscribeCmd:
+	case wsapi.SubscribeCmd:
 		d.executeSubscribe(j.ctx, c, j.tag, j.receiver)
 	}
 }
 
-func (d *Dispatcher) executeConnect(ctx context.Context, cmd wsapi.WsConnectCmd, tag uint64, receiver dispatcher.ResultReceiver) {
+func (d *Dispatcher) executeConnect(ctx context.Context, cmd wsapi.ConnectCmd, tag uint64, receiver dispatcher.ResultReceiver) {
 	opts := &websocket.DialOptions{}
 
 	if len(cmd.Headers) > 0 {
@@ -172,7 +172,7 @@ func (d *Dispatcher) executeConnect(ctx context.Context, cmd wsapi.WsConnectCmd,
 	receiver.CompleteYield(tag, id, nil)
 }
 
-func (d *Dispatcher) executeSend(ctx context.Context, cmd wsapi.WsSendCmd, tag uint64, receiver dispatcher.ResultReceiver) {
+func (d *Dispatcher) executeSend(ctx context.Context, cmd wsapi.SendCmd, tag uint64, receiver dispatcher.ResultReceiver) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
 		receiver.CompleteYield(tag, nil, NewNoRegistryError())
@@ -197,7 +197,7 @@ func (d *Dispatcher) executeSend(ctx context.Context, cmd wsapi.WsSendCmd, tag u
 	receiver.CompleteYield(tag, nil, nil)
 }
 
-func (d *Dispatcher) executeReceive(ctx context.Context, cmd wsapi.WsReceiveCmd, tag uint64, receiver dispatcher.ResultReceiver) {
+func (d *Dispatcher) executeReceive(ctx context.Context, cmd wsapi.ReceiveCmd, tag uint64, receiver dispatcher.ResultReceiver) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
 		receiver.CompleteYield(tag, nil, NewNoRegistryError())
@@ -213,7 +213,7 @@ func (d *Dispatcher) executeReceive(ctx context.Context, cmd wsapi.WsReceiveCmd,
 	select {
 	case msg, ok := <-msgCh:
 		if !ok {
-			receiver.CompleteYield(tag, wsapi.WsMessage{EOF: true}, nil)
+			receiver.CompleteYield(tag, wsapi.Message{EOF: true}, nil)
 			return
 		}
 		receiver.CompleteYield(tag, msg, nil)
@@ -222,7 +222,7 @@ func (d *Dispatcher) executeReceive(ctx context.Context, cmd wsapi.WsReceiveCmd,
 	}
 }
 
-func (d *Dispatcher) executeClose(ctx context.Context, cmd wsapi.WsCloseCmd, tag uint64, receiver dispatcher.ResultReceiver) {
+func (d *Dispatcher) executeClose(ctx context.Context, cmd wsapi.CloseCmd, tag uint64, receiver dispatcher.ResultReceiver) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
 		receiver.CompleteYield(tag, nil, NewNoRegistryError())
@@ -236,7 +236,7 @@ func (d *Dispatcher) executeClose(ctx context.Context, cmd wsapi.WsCloseCmd, tag
 	receiver.CompleteYield(tag, nil, nil)
 }
 
-func (d *Dispatcher) executePing(ctx context.Context, cmd wsapi.WsPingCmd, tag uint64, receiver dispatcher.ResultReceiver) {
+func (d *Dispatcher) executePing(ctx context.Context, cmd wsapi.PingCmd, tag uint64, receiver dispatcher.ResultReceiver) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
 		receiver.CompleteYield(tag, nil, NewNoRegistryError())
@@ -256,7 +256,7 @@ func (d *Dispatcher) executePing(ctx context.Context, cmd wsapi.WsPingCmd, tag u
 	receiver.CompleteYield(tag, nil, nil)
 }
 
-func (d *Dispatcher) executeSubscribe(ctx context.Context, cmd wsapi.WsSubscribeCmd, tag uint64, receiver dispatcher.ResultReceiver) {
+func (d *Dispatcher) executeSubscribe(ctx context.Context, cmd wsapi.SubscribeCmd, tag uint64, receiver dispatcher.ResultReceiver) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
 		receiver.CompleteYield(tag, nil, NewNoRegistryError())
@@ -328,7 +328,7 @@ func (d *Dispatcher) executeSubscribe(ctx context.Context, cmd wsapi.WsSubscribe
 		}
 	}()
 
-	receiver.CompleteYield(tag, wsapi.WsSubscription{ConnID: cmd.ConnID, Topic: topic}, nil)
+	receiver.CompleteYield(tag, wsapi.Subscription{ConnID: cmd.ConnID, Topic: topic}, nil)
 }
 
 func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
@@ -339,10 +339,10 @@ func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, tag uin
 // RegisterAll registers all WebSocket handlers.
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
 	h := dispatcher.HandlerFunc(d.handle)
-	register(wsapi.CmdWsConnect, h)
-	register(wsapi.CmdWsSend, h)
-	register(wsapi.CmdWsReceive, h)
-	register(wsapi.CmdWsClose, h)
-	register(wsapi.CmdWsPing, h)
-	register(wsapi.CmdWsSubscribe, h)
+	register(wsapi.Connect, h)
+	register(wsapi.Send, h)
+	register(wsapi.Receive, h)
+	register(wsapi.Close, h)
+	register(wsapi.Ping, h)
+	register(wsapi.Subscribe, h)
 }

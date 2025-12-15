@@ -60,27 +60,27 @@ func templateGet(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		return pushError(l, lua.NewLuaError(l, "no context").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false))
 	}
 
 	id := l.CheckString(1)
 	if id == "" {
 		return pushError(l, lua.NewLuaError(l, "resource id is required").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false))
 	}
 
 	if !security.IsAllowed(ctx, "template.get", id, nil) {
 		return pushError(l, lua.NewLuaError(l, fmt.Sprintf("not allowed to access template: %s", id)).
-			WithKind(lua.KindPermissionDenied).
+			WithKind(lua.PermissionDenied).
 			WithRetryable(false))
 	}
 
 	reg := resource.GetRegistry(ctx)
 	if reg == nil {
 		return pushError(l, lua.NewLuaError(l, "resource registry not found").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false))
 	}
 
@@ -88,7 +88,7 @@ func templateGet(l *lua.LState) int {
 	res, acquireErr := reg.Acquire(ctx, resID, resource.ModeNormal)
 	if acquireErr != nil {
 		err := lua.WrapErrorWithLua(l, acquireErr, "failed to acquire resource").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		return pushError(l, err)
 	}
@@ -97,7 +97,7 @@ func templateGet(l *lua.LState) int {
 	if getErr != nil {
 		res.Release()
 		err := lua.WrapErrorWithLua(l, getErr, "failed to get resource").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		return pushError(l, err)
 	}
@@ -106,7 +106,7 @@ func templateGet(l *lua.LState) int {
 	if !ok {
 		res.Release()
 		return pushError(l, lua.NewLuaError(l, fmt.Sprintf("resource is not a template set: %T", templateRes)).
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false))
 	}
 
@@ -132,14 +132,14 @@ func templateSetRender(l *lua.LState) int {
 
 	if released {
 		return pushError(l, lua.NewLuaError(l, "template set is released").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false))
 	}
 
 	name := l.CheckString(2)
 	if name == "" {
 		return pushError(l, lua.NewLuaError(l, "template name is required").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false))
 	}
 
@@ -149,11 +149,11 @@ func templateSetRender(l *lua.LState) int {
 	if renderErr != nil {
 		if errors.Is(renderErr, servicetemplate.ErrTemplateNotFound) {
 			return pushError(l, lua.NewLuaError(l, "template not found").
-				WithKind(lua.KindNotFound).
+				WithKind(lua.NotFound).
 				WithRetryable(false))
 		}
 		err := lua.WrapErrorWithLua(l, renderErr, "failed to render template").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		return pushError(l, err)
 	}

@@ -36,7 +36,7 @@ func TestErrorKind(t *testing.T) {
 	}
 
 	if err.Kind() != apierror.Invalid {
-		t.Errorf("expected KindInvalid, got %v", err.Kind())
+		t.Errorf("expected Invalid, got %v", err.Kind())
 	}
 }
 
@@ -65,7 +65,7 @@ func TestNewInvalidParametersTypeError(t *testing.T) {
 	err := NewInvalidParametersTypeError("string")
 
 	if err.Kind() != apierror.Invalid {
-		t.Errorf("expected KindInvalid, got %v", err.Kind())
+		t.Errorf("expected Invalid, got %v", err.Kind())
 	}
 
 	if err.Retryable() != apierror.False {

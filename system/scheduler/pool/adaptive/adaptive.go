@@ -67,7 +67,6 @@ type worker struct {
 	process  process.Process
 	executor *pool.Executor
 	stop     chan struct{}
-	id       int
 }
 
 // Option configures an adaptive pool.
@@ -302,7 +301,6 @@ func (a *Pool) spawnWorker() error {
 		process:  proc,
 		executor: a.executors.Get().(*pool.Executor),
 		stop:     make(chan struct{}),
-		id:       len(a.workers),
 	}
 	a.workers = append(a.workers, w)
 	a.workerCount.Store(int32(len(a.workers)))
@@ -377,13 +375,21 @@ func (a *Pool) control(now time.Time) {
 	case scaleNone:
 		// no action
 	case scaleUp:
-		_ = a.spawnWorker()
-	case probeSuccess:
+		// target = workers to add (multiplicative scale-up)
 		for i := int32(0); i < target; i++ {
-			_ = a.spawnWorker()
+			if err := a.spawnWorker(); err != nil {
+				break
+			}
 		}
+	case probeSuccess:
+		// keep the workers added during probe
 	case probeFail:
-		a.removeWorker()
+		// target = workers to remove (rollback probe)
+		for i := int32(0); i < target; i++ {
+			if !a.removeWorker() {
+				break
+			}
+		}
 	case scaleDown:
 		a.removeWorkersTo(target)
 	}

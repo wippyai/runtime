@@ -6,13 +6,15 @@ import (
 
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
+	servicetemplate "github.com/wippyai/runtime/api/service/template"
 )
 
+// Re-export sentinel errors from API for package-local use.
 var (
-	ErrTemplateNotFound = errors.New("template not found")
-	ErrSetNotFound      = errors.New("template set not found")
+	ErrTemplateNotFound = servicetemplate.ErrTemplateNotFound
+	ErrSetNotFound      = servicetemplate.ErrSetNotFound
+	ErrSetNotEmpty      = servicetemplate.ErrSetNotEmpty
 	ErrRenderFailed     = errors.New("template rendering failed")
-	ErrSetNotEmpty      = errors.New("template set is not empty")
 )
 
 var (

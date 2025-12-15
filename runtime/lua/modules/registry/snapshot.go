@@ -44,7 +44,7 @@ func snapshotEntries(l *lua.LState) int {
 	entries, getErr := snap.GetAllEntries()
 	if getErr != nil {
 		err := lua.WrapErrorWithLua(l, getErr, "get entries").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -61,7 +61,7 @@ func snapshotEntries(l *lua.LState) int {
 		entryTable, convErr := entryToLuaTable(l, entry)
 		if convErr != nil {
 			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
-				WithKind(lua.KindInternal).
+				WithKind(lua.Internal).
 				WithRetryable(false)
 			l.Push(lua.LNil)
 			l.Push(err)
@@ -88,7 +88,7 @@ func snapshotGet(l *lua.LState) int {
 
 	if !security.IsAllowed(l.Context(), "registry.get", id.String(), nil) {
 		err := lua.NewLuaError(l, "not allowed to access entry: "+id.String()).
-			WithKind(lua.KindPermissionDenied).
+			WithKind(lua.PermissionDenied).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -98,7 +98,7 @@ func snapshotGet(l *lua.LState) int {
 	entry, getErr := snap.GetEntry(id)
 	if getErr != nil {
 		err := lua.NewLuaError(l, "entry not found: "+id.String()).
-			WithKind(lua.KindNotFound).
+			WithKind(lua.NotFound).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -108,7 +108,7 @@ func snapshotGet(l *lua.LState) int {
 	entryTable, convErr := entryToLuaTable(l, entry)
 	if convErr != nil {
 		err := lua.WrapErrorWithLua(l, convErr, "convert entry").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -143,7 +143,7 @@ func snapshotNamespace(l *lua.LState) int {
 		entryTable, convErr := entryToLuaTable(l, entry)
 		if convErr != nil {
 			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
-				WithKind(lua.KindInternal).
+				WithKind(lua.Internal).
 				WithRetryable(false)
 			l.Push(lua.LNil)
 			l.Push(err)
@@ -180,7 +180,7 @@ func snapshotFind(l *lua.LState) int {
 
 	if findErr != nil {
 		err := lua.WrapErrorWithLua(l, findErr, "find entries").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
@@ -197,7 +197,7 @@ func snapshotFind(l *lua.LState) int {
 		entryTable, convErr := entryToLuaTable(l, entry)
 		if convErr != nil {
 			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
-				WithKind(lua.KindInternal).
+				WithKind(lua.Internal).
 				WithRetryable(false)
 			l.Push(lua.LNil)
 			l.Push(err)

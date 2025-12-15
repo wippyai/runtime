@@ -6,27 +6,27 @@ import (
 )
 
 var (
-	ErrTerminated = apiprocess.NewError(apiprocess.KindInternal, "process terminated")
+	ErrTerminated = apiprocess.NewError(apiprocess.Internal, "process terminated")
 )
 
 // NewInvalidFactoryEntryError creates an error for invalid factory entry.
 func NewInvalidFactoryEntryError(factoryID string) *apiprocess.Error {
-	return apiprocess.NewError(apiprocess.KindInternal, "invalid factory entry for: "+factoryID).
+	return apiprocess.NewError(apiprocess.Internal, "invalid factory entry for: "+factoryID).
 		WithDetails(attrs.NewBagFrom(map[string]any{"factory_id": factoryID}))
 }
 
 // NewProcessCreateError creates an error for process creation failures.
 func NewProcessCreateError(err error) *apiprocess.Error {
-	return apiprocess.NewError(apiprocess.KindInternal, "failed to create process").WithCause(err)
+	return apiprocess.NewError(apiprocess.Internal, "failed to create process").WithCause(err)
 }
 
 // NewInvalidHostError creates an error for host that doesn't implement process.Host.
 func NewInvalidHostError(hostID string) *apiprocess.Error {
-	return apiprocess.NewError(apiprocess.KindInternal, "host "+hostID+" does not implement process.Host").
+	return apiprocess.NewError(apiprocess.Internal, "host "+hostID+" does not implement process.Host").
 		WithDetails(attrs.NewBagFrom(map[string]any{"host_id": hostID}))
 }
 
 // NewSubscriberError creates an error for event subscriber failures.
 func NewSubscriberError(err error) *apiprocess.Error {
-	return apiprocess.NewError(apiprocess.KindInternal, "failed to create subscriber").WithCause(err)
+	return apiprocess.NewError(apiprocess.Internal, "failed to create subscriber").WithCause(err)
 }

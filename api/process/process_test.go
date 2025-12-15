@@ -148,19 +148,19 @@ func TestStepOutput_ForEachYield(t *testing.T) {
 func TestError_Methods(t *testing.T) {
 	t.Run("ErrMaxProcessesExceeded", func(t *testing.T) {
 		assert.Equal(t, "max processes limit exceeded", ErrMaxProcessesExceeded.Error())
-		assert.Equal(t, KindLimitExceeded, ErrMaxProcessesExceeded.Kind())
+		assert.Equal(t, LimitExceeded, ErrMaxProcessesExceeded.Kind())
 		assert.Nil(t, ErrMaxProcessesExceeded.Details())
 		assert.Nil(t, errors.Unwrap(ErrMaxProcessesExceeded))
 	})
 
 	t.Run("ErrProcessNotFound", func(t *testing.T) {
 		assert.Equal(t, "process not found", ErrProcessNotFound.Error())
-		assert.Equal(t, KindNotFound, ErrProcessNotFound.Kind())
+		assert.Equal(t, NotFound, ErrProcessNotFound.Kind())
 	})
 
 	t.Run("ErrProcessNotIdle", func(t *testing.T) {
 		assert.Equal(t, "process is not idle", ErrProcessNotIdle.Error())
-		assert.Equal(t, KindInvalidState, ErrProcessNotIdle.Kind())
+		assert.Equal(t, InvalidState, ErrProcessNotIdle.Kind())
 	})
 
 	t.Run("ErrProcessClosed", func(t *testing.T) {
@@ -173,7 +173,7 @@ func TestError_WithCause(t *testing.T) {
 	err := ErrProcessNotFound.WithCause(cause)
 
 	assert.Equal(t, "process not found", err.Error())
-	assert.Equal(t, KindNotFound, err.Kind())
+	assert.Equal(t, NotFound, err.Kind())
 	assert.Equal(t, cause, errors.Unwrap(err))
 	assert.True(t, errors.Is(err, cause))
 }

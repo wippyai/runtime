@@ -1,20 +1,14 @@
 package adaptive
 
-// Adaptive pool controller.
+// Adaptive pool controller using probe-based scaling.
 //
-// Scaling:
-//   - AIMD: additive increase (+1), multiplicative decrease (50%)
-//   - Probe-based: add worker, measure improvement, keep or remove
+// Scale-up: multiplicative (add 25% of current workers)
+// Scale-down: additive (remove one worker at a time)
 //
-// Stability:
-//   - Hysteresis: different thresholds for scale up vs down
-//   - Exponential backoff on failed probes
-//   - CV spike detection resets backoff when workload changes
-//
-// Noise handling:
-//   - EMA smoothing of throughput measurements
-//   - Variance tracking extends measurement window in high noise
-//   - Queue behavior as ground truth when throughput is unreliable
+// Probe validation:
+//   - Measure throughput change after scaling
+//   - Use statistical significance for noise tolerance
+//   - Track peak throughput to detect drift
 
 import (
 	"errors"
@@ -29,26 +23,24 @@ const (
 	// EMA smoothing: EMA = α*sample + (1-α)*EMA
 	emaAlpha      = 0.2 // throughput smoothing
 	varianceAlpha = 0.1 // variance smoothing (slower for stability)
-
-	// Probe success threshold: baseConfidence / (1 + backlogSeconds/cooldownSeconds)
-	baseConfidence = 0.3
-	warmupSamples  = 8 // samples before variance estimate is reliable
+	warmupSamples = 8   // samples before variance estimate is reliable
 
 	// Hysteresis: gap between thresholds prevents oscillation
 	scaleUpUtil   = 1.0 // 100% busy + queue required to scale up
 	scaleDownUtil = 0.5 // <50% busy + empty queue to scale down
 
-	// Noise thresholds for decision mode
-	cvLowNoise    = 0.3 // below: trust throughput
-	cvMediumNoise = 0.5 // below: require agreement
-	// above cvMediumNoise: queue is primary signal
-
-	// Backoff: cooldown * 2^failCount, max 2^10 = 1024x (~34 min with 2s base)
+	// Backoff: cooldown * 2^failCount, max 2^10 = 1024x
 	maxBackoffPower = 10
 	jitterFraction  = 0.25 // ±25% randomization
 
-	// CV spike: if current CV > 2x stable CV, reset backoff (workload changed)
-	cvSpikeThreshold = 2.0
+	// CV spike detection: reset backoff if CV > 3x stable CV
+	cvSpikeThreshold = 3.0
+
+	// Statistical significance: k-sigma (k=2 is ~95% confidence)
+	significanceK = 2.0
+
+	// Maximum noise threshold cap (during warmup CV can be very high)
+	maxNoiseThreshold = 0.5
 )
 
 // ControllerConfig holds tunable parameters.
@@ -129,11 +121,15 @@ type controller struct {
 	baselineTput  float64
 	baselineQueue int
 	workersBefore int32
+	workersAdded  int32 // how many workers were added in this probe
 
-	// Backoff state (per worker-count)
+	// Backoff state
 	failCount    int
 	lastFailedAt int32
-	stableCV     float64 // CV when we stabilized (for spike detection)
+	stableCV     float64
+
+	// Peak tracking for drift detection
+	peakEma float64
 }
 
 func newController(cfg ControllerConfig) *controller {
@@ -160,10 +156,22 @@ func (c *controller) tick(now time.Time, ops int64, workers, busy int32, queueLe
 	c.lastOps = ops
 	c.lastTime = now
 
-	// Update EMA and variance
 	c.updateStats(throughput)
 
-	// In cooldown?
+	util := float64(busy) / float64(workers)
+
+	// Scale down check (not blocked by cooldown)
+	if util < scaleDownUtil && queueLen == 0 && workers > int32(c.MinWorkers) {
+		c.idleCount++
+		if c.idleCount >= c.IdleTicks {
+			c.idleCount = 0
+			return c.decideScaleDown(now, workers, busy)
+		}
+		return scaleNone, 0
+	}
+	c.idleCount = 0
+
+	// In cooldown? (only blocks scale-up)
 	if now.Before(c.cooldownUntil) {
 		return scaleNone, 0
 	}
@@ -173,20 +181,7 @@ func (c *controller) tick(now time.Time, ops int64, workers, busy int32, queueLe
 		return c.evaluateProbe(now, queueLen)
 	}
 
-	util := float64(busy) / float64(workers)
-
-	// Scale down check: low utilization sustained (hysteresis)
-	if util < scaleDownUtil && queueLen == 0 && workers > int32(c.MinWorkers) {
-		c.idleCount++
-		if c.idleCount >= c.IdleTicks {
-			c.idleCount = 0
-			return c.decideScaleDown(now, workers, busy, util)
-		}
-		return scaleNone, 0
-	}
-	c.idleCount = 0
-
-	// Scale up check: saturated (hysteresis)
+	// Scale up check
 	if util >= scaleUpUtil && queueLen > 0 && workers < int32(c.MaxWorkers) {
 		return c.startProbe(now, workers, queueLen)
 	}
@@ -207,23 +202,24 @@ func (c *controller) updateStats(throughput float64) {
 	c.samples++
 }
 
-// stddev returns estimated standard deviation.
-func (c *controller) stddev() float64 {
-	if c.variance <= 0 {
-		return 0
+// cv returns coefficient of variation (noise level).
+func (c *controller) cv() float64 {
+	if c.ema <= 0 || c.variance <= 0 {
+		return 1.0
 	}
-	return math.Sqrt(c.variance)
+	return math.Sqrt(c.variance) / c.ema
 }
 
-// coefficientOfVariation returns noise level (stddev/mean).
-func (c *controller) coefficientOfVariation() float64 {
-	if c.ema <= 0 {
-		return 1.0 // assume high noise if no data
+// noiseThreshold returns statistical significance threshold (k * CV).
+func (c *controller) noiseThreshold() float64 {
+	threshold := significanceK * c.cv()
+	if threshold > maxNoiseThreshold {
+		return maxNoiseThreshold
 	}
-	return c.stddev() / c.ema
+	return threshold
 }
 
-// startProbe initiates a probe (add 1 worker).
+// startProbe initiates scaling up with multiplicative increase.
 func (c *controller) startProbe(now time.Time, workers int32, queueLen int) (scaleDecision, int32) {
 	c.probing = true
 	c.probeStart = now
@@ -231,26 +227,62 @@ func (c *controller) startProbe(now time.Time, workers int32, queueLen int) (sca
 	c.baselineQueue = queueLen
 	c.workersBefore = workers
 
+	// Two scaling formulas, take maximum:
+	// 1. Queue pressure: items per worker (fast cold start)
+	// 2. Percentage: 25% of current workers (sustained growth)
+	queueBased := int32(0)
+	if queueLen > int(workers) {
+		queueBased = int32(queueLen) / workers
+	}
+
+	percentBased := workers / 4
+	if percentBased < 1 {
+		percentBased = 1
+	}
+
+	workersToAdd := queueBased
+	if percentBased > workersToAdd {
+		workersToAdd = percentBased
+	}
+
+	// Cap at 25% of max capacity per probe
+	maxStep := int32(c.MaxWorkers) / 4
+	if maxStep < 1 {
+		maxStep = 1
+	}
+	if workersToAdd > maxStep {
+		workersToAdd = maxStep
+	}
+
+	// Cap at remaining capacity
+	remaining := int32(c.MaxWorkers) - workers
+	if workersToAdd > remaining {
+		workersToAdd = remaining
+	}
+
+	c.workersAdded = workersToAdd
+
 	if c.log != nil {
 		c.log.Info("probe: scaling up",
 			zap.Int32("from", workers),
-			zap.Int32("to", workers+1),
+			zap.Int32("to", workers+workersToAdd),
+			zap.Int32("adding", workersToAdd),
 			zap.Int("queue", queueLen),
 			zap.Float64("throughput", c.ema),
-			zap.Float64("cv", c.coefficientOfVariation()))
+			zap.Float64("cv", c.cv()))
 	}
 
-	return scaleUp, 0
+	return scaleUp, workersToAdd
 }
 
-// evaluateProbe checks if the added worker helped.
+// evaluateProbe checks if the added workers helped.
 func (c *controller) evaluateProbe(now time.Time, queueLen int) (scaleDecision, int32) {
-	cv := c.coefficientOfVariation()
+	cv := c.cv()
 
-	// Noise-adaptive measurement window (only after warmup when variance is reliable)
+	// Noise-adaptive measurement window: scale with CV² for constant precision
 	windowMultiplier := 1.0
 	if c.samples >= warmupSamples {
-		windowMultiplier = 1.0 + math.Min(cv, 1.0) // 1x to 2x based on noise
+		windowMultiplier = 1.0 + math.Min(cv*cv, 3.0)
 	}
 
 	requiredDuration := time.Duration(float64(c.cooldown) * windowMultiplier)
@@ -262,122 +294,97 @@ func (c *controller) evaluateProbe(now time.Time, queueLen int) (scaleDecision, 
 
 	if c.workersBefore <= 0 || c.baselineTput <= 0 {
 		c.setCooldown(now, false)
-		return probeFail, 0
+		return probeFail, c.workersAdded
 	}
 
-	// Measure improvement using smoothed throughput
 	improvement := (c.ema - c.baselineTput) / c.baselineTput
-
-	// Theoretical max improvement from adding 1 worker to N
-	theoreticalMax := 1.0 / float64(c.workersBefore)
-	efficiency := improvement / theoreticalMax
-
-	// Queue behavior (Little's Law: ground truth in high noise)
 	queueImproved := queueLen < c.baselineQueue
+	threshold := c.noiseThreshold()
 
-	// Dynamic threshold based on queue pressure
-	// backlogSeconds = how many seconds of work is queued
-	// threshold decreases as backlog grows (more lenient under pressure)
-	backlogSeconds := 0.0
-	if c.ema > 0 {
-		backlogSeconds = float64(c.baselineQueue) / c.ema
-	}
-	cooldownSeconds := c.cooldown.Seconds()
-	threshold := baseConfidence / (1 + backlogSeconds/cooldownSeconds)
+	// Drift detection: have we fallen significantly below peak?
+	drifted := c.peakEma > 0 && c.ema < c.peakEma*(1-threshold)
 
-	// Decision based on noise level
+	// Three-tier decision:
+	// 1. Drifted from peak: fail (cumulative degradation)
+	// 2. Significant improvement: success
+	// 3. Significant degradation: fail
+	// 4. Noise band: use queue as ground truth
 	var success bool
 	switch {
-	case c.samples < warmupSamples || cv < cvLowNoise:
-		success = efficiency >= threshold
-	case cv < cvMediumNoise:
-		success = efficiency >= threshold && (queueImproved || improvement > 0)
+	case drifted:
+		success = false
+	case improvement > threshold:
+		success = true
+	case improvement < -threshold:
+		success = false
 	default:
-		success = queueImproved && improvement >= 0
+		success = queueImproved
 	}
 
 	if success {
 		c.failCount = 0
-		c.stableCV = 0 // reset for new worker count
+		c.stableCV = 0
 		c.setCooldown(now, true)
 
-		// Aggressive scaling: extra workers based on efficiency/threshold ratio
-		// Capped to at most double current workers to prevent overshoot after scale-down
-		extraWorkers := int32(0)
-		if threshold > 0 && queueLen > 0 {
-			ratio := efficiency / threshold
-			if ratio >= 2.0 {
-				extra := int32(ratio) - 1
-				// Cap: don't exceed maxWorkers, and don't more than double
-				maxExtra := int32(c.MaxWorkers) - c.workersBefore - 1
-				if extra > c.workersBefore {
-					extra = c.workersBefore
-				}
-				if extra > maxExtra {
-					extra = maxExtra
-				}
-				if extra > 0 {
-					extraWorkers = extra
-				}
-			}
+		if c.ema > c.peakEma {
+			c.peakEma = c.ema
 		}
 
 		if c.log != nil {
-			c.log.Info("probe: success - keeping worker",
-				zap.Int32("workers", c.workersBefore+1),
-				zap.Float64("efficiency", efficiency),
-				zap.Float64("threshold", threshold),
+			c.log.Info("probe: success",
+				zap.Int32("workers", c.workersBefore+c.workersAdded),
+				zap.Int32("added", c.workersAdded),
+				zap.Float64("improvement", improvement),
 				zap.Float64("cv", cv),
 				zap.Int("queue", queueLen),
-				zap.Int32("extraWorkers", extraWorkers))
+				zap.Float64("peak", c.peakEma))
 		}
-		return probeSuccess, extraWorkers
+		return probeSuccess, 0
 	}
 
-	// Failed: apply exponential backoff
-	// But reset if CV spiked (workload changed, re-explore)
-	if c.lastFailedAt == c.workersBefore+1 {
-		// Check for CV spike - workload may have changed
+	// Failed: apply exponential backoff with CV spike detection
+	if c.lastFailedAt == c.workersBefore+c.workersAdded {
 		if c.stableCV > 0 && cv > c.stableCV*cvSpikeThreshold {
-			c.failCount = 1 // reset backoff, re-explore
+			c.failCount = 1
 			c.stableCV = cv
 		} else {
 			c.failCount++
 			if c.stableCV == 0 || cv < c.stableCV {
-				c.stableCV = cv // track stable CV
+				c.stableCV = cv
 			}
 		}
 	} else {
 		c.failCount = 1
-		c.lastFailedAt = c.workersBefore + 1
+		c.lastFailedAt = c.workersBefore + c.workersAdded
 		c.stableCV = cv
 	}
 	c.setCooldown(now, false)
 
 	if c.log != nil {
-		c.log.Info("probe: failed - removing worker",
+		c.log.Info("probe: failed",
 			zap.Int32("workers", c.workersBefore),
-			zap.Float64("efficiency", efficiency),
-			zap.Float64("threshold", threshold),
+			zap.Int32("removing", c.workersAdded),
+			zap.Float64("improvement", improvement),
 			zap.Float64("cv", cv),
 			zap.Int("queue", queueLen),
+			zap.Float64("peak", c.peakEma),
+			zap.Bool("drifted", drifted),
 			zap.Int("backoff", 1<<min(c.failCount, maxBackoffPower)))
 	}
 
-	return probeFail, 0
+	return probeFail, c.workersAdded
 }
 
-// decideScaleDown calculates target worker count (AIMD: multiplicative decrease).
-func (c *controller) decideScaleDown(now time.Time, workers, busy int32, util float64) (scaleDecision, int32) {
-	// AIMD: multiplicative decrease (50% reduction max)
-	target := workers / 2
+// decideScaleDown implements additive decrease (conservative).
+func (c *controller) decideScaleDown(now time.Time, workers, busy int32) (scaleDecision, int32) {
+	// Additive decrease: remove 1 worker at a time (conservative)
+	target := workers - 1
 
-	// But keep at least busy + 1 (room for new work)
+	// Keep at least busy + 1 for headroom
 	if target < busy+1 {
 		target = busy + 1
 	}
 
-	// Respect minimum
 	if target < int32(c.MinWorkers) {
 		target = int32(c.MinWorkers)
 	}
@@ -386,14 +393,14 @@ func (c *controller) decideScaleDown(now time.Time, workers, busy int32, util fl
 		return scaleNone, 0
 	}
 
-	c.cooldownUntil = now.Add(c.cooldown / 2)
+	c.cooldownUntil = now.Add(c.cooldown)
+	c.peakEma = 0 // reset peak for new regime
 
 	if c.log != nil {
 		c.log.Info("scaling down",
 			zap.Int32("from", workers),
 			zap.Int32("to", target),
-			zap.Int32("busy", busy),
-			zap.Float64("utilization", util))
+			zap.Int32("busy", busy))
 	}
 
 	return scaleDown, target
@@ -403,15 +410,12 @@ func (c *controller) decideScaleDown(now time.Time, workers, busy int32, util fl
 func (c *controller) setCooldown(now time.Time, success bool) {
 	var duration time.Duration
 	if success {
-		// Success: short cooldown for faster scaling
 		duration = c.cooldown / 2
 	} else {
-		// Failure: exponential backoff
 		multiplier := 1 << min(c.failCount, maxBackoffPower)
 		duration = c.cooldown * time.Duration(multiplier)
 	}
 
-	// Add jitter to prevent correlation with workload patterns
 	jitter := time.Duration(float64(duration) * jitterFraction * (rand.Float64()*2 - 1))
 	c.cooldownUntil = now.Add(duration + jitter)
 }

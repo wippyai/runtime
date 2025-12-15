@@ -8,17 +8,17 @@ func TestKind_String(t *testing.T) {
 		kind Kind
 		want string
 	}{
-		{KindUnknown, "Unknown"},
-		{KindNotFound, "NotFound"},
-		{KindAlreadyExists, "AlreadyExists"},
-		{KindInvalid, "Invalid"},
-		{KindPermissionDenied, "PermissionDenied"},
-		{KindUnavailable, "Unavailable"},
-		{KindInternal, "Internal"},
-		{KindCanceled, "Canceled"},
-		{KindConflict, "Conflict"},
-		{KindTimeout, "Timeout"},
-		{KindRateLimited, "RateLimited"},
+		{Unknown, "Unknown"},
+		{NotFound, "NotFound"},
+		{AlreadyExists, "AlreadyExists"},
+		{Invalid, "Invalid"},
+		{PermissionDenied, "PermissionDenied"},
+		{Unavailable, "Unavailable"},
+		{Internal, "Internal"},
+		{Canceled, "Canceled"},
+		{Conflict, "Conflict"},
+		{Timeout, "Timeout"},
+		{RateLimited, "RateLimited"},
 		{Kind("custom_kind"), "custom_kind"},
 	}
 
@@ -36,10 +36,10 @@ func TestTernary_String(t *testing.T) {
 		ternary Ternary
 		want    string
 	}{
-		{Unknown, "Unknown"},
+		{Unspecified, "Unspecified"},
 		{True, "True"},
 		{False, "False"},
-		{Ternary(999), "Unknown"},
+		{Ternary(999), "Unspecified"},
 	}
 
 	for _, tt := range tests {
@@ -57,7 +57,7 @@ func TestTernary_Bool(t *testing.T) {
 		ternary Ternary
 		want    bool
 	}{
-		{"Unknown becomes false", Unknown, false},
+		{"Unspecified becomes false", Unspecified, false},
 		{"True becomes true", True, true},
 		{"False becomes false", False, false},
 	}
@@ -73,17 +73,17 @@ func TestTernary_Bool(t *testing.T) {
 
 func TestKind_Values(t *testing.T) {
 	kinds := []Kind{
-		KindUnknown,
-		KindNotFound,
-		KindAlreadyExists,
-		KindInvalid,
-		KindPermissionDenied,
-		KindUnavailable,
-		KindInternal,
-		KindCanceled,
-		KindConflict,
-		KindTimeout,
-		KindRateLimited,
+		Unknown,
+		NotFound,
+		AlreadyExists,
+		Invalid,
+		PermissionDenied,
+		Unavailable,
+		Internal,
+		Canceled,
+		Conflict,
+		Timeout,
+		RateLimited,
 	}
 
 	seen := make(map[Kind]bool)
@@ -100,7 +100,7 @@ func TestKind_Values(t *testing.T) {
 }
 
 func TestTernary_Values(t *testing.T) {
-	ternaries := []Ternary{Unknown, True, False}
+	ternaries := []Ternary{Unspecified, True, False}
 	seen := make(map[Ternary]bool)
 	for _, ternary := range ternaries {
 		if seen[ternary] {

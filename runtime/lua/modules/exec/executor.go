@@ -63,27 +63,27 @@ func execGet(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "no context").WithKind(lua.KindInternal).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "no context").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
 	id := l.CheckString(1)
 	if id == "" {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "resource id is required").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "resource id is required").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
 	if !security.IsAllowed(ctx, "exec.get", id, nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: access executor").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: access executor").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
 	reg := resource.GetRegistry(ctx)
 	if reg == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "resource registry not found").WithKind(lua.KindInternal).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "resource registry not found").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
@@ -91,7 +91,7 @@ func execGet(l *lua.LState) int {
 	res, err := reg.Acquire(ctx, resID, resource.ModeNormal)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "acquire resource").WithKind(lua.KindInternal).WithRetryable(false))
+		l.Push(lua.WrapErrorWithLua(l, err, "acquire resource").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
@@ -99,7 +99,7 @@ func execGet(l *lua.LState) int {
 	if err != nil {
 		res.Release()
 		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "get resource").WithKind(lua.KindInternal).WithRetryable(false))
+		l.Push(lua.WrapErrorWithLua(l, err, "get resource").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
@@ -107,7 +107,7 @@ func execGet(l *lua.LState) int {
 	if !ok {
 		res.Release()
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, fmt.Sprintf("resource is not an executor: %T", execRes)).WithKind(lua.KindInternal).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, fmt.Sprintf("resource is not an executor: %T", execRes)).WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
@@ -129,7 +129,7 @@ func executorExec(l *lua.LState) int {
 	if e.released {
 		e.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "executor is released").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "executor is released").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 	factory := e.factory
@@ -138,13 +138,13 @@ func executorExec(l *lua.LState) int {
 	cmd := l.CheckString(2)
 	if cmd == "" {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "command is required").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "command is required").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
 	if !security.IsAllowed(ctx, "exec.run", cmd, nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: execute command").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: execute command").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
@@ -171,7 +171,7 @@ func executorExec(l *lua.LState) int {
 	proc, err := factory.NewProcess(cmd, opts)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "create process").WithKind(lua.KindInternal).WithRetryable(false))
+		l.Push(lua.WrapErrorWithLua(l, err, "create process").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 

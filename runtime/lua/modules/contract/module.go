@@ -140,7 +140,7 @@ func getContract(l *lua.LState) int {
 
 	if !security.IsAllowed(l.Context(), "contract.get", contractID, nil) {
 		luaErr := lua.NewLuaError(l, "not allowed to access contract: "+contractID).
-			WithKind(lua.KindPermissionDenied).
+			WithKind(lua.PermissionDenied).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -150,7 +150,7 @@ func getContract(l *lua.LState) int {
 	reg := contract.GetRegistry(l.Context())
 	if reg == nil {
 		luaErr := lua.NewLuaError(l, "contract registry not found").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -184,7 +184,7 @@ func openBinding(l *lua.LState) int {
 	baseID, queryArgs, err := parseBindingID(bindingIDArg)
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "parse binding ID failed").
-			WithKind(lua.KindInvalid).
+			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -193,7 +193,7 @@ func openBinding(l *lua.LState) int {
 
 	if !security.IsAllowed(l.Context(), "contract.open", baseID, nil) {
 		luaErr := lua.NewLuaError(l, "not allowed to open binding: "+baseID).
-			WithKind(lua.KindPermissionDenied).
+			WithKind(lua.PermissionDenied).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -253,7 +253,7 @@ func findImplementations(l *lua.LState) int {
 
 	if !security.IsAllowed(l.Context(), "contract.implementations", contractID, nil) {
 		luaErr := lua.NewLuaError(l, "not allowed to list implementations: "+contractID).
-			WithKind(lua.KindPermissionDenied).
+			WithKind(lua.PermissionDenied).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -263,7 +263,7 @@ func findImplementations(l *lua.LState) int {
 	reg := contract.GetRegistry(l.Context())
 	if reg == nil {
 		luaErr := lua.NewLuaError(l, "contract registry not found").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -394,7 +394,7 @@ func contractOpen(l *lua.LState) int {
 
 	if !security.IsAllowed(l.Context(), "contract.open", bindingID, nil) {
 		luaErr := lua.NewLuaError(l, "not allowed to open binding: "+bindingID).
-			WithKind(lua.KindPermissionDenied).
+			WithKind(lua.PermissionDenied).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -458,7 +458,7 @@ func contractWithContext(l *lua.LState) int {
 
 	if !security.IsAllowed(l.Context(), "contract.context", "context", nil) {
 		luaErr := lua.NewLuaError(l, "not allowed to use contracts with custom context").
-			WithKind(lua.KindPermissionDenied).
+			WithKind(lua.PermissionDenied).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -504,7 +504,7 @@ func contractWithActor(l *lua.LState) int {
 
 	if !security.IsAllowed(l.Context(), "contract.security", "security", nil) {
 		luaErr := lua.NewLuaError(l, "not allowed to use contracts with custom security context").
-			WithKind(lua.KindPermissionDenied).
+			WithKind(lua.PermissionDenied).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -547,7 +547,7 @@ func contractWithScope(l *lua.LState) int {
 
 	if !security.IsAllowed(l.Context(), "contract.security", "security", nil) {
 		luaErr := lua.NewLuaError(l, "not allowed to use contracts with custom security context").
-			WithKind(lua.KindPermissionDenied).
+			WithKind(lua.PermissionDenied).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -618,7 +618,7 @@ func instanceIndex(l *lua.LState) int {
 func callMethod(l *lua.LState, wrapper *InstanceWrapper, method string, isAsync bool) int {
 	if !security.IsAllowed(l.Context(), "contract.call", method, nil) {
 		luaErr := lua.NewLuaError(l, "not allowed to call method: "+method).
-			WithKind(lua.KindPermissionDenied).
+			WithKind(lua.PermissionDenied).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -651,7 +651,7 @@ func callMethodAsync(l *lua.LState, wrapper *InstanceWrapper, method string, arg
 	proc := engine.GetProcess(l)
 	if proc == nil {
 		luaErr := lua.NewLuaError(l, "no process context").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)
@@ -662,7 +662,7 @@ func callMethodAsync(l *lua.LState, wrapper *InstanceWrapper, method string, arg
 	ch, subErr := proc.Subscribe(topic, 1)
 	if subErr != nil {
 		luaErr := lua.WrapErrorWithLua(l, subErr, "subscribe failed").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(luaErr)

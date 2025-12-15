@@ -42,20 +42,20 @@ func (y *OpenYield) Release()                      { ReleaseOpenYield(y) }
 func (y *OpenYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "open failed").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 	if data == nil {
 		luaErr := lua.NewLuaError(l, "no response received").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 	resp, ok := data.(contract.OpenResult)
 	if !ok {
 		luaErr := lua.NewLuaError(l, "invalid response type").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
@@ -102,20 +102,20 @@ func (y *CallYield) Release()                      { ReleaseCallYield(y) }
 func (y *CallYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "call failed").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 	if data == nil {
 		luaErr := lua.NewLuaError(l, "no response received").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 	resp, ok := data.(contract.CallResult)
 	if !ok {
 		luaErr := lua.NewLuaError(l, "invalid response type").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
@@ -126,7 +126,7 @@ func (y *CallYield) HandleResult(l *lua.LState, data any, err error) []lua.LValu
 	lv, convErr := luaconv.GoToLua(resp.Value)
 	if convErr != nil {
 		luaErr := lua.WrapErrorWithLua(l, convErr, "result conversion failed").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
@@ -166,20 +166,20 @@ func (y *AsyncCallYield) Release()                      { ReleaseAsyncCallYield(
 func (y *AsyncCallYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "async call failed").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 	resp, ok := data.(contract.AsyncCallResult)
 	if !ok {
 		luaErr := lua.NewLuaError(l, "invalid response type").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 	if resp.Error != nil {
 		luaErr := lua.WrapErrorWithLua(l, resp.Error, "async call error").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
@@ -217,7 +217,7 @@ func (y *AsyncCancelYield) Release()                      { ReleaseAsyncCancelYi
 func (y *AsyncCancelYield) HandleResult(l *lua.LState, _ any, err error) []lua.LValue {
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "async cancel failed").
-			WithKind(lua.KindInternal).
+			WithKind(lua.Internal).
 			WithRetryable(false)
 		return []lua.LValue{lua.LNil, luaErr}
 	}

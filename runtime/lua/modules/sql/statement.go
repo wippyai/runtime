@@ -82,7 +82,7 @@ func stmtQuery(l *lua.LState) int {
 	if stmt.closed {
 		stmt.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "statement is closed").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "statement is closed").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 	stmt.mu.Unlock()
@@ -90,7 +90,7 @@ func stmtQuery(l *lua.LState) int {
 	params, err := checkParams(l, 2)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "check params").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.WrapErrorWithLua(l, err, "check params").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
@@ -110,7 +110,7 @@ func stmtExecute(l *lua.LState) int {
 	if stmt.closed {
 		stmt.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "statement is closed").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "statement is closed").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 	stmt.mu.Unlock()
@@ -118,7 +118,7 @@ func stmtExecute(l *lua.LState) int {
 	params, err := checkParams(l, 2)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "check params").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.WrapErrorWithLua(l, err, "check params").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
@@ -138,7 +138,7 @@ func stmtClose(l *lua.LState) int {
 	if stmt.closed {
 		stmt.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "statement is already closed").WithKind(lua.KindInvalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "statement is already closed").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 	stmt.mu.Unlock()

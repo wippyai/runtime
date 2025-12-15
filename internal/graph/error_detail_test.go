@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	apierror "github.com/wippyai/runtime/api/error"
 )
 
 // Test that verifies the error contains detailed node information via Details()
@@ -34,7 +36,7 @@ func TestCycleErrorContainsNodeDetails(t *testing.T) {
 	}
 
 	// Check that details contain cycle information
-	var graphErr *Error
+	var graphErr apierror.Error
 	if !errors.As(err, &graphErr) {
 		t.Fatalf("expected *Error, got %T", err)
 	}
@@ -82,7 +84,7 @@ func TestCycleErrorFormat(t *testing.T) {
 	}
 
 	// Check details contain cycle information
-	var graphErr *Error
+	var graphErr apierror.Error
 	if !errors.As(err, &graphErr) {
 		t.Fatalf("expected *Error, got %T", err)
 	}
@@ -146,7 +148,7 @@ func TestMultipleCyclePatterns(t *testing.T) {
 			}
 
 			// Check error has details
-			var graphErr *Error
+			var graphErr apierror.Error
 			if errors.As(err, &graphErr) {
 				details := graphErr.Details()
 				t.Logf("[%s] Error: %s, details: %v", tc.name, errMsg, details)
