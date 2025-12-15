@@ -1,11 +1,18 @@
 package engine
 
 import (
+	"context"
 	"sync"
 
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 )
+
+// TopicHandler processes incoming messages for a topic before channel delivery.
+// Return value is what gets sent to the channel. Return nil to skip channel send.
+type TopicHandler func(ctx context.Context, l *lua.LState, source pid.PID, topic string, payloads []payload.Payload) lua.LValue
 
 // subscribeContext manages topic-to-channel mappings.
 // The subscription owns the channel - channels are created here, not by callers.
