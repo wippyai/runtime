@@ -575,3 +575,14 @@ func TestBytecodeBteaConfig_Validate(t *testing.T) {
 		})
 	}
 }
+
+func TestPoolTypeConstants(t *testing.T) {
+	assert.Equal(t, "lazy", PoolTypeLazy)
+	assert.Equal(t, "static", PoolTypeStatic)
+	assert.Equal(t, "inline", PoolTypeInline)
+	assert.Equal(t, "adaptive", PoolTypeAdaptive)
+}
+
+func TestDefaultMaxSize(t *testing.T) {
+	assert.Equal(t, 100, DefaultMaxSize)
+}

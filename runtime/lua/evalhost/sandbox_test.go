@@ -70,8 +70,8 @@ func TestSandbox_ManualStepping(t *testing.T) {
 	t.Logf("Step 1 status: %v", out1.Status())
 	t.Logf("Step 1 yields: %d", out1.Count())
 
-	// Should be continuing with a yield
-	assert.Equal(t, process.StepContinue, out1.Status())
+	// Should be yielding (waiting for sleep completion)
+	assert.Equal(t, process.StepYield, out1.Status())
 	assert.Equal(t, 1, out1.Count())
 
 	// Get the yielded command
@@ -161,7 +161,7 @@ func TestSandbox_MultipleSleeps(t *testing.T) {
 			break
 		}
 
-		assert.Equal(t, process.StepContinue, out.Status())
+		assert.Equal(t, process.StepYield, out.Status())
 		assert.Equal(t, 1, out.Count())
 
 		yields := out.Yields()

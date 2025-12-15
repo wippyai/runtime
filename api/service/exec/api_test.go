@@ -3,10 +3,12 @@ package exec
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/dispatcher"
 )
 
 func TestKindConstants(t *testing.T) {
@@ -169,4 +171,39 @@ func TestDockerExecutorConfig_Validate(t *testing.T) {
 		}
 		assert.NoError(t, cfg.Validate())
 	})
+}
+
+func TestProcessWaitCommandID(t *testing.T) {
+	assert.Equal(t, dispatcher.CommandID(210), ProcessWait)
+}
+
+func TestProcessWaitCmd(t *testing.T) {
+	cmd := AcquireProcessWaitCmd()
+	assert.NotNil(t, cmd)
+	assert.Equal(t, ProcessWait, cmd.CmdID())
+	cmd.Release()
+
+	cmd2 := AcquireProcessWaitCmd()
+	assert.Nil(t, cmd2.Process)
+	cmd2.Release()
+}
+
+func TestProcessWaitResponse(t *testing.T) {
+	resp := ProcessWaitResponse{
+		ExitCode: 0,
+		Error:    nil,
+	}
+	assert.Equal(t, 0, resp.ExitCode)
+	assert.Nil(t, resp.Error)
+
+	resp2 := ProcessWaitResponse{
+		ExitCode: 1,
+		Error:    errors.New("process failed"),
+	}
+	assert.Equal(t, 1, resp2.ExitCode)
+	assert.NotNil(t, resp2.Error)
+}
+
+func TestErrImageRequired(t *testing.T) {
+	assert.Contains(t, ErrImageRequired.Error(), "docker image is required")
 }

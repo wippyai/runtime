@@ -3,11 +3,13 @@ package sql
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/registry"
 )
 
@@ -360,4 +362,237 @@ func TestPoolConfig_MarshalJSON(t *testing.T) {
 	data, err := json.Marshal(&config)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "2h0m0s")
+}
+
+func TestCommandIDs(t *testing.T) {
+	assert.Equal(t, dispatcher.CommandID(100), Query)
+	assert.Equal(t, dispatcher.CommandID(101), Execute)
+	assert.Equal(t, dispatcher.CommandID(102), Prepare)
+	assert.Equal(t, dispatcher.CommandID(103), Begin)
+	assert.Equal(t, dispatcher.CommandID(104), StmtQuery)
+	assert.Equal(t, dispatcher.CommandID(105), StmtExecute)
+	assert.Equal(t, dispatcher.CommandID(106), StmtClose)
+	assert.Equal(t, dispatcher.CommandID(107), TxQuery)
+	assert.Equal(t, dispatcher.CommandID(108), TxExecute)
+	assert.Equal(t, dispatcher.CommandID(109), TxPrepare)
+	assert.Equal(t, dispatcher.CommandID(110), TxCommit)
+	assert.Equal(t, dispatcher.CommandID(111), TxRollback)
+}
+
+func TestQueryCmd(t *testing.T) {
+	cmd := AcquireQueryCmd()
+	assert.NotNil(t, cmd)
+	assert.Equal(t, Query, cmd.CmdID())
+
+	cmd.Query = "SELECT * FROM users"
+	cmd.Params = []any{1, "test"}
+	cmd.Release()
+
+	cmd2 := AcquireQueryCmd()
+	assert.Nil(t, cmd2.DB)
+	assert.Empty(t, cmd2.Query)
+	assert.Nil(t, cmd2.Params)
+	cmd2.Release()
+}
+
+func TestExecuteCmd(t *testing.T) {
+	cmd := AcquireExecuteCmd()
+	assert.NotNil(t, cmd)
+	assert.Equal(t, Execute, cmd.CmdID())
+
+	cmd.Query = "INSERT INTO users VALUES (?, ?)"
+	cmd.Params = []any{1, "test"}
+	cmd.Release()
+
+	cmd2 := AcquireExecuteCmd()
+	assert.Nil(t, cmd2.DB)
+	assert.Empty(t, cmd2.Query)
+	assert.Nil(t, cmd2.Params)
+	cmd2.Release()
+}
+
+func TestPrepareCmd(t *testing.T) {
+	cmd := AcquirePrepareCmd()
+	assert.NotNil(t, cmd)
+	assert.Equal(t, Prepare, cmd.CmdID())
+
+	cmd.Query = "SELECT * FROM users WHERE id = ?"
+	cmd.Release()
+
+	cmd2 := AcquirePrepareCmd()
+	assert.Nil(t, cmd2.DB)
+	assert.Empty(t, cmd2.Query)
+	cmd2.Release()
+}
+
+func TestBeginCmd(t *testing.T) {
+	cmd := AcquireBeginCmd()
+	assert.NotNil(t, cmd)
+	assert.Equal(t, Begin, cmd.CmdID())
+	cmd.Release()
+
+	cmd2 := AcquireBeginCmd()
+	assert.Nil(t, cmd2.DB)
+	assert.Nil(t, cmd2.Options)
+	cmd2.Release()
+}
+
+func TestStmtQueryCmd(t *testing.T) {
+	cmd := AcquireStmtQueryCmd()
+	assert.NotNil(t, cmd)
+	assert.Equal(t, StmtQuery, cmd.CmdID())
+
+	cmd.Params = []any{1}
+	cmd.Release()
+
+	cmd2 := AcquireStmtQueryCmd()
+	assert.Nil(t, cmd2.Stmt)
+	assert.Nil(t, cmd2.Params)
+	cmd2.Release()
+}
+
+func TestStmtExecuteCmd(t *testing.T) {
+	cmd := AcquireStmtExecuteCmd()
+	assert.NotNil(t, cmd)
+	assert.Equal(t, StmtExecute, cmd.CmdID())
+
+	cmd.Params = []any{"value"}
+	cmd.Release()
+
+	cmd2 := AcquireStmtExecuteCmd()
+	assert.Nil(t, cmd2.Stmt)
+	assert.Nil(t, cmd2.Params)
+	cmd2.Release()
+}
+
+func TestStmtCloseCmd(t *testing.T) {
+	cmd := AcquireStmtCloseCmd()
+	assert.NotNil(t, cmd)
+	assert.Equal(t, StmtClose, cmd.CmdID())
+	cmd.Release()
+
+	cmd2 := AcquireStmtCloseCmd()
+	assert.Nil(t, cmd2.Stmt)
+	cmd2.Release()
+}
+
+func TestTxQueryCmd(t *testing.T) {
+	cmd := AcquireTxQueryCmd()
+	assert.NotNil(t, cmd)
+	assert.Equal(t, TxQuery, cmd.CmdID())
+
+	cmd.Query = "SELECT * FROM users"
+	cmd.Params = []any{1}
+	cmd.Release()
+
+	cmd2 := AcquireTxQueryCmd()
+	assert.Nil(t, cmd2.Tx)
+	assert.Empty(t, cmd2.Query)
+	assert.Nil(t, cmd2.Params)
+	cmd2.Release()
+}
+
+func TestTxExecuteCmd(t *testing.T) {
+	cmd := AcquireTxExecuteCmd()
+	assert.NotNil(t, cmd)
+	assert.Equal(t, TxExecute, cmd.CmdID())
+
+	cmd.Query = "UPDATE users SET name = ?"
+	cmd.Params = []any{"new name"}
+	cmd.Release()
+
+	cmd2 := AcquireTxExecuteCmd()
+	assert.Nil(t, cmd2.Tx)
+	assert.Empty(t, cmd2.Query)
+	assert.Nil(t, cmd2.Params)
+	cmd2.Release()
+}
+
+func TestTxPrepareCmd(t *testing.T) {
+	cmd := AcquireTxPrepareCmd()
+	assert.NotNil(t, cmd)
+	assert.Equal(t, TxPrepare, cmd.CmdID())
+
+	cmd.Query = "SELECT * FROM users WHERE id = ?"
+	cmd.Release()
+
+	cmd2 := AcquireTxPrepareCmd()
+	assert.Nil(t, cmd2.Tx)
+	assert.Empty(t, cmd2.Query)
+	cmd2.Release()
+}
+
+func TestTxCommitCmd(t *testing.T) {
+	cmd := AcquireTxCommitCmd()
+	assert.NotNil(t, cmd)
+	assert.Equal(t, TxCommit, cmd.CmdID())
+	cmd.Release()
+
+	cmd2 := AcquireTxCommitCmd()
+	assert.Nil(t, cmd2.Tx)
+	cmd2.Release()
+}
+
+func TestTxRollbackCmd(t *testing.T) {
+	cmd := AcquireTxRollbackCmd()
+	assert.NotNil(t, cmd)
+	assert.Equal(t, TxRollback, cmd.CmdID())
+	cmd.Release()
+
+	cmd2 := AcquireTxRollbackCmd()
+	assert.Nil(t, cmd2.Tx)
+	cmd2.Release()
+}
+
+func TestResponseTypes(t *testing.T) {
+	t.Run("QueryResponse", func(t *testing.T) {
+		resp := QueryResponse{
+			Columns: []string{"id", "name"},
+			Rows:    [][]any{{1, "test"}},
+		}
+		assert.Equal(t, []string{"id", "name"}, resp.Columns)
+		assert.Len(t, resp.Rows, 1)
+		assert.Nil(t, resp.Error)
+	})
+
+	t.Run("ExecuteResponse", func(t *testing.T) {
+		resp := ExecuteResponse{
+			LastInsertID: 42,
+			RowsAffected: 1,
+		}
+		assert.Equal(t, int64(42), resp.LastInsertID)
+		assert.Equal(t, int64(1), resp.RowsAffected)
+		assert.Nil(t, resp.Error)
+	})
+
+	t.Run("PrepareResponse", func(t *testing.T) {
+		resp := PrepareResponse{}
+		assert.Nil(t, resp.Stmt)
+		assert.Nil(t, resp.Error)
+	})
+
+	t.Run("BeginResponse", func(t *testing.T) {
+		resp := BeginResponse{}
+		assert.Nil(t, resp.Tx)
+		assert.Nil(t, resp.Error)
+	})
+}
+
+func TestErrorConstants(t *testing.T) {
+	assert.Contains(t, ErrHostRequired.Error(), "host is required")
+	assert.Contains(t, ErrInvalidPort.Error(), "port must be greater than 0")
+	assert.Contains(t, ErrDatabaseRequired.Error(), "database is required")
+	assert.Contains(t, ErrUsernameRequired.Error(), "username is required")
+	assert.Contains(t, ErrPasswordRequired.Error(), "password is required")
+	assert.Contains(t, ErrInvalidMaxOpen.Error(), "max open connections must be non-negative")
+	assert.Contains(t, ErrInvalidMaxIdle.Error(), "max idle connections must be non-negative")
+	assert.Contains(t, ErrInvalidMaxLifetime.Error(), "max lifetime must be greater than 0")
+	assert.Contains(t, ErrFileRequired.Error(), "file path is required")
+}
+
+func TestNewInvalidDurationError(t *testing.T) {
+	cause := errors.New("parse error")
+	err := NewInvalidDurationError(cause)
+	assert.Contains(t, err.Error(), "invalid duration format")
+	assert.Equal(t, cause, errors.Unwrap(err))
 }

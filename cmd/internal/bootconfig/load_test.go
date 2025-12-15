@@ -169,7 +169,7 @@ supervisor:
 		cfg, err := Load(configPath)
 		assert.Error(t, err)
 		assert.Nil(t, cfg)
-		assert.Contains(t, err.Error(), "missing 'version' field")
+		assert.Contains(t, err.Error(), "missing version field")
 	})
 
 	t.Run("returns error for unsupported version", func(t *testing.T) {
@@ -185,7 +185,7 @@ metrics:
 		cfg, err := Load(configPath)
 		assert.Error(t, err)
 		assert.Nil(t, cfg)
-		assert.Contains(t, err.Error(), "unsupported config version")
+		assert.Contains(t, err.Error(), "unsupported version")
 	})
 
 	t.Run("returns error for invalid yaml", func(t *testing.T) {

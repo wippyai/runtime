@@ -169,6 +169,9 @@ func runSimulation(t *testing.T, cfg ControllerConfig, workload *worksim.Workloa
 }
 
 func TestControllerWorksim_Bottleneck1(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping load simulation in short mode")
+	}
 	workload := worksim.New()
 	workload.SetBottleneck(1)
 	workload.SetLatency(5 * time.Millisecond)
@@ -193,6 +196,9 @@ func TestControllerWorksim_Bottleneck1(t *testing.T) {
 }
 
 func TestControllerWorksim_Bottleneck2(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping load simulation in short mode")
+	}
 	workload := worksim.New()
 	workload.SetBottleneck(2)
 	workload.SetLatency(5 * time.Millisecond)
@@ -217,6 +223,9 @@ func TestControllerWorksim_Bottleneck2(t *testing.T) {
 }
 
 func TestControllerWorksim_Bottleneck4(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping load simulation in short mode")
+	}
 	workload := worksim.New()
 	workload.SetBottleneck(4)
 	workload.SetLatency(5 * time.Millisecond)
@@ -241,6 +250,9 @@ func TestControllerWorksim_Bottleneck4(t *testing.T) {
 }
 
 func TestControllerWorksim_IOBound(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping load simulation in short mode")
+	}
 	workload := worksim.New()
 	workload.SetLatency(10 * time.Millisecond)
 
@@ -262,6 +274,9 @@ func TestControllerWorksim_IOBound(t *testing.T) {
 }
 
 func TestControllerWorksim_HighLatencyLowBottleneck(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping load simulation in short mode")
+	}
 	workload := worksim.New()
 	workload.SetBottleneck(2)
 	workload.SetLatency(50 * time.Millisecond)
@@ -287,6 +302,9 @@ func TestControllerWorksim_HighLatencyLowBottleneck(t *testing.T) {
 }
 
 func TestControllerWorksim_DynamicBottleneck(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping load simulation in short mode")
+	}
 	workload := worksim.New()
 	workload.SetLatency(5 * time.Millisecond)
 
@@ -434,6 +452,9 @@ func TestControllerWorksim_DynamicBottleneck(t *testing.T) {
 }
 
 func TestControllerWorksim_BurstyLoad(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping load simulation in short mode")
+	}
 	workload := worksim.New()
 	workload.SetBottleneck(4)
 	workload.SetLatency(10 * time.Millisecond)
@@ -588,6 +609,9 @@ func TestControllerWorksim_BurstyLoad(t *testing.T) {
 }
 
 func TestControllerWorksim_LowLatency(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping load simulation in short mode")
+	}
 	workload := worksim.New()
 	workload.SetLatency(1 * time.Millisecond)
 
@@ -609,6 +633,9 @@ func TestControllerWorksim_LowLatency(t *testing.T) {
 }
 
 func TestControllerWorksim_GradualBottleneck(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping load simulation in short mode")
+	}
 	workload := worksim.New()
 	workload.SetLatency(5 * time.Millisecond)
 

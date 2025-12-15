@@ -3,6 +3,7 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
+	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/supervisor"
 )
@@ -834,5 +836,152 @@ func TestStaticConfig_UnmarshalJSON_BackwardCompatibility(t *testing.T) {
 		assert.True(t, config.StaticOptions.SPA)
 		assert.Equal(t, "app.html", config.StaticOptions.IndexFile)
 		assert.Equal(t, "*", config.Options["cors.allow.origins"])
+	})
+}
+
+func TestCommandIDs(t *testing.T) {
+	assert.Equal(t, dispatcher.CommandID(60), Request)
+	assert.Equal(t, dispatcher.CommandID(61), RequestBatch)
+}
+
+func TestRequestCmd(t *testing.T) {
+	cmd := AcquireRequestCmd()
+	assert.NotNil(t, cmd)
+	assert.Equal(t, Request, cmd.CmdID())
+
+	cmd.Method = "POST"
+	cmd.URL = "https://example.com/api"
+	cmd.Headers = map[string]string{"Content-Type": "application/json"}
+	cmd.Body = []byte(`{"test": true}`)
+	cmd.Timeout = 30 * time.Second
+	cmd.UnixSocket = "/var/run/socket.sock"
+	cmd.Query = map[string]string{"q": "test"}
+	cmd.Cookies = map[string]string{"session": "abc"}
+	cmd.Form = map[string]string{"field": "value"}
+	cmd.Files = []FileUpload{{FieldName: "file", FileName: "test.txt", Data: []byte("content")}}
+	cmd.BasicAuthUser = "user"
+	cmd.BasicAuthPass = "pass"
+	cmd.Stream = true
+	cmd.MaxResponseBody = 1024
+	cmd.AllowPrivateIPs = true
+	cmd.Release()
+
+	cmd2 := AcquireRequestCmd()
+	assert.Empty(t, cmd2.Method)
+	assert.Empty(t, cmd2.URL)
+	assert.Nil(t, cmd2.Headers)
+	assert.Nil(t, cmd2.Body)
+	assert.Zero(t, cmd2.Timeout)
+	assert.Empty(t, cmd2.UnixSocket)
+	assert.Nil(t, cmd2.Query)
+	assert.Nil(t, cmd2.Cookies)
+	assert.Nil(t, cmd2.Form)
+	assert.Nil(t, cmd2.Files)
+	assert.Empty(t, cmd2.BasicAuthUser)
+	assert.Empty(t, cmd2.BasicAuthPass)
+	assert.False(t, cmd2.Stream)
+	assert.Zero(t, cmd2.MaxResponseBody)
+	assert.False(t, cmd2.AllowPrivateIPs)
+	cmd2.Release()
+}
+
+func TestRequestBatchCmd(t *testing.T) {
+	cmd := AcquireRequestBatchCmd()
+	assert.NotNil(t, cmd)
+	assert.Equal(t, RequestBatch, cmd.CmdID())
+
+	req := AcquireRequestCmd()
+	req.URL = "https://example.com"
+	cmd.Requests = []*RequestCmd{req}
+	cmd.Release()
+
+	cmd2 := AcquireRequestBatchCmd()
+	assert.Nil(t, cmd2.Requests)
+	cmd2.Release()
+}
+
+func TestResponse(t *testing.T) {
+	resp := Response{
+		StatusCode: 200,
+		Headers:    map[string]string{"Content-Type": "application/json"},
+		Cookies:    map[string]string{"session": "xyz"},
+		Body:       []byte(`{"ok": true}`),
+		URL:        "https://example.com/api",
+		StreamID:   123,
+	}
+
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, "application/json", resp.Headers["Content-Type"])
+	assert.Equal(t, "xyz", resp.Cookies["session"])
+	assert.NotNil(t, resp.Body)
+	assert.Equal(t, uint64(123), resp.StreamID)
+}
+
+func TestBatchResponse(t *testing.T) {
+	batch := BatchResponse{
+		Responses: []Response{
+			{StatusCode: 200},
+			{StatusCode: 201},
+		},
+	}
+	assert.Len(t, batch.Responses, 2)
+}
+
+func TestFileUpload(t *testing.T) {
+	file := FileUpload{
+		FieldName: "document",
+		FileName:  "report.pdf",
+		Data:      []byte("pdf content"),
+	}
+
+	assert.Equal(t, "document", file.FieldName)
+	assert.Equal(t, "report.pdf", file.FileName)
+	assert.NotNil(t, file.Data)
+}
+
+func TestErrorConstants(t *testing.T) {
+	assert.Contains(t, ErrEmptyAddr.Error(), "address is required")
+	assert.Contains(t, ErrNilMetadata.Error(), "metadata is required")
+	assert.Contains(t, ErrEmptyFuncName.Error(), "function name is required")
+	assert.Contains(t, ErrEmptyPath.Error(), "path is required")
+	assert.Contains(t, ErrEmptyMethod.Error(), "method is required")
+}
+
+func TestErrorFactories(t *testing.T) {
+	t.Run("NewMissingMetadataError", func(t *testing.T) {
+		err := NewMissingMetadataError("router")
+		assert.Contains(t, err.Error(), "router metadata is required")
+	})
+
+	t.Run("NewPathMustStartWithSlashError", func(t *testing.T) {
+		err := NewPathMustStartWithSlashError()
+		assert.Contains(t, err.Error(), "must start with /")
+	})
+
+	t.Run("NewInvalidHTTPMethodError", func(t *testing.T) {
+		err := NewInvalidHTTPMethodError("PATCH2")
+		assert.Contains(t, err.Error(), "invalid HTTP method: PATCH2")
+	})
+
+	t.Run("NewInvalidDurationError", func(t *testing.T) {
+		cause := errors.New("parse error")
+		err := NewInvalidDurationError("timeout", cause)
+		assert.Contains(t, err.Error(), "invalid duration for timeout")
+	})
+
+	t.Run("NewInvalidTimeoutConfigError", func(t *testing.T) {
+		cause := errors.New("config error")
+		err := NewInvalidTimeoutConfigError(cause)
+		assert.Contains(t, err.Error(), "invalid timeout configuration")
+	})
+
+	t.Run("NewInvalidTimeoutError", func(t *testing.T) {
+		err := NewInvalidTimeoutError("read_timeout")
+		assert.Contains(t, err.Error(), "read_timeout must be non-negative")
+	})
+
+	t.Run("NewNegativeConfigError", func(t *testing.T) {
+		err := NewNegativeConfigError("max_connections")
+		assert.Contains(t, err.Error(), "max_connections must be non-negative")
 	})
 }

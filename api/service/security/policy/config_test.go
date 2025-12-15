@@ -442,3 +442,192 @@ func TestConfig_GetGroupIDs(t *testing.T) {
 		})
 	}
 }
+
+func TestExprKind(t *testing.T) {
+	assert.Equal(t, registry.Kind("security.policy.expr"), ExprKind)
+}
+
+func TestExprConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  ExprConfig
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid config",
+			config: ExprConfig{
+				Policy: ExprDefinition{
+					Actions:    "*",
+					Resources:  "*",
+					Expression: "actor.role == \"admin\"",
+					Effect:     Allow,
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid effect",
+			config: ExprConfig{
+				Policy: ExprDefinition{
+					Actions:    "*",
+					Resources:  "*",
+					Expression: "true",
+					Effect:     "invalid",
+				},
+			},
+			wantErr: true,
+			errMsg:  "invalid policy effect",
+		},
+		{
+			name: "empty actions string",
+			config: ExprConfig{
+				Policy: ExprDefinition{
+					Actions:    "",
+					Resources:  "*",
+					Expression: "true",
+					Effect:     Allow,
+				},
+			},
+			wantErr: true,
+			errMsg:  "actions string cannot be empty",
+		},
+		{
+			name: "empty actions list",
+			config: ExprConfig{
+				Policy: ExprDefinition{
+					Actions:    []any{},
+					Resources:  "*",
+					Expression: "true",
+					Effect:     Allow,
+				},
+			},
+			wantErr: true,
+			errMsg:  "actions list cannot be empty",
+		},
+		{
+			name: "invalid actions type",
+			config: ExprConfig{
+				Policy: ExprDefinition{
+					Actions:    123,
+					Resources:  "*",
+					Expression: "true",
+					Effect:     Allow,
+				},
+			},
+			wantErr: true,
+			errMsg:  "actions must be a string or list",
+		},
+		{
+			name: "empty resources string",
+			config: ExprConfig{
+				Policy: ExprDefinition{
+					Actions:    "*",
+					Resources:  "",
+					Expression: "true",
+					Effect:     Allow,
+				},
+			},
+			wantErr: true,
+			errMsg:  "resources string cannot be empty",
+		},
+		{
+			name: "empty resources list",
+			config: ExprConfig{
+				Policy: ExprDefinition{
+					Actions:    "*",
+					Resources:  []any{},
+					Expression: "true",
+					Effect:     Allow,
+				},
+			},
+			wantErr: true,
+			errMsg:  "resources list cannot be empty",
+		},
+		{
+			name: "invalid resources type",
+			config: ExprConfig{
+				Policy: ExprDefinition{
+					Actions:    "*",
+					Resources:  123,
+					Expression: "true",
+					Effect:     Allow,
+				},
+			},
+			wantErr: true,
+			errMsg:  "resources must be a string or list",
+		},
+		{
+			name: "empty expression",
+			config: ExprConfig{
+				Policy: ExprDefinition{
+					Actions:    "*",
+					Resources:  "*",
+					Expression: "",
+					Effect:     Allow,
+				},
+			},
+			wantErr: true,
+			errMsg:  "expression cannot be empty",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestExprConfig_GetGroupIDs(t *testing.T) {
+	config := ExprConfig{
+		Groups: []string{"group1", "group2"},
+	}
+	ids := config.GetGroupIDs("test-ns")
+	require.Len(t, ids, 2)
+	assert.Equal(t, registry.NewID("test-ns", "group1"), ids[0])
+	assert.Equal(t, registry.NewID("test-ns", "group2"), ids[1])
+}
+
+func TestErrorFactories(t *testing.T) {
+	t.Run("NewInvalidPolicyEffectError", func(t *testing.T) {
+		err := NewInvalidPolicyEffectError("unknown")
+		assert.Contains(t, err.Error(), "invalid policy effect: unknown")
+	})
+
+	t.Run("NewConditionFieldEmptyError", func(t *testing.T) {
+		err := NewConditionFieldEmptyError(0)
+		assert.Contains(t, err.Error(), "condition 0: field is required")
+	})
+
+	t.Run("NewConditionOperatorEmptyError", func(t *testing.T) {
+		err := NewConditionOperatorEmptyError(1)
+		assert.Contains(t, err.Error(), "condition 1: operator is required")
+	})
+
+	t.Run("NewConditionValueRequiredError", func(t *testing.T) {
+		err := NewConditionValueRequiredError(2)
+		assert.Contains(t, err.Error(), "condition 2: value or value_from is required")
+	})
+
+	t.Run("NewConditionInvalidOperatorError", func(t *testing.T) {
+		err := NewConditionInvalidOperatorError(3, "invalid_op")
+		assert.Contains(t, err.Error(), "condition 3: invalid operator: invalid_op")
+	})
+}
+
+func TestErrorConstants(t *testing.T) {
+	assert.Contains(t, ErrActionsStringEmpty.Error(), "actions string cannot be empty")
+	assert.Contains(t, ErrActionsListEmpty.Error(), "actions list cannot be empty")
+	assert.Contains(t, ErrActionsInvalidType.Error(), "actions must be a string or list")
+	assert.Contains(t, ErrResourcesStringEmpty.Error(), "resources string cannot be empty")
+	assert.Contains(t, ErrResourcesListEmpty.Error(), "resources list cannot be empty")
+	assert.Contains(t, ErrResourcesInvalidType.Error(), "resources must be a string or list")
+	assert.Contains(t, ErrExpressionEmpty.Error(), "expression cannot be empty")
+}

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	processapi "github.com/wippyai/runtime/api/process"
@@ -74,8 +75,7 @@ func TestManager_Add_InvalidKind(t *testing.T) {
 
 	err := manager.Add(context.Background(), entry)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid entry kind")
+	require.ErrorContains(t, err, "invalid entry kind")
 }
 
 func TestManager_Add_InvalidConfig(t *testing.T) {
@@ -100,8 +100,7 @@ func TestManager_Add_InvalidConfig(t *testing.T) {
 
 	err := manager.Add(ctx, entry)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to unpack workflow config")
+	require.ErrorContains(t, err, "failed to unpack workflow config")
 }
 
 func TestManager_Update_InvalidKind(t *testing.T) {
@@ -117,8 +116,7 @@ func TestManager_Update_InvalidKind(t *testing.T) {
 
 	err := manager.Update(context.Background(), entry)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid entry kind")
+	require.ErrorContains(t, err, "invalid entry kind")
 }
 
 func TestManager_Delete_InvalidKind(t *testing.T) {
@@ -134,8 +132,7 @@ func TestManager_Delete_InvalidKind(t *testing.T) {
 
 	err := manager.Delete(context.Background(), entry)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid entry kind")
+	require.ErrorContains(t, err, "invalid entry kind")
 }
 
 func TestManager_Invalidate(_ *testing.T) {

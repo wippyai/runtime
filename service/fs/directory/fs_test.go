@@ -410,15 +410,11 @@ func TestFS_MkdirAndRemove_ErrorCases(t *testing.T) {
 
 	// Mkdir requires write permission
 	err = fs.Mkdir("newdir", 0755)
-	if assert.Error(t, err, "Mkdir without write permission should fail") {
-		assert.Contains(t, err.Error(), "permission denied", "Error should mention permission denied")
-	}
+	require.ErrorContains(t, err, "permission denied")
 
-	// Done requires write permission
+	// Remove requires write permission
 	err = fs.Remove(".")
-	if assert.Error(t, err, "Done without write permission should fail") {
-		assert.Contains(t, err.Error(), "permission denied", "Error should mention permission denied")
-	}
+	require.ErrorContains(t, err, "permission denied")
 
 	// Create writable FS to test other error conditions
 	fsRW, err := NewFS(root, 0755, false)

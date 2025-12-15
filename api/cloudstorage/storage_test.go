@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/dispatcher"
 )
 
 func TestObjectMetadata_MarshalUnmarshal(t *testing.T) {
@@ -305,4 +306,146 @@ func TestDownloadOptions_MarshalUnmarshal(t *testing.T) {
 			assert.Equal(t, tt.options, decoded)
 		})
 	}
+}
+
+func TestCommandIDs(t *testing.T) {
+	assert.Equal(t, ListObjects, dispatcher.CommandID(220))
+	assert.Equal(t, DownloadObject, dispatcher.CommandID(221))
+	assert.Equal(t, UploadObject, dispatcher.CommandID(222))
+	assert.Equal(t, DeleteObjects, dispatcher.CommandID(223))
+	assert.Equal(t, PresignedGetURL, dispatcher.CommandID(224))
+	assert.Equal(t, PresignedPutURL, dispatcher.CommandID(225))
+}
+
+func TestListObjectsCmd(t *testing.T) {
+	cmd := AcquireListObjectsCmd()
+	assert.NotNil(t, cmd)
+	assert.Equal(t, ListObjects, cmd.CmdID())
+
+	cmd.Options = &ListObjectsOptions{Prefix: "test/"}
+	cmd.Release()
+
+	cmd2 := AcquireListObjectsCmd()
+	assert.Nil(t, cmd2.Storage)
+	assert.Nil(t, cmd2.Options)
+	cmd2.Release()
+}
+
+func TestDownloadObjectCmd(t *testing.T) {
+	cmd := AcquireDownloadObjectCmd()
+	assert.NotNil(t, cmd)
+	assert.Equal(t, DownloadObject, cmd.CmdID())
+
+	cmd.Key = "test.txt"
+	cmd.Options = &DownloadOptions{Range: "bytes=0-100"}
+	cmd.Release()
+
+	cmd2 := AcquireDownloadObjectCmd()
+	assert.Nil(t, cmd2.Storage)
+	assert.Empty(t, cmd2.Key)
+	assert.Nil(t, cmd2.Writer)
+	assert.Nil(t, cmd2.Options)
+	cmd2.Release()
+}
+
+func TestUploadObjectCmd(t *testing.T) {
+	cmd := AcquireUploadObjectCmd()
+	assert.NotNil(t, cmd)
+	assert.Equal(t, UploadObject, cmd.CmdID())
+
+	cmd.Key = "upload.txt"
+	cmd.Release()
+
+	cmd2 := AcquireUploadObjectCmd()
+	assert.Nil(t, cmd2.Storage)
+	assert.Empty(t, cmd2.Key)
+	assert.Nil(t, cmd2.Reader)
+	cmd2.Release()
+}
+
+func TestDeleteObjectsCmd(t *testing.T) {
+	cmd := AcquireDeleteObjectsCmd()
+	assert.NotNil(t, cmd)
+	assert.Equal(t, DeleteObjects, cmd.CmdID())
+
+	cmd.Keys = []string{"file1.txt", "file2.txt"}
+	cmd.Release()
+
+	cmd2 := AcquireDeleteObjectsCmd()
+	assert.Nil(t, cmd2.Storage)
+	assert.Nil(t, cmd2.Keys)
+	cmd2.Release()
+}
+
+func TestPresignedGetURLCmd(t *testing.T) {
+	cmd := AcquirePresignedGetURLCmd()
+	assert.NotNil(t, cmd)
+	assert.Equal(t, PresignedGetURL, cmd.CmdID())
+
+	cmd.Key = "download.txt"
+	cmd.Expiration = 15 * time.Minute
+	cmd.Release()
+
+	cmd2 := AcquirePresignedGetURLCmd()
+	assert.Nil(t, cmd2.Storage)
+	assert.Empty(t, cmd2.Key)
+	assert.Zero(t, cmd2.Expiration)
+	cmd2.Release()
+}
+
+func TestPresignedPutURLCmd(t *testing.T) {
+	cmd := AcquirePresignedPutURLCmd()
+	assert.NotNil(t, cmd)
+	assert.Equal(t, PresignedPutURL, cmd.CmdID())
+
+	cmd.Key = "upload.txt"
+	cmd.Expiration = 30 * time.Minute
+	cmd.ContentType = "text/plain"
+	cmd.ContentLength = 1024
+	cmd.Release()
+
+	cmd2 := AcquirePresignedPutURLCmd()
+	assert.Nil(t, cmd2.Storage)
+	assert.Empty(t, cmd2.Key)
+	assert.Zero(t, cmd2.Expiration)
+	assert.Empty(t, cmd2.ContentType)
+	assert.Zero(t, cmd2.ContentLength)
+	cmd2.Release()
+}
+
+func TestResponseTypes(t *testing.T) {
+	t.Run("ListObjectsResponse", func(t *testing.T) {
+		resp := ListObjectsResponse{
+			Result: &ListObjectsResult{Objects: []ObjectMetadata{{Key: "test.txt"}}},
+		}
+		assert.NotNil(t, resp.Result)
+		assert.Nil(t, resp.Error)
+	})
+
+	t.Run("DownloadObjectResponse", func(t *testing.T) {
+		resp := DownloadObjectResponse{Error: nil}
+		assert.Nil(t, resp.Error)
+	})
+
+	t.Run("UploadObjectResponse", func(t *testing.T) {
+		resp := UploadObjectResponse{Error: nil}
+		assert.Nil(t, resp.Error)
+	})
+
+	t.Run("DeleteObjectsResponse", func(t *testing.T) {
+		resp := DeleteObjectsResponse{Error: nil}
+		assert.Nil(t, resp.Error)
+	})
+
+	t.Run("PresignedGetURLResponse", func(t *testing.T) {
+		resp := PresignedGetURLResponse{URL: "https://example.com/file"}
+		assert.Equal(t, "https://example.com/file", resp.URL)
+		assert.Nil(t, resp.Error)
+	})
+
+	t.Run("PresignedPutURLResponse", func(t *testing.T) {
+		resp := PresignedPutURLResponse{URL: "https://example.com/upload"}
+		assert.Equal(t, "https://example.com/upload", resp.URL)
+		assert.Nil(t, resp.Error)
+	})
 }

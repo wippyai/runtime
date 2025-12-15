@@ -58,6 +58,9 @@ func RegisterTypeMethods(
 			} else {
 				mt = existingMt
 			}
+		} else {
+			// Existing entry is not an LTable, create new one
+			shouldCreateNew = true
 		}
 	} else {
 		shouldCreateNew = true

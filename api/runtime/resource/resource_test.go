@@ -16,10 +16,10 @@ import (
 func TestSetStore(t *testing.T) {
 	t.Run("with frame context", func(t *testing.T) {
 		ctx, fc := ctxapi.OpenFrameContext(context.Background())
-		defer fc.Close()
+		defer func() { _ = fc.Close() }()
 
 		store := NewStore()
-		defer store.Close()
+		defer func() { _ = store.Close() }()
 
 		err := SetStore(ctx, store)
 		require.NoError(t, err)
@@ -31,7 +31,7 @@ func TestSetStore(t *testing.T) {
 	t.Run("without frame context", func(t *testing.T) {
 		ctx := context.Background()
 		store := NewStore()
-		defer store.Close()
+		defer func() { _ = store.Close() }()
 
 		err := SetStore(ctx, store)
 		assert.Equal(t, ctxapi.ErrNoFrameContext, err)
@@ -47,7 +47,7 @@ func TestGetStore(t *testing.T) {
 
 	t.Run("frame context without store", func(t *testing.T) {
 		ctx, fc := ctxapi.OpenFrameContext(context.Background())
-		defer fc.Close()
+		defer func() { _ = fc.Close() }()
 
 		got := GetStore(ctx)
 		assert.Nil(t, got)
@@ -63,11 +63,11 @@ func TestGetTable(t *testing.T) {
 
 	t.Run("with store", func(t *testing.T) {
 		ctx, fc := ctxapi.OpenFrameContext(context.Background())
-		defer fc.Close()
+		defer func() { _ = fc.Close() }()
 
 		store := NewStore()
-		defer store.Close()
-		_ = SetStore(ctx, store)
+		defer func() { _ = store.Close() }()
+		require.NoError(t, SetStore(ctx, store))
 
 		got := GetTable(ctx)
 		assert.NotNil(t, got)
@@ -80,12 +80,12 @@ func TestNewStore(t *testing.T) {
 	require.NotNil(t, store)
 	assert.NotNil(t, store.Table())
 	assert.False(t, store.IsClosed())
-	store.Close()
+	_ = store.Close()
 }
 
 func TestStore_Table(t *testing.T) {
 	store := NewStore()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	table := store.Table()
 	assert.NotNil(t, table)
@@ -101,15 +101,15 @@ func TestStore_AddCleanup(t *testing.T) {
 		store := NewStore()
 		var cleanupOrder []int
 
-		store.AddCleanup(func() error {
+		_ = store.AddCleanup(func() error {
 			cleanupOrder = append(cleanupOrder, 1)
 			return nil
 		})
-		store.AddCleanup(func() error {
+		_ = store.AddCleanup(func() error {
 			cleanupOrder = append(cleanupOrder, 2)
 			return nil
 		})
-		store.AddCleanup(func() error {
+		_ = store.AddCleanup(func() error {
 			cleanupOrder = append(cleanupOrder, 3)
 			return nil
 		})
@@ -136,7 +136,7 @@ func TestStore_AddCleanup(t *testing.T) {
 
 	t.Run("cleanup on closed store returns noop cancel", func(t *testing.T) {
 		store := NewStore()
-		store.Close()
+		_ = store.Close()
 
 		cancel := store.AddCleanup(func() error {
 			return nil
@@ -148,7 +148,7 @@ func TestStore_AddCleanup(t *testing.T) {
 		store := NewStore()
 		expectedErr := errors.New("cleanup failed")
 
-		store.AddCleanup(func() error {
+		_ = store.AddCleanup(func() error {
 			return expectedErr
 		})
 
@@ -160,10 +160,10 @@ func TestStore_AddCleanup(t *testing.T) {
 		store := NewStore()
 		firstErr := errors.New("first error")
 
-		store.AddCleanup(func() error {
+		_ = store.AddCleanup(func() error {
 			return errors.New("second error")
 		})
-		store.AddCleanup(func() error {
+		_ = store.AddCleanup(func() error {
 			return firstErr
 		})
 
@@ -185,8 +185,8 @@ func TestStore_Close(t *testing.T) {
 
 	t.Run("close resets table", func(t *testing.T) {
 		store := NewStore()
-		store.Table().Insert(1, "test")
-		store.Close()
+		_ = store.Table().Insert(1, "test")
+		_ = store.Close()
 		// After close, store is returned to pool
 	})
 }
@@ -195,7 +195,7 @@ func TestStore_IsClosed(t *testing.T) {
 	store := NewStore()
 	assert.False(t, store.IsClosed())
 
-	store.Close()
+	_ = store.Close()
 	assert.True(t, store.IsClosed())
 }
 
@@ -214,11 +214,12 @@ func TestNewTable(t *testing.T) {
 	require.NotNil(t, table)
 	assert.Equal(t, 0, table.Len())
 	assert.False(t, table.IsClosed())
+	_ = table.Close()
 }
 
 func TestTable_Insert(t *testing.T) {
 	table := NewTable()
-	defer table.Close()
+	defer func() { _ = table.Close() }()
 
 	h1 := table.Insert(1, "value1")
 	h2 := table.Insert(2, "value2")
@@ -230,7 +231,7 @@ func TestTable_Insert(t *testing.T) {
 
 func TestTable_Insert_Closed(t *testing.T) {
 	table := NewTable()
-	table.Close()
+	_ = table.Close()
 
 	h := table.Insert(1, "value")
 	assert.Equal(t, Handle(0), h)
@@ -238,7 +239,7 @@ func TestTable_Insert_Closed(t *testing.T) {
 
 func TestTable_Get(t *testing.T) {
 	table := NewTable()
-	defer table.Close()
+	defer func() { _ = table.Close() }()
 
 	h := table.Insert(1, "test value")
 
@@ -255,7 +256,7 @@ func TestTable_Get(t *testing.T) {
 	})
 
 	t.Run("invalid handle", func(t *testing.T) {
-		v, ok := table.Get(Handle(999))
+		v, ok := table.Get(999)
 		assert.False(t, ok)
 		assert.Nil(t, v)
 	})
@@ -263,7 +264,7 @@ func TestTable_Get(t *testing.T) {
 
 func TestTable_GetTyped(t *testing.T) {
 	table := NewTable()
-	defer table.Close()
+	defer func() { _ = table.Close() }()
 
 	h := table.Insert(42, "typed value")
 
@@ -286,7 +287,7 @@ func TestTable_GetTyped(t *testing.T) {
 	})
 
 	t.Run("invalid handle", func(t *testing.T) {
-		v, ok := table.GetTyped(Handle(999), 42)
+		v, ok := table.GetTyped(999, 42)
 		assert.False(t, ok)
 		assert.Nil(t, v)
 	})
@@ -294,7 +295,7 @@ func TestTable_GetTyped(t *testing.T) {
 
 func TestTable_Remove(t *testing.T) {
 	table := NewTable()
-	defer table.Close()
+	defer func() { _ = table.Close() }()
 
 	t.Run("removes value", func(t *testing.T) {
 		h := table.Insert(1, "to remove")
@@ -323,14 +324,14 @@ func TestTable_Remove(t *testing.T) {
 	})
 
 	t.Run("invalid handle", func(t *testing.T) {
-		v, ok := table.Remove(Handle(999))
+		v, ok := table.Remove(999)
 		assert.False(t, ok)
 		assert.Nil(t, v)
 	})
 
 	t.Run("already removed", func(t *testing.T) {
 		h := table.Insert(1, "test")
-		table.Remove(h)
+		_, _ = table.Remove(h)
 
 		v, ok := table.Remove(h)
 		assert.False(t, ok)
@@ -339,13 +340,13 @@ func TestTable_Remove(t *testing.T) {
 
 	t.Run("cannot remove borrowed", func(t *testing.T) {
 		h := table.Insert(1, "borrowed")
-		table.Borrow(h)
+		_ = table.Borrow(h)
 
 		v, ok := table.Remove(h)
 		assert.False(t, ok)
 		assert.Nil(t, v)
 
-		table.ReturnBorrow(h)
+		_ = table.ReturnBorrow(h)
 		v, ok = table.Remove(h)
 		assert.True(t, ok)
 		assert.Equal(t, "borrowed", v)
@@ -354,13 +355,14 @@ func TestTable_Remove(t *testing.T) {
 
 func TestTable_Borrow(t *testing.T) {
 	table := NewTable()
-	defer table.Close()
+	defer func() { _ = table.Close() }()
 
 	h := table.Insert(1, "test")
 
 	t.Run("borrow valid handle", func(t *testing.T) {
 		ok := table.Borrow(h)
 		assert.True(t, ok)
+		_ = table.ReturnBorrow(h)
 	})
 
 	t.Run("borrow zero handle", func(t *testing.T) {
@@ -369,17 +371,17 @@ func TestTable_Borrow(t *testing.T) {
 	})
 
 	t.Run("borrow invalid handle", func(t *testing.T) {
-		ok := table.Borrow(Handle(999))
+		ok := table.Borrow(999)
 		assert.False(t, ok)
 	})
 }
 
 func TestTable_ReturnBorrow(t *testing.T) {
 	table := NewTable()
-	defer table.Close()
+	defer func() { _ = table.Close() }()
 
 	h := table.Insert(1, "test")
-	table.Borrow(h)
+	_ = table.Borrow(h)
 
 	t.Run("return valid borrow", func(t *testing.T) {
 		ok := table.ReturnBorrow(h)
@@ -392,7 +394,7 @@ func TestTable_ReturnBorrow(t *testing.T) {
 	})
 
 	t.Run("return invalid handle", func(t *testing.T) {
-		ok := table.ReturnBorrow(Handle(999))
+		ok := table.ReturnBorrow(999)
 		assert.False(t, ok)
 	})
 
@@ -404,7 +406,7 @@ func TestTable_ReturnBorrow(t *testing.T) {
 
 func TestTable_TypeID(t *testing.T) {
 	table := NewTable()
-	defer table.Close()
+	defer func() { _ = table.Close() }()
 
 	h := table.Insert(42, "test")
 
@@ -420,13 +422,13 @@ func TestTable_TypeID(t *testing.T) {
 	})
 
 	t.Run("invalid handle", func(t *testing.T) {
-		_, ok := table.TypeID(Handle(999))
+		_, ok := table.TypeID(999)
 		assert.False(t, ok)
 	})
 
 	t.Run("removed handle", func(t *testing.T) {
 		h2 := table.Insert(1, "temp")
-		table.Remove(h2)
+		_, _ = table.Remove(h2)
 
 		_, ok := table.TypeID(h2)
 		assert.False(t, ok)
@@ -435,7 +437,7 @@ func TestTable_TypeID(t *testing.T) {
 
 func TestTable_Len(t *testing.T) {
 	table := NewTable()
-	defer table.Close()
+	defer func() { _ = table.Close() }()
 
 	assert.Equal(t, 0, table.Len())
 
@@ -445,20 +447,20 @@ func TestTable_Len(t *testing.T) {
 	h2 := table.Insert(1, "b")
 	assert.Equal(t, 2, table.Len())
 
-	table.Remove(h1)
+	_, _ = table.Remove(h1)
 	assert.Equal(t, 1, table.Len())
 
-	table.Remove(h2)
+	_, _ = table.Remove(h2)
 	assert.Equal(t, 0, table.Len())
 }
 
 func TestTable_Each(t *testing.T) {
 	table := NewTable()
-	defer table.Close()
+	defer func() { _ = table.Close() }()
 
-	table.Insert(1, "a")
-	table.Insert(2, "b")
-	table.Insert(3, "c")
+	_ = table.Insert(1, "a")
+	_ = table.Insert(2, "b")
+	_ = table.Insert(3, "c")
 
 	t.Run("iterates all", func(t *testing.T) {
 		var values []any
@@ -591,11 +593,16 @@ func TestTypedTable(t *testing.T) {
 	})
 
 	t.Run("len counts only typed", func(t *testing.T) {
-		typed.Insert("a")
-		typed.Insert("b")
-		table.Insert(999, "other type")
+		// Use fresh table for this test
+		t2 := NewTable()
+		defer t2.Close()
+		typed2 := NewTypedTable[string](t2, 100)
 
-		assert.Equal(t, 2, typed.Len())
+		typed2.Insert("a")
+		typed2.Insert("b")
+		t2.Insert(999, "other type")
+
+		assert.Equal(t, 2, typed2.Len())
 	})
 
 	t.Run("each iterates only typed", func(t *testing.T) {
