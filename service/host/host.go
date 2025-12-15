@@ -102,7 +102,7 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 	h.scheduler.Start()
 
 	h.log.Info("host started", zap.String("id", h.id.String()))
-	return nil, nil
+	return nil, nil //nolint:nilnil // nil channel is valid - no result stream
 }
 
 // Stop implements supervisor.Service.

@@ -32,7 +32,7 @@ func NewRouterCanceledError(err error) apierror.Error {
 func NewAwaitTimeoutError(path event.Path) apierror.Error {
 	return apierror.E(
 		apierror.Timeout,
-		"await timeout waiting for event: "+string(path),
+		"await timeout waiting for event: "+path,
 		apierror.True,
 		attrs.NewBagFrom(map[string]any{"path": path}),
 		nil,
