@@ -106,7 +106,7 @@ func selectWhere(l *lua.LState) int {
 
 	var newBuilder squirrel.SelectBuilder
 
-	switch l.Get(2).Type() { //nolint:exhaustive // only string/table/userdata types valid
+	switch l.Get(2).Type() {
 	case lua.LTString:
 		condition := l.CheckString(2)
 		args := make([]any, 0, l.GetTop()-2)
@@ -252,7 +252,7 @@ func selectHaving(l *lua.LState) int {
 
 	var newBuilder squirrel.SelectBuilder
 
-	switch l.Get(2).Type() { //nolint:exhaustive // only string/table/userdata types valid
+	switch l.Get(2).Type() {
 	case lua.LTString:
 		condition := l.CheckString(2)
 		args := make([]any, 0, l.GetTop()-2)

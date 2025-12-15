@@ -26,7 +26,7 @@ const (
 	OptionEntryTTL        = "ratelimit.entry_ttl"
 	OptionMaxEntries      = "ratelimit.max_entries"
 
-	// Default values
+	// DefaultRequests is the default number of requests allowed
 	DefaultRequests        = 100
 	DefaultWindow          = "1m"
 	DefaultBurst           = 20

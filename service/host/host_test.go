@@ -33,11 +33,11 @@ func ctxWithPIDGen() context.Context {
 
 type mockProcess struct{}
 
-func (m *mockProcess) Init(_ctx context.Context, _method string, _input payload.Payloads) error {
+func (m *mockProcess) Init(context.Context, string, payload.Payloads) error {
 	return nil
 }
 
-func (m *mockProcess) Step(_events []process.Event, out *process.StepOutput) error {
+func (m *mockProcess) Step(_ []process.Event, out *process.StepOutput) error {
 	out.Done(nil)
 	return nil
 }
@@ -49,7 +49,7 @@ type mockFactory struct {
 	err  error
 }
 
-func (f *mockFactory) Create(_source registry.ID) (process.Process, *process.Meta, error) {
+func (f *mockFactory) Create(registry.ID) (process.Process, *process.Meta, error) {
 	if f.err != nil {
 		return nil, nil, f.err
 	}

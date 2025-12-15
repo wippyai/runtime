@@ -35,7 +35,7 @@ const (
 	// StatsOldestMessage = "oldest_message" // reserved for future use
 	// StatsLastDelivery = "last_delivery" // reserved for future use
 	// StatsReady is a queue stats key for messages ready for delivery
-	StatsReady = "ready" // Messages ready for delivery
+	StatsReady = "ready"
 	// StatsUnacked = "unacked" // reserved for future use
 )
 

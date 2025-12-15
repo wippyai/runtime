@@ -24,15 +24,15 @@ import (
 
 type mockCommandRegistry struct{}
 
-func (m *mockCommandRegistry) Get(_id dispatcherapi.CommandID) dispatcherapi.Handler {
+func (m *mockCommandRegistry) Get(dispatcherapi.CommandID) dispatcherapi.Handler {
 	return nil
 }
 
-func (m *mockCommandRegistry) Has(_id dispatcherapi.CommandID) bool {
+func (m *mockCommandRegistry) Has(dispatcherapi.CommandID) bool {
 	return false
 }
 
-func newTestManager(t *testing.T) *Manager {
+func newTestManager(*testing.T) *Manager {
 	bus := eventbus.NewBus()
 	dtt := payloadSystem.GlobalTranscoder()
 	json.Register(dtt)
@@ -176,13 +176,13 @@ type testLifecycle struct {
 	onComplete func()
 }
 
-func (t *testLifecycle) OnStart(_ctx context.Context, _pid pid.PID, _proc process.Process) {
+func (t *testLifecycle) OnStart(context.Context, pid.PID, process.Process) {
 	if t.onStart != nil {
 		t.onStart()
 	}
 }
 
-func (t *testLifecycle) OnComplete(_ctx context.Context, _pid pid.PID, _result *runtime.Result) {
+func (t *testLifecycle) OnComplete(context.Context, pid.PID, *runtime.Result) {
 	if t.onComplete != nil {
 		t.onComplete()
 	}

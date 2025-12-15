@@ -1,4 +1,4 @@
-// Package funcpool provides function pool scheduler interfaces and implementations.
+// Package pool provides function pool scheduler interfaces and implementations.
 //
 // A function pool manages a set of reusable processes that execute function calls.
 // Different pool implementations optimize for different workload patterns:

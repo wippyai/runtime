@@ -3,7 +3,7 @@ package core
 import "github.com/wippyai/runtime/api/boot"
 
 const (
-	// Core component names
+	// PIDGenName is the name for the PID generator component
 	PIDGenName         boot.Name = "pidgen"
 	SecurityName       boot.Name = "security"
 	SecurityPolicyName boot.Name = "security.policy"

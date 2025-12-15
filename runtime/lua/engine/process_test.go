@@ -2448,7 +2448,7 @@ func TestProcessGetTask(t *testing.T) {
 
 	// Non-existent thread
 	fakeThread, _ := proc.state.NewThread()
-	task, err = proc.GetTask(fakeThread)
+	_, err = proc.GetTask(fakeThread)
 	if err == nil {
 		t.Fatal("GetTask should return error for unknown thread")
 	}

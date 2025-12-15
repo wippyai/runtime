@@ -165,7 +165,7 @@ func (c *MessageCodec) Decode(data []byte) (*relay.Package, error) {
 // Pass-through: JSON (bytes), Bytes, String, Error, Golang, MsgPack
 // Transcode to Golang: Lua, YAML, and other formats
 func (c *MessageCodec) normalizePayload(p payload.Payload) (payload.Payload, error) {
-	switch p.Format() { //nolint:exhaustive // only listed formats pass through
+	switch p.Format() {
 	case payload.JSON, payload.Bytes, payload.String, payload.GoError, payload.Golang, payload.MsgPack:
 		return p, nil
 	default:

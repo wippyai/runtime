@@ -147,7 +147,7 @@ func uuidVariant(l *lua.LState) int {
 	}
 
 	var variant string
-	switch id.Variant() { //nolint:exhaustive // default handles remaining variants
+	switch id.Variant() {
 	case uuid.RFC4122:
 		variant = "RFC4122"
 	case uuid.Reserved:
@@ -175,7 +175,7 @@ func uuidParse(l *lua.LState) int {
 	tbl.RawSetString("version", lua.LNumber(id.Version()))
 
 	var variant string
-	switch id.Variant() { //nolint:exhaustive // default handles remaining variants
+	switch id.Variant() {
 	case uuid.RFC4122:
 		variant = "RFC4122"
 	case uuid.Reserved:

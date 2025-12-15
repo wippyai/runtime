@@ -15,7 +15,7 @@ func TestHeaderReadWrite(t *testing.T) {
 		DataOffset: 256,
 		DataSize:   10000,
 	}
-	copy(original.DataHash[:], []byte("test-data-hash-32-bytes-long-her"))
+	copy(original.DataHash[:], "test-data-hash-32-bytes-long-her")
 
 	var buf bytes.Buffer
 	if err := WriteHeader(&buf, original); err != nil {

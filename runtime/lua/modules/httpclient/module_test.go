@@ -256,9 +256,8 @@ func TestParseFileOptions(t *testing.T) {
 		opts := l.CreateTable(0, 1)
 		opts.RawSetString("files", files)
 
-		parsed := parseOptions(l, 1)
 		l.Push(opts)
-		parsed = parseOptions(l, 1)
+		parsed := parseOptions(l, 1)
 
 		if len(parsed.files) != 1 {
 			t.Errorf("expected 1 file, got %d", len(parsed.files))

@@ -98,7 +98,7 @@ func updateSet(l *lua.LState) int {
 	valueParam := l.Get(3)
 
 	var v any
-	switch valueParam.Type() { //nolint:exhaustive // only userdata needs special handling
+	switch valueParam.Type() {
 	case lua.LTUserData:
 		if ud, ok := valueParam.(*lua.LUserData); ok {
 			if sqlizer, ok := ud.Value.(squirrel.Sqlizer); ok {
@@ -145,7 +145,7 @@ func updateWhere(l *lua.LState) int {
 
 	var newBuilder squirrel.UpdateBuilder
 
-	switch l.Get(2).Type() { //nolint:exhaustive // only string/table/userdata types valid
+	switch l.Get(2).Type() {
 	case lua.LTString:
 		condition := l.CheckString(2)
 		args := make([]any, 0, l.GetTop()-2)

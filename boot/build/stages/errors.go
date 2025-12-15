@@ -88,18 +88,6 @@ func NewSetValueInEntryError(entryID string, cause error) apierror.Error {
 	return apierror.New(apierror.Internal, fmt.Sprintf("failed to set value in entry %s", entryID)).WithCause(cause)
 }
 
-func NewReadDumpFileError(cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "read dump file").WithCause(cause)
-}
-
-func NewUnmarshalDumpFileError(cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, "unmarshal dump file").WithCause(cause)
-}
-
-func NewConvertEntryError(entryID string, cause error) apierror.Error {
-	return apierror.New(apierror.Internal, fmt.Sprintf("convert entry %s", entryID)).WithCause(cause)
-}
-
 var (
 	ErrBytecodeNoData          = apierror.New(apierror.Invalid, "entry has no data").WithRetryable(apierror.False)
 	ErrBytecodeInvalidData     = apierror.New(apierror.Invalid, "entry data is not a map").WithRetryable(apierror.False)

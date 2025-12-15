@@ -439,7 +439,7 @@ func (c *Connection) forwardPayloadToWebSocket(topic relay.Topic, payloads ...pa
 		}
 
 		// Process different payload types
-		switch p.Format() { //nolint:exhaustive
+		switch p.Format() {
 		case payload.String:
 			// For string payloads, use the string data directly
 			if str, ok := p.Data().(string); ok {

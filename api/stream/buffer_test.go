@@ -33,7 +33,7 @@ func TestBufferBytes(t *testing.T) {
 	buf := pool.Acquire()
 	defer buf.Release()
 
-	copy(buf.Data, []byte("hello"))
+	copy(buf.Data, "hello")
 	buf.N = 5
 
 	bytes := buf.Bytes()

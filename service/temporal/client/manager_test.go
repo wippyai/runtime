@@ -46,11 +46,11 @@ func (m *mockEventBus) Send(_ context.Context, evt event.Event) {
 }
 
 func (m *mockEventBus) Subscribe(_ context.Context, _ event.System, _ chan<- event.Event) (event.SubscriberID, error) {
-	return mock, nil
+	return "mock", nil
 }
 
 func (m *mockEventBus) SubscribeP(_ context.Context, _ event.System, _ event.Kind, _ chan<- event.Event) (event.SubscriberID, error) {
-	return mock, nil
+	return "mock", nil
 }
 
 func (m *mockEventBus) Unsubscribe(_ context.Context, _ event.SubscriberID) {
@@ -426,19 +426,19 @@ func TestManager_GetClient(t *testing.T) {
 		err := manager.AddClient(context.Background(), id, cfg)
 		require.NoError(t, err)
 
-		client, err := manager.GetClient(id)
+		c, err := manager.GetClient(id)
 		require.NoError(t, err)
-		assert.NotNil(t, client)
-		assert.Equal(t, id, client.id)
+		assert.NotNil(t, c)
+		assert.Equal(t, id, c.id)
 	})
 
 	t.Run("get non-existent client fails", func(t *testing.T) {
 		manager, _ := setupManager(t)
 
 		id := registry.NewID("test", "nonexistent")
-		client, err := manager.GetClient(id)
+		c, err := manager.GetClient(id)
 		assert.Error(t, err)
-		assert.Nil(t, client)
+		assert.Nil(t, c)
 		assert.Contains(t, err.Error(), "not initialized")
 	})
 }

@@ -31,7 +31,7 @@ const (
 	legacyQueryParam   = "query_param"
 	legacyCookieName   = "cookie_name"
 
-	// Default values
+	// DefaultHeaderName is the default authorization header name
 	DefaultHeaderName   = "Authorization"
 	DefaultHeaderPrefix = "Bearer "
 	DefaultQueryParam   = "x-auth-token"

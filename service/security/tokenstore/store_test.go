@@ -45,7 +45,7 @@ func (t *jsonTranscoder) Transcode(p payload.Payload, format payload.Format) (pa
 }
 
 func (t *jsonTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
-	switch p.Format() { //nolint:exhaustive // only JSON/Golang in tests
+	switch p.Format() {
 	case payload.JSON:
 		jsonStr, ok := p.Data().(string)
 		if !ok {
@@ -712,8 +712,7 @@ func TestStoreResourceCleanup(t *testing.T) {
 
 	// This should return an error but might not in some implementations
 	// that don't check ctx.Done() early enough
-	//nolint:ineffassign,staticcheck
-	_, _, err = ts.Validate(cancelCtx, token)
+	_, _, _ = ts.Validate(cancelCtx, token)
 
 	// We should still be able to validate with a valid context
 	_, _, err = ts.Validate(ctx, token)

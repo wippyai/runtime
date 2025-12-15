@@ -66,14 +66,6 @@ func NewResetZstdDecoderError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to reset zstd decoder").WithCause(cause)
 }
 
-func NewInvalidResourceIDError(id interface{}) apierror.Error {
-	return apierror.New(apierror.Invalid, fmt.Sprintf("resource ID is invalid: %v", id))
-}
-
-func NewResourceFilesystemNilError(id string) apierror.Error {
-	return apierror.New(apierror.Invalid, fmt.Sprintf("resource filesystem is nil for ID: %s", id))
-}
-
 func NewDataSizeExceedsMaxError(dataSize, maxSize uint64) apierror.Error {
 	return apierror.New(apierror.Invalid, fmt.Sprintf("data size %d exceeds maximum %d", dataSize, maxSize))
 }

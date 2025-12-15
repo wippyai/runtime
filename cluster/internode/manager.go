@@ -150,7 +150,7 @@ type ConnectionManager interface {
 	ConnectedNodes() []cluster.NodeID
 	GetListenPort() int
 
-	// Lifecycle methods driven by cluster events
+	// AddManagedNode adds a node to be managed by lifecycle events
 	AddManagedNode(nodeID cluster.NodeID)
 	RemoveManagedNode(nodeID cluster.NodeID)
 }

@@ -2,7 +2,6 @@ package stages
 
 import (
 	"io"
-	"io/fs"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -453,10 +452,6 @@ func TestBytecodeFS(t *testing.T) {
 	// After compilation, should return fs.FS
 	fsys := BytecodeFS()
 	require.NotNil(t, fsys)
-
-	// Verify it's usable
-	_, ok := fsys.(fs.FS)
-	assert.True(t, ok)
 }
 
 func TestBytecode_EndToEnd_CompileAndExecute(t *testing.T) {

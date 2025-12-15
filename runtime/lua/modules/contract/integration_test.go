@@ -271,7 +271,7 @@ func TestIntegration_OpenBinding(t *testing.T) {
 			}
 		}
 		return &runtime.Result{Value: payload.New("Hello, " + name)}, nil
-	}))
+	})
 
 	contractID := registry.NewID("test", "greeter")
 	tc.registerContract(t, contractID, &apicontract.Definition{
@@ -321,7 +321,7 @@ func TestIntegration_CallMethod(t *testing.T) {
 			b = extractInt64(task.Payloads[1].Data())
 		}
 		return &runtime.Result{Value: payload.New(a + b)}, nil
-	}))
+	})
 
 	contractID := registry.NewID("test", "calculator")
 	tc.registerContract(t, contractID, &apicontract.Definition{
@@ -376,7 +376,7 @@ func TestIntegration_ScopeContext(t *testing.T) {
 			return &runtime.Result{Value: payload.New("no user_id")}, nil
 		}
 		return &runtime.Result{Value: payload.New("user:" + userID.(string))}, nil
-	}))
+	})
 
 	contractID := registry.NewID("test", "user_service")
 	tc.registerContract(t, contractID, &apicontract.Definition{
@@ -423,7 +423,7 @@ func TestIntegration_MethodNotFound(t *testing.T) {
 	funcID := registry.NewID("test", "noop")
 	tc.registerFunction(t, funcID, func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		return &runtime.Result{Value: payload.New("ok")}, nil
-	}))
+	})
 
 	contractID := registry.NewID("test", "simple")
 	tc.registerContract(t, contractID, &apicontract.Definition{
@@ -479,7 +479,7 @@ func TestIntegration_MultipleMethodCalls(t *testing.T) {
 			b = extractInt64(task.Payloads[1].Data())
 		}
 		return &runtime.Result{Value: payload.New(a + b)}, nil
-	}))
+	})
 
 	tc.registerFunction(t, mulID, func(_ context.Context, task runtime.Task) (*runtime.Result, error) {
 		var a, b int64
@@ -490,7 +490,7 @@ func TestIntegration_MultipleMethodCalls(t *testing.T) {
 			b = extractInt64(task.Payloads[1].Data())
 		}
 		return &runtime.Result{Value: payload.New(a * b)}, nil
-	}))
+	})
 
 	contractID := registry.NewID("test", "math")
 	tc.registerContract(t, contractID, &apicontract.Definition{
@@ -543,7 +543,7 @@ func TestIntegration_InstanceImplements(t *testing.T) {
 	funcID := registry.NewID("test", "noop")
 	tc.registerFunction(t, funcID, func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		return &runtime.Result{Value: payload.New("ok")}, nil
-	}))
+	})
 
 	contract1 := registry.NewID("test", "service_a")
 	contract2 := registry.NewID("test", "service_b")
@@ -589,7 +589,7 @@ func TestIntegration_IsContract(t *testing.T) {
 	funcID := registry.NewID("test", "noop")
 	tc.registerFunction(t, funcID, func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		return &runtime.Result{Value: payload.New("ok")}, nil
-	}))
+	})
 
 	contractID := registry.NewID("test", "checker")
 	tc.registerContract(t, contractID, &apicontract.Definition{
@@ -640,7 +640,7 @@ func TestIntegration_Concurrent(t *testing.T) {
 			v = extractInt64(task.Payloads[0].Data())
 		}
 		return &runtime.Result{Value: payload.New(v + 1)}, nil
-	}))
+	})
 
 	contractID := registry.NewID("test", "adder")
 	tc.registerContract(t, contractID, &apicontract.Definition{

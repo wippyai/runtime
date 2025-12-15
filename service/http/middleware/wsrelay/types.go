@@ -18,7 +18,7 @@ const (
 	CloseTopic     relay.Topic = "ws.close"
 	HeartbeatTopic relay.Topic = "ws.heartbeat"
 
-	// Default heartbeat interval
+	// DefaultHeartbeatInterval is the default heartbeat interval
 	DefaultHeartbeatInterval = 30 * time.Second
 )
 

@@ -272,8 +272,13 @@ func TestIntegration_ThreeNodeCluster(t *testing.T) {
 			received[idx].Add(1)
 		})
 		require.NoError(t, err)
-		defer func(m ConnectionManager) { _ = m.Stop() }(managers[i])
 	}
+
+	t.Cleanup(func() {
+		for _, m := range managers {
+			_ = m.Stop()
+		}
+	})
 
 	// Get ports
 	ports := make([]int, 3)

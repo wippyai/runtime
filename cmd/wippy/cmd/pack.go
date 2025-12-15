@@ -120,11 +120,11 @@ type logMsg struct {
 	fields  map[string]interface{}
 }
 
-func (m packModel) Init() tea.Cmd {
+func (m *packModel) Init() tea.Cmd {
 	return nil
 }
 
-func (m packModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *packModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" || msg.String() == "q" {
@@ -211,7 +211,7 @@ func (m *packModel) addLog(msg logMsg) {
 	}
 }
 
-func (m packModel) View() string {
+func (m *packModel) View() string {
 	if m.done && m.err != nil {
 		return lipgloss.NewStyle().
 			Foreground(lipgloss.Color("9")).
@@ -352,7 +352,7 @@ func runPack(cmd *cobra.Command, args []string) error {
 	verbose := rootCmd.PersistentFlags().Lookup("verbose").Changed
 
 	prog := progress.New(progress.WithDefaultGradient())
-	m := packModel{
+	m := &packModel{
 		stage:         stageInit,
 		progress:      prog,
 		status:        "Initializing...",
@@ -375,7 +375,7 @@ func runPack(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if packModel, ok := finalModel.(packModel); ok && packModel.err != nil {
+	if packModel, ok := finalModel.(*packModel); ok && packModel.err != nil {
 		return packModel.err
 	}
 

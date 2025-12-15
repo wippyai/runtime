@@ -2,13 +2,11 @@ package lua
 
 const (
 	// EngineName is a component name
-	EngineName = "lua.engine"
-	EnvName    = "lua.env"
-	IOName     = "lua.io"
-	LoggerName = "lua.logger"
-	Base64Name = "lua.base64"
-	// ChannelName is a component name (BteaName reserved for future use)
-	ChannelName      = "lua.channel"
+	EngineName       = "lua.engine"
+	EnvName          = "lua.env"
+	IOName           = "lua.io"
+	LoggerName       = "lua.logger"
+	Base64Name       = "lua.base64"
 	CloudStorageName = "lua.cloudstorage"
 	CompressName     = "lua.compress"
 	ContractName     = "lua.contract"

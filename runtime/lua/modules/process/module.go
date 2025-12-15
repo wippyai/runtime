@@ -586,7 +586,7 @@ func cancel(l *lua.LState) int {
 
 	var deadline time.Time
 	if l.GetTop() >= 2 {
-		switch l.Get(2).Type() { //nolint:exhaustive // only string/number types valid for duration
+		switch l.Get(2).Type() {
 		case lua.LTString:
 			durationStr := l.CheckString(2)
 			duration, err := time.ParseDuration(durationStr)

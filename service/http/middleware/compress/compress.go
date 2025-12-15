@@ -16,7 +16,7 @@ const (
 	OptionLevel     = "compress.level"
 	OptionMinLength = "compress.min.length"
 
-	// Default values
+	// DefaultLevel is the default compression level
 	DefaultLevel     = "default"
 	DefaultMinLength = 1024
 )

@@ -196,7 +196,7 @@ func connect(l *lua.LState) int {
 
 		// Compression mode (supports both numbers and strings)
 		if compression := opts.RawGetString("compression"); compression != lua.LNil {
-			switch compression.Type() { //nolint:exhaustive // only number/string types valid
+			switch compression.Type() {
 			case lua.LTNumber, lua.LTInteger:
 				if v, ok := safeInt(compression, 0, 2); ok {
 					yield.CompressionMode = v
@@ -210,6 +210,8 @@ func connect(l *lua.LState) int {
 				case "disabled":
 					yield.CompressionMode = wsapi.CompressionDisabled
 				}
+			default:
+				// ignore unsupported types
 			}
 		}
 

@@ -592,7 +592,7 @@ func TestPlainCallInheritsFrameContext(t *testing.T) {
 	// Test buildContextPairs helper extracts values from frame
 	pairs := buildContextPairs(l)
 
-	if pairs == nil || len(pairs) == 0 {
+	if len(pairs) == 0 {
 		t.Error("buildContextPairs should extract context values from frame")
 	}
 
