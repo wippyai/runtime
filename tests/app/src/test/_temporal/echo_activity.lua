@@ -1,8 +1,8 @@
-local ctx = require("ctx")
-
-local input = ctx.payload()
-if input == nil then
-    return { message = "no input" }
+local function main(input)
+    if input == nil then
+        return { message = "no input" }
+    end
+    return input
 end
 
-return input
+return main

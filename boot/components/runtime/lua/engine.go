@@ -75,7 +75,7 @@ func Engine() boot.Component {
 			fsReg := fsapi.GetRegistry(ctx)
 
 			// Create ProcessFactory for use by all managers
-			processFactory := engine.NewProcessFactory(codeManager, nil)
+			processFactory := engine.NewProcessFactory(codeManager)
 
 			// Create consolidated managers
 			funcs = funclua.NewManager(

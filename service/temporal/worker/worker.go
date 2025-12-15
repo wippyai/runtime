@@ -436,7 +436,7 @@ func (w *Worker) createActivityHandler(_ context.Context, funcID registry.ID) fu
 			return nil, result.Error
 		}
 
-		w.log.Info("activity completed",
+		w.log.Debug("activity completed",
 			zap.String("type", info.ActivityType.Name),
 			zap.String("function", funcID.String()),
 		)

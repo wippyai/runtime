@@ -17,8 +17,7 @@ type CompiledFactory interface {
 
 // ProcessFactory creates processes from compiled code with configurable module binding.
 type ProcessFactory struct {
-	code    *code.Manager
-	modules []*luaapi.ModuleDef // Additional default modules
+	code *code.Manager
 }
 
 // Ensure ProcessFactory implements CompiledFactory
@@ -26,11 +25,9 @@ var _ CompiledFactory = (*ProcessFactory)(nil)
 
 // NewProcessFactory creates a factory that wraps the code manager.
 // Core modules (channel, pubsub, print, payload, ostime) are loaded by default.
-// modules are additional defaults loaded after core modules.
-func NewProcessFactory(code *code.Manager, modules []*luaapi.ModuleDef) *ProcessFactory {
+func NewProcessFactory(code *code.Manager) *ProcessFactory {
 	return &ProcessFactory{
-		code:    code,
-		modules: modules,
+		code: code,
 	}
 }
 
@@ -56,9 +53,6 @@ type processConfig struct {
 
 	// Extra modules beyond factory defaults
 	extraModules []*luaapi.ModuleDef
-
-	// Exclude default modules by name
-	excludeDefaults []string
 
 	// Custom filter (return false to exclude, error to fail)
 	filter func(name string, classes []string) (bool, error)
@@ -127,13 +121,6 @@ func WithModule(mod *luaapi.ModuleDef) FactoryOption {
 	}
 }
 
-// WithoutDefaultModule excludes a default module by name.
-func WithoutDefaultModule(names ...string) FactoryOption {
-	return func(c *processConfig) {
-		c.excludeDefaults = append(c.excludeDefaults, names...)
-	}
-}
-
 // WithFilter sets a custom filter function.
 // Return (true, nil) to include, (false, nil) to exclude, (false, err) to fail.
 func WithFilter(fn func(name string, classes []string) (bool, error)) FactoryOption {
@@ -194,56 +181,6 @@ func (f *ProcessFactory) buildBinders(compiled *code.CompiledMain, cfg *processC
 	excludeModuleSet := toSet(cfg.excludeModules)
 	forbidClassSet := toSet(cfg.forbidClasses)
 	forbidModuleSet := toSet(cfg.forbidModules)
-	excludeDefaultSet := toSet(cfg.excludeDefaults)
-
-	// 2. Additional default modules (filtered)
-	defaultModules := make([]*luaapi.ModuleDef, 0, len(f.modules))
-	for _, mod := range f.modules {
-		name := mod.Name
-		classes := mod.Class
-
-		// Check exclusions
-		if _, excluded := excludeDefaultSet[name]; excluded {
-			continue
-		}
-		if _, excluded := excludeModuleSet[name]; excluded {
-			continue
-		}
-		if hasAnyClass(classes, excludeClassSet) {
-			continue
-		}
-
-		// Check forbids
-		if _, forbidden := forbidModuleSet[name]; forbidden {
-			return nil, fmt.Errorf("forbidden module in defaults: %s", name)
-		}
-		if hasAnyClass(classes, forbidClassSet) {
-			return nil, fmt.Errorf("forbidden class in default module %s", name)
-		}
-
-		// Custom filter
-		if cfg.filter != nil {
-			include, err := cfg.filter(name, classes)
-			if err != nil {
-				return nil, fmt.Errorf("filter rejected default module %s: %w", name, err)
-			}
-			if !include {
-				continue
-			}
-		}
-
-		defaultModules = append(defaultModules, mod)
-	}
-
-	// Binder for default modules
-	if len(defaultModules) > 0 {
-		mods := defaultModules
-		binders = append(binders, func(l *lua.LState) {
-			for _, mod := range mods {
-				mod.Load(l)
-			}
-		})
-	}
 
 	// Bind compiled dependencies
 	depBinders, err := f.bindDependencies(compiled.Dependencies, cfg, excludeClassSet, excludeModuleSet, forbidClassSet, forbidModuleSet)
