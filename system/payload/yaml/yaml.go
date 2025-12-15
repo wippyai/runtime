@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/wippyai/runtime/api/payload"
+	syspayload "github.com/wippyai/runtime/system/payload"
 	"gopkg.in/yaml.v3"
 )
 
@@ -75,7 +76,7 @@ func (t *FromGolang) Transcode(p payload.Payload) (payload.Payload, error) {
 
 	yamlData, err := yaml.Marshal(p.Data())
 	if err != nil {
-		return nil, payload.NewMarshalError("YAML", err)
+		return nil, syspayload.NewMarshalError("YAML", err)
 	}
 
 	return payload.NewPayload(string(yamlData), payload.YAML), nil

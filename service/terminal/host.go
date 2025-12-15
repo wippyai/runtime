@@ -14,7 +14,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
-	"github.com/wippyai/runtime/api/service/terminal"
+	terminalapi "github.com/wippyai/runtime/api/service/terminal"
 	supervisorapi "github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/system/logs"
 	"github.com/wippyai/runtime/system/scheduler/actor"
@@ -24,7 +24,7 @@ import (
 // Host implements process.Host for terminal processes using actor scheduler.
 type Host struct {
 	id        registry.ID
-	cfg       *terminal.HostConfig
+	cfg       *terminalapi.HostConfig
 	log       *zap.Logger
 	scheduler *actor.Scheduler
 	factory   process.Factory
@@ -40,7 +40,7 @@ type Host struct {
 // NewHost creates a new terminal host with actor scheduler.
 func NewHost(
 	id registry.ID,
-	cfg *terminal.HostConfig,
+	cfg *terminalapi.HostConfig,
 	scheduler *actor.Scheduler,
 	factory process.Factory,
 	logCtrl *logs.Configurator,
@@ -95,10 +95,10 @@ func (h *Host) Done() <-chan struct{} {
 // Run implements process.Host.
 func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 	if !h.running.Load() {
-		return pid.PID{}, terminal.ErrHostNotRunning
+		return pid.PID{}, ErrHostNotRunning
 	}
 	if h.shutdown.Load() {
-		return pid.PID{}, terminal.ErrHostShuttingDown
+		return pid.PID{}, ErrHostShuttingDown
 	}
 
 	proc, meta, err := h.factory.Create(start.Source)
@@ -142,7 +142,7 @@ func (h *Host) Terminate(_ context.Context, processID pid.PID) error {
 // Send implements relay.Receiver.
 func (h *Host) Send(pkg *relay.Package) error {
 	if h.shutdown.Load() {
-		return terminal.ErrHostShuttingDown
+		return ErrHostShuttingDown
 	}
 	return h.scheduler.Send(pkg)
 }
@@ -150,7 +150,7 @@ func (h *Host) Send(pkg *relay.Package) error {
 // Start implements supervisor.Service.
 func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 	if h.running.Swap(true) {
-		return nil, terminal.ErrHostAlreadyRunning
+		return nil, ErrHostAlreadyRunning
 	}
 
 	h.ctx = ctx
@@ -210,7 +210,7 @@ func (h *Host) prepareContext(ctx context.Context, processID pid.PID, start *pro
 	pairs := make([]ctxapi.Pair, pairsLen)
 	pairs[0] = ctxapi.Pair{Key: runtime.FrameIDKey, Value: start.Source}
 	pairs[1] = ctxapi.Pair{Key: runtime.FramePIDKey, Value: processID}
-	pairs[2] = ctxapi.Pair{Key: terminal.TerminalKey(), Value: terminal.NewTerminalContextWithArgs(os.Stdin, os.Stdout, os.Stderr, args)}
+	pairs[2] = ctxapi.Pair{Key: terminalapi.TerminalKey(), Value: terminalapi.NewTerminalContextWithArgs(os.Stdin, os.Stdout, os.Stderr, args)}
 	copy(pairs[3:], start.Context)
 
 	if err := fc.SetMultiple(pairs...); err != nil {

@@ -1,18 +1,20 @@
 package consumer
 
 import (
-	queueapi "github.com/wippyai/runtime/api/queue"
+	"fmt"
+
+	apierror "github.com/wippyai/runtime/api/error"
 )
 
 var (
-	ErrQueueIDRequired    = queueapi.ErrQueueIDRequired
-	ErrFunctionIDRequired = queueapi.ErrFunctionIDRequired
+	ErrQueueIDRequired    = apierror.New(apierror.KindInvalid, "queue ID is required").WithRetryable(apierror.False)
+	ErrFunctionIDRequired = apierror.New(apierror.KindInvalid, "function ID is required").WithRetryable(apierror.False)
 )
 
-func NewConcurrencyExceededError(concurrency, maxVal int) *queueapi.Error {
-	return queueapi.NewConcurrencyExceededError(concurrency, maxVal)
+func NewConcurrencyExceededError(value, max int) apierror.Error {
+	return apierror.New(apierror.KindInvalid, fmt.Sprintf("concurrency %d exceeds maximum %d", value, max)).WithRetryable(apierror.False)
 }
 
-func NewPrefetchExceededError(prefetch, maxVal int) *queueapi.Error {
-	return queueapi.NewPrefetchExceededError(prefetch, maxVal)
+func NewPrefetchExceededError(value, max int) apierror.Error {
+	return apierror.New(apierror.KindInvalid, fmt.Sprintf("prefetch %d exceeds maximum %d", value, max)).WithRetryable(apierror.False)
 }

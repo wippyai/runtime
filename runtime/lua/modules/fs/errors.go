@@ -5,72 +5,40 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
-type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
+var (
+	ErrFSIDRequired = apierror.New(apierror.KindInvalid, "filesystem ID is required").WithRetryable(apierror.False)
+
+	ErrPathRequired = apierror.New(apierror.KindInvalid, "path is required").WithRetryable(apierror.False)
+)
+
+func NewFilesystemNotFoundError(id string) apierror.Error {
+	return apierror.New(apierror.KindNotFound, "filesystem not found: "+id).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"fs_id": id}))
 }
 
-func (e *Error) Error() string {
-	if e.cause != nil {
-		return e.message + ": " + e.cause.Error()
-	}
-	return e.message
-}
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
-
-var ErrFileAlreadyClosed = &Error{
-	kind:      apierror.KindInvalid,
-	message:   "file already closed",
-	retryable: apierror.False,
+func NewOpenFileError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to open file").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewReadError(cause error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "failed to read",
-		retryable: apierror.False,
-		cause:     cause,
-	}
+var ErrFileAlreadyClosed = apierror.New(apierror.KindInvalid, "file already closed").WithRetryable(apierror.False)
+
+func NewReadError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "read failed").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewWriteError(cause error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "failed to write",
-		retryable: apierror.False,
-		cause:     cause,
-	}
+func NewWriteError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "write failed").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewSeekError(cause error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "failed to seek",
-		retryable: apierror.False,
-		cause:     cause,
-	}
+func NewSeekError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "seek failed").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewStatError(cause error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "failed to stat",
-		retryable: apierror.False,
-		cause:     cause,
-	}
+func NewStatError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "stat failed").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewSyncError(cause error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "failed to sync",
-		retryable: apierror.False,
-		cause:     cause,
-	}
+func NewSyncError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "sync failed").WithCause(cause).WithRetryable(apierror.False)
 }

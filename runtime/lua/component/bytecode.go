@@ -8,6 +8,7 @@ import (
 
 	fsapi "github.com/wippyai/runtime/api/fs"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	glua "github.com/yuin/gopher-lua"
 	"github.com/yuin/gopher-lua/bytecode"
 )
@@ -59,7 +60,7 @@ func VerifyHash(data []byte, expected string) error {
 func UndumpBytecode(data []byte) (*glua.FunctionProto, error) {
 	proto, err := bytecode.Undump(data)
 	if err != nil {
-		return nil, luaapi.NewUndumpBytecodeError(err)
+		return nil, runtimelua.NewUndumpBytecodeError(err)
 	}
 	return proto, nil
 }

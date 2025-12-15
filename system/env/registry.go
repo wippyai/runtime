@@ -36,7 +36,7 @@ func (r *Registry) Start(ctx context.Context) error {
 	r.ctx = ctx
 	subscriber, err := eventbus.NewSubscriber(ctx, r.bus, env.System, "(storage|variable).*", r.handleEvent)
 	if err != nil {
-		return env.NewSubscriberError(err)
+		return NewSubscriberError(err)
 	}
 	r.subscriber = subscriber
 	return nil
@@ -265,7 +265,7 @@ func (r *Registry) GetStorage(_ context.Context, id registry.ID) (env.Storage, e
 	}
 	storage, ok := stored.(env.Storage)
 	if !ok {
-		return nil, env.NewInvalidStorageTypeError(id.String())
+		return nil, NewInvalidStorageTypeError(id.String())
 	}
 	return storage, nil
 }

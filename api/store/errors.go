@@ -8,108 +8,75 @@ import (
 
 // Sentinel errors.
 var (
-	ErrKeyNotFound = &Error{
-		kind:      apierror.KindNotFound,
-		message:   "key not found",
-		retryable: apierror.False,
-	}
-
-	ErrKeyExists = &Error{
-		kind:      apierror.KindAlreadyExists,
-		message:   "key already exists",
-		retryable: apierror.False,
-	}
-
-	ErrInvalidKey = &Error{
-		kind:      apierror.KindInvalid,
-		message:   "invalid key format",
-		retryable: apierror.False,
-	}
-
-	ErrStoreFull = &Error{
-		kind:      apierror.KindUnavailable,
-		message:   "store is full",
-		retryable: apierror.True,
-	}
-
-	ErrStoreClosed = &Error{
-		kind:      apierror.KindUnavailable,
-		message:   "store is closed",
-		retryable: apierror.False,
-	}
+	ErrKeyNotFound = apierror.New(apierror.KindNotFound, "key not found").WithRetryable(apierror.False)
+	ErrKeyExists   = apierror.New(apierror.KindAlreadyExists, "key already exists").WithRetryable(apierror.False)
+	ErrInvalidKey  = apierror.New(apierror.KindInvalid, "invalid key format").WithRetryable(apierror.False)
+	ErrStoreFull   = apierror.New(apierror.KindUnavailable, "store is full").WithRetryable(apierror.True)
+	ErrStoreClosed = apierror.New(apierror.KindUnavailable, "store is closed").WithRetryable(apierror.False)
 )
 
-// Error implements apierror.Error for store errors.
-type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
-}
-
-func (e *Error) Error() string               { return e.message }
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
-
 // NewKeyNotFoundError creates a key not found error with details.
-func NewKeyNotFoundError(key registry.ID) *Error {
-	return &Error{
-		kind:      apierror.KindNotFound,
-		message:   "key not found",
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"key": key.String()}),
-	}
+func NewKeyNotFoundError(key registry.ID) apierror.Error {
+	return apierror.E(
+		apierror.KindNotFound,
+		"key not found",
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"key": key.String()}),
+		nil,
+	)
 }
 
 // NewKeyExistsError creates a key exists error with details.
-func NewKeyExistsError(key registry.ID) *Error {
-	return &Error{
-		kind:      apierror.KindAlreadyExists,
-		message:   "key already exists",
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"key": key.String()}),
-	}
+func NewKeyExistsError(key registry.ID) apierror.Error {
+	return apierror.E(
+		apierror.KindAlreadyExists,
+		"key already exists",
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"key": key.String()}),
+		nil,
+	)
 }
 
 // NewInvalidKeyError creates an invalid key error with details.
-func NewInvalidKeyError(key string, reason string) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "invalid key format: " + reason,
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"key": key, "reason": reason}),
-	}
+func NewInvalidKeyError(key string, reason string) apierror.Error {
+	return apierror.E(
+		apierror.KindInvalid,
+		"invalid key format: "+reason,
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"key": key, "reason": reason}),
+		nil,
+	)
 }
 
 // NewUnsupportedKindError creates an unsupported kind error.
-func NewUnsupportedKindError(kind string) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "unsupported entry kind: " + kind,
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"kind": kind}),
-	}
+func NewUnsupportedKindError(kind string) apierror.Error {
+	return apierror.E(
+		apierror.KindInvalid,
+		"unsupported entry kind: "+kind,
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"kind": kind}),
+		nil,
+	)
 }
 
 // NewStoreAlreadyExistsError creates a store already exists error.
-func NewStoreAlreadyExistsError(id string) *Error {
-	return &Error{
-		kind:      apierror.KindAlreadyExists,
-		message:   "store " + id + " already exists",
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"id": id}),
-	}
+func NewStoreAlreadyExistsError(id string) apierror.Error {
+	return apierror.E(
+		apierror.KindAlreadyExists,
+		"store "+id+" already exists",
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"id": id}),
+		nil,
+	)
 }
 
 // NewStoreNotFoundError creates a store not found error.
-func NewStoreNotFoundError(id string) *Error {
-	return &Error{
-		kind:      apierror.KindNotFound,
-		message:   "store " + id + " not found",
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"id": id}),
-	}
+func NewStoreNotFoundError(id string) apierror.Error {
+	return apierror.E(
+		apierror.KindNotFound,
+		"store "+id+" not found",
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"id": id}),
+		nil,
+	)
 }

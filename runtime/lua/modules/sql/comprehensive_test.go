@@ -222,7 +222,7 @@ func TestErrorUnwrapNil(t *testing.T) {
 		message: "test",
 	}
 
-	if err.Unwrap() != nil {
+	if errors.Unwrap(err) != nil {
 		t.Error("expected nil unwrap")
 	}
 }

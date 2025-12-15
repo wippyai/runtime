@@ -177,7 +177,6 @@ func TestErrorInterface(t *testing.T) {
 		assert.Equal(t, apierror.KindNotFound, err.Kind())
 		assert.Equal(t, apierror.False, err.Retryable())
 		assert.Nil(t, err.Details())
-		assert.Nil(t, err.Unwrap())
 	})
 
 	t.Run("ErrLocked", func(t *testing.T) {
@@ -211,30 +210,14 @@ func TestErrorInterface(t *testing.T) {
 
 func TestErrorIs(t *testing.T) {
 	t.Run("same error type", func(t *testing.T) {
-		assert.True(t, ErrNotFound.Is(ErrNotFound))
-		assert.True(t, ErrLocked.Is(ErrLocked))
-		assert.False(t, ErrNotFound.Is(ErrLocked))
+		assert.True(t, errors.Is(ErrNotFound, ErrNotFound))
+		assert.True(t, errors.Is(ErrLocked, ErrLocked))
+		assert.False(t, errors.Is(ErrNotFound, ErrLocked))
 	})
 
 	t.Run("different error type", func(t *testing.T) {
-		assert.False(t, ErrNotFound.Is(errors.New("other error")))
+		assert.False(t, errors.Is(ErrNotFound, errors.New("other error")))
 	})
-}
-
-func TestNewSubscriberError(t *testing.T) {
-	cause := errors.New("connection failed")
-	err := NewSubscriberError(cause)
-
-	assert.Contains(t, err.Error(), "failed to create subscriber")
-	assert.Contains(t, err.Error(), "connection failed")
-	assert.Equal(t, apierror.KindInternal, err.Kind())
-	assert.Equal(t, apierror.True, err.Retryable())
-	assert.Equal(t, cause, err.Unwrap())
-	assert.NotNil(t, err.Details())
-
-	causeVal, ok := err.Details().Get("cause")
-	assert.True(t, ok)
-	assert.Equal(t, "connection failed", causeVal)
 }
 
 type mockResource struct {

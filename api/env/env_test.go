@@ -72,7 +72,7 @@ func TestError_Interface(t *testing.T) {
 		assert.Equal(t, "NotFound", errVar.Kind().String())
 		assert.False(t, errVar.Retryable().Bool())
 		assert.Nil(t, errVar.Details())
-		assert.Nil(t, errVar.Unwrap())
+		assert.Nil(t, errors.Unwrap(errVar))
 	})
 
 	t.Run("additional sentinel errors", func(t *testing.T) {
@@ -120,22 +120,12 @@ func TestError_Interface(t *testing.T) {
 		assert.Equal(t, "contains dash", reason)
 	})
 
-	t.Run("NewSubscriberError", func(t *testing.T) {
-		cause := errors.New("connection failed")
-		err := NewSubscriberError(cause)
-		assert.Contains(t, err.Error(), "failed to create subscriber")
-		assert.Contains(t, err.Error(), "connection failed")
-		assert.Equal(t, "Internal", err.Kind().String())
-		assert.True(t, err.Retryable().Bool())
-		assert.Equal(t, cause, err.Unwrap())
-	})
-
 	t.Run("NewInvalidVariableError", func(t *testing.T) {
 		cause := errors.New("invalid format")
 		err := NewInvalidVariableError(cause)
 		assert.Contains(t, err.Error(), "invalid variable")
 		assert.Equal(t, "Invalid", err.Kind().String())
-		assert.Equal(t, cause, err.Unwrap())
+		assert.Equal(t, cause, errors.Unwrap(err))
 	})
 
 	t.Run("NewVariableNameExistsError", func(t *testing.T) {
@@ -146,12 +136,6 @@ func TestError_Interface(t *testing.T) {
 		require.NotNil(t, details)
 		name, _ := details.Get("name")
 		assert.Equal(t, "MY_VAR", name)
-	})
-
-	t.Run("NewInvalidStorageTypeError", func(t *testing.T) {
-		err := NewInvalidStorageTypeError("bad-storage")
-		assert.Contains(t, err.Error(), "invalid storage type")
-		assert.Equal(t, "Internal", err.Kind().String())
 	})
 
 	t.Run("NewUnsupportedKindError", func(t *testing.T) {
@@ -165,14 +149,14 @@ func TestError_Interface(t *testing.T) {
 		err := NewDecodeConfigError(cause)
 		assert.Equal(t, "failed to decode configuration", err.Error())
 		assert.Equal(t, "Invalid", err.Kind().String())
-		assert.Equal(t, cause, err.Unwrap())
+		assert.Equal(t, cause, errors.Unwrap(err))
 	})
 
 	t.Run("NewInvalidConfigError", func(t *testing.T) {
 		cause := errors.New("missing field")
 		err := NewInvalidConfigError(cause)
 		assert.Equal(t, "invalid configuration", err.Error())
-		assert.Equal(t, cause, err.Unwrap())
+		assert.Equal(t, cause, errors.Unwrap(err))
 	})
 
 	t.Run("NewStorageNotExistsError", func(t *testing.T) {
@@ -189,33 +173,7 @@ func TestError_Interface(t *testing.T) {
 		cause := errors.New("invalid yaml")
 		err := NewDecodeVariableError(cause)
 		assert.Contains(t, err.Error(), "failed to decode variable")
-		assert.Equal(t, cause, err.Unwrap())
-	})
-
-	t.Run("NewCreateStorageError", func(t *testing.T) {
-		cause := errors.New("permission denied")
-		err := NewCreateStorageError(cause)
-		assert.Equal(t, "failed to create storage", err.Error())
-		assert.Equal(t, cause, err.Unwrap())
-	})
-
-	t.Run("NewRenameTempFileError", func(t *testing.T) {
-		cause := errors.New("access denied")
-		err := NewRenameTempFileError(3, cause)
-		assert.Contains(t, err.Error(), "failed to rename temp file")
-		assert.Equal(t, "Unknown", err.Retryable().String())
-		assert.Equal(t, cause, err.Unwrap())
-		details := err.Details()
-		require.NotNil(t, details)
-		attempts, _ := details.Get("attempts")
-		assert.Equal(t, 3, attempts)
-	})
-
-	t.Run("NewRenameTempFileAfterRemoveError", func(t *testing.T) {
-		cause := errors.New("file busy")
-		err := NewRenameTempFileAfterRemoveError(cause)
-		assert.Contains(t, err.Error(), "failed to rename temp file after removing target")
-		assert.Equal(t, cause, err.Unwrap())
+		assert.Equal(t, cause, errors.Unwrap(err))
 	})
 }
 

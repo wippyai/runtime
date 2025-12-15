@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/wippyai/runtime/api/payload"
+	syspayload "github.com/wippyai/runtime/system/payload"
 )
 
 // Register registers JSON transcoders.
@@ -76,7 +77,7 @@ func (t *FromGolang) Transcode(p payload.Payload) (payload.Payload, error) {
 
 	jsonData, err := json.Marshal(p.Data())
 	if err != nil {
-		return nil, payload.NewMarshalError("JSON", err)
+		return nil, syspayload.NewMarshalError("JSON", err)
 	}
 
 	return payload.NewPayload(jsonData, payload.JSON), nil

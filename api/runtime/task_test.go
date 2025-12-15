@@ -223,11 +223,10 @@ func TestContext_FrameLifecycleOptions(t *testing.T) {
 
 func TestErrorInterface(t *testing.T) {
 	t.Run("ErrNoFrameContext", func(t *testing.T) {
-		err := ErrNoFrameContext
+		err := ctxapi.ErrNoFrameContext
 		assert.Equal(t, "no frame context available", err.Error())
-		assert.Equal(t, "Internal", err.Kind().String())
+		assert.Equal(t, "Invalid", err.Kind().String())
 		assert.False(t, err.Retryable().Bool())
 		assert.Nil(t, err.Details())
-		assert.Nil(t, err.Unwrap())
 	})
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/env"
+	sysenv "github.com/wippyai/runtime/system/env"
 )
 
 // Storage provides file-based environment variable storage.
@@ -247,16 +248,16 @@ func (s *Storage) writeAllLines(lines []string) error {
 			if os.IsExist(err) || strings.Contains(err.Error(), "being used by another process") {
 				_ = os.Remove(s.filepath)
 				if renameErr := os.Rename(tempPath, s.filepath); renameErr != nil {
-					return env.NewRenameTempFileAfterRemoveError(renameErr)
+					return sysenv.NewRenameTempFileAfterRemoveError(renameErr)
 				}
 				return nil
 			}
-			return env.NewRenameTempFileError(attempt+1, err)
+			return sysenv.NewRenameTempFileError(attempt+1, err)
 		}
 		return nil
 	}
 
-	return env.NewRenameTempFileError(maxRetries+1, nil)
+	return sysenv.NewRenameTempFileError(maxRetries+1, nil)
 }
 
 func (s *Storage) ensureFile() error {

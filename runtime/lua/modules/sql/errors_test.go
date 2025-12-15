@@ -56,7 +56,7 @@ func TestErrorUnwrap(t *testing.T) {
 		cause: cause,
 	}
 
-	if !errors.Is(err.Unwrap(), cause) {
+	if !errors.Is(errors.Unwrap(err), cause) {
 		t.Error("expected same cause error")
 	}
 }

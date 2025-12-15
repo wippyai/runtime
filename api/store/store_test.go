@@ -40,7 +40,6 @@ func TestError_Interface(t *testing.T) {
 		assert.Equal(t, apierror.KindNotFound, ErrKeyNotFound.Kind())
 		assert.Equal(t, apierror.False, ErrKeyNotFound.Retryable())
 		assert.Nil(t, ErrKeyNotFound.Details())
-		assert.Nil(t, ErrKeyNotFound.Unwrap())
 	})
 
 	t.Run("ErrKeyExists", func(t *testing.T) {

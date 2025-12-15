@@ -1,55 +1,23 @@
 package version
 
 import (
-	"github.com/wippyai/runtime/api/attrs"
+	"fmt"
+
 	apierror "github.com/wippyai/runtime/api/error"
-	"github.com/wippyai/runtime/api/registry"
 )
 
-type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
+var (
+	ErrInvalidVersionFormat = apierror.New(apierror.KindInvalid, "invalid version format").WithRetryable(apierror.False)
+)
+
+func NewParseVersionError(version string, cause error) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "failed to parse version: "+version).WithCause(cause).WithRetryable(apierror.False)
 }
 
-func (e *Error) Error() string               { return e.message }
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
-
-func NewVersionNotFoundError(versionID uint) *Error {
-	return &Error{
-		kind:      apierror.KindNotFound,
-		message:   "version not found",
-		retryable: apierror.False,
-		details: attrs.Bag{
-			"version": versionID,
-		},
-	}
+func NewVersionNotFoundError(version any) apierror.Error {
+	return apierror.New(apierror.KindNotFound, fmt.Sprintf("version not found: %v", version)).WithRetryable(apierror.False)
 }
 
-func NewVersionAlreadyExistsError(versionID uint) *Error {
-	return &Error{
-		kind:      apierror.KindAlreadyExists,
-		message:   "version already exists",
-		retryable: apierror.False,
-		details: attrs.Bag{
-			"version": versionID,
-		},
-	}
-}
-
-func NewNoPathError(from, to registry.Version) *Error {
-	return &Error{
-		kind:      apierror.KindNotFound,
-		message:   "no path exists",
-		retryable: apierror.False,
-		details: attrs.Bag{
-			"from": from.ID(),
-			"to":   to.ID(),
-		},
-	}
+func NewVersionAlreadyExistsError(version any) apierror.Error {
+	return apierror.New(apierror.KindAlreadyExists, fmt.Sprintf("version already exists: %v", version)).WithRetryable(apierror.False)
 }

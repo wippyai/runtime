@@ -9,14 +9,14 @@ import (
 
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/security"
-	"github.com/wippyai/runtime/api/service/security/policy"
+	policyapi "github.com/wippyai/runtime/api/service/security/policy"
 )
 
 type ConditionEvaluator struct {
 	compiledPatterns map[string]*regexp.Regexp
 }
 
-func NewConditionEvaluator(conditions []policy.Condition) (*ConditionEvaluator, error) {
+func NewConditionEvaluator(conditions []policyapi.Condition) (*ConditionEvaluator, error) {
 	patterns := make(map[string]*regexp.Regexp)
 
 	for _, condition := range conditions {
@@ -25,7 +25,7 @@ func NewConditionEvaluator(conditions []policy.Condition) (*ConditionEvaluator, 
 				if _, exists := patterns[patternStr]; !exists {
 					compiled, err := regexp.Compile(patternStr)
 					if err != nil {
-						return nil, policy.NewInvalidRegexPatternError(patternStr, err)
+						return nil, NewInvalidRegexPatternError(patternStr, err)
 					}
 					patterns[patternStr] = compiled
 				}
@@ -37,20 +37,20 @@ func NewConditionEvaluator(conditions []policy.Condition) (*ConditionEvaluator, 
 }
 
 func (e *ConditionEvaluator) EvaluateCondition(
-	condition policy.Condition,
+	condition policyapi.Condition,
 	actor security.Actor,
 	action, resource string,
 	meta attrs.Bag,
 ) (bool, error) {
 	fieldValue, err := e.extractField(condition.Field, actor, action, resource, meta)
-	if err != nil && !errors.Is(err, policy.ErrFieldNotFound) {
+	if err != nil && !errors.Is(err, policyapi.ErrFieldNotFound) {
 		return false, err
 	}
 
 	var compareValue any
 	if condition.ValueFrom != "" {
 		compareValue, err = e.extractField(condition.ValueFrom, actor, action, resource, meta)
-		if err != nil && !errors.Is(err, policy.ErrFieldNotFound) {
+		if err != nil && !errors.Is(err, policyapi.ErrFieldNotFound) {
 			return false, err
 		}
 	} else {
@@ -68,18 +68,18 @@ func (e *ConditionEvaluator) extractField(
 ) (any, error) {
 	parts := strings.Split(fieldPath, ".")
 	if len(parts) == 0 {
-		return nil, policy.ErrEmptyFieldPath
+		return nil, ErrEmptyFieldPath
 	}
 
 	switch parts[0] {
 	case "actor":
 		if len(parts) < 2 {
-			return nil, policy.NewInvalidActorFieldPathError(fieldPath)
+			return nil, NewInvalidActorFieldPathError(fieldPath)
 		}
 		return e.extractActorField(actor, parts[1:])
 	case "meta":
 		if len(parts) < 2 {
-			return nil, policy.NewInvalidMetaFieldPathError(fieldPath)
+			return nil, NewInvalidMetaFieldPathError(fieldPath)
 		}
 		return e.extractMetaField(meta, parts[1:])
 	case "action":
@@ -93,11 +93,11 @@ func (e *ConditionEvaluator) extractField(
 
 func (e *ConditionEvaluator) extractActorField(actor security.Actor, parts []string) (any, error) {
 	if actor.ID == "" && actor.Meta == nil {
-		return nil, policy.ErrNilOrEmptyActor
+		return nil, ErrNilOrEmptyActor
 	}
 
 	if len(parts) == 0 {
-		return nil, policy.ErrNoActorFieldSpecified
+		return nil, ErrNoActorFieldSpecified
 	}
 
 	switch parts[0] {
@@ -110,14 +110,14 @@ func (e *ConditionEvaluator) extractActorField(actor security.Actor, parts []str
 
 		actorMeta := actor.Meta
 		if actorMeta == nil {
-			return nil, policy.ErrFieldNotFound
+			return nil, policyapi.ErrFieldNotFound
 		}
 
 		key := parts[1]
 		if len(parts) == 2 {
 			val, exists := actorMeta[key]
 			if !exists {
-				return nil, policy.ErrFieldNotFound
+				return nil, policyapi.ErrFieldNotFound
 			}
 			return val, nil
 		}
@@ -126,26 +126,26 @@ func (e *ConditionEvaluator) extractActorField(actor security.Actor, parts []str
 			return e.extractNestedMap(nestedMap, parts[2:])
 		}
 
-		return nil, policy.ErrFieldNotFound
+		return nil, policyapi.ErrFieldNotFound
 	default:
-		return nil, policy.NewUnknownActorFieldError(parts[0])
+		return nil, NewUnknownActorFieldError(parts[0])
 	}
 }
 
 func (e *ConditionEvaluator) extractMetaField(meta attrs.Bag, parts []string) (any, error) {
 	if meta == nil {
-		return nil, policy.ErrFieldNotFound
+		return nil, policyapi.ErrFieldNotFound
 	}
 
 	if len(parts) == 0 {
-		return nil, policy.ErrNoMetadataFieldSpecified
+		return nil, ErrNoMetadataFieldSpecified
 	}
 
 	key := parts[0]
 	if len(parts) == 1 {
 		val, exists := meta[key]
 		if !exists {
-			return nil, policy.ErrFieldNotFound
+			return nil, policyapi.ErrFieldNotFound
 		}
 		return val, nil
 	}
@@ -154,7 +154,7 @@ func (e *ConditionEvaluator) extractMetaField(meta attrs.Bag, parts []string) (a
 		return e.extractNestedMap(nestedMap, parts[1:])
 	}
 
-	return nil, policy.ErrFieldNotFound
+	return nil, policyapi.ErrFieldNotFound
 }
 
 func (e *ConditionEvaluator) extractNestedMap(m map[string]any, parts []string) (any, error) {
@@ -165,7 +165,7 @@ func (e *ConditionEvaluator) extractNestedMap(m map[string]any, parts []string) 
 	key := parts[0]
 	value, exists := m[key]
 	if !exists {
-		return nil, policy.ErrFieldNotFound
+		return nil, policyapi.ErrFieldNotFound
 	}
 
 	if len(parts) == 1 {
@@ -176,7 +176,7 @@ func (e *ConditionEvaluator) extractNestedMap(m map[string]any, parts []string) 
 		return e.extractNestedMap(nestedMap, parts[1:])
 	}
 
-	return nil, policy.ErrFieldNotFound
+	return nil, policyapi.ErrFieldNotFound
 }
 
 func (e *ConditionEvaluator) compare(fieldValue, compareValue any, operator string) (bool, error) {
@@ -236,7 +236,7 @@ func (e *ConditionEvaluator) compare(fieldValue, compareValue any, operator stri
 		return !result, err
 
 	default:
-		return false, policy.NewUnsupportedOperatorError(operator)
+		return false, NewUnsupportedOperatorError(operator)
 	}
 }
 
@@ -264,7 +264,7 @@ func (e *ConditionEvaluator) compareNumeric(fieldValue, compareValue any, operat
 	fieldNum, fieldOk := e.toFloat64(fieldValue)
 	compareNum, compareOk := e.toFloat64(compareValue)
 	if !fieldOk || !compareOk {
-		return false, policy.ErrNumericComparisonRequired
+		return false, ErrNumericComparisonRequired
 	}
 
 	switch operator {
@@ -277,7 +277,7 @@ func (e *ConditionEvaluator) compareNumeric(fieldValue, compareValue any, operat
 	case "gte":
 		return fieldNum >= compareNum, nil
 	default:
-		return false, policy.NewUnknownNumericOperatorError(operator)
+		return false, NewUnknownNumericOperatorError(operator)
 	}
 }
 
@@ -301,7 +301,7 @@ func (e *ConditionEvaluator) isIn(fieldValue, compareValue any) (bool, error) {
 		equal, _ := e.equals(fieldValue, cv)
 		return equal, nil
 	default:
-		return false, policy.ErrInOperatorRequiresSlice
+		return false, ErrInOperatorRequiresSlice
 	}
 
 	for _, item := range slice {
@@ -331,19 +331,19 @@ func (e *ConditionEvaluator) contains(fieldValue, compareValue any) (bool, error
 		return false, nil
 	}
 
-	return false, policy.ErrContainsRequiresString
+	return false, ErrContainsRequiresString
 }
 
 func (e *ConditionEvaluator) matches(fieldValue, compareValue any) (bool, error) {
 	fieldStr, isFieldStr := toString(fieldValue)
 	patternStr, isPatternStr := toString(compareValue)
 	if !isFieldStr || !isPatternStr {
-		return false, policy.ErrMatchesRequiresString
+		return false, ErrMatchesRequiresString
 	}
 
 	pattern, exists := e.compiledPatterns[patternStr]
 	if !exists {
-		return false, policy.NewRegexPatternNotCompiledError(patternStr)
+		return false, NewRegexPatternNotCompiledError(patternStr)
 	}
 
 	return pattern.MatchString(fieldStr), nil

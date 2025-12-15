@@ -48,7 +48,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	case apidi.KindBinding:
 		return m.handleBindingAdd(ctx, entry)
 	default:
-		return apidi.NewUnsupportedEntryKindError(string(entry.Kind))
+		return NewUnsupportedEntryKindError(string(entry.Kind))
 	}
 }
 
@@ -60,7 +60,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	case apidi.KindBinding:
 		return m.handleBindingUpdate(ctx, entry)
 	default:
-		return apidi.NewUnsupportedEntryKindError(string(entry.Kind))
+		return NewUnsupportedEntryKindError(string(entry.Kind))
 	}
 }
 
@@ -72,7 +72,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	case apidi.KindBinding:
 		return m.handleBindingDelete(ctx, entry)
 	default:
-		return apidi.NewUnsupportedEntryKindError(string(entry.Kind))
+		return NewUnsupportedEntryKindError(string(entry.Kind))
 	}
 }
 
@@ -86,10 +86,10 @@ func (m *Manager) validateDefinitionStructure(def *contract.Definition, defID re
 	}
 	for _, method := range def.Methods {
 		if method.Name == "" {
-			return apidi.NewMethodNameEmptyError(defID)
+			return NewMethodNameEmptyError(defID)
 		}
 		if _, exists := methodNames[method.Name]; exists {
-			return apidi.NewDuplicateMethodNameError(method.Name, defID)
+			return NewDuplicateMethodNameError(method.Name, defID)
 		}
 		methodNames[method.Name] = struct{}{}
 
@@ -108,7 +108,7 @@ func (m *Manager) validateDefinitionStructure(def *contract.Definition, defID re
 				}
 			}
 			if hasInputDef && inputSchema.Format == "" {
-				return apidi.NewInputSchemaMissingFormatError(i, method.Name, defID)
+				return NewInputSchemaMissingFormatError(i, method.Name, defID)
 			}
 		}
 
@@ -126,7 +126,7 @@ func (m *Manager) validateDefinitionStructure(def *contract.Definition, defID re
 				}
 			}
 			if hasOutputDef && outputSchema.Format == "" {
-				return apidi.NewOutputSchemaMissingFormatError(i, method.Name, defID)
+				return NewOutputSchemaMissingFormatError(i, method.Name, defID)
 			}
 		}
 	}
@@ -137,12 +137,12 @@ func (m *Manager) validateDefinitionStructure(def *contract.Definition, defID re
 // Assumes m.mu is RLock'd or Lock'd by the caller appropriately for m.definitions access.
 func (m *Manager) validateBindingAgainstDefinitions(binding *contract.Binding, bindingID registry.ID) error {
 	if len(binding.Contracts) == 0 {
-		return apidi.NewBindingNoContractsError(bindingID)
+		return NewBindingNoContractsError(bindingID)
 	}
 	for i, bc := range binding.Contracts {
 		contractDef, exists := m.definitions[bc.Contract]
 		if !exists {
-			return apidi.NewContractNotFoundError(bindingID, i, bc.Contract)
+			return NewContractNotFoundError(bindingID, i, bc.Contract)
 		}
 
 		// Check method completeness: all methods in definition must be bound.
@@ -150,14 +150,14 @@ func (m *Manager) validateBindingAgainstDefinitions(binding *contract.Binding, b
 		for _, methodDef := range contractDef.Methods {
 			defMethodNames[methodDef.Name] = struct{}{}
 			if _, bound := bc.Methods[methodDef.Name]; !bound {
-				return apidi.NewMethodNotBoundError(bindingID, bc.Contract, methodDef.Name)
+				return NewMethodNotBoundError(bindingID, bc.Contract, methodDef.Name)
 			}
 		}
 
 		// Check for extraneous methods: all bound methods must exist in definition.
 		for methodName := range bc.Methods {
 			if _, defined := defMethodNames[methodName]; !defined {
-				return apidi.NewMethodNotDefinedError(bindingID, bc.Contract, methodName)
+				return NewMethodNotDefinedError(bindingID, bc.Contract, methodName)
 			}
 		}
 	}
@@ -178,7 +178,7 @@ func (m *Manager) validateUniqueDefaults(binding *contract.Binding, bindingID re
 				}
 				for _, otherBC := range otherBinding.Contracts {
 					if otherBC.Contract == bc.Contract && otherBC.Default {
-						return apidi.NewDuplicateDefaultBindingError(bc.Contract, otherBindingID, bindingID)
+						return NewDuplicateDefaultBindingError(bc.Contract, otherBindingID, bindingID)
 					}
 				}
 			}
@@ -192,7 +192,7 @@ func (m *Manager) validateUniqueDefaults(binding *contract.Binding, bindingID re
 func (m *Manager) handleDefinitionAdd(ctx context.Context, entry registry.Entry) error {
 	cfg, err := entryutil.DecodeEntryConfig[apidi.DefinitionConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return apidi.NewDecodeDefinitionError(entry.ID, err)
+		return NewDecodeDefinitionError(entry.ID, err)
 	}
 	definition := cfg.ToDefinition()
 
@@ -208,7 +208,7 @@ func (m *Manager) handleDefinitionAdd(ctx context.Context, entry registry.Entry)
 	defer m.mu.Unlock()
 
 	if _, exists := m.definitions[entry.ID]; exists {
-		return apidi.NewDefinitionAlreadyExistsError(entry.ID)
+		return NewDefinitionAlreadyExistsError(entry.ID)
 	}
 
 	m.definitions[entry.ID] = definition
@@ -229,7 +229,7 @@ func (m *Manager) handleDefinitionAdd(ctx context.Context, entry registry.Entry)
 func (m *Manager) handleDefinitionUpdate(ctx context.Context, entry registry.Entry) error {
 	cfg, err := entryutil.DecodeEntryConfig[apidi.DefinitionConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return apidi.NewDecodeDefinitionUpdateError(entry.ID, err)
+		return NewDecodeDefinitionUpdateError(entry.ID, err)
 	}
 	updatedDefinition := cfg.ToDefinition()
 
@@ -246,7 +246,7 @@ func (m *Manager) handleDefinitionUpdate(ctx context.Context, entry registry.Ent
 
 	originalDefinition, exists := m.definitions[entry.ID]
 	if !exists {
-		return apidi.NewDefinitionNotFoundForUpdateError(entry.ID)
+		return NewDefinitionNotFoundForUpdateError(entry.ID)
 	}
 
 	// Temporarily apply the update to check dependent bindings
@@ -263,7 +263,7 @@ func (m *Manager) handleDefinitionUpdate(ctx context.Context, entry registry.Ent
 		if usesUpdatedDef {
 			// Re-validate this binding against the *new* definition
 			if err := m.validateBindingAgainstDefinitions(binding, bindingID); err != nil {
-				validationError = apidi.NewUpdateWouldInvalidateBindingError(entry.ID, bindingID, err)
+				validationError = NewUpdateWouldInvalidateBindingError(entry.ID, bindingID, err)
 				break
 			}
 		}
@@ -293,14 +293,14 @@ func (m *Manager) handleDefinitionDelete(ctx context.Context, entry registry.Ent
 	defer m.mu.Unlock()
 
 	if _, exists := m.definitions[entry.ID]; !exists {
-		return apidi.NewDefinitionNotFoundForDeleteError(entry.ID)
+		return NewDefinitionNotFoundForDeleteError(entry.ID)
 	}
 
 	// Check if any binding refers to this definition
 	for bindingID, binding := range m.bindings {
 		for _, boundContract := range binding.Contracts {
 			if boundContract.Contract.Equal(entry.ID) {
-				return apidi.NewDefinitionInUseError(entry.ID, bindingID)
+				return NewDefinitionInUseError(entry.ID, bindingID)
 			}
 		}
 	}
@@ -322,7 +322,7 @@ func (m *Manager) handleDefinitionDelete(ctx context.Context, entry registry.Ent
 func (m *Manager) handleBindingAdd(ctx context.Context, entry registry.Entry) error {
 	cfg, err := entryutil.DecodeEntryConfig[apidi.BindingConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return apidi.NewDecodeBindingError(entry.ID, err)
+		return NewDecodeBindingError(entry.ID, err)
 	}
 	binding := cfg.ToBinding()
 
@@ -334,7 +334,7 @@ func (m *Manager) handleBindingAdd(ctx context.Context, entry registry.Entry) er
 	defer m.mu.Unlock()
 
 	if _, exists := m.bindings[entry.ID]; exists {
-		return apidi.NewBindingAlreadyExistsError(entry.ID)
+		return NewBindingAlreadyExistsError(entry.ID)
 	}
 
 	// validateBindingAgainstDefinitions needs read access to m.definitions, which is covered by the Lock
@@ -366,7 +366,7 @@ func (m *Manager) handleBindingAdd(ctx context.Context, entry registry.Entry) er
 func (m *Manager) handleBindingUpdate(ctx context.Context, entry registry.Entry) error {
 	cfg, err := entryutil.DecodeEntryConfig[apidi.BindingConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return apidi.NewDecodeBindingUpdateError(entry.ID, err)
+		return NewDecodeBindingUpdateError(entry.ID, err)
 	}
 	updatedBinding := cfg.ToBinding()
 
@@ -378,7 +378,7 @@ func (m *Manager) handleBindingUpdate(ctx context.Context, entry registry.Entry)
 	defer m.mu.Unlock()
 
 	if _, exists := m.bindings[entry.ID]; !exists {
-		return apidi.NewBindingNotFoundForUpdateError(entry.ID)
+		return NewBindingNotFoundForUpdateError(entry.ID)
 	}
 
 	if err := m.validateBindingAgainstDefinitions(updatedBinding, entry.ID); err != nil {
@@ -411,7 +411,7 @@ func (m *Manager) handleBindingDelete(ctx context.Context, entry registry.Entry)
 	defer m.mu.Unlock()
 
 	if _, exists := m.bindings[entry.ID]; !exists {
-		return apidi.NewBindingNotFoundForDeleteError(entry.ID)
+		return NewBindingNotFoundForDeleteError(entry.ID)
 	}
 
 	delete(m.bindings, entry.ID)

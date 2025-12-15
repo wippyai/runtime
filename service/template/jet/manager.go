@@ -10,8 +10,9 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
-	"github.com/wippyai/runtime/api/service/template"
+	templateapi "github.com/wippyai/runtime/api/service/template"
 	entryutil "github.com/wippyai/runtime/internal/entry"
+	servicetemplate "github.com/wippyai/runtime/service/template"
 	"go.uber.org/zap"
 )
 
@@ -22,7 +23,7 @@ type Manager struct {
 	bus        event.Bus
 	mu         sync.RWMutex
 	sets       map[registry.ID]*Set
-	setConfigs map[registry.ID]*template.SetConfig
+	setConfigs map[registry.ID]*templateapi.SetConfig
 	templates  map[registry.ID]templateEntry
 }
 
@@ -45,7 +46,7 @@ func NewManager(
 		dtt:        dtt,
 		bus:        bus,
 		sets:       make(map[registry.ID]*Set),
-		setConfigs: make(map[registry.ID]*template.SetConfig),
+		setConfigs: make(map[registry.ID]*templateapi.SetConfig),
 		templates:  make(map[registry.ID]templateEntry),
 	}
 }
@@ -53,36 +54,36 @@ func NewManager(
 // Add implements registry.EntryListener - registers a template or set
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
-	case template.KindTemplate:
+	case templateapi.KindTemplate:
 		return m.handleTemplateAdd(ctx, entry)
-	case template.KindTemplateSet:
+	case templateapi.KindTemplateSet:
 		return m.handleSetAdd(ctx, entry)
 	default:
-		return template.NewUnsupportedKindError(entry.Kind)
+		return servicetemplate.NewUnsupportedKindError(string(entry.Kind))
 	}
 }
 
 // Update implements registry.EntryListener - updates a template or set
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
-	case template.KindTemplate:
+	case templateapi.KindTemplate:
 		return m.handleTemplateUpdate(ctx, entry)
-	case template.KindTemplateSet:
+	case templateapi.KindTemplateSet:
 		return m.handleSetUpdate(ctx, entry)
 	default:
-		return template.NewUnsupportedKindError(entry.Kind)
+		return servicetemplate.NewUnsupportedKindError(string(entry.Kind))
 	}
 }
 
 // Delete implements registry.EntryListener - removes a template or set
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
-	case template.KindTemplate:
+	case templateapi.KindTemplate:
 		return m.handleTemplateDelete(ctx, entry)
-	case template.KindTemplateSet:
+	case templateapi.KindTemplateSet:
 		return m.handleSetDelete(ctx, entry)
 	default:
-		return template.NewUnsupportedKindError(entry.Kind)
+		return servicetemplate.NewUnsupportedKindError(string(entry.Kind))
 	}
 }
 
@@ -91,9 +92,9 @@ func (m *Manager) handleTemplateAdd(ctx context.Context, entry registry.Entry) e
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	cfg, err := entryutil.DecodeEntryConfig[template.Config](ctx, m.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[templateapi.Config](ctx, m.dtt, entry)
 	if err != nil {
-		return template.NewDecodeConfigError(err)
+		return servicetemplate.NewDecodeConfigError(err)
 	}
 	if entry.Meta != nil {
 		cfg.Meta = entry.Meta
@@ -105,7 +106,7 @@ func (m *Manager) handleTemplateAdd(ctx context.Context, entry registry.Entry) e
 	// Get the template set
 	set, exists := m.sets[cfg.Set]
 	if !exists {
-		return template.NewSetNotFoundError(cfg.Set.String())
+		return servicetemplate.NewSetNotFoundError(cfg.Set.String())
 	}
 
 	// Determine template name (using meta name or ID name as fallback)
@@ -116,12 +117,12 @@ func (m *Manager) handleTemplateAdd(ctx context.Context, entry registry.Entry) e
 
 	// Check if template already exists in the set
 	if _, err := set.GetTemplateSource(templateName); err == nil {
-		return template.NewTemplateExistsError(templateName, cfg.Set.String())
+		return servicetemplate.NewTemplateExistsError(templateName, cfg.Set.String())
 	}
 
 	// Create and add the template to the set
 	if err := set.AddTemplate(templateName, cfg.Source); err != nil {
-		return template.NewCreateTemplateError(err)
+		return servicetemplate.NewCreateTemplateError(err)
 	}
 
 	// Store template entry
@@ -148,12 +149,12 @@ func (m *Manager) handleTemplateUpdate(ctx context.Context, entry registry.Entry
 	// Check if template exists
 	existingTemplate, exists := m.templates[entry.ID]
 	if !exists {
-		return template.NewTemplateNotFoundError(entry.ID.String())
+		return servicetemplate.NewTemplateNotFoundError(entry.ID.String())
 	}
 
-	cfg, err := entryutil.DecodeEntryConfig[template.Config](ctx, m.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[templateapi.Config](ctx, m.dtt, entry)
 	if err != nil {
-		return template.NewDecodeConfigError(err)
+		return servicetemplate.NewDecodeConfigError(err)
 	}
 
 	if entry.Meta != nil {
@@ -170,13 +171,13 @@ func (m *Manager) handleTemplateUpdate(ctx context.Context, entry registry.Entry
 		// Get the source set
 		sourceSet, exists := m.sets[existingTemplate.SetID]
 		if !exists {
-			return template.NewSetNotFoundError(existingTemplate.SetID.String())
+			return servicetemplate.NewSetNotFoundError(existingTemplate.SetID.String())
 		}
 
 		// Get the target set
 		targetSet, exists := m.sets[cfg.Set]
 		if !exists {
-			return template.NewSetNotFoundError(cfg.Set.String())
+			return servicetemplate.NewSetNotFoundError(cfg.Set.String())
 		}
 
 		// Determine template name for the target set (using meta name or ID name as fallback)
@@ -187,19 +188,19 @@ func (m *Manager) handleTemplateUpdate(ctx context.Context, entry registry.Entry
 
 		// Check if template already exists in the target set
 		if _, err := targetSet.GetTemplateSource(newTemplateName); err == nil {
-			return template.NewTemplateExistsError(newTemplateName, cfg.Set.String())
+			return servicetemplate.NewTemplateExistsError(newTemplateName, cfg.Set.String())
 		}
 
 		// Remove from source set
 		if err := sourceSet.RemoveTemplate(existingTemplate.Name); err != nil {
-			if !errors.Is(err, template.ErrTemplateNotFound) {
-				return template.NewRemoveTemplateError(err)
+			if !errors.Is(err, servicetemplate.ErrTemplateNotFound) {
+				return servicetemplate.NewRemoveTemplateError(err)
 			}
 		}
 
 		// Add to target set
 		if err := targetSet.AddTemplate(newTemplateName, cfg.Source); err != nil {
-			return template.NewAddTemplateError(err)
+			return servicetemplate.NewAddTemplateError(err)
 		}
 
 		// Update the template entry
@@ -230,24 +231,24 @@ func (m *Manager) handleTemplateUpdate(ctx context.Context, entry registry.Entry
 
 			// Check if new name already exists
 			if _, err := set.GetTemplateSource(newTemplateName); err == nil {
-				return template.NewTemplateNameExistsError(newTemplateName, cfg.Set.String())
+				return servicetemplate.NewTemplateNameExistsError(newTemplateName, cfg.Set.String())
 			}
 
 			// Remove old template
 			if err := set.RemoveTemplate(existingTemplate.Name); err != nil {
-				if !errors.Is(err, template.ErrTemplateNotFound) {
-					return template.NewRemoveOldTemplateError(err)
+				if !errors.Is(err, servicetemplate.ErrTemplateNotFound) {
+					return servicetemplate.NewRemoveOldTemplateError(err)
 				}
 			}
 
 			// Add with new name
 			if err := set.AddTemplate(newTemplateName, cfg.Source); err != nil {
-				return template.NewAddTemplateWithNewNameError(err)
+				return servicetemplate.NewAddTemplateWithNewNameError(err)
 			}
 		} else {
 			// Just update the template source
 			if err := set.UpdateTemplate(existingTemplate.Name, cfg.Source); err != nil {
-				return template.NewUpdateTemplateError(err)
+				return servicetemplate.NewUpdateTemplateError(err)
 			}
 		}
 
@@ -276,7 +277,7 @@ func (m *Manager) handleTemplateDelete(_ context.Context, entry registry.Entry) 
 	// Find template entry
 	tplEntry, exists := m.templates[entry.ID]
 	if !exists {
-		return template.NewTemplateNotFoundError(entry.ID.String())
+		return servicetemplate.NewTemplateNotFoundError(entry.ID.String())
 	}
 
 	// Get the set
@@ -289,8 +290,8 @@ func (m *Manager) handleTemplateDelete(_ context.Context, entry registry.Entry) 
 
 	// Remove the template from the set
 	if err := set.RemoveTemplate(tplEntry.Name); err != nil {
-		if !errors.Is(err, template.ErrTemplateNotFound) {
-			return template.NewDeleteTemplateError(err)
+		if !errors.Is(err, servicetemplate.ErrTemplateNotFound) {
+			return servicetemplate.NewDeleteTemplateError(err)
 		}
 	}
 
@@ -312,18 +313,18 @@ func (m *Manager) handleSetAdd(ctx context.Context, entry registry.Entry) error 
 
 	// Check if set already exists
 	if _, exists := m.sets[entry.ID]; exists {
-		return template.NewSetAlreadyExistsError(entry.ID.String())
+		return servicetemplate.NewSetAlreadyExistsError(entry.ID.String())
 	}
 
-	cfg, err := entryutil.DecodeEntryConfig[template.SetConfig](ctx, m.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[templateapi.SetConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return template.NewSetConfigDecodeError(err)
+		return servicetemplate.NewSetConfigDecodeError(err)
 	}
 
 	// Create the template set
 	set, err := NewSet(entry.ID, cfg, m.dtt)
 	if err != nil {
-		return template.NewCreateSetError(err)
+		return servicetemplate.NewCreateSetError(err)
 	}
 
 	// Store the set and its configuration
@@ -356,26 +357,26 @@ func (m *Manager) handleSetUpdate(ctx context.Context, entry registry.Entry) err
 	// Check if set exists
 	existingSet, exists := m.sets[entry.ID]
 	if !exists {
-		return template.NewSetNotFoundError(entry.ID.String())
+		return servicetemplate.NewSetNotFoundError(entry.ID.String())
 	}
 
 	// Decode configuration
-	cfg, err := entryutil.DecodeEntryConfig[template.SetConfig](ctx, m.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[templateapi.SetConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return template.NewSetConfigDecodeError(err)
+		return servicetemplate.NewSetConfigDecodeError(err)
 	}
 
 	// Create a new template set with updated configuration
 	set, err := NewSet(entry.ID, cfg, m.dtt)
 	if err != nil {
-		return template.NewUpdateSetError(err)
+		return servicetemplate.NewUpdateSetError(err)
 	}
 
 	// Migrate all templates from the existing set to the new one
 	templates := existingSet.GetAllTemplates()
 	for name, source := range templates {
 		if err := set.AddTemplate(name, source); err != nil {
-			return template.NewMigrateTemplateError(name, err)
+			return servicetemplate.NewMigrateTemplateError(name, err)
 		}
 	}
 
@@ -409,13 +410,13 @@ func (m *Manager) handleSetDelete(ctx context.Context, entry registry.Entry) err
 	// Check if set exists
 	set, exists := m.sets[entry.ID]
 	if !exists {
-		return template.NewSetNotFoundError(entry.ID.String())
+		return servicetemplate.NewSetNotFoundError(entry.ID.String())
 	}
 
 	// Check if the set has any templates
 	templates := set.GetAllTemplates()
 	if len(templates) > 0 {
-		return template.NewSetNotEmptyError(entry.ID.String(), len(templates))
+		return servicetemplate.NewSetNotEmptyError(entry.ID.String(), len(templates))
 	}
 
 	// Unregister resource provider
@@ -443,7 +444,7 @@ func (m *Manager) GetTemplateSet(id registry.ID) (*Set, error) {
 
 	set, exists := m.sets[id]
 	if !exists {
-		return nil, template.NewSetNotFoundError(id.String())
+		return nil, servicetemplate.NewSetNotFoundError(id.String())
 	}
 
 	return set, nil
@@ -467,13 +468,13 @@ func (m *Manager) Acquire(
 	entry, exists := m.templates[id]
 	if !exists {
 		m.mu.RUnlock()
-		return nil, template.NewTemplateNotFoundError(id.String())
+		return nil, servicetemplate.NewTemplateNotFoundError(id.String())
 	}
 
 	set, exists = m.sets[entry.SetID]
 	if !exists {
 		m.mu.RUnlock()
-		return nil, template.NewSetNotFoundError(entry.SetID.String())
+		return nil, servicetemplate.NewSetNotFoundError(entry.SetID.String())
 	}
 	m.mu.RUnlock()
 

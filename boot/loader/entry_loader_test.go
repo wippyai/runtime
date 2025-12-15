@@ -599,8 +599,8 @@ func TestErrorTypes(t *testing.T) {
 			t.Errorf("ProcessingError.Error() = %v, want %v", err.Error(), expected)
 		}
 
-		if !errors.Is(err.Unwrap(), originalErr) {
-			t.Errorf("ProcessingError.Unwrap() = %v, want %v", err.Unwrap(), originalErr)
+		if !errors.Is(errors.Unwrap(err), originalErr) {
+			t.Errorf("errors.Unwrap(ProcessingError) = %v, want %v", errors.Unwrap(err), originalErr)
 		}
 	})
 }

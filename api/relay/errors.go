@@ -8,193 +8,108 @@ import (
 
 // Sentinel errors for relay operations.
 var (
-	ErrAlreadyAttached = &Error{
-		kind:      apierror.KindAlreadyExists,
-		message:   "receiver already attached",
-		retryable: apierror.False,
-	}
-
-	ErrHostNotFound = &Error{
-		kind:      apierror.KindNotFound,
-		message:   "host not found",
-		retryable: apierror.False,
-	}
-
-	ErrHostAlreadyExists = &Error{
-		kind:      apierror.KindAlreadyExists,
-		message:   "host already exists",
-		retryable: apierror.False,
-	}
-
-	ErrNilPackage = &Error{
-		kind:      apierror.KindInvalid,
-		message:   "cannot send nil package",
-		retryable: apierror.False,
-	}
-
-	ErrEmptyNodeID = &Error{
-		kind:      apierror.KindInvalid,
-		message:   "nodeID cannot be empty",
-		retryable: apierror.False,
-	}
+	ErrAlreadyAttached   = apierror.New(apierror.KindAlreadyExists, "receiver already attached").WithRetryable(apierror.False)
+	ErrHostNotFound      = apierror.New(apierror.KindNotFound, "host not found").WithRetryable(apierror.False)
+	ErrHostAlreadyExists = apierror.New(apierror.KindAlreadyExists, "host already exists").WithRetryable(apierror.False)
+	ErrNilPackage        = apierror.New(apierror.KindInvalid, "cannot send nil package").WithRetryable(apierror.False)
+	ErrEmptyNodeID       = apierror.New(apierror.KindInvalid, "nodeID cannot be empty").WithRetryable(apierror.False)
 )
 
-// Error represents a relay error with metadata.
-type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
-}
-
-func (e *Error) Error() string               { return e.message }
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
-
-// WithCause returns a new error with the given cause.
-func (e *Error) WithCause(cause error) *Error {
-	return &Error{
-		kind:      e.kind,
-		message:   e.message,
-		retryable: e.retryable,
-		details:   e.details,
-		cause:     cause,
-	}
-}
-
-// WithDetails returns a new error with the given details.
-func (e *Error) WithDetails(details attrs.Attributes) *Error {
-	return &Error{
-		kind:      e.kind,
-		message:   e.message,
-		retryable: e.retryable,
-		details:   details,
-		cause:     e.cause,
-	}
-}
-
-// WithMessage returns a new error with a custom message.
-func (e *Error) WithMessage(msg string) *Error {
-	return &Error{
-		kind:      e.kind,
-		message:   msg,
-		retryable: e.retryable,
-		details:   e.details,
-		cause:     e.cause,
-	}
-}
-
 // NewHostExistsError creates an error when host already exists.
-func NewHostExistsError(hostID pid.HostID, nodeID pid.NodeID) *Error {
-	return &Error{
-		kind:      apierror.KindAlreadyExists,
-		message:   "host " + hostID + " already exists in node " + nodeID,
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"host_id": hostID, "node_id": nodeID}),
-	}
+func NewHostExistsError(hostID pid.HostID, nodeID pid.NodeID) apierror.Error {
+	return apierror.E(
+		apierror.KindAlreadyExists,
+		"host "+hostID+" already exists in node "+nodeID,
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"host_id": hostID, "node_id": nodeID}),
+		nil,
+	)
 }
 
 // NewHostNotFoundError creates an error when host is not found.
-func NewHostNotFoundError(hostID pid.HostID, nodeID pid.NodeID) *Error {
-	return &Error{
-		kind:      apierror.KindNotFound,
-		message:   "host " + hostID + " not found in node " + nodeID,
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"host_id": hostID, "node_id": nodeID}),
-	}
-}
-
-// NewInvalidHostTypeError creates an error when host has invalid type.
-func NewInvalidHostTypeError(hostID pid.HostID, nodeID pid.NodeID) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "host " + hostID + " in node " + nodeID + " has invalid type",
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"host_id": hostID, "node_id": nodeID}),
-	}
+func NewHostNotFoundError(hostID pid.HostID, nodeID pid.NodeID) apierror.Error {
+	return apierror.E(
+		apierror.KindNotFound,
+		"host "+hostID+" not found in node "+nodeID,
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"host_id": hostID, "node_id": nodeID}),
+		nil,
+	)
 }
 
 // NewExternalNodeError creates an error when trying to route to external node.
-func NewExternalNodeError(nodeID pid.NodeID) *Error {
-	return &Error{
-		kind:      apierror.KindUnavailable,
-		message:   "cannot route to external node " + nodeID,
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"node_id": nodeID}),
-	}
+func NewExternalNodeError(nodeID pid.NodeID) apierror.Error {
+	return apierror.E(
+		apierror.KindUnavailable,
+		"cannot route to external node "+nodeID,
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"node_id": nodeID}),
+		nil,
+	)
 }
 
 // NewNodeNotFoundError creates an error when node is not found.
-func NewNodeNotFoundError(nodeID pid.NodeID) *Error {
-	return &Error{
-		kind:      apierror.KindNotFound,
-		message:   "cannot route to node " + nodeID + ": not found",
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"node_id": nodeID}),
-	}
+func NewNodeNotFoundError(nodeID pid.NodeID) apierror.Error {
+	return apierror.E(
+		apierror.KindNotFound,
+		"cannot route to node "+nodeID+": not found",
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"node_id": nodeID}),
+		nil,
+	)
 }
 
 // NewHostNotAttachableError creates an error when host doesn't support attachment.
-func NewHostNotAttachableError(hostID pid.HostID) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "host " + hostID + " does not support attachment",
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"host_id": hostID}),
-	}
+func NewHostNotAttachableError(hostID pid.HostID) apierror.Error {
+	return apierror.E(
+		apierror.KindInvalid,
+		"host "+hostID+" does not support attachment",
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"host_id": hostID}),
+		nil,
+	)
 }
 
 // NewPeerExistsError creates an error when peer node already exists.
-func NewPeerExistsError(nodeID pid.NodeID) *Error {
-	return &Error{
-		kind:      apierror.KindAlreadyExists,
-		message:   "peer node already registered: " + nodeID,
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"node_id": nodeID}),
-	}
+func NewPeerExistsError(nodeID pid.NodeID) apierror.Error {
+	return apierror.E(
+		apierror.KindAlreadyExists,
+		"peer node already registered: "+nodeID,
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"node_id": nodeID}),
+		nil,
+	)
 }
 
 // NewPeerConflictError creates an error when peer node conflicts with local node.
-func NewPeerConflictError(nodeID pid.NodeID) *Error {
-	return &Error{
-		kind:      apierror.KindConflict,
-		message:   "peer nodeID conflicts with local node: " + nodeID,
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"node_id": nodeID}),
-	}
-}
-
-// NewSubscriberError creates an error for event subscriber failures.
-func NewSubscriberError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "failed to create subscriber: " + err.Error(),
-		retryable: apierror.True,
-		details:   attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
-		cause:     err,
-	}
+func NewPeerConflictError(nodeID pid.NodeID) apierror.Error {
+	return apierror.E(
+		apierror.KindConflict,
+		"peer nodeID conflicts with local node: "+nodeID,
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"node_id": nodeID}),
+		nil,
+	)
 }
 
 // NewAlreadyAttachedError creates an error when a receiver is already attached.
-func NewAlreadyAttachedError(p pid.PID) *Error {
-	return &Error{
-		kind:      apierror.KindAlreadyExists,
-		message:   "already attached: pid=" + p.String(),
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"pid": p.String(), "host": p.Host, "uniq_id": p.UniqID}),
-		cause:     ErrAlreadyAttached,
-	}
+func NewAlreadyAttachedError(p pid.PID) apierror.Error {
+	return apierror.E(
+		apierror.KindAlreadyExists,
+		"already attached: pid="+p.String(),
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"pid": p.String(), "host": p.Host, "uniq_id": p.UniqID}),
+		ErrAlreadyAttached,
+	)
 }
 
 // NewNilPackageError creates an error when a nil package is passed to Send.
-func NewNilPackageError() *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "cannot send nil package",
-		retryable: apierror.False,
-		cause:     ErrNilPackage,
-	}
+func NewNilPackageError() apierror.Error {
+	return apierror.E(
+		apierror.KindInvalid,
+		"cannot send nil package",
+		apierror.False,
+		nil,
+		ErrNilPackage,
+	)
 }

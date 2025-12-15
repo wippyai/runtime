@@ -1,42 +1,29 @@
 package time
 
 import (
-	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
-type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
+var (
+	ErrDurationRequired = apierror.New(apierror.KindInvalid, "duration is required").WithRetryable(apierror.False)
+
+	ErrInvalidDuration = apierror.New(apierror.KindInvalid, "invalid duration format").WithRetryable(apierror.False)
+
+	ErrTimerNotFound = apierror.New(apierror.KindNotFound, "timer not found").WithRetryable(apierror.False)
+)
+
+func NewParseDurationError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "failed to parse duration").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func (e *Error) Error() string               { return e.message }
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
+var (
+	ErrDurationNumberOrStringExpected = apierror.New(apierror.KindInvalid, "duration must be number or string").WithRetryable(apierror.False)
+)
 
-var ErrDurationNumberOrStringExpected = &Error{
-	kind:      apierror.KindInvalid,
-	message:   "duration: number or string expected",
-	retryable: apierror.False,
+func NewInvalidDurationType(typeName string) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "invalid duration type: "+typeName).WithRetryable(apierror.False)
 }
 
-func NewInvalidDurationType(got string) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "duration expected, got " + got,
-		retryable: apierror.False,
-	}
-}
-
-func NewInvalidValueType(got string) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "duration, string, or number expected, got " + got,
-		retryable: apierror.False,
-	}
+func NewInvalidValueType(actual string) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "invalid value type: "+actual).WithRetryable(apierror.False)
 }

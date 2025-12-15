@@ -1,68 +1,37 @@
 package service
 
 import (
-	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
-type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
-}
-
-func (e *Error) Error() string               { return e.message }
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
-
 var (
-	ErrLoggerNotAvailable             = &Error{kind: apierror.KindInternal, message: "logger not available"}
-	ErrEventBusNotAvailable           = &Error{kind: apierror.KindInternal, message: "event bus not available"}
-	ErrTranscoderNotAvailable         = &Error{kind: apierror.KindInternal, message: "transcoder not available"}
-	ErrHandlerRegistryNotAvailable    = &Error{kind: apierror.KindInternal, message: "handler registry not available"}
-	ErrProcessFactoryNotAvailable     = &Error{kind: apierror.KindInternal, message: "process factory not available"}
-	ErrDispatcherRegistryNotAvailable = &Error{kind: apierror.KindInternal, message: "dispatcher registry not available"}
-	ErrRegistryNotAvailable           = &Error{kind: apierror.KindInternal, message: "registry not available in context"}
-	ErrFunctionRegistryNotAvailable   = &Error{kind: apierror.KindInternal, message: "function registry not available in context"}
-	ErrFilesystemRegistryNotAvailable = &Error{kind: apierror.KindInternal, message: "filesystem registry not available in context"}
-	ErrPIDGeneratorNotAvailable       = &Error{kind: apierror.KindInternal, message: "pid generator not available in context"}
-	ErrRelayNotAvailable              = &Error{kind: apierror.KindInternal, message: "relay node not available"}
-	ErrTopologyNotAvailable           = &Error{kind: apierror.KindInternal, message: "topology not available in context"}
-	ErrProcessManagerNotAvailable     = &Error{kind: apierror.KindInternal, message: "process manager not available in context"}
+	ErrLoggerNotAvailable             = apierror.New(apierror.KindInternal, "logger not available").WithRetryable(apierror.False)
+	ErrEventBusNotAvailable           = apierror.New(apierror.KindInternal, "event bus not available").WithRetryable(apierror.False)
+	ErrTranscoderNotAvailable         = apierror.New(apierror.KindInternal, "transcoder not available").WithRetryable(apierror.False)
+	ErrHandlerRegistryNotAvailable    = apierror.New(apierror.KindInternal, "handler registry not available").WithRetryable(apierror.False)
+	ErrProcessFactoryNotAvailable     = apierror.New(apierror.KindInternal, "process factory not available").WithRetryable(apierror.False)
+	ErrDispatcherRegistryNotAvailable = apierror.New(apierror.KindInternal, "dispatcher registry not available").WithRetryable(apierror.False)
+	ErrRegistryNotAvailable           = apierror.New(apierror.KindInternal, "registry not available in context").WithRetryable(apierror.False)
+	ErrFunctionRegistryNotAvailable   = apierror.New(apierror.KindInternal, "function registry not available in context").WithRetryable(apierror.False)
+	ErrFilesystemRegistryNotAvailable = apierror.New(apierror.KindInternal, "filesystem registry not available in context").WithRetryable(apierror.False)
+	ErrPIDGeneratorNotAvailable       = apierror.New(apierror.KindInternal, "pid generator not available in context").WithRetryable(apierror.False)
+	ErrRelayNotAvailable              = apierror.New(apierror.KindInternal, "relay node not available").WithRetryable(apierror.False)
+	ErrTopologyNotAvailable           = apierror.New(apierror.KindInternal, "topology not available in context").WithRetryable(apierror.False)
+	ErrProcessManagerNotAvailable     = apierror.New(apierror.KindInternal, "process manager not available in context").WithRetryable(apierror.False)
 )
 
-func NewEndpointFactoryError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "failed to create endpoint factory",
-		cause:   cause,
-	}
+func NewEndpointFactoryError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to create endpoint factory").WithCause(cause)
 }
 
-func NewStaticFactoryError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "failed to create static factory",
-		cause:   cause,
-	}
+func NewStaticFactoryError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to create static factory").WithCause(cause)
 }
 
-func NewHTTPManagerError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "failed to create http manager",
-		cause:   cause,
-	}
+func NewHTTPManagerError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to create http manager").WithCause(cause)
 }
 
-func NewSQLManagerError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "failed to create sql manager",
-		cause:   cause,
-	}
+func NewSQLManagerError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to create sql manager").WithCause(cause)
 }

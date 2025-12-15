@@ -50,7 +50,7 @@ func (f *Registry) Start(ctx context.Context) error {
 		f.handleEvent,
 	)
 	if err != nil {
-		return function.NewSubscriberError(err)
+		return NewSubscriberError(err)
 	}
 	f.subscriber = sub
 
@@ -159,7 +159,7 @@ func (f *Registry) Call(ctx context.Context, task runtimeapi.Task) (*runtimeapi.
 
 	execHandler, ok := handler.(function.Func)
 	if !ok {
-		return nil, function.NewInvalidHandlerError(task.ID)
+		return nil, NewInvalidHandlerError(task.ID)
 	}
 
 	// Merge preset and runtime options into task.Options before calling interceptors
@@ -214,7 +214,7 @@ func (f *Registry) executor(ctx context.Context, handler function.Func, task run
 
 	if err := fc.SetMultiple(pairs...); err != nil {
 		ctxapi.ReleaseFrameContext(fc)
-		return nil, function.NewFrameContextError(err)
+		return nil, NewFrameContextError(err)
 	}
 
 	// Execute function handler

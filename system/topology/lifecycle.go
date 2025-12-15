@@ -90,13 +90,11 @@ func (t *Lifecycle) OnComplete(_ context.Context, p pid.PID, result *runtime.Res
 		notifyResult = &runtime.Result{Value: result.Value}
 	}
 
-	t.topo.Notify(p, notifyResult)
-
 	if t.pidReg != nil {
 		t.pidReg.Remove(p)
 	}
 
-	t.topo.Remove(p)
+	t.topo.Complete(p, notifyResult)
 }
 
 var _ process.Lifecycle = (*Lifecycle)(nil)

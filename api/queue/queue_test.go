@@ -2,6 +2,7 @@ package queue_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -183,7 +184,6 @@ func TestErrorInterface(t *testing.T) {
 		assert.Equal(t, apierror.KindNotFound, err.Kind())
 		assert.Equal(t, apierror.False, err.Retryable())
 		assert.Nil(t, err.Details())
-		assert.Nil(t, err.Unwrap())
 	})
 
 	t.Run("ErrQueueNotFound", func(t *testing.T) {
@@ -248,23 +248,23 @@ func TestErrorInterface(t *testing.T) {
 }
 
 func TestErrorMethods(t *testing.T) {
-	t.Run("WithCause", func(t *testing.T) {
+	t.Run("SetCause", func(t *testing.T) {
 		causeErr := assert.AnError
-		err := queue.ErrDriverNotFound.WithCause(causeErr)
+		err := apierror.SetCause(queue.ErrDriverNotFound, causeErr)
 		assert.Equal(t, "queue driver not found", err.Error())
-		assert.Equal(t, causeErr, err.Unwrap())
+		assert.True(t, errors.Is(err, causeErr))
 	})
 
-	t.Run("WithMessage", func(t *testing.T) {
-		err := queue.ErrDriverNotFound.WithMessage("custom driver error")
+	t.Run("SetMessage", func(t *testing.T) {
+		err := apierror.SetMessage(queue.ErrDriverNotFound, "custom driver error")
 		assert.Equal(t, "custom driver error", err.Error())
 		assert.Equal(t, apierror.KindNotFound, err.Kind())
 	})
 
-	t.Run("WithDetails", func(t *testing.T) {
+	t.Run("SetDetails", func(t *testing.T) {
 		details := attrs.NewBag()
 		details.Set("key", "value")
-		err := queue.ErrDriverNotFound.WithDetails(details)
+		err := apierror.SetDetails(queue.ErrDriverNotFound, details)
 		assert.Equal(t, "queue driver not found", err.Error())
 		assert.Equal(t, details, err.Details())
 	})
@@ -318,7 +318,7 @@ func TestErrorConstructors(t *testing.T) {
 		err := queue.NewConfigError("invalid config", cause)
 		assert.Equal(t, "invalid config", err.Error())
 		assert.Equal(t, apierror.KindInvalid, err.Kind())
-		assert.Equal(t, cause, err.Unwrap())
+		assert.True(t, errors.Is(err, cause))
 	})
 
 	t.Run("NewUnsupportedKindError", func(t *testing.T) {

@@ -4,6 +4,8 @@ package pid
 import (
 	"strings"
 	"sync"
+
+	apierror "github.com/wippyai/runtime/api/error"
 )
 
 type (
@@ -78,13 +80,13 @@ func ParsePID(s string) (PID, error) {
 	var pid PID
 
 	if len(s) < 3 || s[0] != '{' || s[len(s)-1] != '}' {
-		return pid, ErrInvalidPIDFormat.WithMessage("invalid pid format: missing braces")
+		return pid, apierror.SetMessage(ErrInvalidPIDFormat, "invalid pid format: missing braces")
 	}
 	s = s[1 : len(s)-1]
 
 	pipe := strings.IndexByte(s, '|')
 	if pipe == -1 {
-		return pid, ErrInvalidPIDFormat.WithMessage("invalid pid format: missing pipe")
+		return pid, apierror.SetMessage(ErrInvalidPIDFormat, "invalid pid format: missing pipe")
 	}
 
 	hostPart := s[:pipe]
@@ -126,11 +128,11 @@ func (p PID) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements the json.Unmarshaler interface.
 func (p *PID) UnmarshalJSON(data []byte) error {
 	if len(data) < 4 {
-		return ErrInvalidPIDFormat.WithMessage("invalid PID JSON: too short")
+		return apierror.SetMessage(ErrInvalidPIDFormat, "invalid PID JSON: too short")
 	}
 
 	if data[0] != '"' || data[len(data)-1] != '"' {
-		return ErrInvalidPIDFormat.WithMessage("invalid PID JSON: missing quotes")
+		return apierror.SetMessage(ErrInvalidPIDFormat, "invalid PID JSON: missing quotes")
 	}
 
 	s := string(data[1 : len(data)-1])

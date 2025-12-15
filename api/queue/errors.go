@@ -8,213 +8,103 @@ import (
 
 // Sentinel errors for queue operations.
 var (
-	ErrDriverNotFound = &Error{
-		kind:      apierror.KindNotFound,
-		message:   "queue driver not found",
-		retryable: apierror.False,
-	}
-
-	ErrQueueNotFound = &Error{
-		kind:      apierror.KindNotFound,
-		message:   "queue not found",
-		retryable: apierror.False,
-	}
-
-	ErrDriverNotStarted = &Error{
-		kind:      apierror.KindUnavailable,
-		message:   "queue driver not started",
-		retryable: apierror.True,
-	}
-
-	ErrQueueFull = &Error{
-		kind:      apierror.KindUnavailable,
-		message:   "queue is full",
-		retryable: apierror.True,
-	}
-
-	ErrQueueClosed = &Error{
-		kind:      apierror.KindUnavailable,
-		message:   "queue is closed",
-		retryable: apierror.False,
-	}
-
-	ErrMessageExpired = &Error{
-		kind:      apierror.KindInvalid,
-		message:   "message expired",
-		retryable: apierror.False,
-	}
-
-	ErrConsumerClosed = &Error{
-		kind:      apierror.KindUnavailable,
-		message:   "consumer closed",
-		retryable: apierror.False,
-	}
-
-	ErrNoPublishFunc = &Error{
-		kind:      apierror.KindUnavailable,
-		message:   "no publish function configured",
-		retryable: apierror.False,
-	}
-
-	ErrDriverIDRequired = &Error{
-		kind:      apierror.KindInvalid,
-		message:   "driver ID is required",
-		retryable: apierror.False,
-	}
-
-	ErrQueueIDRequired = &Error{
-		kind:      apierror.KindInvalid,
-		message:   "queue ID is required",
-		retryable: apierror.False,
-	}
-
-	ErrFunctionIDRequired = &Error{
-		kind:      apierror.KindInvalid,
-		message:   "function ID is required",
-		retryable: apierror.False,
-	}
+	ErrDriverNotFound     = apierror.New(apierror.KindNotFound, "queue driver not found").WithRetryable(apierror.False)
+	ErrQueueNotFound      = apierror.New(apierror.KindNotFound, "queue not found").WithRetryable(apierror.False)
+	ErrDriverNotStarted   = apierror.New(apierror.KindUnavailable, "queue driver not started").WithRetryable(apierror.True)
+	ErrQueueFull          = apierror.New(apierror.KindUnavailable, "queue is full").WithRetryable(apierror.True)
+	ErrQueueClosed        = apierror.New(apierror.KindUnavailable, "queue is closed").WithRetryable(apierror.False)
+	ErrMessageExpired     = apierror.New(apierror.KindInvalid, "message expired").WithRetryable(apierror.False)
+	ErrConsumerClosed     = apierror.New(apierror.KindUnavailable, "consumer closed").WithRetryable(apierror.False)
+	ErrNoPublishFunc      = apierror.New(apierror.KindUnavailable, "no publish function configured").WithRetryable(apierror.False)
+	ErrDriverIDRequired   = apierror.New(apierror.KindInvalid, "driver ID is required").WithRetryable(apierror.False)
+	ErrQueueIDRequired    = apierror.New(apierror.KindInvalid, "queue ID is required").WithRetryable(apierror.False)
+	ErrFunctionIDRequired = apierror.New(apierror.KindInvalid, "function ID is required").WithRetryable(apierror.False)
 )
 
-// Error represents a queue error with metadata.
-type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
-}
-
-func (e *Error) Error() string               { return e.message }
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
-
-// WithCause returns a new error with the given cause.
-func (e *Error) WithCause(cause error) *Error {
-	return &Error{
-		kind:      e.kind,
-		message:   e.message,
-		retryable: e.retryable,
-		details:   e.details,
-		cause:     cause,
-	}
-}
-
-// WithMessage returns a new error with a custom message.
-func (e *Error) WithMessage(msg string) *Error {
-	return &Error{
-		kind:      e.kind,
-		message:   msg,
-		retryable: e.retryable,
-		details:   e.details,
-		cause:     e.cause,
-	}
-}
-
-// WithDetails returns a new error with additional details.
-func (e *Error) WithDetails(details attrs.Attributes) *Error {
-	return &Error{
-		kind:      e.kind,
-		message:   e.message,
-		retryable: e.retryable,
-		details:   details,
-		cause:     e.cause,
-	}
-}
-
 // NewDriverNotFoundError creates a driver not found error with ID.
-func NewDriverNotFoundError(id registry.ID) *Error {
-	details := attrs.NewBag()
-	details.Set("driver_id", id.String())
-	return &Error{
-		kind:      apierror.KindNotFound,
-		message:   "driver not found: " + id.String(),
-		retryable: apierror.False,
-		details:   details,
-	}
+func NewDriverNotFoundError(id registry.ID) apierror.Error {
+	return apierror.E(
+		apierror.KindNotFound,
+		"driver not found: "+id.String(),
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"driver_id": id.String()}),
+		nil,
+	)
 }
 
 // NewQueueNotFoundError creates a queue not found error with ID.
-func NewQueueNotFoundError(id registry.ID) *Error {
-	details := attrs.NewBag()
-	details.Set("queue_id", id.String())
-	return &Error{
-		kind:      apierror.KindNotFound,
-		message:   "queue not found: " + id.String(),
-		retryable: apierror.False,
-		details:   details,
-	}
+func NewQueueNotFoundError(id registry.ID) apierror.Error {
+	return apierror.E(
+		apierror.KindNotFound,
+		"queue not found: "+id.String(),
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"queue_id": id.String()}),
+		nil,
+	)
 }
 
 // NewDriverExistsError creates a driver already exists error.
-func NewDriverExistsError(id registry.ID) *Error {
-	details := attrs.NewBag()
-	details.Set("driver_id", id.String())
-	return &Error{
-		kind:      apierror.KindAlreadyExists,
-		message:   "driver already exists: " + id.String(),
-		retryable: apierror.False,
-		details:   details,
-	}
+func NewDriverExistsError(id registry.ID) apierror.Error {
+	return apierror.E(
+		apierror.KindAlreadyExists,
+		"driver already exists: "+id.String(),
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"driver_id": id.String()}),
+		nil,
+	)
 }
 
 // NewQueueClosedError creates a queue closed error with ID.
-func NewQueueClosedError(id registry.ID) *Error {
-	details := attrs.NewBag()
-	details.Set("queue_id", id.String())
-	return &Error{
-		kind:      apierror.KindUnavailable,
-		message:   "queue is closed: " + id.String(),
-		retryable: apierror.False,
-		details:   details,
-	}
+func NewQueueClosedError(id registry.ID) apierror.Error {
+	return apierror.E(
+		apierror.KindUnavailable,
+		"queue is closed: "+id.String(),
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"queue_id": id.String()}),
+		nil,
+	)
 }
 
 // NewConfigError creates a configuration error.
-func NewConfigError(msg string, cause error) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   msg,
-		retryable: apierror.False,
-		cause:     cause,
-	}
+func NewConfigError(msg string, cause error) apierror.Error {
+	return apierror.E(
+		apierror.KindInvalid,
+		msg,
+		apierror.False,
+		nil,
+		cause,
+	)
 }
 
 // NewUnsupportedKindError creates an unsupported entry kind error.
-func NewUnsupportedKindError(kind string) *Error {
-	details := attrs.NewBag()
-	details.Set("kind", kind)
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "unsupported entry kind: " + kind,
-		retryable: apierror.False,
-		details:   details,
-	}
+func NewUnsupportedKindError(kind string) apierror.Error {
+	return apierror.E(
+		apierror.KindInvalid,
+		"unsupported entry kind: "+kind,
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"kind": kind}),
+		nil,
+	)
 }
 
 // NewConcurrencyExceededError creates a concurrency limit error.
-func NewConcurrencyExceededError(value, maxValue int) *Error {
-	details := attrs.NewBag()
-	details.Set("concurrency", value)
-	details.Set("max", maxValue)
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "concurrency exceeds maximum",
-		retryable: apierror.False,
-		details:   details,
-	}
+func NewConcurrencyExceededError(value, maxValue int) apierror.Error {
+	return apierror.E(
+		apierror.KindInvalid,
+		"concurrency exceeds maximum",
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"concurrency": value, "max": maxValue}),
+		nil,
+	)
 }
 
 // NewPrefetchExceededError creates a prefetch limit error.
-func NewPrefetchExceededError(value, maxValue int) *Error {
-	details := attrs.NewBag()
-	details.Set("prefetch", value)
-	details.Set("max", maxValue)
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "prefetch exceeds maximum",
-		retryable: apierror.False,
-		details:   details,
-	}
+func NewPrefetchExceededError(value, maxValue int) apierror.Error {
+	return apierror.E(
+		apierror.KindInvalid,
+		"prefetch exceeds maximum",
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"prefetch": value, "max": maxValue}),
+		nil,
+	)
 }

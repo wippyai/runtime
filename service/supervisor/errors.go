@@ -1,105 +1,53 @@
 package supervisor
 
 import (
+	"fmt"
+
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
+	"github.com/wippyai/runtime/api/pid"
 )
-
-// Error represents a supervisor service error.
-type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
-}
-
-func (e *Error) Error() string {
-	if e.cause != nil {
-		return e.message + ": " + e.cause.Error()
-	}
-	return e.message
-}
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
 
 var (
-	ErrNoRelayNode = &Error{
-		kind:    apierror.KindInternal,
-		message: "no relay node in context",
-	}
-
-	ErrNoTopology = &Error{
-		kind:    apierror.KindInternal,
-		message: "no topology in context",
-	}
-
-	ErrNoProcessManager = &Error{
-		kind:    apierror.KindInternal,
-		message: "no process manager in context",
-	}
+	ErrNoRelayNode      = apierror.New(apierror.KindInternal, "no relay node in context").WithRetryable(apierror.False)
+	ErrNoTopology       = apierror.New(apierror.KindInternal, "no topology in context").WithRetryable(apierror.False)
+	ErrNoProcessManager = apierror.New(apierror.KindInternal, "no process manager in context").WithRetryable(apierror.False)
+	ErrProcessRequired  = apierror.New(apierror.KindInvalid, "process Process is required").WithRetryable(apierror.False)
+	ErrHostRequired     = apierror.New(apierror.KindInvalid, "host Process is required").WithRetryable(apierror.False)
 )
 
-func newRegisterPIDError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "register supervisor pid",
-		cause:   cause,
-	}
+func NewInvalidHostError(hostID pid.HostID) apierror.Error {
+	return apierror.New(apierror.KindInvalid, fmt.Sprintf("host Process cannot be %s", hostID)).WithRetryable(apierror.False)
 }
 
-func newAttachRelayError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "attach to relay",
-		cause:   cause,
-	}
+func newRegisterPIDError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "register supervisor pid").WithCause(cause)
 }
 
-func newStartProcessError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "start process",
-		cause:   cause,
-	}
+func newAttachRelayError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "attach to relay").WithCause(cause)
 }
 
-func newSendCancelError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "send cancel",
-		cause:   cause,
-	}
+func newStartProcessError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "start process").WithCause(cause)
 }
 
-func newDecodeConfigError(cause error) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "decode config",
-		retryable: apierror.False,
-		cause:     cause,
-	}
+func newSendCancelError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "send cancel").WithCause(cause)
 }
 
-func newInvalidEntryKindError(got, expected string) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "invalid entry kind",
-		retryable: apierror.False,
-		details: attrs.Bag{
-			"got":      got,
-			"expected": expected,
-		},
-	}
+func newDecodeConfigError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "decode config").WithRetryable(apierror.False).WithCause(cause)
 }
 
-func newServiceNotFoundError(id string) *Error {
-	return &Error{
-		kind:      apierror.KindNotFound,
-		message:   "service not found",
-		retryable: apierror.False,
-		details:   attrs.Bag{"id": id},
-	}
+func newInvalidEntryKindError(got, expected string) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "invalid entry kind").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.Bag{"got": got, "expected": expected})
+}
+
+func newServiceNotFoundError(id string) apierror.Error {
+	return apierror.New(apierror.KindNotFound, "service not found").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.Bag{"id": id})
 }

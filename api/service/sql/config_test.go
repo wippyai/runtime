@@ -194,7 +194,7 @@ func TestDBConfig_Validate(t *testing.T) {
 				},
 			},
 			wantErr: true,
-			errMsg:  "max_open must be greater or equal to 0",
+			errMsg:  "max open connections must be non-negative",
 		},
 		{
 			name: "zero max lifetime",
@@ -209,7 +209,7 @@ func TestDBConfig_Validate(t *testing.T) {
 				},
 			},
 			wantErr: true,
-			errMsg:  "max_lifetime must be greater than 0",
+			errMsg:  "max lifetime must be greater than 0",
 		},
 	}
 
@@ -253,7 +253,7 @@ func TestSQLiteConfig_Validate(t *testing.T) {
 			name:    "missing file",
 			config:  SQLiteConfig{},
 			wantErr: true,
-			errMsg:  "file is required",
+			errMsg:  "file path is required",
 		},
 		{
 			name: "zero max lifetime",
@@ -262,7 +262,7 @@ func TestSQLiteConfig_Validate(t *testing.T) {
 				Pool: PoolConfig{MaxLifetime: 0},
 			},
 			wantErr: true,
-			errMsg:  "max_lifetime must be greater than 0",
+			errMsg:  "max lifetime must be greater than 0",
 		},
 	}
 
@@ -304,7 +304,7 @@ func TestPoolConfig_UnmarshalJSON_InvalidDuration(t *testing.T) {
 	var config PoolConfig
 	err := json.Unmarshal([]byte(jsonData), &config)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid max_lifetime duration format")
+	assert.Contains(t, err.Error(), "invalid duration format")
 }
 
 func TestDBConfig_Validate_MissingUsername(t *testing.T) {
@@ -347,7 +347,7 @@ func TestDBConfig_Validate_NegativeMaxIdle(t *testing.T) {
 	}
 	err := config.Validate()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "max_idle must be greater than or equal to 0")
+	assert.Contains(t, err.Error(), "max idle connections must be non-negative")
 }
 
 func TestPoolConfig_MarshalJSON(t *testing.T) {

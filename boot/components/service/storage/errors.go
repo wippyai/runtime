@@ -1,38 +1,19 @@
 package storage
 
 import (
-	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
-type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
-}
-
-func (e *Error) Error() string               { return e.message }
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
-
 var (
-	ErrLoggerNotAvailable           = &Error{kind: apierror.KindInternal, message: "logger not available in context"}
-	ErrTranscoderNotAvailable       = &Error{kind: apierror.KindInternal, message: "transcoder not available in context"}
-	ErrEventBusNotAvailable         = &Error{kind: apierror.KindInternal, message: "event bus not available in context"}
-	ErrResourceRegistryNotAvailable = &Error{kind: apierror.KindInternal, message: "resource registry not available in context"}
-	ErrSecurityRegistryNotAvailable = &Error{kind: apierror.KindInternal, message: "security registry not available in context"}
-	ErrHandlerRegistryNotAvailable  = &Error{kind: apierror.KindInternal, message: "handler registry not available in context"}
-	ErrRegistryNotAvailable         = &Error{kind: apierror.KindInternal, message: "registry not available in context"}
+	ErrLoggerNotAvailable           = apierror.New(apierror.KindInternal, "logger not available in context").WithRetryable(apierror.False)
+	ErrTranscoderNotAvailable       = apierror.New(apierror.KindInternal, "transcoder not available in context").WithRetryable(apierror.False)
+	ErrEventBusNotAvailable         = apierror.New(apierror.KindInternal, "event bus not available in context").WithRetryable(apierror.False)
+	ErrResourceRegistryNotAvailable = apierror.New(apierror.KindInternal, "resource registry not available in context").WithRetryable(apierror.False)
+	ErrSecurityRegistryNotAvailable = apierror.New(apierror.KindInternal, "security registry not available in context").WithRetryable(apierror.False)
+	ErrHandlerRegistryNotAvailable  = apierror.New(apierror.KindInternal, "handler registry not available in context").WithRetryable(apierror.False)
+	ErrRegistryNotAvailable         = apierror.New(apierror.KindInternal, "registry not available in context").WithRetryable(apierror.False)
 )
 
-func NewSQLManagerError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "failed to create sql manager",
-		cause:   cause,
-	}
+func NewSQLManagerError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to create sql manager").WithCause(cause)
 }

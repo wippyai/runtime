@@ -45,7 +45,7 @@ func (s *Registry) Start(ctx context.Context) error {
 		s.handleEvent,
 	)
 	if err != nil {
-		return resource.NewSubscriberError(err)
+		return NewSubscriberError(err)
 	}
 	s.subscriber = sub
 

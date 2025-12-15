@@ -5,70 +5,28 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
-type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
-}
-
-func (e *Error) Error() string               { return e.message }
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
-
 func newCreateExporterError(cause error) error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "failed to create OTLP exporter",
-		retryable: apierror.Unknown,
-		cause:     cause,
-	}
+	return apierror.New(apierror.KindInternal, "failed to create OTLP exporter").WithCause(cause)
 }
 
 func newCreateResourceError(cause error) error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "failed to create resource",
-		retryable: apierror.Unknown,
-		cause:     cause,
-	}
+	return apierror.New(apierror.KindInternal, "failed to create resource").WithCause(cause)
 }
 
 func newUnsupportedProtocolError(protocol string) error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "unsupported protocol: " + protocol,
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"protocol": protocol}),
-	}
+	return apierror.New(apierror.KindInvalid, "unsupported protocol: "+protocol).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"protocol": protocol}))
 }
 
 func newShutdownTracerProviderError(cause error) error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "failed to shutdown tracer provider",
-		retryable: apierror.Unknown,
-		cause:     cause,
-	}
+	return apierror.New(apierror.KindInternal, "failed to shutdown tracer provider").WithCause(cause)
 }
 
 func newCreateMetricExporterError(cause error) error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "failed to create OTLP metric exporter",
-		retryable: apierror.Unknown,
-		cause:     cause,
-	}
+	return apierror.New(apierror.KindInternal, "failed to create OTLP metric exporter").WithCause(cause)
 }
 
 func newShutdownMeterProviderError(cause error) error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "failed to shutdown meter provider",
-		retryable: apierror.Unknown,
-		cause:     cause,
-	}
+	return apierror.New(apierror.KindInternal, "failed to shutdown meter provider").WithCause(cause)
 }

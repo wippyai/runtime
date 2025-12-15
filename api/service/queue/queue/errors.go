@@ -1,7 +1,5 @@
 package queue
 
-import (
-	queueapi "github.com/wippyai/runtime/api/queue"
-)
+import apierror "github.com/wippyai/runtime/api/error"
 
-var ErrDriverIDRequired = queueapi.ErrDriverIDRequired
+var ErrDriverIDRequired = apierror.New(apierror.KindInvalid, "driver ID is required").WithRetryable(apierror.False)

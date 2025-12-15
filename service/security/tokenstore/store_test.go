@@ -22,9 +22,9 @@ import (
 	"github.com/wippyai/runtime/api/resource"
 	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/api/service/security/tokenstore"
+	tokenimpl "github.com/wippyai/runtime/api/service/security/tokenstore"
+	memorystore "github.com/wippyai/runtime/api/service/store/memory"
 	memstore "github.com/wippyai/runtime/api/service/store/memory"
-	tokenimpl "github.com/wippyai/runtime/service/security/tokenstore"
-	memorystore "github.com/wippyai/runtime/service/store/memory"
 	securitysys "github.com/wippyai/runtime/system/security"
 )
 

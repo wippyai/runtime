@@ -10,6 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	dirapi "github.com/wippyai/runtime/api/service/fs/directory"
 	entryutil "github.com/wippyai/runtime/internal/entry"
+	systemfs "github.com/wippyai/runtime/system/fs"
 	"go.uber.org/zap"
 )
 
@@ -136,7 +137,7 @@ func (m *Manager) registerFS(ctx context.Context, id registry.ID, cfg *dirapi.Co
 			zap.String("id", id.String()),
 			zap.String("directory", cfg.Directory),
 			zap.Error(err))
-		return fsapi.NewCreateFilesystemError(err)
+		return systemfs.NewCreateFilesystemError(err)
 	}
 
 	// Store in directories map

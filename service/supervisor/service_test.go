@@ -71,12 +71,12 @@ func (m *mockTopology) Remove(p pid.PID) {
 	m.removed = append(m.removed, p)
 }
 
-func (m *mockTopology) Monitor(_, _ pid.PID) error      { return nil }
-func (m *mockTopology) Demonitor(_, _ pid.PID) error    { return nil }
-func (m *mockTopology) Link(_, _ pid.PID) error         { return nil }
-func (m *mockTopology) Unlink(_, _ pid.PID) error       { return nil }
-func (m *mockTopology) GetLinks(pid.PID) []pid.PID      { return nil }
-func (m *mockTopology) Notify(pid.PID, *runtime.Result) {}
+func (m *mockTopology) Monitor(_, _ pid.PID) error        { return nil }
+func (m *mockTopology) Demonitor(_, _ pid.PID) error      { return nil }
+func (m *mockTopology) Link(_, _ pid.PID) error           { return nil }
+func (m *mockTopology) Unlink(_, _ pid.PID) error         { return nil }
+func (m *mockTopology) GetLinks(pid.PID) []pid.PID        { return nil }
+func (m *mockTopology) Complete(pid.PID, *runtime.Result) {}
 
 // mockProcessManager implements process.Manager for testing
 type mockProcessManager struct {

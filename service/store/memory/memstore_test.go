@@ -10,7 +10,7 @@ import (
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 
-	memorystore "github.com/wippyai/runtime/service/store/memory"
+	memorystore "github.com/wippyai/runtime/api/service/store/memory"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

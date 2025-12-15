@@ -50,7 +50,7 @@ func (c *Configurator) GetConfig(ctx context.Context) (api.Config, error) {
 		}
 	})
 	if err != nil {
-		return api.Config{}, api.NewSubscriberError(err)
+		return api.Config{}, NewSubscriberError(err)
 	}
 	defer sub.Close()
 
@@ -86,7 +86,7 @@ func (c *Configurator) SetConfig(ctx context.Context, cfg api.Config) error {
 		}
 	})
 	if err != nil {
-		return api.NewSubscriberError(err)
+		return NewSubscriberError(err)
 	}
 	defer sub.Close()
 
@@ -100,7 +100,7 @@ func (c *Configurator) SetConfig(ctx context.Context, cfg api.Config) error {
 	select {
 	case confirm := <-confirmCh:
 		if confirm != cfg {
-			return api.NewConfigMismatchError(fmt.Sprintf("%+v", cfg), fmt.Sprintf("%+v", confirm))
+			return NewConfigMismatchError(fmt.Sprintf("%+v", cfg), fmt.Sprintf("%+v", confirm))
 		}
 		return nil
 	case <-time.After(c.defaultTimeout):
@@ -119,14 +119,14 @@ func (c *Configurator) EnableTemporaryConfig(ctx context.Context, tempConfig api
 	if c.baseConfig == nil {
 		cfg, err := c.GetConfig(ctx)
 		if err != nil {
-			return api.NewGetLoggingConfigError(err)
+			return NewGetLoggingConfigError(err)
 		}
 		c.baseConfig = &cfg
 	}
 
 	err := c.SetConfig(ctx, tempConfig)
 	if err != nil {
-		return api.NewSetTempConfigError(err)
+		return NewSetTempConfigError(err)
 	}
 
 	c.log.Debug("temporary logging config enabled")

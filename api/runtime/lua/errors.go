@@ -8,506 +8,123 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
-type Error struct {
-	Msg         string
-	ErrKind     apierror.Kind
-	IsRetryable apierror.Ternary
-	ErrDetails  attrs.Attributes
-	ErrCause    error
-}
-
-func (e *Error) Error() string {
-	if e.ErrCause != nil {
-		return e.Msg + ": " + e.ErrCause.Error()
-	}
-	return e.Msg
-}
-func (e *Error) Kind() apierror.Kind         { return e.ErrKind }
-func (e *Error) Retryable() apierror.Ternary { return e.IsRetryable }
-func (e *Error) Details() attrs.Attributes   { return e.ErrDetails }
-func (e *Error) Unwrap() error               { return e.ErrCause }
-
-// Implement apierror.Error interface
-var _ apierror.Error = (*Error)(nil)
-
 var (
-	ErrSourceRequired = &Error{
-		ErrKind:     apierror.KindInvalid,
-		Msg:         "source is required",
-		IsRetryable: apierror.False,
-	}
+	ErrSourceRequired = apierror.New(apierror.KindInvalid, "source is required").WithRetryable(apierror.False)
 
-	ErrMethodRequired = &Error{
-		ErrKind:     apierror.KindInvalid,
-		Msg:         "method is required",
-		IsRetryable: apierror.False,
-	}
+	ErrMethodRequired = apierror.New(apierror.KindInvalid, "method is required").WithRetryable(apierror.False)
 
-	ErrEmptyImportAlias = &Error{
-		ErrKind:     apierror.KindInvalid,
-		Msg:         "import alias cannot be empty",
-		IsRetryable: apierror.False,
-	}
+	ErrEmptyImportAlias = apierror.New(apierror.KindInvalid, "import alias cannot be empty").WithRetryable(apierror.False)
 
-	ErrEmptyModule = &Error{
-		ErrKind:     apierror.KindInvalid,
-		Msg:         "module cannot be empty",
-		IsRetryable: apierror.False,
-	}
+	ErrEmptyModule = apierror.New(apierror.KindInvalid, "module cannot be empty").WithRetryable(apierror.False)
 
-	ErrFSRequired = &Error{
-		ErrKind:     apierror.KindInvalid,
-		Msg:         "fs is required",
-		IsRetryable: apierror.False,
-	}
+	ErrFSRequired = apierror.New(apierror.KindInvalid, "fs is required").WithRetryable(apierror.False)
 
-	ErrPathRequired = &Error{
-		ErrKind:     apierror.KindInvalid,
-		Msg:         "path is required",
-		IsRetryable: apierror.False,
-	}
+	ErrPathRequired = apierror.New(apierror.KindInvalid, "path is required").WithRetryable(apierror.False)
 
-	ErrHashRequired = &Error{
-		ErrKind:     apierror.KindInvalid,
-		Msg:         "hash is required",
-		IsRetryable: apierror.False,
-	}
+	ErrHashRequired = apierror.New(apierror.KindInvalid, "hash is required").WithRetryable(apierror.False)
+
+	ErrTranscoderNotFound = apierror.New(apierror.KindNotFound, "transcoder not found in context").WithRetryable(apierror.False)
+
+	ErrChannelNotFound = apierror.New(apierror.KindNotFound, "channel not found").WithRetryable(apierror.False)
+
+	ErrTaskNotFound = apierror.New(apierror.KindNotFound, "task not found").WithRetryable(apierror.False)
+
+	ErrNoScriptOrProto = apierror.New(apierror.KindInvalid, "no script or proto provided").WithRetryable(apierror.False)
 )
 
-func NewInvalidPoolSizeError() *Error {
-	return &Error{
-		ErrKind:     apierror.KindInvalid,
-		Msg:         "pool.size must be greater than 0 for non-flex pools",
-		IsRetryable: apierror.False,
-	}
+func NewInvalidPoolSizeError() apierror.Error {
+	return apierror.New(apierror.KindInvalid, "pool.size must be greater than 0 for non-flex pools").WithRetryable(apierror.False)
 }
 
-func NewInvalidWorkerPoolSizeError() *Error {
-	return &Error{
-		ErrKind:     apierror.KindInvalid,
-		Msg:         "pool.size must be greater than 0 for worker pools",
-		IsRetryable: apierror.False,
-	}
+func NewInvalidWorkerPoolSizeError() apierror.Error {
+	return apierror.New(apierror.KindInvalid, "pool.size must be greater than 0 for worker pools").WithRetryable(apierror.False)
 }
 
-func NewEmptyImportNameError() *Error {
-	return &Error{
-		ErrKind:     apierror.KindInvalid,
-		Msg:         "import :name cannot be empty",
-		IsRetryable: apierror.False,
-	}
+func NewEmptyImportNameError() apierror.Error {
+	return apierror.New(apierror.KindInvalid, "import :name cannot be empty").WithRetryable(apierror.False)
 }
 
-func NewModuleNamespaceError() *Error {
-	return &Error{
-		ErrKind:     apierror.KindInvalid,
-		Msg:         "module cannot have a namespace",
-		IsRetryable: apierror.False,
-	}
+func NewModuleNamespaceError() apierror.Error {
+	return apierror.New(apierror.KindInvalid, "module cannot have a namespace").WithRetryable(apierror.False)
 }
 
-// Component errors
-
-var (
-	ErrTranscoderNotFound = &Error{
-		ErrKind:     apierror.KindNotFound,
-		Msg:         "transcoder not found in context",
-		IsRetryable: apierror.False,
-	}
-)
-
-func NewInvalidEntryKindError(got, expected string) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInvalid,
-		Msg:         "invalid entry kind " + got + ", expected " + expected,
-		IsRetryable: apierror.False,
-	}
+func NewInvalidEntryKindError(got, expected string) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "invalid entry kind "+got+", expected "+expected).WithRetryable(apierror.False)
 }
 
-func NewUnpackConfigError(component string, cause error) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInvalid,
-		Msg:         "failed to unpack " + component + " config",
-		IsRetryable: apierror.False,
-		ErrCause:    cause,
-	}
+func NewValidationError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "invalid configuration: "+cause.Error()).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": cause.Error()}))
 }
 
-func NewUnmarshalConfigError(cause error) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInvalid,
-		Msg:         "failed to unmarshal config",
-		IsRetryable: apierror.False,
-		ErrCause:    cause,
-		ErrDetails:  attrs.NewBagFrom(map[string]any{"cause": cause.Error()}),
-	}
+func NewPoolNotFoundError(id string) apierror.Error {
+	return apierror.New(apierror.KindNotFound, "pool not found: "+id).WithRetryable(apierror.False)
 }
 
-func NewValidationError(cause error) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInvalid,
-		Msg:         "invalid configuration: " + cause.Error(),
-		IsRetryable: apierror.False,
-		ErrDetails:  attrs.NewBagFrom(map[string]any{"cause": cause.Error()}),
-	}
+func NewUnknownPoolTypeError(poolType string) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "unknown pool type: "+poolType).WithRetryable(apierror.False)
 }
 
-func NewCompileError(cause error) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInternal,
-		Msg:         "failed to compile",
-		IsRetryable: apierror.False,
-		ErrCause:    cause,
-	}
+func NewHashVerificationError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "hash verification failed").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewAddNodeError(component string, cause error) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInternal,
-		Msg:         "failed to add " + component + " node",
-		IsRetryable: apierror.False,
-		ErrCause:    cause,
-	}
+func NewFilesystemNotFoundError(fsID string) apierror.Error {
+	return apierror.New(apierror.KindNotFound, "filesystem not found: "+fsID).WithRetryable(apierror.False)
 }
 
-func NewUpdateNodeError(component string, cause error) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInternal,
-		Msg:         "failed to update " + component + " node",
-		IsRetryable: apierror.False,
-		ErrCause:    cause,
-	}
+func NewOpenFileError(path string, cause error) apierror.Error {
+	return apierror.New(apierror.KindNotFound, "failed to open file: "+path).
+		WithCause(cause).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": cause.Error()}))
 }
 
-func NewDeleteNodeError(component string, cause error) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInternal,
-		Msg:         "failed to delete " + component + " node",
-		IsRetryable: apierror.False,
-		ErrCause:    cause,
-	}
+func NewInvalidHashFormatError(hash string) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "invalid hash format: "+hash).WithRetryable(apierror.False)
 }
 
-func NewRegisterFactoryError(cause error) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInternal,
-		Msg:         "failed to register factory",
-		IsRetryable: apierror.False,
-		ErrCause:    cause,
-	}
+func NewUnsupportedHashAlgorithmError(algorithm string) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "unsupported hash algorithm: "+algorithm).WithRetryable(apierror.False)
 }
 
-func NewUpdateFactoryError(cause error) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInternal,
-		Msg:         "failed to update factory",
-		IsRetryable: apierror.False,
-		ErrCause:    cause,
-	}
+func NewHashMismatchError(expected, actual string) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "hash mismatch: expected "+expected+", got "+actual).WithRetryable(apierror.False)
 }
 
-func NewCreatePoolError(cause error) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInternal,
-		Msg:         "failed to create pool",
-		IsRetryable: apierror.False,
-		ErrCause:    cause,
-	}
+func NewTopicAlreadySubscribedError(topic string) apierror.Error {
+	return apierror.New(apierror.KindAlreadyExists, "topic \""+topic+"\" already subscribed").WithRetryable(apierror.False)
 }
 
-func NewReplacePoolError(cause error) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInternal,
-		Msg:         "failed to replace pool",
-		IsRetryable: apierror.False,
-		ErrCause:    cause,
-	}
+func NewMethodNotFoundError(method string) apierror.Error {
+	return apierror.New(apierror.KindNotFound, "method \""+method+"\" not found in module").WithRetryable(apierror.False)
 }
 
-func NewPoolNotFoundError(id string) *Error {
-	return &Error{
-		ErrKind:     apierror.KindNotFound,
-		Msg:         "pool not found: " + id,
-		IsRetryable: apierror.False,
-	}
+func NewTaskNotFoundForChannelError(cause error) apierror.Error {
+	return apierror.New(apierror.KindNotFound, "task not found for channel result").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewUnknownPoolTypeError(poolType string) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInvalid,
-		Msg:         "unknown pool type: " + poolType,
-		IsRetryable: apierror.False,
-	}
+func NewNotAllowedError(action, target string) apierror.Error {
+	return apierror.New(apierror.KindPermissionDenied, "not allowed to "+action+": "+target).WithRetryable(apierror.False)
 }
 
-func NewRegisterCallerError(id fmt.Stringer, cause error) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInternal,
-		Msg:         "failed to register function caller: " + id.String(),
-		IsRetryable: apierror.False,
-		ErrCause:    cause,
-	}
+func NewCouldNotResolveError(pidOrName string) apierror.Error {
+	return apierror.New(apierror.KindNotFound, "could not resolve '"+pidOrName+"' as PID or registered name").WithRetryable(apierror.False)
 }
 
-func NewUnregisterCallerError(id fmt.Stringer, cause error) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInternal,
-		Msg:         "failed to unregister function caller: " + id.String(),
-		IsRetryable: apierror.False,
-		ErrCause:    cause,
-	}
+func NewInvalidFormatError(message string) apierror.Error {
+	return apierror.New(apierror.KindInvalid, message).WithRetryable(apierror.False)
 }
 
-// Bytecode errors
-
-func NewLoadBytecodeError(cause error) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInternal,
-		Msg:         "failed to load bytecode",
-		IsRetryable: apierror.False,
-		ErrCause:    cause,
-	}
+func NewInvalidTypeError(message string) apierror.Error {
+	return apierror.New(apierror.KindInvalid, message).WithRetryable(apierror.False)
 }
 
-func NewUndumpBytecodeError(cause error) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInternal,
-		Msg:         "failed to undump bytecode",
-		IsRetryable: apierror.False,
-		ErrCause:    cause,
-		ErrDetails:  attrs.NewBagFrom(map[string]any{"cause": cause.Error()}),
-	}
+func NewUnsupportedTypeError(message string) apierror.Error {
+	return apierror.New(apierror.KindInvalid, message).WithRetryable(apierror.False)
 }
 
-func NewHashVerificationError(cause error) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInvalid,
-		Msg:         "hash verification failed",
-		IsRetryable: apierror.False,
-		ErrCause:    cause,
-	}
-}
-
-func NewFilesystemNotFoundError(fsID string) *Error {
-	return &Error{
-		ErrKind:     apierror.KindNotFound,
-		Msg:         "filesystem not found: " + fsID,
-		IsRetryable: apierror.False,
-	}
-}
-
-func NewOpenFileError(path string, cause error) *Error {
-	return &Error{
-		ErrKind:     apierror.KindNotFound,
-		Msg:         "failed to open file: " + path,
-		IsRetryable: apierror.False,
-		ErrCause:    cause,
-		ErrDetails:  attrs.NewBagFrom(map[string]any{"cause": cause.Error()}),
-	}
-}
-
-func NewInvalidHashFormatError(hash string) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInvalid,
-		Msg:         "invalid hash format: " + hash,
-		IsRetryable: apierror.False,
-	}
-}
-
-func NewUnsupportedHashAlgorithmError(algorithm string) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInvalid,
-		Msg:         "unsupported hash algorithm: " + algorithm,
-		IsRetryable: apierror.False,
-	}
-}
-
-func NewHashMismatchError(expected, actual string) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInvalid,
-		Msg:         "hash mismatch: expected " + expected + ", got " + actual,
-		IsRetryable: apierror.False,
-	}
-}
-
-// Engine errors
-
-var (
-	ErrChannelNotFound = &Error{
-		ErrKind:     apierror.KindNotFound,
-		Msg:         "channel not found",
-		IsRetryable: apierror.False,
-	}
-
-	ErrProcessNotInitialized = &Error{
-		ErrKind:     apierror.KindInternal,
-		Msg:         "process not initialized",
-		IsRetryable: apierror.False,
-	}
-
-	ErrTaskNotFound = &Error{
-		ErrKind:     apierror.KindNotFound,
-		Msg:         "task not found",
-		IsRetryable: apierror.False,
-	}
-
-	ErrProcessContextNotAvailable = &Error{
-		ErrKind:     apierror.KindInternal,
-		Msg:         "process context not available",
-		IsRetryable: apierror.False,
-	}
-
-	ErrNoScriptOrProto = &Error{
-		ErrKind:     apierror.KindInvalid,
-		Msg:         "no script or proto provided",
-		IsRetryable: apierror.False,
-	}
-
-	ErrStateNotInitialized = &Error{
-		ErrKind:     apierror.KindInternal,
-		Msg:         "process state not initialized - use Factory.Create()",
-		IsRetryable: apierror.False,
-	}
-)
-
-func NewTopicAlreadySubscribedError(topic string) *Error {
-	return &Error{
-		ErrKind:     apierror.KindAlreadyExists,
-		Msg:         "topic \"" + topic + "\" already subscribed",
-		IsRetryable: apierror.False,
-	}
-}
-
-func NewStoreResourcesError(cause error) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInternal,
-		Msg:         "failed to store resources",
-		IsRetryable: apierror.False,
-		ErrCause:    cause,
-	}
-}
-
-func NewLoadScriptError(cause error) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInternal,
-		Msg:         "failed to load script",
-		IsRetryable: apierror.False,
-		ErrCause:    cause,
-	}
-}
-
-func NewExecuteScriptError(cause error) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInternal,
-		Msg:         "failed to execute script",
-		IsRetryable: apierror.False,
-		ErrCause:    cause,
-	}
-}
-
-func NewMethodNotFoundError(method string) *Error {
-	return &Error{
-		ErrKind:     apierror.KindNotFound,
-		Msg:         "method \"" + method + "\" not found in module",
-		IsRetryable: apierror.False,
-	}
-}
-
-func NewTaskNotFoundForChannelError(cause error) *Error {
-	return &Error{
-		ErrKind:     apierror.KindNotFound,
-		Msg:         "task not found for channel result",
-		IsRetryable: apierror.False,
-		ErrCause:    cause,
-	}
-}
-
-func NewOperationError(operation string, cause error) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInternal,
-		Msg:         operation,
-		IsRetryable: apierror.False,
-		ErrCause:    cause,
-	}
-}
-
-func NewScriptReturnError(message string) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInternal,
-		Msg:         message,
-		IsRetryable: apierror.False,
-	}
-}
-
-// Process module errors
-
-var ErrCouldNotAccessRegistry = &Error{
-	ErrKind:     apierror.KindInternal,
-	Msg:         "could not access registry",
-	IsRetryable: apierror.False,
-}
-
-func NewNotAllowedError(action, target string) *Error {
-	return &Error{
-		ErrKind:     apierror.KindPermissionDenied,
-		Msg:         "not allowed to " + action + ": " + target,
-		IsRetryable: apierror.False,
-	}
-}
-
-func NewCouldNotResolveError(pidOrName string) *Error {
-	return &Error{
-		ErrKind:     apierror.KindNotFound,
-		Msg:         "could not resolve '" + pidOrName + "' as PID or registered name",
-		IsRetryable: apierror.False,
-	}
-}
-
-// Payload errors
-
-func NewInvalidFormatError(message string) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInvalid,
-		Msg:         message,
-		IsRetryable: apierror.False,
-	}
-}
-
-func NewInvalidTypeError(message string) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInvalid,
-		Msg:         message,
-		IsRetryable: apierror.False,
-	}
-}
-
-func NewTranscodeError(message string, cause error) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInternal,
-		Msg:         message,
-		IsRetryable: apierror.False,
-		ErrCause:    cause,
-	}
-}
-
-func NewConversionError(message string, cause error) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInternal,
-		Msg:         message,
-		IsRetryable: apierror.False,
-		ErrCause:    cause,
-	}
-}
-
-func NewUnsupportedTypeError(message string) *Error {
-	return &Error{
-		ErrKind:     apierror.KindInvalid,
-		Msg:         message,
-		IsRetryable: apierror.False,
-	}
-}
-
-// DeadlockError indicates all coroutines are blocked with no pending operations.
 type DeadlockError struct {
 	ThreadCount int
 	Message     string

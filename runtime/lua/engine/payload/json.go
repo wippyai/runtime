@@ -5,6 +5,7 @@ import (
 
 	"github.com/wippyai/runtime/api/payload"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/modules/json"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -39,7 +40,7 @@ func (t *JSONToLua) Transcode(p payload.Payload) (payload.Payload, error) {
 
 	luaValue, err := json.Decode(data)
 	if err != nil {
-		return nil, luaapi.NewTranscodeError("failed to decode JSON", err)
+		return nil, runtimelua.NewTranscodeError("failed to decode JSON", err)
 	}
 
 	return payload.NewPayload(luaValue, payload.Lua), nil
@@ -61,7 +62,7 @@ func (t *ToJSON) Transcode(p payload.Payload) (payload.Payload, error) {
 
 	jsonData, err := json.Encode(lv)
 	if err != nil {
-		return nil, luaapi.NewTranscodeError("failed to encode to JSON", err)
+		return nil, runtimelua.NewTranscodeError("failed to encode to JSON", err)
 	}
 
 	return payload.NewPayload(jsonData, payload.JSON), nil

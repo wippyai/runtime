@@ -23,25 +23,25 @@ type pidNames struct {
 	names []string
 }
 
-// PIDRegistryOption configures a PIDRegistry.
-type PIDRegistryOption func(*PIDRegistry)
+// Option configures a PIDRegistry.
+type Option func(*PIDRegistry)
 
 // WithParent sets a parent registry for fallback lookups.
-func WithParent(parent topology.PIDRegistry) PIDRegistryOption {
+func WithParent(parent topology.PIDRegistry) Option {
 	return func(r *PIDRegistry) {
 		r.parent = parent
 	}
 }
 
 // WithLogger sets the logger for the registry.
-func WithLogger(logger *zap.Logger) PIDRegistryOption {
+func WithLogger(logger *zap.Logger) Option {
 	return func(r *PIDRegistry) {
 		r.logger = logger
 	}
 }
 
 // NewPIDRegistry creates a new empty PID registry.
-func NewPIDRegistry(opts ...PIDRegistryOption) *PIDRegistry {
+func NewPIDRegistry(opts ...Option) *PIDRegistry {
 	r := &PIDRegistry{
 		logger: zap.NewNop(),
 	}

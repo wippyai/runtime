@@ -15,6 +15,7 @@ import (
 	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/system/clock"
 	funcpool "github.com/wippyai/runtime/system/scheduler/pool"
+	"github.com/wippyai/runtime/system/scheduler/pool/static"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -920,7 +921,7 @@ func TestPoolBasicCall(t *testing.T) {
 	disp := newPoolTestDispatcher()
 	defer disp.Stop()
 
-	ps, err := funcpool.NewStatic(factory, disp, funcpool.Config{Workers: 2})
+	ps, err := static.New(factory, disp, static.Config{Workers: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -947,7 +948,7 @@ func TestPoolStateReuse(t *testing.T) {
 	disp := newPoolTestDispatcher()
 	defer disp.Stop()
 
-	ps, err := funcpool.NewStatic(factory, disp, funcpool.Config{Workers: 1})
+	ps, err := static.New(factory, disp, static.Config{Workers: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1058,7 +1059,7 @@ func TestPoolDistributedWorkWithSleep(t *testing.T) {
 	disp := newPoolTestDispatcher()
 	defer disp.Stop()
 
-	ps, err := funcpool.NewStatic(factory, disp, funcpool.Config{Workers: 1})
+	ps, err := static.New(factory, disp, static.Config{Workers: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1083,7 +1084,7 @@ func Benchmark8x8NoYield(b *testing.B) {
 	disp := newPoolTestDispatcher()
 	defer disp.Stop()
 
-	ps, err := funcpool.NewStatic(factory, disp, funcpool.Config{Workers: 8, QueueSize: 256})
+	ps, err := static.New(factory, disp, static.Config{Workers: 8, QueueSize: 256})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -1108,7 +1109,7 @@ func BenchmarkSingleWorker(b *testing.B) {
 	disp := newPoolTestDispatcher()
 	defer disp.Stop()
 
-	ps, err := funcpool.NewStatic(factory, disp, funcpool.Config{
+	ps, err := static.New(factory, disp, static.Config{
 		Workers:   1,
 		QueueSize: 16,
 	})
@@ -1136,7 +1137,7 @@ func BenchmarkWorkerScalingLua(b *testing.B) {
 			disp := newPoolTestDispatcher()
 			defer disp.Stop()
 
-			ps, err := funcpool.NewStatic(factory, disp, funcpool.Config{
+			ps, err := static.New(factory, disp, static.Config{
 				Workers:   workers,
 				QueueSize: 16,
 			})

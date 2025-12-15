@@ -8,14 +8,15 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
-	"github.com/wippyai/runtime/api/service/exec"
+	execapi "github.com/wippyai/runtime/api/service/exec"
 	entryutil "github.com/wippyai/runtime/internal/entry"
+	serviceexec "github.com/wippyai/runtime/service/exec"
 	"go.uber.org/zap"
 )
 
 // ExecutorFactoryAPI defines interface for executor factory
 type ExecutorFactoryAPI interface {
-	CreateExecutor(id registry.ID, cfg *exec.DockerExecutorConfig) (exec.ProcessExecutor, error)
+	CreateExecutor(id registry.ID, cfg *execapi.DockerExecutorConfig) (execapi.ProcessExecutor, error)
 }
 
 // Manager handles Docker executor lifecycle and resource provisioning
@@ -47,25 +48,25 @@ func NewManager(
 
 // Add implements registry.EntryListener for Docker executors
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != exec.KindDockerExecutor {
-		return exec.NewUnsupportedEntryKindError(entry.Kind)
+	if entry.Kind != execapi.KindDockerExecutor {
+		return serviceexec.NewUnsupportedEntryKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, exists := m.executors[entry.ID]; exists {
-		return exec.NewExecutorAlreadyExistsError(entry.ID.String())
+		return serviceexec.NewExecutorAlreadyExistsError(entry.ID.String())
 	}
 
-	cfg, err := entryutil.DecodeEntryConfig[exec.DockerExecutorConfig](ctx, m.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[execapi.DockerExecutorConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return exec.NewConfigDecodeError(err)
+		return serviceexec.NewConfigDecodeError(err)
 	}
 
 	executor, err := m.factory.CreateExecutor(entry.ID, cfg)
 	if err != nil {
-		return exec.NewExecutorCreateError(err)
+		return serviceexec.NewExecutorCreateError(err)
 	}
 
 	provider := newExecutorProvider(executor)
@@ -91,8 +92,8 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 // Update implements registry.EntryListener
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != exec.KindDockerExecutor {
-		return exec.NewUnsupportedEntryKindError(entry.Kind)
+	if entry.Kind != execapi.KindDockerExecutor {
+		return serviceexec.NewUnsupportedEntryKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -100,17 +101,17 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	oldProvider, exists := m.executors[entry.ID]
 	if !exists {
-		return exec.NewExecutorNotFoundError(entry.ID.String())
+		return serviceexec.NewExecutorNotFoundError(entry.ID.String())
 	}
 
-	cfg, err := entryutil.DecodeEntryConfig[exec.DockerExecutorConfig](ctx, m.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[execapi.DockerExecutorConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return exec.NewConfigDecodeError(err)
+		return serviceexec.NewConfigDecodeError(err)
 	}
 
 	executor, err := m.factory.CreateExecutor(entry.ID, cfg)
 	if err != nil {
-		return exec.NewExecutorCreateError(err)
+		return serviceexec.NewExecutorCreateError(err)
 	}
 
 	provider := newExecutorProvider(executor)
@@ -142,8 +143,8 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 // Delete implements registry.EntryListener
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != exec.KindDockerExecutor {
-		return exec.NewUnsupportedEntryKindError(entry.Kind)
+	if entry.Kind != execapi.KindDockerExecutor {
+		return serviceexec.NewUnsupportedEntryKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -151,7 +152,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 
 	provider, exists := m.executors[entry.ID]
 	if !exists {
-		return exec.NewExecutorNotFoundError(entry.ID.String())
+		return serviceexec.NewExecutorNotFoundError(entry.ID.String())
 	}
 
 	if err := provider.Close(); err != nil {
@@ -177,12 +178,12 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 
 // executorProvider implements resource.Provider for Docker executors
 type executorProvider struct {
-	executor exec.ProcessExecutor
+	executor execapi.ProcessExecutor
 	mu       sync.RWMutex
 	closed   bool
 }
 
-func newExecutorProvider(executor exec.ProcessExecutor) *executorProvider {
+func newExecutorProvider(executor execapi.ProcessExecutor) *executorProvider {
 	return &executorProvider{executor: executor}
 }
 
@@ -219,7 +220,7 @@ func (p *executorProvider) Close() error {
 }
 
 type executorResource struct {
-	executor exec.ProcessExecutor
+	executor execapi.ProcessExecutor
 	mu       sync.Mutex
 	released bool
 }

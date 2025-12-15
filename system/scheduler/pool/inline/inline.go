@@ -1,4 +1,4 @@
-package pool
+package inline
 
 import (
 	"context"
@@ -9,45 +9,46 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/system/scheduler/pool"
 )
 
-// Inline executes calls synchronously in the caller's goroutine.
+// Pool executes calls synchronously in the caller's goroutine.
 // Single process, serialized via mutex.
-type Inline struct {
+type Pool struct {
 	dispatcher dispatcher.Dispatcher
-	executor   *Executor
+	executor   *pool.Executor
 	process    process.Process
 	mu         sync.Mutex
 	active     sync.Map
 }
 
-// NewInline creates an inline executor.
-func NewInline(factory process.FactoryFunc, dispatcher dispatcher.Dispatcher, hooks ...ExecutionHooks) (*Inline, error) {
+// New creates an inline executor.
+func New(factory process.FactoryFunc, d dispatcher.Dispatcher, hooks ...pool.ExecutionHooks) (*Pool, error) {
 	proc, err := factory()
 	if err != nil {
 		return nil, err
 	}
 
-	var hooksCfg ExecutionHooks
+	var hooksCfg pool.ExecutionHooks
 	if len(hooks) > 0 {
 		hooksCfg = hooks[0]
 	}
 
-	return &Inline{
-		dispatcher: dispatcher,
-		executor:   NewExecutor(dispatcher).WithExecutionHooks(hooksCfg),
+	return &Pool{
+		dispatcher: d,
+		executor:   pool.NewExecutor(d).WithExecutionHooks(hooksCfg),
 		process:    proc,
 	}, nil
 }
 
 // Call executes synchronously in the caller's goroutine.
 // Serializes access to the process via mutex to prevent concurrent access.
-func (i *Inline) Call(ctx context.Context, method string, input payload.Payloads) (*runtime.Result, error) {
+func (i *Pool) Call(ctx context.Context, method string, input payload.Payloads) (*runtime.Result, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
 	if i.process == nil {
-		return nil, ErrPoolClosed
+		return nil, pool.ErrPoolClosed
 	}
 
 	pid, _ := runtime.GetFramePID(ctx)
@@ -56,24 +57,25 @@ func (i *Inline) Call(ctx context.Context, method string, input payload.Payloads
 	result := i.executor.Run(ctx, i.process, method, input)
 
 	i.active.Delete(pid.UniqID)
+	i.executor.Reset()
 
 	return result, nil
 }
 
 // Send implements relay.Receiver. Routes package to target execution.
-func (i *Inline) Send(pkg *relay.Package) error {
+func (i *Pool) Send(pkg *relay.Package) error {
 	v, ok := i.active.Load(pkg.Target.UniqID)
 	if !ok {
 		return process.ErrProcessNotFound
 	}
-	return v.(*Executor).Send(pkg)
+	return v.(*pool.Executor).Send(pkg)
 }
 
 // Start is a no-op for inline execution.
-func (i *Inline) Start() {}
+func (i *Pool) Start() {}
 
 // Stop closes the process.
-func (i *Inline) Stop() {
+func (i *Pool) Stop() {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	if i.process != nil {

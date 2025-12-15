@@ -7,56 +7,17 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
-// Error implements apierror.Error for Docker executor errors
-type Error struct { // todo: why ehre???
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
-}
-
-func (e *Error) Error() string               { return e.message }
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
-
-// Sentinel errors for docker container operations
 var (
-	ErrContainerNotStarted = &Error{
-		kind:      apierror.KindInvalid,
-		message:   "container not started",
-		retryable: apierror.False,
-	}
-
-	ErrContainerAlreadyStart = &Error{
-		kind:      apierror.KindAlreadyExists,
-		message:   "container already started",
-		retryable: apierror.False,
-	}
-
-	ErrContainerStopped = &Error{
-		kind:      apierror.KindInvalid,
-		message:   "container already stopped",
-		retryable: apierror.False,
-	}
-
-	ErrStdinNotAvailable = &Error{
-		kind:      apierror.KindUnavailable,
-		message:   "stdin not available",
-		retryable: apierror.False,
-	}
+	ErrContainerNotStarted   = apierror.New(apierror.KindInvalid, "container not started").WithRetryable(apierror.False)
+	ErrContainerAlreadyStart = apierror.New(apierror.KindAlreadyExists, "container already started").WithRetryable(apierror.False)
+	ErrContainerStopped      = apierror.New(apierror.KindInvalid, "container already stopped").WithRetryable(apierror.False)
+	ErrStdinNotAvailable     = apierror.New(apierror.KindUnavailable, "stdin not available").WithRetryable(apierror.False)
 )
 
-// NewCommandNotAllowedError creates an error for rejected commands
-func NewCommandNotAllowedError(cmd string) *Error {
-	return &Error{
-		kind:      apierror.KindPermissionDenied,
-		message:   fmt.Sprintf("command not in whitelist: %s", cmd),
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"command": cmd}),
-	}
+func NewCommandNotAllowedError(cmd string) apierror.Error {
+	return apierror.New(apierror.KindPermissionDenied, fmt.Sprintf("command not in whitelist: %s", cmd)).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"command": cmd}))
 }
 
 // ExitError represents a container exit with non-zero code
@@ -87,52 +48,32 @@ func (e *ExitError) Details() attrs.Attributes {
 
 func (e *ExitError) ExitCode() int { return e.Code }
 
-// NewDockerClientError creates an error for Docker client creation failures
-func NewDockerClientError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindUnavailable,
-		message:   fmt.Sprintf("failed to create docker client: %v", err),
-		retryable: apierror.True,
-		cause:     err,
-	}
+func NewDockerClientError(err error) apierror.Error {
+	return apierror.New(apierror.KindUnavailable, fmt.Sprintf("failed to create docker client: %v", err)).
+		WithRetryable(apierror.True).
+		WithCause(err)
 }
 
-// NewContainerCreateError creates an error for container creation failures
-func NewContainerCreateError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindUnavailable,
-		message:   fmt.Sprintf("failed to create container: %v", err),
-		retryable: apierror.True,
-		cause:     err,
-	}
+func NewContainerCreateError(err error) apierror.Error {
+	return apierror.New(apierror.KindUnavailable, fmt.Sprintf("failed to create container: %v", err)).
+		WithRetryable(apierror.True).
+		WithCause(err)
 }
 
-// NewContainerAttachError creates an error for container attach failures
-func NewContainerAttachError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindUnavailable,
-		message:   fmt.Sprintf("failed to attach to container: %v", err),
-		retryable: apierror.True,
-		cause:     err,
-	}
+func NewContainerAttachError(err error) apierror.Error {
+	return apierror.New(apierror.KindUnavailable, fmt.Sprintf("failed to attach to container: %v", err)).
+		WithRetryable(apierror.True).
+		WithCause(err)
 }
 
-// NewContainerStartError creates an error for container start failures
-func NewContainerStartError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindUnavailable,
-		message:   fmt.Sprintf("failed to start container: %v", err),
-		retryable: apierror.True,
-		cause:     err,
-	}
+func NewContainerStartError(err error) apierror.Error {
+	return apierror.New(apierror.KindUnavailable, fmt.Sprintf("failed to start container: %v", err)).
+		WithRetryable(apierror.True).
+		WithCause(err)
 }
 
-// NewSignalError creates an error for signal send failures
-func NewSignalError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindUnavailable,
-		message:   fmt.Sprintf("failed to send signal: %v", err),
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewSignalError(err error) apierror.Error {
+	return apierror.New(apierror.KindUnavailable, fmt.Sprintf("failed to send signal: %v", err)).
+		WithRetryable(apierror.False).
+		WithCause(err)
 }

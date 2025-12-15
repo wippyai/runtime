@@ -497,13 +497,13 @@ type mockTopology struct {
 func (m *mockTopology) Register(_ pid.PID) error {
 	return m.registerErr
 }
-func (m *mockTopology) Remove(_ pid.PID)                    {}
-func (m *mockTopology) Notify(_ pid.PID, _ *runtime.Result) {}
-func (m *mockTopology) Monitor(_, _ pid.PID) error          { return nil }
-func (m *mockTopology) Demonitor(_, _ pid.PID) error        { return nil }
-func (m *mockTopology) Link(_, _ pid.PID) error             { return nil }
-func (m *mockTopology) Unlink(_, _ pid.PID) error           { return nil }
-func (m *mockTopology) GetLinks(_ pid.PID) []pid.PID        { return nil }
+func (m *mockTopology) Remove(_ pid.PID)                      {}
+func (m *mockTopology) Complete(_ pid.PID, _ *runtime.Result) {}
+func (m *mockTopology) Monitor(_, _ pid.PID) error            { return nil }
+func (m *mockTopology) Demonitor(_, _ pid.PID) error          { return nil }
+func (m *mockTopology) Link(_, _ pid.PID) error               { return nil }
+func (m *mockTopology) Unlink(_, _ pid.PID) error             { return nil }
+func (m *mockTopology) GetLinks(_ pid.PID) []pid.PID          { return nil }
 
 type mockManager struct {
 	startPID pid.PID

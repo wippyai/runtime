@@ -33,7 +33,7 @@ func (r *Registry) Start(ctx context.Context) error {
 
 	sub, err := eventbus.NewSubscriber(r.ctx, r.bus, fsapi.System, "fs.*", r.handleEvent)
 	if err != nil {
-		return fsapi.NewSubscriberError(err)
+		return NewSubscriberError(err)
 	}
 	r.subscriber = sub
 

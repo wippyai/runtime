@@ -11,7 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
-	serviceaws "github.com/wippyai/runtime/api/service/aws/config"
+	awsconfigapi "github.com/wippyai/runtime/api/service/aws/config"
 	entryutil "github.com/wippyai/runtime/internal/entry"
 	"go.uber.org/zap"
 )
@@ -44,8 +44,8 @@ func NewManager(
 
 // Add implements registry.EntryListener
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != serviceaws.Kind {
-		return serviceaws.NewUnsupportedKindError(entry.Kind)
+	if entry.Kind != awsconfigapi.Kind {
+		return NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -53,19 +53,19 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	// Check if config already exists
 	if _, exists := m.configs[entry.ID]; exists {
-		return serviceaws.NewConfigAlreadyExistsError(entry.ID.String())
+		return NewConfigAlreadyExistsError(entry.ID.String())
 	}
 
 	// Decode and initialize configuration
-	cfg, err := entryutil.DecodeEntryConfig[serviceaws.Config](ctx, m.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[awsconfigapi.Config](ctx, m.dtt, entry)
 	if err != nil {
-		return serviceaws.NewDecodeConfigError(err)
+		return NewDecodeConfigError(err)
 	}
 
 	// Create AWS config
 	awsCfg, err := m.createAWSConfig(ctx, cfg)
 	if err != nil {
-		return serviceaws.NewCreateAWSConfigError(err)
+		return NewCreateAWSConfigError(err)
 	}
 
 	m.configs[entry.ID] = awsCfg
@@ -93,8 +93,8 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 // Update implements registry.EntryListener
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != serviceaws.Kind {
-		return serviceaws.NewUnsupportedKindError(entry.Kind)
+	if entry.Kind != awsconfigapi.Kind {
+		return NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -103,19 +103,19 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	// Check if config exists
 	_, exists := m.configs[entry.ID]
 	if !exists {
-		return serviceaws.NewConfigNotFoundError(entry.ID.String())
+		return NewConfigNotFoundError(entry.ID.String())
 	}
 
 	// Decode and initialize updated configuration
-	cfg, err := entryutil.DecodeEntryConfig[serviceaws.Config](ctx, m.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[awsconfigapi.Config](ctx, m.dtt, entry)
 	if err != nil {
-		return serviceaws.NewDecodeConfigError(err)
+		return NewDecodeConfigError(err)
 	}
 
 	// Create new AWS config
 	awsCfg, err := m.createAWSConfig(ctx, cfg)
 	if err != nil {
-		return serviceaws.NewCreateAWSConfigError(err)
+		return NewCreateAWSConfigError(err)
 	}
 
 	m.configs[entry.ID] = awsCfg
@@ -143,8 +143,8 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 // Delete implements registry.EntryListener
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != serviceaws.Kind {
-		return serviceaws.NewUnsupportedKindError(entry.Kind)
+	if entry.Kind != awsconfigapi.Kind {
+		return NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -153,7 +153,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	// Check if config exists
 	_, exists := m.configs[entry.ID]
 	if !exists {
-		return serviceaws.NewConfigNotFoundError(entry.ID.String())
+		return NewConfigNotFoundError(entry.ID.String())
 	}
 
 	// Unregister resource provider
@@ -179,7 +179,7 @@ func (m *Manager) Acquire(_ context.Context, id registry.ID, mode resource.Acces
 
 	_, exists := m.configs[id]
 	if !exists {
-		return nil, serviceaws.NewConfigNotFoundError(id.String())
+		return nil, NewConfigNotFoundError(id.String())
 	}
 
 	// Only support normal mode for now
@@ -235,7 +235,7 @@ func (r *configResource) Release() {
 }
 
 // createAWSConfig creates an AWS configuration from Config
-func (m *Manager) createAWSConfig(ctx context.Context, cfg *serviceaws.Config) (aws.Config, error) {
+func (m *Manager) createAWSConfig(ctx context.Context, cfg *awsconfigapi.Config) (aws.Config, error) {
 	options := []func(*config.LoadOptions) error{
 		config.WithRegion(cfg.Region),
 	}

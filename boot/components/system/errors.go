@@ -1,82 +1,43 @@
 package system
 
 import (
-	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
-type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
-}
-
-func (e *Error) Error() string               { return e.message }
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
-
 var (
-	ErrLoggerNotAvailable               = &Error{kind: apierror.KindInternal, message: "logger not available"}
-	ErrEventBusNotAvailable             = &Error{kind: apierror.KindInternal, message: "event bus not available"}
-	ErrRegistryNotAvailable             = &Error{kind: apierror.KindInternal, message: "registry not available"}
-	ErrRelayNotAvailable                = &Error{kind: apierror.KindInternal, message: "relay node not available"}
-	ErrTranscoderNotAvailable           = &Error{kind: apierror.KindInternal, message: "transcoder not available"}
-	ErrFunctionRegistryNotAvailable     = &Error{kind: apierror.KindInternal, message: "function registry not available in context"}
-	ErrEventBusNotAvailableForCluster   = &Error{kind: apierror.KindInternal, message: "event bus not available for cluster"}
-	ErrTranscoderNotAvailableForCluster = &Error{kind: apierror.KindInternal, message: "transcoder not available for cluster"}
-	ErrRelayNotAvailableForCluster      = &Error{kind: apierror.KindInternal, message: "relay node not available for cluster"}
-	ErrRouterNotAvailable               = &Error{kind: apierror.KindInternal, message: "router not available in context"}
-	ErrTopologyNotAvailable             = &Error{kind: apierror.KindInternal, message: "topology not available in context"}
+	ErrLoggerNotAvailable               = apierror.New(apierror.KindInternal, "logger not available").WithRetryable(apierror.False)
+	ErrEventBusNotAvailable             = apierror.New(apierror.KindInternal, "event bus not available").WithRetryable(apierror.False)
+	ErrRegistryNotAvailable             = apierror.New(apierror.KindInternal, "registry not available").WithRetryable(apierror.False)
+	ErrRelayNotAvailable                = apierror.New(apierror.KindInternal, "relay node not available").WithRetryable(apierror.False)
+	ErrTranscoderNotAvailable           = apierror.New(apierror.KindInternal, "transcoder not available").WithRetryable(apierror.False)
+	ErrFunctionRegistryNotAvailable     = apierror.New(apierror.KindInternal, "function registry not available in context").WithRetryable(apierror.False)
+	ErrEventBusNotAvailableForCluster   = apierror.New(apierror.KindInternal, "event bus not available for cluster").WithRetryable(apierror.False)
+	ErrTranscoderNotAvailableForCluster = apierror.New(apierror.KindInternal, "transcoder not available for cluster").WithRetryable(apierror.False)
+	ErrRelayNotAvailableForCluster      = apierror.New(apierror.KindInternal, "relay node not available for cluster").WithRetryable(apierror.False)
+	ErrRouterNotAvailable               = apierror.New(apierror.KindInternal, "router not available in context").WithRetryable(apierror.False)
+	ErrTopologyNotAvailable             = apierror.New(apierror.KindInternal, "topology not available in context").WithRetryable(apierror.False)
 )
 
-func NewHostnameError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "failed to get hostname for cluster node name",
-		cause:   cause,
-	}
+func NewHostnameError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to get hostname for cluster node name").WithCause(cause)
 }
 
-func NewFactoryStartError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "failed to start factory registry",
-		cause:   cause,
-	}
+func NewFactoryStartError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to start factory registry").WithCause(cause)
 }
 
-func NewConnectionManagerPreStartError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "failed to pre-start connection manager",
-		cause:   cause,
-	}
+func NewConnectionManagerPreStartError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to pre-start connection manager").WithCause(cause)
 }
 
-func NewConnectionManagerStopError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "failed to stop connection manager after port allocation",
-		cause:   cause,
-	}
+func NewConnectionManagerStopError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to stop connection manager after port allocation").WithCause(cause)
 }
 
-func NewMembershipStartError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "failed to start membership service",
-		cause:   cause,
-	}
+func NewMembershipStartError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to start membership service").WithCause(cause)
 }
 
-func NewInternodeStartError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "failed to start internode service",
-		cause:   cause,
-	}
+func NewInternodeStartError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to start internode service").WithCause(cause)
 }

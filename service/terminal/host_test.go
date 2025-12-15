@@ -15,7 +15,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
-	"github.com/wippyai/runtime/api/service/terminal"
+	terminalapi "github.com/wippyai/runtime/api/service/terminal"
 	"github.com/wippyai/runtime/internal/uniqid"
 	"github.com/wippyai/runtime/system/logs"
 	"github.com/wippyai/runtime/system/scheduler/actor"
@@ -28,7 +28,7 @@ func newTestPIDGen() *uniqid.PIDGenerator {
 
 func TestNewHost(t *testing.T) {
 	id := registry.ID{NS: "test", Name: "host1"}
-	cfg := &terminal.HostConfig{}
+	cfg := &terminalapi.HostConfig{}
 	factory := &mockFactory{}
 	logCtrl := logs.NewConfigurator(nil, zap.NewNop())
 	log := zap.NewNop()
@@ -44,7 +44,7 @@ func TestNewHost(t *testing.T) {
 
 func TestHost_Done(t *testing.T) {
 	id := registry.ID{NS: "test", Name: "host1"}
-	cfg := &terminal.HostConfig{}
+	cfg := &terminalapi.HostConfig{}
 	factory := &mockFactory{}
 	logCtrl := logs.NewConfigurator(nil, zap.NewNop())
 	log := zap.NewNop()
@@ -63,7 +63,7 @@ func TestHost_Done(t *testing.T) {
 
 func TestHost_StartStop(t *testing.T) {
 	id := registry.ID{NS: "test", Name: "host1"}
-	cfg := &terminal.HostConfig{}
+	cfg := &terminalapi.HostConfig{}
 	factory := &mockFactory{}
 	logCtrl := logs.NewConfigurator(nil, zap.NewNop())
 	log := zap.NewNop()
@@ -86,7 +86,7 @@ func TestHost_StartStop(t *testing.T) {
 
 func TestHost_StartTwice(t *testing.T) {
 	id := registry.ID{NS: "test", Name: "host1"}
-	cfg := &terminal.HostConfig{}
+	cfg := &terminalapi.HostConfig{}
 	factory := &mockFactory{}
 	logCtrl := logs.NewConfigurator(nil, zap.NewNop())
 	log := zap.NewNop()
@@ -108,7 +108,7 @@ func TestHost_StartTwice(t *testing.T) {
 
 func TestHost_StopNotRunning(t *testing.T) {
 	id := registry.ID{NS: "test", Name: "host1"}
-	cfg := &terminal.HostConfig{}
+	cfg := &terminalapi.HostConfig{}
 	factory := &mockFactory{}
 	logCtrl := logs.NewConfigurator(nil, zap.NewNop())
 	log := zap.NewNop()
@@ -121,7 +121,7 @@ func TestHost_StopNotRunning(t *testing.T) {
 
 func TestHost_Run_NotRunning(t *testing.T) {
 	id := registry.ID{NS: "test", Name: "host1"}
-	cfg := &terminal.HostConfig{}
+	cfg := &terminalapi.HostConfig{}
 	factory := &mockFactory{}
 	logCtrl := logs.NewConfigurator(nil, zap.NewNop())
 	log := zap.NewNop()
@@ -132,12 +132,12 @@ func TestHost_Run_NotRunning(t *testing.T) {
 		Source: registry.ID{NS: "test", Name: "process"},
 	})
 	require.Error(t, err)
-	assert.Equal(t, terminal.ErrHostNotRunning, err)
+	assert.Equal(t, ErrHostNotRunning, err)
 }
 
 func TestHost_Run_ShuttingDown(t *testing.T) {
 	id := registry.ID{NS: "test", Name: "host1"}
-	cfg := &terminal.HostConfig{}
+	cfg := &terminalapi.HostConfig{}
 	factory := &mockFactory{}
 	logCtrl := logs.NewConfigurator(nil, zap.NewNop())
 	log := zap.NewNop()
@@ -161,7 +161,7 @@ func TestHost_Run_ShuttingDown(t *testing.T) {
 
 func TestHost_Send_ShuttingDown(t *testing.T) {
 	id := registry.ID{NS: "test", Name: "host1"}
-	cfg := &terminal.HostConfig{}
+	cfg := &terminalapi.HostConfig{}
 	factory := &mockFactory{}
 	logCtrl := logs.NewConfigurator(nil, zap.NewNop())
 	log := zap.NewNop()
@@ -175,7 +175,7 @@ func TestHost_Send_ShuttingDown(t *testing.T) {
 
 func TestHost_Terminate(t *testing.T) {
 	id := registry.ID{NS: "test", Name: "host1"}
-	cfg := &terminal.HostConfig{}
+	cfg := &terminalapi.HostConfig{}
 	factory := &mockFactory{}
 	logCtrl := logs.NewConfigurator(nil, zap.NewNop())
 	log := zap.NewNop()
@@ -188,7 +188,7 @@ func TestHost_Terminate(t *testing.T) {
 
 func TestHost_PreparePID_WithOptions(t *testing.T) {
 	id := registry.ID{NS: "test", Name: "host1"}
-	cfg := &terminal.HostConfig{}
+	cfg := &terminalapi.HostConfig{}
 	factory := &mockFactory{}
 	logCtrl := logs.NewConfigurator(nil, zap.NewNop())
 	log := zap.NewNop()
@@ -212,7 +212,7 @@ func TestHost_PreparePID_WithOptions(t *testing.T) {
 
 func TestHost_PreparePID_Generated(t *testing.T) {
 	id := registry.ID{NS: "test", Name: "host1"}
-	cfg := &terminal.HostConfig{}
+	cfg := &terminalapi.HostConfig{}
 	factory := &mockFactory{}
 	logCtrl := logs.NewConfigurator(nil, zap.NewNop())
 	log := zap.NewNop()
@@ -231,7 +231,7 @@ func TestHost_PreparePID_Generated(t *testing.T) {
 
 func TestHost_PrepareContext(t *testing.T) {
 	id := registry.ID{NS: "test", Name: "host1"}
-	cfg := &terminal.HostConfig{}
+	cfg := &terminalapi.HostConfig{}
 	factory := &mockFactory{}
 	logCtrl := logs.NewConfigurator(nil, zap.NewNop())
 	log := zap.NewNop()
@@ -259,16 +259,16 @@ func TestHost_PrepareContext(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, start.Source, val)
 
-	val, ok = fc.Get(terminal.TerminalKey())
+	val, ok = fc.Get(terminalapi.TerminalKey())
 	assert.True(t, ok)
-	tc, ok := val.(*terminal.PipeContext)
+	tc, ok := val.(*terminalapi.PipeContext)
 	assert.True(t, ok)
 	assert.Equal(t, []string{"arg1", "arg2"}, tc.Args)
 }
 
 func TestHost_OnStart(t *testing.T) {
 	id := registry.ID{NS: "test", Name: "host1"}
-	cfg := &terminal.HostConfig{}
+	cfg := &terminalapi.HostConfig{}
 	factory := &mockFactory{}
 	logCtrl := logs.NewConfigurator(nil, zap.NewNop())
 	log := zap.NewNop()
@@ -282,7 +282,7 @@ func TestHost_OnStart(t *testing.T) {
 
 func TestHost_OnComplete(t *testing.T) {
 	id := registry.ID{NS: "test", Name: "host1"}
-	cfg := &terminal.HostConfig{}
+	cfg := &terminalapi.HostConfig{}
 	factory := &mockFactory{}
 	logCtrl := logs.NewConfigurator(nil, zap.NewNop())
 	log := zap.NewNop()

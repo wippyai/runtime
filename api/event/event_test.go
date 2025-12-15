@@ -4,6 +4,7 @@ package event
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -153,18 +154,9 @@ func TestErrorInterface(t *testing.T) {
 		assert.Contains(t, err.Error(), "router context canceled")
 		assert.Equal(t, "Canceled", err.Kind().String())
 		assert.False(t, err.Retryable().Bool())
-		assert.Equal(t, cause, err.Unwrap())
+		assert.True(t, errors.Is(err, cause))
 		details := err.Details()
 		require.NotNil(t, details)
-	})
-
-	t.Run("NewSubscriberError", func(t *testing.T) {
-		cause := context.DeadlineExceeded
-		err := NewSubscriberError(cause)
-		assert.Contains(t, err.Error(), "failed to create subscriber")
-		assert.Equal(t, "Internal", err.Kind().String())
-		assert.True(t, err.Retryable().Bool())
-		assert.Equal(t, cause, err.Unwrap())
 	})
 
 	t.Run("NewAwaitTimeoutError", func(t *testing.T) {
@@ -173,7 +165,6 @@ func TestErrorInterface(t *testing.T) {
 		assert.Contains(t, err.Error(), "/test/path")
 		assert.Equal(t, "Timeout", err.Kind().String())
 		assert.True(t, err.Retryable().Bool())
-		assert.Nil(t, err.Unwrap())
 		details := err.Details()
 		require.NotNil(t, details)
 	})

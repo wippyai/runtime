@@ -37,7 +37,7 @@ func (f *Factory) CreateTokenStore(ctx context.Context, entry registry.Entry) (s
 	// Decode configuration
 	cfg, err := entryutil.DecodeEntryConfig[tokenstoreapi.Config](ctx, f.dtt, entry)
 	if err != nil {
-		return nil, tokenstoreapi.NewDecodeTokenStoreConfigError(err)
+		return nil, NewDecodeTokenStoreConfigError(err)
 	}
 
 	// Create token store with lazy loading capability

@@ -84,11 +84,14 @@ func Registry() boot.Component {
 				hist = historymem.New()
 			}
 
+			// Create state builder
+			stateBuilder := regtop.NewStateBuilder(logger, resolver)
+
 			// Create registry with resolver
 			reg := registry.NewRegistry(
 				hist,
-				runner.NewBusRunner(bus, logger.Named("runner"), resolver),
-				regtop.NewStateBuilder(logger, resolver),
+				runner.NewBusRunner(bus, logger.Named("runner"), stateBuilder),
+				stateBuilder,
 				resolver,
 				logger.Named("registry"),
 			)

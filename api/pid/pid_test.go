@@ -2,7 +2,10 @@ package pid
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
+
+	apierror "github.com/wippyai/runtime/api/error"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -166,11 +169,11 @@ func TestErrorInterface(t *testing.T) {
 		assert.Equal(t, "Invalid", err.Kind().String())
 		assert.False(t, err.Retryable().Bool())
 		assert.Nil(t, err.Details())
-		assert.Nil(t, err.Unwrap())
+		assert.True(t, errors.Is(err, ErrInvalidPIDFormat))
 	})
 
-	t.Run("WithMessage", func(t *testing.T) {
-		err := ErrInvalidPIDFormat.WithMessage("custom message")
+	t.Run("SetMessage", func(t *testing.T) {
+		err := apierror.SetMessage(ErrInvalidPIDFormat, "custom message")
 		assert.Equal(t, "custom message", err.Error())
 		assert.Equal(t, ErrInvalidPIDFormat.Kind(), err.Kind())
 		assert.Equal(t, ErrInvalidPIDFormat.Retryable(), err.Retryable())

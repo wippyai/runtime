@@ -5,32 +5,18 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
-// Error implements apierror.Error for history errors
-type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
-}
-
-func (e *Error) Error() string               { return e.message }
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
-
 // Sentinel errors
 var (
-	ErrNoHeadVersion = &Error{kind: apierror.KindNotFound, message: "no head version set", retryable: apierror.False}
+	ErrNoHeadVersion = apierror.New(apierror.KindNotFound, "no head version set")
 )
 
 // NewVersionNotFoundError creates an error when a version is not found
-func NewVersionNotFoundError(version string) *Error {
-	return &Error{
-		kind:      apierror.KindNotFound,
-		message:   "version not found: " + version,
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"version": version}),
-	}
+func NewVersionNotFoundError(version string) apierror.Error {
+	return apierror.E(
+		apierror.KindNotFound,
+		"version not found: "+version,
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"version": version}),
+		nil,
+	)
 }

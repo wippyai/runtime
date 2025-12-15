@@ -1176,28 +1176,28 @@ func TestErrorConstructors(t *testing.T) {
 		err := NewComputePathError(1, 5, cause)
 		assert.Contains(t, err.Error(), "v1")
 		assert.Contains(t, err.Error(), "v5")
-		assert.Equal(t, cause, err.Unwrap())
+		assert.Equal(t, cause, errors.Unwrap(err))
 	})
 
 	t.Run("NewGetChangesetError", func(t *testing.T) {
 		cause := errors.New("changeset fetch failed")
 		err := NewGetChangesetError(10, cause)
 		assert.Contains(t, err.Error(), "v10")
-		assert.Equal(t, cause, err.Unwrap())
+		assert.Equal(t, cause, errors.Unwrap(err))
 	})
 
 	t.Run("NewReverseChangesetError", func(t *testing.T) {
 		cause := errors.New("reversal failed")
 		err := NewReverseChangesetError(cause)
 		assert.Contains(t, err.Error(), "reverse")
-		assert.Equal(t, cause, err.Unwrap())
+		assert.Equal(t, cause, errors.Unwrap(err))
 	})
 
 	t.Run("NewApplyVersionChangesError", func(t *testing.T) {
 		cause := errors.New("apply failed")
 		err := NewApplyVersionChangesError(cause, nil)
 		assert.Contains(t, err.Error(), "apply version changes")
-		assert.Equal(t, cause, err.Unwrap())
+		assert.Equal(t, cause, errors.Unwrap(err))
 
 		rollbackErr := errors.New("rollback failed")
 		err = NewApplyVersionChangesError(cause, rollbackErr)
@@ -1208,14 +1208,14 @@ func TestErrorConstructors(t *testing.T) {
 		cause := errors.New("set head failed")
 		err := NewSetHeadError(7, cause)
 		assert.Contains(t, err.Error(), "7")
-		assert.Equal(t, cause, err.Unwrap())
+		assert.Equal(t, cause, errors.Unwrap(err))
 	})
 
 	t.Run("NewLoadStateError", func(t *testing.T) {
 		cause := errors.New("load failed")
 		err := NewLoadStateError(cause, nil)
 		assert.Contains(t, err.Error(), "load state")
-		assert.Equal(t, cause, err.Unwrap())
+		assert.Equal(t, cause, errors.Unwrap(err))
 
 		rollbackErr := errors.New("rollback failed")
 		err = NewLoadStateError(cause, rollbackErr)
@@ -1226,6 +1226,214 @@ func TestErrorConstructors(t *testing.T) {
 		cause := errors.New("transition failed")
 		err := NewComputeTransitionError(cause)
 		assert.Contains(t, err.Error(), "transition")
-		assert.Equal(t, cause, err.Unwrap())
+		assert.Equal(t, cause, errors.Unwrap(err))
+	})
+}
+
+func TestEnrichChangeset(t *testing.T) {
+	entry1 := registry.Entry{
+		ID:   registry.NewID("ns", "entry1"),
+		Kind: "test",
+		Data: payload.NewString("data1"),
+	}
+	entry2 := registry.Entry{
+		ID:   registry.NewID("ns", "entry2"),
+		Kind: "test",
+		Data: payload.NewString("data2"),
+	}
+
+	t.Run("Create operation should not have OriginalEntry", func(t *testing.T) {
+		reg := &Reg{
+			state: registry.State{entry1},
+			log:   zap.NewNop(),
+		}
+
+		changes := registry.ChangeSet{
+			{Kind: registry.Create, Entry: entry2},
+		}
+
+		enriched := reg.enrichChangeset(changes)
+
+		assert.Len(t, enriched, 1)
+		assert.Nil(t, enriched[0].OriginalEntry)
+	})
+
+	t.Run("Update operation with existing entry should have OriginalEntry", func(t *testing.T) {
+		reg := &Reg{
+			state: registry.State{entry1},
+			log:   zap.NewNop(),
+		}
+
+		updatedEntry := entry1
+		updatedEntry.Data = payload.NewString("updated")
+
+		changes := registry.ChangeSet{
+			{Kind: registry.Update, Entry: updatedEntry},
+		}
+
+		enriched := reg.enrichChangeset(changes)
+
+		assert.Len(t, enriched, 1)
+		assert.NotNil(t, enriched[0].OriginalEntry)
+		assert.Equal(t, entry1.ID, enriched[0].OriginalEntry.ID)
+		assert.Equal(t, "data1", enriched[0].OriginalEntry.Data.Data())
+	})
+
+	t.Run("Delete operation with existing entry should have OriginalEntry", func(t *testing.T) {
+		reg := &Reg{
+			state: registry.State{entry1, entry2},
+			log:   zap.NewNop(),
+		}
+
+		changes := registry.ChangeSet{
+			{Kind: registry.Delete, Entry: entry1},
+		}
+
+		enriched := reg.enrichChangeset(changes)
+
+		assert.Len(t, enriched, 1)
+		assert.NotNil(t, enriched[0].OriginalEntry)
+		assert.Equal(t, entry1.ID, enriched[0].OriginalEntry.ID)
+	})
+
+	t.Run("Update operation with missing entry should not have OriginalEntry", func(t *testing.T) {
+		reg := &Reg{
+			state: registry.State{entry1},
+			log:   zap.NewNop(),
+		}
+
+		changes := registry.ChangeSet{
+			{Kind: registry.Update, Entry: entry2}, // entry2 not in state
+		}
+
+		enriched := reg.enrichChangeset(changes)
+
+		assert.Len(t, enriched, 1)
+		assert.Nil(t, enriched[0].OriginalEntry)
+	})
+
+	t.Run("Delete operation with missing entry should not have OriginalEntry", func(t *testing.T) {
+		reg := &Reg{
+			state: registry.State{entry1},
+			log:   zap.NewNop(),
+		}
+
+		changes := registry.ChangeSet{
+			{Kind: registry.Delete, Entry: entry2}, // entry2 not in state
+		}
+
+		enriched := reg.enrichChangeset(changes)
+
+		assert.Len(t, enriched, 1)
+		assert.Nil(t, enriched[0].OriginalEntry)
+	})
+
+	t.Run("Mixed operations are enriched correctly", func(t *testing.T) {
+		reg := &Reg{
+			state: registry.State{entry1, entry2},
+			log:   zap.NewNop(),
+		}
+
+		newEntry := registry.Entry{
+			ID:   registry.NewID("ns", "entry3"),
+			Kind: "test",
+			Data: payload.NewString("data3"),
+		}
+		updatedEntry := entry1
+		updatedEntry.Data = payload.NewString("updated")
+
+		changes := registry.ChangeSet{
+			{Kind: registry.Create, Entry: newEntry},
+			{Kind: registry.Update, Entry: updatedEntry},
+			{Kind: registry.Delete, Entry: entry2},
+		}
+
+		enriched := reg.enrichChangeset(changes)
+
+		assert.Len(t, enriched, 3)
+		assert.Nil(t, enriched[0].OriginalEntry, "Create should not have OriginalEntry")
+		assert.NotNil(t, enriched[1].OriginalEntry, "Update should have OriginalEntry")
+		assert.NotNil(t, enriched[2].OriginalEntry, "Delete should have OriginalEntry")
+	})
+}
+
+func TestCollectBackwardChangesets(t *testing.T) {
+	t.Run("No common ancestor returns error", func(t *testing.T) {
+		v0 := version.New(registry.RootVersion)
+		v1 := version.FromParent(v0, 1)
+		v2 := version.FromParent(v1, 2)
+		v3 := version.New(3) // Disconnected version
+
+		hist := historymem.New()
+		_ = hist.Save(v0, registry.ChangeSet{}, true)
+		_ = hist.Save(v1, registry.ChangeSet{}, false)
+		_ = hist.Save(v2, registry.ChangeSet{}, false)
+		_ = hist.Save(v3, registry.ChangeSet{}, false)
+
+		runner := NewMockRunner()
+		stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
+		reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
+		reg.currentVersion = v2
+
+		// Path that doesn't include common ancestor
+		path := []registry.Version{v3}
+		_, err := reg.collectBackwardChangesets(path, v3)
+
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, ErrNoCommonAncestor)
+	})
+
+	t.Run("History Get error is propagated", func(t *testing.T) {
+		v0 := version.New(registry.RootVersion)
+		v1 := version.FromParent(v0, 1)
+		v2 := version.FromParent(v1, 2)
+
+		hist := historymem.New()
+		_ = hist.Save(v0, registry.ChangeSet{}, true)
+		_ = hist.Save(v1, registry.ChangeSet{}, false)
+		// Don't save v2 - Get will fail for it
+
+		runner := NewMockRunner()
+		stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
+		reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
+		reg.currentVersion = v2 // current at v2, but v2 not in history
+
+		path := []registry.Version{v0, v1}
+		_, err := reg.collectBackwardChangesets(path, v1)
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "get changeset")
+	})
+
+	t.Run("Successful backward changeset collection", func(t *testing.T) {
+		v0 := version.New(registry.RootVersion)
+		v1 := version.FromParent(v0, 1)
+		v2 := version.FromParent(v1, 2)
+
+		entry := registry.Entry{
+			ID:   registry.NewID("ns", "test"),
+			Kind: "test",
+			Data: payload.NewString("data"),
+		}
+
+		hist := historymem.New()
+		_ = hist.Save(v0, registry.ChangeSet{}, true)
+		_ = hist.Save(v1, registry.ChangeSet{
+			{Kind: registry.Create, Entry: entry},
+		}, false)
+		_ = hist.Save(v2, registry.ChangeSet{
+			{Kind: registry.Update, Entry: entry, OriginalEntry: &entry},
+		}, false)
+
+		runner := NewMockRunner()
+		stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
+		reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
+		reg.currentVersion = v2
+
+		path := []registry.Version{v0, v1}
+		cs, err := reg.collectBackwardChangesets(path, v1)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, cs)
 	})
 }

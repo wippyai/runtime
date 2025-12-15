@@ -7,50 +7,16 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
-// Error implements apierror.Error for native executor errors
-type Error struct { // todo: why here?!!!
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
-}
-
-func (e *Error) Error() string               { return e.message }
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
-
-// Sentinel errors for native process operations
 var (
-	ErrProcessNotRunning = &Error{
-		kind:      apierror.KindInvalid,
-		message:   "process is not running",
-		retryable: apierror.False,
-	}
-
-	ErrProcessNotStarted = &Error{
-		kind:      apierror.KindInvalid,
-		message:   "process not started",
-		retryable: apierror.False,
-	}
-
-	ErrInvalidPID = &Error{
-		kind:      apierror.KindInvalid,
-		message:   "pid is not a positive int, process is possibly not running",
-		retryable: apierror.False,
-	}
+	ErrProcessNotRunning = apierror.New(apierror.KindInvalid, "process is not running").WithRetryable(apierror.False)
+	ErrProcessNotStarted = apierror.New(apierror.KindInvalid, "process not started").WithRetryable(apierror.False)
+	ErrInvalidPID        = apierror.New(apierror.KindInvalid, "pid is not a positive int, process is possibly not running").WithRetryable(apierror.False)
 )
 
-// NewCommandNotAllowedError creates an error for rejected commands
-func NewCommandNotAllowedError(cmd string) *Error {
-	return &Error{
-		kind:      apierror.KindPermissionDenied,
-		message:   fmt.Sprintf("command not in whitelist: %s", cmd),
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"command": cmd}),
-	}
+func NewCommandNotAllowedError(cmd string) apierror.Error {
+	return apierror.New(apierror.KindPermissionDenied, fmt.Sprintf("command not in whitelist: %s", cmd)).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"command": cmd}))
 }
 
 // ExitError represents a process exit with non-zero code

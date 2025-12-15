@@ -171,7 +171,7 @@ func (r *EventRouter) addHandler(h EventHandler) error {
 	)
 
 	if err != nil {
-		return event.NewSubscriberError(err)
+		return NewSubscriberError(err)
 	}
 
 	r.subscribers = append(r.subscribers, handlerSubscription{

@@ -48,9 +48,9 @@ func TestStateMap(t *testing.T) {
 		}
 	})
 
-	t.Run("Copy", func(t *testing.T) {
+	t.Run("CopyStateMap", func(t *testing.T) {
 		originalMap := NewStateMap(initialState)
-		copiedMap := originalMap.Copy()
+		copiedMap := CopyStateMap(originalMap)
 
 		if len(copiedMap) != len(originalMap) {
 			t.Errorf("Copy() failed: expected map length %d, got %d", len(originalMap), len(copiedMap))
@@ -75,9 +75,9 @@ func TestStateMap(t *testing.T) {
 		}
 	})
 
-	t.Run("ToSlice", func(t *testing.T) {
+	t.Run("StateMapToSlice", func(t *testing.T) {
 		stateMap := NewStateMap(initialState)
-		newState := stateMap.ToSlice()
+		newState := StateMapToSlice(stateMap)
 
 		if len(newState) != len(initialState) {
 			t.Errorf("ToSlice() failed: expected slice length %d, got %d", len(initialState), len(newState))
@@ -125,16 +125,16 @@ func TestStateMap(t *testing.T) {
 			t.Errorf("NewStateMap() failed for empty state: expected length 0, got %d", len(emptyMap))
 		}
 
-		// Test Copy with empty map
-		copiedEmpty := emptyMap.Copy()
+		// Test CopyStateMap with empty map
+		copiedEmpty := CopyStateMap(emptyMap)
 		if len(copiedEmpty) != 0 {
-			t.Errorf("Copy() failed for empty map: expected length 0, got %d", len(copiedEmpty))
+			t.Errorf("CopyStateMap() failed for empty map: expected length 0, got %d", len(copiedEmpty))
 		}
 
-		// Test ToSlice with empty map
-		emptySlice := emptyMap.ToSlice()
+		// Test StateMapToSlice with empty map
+		emptySlice := StateMapToSlice(emptyMap)
 		if len(emptySlice) != 0 {
-			t.Errorf("ToSlice() failed for empty map: expected length 0, got %d", len(emptySlice))
+			t.Errorf("StateMapToSlice() failed for empty map: expected length 0, got %d", len(emptySlice))
 		}
 	})
 }

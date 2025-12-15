@@ -1,25 +1,10 @@
 package lua
 
 import (
-	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
-type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
-}
-
-func (e *Error) Error() string               { return e.message }
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
-
 var (
-	ErrDispatcherNotFound          = &Error{kind: apierror.KindInternal, message: "dispatcher not found in context"}
-	ErrDispatcherRegistrarNotFound = &Error{kind: apierror.KindInternal, message: "dispatcher registrar not found in context"}
+	ErrDispatcherNotFound          = apierror.New(apierror.KindInternal, "dispatcher not found in context").WithRetryable(apierror.False)
+	ErrDispatcherRegistrarNotFound = apierror.New(apierror.KindInternal, "dispatcher registrar not found in context").WithRetryable(apierror.False)
 )

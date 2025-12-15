@@ -12,7 +12,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
-	"github.com/wippyai/runtime/api/service/host"
+	hostapi "github.com/wippyai/runtime/api/service/host"
 	"github.com/wippyai/runtime/api/supervisor"
 	entryutil "github.com/wippyai/runtime/internal/entry"
 	"github.com/wippyai/runtime/internal/uniqid"
@@ -48,9 +48,9 @@ func NewManager(bus event.Bus, dtt payload.Transcoder, cmdRegistry dispatcherapi
 
 // Add implements registry.EntryListener.
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	cfg, err := entryutil.DecodeEntryConfig[host.EntryConfig](ctx, m.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[hostapi.EntryConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return host.NewDecodeConfigError(err)
+		return NewDecodeConfigError(err)
 	}
 
 	h := NewHost(entry.ID, cfg, nil, m.factory, m.pidGen, m.log)

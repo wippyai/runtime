@@ -189,23 +189,29 @@ func TestTopology_RemoteLinking(t *testing.T) {
 }
 
 func TestTopology_handleMonitorRequest(t *testing.T) {
-	upstream := newMockUpstream()
-	topo := NewTopology(upstream, "local")
-
-	localPID := pid.PID{Node: "local", Host: "host1", UniqID: "1"}.Precomputed()
-	remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}.Precomputed()
-
 	t.Run("handleMonitorRequest adds caller to watchers", func(t *testing.T) {
+		upstream := newMockUpstream()
+		topo := NewTopology(upstream, "local")
+
+		localPID := pid.PID{Node: "local", Host: "host1", UniqID: "1"}.Precomputed()
+		remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}.Precomputed()
+
 		err := topo.Register(localPID)
 		require.NoError(t, err)
 
 		err = topo.handleMonitorRequest(remotePID, localPID)
 		require.NoError(t, err)
 
-		assert.True(t, topo.hasWatcher(localPID, remotePID), "remotePID should be in watchers")
+		// Verify watcher was added by checking notification on Complete
+		topo.Complete(localPID, &runtime.Result{})
+		assert.Len(t, upstream.getSends(remotePID), 1, "remotePID should receive notification")
 	})
 
 	t.Run("handleMonitorRequest on unregistered PID fails", func(t *testing.T) {
+		upstream := newMockUpstream()
+		topo := NewTopology(upstream, "local")
+
+		remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}.Precomputed()
 		unregisteredPID := pid.PID{Node: "local", Host: "host3", UniqID: "3"}.Precomputed()
 
 		err := topo.handleMonitorRequest(remotePID, unregisteredPID)
@@ -214,36 +220,46 @@ func TestTopology_handleMonitorRequest(t *testing.T) {
 	})
 
 	t.Run("handleMonitorRequest is idempotent", func(t *testing.T) {
-		err := topo.handleMonitorRequest(remotePID, localPID)
-		require.NoError(t, err)
+		upstream := newMockUpstream()
+		topo := NewTopology(upstream, "local")
 
-		count := topo.watcherCount(localPID)
-		assert.Equal(t, 1, count, "should not add duplicate watchers")
+		localPID := pid.PID{Node: "local", Host: "host1", UniqID: "1"}.Precomputed()
+		remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}.Precomputed()
+
+		require.NoError(t, topo.Register(localPID))
+		require.NoError(t, topo.handleMonitorRequest(remotePID, localPID))
+		require.NoError(t, topo.handleMonitorRequest(remotePID, localPID)) // add again
+
+		// Verify only one notification is sent (not duplicated)
+		topo.Complete(localPID, &runtime.Result{})
+		assert.Len(t, upstream.getSends(remotePID), 1, "should not add duplicate watchers")
 	})
 }
 
 func TestTopology_handleMonitorRelease(t *testing.T) {
-	upstream := newMockUpstream()
-	topo := NewTopology(upstream, "local")
-
-	localPID := pid.PID{Node: "local", Host: "host1", UniqID: "1"}.Precomputed()
-	remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}.Precomputed()
-
-	err := topo.Register(localPID)
-	require.NoError(t, err)
-
-	err = topo.handleMonitorRequest(remotePID, localPID)
-	require.NoError(t, err)
-
 	t.Run("handleMonitorRelease removes caller from watchers", func(t *testing.T) {
+		upstream := newMockUpstream()
+		topo := NewTopology(upstream, "local")
+
+		localPID := pid.PID{Node: "local", Host: "host1", UniqID: "1"}.Precomputed()
+		remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}.Precomputed()
+
+		require.NoError(t, topo.Register(localPID))
+		require.NoError(t, topo.handleMonitorRequest(remotePID, localPID))
+
 		err := topo.handleMonitorRelease(remotePID, localPID)
 		require.NoError(t, err)
 
-		count := topo.watcherCount(localPID)
-		assert.Equal(t, 0, count, "should have no watchers after release")
+		// Verify watcher was removed - no notification on Complete
+		topo.Complete(localPID, &runtime.Result{})
+		assert.Len(t, upstream.getSends(remotePID), 0, "should have no watchers after release")
 	})
 
 	t.Run("handleMonitorRelease on non-monitored PID is safe", func(t *testing.T) {
+		upstream := newMockUpstream()
+		topo := NewTopology(upstream, "local")
+
+		remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}.Precomputed()
 		unmonitoredPID := pid.PID{Node: "local", Host: "host3", UniqID: "3"}.Precomputed()
 
 		err := topo.handleMonitorRelease(remotePID, unmonitoredPID)
@@ -330,7 +346,7 @@ func TestTopology_RemoteMonitoringWithNotification(t *testing.T) {
 
 		upstream.reset()
 
-		topo.Notify(localPID, &runtime.Result{
+		topo.Complete(localPID, &runtime.Result{
 			Value: payload.New("test result"),
 			Error: nil,
 		})

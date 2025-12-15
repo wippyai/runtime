@@ -30,7 +30,7 @@ func TestErrorInterface(t *testing.T) {
 	})
 
 	t.Run("Unwrap", func(t *testing.T) {
-		assert.Equal(t, cause, err.Unwrap())
+		assert.Equal(t, cause, errors.Unwrap(err))
 	})
 }
 
@@ -39,7 +39,7 @@ func TestNewInvalidFormatError(t *testing.T) {
 	assert.Equal(t, "invalid format", err.Error())
 	assert.Equal(t, apierror.KindInvalid, err.Kind())
 	assert.Equal(t, apierror.False, err.Retryable())
-	assert.Nil(t, err.Unwrap())
+	assert.Nil(t, errors.Unwrap(err))
 }
 
 func TestNewInvalidTypeError(t *testing.T) {
@@ -47,7 +47,7 @@ func TestNewInvalidTypeError(t *testing.T) {
 	assert.Equal(t, "invalid type", err.Error())
 	assert.Equal(t, apierror.KindInvalid, err.Kind())
 	assert.Equal(t, apierror.False, err.Retryable())
-	assert.Nil(t, err.Unwrap())
+	assert.Nil(t, errors.Unwrap(err))
 }
 
 func TestNewTranscodeError(t *testing.T) {
@@ -56,7 +56,7 @@ func TestNewTranscodeError(t *testing.T) {
 	assert.Equal(t, "transcode failed: underlying error", err.Error())
 	assert.Equal(t, apierror.KindInternal, err.Kind())
 	assert.Equal(t, apierror.False, err.Retryable())
-	assert.Equal(t, cause, err.Unwrap())
+	assert.Equal(t, cause, errors.Unwrap(err))
 }
 
 func TestNewConversionError(t *testing.T) {
@@ -65,7 +65,7 @@ func TestNewConversionError(t *testing.T) {
 	assert.Equal(t, "conversion failed: conversion issue", err.Error())
 	assert.Equal(t, apierror.KindInternal, err.Kind())
 	assert.Equal(t, apierror.False, err.Retryable())
-	assert.Equal(t, cause, err.Unwrap())
+	assert.Equal(t, cause, errors.Unwrap(err))
 }
 
 func TestNewUnsupportedTypeError(t *testing.T) {
@@ -73,5 +73,5 @@ func TestNewUnsupportedTypeError(t *testing.T) {
 	assert.Equal(t, "unsupported type: custom", err.Error())
 	assert.Equal(t, apierror.KindInvalid, err.Kind())
 	assert.Equal(t, apierror.False, err.Retryable())
-	assert.Nil(t, err.Unwrap())
+	assert.Nil(t, errors.Unwrap(err))
 }

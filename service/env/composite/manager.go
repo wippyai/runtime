@@ -10,6 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	envsvc "github.com/wippyai/runtime/api/service/env"
 	entryutil "github.com/wippyai/runtime/internal/entry"
+	sysenv "github.com/wippyai/runtime/system/env"
 	"go.uber.org/zap"
 )
 
@@ -60,7 +61,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	storage, err := NewStorage(selectedStorages)
 	if err != nil {
-		return env.NewCreateStorageError(err)
+		return sysenv.NewCreateStorageError(err)
 	}
 
 	m.mu.Lock()

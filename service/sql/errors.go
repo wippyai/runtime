@@ -6,204 +6,99 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 )
 
-type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
-}
-
-func (e *Error) Error() string               { return e.message }
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
-
 var (
-	ErrPoolClosed = &Error{
-		kind:      apierror.KindUnavailable,
-		message:   "connection pool is closed",
-		retryable: apierror.False,
-	}
-
-	ErrTranscoderRequired = &Error{
-		kind:      apierror.KindInvalid,
-		message:   "transcoder is required",
-		retryable: apierror.False,
-	}
-
-	ErrEventBusRequired = &Error{
-		kind:      apierror.KindInvalid,
-		message:   "event bus is required",
-		retryable: apierror.False,
-	}
-
-	ErrPoolFactoryRequired = &Error{
-		kind:      apierror.KindInvalid,
-		message:   "pool factory is required",
-		retryable: apierror.False,
-	}
+	ErrPoolClosed          = apierror.New(apierror.KindUnavailable, "connection pool is closed").WithRetryable(apierror.False)
+	ErrTranscoderRequired  = apierror.New(apierror.KindInvalid, "transcoder is required").WithRetryable(apierror.False)
+	ErrEventBusRequired    = apierror.New(apierror.KindInvalid, "event bus is required").WithRetryable(apierror.False)
+	ErrPoolFactoryRequired = apierror.New(apierror.KindInvalid, "pool factory is required").WithRetryable(apierror.False)
+	ErrHostRequired        = apierror.New(apierror.KindInvalid, "host is required").WithRetryable(apierror.False)
+	ErrInvalidPort         = apierror.New(apierror.KindInvalid, "port must be greater than 0").WithRetryable(apierror.False)
+	ErrDatabaseRequired    = apierror.New(apierror.KindInvalid, "database is required").WithRetryable(apierror.False)
+	ErrUsernameRequired    = apierror.New(apierror.KindInvalid, "username is required").WithRetryable(apierror.False)
+	ErrPasswordRequired    = apierror.New(apierror.KindInvalid, "password is required").WithRetryable(apierror.False)
+	ErrInvalidMaxOpen      = apierror.New(apierror.KindInvalid, "pool.max_open must be greater or equal to 0").WithRetryable(apierror.False)
+	ErrInvalidMaxIdle      = apierror.New(apierror.KindInvalid, "pool.max_idle must be greater than or equal to 0").WithRetryable(apierror.False)
+	ErrInvalidMaxLifetime  = apierror.New(apierror.KindInvalid, "pool.max_lifetime must be greater than 0").WithRetryable(apierror.False)
+	ErrFileRequired        = apierror.New(apierror.KindInvalid, "file is required").WithRetryable(apierror.False)
 )
 
-func NewPingError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindUnavailable,
-		message:   "failed to ping database",
-		retryable: apierror.True,
-		cause:     err,
-	}
+func NewPingError(err error) apierror.Error {
+	return apierror.New(apierror.KindUnavailable, "failed to ping database").WithRetryable(apierror.True).WithCause(err)
 }
 
-func NewInvalidConfigError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "invalid configuration",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewInvalidConfigError(err error) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "invalid configuration").WithRetryable(apierror.False).WithCause(err)
 }
 
-func NewInvalidConfigTypeError(configType string, expectedKind registry.Kind) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "invalid config type",
-		retryable: apierror.False,
-		details: attrs.Bag{
-			"config_type":   configType,
-			"expected_kind": expectedKind,
-		},
-	}
+func NewInvalidConfigTypeError(configType string, expectedKind registry.Kind) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "invalid config type").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.Bag{"config_type": configType, "expected_kind": expectedKind})
 }
 
-func NewUnsupportedConfigTypeError(configType registry.Kind) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "unsupported config type",
-		retryable: apierror.False,
-		details: attrs.Bag{
-			"config_type": configType,
-		},
-	}
+func NewUnsupportedConfigTypeError(configType registry.Kind) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "unsupported config type").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.Bag{"config_type": configType})
 }
 
-func NewUnsupportedAccessModeError(mode string) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "unsupported access mode",
-		retryable: apierror.False,
-		details: attrs.Bag{
-			"mode": mode,
-		},
-	}
+func NewUnsupportedAccessModeError(mode string) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "unsupported access mode").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.Bag{"mode": mode})
 }
 
-func NewUnsupportedDatabaseTypeError(kind registry.Kind) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "unsupported database type",
-		retryable: apierror.False,
-		details: attrs.Bag{
-			"database_type": kind,
-		},
-	}
+func NewUnsupportedDatabaseTypeError(kind registry.Kind) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "unsupported database type").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.Bag{"database_type": kind})
 }
 
-func NewConnectionPoolCreationError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "failed to create connection pool",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewConnectionPoolCreationError(err error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to create connection pool").WithRetryable(apierror.False).WithCause(err)
 }
 
-func NewSQLiteConnectionCreationError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "failed to create SQLite connection",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewSQLiteConnectionCreationError(err error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to create SQLite connection").WithRetryable(apierror.False).WithCause(err)
 }
 
-func NewWALModeError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "failed to enable WAL mode",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewWALModeError(err error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to enable WAL mode").WithRetryable(apierror.False).WithCause(err)
 }
 
-func NewInvalidDSNError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "invalid connection config",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewInvalidDSNError(err error) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "invalid connection config").WithRetryable(apierror.False).WithCause(err)
 }
 
-func NewUnsupportedEntryKindError(kind registry.Kind) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "unsupported entry kind",
-		retryable: apierror.False,
-		details: attrs.Bag{
-			"kind": kind,
-		},
-	}
+func NewUnsupportedEntryKindError(kind registry.Kind) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "unsupported entry kind").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.Bag{"kind": kind})
 }
 
-func NewServiceExistsError(id registry.ID) *Error {
-	return &Error{
-		kind:      apierror.KindAlreadyExists,
-		message:   "service already exists",
-		retryable: apierror.False,
-		details: attrs.Bag{
-			"service_id": id.String(),
-		},
-	}
+func NewServiceExistsError(id registry.ID) apierror.Error {
+	return apierror.New(apierror.KindAlreadyExists, "service already exists").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.Bag{"service_id": id.String()})
 }
 
-func NewServiceNotFoundError(id registry.ID) *Error {
-	return &Error{
-		kind:      apierror.KindNotFound,
-		message:   "service not found",
-		retryable: apierror.False,
-		details: attrs.Bag{
-			"service_id": id.String(),
-		},
-	}
+func NewServiceNotFoundError(id registry.ID) apierror.Error {
+	return apierror.New(apierror.KindNotFound, "service not found").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.Bag{"service_id": id.String()})
 }
 
-func NewInvalidPortError(envVar string, err error) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "invalid port value from env",
-		retryable: apierror.False,
-		details: attrs.Bag{
-			"env_var": envVar,
-		},
-		cause: err,
-	}
+func NewInvalidPortError(envVar string, err error) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "invalid port value from env").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.Bag{"env_var": envVar}).
+		WithCause(err)
 }
 
-func NewPoolUpdateError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "failed to update pool config",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewPoolUpdateError(err error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to update pool config").WithRetryable(apierror.False).WithCause(err)
 }
 
-func NewSQLiteUpdateError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "failed to update SQLite config",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewSQLiteUpdateError(err error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to update SQLite config").WithRetryable(apierror.False).WithCause(err)
 }

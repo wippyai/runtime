@@ -1,108 +1,45 @@
 package evalhost
 
 import (
-	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
-type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
+var (
+	ErrProcessFactoryNotAvailable = apierror.New(apierror.KindInternal, "process factory not available").WithRetryable(apierror.False)
+
+	ErrNoResult = apierror.New(apierror.KindInternal, "process completed with no result").WithRetryable(apierror.False)
+
+	ErrProcessIdle = apierror.New(apierror.KindInternal, "process became idle").WithRetryable(apierror.False)
+)
+
+func NewCompileError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "compile failed").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func (e *Error) Error() string               { return e.message }
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
-
-func NewCompileError(cause error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "compile failed",
-		retryable: apierror.False,
-		cause:     cause,
-	}
+func NewCreateProcessError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to create process").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewCreateProcessError(cause error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "failed to create process",
-		retryable: apierror.False,
-		cause:     cause,
-	}
+func NewCreateProcessFromIDError(id string, cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to create process from ID "+id).WithCause(cause).WithRetryable(apierror.False)
 }
 
-var ErrProcessFactoryNotAvailable = &Error{
-	kind:      apierror.KindInternal,
-	message:   "process factory not available",
-	retryable: apierror.False,
+func NewModuleNotAvailableError(name string) apierror.Error {
+	return apierror.New(apierror.KindNotFound, "module \""+name+"\" is not available").WithRetryable(apierror.False)
 }
 
-var ErrNoResult = &Error{
-	kind:      apierror.KindInternal,
-	message:   "process completed with no result",
-	retryable: apierror.False,
+func NewParseError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "parse error").WithCause(cause).WithRetryable(apierror.False)
 }
 
-var ErrProcessIdle = &Error{
-	kind:      apierror.KindInternal,
-	message:   "process became idle",
-	retryable: apierror.False,
+func NewCompileScriptError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "compile error").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewCreateProcessFromIDError(id string, cause error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "failed to create process from ID " + id,
-		retryable: apierror.False,
-		cause:     cause,
-	}
+func NewForbiddenClassError(module, class string) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "module \""+module+"\" has forbidden class \""+class+"\"").WithRetryable(apierror.False)
 }
 
-func NewModuleNotAvailableError(name string) *Error {
-	return &Error{
-		kind:      apierror.KindNotFound,
-		message:   "module \"" + name + "\" is not available",
-		retryable: apierror.False,
-	}
-}
-
-func NewParseError(cause error) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "parse error",
-		retryable: apierror.False,
-		cause:     cause,
-	}
-}
-
-func NewCompileScriptError(cause error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "compile error",
-		retryable: apierror.False,
-		cause:     cause,
-	}
-}
-
-func NewForbiddenClassError(module, class string) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "module \"" + module + "\" has forbidden class \"" + class + "\"",
-		retryable: apierror.False,
-	}
-}
-
-func NewRunError(cause error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "run failed",
-		retryable: apierror.False,
-		cause:     cause,
-	}
+func NewRunError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "run failed").WithCause(cause).WithRetryable(apierror.False)
 }

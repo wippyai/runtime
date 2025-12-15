@@ -81,10 +81,12 @@ func (m *mockTopology) GetLinks(_ pid.PID) []pid.PID {
 	return nil
 }
 
-func (m *mockTopology) Notify(p pid.PID, result *runtime.Result) {
+func (m *mockTopology) Complete(p pid.PID, result *runtime.Result) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.notified[p.String()] = result
+	m.removed = append(m.removed, p.String())
+	delete(m.registered, p.String())
 }
 
 func (m *mockTopology) Remove(p pid.PID) {

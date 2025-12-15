@@ -13,7 +13,6 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/runtime/resource"
-	wssvc "github.com/wippyai/runtime/api/service/websocket"
 	wsapi "github.com/wippyai/runtime/api/websocket"
 
 	"github.com/coder/websocket"
@@ -486,7 +485,7 @@ func TestCloseHandler(t *testing.T) {
 	}
 
 	_, err = registry.GetMessageChan(connID)
-	if !errors.Is(err, wssvc.ErrConnNotFound) {
+	if !errors.Is(err, ErrConnNotFound) {
 		t.Errorf("expected ErrConnNotFound after close, got %v", err)
 	}
 }

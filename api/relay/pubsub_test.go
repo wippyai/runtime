@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 )
@@ -285,7 +286,7 @@ func TestWithHost_GetHost(t *testing.T) {
 func TestSentinelErrors(t *testing.T) {
 	tests := []struct {
 		name     string
-		err      *Error
+		err      apierror.Error
 		expected string
 		kind     string
 	}{
@@ -301,29 +302,28 @@ func TestSentinelErrors(t *testing.T) {
 			assert.Equal(t, tt.expected, tt.err.Error())
 			assert.Equal(t, tt.kind, tt.err.Kind().String())
 			assert.False(t, tt.err.Retryable().Bool())
-			assert.Nil(t, tt.err.Unwrap())
 		})
 	}
 }
 
 func TestErrorMethods(t *testing.T) {
-	t.Run("WithCause", func(t *testing.T) {
+	t.Run("SetCause", func(t *testing.T) {
 		cause := errors.New("underlying cause")
-		newErr := ErrHostNotFound.WithCause(cause)
-		assert.Equal(t, cause, newErr.Unwrap())
+		newErr := apierror.SetCause(ErrHostNotFound, cause)
+		assert.True(t, errors.Is(newErr, cause))
 		assert.Equal(t, ErrHostNotFound.Error(), newErr.Error())
 	})
 
-	t.Run("WithDetails", func(t *testing.T) {
+	t.Run("SetDetails", func(t *testing.T) {
 		details := attrs.NewBagFrom(map[string]any{"key": "value"})
-		newErr := ErrHostNotFound.WithDetails(details)
+		newErr := apierror.SetDetails(ErrHostNotFound, details)
 		assert.NotNil(t, newErr.Details())
 		val, _ := newErr.Details().Get("key")
 		assert.Equal(t, "value", val)
 	})
 
-	t.Run("WithMessage", func(t *testing.T) {
-		newErr := ErrHostNotFound.WithMessage("custom message")
+	t.Run("SetMessage", func(t *testing.T) {
+		newErr := apierror.SetMessage(ErrHostNotFound, "custom message")
 		assert.Equal(t, "custom message", newErr.Error())
 	})
 }
@@ -345,12 +345,6 @@ func TestErrorConstructors(t *testing.T) {
 		assert.Contains(t, err.Error(), "host1")
 		assert.Contains(t, err.Error(), "not found")
 		assert.Equal(t, "NotFound", err.Kind().String())
-	})
-
-	t.Run("NewInvalidHostTypeError", func(t *testing.T) {
-		err := NewInvalidHostTypeError("host1", "node1")
-		assert.Contains(t, err.Error(), "invalid type")
-		assert.Equal(t, "Internal", err.Kind().String())
 	})
 
 	t.Run("NewExternalNodeError", func(t *testing.T) {
@@ -383,18 +377,10 @@ func TestErrorConstructors(t *testing.T) {
 		assert.Equal(t, "Conflict", err.Kind().String())
 	})
 
-	t.Run("NewSubscriberError", func(t *testing.T) {
-		cause := errors.New("subscriber error")
-		err := NewSubscriberError(cause)
-		assert.Contains(t, err.Error(), "failed to create subscriber")
-		assert.True(t, err.Retryable().Bool())
-		assert.Equal(t, cause, err.Unwrap())
-	})
-
 	t.Run("NewAlreadyAttachedError", func(t *testing.T) {
 		p := pid.PID{Host: "host1", UniqID: "proc1"}
 		err := NewAlreadyAttachedError(p)
 		assert.Contains(t, err.Error(), "already attached")
-		assert.Equal(t, ErrAlreadyAttached, err.Unwrap())
+		assert.True(t, errors.Is(err, ErrAlreadyAttached))
 	})
 }

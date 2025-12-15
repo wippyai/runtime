@@ -96,8 +96,8 @@ type (
 		// This should be called before any process can be monitored.
 		Register(p pid.PID) error
 
-		// Notify sends exit event to all watchers and links of a pid.
-		Notify(p pid.PID, result *runtime.Result)
+		// Complete notifies watchers/links and removes the pid in one operation.
+		Complete(p pid.PID, result *runtime.Result)
 
 		// Remove completely removes a pid and all its watchers, destroying all links.
 		Remove(p pid.PID)

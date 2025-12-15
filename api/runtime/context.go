@@ -26,7 +26,7 @@ var (
 func SetFrameID(ctx context.Context, id registry.ID) error {
 	fc := ctxapi.FrameFromContext(ctx)
 	if fc == nil {
-		return ErrNoFrameContext
+		return ctxapi.ErrNoFrameContext
 	}
 	return fc.Set(FrameIDKey, id)
 }
@@ -51,7 +51,7 @@ func GetFrameID(ctx context.Context) (registry.ID, bool) {
 func SetFramePID(ctx context.Context, p pid.PID) error {
 	fc := ctxapi.FrameFromContext(ctx)
 	if fc == nil {
-		return ErrNoFrameContext
+		return ctxapi.ErrNoFrameContext
 	}
 	return fc.Set(FramePIDKey, p)
 }

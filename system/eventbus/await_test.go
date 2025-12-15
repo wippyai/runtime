@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/event"
 )
 
@@ -101,9 +102,12 @@ func TestAwaiter_WaitFor_Timeout(t *testing.T) {
 		t.Error("expected accepted=false on timeout")
 	}
 
-	var eventErr *event.Error
-	if !errors.As(result.Error, &eventErr) {
-		t.Errorf("expected event.Error, got %T: %v", result.Error, result.Error)
+	var apiErr apierror.Error
+	if v, ok := result.Error.(apierror.Error); ok {
+		apiErr = v
+	}
+	if apiErr == nil || apiErr.Kind() != apierror.KindTimeout {
+		t.Errorf("expected apierror.Error with KindTimeout, got %T: %v", result.Error, result.Error)
 	}
 }
 

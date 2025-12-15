@@ -80,7 +80,7 @@ func TestServiceConfig_Validate(t *testing.T) {
 				HostID:  "node:worker1",
 			},
 			wantErr: true,
-			errMsg:  "process Process is required",
+			errMsg:  "process is required",
 		},
 		{
 			name: "missing host ID",
@@ -88,7 +88,7 @@ func TestServiceConfig_Validate(t *testing.T) {
 				Process: registry.NewID("proc", "worker"),
 			},
 			wantErr: true,
-			errMsg:  "host Process is required",
+			errMsg:  "host is required",
 		},
 		{
 			name: "control host not allowed",
@@ -97,7 +97,7 @@ func TestServiceConfig_Validate(t *testing.T) {
 				HostID:  topology.ControlHost,
 			},
 			wantErr: true,
-			errMsg:  "cannot be node:control",
+			errMsg:  "invalid host: node:control",
 		},
 	}
 

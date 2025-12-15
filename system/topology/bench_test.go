@@ -65,6 +65,18 @@ func BenchmarkRegisterAndRemove(b *testing.B) {
 	}
 }
 
+func BenchmarkRegisterAndComplete(b *testing.B) {
+	topo := NewTopology(&discardReceiver{}, "local")
+	result := &runtimeapi.Result{}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		pid := pid.PID{Host: "host", UniqID: fmt.Sprintf("%d", i)}.Precomputed()
+		_ = topo.Register(pid)
+		topo.Complete(pid, result)
+	}
+}
+
 func BenchmarkRegisterRemove100k(b *testing.B) {
 	if testing.Short() {
 		b.Skip("skipping stress benchmark in short mode")
@@ -106,7 +118,7 @@ func BenchmarkNotify(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		topo.Notify(monitored, result)
+		topo.Complete(monitored, result)
 	}
 }
 
@@ -127,7 +139,7 @@ func BenchmarkNotifyWithLinks(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		topo.Notify(main, result)
+		topo.Complete(main, result)
 	}
 }
 

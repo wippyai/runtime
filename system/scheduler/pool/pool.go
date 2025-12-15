@@ -36,16 +36,6 @@ type Pool interface {
 	Stop()
 }
 
-// Config contains static pool configuration.
-type Config struct {
-	// Workers is the number of worker goroutines/processes.
-	Workers int
-
-	// QueueSize is the capacity of the work queue.
-	// Calls block when queue is full.
-	QueueSize int
-}
-
 // OnExecutionStart is called before each execution with context and process.
 type OnExecutionStart func(ctx context.Context, proc process.Process)
 
@@ -56,6 +46,14 @@ type OnExecutionComplete func(ctx context.Context, result *runtime.Result)
 type ExecutionHooks struct {
 	OnStart    OnExecutionStart
 	OnComplete OnExecutionComplete
+}
+
+// Request holds a pending function call for queue-based pools.
+type Request struct {
+	Ctx      context.Context
+	Method   string
+	Input    payload.Payloads
+	ResultCh chan *runtime.Result
 }
 
 // Executor runs a process to completion with yield handling.

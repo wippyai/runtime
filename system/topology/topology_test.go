@@ -96,7 +96,7 @@ func TestTopology_BasicFunctionality(t *testing.T) {
 			Value: payload.New("test result"),
 		}
 
-		topo.Notify(pid1, result)
+		topo.Complete(pid1, result)
 
 		sends := upstream.getSends(pid2)
 		if len(sends) != 1 {
@@ -105,6 +105,10 @@ func TestTopology_BasicFunctionality(t *testing.T) {
 	})
 
 	t.Run("release stops monitoring", func(t *testing.T) {
+		// Re-register pid1 (was removed by Complete in previous test)
+		_ = topo.Register(pid1)
+		_ = topo.Monitor(pid2, pid1)
+
 		if err := topo.Demonitor(pid2, pid1); err != nil {
 			t.Errorf("unexpected error releasing monitor: %v", err)
 		}
@@ -116,7 +120,7 @@ func TestTopology_BasicFunctionality(t *testing.T) {
 	})
 
 	t.Run("remove cleans up completely", func(t *testing.T) {
-		topo.Remove(pid1)
+		topo.Complete(pid1, &runtime.Result{})
 
 		// Cannot monitor removed process
 		if err := topo.Monitor(pid2, pid1); err == nil {
@@ -223,7 +227,7 @@ func TestTopology_LinkFunctionality(t *testing.T) {
 			Error: testErr,
 		}
 
-		topo.Notify(pid1, result)
+		topo.Complete(pid1, result)
 
 		// Check that linked pid3 received notification for abnormal exit
 		sends3 := upstream.getSends(pid3)
@@ -241,7 +245,7 @@ func TestTopology_LinkFunctionality(t *testing.T) {
 			Value: payload.New("normal exit"),
 		}
 
-		topo.Notify(pid1, normalResult)
+		topo.Complete(pid1, normalResult)
 
 		// Check that linked pid3 did not receive notification for normal exit
 		sends3 = upstream.getSends(pid3)
@@ -316,7 +320,7 @@ func TestTopology_Concurrency(t *testing.T) {
 			Error: errors.New("test abnormal exit"),
 		}
 
-		topo.Notify(mainPid, result)
+		topo.Complete(mainPid, result)
 
 		// Verify all workers received exit notification
 		for _, worker := range workers {
@@ -332,7 +336,7 @@ func TestTopology_Concurrency(t *testing.T) {
 			Value: payload.New("main process exited normally"),
 		}
 
-		topo.Notify(mainPid, normalResult)
+		topo.Complete(mainPid, normalResult)
 
 		// Verify workers didn't receive notifications for normal exit
 		for _, worker := range workers {
@@ -392,7 +396,7 @@ func TestTopology_UpstreamError(t *testing.T) {
 	}
 
 	// This should not panic even with upstream error
-	topo.Notify(pid1, result)
+	topo.Complete(pid1, result)
 }
 
 func TestTopology_EdgeCases(t *testing.T) {
@@ -442,7 +446,7 @@ func TestTopology_EdgeCases(t *testing.T) {
 			Value: payload.New("test result"),
 		}
 		// Should not panic
-		topo.Notify(pid1, result)
+		topo.Complete(pid1, result)
 	})
 
 	t.Run("remove non-existent process", func(_ *testing.T) {
@@ -597,20 +601,16 @@ func TestTopology_ConcurrentOperations(t *testing.T) {
 			// Wait for operations to settle
 		}
 
-		// Verify that the final state is consistent.
-		// Since we have equal numbers of Wait and Release operations,
-		// the final state is indeterminate, but we can verify the data structure integrity.
-		watcherCount := topo.watcherCount(pid1)
-		stillMonitoring := topo.hasWatcher(pid1, pid2)
+		// Verify that the final state is consistent by calling Complete and checking notifications.
+		// Since we have equal numbers of Monitor and Demonitor operations,
+		// the final state is indeterminate (0 or 1 notification), but internal state should be consistent.
+		upstream.reset()
+		topo.Complete(pid1, &runtime.Result{})
+		notifications := upstream.getSends(pid2)
 
-		// The final state should be consistent - either pid2 is monitoring pid1
-		// (in which case there should be exactly 1 watcher) or it's not
-		// (in which case there should be 0 watchers).
-		if stillMonitoring {
-			assert.Equal(t, 1, watcherCount, "if pid2 is monitoring pid1, there should be exactly 1 watcher")
-		} else {
-			assert.Equal(t, 0, watcherCount, "if pid2 is not monitoring pid1, there should be no watchers")
-		}
+		// The final state should be consistent - either pid2 receives 0 or 1 notification.
+		assert.True(t, len(notifications) == 0 || len(notifications) == 1,
+			"should have 0 or 1 notification, got %d", len(notifications))
 	})
 }
 
@@ -645,7 +645,7 @@ func TestTopology_NotificationScenarios(t *testing.T) {
 	t.Run("notify with empty result", func(t *testing.T) {
 		upstream.reset()
 		emptyResult := &runtime.Result{}
-		topo.Notify(pid1, emptyResult)
+		topo.Complete(pid1, emptyResult)
 
 		// Check notifications
 		sends2 := upstream.getSends(pid2)
@@ -662,7 +662,7 @@ func TestTopology_NotificationScenarios(t *testing.T) {
 		result := &runtime.Result{
 			Value: payload.New("test result"),
 		}
-		topo.Notify(pid1, result)
+		topo.Complete(pid1, result)
 
 		// Verify no notifications are sent
 		sends2 := upstream.getSends(pid2)
@@ -674,7 +674,7 @@ func TestTopology_NotificationScenarios(t *testing.T) {
 }
 
 func TestTopology_WatchingMapTracking(t *testing.T) {
-	t.Run("Wait tracks bidirectional relationship for local PIDs", func(t *testing.T) {
+	t.Run("Monitor tracks relationship and sends notification on Complete", func(t *testing.T) {
 		upstream := newMockUpstream()
 		topo := NewTopology(upstream, "local")
 
@@ -687,12 +687,13 @@ func TestTopology_WatchingMapTracking(t *testing.T) {
 		err := topo.Monitor(caller, target)
 		assert.NoError(t, err)
 
-		// Verify bidirectional tracking
-		assert.True(t, topo.hasWatcher(target, caller), "target should have caller as watcher")
-		assert.True(t, topo.isWatching(caller, target), "caller should be watching target")
+		// Verify monitoring works by completing target and checking notification
+		topo.Complete(target, &runtime.Result{})
+		notifications := upstream.getSends(caller)
+		assert.Len(t, notifications, 1, "caller should receive notification when target completes")
 	})
 
-	t.Run("Release cleans up watching map for local PIDs", func(t *testing.T) {
+	t.Run("Demonitor removes relationship so no notification on Complete", func(t *testing.T) {
 		upstream := newMockUpstream()
 		topo := NewTopology(upstream, "local")
 
@@ -706,12 +707,13 @@ func TestTopology_WatchingMapTracking(t *testing.T) {
 		err := topo.Demonitor(caller, target)
 		assert.NoError(t, err)
 
-		// Verify both sides cleaned up
-		assert.False(t, topo.hasWatcher(target, caller), "watcher should be removed")
-		assert.False(t, topo.isWatching(caller, target), "watching should be removed")
+		// Verify demonitor worked - no notification on Complete
+		topo.Complete(target, &runtime.Result{})
+		notifications := upstream.getSends(caller)
+		assert.Len(t, notifications, 0, "caller should not receive notification after demonitor")
 	})
 
-	t.Run("Remove cleans up watching maps of watchers", func(t *testing.T) {
+	t.Run("Remove cleans up all monitor relationships", func(t *testing.T) {
 		upstream := newMockUpstream()
 		topo := NewTopology(upstream, "local")
 
@@ -726,15 +728,17 @@ func TestTopology_WatchingMapTracking(t *testing.T) {
 		_ = topo.Monitor(watcher1, target)
 		_ = topo.Monitor(watcher2, target)
 
-		// Verify watchers are tracking target
-		assert.True(t, topo.isWatching(watcher1, target))
-		assert.True(t, topo.isWatching(watcher2, target))
-
-		// Remove target
+		// Remove target (without notification)
 		topo.Remove(target)
 
-		// Verify watching maps are cleaned up
-		assert.False(t, topo.isWatching(watcher1, target), "watcher1 watching map should be cleaned")
-		assert.False(t, topo.isWatching(watcher2, target), "watcher2 watching map should be cleaned")
+		// Verify watchers' tracking is cleaned by monitoring a new target
+		newTarget := pid.PID{Host: "host", UniqID: "newtarget"}.Precomputed()
+		_ = topo.Register(newTarget)
+		_ = topo.Monitor(watcher1, newTarget)
+
+		// Complete new target - should notify watcher1
+		topo.Complete(newTarget, &runtime.Result{})
+		notifications := upstream.getSends(watcher1)
+		assert.Len(t, notifications, 1, "watcher1 should only receive notification from new target")
 	})
 }

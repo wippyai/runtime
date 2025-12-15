@@ -144,7 +144,7 @@ func TestEntryConfig_Validate(t *testing.T) {
 				},
 			},
 			wantErr: true,
-			errMsg:  "queue_size must be greater than 0",
+			errMsg:  "queue size must be greater than 0",
 		},
 		{
 			name: "negative local queue size",
@@ -156,7 +156,7 @@ func TestEntryConfig_Validate(t *testing.T) {
 				},
 			},
 			wantErr: true,
-			errMsg:  "local_queue_size must be greater than 0",
+			errMsg:  "local queue size must be greater than 0",
 		},
 	}
 
@@ -173,12 +173,6 @@ func TestEntryConfig_Validate(t *testing.T) {
 	}
 }
 
-func TestSentinelErrors(t *testing.T) {
-	assert.EqualError(t, ErrHostNotRunning, "host is not running")
-	assert.EqualError(t, ErrHostShuttingDown, "host is shutting down")
-	assert.EqualError(t, ErrHostAlreadyRunning, "host already running")
-}
-
 func TestError_Interface(t *testing.T) {
 	t.Run("ErrInvalidWorkers", func(t *testing.T) {
 		err := ErrInvalidWorkers
@@ -186,29 +180,18 @@ func TestError_Interface(t *testing.T) {
 		assert.Equal(t, apierror.KindInvalid, err.Kind())
 		assert.Equal(t, apierror.False, err.Retryable())
 		assert.Nil(t, err.Details())
-		assert.Nil(t, err.Unwrap())
+		assert.Nil(t, errors.Unwrap(err))
 	})
 
 	t.Run("ErrInvalidQueueSize", func(t *testing.T) {
 		err := ErrInvalidQueueSize
-		assert.Equal(t, "queue_size must be greater than 0", err.Error())
+		assert.Equal(t, "queue size must be greater than 0", err.Error())
 		assert.Equal(t, apierror.KindInvalid, err.Kind())
 	})
 
 	t.Run("ErrInvalidLocalQueueSize", func(t *testing.T) {
 		err := ErrInvalidLocalQueueSize
-		assert.Equal(t, "local_queue_size must be greater than 0", err.Error())
+		assert.Equal(t, "local queue size must be greater than 0", err.Error())
 		assert.Equal(t, apierror.KindInvalid, err.Kind())
 	})
-}
-
-func TestNewDecodeConfigError(t *testing.T) {
-	cause := errors.New("parse error")
-	err := NewDecodeConfigError(cause)
-
-	assert.Contains(t, err.Error(), "failed to decode host config")
-	assert.Equal(t, apierror.KindInvalid, err.Kind())
-	assert.Equal(t, apierror.False, err.Retryable())
-	assert.Nil(t, err.Details())
-	assert.Equal(t, cause, err.Unwrap())
 }

@@ -1,34 +1,15 @@
 package otel
 
 import (
-	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
-type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
-}
-
-func (e *Error) Error() string               { return e.message }
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
-
 var (
-	ErrLoggerNotAvailable         = &Error{kind: apierror.KindInternal, message: "logger not available in context"}
-	ErrBootConfigNotAvailable     = &Error{kind: apierror.KindInternal, message: "boot config not available in context"}
-	ErrHTTPMiddlewareNotAvailable = &Error{kind: apierror.KindInternal, message: "HTTP middleware registry not available in context"}
+	ErrLoggerNotAvailable         = apierror.New(apierror.KindInternal, "logger not available in context").WithRetryable(apierror.False)
+	ErrBootConfigNotAvailable     = apierror.New(apierror.KindInternal, "boot config not available in context").WithRetryable(apierror.False)
+	ErrHTTPMiddlewareNotAvailable = apierror.New(apierror.KindInternal, "HTTP middleware registry not available in context").WithRetryable(apierror.False)
 )
 
-func NewOTELInitError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "failed to initialize OTEL provider",
-		cause:   cause,
-	}
+func NewOTELInitError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to initialize OTEL provider").WithCause(cause)
 }

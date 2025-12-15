@@ -1,29 +1,25 @@
 package app
 
 import (
-	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
-type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
+var (
+	ErrAppNotInitialized = apierror.New(apierror.KindInternal, "application not initialized").WithRetryable(apierror.False)
+)
+
+func NewInitializeAppError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to initialize application").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func (e *Error) Error() string               { return e.message }
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
+func NewStartAppError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to start application").WithCause(cause).WithRetryable(apierror.False)
+}
 
-func NewCreateLoggerError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "create logger",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewStopAppError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to stop application").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewCreateLoggerError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to create logger").WithCause(cause).WithRetryable(apierror.False)
 }

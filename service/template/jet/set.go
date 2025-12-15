@@ -10,7 +10,8 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
-	"github.com/wippyai/runtime/api/service/template"
+	templateapi "github.com/wippyai/runtime/api/service/template"
+	servicetemplate "github.com/wippyai/runtime/service/template"
 )
 
 // Set represents a set of templates with shared configuration
@@ -18,14 +19,14 @@ type Set struct {
 	id      registry.ID
 	jetSet  *jet.Set
 	loader  *jet.InMemLoader
-	config  *template.SetConfig
+	config  *templateapi.SetConfig
 	dtt     payload.Transcoder
 	mu      sync.RWMutex
 	sources map[string]string // Store template sources by name (not ID)
 }
 
 // NewSet creates a new template set with the given configuration
-func NewSet(id registry.ID, config *template.SetConfig, dtt payload.Transcoder) (*Set, error) {
+func NewSet(id registry.ID, config *templateapi.SetConfig, dtt payload.Transcoder) (*Set, error) {
 	// Create a loader for in-memory templates
 	loader := jet.NewInMemLoader()
 
@@ -67,7 +68,7 @@ func (s *Set) ID() registry.ID {
 }
 
 // Config returns the set configuration
-func (s *Set) Config() *template.SetConfig {
+func (s *Set) Config() *templateapi.SetConfig {
 	return s.config
 }
 
@@ -83,7 +84,7 @@ func (s *Set) AddTemplate(name string, source string) error {
 
 	// Check if template already exists
 	if _, exists := s.sources[name]; exists {
-		return template.NewTemplateExistsInSetError(name)
+		return servicetemplate.NewTemplateExistsInSetError(name)
 	}
 
 	// Register the template with Jet's InMemLoader
@@ -101,7 +102,7 @@ func (s *Set) UpdateTemplate(name string, source string) error {
 
 	// Check if template exists
 	if _, exists := s.sources[name]; !exists {
-		return template.ErrTemplateNotFound
+		return servicetemplate.ErrTemplateNotFound
 	}
 
 	// Update the template in Jet's loader
@@ -119,7 +120,7 @@ func (s *Set) RemoveTemplate(name string) error {
 
 	// Check if template exists
 	if _, exists := s.sources[name]; !exists {
-		return template.ErrTemplateNotFound
+		return servicetemplate.ErrTemplateNotFound
 	}
 
 	// Delete the template from Jet's loader
@@ -137,7 +138,7 @@ func (s *Set) GetTemplateSource(name string) (string, error) {
 
 	source, exists := s.sources[name]
 	if !exists {
-		return "", template.ErrTemplateNotFound
+		return "", servicetemplate.ErrTemplateNotFound
 	}
 
 	return source, nil
@@ -164,13 +165,13 @@ func (s *Set) RenderTemplate(name string, vars map[string]any) (string, error) {
 	s.mu.RUnlock()
 
 	if !exists {
-		return "", template.ErrTemplateNotFound
+		return "", servicetemplate.ErrTemplateNotFound
 	}
 
 	// Get the Jet template
 	jetTemplate, err := s.jetSet.GetTemplate(name)
 	if err != nil {
-		return "", template.NewGetCompiledTemplateError(err)
+		return "", servicetemplate.NewGetCompiledTemplateError(err)
 	}
 
 	// Create a buffer for the output
@@ -184,7 +185,7 @@ func (s *Set) RenderTemplate(name string, vars map[string]any) (string, error) {
 
 	// Render the template
 	if err := jetTemplate.Execute(&buf, jetVars, nil); err != nil {
-		return "", template.NewRenderFailedError(err)
+		return "", servicetemplate.NewRenderFailedError(err)
 	}
 
 	return buf.String(), nil
@@ -195,7 +196,7 @@ func (s *Set) RenderPayload(name string, data payload.Payload) (string, error) {
 	// Extract data from payload using transcoder
 	var vars any
 	if err := s.dtt.Unmarshal(data, &vars); err != nil {
-		return "", template.NewUnmarshalPayloadError(err)
+		return "", servicetemplate.NewUnmarshalPayloadError(err)
 	}
 
 	mvars, ok := vars.(map[string]any)
@@ -221,7 +222,7 @@ func (s *Set) Acquire(
 ) (resource.Resource[any], error) {
 	// Only support normal mode for now
 	if mode != resource.ModeNormal {
-		return nil, template.NewUnsupportedAccessModeError(string(mode))
+		return nil, servicetemplate.NewUnsupportedAccessModeError(string(mode))
 	}
 
 	s.mu.RLock()

@@ -71,7 +71,7 @@ func (s *Store) acquireDB(ctx context.Context) (*dbHandle, error) {
 	dbRes, ok := conn.(servicesql.DBResource)
 	if !ok {
 		res.Release()
-		return nil, sqlstore.ErrInvalidResourceType
+		return nil, ErrInvalidResourceType
 	}
 
 	return &dbHandle{

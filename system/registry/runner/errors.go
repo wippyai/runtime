@@ -8,117 +8,105 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 )
 
-// Error implements apierror.Error for runner errors
-type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
-}
-
-func (e *Error) Error() string               { return e.message }
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
-
 // Sentinel errors
 var (
-	ErrUnrelatedAcceptEvent = &Error{kind: apierror.KindInvalid, message: "unrelated accept event", retryable: apierror.False}
-	ErrUnrelatedRejectEvent = &Error{kind: apierror.KindInvalid, message: "unrelated reject event", retryable: apierror.False}
+	ErrUnrelatedAcceptEvent = apierror.New(apierror.KindInvalid, "unrelated accept event")
+	ErrUnrelatedRejectEvent = apierror.New(apierror.KindInvalid, "unrelated reject event")
 )
 
 // NewOperationFailedError creates an error when an operation fails
-func NewOperationFailedError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "operation failed: " + err.Error(),
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
-		cause:     err,
-	}
+func NewOperationFailedError(err error) apierror.Error {
+	return apierror.E(
+		apierror.KindInternal,
+		"operation failed: "+err.Error(),
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
+		err,
+	)
 }
 
 // NewInvalidOperationError creates an error when an operation is invalid
-func NewInvalidOperationError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "invalid operation: " + err.Error(),
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
-		cause:     err,
-	}
+func NewInvalidOperationError(err error) apierror.Error {
+	return apierror.E(
+		apierror.KindInvalid,
+		"invalid operation: "+err.Error(),
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
+		err,
+	)
 }
 
 // NewEntryKindNotFoundError creates an error when entry kind is not found
-func NewEntryKindNotFoundError(entryID registry.ID) *Error {
-	return &Error{
-		kind:      apierror.KindNotFound,
-		message:   "entry kind not found: " + entryID.String(),
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"entry_id": entryID.String()}),
-	}
+func NewEntryKindNotFoundError(entryID registry.ID) apierror.Error {
+	return apierror.E(
+		apierror.KindNotFound,
+		"entry kind not found: "+entryID.String(),
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"entry_id": entryID.String()}),
+		nil,
+	)
 }
 
 // NewApplyChangeError creates an error when applying a change fails
-func NewApplyChangeError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "applying change to state: " + err.Error(),
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
-		cause:     err,
-	}
+func NewApplyChangeError(err error) apierror.Error {
+	return apierror.E(
+		apierror.KindInternal,
+		"applying change to state: "+err.Error(),
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
+		err,
+	)
 }
 
 // NewOperationRejectedError creates an error when an operation is rejected
-func NewOperationRejectedError(entryID registry.ID, err error) *Error {
+func NewOperationRejectedError(entryID registry.ID, err error) apierror.Error {
 	if err == nil {
-		return &Error{
-			kind:      apierror.KindInvalid,
-			message:   "operation rejected for entry " + entryID.String() + ", no details",
-			retryable: apierror.False,
-			details:   attrs.NewBagFrom(map[string]any{"entry_id": entryID.String()}),
-		}
+		return apierror.E(
+			apierror.KindInvalid,
+			"operation rejected for entry "+entryID.String()+", no details",
+			apierror.False,
+			attrs.NewBagFrom(map[string]any{"entry_id": entryID.String()}),
+			nil,
+		)
 	}
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "operation failed for entry " + entryID.String() + ": " + err.Error(),
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"entry_id": entryID.String(), "cause": err.Error()}),
-		cause:     err,
-	}
+	return apierror.E(
+		apierror.KindInvalid,
+		"operation failed for entry "+entryID.String()+": "+err.Error(),
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"entry_id": entryID.String(), "cause": err.Error()}),
+		err,
+	)
 }
 
 // NewOperationCanceledError creates an error when an operation is canceled
-func NewOperationCanceledError(entryID registry.ID, kind registry.Kind, err error) *Error {
-	return &Error{
-		kind:      apierror.KindCanceled,
-		message:   "operation context canceled for " + entryID.String() + " (" + kind + "): " + err.Error(),
-		retryable: apierror.False,
-		details:   attrs.NewBagFrom(map[string]any{"entry_id": entryID.String(), "kind": kind, "cause": err.Error()}),
-		cause:     err,
-	}
+func NewOperationCanceledError(entryID registry.ID, kind registry.Kind, err error) apierror.Error {
+	return apierror.E(
+		apierror.KindCanceled,
+		"operation context canceled for "+entryID.String()+" ("+kind+"): "+err.Error(),
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"entry_id": entryID.String(), "kind": kind, "cause": err.Error()}),
+		err,
+	)
 }
 
 // NewEventHandlerTimeoutError creates an error when event handler times out
-func NewEventHandlerTimeoutError(timeout time.Duration, entryID registry.ID, kind registry.Kind) *Error {
-	return &Error{
-		kind:      apierror.KindTimeout,
-		message:   "event handler timeout after " + timeout.String() + " for entry " + entryID.String() + " (kind: " + kind + "): no listener responded - check if listener is registered for this kind",
-		retryable: apierror.True,
-		details:   attrs.NewBagFrom(map[string]any{"timeout": timeout.String(), "entry_id": entryID.String(), "kind": kind}),
-	}
+func NewEventHandlerTimeoutError(timeout time.Duration, entryID registry.ID, kind registry.Kind) apierror.Error {
+	return apierror.E(
+		apierror.KindTimeout,
+		"event handler timeout after "+timeout.String()+" for entry "+entryID.String()+" (kind: "+kind+"): no listener responded - check if listener is registered for this kind",
+		apierror.True,
+		attrs.NewBagFrom(map[string]any{"timeout": timeout.String(), "entry_id": entryID.String(), "kind": kind}),
+		nil,
+	)
 }
 
 // NewListenEventsError creates an error when subscribing to events fails
-func NewListenEventsError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "listening events: " + err.Error(),
-		retryable: apierror.True,
-		details:   attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
-		cause:     err,
-	}
+func NewListenEventsError(err error) apierror.Error {
+	return apierror.E(
+		apierror.KindInternal,
+		"listening events: "+err.Error(),
+		apierror.True,
+		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
+		err,
+	)
 }

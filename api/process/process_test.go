@@ -150,7 +150,7 @@ func TestError_Methods(t *testing.T) {
 		assert.Equal(t, "max processes limit exceeded", ErrMaxProcessesExceeded.Error())
 		assert.Equal(t, KindLimitExceeded, ErrMaxProcessesExceeded.Kind())
 		assert.Nil(t, ErrMaxProcessesExceeded.Details())
-		assert.Nil(t, ErrMaxProcessesExceeded.Unwrap())
+		assert.Nil(t, errors.Unwrap(ErrMaxProcessesExceeded))
 	})
 
 	t.Run("ErrProcessNotFound", func(t *testing.T) {
@@ -174,7 +174,7 @@ func TestError_WithCause(t *testing.T) {
 
 	assert.Equal(t, "process not found", err.Error())
 	assert.Equal(t, KindNotFound, err.Kind())
-	assert.Equal(t, cause, err.Unwrap())
+	assert.Equal(t, cause, errors.Unwrap(err))
 	assert.True(t, errors.Is(err, cause))
 }
 

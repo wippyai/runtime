@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/wippyai/runtime/api/service/exec"
+	serviceexec "github.com/wippyai/runtime/service/exec"
 	mocklogger "github.com/wippyai/runtime/tests/mock"
 	"go.uber.org/zap"
 )
@@ -821,7 +822,7 @@ func TestNativeError(t *testing.T) {
 	assert.Equal(t, apierror.KindInvalid, ErrProcessNotRunning.Kind())
 	assert.Equal(t, apierror.False, ErrProcessNotRunning.Retryable())
 	assert.Nil(t, ErrProcessNotRunning.Details())
-	assert.Nil(t, ErrProcessNotRunning.Unwrap())
+	assert.Nil(t, errors.Unwrap(ErrProcessNotRunning))
 
 	assert.Equal(t, "process not started", ErrProcessNotStarted.Error())
 	assert.Equal(t, "pid is not a positive int, process is possibly not running", ErrInvalidPID.Error())
@@ -862,34 +863,34 @@ func TestExitError(t *testing.T) {
 
 func TestAPIErrors(t *testing.T) {
 	t.Run("NewUnsupportedEntryKindError", func(t *testing.T) {
-		err := exec.NewUnsupportedEntryKindError("unknown.kind")
+		err := serviceexec.NewUnsupportedEntryKindError("unknown.kind")
 		assert.Equal(t, apierror.KindInvalid, err.Kind())
 		assert.Contains(t, err.Error(), "unknown.kind")
 	})
 
 	t.Run("NewExecutorAlreadyExistsError", func(t *testing.T) {
-		err := exec.NewExecutorAlreadyExistsError("exec-1")
+		err := serviceexec.NewExecutorAlreadyExistsError("exec-1")
 		assert.Equal(t, apierror.KindAlreadyExists, err.Kind())
 		assert.Contains(t, err.Error(), "exec-1")
 	})
 
 	t.Run("NewExecutorNotFoundError", func(t *testing.T) {
-		err := exec.NewExecutorNotFoundError("exec-1")
+		err := serviceexec.NewExecutorNotFoundError("exec-1")
 		assert.Equal(t, apierror.KindNotFound, err.Kind())
 		assert.Contains(t, err.Error(), "exec-1")
 	})
 
 	t.Run("NewConfigDecodeError", func(t *testing.T) {
 		originalErr := errors.New("invalid json")
-		err := exec.NewConfigDecodeError(originalErr)
+		err := serviceexec.NewConfigDecodeError(originalErr)
 		assert.Equal(t, apierror.KindInvalid, err.Kind())
 		assert.Contains(t, err.Error(), "invalid json")
-		assert.Equal(t, originalErr, err.Unwrap())
+		assert.Equal(t, originalErr, errors.Unwrap(err))
 	})
 
 	t.Run("NewExecutorCreateError", func(t *testing.T) {
 		originalErr := errors.New("failed to init")
-		err := exec.NewExecutorCreateError(originalErr)
+		err := serviceexec.NewExecutorCreateError(originalErr)
 		assert.Equal(t, apierror.KindInternal, err.Kind())
 		assert.Equal(t, apierror.True, err.Retryable())
 		assert.Contains(t, err.Error(), "failed to init")

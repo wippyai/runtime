@@ -16,6 +16,7 @@ import (
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	secapi "github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/api/topology"
+	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -164,7 +165,7 @@ func resolvePID(l *lua.LState, pidOrName string, permission string) (pid.PID, er
 
 	reg, ok := getRegistry(l)
 	if !ok {
-		return pid.PID{}, luaapi.ErrCouldNotAccessRegistry
+		return pid.PID{}, runtimelua.ErrCouldNotAccessRegistry
 	}
 
 	p, found := reg.Lookup(pidOrName)

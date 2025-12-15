@@ -136,7 +136,7 @@ func TestConfig_Validate(t *testing.T) {
 				CleanupInterval: 1 * time.Minute,
 			},
 			wantErr: true,
-			errMsg:  "max_size must be greater than or equal to 0",
+			errMsg:  "max size must be non-negative",
 		},
 		{
 			name: "negative cleanup interval",
@@ -145,7 +145,7 @@ func TestConfig_Validate(t *testing.T) {
 				CleanupInterval: -1 * time.Minute,
 			},
 			wantErr: true,
-			errMsg:  "cleanup_interval must be greater than or equal to 0",
+			errMsg:  "cleanup interval must be non-negative",
 		},
 		{
 			name: "zero cleanup interval is valid",

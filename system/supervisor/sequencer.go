@@ -4,7 +4,6 @@ import (
 	"context"
 	"sync"
 
-	"github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/internal/graph"
 	"go.uber.org/zap"
 )
@@ -52,14 +51,14 @@ func (sp *sequencer) transition(ctx context.Context, operations ...operation) er
 	// Process stops first (in reverse dependency order)
 	if len(stopOps) > 0 {
 		if err := sp.processStopOperations(ctx, stopOps); err != nil {
-			return supervisor.NewStopSequenceError(err)
+			return NewStopSequenceError(err)
 		}
 	}
 
 	// Then process starts (in dependency order)
 	if len(startOps) > 0 {
 		if err := sp.processStartOperations(ctx, startOps); err != nil {
-			return supervisor.NewStartSequenceError(err)
+			return NewStartSequenceError(err)
 		}
 	}
 
@@ -86,7 +85,7 @@ func (sp *sequencer) processStartOperations(_ context.Context, operations []oper
 	// Spawn dependency levels
 	levels, err := g.DependencyLevels()
 	if err != nil {
-		return supervisor.NewDependencyLevelsError("start", err)
+		return NewDependencyLevelsError("start", err)
 	}
 
 	// Build operation lookup map
@@ -113,7 +112,7 @@ func (sp *sequencer) processStartOperations(_ context.Context, operations []oper
 						zap.Int("level", i))
 
 					if err := op.controller.Start(); err != nil {
-						errChan <- supervisor.NewServiceStartError(op.id, err)
+						errChan <- NewServiceStartError(op.id, err)
 					}
 				}(op)
 			}
@@ -158,7 +157,7 @@ func (sp *sequencer) processStopOperations(_ context.Context, operations []opera
 
 	levels, err := g.DependencyLevels()
 	if err != nil {
-		return supervisor.NewDependencyLevelsError("stop", err)
+		return NewDependencyLevelsError("stop", err)
 	}
 
 	allErrors := make([]error, 0)
@@ -181,7 +180,7 @@ func (sp *sequencer) processStopOperations(_ context.Context, operations []opera
 						zap.Int("level", i))
 
 					if err := op.controller.Stop(); err != nil {
-						errChan <- supervisor.NewServiceStopError(op.id, err)
+						errChan <- NewServiceStopError(op.id, err)
 					}
 				}(op)
 			}
@@ -205,5 +204,5 @@ func (sp *sequencer) processStopOperations(_ context.Context, operations []opera
 		return allErrors[0]
 	}
 
-	return supervisor.NewMultiStopError(len(allErrors), allErrors[0])
+	return NewMultiStopError(len(allErrors), allErrors[0])
 }

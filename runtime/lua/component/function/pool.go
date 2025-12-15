@@ -12,9 +12,14 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 	api "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/supervisor"
+	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	processmod "github.com/wippyai/runtime/runtime/lua/modules/process"
 	funcpool "github.com/wippyai/runtime/system/scheduler/pool"
+	"github.com/wippyai/runtime/system/scheduler/pool/adaptive"
+	"github.com/wippyai/runtime/system/scheduler/pool/inline"
+	"github.com/wippyai/runtime/system/scheduler/pool/lazy"
+	"github.com/wippyai/runtime/system/scheduler/pool/static"
 	"go.uber.org/zap"
 )
 
@@ -22,7 +27,7 @@ import (
 func (m *Manager) createPool(id registry.ID, cfg *configEntry) error {
 	factoryFn, err := m.factory.CreateFactory(id, engine.WithModule(processmod.Module))
 	if err != nil {
-		return api.NewCompileError(err)
+		return runtimelua.NewCompileError(err)
 	}
 
 	execHooks := m.createExecutionHooks()
@@ -35,7 +40,7 @@ func (m *Manager) createPool(id registry.ID, cfg *configEntry) error {
 	}
 
 	if err != nil {
-		return api.NewCreatePoolError(err)
+		return runtimelua.NewCreatePoolError(err)
 	}
 
 	m.mu.Lock()
@@ -90,7 +95,7 @@ func (m *Manager) autoSelectPool(factory process.FactoryFunc, cfg api.PoolConfig
 		if maxWorkers <= 0 {
 			maxWorkers = api.DefaultMaxSize
 		}
-		return funcpool.NewLazy(factory, m.dispatcher, funcpool.LazyConfig{
+		return lazy.New(factory, m.dispatcher, lazy.Config{
 			MaxWorkers:  maxWorkers,
 			IdleTimeout: 30 * time.Second,
 		}, hooks)
@@ -101,27 +106,27 @@ func (m *Manager) autoSelectPool(factory process.FactoryFunc, cfg api.PoolConfig
 		if queueSize == 0 {
 			queueSize = cfg.Workers * 64
 		}
-		return funcpool.NewStatic(factory, m.dispatcher, funcpool.Config{
+		return static.New(factory, m.dispatcher, static.Config{
 			Workers:   cfg.Workers,
 			QueueSize: queueSize,
 		}, hooks)
 	}
 
-	return funcpool.NewInline(factory, m.dispatcher, hooks)
+	return inline.New(factory, m.dispatcher, hooks)
 }
 
 // createPoolByType creates a pool of the specified type.
 func (m *Manager) createPoolByType(poolType string, factory process.FactoryFunc, cfg api.PoolConfig, hooks funcpool.ExecutionHooks) (funcpool.Pool, error) {
 	switch poolType {
 	case api.PoolTypeInline:
-		return funcpool.NewInline(factory, m.dispatcher, hooks)
+		return inline.New(factory, m.dispatcher, hooks)
 
 	case api.PoolTypeLazy:
 		maxWorkers := cfg.MaxSize
 		if maxWorkers == 0 {
 			maxWorkers = 16
 		}
-		return funcpool.NewLazy(factory, m.dispatcher, funcpool.LazyConfig{
+		return lazy.New(factory, m.dispatcher, lazy.Config{
 			MaxWorkers:  maxWorkers,
 			IdleTimeout: 30 * time.Second,
 		}, hooks)
@@ -138,7 +143,7 @@ func (m *Manager) createPoolByType(poolType string, factory process.FactoryFunc,
 		if queueSize == 0 {
 			queueSize = workers * 64
 		}
-		return funcpool.NewStatic(factory, m.dispatcher, funcpool.Config{
+		return static.New(factory, m.dispatcher, static.Config{
 			Workers:   workers,
 			QueueSize: queueSize,
 		}, hooks)
@@ -148,9 +153,10 @@ func (m *Manager) createPoolByType(poolType string, factory process.FactoryFunc,
 		if maxWorkers == 0 {
 			maxWorkers = 16
 		}
-		return funcpool.NewAdaptive(factory, m.dispatcher,
-			funcpool.WithMaxWorkers(maxWorkers),
-			funcpool.WithExecutionHooks(hooks),
+		return adaptive.New(factory, m.dispatcher,
+			adaptive.WithMaxWorkers(maxWorkers),
+			adaptive.WithExecutionHooks(hooks),
+			adaptive.WithLogger(m.log),
 		)
 
 	default:
@@ -164,7 +170,7 @@ func (m *Manager) registerCaller(ctx context.Context, id registry.ID, options ru
 
 	waiter, err := m.awaiter.Prepare(ctx, path)
 	if err != nil {
-		return api.NewRegisterCallerError(id, err)
+		return runtimelua.NewRegisterCallerError(id, err)
 	}
 
 	m.bus.Send(ctx, event.Event{
@@ -179,7 +185,7 @@ func (m *Manager) registerCaller(ctx context.Context, id registry.ID, options ru
 
 	result := waiter.Wait()
 	if !result.Accepted {
-		return api.NewRegisterCallerError(id, result.Error)
+		return runtimelua.NewRegisterCallerError(id, result.Error)
 	}
 	return nil
 }
@@ -224,9 +230,8 @@ func (m *Manager) createExecutionHooks() funcpool.ExecutionHooks {
 			}
 		}
 
-		m.topo.Notify(pid, result)
 		m.pidReg.Remove(pid)
-		m.topo.Remove(pid)
+		m.topo.Complete(pid, result)
 	}
 
 	return funcpool.ExecutionHooks{

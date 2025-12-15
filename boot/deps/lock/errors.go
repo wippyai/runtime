@@ -3,167 +3,75 @@ package lock
 import (
 	"fmt"
 
-	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
-type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
-}
-
-func (e *Error) Error() string               { return e.message }
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
-
 var (
-	ErrModulesDirectoryEmpty = &Error{
-		kind:    apierror.KindInvalid,
-		message: "directories.modules cannot be empty",
-	}
-	ErrSrcDirectoryEmpty = &Error{
-		kind:    apierror.KindInvalid,
-		message: "directories.src cannot be empty",
-	}
-	ErrSrcDirectoryRoot = &Error{
-		kind:    apierror.KindInvalid,
-		message: `directories.src cannot be "." (root directory) - this causes duplicate loading of vendor modules. Use a specific subdirectory like "./src" instead`,
-	}
-	ErrModuleNameEmpty = &Error{
-		kind:    apierror.KindInvalid,
-		message: "module name cannot be empty",
-	}
-	ErrOrganizationEmpty = &Error{
-		kind:    apierror.KindInvalid,
-		message: "organization part cannot be empty",
-	}
-	ErrModulePartEmpty = &Error{
-		kind:    apierror.KindInvalid,
-		message: "module part cannot be empty",
-	}
-	ErrReplacementFromEmpty = &Error{
-		kind:    apierror.KindInvalid,
-		message: "replacement has empty 'from' field",
-	}
+	ErrModulesDirectoryEmpty = apierror.New(apierror.KindInvalid, "directories.modules cannot be empty").WithRetryable(apierror.False)
+	ErrSrcDirectoryEmpty     = apierror.New(apierror.KindInvalid, "directories.src cannot be empty").WithRetryable(apierror.False)
+	ErrSrcDirectoryRoot      = apierror.New(apierror.KindInvalid, `directories.src cannot be "." (root directory) - this causes duplicate loading of vendor modules. Use a specific subdirectory like "./src" instead`).WithRetryable(apierror.False)
+	ErrModuleNameEmpty       = apierror.New(apierror.KindInvalid, "module name cannot be empty").WithRetryable(apierror.False)
+	ErrOrganizationEmpty     = apierror.New(apierror.KindInvalid, "organization part cannot be empty").WithRetryable(apierror.False)
+	ErrModulePartEmpty       = apierror.New(apierror.KindInvalid, "module part cannot be empty").WithRetryable(apierror.False)
+	ErrReplacementFromEmpty  = apierror.New(apierror.KindInvalid, "replacement has empty 'from' field").WithRetryable(apierror.False)
 )
 
-func NewInvalidModuleError(moduleName string, cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInvalid,
-		message: fmt.Sprintf("invalid module %q", moduleName),
-		cause:   cause,
-	}
+func NewInvalidModuleError(moduleName string, cause error) apierror.Error {
+	return apierror.New(apierror.KindInvalid, fmt.Sprintf("invalid module %q", moduleName)).WithCause(cause)
 }
 
-func NewModuleEmptyVersionError(moduleName string) *Error {
-	return &Error{
-		kind:    apierror.KindInvalid,
-		message: fmt.Sprintf("module %q has empty version", moduleName),
-	}
+func NewModuleEmptyVersionError(moduleName string) apierror.Error {
+	return apierror.New(apierror.KindInvalid, fmt.Sprintf("module %q has empty version", moduleName))
 }
 
-func NewInvalidReplacementsError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInvalid,
-		message: "invalid replacements",
-		cause:   cause,
-	}
+func NewInvalidReplacementsError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "invalid replacements").WithCause(cause)
 }
 
-func NewReplacementToEmptyError(from string) *Error {
-	return &Error{
-		kind:    apierror.KindInvalid,
-		message: fmt.Sprintf("replacement %q has empty 'to' field", from),
-	}
+func NewReplacementToEmptyError(from string) apierror.Error {
+	return apierror.New(apierror.KindInvalid, fmt.Sprintf("replacement %q has empty 'to' field", from))
 }
 
-func NewReplacementFromInvalidError(from string, cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInvalid,
-		message: fmt.Sprintf("replacement 'from' field %q is invalid", from),
-		cause:   cause,
-	}
+func NewReplacementFromInvalidError(from string, cause error) apierror.Error {
+	return apierror.New(apierror.KindInvalid, fmt.Sprintf("replacement 'from' field %q is invalid", from)).WithCause(cause)
 }
 
-func NewReplacementPathNotExistError(path string) *Error {
-	return &Error{
-		kind:    apierror.KindNotFound,
-		message: fmt.Sprintf("replacement path %q does not exist", path),
-	}
+func NewReplacementPathNotExistError(path string) apierror.Error {
+	return apierror.New(apierror.KindNotFound, fmt.Sprintf("replacement path %q does not exist", path))
 }
 
-func NewCheckReplacementPathError(path string, cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: fmt.Sprintf("failed to check replacement path %q", path),
-		cause:   cause,
-	}
+func NewCheckReplacementPathError(path string, cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, fmt.Sprintf("failed to check replacement path %q", path)).WithCause(cause)
 }
 
-func NewInvalidFormatError(name string) *Error {
-	return &Error{
-		kind:    apierror.KindInvalid,
-		message: fmt.Sprintf("invalid format (expected org/module, got %q)", name),
-	}
+func NewInvalidFormatError(name string) apierror.Error {
+	return apierror.New(apierror.KindInvalid, fmt.Sprintf("invalid format (expected org/module, got %q)", name))
 }
 
-func NewResolveAbsolutePathError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "failed to resolve absolute path",
-		cause:   cause,
-	}
+func NewResolveAbsolutePathError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to resolve absolute path").WithCause(cause)
 }
 
-func NewReadLockFileError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "failed to read lock file",
-		cause:   cause,
-	}
+func NewReadLockFileError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to read lock file").WithCause(cause)
 }
 
-func NewStatLockFileError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "failed to stat lock file",
-		cause:   cause,
-	}
+func NewStatLockFileError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to stat lock file").WithCause(cause)
 }
 
-func NewReadFileError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "failed to read file",
-		cause:   cause,
-	}
+func NewReadFileError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to read file").WithCause(cause)
 }
 
-func NewUnmarshalYAMLError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInvalid,
-		message: "failed to unmarshal yaml",
-		cause:   cause,
-	}
+func NewUnmarshalYAMLError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "failed to unmarshal yaml").WithCause(cause)
 }
 
-func NewMarshalYAMLError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "failed to marshal yaml",
-		cause:   cause,
-	}
+func NewMarshalYAMLError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to marshal yaml").WithCause(cause)
 }
 
-func NewWriteFileError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "failed to write file",
-		cause:   cause,
-	}
+func NewWriteFileError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to write file").WithCause(cause)
 }

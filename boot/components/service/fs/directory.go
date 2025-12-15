@@ -8,7 +8,7 @@ import (
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
 	bootpkg "github.com/wippyai/runtime/boot"
-	fsdir "github.com/wippyai/runtime/service/fs/directory"
+	"github.com/wippyai/runtime/service/fs/directory"
 )
 
 func Directory() boot.Component {
@@ -21,7 +21,7 @@ func Directory() boot.Component {
 			bus := event.GetBus(ctx)
 			handlers := bootpkg.GetHandlerRegistry(ctx)
 
-			manager := fsdir.NewDirectoryManager(
+			manager := directory.NewDirectoryManager(
 				bus,
 				dtt,
 				nil,

@@ -114,7 +114,7 @@ func (t *Transcoder) Transcode(p payload.Payload, to payload.Format) (payload.Pa
 
 		currentPayload, err = tt.Transcode(currentPayload)
 		if err != nil {
-			return nil, payload.NewTranscodeError(currentFrom, currentTo, err)
+			return nil, NewTranscodeError(currentFrom, currentTo, err)
 		}
 	}
 
@@ -172,12 +172,12 @@ func (t *Transcoder) Unmarshal(p payload.Payload, v interface{}) error {
 
 	transcodedPayload, err := t.Transcode(p, payload.Format(path.Nodes[len(path.Nodes)-1]))
 	if err != nil {
-		return payload.NewUnmarshalTranscodeError(err)
+		return NewUnmarshalTranscodeError(err)
 	}
 
 	unmarshaler, ok = t.unmarshalers[path.Nodes[len(path.Nodes)-1]]
 	if !ok {
-		return payload.NewUnmarshalerNotFoundError(path.Nodes[len(path.Nodes)-1])
+		return NewUnmarshalerNotFoundError(path.Nodes[len(path.Nodes)-1])
 	}
 
 	return unmarshaler.Unmarshal(transcodedPayload, v)

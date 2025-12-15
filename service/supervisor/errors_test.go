@@ -10,41 +10,13 @@ import (
 )
 
 func TestError_Implements(_ *testing.T) {
-	var _ error = (*Error)(nil)
-	var _ apierror.Error = (*Error)(nil)
-}
-
-func TestError_Message(t *testing.T) {
-	err := &Error{message: "test message"}
-	assert.Equal(t, "test message", err.Error())
-}
-
-func TestError_Kind(t *testing.T) {
-	err := &Error{kind: apierror.KindInternal}
-	assert.Equal(t, apierror.KindInternal, err.Kind())
-}
-
-func TestError_Retryable(t *testing.T) {
-	err := &Error{retryable: apierror.False}
-	assert.Equal(t, apierror.False, err.Retryable())
-}
-
-func TestError_Details(t *testing.T) {
-	details := attrs.Bag{"key": "value"}
-	err := &Error{details: details}
-	assert.Equal(t, details, err.Details())
-}
-
-func TestError_Unwrap(t *testing.T) {
-	cause := errors.New("root cause")
-	err := &Error{cause: cause}
-	assert.Equal(t, cause, err.Unwrap())
-	assert.True(t, errors.Is(err, cause))
+	var _ error = ErrNoRelayNode
+	var _ apierror.Error = ErrNoRelayNode
 }
 
 func TestSentinelErrors(t *testing.T) {
 	tests := []struct {
-		err     *Error
+		err     apierror.Error
 		kind    apierror.Kind
 		message string
 	}{
@@ -67,30 +39,30 @@ func TestErrorConstructors(t *testing.T) {
 	t.Run("newRegisterPIDError", func(t *testing.T) {
 		err := newRegisterPIDError(cause)
 		assert.Equal(t, apierror.KindInternal, err.Kind())
-		assert.Equal(t, "register supervisor pid: cause", err.Error())
-		assert.Equal(t, cause, err.Unwrap())
+		assert.Contains(t, err.Error(), "register supervisor pid")
+		assert.True(t, errors.Is(err, cause))
 	})
 
 	t.Run("newAttachRelayError", func(t *testing.T) {
 		err := newAttachRelayError(cause)
 		assert.Equal(t, apierror.KindInternal, err.Kind())
-		assert.Equal(t, "attach to relay: cause", err.Error())
-		assert.Equal(t, cause, err.Unwrap())
+		assert.Contains(t, err.Error(), "attach to relay")
+		assert.True(t, errors.Is(err, cause))
 	})
 
 	t.Run("newStartProcessError", func(t *testing.T) {
 		err := newStartProcessError(cause)
 		assert.Equal(t, apierror.KindInternal, err.Kind())
-		assert.Equal(t, "start process: cause", err.Error())
-		assert.Equal(t, cause, err.Unwrap())
+		assert.Contains(t, err.Error(), "start process")
+		assert.True(t, errors.Is(err, cause))
 	})
 
 	t.Run("newDecodeConfigError", func(t *testing.T) {
 		err := newDecodeConfigError(cause)
 		assert.Equal(t, apierror.KindInvalid, err.Kind())
-		assert.Equal(t, "decode config: cause", err.Error())
+		assert.Contains(t, err.Error(), "decode config")
 		assert.Equal(t, apierror.False, err.Retryable())
-		assert.Equal(t, cause, err.Unwrap())
+		assert.True(t, errors.Is(err, cause))
 	})
 
 	t.Run("newInvalidEntryKindError", func(t *testing.T) {
@@ -115,7 +87,7 @@ func TestErrorConstructors(t *testing.T) {
 	t.Run("newSendCancelError", func(t *testing.T) {
 		err := newSendCancelError(cause)
 		assert.Equal(t, apierror.KindInternal, err.Kind())
-		assert.Equal(t, "send cancel: cause", err.Error())
-		assert.Equal(t, cause, err.Unwrap())
+		assert.Contains(t, err.Error(), "send cancel")
+		assert.True(t, errors.Is(err, cause))
 	})
 }

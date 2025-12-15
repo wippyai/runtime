@@ -57,7 +57,7 @@ func (r *Registry) Start(ctx context.Context) error {
 		r.handleEvent,
 	)
 	if err != nil {
-		return contract.NewSubscriberError(err)
+		return NewSubscriberError(err)
 	}
 	r.subscriber = sub
 

@@ -87,7 +87,7 @@ func TestConfig_Validate(t *testing.T) {
 				Directory: "",
 			},
 			wantErr: true,
-			errMsg:  "directory path cannot be empty",
+			errMsg:  "directory path is required",
 		},
 		{
 			name: "valid mode 0444",
@@ -112,7 +112,7 @@ func TestConfig_Validate(t *testing.T) {
 				Mode:      "invalid",
 			},
 			wantErr: true,
-			errMsg:  "invalid mode format",
+			errMsg:  "invalid file mode format",
 		},
 		{
 			name: "no mode specified defaults to 0755",

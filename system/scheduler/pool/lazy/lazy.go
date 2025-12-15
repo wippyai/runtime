@@ -1,4 +1,4 @@
-package pool
+package lazy
 
 import (
 	"context"
@@ -11,14 +11,15 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/system/scheduler/pool"
 )
 
-// Lazy creates processes on demand and destroys them after idle timeout.
+// Pool creates processes on demand and destroys them after idle timeout.
 // Starts with zero processes, scales up to MaxWorkers based on load.
-type Lazy struct {
+type Pool struct {
 	factory     process.FactoryFunc
 	dispatcher  dispatcher.Dispatcher
-	hooks       ExecutionHooks
+	hooks       pool.ExecutionHooks
 	maxWorkers  int
 	idleTimeout time.Duration
 
@@ -35,20 +36,20 @@ type Lazy struct {
 	startOnce  sync.Once
 
 	// Active executions indexed by PID.UniqID for message routing
-	activeExec sync.Map // map[string]*Executor
+	activeExec sync.Map // map[string]*pool.Executor
 
 	// Executor pool for reuse
 	executors sync.Pool
 }
 
-// LazyConfig configures the lazy pool.
-type LazyConfig struct {
+// Config configures the lazy pool.
+type Config struct {
 	MaxWorkers  int
 	IdleTimeout time.Duration
 }
 
-// NewLazy creates a lazy pool that starts with zero processes.
-func NewLazy(factory process.FactoryFunc, dispatcher dispatcher.Dispatcher, cfg LazyConfig, hooks ...ExecutionHooks) (*Lazy, error) {
+// New creates a lazy pool that starts with zero processes.
+func New(factory process.FactoryFunc, d dispatcher.Dispatcher, cfg Config, hooks ...pool.ExecutionHooks) (*Pool, error) {
 	if cfg.MaxWorkers <= 0 {
 		cfg.MaxWorkers = 16
 	}
@@ -56,14 +57,14 @@ func NewLazy(factory process.FactoryFunc, dispatcher dispatcher.Dispatcher, cfg 
 		cfg.IdleTimeout = 30 * time.Second
 	}
 
-	var hooksCfg ExecutionHooks
+	var hooksCfg pool.ExecutionHooks
 	if len(hooks) > 0 {
 		hooksCfg = hooks[0]
 	}
 
-	l := &Lazy{
+	l := &Pool{
 		factory:     factory,
-		dispatcher:  dispatcher,
+		dispatcher:  d,
 		hooks:       hooksCfg,
 		maxWorkers:  cfg.MaxWorkers,
 		idleTimeout: cfg.IdleTimeout,
@@ -72,13 +73,13 @@ func NewLazy(factory process.FactoryFunc, dispatcher dispatcher.Dispatcher, cfg 
 		reaperDone:  make(chan struct{}),
 	}
 	l.executors.New = func() any {
-		return NewExecutor(dispatcher).WithExecutionHooks(hooksCfg)
+		return pool.NewExecutor(d).WithExecutionHooks(hooksCfg)
 	}
 	return l, nil
 }
 
 // Start begins the idle reaper.
-func (l *Lazy) Start() {
+func (l *Pool) Start() {
 	l.startOnce.Do(func() {
 		l.mu.Lock()
 		l.reaper = time.NewTicker(l.idleTimeout / 2)
@@ -88,7 +89,7 @@ func (l *Lazy) Start() {
 }
 
 // Stop shuts down and destroys all processes.
-func (l *Lazy) Stop() {
+func (l *Pool) Stop() {
 	if l.closed.Swap(true) {
 		return
 	}
@@ -109,9 +110,9 @@ func (l *Lazy) Stop() {
 }
 
 // Call executes using an idle or newly created process.
-func (l *Lazy) Call(ctx context.Context, method string, input payload.Payloads) (*runtime.Result, error) {
+func (l *Pool) Call(ctx context.Context, method string, input payload.Payloads) (*runtime.Result, error) {
 	if l.closed.Load() {
-		return nil, ErrPoolClosed
+		return nil, pool.ErrPoolClosed
 	}
 
 	proc, err := l.acquire(ctx)
@@ -120,7 +121,7 @@ func (l *Lazy) Call(ctx context.Context, method string, input payload.Payloads) 
 	}
 
 	pid, _ := runtime.GetFramePID(ctx)
-	executor := l.executors.Get().(*Executor)
+	executor := l.executors.Get().(*pool.Executor)
 	l.activeExec.Store(pid.UniqID, executor)
 
 	result := executor.Run(ctx, proc, method, input)
@@ -134,24 +135,24 @@ func (l *Lazy) Call(ctx context.Context, method string, input payload.Payloads) 
 }
 
 // Send implements relay.Receiver. Routes package to target execution.
-func (l *Lazy) Send(pkg *relay.Package) error {
+func (l *Pool) Send(pkg *relay.Package) error {
 	v, ok := l.activeExec.Load(pkg.Target.UniqID)
 	if !ok {
 		return process.ErrProcessNotFound
 	}
-	return v.(*Executor).Send(pkg)
+	return v.(*pool.Executor).Send(pkg)
 }
 
 // acquire gets an idle process or creates a new one.
 // Waits if at max workers until one becomes available or ctx is cancelled.
-func (l *Lazy) acquire(ctx context.Context) (process.Process, error) {
+func (l *Pool) acquire(ctx context.Context) (process.Process, error) {
 	for {
 		// Check context first
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-l.done:
-			return nil, ErrPoolClosed
+			return nil, pool.ErrPoolClosed
 		default:
 		}
 
@@ -215,13 +216,13 @@ func (l *Lazy) acquire(ctx context.Context) (process.Process, error) {
 			l.mu.Unlock()
 			return nil, ctx.Err()
 		case <-l.done:
-			return nil, ErrPoolClosed
+			return nil, pool.ErrPoolClosed
 		}
 	}
 }
 
 // release returns process to idle pool.
-func (l *Lazy) release(proc process.Process) {
+func (l *Pool) release(proc process.Process) {
 	l.mu.Lock()
 
 	l.active--
@@ -251,7 +252,7 @@ func (l *Lazy) release(proc process.Process) {
 }
 
 // runReaper periodically destroys idle processes.
-func (l *Lazy) runReaper() {
+func (l *Pool) runReaper() {
 	for {
 		select {
 		case <-l.reaperDone:
@@ -263,7 +264,7 @@ func (l *Lazy) runReaper() {
 }
 
 // reapIdle destroys all processes if pool has been idle long enough.
-func (l *Lazy) reapIdle() {
+func (l *Pool) reapIdle() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 

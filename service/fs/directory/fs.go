@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 
 	fsapi "github.com/wippyai/runtime/api/fs"
+	systemfs "github.com/wippyai/runtime/system/fs"
 )
 
 var _ fsapi.FS = (*FS)(nil)
@@ -43,13 +44,13 @@ func NewFS(dirPath string, mode fs.FileMode, autoInit bool) (*FS, error) {
 
 	if autoInit {
 		if err := os.MkdirAll(dirPath, mode); err != nil {
-			return nil, fsapi.NewCreateDirectoryError(err)
+			return nil, systemfs.NewCreateDirectoryError(err)
 		}
 	}
 
 	root, err := os.OpenRoot(absPath)
 	if err != nil {
-		return nil, fsapi.NewOpenDirectoryError(err)
+		return nil, systemfs.NewOpenDirectoryError(err)
 	}
 
 	return &FS{

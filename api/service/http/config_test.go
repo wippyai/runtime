@@ -491,7 +491,7 @@ func TestServerConfig_Validate_Lifecycle(t *testing.T) {
 			if tt.wantErr {
 				assert.Error(t, err)
 				if err != nil {
-					assert.Contains(t, err.Error(), "timeout must be positive or zero")
+					assert.Contains(t, err.Error(), "must be non-negative")
 				}
 			} else {
 				assert.NoError(t, err)
@@ -651,7 +651,7 @@ func TestStaticConfig_Validate(t *testing.T) {
 		}
 		err := config.Validate()
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "path cannot be empty")
+		assert.Contains(t, err.Error(), "path is required")
 	})
 
 	t.Run("path without leading slash", func(t *testing.T) {
@@ -671,7 +671,7 @@ func TestStaticConfig_Validate(t *testing.T) {
 		}
 		err := config.Validate()
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "metadata cannot be nil")
+		assert.Contains(t, err.Error(), "metadata is required")
 	})
 
 	t.Run("missing server in metadata", func(t *testing.T) {
@@ -681,7 +681,7 @@ func TestStaticConfig_Validate(t *testing.T) {
 		}
 		err := config.Validate()
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "server in metadata cannot be empty")
+		assert.Contains(t, err.Error(), "server metadata is required")
 	})
 }
 

@@ -9,9 +9,9 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
-	templateapi "github.com/wippyai/runtime/api/service/template"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"
+	servicetemplate "github.com/wippyai/runtime/service/template"
 	"github.com/wippyai/runtime/service/template/jet"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -147,7 +147,7 @@ func templateSetRender(l *lua.LState) int {
 
 	result, renderErr := templates.RenderPayload(name, payload.NewPayload(args, payload.Lua))
 	if renderErr != nil {
-		if errors.Is(renderErr, templateapi.ErrTemplateNotFound) {
+		if errors.Is(renderErr, servicetemplate.ErrTemplateNotFound) {
 			return pushError(l, lua.NewLuaError(l, "template not found").
 				WithKind(lua.KindNotFound).
 				WithRetryable(false))

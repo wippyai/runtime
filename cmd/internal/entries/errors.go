@@ -1,172 +1,75 @@
 package entries
 
 import (
-	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
-type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
-}
-
-func (e *Error) Error() string               { return e.message }
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
-
-func NewLoadLockFileError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "load lock file",
-		retryable: apierror.False,
-		cause:     err,
-	}
-}
-
-func NewInvalidLockFileError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "invalid lock file",
-		retryable: apierror.False,
-		cause:     err,
-	}
-}
-
-func NewEnsureModulesInstalledError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "ensure modules installed",
-		retryable: apierror.True,
-		cause:     err,
-	}
-}
-
-func NewLoadEntriesFromPathsError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "load entries from paths",
-		retryable: apierror.False,
-		cause:     err,
-	}
-}
-
-func NewLoadEntriesToRegistryError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "load entries to registry",
-		retryable: apierror.False,
-		cause:     err,
-	}
-}
-
-func NewDownloadModuleError(moduleName string, err error) *Error {
-	return &Error{
-		kind:      apierror.KindUnavailable,
-		message:   "download module",
-		retryable: apierror.True,
-		details: attrs.Bag{
-			"module": moduleName,
-		},
-		cause: err,
-	}
-}
-
-func NewStoreModuleError(moduleName string, err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "store module",
-		retryable: apierror.False,
-		details: attrs.Bag{
-			"module": moduleName,
-		},
-		cause: err,
-	}
-}
-
-func NewLoadFromPathError(path string, err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "load from path",
-		retryable: apierror.False,
-		details: attrs.Bag{
-			"path": path,
-		},
-		cause: err,
-	}
-}
-
-func NewExecutePipelineError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "execute pipeline",
-		retryable: apierror.False,
-		cause:     err,
-	}
-}
-
-func NewLoadStateError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "load state",
-		retryable: apierror.False,
-		cause:     err,
-	}
-}
-
 var (
-	ErrRegistryClientNotFound = &Error{
-		kind:      apierror.KindInternal,
-		message:   "registry client not found in context",
-		retryable: apierror.False,
-	}
+	ErrNoEntriesProvided = apierror.New(apierror.KindInvalid, "no entries provided").WithRetryable(apierror.False)
 
-	ErrTranscoderNotFound = &Error{
-		kind:      apierror.KindInternal,
-		message:   "transcoder not found in context",
-		retryable: apierror.False,
-	}
+	ErrRegistryClientNotFound = apierror.New(apierror.KindNotFound, "registry client not found").WithRetryable(apierror.False)
 
-	ErrLoaderNotFound = &Error{
-		kind:      apierror.KindInternal,
-		message:   "loader not found in context",
-		retryable: apierror.False,
-	}
+	ErrModuleMissingHash = apierror.New(apierror.KindInvalid, "module missing hash").WithRetryable(apierror.False)
 
-	ErrRegistryNotFound = &Error{
-		kind:      apierror.KindInternal,
-		message:   "registry not found in context",
-		retryable: apierror.False,
-	}
+	ErrNoContentDownloaded = apierror.New(apierror.KindInternal, "no content downloaded").WithRetryable(apierror.False)
 
-	ErrResolverNotFound = &Error{
-		kind:      apierror.KindInternal,
-		message:   "dependency resolver not found in context",
-		retryable: apierror.False,
-	}
+	ErrTranscoderNotFound = apierror.New(apierror.KindNotFound, "transcoder not found").WithRetryable(apierror.False)
 
-	ErrModuleMissingHash = &Error{
-		kind:      apierror.KindInvalid,
-		message:   "module has no hash in lock file",
-		retryable: apierror.False,
-	}
+	ErrLoaderNotFound = apierror.New(apierror.KindNotFound, "loader not found").WithRetryable(apierror.False)
 
-	ErrNoContentDownloaded = &Error{
-		kind:      apierror.KindInternal,
-		message:   "no content downloaded for module",
-		retryable: apierror.True,
-	}
+	ErrRegistryNotFound = apierror.New(apierror.KindNotFound, "registry not found").WithRetryable(apierror.False)
+
+	ErrResolverNotFound = apierror.New(apierror.KindNotFound, "resolver not found").WithRetryable(apierror.False)
 )
 
-func NewGetCurrentVersionError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "failed to get current version",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewLoadEntriesError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to load entries").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewValidateEntriesError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "failed to validate entries").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewLoadLockFileError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to load lock file").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewInvalidLockFileError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "invalid lock file").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewEnsureModulesInstalledError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to ensure modules installed").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewLoadEntriesFromPathsError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to load entries from paths").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewLoadEntriesToRegistryError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to load entries to registry").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewDownloadModuleError(module string, cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to download module: "+module).WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewStoreModuleError(module string, cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to store module: "+module).WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewLoadFromPathError(path string, cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to load from path: "+path).WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewExecutePipelineError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to execute pipeline").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewGetCurrentVersionError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to get current version").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewLoadStateError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to load state").WithCause(cause).WithRetryable(apierror.False)
 }

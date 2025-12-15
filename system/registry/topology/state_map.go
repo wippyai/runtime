@@ -19,8 +19,8 @@ func NewStateMap(state registry.State) StateMap {
 	return m
 }
 
-// Copy creates a shallow copy of the StateMap.
-func (sm StateMap) Copy() StateMap {
+// CopyStateMap creates a shallow copy of the StateMap.
+func CopyStateMap(sm StateMap) StateMap {
 	newMap := make(StateMap)
 	for k, v := range sm {
 		newMap[k] = v
@@ -28,8 +28,8 @@ func (sm StateMap) Copy() StateMap {
 	return newMap
 }
 
-// ToSlice converts a StateMap (map) to a State (slice).
-func (sm StateMap) ToSlice() registry.State {
+// StateMapToSlice converts a StateMap (map) to a State (slice).
+func StateMapToSlice(sm StateMap) registry.State {
 	slice := make(registry.State, 0, len(sm))
 	for _, entry := range sm {
 		slice = append(slice, entry)

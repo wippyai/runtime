@@ -83,7 +83,7 @@ func TestConfig_Validate(t *testing.T) {
 				Set: registry.NewID("t", "main"),
 			},
 			wantErr: true,
-			errMsg:  "source cannot be empty",
+			errMsg:  "source is required",
 		},
 		{
 			name: "empty set name",
@@ -92,7 +92,7 @@ func TestConfig_Validate(t *testing.T) {
 				Set:    registry.ID{NS: "t"},
 			},
 			wantErr: true,
-			errMsg:  "set name cannot be empty",
+			errMsg:  "set name is required",
 		},
 	}
 
@@ -133,7 +133,7 @@ func TestEngineConfig_Validate(t *testing.T) {
 				Extensions: []string{".jet"},
 			},
 			wantErr: true,
-			errMsg:  "must be different",
+			errMsg:  "delimiters and comment delimiters cannot be the same",
 		},
 		{
 			name: "conflicting right delimiters",
@@ -147,7 +147,7 @@ func TestEngineConfig_Validate(t *testing.T) {
 				Extensions: []string{".jet"},
 			},
 			wantErr: true,
-			errMsg:  "must be different",
+			errMsg:  "delimiters and comment delimiters cannot be the same",
 		},
 	}
 
@@ -192,7 +192,7 @@ func TestSetConfig_Validate(t *testing.T) {
 				},
 			},
 			wantErr: true,
-			errMsg:  "must be different",
+			errMsg:  "delimiters and comment delimiters cannot be the same",
 		},
 	}
 

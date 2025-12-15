@@ -1,559 +1,281 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
-type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
-}
-
-func (e *Error) Error() string {
-	if e.cause != nil {
-		return e.message + ": " + e.cause.Error()
-	}
-	return e.message
-}
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
-
-func NewCreateLoggerError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "failed to create logger",
-		retryable: apierror.False,
-		cause:     err,
-	}
-}
-
-func NewInitAppError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "init app",
-		retryable: apierror.False,
-		cause:     err,
-	}
-}
-
-func NewLoadLockFileError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "load lock file",
-		retryable: apierror.False,
-		cause:     err,
-	}
-}
-
-func NewInvalidLockFileError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "invalid lock file",
-		retryable: apierror.False,
-		cause:     err,
-	}
-}
-
-func NewWriteLockFileError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "write lock file",
-		retryable: apierror.False,
-		cause:     err,
-	}
-}
-
-func NewParseModuleNameError(moduleName string, err error) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "parse module name",
-		retryable: apierror.False,
-		details: attrs.Bag{
-			"module": moduleName,
-		},
-		cause: err,
-	}
-}
-
-func NewDownloadModuleError(moduleName string, err error) *Error {
-	return &Error{
-		kind:      apierror.KindUnavailable,
-		message:   "download module",
-		retryable: apierror.True,
-		details: attrs.Bag{
-			"module": moduleName,
-		},
-		cause: err,
-	}
-}
-
-func NewStoreModuleError(moduleName string, err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "store module",
-		retryable: apierror.False,
-		details: attrs.Bag{
-			"module": moduleName,
-		},
-		cause: err,
-	}
-}
-
-func NewParseMetadataError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "parse metadata",
-		retryable: apierror.False,
-		cause:     err,
-	}
-}
-
-func NewLoadEntriesError(path string, err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "load entries from path",
-		retryable: apierror.False,
-		details: attrs.Bag{
-			"path": path,
-		},
-		cause: err,
-	}
-}
-
-func NewExecutePipelineError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "execute pipeline",
-		retryable: apierror.False,
-		cause:     err,
-	}
-}
-
-func NewLoadComponentsError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "load components",
-		retryable: apierror.False,
-		cause:     err,
-	}
-}
-
-func NewStartComponentsError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "start components",
-		retryable: apierror.False,
-		cause:     err,
-	}
-}
-
 var (
-	ErrInvalidMetadataFormat = &Error{
-		kind:      apierror.KindInvalid,
-		message:   "invalid metadata format, expected key=value",
-		retryable: apierror.False,
-	}
+	ErrInvalidRegistryFormat = apierror.New(apierror.KindInvalid, "invalid registry format").WithRetryable(apierror.False)
 
-	ErrEmptyMetadataKey = &Error{
-		kind:      apierror.KindInvalid,
-		message:   "empty metadata key",
-		retryable: apierror.False,
-	}
+	ErrRegistryNotFound = apierror.New(apierror.KindNotFound, "registry not found").WithRetryable(apierror.False)
 
-	ErrNoContentDownloaded = &Error{
-		kind:      apierror.KindInternal,
-		message:   "no content downloaded for module",
-		retryable: apierror.True,
-	}
+	ErrInvalidEntryFormat = apierror.New(apierror.KindInvalid, "invalid entry format").WithRetryable(apierror.False)
 
-	ErrModuleMissingHash = &Error{
-		kind:      apierror.KindInvalid,
-		message:   "module has no hash in lock file",
-		retryable: apierror.False,
-	}
+	ErrEntryNotFound = apierror.New(apierror.KindNotFound, "entry not found").WithRetryable(apierror.False)
 
-	ErrTranscoderNotFound = &Error{
-		kind:      apierror.KindInternal,
-		message:   "transcoder not found",
-		retryable: apierror.False,
-	}
+	ErrEmptyPattern = apierror.New(apierror.KindInvalid, "pattern cannot be empty").WithRetryable(apierror.False)
 
-	ErrRegistryNotFound = &Error{
-		kind:      apierror.KindInternal,
-		message:   "registry not found",
-		retryable: apierror.False,
-	}
+	ErrInvalidManifestFormat = apierror.New(apierror.KindInvalid, "invalid manifest format").WithRetryable(apierror.False)
 
-	ErrDependencyResolverNotFound = &Error{
-		kind:      apierror.KindInternal,
-		message:   "dependency resolver not found",
-		retryable: apierror.False,
-	}
+	ErrManifestNotFound = apierror.New(apierror.KindNotFound, "manifest not found").WithRetryable(apierror.False)
 
-	ErrProcessManagerNotAvailable = &Error{
-		kind:      apierror.KindUnavailable,
-		message:   "process manager not available",
-		retryable: apierror.False,
-	}
+	ErrInvalidProjectDir = apierror.New(apierror.KindInvalid, "invalid project directory").WithRetryable(apierror.False)
+
+	ErrNoProjectDir = apierror.New(apierror.KindNotFound, "no project directory found").WithRetryable(apierror.False)
+
+	ErrManifestExists = apierror.New(apierror.KindAlreadyExists, "manifest already exists").WithRetryable(apierror.False)
+
+	ErrNoRuntimeDir = apierror.New(apierror.KindNotFound, "no .wippy directory found").WithRetryable(apierror.False)
+
+	ErrEmptyManifestName = apierror.New(apierror.KindInvalid, "manifest name cannot be empty").WithRetryable(apierror.False)
+
+	ErrInvalidFilter = apierror.New(apierror.KindInvalid, "invalid filter").WithRetryable(apierror.False)
+
+	ErrProcessManagerNotAvailable = apierror.New(apierror.KindInternal, "process manager not available").WithRetryable(apierror.False)
+
+	ErrTranscoderNotFound = apierror.New(apierror.KindNotFound, "transcoder not found").WithRetryable(apierror.False)
+
+	ErrDependencyResolverNotFound = apierror.New(apierror.KindNotFound, "dependency resolver not found").WithRetryable(apierror.False)
 )
 
-func NewCreateLoaderError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "create loader",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewInvalidIDFormatError(id string) apierror.Error {
+	return apierror.New(apierror.KindInvalid, fmt.Sprintf("invalid ID format: %s", id)).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"id": id}))
 }
 
-func NewInitializeBootstrapContextError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "initialize bootstrap context",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewReadManifestError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to read manifest").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewLoadEntriesFromSourceError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "load entries from source",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewDecodeManifestError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "failed to decode manifest").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewCreateManifestBridgeError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "create manifest bridge",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewEncodeManifestError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to encode manifest").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewBuildDependencyGraphError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "build dependency graph",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewWriteManifestError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to write manifest").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewDependencyConflictsError(count int) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "dependency conflicts detected",
-		retryable: apierror.False,
-		details: attrs.NewBagFrom(map[string]any{
-			"conflict_count": count,
-		}),
-	}
+func NewCreateProjectDirError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to create project directory").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewUpdateConflictsError(count int) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "update not possible: conflicts detected",
-		retryable: apierror.False,
-		details: attrs.NewBagFrom(map[string]any{
-			"conflict_count": count,
-		}),
-	}
+func NewGlobError(pattern string, cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, fmt.Sprintf("failed to glob pattern: %s", pattern)).
+		WithCause(cause).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"pattern": pattern}))
 }
 
-func NewInitFailedError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "init failed",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewCompileRegexpError(pattern string, cause error) apierror.Error {
+	return apierror.New(apierror.KindInvalid, fmt.Sprintf("failed to compile regexp: %s", pattern)).
+		WithCause(cause).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"pattern": pattern}))
 }
 
-func NewInstallFailedError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "install failed",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewReadFileError(path string, cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, fmt.Sprintf("failed to read file: %s", path)).
+		WithCause(cause).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"path": path}))
 }
 
-func NewCheckModuleError(moduleName string, err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "check module",
-		retryable: apierror.False,
-		details: attrs.NewBagFrom(map[string]any{
-			"module": moduleName,
-		}),
-		cause: err,
-	}
+func NewCreateLoggerError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to create logger").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewLockFileNotFoundError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "lock file not found",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewLoadLockFileError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to load lock file").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewEnsureModulesInstalledError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "ensure modules installed",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewWriteLockFileError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to write lock file").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewCreatePackFileError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "create pack file",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewInitAppError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to initialize app").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewPackWithResourcesError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "pack with resources",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewInitFailedError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "initialization failed").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewPackEntriesError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "pack entries",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewInvalidLockFileError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "invalid lock file").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewClosePackFileError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "close pack file",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewParseModuleNameError(name string, cause error) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "failed to parse module name: "+name).WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewStatOutputFileError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "stat output file",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewCheckModuleError(module string, cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to check module: "+module).WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewInvalidMetadataFormatError(flag string) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "invalid metadata format, expected key=value",
-		retryable: apierror.False,
-		details: attrs.NewBagFrom(map[string]any{
-			"flag": flag,
-		}),
-	}
+func NewModuleMissingHashError(module string) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "module missing hash: "+module).WithRetryable(apierror.False)
 }
 
-func NewEmptyMetadataKeyError(flag string) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "empty metadata key",
-		retryable: apierror.False,
-		details: attrs.NewBagFrom(map[string]any{
-			"flag": flag,
-		}),
-	}
+func NewDownloadModuleError(module string, cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to download module: "+module).WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewReservedMetadataNamespaceError(key string) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "reserved metadata namespace",
-		retryable: apierror.False,
-		details: attrs.NewBagFrom(map[string]any{
-			"key": key,
-		}),
-	}
+func NewNoContentDownloadedError(module string) apierror.Error {
+	return apierror.New(apierror.KindInternal, "no content downloaded for module: "+module).WithRetryable(apierror.False)
 }
 
-func NewOpenPackFileError(packFile string, err error) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "open pack file",
-		retryable: apierror.False,
-		details: attrs.NewBagFrom(map[string]any{
-			"pack_file": packFile,
-		}),
-		cause: err,
-	}
+func NewStoreModuleError(module string, cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to store module: "+module).WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewCreatePackReaderError(packFile string, err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "create pack reader",
-		retryable: apierror.False,
-		details: attrs.NewBagFrom(map[string]any{
-			"pack_file": packFile,
-		}),
-		cause: err,
-	}
+func NewLockFileNotFoundError(cause error) apierror.Error {
+	return apierror.New(apierror.KindNotFound, "lock file not found").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewReadEntriesError(packFile string, err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "read entries from pack",
-		retryable: apierror.False,
-		details: attrs.NewBagFrom(map[string]any{
-			"pack_file": packFile,
-		}),
-		cause: err,
-	}
+func NewEnsureModulesInstalledError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to ensure modules installed").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewRegisterPackError(packFile string, err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "register pack",
-		retryable: apierror.False,
-		details: attrs.NewBagFrom(map[string]any{
-			"pack_file": packFile,
-		}),
-		cause: err,
-	}
+func NewLoadEntriesError(path string, cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to load entries from: "+path).WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewStartRuntimeServicesError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "start runtime services",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewExecutePipelineError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to execute pipeline").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewBuildChangeSetError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "build change set",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewParseMetadataError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "failed to parse metadata").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewApplyEntriesError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "apply entries",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewCreatePackFileError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to create pack file").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewInvalidOverrideError(override string, err error) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "invalid override",
-		retryable: apierror.False,
-		details: attrs.NewBagFrom(map[string]any{
-			"override": override,
-		}),
-		cause: err,
-	}
+func NewPackWithResourcesError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to pack with resources").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewInvalidExecSpecError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "invalid exec spec",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewPackEntriesError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to pack entries").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewStartProcessError(hostID string, err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "failed to start process",
-		retryable: apierror.False,
-		details: attrs.NewBagFrom(map[string]any{
-			"host_id": hostID,
-		}),
-		cause: err,
-	}
+func NewClosePackFileError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to close pack file").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewMissingSeparatorError(separator, expected string) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "missing separator",
-		retryable: apierror.False,
-		details: attrs.NewBagFrom(map[string]any{
-			"separator": separator,
-			"expected":  expected,
-		}),
-	}
+func NewStatOutputFileError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to stat output file").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewEmptyFieldError(field string) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "empty field",
-		retryable: apierror.False,
-		details: attrs.NewBagFrom(map[string]any{
-			"field": field,
-		}),
-	}
+func NewInvalidMetadataFormatError(format string) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "invalid metadata format: "+format).WithRetryable(apierror.False)
 }
 
-func NewInvalidExistingLockFileError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "invalid existing lock file",
-		retryable: apierror.False,
-		cause:     err,
-	}
+func NewEmptyMetadataKeyError(flag string) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "metadata key cannot be empty: "+flag).WithRetryable(apierror.False)
 }
 
-func NewNoContentDownloadedError(moduleName string) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "no content downloaded for module",
-		retryable: apierror.True,
-		details: attrs.NewBagFrom(map[string]any{
-			"module": moduleName,
-		}),
-	}
+func NewReservedMetadataNamespaceError(key string) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "reserved metadata namespace: "+key).WithRetryable(apierror.False)
 }
 
-func NewModuleMissingHashError(moduleName string) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "module has no hash in lock file",
-		retryable: apierror.False,
-		details: attrs.NewBagFrom(map[string]any{
-			"module": moduleName,
-		}),
-	}
+func NewInitializeBootstrapContextError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to initialize bootstrap context").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewCreateLoaderError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to create loader").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewLoadComponentsError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to load components").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewStartComponentsError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to start components").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewInvalidOverrideError(override string, cause error) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "invalid override: "+override).WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewMissingSeparatorError(separator string, format string) apierror.Error {
+	return apierror.New(apierror.KindInvalid, fmt.Sprintf("missing separator '%s', expected format: %s", separator, format)).WithRetryable(apierror.False)
+}
+
+func NewEmptyFieldError(field string) apierror.Error {
+	return apierror.New(apierror.KindInvalid, field+" cannot be empty").WithRetryable(apierror.False)
+}
+
+func NewInvalidExecSpecError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "invalid exec spec").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewStartProcessError(hostID string, cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to start process on host: "+hostID).WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewOpenPackFileError(path string, cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to open pack file: "+path).WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewCreatePackReaderError(path string, cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to create pack reader: "+path).WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewReadEntriesError(path string, cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to read entries from: "+path).WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewRegisterPackError(path string, cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to register pack: "+path).WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewStartRuntimeServicesError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to start runtime services").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewBuildChangeSetError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to build change set").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewApplyEntriesError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to apply entries").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewInvalidExistingLockFileError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "invalid existing lock file").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewLoadEntriesFromSourceError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to load entries from source").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewCreateManifestBridgeError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to create manifest bridge").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewBuildDependencyGraphError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to build dependency graph").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewDependencyConflictsError(count int) apierror.Error {
+	return apierror.New(apierror.KindInvalid, fmt.Sprintf("dependency conflicts detected (%d)", count)).WithRetryable(apierror.False)
+}
+
+func NewInstallFailedError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "install failed").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewUpdateConflictsError(count int) apierror.Error {
+	return apierror.New(apierror.KindInvalid, fmt.Sprintf("update conflicts detected (%d)", count)).WithRetryable(apierror.False)
 }

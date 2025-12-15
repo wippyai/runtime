@@ -60,7 +60,7 @@ func TestConfig_Validate(t *testing.T) {
 				Database: registry.NewID("db", "main"),
 			},
 			wantErr: true,
-			errMsg:  "table_name is required",
+			errMsg:  "table name is required",
 		},
 		{
 			name: "invalid table name with SQL keywords",
@@ -72,7 +72,7 @@ func TestConfig_Validate(t *testing.T) {
 				ExpireColumnName:  "expires_at",
 			},
 			wantErr: true,
-			errMsg:  "table_name is invalid",
+			errMsg:  "table name contains invalid characters",
 		},
 		{
 			name: "negative cleanup interval",
@@ -85,7 +85,7 @@ func TestConfig_Validate(t *testing.T) {
 				CleanupInterval:   -1 * time.Minute,
 			},
 			wantErr: true,
-			errMsg:  "cleanup_interval must be greater than or equal to 0",
+			errMsg:  "cleanup interval must be non-negative",
 		},
 	}
 
@@ -213,7 +213,7 @@ func TestConfig_Validate_MissingColumns(t *testing.T) {
 				PayloadColumnName: "value",
 				ExpireColumnName:  "expires_at",
 			},
-			errMsg: "id_column_name is required",
+			errMsg: "ID column name is required",
 		},
 		{
 			name: "missing payload column",
@@ -223,7 +223,7 @@ func TestConfig_Validate_MissingColumns(t *testing.T) {
 				IDColumnName:     "key",
 				ExpireColumnName: "expires_at",
 			},
-			errMsg: "payload_column_name is required",
+			errMsg: "payload column name is required",
 		},
 		{
 			name: "missing expire column",
@@ -233,7 +233,7 @@ func TestConfig_Validate_MissingColumns(t *testing.T) {
 				IDColumnName:      "key",
 				PayloadColumnName: "value",
 			},
-			errMsg: "expire_column_name is required",
+			errMsg: "expire column name is required",
 		},
 	}
 
@@ -261,7 +261,7 @@ func TestConfig_Validate_InvalidIdentifiers(t *testing.T) {
 				PayloadColumnName: "value",
 				ExpireColumnName:  "expires_at",
 			},
-			errMsg: "database ID is invalid",
+			errMsg: "database ID contains invalid characters",
 		},
 		{
 			name: "invalid id column name",
@@ -272,7 +272,7 @@ func TestConfig_Validate_InvalidIdentifiers(t *testing.T) {
 				PayloadColumnName: "value",
 				ExpireColumnName:  "expires_at",
 			},
-			errMsg: "id_column_name is invalid",
+			errMsg: "ID column name contains invalid characters",
 		},
 		{
 			name: "invalid payload column name",
@@ -283,7 +283,7 @@ func TestConfig_Validate_InvalidIdentifiers(t *testing.T) {
 				PayloadColumnName: "value; DROP",
 				ExpireColumnName:  "expires_at",
 			},
-			errMsg: "payload_column_name is invalid",
+			errMsg: "payload column name contains invalid characters",
 		},
 		{
 			name: "invalid expire column name",
@@ -294,7 +294,7 @@ func TestConfig_Validate_InvalidIdentifiers(t *testing.T) {
 				PayloadColumnName: "value",
 				ExpireColumnName:  "expires--",
 			},
-			errMsg: "expire_column_name is invalid",
+			errMsg: "expire column name contains invalid characters",
 		},
 	}
 

@@ -6,6 +6,7 @@ import (
 	fsapi "github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/registry"
 	api "github.com/wippyai/runtime/api/runtime/lua"
+	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	lua "github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/component"
 	"go.uber.org/zap"
@@ -54,7 +55,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
 	case api.KindLibrary, api.KindLibraryBytecode:
 		if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
-			return api.NewDeleteNodeError("library", err)
+			return runtimelua.NewDeleteNodeError("library", err)
 		}
 		m.log.Debug("library deleted", zap.String("id", entry.ID.String()))
 		return nil
@@ -72,7 +73,7 @@ func (m *Manager) Invalidate(_ context.Context, _ []registry.ID) {
 func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 	cfg, err := component.UnpackConfig[api.LibraryConfig](ctx, entry)
 	if err != nil {
-		return api.NewUnpackConfigError("library", err)
+		return runtimelua.NewUnpackConfigError("library", err)
 	}
 
 	node := lua.Node{
@@ -82,7 +83,7 @@ func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 	}
 
 	if err := m.code.AddNode(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules)); err != nil {
-		return api.NewAddNodeError("library", err)
+		return runtimelua.NewAddNodeError("library", err)
 	}
 
 	m.log.Debug("library added", zap.String("id", entry.ID.String()))
@@ -93,12 +94,12 @@ func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
 	cfg, err := component.UnpackConfig[api.BytecodeLibraryConfig](ctx, entry)
 	if err != nil {
-		return api.NewUnpackConfigError("library", err)
+		return runtimelua.NewUnpackConfigError("library", err)
 	}
 
 	proto, err := component.LoadAndVerifyBytecode(m.fsRegistry, cfg.FS, cfg.Path, cfg.Hash)
 	if err != nil {
-		return api.NewLoadBytecodeError(err)
+		return runtimelua.NewLoadBytecodeError(err)
 	}
 
 	node := lua.Node{
@@ -107,7 +108,7 @@ func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
 	}
 
 	if err := m.code.AddNodeWithProto(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules), proto); err != nil {
-		return api.NewAddNodeError("library", err)
+		return runtimelua.NewAddNodeError("library", err)
 	}
 
 	m.log.Debug("bytecode library added",
@@ -122,7 +123,7 @@ func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
 func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error {
 	cfg, err := component.UnpackConfig[api.LibraryConfig](ctx, entry)
 	if err != nil {
-		return api.NewUnpackConfigError("library", err)
+		return runtimelua.NewUnpackConfigError("library", err)
 	}
 
 	node := lua.Node{
@@ -132,7 +133,7 @@ func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error 
 	}
 
 	if err := m.code.UpdateNode(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules)); err != nil {
-		return api.NewUpdateNodeError("library", err)
+		return runtimelua.NewUpdateNodeError("library", err)
 	}
 
 	m.log.Debug("library updated", zap.String("id", entry.ID.String()))
@@ -143,12 +144,12 @@ func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error 
 func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) error {
 	cfg, err := component.UnpackConfig[api.BytecodeLibraryConfig](ctx, entry)
 	if err != nil {
-		return api.NewUnpackConfigError("library", err)
+		return runtimelua.NewUnpackConfigError("library", err)
 	}
 
 	proto, err := component.LoadAndVerifyBytecode(m.fsRegistry, cfg.FS, cfg.Path, cfg.Hash)
 	if err != nil {
-		return api.NewLoadBytecodeError(err)
+		return runtimelua.NewLoadBytecodeError(err)
 	}
 
 	node := lua.Node{
@@ -157,7 +158,7 @@ func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) erro
 	}
 
 	if err := m.code.UpdateNodeWithProto(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules), proto); err != nil {
-		return api.NewUpdateNodeError("library", err)
+		return runtimelua.NewUpdateNodeError("library", err)
 	}
 
 	m.log.Debug("bytecode library updated", zap.String("id", entry.ID.String()))

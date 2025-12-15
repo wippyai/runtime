@@ -652,15 +652,11 @@ func TestBuildState_ConflictingOperations(t *testing.T) {
 		{Kind: registry.Create, Entry: conflictingEntry}, // Conflicting create
 	}, false)
 
-	// Build state
-	state, err := builder.BuildState(history, v2)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	// Build state should return an error for conflicting operations
+	_, err := builder.BuildState(history, v2)
+	if err == nil {
+		t.Fatal("expected error for conflicting operations, got nil")
 	}
-
-	// First create should win
-	expectedState := registry.State{entry}
-	verifyState(t, state, expectedState)
 }
 
 func TestBuildState_UnreachableVersion(t *testing.T) {

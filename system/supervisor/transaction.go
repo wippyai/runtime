@@ -39,13 +39,13 @@ func (th *regTx) commit(removeFn func(string) error, registerFn func(string, *su
 	// Apply all tx changes
 	for id := range th.remove {
 		if err := removeFn(id); err != nil {
-			return supervisor.NewCommitRemoveError(id, err)
+			return NewCommitRemoveError(id, err)
 		}
 	}
 
 	for id, entry := range th.register {
 		if err := registerFn(id, entry); err != nil {
-			return supervisor.NewCommitRegisterError(id, err)
+			return NewCommitRegisterError(id, err)
 		}
 	}
 

@@ -241,7 +241,7 @@ func TestConfig_Validate(t *testing.T) {
 				},
 			},
 			wantErr: true,
-			errMsg:  "actions must be either a string or a list of strings",
+			errMsg:  "actions must be a string or list",
 		},
 		{
 			name: "empty resources string",
@@ -268,7 +268,7 @@ func TestConfig_Validate(t *testing.T) {
 				},
 			},
 			wantErr: true,
-			errMsg:  "field cannot be empty",
+			errMsg:  "field is required",
 		},
 		{
 			name: "condition without operator",
@@ -283,7 +283,7 @@ func TestConfig_Validate(t *testing.T) {
 				},
 			},
 			wantErr: true,
-			errMsg:  "operator cannot be empty",
+			errMsg:  "operator is required",
 		},
 		{
 			name: "condition without value or value_from",
@@ -298,7 +298,7 @@ func TestConfig_Validate(t *testing.T) {
 				},
 			},
 			wantErr: true,
-			errMsg:  "either value or value_from must be provided",
+			errMsg:  "value or value_from is required",
 		},
 		{
 			name: "invalid operator",

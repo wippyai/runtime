@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
 )
@@ -108,7 +109,7 @@ func TestContext_InterceptorRegistry(t *testing.T) {
 func TestSentinelErrors(t *testing.T) {
 	tests := []struct {
 		name     string
-		err      *Error
+		err      apierror.Error
 		expected string
 		kind     string
 	}{
@@ -128,7 +129,7 @@ func TestSentinelErrors(t *testing.T) {
 			assert.Equal(t, tt.expected, tt.err.Error())
 			assert.Equal(t, tt.kind, tt.err.Kind().String())
 			assert.False(t, tt.err.Retryable().Bool())
-			assert.Nil(t, tt.err.Unwrap())
+			assert.Nil(t, errors.Unwrap(tt.err))
 		})
 	}
 }
@@ -137,7 +138,7 @@ func TestErrorMethods(t *testing.T) {
 	t.Run("WithCause", func(t *testing.T) {
 		cause := errors.New("underlying cause")
 		newErr := ErrCallNotFound.WithCause(cause)
-		assert.Equal(t, cause, newErr.Unwrap())
+		assert.Equal(t, cause, errors.Unwrap(newErr))
 		assert.Equal(t, ErrCallNotFound.Error(), newErr.Error())
 	})
 
@@ -168,26 +169,6 @@ func TestErrorConstructors(t *testing.T) {
 		assert.Equal(t, id.String(), target)
 	})
 
-	t.Run("NewInvalidHandlerError", func(t *testing.T) {
-		id := registry.NewID("ns", "name")
-		err := NewInvalidHandlerError(id)
-		assert.Contains(t, err.Error(), "invalid handler type")
-		assert.Equal(t, "Internal", err.Kind().String())
-	})
-
-	t.Run("NewFrameContextError", func(t *testing.T) {
-		cause := errors.New("frame error")
-		err := NewFrameContextError(cause)
-		assert.Contains(t, err.Error(), "failed to set frame context")
-		assert.Equal(t, cause, err.Unwrap())
-	})
-
-	t.Run("NewSubscriberError", func(t *testing.T) {
-		cause := errors.New("subscriber error")
-		err := NewSubscriberError(cause)
-		assert.Contains(t, err.Error(), "failed to create subscriber")
-		assert.Equal(t, cause, err.Unwrap())
-	})
 }
 
 func TestCommandPools(t *testing.T) {

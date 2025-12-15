@@ -76,7 +76,7 @@ func (b *StateBuilder) ApplyOperation(state StateMap, op registry.Operation) (St
 		return state, NewInvalidOperationError(err)
 	}
 
-	newState := state.Copy() // Spawn a copy of the state
+	newState := CopyStateMap(state)
 
 	switch op.Kind {
 	case registry.Create:
@@ -185,10 +185,7 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 		for _, operation := range changeSet {
 			newState, err := b.ApplyOperation(state, operation)
 			if err != nil {
-				b.log.Error("failed to apply operation",
-					zap.String("version", first.String()),
-					zap.Error(err))
-				continue
+				return nil, NewApplyOperationError(first.String(), operation.Entry.ID.String(), err)
 			}
 			state = newState
 		}
@@ -205,16 +202,13 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 		for _, operation := range changeSet {
 			newState, err := b.ApplyOperation(state, operation)
 			if err != nil {
-				b.log.Error("failed to apply operation",
-					zap.String("version", ver.String()),
-					zap.Error(err))
-				continue
+				return nil, NewApplyOperationError(ver.String(), operation.Entry.ID.String(), err)
 			}
 			state = newState
 		}
 	}
 
-	return state.ToSlice(), nil
+	return StateMapToSlice(state), nil
 }
 
 // SquashChangesets aggregates multiple changesets into a single changeset,

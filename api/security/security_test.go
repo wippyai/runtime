@@ -246,7 +246,7 @@ func TestSentinelErrors(t *testing.T) {
 			assert.Equal(t, tt.expected, tt.err.Error())
 			assert.Equal(t, tt.kind, tt.err.Kind())
 			assert.Nil(t, tt.err.Details())
-			assert.Nil(t, tt.err.Unwrap())
+			assert.Nil(t, errors.Unwrap(tt.err))
 		})
 	}
 }
@@ -255,7 +255,7 @@ func TestErrorMethods(t *testing.T) {
 	t.Run("WithCause", func(t *testing.T) {
 		cause := errors.New("underlying cause")
 		newErr := ErrPolicyNotFound.WithCause(cause)
-		assert.Equal(t, cause, newErr.Unwrap())
+		assert.Equal(t, cause, errors.Unwrap(newErr))
 		assert.Equal(t, ErrPolicyNotFound.Error(), newErr.Error())
 	})
 

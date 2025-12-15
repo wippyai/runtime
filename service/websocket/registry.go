@@ -9,7 +9,6 @@ import (
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/runtime/resource"
-	wssvc "github.com/wippyai/runtime/api/service/websocket"
 	wsapi "github.com/wippyai/runtime/api/websocket"
 
 	"github.com/coder/websocket"
@@ -151,10 +150,10 @@ func (r *Registry) Register(ctx context.Context, conn *websocket.Conn, bufferSiz
 func (r *Registry) get(id uint64) (*connEntry, error) {
 	entry, ok := r.conns.Get(resource.Handle(id))
 	if !ok {
-		return nil, wssvc.NewConnNotFoundError(id)
+		return nil, NewConnNotFoundError(id)
 	}
 	if entry.closed.Load() {
-		return nil, wssvc.NewConnClosedError(id)
+		return nil, NewConnClosedError(id)
 	}
 	return entry, nil
 }
@@ -172,7 +171,7 @@ func (r *Registry) GetMessageChan(id uint64) (<-chan wsapi.WsMessage, error) {
 func (r *Registry) Close(id uint64, code int, reason string) error {
 	entry, ok := r.conns.Get(resource.Handle(id))
 	if !ok {
-		return wssvc.NewConnNotFoundError(id)
+		return NewConnNotFoundError(id)
 	}
 
 	statusCode := websocket.StatusNormalClosure

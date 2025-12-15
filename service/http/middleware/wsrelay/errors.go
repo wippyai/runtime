@@ -1,80 +1,39 @@
 package wsrelay
 
-import (
-	"github.com/wippyai/runtime/api/attrs"
-	apierror "github.com/wippyai/runtime/api/error"
-)
-
-type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
-}
-
-func (e *Error) Error() string               { return e.message }
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
+import apierror "github.com/wippyai/runtime/api/error"
 
 var (
-	ErrHostRequired         = &Error{kind: apierror.KindInvalid, message: "host is required"}
-	ErrNodeRequired         = &Error{kind: apierror.KindInvalid, message: "node is required"}
-	ErrTranscoderRequired   = &Error{kind: apierror.KindInvalid, message: "transcoder is required"}
-	ErrFrameContextNotFound = &Error{kind: apierror.KindInternal, message: "FrameContext not found"}
-	ErrServerHostNotFound   = &Error{kind: apierror.KindInternal, message: "HTTP server host not found in context"}
-	ErrServerIDNotFound     = &Error{kind: apierror.KindInternal, message: "Server ID not found in context"}
-	ErrInvalidServerID      = &Error{kind: apierror.KindInvalid, message: "invalid server ID in context"}
-	ErrHostNotAttachable    = &Error{kind: apierror.KindInvalid, message: "server host does not implement AttachableHost"}
-	ErrExpectedBytesPayload = &Error{kind: apierror.KindInvalid, message: "expected bytes payload but got different type"}
+	ErrHostRequired         = apierror.New(apierror.KindInvalid, "host is required").WithRetryable(apierror.False)
+	ErrNodeRequired         = apierror.New(apierror.KindInvalid, "node is required").WithRetryable(apierror.False)
+	ErrTranscoderRequired   = apierror.New(apierror.KindInvalid, "transcoder is required").WithRetryable(apierror.False)
+	ErrFrameContextNotFound = apierror.New(apierror.KindInternal, "FrameContext not found").WithRetryable(apierror.False)
+	ErrServerHostNotFound   = apierror.New(apierror.KindInternal, "HTTP server host not found in context").WithRetryable(apierror.False)
+	ErrServerIDNotFound     = apierror.New(apierror.KindInternal, "Server ID not found in context").WithRetryable(apierror.False)
+	ErrInvalidServerID      = apierror.New(apierror.KindInvalid, "invalid server ID in context").WithRetryable(apierror.False)
+	ErrHostNotAttachable    = apierror.New(apierror.KindInvalid, "server host does not implement AttachableHost").WithRetryable(apierror.False)
+	ErrExpectedBytesPayload = apierror.New(apierror.KindInvalid, "expected bytes payload but got different type").WithRetryable(apierror.False)
 )
 
-func NewAttachToRelayError(err error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "failed to attach to relay",
-		cause:   err,
-	}
+func NewAttachToRelayError(err error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to attach to relay").WithCause(err)
 }
 
-func NewTranscodeError(err error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "failed to transcode payload to JSON",
-		cause:   err,
-	}
+func NewTranscodeError(err error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to transcode payload to JSON").WithCause(err)
 }
 
-func NewMarshalError(what string, err error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "error marshaling " + what,
-		cause:   err,
-	}
+func NewMarshalError(what string, err error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "error marshaling "+what).WithCause(err)
 }
 
-func NewWebSocketWriteError(err error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "error writing to WebSocket",
-		cause:   err,
-	}
+func NewWebSocketWriteError(err error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "error writing to WebSocket").WithCause(err)
 }
 
-func NewMarshalJoinInfoError(err error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "failed to marshal join info",
-		cause:   err,
-	}
+func NewMarshalJoinInfoError(err error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to marshal join info").WithCause(err)
 }
 
-func NewMarshalLeaveInfoError(err error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "failed to marshal leave info",
-		cause:   err,
-	}
+func NewMarshalLeaveInfoError(err error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to marshal leave info").WithCause(err)
 }

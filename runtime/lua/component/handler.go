@@ -7,6 +7,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	lua "github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/system/eventbus"
 	eventhandlers "github.com/wippyai/runtime/system/registry/events"
@@ -59,7 +60,7 @@ func UnpackConfig[T any](ctx context.Context, entry registry.Entry) (*T, error) 
 
 	cfg := new(T)
 	if err := dtt.Unmarshal(entry.Data, cfg); err != nil {
-		return nil, luaapi.NewUnmarshalConfigError(err)
+		return nil, runtimelua.NewUnmarshalConfigError(err)
 	}
 
 	if validator, ok := interface{}(cfg).(interface{ Validate() error }); ok {

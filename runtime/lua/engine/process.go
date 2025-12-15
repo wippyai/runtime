@@ -16,6 +16,7 @@ import (
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/api/topology"
+	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -150,7 +151,7 @@ func GetProcess(l *lua.LState) *Process {
 // Returns the channel for the subscription.
 func (p *Process) Subscribe(topic string, bufSize int) (*Channel, error) {
 	if p.subs == nil {
-		return nil, luaapi.ErrProcessContextNotAvailable
+		return nil, runtimelua.ErrProcessContextNotAvailable
 	}
 	sub, err := p.subs.add(topic, bufSize)
 	if err != nil {
@@ -164,7 +165,7 @@ func (p *Process) Subscribe(topic string, bufSize int) (*Channel, error) {
 // Returns error if topic already has a different channel subscribed.
 func (p *Process) SubscribeExisting(topic string, ch *Channel) error {
 	if p.subs == nil {
-		return luaapi.ErrProcessContextNotAvailable
+		return runtimelua.ErrProcessContextNotAvailable
 	}
 	_, err := p.subs.addExisting(topic, ch)
 	return err
@@ -253,7 +254,7 @@ func NewProcess(opts ...ProcessOption) *Process {
 // If method is specified, the script is run once to get module table, then the method is called.
 func (p *Process) Init(ctx context.Context, method string, input payload.Payloads) error {
 	if p.state == nil {
-		return luaapi.ErrStateNotInitialized
+		return runtimelua.ErrStateNotInitialized
 	}
 
 	// Clear state from previous execution (for pooled processes)
@@ -275,7 +276,7 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 		if p.state != nil {
 			p.state.Close()
 		}
-		return luaapi.NewStoreResourcesError(err)
+		return runtimelua.NewStoreResourcesError(err)
 	}
 
 	// Initialize channel and subscription state
@@ -334,7 +335,7 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 			fn, err = p.state.Load(strings.NewReader(p.script), p.scriptName)
 			if err != nil {
 				p.state.Close()
-				return luaapi.NewLoadScriptError(err)
+				return runtimelua.NewLoadScriptError(err)
 			}
 		} else {
 			p.state.Close()
@@ -368,7 +369,7 @@ func (p *Process) extractMethod(method string) error {
 		var err error
 		scriptFn, err = p.state.Load(strings.NewReader(p.script), p.scriptName)
 		if err != nil {
-			return luaapi.NewLoadScriptError(err)
+			return runtimelua.NewLoadScriptError(err)
 		}
 	} else {
 		return luaapi.ErrNoScriptOrProto
@@ -380,7 +381,7 @@ func (p *Process) extractMethod(method string) error {
 		NRet:    1,
 		Protect: true,
 	}); err != nil {
-		return luaapi.NewExecuteScriptError(err)
+		return runtimelua.NewExecuteScriptError(err)
 	}
 
 	// Get return value
@@ -1095,7 +1096,7 @@ func (p *Process) Close() {
 // The Lua state must be initialized via Start first.
 func (p *Process) SyncExecute(ctx context.Context, args ...lua.LValue) (lua.LValue, error) {
 	if p.state == nil {
-		return lua.LNil, luaapi.ErrProcessNotInitialized
+		return lua.LNil, runtimelua.ErrProcessNotInitialized
 	}
 
 	p.state.SetContext(ctx)
@@ -1305,10 +1306,5 @@ func toAPIError(err error) error {
 		kind = apierror.KindInternal
 	}
 
-	return &luaapi.Error{
-		Msg:         luaErr.Error(),
-		ErrKind:     kind,
-		IsRetryable: retryable,
-		ErrCause:    luaErr,
-	}
+	return apierror.New(kind, luaErr.Error()).WithRetryable(retryable).WithCause(luaErr)
 }

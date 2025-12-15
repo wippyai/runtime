@@ -253,7 +253,6 @@ func TestErrorInterface(t *testing.T) {
 		assert.Equal(t, apierror.KindInvalid, err.Kind())
 		assert.Equal(t, apierror.False, err.Retryable())
 		assert.Nil(t, err.Details())
-		assert.Nil(t, err.Unwrap())
 	})
 }
 
@@ -306,32 +305,10 @@ func TestErrorConstructors(t *testing.T) {
 		assert.Equal(t, apierror.KindNotFound, err.Kind())
 	})
 
-	t.Run("NewTranscodeError", func(t *testing.T) {
-		cause := errors.New("test error")
-		err := NewTranscodeError("json", "golang", cause)
-		assert.Contains(t, err.Error(), "transcoding")
-		assert.Equal(t, apierror.KindInternal, err.Kind())
-		assert.Equal(t, cause, err.Unwrap())
-	})
-
 	t.Run("NewNoUnmarshalPathError", func(t *testing.T) {
 		err := NewNoUnmarshalPathError(JSON)
 		assert.Contains(t, err.Error(), "unmarshaling path")
 		assert.Equal(t, apierror.KindNotFound, err.Kind())
-	})
-
-	t.Run("NewUnmarshalTranscodeError", func(t *testing.T) {
-		cause := errors.New("test error")
-		err := NewUnmarshalTranscodeError(cause)
-		assert.Contains(t, err.Error(), "transcoding payload")
-		assert.Equal(t, apierror.KindInternal, err.Kind())
-		assert.Equal(t, cause, err.Unwrap())
-	})
-
-	t.Run("NewUnmarshalerNotFoundError", func(t *testing.T) {
-		err := NewUnmarshalerNotFoundError("json")
-		assert.Contains(t, err.Error(), "unmarshaler not found")
-		assert.Equal(t, apierror.KindInternal, err.Kind())
 	})
 
 	t.Run("NewInvalidFormatError", func(t *testing.T) {
@@ -349,21 +326,12 @@ func TestErrorConstructors(t *testing.T) {
 		assert.Equal(t, apierror.KindInvalid, err.Kind())
 	})
 
-	t.Run("NewMarshalError", func(t *testing.T) {
-		cause := errors.New("marshal failed")
-		err := NewMarshalError("json", cause)
-		assert.Contains(t, err.Error(), "marshal")
-		assert.Contains(t, err.Error(), "json")
-		assert.Equal(t, apierror.KindInternal, err.Kind())
-		assert.Equal(t, cause, err.Unwrap())
-	})
-
 	t.Run("NewUnmarshalError", func(t *testing.T) {
 		cause := errors.New("unmarshal failed")
 		err := NewUnmarshalError("json", cause)
 		assert.Contains(t, err.Error(), "unmarshal")
 		assert.Contains(t, err.Error(), "json")
 		assert.Equal(t, apierror.KindInvalid, err.Kind())
-		assert.Equal(t, cause, err.Unwrap())
+		assert.True(t, errors.Is(err, cause))
 	})
 }

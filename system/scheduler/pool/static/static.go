@@ -1,4 +1,4 @@
-package pool
+package static
 
 import (
 	"context"
@@ -10,31 +10,34 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/system/scheduler/pool"
 )
 
-// request holds a pending function call.
-type request struct {
-	ctx      context.Context
-	method   string
-	input    payload.Payloads
-	resultCh chan *runtime.Result
+// Config contains static pool configuration.
+type Config struct {
+	// Workers is the number of worker goroutines/processes.
+	Workers int
+
+	// QueueSize is the capacity of the work queue.
+	// Calls block when queue is full.
+	QueueSize int
 }
 
-// staticWorker owns one process and pulls from shared queue.
-type staticWorker struct {
-	pool     *Static
+// worker owns one process and pulls from shared queue.
+type worker struct {
+	pool     *Pool
 	process  process.Process
-	executor *Executor
+	executor *pool.Executor
 }
 
-// Static is a fixed-size pool with pre-allocated workers.
+// Pool is a fixed-size pool with pre-allocated workers.
 // Each worker owns one process and pulls from a shared channel queue.
-type Static struct {
-	workers    []*staticWorker
-	tasks      chan *request
+type Pool struct {
+	workers    []*worker
+	tasks      chan *pool.Request
 	dispatcher dispatcher.Dispatcher
 	factory    process.FactoryFunc
-	hooks      ExecutionHooks
+	hooks      pool.ExecutionHooks
 	done       chan struct{}
 	wg         sync.WaitGroup
 	closed     atomic.Bool
@@ -43,8 +46,8 @@ type Static struct {
 	active sync.Map
 }
 
-// NewStatic creates a static pool with the given configuration.
-func NewStatic(factory process.FactoryFunc, d dispatcher.Dispatcher, cfg Config, hooks ...ExecutionHooks) (*Static, error) {
+// New creates a static pool with the given configuration.
+func New(factory process.FactoryFunc, d dispatcher.Dispatcher, cfg Config, hooks ...pool.ExecutionHooks) (*Pool, error) {
 	if cfg.Workers <= 0 {
 		cfg.Workers = 4
 	}
@@ -52,14 +55,14 @@ func NewStatic(factory process.FactoryFunc, d dispatcher.Dispatcher, cfg Config,
 		cfg.QueueSize = cfg.Workers * 256
 	}
 
-	var hooksCfg ExecutionHooks
+	var hooksCfg pool.ExecutionHooks
 	if len(hooks) > 0 {
 		hooksCfg = hooks[0]
 	}
 
-	s := &Static{
-		workers:    make([]*staticWorker, cfg.Workers),
-		tasks:      make(chan *request, cfg.QueueSize),
+	s := &Pool{
+		workers:    make([]*worker, cfg.Workers),
+		tasks:      make(chan *pool.Request, cfg.QueueSize),
 		dispatcher: d,
 		factory:    factory,
 		hooks:      hooksCfg,
@@ -67,7 +70,7 @@ func NewStatic(factory process.FactoryFunc, d dispatcher.Dispatcher, cfg Config,
 	}
 
 	s.reqPool.New = func() any {
-		return &request{resultCh: make(chan *runtime.Result, 1)}
+		return &pool.Request{ResultCh: make(chan *runtime.Result, 1)}
 	}
 
 	for i := 0; i < cfg.Workers; i++ {
@@ -79,10 +82,10 @@ func NewStatic(factory process.FactoryFunc, d dispatcher.Dispatcher, cfg Config,
 			return nil, err
 		}
 
-		s.workers[i] = &staticWorker{
+		s.workers[i] = &worker{
 			pool:     s,
 			process:  proc,
-			executor: NewExecutor(d).WithExecutionHooks(hooksCfg),
+			executor: pool.NewExecutor(d).WithExecutionHooks(hooksCfg),
 		}
 	}
 
@@ -90,7 +93,7 @@ func NewStatic(factory process.FactoryFunc, d dispatcher.Dispatcher, cfg Config,
 }
 
 // Start launches all worker goroutines.
-func (s *Static) Start() {
+func (s *Pool) Start() {
 	for _, w := range s.workers {
 		s.wg.Add(1)
 		go w.run()
@@ -98,7 +101,7 @@ func (s *Static) Start() {
 }
 
 // Stop signals workers to stop and waits for completion.
-func (s *Static) Stop() {
+func (s *Pool) Stop() {
 	if s.closed.Swap(true) {
 		return
 	}
@@ -110,24 +113,24 @@ func (s *Static) Stop() {
 }
 
 // Send implements relay.Receiver for message routing.
-func (s *Static) Send(pkg *relay.Package) error {
+func (s *Pool) Send(pkg *relay.Package) error {
 	v, ok := s.active.Load(pkg.Target.UniqID)
 	if !ok {
 		return process.ErrProcessNotFound
 	}
-	return v.(*Executor).Send(pkg)
+	return v.(*pool.Executor).Send(pkg)
 }
 
 // Call executes a function call using an available worker.
-func (s *Static) Call(ctx context.Context, method string, input payload.Payloads) (*runtime.Result, error) {
+func (s *Pool) Call(ctx context.Context, method string, input payload.Payloads) (*runtime.Result, error) {
 	if s.closed.Load() {
-		return nil, ErrPoolClosed
+		return nil, pool.ErrPoolClosed
 	}
 
-	req := s.reqPool.Get().(*request)
-	req.ctx = ctx
-	req.method = method
-	req.input = input
+	req := s.reqPool.Get().(*pool.Request)
+	req.Ctx = ctx
+	req.Method = method
+	req.Input = input
 
 	select {
 	case s.tasks <- req:
@@ -139,16 +142,16 @@ func (s *Static) Call(ctx context.Context, method string, input payload.Payloads
 			return nil, ctx.Err()
 		case <-s.done:
 			s.reqPool.Put(req)
-			return nil, ErrPoolClosed
+			return nil, pool.ErrPoolClosed
 		}
 	}
 
-	result := <-req.resultCh
+	result := <-req.ResultCh
 	s.reqPool.Put(req)
 	return result, nil
 }
 
-func (w *staticWorker) run() {
+func (w *worker) run() {
 	defer w.pool.wg.Done()
 
 	for {
@@ -162,7 +165,7 @@ func (w *staticWorker) run() {
 	}
 }
 
-func (w *staticWorker) drain() {
+func (w *worker) drain() {
 	for {
 		select {
 		case req := <-w.pool.tasks:
@@ -173,12 +176,13 @@ func (w *staticWorker) drain() {
 	}
 }
 
-func (w *staticWorker) execute(req *request) {
-	pid, _ := runtime.GetFramePID(req.ctx)
+func (w *worker) execute(req *pool.Request) {
+	pid, _ := runtime.GetFramePID(req.Ctx)
 	w.pool.active.Store(pid.UniqID, w.executor)
 
-	result := w.executor.Run(req.ctx, w.process, req.method, req.input)
+	result := w.executor.Run(req.Ctx, w.process, req.Method, req.Input)
 
 	w.pool.active.Delete(pid.UniqID)
-	req.resultCh <- result
+	w.executor.Reset()
+	req.ResultCh <- result
 }

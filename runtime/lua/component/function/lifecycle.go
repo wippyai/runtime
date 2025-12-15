@@ -7,6 +7,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	api "github.com/wippyai/runtime/api/runtime/lua"
+	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/component"
 	"go.uber.org/zap"
@@ -38,7 +39,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
 	case api.KindFunction, api.KindFunctionBytecode:
 		if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
-			return api.NewDeleteNodeError("function", err)
+			return runtimelua.NewDeleteNodeError("function", err)
 		}
 		m.removePool(entry.ID)
 		m.deleteConfig(entry.ID)
@@ -101,7 +102,7 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Resu
 func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 	cfg, err := component.UnpackConfig[api.FunctionConfig](ctx, entry)
 	if err != nil {
-		return api.NewUnpackConfigError("function", err)
+		return runtimelua.NewUnpackConfigError("function", err)
 	}
 
 	node := code.Node{
@@ -112,7 +113,7 @@ func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 	}
 	imports := component.BuildImports(cfg.Imports, cfg.Modules)
 	if err := m.code.AddNode(ctx, node, imports); err != nil {
-		return api.NewAddNodeError("function", err)
+		return runtimelua.NewAddNodeError("function", err)
 	}
 
 	configEntry := &configEntry{
@@ -125,7 +126,7 @@ func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 
 	if err := m.createPool(entry.ID, configEntry); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
-		return api.NewCreatePoolError(err)
+		return runtimelua.NewCreatePoolError(err)
 	}
 
 	m.storeConfig(entry.ID, configEntry)
@@ -148,12 +149,12 @@ func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
 	cfg, err := component.UnpackConfig[api.BytecodeFunctionConfig](ctx, entry)
 	if err != nil {
-		return api.NewUnpackConfigError("function", err)
+		return runtimelua.NewUnpackConfigError("function", err)
 	}
 
 	proto, err := component.LoadAndVerifyBytecode(m.fsRegistry, cfg.FS, cfg.Path, cfg.Hash)
 	if err != nil {
-		return api.NewLoadBytecodeError(err)
+		return runtimelua.NewLoadBytecodeError(err)
 	}
 
 	node := code.Node{
@@ -163,7 +164,7 @@ func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
 	}
 	imports := component.BuildImports(cfg.Imports, cfg.Modules)
 	if err := m.code.AddNodeWithProto(ctx, node, imports, proto); err != nil {
-		return api.NewAddNodeError("function", err)
+		return runtimelua.NewAddNodeError("function", err)
 	}
 
 	configEntry := &configEntry{
@@ -176,7 +177,7 @@ func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
 
 	if err := m.createPool(entry.ID, configEntry); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
-		return api.NewCreatePoolError(err)
+		return runtimelua.NewCreatePoolError(err)
 	}
 
 	m.storeConfig(entry.ID, configEntry)
@@ -200,7 +201,7 @@ func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
 func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error {
 	cfg, err := component.UnpackConfig[api.FunctionConfig](ctx, entry)
 	if err != nil {
-		return api.NewUnpackConfigError("function", err)
+		return runtimelua.NewUnpackConfigError("function", err)
 	}
 
 	node := code.Node{
@@ -211,7 +212,7 @@ func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error 
 	}
 	imports := component.BuildImports(cfg.Imports, cfg.Modules)
 	if err := m.code.UpdateNode(ctx, node, imports); err != nil {
-		return api.NewUpdateNodeError("function", err)
+		return runtimelua.NewUpdateNodeError("function", err)
 	}
 
 	configEntry := &configEntry{
@@ -223,7 +224,7 @@ func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error 
 	configEntry.options = opts
 
 	if err := m.replacePool(entry.ID, configEntry); err != nil {
-		return api.NewReplacePoolError(err)
+		return runtimelua.NewReplacePoolError(err)
 	}
 
 	m.storeConfig(entry.ID, configEntry)
@@ -240,12 +241,12 @@ func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error 
 func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) error {
 	cfg, err := component.UnpackConfig[api.BytecodeFunctionConfig](ctx, entry)
 	if err != nil {
-		return api.NewUnpackConfigError("function", err)
+		return runtimelua.NewUnpackConfigError("function", err)
 	}
 
 	proto, err := component.LoadAndVerifyBytecode(m.fsRegistry, cfg.FS, cfg.Path, cfg.Hash)
 	if err != nil {
-		return api.NewLoadBytecodeError(err)
+		return runtimelua.NewLoadBytecodeError(err)
 	}
 
 	node := code.Node{
@@ -255,7 +256,7 @@ func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) erro
 	}
 	imports := component.BuildImports(cfg.Imports, cfg.Modules)
 	if err := m.code.UpdateNodeWithProto(ctx, node, imports, proto); err != nil {
-		return api.NewUpdateNodeError("function", err)
+		return runtimelua.NewUpdateNodeError("function", err)
 	}
 
 	configEntry := &configEntry{
@@ -267,7 +268,7 @@ func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) erro
 	configEntry.options = opts
 
 	if err := m.replacePool(entry.ID, configEntry); err != nil {
-		return api.NewReplacePoolError(err)
+		return runtimelua.NewReplacePoolError(err)
 	}
 
 	m.storeConfig(entry.ID, configEntry)

@@ -8,8 +8,8 @@ import (
 )
 
 var (
-	topologyCtxKey = &ctxapi.Key{Name: "topology.topologyCtxKey"}
-	registryCtxKey = &ctxapi.Key{Name: "topology.registryCtxKey"}
+	topologyKey = &ctxapi.Key{Name: "topology.topology"}
+	registryKey = &ctxapi.Key{Name: "topology.registry"}
 )
 
 // WithRegistry attaches a Target registry to the provided context.
@@ -19,8 +19,8 @@ func WithRegistry(ctx context.Context, registry PIDRegistry) context.Context {
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(registryCtxKey) == nil {
-		ac.With(registryCtxKey, registry)
+	if ac.Get(registryKey) == nil {
+		ac.With(registryKey, registry)
 	}
 	return ctx
 }
@@ -32,7 +32,7 @@ func GetRegistry(ctx context.Context) PIDRegistry {
 	if ac == nil {
 		return nil
 	}
-	if val := ac.Get(registryCtxKey); val != nil {
+	if val := ac.Get(registryKey); val != nil {
 		if reg, ok := val.(PIDRegistry); ok {
 			return reg
 		}
@@ -47,8 +47,8 @@ func WithTopology(ctx context.Context, topology Topology) context.Context {
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(topologyCtxKey) == nil {
-		ac.With(topologyCtxKey, topology)
+	if ac.Get(topologyKey) == nil {
+		ac.With(topologyKey, topology)
 	}
 	return ctx
 }
@@ -60,7 +60,7 @@ func GetTopology(ctx context.Context) Topology {
 	if ac == nil {
 		return nil
 	}
-	if val := ac.Get(topologyCtxKey); val != nil {
+	if val := ac.Get(topologyKey); val != nil {
 		if top, ok := val.(Topology); ok {
 			return top
 		}

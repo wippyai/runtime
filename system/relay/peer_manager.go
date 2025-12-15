@@ -44,7 +44,7 @@ func (m *PeerManager) Start(ctx context.Context) error {
 		m.handleEvent,
 	)
 	if err != nil {
-		return api.NewSubscriberError(err)
+		return NewSubscriberError(err)
 	}
 	m.subscriber = sub
 

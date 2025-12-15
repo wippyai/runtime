@@ -15,7 +15,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
-	serviceaws "github.com/wippyai/runtime/api/service/aws/config"
+	awsconfigapi "github.com/wippyai/runtime/api/service/aws/config"
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
@@ -76,8 +76,8 @@ func (m *MockTranscoder) Unmarshal(p payload.Payload, v any) error {
 	}
 
 	// Use the actual data from the payload
-	if cfg, ok := v.(*serviceaws.Config); ok {
-		if payloadData, ok := p.Data().(*serviceaws.Config); ok {
+	if cfg, ok := v.(*awsconfigapi.Config); ok {
+		if payloadData, ok := p.Data().(*awsconfigapi.Config); ok {
 			// Copy the values from the payload
 			cfg.Region = payloadData.Region
 			cfg.AccessKeyIDEnv = payloadData.AccessKeyIDEnv
@@ -219,8 +219,8 @@ func TestManager_Add(t *testing.T) {
 	t.Run("successful config addition", func(t *testing.T) {
 		entry := registry.Entry{
 			ID:   testID,
-			Kind: serviceaws.Kind,
-			Data: NewMockPayload(&serviceaws.Config{
+			Kind: awsconfigapi.Kind,
+			Data: NewMockPayload(&awsconfigapi.Config{
 				Region:             "us-east-1",
 				AccessKeyIDEnv:     "AWS_ACCESS_KEY_ID",
 				SecretAccessKeyEnv: "AWS_SECRET_ACCESS_KEY",
@@ -253,7 +253,7 @@ func TestManager_Add(t *testing.T) {
 	t.Run("wrong entry kind", func(t *testing.T) {
 		entry := registry.Entry{
 			Kind: "invalid.kind",
-			Data: NewMockPayload(&serviceaws.Config{
+			Data: NewMockPayload(&awsconfigapi.Config{
 				Region: "us-east-1",
 			}),
 		}
@@ -268,7 +268,7 @@ func TestManager_Add(t *testing.T) {
 		manager.dtt = &MockTranscoder{unmarshalError: errors.New("unmarshal error")}
 
 		entry := registry.Entry{
-			Kind: serviceaws.Kind,
+			Kind: awsconfigapi.Kind,
 			Data: NewMockPayload("invalid json"),
 		}
 
@@ -283,8 +283,8 @@ func TestManager_Add(t *testing.T) {
 	t.Run("duplicate config", func(t *testing.T) {
 		entry := registry.Entry{
 			ID:   testID, // Same ID as in successful test
-			Kind: serviceaws.Kind,
-			Data: NewMockPayload(&serviceaws.Config{
+			Kind: awsconfigapi.Kind,
+			Data: NewMockPayload(&awsconfigapi.Config{
 				Region: "us-east-1",
 			}),
 		}
@@ -308,8 +308,8 @@ func TestManager_Update(t *testing.T) {
 	// First add a config
 	addEntry := registry.Entry{
 		ID:   testID,
-		Kind: serviceaws.Kind,
-		Data: NewMockPayload(&serviceaws.Config{
+		Kind: awsconfigapi.Kind,
+		Data: NewMockPayload(&awsconfigapi.Config{
 			Region:             "us-east-1",
 			AccessKeyIDEnv:     "AWS_ACCESS_KEY_ID",
 			SecretAccessKeyEnv: "AWS_SECRET_ACCESS_KEY",
@@ -326,8 +326,8 @@ func TestManager_Update(t *testing.T) {
 		// Create update entry with the same ID but different region
 		updateEntry := registry.Entry{
 			ID:   testID,
-			Kind: serviceaws.Kind,
-			Data: NewMockPayload(&serviceaws.Config{
+			Kind: awsconfigapi.Kind,
+			Data: NewMockPayload(&awsconfigapi.Config{
 				Region:             "us-west-2",
 				AccessKeyIDEnv:     "AWS_ACCESS_KEY_ID",
 				SecretAccessKeyEnv: "AWS_SECRET_ACCESS_KEY",
@@ -374,8 +374,8 @@ func TestManager_Update(t *testing.T) {
 		nonExistentID := registry.NewID("test", "nonexistent")
 		entry := registry.Entry{
 			ID:   nonExistentID,
-			Kind: serviceaws.Kind,
-			Data: NewMockPayload(&serviceaws.Config{
+			Kind: awsconfigapi.Kind,
+			Data: NewMockPayload(&awsconfigapi.Config{
 				Region: "us-east-1",
 			}),
 		}
@@ -389,7 +389,7 @@ func TestManager_Update(t *testing.T) {
 		entry := registry.Entry{
 			ID:   testID,
 			Kind: "invalid.kind",
-			Data: NewMockPayload(&serviceaws.Config{}),
+			Data: NewMockPayload(&awsconfigapi.Config{}),
 		}
 
 		err := manager.Update(ctx, entry)
@@ -403,7 +403,7 @@ func TestManager_Update(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   testID,
-			Kind: serviceaws.Kind,
+			Kind: awsconfigapi.Kind,
 			Data: NewMockPayload("invalid json"),
 		}
 
@@ -429,8 +429,8 @@ func TestManager_Delete(t *testing.T) {
 	// First add a config
 	addEntry := registry.Entry{
 		ID:   testID,
-		Kind: serviceaws.Kind,
-		Data: NewMockPayload(&serviceaws.Config{
+		Kind: awsconfigapi.Kind,
+		Data: NewMockPayload(&awsconfigapi.Config{
 			Region:             "us-east-1",
 			AccessKeyIDEnv:     "AWS_ACCESS_KEY_ID",
 			SecretAccessKeyEnv: "AWS_SECRET_ACCESS_KEY",
@@ -475,7 +475,7 @@ func TestManager_Delete(t *testing.T) {
 		entry := registry.Entry{
 			ID:   testID,
 			Kind: "invalid.kind",
-			Data: NewMockPayload(&serviceaws.Config{}),
+			Data: NewMockPayload(&awsconfigapi.Config{}),
 		}
 
 		err := manager.Delete(ctx, entry)
@@ -492,8 +492,8 @@ func TestManager_Acquire(t *testing.T) {
 	// Add a config first
 	addEntry := registry.Entry{
 		ID:   testID,
-		Kind: serviceaws.Kind,
-		Data: NewMockPayload(&serviceaws.Config{
+		Kind: awsconfigapi.Kind,
+		Data: NewMockPayload(&awsconfigapi.Config{
 			Region:             "us-east-1",
 			AccessKeyIDEnv:     "AWS_ACCESS_KEY_ID",
 			SecretAccessKeyEnv: "AWS_SECRET_ACCESS_KEY",
@@ -546,8 +546,8 @@ func TestConfigResource(t *testing.T) {
 	// Add a config first
 	addEntry := registry.Entry{
 		ID:   testID,
-		Kind: serviceaws.Kind,
-		Data: NewMockPayload(&serviceaws.Config{
+		Kind: awsconfigapi.Kind,
+		Data: NewMockPayload(&awsconfigapi.Config{
 			Region:             "us-east-1",
 			AccessKeyIDEnv:     "AWS_ACCESS_KEY_ID",
 			SecretAccessKeyEnv: "AWS_SECRET_ACCESS_KEY",
@@ -593,7 +593,7 @@ func TestCreateAWSConfig(t *testing.T) {
 	manager, _, ctx := setupTestEnvironment(t)
 
 	t.Run("with credentials", func(t *testing.T) {
-		cfg := &serviceaws.Config{
+		cfg := &awsconfigapi.Config{
 			Region:             "us-east-1",
 			AccessKeyIDEnv:     "AWS_ACCESS_KEY_ID",
 			SecretAccessKeyEnv: "AWS_SECRET_ACCESS_KEY",
@@ -611,7 +611,7 @@ func TestCreateAWSConfig(t *testing.T) {
 	})
 
 	t.Run("without credentials", func(t *testing.T) {
-		cfg := &serviceaws.Config{
+		cfg := &awsconfigapi.Config{
 			Region: "us-west-2",
 			// No credential env vars specified
 		}

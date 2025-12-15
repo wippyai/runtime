@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -96,9 +97,9 @@ func TestManager_Add_InvalidKind(t *testing.T) {
 	err := m.Add(context.Background(), entry)
 	require.Error(t, err)
 
-	var apiErr *Error
+	var apiErr apierror.Error
 	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, "invalid entry kind", apiErr.message)
+	assert.Equal(t, "invalid entry kind", apiErr.Error())
 }
 
 func TestManager_Update(t *testing.T) {
@@ -145,9 +146,9 @@ func TestManager_Update_NotFound(t *testing.T) {
 	err := m.Update(context.Background(), entry)
 	require.Error(t, err)
 
-	var apiErr *Error
+	var apiErr apierror.Error
 	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, "service not found", apiErr.message)
+	assert.Equal(t, "service not found", apiErr.Error())
 }
 
 func TestManager_Delete(t *testing.T) {

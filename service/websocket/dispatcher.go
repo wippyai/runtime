@@ -9,7 +9,6 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
-	wssvc "github.com/wippyai/runtime/api/service/websocket"
 	wsapi "github.com/wippyai/runtime/api/websocket"
 
 	"github.com/coder/websocket"
@@ -158,7 +157,7 @@ func (d *Dispatcher) executeConnect(ctx context.Context, cmd wsapi.WsConnectCmd,
 		}
 	}
 	if err != nil {
-		receiver.CompleteYield(tag, nil, wssvc.NewDialError(cmd.URL, err))
+		receiver.CompleteYield(tag, nil, NewDialError(cmd.URL, err))
 		return
 	}
 
@@ -176,7 +175,7 @@ func (d *Dispatcher) executeConnect(ctx context.Context, cmd wsapi.WsConnectCmd,
 func (d *Dispatcher) executeSend(ctx context.Context, cmd wsapi.WsSendCmd, tag uint64, receiver dispatcher.ResultReceiver) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
-		receiver.CompleteYield(tag, nil, wssvc.NewNoRegistryError())
+		receiver.CompleteYield(tag, nil, NewNoRegistryError())
 		return
 	}
 
@@ -192,7 +191,7 @@ func (d *Dispatcher) executeSend(ctx context.Context, cmd wsapi.WsSendCmd, tag u
 	}
 
 	if err := entry.conn.Write(ctx, msgType, cmd.Data); err != nil {
-		receiver.CompleteYield(tag, nil, wssvc.NewSendError(cmd.ConnID, err))
+		receiver.CompleteYield(tag, nil, NewSendError(cmd.ConnID, err))
 		return
 	}
 	receiver.CompleteYield(tag, nil, nil)
@@ -201,7 +200,7 @@ func (d *Dispatcher) executeSend(ctx context.Context, cmd wsapi.WsSendCmd, tag u
 func (d *Dispatcher) executeReceive(ctx context.Context, cmd wsapi.WsReceiveCmd, tag uint64, receiver dispatcher.ResultReceiver) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
-		receiver.CompleteYield(tag, nil, wssvc.NewNoRegistryError())
+		receiver.CompleteYield(tag, nil, NewNoRegistryError())
 		return
 	}
 
@@ -219,14 +218,14 @@ func (d *Dispatcher) executeReceive(ctx context.Context, cmd wsapi.WsReceiveCmd,
 		}
 		receiver.CompleteYield(tag, msg, nil)
 	case <-ctx.Done():
-		receiver.CompleteYield(tag, nil, wssvc.NewReceiveError(cmd.ConnID, ctx.Err()))
+		receiver.CompleteYield(tag, nil, NewReceiveError(cmd.ConnID, ctx.Err()))
 	}
 }
 
 func (d *Dispatcher) executeClose(ctx context.Context, cmd wsapi.WsCloseCmd, tag uint64, receiver dispatcher.ResultReceiver) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
-		receiver.CompleteYield(tag, nil, wssvc.NewNoRegistryError())
+		receiver.CompleteYield(tag, nil, NewNoRegistryError())
 		return
 	}
 
@@ -240,7 +239,7 @@ func (d *Dispatcher) executeClose(ctx context.Context, cmd wsapi.WsCloseCmd, tag
 func (d *Dispatcher) executePing(ctx context.Context, cmd wsapi.WsPingCmd, tag uint64, receiver dispatcher.ResultReceiver) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
-		receiver.CompleteYield(tag, nil, wssvc.NewNoRegistryError())
+		receiver.CompleteYield(tag, nil, NewNoRegistryError())
 		return
 	}
 
@@ -251,7 +250,7 @@ func (d *Dispatcher) executePing(ctx context.Context, cmd wsapi.WsPingCmd, tag u
 	}
 
 	if err := entry.conn.Ping(ctx); err != nil {
-		receiver.CompleteYield(tag, nil, wssvc.NewPingError(cmd.ConnID, err))
+		receiver.CompleteYield(tag, nil, NewPingError(cmd.ConnID, err))
 		return
 	}
 	receiver.CompleteYield(tag, nil, nil)
@@ -260,7 +259,7 @@ func (d *Dispatcher) executePing(ctx context.Context, cmd wsapi.WsPingCmd, tag u
 func (d *Dispatcher) executeSubscribe(ctx context.Context, cmd wsapi.WsSubscribeCmd, tag uint64, receiver dispatcher.ResultReceiver) {
 	registry := GetRegistry(ctx)
 	if registry == nil {
-		receiver.CompleteYield(tag, nil, wssvc.NewNoRegistryError())
+		receiver.CompleteYield(tag, nil, NewNoRegistryError())
 		return
 	}
 
@@ -272,7 +271,7 @@ func (d *Dispatcher) executeSubscribe(ctx context.Context, cmd wsapi.WsSubscribe
 
 	node := relay.GetNode(ctx)
 	if node == nil {
-		receiver.CompleteYield(tag, nil, wssvc.NewNoRelayNodeError())
+		receiver.CompleteYield(tag, nil, NewNoRelayNodeError())
 		return
 	}
 

@@ -7,38 +7,10 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
-func TestErrorMethods(t *testing.T) {
-	err := &Error{
-		ErrKind:     apierror.KindNotFound,
-		Msg:         "test message",
-		IsRetryable: apierror.True,
-	}
-
-	if err.Error() != "test message" {
-		t.Errorf("Error() = %q, want %q", err.Error(), "test message")
-	}
-
-	if err.Kind() != apierror.KindNotFound {
-		t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindNotFound)
-	}
-
-	if err.Retryable() != apierror.True {
-		t.Errorf("Retryable() = %v, want %v", err.Retryable(), apierror.True)
-	}
-
-	if err.Details() != nil {
-		t.Errorf("Details() = %v, want nil", err.Details())
-	}
-
-	if err.Unwrap() != nil {
-		t.Errorf("Unwrap() = %v, want nil", err.Unwrap())
-	}
-}
-
 func TestSentinelErrors(t *testing.T) {
 	tests := []struct {
 		name    string
-		err     *Error
+		err     apierror.Error
 		kind    apierror.Kind
 		message string
 	}{
@@ -109,29 +81,6 @@ func TestComponentErrorFactories(t *testing.T) {
 		}
 	})
 
-	t.Run("NewUnpackConfigError", func(t *testing.T) {
-		cause := errors.New("json parse error")
-		err := NewUnpackConfigError("function", cause)
-		if err.Kind() != apierror.KindInvalid {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInvalid)
-		}
-		expected := "failed to unpack function config: json parse error"
-		if err.Error() != expected {
-			t.Errorf("Error() = %q, want %q", err.Error(), expected)
-		}
-		if !errors.Is(err, cause) {
-			t.Error("error should wrap cause")
-		}
-	})
-
-	t.Run("NewUnmarshalConfigError", func(t *testing.T) {
-		cause := errors.New("invalid json")
-		err := NewUnmarshalConfigError(cause)
-		if err.Kind() != apierror.KindInvalid {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInvalid)
-		}
-	})
-
 	t.Run("NewValidationError", func(t *testing.T) {
 		cause := errors.New("missing required field")
 		err := NewValidationError(cause)
@@ -141,74 +90,6 @@ func TestComponentErrorFactories(t *testing.T) {
 		expected := "invalid configuration: missing required field"
 		if err.Error() != expected {
 			t.Errorf("Error() = %q, want %q", err.Error(), expected)
-		}
-	})
-
-	t.Run("NewCompileError", func(t *testing.T) {
-		cause := errors.New("syntax error")
-		err := NewCompileError(cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
-		}
-	})
-
-	t.Run("NewAddNodeError", func(t *testing.T) {
-		cause := errors.New("duplicate key")
-		err := NewAddNodeError("function", cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
-		}
-		expected := "failed to add function node: duplicate key"
-		if err.Error() != expected {
-			t.Errorf("Error() = %q, want %q", err.Error(), expected)
-		}
-	})
-
-	t.Run("NewUpdateNodeError", func(t *testing.T) {
-		cause := errors.New("not found")
-		err := NewUpdateNodeError("process", cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
-		}
-	})
-
-	t.Run("NewDeleteNodeError", func(t *testing.T) {
-		cause := errors.New("in use")
-		err := NewDeleteNodeError("workflow", cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
-		}
-	})
-
-	t.Run("NewRegisterFactoryError", func(t *testing.T) {
-		cause := errors.New("duplicate registration")
-		err := NewRegisterFactoryError(cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
-		}
-	})
-
-	t.Run("NewUpdateFactoryError", func(t *testing.T) {
-		cause := errors.New("factory not found")
-		err := NewUpdateFactoryError(cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
-		}
-	})
-
-	t.Run("NewCreatePoolError", func(t *testing.T) {
-		cause := errors.New("resource exhausted")
-		err := NewCreatePoolError(cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
-		}
-	})
-
-	t.Run("NewReplacePoolError", func(t *testing.T) {
-		cause := errors.New("pool busy")
-		err := NewReplacePoolError(cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
 		}
 	})
 
@@ -236,22 +117,6 @@ func TestComponentErrorFactories(t *testing.T) {
 }
 
 func TestBytecodeErrorFactories(t *testing.T) {
-	t.Run("NewLoadBytecodeError", func(t *testing.T) {
-		cause := errors.New("file not found")
-		err := NewLoadBytecodeError(cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
-		}
-	})
-
-	t.Run("NewUndumpBytecodeError", func(t *testing.T) {
-		cause := errors.New("invalid bytecode")
-		err := NewUndumpBytecodeError(cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
-		}
-	})
-
 	t.Run("NewHashVerificationError", func(t *testing.T) {
 		cause := errors.New("hash mismatch")
 		err := NewHashVerificationError(cause)
@@ -277,7 +142,7 @@ func TestBytecodeErrorFactories(t *testing.T) {
 		if err.Kind() != apierror.KindNotFound {
 			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindNotFound)
 		}
-		expected := "failed to open file: /path/to/file.lua: permission denied"
+		expected := "failed to open file: /path/to/file.lua"
 		if err.Error() != expected {
 			t.Errorf("Error() = %q, want %q", err.Error(), expected)
 		}
@@ -311,13 +176,13 @@ func TestBytecodeErrorFactories(t *testing.T) {
 
 func TestErrorUnwrap(t *testing.T) {
 	root := errors.New("root cause")
-	err := NewCompileError(root)
+	err := NewHashVerificationError(root)
 
 	if !errors.Is(err, root) {
 		t.Error("errors.Is should find root cause")
 	}
 
-	if !errors.Is(err.Unwrap(), root) {
-		t.Errorf("Unwrap() = %v, want %v", err.Unwrap(), root)
+	if !errors.Is(errors.Unwrap(err), root) {
+		t.Errorf("Unwrap() = %v, want %v", errors.Unwrap(err), root)
 	}
 }

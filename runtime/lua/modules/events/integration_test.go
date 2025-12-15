@@ -20,13 +20,13 @@ import (
 	"github.com/wippyai/runtime/system/eventbus"
 	sysrelay "github.com/wippyai/runtime/system/relay"
 	"github.com/wippyai/runtime/system/scheduler"
-	pool "github.com/wippyai/runtime/system/scheduler/pool"
+	"github.com/wippyai/runtime/system/scheduler/pool/inline"
 	lua "github.com/yuin/gopher-lua"
 )
 
 // DebugPool wraps pool to log Send
 type DebugPool struct {
-	*pool.Inline
+	*inline.Pool
 	t *testing.T
 }
 
@@ -36,7 +36,7 @@ func (d *DebugPool) Send(pkg *relay.Package) error {
 		topic = pkg.Messages[0].Topic
 	}
 	d.t.Logf("Pool.Send: Target.UniqID=%s Topic=%s", pkg.Target.UniqID, topic)
-	err := d.Inline.Send(pkg)
+	err := d.Pool.Send(pkg)
 	d.t.Logf("Pool.Send result: err=%v", err)
 	return err
 }
@@ -152,7 +152,7 @@ return { main = main }
 	}
 
 	// Create inline pool
-	realPool, err := pool.NewInline(factory, reg)
+	realPool, err := inline.New(factory, reg)
 	require.NoError(t, err)
 	defer realPool.Stop()
 
@@ -255,7 +255,7 @@ return { main = main }
 	}
 
 	// Create inline pool
-	inlinePool, err := pool.NewInline(factory, reg)
+	inlinePool, err := inline.New(factory, reg)
 	require.NoError(t, err)
 	defer inlinePool.Stop()
 

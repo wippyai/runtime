@@ -10,6 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	embedapi "github.com/wippyai/runtime/api/service/fs/embed"
 	entryutil "github.com/wippyai/runtime/internal/entry"
+	systemfs "github.com/wippyai/runtime/system/fs"
 	"go.uber.org/zap"
 )
 
@@ -110,7 +111,7 @@ func (m *Manager) registerFS(ctx context.Context, id registry.ID) error {
 		m.log.Error("failed to get embedded filesystem",
 			zap.String("id", id.String()),
 			zap.Error(err))
-		return fsapi.NewGetEmbeddedFilesystemError(err)
+		return systemfs.NewGetEmbeddedFilesystemError(err)
 	}
 
 	// Wrap in read-only adapter

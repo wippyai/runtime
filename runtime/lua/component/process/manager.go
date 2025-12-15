@@ -10,6 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	api "github.com/wippyai/runtime/api/runtime/lua"
+	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/component"
 	"github.com/wippyai/runtime/runtime/lua/engine"
@@ -81,7 +82,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
 	case api.KindProcess, api.KindProcessBytecode:
 		if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
-			return api.NewDeleteNodeError("process", err)
+			return runtimelua.NewDeleteNodeError("process", err)
 		}
 		m.configs.Delete(entry.ID)
 		m.unregisterFactory(ctx, entry.ID)
@@ -121,7 +122,7 @@ func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) {
 func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 	cfg, err := component.UnpackConfig[api.ProcessConfig](ctx, entry)
 	if err != nil {
-		return api.NewUnpackConfigError("process", err)
+		return runtimelua.NewUnpackConfigError("process", err)
 	}
 
 	node := code.Node{
@@ -132,7 +133,7 @@ func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 	}
 
 	if err := m.code.AddNode(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules)); err != nil {
-		return api.NewAddNodeError("process", err)
+		return runtimelua.NewAddNodeError("process", err)
 	}
 
 	m.configs.Store(entry.ID, &configEntry{method: cfg.Method, source: cfg})
@@ -140,7 +141,7 @@ func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 	if err := m.registerFactory(ctx, entry.ID, cfg.Method); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
 		m.configs.Delete(entry.ID)
-		return api.NewRegisterFactoryError(err)
+		return runtimelua.NewRegisterFactoryError(err)
 	}
 
 	m.log.Debug("process added", zap.String("id", entry.ID.String()))
@@ -151,12 +152,12 @@ func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
 	cfg, err := component.UnpackConfig[api.BytecodeProcessConfig](ctx, entry)
 	if err != nil {
-		return api.NewUnpackConfigError("process", err)
+		return runtimelua.NewUnpackConfigError("process", err)
 	}
 
 	proto, err := component.LoadAndVerifyBytecode(m.fsRegistry, cfg.FS, cfg.Path, cfg.Hash)
 	if err != nil {
-		return api.NewLoadBytecodeError(err)
+		return runtimelua.NewLoadBytecodeError(err)
 	}
 
 	node := code.Node{
@@ -166,7 +167,7 @@ func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
 	}
 
 	if err := m.code.AddNodeWithProto(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules), proto); err != nil {
-		return api.NewAddNodeError("process", err)
+		return runtimelua.NewAddNodeError("process", err)
 	}
 
 	m.configs.Store(entry.ID, &configEntry{method: cfg.Method, bytecode: cfg})
@@ -174,7 +175,7 @@ func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
 	if err := m.registerFactory(ctx, entry.ID, cfg.Method); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
 		m.configs.Delete(entry.ID)
-		return api.NewRegisterFactoryError(err)
+		return runtimelua.NewRegisterFactoryError(err)
 	}
 
 	m.log.Debug("bytecode process added",
@@ -189,7 +190,7 @@ func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
 func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error {
 	cfg, err := component.UnpackConfig[api.ProcessConfig](ctx, entry)
 	if err != nil {
-		return api.NewUnpackConfigError("process", err)
+		return runtimelua.NewUnpackConfigError("process", err)
 	}
 
 	node := code.Node{
@@ -200,13 +201,13 @@ func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error 
 	}
 
 	if err := m.code.UpdateNode(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules)); err != nil {
-		return api.NewUpdateNodeError("process", err)
+		return runtimelua.NewUpdateNodeError("process", err)
 	}
 
 	m.configs.Store(entry.ID, &configEntry{method: cfg.Method, source: cfg})
 
 	if err := m.registerFactory(ctx, entry.ID, cfg.Method); err != nil {
-		return api.NewUpdateFactoryError(err)
+		return runtimelua.NewUpdateFactoryError(err)
 	}
 
 	m.log.Debug("process updated", zap.String("id", entry.ID.String()))
@@ -217,12 +218,12 @@ func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error 
 func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) error {
 	cfg, err := component.UnpackConfig[api.BytecodeProcessConfig](ctx, entry)
 	if err != nil {
-		return api.NewUnpackConfigError("process", err)
+		return runtimelua.NewUnpackConfigError("process", err)
 	}
 
 	proto, err := component.LoadAndVerifyBytecode(m.fsRegistry, cfg.FS, cfg.Path, cfg.Hash)
 	if err != nil {
-		return api.NewLoadBytecodeError(err)
+		return runtimelua.NewLoadBytecodeError(err)
 	}
 
 	node := code.Node{
@@ -232,13 +233,13 @@ func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) erro
 	}
 
 	if err := m.code.UpdateNodeWithProto(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules), proto); err != nil {
-		return api.NewUpdateNodeError("process", err)
+		return runtimelua.NewUpdateNodeError("process", err)
 	}
 
 	m.configs.Store(entry.ID, &configEntry{method: cfg.Method, bytecode: cfg})
 
 	if err := m.registerFactory(ctx, entry.ID, cfg.Method); err != nil {
-		return api.NewUpdateFactoryError(err)
+		return runtimelua.NewUpdateFactoryError(err)
 	}
 
 	m.log.Debug("bytecode process updated", zap.String("id", entry.ID.String()))
@@ -250,7 +251,7 @@ func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method st
 	// Create factory using ProcessFactory
 	factoryFn, err := m.factory.CreateFactory(id, engine.WithModule(processmod.Module))
 	if err != nil {
-		return api.NewCompileError(err)
+		return runtimelua.NewCompileError(err)
 	}
 
 	if method == "" {
@@ -262,7 +263,7 @@ func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method st
 	// Subscribe BEFORE sending to avoid race condition
 	waiter, err := m.awaiter.Prepare(ctx, path)
 	if err != nil {
-		return api.NewRegisterFactoryError(err)
+		return runtimelua.NewRegisterFactoryError(err)
 	}
 
 	m.bus.Send(ctx, event.Event{
@@ -279,7 +280,7 @@ func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method st
 
 	result := waiter.Wait()
 	if !result.Accepted {
-		return api.NewRegisterFactoryError(result.Error)
+		return runtimelua.NewRegisterFactoryError(result.Error)
 	}
 
 	return nil

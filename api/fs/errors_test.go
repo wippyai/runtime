@@ -25,15 +25,6 @@ func TestSentinelErrors(t *testing.T) {
 func TestErrorInterface(t *testing.T) {
 	cause := errors.New("test cause")
 
-	t.Run("NewSubscriberError", func(t *testing.T) {
-		err := NewSubscriberError(cause)
-		assert.Contains(t, err.Error(), "failed to create subscriber")
-		assert.Equal(t, "Internal", err.Kind().String())
-		assert.True(t, err.Retryable().Bool())
-		assert.Equal(t, cause, err.Unwrap())
-		require.NotNil(t, err.Details())
-	})
-
 	t.Run("NewUnsupportedEntryKindError", func(t *testing.T) {
 		err := NewUnsupportedEntryKindError("unknown")
 		assert.Contains(t, err.Error(), "unsupported entry kind")
@@ -48,7 +39,7 @@ func TestErrorInterface(t *testing.T) {
 		err := NewDecodeConfigError(cause)
 		assert.Equal(t, "failed to decode config", err.Error())
 		assert.Equal(t, "Invalid", err.Kind().String())
-		assert.Equal(t, cause, err.Unwrap())
+		assert.Equal(t, cause, errors.Unwrap(err))
 	})
 
 	t.Run("NewFilesystemAlreadyExistsError", func(t *testing.T) {
@@ -68,38 +59,13 @@ func TestErrorInterface(t *testing.T) {
 	t.Run("NewFilesystemNotFoundWithCauseError", func(t *testing.T) {
 		err := NewFilesystemNotFoundWithCauseError("test-fs", cause)
 		assert.Contains(t, err.Error(), "filesystem not found")
-		assert.Equal(t, cause, err.Unwrap())
-	})
-
-	t.Run("NewGetFilesystemError", func(t *testing.T) {
-		err := NewGetFilesystemError(cause)
-		assert.Equal(t, "failed to get filesystem", err.Error())
-		assert.Equal(t, "Internal", err.Kind().String())
-		assert.Equal(t, "Unknown", err.Retryable().String())
-	})
-
-	t.Run("NewCreateFilesystemError", func(t *testing.T) {
-		err := NewCreateFilesystemError(cause)
-		assert.Equal(t, "failed to create filesystem", err.Error())
-		assert.Equal(t, cause, err.Unwrap())
+		assert.Equal(t, cause, errors.Unwrap(err))
 	})
 
 	t.Run("NewInvalidPathError", func(t *testing.T) {
 		err := NewInvalidPathError(cause)
 		assert.Equal(t, "invalid path", err.Error())
 		assert.Equal(t, "Invalid", err.Kind().String())
-	})
-
-	t.Run("NewCreateDirectoryError", func(t *testing.T) {
-		err := NewCreateDirectoryError(cause)
-		assert.Equal(t, "failed to create directory", err.Error())
-		assert.Equal(t, cause, err.Unwrap())
-	})
-
-	t.Run("NewOpenDirectoryError", func(t *testing.T) {
-		err := NewOpenDirectoryError(cause)
-		assert.Equal(t, "failed to open directory", err.Error())
-		assert.Equal(t, cause, err.Unwrap())
 	})
 
 	t.Run("NewUnsupportedOperationError", func(t *testing.T) {
@@ -124,24 +90,6 @@ func TestErrorInterface(t *testing.T) {
 		assert.Equal(t, "Invalid", err.Kind().String())
 	})
 
-	t.Run("NewStatError", func(t *testing.T) {
-		err := NewStatError(cause)
-		assert.Equal(t, "stat failed", err.Error())
-		assert.Equal(t, cause, err.Unwrap())
-	})
-
-	t.Run("NewOpenError", func(t *testing.T) {
-		err := NewOpenError(cause)
-		assert.Equal(t, "open failed", err.Error())
-		assert.Equal(t, cause, err.Unwrap())
-	})
-
-	t.Run("NewGetEmbeddedFilesystemError", func(t *testing.T) {
-		err := NewGetEmbeddedFilesystemError(cause)
-		assert.Equal(t, "failed to get embedded filesystem", err.Error())
-		assert.Equal(t, cause, err.Unwrap())
-	})
-
 	t.Run("NewEmptyPackPathError", func(t *testing.T) {
 		err := NewEmptyPackPathError()
 		assert.Equal(t, "packPath cannot be empty", err.Error())
@@ -158,7 +106,7 @@ func TestErrorInterface(t *testing.T) {
 		err := NewPermissionDeniedError(0o644, 0o755, cause)
 		assert.Equal(t, "permission denied", err.Error())
 		assert.Equal(t, "PermissionDenied", err.Kind().String())
-		assert.Equal(t, cause, err.Unwrap())
+		assert.Equal(t, cause, errors.Unwrap(err))
 		details := err.Details()
 		require.NotNil(t, details)
 	})

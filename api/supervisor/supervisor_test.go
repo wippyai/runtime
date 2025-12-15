@@ -7,7 +7,6 @@ import (
 	"errors"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -129,7 +128,6 @@ func TestErrorInterface(t *testing.T) {
 		assert.Equal(t, KindTerminated, err.Kind())
 		assert.Equal(t, apierror.False, err.Retryable())
 		assert.Nil(t, err.Details())
-		assert.Nil(t, err.Unwrap())
 	})
 
 	t.Run("ErrExit", func(t *testing.T) {
@@ -155,15 +153,15 @@ func TestErrorInterface(t *testing.T) {
 }
 
 func TestErrorMethods(t *testing.T) {
-	t.Run("WithCause", func(t *testing.T) {
+	t.Run("SetCause", func(t *testing.T) {
 		cause := errors.New("underlying cause")
-		err := ErrTerminated.WithCause(cause)
+		err := apierror.SetCause(ErrTerminated, cause)
 		assert.Equal(t, "service terminated", err.Error())
-		assert.Equal(t, cause, err.Unwrap())
+		assert.True(t, errors.Is(err, cause))
 	})
 
-	t.Run("WithMessage", func(t *testing.T) {
-		err := ErrTerminated.WithMessage("custom message")
+	t.Run("SetMessage", func(t *testing.T) {
+		err := apierror.SetMessage(ErrTerminated, "custom message")
 		assert.Equal(t, "custom message", err.Error())
 		assert.Equal(t, KindTerminated, err.Kind())
 	})
@@ -177,7 +175,7 @@ func TestErrorConstructors(t *testing.T) {
 		assert.Contains(t, err.Error(), "invalid")
 		assert.Contains(t, err.Error(), "timeout")
 		assert.Equal(t, apierror.KindInvalid, err.Kind())
-		assert.Equal(t, cause, err.Unwrap())
+		assert.True(t, errors.Is(err, cause))
 		val, ok := err.Details().Get("field")
 		assert.True(t, ok)
 		assert.Equal(t, "timeout", val)
@@ -190,113 +188,6 @@ func TestErrorConstructors(t *testing.T) {
 		val, ok := err.Details().Get("service_id")
 		assert.True(t, ok)
 		assert.Equal(t, "my-service", val)
-	})
-
-	t.Run("NewSubscriberError", func(t *testing.T) {
-		err := NewSubscriberError(cause)
-		assert.Contains(t, err.Error(), "failed to create event subscriber")
-		assert.Equal(t, apierror.KindInternal, err.Kind())
-		assert.Equal(t, apierror.True, err.Retryable())
-		assert.Equal(t, cause, err.Unwrap())
-	})
-
-	t.Run("NewDependencyResolveError", func(t *testing.T) {
-		err := NewDependencyResolveError("my-service", cause)
-		assert.Contains(t, err.Error(), "my-service")
-		assert.Equal(t, apierror.KindInternal, err.Kind())
-		assert.Equal(t, cause, err.Unwrap())
-	})
-
-	t.Run("NewStartOperationsError", func(t *testing.T) {
-		err := NewStartOperationsError(cause)
-		assert.Contains(t, err.Error(), "start operations")
-		assert.Equal(t, apierror.KindInternal, err.Kind())
-	})
-
-	t.Run("NewTransitionError", func(t *testing.T) {
-		err := NewTransitionError(cause)
-		assert.Contains(t, err.Error(), "transitions")
-		assert.Equal(t, apierror.KindInternal, err.Kind())
-	})
-
-	t.Run("NewStopError", func(t *testing.T) {
-		err := NewStopError(cause)
-		assert.Contains(t, err.Error(), "stop service")
-		assert.Equal(t, apierror.KindInternal, err.Kind())
-	})
-
-	t.Run("NewSupervisorStoppedError", func(t *testing.T) {
-		err := NewSupervisorStoppedError(cause)
-		assert.Contains(t, err.Error(), "supervisor is stopped")
-		assert.Equal(t, apierror.KindUnavailable, err.Kind())
-	})
-
-	t.Run("NewStopTimeoutError", func(t *testing.T) {
-		err := NewStopTimeoutError(5 * time.Second)
-		assert.Contains(t, err.Error(), "timed out")
-		assert.Contains(t, err.Error(), "5s")
-		assert.Equal(t, apierror.KindTimeout, err.Kind())
-	})
-
-	t.Run("NewServiceStartError", func(t *testing.T) {
-		err := NewServiceStartError("my-service", cause)
-		assert.Contains(t, err.Error(), "my-service")
-		assert.Equal(t, apierror.KindInternal, err.Kind())
-		assert.Equal(t, apierror.True, err.Retryable())
-	})
-
-	t.Run("NewServiceStopError", func(t *testing.T) {
-		err := NewServiceStopError("my-service", cause)
-		assert.Contains(t, err.Error(), "my-service")
-		assert.Equal(t, apierror.KindInternal, err.Kind())
-	})
-
-	t.Run("NewStartSequenceError", func(t *testing.T) {
-		err := NewStartSequenceError(cause)
-		assert.Contains(t, err.Error(), "start sequence")
-		assert.Equal(t, apierror.KindInternal, err.Kind())
-	})
-
-	t.Run("NewStopSequenceError", func(t *testing.T) {
-		err := NewStopSequenceError(cause)
-		assert.Contains(t, err.Error(), "stop sequence")
-		assert.Equal(t, apierror.KindInternal, err.Kind())
-	})
-
-	t.Run("NewDependencyLevelsError", func(t *testing.T) {
-		err := NewDependencyLevelsError("start", cause)
-		assert.Contains(t, err.Error(), "start")
-		assert.Contains(t, err.Error(), "dependency levels")
-		assert.Equal(t, apierror.KindInternal, err.Kind())
-	})
-
-	t.Run("NewMultiStartError", func(t *testing.T) {
-		err := NewMultiStartError(3, cause)
-		assert.Contains(t, err.Error(), "multiple services")
-		assert.Equal(t, apierror.KindInternal, err.Kind())
-		val, ok := err.Details().Get("failed_count")
-		assert.True(t, ok)
-		assert.Equal(t, 3, val)
-	})
-
-	t.Run("NewMultiStopError", func(t *testing.T) {
-		err := NewMultiStopError(2, cause)
-		assert.Contains(t, err.Error(), "multiple services")
-		assert.Equal(t, apierror.KindInternal, err.Kind())
-	})
-
-	t.Run("NewCommitRemoveError", func(t *testing.T) {
-		err := NewCommitRemoveError("my-service", cause)
-		assert.Contains(t, err.Error(), "remove")
-		assert.Contains(t, err.Error(), "my-service")
-		assert.Equal(t, apierror.KindInternal, err.Kind())
-	})
-
-	t.Run("NewCommitRegisterError", func(t *testing.T) {
-		err := NewCommitRegisterError("my-service", cause)
-		assert.Contains(t, err.Error(), "register")
-		assert.Contains(t, err.Error(), "my-service")
-		assert.Equal(t, apierror.KindInternal, err.Kind())
 	})
 }
 

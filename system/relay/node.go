@@ -77,7 +77,7 @@ func (n *Node) Send(pkg *api.Package) error {
 
 	receiver, ok := h.(api.Receiver)
 	if !ok {
-		return api.NewInvalidHostTypeError(pkg.Target.Host, n.nodeID)
+		return NewInvalidHostTypeError(pkg.Target.Host, n.nodeID)
 	}
 
 	return receiver.Send(pkg)

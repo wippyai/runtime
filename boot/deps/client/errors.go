@@ -5,182 +5,94 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
-type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
-}
-
-func (e *Error) Error() string               { return e.message }
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
-
 var (
-	ErrNoContentDownloaded = &Error{
-		kind:    apierror.KindInternal,
-		message: "no content downloaded",
-	}
-	ErrNoMatchingVersion = &Error{
-		kind:    apierror.KindNotFound,
-		message: "no matching version found",
-	}
+	ErrNoContentDownloaded = apierror.New(apierror.KindInternal, "no content downloaded").WithRetryable(apierror.False)
+	ErrNoMatchingVersion   = apierror.New(apierror.KindNotFound, "no matching version found").WithRetryable(apierror.False)
 )
 
-func NewListOrganizationsError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindUnavailable,
-		message: "list organizations",
-		cause:   cause,
-	}
+func NewListOrganizationsError(cause error) apierror.Error {
+	return apierror.New(apierror.KindUnavailable, "list organizations").WithCause(cause)
 }
 
-func NewOrganizationNotFoundError(orgName string) *Error {
-	return &Error{
-		kind:    apierror.KindNotFound,
-		message: "organization not found",
-		details: attrs.NewBagFrom(map[string]any{"organization": orgName}),
-	}
+func NewOrganizationNotFoundError(orgName string) apierror.Error {
+	return apierror.New(apierror.KindNotFound, "organization not found").
+		WithDetails(attrs.NewBagFrom(map[string]any{"organization": orgName}))
 }
 
-func NewListModulesError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindUnavailable,
-		message: "list modules",
-		cause:   cause,
-	}
+func NewListModulesError(cause error) apierror.Error {
+	return apierror.New(apierror.KindUnavailable, "list modules").WithCause(cause)
 }
 
-func NewModuleNotFoundError(moduleName string) *Error {
-	return &Error{
-		kind:    apierror.KindNotFound,
-		message: "module not found",
-		details: attrs.NewBagFrom(map[string]any{"module": moduleName}),
-	}
+func NewModuleNotFoundError(moduleName string) apierror.Error {
+	return apierror.New(apierror.KindNotFound, "module not found").
+		WithDetails(attrs.NewBagFrom(map[string]any{"module": moduleName}))
 }
 
-func NewListModuleLabelsError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindUnavailable,
-		message: "list module labels",
-		cause:   cause,
-	}
+func NewListModuleLabelsError(cause error) apierror.Error {
+	return apierror.New(apierror.KindUnavailable, "list module labels").WithCause(cause)
 }
 
-func NewNoLabelsFoundError(moduleID string) *Error {
-	return &Error{
-		kind:    apierror.KindNotFound,
-		message: "no labels found for module",
-		details: attrs.NewBagFrom(map[string]any{"module_id": moduleID}),
-	}
+func NewNoLabelsFoundError(moduleID string) apierror.Error {
+	return apierror.New(apierror.KindNotFound, "no labels found for module").
+		WithDetails(attrs.NewBagFrom(map[string]any{"module_id": moduleID}))
 }
 
-func NewDownloadCommitsError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindUnavailable,
-		message: "download commits",
-		cause:   cause,
-	}
+func NewDownloadCommitsError(cause error) apierror.Error {
+	return apierror.New(apierror.KindUnavailable, "download commits").WithCause(cause)
 }
 
-func NewGetOrganizationsError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindUnavailable,
-		message: "get organizations",
-		cause:   cause,
-	}
+func NewGetOrganizationsError(cause error) apierror.Error {
+	return apierror.New(apierror.KindUnavailable, "get organizations").WithCause(cause)
 }
 
-func NewGetModulesError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindUnavailable,
-		message: "get modules",
-		cause:   cause,
-	}
+func NewGetModulesError(cause error) apierror.Error {
+	return apierror.New(apierror.KindUnavailable, "get modules").WithCause(cause)
 }
 
-func NewGetLabelsError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindUnavailable,
-		message: "get labels",
-		cause:   cause,
-	}
+func NewGetLabelsError(cause error) apierror.Error {
+	return apierror.New(apierror.KindUnavailable, "get labels").WithCause(cause)
 }
 
-func NewParseConstraintError(constraint string, cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInvalid,
-		message: "parse constraint",
-		details: attrs.NewBagFrom(map[string]any{"constraint": constraint}),
-		cause:   cause,
-	}
+func NewParseConstraintError(constraint string, cause error) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "parse constraint").
+		WithDetails(attrs.NewBagFrom(map[string]any{"constraint": constraint})).
+		WithCause(cause)
 }
 
-func NewFetchManifestError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindUnavailable,
-		message: "fetch manifest",
-		cause:   cause,
-	}
+func NewFetchManifestError(cause error) apierror.Error {
+	return apierror.New(apierror.KindUnavailable, "fetch manifest").WithCause(cause)
 }
 
-func NewDownloadCommitError(commitID string, cause error) *Error {
-	return &Error{
-		kind:    apierror.KindUnavailable,
-		message: "download commit",
-		details: attrs.NewBagFrom(map[string]any{"commit_id": commitID}),
-		cause:   cause,
-	}
+func NewDownloadCommitError(commitID string, cause error) apierror.Error {
+	return apierror.New(apierror.KindUnavailable, "download commit").
+		WithDetails(attrs.NewBagFrom(map[string]any{"commit_id": commitID})).
+		WithCause(cause)
 }
 
-func NewCreateInMemoryFSError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "create in-memory fs",
-		cause:   cause,
-	}
+func NewCreateInMemoryFSError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "create in-memory fs").WithCause(cause)
 }
 
-func NewLoadEntriesFromFSError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "load entries from fs",
-		cause:   cause,
-	}
+func NewLoadEntriesFromFSError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "load entries from fs").WithCause(cause)
 }
 
-func NewExtractDependenciesError(cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInternal,
-		message: "extract dependencies",
-		cause:   cause,
-	}
+func NewExtractDependenciesError(cause error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "extract dependencies").WithCause(cause)
 }
 
-func NewUnmarshalDependencyError(entryID string, cause error) *Error {
-	return &Error{
-		kind:    apierror.KindInvalid,
-		message: "unmarshal dependency entry",
-		details: attrs.NewBagFrom(map[string]any{"entry_id": entryID}),
-		cause:   cause,
-	}
+func NewUnmarshalDependencyError(entryID string, cause error) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "unmarshal dependency entry").
+		WithDetails(attrs.NewBagFrom(map[string]any{"entry_id": entryID})).
+		WithCause(cause)
 }
 
-func NewAbsolutePathNotAllowedError(path string) *Error {
-	return &Error{
-		kind:    apierror.KindInvalid,
-		message: "absolute path not allowed",
-		details: attrs.NewBagFrom(map[string]any{"path": path}),
-	}
+func NewAbsolutePathNotAllowedError(path string) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "absolute path not allowed").
+		WithDetails(attrs.NewBagFrom(map[string]any{"path": path}))
 }
 
-func NewInvalidPathError(path string) *Error {
-	return &Error{
-		kind:    apierror.KindInvalid,
-		message: "invalid path",
-		details: attrs.NewBagFrom(map[string]any{"path": path}),
-	}
+func NewInvalidPathError(path string) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "invalid path").
+		WithDetails(attrs.NewBagFrom(map[string]any{"path": path}))
 }

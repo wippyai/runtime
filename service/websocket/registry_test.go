@@ -11,7 +11,6 @@ import (
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/runtime/resource"
-	wssvc "github.com/wippyai/runtime/api/service/websocket"
 	wsapi "github.com/wippyai/runtime/api/websocket"
 
 	"github.com/coder/websocket"
@@ -36,7 +35,7 @@ func TestRegistryGetMessageChanNotFound(t *testing.T) {
 	r := NewRegistry(table, nil)
 
 	_, err := r.GetMessageChan(999)
-	if !errors.Is(err, wssvc.ErrConnNotFound) {
+	if !errors.Is(err, ErrConnNotFound) {
 		t.Errorf("expected ErrConnNotFound, got %v", err)
 	}
 }
@@ -47,7 +46,7 @@ func TestRegistryCloseNotFound(t *testing.T) {
 	r := NewRegistry(table, nil)
 
 	err := r.Close(999, 0, "")
-	if !errors.Is(err, wssvc.ErrConnNotFound) {
+	if !errors.Is(err, ErrConnNotFound) {
 		t.Errorf("expected ErrConnNotFound, got %v", err)
 	}
 }
@@ -109,7 +108,7 @@ func TestRegistryClose(t *testing.T) {
 	}
 
 	_, err = r.GetMessageChan(id)
-	if !errors.Is(err, wssvc.ErrConnNotFound) {
+	if !errors.Is(err, ErrConnNotFound) {
 		t.Errorf("expected ErrConnNotFound after close, got %v", err)
 	}
 }
@@ -138,7 +137,7 @@ func TestRegistryDoubleClose(t *testing.T) {
 	}
 
 	err = r.Close(id, 1000, "second")
-	if !errors.Is(err, wssvc.ErrConnNotFound) {
+	if !errors.Is(err, ErrConnNotFound) {
 		t.Errorf("expected ErrConnNotFound on second close, got %v", err)
 	}
 }

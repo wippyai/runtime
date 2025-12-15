@@ -9,35 +9,8 @@ import (
 )
 
 func TestError_Implements(_ *testing.T) {
-	var _ error = (*Error)(nil)
-	var _ apierror.Error = (*Error)(nil)
-}
-
-func TestError_Message(t *testing.T) {
-	err := &Error{message: "test message"}
-	assert.Equal(t, "test message", err.Error())
-}
-
-func TestError_Kind(t *testing.T) {
-	err := &Error{kind: apierror.KindInternal}
-	assert.Equal(t, apierror.KindInternal, err.Kind())
-}
-
-func TestError_Retryable(t *testing.T) {
-	err := &Error{}
-	assert.Equal(t, apierror.Unknown, err.Retryable())
-}
-
-func TestError_Details(t *testing.T) {
-	err := &Error{}
-	assert.Nil(t, err.Details())
-}
-
-func TestError_Unwrap(t *testing.T) {
-	cause := errors.New("root cause")
-	err := &Error{cause: cause}
-	assert.Equal(t, cause, err.Unwrap())
-	assert.True(t, errors.Is(err, cause))
+	var _ error = ErrMonitorChannelClosed
+	var _ apierror.Error = ErrMonitorChannelClosed
 }
 
 func TestErrMonitorChannelClosed(t *testing.T) {
@@ -51,21 +24,21 @@ func TestErrorConstructors(t *testing.T) {
 	t.Run("newRegisterPIDError", func(t *testing.T) {
 		err := newRegisterPIDError(cause)
 		assert.Equal(t, apierror.KindInternal, err.Kind())
-		assert.Equal(t, "register caller pid: cause", err.Error())
-		assert.Equal(t, cause, err.Unwrap())
+		assert.Contains(t, err.Error(), "register caller pid")
+		assert.True(t, errors.Is(err, cause))
 	})
 
 	t.Run("newAttachRelayError", func(t *testing.T) {
 		err := newAttachRelayError(cause)
 		assert.Equal(t, apierror.KindInternal, err.Kind())
-		assert.Equal(t, "attach to relay: cause", err.Error())
-		assert.Equal(t, cause, err.Unwrap())
+		assert.Contains(t, err.Error(), "attach to relay")
+		assert.True(t, errors.Is(err, cause))
 	})
 
 	t.Run("newStartProcessError", func(t *testing.T) {
 		err := newStartProcessError(cause)
 		assert.Equal(t, apierror.KindInternal, err.Kind())
-		assert.Equal(t, "start process: cause", err.Error())
-		assert.Equal(t, cause, err.Unwrap())
+		assert.Contains(t, err.Error(), "start process")
+		assert.True(t, errors.Is(err, cause))
 	})
 }

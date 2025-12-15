@@ -10,6 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	api "github.com/wippyai/runtime/api/runtime/lua"
+	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/component"
 	"github.com/wippyai/runtime/runtime/lua/engine"
@@ -56,7 +57,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	cfg, err := component.UnpackConfig[api.WorkflowConfig](ctx, entry)
 	if err != nil {
-		return api.NewUnpackConfigError("workflow", err)
+		return runtimelua.NewUnpackConfigError("workflow", err)
 	}
 
 	node := code.Node{
@@ -67,7 +68,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	if err := m.code.AddNode(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules)); err != nil {
-		return api.NewAddNodeError("workflow", err)
+		return runtimelua.NewAddNodeError("workflow", err)
 	}
 
 	m.configs.Store(entry.ID, cfg)
@@ -75,7 +76,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if err := m.registerFactory(ctx, entry.ID, cfg.Method); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
 		m.configs.Delete(entry.ID)
-		return api.NewRegisterFactoryError(err)
+		return runtimelua.NewRegisterFactoryError(err)
 	}
 
 	m.log.Debug("added workflow", zap.String("id", entry.ID.String()))
@@ -90,7 +91,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	cfg, err := component.UnpackConfig[api.WorkflowConfig](ctx, entry)
 	if err != nil {
-		return api.NewUnpackConfigError("workflow", err)
+		return runtimelua.NewUnpackConfigError("workflow", err)
 	}
 
 	node := code.Node{
@@ -101,13 +102,13 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	if err := m.code.UpdateNode(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules)); err != nil {
-		return api.NewUpdateNodeError("workflow", err)
+		return runtimelua.NewUpdateNodeError("workflow", err)
 	}
 
 	m.configs.Store(entry.ID, cfg)
 
 	if err := m.registerFactory(ctx, entry.ID, cfg.Method); err != nil {
-		return api.NewUpdateFactoryError(err)
+		return runtimelua.NewUpdateFactoryError(err)
 	}
 
 	m.log.Debug("updated workflow", zap.String("id", entry.ID.String()))
@@ -121,7 +122,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	}
 
 	if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
-		return api.NewDeleteNodeError("workflow", err)
+		return runtimelua.NewDeleteNodeError("workflow", err)
 	}
 
 	m.configs.Delete(entry.ID)
@@ -157,7 +158,7 @@ func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method st
 		engine.WithoutDefaultModule("process"), // Workflows don't get process module
 	)
 	if err != nil {
-		return api.NewCompileError(err)
+		return runtimelua.NewCompileError(err)
 	}
 
 	if method == "" {
@@ -168,7 +169,7 @@ func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method st
 
 	waiter, err := m.awaiter.Prepare(ctx, path)
 	if err != nil {
-		return api.NewRegisterFactoryError(err)
+		return runtimelua.NewRegisterFactoryError(err)
 	}
 
 	m.bus.Send(ctx, event.Event{
@@ -185,7 +186,7 @@ func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method st
 
 	result := waiter.Wait()
 	if !result.Accepted {
-		return api.NewRegisterFactoryError(result.Error)
+		return runtimelua.NewRegisterFactoryError(result.Error)
 	}
 
 	return nil

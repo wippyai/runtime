@@ -11,7 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
-	"github.com/wippyai/runtime/api/service/host"
+	hostapi "github.com/wippyai/runtime/api/service/host"
 	"github.com/wippyai/runtime/internal/uniqid"
 	"github.com/wippyai/runtime/system/scheduler/actor"
 	"go.uber.org/zap"
@@ -20,7 +20,7 @@ import (
 // Host implements process.Host using the actor scheduler.
 type Host struct {
 	id        registry.ID
-	cfg       *host.EntryConfig
+	cfg       *hostapi.EntryConfig
 	log       *zap.Logger
 	scheduler *actor.Scheduler
 	factory   process.Factory
@@ -32,7 +32,7 @@ type Host struct {
 }
 
 // NewHost creates a new host with actor scheduler.
-func NewHost(id registry.ID, cfg *host.EntryConfig, scheduler *actor.Scheduler, factory process.Factory, pidGen *uniqid.PIDGenerator, logger *zap.Logger) *Host {
+func NewHost(id registry.ID, cfg *hostapi.EntryConfig, scheduler *actor.Scheduler, factory process.Factory, pidGen *uniqid.PIDGenerator, logger *zap.Logger) *Host {
 	return &Host{
 		id:        id,
 		cfg:       cfg,
@@ -46,10 +46,10 @@ func NewHost(id registry.ID, cfg *host.EntryConfig, scheduler *actor.Scheduler, 
 // Run implements process.Host.
 func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 	if !h.running.Load() {
-		return pid.PID{}, host.ErrHostNotRunning
+		return pid.PID{}, ErrHostNotRunning
 	}
 	if h.shutdown.Load() {
-		return pid.PID{}, host.ErrHostShuttingDown
+		return pid.PID{}, ErrHostShuttingDown
 	}
 
 	proc, meta, err := h.factory.Create(start.Source)
@@ -87,7 +87,7 @@ func (h *Host) Terminate(_ context.Context, processID pid.PID) error {
 // Send implements relay.Receiver.
 func (h *Host) Send(pkg *relay.Package) error {
 	if h.shutdown.Load() {
-		return host.ErrHostShuttingDown
+		return ErrHostShuttingDown
 	}
 	return h.scheduler.Send(pkg)
 }
@@ -95,7 +95,7 @@ func (h *Host) Send(pkg *relay.Package) error {
 // Start implements supervisor.Service.
 func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 	if h.running.Swap(true) {
-		return nil, host.ErrHostAlreadyRunning
+		return nil, ErrHostAlreadyRunning
 	}
 
 	h.ctx = ctx

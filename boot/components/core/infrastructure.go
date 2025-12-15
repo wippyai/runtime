@@ -27,7 +27,7 @@ func PIDGen() boot.Component {
 		Name: PIDGenName,
 		Load: func(ctx context.Context) (context.Context, error) {
 			uniqGen := uniqid.NewGenerator()
-			gen := uniqid.NewPIDGenerator(uniqGen, "local")
+			gen := uniqid.NewPIDGenerator(uniqGen, "")
 			return process.WithPIDGenerator(ctx, gen), nil
 		},
 	})

@@ -8,15 +8,16 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
-	"github.com/wippyai/runtime/api/service/exec"
+	execapi "github.com/wippyai/runtime/api/service/exec"
 	entryutil "github.com/wippyai/runtime/internal/entry"
+	serviceexec "github.com/wippyai/runtime/service/exec"
 	"go.uber.org/zap"
 )
 
 // ExecutorFactoryAPI defines interface for executor factory
 type ExecutorFactoryAPI interface {
 	// CreateExecutor creates a new executor with the given ID and configuration
-	CreateExecutor(id registry.ID, cfg *exec.NativeExecutorConfig) (exec.ProcessExecutor, error)
+	CreateExecutor(id registry.ID, cfg *execapi.NativeExecutorConfig) (execapi.ProcessExecutor, error)
 }
 
 // Manager handles native executor lifecycle and resource provisioning
@@ -56,25 +57,25 @@ func (m *Manager) RegisterFactory(factory ExecutorFactoryAPI) {
 
 // Add implements registry.EntryListener for native executors only
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != exec.KindNativeExecutor {
-		return exec.NewUnsupportedEntryKindError(entry.Kind)
+	if entry.Kind != execapi.KindNativeExecutor {
+		return serviceexec.NewUnsupportedEntryKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, exists := m.executors[entry.ID]; exists {
-		return exec.NewExecutorAlreadyExistsError(entry.ID.String())
+		return serviceexec.NewExecutorAlreadyExistsError(entry.ID.String())
 	}
 
-	cfg, err := entryutil.DecodeEntryConfig[exec.NativeExecutorConfig](ctx, m.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[execapi.NativeExecutorConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return exec.NewConfigDecodeError(err)
+		return serviceexec.NewConfigDecodeError(err)
 	}
 
 	executor, err := m.factory.CreateExecutor(entry.ID, cfg)
 	if err != nil {
-		return exec.NewExecutorCreateError(err)
+		return serviceexec.NewExecutorCreateError(err)
 	}
 
 	// Create resource provider
@@ -103,8 +104,8 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 // Update implements registry.EntryListener
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != exec.KindNativeExecutor {
-		return exec.NewUnsupportedEntryKindError(entry.Kind)
+	if entry.Kind != execapi.KindNativeExecutor {
+		return serviceexec.NewUnsupportedEntryKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -112,17 +113,17 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	oldProvider, exists := m.executors[entry.ID]
 	if !exists {
-		return exec.NewExecutorNotFoundError(entry.ID.String())
+		return serviceexec.NewExecutorNotFoundError(entry.ID.String())
 	}
 
-	cfg, err := entryutil.DecodeEntryConfig[exec.NativeExecutorConfig](ctx, m.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[execapi.NativeExecutorConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return exec.NewConfigDecodeError(err)
+		return serviceexec.NewConfigDecodeError(err)
 	}
 
 	executor, err := m.factory.CreateExecutor(entry.ID, cfg)
 	if err != nil {
-		return exec.NewExecutorCreateError(err)
+		return serviceexec.NewExecutorCreateError(err)
 	}
 
 	// Create resource provider
@@ -158,8 +159,8 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 // Delete implements registry.EntryListener
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != exec.KindNativeExecutor {
-		return exec.NewUnsupportedEntryKindError(entry.Kind)
+	if entry.Kind != execapi.KindNativeExecutor {
+		return serviceexec.NewUnsupportedEntryKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -167,7 +168,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 
 	provider, exists := m.executors[entry.ID]
 	if !exists {
-		return exec.NewExecutorNotFoundError(entry.ID.String())
+		return serviceexec.NewExecutorNotFoundError(entry.ID.String())
 	}
 
 	// Close provider

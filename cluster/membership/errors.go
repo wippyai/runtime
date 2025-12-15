@@ -1,64 +1,25 @@
 package membership
 
 import (
-	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
-type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
-}
-
-func (e *Error) Error() string               { return e.message }
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
-
-func NewLoadSecretKeyError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "failed to load cluster secret key",
-		retryable: apierror.False,
-		cause:     err,
-	}
-}
-
-func NewCreateMemberlistError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInternal,
-		message:   "failed to create memberlist",
-		retryable: apierror.False,
-		cause:     err,
-	}
-}
-
-func NewJoinClusterError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindUnavailable,
-		message:   "failed to join cluster",
-		retryable: apierror.True,
-		cause:     err,
-	}
-}
-
-func NewReadSecretFileError(err error) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "failed to read secret file",
-		retryable: apierror.False,
-		cause:     err,
-	}
-}
-
 var (
-	ErrNoSecretKeyProvided = &Error{
-		kind:      apierror.KindInvalid,
-		message:   "no secret key provided",
-		retryable: apierror.False,
-	}
+	ErrNoSecretKeyProvided = apierror.New(apierror.KindInvalid, "no secret key provided").WithRetryable(apierror.False)
 )
+
+func NewLoadSecretKeyError(err error) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "failed to load cluster secret key").WithCause(err).WithRetryable(apierror.False)
+}
+
+func NewCreateMemberlistError(err error) apierror.Error {
+	return apierror.New(apierror.KindInternal, "failed to create memberlist").WithCause(err).WithRetryable(apierror.False)
+}
+
+func NewJoinClusterError(err error) apierror.Error {
+	return apierror.New(apierror.KindUnavailable, "failed to join cluster").WithCause(err).WithRetryable(apierror.True)
+}
+
+func NewReadSecretFileError(err error) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "failed to read secret file").WithCause(err).WithRetryable(apierror.False)
+}

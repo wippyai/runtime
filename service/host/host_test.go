@@ -15,7 +15,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
-	"github.com/wippyai/runtime/api/service/host"
+	hostapi "github.com/wippyai/runtime/api/service/host"
 	"github.com/wippyai/runtime/internal/uniqid"
 	"github.com/wippyai/runtime/system/scheduler/actor"
 	"go.uber.org/zap"
@@ -58,7 +58,7 @@ func (f *mockFactory) Create(source registry.ID) (process.Process, *process.Meta
 
 func TestNewHost(t *testing.T) {
 	id := registry.NewID("test", "host")
-	cfg := &host.EntryConfig{}
+	cfg := &hostapi.EntryConfig{}
 	scheduler := actor.NewScheduler(nil)
 	factory := &mockFactory{proc: &mockProcess{}}
 	pidGen := newTestPIDGen()
@@ -74,7 +74,7 @@ func TestNewHost(t *testing.T) {
 
 func TestHost_RunNotRunning(t *testing.T) {
 	id := registry.NewID("test", "host")
-	cfg := &host.EntryConfig{}
+	cfg := &hostapi.EntryConfig{}
 	scheduler := actor.NewScheduler(nil)
 	factory := &mockFactory{proc: &mockProcess{}}
 	pidGen := newTestPIDGen()
@@ -86,12 +86,12 @@ func TestHost_RunNotRunning(t *testing.T) {
 		Source: registry.NewID("test", "proc"),
 	})
 
-	assert.ErrorIs(t, err, host.ErrHostNotRunning)
+	assert.ErrorIs(t, err, ErrHostNotRunning)
 }
 
 func TestHost_StartStop(t *testing.T) {
 	id := registry.NewID("test", "host")
-	cfg := &host.EntryConfig{}
+	cfg := &hostapi.EntryConfig{}
 	scheduler := actor.NewScheduler(nil)
 	factory := &mockFactory{proc: &mockProcess{}}
 	pidGen := newTestPIDGen()
@@ -108,7 +108,7 @@ func TestHost_StartStop(t *testing.T) {
 
 func TestHost_StartAlreadyRunning(t *testing.T) {
 	id := registry.NewID("test", "host")
-	cfg := &host.EntryConfig{}
+	cfg := &hostapi.EntryConfig{}
 	scheduler := actor.NewScheduler(nil)
 	factory := &mockFactory{proc: &mockProcess{}}
 	pidGen := newTestPIDGen()
@@ -120,14 +120,14 @@ func TestHost_StartAlreadyRunning(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = h.Start(context.Background())
-	assert.ErrorIs(t, err, host.ErrHostAlreadyRunning)
+	assert.ErrorIs(t, err, ErrHostAlreadyRunning)
 
 	_ = h.Stop(context.Background())
 }
 
 func TestHost_StopNotRunning(t *testing.T) {
 	id := registry.NewID("test", "host")
-	cfg := &host.EntryConfig{}
+	cfg := &hostapi.EntryConfig{}
 	scheduler := actor.NewScheduler(nil)
 	factory := &mockFactory{proc: &mockProcess{}}
 	pidGen := newTestPIDGen()
@@ -141,7 +141,7 @@ func TestHost_StopNotRunning(t *testing.T) {
 
 func TestHost_SendShuttingDown(t *testing.T) {
 	id := registry.NewID("test", "host")
-	cfg := &host.EntryConfig{}
+	cfg := &hostapi.EntryConfig{}
 	scheduler := actor.NewScheduler(nil)
 	factory := &mockFactory{proc: &mockProcess{}}
 	pidGen := newTestPIDGen()
@@ -151,12 +151,12 @@ func TestHost_SendShuttingDown(t *testing.T) {
 	h.shutdown.Store(true)
 
 	err := h.Send(&relay.Package{})
-	assert.ErrorIs(t, err, host.ErrHostShuttingDown)
+	assert.ErrorIs(t, err, ErrHostShuttingDown)
 }
 
 func TestHost_RunShuttingDown(t *testing.T) {
 	id := registry.NewID("test", "host")
-	cfg := &host.EntryConfig{}
+	cfg := &hostapi.EntryConfig{}
 	scheduler := actor.NewScheduler(nil)
 	factory := &mockFactory{proc: &mockProcess{}}
 	pidGen := newTestPIDGen()
@@ -170,12 +170,12 @@ func TestHost_RunShuttingDown(t *testing.T) {
 		Source: registry.NewID("test", "proc"),
 	})
 
-	assert.ErrorIs(t, err, host.ErrHostShuttingDown)
+	assert.ErrorIs(t, err, ErrHostShuttingDown)
 }
 
 func TestHost_OnStartOnComplete(t *testing.T) {
 	id := registry.NewID("test", "host")
-	cfg := &host.EntryConfig{}
+	cfg := &hostapi.EntryConfig{}
 	scheduler := actor.NewScheduler(nil)
 	factory := &mockFactory{proc: &mockProcess{}}
 	pidGen := newTestPIDGen()
@@ -189,7 +189,7 @@ func TestHost_OnStartOnComplete(t *testing.T) {
 
 func TestHost_SendSuccess(t *testing.T) {
 	id := registry.NewID("test", "host")
-	cfg := &host.EntryConfig{}
+	cfg := &hostapi.EntryConfig{}
 	scheduler := actor.NewScheduler(nil)
 	factory := &mockFactory{proc: &mockProcess{}}
 	pidGen := newTestPIDGen()
@@ -202,14 +202,14 @@ func TestHost_SendSuccess(t *testing.T) {
 
 	// Send should return error from scheduler (process not found) but not shutdown error
 	err = h.Send(&relay.Package{Target: pid.PID{}})
-	assert.NotErrorIs(t, err, host.ErrHostShuttingDown)
+	assert.NotErrorIs(t, err, ErrHostShuttingDown)
 
 	_ = h.Stop(context.Background())
 }
 
 func TestHost_Terminate(t *testing.T) {
 	id := registry.NewID("test", "host")
-	cfg := &host.EntryConfig{}
+	cfg := &hostapi.EntryConfig{}
 	scheduler := actor.NewScheduler(nil)
 	factory := &mockFactory{proc: &mockProcess{}}
 	pidGen := newTestPIDGen()
@@ -229,7 +229,7 @@ func TestHost_Terminate(t *testing.T) {
 
 func TestHost_RunFactoryError(t *testing.T) {
 	id := registry.NewID("test", "host")
-	cfg := &host.EntryConfig{}
+	cfg := &hostapi.EntryConfig{}
 	scheduler := actor.NewScheduler(nil)
 	factoryErr := errors.New("factory error")
 	factory := &mockFactory{err: factoryErr}
@@ -248,7 +248,7 @@ func TestHost_RunFactoryError(t *testing.T) {
 
 func TestHost_PreparePID_ExplicitPID(t *testing.T) {
 	id := registry.NewID("test", "host")
-	cfg := &host.EntryConfig{}
+	cfg := &hostapi.EntryConfig{}
 	scheduler := actor.NewScheduler(nil)
 	factory := &mockFactory{proc: &mockProcess{}}
 	pidGen := newTestPIDGen()
@@ -270,7 +270,7 @@ func TestHost_PreparePID_ExplicitPID(t *testing.T) {
 
 func TestHost_PreparePID_Generated(t *testing.T) {
 	id := registry.NewID("test", "host")
-	cfg := &host.EntryConfig{}
+	cfg := &hostapi.EntryConfig{}
 	scheduler := actor.NewScheduler(nil)
 	factory := &mockFactory{proc: &mockProcess{}}
 	pidGen := newTestPIDGen()

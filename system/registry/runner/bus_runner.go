@@ -8,9 +8,15 @@ import (
 
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/system/registry/topology"
 	"go.uber.org/zap"
 )
+
+// runnerBuilder defines the operations needed by BusRunner for state transitions
+type runnerBuilder interface {
+	ValidateOperation(registry.StateMap, registry.Operation) error
+	ApplyOperation(registry.StateMap, registry.Operation) (registry.StateMap, error)
+	BuildDelta(registry.State, registry.State) (registry.ChangeSet, error)
+}
 
 // BusRunner executes registry operations sequentially through an event bus, handling
 // state transitions, rollbacks, and error handling. It maintains operation order
@@ -22,19 +28,19 @@ type BusRunner struct {
 	rejectChan  chan event.Event
 	acceptSubID event.SubscriberID
 	rejectSubID event.SubscriberID
-	builder     *topology.StateBuilder
+	builder     runnerBuilder
 }
 
 const eventWaitTimeout = 30 * time.Second
 
 // NewBusRunner creates a new BusRunner. This is a sequential bus, order of operations matter.
-func NewBusRunner(bus event.Bus, log *zap.Logger, resolver registry.DependencyResolver) *BusRunner {
+func NewBusRunner(bus event.Bus, log *zap.Logger, builder runnerBuilder) *BusRunner {
 	return &BusRunner{
 		bus:        bus,
 		log:        log,
 		acceptChan: make(chan event.Event),
 		rejectChan: make(chan event.Event),
-		builder:    topology.NewStateBuilder(log, resolver),
+		builder:    builder,
 	}
 }
 
@@ -47,8 +53,8 @@ func (br *BusRunner) Transition(
 	initialState registry.State,
 	cs registry.ChangeSet,
 ) (registry.State, error) {
-	currentState := topology.NewStateMap(initialState)
-	originalState := topology.NewStateMap(initialState) // Keep a copy of the original state for rollbacks
+	currentState := newStateMap(initialState)
+	originalState := newStateMap(initialState) // Keep a copy of the original state for rollbacks
 
 	if err := br.subscribeToEvents(ctx); err != nil {
 		return nil, err
@@ -77,7 +83,7 @@ func (br *BusRunner) Transition(
 				Data:   err,
 			})
 
-			return newState.ToSlice(), NewOperationFailedError(err)
+			return stateMapToSlice(newState), NewOperationFailedError(err)
 		}
 
 		currentState = newState
@@ -88,14 +94,14 @@ func (br *BusRunner) Transition(
 		Kind:   registry.Commit,
 	})
 
-	return currentState.ToSlice(), nil
+	return stateMapToSlice(currentState), nil
 }
 
 func (br *BusRunner) applyOperation(
 	ctx context.Context,
-	state topology.StateMap,
+	state registry.StateMap,
 	op registry.Operation,
-) (topology.StateMap, error) {
+) (registry.StateMap, error) {
 	if err := br.builder.ValidateOperation(state, op); err != nil {
 		return state, NewInvalidOperationError(err)
 	}
@@ -196,13 +202,13 @@ func (br *BusRunner) applyOperation(
 
 func (br *BusRunner) rollback(
 	ctx context.Context,
-	originalState, currentState topology.StateMap,
-) topology.StateMap {
+	originalState, currentState registry.StateMap,
+) registry.StateMap {
 	br.log.Debug("starting rollback")
 
 	// Convert states to registry.State format for BuildDelta
-	fromState := currentState.ToSlice()
-	toState := originalState.ToSlice()
+	fromState := stateMapToSlice(currentState)
+	toState := stateMapToSlice(originalState)
 
 	// Use BuildDelta to generate ordered operations
 	delta, err := br.builder.BuildDelta(fromState, toState)
@@ -254,4 +260,31 @@ func (br *BusRunner) subscribeToEvents(ctx context.Context) error {
 func (br *BusRunner) unsubscribeFromEvents(ctx context.Context) {
 	br.bus.Unsubscribe(ctx, br.acceptSubID)
 	br.bus.Unsubscribe(ctx, br.rejectSubID)
+}
+
+// newStateMap creates a StateMap from a State slice
+func newStateMap(state registry.State) registry.StateMap {
+	m := make(registry.StateMap)
+	for _, entry := range state {
+		m[entry.ID] = entry
+	}
+	return m
+}
+
+// stateMapToSlice converts a StateMap to a State slice
+func stateMapToSlice(sm registry.StateMap) registry.State {
+	slice := make(registry.State, 0, len(sm))
+	for _, entry := range sm {
+		slice = append(slice, entry)
+	}
+	return slice
+}
+
+// copyStateMap creates a shallow copy of a StateMap
+func copyStateMap(sm registry.StateMap) registry.StateMap {
+	newMap := make(registry.StateMap, len(sm))
+	for k, v := range sm {
+		newMap[k] = v
+	}
+	return newMap
 }

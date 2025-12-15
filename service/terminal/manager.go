@@ -12,7 +12,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
-	"github.com/wippyai/runtime/api/service/terminal"
+	terminalapi "github.com/wippyai/runtime/api/service/terminal"
 	"github.com/wippyai/runtime/api/supervisor"
 	entryutil "github.com/wippyai/runtime/internal/entry"
 	"github.com/wippyai/runtime/system/logs"
@@ -52,9 +52,9 @@ func NewManager(
 
 // Add implements registry.EntryListener.
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	cfg, err := entryutil.DecodeEntryConfig[terminal.HostConfig](ctx, m.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[terminalapi.HostConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return terminal.NewDecodeConfigError(err)
+		return NewDecodeConfigError(err)
 	}
 
 	logCtrl := logs.NewConfigurator(m.bus, m.log)

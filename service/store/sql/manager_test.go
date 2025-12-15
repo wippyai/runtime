@@ -7,12 +7,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	sqlstore "github.com/wippyai/runtime/api/service/store/sql"
-	storeapi "github.com/wippyai/runtime/api/store"
 	"github.com/wippyai/runtime/api/supervisor"
 	payloadSystem "github.com/wippyai/runtime/system/payload"
 	"github.com/wippyai/runtime/system/payload/json"
@@ -123,7 +123,7 @@ func TestManager_AddAlreadyExists(t *testing.T) {
 	err = mgr.Add(ctx, entry)
 	require.Error(t, err)
 
-	var storeErr *storeapi.Error
+	var storeErr apierror.Error
 	require.ErrorAs(t, err, &storeErr)
 	assert.Contains(t, err.Error(), "already exists")
 }
@@ -141,7 +141,7 @@ func TestManager_AddUnsupportedKind(t *testing.T) {
 	err := mgr.Add(ctx, entry)
 	require.Error(t, err)
 
-	var storeErr *storeapi.Error
+	var storeErr apierror.Error
 	require.ErrorAs(t, err, &storeErr)
 	assert.Contains(t, err.Error(), "unsupported")
 }
@@ -180,7 +180,7 @@ func TestManager_UpdateNotFound(t *testing.T) {
 	err := mgr.Update(ctx, entry)
 	require.Error(t, err)
 
-	var storeErr *storeapi.Error
+	var storeErr apierror.Error
 	require.ErrorAs(t, err, &storeErr)
 	assert.Contains(t, err.Error(), "not found")
 }
@@ -240,7 +240,7 @@ func TestManager_DeleteNotFound(t *testing.T) {
 	err := mgr.Delete(ctx, entry)
 	require.Error(t, err)
 
-	var storeErr *storeapi.Error
+	var storeErr apierror.Error
 	require.ErrorAs(t, err, &storeErr)
 	assert.Contains(t, err.Error(), "not found")
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/hashicorp/go-msgpack/v2/codec"
 	"github.com/wippyai/runtime/api/payload"
+	syspayload "github.com/wippyai/runtime/system/payload"
 )
 
 var (
@@ -57,7 +58,7 @@ func (t *ToMsgPack) Transcode(p payload.Payload) (payload.Payload, error) {
 
 	encoder := codec.NewEncoder(buf, getHandle())
 	if err := encoder.Encode(p.Data()); err != nil {
-		return nil, payload.NewMarshalError("MsgPack", err)
+		return nil, syspayload.NewMarshalError("MsgPack", err)
 	}
 
 	result := make([]byte, buf.Len())

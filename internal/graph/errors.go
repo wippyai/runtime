@@ -1,99 +1,47 @@
 package graph
 
 import (
-	"github.com/wippyai/runtime/api/attrs"
+	"fmt"
+
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
-type Error struct {
-	kind      apierror.Kind
-	message   string
-	retryable apierror.Ternary
-	details   attrs.Attributes
-	cause     error
+var (
+	ErrCycleDetected = apierror.New(apierror.KindInvalid, "cycle detected in dependency graph").WithRetryable(apierror.False)
+)
+
+func NewNodeNotFoundError(id string) apierror.Error {
+	return apierror.New(apierror.KindNotFound, fmt.Sprintf("node not found: %s", id)).WithRetryable(apierror.False)
 }
 
-func (e *Error) Error() string               { return e.message }
-func (e *Error) Kind() apierror.Kind         { return e.kind }
-func (e *Error) Retryable() apierror.Ternary { return e.retryable }
-func (e *Error) Details() attrs.Attributes   { return e.details }
-func (e *Error) Unwrap() error               { return e.cause }
-
-func NewNodeDoesNotExistError[T comparable](node T) *Error {
-	return &Error{
-		kind:      apierror.KindNotFound,
-		message:   "node does not exist",
-		retryable: apierror.False,
-		details: attrs.Bag{
-			"node": node,
-		},
-	}
+func NewNodeExistsError(id string) apierror.Error {
+	return apierror.New(apierror.KindAlreadyExists, fmt.Sprintf("node already exists: %s", id)).WithRetryable(apierror.False)
 }
 
-func NewNoEdgesFromNodeError[T comparable](node T) *Error {
-	return &Error{
-		kind:      apierror.KindNotFound,
-		message:   "no edges exist from node",
-		retryable: apierror.False,
-		details: attrs.Bag{
-			"node": node,
-		},
-	}
+func NewNodeDoesNotExistError(id any) apierror.Error {
+	return apierror.New(apierror.KindNotFound, fmt.Sprintf("node does not exist: %v", id)).WithRetryable(apierror.False)
 }
 
-func NewEdgeDoesNotExistError[T comparable](from, to T) *Error {
-	return &Error{
-		kind:      apierror.KindNotFound,
-		message:   "edge does not exist",
-		retryable: apierror.False,
-		details: attrs.Bag{
-			"from": from,
-			"to":   to,
-		},
-	}
+func NewNoEdgesFromNodeError(from any) apierror.Error {
+	return apierror.New(apierror.KindNotFound, fmt.Sprintf("no edges from node: %v", from)).WithRetryable(apierror.False)
 }
 
-func NewCycleDetectedError[T comparable](cycle []T) *Error {
-	return &Error{
-		kind:      apierror.KindConflict,
-		message:   "cycle detected",
-		retryable: apierror.False,
-		details: attrs.Bag{
-			"cycle": cycle,
-		},
-	}
+func NewEdgeDoesNotExistError(from, to any) apierror.Error {
+	return apierror.New(apierror.KindNotFound, fmt.Sprintf("edge does not exist: %v -> %v", from, to)).WithRetryable(apierror.False)
 }
 
-func NewCycleDetectedWithStuckNodesError(stuckNodesInfo string) *Error {
-	return &Error{
-		kind:      apierror.KindConflict,
-		message:   "cycle detected but could not identify path",
-		retryable: apierror.False,
-		details: attrs.Bag{
-			"stuck_nodes": stuckNodesInfo,
-		},
-	}
+func NewCycleDetectedError(cycle any) apierror.Error {
+	return apierror.New(apierror.KindInvalid, fmt.Sprintf("cycle detected: %v", cycle)).WithRetryable(apierror.False)
 }
 
-func NewNoPathExistsError[T comparable](from, to T) *Error {
-	return &Error{
-		kind:      apierror.KindNotFound,
-		message:   "no path exists",
-		retryable: apierror.False,
-		details: attrs.Bag{
-			"from": from,
-			"to":   to,
-		},
-	}
+func NewCycleDetectedWithStuckNodesError(info string) apierror.Error {
+	return apierror.New(apierror.KindInvalid, "cycle detected with stuck nodes: "+info).WithRetryable(apierror.False)
 }
 
-func NewInvalidLevelError(level int) *Error {
-	return &Error{
-		kind:      apierror.KindInvalid,
-		message:   "invalid level",
-		retryable: apierror.False,
-		details: attrs.Bag{
-			"level": level,
-		},
-	}
+func NewNoPathExistsError(from, to any) apierror.Error {
+	return apierror.New(apierror.KindNotFound, fmt.Sprintf("no path exists from %v to %v", from, to)).WithRetryable(apierror.False)
+}
+
+func NewInvalidLevelError(level int) apierror.Error {
+	return apierror.New(apierror.KindInvalid, fmt.Sprintf("invalid level: %d", level)).WithRetryable(apierror.False)
 }

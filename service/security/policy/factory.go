@@ -6,7 +6,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
-	"github.com/wippyai/runtime/api/service/security/policy"
+	policyapi "github.com/wippyai/runtime/api/service/security/policy"
 	entryutil "github.com/wippyai/runtime/internal/entry"
 )
 
@@ -31,27 +31,27 @@ func NewDefaultFactory(dtt payload.Transcoder) *DefaultFactory {
 // CreatePolicyEntry implements FactoryAPI
 func (f *DefaultFactory) CreatePolicyEntry(ctx context.Context, entry registry.Entry) (*security.PolicyEntry, error) {
 	switch entry.Kind {
-	case policy.KindPolicy:
+	case policyapi.KindPolicy:
 		return f.createConditionPolicy(ctx, entry)
-	case policy.ExprKind:
+	case policyapi.ExprKind:
 		return f.createExprPolicy(ctx, entry)
 	default:
-		return nil, policy.NewUnsupportedPolicyKindError(entry.Kind)
+		return nil, NewUnsupportedPolicyKindError(entry.Kind)
 	}
 }
 
 // createConditionPolicy creates a condition-based policy
 func (f *DefaultFactory) createConditionPolicy(ctx context.Context, entry registry.Entry) (*security.PolicyEntry, error) {
 	// Extract payload from registry entry
-	cfg, err := entryutil.DecodeEntryConfig[policy.Config](ctx, f.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[policyapi.Config](ctx, f.dtt, entry)
 	if err != nil {
-		return nil, policy.NewDecodePolicyConfigError(err)
+		return nil, NewDecodePolicyConfigError(err)
 	}
 
 	// Create the policy
 	policyObj, err := NewPolicy(entry.ID, cfg)
 	if err != nil {
-		return nil, policy.NewCreatePolicyError(err)
+		return nil, NewCreatePolicyError(err)
 	}
 
 	// Create policy entry
@@ -66,15 +66,15 @@ func (f *DefaultFactory) createConditionPolicy(ctx context.Context, entry regist
 // createExprPolicy creates an expression-based policy
 func (f *DefaultFactory) createExprPolicy(ctx context.Context, entry registry.Entry) (*security.PolicyEntry, error) {
 	// Extract payload from registry entry
-	cfg, err := entryutil.DecodeEntryConfig[policy.ExprConfig](ctx, f.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[policyapi.ExprConfig](ctx, f.dtt, entry)
 	if err != nil {
-		return nil, policy.NewDecodeExprPolicyConfigError(err)
+		return nil, NewDecodeExprPolicyConfigError(err)
 	}
 
 	// Create the policy
 	policyObj, err := NewExprPolicy(entry.ID, cfg)
 	if err != nil {
-		return nil, policy.NewCreateExprPolicyError(err)
+		return nil, NewCreateExprPolicyError(err)
 	}
 
 	// Create policy entry

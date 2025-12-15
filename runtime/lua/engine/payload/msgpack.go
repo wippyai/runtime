@@ -8,6 +8,7 @@ import (
 	"github.com/hashicorp/go-msgpack/v2/codec"
 	"github.com/wippyai/runtime/api/payload"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -67,7 +68,7 @@ func (t *ToMsgPack) Transcode(p payload.Payload) (payload.Payload, error) {
 
 	encoder := codec.NewEncoder(buf, getMsgpackHandle())
 	if err := encoder.Encode(goValue); err != nil {
-		return nil, luaapi.NewTranscodeError("failed to encode to MsgPack", err)
+		return nil, runtimelua.NewTranscodeError("failed to encode to MsgPack", err)
 	}
 
 	result := make([]byte, buf.Len())
@@ -97,12 +98,12 @@ func (t *MsgPackToLua) Transcode(p payload.Payload) (payload.Payload, error) {
 	var goValue any
 	decoder := codec.NewDecoder(reader, getMsgpackHandle())
 	if err := decoder.Decode(&goValue); err != nil {
-		return nil, luaapi.NewTranscodeError("failed to decode MsgPack", err)
+		return nil, runtimelua.NewTranscodeError("failed to decode MsgPack", err)
 	}
 
 	lv, err := GoToLua(goValue)
 	if err != nil {
-		return nil, luaapi.NewTranscodeError("failed to convert to Lua", err)
+		return nil, runtimelua.NewTranscodeError("failed to convert to Lua", err)
 	}
 
 	return payload.NewPayload(lv, payload.Lua), nil

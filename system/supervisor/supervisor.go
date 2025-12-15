@@ -136,7 +136,7 @@ func (s *Supervisor) Start(ctx context.Context) error {
 	)
 
 	if err != nil {
-		return supervisor.NewSubscriberError(err)
+		return NewSubscriberError(err)
 	}
 	s.subscriber = sub
 
@@ -372,7 +372,7 @@ func (s *Supervisor) resolveDependencies(serviceID string) ([]string, error) {
 		id := registry.ParseID(serviceID)
 		registryDeps, err := s.dependencyResolver(id)
 		if err != nil {
-			return nil, supervisor.NewDependencyResolveError(serviceID, err)
+			return nil, NewDependencyResolveError(serviceID, err)
 		}
 
 		for _, dep := range registryDeps {
@@ -410,7 +410,7 @@ func (s *Supervisor) execute(ctx context.Context, tx *regTx) error {
 		if ctrl, exists := s.controllers[id]; exists {
 			deps, err := s.resolveDependencies(id)
 			if err != nil {
-				return supervisor.NewDependencyResolveError(id, err)
+				return NewDependencyResolveError(id, err)
 			}
 			operations = append(operations, operation{
 				kind:         opStop,
@@ -472,14 +472,14 @@ func (s *Supervisor) execute(ctx context.Context, tx *regTx) error {
 	for id, entry := range tx.register {
 		if entry.Config.AutoStart {
 			if err := buildStartOps(id); err != nil {
-				return supervisor.NewStartOperationsError(err)
+				return NewStartOperationsError(err)
 			}
 		}
 	}
 
 	// Execute transitions in dependency order
 	if err := s.sequencer.transition(ctx, operations...); err != nil {
-		return supervisor.NewTransitionError(err)
+		return NewTransitionError(err)
 	}
 
 	// Done stopped services

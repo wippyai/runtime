@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
@@ -140,7 +141,7 @@ func TestManager_Add_DecodeError(t *testing.T) {
 	err := mgr.Add(context.Background(), entry)
 	require.Error(t, err)
 
-	var termErr *terminal.Error
+	var termErr apierror.Error
 	require.ErrorAs(t, err, &termErr)
 	assert.Equal(t, "failed to decode terminal config", termErr.Error())
 }

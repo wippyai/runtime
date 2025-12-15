@@ -634,8 +634,7 @@ func (c *Connection) cleanup() {
 		Error: nil,
 	}
 
-	c.topo.Notify(c.wsPID, result)
-	c.topo.Remove(c.wsPID)
+	c.topo.Complete(c.wsPID, result)
 
 	// Detach from host (must happen before closing msgCh)
 	c.host.Detach(c.wsPID)

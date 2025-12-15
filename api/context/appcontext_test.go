@@ -3,6 +3,7 @@ package context
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 )
@@ -341,7 +342,7 @@ func TestErrorInterface(t *testing.T) {
 	if got := err.Details(); got != nil {
 		t.Errorf("Details() = %v, want nil", got)
 	}
-	if got := err.Unwrap(); got != nil {
+	if got := errors.Unwrap(err); got != nil {
 		t.Errorf("Unwrap() = %v, want nil", got)
 	}
 }

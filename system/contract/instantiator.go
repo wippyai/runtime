@@ -37,7 +37,7 @@ func (i *Instantiator) Instantiate(ctx context.Context, bindingID registry.ID, s
 	for _, bc := range binding.Contracts {
 		contractObj, err := i.registry.GetContract(ctx, bc.Contract)
 		if err != nil {
-			return nil, contract.NewContractLoadError(bc.Contract, err)
+			return nil, NewContractLoadError(bc.Contract, err)
 		}
 		contracts = append(contracts, contractObj)
 	}

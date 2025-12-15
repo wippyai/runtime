@@ -160,7 +160,7 @@ func setupTestEnvironment(t *testing.T) (context.Context, event.Bus, *BusRunner,
 	ctx, cancel := context.WithCancel(context.Background())
 
 	bus := eventbus.NewBus()
-	busRunner := NewBusRunner(bus, zap.NewNop(), nil)
+	busRunner := NewBusRunner(bus, zap.NewNop(), newTestBuilder(nil))
 	component := newTestComponent(bus)
 
 	componentCleanup := attachComponent(ctx, t, bus, component)
@@ -597,7 +597,7 @@ func TestBusRunner_ErrorPropagation(t *testing.T) {
 	defer cancel()
 
 	bus := eventbus.NewBus()
-	busRunner := NewBusRunner(bus, zap.NewNop(), nil)
+	busRunner := NewBusRunner(bus, zap.NewNop(), newTestBuilder(nil))
 	expectedError := errors2.New("component configuration not allowed")
 
 	// Spawn a test component specifically for error testing
@@ -722,7 +722,7 @@ func TestBusRunner_RollbackOrderWithResolver(t *testing.T) {
 		},
 	}
 
-	busRunner := NewBusRunner(bus, zap.NewNop(), resolver)
+	busRunner := NewBusRunner(bus, zap.NewNop(), newTestBuilder(resolver))
 
 	// Track deletion order
 	var mu sync.Mutex
@@ -863,4 +863,168 @@ func (r *testResolver) Extract(entry registry.Entry) []string {
 
 func (r *testResolver) RegisterPattern(pattern registry.DependencyPattern) error {
 	return nil
+}
+
+// testBuilder implements runnerBuilder for tests
+type testBuilder struct {
+	resolver *testResolver
+}
+
+func newTestBuilder(resolver *testResolver) *testBuilder {
+	return &testBuilder{resolver: resolver}
+}
+
+func (b *testBuilder) ValidateOperation(state registry.StateMap, op registry.Operation) error {
+	switch op.Kind {
+	case registry.Create:
+		if _, exists := state[op.Entry.ID]; exists {
+			return fmt.Errorf("entry already exists: %s", op.Entry.ID)
+		}
+	case registry.Update:
+		if _, exists := state[op.Entry.ID]; !exists {
+			return fmt.Errorf("entry not found: %s", op.Entry.ID)
+		}
+	case registry.Delete:
+		if _, exists := state[op.Entry.ID]; !exists {
+			return fmt.Errorf("entry not found: %s", op.Entry.ID)
+		}
+	}
+	return nil
+}
+
+func (b *testBuilder) ApplyOperation(state registry.StateMap, op registry.Operation) (registry.StateMap, error) {
+	if err := b.ValidateOperation(state, op); err != nil {
+		return state, err
+	}
+
+	newState := make(registry.StateMap, len(state))
+	for k, v := range state {
+		newState[k] = v
+	}
+
+	switch op.Kind {
+	case registry.Create, registry.Update:
+		newState[op.Entry.ID] = op.Entry
+	case registry.Delete:
+		delete(newState, op.Entry.ID)
+	}
+
+	return newState, nil
+}
+
+func (b *testBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, error) {
+	fromState := make(registry.StateMap)
+	for _, entry := range from {
+		fromState[entry.ID] = entry
+	}
+	toState := make(registry.StateMap)
+	for _, entry := range to {
+		toState[entry.ID] = entry
+	}
+
+	var deleteOps, otherOps []registry.Operation
+
+	// Find deletes
+	for _, fromEntry := range from {
+		if _, exists := toState[fromEntry.ID]; !exists {
+			deleteOps = append(deleteOps, registry.Operation{
+				Kind:  registry.Delete,
+				Entry: fromEntry,
+			})
+		}
+	}
+
+	// Find creates and updates
+	for _, toEntry := range to {
+		fromEntry, exists := fromState[toEntry.ID]
+		if !exists {
+			otherOps = append(otherOps, registry.Operation{
+				Kind:  registry.Create,
+				Entry: toEntry,
+			})
+		} else if fromEntry.Kind != toEntry.Kind || fromEntry.Data != toEntry.Data {
+			otherOps = append(otherOps, registry.Operation{
+				Kind:  registry.Update,
+				Entry: toEntry,
+			})
+		}
+	}
+
+	// Sort deletes by reverse dependency order (dependents first)
+	if b.resolver != nil && len(deleteOps) > 0 {
+		deleteOps = b.sortDeletesByDependency(deleteOps)
+	}
+
+	result := make(registry.ChangeSet, 0, len(deleteOps)+len(otherOps))
+	result = append(result, deleteOps...)
+	result = append(result, otherOps...)
+
+	return result, nil
+}
+
+// sortDeletesByDependency sorts delete operations so dependents are deleted before dependencies
+func (b *testBuilder) sortDeletesByDependency(ops []registry.Operation) []registry.Operation {
+	if b.resolver == nil {
+		return ops
+	}
+
+	// Build dependency graph
+	depCount := make(map[string]int)
+	dependents := make(map[string][]string)
+
+	for _, op := range ops {
+		id := op.Entry.ID.String()
+		if _, ok := depCount[id]; !ok {
+			depCount[id] = 0
+		}
+
+		deps := b.resolver.Extract(op.Entry)
+		for _, dep := range deps {
+			depCount[id]++
+			dependents[dep] = append(dependents[dep], id)
+		}
+	}
+
+	// Topological sort (Kahn's algorithm) - items with no dependencies first
+	var queue []string
+	for _, op := range ops {
+		id := op.Entry.ID.String()
+		if depCount[id] == 0 {
+			queue = append(queue, id)
+		}
+	}
+
+	var sorted []string
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		sorted = append(sorted, id)
+
+		for _, dependent := range dependents[id] {
+			depCount[dependent]--
+			if depCount[dependent] == 0 {
+				queue = append(queue, dependent)
+			}
+		}
+	}
+
+	// Reverse for delete order (dependents before dependencies)
+	for i, j := 0, len(sorted)-1; i < j; i, j = i+1, j-1 {
+		sorted[i], sorted[j] = sorted[j], sorted[i]
+	}
+
+	// Build result
+	opMap := make(map[string]registry.Operation)
+	for _, op := range ops {
+		opMap[op.Entry.ID.String()] = op
+	}
+
+	result := make([]registry.Operation, 0, len(ops))
+	for _, id := range sorted {
+		if op, ok := opMap[id]; ok {
+			result = append(result, op)
+		}
+	}
+
+	return result
 }

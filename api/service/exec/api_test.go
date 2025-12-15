@@ -170,37 +170,3 @@ func TestDockerExecutorConfig_Validate(t *testing.T) {
 		assert.NoError(t, cfg.Validate())
 	})
 }
-
-func TestErrorConstructors(t *testing.T) {
-	t.Run("NewUnsupportedEntryKindError", func(t *testing.T) {
-		err := NewUnsupportedEntryKindError("test.kind")
-		assert.Contains(t, err.Error(), "test.kind")
-		assert.NotNil(t, err.Details())
-	})
-
-	t.Run("NewExecutorAlreadyExistsError", func(t *testing.T) {
-		err := NewExecutorAlreadyExistsError("exec-1")
-		assert.Contains(t, err.Error(), "exec-1")
-		assert.NotNil(t, err.Details())
-	})
-
-	t.Run("NewExecutorNotFoundError", func(t *testing.T) {
-		err := NewExecutorNotFoundError("exec-1")
-		assert.Contains(t, err.Error(), "exec-1")
-		assert.NotNil(t, err.Details())
-	})
-
-	t.Run("NewConfigDecodeError", func(t *testing.T) {
-		cause := assert.AnError
-		err := NewConfigDecodeError(cause)
-		assert.Contains(t, err.Error(), cause.Error())
-		assert.Equal(t, cause, err.Unwrap())
-	})
-
-	t.Run("NewExecutorCreateError", func(t *testing.T) {
-		cause := assert.AnError
-		err := NewExecutorCreateError(cause)
-		assert.Contains(t, err.Error(), cause.Error())
-		assert.Equal(t, cause, err.Unwrap())
-	})
-}
