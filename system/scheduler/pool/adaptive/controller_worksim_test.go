@@ -684,17 +684,20 @@ func TestControllerWorksim_GradualBottleneck(t *testing.T) {
 		maxActive  int32
 	}
 	var phases []phase
+	var phasesMu sync.Mutex
 
 	go func() {
 		bottlenecks := []int{8, 4, 2, 1}
 		for i, b := range bottlenecks {
 			workload.SetBottleneck(b)
 			time.Sleep(3 * time.Second)
+			phasesMu.Lock()
 			phases = append(phases, phase{
 				bottleneck: b,
 				workers:    workers.Load(),
 				maxActive:  workload.MaxActive(),
 			})
+			phasesMu.Unlock()
 			if i < len(bottlenecks)-1 {
 				workload.ResetMetrics()
 			}
@@ -709,8 +712,13 @@ func TestControllerWorksim_GradualBottleneck(t *testing.T) {
 		case <-ctx.Done():
 			workerWg.Wait()
 
+			phasesMu.Lock()
+			phasesCopy := make([]phase, len(phases))
+			copy(phasesCopy, phases)
+			phasesMu.Unlock()
+
 			t.Log("Gradual bottleneck decrease:")
-			for _, p := range phases {
+			for _, p := range phasesCopy {
 				t.Logf("  bottleneck=%d: workers=%d, maxActive=%d", p.bottleneck, p.workers, p.maxActive)
 			}
 
@@ -718,14 +726,14 @@ func TestControllerWorksim_GradualBottleneck(t *testing.T) {
 			t.Logf("Final maxActive after all phases: %d", finalMaxActive)
 
 			// Verify all phases completed
-			if len(phases) < 4 {
-				t.Errorf("Expected 4 phases, got %d", len(phases))
+			if len(phasesCopy) < 4 {
+				t.Errorf("Expected 4 phases, got %d", len(phasesCopy))
 				return
 			}
 
 			// Final phase (bottleneck=1) should show constrained activity
 			// maxActive may include overlap from transitions, so allow margin
-			finalPhase := phases[len(phases)-1]
+			finalPhase := phasesCopy[len(phasesCopy)-1]
 			if finalPhase.maxActive > 4 {
 				t.Errorf("Final phase bottleneck=1: maxActive=%d is too high", finalPhase.maxActive)
 			}

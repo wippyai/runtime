@@ -400,7 +400,7 @@ func (s *Scheduler) ReleaseProcessor(proc *Processor) {
 func (s *Scheduler) Send(pkg *relay.Package) error {
 	target := pkg.Target // copy before push - pkg may be released after queue receives it
 
-	v, ok := s.byPID.Load(target)
+	v, ok := s.byPID.Load(target.String())
 	if !ok {
 		return process.ErrProcessNotFound
 	}

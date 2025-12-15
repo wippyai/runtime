@@ -1290,7 +1290,7 @@ func TestPIDRegistration(t *testing.T) {
 	pid := pidapi.PID{UniqID: "reg-test"}
 
 	// Before submit - PID not in map
-	_, found := sched.byPID.Load(pid)
+	_, found := sched.byPID.Load(pid.String())
 	if found {
 		t.Fatal("PID should not exist before submit")
 	}
@@ -1302,7 +1302,7 @@ func TestPIDRegistration(t *testing.T) {
 	}
 
 	// After submit - PID should be in map
-	v, found := sched.byPID.Load(pid)
+	v, found := sched.byPID.Load(pid.String())
 	if !found {
 		t.Fatal("PID should exist after submit")
 	}
@@ -1341,7 +1341,7 @@ func TestPIDUnregisteredOnCompletion(t *testing.T) {
 	}
 
 	// After completion - PID should be removed from map
-	_, found := sched.byPID.Load(pid)
+	_, found := sched.byPID.Load(pid.String())
 	if found {
 		t.Fatal("PID should be removed after completion")
 	}
@@ -1394,7 +1394,7 @@ func TestPIDUnregisteredOnTermination(t *testing.T) {
 	}
 
 	// After termination - PID should be removed
-	_, found := sched.byPID.Load(pid)
+	_, found := sched.byPID.Load(pid.String())
 	if found {
 		t.Fatal("PID should be removed after termination")
 	}
@@ -1419,7 +1419,7 @@ func TestDuplicatePIDOverwrites(t *testing.T) {
 	}
 
 	// Map should have second processor
-	v, found := sched.byPID.Load(pid)
+	v, found := sched.byPID.Load(pid.String())
 	if !found {
 		t.Fatal("PID should exist")
 	}

@@ -11,5 +11,5 @@ var (
 )
 
 func NewInvalidHostError(hostID pid.HostID) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid host: "+string(hostID)).WithRetryable(apierror.False)
+	return apierror.New(apierror.Invalid, "invalid host: "+hostID).WithRetryable(apierror.False)
 }

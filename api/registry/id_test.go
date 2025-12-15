@@ -288,7 +288,7 @@ func TestID_MarshalJSON(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := json.Marshal(tt.id)
+			result, err := json.Marshal(&tt.id)
 			assert.NoError(t, err)
 			assert.Equal(t, tt.expected, string(result))
 		})

@@ -100,14 +100,14 @@ func TestParsePID(t *testing.T) {
 func TestPID_MarshalJSON(t *testing.T) {
 	t.Run("with node", func(t *testing.T) {
 		pid := PID{Node: "node1", Host: "host1", UniqID: "proc1"}
-		data, err := json.Marshal(pid)
+		data, err := json.Marshal(&pid)
 		require.NoError(t, err)
 		assert.Equal(t, `"{node1@host1|proc1}"`, string(data))
 	})
 
 	t.Run("without node", func(t *testing.T) {
 		pid := PID{Host: "host1", UniqID: "proc1"}
-		data, err := json.Marshal(pid)
+		data, err := json.Marshal(&pid)
 		require.NoError(t, err)
 		assert.Equal(t, `"{host1|proc1}"`, string(data))
 	})
@@ -150,7 +150,7 @@ func TestPID_UnmarshalJSON(t *testing.T) {
 func TestPID_JSONRoundTrip(t *testing.T) {
 	original := PID{Node: "node1", Host: "host1", UniqID: "proc1"}
 
-	data, err := json.Marshal(original)
+	data, err := json.Marshal(&original)
 	require.NoError(t, err)
 
 	var parsed PID

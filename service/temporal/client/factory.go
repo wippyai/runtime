@@ -92,7 +92,7 @@ func (f *DefaultClientFactory) buildClientOptions(ctx context.Context, logger *z
 	}
 
 	// Configure TLS
-	if err := f.configureTLS(config, &opts); err != nil {
+	if err := f.configureTLS(logger, config, &opts); err != nil {
 		return opts, fmt.Errorf("failed to configure TLS: %w", err)
 	}
 
