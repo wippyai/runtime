@@ -15,7 +15,3 @@ var (
 	ErrPayloadColumnNameInvalid  = apierror.New(apierror.Invalid, "payload column name contains invalid characters").WithRetryable(apierror.False)
 	ErrExpireColumnNameInvalid   = apierror.New(apierror.Invalid, "expire column name contains invalid characters").WithRetryable(apierror.False)
 )
-
-func NewInvalidCleanupIntervalError(cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid cleanup interval duration").WithCause(cause).WithRetryable(apierror.False)
-}

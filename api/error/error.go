@@ -97,7 +97,12 @@ type err struct {
 	cause     error
 }
 
-func (e *err) Error() string             { return e.message }
+func (e *err) Error() string {
+	if e.cause != nil {
+		return e.message + ": " + e.cause.Error()
+	}
+	return e.message
+}
 func (e *err) Kind() Kind                { return e.kind }
 func (e *err) Retryable() Ternary        { return e.retryable }
 func (e *err) Details() attrs.Attributes { return e.details }

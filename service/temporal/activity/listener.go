@@ -66,8 +66,14 @@ func (l *Listener) handleEntry(ctx context.Context, entry registry.Entry) error 
 
 	activityMeta := l.getActivityMetadata(entry)
 	if activityMeta == nil {
+		l.log.Debug("no temporal.activity metadata",
+			zap.String("entry", entry.ID.String()),
+			zap.String("kind", entry.Kind))
 		return nil
 	}
+
+	l.log.Info("found temporal activity metadata",
+		zap.String("entry", entry.ID.String()))
 
 	workerID, err := l.getWorkerID(activityMeta, entry.ID.NS)
 	if err != nil {

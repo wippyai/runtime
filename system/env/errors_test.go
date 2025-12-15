@@ -28,7 +28,7 @@ func TestErrors(t *testing.T) {
 	t.Run("NewCreateStorageError", func(t *testing.T) {
 		cause := errors.New("permission denied")
 		err := NewCreateStorageError(cause)
-		assert.Equal(t, "failed to create storage", err.Error())
+		assert.Equal(t, "failed to create storage: permission denied", err.Error())
 		assert.Equal(t, cause, errors.Unwrap(err))
 	})
 
@@ -112,7 +112,7 @@ func TestErrors(t *testing.T) {
 	t.Run("NewDecodeConfigError", func(t *testing.T) {
 		cause := errors.New("json error")
 		err := NewDecodeConfigError(cause)
-		assert.Equal(t, "failed to decode configuration", err.Error())
+		assert.Equal(t, "failed to decode configuration: json error", err.Error())
 		assert.Equal(t, "Invalid", err.Kind().String())
 		assert.Equal(t, cause, errors.Unwrap(err))
 	})
@@ -120,7 +120,7 @@ func TestErrors(t *testing.T) {
 	t.Run("NewInvalidConfigError", func(t *testing.T) {
 		cause := errors.New("missing field")
 		err := NewInvalidConfigError(cause)
-		assert.Equal(t, "invalid configuration", err.Error())
+		assert.Equal(t, "invalid configuration: missing field", err.Error())
 		assert.Equal(t, cause, errors.Unwrap(err))
 	})
 

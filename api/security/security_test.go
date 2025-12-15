@@ -256,7 +256,7 @@ func TestErrorMethods(t *testing.T) {
 		cause := errors.New("underlying cause")
 		newErr := ErrPolicyNotFound.WithCause(cause)
 		assert.Equal(t, cause, errors.Unwrap(newErr))
-		assert.Equal(t, ErrPolicyNotFound.Error(), newErr.Error())
+		assert.Equal(t, "policy not found: underlying cause", newErr.Error())
 	})
 
 	t.Run("WithDetails", func(t *testing.T) {

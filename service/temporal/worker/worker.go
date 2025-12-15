@@ -387,11 +387,12 @@ func (w *Worker) registerWorkflow(_ context.Context, reg *WorkflowRegistration) 
 func (w *Worker) createActivityHandler(_ context.Context, funcID registry.ID) func(context.Context, []payload.Payload) ([]payload.Payload, error) {
 	return func(activityCtx context.Context, input []payload.Payload) ([]payload.Payload, error) {
 		info := activity.GetInfo(activityCtx)
-		w.log.Debug("executing",
+		w.log.Info("executing activity",
 			zap.String("type", info.ActivityType.Name),
-			zap.String("id", info.ActivityID),
+			zap.String("function", funcID.String()),
 			zap.String("workflow_id", info.WorkflowExecution.ID),
 			zap.Int32("attempt", info.Attempt),
+			zap.Int("payloads", len(input)),
 		)
 
 		// Use application context (has wippy components) but respect activity cancellation
@@ -415,8 +416,9 @@ func (w *Worker) createActivityHandler(_ context.Context, funcID registry.ID) fu
 			},
 		})
 		if err != nil {
-			w.log.Error("execution failed",
+			w.log.Error("activity call failed",
 				zap.String("type", info.ActivityType.Name),
+				zap.String("function", funcID.String()),
 				zap.Error(err),
 			)
 			return nil, err
@@ -426,15 +428,17 @@ func (w *Worker) createActivityHandler(_ context.Context, funcID registry.ID) fu
 			return nil, fmt.Errorf("received nil result from function executor")
 		}
 		if result.Error != nil {
-			w.log.Error("execution failed",
+			w.log.Error("activity execution failed",
 				zap.String("type", info.ActivityType.Name),
+				zap.String("function", funcID.String()),
 				zap.Error(result.Error),
 			)
 			return nil, result.Error
 		}
 
-		w.log.Debug("completed",
+		w.log.Info("activity completed",
 			zap.String("type", info.ActivityType.Name),
+			zap.String("function", funcID.String()),
 		)
 
 		return []payload.Payload{result.Value}, nil

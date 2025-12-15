@@ -6,7 +6,7 @@ import (
 )
 
 func NewSubscriberError(err error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to create subscriber: "+err.Error()).
+	return apierror.New(apierror.Internal, "failed to create subscriber").
 		WithRetryable(apierror.True).
 		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
 		WithCause(err)
@@ -58,7 +58,7 @@ func NewInvalidVariableNameError(name string, reason string) apierror.Error {
 }
 
 func NewInvalidVariableError(err error) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid variable: "+err.Error()).
+	return apierror.New(apierror.Invalid, "invalid variable").
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
 		WithCause(err)

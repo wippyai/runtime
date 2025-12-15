@@ -6,7 +6,7 @@ import (
 )
 
 func NewSubscriberError(err error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to create subscriber: "+err.Error()).
+	return apierror.New(apierror.Internal, "failed to create subscriber").
 		WithRetryable(apierror.True).
 		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
 		WithCause(err)

@@ -40,4 +40,51 @@ func TestErrorConstructors(t *testing.T) {
 		assert.Equal(t, apierror.Internal, err.Kind())
 		assert.True(t, errors.Is(err, cause))
 	})
+
+	t.Run("NewNoTranscodingPathError", func(t *testing.T) {
+		err := payload.NewNoTranscodingPathError("json", "golang")
+		assert.Contains(t, err.Error(), "json")
+		assert.Contains(t, err.Error(), "golang")
+		assert.Equal(t, apierror.NotFound, err.Kind())
+		from, _ := err.Details().Get("from")
+		assert.Equal(t, "json", from)
+		to, _ := err.Details().Get("to")
+		assert.Equal(t, "golang", to)
+	})
+
+	t.Run("NewNoTranscoderError", func(t *testing.T) {
+		err := payload.NewNoTranscoderError("json", "golang")
+		assert.Contains(t, err.Error(), "no transcoder registered")
+		assert.Equal(t, apierror.NotFound, err.Kind())
+	})
+
+	t.Run("NewNoUnmarshalPathError", func(t *testing.T) {
+		err := payload.NewNoUnmarshalPathError("json")
+		assert.Contains(t, err.Error(), "unmarshaling path")
+		assert.Equal(t, apierror.NotFound, err.Kind())
+	})
+
+	t.Run("NewInvalidFormatError", func(t *testing.T) {
+		err := payload.NewInvalidFormatError("input", "json", "golang")
+		assert.Contains(t, err.Error(), "input")
+		assert.Equal(t, apierror.Invalid, err.Kind())
+		direction, _ := err.Details().Get("direction")
+		assert.Equal(t, "input", direction)
+	})
+
+	t.Run("NewInvalidDataTypeError", func(t *testing.T) {
+		err := payload.NewInvalidDataTypeError("input", "string", "int")
+		assert.Contains(t, err.Error(), "input")
+		assert.Contains(t, err.Error(), "string")
+		assert.Equal(t, apierror.Invalid, err.Kind())
+	})
+
+	t.Run("NewUnmarshalError", func(t *testing.T) {
+		cause := errors.New("unmarshal failed")
+		err := payload.NewUnmarshalError("json", cause)
+		assert.Contains(t, err.Error(), "unmarshal")
+		assert.Contains(t, err.Error(), "json")
+		assert.Equal(t, apierror.Invalid, err.Kind())
+		assert.True(t, errors.Is(err, cause))
+	})
 }

@@ -136,7 +136,7 @@ func TestErrorMethods(t *testing.T) {
 		cause := errors.New("underlying cause")
 		newErr := ErrCallNotFound.WithCause(cause)
 		assert.Equal(t, cause, errors.Unwrap(newErr))
-		assert.Equal(t, ErrCallNotFound.Error(), newErr.Error())
+		assert.Equal(t, "async call not found: underlying cause", newErr.Error())
 	})
 
 	t.Run("WithDetails", func(t *testing.T) {

@@ -309,7 +309,7 @@ func TestErrorMethods(t *testing.T) {
 		cause := errors.New("underlying cause")
 		newErr := apierror.SetCause(ErrHostNotFound, cause)
 		assert.True(t, errors.Is(newErr, cause))
-		assert.Equal(t, ErrHostNotFound.Error(), newErr.Error())
+		assert.Equal(t, "host not found: underlying cause", newErr.Error())
 	})
 
 	t.Run("SetDetails", func(t *testing.T) {

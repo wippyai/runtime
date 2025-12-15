@@ -116,11 +116,11 @@ func NewScriptReturnError(message string) apierror.Error {
 }
 
 func NewTranscodeError(message string, cause error) apierror.Error {
-	return apierror.New(apierror.Internal, message+": "+cause.Error()).WithCause(cause).WithRetryable(apierror.False)
+	return apierror.New(apierror.Internal, message).WithCause(cause).WithRetryable(apierror.False)
 }
 
 func NewConversionError(message string, cause error) apierror.Error {
-	return apierror.New(apierror.Internal, message+": "+cause.Error()).WithCause(cause).WithRetryable(apierror.False)
+	return apierror.New(apierror.Internal, message).WithCause(cause).WithRetryable(apierror.False)
 }
 
 func NewInvalidPoolSizeError() apierror.Error {

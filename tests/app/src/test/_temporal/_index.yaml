@@ -1,37 +1,44 @@
-ns: app.test.temporal
+version: "1.0"
+namespace: app.test.temporal
 
-# Temporal client configuration
-- kind: temporal.client
-  name: test_client
-  data:
-    host_port: ${TEMPORAL_HOST_PORT:localhost:7233}
-    namespace: ${TEMPORAL_NAMESPACE:default}
+entries:
+  # Temporal client configuration
+  - name: test_client
+    kind: temporal.client
+    address: localhost:7233
+    namespace: default
+    auth:
+      type: none
+    lifecycle:
+      auto_start: true
 
-# Temporal worker configuration - handles activities
-- kind: temporal.worker
-  name: test_worker
-  data:
-    client: test_client
+  # Temporal worker configuration - handles activities only
+  - name: test_worker
+    kind: temporal.worker
+    client: app.test.temporal:test_client
     task_queue: test-queue
     worker_options:
       max_concurrent_activity_execution_size: 10
+      disable_workflow_worker: true
+    lifecycle:
+      auto_start: true
 
-# Echo activity - simple echo for testing
-- kind: process.lua
-  name: echo_activity
-  data:
-    file: echo_activity.lua
-  meta:
-    temporal:
-      activity:
-        worker: test_worker
+  # Echo activity - simple echo for testing
+  - name: echo_activity
+    kind: function.lua
+    source: file://echo_activity.lua
+    method: main
+    meta:
+      temporal:
+        activity:
+          worker: app.test.temporal:test_worker
 
-# ProcessData activity - processes data with id and name
-- kind: process.lua
-  name: process_data
-  data:
-    file: process_data.lua
-  meta:
-    temporal:
-      activity:
-        worker: test_worker
+  # ProcessData activity - processes data with id and name
+  - name: process_data
+    kind: function.lua
+    source: file://process_data.lua
+    method: main
+    meta:
+      temporal:
+        activity:
+          worker: app.test.temporal:test_worker

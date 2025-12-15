@@ -1,6 +1,9 @@
 package consumer
 
 import (
+	"fmt"
+
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/supervisor"
 )
@@ -44,14 +47,14 @@ func (c *Config) Validate() error {
 		c.Concurrency = DefaultConcurrency
 	}
 	if c.Concurrency > MaxConcurrency {
-		return NewConcurrencyExceededError(c.Concurrency, MaxConcurrency)
+		return apierror.New(apierror.Invalid, fmt.Sprintf("concurrency %d exceeds maximum %d", c.Concurrency, MaxConcurrency)).WithRetryable(apierror.False)
 	}
 
 	if c.Prefetch <= 0 {
 		c.Prefetch = DefaultPrefetch
 	}
 	if c.Prefetch > MaxPrefetch {
-		return NewPrefetchExceededError(c.Prefetch, MaxPrefetch)
+		return apierror.New(apierror.Invalid, fmt.Sprintf("prefetch %d exceeds maximum %d", c.Prefetch, MaxPrefetch)).WithRetryable(apierror.False)
 	}
 
 	return nil

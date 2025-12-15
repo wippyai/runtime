@@ -40,10 +40,6 @@ func NewServerNotFoundError(id string) apierror.Error {
 		WithDetails(attrs.NewBagFrom(map[string]any{"id": id}))
 }
 
-func NewInvalidHTTPMethodError(method string) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid HTTP method: "+method).WithRetryable(apierror.False)
-}
-
 func NewRouterNotFoundError(id string) apierror.Error {
 	return apierror.New(apierror.NotFound, "router "+id+" not found")
 }

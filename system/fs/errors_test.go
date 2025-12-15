@@ -22,44 +22,44 @@ func TestImplementationErrors(t *testing.T) {
 
 	t.Run("NewGetFilesystemError", func(t *testing.T) {
 		err := NewGetFilesystemError(cause)
-		assert.Equal(t, "failed to get filesystem", err.Error())
+		assert.Equal(t, "failed to get filesystem: test cause", err.Error())
 		assert.Equal(t, "Internal", err.Kind().String())
 		assert.Equal(t, "Unspecified", err.Retryable().String())
 	})
 
 	t.Run("NewCreateFilesystemError", func(t *testing.T) {
 		err := NewCreateFilesystemError(cause)
-		assert.Equal(t, "failed to create filesystem", err.Error())
+		assert.Equal(t, "failed to create filesystem: test cause", err.Error())
 		assert.Equal(t, cause, errors.Unwrap(err))
 	})
 
 	t.Run("NewCreateDirectoryError", func(t *testing.T) {
 		err := NewCreateDirectoryError(cause)
-		assert.Equal(t, "failed to create directory", err.Error())
+		assert.Equal(t, "failed to create directory: test cause", err.Error())
 		assert.Equal(t, cause, errors.Unwrap(err))
 	})
 
 	t.Run("NewOpenDirectoryError", func(t *testing.T) {
 		err := NewOpenDirectoryError(cause)
-		assert.Equal(t, "failed to open directory", err.Error())
+		assert.Equal(t, "failed to open directory: test cause", err.Error())
 		assert.Equal(t, cause, errors.Unwrap(err))
 	})
 
 	t.Run("NewStatError", func(t *testing.T) {
 		err := NewStatError(cause)
-		assert.Equal(t, "stat failed", err.Error())
+		assert.Equal(t, "stat failed: test cause", err.Error())
 		assert.Equal(t, cause, errors.Unwrap(err))
 	})
 
 	t.Run("NewOpenError", func(t *testing.T) {
 		err := NewOpenError(cause)
-		assert.Equal(t, "open failed", err.Error())
+		assert.Equal(t, "open failed: test cause", err.Error())
 		assert.Equal(t, cause, errors.Unwrap(err))
 	})
 
 	t.Run("NewGetEmbeddedFilesystemError", func(t *testing.T) {
 		err := NewGetEmbeddedFilesystemError(cause)
-		assert.Equal(t, "failed to get embedded filesystem", err.Error())
+		assert.Equal(t, "failed to get embedded filesystem: test cause", err.Error())
 		assert.Equal(t, cause, errors.Unwrap(err))
 	})
 
@@ -75,7 +75,7 @@ func TestImplementationErrors(t *testing.T) {
 
 	t.Run("NewDecodeConfigError", func(t *testing.T) {
 		err := NewDecodeConfigError(cause)
-		assert.Equal(t, "failed to decode config", err.Error())
+		assert.Equal(t, "failed to decode config: test cause", err.Error())
 		assert.Equal(t, "Invalid", err.Kind().String())
 		assert.Equal(t, cause, errors.Unwrap(err))
 	})
@@ -102,7 +102,7 @@ func TestImplementationErrors(t *testing.T) {
 
 	t.Run("NewInvalidPathError", func(t *testing.T) {
 		err := NewInvalidPathError(cause)
-		assert.Equal(t, "invalid path", err.Error())
+		assert.Equal(t, "invalid path: test cause", err.Error())
 		assert.Equal(t, "Invalid", err.Kind().String())
 	})
 
@@ -142,7 +142,7 @@ func TestImplementationErrors(t *testing.T) {
 
 	t.Run("NewPermissionDeniedError", func(t *testing.T) {
 		err := NewPermissionDeniedError(0o644, 0o755, cause)
-		assert.Equal(t, "permission denied", err.Error())
+		assert.Equal(t, "permission denied: test cause", err.Error())
 		assert.Equal(t, "PermissionDenied", err.Kind().String())
 		assert.Equal(t, cause, errors.Unwrap(err))
 		details := err.Details()

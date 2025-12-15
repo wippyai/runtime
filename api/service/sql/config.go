@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/supervisor"
 )
@@ -91,7 +92,7 @@ func (c *PoolConfig) UnmarshalJSON(data []byte) error {
 	if aux.MaxLifetime != "" {
 		duration, err := time.ParseDuration(aux.MaxLifetime)
 		if err != nil {
-			return NewInvalidDurationError(err)
+			return apierror.New(apierror.Invalid, "invalid duration format").WithCause(err).WithRetryable(apierror.False)
 		}
 		c.MaxLifetime = duration
 	}

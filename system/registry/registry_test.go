@@ -359,7 +359,7 @@ func TestInMemoryRegistry_Apply_HistorySaveError(t *testing.T) {
 		return
 	}
 
-	expectedErrorMsg := "failed to save new version: history error, recovered"
+	expectedErrorMsg := "failed to save new version, recovered: history error"
 	if err.Error() != expectedErrorMsg {
 		t.Errorf("Expected error message: '%v', got: '%v'", expectedErrorMsg, err.Error())
 	}
@@ -507,7 +507,7 @@ func TestInMemoryRegistry_Apply_Rollback_Success(t *testing.T) {
 		return
 	}
 
-	expectedErrorMsg := "failed to save new version: history error, recovered"
+	expectedErrorMsg := "failed to save new version, recovered: history error"
 	if err.Error() != expectedErrorMsg {
 		t.Errorf("Expected error message: '%v', got: '%v'", expectedErrorMsg, err.Error())
 	}
@@ -582,7 +582,7 @@ func TestInMemoryRegistry_Apply_Rollback_Failure(t *testing.T) {
 		return
 	}
 
-	expectedErrorMsg := fmt.Sprintf("failed to save new version: history error, failed to rollback: %v", rollbackErr)
+	expectedErrorMsg := fmt.Sprintf("failed to save new version, rollback failed: %v: history error", rollbackErr)
 	if err.Error() != expectedErrorMsg {
 		t.Errorf("Expected error message: '%v', got: '%v'", expectedErrorMsg, err.Error())
 	}

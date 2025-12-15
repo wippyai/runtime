@@ -75,7 +75,7 @@ func Component() boot.Component {
 
 			// Register Temporal dependency patterns
 			temporalPatterns := []regapi.DependencyPattern{
-				{Path: "data.client", Description: "Reference to Temporal client"},
+				{Path: "client", Description: "Reference to Temporal client"},
 				{Path: "meta.temporal.activity.worker", Description: "Reference to Temporal worker for activity"},
 				{Path: "meta.temporal.workflow.worker", Description: "Reference to Temporal worker for workflow"},
 			}

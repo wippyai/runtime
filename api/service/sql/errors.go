@@ -13,7 +13,3 @@ var (
 	ErrInvalidMaxLifetime = apierror.New(apierror.Invalid, "max lifetime must be greater than 0").WithRetryable(apierror.False)
 	ErrFileRequired       = apierror.New(apierror.Invalid, "file path is required").WithRetryable(apierror.False)
 )
-
-func NewInvalidDurationError(cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid duration format").WithCause(cause).WithRetryable(apierror.False)
-}

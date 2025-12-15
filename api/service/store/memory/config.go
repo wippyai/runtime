@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/supervisor"
 )
@@ -82,7 +83,7 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	if aux.CleanupInterval != "" {
 		c.CleanupInterval, err = time.ParseDuration(aux.CleanupInterval)
 		if err != nil {
-			return NewInvalidDurationError(err)
+			return apierror.New(apierror.Invalid, "invalid duration format").WithCause(err).WithRetryable(apierror.False)
 		}
 	}
 

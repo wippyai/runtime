@@ -3,7 +3,6 @@ package sql
 
 import (
 	"encoding/json"
-	"errors"
 	"testing"
 	"time"
 
@@ -588,11 +587,4 @@ func TestErrorConstants(t *testing.T) {
 	assert.Contains(t, ErrInvalidMaxIdle.Error(), "max idle connections must be non-negative")
 	assert.Contains(t, ErrInvalidMaxLifetime.Error(), "max lifetime must be greater than 0")
 	assert.Contains(t, ErrFileRequired.Error(), "file path is required")
-}
-
-func TestNewInvalidDurationError(t *testing.T) {
-	cause := errors.New("parse error")
-	err := NewInvalidDurationError(cause)
-	assert.Contains(t, err.Error(), "invalid duration format")
-	assert.Equal(t, cause, errors.Unwrap(err))
 }

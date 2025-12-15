@@ -251,7 +251,8 @@ func TestErrorMethods(t *testing.T) {
 	t.Run("SetCause", func(t *testing.T) {
 		causeErr := assert.AnError
 		err := apierror.SetCause(queue.ErrDriverNotFound, causeErr)
-		assert.Equal(t, "queue driver not found", err.Error())
+		assert.Contains(t, err.Error(), "queue driver not found")
+		assert.Contains(t, err.Error(), causeErr.Error())
 		assert.True(t, errors.Is(err, causeErr))
 	})
 
@@ -265,7 +266,7 @@ func TestErrorMethods(t *testing.T) {
 		details := attrs.NewBag()
 		details.Set("key", "value")
 		err := apierror.SetDetails(queue.ErrDriverNotFound, details)
-		assert.Equal(t, "queue driver not found", err.Error())
+		assert.Contains(t, err.Error(), "queue driver not found")
 		assert.Equal(t, details, err.Details())
 	})
 }

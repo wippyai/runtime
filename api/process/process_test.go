@@ -16,7 +16,6 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/internal/uniqid"
-	sysprocess "github.com/wippyai/runtime/system/process"
 )
 
 func TestStepOutput_Result(t *testing.T) {
@@ -173,7 +172,7 @@ func TestError_WithCause(t *testing.T) {
 	cause := errors.New("underlying cause")
 	err := ErrProcessNotFound.WithCause(cause)
 
-	assert.Equal(t, "process not found", err.Error())
+	assert.Equal(t, "process not found: underlying cause", err.Error())
 	assert.Equal(t, NotFound, err.Kind())
 	assert.Equal(t, cause, errors.Unwrap(err))
 	assert.True(t, errors.Is(err, cause))
@@ -188,23 +187,6 @@ func TestError_WithDetails(t *testing.T) {
 	val, ok := err.Details().Get("pid")
 	assert.True(t, ok)
 	assert.Equal(t, "12345", val)
-}
-
-func TestUnknownCommandError(t *testing.T) {
-	err := sysprocess.NewUnknownCommandError(999)
-
-	assert.Equal(t, "unknown command: 999", err.Error())
-	assert.Equal(t, "NotFound", string(err.Kind()))
-	assert.Equal(t, "False", err.Retryable().String())
-
-	details := err.Details()
-	assert.NotNil(t, details)
-	cmdID, ok := details.Get("command_id")
-	assert.True(t, ok)
-	assert.Equal(t, 999, cmdID)
-
-	details2 := err.Details()
-	assert.Equal(t, details, details2)
 }
 
 func TestEventQueue_Basic(t *testing.T) {

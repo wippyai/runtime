@@ -63,3 +63,7 @@ func NewDeleteTokenError(cause error) apierror.Error {
 func NewGenerateRandomTokenError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to generate random token").WithCause(cause)
 }
+
+func NewInvalidDefaultExpirationError(cause error) apierror.Error {
+	return apierror.New(apierror.Invalid, "invalid default expiration duration").WithCause(cause).WithRetryable(apierror.False)
+}

@@ -3,11 +3,10 @@ package payload
 import (
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
-	"github.com/wippyai/runtime/api/payload"
 )
 
 // NewNoTranscodingPathError creates an error when no transcoding path is found.
-func NewNoTranscodingPathError(from, to payload.Format) apierror.Error {
+func NewNoTranscodingPathError(from, to string) apierror.Error {
 	return apierror.E(
 		apierror.NotFound,
 		"no transcoding path found from "+from+" to "+to,
@@ -29,7 +28,7 @@ func NewNoTranscoderError(from, to string) apierror.Error {
 }
 
 // NewNoUnmarshalPathError creates an error when no unmarshal path is found.
-func NewNoUnmarshalPathError(format payload.Format) apierror.Error {
+func NewNoUnmarshalPathError(format string) apierror.Error {
 	return apierror.E(
 		apierror.NotFound,
 		"no unmarshaling path found for format "+format,
@@ -40,7 +39,7 @@ func NewNoUnmarshalPathError(format payload.Format) apierror.Error {
 }
 
 // NewInvalidFormatError creates an error for invalid format input during transcoding.
-func NewInvalidFormatError(direction string, expected, got payload.Format) apierror.Error {
+func NewInvalidFormatError(direction string, expected, got string) apierror.Error {
 	return apierror.E(
 		apierror.Invalid,
 		direction+" can only transcode from "+expected+" format, got "+got,

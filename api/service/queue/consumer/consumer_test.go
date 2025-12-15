@@ -115,15 +115,3 @@ func TestErrors(t *testing.T) {
 	assert.Equal(t, "queue ID is required", ErrQueueIDRequired.Error())
 	assert.Equal(t, "function ID is required", ErrFunctionIDRequired.Error())
 }
-
-func TestNewConcurrencyExceededError(t *testing.T) {
-	err := NewConcurrencyExceededError(2000, 1000)
-	assert.Contains(t, err.Error(), "2000")
-	assert.Contains(t, err.Error(), "1000")
-}
-
-func TestNewPrefetchExceededError(t *testing.T) {
-	err := NewPrefetchExceededError(20000, 10000)
-	assert.Contains(t, err.Error(), "20000")
-	assert.Contains(t, err.Error(), "10000")
-}

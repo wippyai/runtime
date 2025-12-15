@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/supervisor"
 )
@@ -139,7 +140,7 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	if aux.CleanupInterval != "" {
 		c.CleanupInterval, err = time.ParseDuration(aux.CleanupInterval)
 		if err != nil {
-			return NewInvalidCleanupIntervalError(err)
+			return apierror.New(apierror.Invalid, "invalid cleanup interval duration").WithCause(err).WithRetryable(apierror.False)
 		}
 	}
 

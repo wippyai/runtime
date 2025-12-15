@@ -88,7 +88,7 @@ func TestErrorMethods(t *testing.T) {
 		cause := errors.New("underlying cause")
 		newErr := apierror.SetCause(ErrPIDNotFound, cause)
 		assert.True(t, errors.Is(newErr, cause))
-		assert.Equal(t, ErrPIDNotFound.Error(), newErr.Error())
+		assert.Equal(t, "pid not found: underlying cause", newErr.Error())
 	})
 
 	t.Run("SetDetails", func(t *testing.T) {

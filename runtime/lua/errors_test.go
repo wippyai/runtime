@@ -43,7 +43,7 @@ func TestImplementationErrorFactories(t *testing.T) {
 		if err.Kind() != apierror.Internal {
 			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}
-		expected := "failed to unpack function config"
+		expected := "failed to unpack function config: json parse error"
 		if err.Error() != expected {
 			t.Errorf("Error() = %q, want %q", err.Error(), expected)
 		}
@@ -74,7 +74,7 @@ func TestImplementationErrorFactories(t *testing.T) {
 		if err.Kind() != apierror.Internal {
 			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}
-		expected := "failed to add function node"
+		expected := "failed to add function node: duplicate key"
 		if err.Error() != expected {
 			t.Errorf("Error() = %q, want %q", err.Error(), expected)
 		}
@@ -134,7 +134,7 @@ func TestImplementationErrorFactories(t *testing.T) {
 		if err.Kind() != apierror.Internal {
 			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}
-		expected := "failed to initialize module: sql"
+		expected := "failed to initialize module: sql: module error"
 		if err.Error() != expected {
 			t.Errorf("Error() = %q, want %q", err.Error(), expected)
 		}
@@ -204,8 +204,8 @@ func TestImplementationErrorFactories(t *testing.T) {
 		if err.Kind() != apierror.Internal {
 			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}
-		if err.Error() != "custom operation" {
-			t.Errorf("Error() = %q, want %q", err.Error(), "custom operation")
+		if err.Error() != "custom operation: operation failed" {
+			t.Errorf("Error() = %q, want %q", err.Error(), "custom operation: operation failed")
 		}
 	})
 
@@ -352,7 +352,7 @@ func TestBytecodeErrorFactories(t *testing.T) {
 		if err.Kind() != apierror.NotFound {
 			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.NotFound)
 		}
-		expected := "failed to open file: /path/to/file.lua"
+		expected := "failed to open file: /path/to/file.lua: permission denied"
 		if err.Error() != expected {
 			t.Errorf("Error() = %q, want %q", err.Error(), expected)
 		}

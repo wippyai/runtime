@@ -149,7 +149,7 @@ func TestErrorMethods(t *testing.T) {
 	t.Run("SetCause", func(t *testing.T) {
 		cause := errors.New("underlying cause")
 		err := apierror.SetCause(ErrTerminated, cause)
-		assert.Equal(t, "service terminated", err.Error())
+		assert.Equal(t, "service terminated: underlying cause", err.Error())
 		assert.True(t, errors.Is(err, cause))
 	})
 

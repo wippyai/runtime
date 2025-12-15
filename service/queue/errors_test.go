@@ -55,7 +55,7 @@ func TestErrorConstructors(t *testing.T) {
 	t.Run("NewConfigError", func(t *testing.T) {
 		cause := errors.New("test error")
 		err := NewConfigError("invalid config", cause)
-		assert.Equal(t, "invalid config", err.Error())
+		assert.Equal(t, "invalid config: test error", err.Error())
 		assert.Equal(t, apierror.Invalid, err.Kind())
 		assert.True(t, errors.Is(err, cause))
 	})

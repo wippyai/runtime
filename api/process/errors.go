@@ -53,7 +53,12 @@ type (
 	}
 )
 
-func (e *Error) Error() string             { return e.message }
+func (e *Error) Error() string {
+	if e.cause != nil {
+		return e.message + ": " + e.cause.Error()
+	}
+	return e.message
+}
 func (e *Error) Kind() Kind                { return e.kind }
 func (e *Error) Details() attrs.Attributes { return e.details }
 func (e *Error) Unwrap() error             { return e.cause }

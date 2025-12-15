@@ -145,7 +145,7 @@ func (rm *RouteManager) AddRoute(routerID registry.ID, id registry.ID, method, p
 		http.MethodPatch, http.MethodHead, http.MethodOptions, http.MethodTrace:
 		// Valid method
 	default:
-		return NewInvalidHTTPMethodError(method)
+		return httpapi.NewInvalidHTTPMethodError(method)
 	}
 
 	// Validate path

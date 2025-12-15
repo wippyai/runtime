@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
-	"fmt"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
-	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
@@ -21,66 +22,47 @@ var (
 	namespace = flag.String("namespace", "default", "Temporal namespace")
 )
 
-// ProcessDataInput is the input for ProcessData activity
-type ProcessDataInput struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-}
-
-// ProcessDataOutput is the output from ProcessData activity
-type ProcessDataOutput struct {
-	Message string `json:"message"`
-	Status  string `json:"status"`
-}
-
-// ProcessData activity processes incoming data
-func ProcessData(ctx context.Context, input ProcessDataInput) (*ProcessDataOutput, error) {
-	info := activity.GetInfo(ctx)
-	log.Printf("[Activity] ProcessData executing: id=%s, name=%s (attempt %d)",
-		input.ID, input.Name, info.Attempt)
-
-	return &ProcessDataOutput{
-		Message: fmt.Sprintf("Processed: id=%s, name=%s", input.ID, input.Name),
-		Status:  "success",
-	}, nil
-}
-
-// EchoActivity returns whatever was sent to it
-func EchoActivity(ctx context.Context, data map[string]interface{}) (map[string]interface{}, error) {
-	log.Printf("[Activity] Echo: %v", data)
-	return data, nil
-}
-
-// SimpleWorkflow executes ProcessData activity
-func SimpleWorkflow(ctx workflow.Context, name string) (*ProcessDataOutput, error) {
-	options := workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
-	}
-	ctx = workflow.WithActivityOptions(ctx, options)
-
-	var result ProcessDataOutput
-	err := workflow.ExecuteActivity(ctx, ProcessData, ProcessDataInput{
-		ID:   fmt.Sprintf("wf-%d", workflow.Now(ctx).Unix()),
-		Name: name,
-	}).Get(ctx, &result)
-
-	return &result, err
-}
-
-// EchoWorkflow executes EchoActivity
-func EchoWorkflow(ctx workflow.Context, data map[string]interface{}) (map[string]interface{}, error) {
+// WippyEchoWorkflow calls the wippy echo_activity
+func WippyEchoWorkflow(ctx workflow.Context, data map[string]interface{}) (map[string]interface{}, error) {
 	options := workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
 	}
 	ctx = workflow.WithActivityOptions(ctx, options)
 
 	var result map[string]interface{}
-	err := workflow.ExecuteActivity(ctx, EchoActivity, data).Get(ctx, &result)
+	// Call wippy activity by its full registry name
+	err := workflow.ExecuteActivity(ctx, "app.test.temporal:echo_activity", data).Get(ctx, &result)
+	return result, err
+}
+
+// WippyProcessDataWorkflow calls the wippy process_data activity
+func WippyProcessDataWorkflow(ctx workflow.Context, data map[string]interface{}) (map[string]interface{}, error) {
+	options := workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Second,
+	}
+	ctx = workflow.WithActivityOptions(ctx, options)
+
+	var result map[string]interface{}
+	// Call wippy activity by its full registry name
+	err := workflow.ExecuteActivity(ctx, "app.test.temporal:process_data", data).Get(ctx, &result)
 	return result, err
 }
 
 func main() {
 	flag.Parse()
+
+	// Setup cancellable context
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Handle signals
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		log.Println("\nReceived interrupt, cancelling...")
+		cancel()
+	}()
 
 	log.Printf("Connecting to Temporal at %s (namespace: %s)", *hostPort, *namespace)
 
@@ -95,44 +77,91 @@ func main() {
 
 	log.Println("Connected to Temporal")
 
-	// Create and start worker
+	// Create worker for workflows only (activities are handled by wippy)
 	w := worker.New(c, taskQueue, worker.Options{})
-	w.RegisterWorkflow(SimpleWorkflow)
-	w.RegisterWorkflow(EchoWorkflow)
-	w.RegisterActivity(ProcessData)
-	w.RegisterActivity(EchoActivity)
+	w.RegisterWorkflow(WippyEchoWorkflow)
+	w.RegisterWorkflow(WippyProcessDataWorkflow)
 
-	log.Printf("Starting worker on queue: %s", taskQueue)
+	log.Printf("Starting workflow worker on queue: %s", taskQueue)
+	log.Println("Note: Activities should be registered by wippy runtime")
+
 	go func() {
 		if err := w.Run(worker.InterruptCh()); err != nil {
-			log.Fatalf("Worker failed: %v", err)
+			log.Printf("Worker stopped: %v", err)
 		}
 	}()
 
 	time.Sleep(500 * time.Millisecond)
 
-	// Run test workflow
-	workflowID := fmt.Sprintf("test-%s", time.Now().Format("20060102-150405"))
-	log.Printf("Starting workflow: %s", workflowID)
+	// Test 1: Echo workflow
+	log.Println("\n=== Test 1: Echo Activity ===")
+	echoWorkflowID := "wippy-echo-" + time.Now().Format("20060102-150405")
 
-	we, err := c.ExecuteWorkflow(context.Background(), client.StartWorkflowOptions{
-		ID:        workflowID,
+	echoInput := map[string]interface{}{
+		"message": "Hello from test client",
+		"count":   42,
+	}
+
+	we, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+		ID:        echoWorkflowID,
 		TaskQueue: taskQueue,
-	}, SimpleWorkflow, "test-input")
+	}, WippyEchoWorkflow, echoInput)
 	if err != nil {
-		log.Fatalf("Failed to execute workflow: %v", err)
+		log.Fatalf("Failed to execute echo workflow: %v", err)
 	}
 
-	log.Printf("Workflow started - ID: %s, RunID: %s", we.GetID(), we.GetRunID())
+	log.Printf("Echo workflow started - ID: %s, RunID: %s", we.GetID(), we.GetRunID())
 
-	var result ProcessDataOutput
-	if err := we.Get(context.Background(), &result); err != nil {
-		log.Fatalf("Workflow failed: %v", err)
+	var echoResult map[string]interface{}
+	if err := we.Get(ctx, &echoResult); err != nil {
+		if ctx.Err() != nil {
+			log.Println("Cancelled")
+			w.Stop()
+			return
+		}
+		log.Fatalf("Echo workflow failed: %v", err)
 	}
 
-	resultJSON, _ := json.MarshalIndent(result, "", "  ")
-	log.Printf("Workflow completed:\n%s", string(resultJSON))
+	echoJSON, _ := json.MarshalIndent(echoResult, "", "  ")
+	log.Printf("Echo result:\n%s", string(echoJSON))
+
+	// Test 2: ProcessData workflow
+	log.Println("\n=== Test 2: ProcessData Activity ===")
+	processWorkflowID := "wippy-process-" + time.Now().Format("20060102-150405")
+
+	processInput := map[string]interface{}{
+		"id":   "test-123",
+		"name": "Test User",
+	}
+
+	we2, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+		ID:        processWorkflowID,
+		TaskQueue: taskQueue,
+	}, WippyProcessDataWorkflow, processInput)
+	if err != nil {
+		if ctx.Err() != nil {
+			log.Println("Cancelled")
+			w.Stop()
+			return
+		}
+		log.Fatalf("Failed to execute process workflow: %v", err)
+	}
+
+	log.Printf("Process workflow started - ID: %s, RunID: %s", we2.GetID(), we2.GetRunID())
+
+	var processResult map[string]interface{}
+	if err := we2.Get(ctx, &processResult); err != nil {
+		if ctx.Err() != nil {
+			log.Println("Cancelled")
+			w.Stop()
+			return
+		}
+		log.Fatalf("Process workflow failed: %v", err)
+	}
+
+	processJSON, _ := json.MarshalIndent(processResult, "", "  ")
+	log.Printf("Process result:\n%s", string(processJSON))
 
 	w.Stop()
-	log.Println("Done")
+	log.Println("\nDone - all tests passed!")
 }

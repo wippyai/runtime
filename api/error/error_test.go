@@ -72,8 +72,8 @@ func TestBuilder_Chaining(t *testing.T) {
 	if e.Kind() != Conflict {
 		t.Errorf("Kind() = %v, want %v", e.Kind(), Conflict)
 	}
-	if e.Error() != "final message" {
-		t.Errorf("Error() = %v, want %v", e.Error(), "final message")
+	if e.Error() != "final message: cause" {
+		t.Errorf("Error() = %v, want %v", e.Error(), "final message: cause")
 	}
 	if e.Retryable() != False {
 		t.Errorf("Retryable() = %v, want %v", e.Retryable(), False)
@@ -92,8 +92,8 @@ func TestE(t *testing.T) {
 	if e.Kind() != Invalid {
 		t.Errorf("Kind() = %v, want %v", e.Kind(), Invalid)
 	}
-	if e.Error() != "validation error" {
-		t.Errorf("Error() = %v, want %v", e.Error(), "validation error")
+	if e.Error() != "validation error: cause" {
+		t.Errorf("Error() = %v, want %v", e.Error(), "validation error: cause")
 	}
 	if e.Retryable() != False {
 		t.Errorf("Retryable() = %v, want %v", e.Retryable(), False)

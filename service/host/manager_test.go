@@ -89,7 +89,7 @@ func TestManager_Add_DecodeError(t *testing.T) {
 
 	var hostErr apierror.Error
 	require.ErrorAs(t, err, &hostErr)
-	assert.Equal(t, "failed to decode host config", hostErr.Error())
+	assert.Contains(t, hostErr.Error(), "failed to decode host config")
 }
 
 func TestManager_Delete(t *testing.T) {
