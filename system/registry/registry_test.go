@@ -11,6 +11,7 @@ import (
 	"testing/fstest"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/boot/loader"
 	"github.com/wippyai/runtime/boot/loader/interpolate"
@@ -1065,7 +1066,7 @@ func TestRegistry_RegisterDependencyPatternNoResolver(t *testing.T) {
 	}
 
 	err := reg.RegisterDependencyPattern(pattern)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Equal(t, ErrDependencyResolverNotInit, err)
 }
 
@@ -1379,7 +1380,7 @@ func TestCollectBackwardChangesets(t *testing.T) {
 		path := []registry.Version{v3}
 		_, err := reg.collectBackwardChangesets(path, v3)
 
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.ErrorIs(t, err, ErrNoCommonAncestor)
 	})
 
@@ -1401,7 +1402,7 @@ func TestCollectBackwardChangesets(t *testing.T) {
 		path := []registry.Version{v0, v1}
 		_, err := reg.collectBackwardChangesets(path, v1)
 
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "get changeset")
 	})
 

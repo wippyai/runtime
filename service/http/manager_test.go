@@ -167,7 +167,7 @@ func TestManager_NewManager(t *testing.T) {
 			staticFactory,
 			logger,
 		)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "transcoder is required")
 
 		_, err = NewManager(
@@ -178,7 +178,7 @@ func TestManager_NewManager(t *testing.T) {
 			staticFactory,
 			logger,
 		)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "event bus is required")
 
 		_, err = NewManager(
@@ -189,7 +189,7 @@ func TestManager_NewManager(t *testing.T) {
 			staticFactory,
 			logger,
 		)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "server factory is required")
 
 		_, err = NewManager(
@@ -200,7 +200,7 @@ func TestManager_NewManager(t *testing.T) {
 			staticFactory,
 			logger,
 		)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "endpoint factory is required")
 
 		_, err = NewManager(
@@ -211,7 +211,7 @@ func TestManager_NewManager(t *testing.T) {
 			nil, // Missing static factory
 			logger,
 		)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "static factory is required")
 	})
 }
@@ -553,17 +553,17 @@ func TestManager_UnsupportedKinds(t *testing.T) {
 
 	// Test Add with unsupported kind
 	err := manager.Add(ctx, unsupportedEntry)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported entry kind")
 
 	// Test Update with unsupported kind
 	err = manager.Update(ctx, unsupportedEntry)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported entry kind")
 
 	// Test Delete with unsupported kind
 	err = manager.Delete(ctx, unsupportedEntry)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported entry kind")
 }
 
@@ -586,7 +586,7 @@ func TestManager_ErrorHandling(t *testing.T) {
 	}
 
 	err := manager.Add(ctx, routerEntry)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "server test:nonexistent not found")
 
 	// Test router not found for endpoint
@@ -607,6 +607,6 @@ func TestManager_ErrorHandling(t *testing.T) {
 	}
 
 	err = manager.Add(ctx, endpointEntry)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "router test:nonexistent not found")
 }

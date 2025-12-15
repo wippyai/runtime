@@ -64,7 +64,7 @@ func TestDeclarationHandler_Add_DriverNotFound(t *testing.T) {
 	}
 
 	err := handler.Add(ctx, entry)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "driver not found")
 }
 

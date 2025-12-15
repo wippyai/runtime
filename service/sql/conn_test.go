@@ -64,7 +64,7 @@ func TestConnPool_StartAfterClose(t *testing.T) {
 	pool.closed.Store(true)
 
 	_, err := pool.Start(ctx)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "closed")
 }
 
@@ -110,7 +110,7 @@ func TestConnPool_AcquireUnsupportedMode(t *testing.T) {
 	defer func() { _ = pool.Stop(ctx) }()
 
 	_, err = pool.Acquire(ctx, testID, resource.ModeExclusive)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported access mode")
 }
 
@@ -125,7 +125,7 @@ func TestConnPool_AcquireAfterClose(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = pool.Acquire(ctx, testID, resource.ModeNormal)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "closed")
 }
 
@@ -279,7 +279,7 @@ func TestConnPool_UpdateConfigWrongType(t *testing.T) {
 	}
 
 	err = pool.UpdateConfig(dbCfg)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid config type")
 }
 
@@ -299,7 +299,7 @@ func TestConnPool_UpdateConfigAfterClose(t *testing.T) {
 	}
 
 	err = pool.UpdateConfig(newCfg)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "closed")
 }
 

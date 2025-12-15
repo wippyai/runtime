@@ -355,7 +355,7 @@ func TestSQLStore_Get_ResourceAcquisitionError(t *testing.T) {
 	result, err := s.Get(ctx, registry.NewID("test", "key"))
 
 	// Verify results
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to acquire database resource")
 	assert.Nil(t, result)
 }
@@ -383,7 +383,7 @@ func TestSQLStore_Get_ResourceGetError(t *testing.T) {
 	result, err := ss.Get(ctx, registry.NewID("test", "key"))
 
 	// Verify results
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to get database connection")
 	assert.Nil(t, result)
 }

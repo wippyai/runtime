@@ -225,7 +225,7 @@ func TestEndpointFactory_CreateHandler(t *testing.T) {
 
 		// Create handler should fail with invalid config
 		_, err := factory.CreateHandler(context.Background(), invalidCfg)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid endpoint config")
 	})
 
@@ -267,7 +267,7 @@ func TestNewEndpointFactory(t *testing.T) {
 	t.Run("with nil registry", func(t *testing.T) {
 		factory, err := NewEndpointFactory(nil)
 
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Nil(t, factory)
 		assert.Contains(t, err.Error(), "function registry is required")
 	})
@@ -347,7 +347,7 @@ func TestStaticFactory_CreateHandler(t *testing.T) {
 		}
 
 		_, err := factory.CreateHandler(context.Background(), invalidCfg)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid static config")
 	})
 
@@ -361,7 +361,7 @@ func TestStaticFactory_CreateHandler(t *testing.T) {
 		}
 
 		_, err := factory.CreateHandler(context.Background(), cfg)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "filesystem not found")
 	})
 
@@ -379,7 +379,7 @@ func TestStaticFactory_CreateHandler(t *testing.T) {
 		}
 
 		_, err := factory.CreateHandler(context.Background(), cfg)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "index file must be specified for SPA mode")
 	})
 }
@@ -398,7 +398,7 @@ func TestNewStaticFactory(t *testing.T) {
 		middlewareFactory := NewMiddlewareRegistry(nil)
 		factory, err := NewStaticFactory(nil, middlewareFactory)
 
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Nil(t, factory)
 		assert.Contains(t, err.Error(), "filesystem registry is required")
 	})
@@ -407,7 +407,7 @@ func TestNewStaticFactory(t *testing.T) {
 		fsRegistry := NewSimpleFSRegistry()
 		factory, err := NewStaticFactory(fsRegistry, nil)
 
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Nil(t, factory)
 		assert.Contains(t, err.Error(), "middleware factory is required")
 	})

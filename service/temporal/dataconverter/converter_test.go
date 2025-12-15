@@ -261,7 +261,7 @@ func TestDataConverter_PayloadNewTranscoding(t *testing.T) {
 
 		// Should fail with transcoding error
 		_, err := conv.ToPayload(p)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "error transcoding value")
 	})
 }

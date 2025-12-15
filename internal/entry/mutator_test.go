@@ -388,7 +388,7 @@ func TestMutator_Append(t *testing.T) {
 		}
 
 		err := mutator.Append(entry, "data.field", "value")
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "cannot append to non-array")
 	})
 
@@ -730,7 +730,7 @@ func TestMutator_Append_Meta_Advanced(t *testing.T) {
 		}
 
 		err := mutator.Append(entry, "meta.field", "value")
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "cannot append to non-array")
 	})
 }

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	pidapi "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 )
@@ -80,9 +81,8 @@ func TestNodeSendHostNotFound(t *testing.T) {
 		},
 	}
 	err := node.Send(pkg)
-	if assert.Error(t, err) {
-		assert.Contains(t, err.Error(), "host nonexistent not found")
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "host nonexistent not found")
 }
 
 func TestNodeSendInvalidHostType(t *testing.T) {
@@ -101,9 +101,8 @@ func TestNodeSendInvalidHostType(t *testing.T) {
 		},
 	}
 	err := node.Send(pkg)
-	if assert.Error(t, err) {
-		assert.Contains(t, err.Error(), "invalid type")
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid type")
 }
 
 func TestNodeSendNonLocalNoUpstream(t *testing.T) {
@@ -120,9 +119,8 @@ func TestNodeSendNonLocalNoUpstream(t *testing.T) {
 		},
 	}
 	err := node.Send(pkg)
-	if assert.Error(t, err) {
-		assert.Contains(t, err.Error(), "cannot route to external node remoteNode")
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot route to external node remoteNode")
 }
 
 func TestNodeAttachLocal(t *testing.T) {
@@ -154,9 +152,8 @@ func TestNodeAttachNonLocal(t *testing.T) {
 	ch := make(chan *relay.Package, 1)
 	cancel, err := node.Attach(pid, ch)
 	assert.Nil(t, cancel)
-	if assert.Error(t, err) {
-		assert.Contains(t, err.Error(), "cannot route to external node remoteNode")
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot route to external node remoteNode")
 }
 
 func TestNodeAttachInvalidHostType(t *testing.T) {
@@ -171,9 +168,8 @@ func TestNodeAttachInvalidHostType(t *testing.T) {
 	ch := make(chan *relay.Package, 1)
 	cancel, err := node.Attach(pid, ch)
 	assert.Nil(t, cancel)
-	if assert.Error(t, err) {
-		assert.Contains(t, err.Error(), "does not support attachment")
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not support attachment")
 }
 
 func TestNodeDetach(t *testing.T) {
@@ -217,9 +213,8 @@ func TestNodeRegisterHostDuplicate(t *testing.T) {
 
 	// Second registration should fail
 	err = node.RegisterHost("host1", dhost)
-	if assert.Error(t, err) {
-		assert.Contains(t, err.Error(), "already exists")
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already exists")
 }
 
 func TestNodeRegisterHostInvalidType(t *testing.T) {
@@ -238,9 +233,8 @@ func TestNodeRegisterHostInvalidType(t *testing.T) {
 	// Try to attach to the invalid host
 	ch := make(chan *relay.Package)
 	_, err := node.Attach(pid, ch)
-	if assert.Error(t, err) {
-		assert.Contains(t, err.Error(), "does not support attachment")
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not support attachment")
 
 	// Try to send to the invalid host
 	pkg := &relay.Package{
@@ -250,9 +244,8 @@ func TestNodeRegisterHostInvalidType(t *testing.T) {
 		},
 	}
 	err = node.Send(pkg)
-	if assert.Error(t, err) {
-		assert.Contains(t, err.Error(), "invalid type")
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid type")
 }
 
 func TestNodeUnregisterHostNonExistent(_ *testing.T) {

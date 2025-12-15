@@ -111,7 +111,7 @@ func TestClient_Start(t *testing.T) {
 		require.NoError(t, err)
 
 		_, err = client.Start(context.Background())
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "client is closed")
 	})
 }
@@ -247,7 +247,7 @@ func TestClient_Acquire(t *testing.T) {
 
 		ctx := context.Background()
 		res, err := client.Acquire(ctx, registry.NewID("test", "client1"), resource.ModeNormal)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Nil(t, res)
 		assert.Contains(t, err.Error(), "client is closed")
 	})
@@ -325,7 +325,7 @@ func TestClientResource_Get(t *testing.T) {
 		res.Release()
 
 		result, err := res.Get()
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Nil(t, result)
 		assert.Contains(t, err.Error(), "resource has been released")
 	})

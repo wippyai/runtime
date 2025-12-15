@@ -75,7 +75,7 @@ func TestManager_Add_QueueNotFound(t *testing.T) {
 	}
 
 	err := manager.Add(ctx, entry)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "queue not found")
 }
 
@@ -104,7 +104,7 @@ func TestManager_Add_DriverNotFound(t *testing.T) {
 	}
 
 	err := manager.Add(ctx, entry)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "driver not found")
 }
 

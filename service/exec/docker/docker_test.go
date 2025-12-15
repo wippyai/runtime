@@ -68,7 +68,7 @@ func TestDockerExecutor_Whitelist(t *testing.T) {
 	assert.NotNil(t, proc)
 
 	_, err = executor.NewProcess("cat /etc/passwd", execapi.ProcessOptions{})
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not in whitelist")
 }
 

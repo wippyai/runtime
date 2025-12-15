@@ -79,7 +79,7 @@ func TestManager_Add_SourceFunction_InvalidKind(t *testing.T) {
 
 	err := manager.Add(context.Background(), entry)
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid entry kind")
 }
 
@@ -102,7 +102,7 @@ func TestManager_Add_SourceFunction_InvalidConfig(t *testing.T) {
 	ctx := setupTestContext()
 	err := manager.Add(ctx, entry)
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to unpack function config")
 }
 
@@ -121,7 +121,7 @@ func TestManager_Add_BytecodeFunction_InvalidKind(t *testing.T) {
 
 	err := manager.Add(context.Background(), entry)
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid entry kind")
 }
 
@@ -144,7 +144,7 @@ func TestManager_Add_BytecodeFunction_InvalidConfig(t *testing.T) {
 	ctx := setupTestContext()
 	err := manager.Add(ctx, entry)
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to unpack function config")
 }
 
@@ -163,7 +163,7 @@ func TestManager_Update_SourceFunction_InvalidKind(t *testing.T) {
 
 	err := manager.Update(context.Background(), entry)
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid entry kind")
 }
 
@@ -182,7 +182,7 @@ func TestManager_Update_BytecodeFunction_InvalidKind(t *testing.T) {
 
 	err := manager.Update(context.Background(), entry)
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid entry kind")
 }
 
@@ -201,7 +201,7 @@ func TestManager_Delete_SourceFunction_InvalidKind(t *testing.T) {
 
 	err := manager.Delete(context.Background(), entry)
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid entry kind")
 }
 
@@ -222,7 +222,7 @@ func TestManager_Delete_AcceptsValidKinds(t *testing.T) {
 		Kind: "invalid",
 	}
 	err := manager.Delete(context.Background(), invalidEntry)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid entry kind")
 
 	// Valid kinds are tested through integration tests with properly initialized code.Manager
@@ -518,7 +518,7 @@ func TestManager_CreatePool_FactoryError(t *testing.T) {
 	}
 
 	err := manager.createPool(id, cfg)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "compile")
 }
 
@@ -538,7 +538,7 @@ func TestManager_CreatePool_UnknownPoolType(t *testing.T) {
 	}
 
 	err := manager.createPool(id, cfg)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to create pool")
 }
 

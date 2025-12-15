@@ -84,7 +84,7 @@ func TestManager_Add_InvalidKind(t *testing.T) {
 
 	err := manager.Add(context.Background(), entry)
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid entry kind")
 }
 
@@ -111,7 +111,7 @@ func TestManager_Add_InvalidConfig(t *testing.T) {
 
 	err := manager.Add(ctx, entry)
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to unpack process config")
 }
 
@@ -129,7 +129,7 @@ func TestManager_Update_InvalidKind(t *testing.T) {
 
 	err := manager.Update(context.Background(), entry)
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid entry kind")
 }
 
@@ -147,7 +147,7 @@ func TestManager_Delete_InvalidKind(t *testing.T) {
 
 	err := manager.Delete(context.Background(), entry)
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid entry kind")
 }
 

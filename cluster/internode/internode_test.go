@@ -257,7 +257,7 @@ func TestService_Start_ConnectionManagerError(t *testing.T) {
 	connMan.startError = errors.New("connection manager failed")
 
 	err := service.Start(ctx)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to start connection manager")
 }
 
@@ -307,7 +307,7 @@ func TestService_Send_EncodeError(t *testing.T) {
 	pkg.Target = pid.PID{Node: "remote-node"}
 
 	err = service.Send(pkg)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to encode package")
 }
 

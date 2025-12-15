@@ -155,7 +155,7 @@ func TestContext_FrameID(t *testing.T) {
 
 		testID := registry.NewID("test", "function")
 		err := SetFrameID(ctx, testID)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no frame context available")
 	})
 }
@@ -187,7 +187,7 @@ func TestContext_FramePID(t *testing.T) {
 
 		testPID := pid.PID{UniqID: "test-pid-123"}
 		err := SetFramePID(ctx, testPID)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no frame context available")
 	})
 }

@@ -220,7 +220,7 @@ func TestSandbox_ErrorHandling(t *testing.T) {
 	err = proc.Step(nil, out)
 
 	// Error should be returned
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "intentional error")
 	assert.Equal(t, process.StepDone, out.Status())
 }

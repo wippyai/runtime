@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	pidapi "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"go.uber.org/zap"
@@ -287,9 +288,8 @@ func TestMailbox_Shutdown(t *testing.T) {
 
 	// Try to send a message after shutdown
 	err = mailbox.Send(pkg)
-	if assert.Error(t, err) {
-		assert.Contains(t, err.Error(), "context canceled")
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "context canceled")
 }
 
 func TestMailbox_InvalidConfig(t *testing.T) {

@@ -787,7 +787,7 @@ func TestService_LoadSecretKey_NoSecretProvided(t *testing.T) {
 	service := NewService(config, bus, logger)
 
 	_, err := service.loadSecretKey()
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no secret key provided")
 }
 

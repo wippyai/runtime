@@ -140,7 +140,7 @@ func TestBuildOptions_ClassFiltering(t *testing.T) {
 		}
 
 		err := opts.Validate(nodes)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "denied class")
 	})
 
@@ -153,7 +153,7 @@ func TestBuildOptions_ClassFiltering(t *testing.T) {
 		}
 
 		err := opts.Validate(nodes)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "denied class")
 	})
 
@@ -178,7 +178,7 @@ func TestBuildOptions_ClassFiltering(t *testing.T) {
 		}
 
 		err := opts.Validate(nodes)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "does not have any allowed class")
 	})
 

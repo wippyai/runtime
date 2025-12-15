@@ -593,7 +593,7 @@ func TestSet_RenderWithInvalidTemplate(t *testing.T) {
 		"name":      "World",
 	}
 	_, err := set.RenderTemplate(tmplName, vars)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to get compiled template")
 }
 
@@ -611,7 +611,7 @@ func TestSet_RenderWithUndefinedVariables(t *testing.T) {
 		// age is missing
 	}
 	_, err := set.RenderTemplate(tmplName, vars)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed")
 }
 
@@ -951,5 +951,6 @@ func TestErrorPropagation(t *testing.T) {
 	assert.Error(t, err)
 
 	// The error should indicate template render failure
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "template render failed")
 }

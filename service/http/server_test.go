@@ -246,7 +246,7 @@ func TestServerService_RouterOperations(t *testing.T) {
 
 		// Try unmounting non-existent handler
 		err = server.Remove(mountID)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	})
 

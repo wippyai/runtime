@@ -179,7 +179,7 @@ func TestNewManager(t *testing.T) {
 			nil,
 		)
 
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Nil(t, manager)
 		assert.Contains(t, err.Error(), "logger is required")
 	})
@@ -198,7 +198,7 @@ func TestNewManager(t *testing.T) {
 			nil,
 		)
 
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Nil(t, manager)
 		assert.Contains(t, err.Error(), "transcoder is required")
 	})
@@ -217,7 +217,7 @@ func TestNewManager(t *testing.T) {
 			nil,
 		)
 
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Nil(t, manager)
 		assert.Contains(t, err.Error(), "event bus is required")
 	})
@@ -236,7 +236,7 @@ func TestNewManager(t *testing.T) {
 			nil,
 		)
 
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Nil(t, manager)
 		assert.Contains(t, err.Error(), "env registry is required")
 	})
@@ -274,7 +274,7 @@ func TestManager_AddClient(t *testing.T) {
 		}
 
 		err := manager.AddClient(context.Background(), id, cfg)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "address is required")
 	})
 
@@ -294,7 +294,7 @@ func TestManager_AddClient(t *testing.T) {
 		require.NoError(t, err)
 
 		err = manager.AddClient(context.Background(), id, cfg)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "already initialized")
 	})
 
@@ -370,7 +370,7 @@ func TestManager_UpdateClient(t *testing.T) {
 		}
 
 		err := manager.UpdateClient(context.Background(), id, cfg)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	})
 }
@@ -405,7 +405,7 @@ func TestManager_DeleteClient(t *testing.T) {
 
 		id := registry.NewID("test", "nonexistent")
 		err := manager.DeleteClient(context.Background(), id)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	})
 }
@@ -437,7 +437,7 @@ func TestManager_GetClient(t *testing.T) {
 
 		id := registry.NewID("test", "nonexistent")
 		c, err := manager.GetClient(id)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Nil(t, c)
 		assert.Contains(t, err.Error(), "not initialized")
 	})
@@ -478,7 +478,7 @@ func TestManager_EntryListener(t *testing.T) {
 		}
 
 		err := manager.Add(context.Background(), entry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unexpected entry kind")
 	})
 

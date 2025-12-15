@@ -81,7 +81,7 @@ func TestManager_Add_DuplicateDriver(t *testing.T) {
 	require.NoError(t, err)
 
 	err = manager.Add(ctx, entry)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "already exists")
 }
 
@@ -99,7 +99,7 @@ func TestManager_Add_InvalidKind(t *testing.T) {
 	}
 
 	err := manager.Add(ctx, entry)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported entry kind")
 }
 
@@ -165,7 +165,7 @@ func TestManager_Update_DriverNotFound(t *testing.T) {
 	}
 
 	err := manager.Update(ctx, entry)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "driver not found")
 }
 
@@ -183,7 +183,7 @@ func TestManager_Update_InvalidKind(t *testing.T) {
 	}
 
 	err := manager.Update(ctx, entry)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported entry kind")
 }
 
@@ -230,7 +230,7 @@ func TestManager_Delete_DriverNotFound(t *testing.T) {
 	}
 
 	err := manager.Delete(ctx, entry)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "driver not found")
 }
 
@@ -248,6 +248,6 @@ func TestManager_Delete_InvalidKind(t *testing.T) {
 	}
 
 	err := manager.Delete(ctx, entry)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported entry kind")
 }

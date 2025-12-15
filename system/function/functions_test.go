@@ -466,7 +466,7 @@ func TestFunctions_CallErrorHandling(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ch, err := executor.Call(ctx, tt.task)
-			assert.Error(t, err)
+			require.Error(t, err)
 			assert.Equal(t, tt.expectedErr, err.Error())
 			assert.Nil(t, ch)
 		})

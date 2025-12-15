@@ -163,7 +163,7 @@ func TestExprPolicy_InvalidExpression(t *testing.T) {
 	}
 
 	_, err := NewExprPolicy(registry.NewID("test", "invalid"), config)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to compile expression")
 }
 
@@ -178,7 +178,7 @@ func TestExprPolicy_EmptyExpression(t *testing.T) {
 	}
 
 	_, err := NewExprPolicy(registry.NewID("test", "empty"), config)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to compile expression")
 }
 
@@ -218,7 +218,7 @@ func TestExprPolicy_ArrayOperations(t *testing.T) {
 
 func TestExprPolicy_NilConfig(t *testing.T) {
 	_, err := NewExprPolicy(registry.NewID("test", "nil"), nil)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "config cannot be nil")
 }
 

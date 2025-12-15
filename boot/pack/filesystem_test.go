@@ -818,7 +818,7 @@ func TestPackFileSeek(t *testing.T) {
 		seeker := file.(io.ReadSeeker)
 
 		_, err = seeker.Seek(-10, io.SeekStart)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "negative position")
 	})
 
@@ -845,7 +845,7 @@ func TestPackFileSeek(t *testing.T) {
 		seeker := file.(io.ReadSeeker)
 
 		_, err = seeker.Seek(0, 999)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid whence")
 	})
 

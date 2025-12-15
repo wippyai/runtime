@@ -305,7 +305,7 @@ func TestService_ContextCancellation(t *testing.T) {
 
 	// Attempt to acquire resource with canceled context
 	_, err := service.Acquire(ctx, id, resource.ModeExclusive)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "context canceled")
 }
 

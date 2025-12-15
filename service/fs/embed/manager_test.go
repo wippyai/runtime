@@ -68,7 +68,7 @@ func TestManager_Add_DuplicateID(t *testing.T) {
 
 	// Try to add again
 	err = manager.Add(ctx, entry)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "already exists")
 }
 
@@ -87,7 +87,7 @@ func TestManager_Add_InvalidKind(t *testing.T) {
 	}
 
 	err := manager.Add(ctx, entry)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported entry kind")
 }
 
@@ -106,7 +106,7 @@ func TestManager_Add_DecodeFailure(t *testing.T) {
 	}
 
 	err := manager.Add(ctx, entry)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to decode config")
 }
 
@@ -126,7 +126,7 @@ func TestManager_Add_FSNotFound(t *testing.T) {
 	}
 
 	err := manager.Add(ctx, entry)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to get embedded filesystem")
 }
 
@@ -178,7 +178,7 @@ func TestManager_Update_NotFound(t *testing.T) {
 	}
 
 	err := manager.Update(ctx, entry)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
 
@@ -229,7 +229,7 @@ func TestManager_Delete_NotFound(t *testing.T) {
 	}
 
 	err := manager.Delete(ctx, entry)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
 

@@ -266,21 +266,21 @@ func TestNewManagerWithFactory(t *testing.T) {
 
 	t.Run("Nil transcoder", func(t *testing.T) {
 		manager, err := NewManagerWithFactory(nil, bus, logger, envRegistry, factory)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Nil(t, manager)
 		assert.Contains(t, err.Error(), "transcoder is required")
 	})
 
 	t.Run("Nil event bus", func(t *testing.T) {
 		manager, err := NewManagerWithFactory(transcoder, nil, logger, envRegistry, factory)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Nil(t, manager)
 		assert.Contains(t, err.Error(), "event bus is required")
 	})
 
 	t.Run("Nil factory", func(t *testing.T) {
 		manager, err := NewManagerWithFactory(transcoder, bus, logger, envRegistry, nil)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Nil(t, manager)
 		assert.Contains(t, err.Error(), "pool factory is required")
 	})
@@ -626,7 +626,7 @@ func TestDecode_NilPayload(t *testing.T) {
 	}
 
 	_, err := entryutil.DecodeEntryConfig[apiconfig.DBConfig](ctx, transcoder, entry)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "configuration data is required")
 }
 

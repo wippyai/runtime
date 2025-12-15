@@ -197,7 +197,7 @@ func TestHistory_NotFoundError(t *testing.T) {
 
 	v999 := version.New(999)
 	_, err = hist.Get(v999)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "changeset not found")
 }
 

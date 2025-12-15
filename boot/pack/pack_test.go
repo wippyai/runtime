@@ -255,7 +255,7 @@ func TestUnpackErrors(t *testing.T) {
 		require.NoError(t, err)
 
 		_, err = NewReader(bytes.NewReader(data), transcoder)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid magic")
 	})
 
@@ -276,7 +276,7 @@ func TestUnpackErrors(t *testing.T) {
 		require.NoError(t, err)
 
 		_, err = NewReader(bytes.NewReader(data), transcoder)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported version")
 	})
 
@@ -428,7 +428,7 @@ func TestUnpackBytes(t *testing.T) {
 		badData := make([]byte, headerSize+20)
 		copy(badData, "BADMAGIC")
 		_, err := NewReader(bytes.NewReader(badData), transcoder)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid magic")
 	})
 
@@ -437,7 +437,7 @@ func TestUnpackBytes(t *testing.T) {
 		copy(badData, magic)
 		badData[len(magic)] = 99
 		_, err := NewReader(bytes.NewReader(badData), transcoder)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported version")
 	})
 

@@ -260,7 +260,7 @@ func TestManager_Add(t *testing.T) {
 		}
 
 		err := manager.Add(ctx, entry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported entry kind")
 	})
 
@@ -274,7 +274,7 @@ func TestManager_Add(t *testing.T) {
 		}
 
 		err := manager.Add(ctx, entry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "decode config")
 
 		// Reset transcoder for other tests
@@ -291,7 +291,7 @@ func TestManager_Add(t *testing.T) {
 		}
 
 		err := manager.Add(ctx, entry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "already exists")
 	})
 }
@@ -382,7 +382,7 @@ func TestManager_Update(t *testing.T) {
 		}
 
 		err := manager.Update(ctx, entry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	})
 
@@ -394,7 +394,7 @@ func TestManager_Update(t *testing.T) {
 		}
 
 		err := manager.Update(ctx, entry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported entry kind")
 	})
 
@@ -409,7 +409,7 @@ func TestManager_Update(t *testing.T) {
 		}
 
 		err := manager.Update(ctx, entry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "decode config")
 
 		// Reset transcoder for other tests
@@ -468,7 +468,7 @@ func TestManager_Delete(t *testing.T) {
 	t.Run("config not found", func(t *testing.T) {
 		// Try to delete again (should fail as already deleted)
 		err := manager.Delete(ctx, addEntry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	})
 
@@ -480,7 +480,7 @@ func TestManager_Delete(t *testing.T) {
 		}
 
 		err := manager.Delete(ctx, entry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported entry kind")
 	})
 }
@@ -525,7 +525,7 @@ func TestManager_Acquire(t *testing.T) {
 
 		// Try to acquire a non-existent resource
 		res, err := manager.Acquire(ctx, nonExistentID, resource.ModeNormal)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 		assert.Nil(t, res)
 	})

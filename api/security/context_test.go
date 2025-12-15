@@ -36,7 +36,7 @@ func TestContext_Actor(t *testing.T) {
 
 		testActor := Actor{ID: "user123"}
 		err := SetActor(ctx, testActor)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no frame context available")
 	})
 }
@@ -70,7 +70,7 @@ func TestContext_Scope(t *testing.T) {
 		type mockScope struct{ Scope }
 		testScope := &mockScope{}
 		err := SetScope(ctx, testScope)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no frame context available")
 	})
 }
@@ -115,7 +115,7 @@ func TestContext_WithPolicy(t *testing.T) {
 		type mockPolicy struct{ Policy }
 		testPolicy := &mockPolicy{}
 		err := WithPolicy(ctx, testPolicy)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "security scope not found in context")
 	})
 }
@@ -143,7 +143,7 @@ func TestContext_GetPolicy(t *testing.T) {
 
 		testID := registry.NewID("policies", "admin")
 		_, err := GetPolicy(ctx, testID)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "security registry not found in context")
 	})
 }
@@ -154,7 +154,7 @@ func TestContext_GetPolicyGroup(t *testing.T) {
 
 		testID := registry.NewID("groups", "admins")
 		_, err := GetPolicyGroup(ctx, testID)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "security registry not found in context")
 	})
 }

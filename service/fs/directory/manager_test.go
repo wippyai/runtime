@@ -208,7 +208,7 @@ func TestManager_Add(t *testing.T) {
 		}
 
 		err := manager.Add(ctx, entry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported entry kind")
 	})
 
@@ -222,7 +222,7 @@ func TestManager_Add(t *testing.T) {
 		}
 
 		err := manager.Add(ctx, entry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to decode config")
 
 		// Reset transcoder for other tests
@@ -240,7 +240,7 @@ func TestManager_Add(t *testing.T) {
 		}
 
 		err := manager.Add(ctx, entry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "already exists")
 	})
 }
@@ -312,7 +312,7 @@ func TestManager_Update(t *testing.T) {
 		}
 
 		err := manager.Update(ctx, nonExistentEntry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	})
 
@@ -327,7 +327,7 @@ func TestManager_Update(t *testing.T) {
 		}
 
 		err := manager.Update(ctx, invalidEntry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported entry kind")
 	})
 
@@ -342,7 +342,7 @@ func TestManager_Update(t *testing.T) {
 		}
 
 		err := manager.Update(ctx, entry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to decode config")
 
 		// Reset transcoder for other tests
@@ -410,7 +410,7 @@ func TestManager_Delete(t *testing.T) {
 
 	t.Run("directory not found", func(t *testing.T) {
 		err := manager.Delete(ctx, entry) // Try to delete again
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	})
 
@@ -425,7 +425,7 @@ func TestManager_Delete(t *testing.T) {
 		}
 
 		err := manager.Delete(ctx, invalidEntry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported entry kind")
 	})
 }
@@ -492,6 +492,6 @@ func TestManager_FactoryError(t *testing.T) {
 	}
 
 	err := manager.registerFS(ctx, testID, cfg)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to create filesystem")
 }

@@ -154,7 +154,7 @@ func TestDefaultPoolFactory_CreateStandardPool(t *testing.T) {
 			pool, err := factory.CreateStandardPool(context.Background(), tt.kind, tt.cfg)
 
 			if tt.isError {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errMsg)
 				assert.Nil(t, pool)
 			}
@@ -191,7 +191,7 @@ func TestDefaultPoolFactory_CreateSQLitePoolValidation(t *testing.T) {
 			pool, err := factory.CreateSQLitePool(context.Background(), tt.cfg)
 
 			if tt.isError {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errMsg)
 				assert.Nil(t, pool)
 			}

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
@@ -62,7 +63,7 @@ func TestMiddlewareFactory(t *testing.T) {
 		// Try to get non-existent middleware - should now return an error
 		handler, err = factory.CreateMiddleware("nonexistent", nil)
 		assert.Nil(t, handler)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "middleware not found")
 	})
 
@@ -123,7 +124,7 @@ func TestMiddlewareFactory(t *testing.T) {
 		// Should now return an error when the creator returns nil
 		handler, err := factory.CreateMiddleware("nil-creator", nil)
 		assert.Nil(t, handler)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "middleware not found")
 	})
 }
