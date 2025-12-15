@@ -197,3 +197,22 @@ func TestMockResultReceiver(t *testing.T) {
 	assert.Equal(t, "data", receiver.data)
 	assert.EqualError(t, receiver.err, "test error")
 }
+
+func TestMustRegisterCommands(t *testing.T) {
+	t.Run("successful registration", func(t *testing.T) {
+		// Use high command IDs unlikely to collide with existing registrations
+		assert.NotPanics(t, func() {
+			MustRegisterCommands("test_module_1", 9990, 9991)
+		})
+	})
+
+	t.Run("duplicate registration panics", func(t *testing.T) {
+		// First register a unique ID
+		MustRegisterCommands("test_module_2", 9992)
+
+		// Attempting to register the same ID again should panic
+		assert.Panics(t, func() {
+			MustRegisterCommands("test_module_3", 9992)
+		})
+	})
+}

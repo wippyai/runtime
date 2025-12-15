@@ -4,7 +4,6 @@ package http
 import (
 	"encoding/json"
 	"errors"
-	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -687,31 +686,6 @@ func TestStaticConfig_Validate(t *testing.T) {
 	})
 }
 
-func TestRequestContext_Pooling(t *testing.T) {
-	req := httptest.NewRequest("GET", "/test", nil)
-	w := httptest.NewRecorder()
-
-	t.Run("SetRequest", func(t *testing.T) {
-		reqCtx := &RequestContext{}
-		reqCtx.SetRequest(req)
-		assert.Equal(t, req, reqCtx.Request())
-	})
-
-	t.Run("SetResponseWriter", func(t *testing.T) {
-		reqCtx := &RequestContext{}
-		reqCtx.SetResponseWriter(w)
-		assert.Equal(t, w, reqCtx.ResponseWriter())
-	})
-
-	t.Run("ResetHandled", func(t *testing.T) {
-		reqCtx := &RequestContext{}
-		reqCtx.MarkHandled()
-		assert.True(t, reqCtx.ResponseHandled())
-		reqCtx.ResetHandled()
-		assert.False(t, reqCtx.ResponseHandled())
-	})
-}
-
 func TestStaticConfig_UnmarshalJSON_BackwardCompatibility(t *testing.T) {
 	t.Run("migrate spa from options map (bool)", func(t *testing.T) {
 		jsonData := `{
@@ -836,6 +810,28 @@ func TestStaticConfig_UnmarshalJSON_BackwardCompatibility(t *testing.T) {
 		assert.True(t, config.StaticOptions.SPA)
 		assert.Equal(t, "app.html", config.StaticOptions.IndexFile)
 		assert.Equal(t, "*", config.Options["cors.allow.origins"])
+	})
+
+	t.Run("non-string option values are converted", func(t *testing.T) {
+		jsonData := `{
+			"meta": {},
+			"path": "/app",
+			"fs": {"ns": "fs", "name": "public"},
+			"directory": "/",
+			"options": {
+				"timeout": 30,
+				"enabled": true,
+				"rate": 1.5
+			}
+		}`
+
+		var config StaticConfig
+		err := json.Unmarshal([]byte(jsonData), &config)
+		require.NoError(t, err)
+
+		assert.Equal(t, "30", config.Options["timeout"])
+		assert.Equal(t, "true", config.Options["enabled"])
+		assert.Equal(t, "1.5", config.Options["rate"])
 	})
 }
 

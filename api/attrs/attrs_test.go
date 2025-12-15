@@ -258,6 +258,101 @@ func TestBag_Keys(t *testing.T) {
 	}
 }
 
+func TestBag_GetFloat(t *testing.T) {
+	b := NewBagFrom(map[string]any{
+		"float": 3.14,
+		"int":   42,
+		"str":   "value",
+		"zero":  0.0,
+		"neg":   -1.5,
+	})
+
+	if got := b.GetFloat("float", 0); got != 3.14 {
+		t.Errorf("GetFloat(float) = %v, want %v", got, 3.14)
+	}
+
+	if got := b.GetFloat("int", 99.9); got != 99.9 {
+		t.Errorf("GetFloat(int) = %v, want %v", got, 99.9)
+	}
+
+	if got := b.GetFloat("str", 99.9); got != 99.9 {
+		t.Errorf("GetFloat(str) = %v, want %v", got, 99.9)
+	}
+
+	if got := b.GetFloat("missing", 99.9); got != 99.9 {
+		t.Errorf("GetFloat(missing) = %v, want %v", got, 99.9)
+	}
+
+	if got := b.GetFloat("zero", 99.9); got != 0.0 {
+		t.Errorf("GetFloat(zero) = %v, want %v", got, 0.0)
+	}
+
+	if got := b.GetFloat("neg", 0); got != -1.5 {
+		t.Errorf("GetFloat(neg) = %v, want %v", got, -1.5)
+	}
+}
+
+func TestBag_GetBag(t *testing.T) {
+	innerBag := NewBagFrom(map[string]any{
+		"inner_key": "inner_value",
+	})
+
+	innerMap := map[string]any{
+		"map_key": "map_value",
+	}
+
+	b := NewBagFrom(map[string]any{
+		"bag":   innerBag,
+		"map":   innerMap,
+		"str":   "not a bag",
+		"attrs": Bag{"attr_key": "attr_value"},
+	})
+
+	t.Run("existing bag", func(t *testing.T) {
+		got, ok := b.GetBag("bag")
+		if !ok {
+			t.Error("GetBag(bag) should return true")
+		}
+		if got.GetString("inner_key", "") != "inner_value" {
+			t.Error("GetBag(bag) should return the inner bag")
+		}
+	})
+
+	t.Run("map to bag", func(t *testing.T) {
+		got, ok := b.GetBag("map")
+		if !ok {
+			t.Error("GetBag(map) should return true")
+		}
+		if got.GetString("map_key", "") != "map_value" {
+			t.Error("GetBag(map) should convert map to bag")
+		}
+	})
+
+	t.Run("wrong type", func(t *testing.T) {
+		_, ok := b.GetBag("str")
+		if ok {
+			t.Error("GetBag(str) should return false for non-bag values")
+		}
+	})
+
+	t.Run("missing key", func(t *testing.T) {
+		_, ok := b.GetBag("missing")
+		if ok {
+			t.Error("GetBag(missing) should return false")
+		}
+	})
+
+	t.Run("Attributes interface", func(t *testing.T) {
+		got, ok := b.GetBag("attrs")
+		if !ok {
+			t.Error("GetBag(attrs) should return true for Attributes")
+		}
+		if got.GetString("attr_key", "") != "attr_value" {
+			t.Error("GetBag(attrs) should work with Attributes interface")
+		}
+	})
+}
+
 func TestBag_NilSafety(t *testing.T) {
 	// Bag methods are nil-safe by design (check method implementations)
 	// This test verifies the nil-safe behavior doesn't panic

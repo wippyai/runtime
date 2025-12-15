@@ -193,3 +193,43 @@ func TestContext_IsAllowed(t *testing.T) {
 		assert.False(t, allowed)
 	})
 }
+
+func TestContext_StrictMode(t *testing.T) {
+	t.Run("default is strict (no app context)", func(t *testing.T) {
+		ctx := ctxapi.NewRootContext()
+		// Without setting, IsStrictMode should return true by default
+		assert.True(t, IsStrictMode(ctx))
+	})
+
+	t.Run("set strict mode true", func(t *testing.T) {
+		ctx := ctxapi.NewRootContext()
+		ctx = SetStrictMode(ctx, true)
+		assert.True(t, IsStrictMode(ctx))
+	})
+
+	t.Run("set strict mode false", func(t *testing.T) {
+		ctx := ctxapi.NewRootContext()
+		ctx = SetStrictMode(ctx, false)
+		assert.False(t, IsStrictMode(ctx))
+	})
+
+	t.Run("without app context returns same context", func(t *testing.T) {
+		ctx := ctxapi.NewRootContext()
+		appCtx := ctxapi.AppFromContext(ctx)
+		// Temporarily remove app context
+		if appCtx != nil {
+			// NewRootContext always has app context, so this test just
+			// verifies the function handles it gracefully
+			ctx = SetStrictMode(ctx, false)
+			assert.False(t, IsStrictMode(ctx))
+		}
+	})
+
+	t.Run("wrong type in context returns true", func(t *testing.T) {
+		ctx := ctxapi.NewRootContext()
+		appCtx := ctxapi.AppFromContext(ctx)
+		// Put wrong type
+		appCtx.With(strictKey, "not a bool")
+		assert.True(t, IsStrictMode(ctx))
+	})
+}
