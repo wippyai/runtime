@@ -10,7 +10,7 @@ import (
 
 func TestNewYield(t *testing.T) {
 	y := NewYield(func() (any, error) {
-		return "test-value", nil
+		return "test-value", nil //nolint:nilnil // test function for successful case
 	})
 
 	if y == nil {
@@ -37,7 +37,7 @@ func TestNewYield(t *testing.T) {
 
 func TestYield_LuaValue(t *testing.T) {
 	y := NewYield(func() (any, error) {
-		return nil, nil
+		return nil, nil //nolint:nilnil // test function for nil return case
 	})
 
 	if y.String() != "<workflow_side_effect>" {
@@ -51,7 +51,7 @@ func TestYield_LuaValue(t *testing.T) {
 
 func TestYield_Command(t *testing.T) {
 	y := NewYield(func() (any, error) {
-		return nil, nil
+		return nil, nil //nolint:nilnil // test function for nil return case
 	})
 
 	if y.CmdID() != workflow.SideEffect {
@@ -73,7 +73,7 @@ func TestYield_HandleResult_Success(t *testing.T) {
 	defer l.Close()
 
 	y := NewYield(func() (any, error) {
-		return nil, nil
+		return nil, nil //nolint:nilnil // test function for nil return case
 	})
 
 	result := workflow.Result{
@@ -101,7 +101,7 @@ func TestYield_HandleResult_Error(t *testing.T) {
 	defer l.Close()
 
 	y := NewYield(func() (any, error) {
-		return nil, nil
+		return nil, nil //nolint:nilnil // test function for nil return case
 	})
 
 	values := y.HandleResult(l, nil, errors.New("test error"))
@@ -124,7 +124,7 @@ func TestYield_HandleResult_ResultError(t *testing.T) {
 	defer l.Close()
 
 	y := NewYield(func() (any, error) {
-		return nil, nil
+		return nil, nil //nolint:nilnil // test function for nil return case
 	})
 
 	result := workflow.Result{
@@ -152,7 +152,7 @@ func TestYield_HandleResult_NilData(t *testing.T) {
 	defer l.Close()
 
 	y := NewYield(func() (any, error) {
-		return nil, nil
+		return nil, nil //nolint:nilnil // test function for nil return case
 	})
 
 	values := y.HandleResult(l, nil, nil)
@@ -175,7 +175,7 @@ func TestYield_HandleResult_InvalidType(t *testing.T) {
 	defer l.Close()
 
 	y := NewYield(func() (any, error) {
-		return nil, nil
+		return nil, nil //nolint:nilnil // test function for nil return case
 	})
 
 	values := y.HandleResult(l, "not a Result type", nil)

@@ -62,8 +62,8 @@ var factoryMockProcessModule = &luaapi.ModuleDef{
 	Class:       []string{luaapi.ClassProcess},
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		tbl := lua.CreateTable(0, 2)
-		tbl.RawSetString("spawn", lua.LGoFunc(func(l *lua.LState) int { return 0 }))
-		tbl.RawSetString("send", lua.LGoFunc(func(l *lua.LState) int { return 0 }))
+		tbl.RawSetString("spawn", lua.LGoFunc(func(_ *lua.LState) int { return 0 }))
+		tbl.RawSetString("send", lua.LGoFunc(func(_ *lua.LState) int { return 0 }))
 		return tbl, nil
 	},
 }
@@ -334,7 +334,7 @@ func TestFactory_WithFilter_CustomLogic(t *testing.T) {
 
 	pf := NewProcessFactory(cm, modules)
 
-	filter := func(name string, classes []string) (bool, error) {
+	filter := func(_ string, classes []string) (bool, error) {
 		for _, c := range classes {
 			if c == luaapi.ClassDeterministic {
 				return true, nil
@@ -366,7 +366,7 @@ func TestFactory_WithFilter_ReturnsError(t *testing.T) {
 
 	pf := NewProcessFactory(cm, modules)
 
-	filter := func(name string, classes []string) (bool, error) {
+	filter := func(_ string, classes []string) (bool, error) {
 		for _, c := range classes {
 			if c == luaapi.ClassNetwork {
 				return false, errors.New("network modules not allowed")

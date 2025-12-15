@@ -185,9 +185,13 @@ func uuidVariant(l *lua.LState) int {
 	case uuid.RFC4122:
 		variant = "RFC4122"
 	case uuid.Reserved:
-		variant = "Microsoft"
+		variant = "Reserved"
 	case uuid.Invalid:
 		variant = "Invalid"
+	case uuid.Microsoft:
+		variant = "Microsoft"
+	case uuid.Future:
+		variant = "Future"
 	default:
 		variant = "NCS"
 	}
@@ -213,9 +217,13 @@ func uuidParse(l *lua.LState) int {
 	case uuid.RFC4122:
 		variant = "RFC4122"
 	case uuid.Reserved:
-		variant = "Microsoft"
+		variant = "Reserved"
 	case uuid.Invalid:
 		variant = "Invalid"
+	case uuid.Microsoft:
+		variant = "Microsoft"
+	case uuid.Future:
+		variant = "Future"
 	default:
 		variant = "NCS"
 	}

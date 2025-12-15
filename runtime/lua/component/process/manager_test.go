@@ -2,6 +2,7 @@ package process
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -50,7 +51,7 @@ type mockCompiledFactory struct{}
 
 func (m *mockCompiledFactory) CreateFactory(_ registry.ID, _ ...engine.FactoryOption) (processapi.FactoryFunc, error) {
 	return func() (processapi.Process, error) {
-		return nil, nil
+		return nil, fmt.Errorf("mock factory not implemented")
 	}, nil
 }
 

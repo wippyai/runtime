@@ -488,7 +488,7 @@ func TestManager_ReplacePool(t *testing.T) {
 	manager.removePool(id)
 }
 
-func TestManager_RemovePool_NonExistent(t *testing.T) {
+func TestManager_RemovePool_NonExistent(_ *testing.T) {
 	log := zap.NewNop()
 	codeManager := &code.Manager{}
 	bus := newMockEventBus()
@@ -574,7 +574,7 @@ func TestManager_Stop_WithActivePools(t *testing.T) {
 	assert.False(t, manager.started)
 }
 
-func TestManager_Concurrency(t *testing.T) {
+func TestManager_Concurrency(_ *testing.T) {
 	log := zap.NewNop()
 	codeManager := &code.Manager{}
 	bus := newMockEventBus()

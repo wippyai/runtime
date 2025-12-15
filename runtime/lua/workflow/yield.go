@@ -2,6 +2,8 @@
 package workflow
 
 import (
+	"sync"
+
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/runtime/workflow"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
@@ -13,11 +15,23 @@ type Yield struct {
 	Cmd *workflow.SideEffectCmd
 }
 
-// NewYield creates a yield for a side effect function.
+var yieldPool = sync.Pool{
+	New: func() any {
+		return &Yield{Cmd: &workflow.SideEffectCmd{}}
+	},
+}
+
+// NewYield gets a yield from the pool.
 func NewYield(fn func() (any, error)) *Yield {
-	return &Yield{
-		Cmd: &workflow.SideEffectCmd{Fn: fn},
-	}
+	y := yieldPool.Get().(*Yield)
+	y.Cmd.Fn = fn
+	return y
+}
+
+// Release returns the yield to the pool.
+func (y *Yield) Release() {
+	y.Cmd.Fn = nil
+	yieldPool.Put(y)
 }
 
 func (y *Yield) String() string                { return "<workflow_side_effect>" }

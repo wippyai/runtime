@@ -18,15 +18,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// workflowAllowedIDs are the modules allowed in workflow execution.
-var workflowAllowedIDs = []registry.ID{
-	{Name: "json"},
-	{Name: "base64"},
-	{Name: "payload"},
-	{Name: "workflow"},
-	{Name: "channel"},
-}
-
 // Manager handles Lua workflow components for engine2.
 // Workflows have restricted module access compared to processes.
 type Manager struct {
@@ -151,11 +142,10 @@ func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) {
 
 // registerFactory registers a workflow factory with the factory registry.
 func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method string) error {
-	// Create factory using ProcessFactory with workflow-specific restrictions
+	// Create factory with class-based filtering for deterministic execution.
+	// Modules must have ClassDeterministic or ClassWorkflow to be allowed.
 	factoryFn, err := m.factory.CreateFactory(id,
-		engine.WithMode(code.AllowListed),
-		engine.WithAllowed(append(workflowAllowedIDs, id)...),
-		engine.WithoutDefaultModule("process"), // Workflows don't get process module
+		engine.WithAllowedClasses(api.ClassDeterministic, api.ClassWorkflow),
 	)
 	if err != nil {
 		return runtimelua.NewCompileError(err)

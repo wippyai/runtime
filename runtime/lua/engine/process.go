@@ -532,11 +532,11 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 	}
 
 	// Determine status
-	if yieldCount == 0 && !p.queue.IsEmpty() {
+	switch {
+	case yieldCount == 0 && !p.queue.IsEmpty():
 		out.Continue()
-	} else if yieldCount == 0 && len(p.threads) > 0 {
+	case yieldCount == 0 && len(p.threads) > 0:
 		// Check if we're waiting for external operations
-		//nolint:gocritic // if-else is clearer than switch for heterogeneous state checks
 		if len(p.pendingYields) > 0 {
 			// Still waiting for previously dispatched yields - stay blocked.
 			out.WaitForYields()
@@ -550,7 +550,7 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 				Message:     "all coroutines blocked with no pending operations",
 			}
 		}
-	} else if yieldCount > 0 {
+	case yieldCount > 0:
 		out.WaitForYields()
 	}
 
@@ -1296,6 +1296,8 @@ func toAPIError(err error) error {
 		retryable = apierror.True
 	case lua.TernaryFalse:
 		retryable = apierror.False
+	case lua.TernaryUnknown:
+		retryable = apierror.Unspecified
 	default:
 		retryable = apierror.Unspecified
 	}

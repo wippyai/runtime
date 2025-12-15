@@ -59,22 +59,22 @@ func (y *testYield) HandleResult(_ *lua.LState, data any, err error) []lua.LValu
 }
 
 // luaTestYield is a Lua function that yields testYield
-func luaTestYield(L *lua.LState) int {
-	ms := L.CheckNumber(1)
+func luaTestYield(l *lua.LState) int {
+	ms := l.CheckNumber(1)
 	duration := time.Duration(ms) * time.Millisecond
 	yield := &testYield{duration: duration}
-	L.Push(yield)
+	l.Push(yield)
 	return -1
 }
 
 // bindTestYield binds test_yield function to Lua state
-func bindTestYield(L *lua.LState) {
-	L.SetGlobal("test_yield", L.NewFunction(luaTestYield))
+func bindTestYield(l *lua.LState) {
+	l.SetGlobal("test_yield", l.NewFunction(luaTestYield))
 }
 
 // testPID creates a test PID for unit tests
-func testPID(id string) pid.PID {
-	return pid.PID{Host: "test", UniqID: id}
+func testPID() pid.PID {
+	return pid.PID{Host: "test", UniqID: "source"}
 }
 
 func TestProcessBasicExecution(t *testing.T) {
@@ -877,7 +877,7 @@ func newPoolTestDispatcher() *poolTestDispatcher {
 		d.handlers[id] = h
 	})
 	// Add handler for test yields (mock time.sleep)
-	d.handlers[testYieldCmdID] = dispatcher.HandlerFunc(func(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+	d.handlers[testYieldCmdID] = dispatcher.HandlerFunc(func(_ context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 		c := cmd.(testYieldCmd)
 		// Use short delay or immediate completion for testing
 		if c.Duration > 0 {
@@ -1312,7 +1312,6 @@ func TestProcessMultipleExternalYields(t *testing.T) {
 		if err := proc.Step(events, &output); err != nil {
 			t.Fatalf("Step %d failed: %v", i, err)
 		}
-		events = nil
 
 		if output.Count() != 1 {
 			t.Fatalf("step %d: expected 1 yield, got %d", i, output.Count())
@@ -2642,7 +2641,7 @@ func TestProcessTopicHandler(t *testing.T) {
 	}
 
 	// Set handler
-	proc.SetTopicHandler("test-topic", func(ctx context.Context, l *lua.LState, source pid.PID, topic string, payloads []payload.Payload) lua.LValue {
+	proc.SetTopicHandler("test-topic", func(_ context.Context, l *lua.LState, source pid.PID, topic string, payloads []payload.Payload) lua.LValue {
 		return lua.LTrue
 	})
 
@@ -2806,38 +2805,38 @@ func TestProcessSubscribeYieldsUnsubscribe(t *testing.T) {
 }
 
 // bindProcessModule binds a minimal process module for subscribe testing
-func bindProcessModule(L *lua.LState) {
-	mod := L.NewTable()
+func bindProcessModule(l *lua.LState) {
+	mod := l.NewTable()
 
 	// subscribe(topic, bufsize) -> channel
-	mod.RawSetString("subscribe", L.NewFunction(func(L *lua.LState) int {
-		topic := L.CheckString(1)
-		bufSize := L.OptInt(2, 0)
+	mod.RawSetString("subscribe", l.NewFunction(func(l *lua.LState) int {
+		topic := l.CheckString(1)
+		bufSize := l.OptInt(2, 0)
 
 		req := &SubscribeRequest{
 			Topic:   topic,
 			BufSize: bufSize,
 		}
-		L.Push(req)
+		l.Push(req)
 		return -1 // yield
 	}))
 
 	// unsubscribe(channel) -> bool
-	mod.RawSetString("unsubscribe", L.NewFunction(func(L *lua.LState) int {
-		ud := L.CheckUserData(1)
+	mod.RawSetString("unsubscribe", l.NewFunction(func(l *lua.LState) int {
+		ud := l.CheckUserData(1)
 		ch, ok := ud.Value.(*Channel)
 		if !ok {
-			L.Push(lua.LFalse)
-			L.Push(lua.LString("not a channel"))
+			l.Push(lua.LFalse)
+			l.Push(lua.LString("not a channel"))
 			return 2
 		}
 
 		req := &UnsubscribeRequest{Channel: ch}
-		L.Push(req)
+		l.Push(req)
 		return -1 // yield
 	}))
 
-	L.SetGlobal("process", mod)
+	l.SetGlobal("process", mod)
 }
 
 // TestProcessDeliverMessageBasic tests deliverMessage
@@ -2881,7 +2880,7 @@ func TestProcessDeliverMessageBasic(t *testing.T) {
 	testPayload := payload.New("hello")
 	proc.messageQueue = append(proc.messageQueue, queuedMessage{
 		Topic:    "test-topic",
-		Source:   testPID("source"),
+		Source:   testPID(),
 		Payloads: []payload.Payload{testPayload},
 	})
 
@@ -2916,7 +2915,7 @@ func TestProcessDeliverMessageWithHandler(t *testing.T) {
 	}
 
 	// Set topic handler that transforms the message
-	proc.SetTopicHandler("test-topic", func(ctx context.Context, l *lua.LState, source pid.PID, topic string, payloads []payload.Payload) lua.LValue {
+	proc.SetTopicHandler("test-topic", func(_ context.Context, l *lua.LState, source pid.PID, topic string, payloads []payload.Payload) lua.LValue {
 		return lua.LString("handled")
 	})
 
@@ -2924,7 +2923,7 @@ func TestProcessDeliverMessageWithHandler(t *testing.T) {
 	testPayload := payload.New("original")
 	proc.messageQueue = append(proc.messageQueue, queuedMessage{
 		Topic:    "test-topic",
-		Source:   testPID("source"),
+		Source:   testPID(),
 		Payloads: []payload.Payload{testPayload},
 	})
 
@@ -2967,7 +2966,7 @@ func TestProcessDeliverMessageToInboxFallback(t *testing.T) {
 	testPayload := payload.New("fallback-message")
 	proc.messageQueue = append(proc.messageQueue, queuedMessage{
 		Topic:    "unknown-topic",
-		Source:   testPID("source"),
+		Source:   testPID(),
 		Payloads: []payload.Payload{testPayload},
 	})
 
@@ -2997,7 +2996,7 @@ func TestProcessDeliverMessageNoSubscription(t *testing.T) {
 	testPayload := payload.New("lost")
 	proc.messageQueue = append(proc.messageQueue, queuedMessage{
 		Topic:    "nonexistent",
-		Source:   testPID("source"),
+		Source:   testPID(),
 		Payloads: []payload.Payload{testPayload},
 	})
 
@@ -3030,7 +3029,7 @@ func TestProcessDeliverMessageTerminal(t *testing.T) {
 	terminalPayload := payload.NewPayload(nil, payload.Terminal)
 	proc.messageQueue = append(proc.messageQueue, queuedMessage{
 		Topic:    "test-topic",
-		Source:   testPID("source"),
+		Source:   testPID(),
 		Payloads: []payload.Payload{terminalPayload},
 	})
 
@@ -3069,7 +3068,7 @@ func TestProcessDeliverMessageWithTerminalAtEnd(t *testing.T) {
 	terminalPayload := payload.NewPayload(nil, payload.Terminal)
 	proc.messageQueue = append(proc.messageQueue, queuedMessage{
 		Topic:    "test-topic",
-		Source:   testPID("source"),
+		Source:   testPID(),
 		Payloads: []payload.Payload{dataPayload, terminalPayload},
 	})
 
@@ -3112,7 +3111,7 @@ func TestProcessDeliverMessageHandlerReturnsNil(t *testing.T) {
 	dataPayload := payload.New("data")
 	proc.messageQueue = append(proc.messageQueue, queuedMessage{
 		Topic:    "test-topic",
-		Source:   testPID("source"),
+		Source:   testPID(),
 		Payloads: []payload.Payload{dataPayload},
 	})
 
@@ -3151,7 +3150,7 @@ func TestProcessDeliverMessageHandlerWithTerminal(t *testing.T) {
 	terminalPayload := payload.NewPayload(nil, payload.Terminal)
 	proc.messageQueue = append(proc.messageQueue, queuedMessage{
 		Topic:    "test-topic",
-		Source:   testPID("source"),
+		Source:   testPID(),
 		Payloads: []payload.Payload{dataPayload, terminalPayload},
 	})
 
@@ -3184,7 +3183,7 @@ func TestProcessDeliverMessageAtTopic(t *testing.T) {
 	dataPayload := payload.New("data")
 	proc.messageQueue = append(proc.messageQueue, queuedMessage{
 		Topic:    "@nonexistent",
-		Source:   testPID("source"),
+		Source:   testPID(),
 		Payloads: []payload.Payload{dataPayload},
 	})
 
@@ -3800,7 +3799,7 @@ func TestProcessDistributeEventZeroTag(t *testing.T) {
 }
 
 // TestProcessDistributeEventNoPendingYields tests distributeEvent with empty pendingYields
-func TestProcessDistributeEventNoPendingYields(t *testing.T) {
+func TestProcessDistributeEventNoPendingYields(_ *testing.T) {
 	proc := NewProcess(WithScript(`return 1`, "test.lua"))
 	proc.state = lua.NewState()
 	defer proc.Close()
@@ -4168,12 +4167,13 @@ func TestExternalYieldLostOnSubscribeLoop(t *testing.T) {
 	}
 
 	// Check we got to a valid final state
-	if output.Status() == process.StepDone {
+	switch output.Status() {
+	case process.StepDone:
 		t.Log("Process completed successfully - yield was NOT lost")
-	} else if output.Status() == process.StepIdle {
+	case process.StepIdle:
 		// This is expected - main completed but worker is waiting for message
 		t.Log("Process is idle (main completed, worker waiting for message) - yield was NOT lost")
-	} else {
+	default:
 		t.Fatalf("Unexpected final status: %d", output.Status())
 	}
 }

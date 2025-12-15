@@ -435,7 +435,7 @@ func jwtVerify(l *lua.LState) int {
 		parserOpts = append(parserOpts, jwt.WithExpirationRequired())
 	}
 
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.Parse(tokenString, func(_ *jwt.Token) (interface{}, error) {
 		if alg == "RS256" {
 			return parsePublicKey(key)
 		}

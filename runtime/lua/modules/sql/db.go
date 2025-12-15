@@ -61,12 +61,12 @@ var dbMethods = map[string]lua.LGoFunc{
 	"stats":   dbStats,
 }
 
-func checkDB(l *lua.LState, idx int) *DB {
-	ud := l.CheckUserData(idx)
+func checkDB(l *lua.LState) *DB {
+	ud := l.CheckUserData(1)
 	if v, ok := ud.Value.(*DB); ok {
 		return v
 	}
-	l.ArgError(idx, "database expected")
+	l.ArgError(1, "database expected")
 	return nil
 }
 
@@ -130,7 +130,7 @@ func sqlGet(l *lua.LState) int {
 }
 
 func dbType(l *lua.LState) int {
-	db := checkDB(l, 1)
+	db := checkDB(l)
 	if db == nil {
 		return 0
 	}
@@ -141,7 +141,7 @@ func dbType(l *lua.LState) int {
 }
 
 func dbQuery(l *lua.LState) int {
-	db := checkDB(l, 1)
+	db := checkDB(l)
 	if db == nil {
 		return 0
 	}
@@ -162,7 +162,7 @@ func dbQuery(l *lua.LState) int {
 }
 
 func dbExecute(l *lua.LState) int {
-	db := checkDB(l, 1)
+	db := checkDB(l)
 	if db == nil {
 		return 0
 	}
@@ -183,7 +183,7 @@ func dbExecute(l *lua.LState) int {
 }
 
 func dbPrepare(l *lua.LState) int {
-	db := checkDB(l, 1)
+	db := checkDB(l)
 	if db == nil {
 		return 0
 	}
@@ -202,7 +202,7 @@ func dbPrepare(l *lua.LState) int {
 }
 
 func dbBegin(l *lua.LState) int {
-	db := checkDB(l, 1)
+	db := checkDB(l)
 	if db == nil {
 		return 0
 	}
@@ -255,7 +255,7 @@ func dbBegin(l *lua.LState) int {
 }
 
 func dbRelease(l *lua.LState) int {
-	db := checkDB(l, 1)
+	db := checkDB(l)
 	if db == nil {
 		return 0
 	}
@@ -275,7 +275,7 @@ func dbRelease(l *lua.LState) int {
 }
 
 func dbStats(l *lua.LState) int {
-	db := checkDB(l, 1)
+	db := checkDB(l)
 	if db == nil {
 		return 0
 	}

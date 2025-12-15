@@ -79,9 +79,10 @@ func startInboxProcessWithTranscoder(t *testing.T, script string) *Process {
 	return proc
 }
 
-func inboxRunUntilIdle(t *testing.T, proc *Process, maxSteps int) error {
+func inboxRunUntilIdle(t *testing.T, proc *Process) error {
 	t.Helper()
 	var output process.StepOutput
+	const maxSteps = 30
 	for i := 0; i < maxSteps; i++ {
 		output.Reset()
 		if err := proc.Step(nil, &output); err != nil {
@@ -95,9 +96,10 @@ func inboxRunUntilIdle(t *testing.T, proc *Process, maxSteps int) error {
 	return nil
 }
 
-func inboxRunUntilDone(t *testing.T, proc *Process, maxSteps int) error {
+func inboxRunUntilDone(t *testing.T, proc *Process) error {
 	t.Helper()
 	var output process.StepOutput
+	const maxSteps = 50
 	for i := 0; i < maxSteps; i++ {
 		output.Reset()
 		if err := proc.Step(nil, &output); err != nil {
@@ -165,7 +167,7 @@ func TestInbox_FallbackBehavior(t *testing.T) {
 	proc := startInboxProcess(t, script)
 	defer proc.Close()
 
-	if err := inboxRunUntilIdle(t, proc, 30); err != nil {
+	if err := inboxRunUntilIdle(t, proc); err != nil {
 		t.Fatal(err)
 	}
 
@@ -195,7 +197,7 @@ func TestInbox_FallbackBehavior(t *testing.T) {
 		t.Fatalf("send control failed: %v", err)
 	}
 
-	if err := inboxRunUntilDone(t, proc, 50); err != nil {
+	if err := inboxRunUntilDone(t, proc); err != nil {
 		t.Fatalf("Process failed: %v", err)
 	}
 }
@@ -239,7 +241,7 @@ func TestInbox_DoesNotReceiveMatchedTopics(t *testing.T) {
 	proc := startInboxProcess(t, script)
 	defer proc.Close()
 
-	if err := inboxRunUntilIdle(t, proc, 30); err != nil {
+	if err := inboxRunUntilIdle(t, proc); err != nil {
 		t.Fatal(err)
 	}
 
@@ -254,7 +256,7 @@ func TestInbox_DoesNotReceiveMatchedTopics(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := inboxRunUntilDone(t, proc, 50); err != nil {
+	if err := inboxRunUntilDone(t, proc); err != nil {
 		t.Fatalf("Process failed: %v", err)
 	}
 }
@@ -292,7 +294,7 @@ func TestInbox_ReceivesUnmatchedTopics(t *testing.T) {
 	proc := startInboxProcess(t, script)
 	defer proc.Close()
 
-	if err := inboxRunUntilIdle(t, proc, 30); err != nil {
+	if err := inboxRunUntilIdle(t, proc); err != nil {
 		t.Fatal(err)
 	}
 
@@ -313,7 +315,7 @@ func TestInbox_ReceivesUnmatchedTopics(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := inboxRunUntilDone(t, proc, 50); err != nil {
+	if err := inboxRunUntilDone(t, proc); err != nil {
 		t.Fatalf("Process failed: %v", err)
 	}
 }
@@ -350,7 +352,7 @@ func TestInbox_SystemTopicsDoNotFallback(t *testing.T) {
 	proc := startInboxProcess(t, script)
 	defer proc.Close()
 
-	if err := inboxRunUntilIdle(t, proc, 30); err != nil {
+	if err := inboxRunUntilIdle(t, proc); err != nil {
 		t.Fatal(err)
 	}
 
@@ -365,7 +367,7 @@ func TestInbox_SystemTopicsDoNotFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := inboxRunUntilDone(t, proc, 50); err != nil {
+	if err := inboxRunUntilDone(t, proc); err != nil {
 		t.Fatalf("Process failed: %v", err)
 	}
 
@@ -419,7 +421,7 @@ func TestInbox_MultipleListenersRoutingPriority(t *testing.T) {
 	proc := startInboxProcess(t, script)
 	defer proc.Close()
 
-	if err := inboxRunUntilIdle(t, proc, 30); err != nil {
+	if err := inboxRunUntilIdle(t, proc); err != nil {
 		t.Fatal(err)
 	}
 
@@ -442,7 +444,7 @@ func TestInbox_MultipleListenersRoutingPriority(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := inboxRunUntilDone(t, proc, 50); err != nil {
+	if err := inboxRunUntilDone(t, proc); err != nil {
 		t.Fatalf("Process failed: %v", err)
 	}
 }
@@ -480,7 +482,7 @@ func TestInbox_QueuedBeforeSubscription(t *testing.T) {
 	defer proc.Close()
 
 	// Run until idle (blocked on control:receive)
-	if err := inboxRunUntilIdle(t, proc, 30); err != nil {
+	if err := inboxRunUntilIdle(t, proc); err != nil {
 		t.Fatal(err)
 	}
 
@@ -509,7 +511,7 @@ func TestInbox_QueuedBeforeSubscription(t *testing.T) {
 	}
 
 	// Run until done
-	if err := inboxRunUntilDone(t, proc, 50); err != nil {
+	if err := inboxRunUntilDone(t, proc); err != nil {
 		t.Fatalf("Process failed: %v", err)
 	}
 
@@ -552,7 +554,7 @@ func TestInbox_MultipleQueuedBeforeSubscription(t *testing.T) {
 	proc := startInboxProcess(t, script)
 	defer proc.Close()
 
-	if err := inboxRunUntilIdle(t, proc, 30); err != nil {
+	if err := inboxRunUntilIdle(t, proc); err != nil {
 		t.Fatal(err)
 	}
 
@@ -579,7 +581,7 @@ func TestInbox_MultipleQueuedBeforeSubscription(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := inboxRunUntilDone(t, proc, 50); err != nil {
+	if err := inboxRunUntilDone(t, proc); err != nil {
 		t.Fatalf("Process failed: %v", err)
 	}
 }
@@ -618,7 +620,7 @@ func TestInbox_MixedDeliveryBeforeAndAfter(t *testing.T) {
 	proc := startInboxProcess(t, script)
 	defer proc.Close()
 
-	if err := inboxRunUntilIdle(t, proc, 30); err != nil {
+	if err := inboxRunUntilIdle(t, proc); err != nil {
 		t.Fatal(err)
 	}
 
@@ -640,7 +642,7 @@ func TestInbox_MixedDeliveryBeforeAndAfter(t *testing.T) {
 	}
 
 	// Run until idle again (waiting on second control:receive)
-	if err := inboxRunUntilIdle(t, proc, 30); err != nil {
+	if err := inboxRunUntilIdle(t, proc); err != nil {
 		t.Fatal(err)
 	}
 
@@ -659,7 +661,7 @@ func TestInbox_MixedDeliveryBeforeAndAfter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := inboxRunUntilDone(t, proc, 50); err != nil {
+	if err := inboxRunUntilDone(t, proc); err != nil {
 		t.Fatalf("Process failed: %v", err)
 	}
 }
@@ -686,7 +688,7 @@ func TestInbox_SystemTopicNotQueued(t *testing.T) {
 	proc := startInboxProcess(t, script)
 	defer proc.Close()
 
-	if err := inboxRunUntilIdle(t, proc, 30); err != nil {
+	if err := inboxRunUntilIdle(t, proc); err != nil {
 		t.Fatal(err)
 	}
 
@@ -707,7 +709,7 @@ func TestInbox_SystemTopicNotQueued(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := inboxRunUntilDone(t, proc, 50); err != nil {
+	if err := inboxRunUntilDone(t, proc); err != nil {
 		t.Fatalf("Process failed: %v", err)
 	}
 
@@ -744,7 +746,7 @@ func TestInbox_QueueFlushOnEachSubscription(t *testing.T) {
 	proc := startInboxProcess(t, script)
 	defer proc.Close()
 
-	if err := inboxRunUntilIdle(t, proc, 30); err != nil {
+	if err := inboxRunUntilIdle(t, proc); err != nil {
 		t.Fatal(err)
 	}
 
@@ -765,7 +767,7 @@ func TestInbox_QueueFlushOnEachSubscription(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := inboxRunUntilDone(t, proc, 50); err != nil {
+	if err := inboxRunUntilDone(t, proc); err != nil {
 		t.Fatalf("Process failed: %v", err)
 	}
 }
@@ -799,7 +801,7 @@ func TestInbox_DirectQueueInjection(t *testing.T) {
 	})
 
 	// Now run - inbox subscription should flush the pre-injected message
-	if err := inboxRunUntilDone(t, proc, 50); err != nil {
+	if err := inboxRunUntilDone(t, proc); err != nil {
 		t.Fatalf("Process failed: %v", err)
 	}
 }
@@ -838,7 +840,7 @@ func TestResponseChannelBasic(t *testing.T) {
 	proc := startInboxProcessWithTranscoder(t, script)
 	defer proc.Close()
 
-	if err := inboxRunUntilIdle(t, proc, 30); err != nil {
+	if err := inboxRunUntilIdle(t, proc); err != nil {
 		t.Fatal(err)
 	}
 
@@ -852,7 +854,7 @@ func TestResponseChannelBasic(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := inboxRunUntilDone(t, proc, 50); err != nil {
+	if err := inboxRunUntilDone(t, proc); err != nil {
 		t.Fatalf("Process failed: %v", err)
 	}
 }
@@ -891,7 +893,7 @@ func TestResponseChannelWithTablePayload(t *testing.T) {
 	proc := startInboxProcessWithTranscoder(t, script)
 	defer proc.Close()
 
-	if err := inboxRunUntilIdle(t, proc, 30); err != nil {
+	if err := inboxRunUntilIdle(t, proc); err != nil {
 		t.Fatal(err)
 	}
 
@@ -910,7 +912,7 @@ func TestResponseChannelWithTablePayload(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := inboxRunUntilDone(t, proc, 50); err != nil {
+	if err := inboxRunUntilDone(t, proc); err != nil {
 		t.Fatalf("Process failed: %v", err)
 	}
 }
@@ -953,7 +955,7 @@ func TestMultipleResponseChannels(t *testing.T) {
 	proc := startInboxProcessWithTranscoder(t, script)
 	defer proc.Close()
 
-	if err := inboxRunUntilIdle(t, proc, 30); err != nil {
+	if err := inboxRunUntilIdle(t, proc); err != nil {
 		t.Fatal(err)
 	}
 
@@ -973,7 +975,7 @@ func TestMultipleResponseChannels(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := inboxRunUntilDone(t, proc, 50); err != nil {
+	if err := inboxRunUntilDone(t, proc); err != nil {
 		t.Fatalf("Process failed: %v", err)
 	}
 }
@@ -1016,7 +1018,7 @@ func TestResponseChannelDoesNotLeakToInbox(t *testing.T) {
 	proc := startInboxProcessWithTranscoder(t, script)
 	defer proc.Close()
 
-	if err := inboxRunUntilIdle(t, proc, 30); err != nil {
+	if err := inboxRunUntilIdle(t, proc); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1030,7 +1032,7 @@ func TestResponseChannelDoesNotLeakToInbox(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := inboxRunUntilDone(t, proc, 50); err != nil {
+	if err := inboxRunUntilDone(t, proc); err != nil {
 		t.Fatalf("Process failed: %v", err)
 	}
 }
@@ -1052,7 +1054,7 @@ func TestResponseChannelBlockingReceive(t *testing.T) {
 	proc := startInboxProcessWithTranscoder(t, script)
 	defer proc.Close()
 
-	if err := inboxRunUntilIdle(t, proc, 30); err != nil {
+	if err := inboxRunUntilIdle(t, proc); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1066,7 +1068,7 @@ func TestResponseChannelBlockingReceive(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := inboxRunUntilDone(t, proc, 50); err != nil {
+	if err := inboxRunUntilDone(t, proc); err != nil {
 		t.Fatalf("Process failed: %v", err)
 	}
 }
@@ -1103,7 +1105,7 @@ func TestGovClientPattern(t *testing.T) {
 	proc := startInboxProcessWithTranscoder(t, script)
 	defer proc.Close()
 
-	if err := inboxRunUntilIdle(t, proc, 30); err != nil {
+	if err := inboxRunUntilIdle(t, proc); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1118,7 +1120,7 @@ func TestGovClientPattern(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := inboxRunUntilDone(t, proc, 50); err != nil {
+	if err := inboxRunUntilDone(t, proc); err != nil {
 		t.Fatalf("Process failed: %v", err)
 	}
 }
@@ -1166,7 +1168,7 @@ func TestListenReceivesRawPayloads(t *testing.T) {
 	proc := startInboxProcessWithTranscoder(t, script)
 	defer proc.Close()
 
-	if err := inboxRunUntilIdle(t, proc, 30); err != nil {
+	if err := inboxRunUntilIdle(t, proc); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1184,7 +1186,7 @@ func TestListenReceivesRawPayloads(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := inboxRunUntilDone(t, proc, 50); err != nil {
+	if err := inboxRunUntilDone(t, proc); err != nil {
 		t.Fatalf("Process failed: %v", err)
 	}
 }
@@ -1221,7 +1223,7 @@ func TestListenStringPayload(t *testing.T) {
 	proc := startInboxProcessWithTranscoder(t, script)
 	defer proc.Close()
 
-	if err := inboxRunUntilIdle(t, proc, 30); err != nil {
+	if err := inboxRunUntilIdle(t, proc); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1235,7 +1237,7 @@ func TestListenStringPayload(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := inboxRunUntilDone(t, proc, 50); err != nil {
+	if err := inboxRunUntilDone(t, proc); err != nil {
 		t.Fatalf("Process failed: %v", err)
 	}
 }

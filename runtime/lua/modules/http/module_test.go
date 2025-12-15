@@ -1079,7 +1079,7 @@ func TestRequest_MaxBody(t *testing.T) {
 
 		ctx, fc := newTestContext()
 		bodyContent := "This is a test body that is too large"
-		req, _ := http.NewRequest("POST", "/test", strings.NewReader(bodyContent))
+		req, _ := http.NewRequestWithContext(context.Background(), "POST", "/test", strings.NewReader(bodyContent))
 		req.ContentLength = int64(len(bodyContent))
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
@@ -1124,7 +1124,7 @@ func TestRequest_MaxBody(t *testing.T) {
 
 		ctx, fc := newTestContext()
 		bodyContent := `{"key":"value that is very long"}`
-		req, _ := http.NewRequest("POST", "/test", strings.NewReader(bodyContent))
+		req, _ := http.NewRequestWithContext(context.Background(), "POST", "/test", strings.NewReader(bodyContent))
 		req.ContentLength = int64(len(bodyContent))
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)

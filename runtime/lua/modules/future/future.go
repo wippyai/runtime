@@ -61,7 +61,7 @@ func New(topic string, ch *engine.Channel) *Future {
 
 // CreateHandler returns a topic handler that processes async results.
 func (f *Future) CreateHandler() engine.TopicHandler {
-	return func(ctx context.Context, l *lua.LState, _ pid.PID, _ string, payloads []payload.Payload) lua.LValue {
+	return func(_ context.Context, l *lua.LState, _ pid.PID, _ string, payloads []payload.Payload) lua.LValue {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 

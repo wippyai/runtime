@@ -599,7 +599,7 @@ func cancel(l *lua.LState) int {
 		case lua.LTNumber, lua.LTInteger:
 			ms := l.CheckNumber(2)
 			deadline = time.Now().Add(time.Duration(ms) * time.Millisecond)
-		default:
+		case lua.LTNil, lua.LTBool, lua.LTTable, lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTChannel:
 			l.Push(lua.LNil)
 			l.Push(lua.LString("deadline must be either a duration string or milliseconds number"))
 			return 2

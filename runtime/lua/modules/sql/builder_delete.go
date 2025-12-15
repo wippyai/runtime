@@ -115,7 +115,7 @@ func deleteWhere(l *lua.LState) int {
 			return 0
 		}
 
-	default:
+	case lua.LTNil, lua.LTBool, lua.LTNumber, lua.LTInteger, lua.LTFunction, lua.LTThread, lua.LTChannel:
 		l.ArgError(2, "expected string, table, or Sqlizer")
 		return 0
 	}

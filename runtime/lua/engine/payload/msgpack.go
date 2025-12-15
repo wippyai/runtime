@@ -51,7 +51,7 @@ type ToMsgPack struct{}
 // Transcode implements payload.FormatTranscoder
 func (t *ToMsgPack) Transcode(p payload.Payload) (payload.Payload, error) {
 	if p.Format() != payload.Lua {
-		return nil, runtimelua.NewInvalidFormatError("Lua=>MsgPack can only transcode from Lua format, got " + string(p.Format()))
+		return nil, runtimelua.NewInvalidFormatError("Lua=>MsgPack can only transcode from Lua format, got " + p.Format())
 	}
 
 	lv, ok := p.Data().(lua.LValue)
@@ -82,7 +82,7 @@ type MsgPackToLua struct{}
 // Transcode implements payload.FormatTranscoder
 func (t *MsgPackToLua) Transcode(p payload.Payload) (payload.Payload, error) {
 	if p.Format() != payload.MsgPack {
-		return nil, runtimelua.NewInvalidFormatError("MsgPack=>Lua can only transcode from MsgPack format, got " + string(p.Format()))
+		return nil, runtimelua.NewInvalidFormatError("MsgPack=>Lua can only transcode from MsgPack format, got " + p.Format())
 	}
 
 	data, ok := p.Data().([]byte)

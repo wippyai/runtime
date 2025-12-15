@@ -85,6 +85,22 @@ func WithAllowed(ids ...registry.ID) FactoryOption {
 	}
 }
 
+// WithAllowedClasses sets compile-time allowed classes.
+// Modules must have at least one of these classes to be allowed.
+func WithAllowedClasses(classes ...string) FactoryOption {
+	return func(c *processConfig) {
+		c.allowedClasses = append(c.allowedClasses, classes...)
+	}
+}
+
+// WithDeniedClasses sets compile-time denied classes.
+// Modules with any of these classes will be rejected.
+func WithDeniedClasses(classes ...string) FactoryOption {
+	return func(c *processConfig) {
+		c.deniedClasses = append(c.deniedClasses, classes...)
+	}
+}
+
 // ForbidClasses fails process creation if any dependency has these classes.
 func ForbidClasses(classes ...string) FactoryOption {
 	return func(c *processConfig) {

@@ -32,18 +32,18 @@ func parseDuration(lv lua.LValue) (time.Duration, bool) {
 
 // safeInt converts a Lua number to int with bounds checking.
 // Returns the value and true if valid, or 0 and false if out of range.
-func safeInt(lv lua.LValue, min, max int) (int, bool) {
+func safeInt(lv lua.LValue, minVal, maxVal int) (int, bool) {
 	n := float64(lua.LVAsNumber(lv))
-	if n < float64(min) || n > float64(max) {
+	if n < float64(minVal) || n > float64(maxVal) {
 		return 0, false
 	}
 	return int(n), true
 }
 
 // safeInt64 converts a Lua number to int64 with bounds checking.
-func safeInt64(lv lua.LValue, min, max int64) (int64, bool) {
+func safeInt64(lv lua.LValue, minVal, maxVal int64) (int64, bool) {
 	n := float64(lua.LVAsNumber(lv))
-	if n < float64(min) || n > float64(max) {
+	if n < float64(minVal) || n > float64(maxVal) {
 		return 0, false
 	}
 	return int64(n), true
@@ -210,7 +210,7 @@ func connect(l *lua.LState) int {
 				case "disabled":
 					yield.CompressionMode = wsapi.CompressionDisabled
 				}
-			default:
+			case lua.LTNil, lua.LTBool, lua.LTTable, lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTChannel:
 				// ignore unsupported types
 			}
 		}

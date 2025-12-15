@@ -58,6 +58,8 @@ func policyEvaluate(l *lua.LState) int {
 		resultValue = lua.LString("allow")
 	case secapi.Deny:
 		resultValue = lua.LString("deny")
+	case secapi.Undefined:
+		resultValue = lua.LString("undefined")
 	default:
 		resultValue = lua.LString("undefined")
 	}
