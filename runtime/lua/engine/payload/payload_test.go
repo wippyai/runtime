@@ -795,7 +795,7 @@ func TestLuaToBytes_AllTypes(t *testing.T) {
 	}{
 		{"string", lua.LString("hello"), []byte("hello")},
 		{"number", lua.LNumber(42.5), []byte("42.5")},
-		{"binary", lua.LString(string([]byte{0x00, 0xFF})), []byte{0x00, 0xFF}},
+		{"binary", lua.LString([]byte{0x00, 0xFF}), []byte{0x00, 0xFF}},
 	}
 
 	for _, tt := range tests {

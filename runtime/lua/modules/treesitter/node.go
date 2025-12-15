@@ -23,6 +23,9 @@ func pushNode(l *lua.LState, node *treesitter.Node, source *string) {
 
 func nodeParent(l *lua.LState) int {
 	node := checkNode(l)
+	if node == nil {
+		return 0
+	}
 	parent := node.node.Parent()
 	if parent == nil {
 		l.Push(lua.LNil)
@@ -34,6 +37,9 @@ func nodeParent(l *lua.LState) int {
 
 func nodeChild(l *lua.LState) int {
 	node := checkNode(l)
+	if node == nil {
+		return 0
+	}
 	idx := uint(l.CheckNumber(2))
 	child := node.node.Child(idx)
 	if child == nil {
@@ -46,12 +52,18 @@ func nodeChild(l *lua.LState) int {
 
 func nodeChildCount(l *lua.LState) int {
 	node := checkNode(l)
+	if node == nil {
+		return 0
+	}
 	l.Push(lua.LNumber(node.node.ChildCount()))
 	return 1
 }
 
 func nodeNextSibling(l *lua.LState) int {
 	node := checkNode(l)
+	if node == nil {
+		return 0
+	}
 	sibling := node.node.NextSibling()
 	if sibling == nil {
 		l.Push(lua.LNil)
@@ -63,6 +75,9 @@ func nodeNextSibling(l *lua.LState) int {
 
 func nodePrevSibling(l *lua.LState) int {
 	node := checkNode(l)
+	if node == nil {
+		return 0
+	}
 	sibling := node.node.PrevSibling()
 	if sibling == nil {
 		l.Push(lua.LNil)
@@ -74,6 +89,9 @@ func nodePrevSibling(l *lua.LState) int {
 
 func nodeNextNamedSibling(l *lua.LState) int {
 	node := checkNode(l)
+	if node == nil {
+		return 0
+	}
 	sibling := node.node.NextNamedSibling()
 	if sibling == nil {
 		l.Push(lua.LNil)
@@ -85,6 +103,9 @@ func nodeNextNamedSibling(l *lua.LState) int {
 
 func nodePrevNamedSibling(l *lua.LState) int {
 	node := checkNode(l)
+	if node == nil {
+		return 0
+	}
 	sibling := node.node.PrevNamedSibling()
 	if sibling == nil {
 		l.Push(lua.LNil)
@@ -96,6 +117,9 @@ func nodePrevNamedSibling(l *lua.LState) int {
 
 func nodeNamedChild(l *lua.LState) int {
 	node := checkNode(l)
+	if node == nil {
+		return 0
+	}
 	idx := uint(l.CheckNumber(2))
 	child := node.node.NamedChild(idx)
 	if child == nil {
@@ -108,6 +132,9 @@ func nodeNamedChild(l *lua.LState) int {
 
 func nodeNamedChildCount(l *lua.LState) int {
 	node := checkNode(l)
+	if node == nil {
+		return 0
+	}
 	l.Push(lua.LNumber(node.node.NamedChildCount()))
 	return 1
 }
@@ -116,6 +143,9 @@ func nodeNamedChildCount(l *lua.LState) int {
 
 func nodeChildByFieldName(l *lua.LState) int {
 	node := checkNode(l)
+	if node == nil {
+		return 0
+	}
 	fieldName := l.CheckString(2)
 	child := node.node.ChildByFieldName(fieldName)
 	if child == nil {
@@ -128,6 +158,9 @@ func nodeChildByFieldName(l *lua.LState) int {
 
 func nodeFieldNameForChild(l *lua.LState) int {
 	node := checkNode(l)
+	if node == nil {
+		return 0
+	}
 	idx := uint32(l.CheckNumber(2))
 	fieldName := node.node.FieldNameForChild(idx)
 	if fieldName == "" {
@@ -142,24 +175,36 @@ func nodeFieldNameForChild(l *lua.LState) int {
 
 func nodeKind(l *lua.LState) int {
 	node := checkNode(l)
+	if node == nil {
+		return 0
+	}
 	l.Push(lua.LString(node.node.Kind()))
 	return 1
 }
 
 func nodeIsNamed(l *lua.LState) int {
 	node := checkNode(l)
+	if node == nil {
+		return 0
+	}
 	l.Push(lua.LBool(node.node.IsNamed()))
 	return 1
 }
 
 func nodeHasError(l *lua.LState) int {
 	node := checkNode(l)
+	if node == nil {
+		return 0
+	}
 	l.Push(lua.LBool(node.node.HasError()))
 	return 1
 }
 
 func nodeIsError(l *lua.LState) int {
 	node := checkNode(l)
+	if node == nil {
+		return 0
+	}
 	l.Push(lua.LBool(node.node.IsError()))
 	return 1
 }
@@ -168,18 +213,27 @@ func nodeIsError(l *lua.LState) int {
 
 func nodeStartByte(l *lua.LState) int {
 	node := checkNode(l)
+	if node == nil {
+		return 0
+	}
 	l.Push(lua.LNumber(node.node.StartByte()))
 	return 1
 }
 
 func nodeEndByte(l *lua.LState) int {
 	node := checkNode(l)
+	if node == nil {
+		return 0
+	}
 	l.Push(lua.LNumber(node.node.EndByte()))
 	return 1
 }
 
 func nodeStartPoint(l *lua.LState) int {
 	node := checkNode(l)
+	if node == nil {
+		return 0
+	}
 	point := node.node.StartPosition()
 	pointTable := l.CreateTable(0, 2)
 	pointTable.RawSetString("row", lua.LNumber(point.Row))
@@ -190,6 +244,9 @@ func nodeStartPoint(l *lua.LState) int {
 
 func nodeEndPoint(l *lua.LState) int {
 	node := checkNode(l)
+	if node == nil {
+		return 0
+	}
 	point := node.node.EndPosition()
 	pointTable := l.CreateTable(0, 2)
 	pointTable.RawSetString("row", lua.LNumber(point.Row))
@@ -201,6 +258,9 @@ func nodeEndPoint(l *lua.LState) int {
 // nodeText retrieves the source text for this node
 func nodeText(l *lua.LState) int {
 	node := checkNode(l)
+	if node == nil {
+		return 0
+	}
 
 	var code string
 	if l.GetTop() == 2 && l.Get(2).Type() == lua.LTString {
@@ -239,6 +299,9 @@ func nodeText(l *lua.LState) int {
 
 func nodeGrammarName(l *lua.LState) int {
 	node := checkNode(l)
+	if node == nil {
+		return 0
+	}
 	grammarName := node.node.GrammarName()
 	l.Push(lua.LString(grammarName))
 	return 1
@@ -246,18 +309,27 @@ func nodeGrammarName(l *lua.LState) int {
 
 func nodeIsExtra(l *lua.LState) int {
 	node := checkNode(l)
+	if node == nil {
+		return 0
+	}
 	l.Push(lua.LBool(node.node.IsExtra()))
 	return 1
 }
 
 func nodeIsMissing(l *lua.LState) int {
 	node := checkNode(l)
+	if node == nil {
+		return 0
+	}
 	l.Push(lua.LBool(node.node.IsMissing()))
 	return 1
 }
 
 func nodeNamedDescendantForPointRange(l *lua.LState) int {
 	node := checkNode(l)
+	if node == nil {
+		return 0
+	}
 
 	// Spawn start point table argument
 	startPointTbl := l.CheckTable(2)
@@ -283,6 +355,9 @@ func nodeNamedDescendantForPointRange(l *lua.LState) int {
 
 func nodeDescendantCount(l *lua.LState) int {
 	node := checkNode(l)
+	if node == nil {
+		return 0
+	}
 	count := node.node.DescendantCount()
 	l.Push(lua.LNumber(count))
 	return 1
@@ -290,6 +365,9 @@ func nodeDescendantCount(l *lua.LState) int {
 
 func nodeToSexp(l *lua.LState) int {
 	node := checkNode(l)
+	if node == nil {
+		return 0
+	}
 	sexp := node.node.ToSexp()
 	l.Push(lua.LString(sexp))
 	return 1

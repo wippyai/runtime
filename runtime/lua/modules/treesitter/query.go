@@ -148,6 +148,9 @@ func matchToLuaTable(l *lua.LState, query *treesitter.Query, match *treesitter.Q
 
 func queryMatches(l *lua.LState) int {
 	query := checkQuery(l)
+	if query == nil {
+		return 0
+	}
 	nodeUD := l.CheckUserData(2)
 	source := l.CheckString(3)
 
@@ -178,6 +181,9 @@ func queryMatches(l *lua.LState) int {
 
 func queryCaptures(l *lua.LState) int {
 	query := checkQuery(l)
+	if query == nil {
+		return 0
+	}
 	nodeUD := l.CheckUserData(2)
 	source := l.CheckString(3)
 
@@ -232,6 +238,9 @@ func queryCaptures(l *lua.LState) int {
 
 func querySetByteRange(l *lua.LState) int {
 	query := checkQuery(l)
+	if query == nil {
+		return 0
+	}
 	startByte := uint(l.CheckNumber(2))
 	endByte := uint(l.CheckNumber(3))
 	query.cursor.SetByteRange(startByte, endByte)
@@ -240,6 +249,9 @@ func querySetByteRange(l *lua.LState) int {
 
 func querySetPointRange(l *lua.LState) int {
 	query := checkQuery(l)
+	if query == nil {
+		return 0
+	}
 
 	startPointTbl := l.CheckTable(2)
 	startRow := toUint(startPointTbl.RawGetString("row"))
@@ -258,6 +270,9 @@ func querySetPointRange(l *lua.LState) int {
 
 func querySetMatchLimit(l *lua.LState) int {
 	query := checkQuery(l)
+	if query == nil {
+		return 0
+	}
 	limit := uint(l.CheckNumber(2))
 	query.cursor.SetMatchLimit(limit)
 	return 0
@@ -265,18 +280,27 @@ func querySetMatchLimit(l *lua.LState) int {
 
 func queryGetMatchLimit(l *lua.LState) int {
 	query := checkQuery(l)
+	if query == nil {
+		return 0
+	}
 	l.Push(lua.LNumber(query.cursor.MatchLimit()))
 	return 1
 }
 
 func queryDidExceedMatchLimit(l *lua.LState) int {
 	query := checkQuery(l)
+	if query == nil {
+		return 0
+	}
 	l.Push(lua.LBool(query.cursor.DidExceedMatchLimit()))
 	return 1
 }
 
 func querySetTimeout(l *lua.LState) int {
 	query := checkQuery(l)
+	if query == nil {
+		return 0
+	}
 	timeout := uint64(l.CheckNumber(2))
 	query.cursor.SetTimeoutMicros(timeout)
 	return 0
@@ -284,6 +308,9 @@ func querySetTimeout(l *lua.LState) int {
 
 func queryGetTimeout(l *lua.LState) int {
 	query := checkQuery(l)
+	if query == nil {
+		return 0
+	}
 	l.Push(lua.LNumber(query.cursor.TimeoutMicros()))
 	return 1
 }
@@ -292,6 +319,9 @@ func queryGetTimeout(l *lua.LState) int {
 
 func queryDisablePattern(l *lua.LState) int {
 	query := checkQuery(l)
+	if query == nil {
+		return 0
+	}
 	pattern := uint(l.CheckNumber(2))
 	query.query.DisablePattern(pattern)
 	return 0
@@ -299,6 +329,9 @@ func queryDisablePattern(l *lua.LState) int {
 
 func queryDisableCapture(l *lua.LState) int {
 	query := checkQuery(l)
+	if query == nil {
+		return 0
+	}
 	name := l.CheckString(2)
 	query.query.DisableCapture(name)
 	return 0
@@ -306,6 +339,9 @@ func queryDisableCapture(l *lua.LState) int {
 
 func queryIsPatternRooted(l *lua.LState) int {
 	query := checkQuery(l)
+	if query == nil {
+		return 0
+	}
 	pattern := uint(l.CheckNumber(2))
 	l.Push(lua.LBool(query.query.IsPatternRooted(pattern)))
 	return 1
@@ -313,6 +349,9 @@ func queryIsPatternRooted(l *lua.LState) int {
 
 func queryIsPatternNonLocal(l *lua.LState) int {
 	query := checkQuery(l)
+	if query == nil {
+		return 0
+	}
 	pattern := uint(l.CheckNumber(2))
 	l.Push(lua.LBool(query.query.IsPatternNonLocal(pattern)))
 	return 1
@@ -320,6 +359,9 @@ func queryIsPatternNonLocal(l *lua.LState) int {
 
 func queryCaptureNameForID(l *lua.LState) int {
 	query := checkQuery(l)
+	if query == nil {
+		return 0
+	}
 	id := uint(l.CheckNumber(2))
 	names := query.query.CaptureNames()
 	if id < uint(len(names)) {
@@ -332,6 +374,9 @@ func queryCaptureNameForID(l *lua.LState) int {
 
 func queryCaptureQuantifier(l *lua.LState) int {
 	query := checkQuery(l)
+	if query == nil {
+		return 0
+	}
 	pattern := uint(l.CheckNumber(2))
 	id := uint(l.CheckNumber(3))
 
@@ -348,12 +393,18 @@ func queryCaptureQuantifier(l *lua.LState) int {
 
 func queryPatternCount(l *lua.LState) int {
 	query := checkQuery(l)
+	if query == nil {
+		return 0
+	}
 	l.Push(lua.LNumber(query.query.PatternCount()))
 	return 1
 }
 
 func queryCaptureCount(l *lua.LState) int {
 	query := checkQuery(l)
+	if query == nil {
+		return 0
+	}
 	l.Push(lua.LNumber(len(query.query.CaptureNames())))
 	return 1
 }
@@ -366,6 +417,9 @@ func queryStringCount(l *lua.LState) int {
 
 func queryStartByteForPattern(l *lua.LState) int {
 	query := checkQuery(l)
+	if query == nil {
+		return 0
+	}
 	pattern := uint(l.CheckNumber(2))
 	l.Push(lua.LNumber(query.query.StartByteForPattern(pattern)))
 	return 1
@@ -383,6 +437,9 @@ func queryClose(l *lua.LState) int {
 // Sets the maximum start depth for query traversal
 func querySetMaxStartDepth(l *lua.LState) int {
 	query := checkQuery(l)
+	if query == nil {
+		return 0
+	}
 	depth := uint(l.CheckNumber(2))
 	query.cursor.SetMaxStartDepth(&depth)
 	return 0
@@ -391,6 +448,9 @@ func querySetMaxStartDepth(l *lua.LState) int {
 // Gets property predicates for a given pattern index
 func queryGetPropertyPredicates(l *lua.LState) int {
 	query := checkQuery(l)
+	if query == nil {
+		return 0
+	}
 	pattern := uint(l.CheckNumber(2))
 
 	predicates := query.query.PropertyPredicates(pattern)
@@ -416,6 +476,9 @@ func queryGetPropertyPredicates(l *lua.LState) int {
 // Gets property settings for a given pattern index
 func queryGetPropertySettings(l *lua.LState) int {
 	query := checkQuery(l)
+	if query == nil {
+		return 0
+	}
 	pattern := uint(l.CheckNumber(2))
 
 	settings := query.query.PropertySettings(pattern)
@@ -440,6 +503,9 @@ func queryGetPropertySettings(l *lua.LState) int {
 // Checks if a pattern is guaranteed at a given byte offset
 func queryIsPatternGuaranteed(l *lua.LState) int {
 	query := checkQuery(l)
+	if query == nil {
+		return 0
+	}
 	byteOffset := uint(l.CheckNumber(2))
 	l.Push(lua.LBool(query.query.IsPatternGuaranteedAtStep(byteOffset)))
 	return 1
@@ -448,6 +514,9 @@ func queryIsPatternGuaranteed(l *lua.LState) int {
 // Gets the capture index for a given name
 func queryCaptureIndexForName(l *lua.LState) int {
 	query := checkQuery(l)
+	if query == nil {
+		return 0
+	}
 	name := l.CheckString(2)
 	if index, ok := query.query.CaptureIndexForName(name); ok {
 		l.Push(lua.LNumber(index))
@@ -460,6 +529,9 @@ func queryCaptureIndexForName(l *lua.LState) int {
 // Gets the end byte for a given pattern
 func queryEndByteForPattern(l *lua.LState) int {
 	query := checkQuery(l)
+	if query == nil {
+		return 0
+	}
 	pattern := uint(l.CheckNumber(2))
 	l.Push(lua.LNumber(query.query.EndByteForPattern(pattern)))
 	return 1
@@ -468,6 +540,9 @@ func queryEndByteForPattern(l *lua.LState) int {
 // Gets text predicates for a given pattern
 func queryGetTextPredicates(l *lua.LState) int {
 	query := checkQuery(l)
+	if query == nil {
+		return 0
+	}
 	pattern := uint(l.CheckNumber(2))
 
 	predicates := query.query.TextPredicates[pattern]

@@ -53,7 +53,7 @@ func TestYieldToCommand(t *testing.T) {
 	readYield := AcquireReadYield(42, 1024)
 	readCmd := readYield.ToCommand()
 	if readCmd == nil {
-		t.Error("expected non-nil command for ReadYield")
+		t.Fatal("expected non-nil command for ReadYield")
 	}
 	if readCmd.CmdID() != 50 {
 		t.Errorf("expected CmdID=50, got %v", readCmd.CmdID())
@@ -63,7 +63,7 @@ func TestYieldToCommand(t *testing.T) {
 	closeYield := AcquireCloseYield(99)
 	closeCmd := closeYield.ToCommand()
 	if closeCmd == nil {
-		t.Error("expected non-nil command for CloseYield")
+		t.Fatal("expected non-nil command for CloseYield")
 	}
 	if closeCmd.CmdID() != 51 {
 		t.Errorf("expected CmdID=51, got %v", closeCmd.CmdID())

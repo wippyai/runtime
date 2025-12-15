@@ -267,6 +267,9 @@ func checkConn(l *lua.LState) *WsConn {
 
 func connSend(l *lua.LState) int {
 	conn := checkConn(l)
+	if conn == nil {
+		return 0
+	}
 	data := l.CheckString(2)
 	msgType := wsapi.MessageText
 	if l.GetTop() >= 3 {
@@ -285,6 +288,9 @@ func connSend(l *lua.LState) int {
 // Subsequent calls return the cached channel directly.
 func connChannel(l *lua.LState) int {
 	conn := checkConn(l)
+	if conn == nil {
+		return 0
+	}
 
 	// If already subscribed, return the channel directly
 	if conn.subscribed && conn.Channel != nil {
@@ -321,6 +327,9 @@ func connChannel(l *lua.LState) int {
 
 func connPing(l *lua.LState) int {
 	conn := checkConn(l)
+	if conn == nil {
+		return 0
+	}
 	yield := AcquireWsPingYield(conn.ID, nil)
 	l.Push(yield)
 	return -1
@@ -328,6 +337,9 @@ func connPing(l *lua.LState) int {
 
 func connClose(l *lua.LState) int {
 	conn := checkConn(l)
+	if conn == nil {
+		return 0
+	}
 	code := 1000
 	reason := ""
 	if l.GetTop() >= 2 {

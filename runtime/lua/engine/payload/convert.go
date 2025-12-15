@@ -58,11 +58,11 @@ func GoToLua(v any) (lua.LValue, error) {
 	case float64:
 		return lua.LNumber(val), nil
 	case float32:
-		return lua.LNumber(float64(val)), nil
+		return lua.LNumber(val), nil
 	case int:
-		return lua.LInteger(int64(val)), nil
+		return lua.LInteger(val), nil
 	case int32:
-		return lua.LInteger(int64(val)), nil
+		return lua.LInteger(val), nil
 	case int64:
 		return lua.LInteger(val), nil
 	case bool:

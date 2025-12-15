@@ -37,7 +37,7 @@ func osClock(l *lua.LState) int {
 func osDifftime(l *lua.LState) int {
 	t2 := l.CheckNumber(1)
 	t1 := l.CheckNumber(2)
-	l.Push(lua.LNumber(t2 - t1))
+	l.Push(t2 - t1)
 	return 1
 }
 

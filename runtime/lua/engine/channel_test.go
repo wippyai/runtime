@@ -176,7 +176,7 @@ func TestChannelUnbuffered(t *testing.T) {
 
 	if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
 		if str, ok := proc.mainTask.Yielded[0].(lua.LString); ok {
-			if string(str) != "hello" {
+			if str != "hello" {
 				t.Errorf("expected 'hello', got %q", str)
 			}
 		}
@@ -313,7 +313,7 @@ func TestNoDeadlockWithDefault(t *testing.T) {
 
 	if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
 		if str, ok := proc.mainTask.Yielded[0].(lua.LString); ok {
-			if string(str) != "default" {
+			if str != "default" {
 				t.Errorf("expected 'default', got %q", str)
 			}
 		}
@@ -463,7 +463,7 @@ func TestSelectWithCaseSend(t *testing.T) {
 		if tbl.RawGetString("ok") != lua.LTrue {
 			t.Error("expected result.ok=true")
 		}
-		if s, ok := tbl.RawGetString("value").(lua.LString); !ok || string(s) != "value" {
+		if s, ok := tbl.RawGetString("value").(lua.LString); !ok || s != "value" {
 			t.Errorf("expected 'value', got %v", tbl.RawGetString("value"))
 		}
 	}
@@ -618,7 +618,7 @@ func TestSelectImmediateBuffered(t *testing.T) {
 		if tbl.RawGetString("is_ch1") != lua.LTrue {
 			t.Error("expected result.channel == ch1")
 		}
-		if s, ok := tbl.RawGetString("value").(lua.LString); !ok || string(s) != "msg1" {
+		if s, ok := tbl.RawGetString("value").(lua.LString); !ok || s != "msg1" {
 			t.Errorf("expected 'msg1', got %v", tbl.RawGetString("value"))
 		}
 		if tbl.RawGetString("ok") != lua.LTrue {
@@ -658,7 +658,7 @@ func TestChannelPassBetweenCoroutines(t *testing.T) {
 
 	if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
 		if s, ok := proc.mainTask.Yielded[0].(lua.LString); ok {
-			if string(s) != "hello from inner" {
+			if s != "hello from inner" {
 				t.Errorf("expected 'hello from inner', got %q", s)
 			}
 		}
@@ -885,7 +885,7 @@ func TestCloseNotifiesBlockedReceivers(t *testing.T) {
 		if n, ok := count.(lua.LNumber); ok && int(n) != 3 {
 			t.Errorf("expected 3 results, got %d", int(n))
 		}
-		if b, ok := allFalse.(lua.LBool); ok && !b {
+		if b, ok := allFalse.(lua.LBool); ok && b == lua.LFalse {
 			t.Error("expected all ok=false after close")
 		}
 	}
@@ -924,10 +924,10 @@ func TestSelectWakesOnClose(t *testing.T) {
 	}
 
 	if proc.mainTask != nil && len(proc.mainTask.Yielded) >= 2 {
-		if b, ok := proc.mainTask.Yielded[0].(lua.LBool); ok && !b {
+		if b, ok := proc.mainTask.Yielded[0].(lua.LBool); ok && b == lua.LFalse {
 			t.Error("expected result.channel == ch1")
 		}
-		if b, ok := proc.mainTask.Yielded[1].(lua.LBool); ok && b {
+		if b, ok := proc.mainTask.Yielded[1].(lua.LBool); ok && b == lua.LTrue {
 			t.Error("expected result.ok=false for closed channel")
 		}
 	}
@@ -1090,7 +1090,7 @@ func TestSelectMultiChannelCleanup(t *testing.T) {
 	}
 
 	if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
-		if b, ok := proc.mainTask.Yielded[0].(lua.LBool); ok && !b {
+		if b, ok := proc.mainTask.Yielded[0].(lua.LBool); ok && b == lua.LFalse {
 			t.Error("expected result.channel == ch2")
 		}
 	}
@@ -1465,11 +1465,10 @@ func TestSubscribeDuplicateTopicDifferentChannel(t *testing.T) {
 
 	if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
 		if str, ok := proc.mainTask.Yielded[0].(lua.LString); ok {
-			result := string(str)
-			if result == "no error" {
+			if str == "no error" {
 				t.Error("expected error for duplicate topic with different channel")
 			} else {
-				t.Logf("Correctly got error: %s", result)
+				t.Logf("Correctly got error: %s", str)
 			}
 		}
 	}
@@ -1496,11 +1495,10 @@ func TestSubscribeInvalidUnsubscribe(t *testing.T) {
 
 	if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
 		if str, ok := proc.mainTask.Yielded[0].(lua.LString); ok {
-			result := string(str)
-			if result == "no error" {
+			if str == "no error" {
 				t.Error("expected error for unsubscribing non-subscribed channel")
 			} else {
-				t.Logf("Correctly got error: %s", result)
+				t.Logf("Correctly got error: %s", str)
 			}
 		}
 	}
@@ -1653,7 +1651,7 @@ func TestSubscribeResubscribeAfterUnsubscribe(t *testing.T) {
 
 	if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
 		if str, ok := proc.mainTask.Yielded[0].(lua.LString); ok {
-			if string(str) != "success" {
+			if str != "success" {
 				t.Errorf("expected 'success', got %q", str)
 			}
 		}
@@ -1744,7 +1742,7 @@ func TestSelectBlockedReceiveThenSend(t *testing.T) {
 
 	if proc.mainTask != nil && len(proc.mainTask.Yielded) > 0 {
 		if s, ok := proc.mainTask.Yielded[0].(lua.LString); ok {
-			if string(s) != "ch2_value" {
+			if s != "ch2_value" {
 				t.Errorf("expected 'ch2_value', got %q", s)
 			}
 		}
@@ -1785,13 +1783,13 @@ func TestSelectReadySendBlockedReceive(t *testing.T) {
 		isReadyCh := tbl.RawGetString("is_ready_ch").(lua.LBool)
 		val := tbl.RawGetString("value").(lua.LString)
 		okVal := tbl.RawGetString("ok").(lua.LBool)
-		if !bool(isReadyCh) {
+		if !isReadyCh {
 			t.Error("expected result.channel == readyCh")
 		}
-		if string(val) != "ready_value" {
+		if val != "ready_value" {
 			t.Errorf("expected 'ready_value', got %q", val)
 		}
-		if !bool(okVal) {
+		if !okVal {
 			t.Error("expected ok=true")
 		}
 	}
@@ -1840,10 +1838,10 @@ func TestSelectMixedBlockingBothCases(t *testing.T) {
 		}
 		isCh2 := tbl.RawGetString("is_ch2").(lua.LBool)
 		val := tbl.RawGetString("value").(lua.LString)
-		if !bool(isCh2) {
+		if !isCh2 {
 			t.Error("expected result.channel == ch2")
 		}
-		if string(val) != "value2" {
+		if val != "value2" {
 			t.Errorf("expected 'value2', got %q", val)
 		}
 	}
@@ -1875,10 +1873,10 @@ func TestSelectWithDefaultNonBlocking(t *testing.T) {
 	if proc.mainTask != nil && len(proc.mainTask.Yielded) >= 2 {
 		isDefault := proc.mainTask.Yielded[0].(lua.LBool)
 		ok := proc.mainTask.Yielded[1].(lua.LBool)
-		if !bool(isDefault) {
+		if !isDefault {
 			t.Error("expected result.default=true")
 		}
-		if !bool(ok) {
+		if !ok {
 			t.Error("expected result.ok=true")
 		}
 	}
@@ -1958,7 +1956,7 @@ func TestSelectIndex1VsIndex2(t *testing.T) {
 	}
 
 	if proc1.mainTask != nil && len(proc1.mainTask.Yielded) > 0 {
-		if b, ok := proc1.mainTask.Yielded[0].(lua.LBool); ok && !b {
+		if b, ok := proc1.mainTask.Yielded[0].(lua.LBool); ok && b == lua.LFalse {
 			t.Error("Test1: expected result.channel == ch1")
 		}
 	}
@@ -1989,7 +1987,7 @@ func TestSelectIndex1VsIndex2(t *testing.T) {
 	}
 
 	if proc2.mainTask != nil && len(proc2.mainTask.Yielded) > 0 {
-		if b, ok := proc2.mainTask.Yielded[0].(lua.LBool); ok && !b {
+		if b, ok := proc2.mainTask.Yielded[0].(lua.LBool); ok && b == lua.LFalse {
 			t.Error("Test2: expected result.channel == ch2")
 		}
 	}
@@ -2026,7 +2024,7 @@ func TestSelectBufferedImmediateIndex(t *testing.T) {
 			t.Fatal("expected table result")
 		}
 		isCh2 := tbl.RawGetString("is_ch2").(lua.LBool)
-		if !bool(isCh2) {
+		if !isCh2 {
 			t.Error("expected result.channel == ch2")
 		}
 	}
@@ -3189,7 +3187,7 @@ func TestSelectReceiveFromBlockedSender(t *testing.T) {
 					t.Fatal("expected true, got false")
 				}
 			case lua.LBool:
-				if !bool(v) {
+				if !v {
 					t.Fatal("expected true, got false")
 				}
 			default:

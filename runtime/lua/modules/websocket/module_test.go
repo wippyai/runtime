@@ -9,7 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/security"
 	wsapi "github.com/wippyai/runtime/api/service/websocket"
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 )
 
 func bind(l *lua.LState) {

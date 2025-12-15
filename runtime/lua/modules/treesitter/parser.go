@@ -131,6 +131,9 @@ func (p *ParserWrapper) parseWithContext(ctx context.Context, code []byte, oldTr
 
 func parserSetLanguage(l *lua.LState) int {
 	p := checkParser(l)
+	if p == nil {
+		return 0
+	}
 	langAlias := l.CheckString(2)
 
 	langInfo := languages.GetLanguageInfo(langAlias)
@@ -169,6 +172,9 @@ func parserSetLanguage(l *lua.LState) int {
 
 func parserGetLanguage(l *lua.LState) int {
 	p := checkParser(l)
+	if p == nil {
+		return 0
+	}
 
 	if p.lang == nil {
 		err := lua.NewLuaError(l, "language is not set").
@@ -185,6 +191,9 @@ func parserGetLanguage(l *lua.LState) int {
 
 func parserParse(l *lua.LState) int {
 	parser := checkParser(l)
+	if parser == nil {
+		return 0
+	}
 	code := l.CheckString(2)
 
 	if parser.parser.Language() == nil {
@@ -239,6 +248,9 @@ func parserParse(l *lua.LState) int {
 
 func parserReset(l *lua.LState) int {
 	p := checkParser(l)
+	if p == nil {
+		return 0
+	}
 	p.parser.Reset()
 	return 0
 }
@@ -253,6 +265,9 @@ func parserClose(l *lua.LState) int {
 
 func parserSetTimeout(l *lua.LState) int {
 	p := checkParser(l)
+	if p == nil {
+		return 0
+	}
 	timeout := l.CheckNumber(2)
 	p.timeout = time.Duration(float64(timeout) * float64(time.Second))
 	return 0
@@ -260,6 +275,9 @@ func parserSetTimeout(l *lua.LState) int {
 
 func parserSetRanges(l *lua.LState) int {
 	p := checkParser(l)
+	if p == nil {
+		return 0
+	}
 	rangesTable := l.CheckTable(2)
 
 	var ranges []treesitter.Range

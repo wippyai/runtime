@@ -60,7 +60,7 @@ func NewLoaderModule(opts LoaderOptions) *luaapi.ModuleDef {
 		Class:       []string{luaapi.ClassStorage, luaapi.ClassIO},
 		Build: func() (*lua.LTable, []luaapi.YieldType) {
 			mod := lua.CreateTable(0, 1)
-			mod.RawSetString("new", lua.LGoFunc(makeCreateLoader(opts.Log)))
+			mod.RawSetString("new", makeCreateLoader(opts.Log))
 			mod.Immutable = true
 			return mod, nil
 		},

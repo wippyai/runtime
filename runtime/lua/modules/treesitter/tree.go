@@ -68,6 +68,9 @@ func (t *TreeWrapper) Close() {
 
 func treeRootNode(l *lua.LState) int {
 	tree := checkTree(l)
+	if tree == nil {
+		return 0
+	}
 	if tree.tree == nil {
 		err := lua.NewLuaError(l, "tree is closed").
 			WithKind(lua.Invalid).
@@ -90,6 +93,9 @@ func treeRootNode(l *lua.LState) int {
 // RootNodeWithOffset implementation
 func treeRootNodeWithOffset(l *lua.LState) int {
 	tree := checkTree(l)
+	if tree == nil {
+		return 0
+	}
 	if tree.tree == nil {
 		err := lua.NewLuaError(l, "tree is closed").
 			WithKind(lua.Invalid).
@@ -120,6 +126,9 @@ func treeRootNodeWithOffset(l *lua.LState) int {
 // Language implementation
 func treeLanguage(l *lua.LState) int {
 	tree := checkTree(l)
+	if tree == nil {
+		return 0
+	}
 	if tree.tree == nil {
 		err := lua.NewLuaError(l, "tree is closed").
 			WithKind(lua.Invalid).
@@ -141,6 +150,9 @@ func treeLanguage(l *lua.LState) int {
 
 func treeCopy(l *lua.LState) int {
 	tree := checkTree(l)
+	if tree == nil {
+		return 0
+	}
 	if tree.tree == nil {
 		err := lua.NewLuaError(l, "tree is closed").
 			WithKind(lua.Invalid).
@@ -172,6 +184,9 @@ func treeCopy(l *lua.LState) int {
 
 func treeWalk(l *lua.LState) int {
 	tree := checkTree(l)
+	if tree == nil {
+		return 0
+	}
 	if tree.tree == nil {
 		err := lua.NewLuaError(l, "tree is closed").
 			WithKind(lua.Invalid).
@@ -230,6 +245,9 @@ func toNumber(v lua.LValue) (float64, bool) {
 // AddCleanup Lua binding
 func treeEdit(l *lua.LState) int {
 	tree := checkTree(l)
+	if tree == nil {
+		return 0
+	}
 	if tree.tree == nil {
 		err := lua.NewLuaError(l, "tree is closed").
 			WithKind(lua.Invalid).
@@ -340,6 +358,9 @@ func treeEdit(l *lua.LState) int {
 // ChangedRanges implementation
 func treeChangedRanges(l *lua.LState) int {
 	tree := checkTree(l)
+	if tree == nil {
+		return 0
+	}
 	if tree.tree == nil {
 		l.Push(lua.LNil)
 		return 1
@@ -381,6 +402,9 @@ func treeChangedRanges(l *lua.LState) int {
 // IncludedRanges implementation
 func treeIncludedRanges(l *lua.LState) int {
 	tree := checkTree(l)
+	if tree == nil {
+		return 0
+	}
 	if tree.tree == nil {
 		l.Push(lua.LNil)
 		return 1
@@ -415,6 +439,9 @@ func treeIncludedRanges(l *lua.LState) int {
 // Print a graph of the tree and return it as a string
 func treePrintDotGraph(l *lua.LState) int {
 	tree := checkTree(l)
+	if tree == nil {
+		return 0
+	}
 	if tree.tree == nil {
 		err := lua.NewLuaError(l, "tree is nil").
 			WithKind(lua.Invalid).

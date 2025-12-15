@@ -823,7 +823,7 @@ func TestInMemoryRegistry_Rollback(t *testing.T) {
 
 	err = reg.rollback(context.Background(), fromState, toState)
 	if err == nil {
-		t.Error("Expected error during failed rollback")
+		t.Fatal("Expected error during failed rollback")
 	}
 	if !strings.Contains(err.Error(), "rollback failed") {
 		t.Errorf("Expected error message to contain 'rollback failed', got: %v", err)
@@ -877,7 +877,7 @@ func TestInMemoryRegistry_TransitionState(t *testing.T) {
 
 	_, err = reg.transitionState(context.Background(), fromState, toState)
 	if err == nil {
-		t.Error("Expected error during failed transition")
+		t.Fatal("Expected error during failed transition")
 	}
 	if !strings.Contains(err.Error(), "transition failed") {
 		t.Errorf("Expected error message to contain 'transition failed', got: %v", err)
@@ -1144,7 +1144,7 @@ func TestInMemoryRegistry_RollbackPartialState(t *testing.T) {
 	// Attempt to apply - should fail on history save and then fail rollback
 	_, err := reg.Apply(context.Background(), changes)
 	if err == nil {
-		t.Error("Expected error, got nil")
+		t.Fatal("Expected error, got nil")
 	}
 
 	if !strings.Contains(err.Error(), "rollback") {

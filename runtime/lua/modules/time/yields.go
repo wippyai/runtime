@@ -689,6 +689,9 @@ func checkTimer(l *lua.LState, idx int) *Timer {
 
 func timerResponseMethod(l *lua.LState) int {
 	timer := checkTimer(l, 1)
+	if timer == nil {
+		return 0
+	}
 	if timer.channelUD == nil {
 		l.RaiseError("timer has no channel")
 		return 0
@@ -699,6 +702,9 @@ func timerResponseMethod(l *lua.LState) int {
 
 func timerStopMethod(l *lua.LState) int {
 	timer := checkTimer(l, 1)
+	if timer == nil {
+		return 0
+	}
 	yield := acquireTimerStopYield(timer.ID)
 	l.Push(yield)
 	return -1
@@ -706,6 +712,9 @@ func timerStopMethod(l *lua.LState) int {
 
 func timerResetMethod(l *lua.LState) int {
 	timer := checkTimer(l, 1)
+	if timer == nil {
+		return 0
+	}
 	duration, err := ParseDuration(l, 2)
 	if err != nil {
 		l.RaiseError("timer:reset: %s", err.Error())
@@ -864,6 +873,9 @@ func checkTicker(l *lua.LState, idx int) *Ticker {
 
 func tickerStopMethod(l *lua.LState) int {
 	ticker := checkTicker(l, 1)
+	if ticker == nil {
+		return 0
+	}
 	yield := acquireTickerStopYield(ticker.ID)
 	l.Push(yield)
 	return -1
@@ -871,6 +883,9 @@ func tickerStopMethod(l *lua.LState) int {
 
 func tickerResponseMethod(l *lua.LState) int {
 	ticker := checkTicker(l, 1)
+	if ticker == nil {
+		return 0
+	}
 	if ticker.channelUD == nil {
 		l.RaiseError("ticker has no channel")
 		return 0

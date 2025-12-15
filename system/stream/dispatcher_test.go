@@ -759,7 +759,7 @@ func TestGetWrongType(t *testing.T) {
 
 	_, err := Get(table, 1)
 	if err == nil {
-		t.Error("expected error for wrong type")
+		t.Fatal("expected error for wrong type")
 	}
 	if !strings.Contains(err.Error(), "wrong type") {
 		t.Errorf("expected 'wrong type' in error, got: %v", err)

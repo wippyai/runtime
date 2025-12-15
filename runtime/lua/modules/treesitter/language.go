@@ -24,6 +24,9 @@ func checkLanguage(l *lua.LState) *LanguageWrapper {
 // Language methods implementation
 func languageVersion(l *lua.LState) int {
 	lang := checkLanguage(l)
+	if lang == nil {
+		return 0
+	}
 	if lang.lang == nil {
 		l.Push(lua.LNil)
 		return 1
@@ -34,6 +37,9 @@ func languageVersion(l *lua.LState) int {
 
 func languageNodeKindCount(l *lua.LState) int {
 	lang := checkLanguage(l)
+	if lang == nil {
+		return 0
+	}
 	if lang.lang == nil {
 		l.Push(lua.LNil)
 		return 1
@@ -44,6 +50,9 @@ func languageNodeKindCount(l *lua.LState) int {
 
 func languageParseStateCount(l *lua.LState) int {
 	lang := checkLanguage(l)
+	if lang == nil {
+		return 0
+	}
 	if lang.lang == nil {
 		l.Push(lua.LNil)
 		return 1
@@ -54,6 +63,9 @@ func languageParseStateCount(l *lua.LState) int {
 
 func languageNodeKindForID(l *lua.LState) int {
 	lang := checkLanguage(l)
+	if lang == nil {
+		return 0
+	}
 	if lang.lang == nil {
 		l.Push(lua.LNil)
 		return 1
@@ -65,6 +77,9 @@ func languageNodeKindForID(l *lua.LState) int {
 
 func languageIDForNodeKind(l *lua.LState) int {
 	lang := checkLanguage(l)
+	if lang == nil {
+		return 0
+	}
 	if lang.lang == nil {
 		l.Push(lua.LNil)
 		return 1
@@ -77,6 +92,9 @@ func languageIDForNodeKind(l *lua.LState) int {
 
 func languageNodeKindIsNamed(l *lua.LState) int {
 	lang := checkLanguage(l)
+	if lang == nil {
+		return 0
+	}
 	if lang.lang == nil {
 		l.Push(lua.LNil)
 		return 1
@@ -88,6 +106,9 @@ func languageNodeKindIsNamed(l *lua.LState) int {
 
 func languageFieldCount(l *lua.LState) int {
 	lang := checkLanguage(l)
+	if lang == nil {
+		return 0
+	}
 	if lang.lang == nil {
 		l.Push(lua.LNil)
 		return 1
@@ -98,6 +119,9 @@ func languageFieldCount(l *lua.LState) int {
 
 func languageFieldNameForID(l *lua.LState) int {
 	lang := checkLanguage(l)
+	if lang == nil {
+		return 0
+	}
 	if lang.lang == nil {
 		l.Push(lua.LNil)
 		return 1
@@ -109,6 +133,9 @@ func languageFieldNameForID(l *lua.LState) int {
 
 func languageFieldIDForName(l *lua.LState) int {
 	lang := checkLanguage(l)
+	if lang == nil {
+		return 0
+	}
 	if lang.lang == nil {
 		l.Push(lua.LNil)
 		return 1

@@ -139,7 +139,7 @@ func payloadTranscode(l *lua.LState) int {
 		return 0
 	}
 
-	format := payload.Format(l.CheckString(2))
+	format := l.CheckString(2)
 	ctx := l.Context()
 	if ctx == nil {
 		l.RaiseError("no context")

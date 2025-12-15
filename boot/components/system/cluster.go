@@ -2,6 +2,10 @@ package system
 
 import (
 	"context"
+	"os"
+	"strconv"
+	"strings"
+
 	"github.com/wippyai/runtime/api/boot"
 	clusterapi "github.com/wippyai/runtime/api/cluster"
 	ctxapi "github.com/wippyai/runtime/api/context"
@@ -13,9 +17,6 @@ import (
 	"github.com/wippyai/runtime/cluster/membership"
 	"github.com/wippyai/runtime/system/relay"
 	"go.uber.org/zap"
-	"os"
-	"strconv"
-	"strings"
 )
 
 // Context keys for cluster components

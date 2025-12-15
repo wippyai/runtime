@@ -128,7 +128,7 @@ func randomBytes(l *lua.LState) int {
 		return internalError(l, err, "random bytes")
 	}
 
-	l.Push(lua.LString(string(buf)))
+	l.Push(lua.LString(buf))
 	l.Push(lua.LNil)
 	return 2
 }
@@ -161,7 +161,7 @@ func randomString(l *lua.LState) int {
 		result[i] = charset[int(b)%charsetLen]
 	}
 
-	l.Push(lua.LString(string(result)))
+	l.Push(lua.LString(result))
 	l.Push(lua.LNil)
 	return 2
 }
@@ -257,7 +257,7 @@ func encryptAES(l *lua.LState) int {
 	}
 
 	ciphertext := aesGCM.Seal(nonce, nonce, []byte(data), aad)
-	l.Push(lua.LString(string(ciphertext)))
+	l.Push(lua.LString(ciphertext))
 	l.Push(lua.LNil)
 	return 2
 }
@@ -300,7 +300,7 @@ func decryptAES(l *lua.LState) int {
 		return internalError(l, err, "decrypt")
 	}
 
-	l.Push(lua.LString(string(plaintext)))
+	l.Push(lua.LString(plaintext))
 	l.Push(lua.LNil)
 	return 2
 }
@@ -330,7 +330,7 @@ func encryptChaCha20(l *lua.LState) int {
 	}
 
 	ciphertext := aead.Seal(nonce, nonce, []byte(data), aad)
-	l.Push(lua.LString(string(ciphertext)))
+	l.Push(lua.LString(ciphertext))
 	l.Push(lua.LNil)
 	return 2
 }
@@ -366,7 +366,7 @@ func decryptChaCha20(l *lua.LState) int {
 		return internalError(l, err, "decrypt")
 	}
 
-	l.Push(lua.LString(string(plaintext)))
+	l.Push(lua.LString(plaintext))
 	l.Push(lua.LNil)
 	return 2
 }
@@ -578,7 +578,7 @@ func pbkdf2Derive(l *lua.LState) int {
 	}
 
 	derivedKey := pbkdf2.Key([]byte(password), []byte(salt), iterations, keyLength, hashFunc)
-	l.Push(lua.LString(string(derivedKey)))
+	l.Push(lua.LString(derivedKey))
 	l.Push(lua.LNil)
 	return 2
 }

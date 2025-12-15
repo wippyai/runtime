@@ -43,13 +43,19 @@ func TestBufferBytes(t *testing.T) {
 }
 
 func TestBufferNilSafe(t *testing.T) {
+	// Buffer methods are nil-safe by design (check method implementations)
 	var buf *Buffer
-	buf.Release() // should not panic
 
-	bytes := buf.Bytes()
-	if bytes != nil {
-		t.Error("expected nil bytes from nil buffer")
-	}
+	t.Run("Release", func(t *testing.T) {
+		buf.Release() // should not panic
+	})
+
+	t.Run("Bytes", func(t *testing.T) {
+		bytes := buf.Bytes()
+		if bytes != nil {
+			t.Error("expected nil bytes from nil buffer")
+		}
+	})
 }
 
 func TestAcquireBuffer(t *testing.T) {

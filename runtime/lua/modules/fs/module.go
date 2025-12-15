@@ -132,7 +132,7 @@ func pushFileInfo(l *lua.LState, info fs.FileInfo) *lua.LTable {
 	t := l.NewTable()
 	t.RawSetString("name", lua.LString(info.Name()))
 	t.RawSetString("size", lua.LNumber(info.Size()))
-	t.RawSetString("mode", lua.LNumber(uint32(info.Mode())))
+	t.RawSetString("mode", lua.LNumber(info.Mode()))
 	t.RawSetString("modified", lua.LNumber(info.ModTime().Unix()))
 	t.RawSetString("is_dir", lua.LBool(info.IsDir()))
 	t.RawSetString("type", lua.LString(typeFile))

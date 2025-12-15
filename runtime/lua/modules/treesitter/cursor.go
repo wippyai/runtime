@@ -56,6 +56,9 @@ func (c *CursorWrapper) Close() {
 
 func cursorCurrentNode(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	node := cursor.cursor.Node()
 	if node == nil {
 		l.Push(lua.LNil)
@@ -68,12 +71,18 @@ func cursorCurrentNode(l *lua.LState) int {
 
 func cursorCurrentFieldID(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	l.Push(lua.LNumber(cursor.cursor.FieldId()))
 	return 1
 }
 
 func cursorCurrentFieldName(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	fieldName := cursor.cursor.FieldName()
 	if fieldName == "" {
 		l.Push(lua.LNil)
@@ -85,18 +94,27 @@ func cursorCurrentFieldName(l *lua.LState) int {
 
 func cursorCurrentDepth(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	l.Push(lua.LNumber(cursor.cursor.Depth()))
 	return 1
 }
 
 func cursorCurrentDescendantIndex(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	l.Push(lua.LNumber(cursor.cursor.DescendantIndex()))
 	return 1
 }
 
 func cursorGotoParent(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	success := cursor.cursor.GotoParent()
 	l.Push(lua.LBool(success))
 	return 1
@@ -104,6 +122,9 @@ func cursorGotoParent(l *lua.LState) int {
 
 func cursorGotoFirstChild(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	success := cursor.cursor.GotoFirstChild()
 	l.Push(lua.LBool(success))
 	return 1
@@ -111,6 +132,9 @@ func cursorGotoFirstChild(l *lua.LState) int {
 
 func cursorGotoLastChild(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	success := cursor.cursor.GotoLastChild()
 	l.Push(lua.LBool(success))
 	return 1
@@ -118,6 +142,9 @@ func cursorGotoLastChild(l *lua.LState) int {
 
 func cursorGotoNextSibling(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	success := cursor.cursor.GotoNextSibling()
 	l.Push(lua.LBool(success))
 	return 1
@@ -125,6 +152,9 @@ func cursorGotoNextSibling(l *lua.LState) int {
 
 func cursorGotoPreviousSibling(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	success := cursor.cursor.GotoPreviousSibling()
 	l.Push(lua.LBool(success))
 	return 1
@@ -132,6 +162,9 @@ func cursorGotoPreviousSibling(l *lua.LState) int {
 
 func cursorGotoDescendant(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	index := uint32(l.CheckNumber(2))
 	cursor.cursor.GotoDescendant(index)
 	return 0
@@ -139,6 +172,9 @@ func cursorGotoDescendant(l *lua.LState) int {
 
 func cursorGotoFirstChildForByte(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	byteIndex := uint32(l.CheckNumber(2))
 	if index := cursor.cursor.GotoFirstChildForByte(byteIndex); index != nil {
 		l.Push(lua.LNumber(*index))
@@ -150,6 +186,9 @@ func cursorGotoFirstChildForByte(l *lua.LState) int {
 
 func cursorGotoFirstChildForPoint(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 
 	// Spawn point table argument
 	pointTbl := l.CheckTable(2)
@@ -167,6 +206,9 @@ func cursorGotoFirstChildForPoint(l *lua.LState) int {
 
 func cursorReset(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	ud := l.CheckUserData(2)
 	if node, ok := ud.Value.(*NodeWrapper); ok {
 		cursor.cursor.Reset(*node.node)
@@ -177,6 +219,9 @@ func cursorReset(l *lua.LState) int {
 
 func cursorResetTo(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	ud := l.CheckUserData(2)
 	if otherCursor, ok := ud.Value.(*CursorWrapper); ok {
 		cursor.cursor.ResetTo(otherCursor.cursor)
@@ -188,6 +233,9 @@ func cursorResetTo(l *lua.LState) int {
 
 func cursorCopy(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	copied := cursor.cursor.Copy()
 
 	ctx := l.Context()

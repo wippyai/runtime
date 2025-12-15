@@ -51,7 +51,7 @@ func computeHash(h hash.Hash, data string, raw bool) lua.LValue {
 	h.Write([]byte(data))
 	result := h.Sum(nil)
 	if raw {
-		return lua.LString(string(result))
+		return lua.LString(result)
 	}
 	return lua.LString(hex.EncodeToString(result))
 }
@@ -61,7 +61,7 @@ func computeHmac(newHash func() hash.Hash, data, secret string, raw bool) lua.LV
 	h.Write([]byte(data))
 	result := h.Sum(nil)
 	if raw {
-		return lua.LString(string(result))
+		return lua.LString(result)
 	}
 	return lua.LString(hex.EncodeToString(result))
 }
@@ -111,7 +111,7 @@ func hashFNV32(l *lua.LState) int {
 		return invalidError(l, "data must be a string")
 	}
 	h := fnv.New32()
-	h.Write([]byte(l.ToString(1)))
+	_, _ = h.Write([]byte(l.ToString(1)))
 	l.Push(lua.LNumber(h.Sum32()))
 	l.Push(lua.LNil)
 	return 2
@@ -122,7 +122,7 @@ func hashFNV64(l *lua.LState) int {
 		return invalidError(l, "data must be a string")
 	}
 	h := fnv.New64()
-	h.Write([]byte(l.ToString(1)))
+	_, _ = h.Write([]byte(l.ToString(1)))
 	l.Push(lua.LNumber(h.Sum64()))
 	l.Push(lua.LNil)
 	return 2

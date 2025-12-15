@@ -135,8 +135,8 @@ func TestGoValueToLuaString(t *testing.T) {
 	result := goValueToLua(l, "test")
 	if str, ok := result.(lua.LString); !ok {
 		t.Errorf("expected LString, got %T", result)
-	} else if string(str) != "test" {
-		t.Errorf("expected 'test', got %s", string(str))
+	} else if str != "test" {
+		t.Errorf("expected 'test', got %s", str)
 	}
 }
 
@@ -147,8 +147,8 @@ func TestGoValueToLuaBytes(t *testing.T) {
 	result := goValueToLua(l, []byte("data"))
 	if str, ok := result.(lua.LString); !ok {
 		t.Errorf("expected LString, got %T", result)
-	} else if string(str) != "data" {
-		t.Errorf("expected 'data', got %s", string(str))
+	} else if str != "data" {
+		t.Errorf("expected 'data', got %s", str)
 	}
 }
 

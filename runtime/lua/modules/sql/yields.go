@@ -23,13 +23,13 @@ func anyToLua(_ *lua.LState, v any) lua.LValue {
 	case []byte:
 		return lua.LString(val)
 	case int:
-		return lua.LInteger(int64(val))
+		return lua.LInteger(val)
 	case int32:
-		return lua.LInteger(int64(val))
+		return lua.LInteger(val)
 	case int64:
 		return lua.LInteger(val)
 	case float32:
-		return lua.LNumber(float64(val))
+		return lua.LNumber(val)
 	case float64:
 		return lua.LNumber(val)
 	case bool:

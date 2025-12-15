@@ -119,8 +119,8 @@ func TestVersionString(t *testing.T) {
 		t.Fatalf("expected LString, got %T", result)
 	}
 
-	if string(str) != "version-42" {
-		t.Errorf("expected 'version-42', got %s", string(str))
+	if str != "version-42" {
+		t.Errorf("expected 'version-42', got %s", str)
 	}
 }
 

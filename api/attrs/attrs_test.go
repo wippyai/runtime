@@ -259,21 +259,38 @@ func TestBag_Keys(t *testing.T) {
 }
 
 func TestBag_NilSafety(t *testing.T) {
+	// Bag methods are nil-safe by design (check method implementations)
+	// This test verifies the nil-safe behavior doesn't panic
 	var b Bag
 
-	if _, ok := b.Get("key"); ok {
-		t.Error("nil bag Get() should return false")
-	}
+	t.Run("Get", func(t *testing.T) {
+		_, ok := b.Get("key")
+		if ok {
+			t.Error("nil bag Get() should return false")
+		}
+	})
 
-	if b.GetString("key", "default") != "default" {
-		t.Error("nil bag GetString() should return default")
-	}
+	t.Run("GetString", func(t *testing.T) {
+		result := b.GetString("key", "default")
+		if result != "default" {
+			t.Error("nil bag GetString() should return default")
+		}
+	})
 
-	if b.Len() != 0 {
-		t.Error("nil bag Len() should return 0")
-	}
+	t.Run("Len", func(t *testing.T) {
+		length := b.Len()
+		if length != 0 {
+			t.Error("nil bag Len() should return 0")
+		}
+	})
 
-	b.Iterate(func(_ string, _ any) {
-		t.Error("nil bag Iterate() should not call function")
+	t.Run("Iterate", func(t *testing.T) {
+		called := false
+		b.Iterate(func(_ string, _ any) {
+			called = true
+		})
+		if called {
+			t.Error("nil bag Iterate() should not call function")
+		}
 	})
 }

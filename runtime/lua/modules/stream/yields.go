@@ -388,6 +388,9 @@ func checkStream(l *lua.LState, _ int) *Stream {
 
 func streamReadMethod(l *lua.LState) int {
 	stream := checkStream(l, 1)
+	if stream == nil {
+		return 0
+	}
 	size := int64(0)
 	if l.GetTop() >= 2 {
 		size = int64(l.CheckNumber(2))
@@ -399,6 +402,9 @@ func streamReadMethod(l *lua.LState) int {
 
 func streamCloseMethod(l *lua.LState) int {
 	stream := checkStream(l, 1)
+	if stream == nil {
+		return 0
+	}
 	yield := AcquireCloseYield(stream.ID)
 	l.Push(yield)
 	return -1
@@ -406,6 +412,9 @@ func streamCloseMethod(l *lua.LState) int {
 
 func streamWriteMethod(l *lua.LState) int {
 	stream := checkStream(l, 1)
+	if stream == nil {
+		return 0
+	}
 	data := l.CheckString(2)
 	yield := AcquireWriteYield(stream.ID, []byte(data))
 	l.Push(yield)
@@ -414,6 +423,9 @@ func streamWriteMethod(l *lua.LState) int {
 
 func streamSeekMethod(l *lua.LState) int {
 	stream := checkStream(l, 1)
+	if stream == nil {
+		return 0
+	}
 	whence := streamapi.SeekStart
 	offset := int64(0)
 
@@ -442,6 +454,9 @@ func streamSeekMethod(l *lua.LState) int {
 
 func streamFlushMethod(l *lua.LState) int {
 	stream := checkStream(l, 1)
+	if stream == nil {
+		return 0
+	}
 	yield := AcquireFlushYield(stream.ID)
 	l.Push(yield)
 	return -1
@@ -449,6 +464,9 @@ func streamFlushMethod(l *lua.LState) int {
 
 func streamStatMethod(l *lua.LState) int {
 	stream := checkStream(l, 1)
+	if stream == nil {
+		return 0
+	}
 	yield := AcquireStatYield(stream.ID)
 	l.Push(yield)
 	return -1
@@ -456,6 +474,9 @@ func streamStatMethod(l *lua.LState) int {
 
 func streamScannerMethod(l *lua.LState) int {
 	stream := checkStream(l, 1)
+	if stream == nil {
+		return 0
+	}
 
 	splitType := streamapi.SplitLines
 	if l.GetTop() >= 2 {
@@ -637,6 +658,9 @@ func checkScanner(l *lua.LState, _ int) *Scanner {
 
 func scannerScanMethod(l *lua.LState) int {
 	scanner := checkScanner(l, 1)
+	if scanner == nil {
+		return 0
+	}
 	yield := AcquireScannerScanYield(scanner.ID, scanner)
 	l.Push(yield)
 	return -1
@@ -644,12 +668,18 @@ func scannerScanMethod(l *lua.LState) int {
 
 func scannerTextMethod(l *lua.LState) int {
 	scanner := checkScanner(l, 1)
+	if scanner == nil {
+		return 0
+	}
 	l.Push(lua.LString(scanner.lastText))
 	return 1
 }
 
 func scannerErrMethod(l *lua.LState) int {
 	scanner := checkScanner(l, 1)
+	if scanner == nil {
+		return 0
+	}
 	if scanner.lastErr == "" {
 		l.Push(lua.LNil)
 	} else {

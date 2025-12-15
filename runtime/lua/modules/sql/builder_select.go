@@ -434,7 +434,7 @@ func goValueToLua(_ *lua.LState, v any) lua.LValue {
 	case bool:
 		return lua.LBool(v)
 	case int:
-		return lua.LInteger(int64(v))
+		return lua.LInteger(v)
 	case int64:
 		return lua.LInteger(v)
 	case float64:
@@ -442,7 +442,7 @@ func goValueToLua(_ *lua.LState, v any) lua.LValue {
 	case string:
 		return lua.LString(v)
 	case []byte:
-		return lua.LString(string(v))
+		return lua.LString(v)
 	default:
 		return lua.LString(fmt.Sprintf("%v", v))
 	}

@@ -116,9 +116,9 @@ func TestSnapshotToString(t *testing.T) {
 		t.Fatalf("expected LString, got %T", result)
 	}
 
-	expected := "registry.Snapshot{version=v42}"
-	if string(str) != expected {
-		t.Errorf("expected %s, got %s", expected, string(str))
+	expected := lua.LString("registry.Snapshot{version=v42}")
+	if str != expected {
+		t.Errorf("expected %s, got %s", expected, str)
 	}
 }
 
