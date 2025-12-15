@@ -163,27 +163,23 @@ func (w *Worker) executeOne(proc *Processor) {
 
 	status := proc.output.Status()
 
-	// Handle Done first - no yields to dispatch
-	if status == process.StepDone {
+	// Dispatch any yields (for non-Done statuses)
+	if status != process.StepDone {
+		yields := proc.output.Yields()
+		if len(yields) > 0 {
+			w.dispatchYields(proc.ctx, proc, yields)
+			return
+		}
+	}
+
+	// Handle status
+	switch status {
+	case process.StepDone:
 		if !proc.casState(StateRunning, StateComplete) {
 			return
 		}
 		proc.queue.Close()
 		w.scheduler.complete(proc, &proc.output, nil)
-		return
-	}
-
-	// Dispatch any yields (for all statuses except Done)
-	yields := proc.output.Yields()
-	if len(yields) > 0 {
-		w.dispatchYields(proc.ctx, proc, yields)
-		return
-	}
-
-	// No yields - handle status (StepDone handled above)
-	switch status {
-	case process.StepDone:
-		// handled above before switch
 
 	case process.StepContinue:
 		if !proc.casState(StateRunning, StateReady) {
