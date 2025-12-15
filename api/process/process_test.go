@@ -16,6 +16,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/internal/uniqid"
+	sysprocess "github.com/wippyai/runtime/system/process"
 )
 
 func TestStepOutput_Result(t *testing.T) {
@@ -190,7 +191,7 @@ func TestError_WithDetails(t *testing.T) {
 }
 
 func TestUnknownCommandError(t *testing.T) {
-	err := NewUnknownCommandError(999)
+	err := sysprocess.NewUnknownCommandError(999)
 
 	assert.Equal(t, "unknown command: 999", err.Error())
 	assert.Equal(t, "NotFound", string(err.Kind()))

@@ -290,7 +290,6 @@ func TestSentinelErrors(t *testing.T) {
 		expected string
 		kind     string
 	}{
-		{"ErrAlreadyAttached", ErrAlreadyAttached, "receiver already attached", "AlreadyExists"},
 		{"ErrHostNotFound", ErrHostNotFound, "host not found", "NotFound"},
 		{"ErrHostAlreadyExists", ErrHostAlreadyExists, "host already exists", "AlreadyExists"},
 		{"ErrEmptyNodeID", ErrEmptyNodeID, "nodeID cannot be empty", "Invalid"},
@@ -324,62 +323,5 @@ func TestErrorMethods(t *testing.T) {
 	t.Run("SetMessage", func(t *testing.T) {
 		newErr := apierror.SetMessage(ErrHostNotFound, "custom message")
 		assert.Equal(t, "custom message", newErr.Error())
-	})
-}
-
-func TestErrorConstructors(t *testing.T) {
-	t.Run("NewHostExistsError", func(t *testing.T) {
-		err := NewHostExistsError("host1", "node1")
-		assert.Contains(t, err.Error(), "host1")
-		assert.Contains(t, err.Error(), "already exists")
-		assert.Equal(t, "AlreadyExists", err.Kind().String())
-		details := err.Details()
-		require.NotNil(t, details)
-		hostID, _ := details.Get("host_id")
-		assert.Equal(t, "host1", hostID)
-	})
-
-	t.Run("NewHostNotFoundError", func(t *testing.T) {
-		err := NewHostNotFoundError("host1", "node1")
-		assert.Contains(t, err.Error(), "host1")
-		assert.Contains(t, err.Error(), "not found")
-		assert.Equal(t, "NotFound", err.Kind().String())
-	})
-
-	t.Run("NewExternalNodeError", func(t *testing.T) {
-		err := NewExternalNodeError("node1")
-		assert.Contains(t, err.Error(), "cannot route to external node")
-		assert.Equal(t, "Unavailable", err.Kind().String())
-	})
-
-	t.Run("NewNodeNotFoundError", func(t *testing.T) {
-		err := NewNodeNotFoundError("node1")
-		assert.Contains(t, err.Error(), "not found")
-		assert.Equal(t, "NotFound", err.Kind().String())
-	})
-
-	t.Run("NewHostNotAttachableError", func(t *testing.T) {
-		err := NewHostNotAttachableError("host1")
-		assert.Contains(t, err.Error(), "does not support attachment")
-		assert.Equal(t, "Invalid", err.Kind().String())
-	})
-
-	t.Run("NewPeerExistsError", func(t *testing.T) {
-		err := NewPeerExistsError("node1")
-		assert.Contains(t, err.Error(), "peer node already registered")
-		assert.Equal(t, "AlreadyExists", err.Kind().String())
-	})
-
-	t.Run("NewPeerConflictError", func(t *testing.T) {
-		err := NewPeerConflictError("node1")
-		assert.Contains(t, err.Error(), "conflicts with local node")
-		assert.Equal(t, "Conflict", err.Kind().String())
-	})
-
-	t.Run("NewAlreadyAttachedError", func(t *testing.T) {
-		p := pid.PID{Host: "host1", UniqID: "proc1"}
-		err := NewAlreadyAttachedError(p)
-		assert.Contains(t, err.Error(), "already attached")
-		assert.True(t, errors.Is(err, ErrAlreadyAttached))
 	})
 }

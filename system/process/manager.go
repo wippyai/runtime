@@ -33,7 +33,7 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 		m.logger.Warn("host not found",
 			zap.String("host_id", start.HostID),
 			zap.String("source", start.Source.String()))
-		return pid.PID{}, api.NewHostNotFoundError(start.HostID)
+		return pid.PID{}, NewHostNotFoundError(start.HostID)
 	}
 
 	// Cast to process.Host
@@ -55,7 +55,7 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 func (m *Manager) Cancel(_ context.Context, from, pidArg pid.PID, deadline time.Time) error {
 	relayHost, exists := m.node.GetHost(pidArg.Host)
 	if !exists {
-		return api.NewHostNotFoundError(pidArg.Host)
+		return NewHostNotFoundError(pidArg.Host)
 	}
 
 	if err := relayHost.Send(topology.CancelPackage(from, pidArg, deadline)); err != nil {
@@ -72,7 +72,7 @@ func (m *Manager) Cancel(_ context.Context, from, pidArg pid.PID, deadline time.
 func (m *Manager) Terminate(ctx context.Context, pidArg pid.PID) error {
 	relayHost, exists := m.node.GetHost(pidArg.Host)
 	if !exists {
-		return api.NewHostNotFoundError(pidArg.Host)
+		return NewHostNotFoundError(pidArg.Host)
 	}
 
 	host, ok := relayHost.(api.Host)

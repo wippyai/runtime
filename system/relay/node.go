@@ -36,7 +36,7 @@ func (n *Node) ID() pid.NodeID {
 func (n *Node) RegisterHost(hostID pid.HostID, host api.Receiver) error {
 	_, loaded := n.hosts.LoadOrStore(hostID, host)
 	if loaded {
-		return api.NewHostExistsError(hostID, n.nodeID)
+		return NewHostExistsError(hostID, n.nodeID)
 	}
 	return nil
 }
@@ -67,12 +67,12 @@ func (n *Node) Send(pkg *api.Package) error {
 	}
 
 	if pkg.Target.Node != "" && pkg.Target.Node != n.nodeID {
-		return api.NewExternalNodeError(pkg.Target.Node)
+		return NewExternalNodeError(pkg.Target.Node)
 	}
 
 	h, ok := n.hosts.Load(pkg.Target.Host)
 	if !ok {
-		return api.NewHostNotFoundError(pkg.Target.Host, n.nodeID)
+		return NewHostNotFoundError(pkg.Target.Host, n.nodeID)
 	}
 
 	receiver, ok := h.(api.Receiver)
@@ -87,17 +87,17 @@ func (n *Node) Send(pkg *api.Package) error {
 // Only works with hosts that implement AttachableReceiver.
 func (n *Node) Attach(p pid.PID, ch chan *api.Package) (context.CancelFunc, error) {
 	if p.Node != "" && p.Node != n.nodeID {
-		return nil, api.NewExternalNodeError(p.Node)
+		return nil, NewExternalNodeError(p.Node)
 	}
 
 	h, ok := n.hosts.Load(p.Host)
 	if !ok {
-		return nil, api.NewHostNotFoundError(p.Host, n.nodeID)
+		return nil, NewHostNotFoundError(p.Host, n.nodeID)
 	}
 
 	attachable, ok := h.(api.AttachableReceiver)
 	if !ok {
-		return nil, api.NewHostNotAttachableError(p.Host)
+		return nil, NewHostNotAttachableError(p.Host)
 	}
 
 	return attachable.Attach(p, ch)

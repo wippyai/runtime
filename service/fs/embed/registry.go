@@ -4,9 +4,9 @@ import (
 	"io/fs"
 	"sync"
 
-	fsapi "github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/boot/pack"
+	systemfs "github.com/wippyai/runtime/system/fs"
 )
 
 // Registry implements embedapi.Registry by storing Readers.
@@ -26,10 +26,10 @@ func NewRegistry() *Registry {
 // The pack path is used as a key for later lookup.
 func (r *Registry) Register(packPath string, reader *pack.Reader) error {
 	if packPath == "" {
-		return fsapi.NewEmptyPackPathError()
+		return systemfs.NewEmptyPackPathError()
 	}
 	if reader == nil {
-		return fsapi.NewNilReaderError()
+		return systemfs.NewNilReaderError()
 	}
 
 	r.mu.Lock()
@@ -53,7 +53,7 @@ func (r *Registry) GetFS(id registry.ID) (fs.ReadDirFS, error) {
 		// Continue searching if not found in this pack
 	}
 
-	return nil, fsapi.NewFilesystemNotFoundWithCauseError(id.String(), fs.ErrNotExist)
+	return nil, systemfs.NewFilesystemNotFoundWithCauseError(id.String(), fs.ErrNotExist)
 }
 
 // Close implements embedapi.Registry.Close.

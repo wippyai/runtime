@@ -84,7 +84,7 @@ func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Pay
 	}
 
 	if !found {
-		return nil, contract.NewMethodNotBoundError(method)
+		return nil, NewMethodNotBoundError(method)
 	}
 
 	// Validate required context keys - now checks BOTH scope and Go context
@@ -155,7 +155,7 @@ func (i *instanceImpl) validateContext(ctx context.Context, requiredKeys []strin
 	}
 
 	if len(missing) > 0 {
-		return contract.NewMissingContextKeysError(missing)
+		return NewMissingContextKeysError(missing)
 	}
 
 	return nil

@@ -1,6 +1,8 @@
 package contract
 
 import (
+	"strings"
+
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
@@ -25,5 +27,71 @@ func NewSubscriberError(err error) apierror.Error {
 		apierror.True,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
 		err,
+	)
+}
+
+// NewMethodNotBoundError creates an error when a method is not bound.
+func NewMethodNotBoundError(method string) apierror.Error {
+	return apierror.E(
+		apierror.NotFound,
+		"method '"+method+"' not bound",
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"method": method}),
+		nil,
+	)
+}
+
+// NewMissingContextKeysError creates an error when required context keys are missing.
+func NewMissingContextKeysError(keys []string) apierror.Error {
+	return apierror.E(
+		apierror.Invalid,
+		"missing required context keys: ["+strings.Join(keys, ", ")+"]",
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"missing_keys": keys}),
+		nil,
+	)
+}
+
+// NewContractNotFoundError creates an error when contract definition is not found.
+func NewContractNotFoundError(id registry.ID) apierror.Error {
+	return apierror.E(
+		apierror.NotFound,
+		"contract definition '"+id.String()+"' not found",
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"contract_id": id.String()}),
+		nil,
+	)
+}
+
+// NewBindingNotFoundError creates an error when contract binding is not found.
+func NewBindingNotFoundError(id registry.ID) apierror.Error {
+	return apierror.E(
+		apierror.NotFound,
+		"contract binding '"+id.String()+"' not found",
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"binding_id": id.String()}),
+		nil,
+	)
+}
+
+// NewNoDefaultBindingError creates an error when no default binding exists for a contract.
+func NewNoDefaultBindingError(contractID registry.ID) apierror.Error {
+	return apierror.E(
+		apierror.NotFound,
+		"no default binding for contract '"+contractID.String()+"'",
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"contract_id": contractID.String()}),
+		nil,
+	)
+}
+
+// NewMethodNotFoundError creates an error when a method is not found in a contract.
+func NewMethodNotFoundError(method string, contractID registry.ID) apierror.Error {
+	return apierror.E(
+		apierror.NotFound,
+		"method '"+method+"' not found in contract '"+contractID.String()+"'",
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"method": method, "contract_id": contractID.String()}),
+		nil,
 	)
 }

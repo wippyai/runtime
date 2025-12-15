@@ -59,7 +59,7 @@ func TestMailbox_Attach(t *testing.T) {
 	ch2 := make(chan *relay.Package, 10)
 	_, err2 := mailbox.Attach(pid, ch2)
 	assert.Error(t, err2)
-	assert.ErrorIs(t, err2, relay.ErrAlreadyAttached)
+	assert.ErrorIs(t, err2, ErrAlreadyAttached)
 
 	// Test cancellation
 	cancel1()

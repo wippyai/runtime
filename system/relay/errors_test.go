@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/pid"
 )
 
 func TestNewInvalidHostTypeError(t *testing.T) {
@@ -19,4 +21,59 @@ func TestNewSubscriberError(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to create subscriber")
 	assert.True(t, err.Retryable().Bool())
 	assert.True(t, errors.Is(err, cause))
+}
+
+func TestNewHostExistsError(t *testing.T) {
+	err := NewHostExistsError("host1", "node1")
+	assert.Contains(t, err.Error(), "host1")
+	assert.Contains(t, err.Error(), "already exists")
+	assert.Equal(t, "AlreadyExists", err.Kind().String())
+	details := err.Details()
+	require.NotNil(t, details)
+	hostID, _ := details.Get("host_id")
+	assert.Equal(t, "host1", hostID)
+}
+
+func TestNewHostNotFoundError(t *testing.T) {
+	err := NewHostNotFoundError("host1", "node1")
+	assert.Contains(t, err.Error(), "host1")
+	assert.Contains(t, err.Error(), "not found")
+	assert.Equal(t, "NotFound", err.Kind().String())
+}
+
+func TestNewExternalNodeError(t *testing.T) {
+	err := NewExternalNodeError("node1")
+	assert.Contains(t, err.Error(), "cannot route to external node")
+	assert.Equal(t, "Unavailable", err.Kind().String())
+}
+
+func TestNewNodeNotFoundError(t *testing.T) {
+	err := NewNodeNotFoundError("node1")
+	assert.Contains(t, err.Error(), "not found")
+	assert.Equal(t, "NotFound", err.Kind().String())
+}
+
+func TestNewHostNotAttachableError(t *testing.T) {
+	err := NewHostNotAttachableError("host1")
+	assert.Contains(t, err.Error(), "does not support attachment")
+	assert.Equal(t, "Invalid", err.Kind().String())
+}
+
+func TestNewPeerExistsError(t *testing.T) {
+	err := NewPeerExistsError("node1")
+	assert.Contains(t, err.Error(), "peer node already registered")
+	assert.Equal(t, "AlreadyExists", err.Kind().String())
+}
+
+func TestNewPeerConflictError(t *testing.T) {
+	err := NewPeerConflictError("node1")
+	assert.Contains(t, err.Error(), "conflicts with local node")
+	assert.Equal(t, "Conflict", err.Kind().String())
+}
+
+func TestNewAlreadyAttachedError(t *testing.T) {
+	p := pid.PID{Host: "host1", UniqID: "proc1"}
+	err := NewAlreadyAttachedError(p)
+	assert.Contains(t, err.Error(), "already attached")
+	assert.True(t, errors.Is(err, ErrAlreadyAttached))
 }

@@ -37,12 +37,12 @@ func NewManager(bus event.Bus, dtt payload.Transcoder, embedReg embedapi.Registr
 // Add creates and registers a new embedded filesystem.
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != embedapi.Kind {
-		return fsapi.NewUnsupportedEntryKindError(entry.Kind)
+		return systemfs.NewUnsupportedEntryKindError(entry.Kind)
 	}
 
 	// Validate config can be decoded (embed doesn't use config content, filesystem comes from embedReg)
 	if _, err := entryutil.DecodeEntryConfig[embedapi.Config](ctx, m.dtt, entry); err != nil {
-		return fsapi.NewDecodeConfigError(err)
+		return systemfs.NewDecodeConfigError(err)
 	}
 
 	m.mu.Lock()
@@ -50,7 +50,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	// Check for duplicates
 	if _, exists := m.filesystems.Load(entry.ID.String()); exists {
-		return fsapi.NewFilesystemAlreadyExistsError(entry.ID.String())
+		return systemfs.NewFilesystemAlreadyExistsError(entry.ID.String())
 	}
 
 	if err := m.registerFS(ctx, entry.ID); err != nil {
@@ -64,14 +64,14 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update updates an existing embedded filesystem.
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != embedapi.Kind {
-		return fsapi.NewUnsupportedEntryKindError(entry.Kind)
+		return systemfs.NewUnsupportedEntryKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, exists := m.filesystems.Load(entry.ID.String()); !exists {
-		return fsapi.NewFilesystemNotFoundError(entry.ID.String())
+		return systemfs.NewFilesystemNotFoundError(entry.ID.String())
 	}
 
 	// Remove old, register new
@@ -87,14 +87,14 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete removes an embedded filesystem.
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != embedapi.Kind {
-		return fsapi.NewUnsupportedEntryKindError(entry.Kind)
+		return systemfs.NewUnsupportedEntryKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, exists := m.filesystems.LoadAndDelete(entry.ID.String()); !exists {
-		return fsapi.NewFilesystemNotFoundError(entry.ID.String())
+		return systemfs.NewFilesystemNotFoundError(entry.ID.String())
 	}
 
 	m.removeFS(ctx, entry.ID)

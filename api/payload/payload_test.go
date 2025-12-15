@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	apierror "github.com/wippyai/runtime/api/error"
+	syspayload "github.com/wippyai/runtime/system/payload"
 )
 
 func TestNewPayload(t *testing.T) {
@@ -289,7 +290,7 @@ func TestIsTerminal(t *testing.T) {
 
 func TestErrorConstructors(t *testing.T) {
 	t.Run("NewNoTranscodingPathError", func(t *testing.T) {
-		err := NewNoTranscodingPathError(JSON, Golang)
+		err := syspayload.NewNoTranscodingPathError(JSON, Golang)
 		assert.Contains(t, err.Error(), "json")
 		assert.Contains(t, err.Error(), "golang")
 		assert.Equal(t, apierror.NotFound, err.Kind())
@@ -300,19 +301,19 @@ func TestErrorConstructors(t *testing.T) {
 	})
 
 	t.Run("NewNoTranscoderError", func(t *testing.T) {
-		err := NewNoTranscoderError("json", "golang")
+		err := syspayload.NewNoTranscoderError("json", "golang")
 		assert.Contains(t, err.Error(), "no transcoder registered")
 		assert.Equal(t, apierror.NotFound, err.Kind())
 	})
 
 	t.Run("NewNoUnmarshalPathError", func(t *testing.T) {
-		err := NewNoUnmarshalPathError(JSON)
+		err := syspayload.NewNoUnmarshalPathError(JSON)
 		assert.Contains(t, err.Error(), "unmarshaling path")
 		assert.Equal(t, apierror.NotFound, err.Kind())
 	})
 
 	t.Run("NewInvalidFormatError", func(t *testing.T) {
-		err := NewInvalidFormatError("input", JSON, Golang)
+		err := syspayload.NewInvalidFormatError("input", JSON, Golang)
 		assert.Contains(t, err.Error(), "input")
 		assert.Equal(t, apierror.Invalid, err.Kind())
 		direction, _ := err.Details().Get("direction")
@@ -320,7 +321,7 @@ func TestErrorConstructors(t *testing.T) {
 	})
 
 	t.Run("NewInvalidDataTypeError", func(t *testing.T) {
-		err := NewInvalidDataTypeError("input", "string", "int")
+		err := syspayload.NewInvalidDataTypeError("input", "string", "int")
 		assert.Contains(t, err.Error(), "input")
 		assert.Contains(t, err.Error(), "string")
 		assert.Equal(t, apierror.Invalid, err.Kind())
@@ -328,7 +329,7 @@ func TestErrorConstructors(t *testing.T) {
 
 	t.Run("NewUnmarshalError", func(t *testing.T) {
 		cause := errors.New("unmarshal failed")
-		err := NewUnmarshalError("json", cause)
+		err := syspayload.NewUnmarshalError("json", cause)
 		assert.Contains(t, err.Error(), "unmarshal")
 		assert.Contains(t, err.Error(), "json")
 		assert.Equal(t, apierror.Invalid, err.Kind())

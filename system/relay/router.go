@@ -32,11 +32,11 @@ func (r *Router) RegisterPeer(nodeID pid.NodeID, receiver api.Receiver) error {
 		return api.ErrEmptyNodeID
 	}
 	if nodeID == r.localNode.ID() {
-		return api.NewPeerConflictError(nodeID)
+		return NewPeerConflictError(nodeID)
 	}
 
 	if _, loaded := r.peers.LoadOrStore(nodeID, receiver); loaded {
-		return api.NewPeerExistsError(nodeID)
+		return NewPeerExistsError(nodeID)
 	}
 
 	return nil
@@ -73,5 +73,5 @@ func (r *Router) Send(pkg *api.Package) error {
 		return r.internode.Send(pkg)
 	}
 
-	return api.NewNodeNotFoundError(pkg.Target.Node)
+	return NewNodeNotFoundError(pkg.Target.Node)
 }

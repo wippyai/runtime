@@ -1,11 +1,7 @@
 package process
 
 import (
-	"strconv"
-
 	"github.com/wippyai/runtime/api/attrs"
-	"github.com/wippyai/runtime/api/dispatcher"
-	apierror "github.com/wippyai/runtime/api/error"
 )
 
 // Error kind constants.
@@ -43,36 +39,6 @@ var (
 		message: "scheduler is stopping",
 	}
 )
-
-// UnknownCommandError indicates an unregistered command.
-type UnknownCommandError struct {
-	CmdID   dispatcher.CommandID
-	details attrs.Attributes
-}
-
-// NewUnknownCommandError creates an error for unregistered commands.
-func NewUnknownCommandError(cmdID dispatcher.CommandID) *UnknownCommandError {
-	return &UnknownCommandError{
-		CmdID:   cmdID,
-		details: attrs.NewBagFrom(map[string]any{"command_id": int(cmdID)}),
-	}
-}
-
-func (e *UnknownCommandError) Error() string {
-	return "unknown command: " + strconv.Itoa(int(e.CmdID))
-}
-
-func (e *UnknownCommandError) Kind() apierror.Kind {
-	return apierror.NotFound
-}
-
-func (e *UnknownCommandError) Retryable() apierror.Ternary {
-	return apierror.False
-}
-
-func (e *UnknownCommandError) Details() attrs.Attributes {
-	return e.details
-}
 
 type (
 	// Kind categorizes process errors.
@@ -114,23 +80,5 @@ func (e *Error) WithDetails(details attrs.Attributes) *Error {
 		message: e.message,
 		details: details,
 		cause:   e.cause,
-	}
-}
-
-// NewFactoryNotFoundError creates an error for missing factory.
-func NewFactoryNotFoundError(factoryID string) *Error {
-	return &Error{
-		kind:    NotFound,
-		message: "no factory registered for: " + factoryID,
-		details: attrs.NewBagFrom(map[string]any{"factory_id": factoryID}),
-	}
-}
-
-// NewHostNotFoundError creates an error for missing host.
-func NewHostNotFoundError(hostID string) *Error {
-	return &Error{
-		kind:    NotFound,
-		message: "host not found: " + hostID,
-		details: attrs.NewBagFrom(map[string]any{"host_id": hostID}),
 	}
 }

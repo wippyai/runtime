@@ -137,7 +137,7 @@ func (r *FactoryRegistry) sendReject(path event.Path, reason string) {
 func (r *FactoryRegistry) Create(id registry.ID) (api.Process, *api.Meta, error) {
 	val, ok := r.factories.Load(id)
 	if !ok {
-		return nil, nil, api.NewFactoryNotFoundError(id.String())
+		return nil, nil, NewFactoryNotFoundError(id.String())
 	}
 
 	entry, ok := val.(*factoryEntry)

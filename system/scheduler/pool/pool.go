@@ -17,6 +17,7 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	sysprocess "github.com/wippyai/runtime/system/process"
 )
 
 // Pool executes function calls using managed processes.
@@ -208,7 +209,7 @@ func (e *Executor) Run(ctx context.Context, proc process.Process, method string,
 				e.queue.PushDirect(process.Event{
 					Type:  process.EventYieldComplete,
 					Tag:   y.Tag,
-					Error: process.NewUnknownCommandError(y.Cmd.CmdID()),
+					Error: sysprocess.NewUnknownCommandError(y.Cmd.CmdID()),
 				})
 				continue
 			}

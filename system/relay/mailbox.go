@@ -112,7 +112,7 @@ func (m *Mailbox) Attach(p pid.PID, ch chan *api.Package) (context.CancelFunc, e
 			zap.String("pid", key),
 			zap.String("host", p.Host),
 			zap.String("uniq_id", p.UniqID))
-		return nil, api.NewAlreadyAttachedError(p)
+		return nil, NewAlreadyAttachedError(p)
 	}
 
 	return func() { m.receivers.Delete(key) }, nil

@@ -76,7 +76,7 @@ func (t *Transcoder) getTranscodePath(from, to string) (*graph.Path[string], err
 	// Slow path: compute path and cache it
 	path, err := t.graph.ShortestPath(from, to)
 	if err != nil {
-		return nil, payload.NewNoTranscodingPathError(from, to)
+		return nil, NewNoTranscodingPathError(from, to)
 	}
 
 	// Store computed path in cache
@@ -102,7 +102,7 @@ func (t *Transcoder) Transcode(p payload.Payload, to payload.Format) (payload.Pa
 
 		tt, ok := t.transcoders[currentFrom][currentTo]
 		if !ok || tt == nil {
-			return nil, payload.NewNoTranscoderError(currentFrom, currentTo)
+			return nil, NewNoTranscoderError(currentFrom, currentTo)
 		}
 
 		currentPayload, err = tt.Transcode(currentPayload)
@@ -136,7 +136,7 @@ func (t *Transcoder) findUnmarshalPath(from string) (*graph.Path[string], error)
 	}
 
 	if unmarshalPath == nil {
-		return nil, payload.NewNoUnmarshalPathError(from)
+		return nil, NewNoUnmarshalPathError(from)
 	}
 
 	// Store computed path in cache

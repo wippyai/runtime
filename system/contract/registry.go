@@ -274,7 +274,7 @@ func (r *Registry) GetContract(_ context.Context, id registry.ID) (contract.Cont
 	r.mu.RUnlock()
 
 	if !exists {
-		return nil, contract.NewContractNotFoundError(id)
+		return nil, NewContractNotFoundError(id)
 	}
 
 	return &contractImpl{
@@ -290,7 +290,7 @@ func (r *Registry) GetBinding(_ context.Context, id registry.ID) (*contract.Bind
 	r.mu.RUnlock()
 
 	if !exists {
-		return nil, contract.NewBindingNotFoundError(id)
+		return nil, NewBindingNotFoundError(id)
 	}
 
 	return bindingWithMeta.Binding, nil
@@ -321,7 +321,7 @@ func (r *Registry) GetDefaultBinding(_ context.Context, contractID registry.ID) 
 	r.mu.RUnlock()
 
 	if !exists {
-		return registry.NewID("", ""), contract.NewNoDefaultBindingError(contractID)
+		return registry.NewID("", ""), NewNoDefaultBindingError(contractID)
 	}
 
 	return bindingID, nil
@@ -351,7 +351,7 @@ func (c *contractImpl) Method(name string) (*contract.MethodDef, error) {
 			return &method, nil
 		}
 	}
-	return nil, contract.NewMethodNotFoundError(name, c.id)
+	return nil, NewMethodNotFoundError(name, c.id)
 }
 
 // Ensure Registry implements contract.Registry interface

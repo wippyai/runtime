@@ -34,7 +34,7 @@ type FS struct {
 func NewFS(dirPath string, mode fs.FileMode, autoInit bool) (*FS, error) {
 	absPath, err := filepath.Abs(dirPath)
 	if err != nil {
-		return nil, fsapi.NewInvalidPathError(err)
+		return nil, systemfs.NewInvalidPathError(err)
 	}
 
 	// Automatically add execute permissions if read bits are present but exec bits are missing.
@@ -100,7 +100,7 @@ func (d *FS) checkPermissions(op, displayPath string, check permCheck) error {
 		return &fs.PathError{
 			Op:   op,
 			Path: displayPath,
-			Err:  fsapi.NewPermissionDeniedError(required, ownerMode, fsapi.ErrPermissionDenied),
+			Err:  systemfs.NewPermissionDeniedError(required, ownerMode, fsapi.ErrPermissionDenied),
 		}
 	}
 	return nil
