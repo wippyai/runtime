@@ -121,7 +121,7 @@ func addFactoryTestFunction(t *testing.T, cm *code.Manager, id registry.ID, sour
 func TestFactory_New(t *testing.T) {
 	cm := setupFactoryCodeManager(t)
 
-	factory := NewProcessFactory(cm, nil, factoryDefaultModules)
+	factory := NewProcessFactory(cm, factoryDefaultModules)
 	if factory == nil {
 		t.Fatal("expected non-nil factory")
 	}
@@ -140,7 +140,7 @@ func TestFactory_CreateSimple(t *testing.T) {
 	id := registry.NewID("test", "simple")
 	addFactoryTestFunction(t, cm, id, `return function() return test_a.value end`)
 
-	pf := NewProcessFactory(cm, nil, modules)
+	pf := NewProcessFactory(cm, modules)
 	factoryFn, err := pf.CreateFactory(id)
 	if err != nil {
 		t.Fatalf("CreateFactory failed: %v", err)
@@ -162,7 +162,7 @@ func TestFactory_ReturnsReusable(t *testing.T) {
 	id := registry.NewID("test", "factory")
 	addFactoryTestFunction(t, cm, id, `return function() return 42 end`)
 
-	pf := NewProcessFactory(cm, nil, modules)
+	pf := NewProcessFactory(cm, modules)
 	factoryFn, err := pf.CreateFactory(id)
 	if err != nil {
 		t.Fatalf("CreateFactory failed: %v", err)
@@ -189,7 +189,7 @@ func TestFactory_EmptyModulesList(t *testing.T) {
 	id := registry.NewID("test", "empty_modules")
 	addFactoryTestFunction(t, cm, id, `return function() return 1 end`)
 
-	pf := NewProcessFactory(cm, nil, modules)
+	pf := NewProcessFactory(cm, modules)
 	factoryFn, err := pf.CreateFactory(id)
 	if err != nil {
 		t.Fatalf("CreateFactory failed: %v", err)
@@ -212,7 +212,7 @@ func TestFactory_ExcludeModules(t *testing.T) {
 	id := registry.NewID("test", "exclude")
 	addFactoryTestFunction(t, cm, id, `return function() return 1 end`)
 
-	pf := NewProcessFactory(cm, nil, factoryDefaultModules)
+	pf := NewProcessFactory(cm, factoryDefaultModules)
 
 	factoryFn, err := pf.CreateFactory(id, ExcludeModules("test_b"))
 	if err != nil {
@@ -235,7 +235,7 @@ func TestFactory_ExcludeClasses(t *testing.T) {
 	id := registry.NewID("test", "exclude_class")
 	addFactoryTestFunction(t, cm, id, `return function() return 1 end`)
 
-	pf := NewProcessFactory(cm, nil, modules)
+	pf := NewProcessFactory(cm, modules)
 
 	factoryFn, err := pf.CreateFactory(id, ExcludeClasses(luaapi.ClassIO))
 	if err != nil {
@@ -257,7 +257,7 @@ func TestFactory_ForbidModules_Fails(t *testing.T) {
 	id := registry.NewID("test", "forbid")
 	addFactoryTestFunction(t, cm, id, `return function() return 1 end`)
 
-	pf := NewProcessFactory(cm, nil, factoryDefaultModules)
+	pf := NewProcessFactory(cm, factoryDefaultModules)
 
 	_, err := pf.CreateFactory(id, ForbidModules("test_b"))
 	if err == nil {
@@ -272,7 +272,7 @@ func TestFactory_ForbidClasses_Fails(t *testing.T) {
 	id := registry.NewID("test", "forbid_class")
 	addFactoryTestFunction(t, cm, id, `return function() return 1 end`)
 
-	pf := NewProcessFactory(cm, nil, modules)
+	pf := NewProcessFactory(cm, modules)
 
 	_, err := pf.CreateFactory(id, ForbidClasses(luaapi.ClassNetwork))
 	if err == nil {
@@ -286,7 +286,7 @@ func TestFactory_WithoutDefaultModule(t *testing.T) {
 	id := registry.NewID("test", "without_default")
 	addFactoryTestFunction(t, cm, id, `return function() return 1 end`)
 
-	pf := NewProcessFactory(cm, nil, factoryDefaultModules)
+	pf := NewProcessFactory(cm, factoryDefaultModules)
 
 	factoryFn, err := pf.CreateFactory(id, WithoutDefaultModule("test_a"))
 	if err != nil {
@@ -309,7 +309,7 @@ func TestFactory_WithModule_AddsExtra(t *testing.T) {
 	id := registry.NewID("test", "with_extra")
 	addFactoryTestFunction(t, cm, id, `return function() return 1 end`)
 
-	pf := NewProcessFactory(cm, nil, modules)
+	pf := NewProcessFactory(cm, modules)
 
 	factoryFn, err := pf.CreateFactory(id, WithModule(factoryTestModuleB))
 	if err != nil {
@@ -332,7 +332,7 @@ func TestFactory_WithFilter_CustomLogic(t *testing.T) {
 	id := registry.NewID("test", "filter")
 	addFactoryTestFunction(t, cm, id, `return function() return 1 end`)
 
-	pf := NewProcessFactory(cm, nil, modules)
+	pf := NewProcessFactory(cm, modules)
 
 	filter := func(name string, classes []string) (bool, error) {
 		for _, c := range classes {
@@ -364,7 +364,7 @@ func TestFactory_WithFilter_ReturnsError(t *testing.T) {
 	id := registry.NewID("test", "filter_error")
 	addFactoryTestFunction(t, cm, id, `return function() return 1 end`)
 
-	pf := NewProcessFactory(cm, nil, modules)
+	pf := NewProcessFactory(cm, modules)
 
 	filter := func(name string, classes []string) (bool, error) {
 		for _, c := range classes {
@@ -390,7 +390,7 @@ func TestFactory_WithMode_AllowListed(t *testing.T) {
 	id := registry.NewID("test", "allowlisted")
 	addFactoryTestFunction(t, cm, id, `return function() return 1 end`)
 
-	pf := NewProcessFactory(cm, nil, modules)
+	pf := NewProcessFactory(cm, modules)
 
 	factoryFn, err := pf.CreateFactory(id,
 		WithMode(code.AllowListed),
@@ -416,7 +416,7 @@ func TestFactory_WithMode_AllowListed_FailsWithoutAllowed(t *testing.T) {
 	id := registry.NewID("test", "allowlisted_fail")
 	addFactoryTestFunction(t, cm, id, `return function() return 1 end`)
 
-	pf := NewProcessFactory(cm, nil, modules)
+	pf := NewProcessFactory(cm, modules)
 
 	_, err := pf.CreateFactory(id, WithMode(code.AllowListed))
 	if err == nil {
@@ -431,7 +431,7 @@ func TestFactory_CombinedOptions(t *testing.T) {
 	id := registry.NewID("test", "combined")
 	addFactoryTestFunction(t, cm, id, `return function() return 1 end`)
 
-	pf := NewProcessFactory(cm, nil, modules)
+	pf := NewProcessFactory(cm, modules)
 
 	factoryFn, err := pf.CreateFactory(id,
 		WithoutDefaultModule("test_a"),
@@ -495,7 +495,7 @@ func TestFactory_Transition_FunctionManager(t *testing.T) {
 	id := registry.NewID("test", "function")
 	addFactoryTestFunction(t, cm, id, `return function() return 42 end`)
 
-	pf := NewProcessFactory(cm, nil, factoryDefaultModulesWithProcess)
+	pf := NewProcessFactory(cm, factoryDefaultModulesWithProcess)
 	factoryFn, err := pf.CreateFactory(id)
 	if err != nil {
 		t.Fatalf("CreateFactory failed: %v", err)
@@ -537,7 +537,7 @@ func TestFactory_Transition_BytecodeManager(t *testing.T) {
 		t.Fatalf("AddNodeWithProto failed: %v", err)
 	}
 
-	pf := NewProcessFactory(cm, nil, factoryDefaultModulesWithProcess)
+	pf := NewProcessFactory(cm, factoryDefaultModulesWithProcess)
 	factoryFn, err := pf.CreateFactory(id)
 	if err != nil {
 		t.Fatalf("CreateFactory failed: %v", err)
@@ -557,7 +557,7 @@ func TestFactory_Transition_WorkflowManager(t *testing.T) {
 	id := registry.NewID("test", "workflow")
 	addFactoryTestFunction(t, cm, id, `return function() return "workflow" end`)
 
-	pf := NewProcessFactory(cm, nil, factoryDefaultModulesWithProcess)
+	pf := NewProcessFactory(cm, factoryDefaultModulesWithProcess)
 
 	factoryFn, err := pf.CreateFactory(id,
 		WithMode(code.AllowListed),
@@ -602,7 +602,7 @@ func TestFactory_Transition_WorkflowDeniedID(t *testing.T) {
 		t.Fatalf("AddNode failed: %v", err)
 	}
 
-	pf := NewProcessFactory(cm, nil, factoryDefaultModulesWithProcess)
+	pf := NewProcessFactory(cm, factoryDefaultModulesWithProcess)
 
 	_, err := pf.CreateFactory(id,
 		WithMode(code.AllowListed),
@@ -624,7 +624,7 @@ func TestFactory_Transition_RuntimeFiltering(t *testing.T) {
 		factoryTestModuleNetwork,
 		factoryMockProcessModule,
 	}
-	pf := NewProcessFactory(cm, nil, modulesWithNetwork)
+	pf := NewProcessFactory(cm, modulesWithNetwork)
 
 	// Forbid should fail
 	_, err := pf.CreateFactory(id, ForbidClasses(luaapi.ClassNetwork))
@@ -663,7 +663,7 @@ func TestFactory_Consolidation_SourcePath(t *testing.T) {
 		t.Fatalf("AddNode failed: %v", err)
 	}
 
-	factory := NewProcessFactory(cm, nil, []*luaapi.ModuleDef{factoryTestModuleA})
+	factory := NewProcessFactory(cm, []*luaapi.ModuleDef{factoryTestModuleA})
 	factoryFn, err := factory.CreateFactory(id, WithModule(factoryMockProcessModule))
 	if err != nil {
 		t.Fatalf("CreateFactory failed: %v", err)
@@ -697,7 +697,7 @@ func TestFactory_Consolidation_BytecodePath(t *testing.T) {
 		t.Fatalf("AddNodeWithProto failed: %v", err)
 	}
 
-	factory := NewProcessFactory(cm, nil, []*luaapi.ModuleDef{factoryTestModuleA})
+	factory := NewProcessFactory(cm, []*luaapi.ModuleDef{factoryTestModuleA})
 	factoryFn, err := factory.CreateFactory(id, WithModule(factoryMockProcessModule))
 	if err != nil {
 		t.Fatalf("CreateFactory failed: %v", err)
@@ -714,7 +714,7 @@ func TestFactory_Consolidation_BytecodePath(t *testing.T) {
 
 func TestFactory_Consolidation_UnifiedCreatePool(t *testing.T) {
 	cm := setupFactoryCodeManager(t)
-	factory := NewProcessFactory(cm, nil, []*luaapi.ModuleDef{factoryTestModuleA})
+	factory := NewProcessFactory(cm, []*luaapi.ModuleDef{factoryTestModuleA})
 
 	sourceID := registry.NewID("test", "source")
 	bytecodeID := registry.NewID("test", "bytecode")
@@ -767,7 +767,7 @@ func TestFactory_Consolidation_SandboxWithoutProcess(t *testing.T) {
 		Method: "main",
 	}, nil)
 
-	factory := NewProcessFactory(cm, nil, []*luaapi.ModuleDef{factoryTestModuleA})
+	factory := NewProcessFactory(cm, []*luaapi.ModuleDef{factoryTestModuleA})
 	factoryFn, err := factory.CreateFactory(id)
 	if err != nil {
 		t.Fatalf("CreateFactory failed: %v", err)
@@ -793,7 +793,7 @@ func TestFactory_Consolidation_WorkflowRestricted(t *testing.T) {
 		Method: "main",
 	}, nil)
 
-	factory := NewProcessFactory(cm, nil, []*luaapi.ModuleDef{factoryTestModuleA})
+	factory := NewProcessFactory(cm, []*luaapi.ModuleDef{factoryTestModuleA})
 
 	factoryFn, err := factory.CreateFactory(id,
 		WithMode(code.AllowListed),

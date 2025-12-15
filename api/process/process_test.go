@@ -354,7 +354,7 @@ func TestMeta(t *testing.T) {
 
 func TestFactoryEntry(t *testing.T) {
 	entry := FactoryEntry{
-		Factory: func() (Process, error) { return nil, nil },
+		Factory: func() (Process, error) { return nil, errors.New("not implemented") },
 		Meta:    Meta{Method: "test"},
 	}
 	assert.NotNil(t, entry.Factory)

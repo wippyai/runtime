@@ -161,7 +161,7 @@ type compiledEntry struct {
 
 // collectEntries returns indices of entries that should be compiled.
 func (s *bytecodeStage) collectEntries(entries []registry.Entry) []int {
-	var indices []int
+	indices := make([]int, 0, len(entries))
 	for i, entry := range entries {
 		if _, ok := kindMapping[entry.Kind]; !ok {
 			continue

@@ -60,7 +60,7 @@ func (m *mockResourceRegistry) Acquire(_ context.Context, id registry.ID, _ reso
 }
 
 func (m *mockResourceRegistry) List() ([]registry.ID, error) {
-	var ids []registry.ID
+	ids := make([]registry.ID, 0, len(m.resources))
 	for id := range m.resources {
 		ids = append(ids, id)
 	}
@@ -109,7 +109,7 @@ func TestFullStackActivityExecution(t *testing.T) {
 	var activityCalled bool
 	var receivedPayloads []payload.Payload
 
-	registerFunction(t, ctx, bus, funcID, func(_ context.Context, task runtime.Task) (*runtime.Result, error) {
+	registerFunction(t, bus, ctx, funcID, func(_ context.Context, task runtime.Task) (*runtime.Result, error) {
 		activityCalled = true
 		receivedPayloads = task.Payloads
 
@@ -224,7 +224,7 @@ func testFullStackWorkflow(ctx workflow.Context, activityName string, input inte
 }
 
 // registerFunction registers a function with the function registry via event bus
-func registerFunction(t *testing.T, ctx context.Context, bus event.Bus, funcID registry.ID, handler function.Func) {
+func registerFunction(t *testing.T, bus event.Bus, ctx context.Context, funcID registry.ID, handler function.Func) {
 	var wg sync.WaitGroup
 	sub, err := eventbus.NewSubscriber(ctx, bus, function.System, "function.*", func(evt event.Event) {
 		if evt.Kind == function.Accept && evt.Path == funcID.String() {

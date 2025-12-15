@@ -16,7 +16,7 @@ func TestConfig_Validate(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestConfig_InitDefaults(t *testing.T) {
+func TestConfig_InitDefaults(_ *testing.T) {
 	cfg := &Config{}
 	cfg.InitDefaults()
 	// InitDefaults is a no-op for memory config

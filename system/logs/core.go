@@ -148,6 +148,7 @@ func (c *Core) publishLogEvent(ent zapcore.Entry, fields []zapcore.Field) {
 			Type: fieldTypeToString(f.Type),
 		}
 
+		//nolint:exhaustive // default case handles all other field types as strings
 		switch f.Type {
 		case zapcore.Int64Type, zapcore.Int32Type, zapcore.Int16Type, zapcore.Int8Type,
 			zapcore.Uint64Type, zapcore.Uint32Type, zapcore.Uint16Type, zapcore.Uint8Type:

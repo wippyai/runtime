@@ -52,8 +52,8 @@ func BenchmarkTimerRegistry_GetShard(b *testing.B) {
 	r := newTimerRegistry()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = r.getShard(uint64(i))
+	for i := uint64(0); i < uint64(b.N); i++ {
+		_ = r.getShard(i)
 	}
 }
 
@@ -107,8 +107,8 @@ func BenchmarkTickerRegistry_GetShard(b *testing.B) {
 	r := newTickerRegistry()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = r.getShard(uint64(i))
+	for i := uint64(0); i < uint64(b.N); i++ {
+		_ = r.getShard(i)
 	}
 }
 

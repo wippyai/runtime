@@ -22,9 +22,9 @@ func (m *mockPolicy) Evaluate(_ security.Actor, _, _ string, _ attrs.Bag) securi
 	return m.decision
 }
 
-func newMockPolicy(ns, name string, decision security.Result) *mockPolicy {
+func newMockPolicy(name string, decision security.Result) *mockPolicy {
 	return &mockPolicy{
-		id:       registry.NewID(ns, name),
+		id:       registry.NewID("test", name),
 		decision: decision,
 	}
 }
@@ -39,8 +39,8 @@ func TestNewScope(t *testing.T) {
 	assert.Empty(t, scope.Policies())
 
 	policies := []security.Policy{
-		newMockPolicy("test", "policy1", security.Allow),
-		newMockPolicy("test", "policy2", security.Deny),
+		newMockPolicy("policy1", security.Allow),
+		newMockPolicy("policy2", security.Deny),
 	}
 	scope = NewScope(policies)
 	assert.NotNil(t, scope)
@@ -48,10 +48,10 @@ func TestNewScope(t *testing.T) {
 }
 
 func TestScopeWith(t *testing.T) {
-	policy1 := newMockPolicy("test", "policy1", security.Allow)
+	policy1 := newMockPolicy("policy1", security.Allow)
 	scope := NewScope([]security.Policy{policy1})
 
-	policy2 := newMockPolicy("test", "policy2", security.Deny)
+	policy2 := newMockPolicy("policy2", security.Deny)
 	newScope := scope.With(policy2)
 
 	assert.Len(t, scope.Policies(), 1)
@@ -64,8 +64,8 @@ func TestScopeWith(t *testing.T) {
 }
 
 func TestScopeWithout(t *testing.T) {
-	policy1 := newMockPolicy("test", "policy1", security.Allow)
-	policy2 := newMockPolicy("test", "policy2", security.Deny)
+	policy1 := newMockPolicy("policy1", security.Allow)
+	policy2 := newMockPolicy("policy2", security.Deny)
 	scope := NewScope([]security.Policy{policy1, policy2})
 
 	newScope := scope.Without(policy1.ID())
@@ -97,29 +97,29 @@ func TestScopeEvaluate(t *testing.T) {
 		{
 			name: "All undefined returns Undefined",
 			policies: []security.Policy{
-				newMockPolicy("test", "policy1", security.Undefined),
+				newMockPolicy("policy1", security.Undefined),
 			},
 			expected: security.Undefined,
 		},
 		{
 			name: "Single Allow",
 			policies: []security.Policy{
-				newMockPolicy("test", "policy1", security.Allow),
+				newMockPolicy("policy1", security.Allow),
 			},
 			expected: security.Allow,
 		},
 		{
 			name: "Single Deny",
 			policies: []security.Policy{
-				newMockPolicy("test", "policy1", security.Deny),
+				newMockPolicy("policy1", security.Deny),
 			},
 			expected: security.Deny,
 		},
 		{
 			name: "Deny takes precedence",
 			policies: []security.Policy{
-				newMockPolicy("test", "policy1", security.Allow),
-				newMockPolicy("test", "policy2", security.Deny),
+				newMockPolicy("policy1", security.Allow),
+				newMockPolicy("policy2", security.Deny),
 			},
 			expected: security.Deny,
 		},
@@ -135,7 +135,7 @@ func TestScopeEvaluate(t *testing.T) {
 }
 
 func TestScopeContains(t *testing.T) {
-	policy1 := newMockPolicy("test", "policy1", security.Allow)
+	policy1 := newMockPolicy("policy1", security.Allow)
 	scope := NewScope([]security.Policy{policy1})
 
 	assert.True(t, scope.Contains(policy1.ID()))

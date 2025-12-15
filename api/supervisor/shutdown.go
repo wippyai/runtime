@@ -16,7 +16,10 @@ var (
 )
 
 func setExitCode(code int) {
-	exitCode.Store(int32(code))
+	if code < -2147483648 || code > 2147483647 {
+		code = 1
+	}
+	exitCode.Store(int32(code)) //nolint:gosec // bounds already checked
 }
 
 // GetExitCode retrieves the exit code.

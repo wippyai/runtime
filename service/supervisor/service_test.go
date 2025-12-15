@@ -99,7 +99,7 @@ func (m *mockProcessManager) Terminate(context.Context, pid.PID) error {
 	return nil
 }
 
-func newTestService() (*Service, *uniqid.PIDGenerator) {
+func newTestService() *Service {
 	pidGen := uniqid.NewPIDGenerator(uniqid.NewGenerator(), "test-node")
 	id := registry.ID{NS: "test", Name: "svc"}
 	config := supervisorapi.ServiceConfig{
@@ -107,7 +107,7 @@ func newTestService() (*Service, *uniqid.PIDGenerator) {
 		HostID:    "test-host",
 		Lifecycle: supervisor.LifecycleConfig{StopTimeout: time.Second},
 	}
-	return NewService(id, config, pidGen), pidGen
+	return NewService(id, config, pidGen)
 }
 
 func setupTestContext(node relay.Node, topo topologyapi.Topology, manager processapi.Manager) context.Context {
@@ -146,7 +146,7 @@ func TestService_ImplementsSupervisorService(_ *testing.T) {
 }
 
 func TestService_Start_Success(t *testing.T) {
-	svc, _ := newTestService()
+	svc := newTestService()
 	node := &mockNode{}
 	topo := &mockTopology{}
 	manager := &mockProcessManager{startedPID: pid.PID{UniqID: "child-123"}}
@@ -161,7 +161,7 @@ func TestService_Start_Success(t *testing.T) {
 }
 
 func TestService_Start_NoRelayNode(t *testing.T) {
-	svc, _ := newTestService()
+	svc := newTestService()
 	ctx := setupTestContext(nil, &mockTopology{}, &mockProcessManager{})
 
 	statusCh, err := svc.Start(ctx)
@@ -171,7 +171,7 @@ func TestService_Start_NoRelayNode(t *testing.T) {
 }
 
 func TestService_Start_NoTopology(t *testing.T) {
-	svc, _ := newTestService()
+	svc := newTestService()
 	ctx := setupTestContext(&mockNode{}, nil, &mockProcessManager{})
 
 	statusCh, err := svc.Start(ctx)
@@ -181,7 +181,7 @@ func TestService_Start_NoTopology(t *testing.T) {
 }
 
 func TestService_Start_NoProcessManager(t *testing.T) {
-	svc, _ := newTestService()
+	svc := newTestService()
 	ctx := setupTestContext(&mockNode{}, &mockTopology{}, nil)
 
 	statusCh, err := svc.Start(ctx)
@@ -191,7 +191,7 @@ func TestService_Start_NoProcessManager(t *testing.T) {
 }
 
 func TestService_Start_RegisterPIDError(t *testing.T) {
-	svc, _ := newTestService()
+	svc := newTestService()
 	topo := &mockTopology{registerErr: errors.New("register failed")}
 	ctx := setupTestContext(&mockNode{}, topo, &mockProcessManager{})
 
@@ -203,7 +203,7 @@ func TestService_Start_RegisterPIDError(t *testing.T) {
 }
 
 func TestService_Start_AttachRelayError(t *testing.T) {
-	svc, _ := newTestService()
+	svc := newTestService()
 	node := &mockNode{attachErr: errors.New("attach failed")}
 	topo := &mockTopology{}
 	ctx := setupTestContext(node, topo, &mockProcessManager{})
@@ -217,7 +217,7 @@ func TestService_Start_AttachRelayError(t *testing.T) {
 }
 
 func TestService_Start_ProcessStartError(t *testing.T) {
-	svc, _ := newTestService()
+	svc := newTestService()
 	node := &mockNode{}
 	topo := &mockTopology{}
 	manager := &mockProcessManager{startErr: errors.New("start failed")}
@@ -232,7 +232,7 @@ func TestService_Start_ProcessStartError(t *testing.T) {
 }
 
 func TestService_Stop_NotStarted(t *testing.T) {
-	svc, _ := newTestService()
+	svc := newTestService()
 	ctx := setupTestContext(&mockNode{}, nil, nil)
 
 	err := svc.Stop(ctx)
@@ -241,7 +241,7 @@ func TestService_Stop_NotStarted(t *testing.T) {
 }
 
 func TestService_Stop_NoRelayNode(t *testing.T) {
-	svc, _ := newTestService()
+	svc := newTestService()
 	svc.statusCh = make(chan any, 1)
 	ctx := setupTestContext(nil, nil, nil)
 
@@ -251,7 +251,7 @@ func TestService_Stop_NoRelayNode(t *testing.T) {
 }
 
 func TestService_Stop_SendCancelError(t *testing.T) {
-	svc, _ := newTestService()
+	svc := newTestService()
 	svc.statusCh = make(chan any, 1)
 	svc.childPID = pid.PID{UniqID: "child-123"}
 	node := &mockNode{sendErr: errors.New("send failed")}
@@ -264,7 +264,7 @@ func TestService_Stop_SendCancelError(t *testing.T) {
 }
 
 func TestService_Stop_Success(t *testing.T) {
-	svc, _ := newTestService()
+	svc := newTestService()
 	svc.statusCh = make(chan any, 1)
 	svc.childPID = pid.PID{UniqID: "child-123"}
 	svc.supervisorPID = pid.PID{UniqID: "supervisor-123"}
@@ -283,7 +283,7 @@ func TestService_Stop_Success(t *testing.T) {
 }
 
 func TestService_Stop_ContextCanceled(t *testing.T) {
-	svc, _ := newTestService()
+	svc := newTestService()
 	svc.statusCh = make(chan any, 1)
 	svc.childPID = pid.PID{UniqID: "child-123"}
 	node := &mockNode{}
@@ -300,7 +300,7 @@ func TestService_Stop_ContextCanceled(t *testing.T) {
 }
 
 func TestService_MonitorLoop_ContextCanceled(t *testing.T) {
-	svc, _ := newTestService()
+	svc := newTestService()
 	svc.statusCh = make(chan any, 1)
 	svc.detachFn = func() {}
 	monitorCh := make(chan *relay.Package, 1)
@@ -320,7 +320,7 @@ func TestService_MonitorLoop_ContextCanceled(t *testing.T) {
 }
 
 func TestService_MonitorLoop_ChannelClosed(t *testing.T) {
-	svc, _ := newTestService()
+	svc := newTestService()
 	svc.statusCh = make(chan any, 1)
 	svc.detachFn = func() {}
 	monitorCh := make(chan *relay.Package, 1)
@@ -340,7 +340,7 @@ func TestService_MonitorLoop_ChannelClosed(t *testing.T) {
 }
 
 func TestService_MonitorLoop_ExitEventWithError(t *testing.T) {
-	svc, _ := newTestService()
+	svc := newTestService()
 	svc.statusCh = make(chan any, 1)
 	svc.detachFn = func() {}
 	monitorCh := make(chan *relay.Package, 1)
@@ -369,7 +369,7 @@ func TestService_MonitorLoop_ExitEventWithError(t *testing.T) {
 }
 
 func TestService_MonitorLoop_ExitEventWithoutError(t *testing.T) {
-	svc, _ := newTestService()
+	svc := newTestService()
 	svc.statusCh = make(chan any, 1)
 	svc.detachFn = func() {}
 	monitorCh := make(chan *relay.Package, 1)
@@ -395,7 +395,7 @@ func TestService_MonitorLoop_ExitEventWithoutError(t *testing.T) {
 }
 
 func TestService_MonitorLoop_IgnoresNonEventsTopic(t *testing.T) {
-	svc, _ := newTestService()
+	svc := newTestService()
 	svc.statusCh = make(chan any, 1)
 	svc.detachFn = func() {}
 	monitorCh := make(chan *relay.Package, 1)
@@ -428,7 +428,7 @@ func BenchmarkService_Start(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		svc, _ := newTestService()
+		svc := newTestService()
 		_, _ = svc.Start(ctx)
 	}
 }

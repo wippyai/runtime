@@ -98,16 +98,15 @@ func (p *Processor) casState(old, newState ProcessState) bool {
 }
 
 // setWakeup atomically sets the wakeup flag if state matches expected.
-// Returns true if wakeup was set (state matched).
-func (p *Processor) setWakeup(expectedState ProcessState) bool {
+func (p *Processor) setWakeup(expectedState ProcessState) {
 	for {
 		current := ProcessState(p.state.Load())
 		if current&stateMask != expectedState {
-			return false
+			return
 		}
 		newVal := current | wakeupFlag
 		if p.state.CompareAndSwap(int32(current), int32(newVal)) {
-			return true
+			return
 		}
 	}
 }

@@ -70,11 +70,7 @@ func main() {
 		fmt.Printf("  Copied %s to %s\n", m.apiPath, m.servicePath)
 
 		// Find all Go files that import the old package
-		files, err := findFilesWithImport(root, m.oldPkg)
-		if err != nil {
-			fmt.Printf("  Error finding files: %v\n", err)
-			continue
-		}
+		files := findFilesWithImport(root, m.oldPkg)
 
 		if len(files) == 0 {
 			fmt.Printf("  No files found importing %s\n", m.oldPkg)
@@ -116,12 +112,12 @@ func copyFile(src, dst string) error {
 	return err
 }
 
-func findFilesWithImport(root, importPath string) ([]string, error) {
+func findFilesWithImport(root, importPath string) []string {
 	cmd := exec.Command("grep", "-r", "-l", importPath, "--include=*.go", root)
 	output, err := cmd.Output()
 	if err != nil {
 		// grep returns error if no matches found
-		return nil, nil
+		return nil
 	}
 
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
@@ -131,7 +127,7 @@ func findFilesWithImport(root, importPath string) ([]string, error) {
 			files = append(files, line)
 		}
 	}
-	return files, nil
+	return files
 }
 
 func updateImportsInFile(filePath, oldPkg, newPkg string) error {
@@ -145,7 +141,7 @@ func updateImportsInFile(filePath, oldPkg, newPkg string) error {
 
 	// Write back only if changed
 	if !bytes.Equal(content, newContent) {
-		return os.WriteFile(filePath, newContent, 0644)
+		return os.WriteFile(filePath, newContent, 0600)
 	}
 
 	return nil

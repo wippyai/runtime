@@ -231,8 +231,10 @@ func (c *controller) startProbe(now time.Time, workers int32, queueLen int) (sca
 	// 1. Queue pressure: items per worker (fast cold start)
 	// 2. Percentage: 25% of current workers (sustained growth)
 	queueBased := int32(0)
-	if queueLen > int(workers) {
-		queueBased = int32(queueLen) / workers
+	if queueLen > 0 && queueLen > int(workers) {
+		if queueLen <= (1<<31 - 1) {
+			queueBased = int32(queueLen) / workers
+		}
 	}
 
 	percentBased := workers / 4
@@ -416,6 +418,7 @@ func (c *controller) setCooldown(now time.Time, success bool) {
 		duration = c.cooldown * time.Duration(multiplier)
 	}
 
+	//nolint:gosec // G404: weak random acceptable for jitter
 	jitter := time.Duration(float64(duration) * jitterFraction * (rand.Float64()*2 - 1))
 	c.cooldownUntil = now.Add(duration + jitter)
 }

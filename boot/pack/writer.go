@@ -243,9 +243,15 @@ func (pw *Writer) PackWithResources(
 	allDataFrames := make([]rawFrame, 0)
 
 	// Data frames start after: metadata(1) + entries(1) + resource trees(N)
-	dataFrameStartIndex := uint32(2 + len(resources))
+	if len(resources) < 0 || len(resources) > int(^uint32(0)-2) {
+		return NewInvalidResourceCountError(len(resources))
+	}
+	dataFrameStartIndex := 2 + uint32(len(resources))
 
 	for _, spec := range resources {
+		if len(allDataFrames) < 0 || len(allDataFrames) > int(^uint32(0)) {
+			return NewInvalidResourceCountError(len(allDataFrames))
+		}
 		tree, dataFrames, err := pw.processFilesystemWithOffset(spec.FS, spec.ID, spec.Meta, dataFrameStartIndex+uint32(len(allDataFrames)))
 		if err != nil {
 			return NewProcessResourceFilesystemError(spec.ID.String(), err)

@@ -710,9 +710,8 @@ func TestStoreResourceCleanup(t *testing.T) {
 	cancelCtx, cancel := context.WithCancel(ctx)
 	cancel() // Cancel immediately
 
-	// This should return an error but might not in some implementations
-	// that don't check ctx.Done() early enough
-	_, _, _ = ts.Validate(cancelCtx, token)
+	// Validation might fail with canceled context
+	_, _, _ = ts.Validate(cancelCtx, token) //nolint:dogsled // intentionally ignoring all returns
 
 	// We should still be able to validate with a valid context
 	_, _, err = ts.Validate(ctx, token)

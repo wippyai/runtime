@@ -292,6 +292,7 @@ func TestRegistryContextCancel(t *testing.T) {
 		if ok {
 			// Got EOF message, that's fine
 		}
+		// Channel closed, that's also fine
 	case <-time.After(time.Second):
 		t.Error("channel should close on context cancel")
 	}
@@ -391,6 +392,7 @@ func TestConnEntryDrop(t *testing.T) {
 		if ok {
 			// May get EOF
 		}
+		// Channel closed, that's also fine
 	case <-time.After(time.Second):
 		t.Error("channel should close on Drop")
 	}

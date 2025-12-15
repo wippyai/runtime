@@ -9,6 +9,8 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
+	luapayload "github.com/wippyai/runtime/runtime/lua/engine/payload"
+	systempayload "github.com/wippyai/runtime/system/payload"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -26,6 +28,12 @@ import (
 
 // Test helpers
 
+func createInboxTestTranscoder() payload.Transcoder {
+	transcoder := systempayload.NewTranscoder()
+	luapayload.Register(transcoder)
+	return transcoder
+}
+
 func startInboxProcess(t *testing.T, script string) *Process {
 	t.Helper()
 
@@ -37,6 +45,30 @@ func startInboxProcess(t *testing.T, script string) *Process {
 	proc := NewProcess(WithProto(proto))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	ChannelModule.Load(proc.State())
+	loadPubSubGlobals(proc.State())
+
+	return proc
+}
+
+func startInboxProcessWithTranscoder(t *testing.T, script string) *Process {
+	t.Helper()
+
+	proto, err := lua.CompileString(script, "test.lua")
+	if err != nil {
+		t.Fatalf("compile failed: %v", err)
+	}
+
+	proc := NewProcess(WithProto(proto))
+
+	rootCtx := ctxapi.NewRootContext()
+	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
+	ctx = payload.WithTranscoder(ctx, createInboxTestTranscoder())
+
 	if err := proc.Init(ctx, "", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -769,5 +801,683 @@ func TestInbox_DirectQueueInjection(t *testing.T) {
 	// Now run - inbox subscription should flush the pre-injected message
 	if err := inboxRunUntilDone(t, proc, 50); err != nil {
 		t.Fatalf("Process failed: %v", err)
+	}
+}
+
+// Response Channel Pattern Tests
+//
+// These tests verify the response channel pattern used by gov client/service:
+// 1. Client creates a response channel using process.listen()
+// 2. Client sends request with respond_to field
+// 3. Service processes request and sends reply to respond_to channel
+// 4. Client receives reply on the response channel
+
+func TestResponseChannelBasic(t *testing.T) {
+	script := `
+		local response_ch = channel.new(10)
+		local control = channel.new(10)
+
+		subscribe("test.response.12345", response_ch)
+		subscribe("control", control)
+
+		control:receive()
+
+		local result = channel.select{response_ch:case_receive(), default=true}
+
+		if result.default then
+			return nil, "response channel should have a message"
+		end
+
+		if result.value ~= "response_data" then
+			return nil, "expected 'response_data', got " .. tostring(result.value)
+		end
+
+		return "ok"
+	`
+
+	proc := startInboxProcessWithTranscoder(t, script)
+	defer proc.Close()
+
+	if err := inboxRunUntilIdle(t, proc, 30); err != nil {
+		t.Fatal(err)
+	}
+
+	var output process.StepOutput
+
+	if err := sendInboxMessage(proc, "test.response.12345", payload.Payloads{payload.NewString("response_data")}, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewString("go")}, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := inboxRunUntilDone(t, proc, 50); err != nil {
+		t.Fatalf("Process failed: %v", err)
+	}
+}
+
+func TestResponseChannelWithTablePayload(t *testing.T) {
+	script := `
+		local response_ch = channel.new(10)
+		local control = channel.new(10)
+
+		subscribe("test.response.table", response_ch)
+		subscribe("control", control)
+
+		control:receive()
+
+		local result = channel.select{response_ch:case_receive(), default=true}
+
+		if result.default then
+			return nil, "response channel should have a message"
+		end
+
+		if type(result.value) ~= "table" then
+			return nil, "expected table, got " .. type(result.value)
+		end
+
+		if result.value.request_id ~= "req-001" then
+			return nil, "expected request_id 'req-001', got " .. tostring(result.value.request_id)
+		end
+
+		if result.value.success ~= true then
+			return nil, "expected success true"
+		end
+
+		return "ok"
+	`
+
+	proc := startInboxProcessWithTranscoder(t, script)
+	defer proc.Close()
+
+	if err := inboxRunUntilIdle(t, proc, 30); err != nil {
+		t.Fatal(err)
+	}
+
+	var output process.StepOutput
+
+	responsePayload := payload.New(map[string]any{
+		"request_id": "req-001",
+		"success":    true,
+		"result":     "processed data",
+	})
+	if err := sendInboxMessage(proc, "test.response.table", payload.Payloads{responsePayload}, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewString("go")}, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := inboxRunUntilDone(t, proc, 50); err != nil {
+		t.Fatalf("Process failed: %v", err)
+	}
+}
+
+func TestMultipleResponseChannels(t *testing.T) {
+	script := `
+		local response1 = channel.new(10)
+		local response2 = channel.new(10)
+		local response3 = channel.new(10)
+		local control = channel.new(10)
+
+		subscribe("response.ch1", response1)
+		subscribe("response.ch2", response2)
+		subscribe("response.ch3", response3)
+		subscribe("control", control)
+
+		control:receive()
+
+		local function drain(ch)
+			local count = 0
+			while true do
+				local result = channel.select{ch:case_receive(), default=true}
+				if result.default then break end
+				count = count + 1
+			end
+			return count
+		end
+
+		local c1 = drain(response1)
+		local c2 = drain(response2)
+		local c3 = drain(response3)
+
+		if c1 ~= 1 then return nil, "response1 should have 1 message, got " .. c1 end
+		if c2 ~= 2 then return nil, "response2 should have 2 messages, got " .. c2 end
+		if c3 ~= 0 then return nil, "response3 should have 0 messages, got " .. c3 end
+
+		return "ok"
+	`
+
+	proc := startInboxProcessWithTranscoder(t, script)
+	defer proc.Close()
+
+	if err := inboxRunUntilIdle(t, proc, 30); err != nil {
+		t.Fatal(err)
+	}
+
+	var output process.StepOutput
+
+	if err := sendInboxMessage(proc, "response.ch1", payload.Payloads{payload.NewString("r1")}, &output); err != nil {
+		t.Fatal(err)
+	}
+	if err := sendInboxMessage(proc, "response.ch2", payload.Payloads{payload.NewString("r2a")}, &output); err != nil {
+		t.Fatal(err)
+	}
+	if err := sendInboxMessage(proc, "response.ch2", payload.Payloads{payload.NewString("r2b")}, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewString("go")}, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := inboxRunUntilDone(t, proc, 50); err != nil {
+		t.Fatalf("Process failed: %v", err)
+	}
+}
+
+func TestResponseChannelDoesNotLeakToInbox(t *testing.T) {
+	script := `
+		local inbox_ch = channel.new(10)
+		local response_ch = channel.new(10)
+		local control = channel.new(10)
+
+		subscribe("@pid/inbox", inbox_ch)
+		subscribe("my.response.topic", response_ch)
+		subscribe("control", control)
+
+		control:receive()
+
+		local function drain(ch)
+			local count = 0
+			while true do
+				local result = channel.select{ch:case_receive(), default=true}
+				if result.default then break end
+				count = count + 1
+			end
+			return count
+		end
+
+		local response_count = drain(response_ch)
+		local inbox_count = drain(inbox_ch)
+
+		if response_count ~= 1 then
+			return nil, "response channel should have 1 message, got " .. response_count
+		end
+		if inbox_count ~= 0 then
+			return nil, "inbox should NOT receive message sent to listened topic, got " .. inbox_count
+		end
+
+		return "ok"
+	`
+
+	proc := startInboxProcessWithTranscoder(t, script)
+	defer proc.Close()
+
+	if err := inboxRunUntilIdle(t, proc, 30); err != nil {
+		t.Fatal(err)
+	}
+
+	var output process.StepOutput
+
+	if err := sendInboxMessage(proc, "my.response.topic", payload.Payloads{payload.NewString("response")}, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewString("go")}, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := inboxRunUntilDone(t, proc, 50); err != nil {
+		t.Fatalf("Process failed: %v", err)
+	}
+}
+
+func TestResponseChannelBlockingReceive(t *testing.T) {
+	script := `
+		local response_ch = channel.new(10)
+		subscribe("blocking.response", response_ch)
+
+		local value = response_ch:receive()
+
+		if value ~= "awaited_response" then
+			return nil, "expected 'awaited_response', got " .. tostring(value)
+		end
+
+		return "ok"
+	`
+
+	proc := startInboxProcessWithTranscoder(t, script)
+	defer proc.Close()
+
+	if err := inboxRunUntilIdle(t, proc, 30); err != nil {
+		t.Fatal(err)
+	}
+
+	if !proc.HasSubscriptions() {
+		t.Error("expected active subscriptions")
+	}
+
+	var output process.StepOutput
+
+	if err := sendInboxMessage(proc, "blocking.response", payload.Payloads{payload.NewString("awaited_response")}, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := inboxRunUntilDone(t, proc, 50); err != nil {
+		t.Fatalf("Process failed: %v", err)
+	}
+}
+
+func TestGovClientPattern(t *testing.T) {
+	script := `
+		local inbox_ch = channel.new(10)
+		local response_ch = channel.new(10)
+
+		subscribe("@pid/inbox", inbox_ch)
+		subscribe("client.response.uuid-12345", response_ch)
+
+		local value = response_ch:receive()
+
+		if type(value) ~= "table" then
+			return nil, "expected table response, got " .. type(value)
+		end
+
+		if value.request_id ~= "req-xyz" then
+			return nil, "expected request_id 'req-xyz', got " .. tostring(value.request_id)
+		end
+
+		if not value.success then
+			return nil, "expected success to be true"
+		end
+
+		if value.data ~= "processed result" then
+			return nil, "expected data 'processed result', got " .. tostring(value.data)
+		end
+
+		return "ok"
+	`
+
+	proc := startInboxProcessWithTranscoder(t, script)
+	defer proc.Close()
+
+	if err := inboxRunUntilIdle(t, proc, 30); err != nil {
+		t.Fatal(err)
+	}
+
+	var output process.StepOutput
+
+	responsePayload := payload.New(map[string]any{
+		"request_id": "req-xyz",
+		"success":    true,
+		"data":       "processed result",
+	})
+	if err := sendInboxMessage(proc, "client.response.uuid-12345", payload.Payloads{responsePayload}, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := inboxRunUntilDone(t, proc, 50); err != nil {
+		t.Fatalf("Process failed: %v", err)
+	}
+}
+
+func TestListenReceivesRawPayloads(t *testing.T) {
+	script := `
+		local response_ch = channel.new(10)
+		local control = channel.new(10)
+
+		subscribe("listen.response.topic", response_ch)
+		subscribe("control", control)
+
+		control:receive()
+
+		local result = channel.select{response_ch:case_receive(), default=true}
+
+		if result.default then
+			return nil, "response channel should have a message"
+		end
+
+		local value = result.value
+
+		if type(value) ~= "table" then
+			return nil, "expected table, got " .. type(value)
+		end
+
+		if type(value.from) == "function" then
+			return nil, "value should NOT be a Message object (has :from method)"
+		end
+		if type(value.payload) == "function" then
+			return nil, "value should NOT be a Message object (has :payload method)"
+		end
+
+		if value.request_id ~= "test-123" then
+			return nil, "expected request_id 'test-123', got " .. tostring(value.request_id)
+		end
+
+		if value.data ~= "payload_value" then
+			return nil, "expected data 'payload_value', got " .. tostring(value.data)
+		end
+
+		return "ok"
+	`
+
+	proc := startInboxProcessWithTranscoder(t, script)
+	defer proc.Close()
+
+	if err := inboxRunUntilIdle(t, proc, 30); err != nil {
+		t.Fatal(err)
+	}
+
+	var output process.StepOutput
+
+	responsePayload := payload.New(map[string]any{
+		"request_id": "test-123",
+		"data":       "payload_value",
+	})
+	if err := sendInboxMessage(proc, "listen.response.topic", payload.Payloads{responsePayload}, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewString("go")}, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := inboxRunUntilDone(t, proc, 50); err != nil {
+		t.Fatalf("Process failed: %v", err)
+	}
+}
+
+func TestListenStringPayload(t *testing.T) {
+	script := `
+		local response_ch = channel.new(10)
+		local control = channel.new(10)
+
+		subscribe("listen.string.topic", response_ch)
+		subscribe("control", control)
+
+		control:receive()
+
+		local result = channel.select{response_ch:case_receive(), default=true}
+
+		if result.default then
+			return nil, "response channel should have a message"
+		end
+
+		local value = result.value
+
+		if type(value) ~= "string" then
+			return nil, "expected string, got " .. type(value)
+		end
+
+		if value ~= "hello_world" then
+			return nil, "expected 'hello_world', got " .. tostring(value)
+		end
+
+		return "ok"
+	`
+
+	proc := startInboxProcessWithTranscoder(t, script)
+	defer proc.Close()
+
+	if err := inboxRunUntilIdle(t, proc, 30); err != nil {
+		t.Fatal(err)
+	}
+
+	var output process.StepOutput
+
+	if err := sendInboxMessage(proc, "listen.string.topic", payload.Payloads{payload.NewString("hello_world")}, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewString("go")}, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := inboxRunUntilDone(t, proc, 50); err != nil {
+		t.Fatalf("Process failed: %v", err)
+	}
+}
+
+// Message Ordering Tests
+//
+// These tests verify that messages sent BEFORE subscription are not lost
+// and are delivered when subscription is created.
+
+func TestMessagesBeforeSubscription(t *testing.T) {
+	script := `
+		local x = 1 + 1
+
+		local ch = channel.new(10)
+		subscribe("my_topic", ch)
+
+		local result = channel.select{ch:case_receive(), default=true}
+
+		if result.default then
+			return nil, "message sent before subscription was LOST"
+		end
+
+		if result.value ~= "early_message" then
+			return nil, "expected 'early_message', got " .. tostring(result.value)
+		end
+
+		return "ok"
+	`
+
+	proc := startInboxProcessWithTranscoder(t, script)
+	defer proc.Close()
+
+	var output process.StepOutput
+
+	proc.messageQueue = append(proc.messageQueue, queuedMessage{
+		Topic:    "my_topic",
+		Payloads: payload.Payloads{payload.NewString("early_message")},
+	})
+
+	for i := 0; i < 50; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("step %d failed: %v", i, err)
+		}
+		if output.Status() == process.StepDone {
+			break
+		}
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatal("process did not complete")
+	}
+}
+
+func TestMessagesBeforeInboxSubscription(t *testing.T) {
+	script := `
+		local x = 1 + 1
+
+		local inbox_ch = channel.new(10)
+		subscribe("@pid/inbox", inbox_ch)
+
+		local result = channel.select{inbox_ch:case_receive(), default=true}
+
+		if result.default then
+			return nil, "message sent before inbox subscription was LOST"
+		end
+
+		if result.value ~= "early_inbox_message" then
+			return nil, "expected 'early_inbox_message', got " .. tostring(result.value)
+		end
+
+		return "ok"
+	`
+
+	proc := startInboxProcessWithTranscoder(t, script)
+	defer proc.Close()
+
+	var output process.StepOutput
+
+	proc.messageQueue = append(proc.messageQueue, queuedMessage{
+		Topic:    "random_topic",
+		Payloads: payload.Payloads{payload.NewString("early_inbox_message")},
+	})
+
+	for i := 0; i < 50; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("step %d failed: %v", i, err)
+		}
+		if output.Status() == process.StepDone {
+			break
+		}
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatal("process did not complete")
+	}
+}
+
+func TestMessageViaStepBeforeSubscription(t *testing.T) {
+	script := `
+		coroutine.yield()
+
+		local ch = channel.new(10)
+		subscribe("my_topic", ch)
+
+		local result = channel.select{ch:case_receive(), default=true}
+
+		if result.default then
+			return nil, "message was LOST"
+		end
+
+		if result.value ~= "test" then
+			return nil, "expected 'test', got " .. tostring(result.value)
+		end
+
+		return "ok"
+	`
+
+	proc := startInboxProcessWithTranscoder(t, script)
+	defer proc.Close()
+
+	var output process.StepOutput
+
+	output.Reset()
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := sendInboxMessage(proc, "my_topic", payload.Payloads{payload.NewString("test")}, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 50; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("step %d failed: %v", i, err)
+		}
+		if output.Status() == process.StepDone {
+			break
+		}
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatal("process did not complete")
+	}
+}
+
+func TestMessageQueueState(t *testing.T) {
+	script := `
+		local ch = channel.new(10)
+		subscribe("test_topic", ch)
+
+		local value = ch:receive()
+		return value
+	`
+
+	proc := startInboxProcessWithTranscoder(t, script)
+	defer proc.Close()
+
+	var output process.StepOutput
+
+	proc.messageQueue = append(proc.messageQueue, queuedMessage{
+		Topic:    "test_topic",
+		Payloads: payload.Payloads{payload.NewString("msg1")},
+	})
+
+	for i := 0; i < 30; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatal(err)
+		}
+		if output.Status() == process.StepIdle || output.Status() == process.StepDone {
+			break
+		}
+	}
+
+	if len(proc.messageQueue) != 0 {
+		t.Errorf("expected queue to be empty after subscription, got %d", len(proc.messageQueue))
+	}
+}
+
+func TestResponseChannelEarlyMessage(t *testing.T) {
+	script := `
+		local response_ch = channel.new(10)
+		subscribe("response.123", response_ch)
+
+		local x = 0
+		for i = 1, 100 do
+			x = x + i
+		end
+
+		local value = response_ch:receive()
+
+		if type(value) ~= "table" then
+			return nil, "expected table response, got " .. type(value)
+		end
+
+		if value.result ~= "success" then
+			return nil, "expected result 'success', got " .. tostring(value.result)
+		end
+
+		return "ok"
+	`
+
+	proc := startInboxProcessWithTranscoder(t, script)
+	defer proc.Close()
+
+	var output process.StepOutput
+
+	for i := 0; i < 100; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatal(err)
+		}
+		if output.Status() == process.StepIdle {
+			break
+		}
+	}
+
+	if !proc.HasSubscriptions() {
+		t.Fatal("expected subscriptions")
+	}
+
+	responsePayload := payload.New(map[string]any{
+		"result": "success",
+	})
+	if err := sendInboxMessage(proc, "response.123", payload.Payloads{responsePayload}, &output); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 50; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("step failed: %v", err)
+		}
+		if output.Status() == process.StepDone {
+			break
+		}
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatal("process did not complete")
 	}
 }

@@ -83,7 +83,7 @@ func detectConflicts(
 		}
 
 		// Try to merge constraints
-		_, err := mergeConstraints(constraintStrings)
+		err := mergeConstraints(constraintStrings)
 		if err != nil {
 			// Constraints are incompatible
 			conflicts = append(conflicts, Conflict{

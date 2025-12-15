@@ -45,13 +45,13 @@ func (m *mockBus) getEvents() []event.Event {
 	return m.events
 }
 
-func newTestManager(_ *testing.T) (*Manager, *mockBus, payload.Transcoder) {
+func newTestManager(_ *testing.T) (*Manager, *mockBus) {
 	transcoder := payloadSystem.GlobalTranscoder()
 	json.Register(transcoder)
 	bus := &mockBus{}
 	log := zap.NewNop()
 	m := NewManager(bus, transcoder, log)
-	return m, bus, transcoder
+	return m, bus
 }
 
 func makeSetEntry(id registry.ID, cfg *template.SetConfig) registry.Entry {
@@ -85,14 +85,14 @@ func makeTemplateEntry(id registry.ID, cfg *template.Config) registry.Entry {
 }
 
 func TestNewManager(t *testing.T) {
-	m, _, _ := newTestManager(t)
+	m, _ := newTestManager(t)
 	require.NotNil(t, m)
 	assert.NotNil(t, m.sets)
 	assert.NotNil(t, m.templates)
 }
 
 func TestManager_AddSet(t *testing.T) {
-	m, bus, _ := newTestManager(t)
+	m, bus := newTestManager(t)
 	ctx := context.Background()
 
 	setID := registry.NewID("test", "my-set")
@@ -122,7 +122,7 @@ func TestManager_AddSet(t *testing.T) {
 }
 
 func TestManager_AddSetAlreadyExists(t *testing.T) {
-	m, _, _ := newTestManager(t)
+	m, _ := newTestManager(t)
 	ctx := context.Background()
 
 	setID := registry.NewID("test", "my-set")
@@ -142,7 +142,7 @@ func TestManager_AddSetAlreadyExists(t *testing.T) {
 }
 
 func TestManager_AddTemplate(t *testing.T) {
-	m, _, _ := newTestManager(t)
+	m, _ := newTestManager(t)
 	ctx := context.Background()
 
 	setID := registry.NewID("test", "my-set")
@@ -171,7 +171,7 @@ func TestManager_AddTemplate(t *testing.T) {
 }
 
 func TestManager_AddTemplateWithMeta(t *testing.T) {
-	m, _, _ := newTestManager(t)
+	m, _ := newTestManager(t)
 	ctx := context.Background()
 
 	setID := registry.NewID("test", "my-set")
@@ -197,7 +197,7 @@ func TestManager_AddTemplateWithMeta(t *testing.T) {
 }
 
 func TestManager_AddTemplateSetNotFound(t *testing.T) {
-	m, _, _ := newTestManager(t)
+	m, _ := newTestManager(t)
 	ctx := context.Background()
 
 	tplID := registry.NewID("test", "my-template")
@@ -212,7 +212,7 @@ func TestManager_AddTemplateSetNotFound(t *testing.T) {
 }
 
 func TestManager_UpdateTemplate(t *testing.T) {
-	m, _, _ := newTestManager(t)
+	m, _ := newTestManager(t)
 	ctx := context.Background()
 
 	setID := registry.NewID("test", "my-set")
@@ -242,7 +242,7 @@ func TestManager_UpdateTemplate(t *testing.T) {
 }
 
 func TestManager_UpdateTemplateRename(t *testing.T) {
-	m, _, _ := newTestManager(t)
+	m, _ := newTestManager(t)
 	ctx := context.Background()
 
 	setID := registry.NewID("test", "my-set")
@@ -277,7 +277,7 @@ func TestManager_UpdateTemplateRename(t *testing.T) {
 }
 
 func TestManager_UpdateTemplateMoveSet(t *testing.T) {
-	m, _, _ := newTestManager(t)
+	m, _ := newTestManager(t)
 	ctx := context.Background()
 
 	setID1 := registry.NewID("test", "set-1")
@@ -314,7 +314,7 @@ func TestManager_UpdateTemplateMoveSet(t *testing.T) {
 }
 
 func TestManager_UpdateTemplateNotFound(t *testing.T) {
-	m, _, _ := newTestManager(t)
+	m, _ := newTestManager(t)
 	ctx := context.Background()
 
 	tplID := registry.NewID("test", "missing")
@@ -329,7 +329,7 @@ func TestManager_UpdateTemplateNotFound(t *testing.T) {
 }
 
 func TestManager_DeleteTemplate(t *testing.T) {
-	m, _, _ := newTestManager(t)
+	m, _ := newTestManager(t)
 	ctx := context.Background()
 
 	setID := registry.NewID("test", "my-set")
@@ -354,7 +354,7 @@ func TestManager_DeleteTemplate(t *testing.T) {
 }
 
 func TestManager_DeleteTemplateNotFound(t *testing.T) {
-	m, _, _ := newTestManager(t)
+	m, _ := newTestManager(t)
 	ctx := context.Background()
 
 	tplEntry := registry.Entry{
@@ -367,7 +367,7 @@ func TestManager_DeleteTemplateNotFound(t *testing.T) {
 }
 
 func TestManager_UpdateSet(t *testing.T) {
-	m, bus, _ := newTestManager(t)
+	m, bus := newTestManager(t)
 	ctx := context.Background()
 
 	setID := registry.NewID("test", "my-set")
@@ -408,7 +408,7 @@ func TestManager_UpdateSet(t *testing.T) {
 }
 
 func TestManager_DeleteSet(t *testing.T) {
-	m, bus, _ := newTestManager(t)
+	m, bus := newTestManager(t)
 	ctx := context.Background()
 
 	setID := registry.NewID("test", "my-set")
@@ -434,7 +434,7 @@ func TestManager_DeleteSet(t *testing.T) {
 }
 
 func TestManager_DeleteSetNotEmpty(t *testing.T) {
-	m, _, _ := newTestManager(t)
+	m, _ := newTestManager(t)
 	ctx := context.Background()
 
 	setID := registry.NewID("test", "my-set")
@@ -456,7 +456,7 @@ func TestManager_DeleteSetNotEmpty(t *testing.T) {
 }
 
 func TestManager_UnsupportedKind(t *testing.T) {
-	m, _, _ := newTestManager(t)
+	m, _ := newTestManager(t)
 	ctx := context.Background()
 
 	entry := registry.Entry{
@@ -476,7 +476,7 @@ func TestManager_UnsupportedKind(t *testing.T) {
 }
 
 func TestManager_Acquire(t *testing.T) {
-	m, _, _ := newTestManager(t)
+	m, _ := newTestManager(t)
 	ctx := context.Background()
 
 	setID := registry.NewID("test", "my-set")
@@ -496,7 +496,7 @@ func TestManager_Acquire(t *testing.T) {
 }
 
 func TestManager_AcquireNotFound(t *testing.T) {
-	m, _, _ := newTestManager(t)
+	m, _ := newTestManager(t)
 	ctx := context.Background()
 
 	_, err := m.Acquire(ctx, registry.NewID("test", "missing"), resource.ModeNormal)
@@ -505,7 +505,7 @@ func TestManager_AcquireNotFound(t *testing.T) {
 }
 
 func TestManager_ConcurrentOperations(t *testing.T) {
-	m, _, _ := newTestManager(t)
+	m, _ := newTestManager(t)
 	ctx := context.Background()
 
 	setID := registry.NewID("test", "my-set")
@@ -545,7 +545,7 @@ func TestManager_ConcurrentOperations(t *testing.T) {
 }
 
 func TestManager_GetTemplateSetNotFound(t *testing.T) {
-	m, _, _ := newTestManager(t)
+	m, _ := newTestManager(t)
 	_, err := m.GetTemplateSet(registry.NewID("test", "missing"))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, template.ErrSetNotFound)

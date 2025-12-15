@@ -142,6 +142,7 @@ func (w *Workload) Work(ctx context.Context) error {
 		jitterPct := w.jitterPct.Load()
 		if jitterPct > 0 {
 			jitter := float64(jitterPct) / 100.0
+			//nolint:gosec // G404: weak random acceptable for simulation
 			factor := 1.0 + (rand.Float64()*2-1)*jitter
 			latencyNs = int64(float64(latencyNs) * factor)
 		}

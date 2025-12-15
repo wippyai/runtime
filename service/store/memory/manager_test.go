@@ -52,13 +52,13 @@ func (m *mockBus) clearEvents() {
 	m.events = nil
 }
 
-func newTestManager(_ *testing.T) (*Manager, *mockBus, payload.Transcoder) {
+func newTestManager(_ *testing.T) (*Manager, *mockBus) {
 	transcoder := payloadSystem.GlobalTranscoder()
 	json.Register(transcoder)
 	bus := &mockBus{}
 	log := zap.NewNop()
 	mgr := NewManager(bus, transcoder, log)
-	return mgr, bus, transcoder
+	return mgr, bus
 }
 
 func makeStoreEntry(id registry.ID, maxSize int) registry.Entry {
@@ -73,13 +73,13 @@ func makeStoreEntry(id registry.ID, maxSize int) registry.Entry {
 }
 
 func TestNewManager(t *testing.T) {
-	mgr, _, _ := newTestManager(t)
+	mgr, _ := newTestManager(t)
 	require.NotNil(t, mgr)
 	assert.NotNil(t, mgr.stores)
 }
 
 func TestManager_Add(t *testing.T) {
-	mgr, bus, _ := newTestManager(t)
+	mgr, bus := newTestManager(t)
 	ctx := context.Background()
 
 	storeID := registry.NewID("test", "cache")
@@ -102,7 +102,7 @@ func TestManager_Add(t *testing.T) {
 }
 
 func TestManager_AddAlreadyExists(t *testing.T) {
-	mgr, _, _ := newTestManager(t)
+	mgr, _ := newTestManager(t)
 	ctx := context.Background()
 
 	storeID := registry.NewID("test", "cache")
@@ -120,7 +120,7 @@ func TestManager_AddAlreadyExists(t *testing.T) {
 }
 
 func TestManager_AddUnsupportedKind(t *testing.T) {
-	mgr, _, _ := newTestManager(t)
+	mgr, _ := newTestManager(t)
 	ctx := context.Background()
 
 	entry := registry.Entry{
@@ -138,7 +138,7 @@ func TestManager_AddUnsupportedKind(t *testing.T) {
 }
 
 func TestManager_Update(t *testing.T) {
-	mgr, bus, _ := newTestManager(t)
+	mgr, bus := newTestManager(t)
 	ctx := context.Background()
 
 	storeID := registry.NewID("test", "cache")
@@ -160,7 +160,7 @@ func TestManager_Update(t *testing.T) {
 }
 
 func TestManager_UpdateNotFound(t *testing.T) {
-	mgr, _, _ := newTestManager(t)
+	mgr, _ := newTestManager(t)
 	ctx := context.Background()
 
 	storeID := registry.NewID("test", "nonexistent")
@@ -175,7 +175,7 @@ func TestManager_UpdateNotFound(t *testing.T) {
 }
 
 func TestManager_UpdateUnsupportedKind(t *testing.T) {
-	mgr, _, _ := newTestManager(t)
+	mgr, _ := newTestManager(t)
 	ctx := context.Background()
 
 	entry := registry.Entry{
@@ -190,7 +190,7 @@ func TestManager_UpdateUnsupportedKind(t *testing.T) {
 }
 
 func TestManager_Delete(t *testing.T) {
-	mgr, bus, _ := newTestManager(t)
+	mgr, bus := newTestManager(t)
 	ctx := context.Background()
 
 	storeID := registry.NewID("test", "cache")
@@ -218,7 +218,7 @@ func TestManager_Delete(t *testing.T) {
 }
 
 func TestManager_DeleteNotFound(t *testing.T) {
-	mgr, _, _ := newTestManager(t)
+	mgr, _ := newTestManager(t)
 	ctx := context.Background()
 
 	storeID := registry.NewID("test", "nonexistent")
@@ -233,7 +233,7 @@ func TestManager_DeleteNotFound(t *testing.T) {
 }
 
 func TestManager_DeleteUnsupportedKind(t *testing.T) {
-	mgr, _, _ := newTestManager(t)
+	mgr, _ := newTestManager(t)
 	ctx := context.Background()
 
 	entry := registry.Entry{

@@ -607,7 +607,8 @@ func TestStreamStatWithKnownSize(t *testing.T) {
 
 func TestStreamStatNotFound(t *testing.T) {
 	table := resource.NewTable()
-	_, _, _, err := Stat(table, 999)
+	size, position, caps, err := Stat(table, 999)
+	_, _, _ = size, position, caps
 	if !errors.Is(err, streamapi.ErrNotFound) {
 		t.Errorf("expected streamapi.ErrNotFound, got %v", err)
 	}

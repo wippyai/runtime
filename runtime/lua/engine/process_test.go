@@ -13,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/system/clock"
 	"github.com/wippyai/runtime/system/scheduler/pool/static"
@@ -4174,5 +4175,620 @@ func TestExternalYieldLostOnSubscribeLoop(t *testing.T) {
 		t.Log("Process is idle (main completed, worker waiting for message) - yield was NOT lost")
 	} else {
 		t.Fatalf("Unexpected final status: %d", output.Status())
+	}
+}
+
+// HandledYield Tests
+//
+// These tests verify the yield -> dispatcher -> HandleResult -> resume flow.
+
+const handledYieldTestCmdID dispatcher.CommandID = 9999
+
+// mockHandledYield implements luaapi.HandledYield for testing.
+type mockHandledYield struct {
+	cmdID    dispatcher.CommandID
+	response any
+	err      error
+}
+
+func (y *mockHandledYield) String() string       { return "<mock_yield>" }
+func (y *mockHandledYield) Type() lua.LValueType { return lua.LTUserData }
+
+func (y *mockHandledYield) CmdID() dispatcher.CommandID   { return y.cmdID }
+func (y *mockHandledYield) ToCommand() dispatcher.Command { return y }
+func (y *mockHandledYield) Release()                      {}
+func (y *mockHandledYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+	}
+	if s, ok := data.(string); ok {
+		return []lua.LValue{lua.LString(s), lua.LNil}
+	}
+	if n, ok := data.(int); ok {
+		return []lua.LValue{lua.LNumber(n), lua.LNil}
+	}
+	if tbl, ok := data.(map[string]any); ok {
+		t := l.CreateTable(0, len(tbl))
+		for k, v := range tbl {
+			switch val := v.(type) {
+			case string:
+				t.RawSetString(k, lua.LString(val))
+			case int:
+				t.RawSetString(k, lua.LNumber(val))
+			}
+		}
+		return []lua.LValue{t, lua.LNil}
+	}
+	if ud, ok := data.(*lua.LUserData); ok {
+		return []lua.LValue{ud, lua.LNil}
+	}
+	return []lua.LValue{lua.LNil, lua.LNil}
+}
+
+var _ luaapi.HandledYield = (*mockHandledYield)(nil)
+var _ luaapi.YieldConverter = (*mockHandledYield)(nil)
+
+// mockYieldResource simulates a resource like sql.Statement
+type mockYieldResource struct {
+	name string
+}
+
+func (r *mockYieldResource) Name() string { return r.name }
+
+// mockYieldPrepareResponse simulates sqlapi.PrepareResponse
+type mockYieldPrepareResponse struct {
+	Resource *mockYieldResource
+	Error    error
+}
+
+// sqlLikeHandledYield simulates the exact pattern SQL uses with HandleResult
+type sqlLikeHandledYield struct {
+	cmdID      dispatcher.CommandID
+	wrapResult func(*mockYieldResource) lua.LValue
+}
+
+func (y *sqlLikeHandledYield) String() string                { return "<sql_like_yield>" }
+func (y *sqlLikeHandledYield) Type() lua.LValueType          { return lua.LTUserData }
+func (y *sqlLikeHandledYield) CmdID() dispatcher.CommandID   { return y.cmdID }
+func (y *sqlLikeHandledYield) ToCommand() dispatcher.Command { return y }
+func (y *sqlLikeHandledYield) Release()                      {}
+
+func (y *sqlLikeHandledYield) HandleResult(_ *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+	}
+	resp, ok := data.(mockYieldPrepareResponse)
+	if !ok {
+		return []lua.LValue{lua.LNil, lua.LString("invalid response type")}
+	}
+	if resp.Error != nil {
+		return []lua.LValue{lua.LNil, lua.LString(resp.Error.Error())}
+	}
+	if y.wrapResult == nil {
+		return []lua.LValue{lua.LNil, lua.LString("no wrapper")}
+	}
+	return []lua.LValue{y.wrapResult(resp.Resource), lua.LNil}
+}
+
+// sqlLikeYieldModuleBinder binds a function that yields exactly like SQL does.
+func sqlLikeYieldModuleBinder(l *lua.LState) {
+	mod := l.CreateTable(0, 1)
+	mod.RawSetString("prepare", lua.LGoFunc(func(l *lua.LState) int {
+		yield := &sqlLikeHandledYield{
+			cmdID: handledYieldTestCmdID,
+			wrapResult: func(r *mockYieldResource) lua.LValue {
+				ud := l.NewUserData()
+				ud.Value = r
+				return ud
+			},
+		}
+		l.Push(yield)
+		return -1
+	}))
+	l.SetGlobal("sqlmod", mod)
+}
+
+// mockHandledYieldModuleBinder binds a test function that yields mockHandledYield.
+func mockHandledYieldModuleBinder(response any, err error) ModuleBinder {
+	return func(l *lua.LState) {
+		mod := l.CreateTable(0, 1)
+		mod.RawSetString("fetch", lua.LGoFunc(func(l *lua.LState) int {
+			yield := &mockHandledYield{
+				cmdID:    handledYieldTestCmdID,
+				response: response,
+				err:      err,
+			}
+			l.Push(yield)
+			return -1
+		}))
+		l.SetGlobal("testmod", mod)
+	}
+}
+
+func TestYieldHandlerSuccessFlow(t *testing.T) {
+	script := `
+		local result, err = testmod.fetch()
+		if err then
+			return nil, err
+		end
+		return result
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(mockHandledYieldModuleBinder("hello world", nil)),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatalf("First Step failed: %v", err)
+	}
+
+	if output.Count() != 1 {
+		t.Fatalf("Expected 1 yield, got %d", output.Count())
+	}
+
+	yields := output.Yields()
+	if yields[0].Cmd.CmdID() != handledYieldTestCmdID {
+		t.Errorf("Expected command ID %d, got %d", handledYieldTestCmdID, yields[0].Cmd.CmdID())
+	}
+
+	events := []process.Event{
+		{
+			Type:  process.EventYieldComplete,
+			Tag:   yields[0].Tag,
+			Data:  "hello world",
+			Error: nil,
+		},
+	}
+
+	output.Reset()
+	if err := proc.Step(events, &output); err != nil {
+		t.Fatalf("Second Step failed: %v", err)
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("Expected StepDone, got %v", output.Status())
+	}
+
+	result := output.Result()
+	if result == nil {
+		t.Fatal("Expected result, got nil")
+	}
+}
+
+func TestYieldHandlerErrorFlow(t *testing.T) {
+	script := `
+		local result, err = testmod.fetch()
+		if err then
+			return nil, "got error: " .. tostring(err)
+		end
+		return result
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(mockHandledYieldModuleBinder(nil, errors.New("connection failed"))),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatalf("First Step failed: %v", err)
+	}
+
+	if output.Count() != 1 {
+		t.Fatalf("Expected 1 yield, got %d", output.Count())
+	}
+
+	yields := output.Yields()
+	events := []process.Event{
+		{
+			Type:  process.EventYieldComplete,
+			Tag:   yields[0].Tag,
+			Data:  nil,
+			Error: errors.New("connection failed"),
+		},
+	}
+
+	output.Reset()
+	stepErr := proc.Step(events, &output)
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("Expected StepDone, got %v", output.Status())
+	}
+
+	if stepErr == nil {
+		t.Fatal("Expected error from Lua returning error as second value")
+	}
+
+	if !containsString(stepErr.Error(), "got error") {
+		t.Errorf("Error should contain 'got error', got: %s", stepErr.Error())
+	}
+}
+
+func TestYieldHandlerTableResponse(t *testing.T) {
+	script := `
+		local result, err = testmod.fetch()
+		if err then
+			return nil, err
+		end
+		if result.name ~= "test" then
+			return nil, "name mismatch"
+		end
+		if result.count ~= 42 then
+			return nil, "count mismatch"
+		end
+		return "success"
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(mockHandledYieldModuleBinder(map[string]any{"name": "test", "count": 42}, nil)),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatalf("First Step failed: %v", err)
+	}
+
+	yields := output.Yields()
+	events := []process.Event{
+		{
+			Type:  process.EventYieldComplete,
+			Tag:   yields[0].Tag,
+			Data:  map[string]any{"name": "test", "count": 42},
+			Error: nil,
+		},
+	}
+
+	output.Reset()
+	if err := proc.Step(events, &output); err != nil {
+		t.Fatalf("Second Step failed: %v", err)
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("Expected StepDone, got %v", output.Status())
+	}
+}
+
+func TestYieldHandlerMultipleYields(t *testing.T) {
+	script := `
+		local a, err1 = testmod.fetch()
+		if err1 then return nil, err1 end
+
+		local b, err2 = testmod.fetch()
+		if err2 then return nil, err2 end
+
+		return a .. " " .. b
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(mockHandledYieldModuleBinder("first", nil)),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatalf("First Step failed: %v", err)
+	}
+
+	if output.Count() != 1 {
+		t.Fatalf("Expected 1 yield, got %d", output.Count())
+	}
+
+	yields := output.Yields()
+	events := []process.Event{
+		{
+			Type:  process.EventYieldComplete,
+			Tag:   yields[0].Tag,
+			Data:  "first",
+			Error: nil,
+		},
+	}
+
+	output.Reset()
+	if err := proc.Step(events, &output); err != nil {
+		t.Fatalf("Second Step failed: %v", err)
+	}
+
+	if output.Count() != 1 {
+		t.Fatalf("Expected 1 yield for second fetch, got %d", output.Count())
+	}
+
+	yields = output.Yields()
+	events = []process.Event{
+		{
+			Type:  process.EventYieldComplete,
+			Tag:   yields[0].Tag,
+			Data:  "second",
+			Error: nil,
+		},
+	}
+
+	output.Reset()
+	if err := proc.Step(events, &output); err != nil {
+		t.Fatalf("Third Step failed: %v", err)
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("Expected StepDone, got %v", output.Status())
+	}
+}
+
+func TestYieldHandlerUserdataResponse(t *testing.T) {
+	script := `
+		local resource, err = testmod.fetch()
+		if err then
+			return nil, "got error: " .. tostring(err)
+		end
+		if resource == nil then
+			return nil, "resource is nil"
+		end
+		local name = resource:name()
+		if name ~= "test_resource" then
+			return nil, "expected name 'test_resource', got: " .. tostring(name)
+		end
+		return "success"
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(mockHandledYieldModuleBinder(nil, nil)),
+		WithModuleBinder(func(l *lua.LState) {
+			mt := l.NewTypeMetatable("mockYieldResource")
+			l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+				"name": func(l *lua.LState) int {
+					ud := l.CheckUserData(1)
+					if res, ok := ud.Value.(*mockYieldResource); ok {
+						l.Push(lua.LString(res.Name()))
+						return 1
+					}
+					return 0
+				},
+			}))
+		}),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatalf("First Step failed: %v", err)
+	}
+
+	if output.Count() != 1 {
+		t.Fatalf("Expected 1 yield, got %d", output.Count())
+	}
+
+	ud := proc.State().NewUserData()
+	ud.Value = &mockYieldResource{name: "test_resource"}
+	ud.Metatable = proc.State().GetTypeMetatable("mockYieldResource")
+
+	yields := output.Yields()
+	events := []process.Event{
+		{
+			Type:  process.EventYieldComplete,
+			Tag:   yields[0].Tag,
+			Data:  ud,
+			Error: nil,
+		},
+	}
+
+	output.Reset()
+	if err := proc.Step(events, &output); err != nil {
+		t.Fatalf("Second Step failed: %v", err)
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("Expected StepDone, got %v", output.Status())
+	}
+}
+
+func TestYieldHandlerUserdataWithNilError(t *testing.T) {
+	script := `
+		local resource, err = testmod.fetch()
+
+		if err ~= nil then
+			return nil, "err should be nil but got: " .. type(err) .. " = " .. tostring(err)
+		end
+
+		if resource == nil then
+			return nil, "resource should not be nil"
+		end
+
+		if type(resource) ~= "userdata" then
+			return nil, "resource should be userdata, got: " .. type(resource)
+		end
+
+		return "success"
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(mockHandledYieldModuleBinder(nil, nil)),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatalf("First Step failed: %v", err)
+	}
+
+	ud := proc.State().NewUserData()
+	ud.Value = &mockYieldResource{name: "test"}
+
+	yields := output.Yields()
+	events := []process.Event{
+		{
+			Type:  process.EventYieldComplete,
+			Tag:   yields[0].Tag,
+			Data:  ud,
+			Error: nil,
+		},
+	}
+
+	output.Reset()
+	stepErr := proc.Step(events, &output)
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("Expected StepDone, got %v", output.Status())
+	}
+
+	if stepErr != nil {
+		t.Fatalf("Expected no error, got: %v", stepErr)
+	}
+}
+
+func TestYieldHandlerSQLPattern(t *testing.T) {
+	script := `
+		local stmt, err = sqlmod.prepare()
+
+		if err ~= nil then
+			return nil, "prepare returned error: " .. type(err) .. " = " .. tostring(err)
+		end
+		if stmt == nil then
+			return nil, "stmt is nil"
+		end
+		if type(stmt) ~= "userdata" then
+			return nil, "expected userdata, got " .. type(stmt)
+		end
+		return "success"
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(sqlLikeYieldModuleBinder),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatalf("First Step failed: %v", err)
+	}
+
+	if output.Count() != 1 {
+		t.Fatalf("Expected 1 yield, got %d", output.Count())
+	}
+
+	yields := output.Yields()
+	events := []process.Event{
+		{
+			Type: process.EventYieldComplete,
+			Tag:  yields[0].Tag,
+			Data: mockYieldPrepareResponse{
+				Resource: &mockYieldResource{name: "test_stmt"},
+				Error:    nil,
+			},
+			Error: nil,
+		},
+	}
+
+	output.Reset()
+	stepErr := proc.Step(events, &output)
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("Expected StepDone, got %v", output.Status())
+	}
+
+	if stepErr != nil {
+		t.Fatalf("Expected no error, got: %v", stepErr)
+	}
+}
+
+func TestYieldHandlerSQLPatternWithError(t *testing.T) {
+	script := `
+		local stmt, err = sqlmod.prepare()
+
+		if err == nil then
+			return nil, "expected error but got nil"
+		end
+		if stmt ~= nil then
+			return nil, "expected nil stmt, got " .. type(stmt)
+		end
+		return "success: " .. tostring(err)
+	`
+
+	proc := NewProcess(
+		WithScript(script, "test.lua"),
+		WithModuleBinder(sqlLikeYieldModuleBinder),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatalf("First Step failed: %v", err)
+	}
+
+	yields := output.Yields()
+	events := []process.Event{
+		{
+			Type: process.EventYieldComplete,
+			Tag:  yields[0].Tag,
+			Data: mockYieldPrepareResponse{
+				Resource: nil,
+				Error:    errors.New("database connection failed"),
+			},
+			Error: nil,
+		},
+	}
+
+	output.Reset()
+	if err := proc.Step(events, &output); err != nil {
+		t.Fatalf("Step failed: %v", err)
+	}
+
+	if output.Status() != process.StepDone {
+		t.Fatalf("Expected StepDone, got %v", output.Status())
 	}
 }

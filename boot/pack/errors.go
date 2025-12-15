@@ -233,3 +233,7 @@ func NewWriteTOCError(cause error) apierror.Error {
 func NewTranscodePayloadError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to transcode payload").WithCause(cause)
 }
+
+func NewInvalidResourceCountError(count int) apierror.Error {
+	return apierror.New(apierror.Invalid, fmt.Sprintf("invalid resource count: %d exceeds safe conversion limit", count))
+}

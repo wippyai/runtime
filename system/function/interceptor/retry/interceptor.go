@@ -220,6 +220,10 @@ func isKindAllowed(kind apierror.Kind, retryKinds, skipKinds []string) bool {
 	switch kind {
 	case apierror.Invalid, apierror.PermissionDenied, apierror.Internal:
 		return false
+	case apierror.Unknown, apierror.NotFound, apierror.AlreadyExists,
+		apierror.Unavailable, apierror.Canceled, apierror.Conflict,
+		apierror.Timeout, apierror.RateLimited:
+		return true
 	default:
 		return true
 	}

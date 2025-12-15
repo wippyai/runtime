@@ -78,7 +78,7 @@ func TestHandlerFunc(t *testing.T) {
 
 func TestHandlerFunc_Error(t *testing.T) {
 	expectedErr := errors.New("handler error")
-	fn := HandlerFunc(func(ctx context.Context, cmd Command, tag uint64, receiver ResultReceiver) error {
+	fn := HandlerFunc(func(_ context.Context, _ Command, _ uint64, _ ResultReceiver) error {
 		return expectedErr
 	})
 

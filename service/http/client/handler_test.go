@@ -763,7 +763,11 @@ func TestSSRFProtection(t *testing.T) {
 
 	// Should block request to localhost
 	client := pool.GetClient(time.Second, "")
-	resp, err := client.Get(ts.URL)
+	req, err := gohttp.NewRequestWithContext(context.Background(), "GET", ts.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+	resp, err := client.Do(req)
 	if err == nil {
 		_ = resp.Body.Close()
 		t.Fatal("expected SSRF protection to block localhost request")
@@ -783,7 +787,11 @@ func TestSSRFProtectionDisabled(t *testing.T) {
 	pool := NewClientPool()
 
 	client := pool.GetClient(time.Second, "")
-	resp, err := client.Get(ts.URL)
+	req, err := gohttp.NewRequestWithContext(context.Background(), "GET", ts.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("expected request to succeed with SSRF disabled: %v", err)
 	}
@@ -801,7 +809,11 @@ func TestSSRFProtectionOverride(t *testing.T) {
 
 	// GetClientWithSSRF with blockPrivateIPs=false should allow
 	client := pool.GetClientWithSSRF(time.Second, "", false)
-	resp, err := client.Get(ts.URL)
+	req, err := gohttp.NewRequestWithContext(context.Background(), "GET", ts.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("expected override to allow request: %v", err)
 	}

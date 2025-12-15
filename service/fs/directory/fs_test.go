@@ -483,7 +483,7 @@ func benchSetup(b *testing.B, files map[string]string) (string, func()) {
 			_ = os.RemoveAll(root)
 			b.Fatal(err)
 		}
-		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 			_ = os.RemoveAll(root)
 			b.Fatal(err)
 		}

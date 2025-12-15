@@ -502,7 +502,10 @@ func readChunkedData[C chunkInfo](chunks []C, offset, size uint64, reader FrameR
 // numResources is the number of resource trees in the pack.
 func getDataFrameInfo(frameIdx uint32, dataFrames []FrameInfo, numResources int) *FrameInfo {
 	// Data frames start after: metadata(1) + entries(1) + resource trees(N)
-	firstDataFrameIndex := uint32(2 + numResources)
+	if numResources < 0 || numResources > int(^uint32(0)-2) {
+		return nil
+	}
+	firstDataFrameIndex := 2 + uint32(numResources)
 	if frameIdx < firstDataFrameIndex {
 		return nil
 	}

@@ -17,22 +17,29 @@ type CompiledFactory interface {
 
 // ProcessFactory creates processes from compiled code with configurable module binding.
 type ProcessFactory struct {
-	code       *code.Manager
-	baseBinder ModuleBinder        // Low-level modules (errors, channel, etc.)
-	modules    []*luaapi.ModuleDef // Additional default modules
+	code         *code.Manager
+	modules      []*luaapi.ModuleDef // Additional default modules
+	skipCoreLoad bool                // Skip loading core modules (for isolated tests)
 }
 
 // Ensure ProcessFactory implements CompiledFactory
 var _ CompiledFactory = (*ProcessFactory)(nil)
 
 // NewProcessFactory creates a factory that wraps the code manager.
-// baseBinder loads low-level modules (use LoadCoreModules or nil).
-// modules are additional defaults loaded after baseBinder.
-func NewProcessFactory(code *code.Manager, baseBinder ModuleBinder, modules []*luaapi.ModuleDef) *ProcessFactory {
+// Core modules (channel, pubsub, print, payload, ostime) are loaded by default.
+// modules are additional defaults loaded after core modules.
+func NewProcessFactory(code *code.Manager, modules []*luaapi.ModuleDef) *ProcessFactory {
 	return &ProcessFactory{
-		code:       code,
-		baseBinder: baseBinder,
-		modules:    modules,
+		code:    code,
+		modules: modules,
+	}
+}
+
+// WithoutCoreModules returns an option to skip loading core modules.
+// Use this for isolated tests that don't need core modules.
+func WithoutCoreModules() FactoryOption {
+	return func(c *processConfig) {
+		c.skipCoreLoad = true
 	}
 }
 
@@ -65,6 +72,9 @@ type processConfig struct {
 
 	// Custom filter (return false to exclude, error to fail)
 	filter func(name string, classes []string) (bool, error)
+
+	// Skip loading core modules (for isolated tests)
+	skipCoreLoad bool
 }
 
 func newProcessConfig() *processConfig {
@@ -187,9 +197,9 @@ func (f *ProcessFactory) CreateFactory(id registry.ID, opts ...FactoryOption) (p
 func (f *ProcessFactory) buildBinders(compiled *code.CompiledMain, cfg *processConfig) ([]ModuleBinder, error) {
 	binders := make([]ModuleBinder, 0)
 
-	// 1. Base binder first (low-level: errors, channel, ostime, etc.)
-	if f.baseBinder != nil {
-		binders = append(binders, f.baseBinder)
+	// 1. Core modules (errors, channel, ostime, print, payload, pubsub)
+	if !cfg.skipCoreLoad && !f.skipCoreLoad {
+		binders = append(binders, LoadCoreModules)
 	}
 
 	// Build exclusion sets for O(1) lookup
@@ -360,4 +370,115 @@ func hasAnyClass(classes []string, set map[string]struct{}) bool {
 		}
 	}
 	return false
+}
+
+// Low-level Factory (from proto)
+
+// FactoryConfig configures a Lua process factory.
+type FactoryConfig struct {
+	// Proto is a precompiled Lua function (faster than Script).
+	Proto *lua.FunctionProto
+
+	// Script and ScriptName for on-the-fly compilation.
+	Script     string
+	ScriptName string
+
+	// ModuleBinders are called after state creation to bind modules.
+	ModuleBinders []ModuleBinder
+
+	// StateOptions customize Lua state (memory, stack, etc).
+	StateOptions *lua.Options
+}
+
+// Factory creates Lua processes with shared configuration.
+// Holds binders and options - processes only store script/proto.
+type Factory struct {
+	proto         *lua.FunctionProto
+	script        string
+	scriptName    string
+	moduleBinders []ModuleBinder
+	stateOpts     *lua.Options
+}
+
+// NewFactory creates a ProcessFactory for Lua processes.
+// The factory returns processes that are already initialized.
+func NewFactory(cfg FactoryConfig) process.FactoryFunc {
+	f := &Factory{
+		proto:         cfg.Proto,
+		script:        cfg.Script,
+		scriptName:    cfg.ScriptName,
+		moduleBinders: cfg.ModuleBinders,
+		stateOpts:     cfg.StateOptions,
+	}
+	return f.Create
+}
+
+// Create produces a new initialized Process.
+func (f *Factory) Create() (process.Process, error) {
+	proc := &Process{
+		threads:  make([]*Task, 0, 4),
+		queue:    NewTaskQueue(),
+		yieldBuf: make([]*Task, 0, 4),
+		factory:  f,
+		state:    f.CreateState(),
+	}
+
+	if f.proto != nil {
+		proc.proto = f.proto
+	} else if f.script != "" {
+		proc.script = f.script
+		proc.scriptName = f.scriptName
+	}
+
+	return proc, nil
+}
+
+// NewFactoryFromProto creates a factory from a precompiled proto with default module bindings.
+func NewFactoryFromProto(proto *lua.FunctionProto, binders ...ModuleBinder) process.FactoryFunc {
+	return NewFactory(FactoryConfig{
+		Proto:         proto,
+		ModuleBinders: binders,
+	})
+}
+
+// CreateState creates and initializes a new Lua state with core libs and module binders.
+func (f *Factory) CreateState() *lua.LState {
+	opts := lua.Options{
+		RegistrySize:        128,
+		RegistryMaxSize:     256 * 256,
+		RegistryGrowStep:    16,
+		SkipOpenLibs:        true,
+		CallStackSize:       128,
+		MinimizeStackMemory: true,
+		IncludeGoStackTrace: true,
+	}
+	if f.stateOpts != nil {
+		opts = *f.stateOpts
+	}
+
+	state := lua.NewState(opts)
+
+	// Base functions
+	state.Push(state.NewFunction(lua.OpenBase))
+	state.Push(lua.LString(lua.BaseLibName))
+	state.Call(1, 0)
+
+	// Standard libraries
+	lua.OpenTable(state)
+	lua.OpenString(state)
+	lua.OpenMath(state)
+	lua.OpenCoroutine(state)
+	lua.OpenErrors(state)
+
+	// Restricted package loader (wippy-specific)
+	state.Push(lua.LGoFunc(OpenRestrictedPackage))
+	state.Push(lua.LString(lua.LoadLibName))
+	state.Call(1, 0)
+
+	// Apply module binders
+	for _, binder := range f.moduleBinders {
+		binder(state)
+	}
+
+	return state
 }

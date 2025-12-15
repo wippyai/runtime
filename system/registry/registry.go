@@ -215,7 +215,7 @@ func (r *Reg) computeVersionPath(v registry.Version, currentVersionID uint) (reg
 }
 
 func (r *Reg) collectForwardChangesets(path []registry.Version) (registry.ChangeSet, error) {
-	var changesets []registry.ChangeSet
+	changesets := make([]registry.ChangeSet, 0, len(path))
 	for _, ver := range path {
 		cs, err := r.history.Get(ver)
 		if err != nil {

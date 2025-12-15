@@ -90,16 +90,15 @@ func checkConstraintCompatibility(c1, c2 *semver.Constraints) bool {
 }
 
 // mergeConstraints attempts to merge multiple constraints into one.
-// Returns nil if constraints are incompatible.
-//
-
-func mergeConstraints(constraints []string) (*semver.Constraints, error) {
+// Returns error if constraints are incompatible.
+func mergeConstraints(constraints []string) error {
 	if len(constraints) == 0 {
-		return nil, ErrNoConstraints
+		return ErrNoConstraints
 	}
 
 	if len(constraints) == 1 {
-		return parseConstraint(constraints[0])
+		_, err := parseConstraint(constraints[0])
+		return err
 	}
 
 	// Parse all constraints
@@ -107,7 +106,7 @@ func mergeConstraints(constraints []string) (*semver.Constraints, error) {
 	for _, c := range constraints {
 		p, err := parseConstraint(c)
 		if err != nil {
-			return nil, NewParseConstraintError(c, err)
+			return NewParseConstraintError(c, err)
 		}
 		parsed = append(parsed, p)
 	}
@@ -116,14 +115,15 @@ func mergeConstraints(constraints []string) (*semver.Constraints, error) {
 	for i := 0; i < len(parsed); i++ {
 		for j := i + 1; j < len(parsed); j++ {
 			if !checkConstraintCompatibility(parsed[i], parsed[j]) {
-				return nil, NewIncompatibleConstraintsError(constraints[i], constraints[j])
+				return NewIncompatibleConstraintsError(constraints[i], constraints[j])
 			}
 		}
 	}
 
 	// Build merged constraint (AND of all constraints)
 	merged := strings.Join(constraints, ", ")
-	return semver.NewConstraint(merged)
+	_, err := semver.NewConstraint(merged)
+	return err
 }
 
 // generateTestVersions generates a set of test versions for compatibility checking.

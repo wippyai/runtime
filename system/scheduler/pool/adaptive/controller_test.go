@@ -12,7 +12,7 @@ func TestControllerScaleUp(t *testing.T) {
 	c := newController(cfg)
 
 	now := time.Now()
-	var ops int64 = 0
+	var ops int64
 
 	// Tick 1: low load, no action
 	d, _ := c.tick(now, ops, 1, 0, 0)
@@ -40,7 +40,7 @@ func TestControllerProbeSuccess(t *testing.T) {
 	c := newController(cfg)
 
 	now := time.Now()
-	var ops int64 = 0
+	var ops int64
 
 	// Build up baseline EMA with multiple ticks at 1000 ops/s
 	for i := 0; i < 5; i++ {
@@ -77,7 +77,7 @@ func TestControllerProbeFail(t *testing.T) {
 	c := newController(cfg)
 
 	now := time.Now()
-	var ops int64 = 0
+	var ops int64
 
 	// Build up baseline with stable throughput (1000 ops/s)
 	for i := 0; i < 10; i++ {

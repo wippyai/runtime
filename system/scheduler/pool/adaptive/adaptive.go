@@ -285,7 +285,9 @@ func (a *Pool) spawnWorker() error {
 		stop:     make(chan struct{}),
 	}
 	a.workers = append(a.workers, w)
-	a.workerCount.Store(int32(len(a.workers)))
+	if len(a.workers) <= (1<<31 - 1) {
+		a.workerCount.Store(int32(len(a.workers)))
+	}
 	a.mu.Unlock()
 
 	a.wg.Add(1)
@@ -305,7 +307,9 @@ func (a *Pool) removeWorker() bool {
 	idx := len(a.workers) - 1
 	w := a.workers[idx]
 	a.workers = a.workers[:idx]
-	a.workerCount.Store(int32(len(a.workers)))
+	if len(a.workers) <= (1<<31 - 1) {
+		a.workerCount.Store(int32(len(a.workers)))
+	}
 
 	close(w.stop)
 	return true
@@ -315,7 +319,10 @@ func (a *Pool) removeWorkersTo(target int32) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	for len(a.workers) > int(target) && len(a.workers) > a.minWorkers {
+	if target < 0 {
+		target = 0
+	}
+	for int32(len(a.workers)) > target && len(a.workers) > a.minWorkers {
 		idx := len(a.workers) - 1
 		w := a.workers[idx]
 		a.workers = a.workers[:idx]

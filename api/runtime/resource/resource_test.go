@@ -464,7 +464,7 @@ func TestTable_Each(t *testing.T) {
 
 	t.Run("iterates all", func(t *testing.T) {
 		var values []any
-		table.Each(func(h Handle, typeID uint32, v any) bool {
+		table.Each(func(_ Handle, _ uint32, v any) bool {
 			values = append(values, v)
 			return true
 		})
@@ -473,7 +473,7 @@ func TestTable_Each(t *testing.T) {
 
 	t.Run("stops early", func(t *testing.T) {
 		count := 0
-		table.Each(func(h Handle, typeID uint32, v any) bool {
+		table.Each(func(_ Handle, _ uint32, _ any) bool {
 			count++
 			return count < 2
 		})
@@ -614,7 +614,7 @@ func TestTypedTable(t *testing.T) {
 		_ = table.Insert(999, "other")
 
 		var values []string
-		typed.Each(func(h Handle, v string) bool {
+		typed.Each(func(_ Handle, v string) bool {
 			values = append(values, v)
 			return true
 		})
@@ -635,6 +635,9 @@ func TestTable_Concurrent(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for j := 0; j < operations; j++ {
+				if id < 0 || id > 2147483647 {
+					return
+				}
 				h := table.Insert(uint32(id), j)
 				_, _ = table.Get(h)
 				_, _ = table.TypeID(h)

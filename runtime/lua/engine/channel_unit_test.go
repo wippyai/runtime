@@ -1,35 +1,46 @@
 package engine
 
 import (
+	"context"
 	"testing"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/topology"
 	lua "github.com/yuin/gopher-lua"
 )
 
-// Channel Semantics Test Suite
+// Channel Unit Tests
 //
-// This test suite verifies Go channel semantics compliance for the channel implementation.
-// These tests operate directly on Channel struct methods without involving Lua coroutines.
-//
-// KEY SEMANTICS TESTED:
-// 1. Unbuffered channels: send blocks until receiver ready
-// 2. Buffered channels: send buffers until full, then blocks
-// 3. FIFO ordering: blocked operations wake in order
-// 4. Close semantics: blocked senders error, blocked receivers get (nil, false)
-// 5. Mixed buffered + blocked scenario: critical edge case
+// This file contains unit tests for Channel struct and subscribeContext:
+// 1. Go channel semantics compliance (send/receive blocking, FIFO, close)
+// 2. Channel identity and caching
+// 3. Subscribe context management
 
-func newTestLState() *lua.LState {
+func newUnitTestLState() *lua.LState {
 	return lua.NewState()
+}
+
+func startChannelUnitProcess(t *testing.T, script string) *Process {
+	proto, _ := lua.CompileString(script, "test.lua")
+	proc := NewProcess(WithProto(proto))
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	ChannelModule.Load(proc.State())
+	loadPubSubGlobals(proc.State())
+	return proc
 }
 
 // ============================================================================
 // UNBUFFERED CHANNEL TESTS
 // ============================================================================
 
-// TestUnbufferedSendBlocks verifies that send on unbuffered channel blocks.
-func TestUnbufferedSendBlocks(t *testing.T) {
+func TestChannel_UnbufferedSendBlocks(t *testing.T) {
 	ch := NewChannel(0)
-	sender := newTestLState()
+	sender := newUnitTestLState()
 
 	result := ch.Send(sender, lua.LString("value"), nil)
 	if !result.Yields {
@@ -40,10 +51,9 @@ func TestUnbufferedSendBlocks(t *testing.T) {
 	}
 }
 
-// TestUnbufferedReceiveBlocks verifies that receive on empty unbuffered channel blocks.
-func TestUnbufferedReceiveBlocks(t *testing.T) {
+func TestChannel_UnbufferedReceiveBlocks(t *testing.T) {
 	ch := NewChannel(0)
-	recv := newTestLState()
+	recv := newUnitTestLState()
 
 	result := ch.Receive(recv, nil)
 	if !result.Yields {
@@ -54,16 +64,12 @@ func TestUnbufferedReceiveBlocks(t *testing.T) {
 	}
 }
 
-// TestUnbufferedDirectHandoff verifies direct handoff between sender and receiver.
-func TestUnbufferedDirectHandoff(t *testing.T) {
+func TestChannel_UnbufferedDirectHandoff(t *testing.T) {
 	ch := NewChannel(0)
-	recv := newTestLState()
-	sender := newTestLState()
+	recv := newUnitTestLState()
+	sender := newUnitTestLState()
 
-	// Receiver blocks first
 	ch.Receive(recv, nil)
-
-	// Sender should complete and wake receiver
 	sendResult := ch.Send(sender, lua.LString("hello"), nil)
 	if !sendResult.Yields {
 		t.Error("send that synchronizes with receiver should yield")
@@ -74,7 +80,6 @@ func TestUnbufferedDirectHandoff(t *testing.T) {
 		t.Fatalf("expected 2 updates (sender + receiver), got %d", len(updates))
 	}
 
-	// Find updates
 	var receiverUpdate, senderUpdate *TaskUpdate
 	for _, u := range updates {
 		if u.State == recv {
@@ -91,7 +96,6 @@ func TestUnbufferedDirectHandoff(t *testing.T) {
 		t.Fatal("missing sender update")
 	}
 
-	// Receiver should get (value, true)
 	result := receiverUpdate.GetResult()
 	if len(result) != 2 {
 		t.Fatalf("receiver expected 2 results, got %d", len(result))
@@ -104,16 +108,12 @@ func TestUnbufferedDirectHandoff(t *testing.T) {
 	}
 }
 
-// TestUnbufferedSenderWaitsForReceiver verifies send-first then receive works.
-func TestUnbufferedSenderWaitsForReceiver(t *testing.T) {
+func TestChannel_UnbufferedSenderWaitsForReceiver(t *testing.T) {
 	ch := NewChannel(0)
-	recv := newTestLState()
-	sender := newTestLState()
+	recv := newUnitTestLState()
+	sender := newUnitTestLState()
 
-	// Sender blocks first
 	ch.Send(sender, lua.LString("world"), nil)
-
-	// Receiver should complete and wake sender
 	recvResult := ch.Receive(recv, nil)
 	if !recvResult.Yields {
 		t.Error("receive that synchronizes with blocked sender should yield")
@@ -124,7 +124,6 @@ func TestUnbufferedSenderWaitsForReceiver(t *testing.T) {
 		t.Fatalf("expected 2 updates (sender + receiver), got %d", len(updates))
 	}
 
-	// Verify receiver got the value
 	var receiverUpdate *TaskUpdate
 	for _, u := range updates {
 		if u.State == recv {
@@ -146,35 +145,29 @@ func TestUnbufferedSenderWaitsForReceiver(t *testing.T) {
 // BUFFERED CHANNEL TESTS
 // ============================================================================
 
-// TestBufferedSendDoesNotBlock verifies buffered send doesn't block when space available.
-func TestBufferedSendDoesNotBlock(t *testing.T) {
+func TestChannel_BufferedSendDoesNotBlock(t *testing.T) {
 	ch := NewChannel(2)
-	sender := newTestLState()
+	sender := newUnitTestLState()
 
-	// First send
 	r1 := ch.Send(sender, lua.LNumber(1), nil)
 	if r1.Yields {
 		t.Error("first buffered send should not block")
 	}
 
-	// Second send
 	r2 := ch.Send(sender, lua.LNumber(2), nil)
 	if r2.Yields {
 		t.Error("second buffered send should not block")
 	}
 }
 
-// TestBufferedSendBlocksWhenFull verifies buffered send blocks when buffer full.
-func TestBufferedSendBlocksWhenFull(t *testing.T) {
+func TestChannel_BufferedSendBlocksWhenFull(t *testing.T) {
 	ch := NewChannel(2)
-	sender := newTestLState()
-	blocker := newTestLState()
+	sender := newUnitTestLState()
+	blocker := newUnitTestLState()
 
-	// Fill buffer
 	ch.Send(sender, lua.LNumber(1), nil)
 	ch.Send(sender, lua.LNumber(2), nil)
 
-	// Third send should block
 	r3 := ch.Send(blocker, lua.LNumber(3), nil)
 	if !r3.Yields {
 		t.Error("send to full buffer should block")
@@ -184,16 +177,12 @@ func TestBufferedSendBlocksWhenFull(t *testing.T) {
 	}
 }
 
-// TestBufferedReceiveDoesNotBlock verifies buffered receive doesn't block when data available.
-func TestBufferedReceiveDoesNotBlock(t *testing.T) {
+func TestChannel_BufferedReceiveDoesNotBlock(t *testing.T) {
 	ch := NewChannel(2)
-	sender := newTestLState()
-	recv := newTestLState()
+	sender := newUnitTestLState()
+	recv := newUnitTestLState()
 
-	// Buffer a value
 	ch.Send(sender, lua.LNumber(42), nil)
-
-	// Receive should not block
 	r := ch.Receive(recv, nil)
 	if r.Yields {
 		t.Error("receive from non-empty buffer should not block")
@@ -213,10 +202,9 @@ func TestBufferedReceiveDoesNotBlock(t *testing.T) {
 	}
 }
 
-// TestBufferedReceiveBlocksWhenEmpty verifies buffered receive blocks when empty.
-func TestBufferedReceiveBlocksWhenEmpty(t *testing.T) {
+func TestChannel_BufferedReceiveBlocksWhenEmpty(t *testing.T) {
 	ch := NewChannel(2)
-	recv := newTestLState()
+	recv := newUnitTestLState()
 
 	r := ch.Receive(recv, nil)
 	if !r.Yields {
@@ -228,22 +216,19 @@ func TestBufferedReceiveBlocksWhenEmpty(t *testing.T) {
 // FIFO ORDERING TESTS
 // ============================================================================
 
-// TestFIFOSenderOrder verifies blocked senders wake in FIFO order.
-func TestFIFOSenderOrder(t *testing.T) {
-	ch := NewChannel(0) // unbuffered
-	sender1 := newTestLState()
-	sender2 := newTestLState()
-	sender3 := newTestLState()
-	recv1 := newTestLState()
-	recv2 := newTestLState()
-	recv3 := newTestLState()
+func TestChannel_FIFOSenderOrder(t *testing.T) {
+	ch := NewChannel(0)
+	sender1 := newUnitTestLState()
+	sender2 := newUnitTestLState()
+	sender3 := newUnitTestLState()
+	recv1 := newUnitTestLState()
+	recv2 := newUnitTestLState()
+	recv3 := newUnitTestLState()
 
-	// Senders block in order
 	ch.Send(sender1, lua.LNumber(1), nil)
 	ch.Send(sender2, lua.LNumber(2), nil)
 	ch.Send(sender3, lua.LNumber(3), nil)
 
-	// First receive should get value 1
 	r1 := ch.Receive(recv1, nil)
 	var val1 lua.LValue
 	for _, u := range r1.GetUpdates() {
@@ -255,7 +240,6 @@ func TestFIFOSenderOrder(t *testing.T) {
 		t.Errorf("first receive expected 1, got %v", val1)
 	}
 
-	// Second receive should get value 2
 	r2 := ch.Receive(recv2, nil)
 	var val2 lua.LValue
 	for _, u := range r2.GetUpdates() {
@@ -267,7 +251,6 @@ func TestFIFOSenderOrder(t *testing.T) {
 		t.Errorf("second receive expected 2, got %v", val2)
 	}
 
-	// Third receive should get value 3
 	r3 := ch.Receive(recv3, nil)
 	var val3 lua.LValue
 	for _, u := range r3.GetUpdates() {
@@ -280,22 +263,19 @@ func TestFIFOSenderOrder(t *testing.T) {
 	}
 }
 
-// TestFIFOReceiverOrder verifies blocked receivers wake in FIFO order.
-func TestFIFOReceiverOrder(t *testing.T) {
-	ch := NewChannel(0) // unbuffered
-	recv1 := newTestLState()
-	recv2 := newTestLState()
-	recv3 := newTestLState()
-	sender1 := newTestLState()
-	sender2 := newTestLState()
-	sender3 := newTestLState()
+func TestChannel_FIFOReceiverOrder(t *testing.T) {
+	ch := NewChannel(0)
+	recv1 := newUnitTestLState()
+	recv2 := newUnitTestLState()
+	recv3 := newUnitTestLState()
+	sender1 := newUnitTestLState()
+	sender2 := newUnitTestLState()
+	sender3 := newUnitTestLState()
 
-	// Receivers block in order
 	ch.Receive(recv1, nil)
 	ch.Receive(recv2, nil)
 	ch.Receive(recv3, nil)
 
-	// First send should wake recv1
 	r1 := ch.Send(sender1, lua.LNumber(10), nil)
 	var woken1 *lua.LState
 	for _, u := range r1.GetUpdates() {
@@ -307,7 +287,6 @@ func TestFIFOReceiverOrder(t *testing.T) {
 		t.Error("first send should wake first receiver")
 	}
 
-	// Second send should wake recv2
 	r2 := ch.Send(sender2, lua.LNumber(20), nil)
 	var woken2 *lua.LState
 	for _, u := range r2.GetUpdates() {
@@ -319,7 +298,6 @@ func TestFIFOReceiverOrder(t *testing.T) {
 		t.Error("second send should wake second receiver")
 	}
 
-	// Third send should wake recv3
 	r3 := ch.Send(sender3, lua.LNumber(30), nil)
 	var woken3 *lua.LState
 	for _, u := range r3.GetUpdates() {
@@ -336,14 +314,12 @@ func TestFIFOReceiverOrder(t *testing.T) {
 // CLOSE SEMANTICS TESTS
 // ============================================================================
 
-// TestCloseSendError verifies send on closed channel returns error.
-func TestCloseSendError(t *testing.T) {
+func TestChannel_CloseSendError(t *testing.T) {
 	ch := NewChannel(1)
-	sender := newTestLState()
-	closer := newTestLState()
+	sender := newUnitTestLState()
+	closer := newUnitTestLState()
 
 	ch.Close(closer)
-
 	r := ch.Send(sender, lua.LNumber(1), nil)
 	updates := r.GetUpdates()
 	if len(updates) != 1 {
@@ -357,24 +333,20 @@ func TestCloseSendError(t *testing.T) {
 	}
 }
 
-// TestCloseBlockedSendersError verifies blocked senders get error on close.
-func TestCloseBlockedSendersError(t *testing.T) {
+func TestChannel_CloseBlockedSendersError(t *testing.T) {
 	ch := NewChannel(0)
-	sender1 := newTestLState()
-	sender2 := newTestLState()
-	closer := newTestLState()
+	sender1 := newUnitTestLState()
+	sender2 := newUnitTestLState()
+	closer := newUnitTestLState()
 
-	// Block two senders
 	ch.Send(sender1, lua.LNumber(1), nil)
 	ch.Send(sender2, lua.LNumber(2), nil)
 
-	// Close
 	closeResult := ch.Close(closer)
 	if closeResult == nil {
 		t.Fatal("close should return result with blocked senders")
 	}
 
-	// Both senders should get errors
 	senderErrors := 0
 	for _, u := range closeResult.GetUpdates() {
 		if u.State == sender1 || u.State == sender2 {
@@ -389,24 +361,20 @@ func TestCloseBlockedSendersError(t *testing.T) {
 	}
 }
 
-// TestCloseBlockedReceiversNilFalse verifies blocked receivers get (nil, false) on close.
-func TestCloseBlockedReceiversNilFalse(t *testing.T) {
+func TestChannel_CloseBlockedReceiversNilFalse(t *testing.T) {
 	ch := NewChannel(0)
-	recv1 := newTestLState()
-	recv2 := newTestLState()
-	closer := newTestLState()
+	recv1 := newUnitTestLState()
+	recv2 := newUnitTestLState()
+	closer := newUnitTestLState()
 
-	// Block two receivers
 	ch.Receive(recv1, nil)
 	ch.Receive(recv2, nil)
 
-	// Close
 	closeResult := ch.Close(closer)
 	if closeResult == nil {
 		t.Fatal("close should return result with blocked receivers")
 	}
 
-	// Both receivers should get (nil, false)
 	receiverWakes := 0
 	for _, u := range closeResult.GetUpdates() {
 		if u.State == recv1 || u.State == recv2 {
@@ -432,22 +400,17 @@ func TestCloseBlockedReceiversNilFalse(t *testing.T) {
 	}
 }
 
-// TestClosePreservesBufferedValues verifies buffered values can be drained after close.
-func TestClosePreservesBufferedValues(t *testing.T) {
+func TestChannel_ClosePreservesBufferedValues(t *testing.T) {
 	ch := NewChannel(3)
-	sender := newTestLState()
-	recv := newTestLState()
-	closer := newTestLState()
+	sender := newUnitTestLState()
+	recv := newUnitTestLState()
+	closer := newUnitTestLState()
 
-	// Buffer 3 values
 	ch.Send(sender, lua.LNumber(1), nil)
 	ch.Send(sender, lua.LNumber(2), nil)
 	ch.Send(sender, lua.LNumber(3), nil)
-
-	// Close
 	ch.Close(closer)
 
-	// Should receive all buffered values with ok=true
 	for i := 1; i <= 3; i++ {
 		r := ch.Receive(recv, nil)
 		updates := r.GetUpdates()
@@ -463,7 +426,6 @@ func TestClosePreservesBufferedValues(t *testing.T) {
 		}
 	}
 
-	// Fourth receive should get (nil, false)
 	r4 := ch.Receive(recv, nil)
 	result4 := r4.GetUpdates()[0].GetResult()
 	if result4[0] != lua.LNil {
@@ -474,10 +436,9 @@ func TestClosePreservesBufferedValues(t *testing.T) {
 	}
 }
 
-// TestDoubleCloseNil verifies double close returns nil.
-func TestDoubleCloseNil(t *testing.T) {
+func TestChannel_DoubleCloseNil(t *testing.T) {
 	ch := NewChannel(0)
-	closer := newTestLState()
+	closer := newUnitTestLState()
 
 	ch.Close(closer)
 	r := ch.Close(closer)
@@ -487,33 +448,24 @@ func TestDoubleCloseNil(t *testing.T) {
 }
 
 // ============================================================================
-// CRITICAL EDGE CASE: MIXED BUFFERED + BLOCKED SENDERS
+// MIXED BUFFERED + BLOCKED SENDERS
 // ============================================================================
 
-// TestMixedBufferedAndBlockedSenders tests the scenario where:
-// 1. Buffer has values
-// 2. Blocked senders are waiting (buffer was full when they sent)
-// 3. Receive drains FIFO: buffered values first, then blocked sender values
-// Go semantics: blocked sender wakes when buffer space frees, their value moves to buffer
-func TestMixedBufferedAndBlockedSenders(t *testing.T) {
-	ch := NewChannel(2) // capacity 2
-	sender1 := newTestLState()
-	sender2 := newTestLState()
-	blocker := newTestLState()
-	recv := newTestLState()
+func TestChannel_MixedBufferedAndBlockedSenders(t *testing.T) {
+	ch := NewChannel(2)
+	sender1 := newUnitTestLState()
+	sender2 := newUnitTestLState()
+	blocker := newUnitTestLState()
+	recv := newUnitTestLState()
 
-	// Fill buffer: queue = [buf(1), buf(2)]
 	ch.Send(sender1, lua.LNumber(1), nil)
 	ch.Send(sender2, lua.LNumber(2), nil)
 
-	// Third sender blocks: queue = [buf(1), buf(2), blocked(3)]
 	blockResult := ch.Send(blocker, lua.LNumber(3), nil)
 	if !blockResult.Yields {
 		t.Fatal("third sender should block")
 	}
 
-	// First receive: pop buf(1), blocked(3) wakes and becomes buf(3)
-	// queue becomes = [buf(2), buf(3)]
 	r1 := ch.Receive(recv, nil)
 	var val1 lua.LValue
 	var blockerWoken bool
@@ -529,10 +481,9 @@ func TestMixedBufferedAndBlockedSenders(t *testing.T) {
 		t.Errorf("first receive expected 1, got %v", val1)
 	}
 	if !blockerWoken {
-		t.Error("blocked sender should wake when buffer space frees (Go semantics)")
+		t.Error("blocked sender should wake when buffer space frees")
 	}
 
-	// Second receive: pop buf(2), queue = [buf(3)]
 	r2 := ch.Receive(recv, nil)
 	var val2 lua.LValue
 	for _, u := range r2.GetUpdates() {
@@ -544,7 +495,6 @@ func TestMixedBufferedAndBlockedSenders(t *testing.T) {
 		t.Errorf("second receive expected 2, got %v", val2)
 	}
 
-	// Third receive: pop buf(3), queue = []
 	r3 := ch.Receive(recv, nil)
 	var val3 lua.LValue
 	for _, u := range r3.GetUpdates() {
@@ -557,26 +507,19 @@ func TestMixedBufferedAndBlockedSenders(t *testing.T) {
 	}
 }
 
-// TestMultipleBlockedSendersWithBuffer tests multiple blocked senders wake in FIFO order.
-// Go semantics: blocked senders wake when buffer space frees, values received in FIFO order.
-func TestMultipleBlockedSendersWithBuffer(t *testing.T) {
-	ch := NewChannel(1) // capacity 1
-	sender := newTestLState()
-	blocker1 := newTestLState()
-	blocker2 := newTestLState()
-	blocker3 := newTestLState()
-	recv := newTestLState()
+func TestChannel_MultipleBlockedSendersWithBuffer(t *testing.T) {
+	ch := NewChannel(1)
+	sender := newUnitTestLState()
+	blocker1 := newUnitTestLState()
+	blocker2 := newUnitTestLState()
+	blocker3 := newUnitTestLState()
+	recv := newUnitTestLState()
 
-	// Buffer one value: queue = [buf(1)]
 	ch.Send(sender, lua.LNumber(1), nil)
-
-	// Three senders block: queue = [buf(1), blocked(2), blocked(3), blocked(4)]
 	ch.Send(blocker1, lua.LNumber(2), nil)
 	ch.Send(blocker2, lua.LNumber(3), nil)
 	ch.Send(blocker3, lua.LNumber(4), nil)
 
-	// First receive: get 1, blocker1 wakes (2 becomes buffered)
-	// queue = [buf(2), blocked(3), blocked(4)]
 	r1 := ch.Receive(recv, nil)
 	var val1 lua.LValue
 	var woken1 bool
@@ -595,8 +538,6 @@ func TestMultipleBlockedSendersWithBuffer(t *testing.T) {
 		t.Error("blocker1 should wake when buffer space frees")
 	}
 
-	// Second receive: get 2, blocker2 wakes (3 becomes buffered)
-	// queue = [buf(3), blocked(4)]
 	r2 := ch.Receive(recv, nil)
 	var val2 lua.LValue
 	var woken2 bool
@@ -615,8 +556,6 @@ func TestMultipleBlockedSendersWithBuffer(t *testing.T) {
 		t.Error("blocker2 should wake when buffer space frees")
 	}
 
-	// Third receive: get 3, blocker3 wakes (4 becomes buffered)
-	// queue = [buf(4)]
 	r3 := ch.Receive(recv, nil)
 	var val3 lua.LValue
 	var woken3 bool
@@ -635,8 +574,6 @@ func TestMultipleBlockedSendersWithBuffer(t *testing.T) {
 		t.Error("blocker3 should wake when buffer space frees")
 	}
 
-	// Fourth receive: get 4, no more blocked senders
-	// queue = []
 	r4 := ch.Receive(recv, nil)
 	var val4 lua.LValue
 	for _, u := range r4.GetUpdates() {
@@ -653,11 +590,10 @@ func TestMultipleBlockedSendersWithBuffer(t *testing.T) {
 // SIZE TRACKING TESTS
 // ============================================================================
 
-// TestSizeTrackingBuffered verifies size tracks buffered values correctly.
-func TestSizeTrackingBuffered(t *testing.T) {
+func TestChannel_SizeTracking(t *testing.T) {
 	ch := NewChannel(3)
-	sender := newTestLState()
-	recv := newTestLState()
+	sender := newUnitTestLState()
+	recv := newUnitTestLState()
 
 	if ch.Size() != 0 {
 		t.Errorf("initial size should be 0, got %d", ch.Size())
@@ -680,87 +616,392 @@ func TestSizeTrackingBuffered(t *testing.T) {
 }
 
 // ============================================================================
-// CANSENDSEND/CANRECEIVE PREDICATE TESTS
+// CANSEND/CANRECEIVE PREDICATE TESTS
 // ============================================================================
 
-// TestCanSendBuffered verifies CanSend for buffered channel.
-func TestCanSendBuffered(t *testing.T) {
+func TestChannel_CanSendBuffered(t *testing.T) {
 	ch := NewChannel(1)
-	sender := newTestLState()
+	sender := newUnitTestLState()
 
-	// Empty buffer: can send
 	if !ch.CanSend() {
 		t.Error("should be able to send to empty buffer")
 	}
 
-	// Fill buffer
 	ch.Send(sender, lua.LNumber(1), nil)
 
-	// Full buffer, no receiver: cannot send
 	if ch.CanSend() {
 		t.Error("should not be able to send to full buffer without receiver")
 	}
 }
 
-// TestCanSendUnbufferedWithReceiver verifies CanSend with waiting receiver.
-func TestCanSendUnbufferedWithReceiver(t *testing.T) {
-	ch := NewChannel(0) // unbuffered
-	recv := newTestLState()
+func TestChannel_CanSendUnbufferedWithReceiver(t *testing.T) {
+	ch := NewChannel(0)
+	recv := newUnitTestLState()
 
-	// No receiver: cannot send
 	if ch.CanSend() {
 		t.Error("unbuffered channel without receiver should not allow send")
 	}
 
-	// Block receiver
 	ch.Receive(recv, nil)
 
-	// With waiting receiver: can send
 	if !ch.CanSend() {
 		t.Error("unbuffered channel with waiting receiver should allow send")
 	}
 }
 
-// TestCanReceive verifies CanReceive predicate.
-func TestCanReceive(t *testing.T) {
+func TestChannel_CanReceive(t *testing.T) {
 	ch := NewChannel(1)
-	sender := newTestLState()
+	sender := newUnitTestLState()
 
-	// Empty: cannot receive
 	if ch.CanReceive() {
 		t.Error("empty channel should not allow receive")
 	}
 
-	// Buffer a value
 	ch.Send(sender, lua.LNumber(1), nil)
 
-	// Non-empty: can receive
 	if !ch.CanReceive() {
 		t.Error("non-empty channel should allow receive")
 	}
 }
 
-// TestSlotsCount verifies Slots returns correct available slots.
-func TestSlotsCount(t *testing.T) {
+func TestChannel_SlotsCount(t *testing.T) {
 	ch := NewChannel(3)
-	sender := newTestLState()
-	recv := newTestLState()
+	sender := newUnitTestLState()
+	recv := newUnitTestLState()
 
-	// Initially: 3 slots (full capacity)
 	if ch.Slots() != 3 {
 		t.Errorf("initial slots should be 3, got %d", ch.Slots())
 	}
 
-	// After 1 send: 2 slots
 	ch.Send(sender, lua.LNumber(1), nil)
 	if ch.Slots() != 2 {
 		t.Errorf("after 1 send, slots should be 2, got %d", ch.Slots())
 	}
 
-	// Block a receiver: adds 1 to slots
-	ch.Receive(recv, nil) // consumes buffered value
-	// Now buffer is empty again
+	ch.Receive(recv, nil)
 	if ch.Slots() != 3 {
 		t.Errorf("after receive, slots should be 3, got %d", ch.Slots())
+	}
+}
+
+// ============================================================================
+// CHANNEL IDENTITY TESTS
+// ============================================================================
+
+func TestChannel_PushIdempotent(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	ChannelModule.Load(l)
+
+	ch := NewChannel(10)
+
+	ud1 := PushChannel(l, ch)
+	l.Pop(1)
+
+	ud2 := PushChannel(l, ch)
+	l.Pop(1)
+
+	ud3 := PushChannel(l, ch)
+	l.Pop(1)
+
+	if ud1 != ud2 {
+		t.Error("PushChannel should return same userdata (call 1 vs 2)")
+	}
+	if ud2 != ud3 {
+		t.Error("PushChannel should return same userdata (call 2 vs 3)")
+	}
+	if ch.Value() != ud1 {
+		t.Error("channel should cache the userdata")
+	}
+}
+
+func TestChannel_ValueCaching(t *testing.T) {
+	ch := NewChannel(10)
+
+	if ch.Value() != nil {
+		t.Error("new channel should have nil value")
+	}
+
+	l := lua.NewState()
+	defer l.Close()
+	ChannelModule.Load(l)
+
+	ud := PushChannel(l, ch)
+
+	if ch.Value() == nil {
+		t.Error("channel value should be set after PushChannel")
+	}
+	if ch.Value() != ud {
+		t.Error("channel value should match the userdata returned by PushChannel")
+	}
+
+	ud2 := PushChannel(l, ch)
+	if ud != ud2 {
+		t.Error("PushChannel should return same userdata for same channel")
+	}
+}
+
+// ============================================================================
+// SUBSCRIBE CONTEXT TESTS
+// ============================================================================
+
+func TestSubscribeContext_CreatesChannel(t *testing.T) {
+	ctx := &subscribeContext{
+		byTopic:   make(map[string]*subscription),
+		byChannel: make(map[*Channel]string),
+	}
+
+	sub, err := ctx.add("topic1", 10)
+	if err != nil {
+		t.Fatalf("add failed: %v", err)
+	}
+
+	if sub.channel == nil {
+		t.Error("subscription should have a channel")
+	}
+	if _, ok := ctx.byTopic["topic1"]; !ok {
+		t.Error("topic should be in byTopic map")
+	}
+	if _, ok := ctx.byChannel[sub.channel]; !ok {
+		t.Error("channel should be in byChannel map")
+	}
+}
+
+func TestSubscribeContext_ReturnsSameChannel(t *testing.T) {
+	ctx := &subscribeContext{
+		byTopic:   make(map[string]*subscription),
+		byChannel: make(map[*Channel]string),
+	}
+
+	sub1, err := ctx.add("topic1", 10)
+	if err != nil {
+		t.Fatalf("first add failed: %v", err)
+	}
+
+	sub2, err := ctx.add("topic1", 5)
+	if err != nil {
+		t.Fatalf("second add failed: %v", err)
+	}
+
+	if sub1 != sub2 {
+		t.Error("should return same subscription for same topic")
+	}
+	if sub1.channel != sub2.channel {
+		t.Error("should return same channel for same topic")
+	}
+}
+
+func TestSubscribeContext_AddExisting(t *testing.T) {
+	ctx := &subscribeContext{
+		byTopic:   make(map[string]*subscription),
+		byChannel: make(map[*Channel]string),
+	}
+
+	ch := NewChannel(10)
+	sub, err := ctx.addExisting("topic1", ch)
+	if err != nil {
+		t.Fatalf("addExisting failed: %v", err)
+	}
+
+	if sub.channel != ch {
+		t.Error("subscription should reference the provided channel")
+	}
+
+	sub2, err := ctx.addExisting("topic1", ch)
+	if err != nil {
+		t.Fatalf("second addExisting failed: %v", err)
+	}
+	if sub != sub2 {
+		t.Error("should return same subscription")
+	}
+
+	ch2 := NewChannel(10)
+	_, err = ctx.addExisting("topic1", ch2)
+	if err == nil {
+		t.Error("addExisting with different channel should fail")
+	}
+}
+
+func TestSubscribeContext_SystemTopicIdentity(t *testing.T) {
+	ctx := &subscribeContext{
+		byTopic:   make(map[string]*subscription),
+		byChannel: make(map[*Channel]string),
+	}
+
+	inboxSub, err := ctx.add(topology.TopicInbox, 0)
+	if err != nil {
+		t.Fatalf("inbox subscribe failed: %v", err)
+	}
+
+	eventsSub, err := ctx.add(topology.TopicEvents, 0)
+	if err != nil {
+		t.Fatalf("events subscribe failed: %v", err)
+	}
+
+	if inboxSub.channel == eventsSub.channel {
+		t.Error("inbox and events should have different channels")
+	}
+
+	inboxSub2, _ := ctx.add(topology.TopicInbox, 0)
+	if inboxSub.channel != inboxSub2.channel {
+		t.Error("inbox channel identity not preserved")
+	}
+}
+
+// ============================================================================
+// LUA CHANNEL IDENTITY TESTS
+// ============================================================================
+
+func TestChannel_LuaComparison(t *testing.T) {
+	script := `
+		local ch = channel.new(10)
+		local same = ch
+		local different = channel.new(10)
+
+		if ch ~= same then
+			error("same channel reference should be equal")
+		end
+
+		if ch == different then
+			error("different channels should not be equal")
+		end
+
+		return "ok"
+	`
+
+	proc := startChannelUnitProcess(t, script)
+	defer proc.Close()
+
+	if err := runUntilDone(t, proc, 20); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestChannel_SubscribeExistingReturnsIt(t *testing.T) {
+	script := `
+		local ch = channel.new(10)
+		local result = subscribe("my_topic", ch)
+
+		if result == nil then
+			error("subscribe should return channel")
+		end
+
+		if result ~= ch then
+			error("subscribe should return the same channel we provided")
+		end
+
+		return "ok"
+	`
+
+	proc := startChannelUnitProcess(t, script)
+	defer proc.Close()
+
+	if err := runUntilDone(t, proc, 30); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestChannel_SubscribeSameTopicDifferentChannelErrors(t *testing.T) {
+	script := `
+		local ch1 = channel.new(10)
+		local ch2 = channel.new(10)
+
+		local result1 = subscribe("test_topic", ch1)
+		if result1 == nil then
+			error("first subscribe should succeed")
+		end
+
+		local result2 = subscribe("test_topic", ch2)
+		if result2 ~= nil then
+			error("second subscribe with different channel should fail")
+		end
+
+		return "ok"
+	`
+
+	proc := startChannelUnitProcess(t, script)
+	defer proc.Close()
+
+	if err := runUntilDone(t, proc, 30); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestChannel_SubscribeRequestFields(t *testing.T) {
+	ch := NewChannel(10)
+	req := &SubscribeRequest{
+		Topic:           "test",
+		ExistingChannel: ch,
+	}
+
+	if req.ExistingChannel != ch {
+		t.Error("SubscribeRequest should hold the ExistingChannel reference")
+	}
+	if req.String() != "<subscribe_request>" {
+		t.Errorf("unexpected String(): %s", req.String())
+	}
+	if req.Type() != lua.LTUserData {
+		t.Errorf("unexpected Type(): %v", req.Type())
+	}
+
+	req2 := &SubscribeRequest{
+		Topic:   "test2",
+		BufSize: 5,
+	}
+
+	if req2.ExistingChannel != nil {
+		t.Error("ExistingChannel should be nil")
+	}
+	if req2.BufSize != 5 {
+		t.Error("BufSize should be set")
+	}
+}
+
+func TestChannel_MultipleDifferentTopics(t *testing.T) {
+	script := `
+		local ch1 = channel.new(10)
+		local ch2 = channel.new(10)
+
+		local result1 = subscribe("topic_a", ch1)
+		local result2 = subscribe("topic_b", ch2)
+
+		if result1 == nil or result2 == nil then
+			error("both subscribes should succeed")
+		end
+
+		if result1 == result2 then
+			error("different topics should have different channels")
+		end
+
+		return "ok"
+	`
+
+	proc := startChannelUnitProcess(t, script)
+	defer proc.Close()
+
+	if err := runUntilDone(t, proc, 30); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestChannel_IdentityAcrossSubscribe(t *testing.T) {
+	script := `
+		local ch = channel.new(10)
+		subscribe("test_select", ch)
+
+		local stored = ch
+
+		if ch ~= stored then
+			error("channel identity lost after subscribe")
+		end
+
+		return "ok"
+	`
+
+	proc := startChannelUnitProcess(t, script)
+	defer proc.Close()
+
+	if err := runUntilDone(t, proc, 30); err != nil {
+		t.Fatal(err)
 	}
 }

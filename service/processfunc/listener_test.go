@@ -26,11 +26,13 @@ func newTestPIDGen() *uniqid.PIDGenerator {
 	return uniqid.NewPIDGenerator(uniqid.NewGenerator(), "test-node")
 }
 
-func waitForEvent(t *testing.T, ch <-chan event.Event, timeout time.Duration) event.Event {
+const testTimeout = 100 * time.Millisecond
+
+func waitForEvent(t *testing.T, ch <-chan event.Event) event.Event {
 	select {
 	case e := <-ch:
 		return e
-	case <-time.After(timeout):
+	case <-time.After(testTimeout):
 		t.Fatal("timeout waiting for event")
 		return event.Event{}
 	}
@@ -68,7 +70,7 @@ func TestListener_Add_WithDefaultHost(t *testing.T) {
 	err := l.Add(context.Background(), entry)
 	require.NoError(t, err)
 
-	evt := waitForEvent(t, events, 100*time.Millisecond)
+	evt := waitForEvent(t, events)
 	assert.Equal(t, function.System, evt.System)
 	assert.Equal(t, function.Register, evt.Kind)
 	assert.Equal(t, "test:proc1", evt.Path)
@@ -142,7 +144,7 @@ func TestListener_Update_HostChange(t *testing.T) {
 	require.NoError(t, err)
 
 	// Consume the Add event
-	waitForEvent(t, events, 100*time.Millisecond)
+	waitForEvent(t, events)
 
 	// Update with different host
 	meta2 := attrs.NewBag()
@@ -153,10 +155,10 @@ func TestListener_Update_HostChange(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should receive Delete then Register
-	evt1 := waitForEvent(t, events, 100*time.Millisecond)
+	evt1 := waitForEvent(t, events)
 	assert.Equal(t, function.Delete, evt1.Kind)
 
-	evt2 := waitForEvent(t, events, 100*time.Millisecond)
+	evt2 := waitForEvent(t, events)
 	assert.Equal(t, function.Register, evt2.Kind)
 }
 
@@ -176,12 +178,12 @@ func TestListener_Delete(t *testing.T) {
 	require.NoError(t, err)
 
 	// Consume the Add event
-	waitForEvent(t, events, 100*time.Millisecond)
+	waitForEvent(t, events)
 
 	err = l.Delete(context.Background(), entry)
 	require.NoError(t, err)
 
-	evt := waitForEvent(t, events, 100*time.Millisecond)
+	evt := waitForEvent(t, events)
 	assert.Equal(t, function.System, evt.System)
 	assert.Equal(t, function.Delete, evt.Kind)
 
@@ -210,7 +212,7 @@ func TestListener_OptionsFromMeta(t *testing.T) {
 	err := l.Add(context.Background(), entry)
 	require.NoError(t, err)
 
-	evt := waitForEvent(t, events, 100*time.Millisecond)
+	evt := waitForEvent(t, events)
 	funcEntry, ok := evt.Data.(*function.FuncEntry)
 	require.True(t, ok)
 	assert.NotNil(t, funcEntry.Options)
@@ -238,7 +240,7 @@ func TestListener_HostInMetaOptionsPreserved(t *testing.T) {
 	err := l.Add(context.Background(), entry)
 	require.NoError(t, err)
 
-	evt := waitForEvent(t, events, 100*time.Millisecond)
+	evt := waitForEvent(t, events)
 	funcEntry, ok := evt.Data.(*function.FuncEntry)
 	require.True(t, ok)
 	require.NotNil(t, funcEntry.Options)
@@ -265,7 +267,7 @@ func TestListener_Update_NoChange(t *testing.T) {
 	require.NoError(t, err)
 
 	// Consume the Add event
-	waitForEvent(t, events, 100*time.Millisecond)
+	waitForEvent(t, events)
 
 	// Update with same host
 	err = l.Update(context.Background(), entry)

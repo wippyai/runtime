@@ -452,7 +452,7 @@ func TestFuncComponent(t *testing.T) {
 		startCalled := false
 		comp := New(P{
 			Name: "test",
-			Start: func(ctx context.Context) error {
+			Start: func(_ context.Context) error {
 				startCalled = true
 				return nil
 			},
@@ -476,7 +476,7 @@ func TestFuncComponent(t *testing.T) {
 		stopCalled := false
 		comp := New(P{
 			Name: "test",
-			Stop: func(ctx context.Context) error {
+			Stop: func(_ context.Context) error {
 				stopCalled = true
 				return nil
 			},
