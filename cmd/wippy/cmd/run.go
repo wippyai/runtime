@@ -16,7 +16,6 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
-	"github.com/wippyai/runtime/api/runtime"
 	supervisorapi "github.com/wippyai/runtime/api/supervisor"
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/deps/client"
@@ -443,32 +442,5 @@ func waitForHostRunning(ctx context.Context, logger *zap.Logger, hostID string) 
 			return ctx.Err()
 		case <-time.After(pollInterval):
 		}
-	}
-}
-
-// interpretExitCode extracts an exit code from a process result
-func interpretExitCode(result *runtime.Result) int {
-	if result == nil {
-		return 0
-	}
-
-	if result.Error != nil {
-		return 1
-	}
-
-	if result.Value == nil {
-		return 0
-	}
-
-	// Try to interpret result as a number
-	switch v := result.Value.Data().(type) {
-	case float64:
-		return int(v)
-	case int:
-		return v
-	case int64:
-		return int(v)
-	default:
-		return 0
 	}
 }

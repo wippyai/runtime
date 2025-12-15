@@ -1,7 +1,6 @@
 package lua
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/wippyai/runtime/api/attrs"
@@ -135,9 +134,4 @@ func (e *DeadlockError) Error() string {
 		return fmt.Sprintf("deadlock: %s (threads=%d)", e.Message, e.ThreadCount)
 	}
 	return fmt.Sprintf("deadlock: all %d coroutines blocked with no pending operations", e.ThreadCount)
-}
-
-func IsDeadlock(err error) bool {
-	var deadlock *DeadlockError
-	return errors.As(err, &deadlock)
 }

@@ -47,13 +47,6 @@ func NewReceiveError(connID uint64, err error) apierror.Error {
 		WithCause(err)
 }
 
-func NewCloseError(connID uint64, err error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to close connection").
-		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(map[string]any{"conn_id": connID})).
-		WithCause(err)
-}
-
 func NewPingError(connID uint64, err error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to ping").
 		WithRetryable(apierror.True).

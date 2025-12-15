@@ -5,8 +5,6 @@ import (
 )
 
 var (
-	ErrNoEntriesProvided = apierror.New(apierror.Invalid, "no entries provided").WithRetryable(apierror.False)
-
 	ErrRegistryClientNotFound = apierror.New(apierror.NotFound, "registry client not found").WithRetryable(apierror.False)
 
 	ErrModuleMissingHash = apierror.New(apierror.Invalid, "module missing hash").WithRetryable(apierror.False)
@@ -21,14 +19,6 @@ var (
 
 	ErrResolverNotFound = apierror.New(apierror.NotFound, "resolver not found").WithRetryable(apierror.False)
 )
-
-func NewLoadEntriesError(cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to load entries").WithCause(cause).WithRetryable(apierror.False)
-}
-
-func NewValidateEntriesError(cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, "failed to validate entries").WithCause(cause).WithRetryable(apierror.False)
-}
 
 func NewLoadLockFileError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to load lock file").WithCause(cause).WithRetryable(apierror.False)

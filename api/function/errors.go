@@ -41,7 +41,3 @@ func NewInterceptorNotFoundError(name string) apierror.Error {
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"name": name}))
 }
-
-func NewInterceptorSealedError() apierror.Error {
-	return apierror.New(apierror.Invalid, "interceptor registry is sealed").WithRetryable(apierror.False)
-}

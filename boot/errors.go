@@ -7,18 +7,6 @@ import (
 )
 
 var (
-	ErrBootstrapFailed = apierror.New(apierror.Internal, "bootstrap failed").WithRetryable(apierror.False)
-)
-
-func NewLoadComponentError(component string, cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to load component: "+component).WithCause(cause).WithRetryable(apierror.False)
-}
-
-func NewInitializeComponentError(component string, cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to initialize component: "+component).WithCause(cause).WithRetryable(apierror.False)
-}
-
-var (
 	ErrAppContextNotInitialized = apierror.New(apierror.Internal, "app context not initialized").WithRetryable(apierror.False)
 
 	ErrLoggerNotInitialized = apierror.New(apierror.Internal, "logger not initialized").WithRetryable(apierror.False)

@@ -1,24 +1,15 @@
 package supervisor
 
 import (
-	"fmt"
-
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
-	"github.com/wippyai/runtime/api/pid"
 )
 
 var (
 	ErrNoRelayNode      = apierror.New(apierror.Internal, "no relay node in context").WithRetryable(apierror.False)
 	ErrNoTopology       = apierror.New(apierror.Internal, "no topology in context").WithRetryable(apierror.False)
 	ErrNoProcessManager = apierror.New(apierror.Internal, "no process manager in context").WithRetryable(apierror.False)
-	ErrProcessRequired  = apierror.New(apierror.Invalid, "process Process is required").WithRetryable(apierror.False)
-	ErrHostRequired     = apierror.New(apierror.Invalid, "host Process is required").WithRetryable(apierror.False)
 )
-
-func NewInvalidHostError(hostID pid.HostID) apierror.Error {
-	return apierror.New(apierror.Invalid, fmt.Sprintf("host Process cannot be %s", hostID)).WithRetryable(apierror.False)
-}
 
 func newRegisterPIDError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "register supervisor pid").WithCause(cause)

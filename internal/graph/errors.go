@@ -7,18 +7,6 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
-var (
-	ErrCycleDetected = apierror.New(apierror.Invalid, "cycle detected in dependency graph").WithRetryable(apierror.False)
-)
-
-func NewNodeNotFoundError(id string) apierror.Error {
-	return apierror.New(apierror.NotFound, fmt.Sprintf("node not found: %s", id)).WithRetryable(apierror.False)
-}
-
-func NewNodeExistsError(id string) apierror.Error {
-	return apierror.New(apierror.AlreadyExists, fmt.Sprintf("node already exists: %s", id)).WithRetryable(apierror.False)
-}
-
 func NewNodeDoesNotExistError(id any) apierror.Error {
 	return apierror.New(apierror.NotFound, fmt.Sprintf("node does not exist: %v", id)).WithRetryable(apierror.False)
 }

@@ -3,36 +3,11 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
 var (
-	ErrInvalidRegistryFormat = apierror.New(apierror.Invalid, "invalid registry format").WithRetryable(apierror.False)
-
 	ErrRegistryNotFound = apierror.New(apierror.NotFound, "registry not found").WithRetryable(apierror.False)
-
-	ErrInvalidEntryFormat = apierror.New(apierror.Invalid, "invalid entry format").WithRetryable(apierror.False)
-
-	ErrEntryNotFound = apierror.New(apierror.NotFound, "entry not found").WithRetryable(apierror.False)
-
-	ErrEmptyPattern = apierror.New(apierror.Invalid, "pattern cannot be empty").WithRetryable(apierror.False)
-
-	ErrInvalidManifestFormat = apierror.New(apierror.Invalid, "invalid manifest format").WithRetryable(apierror.False)
-
-	ErrManifestNotFound = apierror.New(apierror.NotFound, "manifest not found").WithRetryable(apierror.False)
-
-	ErrInvalidProjectDir = apierror.New(apierror.Invalid, "invalid project directory").WithRetryable(apierror.False)
-
-	ErrNoProjectDir = apierror.New(apierror.NotFound, "no project directory found").WithRetryable(apierror.False)
-
-	ErrManifestExists = apierror.New(apierror.AlreadyExists, "manifest already exists").WithRetryable(apierror.False)
-
-	ErrNoRuntimeDir = apierror.New(apierror.NotFound, "no .wippy directory found").WithRetryable(apierror.False)
-
-	ErrEmptyManifestName = apierror.New(apierror.Invalid, "manifest name cannot be empty").WithRetryable(apierror.False)
-
-	ErrInvalidFilter = apierror.New(apierror.Invalid, "invalid filter").WithRetryable(apierror.False)
 
 	ErrProcessManagerNotAvailable = apierror.New(apierror.Internal, "process manager not available").WithRetryable(apierror.False)
 
@@ -40,53 +15,6 @@ var (
 
 	ErrDependencyResolverNotFound = apierror.New(apierror.NotFound, "dependency resolver not found").WithRetryable(apierror.False)
 )
-
-func NewInvalidIDFormatError(id string) apierror.Error {
-	return apierror.New(apierror.Invalid, fmt.Sprintf("invalid ID format: %s", id)).
-		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(map[string]any{"id": id}))
-}
-
-func NewReadManifestError(cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to read manifest").WithCause(cause).WithRetryable(apierror.False)
-}
-
-func NewDecodeManifestError(cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, "failed to decode manifest").WithCause(cause).WithRetryable(apierror.False)
-}
-
-func NewEncodeManifestError(cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to encode manifest").WithCause(cause).WithRetryable(apierror.False)
-}
-
-func NewWriteManifestError(cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to write manifest").WithCause(cause).WithRetryable(apierror.False)
-}
-
-func NewCreateProjectDirError(cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to create project directory").WithCause(cause).WithRetryable(apierror.False)
-}
-
-func NewGlobError(pattern string, cause error) apierror.Error {
-	return apierror.New(apierror.Internal, fmt.Sprintf("failed to glob pattern: %s", pattern)).
-		WithCause(cause).
-		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(map[string]any{"pattern": pattern}))
-}
-
-func NewCompileRegexpError(pattern string, cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, fmt.Sprintf("failed to compile regexp: %s", pattern)).
-		WithCause(cause).
-		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(map[string]any{"pattern": pattern}))
-}
-
-func NewReadFileError(path string, cause error) apierror.Error {
-	return apierror.New(apierror.Internal, fmt.Sprintf("failed to read file: %s", path)).
-		WithCause(cause).
-		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(map[string]any{"path": path}))
-}
 
 func NewCreateLoggerError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to create logger").WithCause(cause).WithRetryable(apierror.False)

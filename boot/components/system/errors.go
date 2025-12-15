@@ -9,7 +9,6 @@ var (
 	ErrEventBusNotAvailable             = apierror.New(apierror.Internal, "event bus not available").WithRetryable(apierror.False)
 	ErrRegistryNotAvailable             = apierror.New(apierror.Internal, "registry not available").WithRetryable(apierror.False)
 	ErrRelayNotAvailable                = apierror.New(apierror.Internal, "relay node not available").WithRetryable(apierror.False)
-	ErrTranscoderNotAvailable           = apierror.New(apierror.Internal, "transcoder not available").WithRetryable(apierror.False)
 	ErrFunctionRegistryNotAvailable     = apierror.New(apierror.Internal, "function registry not available in context").WithRetryable(apierror.False)
 	ErrEventBusNotAvailableForCluster   = apierror.New(apierror.Internal, "event bus not available for cluster").WithRetryable(apierror.False)
 	ErrTranscoderNotAvailableForCluster = apierror.New(apierror.Internal, "transcoder not available for cluster").WithRetryable(apierror.False)

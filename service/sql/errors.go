@@ -11,15 +11,6 @@ var (
 	ErrTranscoderRequired  = apierror.New(apierror.Invalid, "transcoder is required").WithRetryable(apierror.False)
 	ErrEventBusRequired    = apierror.New(apierror.Invalid, "event bus is required").WithRetryable(apierror.False)
 	ErrPoolFactoryRequired = apierror.New(apierror.Invalid, "pool factory is required").WithRetryable(apierror.False)
-	ErrHostRequired        = apierror.New(apierror.Invalid, "host is required").WithRetryable(apierror.False)
-	ErrInvalidPort         = apierror.New(apierror.Invalid, "port must be greater than 0").WithRetryable(apierror.False)
-	ErrDatabaseRequired    = apierror.New(apierror.Invalid, "database is required").WithRetryable(apierror.False)
-	ErrUsernameRequired    = apierror.New(apierror.Invalid, "username is required").WithRetryable(apierror.False)
-	ErrPasswordRequired    = apierror.New(apierror.Invalid, "password is required").WithRetryable(apierror.False)
-	ErrInvalidMaxOpen      = apierror.New(apierror.Invalid, "pool.max_open must be greater or equal to 0").WithRetryable(apierror.False)
-	ErrInvalidMaxIdle      = apierror.New(apierror.Invalid, "pool.max_idle must be greater than or equal to 0").WithRetryable(apierror.False)
-	ErrInvalidMaxLifetime  = apierror.New(apierror.Invalid, "pool.max_lifetime must be greater than 0").WithRetryable(apierror.False)
-	ErrFileRequired        = apierror.New(apierror.Invalid, "file is required").WithRetryable(apierror.False)
 )
 
 func NewPingError(err error) apierror.Error {

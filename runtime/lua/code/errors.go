@@ -83,10 +83,6 @@ func NewCompileError(id registry.ID, err error) apierror.Error {
 		WithDetails(attrs.NewBagFrom(map[string]any{"node_id": id.String()}))
 }
 
-func WrapError(kind apierror.Kind, err error, retryable apierror.Ternary) apierror.Error {
-	return apierror.New(kind, err.Error()).WithRetryable(retryable).WithCause(err)
-}
-
 func NewParseError(cause error) apierror.Error {
 	return apierror.New(apierror.Invalid, "parse error").WithCause(cause).WithRetryable(apierror.False)
 }

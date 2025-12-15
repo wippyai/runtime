@@ -210,7 +210,7 @@ func (h *Host) prepareContext(ctx context.Context, processID pid.PID, start *pro
 	pairs := make([]ctxapi.Pair, pairsLen)
 	pairs[0] = ctxapi.Pair{Key: runtime.FrameIDKey, Value: start.Source}
 	pairs[1] = ctxapi.Pair{Key: runtime.FramePIDKey, Value: processID}
-	pairs[2] = ctxapi.Pair{Key: terminalapi.TerminalKey(), Value: terminalapi.NewTerminalContextWithArgs(os.Stdin, os.Stdout, os.Stderr, args)}
+	pairs[2] = ctxapi.Pair{Key: terminalapi.Key(), Value: terminalapi.NewTerminalContextWithArgs(os.Stdin, os.Stdout, os.Stderr, args)}
 	copy(pairs[3:], start.Context)
 
 	if err := fc.SetMultiple(pairs...); err != nil {

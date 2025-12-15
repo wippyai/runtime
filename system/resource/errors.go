@@ -9,7 +9,6 @@ import (
 var (
 	ErrLocked = apierror.New(apierror.Unavailable, "resource is locked").WithRetryable(apierror.True)
 	ErrClosed = apierror.New(apierror.Unavailable, "resource provider is closed").WithRetryable(apierror.False)
-	ErrInUse  = apierror.New(apierror.Unavailable, "resource is in use").WithRetryable(apierror.True)
 )
 
 // NewSubscriberError creates an error for subscriber creation failure.

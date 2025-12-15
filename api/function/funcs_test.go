@@ -167,7 +167,6 @@ func TestErrorConstructors(t *testing.T) {
 		target, _ := details.Get("target")
 		assert.Equal(t, id.String(), target)
 	})
-
 }
 
 func TestCommandPools(t *testing.T) {

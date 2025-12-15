@@ -11,16 +11,6 @@ var (
 	ErrStartTimeout = apierror.New(apierror.Timeout, "service start timed out").WithRetryable(apierror.True)
 )
 
-func NewInvalidDurationError(field string, cause error) apierror.Error {
-	return apierror.E(
-		apierror.Invalid,
-		"invalid "+field+" duration format",
-		apierror.False,
-		attrs.NewBagFrom(map[string]any{"field": field}),
-		cause,
-	)
-}
-
 func NewServiceNotFoundError(serviceID string) apierror.Error {
 	return apierror.E(
 		apierror.NotFound,

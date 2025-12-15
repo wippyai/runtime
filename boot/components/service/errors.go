@@ -31,7 +31,3 @@ func NewStaticFactoryError(cause error) apierror.Error {
 func NewHTTPManagerError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to create http manager").WithCause(cause)
 }
-
-func NewSQLManagerError(cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to create sql manager").WithCause(cause)
-}

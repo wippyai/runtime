@@ -49,7 +49,7 @@ func validateVersion(version string) error {
 		}
 	}
 
-	return NewUnsupportedVersionError(version, supported)
+	return NewUnsupportedVersionError(version)
 }
 
 func buildBootConfig(sections map[string]map[string]any) (boot.Config, error) {

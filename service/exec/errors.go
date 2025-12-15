@@ -1,16 +1,11 @@
 package exec
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
-)
-
-var (
-	ErrImageRequired = errors.New("docker image is required")
 )
 
 func NewUnsupportedEntryKindError(kind registry.Kind) apierror.Error {

@@ -128,11 +128,6 @@ func E(kind Kind, message string, retryable Ternary, details attrs.Attributes, c
 	}
 }
 
-// Wrap creates a new error that wraps an existing error.
-func Wrap(kind Kind, message string, cause error) Error {
-	return &err{kind: kind, message: message, cause: cause, retryable: Unspecified}
-}
-
 // WithDetails creates an error with details.
 func WithDetails(kind Kind, message string, details attrs.Attributes) Error {
 	return &err{kind: kind, message: message, details: details, retryable: Unspecified}
@@ -141,11 +136,6 @@ func WithDetails(kind Kind, message string, details attrs.Attributes) Error {
 // Retryable creates a retryable error.
 func Retryable(kind Kind, message string, cause error) Error {
 	return &err{kind: kind, message: message, cause: cause, retryable: True}
-}
-
-// NotRetryable creates a non-retryable error.
-func NotRetryable(kind Kind, message string, cause error) Error {
-	return &err{kind: kind, message: message, cause: cause, retryable: False}
 }
 
 // SetCause returns a new error with the same properties but with the given cause.

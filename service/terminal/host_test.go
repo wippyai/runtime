@@ -259,7 +259,7 @@ func TestHost_PrepareContext(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, start.Source, val)
 
-	val, ok = fc.Get(terminalapi.TerminalKey())
+	val, ok = fc.Get(terminalapi.Key())
 	assert.True(t, ok)
 	tc, ok := val.(*terminalapi.PipeContext)
 	assert.True(t, ok)

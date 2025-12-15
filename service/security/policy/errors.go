@@ -1,26 +1,11 @@
 package policy
 
 import (
-	"fmt"
-
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
-	policyapi "github.com/wippyai/runtime/api/service/security/policy"
 )
 
 var (
-	ErrActionsStringEmpty = apierror.New(apierror.Invalid, "actions string cannot be empty").WithRetryable(apierror.False)
-
-	ErrActionsListEmpty = apierror.New(apierror.Invalid, "actions list cannot be empty").WithRetryable(apierror.False)
-
-	ErrActionsInvalidType = apierror.New(apierror.Invalid, "actions must be either a string or a list of strings").WithRetryable(apierror.False)
-
-	ErrResourcesStringEmpty = apierror.New(apierror.Invalid, "resources string cannot be empty").WithRetryable(apierror.False)
-
-	ErrResourcesListEmpty = apierror.New(apierror.Invalid, "resources list cannot be empty").WithRetryable(apierror.False)
-
-	ErrResourcesInvalidType = apierror.New(apierror.Invalid, "resources must be either a string or a list of strings").WithRetryable(apierror.False)
-
 	ErrEmptyFieldPath            = apierror.New(apierror.Invalid, "empty field path")
 	ErrNoActorFieldSpecified     = apierror.New(apierror.Invalid, "no actor field specified")
 	ErrNoMetadataFieldSpecified  = apierror.New(apierror.Invalid, "no metadata field specified")
@@ -32,26 +17,6 @@ var (
 	ErrExpressionEmpty           = apierror.New(apierror.Invalid, "expression cannot be empty")
 	ErrConfigNil                 = apierror.New(apierror.Invalid, "config cannot be nil")
 )
-
-func NewInvalidPolicyEffectError(effect policyapi.Effect) apierror.Error {
-	return apierror.New(apierror.Invalid, fmt.Sprintf("invalid policy effect: %s", effect)).WithRetryable(apierror.False)
-}
-
-func NewConditionFieldEmptyError(index int) apierror.Error {
-	return apierror.New(apierror.Invalid, fmt.Sprintf("condition[%d]: field cannot be empty", index)).WithRetryable(apierror.False)
-}
-
-func NewConditionOperatorEmptyError(index int) apierror.Error {
-	return apierror.New(apierror.Invalid, fmt.Sprintf("condition[%d]: operator cannot be empty", index)).WithRetryable(apierror.False)
-}
-
-func NewConditionValueRequiredError(index int) apierror.Error {
-	return apierror.New(apierror.Invalid, fmt.Sprintf("condition[%d]: either value or value_from must be provided", index)).WithRetryable(apierror.False)
-}
-
-func NewConditionInvalidOperatorError(index int, operator string) apierror.Error {
-	return apierror.New(apierror.Invalid, fmt.Sprintf("condition[%d]: invalid operator: %s", index, operator)).WithRetryable(apierror.False)
-}
 
 func NewInvalidRegexPatternError(pattern string, cause error) apierror.Error {
 	return apierror.New(apierror.Invalid, "invalid regex pattern "+pattern).WithCause(cause)

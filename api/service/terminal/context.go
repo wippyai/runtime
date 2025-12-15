@@ -10,8 +10,8 @@ import (
 
 var terminalKey = &contextapi.Key{Name: "terminal"}
 
-// TerminalKey returns the context key for terminal context.
-func TerminalKey() *contextapi.Key {
+// Key returns the context key for terminal context.
+func Key() *contextapi.Key {
 	return terminalKey
 }
 

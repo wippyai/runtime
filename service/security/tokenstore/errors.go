@@ -5,16 +5,8 @@ import (
 )
 
 var (
-	ErrStoreIDRequired = apierror.New(apierror.Invalid, "store ID is required").WithRetryable(apierror.False)
-
-	ErrTokenLengthMustBePositive = apierror.New(apierror.Invalid, "token length must be positive").WithRetryable(apierror.False)
-
 	ErrInvalidTokenStoreConfig = apierror.New(apierror.Invalid, "invalid token store config")
 )
-
-func NewInvalidDefaultExpirationError(cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid default_expiration duration format").WithCause(cause).WithRetryable(apierror.False)
-}
 
 func NewDecodeTokenStoreConfigError(cause error) apierror.Error {
 	return apierror.New(apierror.Invalid, "failed to decode token store config").WithCause(cause)

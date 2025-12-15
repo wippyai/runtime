@@ -5,12 +5,6 @@ import (
 )
 
 var (
-	ErrKindRequired = apierror.New(apierror.Invalid, "kind is required").WithRetryable(apierror.False)
-
-	ErrIDRequired = apierror.New(apierror.Invalid, "id is required").WithRetryable(apierror.False)
-
-	ErrConfigRequired = apierror.New(apierror.Invalid, "config is required").WithRetryable(apierror.False)
-
 	ErrConfigurationDataRequired = apierror.New(apierror.Invalid, "configuration data is required").WithRetryable(apierror.False)
 
 	ErrEmptyPath = apierror.New(apierror.Invalid, "path cannot be empty").WithRetryable(apierror.False)

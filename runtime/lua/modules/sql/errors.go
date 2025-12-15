@@ -26,16 +26,6 @@ func (e *Error) Retryable() apierror.Ternary { return e.retryable }
 func (e *Error) Details() attrs.Attributes   { return e.details }
 func (e *Error) Unwrap() error               { return e.cause }
 
-var (
-	ErrConnectionRequired = apierror.New(apierror.Invalid, "connection ID is required").WithRetryable(apierror.False)
-
-	ErrQueryRequired = apierror.New(apierror.Invalid, "query is required").WithRetryable(apierror.False)
-)
-
-func NewConnectionNotFoundError(id string) apierror.Error {
-	return apierror.New(apierror.NotFound, "connection not found: "+id).WithRetryable(apierror.False)
-}
-
 func NewInvalidParametersTypeError(actualType string) apierror.Error {
 	return &Error{
 		message:   "parameters must be a table, got " + actualType,

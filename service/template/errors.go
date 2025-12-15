@@ -17,20 +17,6 @@ var (
 	ErrRenderFailed     = errors.New("template rendering failed")
 )
 
-var (
-	ErrEmptySource = apierror.New(apierror.Invalid, "template source cannot be empty").WithRetryable(apierror.False)
-
-	ErrEmptySetName = apierror.New(apierror.Invalid, "template set name cannot be empty").WithRetryable(apierror.False)
-
-	ErrEmptyDelimiters = apierror.New(apierror.Invalid, "template delimiters cannot be empty").WithRetryable(apierror.False)
-
-	ErrEmptyCommentDelimiters = apierror.New(apierror.Invalid, "comment delimiters cannot be empty").WithRetryable(apierror.False)
-
-	ErrConflictingDelimiters = apierror.New(apierror.Invalid, "template and comment delimiters must be different").WithRetryable(apierror.False)
-
-	ErrEmptyExtensions = apierror.New(apierror.Invalid, "template extensions cannot be empty").WithRetryable(apierror.False)
-)
-
 func NewUnsupportedKindError(kind string) apierror.Error {
 	return apierror.New(apierror.Invalid, fmt.Sprintf("unsupported entry kind: %s", kind)).
 		WithRetryable(apierror.False).

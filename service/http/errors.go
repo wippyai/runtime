@@ -20,16 +20,6 @@ var (
 	ErrMountPathCannotBeEmpty          = apierror.New(apierror.Invalid, "mount path cannot be empty").WithRetryable(apierror.False)
 	ErrServerAddressChangeWhileRunning = apierror.New(apierror.Conflict, "cannot change server address while running").WithRetryable(apierror.False)
 	ErrServerHostNotInitialized        = apierror.New(apierror.Internal, "server host not initialized").WithRetryable(apierror.False)
-	ErrServerIDRequired                = apierror.New(apierror.Invalid, "server ID is required").WithRetryable(apierror.False)
-	ErrAddressRequired                 = apierror.New(apierror.Invalid, "address is required").WithRetryable(apierror.False)
-	ErrInvalidWorkers                  = apierror.New(apierror.Invalid, "workers must be greater than 0").WithRetryable(apierror.False)
-	ErrInvalidReadTimeout              = apierror.New(apierror.Invalid, "read_timeout must be greater than 0").WithRetryable(apierror.False)
-	ErrInvalidWriteTimeout             = apierror.New(apierror.Invalid, "write_timeout must be greater than 0").WithRetryable(apierror.False)
-	ErrEmptyAddr                       = apierror.New(apierror.Invalid, "address cannot be empty").WithRetryable(apierror.False)
-	ErrNilMetadata                     = apierror.New(apierror.Invalid, "metadata cannot be nil").WithRetryable(apierror.False)
-	ErrEmptyFuncName                   = apierror.New(apierror.Invalid, "function name cannot be empty").WithRetryable(apierror.False)
-	ErrEmptyPath                       = apierror.New(apierror.Invalid, "path cannot be empty").WithRetryable(apierror.False)
-	ErrEmptyMethod                     = apierror.New(apierror.Invalid, "method cannot be empty").WithRetryable(apierror.False)
 )
 
 func NewUnsupportedEntryKindError(kind string) apierror.Error {
@@ -48,42 +38,6 @@ func NewServerNotFoundError(id string) apierror.Error {
 	return apierror.New(apierror.NotFound, "server "+id+" not found").
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"id": id}))
-}
-
-func NewInvalidReadTimeoutError(cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid read_timeout duration format").WithCause(cause).WithRetryable(apierror.False)
-}
-
-func NewInvalidWriteTimeoutError(cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid write_timeout duration format").WithCause(cause).WithRetryable(apierror.False)
-}
-
-func NewDecodeConfigError(cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, "failed to decode config").WithCause(cause).WithRetryable(apierror.False)
-}
-
-func NewInvalidDurationError(field string, cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid "+field+" duration format").WithCause(cause).WithRetryable(apierror.False)
-}
-
-func NewInvalidTimeoutConfigError(cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid timeout config").WithCause(cause).WithRetryable(apierror.False)
-}
-
-func NewInvalidTimeoutError(field string) apierror.Error {
-	return apierror.New(apierror.Invalid, field+" must be greater than 0").WithRetryable(apierror.False)
-}
-
-func NewNegativeConfigError(field string) apierror.Error {
-	return apierror.New(apierror.Invalid, field+" cannot be negative").WithRetryable(apierror.False)
-}
-
-func NewMissingMetadataError(field string) apierror.Error {
-	return apierror.New(apierror.Invalid, "missing metadata field: "+field).WithRetryable(apierror.False)
-}
-
-func NewPathMustStartWithSlashError() apierror.Error {
-	return apierror.New(apierror.Invalid, "path must start with /").WithRetryable(apierror.False)
 }
 
 func NewInvalidHTTPMethodError(method string) apierror.Error {

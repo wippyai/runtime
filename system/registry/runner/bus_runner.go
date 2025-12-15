@@ -279,12 +279,3 @@ func stateMapToSlice(sm registry.StateMap) registry.State {
 	}
 	return slice
 }
-
-// copyStateMap creates a shallow copy of a StateMap
-func copyStateMap(sm registry.StateMap) registry.StateMap {
-	newMap := make(registry.StateMap, len(sm))
-	for k, v := range sm {
-		newMap[k] = v
-	}
-	return newMap
-}
