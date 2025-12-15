@@ -74,7 +74,7 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 		info := mod.Info()
 		node := &Node{
 			ID:     registry.NewID("", info.Name),
-			Kind:   api.Module,
+			Kind:   api.ModuleKind,
 			Module: mod,
 		}
 

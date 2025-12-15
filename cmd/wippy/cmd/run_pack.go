@@ -175,6 +175,7 @@ func runFromPack(_ *cobra.Command, args []string) error {
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	supervisorapi.SetSignalChannel(ctx, sigChan)
 
 	appCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -221,9 +222,6 @@ func runFromPack(_ *cobra.Command, args []string) error {
 	if !silentLogs {
 		logger.Info("runtime ready")
 	}
-
-	// Store signal channel for system.exit()
-	supervisorapi.SetSignalChannel(ctx, sigChan)
 
 	sig := <-sigChan
 	logger.Info("received shutdown signal", zap.String("signal", sig.String()))

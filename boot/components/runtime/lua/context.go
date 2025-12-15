@@ -28,7 +28,7 @@ func AddModules(ctx context.Context, cm *code.Manager, modules ...luaapi.Module)
 	for _, mod := range modules {
 		node := code.Node{
 			ID:     registry.NewID("", mod.Info().Name),
-			Kind:   luaapi.Module,
+			Kind:   luaapi.ModuleKind,
 			Module: mod,
 		}
 		if err := cm.AddNode(ctx, node, nil); err != nil {

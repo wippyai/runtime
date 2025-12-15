@@ -67,29 +67,26 @@ func TestAppContext_WriteOnce(t *testing.T) {
 	ac.With("key1", "value2")
 }
 
-func TestAppContext_ConcurrentAccess(t *testing.T) {
+func TestAppContext_ConcurrentReadsAfterSeal(t *testing.T) {
 	ac := NewAppContext()
+
+	// Sequential writes during boot (single-threaded)
+	for i := 0; i < 100; i++ {
+		ac.With(i, i*2)
+	}
+
+	// Seal the context
+	ac.Seal()
 
 	var wg sync.WaitGroup
 
-	// Concurrent writes to different keys
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
-		go func(n int) {
-			defer wg.Done()
-			ac.With(n, n*2)
-		}(i)
-	}
-
-	wg.Wait()
-
-	// Concurrent reads
+	// Concurrent reads after seal
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
 			val := ac.Get(n)
-			if val != nil && val != n*2 {
+			if val != n*2 {
 				t.Errorf("Get(%d) = %v, want %d", n, val, n*2)
 			}
 		}(i)

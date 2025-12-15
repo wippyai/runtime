@@ -58,7 +58,7 @@ func (m *Manager) Cancel(_ context.Context, from, pidArg pid.PID, deadline time.
 		return api.NewHostNotFoundError(pidArg.Host)
 	}
 
-	if err := relayHost.Send(topology.Cancel(from, pidArg, deadline)); err != nil {
+	if err := relayHost.Send(topology.CancelPackage(from, pidArg, deadline)); err != nil {
 		m.logger.Error("failed to send cancel",
 			zap.String("pid", pidArg.String()),
 			zap.Error(err))

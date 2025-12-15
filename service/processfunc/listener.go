@@ -255,7 +255,7 @@ func (h *processHandler) Call(ctx context.Context, task runtime.Task) (*runtime.
 			// Context canceled - release monitor and send cancel
 			_ = h.topo.Demonitor(callerPID, processPID)
 
-			if err := h.node.Send(topapi.Cancel(
+			if err := h.node.Send(topapi.CancelPackage(
 				callerPID,
 				processPID,
 				time.Now().Add(DefaultCancelTimeout),

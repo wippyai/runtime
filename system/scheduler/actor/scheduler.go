@@ -134,7 +134,7 @@ func (s *Scheduler) Stop(ctx context.Context) {
 	// Wake idle/blocked processors so they process the cancel.
 	s.byPID.Range(func(_, value any) bool {
 		proc := value.(*Processor)
-		pkg := topology.Cancel(pid.PID{}, proc.pid, deadline)
+		pkg := topology.CancelPackage(pid.PID{}, proc.pid, deadline)
 		proc.queue.PushDirect(process.Event{
 			Type: process.EventMessage,
 			Data: pkg,

@@ -101,7 +101,7 @@ func TestTransition_BytecodeFunctionManager(t *testing.T) {
 	id := registry.NewID("test", "bytecode_func")
 	node := code.Node{
 		ID:     id,
-		Kind:   luaapi.KindFunctionBytecode,
+		Kind:   luaapi.FunctionBytecode,
 		Method: "main",
 	}
 	if err := cm.AddNodeWithProto(context.Background(), node, nil, proto); err != nil {
@@ -184,7 +184,7 @@ func TestTransition_WorkflowManager_FailsWithDeniedID(t *testing.T) {
 	forbiddenID := registry.NewID("", "forbidden_lib")
 	forbiddenNode := code.Node{
 		ID:     forbiddenID,
-		Kind:   luaapi.KindLibrary,
+		Kind:   luaapi.Library,
 		Source: `return { value = "forbidden" }`,
 	}
 	if err := cm.AddNode(context.Background(), forbiddenNode, nil); err != nil {
@@ -195,7 +195,7 @@ func TestTransition_WorkflowManager_FailsWithDeniedID(t *testing.T) {
 	id := registry.NewID("test", "workflow_forbidden")
 	node := code.Node{
 		ID:     id,
-		Kind:   luaapi.KindFunction,
+		Kind:   luaapi.Function,
 		Source: `local lib = require("forbidden_lib"); return function() return lib end`,
 		Method: "main",
 	}

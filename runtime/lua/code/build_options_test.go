@@ -100,7 +100,7 @@ func TestBuildOptions_WithMethods(t *testing.T) {
 	assert.True(t, containsString(opts4.AllowedClasses, luaapi.ClassEncoding))
 }
 
-// mockModule implements luaapi.Module for testing
+// mockModule implements luaapi.ModuleV2 for testing
 type mockModule struct {
 	name    string
 	classes []string
@@ -136,7 +136,7 @@ func TestBuildOptions_ClassFiltering(t *testing.T) {
 			WithDeniedClasses(luaapi.ClassNetwork)
 
 		nodes := map[registry.ID]*Node{
-			netModID: {ID: netModID, Kind: luaapi.KindModule, Module: netModule},
+			netModID: {ID: netModID, Kind: luaapi.ModuleKind, Module: netModule},
 		}
 
 		err := opts.Validate(nodes)
@@ -149,7 +149,7 @@ func TestBuildOptions_ClassFiltering(t *testing.T) {
 			WithDeniedClasses(luaapi.ClassNetwork, luaapi.ClassIO)
 
 		nodes := map[registry.ID]*Node{
-			ioModID: {ID: ioModID, Kind: luaapi.KindModule, Module: ioModule},
+			ioModID: {ID: ioModID, Kind: luaapi.ModuleKind, Module: ioModule},
 		}
 
 		err := opts.Validate(nodes)
@@ -162,7 +162,7 @@ func TestBuildOptions_ClassFiltering(t *testing.T) {
 			WithAllowedClasses(luaapi.ClassDeterministic)
 
 		nodes := map[registry.ID]*Node{
-			deterministicModID: {ID: deterministicModID, Kind: luaapi.KindModule, Module: deterministicModule},
+			deterministicModID: {ID: deterministicModID, Kind: luaapi.ModuleKind, Module: deterministicModule},
 		}
 
 		err := opts.Validate(nodes)
@@ -174,7 +174,7 @@ func TestBuildOptions_ClassFiltering(t *testing.T) {
 			WithAllowedClasses(luaapi.ClassDeterministic)
 
 		nodes := map[registry.ID]*Node{
-			netModID: {ID: netModID, Kind: luaapi.KindModule, Module: netModule},
+			netModID: {ID: netModID, Kind: luaapi.ModuleKind, Module: netModule},
 		}
 
 		err := opts.Validate(nodes)
@@ -187,8 +187,8 @@ func TestBuildOptions_ClassFiltering(t *testing.T) {
 			WithDeniedClasses(luaapi.ClassNetwork)
 
 		nodes := map[registry.ID]*Node{
-			deterministicModID: {ID: deterministicModID, Kind: luaapi.KindModule, Module: deterministicModule},
-			ioModID:            {ID: ioModID, Kind: luaapi.KindModule, Module: ioModule},
+			deterministicModID: {ID: deterministicModID, Kind: luaapi.ModuleKind, Module: deterministicModule},
+			ioModID:            {ID: ioModID, Kind: luaapi.ModuleKind, Module: ioModule},
 		}
 
 		err := opts.Validate(nodes)
@@ -201,7 +201,7 @@ func TestBuildOptions_ClassFiltering(t *testing.T) {
 
 		funcID := registry.NewID("", "some_func")
 		nodes := map[registry.ID]*Node{
-			funcID: {ID: funcID, Kind: luaapi.KindFunction, Source: "return 1"},
+			funcID: {ID: funcID, Kind: luaapi.Function, Source: "return 1"},
 		}
 
 		err := opts.Validate(nodes)

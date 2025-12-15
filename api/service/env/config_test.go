@@ -17,11 +17,11 @@ func TestKindConstants(t *testing.T) {
 		kind     registry.Kind
 		expected string
 	}{
-		{"storage memory", KindStorageMemory, "env.storage.memory"},
-		{"storage file", KindStorageFile, "env.storage.file"},
-		{"storage os", KindStorageOS, "env.storage.os"},
-		{"storage router", KindStorageRouter, "env.storage.router"},
-		{"variable", KindVariable, "env.variable"},
+		{"storage memory", StorageMemory, "env.storage.memory"},
+		{"storage file", StorageFile, "env.storage.file"},
+		{"storage os", StorageOS, "env.storage.os"},
+		{"storage router", StorageRouter, "env.storage.router"},
+		{"variable", Variable, "env.variable"},
 	}
 
 	for _, tt := range tests {

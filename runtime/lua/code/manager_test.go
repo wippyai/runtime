@@ -102,7 +102,7 @@ func TestManager_Transaction(t *testing.T) {
 	// Add a node during transaction
 	node := Node{
 		ID:     registry.NewID("", "testTx"),
-		Kind:   api.KindFunction,
+		Kind:   api.Function,
 		Source: "function test() return 'hello' end",
 		Method: "test",
 	}
@@ -137,7 +137,7 @@ func TestManager_AddNode(t *testing.T) {
 			name: "Add node without dependencies",
 			node: Node{
 				ID:     registry.NewID("", "test1"),
-				Kind:   api.KindFunction,
+				Kind:   api.Function,
 				Source: "function test1() return 'hello' end",
 				Method: "test1",
 			},
@@ -148,7 +148,7 @@ func TestManager_AddNode(t *testing.T) {
 			name: "Add node with dependencies",
 			node: Node{
 				ID:     registry.NewID("", "test2"),
-				Kind:   api.KindFunction,
+				Kind:   api.Function,
 				Source: "function test2() return 'hello' end",
 				Method: "test2",
 			},
@@ -164,7 +164,7 @@ func TestManager_AddNode(t *testing.T) {
 			name: "Add duplicate node",
 			node: Node{
 				ID:     registry.NewID("", "test1"),
-				Kind:   api.KindFunction,
+				Kind:   api.Function,
 				Source: "function test1() return 'hello' end",
 				Method: "test1",
 			},
@@ -175,7 +175,7 @@ func TestManager_AddNode(t *testing.T) {
 			name: "Add node with non-existent dependency",
 			node: Node{
 				ID:     registry.NewID("", "test3"),
-				Kind:   api.KindFunction,
+				Kind:   api.Function,
 				Source: "function test3() return 'hello' end",
 				Method: "test3",
 			},
@@ -219,7 +219,7 @@ func TestManager_UpdateNode(t *testing.T) {
 	// Add initial node
 	node := Node{
 		ID:     registry.NewID("", "testUpdate"),
-		Kind:   api.KindFunction,
+		Kind:   api.Function,
 		Source: "function test() return 'hello' end",
 		Method: "test",
 	}
@@ -236,7 +236,7 @@ func TestManager_UpdateNode(t *testing.T) {
 			name: "Update node content",
 			node: Node{
 				ID:     registry.NewID("", "testUpdate"),
-				Kind:   api.KindFunction,
+				Kind:   api.Function,
 				Source: "function test() return 'world' end",
 				Method: "test",
 			},
@@ -247,7 +247,7 @@ func TestManager_UpdateNode(t *testing.T) {
 			name: "Update node dependencies",
 			node: Node{
 				ID:     registry.NewID("", "testUpdate"),
-				Kind:   api.KindFunction,
+				Kind:   api.Function,
 				Source: "function test() return 'world' end",
 				Method: "test",
 			},
@@ -263,7 +263,7 @@ func TestManager_UpdateNode(t *testing.T) {
 			name: "Update non-existent node",
 			node: Node{
 				ID:     registry.NewID("", "nonExistentUpdate"),
-				Kind:   api.KindFunction,
+				Kind:   api.Function,
 				Source: "function test() return 'world' end",
 				Method: "test",
 			},
@@ -298,7 +298,7 @@ func TestManager_DeleteNode(t *testing.T) {
 	// Add a node
 	node := Node{
 		ID:     registry.NewID("", "testDelete"),
-		Kind:   api.KindFunction,
+		Kind:   api.Function,
 		Source: "function test() return 'hello' end",
 		Method: "test",
 	}
@@ -346,7 +346,7 @@ func TestManager_Compile(t *testing.T) {
 	// Add a node
 	node := Node{
 		ID:     registry.NewID("", "testCompile"),
-		Kind:   api.KindFunction,
+		Kind:   api.Function,
 		Source: "function test() return 'hello' end",
 		Method: "test",
 	}
@@ -413,7 +413,7 @@ func TestManager_AddNodeWithProto(t *testing.T) {
 			name: "Add node with proto",
 			node: Node{
 				ID:     registry.NewID("", "bytecodeTest1"),
-				Kind:   api.KindFunctionBytecode,
+				Kind:   api.FunctionBytecode,
 				Method: "handler",
 			},
 			deps:      nil,
@@ -424,7 +424,7 @@ func TestManager_AddNodeWithProto(t *testing.T) {
 			name: "Add node with proto and nil proto",
 			node: Node{
 				ID:     registry.NewID("", "bytecodeTest2"),
-				Kind:   api.KindFunctionBytecode,
+				Kind:   api.FunctionBytecode,
 				Method: "handler",
 			},
 			deps:      nil,
@@ -435,7 +435,7 @@ func TestManager_AddNodeWithProto(t *testing.T) {
 			name: "Add duplicate node fails",
 			node: Node{
 				ID:     registry.NewID("", "bytecodeTest1"),
-				Kind:   api.KindFunctionBytecode,
+				Kind:   api.FunctionBytecode,
 				Method: "handler",
 			},
 			deps:      nil,
@@ -477,7 +477,7 @@ func TestManager_UpdateNodeWithProto(t *testing.T) {
 	// Add initial node
 	node := Node{
 		ID:     registry.NewID("", "bytecodeUpdate"),
-		Kind:   api.KindFunctionBytecode,
+		Kind:   api.FunctionBytecode,
 		Method: "handler",
 	}
 	err = cm.AddNodeWithProto(context.Background(), node, nil, proto)
@@ -494,7 +494,7 @@ func TestManager_UpdateNodeWithProto(t *testing.T) {
 			name: "Update node with new proto",
 			node: Node{
 				ID:     registry.NewID("", "bytecodeUpdate"),
-				Kind:   api.KindFunctionBytecode,
+				Kind:   api.FunctionBytecode,
 				Method: "newHandler",
 			},
 			deps:      nil,
@@ -505,7 +505,7 @@ func TestManager_UpdateNodeWithProto(t *testing.T) {
 			name: "Update non-existent node fails",
 			node: Node{
 				ID:     registry.NewID("", "nonExistentBytecode"),
-				Kind:   api.KindFunctionBytecode,
+				Kind:   api.FunctionBytecode,
 				Method: "handler",
 			},
 			deps:      nil,
@@ -546,7 +546,7 @@ func TestManager_AddNodeWithProto_CompileUsesProto(t *testing.T) {
 
 	node := Node{
 		ID:     registry.NewID("", "bytecodeCompileTest"),
-		Kind:   api.KindFunctionBytecode,
+		Kind:   api.FunctionBytecode,
 		Method: "execute",
 	}
 

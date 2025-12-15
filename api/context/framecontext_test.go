@@ -145,32 +145,33 @@ func TestFrameContext_ScopeInheritance(t *testing.T) {
 	}
 }
 
-func TestFrameContext_ConcurrentAccess(t *testing.T) {
+func TestFrameContext_ConcurrentReadsAfterSeal(t *testing.T) {
 	_, cc := newFrameContext(context.Background())
+
+	// Create keys upfront
+	keys := make([]*Key, 100)
+	for i := 0; i < 100; i++ {
+		keys[i] = &Key{Name: "test.key" + string(rune(i))}
+	}
+
+	// Sequential writes during setup (single-threaded)
+	for i := 0; i < 100; i++ {
+		_ = cc.Set(keys[i], i*2)
+	}
+
+	// Seal before concurrent access
+	cc.Seal()
 
 	var wg sync.WaitGroup
 
-	// Concurrent writes to different keys
+	// Concurrent reads after seal
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			key := &Key{Name: "test.key" + string(rune(n))}
-			_ = cc.Set(key, n*2)
-		}(i)
-	}
-
-	wg.Wait()
-
-	// Concurrent reads
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
-		go func(n int) {
-			defer wg.Done()
-			key := &Key{Name: "test.key" + string(rune(n))}
-			val, ok := cc.Get(key)
-			if ok && val != n*2 {
-				t.Errorf("Get(key%d) = %v, want %d", n, val, n*2)
+			val, ok := cc.Get(keys[n])
+			if !ok || val != n*2 {
+				t.Errorf("Get(key%d) = %v, %v, want %d, true", n, val, ok, n*2)
 			}
 		}(i)
 	}

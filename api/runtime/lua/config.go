@@ -19,8 +19,8 @@ const (
 	// Library identifies a Lua library component in the registry
 	Library registry.Kind = "library.lua"
 
-	// Module identifies a Lua module component in the registry
-	Module registry.Kind = "module.lua"
+	// ModuleKind identifies a Lua module component in the registry
+	ModuleKind registry.Kind = "module.lua"
 
 	// Bytecode kinds - precompiled Lua loaded from filesystem
 	FunctionBytecode registry.Kind = "function.lua.bc"

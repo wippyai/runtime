@@ -64,7 +64,7 @@ func addTestFunction(t *testing.T, cm *code.Manager, id registry.ID, source stri
 	t.Helper()
 	node := code.Node{
 		ID:     id,
-		Kind:   luaapi.KindFunction,
+		Kind:   luaapi.Function,
 		Source: source,
 		Method: "main",
 	}

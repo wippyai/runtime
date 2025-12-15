@@ -17,11 +17,11 @@ func TestKindConstants(t *testing.T) {
 		kind     registry.Kind
 		expected string
 	}{
-		{"postgres", KindPostgres, "db.sql.postgres"},
-		{"mysql", KindMySQL, "db.sql.mysql"},
-		{"sqlite", KindSQLite, "db.sql.sqlite"},
-		{"mssql", KindMSSQL, "db.sql.mssql"},
-		{"oracle", KindOracle, "db.sql.oracle"},
+		{"postgres", Postgres, "db.sql.postgres"},
+		{"mysql", MySQL, "db.sql.mysql"},
+		{"sqlite", SQLite, "db.sql.sqlite"},
+		{"mssql", MSSQL, "db.sql.mssql"},
+		{"oracle", Oracle, "db.sql.oracle"},
 	}
 
 	for _, tt := range tests {

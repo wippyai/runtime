@@ -160,9 +160,9 @@ type (
 	}
 )
 
-// Cancel creates a package for requesting cancellation of a process.
+// CancelPackage creates a package for requesting cancellation of a process.
 // The package is sent to the target process with a specified deadline.
-func Cancel(from, to pid.PID, deadline time.Time) *relay.Package {
+func CancelPackage(from, to pid.PID, deadline time.Time) *relay.Package {
 	return relay.NewPackage(
 		SystemPID,
 		to,
@@ -176,8 +176,8 @@ func Cancel(from, to pid.PID, deadline time.Time) *relay.Package {
 	)
 }
 
-// MonitorRequest creates a package for requesting monitoring of a remote PID.
-func MonitorRequest(caller, target pid.PID) *relay.Package {
+// MonitorRequestPackage creates a package for requesting monitoring of a remote PID.
+func MonitorRequestPackage(caller, target pid.PID) *relay.Package {
 	return relay.NewPackage(
 		caller,
 		target,
@@ -191,8 +191,8 @@ func MonitorRequest(caller, target pid.PID) *relay.Package {
 	)
 }
 
-// MonitorRelease creates a package for releasing monitoring of a remote PID.
-func MonitorRelease(caller, target pid.PID) *relay.Package {
+// MonitorReleasePackage creates a package for releasing monitoring of a remote PID.
+func MonitorReleasePackage(caller, target pid.PID) *relay.Package {
 	return relay.NewPackage(
 		caller,
 		target,
@@ -206,8 +206,8 @@ func MonitorRelease(caller, target pid.PID) *relay.Package {
 	)
 }
 
-// LinkRequest creates a package for requesting a link with a remote PID.
-func LinkRequest(from, to pid.PID) *relay.Package {
+// LinkRequestPackage creates a package for requesting a link with a remote PID.
+func LinkRequestPackage(from, to pid.PID) *relay.Package {
 	return relay.NewPackage(
 		from,
 		to,
@@ -221,8 +221,8 @@ func LinkRequest(from, to pid.PID) *relay.Package {
 	)
 }
 
-// UnlinkRequest creates a package for requesting unlinking from a remote PID.
-func UnlinkRequest(from, to pid.PID) *relay.Package {
+// UnlinkRequestPackage creates a package for requesting unlinking from a remote PID.
+func UnlinkRequestPackage(from, to pid.PID) *relay.Package {
 	return relay.NewPackage(
 		from,
 		to,

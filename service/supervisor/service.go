@@ -126,8 +126,7 @@ func (svc *Service) Stop(ctx context.Context) error {
 		return ErrNoRelayNode
 	}
 
-	deadline := time.Now().Add(svc.config.Lifecycle.StopTimeout)
-	cancelPkg := topologyapi.Cancel(svc.supervisorPID, svc.childPID, deadline)
+	cancelPkg := topologyapi.CancelPackage(svc.supervisorPID, svc.childPID, time.Now().Add(svc.config.Lifecycle.StopTimeout))
 	if err := node.Send(cancelPkg); err != nil {
 		return newSendCancelError(err)
 	}

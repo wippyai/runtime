@@ -13,7 +13,7 @@ import (
 )
 
 func TestKindConstant(t *testing.T) {
-	assert.Equal(t, "process.host", KindHost)
+	assert.Equal(t, "process.host", Host)
 }
 
 func TestConfig_MarshalUnmarshal(t *testing.T) {

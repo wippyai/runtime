@@ -878,13 +878,13 @@ func isLinkDownEvent(payloads []payload.Payload) bool {
 
 	// Type assertion for ExitEvent
 	if event, ok := data.(*topology.ExitEvent); ok {
-		return event.Kind == topology.KindLinkDown
+		return event.Kind == topology.LinkDown
 	}
 
 	// Also check if it's a map (json decoded)
 	if m, ok := data.(map[string]any); ok {
 		if kind, ok := m["kind"].(string); ok {
-			return kind == topology.KindLinkDown
+			return kind == topology.LinkDown
 		}
 	}
 

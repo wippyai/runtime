@@ -122,6 +122,11 @@ func runApp(cmd *cobra.Command, args []string) error {
 	}
 	logger.Info("components loaded successfully")
 
+	// Setup signal channel before Start() seals AppContext
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	supervisorapi.SetSignalChannel(ctx, sigChan)
+
 	err = loader.Start(ctx)
 	if err != nil {
 		logger.Error("start failed", zap.Error(err))
@@ -136,12 +141,6 @@ func runApp(cmd *cobra.Command, args []string) error {
 	if !silentLogs {
 		logger.Info("runtime ready")
 	}
-
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	// Store signal channel for system.exit()
-	supervisorapi.SetSignalChannel(ctx, sigChan)
 
 	// Handle --exec flag: launch process and wait for completion
 	execSpec, _ := cmd.Flags().GetString("exec")

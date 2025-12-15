@@ -17,8 +17,8 @@ func TestKindConstants(t *testing.T) {
 		kind     registry.Kind
 		expected string
 	}{
-		{"definition", KindDefinition, "contract.definition"},
-		{"binding", KindBinding, "contract.binding"},
+		{"definition", Definition, "contract.definition"},
+		{"binding", Binding, "contract.binding"},
 	}
 
 	for _, tt := range tests {

@@ -63,7 +63,7 @@ func TestCompiler_ModuleNotCompiled(t *testing.T) {
 
 	moduleNode := &Node{
 		ID:     registry.NewID("", "moduleNotCompiled"),
-		Kind:   lua.Module,
+		Kind:   lua.ModuleKind,
 		Module: &dummyModule{name: "test"},
 	}
 
@@ -93,7 +93,7 @@ func TestCompiler_MixedDependencies(t *testing.T) {
 	}
 	moduleNode := &Node{
 		ID:     registry.NewID("", "module"),
-		Kind:   lua.Module,
+		Kind:   lua.ModuleKind,
 		Module: &dummyModule{name: "test"},
 	}
 
@@ -114,7 +114,7 @@ func TestCompiler_MixedDependencies(t *testing.T) {
 	// Verify one dependency is compiled and one is not
 	var foundCompiledDep, foundModule bool
 	for _, dep := range compiled.Dependencies {
-		if dep.Node.Kind == lua.Module {
+		if dep.Node.Kind == lua.ModuleKind {
 			assert.Nil(t, dep.Proto)
 			foundModule = true
 		} else {
@@ -193,7 +193,7 @@ func TestCompiler_PreloadedDependencies(t *testing.T) {
 
 	preloadedModule := &Node{
 		ID:     registry.NewID("", "preloadedModule"),
-		Kind:   lua.Module,
+		Kind:   lua.ModuleKind,
 		Module: &dummyModule{name: "preloaded"},
 	}
 
@@ -278,7 +278,7 @@ func TestCompiler_GetCompiledProto(t *testing.T) {
 			name: "Module node should return error",
 			node: &Node{
 				ID:   registry.NewID("", "moduleNode"),
-				Kind: lua.Module,
+				Kind: lua.ModuleKind,
 			},
 			compileFn:     func(*Node) (*glua.FunctionProto, error) { return &glua.FunctionProto{}, nil },
 			expectedProto: nil,
@@ -422,7 +422,7 @@ func TestCompiler_PreloadModule(t *testing.T) {
 	// Add a module node
 	module := &Node{
 		ID:     registry.NewID("", "testModulePreload"),
-		Kind:   lua.Module,
+		Kind:   lua.ModuleKind,
 		Module: &testModule{name: "test"},
 	}
 	require.NoError(t, mg.AddNode(module))

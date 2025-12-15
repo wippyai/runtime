@@ -39,13 +39,13 @@ func TestKindConstants(t *testing.T) {
 		kind     Kind
 		expected string
 	}{
-		{"cancel", KindCancel, "pid.cancel"},
-		{"exit", KindExit, "pid.exit"},
-		{"link down", KindLinkDown, "pid.link.down"},
-		{"monitor request", KindMonitorRequest, "pid.monitor.request"},
-		{"monitor release", KindMonitorRelease, "pid.monitor.release"},
-		{"link request", KindLinkRequest, "pid.link.request"},
-		{"unlink request", KindUnlinkRequest, "pid.unlink.request"},
+		{"cancel", Cancel, "pid.cancel"},
+		{"exit", Exit, "pid.exit"},
+		{"link down", LinkDown, "pid.link.down"},
+		{"monitor request", MonitorRequest, "pid.monitor.request"},
+		{"monitor release", MonitorRelease, "pid.monitor.release"},
+		{"link request", LinkRequest, "pid.link.request"},
+		{"unlink request", UnlinkRequest, "pid.unlink.request"},
 	}
 
 	for _, tt := range tests {
@@ -126,7 +126,7 @@ func TestExitEvent_Marshal(t *testing.T) {
 
 	event := ExitEvent{
 		At:   now,
-		Kind: KindExit,
+		Kind: Exit,
 		From: pid.PID{UniqID: "pid-123"},
 		Result: &runtime.Result{
 			Value: payload.New("result data"),
@@ -145,7 +145,7 @@ func TestCancelEvent_Marshal(t *testing.T) {
 
 	event := CancelEvent{
 		At:       now,
-		Kind:     KindCancel,
+		Kind:     Cancel,
 		From:     pid.PID{UniqID: "pid-123"},
 		Deadline: deadline,
 	}
@@ -160,7 +160,7 @@ func TestCancel(t *testing.T) {
 	to := pid.PID{UniqID: "to-pid"}
 	deadline := time.Now().Add(10 * time.Second)
 
-	pkg := Cancel(from, to, deadline)
+	pkg := CancelPackage(from, to, deadline)
 
 	assert.NotNil(t, pkg)
 	assert.Equal(t, to, pkg.Target)
@@ -172,7 +172,7 @@ func TestCancel(t *testing.T) {
 	require.Len(t, pkg.Messages[0].Payloads, 1)
 	event, ok := pkg.Messages[0].Payloads[0].Data().(*CancelEvent)
 	require.True(t, ok)
-	assert.Equal(t, KindCancel, event.Kind)
+	assert.Equal(t, Cancel, event.Kind)
 	assert.Equal(t, from.UniqID, event.From.UniqID)
 	assert.WithinDuration(t, deadline, event.Deadline, time.Second)
 }

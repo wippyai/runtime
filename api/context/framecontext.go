@@ -14,14 +14,14 @@ type FrameContext interface {
 	// Get retrieves a value by key.
 	Get(key any) (any, bool)
 
+	// Has checks if a key exists in this context.
+	Has(key any) bool
+
 	// Set stores a value by key. Returns error if sealed.
 	Set(key any, value any) error
 
 	// SetMultiple stores multiple key-value pairs. Returns error if sealed.
 	SetMultiple(pairs ...Pair) error
-
-	// Has checks if a key exists in this context.
-	Has(key any) bool
 
 	// Iterate calls fn for each key-value pair.
 	Iterate(fn func(key any, value any))

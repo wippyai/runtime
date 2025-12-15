@@ -177,7 +177,7 @@ func (t *Topology) Monitor(caller, target pid.PID) error {
 		}
 		callerSh.mu.Unlock()
 
-		pkg := topology.MonitorRequest(caller, target)
+		pkg := topology.MonitorRequestPackage(caller, target)
 		if err := t.router.Send(pkg); err != nil {
 			return err
 		}
@@ -293,7 +293,7 @@ func (t *Topology) Demonitor(caller, target pid.PID) error {
 
 	// Remote demonitoring
 	if target.Node != "" && target.Node != t.localNodeID {
-		pkg := topology.MonitorRelease(caller, target)
+		pkg := topology.MonitorReleasePackage(caller, target)
 		if err := t.router.Send(pkg); err != nil {
 			return err
 		}
@@ -351,7 +351,7 @@ func (t *Topology) Link(from, to pid.PID) error {
 		}
 		fromSh.mu.Unlock()
 
-		pkg := topology.LinkRequest(from, to)
+		pkg := topology.LinkRequestPackage(from, to)
 		if err := t.router.Send(pkg); err != nil {
 			return err
 		}
@@ -474,7 +474,7 @@ func (t *Topology) Unlink(from, to pid.PID) error {
 
 	// Remote unlinking
 	if to.Node != "" && to.Node != t.localNodeID {
-		pkg := topology.UnlinkRequest(from, to)
+		pkg := topology.UnlinkRequestPackage(from, to)
 		if err := t.router.Send(pkg); err != nil {
 			return err
 		}

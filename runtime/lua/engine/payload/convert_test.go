@@ -293,7 +293,7 @@ func TestGoToLuaExtended(t *testing.T) {
 		{
 			name: "cancel event",
 			input: topology.CancelEvent{
-				Kind: topology.KindCancel,
+				Kind: topology.Cancel,
 				At:   fixedTime,
 				From: pid.PID{
 					Node:   "node",
