@@ -6,7 +6,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
-var supervisorCtxKey = &ctxapi.Key{Name: "supervisor.supervisorCtxKey"}
+var supervisorKey = &ctxapi.Key{Name: "supervisor"}
 
 // GetSupervisor retrieves the supervisor from the context.
 // Returns the supervisor as interface{} to avoid import cycles.
@@ -16,7 +16,7 @@ func GetSupervisor(ctx context.Context) interface{} {
 	if ac == nil {
 		return nil
 	}
-	return ac.Get(supervisorCtxKey)
+	return ac.Get(supervisorKey)
 }
 
 // WithSupervisor stores the supervisor in the context.
@@ -25,8 +25,8 @@ func WithSupervisor(ctx context.Context, supervisor interface{}) context.Context
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(supervisorCtxKey) == nil {
-		ac.With(supervisorCtxKey, supervisor)
+	if ac.Get(supervisorKey) == nil {
+		ac.With(supervisorKey, supervisor)
 	}
 	return ctx
 }

@@ -7,7 +7,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
-var configCtxKey = &ctxapi.Key{Name: "boot.config"}
+var configKey = &ctxapi.Key{Name: "boot.config"}
 
 // WithConfig attaches Config to AppContext.
 func WithConfig(ctx context.Context, cfg Config) context.Context {
@@ -15,8 +15,8 @@ func WithConfig(ctx context.Context, cfg Config) context.Context {
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(configCtxKey) == nil {
-		ac.With(configCtxKey, cfg)
+	if ac.Get(configKey) == nil {
+		ac.With(configKey, cfg)
 	}
 	return ctx
 }
@@ -28,7 +28,7 @@ func GetConfig(ctx context.Context) Config {
 	if ac == nil {
 		return nil
 	}
-	if cfg := ac.Get(configCtxKey); cfg != nil {
+	if cfg := ac.Get(configKey); cfg != nil {
 		if c, ok := cfg.(Config); ok {
 			return c
 		}

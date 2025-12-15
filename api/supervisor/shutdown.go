@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	signalChannelCtxKey = &ctxapi.Key{Name: "supervisor.signalChannelCtxKey"}
+	signalChannelKey = &ctxapi.Key{Name: "supervisor.signal_channel"}
 	// exitCode is stored atomically since it's set at runtime during shutdown
 	exitCode atomic.Int32
 )
@@ -32,7 +32,7 @@ func GetExitCode() int {
 func SetSignalChannel(ctx context.Context, ch chan<- os.Signal) {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac != nil {
-		ac.With(signalChannelCtxKey, ch)
+		ac.With(signalChannelKey, ch)
 	}
 }
 
@@ -41,7 +41,7 @@ func getSignalChannel(ctx context.Context) chan<- os.Signal {
 	if ac == nil {
 		return nil
 	}
-	if ch := ac.Get(signalChannelCtxKey); ch != nil {
+	if ch := ac.Get(signalChannelKey); ch != nil {
 		if c, ok := ch.(chan<- os.Signal); ok {
 			return c
 		}

@@ -21,21 +21,21 @@ var (
 	middlewareRegistry = &ctxapi.Key{Name: "http.middleware_registry"}
 )
 
-// RequestCtxKey returns the context key for HTTP request context.
+// RequestKey returns the context key for HTTP request context.
 // Used when passing request context via Task.Context pairs.
-func RequestCtxKey() *ctxapi.Key {
+func RequestKey() *ctxapi.Key {
 	return requestCtx
 }
 
-// ServerIDCtxKey returns the context key for server ID.
+// ServerIDKey returns the context key for server ID.
 // Used when passing server ID via Task.Context pairs.
-func ServerIDCtxKey() *ctxapi.Key {
+func ServerIDKey() *ctxapi.Key {
 	return serverIDCtx
 }
 
-// ServerCtxKey returns the context key for the HTTP server object.
+// ServerKey returns the context key for the HTTP server object.
 // Used for WebSocket relay attachment.
-func ServerCtxKey() *ctxapi.Key {
+func ServerKey() *ctxapi.Key {
 	return serverCtx
 }
 

@@ -8,7 +8,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 )
 
-var servicesCtxKey = &ctxapi.Key{Name: "supervisor.servicesCtxKey"}
+var servicesKey = &ctxapi.Key{Name: "supervisor.services"}
 
 // ServiceState represents the runtime state of a supervised service.
 type ServiceState struct {
@@ -35,7 +35,7 @@ func GetServiceInfo(ctx context.Context) ServiceInfo {
 	if ac == nil {
 		return nil
 	}
-	if svc := ac.Get(servicesCtxKey); svc != nil {
+	if svc := ac.Get(servicesKey); svc != nil {
 		return svc.(ServiceInfo)
 	}
 	return nil
@@ -47,8 +47,8 @@ func WithServiceInfo(ctx context.Context, info ServiceInfo) context.Context {
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(servicesCtxKey) == nil {
-		ac.With(servicesCtxKey, info)
+	if ac.Get(servicesKey) == nil {
+		ac.With(servicesKey, info)
 	}
 	return ctx
 }

@@ -9,7 +9,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
-var registryCtxKey = &ctxapi.Key{Name: "dispatcher.registry"}
+var registryKey = &ctxapi.Key{Name: "dispatcher.registry"}
 
 type (
 	// CommandID identifies a command type for handler lookup.
@@ -89,7 +89,7 @@ func WithRegistry(ctx context.Context, r Registry) error {
 	if ac == nil {
 		return ctxapi.ErrNoAppContext
 	}
-	ac.With(registryCtxKey, r)
+	ac.With(registryKey, r)
 	return nil
 }
 
@@ -99,7 +99,7 @@ func GetRegistry(ctx context.Context) Registry {
 	if ac == nil {
 		return nil
 	}
-	if r, ok := ac.Get(registryCtxKey).(Registry); ok {
+	if r, ok := ac.Get(registryKey).(Registry); ok {
 		return r
 	}
 	return nil
@@ -111,7 +111,7 @@ func GetRegistrar(ctx context.Context) Registrar {
 	if ac == nil {
 		return nil
 	}
-	if r, ok := ac.Get(registryCtxKey).(Registrar); ok {
+	if r, ok := ac.Get(registryKey).(Registrar); ok {
 		return r
 	}
 	return nil
@@ -123,7 +123,7 @@ func GetDispatcher(ctx context.Context) Dispatcher {
 	if ac == nil {
 		return nil
 	}
-	if d, ok := ac.Get(registryCtxKey).(Dispatcher); ok {
+	if d, ok := ac.Get(registryKey).(Dispatcher); ok {
 		return d
 	}
 	return nil
