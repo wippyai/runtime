@@ -5,6 +5,8 @@ import (
 )
 
 var ErrFileAlreadyClosed = apierror.New(apierror.Invalid, "file already closed").WithRetryable(apierror.False)
+var ErrNullBytePath = apierror.New(apierror.Invalid, "path contains null byte").WithRetryable(apierror.False)
+var ErrPathTraversal = apierror.New(apierror.Invalid, "path traversal not allowed").WithRetryable(apierror.False)
 
 func NewReadError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "read failed").WithCause(cause).WithRetryable(apierror.False)

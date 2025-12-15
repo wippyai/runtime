@@ -211,9 +211,13 @@ func (f *DefaultClientFactory) loadClientCertificate(ctx context.Context, auth a
 }
 
 // configureTLS sets up TLS configuration
-func (f *DefaultClientFactory) configureTLS(config *api.ClientConfig, opts *client.Options) error {
+func (f *DefaultClientFactory) configureTLS(logger *zap.Logger, config *api.ClientConfig, opts *client.Options) error {
 	if config.TLS == nil || !config.TLS.Enabled {
 		return nil
+	}
+
+	if config.TLS.InsecureSkipVerify {
+		logger.Warn("TLS certificate verification is disabled - this is insecure and should only be used for development")
 	}
 
 	tlsConfig := &tls.Config{

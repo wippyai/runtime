@@ -134,12 +134,12 @@ func TestDequeMixedOperations(t *testing.T) {
 	d.Push(&Processor{id: 2})
 	d.Push(&Processor{id: 3})
 
-	if p := d.Pop(); p.id != 3 {
-		t.Fatalf("expected 3, got %d", p.id)
+	if p := d.Pop(); p == nil || p.id != 3 {
+		t.Fatalf("expected 3, got %v", p)
 	}
 
-	if p := d.Steal(); p.id != 1 {
-		t.Fatalf("expected 1, got %d", p.id)
+	if p := d.Steal(); p == nil || p.id != 1 {
+		t.Fatalf("expected 1, got %v", p)
 	}
 
 	d.Push(&Processor{id: 4})

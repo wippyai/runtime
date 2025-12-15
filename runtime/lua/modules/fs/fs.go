@@ -32,9 +32,6 @@ func NewFS(fs fsapi.FS, cwd string) *FS {
 	return &FS{fs: fs, cwd: cwd}
 }
 
-// ErrNullBytePath is returned when a path contains a null byte
-var ErrNullBytePath = fmt.Errorf("path contains null byte")
-
 func (f *FS) resolvePath(p string) (string, error) {
 	if strings.ContainsRune(p, 0) {
 		return "", ErrNullBytePath
@@ -51,6 +48,13 @@ func (f *FS) resolvePath(p string) (string, error) {
 	if res == "" {
 		return ".", nil
 	}
+
+	// Clean and validate path doesn't escape root
+	res = filepath.Clean(res)
+	if res == ".." || strings.HasPrefix(res, "../") || strings.HasPrefix(res, "..\\") {
+		return "", ErrPathTraversal
+	}
+
 	return res, nil
 }
 

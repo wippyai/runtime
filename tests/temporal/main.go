@@ -6,63 +6,77 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
+	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 )
 
-const (
-	workflowQueue = "workflow-queue"
-	activityQueue = "test-queue"
-)
+const taskQueue = "test-queue"
 
 var (
 	hostPort  = flag.String("host", "localhost:7233", "Temporal server host:port")
 	namespace = flag.String("namespace", "default", "Temporal namespace")
-	mode      = flag.String("mode", "run", "Mode: run (execute workflow), worker (start workflow worker only)")
-	input     = flag.String("input", "test-from-go", "Input name for the workflow")
 )
 
-// SimpleWorkflow executes a Lua activity registered by wippy
-func SimpleWorkflow(ctx workflow.Context, name string) (map[string]interface{}, error) {
+// ProcessDataInput is the input for ProcessData activity
+type ProcessDataInput struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// ProcessDataOutput is the output from ProcessData activity
+type ProcessDataOutput struct {
+	Message string `json:"message"`
+	Status  string `json:"status"`
+}
+
+// ProcessData activity processes incoming data
+func ProcessData(ctx context.Context, input ProcessDataInput) (*ProcessDataOutput, error) {
+	info := activity.GetInfo(ctx)
+	log.Printf("[Activity] ProcessData executing: id=%s, name=%s (attempt %d)",
+		input.ID, input.Name, info.Attempt)
+
+	return &ProcessDataOutput{
+		Message: fmt.Sprintf("Processed: id=%s, name=%s", input.ID, input.Name),
+		Status:  "success",
+	}, nil
+}
+
+// EchoActivity returns whatever was sent to it
+func EchoActivity(ctx context.Context, data map[string]interface{}) (map[string]interface{}, error) {
+	log.Printf("[Activity] Echo: %v", data)
+	return data, nil
+}
+
+// SimpleWorkflow executes ProcessData activity
+func SimpleWorkflow(ctx workflow.Context, name string) (*ProcessDataOutput, error) {
 	options := workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
-		TaskQueue:           activityQueue,
 	}
 	ctx = workflow.WithActivityOptions(ctx, options)
 
-	var result map[string]interface{}
-	err := workflow.ExecuteActivity(ctx, "app.test.temporal:process_data", map[string]interface{}{
-		"id":   fmt.Sprintf("wf-%d", workflow.Now(ctx).Unix()),
-		"name": name,
+	var result ProcessDataOutput
+	err := workflow.ExecuteActivity(ctx, ProcessData, ProcessDataInput{
+		ID:   fmt.Sprintf("wf-%d", workflow.Now(ctx).Unix()),
+		Name: name,
 	}).Get(ctx, &result)
-	if err != nil {
-		return nil, err
-	}
 
-	return result, nil
+	return &result, err
 }
 
-// EchoWorkflow tests the echo activity
+// EchoWorkflow executes EchoActivity
 func EchoWorkflow(ctx workflow.Context, data map[string]interface{}) (map[string]interface{}, error) {
 	options := workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
-		TaskQueue:           activityQueue,
 	}
 	ctx = workflow.WithActivityOptions(ctx, options)
 
 	var result map[string]interface{}
-	err := workflow.ExecuteActivity(ctx, "app.test.temporal:echo_activity", data).Get(ctx, &result)
-	if err != nil {
-		return nil, err
-	}
-
-	return result, nil
+	err := workflow.ExecuteActivity(ctx, EchoActivity, data).Get(ctx, &result)
+	return result, err
 }
 
 func main() {
@@ -81,68 +95,37 @@ func main() {
 
 	log.Println("Connected to Temporal")
 
-	switch *mode {
-	case "worker":
-		runWorkerOnly(c)
-	case "run":
-		runWorkflow(c)
-	default:
-		log.Fatalf("Unknown mode: %s (use 'run' or 'worker')", *mode)
-	}
-}
-
-func runWorkerOnly(c client.Client) {
-	w := worker.New(c, workflowQueue, worker.Options{})
+	// Create and start worker
+	w := worker.New(c, taskQueue, worker.Options{})
 	w.RegisterWorkflow(SimpleWorkflow)
 	w.RegisterWorkflow(EchoWorkflow)
+	w.RegisterActivity(ProcessData)
+	w.RegisterActivity(EchoActivity)
 
-	log.Printf("Starting workflow worker on queue: %s", workflowQueue)
-	log.Println("Activities will be handled by wippy on queue:", activityQueue)
-	log.Println("Press Ctrl+C to stop")
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
+	log.Printf("Starting worker on queue: %s", taskQueue)
 	go func() {
 		if err := w.Run(worker.InterruptCh()); err != nil {
 			log.Fatalf("Worker failed: %v", err)
 		}
 	}()
 
-	<-sigCh
-	log.Println("Shutting down...")
-	w.Stop()
-}
+	time.Sleep(500 * time.Millisecond)
 
-func runWorkflow(c client.Client) {
-	w := worker.New(c, workflowQueue, worker.Options{})
-	w.RegisterWorkflow(SimpleWorkflow)
-	w.RegisterWorkflow(EchoWorkflow)
-
-	log.Printf("Starting workflow worker on queue: %s", workflowQueue)
-	go func() {
-		if err := w.Run(worker.InterruptCh()); err != nil {
-			log.Fatalf("Worker failed: %v", err)
-		}
-	}()
-
-	time.Sleep(1 * time.Second)
-
-	workflowID := fmt.Sprintf("temporal-test-%s", time.Now().Format("20060102-150405"))
-	log.Printf("Executing workflow: %s", workflowID)
-	log.Printf("Activity queue: %s (handled by wippy)", activityQueue)
+	// Run test workflow
+	workflowID := fmt.Sprintf("test-%s", time.Now().Format("20060102-150405"))
+	log.Printf("Starting workflow: %s", workflowID)
 
 	we, err := c.ExecuteWorkflow(context.Background(), client.StartWorkflowOptions{
 		ID:        workflowID,
-		TaskQueue: workflowQueue,
-	}, SimpleWorkflow, *input)
+		TaskQueue: taskQueue,
+	}, SimpleWorkflow, "test-input")
 	if err != nil {
 		log.Fatalf("Failed to execute workflow: %v", err)
 	}
 
 	log.Printf("Workflow started - ID: %s, RunID: %s", we.GetID(), we.GetRunID())
 
-	var result map[string]interface{}
+	var result ProcessDataOutput
 	if err := we.Get(context.Background(), &result); err != nil {
 		log.Fatalf("Workflow failed: %v", err)
 	}
@@ -151,4 +134,5 @@ func runWorkflow(c client.Client) {
 	log.Printf("Workflow completed:\n%s", string(resultJSON))
 
 	w.Stop()
+	log.Println("Done")
 }

@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -74,6 +75,11 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 		workDir = e.defaultWD
 	}
 
+	// Clean and validate working directory path
+	if workDir != "" {
+		workDir = filepath.Clean(workDir)
+	}
+
 	// Create a new process executor with the given command and options
 	return NewProcessExecutor(
 		e.log,
@@ -132,7 +138,9 @@ func NewProcessExecutor(log *zap.Logger, opts ...Option) *ProcessExecutor {
 	}
 
 	if e.envs != nil {
-		command.Env = os.Environ()
+		// Use clean environment - only include explicitly configured variables
+		// Do not inherit os.Environ() to prevent LD_PRELOAD, PATH hijacking
+		command.Env = make([]string, 0, len(e.envs))
 		for k, v := range e.envs {
 			command.Env = append(command.Env, k+"="+v)
 		}

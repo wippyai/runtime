@@ -299,8 +299,9 @@ func TestNewFS_WithPermissionAdjustment(t *testing.T) {
 func TestNewFS_InvalidPath(t *testing.T) {
 	// Using a path that should not exist on any system
 	_, err := NewFS("/path/that/cannot/possibly/exist/for/test", 0755, false)
-	require.Error(t, err, "Should return error for invalid path")
-	assert.Contains(t, err.Error(), "failed to open directory", "Error should mention the failure to open directory")
+	if assert.Error(t, err, "Should return error for invalid path") {
+		assert.Contains(t, err.Error(), "failed to open directory", "Error should mention the failure to open directory")
+	}
 }
 
 func TestFS_OpenErrorCases(t *testing.T) {
@@ -316,8 +317,9 @@ func TestFS_OpenErrorCases(t *testing.T) {
 
 	// Test opening a directory without execute permission
 	_, err = fs.Open(".")
-	assert.Error(t, err, "Opening a directory without execute permission should fail")
-	assert.Contains(t, err.Error(), "permission denied", "Error should mention permission denied")
+	if assert.Error(t, err, "Opening a directory without execute permission should fail") {
+		assert.Contains(t, err.Error(), "permission denied", "Error should mention permission denied")
+	}
 
 	// Test opening a non-existent file
 	_, err = fs.Open("nonexistent.txt")

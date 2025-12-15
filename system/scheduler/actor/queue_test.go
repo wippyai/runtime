@@ -130,8 +130,8 @@ func TestQueueWrapAround(t *testing.T) {
 		}
 		for i := 0; i < 10; i++ {
 			p := q.Pop()
-			if p.id != uint64(round*10+i) { //nolint:gosec // test: values always small
-				t.Fatalf("round %d, expected ID %d, got %d", round, round*10+i, p.id)
+			if p == nil || p.id != uint64(round*10+i) { //nolint:gosec // test: values always small
+				t.Fatalf("round %d, expected ID %d, got %v", round, round*10+i, p)
 			}
 		}
 	}

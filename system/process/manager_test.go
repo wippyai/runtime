@@ -129,7 +129,7 @@ func TestManager_Start_HostNotFound(t *testing.T) {
 		Source: registry.NewID("test", "source"),
 	})
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Equal(t, pid.PID{}, p)
 	assert.Contains(t, err.Error(), "host not found")
 }
@@ -145,7 +145,7 @@ func TestManager_Start_InvalidHost(t *testing.T) {
 		Source: registry.NewID("test", "source"),
 	})
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Equal(t, pid.PID{}, p)
 	assert.Contains(t, err.Error(), "does not implement process.Host")
 }
@@ -162,7 +162,7 @@ func TestManager_Start_HostError(t *testing.T) {
 		Source: registry.NewID("test", "source"),
 	})
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Equal(t, pid.PID{}, p)
 	assert.Contains(t, err.Error(), "host run failed")
 }
@@ -194,7 +194,7 @@ func TestManager_Cancel_HostNotFound(t *testing.T) {
 
 	err := mgr.Cancel(context.Background(), from, p, deadline)
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "host not found")
 }
 
@@ -211,7 +211,7 @@ func TestManager_Cancel_SendError(t *testing.T) {
 
 	err := mgr.Cancel(context.Background(), from, p, deadline)
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "send failed")
 }
 
@@ -236,7 +236,7 @@ func TestManager_Terminate_HostNotFound(t *testing.T) {
 	p := pid.PID{Host: "nonexistent", UniqID: "proc-1"}
 	err := mgr.Terminate(context.Background(), p)
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "host not found")
 }
 
@@ -249,7 +249,7 @@ func TestManager_Terminate_InvalidHost(t *testing.T) {
 	p := pid.PID{Host: "invalid-host", UniqID: "proc-1"}
 	err := mgr.Terminate(context.Background(), p)
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not implement process.Host")
 }
 
@@ -263,7 +263,7 @@ func TestManager_Terminate_HostError(t *testing.T) {
 	p := pid.PID{Host: "error-host", UniqID: "proc-1"}
 	err := mgr.Terminate(context.Background(), p)
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "terminate failed")
 }
 
