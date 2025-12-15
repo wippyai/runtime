@@ -100,7 +100,7 @@ func TestBuildOptions_WithMethods(t *testing.T) {
 	assert.True(t, containsString(opts4.AllowedClasses, luaapi.ClassEncoding))
 }
 
-// mockModule implements luaapi.ModuleV2 for testing
+// mockModule implements luaapi.Module for testing
 type mockModule struct {
 	name    string
 	classes []string
