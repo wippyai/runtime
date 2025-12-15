@@ -9,8 +9,8 @@ import (
 
 func Metrics() boot.Component {
 	return boot.New(boot.P{
-		Name:      LuaMetricsName,
-		DependsOn: []boot.Name{LuaEngineName},
+		Name:      MetricsName,
+		DependsOn: []boot.Name{EngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			cm := GetCodeManager(ctx)
 			if cm == nil {

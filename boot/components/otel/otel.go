@@ -12,7 +12,7 @@ import (
 
 func OTel() boot.Component {
 	return boot.New(boot.P{
-		Name: OTelName,
+		Name: Name,
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx).Named("otel")
 			if logger == nil {

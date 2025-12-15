@@ -29,7 +29,7 @@ func TestLoader(t *testing.T) {
 	// Load component
 	component := Loader()
 
-	if component.Name() != string(LoaderName) {
+	if component.Name() != LoaderName {
 		t.Errorf("expected name %q, got %q", LoaderName, component.Name())
 	}
 

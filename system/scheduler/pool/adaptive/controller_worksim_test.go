@@ -132,6 +132,8 @@ func runSimulation(t *testing.T, cfg ControllerConfig, workload *worksim.Workloa
 			d, target := c.tick(now, currentOps, currentWorkers, currentBusy, currentQueue)
 
 			switch d {
+			case scaleNone:
+				// No action
 			case scaleUp:
 				toAdd := target
 				if currentWorkers+toAdd > int32(cfg.MaxWorkers) {
@@ -398,6 +400,8 @@ func TestControllerWorksim_DynamicBottleneck(t *testing.T) {
 
 			workerMu.Lock()
 			switch d {
+			case scaleNone, probeSuccess:
+				// No action
 			case scaleUp:
 				toAdd := target
 				if currentWorkers+toAdd > int32(cfg.MaxWorkers) {
@@ -552,6 +556,8 @@ func TestControllerWorksim_BurstyLoad(t *testing.T) {
 			d, target := c.tick(now, currentOps, currentWorkers, currentBusy, queueLen)
 
 			switch d {
+			case scaleNone, probeSuccess:
+				// No action
 			case scaleUp:
 				toAdd := target
 				if currentWorkers+toAdd > int32(cfg.MaxWorkers) {
@@ -734,6 +740,8 @@ func TestControllerWorksim_GradualBottleneck(t *testing.T) {
 			d, target := c.tick(now, currentOps, currentWorkers, currentBusy, currentQueue)
 
 			switch d {
+			case scaleNone, probeSuccess:
+				// No action
 			case scaleUp:
 				toAdd := target
 				if currentWorkers+toAdd > int32(cfg.MaxWorkers) {

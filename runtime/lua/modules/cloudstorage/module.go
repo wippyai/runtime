@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 
-	"github.com/wippyai/runtime/api/cloudstorage"
 	csapi "github.com/wippyai/runtime/api/cloudstorage"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
@@ -41,7 +40,7 @@ var Module = &luaapi.ModuleDef{
 
 // storageWrapper wraps a cloud storage instance with resource tracking.
 type storageWrapper struct {
-	storage   cloudstorage.Storage
+	storage   csapi.Storage
 	resource  resource.Resource[any]
 	onRelease context.CancelFunc
 	released  bool
@@ -120,7 +119,7 @@ func apiGet(l *lua.LState) int {
 		return 2
 	}
 
-	csRes, ok := storageRes.(cloudstorage.Storage)
+	csRes, ok := storageRes.(csapi.Storage)
 	if !ok {
 		res.Release()
 		l.Push(lua.LNil)
@@ -187,7 +186,7 @@ func storageListObjects(l *lua.LState) int {
 
 	if l.Get(2) != lua.LNil {
 		optsTable := l.CheckTable(2)
-		yield.Options = &cloudstorage.ListObjectsOptions{}
+		yield.Options = &csapi.ListObjectsOptions{}
 
 		if prefix := optsTable.RawGetString("prefix"); prefix != lua.LNil {
 			yield.Options.Prefix = prefix.String()
@@ -240,7 +239,7 @@ func storageDownloadObject(l *lua.LState) int {
 	// V1 compatible: 4th arg is options
 	if l.Get(4) != lua.LNil {
 		optsTable := l.CheckTable(4)
-		yield.Options = &cloudstorage.DownloadOptions{}
+		yield.Options = &csapi.DownloadOptions{}
 
 		if rang := optsTable.RawGetString("range"); rang != lua.LNil {
 			yield.Options.Range = rang.String()

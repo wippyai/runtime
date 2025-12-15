@@ -165,11 +165,14 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 	if w.config.WorkerOptions.Identity != "" {
 		options.Identity = w.config.WorkerOptions.Identity
 	}
-	if w.config.WorkerOptions.BuildID != "" {
-		options.BuildID = w.config.WorkerOptions.BuildID
-	}
-	if w.config.WorkerOptions.UseBuildIDForVersioning {
-		options.UseBuildIDForVersioning = w.config.WorkerOptions.UseBuildIDForVersioning
+	if w.config.WorkerOptions.UseVersioning {
+		options.DeploymentOptions = worker.DeploymentOptions{
+			UseVersioning: true,
+			Version: worker.WorkerDeploymentVersion{
+				DeploymentName: w.config.WorkerOptions.DeploymentName,
+				BuildID:        w.config.WorkerOptions.BuildID,
+			},
+		}
 	}
 
 	options.EnableLoggingInReplay = w.config.WorkerOptions.EnableLoggingInReplay

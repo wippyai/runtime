@@ -6,7 +6,6 @@ const (
 	DispatcherName boot.Name = "store.dispatcher"
 	MemStoreName   boot.Name = "store.memory"
 	SQLStoreName   boot.Name = "store.sql"
-	TokenStoreName boot.Name = "store.token"
 
 	DispatcherDeps boot.Name = "dispatcher"
 )

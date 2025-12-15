@@ -63,13 +63,6 @@ func buildPrintModule() (lua.LValue, []luaapi.YieldType) {
 	return lua.LGoFunc(printFunc), nil
 }
 
-// ErrorsModule wraps lua.OpenErrors as a ModuleDef.
-var ErrorsModule = &luaapi.ModuleDef{
-	Name:        "errors",
-	Description: "Lua errors module",
-	Class:       []string{luaapi.ClassDeterministic},
-}
-
 // printFunc is the implementation of the custom print function.
 func printFunc(l *lua.LState) int {
 	log := logs.GetLogger(l.Context())
@@ -100,17 +93,6 @@ func printFunc(l *lua.LState) int {
 
 	log.Info(msg, fields...)
 	return 0
-}
-
-// CoreModules is the list of core module definitions.
-// All modules use zero-allocation after initialization.
-var CoreModules = []*luaapi.ModuleDef{
-	ErrorsModule,
-	payload.Module,
-	ostime.Module,
-	PrintModule,
-	ChannelModule,
-	PubSubModule,
 }
 
 // LoadCoreModules loads all core modules into the LState.

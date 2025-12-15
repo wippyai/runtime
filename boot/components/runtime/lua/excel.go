@@ -9,8 +9,8 @@ import (
 
 func Excel() boot.Component {
 	return boot.New(boot.P{
-		Name:      LuaExcelName,
-		DependsOn: []boot.Name{LuaEngineName},
+		Name:      ExcelName,
+		DependsOn: []boot.Name{EngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			cm := GetCodeManager(ctx)
 			if cm == nil {

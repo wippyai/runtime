@@ -27,28 +27,10 @@ func RequestCtxKey() *ctxapi.Key {
 	return requestCtx
 }
 
-// RouteCtxKey returns the context key for route info.
-// Used when passing route info via Task.Context pairs.
-func RouteCtxKey() *ctxapi.Key {
-	return routeCtx
-}
-
-// RouteLabelCtxKey returns the context key for route label.
-// Used when passing route label via Task.Context pairs.
-func RouteLabelCtxKey() *ctxapi.Key {
-	return routeLabelCtx
-}
-
 // ServerIDCtxKey returns the context key for server ID.
 // Used when passing server ID via Task.Context pairs.
 func ServerIDCtxKey() *ctxapi.Key {
 	return serverIDCtx
-}
-
-// ServerHostCtxKey returns the context key for server host.
-// Used when passing server host via Task.Context pairs.
-func ServerHostCtxKey() *ctxapi.Key {
-	return serverHostCtx
 }
 
 // ServerCtxKey returns the context key for the HTTP server object.
@@ -118,15 +100,6 @@ func GetRouteLabel(ctx context.Context) (string, bool) {
 	return label, ok
 }
 
-// SetRequestContext stores HTTP request context in FrameContext.
-func SetRequestContext(ctx context.Context, reqCtx *RequestContext) error {
-	fc := ctxapi.FrameFromContext(ctx)
-	if fc == nil {
-		return nil
-	}
-	return fc.Set(requestCtx, reqCtx)
-}
-
 // SetRouteInfo stores route information in FrameContext.
 func SetRouteInfo(ctx context.Context, info *RouteInfo) error {
 	fc := ctxapi.FrameFromContext(ctx)
@@ -145,20 +118,6 @@ func SetRouteLabel(ctx context.Context, label string) error {
 	return fc.Set(routeLabelCtx, label)
 }
 
-// GetServerID retrieves the server ID from FrameContext.
-func GetServerID(ctx context.Context) (string, bool) {
-	fc := ctxapi.FrameFromContext(ctx)
-	if fc == nil {
-		return "", false
-	}
-	val, ok := fc.Get(serverIDCtx)
-	if !ok {
-		return "", false
-	}
-	id, ok := val.(string)
-	return id, ok
-}
-
 // SetServerID stores the server ID in FrameContext.
 func SetServerID(ctx context.Context, serverID string) error {
 	fc := ctxapi.FrameFromContext(ctx)
@@ -166,20 +125,6 @@ func SetServerID(ctx context.Context, serverID string) error {
 		return nil
 	}
 	return fc.Set(serverIDCtx, serverID)
-}
-
-// GetServerHost retrieves the server host from FrameContext.
-func GetServerHost(ctx context.Context) (string, bool) {
-	fc := ctxapi.FrameFromContext(ctx)
-	if fc == nil {
-		return "", false
-	}
-	val, ok := fc.Get(serverHostCtx)
-	if !ok {
-		return "", false
-	}
-	host, ok := val.(string)
-	return host, ok
 }
 
 // SetServerHost stores the server host in FrameContext.

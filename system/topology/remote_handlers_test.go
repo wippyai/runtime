@@ -3,7 +3,7 @@ package topology
 import (
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/pid"
-	topology "github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/api/topology"
 )
 
 // handleMonitorRequest processes incoming monitor requests from remote nodes.

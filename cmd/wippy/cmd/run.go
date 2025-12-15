@@ -353,7 +353,7 @@ func parseExecSpec(spec string) (hostID, namespace, entry string, err error) {
 }
 
 // launchExecProcess launches a process and triggers shutdown on completion
-func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, method string, args []string) error {
+func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, _method string, args []string) error {
 	hostID, namespace, entry, err := parseExecSpec(execSpec)
 	if err != nil {
 		return NewInvalidExecSpecError(err)
@@ -391,7 +391,7 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, method
 		zap.String("pid", pid.String()),
 		zap.String("host", hostID),
 		zap.String("source", source.String()),
-		zap.String("method", method),
+		zap.String("method", _method),
 		zap.Strings("args", args))
 
 	return nil

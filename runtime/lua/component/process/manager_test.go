@@ -77,7 +77,7 @@ func TestManager_Add_InvalidKind(t *testing.T) {
 	manager := NewManager(log, codeManager, bus, fsReg, factory)
 
 	entry := registry.Entry{
-		Kind: registry.Kind("invalid"),
+		Kind: invalid,
 	}
 
 	err := manager.Add(context.Background(), entry)
@@ -122,7 +122,7 @@ func TestManager_Update_InvalidKind(t *testing.T) {
 	manager := NewManager(log, codeManager, bus, fsReg, factory)
 
 	entry := registry.Entry{
-		Kind: registry.Kind("invalid"),
+		Kind: invalid,
 	}
 
 	err := manager.Update(context.Background(), entry)
@@ -140,7 +140,7 @@ func TestManager_Delete_InvalidKind(t *testing.T) {
 	manager := NewManager(log, codeManager, bus, fsReg, factory)
 
 	entry := registry.Entry{
-		Kind: registry.Kind("invalid"),
+		Kind: invalid,
 	}
 
 	err := manager.Delete(context.Background(), entry)

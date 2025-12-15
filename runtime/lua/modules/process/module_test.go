@@ -200,7 +200,7 @@ func TestBuildSecurityContext_WithActor(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
 	defer ctxapi.ReleaseFrameContext(fc)
 
 	actor := security.Actor{ID: "test-user"}
@@ -228,7 +228,7 @@ func TestBuildSecurityContext_WithActorAndScope(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
 	defer ctxapi.ReleaseFrameContext(fc)
 
 	actor := security.Actor{ID: "test-user"}
@@ -253,7 +253,7 @@ func TestBuildSecurityContext_EmptyFrameContext(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
 	defer ctxapi.ReleaseFrameContext(fc)
 
 	l.SetContext(ctx)
@@ -268,7 +268,7 @@ func TestBuildSecurityContext_WithValues(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
 	defer ctxapi.ReleaseFrameContext(fc)
 
 	// Set context values
@@ -299,7 +299,7 @@ func TestBuildSecurityContext_WithValues(t *testing.T) {
 
 func TestContextValuesInheritance(t *testing.T) {
 	// Test that context values are properly set up for inheritance
-	ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
 	defer ctxapi.ReleaseFrameContext(fc)
 
 	// Set values on parent frame

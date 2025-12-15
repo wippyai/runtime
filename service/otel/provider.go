@@ -188,18 +188,6 @@ func (n *noopExporter) Shutdown(_ context.Context) error {
 	return nil
 }
 
-// ShutdownProvider gracefully shuts down the tracer provider
-func ShutdownProvider(ctx context.Context, tp trace.TracerProvider, logger *zap.Logger) error {
-	if sdkTP, ok := tp.(*sdktrace.TracerProvider); ok {
-		logger.Debug("shutting down OTEL provider")
-		if err := sdkTP.Shutdown(ctx); err != nil {
-			return newShutdownTracerProviderError(err)
-		}
-		logger.Debug("OTEL provider shutdown complete")
-	}
-	return nil
-}
-
 // InitializeMeterProvider creates and configures an OpenTelemetry MeterProvider
 func InitializeMeterProvider(ctx context.Context, cfg otelapi.Config, logger *zap.Logger) (metric.MeterProvider, error) {
 	if !cfg.Enabled || !cfg.MetricsEnabled {

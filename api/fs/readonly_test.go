@@ -56,7 +56,7 @@ func TestReadOnlyFS_Open(t *testing.T) {
 			if err != nil {
 				return
 			}
-			defer file.Close()
+			defer func() { _ = file.Close() }()
 
 			if !tt.wantErr {
 				content, err := io.ReadAll(file)
@@ -187,7 +187,7 @@ func TestReadOnlyFS_OpenFile(t *testing.T) {
 		if err != nil {
 			t.Fatalf("OpenFile() error = %v", err)
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		content := make([]byte, 100)
 		n, err := file.Read(content)
@@ -244,7 +244,7 @@ func TestReadOnlyFS_FileOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenFile() error = %v", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	t.Run("Write fails", func(t *testing.T) {
 		_, err := file.Write([]byte("test"))

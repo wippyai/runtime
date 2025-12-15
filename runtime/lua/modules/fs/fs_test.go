@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -15,6 +16,15 @@ import (
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
 )
+
+func requireLuaError(t *testing.T, val lua.LValue) *lua.Error {
+	t.Helper()
+	err, ok := val.(error)
+	require.True(t, ok, "expected error type, got %T", val)
+	var luaErr *lua.Error
+	require.True(t, errors.As(err, &luaErr), "expected *lua.Error, got %T", val)
+	return luaErr
+}
 
 func createTestFS(t *testing.T) (*FS, func()) {
 	tmpDir := t.TempDir()
@@ -237,9 +247,7 @@ func TestFSStructuredErrors(t *testing.T) {
 			require.Equal(t, 2, nret, "should return 2 values")
 
 			if tt.expectedErr {
-				errVal := l.Get(-1)
-				luaErr, ok := errVal.(*lua.Error)
-				require.True(t, ok, "second return should be lua.Error, got %T", errVal)
+				luaErr := requireLuaError(t, l.Get(-1))
 				assert.Equal(t, tt.checkKind, string(luaErr.Kind()), "error kind should match")
 			}
 		})
@@ -270,9 +278,7 @@ func TestFSMkdirAlreadyExists(t *testing.T) {
 	result := l.Get(-2)
 	assert.Equal(t, lua.LFalse, result)
 
-	errVal := l.Get(-1)
-	luaErr, ok := errVal.(*lua.Error)
-	require.True(t, ok, "error should be lua.Error")
+	luaErr := requireLuaError(t, l.Get(-1))
 	assert.Equal(t, string(lua.AlreadyExists), string(luaErr.Kind()))
 }
 
@@ -300,9 +306,7 @@ func TestFSChdirNotDirectory(t *testing.T) {
 	result := l.Get(-2)
 	assert.Equal(t, lua.LFalse, result)
 
-	errVal := l.Get(-1)
-	luaErr, ok := errVal.(*lua.Error)
-	require.True(t, ok, "error should be lua.Error")
+	luaErr := requireLuaError(t, l.Get(-1))
 	assert.Equal(t, string(lua.Invalid), string(luaErr.Kind()))
 }
 
@@ -330,9 +334,7 @@ func TestFSReaddirNotDirectory(t *testing.T) {
 	result := l.Get(-2)
 	assert.Equal(t, lua.LNil, result)
 
-	errVal := l.Get(-1)
-	luaErr, ok := errVal.(*lua.Error)
-	require.True(t, ok, "error should be lua.Error")
+	luaErr := requireLuaError(t, l.Get(-1))
 	assert.Equal(t, string(lua.Invalid), string(luaErr.Kind()))
 }
 
@@ -363,9 +365,7 @@ func TestFSRemoveNonEmpty(t *testing.T) {
 	result := l.Get(-2)
 	assert.Equal(t, lua.LFalse, result)
 
-	errVal := l.Get(-1)
-	luaErr, ok := errVal.(*lua.Error)
-	require.True(t, ok, "error should be lua.Error")
+	luaErr := requireLuaError(t, l.Get(-1))
 	assert.Equal(t, string(lua.Invalid), string(luaErr.Kind()))
 }
 
@@ -456,8 +456,7 @@ func TestNullByteInjectionPrevention(t *testing.T) {
 			nret := fsStat(l)
 			require.Equal(t, 2, nret)
 			assert.Equal(t, lua.LNil, l.Get(-2), "stat should return nil for null byte path")
-			luaErr, ok := l.Get(-1).(*lua.Error)
-			require.True(t, ok, "should return error")
+			luaErr := requireLuaError(t, l.Get(-1))
 			assert.Equal(t, string(lua.Invalid), string(luaErr.Kind()))
 		}
 	})
@@ -478,8 +477,7 @@ func TestNullByteInjectionPrevention(t *testing.T) {
 			nret := fsOpen(l)
 			require.Equal(t, 2, nret)
 			assert.Equal(t, lua.LNil, l.Get(-2), "open should return nil for null byte path")
-			luaErr, ok := l.Get(-1).(*lua.Error)
-			require.True(t, ok, "should return error")
+			luaErr := requireLuaError(t, l.Get(-1))
 			assert.Equal(t, string(lua.Invalid), string(luaErr.Kind()))
 		}
 	})
@@ -498,8 +496,7 @@ func TestNullByteInjectionPrevention(t *testing.T) {
 			nret := fsMkdir(l)
 			require.Equal(t, 2, nret)
 			assert.Equal(t, lua.LFalse, l.Get(-2), "mkdir should return false for null byte path")
-			luaErr, ok := l.Get(-1).(*lua.Error)
-			require.True(t, ok, "should return error")
+			luaErr := requireLuaError(t, l.Get(-1))
 			assert.Equal(t, string(lua.Invalid), string(luaErr.Kind()))
 		}
 	})
@@ -518,8 +515,7 @@ func TestNullByteInjectionPrevention(t *testing.T) {
 			nret := fsRemove(l)
 			require.Equal(t, 2, nret)
 			assert.Equal(t, lua.LFalse, l.Get(-2), "remove should return false for null byte path")
-			luaErr, ok := l.Get(-1).(*lua.Error)
-			require.True(t, ok, "should return error")
+			luaErr := requireLuaError(t, l.Get(-1))
 			assert.Equal(t, string(lua.Invalid), string(luaErr.Kind()))
 		}
 	})
@@ -538,8 +534,7 @@ func TestNullByteInjectionPrevention(t *testing.T) {
 			nret := fsReaddir(l)
 			require.Equal(t, 2, nret)
 			assert.Equal(t, lua.LNil, l.Get(-2), "readdir should return nil for null byte path")
-			luaErr, ok := l.Get(-1).(*lua.Error)
-			require.True(t, ok, "should return error")
+			luaErr := requireLuaError(t, l.Get(-1))
 			assert.Equal(t, string(lua.Invalid), string(luaErr.Kind()))
 		}
 	})
@@ -558,8 +553,7 @@ func TestNullByteInjectionPrevention(t *testing.T) {
 			nret := fsExists(l)
 			require.Equal(t, 2, nret)
 			assert.Equal(t, lua.LFalse, l.Get(-2), "exists should return false for null byte path")
-			luaErr, ok := l.Get(-1).(*lua.Error)
-			require.True(t, ok, "should return error")
+			luaErr := requireLuaError(t, l.Get(-1))
 			assert.Equal(t, string(lua.Invalid), string(luaErr.Kind()))
 		}
 	})
@@ -578,8 +572,7 @@ func TestNullByteInjectionPrevention(t *testing.T) {
 			nret := fsIsdir(l)
 			require.Equal(t, 2, nret)
 			assert.Equal(t, lua.LFalse, l.Get(-2), "isdir should return false for null byte path")
-			luaErr, ok := l.Get(-1).(*lua.Error)
-			require.True(t, ok, "should return error")
+			luaErr := requireLuaError(t, l.Get(-1))
 			assert.Equal(t, string(lua.Invalid), string(luaErr.Kind()))
 		}
 	})
@@ -598,8 +591,7 @@ func TestNullByteInjectionPrevention(t *testing.T) {
 			nret := fsReadfile(l)
 			require.Equal(t, 2, nret)
 			assert.Equal(t, lua.LNil, l.Get(-2), "readfile should return nil for null byte path")
-			luaErr, ok := l.Get(-1).(*lua.Error)
-			require.True(t, ok, "should return error")
+			luaErr := requireLuaError(t, l.Get(-1))
 			assert.Equal(t, string(lua.Invalid), string(luaErr.Kind()))
 		}
 	})
@@ -620,8 +612,7 @@ func TestNullByteInjectionPrevention(t *testing.T) {
 			nret := fsWritefile(l)
 			require.Equal(t, 2, nret)
 			assert.Equal(t, lua.LFalse, l.Get(-2), "writefile should return false for null byte path")
-			luaErr, ok := l.Get(-1).(*lua.Error)
-			require.True(t, ok, "should return error")
+			luaErr := requireLuaError(t, l.Get(-1))
 			assert.Equal(t, string(lua.Invalid), string(luaErr.Kind()))
 		}
 	})
@@ -640,8 +631,7 @@ func TestNullByteInjectionPrevention(t *testing.T) {
 			nret := fsChdir(l)
 			require.Equal(t, 2, nret)
 			assert.Equal(t, lua.LFalse, l.Get(-2), "chdir should return false for null byte path")
-			luaErr, ok := l.Get(-1).(*lua.Error)
-			require.True(t, ok, "should return error")
+			luaErr := requireLuaError(t, l.Get(-1))
 			assert.Equal(t, string(lua.Invalid), string(luaErr.Kind()))
 		}
 	})

@@ -148,7 +148,7 @@ func (b Bag) GetBag(key string) (Bag, bool) {
 
 		// Case 2: map[string]any
 		if m, ok := v.(map[string]any); ok {
-			return Bag(m), true
+			return m, true
 		}
 
 		// Case 3: Attributes interface (try type assertion to Bag)

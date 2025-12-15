@@ -17,8 +17,8 @@ func TestKindConstants(t *testing.T) {
 		kind     registry.Kind
 		expected string
 	}{
-		{"template", Template, "template.jet"},
-		{"template set", TemplateSet, "template.set"},
+		{"template", Jet, "template.jet"},
+		{"template set", Set, "template.set"},
 	}
 
 	for _, tt := range tests {

@@ -44,6 +44,15 @@ type (
 		Details() attrs.Attributes
 	}
 
+	// Builder allows fluent construction of errors with optional fields.
+	Builder interface {
+		Error
+		WithRetryable(Ternary) Builder
+		WithDetails(attrs.Attributes) Builder
+		WithCause(error) Builder
+		WithMessage(string) Builder
+	}
+
 	// Kind categorizes errors semantically across all domains.
 	Kind string
 
@@ -92,28 +101,29 @@ func (e *err) Unwrap() error             { return e.cause }
 
 // Is implements errors.Is by comparing kind and message for semantic equality.
 func (e *err) Is(target error) bool {
-	if t, ok := target.(*err); ok {
+	var t *err
+	if errors.As(target, &t) {
 		return e.kind == t.kind && e.message == t.message
 	}
 	return false
 }
 
 // Builder methods - immutable, return new copy.
-func (e *err) WithRetryable(r Ternary) *err {
+func (e *err) WithRetryable(r Ternary) Builder {
 	return &err{kind: e.kind, message: e.message, retryable: r, details: e.details, cause: e.cause}
 }
-func (e *err) WithDetails(d attrs.Attributes) *err {
+func (e *err) WithDetails(d attrs.Attributes) Builder {
 	return &err{kind: e.kind, message: e.message, retryable: e.retryable, details: d, cause: e.cause}
 }
-func (e *err) WithCause(c error) *err {
+func (e *err) WithCause(c error) Builder {
 	return &err{kind: e.kind, message: e.message, retryable: e.retryable, details: e.details, cause: c}
 }
-func (e *err) WithMessage(m string) *err {
+func (e *err) WithMessage(m string) Builder {
 	return &err{kind: e.kind, message: m, retryable: e.retryable, details: e.details, cause: e.cause}
 }
 
 // New creates a new error with the given kind and message.
-func New(kind Kind, message string) *err {
+func New(kind Kind, message string) Builder {
 	return &err{kind: kind, message: message, retryable: Unspecified}
 }
 
@@ -131,11 +141,6 @@ func E(kind Kind, message string, retryable Ternary, details attrs.Attributes, c
 // WithDetails creates an error with details.
 func WithDetails(kind Kind, message string, details attrs.Attributes) Error {
 	return &err{kind: kind, message: message, details: details, retryable: Unspecified}
-}
-
-// Retryable creates a retryable error.
-func Retryable(kind Kind, message string, cause error) Error {
-	return &err{kind: kind, message: message, cause: cause, retryable: True}
 }
 
 // SetCause returns a new error with the same properties but with the given cause.

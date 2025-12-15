@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/event"
-	"github.com/wippyai/runtime/api/pid"
+	pidapi "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
@@ -198,7 +198,7 @@ func TestManager_Send(t *testing.T) {
 	defer func() { assert.NoError(t, manager.Stop()) }()
 
 	t.Run("send to unregistered host returns error", func(t *testing.T) {
-		pid := pid.PID{
+		pid := pidapi.PID{
 			Node:   "test-node",
 			Host:   "nonexistent-host",
 			UniqID: "test",
@@ -219,7 +219,7 @@ func TestManager_Send(t *testing.T) {
 		host := &mockHost{}
 		require.NoError(t, node.RegisterHost("test-host", host))
 
-		pid := pid.PID{
+		pid := pidapi.PID{
 			Node:   "test-node",
 			Host:   "test-host",
 			UniqID: "test",
@@ -249,7 +249,7 @@ func TestManager_Attach(t *testing.T) {
 	attachableMailbox := NewMailbox(ctx, WithWorkerCount(1), WithBufferSize(10))
 	require.NoError(t, node.RegisterHost("test-host", attachableMailbox))
 
-	pid := pid.PID{
+	pid := pidapi.PID{
 		Node:   "test-node",
 		Host:   "test-host",
 		UniqID: "test",

@@ -86,36 +86,6 @@ type Writer struct {
 // WriterOption configures Writer.
 type WriterOption func(*Writer)
 
-// WithMetadataLevel sets compression level for metadata frame.
-func WithMetadataLevel(level zstd.EncoderLevel) WriterOption {
-	return func(w *Writer) {
-		w.metadataLevel = level
-	}
-}
-
-// WithEntriesLevel sets compression level for entries frame.
-func WithEntriesLevel(level zstd.EncoderLevel) WriterOption {
-	return func(w *Writer) {
-		w.entriesLevel = level
-	}
-}
-
-// WithTOCLevel sets compression level for TOC frame.
-func WithTOCLevel(level zstd.EncoderLevel) WriterOption {
-	return func(w *Writer) {
-		w.tocLevel = level
-	}
-}
-
-// WithCompressionFunc sets custom function to determine if a file should be compressed.
-// The function receives the filename and returns true if file should be compressed.
-// If not set, uses default logic based on file extension.
-func WithCompressionFunc(fn func(string) bool) WriterOption {
-	return func(w *Writer) {
-		w.compressionFunc = fn
-	}
-}
-
 // WithProgressCallback sets a callback for tracking packing progress.
 func WithProgressCallback(fn ProgressCallback) WriterOption {
 	return func(w *Writer) {

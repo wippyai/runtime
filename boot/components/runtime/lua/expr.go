@@ -9,8 +9,8 @@ import (
 
 func Expr() boot.Component {
 	return boot.New(boot.P{
-		Name:      LuaExprName,
-		DependsOn: []boot.Name{LuaEngineName},
+		Name:      ExprName,
+		DependsOn: []boot.Name{EngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			cm := GetCodeManager(ctx)
 			if cm == nil {

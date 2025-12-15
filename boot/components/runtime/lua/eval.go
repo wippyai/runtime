@@ -23,7 +23,7 @@ const EvalHostName boot.Name = "runtime.lua.eval"
 func Eval() boot.Component {
 	return boot.New(boot.P{
 		Name:      EvalHostName,
-		DependsOn: []boot.Name{dispatchers.ClockDispatcherName, LuaEngineName},
+		DependsOn: []boot.Name{dispatchers.ClockDispatcherName, EngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			reg := dispatcherapi.GetRegistrar(ctx)

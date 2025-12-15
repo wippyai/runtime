@@ -15,7 +15,7 @@ import (
 
 func AWS() boot.Component {
 	return boot.New(boot.P{
-		Name:      AWSConfigName,
+		Name:      ConfigName,
 		DependsOn: []boot.Name{bootsystem.EnvironmentName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)

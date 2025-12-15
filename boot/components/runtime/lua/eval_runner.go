@@ -7,12 +7,12 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/modules/eval/runner"
 )
 
-const LuaEvalRunnerName boot.Name = "lua.eval_runner"
+const EvalRunnerName boot.Name = "lua.eval_runner"
 
 func EvalRunner() boot.Component {
 	return boot.New(boot.P{
-		Name:      LuaEvalRunnerName,
-		DependsOn: []boot.Name{LuaEngineName, EvalHostName},
+		Name:      EvalRunnerName,
+		DependsOn: []boot.Name{EngineName, EvalHostName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			cm := GetCodeManager(ctx)
 			if cm == nil {

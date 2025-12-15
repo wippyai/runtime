@@ -65,7 +65,7 @@ func TestTimerRegistry_WaitNotFound(t *testing.T) {
 
 	ctx := context.Background()
 	_, err := r.wait(ctx, 999)
-	if err != clockapi.ErrTimerNotFound {
+	if !errors.Is(err, clockapi.ErrTimerNotFound) {
 		t.Errorf("expected ErrTimerNotFound, got %v", err)
 	}
 }
@@ -89,7 +89,7 @@ func TestTimerRegistry_WaitContextCanceled(t *testing.T) {
 
 	select {
 	case err := <-done:
-		if err != context.Canceled {
+		if !errors.Is(err, context.Canceled) {
 			t.Errorf("expected context.Canceled, got %v", err)
 		}
 	case <-time.After(time.Second):
@@ -120,7 +120,7 @@ func TestTimerRegistry_StopNotFound(t *testing.T) {
 	defer r.close()
 
 	_, err := r.stop(999)
-	if err != clockapi.ErrTimerNotFound {
+	if !errors.Is(err, clockapi.ErrTimerNotFound) {
 		t.Errorf("expected ErrTimerNotFound, got %v", err)
 	}
 }
@@ -142,7 +142,7 @@ func TestTimerRegistry_StopAlreadyFired(t *testing.T) {
 	}
 
 	_, err := r.stop(id)
-	if err != clockapi.ErrTimerNotFound {
+	if !errors.Is(err, clockapi.ErrTimerNotFound) {
 		t.Errorf("expected ErrTimerNotFound for fired timer, got %v", err)
 	}
 }
@@ -167,7 +167,7 @@ func TestTimerRegistry_ResetNotFound(t *testing.T) {
 	defer r.close()
 
 	_, err := r.reset(999, time.Second)
-	if err != clockapi.ErrTimerNotFound {
+	if !errors.Is(err, clockapi.ErrTimerNotFound) {
 		t.Errorf("expected ErrTimerNotFound, got %v", err)
 	}
 }
@@ -180,7 +180,7 @@ func TestTimerRegistry_ResetStopped(t *testing.T) {
 	_, _ = r.stop(id)
 
 	_, err := r.reset(id, time.Second)
-	if err != clockapi.ErrTimerNotFound {
+	if !errors.Is(err, clockapi.ErrTimerNotFound) {
 		t.Errorf("expected ErrTimerNotFound for stopped timer, got %v", err)
 	}
 }
@@ -253,7 +253,7 @@ func TestTimerRegistry_WaitAfterStopped(t *testing.T) {
 
 	ctx := context.Background()
 	_, err := r.wait(ctx, id)
-	if err != clockapi.ErrTimerNotFound {
+	if !errors.Is(err, clockapi.ErrTimerNotFound) {
 		t.Errorf("expected ErrTimerNotFound for stopped entry, got %v", err)
 	}
 }

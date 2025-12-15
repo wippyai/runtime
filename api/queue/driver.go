@@ -25,7 +25,7 @@ const (
 	// OptionReplicationFactor reserved for future use
 	// OptionRetentionPeriod reserved for future use
 
-	// Queue stats keys (returned by GetQueueInfo)
+	// StatsMessageCount is a queue stats key (returned by GetQueueInfo)
 	StatsMessageCount  = "message_count"  // Number of messages in queue
 	StatsConsumerCount = "consumer_count" // Number of active consumers
 	// StatsByteSize = "byte_size" // reserved for future use
@@ -34,6 +34,7 @@ const (
 	// StatsNackCount = "nack_count" // reserved for future use
 	// StatsOldestMessage = "oldest_message" // reserved for future use
 	// StatsLastDelivery = "last_delivery" // reserved for future use
+	// StatsReady is a queue stats key for messages ready for delivery
 	StatsReady = "ready" // Messages ready for delivery
 	// StatsUnacked = "unacked" // reserved for future use
 )

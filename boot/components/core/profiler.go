@@ -38,15 +38,15 @@ func Profiler() boot.Component {
 				return nil
 			}
 
-			cfgSub := cfg.Sub(string(ProfilerName))
-			if !cfgSub.GetBool(string(ProfilerEnabled), false) {
+			cfgSub := cfg.Sub(ProfilerName)
+			if !cfgSub.GetBool(ProfilerEnabled, false) {
 				return nil
 			}
 
-			addr := cfgSub.GetString(string(ProfilerAddress), "localhost:6060")
-			readTimeout := cfgSub.GetDuration(string(ProfilerReadTimeout), 15*time.Second)
-			writeTimeout := cfgSub.GetDuration(string(ProfilerWriteTimeout), 15*time.Second)
-			idleTimeout := cfgSub.GetDuration(string(ProfilerIdleTimeout), 60*time.Second)
+			addr := cfgSub.GetString(ProfilerAddress, "localhost:6060")
+			readTimeout := cfgSub.GetDuration(ProfilerReadTimeout, 15*time.Second)
+			writeTimeout := cfgSub.GetDuration(ProfilerWriteTimeout, 15*time.Second)
+			idleTimeout := cfgSub.GetDuration(ProfilerIdleTimeout, 60*time.Second)
 
 			mux := httpbase.NewServeMux()
 			mux.HandleFunc("/debug/pprof/", pprof.Index)

@@ -726,7 +726,7 @@ func TestBusRunner_RollbackOrderWithResolver(t *testing.T) {
 
 	// Track deletion order
 	var mu sync.Mutex
-	deleteOrder := []string{}
+	var deleteOrder []string
 
 	// Component that tracks operation order and rejects the last one
 	listener, err := eventbus.NewSubscriber(ctx, bus, registry.System, "", func(evt event.Event) {

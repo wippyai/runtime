@@ -11,7 +11,6 @@ import (
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	apierror "github.com/wippyai/runtime/api/error"
-	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
@@ -156,12 +155,12 @@ func TestQueueTypes(t *testing.T) {
 }
 
 func TestEventConstants(t *testing.T) {
-	assert.Equal(t, event.System("queue"), queue.System)
+	assert.Equal(t, "queue", queue.System)
 
-	assert.Equal(t, event.Kind("queue.driver.register"), queue.DriverRegister)
-	assert.Equal(t, event.Kind("queue.driver.delete"), queue.DriverDelete)
-	assert.Equal(t, event.Kind("queue.queue.declare"), queue.QueueDeclare)
-	assert.Equal(t, event.Kind("queue.queue.delete"), queue.QueueDelete)
+	assert.Equal(t, "queue.driver.register", queue.DriverRegister)
+	assert.Equal(t, "queue.driver.delete", queue.DriverDelete)
+	assert.Equal(t, "queue.queue.declare", queue.Declare)
+	assert.Equal(t, "queue.queue.delete", queue.Delete)
 }
 
 func TestErrors(t *testing.T) {
@@ -611,7 +610,7 @@ func TestContextFunctions(t *testing.T) {
 		appCtx := ctxapi.NewAppContext()
 		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
 
-		ctx, frameCtx := ctxapi.AcquireFrameContext(ctx)
+		ctx, frameCtx := ctxapi.OpenFrameContext(ctx)
 		defer ctxapi.ReleaseFrameContext(frameCtx)
 
 		delivery := &queue.Delivery{Message: queue.NewMessage(payload.New("test"))}
@@ -627,10 +626,10 @@ func TestContextFunctions(t *testing.T) {
 		appCtx := ctxapi.NewAppContext()
 		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
 
-		ctx, frameCtx := ctxapi.AcquireFrameContext(ctx)
+		ctx, frameCtx := ctxapi.OpenFrameContext(ctx)
 		defer ctxapi.ReleaseFrameContext(frameCtx)
 
-		frameCtx.Set(&ctxapi.Key{Name: "queue.delivery", Inherit: true}, "not a delivery")
+		_ = frameCtx.Set(&ctxapi.Key{Name: "queue.delivery", Inherit: true}, "not a delivery")
 
 		delivery, ok := queue.GetDelivery(ctx)
 		assert.Nil(t, delivery)

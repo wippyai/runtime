@@ -52,7 +52,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 }
 
 // Invalidate handles code invalidation for hot reload.
-func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) {
+func (m *Manager) Invalidate(_ context.Context, ids []registry.ID) {
 	for _, id := range ids {
 		cfg := m.getConfig(id)
 		if cfg == nil {

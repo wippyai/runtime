@@ -707,7 +707,7 @@ func TestScannerSplitWords(t *testing.T) {
 		t.Fatalf("CreateScanner error: %v", err)
 	}
 
-	words := []string{}
+	var words []string
 	for {
 		result, err := streamsys.ScanNext(table, scannerID)
 		if err != nil {

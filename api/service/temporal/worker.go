@@ -56,9 +56,12 @@ type WorkerOptionsConfig struct {
 	DisableRegistrationAliasing bool `json:"disable_registration_aliasing,omitempty"`
 
 	// Identity and versioning
-	Identity                string `json:"identity,omitempty"`
-	BuildID                 string `json:"build_id,omitempty"`
-	UseBuildIDForVersioning bool   `json:"use_build_id_for_versioning,omitempty"`
+	Identity string `json:"identity,omitempty"`
+
+	// Deployment versioning (replaces deprecated BuildID/UseBuildIDForVersioning)
+	DeploymentName string `json:"deployment_name,omitempty"`
+	BuildID        string `json:"build_id,omitempty"`
+	UseVersioning  bool   `json:"use_versioning,omitempty"`
 }
 
 // UnmarshalJSON implements custom unmarshaling for WorkerOptionsConfig to handle time.Duration fields

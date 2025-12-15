@@ -212,14 +212,14 @@ func TestSetValues_NoFrameContext(t *testing.T) {
 	values := NewValues()
 
 	err := SetValues(ctx, values)
-	if err != ErrNoFrameContext {
+	if !errors.Is(err, ErrNoFrameContext) {
 		t.Errorf("SetValues() error = %v, want ErrNoFrameContext", err)
 	}
 }
 
 func TestSetValues_WithFrameContext(t *testing.T) {
 	ctx := NewRootContext()
-	ctx, fc := AcquireFrameContext(ctx)
+	ctx, fc := OpenFrameContext(ctx)
 	defer ReleaseFrameContext(fc)
 
 	values := NewValues()
@@ -249,10 +249,10 @@ func TestGetValues_NoFrameContext(t *testing.T) {
 
 func TestGetValues_WrongType(t *testing.T) {
 	ctx := NewRootContext()
-	ctx, fc := AcquireFrameContext(ctx)
+	ctx, fc := OpenFrameContext(ctx)
 	defer ReleaseFrameContext(fc)
 
-	fc.Set(ValuesCtx, "not values")
+	_ = fc.Set(ValuesCtx, "not values")
 
 	values := GetValues(ctx)
 	if values != nil {
@@ -263,7 +263,7 @@ func TestGetValues_WrongType(t *testing.T) {
 func TestGetOrCreateValues_NoFrameContext(t *testing.T) {
 	ctx := context.Background()
 	values, err := GetOrCreateValues(ctx)
-	if err != ErrNoFrameContext {
+	if !errors.Is(err, ErrNoFrameContext) {
 		t.Errorf("GetOrCreateValues() error = %v, want ErrNoFrameContext", err)
 	}
 	if values != nil {
@@ -273,7 +273,7 @@ func TestGetOrCreateValues_NoFrameContext(t *testing.T) {
 
 func TestGetOrCreateValues_Creates(t *testing.T) {
 	ctx := NewRootContext()
-	ctx, fc := AcquireFrameContext(ctx)
+	ctx, fc := OpenFrameContext(ctx)
 	defer ReleaseFrameContext(fc)
 
 	values, err := GetOrCreateValues(ctx)
@@ -297,10 +297,10 @@ func TestGetOrCreateValues_Creates(t *testing.T) {
 
 func TestGetOrCreateValues_WrongTypeCreatesNew(t *testing.T) {
 	ctx := NewRootContext()
-	ctx, fc := AcquireFrameContext(ctx)
+	ctx, fc := OpenFrameContext(ctx)
 	defer ReleaseFrameContext(fc)
 
-	fc.Set(ValuesCtx, "not values")
+	_ = fc.Set(ValuesCtx, "not values")
 
 	values, err := GetOrCreateValues(ctx)
 	if err != nil {

@@ -15,8 +15,8 @@ const (
 	DriverRegister event.Kind = "queue.driver.register"
 	DriverDelete   event.Kind = "queue.driver.delete"
 
-	QueueDeclare event.Kind = "queue.queue.declare"
-	QueueDelete  event.Kind = "queue.queue.delete"
+	Declare event.Kind = "queue.queue.declare"
+	Delete  event.Kind = "queue.queue.delete"
 )
 
 // Queue represents a queue declaration with its configuration

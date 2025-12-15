@@ -54,9 +54,9 @@ func NewManager(
 // Add implements registry.EntryListener - registers a template or set
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
-	case templateapi.Template:
+	case templateapi.Jet:
 		return m.handleTemplateAdd(ctx, entry)
-	case templateapi.TemplateSet:
+	case templateapi.Set:
 		return m.handleSetAdd(ctx, entry)
 	default:
 		return servicetemplate.NewUnsupportedKindError(string(entry.Kind))
@@ -66,9 +66,9 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update implements registry.EntryListener - updates a template or set
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
-	case templateapi.Template:
+	case templateapi.Jet:
 		return m.handleTemplateUpdate(ctx, entry)
-	case templateapi.TemplateSet:
+	case templateapi.Set:
 		return m.handleSetUpdate(ctx, entry)
 	default:
 		return servicetemplate.NewUnsupportedKindError(string(entry.Kind))
@@ -78,9 +78,9 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete implements registry.EntryListener - removes a template or set
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
-	case templateapi.Template:
+	case templateapi.Jet:
 		return m.handleTemplateDelete(ctx, entry)
-	case templateapi.TemplateSet:
+	case templateapi.Set:
 		return m.handleSetDelete(ctx, entry)
 	default:
 		return servicetemplate.NewUnsupportedKindError(string(entry.Kind))

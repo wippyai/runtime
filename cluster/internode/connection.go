@@ -388,9 +388,9 @@ func readFrame(r io.Reader, maxMessageSize uint32) ([]byte, error) {
 
 	// Check for potential integer overflow before casting to uint32
 	bufCap := cap(*bp)
-	if bufCap < 0 || bufCap > int(math.MaxUint32) {
+	if bufCap < 0 || bufCap > math.MaxUint32 {
 		// This shouldn't happen in practice, but handle it safely
-		bufCap = int(math.MaxUint32)
+		bufCap = math.MaxUint32
 	}
 
 	if int(size) > bufCap {

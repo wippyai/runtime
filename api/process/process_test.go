@@ -397,14 +397,14 @@ func TestLifecycleOptionKeys(t *testing.T) {
 }
 
 func TestEventKinds(t *testing.T) {
-	assert.Equal(t, "factory.register", string(FactoryRegister))
-	assert.Equal(t, "factory.delete", string(FactoryDelete))
-	assert.Equal(t, "factory.accept", string(FactoryAccept))
-	assert.Equal(t, "factory.reject", string(FactoryReject))
+	assert.Equal(t, "factory.register", FactoryRegister)
+	assert.Equal(t, "factory.delete", FactoryDelete)
+	assert.Equal(t, "factory.accept", FactoryAccept)
+	assert.Equal(t, "factory.reject", FactoryReject)
 }
 
 func TestSystemConstant(t *testing.T) {
-	assert.Equal(t, "process", string(System))
+	assert.Equal(t, "process", System)
 }
 
 func TestContextFunctions_NoAppContext(t *testing.T) {
@@ -462,7 +462,7 @@ func TestContextFunctions_WithAppContext(t *testing.T) {
 		assert.Nil(t, GetPIDGenerator(ctx2))
 
 		baseGen := uniqid.NewGenerator()
-		gen := uniqid.NewPIDGenerator(baseGen, pid.NodeID("1"))
+		gen := uniqid.NewPIDGenerator(baseGen, "1")
 		result := WithPIDGenerator(ctx2, gen)
 		assert.Equal(t, ctx2, result)
 

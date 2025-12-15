@@ -81,15 +81,6 @@ func WithMaxWorkers(n int) Option {
 	}
 }
 
-// WithMinWorkers sets the minimum number of workers.
-func WithMinWorkers(n int) Option {
-	return func(a *Pool) {
-		if n > 0 {
-			a.minWorkers = n
-		}
-	}
-}
-
 // WithQueueSize sets the task queue capacity.
 func WithQueueSize(n int) Option {
 	return func(a *Pool) {

@@ -9,8 +9,8 @@ import (
 
 func Queue() boot.Component {
 	return boot.New(boot.P{
-		Name:      LuaQueueName,
-		DependsOn: []boot.Name{LuaEngineName},
+		Name:      QueueName,
+		DependsOn: []boot.Name{EngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			cm := GetCodeManager(ctx)
 			if cm == nil {

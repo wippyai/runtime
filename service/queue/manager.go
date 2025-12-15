@@ -69,9 +69,9 @@ func (m *Manager) handleEvent(e event.Event) {
 		m.handleDriverRegister(e)
 	case queueapi.DriverDelete:
 		m.handleDriverDelete(e)
-	case queueapi.QueueDeclare:
+	case queueapi.Declare:
 		m.handleQueueDeclare(e)
-	case queueapi.QueueDelete:
+	case queueapi.Delete:
 		m.handleQueueDelete(e)
 	default:
 		m.logger.Warn("unknown event kind",

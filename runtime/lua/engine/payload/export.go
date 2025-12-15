@@ -1,6 +1,7 @@
 package payload
 
 import (
+	"errors"
 	"sync"
 
 	"github.com/wippyai/runtime/api/payload"
@@ -73,8 +74,11 @@ func processAndDeepCopy(value lua.LValue) lua.LValue {
 func makeTableImmutableRecursive(value lua.LValue, visited map[*lua.LTable]bool) lua.LValue {
 	table, ok := value.(*lua.LTable)
 	if !ok {
-		if _, isError := value.(*lua.Error); isError {
-			return value
+		if err, isError := value.(error); isError {
+			var luaErr *lua.Error
+			if errors.As(err, &luaErr) {
+				return value
+			}
 		}
 		if ud, isUserdata := value.(*lua.LUserData); isUserdata {
 			if ud.Value == nil {

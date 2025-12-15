@@ -356,14 +356,12 @@ func TestStressMemoryLeak(t *testing.T) {
 	}
 
 	// Check for growth trend
-	if iterations >= 3 {
-		growth := int64(memoryAfter[iterations-1]) - int64(memoryAfter[0]) //#nosec G115
-		growthPerIter := float64(growth) / float64(iterations-1)
-		t.Logf("Memory growth over %d iterations: %d bytes (%.0f bytes/iter)", iterations, growth, growthPerIter)
+	growth := int64(memoryAfter[iterations-1]) - int64(memoryAfter[0]) //#nosec G115
+	growthPerIter := float64(growth) / float64(iterations-1)
+	t.Logf("Memory growth over %d iterations: %d bytes (%.0f bytes/iter)", iterations, growth, growthPerIter)
 
-		if growthPerIter > float64(processCount*100) {
-			t.Logf("WARNING: Memory appears to be growing (%.0f bytes/iteration)", growthPerIter)
-		}
+	if growthPerIter > float64(processCount*100) {
+		t.Logf("WARNING: Memory appears to be growing (%.0f bytes/iteration)", growthPerIter)
 	}
 }
 

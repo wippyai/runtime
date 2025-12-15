@@ -12,7 +12,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/pid"
+	pidapi "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
@@ -894,8 +894,8 @@ func (m *mockProcess) Send(_ *relay.Package) error {
 	return nil
 }
 
-func newTestPID(id string) pid.PID {
-	return pid.PID{
+func newTestPID(id string) pidapi.PID {
+	return pidapi.PID{
 		Host:   "test",
 		UniqID: id,
 	}
@@ -911,9 +911,9 @@ type benchLifecycle struct {
 	executor *benchExecutor
 }
 
-func (l *benchLifecycle) OnStart(_ context.Context, _ pid.PID, _ process.Process) {}
+func (l *benchLifecycle) OnStart(_ context.Context, _ pidapi.PID, _ process.Process) {}
 
-func (l *benchLifecycle) OnComplete(_ context.Context, p pid.PID, result *runtime.Result) {
+func (l *benchLifecycle) OnComplete(_ context.Context, p pidapi.PID, result *runtime.Result) {
 	l.executor.mu.Lock()
 	if ch, ok := l.executor.pending[p.UniqID]; ok {
 		delete(l.executor.pending, p.UniqID)
@@ -942,7 +942,7 @@ func (be *benchExecutor) Start()                   { be.sched.Start() }
 func (be *benchExecutor) Stop()                    { be.sched.Stop(context.Background()) }
 func (be *benchExecutor) Stats() map[string]uint64 { return be.sched.Stats() }
 
-func (be *benchExecutor) Execute(ctx context.Context, p pid.PID, proc process.Process, method string, input payload.Payloads) (*runtime.Result, error) {
+func (be *benchExecutor) Execute(ctx context.Context, p pidapi.PID, proc process.Process, method string, input payload.Payloads) (*runtime.Result, error) {
 	resultCh := make(chan *runtime.Result, 1)
 
 	be.mu.Lock()
@@ -984,7 +984,7 @@ func BenchmarkIntegrationFullPath(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+		ctx, fc := ctxapi.OpenFrameContext(context.Background())
 		store := resource.NewStore()
 		_ = resource.SetStore(ctx, store)
 
@@ -1028,7 +1028,7 @@ func BenchmarkIntegrationWithCoroutines(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+		ctx, fc := ctxapi.OpenFrameContext(context.Background())
 		store := resource.NewStore()
 		_ = resource.SetStore(ctx, store)
 
@@ -1068,7 +1068,7 @@ func BenchmarkIntegrationConcurrent(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			i := counter.Add(1)
-			ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+			ctx, fc := ctxapi.OpenFrameContext(context.Background())
 			store := resource.NewStore()
 			_ = resource.SetStore(ctx, store)
 
@@ -1128,7 +1128,7 @@ func TestIntegration1000ConcurrentGoroutines(t *testing.T) {
 		go func(gid int) {
 			defer wg.Done()
 			for p := 0; p < processesPerGoroutine; p++ {
-				ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+				ctx, fc := ctxapi.OpenFrameContext(context.Background())
 				store := resource.NewStore()
 				_ = resource.SetStore(ctx, store)
 
@@ -1247,7 +1247,7 @@ func TestIntegrationProfileHotPath(t *testing.T) {
 				default:
 				}
 
-				ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+				ctx, fc := ctxapi.OpenFrameContext(context.Background())
 				store := resource.NewStore()
 				_ = resource.SetStore(ctx, store)
 
@@ -1315,7 +1315,7 @@ func BenchmarkIntegrationWithCoreBinders(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+		ctx, fc := ctxapi.OpenFrameContext(context.Background())
 		store := resource.NewStore()
 		_ = resource.SetStore(ctx, store)
 
@@ -1362,7 +1362,7 @@ func BenchmarkIntegrationManyCoroutineYields(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+		ctx, fc := ctxapi.OpenFrameContext(context.Background())
 		store := resource.NewStore()
 		_ = resource.SetStore(ctx, store)
 
@@ -1413,7 +1413,7 @@ func TestIntegrationMemoryStability(t *testing.T) {
 
 	for iter := 0; iter < iterations; iter++ {
 		for p := 0; p < processesPerIteration; p++ {
-			ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+			ctx, fc := ctxapi.OpenFrameContext(context.Background())
 			store := resource.NewStore()
 			_ = resource.SetStore(ctx, store)
 
@@ -1481,7 +1481,7 @@ func BenchmarkIntegrationSpawnCoroutines(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+		ctx, fc := ctxapi.OpenFrameContext(context.Background())
 		store := resource.NewStore()
 		_ = resource.SetStore(ctx, store)
 

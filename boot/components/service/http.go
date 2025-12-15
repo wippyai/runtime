@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	nethttp "net/http"
+
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/event"
 	fsapi "github.com/wippyai/runtime/api/fs"
@@ -24,9 +26,8 @@ import (
 	"github.com/wippyai/runtime/service/http/middleware/ratelimit"
 	"github.com/wippyai/runtime/service/http/middleware/realip"
 	"github.com/wippyai/runtime/service/http/middleware/wsrelay"
-	tokenstore "github.com/wippyai/runtime/service/security/tokenstore"
+	"github.com/wippyai/runtime/service/security/tokenstore"
 	"go.uber.org/zap"
-	nethttp "net/http"
 )
 
 func HTTP() boot.Component {

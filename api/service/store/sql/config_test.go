@@ -12,7 +12,7 @@ import (
 )
 
 func TestKindConstant(t *testing.T) {
-	assert.Equal(t, "store.sql", SQLKV)
+	assert.Equal(t, "store.sql", KV)
 }
 
 func TestConfig_Marshal(t *testing.T) {

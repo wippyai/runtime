@@ -29,7 +29,7 @@ func createMockConnection(nodeID cluster.NodeID) *NodeConnection {
 
 func TestNodeStateManager_CreateNodeState(t *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("test-node-1")
+	nodeID := "test-node-1"
 
 	// Create new node state
 	nsm.CreateNodeState(nodeID)
@@ -44,7 +44,7 @@ func TestNodeStateManager_CreateNodeState(t *testing.T) {
 
 func TestNodeStateManager_CreateNodeState_Duplicate(t *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("test-node-1")
+	nodeID := "test-node-1"
 
 	// Create twice
 	nsm.CreateNodeState(nodeID)
@@ -57,7 +57,7 @@ func TestNodeStateManager_CreateNodeState_Duplicate(t *testing.T) {
 
 func TestNodeStateManager_GetNodeState_NonExistent(t *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("non-existent")
+	nodeID := "non-existent"
 
 	state := nsm.GetNodeState(nodeID)
 	assert.Nil(t, state)
@@ -65,7 +65,7 @@ func TestNodeStateManager_GetNodeState_NonExistent(t *testing.T) {
 
 func TestNodeStateManager_RemoveNodeState(t *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("test-node-1")
+	nodeID := "test-node-1"
 
 	// Create and verify
 	nsm.CreateNodeState(nodeID)
@@ -80,7 +80,7 @@ func TestNodeStateManager_RemoveNodeState(t *testing.T) {
 
 func TestNodeStateManager_RemoveNodeState_WithConnection(t *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("test-node-1")
+	nodeID := "test-node-1"
 
 	nsm.CreateNodeState(nodeID)
 
@@ -97,7 +97,7 @@ func TestNodeStateManager_RemoveNodeState_WithConnection(t *testing.T) {
 
 func TestNodeStateManager_RemoveNodeState_NonExistent(_ *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("non-existent")
+	nodeID := "non-existent"
 
 	// Should not panic
 	nsm.RemoveNodeState(nodeID)
@@ -105,7 +105,7 @@ func TestNodeStateManager_RemoveNodeState_NonExistent(_ *testing.T) {
 
 func TestNodeStateManager_QueueMessage(t *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("test-node-1")
+	nodeID := "test-node-1"
 
 	nsm.CreateNodeState(nodeID)
 
@@ -130,7 +130,7 @@ func TestNodeStateManager_QueueMessage(t *testing.T) {
 
 func TestNodeStateManager_QueueMessage_Nil(t *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("test-node-1")
+	nodeID := "test-node-1"
 
 	nsm.CreateNodeState(nodeID)
 
@@ -144,7 +144,7 @@ func TestNodeStateManager_QueueMessage_Nil(t *testing.T) {
 
 func TestNodeStateManager_QueueMessage_UnmanagedNode(t *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("unmanaged")
+	nodeID := "unmanaged"
 
 	// Should return error
 	err := nsm.QueueMessage(nodeID, []byte("test"))
@@ -153,7 +153,7 @@ func TestNodeStateManager_QueueMessage_UnmanagedNode(t *testing.T) {
 
 func TestNodeStateManager_QueueMessage_Multiple(t *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("test-node-1")
+	nodeID := "test-node-1"
 
 	nsm.CreateNodeState(nodeID)
 
@@ -174,7 +174,7 @@ func TestNodeStateManager_QueueMessage_Multiple(t *testing.T) {
 
 func TestNodeStateManager_DrainMessages_MaxCount(t *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("test-node-1")
+	nodeID := "test-node-1"
 
 	nsm.CreateNodeState(nodeID)
 
@@ -194,7 +194,7 @@ func TestNodeStateManager_DrainMessages_MaxCount(t *testing.T) {
 
 func TestNodeStateManager_DrainMessages_Empty(t *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("test-node-1")
+	nodeID := "test-node-1"
 
 	nsm.CreateNodeState(nodeID)
 
@@ -204,7 +204,7 @@ func TestNodeStateManager_DrainMessages_Empty(t *testing.T) {
 
 func TestNodeStateManager_DrainMessages_UnmanagedNode(t *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("unmanaged")
+	nodeID := "unmanaged"
 
 	messages := nsm.DrainMessages(nodeID, 10)
 	assert.Nil(t, messages)
@@ -212,7 +212,7 @@ func TestNodeStateManager_DrainMessages_UnmanagedNode(t *testing.T) {
 
 func TestNodeStateManager_DrainMessages_ZeroMaxCount(t *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("test-node-1")
+	nodeID := "test-node-1"
 
 	nsm.CreateNodeState(nodeID)
 	_ = nsm.QueueMessage(nodeID, []byte("test"))
@@ -223,7 +223,7 @@ func TestNodeStateManager_DrainMessages_ZeroMaxCount(t *testing.T) {
 
 func TestNodeStateManager_RequeueMessages(t *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("test-node-1")
+	nodeID := "test-node-1"
 
 	nsm.CreateNodeState(nodeID)
 
@@ -244,7 +244,7 @@ func TestNodeStateManager_RequeueMessages(t *testing.T) {
 
 func TestNodeStateManager_RequeueMessages_Empty(_ *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("test-node-1")
+	nodeID := "test-node-1"
 
 	nsm.CreateNodeState(nodeID)
 
@@ -254,7 +254,7 @@ func TestNodeStateManager_RequeueMessages_Empty(_ *testing.T) {
 
 func TestNodeStateManager_RequeueMessages_UnmanagedNode(_ *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("unmanaged")
+	nodeID := "unmanaged"
 
 	// Should not panic, messages dropped
 	nsm.RequeueMessages(nodeID, [][]byte{{1}, {2}})
@@ -262,7 +262,7 @@ func TestNodeStateManager_RequeueMessages_UnmanagedNode(_ *testing.T) {
 
 func TestNodeStateManager_SetGetNodeConnection(t *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("test-node-1")
+	nodeID := "test-node-1"
 
 	nsm.CreateNodeState(nodeID)
 
@@ -278,7 +278,7 @@ func TestNodeStateManager_SetGetNodeConnection(t *testing.T) {
 
 func TestNodeStateManager_GetNodeConnection_NonExistent(t *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("non-existent")
+	nodeID := "non-existent"
 
 	conn, state := nsm.GetNodeConnection(nodeID)
 	assert.Nil(t, conn)
@@ -287,7 +287,7 @@ func TestNodeStateManager_GetNodeConnection_NonExistent(t *testing.T) {
 
 func TestNodeStateManager_SetNodeConnection_UnmanagedNode(_ *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("unmanaged")
+	nodeID := "unmanaged"
 
 	// Should not panic
 	mockConn := &NodeConnection{}
@@ -296,7 +296,7 @@ func TestNodeStateManager_SetNodeConnection_UnmanagedNode(_ *testing.T) {
 
 func TestNodeStateManager_SetGetNodeState(t *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("test-node-1")
+	nodeID := "test-node-1"
 
 	nsm.CreateNodeState(nodeID)
 
@@ -310,7 +310,7 @@ func TestNodeStateManager_SetGetNodeState(t *testing.T) {
 
 func TestNodeStateManager_SetNodeState_UnmanagedNode(_ *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("unmanaged")
+	nodeID := "unmanaged"
 
 	// Should not panic
 	nsm.SetNodeState(nodeID, StateConnected)
@@ -318,7 +318,7 @@ func TestNodeStateManager_SetNodeState_UnmanagedNode(_ *testing.T) {
 
 func TestNodeStateManager_UpdateGetNodeAddress(t *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("test-node-1")
+	nodeID := "test-node-1"
 
 	nsm.CreateNodeState(nodeID)
 
@@ -334,7 +334,7 @@ func TestNodeStateManager_UpdateGetNodeAddress(t *testing.T) {
 
 func TestNodeStateManager_GetNodeAddress_NonExistent(t *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("non-existent")
+	nodeID := "non-existent"
 
 	addr, port, ok := nsm.GetNodeAddress(nodeID)
 	assert.False(t, ok)
@@ -344,7 +344,7 @@ func TestNodeStateManager_GetNodeAddress_NonExistent(t *testing.T) {
 
 func TestNodeStateManager_GetNodeAddress_NotSet(t *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("test-node-1")
+	nodeID := "test-node-1"
 
 	nsm.CreateNodeState(nodeID)
 
@@ -357,7 +357,7 @@ func TestNodeStateManager_GetNodeAddress_NotSet(t *testing.T) {
 
 func TestNodeStateManager_UpdateNodeAddress_UnmanagedNode(_ *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("unmanaged")
+	nodeID := "unmanaged"
 
 	// Should not panic
 	nsm.UpdateNodeAddress(nodeID, "192.168.1.1", 8080)
@@ -365,7 +365,7 @@ func TestNodeStateManager_UpdateNodeAddress_UnmanagedNode(_ *testing.T) {
 
 func TestNodeStateManager_GetMessageNotifier(t *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("test-node-1")
+	nodeID := "test-node-1"
 
 	nsm.CreateNodeState(nodeID)
 
@@ -385,7 +385,7 @@ func TestNodeStateManager_GetMessageNotifier(t *testing.T) {
 
 func TestNodeStateManager_GetMessageNotifier_UnmanagedNode(t *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("unmanaged")
+	nodeID := "unmanaged"
 
 	notifier := nsm.GetMessageNotifier(nodeID)
 	assert.Nil(t, notifier)
@@ -402,9 +402,9 @@ func TestNodeStateManager_GetConnectedNodes(t *testing.T) {
 	nsm := setupStateManager()
 
 	// Create multiple nodes with different states
-	node1 := cluster.NodeID("node-1")
-	node2 := cluster.NodeID("node-2")
-	node3 := cluster.NodeID("node-3")
+	node1 := "node-1"
+	node2 := "node-2"
+	node3 := "node-3"
 
 	nsm.CreateNodeState(node1)
 	nsm.CreateNodeState(node2)
@@ -425,7 +425,7 @@ func TestNodeStateManager_GetConnectedNodes(t *testing.T) {
 
 func TestNodeStateManager_Concurrent_QueueDrain(t *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("test-node-1")
+	nodeID := "test-node-1"
 	nsm.CreateNodeState(nodeID)
 
 	const numGoroutines = 10
@@ -472,7 +472,7 @@ func TestNodeStateManager_Concurrent_QueueDrain(t *testing.T) {
 
 func TestNodeStateManager_Concurrent_StateUpdates(t *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("test-node-1")
+	nodeID := "test-node-1"
 	nsm.CreateNodeState(nodeID)
 
 	const numGoroutines = 50
@@ -515,8 +515,7 @@ func TestNodeStateManager_Concurrent_CreateRemove(_ *testing.T) {
 	for i := 0; i < numGoroutines; i++ {
 		go func(id int) {
 			defer wg.Done()
-			//nolint:unconvert // NodeID type alias for type safety
-			nodeID := cluster.NodeID("test-node-" + strconv.Itoa(id))
+			nodeID := "test-node-" + strconv.Itoa(id)
 			nsm.CreateNodeState(nodeID)
 			_ = nsm.QueueMessage(nodeID, []byte{byte(id)})
 		}(i)
@@ -526,8 +525,7 @@ func TestNodeStateManager_Concurrent_CreateRemove(_ *testing.T) {
 	for i := 0; i < numGoroutines; i++ {
 		go func(id int) {
 			defer wg.Done()
-			//nolint:unconvert // NodeID type alias for type safety
-			nodeID := cluster.NodeID("test-node-" + strconv.Itoa(id))
+			nodeID := "test-node-" + strconv.Itoa(id)
 			// May or may not exist yet, should not panic
 			nsm.RemoveNodeState(nodeID)
 		}(i)
@@ -538,7 +536,7 @@ func TestNodeStateManager_Concurrent_CreateRemove(_ *testing.T) {
 
 func TestNodeStateManager_Concurrent_AddressUpdates(t *testing.T) {
 	nsm := setupStateManager()
-	nodeID := cluster.NodeID("test-node-1")
+	nodeID := "test-node-1"
 	nsm.CreateNodeState(nodeID)
 
 	const numGoroutines = 50
@@ -549,7 +547,7 @@ func TestNodeStateManager_Concurrent_AddressUpdates(t *testing.T) {
 	for i := 0; i < numGoroutines; i++ {
 		go func(id int) {
 			defer wg.Done()
-			addr := "192.168.1." + string(rune('0'+id%10))
+			addr := "192.168.1." + strconv.Itoa(id%10)
 			port := 8000 + id
 			nsm.UpdateNodeAddress(nodeID, addr, port)
 		}(i)

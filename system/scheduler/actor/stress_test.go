@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/dispatcher"
-	"github.com/wippyai/runtime/api/pid"
+	pidapi "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	apiruntime "github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/system/scheduler"
@@ -73,7 +73,7 @@ func runStressTest(_ *testing.T, cfg StressConfig) StressResult {
 	var errCount atomic.Int64
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ pid.PID, result *apiruntime.Result) {
+		onComplete: func(_ context.Context, _ pidapi.PID, result *apiruntime.Result) {
 			if result.Error != nil {
 				errCount.Add(1)
 			} else {
@@ -107,7 +107,7 @@ func runStressTest(_ *testing.T, cfg StressConfig) StressResult {
 		go func(id int) {
 			defer wg.Done()
 			proc := &RandomYieldProcess{}
-			pid := pid.PID{UniqID: fmt.Sprintf("stress-%d", id)}
+			pid := pidapi.PID{UniqID: fmt.Sprintf("stress-%d", id)}
 			_, err := sched.Submit(context.Background(), pid, proc, "", testInput(cfg.StepsPerProc))
 			if errors.Is(err, process.ErrMaxProcessesExceeded) {
 				errCount.Add(1)

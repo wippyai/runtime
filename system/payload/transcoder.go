@@ -46,26 +46,22 @@ func NewTranscoder() *Transcoder {
 // RegisterTranscoder registers a transcoder for a specific format conversion.
 // Expected to be called only during initialization.
 func (t *Transcoder) RegisterTranscoder(from, to payload.Format, weight int, tt payload.FormatTranscoder) {
-	fromStr := string(from)
-	toStr := string(to)
+	t.graph.AddNode(from)
+	t.graph.AddNode(to)
+	t.graph.AddEdge(from, to, weight, nil)
 
-	t.graph.AddNode(fromStr)
-	t.graph.AddNode(toStr)
-	t.graph.AddEdge(fromStr, toStr, weight, nil)
-
-	if _, ok := t.transcoders[fromStr]; !ok {
-		t.transcoders[fromStr] = make(map[string]payload.FormatTranscoder)
+	if _, ok := t.transcoders[from]; !ok {
+		t.transcoders[from] = make(map[string]payload.FormatTranscoder)
 	}
 
-	t.transcoders[fromStr][toStr] = tt
+	t.transcoders[from][to] = tt
 }
 
 // RegisterUnmarshaler registers an unmarshaler from a specific format.
 // Expected to be called only during initialization.
 func (t *Transcoder) RegisterUnmarshaler(from payload.Format, unmarshaler payload.Unmarshaler) {
-	formatStr := string(from)
-	t.graph.AddNode(formatStr)
-	t.unmarshalers[formatStr] = unmarshaler
+	t.graph.AddNode(from)
+	t.unmarshalers[from] = unmarshaler
 }
 
 // getTranscodePath returns the cached path or computes and caches a new path
@@ -80,7 +76,7 @@ func (t *Transcoder) getTranscodePath(from, to string) (*graph.Path[string], err
 	// Slow path: compute path and cache it
 	path, err := t.graph.ShortestPath(from, to)
 	if err != nil {
-		return nil, payload.NewNoTranscodingPathError(payload.Format(from), payload.Format(to))
+		return nil, payload.NewNoTranscodingPathError(from, to)
 	}
 
 	// Store computed path in cache
@@ -94,10 +90,7 @@ func (t *Transcoder) Transcode(p payload.Payload, to payload.Format) (payload.Pa
 		return p, nil
 	}
 
-	fromStr := string(p.Format())
-	toStr := string(to)
-
-	path, err := t.getTranscodePath(fromStr, toStr)
+	path, err := t.getTranscodePath(p.Format(), to)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +136,7 @@ func (t *Transcoder) findUnmarshalPath(from string) (*graph.Path[string], error)
 	}
 
 	if unmarshalPath == nil {
-		return nil, payload.NewNoUnmarshalPathError(payload.Format(from))
+		return nil, payload.NewNoUnmarshalPathError(from)
 	}
 
 	// Store computed path in cache
@@ -157,20 +150,18 @@ func (t *Transcoder) Unmarshal(p payload.Payload, v interface{}) error {
 		return payload.ErrEmptyFormat
 	}
 
-	fromStr := string(p.Format())
-
 	// Check if the current format has a direct unmarshaler
-	unmarshaler, ok := t.unmarshalers[fromStr]
+	unmarshaler, ok := t.unmarshalers[p.Format()]
 	if ok {
 		return unmarshaler.Unmarshal(p, v)
 	}
 
-	path, err := t.findUnmarshalPath(fromStr)
+	path, err := t.findUnmarshalPath(p.Format())
 	if err != nil {
 		return err
 	}
 
-	transcodedPayload, err := t.Transcode(p, payload.Format(path.Nodes[len(path.Nodes)-1]))
+	transcodedPayload, err := t.Transcode(p, path.Nodes[len(path.Nodes)-1])
 	if err != nil {
 		return NewUnmarshalTranscodeError(err)
 	}

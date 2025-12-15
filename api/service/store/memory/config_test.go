@@ -11,7 +11,7 @@ import (
 )
 
 func TestKindConstant(t *testing.T) {
-	assert.Equal(t, "store.memory", MemoryKV)
+	assert.Equal(t, "store.memory", KV)
 }
 
 func TestConfig_MarshalJSON(t *testing.T) {

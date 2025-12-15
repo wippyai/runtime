@@ -12,7 +12,7 @@ import (
 
 	"github.com/kaptinlin/jsonschema"
 	lru "github.com/wippyai/runtime/internal/cache"
-	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	luavalue "github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -542,7 +542,7 @@ func schemaValidateFunc(l *lua.LState) int {
 	}
 
 	// Convert Lua value directly to Go value
-	dataGo := value.ToGoAny(dataArg)
+	dataGo := luavalue.ToGoAny(dataArg)
 
 	// Validate using the Go value directly
 	var result *jsonschema.EvaluationResult

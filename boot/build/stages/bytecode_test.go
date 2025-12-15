@@ -289,7 +289,7 @@ func TestBytecode_SkipsUnsupportedKinds(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, luaapi.FunctionBytecode, entries[0].Kind)
-	assert.Equal(t, registry.Kind("config.yaml"), entries[1].Kind) // unchanged
+	assert.Equal(t, "config.yaml", entries[1].Kind) // unchanged
 }
 
 func TestBytecode_InvalidSource(t *testing.T) {
@@ -335,7 +335,7 @@ func TestBytecode_EmptyEntries(t *testing.T) {
 	ctx, _ := setupTestContext()
 	ClearBytecodeResource()
 
-	entries := []registry.Entry{}
+	var entries []registry.Entry
 
 	stage := Bytecode()
 	err := stage.Execute(ctx, &entries)

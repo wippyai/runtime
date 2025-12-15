@@ -9,8 +9,8 @@ import (
 
 func UUID() boot.Component {
 	return boot.New(boot.P{
-		Name:      LuaUUIDName,
-		DependsOn: []boot.Name{LuaEngineName},
+		Name:      UUIDName,
+		DependsOn: []boot.Name{EngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			cm := GetCodeManager(ctx)
 			if cm == nil {

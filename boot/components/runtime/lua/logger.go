@@ -9,8 +9,8 @@ import (
 
 func Logger() boot.Component {
 	return boot.New(boot.P{
-		Name:      LuaLoggerName,
-		DependsOn: []boot.Name{LuaEngineName},
+		Name:      LoggerName,
+		DependsOn: []boot.Name{EngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			cm := GetCodeManager(ctx)
 			if cm == nil {

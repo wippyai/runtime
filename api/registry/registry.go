@@ -33,8 +33,6 @@ const (
 	// Discard represents the rollback of a registry transaction
 	Discard event.Kind = "registry.discard"
 
-	// Changes represents a pattern matching any create, update, or delete events
-	Changes event.Kind = "entry.(create|update|delete)"
 	// AllEvents matches any registry operation event
 	AllEvents event.Kind = "(entry|registry).(create|update|delete|begin|commit|discard)"
 

@@ -164,7 +164,7 @@ return { main = main }
 	t.Logf("Registered pool as host: %s", hostID)
 
 	// Create frame context with PID and relay node
-	frameCtx, fc := ctxapi.AcquireFrameContext(ctx)
+	frameCtx, fc := ctxapi.OpenFrameContext(ctx)
 	defer ctxapi.ReleaseFrameContext(fc)
 
 	pid := pidGen.Generate(hostID)
@@ -265,7 +265,7 @@ return { main = main }
 	require.NoError(t, err)
 
 	// Create frame context with PID
-	frameCtx, fc := ctxapi.AcquireFrameContext(ctx)
+	frameCtx, fc := ctxapi.OpenFrameContext(ctx)
 	defer ctxapi.ReleaseFrameContext(fc)
 
 	pid := pidGen.Generate(hostID)

@@ -8,16 +8,16 @@ import (
 
 // Constants for the WebSocket relay
 const (
-	// WSRelayHeader is the header that indicates a WebSocket connection request
-	WSRelayHeader = "X-WS-Relay"
+	// RelayHeader is the header that indicates a WebSocket connection request
+	RelayHeader = "X-WS-Relay"
 
 	// Topic constants
-	WSMessageTopic   relay.Topic = "ws.message"
-	WSJoinTopic      relay.Topic = "ws.join"
-	WSLeaveTopic     relay.Topic = "ws.leave"
-	WSControlTopic   relay.Topic = "ws.control"
-	WSCloseTopic     relay.Topic = "ws.close"
-	WSHeartbeatTopic relay.Topic = "ws.heartbeat"
+	MessageTopic   relay.Topic = "ws.message"
+	JoinTopic      relay.Topic = "ws.join"
+	LeaveTopic     relay.Topic = "ws.leave"
+	ControlTopic   relay.Topic = "ws.control"
+	CloseTopic     relay.Topic = "ws.close"
+	HeartbeatTopic relay.Topic = "ws.heartbeat"
 
 	// Default heartbeat interval
 	DefaultHeartbeatInterval = 30 * time.Second

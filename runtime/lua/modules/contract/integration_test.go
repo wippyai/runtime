@@ -3,6 +3,7 @@ package contract_test
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -89,7 +90,7 @@ func (ts *testScheduler) Execute(ctx context.Context, p pid.PID, proc process.Pr
 var testPIDCounter atomic.Int64
 
 func uniqueTestPID() pid.PID {
-	return pid.PID{UniqID: stdtime.Now().Format("20060102150405.000000000") + "-" + string(rune(testPIDCounter.Add(1)))}
+	return pid.PID{UniqID: stdtime.Now().Format("20060102150405.000000000") + "-" + strconv.FormatInt(testPIDCounter.Add(1), 10)}
 }
 
 // extractInt64 extracts an int64 from various types (Lua or Go)
@@ -262,7 +263,7 @@ func TestIntegration_OpenBinding(t *testing.T) {
 	defer tc.Close(t)
 
 	funcID := registry.NewID("test", "greet")
-	tc.registerFunction(t, funcID, function.Func(func(_ context.Context, task runtime.Task) (*runtime.Result, error) {
+	tc.registerFunction(t, funcID, func(_ context.Context, task runtime.Task) (*runtime.Result, error) {
 		name := "World"
 		if len(task.Payloads) > 0 {
 			if s, ok := task.Payloads[0].Data().(string); ok {
@@ -303,7 +304,7 @@ func TestIntegration_OpenBinding(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, result.Error)
 	require.NotNil(t, result.Value)
-	assert.Equal(t, lua.LTrue, result.Value.Data().(lua.LBool))
+	assert.Equal(t, lua.LTrue, result.Value.Data())
 }
 
 func TestIntegration_CallMethod(t *testing.T) {
@@ -311,7 +312,7 @@ func TestIntegration_CallMethod(t *testing.T) {
 	defer tc.Close(t)
 
 	funcID := registry.NewID("test", "add")
-	tc.registerFunction(t, funcID, function.Func(func(_ context.Context, task runtime.Task) (*runtime.Result, error) {
+	tc.registerFunction(t, funcID, func(_ context.Context, task runtime.Task) (*runtime.Result, error) {
 		var a, b int64
 		if len(task.Payloads) > 0 {
 			a = extractInt64(task.Payloads[0].Data())
@@ -357,7 +358,7 @@ func TestIntegration_CallMethod(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, result.Error)
 	require.NotNil(t, result.Value)
-	assert.Equal(t, lua.LInteger(42), result.Value.Data().(lua.LInteger))
+	assert.Equal(t, lua.LInteger(42), result.Value.Data())
 }
 
 func TestIntegration_ScopeContext(t *testing.T) {
@@ -365,7 +366,7 @@ func TestIntegration_ScopeContext(t *testing.T) {
 	defer tc.Close(t)
 
 	funcID := registry.NewID("test", "get_user")
-	tc.registerFunction(t, funcID, function.Func(func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
+	tc.registerFunction(t, funcID, func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
 		values := ctxapi.GetValues(ctx)
 		if values == nil {
 			return &runtime.Result{Value: payload.New("no context")}, nil
@@ -420,7 +421,7 @@ func TestIntegration_MethodNotFound(t *testing.T) {
 	defer tc.Close(t)
 
 	funcID := registry.NewID("test", "noop")
-	tc.registerFunction(t, funcID, function.Func(func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+	tc.registerFunction(t, funcID, func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		return &runtime.Result{Value: payload.New("ok")}, nil
 	}))
 
@@ -469,7 +470,7 @@ func TestIntegration_MultipleMethodCalls(t *testing.T) {
 	addID := registry.NewID("test", "math_add")
 	mulID := registry.NewID("test", "math_mul")
 
-	tc.registerFunction(t, addID, function.Func(func(_ context.Context, task runtime.Task) (*runtime.Result, error) {
+	tc.registerFunction(t, addID, func(_ context.Context, task runtime.Task) (*runtime.Result, error) {
 		var a, b int64
 		if len(task.Payloads) > 0 {
 			a = extractInt64(task.Payloads[0].Data())
@@ -480,7 +481,7 @@ func TestIntegration_MultipleMethodCalls(t *testing.T) {
 		return &runtime.Result{Value: payload.New(a + b)}, nil
 	}))
 
-	tc.registerFunction(t, mulID, function.Func(func(_ context.Context, task runtime.Task) (*runtime.Result, error) {
+	tc.registerFunction(t, mulID, func(_ context.Context, task runtime.Task) (*runtime.Result, error) {
 		var a, b int64
 		if len(task.Payloads) > 0 {
 			a = extractInt64(task.Payloads[0].Data())
@@ -532,7 +533,7 @@ func TestIntegration_MultipleMethodCalls(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, result.Error)
 	require.NotNil(t, result.Value)
-	assert.Equal(t, lua.LInteger(20), result.Value.Data().(lua.LInteger))
+	assert.Equal(t, lua.LInteger(20), result.Value.Data())
 }
 
 func TestIntegration_InstanceImplements(t *testing.T) {
@@ -540,7 +541,7 @@ func TestIntegration_InstanceImplements(t *testing.T) {
 	defer tc.Close(t)
 
 	funcID := registry.NewID("test", "noop")
-	tc.registerFunction(t, funcID, function.Func(func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+	tc.registerFunction(t, funcID, func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		return &runtime.Result{Value: payload.New("ok")}, nil
 	}))
 
@@ -578,7 +579,7 @@ func TestIntegration_InstanceImplements(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, result.Error)
 	require.NotNil(t, result.Value)
-	assert.Equal(t, lua.LTrue, result.Value.Data().(lua.LBool))
+	assert.Equal(t, lua.LTrue, result.Value.Data())
 }
 
 func TestIntegration_IsContract(t *testing.T) {
@@ -586,7 +587,7 @@ func TestIntegration_IsContract(t *testing.T) {
 	defer tc.Close(t)
 
 	funcID := registry.NewID("test", "noop")
-	tc.registerFunction(t, funcID, function.Func(func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+	tc.registerFunction(t, funcID, func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		return &runtime.Result{Value: payload.New("ok")}, nil
 	}))
 
@@ -633,7 +634,7 @@ func TestIntegration_Concurrent(t *testing.T) {
 	defer tc.Close(t)
 
 	funcID := registry.NewID("test", "add_one")
-	tc.registerFunction(t, funcID, function.Func(func(_ context.Context, task runtime.Task) (*runtime.Result, error) {
+	tc.registerFunction(t, funcID, func(_ context.Context, task runtime.Task) (*runtime.Result, error) {
 		var v int64
 		if len(task.Payloads) > 0 {
 			v = extractInt64(task.Payloads[0].Data())

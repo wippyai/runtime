@@ -29,19 +29,6 @@ func createTestDBConfig() *config.DBConfig {
 	}
 }
 
-//nolint:unused // to be used in tests
-func createTestSQLiteConfig() *config.SQLiteConfig {
-	return &config.SQLiteConfig{
-		File: ":memory:",
-		Pool: config.PoolConfig{
-			MaxLifetime: time.Hour,
-		},
-		Options: map[string]string{
-			"_journal_mode": "WAL",
-		},
-	}
-}
-
 // TestDefaultPoolFactory_BuildDSN tests DSN string building without connecting to actual databases
 func TestDefaultPoolFactory_BuildDSN(t *testing.T) {
 	tests := []struct {

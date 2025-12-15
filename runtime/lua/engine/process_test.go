@@ -142,7 +142,7 @@ func TestProcessMultipleCoroutines(t *testing.T) {
 
 func TestResourceStoreInContext(t *testing.T) {
 	// Create frame context
-	ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
 
 	// No store yet
 	store := resource.GetStore(ctx)
@@ -968,23 +968,6 @@ func TestPoolStateReuse(t *testing.T) {
 	}
 }
 
-// newLuaFactoryWithChannels creates a factory that includes channel module
-func newLuaFactoryWithChannels(script string) process.FactoryFunc {
-	return func() (process.Process, error) {
-		proto, err := lua.CompileString(script, "test.lua")
-		if err != nil {
-			return nil, err
-		}
-
-		proc := NewProcess(
-			WithProto(proto),
-			WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
-		)
-
-		return proc, nil
-	}
-}
-
 // bindMockTimeModule binds a mock time module with test_yield for sleep
 func bindMockTimeModule(l *lua.LState) {
 	timeMod := l.NewTable()
@@ -1096,7 +1079,7 @@ func Benchmark8x8NoYield(b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+			ctx, fc := ctxapi.OpenFrameContext(context.Background())
 			_, _ = ps.Call(ctx, "", nil)
 			ctxapi.ReleaseFrameContext(fc)
 		}
@@ -1123,7 +1106,7 @@ func BenchmarkSingleWorker(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+		ctx, fc := ctxapi.OpenFrameContext(context.Background())
 		_, _ = ps.Call(ctx, "", nil)
 		ctxapi.ReleaseFrameContext(fc)
 	}
@@ -1152,7 +1135,7 @@ func BenchmarkWorkerScalingLua(b *testing.B) {
 
 			b.RunParallel(func(pb *testing.PB) {
 				for pb.Next() {
-					ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+					ctx, fc := ctxapi.OpenFrameContext(context.Background())
 					_, _ = ps.Call(ctx, "", nil)
 					ctxapi.ReleaseFrameContext(fc)
 				}

@@ -26,18 +26,18 @@ func NewFactory(w *Workload) process.FactoryFunc {
 	}
 }
 
-func (p *Process) Init(ctx context.Context, method string, input payload.Payloads) error {
+func (p *Process) Init(_ctx context.Context, _method string, _input payload.Payloads) error {
 	return nil
 }
 
-func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
+func (p *Process) Step(_events []process.Event, out *process.StepOutput) error {
 	// Use background context for work - the pool executor manages cancellation
 	// We simulate work here, then immediately complete
 	ctx := context.Background()
 
 	if err := p.workload.Work(ctx); err != nil {
 		out.Done(nil)
-		return nil // Don't propagate - just complete
+		return nil
 	}
 
 	out.Done(nil)

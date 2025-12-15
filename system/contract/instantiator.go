@@ -114,7 +114,7 @@ func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Pay
 			values.Set(k, v)
 		}
 
-		// Pass merged values via task.Context so they propagate through AcquireFrameContext
+		// Pass merged values via task.Context so they propagate through OpenFrameContext
 		task.Context = []ctxapi.Pair{ctxapi.ValuesPair(values)}
 	}
 

@@ -198,7 +198,7 @@ func TestContext_FrameLifecycleOptions(t *testing.T) {
 		ctx, fc := ctxapi.OpenFrameContext(ctx)
 
 		opts := map[string]any{"timeout": 30}
-		fc.Set(FrameLifecycleOptionsKey, opts)
+		_ = fc.Set(FrameLifecycleOptionsKey, opts)
 
 		retrieved := GetFrameLifecycleOptions(ctx)
 		assert.NotNil(t, retrieved)

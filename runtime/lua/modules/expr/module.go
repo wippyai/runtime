@@ -30,9 +30,6 @@ func DefaultOptions() Options {
 	}
 }
 
-// Module is the default expr module with default options.
-var Module = NewModule(DefaultOptions())
-
 // NewModule creates an expr module with given options.
 func NewModule(opts Options) *luaapi.ModuleDef {
 	if opts.CacheCapacity <= 0 {

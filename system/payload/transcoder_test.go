@@ -45,9 +45,9 @@ func TestTranscoder_RegisterTranscoderAndTranscode(t *testing.T) {
 	transcoder := NewTranscoder()
 
 	// Define some mock formats
-	formatA := payload.Format("format/A")
-	formatB := payload.Format("format/B")
-	formatC := payload.Format("format/C")
+	formatA := "format/A"
+	formatB := "format/B"
+	formatC := "format/C"
 
 	// Spawn mock json
 	transcoderAB := &MockFormatTranscoder{
@@ -94,8 +94,8 @@ func TestTranscoder_RegisterUnmarshalerAndUnmarshal(t *testing.T) {
 	transcoder := NewTranscoder()
 
 	// Define some mock formats
-	formatA := payload.Format("format/A")
-	formatB := payload.Format("format/B")
+	formatA := "format/A"
+	formatB := "format/B"
 
 	// Spawn a mock unmarshaler
 	unmarshalerB := &MockUnmarshaler{
@@ -145,8 +145,8 @@ func TestTranscoder_NoTranscodingPath(t *testing.T) {
 	transcoder := NewTranscoder()
 
 	// Define some mock formats
-	formatA := payload.Format("format/A")
-	formatB := payload.Format("format/B")
+	formatA := "format/A"
+	formatB := "format/B"
 
 	// DO NOT register any json. This ensures there's no path.
 
@@ -170,7 +170,7 @@ func TestTranscoder_NoUnmarshalingPath(t *testing.T) {
 	transcoder := NewTranscoder()
 
 	// Define some mock formats
-	formatA := payload.Format("format/A")
+	formatA := "format/A"
 
 	// DO NOT register any unmarshalers.
 
@@ -192,9 +192,9 @@ func TestTranscoder_NoUnmarshalingPath(t *testing.T) {
 
 func TestTranscoder_ConcurrentAccess(t *testing.T) {
 	transcoder := NewTranscoder()
-	formatA := payload.Format("format/A")
-	formatB := payload.Format("format/B")
-	formatC := payload.Format("format/C")
+	formatA := "format/A"
+	formatB := "format/B"
+	formatC := "format/C"
 
 	// Create mock transcoders
 	transcoderAB := &MockFormatTranscoder{
@@ -241,8 +241,8 @@ func TestTranscoder_ConcurrentAccess(t *testing.T) {
 
 func TestTranscoder_TranscoderErrorHandling(t *testing.T) {
 	transcoder := NewTranscoder()
-	formatA := payload.Format("format/A")
-	formatB := payload.Format("format/B")
+	formatA := "format/A"
+	formatB := "format/B"
 
 	// Create a transcoder that returns an error
 	errorTranscoder := &MockFormatTranscoder{
@@ -265,7 +265,7 @@ func TestTranscoder_TranscoderErrorHandling(t *testing.T) {
 
 func TestTranscoder_UnmarshalerErrorHandling(t *testing.T) {
 	transcoder := NewTranscoder()
-	formatA := payload.Format("format/A")
+	formatA := "format/A"
 
 	// Create an unmarshaler that returns an error
 	errorUnmarshaler := &MockUnmarshaler{
@@ -288,7 +288,7 @@ func TestTranscoder_UnmarshalerErrorHandling(t *testing.T) {
 
 func TestTranscoder_InvalidUnmarshalTarget(t *testing.T) {
 	transcoder := NewTranscoder()
-	formatA := payload.Format("format/A")
+	formatA := "format/A"
 
 	// Register an unmarshaler
 	unmarshaler := &MockUnmarshaler{
@@ -313,7 +313,7 @@ func TestTranscoder_InvalidUnmarshalTarget(t *testing.T) {
 
 func TestTranscoder_SameFormat(t *testing.T) {
 	transcoder := NewTranscoder()
-	formatA := payload.Format("format/A")
+	formatA := "format/A"
 
 	p := payload.NewPayload("test", formatA)
 	result, err := transcoder.Transcode(p, formatA)
@@ -348,8 +348,8 @@ func TestTranscoder_GlobalTranscoder(t *testing.T) {
 
 func BenchmarkTranscode_SingleStep(b *testing.B) {
 	transcoder := NewTranscoder()
-	formatA := payload.Format("format/A")
-	formatB := payload.Format("format/B")
+	formatA := "format/A"
+	formatB := "format/B"
 
 	transcoderAB := &MockFormatTranscoder{
 		From: formatA,
@@ -367,9 +367,9 @@ func BenchmarkTranscode_SingleStep(b *testing.B) {
 
 func BenchmarkTranscode_MultiStep(b *testing.B) {
 	transcoder := NewTranscoder()
-	formatA := payload.Format("format/A")
-	formatB := payload.Format("format/B")
-	formatC := payload.Format("format/C")
+	formatA := "format/A"
+	formatB := "format/B"
+	formatC := "format/C"
 
 	transcoder.RegisterTranscoder(formatA, formatB, 1, &MockFormatTranscoder{From: formatA, To: formatB})
 	transcoder.RegisterTranscoder(formatB, formatC, 1, &MockFormatTranscoder{From: formatB, To: formatC})
@@ -384,7 +384,7 @@ func BenchmarkTranscode_MultiStep(b *testing.B) {
 
 func BenchmarkTranscode_SameFormat(b *testing.B) {
 	transcoder := NewTranscoder()
-	formatA := payload.Format("format/A")
+	formatA := "format/A"
 	p := payload.NewPayload("test", formatA)
 
 	b.ResetTimer()
@@ -395,7 +395,7 @@ func BenchmarkTranscode_SameFormat(b *testing.B) {
 
 func BenchmarkUnmarshal_Direct(b *testing.B) {
 	transcoder := NewTranscoder()
-	formatA := payload.Format("format/A")
+	formatA := "format/A"
 
 	transcoder.RegisterUnmarshaler(formatA, &MockUnmarshaler{Format: formatA})
 

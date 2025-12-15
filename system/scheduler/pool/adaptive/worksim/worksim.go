@@ -127,11 +127,11 @@ func (w *Workload) Work(ctx context.Context) error {
 
 	// Update high water mark
 	for {
-		max := w.maxActive.Load()
-		if active <= max {
+		currentMax := w.maxActive.Load()
+		if active <= currentMax {
 			break
 		}
-		if w.maxActive.CompareAndSwap(max, active) {
+		if w.maxActive.CompareAndSwap(currentMax, active) {
 			break
 		}
 	}

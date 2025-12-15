@@ -262,10 +262,21 @@ func parse(l *lua.LState) int {
 		return 2
 	}
 
-	var cflag uintptr
-	parser.SetCancellationFlag(&cflag) //nolint:staticcheck // library update needed
+	codeBytes := []byte(code)
+	readCallback := func(offset int, _ treesitter.Point) []byte {
+		if offset >= len(codeBytes) {
+			return nil
+		}
+		return codeBytes[offset:]
+	}
 
-	tree := parser.ParseCtx(ctx, []byte(code), nil) //nolint:staticcheck // library update needed
+	opts := &treesitter.ParseOptions{
+		ProgressCallback: func(_ treesitter.ParseState) bool {
+			return ctx.Err() != nil
+		},
+	}
+
+	tree := parser.ParseWithOptions(readCallback, nil, opts)
 	if tree == nil {
 		err := lua.NewLuaError(l, "failed to parse code").
 			WithKind(lua.Internal).

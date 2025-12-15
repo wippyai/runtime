@@ -20,7 +20,7 @@ func TestPIDGenerator_Generate(t *testing.T) {
 	gen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(gen, "")
 
-	host := pid.HostID("functions")
+	host := "functions"
 
 	p := pidGen.Generate(host)
 
@@ -41,8 +41,8 @@ func TestPIDGenerator_Generate(t *testing.T) {
 func TestPIDGenerator_GenerateWithConfiguredNode(t *testing.T) {
 	gen := uniqid.NewGenerator()
 
-	node := pid.NodeID("node1")
-	host := pid.HostID("functions")
+	node := "node1"
+	host := "functions"
 
 	pidGen := uniqid.NewPIDGenerator(gen, node)
 	p := pidGen.Generate(host)
@@ -65,7 +65,7 @@ func TestPIDGenerator_SequentialUniqID(t *testing.T) {
 	gen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(gen, "")
 
-	host := pid.HostID("functions")
+	host := "functions"
 
 	expected := []string{"0x00001", "0x00002", "0x00003", "0x00004", "0x00005"}
 
@@ -80,21 +80,21 @@ func TestPIDGenerator_SequentialUniqID(t *testing.T) {
 func TestPIDGenerator_StringFormat(t *testing.T) {
 	tests := []struct {
 		name        string
-		node        pid.NodeID
-		host        pid.HostID
+		node        string
+		host        string
 		expectedFmt string
 		useNode     bool
 	}{
 		{
 			name:        "without node",
-			host:        pid.HostID("functions"),
+			host:        "functions",
 			expectedFmt: "{functions|0x00001}",
 			useNode:     false,
 		},
 		{
 			name:        "with node",
-			node:        pid.NodeID("node1"),
-			host:        pid.HostID("functions"),
+			node:        "node1",
+			host:        "functions",
 			expectedFmt: "{node1@functions|0x00001}",
 			useNode:     true,
 		},

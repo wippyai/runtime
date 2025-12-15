@@ -148,12 +148,12 @@ func TestHeartbeatInfo(t *testing.T) {
 func TestTopicConstants(t *testing.T) {
 	t.Run("all topics have ws prefix", func(t *testing.T) {
 		topics := []string{
-			WSMessageTopic,
-			WSJoinTopic,
-			WSLeaveTopic,
-			WSControlTopic,
-			WSCloseTopic,
-			WSHeartbeatTopic,
+			MessageTopic,
+			JoinTopic,
+			LeaveTopic,
+			ControlTopic,
+			CloseTopic,
+			HeartbeatTopic,
 		}
 
 		for _, topic := range topics {
@@ -164,24 +164,24 @@ func TestTopicConstants(t *testing.T) {
 
 	t.Run("topics are unique", func(t *testing.T) {
 		topics := map[string]bool{
-			WSMessageTopic:   true,
-			WSJoinTopic:      true,
-			WSLeaveTopic:     true,
-			WSControlTopic:   true,
-			WSCloseTopic:     true,
-			WSHeartbeatTopic: true,
+			MessageTopic:   true,
+			JoinTopic:      true,
+			LeaveTopic:     true,
+			ControlTopic:   true,
+			CloseTopic:     true,
+			HeartbeatTopic: true,
 		}
 
 		assert.Len(t, topics, 6, "all topics should be unique")
 	})
 
 	t.Run("topic values", func(t *testing.T) {
-		assert.Equal(t, "ws.message", WSMessageTopic)
-		assert.Equal(t, "ws.join", WSJoinTopic)
-		assert.Equal(t, "ws.leave", WSLeaveTopic)
-		assert.Equal(t, "ws.control", WSControlTopic)
-		assert.Equal(t, "ws.close", WSCloseTopic)
-		assert.Equal(t, "ws.heartbeat", WSHeartbeatTopic)
+		assert.Equal(t, "ws.message", MessageTopic)
+		assert.Equal(t, "ws.join", JoinTopic)
+		assert.Equal(t, "ws.leave", LeaveTopic)
+		assert.Equal(t, "ws.control", ControlTopic)
+		assert.Equal(t, "ws.close", CloseTopic)
+		assert.Equal(t, "ws.heartbeat", HeartbeatTopic)
 	})
 }
 
@@ -190,5 +190,5 @@ func TestDefaultHeartbeatInterval(t *testing.T) {
 }
 
 func TestWSRelayHeader(t *testing.T) {
-	assert.Equal(t, "X-WS-Relay", WSRelayHeader)
+	assert.Equal(t, "X-WS-Relay", RelayHeader)
 }

@@ -49,7 +49,7 @@ func TestNewPackage(t *testing.T) {
 	assert.Equal(t, source, pkg.Source)
 	assert.Equal(t, target, pkg.Target)
 	require.Len(t, pkg.Messages, 1)
-	assert.Equal(t, Topic("test-topic"), pkg.Messages[0].Topic)
+	assert.Equal(t, "test-topic", pkg.Messages[0].Topic)
 	assert.Len(t, pkg.Messages[0].Payloads, 2)
 }
 
@@ -65,8 +65,8 @@ func TestNewMessagePackage(t *testing.T) {
 	assert.Equal(t, source, pkg.Source)
 	assert.Equal(t, target, pkg.Target)
 	require.Len(t, pkg.Messages, 2)
-	assert.Equal(t, Topic("topic1"), pkg.Messages[0].Topic)
-	assert.Equal(t, Topic("topic2"), pkg.Messages[1].Topic)
+	assert.Equal(t, "topic1", pkg.Messages[0].Topic)
+	assert.Equal(t, "topic2", pkg.Messages[1].Topic)
 }
 
 func TestPackage_AddMessage(t *testing.T) {
@@ -78,8 +78,8 @@ func TestPackage_AddMessage(t *testing.T) {
 	pkg.AddMessage("topic2", p2)
 
 	require.Len(t, pkg.Messages, 2)
-	assert.Equal(t, Topic("topic1"), pkg.Messages[0].Topic)
-	assert.Equal(t, Topic("topic2"), pkg.Messages[1].Topic)
+	assert.Equal(t, "topic1", pkg.Messages[0].Topic)
+	assert.Equal(t, "topic2", pkg.Messages[1].Topic)
 	assert.Len(t, pkg.Messages[0].Payloads, 1)
 	assert.Len(t, pkg.Messages[1].Payloads, 1)
 }

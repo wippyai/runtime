@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	PrometheusName boot.Name = "prometheus"
+	Name boot.Name = "prometheus"
 
 	metricsName boot.Name = "metrics"
 )
@@ -28,7 +28,7 @@ func Prometheus() boot.Component {
 	var logger *zap.Logger
 
 	return boot.New(boot.P{
-		Name:      PrometheusName,
+		Name:      Name,
 		DependsOn: []boot.Name{metricsName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger = logapi.GetLogger(ctx).Named("prometheus")
@@ -126,19 +126,6 @@ func Prometheus() boot.Component {
 			return nil
 		},
 	})
-}
-
-func GetHandler(ctx context.Context) http.Handler {
-	ac := ctxapi.AppFromContext(ctx)
-	if ac == nil {
-		return nil
-	}
-	if val := ac.Get(prometheusHandlerKey); val != nil {
-		if h, ok := val.(http.Handler); ok {
-			return h
-		}
-	}
-	return nil
 }
 
 func All() []boot.Component {

@@ -39,44 +39,9 @@ func WithNodeName(name string) Option {
 	return func(o *options) { o.nodeName = name }
 }
 
-// WithBindAddr sets the address to bind for gossip.
-func WithBindAddr(addr string) Option {
-	return func(o *options) { o.bindAddr = addr }
-}
-
-// WithBindPort sets the port to bind for gossip.
-func WithBindPort(port int) Option {
-	return func(o *options) { o.bindPort = port }
-}
-
 // WithJoinAddrs sets addresses of existing cluster nodes to join.
 func WithJoinAddrs(addrs ...string) Option {
 	return func(o *options) { o.joinAddrs = addrs }
-}
-
-// WithSecretFile sets path to encryption key file.
-func WithSecretFile(path string) Option {
-	return func(o *options) { o.secretFile = path }
-}
-
-// WithSecretKey sets encryption key directly.
-func WithSecretKey(key string) Option {
-	return func(o *options) { o.secretString = key }
-}
-
-// WithAdvertiseIP sets the IP to advertise to other nodes.
-func WithAdvertiseIP(ip string) Option {
-	return func(o *options) { o.advertiseIP = ip }
-}
-
-// WithVerbose enables verbose memberlist logging.
-func WithVerbose(v bool) Option {
-	return func(o *options) { o.veryVerbose = v }
-}
-
-// WithMeta sets node metadata for service discovery.
-func WithMeta(meta cluster.NodeMeta) Option {
-	return func(o *options) { o.meta = meta }
 }
 
 // WithTransport sets a custom memberlist transport.

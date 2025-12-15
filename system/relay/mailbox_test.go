@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/wippyai/runtime/api/pid"
+	pidapi "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"go.uber.org/zap"
 )
@@ -42,7 +42,7 @@ func TestMailbox_Attach(t *testing.T) {
 		WithWorkerCount(4),
 	)
 
-	pid := pid.PID{
+	pid := pidapi.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",
@@ -76,7 +76,7 @@ func TestMailbox_Send(t *testing.T) {
 		WithWorkerCount(1),
 	)
 
-	pid := pid.PID{
+	pid := pidapi.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",
@@ -113,7 +113,7 @@ func TestMailbox_SendCancelledContext(t *testing.T) {
 		WithWorkerCount(0), // no workers so jobCh is never drained
 	)
 
-	pid := pid.PID{
+	pid := pidapi.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",
@@ -139,7 +139,7 @@ func TestMailbox_NoReceiver(t *testing.T) {
 		WithWorkerCount(1),
 	)
 
-	pid := pid.PID{
+	pid := pidapi.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",
@@ -165,7 +165,7 @@ func TestMailbox_DetachDuringDelivery(t *testing.T) {
 		WithWorkerCount(1),
 	)
 
-	pid := pid.PID{
+	pid := pidapi.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",
@@ -203,7 +203,7 @@ func TestMailbox_MultipleWorkers(t *testing.T) {
 		WithWorkerCount(4), // Multiple workers
 	)
 
-	pid := pid.PID{
+	pid := pidapi.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",
@@ -261,7 +261,7 @@ func TestMailbox_Shutdown(t *testing.T) {
 		WithWorkerCount(1),
 	)
 
-	pid := pid.PID{
+	pid := pidapi.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",
@@ -349,7 +349,7 @@ func TestMailbox_SendMultipleMessages(t *testing.T) {
 		WithWorkerCount(1),
 	)
 
-	pid := pid.PID{
+	pid := pidapi.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",
@@ -393,7 +393,7 @@ func TestMailbox_SendEmptyMessages(t *testing.T) {
 		WithWorkerCount(1),
 	)
 
-	pid := pid.PID{
+	pid := pidapi.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",
@@ -430,7 +430,7 @@ func TestMailbox_SendNilMessages(t *testing.T) {
 		WithWorkerCount(1),
 	)
 
-	pid := pid.PID{
+	pid := pidapi.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "uniq1",

@@ -10,7 +10,7 @@ import (
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/pid"
+	pidapi "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
@@ -83,7 +83,7 @@ func TestActorConcurrentCancellationStress(t *testing.T) {
 	var completed, errors atomic.Int64
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ pid.PID, result *runtime.Result) {
+		onComplete: func(_ context.Context, _ pidapi.PID, result *runtime.Result) {
 			if result.Error != nil {
 				errors.Add(1)
 			} else {
@@ -116,7 +116,7 @@ func TestActorConcurrentCancellationStress(t *testing.T) {
 			}
 
 			proc := &slowProcess{}
-			pid := pid.PID{UniqID: fmt.Sprintf("cancel-test-%d", id)}
+			pid := pidapi.PID{UniqID: fmt.Sprintf("cancel-test-%d", id)}
 
 			_, err := sched.Submit(ctx, pid, proc, "", nil)
 			if err != nil {
@@ -147,7 +147,7 @@ func TestActorStopDuringExecution(t *testing.T) {
 	var completed atomic.Int64
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ pid.PID, result *runtime.Result) {
+		onComplete: func(_ context.Context, _ pidapi.PID, result *runtime.Result) {
 			if result.Error == nil {
 				completed.Add(1)
 			}
@@ -168,7 +168,7 @@ func TestActorStopDuringExecution(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			proc := &slowProcess{}
-			pid := pid.PID{UniqID: fmt.Sprintf("stop-test-%d", id)}
+			pid := pidapi.PID{UniqID: fmt.Sprintf("stop-test-%d", id)}
 			_, _ = sched.Submit(context.Background(), pid, proc, "", nil)
 		}(i)
 	}
@@ -194,7 +194,7 @@ func TestActorStealingConcurrentCancellation(t *testing.T) {
 	var completed, errors atomic.Int64
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ pid.PID, result *runtime.Result) {
+		onComplete: func(_ context.Context, _ pidapi.PID, result *runtime.Result) {
 			if result.Error != nil {
 				errors.Add(1)
 			} else {
@@ -224,7 +224,7 @@ func TestActorStealingConcurrentCancellation(t *testing.T) {
 			}
 
 			proc := &slowProcess{}
-			pid := pid.PID{UniqID: fmt.Sprintf("steal-test-%d", id)}
+			pid := pidapi.PID{UniqID: fmt.Sprintf("steal-test-%d", id)}
 
 			_, _ = sched.Submit(ctx, pid, proc, "", nil)
 		}(i)
@@ -289,7 +289,7 @@ func TestActorStopNoStepping(t *testing.T) {
 		mu.Lock()
 		processes = append(processes, proc)
 		mu.Unlock()
-		pid := pid.PID{UniqID: fmt.Sprintf("step-test-%d", i)}
+		pid := pidapi.PID{UniqID: fmt.Sprintf("step-test-%d", i)}
 		_, _ = sched.Submit(context.Background(), pid, proc, "", nil)
 	}
 
@@ -333,7 +333,7 @@ func TestActorStopNoSteppingStress(t *testing.T) {
 				mu.Lock()
 				processes = append(processes, proc)
 				mu.Unlock()
-				pid := pid.PID{UniqID: fmt.Sprintf("iter%d-proc%d", iter, id)}
+				pid := pidapi.PID{UniqID: fmt.Sprintf("iter%d-proc%d", iter, id)}
 				_, _ = sched.Submit(context.Background(), pid, proc, "", nil)
 			}(i)
 		}
@@ -378,7 +378,7 @@ func TestActorRapidStopStart(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
 				defer cancel()
 				proc := &slowProcess{}
-				pid := pid.PID{UniqID: fmt.Sprintf("rapid-%d", id)}
+				pid := pidapi.PID{UniqID: fmt.Sprintf("rapid-%d", id)}
 				_, _ = sched.Submit(ctx, pid, proc, "", nil)
 			}(i)
 		}
@@ -435,7 +435,7 @@ func TestGracefulShutdownSendsCancel(t *testing.T) {
 	var graceful atomic.Int64
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ pid.PID, _ *runtime.Result) {
+		onComplete: func(_ context.Context, _ pidapi.PID, _ *runtime.Result) {
 			completed.Add(1)
 		},
 	}
@@ -450,7 +450,7 @@ func TestGracefulShutdownSendsCancel(t *testing.T) {
 	for i := 0; i < numProcs; i++ {
 		proc := &cancelAwareProcess{}
 		processes[i] = proc
-		pid := pid.PID{UniqID: fmt.Sprintf("cancel-test-%d", i)}
+		pid := pidapi.PID{UniqID: fmt.Sprintf("cancel-test-%d", i)}
 		_, err := sched.Submit(context.Background(), pid, proc, "", nil)
 		if err != nil {
 			t.Fatalf("Submit failed: %v", err)
@@ -494,7 +494,7 @@ func TestGracefulShutdownWithTimeout(t *testing.T) {
 	var completed atomic.Int64
 
 	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ pid.PID, _ *runtime.Result) {
+		onComplete: func(_ context.Context, _ pidapi.PID, _ *runtime.Result) {
 			completed.Add(1)
 		},
 	}
@@ -504,7 +504,7 @@ func TestGracefulShutdownWithTimeout(t *testing.T) {
 
 	// Submit a process that ignores cancel
 	stubbornProc := &stubbornProcess{}
-	pid := pid.PID{UniqID: "stubborn-1"}
+	pid := pidapi.PID{UniqID: "stubborn-1"}
 	_, err := sched.Submit(context.Background(), pid, stubbornProc, "", nil)
 	if err != nil {
 		t.Fatalf("Submit failed: %v", err)

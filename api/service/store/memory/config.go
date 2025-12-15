@@ -1,4 +1,4 @@
-// Package memstore provides in-memory store service configuration.
+// Package memory provides in-memory store service configuration.
 package memory
 
 import (
@@ -11,8 +11,8 @@ import (
 
 // Registry kind constant for the memory KV store
 const (
-	// MemoryKV identifies a memory KV store in the registry
-	MemoryKV registry.Kind = "store.memory"
+	// KV identifies a memory KV store in the registry
+	KV registry.Kind = "store.memory"
 )
 
 // Config defines configuration for an in-memory key-value store

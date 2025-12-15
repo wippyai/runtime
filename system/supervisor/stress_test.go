@@ -193,7 +193,7 @@ func TestStressSequencerManyOperations(t *testing.T) {
 	// Create a diamond dependency pattern
 	ops := make([]operation, serviceCount)
 	for i := 0; i < serviceCount; i++ {
-		deps := []string{}
+		var deps []string
 		if i > 0 && i < serviceCount-1 {
 			deps = []string{"svc-root"}
 		}
@@ -725,7 +725,7 @@ func BenchmarkSequencerLinearChain(b *testing.B) {
 		b.Run(name+"_services", func(b *testing.B) {
 			ops := make([]operation, size)
 			for i := 0; i < size; i++ {
-				deps := []string{}
+				var deps []string
 				if i > 0 {
 					deps = []string{"svc" + string(rune('0'+i-1))}
 				}

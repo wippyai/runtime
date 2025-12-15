@@ -21,12 +21,6 @@ const (
 	headerSize = 268
 	// Footer size
 	footerSize = 16
-
-	// Frame indices
-	// MetadataFrameIndex reserved for future use
-	// EntriesFrameIndex reserved for future use
-	// ResourceFrameIndex reserved for future use
-	FirstDataFrameIndex = 3
 )
 
 // Header represents the pack file header.

@@ -14,7 +14,7 @@ type mockRegistry struct {
 	closed bool
 }
 
-func (m *mockRegistry) GetFS(id registry.ID) (fs.ReadDirFS, error) {
+func (m *mockRegistry) GetFS(_ registry.ID) (fs.ReadDirFS, error) {
 	return nil, fs.ErrNotExist
 }
 
@@ -24,7 +24,7 @@ func (m *mockRegistry) Close() error {
 }
 
 func TestKindConstant(t *testing.T) {
-	assert.Equal(t, registry.Kind("fs.embed"), Kind)
+	assert.Equal(t, "fs.embed", Kind)
 }
 
 func TestContext_Registry(t *testing.T) {

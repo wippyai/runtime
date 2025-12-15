@@ -65,43 +65,6 @@ func NewManager(
 	}, nil
 }
 
-// NewManagerWithFactory creates a new worker manager with a custom factory (for testing)
-func NewManagerWithFactory(
-	logger *zap.Logger,
-	transcoder payload.Transcoder,
-	bus event.Bus,
-	resourceReg resource.Registry,
-	factory Factory,
-	workerInterceptors []interceptor.WorkerInterceptor,
-) (*Manager, error) {
-	if logger == nil {
-		return nil, fmt.Errorf("logger is required")
-	}
-	if transcoder == nil {
-		return nil, fmt.Errorf("transcoder is required")
-	}
-	if bus == nil {
-		return nil, fmt.Errorf("event bus is required")
-	}
-	if resourceReg == nil {
-		return nil, fmt.Errorf("resource registry is required")
-	}
-	if factory == nil {
-		return nil, fmt.Errorf("factory is required")
-	}
-
-	return &Manager{
-		log:                logger,
-		dtt:                transcoder,
-		bus:                bus,
-		res:                resourceReg,
-		factory:            factory,
-		workerInterceptors: workerInterceptors,
-		configs:            make(map[registry.ID]*api.WorkerConfig),
-		services:           make(map[registry.ID]*Worker),
-	}, nil
-}
-
 // Add implements registry.EntryListener
 func (m *Manager) Add(ctx context.Context, ent registry.Entry) error {
 	if ent.Kind != api.Worker {

@@ -19,19 +19,6 @@ type Factory struct {
 	securityRegistry security.Registry
 }
 
-// NewFactory creates a new token store factory
-func NewFactory(
-	dtt payload.Transcoder,
-	resourceRegistry resource.Registry,
-	securityRegistry security.Registry,
-) *Factory {
-	return &Factory{
-		dtt:              dtt,
-		resourceRegistry: resourceRegistry,
-		securityRegistry: securityRegistry,
-	}
-}
-
 // CreateTokenStore creates a token store from a registry entry
 func (f *Factory) CreateTokenStore(ctx context.Context, entry registry.Entry) (security.TokenStore, error) {
 	// Decode configuration

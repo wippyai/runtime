@@ -9,8 +9,8 @@ import (
 
 func TreeSitter() boot.Component {
 	return boot.New(boot.P{
-		Name:      LuaTreeSitterName,
-		DependsOn: []boot.Name{LuaEngineName},
+		Name:      TreeSitterName,
+		DependsOn: []boot.Name{EngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			cm := GetCodeManager(ctx)
 			if cm == nil {

@@ -180,8 +180,10 @@ func (w *Worker) executeOne(proc *Processor) {
 		return
 	}
 
-	// No yields - handle status
+	// No yields - handle status (StepDone handled above)
 	switch status {
+	case process.StepDone:
+		// Handled above before yields dispatch
 	case process.StepContinue:
 		if !proc.casState(StateRunning, StateReady) {
 			return

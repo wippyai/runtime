@@ -124,7 +124,7 @@ func TestTickerRegistry_StopTwice(t *testing.T) {
 	}
 
 	err = r.stop(id)
-	if err != clockapi.ErrTickerNotFound {
+	if !errors.Is(err, clockapi.ErrTickerNotFound) {
 		t.Errorf("second stop: expected ErrTickerNotFound, got %v", err)
 	}
 }

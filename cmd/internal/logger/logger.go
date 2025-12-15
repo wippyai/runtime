@@ -77,7 +77,7 @@ func consoleNameEncoder(loggerName string, enc zapcore.PrimitiveArrayEncoder) {
 	for _, r := range loggerName {
 		hash = hash*31 + int(r)
 	}
-	colorIndex := (hash % len(componentColors))
+	colorIndex := hash % len(componentColors)
 	if colorIndex < 0 {
 		colorIndex = -colorIndex
 	}
@@ -140,13 +140,4 @@ func CreateLogger(cfg Config) (*zap.Logger, error) {
 	}
 
 	return logger, nil
-}
-
-func GetVerboseLevel(verbose, veryVerbose bool) zapcore.Level {
-	switch {
-	case veryVerbose, verbose:
-		return zapcore.DebugLevel
-	default:
-		return zapcore.InfoLevel
-	}
 }

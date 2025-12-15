@@ -62,10 +62,10 @@ func TestValuesEqualNumericEdgeCases(t *testing.T) {
 		a, b interface{}
 		want bool
 	}{
-		{"zero int and zero float", int(0), float64(0), true},
-		{"negative equal", int(-5), float64(-5), true},
-		{"large numbers equal", int64(1000000), float64(1000000), true},
-		{"different signs", int(5), float64(-5), false},
+		{"zero int and zero float", 0, 0.0, true},
+		{"negative equal", -5, -5.0, true},
+		{"large numbers equal", int64(1000000), 1000000.0, true},
+		{"different signs", 5, -5.0, false},
 	}
 
 	for _, tt := range tests {
@@ -100,8 +100,8 @@ func TestToFloat64Boundaries(t *testing.T) {
 		{"max int8", int8(127), 127.0},
 		{"min int8", int8(-128), -128.0},
 		{"max uint8", uint8(255), 255.0},
-		{"zero", int(0), 0.0},
-		{"negative", int(-42), -42.0},
+		{"zero", 0, 0.0},
+		{"negative", -42, -42.0},
 	}
 
 	for _, tt := range tests {
@@ -142,8 +142,8 @@ func TestMapsEqualBooleansDifferent(t *testing.T) {
 }
 
 func TestValuesEqualEmptyArrays(t *testing.T) {
-	a := []any{}
-	b := []any{}
+	var a []any
+	var b []any
 
 	if !valuesEqual(a, b) {
 		t.Error("expected empty arrays to be equal")

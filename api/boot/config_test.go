@@ -499,12 +499,12 @@ func TestFuncComponent(t *testing.T) {
 
 type mockLoader struct{}
 
-func (m *mockLoader) LoadFS(ctx context.Context, filesystem fs.FS) ([]registry.Entry, error) {
+func (m *mockLoader) LoadFS(_ context.Context, _ fs.FS) ([]registry.Entry, error) {
 	return nil, nil
 }
-func (m *mockLoader) LoadDir(ctx context.Context, filesystem fs.FS, dirPath string) ([]registry.Entry, error) {
+func (m *mockLoader) LoadDir(_ context.Context, _ fs.FS, _ string) ([]registry.Entry, error) {
 	return nil, nil
 }
-func (m *mockLoader) LoadFile(ctx context.Context, filesystem fs.FS, filePath string) ([]registry.Entry, error) {
+func (m *mockLoader) LoadFile(_ context.Context, _ fs.FS, _ string) ([]registry.Entry, error) {
 	return nil, nil
 }

@@ -9,8 +9,8 @@ import (
 
 func Exec() boot.Component {
 	return boot.New(boot.P{
-		Name:      LuaExecName,
-		DependsOn: []boot.Name{LuaEngineName},
+		Name:      ExecName,
+		DependsOn: []boot.Name{EngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			cm := GetCodeManager(ctx)
 			if cm == nil {

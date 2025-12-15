@@ -7,12 +7,12 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/modules/eval/sandbox"
 )
 
-const LuaEvalSandboxName boot.Name = "lua.eval_sandbox"
+const EvalSandboxName boot.Name = "lua.eval_sandbox"
 
 func EvalSandbox() boot.Component {
 	return boot.New(boot.P{
-		Name:      LuaEvalSandboxName,
-		DependsOn: []boot.Name{LuaEngineName, EvalHostName},
+		Name:      EvalSandboxName,
+		DependsOn: []boot.Name{EngineName, EvalHostName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			cm := GetCodeManager(ctx)
 			if cm == nil {

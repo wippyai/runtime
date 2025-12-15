@@ -64,7 +64,7 @@ func newTestManager(t *testing.T) (*Manager, *mockBus, payload.Transcoder) {
 func makeStoreEntry(id registry.ID, dbID registry.ID) registry.Entry {
 	return registry.Entry{
 		ID:   id,
-		Kind: sqlstore.SQLKV,
+		Kind: sqlstore.KV,
 		Data: payload.New(map[string]any{
 			"database": map[string]any{
 				"ns":   dbID.NS,

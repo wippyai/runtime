@@ -7,12 +7,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/wippyai/runtime/api/cluster"
 	"go.uber.org/zap"
 )
 
 func TestHandshake_Success(t *testing.T) {
-	nodeAID, nodeBID := cluster.NodeID("node-A"), cluster.NodeID("node-B")
+	nodeAID, nodeBID := "node-A", "node-B"
 	cfg := DefaultNodeConnectionConfig()
 	logger := zap.NewNop()
 
@@ -50,8 +49,8 @@ func TestHandshake_Success(t *testing.T) {
 }
 
 func TestHandshake_Client_UnexpectedRemoteID(t *testing.T) {
-	nodeAID, nodeBID := cluster.NodeID("node-A"), cluster.NodeID("node-B")
-	wrongNodeID := cluster.NodeID("node-C")
+	nodeAID, nodeBID := "node-A", "node-B"
+	wrongNodeID := "node-C"
 	cfg := DefaultNodeConnectionConfig()
 	logger := zap.NewNop()
 

@@ -133,11 +133,11 @@ func TestConfigJSON(t *testing.T) {
 }
 
 func TestEventConstants(t *testing.T) {
-	assert.Equal(t, "logs", string(System))
-	assert.Equal(t, "logs.entry", string(Entry))
-	assert.Equal(t, "logs.config.set", string(SetConfig))
-	assert.Equal(t, "logs.config.get", string(GetConfig))
-	assert.Equal(t, "logs.config.state", string(ConfigState))
+	assert.Equal(t, "logs", System)
+	assert.Equal(t, "logs.entry", Entry)
+	assert.Equal(t, "logs.config.set", SetConfig)
+	assert.Equal(t, "logs.config.get", GetConfig)
+	assert.Equal(t, "logs.config.state", ConfigState)
 }
 
 func TestWithLogger_NoAppContext(t *testing.T) {
@@ -158,9 +158,9 @@ type mockManager struct {
 	config Config
 }
 
-func (m *mockManager) Start(ctx context.Context) error { return nil }
-func (m *mockManager) Stop() error                     { return nil }
-func (m *mockManager) GetConfig() Config               { return m.config }
+func (m *mockManager) Start(_ context.Context) error { return nil }
+func (m *mockManager) Stop() error                   { return nil }
+func (m *mockManager) GetConfig() Config             { return m.config }
 
 func TestContext_Manager(t *testing.T) {
 	t.Run("with app context", func(t *testing.T) {

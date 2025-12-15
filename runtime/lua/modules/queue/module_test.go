@@ -106,7 +106,7 @@ func setupStateWithDelivery(msg *queueapi.Message) *lua.LState {
 	ctx = ctxapi.WithAppContext(ctx, appCtx)
 	ctx = security.SetStrictMode(ctx, false)
 
-	ctx, _ = ctxapi.AcquireFrameContext(ctx)
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
 	delivery := &queueapi.Delivery{
 		Message: msg,
@@ -351,7 +351,7 @@ func TestMessageNoDelivery(t *testing.T) {
 	ctx := context.Background()
 	appCtx := ctxapi.NewAppContext()
 	ctx = ctxapi.WithAppContext(ctx, appCtx)
-	ctx, _ = ctxapi.AcquireFrameContext(ctx)
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	l.SetContext(ctx)
 
 	err := l.DoString(`

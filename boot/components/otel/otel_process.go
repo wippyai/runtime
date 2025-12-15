@@ -12,8 +12,8 @@ const lifecycleName boot.Name = "system.lifecycle"
 
 func OTelProcess() boot.Component {
 	return boot.New(boot.P{
-		Name:      OTelProcessName,
-		DependsOn: []boot.Name{OTelName, lifecycleName},
+		Name:      ProcessName,
+		DependsOn: []boot.Name{Name, lifecycleName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			svc := otelapi.GetService(ctx)
 			if svc == nil {

@@ -28,7 +28,7 @@ func languageVersion(l *lua.LState) int {
 		l.Push(lua.LNil)
 		return 1
 	}
-	l.Push(lua.LNumber(lang.lang.Version())) //nolint:staticcheck // library update needed
+	l.Push(lua.LNumber(lang.lang.AbiVersion()))
 	return 1
 }
 

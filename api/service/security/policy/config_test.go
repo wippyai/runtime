@@ -11,7 +11,7 @@ import (
 )
 
 func TestKindConstant(t *testing.T) {
-	assert.Equal(t, registry.Kind("security.policy"), Policy)
+	assert.Equal(t, "security.policy", Policy)
 }
 
 func TestEffectConstants(t *testing.T) {

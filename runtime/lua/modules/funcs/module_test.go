@@ -577,7 +577,7 @@ func TestPlainCallInheritsFrameContext(t *testing.T) {
 	defer l.Close()
 
 	// Set up frame context with values
-	ctx, fc := ctxapi.AcquireFrameContext(l.Context())
+	ctx, fc := ctxapi.OpenFrameContext(l.Context())
 	defer ctxapi.ReleaseFrameContext(fc)
 
 	values := ctxapi.NewValues()
@@ -616,7 +616,7 @@ func TestCallYieldHasContextPairs(t *testing.T) {
 	defer l.Close()
 
 	// Set up frame context with values
-	ctx, fc := ctxapi.AcquireFrameContext(l.Context())
+	ctx, fc := ctxapi.OpenFrameContext(l.Context())
 	defer ctxapi.ReleaseFrameContext(fc)
 
 	values := ctxapi.NewValues()
@@ -660,7 +660,7 @@ func TestExecutorCallInheritsFrameContext(t *testing.T) {
 	defer l.Close()
 
 	// Set up frame context with values (simulating a caller with session_id)
-	ctx, fc := ctxapi.AcquireFrameContext(l.Context())
+	ctx, fc := ctxapi.OpenFrameContext(l.Context())
 	defer ctxapi.ReleaseFrameContext(fc)
 
 	values := ctxapi.NewValues()
@@ -718,7 +718,7 @@ func TestExecutorCallMergesExplicitAndInheritedContext(t *testing.T) {
 	defer l.Close()
 
 	// Set up frame context with values
-	ctx, fc := ctxapi.AcquireFrameContext(l.Context())
+	ctx, fc := ctxapi.OpenFrameContext(l.Context())
 	defer ctxapi.ReleaseFrameContext(fc)
 
 	frameValues := ctxapi.NewValues()
@@ -758,7 +758,7 @@ func TestAsyncYieldInheritsFrameContext(t *testing.T) {
 	defer l.Close()
 
 	// Set up frame context with values
-	ctx, fc := ctxapi.AcquireFrameContext(l.Context())
+	ctx, fc := ctxapi.OpenFrameContext(l.Context())
 	defer ctxapi.ReleaseFrameContext(fc)
 
 	values := ctxapi.NewValues()
@@ -832,7 +832,7 @@ func TestBuildMergedContextPairs(t *testing.T) {
 	defer l.Close()
 
 	// Set up frame context with values
-	ctx, fc := ctxapi.AcquireFrameContext(l.Context())
+	ctx, fc := ctxapi.OpenFrameContext(l.Context())
 	defer ctxapi.ReleaseFrameContext(fc)
 
 	frameValues := ctxapi.NewValues()
@@ -892,7 +892,7 @@ func TestExecutorCallValuesMergedNotReplaced(t *testing.T) {
 	defer l.Close()
 
 	// Set up frame context with session_id
-	ctx, fc := ctxapi.AcquireFrameContext(l.Context())
+	ctx, fc := ctxapi.OpenFrameContext(l.Context())
 	defer ctxapi.ReleaseFrameContext(fc)
 
 	frameValues := ctxapi.NewValues()
@@ -955,7 +955,7 @@ func TestDuplicateValuesPairsOverwrite(t *testing.T) {
 	}
 
 	// Apply pairs to a new frame (simulating what scheduler does)
-	ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
 	defer ctxapi.ReleaseFrameContext(fc)
 
 	for _, p := range pairs {
@@ -990,7 +990,7 @@ func TestMergedContextPairsAppliedCorrectly(t *testing.T) {
 	defer l.Close()
 
 	// Set up caller's frame context with session_id (simulating session process)
-	callerCtx, callerFC := ctxapi.AcquireFrameContext(l.Context())
+	callerCtx, callerFC := ctxapi.OpenFrameContext(l.Context())
 	defer ctxapi.ReleaseFrameContext(callerFC)
 
 	frameValues := ctxapi.NewValues()
@@ -1008,7 +1008,7 @@ func TestMergedContextPairsAppliedCorrectly(t *testing.T) {
 	mergedPairs := buildMergedContextPairs(l, execValues)
 
 	// Apply merged pairs to a NEW frame (simulating scheduler creating callee frame)
-	calleeCtx, calleeFC := ctxapi.AcquireFrameContext(context.Background())
+	calleeCtx, calleeFC := ctxapi.OpenFrameContext(context.Background())
 	defer ctxapi.ReleaseFrameContext(calleeFC)
 
 	for _, p := range mergedPairs {

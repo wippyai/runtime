@@ -1,6 +1,8 @@
 package payload
 
 import (
+	"errors"
+
 	"github.com/wippyai/runtime/api/payload"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -62,9 +64,12 @@ func newPayload(l *lua.LState) int {
 	v := l.Get(1)
 
 	// Check if the value is an error
-	if err, ok := v.(*lua.Error); ok {
-		p := payload.NewPayload(err, payload.GoError)
-		return PushPayload(l, p)
+	if err, ok := v.(error); ok {
+		var luaErr *lua.Error
+		if errors.As(err, &luaErr) {
+			p := payload.NewPayload(luaErr, payload.GoError)
+			return PushPayload(l, p)
+		}
 	}
 
 	p := payload.NewPayload(v, payload.Lua)

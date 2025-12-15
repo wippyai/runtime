@@ -27,7 +27,7 @@ func Engine() boot.Component {
 	var funcs *funclua.Manager
 
 	return boot.New(boot.P{
-		Name:      LuaEngineName,
+		Name:      EngineName,
 		DependsOn: []boot.Name{dispatchers.ClockDispatcherName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)

@@ -178,14 +178,14 @@ func (pr *Reader) GetEntries() ([]registry.Entry, error) {
 
 			// Extract Meta
 			if metaData, ok := encEntryMap["Meta"].(map[string]any); ok {
-				entry.Meta = attrs.Bag(metaData)
+				entry.Meta = metaData
 			}
 
 			// Extract Data
 			if dataMap, ok := encEntryMap["Data"].(map[string]any); ok {
 				format := payload.Golang
 				if f, ok := dataMap["Format"].(string); ok {
-					format = payload.Format(f)
+					format = f
 				}
 				data := dataMap["Data"]
 				entry.Data = payload.NewPayload(data, format)
@@ -363,13 +363,6 @@ func (pr *Reader) readFrameData(frameInfo FrameInfo, offset, size uint64) ([]byt
 // Packer provides high-level pack file operations.
 type Packer struct {
 	transcoder payload.Transcoder
-}
-
-// New creates a new Packer for reading pack files.
-func New(transcoder payload.Transcoder) *Packer {
-	return &Packer{
-		transcoder: transcoder,
-	}
 }
 
 // Unpack reads a pack file and returns its entries and metadata.

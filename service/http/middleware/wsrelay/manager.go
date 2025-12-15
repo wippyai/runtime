@@ -131,11 +131,11 @@ func (m *RelayManager) middlewareHandler(h http.Handler, originPatterns []string
 		wrappedWriter := newResponseWrapper(w)
 		h.ServeHTTP(wrappedWriter, r)
 
-		relayConfigStr := wrappedWriter.Header().Get(WSRelayHeader)
+		relayConfigStr := wrappedWriter.Header().Get(RelayHeader)
 		if relayConfigStr == "" {
 			return
 		}
-		wrappedWriter.Header().Del(WSRelayHeader)
+		wrappedWriter.Header().Del(RelayHeader)
 
 		logger := m.logger.With(
 			zap.String("path", r.URL.Path),
@@ -155,7 +155,7 @@ func (m *RelayManager) middlewareHandler(h http.Handler, originPatterns []string
 			return
 		}
 
-		messageTopic := WSMessageTopic
+		messageTopic := MessageTopic
 		if config.MessageTopic != "" {
 			messageTopic = config.MessageTopic
 		}

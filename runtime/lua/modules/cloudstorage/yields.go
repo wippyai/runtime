@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wippyai/runtime/api/cloudstorage"
 	csapi "github.com/wippyai/runtime/api/cloudstorage"
 	"github.com/wippyai/runtime/api/dispatcher"
 	lua "github.com/yuin/gopher-lua"
@@ -53,7 +52,7 @@ func (y *ListObjectsYield) HandleResult(l *lua.LState, data any, err error) []lu
 	return []lua.LValue{listObjectsResultToLua(l, resp.Result), lua.LNil}
 }
 
-func listObjectsResultToLua(l *lua.LState, result *cloudstorage.ListObjectsResult) lua.LValue {
+func listObjectsResultToLua(l *lua.LState, result *csapi.ListObjectsResult) lua.LValue {
 	t := l.CreateTable(0, 3)
 
 	objects := l.CreateTable(len(result.Objects), 0)

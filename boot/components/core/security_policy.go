@@ -25,8 +25,8 @@ func SecurityPolicy() boot.Component {
 			factory := policy.NewDefaultFactory(dtt)
 			manager := policy.NewManager(bus, factory, logger.Named("security.policy"))
 
-			handlers.RegisterListener(string(policyapi.Policy), manager)
-			handlers.RegisterListener(string(policyapi.ExprKind), manager)
+			handlers.RegisterListener(policyapi.Policy, manager)
+			handlers.RegisterListener(policyapi.ExprKind, manager)
 
 			return ctx, nil
 		},

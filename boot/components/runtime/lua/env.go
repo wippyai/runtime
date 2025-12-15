@@ -9,8 +9,8 @@ import (
 
 func Env() boot.Component {
 	return boot.New(boot.P{
-		Name:      LuaEnvName,
-		DependsOn: []boot.Name{LuaEngineName},
+		Name:      EnvName,
+		DependsOn: []boot.Name{EngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			cm := GetCodeManager(ctx)
 			if cm == nil {

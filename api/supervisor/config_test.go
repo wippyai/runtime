@@ -21,12 +21,12 @@ func TestLifecycleConfig_MarshalJSON(t *testing.T) {
 			name: "basic config",
 			config: LifecycleConfig{
 				AutoStart:       true,
-				StartTimeout:    (30 * time.Second),
-				StopTimeout:     (1 * time.Minute),
-				StableThreshold: (5 * time.Second),
+				StartTimeout:    30 * time.Second,
+				StopTimeout:     1 * time.Minute,
+				StableThreshold: 5 * time.Second,
 				RetryPolicy: RetryPolicy{
-					InitialDelay:  (1 * time.Second),
-					MaxDelay:      (30 * time.Second),
+					InitialDelay:  1 * time.Second,
+					MaxDelay:      30 * time.Second,
 					BackoffFactor: 2.0,
 					Jitter:        0.1,
 					MaxAttempts:   5,
@@ -73,12 +73,12 @@ func TestLifecycleConfig_MarshalJSON(t *testing.T) {
 		{
 			name: "custom durations",
 			config: LifecycleConfig{
-				StartTimeout:    (1*time.Hour + 30*time.Minute),
-				StopTimeout:     (2*time.Hour + 15*time.Minute),
-				StableThreshold: (45 * time.Second),
+				StartTimeout:    1*time.Hour + 30*time.Minute,
+				StopTimeout:     2*time.Hour + 15*time.Minute,
+				StableThreshold: 45 * time.Second,
 				RetryPolicy: RetryPolicy{
-					InitialDelay: (1*time.Minute + 30*time.Second),
-					MaxDelay:     (5*time.Minute + 45*time.Second),
+					InitialDelay: 1*time.Minute + 30*time.Second,
+					MaxDelay:     5*time.Minute + 45*time.Second,
 				},
 			},
 			expected: `{

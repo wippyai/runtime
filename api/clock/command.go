@@ -14,11 +14,11 @@ import (
 const (
 	Sleep dispatcher.CommandID = 10 // Pause execution for duration (one-shot)
 
-	// Ticker commands - uses topic-based delivery like events/websocket
+	// TickerStart creates a ticker that uses topic-based delivery like events/websocket
 	TickerStart dispatcher.CommandID = 14 // Create ticker, sends ticks to topic
 	TickerStop  dispatcher.CommandID = 16 // Stop and cleanup ticker
 
-	// Decomposed timer pattern (one-shot commands)
+	// TimerStart creates a timer using decomposed timer pattern (one-shot command)
 	TimerStart dispatcher.CommandID = 18 // Create timer, returns ID
 	TimerWait  dispatcher.CommandID = 19 // Wait for timer to fire, returns time
 	TimerStop  dispatcher.CommandID = 20 // Stop and cleanup timer

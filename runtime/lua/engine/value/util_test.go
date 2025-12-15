@@ -532,7 +532,7 @@ func TestToGoAny(t *testing.T) {
 
 	t.Run("number", func(t *testing.T) {
 		result := ToGoAny(lua.LNumber(3.14))
-		assert.Equal(t, float64(3.14), result)
+		assert.Equal(t, 3.14, result)
 	})
 
 	t.Run("integer", func(t *testing.T) {

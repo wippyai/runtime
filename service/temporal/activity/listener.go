@@ -13,7 +13,6 @@ import (
 // Metadata keys for activity configuration
 const (
 	MetaTemporalActivity = "temporal"
-	MetaActivityName     = "name"
 	MetaActivityWorker   = "worker"
 	MetaActivityLocal    = "local"
 )

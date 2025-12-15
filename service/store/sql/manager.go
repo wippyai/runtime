@@ -40,7 +40,7 @@ func NewManager(
 
 // Add implements registry.EntryListener
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != sqlstore.SQLKV {
+	if entry.Kind != sqlstore.KV {
 		return storeapi.NewUnsupportedKindError(entry.Kind)
 	}
 
@@ -96,7 +96,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 // Update implements registry.EntryListener
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != sqlstore.SQLKV {
+	if entry.Kind != sqlstore.KV {
 		return storeapi.NewUnsupportedKindError(entry.Kind)
 	}
 
@@ -145,7 +145,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 // Delete implements registry.EntryListener
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != sqlstore.SQLKV {
+	if entry.Kind != sqlstore.KV {
 		return storeapi.NewUnsupportedKindError(entry.Kind)
 	}
 

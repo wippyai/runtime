@@ -74,25 +74,6 @@ func NewFactoryFromProto(proto *lua.FunctionProto, binders ...ModuleBinder) proc
 	})
 }
 
-// NewFactoryFromScript creates a factory from a script string.
-func NewFactoryFromScript(script, name string, binders ...ModuleBinder) process.FactoryFunc {
-	return NewFactory(FactoryConfig{
-		Script:        script,
-		ScriptName:    name,
-		ModuleBinders: binders,
-	})
-}
-
-// CompileFactory compiles a script and returns a factory using the compiled proto.
-// Returns error if compilation fails.
-func CompileFactory(script, name string, binders ...ModuleBinder) (process.FactoryFunc, error) {
-	proto, err := lua.CompileString(script, name)
-	if err != nil {
-		return nil, err
-	}
-	return NewFactoryFromProto(proto, binders...), nil
-}
-
 // CreateState creates and initializes a new Lua state with core libs and module binders.
 func (f *Factory) CreateState() *lua.LState {
 	opts := lua.Options{

@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/wippyai/runtime/api/pid"
+	pidapi "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 )
 
@@ -21,13 +21,13 @@ func (d *dummyHost) Send(_ *relay.Package) error {
 	return nil
 }
 
-func (d *dummyHost) Attach(_ pid.PID, _ chan *relay.Package) (context.CancelFunc, error) {
+func (d *dummyHost) Attach(_ pidapi.PID, _ chan *relay.Package) (context.CancelFunc, error) {
 	atomic.AddInt32(&d.attachCalled, 1)
 	cancel := func() {}
 	return cancel, nil
 }
 
-func (d *dummyHost) Detach(_ pid.PID) {
+func (d *dummyHost) Detach(_ pidapi.PID) {
 	// No-op for testing
 }
 
@@ -39,7 +39,7 @@ func TestNodeSendLocal(t *testing.T) {
 	assert.NoError(t, node.RegisterHost("host1", dhost))
 
 	// Case 1: Local message with empty pid.Node.
-	pidLocalEmpty := pid.PID{
+	pidLocalEmpty := pidapi.PID{
 		Node:   "",
 		Host:   "host1",
 		UniqID: "uniq",
@@ -55,7 +55,7 @@ func TestNodeSendLocal(t *testing.T) {
 	assert.Equal(t, int32(1), dhost.sendCalled)
 
 	// Case 2: Local message with pid.Node equal to node's nodeID.
-	pidLocal := pid.PID{
+	pidLocal := pidapi.PID{
 		Node:   nodeID,
 		Host:   "host1",
 		UniqID: "uniq",
@@ -68,7 +68,7 @@ func TestNodeSendLocal(t *testing.T) {
 
 func TestNodeSendHostNotFound(t *testing.T) {
 	node := NewNode("node1")
-	pid := pid.PID{
+	pid := pidapi.PID{
 		Node:   "",
 		Host:   "nonexistent",
 		UniqID: "uniq",
@@ -89,7 +89,7 @@ func TestNodeSendInvalidHostType(t *testing.T) {
 	node := NewNode("node1")
 	// Store an invalid type under a host id.
 	node.hosts.Store("host1", "not a host")
-	pid := pid.PID{
+	pid := pidapi.PID{
 		Node:   "",
 		Host:   "host1",
 		UniqID: "uniq",
@@ -108,7 +108,7 @@ func TestNodeSendInvalidHostType(t *testing.T) {
 
 func TestNodeSendNonLocalNoUpstream(t *testing.T) {
 	node := NewNode("node1")
-	pid := pid.PID{
+	pid := pidapi.PID{
 		Node:   "remoteNode",
 		Host:   "host1",
 		UniqID: "uniq",
@@ -132,7 +132,7 @@ func TestNodeAttachLocal(t *testing.T) {
 	assert.NoError(t, node.RegisterHost("host1", dhost))
 
 	// Use a local pid.
-	pidLocal := pid.PID{
+	pidLocal := pidapi.PID{
 		Node:   "",
 		Host:   "host1",
 		UniqID: "uniq",
@@ -146,7 +146,7 @@ func TestNodeAttachLocal(t *testing.T) {
 
 func TestNodeAttachNonLocal(t *testing.T) {
 	node := NewNode("node1")
-	pid := pid.PID{
+	pid := pidapi.PID{
 		Node:   "remoteNode",
 		Host:   "host1",
 		UniqID: "uniq",
@@ -163,7 +163,7 @@ func TestNodeAttachInvalidHostType(t *testing.T) {
 	node := NewNode("node1")
 	// Store an invalid type under a host id.
 	node.hosts.Store("host1", "not a host")
-	pid := pid.PID{
+	pid := pidapi.PID{
 		Node:   "",
 		Host:   "host1",
 		UniqID: "uniq",
@@ -183,7 +183,7 @@ func TestNodeDetach(t *testing.T) {
 	assert.NoError(t, node.RegisterHost("host1", dhost))
 
 	// Test detach with local pid
-	pidLocal := pid.PID{
+	pidLocal := pidapi.PID{
 		Node:   "",
 		Host:   "host1",
 		UniqID: "uniq",
@@ -191,7 +191,7 @@ func TestNodeDetach(t *testing.T) {
 	node.Detach(pidLocal) // Should not panic
 
 	// Test detach with non-local pid
-	pidNonLocal := pid.PID{
+	pidNonLocal := pidapi.PID{
 		Node:   "remoteNode",
 		Host:   "host1",
 		UniqID: "uniq",
@@ -199,7 +199,7 @@ func TestNodeDetach(t *testing.T) {
 	node.Detach(pidNonLocal) // Should not panic
 
 	// Test detach with invalid host
-	pidInvalidHost := pid.PID{
+	pidInvalidHost := pidapi.PID{
 		Node:   "",
 		Host:   "nonexistent",
 		UniqID: "uniq",
@@ -229,7 +229,7 @@ func TestNodeRegisterHostInvalidType(t *testing.T) {
 	node.hosts.Store("host1", "not a host")
 
 	// Try to use the invalid host
-	pid := pid.PID{
+	pid := pidapi.PID{
 		Node:   "node1",
 		Host:   "host1",
 		UniqID: "test",

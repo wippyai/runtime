@@ -9,8 +9,8 @@ import (
 
 func HTML() boot.Component {
 	return boot.New(boot.P{
-		Name:      LuaHTMLName,
-		DependsOn: []boot.Name{LuaEngineName},
+		Name:      HTMLName,
+		DependsOn: []boot.Name{EngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			cm := GetCodeManager(ctx)
 			if cm == nil {

@@ -28,12 +28,6 @@ func Decode(data []byte) (lua.LValue, error) {
 	return decodeValueWithDepth(value, 0)
 }
 
-// DecodeValue converts Go value to Lua value with proper indexing.
-func DecodeValue(value any) lua.LValue {
-	result, _ := decodeValueWithDepth(value, 0)
-	return result
-}
-
 // decodeValueWithDepth converts Go value to Lua value with depth tracking.
 func decodeValueWithDepth(value any, depth int) (lua.LValue, error) {
 	if depth > maxNestingDepth {

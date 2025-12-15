@@ -36,20 +36,6 @@ func WithInternodeService(ctx context.Context, svc *internode.Service) context.C
 	return ctx
 }
 
-// GetInternodeService retrieves InternodeService from context
-func GetInternodeService(ctx context.Context) *internode.Service {
-	ac := ctxapi.AppFromContext(ctx)
-	if ac == nil {
-		return nil
-	}
-	if val := ac.Get(internodeServiceKey); val != nil {
-		if svc, ok := val.(*internode.Service); ok {
-			return svc
-		}
-	}
-	return nil
-}
-
 // WithMembership attaches Membership service to context todo move to api
 func WithMembership(ctx context.Context, m clusterapi.Membership) context.Context {
 	ac := ctxapi.AppFromContext(ctx)
@@ -60,20 +46,6 @@ func WithMembership(ctx context.Context, m clusterapi.Membership) context.Contex
 		ac.With(membershipServiceKey, m)
 	}
 	return ctx
-}
-
-// GetMembership retrieves Membership service from context
-func GetMembership(ctx context.Context) clusterapi.Membership {
-	ac := ctxapi.AppFromContext(ctx)
-	if ac == nil {
-		return nil
-	}
-	if val := ac.Get(membershipServiceKey); val != nil {
-		if m, ok := val.(clusterapi.Membership); ok {
-			return m
-		}
-	}
-	return nil
 }
 
 func Cluster() boot.Component {

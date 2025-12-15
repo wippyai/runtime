@@ -129,13 +129,6 @@ func CallFromContext(ctx context.Context) FrameContext {
 	return FrameFromContext(ctx)
 }
 
-// AcquireFrameContext is deprecated. Use OpenFrameContext instead.
-// This function does not inherit values from sealed parent frames.
-// Deprecated: Use OpenFrameContext which properly inherits from sealed parents.
-func AcquireFrameContext(parent context.Context) (context.Context, FrameContext) {
-	return OpenFrameContext(parent)
-}
-
 // ReleaseFrameContext decrements refcount and triggers chain collapse when zero.
 // Only pools the frame when all references (including children) are released.
 func ReleaseFrameContext(fc FrameContext) {

@@ -9,8 +9,8 @@ import (
 
 func Template() boot.Component {
 	return boot.New(boot.P{
-		Name:      LuaTemplateName,
-		DependsOn: []boot.Name{LuaEngineName},
+		Name:      TemplateName,
+		DependsOn: []boot.Name{EngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			cm := GetCodeManager(ctx)
 			if cm == nil {

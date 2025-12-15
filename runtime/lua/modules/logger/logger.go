@@ -228,10 +228,13 @@ func tableToFields(table *lua.LTable) []zap.Field {
 			fields = append(fields, zap.Bool(string(key), bool(v.(lua.LBool))))
 		case lua.LTUserData:
 			if ud, ok := v.(*lua.LUserData); ok {
-				if luaErr, ok := ud.Value.(*lua.Error); ok {
-					fields = append(fields, zap.String(string(key), luaErr.Error()))
-				} else if goErr, ok := ud.Value.(error); ok && goErr != nil {
-					fields = append(fields, zap.String(string(key), goErr.Error()))
+				if err, ok := ud.Value.(error); ok && err != nil {
+					var luaErr *lua.Error
+					if errors.As(err, &luaErr) {
+						fields = append(fields, zap.String(string(key), luaErr.Error()))
+					} else {
+						fields = append(fields, zap.String(string(key), err.Error()))
+					}
 				} else {
 					strValue := lua.LVAsString(v)
 					if strValue != "" {

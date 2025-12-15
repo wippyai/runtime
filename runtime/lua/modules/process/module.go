@@ -8,7 +8,7 @@ import (
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/pid"
+	pidapi "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
@@ -81,18 +81,12 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	return mod, nil
 }
 
-// BindGlobal loads the process module and sets it as a global variable.
-// TODO: refactor callers to use Module.Load directly - this is redundant
-func BindGlobal(l *lua.LState) {
-	Module.Load(l)
-}
-
-func checkPID(l *lua.LState) (pid.PID, bool) {
+func checkPID(l *lua.LState) (pidapi.PID, bool) {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("no context found"))
-		return pid.PID{}, false
+		return pidapi.PID{}, false
 	}
 
 	p, ok := runtime.GetFramePID(ctx)
@@ -153,11 +147,11 @@ func getTopology(l *lua.LState) (topology.Topology, bool) {
 	return topo, true
 }
 
-func resolvePID(l *lua.LState, pidOrName string, permission string) (pid.PID, error) {
-	p, err := pid.ParsePID(pidOrName)
+func resolvePID(l *lua.LState, pidOrName string, permission string) (pidapi.PID, error) {
+	p, err := pidapi.ParsePID(pidOrName)
 	if err == nil {
 		if !security.IsAllowed(l.Context(), permission, p.String(), nil) {
-			return pid.PID{}, luaapi.NewNotAllowedError(
+			return pidapi.PID{}, luaapi.NewNotAllowedError(
 				strings.TrimPrefix(permission, "process."), pidOrName)
 		}
 		return p, nil
@@ -165,16 +159,16 @@ func resolvePID(l *lua.LState, pidOrName string, permission string) (pid.PID, er
 
 	reg, ok := getRegistry(l)
 	if !ok {
-		return pid.PID{}, runtimelua.ErrCouldNotAccessRegistry
+		return pidapi.PID{}, runtimelua.ErrCouldNotAccessRegistry
 	}
 
 	p, found := reg.Lookup(pidOrName)
 	if !found {
-		return pid.PID{}, luaapi.NewCouldNotResolveError(pidOrName)
+		return pidapi.PID{}, luaapi.NewCouldNotResolveError(pidOrName)
 	}
 
 	if !security.IsAllowed(l.Context(), permission, p.String(), nil) {
-		return pid.PID{}, luaapi.NewNotAllowedError(
+		return pidapi.PID{}, luaapi.NewNotAllowedError(
 			strings.TrimPrefix(permission, "process."), pidOrName)
 	}
 
@@ -847,11 +841,11 @@ func registryRegister(l *lua.LState) int {
 		return 2
 	}
 
-	var p pid.PID
+	var p pidapi.PID
 	if l.GetTop() >= 2 {
 		pidStr := l.CheckString(2)
 		var err error
-		p, err = pid.ParsePID(pidStr)
+		p, err = pidapi.ParsePID(pidStr)
 		if err != nil {
 			l.Push(lua.LNil)
 			l.Push(lua.LString(err.Error()))

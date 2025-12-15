@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wippyai/runtime/api/pid"
+	pidapi "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 )
 
@@ -25,7 +25,7 @@ func TestMailbox_MessageOrdering(t *testing.T) {
 		WithWorkerCount(8),
 	)
 
-	targetPID := pid.PID{Host: "test", UniqID: "receiver"}
+	targetPID := pidapi.PID{Host: "test", UniqID: "receiver"}
 	receiverCh := make(chan *relay.Package, 1000)
 	_, err := mailbox.Attach(targetPID, receiverCh)
 	require.NoError(t, err)
@@ -40,7 +40,7 @@ func TestMailbox_MessageOrdering(t *testing.T) {
 		go func(senderID int) {
 			defer wg.Done()
 			// Use unique string for each sender so hash is consistent
-			sourcePID := pid.PID{Host: "sender", UniqID: fmt.Sprintf("sender-%d", senderID)}
+			sourcePID := pidapi.PID{Host: "sender", UniqID: fmt.Sprintf("sender-%d", senderID)}
 			for i := 0; i < messagesPerSender; i++ {
 				pkg := &relay.Package{
 					Source: sourcePID,
@@ -105,7 +105,7 @@ func BenchmarkMailbox_Send(b *testing.B) {
 		WithWorkerCount(8),
 	)
 
-	targetPID := pid.PID{Host: "bench", UniqID: "target"}
+	targetPID := pidapi.PID{Host: "bench", UniqID: "target"}
 	receiverCh := make(chan *relay.Package, 10000)
 	_, _ = mailbox.Attach(targetPID, receiverCh)
 
@@ -115,7 +115,7 @@ func BenchmarkMailbox_Send(b *testing.B) {
 		}
 	}()
 
-	sourcePID := pid.PID{Host: "bench", UniqID: "source"}
+	sourcePID := pidapi.PID{Host: "bench", UniqID: "source"}
 	pkg := &relay.Package{
 		Source: sourcePID,
 		Target: targetPID,
@@ -139,7 +139,7 @@ func BenchmarkMailbox_SendParallel(b *testing.B) {
 		WithWorkerCount(8),
 	)
 
-	targetPID := pid.PID{Host: "bench", UniqID: "target"}
+	targetPID := pidapi.PID{Host: "bench", UniqID: "target"}
 	receiverCh := make(chan *relay.Package, 100000)
 	_, _ = mailbox.Attach(targetPID, receiverCh)
 
@@ -156,7 +156,7 @@ func BenchmarkMailbox_SendParallel(b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		id := counter.Add(1)
-		sourcePID := pid.PID{Host: "bench", UniqID: string(rune(id))}
+		sourcePID := pidapi.PID{Host: "bench", UniqID: string(rune(id))}
 		pkg := &relay.Package{
 			Source: sourcePID,
 			Target: targetPID,
@@ -181,7 +181,7 @@ func BenchmarkRouter_Send(b *testing.B) {
 
 	router := NewRouter(node, nil)
 
-	targetPID := pid.PID{Host: "bench", UniqID: "target"}
+	targetPID := pidapi.PID{Host: "bench", UniqID: "target"}
 	receiverCh := make(chan *relay.Package, 10000)
 	_, _ = mailbox.Attach(targetPID, receiverCh)
 
@@ -191,7 +191,7 @@ func BenchmarkRouter_Send(b *testing.B) {
 		}
 	}()
 
-	sourcePID := pid.PID{Host: "bench", UniqID: "source"}
+	sourcePID := pidapi.PID{Host: "bench", UniqID: "source"}
 	pkg := &relay.Package{
 		Source: sourcePID,
 		Target: targetPID,
@@ -215,8 +215,8 @@ func BenchmarkRouter_SendToPeer(b *testing.B) {
 	_ = router.RegisterPeer("peer1", peerReceiver)
 
 	pkg := &relay.Package{
-		Source: pid.PID{Host: "bench", UniqID: "source"},
-		Target: pid.PID{Node: "peer1", Host: "bench", UniqID: "target"},
+		Source: pidapi.PID{Host: "bench", UniqID: "source"},
+		Target: pidapi.PID{Node: "peer1", Host: "bench", UniqID: "target"},
 	}
 
 	b.ResetTimer()
@@ -313,7 +313,7 @@ func BenchmarkBaseline_SelectSend(b *testing.B) {
 // BenchmarkSyncMapLoad measures sync.Map Load performance.
 func BenchmarkSyncMapLoad(b *testing.B) {
 	var m sync.Map
-	pid := pid.PID{Host: "test", UniqID: "target"}
+	pid := pidapi.PID{Host: "test", UniqID: "target"}
 	ch := make(chan *relay.Package, 1)
 	m.Store(pid, ch)
 
@@ -335,8 +335,8 @@ func BenchmarkMailbox_SendEnqueueOnly(b *testing.B) {
 	)
 
 	// Don't attach any receiver - workers will just drop
-	sourcePID := pid.PID{Host: "bench", UniqID: "source"}
-	targetPID := pid.PID{Host: "bench", UniqID: "target"}
+	sourcePID := pidapi.PID{Host: "bench", UniqID: "source"}
+	targetPID := pidapi.PID{Host: "bench", UniqID: "target"}
 	pkg := &relay.Package{
 		Source: sourcePID,
 		Target: targetPID,

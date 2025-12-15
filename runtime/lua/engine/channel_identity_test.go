@@ -196,22 +196,17 @@ func TestSubscribeContextAddExisting(t *testing.T) {
 
 // TestSystemTopicChannelIdentity tests channel identity for system topics.
 func TestSystemTopicChannelIdentity(t *testing.T) {
-	// Test that TopicInbox and TopicEvents are different
-	if topology.TopicInbox == topology.TopicEvents {
-		t.Error("TopicInbox and TopicEvents should be different")
-	}
-
 	ctx := &subscribeContext{
 		byTopic:   make(map[string]*subscription),
 		byChannel: make(map[*Channel]string),
 	}
 
-	inboxSub, err := ctx.add(string(topology.TopicInbox), 0)
+	inboxSub, err := ctx.add(topology.TopicInbox, 0)
 	if err != nil {
 		t.Fatalf("inbox subscribe failed: %v", err)
 	}
 
-	eventsSub, err := ctx.add(string(topology.TopicEvents), 0)
+	eventsSub, err := ctx.add(topology.TopicEvents, 0)
 	if err != nil {
 		t.Fatalf("events subscribe failed: %v", err)
 	}
@@ -222,7 +217,7 @@ func TestSystemTopicChannelIdentity(t *testing.T) {
 	}
 
 	// Re-subscribing to same topic should return same channel
-	inboxSub2, _ := ctx.add(string(topology.TopicInbox), 0)
+	inboxSub2, _ := ctx.add(topology.TopicInbox, 0)
 	if inboxSub.channel != inboxSub2.channel {
 		t.Error("inbox channel identity not preserved")
 	}

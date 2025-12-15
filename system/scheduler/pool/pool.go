@@ -221,8 +221,10 @@ func (e *Executor) Run(ctx context.Context, proc process.Process, method string,
 			}
 		}
 
-		// Handle status after dispatching yields
+		// Handle status after dispatching yields (StepDone handled above)
 		switch status {
+		case process.StepDone:
+			// Handled above before yields dispatch
 		case process.StepContinue:
 			// Check if events arrived, otherwise step again immediately
 			if e.queue.HasEvents() {

@@ -94,20 +94,6 @@ func WithDenied(ids ...registry.ID) FactoryOption {
 	}
 }
 
-// WithRequired adds IDs to the compile-time required list.
-func WithRequired(ids ...registry.ID) FactoryOption {
-	return func(c *processConfig) {
-		c.requiredIDs = append(c.requiredIDs, ids...)
-	}
-}
-
-// WithDeniedClasses adds classes to compile-time denied list.
-func WithDeniedClasses(classes ...string) FactoryOption {
-	return func(c *processConfig) {
-		c.deniedClasses = append(c.deniedClasses, classes...)
-	}
-}
-
 // WithAllowedClasses adds classes to compile-time allowed list.
 func WithAllowedClasses(classes ...string) FactoryOption {
 	return func(c *processConfig) {

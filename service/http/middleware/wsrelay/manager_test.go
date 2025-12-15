@@ -175,15 +175,15 @@ func TestRelayCommandConstants(t *testing.T) {
 	})
 
 	t.Run("topic constants defined", func(t *testing.T) {
-		assert.Equal(t, "ws.message", WSMessageTopic)
-		assert.Equal(t, "ws.join", WSJoinTopic)
-		assert.Equal(t, "ws.leave", WSLeaveTopic)
-		assert.Equal(t, "ws.control", WSControlTopic)
-		assert.Equal(t, "ws.close", WSCloseTopic)
-		assert.Equal(t, "ws.heartbeat", WSHeartbeatTopic)
+		assert.Equal(t, "ws.message", MessageTopic)
+		assert.Equal(t, "ws.join", JoinTopic)
+		assert.Equal(t, "ws.leave", LeaveTopic)
+		assert.Equal(t, "ws.control", ControlTopic)
+		assert.Equal(t, "ws.close", CloseTopic)
+		assert.Equal(t, "ws.heartbeat", HeartbeatTopic)
 	})
 
 	t.Run("header constant defined", func(t *testing.T) {
-		assert.Equal(t, "X-WS-Relay", WSRelayHeader)
+		assert.Equal(t, "X-WS-Relay", RelayHeader)
 	})
 }

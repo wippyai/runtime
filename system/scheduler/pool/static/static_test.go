@@ -124,7 +124,7 @@ func TestStaticQueueFull(t *testing.T) {
 	defer cancel()
 
 	_, err = p.Call(ctx, "test", nil)
-	if err != context.DeadlineExceeded {
+	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Logf("expected context deadline exceeded or nil, got: %v", err)
 	}
 

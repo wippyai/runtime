@@ -26,7 +26,7 @@ func NewDefaultPoolFactory() PoolFactoryAPI {
 }
 
 // CreateStandardPool implements PoolFactoryAPI.CreateStandardPool
-func (f *DefaultPoolFactory) CreateStandardPool(ctx context.Context, kind registry.Kind, cfg *config.DBConfig) (*ConnPool, error) {
+func (f *DefaultPoolFactory) CreateStandardPool(_ context.Context, kind registry.Kind, cfg *config.DBConfig) (*ConnPool, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, NewInvalidConfigError(err)
 	}

@@ -11,8 +11,9 @@ import (
 )
 
 func TestChannelTypeName(t *testing.T) {
-	if ChannelTypeName != "channel" {
-		t.Errorf("ChannelTypeName = %q, want %q", ChannelTypeName, "channel")
+	const expected = "channel"
+	if ChannelTypeName != expected {
+		t.Errorf("ChannelTypeName = %q, want %q", ChannelTypeName, expected)
 	}
 }
 

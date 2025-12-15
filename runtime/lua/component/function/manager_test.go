@@ -2,6 +2,7 @@ package function
 
 import (
 	"context"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -73,7 +74,7 @@ func TestManager_Add_SourceFunction_InvalidKind(t *testing.T) {
 	manager := NewManager(log, codeManager, bus, disp, fsReg, factory)
 
 	entry := registry.Entry{
-		Kind: registry.Kind("invalid"),
+		Kind: "invalid",
 	}
 
 	err := manager.Add(context.Background(), entry)
@@ -115,7 +116,7 @@ func TestManager_Add_BytecodeFunction_InvalidKind(t *testing.T) {
 	manager := NewManager(log, codeManager, bus, disp, fsReg, factory)
 
 	entry := registry.Entry{
-		Kind: registry.Kind("wrong_bytecode"),
+		Kind: "wrong_bytecode",
 	}
 
 	err := manager.Add(context.Background(), entry)
@@ -157,7 +158,7 @@ func TestManager_Update_SourceFunction_InvalidKind(t *testing.T) {
 	manager := NewManager(log, codeManager, bus, disp, fsReg, factory)
 
 	entry := registry.Entry{
-		Kind: registry.Kind("invalid"),
+		Kind: "invalid",
 	}
 
 	err := manager.Update(context.Background(), entry)
@@ -176,7 +177,7 @@ func TestManager_Update_BytecodeFunction_InvalidKind(t *testing.T) {
 	manager := NewManager(log, codeManager, bus, disp, fsReg, factory)
 
 	entry := registry.Entry{
-		Kind: registry.Kind("wrong_bytecode"),
+		Kind: "wrong_bytecode",
 	}
 
 	err := manager.Update(context.Background(), entry)
@@ -195,7 +196,7 @@ func TestManager_Delete_SourceFunction_InvalidKind(t *testing.T) {
 	manager := NewManager(log, codeManager, bus, disp, fsReg, factory)
 
 	entry := registry.Entry{
-		Kind: registry.Kind("invalid"),
+		Kind: "invalid",
 	}
 
 	err := manager.Delete(context.Background(), entry)
@@ -556,7 +557,7 @@ func TestManager_Stop_WithActivePools(t *testing.T) {
 
 	// Create multiple pools
 	for i := 0; i < 3; i++ {
-		id := registry.NewID("test", "pool"+string(rune('a'+i)))
+		id := registry.NewID("test", "pool"+strconv.Itoa(i))
 		cfg := &configEntry{
 			method: "main",
 			pool:   api.PoolConfig{Type: api.PoolTypeInline},

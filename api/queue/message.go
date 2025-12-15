@@ -8,10 +8,9 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 )
 
-// Standard message header keys
+// HeaderTimestamp is a standard message header key
 const (
 	HeaderTimestamp     = "timestamp"      // Message creation timestamp
-	HeaderDeliveryCount = "delivery_count" // Number of delivery attempts
 	HeaderPriority      = "priority"       // Message priority (0-9, higher = more important)
 	HeaderTTL           = "ttl"            // Time to live in seconds
 	HeaderCorrelationID = "correlation_id" // For request-response correlation
@@ -19,11 +18,11 @@ const (
 	HeaderContentType   = "content_type"   // MIME type of body
 	HeaderMessageType   = "message_type"   // Application-specific message type
 
-	// W3C Trace Context headers
+	// HeaderTraceparent is a W3C Trace Context header
 	HeaderTraceparent = "traceparent" // W3C trace context
 	HeaderTracestate  = "tracestate"  // W3C trace state
 
-	// Dead letter queue headers
+	// HeaderOriginalQueue is a dead letter queue header
 	HeaderOriginalQueue    = "x_original_queue"     // Original queue name
 	HeaderDeadLetterReason = "x_dead_letter_reason" // Why message was dead-lettered
 	HeaderDeadLetterTime   = "x_dead_letter_time"   // When message was dead-lettered

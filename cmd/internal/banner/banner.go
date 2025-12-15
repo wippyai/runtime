@@ -89,29 +89,6 @@ var allThemes = []GradientTheme{
 	{197, 162, 127, 180, 162, 255, 127, true, true},
 }
 
-// NewGradient creates a 3-step gradient theme from start to end colors.
-func NewGradient(start, end int) GradientTheme {
-	step := (end - start) / 2
-	logo1 := start
-	logo2 := start + step
-	logo3 := end
-
-	midTone := (start + end) / 2
-	urlTone := logo2
-
-	return GradientTheme{
-		Logo1:       logo1,
-		Logo2:       logo2,
-		Logo3:       logo3,
-		Title:       midTone,
-		URL:         urlTone,
-		Version:     255,
-		Company:     logo3,
-		VersionBold: true,
-		CompanyBold: true,
-	}
-}
-
 // PrintWithTheme displays the banner using the specified gradient theme.
 func PrintWithTheme(silent bool, theme GradientTheme) {
 	if silent {

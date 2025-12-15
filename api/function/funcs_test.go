@@ -17,7 +17,7 @@ import (
 
 func TestConstants(t *testing.T) {
 	t.Run("System", func(t *testing.T) {
-		assert.Equal(t, event.System("function"), System)
+		assert.Equal(t, "function", System)
 	})
 }
 

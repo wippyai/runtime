@@ -38,7 +38,7 @@ func TestBufferBytes(t *testing.T) {
 
 	bytes := buf.Bytes()
 	if string(bytes) != "hello" {
-		t.Errorf("expected 'hello', got '%s'", string(bytes))
+		t.Errorf("expected 'hello', got '%s'", bytes)
 	}
 }
 

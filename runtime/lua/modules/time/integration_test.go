@@ -278,7 +278,7 @@ func TestTickerCleanupOnProcessExit(t *testing.T) {
 		return "done"
 	`
 
-	ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
 	proc := newLuaProcessWithChannels(script)
 
 	result, err := sched.Execute(ctx, testPID(), proc, "", nil)
@@ -324,7 +324,7 @@ func TestTimerCleanupOnProcessExit(t *testing.T) {
 		return "done"
 	`
 
-	ctx, fc := ctxapi.AcquireFrameContext(context.Background())
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
 	proc := newLuaProcessWithChannels(script)
 
 	result, err := sched.Execute(ctx, testPID(), proc, "", nil)

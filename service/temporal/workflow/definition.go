@@ -29,14 +29,6 @@ type DefinitionFactory struct {
 	ctx context.Context
 }
 
-// NewDefinitionFactory creates a new workflow definition factory.
-func NewDefinitionFactory(id registry.ID, log *zap.Logger) *DefinitionFactory {
-	return &DefinitionFactory{
-		ID:  id,
-		log: log,
-	}
-}
-
 // WithContext returns a new factory with the given context.
 // This is called by the worker when registering the workflow.
 func (f *DefinitionFactory) WithContext(ctx context.Context) any {
@@ -144,6 +136,8 @@ func (d *Definition) OnWorkflowTaskStarted(_ time.Duration) {
 		}
 
 		switch d.output.Status() {
+		case process.StepYield:
+			// Falls through to next iteration
 		case process.StepDone:
 			if result := d.output.Result(); result != nil {
 				res, err := d.dc.ToPayloads(payload.Payloads{result})

@@ -272,13 +272,13 @@ func (c *Connection) handleRelayPackage(pkg *relay.Package) {
 		}
 
 		// Handle control messages
-		if msg.Topic == WSControlTopic && len(msg.Payloads) > 0 {
+		if msg.Topic == ControlTopic && len(msg.Payloads) > 0 {
 			c.handleControlMessage(msg.Payloads[0])
 			continue
 		}
 
 		// Handle close messages
-		if msg.Topic == WSCloseTopic {
+		if msg.Topic == CloseTopic {
 			c.handleCloseMessage(msg.Payloads)
 			return
 		}
@@ -525,7 +525,7 @@ func (c *Connection) sendJoinNotification(targetPID pid.PID) error {
 	joinMsg := relay.NewPackage(
 		c.wsPID,
 		targetPID,
-		WSJoinTopic,
+		JoinTopic,
 		payload.NewPayload(joinData, payload.JSON),
 	)
 
@@ -554,7 +554,7 @@ func (c *Connection) sendLeaveNotification(targetPID pid.PID) error {
 	leaveMsg := relay.NewPackage(
 		c.wsPID,
 		targetPID,
-		WSLeaveTopic,
+		LeaveTopic,
 		payload.NewPayload(leaveData, payload.JSON),
 	)
 
@@ -587,7 +587,7 @@ func (c *Connection) sendHeartbeat() {
 	heartbeatMsg := relay.NewPackage(
 		c.wsPID,
 		targetPID,
-		WSHeartbeatTopic,
+		HeartbeatTopic,
 		payload.NewPayload(heartbeatData, payload.JSON),
 	)
 

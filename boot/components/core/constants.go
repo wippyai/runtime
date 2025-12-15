@@ -4,10 +4,7 @@ import "github.com/wippyai/runtime/api/boot"
 
 const (
 	// Core component names
-	EventBusName       boot.Name = "eventbus"
 	PIDGenName         boot.Name = "pidgen"
-	TranscoderName     boot.Name = "transcoder"
-	LogManagerName     boot.Name = "logmanager"
 	SecurityName       boot.Name = "security"
 	SecurityPolicyName boot.Name = "security.policy"
 	RegistryName       boot.Name = "registry"
@@ -18,11 +15,11 @@ const (
 	EventRouterName    boot.Name = "eventrouter"
 	DispatcherName     boot.Name = "dispatcher"
 
-	// Finder configuration keys
+	// FinderQueryCacheSize is a Finder configuration key
 	FinderQueryCacheSize boot.Name = "query_cache_size"
 	FinderRegexCacheSize boot.Name = "regex_cache_size"
 
-	// Registry configuration keys
+	// RegistryEnableHistory is a Registry configuration key
 	RegistryEnableHistory boot.Name = "enable_history"
 	RegistryHistoryType   boot.Name = "history_type"
 	RegistryHistoryPath   boot.Name = "history_path"

@@ -32,7 +32,7 @@ func TestHeaderReadWrite(t *testing.T) {
 	}
 
 	if string(read.Magic[:]) != magic {
-		t.Errorf("Magic mismatch: got %q, want %q", read.Magic, magic)
+		t.Errorf("Magic mismatch: got %q, want %q", string(read.Magic[:]), magic)
 	}
 
 	if read.Version != version1 {

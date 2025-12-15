@@ -15,21 +15,20 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
-	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 )
 
 func TestConstants(t *testing.T) {
 	t.Run("ControlHost", func(t *testing.T) {
-		assert.Equal(t, pid.HostID("node:control"), ControlHost)
+		assert.Equal(t, "node:control", ControlHost)
 	})
 
 	t.Run("TopicInbox", func(t *testing.T) {
-		assert.Equal(t, relay.Topic("@pid/inbox"), TopicInbox)
+		assert.Equal(t, "@pid/inbox", TopicInbox)
 	})
 
 	t.Run("TopicEvents", func(t *testing.T) {
-		assert.Equal(t, relay.Topic("@pid/events"), TopicEvents)
+		assert.Equal(t, "@pid/events", TopicEvents)
 	})
 }
 

@@ -3,16 +3,16 @@ package dispatchers
 import "github.com/wippyai/runtime/api/boot"
 
 const (
-	// Dispatcher parent dependency
+	// DispatcherName is the Dispatcher parent dependency
 	DispatcherName boot.Name = "dispatcher"
 
-	// System dispatchers
+	// ClockDispatcherName is a System dispatcher
 	ClockDispatcherName    boot.Name = "dispatcher.clock"
 	ContractDispatcherName boot.Name = "dispatcher.contract"
 	FuncDispatcherName     boot.Name = "dispatcher.func"
 	SecurityDispatcherName boot.Name = "dispatcher.security"
 
-	// Service dispatchers
+	// CloudStorageDispatcherName is a Service dispatcher
 	CloudStorageDispatcherName boot.Name = "dispatcher.cloudstorage"
 	HTTPDispatcherName         boot.Name = "dispatcher.http"
 	WSDispatcherName           boot.Name = "dispatcher.ws"

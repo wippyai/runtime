@@ -11,7 +11,7 @@ import (
 func TestCreateCORSMiddleware(t *testing.T) {
 	t.Run("exact origin match", func(t *testing.T) {
 		middleware := CreateCORSMiddleware(map[string]string{
-			CORSOptionAllowOrigins: "https://example.com",
+			OptionAllowOrigins: "https://example.com",
 		})
 
 		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -29,7 +29,7 @@ func TestCreateCORSMiddleware(t *testing.T) {
 
 	t.Run("wildcard origin allows all", func(t *testing.T) {
 		middleware := CreateCORSMiddleware(map[string]string{
-			CORSOptionAllowOrigins: "*",
+			OptionAllowOrigins: "*",
 		})
 
 		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -47,7 +47,7 @@ func TestCreateCORSMiddleware(t *testing.T) {
 
 	t.Run("wildcard subdomain matching", func(t *testing.T) {
 		middleware := CreateCORSMiddleware(map[string]string{
-			CORSOptionAllowOrigins: "*.example.com",
+			OptionAllowOrigins: "*.example.com",
 		})
 
 		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -65,9 +65,9 @@ func TestCreateCORSMiddleware(t *testing.T) {
 
 	t.Run("preflight OPTIONS request", func(t *testing.T) {
 		middleware := CreateCORSMiddleware(map[string]string{
-			CORSOptionAllowOrigins: "https://example.com",
-			CORSOptionAllowMethods: "GET,POST,PUT",
-			CORSOptionMaxAge:       "3600",
+			OptionAllowOrigins: "https://example.com",
+			OptionAllowMethods: "GET,POST,PUT",
+			OptionMaxAge:       "3600",
 		})
 
 		handler := middleware(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
@@ -89,8 +89,8 @@ func TestCreateCORSMiddleware(t *testing.T) {
 
 	t.Run("credentials support", func(t *testing.T) {
 		middleware := CreateCORSMiddleware(map[string]string{
-			CORSOptionAllowOrigins:     "https://example.com",
-			CORSOptionAllowCredentials: "true",
+			OptionAllowOrigins:     "https://example.com",
+			OptionAllowCredentials: "true",
 		})
 
 		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -108,7 +108,7 @@ func TestCreateCORSMiddleware(t *testing.T) {
 
 	t.Run("expose headers", func(t *testing.T) {
 		middleware := CreateCORSMiddleware(map[string]string{
-			CORSOptionExposeHeaders: "X-Request-ID,X-Total-Count",
+			OptionExposeHeaders: "X-Request-ID,X-Total-Count",
 		})
 
 		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -147,8 +147,8 @@ func TestCreateCORSMiddleware(t *testing.T) {
 
 	t.Run("new keys take precedence over legacy", func(t *testing.T) {
 		middleware := CreateCORSMiddleware(map[string]string{
-			CORSOptionAllowOrigins: "https://new.com",
-			legacyAllowOrigins:     "https://old.com",
+			OptionAllowOrigins: "https://new.com",
+			legacyAllowOrigins: "https://old.com",
 		})
 
 		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -166,7 +166,7 @@ func TestCreateCORSMiddleware(t *testing.T) {
 
 	t.Run("reject disallowed origin", func(t *testing.T) {
 		middleware := CreateCORSMiddleware(map[string]string{
-			CORSOptionAllowOrigins: "https://allowed.com",
+			OptionAllowOrigins: "https://allowed.com",
 		})
 
 		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -199,7 +199,7 @@ func TestCreateCORSMiddleware(t *testing.T) {
 
 	t.Run("allow private network", func(t *testing.T) {
 		middleware := CreateCORSMiddleware(map[string]string{
-			CORSOptionAllowPrivateNetwk: "true",
+			OptionAllowPrivateNetwork: "true",
 		})
 
 		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -235,7 +235,7 @@ func TestCreateCORSMiddleware(t *testing.T) {
 
 	t.Run("localhost with port", func(t *testing.T) {
 		middleware := CreateCORSMiddleware(map[string]string{
-			CORSOptionAllowOrigins: "localhost",
+			OptionAllowOrigins: "localhost",
 		})
 
 		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -253,7 +253,7 @@ func TestCreateCORSMiddleware(t *testing.T) {
 
 	t.Run("localhost without port", func(t *testing.T) {
 		middleware := CreateCORSMiddleware(map[string]string{
-			CORSOptionAllowOrigins: "localhost",
+			OptionAllowOrigins: "localhost",
 		})
 
 		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -271,7 +271,7 @@ func TestCreateCORSMiddleware(t *testing.T) {
 
 	t.Run("localhost https with port", func(t *testing.T) {
 		middleware := CreateCORSMiddleware(map[string]string{
-			CORSOptionAllowOrigins: "localhost",
+			OptionAllowOrigins: "localhost",
 		})
 
 		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -289,7 +289,7 @@ func TestCreateCORSMiddleware(t *testing.T) {
 
 	t.Run("localhost combined with other origins", func(t *testing.T) {
 		middleware := CreateCORSMiddleware(map[string]string{
-			CORSOptionAllowOrigins: "*.example.com,localhost",
+			OptionAllowOrigins: "*.example.com,localhost",
 		})
 
 		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -313,7 +313,7 @@ func TestCreateCORSMiddleware(t *testing.T) {
 
 	t.Run("localhost does not match non-localhost origins", func(t *testing.T) {
 		middleware := CreateCORSMiddleware(map[string]string{
-			CORSOptionAllowOrigins: "localhost",
+			OptionAllowOrigins: "localhost",
 		})
 
 		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

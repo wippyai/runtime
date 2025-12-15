@@ -776,7 +776,7 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool 
 
 	// Check for LINK_DOWN events when trap_links is false
 	// Per spec: without trap_links, process should fail when linked process fails
-	if topic == string(topology.TopicEvents) && !p.trapLinks {
+	if topic == topology.TopicEvents && !p.trapLinks {
 		if isLinkDownEvent(qm.Payloads) {
 			p.linkDownError = errors.New("linked process failed")
 			return true // consume the message

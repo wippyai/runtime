@@ -148,7 +148,7 @@ func (l *FileLoader) loadFileAsPayload(fSys fs.FS, path string, format payload.F
 	case payload.String, payload.Golang, payload.Lua, payload.Bytes, payload.GoError:
 		// FIXME implement
 	default:
-		return nil, NewUnsupportedFormatError(string(format))
+		return nil, NewUnsupportedFormatError(format)
 	}
 
 	return &FilePayload{

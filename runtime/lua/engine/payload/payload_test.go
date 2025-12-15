@@ -1382,7 +1382,7 @@ func TestGoToLua_RandomTypes(t *testing.T) {
 		int32(2147483647),
 		int64(9223372036854775807),
 		float32(3.14),
-		float64(3.14159265358979),
+		3.14159265358979,
 		"",
 		"a",
 		"hello world",

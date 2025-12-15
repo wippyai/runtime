@@ -3,8 +3,8 @@ package client
 import (
 	"net/http"
 
-	identityv1connect "github.com/wippyai/module-registry-proto-go/registry/identity/v1/identityv1connect"
-	modulev1connect "github.com/wippyai/module-registry-proto-go/registry/module/v1/modulev1connect"
+	"github.com/wippyai/module-registry-proto-go/registry/identity/v1/identityv1connect"
+	"github.com/wippyai/module-registry-proto-go/registry/module/v1/modulev1connect"
 	"github.com/wippyai/runtime/api/boot"
 )
 

@@ -5,16 +5,16 @@ import (
 	"strings"
 )
 
-// CORS middleware option constants (dot-separated, preferred)
+// Middleware option constants (dot-separated, preferred)
 const (
-	MiddlewareName              = "cors"
-	CORSOptionAllowOrigins      = "cors.allow.origins"
-	CORSOptionAllowMethods      = "cors.allow.methods"
-	CORSOptionAllowHeaders      = "cors.allow.headers"
-	CORSOptionExposeHeaders     = "cors.expose.headers"
-	CORSOptionAllowCredentials  = "cors.allow.credentials" //nolint:gosec // G101: Not a credential - this is a configuration key name
-	CORSOptionMaxAge            = "cors.max.age"
-	CORSOptionAllowPrivateNetwk = "cors.allow.private.network"
+	MiddlewareName            = "cors"
+	OptionAllowOrigins        = "cors.allow.origins"
+	OptionAllowMethods        = "cors.allow.methods"
+	OptionAllowHeaders        = "cors.allow.headers"
+	OptionExposeHeaders       = "cors.expose.headers"
+	OptionAllowCredentials    = "cors.allow.credentials" //nolint:gosec // G101: Not a credential - this is a configuration key name
+	OptionMaxAge              = "cors.max.age"
+	OptionAllowPrivateNetwork = "cors.allow.private.network"
 
 	// Legacy option constants (deprecated, for backward compatibility)
 	legacyAllowOrigins      = "allow_origins"
@@ -48,37 +48,37 @@ func getOption(options map[string]string, newKey, legacyKey string) string {
 // CreateCORSMiddleware creates a CORS middleware with the provided options
 func CreateCORSMiddleware(options map[string]string) func(http.Handler) http.Handler {
 	// Parse options with defaults (check new keys first, fall back to legacy)
-	allowOrigins := getOption(options, CORSOptionAllowOrigins, legacyAllowOrigins)
+	allowOrigins := getOption(options, OptionAllowOrigins, legacyAllowOrigins)
 	if allowOrigins == "" {
 		allowOrigins = DefaultAllowOrigins
 	}
 
-	allowMethods := getOption(options, CORSOptionAllowMethods, legacyAllowMethods)
+	allowMethods := getOption(options, OptionAllowMethods, legacyAllowMethods)
 	if allowMethods == "" {
 		allowMethods = DefaultAllowMethods
 	}
 
-	allowHeaders := getOption(options, CORSOptionAllowHeaders, legacyAllowHeaders)
+	allowHeaders := getOption(options, OptionAllowHeaders, legacyAllowHeaders)
 	if allowHeaders == "" {
 		allowHeaders = DefaultAllowHeaders
 	}
 
-	exposeHeaders := getOption(options, CORSOptionExposeHeaders, legacyExposeHeaders)
+	exposeHeaders := getOption(options, OptionExposeHeaders, legacyExposeHeaders)
 	if exposeHeaders == "" {
 		exposeHeaders = DefaultExposeHeaders
 	}
 
-	allowCredentials := getOption(options, CORSOptionAllowCredentials, legacyAllowCredentials)
+	allowCredentials := getOption(options, OptionAllowCredentials, legacyAllowCredentials)
 	if allowCredentials == "" {
 		allowCredentials = DefaultAllowCredentials
 	}
 
-	maxAge := getOption(options, CORSOptionMaxAge, legacyMaxAge)
+	maxAge := getOption(options, OptionMaxAge, legacyMaxAge)
 	if maxAge == "" {
 		maxAge = DefaultMaxAge
 	}
 
-	allowPrivateNetwork := getOption(options, CORSOptionAllowPrivateNetwk, legacyAllowPrivateNetwk) == "true"
+	allowPrivateNetwork := getOption(options, OptionAllowPrivateNetwork, legacyAllowPrivateNetwk) == "true"
 
 	// Create a list of allowed origins for matching
 	origins := parseCommaSeparatedList(allowOrigins)

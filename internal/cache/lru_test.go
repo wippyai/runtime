@@ -350,7 +350,7 @@ func TestCleanup(t *testing.T) {
 
 		// Set should return error after close
 		err := cache.Set("key2", 200)
-		if err != ErrCacheClosed {
+		if !errors.Is(err, ErrCacheClosed) {
 			t.Error("expected Set to return ErrCacheClosed after Close")
 		}
 

@@ -164,6 +164,8 @@ func TestControllerBottleneckSimulation(t *testing.T) {
 		d, target := c.tick(now, ops, workers, busy, queueLen)
 
 		switch d {
+		case scaleNone:
+			// No action
 		case scaleUp:
 			workers++
 			scaleUps++
@@ -219,6 +221,8 @@ func TestControllerIOBoundSimulation(t *testing.T) {
 		d, target := c.tick(now, ops, workers, busy, queueLen)
 
 		switch d {
+		case scaleNone, scaleDown:
+			// No action
 		case scaleUp:
 			// Multiplicative scale-up: target = workers to add
 			workers += target

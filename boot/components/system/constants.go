@@ -3,18 +3,16 @@ package system
 import "github.com/wippyai/runtime/api/boot"
 
 const (
-	// System component names
-	FilesystemName      boot.Name = "filesystem"
-	EnvironmentName     boot.Name = "env"
-	ResourcesName       boot.Name = "resources"
-	InterceptorName     boot.Name = "interceptor"
-	FunctionsName       boot.Name = "functions"
-	ProcessName         boot.Name = "process"
-	ProcessTopologyName boot.Name = "process-topology"
-	ContractsName       boot.Name = "contracts"
-	ClusterName         boot.Name = "cluster"
+	// FilesystemName is a System component name
+	FilesystemName  boot.Name = "filesystem"
+	EnvironmentName boot.Name = "env"
+	ResourcesName   boot.Name = "resources"
+	InterceptorName boot.Name = "interceptor"
+	FunctionsName   boot.Name = "functions"
+	ContractsName   boot.Name = "contracts"
+	ClusterName     boot.Name = "cluster"
 
-	// Cluster configuration keys
+	// ClusterEnabled is a Cluster configuration key
 	ClusterEnabled              boot.Name = "enabled"
 	ClusterNodeName             boot.Name = "name"
 	ClusterInternodeBindAddr    boot.Name = "internode.bind_addr"

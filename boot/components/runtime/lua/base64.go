@@ -9,8 +9,8 @@ import (
 
 func Base64() boot.Component {
 	return boot.New(boot.P{
-		Name:      LuaBase64Name,
-		DependsOn: []boot.Name{LuaEngineName},
+		Name:      Base64Name,
+		DependsOn: []boot.Name{EngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			cm := GetCodeManager(ctx)
 			if cm == nil {

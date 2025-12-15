@@ -106,7 +106,7 @@ func TestManager_QueueDeclare(t *testing.T) {
 
 	bus.Send(ctx, event.Event{
 		System: queueapi.System,
-		Kind:   queueapi.QueueDeclare,
+		Kind:   queueapi.Declare,
 		Path:   queueID.String(),
 		Data:   queueEntry,
 	})
@@ -140,7 +140,7 @@ func TestManager_QueueDeclare_DriverNotFound(t *testing.T) {
 
 	bus.Send(ctx, event.Event{
 		System: queueapi.System,
-		Kind:   queueapi.QueueDeclare,
+		Kind:   queueapi.Declare,
 		Path:   queueID.String(),
 		Data:   queueEntry,
 	})
@@ -257,7 +257,7 @@ func TestManager_QueueDelete(t *testing.T) {
 
 	bus.Send(ctx, event.Event{
 		System: queueapi.System,
-		Kind:   queueapi.QueueDelete,
+		Kind:   queueapi.Delete,
 		Path:   queueID.String(),
 	})
 

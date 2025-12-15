@@ -13,7 +13,7 @@ func Metrics() boot.Component {
 	var collector api.Collector
 
 	return boot.New(boot.P{
-		Name:      MetricsName,
+		Name:      Name,
 		DependsOn: []boot.Name{},
 		Load: func(ctx context.Context) (context.Context, error) {
 			cfg := loadConfig(ctx)

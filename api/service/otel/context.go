@@ -69,15 +69,6 @@ func GetSpanKey() *ctxapi.Key {
 	return spanCtx
 }
 
-// SetRemoteSpanContext stores a SpanContext for trace propagation without an active span
-func SetRemoteSpanContext(ctx context.Context, sc trace.SpanContext) error {
-	fc := ctxapi.FrameFromContext(ctx)
-	if fc == nil {
-		return nil
-	}
-	return fc.Set(spanContextKey, sc)
-}
-
 // GetRemoteSpanContext retrieves a stored SpanContext
 func GetRemoteSpanContext(ctx context.Context) (trace.SpanContext, bool) {
 	fc := ctxapi.FrameFromContext(ctx)
@@ -90,9 +81,4 @@ func GetRemoteSpanContext(ctx context.Context) (trace.SpanContext, bool) {
 		}
 	}
 	return trace.SpanContext{}, false
-}
-
-// GetRemoteSpanContextKey returns the context key for storing remote span contexts
-func GetRemoteSpanContextKey() *ctxapi.Key {
-	return spanContextKey
 }

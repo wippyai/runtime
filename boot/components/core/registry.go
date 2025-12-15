@@ -46,17 +46,17 @@ func Registry() boot.Component {
 			var hist regapi.History
 			cfg := boot.GetConfig(ctx)
 			if cfg != nil {
-				registryCfg := cfg.Sub(string(RegistryName))
-				enableHistory := registryCfg.GetBool(string(RegistryEnableHistory), true)
+				registryCfg := cfg.Sub(RegistryName)
+				enableHistory := registryCfg.GetBool(RegistryEnableHistory, true)
 
 				if !enableHistory {
 					hist = historynil.New()
 				} else {
-					historyType := registryCfg.GetString(string(RegistryHistoryType), "memory")
+					historyType := registryCfg.GetString(RegistryHistoryType, "memory")
 
 					switch historyType {
 					case "sqlite":
-						historyPath := registryCfg.GetString(string(RegistryHistoryPath), ".wippy/registry.db")
+						historyPath := registryCfg.GetString(RegistryHistoryPath, ".wippy/registry.db")
 						absPath, err := filepath.Abs(historyPath)
 						if err != nil {
 							return nil, NewHistoryPathError(err)

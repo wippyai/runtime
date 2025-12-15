@@ -21,10 +21,6 @@ type File struct {
 	cancelCleanup func()
 }
 
-func NewFile(file fsapi.File) *File {
-	return &File{file: file}
-}
-
 func NewFileWithCleanup(ctx context.Context, file fsapi.File) *File {
 	f := &File{file: file}
 
@@ -342,14 +338,14 @@ func fileScanner(l *lua.LState) int {
 
 	scanner := bufio.NewScanner(f.file)
 	switch splitType {
-	case splitLines:
-		scanner.Split(bufio.ScanLines)
 	case splitWords:
 		scanner.Split(bufio.ScanWords)
 	case splitBytes:
 		scanner.Split(bufio.ScanBytes)
 	case splitRunes:
 		scanner.Split(bufio.ScanRunes)
+	default:
+		// splitLines is default for bufio.Scanner
 	}
 
 	fs := &FileScanner{scanner: scanner}

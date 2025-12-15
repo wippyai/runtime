@@ -10,8 +10,8 @@ import (
 
 func Queue() boot.Component {
 	return boot.New(boot.P{
-		Name:      OTelQueueName,
-		DependsOn: []boot.Name{OTelName, queueManagerName},
+		Name:      QueueName,
+		DependsOn: []boot.Name{Name, queueManagerName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			svc := otelapi.GetService(ctx)
 			if svc == nil {

@@ -756,9 +756,9 @@ func TestRandomStringMaxSizeLimit(t *testing.T) {
 }
 
 func TestRandomBytesDoSPrevention(t *testing.T) {
-	// Verify the constant is set correctly
-	if maxRandomSize != 1024*1024 {
-		t.Errorf("maxRandomSize should be 1MB, got %d", maxRandomSize)
+	const expected = 1024 * 1024
+	if maxRandomSize != expected {
+		t.Errorf("maxRandomSize should be %d, got %d", expected, maxRandomSize)
 	}
 }
 

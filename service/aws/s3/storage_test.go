@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
-	"net/url"
+	neturl "net/url"
 	"testing"
 	"time"
 
@@ -51,7 +51,7 @@ type mockListObjectsClient struct {
 	err    error
 }
 
-func (m *mockListObjectsClient) ListObjectsV2(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+func (m *mockListObjectsClient) ListObjectsV2(_ context.Context, _ *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -169,7 +169,7 @@ type mockGetObjectClient struct {
 	err    error
 }
 
-func (m *mockGetObjectClient) GetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+func (m *mockGetObjectClient) GetObject(_ context.Context, _ *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -242,7 +242,7 @@ type mockPutObjectClient struct {
 	err error
 }
 
-func (m *mockPutObjectClient) PutObject(ctx context.Context, params *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
+func (m *mockPutObjectClient) PutObject(_ context.Context, _ *s3.PutObjectInput, _ ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -283,7 +283,7 @@ type mockDeleteObjectsClient struct {
 	err error
 }
 
-func (m *mockDeleteObjectsClient) DeleteObjects(ctx context.Context, params *s3.DeleteObjectsInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectsOutput, error) {
+func (m *mockDeleteObjectsClient) DeleteObjects(_ context.Context, _ *s3.DeleteObjectsInput, _ ...func(*s3.Options)) (*s3.DeleteObjectsOutput, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -339,14 +339,14 @@ type mockPresignClient struct {
 	err    error
 }
 
-func (m *mockPresignClient) PresignGetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.PresignOptions)) (*v4.PresignedHTTPRequest, error) {
+func (m *mockPresignClient) PresignGetObject(_ context.Context, _ *s3.GetObjectInput, _ ...func(*s3.PresignOptions)) (*v4.PresignedHTTPRequest, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
 	return &v4.PresignedHTTPRequest{URL: m.getURL}, nil
 }
 
-func (m *mockPresignClient) PresignPutObject(ctx context.Context, params *s3.PutObjectInput, optFns ...func(*s3.PresignOptions)) (*v4.PresignedHTTPRequest, error) {
+func (m *mockPresignClient) PresignPutObject(_ context.Context, _ *s3.PutObjectInput, _ ...func(*s3.PresignOptions)) (*v4.PresignedHTTPRequest, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -566,7 +566,7 @@ func TestStorage_RealClientMethods(t *testing.T) {
 // mockEndpointResolver provides a mock endpoint for testing
 type mockEndpointResolver struct{}
 
-func (m *mockEndpointResolver) ResolveEndpoint(ctx context.Context, params s3.EndpointParameters) (smithyendpoints.Endpoint, error) {
-	u, _ := url.Parse("https://s3.localhost.localstack.cloud:4566")
+func (m *mockEndpointResolver) ResolveEndpoint(_ context.Context, _ s3.EndpointParameters) (smithyendpoints.Endpoint, error) {
+	u, _ := neturl.Parse("https://s3.localhost.localstack.cloud:4566")
 	return smithyendpoints.Endpoint{URI: *u}, nil
 }

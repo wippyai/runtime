@@ -109,16 +109,3 @@ func FilterEmbeddableEntries(entries []registry.Entry, embedPatterns []string) [
 
 	return embeddable
 }
-
-// ValidateResourceSpec validates a resource specification.
-func ValidateResourceSpec(spec ResourceSpec) error {
-	if spec.ID.NS == "" || spec.ID.Name == "" {
-		return NewInvalidResourceIDError(spec.ID)
-	}
-
-	if spec.FS == nil {
-		return NewResourceFilesystemNilError(spec.ID.String())
-	}
-
-	return nil
-}

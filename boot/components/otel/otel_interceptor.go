@@ -10,8 +10,8 @@ import (
 
 func Interceptor() boot.Component {
 	return boot.New(boot.P{
-		Name:      OTelInterceptorName,
-		DependsOn: []boot.Name{OTelName, interceptorName},
+		Name:      InterceptorName,
+		DependsOn: []boot.Name{Name, interceptorName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			svc := otelapi.GetService(ctx)
 			if svc == nil {

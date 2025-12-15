@@ -19,10 +19,6 @@ func newUnsupportedProtocolError(protocol string) error {
 		WithDetails(attrs.NewBagFrom(map[string]any{"protocol": protocol}))
 }
 
-func newShutdownTracerProviderError(cause error) error {
-	return apierror.New(apierror.Internal, "failed to shutdown tracer provider").WithCause(cause)
-}
-
 func newCreateMetricExporterError(cause error) error {
 	return apierror.New(apierror.Internal, "failed to create OTLP metric exporter").WithCause(cause)
 }

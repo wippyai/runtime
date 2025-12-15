@@ -12,7 +12,6 @@ const (
 	// Function identifies a Lua function component in the registry
 	Function registry.Kind = "function.lua"
 
-	BteaApp  registry.Kind = "btea.app.lua"
 	Process  registry.Kind = "process.lua"
 	Workflow registry.Kind = "workflow.lua"
 
@@ -22,14 +21,12 @@ const (
 	// ModuleKind identifies a Lua module component in the registry
 	ModuleKind registry.Kind = "module.lua"
 
-	// Bytecode kinds - precompiled Lua loaded from filesystem
+	// FunctionBytecode is a bytecode kind for precompiled Lua loaded from filesystem
 	FunctionBytecode registry.Kind = "function.lua.bc"
 	LibraryBytecode  registry.Kind = "library.lua.bc"
 	ProcessBytecode  registry.Kind = "process.lua.bc"
-	WorkflowBytecode registry.Kind = "workflow.lua.bc"
-	BteaAppBytecode  registry.Kind = "btea.app.lua.bc"
 
-	// DefaultMaxSize how many concurrent executions are allowed in a flex pool by default
+	// DefaultMaxSize defines how many concurrent executions are allowed in a flex pool by default
 	DefaultMaxSize = 100
 )
 

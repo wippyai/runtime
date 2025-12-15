@@ -97,7 +97,7 @@ func TestManager_AddManagedNode(_ *testing.T) {
 
 	manager := NewConnectionManager(config).(*manager)
 
-	nodeID := cluster.NodeID("remote-node")
+	nodeID := "remote-node"
 	manager.AddManagedNode(nodeID)
 }
 
@@ -108,7 +108,7 @@ func TestManager_RemoveManagedNode(_ *testing.T) {
 
 	manager := NewConnectionManager(config).(*manager)
 
-	nodeID := cluster.NodeID("remote-node")
+	nodeID := "remote-node"
 	manager.RemoveManagedNode(nodeID)
 }
 
