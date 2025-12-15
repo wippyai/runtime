@@ -4,11 +4,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/wippyai/runtime/api/registry"
 )
 
 func TestKind(t *testing.T) {
-	assert.Equal(t, registry.Kind("queue.driver.memory"), Kind)
+	assert.Equal(t, "queue.driver.memory", Kind)
 }
 
 func TestConfig_Validate(t *testing.T) {

@@ -212,8 +212,8 @@ type mockService struct {
 	name string
 }
 
-func (m *mockService) OnStart(ctx context.Context, p pid.PID, proc process.Process)      {}
-func (m *mockService) OnComplete(ctx context.Context, p pid.PID, result *runtime.Result) {}
+func (m *mockService) OnStart(_ context.Context, _ pid.PID, _ process.Process)    {}
+func (m *mockService) OnComplete(_ context.Context, _ pid.PID, _ *runtime.Result) {}
 func (m *mockService) HTTPMiddleware() func(http.Handler) http.Handler {
 	return nil
 }

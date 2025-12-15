@@ -16,16 +16,6 @@ type mockCommand struct {
 
 func (m mockCommand) CmdID() CommandID { return m.id }
 
-type mockHandler struct {
-	handleCalled bool
-	returnErr    error
-}
-
-func (m *mockHandler) Handle(ctx context.Context, cmd Command, tag uint64, receiver ResultReceiver) error {
-	m.handleCalled = true
-	return m.returnErr
-}
-
 type mockResultReceiver struct {
 	tag  uint64
 	data any

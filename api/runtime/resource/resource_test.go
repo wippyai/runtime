@@ -483,11 +483,11 @@ func TestTable_Each(t *testing.T) {
 
 func TestTable_Clear(t *testing.T) {
 	table := NewTable()
-	defer table.Close()
+	defer func() { _ = table.Close() }()
 
 	dropper := &dropperMock{}
-	table.Insert(1, "a")
-	table.Insert(2, dropper)
+	_ = table.Insert(1, "a")
+	_ = table.Insert(2, dropper)
 
 	table.Clear()
 
@@ -499,7 +499,7 @@ func TestTable_Close(t *testing.T) {
 	t.Run("calls Drop on all", func(t *testing.T) {
 		table := NewTable()
 		dropper := &dropperMock{}
-		table.Insert(1, dropper)
+		_ = table.Insert(1, dropper)
 
 		err := table.Close()
 		assert.NoError(t, err)
@@ -521,8 +521,8 @@ func TestTable_Reset(t *testing.T) {
 	table := NewTable()
 
 	dropper := &dropperMock{}
-	table.Insert(1, dropper)
-	table.Insert(2, "test")
+	_ = table.Insert(1, dropper)
+	_ = table.Insert(2, "test")
 
 	table.Reset()
 
@@ -539,10 +539,10 @@ func TestTable_Reset(t *testing.T) {
 
 func TestTable_HandleReuse(t *testing.T) {
 	table := NewTable()
-	defer table.Close()
+	defer func() { _ = table.Close() }()
 
 	h1 := table.Insert(1, "first")
-	table.Remove(h1)
+	_, _ = table.Remove(h1)
 
 	h2 := table.Insert(1, "second")
 	// Handle should be reused from free list
@@ -557,7 +557,7 @@ func TestTable_HandleReuse(t *testing.T) {
 
 func TestTypedTable(t *testing.T) {
 	table := NewTable()
-	defer table.Close()
+	defer func() { _ = table.Close() }()
 
 	typed := NewTypedTable[string](table, 100)
 
@@ -595,12 +595,12 @@ func TestTypedTable(t *testing.T) {
 	t.Run("len counts only typed", func(t *testing.T) {
 		// Use fresh table for this test
 		t2 := NewTable()
-		defer t2.Close()
+		defer func() { _ = t2.Close() }()
 		typed2 := NewTypedTable[string](t2, 100)
 
-		typed2.Insert("a")
-		typed2.Insert("b")
-		t2.Insert(999, "other type")
+		_ = typed2.Insert("a")
+		_ = typed2.Insert("b")
+		_ = t2.Insert(999, "other type")
 
 		assert.Equal(t, 2, typed2.Len())
 	})
@@ -609,9 +609,9 @@ func TestTypedTable(t *testing.T) {
 		// Clear first
 		table.Clear()
 
-		typed.Insert("x")
-		typed.Insert("y")
-		table.Insert(999, "other")
+		_ = typed.Insert("x")
+		_ = typed.Insert("y")
+		_ = table.Insert(999, "other")
 
 		var values []string
 		typed.Each(func(h Handle, v string) bool {
@@ -624,7 +624,7 @@ func TestTypedTable(t *testing.T) {
 
 func TestTable_Concurrent(t *testing.T) {
 	table := NewTable()
-	defer table.Close()
+	defer func() { _ = table.Close() }()
 
 	var wg sync.WaitGroup
 	const goroutines = 10
@@ -636,14 +636,14 @@ func TestTable_Concurrent(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < operations; j++ {
 				h := table.Insert(uint32(id), j)
-				table.Get(h)
-				table.TypeID(h)
-				table.Len()
+				_, _ = table.Get(h)
+				_, _ = table.TypeID(h)
+				_ = table.Len()
 				if j%2 == 0 {
-					table.Borrow(h)
-					table.ReturnBorrow(h)
+					_ = table.Borrow(h)
+					_ = table.ReturnBorrow(h)
 				}
-				table.Remove(h)
+				_, _ = table.Remove(h)
 			}
 		}(i)
 	}
@@ -654,7 +654,7 @@ func TestTable_Concurrent(t *testing.T) {
 // ReaderProvider interface test
 type mockReaderProvider struct{}
 
-func (m *mockReaderProvider) GetReader(ctx context.Context) (io.Reader, error) {
+func (m *mockReaderProvider) GetReader(_ context.Context) (io.Reader, error) {
 	return strings.NewReader("test content"), nil
 }
 

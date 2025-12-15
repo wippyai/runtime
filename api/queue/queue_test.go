@@ -381,7 +381,7 @@ func TestDriverInterface(t *testing.T) {
 
 	t.Run("Attach", func(t *testing.T) {
 		deliveries := make(chan *queue.Delivery)
-		var cancel context.CancelFunc = func() {}
+		cancel := context.CancelFunc(func() {})
 		driver.On("Attach", ctx, queueID, mock.AnythingOfType("chan<- *queue.Delivery")).Return(cancel, nil).Once()
 
 		cancelFunc, err := driver.Attach(ctx, queueID, deliveries)

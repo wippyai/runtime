@@ -18,8 +18,8 @@ func TestActivityContextKey(t *testing.T) {
 }
 
 func TestKinds(t *testing.T) {
-	assert.Equal(t, registry.Kind("temporal.client"), Client)
-	assert.Equal(t, registry.Kind("temporal.worker"), Worker)
+	assert.Equal(t, "temporal.client", Client)
+	assert.Equal(t, "temporal.worker", Worker)
 }
 
 func TestAuthTypes(t *testing.T) {

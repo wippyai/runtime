@@ -23,7 +23,7 @@ func (m *mockTimeRef) StartTime() time.Time { return m.start }
 func TestWithTimeReference(t *testing.T) {
 	t.Run("with frame context", func(t *testing.T) {
 		ctx, fc := ctxapi.OpenFrameContext(context.Background())
-		defer fc.Close()
+		defer func() { _ = fc.Close() }()
 
 		ref := &mockTimeRef{
 			now:   time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
@@ -57,7 +57,7 @@ func TestGetTimeReference(t *testing.T) {
 
 	t.Run("frame context without time reference", func(t *testing.T) {
 		ctx, fc := ctxapi.OpenFrameContext(context.Background())
-		defer fc.Close()
+		defer func() { _ = fc.Close() }()
 
 		got := GetTimeReference(ctx)
 		assert.Nil(t, got)
@@ -65,7 +65,7 @@ func TestGetTimeReference(t *testing.T) {
 
 	t.Run("frame context with wrong type", func(t *testing.T) {
 		ctx, fc := ctxapi.OpenFrameContext(context.Background())
-		defer fc.Close()
+		defer func() { _ = fc.Close() }()
 		_ = fc.Set(timeReferenceKey, "not a time reference")
 
 		got := GetTimeReference(ctx)

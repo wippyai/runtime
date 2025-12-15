@@ -444,7 +444,7 @@ func TestConfig_GetGroupIDs(t *testing.T) {
 }
 
 func TestExprKind(t *testing.T) {
-	assert.Equal(t, registry.Kind("security.policy.expr"), ExprKind)
+	assert.Equal(t, "security.policy.expr", ExprKind)
 }
 
 func TestExprConfig_Validate(t *testing.T) {

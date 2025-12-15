@@ -86,6 +86,9 @@ func TestWorkloadBottleneck(t *testing.T) {
 
 // TestAdaptiveDiscoversBottleneck verifies the adaptive pool finds optimal worker count.
 func TestAdaptiveDiscoversBottleneck(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping adaptive pool test in short mode")
+	}
 	w := New()
 	w.SetBottleneck(4)
 	w.SetLatency(20 * time.Millisecond)
@@ -148,6 +151,9 @@ func TestAdaptiveDiscoversBottleneck(t *testing.T) {
 
 // TestAdaptiveScalesWithIO verifies scaling with I/O-bound workload.
 func TestAdaptiveScalesWithIO(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping adaptive pool test in short mode")
+	}
 	w := New()
 	// No bottleneck - pure I/O simulation
 	w.SetLatency(30 * time.Millisecond)
@@ -206,6 +212,9 @@ func TestAdaptiveScalesWithIO(t *testing.T) {
 
 // TestAdaptiveDynamicBottleneck verifies adaptation when bottleneck changes.
 func TestAdaptiveDynamicBottleneck(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping adaptive pool test in short mode")
+	}
 	w := New()
 	w.SetBottleneck(2)
 	w.SetLatency(15 * time.Millisecond)
@@ -276,6 +285,9 @@ func TestAdaptiveDynamicBottleneck(t *testing.T) {
 
 // TestAdaptiveScalesDown verifies scale-down when load disappears.
 func TestAdaptiveScalesDown(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping adaptive pool test in short mode")
+	}
 	w := New()
 	w.SetLatency(20 * time.Millisecond)
 
@@ -361,6 +373,9 @@ func TestWorkloadZeroLatency(t *testing.T) {
 
 // TestAdaptiveBottleneckOne verifies behavior with bottleneck=1 (serial execution).
 func TestAdaptiveBottleneckOne(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping adaptive pool test in short mode")
+	}
 	w := New()
 	w.SetBottleneck(1)
 	w.SetLatency(10 * time.Millisecond)
@@ -412,6 +427,9 @@ func TestAdaptiveBottleneckOne(t *testing.T) {
 
 // TestAdaptiveBottleneckEqualsMax verifies behavior when bottleneck >= maxWorkers.
 func TestAdaptiveBottleneckEqualsMax(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping adaptive pool test in short mode")
+	}
 	w := New()
 	w.SetBottleneck(8) // Same as maxWorkers
 	w.SetLatency(15 * time.Millisecond)
@@ -461,6 +479,9 @@ func TestAdaptiveBottleneckEqualsMax(t *testing.T) {
 
 // TestAdaptiveRapidLoadChange verifies behavior with oscillating load.
 func TestAdaptiveRapidLoadChange(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping adaptive pool test in short mode")
+	}
 	w := New()
 	w.SetLatency(20 * time.Millisecond)
 
@@ -517,6 +538,9 @@ func TestAdaptiveRapidLoadChange(t *testing.T) {
 
 // TestAdaptiveBurstyLoad verifies behavior with bursty workload.
 func TestAdaptiveBurstyLoad(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping adaptive pool test in short mode")
+	}
 	w := New()
 	w.SetLatency(25 * time.Millisecond)
 
@@ -557,6 +581,9 @@ func TestAdaptiveBurstyLoad(t *testing.T) {
 
 // TestAdaptiveHighLatencyLowBottleneck verifies I/O-heavy with contention.
 func TestAdaptiveHighLatencyLowBottleneck(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping adaptive pool test in short mode")
+	}
 	w := New()
 	w.SetBottleneck(2)
 	w.SetLatency(100 * time.Millisecond) // Slow I/O

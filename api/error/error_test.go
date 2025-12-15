@@ -46,9 +46,8 @@ func TestBuilder_WithCause(t *testing.T) {
 	cause := errors.New("underlying error")
 	e := New(Internal, "operation failed").WithCause(cause)
 
-	unwrapped := errors.Unwrap(e)
-	if unwrapped != cause {
-		t.Errorf("Unwrap() = %v, want %v", unwrapped, cause)
+	if !errors.Is(e, cause) {
+		t.Errorf("errors.Is(e, cause) = false, want true")
 	}
 }
 
@@ -79,8 +78,8 @@ func TestBuilder_Chaining(t *testing.T) {
 	if e.Retryable() != False {
 		t.Errorf("Retryable() = %v, want %v", e.Retryable(), False)
 	}
-	if errors.Unwrap(e) != cause {
-		t.Errorf("Unwrap() = %v, want %v", errors.Unwrap(e), cause)
+	if !errors.Is(e, cause) {
+		t.Errorf("errors.Is(e, cause) = false, want true")
 	}
 }
 
@@ -131,8 +130,8 @@ func TestSetCause(t *testing.T) {
 	if e.Retryable() != True {
 		t.Errorf("Retryable() = %v, want %v", e.Retryable(), True)
 	}
-	if errors.Unwrap(e) != cause {
-		t.Errorf("Unwrap() = %v, want %v", errors.Unwrap(e), cause)
+	if !errors.Is(e, cause) {
+		t.Errorf("errors.Is(e, cause) = false, want true")
 	}
 }
 
@@ -156,8 +155,8 @@ func TestSetMessage_PreservesCause(t *testing.T) {
 	original := New(Internal, "msg").WithCause(cause)
 	e := SetMessage(original, "new message")
 
-	if errors.Unwrap(e) != cause {
-		t.Errorf("Unwrap() = %v, want %v", errors.Unwrap(e), cause)
+	if !errors.Is(e, cause) {
+		t.Errorf("errors.Is(e, cause) = false, want true")
 	}
 }
 

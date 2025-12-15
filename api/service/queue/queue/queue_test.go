@@ -9,7 +9,7 @@ import (
 )
 
 func TestKind(t *testing.T) {
-	assert.Equal(t, registry.Kind("queue.queue"), Kind)
+	assert.Equal(t, "queue.queue", Kind)
 }
 
 func TestConfig_Validate(t *testing.T) {
