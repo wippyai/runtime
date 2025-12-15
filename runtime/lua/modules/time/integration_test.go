@@ -48,7 +48,7 @@ func (ts *testScheduler) OnComplete(_ context.Context, p pid.PID, result *runtim
 	}
 }
 
-func (ts *testScheduler) Execute(ctx context.Context, p pid.PID, proc actor.Process, method string, input payload.Payloads) (*runtime.Result, error) {
+func (ts *testScheduler) Execute(ctx context.Context, p pid.PID, proc process.Process, method string, input payload.Payloads) (*runtime.Result, error) {
 	resultCh := make(chan *runtime.Result, 1)
 
 	ts.mu.Lock()

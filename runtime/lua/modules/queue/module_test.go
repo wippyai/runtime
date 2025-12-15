@@ -70,6 +70,10 @@ func (m *mockManager) getPublished() []*publishedMsg {
 	return m.published
 }
 
+func (m *mockManager) RegisterInterceptor(_ string, _ queueapi.PublishInterceptor, _ int) {}
+
+func (m *mockManager) UnregisterInterceptor(_ string) {}
+
 func setupState() *lua.LState {
 	l := lua.NewState()
 	lua.OpenErrors(l)

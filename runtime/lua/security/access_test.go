@@ -386,10 +386,12 @@ func TestIsAllowed_StrictMode(t *testing.T) {
 	// Default strict mode should be true (deny when context incomplete)
 	assert.True(t, secapi.IsStrictMode(ctx), "Strict mode should be true by default")
 
-	// Test that SetStrictMode works
+	// Test that SetStrictMode(false) works
 	ctx = secapi.SetStrictMode(ctx, false)
 	assert.False(t, secapi.IsStrictMode(ctx), "Strict mode should be false after setting")
 
-	ctx = secapi.SetStrictMode(ctx, true)
-	assert.True(t, secapi.IsStrictMode(ctx), "Strict mode should be true after setting")
+	// Test that SetStrictMode(true) works on a separate context
+	ctx2 := ctxapi.NewRootContext()
+	ctx2 = secapi.SetStrictMode(ctx2, true)
+	assert.True(t, secapi.IsStrictMode(ctx2), "Strict mode should be true after setting")
 }

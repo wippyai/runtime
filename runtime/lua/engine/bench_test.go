@@ -911,7 +911,7 @@ type benchLifecycle struct {
 	executor *benchExecutor
 }
 
-func (l *benchLifecycle) OnStart(_ context.Context, _ pid.PID, _ scheduler.Process) {}
+func (l *benchLifecycle) OnStart(_ context.Context, _ pid.PID, _ process.Process) {}
 
 func (l *benchLifecycle) OnComplete(_ context.Context, p pid.PID, result *runtime.Result) {
 	l.executor.mu.Lock()
@@ -942,7 +942,7 @@ func (be *benchExecutor) Start()                   { be.sched.Start() }
 func (be *benchExecutor) Stop()                    { be.sched.Stop(context.Background()) }
 func (be *benchExecutor) Stats() map[string]uint64 { return be.sched.Stats() }
 
-func (be *benchExecutor) Execute(ctx context.Context, p pid.PID, proc scheduler.Process, method string, input payload.Payloads) (*runtime.Result, error) {
+func (be *benchExecutor) Execute(ctx context.Context, p pid.PID, proc process.Process, method string, input payload.Payloads) (*runtime.Result, error) {
 	resultCh := make(chan *runtime.Result, 1)
 
 	be.mu.Lock()

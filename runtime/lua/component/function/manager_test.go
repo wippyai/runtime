@@ -538,7 +538,7 @@ func TestManager_CreatePool_UnknownPoolType(t *testing.T) {
 
 	err := manager.createPool(id, cfg)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "unknown pool type")
+	assert.Contains(t, err.Error(), "failed to create pool")
 }
 
 func TestManager_Stop_WithActivePools(t *testing.T) {

@@ -156,7 +156,7 @@ return { main = main }
 	require.NoError(t, err)
 	defer realPool.Stop()
 
-	inlinePool := &DebugPool{Inline: realPool, t: t}
+	inlinePool := &DebugPool{Pool: realPool, t: t}
 
 	// Register pool as relay host
 	err = realNode.RegisterHost(hostID, inlinePool)
