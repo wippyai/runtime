@@ -18,6 +18,8 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	"github.com/wippyai/runtime/api/store"
+	servicestore "github.com/wippyai/runtime/service/store"
+	systemresource "github.com/wippyai/runtime/system/resource"
 	"go.uber.org/zap"
 )
 
@@ -101,7 +103,7 @@ func (s *Store) Get(ctx context.Context, key registry.ID) (payload.Payload, erro
 	s.mu.RLock()
 	if s.closed {
 		s.mu.RUnlock()
-		return nil, store.ErrStoreClosed
+		return nil, servicestore.ErrStoreClosed
 	}
 	s.mu.RUnlock()
 
@@ -153,7 +155,7 @@ func (s *Store) Set(ctx context.Context, entry store.Entry) error {
 	s.mu.RLock()
 	if s.closed {
 		s.mu.RUnlock()
-		return store.ErrStoreClosed
+		return servicestore.ErrStoreClosed
 	}
 	s.mu.RUnlock()
 
@@ -251,7 +253,7 @@ func (s *Store) Delete(ctx context.Context, key registry.ID) error {
 	s.mu.RLock()
 	if s.closed {
 		s.mu.RUnlock()
-		return store.ErrStoreClosed
+		return servicestore.ErrStoreClosed
 	}
 	s.mu.RUnlock()
 
@@ -301,7 +303,7 @@ func (s *Store) Has(ctx context.Context, key registry.ID) (bool, error) {
 	s.mu.RLock()
 	if s.closed {
 		s.mu.RUnlock()
-		return false, store.ErrStoreClosed
+		return false, servicestore.ErrStoreClosed
 	}
 	s.mu.RUnlock()
 
@@ -353,7 +355,7 @@ func (s *Store) Acquire(_ context.Context, _ registry.ID, mode resource.AccessMo
 
 	// Only support normal mode for now
 	if mode != resource.ModeNormal {
-		return nil, resource.ErrLocked
+		return nil, systemresource.ErrLocked
 	}
 
 	return &storeResource{store: s}, nil
@@ -458,7 +460,7 @@ func (s *Store) Start(ctx context.Context) (<-chan any, error) {
 	defer s.mu.Unlock()
 
 	if s.closed {
-		return nil, store.ErrStoreClosed
+		return nil, servicestore.ErrStoreClosed
 	}
 
 	s.statusChan = make(chan any, 1)

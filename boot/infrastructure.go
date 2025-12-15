@@ -127,18 +127,9 @@ func wrapLogger(logger *zap.Logger, bus event.Bus, cfg boot.Config) (*zap.Logger
 		return logCore
 	}))
 
-	// Extract the base logger's minimum level to preserve verbose flag behavior
-	baseLevelEnabler, ok := logger.Core().(zapcore.LevelEnabler)
-	baseMinLevel := zapcore.InfoLevel
-	if ok {
-		// Find the minimum level by checking from Debug upward
-		for level := zapcore.DebugLevel; level <= zapcore.FatalLevel; level++ {
-			if baseLevelEnabler.Enabled(level) {
-				baseMinLevel = level
-				break
-			}
-		}
-	}
+	// Use DebugLevel as default - downstream core handles actual level filtering.
+	// This ensures verbose mode works correctly after log manager starts.
+	baseMinLevel := zapcore.DebugLevel
 
 	// Parse log manager configuration
 	var logConfig logapi.Config

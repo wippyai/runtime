@@ -374,10 +374,14 @@ func (a *Pool) control(now time.Time) {
 	a.ctrlMu.Unlock()
 
 	switch decision {
+	case scaleNone:
+		// no action
 	case scaleUp:
-		a.spawnWorker()
+		_ = a.spawnWorker()
 	case probeSuccess:
-		// Worker already added, keep it
+		for i := int32(0); i < target; i++ {
+			_ = a.spawnWorker()
+		}
 	case probeFail:
 		a.removeWorker()
 	case scaleDown:

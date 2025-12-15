@@ -1,53 +1,65 @@
 package adaptive
 
-// Probe-based adaptive pool controller - 5 parameters only.
+// Adaptive pool controller.
 //
-// Parameters:
-//   1. maxWorkers      - Maximum workers (required)
-//   2. minWorkers      - Minimum workers (default: 1)
-//   3. controlInterval - How often to evaluate (default: 500ms)
-//   4. idleTicks       - Idle ticks before scale-down (default: 8)
-//   5. probeTicks      - Ticks to evaluate probe result (default: 4)
+// Scaling:
+//   - AIMD: additive increase (+1), multiplicative decrease (50%)
+//   - Probe-based: add worker, measure improvement, keep or remove
 //
-// Core algorithm:
-//   1. Track throughput via EMA and variance for noise estimation
-//   2. Scale up: all workers busy + queue backlog → add 1 worker (probe)
-//   3. Probe success: improvement statistically significant given noise
-//   4. Probe fail: remove the added worker
-//   5. Scale down: low utilization sustained → gradual (max 50% reduction)
+// Stability:
+//   - Hysteresis: different thresholds for scale up vs down
+//   - Exponential backoff on failed probes
+//   - CV spike detection resets backoff when workload changes
 //
-// Adaptive behavior:
-//   - At low worker counts: use throughput improvement (signal > noise)
-//   - At high worker counts: use queue behavior (noise > signal)
-//   - Variance tracking detects when to switch strategies
+// Noise handling:
+//   - EMA smoothing of throughput measurements
+//   - Variance tracking extends measurement window in high noise
+//   - Queue behavior as ground truth when throughput is unreliable
 
 import (
 	"errors"
 	"math"
+	"math/rand"
 	"time"
 
 	"go.uber.org/zap"
 )
 
-// Derived constants for the controller algorithm.
 const (
-	emaAlpha              = 0.2 // balances responsiveness with stability
-	varianceAlpha         = 0.1 // slower adaptation for variance (more stable)
-	minBaselineThroughput = 1.0 // minimum ops/sec for reliable probe
-	minSNR                = 2.0 // minimum signal-to-noise ratio for throughput-based decisions
-	warmupSamples         = 10  // samples needed before trusting variance estimate
+	// EMA smoothing: EMA = α*sample + (1-α)*EMA
+	emaAlpha      = 0.2 // throughput smoothing
+	varianceAlpha = 0.1 // variance smoothing (slower for stability)
+
+	// Probe success threshold: baseConfidence / (1 + backlogSeconds/cooldownSeconds)
+	baseConfidence = 0.3
+	warmupSamples  = 8 // samples before variance estimate is reliable
+
+	// Hysteresis: gap between thresholds prevents oscillation
+	scaleUpUtil   = 1.0 // 100% busy + queue required to scale up
+	scaleDownUtil = 0.5 // <50% busy + empty queue to scale down
+
+	// Noise thresholds for decision mode
+	cvLowNoise    = 0.3 // below: trust throughput
+	cvMediumNoise = 0.5 // below: require agreement
+	// above cvMediumNoise: queue is primary signal
+
+	// Backoff: cooldown * 2^failCount, max 2^10 = 1024x (~34 min with 2s base)
+	maxBackoffPower = 10
+	jitterFraction  = 0.25 // ±25% randomization
+
+	// CV spike: if current CV > 2x stable CV, reset backoff (workload changed)
+	cvSpikeThreshold = 2.0
 )
 
-// ControllerConfig holds the 5 configuration parameters.
+// ControllerConfig holds tunable parameters.
 type ControllerConfig struct {
 	MaxWorkers      int
-	MinWorkers      int           // default: 1
-	ControlInterval time.Duration // default: 500ms
-	IdleTicks       int           // default: 8
-	ProbeTicks      int           // default: 4
+	MinWorkers      int
+	ControlInterval time.Duration
+	IdleTicks       int // ticks at low util before scale down
+	ProbeTicks      int // ticks to measure probe result
 }
 
-// DefaultControllerConfig returns configuration with sensible defaults.
 func DefaultControllerConfig(maxWorkers int) ControllerConfig {
 	return ControllerConfig{
 		MaxWorkers:      maxWorkers,
@@ -58,12 +70,10 @@ func DefaultControllerConfig(maxWorkers int) ControllerConfig {
 	}
 }
 
-// Cooldown returns the probe cooldown duration.
 func (c ControllerConfig) Cooldown() time.Duration {
 	return time.Duration(c.ProbeTicks) * c.ControlInterval
 }
 
-// Validate checks configuration values are valid.
 func (c ControllerConfig) Validate() error {
 	if c.MaxWorkers <= 0 {
 		return errors.New("maxWorkers must be positive")
@@ -86,7 +96,6 @@ func (c ControllerConfig) Validate() error {
 	return nil
 }
 
-// scaleDecision represents what the controller wants to do.
 type scaleDecision int
 
 const (
@@ -97,36 +106,34 @@ const (
 	probeFail
 )
 
-// controller implements the probe-based scaling logic.
+// controller implements adaptive scaling logic.
 type controller struct {
 	ControllerConfig
-
-	// Derived
 	cooldown time.Duration
+	log      *zap.Logger
 
-	// State
-	ema           float64
-	variance      float64 // EMA of squared deviations (for noise estimation)
-	samples       int     // number of samples collected (for warmup)
-	lastOps       int64
-	lastTime      time.Time
+	// Throughput tracking (EMA + variance for noise estimation)
+	ema      float64
+	variance float64
+	samples  int
+	lastOps  int64
+	lastTime time.Time
+
+	// State machine
 	cooldownUntil time.Time
 	idleCount     int
 
 	// Probe state
-	probing            bool
-	probeStart         time.Time
-	probeOps           int64   // ops count at probe start
-	baselineThroughput float64 // throughput before probe
-	baselineQueue      int     // queue length before probe
-	workersBefore      int32
+	probing       bool
+	probeStart    time.Time
+	baselineTput  float64
+	baselineQueue int
+	workersBefore int32
 
-	// Exponential backoff for repeated failures
-	consecutiveFails int   // consecutive failures at same worker count
-	lastFailedAt     int32 // worker count where we last failed
-
-	// Logger (optional)
-	log *zap.Logger
+	// Backoff state (per worker-count)
+	failCount    int
+	lastFailedAt int32
+	stableCV     float64 // CV when we stabilized (for spike detection)
 }
 
 func newController(cfg ControllerConfig) *controller {
@@ -137,22 +144,15 @@ func newController(cfg ControllerConfig) *controller {
 	}
 }
 
-func (c *controller) withLogger(log *zap.Logger) *controller {
-	c.log = log
-	return c
-}
-
-// tick is called every controlInterval with current metrics.
-// Returns the scaling decision and target worker count for scale-down.
+// tick evaluates metrics and returns scaling decision.
 func (c *controller) tick(now time.Time, ops int64, workers, busy int32, queueLen int) (scaleDecision, int32) {
-	// Guard against invalid state
 	if workers <= 0 {
 		return scaleNone, 0
 	}
 
 	// Calculate throughput
 	elapsed := now.Sub(c.lastTime).Seconds()
-	if elapsed <= 0 || elapsed < 0.05 { // handle clock skew and minimum sample time
+	if elapsed < 0.05 {
 		return scaleNone, 0
 	}
 
@@ -161,7 +161,42 @@ func (c *controller) tick(now time.Time, ops int64, workers, busy int32, queueLe
 	c.lastTime = now
 
 	// Update EMA and variance
-	if c.ema == 0 {
+	c.updateStats(throughput)
+
+	// In cooldown?
+	if now.Before(c.cooldownUntil) {
+		return scaleNone, 0
+	}
+
+	// Currently probing?
+	if c.probing {
+		return c.evaluateProbe(now, queueLen)
+	}
+
+	util := float64(busy) / float64(workers)
+
+	// Scale down check: low utilization sustained (hysteresis)
+	if util < scaleDownUtil && queueLen == 0 && workers > int32(c.MinWorkers) {
+		c.idleCount++
+		if c.idleCount >= c.IdleTicks {
+			c.idleCount = 0
+			return c.decideScaleDown(now, workers, busy, util)
+		}
+		return scaleNone, 0
+	}
+	c.idleCount = 0
+
+	// Scale up check: saturated (hysteresis)
+	if util >= scaleUpUtil && queueLen > 0 && workers < int32(c.MaxWorkers) {
+		return c.startProbe(now, workers, queueLen)
+	}
+
+	return scaleNone, 0
+}
+
+// updateStats maintains EMA and variance estimates.
+func (c *controller) updateStats(throughput float64) {
+	if c.samples == 0 {
 		c.ema = throughput
 		c.variance = 0
 	} else {
@@ -170,74 +205,9 @@ func (c *controller) tick(now time.Time, ops int64, workers, busy int32, queueLe
 		c.variance = varianceAlpha*(deviation*deviation) + (1-varianceAlpha)*c.variance
 	}
 	c.samples++
-
-	// In cooldown?
-	if now.Before(c.cooldownUntil) {
-		return scaleNone, 0
-	}
-
-	// Utilization
-	utilization := float64(busy) / float64(workers)
-	allBusy := busy == workers
-
-	// Probing state?
-	if c.probing {
-		return c.evaluateProbe(now, ops, queueLen)
-	}
-
-	// Scale down: low utilization sustained
-	if utilization < 0.5 && queueLen == 0 && workers > int32(c.MinWorkers) {
-		c.idleCount++
-		if c.idleCount >= c.IdleTicks {
-			c.idleCount = 0
-			// Gradual scale-down: max 50% reduction per decision
-			target := workers / 2
-			if target < busy+1 {
-				target = busy + 1
-			}
-			if target < int32(c.MinWorkers) {
-				target = int32(c.MinWorkers)
-			}
-			if target < workers {
-				c.cooldownUntil = now.Add(c.cooldown / 2)
-				if c.log != nil {
-					c.log.Info("scaling down",
-						zap.Int32("from", workers),
-						zap.Int32("to", target),
-						zap.Int32("busy", busy),
-						zap.Float64("utilization", utilization),
-						zap.Float64("throughput", c.ema))
-				}
-				return scaleDown, target
-			}
-		}
-		return scaleNone, 0
-	}
-	c.idleCount = 0
-
-	// Scale up: all workers busy with queue backlog
-	if allBusy && queueLen > 0 && workers < int32(c.MaxWorkers) {
-		c.probing = true
-		c.probeStart = now
-		c.probeOps = ops
-		c.baselineThroughput = throughput
-		c.baselineQueue = queueLen
-		c.workersBefore = workers
-		if c.log != nil {
-			c.log.Info("probing scale up",
-				zap.Int32("from", workers),
-				zap.Int32("to", workers+1),
-				zap.Int("queue", queueLen),
-				zap.Float64("throughput", c.ema),
-				zap.Float64("snr", c.signalToNoise(workers)))
-		}
-		return scaleUp, 0
-	}
-
-	return scaleNone, 0
 }
 
-// stddev returns the estimated standard deviation of throughput.
+// stddev returns estimated standard deviation.
 func (c *controller) stddev() float64 {
 	if c.variance <= 0 {
 		return 0
@@ -245,111 +215,207 @@ func (c *controller) stddev() float64 {
 	return math.Sqrt(c.variance)
 }
 
-// signalToNoise returns the ratio of expected signal to noise.
-// Signal is the theoretical max improvement (1/workers).
-// Noise is the coefficient of variation (stddev/mean).
-func (c *controller) signalToNoise(workers int32) float64 {
-	if c.ema <= 0 || workers <= 0 {
-		return 0
+// coefficientOfVariation returns noise level (stddev/mean).
+func (c *controller) coefficientOfVariation() float64 {
+	if c.ema <= 0 {
+		return 1.0 // assume high noise if no data
 	}
-	signal := 1.0 / float64(workers) // theoretical max improvement
-	noise := c.stddev() / c.ema      // coefficient of variation
-	if noise <= 0 {
-		return 100 // very high SNR if no noise observed
-	}
-	return signal / noise
+	return c.stddev() / c.ema
 }
 
-// evaluateProbe checks if the probe (added worker) was successful.
-// Uses adaptive strategy based on signal-to-noise ratio:
-//   - High SNR: evaluate based on throughput improvement
-//   - Low SNR: evaluate based on queue behavior (more reliable at high worker counts)
-func (c *controller) evaluateProbe(now time.Time, ops int64, currentQueue int) (scaleDecision, int32) {
-	// Wait for probe duration
-	if now.Sub(c.probeStart) < c.cooldown {
+// startProbe initiates a probe (add 1 worker).
+func (c *controller) startProbe(now time.Time, workers int32, queueLen int) (scaleDecision, int32) {
+	c.probing = true
+	c.probeStart = now
+	c.baselineTput = c.ema
+	c.baselineQueue = queueLen
+	c.workersBefore = workers
+
+	if c.log != nil {
+		c.log.Info("probe: scaling up",
+			zap.Int32("from", workers),
+			zap.Int32("to", workers+1),
+			zap.Int("queue", queueLen),
+			zap.Float64("throughput", c.ema),
+			zap.Float64("cv", c.coefficientOfVariation()))
+	}
+
+	return scaleUp, 0
+}
+
+// evaluateProbe checks if the added worker helped.
+func (c *controller) evaluateProbe(now time.Time, queueLen int) (scaleDecision, int32) {
+	cv := c.coefficientOfVariation()
+
+	// Noise-adaptive measurement window (only after warmup when variance is reliable)
+	windowMultiplier := 1.0
+	if c.samples >= warmupSamples {
+		windowMultiplier = 1.0 + math.Min(cv, 1.0) // 1x to 2x based on noise
+	}
+
+	requiredDuration := time.Duration(float64(c.cooldown) * windowMultiplier)
+	if now.Sub(c.probeStart) < requiredDuration {
 		return scaleNone, 0
 	}
 
 	c.probing = false
 
-	// Guard against invalid state
-	probeElapsed := now.Sub(c.probeStart).Seconds()
-	if probeElapsed <= 0 || c.workersBefore <= 0 {
-		c.cooldownUntil = now.Add(c.cooldown)
+	if c.workersBefore <= 0 || c.baselineTput <= 0 {
+		c.setCooldown(now, false)
 		return probeFail, 0
 	}
 
-	// Require minimum baseline for reliable measurement
-	if c.baselineThroughput < minBaselineThroughput {
-		c.cooldownUntil = now.Add(c.cooldown)
-		return probeFail, 0
-	}
+	// Measure improvement using smoothed throughput
+	improvement := (c.ema - c.baselineTput) / c.baselineTput
 
-	// Calculate probe throughput from raw ops (not EMA)
-	probeThroughput := float64(ops-c.probeOps) / probeElapsed
-	improvement := (probeThroughput - c.baselineThroughput) / c.baselineThroughput
-
-	// Theoretical max improvement from adding 1 worker to N workers is 1/N
+	// Theoretical max improvement from adding 1 worker to N
 	theoreticalMax := 1.0 / float64(c.workersBefore)
-
-	// Adaptive evaluation based on signal-to-noise ratio
-	snr := c.signalToNoise(c.workersBefore)
 	efficiency := improvement / theoreticalMax
-	queueImproved := c.baselineQueue > 0 && currentQueue < c.baselineQueue
 
-	// During warmup, variance estimate is unreliable - use throughput mode
-	warmingUp := c.samples < warmupSamples
-	useThroughputMode := warmingUp || snr >= minSNR
+	// Queue behavior (Little's Law: ground truth in high noise)
+	queueImproved := queueLen < c.baselineQueue
 
-	// Core insight: when we can measure (SNR high), use throughput.
-	// When noise dominates (SNR low), use queue behavior but require non-negative throughput.
+	// Dynamic threshold based on queue pressure
+	// backlogSeconds = how many seconds of work is queued
+	// threshold decreases as backlog grows (more lenient under pressure)
+	backlogSeconds := 0.0
+	if c.ema > 0 {
+		backlogSeconds = float64(c.baselineQueue) / c.ema
+	}
+	cooldownSeconds := c.cooldown.Seconds()
+	threshold := baseConfidence / (1 + backlogSeconds/cooldownSeconds)
+
+	// Decision: combine throughput efficiency and queue behavior
+	// In high noise (cv > 0.5), weight queue more heavily
 	var success bool
-	if useThroughputMode {
-		success = efficiency >= 0.5
-	} else {
-		// Queue mode: queue must improve AND throughput must not decrease
+	switch {
+	case c.samples < warmupSamples || cv < 0.3:
+		// Low noise: trust throughput measurement
+		success = efficiency >= threshold
+	case cv < 0.5:
+		// Medium noise: require both signals to agree
+		success = efficiency >= threshold*0.8 && (queueImproved || improvement > 0)
+	default:
+		// High noise: queue is primary signal, throughput is secondary
 		success = queueImproved && improvement >= 0
 	}
 
-	mode := "throughput"
-	if !useThroughputMode {
-		mode = "queue"
-	}
-
 	if success {
-		c.cooldownUntil = now.Add(c.cooldown / 2)
-		c.consecutiveFails = 0
-		if c.log != nil {
-			c.log.Info("probe success",
-				zap.Int32("workers", c.workersBefore+1),
-				zap.String("mode", mode),
-				zap.Float64("efficiency", efficiency),
-				zap.Float64("snr", snr),
-				zap.Int("queue", currentQueue))
+		c.failCount = 0
+		c.stableCV = 0 // reset for new worker count
+		c.setCooldown(now, true)
+
+		// Aggressive scaling: extra workers based on efficiency/threshold ratio
+		// Capped to at most double current workers to prevent overshoot after scale-down
+		extraWorkers := int32(0)
+		if threshold > 0 && queueLen > 0 {
+			ratio := efficiency / threshold
+			if ratio >= 2.0 {
+				extra := int32(ratio) - 1
+				// Cap: don't exceed maxWorkers, and don't more than double
+				maxExtra := int32(c.MaxWorkers) - c.workersBefore - 1
+				if extra > c.workersBefore {
+					extra = c.workersBefore
+				}
+				if extra > maxExtra {
+					extra = maxExtra
+				}
+				if extra > 0 {
+					extraWorkers = extra
+				}
+			}
 		}
-		return probeSuccess, 0
+
+		if c.log != nil {
+			c.log.Info("probe: success - keeping worker",
+				zap.Int32("workers", c.workersBefore+1),
+				zap.Float64("efficiency", efficiency),
+				zap.Float64("threshold", threshold),
+				zap.Float64("cv", cv),
+				zap.Int("queue", queueLen),
+				zap.Int32("extraWorkers", extraWorkers))
+		}
+		return probeSuccess, extraWorkers
 	}
 
-	// Fail: worker isn't helping enough - apply exponential backoff
+	// Failed: apply exponential backoff
+	// But reset if CV spiked (workload changed, re-explore)
 	if c.lastFailedAt == c.workersBefore+1 {
-		c.consecutiveFails++
+		// Check for CV spike - workload may have changed
+		if c.stableCV > 0 && cv > c.stableCV*cvSpikeThreshold {
+			c.failCount = 1 // reset backoff, re-explore
+			c.stableCV = cv
+		} else {
+			c.failCount++
+			if c.stableCV == 0 || cv < c.stableCV {
+				c.stableCV = cv // track stable CV
+			}
+		}
 	} else {
-		c.consecutiveFails = 1
+		c.failCount = 1
 		c.lastFailedAt = c.workersBefore + 1
+		c.stableCV = cv
 	}
-
-	// Exponential backoff: cooldown * 2^min(fails, 4) caps at 16x
-	backoffMultiplier := 1 << min(c.consecutiveFails, 4)
-	c.cooldownUntil = now.Add(c.cooldown * time.Duration(backoffMultiplier))
+	c.setCooldown(now, false)
 
 	if c.log != nil {
-		c.log.Info("probe failed",
+		c.log.Info("probe: failed - removing worker",
 			zap.Int32("workers", c.workersBefore),
-			zap.String("mode", mode),
 			zap.Float64("efficiency", efficiency),
-			zap.Float64("snr", snr),
-			zap.Int("queue", currentQueue),
-			zap.Int("backoff", backoffMultiplier))
+			zap.Float64("threshold", threshold),
+			zap.Float64("cv", cv),
+			zap.Int("queue", queueLen),
+			zap.Int("backoff", 1<<min(c.failCount, maxBackoffPower)))
 	}
+
 	return probeFail, 0
+}
+
+// decideScaleDown calculates target worker count (AIMD: multiplicative decrease).
+func (c *controller) decideScaleDown(now time.Time, workers, busy int32, util float64) (scaleDecision, int32) {
+	// AIMD: multiplicative decrease (50% reduction max)
+	target := workers / 2
+
+	// But keep at least busy + 1 (room for new work)
+	if target < busy+1 {
+		target = busy + 1
+	}
+
+	// Respect minimum
+	if target < int32(c.MinWorkers) {
+		target = int32(c.MinWorkers)
+	}
+
+	if target >= workers {
+		return scaleNone, 0
+	}
+
+	c.cooldownUntil = now.Add(c.cooldown / 2)
+
+	if c.log != nil {
+		c.log.Info("scaling down",
+			zap.Int32("from", workers),
+			zap.Int32("to", target),
+			zap.Int32("busy", busy),
+			zap.Float64("utilization", util))
+	}
+
+	return scaleDown, target
+}
+
+// setCooldown applies cooldown with exponential backoff and jitter.
+func (c *controller) setCooldown(now time.Time, success bool) {
+	var duration time.Duration
+	if success {
+		// Success: short cooldown for faster scaling
+		duration = c.cooldown / 2
+	} else {
+		// Failure: exponential backoff
+		multiplier := 1 << min(c.failCount, maxBackoffPower)
+		duration = c.cooldown * time.Duration(multiplier)
+	}
+
+	// Add jitter to prevent correlation with workload patterns
+	jitter := time.Duration(float64(duration) * jitterFraction * (rand.Float64()*2 - 1))
+	c.cooldownUntil = now.Add(duration + jitter)
 }

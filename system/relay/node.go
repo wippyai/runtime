@@ -63,7 +63,7 @@ func (n *Node) GetHost(hostID pid.HostID) (api.Receiver, bool) {
 // registered within this node.
 func (n *Node) Send(pkg *api.Package) error {
 	if pkg == nil {
-		return api.NewNilPackageError()
+		return NewNilPackageError()
 	}
 
 	if pkg.Target.Node != "" && pkg.Target.Node != n.nodeID {

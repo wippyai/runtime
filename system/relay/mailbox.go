@@ -127,7 +127,7 @@ func (m *Mailbox) Detach(p pid.PID) {
 // are routed to the same worker to preserve per-sender FIFO ordering.
 func (m *Mailbox) Send(pkg *api.Package) error {
 	if pkg == nil {
-		return api.NewNilPackageError()
+		return NewNilPackageError()
 	}
 
 	// Check context before attempting to send to avoid sending to closed channels

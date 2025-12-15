@@ -24,6 +24,7 @@ entries:
     method: handler
     pool:
       type: adaptive
+      max_size: 512
       #size: 16
       #buffer: 1024
 

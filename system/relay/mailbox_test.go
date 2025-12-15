@@ -470,5 +470,5 @@ func TestMailbox_SendNilPackage(t *testing.T) {
 	// Try to send nil package - this should return an error
 	err := mailbox.Send(nil)
 	assert.Error(t, err)
-	assert.ErrorIs(t, err, relay.ErrNilPackage)
+	assert.ErrorIs(t, err, ErrNilPackage)
 }

@@ -45,7 +45,7 @@ func BenchmarkControllerProbeEvaluate(b *testing.B) {
 		c.probing = true
 		c.probeStart = now
 		c.probeOps = ops
-		c.baselineThroughput = 1000
+		c.baselineTput = 1000
 		c.workersBefore = 1
 
 		evalTime := now.Add(200 * time.Millisecond)

@@ -116,7 +116,6 @@ func TestSentinelErrors(t *testing.T) {
 		{"ErrRegistryNotFound", ErrRegistryNotFound, "function registry not found in context", "NotFound"},
 		{"ErrProcessContextNotFound", ErrProcessContextNotFound, "process context not found", "NotFound"},
 		{"ErrCallNotFound", ErrCallNotFound, "async call not found", "NotFound"},
-		{"ErrCallCancelled", ErrCallCancelled, "async call cancelled", "Canceled"},
 		{"ErrNilContext", ErrNilContext, "nil context", "Invalid"},
 		{"ErrNilCallback", ErrNilCallback, "nil callback", "Invalid"},
 		{"ErrNodeNotFound", ErrNodeNotFound, "relay node not configured", "NotFound"},

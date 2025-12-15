@@ -106,7 +106,7 @@ func (w *Waiter) Wait() AwaitResult {
 			if w.ctx.Err() != nil {
 				return AwaitResult{Error: w.ctx.Err()}
 			}
-			return AwaitResult{Error: event.NewAwaitTimeoutError(w.path)}
+			return AwaitResult{Error: NewAwaitTimeoutError(w.path)}
 		}
 	}
 }

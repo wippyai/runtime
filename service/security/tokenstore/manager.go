@@ -11,6 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/security"
 	tokenstoreapi "github.com/wippyai/runtime/api/service/security/tokenstore"
 	entryutil "github.com/wippyai/runtime/internal/entry"
+	systemresource "github.com/wippyai/runtime/system/resource"
 	"go.uber.org/zap"
 )
 
@@ -181,7 +182,7 @@ func (m *Manager) Acquire(_ context.Context, id registry.ID, mode resource.Acces
 
 	// Only support normal mode
 	if mode != resource.ModeNormal {
-		return nil, resource.ErrLocked
+		return nil, systemresource.ErrLocked
 	}
 
 	// Create the store if it doesn't exist yet

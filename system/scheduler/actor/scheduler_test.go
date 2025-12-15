@@ -16,6 +16,7 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	sysprocess "github.com/wippyai/runtime/system/process"
 	"github.com/wippyai/runtime/system/scheduler"
 )
 
@@ -689,7 +690,7 @@ func TestTerminate(t *testing.T) {
 		t.Fatalf("wrong pid: got %v, want %v", completedPID, pid)
 	}
 
-	if !errors.Is(result.Error, process.ErrTerminated) {
+	if !errors.Is(result.Error, sysprocess.ErrTerminated) {
 		t.Fatalf("expected ErrTerminated, got %v", result.Error)
 	}
 
@@ -768,7 +769,7 @@ func TestTerminateIdleProcess(t *testing.T) {
 		t.Fatal("idle process was not terminated")
 	}
 
-	if !errors.Is(result.Error, process.ErrTerminated) {
+	if !errors.Is(result.Error, sysprocess.ErrTerminated) {
 		t.Fatalf("expected ErrTerminated, got %v", result.Error)
 	}
 
@@ -1029,7 +1030,7 @@ func TestTerminateBlockedProcess(t *testing.T) {
 		t.Fatal("blocked process was not terminated")
 	}
 
-	if !errors.Is(result.Error, process.ErrTerminated) {
+	if !errors.Is(result.Error, sysprocess.ErrTerminated) {
 		t.Fatalf("expected ErrTerminated, got %v", result.Error)
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
+	queuesvc "github.com/wippyai/runtime/service/queue"
 )
 
 // MockDriver is a mock implementation of the Driver interface
@@ -166,12 +167,12 @@ func TestEventConstants(t *testing.T) {
 func TestErrors(t *testing.T) {
 	assert.EqualError(t, queue.ErrDriverNotFound, "queue driver not found")
 	assert.EqualError(t, queue.ErrQueueNotFound, "queue not found")
-	assert.EqualError(t, queue.ErrDriverNotStarted, "queue driver not started")
-	assert.EqualError(t, queue.ErrQueueFull, "queue is full")
+	assert.EqualError(t, queuesvc.ErrDriverNotStarted, "queue driver not started")
+	assert.EqualError(t, queuesvc.ErrQueueFull, "queue is full")
 	assert.EqualError(t, queue.ErrMessageExpired, "message expired")
-	assert.EqualError(t, queue.ErrConsumerClosed, "consumer closed")
-	assert.EqualError(t, queue.ErrQueueClosed, "queue is closed")
-	assert.EqualError(t, queue.ErrNoPublishFunc, "no publish function configured")
+	assert.EqualError(t, queuesvc.ErrConsumerClosed, "consumer closed")
+	assert.EqualError(t, queuesvc.ErrQueueClosed, "queue is closed")
+	assert.EqualError(t, queuesvc.ErrNoPublishFunc, "no publish function configured")
 	assert.EqualError(t, queue.ErrDriverIDRequired, "driver ID is required")
 	assert.EqualError(t, queue.ErrQueueIDRequired, "queue ID is required")
 	assert.EqualError(t, queue.ErrFunctionIDRequired, "function ID is required")
@@ -193,19 +194,19 @@ func TestErrorInterface(t *testing.T) {
 	})
 
 	t.Run("ErrDriverNotStarted", func(t *testing.T) {
-		err := queue.ErrDriverNotStarted
+		err := queuesvc.ErrDriverNotStarted
 		assert.Equal(t, apierror.KindUnavailable, err.Kind())
 		assert.Equal(t, apierror.True, err.Retryable())
 	})
 
 	t.Run("ErrQueueFull", func(t *testing.T) {
-		err := queue.ErrQueueFull
+		err := queuesvc.ErrQueueFull
 		assert.Equal(t, apierror.KindUnavailable, err.Kind())
 		assert.Equal(t, apierror.True, err.Retryable())
 	})
 
 	t.Run("ErrQueueClosed", func(t *testing.T) {
-		err := queue.ErrQueueClosed
+		err := queuesvc.ErrQueueClosed
 		assert.Equal(t, apierror.KindUnavailable, err.Kind())
 		assert.Equal(t, apierror.False, err.Retryable())
 	})
@@ -217,13 +218,13 @@ func TestErrorInterface(t *testing.T) {
 	})
 
 	t.Run("ErrConsumerClosed", func(t *testing.T) {
-		err := queue.ErrConsumerClosed
+		err := queuesvc.ErrConsumerClosed
 		assert.Equal(t, apierror.KindUnavailable, err.Kind())
 		assert.Equal(t, apierror.False, err.Retryable())
 	})
 
 	t.Run("ErrNoPublishFunc", func(t *testing.T) {
-		err := queue.ErrNoPublishFunc
+		err := queuesvc.ErrNoPublishFunc
 		assert.Equal(t, apierror.KindUnavailable, err.Kind())
 		assert.Equal(t, apierror.False, err.Retryable())
 	})
@@ -305,7 +306,7 @@ func TestErrorConstructors(t *testing.T) {
 
 	t.Run("NewQueueClosedError", func(t *testing.T) {
 		id := registry.NewID("test", "my-queue")
-		err := queue.NewQueueClosedError(id)
+		err := queuesvc.NewQueueClosedError(id)
 		assert.Contains(t, err.Error(), id.String())
 		assert.Equal(t, apierror.KindUnavailable, err.Kind())
 		val, ok := err.Details().Get("queue_id")

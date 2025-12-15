@@ -48,9 +48,7 @@ func TestErrors(t *testing.T) {
 		expected string
 	}{
 		{"resource not found", ErrNotFound, "resource not found"},
-		{"resource locked", ErrLocked, "resource is locked"},
 		{"resource released", ErrReleased, "resource has been released"},
-		{"resource closed", ErrClosed, "resource provider is closed"},
 	}
 
 	for _, tt := range tests {
@@ -179,40 +177,19 @@ func TestErrorInterface(t *testing.T) {
 		assert.Nil(t, err.Details())
 	})
 
-	t.Run("ErrLocked", func(t *testing.T) {
-		err := ErrLocked
-		assert.Equal(t, "resource is locked", err.Error())
-		assert.Equal(t, apierror.KindUnavailable, err.Kind())
-		assert.Equal(t, apierror.True, err.Retryable())
-	})
-
 	t.Run("ErrReleased", func(t *testing.T) {
 		err := ErrReleased
 		assert.Equal(t, "resource has been released", err.Error())
 		assert.Equal(t, apierror.KindInvalid, err.Kind())
 		assert.Equal(t, apierror.False, err.Retryable())
 	})
-
-	t.Run("ErrClosed", func(t *testing.T) {
-		err := ErrClosed
-		assert.Equal(t, "resource provider is closed", err.Error())
-		assert.Equal(t, apierror.KindUnavailable, err.Kind())
-		assert.Equal(t, apierror.False, err.Retryable())
-	})
-
-	t.Run("ErrInUse", func(t *testing.T) {
-		err := ErrInUse
-		assert.Equal(t, "resource is in use", err.Error())
-		assert.Equal(t, apierror.KindUnavailable, err.Kind())
-		assert.Equal(t, apierror.True, err.Retryable())
-	})
 }
 
 func TestErrorIs(t *testing.T) {
 	t.Run("same error type", func(t *testing.T) {
 		assert.True(t, errors.Is(ErrNotFound, ErrNotFound))
-		assert.True(t, errors.Is(ErrLocked, ErrLocked))
-		assert.False(t, errors.Is(ErrNotFound, ErrLocked))
+		assert.True(t, errors.Is(ErrReleased, ErrReleased))
+		assert.False(t, errors.Is(ErrNotFound, ErrReleased))
 	})
 
 	t.Run("different error type", func(t *testing.T) {

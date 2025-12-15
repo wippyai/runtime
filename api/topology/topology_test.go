@@ -177,43 +177,6 @@ func TestCancel(t *testing.T) {
 	assert.WithinDuration(t, deadline, event.Deadline, time.Second)
 }
 
-func TestExit(t *testing.T) {
-	p := pid.PID{UniqID: "test-pid"}
-	result := payload.New("exit result")
-	testErr := errors.New("exit error")
-
-	pkg := Exit(p, result, testErr)
-
-	assert.NotNil(t, pkg)
-	assert.Equal(t, p, pkg.Target)
-	assert.Len(t, pkg.Messages, 1)
-	assert.Equal(t, TopicEvents, pkg.Messages[0].Topic)
-
-	assert.Equal(t, "topology", pkg.Source.UniqID)
-
-	require.Len(t, pkg.Messages[0].Payloads, 1)
-	event, ok := pkg.Messages[0].Payloads[0].Data().(*ExitEvent)
-	require.True(t, ok)
-	assert.Equal(t, KindExit, event.Kind)
-	assert.Equal(t, p.UniqID, event.From.UniqID)
-	assert.NotNil(t, event.Result)
-	assert.Equal(t, testErr, event.Result.Error)
-}
-
-func TestExit_NoError(t *testing.T) {
-	p := pid.PID{UniqID: "test-pid"}
-	result := payload.New("success result")
-
-	pkg := Exit(p, result, nil)
-
-	assert.NotNil(t, pkg)
-
-	require.Len(t, pkg.Messages[0].Payloads, 1)
-	event, ok := pkg.Messages[0].Payloads[0].Data().(*ExitEvent)
-	require.True(t, ok)
-	assert.Nil(t, event.Result.Error)
-}
-
 func TestContext_Registry(t *testing.T) {
 	t.Run("with app context", func(t *testing.T) {
 		ctx := ctxapi.NewRootContext()

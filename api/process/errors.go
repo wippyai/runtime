@@ -19,28 +19,28 @@ const (
 // Errors returned by process operations.
 var (
 	ErrMaxProcessesExceeded = &Error{
-		Kind:    KindLimitExceeded,
-		Message: "max processes limit exceeded",
+		kind:    KindLimitExceeded,
+		message: "max processes limit exceeded",
 	}
 
 	ErrProcessClosed = &Error{
-		Kind:    KindInvalidState,
-		Message: "process closed",
+		kind:    KindInvalidState,
+		message: "process closed",
 	}
 
 	ErrProcessNotFound = &Error{
-		Kind:    KindNotFound,
-		Message: "process not found",
+		kind:    KindNotFound,
+		message: "process not found",
 	}
 
 	ErrProcessNotIdle = &Error{
-		Kind:    KindInvalidState,
-		Message: "process is not idle",
+		kind:    KindInvalidState,
+		message: "process is not idle",
 	}
 
 	ErrSchedulerStopping = &Error{
-		Kind:    KindInvalidState,
-		Message: "scheduler is stopping",
+		kind:    KindInvalidState,
+		message: "scheduler is stopping",
 	}
 )
 
@@ -80,52 +80,57 @@ type (
 
 	// Error represents a process error with metadata.
 	Error struct {
-		Kind    Kind
-		Message string
-		Details attrs.Attributes
-		Cause   error
+		kind    Kind
+		message string
+		details attrs.Attributes
+		cause   error
 	}
 )
 
-func (e *Error) Error() string                { return e.Message }
-func (e *Error) GetKind() Kind                { return e.Kind }
-func (e *Error) GetDetails() attrs.Attributes { return e.Details }
-func (e *Error) Unwrap() error                { return e.Cause }
+func (e *Error) Error() string             { return e.message }
+func (e *Error) Kind() Kind                { return e.kind }
+func (e *Error) Details() attrs.Attributes { return e.details }
+func (e *Error) Unwrap() error             { return e.cause }
+
+// NewError creates a new process error with the given kind and message.
+func NewError(kind Kind, message string) *Error {
+	return &Error{kind: kind, message: message}
+}
 
 // WithCause returns a new error with the given cause.
 func (e *Error) WithCause(cause error) *Error {
 	return &Error{
-		Kind:    e.Kind,
-		Message: e.Message,
-		Details: e.Details,
-		Cause:   cause,
+		kind:    e.kind,
+		message: e.message,
+		details: e.details,
+		cause:   cause,
 	}
 }
 
 // WithDetails returns a new error with the given details.
 func (e *Error) WithDetails(details attrs.Attributes) *Error {
 	return &Error{
-		Kind:    e.Kind,
-		Message: e.Message,
-		Details: details,
-		Cause:   e.Cause,
+		kind:    e.kind,
+		message: e.message,
+		details: details,
+		cause:   e.cause,
 	}
 }
 
 // NewFactoryNotFoundError creates an error for missing factory.
 func NewFactoryNotFoundError(factoryID string) *Error {
 	return &Error{
-		Kind:    KindNotFound,
-		Message: "no factory registered for: " + factoryID,
-		Details: attrs.NewBagFrom(map[string]any{"factory_id": factoryID}),
+		kind:    KindNotFound,
+		message: "no factory registered for: " + factoryID,
+		details: attrs.NewBagFrom(map[string]any{"factory_id": factoryID}),
 	}
 }
 
 // NewHostNotFoundError creates an error for missing host.
 func NewHostNotFoundError(hostID string) *Error {
 	return &Error{
-		Kind:    KindNotFound,
-		Message: "host not found: " + hostID,
-		Details: attrs.NewBagFrom(map[string]any{"host_id": hostID}),
+		kind:    KindNotFound,
+		message: "host not found: " + hostID,
+		details: attrs.NewBagFrom(map[string]any{"host_id": hostID}),
 	}
 }

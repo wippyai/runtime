@@ -18,6 +18,24 @@ import (
 	relaysys "github.com/wippyai/runtime/system/relay"
 )
 
+// exitPackage creates an exit notification package for testing.
+func exitPackage(p pid.PID, result payload.Payload, err error) *relay.Package {
+	return relay.NewPackage(
+		topology.SystemPID,
+		p,
+		topology.TopicEvents,
+		payload.New(&topology.ExitEvent{
+			At:   time.Now(),
+			From: p,
+			Kind: topology.KindExit,
+			Result: &runtime.Result{
+				Value: result,
+				Error: err,
+			},
+		}),
+	)
+}
+
 // dummyHost is a simple host implementation for testing
 type dummyHost struct {
 	receivers sync.Map // map[PID]chan *relay.Package
@@ -190,7 +208,7 @@ func (n *MockPeerNode) SimulateCompletion(targetPID pid.PID, result interface{},
 			return true
 		}
 
-		exitPkg := topology.Exit(targetPID, payload.New(result), err)
+		exitPkg := exitPackage(targetPID, payload.New(result), err)
 		exitPkg.Target = callerPID
 
 		n.logger.Logf("MockPeerNode %s: sending exit event to watcher %s",
@@ -268,7 +286,7 @@ func (n *MockPeerNode) SimulateFailure(targetPID pid.PID, err error) error {
 				return true
 			}
 
-			exitPkg := topology.Exit(targetPID, payload.New(nil), err)
+			exitPkg := exitPackage(targetPID, payload.New(nil), err)
 			exitPkg.Target = callerPID
 
 			n.logger.Logf("MockPeerNode %s: sending exit event to watcher %s",

@@ -10,8 +10,6 @@ import (
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 
-	memorystore "github.com/wippyai/runtime/api/service/store/memory"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/payload"
@@ -19,6 +17,9 @@ import (
 	"github.com/wippyai/runtime/api/resource"
 	memcfg "github.com/wippyai/runtime/api/service/store/memory"
 	"github.com/wippyai/runtime/api/store"
+	servicestore "github.com/wippyai/runtime/service/store"
+	memorystore "github.com/wippyai/runtime/service/store/memory"
+	systemresource "github.com/wippyai/runtime/system/resource"
 	"go.uber.org/zap"
 )
 
@@ -91,7 +92,7 @@ func TestMemoryStore_Get(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = ms.Get(ctx, testKey)
-	assert.Equal(t, store.ErrStoreClosed, err)
+	assert.Equal(t, servicestore.ErrStoreClosed, err)
 }
 
 // TestMemoryStore_Set tests the Set functionality
@@ -136,14 +137,14 @@ func TestMemoryStore_Set(t *testing.T) {
 
 	// Try to add another entry (should fail with ErrStoreFull)
 	err = limitedStore.Set(ctx, createTestEntry("test:key3", "value3"))
-	assert.Equal(t, store.ErrStoreFull, err)
+	assert.Equal(t, servicestore.ErrStoreFull, err)
 
 	// Test with closed store
 	err = ms.Stop(ctx)
 	require.NoError(t, err)
 
 	err = ms.Set(ctx, createTestEntry("test:key2", "value"))
-	assert.Equal(t, store.ErrStoreClosed, err)
+	assert.Equal(t, servicestore.ErrStoreClosed, err)
 }
 
 // TestMemoryStore_Delete tests the Delete functionality
@@ -174,7 +175,7 @@ func TestMemoryStore_Delete(t *testing.T) {
 	require.NoError(t, err)
 
 	err = ms.Delete(ctx, testKey)
-	assert.Equal(t, store.ErrStoreClosed, err)
+	assert.Equal(t, servicestore.ErrStoreClosed, err)
 }
 
 // TestMemoryStore_Has tests the Has functionality
@@ -219,7 +220,7 @@ func TestMemoryStore_Has(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = ms.Has(ctx, testKey)
-	assert.Equal(t, store.ErrStoreClosed, err)
+	assert.Equal(t, servicestore.ErrStoreClosed, err)
 }
 
 // TestMemoryStore_Acquire tests the resource.Provider interface implementation
@@ -249,7 +250,7 @@ func TestMemoryStore_Acquire(t *testing.T) {
 
 	// Try exclusive mode (should fail since it's not supported)
 	_, err = ms.Acquire(ctx, registry.ParseID("test:resource"), resource.ModeExclusive)
-	assert.Equal(t, resource.ErrLocked, err)
+	assert.Equal(t, systemresource.ErrLocked, err)
 
 	// Test with closed store
 	err = ms.Stop(ctx)
@@ -312,7 +313,7 @@ func TestMemoryStore_Stop(t *testing.T) {
 
 	// Verify store operations now fail with ErrStoreClosed
 	_, err = ms.Get(ctx, registry.ParseID("test:anything"))
-	assert.Equal(t, store.ErrStoreClosed, err)
+	assert.Equal(t, servicestore.ErrStoreClosed, err)
 
 	// Stopping again should be a no-op
 	err = ms.Stop(ctx)
@@ -375,7 +376,7 @@ func TestMemoryStore_ConcurrentAccess(t *testing.T) {
 				// Set
 				err := ms.Set(ctx, createTestEntry(key.String(), value))
 				// Either no error or store full is acceptable during concurrent test
-				if err != nil && !errors.Is(err, store.ErrStoreFull) {
+				if err != nil && !errors.Is(err, servicestore.ErrStoreFull) {
 					assert.Fail(t, "Unexpected error on Set: %v", err)
 				}
 
@@ -453,7 +454,7 @@ func TestMemoryStore_ConcurrentReadWrite(t *testing.T) {
 				value := fmt.Sprintf("value-%d-%d", writerID, i)
 
 				if err := ms.Set(ctx, createTestEntry(key, value)); err != nil {
-					if !errors.Is(err, store.ErrStoreFull) {
+					if !errors.Is(err, servicestore.ErrStoreFull) {
 						errChan <- fmt.Errorf("set error: %w", err)
 					}
 				}
@@ -577,7 +578,7 @@ func TestMemoryStore_RapidStartStop(t *testing.T) {
 
 		// Verify store is properly closed
 		_, err = ms.Get(ctx, registry.ParseID("test:key0"))
-		assert.Equal(t, store.ErrStoreClosed, err)
+		assert.Equal(t, servicestore.ErrStoreClosed, err)
 	}
 }
 
@@ -603,7 +604,7 @@ func TestMemoryStore_CapacityBoundary(t *testing.T) {
 
 	// Next set should fail
 	err = ms.Set(ctx, createTestEntry("test:key10", 10))
-	assert.Equal(t, store.ErrStoreFull, err)
+	assert.Equal(t, servicestore.ErrStoreFull, err)
 
 	// Update existing should succeed
 	err = ms.Set(ctx, createTestEntry("test:key5", "updated"))

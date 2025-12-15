@@ -11,7 +11,6 @@ var (
 	ErrAlreadyAttached   = apierror.New(apierror.KindAlreadyExists, "receiver already attached").WithRetryable(apierror.False)
 	ErrHostNotFound      = apierror.New(apierror.KindNotFound, "host not found").WithRetryable(apierror.False)
 	ErrHostAlreadyExists = apierror.New(apierror.KindAlreadyExists, "host already exists").WithRetryable(apierror.False)
-	ErrNilPackage        = apierror.New(apierror.KindInvalid, "cannot send nil package").WithRetryable(apierror.False)
 	ErrEmptyNodeID       = apierror.New(apierror.KindInvalid, "nodeID cannot be empty").WithRetryable(apierror.False)
 )
 
@@ -100,16 +99,5 @@ func NewAlreadyAttachedError(p pid.PID) apierror.Error {
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"pid": p.String(), "host": p.Host, "uniq_id": p.UniqID}),
 		ErrAlreadyAttached,
-	)
-}
-
-// NewNilPackageError creates an error when a nil package is passed to Send.
-func NewNilPackageError() apierror.Error {
-	return apierror.E(
-		apierror.KindInvalid,
-		"cannot send nil package",
-		apierror.False,
-		nil,
-		ErrNilPackage,
 	)
 }

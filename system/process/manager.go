@@ -39,7 +39,7 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 	// Cast to process.Host
 	host, ok := relayHost.(api.Host)
 	if !ok {
-		return pid.PID{}, api.NewInvalidHostError(start.HostID)
+		return pid.PID{}, NewInvalidHostError(start.HostID)
 	}
 
 	m.logger.Debug("starting process",
@@ -77,7 +77,7 @@ func (m *Manager) Terminate(ctx context.Context, pidArg pid.PID) error {
 
 	host, ok := relayHost.(api.Host)
 	if !ok {
-		return api.NewInvalidHostError(pidArg.Host)
+		return NewInvalidHostError(pidArg.Host)
 	}
 
 	return host.Terminate(ctx, pidArg)

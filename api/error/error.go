@@ -5,22 +5,22 @@ import "github.com/wippyai/runtime/api/attrs"
 
 // Kind constants for error categorization.
 const (
-	KindUnknown          Kind = "Unknown"
-	KindNotFound         Kind = "NotFound"
-	KindAlreadyExists    Kind = "AlreadyExists"
-	KindInvalid          Kind = "Invalid"
-	KindPermissionDenied Kind = "PermissionDenied"
-	KindUnavailable      Kind = "Unavailable"
-	KindInternal         Kind = "Internal"
-	KindCanceled         Kind = "Canceled"
-	KindConflict         Kind = "Conflict"
-	KindTimeout          Kind = "Timeout"
-	KindRateLimited      Kind = "RateLimited"
+	Unknown          Kind = "Unknown"
+	NotFound         Kind = "NotFound"
+	AlreadyExists    Kind = "AlreadyExists"
+	Invalid          Kind = "Invalid"
+	PermissionDenied Kind = "PermissionDenied"
+	Unavailable      Kind = "Unavailable"
+	Internal         Kind = "Internal"
+	Canceled         Kind = "Canceled"
+	Conflict         Kind = "Conflict"
+	Timeout          Kind = "Timeout"
+	RateLimited      Kind = "RateLimited"
 )
 
 // Ternary constants for retry decisions.
 const (
-	Unknown Ternary = iota
+	Unspecified Ternary = iota
 	True
 	False
 )
@@ -63,14 +63,14 @@ func (t Ternary) String() string {
 		return "True"
 	case False:
 		return "False"
-	case Unknown:
-		return "Unknown"
+	case Unspecified:
+		return "Unspecified"
 	default:
-		return "Unknown"
+		return "Unspecified"
 	}
 }
 
-// Bool converts Ternary to boolean (Unknown becomes false).
+// Bool converts Ternary to boolean (Unspecified becomes false).
 func (t Ternary) Bool() bool {
 	return t == True
 }
@@ -114,7 +114,7 @@ func (e *err) WithMessage(m string) *err {
 
 // New creates a new error with the given kind and message.
 func New(kind Kind, message string) *err {
-	return &err{kind: kind, message: message, retryable: Unknown}
+	return &err{kind: kind, message: message, retryable: Unspecified}
 }
 
 // E creates a new error with full control over all fields.

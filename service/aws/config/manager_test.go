@@ -17,6 +17,7 @@ import (
 	"github.com/wippyai/runtime/api/resource"
 	awsconfigapi "github.com/wippyai/runtime/api/service/aws/config"
 	"github.com/wippyai/runtime/system/eventbus"
+	systemresource "github.com/wippyai/runtime/system/resource"
 	"go.uber.org/zap"
 )
 
@@ -533,7 +534,7 @@ func TestManager_Acquire(t *testing.T) {
 		// Try to acquire with an unsupported mode
 		res, err := manager.Acquire(ctx, testID, resource.ModeExclusive)
 		assert.Error(t, err)
-		assert.Equal(t, resource.ErrLocked, err)
+		assert.Equal(t, systemresource.ErrLocked, err)
 		assert.Nil(t, res)
 	})
 }

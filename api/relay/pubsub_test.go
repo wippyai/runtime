@@ -293,7 +293,6 @@ func TestSentinelErrors(t *testing.T) {
 		{"ErrAlreadyAttached", ErrAlreadyAttached, "receiver already attached", "AlreadyExists"},
 		{"ErrHostNotFound", ErrHostNotFound, "host not found", "NotFound"},
 		{"ErrHostAlreadyExists", ErrHostAlreadyExists, "host already exists", "AlreadyExists"},
-		{"ErrNilPackage", ErrNilPackage, "cannot send nil package", "Invalid"},
 		{"ErrEmptyNodeID", ErrEmptyNodeID, "nodeID cannot be empty", "Invalid"},
 	}
 

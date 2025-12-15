@@ -7,6 +7,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	"github.com/wippyai/runtime/api/service/exec"
+	systemresource "github.com/wippyai/runtime/system/resource"
 )
 
 // executorProvider implements resource.Provider for ProcessExecutor
@@ -22,13 +23,13 @@ func (p *executorProvider) Acquire(_ context.Context, _ registry.ID, mode resour
 	defer p.mu.RUnlock()
 
 	if p.closed {
-		return nil, resource.ErrClosed
+		return nil, systemresource.ErrClosed
 	}
 
 	// Currently we don't implement locking or exclusive mode
 	// Future implementations could support exclusive access
 	if mode == resource.ModeExclusive {
-		return nil, resource.ErrLocked
+		return nil, systemresource.ErrLocked
 	}
 
 	// Return a resource wrapper for the executor

@@ -176,25 +176,6 @@ func Cancel(from, to pid.PID, deadline time.Time) *relay.Package {
 	)
 }
 
-// Exit creates a package for notifying about a process exit.
-// The package includes the process result and any error that occurred.
-func Exit(p pid.PID, result payload.Payload, err error) *relay.Package {
-	return relay.NewPackage(
-		SystemPID,
-		p,
-		TopicEvents,
-		payload.New(&ExitEvent{
-			At:   time.Now(),
-			From: p,
-			Kind: KindExit,
-			Result: &runtime.Result{
-				Value: result,
-				Error: err,
-			},
-		}),
-	)
-}
-
 // MonitorRequest creates a package for requesting monitoring of a remote PID.
 func MonitorRequest(caller, target pid.PID) *relay.Package {
 	return relay.NewPackage(

@@ -134,8 +134,8 @@ func (t *Topology) addToNodeIndex(node pid.NodeID, key string) {
 	val, _ := t.nodeIndex.LoadOrStore(node, &nodeKeys{})
 	nk := val.(*nodeKeys)
 	nk.mu.Lock()
+	defer nk.mu.Unlock()
 	nk.keys = append(nk.keys, key)
-	nk.mu.Unlock()
 }
 
 // removeFromNodeIndex removes a PID key from the node index.
@@ -146,6 +146,7 @@ func (t *Topology) removeFromNodeIndex(node pid.NodeID, key string) {
 	}
 	nk := val.(*nodeKeys)
 	nk.mu.Lock()
+	defer nk.mu.Unlock()
 	for i, k := range nk.keys {
 		if k == key {
 			nk.keys = append(nk.keys[:i], nk.keys[i+1:]...)
@@ -155,7 +156,6 @@ func (t *Topology) removeFromNodeIndex(node pid.NodeID, key string) {
 	if len(nk.keys) == 0 {
 		t.nodeIndex.Delete(node)
 	}
-	nk.mu.Unlock()
 }
 
 // Monitor attaches a caller to monitor a target pid.
@@ -644,88 +644,6 @@ func (t *Topology) Remove(p pid.PID) {
 	}
 
 	t.recycleState(state)
-}
-
-// handleMonitorRequest processes incoming monitor requests from remote nodes.
-func (t *Topology) handleMonitorRequest(caller, target pid.PID) error {
-	key := target.String()
-	sh := t.getShard(key)
-
-	sh.mu.Lock()
-	defer sh.mu.Unlock()
-
-	state, exists := sh.processes[key]
-	if !exists {
-		return topology.ErrPIDNotRegistered.WithDetails(attrs.Bag{
-			"pid":       key,
-			"operation": "monitor",
-			"caller":    caller.String(),
-		})
-	}
-
-	if state.watchers == nil {
-		state.watchers = make(map[string]pid.PID)
-	}
-	state.watchers[caller.String()] = caller
-	return nil
-}
-
-// handleMonitorRelease processes incoming release requests from remote nodes.
-func (t *Topology) handleMonitorRelease(caller, target pid.PID) error {
-	key := target.String()
-	sh := t.getShard(key)
-
-	sh.mu.Lock()
-	defer sh.mu.Unlock()
-
-	state, exists := sh.processes[key]
-	if !exists {
-		return nil
-	}
-
-	delete(state.watchers, caller.String())
-	return nil
-}
-
-// handleLinkRequest processes incoming link requests from remote nodes.
-func (t *Topology) handleLinkRequest(from, to pid.PID) error {
-	key := to.String()
-	sh := t.getShard(key)
-
-	sh.mu.Lock()
-	defer sh.mu.Unlock()
-
-	state, exists := sh.processes[key]
-	if !exists {
-		return topology.ErrPIDNotRegistered.WithDetails(attrs.Bag{
-			"pid":       key,
-			"operation": "link",
-			"from":      from.String(),
-		})
-	}
-
-	if state.links == nil {
-		state.links = make(map[string]pid.PID)
-	}
-	state.links[from.String()] = from
-	return nil
-}
-
-// handleUnlinkRequest processes incoming unlink requests from remote nodes.
-func (t *Topology) handleUnlinkRequest(from, to pid.PID) error {
-	key := to.String()
-	sh := t.getShard(key)
-
-	sh.mu.Lock()
-	defer sh.mu.Unlock()
-
-	state, exists := sh.processes[key]
-	if !exists {
-		return nil
-	}
-
-	delete(state.links, from.String())
-	return nil
 }
 
 // HandleNodeExit handles node failure by notifying all local processes

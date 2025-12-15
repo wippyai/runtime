@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/process"
+	sysprocess "github.com/wippyai/runtime/system/process"
 )
 
 type Worker struct {
@@ -138,7 +139,7 @@ func (w *Worker) executeOne(proc *Processor) {
 			return
 		}
 		proc.queue.Close()
-		w.scheduler.complete(proc, nil, process.ErrTerminated)
+		w.scheduler.complete(proc, nil, sysprocess.ErrTerminated)
 		return
 	}
 

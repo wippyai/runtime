@@ -23,8 +23,6 @@ func TestErrors(t *testing.T) {
 		{"key not found", ErrKeyNotFound, "key not found"},
 		{"key exists", ErrKeyExists, "key already exists"},
 		{"invalid key", ErrInvalidKey, "invalid key format"},
-		{"store full", ErrStoreFull, "store is full"},
-		{"store closed", ErrStoreClosed, "store is closed"},
 	}
 
 	for _, tt := range tests {
@@ -45,16 +43,6 @@ func TestError_Interface(t *testing.T) {
 	t.Run("ErrKeyExists", func(t *testing.T) {
 		assert.Equal(t, apierror.KindAlreadyExists, ErrKeyExists.Kind())
 		assert.Equal(t, apierror.False, ErrKeyExists.Retryable())
-	})
-
-	t.Run("ErrStoreFull", func(t *testing.T) {
-		assert.Equal(t, apierror.KindUnavailable, ErrStoreFull.Kind())
-		assert.Equal(t, apierror.True, ErrStoreFull.Retryable())
-	})
-
-	t.Run("ErrStoreClosed", func(t *testing.T) {
-		assert.Equal(t, apierror.KindUnavailable, ErrStoreClosed.Kind())
-		assert.Equal(t, apierror.False, ErrStoreClosed.Retryable())
 	})
 
 	t.Run("ErrInvalidKey", func(t *testing.T) {
@@ -215,7 +203,7 @@ func TestResponseTypes(t *testing.T) {
 		resp := SetResponse{Error: nil}
 		assert.NoError(t, resp.Error)
 
-		resp2 := SetResponse{Error: ErrStoreFull}
+		resp2 := SetResponse{Error: ErrKeyExists}
 		assert.Error(t, resp2.Error)
 	})
 

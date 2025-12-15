@@ -64,9 +64,9 @@ func (c *Configurator) GetConfig(ctx context.Context) (api.Config, error) {
 	case cfg := <-configCh:
 		return cfg, nil
 	case <-time.After(c.defaultTimeout):
-		return api.Config{}, api.ErrGetConfigTimeout
+		return api.Config{}, ErrGetConfigTimeout
 	case <-ctx.Done():
-		return api.Config{}, api.NewContextCanceledError(ctx.Err())
+		return api.Config{}, NewContextCanceledError(ctx.Err())
 	}
 }
 
@@ -104,9 +104,9 @@ func (c *Configurator) SetConfig(ctx context.Context, cfg api.Config) error {
 		}
 		return nil
 	case <-time.After(c.defaultTimeout):
-		return api.ErrSetConfigTimeout
+		return ErrSetConfigTimeout
 	case <-ctx.Done():
-		return api.NewContextCanceledError(ctx.Err())
+		return NewContextCanceledError(ctx.Err())
 	}
 }
 

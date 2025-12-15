@@ -11,8 +11,6 @@ var (
 	ErrKeyNotFound = apierror.New(apierror.KindNotFound, "key not found").WithRetryable(apierror.False)
 	ErrKeyExists   = apierror.New(apierror.KindAlreadyExists, "key already exists").WithRetryable(apierror.False)
 	ErrInvalidKey  = apierror.New(apierror.KindInvalid, "invalid key format").WithRetryable(apierror.False)
-	ErrStoreFull   = apierror.New(apierror.KindUnavailable, "store is full").WithRetryable(apierror.True)
-	ErrStoreClosed = apierror.New(apierror.KindUnavailable, "store is closed").WithRetryable(apierror.False)
 )
 
 // NewKeyNotFoundError creates a key not found error with details.

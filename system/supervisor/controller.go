@@ -314,7 +314,7 @@ func (c *Controller) tryStart(ctx context.Context, cancel context.CancelFunc) (<
 	case <-time.After(c.config.StartTimeout):
 		cancel()
 		c.updateState(supervisor.StatusFailed, "start timeout")
-		return nil, supervisor.ErrStartTimeout
+		return nil, ErrStartTimeout
 	case <-c.ctx.Done():
 		c.updateState(supervisor.StatusExited, "controller exited")
 		return nil, supervisor.ErrExit

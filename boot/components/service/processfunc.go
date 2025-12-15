@@ -68,7 +68,7 @@ func ProcessFunc() boot.Component {
 			// Register as observer - pfunc is secondary, should not send Accept/Reject
 			handlers.RegisterObserver("process.*", listener)
 
-			logger.Info("process function bridge registered")
+			logger.Named("processfunc").Info("bridge registered")
 			return ctx, nil
 		},
 	})

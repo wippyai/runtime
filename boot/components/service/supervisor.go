@@ -55,7 +55,7 @@ func ProcessSupervisor() boot.Component {
 
 			handlers.RegisterListener(supervisorapi.KindProcessService, manager)
 
-			logger.Info("process supervisor manager registered")
+			logger.Named("supervisor").Info("manager registered")
 			return ctx, nil
 		},
 	})

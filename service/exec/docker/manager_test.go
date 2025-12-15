@@ -14,6 +14,7 @@ import (
 	"github.com/wippyai/runtime/api/resource"
 	"github.com/wippyai/runtime/api/service/exec"
 	"github.com/wippyai/runtime/system/eventbus"
+	systemresource "github.com/wippyai/runtime/system/resource"
 	"go.uber.org/zap"
 )
 
@@ -313,7 +314,7 @@ func TestExecutorProvider_Acquire_Exclusive(t *testing.T) {
 	provider := newExecutorProvider(&mockExecutor{})
 
 	_, err := provider.Acquire(context.Background(), registry.ID{}, resource.ModeExclusive)
-	assert.ErrorIs(t, err, resource.ErrLocked)
+	assert.ErrorIs(t, err, systemresource.ErrLocked)
 }
 
 func TestExecutorProvider_Acquire_Closed(t *testing.T) {
@@ -321,7 +322,7 @@ func TestExecutorProvider_Acquire_Closed(t *testing.T) {
 	provider.Close()
 
 	_, err := provider.Acquire(context.Background(), registry.ID{}, resource.ModeNormal)
-	assert.ErrorIs(t, err, resource.ErrClosed)
+	assert.ErrorIs(t, err, systemresource.ErrClosed)
 }
 
 func TestExecutorResource_Released(t *testing.T) {

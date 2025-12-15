@@ -11,6 +11,7 @@ import (
 	execapi "github.com/wippyai/runtime/api/service/exec"
 	entryutil "github.com/wippyai/runtime/internal/entry"
 	serviceexec "github.com/wippyai/runtime/service/exec"
+	systemresource "github.com/wippyai/runtime/system/resource"
 	"go.uber.org/zap"
 )
 
@@ -192,11 +193,11 @@ func (p *executorProvider) Acquire(_ context.Context, _ registry.ID, mode resour
 	defer p.mu.RUnlock()
 
 	if p.closed {
-		return nil, resource.ErrClosed
+		return nil, systemresource.ErrClosed
 	}
 
 	if mode == resource.ModeExclusive {
-		return nil, resource.ErrLocked
+		return nil, systemresource.ErrLocked
 	}
 
 	return &executorResource{executor: p.executor}, nil

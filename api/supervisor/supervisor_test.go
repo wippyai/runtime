@@ -137,13 +137,6 @@ func TestErrorInterface(t *testing.T) {
 		assert.Equal(t, apierror.False, err.Retryable())
 	})
 
-	t.Run("ErrStartTimeout", func(t *testing.T) {
-		err := ErrStartTimeout
-		assert.Equal(t, "service start timed out", err.Error())
-		assert.Equal(t, apierror.KindTimeout, err.Kind())
-		assert.Equal(t, apierror.True, err.Retryable())
-	})
-
 	t.Run("ErrOutsideTransaction", func(t *testing.T) {
 		err := ErrOutsideTransaction
 		assert.Equal(t, "action received outside of transaction", err.Error())
@@ -179,15 +172,6 @@ func TestErrorConstructors(t *testing.T) {
 		val, ok := err.Details().Get("field")
 		assert.True(t, ok)
 		assert.Equal(t, "timeout", val)
-	})
-
-	t.Run("NewServiceNotFoundError", func(t *testing.T) {
-		err := NewServiceNotFoundError("my-service")
-		assert.Contains(t, err.Error(), "my-service")
-		assert.Equal(t, apierror.KindNotFound, err.Kind())
-		val, ok := err.Details().Get("service_id")
-		assert.True(t, ok)
-		assert.Equal(t, "my-service", val)
 	})
 }
 

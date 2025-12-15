@@ -100,7 +100,7 @@ func (s *Supervisor) GetState(id string) (State, error) {
 
 	controller, exists := s.controllers[id]
 	if !exists {
-		return State{}, supervisor.NewServiceNotFoundError(id)
+		return State{}, NewServiceNotFoundError(id)
 	}
 
 	return controller.State(), nil
@@ -358,7 +358,7 @@ func (s *Supervisor) createStateHandler(id string) func(supervisor.Status, any) 
 func (s *Supervisor) resolveDependencies(serviceID string) ([]string, error) {
 	ctrl, exists := s.controllers[serviceID]
 	if !exists {
-		return nil, supervisor.NewServiceNotFoundError(serviceID)
+		return nil, NewServiceNotFoundError(serviceID)
 	}
 
 	// Start with lifecycle dependencies
@@ -432,7 +432,7 @@ func (s *Supervisor) execute(ctx context.Context, tx *regTx) error {
 
 		ctrl, exists := s.controllers[id]
 		if !exists {
-			return supervisor.NewServiceNotFoundError(id)
+			return NewServiceNotFoundError(id)
 		}
 
 		// Resolve all dependencies (lifecycle + registry-extracted)

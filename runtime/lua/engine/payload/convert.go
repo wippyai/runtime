@@ -9,6 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	runtimelua "github.com/wippyai/runtime/runtime/lua"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -98,7 +99,7 @@ func GoToLua(v any) (lua.LValue, error) {
 		for i := 0; i < rv.Len(); i++ {
 			lval, err := GoToLua(rv.Index(i).Interface())
 			if err != nil {
-				return nil, luaapi.NewConversionError(fmt.Sprintf("error converting slice/array element %d", i), err)
+				return nil, runtimelua.NewConversionError(fmt.Sprintf("error converting slice/array element %d", i), err)
 			}
 			table.RawSetInt(i+1, lval)
 		}
@@ -118,7 +119,7 @@ func GoToLua(v any) (lua.LValue, error) {
 
 			lval, err := GoToLua(iter.Value().Interface())
 			if err != nil {
-				return nil, luaapi.NewConversionError(fmt.Sprintf("error converting map value for key %s", keyStr), err)
+				return nil, runtimelua.NewConversionError(fmt.Sprintf("error converting map value for key %s", keyStr), err)
 			}
 			table.RawSetString(keyStr, lval)
 		}
@@ -155,7 +156,7 @@ func GoToLua(v any) (lua.LValue, error) {
 			}
 
 			if err != nil {
-				return nil, luaapi.NewConversionError(fmt.Sprintf("error converting struct field %s", field.name), err)
+				return nil, runtimelua.NewConversionError(fmt.Sprintf("error converting struct field %s", field.name), err)
 			}
 
 			table.RawSetString(field.name, lval)

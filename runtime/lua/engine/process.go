@@ -1243,7 +1243,7 @@ func extractReturnError(val lua.LValue) error {
 
 	// String error
 	if s, ok := val.(lua.LString); ok {
-		return luaapi.NewScriptReturnError(string(s))
+		return runtimelua.NewScriptReturnError(string(s))
 	}
 
 	// LuaError userdata

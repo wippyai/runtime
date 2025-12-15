@@ -9,6 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	"github.com/wippyai/runtime/api/service/exec"
+	systemresource "github.com/wippyai/runtime/system/resource"
 )
 
 type mockExecutor struct {
@@ -49,7 +50,7 @@ func TestExecutorProvider_AcquireExclusive(t *testing.T) {
 	id := registry.NewID("test", "executor")
 
 	res, err := provider.Acquire(ctx, id, resource.ModeExclusive)
-	assert.ErrorIs(t, err, resource.ErrLocked)
+	assert.ErrorIs(t, err, systemresource.ErrLocked)
 	assert.Nil(t, res)
 }
 
@@ -64,7 +65,7 @@ func TestExecutorProvider_Close(t *testing.T) {
 	require.NoError(t, err)
 
 	res, err := provider.Acquire(ctx, id, resource.ModeNormal)
-	assert.ErrorIs(t, err, resource.ErrClosed)
+	assert.ErrorIs(t, err, systemresource.ErrClosed)
 	assert.Nil(t, res)
 
 	err = provider.Close()

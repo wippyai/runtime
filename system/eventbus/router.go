@@ -158,7 +158,7 @@ func (r *EventRouter) addHandler(h EventHandler) error {
 
 	// Check context before proceeding
 	if r.ctx.Err() != nil {
-		return event.NewRouterCanceledError(r.ctx.Err())
+		return NewRouterCanceledError(r.ctx.Err())
 	}
 
 	pattern := h.Pattern()

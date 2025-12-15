@@ -13,8 +13,6 @@ var (
 
 	ErrCallNotFound = apierror.New(apierror.KindNotFound, "async call not found").WithRetryable(apierror.False)
 
-	ErrCallCancelled = apierror.New(apierror.KindCanceled, "async call cancelled").WithRetryable(apierror.False)
-
 	ErrNilContext = apierror.New(apierror.KindInvalid, "nil context").WithRetryable(apierror.False)
 
 	ErrNilCallback = apierror.New(apierror.KindInvalid, "nil callback").WithRetryable(apierror.False)

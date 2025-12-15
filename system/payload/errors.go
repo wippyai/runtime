@@ -1,0 +1,50 @@
+package payload
+
+import (
+	"github.com/wippyai/runtime/api/attrs"
+	apierror "github.com/wippyai/runtime/api/error"
+)
+
+// NewTranscodeError creates an error when transcoding fails.
+func NewTranscodeError(from, to string, err error) apierror.Error {
+	return apierror.E(
+		apierror.KindInternal,
+		"error transcoding from "+from+" to "+to+": "+err.Error(),
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"from": from, "to": to, "cause": err.Error()}),
+		err,
+	)
+}
+
+// NewUnmarshalTranscodeError creates an error when transcoding for unmarshal fails.
+func NewUnmarshalTranscodeError(err error) apierror.Error {
+	return apierror.E(
+		apierror.KindInternal,
+		"error transcoding payload for unmarshaling: "+err.Error(),
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
+		err,
+	)
+}
+
+// NewUnmarshalerNotFoundError creates an error when unmarshaler is not found after path resolution.
+func NewUnmarshalerNotFoundError(format string) apierror.Error {
+	return apierror.E(
+		apierror.KindInternal,
+		"unmarshaler not found for format "+format+", even though a path was found",
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"format": format}),
+		nil,
+	)
+}
+
+// NewMarshalError creates an error when marshaling fails.
+func NewMarshalError(format string, err error) apierror.Error {
+	return apierror.E(
+		apierror.KindInternal,
+		"failed to marshal to "+format+": "+err.Error(),
+		apierror.False,
+		attrs.NewBagFrom(map[string]any{"format": format, "cause": err.Error()}),
+		err,
+	)
+}

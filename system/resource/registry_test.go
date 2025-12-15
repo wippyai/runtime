@@ -89,7 +89,7 @@ func (m *mockResourceProvider) Acquire(ctx context.Context, id registry.ID, mode
 
 	// Check for exclusive lock
 	if _, locked := m.lockedResources[id]; locked {
-		return nil, resource.ErrLocked
+		return nil, ErrLocked
 	}
 
 	// If requesting exclusive access, lock the resource
@@ -170,7 +170,7 @@ func TestService_ResourceLifecycle(t *testing.T) {
 
 	// Verify other acquires fail while exclusive lock is held
 	_, err = service.Acquire(ctx, id, resource.ModeNormal)
-	assert.Equal(t, resource.ErrLocked, err)
+	assert.Equal(t, ErrLocked, err)
 
 	// Release exclusive lock
 	res.Release()

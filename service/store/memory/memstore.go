@@ -12,6 +12,8 @@ import (
 	"github.com/wippyai/runtime/api/resource"
 	"github.com/wippyai/runtime/api/store"
 	"github.com/wippyai/runtime/api/supervisor"
+	servicestore "github.com/wippyai/runtime/service/store"
+	systemresource "github.com/wippyai/runtime/system/resource"
 	"go.uber.org/zap"
 )
 
@@ -65,7 +67,7 @@ func (m *Store) Start(ctx context.Context) (<-chan any, error) {
 	defer m.mu.Unlock()
 
 	if m.closed {
-		return nil, store.ErrStoreClosed
+		return nil, servicestore.ErrStoreClosed
 	}
 
 	// Serve cleanup goroutine if cleanup interval is set
@@ -121,7 +123,7 @@ func (m *Store) Get(_ context.Context, key registry.ID) (payload.Payload, error)
 	defer m.mu.Unlock()
 
 	if m.closed {
-		return nil, store.ErrStoreClosed
+		return nil, servicestore.ErrStoreClosed
 	}
 
 	keyStr := key.String()
@@ -146,14 +148,14 @@ func (m *Store) Set(_ context.Context, entry store.Entry) error {
 	defer m.mu.Unlock()
 
 	if m.closed {
-		return store.ErrStoreClosed
+		return servicestore.ErrStoreClosed
 	}
 
 	keyStr := entry.Key.String()
 
 	// Check if we're at capacity and need to reject
 	if m.config.MaxSize > 0 && len(m.data) >= m.config.MaxSize && m.data[keyStr] == nil {
-		return store.ErrStoreFull
+		return servicestore.ErrStoreFull
 	}
 
 	// Calculate expiration time if TTL is set
@@ -179,7 +181,7 @@ func (m *Store) Delete(_ context.Context, key registry.ID) error {
 	defer m.mu.Unlock()
 
 	if m.closed {
-		return store.ErrStoreClosed
+		return servicestore.ErrStoreClosed
 	}
 
 	keyStr := key.String()
@@ -197,7 +199,7 @@ func (m *Store) Has(_ context.Context, key registry.ID) (bool, error) {
 	defer m.mu.Unlock()
 
 	if m.closed {
-		return false, store.ErrStoreClosed
+		return false, servicestore.ErrStoreClosed
 	}
 
 	keyStr := key.String()
@@ -270,7 +272,7 @@ func (m *Store) Acquire(_ context.Context, _ registry.ID, mode resource.AccessMo
 
 	// Only support normal mode for now
 	if mode != resource.ModeNormal {
-		return nil, resource.ErrLocked
+		return nil, systemresource.ErrLocked
 	}
 
 	return &storeResource{store: m}, nil

@@ -22,6 +22,8 @@ import (
 	sqlstore "github.com/wippyai/runtime/api/service/store/sql"
 	"github.com/wippyai/runtime/api/store"
 	sqlsvc "github.com/wippyai/runtime/service/sql"
+	servicestore "github.com/wippyai/runtime/service/store"
+	systemresource "github.com/wippyai/runtime/system/resource"
 	"go.uber.org/zap"
 )
 
@@ -577,7 +579,7 @@ func TestSQLStore_Acquire(t *testing.T) {
 
 	// Exclusive mode not supported
 	_, err = ss.Acquire(ctx, registry.ParseID("test:resource"), resource.ModeExclusive)
-	assert.Equal(t, resource.ErrLocked, err)
+	assert.Equal(t, systemresource.ErrLocked, err)
 }
 
 func TestSQLStore_ConcurrentReads(t *testing.T) {
@@ -1113,23 +1115,23 @@ func TestSQLStore_OperationsAfterClose(t *testing.T) {
 
 	// Get after close
 	_, err = ss.Get(ctx, key)
-	assert.Equal(t, store.ErrStoreClosed, err)
+	assert.Equal(t, servicestore.ErrStoreClosed, err)
 
 	// Set after close
 	err = ss.Set(ctx, createTestEntry("test:after-close", "value"))
-	assert.Equal(t, store.ErrStoreClosed, err)
+	assert.Equal(t, servicestore.ErrStoreClosed, err)
 
 	// Has after close
 	_, err = ss.Has(ctx, key)
-	assert.Equal(t, store.ErrStoreClosed, err)
+	assert.Equal(t, servicestore.ErrStoreClosed, err)
 
 	// Delete after close
 	err = ss.Delete(ctx, key)
-	assert.Equal(t, store.ErrStoreClosed, err)
+	assert.Equal(t, servicestore.ErrStoreClosed, err)
 
 	// Start after close should fail
 	_, err = ss.Start(ctx)
-	assert.Equal(t, store.ErrStoreClosed, err)
+	assert.Equal(t, servicestore.ErrStoreClosed, err)
 }
 
 func TestSQLStore_DoubleStop(t *testing.T) {

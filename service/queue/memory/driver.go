@@ -8,6 +8,7 @@ import (
 	"github.com/wippyai/runtime/api/attrs"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
+	queuesvc "github.com/wippyai/runtime/service/queue"
 	"go.uber.org/zap"
 )
 
@@ -65,7 +66,7 @@ func (q *queue) send(ctx context.Context, driverDone <-chan struct{}, msg *queue
 	defer q.mu.RUnlock()
 
 	if q.closed {
-		return queueapi.NewQueueClosedError(q.id)
+		return queuesvc.NewQueueClosedError(q.id)
 	}
 
 	select {
@@ -74,7 +75,7 @@ func (q *queue) send(ctx context.Context, driverDone <-chan struct{}, msg *queue
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-driverDone:
-		return queueapi.ErrDriverNotStarted
+		return queuesvc.ErrDriverNotStarted
 	}
 }
 
@@ -84,7 +85,7 @@ func (q *queue) requeue(ctx context.Context, msg *queueapi.Message) error {
 	defer q.mu.RUnlock()
 
 	if q.closed {
-		return queueapi.ErrQueueClosed
+		return queuesvc.ErrQueueClosed
 	}
 
 	select {
@@ -93,7 +94,7 @@ func (q *queue) requeue(ctx context.Context, msg *queueapi.Message) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
-		return queueapi.ErrQueueFull
+		return queuesvc.ErrQueueFull
 	}
 }
 

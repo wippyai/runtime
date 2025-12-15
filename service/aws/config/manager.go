@@ -13,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/resource"
 	awsconfigapi "github.com/wippyai/runtime/api/service/aws/config"
 	entryutil "github.com/wippyai/runtime/internal/entry"
+	systemresource "github.com/wippyai/runtime/system/resource"
 	"go.uber.org/zap"
 )
 
@@ -184,7 +185,7 @@ func (m *Manager) Acquire(_ context.Context, id registry.ID, mode resource.Acces
 
 	// Only support normal mode for now
 	if mode != resource.ModeNormal {
-		return nil, resource.ErrLocked
+		return nil, systemresource.ErrLocked
 	}
 
 	return &configResource{
