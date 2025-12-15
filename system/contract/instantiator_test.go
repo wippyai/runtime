@@ -802,7 +802,7 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 	t.Run("validation still fails when origin_id is missing from both scope and Go context", func(t *testing.T) {
 		// Create fresh Go context without origin_id (don't reuse ctx which may have values)
 		freshCtx := ctxapi.NewRootContext()
-		callCtx, _ := ctxapi.AcquireFrameContext(freshCtx)
+		callCtx, _ := ctxapi.OpenFrameContext(freshCtx)
 
 		// Create instance with empty scope
 		instance, err := instantiator.Instantiate(callCtx, bindingID, attrs.Bag{})
