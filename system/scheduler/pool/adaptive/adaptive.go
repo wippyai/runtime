@@ -286,7 +286,7 @@ func (a *Pool) spawnWorker() error {
 	}
 	a.workers = append(a.workers, w)
 	if len(a.workers) <= (1<<31 - 1) {
-		a.workerCount.Store(int32(len(a.workers)))
+		a.workerCount.Store(int32(len(a.workers))) //nolint:gosec // bounds checked above
 	}
 	a.mu.Unlock()
 
@@ -308,7 +308,7 @@ func (a *Pool) removeWorker() bool {
 	w := a.workers[idx]
 	a.workers = a.workers[:idx]
 	if len(a.workers) <= (1<<31 - 1) {
-		a.workerCount.Store(int32(len(a.workers)))
+		a.workerCount.Store(int32(len(a.workers))) //nolint:gosec // bounds checked above
 	}
 
 	close(w.stop)
@@ -322,13 +322,13 @@ func (a *Pool) removeWorkersTo(target int32) {
 	if target < 0 {
 		target = 0
 	}
-	for int32(len(a.workers)) > target && len(a.workers) > a.minWorkers {
+	for int32(len(a.workers)) > target && len(a.workers) > a.minWorkers { //nolint:gosec // len is always non-negative
 		idx := len(a.workers) - 1
 		w := a.workers[idx]
 		a.workers = a.workers[:idx]
 		close(w.stop)
 	}
-	a.workerCount.Store(int32(len(a.workers)))
+	a.workerCount.Store(int32(len(a.workers))) //nolint:gosec // len is always non-negative and bounded
 }
 
 func (a *Pool) controlLoop() {

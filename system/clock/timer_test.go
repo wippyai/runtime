@@ -204,7 +204,7 @@ func TestTimerRegistry_Close(t *testing.T) {
 	}
 }
 
-func TestTimerRegistry_Concurrent(t *testing.T) {
+func TestTimerRegistry_Concurrent(_ *testing.T) {
 	r := newTimerRegistry()
 	defer r.close()
 

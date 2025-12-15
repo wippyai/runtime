@@ -464,7 +464,7 @@ func TestEntry_Writer(t *testing.T) {
 	}
 }
 
-func TestScannerEntry_Drop(t *testing.T) {
+func TestScannerEntry_Drop(_ *testing.T) {
 	entry := &ScannerEntry{}
 	entry.Drop()
 }

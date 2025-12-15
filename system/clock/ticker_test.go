@@ -152,7 +152,7 @@ func TestTickerRegistry_Close(t *testing.T) {
 	}
 }
 
-func TestTickerRegistry_Concurrent(t *testing.T) {
+func TestTickerRegistry_Concurrent(_ *testing.T) {
 	r := newTickerRegistry()
 	defer r.close()
 
