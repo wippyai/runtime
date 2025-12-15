@@ -9,6 +9,7 @@ import (
 	ypayload "github.com/wippyai/runtime/system/payload/yaml"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/payload"
 	transcoder "github.com/wippyai/runtime/system/payload"
 	commonpb "go.temporal.io/api/common/v1"

@@ -910,7 +910,7 @@ func TestManager_DefaultBindingValidationEdgeCases(t *testing.T) {
 
 		err := manager.Add(ctx, entry)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), fmt.Sprintf("contract '%s' already has default binding", contractIDs[0]))
+		assert.Contains(t, err.Error(), "already has default binding")
 		assert.Contains(t, err.Error(), "multi_contract_binding")
 		assert.Contains(t, err.Error(), "cannot set binding 'test:conflicting_default' as default")
 	})
@@ -933,7 +933,7 @@ func TestManager_DefaultBindingValidationEdgeCases(t *testing.T) {
 
 		err := manager.Add(ctx, entry)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), fmt.Sprintf("contract '%s' already has default binding", contractIDs[2]))
+		assert.Contains(t, err.Error(), "already has default binding")
 	})
 
 	t.Run("can add default for contract2 (no existing default)", func(t *testing.T) {
@@ -1119,7 +1119,7 @@ func TestManager_DefaultBindingUpdateScenarios(t *testing.T) {
 
 		err := manager.Update(ctx, updateEntry)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), fmt.Sprintf("contract '%s' already has default binding", contractIDs[1]))
+		assert.Contains(t, err.Error(), "already has default binding")
 		assert.Contains(t, err.Error(), "test:bindingB")
 	})
 

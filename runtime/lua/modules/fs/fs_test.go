@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -18,9 +19,14 @@ import (
 
 func requireLuaError(t *testing.T, val lua.LValue) *lua.Error {
 	t.Helper()
-	luaErr, ok := val.(*lua.Error)
-	require.True(t, ok, "expected *lua.Error, got %T", val)
-	return luaErr
+	if err, isErr := val.(error); isErr {
+		var luaErr *lua.Error
+		if errors.As(err, &luaErr) {
+			return luaErr
+		}
+	}
+	require.Fail(t, "expected *lua.Error, got %T", val)
+	return nil
 }
 
 func createTestFS(t *testing.T) (*FS, func()) {

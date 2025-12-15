@@ -581,7 +581,7 @@ func TestTypedTable(t *testing.T) {
 		assert.True(t, ok)
 		assert.Equal(t, "to remove", v)
 
-		v, ok = typed.Get(h)
+		_, ok = typed.Get(h)
 		assert.False(t, ok)
 	})
 
