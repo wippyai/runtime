@@ -27,6 +27,7 @@ import (
 	"github.com/wippyai/runtime/cmd/internal/shutdown"
 	supervisorpkg "github.com/wippyai/runtime/system/supervisor"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 var runCmd = &cobra.Command{
@@ -82,6 +83,9 @@ func runApp(cmd *cobra.Command, args []string) error {
 	if cfg == nil {
 		cfg = createDefaultConfig()
 	}
+
+	// Apply CLI flags as final overrides (verbose, console, etc. take priority over config file)
+	cfg = applyCLIOverrides(cfg)
 
 	overrides, _ := cmd.Flags().GetStringSlice("override")
 	if len(overrides) > 0 {
@@ -195,6 +199,20 @@ func loadBootConfig() (boot.Config, error) {
 func createDefaultConfig() boot.Config {
 	var opts []boot.ConfigOption
 
+	if profiler {
+		opts = append(opts, boot.WithSection("profiler", map[string]interface{}{
+			"enabled": true,
+			"address": "localhost:6060",
+		}))
+	}
+
+	return boot.NewConfig(opts...)
+}
+
+// applyCLIOverrides applies CLI flags as final overrides (takes priority over config file)
+func applyCLIOverrides(cfg boot.Config) boot.Config {
+	var opts []boot.ConfigOption
+
 	if verbose || veryVerbose || console {
 		loggerCfg := map[string]interface{}{}
 
@@ -212,20 +230,24 @@ func createDefaultConfig() boot.Config {
 		}
 	}
 
+	// -v flag must override config file logmanager settings
+	if verbose || veryVerbose {
+		opts = append(opts, boot.WithSection("logmanager", map[string]interface{}{
+			"min_level": int(zapcore.DebugLevel), // -1 for debug
+		}))
+	}
+
 	if eventStreams {
 		opts = append(opts, boot.WithSection("logmanager", map[string]interface{}{
 			"stream_to_events": true,
 		}))
 	}
 
-	if profiler {
-		opts = append(opts, boot.WithSection("profiler", map[string]interface{}{
-			"enabled": true,
-			"address": "localhost:6060",
-		}))
+	if len(opts) == 0 {
+		return cfg
 	}
 
-	return boot.NewConfig(opts...)
+	return bootconfig.Merge(cfg, boot.NewConfig(opts...))
 }
 
 func applyOverrideFlags(cfg boot.Config, overrides []string, logger *zap.Logger) (boot.Config, error) {

@@ -14,7 +14,7 @@ logger:
 logmanager:
   propagate_downstream: true  # Propagate logs to downstream components
   stream_to_events: false     # Stream logs to event bus
-  min_level: 0                # Minimum log level (0=debug, 1=info, 2=warn, 3=error)
+  min_level: 0                # Minimum log level (-1=debug, 0=info, 1=warn, 2=error)
 
 # Profiler configuration
 # Enables pprof profiling endpoints for performance analysis
