@@ -63,10 +63,10 @@ func init() {
 	moduleTable.Immutable = true
 
 	yieldTypes = []luaapi.YieldType{
-		{Sample: &OpenYield{}, CmdID: contract.CmdOpen},
-		{Sample: &CallYield{}, CmdID: contract.CmdCall},
-		{Sample: &AsyncCallYield{}, CmdID: contract.CmdAsyncCall},
-		{Sample: &AsyncCancelYield{}, CmdID: contract.CmdAsyncCancel},
+		{Sample: &OpenYield{}, CmdID: contract.Open},
+		{Sample: &CallYield{}, CmdID: contract.Call},
+		{Sample: &AsyncCallYield{}, CmdID: contract.AsyncCall},
+		{Sample: &AsyncCancelYield{}, CmdID: contract.AsyncCancel},
 	}
 }
 

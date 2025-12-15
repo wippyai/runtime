@@ -119,11 +119,11 @@ func (y *EventSubscribeYield) String() string       { return "<event_subscribe_y
 func (y *EventSubscribeYield) Type() lua.LValueType { return lua.LTUserData }
 
 func (y *EventSubscribeYield) CmdID() dispatcher.CommandID {
-	return event.CmdEventsSubscribe
+	return event.Subscribe
 }
 
 func (y *EventSubscribeYield) ToCommand() dispatcher.Command {
-	return event.EventsSubscribeCmd{
+	return event.SubscribeCmd{
 		System: y.System,
 		Kind:   y.Kind,
 		Topic:  y.Topic,
@@ -281,11 +281,11 @@ func (y *EventSendYield) String() string       { return "<event_send_yield>" }
 func (y *EventSendYield) Type() lua.LValueType { return lua.LTUserData }
 
 func (y *EventSendYield) CmdID() dispatcher.CommandID {
-	return event.CmdEventsSend
+	return event.Send
 }
 
 func (y *EventSendYield) ToCommand() dispatcher.Command {
-	return event.EventsSendCmd{
+	return event.SendCmd{
 		System: y.System,
 		Kind:   y.Kind,
 		Path:   y.Path,

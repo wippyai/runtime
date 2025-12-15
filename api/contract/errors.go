@@ -20,7 +20,7 @@ var (
 // NewMethodNotBoundError creates an error when a method is not bound.
 func NewMethodNotBoundError(method string) apierror.Error {
 	return apierror.E(
-		apierror.KindNotFound,
+		apierror.NotFound,
 		"method '"+method+"' not bound",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"method": method}),
@@ -31,7 +31,7 @@ func NewMethodNotBoundError(method string) apierror.Error {
 // NewMissingContextKeysError creates an error when required context keys are missing.
 func NewMissingContextKeysError(keys []string) apierror.Error {
 	return apierror.E(
-		apierror.KindInvalid,
+		apierror.Invalid,
 		"missing required context keys: ["+strings.Join(keys, ", ")+"]",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"missing_keys": keys}),
@@ -42,7 +42,7 @@ func NewMissingContextKeysError(keys []string) apierror.Error {
 // NewContractNotFoundError creates an error when contract definition is not found.
 func NewContractNotFoundError(id registry.ID) apierror.Error {
 	return apierror.E(
-		apierror.KindNotFound,
+		apierror.NotFound,
 		"contract definition '"+id.String()+"' not found",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"contract_id": id.String()}),
@@ -53,7 +53,7 @@ func NewContractNotFoundError(id registry.ID) apierror.Error {
 // NewBindingNotFoundError creates an error when contract binding is not found.
 func NewBindingNotFoundError(id registry.ID) apierror.Error {
 	return apierror.E(
-		apierror.KindNotFound,
+		apierror.NotFound,
 		"contract binding '"+id.String()+"' not found",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"binding_id": id.String()}),
@@ -64,7 +64,7 @@ func NewBindingNotFoundError(id registry.ID) apierror.Error {
 // NewNoDefaultBindingError creates an error when no default binding exists for a contract.
 func NewNoDefaultBindingError(contractID registry.ID) apierror.Error {
 	return apierror.E(
-		apierror.KindNotFound,
+		apierror.NotFound,
 		"no default binding for contract '"+contractID.String()+"'",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"contract_id": contractID.String()}),
@@ -75,7 +75,7 @@ func NewNoDefaultBindingError(contractID registry.ID) apierror.Error {
 // NewMethodNotFoundError creates an error when a method is not found in a contract.
 func NewMethodNotFoundError(method string, contractID registry.ID) apierror.Error {
 	return apierror.E(
-		apierror.KindNotFound,
+		apierror.NotFound,
 		"method '"+method+"' not found in contract '"+contractID.String()+"'",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"method": method, "contract_id": contractID.String()}),

@@ -85,8 +85,8 @@ func (d *Dispatcher) Stop(_ context.Context) error {
 
 // RegisterAll registers all HTTP client handlers.
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
-	register(httpapi.CmdRequest, dispatcher.HandlerFunc(d.handleRequest))
-	register(httpapi.CmdRequestBatch, dispatcher.HandlerFunc(d.handleRequestBatch))
+	register(httpapi.Request, dispatcher.HandlerFunc(d.handleRequest))
+	register(httpapi.RequestBatch, dispatcher.HandlerFunc(d.handleRequestBatch))
 }
 
 func (d *Dispatcher) handleRequest(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {

@@ -31,7 +31,7 @@ func ReleaseProcessWaitYield(y *ProcessWaitYield) {
 
 func (y *ProcessWaitYield) String() string                { return "<process_wait_yield>" }
 func (y *ProcessWaitYield) Type() lua.LValueType          { return lua.LTUserData }
-func (y *ProcessWaitYield) CmdID() dispatcher.CommandID   { return execapi.CmdProcessWait }
+func (y *ProcessWaitYield) CmdID() dispatcher.CommandID   { return execapi.ProcessWait }
 func (y *ProcessWaitYield) ToCommand() dispatcher.Command { return y.ProcessWaitCmd }
 func (y *ProcessWaitYield) Release()                      { ReleaseProcessWaitYield(y) }
 

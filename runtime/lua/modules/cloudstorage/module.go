@@ -29,12 +29,12 @@ var Module = &luaapi.ModuleDef{
 		value.RegisterTypeMethods(nil, storageTypeName, storageMetamethods, storageMethods)
 
 		return mod, []luaapi.YieldType{
-			{Sample: &ListObjectsYield{}, CmdID: csapi.CmdListObjects},
-			{Sample: &DownloadObjectYield{}, CmdID: csapi.CmdDownloadObject},
-			{Sample: &UploadObjectYield{}, CmdID: csapi.CmdUploadObject},
-			{Sample: &DeleteObjectsYield{}, CmdID: csapi.CmdDeleteObjects},
-			{Sample: &PresignedGetURLYield{}, CmdID: csapi.CmdPresignedGetURL},
-			{Sample: &PresignedPutURLYield{}, CmdID: csapi.CmdPresignedPutURL},
+			{Sample: &ListObjectsYield{}, CmdID: csapi.ListObjects},
+			{Sample: &DownloadObjectYield{}, CmdID: csapi.DownloadObject},
+			{Sample: &UploadObjectYield{}, CmdID: csapi.UploadObject},
+			{Sample: &DeleteObjectsYield{}, CmdID: csapi.DeleteObjects},
+			{Sample: &PresignedGetURLYield{}, CmdID: csapi.PresignedGetURL},
+			{Sample: &PresignedPutURLYield{}, CmdID: csapi.PresignedPutURL},
 		}
 	},
 }

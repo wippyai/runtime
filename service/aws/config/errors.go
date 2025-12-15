@@ -6,27 +6,27 @@ import (
 )
 
 func NewUnsupportedKindError(kind string) error {
-	return apierror.New(apierror.KindInvalid, "unsupported entry kind: "+kind).
+	return apierror.New(apierror.Invalid, "unsupported entry kind: "+kind).
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"kind": kind}))
 }
 
 func NewConfigAlreadyExistsError(id string) error {
-	return apierror.New(apierror.KindAlreadyExists, "config "+id+" already exists").
+	return apierror.New(apierror.AlreadyExists, "config "+id+" already exists").
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"id": id}))
 }
 
 func NewDecodeConfigError(cause error) error {
-	return apierror.New(apierror.KindInvalid, "failed to decode config").WithCause(cause).WithRetryable(apierror.False)
+	return apierror.New(apierror.Invalid, "failed to decode config").WithCause(cause).WithRetryable(apierror.False)
 }
 
 func NewCreateAWSConfigError(cause error) error {
-	return apierror.New(apierror.KindInternal, "failed to create AWS config").WithCause(cause).WithRetryable(apierror.Unknown)
+	return apierror.New(apierror.Internal, "failed to create AWS config").WithCause(cause).WithRetryable(apierror.Unspecified)
 }
 
 func NewConfigNotFoundError(id string) error {
-	return apierror.New(apierror.KindNotFound, "config "+id+" not found").
+	return apierror.New(apierror.NotFound, "config "+id+" not found").
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"id": id}))
 }

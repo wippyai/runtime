@@ -7,23 +7,23 @@ import (
 
 func init() {
 	dispatcher.MustRegisterCommands("stream",
-		CmdRead, CmdClose, CmdWrite,
-		CmdSeek, CmdFlush, CmdStat,
-		CmdScannerCreate, CmdScannerScan,
+		Read, Close, Write,
+		Seek, Flush, Stat,
+		ScannerCreate, ScannerScan,
 	)
 }
 
 // Command IDs for stream operations.
 // Range 50-59 is reserved for stream I/O commands.
 const (
-	CmdRead          dispatcher.CommandID = 50 // Read chunk from stream
-	CmdClose         dispatcher.CommandID = 51 // Close stream
-	CmdWrite         dispatcher.CommandID = 52 // Write data to stream
-	CmdSeek          dispatcher.CommandID = 53 // Seek within stream
-	CmdFlush         dispatcher.CommandID = 54 // Flush buffered data
-	CmdStat          dispatcher.CommandID = 55 // Get stream info (size, etc)
-	CmdScannerCreate dispatcher.CommandID = 56 // Create scanner from stream
-	CmdScannerScan   dispatcher.CommandID = 57 // Scan next token
+	Read          dispatcher.CommandID = 50 // Read chunk from stream
+	Close         dispatcher.CommandID = 51 // Close stream
+	Write         dispatcher.CommandID = 52 // Write data to stream
+	Seek          dispatcher.CommandID = 53 // Seek within stream
+	Flush         dispatcher.CommandID = 54 // Flush buffered data
+	Stat          dispatcher.CommandID = 55 // Get stream info (size, etc)
+	ScannerCreate dispatcher.CommandID = 56 // Create scanner from stream
+	ScannerScan   dispatcher.CommandID = 57 // Scan next token
 )
 
 // Seek whence constants (matching io.Seek*)
@@ -42,7 +42,7 @@ type ReadCmd struct {
 
 // CmdID implements dispatcher.Command.
 func (c ReadCmd) CmdID() dispatcher.CommandID {
-	return CmdRead
+	return Read
 }
 
 // CloseCmd closes a stream and releases resources.
@@ -52,7 +52,7 @@ type CloseCmd struct {
 
 // CmdID implements dispatcher.Command.
 func (c CloseCmd) CmdID() dispatcher.CommandID {
-	return CmdClose
+	return Close
 }
 
 // WriteCmd writes data to a stream.
@@ -64,7 +64,7 @@ type WriteCmd struct {
 
 // CmdID implements dispatcher.Command.
 func (c WriteCmd) CmdID() dispatcher.CommandID {
-	return CmdWrite
+	return Write
 }
 
 // SeekCmd seeks to a position in a seekable stream.
@@ -77,7 +77,7 @@ type SeekCmd struct {
 
 // CmdID implements dispatcher.Command.
 func (c SeekCmd) CmdID() dispatcher.CommandID {
-	return CmdSeek
+	return Seek
 }
 
 // FlushCmd flushes any buffered data.
@@ -87,7 +87,7 @@ type FlushCmd struct {
 
 // CmdID implements dispatcher.Command.
 func (c FlushCmd) CmdID() dispatcher.CommandID {
-	return CmdFlush
+	return Flush
 }
 
 // StatCmd gets information about a stream.
@@ -98,7 +98,7 @@ type StatCmd struct {
 
 // CmdID implements dispatcher.Command.
 func (c StatCmd) CmdID() dispatcher.CommandID {
-	return CmdStat
+	return Stat
 }
 
 // Info contains metadata about a stream.
@@ -125,7 +125,7 @@ type ScannerCreateCmd struct {
 }
 
 func (c ScannerCreateCmd) CmdID() dispatcher.CommandID {
-	return CmdScannerCreate
+	return ScannerCreate
 }
 
 // ScannerScanCmd advances scanner to next token.
@@ -134,7 +134,7 @@ type ScannerScanCmd struct {
 }
 
 func (c ScannerScanCmd) CmdID() dispatcher.CommandID {
-	return CmdScannerScan
+	return ScannerScan
 }
 
 // ScanResult contains the result of a scan operation.

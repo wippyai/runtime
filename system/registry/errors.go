@@ -10,16 +10,16 @@ import (
 
 // Sentinel errors
 var (
-	ErrNoCurrentVersion          = apierror.New(apierror.KindNotFound, "no current version")
-	ErrDependencyResolverNotInit = apierror.New(apierror.KindInternal, "dependency resolver not initialized")
-	ErrEmptyVersionPath          = apierror.New(apierror.KindInternal, "empty version path")
-	ErrNoCommonAncestor          = apierror.New(apierror.KindInternal, "no common ancestor found in version path")
+	ErrNoCurrentVersion          = apierror.New(apierror.NotFound, "no current version")
+	ErrDependencyResolverNotInit = apierror.New(apierror.Internal, "dependency resolver not initialized")
+	ErrEmptyVersionPath          = apierror.New(apierror.Internal, "empty version path")
+	ErrNoCommonAncestor          = apierror.New(apierror.Internal, "no common ancestor found in version path")
 )
 
 // NewEntryNotFoundError creates an error when an entry is not found
 func NewEntryNotFoundError(path registry.ID) apierror.Error {
 	return apierror.E(
-		apierror.KindNotFound,
+		apierror.NotFound,
 		"entry not found: "+path.String(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"path": path.String()}),
@@ -31,7 +31,7 @@ func NewEntryNotFoundError(path registry.ID) apierror.Error {
 func NewApplyChangesError(err error, rollbackErr error) apierror.Error {
 	if rollbackErr != nil {
 		return apierror.E(
-			apierror.KindInternal,
+			apierror.Internal,
 			"failed to apply changes: "+err.Error()+", failed to rollback: "+rollbackErr.Error(),
 			apierror.False,
 			attrs.NewBagFrom(map[string]any{"cause": err.Error(), "rollback_error": rollbackErr.Error()}),
@@ -39,7 +39,7 @@ func NewApplyChangesError(err error, rollbackErr error) apierror.Error {
 		)
 	}
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to apply changes: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -51,7 +51,7 @@ func NewApplyChangesError(err error, rollbackErr error) apierror.Error {
 func NewSaveVersionError(err error, rollbackErr error) apierror.Error {
 	if rollbackErr != nil {
 		return apierror.E(
-			apierror.KindInternal,
+			apierror.Internal,
 			"failed to save new version: "+err.Error()+", failed to rollback: "+rollbackErr.Error(),
 			apierror.False,
 			attrs.NewBagFrom(map[string]any{"cause": err.Error(), "rollback_error": rollbackErr.Error()}),
@@ -59,7 +59,7 @@ func NewSaveVersionError(err error, rollbackErr error) apierror.Error {
 		)
 	}
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to save new version: "+err.Error()+", recovered",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -70,7 +70,7 @@ func NewSaveVersionError(err error, rollbackErr error) apierror.Error {
 // NewGetVersionsError creates an error when getting versions fails
 func NewGetVersionsError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to get versions from history: "+err.Error(),
 		apierror.True,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -81,7 +81,7 @@ func NewGetVersionsError(err error) apierror.Error {
 // NewVersionNotFoundError creates an error when a version is not found
 func NewVersionNotFoundError(versionID uint) apierror.Error {
 	return apierror.E(
-		apierror.KindNotFound,
+		apierror.NotFound,
 		"version not found in history",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"version_id": versionID}),
@@ -92,7 +92,7 @@ func NewVersionNotFoundError(versionID uint) apierror.Error {
 // NewComputePathError creates an error when computing version path fails
 func NewComputePathError(fromID, toID uint, err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to compute path from v"+strconv.FormatUint(uint64(fromID), 10)+" to v"+strconv.FormatUint(uint64(toID), 10)+": "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"from_version": fromID, "to_version": toID, "cause": err.Error()}),
@@ -103,7 +103,7 @@ func NewComputePathError(fromID, toID uint, err error) apierror.Error {
 // NewGetChangesetError creates an error when getting a changeset fails
 func NewGetChangesetError(versionID uint, err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to get changeset for version v"+strconv.FormatUint(uint64(versionID), 10)+": "+err.Error(),
 		apierror.True,
 		attrs.NewBagFrom(map[string]any{"version_id": versionID, "cause": err.Error()}),
@@ -114,7 +114,7 @@ func NewGetChangesetError(versionID uint, err error) apierror.Error {
 // NewReverseChangesetError creates an error when reversing a changeset fails
 func NewReverseChangesetError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to reverse changeset: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -126,7 +126,7 @@ func NewReverseChangesetError(err error) apierror.Error {
 func NewApplyVersionChangesError(err error, rollbackErr error) apierror.Error {
 	if rollbackErr != nil {
 		return apierror.E(
-			apierror.KindInternal,
+			apierror.Internal,
 			"failed to apply version changes: "+err.Error()+", failed to rollback: "+rollbackErr.Error(),
 			apierror.False,
 			attrs.NewBagFrom(map[string]any{"cause": err.Error(), "rollback_error": rollbackErr.Error()}),
@@ -134,7 +134,7 @@ func NewApplyVersionChangesError(err error, rollbackErr error) apierror.Error {
 		)
 	}
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to apply version changes: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -145,7 +145,7 @@ func NewApplyVersionChangesError(err error, rollbackErr error) apierror.Error {
 // NewSetHeadError creates an error when setting the head version fails
 func NewSetHeadError(versionID uint, err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"history set head to "+strconv.FormatUint(uint64(versionID), 10)+": "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"version_id": versionID, "cause": err.Error()}),
@@ -157,7 +157,7 @@ func NewSetHeadError(versionID uint, err error) apierror.Error {
 func NewLoadStateError(err error, rollbackErr error) apierror.Error {
 	if rollbackErr != nil {
 		return apierror.E(
-			apierror.KindInternal,
+			apierror.Internal,
 			"failed to load state: "+err.Error()+", failed to rollback: "+rollbackErr.Error(),
 			apierror.False,
 			attrs.NewBagFrom(map[string]any{"cause": err.Error(), "rollback_error": rollbackErr.Error()}),
@@ -165,7 +165,7 @@ func NewLoadStateError(err error, rollbackErr error) apierror.Error {
 		)
 	}
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to load state: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -176,7 +176,7 @@ func NewLoadStateError(err error, rollbackErr error) apierror.Error {
 // NewComputeTransitionError creates an error when computing state transition fails
 func NewComputeTransitionError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to compute transition: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),

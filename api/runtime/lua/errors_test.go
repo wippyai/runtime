@@ -14,14 +14,14 @@ func TestSentinelErrors(t *testing.T) {
 		kind    apierror.Kind
 		message string
 	}{
-		{"ErrSourceRequired", ErrSourceRequired, apierror.KindInvalid, "source is required"},
-		{"ErrMethodRequired", ErrMethodRequired, apierror.KindInvalid, "method is required"},
-		{"ErrEmptyImportAlias", ErrEmptyImportAlias, apierror.KindInvalid, "import alias cannot be empty"},
-		{"ErrEmptyModule", ErrEmptyModule, apierror.KindInvalid, "module cannot be empty"},
-		{"ErrFSRequired", ErrFSRequired, apierror.KindInvalid, "fs is required"},
-		{"ErrPathRequired", ErrPathRequired, apierror.KindInvalid, "path is required"},
-		{"ErrHashRequired", ErrHashRequired, apierror.KindInvalid, "hash is required"},
-		{"ErrTranscoderNotFound", ErrTranscoderNotFound, apierror.KindNotFound, "transcoder not found in context"},
+		{"ErrSourceRequired", ErrSourceRequired, apierror.Invalid, "source is required"},
+		{"ErrMethodRequired", ErrMethodRequired, apierror.Invalid, "method is required"},
+		{"ErrEmptyImportAlias", ErrEmptyImportAlias, apierror.Invalid, "import alias cannot be empty"},
+		{"ErrEmptyModule", ErrEmptyModule, apierror.Invalid, "module cannot be empty"},
+		{"ErrFSRequired", ErrFSRequired, apierror.Invalid, "fs is required"},
+		{"ErrPathRequired", ErrPathRequired, apierror.Invalid, "path is required"},
+		{"ErrHashRequired", ErrHashRequired, apierror.Invalid, "hash is required"},
+		{"ErrTranscoderNotFound", ErrTranscoderNotFound, apierror.NotFound, "transcoder not found in context"},
 	}
 
 	for _, tt := range tests {
@@ -42,29 +42,29 @@ func TestSentinelErrors(t *testing.T) {
 func TestConfigErrorFactories(t *testing.T) {
 	t.Run("NewInvalidPoolSizeError", func(t *testing.T) {
 		err := NewInvalidPoolSizeError()
-		if err.Kind() != apierror.KindInvalid {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInvalid)
+		if err.Kind() != apierror.Invalid {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Invalid)
 		}
 	})
 
 	t.Run("NewInvalidWorkerPoolSizeError", func(t *testing.T) {
 		err := NewInvalidWorkerPoolSizeError()
-		if err.Kind() != apierror.KindInvalid {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInvalid)
+		if err.Kind() != apierror.Invalid {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Invalid)
 		}
 	})
 
 	t.Run("NewEmptyImportNameError", func(t *testing.T) {
 		err := NewEmptyImportNameError()
-		if err.Kind() != apierror.KindInvalid {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInvalid)
+		if err.Kind() != apierror.Invalid {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Invalid)
 		}
 	})
 
 	t.Run("NewModuleNamespaceError", func(t *testing.T) {
 		err := NewModuleNamespaceError()
-		if err.Kind() != apierror.KindInvalid {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInvalid)
+		if err.Kind() != apierror.Invalid {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Invalid)
 		}
 	})
 }
@@ -72,8 +72,8 @@ func TestConfigErrorFactories(t *testing.T) {
 func TestComponentErrorFactories(t *testing.T) {
 	t.Run("NewInvalidEntryKindError", func(t *testing.T) {
 		err := NewInvalidEntryKindError("process", "function")
-		if err.Kind() != apierror.KindInvalid {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInvalid)
+		if err.Kind() != apierror.Invalid {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Invalid)
 		}
 		expected := "invalid entry kind process, expected function"
 		if err.Error() != expected {
@@ -84,8 +84,8 @@ func TestComponentErrorFactories(t *testing.T) {
 	t.Run("NewValidationError", func(t *testing.T) {
 		cause := errors.New("missing required field")
 		err := NewValidationError(cause)
-		if err.Kind() != apierror.KindInvalid {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInvalid)
+		if err.Kind() != apierror.Invalid {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Invalid)
 		}
 		expected := "invalid configuration: missing required field"
 		if err.Error() != expected {
@@ -95,8 +95,8 @@ func TestComponentErrorFactories(t *testing.T) {
 
 	t.Run("NewPoolNotFoundError", func(t *testing.T) {
 		err := NewPoolNotFoundError("app.functions.myFunc")
-		if err.Kind() != apierror.KindNotFound {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindNotFound)
+		if err.Kind() != apierror.NotFound {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.NotFound)
 		}
 		expected := "pool not found: app.functions.myFunc"
 		if err.Error() != expected {
@@ -106,8 +106,8 @@ func TestComponentErrorFactories(t *testing.T) {
 
 	t.Run("NewUnknownPoolTypeError", func(t *testing.T) {
 		err := NewUnknownPoolTypeError("distributed")
-		if err.Kind() != apierror.KindInvalid {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInvalid)
+		if err.Kind() != apierror.Invalid {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Invalid)
 		}
 		expected := "unknown pool type: distributed"
 		if err.Error() != expected {
@@ -120,15 +120,15 @@ func TestBytecodeErrorFactories(t *testing.T) {
 	t.Run("NewHashVerificationError", func(t *testing.T) {
 		cause := errors.New("hash mismatch")
 		err := NewHashVerificationError(cause)
-		if err.Kind() != apierror.KindInvalid {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInvalid)
+		if err.Kind() != apierror.Invalid {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Invalid)
 		}
 	})
 
 	t.Run("NewFilesystemNotFoundError", func(t *testing.T) {
 		err := NewFilesystemNotFoundError("my-fs")
-		if err.Kind() != apierror.KindNotFound {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindNotFound)
+		if err.Kind() != apierror.NotFound {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.NotFound)
 		}
 		expected := "filesystem not found: my-fs"
 		if err.Error() != expected {
@@ -139,8 +139,8 @@ func TestBytecodeErrorFactories(t *testing.T) {
 	t.Run("NewOpenFileError", func(t *testing.T) {
 		cause := errors.New("permission denied")
 		err := NewOpenFileError("/path/to/file.lua", cause)
-		if err.Kind() != apierror.KindNotFound {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindNotFound)
+		if err.Kind() != apierror.NotFound {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.NotFound)
 		}
 		expected := "failed to open file: /path/to/file.lua"
 		if err.Error() != expected {
@@ -150,22 +150,22 @@ func TestBytecodeErrorFactories(t *testing.T) {
 
 	t.Run("NewInvalidHashFormatError", func(t *testing.T) {
 		err := NewInvalidHashFormatError("invalid")
-		if err.Kind() != apierror.KindInvalid {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInvalid)
+		if err.Kind() != apierror.Invalid {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Invalid)
 		}
 	})
 
 	t.Run("NewUnsupportedHashAlgorithmError", func(t *testing.T) {
 		err := NewUnsupportedHashAlgorithmError("md5")
-		if err.Kind() != apierror.KindInvalid {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInvalid)
+		if err.Kind() != apierror.Invalid {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Invalid)
 		}
 	})
 
 	t.Run("NewHashMismatchError", func(t *testing.T) {
 		err := NewHashMismatchError("abc123", "def456")
-		if err.Kind() != apierror.KindInvalid {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInvalid)
+		if err.Kind() != apierror.Invalid {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Invalid)
 		}
 		expected := "hash mismatch: expected abc123, got def456"
 		if err.Error() != expected {

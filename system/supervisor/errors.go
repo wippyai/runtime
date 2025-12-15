@@ -8,12 +8,12 @@ import (
 )
 
 var (
-	ErrStartTimeout = apierror.New(apierror.KindTimeout, "service start timed out").WithRetryable(apierror.True)
+	ErrStartTimeout = apierror.New(apierror.Timeout, "service start timed out").WithRetryable(apierror.True)
 )
 
 func NewInvalidDurationError(field string, cause error) apierror.Error {
 	return apierror.E(
-		apierror.KindInvalid,
+		apierror.Invalid,
 		"invalid "+field+" duration format",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"field": field}),
@@ -23,7 +23,7 @@ func NewInvalidDurationError(field string, cause error) apierror.Error {
 
 func NewServiceNotFoundError(serviceID string) apierror.Error {
 	return apierror.E(
-		apierror.KindNotFound,
+		apierror.NotFound,
 		"service "+serviceID+" not found",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"service_id": serviceID}),
@@ -33,7 +33,7 @@ func NewServiceNotFoundError(serviceID string) apierror.Error {
 
 func NewSubscriberError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to create event subscriber: "+err.Error(),
 		apierror.True,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -43,7 +43,7 @@ func NewSubscriberError(err error) apierror.Error {
 
 func NewDependencyResolveError(serviceID string, err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to resolve dependencies for "+serviceID+": "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"service_id": serviceID, "cause": err.Error()}),
@@ -53,7 +53,7 @@ func NewDependencyResolveError(serviceID string, err error) apierror.Error {
 
 func NewStartOperationsError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to build start operations: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -63,7 +63,7 @@ func NewStartOperationsError(err error) apierror.Error {
 
 func NewTransitionError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to execute transitions: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -73,7 +73,7 @@ func NewTransitionError(err error) apierror.Error {
 
 func NewStopError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to stop service: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -83,7 +83,7 @@ func NewStopError(err error) apierror.Error {
 
 func NewServiceStartError(serviceID string, err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to start service "+serviceID+": "+err.Error(),
 		apierror.True,
 		attrs.NewBagFrom(map[string]any{"service_id": serviceID, "cause": err.Error()}),
@@ -93,7 +93,7 @@ func NewServiceStartError(serviceID string, err error) apierror.Error {
 
 func NewServiceStopError(serviceID string, err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to stop service "+serviceID+": "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"service_id": serviceID, "cause": err.Error()}),
@@ -103,7 +103,7 @@ func NewServiceStopError(serviceID string, err error) apierror.Error {
 
 func NewStartSequenceError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"start sequence failed: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -113,7 +113,7 @@ func NewStartSequenceError(err error) apierror.Error {
 
 func NewStopSequenceError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"stop sequence failed: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -123,7 +123,7 @@ func NewStopSequenceError(err error) apierror.Error {
 
 func NewDependencyLevelsError(phase string, err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to determine "+phase+" dependency levels: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"phase": phase, "cause": err.Error()}),
@@ -133,7 +133,7 @@ func NewDependencyLevelsError(phase string, err error) apierror.Error {
 
 func NewMultiStartError(count int, firstErr error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"start failed for multiple services: "+firstErr.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"failed_count": count, "first_error": firstErr.Error()}),
@@ -143,7 +143,7 @@ func NewMultiStartError(count int, firstErr error) apierror.Error {
 
 func NewMultiStopError(count int, firstErr error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"stop failed for multiple services: "+firstErr.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"failed_count": count, "first_error": firstErr.Error()}),
@@ -153,7 +153,7 @@ func NewMultiStopError(count int, firstErr error) apierror.Error {
 
 func NewCommitRemoveError(serviceID string, err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to remove service "+serviceID+" during commit: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"service_id": serviceID, "cause": err.Error()}),
@@ -163,7 +163,7 @@ func NewCommitRemoveError(serviceID string, err error) apierror.Error {
 
 func NewCommitRegisterError(serviceID string, err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to register service "+serviceID+" during commit: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"service_id": serviceID, "cause": err.Error()}),
@@ -173,7 +173,7 @@ func NewCommitRegisterError(serviceID string, err error) apierror.Error {
 
 func NewStopTimeoutError(timeout time.Duration) apierror.Error {
 	return apierror.E(
-		apierror.KindTimeout,
+		apierror.Timeout,
 		"service stop timed out after "+timeout.String(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"timeout": timeout.String()}),
@@ -183,7 +183,7 @@ func NewStopTimeoutError(timeout time.Duration) apierror.Error {
 
 func NewSupervisorStoppedError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindUnavailable,
+		apierror.Unavailable,
 		"supervisor is stopped: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),

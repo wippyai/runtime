@@ -14,7 +14,7 @@ func TestErrorConstructors(t *testing.T) {
 		cause := errors.New("test error")
 		err := payload.NewTranscodeError("json", "golang", cause)
 		assert.Contains(t, err.Error(), "transcoding")
-		assert.Equal(t, apierror.KindInternal, err.Kind())
+		assert.Equal(t, apierror.Internal, err.Kind())
 		assert.True(t, errors.Is(err, cause))
 	})
 
@@ -22,14 +22,14 @@ func TestErrorConstructors(t *testing.T) {
 		cause := errors.New("test error")
 		err := payload.NewUnmarshalTranscodeError(cause)
 		assert.Contains(t, err.Error(), "transcoding payload")
-		assert.Equal(t, apierror.KindInternal, err.Kind())
+		assert.Equal(t, apierror.Internal, err.Kind())
 		assert.True(t, errors.Is(err, cause))
 	})
 
 	t.Run("NewUnmarshalerNotFoundError", func(t *testing.T) {
 		err := payload.NewUnmarshalerNotFoundError("json")
 		assert.Contains(t, err.Error(), "unmarshaler not found")
-		assert.Equal(t, apierror.KindInternal, err.Kind())
+		assert.Equal(t, apierror.Internal, err.Kind())
 	})
 
 	t.Run("NewMarshalError", func(t *testing.T) {
@@ -37,7 +37,7 @@ func TestErrorConstructors(t *testing.T) {
 		err := payload.NewMarshalError("json", cause)
 		assert.Contains(t, err.Error(), "marshal")
 		assert.Contains(t, err.Error(), "json")
-		assert.Equal(t, apierror.KindInternal, err.Kind())
+		assert.Equal(t, apierror.Internal, err.Kind())
 		assert.True(t, errors.Is(err, cause))
 	})
 }

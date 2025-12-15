@@ -352,15 +352,15 @@ func TestExitError(t *testing.T) {
 	assert.Equal(t, 42, err.ExitCode())
 
 	// Test Kind for normal exit codes
-	assert.Equal(t, apierror.KindInternal, err.Kind())
+	assert.Equal(t, apierror.Internal, err.Kind())
 
 	// Test Kind for SIGKILL (137)
 	sigkillErr := &ExitError{Code: 137}
-	assert.Equal(t, apierror.KindCanceled, sigkillErr.Kind())
+	assert.Equal(t, apierror.Canceled, sigkillErr.Kind())
 
 	// Test Kind for SIGTERM (143)
 	sigtermErr := &ExitError{Code: 143}
-	assert.Equal(t, apierror.KindCanceled, sigtermErr.Kind())
+	assert.Equal(t, apierror.Canceled, sigtermErr.Kind())
 
 	// Test Retryable
 	assert.Equal(t, apierror.False, err.Retryable())
@@ -374,18 +374,18 @@ func TestExitError(t *testing.T) {
 
 func TestDockerError(t *testing.T) {
 	// Test sentinel errors implement apierror.Error
-	assert.Equal(t, apierror.KindInvalid, ErrContainerNotStarted.Kind())
+	assert.Equal(t, apierror.Invalid, ErrContainerNotStarted.Kind())
 	assert.Equal(t, apierror.False, ErrContainerNotStarted.Retryable())
 	assert.Nil(t, ErrContainerNotStarted.Details())
 
-	assert.Equal(t, apierror.KindAlreadyExists, ErrContainerAlreadyStart.Kind())
-	assert.Equal(t, apierror.KindInvalid, ErrContainerStopped.Kind())
-	assert.Equal(t, apierror.KindUnavailable, ErrStdinNotAvailable.Kind())
+	assert.Equal(t, apierror.AlreadyExists, ErrContainerAlreadyStart.Kind())
+	assert.Equal(t, apierror.Invalid, ErrContainerStopped.Kind())
+	assert.Equal(t, apierror.Unavailable, ErrStdinNotAvailable.Kind())
 }
 
 func TestNewCommandNotAllowedError(t *testing.T) {
 	err := NewCommandNotAllowedError("rm -rf /")
-	assert.Equal(t, apierror.KindPermissionDenied, err.Kind())
+	assert.Equal(t, apierror.PermissionDenied, err.Kind())
 	assert.Equal(t, apierror.False, err.Retryable())
 	assert.Contains(t, err.Error(), "rm -rf /")
 	assert.Contains(t, err.Error(), "not in whitelist")

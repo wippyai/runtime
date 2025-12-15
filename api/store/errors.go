@@ -8,15 +8,15 @@ import (
 
 // Sentinel errors.
 var (
-	ErrKeyNotFound = apierror.New(apierror.KindNotFound, "key not found").WithRetryable(apierror.False)
-	ErrKeyExists   = apierror.New(apierror.KindAlreadyExists, "key already exists").WithRetryable(apierror.False)
-	ErrInvalidKey  = apierror.New(apierror.KindInvalid, "invalid key format").WithRetryable(apierror.False)
+	ErrKeyNotFound = apierror.New(apierror.NotFound, "key not found").WithRetryable(apierror.False)
+	ErrKeyExists   = apierror.New(apierror.AlreadyExists, "key already exists").WithRetryable(apierror.False)
+	ErrInvalidKey  = apierror.New(apierror.Invalid, "invalid key format").WithRetryable(apierror.False)
 )
 
 // NewKeyNotFoundError creates a key not found error with details.
 func NewKeyNotFoundError(key registry.ID) apierror.Error {
 	return apierror.E(
-		apierror.KindNotFound,
+		apierror.NotFound,
 		"key not found",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"key": key.String()}),
@@ -27,7 +27,7 @@ func NewKeyNotFoundError(key registry.ID) apierror.Error {
 // NewKeyExistsError creates a key exists error with details.
 func NewKeyExistsError(key registry.ID) apierror.Error {
 	return apierror.E(
-		apierror.KindAlreadyExists,
+		apierror.AlreadyExists,
 		"key already exists",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"key": key.String()}),
@@ -38,7 +38,7 @@ func NewKeyExistsError(key registry.ID) apierror.Error {
 // NewInvalidKeyError creates an invalid key error with details.
 func NewInvalidKeyError(key string, reason string) apierror.Error {
 	return apierror.E(
-		apierror.KindInvalid,
+		apierror.Invalid,
 		"invalid key format: "+reason,
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"key": key, "reason": reason}),
@@ -49,7 +49,7 @@ func NewInvalidKeyError(key string, reason string) apierror.Error {
 // NewUnsupportedKindError creates an unsupported kind error.
 func NewUnsupportedKindError(kind string) apierror.Error {
 	return apierror.E(
-		apierror.KindInvalid,
+		apierror.Invalid,
 		"unsupported entry kind: "+kind,
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"kind": kind}),
@@ -60,7 +60,7 @@ func NewUnsupportedKindError(kind string) apierror.Error {
 // NewStoreAlreadyExistsError creates a store already exists error.
 func NewStoreAlreadyExistsError(id string) apierror.Error {
 	return apierror.E(
-		apierror.KindAlreadyExists,
+		apierror.AlreadyExists,
 		"store "+id+" already exists",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"id": id}),
@@ -71,7 +71,7 @@ func NewStoreAlreadyExistsError(id string) apierror.Error {
 // NewStoreNotFoundError creates a store not found error.
 func NewStoreNotFoundError(id string) apierror.Error {
 	return apierror.E(
-		apierror.KindNotFound,
+		apierror.NotFound,
 		"store "+id+" not found",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"id": id}),

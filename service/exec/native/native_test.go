@@ -819,7 +819,7 @@ func TestProcessExecutor_State(t *testing.T) {
 func TestNativeError(t *testing.T) {
 	// Test sentinel error interface methods
 	assert.Equal(t, "process is not running", ErrProcessNotRunning.Error())
-	assert.Equal(t, apierror.KindInvalid, ErrProcessNotRunning.Kind())
+	assert.Equal(t, apierror.Invalid, ErrProcessNotRunning.Kind())
 	assert.Equal(t, apierror.False, ErrProcessNotRunning.Retryable())
 	assert.Nil(t, ErrProcessNotRunning.Details())
 	assert.Nil(t, errors.Unwrap(ErrProcessNotRunning))
@@ -830,7 +830,7 @@ func TestNativeError(t *testing.T) {
 
 func TestNewCommandNotAllowedError(t *testing.T) {
 	err := NewCommandNotAllowedError("rm -rf /")
-	assert.Equal(t, apierror.KindPermissionDenied, err.Kind())
+	assert.Equal(t, apierror.PermissionDenied, err.Kind())
 	assert.Equal(t, apierror.False, err.Retryable())
 	assert.Contains(t, err.Error(), "rm -rf /")
 
@@ -844,7 +844,7 @@ func TestExitError(t *testing.T) {
 	err := &ExitError{Code: 42}
 	assert.Equal(t, "process exited with code 42", err.Error())
 	assert.Equal(t, 42, err.ExitCode())
-	assert.Equal(t, apierror.KindInternal, err.Kind())
+	assert.Equal(t, apierror.Internal, err.Kind())
 	assert.Equal(t, apierror.False, err.Retryable())
 
 	details := err.Details()
@@ -854,36 +854,36 @@ func TestExitError(t *testing.T) {
 
 	// Test SIGKILL (137) returns Canceled
 	sigkillErr := &ExitError{Code: 137}
-	assert.Equal(t, apierror.KindCanceled, sigkillErr.Kind())
+	assert.Equal(t, apierror.Canceled, sigkillErr.Kind())
 
 	// Test SIGTERM (143) returns Canceled
 	sigtermErr := &ExitError{Code: 143}
-	assert.Equal(t, apierror.KindCanceled, sigtermErr.Kind())
+	assert.Equal(t, apierror.Canceled, sigtermErr.Kind())
 }
 
 func TestAPIErrors(t *testing.T) {
 	t.Run("NewUnsupportedEntryKindError", func(t *testing.T) {
 		err := serviceexec.NewUnsupportedEntryKindError("unknown.kind")
-		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		assert.Equal(t, apierror.Invalid, err.Kind())
 		assert.Contains(t, err.Error(), "unknown.kind")
 	})
 
 	t.Run("NewExecutorAlreadyExistsError", func(t *testing.T) {
 		err := serviceexec.NewExecutorAlreadyExistsError("exec-1")
-		assert.Equal(t, apierror.KindAlreadyExists, err.Kind())
+		assert.Equal(t, apierror.AlreadyExists, err.Kind())
 		assert.Contains(t, err.Error(), "exec-1")
 	})
 
 	t.Run("NewExecutorNotFoundError", func(t *testing.T) {
 		err := serviceexec.NewExecutorNotFoundError("exec-1")
-		assert.Equal(t, apierror.KindNotFound, err.Kind())
+		assert.Equal(t, apierror.NotFound, err.Kind())
 		assert.Contains(t, err.Error(), "exec-1")
 	})
 
 	t.Run("NewConfigDecodeError", func(t *testing.T) {
 		originalErr := errors.New("invalid json")
 		err := serviceexec.NewConfigDecodeError(originalErr)
-		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		assert.Equal(t, apierror.Invalid, err.Kind())
 		assert.Contains(t, err.Error(), "invalid json")
 		assert.Equal(t, originalErr, errors.Unwrap(err))
 	})
@@ -891,7 +891,7 @@ func TestAPIErrors(t *testing.T) {
 	t.Run("NewExecutorCreateError", func(t *testing.T) {
 		originalErr := errors.New("failed to init")
 		err := serviceexec.NewExecutorCreateError(originalErr)
-		assert.Equal(t, apierror.KindInternal, err.Kind())
+		assert.Equal(t, apierror.Internal, err.Kind())
 		assert.Equal(t, apierror.True, err.Retryable())
 		assert.Contains(t, err.Error(), "failed to init")
 	})

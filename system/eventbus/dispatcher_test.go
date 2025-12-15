@@ -103,7 +103,7 @@ func TestDispatcher_Subscribe(t *testing.T) {
 		},
 	}
 
-	cmd := event.EventsSubscribeCmd{
+	cmd := event.SubscribeCmd{
 		System: "test.system",
 		Kind:   "test.kind",
 		Topic:  "events@1",
@@ -212,7 +212,7 @@ func TestDispatcher_Send(t *testing.T) {
 		},
 	}
 
-	cmd := event.EventsSendCmd{
+	cmd := event.SendCmd{
 		System: "test.system",
 		Kind:   "test.kind",
 		Path:   "/test/path",
@@ -260,8 +260,8 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 		registered[id] = h
 	})
 
-	assert.NotNil(t, registered[event.CmdEventsSubscribe])
-	assert.NotNil(t, registered[event.CmdEventsSend])
+	assert.NotNil(t, registered[event.Subscribe])
+	assert.NotNil(t, registered[event.Send])
 	assert.Len(t, registered, 2)
 }
 
@@ -342,7 +342,7 @@ func TestDispatcher_SubscribeUnsubscribeCallback(t *testing.T) {
 		},
 	}
 
-	cmd := event.EventsSubscribeCmd{
+	cmd := event.SubscribeCmd{
 		System: "test.system",
 		Kind:   "test.kind",
 		Topic:  "events@unsub",

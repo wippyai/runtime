@@ -198,7 +198,7 @@ func toDuration(v any) time.Duration {
 func isRetryable(err error, retryKinds, skipKinds []string) bool {
 	var apiErr apierror.Error
 	if !errors.As(err, &apiErr) {
-		return isKindAllowed(apierror.KindUnknown, retryKinds, skipKinds)
+		return isKindAllowed(apierror.Unknown, retryKinds, skipKinds)
 	}
 
 	if apiErr.Retryable() == apierror.False {
@@ -218,7 +218,7 @@ func isKindAllowed(kind apierror.Kind, retryKinds, skipKinds []string) bool {
 	}
 
 	switch kind {
-	case apierror.KindInvalid, apierror.KindPermissionDenied, apierror.KindInternal:
+	case apierror.Invalid, apierror.PermissionDenied, apierror.Internal:
 		return false
 	default:
 		return true

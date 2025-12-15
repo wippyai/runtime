@@ -13,5 +13,5 @@ var (
 )
 
 func NewDecodeConfigError(cause error) apierror.Error {
-	return apierror.New(apierror.KindInvalid, "failed to decode terminal config").WithCause(cause).WithRetryable(apierror.False)
+	return apierror.New(apierror.Invalid, "failed to decode terminal config").WithCause(cause).WithRetryable(apierror.False)
 }

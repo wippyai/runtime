@@ -1297,13 +1297,13 @@ func toAPIError(err error) error {
 	case lua.TernaryFalse:
 		retryable = apierror.False
 	default:
-		retryable = apierror.Unknown
+		retryable = apierror.Unspecified
 	}
 
 	// Convert lua.Kind to apierror.Kind
 	kind := apierror.Kind(luaErr.Kind())
 	if kind == "" {
-		kind = apierror.KindInternal
+		kind = apierror.Internal
 	}
 
 	return apierror.New(kind, luaErr.Error()).WithRetryable(retryable).WithCause(luaErr)

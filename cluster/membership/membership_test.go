@@ -279,7 +279,7 @@ func TestEventDelegate_NotifyJoin_PublishesEvent(t *testing.T) {
 
 	require.Len(t, receivedEvents, 1)
 	assert.Equal(t, cluster.System, receivedEvents[0].System)
-	assert.Equal(t, cluster.NodeJoinedEventKind, receivedEvents[0].Kind)
+	assert.Equal(t, cluster.NodeJoined, receivedEvents[0].Kind)
 	assert.Equal(t, "remote-node", receivedEvents[0].Path)
 
 	nodeEvent := receivedEvents[0].Data.(cluster.NodeEvent)
@@ -334,7 +334,7 @@ func TestEventDelegate_NotifyLeave_PublishesEvent(t *testing.T) {
 	defer mu.Unlock()
 
 	require.Len(t, receivedEvents, 1)
-	assert.Equal(t, cluster.NodeLeftEventKind, receivedEvents[0].Kind)
+	assert.Equal(t, cluster.NodeLeft, receivedEvents[0].Kind)
 	assert.Equal(t, "remote-node", receivedEvents[0].Path)
 
 	service.mu.RLock()
@@ -386,7 +386,7 @@ func TestEventDelegate_NotifyUpdate_PublishesEvent(t *testing.T) {
 	defer mu.Unlock()
 
 	require.Len(t, receivedEvents, 1)
-	assert.Equal(t, cluster.NodeUpdatedEventKind, receivedEvents[0].Kind)
+	assert.Equal(t, cluster.NodeUpdated, receivedEvents[0].Kind)
 
 	nodeEvent := receivedEvents[0].Data.(cluster.NodeEvent)
 	assert.Equal(t, "2.0", nodeEvent.Node.Meta["version"])

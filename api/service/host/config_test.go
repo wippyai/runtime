@@ -177,7 +177,7 @@ func TestError_Interface(t *testing.T) {
 	t.Run("ErrInvalidWorkers", func(t *testing.T) {
 		err := ErrInvalidWorkers
 		assert.Equal(t, "workers must be greater than 0", err.Error())
-		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		assert.Equal(t, apierror.Invalid, err.Kind())
 		assert.Equal(t, apierror.False, err.Retryable())
 		assert.Nil(t, err.Details())
 		assert.Nil(t, errors.Unwrap(err))
@@ -186,12 +186,12 @@ func TestError_Interface(t *testing.T) {
 	t.Run("ErrInvalidQueueSize", func(t *testing.T) {
 		err := ErrInvalidQueueSize
 		assert.Equal(t, "queue size must be greater than 0", err.Error())
-		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		assert.Equal(t, apierror.Invalid, err.Kind())
 	})
 
 	t.Run("ErrInvalidLocalQueueSize", func(t *testing.T) {
 		err := ErrInvalidLocalQueueSize
 		assert.Equal(t, "local queue size must be greater than 0", err.Error())
-		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		assert.Equal(t, apierror.Invalid, err.Kind())
 	})
 }

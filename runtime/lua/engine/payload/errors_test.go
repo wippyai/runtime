@@ -19,7 +19,7 @@ func TestErrorInterface(t *testing.T) {
 	})
 
 	t.Run("Kind", func(t *testing.T) {
-		assert.Equal(t, apierror.KindInternal, err.Kind())
+		assert.Equal(t, apierror.Internal, err.Kind())
 	})
 
 	t.Run("Retryable", func(t *testing.T) {
@@ -38,7 +38,7 @@ func TestErrorInterface(t *testing.T) {
 func TestNewInvalidFormatError(t *testing.T) {
 	err := luaapi.NewInvalidFormatError("invalid format")
 	assert.Equal(t, "invalid format", err.Error())
-	assert.Equal(t, apierror.KindInvalid, err.Kind())
+	assert.Equal(t, apierror.Invalid, err.Kind())
 	assert.Equal(t, apierror.False, err.Retryable())
 	assert.Nil(t, errors.Unwrap(err))
 }
@@ -46,7 +46,7 @@ func TestNewInvalidFormatError(t *testing.T) {
 func TestNewInvalidTypeError(t *testing.T) {
 	err := luaapi.NewInvalidTypeError("invalid type")
 	assert.Equal(t, "invalid type", err.Error())
-	assert.Equal(t, apierror.KindInvalid, err.Kind())
+	assert.Equal(t, apierror.Invalid, err.Kind())
 	assert.Equal(t, apierror.False, err.Retryable())
 	assert.Nil(t, errors.Unwrap(err))
 }
@@ -55,7 +55,7 @@ func TestNewTranscodeError(t *testing.T) {
 	cause := errors.New("underlying error")
 	err := runtimelua.NewTranscodeError("transcode failed", cause)
 	assert.Equal(t, "transcode failed: underlying error", err.Error())
-	assert.Equal(t, apierror.KindInternal, err.Kind())
+	assert.Equal(t, apierror.Internal, err.Kind())
 	assert.Equal(t, apierror.False, err.Retryable())
 	assert.Equal(t, cause, errors.Unwrap(err))
 }
@@ -64,7 +64,7 @@ func TestNewConversionError(t *testing.T) {
 	cause := errors.New("conversion issue")
 	err := runtimelua.NewConversionError("conversion failed", cause)
 	assert.Equal(t, "conversion failed: conversion issue", err.Error())
-	assert.Equal(t, apierror.KindInternal, err.Kind())
+	assert.Equal(t, apierror.Internal, err.Kind())
 	assert.Equal(t, apierror.False, err.Retryable())
 	assert.Equal(t, cause, errors.Unwrap(err))
 }
@@ -72,7 +72,7 @@ func TestNewConversionError(t *testing.T) {
 func TestNewUnsupportedTypeError(t *testing.T) {
 	err := luaapi.NewUnsupportedTypeError("unsupported type: custom")
 	assert.Equal(t, "unsupported type: custom", err.Error())
-	assert.Equal(t, apierror.KindInvalid, err.Kind())
+	assert.Equal(t, apierror.Invalid, err.Kind())
 	assert.Equal(t, apierror.False, err.Retryable())
 	assert.Nil(t, errors.Unwrap(err))
 }

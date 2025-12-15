@@ -7,19 +7,19 @@ import (
 
 func init() {
 	dispatcher.MustRegisterCommands("events",
-		CmdEventsSubscribe, CmdEventsSend,
+		Subscribe, Send,
 	)
 }
 
 // Command IDs for event bus operations.
 // Range 90-94 is reserved for event bus commands.
 const (
-	CmdEventsSubscribe dispatcher.CommandID = 90 // Subscribe to event bus
-	CmdEventsSend      dispatcher.CommandID = 91 // Send event to bus
+	Subscribe dispatcher.CommandID = 90 // Subscribe to event bus
+	Send      dispatcher.CommandID = 91 // Send event to bus
 )
 
-// EventsSubscribeCmd subscribes to events from the bus and forwards them via relay.
-type EventsSubscribeCmd struct {
+// SubscribeCmd subscribes to events from the bus and forwards them via relay.
+type SubscribeCmd struct {
 	System string  // Event system pattern to subscribe to
 	Kind   string  // Event kind pattern (optional)
 	Topic  string  // Per-subscription topic for relay messages
@@ -27,12 +27,12 @@ type EventsSubscribeCmd struct {
 }
 
 // CmdID implements dispatcher.Command.
-func (c EventsSubscribeCmd) CmdID() dispatcher.CommandID {
-	return CmdEventsSubscribe
+func (c SubscribeCmd) CmdID() dispatcher.CommandID {
+	return Subscribe
 }
 
-// EventsSendCmd sends an event to the bus.
-type EventsSendCmd struct {
+// SendCmd sends an event to the bus.
+type SendCmd struct {
 	System string // Event system
 	Kind   string // Event kind
 	Path   string // Event path
@@ -40,8 +40,8 @@ type EventsSendCmd struct {
 }
 
 // CmdID implements dispatcher.Command.
-func (c EventsSendCmd) CmdID() dispatcher.CommandID {
-	return CmdEventsSend
+func (c SendCmd) CmdID() dispatcher.CommandID {
+	return Send
 }
 
 // Subscription represents an active event subscription.

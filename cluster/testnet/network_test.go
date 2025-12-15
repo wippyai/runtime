@@ -146,7 +146,7 @@ func TestNodeCrashSimulation(t *testing.T) {
 
 	// Track leave events
 	leftCh := make(chan string, 1)
-	sub, err := eventbus.NewSubscriber(ctx, bus1, cluster.System, cluster.NodeLeftEventKind, func(evt event.Event) {
+	sub, err := eventbus.NewSubscriber(ctx, bus1, cluster.System, cluster.NodeLeft, func(evt event.Event) {
 		select {
 		case leftCh <- evt.Path:
 		default:

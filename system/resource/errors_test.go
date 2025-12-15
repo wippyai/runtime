@@ -14,7 +14,7 @@ func TestNewSubscriberError(t *testing.T) {
 
 	assert.Contains(t, err.Error(), "failed to create subscriber")
 	assert.Contains(t, err.Error(), "connection failed")
-	assert.Equal(t, apierror.KindInternal, err.Kind())
+	assert.Equal(t, apierror.Internal, err.Kind())
 	assert.Equal(t, apierror.True, err.Retryable())
 	assert.True(t, errors.Is(err, cause))
 	assert.NotNil(t, err.Details())

@@ -48,9 +48,9 @@ var Module = &luaapi.ModuleDef{
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		initOnce.Do(initModuleTable)
 		return moduleTable, []luaapi.YieldType{
-			{Sample: &ValidateYield{}, CmdID: security.CmdTokenValidate},
-			{Sample: &CreateYield{}, CmdID: security.CmdTokenCreate},
-			{Sample: &RevokeYield{}, CmdID: security.CmdTokenRevoke},
+			{Sample: &ValidateYield{}, CmdID: security.ValidateToken},
+			{Sample: &CreateYield{}, CmdID: security.CreateToken},
+			{Sample: &RevokeYield{}, CmdID: security.RevokeToken},
 		}
 	},
 }

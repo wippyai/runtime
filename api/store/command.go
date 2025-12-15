@@ -10,17 +10,17 @@ import (
 
 func init() {
 	dispatcher.MustRegisterCommands("store",
-		CmdStoreGet, CmdStoreSet, CmdStoreDelete, CmdStoreHas,
+		Get, Set, Delete, Has,
 	)
 }
 
 // Command IDs for store operations.
 // Range 120-129 is reserved for key-value store commands.
 const (
-	CmdStoreGet    dispatcher.CommandID = 120 // Get value by key
-	CmdStoreSet    dispatcher.CommandID = 121 // Set value with key
-	CmdStoreDelete dispatcher.CommandID = 122 // Delete key
-	CmdStoreHas    dispatcher.CommandID = 123 // Check if key exists
+	Get    dispatcher.CommandID = 120 // Get value by key
+	Set    dispatcher.CommandID = 121 // Set value with key
+	Delete dispatcher.CommandID = 122 // Delete key
+	Has    dispatcher.CommandID = 123 // Check if key exists
 )
 
 // GetCmd retrieves a value from the store.
@@ -32,7 +32,7 @@ type GetCmd struct {
 var getCmdPool = sync.Pool{New: func() any { return &GetCmd{} }}
 
 func AcquireGetCmd() *GetCmd                  { return getCmdPool.Get().(*GetCmd) }
-func (c *GetCmd) CmdID() dispatcher.CommandID { return CmdStoreGet }
+func (c *GetCmd) CmdID() dispatcher.CommandID { return Get }
 func (c *GetCmd) Release() {
 	c.Store = nil
 	c.Key = registry.ID{}
@@ -48,7 +48,7 @@ type SetCmd struct {
 var setCmdPool = sync.Pool{New: func() any { return &SetCmd{} }}
 
 func AcquireSetCmd() *SetCmd                  { return setCmdPool.Get().(*SetCmd) }
-func (c *SetCmd) CmdID() dispatcher.CommandID { return CmdStoreSet }
+func (c *SetCmd) CmdID() dispatcher.CommandID { return Set }
 func (c *SetCmd) Release() {
 	c.Store = nil
 	c.Entry = Entry{}
@@ -64,7 +64,7 @@ type DeleteCmd struct {
 var deleteCmdPool = sync.Pool{New: func() any { return &DeleteCmd{} }}
 
 func AcquireDeleteCmd() *DeleteCmd               { return deleteCmdPool.Get().(*DeleteCmd) }
-func (c *DeleteCmd) CmdID() dispatcher.CommandID { return CmdStoreDelete }
+func (c *DeleteCmd) CmdID() dispatcher.CommandID { return Delete }
 func (c *DeleteCmd) Release() {
 	c.Store = nil
 	c.Key = registry.ID{}
@@ -80,7 +80,7 @@ type HasCmd struct {
 var hasCmdPool = sync.Pool{New: func() any { return &HasCmd{} }}
 
 func AcquireHasCmd() *HasCmd                  { return hasCmdPool.Get().(*HasCmd) }
-func (c *HasCmd) CmdID() dispatcher.CommandID { return CmdStoreHas }
+func (c *HasCmd) CmdID() dispatcher.CommandID { return Has }
 func (c *HasCmd) Release() {
 	c.Store = nil
 	c.Key = registry.ID{}

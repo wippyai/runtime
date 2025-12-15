@@ -9,14 +9,14 @@ import (
 )
 
 func init() {
-	dispatcher.MustRegisterCommands("http", CmdRequest, CmdRequestBatch)
+	dispatcher.MustRegisterCommands("http", Request, RequestBatch)
 }
 
 // Command IDs for HTTP operations.
 // Range 60-79 is reserved for HTTP commands (stream uses 50-55, ws uses 80-84).
 const (
-	CmdRequest      dispatcher.CommandID = 60 // Execute HTTP request
-	CmdRequestBatch dispatcher.CommandID = 61 // Execute multiple HTTP requests concurrently
+	Request      dispatcher.CommandID = 60 // Execute HTTP request
+	RequestBatch dispatcher.CommandID = 61 // Execute multiple HTTP requests concurrently
 )
 
 // RequestCmd represents an HTTP request to be executed.
@@ -73,7 +73,7 @@ func AcquireRequestCmd() *RequestCmd {
 
 // CmdID implements dispatcher.Command.
 func (c *RequestCmd) CmdID() dispatcher.CommandID {
-	return CmdRequest
+	return Request
 }
 
 // Release returns the command to pool.
@@ -124,7 +124,7 @@ func AcquireRequestBatchCmd() *RequestBatchCmd {
 }
 
 func (c *RequestBatchCmd) CmdID() dispatcher.CommandID {
-	return CmdRequestBatch
+	return RequestBatch
 }
 
 func (c *RequestBatchCmd) Release() {

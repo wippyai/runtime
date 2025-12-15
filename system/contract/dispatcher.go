@@ -38,10 +38,10 @@ func (d *Dispatcher) Stop(_ context.Context) error {
 
 // RegisterAll registers all contract command handlers.
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
-	register(contract.CmdOpen, dispatcher.HandlerFunc(d.handleOpen))
-	register(contract.CmdCall, dispatcher.HandlerFunc(d.handleCall))
-	register(contract.CmdAsyncCall, dispatcher.HandlerFunc(d.handleAsyncCall))
-	register(contract.CmdAsyncCancel, dispatcher.HandlerFunc(d.handleAsyncCancel))
+	register(contract.Open, dispatcher.HandlerFunc(d.handleOpen))
+	register(contract.Call, dispatcher.HandlerFunc(d.handleCall))
+	register(contract.AsyncCall, dispatcher.HandlerFunc(d.handleAsyncCall))
+	register(contract.AsyncCancel, dispatcher.HandlerFunc(d.handleAsyncCancel))
 }
 
 func (d *Dispatcher) handleOpen(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {

@@ -115,12 +115,12 @@ func (s *Service) handleMembershipEvent(e event.Event) {
 	}
 
 	switch e.Kind {
-	case cluster.NodeJoinedEventKind:
+	case cluster.NodeJoined:
 		s.logger.Info("Node joined cluster, preparing state and connection",
 			zap.String("node_id", nodeInfo.ID))
 		s.connMan.AddManagedNode(nodeInfo.ID)
 		s.connectToNode(nodeInfo)
-	case cluster.NodeLeftEventKind:
+	case cluster.NodeLeft:
 		s.logger.Info("Node left cluster, cleaning up state and connection",
 			zap.String("node_id", nodeInfo.ID))
 		s.connMan.RemoveManagedNode(nodeInfo.ID)

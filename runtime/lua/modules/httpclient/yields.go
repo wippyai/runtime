@@ -34,7 +34,7 @@ func ReleaseRequestYield(y *RequestYield) {
 
 func (y *RequestYield) String() string                { return "<http_request_yield>" }
 func (y *RequestYield) Type() lua.LValueType          { return lua.LTUserData }
-func (y *RequestYield) CmdID() dispatcher.CommandID   { return httpapi.CmdRequest }
+func (y *RequestYield) CmdID() dispatcher.CommandID   { return httpapi.Request }
 func (y *RequestYield) ToCommand() dispatcher.Command { return y.RequestCmd }
 func (y *RequestYield) Release()                      { ReleaseRequestYield(y) }
 
@@ -108,7 +108,7 @@ func ReleaseRequestBatchYield(y *RequestBatchYield) {
 
 func (y *RequestBatchYield) String() string                { return "<http_request_batch_yield>" }
 func (y *RequestBatchYield) Type() lua.LValueType          { return lua.LTUserData }
-func (y *RequestBatchYield) CmdID() dispatcher.CommandID   { return httpapi.CmdRequestBatch }
+func (y *RequestBatchYield) CmdID() dispatcher.CommandID   { return httpapi.RequestBatch }
 func (y *RequestBatchYield) ToCommand() dispatcher.Command { return y.RequestBatchCmd }
 func (y *RequestBatchYield) Release()                      { ReleaseRequestBatchYield(y) }
 

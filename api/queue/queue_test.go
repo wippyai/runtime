@@ -182,68 +182,68 @@ func TestErrorInterface(t *testing.T) {
 	t.Run("ErrDriverNotFound", func(t *testing.T) {
 		err := queue.ErrDriverNotFound
 		assert.Equal(t, "queue driver not found", err.Error())
-		assert.Equal(t, apierror.KindNotFound, err.Kind())
+		assert.Equal(t, apierror.NotFound, err.Kind())
 		assert.Equal(t, apierror.False, err.Retryable())
 		assert.Nil(t, err.Details())
 	})
 
 	t.Run("ErrQueueNotFound", func(t *testing.T) {
 		err := queue.ErrQueueNotFound
-		assert.Equal(t, apierror.KindNotFound, err.Kind())
+		assert.Equal(t, apierror.NotFound, err.Kind())
 		assert.Equal(t, apierror.False, err.Retryable())
 	})
 
 	t.Run("ErrDriverNotStarted", func(t *testing.T) {
 		err := queuesvc.ErrDriverNotStarted
-		assert.Equal(t, apierror.KindUnavailable, err.Kind())
+		assert.Equal(t, apierror.Unavailable, err.Kind())
 		assert.Equal(t, apierror.True, err.Retryable())
 	})
 
 	t.Run("ErrQueueFull", func(t *testing.T) {
 		err := queuesvc.ErrQueueFull
-		assert.Equal(t, apierror.KindUnavailable, err.Kind())
+		assert.Equal(t, apierror.Unavailable, err.Kind())
 		assert.Equal(t, apierror.True, err.Retryable())
 	})
 
 	t.Run("ErrQueueClosed", func(t *testing.T) {
 		err := queuesvc.ErrQueueClosed
-		assert.Equal(t, apierror.KindUnavailable, err.Kind())
+		assert.Equal(t, apierror.Unavailable, err.Kind())
 		assert.Equal(t, apierror.False, err.Retryable())
 	})
 
 	t.Run("ErrMessageExpired", func(t *testing.T) {
 		err := queue.ErrMessageExpired
-		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		assert.Equal(t, apierror.Invalid, err.Kind())
 		assert.Equal(t, apierror.False, err.Retryable())
 	})
 
 	t.Run("ErrConsumerClosed", func(t *testing.T) {
 		err := queuesvc.ErrConsumerClosed
-		assert.Equal(t, apierror.KindUnavailable, err.Kind())
+		assert.Equal(t, apierror.Unavailable, err.Kind())
 		assert.Equal(t, apierror.False, err.Retryable())
 	})
 
 	t.Run("ErrNoPublishFunc", func(t *testing.T) {
 		err := queuesvc.ErrNoPublishFunc
-		assert.Equal(t, apierror.KindUnavailable, err.Kind())
+		assert.Equal(t, apierror.Unavailable, err.Kind())
 		assert.Equal(t, apierror.False, err.Retryable())
 	})
 
 	t.Run("ErrDriverIDRequired", func(t *testing.T) {
 		err := queue.ErrDriverIDRequired
-		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		assert.Equal(t, apierror.Invalid, err.Kind())
 		assert.Equal(t, apierror.False, err.Retryable())
 	})
 
 	t.Run("ErrQueueIDRequired", func(t *testing.T) {
 		err := queue.ErrQueueIDRequired
-		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		assert.Equal(t, apierror.Invalid, err.Kind())
 		assert.Equal(t, apierror.False, err.Retryable())
 	})
 
 	t.Run("ErrFunctionIDRequired", func(t *testing.T) {
 		err := queue.ErrFunctionIDRequired
-		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		assert.Equal(t, apierror.Invalid, err.Kind())
 		assert.Equal(t, apierror.False, err.Retryable())
 	})
 }
@@ -259,7 +259,7 @@ func TestErrorMethods(t *testing.T) {
 	t.Run("SetMessage", func(t *testing.T) {
 		err := apierror.SetMessage(queue.ErrDriverNotFound, "custom driver error")
 		assert.Equal(t, "custom driver error", err.Error())
-		assert.Equal(t, apierror.KindNotFound, err.Kind())
+		assert.Equal(t, apierror.NotFound, err.Kind())
 	})
 
 	t.Run("SetDetails", func(t *testing.T) {
@@ -276,7 +276,7 @@ func TestErrorConstructors(t *testing.T) {
 		id := registry.NewID("test", "my-driver")
 		err := queue.NewDriverNotFoundError(id)
 		assert.Contains(t, err.Error(), id.String())
-		assert.Equal(t, apierror.KindNotFound, err.Kind())
+		assert.Equal(t, apierror.NotFound, err.Kind())
 		assert.Equal(t, apierror.False, err.Retryable())
 		assert.NotNil(t, err.Details())
 		val, ok := err.Details().Get("driver_id")
@@ -288,7 +288,7 @@ func TestErrorConstructors(t *testing.T) {
 		id := registry.NewID("test", "my-queue")
 		err := queue.NewQueueNotFoundError(id)
 		assert.Contains(t, err.Error(), id.String())
-		assert.Equal(t, apierror.KindNotFound, err.Kind())
+		assert.Equal(t, apierror.NotFound, err.Kind())
 		val, ok := err.Details().Get("queue_id")
 		assert.True(t, ok)
 		assert.Equal(t, id.String(), val)
@@ -298,7 +298,7 @@ func TestErrorConstructors(t *testing.T) {
 		id := registry.NewID("test", "my-driver")
 		err := queue.NewDriverExistsError(id)
 		assert.Contains(t, err.Error(), id.String())
-		assert.Equal(t, apierror.KindAlreadyExists, err.Kind())
+		assert.Equal(t, apierror.AlreadyExists, err.Kind())
 		val, ok := err.Details().Get("driver_id")
 		assert.True(t, ok)
 		assert.Equal(t, id.String(), val)
@@ -308,7 +308,7 @@ func TestErrorConstructors(t *testing.T) {
 		id := registry.NewID("test", "my-queue")
 		err := queuesvc.NewQueueClosedError(id)
 		assert.Contains(t, err.Error(), id.String())
-		assert.Equal(t, apierror.KindUnavailable, err.Kind())
+		assert.Equal(t, apierror.Unavailable, err.Kind())
 		val, ok := err.Details().Get("queue_id")
 		assert.True(t, ok)
 		assert.Equal(t, id.String(), val)
@@ -318,14 +318,14 @@ func TestErrorConstructors(t *testing.T) {
 		cause := assert.AnError
 		err := queue.NewConfigError("invalid config", cause)
 		assert.Equal(t, "invalid config", err.Error())
-		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		assert.Equal(t, apierror.Invalid, err.Kind())
 		assert.True(t, errors.Is(err, cause))
 	})
 
 	t.Run("NewUnsupportedKindError", func(t *testing.T) {
 		err := queue.NewUnsupportedKindError("unknown.kind")
 		assert.Contains(t, err.Error(), "unknown.kind")
-		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		assert.Equal(t, apierror.Invalid, err.Kind())
 		val, ok := err.Details().Get("kind")
 		assert.True(t, ok)
 		assert.Equal(t, "unknown.kind", val)
@@ -334,7 +334,7 @@ func TestErrorConstructors(t *testing.T) {
 	t.Run("NewConcurrencyExceededError", func(t *testing.T) {
 		err := queue.NewConcurrencyExceededError(20, 10)
 		assert.Equal(t, "concurrency exceeds maximum", err.Error())
-		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		assert.Equal(t, apierror.Invalid, err.Kind())
 		concVal, ok := err.Details().Get("concurrency")
 		assert.True(t, ok)
 		assert.Equal(t, 20, concVal)
@@ -346,7 +346,7 @@ func TestErrorConstructors(t *testing.T) {
 	t.Run("NewPrefetchExceededError", func(t *testing.T) {
 		err := queue.NewPrefetchExceededError(100, 50)
 		assert.Equal(t, "prefetch exceeds maximum", err.Error())
-		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		assert.Equal(t, apierror.Invalid, err.Kind())
 		prefVal, ok := err.Details().Get("prefetch")
 		assert.True(t, ok)
 		assert.Equal(t, 100, prefVal)

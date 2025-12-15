@@ -85,13 +85,13 @@ func init() {
 
 	// Setup yield types
 	yieldTypes = []luaapi.YieldType{
-		{Sample: &SleepYield{}, CmdID: clockapi.CmdSleep},
-		{Sample: &TimerStartYield{}, CmdID: clockapi.CmdTimerStart},
-		{Sample: &AfterStartYield{}, CmdID: clockapi.CmdTimerStart},
-		{Sample: &TimerStopYield{}, CmdID: clockapi.CmdTimerStop},
-		{Sample: &TimerResetYield{}, CmdID: clockapi.CmdTimerReset},
-		{Sample: &TickerStartYield{}, CmdID: clockapi.CmdTickerStart},
-		{Sample: &TickerStopYield{}, CmdID: clockapi.CmdTickerStop},
+		{Sample: &SleepYield{}, CmdID: clockapi.Sleep},
+		{Sample: &TimerStartYield{}, CmdID: clockapi.TimerStart},
+		{Sample: &AfterStartYield{}, CmdID: clockapi.TimerStart},
+		{Sample: &TimerStopYield{}, CmdID: clockapi.TimerStop},
+		{Sample: &TimerResetYield{}, CmdID: clockapi.TimerReset},
+		{Sample: &TickerStartYield{}, CmdID: clockapi.TickerStart},
+		{Sample: &TickerStopYield{}, CmdID: clockapi.TickerStop},
 	}
 }
 
@@ -291,7 +291,7 @@ func ReleaseSleepYield(y *SleepYield) {
 func (y *SleepYield) Release()                      { ReleaseSleepYield(y) }
 func (y *SleepYield) String() string                { return "<sleep_yield>" }
 func (y *SleepYield) Type() lua.LValueType          { return lua.LTUserData }
-func (y *SleepYield) CmdID() dispatcher.CommandID   { return clockapi.CmdSleep }
+func (y *SleepYield) CmdID() dispatcher.CommandID   { return clockapi.Sleep }
 func (y *SleepYield) ToCommand() dispatcher.Command { return clockapi.SleepCmd{Duration: y.Duration} }
 
 // TimerStartYield is yielded to create a new timer.
@@ -327,7 +327,7 @@ func ReleaseTimerStartYield(y *TimerStartYield) {
 func (y *TimerStartYield) Release()                    { ReleaseTimerStartYield(y) }
 func (y *TimerStartYield) String() string              { return "<timer_start_yield>" }
 func (y *TimerStartYield) Type() lua.LValueType        { return lua.LTUserData }
-func (y *TimerStartYield) CmdID() dispatcher.CommandID { return clockapi.CmdTimerStart }
+func (y *TimerStartYield) CmdID() dispatcher.CommandID { return clockapi.TimerStart }
 func (y *TimerStartYield) ToCommand() dispatcher.Command {
 	return clockapi.TimerStartCmd{Duration: y.Duration, PID: y.PID, Topic: y.Topic}
 }
@@ -465,7 +465,7 @@ func ReleaseTimerStopYield(y *TimerStopYield) {
 func (y *TimerStopYield) Release()                    { ReleaseTimerStopYield(y) }
 func (y *TimerStopYield) String() string              { return "<timer_stop_yield>" }
 func (y *TimerStopYield) Type() lua.LValueType        { return lua.LTUserData }
-func (y *TimerStopYield) CmdID() dispatcher.CommandID { return clockapi.CmdTimerStop }
+func (y *TimerStopYield) CmdID() dispatcher.CommandID { return clockapi.TimerStop }
 func (y *TimerStopYield) ToCommand() dispatcher.Command {
 	return clockapi.TimerStopCmd{TimerID: y.TimerID}
 }
@@ -507,7 +507,7 @@ func ReleaseTimerResetYield(y *TimerResetYield) {
 func (y *TimerResetYield) Release()                    { ReleaseTimerResetYield(y) }
 func (y *TimerResetYield) String() string              { return "<timer_reset_yield>" }
 func (y *TimerResetYield) Type() lua.LValueType        { return lua.LTUserData }
-func (y *TimerResetYield) CmdID() dispatcher.CommandID { return clockapi.CmdTimerReset }
+func (y *TimerResetYield) CmdID() dispatcher.CommandID { return clockapi.TimerReset }
 func (y *TimerResetYield) ToCommand() dispatcher.Command {
 	return clockapi.TimerResetCmd{TimerID: y.TimerID, Duration: y.Duration}
 }
@@ -545,7 +545,7 @@ func ReleaseTickerStartYield(y *TickerStartYield) {
 func (y *TickerStartYield) Release()                    { ReleaseTickerStartYield(y) }
 func (y *TickerStartYield) String() string              { return "<ticker_start_yield>" }
 func (y *TickerStartYield) Type() lua.LValueType        { return lua.LTUserData }
-func (y *TickerStartYield) CmdID() dispatcher.CommandID { return clockapi.CmdTickerStart }
+func (y *TickerStartYield) CmdID() dispatcher.CommandID { return clockapi.TickerStart }
 func (y *TickerStartYield) ToCommand() dispatcher.Command {
 	return clockapi.TickerStartCmd{Duration: y.Duration, PID: y.PID, Topic: y.Topic}
 }
@@ -648,7 +648,7 @@ func ReleaseTickerStopYield(y *TickerStopYield) {
 func (y *TickerStopYield) Release()                    { ReleaseTickerStopYield(y) }
 func (y *TickerStopYield) String() string              { return "<ticker_stop_yield>" }
 func (y *TickerStopYield) Type() lua.LValueType        { return lua.LTUserData }
-func (y *TickerStopYield) CmdID() dispatcher.CommandID { return clockapi.CmdTickerStop }
+func (y *TickerStopYield) CmdID() dispatcher.CommandID { return clockapi.TickerStop }
 func (y *TickerStopYield) ToCommand() dispatcher.Command {
 	return clockapi.TickerStopCmd{TickerID: y.TickerID}
 }

@@ -140,7 +140,7 @@ func TestErrorInterface(t *testing.T) {
 	t.Run("ErrOutsideTransaction", func(t *testing.T) {
 		err := ErrOutsideTransaction
 		assert.Equal(t, "action received outside of transaction", err.Error())
-		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		assert.Equal(t, apierror.Invalid, err.Kind())
 		assert.Equal(t, apierror.False, err.Retryable())
 	})
 }
@@ -167,7 +167,7 @@ func TestErrorConstructors(t *testing.T) {
 		err := NewInvalidDurationError("timeout", cause)
 		assert.Contains(t, err.Error(), "invalid")
 		assert.Contains(t, err.Error(), "timeout")
-		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		assert.Equal(t, apierror.Invalid, err.Kind())
 		assert.True(t, errors.Is(err, cause))
 		val, ok := err.Details().Get("field")
 		assert.True(t, ok)

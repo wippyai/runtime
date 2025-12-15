@@ -65,13 +65,13 @@ func (m *Manager) Stop() error {
 
 func (m *Manager) handleEvent(e event.Event) {
 	switch e.Kind {
-	case queueapi.KindDriverRegister:
+	case queueapi.DriverRegister:
 		m.handleDriverRegister(e)
-	case queueapi.KindDriverDelete:
+	case queueapi.DriverDelete:
 		m.handleDriverDelete(e)
-	case queueapi.KindQueueDeclare:
+	case queueapi.QueueDeclare:
 		m.handleQueueDeclare(e)
-	case queueapi.KindQueueDelete:
+	case queueapi.QueueDelete:
 		m.handleQueueDelete(e)
 	default:
 		m.logger.Warn("unknown event kind",

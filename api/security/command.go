@@ -10,16 +10,16 @@ import (
 
 func init() {
 	dispatcher.MustRegisterCommands("security",
-		CmdTokenValidate, CmdTokenCreate, CmdTokenRevoke,
+		ValidateToken, CreateToken, RevokeToken,
 	)
 }
 
 // Command IDs for security operations.
 // Range 140-149 is reserved for security/token commands.
 const (
-	CmdTokenValidate dispatcher.CommandID = 140 // Validate token
-	CmdTokenCreate   dispatcher.CommandID = 141 // Create token
-	CmdTokenRevoke   dispatcher.CommandID = 142 // Revoke token
+	ValidateToken dispatcher.CommandID = 140 // Validate token
+	CreateToken   dispatcher.CommandID = 141 // Create token
+	RevokeToken   dispatcher.CommandID = 142 // Revoke token
 )
 
 // TokenValidateCmd validates a token.
@@ -33,7 +33,7 @@ var tokenValidateCmdPool = sync.Pool{New: func() any { return &TokenValidateCmd{
 func AcquireTokenValidateCmd() *TokenValidateCmd {
 	return tokenValidateCmdPool.Get().(*TokenValidateCmd)
 }
-func (c *TokenValidateCmd) CmdID() dispatcher.CommandID { return CmdTokenValidate }
+func (c *TokenValidateCmd) CmdID() dispatcher.CommandID { return ValidateToken }
 func (c *TokenValidateCmd) Release() {
 	c.TokenStore = nil
 	c.Token = ""
@@ -51,7 +51,7 @@ type TokenCreateCmd struct {
 var tokenCreateCmdPool = sync.Pool{New: func() any { return &TokenCreateCmd{} }}
 
 func AcquireTokenCreateCmd() *TokenCreateCmd          { return tokenCreateCmdPool.Get().(*TokenCreateCmd) }
-func (c *TokenCreateCmd) CmdID() dispatcher.CommandID { return CmdTokenCreate }
+func (c *TokenCreateCmd) CmdID() dispatcher.CommandID { return CreateToken }
 func (c *TokenCreateCmd) Release() {
 	c.TokenStore = nil
 	c.Actor = Actor{}
@@ -69,7 +69,7 @@ type TokenRevokeCmd struct {
 var tokenRevokeCmdPool = sync.Pool{New: func() any { return &TokenRevokeCmd{} }}
 
 func AcquireTokenRevokeCmd() *TokenRevokeCmd          { return tokenRevokeCmdPool.Get().(*TokenRevokeCmd) }
-func (c *TokenRevokeCmd) CmdID() dispatcher.CommandID { return CmdTokenRevoke }
+func (c *TokenRevokeCmd) CmdID() dispatcher.CommandID { return RevokeToken }
 func (c *TokenRevokeCmd) Release() {
 	c.TokenStore = nil
 	c.Token = ""

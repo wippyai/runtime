@@ -6,19 +6,19 @@ import (
 )
 
 const (
-	KindTerminated apierror.Kind = "Terminated"
-	KindExited     apierror.Kind = "Exited"
+	Terminated apierror.Kind = "Terminated"
+	Exited     apierror.Kind = "Exited"
 )
 
 var (
-	ErrTerminated         = apierror.New(KindTerminated, "service terminated").WithRetryable(apierror.False)
-	ErrExit               = apierror.New(KindExited, "service exited").WithRetryable(apierror.False)
-	ErrOutsideTransaction = apierror.New(apierror.KindInvalid, "action received outside of transaction").WithRetryable(apierror.False)
+	ErrTerminated         = apierror.New(Terminated, "service terminated").WithRetryable(apierror.False)
+	ErrExit               = apierror.New(Exited, "service exited").WithRetryable(apierror.False)
+	ErrOutsideTransaction = apierror.New(apierror.Invalid, "action received outside of transaction").WithRetryable(apierror.False)
 )
 
 func NewInvalidDurationError(field string, cause error) apierror.Error {
 	return apierror.E(
-		apierror.KindInvalid,
+		apierror.Invalid,
 		"invalid "+field+" duration format",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"field": field}),

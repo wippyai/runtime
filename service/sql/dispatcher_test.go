@@ -45,18 +45,18 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 	d.RegisterAll(register)
 
 	assert.Len(t, registered, 12)
-	assert.Contains(t, registered, sqlapi.CmdQuery)
-	assert.Contains(t, registered, sqlapi.CmdExecute)
-	assert.Contains(t, registered, sqlapi.CmdPrepare)
-	assert.Contains(t, registered, sqlapi.CmdBegin)
-	assert.Contains(t, registered, sqlapi.CmdStmtQuery)
-	assert.Contains(t, registered, sqlapi.CmdStmtExecute)
-	assert.Contains(t, registered, sqlapi.CmdStmtClose)
-	assert.Contains(t, registered, sqlapi.CmdTxQuery)
-	assert.Contains(t, registered, sqlapi.CmdTxExecute)
-	assert.Contains(t, registered, sqlapi.CmdTxPrepare)
-	assert.Contains(t, registered, sqlapi.CmdTxCommit)
-	assert.Contains(t, registered, sqlapi.CmdTxRollback)
+	assert.Contains(t, registered, sqlapi.Query)
+	assert.Contains(t, registered, sqlapi.Execute)
+	assert.Contains(t, registered, sqlapi.Prepare)
+	assert.Contains(t, registered, sqlapi.Begin)
+	assert.Contains(t, registered, sqlapi.StmtQuery)
+	assert.Contains(t, registered, sqlapi.StmtExecute)
+	assert.Contains(t, registered, sqlapi.StmtClose)
+	assert.Contains(t, registered, sqlapi.TxQuery)
+	assert.Contains(t, registered, sqlapi.TxExecute)
+	assert.Contains(t, registered, sqlapi.TxPrepare)
+	assert.Contains(t, registered, sqlapi.TxCommit)
+	assert.Contains(t, registered, sqlapi.TxRollback)
 }
 
 func TestDispatcher_Query(t *testing.T) {
@@ -78,7 +78,7 @@ func TestDispatcher_Query(t *testing.T) {
 	}
 
 	done := make(chan sqlapi.QueryResponse, 1)
-	err = handlers[sqlapi.CmdQuery].Handle(context.Background(), cmd, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
+	err = handlers[sqlapi.Query].Handle(context.Background(), cmd, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
 		done <- data.(sqlapi.QueryResponse)
 	}})
 	require.NoError(t, err)
@@ -112,7 +112,7 @@ func TestDispatcher_Execute(t *testing.T) {
 	}
 
 	done := make(chan sqlapi.ExecuteResponse, 1)
-	err := handlers[sqlapi.CmdExecute].Handle(context.Background(), cmd, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
+	err := handlers[sqlapi.Execute].Handle(context.Background(), cmd, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
 		done <- data.(sqlapi.ExecuteResponse)
 	}})
 	require.NoError(t, err)
@@ -140,7 +140,7 @@ func TestDispatcher_Transaction(t *testing.T) {
 	// Begin transaction
 	beginCmd := &sqlapi.BeginCmd{DB: db}
 	beginDone := make(chan sqlapi.BeginResponse, 1)
-	err := handlers[sqlapi.CmdBegin].Handle(context.Background(), beginCmd, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
+	err := handlers[sqlapi.Begin].Handle(context.Background(), beginCmd, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
 		beginDone <- data.(sqlapi.BeginResponse)
 	}})
 	require.NoError(t, err)
@@ -161,7 +161,7 @@ func TestDispatcher_Transaction(t *testing.T) {
 		Params: []any{"dave"},
 	}
 	txExecDone := make(chan sqlapi.ExecuteResponse, 1)
-	err = handlers[sqlapi.CmdTxExecute].Handle(context.Background(), txExecCmd, 2, &testReceiver{fn: func(_ uint64, data any, _ error) {
+	err = handlers[sqlapi.TxExecute].Handle(context.Background(), txExecCmd, 2, &testReceiver{fn: func(_ uint64, data any, _ error) {
 		txExecDone <- data.(sqlapi.ExecuteResponse)
 	}})
 	require.NoError(t, err)
@@ -176,7 +176,7 @@ func TestDispatcher_Transaction(t *testing.T) {
 	// Commit
 	commitCmd := &sqlapi.TxCommitCmd{Tx: tx}
 	commitDone := make(chan struct{}, 1)
-	err = handlers[sqlapi.CmdTxCommit].Handle(context.Background(), commitCmd, 3, &testReceiver{fn: func(_ uint64, _ any, err error) {
+	err = handlers[sqlapi.TxCommit].Handle(context.Background(), commitCmd, 3, &testReceiver{fn: func(_ uint64, _ any, err error) {
 		assert.NoError(t, err)
 		close(commitDone)
 	}})
@@ -211,7 +211,7 @@ func TestDispatcher_PreparedStatement(t *testing.T) {
 		Query: "INSERT INTO test (name) VALUES (?)",
 	}
 	prepDone := make(chan sqlapi.PrepareResponse, 1)
-	err := handlers[sqlapi.CmdPrepare].Handle(context.Background(), prepCmd, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
+	err := handlers[sqlapi.Prepare].Handle(context.Background(), prepCmd, 1, &testReceiver{fn: func(_ uint64, data any, _ error) {
 		prepDone <- data.(sqlapi.PrepareResponse)
 	}})
 	require.NoError(t, err)
@@ -231,7 +231,7 @@ func TestDispatcher_PreparedStatement(t *testing.T) {
 		Params: []any{"eve"},
 	}
 	stmtExecDone := make(chan sqlapi.ExecuteResponse, 1)
-	err = handlers[sqlapi.CmdStmtExecute].Handle(context.Background(), stmtExecCmd, 2, &testReceiver{fn: func(_ uint64, data any, _ error) {
+	err = handlers[sqlapi.StmtExecute].Handle(context.Background(), stmtExecCmd, 2, &testReceiver{fn: func(_ uint64, data any, _ error) {
 		stmtExecDone <- data.(sqlapi.ExecuteResponse)
 	}})
 	require.NoError(t, err)
@@ -247,7 +247,7 @@ func TestDispatcher_PreparedStatement(t *testing.T) {
 	// Close statement
 	closeCmd := &sqlapi.StmtCloseCmd{Stmt: stmt}
 	closeDone := make(chan struct{}, 1)
-	err = handlers[sqlapi.CmdStmtClose].Handle(context.Background(), closeCmd, 3, &testReceiver{fn: func(_ uint64, _ any, err error) {
+	err = handlers[sqlapi.StmtClose].Handle(context.Background(), closeCmd, 3, &testReceiver{fn: func(_ uint64, _ any, err error) {
 		assert.NoError(t, err)
 		close(closeDone)
 	}})
@@ -279,7 +279,7 @@ func TestDispatcher_ContextCancellation(t *testing.T) {
 	}
 
 	completed := make(chan bool, 1)
-	err := handlers[sqlapi.CmdQuery].Handle(ctx, cmd, 1, &testReceiver{fn: func(_ uint64, _ any, _ error) {
+	err := handlers[sqlapi.Query].Handle(ctx, cmd, 1, &testReceiver{fn: func(_ uint64, _ any, _ error) {
 		completed <- true
 	}})
 	require.NoError(t, err)

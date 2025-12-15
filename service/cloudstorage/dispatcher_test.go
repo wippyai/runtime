@@ -90,12 +90,12 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 	d.RegisterAll(register)
 
 	assert.Len(t, registered, 6)
-	assert.Contains(t, registered, csapi.CmdListObjects)
-	assert.Contains(t, registered, csapi.CmdDownloadObject)
-	assert.Contains(t, registered, csapi.CmdUploadObject)
-	assert.Contains(t, registered, csapi.CmdDeleteObjects)
-	assert.Contains(t, registered, csapi.CmdPresignedGetURL)
-	assert.Contains(t, registered, csapi.CmdPresignedPutURL)
+	assert.Contains(t, registered, csapi.ListObjects)
+	assert.Contains(t, registered, csapi.DownloadObject)
+	assert.Contains(t, registered, csapi.UploadObject)
+	assert.Contains(t, registered, csapi.DeleteObjects)
+	assert.Contains(t, registered, csapi.PresignedGetURL)
+	assert.Contains(t, registered, csapi.PresignedPutURL)
 }
 
 func TestDispatcher_ListObjects(t *testing.T) {
@@ -121,7 +121,7 @@ func TestDispatcher_ListObjects(t *testing.T) {
 	}
 
 	done := make(chan csapi.ListObjectsResponse, 1)
-	err := handlers[csapi.CmdListObjects].Handle(context.Background(), cmd, 1, newTestReceiver(func(_ uint64, data any, _ error) {
+	err := handlers[csapi.ListObjects].Handle(context.Background(), cmd, 1, newTestReceiver(func(_ uint64, data any, _ error) {
 		done <- data.(csapi.ListObjectsResponse)
 	}))
 	require.NoError(t, err)
@@ -155,7 +155,7 @@ func TestDispatcher_DownloadObject(t *testing.T) {
 	}
 
 	done := make(chan csapi.DownloadObjectResponse, 1)
-	err := handlers[csapi.CmdDownloadObject].Handle(context.Background(), cmd, 1, newTestReceiver(func(_ uint64, data any, _ error) {
+	err := handlers[csapi.DownloadObject].Handle(context.Background(), cmd, 1, newTestReceiver(func(_ uint64, data any, _ error) {
 		done <- data.(csapi.DownloadObjectResponse)
 	}))
 	require.NoError(t, err)
@@ -185,7 +185,7 @@ func TestDispatcher_UploadObject(t *testing.T) {
 	}
 
 	done := make(chan csapi.UploadObjectResponse, 1)
-	err := handlers[csapi.CmdUploadObject].Handle(context.Background(), cmd, 1, newTestReceiver(func(_ uint64, data any, _ error) {
+	err := handlers[csapi.UploadObject].Handle(context.Background(), cmd, 1, newTestReceiver(func(_ uint64, data any, _ error) {
 		done <- data.(csapi.UploadObjectResponse)
 	}))
 	require.NoError(t, err)
@@ -213,7 +213,7 @@ func TestDispatcher_DeleteObjects(t *testing.T) {
 	}
 
 	done := make(chan csapi.DeleteObjectsResponse, 1)
-	err := handlers[csapi.CmdDeleteObjects].Handle(context.Background(), cmd, 1, newTestReceiver(func(_ uint64, data any, _ error) {
+	err := handlers[csapi.DeleteObjects].Handle(context.Background(), cmd, 1, newTestReceiver(func(_ uint64, data any, _ error) {
 		done <- data.(csapi.DeleteObjectsResponse)
 	}))
 	require.NoError(t, err)
@@ -244,7 +244,7 @@ func TestDispatcher_PresignedGetURL(t *testing.T) {
 	}
 
 	done := make(chan csapi.PresignedGetURLResponse, 1)
-	err := handlers[csapi.CmdPresignedGetURL].Handle(context.Background(), cmd, 1, newTestReceiver(func(_ uint64, data any, _ error) {
+	err := handlers[csapi.PresignedGetURL].Handle(context.Background(), cmd, 1, newTestReceiver(func(_ uint64, data any, _ error) {
 		done <- data.(csapi.PresignedGetURLResponse)
 	}))
 	require.NoError(t, err)
@@ -278,7 +278,7 @@ func TestDispatcher_PresignedPutURL(t *testing.T) {
 	}
 
 	done := make(chan csapi.PresignedPutURLResponse, 1)
-	err := handlers[csapi.CmdPresignedPutURL].Handle(context.Background(), cmd, 1, newTestReceiver(func(_ uint64, data any, _ error) {
+	err := handlers[csapi.PresignedPutURL].Handle(context.Background(), cmd, 1, newTestReceiver(func(_ uint64, data any, _ error) {
 		done <- data.(csapi.PresignedPutURLResponse)
 	}))
 	require.NoError(t, err)

@@ -10,36 +10,36 @@ import (
 
 // Error kind constants.
 const (
-	KindLimitExceeded Kind = "LimitExceeded"
-	KindNotFound      Kind = "NotFound"
-	KindInvalidState  Kind = "InvalidState"
-	KindInternal      Kind = "Internal"
+	LimitExceeded Kind = "LimitExceeded"
+	NotFound      Kind = "NotFound"
+	InvalidState  Kind = "InvalidState"
+	Internal      Kind = "Internal"
 )
 
 // Errors returned by process operations.
 var (
 	ErrMaxProcessesExceeded = &Error{
-		kind:    KindLimitExceeded,
+		kind:    LimitExceeded,
 		message: "max processes limit exceeded",
 	}
 
 	ErrProcessClosed = &Error{
-		kind:    KindInvalidState,
+		kind:    InvalidState,
 		message: "process closed",
 	}
 
 	ErrProcessNotFound = &Error{
-		kind:    KindNotFound,
+		kind:    NotFound,
 		message: "process not found",
 	}
 
 	ErrProcessNotIdle = &Error{
-		kind:    KindInvalidState,
+		kind:    InvalidState,
 		message: "process is not idle",
 	}
 
 	ErrSchedulerStopping = &Error{
-		kind:    KindInvalidState,
+		kind:    InvalidState,
 		message: "scheduler is stopping",
 	}
 )
@@ -63,7 +63,7 @@ func (e *UnknownCommandError) Error() string {
 }
 
 func (e *UnknownCommandError) Kind() apierror.Kind {
-	return apierror.KindNotFound
+	return apierror.NotFound
 }
 
 func (e *UnknownCommandError) Retryable() apierror.Ternary {
@@ -120,7 +120,7 @@ func (e *Error) WithDetails(details attrs.Attributes) *Error {
 // NewFactoryNotFoundError creates an error for missing factory.
 func NewFactoryNotFoundError(factoryID string) *Error {
 	return &Error{
-		kind:    KindNotFound,
+		kind:    NotFound,
 		message: "no factory registered for: " + factoryID,
 		details: attrs.NewBagFrom(map[string]any{"factory_id": factoryID}),
 	}
@@ -129,7 +129,7 @@ func NewFactoryNotFoundError(factoryID string) *Error {
 // NewHostNotFoundError creates an error for missing host.
 func NewHostNotFoundError(hostID string) *Error {
 	return &Error{
-		kind:    KindNotFound,
+		kind:    NotFound,
 		message: "host not found: " + hostID,
 		details: attrs.NewBagFrom(map[string]any{"host_id": hostID}),
 	}

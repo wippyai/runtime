@@ -31,8 +31,8 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	mod.Immutable = true
 
 	yields := []luaapi.YieldType{
-		{Sample: &EventSubscribeYield{}, CmdID: event.CmdEventsSubscribe},
-		{Sample: &EventSendYield{}, CmdID: event.CmdEventsSend},
+		{Sample: &EventSubscribeYield{}, CmdID: event.Subscribe},
+		{Sample: &EventSendYield{}, CmdID: event.Send},
 	}
 
 	return mod, yields

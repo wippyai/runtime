@@ -172,7 +172,7 @@ func TestErrorInterface(t *testing.T) {
 	t.Run("ErrNotFound", func(t *testing.T) {
 		err := ErrNotFound
 		assert.Equal(t, "resource not found", err.Error())
-		assert.Equal(t, apierror.KindNotFound, err.Kind())
+		assert.Equal(t, apierror.NotFound, err.Kind())
 		assert.Equal(t, apierror.False, err.Retryable())
 		assert.Nil(t, err.Details())
 	})
@@ -180,7 +180,7 @@ func TestErrorInterface(t *testing.T) {
 	t.Run("ErrReleased", func(t *testing.T) {
 		err := ErrReleased
 		assert.Equal(t, "resource has been released", err.Error())
-		assert.Equal(t, apierror.KindInvalid, err.Kind())
+		assert.Equal(t, apierror.Invalid, err.Kind())
 		assert.Equal(t, apierror.False, err.Retryable())
 	})
 }

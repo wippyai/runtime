@@ -385,7 +385,7 @@ func TestProcessWaitYield(t *testing.T) {
 	if y.Type() != lua.LTUserData {
 		t.Error("unexpected type")
 	}
-	if y.CmdID() != execapi.CmdProcessWait {
+	if y.CmdID() != execapi.ProcessWait {
 		t.Error("unexpected command ID")
 	}
 }
@@ -502,7 +502,7 @@ func TestModuleBuild(t *testing.T) {
 
 	found := false
 	for _, y := range yields {
-		if y.CmdID == execapi.CmdProcessWait {
+		if y.CmdID == execapi.ProcessWait {
 			found = true
 			break
 		}

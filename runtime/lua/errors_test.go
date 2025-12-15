@@ -15,10 +15,10 @@ func TestSentinelErrors(t *testing.T) {
 		kind    apierror.Kind
 		message string
 	}{
-		{"ErrProcessNotInitialized", ErrProcessNotInitialized, apierror.KindInternal, "process not initialized"},
-		{"ErrProcessContextNotAvailable", ErrProcessContextNotAvailable, apierror.KindInternal, "process context not available"},
-		{"ErrStateNotInitialized", ErrStateNotInitialized, apierror.KindInternal, "process state not initialized - use Factory.Create()"},
-		{"ErrCouldNotAccessRegistry", ErrCouldNotAccessRegistry, apierror.KindInternal, "could not access registry"},
+		{"ErrProcessNotInitialized", ErrProcessNotInitialized, apierror.Internal, "process not initialized"},
+		{"ErrProcessContextNotAvailable", ErrProcessContextNotAvailable, apierror.Internal, "process context not available"},
+		{"ErrStateNotInitialized", ErrStateNotInitialized, apierror.Internal, "process state not initialized - use Factory.Create()"},
+		{"ErrCouldNotAccessRegistry", ErrCouldNotAccessRegistry, apierror.Internal, "could not access registry"},
 	}
 
 	for _, tt := range tests {
@@ -40,8 +40,8 @@ func TestImplementationErrorFactories(t *testing.T) {
 	t.Run("NewUnpackConfigError", func(t *testing.T) {
 		cause := errors.New("json parse error")
 		err := NewUnpackConfigError("function", cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
+		if err.Kind() != apierror.Internal {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}
 		expected := "failed to unpack function config"
 		if err.Error() != expected {
@@ -55,24 +55,24 @@ func TestImplementationErrorFactories(t *testing.T) {
 	t.Run("NewUnmarshalConfigError", func(t *testing.T) {
 		cause := errors.New("invalid json")
 		err := NewUnmarshalConfigError(cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
+		if err.Kind() != apierror.Internal {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}
 	})
 
 	t.Run("NewCompileError", func(t *testing.T) {
 		cause := errors.New("syntax error")
 		err := NewCompileError(cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
+		if err.Kind() != apierror.Internal {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}
 	})
 
 	t.Run("NewAddNodeError", func(t *testing.T) {
 		cause := errors.New("duplicate key")
 		err := NewAddNodeError("function", cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
+		if err.Kind() != apierror.Internal {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}
 		expected := "failed to add function node"
 		if err.Error() != expected {
@@ -83,56 +83,56 @@ func TestImplementationErrorFactories(t *testing.T) {
 	t.Run("NewUpdateNodeError", func(t *testing.T) {
 		cause := errors.New("not found")
 		err := NewUpdateNodeError("process", cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
+		if err.Kind() != apierror.Internal {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}
 	})
 
 	t.Run("NewDeleteNodeError", func(t *testing.T) {
 		cause := errors.New("in use")
 		err := NewDeleteNodeError("workflow", cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
+		if err.Kind() != apierror.Internal {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}
 	})
 
 	t.Run("NewRegisterFactoryError", func(t *testing.T) {
 		cause := errors.New("duplicate registration")
 		err := NewRegisterFactoryError(cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
+		if err.Kind() != apierror.Internal {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}
 	})
 
 	t.Run("NewUpdateFactoryError", func(t *testing.T) {
 		cause := errors.New("factory not found")
 		err := NewUpdateFactoryError(cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
+		if err.Kind() != apierror.Internal {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}
 	})
 
 	t.Run("NewCreatePoolError", func(t *testing.T) {
 		cause := errors.New("resource exhausted")
 		err := NewCreatePoolError(cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
+		if err.Kind() != apierror.Internal {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}
 	})
 
 	t.Run("NewReplacePoolError", func(t *testing.T) {
 		cause := errors.New("pool busy")
 		err := NewReplacePoolError(cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
+		if err.Kind() != apierror.Internal {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}
 	})
 
 	t.Run("NewModuleInitError", func(t *testing.T) {
 		cause := errors.New("module error")
 		err := NewModuleInitError("sql", cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
+		if err.Kind() != apierror.Internal {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}
 		expected := "failed to initialize module: sql"
 		if err.Error() != expected {
@@ -144,8 +144,8 @@ func TestImplementationErrorFactories(t *testing.T) {
 		id := registry.NewID("app", "myFunc")
 		cause := errors.New("register failed")
 		err := NewRegisterCallerError(id, cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
+		if err.Kind() != apierror.Internal {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}
 	})
 
@@ -153,56 +153,56 @@ func TestImplementationErrorFactories(t *testing.T) {
 		id := registry.NewID("app", "myFunc")
 		cause := errors.New("unregister failed")
 		err := NewUnregisterCallerError(id, cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
+		if err.Kind() != apierror.Internal {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}
 	})
 
 	t.Run("NewLoadBytecodeError", func(t *testing.T) {
 		cause := errors.New("file not found")
 		err := NewLoadBytecodeError(cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
+		if err.Kind() != apierror.Internal {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}
 	})
 
 	t.Run("NewUndumpBytecodeError", func(t *testing.T) {
 		cause := errors.New("invalid bytecode")
 		err := NewUndumpBytecodeError(cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
+		if err.Kind() != apierror.Internal {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}
 	})
 
 	t.Run("NewStoreResourcesError", func(t *testing.T) {
 		cause := errors.New("store failed")
 		err := NewStoreResourcesError(cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
+		if err.Kind() != apierror.Internal {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}
 	})
 
 	t.Run("NewLoadScriptError", func(t *testing.T) {
 		cause := errors.New("parse error")
 		err := NewLoadScriptError(cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
+		if err.Kind() != apierror.Internal {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}
 	})
 
 	t.Run("NewExecuteScriptError", func(t *testing.T) {
 		cause := errors.New("runtime error")
 		err := NewExecuteScriptError(cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
+		if err.Kind() != apierror.Internal {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}
 	})
 
 	t.Run("NewOperationError", func(t *testing.T) {
 		cause := errors.New("operation failed")
 		err := NewOperationError("custom operation", cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
+		if err.Kind() != apierror.Internal {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}
 		if err.Error() != "custom operation" {
 			t.Errorf("Error() = %q, want %q", err.Error(), "custom operation")
@@ -211,8 +211,8 @@ func TestImplementationErrorFactories(t *testing.T) {
 
 	t.Run("NewRuntimeError", func(t *testing.T) {
 		err := NewRuntimeError("runtime failure")
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
+		if err.Kind() != apierror.Internal {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}
 		if err.Error() != "runtime failure" {
 			t.Errorf("Error() = %q, want %q", err.Error(), "runtime failure")
@@ -222,16 +222,16 @@ func TestImplementationErrorFactories(t *testing.T) {
 	t.Run("NewRegistryTableError", func(t *testing.T) {
 		cause := errors.New("table access failed")
 		err := NewRegistryTableError(cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
+		if err.Kind() != apierror.Internal {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}
 	})
 
 	t.Run("NewRegistryAddError", func(t *testing.T) {
 		cause := errors.New("add failed")
 		err := NewRegistryAddError(cause)
-		if err.Kind() != apierror.KindInternal {
-			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.KindInternal)
+		if err.Kind() != apierror.Internal {
+			t.Errorf("Kind() = %v, want %v", err.Kind(), apierror.Internal)
 		}
 	})
 }

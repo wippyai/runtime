@@ -125,12 +125,12 @@ func matchPattern(pattern, value string) bool {
 
 // RegisterAll registers event bus command handlers.
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
-	register(event.CmdEventsSubscribe, dispatcher.HandlerFunc(d.handleSubscribe))
-	register(event.CmdEventsSend, dispatcher.HandlerFunc(d.handleSend))
+	register(event.Subscribe, dispatcher.HandlerFunc(d.handleSubscribe))
+	register(event.Send, dispatcher.HandlerFunc(d.handleSend))
 }
 
 func (d *Dispatcher) handleSubscribe(_ context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
-	subCmd := cmd.(event.EventsSubscribeCmd)
+	subCmd := cmd.(event.SubscribeCmd)
 
 	d.mu.Lock()
 	d.subs[subCmd.Topic] = &subscription{
@@ -155,7 +155,7 @@ func (d *Dispatcher) handleSubscribe(_ context.Context, cmd dispatcher.Command, 
 }
 
 func (d *Dispatcher) handleSend(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
-	sendCmd := cmd.(event.EventsSendCmd)
+	sendCmd := cmd.(event.SendCmd)
 
 	evt := event.Event(sendCmd)
 

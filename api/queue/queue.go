@@ -12,11 +12,11 @@ import (
 const (
 	System event.System = "queue"
 
-	KindDriverRegister event.Kind = "queue.driver.register"
-	KindDriverDelete   event.Kind = "queue.driver.delete"
+	DriverRegister event.Kind = "queue.driver.register"
+	DriverDelete   event.Kind = "queue.driver.delete"
 
-	KindQueueDeclare event.Kind = "queue.queue.declare"
-	KindQueueDelete  event.Kind = "queue.queue.delete"
+	QueueDeclare event.Kind = "queue.queue.declare"
+	QueueDelete  event.Kind = "queue.queue.delete"
 )
 
 // Queue represents a queue declaration with its configuration

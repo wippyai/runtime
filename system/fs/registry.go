@@ -50,11 +50,11 @@ func (r *Registry) Stop() error {
 
 func (r *Registry) handleEvent(e event.Event) {
 	switch e.Kind {
-	case fsapi.KindRegister:
+	case fsapi.Register:
 		r.registerFS(e)
-	case fsapi.KindDelete:
+	case fsapi.Delete:
 		r.deleteFS(e)
-	case fsapi.KindAccept, fsapi.KindReject:
+	case fsapi.Accept, fsapi.Reject:
 		// nothing, self emitted
 	default:
 		r.log.Warn("unknown event kind",
@@ -93,7 +93,7 @@ func (r *Registry) deleteFS(e event.Event) {
 func (r *Registry) sendAccept(path event.Path) {
 	r.bus.Send(r.ctx, event.Event{
 		System: fsapi.System,
-		Kind:   fsapi.KindAccept,
+		Kind:   fsapi.Accept,
 		Path:   path,
 	})
 }
@@ -101,7 +101,7 @@ func (r *Registry) sendAccept(path event.Path) {
 func (r *Registry) sendReject(path event.Path, reason string) {
 	r.bus.Send(r.ctx, event.Event{
 		System: fsapi.System,
-		Kind:   fsapi.KindReject,
+		Kind:   fsapi.Reject,
 		Path:   path,
 		Data:   reason,
 	})

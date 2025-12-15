@@ -515,12 +515,12 @@ func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, tag uin
 // RegisterAll registers all stream handlers.
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
 	h := dispatcher.HandlerFunc(d.handle)
-	register(streamapi.CmdRead, h)
-	register(streamapi.CmdWrite, h)
-	register(streamapi.CmdClose, h)
-	register(streamapi.CmdSeek, h)
-	register(streamapi.CmdFlush, h)
-	register(streamapi.CmdStat, h)
-	register(streamapi.CmdScannerCreate, h)
-	register(streamapi.CmdScannerScan, h)
+	register(streamapi.Read, h)
+	register(streamapi.Write, h)
+	register(streamapi.Close, h)
+	register(streamapi.Seek, h)
+	register(streamapi.Flush, h)
+	register(streamapi.Stat, h)
+	register(streamapi.ScannerCreate, h)
+	register(streamapi.ScannerScan, h)
 }

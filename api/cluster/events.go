@@ -7,26 +7,26 @@ const (
 	// System is the event.System identifier shared by all cluster events.
 	System event.System = "cluster"
 
-	// NodeJoinedEventKind is published when a new node becomes visible.
-	NodeJoinedEventKind event.Kind = "node.joined"
+	// NodeJoined is published when a new node becomes visible.
+	NodeJoined event.Kind = "node.joined"
 
-	// NodeLeftEventKind is published when a node departs or becomes unreachable.
-	NodeLeftEventKind event.Kind = "node.left"
+	// NodeLeft is published when a node departs or becomes unreachable.
+	NodeLeft event.Kind = "node.left"
 
-	// NodeUpdatedEventKind indicates that a node's metadata has changed.
-	NodeUpdatedEventKind event.Kind = "node.updated"
+	// NodeUpdated indicates that a node's metadata has changed.
+	NodeUpdated event.Kind = "node.updated"
 
-	// KVPutEventKind accompanies a successful key creation or update.
-	KVPutEventKind event.Kind = "kv.put"
+	// KVPut accompanies a successful key creation or update.
+	KVPut event.Kind = "kv.put"
 
-	// KVDeleteEventKind accompanies a key deletion.
-	KVDeleteEventKind event.Kind = "kv.delete"
+	// KVDelete accompanies a key deletion.
+	KVDelete event.Kind = "kv.delete"
 
-	// RaftLeaderElectedEventKind is emitted by the node that just became leader.
-	RaftLeaderElectedEventKind event.Kind = "raft.leader.elected"
+	// LeaderElected is emitted by the node that just became leader.
+	LeaderElected event.Kind = "raft.leader.elected"
 
-	// RaftLeaderLostEventKind is emitted by the node that just stepped down.
-	RaftLeaderLostEventKind event.Kind = "raft.leader.lost"
+	// LeaderLost is emitted by the node that just stepped down.
+	LeaderLost event.Kind = "raft.leader.lost"
 )
 
 type (

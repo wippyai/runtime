@@ -10,7 +10,7 @@ local function handler()
     end
 
     -- Sleep for 1ms
-    time.sleep("5ms")
+    --time.sleep("5ms")
     --
     local data = {
          message = "hello world"

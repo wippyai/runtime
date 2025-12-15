@@ -35,18 +35,18 @@ func TestErrors(t *testing.T) {
 
 func TestError_Interface(t *testing.T) {
 	t.Run("ErrKeyNotFound", func(t *testing.T) {
-		assert.Equal(t, apierror.KindNotFound, ErrKeyNotFound.Kind())
+		assert.Equal(t, apierror.NotFound, ErrKeyNotFound.Kind())
 		assert.Equal(t, apierror.False, ErrKeyNotFound.Retryable())
 		assert.Nil(t, ErrKeyNotFound.Details())
 	})
 
 	t.Run("ErrKeyExists", func(t *testing.T) {
-		assert.Equal(t, apierror.KindAlreadyExists, ErrKeyExists.Kind())
+		assert.Equal(t, apierror.AlreadyExists, ErrKeyExists.Kind())
 		assert.Equal(t, apierror.False, ErrKeyExists.Retryable())
 	})
 
 	t.Run("ErrInvalidKey", func(t *testing.T) {
-		assert.Equal(t, apierror.KindInvalid, ErrInvalidKey.Kind())
+		assert.Equal(t, apierror.Invalid, ErrInvalidKey.Kind())
 		assert.Equal(t, apierror.False, ErrInvalidKey.Retryable())
 	})
 }
@@ -56,7 +56,7 @@ func TestNewKeyNotFoundError(t *testing.T) {
 	err := NewKeyNotFoundError(key)
 
 	assert.Equal(t, "key not found", err.Error())
-	assert.Equal(t, apierror.KindNotFound, err.Kind())
+	assert.Equal(t, apierror.NotFound, err.Kind())
 	assert.Equal(t, apierror.False, err.Retryable())
 	assert.NotNil(t, err.Details())
 
@@ -70,7 +70,7 @@ func TestNewKeyExistsError(t *testing.T) {
 	err := NewKeyExistsError(key)
 
 	assert.Equal(t, "key already exists", err.Error())
-	assert.Equal(t, apierror.KindAlreadyExists, err.Kind())
+	assert.Equal(t, apierror.AlreadyExists, err.Kind())
 	assert.Equal(t, apierror.False, err.Retryable())
 	assert.NotNil(t, err.Details())
 
@@ -83,7 +83,7 @@ func TestNewInvalidKeyError(t *testing.T) {
 	err := NewInvalidKeyError("bad-key", "contains invalid characters")
 
 	assert.Equal(t, "invalid key format: contains invalid characters", err.Error())
-	assert.Equal(t, apierror.KindInvalid, err.Kind())
+	assert.Equal(t, apierror.Invalid, err.Kind())
 	assert.Equal(t, apierror.False, err.Retryable())
 	assert.NotNil(t, err.Details())
 
@@ -100,7 +100,7 @@ func TestNewUnsupportedKindError(t *testing.T) {
 	err := NewUnsupportedKindError("unknown.kind")
 
 	assert.Equal(t, "unsupported entry kind: unknown.kind", err.Error())
-	assert.Equal(t, apierror.KindInvalid, err.Kind())
+	assert.Equal(t, apierror.Invalid, err.Kind())
 	assert.Equal(t, apierror.False, err.Retryable())
 	assert.NotNil(t, err.Details())
 
@@ -113,7 +113,7 @@ func TestNewStoreAlreadyExistsError(t *testing.T) {
 	err := NewStoreAlreadyExistsError("test:mystore")
 
 	assert.Equal(t, "store test:mystore already exists", err.Error())
-	assert.Equal(t, apierror.KindAlreadyExists, err.Kind())
+	assert.Equal(t, apierror.AlreadyExists, err.Kind())
 	assert.Equal(t, apierror.False, err.Retryable())
 	assert.NotNil(t, err.Details())
 
@@ -126,7 +126,7 @@ func TestNewStoreNotFoundError(t *testing.T) {
 	err := NewStoreNotFoundError("test:missing")
 
 	assert.Equal(t, "store test:missing not found", err.Error())
-	assert.Equal(t, apierror.KindNotFound, err.Kind())
+	assert.Equal(t, apierror.NotFound, err.Kind())
 	assert.Equal(t, apierror.False, err.Retryable())
 	assert.NotNil(t, err.Details())
 

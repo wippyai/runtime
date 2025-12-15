@@ -10,20 +10,20 @@ import (
 
 func init() {
 	dispatcher.MustRegisterCommands("cloudstorage",
-		CmdListObjects, CmdDownloadObject, CmdUploadObject,
-		CmdDeleteObjects, CmdPresignedGetURL, CmdPresignedPutURL,
+		ListObjects, DownloadObject, UploadObject,
+		DeleteObjects, PresignedGetURL, PresignedPutURL,
 	)
 }
 
 // Command IDs for cloud storage operations.
 // Range 220-229 is reserved for cloud storage commands.
 const (
-	CmdListObjects     dispatcher.CommandID = 220
-	CmdDownloadObject  dispatcher.CommandID = 221
-	CmdUploadObject    dispatcher.CommandID = 222
-	CmdDeleteObjects   dispatcher.CommandID = 223
-	CmdPresignedGetURL dispatcher.CommandID = 224
-	CmdPresignedPutURL dispatcher.CommandID = 225
+	ListObjects     dispatcher.CommandID = 220
+	DownloadObject  dispatcher.CommandID = 221
+	UploadObject    dispatcher.CommandID = 222
+	DeleteObjects   dispatcher.CommandID = 223
+	PresignedGetURL dispatcher.CommandID = 224
+	PresignedPutURL dispatcher.CommandID = 225
 )
 
 // ListObjectsCmd lists objects in cloud storage.
@@ -35,7 +35,7 @@ type ListObjectsCmd struct {
 var listObjectsCmdPool = sync.Pool{New: func() any { return &ListObjectsCmd{} }}
 
 func AcquireListObjectsCmd() *ListObjectsCmd          { return listObjectsCmdPool.Get().(*ListObjectsCmd) }
-func (c *ListObjectsCmd) CmdID() dispatcher.CommandID { return CmdListObjects }
+func (c *ListObjectsCmd) CmdID() dispatcher.CommandID { return ListObjects }
 func (c *ListObjectsCmd) Release() {
 	c.Storage = nil
 	c.Options = nil
@@ -61,7 +61,7 @@ var downloadObjectCmdPool = sync.Pool{New: func() any { return &DownloadObjectCm
 func AcquireDownloadObjectCmd() *DownloadObjectCmd {
 	return downloadObjectCmdPool.Get().(*DownloadObjectCmd)
 }
-func (c *DownloadObjectCmd) CmdID() dispatcher.CommandID { return CmdDownloadObject }
+func (c *DownloadObjectCmd) CmdID() dispatcher.CommandID { return DownloadObject }
 func (c *DownloadObjectCmd) Release() {
 	c.Storage = nil
 	c.Key = ""
@@ -85,7 +85,7 @@ type UploadObjectCmd struct {
 var uploadObjectCmdPool = sync.Pool{New: func() any { return &UploadObjectCmd{} }}
 
 func AcquireUploadObjectCmd() *UploadObjectCmd         { return uploadObjectCmdPool.Get().(*UploadObjectCmd) }
-func (c *UploadObjectCmd) CmdID() dispatcher.CommandID { return CmdUploadObject }
+func (c *UploadObjectCmd) CmdID() dispatcher.CommandID { return UploadObject }
 func (c *UploadObjectCmd) Release() {
 	c.Storage = nil
 	c.Key = ""
@@ -109,7 +109,7 @@ var deleteObjectsCmdPool = sync.Pool{New: func() any { return &DeleteObjectsCmd{
 func AcquireDeleteObjectsCmd() *DeleteObjectsCmd {
 	return deleteObjectsCmdPool.Get().(*DeleteObjectsCmd)
 }
-func (c *DeleteObjectsCmd) CmdID() dispatcher.CommandID { return CmdDeleteObjects }
+func (c *DeleteObjectsCmd) CmdID() dispatcher.CommandID { return DeleteObjects }
 func (c *DeleteObjectsCmd) Release() {
 	c.Storage = nil
 	c.Keys = nil
@@ -133,7 +133,7 @@ var presignedGetURLCmdPool = sync.Pool{New: func() any { return &PresignedGetURL
 func AcquirePresignedGetURLCmd() *PresignedGetURLCmd {
 	return presignedGetURLCmdPool.Get().(*PresignedGetURLCmd)
 }
-func (c *PresignedGetURLCmd) CmdID() dispatcher.CommandID { return CmdPresignedGetURL }
+func (c *PresignedGetURLCmd) CmdID() dispatcher.CommandID { return PresignedGetURL }
 func (c *PresignedGetURLCmd) Release() {
 	c.Storage = nil
 	c.Key = ""
@@ -161,7 +161,7 @@ var presignedPutURLCmdPool = sync.Pool{New: func() any { return &PresignedPutURL
 func AcquirePresignedPutURLCmd() *PresignedPutURLCmd {
 	return presignedPutURLCmdPool.Get().(*PresignedPutURLCmd)
 }
-func (c *PresignedPutURLCmd) CmdID() dispatcher.CommandID { return CmdPresignedPutURL }
+func (c *PresignedPutURLCmd) CmdID() dispatcher.CommandID { return PresignedPutURL }
 func (c *PresignedPutURLCmd) Release() {
 	c.Storage = nil
 	c.Key = ""

@@ -123,7 +123,7 @@ func (m *Manager) registerFS(ctx context.Context, id registry.ID) error {
 	// Register with filesystem registry
 	m.bus.Send(ctx, event.Event{
 		System: fsapi.System,
-		Kind:   fsapi.KindRegister,
+		Kind:   fsapi.Register,
 		Path:   id.String(),
 		Data:   fs,
 	})
@@ -135,7 +135,7 @@ func (m *Manager) registerFS(ctx context.Context, id registry.ID) error {
 func (m *Manager) removeFS(ctx context.Context, id registry.ID) {
 	m.bus.Send(ctx, event.Event{
 		System: fsapi.System,
-		Kind:   fsapi.KindDelete,
+		Kind:   fsapi.Delete,
 		Path:   id.String(),
 	})
 }

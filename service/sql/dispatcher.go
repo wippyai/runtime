@@ -39,18 +39,18 @@ func (d *Dispatcher) Stop(_ context.Context) error {
 
 // RegisterAll registers all SQL handlers.
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
-	register(sqlapi.CmdQuery, dispatcher.HandlerFunc(d.handleQuery))
-	register(sqlapi.CmdExecute, dispatcher.HandlerFunc(d.handleExecute))
-	register(sqlapi.CmdPrepare, dispatcher.HandlerFunc(d.handlePrepare))
-	register(sqlapi.CmdBegin, dispatcher.HandlerFunc(d.handleBegin))
-	register(sqlapi.CmdStmtQuery, dispatcher.HandlerFunc(d.handleStmtQuery))
-	register(sqlapi.CmdStmtExecute, dispatcher.HandlerFunc(d.handleStmtExecute))
-	register(sqlapi.CmdStmtClose, dispatcher.HandlerFunc(d.handleStmtClose))
-	register(sqlapi.CmdTxQuery, dispatcher.HandlerFunc(d.handleTxQuery))
-	register(sqlapi.CmdTxExecute, dispatcher.HandlerFunc(d.handleTxExecute))
-	register(sqlapi.CmdTxPrepare, dispatcher.HandlerFunc(d.handleTxPrepare))
-	register(sqlapi.CmdTxCommit, dispatcher.HandlerFunc(d.handleTxCommit))
-	register(sqlapi.CmdTxRollback, dispatcher.HandlerFunc(d.handleTxRollback))
+	register(sqlapi.Query, dispatcher.HandlerFunc(d.handleQuery))
+	register(sqlapi.Execute, dispatcher.HandlerFunc(d.handleExecute))
+	register(sqlapi.Prepare, dispatcher.HandlerFunc(d.handlePrepare))
+	register(sqlapi.Begin, dispatcher.HandlerFunc(d.handleBegin))
+	register(sqlapi.StmtQuery, dispatcher.HandlerFunc(d.handleStmtQuery))
+	register(sqlapi.StmtExecute, dispatcher.HandlerFunc(d.handleStmtExecute))
+	register(sqlapi.StmtClose, dispatcher.HandlerFunc(d.handleStmtClose))
+	register(sqlapi.TxQuery, dispatcher.HandlerFunc(d.handleTxQuery))
+	register(sqlapi.TxExecute, dispatcher.HandlerFunc(d.handleTxExecute))
+	register(sqlapi.TxPrepare, dispatcher.HandlerFunc(d.handleTxPrepare))
+	register(sqlapi.TxCommit, dispatcher.HandlerFunc(d.handleTxCommit))
+	register(sqlapi.TxRollback, dispatcher.HandlerFunc(d.handleTxRollback))
 }
 
 func (d *Dispatcher) handleQuery(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {

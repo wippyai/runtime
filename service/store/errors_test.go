@@ -28,12 +28,12 @@ func TestErrors(t *testing.T) {
 
 func TestError_Interface(t *testing.T) {
 	t.Run("ErrStoreFull", func(t *testing.T) {
-		assert.Equal(t, apierror.KindUnavailable, ErrStoreFull.Kind())
+		assert.Equal(t, apierror.Unavailable, ErrStoreFull.Kind())
 		assert.Equal(t, apierror.True, ErrStoreFull.Retryable())
 	})
 
 	t.Run("ErrStoreClosed", func(t *testing.T) {
-		assert.Equal(t, apierror.KindUnavailable, ErrStoreClosed.Kind())
+		assert.Equal(t, apierror.Unavailable, ErrStoreClosed.Kind())
 		assert.Equal(t, apierror.False, ErrStoreClosed.Retryable())
 	})
 }

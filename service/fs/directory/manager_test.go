@@ -148,7 +148,7 @@ func TestManager_Add(t *testing.T) {
 		ctx,
 		bus,
 		fsapi.System,
-		fsapi.KindRegister,
+		fsapi.Register,
 		func(evt event.Event) {
 			fsEvents <- evt
 		},
@@ -190,7 +190,7 @@ func TestManager_Add(t *testing.T) {
 		// Verify FS registration event was sent
 		select {
 		case evt := <-fsEvents:
-			assert.Equal(t, fsapi.KindRegister, evt.Kind)
+			assert.Equal(t, fsapi.Register, evt.Kind)
 			assert.Equal(t, testID.String(), evt.Path)
 			assert.NotNil(t, evt.Data)
 		case <-time.After(time.Second):
@@ -255,7 +255,7 @@ func TestManager_Update(t *testing.T) {
 		ctx,
 		bus,
 		fsapi.System,
-		fsapi.KindRegister,
+		fsapi.Register,
 		func(evt event.Event) {
 			fsEvents <- evt
 		},
@@ -294,7 +294,7 @@ func TestManager_Update(t *testing.T) {
 		// Verify FS registration event was sent again
 		select {
 		case evt := <-fsEvents:
-			assert.Equal(t, fsapi.KindRegister, evt.Kind)
+			assert.Equal(t, fsapi.Register, evt.Kind)
 			assert.Equal(t, testID.String(), evt.Path)
 			assert.NotNil(t, evt.Data)
 		case <-time.After(time.Second):
@@ -360,7 +360,7 @@ func TestManager_Delete(t *testing.T) {
 		ctx,
 		bus,
 		fsapi.System,
-		fsapi.KindDelete,
+		fsapi.Delete,
 		func(evt event.Event) {
 			fsEvents <- evt
 		},
@@ -401,7 +401,7 @@ func TestManager_Delete(t *testing.T) {
 		// Verify FS deletion event was sent
 		select {
 		case evt := <-fsEvents:
-			assert.Equal(t, fsapi.KindDelete, evt.Kind)
+			assert.Equal(t, fsapi.Delete, evt.Kind)
 			assert.Equal(t, testID.String(), evt.Path)
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for fs deletion event")
@@ -440,7 +440,7 @@ func TestManager_RegisterFS(t *testing.T) {
 		ctx,
 		bus,
 		fsapi.System,
-		fsapi.KindRegister,
+		fsapi.Register,
 		func(evt event.Event) {
 			fsEvents <- evt
 		},
@@ -465,7 +465,7 @@ func TestManager_RegisterFS(t *testing.T) {
 	// Verify FS registration event was sent
 	select {
 	case evt := <-fsEvents:
-		assert.Equal(t, fsapi.KindRegister, evt.Kind)
+		assert.Equal(t, fsapi.Register, evt.Kind)
 		assert.Equal(t, testID.String(), evt.Path)
 		assert.NotNil(t, evt.Data)
 	case <-time.After(time.Second):

@@ -10,14 +10,14 @@ import (
 
 // Sentinel errors
 var (
-	ErrUnrelatedAcceptEvent = apierror.New(apierror.KindInvalid, "unrelated accept event")
-	ErrUnrelatedRejectEvent = apierror.New(apierror.KindInvalid, "unrelated reject event")
+	ErrUnrelatedAcceptEvent = apierror.New(apierror.Invalid, "unrelated accept event")
+	ErrUnrelatedRejectEvent = apierror.New(apierror.Invalid, "unrelated reject event")
 )
 
 // NewOperationFailedError creates an error when an operation fails
 func NewOperationFailedError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"operation failed: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -28,7 +28,7 @@ func NewOperationFailedError(err error) apierror.Error {
 // NewInvalidOperationError creates an error when an operation is invalid
 func NewInvalidOperationError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInvalid,
+		apierror.Invalid,
 		"invalid operation: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -39,7 +39,7 @@ func NewInvalidOperationError(err error) apierror.Error {
 // NewEntryKindNotFoundError creates an error when entry kind is not found
 func NewEntryKindNotFoundError(entryID registry.ID) apierror.Error {
 	return apierror.E(
-		apierror.KindNotFound,
+		apierror.NotFound,
 		"entry kind not found: "+entryID.String(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"entry_id": entryID.String()}),
@@ -50,7 +50,7 @@ func NewEntryKindNotFoundError(entryID registry.ID) apierror.Error {
 // NewApplyChangeError creates an error when applying a change fails
 func NewApplyChangeError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"applying change to state: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -62,7 +62,7 @@ func NewApplyChangeError(err error) apierror.Error {
 func NewOperationRejectedError(entryID registry.ID, err error) apierror.Error {
 	if err == nil {
 		return apierror.E(
-			apierror.KindInvalid,
+			apierror.Invalid,
 			"operation rejected for entry "+entryID.String()+", no details",
 			apierror.False,
 			attrs.NewBagFrom(map[string]any{"entry_id": entryID.String()}),
@@ -70,7 +70,7 @@ func NewOperationRejectedError(entryID registry.ID, err error) apierror.Error {
 		)
 	}
 	return apierror.E(
-		apierror.KindInvalid,
+		apierror.Invalid,
 		"operation failed for entry "+entryID.String()+": "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"entry_id": entryID.String(), "cause": err.Error()}),
@@ -81,7 +81,7 @@ func NewOperationRejectedError(entryID registry.ID, err error) apierror.Error {
 // NewOperationCanceledError creates an error when an operation is canceled
 func NewOperationCanceledError(entryID registry.ID, kind registry.Kind, err error) apierror.Error {
 	return apierror.E(
-		apierror.KindCanceled,
+		apierror.Canceled,
 		"operation context canceled for "+entryID.String()+" ("+kind+"): "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"entry_id": entryID.String(), "kind": kind, "cause": err.Error()}),
@@ -92,7 +92,7 @@ func NewOperationCanceledError(entryID registry.ID, kind registry.Kind, err erro
 // NewEventHandlerTimeoutError creates an error when event handler times out
 func NewEventHandlerTimeoutError(timeout time.Duration, entryID registry.ID, kind registry.Kind) apierror.Error {
 	return apierror.E(
-		apierror.KindTimeout,
+		apierror.Timeout,
 		"event handler timeout after "+timeout.String()+" for entry "+entryID.String()+" (kind: "+kind+"): no listener responded - check if listener is registered for this kind",
 		apierror.True,
 		attrs.NewBagFrom(map[string]any{"timeout": timeout.String(), "entry_id": entryID.String(), "kind": kind}),
@@ -103,7 +103,7 @@ func NewEventHandlerTimeoutError(timeout time.Duration, entryID registry.ID, kin
 // NewListenEventsError creates an error when subscribing to events fails
 func NewListenEventsError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"listening events: "+err.Error(),
 		apierror.True,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),

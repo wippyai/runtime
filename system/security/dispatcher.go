@@ -91,7 +91,7 @@ func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, tag uin
 // RegisterAll registers all security handlers.
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
 	h := dispatcher.HandlerFunc(d.handle)
-	register(security.CmdTokenValidate, h)
-	register(security.CmdTokenCreate, h)
-	register(security.CmdTokenRevoke, h)
+	register(security.ValidateToken, h)
+	register(security.CreateToken, h)
+	register(security.RevokeToken, h)
 }

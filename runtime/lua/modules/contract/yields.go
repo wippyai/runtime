@@ -35,7 +35,7 @@ func ReleaseOpenYield(y *OpenYield) {
 func (y *OpenYield) String() string                { return "<contract_open_yield>" }
 func (y *OpenYield) Type() lua.LValueType          { return lua.LTUserData }
 func (y *OpenYield) ToCommand() dispatcher.Command { return y.OpenCmd }
-func (y *OpenYield) CmdID() dispatcher.CommandID   { return contract.CmdOpen }
+func (y *OpenYield) CmdID() dispatcher.CommandID   { return contract.Open }
 func (y *OpenYield) Release()                      { ReleaseOpenYield(y) }
 
 // HandleResult converts open response to Lua values.
@@ -95,7 +95,7 @@ func ReleaseCallYield(y *CallYield) {
 func (y *CallYield) String() string                { return "<contract_call_yield>" }
 func (y *CallYield) Type() lua.LValueType          { return lua.LTUserData }
 func (y *CallYield) ToCommand() dispatcher.Command { return y.CallCmd }
-func (y *CallYield) CmdID() dispatcher.CommandID   { return contract.CmdCall }
+func (y *CallYield) CmdID() dispatcher.CommandID   { return contract.Call }
 func (y *CallYield) Release()                      { ReleaseCallYield(y) }
 
 // HandleResult converts call response to Lua values.
@@ -159,7 +159,7 @@ func ReleaseAsyncCallYield(y *AsyncCallYield) {
 func (y *AsyncCallYield) String() string                { return "<contract_async_call_yield>" }
 func (y *AsyncCallYield) Type() lua.LValueType          { return lua.LTUserData }
 func (y *AsyncCallYield) ToCommand() dispatcher.Command { return y.AsyncCallCmd }
-func (y *AsyncCallYield) CmdID() dispatcher.CommandID   { return contract.CmdAsyncCall }
+func (y *AsyncCallYield) CmdID() dispatcher.CommandID   { return contract.AsyncCall }
 func (y *AsyncCallYield) Release()                      { ReleaseAsyncCallYield(y) }
 
 // HandleResult returns the pre-created Future after dispatcher confirms start.
@@ -210,7 +210,7 @@ func ReleaseAsyncCancelYield(y *AsyncCancelYield) {
 func (y *AsyncCancelYield) String() string                { return "<contract_async_cancel_yield>" }
 func (y *AsyncCancelYield) Type() lua.LValueType          { return lua.LTUserData }
 func (y *AsyncCancelYield) ToCommand() dispatcher.Command { return y.AsyncCancelCmd }
-func (y *AsyncCancelYield) CmdID() dispatcher.CommandID   { return contract.CmdAsyncCancel }
+func (y *AsyncCancelYield) CmdID() dispatcher.CommandID   { return contract.AsyncCancel }
 func (y *AsyncCancelYield) Release()                      { ReleaseAsyncCancelYield(y) }
 
 // HandleResult for cancel - returns true on success.

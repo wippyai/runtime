@@ -33,7 +33,7 @@ func ReleaseGetYield(y *GetYield) {
 
 func (y *GetYield) String() string                { return "<store_get_yield>" }
 func (y *GetYield) Type() lua.LValueType          { return lua.LTUserData }
-func (y *GetYield) CmdID() dispatcher.CommandID   { return store.CmdStoreGet }
+func (y *GetYield) CmdID() dispatcher.CommandID   { return store.Get }
 func (y *GetYield) ToCommand() dispatcher.Command { return y.GetCmd }
 func (y *GetYield) Release()                      { ReleaseGetYield(y) }
 
@@ -103,7 +103,7 @@ func ReleaseSetYield(y *SetYield) {
 
 func (y *SetYield) String() string                { return "<store_set_yield>" }
 func (y *SetYield) Type() lua.LValueType          { return lua.LTUserData }
-func (y *SetYield) CmdID() dispatcher.CommandID   { return store.CmdStoreSet }
+func (y *SetYield) CmdID() dispatcher.CommandID   { return store.Set }
 func (y *SetYield) ToCommand() dispatcher.Command { return y.SetCmd }
 func (y *SetYield) Release()                      { ReleaseSetYield(y) }
 
@@ -144,7 +144,7 @@ func ReleaseDeleteYield(y *DeleteYield) {
 
 func (y *DeleteYield) String() string                { return "<store_delete_yield>" }
 func (y *DeleteYield) Type() lua.LValueType          { return lua.LTUserData }
-func (y *DeleteYield) CmdID() dispatcher.CommandID   { return store.CmdStoreDelete }
+func (y *DeleteYield) CmdID() dispatcher.CommandID   { return store.Delete }
 func (y *DeleteYield) ToCommand() dispatcher.Command { return y.DeleteCmd }
 func (y *DeleteYield) Release()                      { ReleaseDeleteYield(y) }
 
@@ -188,7 +188,7 @@ func ReleaseHasYield(y *HasYield) {
 
 func (y *HasYield) String() string                { return "<store_has_yield>" }
 func (y *HasYield) Type() lua.LValueType          { return lua.LTUserData }
-func (y *HasYield) CmdID() dispatcher.CommandID   { return store.CmdStoreHas }
+func (y *HasYield) CmdID() dispatcher.CommandID   { return store.Has }
 func (y *HasYield) ToCommand() dispatcher.Command { return y.HasCmd }
 func (y *HasYield) Release()                      { ReleaseHasYield(y) }
 

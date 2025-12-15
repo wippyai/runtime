@@ -8,16 +8,16 @@ import (
 
 // Sentinel errors for relay operations.
 var (
-	ErrAlreadyAttached   = apierror.New(apierror.KindAlreadyExists, "receiver already attached").WithRetryable(apierror.False)
-	ErrHostNotFound      = apierror.New(apierror.KindNotFound, "host not found").WithRetryable(apierror.False)
-	ErrHostAlreadyExists = apierror.New(apierror.KindAlreadyExists, "host already exists").WithRetryable(apierror.False)
-	ErrEmptyNodeID       = apierror.New(apierror.KindInvalid, "nodeID cannot be empty").WithRetryable(apierror.False)
+	ErrAlreadyAttached   = apierror.New(apierror.AlreadyExists, "receiver already attached").WithRetryable(apierror.False)
+	ErrHostNotFound      = apierror.New(apierror.NotFound, "host not found").WithRetryable(apierror.False)
+	ErrHostAlreadyExists = apierror.New(apierror.AlreadyExists, "host already exists").WithRetryable(apierror.False)
+	ErrEmptyNodeID       = apierror.New(apierror.Invalid, "nodeID cannot be empty").WithRetryable(apierror.False)
 )
 
 // NewHostExistsError creates an error when host already exists.
 func NewHostExistsError(hostID pid.HostID, nodeID pid.NodeID) apierror.Error {
 	return apierror.E(
-		apierror.KindAlreadyExists,
+		apierror.AlreadyExists,
 		"host "+hostID+" already exists in node "+nodeID,
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"host_id": hostID, "node_id": nodeID}),
@@ -28,7 +28,7 @@ func NewHostExistsError(hostID pid.HostID, nodeID pid.NodeID) apierror.Error {
 // NewHostNotFoundError creates an error when host is not found.
 func NewHostNotFoundError(hostID pid.HostID, nodeID pid.NodeID) apierror.Error {
 	return apierror.E(
-		apierror.KindNotFound,
+		apierror.NotFound,
 		"host "+hostID+" not found in node "+nodeID,
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"host_id": hostID, "node_id": nodeID}),
@@ -39,7 +39,7 @@ func NewHostNotFoundError(hostID pid.HostID, nodeID pid.NodeID) apierror.Error {
 // NewExternalNodeError creates an error when trying to route to external node.
 func NewExternalNodeError(nodeID pid.NodeID) apierror.Error {
 	return apierror.E(
-		apierror.KindUnavailable,
+		apierror.Unavailable,
 		"cannot route to external node "+nodeID,
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"node_id": nodeID}),
@@ -50,7 +50,7 @@ func NewExternalNodeError(nodeID pid.NodeID) apierror.Error {
 // NewNodeNotFoundError creates an error when node is not found.
 func NewNodeNotFoundError(nodeID pid.NodeID) apierror.Error {
 	return apierror.E(
-		apierror.KindNotFound,
+		apierror.NotFound,
 		"cannot route to node "+nodeID+": not found",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"node_id": nodeID}),
@@ -61,7 +61,7 @@ func NewNodeNotFoundError(nodeID pid.NodeID) apierror.Error {
 // NewHostNotAttachableError creates an error when host doesn't support attachment.
 func NewHostNotAttachableError(hostID pid.HostID) apierror.Error {
 	return apierror.E(
-		apierror.KindInvalid,
+		apierror.Invalid,
 		"host "+hostID+" does not support attachment",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"host_id": hostID}),
@@ -72,7 +72,7 @@ func NewHostNotAttachableError(hostID pid.HostID) apierror.Error {
 // NewPeerExistsError creates an error when peer node already exists.
 func NewPeerExistsError(nodeID pid.NodeID) apierror.Error {
 	return apierror.E(
-		apierror.KindAlreadyExists,
+		apierror.AlreadyExists,
 		"peer node already registered: "+nodeID,
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"node_id": nodeID}),
@@ -83,7 +83,7 @@ func NewPeerExistsError(nodeID pid.NodeID) apierror.Error {
 // NewPeerConflictError creates an error when peer node conflicts with local node.
 func NewPeerConflictError(nodeID pid.NodeID) apierror.Error {
 	return apierror.E(
-		apierror.KindConflict,
+		apierror.Conflict,
 		"peer nodeID conflicts with local node: "+nodeID,
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"node_id": nodeID}),
@@ -94,7 +94,7 @@ func NewPeerConflictError(nodeID pid.NodeID) apierror.Error {
 // NewAlreadyAttachedError creates an error when a receiver is already attached.
 func NewAlreadyAttachedError(p pid.PID) apierror.Error {
 	return apierror.E(
-		apierror.KindAlreadyExists,
+		apierror.AlreadyExists,
 		"already attached: pid="+p.String(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"pid": p.String(), "host": p.Host, "uniq_id": p.UniqID}),

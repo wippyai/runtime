@@ -5,6 +5,6 @@ import (
 )
 
 var (
-	ErrStoreFull   = apierror.New(apierror.KindUnavailable, "store is full").WithRetryable(apierror.True)
-	ErrStoreClosed = apierror.New(apierror.KindUnavailable, "store is closed").WithRetryable(apierror.False)
+	ErrStoreFull   = apierror.New(apierror.Unavailable, "store is full").WithRetryable(apierror.True)
+	ErrStoreClosed = apierror.New(apierror.Unavailable, "store is closed").WithRetryable(apierror.False)
 )

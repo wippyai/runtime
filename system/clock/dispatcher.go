@@ -44,13 +44,13 @@ func (d *Dispatcher) Stop(_ context.Context) error {
 
 // RegisterAll registers all clock handlers.
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
-	register(clockapi.CmdSleep, dispatcher.HandlerFunc(d.handleSleep))
-	register(clockapi.CmdTickerStart, dispatcher.HandlerFunc(d.handleTickerStart))
-	register(clockapi.CmdTickerStop, dispatcher.HandlerFunc(d.handleTickerStop))
-	register(clockapi.CmdTimerStart, dispatcher.HandlerFunc(d.handleTimerStart))
-	register(clockapi.CmdTimerWait, dispatcher.HandlerFunc(d.handleTimerWait))
-	register(clockapi.CmdTimerStop, dispatcher.HandlerFunc(d.handleTimerStop))
-	register(clockapi.CmdTimerReset, dispatcher.HandlerFunc(d.handleTimerReset))
+	register(clockapi.Sleep, dispatcher.HandlerFunc(d.handleSleep))
+	register(clockapi.TickerStart, dispatcher.HandlerFunc(d.handleTickerStart))
+	register(clockapi.TickerStop, dispatcher.HandlerFunc(d.handleTickerStop))
+	register(clockapi.TimerStart, dispatcher.HandlerFunc(d.handleTimerStart))
+	register(clockapi.TimerWait, dispatcher.HandlerFunc(d.handleTimerWait))
+	register(clockapi.TimerStop, dispatcher.HandlerFunc(d.handleTimerStop))
+	register(clockapi.TimerReset, dispatcher.HandlerFunc(d.handleTimerReset))
 }
 
 func (d *Dispatcher) handleSleep(_ context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {

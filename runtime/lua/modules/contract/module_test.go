@@ -25,10 +25,10 @@ func TestModule_Build(t *testing.T) {
 	require.NotEmpty(t, yields)
 
 	assert.Equal(t, 4, len(yields))
-	assert.Equal(t, contract.CmdOpen, yields[0].CmdID)
-	assert.Equal(t, contract.CmdCall, yields[1].CmdID)
-	assert.Equal(t, contract.CmdAsyncCall, yields[2].CmdID)
-	assert.Equal(t, contract.CmdAsyncCancel, yields[3].CmdID)
+	assert.Equal(t, contract.Open, yields[0].CmdID)
+	assert.Equal(t, contract.Call, yields[1].CmdID)
+	assert.Equal(t, contract.AsyncCall, yields[2].CmdID)
+	assert.Equal(t, contract.AsyncCancel, yields[3].CmdID)
 }
 
 func TestOpenYield_Pool(t *testing.T) {
@@ -64,7 +64,7 @@ func TestOpenYield_ToCommand(t *testing.T) {
 func TestOpenYield_CmdID(t *testing.T) {
 	y := AcquireOpenYield()
 	defer ReleaseOpenYield(y)
-	assert.Equal(t, contract.CmdOpen, y.CmdID())
+	assert.Equal(t, contract.Open, y.CmdID())
 }
 
 func TestCallYield_Pool(t *testing.T) {
@@ -99,7 +99,7 @@ func TestCallYield_ToCommand(t *testing.T) {
 func TestCallYield_CmdID(t *testing.T) {
 	y := AcquireCallYield()
 	defer ReleaseCallYield(y)
-	assert.Equal(t, contract.CmdCall, y.CmdID())
+	assert.Equal(t, contract.Call, y.CmdID())
 }
 
 func TestAsyncCallYield_Pool(t *testing.T) {
@@ -137,7 +137,7 @@ func TestAsyncCallYield_ToCommand(t *testing.T) {
 func TestAsyncCallYield_CmdID(t *testing.T) {
 	y := AcquireAsyncCallYield()
 	defer ReleaseAsyncCallYield(y)
-	assert.Equal(t, contract.CmdAsyncCall, y.CmdID())
+	assert.Equal(t, contract.AsyncCall, y.CmdID())
 }
 
 func TestAsyncCancelYield_Pool(t *testing.T) {
@@ -156,7 +156,7 @@ func TestAsyncCancelYield_Pool(t *testing.T) {
 func TestAsyncCancelYield_CmdID(t *testing.T) {
 	y := AcquireAsyncCancelYield()
 	defer ReleaseAsyncCancelYield(y)
-	assert.Equal(t, contract.CmdAsyncCancel, y.CmdID())
+	assert.Equal(t, contract.AsyncCancel, y.CmdID())
 }
 
 func TestYield_StringAndType(t *testing.T) {

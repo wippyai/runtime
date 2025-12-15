@@ -11,8 +11,8 @@ import (
 
 var registryCtxKey = &ctxapi.Key{Name: "dispatcher.registry"}
 
-// KindHandler is the registry kind for handlers.
-const KindHandler = "dispatcher.handler"
+// HandlerKind is the registry kind for handlers.
+const HandlerKind = "dispatcher.handler"
 
 type (
 	// CommandID identifies a command type for handler lookup.

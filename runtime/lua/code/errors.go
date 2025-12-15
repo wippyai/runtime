@@ -9,33 +9,33 @@ import (
 )
 
 var (
-	ErrNodeNil = apierror.New(apierror.KindInvalid, "node cannot be nil").WithRetryable(apierror.False)
+	ErrNodeNil = apierror.New(apierror.Invalid, "node cannot be nil").WithRetryable(apierror.False)
 
-	ErrModuleNotCompiled = apierror.New(apierror.KindInvalid, "module nodes are not compiled").WithRetryable(apierror.False)
+	ErrModuleNotCompiled = apierror.New(apierror.Invalid, "module nodes are not compiled").WithRetryable(apierror.False)
 
-	ErrCycleDetected = apierror.New(apierror.KindInvalid, "adding dependency would create a cycle").WithRetryable(apierror.False)
+	ErrCycleDetected = apierror.New(apierror.Invalid, "adding dependency would create a cycle").WithRetryable(apierror.False)
 )
 
 func NewNodeNotFoundError(id registry.ID) apierror.Error {
-	return apierror.New(apierror.KindNotFound, fmt.Sprintf("node with ID %v not found", id)).
+	return apierror.New(apierror.NotFound, fmt.Sprintf("node with ID %v not found", id)).
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"node_id": id.String()}))
 }
 
 func NewNodeExistsError(id registry.ID) apierror.Error {
-	return apierror.New(apierror.KindAlreadyExists, fmt.Sprintf("node with ID %v already exists", id)).
+	return apierror.New(apierror.AlreadyExists, fmt.Sprintf("node with ID %v already exists", id)).
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"node_id": id.String()}))
 }
 
 func NewDependencyExistsError(from, to registry.ID) apierror.Error {
-	return apierror.New(apierror.KindAlreadyExists, fmt.Sprintf("dependency from %v to %v already exists", from, to)).
+	return apierror.New(apierror.AlreadyExists, fmt.Sprintf("dependency from %v to %v already exists", from, to)).
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"from": from.String(), "to": to.String()}))
 }
 
 func NewDependencyNotFoundError(from, to registry.ID) apierror.Error {
-	return apierror.New(apierror.KindNotFound, fmt.Sprintf("dependency from %v to %v not found", from, to)).
+	return apierror.New(apierror.NotFound, fmt.Sprintf("dependency from %v to %v not found", from, to)).
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"from": from.String(), "to": to.String()}))
 }
@@ -51,7 +51,7 @@ func NewAliasCollisionError(alias string, nodeID registry.ID, existingTarget reg
 		return fmt.Sprintf("transitive via %v", target)
 	}
 
-	return apierror.New(apierror.KindConflict, fmt.Sprintf(
+	return apierror.New(apierror.Conflict, fmt.Sprintf(
 		"alias '%s' collision: %v (%s) vs %v (%s)",
 		alias, existingTarget, describeSource(existingTarget, existingDirect), newTarget, describeSource(newTarget, newDirect))).
 		WithRetryable(apierror.False).
@@ -66,19 +66,19 @@ func NewAliasCollisionError(alias string, nodeID registry.ID, existingTarget reg
 }
 
 func NewIncomingDependencyError(nodeID, dependentID registry.ID) apierror.Error {
-	return apierror.New(apierror.KindConflict, fmt.Sprintf("cannot remove node %v: it has incoming dependencies from node %v", nodeID, dependentID)).
+	return apierror.New(apierror.Conflict, fmt.Sprintf("cannot remove node %v: it has incoming dependencies from node %v", nodeID, dependentID)).
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"node_id": nodeID.String(), "dependent_id": dependentID.String()}))
 }
 
 func NewBuildValidationError(reason string, id registry.ID) apierror.Error {
-	return apierror.New(apierror.KindPermissionDenied, reason).
+	return apierror.New(apierror.PermissionDenied, reason).
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"node_id": id.String()}))
 }
 
 func NewCompileError(id registry.ID, err error) apierror.Error {
-	return apierror.New(apierror.KindInternal, fmt.Sprintf("failed to compile node %v: %v", id, err)).
+	return apierror.New(apierror.Internal, fmt.Sprintf("failed to compile node %v: %v", id, err)).
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"node_id": id.String()}))
 }
@@ -88,33 +88,33 @@ func WrapError(kind apierror.Kind, err error, retryable apierror.Ternary) apierr
 }
 
 func NewParseError(cause error) apierror.Error {
-	return apierror.New(apierror.KindInvalid, "parse error").WithCause(cause).WithRetryable(apierror.False)
+	return apierror.New(apierror.Invalid, "parse error").WithCause(cause).WithRetryable(apierror.False)
 }
 
 func NewAddModuleNodeError(cause error) apierror.Error {
-	return apierror.New(apierror.KindInternal, "failed to add module node").WithCause(cause).WithRetryable(apierror.False)
+	return apierror.New(apierror.Internal, "failed to add module node").WithCause(cause).WithRetryable(apierror.False)
 }
 
 func NewAddNodeErrorWithCause(cause error) apierror.Error {
-	return apierror.New(apierror.KindInternal, "failed to add node").WithCause(cause).WithRetryable(apierror.False)
+	return apierror.New(apierror.Internal, "failed to add node").WithCause(cause).WithRetryable(apierror.False)
 }
 
 func NewAddDependencyError(from, to registry.ID, cause error) apierror.Error {
-	return apierror.New(apierror.KindInternal, fmt.Sprintf("failed to add dependency %s -> %s", from, to)).WithCause(cause).WithRetryable(apierror.False)
+	return apierror.New(apierror.Internal, fmt.Sprintf("failed to add dependency %s -> %s", from, to)).WithCause(cause).WithRetryable(apierror.False)
 }
 
 func NewGetOldDependenciesError(cause error) apierror.Error {
-	return apierror.New(apierror.KindInternal, "failed to get old dependencies").WithCause(cause).WithRetryable(apierror.False)
+	return apierror.New(apierror.Internal, "failed to get old dependencies").WithCause(cause).WithRetryable(apierror.False)
 }
 
 func NewRemoveOldDependencyError(cause error) apierror.Error {
-	return apierror.New(apierror.KindInternal, "failed to remove old dependency").WithCause(cause).WithRetryable(apierror.False)
+	return apierror.New(apierror.Internal, "failed to remove old dependency").WithCause(cause).WithRetryable(apierror.False)
 }
 
 func NewAddNewDependencyError(cause error) apierror.Error {
-	return apierror.New(apierror.KindInternal, "failed to add new dependency").WithCause(cause).WithRetryable(apierror.False)
+	return apierror.New(apierror.Internal, "failed to add new dependency").WithCause(cause).WithRetryable(apierror.False)
 }
 
 func NewRemoveNodeError(cause error) apierror.Error {
-	return apierror.New(apierror.KindInternal, "failed to remove node").WithCause(cause).WithRetryable(apierror.False)
+	return apierror.New(apierror.Internal, "failed to remove node").WithCause(cause).WithRetryable(apierror.False)
 }

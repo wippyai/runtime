@@ -33,7 +33,7 @@ func (d *Dispatcher) Stop(_ context.Context) error {
 
 // RegisterAll registers all exec handlers.
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
-	register(execapi.CmdProcessWait, dispatcher.HandlerFunc(d.handleProcessWait))
+	register(execapi.ProcessWait, dispatcher.HandlerFunc(d.handleProcessWait))
 }
 
 func (d *Dispatcher) handleProcessWait(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {

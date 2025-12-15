@@ -440,10 +440,10 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 		handlers[id] = true
 	})
 
-	if !handlers[httpapi.CmdRequest] {
+	if !handlers[httpapi.Request] {
 		t.Error("request handler not registered")
 	}
-	if !handlers[httpapi.CmdRequestBatch] {
+	if !handlers[httpapi.RequestBatch] {
 		t.Error("batch request handler not registered")
 	}
 }

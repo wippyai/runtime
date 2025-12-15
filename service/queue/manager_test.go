@@ -45,7 +45,7 @@ func TestManager_DriverRegister(t *testing.T) {
 
 	bus.Send(ctx, event.Event{
 		System: queueapi.System,
-		Kind:   queueapi.KindDriverRegister,
+		Kind:   queueapi.DriverRegister,
 		Path:   driverID.String(),
 		Data:   driver,
 	})
@@ -73,7 +73,7 @@ func TestManager_DriverRegister_InvalidType(t *testing.T) {
 
 	bus.Send(ctx, event.Event{
 		System: queueapi.System,
-		Kind:   queueapi.KindDriverRegister,
+		Kind:   queueapi.DriverRegister,
 		Path:   driverID.String(),
 		Data:   "not a driver",
 	})
@@ -106,7 +106,7 @@ func TestManager_QueueDeclare(t *testing.T) {
 
 	bus.Send(ctx, event.Event{
 		System: queueapi.System,
-		Kind:   queueapi.KindQueueDeclare,
+		Kind:   queueapi.QueueDeclare,
 		Path:   queueID.String(),
 		Data:   queueEntry,
 	})
@@ -140,7 +140,7 @@ func TestManager_QueueDeclare_DriverNotFound(t *testing.T) {
 
 	bus.Send(ctx, event.Event{
 		System: queueapi.System,
-		Kind:   queueapi.KindQueueDeclare,
+		Kind:   queueapi.QueueDeclare,
 		Path:   queueID.String(),
 		Data:   queueEntry,
 	})
@@ -227,7 +227,7 @@ func TestManager_DriverDelete(t *testing.T) {
 
 	bus.Send(ctx, event.Event{
 		System: queueapi.System,
-		Kind:   queueapi.KindDriverDelete,
+		Kind:   queueapi.DriverDelete,
 		Path:   driverID.String(),
 	})
 
@@ -257,7 +257,7 @@ func TestManager_QueueDelete(t *testing.T) {
 
 	bus.Send(ctx, event.Event{
 		System: queueapi.System,
-		Kind:   queueapi.KindQueueDelete,
+		Kind:   queueapi.QueueDelete,
 		Path:   queueID.String(),
 	})
 

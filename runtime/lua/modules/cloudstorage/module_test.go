@@ -42,12 +42,12 @@ func TestYieldTypes(t *testing.T) {
 	_, yields := Module.Build()
 
 	expectedCmds := map[int]bool{
-		int(csapi.CmdListObjects):     false,
-		int(csapi.CmdDownloadObject):  false,
-		int(csapi.CmdUploadObject):    false,
-		int(csapi.CmdDeleteObjects):   false,
-		int(csapi.CmdPresignedGetURL): false,
-		int(csapi.CmdPresignedPutURL): false,
+		int(csapi.ListObjects):     false,
+		int(csapi.DownloadObject):  false,
+		int(csapi.UploadObject):    false,
+		int(csapi.DeleteObjects):   false,
+		int(csapi.PresignedGetURL): false,
+		int(csapi.PresignedPutURL): false,
 	}
 
 	for _, y := range yields {

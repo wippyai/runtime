@@ -9,29 +9,29 @@ import (
 
 func init() {
 	dispatcher.MustRegisterCommands("sql",
-		CmdQuery, CmdExecute, CmdPrepare, CmdBegin,
-		CmdStmtQuery, CmdStmtExecute, CmdStmtClose,
-		CmdTxQuery, CmdTxExecute, CmdTxPrepare, CmdTxCommit, CmdTxRollback,
+		Query, Execute, Prepare, Begin,
+		StmtQuery, StmtExecute, StmtClose,
+		TxQuery, TxExecute, TxPrepare, TxCommit, TxRollback,
 	)
 }
 
 // Command IDs for SQL operations.
 // Range 100-149 is reserved for database commands.
 const (
-	CmdQuery   dispatcher.CommandID = 100 // Execute query, returns rows
-	CmdExecute dispatcher.CommandID = 101 // Execute statement, returns result
-	CmdPrepare dispatcher.CommandID = 102 // Prepare statement
-	CmdBegin   dispatcher.CommandID = 103 // Begin transaction
+	Query   dispatcher.CommandID = 100 // Execute query, returns rows
+	Execute dispatcher.CommandID = 101 // Execute statement, returns result
+	Prepare dispatcher.CommandID = 102 // Prepare statement
+	Begin   dispatcher.CommandID = 103 // Begin transaction
 
-	CmdStmtQuery   dispatcher.CommandID = 104 // Execute prepared statement query
-	CmdStmtExecute dispatcher.CommandID = 105 // Execute prepared statement
-	CmdStmtClose   dispatcher.CommandID = 106 // Close prepared statement
+	StmtQuery   dispatcher.CommandID = 104 // Execute prepared statement query
+	StmtExecute dispatcher.CommandID = 105 // Execute prepared statement
+	StmtClose   dispatcher.CommandID = 106 // Close prepared statement
 
-	CmdTxQuery    dispatcher.CommandID = 107 // Execute query in transaction
-	CmdTxExecute  dispatcher.CommandID = 108 // Execute statement in transaction
-	CmdTxPrepare  dispatcher.CommandID = 109 // Prepare statement in transaction
-	CmdTxCommit   dispatcher.CommandID = 110 // Commit transaction
-	CmdTxRollback dispatcher.CommandID = 111 // Rollback transaction
+	TxQuery    dispatcher.CommandID = 107 // Execute query in transaction
+	TxExecute  dispatcher.CommandID = 108 // Execute statement in transaction
+	TxPrepare  dispatcher.CommandID = 109 // Prepare statement in transaction
+	TxCommit   dispatcher.CommandID = 110 // Commit transaction
+	TxRollback dispatcher.CommandID = 111 // Rollback transaction
 )
 
 // QueryCmd executes a query and returns rows.
@@ -44,7 +44,7 @@ type QueryCmd struct {
 var queryCmdPool = sync.Pool{New: func() any { return &QueryCmd{} }}
 
 func AcquireQueryCmd() *QueryCmd                { return queryCmdPool.Get().(*QueryCmd) }
-func (c *QueryCmd) CmdID() dispatcher.CommandID { return CmdQuery }
+func (c *QueryCmd) CmdID() dispatcher.CommandID { return Query }
 func (c *QueryCmd) Release() {
 	c.DB = nil
 	c.Query = ""
@@ -62,7 +62,7 @@ type ExecuteCmd struct {
 var executeCmdPool = sync.Pool{New: func() any { return &ExecuteCmd{} }}
 
 func AcquireExecuteCmd() *ExecuteCmd              { return executeCmdPool.Get().(*ExecuteCmd) }
-func (c *ExecuteCmd) CmdID() dispatcher.CommandID { return CmdExecute }
+func (c *ExecuteCmd) CmdID() dispatcher.CommandID { return Execute }
 func (c *ExecuteCmd) Release() {
 	c.DB = nil
 	c.Query = ""
@@ -79,7 +79,7 @@ type PrepareCmd struct {
 var prepareCmdPool = sync.Pool{New: func() any { return &PrepareCmd{} }}
 
 func AcquirePrepareCmd() *PrepareCmd              { return prepareCmdPool.Get().(*PrepareCmd) }
-func (c *PrepareCmd) CmdID() dispatcher.CommandID { return CmdPrepare }
+func (c *PrepareCmd) CmdID() dispatcher.CommandID { return Prepare }
 func (c *PrepareCmd) Release() {
 	c.DB = nil
 	c.Query = ""
@@ -95,7 +95,7 @@ type BeginCmd struct {
 var beginCmdPool = sync.Pool{New: func() any { return &BeginCmd{} }}
 
 func AcquireBeginCmd() *BeginCmd                { return beginCmdPool.Get().(*BeginCmd) }
-func (c *BeginCmd) CmdID() dispatcher.CommandID { return CmdBegin }
+func (c *BeginCmd) CmdID() dispatcher.CommandID { return Begin }
 func (c *BeginCmd) Release() {
 	c.DB = nil
 	c.Options = nil
@@ -111,7 +111,7 @@ type StmtQueryCmd struct {
 var stmtQueryCmdPool = sync.Pool{New: func() any { return &StmtQueryCmd{} }}
 
 func AcquireStmtQueryCmd() *StmtQueryCmd            { return stmtQueryCmdPool.Get().(*StmtQueryCmd) }
-func (c *StmtQueryCmd) CmdID() dispatcher.CommandID { return CmdStmtQuery }
+func (c *StmtQueryCmd) CmdID() dispatcher.CommandID { return StmtQuery }
 func (c *StmtQueryCmd) Release() {
 	c.Stmt = nil
 	c.Params = nil
@@ -127,7 +127,7 @@ type StmtExecuteCmd struct {
 var stmtExecuteCmdPool = sync.Pool{New: func() any { return &StmtExecuteCmd{} }}
 
 func AcquireStmtExecuteCmd() *StmtExecuteCmd          { return stmtExecuteCmdPool.Get().(*StmtExecuteCmd) }
-func (c *StmtExecuteCmd) CmdID() dispatcher.CommandID { return CmdStmtExecute }
+func (c *StmtExecuteCmd) CmdID() dispatcher.CommandID { return StmtExecute }
 func (c *StmtExecuteCmd) Release() {
 	c.Stmt = nil
 	c.Params = nil
@@ -142,7 +142,7 @@ type StmtCloseCmd struct {
 var stmtCloseCmdPool = sync.Pool{New: func() any { return &StmtCloseCmd{} }}
 
 func AcquireStmtCloseCmd() *StmtCloseCmd            { return stmtCloseCmdPool.Get().(*StmtCloseCmd) }
-func (c *StmtCloseCmd) CmdID() dispatcher.CommandID { return CmdStmtClose }
+func (c *StmtCloseCmd) CmdID() dispatcher.CommandID { return StmtClose }
 func (c *StmtCloseCmd) Release() {
 	c.Stmt = nil
 	stmtCloseCmdPool.Put(c)
@@ -158,7 +158,7 @@ type TxQueryCmd struct {
 var txQueryCmdPool = sync.Pool{New: func() any { return &TxQueryCmd{} }}
 
 func AcquireTxQueryCmd() *TxQueryCmd              { return txQueryCmdPool.Get().(*TxQueryCmd) }
-func (c *TxQueryCmd) CmdID() dispatcher.CommandID { return CmdTxQuery }
+func (c *TxQueryCmd) CmdID() dispatcher.CommandID { return TxQuery }
 func (c *TxQueryCmd) Release() {
 	c.Tx = nil
 	c.Query = ""
@@ -176,7 +176,7 @@ type TxExecuteCmd struct {
 var txExecuteCmdPool = sync.Pool{New: func() any { return &TxExecuteCmd{} }}
 
 func AcquireTxExecuteCmd() *TxExecuteCmd            { return txExecuteCmdPool.Get().(*TxExecuteCmd) }
-func (c *TxExecuteCmd) CmdID() dispatcher.CommandID { return CmdTxExecute }
+func (c *TxExecuteCmd) CmdID() dispatcher.CommandID { return TxExecute }
 func (c *TxExecuteCmd) Release() {
 	c.Tx = nil
 	c.Query = ""
@@ -193,7 +193,7 @@ type TxPrepareCmd struct {
 var txPrepareCmdPool = sync.Pool{New: func() any { return &TxPrepareCmd{} }}
 
 func AcquireTxPrepareCmd() *TxPrepareCmd            { return txPrepareCmdPool.Get().(*TxPrepareCmd) }
-func (c *TxPrepareCmd) CmdID() dispatcher.CommandID { return CmdTxPrepare }
+func (c *TxPrepareCmd) CmdID() dispatcher.CommandID { return TxPrepare }
 func (c *TxPrepareCmd) Release() {
 	c.Tx = nil
 	c.Query = ""
@@ -208,7 +208,7 @@ type TxCommitCmd struct {
 var txCommitCmdPool = sync.Pool{New: func() any { return &TxCommitCmd{} }}
 
 func AcquireTxCommitCmd() *TxCommitCmd             { return txCommitCmdPool.Get().(*TxCommitCmd) }
-func (c *TxCommitCmd) CmdID() dispatcher.CommandID { return CmdTxCommit }
+func (c *TxCommitCmd) CmdID() dispatcher.CommandID { return TxCommit }
 func (c *TxCommitCmd) Release() {
 	c.Tx = nil
 	txCommitCmdPool.Put(c)
@@ -222,7 +222,7 @@ type TxRollbackCmd struct {
 var txRollbackCmdPool = sync.Pool{New: func() any { return &TxRollbackCmd{} }}
 
 func AcquireTxRollbackCmd() *TxRollbackCmd           { return txRollbackCmdPool.Get().(*TxRollbackCmd) }
-func (c *TxRollbackCmd) CmdID() dispatcher.CommandID { return CmdTxRollback }
+func (c *TxRollbackCmd) CmdID() dispatcher.CommandID { return TxRollback }
 func (c *TxRollbackCmd) Release() {
 	c.Tx = nil
 	txRollbackCmdPool.Put(c)

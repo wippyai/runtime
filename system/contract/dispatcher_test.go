@@ -314,10 +314,10 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 
 	d.RegisterAll(register)
 
-	assert.True(t, registered[uint16(contract.CmdOpen)])
-	assert.True(t, registered[uint16(contract.CmdCall)])
-	assert.True(t, registered[uint16(contract.CmdAsyncCall)])
-	assert.True(t, registered[uint16(contract.CmdAsyncCancel)])
+	assert.True(t, registered[uint16(contract.Open)])
+	assert.True(t, registered[uint16(contract.Call)])
+	assert.True(t, registered[uint16(contract.AsyncCall)])
+	assert.True(t, registered[uint16(contract.AsyncCancel)])
 }
 
 func TestCallHandler_Stress(t *testing.T) {

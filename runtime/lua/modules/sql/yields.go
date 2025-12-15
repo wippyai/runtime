@@ -87,7 +87,7 @@ func ReleaseQueryYield(y *QueryYield) {
 
 func (y *QueryYield) String() string                { return "<sql_query_yield>" }
 func (y *QueryYield) Type() lua.LValueType          { return lua.LTUserData }
-func (y *QueryYield) CmdID() dispatcher.CommandID   { return sqlapi.CmdQuery }
+func (y *QueryYield) CmdID() dispatcher.CommandID   { return sqlapi.Query }
 func (y *QueryYield) ToCommand() dispatcher.Command { return y.QueryCmd }
 func (y *QueryYield) Release()                      { ReleaseQueryYield(y) }
 
@@ -128,7 +128,7 @@ func ReleaseExecuteYield(y *ExecuteYield) {
 
 func (y *ExecuteYield) String() string                { return "<sql_execute_yield>" }
 func (y *ExecuteYield) Type() lua.LValueType          { return lua.LTUserData }
-func (y *ExecuteYield) CmdID() dispatcher.CommandID   { return sqlapi.CmdExecute }
+func (y *ExecuteYield) CmdID() dispatcher.CommandID   { return sqlapi.Execute }
 func (y *ExecuteYield) ToCommand() dispatcher.Command { return y.ExecuteCmd }
 func (y *ExecuteYield) Release()                      { ReleaseExecuteYield(y) }
 
@@ -172,7 +172,7 @@ func ReleasePrepareYield(y *PrepareYield) {
 
 func (y *PrepareYield) String() string                { return "<sql_prepare_yield>" }
 func (y *PrepareYield) Type() lua.LValueType          { return lua.LTUserData }
-func (y *PrepareYield) CmdID() dispatcher.CommandID   { return sqlapi.CmdPrepare }
+func (y *PrepareYield) CmdID() dispatcher.CommandID   { return sqlapi.Prepare }
 func (y *PrepareYield) ToCommand() dispatcher.Command { return y.PrepareCmd }
 func (y *PrepareYield) Release()                      { ReleasePrepareYield(y) }
 
@@ -219,7 +219,7 @@ func ReleaseBeginYield(y *BeginYield) {
 
 func (y *BeginYield) String() string                { return "<sql_begin_yield>" }
 func (y *BeginYield) Type() lua.LValueType          { return lua.LTUserData }
-func (y *BeginYield) CmdID() dispatcher.CommandID   { return sqlapi.CmdBegin }
+func (y *BeginYield) CmdID() dispatcher.CommandID   { return sqlapi.Begin }
 func (y *BeginYield) ToCommand() dispatcher.Command { return y.BeginCmd }
 func (y *BeginYield) Release()                      { ReleaseBeginYield(y) }
 
@@ -263,7 +263,7 @@ func ReleaseStmtQueryYield(y *StmtQueryYield) {
 
 func (y *StmtQueryYield) String() string                { return "<sql_stmt_query_yield>" }
 func (y *StmtQueryYield) Type() lua.LValueType          { return lua.LTUserData }
-func (y *StmtQueryYield) CmdID() dispatcher.CommandID   { return sqlapi.CmdStmtQuery }
+func (y *StmtQueryYield) CmdID() dispatcher.CommandID   { return sqlapi.StmtQuery }
 func (y *StmtQueryYield) ToCommand() dispatcher.Command { return y.StmtQueryCmd }
 func (y *StmtQueryYield) Release()                      { ReleaseStmtQueryYield(y) }
 
@@ -304,7 +304,7 @@ func ReleaseStmtExecuteYield(y *StmtExecuteYield) {
 
 func (y *StmtExecuteYield) String() string                { return "<sql_stmt_execute_yield>" }
 func (y *StmtExecuteYield) Type() lua.LValueType          { return lua.LTUserData }
-func (y *StmtExecuteYield) CmdID() dispatcher.CommandID   { return sqlapi.CmdStmtExecute }
+func (y *StmtExecuteYield) CmdID() dispatcher.CommandID   { return sqlapi.StmtExecute }
 func (y *StmtExecuteYield) ToCommand() dispatcher.Command { return y.StmtExecuteCmd }
 func (y *StmtExecuteYield) Release()                      { ReleaseStmtExecuteYield(y) }
 
@@ -348,7 +348,7 @@ func ReleaseStmtCloseYield(y *StmtCloseYield) {
 
 func (y *StmtCloseYield) String() string                { return "<sql_stmt_close_yield>" }
 func (y *StmtCloseYield) Type() lua.LValueType          { return lua.LTUserData }
-func (y *StmtCloseYield) CmdID() dispatcher.CommandID   { return sqlapi.CmdStmtClose }
+func (y *StmtCloseYield) CmdID() dispatcher.CommandID   { return sqlapi.StmtClose }
 func (y *StmtCloseYield) ToCommand() dispatcher.Command { return y.StmtCloseCmd }
 func (y *StmtCloseYield) Release()                      { ReleaseStmtCloseYield(y) }
 
@@ -385,7 +385,7 @@ func ReleaseTxQueryYield(y *TxQueryYield) {
 
 func (y *TxQueryYield) String() string                { return "<sql_tx_query_yield>" }
 func (y *TxQueryYield) Type() lua.LValueType          { return lua.LTUserData }
-func (y *TxQueryYield) CmdID() dispatcher.CommandID   { return sqlapi.CmdTxQuery }
+func (y *TxQueryYield) CmdID() dispatcher.CommandID   { return sqlapi.TxQuery }
 func (y *TxQueryYield) ToCommand() dispatcher.Command { return y.TxQueryCmd }
 func (y *TxQueryYield) Release()                      { ReleaseTxQueryYield(y) }
 
@@ -426,7 +426,7 @@ func ReleaseTxExecuteYield(y *TxExecuteYield) {
 
 func (y *TxExecuteYield) String() string                { return "<sql_tx_execute_yield>" }
 func (y *TxExecuteYield) Type() lua.LValueType          { return lua.LTUserData }
-func (y *TxExecuteYield) CmdID() dispatcher.CommandID   { return sqlapi.CmdTxExecute }
+func (y *TxExecuteYield) CmdID() dispatcher.CommandID   { return sqlapi.TxExecute }
 func (y *TxExecuteYield) ToCommand() dispatcher.Command { return y.TxExecuteCmd }
 func (y *TxExecuteYield) Release()                      { ReleaseTxExecuteYield(y) }
 
@@ -467,7 +467,7 @@ func ReleaseTxSavepointYield(y *TxSavepointYield) {
 
 func (y *TxSavepointYield) String() string                { return "<sql_tx_savepoint_yield>" }
 func (y *TxSavepointYield) Type() lua.LValueType          { return lua.LTUserData }
-func (y *TxSavepointYield) CmdID() dispatcher.CommandID   { return sqlapi.CmdTxExecute }
+func (y *TxSavepointYield) CmdID() dispatcher.CommandID   { return sqlapi.TxExecute }
 func (y *TxSavepointYield) ToCommand() dispatcher.Command { return y.TxExecuteCmd }
 func (y *TxSavepointYield) Release()                      { ReleaseTxSavepointYield(y) }
 
@@ -511,7 +511,7 @@ func ReleaseTxPrepareYield(y *TxPrepareYield) {
 
 func (y *TxPrepareYield) String() string                { return "<sql_tx_prepare_yield>" }
 func (y *TxPrepareYield) Type() lua.LValueType          { return lua.LTUserData }
-func (y *TxPrepareYield) CmdID() dispatcher.CommandID   { return sqlapi.CmdTxPrepare }
+func (y *TxPrepareYield) CmdID() dispatcher.CommandID   { return sqlapi.TxPrepare }
 func (y *TxPrepareYield) ToCommand() dispatcher.Command { return y.TxPrepareCmd }
 func (y *TxPrepareYield) Release()                      { ReleaseTxPrepareYield(y) }
 
@@ -558,7 +558,7 @@ func ReleaseTxCommitYield(y *TxCommitYield) {
 
 func (y *TxCommitYield) String() string                { return "<sql_tx_commit_yield>" }
 func (y *TxCommitYield) Type() lua.LValueType          { return lua.LTUserData }
-func (y *TxCommitYield) CmdID() dispatcher.CommandID   { return sqlapi.CmdTxCommit }
+func (y *TxCommitYield) CmdID() dispatcher.CommandID   { return sqlapi.TxCommit }
 func (y *TxCommitYield) ToCommand() dispatcher.Command { return y.TxCommitCmd }
 func (y *TxCommitYield) Release()                      { ReleaseTxCommitYield(y) }
 
@@ -598,7 +598,7 @@ func ReleaseTxRollbackYield(y *TxRollbackYield) {
 
 func (y *TxRollbackYield) String() string                { return "<sql_tx_rollback_yield>" }
 func (y *TxRollbackYield) Type() lua.LValueType          { return lua.LTUserData }
-func (y *TxRollbackYield) CmdID() dispatcher.CommandID   { return sqlapi.CmdTxRollback }
+func (y *TxRollbackYield) CmdID() dispatcher.CommandID   { return sqlapi.TxRollback }
 func (y *TxRollbackYield) ToCommand() dispatcher.Command { return y.TxRollbackCmd }
 func (y *TxRollbackYield) Release()                      { ReleaseTxRollbackYield(y) }
 

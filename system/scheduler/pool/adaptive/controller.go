@@ -285,18 +285,14 @@ func (c *controller) evaluateProbe(now time.Time, queueLen int) (scaleDecision, 
 	cooldownSeconds := c.cooldown.Seconds()
 	threshold := baseConfidence / (1 + backlogSeconds/cooldownSeconds)
 
-	// Decision: combine throughput efficiency and queue behavior
-	// In high noise (cv > 0.5), weight queue more heavily
+	// Decision based on noise level
 	var success bool
 	switch {
-	case c.samples < warmupSamples || cv < 0.3:
-		// Low noise: trust throughput measurement
+	case c.samples < warmupSamples || cv < cvLowNoise:
 		success = efficiency >= threshold
-	case cv < 0.5:
-		// Medium noise: require both signals to agree
-		success = efficiency >= threshold*0.8 && (queueImproved || improvement > 0)
+	case cv < cvMediumNoise:
+		success = efficiency >= threshold && (queueImproved || improvement > 0)
 	default:
-		// High noise: queue is primary signal, throughput is secondary
 		success = queueImproved && improvement >= 0
 	}
 

@@ -13,13 +13,13 @@ var (
 )
 
 var (
-	ErrInvalidWorkers = apierror.New(apierror.KindInvalid, "workers must be greater than 0").WithRetryable(apierror.False)
+	ErrInvalidWorkers = apierror.New(apierror.Invalid, "workers must be greater than 0").WithRetryable(apierror.False)
 
-	ErrInvalidQueueSize = apierror.New(apierror.KindInvalid, "queue_size must be greater than 0").WithRetryable(apierror.False)
+	ErrInvalidQueueSize = apierror.New(apierror.Invalid, "queue_size must be greater than 0").WithRetryable(apierror.False)
 
-	ErrInvalidLocalQueueSize = apierror.New(apierror.KindInvalid, "local_queue_size must be greater than 0").WithRetryable(apierror.False)
+	ErrInvalidLocalQueueSize = apierror.New(apierror.Invalid, "local_queue_size must be greater than 0").WithRetryable(apierror.False)
 )
 
 func NewDecodeConfigError(cause error) apierror.Error {
-	return apierror.New(apierror.KindInvalid, "failed to decode host config").WithCause(cause).WithRetryable(apierror.False)
+	return apierror.New(apierror.Invalid, "failed to decode host config").WithCause(cause).WithRetryable(apierror.False)
 }

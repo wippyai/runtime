@@ -8,13 +8,13 @@ import (
 )
 
 var (
-	ErrProcessNotRunning = apierror.New(apierror.KindInvalid, "process is not running").WithRetryable(apierror.False)
-	ErrProcessNotStarted = apierror.New(apierror.KindInvalid, "process not started").WithRetryable(apierror.False)
-	ErrInvalidPID        = apierror.New(apierror.KindInvalid, "pid is not a positive int, process is possibly not running").WithRetryable(apierror.False)
+	ErrProcessNotRunning = apierror.New(apierror.Invalid, "process is not running").WithRetryable(apierror.False)
+	ErrProcessNotStarted = apierror.New(apierror.Invalid, "process not started").WithRetryable(apierror.False)
+	ErrInvalidPID        = apierror.New(apierror.Invalid, "pid is not a positive int, process is possibly not running").WithRetryable(apierror.False)
 )
 
 func NewCommandNotAllowedError(cmd string) apierror.Error {
-	return apierror.New(apierror.KindPermissionDenied, fmt.Sprintf("command not in whitelist: %s", cmd)).
+	return apierror.New(apierror.PermissionDenied, fmt.Sprintf("command not in whitelist: %s", cmd)).
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"command": cmd}))
 }
@@ -31,9 +31,9 @@ func (e *ExitError) Error() string {
 
 func (e *ExitError) Kind() apierror.Kind {
 	if e.Code == 137 || e.Code == 143 {
-		return apierror.KindCanceled
+		return apierror.Canceled
 	}
-	return apierror.KindInternal
+	return apierror.Internal
 }
 
 func (e *ExitError) Retryable() apierror.Ternary { return apierror.False }

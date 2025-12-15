@@ -4,67 +4,67 @@ import "github.com/wippyai/runtime/api/attrs"
 
 // Error kind constants.
 const (
-	KindNotFound Kind = "NotFound"
-	KindInvalid  Kind = "Invalid"
-	KindExpired  Kind = "Expired"
-	KindRevoked  Kind = "Revoked"
-	KindDenied   Kind = "Denied"
+	NotFound Kind = "NotFound"
+	Invalid  Kind = "Invalid"
+	Expired  Kind = "Expired"
+	Revoked  Kind = "Revoked"
+	Denied   Kind = "Denied"
 )
 
 // Errors returned by security operations.
 var (
 	ErrNoFrameContext = &Error{
-		kind:    KindInvalid,
+		kind:    Invalid,
 		message: "no frame context available",
 	}
 
 	ErrScopeNotFound = &Error{
-		kind:    KindNotFound,
+		kind:    NotFound,
 		message: "security scope not found in context",
 	}
 
 	ErrRegistryNotFound = &Error{
-		kind:    KindNotFound,
+		kind:    NotFound,
 		message: "security registry not found in context",
 	}
 
 	ErrPolicyNotFound = &Error{
-		kind:    KindNotFound,
+		kind:    NotFound,
 		message: "policy not found",
 	}
 
 	ErrGroupNotFound = &Error{
-		kind:    KindNotFound,
+		kind:    NotFound,
 		message: "policy group not found",
 	}
 
 	ErrTokenInvalid = &Error{
-		kind:    KindInvalid,
+		kind:    Invalid,
 		message: "invalid token format",
 	}
 
 	ErrTokenExpired = &Error{
-		kind:    KindExpired,
+		kind:    Expired,
 		message: "token expired",
 	}
 
 	ErrTokenRevoked = &Error{
-		kind:    KindRevoked,
+		kind:    Revoked,
 		message: "token revoked",
 	}
 
 	ErrTokenNotFound = &Error{
-		kind:    KindNotFound,
+		kind:    NotFound,
 		message: "token not found",
 	}
 
 	ErrUnsupportedTokenType = &Error{
-		kind:    KindInvalid,
+		kind:    Invalid,
 		message: "unsupported token type",
 	}
 
 	ErrPermissionDenied = &Error{
-		kind:    KindDenied,
+		kind:    Denied,
 		message: "permission denied",
 	}
 )

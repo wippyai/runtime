@@ -8,14 +8,14 @@ import (
 )
 
 var (
-	ErrContainerNotStarted   = apierror.New(apierror.KindInvalid, "container not started").WithRetryable(apierror.False)
-	ErrContainerAlreadyStart = apierror.New(apierror.KindAlreadyExists, "container already started").WithRetryable(apierror.False)
-	ErrContainerStopped      = apierror.New(apierror.KindInvalid, "container already stopped").WithRetryable(apierror.False)
-	ErrStdinNotAvailable     = apierror.New(apierror.KindUnavailable, "stdin not available").WithRetryable(apierror.False)
+	ErrContainerNotStarted   = apierror.New(apierror.Invalid, "container not started").WithRetryable(apierror.False)
+	ErrContainerAlreadyStart = apierror.New(apierror.AlreadyExists, "container already started").WithRetryable(apierror.False)
+	ErrContainerStopped      = apierror.New(apierror.Invalid, "container already stopped").WithRetryable(apierror.False)
+	ErrStdinNotAvailable     = apierror.New(apierror.Unavailable, "stdin not available").WithRetryable(apierror.False)
 )
 
 func NewCommandNotAllowedError(cmd string) apierror.Error {
-	return apierror.New(apierror.KindPermissionDenied, fmt.Sprintf("command not in whitelist: %s", cmd)).
+	return apierror.New(apierror.PermissionDenied, fmt.Sprintf("command not in whitelist: %s", cmd)).
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"command": cmd}))
 }
@@ -32,9 +32,9 @@ func (e *ExitError) Error() string {
 
 func (e *ExitError) Kind() apierror.Kind {
 	if e.Code == 137 || e.Code == 143 {
-		return apierror.KindCanceled
+		return apierror.Canceled
 	}
-	return apierror.KindInternal
+	return apierror.Internal
 }
 
 func (e *ExitError) Retryable() apierror.Ternary { return apierror.False }
@@ -49,31 +49,31 @@ func (e *ExitError) Details() attrs.Attributes {
 func (e *ExitError) ExitCode() int { return e.Code }
 
 func NewDockerClientError(err error) apierror.Error {
-	return apierror.New(apierror.KindUnavailable, fmt.Sprintf("failed to create docker client: %v", err)).
+	return apierror.New(apierror.Unavailable, fmt.Sprintf("failed to create docker client: %v", err)).
 		WithRetryable(apierror.True).
 		WithCause(err)
 }
 
 func NewContainerCreateError(err error) apierror.Error {
-	return apierror.New(apierror.KindUnavailable, fmt.Sprintf("failed to create container: %v", err)).
+	return apierror.New(apierror.Unavailable, fmt.Sprintf("failed to create container: %v", err)).
 		WithRetryable(apierror.True).
 		WithCause(err)
 }
 
 func NewContainerAttachError(err error) apierror.Error {
-	return apierror.New(apierror.KindUnavailable, fmt.Sprintf("failed to attach to container: %v", err)).
+	return apierror.New(apierror.Unavailable, fmt.Sprintf("failed to attach to container: %v", err)).
 		WithRetryable(apierror.True).
 		WithCause(err)
 }
 
 func NewContainerStartError(err error) apierror.Error {
-	return apierror.New(apierror.KindUnavailable, fmt.Sprintf("failed to start container: %v", err)).
+	return apierror.New(apierror.Unavailable, fmt.Sprintf("failed to start container: %v", err)).
 		WithRetryable(apierror.True).
 		WithCause(err)
 }
 
 func NewSignalError(err error) apierror.Error {
-	return apierror.New(apierror.KindUnavailable, fmt.Sprintf("failed to send signal: %v", err)).
+	return apierror.New(apierror.Unavailable, fmt.Sprintf("failed to send signal: %v", err)).
 		WithRetryable(apierror.False).
 		WithCause(err)
 }

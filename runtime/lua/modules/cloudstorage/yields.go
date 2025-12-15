@@ -35,7 +35,7 @@ func ReleaseListObjectsYield(y *ListObjectsYield) {
 
 func (y *ListObjectsYield) String() string                { return "<cloudstorage_list_objects_yield>" }
 func (y *ListObjectsYield) Type() lua.LValueType          { return lua.LTUserData }
-func (y *ListObjectsYield) CmdID() dispatcher.CommandID   { return csapi.CmdListObjects }
+func (y *ListObjectsYield) CmdID() dispatcher.CommandID   { return csapi.ListObjects }
 func (y *ListObjectsYield) ToCommand() dispatcher.Command { return y.ListObjectsCmd }
 func (y *ListObjectsYield) Release()                      { ReleaseListObjectsYield(y) }
 
@@ -97,7 +97,7 @@ func ReleaseDownloadObjectYield(y *DownloadObjectYield) {
 
 func (y *DownloadObjectYield) String() string              { return "<cloudstorage_download_object_yield>" }
 func (y *DownloadObjectYield) Type() lua.LValueType        { return lua.LTUserData }
-func (y *DownloadObjectYield) CmdID() dispatcher.CommandID { return csapi.CmdDownloadObject }
+func (y *DownloadObjectYield) CmdID() dispatcher.CommandID { return csapi.DownloadObject }
 func (y *DownloadObjectYield) ToCommand() dispatcher.Command {
 	y.DownloadObjectCmd.Writer = y.Writer
 	return y.DownloadObjectCmd
@@ -143,7 +143,7 @@ func ReleaseUploadObjectYield(y *UploadObjectYield) {
 
 func (y *UploadObjectYield) String() string              { return "<cloudstorage_upload_object_yield>" }
 func (y *UploadObjectYield) Type() lua.LValueType        { return lua.LTUserData }
-func (y *UploadObjectYield) CmdID() dispatcher.CommandID { return csapi.CmdUploadObject }
+func (y *UploadObjectYield) CmdID() dispatcher.CommandID { return csapi.UploadObject }
 func (y *UploadObjectYield) ToCommand() dispatcher.Command {
 	switch v := y.Content.(type) {
 	case lua.LString:
@@ -194,7 +194,7 @@ func ReleaseDeleteObjectsYield(y *DeleteObjectsYield) {
 
 func (y *DeleteObjectsYield) String() string                { return "<cloudstorage_delete_objects_yield>" }
 func (y *DeleteObjectsYield) Type() lua.LValueType          { return lua.LTUserData }
-func (y *DeleteObjectsYield) CmdID() dispatcher.CommandID   { return csapi.CmdDeleteObjects }
+func (y *DeleteObjectsYield) CmdID() dispatcher.CommandID   { return csapi.DeleteObjects }
 func (y *DeleteObjectsYield) ToCommand() dispatcher.Command { return y.DeleteObjectsCmd }
 func (y *DeleteObjectsYield) Release()                      { ReleaseDeleteObjectsYield(y) }
 
@@ -237,7 +237,7 @@ func ReleasePresignedGetURLYield(y *PresignedGetURLYield) {
 
 func (y *PresignedGetURLYield) String() string              { return "<cloudstorage_presigned_get_url_yield>" }
 func (y *PresignedGetURLYield) Type() lua.LValueType        { return lua.LTUserData }
-func (y *PresignedGetURLYield) CmdID() dispatcher.CommandID { return csapi.CmdPresignedGetURL }
+func (y *PresignedGetURLYield) CmdID() dispatcher.CommandID { return csapi.PresignedGetURL }
 func (y *PresignedGetURLYield) ToCommand() dispatcher.Command {
 	if y.Expiration > 0 {
 		y.PresignedGetURLCmd.Expiration = time.Duration(y.Expiration) * time.Second
@@ -291,7 +291,7 @@ func ReleasePresignedPutURLYield(y *PresignedPutURLYield) {
 
 func (y *PresignedPutURLYield) String() string              { return "<cloudstorage_presigned_put_url_yield>" }
 func (y *PresignedPutURLYield) Type() lua.LValueType        { return lua.LTUserData }
-func (y *PresignedPutURLYield) CmdID() dispatcher.CommandID { return csapi.CmdPresignedPutURL }
+func (y *PresignedPutURLYield) CmdID() dispatcher.CommandID { return csapi.PresignedPutURL }
 func (y *PresignedPutURLYield) ToCommand() dispatcher.Command {
 	if y.Expiration > 0 {
 		y.PresignedPutURLCmd.Expiration = time.Duration(y.Expiration) * time.Second

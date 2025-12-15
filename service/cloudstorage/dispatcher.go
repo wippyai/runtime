@@ -22,12 +22,12 @@ func (d *Dispatcher) Stop(_ context.Context) error {
 }
 
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
-	register(csapi.CmdListObjects, dispatcher.HandlerFunc(d.handleListObjects))
-	register(csapi.CmdDownloadObject, dispatcher.HandlerFunc(d.handleDownloadObject))
-	register(csapi.CmdUploadObject, dispatcher.HandlerFunc(d.handleUploadObject))
-	register(csapi.CmdDeleteObjects, dispatcher.HandlerFunc(d.handleDeleteObjects))
-	register(csapi.CmdPresignedGetURL, dispatcher.HandlerFunc(d.handlePresignedGetURL))
-	register(csapi.CmdPresignedPutURL, dispatcher.HandlerFunc(d.handlePresignedPutURL))
+	register(csapi.ListObjects, dispatcher.HandlerFunc(d.handleListObjects))
+	register(csapi.DownloadObject, dispatcher.HandlerFunc(d.handleDownloadObject))
+	register(csapi.UploadObject, dispatcher.HandlerFunc(d.handleUploadObject))
+	register(csapi.DeleteObjects, dispatcher.HandlerFunc(d.handleDeleteObjects))
+	register(csapi.PresignedGetURL, dispatcher.HandlerFunc(d.handlePresignedGetURL))
+	register(csapi.PresignedPutURL, dispatcher.HandlerFunc(d.handlePresignedPutURL))
 }
 
 func (d *Dispatcher) handleListObjects(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {

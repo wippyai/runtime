@@ -286,7 +286,7 @@ func (ed *eventDelegate) NotifyJoin(node *memberlist.Node) {
 		zap.String("address", nodeInfo.Addr),
 		zap.Any("metadata", nodeInfo.Meta))
 
-	ed.service.publishEvent(cluster.NodeJoinedEventKind, nodeInfo)
+	ed.service.publishEvent(cluster.NodeJoined, nodeInfo)
 }
 
 func (ed *eventDelegate) NotifyLeave(node *memberlist.Node) {
@@ -309,7 +309,7 @@ func (ed *eventDelegate) NotifyLeave(node *memberlist.Node) {
 		zap.String("node_id", node.Name),
 		zap.String("address", nodeInfo.Addr))
 
-	ed.service.publishEvent(cluster.NodeLeftEventKind, nodeInfo)
+	ed.service.publishEvent(cluster.NodeLeft, nodeInfo)
 }
 
 func (ed *eventDelegate) NotifyUpdate(node *memberlist.Node) {
@@ -333,7 +333,7 @@ func (ed *eventDelegate) NotifyUpdate(node *memberlist.Node) {
 		zap.String("address", nodeInfo.Addr),
 		zap.Any("metadata", nodeInfo.Meta))
 
-	ed.service.publishEvent(cluster.NodeUpdatedEventKind, nodeInfo)
+	ed.service.publishEvent(cluster.NodeUpdated, nodeInfo)
 }
 
 func (ed *eventDelegate) parseNodeMeta(meta []byte) cluster.NodeMeta {

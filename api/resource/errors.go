@@ -6,6 +6,6 @@ import (
 
 // Sentinel errors for resource operations.
 var (
-	ErrNotFound = apierror.New(apierror.KindNotFound, "resource not found").WithRetryable(apierror.False)
-	ErrReleased = apierror.New(apierror.KindInvalid, "resource has been released").WithRetryable(apierror.False)
+	ErrNotFound = apierror.New(apierror.NotFound, "resource not found").WithRetryable(apierror.False)
+	ErrReleased = apierror.New(apierror.Invalid, "resource has been released").WithRetryable(apierror.False)
 )

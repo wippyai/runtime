@@ -5,15 +5,15 @@ import (
 )
 
 var (
-	ErrLoggerNotAvailable   = apierror.New(apierror.KindInternal, "logger not available in context").WithRetryable(apierror.False)
-	ErrEventBusNotAvailable = apierror.New(apierror.KindInternal, "event bus not available in context").WithRetryable(apierror.False)
-	ErrRegistryNotAvailable = apierror.New(apierror.KindInternal, "registry not available in context").WithRetryable(apierror.False)
+	ErrLoggerNotAvailable   = apierror.New(apierror.Internal, "logger not available in context").WithRetryable(apierror.False)
+	ErrEventBusNotAvailable = apierror.New(apierror.Internal, "event bus not available in context").WithRetryable(apierror.False)
+	ErrRegistryNotAvailable = apierror.New(apierror.Internal, "registry not available in context").WithRetryable(apierror.False)
 )
 
 func NewHistoryPathError(cause error) apierror.Error {
-	return apierror.New(apierror.KindInternal, "failed to resolve history path").WithCause(cause)
+	return apierror.New(apierror.Internal, "failed to resolve history path").WithCause(cause)
 }
 
 func NewSQLiteHistoryError(cause error) apierror.Error {
-	return apierror.New(apierror.KindInternal, "failed to create SQLite history").WithCause(cause)
+	return apierror.New(apierror.Internal, "failed to create SQLite history").WithCause(cause)
 }

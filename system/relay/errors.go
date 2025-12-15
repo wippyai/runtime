@@ -8,13 +8,13 @@ import (
 
 // Sentinel errors for relay operations.
 var (
-	ErrNilPackage = apierror.New(apierror.KindInvalid, "cannot send nil package").WithRetryable(apierror.False)
+	ErrNilPackage = apierror.New(apierror.Invalid, "cannot send nil package").WithRetryable(apierror.False)
 )
 
 // NewInvalidHostTypeError creates an error when host has invalid type.
 func NewInvalidHostTypeError(hostID pid.HostID, nodeID pid.NodeID) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"host "+hostID+" in node "+nodeID+" has invalid type",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"host_id": hostID, "node_id": nodeID}),
@@ -25,7 +25,7 @@ func NewInvalidHostTypeError(hostID pid.HostID, nodeID pid.NodeID) apierror.Erro
 // NewSubscriberError creates an error for event subscriber failures.
 func NewSubscriberError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to create subscriber: "+err.Error(),
 		apierror.True,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -36,7 +36,7 @@ func NewSubscriberError(err error) apierror.Error {
 // NewNilPackageError creates an error when a nil package is passed to Send.
 func NewNilPackageError() apierror.Error {
 	return apierror.E(
-		apierror.KindInvalid,
+		apierror.Invalid,
 		"cannot send nil package",
 		apierror.False,
 		nil,

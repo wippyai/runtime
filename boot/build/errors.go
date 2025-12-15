@@ -7,5 +7,5 @@ import (
 )
 
 func NewStageError(stageName string, cause error) apierror.Error {
-	return apierror.New(apierror.KindInternal, fmt.Sprintf("stage '%s' failed", stageName)).WithCause(cause)
+	return apierror.New(apierror.Internal, fmt.Sprintf("stage '%s' failed", stageName)).WithCause(cause)
 }

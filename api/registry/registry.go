@@ -46,14 +46,14 @@ const (
 	// TagGroups is used to mark group membership of registry entries
 	TagGroups = "groups"
 
-	// KindEntry stores value in registry without propagation, useful for app specific configs.
-	KindEntry Kind = "registry.entry"
+	// EntryKind stores value in registry without propagation, useful for app specific configs.
+	EntryKind Kind = "registry.entry"
 
-	// KindNamespaceRequirement represents namespace requirement variable which can be declared by export or any other source.
-	KindNamespaceRequirement Kind = "ns.requirement"
+	// NamespaceRequirementKind represents namespace requirement variable which can be declared by export or any other source.
+	NamespaceRequirementKind Kind = "ns.requirement"
 
-	// KindNamespaceDependency represents a module dependency entry
-	KindNamespaceDependency Kind = "ns.dependency"
+	// NamespaceDependencyKind represents a module dependency entry
+	NamespaceDependencyKind Kind = "ns.dependency"
 )
 
 type (

@@ -32,10 +32,10 @@ func TestErrorErrorWithCause(t *testing.T) {
 
 func TestErrorKind(t *testing.T) {
 	err := &Error{
-		kind: apierror.KindInvalid,
+		kind: apierror.Invalid,
 	}
 
-	if err.Kind() != apierror.KindInvalid {
+	if err.Kind() != apierror.Invalid {
 		t.Errorf("expected KindInvalid, got %v", err.Kind())
 	}
 }
@@ -64,7 +64,7 @@ func TestErrorUnwrap(t *testing.T) {
 func TestNewInvalidParametersTypeError(t *testing.T) {
 	err := NewInvalidParametersTypeError("string")
 
-	if err.Kind() != apierror.KindInvalid {
+	if err.Kind() != apierror.Invalid {
 		t.Errorf("expected KindInvalid, got %v", err.Kind())
 	}
 

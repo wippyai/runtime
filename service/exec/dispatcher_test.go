@@ -56,7 +56,7 @@ func TestProcessWaitHandler_Handle_Success(t *testing.T) {
 
 	var response execapi.ProcessWaitResponse
 	done := make(chan struct{})
-	err := handlers[execapi.CmdProcessWait].Handle(context.Background(), cmd, 0, &testReceiver{fn: func(data any) {
+	err := handlers[execapi.ProcessWait].Handle(context.Background(), cmd, 0, &testReceiver{fn: func(data any) {
 		response = data.(execapi.ProcessWaitResponse)
 		close(done)
 	}})
@@ -90,7 +90,7 @@ func TestProcessWaitHandler_Handle_ExitError(t *testing.T) {
 
 	var response execapi.ProcessWaitResponse
 	done := make(chan struct{})
-	err := handlers[execapi.CmdProcessWait].Handle(context.Background(), cmd, 0, &testReceiver{fn: func(data any) {
+	err := handlers[execapi.ProcessWait].Handle(context.Background(), cmd, 0, &testReceiver{fn: func(data any) {
 		response = data.(execapi.ProcessWaitResponse)
 		close(done)
 	}})
@@ -123,7 +123,7 @@ func TestProcessWaitHandler_Handle_OtherError(t *testing.T) {
 
 	var response execapi.ProcessWaitResponse
 	done := make(chan struct{})
-	err := handlers[execapi.CmdProcessWait].Handle(context.Background(), cmd, 0, &testReceiver{fn: func(data any) {
+	err := handlers[execapi.ProcessWait].Handle(context.Background(), cmd, 0, &testReceiver{fn: func(data any) {
 		response = data.(execapi.ProcessWaitResponse)
 		close(done)
 	}})
@@ -151,5 +151,5 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 	d.RegisterAll(register)
 
 	assert.Len(t, registered, 1)
-	assert.Contains(t, registered, execapi.CmdProcessWait)
+	assert.Contains(t, registered, execapi.ProcessWait)
 }

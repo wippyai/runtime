@@ -8,7 +8,7 @@ import (
 // NewOpenDatabaseError creates an error when opening database fails
 func NewOpenDatabaseError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to open database: "+err.Error(),
 		apierror.True,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -19,7 +19,7 @@ func NewOpenDatabaseError(err error) apierror.Error {
 // NewConnectError creates an error when connecting to database fails
 func NewConnectError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to connect to database: "+err.Error(),
 		apierror.True,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -30,7 +30,7 @@ func NewConnectError(err error) apierror.Error {
 // NewMigrationError creates an error when running migrations fails
 func NewMigrationError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to run migrations: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -41,7 +41,7 @@ func NewMigrationError(err error) apierror.Error {
 // NewEnsureRootVersionError creates an error when ensuring root version fails
 func NewEnsureRootVersionError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to ensure root version: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -52,7 +52,7 @@ func NewEnsureRootVersionError(err error) apierror.Error {
 // NewCheckRootVersionError creates an error when checking root version fails
 func NewCheckRootVersionError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to check root version: "+err.Error(),
 		apierror.True,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -63,7 +63,7 @@ func NewCheckRootVersionError(err error) apierror.Error {
 // NewInsertRootVersionError creates an error when inserting root version fails
 func NewInsertRootVersionError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to insert root version: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -74,7 +74,7 @@ func NewInsertRootVersionError(err error) apierror.Error {
 // NewInsertChangesetError creates an error when inserting changeset fails
 func NewInsertChangesetError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to insert changeset: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -85,7 +85,7 @@ func NewInsertChangesetError(err error) apierror.Error {
 // NewSetInitialHeadError creates an error when setting initial head fails
 func NewSetInitialHeadError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to set initial head: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -96,7 +96,7 @@ func NewSetInitialHeadError(err error) apierror.Error {
 // NewQueryVersionsError creates an error when querying versions fails
 func NewQueryVersionsError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to query versions: "+err.Error(),
 		apierror.True,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -107,7 +107,7 @@ func NewQueryVersionsError(err error) apierror.Error {
 // NewScanVersionError creates an error when scanning version row fails
 func NewScanVersionError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to scan version: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -118,7 +118,7 @@ func NewScanVersionError(err error) apierror.Error {
 // NewInvalidParentVersionError creates an error for invalid parent version ID
 func NewInvalidParentVersionError(parentID int64) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"invalid negative parent version ID",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"parent_id": parentID}),
@@ -129,7 +129,7 @@ func NewInvalidParentVersionError(parentID int64) apierror.Error {
 // NewParentVersionNotFoundError creates an error when parent version is not found
 func NewParentVersionNotFoundError(parentID, versionID uint) apierror.Error {
 	return apierror.E(
-		apierror.KindNotFound,
+		apierror.NotFound,
 		"parent version not found for version",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"parent_id": parentID, "version_id": versionID}),
@@ -140,7 +140,7 @@ func NewParentVersionNotFoundError(parentID, versionID uint) apierror.Error {
 // NewIterateVersionsError creates an error when iterating versions fails
 func NewIterateVersionsError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"error iterating versions: "+err.Error(),
 		apierror.True,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -151,7 +151,7 @@ func NewIterateVersionsError(err error) apierror.Error {
 // NewChangesetNotFoundError creates an error when changeset is not found
 func NewChangesetNotFoundError(versionID uint) apierror.Error {
 	return apierror.E(
-		apierror.KindNotFound,
+		apierror.NotFound,
 		"changeset not found for version",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"version_id": versionID}),
@@ -162,7 +162,7 @@ func NewChangesetNotFoundError(versionID uint) apierror.Error {
 // NewQueryChangesetError creates an error when querying changeset fails
 func NewQueryChangesetError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to query changeset: "+err.Error(),
 		apierror.True,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -173,7 +173,7 @@ func NewQueryChangesetError(err error) apierror.Error {
 // NewDecodeChangesetError creates an error when decoding changeset fails
 func NewDecodeChangesetError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to decode changeset: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -184,7 +184,7 @@ func NewDecodeChangesetError(err error) apierror.Error {
 // NewBeginTransactionError creates an error when beginning transaction fails
 func NewBeginTransactionError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to begin transaction: "+err.Error(),
 		apierror.True,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -195,7 +195,7 @@ func NewBeginTransactionError(err error) apierror.Error {
 // NewParentVersionIDTooLargeError creates an error when parent version ID is too large
 func NewParentVersionIDTooLargeError(prevID uint) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"parent version ID too large",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"parent_id": prevID}),
@@ -206,7 +206,7 @@ func NewParentVersionIDTooLargeError(prevID uint) apierror.Error {
 // NewInsertVersionError creates an error when inserting version fails
 func NewInsertVersionError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to insert version: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -217,7 +217,7 @@ func NewInsertVersionError(err error) apierror.Error {
 // NewEncodeChangesetError creates an error when encoding changeset fails
 func NewEncodeChangesetError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to encode changeset: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -228,7 +228,7 @@ func NewEncodeChangesetError(err error) apierror.Error {
 // NewUpdateHeadError creates an error when updating head fails
 func NewUpdateHeadError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to update head: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -239,7 +239,7 @@ func NewUpdateHeadError(err error) apierror.Error {
 // NewCommitTransactionError creates an error when committing transaction fails
 func NewCommitTransactionError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to commit transaction: "+err.Error(),
 		apierror.True,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -250,7 +250,7 @@ func NewCommitTransactionError(err error) apierror.Error {
 // NewQueryHeadError creates an error when querying head fails
 func NewQueryHeadError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to query head: "+err.Error(),
 		apierror.True,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -261,7 +261,7 @@ func NewQueryHeadError(err error) apierror.Error {
 // NewGetVersionsError creates an error when getting versions fails
 func NewGetVersionsError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to get versions: "+err.Error(),
 		apierror.True,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -272,7 +272,7 @@ func NewGetVersionsError(err error) apierror.Error {
 // NewHeadVersionNotFoundError creates an error when head version is not found
 func NewHeadVersionNotFoundError(headID uint) apierror.Error {
 	return apierror.E(
-		apierror.KindNotFound,
+		apierror.NotFound,
 		"head version not found",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"head_id": headID}),
@@ -283,7 +283,7 @@ func NewHeadVersionNotFoundError(headID uint) apierror.Error {
 // NewSetHeadError creates an error when setting head fails
 func NewSetHeadError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to set head: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -294,7 +294,7 @@ func NewSetHeadError(err error) apierror.Error {
 // NewCloseDatabaseError creates an error when closing database fails
 func NewCloseDatabaseError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to close database: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -305,7 +305,7 @@ func NewCloseDatabaseError(err error) apierror.Error {
 // NewApplyMigrationError creates an error when applying a migration fails
 func NewApplyMigrationError(version int, err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to apply migration: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"version": version, "cause": err.Error()}),
@@ -316,7 +316,7 @@ func NewApplyMigrationError(version int, err error) apierror.Error {
 // NewUpdateSchemaVersionError creates an error when updating schema version fails
 func NewUpdateSchemaVersionError(version int, err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to update schema version: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"version": version, "cause": err.Error()}),
@@ -327,7 +327,7 @@ func NewUpdateSchemaVersionError(version int, err error) apierror.Error {
 // NewCheckMetadataTableError creates an error when checking metadata table fails
 func NewCheckMetadataTableError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to check metadata table: "+err.Error(),
 		apierror.True,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -338,7 +338,7 @@ func NewCheckMetadataTableError(err error) apierror.Error {
 // NewReadSchemaVersionError creates an error when reading schema version fails
 func NewReadSchemaVersionError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to read schema version: "+err.Error(),
 		apierror.True,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -349,7 +349,7 @@ func NewReadSchemaVersionError(err error) apierror.Error {
 // NewSchemaVersionTooNewError creates an error when schema version is too new
 func NewSchemaVersionTooNewError(schemaVersion, currentVersion int) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"database schema version is newer than supported version",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"schema_version": schemaVersion, "supported_version": currentVersion}),

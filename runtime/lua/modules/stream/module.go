@@ -22,14 +22,14 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	mod.Immutable = true
 
 	yields := []luaapi.YieldType{
-		{Sample: &ReadYield{}, CmdID: streamapi.CmdRead},
-		{Sample: &WriteYield{}, CmdID: streamapi.CmdWrite},
-		{Sample: &SeekYield{}, CmdID: streamapi.CmdSeek},
-		{Sample: &FlushYield{}, CmdID: streamapi.CmdFlush},
-		{Sample: &StatYield{}, CmdID: streamapi.CmdStat},
-		{Sample: &CloseYield{}, CmdID: streamapi.CmdClose},
-		{Sample: &ScannerCreateYield{}, CmdID: streamapi.CmdScannerCreate},
-		{Sample: &ScannerScanYield{}, CmdID: streamapi.CmdScannerScan},
+		{Sample: &ReadYield{}, CmdID: streamapi.Read},
+		{Sample: &WriteYield{}, CmdID: streamapi.Write},
+		{Sample: &SeekYield{}, CmdID: streamapi.Seek},
+		{Sample: &FlushYield{}, CmdID: streamapi.Flush},
+		{Sample: &StatYield{}, CmdID: streamapi.Stat},
+		{Sample: &CloseYield{}, CmdID: streamapi.Close},
+		{Sample: &ScannerCreateYield{}, CmdID: streamapi.ScannerCreate},
+		{Sample: &ScannerScanYield{}, CmdID: streamapi.ScannerScan},
 	}
 
 	return mod, yields

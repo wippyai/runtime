@@ -84,19 +84,19 @@ var Module = &luaapi.ModuleDef{
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		initOnce.Do(initModuleTable)
 		return moduleTable, []luaapi.YieldType{
-			{Sample: &QueryYield{}, CmdID: sqlapi.CmdQuery},
-			{Sample: &ExecuteYield{}, CmdID: sqlapi.CmdExecute},
-			{Sample: &PrepareYield{}, CmdID: sqlapi.CmdPrepare},
-			{Sample: &BeginYield{}, CmdID: sqlapi.CmdBegin},
-			{Sample: &StmtQueryYield{}, CmdID: sqlapi.CmdStmtQuery},
-			{Sample: &StmtExecuteYield{}, CmdID: sqlapi.CmdStmtExecute},
-			{Sample: &StmtCloseYield{}, CmdID: sqlapi.CmdStmtClose},
-			{Sample: &TxQueryYield{}, CmdID: sqlapi.CmdTxQuery},
-			{Sample: &TxExecuteYield{}, CmdID: sqlapi.CmdTxExecute},
-			{Sample: &TxSavepointYield{}, CmdID: sqlapi.CmdTxExecute},
-			{Sample: &TxPrepareYield{}, CmdID: sqlapi.CmdTxPrepare},
-			{Sample: &TxCommitYield{}, CmdID: sqlapi.CmdTxCommit},
-			{Sample: &TxRollbackYield{}, CmdID: sqlapi.CmdTxRollback},
+			{Sample: &QueryYield{}, CmdID: sqlapi.Query},
+			{Sample: &ExecuteYield{}, CmdID: sqlapi.Execute},
+			{Sample: &PrepareYield{}, CmdID: sqlapi.Prepare},
+			{Sample: &BeginYield{}, CmdID: sqlapi.Begin},
+			{Sample: &StmtQueryYield{}, CmdID: sqlapi.StmtQuery},
+			{Sample: &StmtExecuteYield{}, CmdID: sqlapi.StmtExecute},
+			{Sample: &StmtCloseYield{}, CmdID: sqlapi.StmtClose},
+			{Sample: &TxQueryYield{}, CmdID: sqlapi.TxQuery},
+			{Sample: &TxExecuteYield{}, CmdID: sqlapi.TxExecute},
+			{Sample: &TxSavepointYield{}, CmdID: sqlapi.TxExecute},
+			{Sample: &TxPrepareYield{}, CmdID: sqlapi.TxPrepare},
+			{Sample: &TxCommitYield{}, CmdID: sqlapi.TxCommit},
+			{Sample: &TxRollbackYield{}, CmdID: sqlapi.TxRollback},
 		}
 	},
 }

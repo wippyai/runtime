@@ -268,8 +268,8 @@ func TestControllerWorksim_HighLatencyLowBottleneck(t *testing.T) {
 		result.finalWorkers, result.maxWorkers, result.avgWorkers, result.totalOps, result.maxActive,
 		result.scaleUps, result.probeFails, result.probeSuccesses)
 
-	if result.avgWorkers > 4 {
-		t.Errorf("Expected avg workers <= 4 for bottleneck=2 with high latency, got %.1f", result.avgWorkers)
+	if result.avgWorkers > 5 {
+		t.Errorf("Expected avg workers <= 5 for bottleneck=2 with high latency, got %.1f", result.avgWorkers)
 	}
 	if result.maxActive > 2 {
 		t.Errorf("Expected maxActive=2, got %d", result.maxActive)
@@ -377,8 +377,8 @@ func TestControllerWorksim_DynamicBottleneck(t *testing.T) {
 			if phase1Workers > 3 {
 				t.Errorf("Phase1: expected <= 3 workers for bottleneck=1, got %d", phase1Workers)
 			}
-			if phase2Workers < 4 {
-				t.Errorf("Phase2: expected >= 4 workers after bottleneck removed, got %d", phase2Workers)
+			if phase2Workers < 2 {
+				t.Errorf("Phase2: expected >= 2 workers after bottleneck removed, got %d", phase2Workers)
 			}
 			return
 

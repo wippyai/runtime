@@ -11,7 +11,7 @@ func BenchmarkControllerTick(b *testing.B) {
 	c := newController(cfg)
 
 	now := time.Now()
-	var ops int64 = 0
+	var ops int64
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -30,7 +30,7 @@ func BenchmarkControllerProbeEvaluate(b *testing.B) {
 	c := newController(cfg)
 
 	now := time.Now()
-	var ops int64 = 0
+	var ops int64
 
 	// Trigger probe
 	now = now.Add(100 * time.Millisecond)
@@ -44,7 +44,7 @@ func BenchmarkControllerProbeEvaluate(b *testing.B) {
 		// Reset probe state
 		c.probing = true
 		c.probeStart = now
-		c.probeOps = ops
+
 		c.baselineTput = 1000
 		c.workersBefore = 1
 

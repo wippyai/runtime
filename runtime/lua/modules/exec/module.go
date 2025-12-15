@@ -39,7 +39,7 @@ var Module = &luaapi.ModuleDef{
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		initOnce.Do(initModuleTable)
 		return moduleTable, []luaapi.YieldType{
-			{Sample: &ProcessWaitYield{}, CmdID: execapi.CmdProcessWait},
+			{Sample: &ProcessWaitYield{}, CmdID: execapi.ProcessWait},
 		}
 	},
 }

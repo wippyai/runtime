@@ -225,7 +225,7 @@ func TestBuildOptions_StateConsistency(t *testing.T) {
 		assert.Error(t, err)
 		var apiErr apierror.Error
 		assert.True(t, errors.As(err, &apiErr), "error should implement apierror.Error")
-		assert.Equal(t, apierror.KindPermissionDenied, apiErr.Kind())
+		assert.Equal(t, apierror.PermissionDenied, apiErr.Kind())
 	})
 
 	t.Run("same Process in required and denied", func(t *testing.T) {
@@ -241,7 +241,7 @@ func TestBuildOptions_StateConsistency(t *testing.T) {
 		assert.Error(t, err)
 		var apiErr apierror.Error
 		assert.True(t, errors.As(err, &apiErr), "error should implement apierror.Error")
-		assert.Equal(t, apierror.KindPermissionDenied, apiErr.Kind())
+		assert.Equal(t, apierror.PermissionDenied, apiErr.Kind())
 	})
 
 	t.Run("same Process added multiple times to lists", func(t *testing.T) {
@@ -325,7 +325,7 @@ func TestBuildOptions_EmptyNodes(t *testing.T) {
 				WithMode(AllowAll).
 				WithRequired(registry.NewID("", "foo")),
 			wantError: true,
-			errorKind: apierror.KindPermissionDenied,
+			errorKind: apierror.PermissionDenied,
 		},
 		{
 			name: "empty nodes in DenyAll mode",
@@ -340,7 +340,7 @@ func TestBuildOptions_EmptyNodes(t *testing.T) {
 				WithAllowed(registry.NewID("", "foo")).
 				WithRequired(registry.NewID("", "foo")),
 			wantError: true,
-			errorKind: apierror.KindPermissionDenied,
+			errorKind: apierror.PermissionDenied,
 		},
 	}
 
@@ -384,7 +384,7 @@ func TestBuildOptions_ModificationAfterSetup(t *testing.T) {
 	if assert.Error(t, err) {
 		var apiErr apierror.Error
 		assert.True(t, errors.As(err, &apiErr), "error should implement apierror.Error")
-		assert.Equal(t, apierror.KindPermissionDenied, apiErr.Kind())
+		assert.Equal(t, apierror.PermissionDenied, apiErr.Kind())
 	}
 }
 
@@ -425,7 +425,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 				registry.NewID("", "bar"): createNode("bar"),
 			},
 			wantError: true,
-			errorKind: apierror.KindPermissionDenied,
+			errorKind: apierror.PermissionDenied,
 		},
 		{
 			name: "AllowListed mode - only allow listed",
@@ -448,7 +448,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 				registry.NewID("", "bar"): createNode("bar"),
 			},
 			wantError: true,
-			errorKind: apierror.KindPermissionDenied,
+			errorKind: apierror.PermissionDenied,
 		},
 		{
 			name: "DenyAll mode - only allow required",
@@ -470,7 +470,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 				registry.NewID("", "bar"): createNode("bar"),
 			},
 			wantError: true,
-			errorKind: apierror.KindPermissionDenied,
+			errorKind: apierror.PermissionDenied,
 		},
 		{
 			name: "StrictListed mode - required must be allowed",
@@ -495,7 +495,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 				registry.NewID("", "bar"): createNode("bar"),
 			},
 			wantError: true,
-			errorKind: apierror.KindPermissionDenied,
+			errorKind: apierror.PermissionDenied,
 		},
 		{
 			name: "Missing required Process",
@@ -506,7 +506,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 				registry.NewID("", "bar"): createNode("bar"),
 			},
 			wantError: true,
-			errorKind: apierror.KindPermissionDenied,
+			errorKind: apierror.PermissionDenied,
 		},
 		{
 			name: "Denied takes precedence over required",
@@ -518,7 +518,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 				registry.NewID("", "foo"): createNode("foo"),
 			},
 			wantError: true,
-			errorKind: apierror.KindPermissionDenied,
+			errorKind: apierror.PermissionDenied,
 		},
 	}
 

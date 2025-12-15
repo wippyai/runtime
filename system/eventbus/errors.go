@@ -9,7 +9,7 @@ import (
 // NewSubscriberError creates an error for subscriber creation failures.
 func NewSubscriberError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to create subscriber: "+err.Error(),
 		apierror.True,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -20,7 +20,7 @@ func NewSubscriberError(err error) apierror.Error {
 // NewRouterCanceledError creates an error when router context is canceled.
 func NewRouterCanceledError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindCanceled,
+		apierror.Canceled,
 		"router context canceled: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -31,7 +31,7 @@ func NewRouterCanceledError(err error) apierror.Error {
 // NewAwaitTimeoutError creates an error for event await timeout.
 func NewAwaitTimeoutError(path event.Path) apierror.Error {
 	return apierror.E(
-		apierror.KindTimeout,
+		apierror.Timeout,
 		"await timeout waiting for event: "+string(path),
 		apierror.True,
 		attrs.NewBagFrom(map[string]any{"path": string(path)}),

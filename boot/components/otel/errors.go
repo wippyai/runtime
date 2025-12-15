@@ -5,11 +5,11 @@ import (
 )
 
 var (
-	ErrLoggerNotAvailable         = apierror.New(apierror.KindInternal, "logger not available in context").WithRetryable(apierror.False)
-	ErrBootConfigNotAvailable     = apierror.New(apierror.KindInternal, "boot config not available in context").WithRetryable(apierror.False)
-	ErrHTTPMiddlewareNotAvailable = apierror.New(apierror.KindInternal, "HTTP middleware registry not available in context").WithRetryable(apierror.False)
+	ErrLoggerNotAvailable         = apierror.New(apierror.Internal, "logger not available in context").WithRetryable(apierror.False)
+	ErrBootConfigNotAvailable     = apierror.New(apierror.Internal, "boot config not available in context").WithRetryable(apierror.False)
+	ErrHTTPMiddlewareNotAvailable = apierror.New(apierror.Internal, "HTTP middleware registry not available in context").WithRetryable(apierror.False)
 )
 
 func NewOTELInitError(cause error) apierror.Error {
-	return apierror.New(apierror.KindInternal, "failed to initialize OTEL provider").WithCause(cause)
+	return apierror.New(apierror.Internal, "failed to initialize OTEL provider").WithCause(cause)
 }

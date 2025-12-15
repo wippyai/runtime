@@ -41,7 +41,7 @@ func (y *ReadYield) String() string       { return "<stream_read_yield>" }
 func (y *ReadYield) Type() lua.LValueType { return lua.LTUserData }
 
 func (y *ReadYield) CmdID() dispatcher.CommandID {
-	return streamapi.CmdRead
+	return streamapi.Read
 }
 
 func (y *ReadYield) ToCommand() dispatcher.Command {
@@ -98,7 +98,7 @@ func (y *CloseYield) String() string       { return "<stream_close_yield>" }
 func (y *CloseYield) Type() lua.LValueType { return lua.LTUserData }
 
 func (y *CloseYield) CmdID() dispatcher.CommandID {
-	return streamapi.CmdClose
+	return streamapi.Close
 }
 
 func (y *CloseYield) ToCommand() dispatcher.Command {
@@ -144,7 +144,7 @@ func (y *WriteYield) String() string       { return "<stream_write_yield>" }
 func (y *WriteYield) Type() lua.LValueType { return lua.LTUserData }
 
 func (y *WriteYield) CmdID() dispatcher.CommandID {
-	return streamapi.CmdWrite
+	return streamapi.Write
 }
 
 func (y *WriteYield) ToCommand() dispatcher.Command {
@@ -199,7 +199,7 @@ func (y *SeekYield) String() string       { return "<stream_seek_yield>" }
 func (y *SeekYield) Type() lua.LValueType { return lua.LTUserData }
 
 func (y *SeekYield) CmdID() dispatcher.CommandID {
-	return streamapi.CmdSeek
+	return streamapi.Seek
 }
 
 func (y *SeekYield) ToCommand() dispatcher.Command {
@@ -248,7 +248,7 @@ func (y *FlushYield) String() string       { return "<stream_flush_yield>" }
 func (y *FlushYield) Type() lua.LValueType { return lua.LTUserData }
 
 func (y *FlushYield) CmdID() dispatcher.CommandID {
-	return streamapi.CmdFlush
+	return streamapi.Flush
 }
 
 func (y *FlushYield) ToCommand() dispatcher.Command {
@@ -291,7 +291,7 @@ func (y *StatYield) String() string       { return "<stream_stat_yield>" }
 func (y *StatYield) Type() lua.LValueType { return lua.LTUserData }
 
 func (y *StatYield) CmdID() dispatcher.CommandID {
-	return streamapi.CmdStat
+	return streamapi.Stat
 }
 
 func (y *StatYield) ToCommand() dispatcher.Command {
@@ -507,7 +507,7 @@ func (y *ScannerCreateYield) String() string       { return "<scanner_create_yie
 func (y *ScannerCreateYield) Type() lua.LValueType { return lua.LTUserData }
 
 func (y *ScannerCreateYield) CmdID() dispatcher.CommandID {
-	return streamapi.CmdScannerCreate
+	return streamapi.ScannerCreate
 }
 
 func (y *ScannerCreateYield) ToCommand() dispatcher.Command {
@@ -560,7 +560,7 @@ func (y *ScannerScanYield) String() string       { return "<scanner_scan_yield>"
 func (y *ScannerScanYield) Type() lua.LValueType { return lua.LTUserData }
 
 func (y *ScannerScanYield) CmdID() dispatcher.CommandID {
-	return streamapi.CmdScannerScan
+	return streamapi.ScannerScan
 }
 
 func (y *ScannerScanYield) ToCommand() dispatcher.Command {

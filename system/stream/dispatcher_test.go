@@ -151,7 +151,7 @@ func TestStreamReadHandler(t *testing.T) {
 
 	var emitted any
 	done := make(chan struct{})
-	err := handlers[streamapi.CmdRead].Handle(ctx, streamapi.ReadCmd{StreamID: id, Size: 5}, 0, &testReceiver{fn: func(d any) {
+	err := handlers[streamapi.Read].Handle(ctx, streamapi.ReadCmd{StreamID: id, Size: 5}, 0, &testReceiver{fn: func(d any) {
 		emitted = d
 		close(done)
 	}})
@@ -189,7 +189,7 @@ func TestStreamReadHandlerEOF(t *testing.T) {
 
 	var emitted any
 	done := make(chan struct{})
-	err := handlers[streamapi.CmdRead].Handle(ctx, streamapi.ReadCmd{StreamID: id, Size: 10}, 0, &testReceiver{fn: func(d any) {
+	err := handlers[streamapi.Read].Handle(ctx, streamapi.ReadCmd{StreamID: id, Size: 10}, 0, &testReceiver{fn: func(d any) {
 		emitted = d
 		close(done)
 	}})
@@ -221,7 +221,7 @@ func TestStreamCloseHandler(t *testing.T) {
 	})
 
 	done := make(chan struct{})
-	err := handlers[streamapi.CmdClose].Handle(ctx, streamapi.CloseCmd{StreamID: id}, 0, &testReceiver{fn: func(_ any) {
+	err := handlers[streamapi.Close].Handle(ctx, streamapi.CloseCmd{StreamID: id}, 0, &testReceiver{fn: func(_ any) {
 		close(done)
 	}})
 	if err != nil {
@@ -232,7 +232,7 @@ func TestStreamCloseHandler(t *testing.T) {
 
 	// Second close should still complete but stream is already gone
 	done2 := make(chan struct{})
-	err = handlers[streamapi.CmdClose].Handle(ctx, streamapi.CloseCmd{StreamID: id}, 0, &testReceiver{fn: func(_ any) {
+	err = handlers[streamapi.Close].Handle(ctx, streamapi.CloseCmd{StreamID: id}, 0, &testReceiver{fn: func(_ any) {
 		close(done2)
 	}})
 	if err != nil {
@@ -267,7 +267,7 @@ func TestStreamFullCycle(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		var emitted any
 		done := make(chan struct{})
-		err := handlers[streamapi.CmdRead].Handle(ctx, streamapi.ReadCmd{StreamID: id, Size: 6}, 0, &testReceiver{fn: func(d any) {
+		err := handlers[streamapi.Read].Handle(ctx, streamapi.ReadCmd{StreamID: id, Size: 6}, 0, &testReceiver{fn: func(d any) {
 			emitted = d
 			close(done)
 		}})
@@ -289,7 +289,7 @@ func TestStreamFullCycle(t *testing.T) {
 	}
 
 	done := make(chan struct{})
-	err := handlers[streamapi.CmdClose].Handle(ctx, streamapi.CloseCmd{StreamID: id}, 0, &testReceiver{fn: func(_ any) {
+	err := handlers[streamapi.Close].Handle(ctx, streamapi.CloseCmd{StreamID: id}, 0, &testReceiver{fn: func(_ any) {
 		close(done)
 	}})
 	if err != nil {

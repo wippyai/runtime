@@ -106,8 +106,8 @@ func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, tag uin
 // RegisterAll registers all store handlers.
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
 	h := dispatcher.HandlerFunc(d.handle)
-	register(store.CmdStoreGet, h)
-	register(store.CmdStoreSet, h)
-	register(store.CmdStoreDelete, h)
-	register(store.CmdStoreHas, h)
+	register(store.Get, h)
+	register(store.Set, h)
+	register(store.Delete, h)
+	register(store.Has, h)
 }

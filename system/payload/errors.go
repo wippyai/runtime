@@ -8,7 +8,7 @@ import (
 // NewTranscodeError creates an error when transcoding fails.
 func NewTranscodeError(from, to string, err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"error transcoding from "+from+" to "+to+": "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"from": from, "to": to, "cause": err.Error()}),
@@ -19,7 +19,7 @@ func NewTranscodeError(from, to string, err error) apierror.Error {
 // NewUnmarshalTranscodeError creates an error when transcoding for unmarshal fails.
 func NewUnmarshalTranscodeError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"error transcoding payload for unmarshaling: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -30,7 +30,7 @@ func NewUnmarshalTranscodeError(err error) apierror.Error {
 // NewUnmarshalerNotFoundError creates an error when unmarshaler is not found after path resolution.
 func NewUnmarshalerNotFoundError(format string) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"unmarshaler not found for format "+format+", even though a path was found",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"format": format}),
@@ -41,7 +41,7 @@ func NewUnmarshalerNotFoundError(format string) apierror.Error {
 // NewMarshalError creates an error when marshaling fails.
 func NewMarshalError(format string, err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to marshal to "+format+": "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"format": format, "cause": err.Error()}),

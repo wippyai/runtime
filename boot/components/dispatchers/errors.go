@@ -5,5 +5,5 @@ import (
 )
 
 var (
-	ErrDispatcherNotFound = apierror.New(apierror.KindInternal, "dispatcher registrar not found in context").WithRetryable(apierror.False)
+	ErrDispatcherNotFound = apierror.New(apierror.Internal, "dispatcher registrar not found in context").WithRetryable(apierror.False)
 )

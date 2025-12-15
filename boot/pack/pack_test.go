@@ -179,7 +179,7 @@ func TestPackUnpack(t *testing.T) {
 		entries := []registry.Entry{
 			{
 				ID:   registry.ParseID("ns:dependency"),
-				Kind: registry.KindNamespaceDependency,
+				Kind: registry.NamespaceDependencyKind,
 				Meta: map[string]interface{}{"parent": "root"},
 				Data: payload.New(map[string]any{
 					"component": "wippy/actor",

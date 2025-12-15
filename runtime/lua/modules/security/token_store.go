@@ -331,7 +331,7 @@ func releaseValidateYield(y *ValidateYield) {
 func (y *ValidateYield) Release()                    { releaseValidateYield(y) }
 func (y *ValidateYield) String() string              { return "<token_validate_yield>" }
 func (y *ValidateYield) Type() lua.LValueType        { return lua.LTUserData }
-func (y *ValidateYield) CmdID() dispatcher.CommandID { return security.CmdTokenValidate }
+func (y *ValidateYield) CmdID() dispatcher.CommandID { return security.ValidateToken }
 func (y *ValidateYield) ToCommand() dispatcher.Command {
 	cmd := security.AcquireTokenValidateCmd()
 	cmd.TokenStore = y.TokenStore
@@ -383,7 +383,7 @@ func releaseCreateYield(y *CreateYield) {
 func (y *CreateYield) Release()                    { releaseCreateYield(y) }
 func (y *CreateYield) String() string              { return "<token_create_yield>" }
 func (y *CreateYield) Type() lua.LValueType        { return lua.LTUserData }
-func (y *CreateYield) CmdID() dispatcher.CommandID { return security.CmdTokenCreate }
+func (y *CreateYield) CmdID() dispatcher.CommandID { return security.CreateToken }
 func (y *CreateYield) ToCommand() dispatcher.Command {
 	cmd := security.AcquireTokenCreateCmd()
 	cmd.TokenStore = y.TokenStore
@@ -431,7 +431,7 @@ func releaseRevokeYield(y *RevokeYield) {
 func (y *RevokeYield) Release()                    { releaseRevokeYield(y) }
 func (y *RevokeYield) String() string              { return "<token_revoke_yield>" }
 func (y *RevokeYield) Type() lua.LValueType        { return lua.LTUserData }
-func (y *RevokeYield) CmdID() dispatcher.CommandID { return security.CmdTokenRevoke }
+func (y *RevokeYield) CmdID() dispatcher.CommandID { return security.RevokeToken }
 func (y *RevokeYield) ToCommand() dispatcher.Command {
 	cmd := security.AcquireTokenRevokeCmd()
 	cmd.TokenStore = y.TokenStore

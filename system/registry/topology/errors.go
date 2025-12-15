@@ -8,13 +8,13 @@ import (
 
 // Sentinel errors
 var (
-	ErrEmptyPatternPath = apierror.New(apierror.KindInvalid, "pattern path cannot be empty")
+	ErrEmptyPatternPath = apierror.New(apierror.Invalid, "pattern path cannot be empty")
 )
 
 // NewEntryExistsError creates an error when an entry already exists
 func NewEntryExistsError(ns, name string) apierror.Error {
 	return apierror.E(
-		apierror.KindConflict,
+		apierror.Conflict,
 		"entry already exists: {ns: "+ns+", name: "+name+"}",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"namespace": ns, "name": name}),
@@ -25,7 +25,7 @@ func NewEntryExistsError(ns, name string) apierror.Error {
 // NewEntryNotExistsError creates an error when an entry does not exist
 func NewEntryNotExistsError(ns, name string) apierror.Error {
 	return apierror.E(
-		apierror.KindNotFound,
+		apierror.NotFound,
 		"entry does not exist: {ns: "+ns+", name: "+name+"}",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"namespace": ns, "name": name}),
@@ -36,7 +36,7 @@ func NewEntryNotExistsError(ns, name string) apierror.Error {
 // NewKindChangeError creates an error when trying to change entry kind
 func NewKindChangeError(ns, name string, fromKind, toKind registry.Kind) apierror.Error {
 	return apierror.E(
-		apierror.KindInvalid,
+		apierror.Invalid,
 		"cannot change entry kind from "+fromKind+" to "+toKind+" for {ns: "+ns+", name: "+name+"}",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"namespace": ns, "name": name, "from_kind": fromKind, "to_kind": toKind}),
@@ -47,7 +47,7 @@ func NewKindChangeError(ns, name string, fromKind, toKind registry.Kind) apierro
 // NewDeleteNonExistentError creates an error when trying to delete a non-existent entry
 func NewDeleteNonExistentError(ns, name string) apierror.Error {
 	return apierror.E(
-		apierror.KindNotFound,
+		apierror.NotFound,
 		"cannot delete non-existent entry: {ns: "+ns+", name: "+name+"}",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"namespace": ns, "name": name}),
@@ -58,7 +58,7 @@ func NewDeleteNonExistentError(ns, name string) apierror.Error {
 // NewUnknownOperationKindError creates an error for unknown operation kind
 func NewUnknownOperationKindError(kind string) apierror.Error {
 	return apierror.E(
-		apierror.KindInvalid,
+		apierror.Invalid,
 		"unknown operation kind: "+kind,
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"operation_kind": kind}),
@@ -69,7 +69,7 @@ func NewUnknownOperationKindError(kind string) apierror.Error {
 // NewInvalidOperationError creates an error when an operation is invalid
 func NewInvalidOperationError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInvalid,
+		apierror.Invalid,
 		"invalid operation: "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -80,7 +80,7 @@ func NewInvalidOperationError(err error) apierror.Error {
 // NewOriginalEntryNotFoundError creates an error when original entry is not found for inverse operation
 func NewOriginalEntryNotFoundError(ns, name string) apierror.Error {
 	return apierror.E(
-		apierror.KindNotFound,
+		apierror.NotFound,
 		"original entry not found for Process {ns: "+ns+", name: "+name+"}",
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"namespace": ns, "name": name}),
@@ -91,7 +91,7 @@ func NewOriginalEntryNotFoundError(ns, name string) apierror.Error {
 // NewGetVersionsError creates an error when getting versions fails
 func NewGetVersionsError(err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to get versions from history: "+err.Error(),
 		apierror.True,
 		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
@@ -102,7 +102,7 @@ func NewGetVersionsError(err error) apierror.Error {
 // NewNoVersionsFoundError creates an error when no versions are found
 func NewNoVersionsFoundError() apierror.Error {
 	return apierror.E(
-		apierror.KindNotFound,
+		apierror.NotFound,
 		"no versions found in history",
 		apierror.False,
 		nil,
@@ -113,7 +113,7 @@ func NewNoVersionsFoundError() apierror.Error {
 // NewComputePathError creates an error when computing version path fails
 func NewComputePathError(targetVersion string, err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to get path from root to version "+targetVersion+": "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"target_version": targetVersion, "cause": err.Error()}),
@@ -124,7 +124,7 @@ func NewComputePathError(targetVersion string, err error) apierror.Error {
 // NewGetChangesetError creates an error when getting a changeset fails
 func NewGetChangesetError(version string, err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to get changeset for version "+version+": "+err.Error(),
 		apierror.True,
 		attrs.NewBagFrom(map[string]any{"version": version, "cause": err.Error()}),
@@ -135,7 +135,7 @@ func NewGetChangesetError(version string, err error) apierror.Error {
 // NewApplyOperationError creates an error when applying an operation fails during state building
 func NewApplyOperationError(version string, entryID string, err error) apierror.Error {
 	return apierror.E(
-		apierror.KindInternal,
+		apierror.Internal,
 		"failed to apply operation for entry "+entryID+" at version "+version+": "+err.Error(),
 		apierror.False,
 		attrs.NewBagFrom(map[string]any{"version": version, "entry_id": entryID, "cause": err.Error()}),

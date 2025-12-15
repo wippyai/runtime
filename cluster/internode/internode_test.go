@@ -346,7 +346,7 @@ func TestService_HandleMembershipEvent_NodeJoined(t *testing.T) {
 
 	bus.Send(ctx, event.Event{
 		System: cluster.System,
-		Kind:   cluster.NodeJoinedEventKind,
+		Kind:   cluster.NodeJoined,
 		Path:   "node.joined",
 		Data:   nodeEvent,
 	})
@@ -383,7 +383,7 @@ func TestService_HandleMembershipEvent_NodeLeft(t *testing.T) {
 
 	bus.Send(ctx, event.Event{
 		System: cluster.System,
-		Kind:   cluster.NodeLeftEventKind,
+		Kind:   cluster.NodeLeft,
 		Path:   "node.left",
 		Data:   nodeEvent,
 	})
@@ -410,7 +410,7 @@ func TestService_HandleMembershipEvent_LocalNode(t *testing.T) {
 
 	bus.Send(ctx, event.Event{
 		System: cluster.System,
-		Kind:   cluster.NodeJoinedEventKind,
+		Kind:   cluster.NodeJoined,
 		Path:   "node.joined",
 		Data:   nodeEvent,
 	})
@@ -432,7 +432,7 @@ func TestService_HandleMembershipEvent_InvalidData(t *testing.T) {
 
 	bus.Send(ctx, event.Event{
 		System: cluster.System,
-		Kind:   cluster.NodeJoinedEventKind,
+		Kind:   cluster.NodeJoined,
 		Path:   "node.joined",
 		Data:   "invalid-data",
 	})

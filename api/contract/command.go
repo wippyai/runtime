@@ -13,16 +13,16 @@ import (
 
 func init() {
 	dispatcher.MustRegisterCommands("contract",
-		CmdOpen, CmdCall, CmdAsyncCall, CmdAsyncCancel,
+		Open, Call, AsyncCall, AsyncCancel,
 	)
 }
 
 // Command IDs for contract operations.
 const (
-	CmdOpen        dispatcher.CommandID = 300 // Open binding, get instance
-	CmdCall        dispatcher.CommandID = 301 // Call method on instance (sync)
-	CmdAsyncCall   dispatcher.CommandID = 302 // Call method on instance (async)
-	CmdAsyncCancel dispatcher.CommandID = 303 // Cancel async call
+	Open        dispatcher.CommandID = 300 // Open binding, get instance
+	Call        dispatcher.CommandID = 301 // Call method on instance (sync)
+	AsyncCall   dispatcher.CommandID = 302 // Call method on instance (async)
+	AsyncCancel dispatcher.CommandID = 303 // Cancel async call
 )
 
 // OpenCmd opens a contract binding and returns an instance.
@@ -39,7 +39,7 @@ type OpenCmd struct {
 var openCmdPool = sync.Pool{New: func() any { return &OpenCmd{} }}
 
 func AcquireOpenCmd() *OpenCmd                 { return openCmdPool.Get().(*OpenCmd) }
-func (c *OpenCmd) CmdID() dispatcher.CommandID { return CmdOpen }
+func (c *OpenCmd) CmdID() dispatcher.CommandID { return Open }
 func (c *OpenCmd) Release() {
 	c.BindingID = registry.ID{}
 	c.Scope = nil
@@ -67,7 +67,7 @@ type CallCmd struct {
 var callCmdPool = sync.Pool{New: func() any { return &CallCmd{} }}
 
 func AcquireCallCmd() *CallCmd                 { return callCmdPool.Get().(*CallCmd) }
-func (c *CallCmd) CmdID() dispatcher.CommandID { return CmdCall }
+func (c *CallCmd) CmdID() dispatcher.CommandID { return Call }
 func (c *CallCmd) Release() {
 	c.Instance = nil
 	c.Method = ""
@@ -92,7 +92,7 @@ type AsyncCallCmd struct {
 var asyncCallCmdPool = sync.Pool{New: func() any { return &AsyncCallCmd{} }}
 
 func AcquireAsyncCallCmd() *AsyncCallCmd            { return asyncCallCmdPool.Get().(*AsyncCallCmd) }
-func (c *AsyncCallCmd) CmdID() dispatcher.CommandID { return CmdAsyncCall }
+func (c *AsyncCallCmd) CmdID() dispatcher.CommandID { return AsyncCall }
 func (c *AsyncCallCmd) Release() {
 	c.Instance = nil
 	c.Method = ""
@@ -114,7 +114,7 @@ type AsyncCancelCmd struct {
 var asyncCancelCmdPool = sync.Pool{New: func() any { return &AsyncCancelCmd{} }}
 
 func AcquireAsyncCancelCmd() *AsyncCancelCmd          { return asyncCancelCmdPool.Get().(*AsyncCancelCmd) }
-func (c *AsyncCancelCmd) CmdID() dispatcher.CommandID { return CmdAsyncCancel }
+func (c *AsyncCancelCmd) CmdID() dispatcher.CommandID { return AsyncCancel }
 func (c *AsyncCancelCmd) Release() {
 	c.Topic = ""
 	asyncCancelCmdPool.Put(c)

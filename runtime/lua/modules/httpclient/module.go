@@ -60,8 +60,8 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	mod.Immutable = true
 
 	yields := []luaapi.YieldType{
-		{Sample: &RequestYield{}, CmdID: httpapi.CmdRequest},
-		{Sample: &RequestBatchYield{}, CmdID: httpapi.CmdRequestBatch},
+		{Sample: &RequestYield{}, CmdID: httpapi.Request},
+		{Sample: &RequestBatchYield{}, CmdID: httpapi.RequestBatch},
 	}
 
 	return mod, yields

@@ -45,7 +45,7 @@ func TestMultiNodeClusterFormation(t *testing.T) {
 	// Track join events on node1
 	var joinedNodes []string
 	var joinMu sync.Mutex
-	sub1, err := eventbus.NewSubscriber(ctx, bus1, cluster.System, cluster.NodeJoinedEventKind, func(evt event.Event) {
+	sub1, err := eventbus.NewSubscriber(ctx, bus1, cluster.System, cluster.NodeJoined, func(evt event.Event) {
 		joinMu.Lock()
 		joinedNodes = append(joinedNodes, evt.Path)
 		joinMu.Unlock()
@@ -126,7 +126,7 @@ func TestNodeLeaveDetection(t *testing.T) {
 
 	// Track leave events
 	leftCh := make(chan string, 1)
-	sub, err := eventbus.NewSubscriber(ctx, bus1, cluster.System, cluster.NodeLeftEventKind, func(evt event.Event) {
+	sub, err := eventbus.NewSubscriber(ctx, bus1, cluster.System, cluster.NodeLeft, func(evt event.Event) {
 		select {
 		case leftCh <- evt.Path:
 		default:
@@ -190,7 +190,7 @@ func TestNodeFailureDetection(t *testing.T) {
 	joinAddr := node1.LocalNode().Addr
 
 	leftCh := make(chan string, 1)
-	sub, err := eventbus.NewSubscriber(ctx, bus1, cluster.System, cluster.NodeLeftEventKind, func(evt event.Event) {
+	sub, err := eventbus.NewSubscriber(ctx, bus1, cluster.System, cluster.NodeLeft, func(evt event.Event) {
 		select {
 		case leftCh <- evt.Path:
 		default:
@@ -339,7 +339,7 @@ func TestMetadataUpdate(t *testing.T) {
 	joinAddr := node1.LocalNode().Addr
 
 	updatedCh := make(chan cluster.NodeMeta, 1)
-	sub, err := eventbus.NewSubscriber(ctx, bus1, cluster.System, cluster.NodeUpdatedEventKind, func(evt event.Event) {
+	sub, err := eventbus.NewSubscriber(ctx, bus1, cluster.System, cluster.NodeUpdated, func(evt event.Event) {
 		nodeEvt := evt.Data.(cluster.NodeEvent)
 		select {
 		case updatedCh <- nodeEvt.Node.Meta:
@@ -431,7 +431,7 @@ func TestClusterPartitionRecovery(t *testing.T) {
 
 	// Rejoin event tracking
 	rejoinCh := make(chan struct{}, 1)
-	sub, err := eventbus.NewSubscriber(ctx, bus1, cluster.System, cluster.NodeJoinedEventKind, func(evt event.Event) {
+	sub, err := eventbus.NewSubscriber(ctx, bus1, cluster.System, cluster.NodeJoined, func(evt event.Event) {
 		if evt.Path == "node-2" {
 			select {
 			case rejoinCh <- struct{}{}:

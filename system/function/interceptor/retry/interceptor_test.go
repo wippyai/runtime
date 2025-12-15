@@ -131,7 +131,7 @@ func TestInterceptor_RetryableError(t *testing.T) {
 	next := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		attempts++
 		if attempts < 3 {
-			return &runtime.Result{Error: &testError{kind: apierror.KindUnavailable}}, nil
+			return &runtime.Result{Error: &testError{kind: apierror.Unavailable}}, nil
 		}
 		return &runtime.Result{}, nil
 	}
@@ -152,7 +152,7 @@ func TestInterceptor_MaxAttemptsReached(t *testing.T) {
 	task := makeTask(opts)
 
 	attempts := 0
-	testErr := &testError{kind: apierror.KindUnavailable}
+	testErr := &testError{kind: apierror.Unavailable}
 	next := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		attempts++
 		return &runtime.Result{Error: testErr}, nil
@@ -170,9 +170,9 @@ func TestInterceptor_NonRetryableErrorKind(t *testing.T) {
 		name string
 		kind apierror.Kind
 	}{
-		{"Invalid", apierror.KindInvalid},
-		{"PermissionDenied", apierror.KindPermissionDenied},
-		{"Internal", apierror.KindInternal},
+		{"Invalid", apierror.Invalid},
+		{"PermissionDenied", apierror.PermissionDenied},
+		{"Internal", apierror.Internal},
 	}
 
 	for _, tc := range testCases {
@@ -209,7 +209,7 @@ func TestInterceptor_RetryableFlagFalse(t *testing.T) {
 	task := makeTask(opts)
 
 	attempts := 0
-	testErr := &testError{kind: apierror.KindUnavailable, retryable: apierror.False}
+	testErr := &testError{kind: apierror.Unavailable, retryable: apierror.False}
 	next := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		attempts++
 		return &runtime.Result{Error: testErr}, nil
@@ -265,7 +265,7 @@ func TestInterceptor_ExponentialBackoff(t *testing.T) {
 	next := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		attempts++
 		timestamps = append(timestamps, time.Now())
-		return &runtime.Result{Error: &testError{kind: apierror.KindUnavailable}}, nil
+		return &runtime.Result{Error: &testError{kind: apierror.Unavailable}}, nil
 	}
 
 	start := time.Now()
@@ -305,7 +305,7 @@ func TestInterceptor_MaxDelayLimit(t *testing.T) {
 	next := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		attempts++
 		timestamps = append(timestamps, time.Now())
-		return &runtime.Result{Error: &testError{kind: apierror.KindUnavailable}}, nil
+		return &runtime.Result{Error: &testError{kind: apierror.Unavailable}}, nil
 	}
 
 	_, _ = interceptor.Handle(ctx, task, next)
@@ -333,7 +333,7 @@ func TestInterceptor_DefaultBackoff(t *testing.T) {
 	next := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		attempts++
 		timestamps = append(timestamps, time.Now())
-		return &runtime.Result{Error: &testError{kind: apierror.KindUnavailable}}, nil
+		return &runtime.Result{Error: &testError{kind: apierror.Unavailable}}, nil
 	}
 
 	start := time.Now()
@@ -364,7 +364,7 @@ func TestInterceptor_DurationStringParsing(t *testing.T) {
 	next := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		attempts++
 		timestamps = append(timestamps, time.Now())
-		return &runtime.Result{Error: &testError{kind: apierror.KindUnavailable}}, nil
+		return &runtime.Result{Error: &testError{kind: apierror.Unavailable}}, nil
 	}
 
 	start := time.Now()
@@ -389,7 +389,7 @@ func TestInterceptor_ContextCancellation(t *testing.T) {
 		if attempts == 2 {
 			cancel()
 		}
-		return &runtime.Result{Error: &testError{kind: apierror.KindUnavailable}}, nil
+		return &runtime.Result{Error: &testError{kind: apierror.Unavailable}}, nil
 	}
 
 	result, _ := interceptor.Handle(ctx, task, next)
@@ -439,7 +439,7 @@ func TestInterceptor_WithRetryKinds(t *testing.T) {
 	next := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		attempts++
 		if attempts < 2 {
-			return &runtime.Result{Error: &testError{kind: apierror.KindUnavailable}}, nil
+			return &runtime.Result{Error: &testError{kind: apierror.Unavailable}}, nil
 		}
 		return &runtime.Result{}, nil
 	}
@@ -450,7 +450,7 @@ func TestInterceptor_WithRetryKinds(t *testing.T) {
 	assert.Equal(t, 2, attempts, "Unavailable should be retried")
 
 	attempts = 0
-	testErr := &testError{kind: apierror.KindInvalid}
+	testErr := &testError{kind: apierror.Invalid}
 	next = func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		attempts++
 		return &runtime.Result{Error: testErr}, nil
@@ -479,7 +479,7 @@ func TestInterceptor_WithSkipKinds(t *testing.T) {
 	next := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		attempts++
 		if attempts < 2 {
-			return &runtime.Result{Error: &testError{kind: apierror.KindUnavailable}}, nil
+			return &runtime.Result{Error: &testError{kind: apierror.Unavailable}}, nil
 		}
 		return &runtime.Result{}, nil
 	}
@@ -490,7 +490,7 @@ func TestInterceptor_WithSkipKinds(t *testing.T) {
 	assert.Equal(t, 2, attempts, "Unavailable should be retried")
 
 	attempts = 0
-	testErr := &testError{kind: apierror.KindTimeout}
+	testErr := &testError{kind: apierror.Timeout}
 	next = func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 		attempts++
 		return &runtime.Result{Error: testErr}, nil

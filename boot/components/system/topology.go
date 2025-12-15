@@ -98,7 +98,7 @@ func (l *topologyEventListener) Start(ctx context.Context) error {
 	l.subIDs = append(l.subIDs, subID1)
 
 	// Subscribe to cluster node left events
-	subID2, err := l.bus.SubscribeP(l.ctx, cluster.System, cluster.NodeLeftEventKind, l.events)
+	subID2, err := l.bus.SubscribeP(l.ctx, cluster.System, cluster.NodeLeft, l.events)
 	if err != nil {
 		l.bus.Unsubscribe(l.ctx, subID1)
 		return err
@@ -146,7 +146,7 @@ func (l *topologyEventListener) eventLoop() {
 			if !ok {
 				return
 			}
-			if evt.Kind != relayapi.PeerDelete && evt.Kind != cluster.NodeLeftEventKind {
+			if evt.Kind != relayapi.PeerDelete && evt.Kind != cluster.NodeLeft {
 				continue
 			}
 

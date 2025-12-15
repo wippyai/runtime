@@ -40,19 +40,31 @@ func TestControllerProbeSuccess(t *testing.T) {
 	c := newController(cfg)
 
 	now := time.Now()
+	var ops int64 = 0
 
-	// Tick 1: establish baseline (need elapsed > 50ms)
+	// Build up baseline EMA with multiple ticks at 1000 ops/s
+	for i := 0; i < 5; i++ {
+		now = now.Add(100 * time.Millisecond)
+		ops += 100
+		c.tick(now, ops, 1, 0, 0)
+	}
+
+	// Start probe (saturated: all busy + queue)
 	now = now.Add(100 * time.Millisecond)
-	d, _ := c.tick(now, 100, 1, 1, 5)
+	ops += 100
+	d, _ := c.tick(now, ops, 1, 1, 5)
 	if d != scaleUp {
 		t.Errorf("expected scaleUp to start probe, got %d", d)
 	}
 
-	// Wait probe duration (probeTicks * interval = 200ms)
-	now = now.Add(200 * time.Millisecond)
+	// During probe: much higher throughput (2000 ops/s) to show improvement
+	// Multiple ticks let EMA converge
+	for i := 0; i < 3; i++ {
+		now = now.Add(100 * time.Millisecond)
+		ops += 200
+		d, _ = c.tick(now, ops, 2, 2, 3)
+	}
 
-	// Good improvement: 1000 ops/s baseline -> 1800 ops/s = 80% improvement
-	d, _ = c.tick(now, 100+360, 2, 2, 3)
 	if d != probeSuccess {
 		t.Errorf("expected probeSuccess, got %d", d)
 	}
