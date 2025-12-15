@@ -140,28 +140,6 @@ func TestEventConstants(t *testing.T) {
 	assert.Equal(t, "logs.config.state", string(ConfigState))
 }
 
-func TestUpdateLogger(t *testing.T) {
-	t.Run("with app context", func(t *testing.T) {
-		ctx := ctxapi.NewRootContext()
-		logger1 := zap.NewExample()
-		logger2 := zap.NewNop()
-
-		ctx = WithLogger(ctx, logger1)
-		assert.Equal(t, logger1, GetLogger(ctx))
-
-		ctx = UpdateLogger(ctx, logger2)
-		assert.Equal(t, logger2, GetLogger(ctx))
-	})
-
-	t.Run("without app context", func(t *testing.T) {
-		ctx := context.Background()
-		logger := zap.NewExample()
-
-		ctx = UpdateLogger(ctx, logger)
-		assert.Equal(t, context.Background(), ctx)
-	})
-}
-
 func TestWithLogger_NoAppContext(t *testing.T) {
 	ctx := context.Background()
 	logger := zap.NewExample()

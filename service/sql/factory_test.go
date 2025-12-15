@@ -53,7 +53,7 @@ func TestDefaultPoolFactory_BuildDSN(t *testing.T) {
 	}{
 		{
 			name: "PostgreSQL DSN",
-			kind: config.KindPostgres,
+			kind: config.Postgres,
 			cfg: &config.DBConfig{
 				Host:     "localhost",
 				Port:     5432,
@@ -69,7 +69,7 @@ func TestDefaultPoolFactory_BuildDSN(t *testing.T) {
 		},
 		{
 			name: "MySQL DSN",
-			kind: config.KindMySQL,
+			kind: config.MySQL,
 			cfg: &config.DBConfig{
 				Host:     "localhost",
 				Port:     3306,
@@ -120,35 +120,35 @@ func TestDefaultPoolFactory_CreateStandardPool(t *testing.T) {
 	}{
 		{
 			name:    "Invalid configuration - empty host",
-			kind:    config.KindPostgres,
+			kind:    config.Postgres,
 			cfg:     &config.DBConfig{Host: "", Port: 5432, Database: "db", Username: "user", Password: "pass"},
 			isError: true,
 			errMsg:  "invalid configuration",
 		},
 		{
 			name:    "Invalid configuration - zero port",
-			kind:    config.KindPostgres,
+			kind:    config.Postgres,
 			cfg:     &config.DBConfig{Host: "localhost", Port: 0, Database: "db", Username: "user", Password: "pass"},
 			isError: true,
 			errMsg:  "invalid configuration",
 		},
 		{
 			name:    "Invalid configuration - empty database",
-			kind:    config.KindPostgres,
+			kind:    config.Postgres,
 			cfg:     &config.DBConfig{Host: "localhost", Port: 5432, Database: "", Username: "user", Password: "pass"},
 			isError: true,
 			errMsg:  "invalid configuration",
 		},
 		{
 			name:    "Invalid configuration - empty username",
-			kind:    config.KindPostgres,
+			kind:    config.Postgres,
 			cfg:     &config.DBConfig{Host: "localhost", Port: 5432, Database: "db", Username: "", Password: "pass"},
 			isError: true,
 			errMsg:  "invalid configuration",
 		},
 		{
 			name:    "Invalid configuration - empty password",
-			kind:    config.KindPostgres,
+			kind:    config.Postgres,
 			cfg:     &config.DBConfig{Host: "localhost", Port: 5432, Database: "db", Username: "user", Password: ""},
 			isError: true,
 			errMsg:  "invalid configuration",

@@ -61,7 +61,7 @@ func TestManager_Add_InvalidConfig(t *testing.T) {
 
 	payloadData := payload.NewPayload(testData, payload.JSON)
 	entry := registry.Entry{
-		Kind: api.KindLibrary,
+		Kind: api.Library,
 		Data: payloadData,
 	}
 

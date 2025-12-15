@@ -10,11 +10,11 @@ import (
 )
 
 const (
-	KindStorageMemory registry.Kind = "env.storage.memory"
-	KindStorageFile   registry.Kind = "env.storage.file"
-	KindStorageOS     registry.Kind = "env.storage.os"
-	KindStorageRouter registry.Kind = "env.storage.router"
-	KindVariable      registry.Kind = "env.variable"
+	StorageMemory registry.Kind = "env.storage.memory"
+	StorageFile   registry.Kind = "env.storage.file"
+	StorageOS     registry.Kind = "env.storage.os"
+	StorageRouter registry.Kind = "env.storage.router"
+	Variable      registry.Kind = "env.variable"
 )
 
 // MemoryStorageConfig provides configuration for in-memory environment variable storage.

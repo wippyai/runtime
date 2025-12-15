@@ -13,8 +13,8 @@ import (
 
 // Registry kind constant for the SQL KV store
 const (
-	// KindSQLKV identifies a SQL KV store in the registry
-	KindSQLKV registry.Kind = "store.sql"
+	// SQLKV identifies a SQL KV store in the registry
+	SQLKV registry.Kind = "store.sql"
 )
 
 // Config provides configuration for a SQL-based key-value store with TTL support.

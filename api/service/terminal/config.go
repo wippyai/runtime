@@ -6,8 +6,8 @@ import (
 	"github.com/wippyai/runtime/api/supervisor"
 )
 
-// KindHost identifies a terminal service component
-const KindHost registry.Kind = "terminal.host"
+// Host identifies a terminal service component
+const Host registry.Kind = "terminal.host"
 
 type (
 	// HostConfig represents the configuration for a terminal service

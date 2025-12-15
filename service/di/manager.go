@@ -43,9 +43,9 @@ func NewManager(
 // Add handles the registration of new contract definitions and bindings
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
-	case apidi.KindDefinition:
+	case apidi.Definition:
 		return m.handleDefinitionAdd(ctx, entry)
-	case apidi.KindBinding:
+	case apidi.Binding:
 		return m.handleBindingAdd(ctx, entry)
 	default:
 		return NewUnsupportedEntryKindError(string(entry.Kind))
@@ -55,9 +55,9 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update handles updates to existing contract definitions and bindings
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
-	case apidi.KindDefinition:
+	case apidi.Definition:
 		return m.handleDefinitionUpdate(ctx, entry)
-	case apidi.KindBinding:
+	case apidi.Binding:
 		return m.handleBindingUpdate(ctx, entry)
 	default:
 		return NewUnsupportedEntryKindError(string(entry.Kind))
@@ -67,9 +67,9 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete handles removal of contract definitions and bindings
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
-	case apidi.KindDefinition:
+	case apidi.Definition:
 		return m.handleDefinitionDelete(ctx, entry)
-	case apidi.KindBinding:
+	case apidi.Binding:
 		return m.handleBindingDelete(ctx, entry)
 	default:
 		return NewUnsupportedEntryKindError(string(entry.Kind))

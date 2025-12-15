@@ -26,20 +26,20 @@ var SystemPID = pid.PID{UniqID: "topology"}
 
 // Event kind constants for process lifecycle events.
 const (
-	// KindCancel indicates a cancellation request.
-	KindCancel Kind = "pid.cancel"
-	// KindExit indicates a process has exited.
-	KindExit Kind = "pid.exit"
-	// KindLinkDown indicates a linked process is down.
-	KindLinkDown Kind = "pid.link.down"
-	// KindMonitorRequest requests monitoring of a remote PID.
-	KindMonitorRequest Kind = "pid.monitor.request"
-	// KindMonitorRelease releases monitoring of a remote PID.
-	KindMonitorRelease Kind = "pid.monitor.release"
-	// KindLinkRequest requests linking with a remote PID.
-	KindLinkRequest Kind = "pid.link.request"
-	// KindUnlinkRequest requests unlinking from a remote PID.
-	KindUnlinkRequest Kind = "pid.unlink.request"
+	// Cancel indicates a cancellation request.
+	Cancel Kind = "pid.cancel"
+	// Exit indicates a process has exited.
+	Exit Kind = "pid.exit"
+	// LinkDown indicates a linked process is down.
+	LinkDown Kind = "pid.link.down"
+	// MonitorRequest requests monitoring of a remote PID.
+	MonitorRequest Kind = "pid.monitor.request"
+	// MonitorRelease releases monitoring of a remote PID.
+	MonitorRelease Kind = "pid.monitor.release"
+	// LinkRequest requests linking with a remote PID.
+	LinkRequest Kind = "pid.link.request"
+	// UnlinkRequest requests unlinking from a remote PID.
+	UnlinkRequest Kind = "pid.unlink.request"
 )
 
 type (
@@ -170,7 +170,7 @@ func Cancel(from, to pid.PID, deadline time.Time) *relay.Package {
 		payload.New(&CancelEvent{
 			At:       time.Now(),
 			From:     from,
-			Kind:     KindCancel,
+			Kind:     Cancel,
 			Deadline: deadline,
 		}),
 	)
@@ -184,7 +184,7 @@ func MonitorRequest(caller, target pid.PID) *relay.Package {
 		TopicEvents,
 		payload.New(&MonitorRequestEvent{
 			At:     time.Now(),
-			Kind:   KindMonitorRequest,
+			Kind:   MonitorRequest,
 			Caller: caller,
 			Target: target,
 		}),
@@ -199,7 +199,7 @@ func MonitorRelease(caller, target pid.PID) *relay.Package {
 		TopicEvents,
 		payload.New(&MonitorReleaseEvent{
 			At:     time.Now(),
-			Kind:   KindMonitorRelease,
+			Kind:   MonitorRelease,
 			Caller: caller,
 			Target: target,
 		}),
@@ -214,7 +214,7 @@ func LinkRequest(from, to pid.PID) *relay.Package {
 		TopicEvents,
 		payload.New(&LinkRequestEvent{
 			At:   time.Now(),
-			Kind: KindLinkRequest,
+			Kind: LinkRequest,
 			From: from,
 			To:   to,
 		}),
@@ -229,7 +229,7 @@ func UnlinkRequest(from, to pid.PID) *relay.Package {
 		TopicEvents,
 		payload.New(&UnlinkRequestEvent{
 			At:   time.Now(),
-			Kind: KindUnlinkRequest,
+			Kind: UnlinkRequest,
 			From: from,
 			To:   to,
 		}),

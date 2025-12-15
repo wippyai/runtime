@@ -212,27 +212,17 @@ func TestSupervisorContext(t *testing.T) {
 }
 
 func TestShutdownContext(t *testing.T) {
-	t.Run("GetExitCode_NoAppContext", func(t *testing.T) {
-		ctx := context.Background()
-		code := GetExitCode(ctx)
-		assert.Equal(t, 0, code)
-	})
-
 	t.Run("GetExitCode_Default", func(t *testing.T) {
-		appCtx := ctxapi.NewAppContext()
-		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
-
-		code := GetExitCode(ctx)
+		setExitCode(0) // reset
+		code := GetExitCode()
 		assert.Equal(t, 0, code)
 	})
 
 	t.Run("SetAndGetExitCode", func(t *testing.T) {
-		appCtx := ctxapi.NewAppContext()
-		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
-
-		setExitCode(ctx, 42)
-		code := GetExitCode(ctx)
+		setExitCode(42)
+		code := GetExitCode()
 		assert.Equal(t, 42, code)
+		setExitCode(0) // reset
 	})
 
 	t.Run("SetSignalChannel_NoAppContext", func(t *testing.T) {
@@ -258,27 +248,8 @@ func TestShutdownContext(t *testing.T) {
 		assert.Nil(t, ch)
 	})
 
-	t.Run("getSignalChannel_WrongType", func(t *testing.T) {
-		appCtx := ctxapi.NewAppContext()
-		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
-
-		appCtx.Update(&ctxapi.Key{Name: "supervisor.signalChannelCtxKey"}, "not a channel")
-
-		ch := getSignalChannel(ctx)
-		assert.Nil(t, ch)
-	})
-
-	t.Run("GetExitCode_WrongType", func(t *testing.T) {
-		appCtx := ctxapi.NewAppContext()
-		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
-
-		appCtx.Update(&ctxapi.Key{Name: "supervisor.exitCodeCtxKey"}, "not an int")
-
-		code := GetExitCode(ctx)
-		assert.Equal(t, 0, code)
-	})
-
 	t.Run("TriggerShutdown_WithChannel", func(t *testing.T) {
+		setExitCode(0) // reset
 		appCtx := ctxapi.NewAppContext()
 		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
 
@@ -287,21 +258,24 @@ func TestShutdownContext(t *testing.T) {
 
 		TriggerShutdown(ctx, 1)
 
-		assert.Equal(t, 1, GetExitCode(ctx))
+		assert.Equal(t, 1, GetExitCode())
 		select {
 		case sig := <-ch:
 			assert.NotNil(t, sig)
 		default:
 			t.Fatal("expected signal to be sent")
 		}
+		setExitCode(0) // reset
 	})
 
 	t.Run("TriggerShutdown_NoChannel", func(t *testing.T) {
+		setExitCode(0) // reset
 		appCtx := ctxapi.NewAppContext()
 		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
 
 		TriggerShutdown(ctx, 2)
 
-		assert.Equal(t, 2, GetExitCode(ctx))
+		assert.Equal(t, 2, GetExitCode())
+		setExitCode(0) // reset
 	})
 }

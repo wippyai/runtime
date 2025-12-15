@@ -104,7 +104,7 @@ func NewManagerWithFactory(
 
 // Add implements registry.EntryListener
 func (m *Manager) Add(ctx context.Context, ent registry.Entry) error {
-	if ent.Kind != api.KindWorker {
+	if ent.Kind != api.Worker {
 		return fmt.Errorf("unexpected entry kind: %s", ent.Kind)
 	}
 
@@ -204,7 +204,7 @@ func (m *Manager) AddWorker(ctx context.Context, id registry.ID, cfg *api.Worker
 
 // Update implements registry.EntryListener
 func (m *Manager) Update(ctx context.Context, ent registry.Entry) error {
-	if ent.Kind != api.KindWorker {
+	if ent.Kind != api.Worker {
 		return fmt.Errorf("unexpected entry kind: %s", ent.Kind)
 	}
 
@@ -275,7 +275,7 @@ func (m *Manager) UpdateWorker(ctx context.Context, id registry.ID, cfg *api.Wor
 
 // Delete implements registry.EntryListener
 func (m *Manager) Delete(ctx context.Context, ent registry.Entry) error {
-	if ent.Kind != api.KindWorker {
+	if ent.Kind != api.Worker {
 		return fmt.Errorf("unexpected entry kind: %s", ent.Kind)
 	}
 

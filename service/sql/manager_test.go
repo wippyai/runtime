@@ -88,7 +88,7 @@ func NewMockConnPool(kind registry.Kind) *ConnPool {
 	}
 
 	// Set up WAL mode for SQLite if needed
-	if kind == apiconfig.KindSQLite {
+	if kind == apiconfig.SQLite {
 		_, err = db.ExecContext(context.Background(), "PRAGMA journal_mode=WAL;")
 		if err != nil {
 			_ = db.Close()
@@ -105,7 +105,7 @@ func NewMockConnPool(kind registry.Kind) *ConnPool {
 
 	// Initialize the config pointer with proper configs
 	var cfgAny any
-	if kind == apiconfig.KindSQLite {
+	if kind == apiconfig.SQLite {
 		sqliteCfg := &apiconfig.SQLiteConfig{
 			File: ":memory:",
 			Pool: apiconfig.PoolConfig{
@@ -187,7 +187,7 @@ func (f *TestPoolFactory) CreateSQLitePool(_ context.Context, cfg *apiconfig.SQL
 	if f.shouldFailNext {
 		return nil, assert.AnError
 	}
-	return NewMockConnPool(apiconfig.KindSQLite), nil
+	return NewMockConnPool(apiconfig.SQLite), nil
 }
 
 // MockEnvRegistry implements envapi.Registry for testing
@@ -361,9 +361,9 @@ func TestManager_Add(t *testing.T) {
 
 				// Verify factory was called correctly
 				switch tt.kind {
-				case apiconfig.KindSQLite:
+				case apiconfig.SQLite:
 					assert.GreaterOrEqual(t, len(factory.sqlitePoolCalls), 1)
-				case apiconfig.KindPostgres, apiconfig.KindMySQL:
+				case apiconfig.Postgres, apiconfig.MySQL:
 					assert.GreaterOrEqual(t, len(factory.standardPoolCalls), 1)
 					if len(factory.standardPoolCalls) > 0 {
 						lastCall := factory.standardPoolCalls[len(factory.standardPoolCalls)-1]
@@ -431,14 +431,14 @@ func TestManager_Update(t *testing.T) {
 	// Add PostgreSQL service
 	require.NoError(t, manager.Add(ctx, registry.Entry{
 		ID:   postgresID,
-		Kind: apiconfig.KindPostgres,
+		Kind: apiconfig.Postgres,
 		Data: payload.New(map[string]string{"test": "data"}),
 	}))
 
 	// Add SQLite service
 	require.NoError(t, manager.Add(ctx, registry.Entry{
 		ID:   sqliteID,
-		Kind: apiconfig.KindSQLite,
+		Kind: apiconfig.SQLite,
 		Data: payload.New(map[string]string{"test": "data"}),
 	}))
 
@@ -454,19 +454,19 @@ func TestManager_Update(t *testing.T) {
 	}{
 		{
 			name:          "Update PostgreSQL database",
-			kind:          apiconfig.KindPostgres,
+			kind:          apiconfig.Postgres,
 			id:            postgresID,
 			expectSuccess: true,
 		},
 		{
 			name:          "Update SQLite database",
-			kind:          apiconfig.KindSQLite,
+			kind:          apiconfig.SQLite,
 			id:            sqliteID,
 			expectSuccess: true,
 		},
 		{
 			name:          "Update non-existent service",
-			kind:          apiconfig.KindPostgres,
+			kind:          apiconfig.Postgres,
 			id:            registry.NewID("test", "nonexistent-db"),
 			expectSuccess: false,
 		},
@@ -549,7 +549,7 @@ func TestManager_Delete(t *testing.T) {
 	dbID := registry.NewID("test", "db-to-delete")
 	require.NoError(t, manager.Add(ctx, registry.Entry{
 		ID:   dbID,
-		Kind: apiconfig.KindPostgres,
+		Kind: apiconfig.Postgres,
 		Data: payload.New(map[string]string{"test": "data"}),
 	}))
 
@@ -588,7 +588,7 @@ func TestManager_Delete(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			entry := registry.Entry{
 				ID:   tt.id,
-				Kind: apiconfig.KindPostgres,
+				Kind: apiconfig.Postgres,
 			}
 
 			err := manager.Delete(ctx, entry)
@@ -628,7 +628,7 @@ func TestDecode_NilPayload(t *testing.T) {
 	transcoder := &TestTranscoder{}
 
 	entry := registry.Entry{
-		Kind: apiconfig.KindPostgres,
+		Kind: apiconfig.Postgres,
 		Data: nil,
 	}
 
@@ -699,7 +699,7 @@ func TestManager_AddWithEnvVars(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "env-db"),
-		Kind: apiconfig.KindPostgres,
+		Kind: apiconfig.Postgres,
 		Data: payload.New(map[string]string{"test": "data"}),
 	}
 

@@ -122,7 +122,7 @@ func TestManager_DefinitionAdd(t *testing.T) {
 	t.Run("successful definition add", func(t *testing.T) {
 		events = nil
 		entry := registry.Entry{
-			Kind: apidi.KindDefinition,
+			Kind: apidi.Definition,
 			Data: NewMockPayload(&apidi.DefinitionConfig{
 				Methods: []apidi.MethodConfig{
 					{
@@ -176,7 +176,7 @@ func TestManager_DefinitionAdd(t *testing.T) {
 
 	t.Run("nil data", func(t *testing.T) {
 		entry := registry.Entry{
-			Kind: apidi.KindDefinition,
+			Kind: apidi.Definition,
 			Data: nil,
 		}
 
@@ -187,7 +187,7 @@ func TestManager_DefinitionAdd(t *testing.T) {
 
 	t.Run("empty method name", func(t *testing.T) {
 		entry := registry.Entry{
-			Kind: apidi.KindDefinition,
+			Kind: apidi.Definition,
 			Data: NewMockPayload(&apidi.DefinitionConfig{
 				Methods: []apidi.MethodConfig{
 					{Name: ""}, // Empty name
@@ -202,7 +202,7 @@ func TestManager_DefinitionAdd(t *testing.T) {
 
 	t.Run("duplicate method names", func(t *testing.T) {
 		entry := registry.Entry{
-			Kind: apidi.KindDefinition,
+			Kind: apidi.Definition,
 			Data: NewMockPayload(&apidi.DefinitionConfig{
 				Methods: []apidi.MethodConfig{
 					{Name: "method1"},
@@ -219,7 +219,7 @@ func TestManager_DefinitionAdd(t *testing.T) {
 	t.Run("schema definition without format", func(t *testing.T) {
 		entry := registry.Entry{
 			ID:   registry.NewID("test", "no_format"),
-			Kind: apidi.KindDefinition,
+			Kind: apidi.Definition,
 			Data: NewMockPayload(&apidi.DefinitionConfig{
 				Methods: []apidi.MethodConfig{
 					{
@@ -242,7 +242,7 @@ func TestManager_DefinitionAdd(t *testing.T) {
 
 	t.Run("duplicate definition", func(t *testing.T) {
 		entry := registry.Entry{
-			Kind: apidi.KindDefinition,
+			Kind: apidi.Definition,
 			Data: NewMockPayload(&apidi.DefinitionConfig{}),
 		}
 
@@ -273,7 +273,7 @@ func TestManager_DefinitionUpdate(t *testing.T) {
 	defID := registry.NewID("test", "def1")
 	addEntry := registry.Entry{
 		ID:   defID,
-		Kind: apidi.KindDefinition,
+		Kind: apidi.Definition,
 		Data: NewMockPayload(&apidi.DefinitionConfig{
 			Methods: []apidi.MethodConfig{
 				{Name: "method1"},
@@ -289,7 +289,7 @@ func TestManager_DefinitionUpdate(t *testing.T) {
 	t.Run("successful update", func(t *testing.T) {
 		updateEntry := registry.Entry{
 			ID:   defID,
-			Kind: apidi.KindDefinition,
+			Kind: apidi.Definition,
 			Data: NewMockPayload(&apidi.DefinitionConfig{
 				Methods: []apidi.MethodConfig{
 					{Name: "method1"},
@@ -306,7 +306,7 @@ func TestManager_DefinitionUpdate(t *testing.T) {
 
 	t.Run("definition not found", func(t *testing.T) {
 		updateEntry := registry.Entry{
-			Kind: apidi.KindDefinition,
+			Kind: apidi.Definition,
 			Data: NewMockPayload(&apidi.DefinitionConfig{}),
 		}
 
@@ -337,7 +337,7 @@ func TestManager_DefinitionDelete(t *testing.T) {
 	defID := registry.NewID("test", "def1")
 	addEntry := registry.Entry{
 		ID:   defID,
-		Kind: apidi.KindDefinition,
+		Kind: apidi.Definition,
 		Data: NewMockPayload(&apidi.DefinitionConfig{
 			Methods: []apidi.MethodConfig{{Name: "method1"}},
 		}),
@@ -389,7 +389,7 @@ func TestManager_BindingOperations(t *testing.T) {
 	defID := registry.NewID("test", "def1")
 	defEntry := registry.Entry{
 		ID:   defID,
-		Kind: apidi.KindDefinition,
+		Kind: apidi.Definition,
 		Data: NewMockPayload(&apidi.DefinitionConfig{
 			Methods: []apidi.MethodConfig{
 				{Name: "method1"},
@@ -405,7 +405,7 @@ func TestManager_BindingOperations(t *testing.T) {
 
 	t.Run("successful binding add", func(t *testing.T) {
 		entry := registry.Entry{
-			Kind: apidi.KindBinding,
+			Kind: apidi.Binding,
 			Data: NewMockPayload(&apidi.BindingConfig{
 				Contracts: []apidi.BoundContractConfig{
 					{
@@ -449,7 +449,7 @@ func TestManager_BindingOperations(t *testing.T) {
 				name: "nil data",
 				entry: registry.Entry{
 					ID:   registry.NewID("test", "binding-nil"),
-					Kind: apidi.KindBinding,
+					Kind: apidi.Binding,
 					Data: nil,
 				},
 				expectError: "failed to decode binding",
@@ -458,7 +458,7 @@ func TestManager_BindingOperations(t *testing.T) {
 				name: "empty contracts",
 				entry: registry.Entry{
 					ID:   registry.NewID("test", "binding-empty"),
-					Kind: apidi.KindBinding,
+					Kind: apidi.Binding,
 					Data: NewMockPayload(&apidi.BindingConfig{
 						Contracts: []apidi.BoundContractConfig{},
 					}),
@@ -469,7 +469,7 @@ func TestManager_BindingOperations(t *testing.T) {
 				name: "contract not found",
 				entry: registry.Entry{
 					ID:   registry.NewID("test", "binding-notfound"),
-					Kind: apidi.KindBinding,
+					Kind: apidi.Binding,
 					Data: NewMockPayload(&apidi.BindingConfig{
 						Contracts: []apidi.BoundContractConfig{
 							{
@@ -485,7 +485,7 @@ func TestManager_BindingOperations(t *testing.T) {
 				name: "missing method in binding",
 				entry: registry.Entry{
 					ID:   registry.NewID("test", "binding-missing-method"),
-					Kind: apidi.KindBinding,
+					Kind: apidi.Binding,
 					Data: NewMockPayload(&apidi.BindingConfig{
 						Contracts: []apidi.BoundContractConfig{
 							{
@@ -504,7 +504,7 @@ func TestManager_BindingOperations(t *testing.T) {
 				name: "extra method in binding",
 				entry: registry.Entry{
 					ID:   registry.NewID("test", "binding-extra-method"),
-					Kind: apidi.KindBinding,
+					Kind: apidi.Binding,
 					Data: NewMockPayload(&apidi.BindingConfig{
 						Contracts: []apidi.BoundContractConfig{
 							{
@@ -555,7 +555,7 @@ func TestManager_DefaultBindingValidation(t *testing.T) {
 
 	defEntry1 := registry.Entry{
 		ID:   defID1,
-		Kind: apidi.KindDefinition,
+		Kind: apidi.Definition,
 		Data: NewMockPayload(&apidi.DefinitionConfig{
 			Methods: []apidi.MethodConfig{{Name: "method1"}},
 		}),
@@ -563,7 +563,7 @@ func TestManager_DefaultBindingValidation(t *testing.T) {
 
 	defEntry2 := registry.Entry{
 		ID:   defID2,
-		Kind: apidi.KindDefinition,
+		Kind: apidi.Definition,
 		Data: NewMockPayload(&apidi.DefinitionConfig{
 			Methods: []apidi.MethodConfig{{Name: "method2"}},
 		}),
@@ -579,7 +579,7 @@ func TestManager_DefaultBindingValidation(t *testing.T) {
 	t.Run("successful default binding add", func(t *testing.T) {
 		entry := registry.Entry{
 			ID:   registry.NewID("test", "binding1"),
-			Kind: apidi.KindBinding,
+			Kind: apidi.Binding,
 			Data: NewMockPayload(&apidi.BindingConfig{
 				Contracts: []apidi.BoundContractConfig{
 					{
@@ -607,7 +607,7 @@ func TestManager_DefaultBindingValidation(t *testing.T) {
 	t.Run("duplicate default binding for same contract", func(t *testing.T) {
 		entry := registry.Entry{
 			ID:   registry.NewID("test", "binding2"),
-			Kind: apidi.KindBinding,
+			Kind: apidi.Binding,
 			Data: NewMockPayload(&apidi.BindingConfig{
 				Contracts: []apidi.BoundContractConfig{
 					{
@@ -629,7 +629,7 @@ func TestManager_DefaultBindingValidation(t *testing.T) {
 	t.Run("different contracts can have defaults", func(t *testing.T) {
 		entry := registry.Entry{
 			ID:   registry.NewID("test", "binding3"),
-			Kind: apidi.KindBinding,
+			Kind: apidi.Binding,
 			Data: NewMockPayload(&apidi.BindingConfig{
 				Contracts: []apidi.BoundContractConfig{
 					{
@@ -657,7 +657,7 @@ func TestManager_DefaultBindingValidation(t *testing.T) {
 	t.Run("non-default bindings are allowed", func(t *testing.T) {
 		entry := registry.Entry{
 			ID:   registry.NewID("test", "binding4"),
-			Kind: apidi.KindBinding,
+			Kind: apidi.Binding,
 			Data: NewMockPayload(&apidi.BindingConfig{
 				Contracts: []apidi.BoundContractConfig{
 					{
@@ -687,7 +687,7 @@ func TestManager_DefaultBindingValidation(t *testing.T) {
 		bindingID := registry.NewID("test", "binding5")
 		entry := registry.Entry{
 			ID:   bindingID,
-			Kind: apidi.KindBinding,
+			Kind: apidi.Binding,
 			Data: NewMockPayload(&apidi.BindingConfig{
 				Contracts: []apidi.BoundContractConfig{
 					{
@@ -707,7 +707,7 @@ func TestManager_DefaultBindingValidation(t *testing.T) {
 		// Now try to update it to be default (should fail because defID1 already has a default)
 		updateEntry := registry.Entry{
 			ID:   bindingID,
-			Kind: apidi.KindBinding,
+			Kind: apidi.Binding,
 			Data: NewMockPayload(&apidi.BindingConfig{
 				Contracts: []apidi.BoundContractConfig{
 					{
@@ -746,14 +746,14 @@ func TestManager_ValidationEdgeCases(t *testing.T) {
 	defID := registry.NewID("test", "def1")
 	defEntry := registry.Entry{
 		ID:   defID,
-		Kind: apidi.KindDefinition,
+		Kind: apidi.Definition,
 		Data: NewMockPayload(&apidi.DefinitionConfig{
 			Methods: []apidi.MethodConfig{{Name: "method1"}},
 		}),
 	}
 
 	bindingEntry := registry.Entry{
-		Kind: apidi.KindBinding,
+		Kind: apidi.Binding,
 		Data: NewMockPayload(&apidi.BindingConfig{
 			Contracts: []apidi.BoundContractConfig{
 				{
@@ -782,7 +782,7 @@ func TestManager_ValidationEdgeCases(t *testing.T) {
 		// Try to update definition to remove method1 - should fail
 		updatedDefEntry := registry.Entry{
 			ID:   defID,
-			Kind: apidi.KindDefinition,
+			Kind: apidi.Definition,
 			Data: NewMockPayload(&apidi.DefinitionConfig{
 				Methods: []apidi.MethodConfig{{Name: "method2"}}, // Different method
 			}),
@@ -803,7 +803,7 @@ func TestManager_UnmarshalError(t *testing.T) {
 	manager.dtt = &MockTranscoder{unmarshalError: fmt.Errorf("unmarshal failed")}
 
 	entry := registry.Entry{
-		Kind: apidi.KindDefinition,
+		Kind: apidi.Definition,
 		Data: NewMockPayload("invalid data"),
 	}
 
@@ -840,7 +840,7 @@ func TestManager_DefaultBindingValidationEdgeCases(t *testing.T) {
 	for i, contractID := range contractIDs {
 		defEntry := registry.Entry{
 			ID:   contractID,
-			Kind: apidi.KindDefinition,
+			Kind: apidi.Definition,
 			Data: NewMockPayload(&apidi.DefinitionConfig{
 				Methods: []apidi.MethodConfig{{Name: fmt.Sprintf("method%d", i+1)}},
 			}),
@@ -855,7 +855,7 @@ func TestManager_DefaultBindingValidationEdgeCases(t *testing.T) {
 		// Binding that implements multiple contracts with different default settings
 		entry := registry.Entry{
 			ID:   registry.NewID("test", "multi_contract_binding"),
-			Kind: apidi.KindBinding,
+			Kind: apidi.Binding,
 			Data: NewMockPayload(&apidi.BindingConfig{
 				Contracts: []apidi.BoundContractConfig{
 					{
@@ -896,7 +896,7 @@ func TestManager_DefaultBindingValidationEdgeCases(t *testing.T) {
 		// Try to add another binding with default=true for contract1 (should fail)
 		entry := registry.Entry{
 			ID:   registry.NewID("test", "conflicting_default"),
-			Kind: apidi.KindBinding,
+			Kind: apidi.Binding,
 			Data: NewMockPayload(&apidi.BindingConfig{
 				Contracts: []apidi.BoundContractConfig{
 					{
@@ -919,7 +919,7 @@ func TestManager_DefaultBindingValidationEdgeCases(t *testing.T) {
 		// Try to add another binding with default=true for contract3 (should fail)
 		entry := registry.Entry{
 			ID:   registry.NewID("test", "conflicting_default3"),
-			Kind: apidi.KindBinding,
+			Kind: apidi.Binding,
 			Data: NewMockPayload(&apidi.BindingConfig{
 				Contracts: []apidi.BoundContractConfig{
 					{
@@ -940,7 +940,7 @@ func TestManager_DefaultBindingValidationEdgeCases(t *testing.T) {
 		// contract2 doesn't have a default yet, so this should work
 		entry := registry.Entry{
 			ID:   registry.NewID("test", "contract2_default"),
-			Kind: apidi.KindBinding,
+			Kind: apidi.Binding,
 			Data: NewMockPayload(&apidi.BindingConfig{
 				Contracts: []apidi.BoundContractConfig{
 					{
@@ -969,7 +969,7 @@ func TestManager_DefaultBindingValidationEdgeCases(t *testing.T) {
 		// Should be able to add non-default bindings even when defaults exist
 		entry := registry.Entry{
 			ID:   registry.NewID("test", "non_default_binding"),
-			Kind: apidi.KindBinding,
+			Kind: apidi.Binding,
 			Data: NewMockPayload(&apidi.BindingConfig{
 				Contracts: []apidi.BoundContractConfig{
 					{
@@ -1034,7 +1034,7 @@ func TestManager_DefaultBindingUpdateScenarios(t *testing.T) {
 	for i, contractID := range contractIDs {
 		defEntry := registry.Entry{
 			ID:   contractID,
-			Kind: apidi.KindDefinition,
+			Kind: apidi.Definition,
 			Data: NewMockPayload(&apidi.DefinitionConfig{
 				Methods: []apidi.MethodConfig{{Name: fmt.Sprintf("serve%d", i+1)}},
 			}),
@@ -1052,7 +1052,7 @@ func TestManager_DefaultBindingUpdateScenarios(t *testing.T) {
 	// BindingA: default for service1, non-default for service2
 	entryA := registry.Entry{
 		ID:   bindingAID,
-		Kind: apidi.KindBinding,
+		Kind: apidi.Binding,
 		Data: NewMockPayload(&apidi.BindingConfig{
 			Contracts: []apidi.BoundContractConfig{
 				{
@@ -1072,7 +1072,7 @@ func TestManager_DefaultBindingUpdateScenarios(t *testing.T) {
 	// BindingB: non-default for service1, default for service2
 	entryB := registry.Entry{
 		ID:   bindingBID,
-		Kind: apidi.KindBinding,
+		Kind: apidi.Binding,
 		Data: NewMockPayload(&apidi.BindingConfig{
 			Contracts: []apidi.BoundContractConfig{
 				{
@@ -1100,7 +1100,7 @@ func TestManager_DefaultBindingUpdateScenarios(t *testing.T) {
 		// Try to update bindingA to make it default for service2 (conflicts with bindingB)
 		updateEntry := registry.Entry{
 			ID:   bindingAID,
-			Kind: apidi.KindBinding,
+			Kind: apidi.Binding,
 			Data: NewMockPayload(&apidi.BindingConfig{
 				Contracts: []apidi.BoundContractConfig{
 					{
@@ -1127,7 +1127,7 @@ func TestManager_DefaultBindingUpdateScenarios(t *testing.T) {
 		// Update bindingA to remove its default status for service1
 		updateEntry := registry.Entry{
 			ID:   bindingAID,
-			Kind: apidi.KindBinding,
+			Kind: apidi.Binding,
 			Data: NewMockPayload(&apidi.BindingConfig{
 				Contracts: []apidi.BoundContractConfig{
 					{
@@ -1162,7 +1162,7 @@ func TestManager_DefaultBindingUpdateScenarios(t *testing.T) {
 		// Now that bindingA is no longer default for service1, bindingB can become default
 		updateEntry := registry.Entry{
 			ID:   bindingBID,
-			Kind: apidi.KindBinding,
+			Kind: apidi.Binding,
 			Data: NewMockPayload(&apidi.BindingConfig{
 				Contracts: []apidi.BoundContractConfig{
 					{
@@ -1197,7 +1197,7 @@ func TestManager_DefaultBindingUpdateScenarios(t *testing.T) {
 		// First, remove bindingB's default for service1
 		updateEntryB := registry.Entry{
 			ID:   bindingBID,
-			Kind: apidi.KindBinding,
+			Kind: apidi.Binding,
 			Data: NewMockPayload(&apidi.BindingConfig{
 				Contracts: []apidi.BoundContractConfig{
 					{
@@ -1222,7 +1222,7 @@ func TestManager_DefaultBindingUpdateScenarios(t *testing.T) {
 		// Now bindingA can become default for service1
 		updateEntryA := registry.Entry{
 			ID:   bindingAID,
-			Kind: apidi.KindBinding,
+			Kind: apidi.Binding,
 			Data: NewMockPayload(&apidi.BindingConfig{
 				Contracts: []apidi.BoundContractConfig{
 					{
@@ -1291,7 +1291,7 @@ func TestManager_DefaultBindingDeleteScenarios(t *testing.T) {
 	contractID := registry.NewID("test", "delete_test_contract")
 	defEntry := registry.Entry{
 		ID:   contractID,
-		Kind: apidi.KindDefinition,
+		Kind: apidi.Definition,
 		Data: NewMockPayload(&apidi.DefinitionConfig{
 			Methods: []apidi.MethodConfig{{Name: "execute"}},
 		}),
@@ -1306,7 +1306,7 @@ func TestManager_DefaultBindingDeleteScenarios(t *testing.T) {
 	defaultBindingID := registry.NewID("test", "default_impl")
 	defaultEntry := registry.Entry{
 		ID:   defaultBindingID,
-		Kind: apidi.KindBinding,
+		Kind: apidi.Binding,
 		Data: NewMockPayload(&apidi.BindingConfig{
 			Contracts: []apidi.BoundContractConfig{
 				{
@@ -1327,7 +1327,7 @@ func TestManager_DefaultBindingDeleteScenarios(t *testing.T) {
 	altBindingID := registry.NewID("test", "alt_impl")
 	altEntry := registry.Entry{
 		ID:   altBindingID,
-		Kind: apidi.KindBinding,
+		Kind: apidi.Binding,
 		Data: NewMockPayload(&apidi.BindingConfig{
 			Contracts: []apidi.BoundContractConfig{
 				{
@@ -1380,7 +1380,7 @@ func TestManager_DefaultBindingDeleteScenarios(t *testing.T) {
 		newDefaultID := registry.NewID("test", "new_default_impl")
 		newDefaultEntry := registry.Entry{
 			ID:   newDefaultID,
-			Kind: apidi.KindBinding,
+			Kind: apidi.Binding,
 			Data: NewMockPayload(&apidi.BindingConfig{
 				Contracts: []apidi.BoundContractConfig{
 					{
@@ -1429,7 +1429,7 @@ func TestManager_DefaultBindingErrorMessages(t *testing.T) {
 	contractID := registry.NewID("service", "payment_processor")
 	defEntry := registry.Entry{
 		ID:   contractID,
-		Kind: apidi.KindDefinition,
+		Kind: apidi.Definition,
 		Data: NewMockPayload(&apidi.DefinitionConfig{
 			Methods: []apidi.MethodConfig{{Name: "process_payment"}},
 		}),
@@ -1444,7 +1444,7 @@ func TestManager_DefaultBindingErrorMessages(t *testing.T) {
 	firstDefaultID := registry.NewID("impl", "stripe_payment")
 	firstEntry := registry.Entry{
 		ID:   firstDefaultID,
-		Kind: apidi.KindBinding,
+		Kind: apidi.Binding,
 		Data: NewMockPayload(&apidi.BindingConfig{
 			Contracts: []apidi.BoundContractConfig{
 				{
@@ -1466,7 +1466,7 @@ func TestManager_DefaultBindingErrorMessages(t *testing.T) {
 		secondDefaultID := registry.NewID("impl", "paypal_payment")
 		secondEntry := registry.Entry{
 			ID:   secondDefaultID,
-			Kind: apidi.KindBinding,
+			Kind: apidi.Binding,
 			Data: NewMockPayload(&apidi.BindingConfig{
 				Contracts: []apidi.BoundContractConfig{
 					{
@@ -1509,7 +1509,7 @@ func TestManager_DefaultBindingErrorMessages(t *testing.T) {
 		nonDefaultID := registry.NewID("impl", "square_payment")
 		nonDefaultEntry := registry.Entry{
 			ID:   nonDefaultID,
-			Kind: apidi.KindBinding,
+			Kind: apidi.Binding,
 			Data: NewMockPayload(&apidi.BindingConfig{
 				Contracts: []apidi.BoundContractConfig{
 					{
@@ -1529,7 +1529,7 @@ func TestManager_DefaultBindingErrorMessages(t *testing.T) {
 		// Now try to update it to be default (should conflict)
 		updateEntry := registry.Entry{
 			ID:   nonDefaultID,
-			Kind: apidi.KindBinding,
+			Kind: apidi.Binding,
 			Data: NewMockPayload(&apidi.BindingConfig{
 				Contracts: []apidi.BoundContractConfig{
 					{

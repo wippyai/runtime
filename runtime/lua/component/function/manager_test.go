@@ -94,7 +94,7 @@ func TestManager_Add_SourceFunction_InvalidConfig(t *testing.T) {
 	testData := `{"source": "test", "invalid": }`
 	payloadData := payload.NewPayload(testData, payload.JSON)
 	entry := registry.Entry{
-		Kind: api.KindFunction,
+		Kind: api.Function,
 		Data: payloadData,
 	}
 
@@ -136,7 +136,7 @@ func TestManager_Add_BytecodeFunction_InvalidConfig(t *testing.T) {
 	testData := `{"path": "test", "invalid": }`
 	payloadData := payload.NewPayload(testData, payload.JSON)
 	entry := registry.Entry{
-		Kind: api.KindFunctionBytecode,
+		Kind: api.FunctionBytecode,
 		Data: payloadData,
 	}
 

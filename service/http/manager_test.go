@@ -229,7 +229,7 @@ func TestManager_ServerOperations(t *testing.T) {
 	// Add server
 	entry := apiregistry.Entry{
 		ID:   serverID,
-		Kind: config.KindServer,
+		Kind: config.Server,
 		Data: payload.New(serverCfg),
 	}
 
@@ -251,7 +251,7 @@ func TestManager_ServerOperations(t *testing.T) {
 
 	updatedEntry := apiregistry.Entry{
 		ID:   serverID,
-		Kind: config.KindServer,
+		Kind: config.Server,
 		Data: payload.New(updatedCfg),
 	}
 
@@ -314,7 +314,7 @@ func TestManager_RouterOperations(t *testing.T) {
 
 	serverEntry := apiregistry.Entry{
 		ID:   serverID,
-		Kind: config.KindServer,
+		Kind: config.Server,
 		Data: payload.New(serverCfg),
 	}
 
@@ -332,7 +332,7 @@ func TestManager_RouterOperations(t *testing.T) {
 
 	routerEntry := apiregistry.Entry{
 		ID:   routerID,
-		Kind: config.KindRouter,
+		Kind: config.Router,
 		Data: payload.New(routerCfg),
 	}
 
@@ -353,7 +353,7 @@ func TestManager_RouterOperations(t *testing.T) {
 
 	updatedRouterEntry := apiregistry.Entry{
 		ID:   routerID,
-		Kind: config.KindRouter,
+		Kind: config.Router,
 		Data: payload.New(updatedRouterCfg),
 	}
 
@@ -384,7 +384,7 @@ func TestManager_EndpointOperations(t *testing.T) {
 
 	serverEntry := apiregistry.Entry{
 		ID:   serverID,
-		Kind: config.KindServer,
+		Kind: config.Server,
 		Data: payload.New(serverCfg),
 	}
 
@@ -402,7 +402,7 @@ func TestManager_EndpointOperations(t *testing.T) {
 
 	routerEntry := apiregistry.Entry{
 		ID:   routerID,
-		Kind: config.KindRouter,
+		Kind: config.Router,
 		Data: payload.New(routerCfg),
 	}
 
@@ -422,7 +422,7 @@ func TestManager_EndpointOperations(t *testing.T) {
 
 	endpointEntry := apiregistry.Entry{
 		ID:   endpointID,
-		Kind: config.KindEndpoint,
+		Kind: config.Endpoint,
 		Data: payload.New(endpointCfg),
 	}
 
@@ -449,7 +449,7 @@ func TestManager_StaticOperations(t *testing.T) {
 
 	serverEntry := apiregistry.Entry{
 		ID:   serverID,
-		Kind: config.KindServer,
+		Kind: config.Server,
 		Data: payload.New(serverCfg),
 	}
 
@@ -468,7 +468,7 @@ func TestManager_StaticOperations(t *testing.T) {
 
 	staticEntry := apiregistry.Entry{
 		ID:   staticID,
-		Kind: config.KindStatic,
+		Kind: config.Static,
 		Data: payload.New(staticCfg),
 	}
 
@@ -495,7 +495,7 @@ func TestManager_TransactionOperations(t *testing.T) {
 
 	serverEntry := apiregistry.Entry{
 		ID:   serverID,
-		Kind: config.KindServer,
+		Kind: config.Server,
 		Data: payload.New(serverCfg),
 	}
 
@@ -513,7 +513,7 @@ func TestManager_TransactionOperations(t *testing.T) {
 
 	routerEntry := apiregistry.Entry{
 		ID:   routerID,
-		Kind: config.KindRouter,
+		Kind: config.Router,
 		Data: payload.New(routerCfg),
 	}
 
@@ -581,7 +581,7 @@ func TestManager_ErrorHandling(t *testing.T) {
 
 	routerEntry := apiregistry.Entry{
 		ID:   routerID,
-		Kind: config.KindRouter,
+		Kind: config.Router,
 		Data: payload.New(routerCfg),
 	}
 
@@ -602,7 +602,7 @@ func TestManager_ErrorHandling(t *testing.T) {
 
 	endpointEntry := apiregistry.Entry{
 		ID:   endpointID,
-		Kind: config.KindEndpoint,
+		Kind: config.Endpoint,
 		Data: payload.New(endpointCfg),
 	}
 

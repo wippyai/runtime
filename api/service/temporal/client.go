@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	// KindClient identifies a Temporal client configuration in the registry
-	KindClient registry.Kind = "temporal.client"
+	// Client identifies a Temporal client configuration in the registry
+	Client registry.Kind = "temporal.client"
 )
 
 // AuthType defines the authentication mechanism for connecting to Temporal

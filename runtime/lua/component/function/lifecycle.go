@@ -15,29 +15,29 @@ import (
 
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
-	case api.KindFunction:
+	case api.Function:
 		return m.addSource(ctx, entry)
-	case api.KindFunctionBytecode:
+	case api.FunctionBytecode:
 		return m.addBytecode(ctx, entry)
 	default:
-		return api.NewInvalidEntryKindError(entry.Kind, api.KindFunction)
+		return api.NewInvalidEntryKindError(entry.Kind, api.Function)
 	}
 }
 
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
-	case api.KindFunction:
+	case api.Function:
 		return m.updateSource(ctx, entry)
-	case api.KindFunctionBytecode:
+	case api.FunctionBytecode:
 		return m.updateBytecode(ctx, entry)
 	default:
-		return api.NewInvalidEntryKindError(entry.Kind, api.KindFunction)
+		return api.NewInvalidEntryKindError(entry.Kind, api.Function)
 	}
 }
 
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
-	case api.KindFunction, api.KindFunctionBytecode:
+	case api.Function, api.FunctionBytecode:
 		if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
 			return runtimelua.NewDeleteNodeError("function", err)
 		}
@@ -47,7 +47,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 		m.log.Debug("function deleted", zap.String("id", entry.ID.String()))
 		return nil
 	default:
-		return api.NewInvalidEntryKindError(entry.Kind, api.KindFunction)
+		return api.NewInvalidEntryKindError(entry.Kind, api.Function)
 	}
 }
 
@@ -107,7 +107,7 @@ func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 
 	node := code.Node{
 		ID:     entry.ID,
-		Kind:   api.KindFunction,
+		Kind:   api.Function,
 		Source: cfg.Source,
 		Method: cfg.Method,
 	}
@@ -159,7 +159,7 @@ func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
 
 	node := code.Node{
 		ID:     entry.ID,
-		Kind:   api.KindFunctionBytecode,
+		Kind:   api.FunctionBytecode,
 		Method: cfg.Method,
 	}
 	imports := component.BuildImports(cfg.Imports, cfg.Modules)
@@ -206,7 +206,7 @@ func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error 
 
 	node := code.Node{
 		ID:     entry.ID,
-		Kind:   api.KindFunction,
+		Kind:   api.Function,
 		Source: cfg.Source,
 		Method: cfg.Method,
 	}
@@ -251,7 +251,7 @@ func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) erro
 
 	node := code.Node{
 		ID:     entry.ID,
-		Kind:   api.KindFunctionBytecode,
+		Kind:   api.FunctionBytecode,
 		Method: cfg.Method,
 	}
 	imports := component.BuildImports(cfg.Imports, cfg.Modules)

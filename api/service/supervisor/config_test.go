@@ -12,7 +12,7 @@ import (
 )
 
 func TestKindConstant(t *testing.T) {
-	assert.Equal(t, "process.service", KindProcessService)
+	assert.Equal(t, "process.service", ProcessService)
 }
 
 func TestServiceConfig_MarshalUnmarshal(t *testing.T) {

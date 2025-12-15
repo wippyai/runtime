@@ -52,8 +52,8 @@ func LogManager() boot.Component {
 
 			logManager = logs.NewManager(bus, logCore, wrappedLogger.Named("logs"), logConfig)
 
-			// Update the logger in context with the wrapped version
-			return logapi.UpdateLogger(ctx, wrappedLogger), nil
+			// Logger was already set by infrastructure, no need to update
+			return ctx, nil
 		},
 		Start: func(ctx context.Context) error {
 			if logManager != nil {

@@ -50,7 +50,7 @@ func NewCompiler(
 // Returns nil without error for module nodes
 func (c *Compiler) getCompiledProto(node *Node) (*glua.FunctionProto, error) {
 	// Modules don't need compilation
-	if node.Kind == lua.KindModule {
+	if node.Kind == lua.Module {
 		return nil, ErrModuleNotCompiled
 	}
 
@@ -131,7 +131,7 @@ func (c *Compiler) Compile(
 
 	// Compile regular dependencies
 	for _, dep := range rt.Dependencies {
-		if dep.Node.Kind == lua.KindModule {
+		if dep.Node.Kind == lua.Module {
 			compiled.Dependencies = append(compiled.Dependencies, CompiledProto{
 				Name: dep.Name,
 				Node: dep.Node,

@@ -91,7 +91,7 @@ func (f *DefaultPoolFactory) CreateSQLitePool(ctx context.Context, cfg *config.S
 	db.SetConnMaxLifetime(cfg.Pool.MaxLifetime)
 
 	pool := &ConnPool{
-		kind:   config.KindSQLite,
+		kind:   config.SQLite,
 		db:     db,
 		status: make(chan any, 1),
 	}

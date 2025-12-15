@@ -27,7 +27,7 @@ func exitPackage(p pid.PID, result payload.Payload, err error) *relay.Package {
 		payload.New(&topology.ExitEvent{
 			At:   time.Now(),
 			From: p,
-			Kind: topology.KindExit,
+			Kind: topology.Exit,
 			Result: &runtime.Result{
 				Value: result,
 				Error: err,
@@ -315,7 +315,7 @@ func (n *MockPeerNode) SimulateFailure(targetPID pid.PID, err error) error {
 				topology.TopicEvents,
 				payload.New(&topology.ExitEvent{
 					From:   targetPID,
-					Kind:   topology.KindLinkDown,
+					Kind:   topology.LinkDown,
 					Result: &runtime.Result{Error: err},
 				}),
 			)
@@ -401,7 +401,7 @@ func TestIntegration_CrossNodeMonitoring_EndToEnd(t *testing.T) {
 				if exitEvt, ok := p.Data().(*topology.ExitEvent); ok {
 					found = true
 					assert.Equal(t, workflowPID, exitEvt.From)
-					assert.Equal(t, topology.KindExit, exitEvt.Kind)
+					assert.Equal(t, topology.Exit, exitEvt.Kind)
 					assert.Nil(t, exitEvt.Result.Error)
 				}
 			}
@@ -482,7 +482,7 @@ func TestIntegration_CrossNodeLinking_EndToEnd(t *testing.T) {
 				if exitEvt, ok := p.Data().(*topology.ExitEvent); ok {
 					found = true
 					assert.Equal(t, workflowPID, exitEvt.From)
-					assert.Equal(t, topology.KindLinkDown, exitEvt.Kind)
+					assert.Equal(t, topology.LinkDown, exitEvt.Kind)
 					assert.NotNil(t, exitEvt.Result.Error)
 				}
 			}

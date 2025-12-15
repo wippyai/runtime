@@ -64,7 +64,7 @@ func TestManager_Add(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.ID{NS: "test", Name: "svc1"},
-		Kind: supervisorapi.KindProcessService,
+		Kind: supervisorapi.ProcessService,
 		Meta: attrs.NewBag(),
 		Data: payload.New(nil),
 	}
@@ -112,7 +112,7 @@ func TestManager_Update(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.ID{NS: "test", Name: "svc1"},
-		Kind: supervisorapi.KindProcessService,
+		Kind: supervisorapi.ProcessService,
 		Meta: attrs.NewBag(),
 		Data: payload.New(nil),
 	}
@@ -140,7 +140,7 @@ func TestManager_Update_NotFound(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.ID{NS: "test", Name: "nonexistent"},
-		Kind: supervisorapi.KindProcessService,
+		Kind: supervisorapi.ProcessService,
 	}
 
 	err := m.Update(context.Background(), entry)
@@ -161,7 +161,7 @@ func TestManager_Delete(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.ID{NS: "test", Name: "svc1"},
-		Kind: supervisorapi.KindProcessService,
+		Kind: supervisorapi.ProcessService,
 		Meta: attrs.NewBag(),
 		Data: payload.New(nil),
 	}

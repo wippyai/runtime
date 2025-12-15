@@ -349,7 +349,7 @@ func TestService_MonitorLoop_ExitEventWithError(t *testing.T) {
 	go svc.monitorLoop(ctx, monitorCh)
 
 	exitEvent := &topologyapi.ExitEvent{
-		Kind:   topologyapi.KindExit,
+		Kind:   topologyapi.Exit,
 		From:   pid.PID{UniqID: "child"},
 		Result: &runtime.Result{Error: errors.New("process error")},
 	}
@@ -378,7 +378,7 @@ func TestService_MonitorLoop_ExitEventWithoutError(t *testing.T) {
 	go svc.monitorLoop(ctx, monitorCh)
 
 	exitEvent := &topologyapi.ExitEvent{
-		Kind: topologyapi.KindExit,
+		Kind: topologyapi.Exit,
 		From: pid.PID{UniqID: "child"},
 	}
 	pkg := relay.NewPackage(pid.PID{}, pid.PID{}, topologyapi.TopicEvents, payload.New(exitEvent))

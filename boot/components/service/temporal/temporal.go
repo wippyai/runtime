@@ -122,8 +122,8 @@ func Component() boot.Component {
 			)
 
 			// Register handlers for temporal entry kinds
-			handlers.RegisterListener(temporalapi.KindClient, clientManager)
-			handlers.RegisterListener(temporalapi.KindWorker, workerManager)
+			handlers.RegisterListener(temporalapi.Client, clientManager)
+			handlers.RegisterListener(temporalapi.Worker, workerManager)
 
 			// Register activity observer for function entries with temporal.activity metadata
 			// Use RegisterObserver because this is a secondary observer that shouldn't ack events

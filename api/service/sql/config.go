@@ -11,20 +11,20 @@ import (
 
 // Registry kind constants for different SQL database types
 const (
-	// KindPostgres identifies a PostgreSQL database in the registry
-	KindPostgres registry.Kind = "db.sql.postgres"
+	// Postgres identifies a PostgreSQL database in the registry
+	Postgres registry.Kind = "db.sql.postgres"
 
-	// KindMySQL identifies a MySQL database in the registry
-	KindMySQL registry.Kind = "db.sql.mysql"
+	// MySQL identifies a MySQL database in the registry
+	MySQL registry.Kind = "db.sql.mysql"
 
-	// KindSQLite identifies a SQLite database in the registry
-	KindSQLite registry.Kind = "db.sql.sqlite"
+	// SQLite identifies a SQLite database in the registry
+	SQLite registry.Kind = "db.sql.sqlite"
 
-	// KindMSSQL identifies a Microsoft SQL Server database in the registry
-	KindMSSQL registry.Kind = "db.sql.mssql"
+	// MSSQL identifies a Microsoft SQL Server database in the registry
+	MSSQL registry.Kind = "db.sql.mssql"
 
-	// KindOracle identifies an Oracle database in the registry
-	KindOracle registry.Kind = "db.sql.oracle"
+	// Oracle identifies an Oracle database in the registry
+	Oracle registry.Kind = "db.sql.oracle"
 )
 
 // Default configuration values

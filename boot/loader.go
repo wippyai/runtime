@@ -110,6 +110,12 @@ func (l *Loader) Start(ctx context.Context) error {
 		}
 	}
 
+	// Seal AppContext for lock-free reads
+	// All boot-time values were set during Load() phase
+	if ac := contextapi.AppFromContext(ctx); ac != nil {
+		ac.Seal()
+	}
+
 	for _, c := range l.loaded {
 		if starter, ok := c.(boot.Starter); ok {
 			if err := starter.Start(ctx); err != nil {

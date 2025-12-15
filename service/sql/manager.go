@@ -73,9 +73,9 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	defer m.mu.Unlock()
 
 	switch entry.Kind {
-	case config.KindPostgres, config.KindMySQL:
+	case config.Postgres, config.MySQL:
 		return m.handleStandardDBAdd(ctx, entry)
-	case config.KindSQLite:
+	case config.SQLite:
 		return m.handleSQLiteAdd(ctx, entry)
 	default:
 		return NewUnsupportedEntryKindError(entry.Kind)
@@ -88,9 +88,9 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	defer m.mu.Unlock()
 
 	switch entry.Kind {
-	case config.KindPostgres, config.KindMySQL:
+	case config.Postgres, config.MySQL:
 		return m.handleStandardDBUpdate(ctx, entry)
-	case config.KindSQLite:
+	case config.SQLite:
 		return m.handleSQLiteUpdate(ctx, entry)
 	default:
 		return NewUnsupportedEntryKindError(entry.Kind)

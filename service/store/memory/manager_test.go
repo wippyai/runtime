@@ -64,7 +64,7 @@ func newTestManager(t *testing.T) (*Manager, *mockBus, payload.Transcoder) {
 func makeStoreEntry(id registry.ID, maxSize int) registry.Entry {
 	return registry.Entry{
 		ID:   id,
-		Kind: memstore.KindMemoryKV,
+		Kind: memstore.MemoryKV,
 		Data: payload.New(map[string]any{
 			"max_size":         maxSize,
 			"cleanup_interval": "1m",

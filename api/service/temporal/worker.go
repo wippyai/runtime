@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	KindWorker registry.Kind = "temporal.worker"
+	Worker registry.Kind = "temporal.worker"
 )
 
 // WorkerConfig represents the configuration for a Temporal worker

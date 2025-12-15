@@ -58,29 +58,29 @@ func NewManager(
 
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
-	case api.KindProcess:
+	case api.Process:
 		return m.addSource(ctx, entry)
-	case api.KindProcessBytecode:
+	case api.ProcessBytecode:
 		return m.addBytecode(ctx, entry)
 	default:
-		return api.NewInvalidEntryKindError(entry.Kind, api.KindProcess)
+		return api.NewInvalidEntryKindError(entry.Kind, api.Process)
 	}
 }
 
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
-	case api.KindProcess:
+	case api.Process:
 		return m.updateSource(ctx, entry)
-	case api.KindProcessBytecode:
+	case api.ProcessBytecode:
 		return m.updateBytecode(ctx, entry)
 	default:
-		return api.NewInvalidEntryKindError(entry.Kind, api.KindProcess)
+		return api.NewInvalidEntryKindError(entry.Kind, api.Process)
 	}
 }
 
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
-	case api.KindProcess, api.KindProcessBytecode:
+	case api.Process, api.ProcessBytecode:
 		if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
 			return runtimelua.NewDeleteNodeError("process", err)
 		}
@@ -89,7 +89,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 		m.log.Debug("process deleted", zap.String("id", entry.ID.String()))
 		return nil
 	default:
-		return api.NewInvalidEntryKindError(entry.Kind, api.KindProcess)
+		return api.NewInvalidEntryKindError(entry.Kind, api.Process)
 	}
 }
 
@@ -127,7 +127,7 @@ func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 
 	node := code.Node{
 		ID:     entry.ID,
-		Kind:   api.KindProcess,
+		Kind:   api.Process,
 		Source: cfg.Source,
 		Method: cfg.Method,
 	}
@@ -162,7 +162,7 @@ func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
 
 	node := code.Node{
 		ID:     entry.ID,
-		Kind:   api.KindProcessBytecode,
+		Kind:   api.ProcessBytecode,
 		Method: cfg.Method,
 	}
 
@@ -195,7 +195,7 @@ func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error 
 
 	node := code.Node{
 		ID:     entry.ID,
-		Kind:   api.KindProcess,
+		Kind:   api.Process,
 		Source: cfg.Source,
 		Method: cfg.Method,
 	}
@@ -228,7 +228,7 @@ func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) erro
 
 	node := code.Node{
 		ID:     entry.ID,
-		Kind:   api.KindProcessBytecode,
+		Kind:   api.ProcessBytecode,
 		Method: cfg.Method,
 	}
 

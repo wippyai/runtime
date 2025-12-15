@@ -36,7 +36,7 @@ func NewManager(
 }
 
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != envsvc.KindStorageRouter {
+	if entry.Kind != envsvc.StorageRouter {
 		return env.NewUnsupportedKindError(entry.Kind)
 	}
 
@@ -103,7 +103,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 }
 
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != envsvc.KindStorageRouter {
+	if entry.Kind != envsvc.StorageRouter {
 		return env.NewUnsupportedKindError(entry.Kind)
 	}
 

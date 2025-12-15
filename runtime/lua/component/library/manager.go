@@ -31,36 +31,36 @@ func NewManager(log *zap.Logger, code *lua.Manager, fsRegistry fsapi.Registry) *
 
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
-	case api.KindLibrary:
+	case api.Library:
 		return m.addSource(ctx, entry)
-	case api.KindLibraryBytecode:
+	case api.LibraryBytecode:
 		return m.addBytecode(ctx, entry)
 	default:
-		return api.NewInvalidEntryKindError(entry.Kind, api.KindLibrary)
+		return api.NewInvalidEntryKindError(entry.Kind, api.Library)
 	}
 }
 
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
-	case api.KindLibrary:
+	case api.Library:
 		return m.updateSource(ctx, entry)
-	case api.KindLibraryBytecode:
+	case api.LibraryBytecode:
 		return m.updateBytecode(ctx, entry)
 	default:
-		return api.NewInvalidEntryKindError(entry.Kind, api.KindLibrary)
+		return api.NewInvalidEntryKindError(entry.Kind, api.Library)
 	}
 }
 
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
-	case api.KindLibrary, api.KindLibraryBytecode:
+	case api.Library, api.LibraryBytecode:
 		if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
 			return runtimelua.NewDeleteNodeError("library", err)
 		}
 		m.log.Debug("library deleted", zap.String("id", entry.ID.String()))
 		return nil
 	default:
-		return api.NewInvalidEntryKindError(entry.Kind, api.KindLibrary)
+		return api.NewInvalidEntryKindError(entry.Kind, api.Library)
 	}
 }
 
@@ -78,7 +78,7 @@ func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 
 	node := lua.Node{
 		ID:     entry.ID,
-		Kind:   api.KindLibrary,
+		Kind:   api.Library,
 		Source: cfg.Source,
 	}
 
@@ -104,7 +104,7 @@ func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
 
 	node := lua.Node{
 		ID:   entry.ID,
-		Kind: api.KindLibraryBytecode,
+		Kind: api.LibraryBytecode,
 	}
 
 	if err := m.code.AddNodeWithProto(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules), proto); err != nil {
@@ -128,7 +128,7 @@ func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error 
 
 	node := lua.Node{
 		ID:     entry.ID,
-		Kind:   api.KindLibrary,
+		Kind:   api.Library,
 		Source: cfg.Source,
 	}
 
@@ -154,7 +154,7 @@ func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) erro
 
 	node := lua.Node{
 		ID:   entry.ID,
-		Kind: api.KindLibraryBytecode,
+		Kind: api.LibraryBytecode,
 	}
 
 	if err := m.code.UpdateNodeWithProto(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules), proto); err != nil {

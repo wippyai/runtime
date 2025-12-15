@@ -109,7 +109,7 @@ func TestManager_Add(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.ID{NS: "test", Name: "terminal1"},
-		Kind: terminal.KindHost,
+		Kind: terminal.Host,
 		Meta: attrs.NewBag(),
 		Data: payload.New(nil),
 	}
@@ -133,7 +133,7 @@ func TestManager_Add_DecodeError(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.ID{NS: "test", Name: "terminal1"},
-		Kind: terminal.KindHost,
+		Kind: terminal.Host,
 		Meta: attrs.NewBag(),
 		Data: payload.New(nil),
 	}
@@ -157,7 +157,7 @@ func TestManager_Delete(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.ID{NS: "test", Name: "terminal1"},
-		Kind: terminal.KindHost,
+		Kind: terminal.Host,
 		Meta: attrs.NewBag(),
 		Data: payload.New(nil),
 	}
@@ -185,7 +185,7 @@ func TestManager_Delete_NotFound(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.ID{NS: "test", Name: "nonexistent"},
-		Kind: terminal.KindHost,
+		Kind: terminal.Host,
 	}
 
 	err := mgr.Delete(context.Background(), entry)
@@ -203,7 +203,7 @@ func TestManager_Update(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.ID{NS: "test", Name: "terminal1"},
-		Kind: terminal.KindHost,
+		Kind: terminal.Host,
 		Meta: attrs.NewBag(),
 		Data: payload.New(nil),
 	}
@@ -228,7 +228,7 @@ func TestManager_GetHost(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.ID{NS: "test", Name: "terminal1"},
-		Kind: terminal.KindHost,
+		Kind: terminal.Host,
 		Meta: attrs.NewBag(),
 		Data: payload.New(nil),
 	}

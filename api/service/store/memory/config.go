@@ -11,8 +11,8 @@ import (
 
 // Registry kind constant for the memory KV store
 const (
-	// KindMemoryKV identifies a memory KV store in the registry
-	KindMemoryKV registry.Kind = "store.memory"
+	// MemoryKV identifies a memory KV store in the registry
+	MemoryKV registry.Kind = "store.memory"
 )
 
 // Config defines configuration for an in-memory key-value store

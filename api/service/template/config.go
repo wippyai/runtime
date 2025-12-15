@@ -8,10 +8,10 @@ import (
 
 // Registry kind constants for Template components
 const (
-	// KindTemplate identifies a template component
-	KindTemplate registry.Kind = "template.jet"
-	// KindTemplateSet identifies a template set component
-	KindTemplateSet registry.Kind = "template.set"
+	// Template identifies a template component
+	Template registry.Kind = "template.jet"
+	// TemplateSet identifies a template set component
+	TemplateSet registry.Kind = "template.set"
 )
 
 // Config represents configuration for a template entry

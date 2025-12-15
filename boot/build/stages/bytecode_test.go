@@ -21,7 +21,7 @@ func TestBytecode_CompileFunction(t *testing.T) {
 	entries := []registry.Entry{
 		{
 			ID:   registry.NewID("app", "hello"),
-			Kind: luaapi.KindFunction,
+			Kind: luaapi.Function,
 			Data: payload.New(map[string]any{
 				"source": `
 local function handler(ctx)
@@ -47,7 +47,7 @@ return { handler = handler }
 
 	// Verify entry was transformed
 	entry := entries[0]
-	assert.Equal(t, luaapi.KindFunctionBytecode, entry.Kind)
+	assert.Equal(t, luaapi.FunctionBytecode, entry.Kind)
 
 	data := entry.Data.Data().(map[string]any)
 	assert.Equal(t, BytecodeFSID, data["fs"])
@@ -81,7 +81,7 @@ func TestBytecode_CompileLibrary(t *testing.T) {
 	entries := []registry.Entry{
 		{
 			ID:   registry.NewID("lib", "utils"),
-			Kind: luaapi.KindLibrary,
+			Kind: luaapi.Library,
 			Data: payload.New(map[string]any{
 				"source": `
 local utils = {}
@@ -99,7 +99,7 @@ return utils
 	require.NoError(t, err)
 
 	entry := entries[0]
-	assert.Equal(t, luaapi.KindLibraryBytecode, entry.Kind)
+	assert.Equal(t, luaapi.LibraryBytecode, entry.Kind)
 
 	data := entry.Data.Data().(map[string]any)
 	assert.Equal(t, BytecodeFSID, data["fs"])
@@ -114,7 +114,7 @@ func TestBytecode_CompileProcess(t *testing.T) {
 	entries := []registry.Entry{
 		{
 			ID:   registry.NewID("app", "worker"),
-			Kind: luaapi.KindProcess,
+			Kind: luaapi.Process,
 			Data: payload.New(map[string]any{
 				"source": `
 local function run(ctx)
@@ -134,7 +134,7 @@ return { run = run }
 	require.NoError(t, err)
 
 	entry := entries[0]
-	assert.Equal(t, luaapi.KindProcessBytecode, entry.Kind)
+	assert.Equal(t, luaapi.ProcessBytecode, entry.Kind)
 
 	data := entry.Data.Data().(map[string]any)
 	assert.Equal(t, "run", data["method"])
@@ -147,7 +147,7 @@ func TestBytecode_MultipleEntries(t *testing.T) {
 	entries := []registry.Entry{
 		{
 			ID:   registry.NewID("app", "func1"),
-			Kind: luaapi.KindFunction,
+			Kind: luaapi.Function,
 			Data: payload.New(map[string]any{
 				"source": `return { handler = function() return 1 end }`,
 				"method": "handler",
@@ -155,7 +155,7 @@ func TestBytecode_MultipleEntries(t *testing.T) {
 		},
 		{
 			ID:   registry.NewID("app", "func2"),
-			Kind: luaapi.KindFunction,
+			Kind: luaapi.Function,
 			Data: payload.New(map[string]any{
 				"source": `return { handler = function() return 2 end }`,
 				"method": "handler",
@@ -163,7 +163,7 @@ func TestBytecode_MultipleEntries(t *testing.T) {
 		},
 		{
 			ID:   registry.NewID("lib", "shared"),
-			Kind: luaapi.KindLibrary,
+			Kind: luaapi.Library,
 			Data: payload.New(map[string]any{
 				"source": `return {}`,
 			}),
@@ -174,9 +174,9 @@ func TestBytecode_MultipleEntries(t *testing.T) {
 	err := stage.Execute(ctx, &entries)
 	require.NoError(t, err)
 
-	assert.Equal(t, luaapi.KindFunctionBytecode, entries[0].Kind)
-	assert.Equal(t, luaapi.KindFunctionBytecode, entries[1].Kind)
-	assert.Equal(t, luaapi.KindLibraryBytecode, entries[2].Kind)
+	assert.Equal(t, luaapi.FunctionBytecode, entries[0].Kind)
+	assert.Equal(t, luaapi.FunctionBytecode, entries[1].Kind)
+	assert.Equal(t, luaapi.LibraryBytecode, entries[2].Kind)
 
 	res := GetBytecodeResource()
 	require.NotNil(t, res)
@@ -196,7 +196,7 @@ func TestBytecode_PatternFilter(t *testing.T) {
 	entries := []registry.Entry{
 		{
 			ID:   registry.NewID("app", "include"),
-			Kind: luaapi.KindFunction,
+			Kind: luaapi.Function,
 			Data: payload.New(map[string]any{
 				"source": `return { handler = function() end }`,
 				"method": "handler",
@@ -204,7 +204,7 @@ func TestBytecode_PatternFilter(t *testing.T) {
 		},
 		{
 			ID:   registry.NewID("app", "exclude"),
-			Kind: luaapi.KindFunction,
+			Kind: luaapi.Function,
 			Data: payload.New(map[string]any{
 				"source": `return { handler = function() end }`,
 				"method": "handler",
@@ -217,8 +217,8 @@ func TestBytecode_PatternFilter(t *testing.T) {
 	require.NoError(t, err)
 
 	// Only first entry should be compiled
-	assert.Equal(t, luaapi.KindFunctionBytecode, entries[0].Kind)
-	assert.Equal(t, luaapi.KindFunction, entries[1].Kind) // unchanged
+	assert.Equal(t, luaapi.FunctionBytecode, entries[0].Kind)
+	assert.Equal(t, luaapi.Function, entries[1].Kind) // unchanged
 }
 
 func TestBytecode_NamespaceWildcard(t *testing.T) {
@@ -228,7 +228,7 @@ func TestBytecode_NamespaceWildcard(t *testing.T) {
 	entries := []registry.Entry{
 		{
 			ID:   registry.NewID("app", "func1"),
-			Kind: luaapi.KindFunction,
+			Kind: luaapi.Function,
 			Data: payload.New(map[string]any{
 				"source": `return { handler = function() end }`,
 				"method": "handler",
@@ -236,7 +236,7 @@ func TestBytecode_NamespaceWildcard(t *testing.T) {
 		},
 		{
 			ID:   registry.NewID("app", "func2"),
-			Kind: luaapi.KindFunction,
+			Kind: luaapi.Function,
 			Data: payload.New(map[string]any{
 				"source": `return { handler = function() end }`,
 				"method": "handler",
@@ -244,7 +244,7 @@ func TestBytecode_NamespaceWildcard(t *testing.T) {
 		},
 		{
 			ID:   registry.NewID("lib", "shared"),
-			Kind: luaapi.KindLibrary,
+			Kind: luaapi.Library,
 			Data: payload.New(map[string]any{
 				"source": `return {}`,
 			}),
@@ -256,10 +256,10 @@ func TestBytecode_NamespaceWildcard(t *testing.T) {
 	require.NoError(t, err)
 
 	// app namespace entries should be compiled
-	assert.Equal(t, luaapi.KindFunctionBytecode, entries[0].Kind)
-	assert.Equal(t, luaapi.KindFunctionBytecode, entries[1].Kind)
+	assert.Equal(t, luaapi.FunctionBytecode, entries[0].Kind)
+	assert.Equal(t, luaapi.FunctionBytecode, entries[1].Kind)
 	// lib namespace should be unchanged
-	assert.Equal(t, luaapi.KindLibrary, entries[2].Kind)
+	assert.Equal(t, luaapi.Library, entries[2].Kind)
 }
 
 func TestBytecode_SkipsUnsupportedKinds(t *testing.T) {
@@ -269,7 +269,7 @@ func TestBytecode_SkipsUnsupportedKinds(t *testing.T) {
 	entries := []registry.Entry{
 		{
 			ID:   registry.NewID("app", "func"),
-			Kind: luaapi.KindFunction,
+			Kind: luaapi.Function,
 			Data: payload.New(map[string]any{
 				"source": `return { handler = function() end }`,
 				"method": "handler",
@@ -288,7 +288,7 @@ func TestBytecode_SkipsUnsupportedKinds(t *testing.T) {
 	err := stage.Execute(ctx, &entries)
 	require.NoError(t, err)
 
-	assert.Equal(t, luaapi.KindFunctionBytecode, entries[0].Kind)
+	assert.Equal(t, luaapi.FunctionBytecode, entries[0].Kind)
 	assert.Equal(t, registry.Kind("config.yaml"), entries[1].Kind) // unchanged
 }
 
@@ -299,7 +299,7 @@ func TestBytecode_InvalidSource(t *testing.T) {
 	entries := []registry.Entry{
 		{
 			ID:   registry.NewID("app", "broken"),
-			Kind: luaapi.KindFunction,
+			Kind: luaapi.Function,
 			Data: payload.New(map[string]any{
 				"source": `this is not valid lua syntax!!!`,
 				"method": "handler",
@@ -319,7 +319,7 @@ func TestBytecode_NoSource(t *testing.T) {
 	entries := []registry.Entry{
 		{
 			ID:   registry.NewID("app", "empty"),
-			Kind: luaapi.KindFunction,
+			Kind: luaapi.Function,
 			Data: payload.New(map[string]any{
 				"method": "handler",
 			}),
@@ -352,7 +352,7 @@ func TestBytecode_PreservesImports(t *testing.T) {
 	entries := []registry.Entry{
 		{
 			ID:   registry.NewID("app", "func"),
-			Kind: luaapi.KindFunction,
+			Kind: luaapi.Function,
 			Data: payload.New(map[string]any{
 				"source": `return { handler = function() end }`,
 				"method": "handler",
@@ -379,7 +379,7 @@ func TestBytecode_HashFormat(t *testing.T) {
 	entries := []registry.Entry{
 		{
 			ID:   registry.NewID("app", "func"),
-			Kind: luaapi.KindFunction,
+			Kind: luaapi.Function,
 			Data: payload.New(map[string]any{
 				"source": `return { handler = function() end }`,
 				"method": "handler",
@@ -407,7 +407,7 @@ func TestBytecode_NoNamespace(t *testing.T) {
 	entries := []registry.Entry{
 		{
 			ID:   registry.NewID("", "global"),
-			Kind: luaapi.KindFunction,
+			Kind: luaapi.Function,
 			Data: payload.New(map[string]any{
 				"source": `return { handler = function() end }`,
 				"method": "handler",
@@ -438,7 +438,7 @@ func TestBytecodeFS(t *testing.T) {
 	entries := []registry.Entry{
 		{
 			ID:   registry.NewID("app", "func"),
-			Kind: luaapi.KindFunction,
+			Kind: luaapi.Function,
 			Data: payload.New(map[string]any{
 				"source": `return { handler = function() end }`,
 				"method": "handler",
@@ -483,7 +483,7 @@ return {
 	entries := []registry.Entry{
 		{
 			ID:   registry.NewID("test", "math"),
-			Kind: luaapi.KindLibrary,
+			Kind: luaapi.Library,
 			Data: payload.New(map[string]any{
 				"source": luaSource,
 			}),
@@ -577,7 +577,7 @@ return { handler = handler }
 	entries := []registry.Entry{
 		{
 			ID:   registry.NewID("app", "double"),
-			Kind: luaapi.KindFunction,
+			Kind: luaapi.Function,
 			Data: payload.New(map[string]any{
 				"source": luaSource,
 				"method": "handler",
@@ -591,7 +591,7 @@ return { handler = handler }
 	require.NoError(t, err)
 
 	// Verify entry transformation
-	require.Equal(t, luaapi.KindFunctionBytecode, entries[0].Kind)
+	require.Equal(t, luaapi.FunctionBytecode, entries[0].Kind)
 
 	// Get bytecode and execute
 	fsys := BytecodeFS()

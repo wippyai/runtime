@@ -76,8 +76,8 @@ func (p *ConnPool) UpdateConfig(cfg interface{}) error {
 
 	switch c := cfg.(type) {
 	case *config.DBConfig:
-		if p.kind == config.KindSQLite {
-			return NewInvalidConfigTypeError("DBConfig", config.KindSQLite)
+		if p.kind == config.SQLite {
+			return NewInvalidConfigTypeError("DBConfig", config.SQLite)
 		}
 
 		if err := c.Validate(); err != nil {
@@ -92,7 +92,7 @@ func (p *ConnPool) UpdateConfig(cfg interface{}) error {
 		p.config.Store(&cfg)
 
 	case *config.SQLiteConfig:
-		if p.kind != config.KindSQLite {
+		if p.kind != config.SQLite {
 			return NewInvalidConfigTypeError("SQLiteConfig", p.kind)
 		}
 
@@ -139,7 +139,7 @@ func buildDSN(kind registry.Kind, cfg *config.DBConfig) (string, error) {
 	opts := buildOptionsString(cfg.Options)
 
 	switch kind {
-	case config.KindPostgres:
+	case config.Postgres:
 		var b strings.Builder
 		b.Grow(128)
 		b.WriteString("host=")
@@ -158,7 +158,7 @@ func buildDSN(kind registry.Kind, cfg *config.DBConfig) (string, error) {
 		}
 		return b.String(), nil
 
-	case config.KindMySQL:
+	case config.MySQL:
 		var b strings.Builder
 		b.Grow(128)
 		b.WriteString(cfg.Username)
@@ -183,7 +183,7 @@ func buildDSN(kind registry.Kind, cfg *config.DBConfig) (string, error) {
 
 func getDriver(kind registry.Kind) string {
 	switch kind {
-	case config.KindPostgres:
+	case config.Postgres:
 
 		return "postgres"
 

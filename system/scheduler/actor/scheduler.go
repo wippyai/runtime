@@ -75,8 +75,8 @@ type Scheduler struct {
 
 	processorCount atomic.Int64
 	drainCh        chan struct{} // closed when processorCount reaches 0 during shutdown
-	byPID          sync.Map
-	byQueue        sync.Map // *EventQueue -> *Processor for wake routing
+	byPID          sync.Map      // PID.String() -> *Processor
+	byQueue        sync.Map      // *EventQueue -> *Processor for wake routing
 }
 
 func NewScheduler(registry dispatcher.Registry, opts ...Option) *Scheduler {
@@ -258,7 +258,7 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 	proc.gen.Store(proc.queue.Generation())
 
 	s.processorCount.Add(1)
-	s.byPID.Store(pid, proc)
+	s.byPID.Store(pid.String(), proc)
 	s.byQueue.Store(proc.queue, proc)
 
 	if s.lifecycle != nil {
@@ -274,7 +274,7 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 // Terminate forcibly terminates a process by PID.
 // Cancels the process context - worker will detect and evict on next step.
 func (s *Scheduler) Terminate(pid pid.PID) error {
-	v, ok := s.byPID.Load(pid)
+	v, ok := s.byPID.Load(pid.String())
 	if !ok {
 		return process.ErrProcessNotFound
 	}
@@ -313,7 +313,7 @@ func (s *Scheduler) finishProcessor(proc *Processor, result *process.StepOutput,
 		res.Value = result.Result()
 	}
 
-	s.byPID.Delete(proc.pid)
+	s.byPID.Delete(proc.pid.String())
 	s.byQueue.Delete(proc.queue)
 
 	stopping := s.stopping.Load()
@@ -377,7 +377,7 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.
 	proc.gen.Store(proc.queue.Generation())
 
 	s.processorCount.Add(1)
-	s.byPID.Store(pid, proc)
+	s.byPID.Store(pid.String(), proc)
 	s.byQueue.Store(proc.queue, proc)
 
 	return proc, nil
@@ -385,7 +385,7 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.
 
 func (s *Scheduler) ReleaseProcessor(proc *Processor) {
 	s.processorCount.Add(-1)
-	s.byPID.Delete(proc.pid)
+	s.byPID.Delete(proc.pid.String())
 	s.byQueue.Delete(proc.queue)
 	if proc.cancel != nil {
 		proc.cancel()

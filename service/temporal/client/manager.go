@@ -112,7 +112,7 @@ func NewManagerWithFactory(
 
 // Add implements registry.EntryListener
 func (m *Manager) Add(ctx context.Context, ent registry.Entry) error {
-	if ent.Kind != api.KindClient {
+	if ent.Kind != api.Client {
 		return fmt.Errorf("unexpected entry kind: %s", ent.Kind)
 	}
 
@@ -200,7 +200,7 @@ func (m *Manager) AddClient(ctx context.Context, id registry.ID, cfg *api.Client
 
 // Update implements registry.EntryListener
 func (m *Manager) Update(ctx context.Context, ent registry.Entry) error {
-	if ent.Kind != api.KindClient {
+	if ent.Kind != api.Client {
 		return fmt.Errorf("unexpected entry kind: %s", ent.Kind)
 	}
 
@@ -255,7 +255,7 @@ func (m *Manager) UpdateClient(ctx context.Context, id registry.ID, cfg *api.Cli
 
 // Delete implements registry.EntryListener
 func (m *Manager) Delete(ctx context.Context, ent registry.Entry) error {
-	if ent.Kind != api.KindClient {
+	if ent.Kind != api.Client {
 		return fmt.Errorf("unexpected entry kind: %s", ent.Kind)
 	}
 

@@ -41,8 +41,8 @@ func NewManager(
 }
 
 func (m *Manager) validateEntryKind(entry registry.Entry) error {
-	if entry.Kind != supervisorapi.KindProcessService {
-		return newInvalidEntryKindError(entry.Kind, supervisorapi.KindProcessService)
+	if entry.Kind != supervisorapi.ProcessService {
+		return newInvalidEntryKindError(entry.Kind, supervisorapi.ProcessService)
 	}
 	return nil
 }

@@ -61,7 +61,7 @@ func TestPolicyRegistry_ListGroupsAndPolicies(t *testing.T) {
 	groupID := registry.NewID("test", "group1")
 
 	reg.handleEvent(event.Event{
-		Kind: security.KindPolicyRegister,
+		Kind: security.PolicyRegister,
 		Path: policy1.ID().String(),
 		Data: &security.PolicyEntry{
 			Policy: policy1,
@@ -70,7 +70,7 @@ func TestPolicyRegistry_ListGroupsAndPolicies(t *testing.T) {
 	})
 
 	reg.handleEvent(event.Event{
-		Kind: security.KindPolicyRegister,
+		Kind: security.PolicyRegister,
 		Path: policy2.ID().String(),
 		Data: &security.PolicyEntry{
 			Policy: policy2,
@@ -100,7 +100,7 @@ func TestPolicyRegistry_GetPolicyAndGroup(t *testing.T) {
 	groupID := registry.NewID("test", "group1")
 
 	reg.handleEvent(event.Event{
-		Kind: security.KindPolicyRegister,
+		Kind: security.PolicyRegister,
 		Path: policy.ID().String(),
 		Data: &security.PolicyEntry{
 			Policy: policy,
@@ -135,7 +135,7 @@ func TestPolicyRegistry_EventHandling(t *testing.T) {
 	groupID := registry.NewID("test", "group1")
 
 	reg.handleEvent(event.Event{
-		Kind: security.KindPolicyRegister,
+		Kind: security.PolicyRegister,
 		Path: policy.ID().String(),
 		Data: &security.PolicyEntry{
 			Policy: policy,
@@ -150,7 +150,7 @@ func TestPolicyRegistry_EventHandling(t *testing.T) {
 
 	updatedPolicy := newMockPolicy("test", "policy1", security.Deny)
 	reg.handleEvent(event.Event{
-		Kind: security.KindPolicyUpdate,
+		Kind: security.PolicyUpdate,
 		Path: policy.ID().String(),
 		Data: &security.PolicyEntry{
 			Policy: updatedPolicy,
@@ -164,7 +164,7 @@ func TestPolicyRegistry_EventHandling(t *testing.T) {
 	assert.Equal(t, security.Deny, result)
 
 	reg.handleEvent(event.Event{
-		Kind: security.KindPolicyDelete,
+		Kind: security.PolicyDelete,
 		Path: policy.ID().String(),
 	})
 

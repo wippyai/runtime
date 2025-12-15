@@ -61,11 +61,11 @@ func (r *PolicyRegistry) Stop() error {
 
 func (r *PolicyRegistry) handleEvent(e event.Event) {
 	switch e.Kind {
-	case security.KindPolicyRegister:
+	case security.PolicyRegister:
 		r.registerPolicy(e)
-	case security.KindPolicyUpdate:
+	case security.PolicyUpdate:
 		r.updatePolicy(e)
-	case security.KindPolicyDelete:
+	case security.PolicyDelete:
 		r.deletePolicy(e)
 	default:
 		r.logger.Warn("unknown policy event kind",

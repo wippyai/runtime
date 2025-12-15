@@ -131,13 +131,13 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	defer m.mu.Unlock()
 
 	switch entry.Kind {
-	case config.KindServer:
+	case config.Server:
 		return m.handleServerCreate(ctx, entry)
-	case config.KindRouter:
+	case config.Router:
 		return m.handleRouterCreate(ctx, entry)
-	case config.KindEndpoint:
+	case config.Endpoint:
 		return m.handleEndpointUpsert(ctx, entry)
-	case config.KindStatic:
+	case config.Static:
 		return m.handleStaticUpsert(ctx, entry)
 	default:
 		m.log.Warn("Unsupported entry kind in HTTP Manager", zap.String("kind", entry.Kind), zap.String("id", entry.ID.String()))
@@ -151,13 +151,13 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	defer m.mu.Unlock()
 
 	switch entry.Kind {
-	case config.KindServer:
+	case config.Server:
 		return m.handleServerUpdate(ctx, entry)
-	case config.KindRouter:
+	case config.Router:
 		return m.handleRouterUpdate(ctx, entry)
-	case config.KindEndpoint:
+	case config.Endpoint:
 		return m.handleEndpointUpsert(ctx, entry)
-	case config.KindStatic:
+	case config.Static:
 		return m.handleStaticUpsert(ctx, entry)
 	default:
 		return NewUnsupportedEntryKindError(entry.Kind)
@@ -170,13 +170,13 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	defer m.mu.Unlock()
 
 	switch entry.Kind {
-	case config.KindServer:
+	case config.Server:
 		return m.handleServerDelete(ctx, entry)
-	case config.KindRouter:
+	case config.Router:
 		return m.handleRouterDelete(ctx, entry)
-	case config.KindEndpoint:
+	case config.Endpoint:
 		return m.handleEndpointDelete(ctx, entry)
-	case config.KindStatic:
+	case config.Static:
 		return m.handleStaticDelete(ctx, entry)
 	default:
 		return NewUnsupportedEntryKindError(entry.Kind)

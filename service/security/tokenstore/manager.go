@@ -48,7 +48,7 @@ func NewManager(
 
 // Add implements registry.EntryListener - registers token store configuration
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != tokenstoreapi.KindTokenStore {
+	if entry.Kind != tokenstoreapi.TokenStore {
 		return NewUnsupportedEntryKindError(entry.Kind)
 	}
 
@@ -91,7 +91,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 // Update implements registry.EntryListener - updates token store configuration
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != tokenstoreapi.KindTokenStore {
+	if entry.Kind != tokenstoreapi.TokenStore {
 		return NewUnsupportedEntryKindError(entry.Kind)
 	}
 
@@ -138,7 +138,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 // Delete implements registry.EntryListener - removes token store configuration
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != tokenstoreapi.KindTokenStore {
+	if entry.Kind != tokenstoreapi.TokenStore {
 		return NewUnsupportedEntryKindError(entry.Kind)
 	}
 

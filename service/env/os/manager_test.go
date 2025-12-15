@@ -82,7 +82,7 @@ func TestManager_Add(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "os1"},
-			Kind: envsvc.KindStorageOS,
+			Kind: envsvc.StorageOS,
 			Meta: attrs.NewBag(),
 			Data: payload.New(nil),
 		}
@@ -108,7 +108,7 @@ func TestManager_Add(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "static1"},
-			Kind: envsvc.KindStorageOS,
+			Kind: envsvc.StorageOS,
 			Meta: attrs.NewBag(),
 			Data: payload.New(nil),
 		}
@@ -133,7 +133,7 @@ func TestManager_Add(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "memory1"},
-			Kind: envsvc.KindStorageMemory,
+			Kind: envsvc.StorageMemory,
 		}
 
 		err := mgr.Add(context.Background(), entry)
@@ -150,7 +150,7 @@ func TestManager_Add(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "os1"},
-			Kind: envsvc.KindStorageOS,
+			Kind: envsvc.StorageOS,
 			Data: payload.New(nil),
 		}
 
@@ -169,7 +169,7 @@ func TestManager_Update(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.ID{NS: "app", Name: "os1"},
-		Kind: envsvc.KindStorageOS,
+		Kind: envsvc.StorageOS,
 		Meta: attrs.NewBag(),
 		Data: payload.New(nil),
 	}
@@ -188,7 +188,7 @@ func TestManager_Delete(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "os1"},
-			Kind: envsvc.KindStorageOS,
+			Kind: envsvc.StorageOS,
 			Meta: attrs.NewBag(),
 			Data: payload.New(nil),
 		}
@@ -217,7 +217,7 @@ func TestManager_Delete(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "memory1"},
-			Kind: envsvc.KindStorageMemory,
+			Kind: envsvc.StorageMemory,
 		}
 
 		err := mgr.Delete(context.Background(), entry)
@@ -233,7 +233,7 @@ func TestManager_Delete(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "nonexistent"},
-			Kind: envsvc.KindStorageOS,
+			Kind: envsvc.StorageOS,
 		}
 
 		err := mgr.Delete(context.Background(), entry)
@@ -251,7 +251,7 @@ func TestManager_GetStorage(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.ID{NS: "app", Name: "os1"},
-		Kind: envsvc.KindStorageOS,
+		Kind: envsvc.StorageOS,
 		Meta: attrs.NewBag(),
 		Data: payload.New(nil),
 	}

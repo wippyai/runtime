@@ -34,9 +34,9 @@ var (
 // kindMapping maps source kinds to bytecode kinds.
 // Only includes kinds that have registered bytecode managers.
 var kindMapping = map[registry.Kind]registry.Kind{
-	luaapi.KindFunction: luaapi.KindFunctionBytecode,
-	luaapi.KindLibrary:  luaapi.KindLibraryBytecode,
-	luaapi.KindProcess:  luaapi.KindProcessBytecode,
+	luaapi.Function: luaapi.FunctionBytecode,
+	luaapi.Library:  luaapi.LibraryBytecode,
+	luaapi.Process:  luaapi.ProcessBytecode,
 }
 
 type bytecodeStage struct {

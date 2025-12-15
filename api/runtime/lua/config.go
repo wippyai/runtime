@@ -9,25 +9,25 @@ import (
 // Registry kind constants for different Lua component types.
 // These are used to identify different types of Lua-based components in the registry.
 const (
-	// KindFunction identifies a Lua function component in the registry
-	KindFunction registry.Kind = "function.lua"
+	// Function identifies a Lua function component in the registry
+	Function registry.Kind = "function.lua"
 
-	KindBteaApp  registry.Kind = "btea.app.lua"
-	KindProcess  registry.Kind = "process.lua"
-	KindWorkflow registry.Kind = "workflow.lua"
+	BteaApp  registry.Kind = "btea.app.lua"
+	Process  registry.Kind = "process.lua"
+	Workflow registry.Kind = "workflow.lua"
 
-	// KindLibrary identifies a Lua library component in the registry
-	KindLibrary registry.Kind = "library.lua"
+	// Library identifies a Lua library component in the registry
+	Library registry.Kind = "library.lua"
 
-	// KindModule identifies a Lua module component in the registry
-	KindModule registry.Kind = "module.lua"
+	// Module identifies a Lua module component in the registry
+	Module registry.Kind = "module.lua"
 
 	// Bytecode kinds - precompiled Lua loaded from filesystem
-	KindFunctionBytecode registry.Kind = "function.lua.bc"
-	KindLibraryBytecode  registry.Kind = "library.lua.bc"
-	KindProcessBytecode  registry.Kind = "process.lua.bc"
-	KindWorkflowBytecode registry.Kind = "workflow.lua.bc"
-	KindBteaAppBytecode  registry.Kind = "btea.app.lua.bc"
+	FunctionBytecode registry.Kind = "function.lua.bc"
+	LibraryBytecode  registry.Kind = "library.lua.bc"
+	ProcessBytecode  registry.Kind = "process.lua.bc"
+	WorkflowBytecode registry.Kind = "workflow.lua.bc"
+	BteaAppBytecode  registry.Kind = "btea.app.lua.bc"
 
 	// DefaultMaxSize how many concurrent executions are allowed in a flex pool by default
 	DefaultMaxSize = 100

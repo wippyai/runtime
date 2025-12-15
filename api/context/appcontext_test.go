@@ -179,20 +179,6 @@ func TestNewRootContext(t *testing.T) {
 	}
 }
 
-func TestAppContext_Update(t *testing.T) {
-	ac := NewAppContext()
-
-	ac.Update("key1", "value1")
-	if got := ac.Get("key1"); got != "value1" {
-		t.Errorf("Get(key1) = %v, want value1", got)
-	}
-
-	ac.Update("key1", "value2")
-	if got := ac.Get("key1"); got != "value2" {
-		t.Errorf("Get(key1) = %v, want value2", got)
-	}
-}
-
 func TestKey_String(t *testing.T) {
 	key := &Key{Name: "test.key", Inherit: true}
 	if got := key.String(); got != "test.key" {

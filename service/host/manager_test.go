@@ -46,7 +46,7 @@ func newTestManager(t *testing.T) *Manager {
 func makeHostEntry(id registry.ID) registry.Entry {
 	return registry.Entry{
 		ID:   id,
-		Kind: host.KindHost,
+		Kind: host.Host,
 		Meta: attrs.NewBag(),
 		Data: payload.New(map[string]any{
 			"host": map[string]any{
@@ -79,7 +79,7 @@ func TestManager_Add_DecodeError(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "host1"),
-		Kind: host.KindHost,
+		Kind: host.Host,
 		Meta: attrs.NewBag(),
 		Data: payload.New([]byte("invalid json {")),
 	}
@@ -111,7 +111,7 @@ func TestManager_Delete_NotFound(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "nonexistent"),
-		Kind: host.KindHost,
+		Kind: host.Host,
 	}
 
 	err := mgr.Delete(context.Background(), entry)

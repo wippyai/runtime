@@ -510,11 +510,11 @@ func (s *Store) Stop(ctx context.Context) error {
 // statementBuilder returns a squirrel query builder with appropriate placeholder format
 func statementBuilder(dbType registry.Kind) sq.StatementBuilderType {
 	switch dbType {
-	case sqlconfig.KindPostgres:
+	case sqlconfig.Postgres:
 		return sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
-	case sqlconfig.KindMySQL, sqlconfig.KindSQLite, sqlconfig.KindMSSQL:
+	case sqlconfig.MySQL, sqlconfig.SQLite, sqlconfig.MSSQL:
 		return sq.StatementBuilder.PlaceholderFormat(sq.Question)
-	case sqlconfig.KindOracle:
+	case sqlconfig.Oracle:
 		return sq.StatementBuilder.PlaceholderFormat(sq.Colon)
 	default:
 		// Default to PostgreSQL-style for unknown types

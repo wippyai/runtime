@@ -230,7 +230,7 @@ func (o *BuildOptions) Validate(nodes map[registry.ID]*Node) error {
 		}
 
 		// Check class-based filtering for modules
-		if node.Kind == luaapi.KindModule {
+		if node.Kind == luaapi.Module {
 			classes := getModuleClasses(node)
 			if classes != nil {
 				// Check denied classes

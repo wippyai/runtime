@@ -33,12 +33,12 @@ func NewManager(
 
 // Add handles the registration of a new security policy
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	return m.processPolicy(ctx, entry, security.KindPolicyRegister, "registered")
+	return m.processPolicy(ctx, entry, security.PolicyRegister, "registered")
 }
 
 // Update handles the update of an existing security policy
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
-	return m.processPolicy(ctx, entry, security.KindPolicyUpdate, "updated")
+	return m.processPolicy(ctx, entry, security.PolicyUpdate, "updated")
 }
 
 // Delete handles the removal of a security policy
@@ -49,7 +49,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 
 	m.bus.Send(ctx, event.Event{
 		System: security.System,
-		Kind:   security.KindPolicyDelete,
+		Kind:   security.PolicyDelete,
 		Path:   entry.ID.String(),
 	})
 
@@ -85,5 +85,5 @@ func (m *Manager) processPolicy(ctx context.Context, entry registry.Entry, event
 
 // isSupportedKind checks if the entry kind is a supported policy kind
 func (m *Manager) isSupportedKind(kind registry.Kind) bool {
-	return kind == policyapi.KindPolicy || kind == policyapi.ExprKind
+	return kind == policyapi.Policy || kind == policyapi.ExprKind
 }

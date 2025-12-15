@@ -159,7 +159,7 @@ func TestManager_Add(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "router1"},
-			Kind: envsvc.KindStorageRouter,
+			Kind: envsvc.StorageRouter,
 			Meta: attrs.NewBag(),
 			Data: payload.New(nil),
 		}
@@ -180,7 +180,7 @@ func TestManager_Add(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "memory1"},
-			Kind: envsvc.KindStorageMemory,
+			Kind: envsvc.StorageMemory,
 		}
 
 		err := mgr.Add(context.Background(), entry)
@@ -197,7 +197,7 @@ func TestManager_Add(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "router1"},
-			Kind: envsvc.KindStorageRouter,
+			Kind: envsvc.StorageRouter,
 			Data: payload.New(nil),
 		}
 
@@ -219,7 +219,7 @@ func TestManager_Add(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "router1"},
-			Kind: envsvc.KindStorageRouter,
+			Kind: envsvc.StorageRouter,
 			Data: payload.New(nil),
 		}
 
@@ -242,7 +242,7 @@ func TestManager_Add(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "router1"},
-			Kind: envsvc.KindStorageRouter,
+			Kind: envsvc.StorageRouter,
 			Data: payload.New(nil),
 		}
 
@@ -271,7 +271,7 @@ func TestManager_Update(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.ID{NS: "app", Name: "router1"},
-		Kind: envsvc.KindStorageRouter,
+		Kind: envsvc.StorageRouter,
 		Meta: attrs.NewBag(),
 		Data: payload.New(nil),
 	}
@@ -300,7 +300,7 @@ func TestManager_Delete(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "router1"},
-			Kind: envsvc.KindStorageRouter,
+			Kind: envsvc.StorageRouter,
 			Meta: attrs.NewBag(),
 			Data: payload.New(nil),
 		}
@@ -329,7 +329,7 @@ func TestManager_Delete(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "memory1"},
-			Kind: envsvc.KindStorageMemory,
+			Kind: envsvc.StorageMemory,
 		}
 
 		err := mgr.Delete(context.Background(), entry)
@@ -356,7 +356,7 @@ func TestManager_GetStorage(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.ID{NS: "app", Name: "router1"},
-		Kind: envsvc.KindStorageRouter,
+		Kind: envsvc.StorageRouter,
 		Meta: attrs.NewBag(),
 		Data: payload.New(nil),
 	}
@@ -390,7 +390,7 @@ func TestManager_FindStorage_FromLocalCache(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.ID{NS: "app", Name: "router1"},
-		Kind: envsvc.KindStorageRouter,
+		Kind: envsvc.StorageRouter,
 		Meta: attrs.NewBag(),
 		Data: payload.New(nil),
 	}

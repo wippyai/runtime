@@ -31,7 +31,7 @@ func NewVariableManager(
 }
 
 func (m *VariableManager) Add(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != envsvc.KindVariable {
+	if entry.Kind != envsvc.Variable {
 		return env.NewUnsupportedKindError(entry.Kind)
 	}
 
@@ -55,7 +55,7 @@ func (m *VariableManager) Add(ctx context.Context, entry registry.Entry) error {
 }
 
 func (m *VariableManager) Update(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != envsvc.KindVariable {
+	if entry.Kind != envsvc.Variable {
 		return env.NewUnsupportedKindError(entry.Kind)
 	}
 
@@ -79,7 +79,7 @@ func (m *VariableManager) Update(ctx context.Context, entry registry.Entry) erro
 }
 
 func (m *VariableManager) Delete(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != envsvc.KindVariable {
+	if entry.Kind != envsvc.Variable {
 		return env.NewUnsupportedKindError(entry.Kind)
 	}
 

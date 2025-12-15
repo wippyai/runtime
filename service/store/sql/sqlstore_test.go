@@ -202,7 +202,7 @@ func MakeStore(t *testing.T) (*Store, *sql.DB, context.Context) {
 	mockReg.resources[config.Database] = &MockResource{
 		value: sqlsvc.DBResource{
 			DB:   db,
-			Type: sqlconfig.KindSQLite,
+			Type: sqlconfig.SQLite,
 		},
 		err: nil,
 	}
@@ -315,7 +315,7 @@ func TestSQLStore_Get_ExpiredKey(t *testing.T) {
 	mockReg.resources[config.Database] = &MockResource{
 		value: sqlsvc.DBResource{
 			DB:   db,
-			Type: sqlconfig.KindSQLite,
+			Type: sqlconfig.SQLite,
 		},
 		err: nil,
 	}
@@ -520,7 +520,7 @@ func TestSQLStore_Cleanup(t *testing.T) {
 	mockReg.resources[config.Database] = &MockResource{
 		value: sqlsvc.DBResource{
 			DB:   db,
-			Type: sqlconfig.KindSQLite,
+			Type: sqlconfig.SQLite,
 		},
 		err: nil,
 	}
@@ -685,7 +685,7 @@ func BenchmarkSQLStore_Set(b *testing.B) {
 	mockReg.resources[config.Database] = &MockResource{
 		value: sqlsvc.DBResource{
 			DB:   db,
-			Type: sqlconfig.KindSQLite,
+			Type: sqlconfig.SQLite,
 		},
 	}
 
@@ -721,7 +721,7 @@ func BenchmarkSQLStore_Get(b *testing.B) {
 	mockReg.resources[config.Database] = &MockResource{
 		value: sqlsvc.DBResource{
 			DB:   db,
-			Type: sqlconfig.KindSQLite,
+			Type: sqlconfig.SQLite,
 		},
 	}
 
@@ -763,7 +763,7 @@ func BenchmarkSQLStore_Has(b *testing.B) {
 	mockReg.resources[config.Database] = &MockResource{
 		value: sqlsvc.DBResource{
 			DB:   db,
-			Type: sqlconfig.KindSQLite,
+			Type: sqlconfig.SQLite,
 		},
 	}
 
@@ -806,7 +806,7 @@ func BenchmarkSQLStore_Delete(b *testing.B) {
 	mockReg.resources[config.Database] = &MockResource{
 		value: sqlsvc.DBResource{
 			DB:   db,
-			Type: sqlconfig.KindSQLite,
+			Type: sqlconfig.SQLite,
 		},
 	}
 

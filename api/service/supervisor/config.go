@@ -8,7 +8,7 @@ import (
 	"github.com/wippyai/runtime/api/topology"
 )
 
-const KindProcessService = "process.service"
+const ProcessService = "process.service"
 
 // ServiceConfig provides configuration for a process service with lifecycle management.
 type ServiceConfig struct {

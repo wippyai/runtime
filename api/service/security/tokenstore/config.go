@@ -17,8 +17,8 @@ const (
 
 // Registry kind for token stores
 const (
-	// KindTokenStore identifies a token store in the registry
-	KindTokenStore registry.Kind = "security.token_store"
+	// TokenStore identifies a token store in the registry
+	TokenStore registry.Kind = "security.token_store"
 )
 
 // Config defines configuration for a token store

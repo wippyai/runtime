@@ -16,14 +16,14 @@ import (
 // Registry kind constants for HTTP service components.
 // These identify different types of HTTP-related components in the registry.
 const (
-	// KindServer identifies an HTTP server component
-	KindServer registry.Kind = "http.service"
-	// KindRouter identifies an HTTP router component
-	KindRouter registry.Kind = "http.router"
-	// KindEndpoint identifies an HTTP endpoint component
-	KindEndpoint registry.Kind = "http.endpoint"
-	// KindStatic identifies a static file server component
-	KindStatic registry.Kind = "http.static"
+	// Server identifies an HTTP server component
+	Server registry.Kind = "http.service"
+	// Router identifies an HTTP router component
+	Router registry.Kind = "http.router"
+	// Endpoint identifies an HTTP endpoint component
+	Endpoint registry.Kind = "http.endpoint"
+	// Static identifies a static file server component
+	Static registry.Kind = "http.static"
 
 	// ServerID is the key used to identify the server in configuration metadata
 	ServerID string = "server"

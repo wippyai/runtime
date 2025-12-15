@@ -57,7 +57,7 @@ func newTestManager(t *testing.T) (*Manager, *mockBus, payload.Transcoder) {
 func makeSetEntry(id registry.ID, cfg *template.SetConfig) registry.Entry {
 	return registry.Entry{
 		ID:   id,
-		Kind: template.KindTemplateSet,
+		Kind: template.TemplateSet,
 		Data: payload.New(map[string]any{
 			"engine": map[string]any{
 				"development_mode": cfg.Engine.DevelopmentMode,
@@ -73,7 +73,7 @@ func makeSetEntry(id registry.ID, cfg *template.SetConfig) registry.Entry {
 func makeTemplateEntry(id registry.ID, cfg *template.Config) registry.Entry {
 	return registry.Entry{
 		ID:   id,
-		Kind: template.KindTemplate,
+		Kind: template.Template,
 		Data: payload.New(map[string]any{
 			"source": cfg.Source,
 			"set": map[string]any{
@@ -359,7 +359,7 @@ func TestManager_DeleteTemplateNotFound(t *testing.T) {
 
 	tplEntry := registry.Entry{
 		ID:   registry.NewID("test", "missing"),
-		Kind: template.KindTemplate,
+		Kind: template.Template,
 	}
 	err := m.Delete(ctx, tplEntry)
 	require.Error(t, err)

@@ -23,7 +23,7 @@ func newTestPool(t *testing.T) *ConnPool {
 	require.NoError(t, err)
 
 	pool := &ConnPool{
-		kind:   apiconfig.KindSQLite,
+		kind:   apiconfig.SQLite,
 		db:     db,
 		status: make(chan any, 1),
 	}
@@ -312,7 +312,7 @@ func TestBuildDSN(t *testing.T) {
 	}{
 		{
 			name: "postgres",
-			kind: apiconfig.KindPostgres,
+			kind: apiconfig.Postgres,
 			cfg: &apiconfig.DBConfig{
 				Host: "localhost", Port: 5432, Database: "db",
 				Username: "user", Password: "pass",
@@ -321,7 +321,7 @@ func TestBuildDSN(t *testing.T) {
 		},
 		{
 			name: "mysql",
-			kind: apiconfig.KindMySQL,
+			kind: apiconfig.MySQL,
 			cfg: &apiconfig.DBConfig{
 				Host: "localhost", Port: 3306, Database: "db",
 				Username: "user", Password: "pass",
@@ -361,8 +361,8 @@ func TestBuildOptionsString(t *testing.T) {
 }
 
 func TestGetDriver(t *testing.T) {
-	assert.Equal(t, "postgres", getDriver(apiconfig.KindPostgres))
-	assert.Equal(t, apiconfig.KindMySQL, getDriver(apiconfig.KindMySQL))
+	assert.Equal(t, "postgres", getDriver(apiconfig.Postgres))
+	assert.Equal(t, apiconfig.MySQL, getDriver(apiconfig.MySQL))
 	assert.Equal(t, "unknown", getDriver("unknown"))
 }
 
@@ -375,7 +375,7 @@ func newBenchPool(b *testing.B) *ConnPool {
 	}
 
 	pool := &ConnPool{
-		kind:   apiconfig.KindSQLite,
+		kind:   apiconfig.SQLite,
 		db:     db,
 		status: make(chan any, 1),
 	}
@@ -446,7 +446,7 @@ func BenchmarkBuildDSN_Postgres(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		_, _ = buildDSN(apiconfig.KindPostgres, cfg)
+		_, _ = buildDSN(apiconfig.Postgres, cfg)
 	}
 }
 

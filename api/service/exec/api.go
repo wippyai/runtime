@@ -9,11 +9,11 @@ import (
 
 // Registry kind constants for executor types
 const (
-	// KindNativeExecutor identifies a native process executor
-	KindNativeExecutor registry.Kind = "exec.native"
+	// NativeExecutor identifies a native process executor
+	NativeExecutor registry.Kind = "exec.native"
 
-	// KindDockerExecutor identifies a Docker container executor
-	KindDockerExecutor registry.Kind = "exec.docker"
+	// DockerExecutor identifies a Docker container executor
+	DockerExecutor registry.Kind = "exec.docker"
 )
 
 // ProcessOptions defines options for creating a new process

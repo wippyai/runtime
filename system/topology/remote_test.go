@@ -44,7 +44,7 @@ func TestTopology_RemoteMonitoring(t *testing.T) {
 		}
 
 		require.NotNil(t, monitorReq, "package should contain MonitorRequestEvent")
-		assert.Equal(t, topology.KindMonitorRequest, monitorReq.Kind)
+		assert.Equal(t, topology.MonitorRequest, monitorReq.Kind)
 		assert.Equal(t, localPID, monitorReq.Caller)
 		assert.Equal(t, remotePID, monitorReq.Target)
 	})
@@ -69,7 +69,7 @@ func TestTopology_RemoteMonitoring(t *testing.T) {
 		}
 
 		require.NotNil(t, releaseReq, "package should contain MonitorReleaseEvent")
-		assert.Equal(t, topology.KindMonitorRelease, releaseReq.Kind)
+		assert.Equal(t, topology.MonitorRelease, releaseReq.Kind)
 		assert.Equal(t, localPID, releaseReq.Caller)
 		assert.Equal(t, remotePID, releaseReq.Target)
 	})
@@ -121,7 +121,7 @@ func TestTopology_RemoteLinking(t *testing.T) {
 		}
 
 		require.NotNil(t, linkReq, "package should contain LinkRequestEvent")
-		assert.Equal(t, topology.KindLinkRequest, linkReq.Kind)
+		assert.Equal(t, topology.LinkRequest, linkReq.Kind)
 		assert.Equal(t, localPID, linkReq.From)
 		assert.Equal(t, remotePID, linkReq.To)
 	})
@@ -159,7 +159,7 @@ func TestTopology_RemoteLinking(t *testing.T) {
 		}
 
 		require.NotNil(t, unlinkReq, "package should contain UnlinkRequestEvent")
-		assert.Equal(t, topology.KindUnlinkRequest, unlinkReq.Kind)
+		assert.Equal(t, topology.UnlinkRequest, unlinkReq.Kind)
 		assert.Equal(t, localPID, unlinkReq.From)
 		assert.Equal(t, remotePID, unlinkReq.To)
 	})
@@ -365,7 +365,7 @@ func TestTopology_RemoteMonitoringWithNotification(t *testing.T) {
 		}
 
 		require.NotNil(t, exitEvent, "should contain ExitEvent")
-		assert.Equal(t, topology.KindExit, exitEvent.Kind)
+		assert.Equal(t, topology.Exit, exitEvent.Kind)
 		assert.Equal(t, localPID, exitEvent.From)
 	})
 }
@@ -410,7 +410,7 @@ func TestTopology_HandleNodeExit(t *testing.T) {
 		}
 
 		require.NotNil(t, exitEvent)
-		assert.Equal(t, topology.KindLinkDown, exitEvent.Kind)
+		assert.Equal(t, topology.LinkDown, exitEvent.Kind)
 		assert.Equal(t, remotePID1, exitEvent.From)
 	})
 

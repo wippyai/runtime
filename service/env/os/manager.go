@@ -56,7 +56,7 @@ func NewManager(
 
 // Add registers a new OS storage from registry entry.
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != envsvc.KindStorageOS {
+	if entry.Kind != envsvc.StorageOS {
 		return env.NewUnsupportedKindError(entry.Kind)
 	}
 
@@ -105,7 +105,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 // Delete removes an OS storage.
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != envsvc.KindStorageOS {
+	if entry.Kind != envsvc.StorageOS {
 		return env.NewUnsupportedKindError(entry.Kind)
 	}
 

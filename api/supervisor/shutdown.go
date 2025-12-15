@@ -3,42 +3,33 @@ package supervisor
 import (
 	"context"
 	"os"
+	"sync/atomic"
 	"syscall"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
 var (
-	exitCodeCtxKey      = &ctxapi.Key{Name: "supervisor.exitCodeCtxKey"}
 	signalChannelCtxKey = &ctxapi.Key{Name: "supervisor.signalChannelCtxKey"}
+	// exitCode is stored atomically since it's set at runtime during shutdown
+	exitCode atomic.Int32
 )
 
-func setExitCode(ctx context.Context, code int) {
-	ac := ctxapi.AppFromContext(ctx)
-	if ac != nil {
-		ac.Update(exitCodeCtxKey, code)
-	}
+func setExitCode(code int) {
+	exitCode.Store(int32(code))
 }
 
-// GetExitCode retrieves the exit code from the application context.
-func GetExitCode(ctx context.Context) int {
-	ac := ctxapi.AppFromContext(ctx)
-	if ac == nil {
-		return 0
-	}
-	if code := ac.Get(exitCodeCtxKey); code != nil {
-		if c, ok := code.(int); ok {
-			return c
-		}
-	}
-	return 0
+// GetExitCode retrieves the exit code.
+func GetExitCode() int {
+	return int(exitCode.Load())
 }
 
 // SetSignalChannel stores the signal channel in the application context.
+// Must be called during boot before AppContext is sealed.
 func SetSignalChannel(ctx context.Context, ch chan<- os.Signal) {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac != nil {
-		ac.Update(signalChannelCtxKey, ch)
+		ac.With(signalChannelCtxKey, ch)
 	}
 }
 
@@ -58,7 +49,7 @@ func getSignalChannel(ctx context.Context) chan<- os.Signal {
 // TriggerShutdown sets the exit code and sends a SIGTERM signal to trigger
 // graceful application shutdown.
 func TriggerShutdown(ctx context.Context, code int) {
-	setExitCode(ctx, code)
+	setExitCode(code)
 	if ch := getSignalChannel(ctx); ch != nil {
 		ch <- syscall.SIGTERM
 	}

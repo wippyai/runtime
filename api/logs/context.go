@@ -24,16 +24,6 @@ func WithLogger(ctx context.Context, logger *zap.Logger) context.Context {
 	return ctx
 }
 
-// UpdateLogger replaces the logger in the context.
-func UpdateLogger(ctx context.Context, logger *zap.Logger) context.Context {
-	ac := ctxapi.AppFromContext(ctx)
-	if ac == nil {
-		return ctx
-	}
-	ac.Update(loggerCtxKey, logger)
-	return ctx
-}
-
 // GetLogger retrieves the logger from the context. Returns a no-op logger if not found.
 func GetLogger(ctx context.Context) *zap.Logger {
 	ac := ctxapi.AppFromContext(ctx)

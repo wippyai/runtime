@@ -10,8 +10,8 @@ import (
 
 // Registry kind constants for Process Host components
 const (
-	// KindHost identifies a process host service component
-	KindHost registry.Kind = "process.host"
+	// Host identifies a process host service component
+	Host registry.Kind = "process.host"
 )
 
 // EntryConfig represents the full configuration entry for a process host service including lifecycle management.

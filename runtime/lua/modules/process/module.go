@@ -64,9 +64,9 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	mod.RawSetString("unlisten", lua.LGoFunc(unlisten))
 
 	eventsTbl := lua.CreateTable(0, 3)
-	eventsTbl.RawSetString("CANCEL", lua.LString(topology.KindCancel))
-	eventsTbl.RawSetString("EXIT", lua.LString(topology.KindExit))
-	eventsTbl.RawSetString("LINK_DOWN", lua.LString(topology.KindLinkDown))
+	eventsTbl.RawSetString("CANCEL", lua.LString(topology.Cancel))
+	eventsTbl.RawSetString("EXIT", lua.LString(topology.Exit))
+	eventsTbl.RawSetString("LINK_DOWN", lua.LString(topology.LinkDown))
 	eventsTbl.Immutable = true
 	mod.RawSetString("event", eventsTbl)
 

@@ -12,11 +12,11 @@ import (
 
 // Registry kind constants for contract entries
 const (
-	// KindDefinition identifies a contract definition in the registry
-	KindDefinition registry.Kind = "contract.definition"
+	// Definition identifies a contract definition in the registry
+	Definition registry.Kind = "contract.definition"
 
-	// KindBinding identifies a contract binding in the registry
-	KindBinding registry.Kind = "contract.binding"
+	// Binding identifies a contract binding in the registry
+	Binding registry.Kind = "contract.binding"
 )
 
 // DefinitionConfig represents the configuration for a contract definition entry

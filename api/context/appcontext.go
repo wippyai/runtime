@@ -2,28 +2,32 @@ package context
 
 import (
 	"context"
-	"sync"
+	"sync/atomic"
 )
 
 var appContextKey = &Key{Name: "context.app"}
 
 // AppContext stores application-level key-value pairs.
-// Uses immutable builder pattern - each With() returns the same instance for chaining.
-// Keys are write-once: setting the same key twice will panic.
+// Designed for single-threaded writes during boot, then sealed for lock-free reads.
+// Do NOT write from multiple goroutines before Seal() is called.
+// After sealing, concurrent reads are safe (values become immutable).
 type AppContext interface {
 	// Get retrieves a value by key. Returns nil if not found.
 	Get(key any) any
 
 	// With stores a value by key and returns this AppContext for chaining.
-	// Panics if the key is already set (write-once enforcement).
+	// Panics if sealed or if key already exists.
 	With(key any, value any) AppContext
 
-	// Update replaces an existing value by key and returns this AppContext for chaining.
-	Update(key any, value any) AppContext
+	// Seal marks this context as immutable. Panics on subsequent With() calls.
+	Seal()
+
+	// IsSealed returns true if this context is sealed.
+	IsSealed() bool
 }
 
 type appContext struct {
-	mu     sync.RWMutex
+	sealed atomic.Bool
 	values map[any]any
 }
 
@@ -33,14 +37,13 @@ func NewAppContext() AppContext {
 }
 
 func (a *appContext) Get(key any) any {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
 	return a.values[key]
 }
 
 func (a *appContext) With(key any, value any) AppContext {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	if a.sealed.Load() {
+		panic("cannot modify sealed AppContext")
+	}
 	if _, exists := a.values[key]; exists {
 		panic("cannot overwrite AppContext key: key already set")
 	}
@@ -48,11 +51,12 @@ func (a *appContext) With(key any, value any) AppContext {
 	return a
 }
 
-func (a *appContext) Update(key any, value any) AppContext {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.values[key] = value
-	return a
+func (a *appContext) Seal() {
+	a.sealed.Store(true)
+}
+
+func (a *appContext) IsSealed() bool {
+	return a.sealed.Load()
 }
 
 // WithAppContext attaches AppContext to the provided context.

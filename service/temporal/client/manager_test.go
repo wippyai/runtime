@@ -460,7 +460,7 @@ func TestManager_EntryListener(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.NewID("test", "client1"),
-			Kind: api.KindClient,
+			Kind: api.Client,
 			Data: payload.New(data),
 		}
 
@@ -499,7 +499,7 @@ func TestManager_EntryListener(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.NewID("test", "client1"),
-			Kind: api.KindClient,
+			Kind: api.Client,
 			Data: payload.New(data),
 		}
 
@@ -535,7 +535,7 @@ func TestManager_EntryListener(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.NewID("test", "client1"),
-			Kind: api.KindClient,
+			Kind: api.Client,
 			Data: payload.New(data),
 		}
 

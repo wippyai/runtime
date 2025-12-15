@@ -69,7 +69,7 @@ func TestManager_Add(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "memory1"},
-			Kind: envsvc.KindStorageMemory,
+			Kind: envsvc.StorageMemory,
 			Meta: attrs.NewBag(),
 			Data: payload.New(nil),
 		}
@@ -94,7 +94,7 @@ func TestManager_Add(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "file1"},
-			Kind: envsvc.KindStorageFile,
+			Kind: envsvc.StorageFile,
 		}
 
 		err := mgr.Add(context.Background(), entry)
@@ -111,7 +111,7 @@ func TestManager_Add(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "memory1"},
-			Kind: envsvc.KindStorageMemory,
+			Kind: envsvc.StorageMemory,
 			Data: payload.New(nil),
 		}
 
@@ -130,7 +130,7 @@ func TestManager_Update(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.ID{NS: "app", Name: "memory1"},
-		Kind: envsvc.KindStorageMemory,
+		Kind: envsvc.StorageMemory,
 		Meta: attrs.NewBag(),
 		Data: payload.New(nil),
 	}
@@ -149,7 +149,7 @@ func TestManager_Delete(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "memory1"},
-			Kind: envsvc.KindStorageMemory,
+			Kind: envsvc.StorageMemory,
 			Meta: attrs.NewBag(),
 			Data: payload.New(nil),
 		}
@@ -178,7 +178,7 @@ func TestManager_Delete(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "file1"},
-			Kind: envsvc.KindStorageFile,
+			Kind: envsvc.StorageFile,
 		}
 
 		err := mgr.Delete(context.Background(), entry)
@@ -194,7 +194,7 @@ func TestManager_Delete(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "nonexistent"},
-			Kind: envsvc.KindStorageMemory,
+			Kind: envsvc.StorageMemory,
 		}
 
 		err := mgr.Delete(context.Background(), entry)
@@ -212,7 +212,7 @@ func TestManager_GetStorage(t *testing.T) {
 
 	entry := registry.Entry{
 		ID:   registry.ID{NS: "app", Name: "memory1"},
-		Kind: envsvc.KindStorageMemory,
+		Kind: envsvc.StorageMemory,
 		Meta: attrs.NewBag(),
 		Data: payload.New(nil),
 	}

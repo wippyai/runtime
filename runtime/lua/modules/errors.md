@@ -56,7 +56,7 @@ end
 ```go
 // Simple error
 err := lua.NewLuaError(l, "string expected").
-    WithKind(lua.KindInvalid).
+    WithKind(lua.Invalid).
     WithRetryable(false)
 l.Push(lua.LNil)
 l.Push(err)
@@ -66,7 +66,7 @@ return 2
 decoded, goErr := base64.StdEncoding.DecodeString(input)
 if goErr != nil {
     err := lua.WrapErrorWithLua(l, goErr, "decode failed").
-        WithKind(lua.KindInvalid).
+        WithKind(lua.Invalid).
         WithRetryable(false)
     l.Push(lua.LNil)
     l.Push(err)
@@ -163,17 +163,17 @@ import lua "github.com/yuin/gopher-lua"
 ```
 
 Available Go constants:
-- `lua.KindUnknown`
-- `lua.KindNotFound`
-- `lua.KindAlreadyExists`
-- `lua.KindInvalid`
-- `lua.KindPermissionDenied`
-- `lua.KindUnavailable`
-- `lua.KindInternal`
-- `lua.KindCanceled`
-- `lua.KindConflict`
-- `lua.KindTimeout`
-- `lua.KindRateLimited`
+- `lua.Unknown`
+- `lua.NotFound`
+- `lua.AlreadyExists`
+- `lua.Invalid`
+- `lua.PermissionDenied`
+- `lua.Unavailable`
+- `lua.Internal`
+- `lua.Canceled`
+- `lua.Conflict`
+- `lua.Timeout`
+- `lua.RateLimited`
 
 Error creation functions:
 - `lua.NewLuaError(l, message)` - Create new error with Lua stack (metatable set automatically)

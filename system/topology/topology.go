@@ -576,7 +576,7 @@ func (t *Topology) Complete(p pid.PID, result *runtime.Result) {
 		exitPayload := payload.New(&topology.ExitEvent{
 			At:     time.Now(),
 			From:   p,
-			Kind:   topology.KindExit,
+			Kind:   topology.Exit,
 			Result: result,
 		})
 		for _, wPID := range watchers {
@@ -589,7 +589,7 @@ func (t *Topology) Complete(p pid.PID, result *runtime.Result) {
 		linkDownPayload := payload.New(&topology.ExitEvent{
 			At:     time.Now(),
 			From:   p,
-			Kind:   topology.KindLinkDown,
+			Kind:   topology.LinkDown,
 			Result: result,
 		})
 		for _, linkedPID := range linkedPIDs {
@@ -695,7 +695,7 @@ func (t *Topology) HandleNodeExit(nodeID pid.NodeID, exitErr error) {
 		linkDownPayload := payload.New(&topology.ExitEvent{
 			At:   time.Now(),
 			From: n.target,
-			Kind: topology.KindLinkDown,
+			Kind: topology.LinkDown,
 			Result: &runtime.Result{
 				Error: exitErr,
 			},

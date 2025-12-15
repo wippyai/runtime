@@ -103,15 +103,15 @@ var Module = &luaapi.ModuleDef{
 
 func mapDBTypeFromResourceKind(dbType string) string {
 	switch dbType {
-	case servicesql.KindPostgres:
+	case servicesql.Postgres:
 		return TypePostgres
-	case servicesql.KindMySQL:
+	case servicesql.MySQL:
 		return TypeMySQL
-	case servicesql.KindSQLite:
+	case servicesql.SQLite:
 		return TypeSQLite
-	case servicesql.KindMSSQL:
+	case servicesql.MSSQL:
 		return TypeMSSQL
-	case servicesql.KindOracle:
+	case servicesql.Oracle:
 		return TypeOracle
 	default:
 		return TypeUnknown

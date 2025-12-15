@@ -44,7 +44,7 @@ func WithLogger(logger *zap.Logger) MailboxOption {
 // It routes packages to attached receivers via worker goroutines.
 type Mailbox struct {
 	ctx       context.Context
-	receivers sync.Map            // key: api.PID -> chan *api.Package
+	receivers sync.Map            // key: PID.String() -> chan *api.Package
 	jobQueues []chan *api.Package // One queue per worker
 	config    mailboxConfig
 }
@@ -105,22 +105,24 @@ func hashString(s string) uint32 {
 // Attach attaches a receiver channel for Package messages.
 // Only one receiver may be attached per PID; if one already exists, an error is returned.
 func (m *Mailbox) Attach(p pid.PID, ch chan *api.Package) (context.CancelFunc, error) {
-	_, loaded := m.receivers.LoadOrStore(p, ch)
+	key := p.String()
+	_, loaded := m.receivers.LoadOrStore(key, ch)
 	if loaded {
 		m.config.logger.Warn("attempt to attach an already existing package receiver",
-			zap.String("pid", p.String()),
+			zap.String("pid", key),
 			zap.String("host", p.Host),
 			zap.String("uniq_id", p.UniqID))
 		return nil, api.NewAlreadyAttachedError(p)
 	}
 
-	return func() { m.receivers.Delete(p) }, nil
+	return func() { m.receivers.Delete(key) }, nil
 }
 
 // Detach removes a receiver channel from a pid.
 func (m *Mailbox) Detach(p pid.PID) {
-	m.receivers.Delete(p)
-	m.config.logger.Debug("receiver detached", zap.String("pid", p.String()))
+	key := p.String()
+	m.receivers.Delete(key)
+	m.config.logger.Debug("receiver detached", zap.String("pid", key))
 }
 
 // Send enqueues a package for delivery. Messages from the same source
@@ -159,14 +161,15 @@ func (m *Mailbox) worker(queueIndex int) {
 
 // deliver sends the package to the target's receiver channel.
 func (m *Mailbox) deliver(pkg *api.Package) {
-	rec, ok := m.receivers.Load(pkg.Target)
+	targetKey := pkg.Target.String()
+	rec, ok := m.receivers.Load(targetKey)
 	if !ok {
 		var topic string
 		if len(pkg.Messages) > 0 {
 			topic = pkg.Messages[0].Topic
 		}
 		m.config.logger.Debug("no receiver found for target PID",
-			zap.String("target", pkg.Target.String()),
+			zap.String("target", targetKey),
 			zap.String("source", pkg.Source.String()),
 			zap.String("topic", topic))
 		return
@@ -175,7 +178,7 @@ func (m *Mailbox) deliver(pkg *api.Package) {
 	ch, ok := rec.(chan *api.Package)
 	if !ok {
 		m.config.logger.Error("receiver has invalid type",
-			zap.String("target", pkg.Target.String()))
+			zap.String("target", targetKey))
 		return
 	}
 
@@ -183,6 +186,6 @@ func (m *Mailbox) deliver(pkg *api.Package) {
 	case ch <- pkg:
 	case <-m.ctx.Done():
 		m.config.logger.Debug("delivery cancelled",
-			zap.String("target", pkg.Target.String()))
+			zap.String("target", targetKey))
 	}
 }

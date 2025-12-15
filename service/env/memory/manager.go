@@ -38,7 +38,7 @@ func NewManager(
 
 // Add registers a new memory storage from registry entry.
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != envsvc.KindStorageMemory {
+	if entry.Kind != envsvc.StorageMemory {
 		return env.NewUnsupportedKindError(entry.Kind)
 	}
 
@@ -82,7 +82,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 // Delete removes a memory storage.
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != envsvc.KindStorageMemory {
+	if entry.Kind != envsvc.StorageMemory {
 		return env.NewUnsupportedKindError(entry.Kind)
 	}
 

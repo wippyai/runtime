@@ -47,5 +47,5 @@ func Perform(ctx context.Context, loader *bootloader.Loader, logger *zap.Logger,
 	}
 
 	// Check for programmatic exit code
-	return supervisorapi.GetExitCode(ctx)
+	return supervisorapi.GetExitCode()
 }

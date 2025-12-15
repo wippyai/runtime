@@ -141,16 +141,13 @@ func IsAllowed(ctx context.Context, action, resource string, meta attrs.Bag) boo
 
 // SetStrictMode sets the security strict mode in the AppContext.
 // When strict mode is enabled, incomplete security contexts will deny access.
+// Must be called during boot before AppContext is sealed.
 func SetStrictMode(ctx context.Context, strict bool) context.Context {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return ctx
 	}
-	if ac.Get(strictKey) == nil {
-		ac.With(strictKey, strict)
-	} else {
-		ac.Update(strictKey, strict)
-	}
+	ac.With(strictKey, strict)
 	return ctx
 }
 

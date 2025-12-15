@@ -79,7 +79,7 @@ func TestVariableManager_Add(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "my_var"},
-			Kind: envsvc.KindVariable,
+			Kind: envsvc.Variable,
 			Meta: attrs.NewBag(),
 			Data: payload.New(nil),
 		}
@@ -101,7 +101,7 @@ func TestVariableManager_Add(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "storage"},
-			Kind: envsvc.KindStorageMemory,
+			Kind: envsvc.StorageMemory,
 		}
 
 		err := mgr.Add(context.Background(), entry)
@@ -118,7 +118,7 @@ func TestVariableManager_Add(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "my_var"},
-			Kind: envsvc.KindVariable,
+			Kind: envsvc.Variable,
 			Data: payload.New(nil),
 		}
 
@@ -143,7 +143,7 @@ func TestVariableManager_Update(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "my_var"},
-			Kind: envsvc.KindVariable,
+			Kind: envsvc.Variable,
 			Meta: attrs.NewBag(),
 			Data: payload.New(nil),
 		}
@@ -164,7 +164,7 @@ func TestVariableManager_Update(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "storage"},
-			Kind: envsvc.KindStorageMemory,
+			Kind: envsvc.StorageMemory,
 		}
 
 		err := mgr.Update(context.Background(), entry)
@@ -180,7 +180,7 @@ func TestVariableManager_Update(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "my_var"},
-			Kind: envsvc.KindVariable,
+			Kind: envsvc.Variable,
 			Data: payload.New(nil),
 		}
 
@@ -199,7 +199,7 @@ func TestVariableManager_Delete(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "my_var"},
-			Kind: envsvc.KindVariable,
+			Kind: envsvc.Variable,
 		}
 
 		err := mgr.Delete(context.Background(), entry)
@@ -218,7 +218,7 @@ func TestVariableManager_Delete(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   registry.ID{NS: "app", Name: "storage"},
-			Kind: envsvc.KindStorageMemory,
+			Kind: envsvc.StorageMemory,
 		}
 
 		err := mgr.Delete(context.Background(), entry)

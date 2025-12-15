@@ -76,7 +76,7 @@ All errors must be structured using `lua.LuaError`. Never return plain `lua.LStr
 // For invalid input errors
 func invalidError(l *lua.LState, msg string) int {
     err := lua.NewLuaError(l, msg).
-        WithKind(lua.KindInvalid).
+        WithKind(lua.Invalid).
         WithRetryable(false)
     l.Push(lua.LNil)
     l.Push(err)
@@ -86,7 +86,7 @@ func invalidError(l *lua.LState, msg string) int {
 // For internal/Go errors
 func internalError(l *lua.LState, goErr error, context string) int {
     err := lua.WrapErrorWithLua(l, goErr, context).
-        WithKind(lua.KindInternal).
+        WithKind(lua.Internal).
         WithRetryable(false)
     l.Push(lua.LNil)
     l.Push(err)
@@ -96,7 +96,7 @@ func internalError(l *lua.LState, goErr error, context string) int {
 // For internal errors without Go error
 func internalErrorMsg(l *lua.LState, msg string) int {
     err := lua.NewLuaError(l, msg).
-        WithKind(lua.KindInternal).
+        WithKind(lua.Internal).
         WithRetryable(false)
     l.Push(lua.LNil)
     l.Push(err)
@@ -106,8 +106,8 @@ func internalErrorMsg(l *lua.LState, msg string) int {
 
 ### Error Kinds
 
-- `lua.KindInvalid` - Invalid input, bad arguments
-- `lua.KindInternal` - Internal failures, Go errors
+- `lua.Invalid` - Invalid input, bad arguments
+- `lua.Internal` - Internal failures, Go errors
 
 ### Usage
 
@@ -116,7 +116,7 @@ func encodeFunc(l *lua.LState) int {
     str, ok := l.Get(1).(lua.LString)
     if !ok {
         err := lua.NewLuaError(l, "string expected").
-            WithKind(lua.KindInvalid).
+            WithKind(lua.Invalid).
             WithRetryable(false)
         l.Push(lua.LNil)
         l.Push(err)
@@ -126,7 +126,7 @@ func encodeFunc(l *lua.LState) int {
     result, goErr := doSomething(string(str))
     if goErr != nil {
         err := lua.WrapErrorWithLua(l, goErr, "encode failed").
-            WithKind(lua.KindInternal).
+            WithKind(lua.Internal).
             WithRetryable(false)
         l.Push(lua.LNil)
         l.Push(err)
@@ -165,7 +165,7 @@ func luaRegexpCompile(l *lua.LState) int {
     re, err := regexp.Compile(pattern)
     if err != nil {
         luaErr := lua.WrapErrorWithLua(l, err, "regex compile error").
-            WithKind(lua.KindInvalid).
+            WithKind(lua.Invalid).
             WithRetryable(false)
         l.Push(lua.LNil)
         l.Push(luaErr)
@@ -455,7 +455,7 @@ When creating/updating a module:
 2. [ ] Use `lua.CreateTable(0, N)` with exact size
 3. [ ] Set `mod.Immutable = true`
 4. [ ] Return structured errors with `lua.NewLuaError` or `lua.WrapErrorWithLua`
-5. [ ] Set error kind (`lua.KindInvalid` or `lua.KindInternal`)
+5. [ ] Set error kind (`lua.Invalid` or `lua.Internal`)
 6. [ ] Set `WithRetryable(false)` for non-retryable errors
 7. [ ] Go tests:
    - [ ] TestLoad - module registers correctly
