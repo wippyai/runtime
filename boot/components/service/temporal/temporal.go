@@ -20,6 +20,7 @@ import (
 	"github.com/wippyai/runtime/service/temporal/client"
 	"github.com/wippyai/runtime/service/temporal/dataconverter"
 	"github.com/wippyai/runtime/service/temporal/worker"
+	temporalworkflow "github.com/wippyai/runtime/service/temporal/workflow"
 	"go.temporal.io/sdk/converter"
 	"go.uber.org/zap"
 )
@@ -121,6 +122,12 @@ func Component() boot.Component {
 				workerManager,
 			)
 
+			// Create workflow listener to auto-register workflows
+			workflowListener := temporalworkflow.NewListener(
+				logger.Named("workflow"),
+				workerManager,
+			)
+
 			// Register handlers for temporal entry kinds
 			handlers.RegisterListener(temporalapi.Client, clientManager)
 			handlers.RegisterListener(temporalapi.Worker, workerManager)
@@ -129,6 +136,9 @@ func Component() boot.Component {
 			// Use RegisterObserver because this is a secondary observer that shouldn't ack events
 			handlers.RegisterObserver("function.*", activityListener)
 			handlers.RegisterObserver("process.*", activityListener)
+
+			// Register workflow observer for workflow entries with temporal.workflow metadata
+			handlers.RegisterObserver("workflow.*", workflowListener)
 
 			logger.Info("temporal component loaded")
 

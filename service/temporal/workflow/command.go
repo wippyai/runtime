@@ -9,10 +9,10 @@ import (
 // These are processed by the workflow definition, not the standard scheduler.
 // Timer/sleep uses the standard clock.Sleep command.
 const (
-	Activity      dispatcher.CommandID = 300
-	LocalActivity dispatcher.CommandID = 301
-	ChildWorkflow dispatcher.CommandID = 302
-	Signal        dispatcher.CommandID = 303 // Signal external workflow (outgoing only)
+	Activity      dispatcher.CommandID = 400
+	LocalActivity dispatcher.CommandID = 401
+	ChildWorkflow dispatcher.CommandID = 402
+	Signal        dispatcher.CommandID = 403 // Signal external workflow (outgoing only)
 )
 
 func init() {

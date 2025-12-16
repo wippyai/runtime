@@ -34,7 +34,7 @@ func init() {
 var Module = &luaapi.ModuleDef{
 	Name:        "process",
 	Description: "Process management and messaging",
-	Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
+	Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic, luaapi.ClassWorkflow},
 	Build:       buildModule,
 }
 

@@ -191,8 +191,12 @@ func (c *DataConverter) FromPayload(p *commonpb.Payload, valuePtr any) error {
 
 	switch {
 	case string(enc) == converter.MetadataEncodingJSON:
-		// we only support JSON encoding for now
-		*ptr = payload.NewPayload(p.Data, payload.JSON)
+		jsonPayload := payload.NewPayload(p.Data, payload.JSON)
+		converted, err := c.dtt.Transcode(jsonPayload, payload.Lua)
+		if err != nil {
+			return fmt.Errorf("failed to transcode from JSON: %w", err)
+		}
+		*ptr = converted
 		return nil
 	case string(enc) == converter.MetadataEncodingNil:
 		*ptr = payload.New(nil)

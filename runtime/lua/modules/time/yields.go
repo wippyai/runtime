@@ -99,7 +99,7 @@ func init() {
 var Module = &luaapi.ModuleDef{
 	Name:        "time",
 	Description: "Time operations, scheduling, and duration handling",
-	Class:       []string{luaapi.ClassTime, luaapi.ClassNondeterministic},
+	Class:       []string{luaapi.ClassTime, luaapi.ClassWorkflow},
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		return moduleTable, yieldTypes
 	},

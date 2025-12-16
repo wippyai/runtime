@@ -12,9 +12,15 @@ import (
 
 // Metadata keys for activity configuration
 const (
-	MetaTemporalActivity = "temporal"
-	MetaActivityWorker   = "worker"
-	MetaActivityLocal    = "local"
+	MetaTemporalActivity    = "temporal"
+	MetaActivityWorker      = "worker"
+	MetaActivityLocal       = "local"
+	MetaActivityOptions     = "options"
+	MetaScheduleToClose     = "schedule_to_close_timeout"
+	MetaScheduleToStart     = "schedule_to_start_timeout"
+	MetaStartToClose        = "start_to_close_timeout"
+	MetaHeartbeatTimeout    = "heartbeat_timeout"
+	MetaWaitForCancellation = "wait_for_cancellation"
 )
 
 // WorkerRegistry provides access to workers for activity registration

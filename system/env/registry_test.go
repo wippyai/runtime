@@ -1383,7 +1383,7 @@ func TestRegistry_NsFromCtx_NilContext(t *testing.T) {
 	reg, _, _ := setupTestRegistry()
 
 	// Test nil context directly via findVariable which calls nsFromCtx
-	//nolint:staticcheck // deliberately testing nil context handling
+	//lint:ignore SA1012 deliberately testing nil context handling
 	_, err := reg.findVariable(nil, "test")
 	assert.Error(t, err)
 }

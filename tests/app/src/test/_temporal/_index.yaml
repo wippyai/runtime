@@ -12,14 +12,14 @@ entries:
     lifecycle:
       auto_start: true
 
-  # Temporal worker configuration - handles activities only
+  # Temporal worker configuration - handles activities and workflows
   - name: test_worker
     kind: temporal.worker
     client: app.test.temporal:test_client
     task_queue: test-queue
     worker_options:
       max_concurrent_activity_execution_size: 10
-      disable_workflow_worker: true
+      max_concurrent_workflow_task_execution_size: 10
     lifecycle:
       auto_start: true
 
@@ -41,4 +41,64 @@ entries:
     meta:
       temporal:
         activity:
+          worker: app.test.temporal:test_worker
+
+  # Hello workflow - simple workflow that returns a greeting
+  - name: hello_workflow
+    kind: workflow.lua
+    source: file://hello_workflow.lua
+    method: main
+    modules:
+      - time
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Concurrent workflow - demonstrates coroutines, channels, and timers
+  - name: concurrent_workflow
+    kind: workflow.lua
+    source: file://concurrent_workflow.lua
+    method: main
+    modules:
+      - time
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Timed workflow - demonstrates time progression with multiple sleeps
+  - name: timed_workflow
+    kind: workflow.lua
+    source: file://timed_workflow.lua
+    method: main
+    modules:
+      - time
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Activity workflow - demonstrates calling activities via funcs.call
+  - name: activity_workflow
+    kind: workflow.lua
+    source: file://activity_workflow.lua
+    method: main
+    modules:
+      - funcs
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Signal workflow - demonstrates receiving signals and calling activities
+  - name: signal_workflow
+    kind: workflow.lua
+    source: file://signal_workflow.lua
+    method: main
+    modules:
+      - funcs
+    meta:
+      temporal:
+        workflow:
           worker: app.test.temporal:test_worker
