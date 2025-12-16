@@ -14,6 +14,7 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 	api "github.com/wippyai/runtime/api/service/temporal"
 	"github.com/wippyai/runtime/api/supervisor"
+	temporalsvc "github.com/wippyai/runtime/service/temporal"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/interceptor"
 	"go.temporal.io/sdk/worker"
@@ -217,23 +218,38 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 }
 
 // Stop implements supervisor.Service
-func (w *Worker) Stop(_ context.Context) error {
+func (w *Worker) Stop(ctx context.Context) error {
 	if w.closed.Swap(true) {
 		return nil
 	}
+
+	w.log.Info("stopping temporal worker", zap.String("id", w.id.String()))
 
 	if w.cancel != nil {
 		w.cancel()
 	}
 
 	if w.worker != nil {
-		w.worker.Stop()
+		// Stop worker in goroutine to respect context timeout
+		done := make(chan struct{})
+		go func() {
+			w.worker.Stop()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			w.log.Debug("temporal worker stopped gracefully")
+		case <-ctx.Done():
+			w.log.Warn("timeout waiting for temporal worker to stop")
+		}
 	}
 
 	if w.clientResource != nil {
 		w.clientResource.Release()
 	}
 
+	w.log.Info("temporal worker stopped", zap.String("id", w.id.String()))
 	return nil
 }
 
@@ -421,7 +437,8 @@ func (w *Worker) createActivityHandler(_ context.Context, funcID registry.ID) fu
 				zap.String("function", funcID.String()),
 				zap.Error(err),
 			)
-			return nil, err
+			// Convert to Temporal ApplicationError preserving error kind and retryability
+			return nil, temporalsvc.ToApplicationError(err)
 		}
 
 		if result == nil {
@@ -433,7 +450,8 @@ func (w *Worker) createActivityHandler(_ context.Context, funcID registry.ID) fu
 				zap.String("function", funcID.String()),
 				zap.Error(result.Error),
 			)
-			return nil, result.Error
+			// Convert to Temporal ApplicationError preserving error kind and retryability
+			return nil, temporalsvc.ToApplicationError(result.Error)
 		}
 
 		w.log.Debug("activity completed",

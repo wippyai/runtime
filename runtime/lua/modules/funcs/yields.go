@@ -41,9 +41,8 @@ func (y *CallYield) Release()                      { ReleaseCallYield(y) }
 // HandleResult converts function call response to Lua values.
 func (y *CallYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		luaErr := lua.WrapErrorWithLua(l, err, "call failed").
-			WithKind(lua.Internal).
-			WithRetryable(false)
+		// Wrap error preserving kind/retryable from error chain
+		luaErr := lua.WrapErrorWithLua(l, err, "")
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 	if data == nil {
@@ -119,9 +118,8 @@ func (y *AsyncStartYield) HandleResult(l *lua.LState, data any, err error) []lua
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 	if resp.Error != nil {
-		luaErr := lua.WrapErrorWithLua(l, resp.Error, "async start error").
-			WithKind(lua.Internal).
-			WithRetryable(false)
+		// Wrap error preserving kind/retryable from error chain
+		luaErr := lua.WrapErrorWithLua(l, resp.Error, "")
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 	// Return pre-created Future with channel

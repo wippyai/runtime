@@ -15,6 +15,8 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/topology"
+	temporalsvc "github.com/wippyai/runtime/service/temporal"
 	commonpb "go.temporal.io/api/common/v1"
 	"go.temporal.io/sdk/converter"
 	bindings "go.temporal.io/sdk/internalbindings"
@@ -66,19 +68,29 @@ type incomingSignal struct {
 	Payloads payload.Payloads
 }
 
+// childExitEvent represents a child workflow completion to be delivered as EXIT event.
+type childExitEvent struct {
+	ChildPID pid.PID
+	Result   payload.Payload
+	Error    error
+}
+
 // Definition implements Temporal's WorkflowDefinition interface.
 // It bridges the Process model with Temporal's workflow execution.
 type Definition struct {
-	id      registry.ID
-	log     *zap.Logger
-	ctx     context.Context
-	execCtx context.Context
-	env     bindings.WorkflowEnvironment
-	dc      converter.DataConverter
-	proc    process.Process
-	result  *runtime.Result
-	output  process.StepOutput // reusable output buffer
-	signals []incomingSignal   // queued signals
+	id         registry.ID
+	log        *zap.Logger
+	ctx        context.Context
+	execCtx    context.Context
+	env        bindings.WorkflowEnvironment
+	dc         converter.DataConverter
+	proc       process.Process
+	result     *runtime.Result
+	output     process.StepOutput // reusable output buffer
+	signals    []incomingSignal   // queued signals
+	childExits []childExitEvent   // queued child workflow exit events
+	canceled   bool               // true if workflow was cancelled
+	queryState map[string]any     // queryable state exposed by workflow
 }
 
 // Execute implements WorkflowDefinition.Execute.
@@ -135,8 +147,17 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, _ *commonpb.Heade
 
 	d.execCtx = execCtx
 
+	// Register cancel handler
+	env.RegisterCancelHandler(d.handleCancel)
+
 	// Register signal handler
 	env.RegisterSignalHandler(d.handleSignal)
+
+	// Register query handler
+	env.RegisterQueryHandler(d.handleQuery)
+
+	// Initialize query state
+	d.queryState = make(map[string]any)
 
 	method := "main"
 	if meta != nil && meta.Method != "" {
@@ -147,6 +168,12 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, _ *commonpb.Heade
 		d.env.Complete(nil, fmt.Errorf("failed to start workflow: %w", err))
 		return
 	}
+}
+
+// handleCancel is called when the workflow receives a cancellation request.
+func (d *Definition) handleCancel() {
+	d.canceled = true
+	d.env.Complete(nil, workflow.ErrCanceled)
 }
 
 // handleSignal queues incoming signals for delivery to the process.
@@ -161,9 +188,34 @@ func (d *Definition) handleSignal(name string, input *commonpb.Payloads, _ *comm
 	return nil
 }
 
+// handleQuery handles incoming queries by returning the queryable state.
+func (d *Definition) handleQuery(queryType string, input *commonpb.Payloads, _ *commonpb.Header) (*commonpb.Payloads, error) {
+	switch queryType {
+	case "state":
+		// Return the current query state
+		result := d.queryState
+		if result == nil {
+			result = make(map[string]any)
+		}
+		return d.dc.ToPayloads(result)
+	case "pid":
+		// Return the workflow PID
+		return d.dc.ToPayloads(d.env.WorkflowInfo().WorkflowExecution.ID)
+	default:
+		// Check if query type exists in state
+		if val, ok := d.queryState[queryType]; ok {
+			return d.dc.ToPayloads(val)
+		}
+		return nil, fmt.Errorf("unknown query type: %s", queryType)
+	}
+}
+
 // OnWorkflowTaskStarted implements WorkflowDefinition.OnWorkflowTaskStarted.
 // Called by Temporal SDK when a workflow task is ready to execute.
 func (d *Definition) OnWorkflowTaskStarted(_ time.Duration) {
+	if d.canceled {
+		return
+	}
 	for {
 		// Drain signals and convert to events
 		var events []process.Event
@@ -180,6 +232,31 @@ func (d *Definition) OnWorkflowTaskStarted(_ time.Duration) {
 				})
 			}
 			d.signals = d.signals[:0]
+		}
+
+		// Drain child exit events and convert to EXIT events
+		if len(d.childExits) > 0 {
+			for _, exit := range d.childExits {
+				exitEvent := &topology.ExitEvent{
+					At:   d.env.Now(),
+					Kind: topology.Exit,
+					From: exit.ChildPID,
+					Result: &runtime.Result{
+						Value: exit.Result,
+						Error: exit.Error,
+					},
+				}
+				events = append(events, process.Event{
+					Type: process.EventMessage,
+					Data: &relay.Package{
+						Messages: []*relay.Message{{
+							Topic:    string(topology.TopicEvents),
+							Payloads: payload.Payloads{payload.New(exitEvent)},
+						}},
+					},
+				})
+			}
+			d.childExits = d.childExits[:0]
 		}
 
 		d.output.Reset()
@@ -232,7 +309,8 @@ func (d *Definition) OnWorkflowTaskStarted(_ time.Duration) {
 
 func (d *Definition) completeWithResult() {
 	if d.result.Error != nil {
-		d.env.Complete(nil, d.result.Error)
+		// Convert to Temporal ApplicationError preserving error kind and retryability
+		d.env.Complete(nil, temporalsvc.ToApplicationError(d.result.Error))
 		return
 	}
 
@@ -264,6 +342,22 @@ func (d *Definition) executeCommand(cmd dispatcher.Command, tag uint64) error {
 		return d.executeSignal(c, tag)
 	case *function.CallCmd:
 		return d.executeFunctionCall(c, tag)
+	case *process.SendCmd:
+		return d.executeProcessSend(c, tag)
+	case *process.SpawnCmd:
+		return d.executeProcessSpawn(c, tag)
+	case *process.TerminateCmd:
+		return d.executeProcessTerminate(c, tag)
+	case *process.CancelCmd:
+		return d.executeProcessCancel(c, tag)
+	case *process.MonitorCmd:
+		return d.executeProcessMonitor(c, tag)
+	case *process.UnmonitorCmd:
+		return d.executeProcessUnmonitor(c, tag)
+	case *process.LinkCmd:
+		return d.executeProcessLink(c, tag)
+	case *process.UnlinkCmd:
+		return d.executeProcessUnlink(c, tag)
 	default:
 		return fmt.Errorf("unknown command type: %T", cmd)
 	}
@@ -311,7 +405,8 @@ func (d *Definition) executeLocalActivity(cmd *LocalActivityCmd, tag uint64) err
 		DataConverter:               d.dc,
 	}, func(lar *bindings.LocalActivityResultWrapper) {
 		if lar.Err != nil {
-			d.resumeProcess(tag, nil, lar.Err)
+			// Convert Temporal error to apierror
+			d.resumeProcess(tag, nil, temporalsvc.FromTemporalError(lar.Err))
 			return
 		}
 		var values payload.Payloads
@@ -331,7 +426,8 @@ func (d *Definition) executeLocalActivity(cmd *LocalActivityCmd, tag uint64) err
 
 func (d *Definition) handleActivityResult(tag uint64, result *commonpb.Payloads, err error) {
 	if err != nil {
-		d.resumeProcess(tag, nil, err)
+		// Convert Temporal error to apierror
+		d.resumeProcess(tag, nil, temporalsvc.FromTemporalError(err))
 		return
 	}
 
@@ -465,7 +561,8 @@ func (d *Definition) executeFunctionCall(cmd *function.CallCmd, tag uint64) erro
 
 func (d *Definition) handleFunctionCallResult(tag uint64, result *commonpb.Payloads, err error) {
 	if err != nil {
-		d.resumeProcess(tag, function.CallResult{Error: err}, nil)
+		// Convert Temporal error to apierror
+		d.resumeProcess(tag, function.CallResult{Error: temporalsvc.FromTemporalError(err)}, nil)
 		return
 	}
 
@@ -507,6 +604,169 @@ func (d *Definition) resumeProcess(tag uint64, data any, err error) {
 			}
 		})
 	}
+}
+
+// executeProcessSend handles process.send from workflows.
+// If target is another workflow, signals it. Self-sends could be used for query responses.
+func (d *Definition) executeProcessSend(cmd *process.SendCmd, tag uint64) error {
+	// Get workflow's own PID
+	selfPID := pid.PID{
+		Host:   "temporal",
+		UniqID: d.env.WorkflowInfo().WorkflowExecution.ID,
+	}
+
+	// Self-send: could be query response pattern - just complete immediately
+	if cmd.To.UniqID == selfPID.UniqID && cmd.To.Host == selfPID.Host {
+		d.resumeProcess(tag, process.SendResult{}, nil)
+		return nil
+	}
+
+	// External workflow: signal it
+	var arg *commonpb.Payloads
+	if len(cmd.Payloads) > 0 {
+		var err error
+		arg, err = d.dc.ToPayloads(cmd.Payloads)
+		if err != nil {
+			d.resumeProcess(tag, process.SendResult{Error: err}, nil)
+			return nil
+		}
+	}
+
+	d.env.SignalExternalWorkflow(
+		"",
+		cmd.To.UniqID,
+		"",
+		cmd.Topic,
+		arg,
+		nil,
+		nil,
+		false,
+		func(_ *commonpb.Payloads, err error) {
+			d.resumeProcess(tag, process.SendResult{Error: err}, nil)
+		},
+	)
+
+	return nil
+}
+
+// executeProcessSpawn handles process.spawn from workflows by starting a child workflow.
+func (d *Definition) executeProcessSpawn(cmd *process.SpawnCmd, tag uint64) error {
+	if cmd.Start == nil {
+		d.resumeProcess(tag, process.SpawnResult{Error: fmt.Errorf("spawn command missing start config")}, nil)
+		return nil
+	}
+
+	workflowName := cmd.Start.Source.String()
+
+	args, err := d.dc.ToPayloads(cmd.Start.Input)
+	if err != nil {
+		d.resumeProcess(tag, process.SpawnResult{Error: fmt.Errorf("failed to convert arguments: %w", err)}, nil)
+		return nil
+	}
+
+	params := bindings.ExecuteWorkflowParams{
+		WorkflowType: &bindings.WorkflowType{Name: workflowName},
+		Input:        args,
+		WorkflowOptions: bindings.WorkflowOptions{
+			TaskQueueName: d.env.WorkflowInfo().TaskQueueName,
+		},
+	}
+
+	// Use host as task queue if specified
+	if cmd.Start.HostID != "" {
+		params.WorkflowOptions.TaskQueueName = cmd.Start.HostID
+	}
+
+	var childPID pid.PID
+	d.env.ExecuteChildWorkflow(params, func(result *commonpb.Payloads, err error) {
+		// Child completed - queue EXIT event for delivery
+		if childPID.UniqID == "" {
+			return // Child never started successfully
+		}
+
+		var resultPayload payload.Payload
+		if result != nil && err == nil {
+			var values payload.Payloads
+			if decodeErr := d.dc.FromPayloads(result, &values); decodeErr == nil && len(values) > 0 {
+				resultPayload = values[0]
+			}
+		}
+
+		// Convert Temporal error to apierror for consistent error handling
+		var convertedErr error
+		if err != nil {
+			convertedErr = temporalsvc.FromTemporalError(err)
+		}
+
+		d.childExits = append(d.childExits, childExitEvent{
+			ChildPID: childPID,
+			Result:   resultPayload,
+			Error:    convertedErr,
+		})
+	}, func(execution bindings.WorkflowExecution, err error) {
+		// Child started
+		if err != nil {
+			d.resumeProcess(tag, process.SpawnResult{Error: err}, nil)
+			return
+		}
+		childPID = pid.PID{
+			Host:   params.WorkflowOptions.TaskQueueName,
+			UniqID: execution.ID,
+		}
+		d.resumeProcess(tag, process.SpawnResult{PID: childPID}, nil)
+	})
+
+	return nil
+}
+
+// executeProcessTerminate handles process.terminate from workflows by canceling an external workflow.
+func (d *Definition) executeProcessTerminate(cmd *process.TerminateCmd, tag uint64) error {
+	d.env.RequestCancelExternalWorkflow(
+		"",
+		cmd.Target.UniqID,
+		"",
+		func(_ *commonpb.Payloads, err error) {
+			d.resumeProcess(tag, nil, err)
+		},
+	)
+	return nil
+}
+
+// executeProcessCancel handles process.cancel from workflows by canceling an external workflow.
+func (d *Definition) executeProcessCancel(cmd *process.CancelCmd, tag uint64) error {
+	d.env.RequestCancelExternalWorkflow(
+		"",
+		cmd.Target.UniqID,
+		"",
+		func(_ *commonpb.Payloads, err error) {
+			d.resumeProcess(tag, nil, err)
+		},
+	)
+	return nil
+}
+
+// executeProcessMonitor is not supported in workflows - complete immediately.
+func (d *Definition) executeProcessMonitor(_ *process.MonitorCmd, tag uint64) error {
+	d.resumeProcess(tag, nil, nil)
+	return nil
+}
+
+// executeProcessUnmonitor is not supported in workflows - complete immediately.
+func (d *Definition) executeProcessUnmonitor(_ *process.UnmonitorCmd, tag uint64) error {
+	d.resumeProcess(tag, nil, nil)
+	return nil
+}
+
+// executeProcessLink is not supported in workflows - complete immediately.
+func (d *Definition) executeProcessLink(_ *process.LinkCmd, tag uint64) error {
+	d.resumeProcess(tag, nil, nil)
+	return nil
+}
+
+// executeProcessUnlink is not supported in workflows - complete immediately.
+func (d *Definition) executeProcessUnlink(_ *process.UnlinkCmd, tag uint64) error {
+	d.resumeProcess(tag, nil, nil)
+	return nil
 }
 
 // StackTrace implements WorkflowDefinition.StackTrace.

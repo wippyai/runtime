@@ -11,7 +11,6 @@ import (
 	pidapi "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	secapi "github.com/wippyai/runtime/api/security"
@@ -24,10 +23,66 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+var (
+	moduleTable *lua.LTable
+	yieldTypes  []luaapi.YieldType
+)
+
 func init() {
 	value.RegisterTypeMethods(nil, messageTypeName,
 		map[string]lua.LGoFunc{"__tostring": messageToString},
 		messageMethods)
+
+	moduleTable = lua.CreateTable(0, 21)
+
+	moduleTable.RawSetString("id", lua.LGoFunc(processID))
+	moduleTable.RawSetString("pid", lua.LGoFunc(processPID))
+	moduleTable.RawSetString("send", lua.LGoFunc(send))
+	moduleTable.RawSetString("spawn", lua.LGoFunc(spawn))
+	moduleTable.RawSetString("spawn_monitored", lua.LGoFunc(spawnMonitored))
+	moduleTable.RawSetString("spawn_linked", lua.LGoFunc(spawnLinked))
+	moduleTable.RawSetString("spawn_linked_monitored", lua.LGoFunc(spawnLinkedMonitored))
+	moduleTable.RawSetString("terminate", lua.LGoFunc(terminate))
+	moduleTable.RawSetString("cancel", lua.LGoFunc(cancel))
+	moduleTable.RawSetString("get_options", lua.LGoFunc(getOptions))
+	moduleTable.RawSetString("set_options", lua.LGoFunc(setOptions))
+	moduleTable.RawSetString("monitor", lua.LGoFunc(monitor))
+	moduleTable.RawSetString("unmonitor", lua.LGoFunc(unmonitor))
+	moduleTable.RawSetString("link", lua.LGoFunc(link))
+	moduleTable.RawSetString("unlink", lua.LGoFunc(unlink))
+	moduleTable.RawSetString("with_context", lua.LGoFunc(spawnerNew))
+
+	moduleTable.RawSetString("inbox", lua.LGoFunc(inbox))
+	moduleTable.RawSetString("events", lua.LGoFunc(events))
+	moduleTable.RawSetString("listen", lua.LGoFunc(listen))
+	moduleTable.RawSetString("unlisten", lua.LGoFunc(unlisten))
+
+	eventsTbl := lua.CreateTable(0, 3)
+	eventsTbl.RawSetString("CANCEL", lua.LString(topology.Cancel))
+	eventsTbl.RawSetString("EXIT", lua.LString(topology.Exit))
+	eventsTbl.RawSetString("LINK_DOWN", lua.LString(topology.LinkDown))
+	eventsTbl.Immutable = true
+	moduleTable.RawSetString("event", eventsTbl)
+
+	reg := lua.CreateTable(0, 3)
+	reg.RawSetString("register", lua.LGoFunc(registryRegister))
+	reg.RawSetString("lookup", lua.LGoFunc(registryLookup))
+	reg.RawSetString("unregister", lua.LGoFunc(registryUnregister))
+	reg.Immutable = true
+	moduleTable.RawSetString("registry", reg)
+
+	moduleTable.Immutable = true
+
+	yieldTypes = []luaapi.YieldType{
+		{Sample: &SendYield{}, CmdID: process.Send},
+		{Sample: &SpawnYield{}, CmdID: process.Spawn},
+		{Sample: &TerminateYield{}, CmdID: process.Terminate},
+		{Sample: &CancelYield{}, CmdID: process.Cancel},
+		{Sample: &MonitorYield{}, CmdID: process.Monitor},
+		{Sample: &UnmonitorYield{}, CmdID: process.Unmonitor},
+		{Sample: &LinkYield{}, CmdID: process.Link},
+		{Sample: &UnlinkYield{}, CmdID: process.Unlink},
+	}
 }
 
 // Module is the process module definition.
@@ -35,50 +90,9 @@ var Module = &luaapi.ModuleDef{
 	Name:        "process",
 	Description: "Process management and messaging",
 	Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic, luaapi.ClassWorkflow},
-	Build:       buildModule,
-}
-
-func buildModule() (*lua.LTable, []luaapi.YieldType) {
-	mod := lua.CreateTable(0, 21)
-
-	mod.RawSetString("id", lua.LGoFunc(processID))
-	mod.RawSetString("pid", lua.LGoFunc(processPID))
-	mod.RawSetString("send", lua.LGoFunc(send))
-	mod.RawSetString("spawn", lua.LGoFunc(spawn))
-	mod.RawSetString("spawn_monitored", lua.LGoFunc(spawnMonitored))
-	mod.RawSetString("spawn_linked", lua.LGoFunc(spawnLinked))
-	mod.RawSetString("spawn_linked_monitored", lua.LGoFunc(spawnLinkedMonitored))
-	mod.RawSetString("terminate", lua.LGoFunc(terminate))
-	mod.RawSetString("cancel", lua.LGoFunc(cancel))
-	mod.RawSetString("get_options", lua.LGoFunc(getOptions))
-	mod.RawSetString("set_options", lua.LGoFunc(setOptions))
-	mod.RawSetString("monitor", lua.LGoFunc(monitor))
-	mod.RawSetString("unmonitor", lua.LGoFunc(unmonitor))
-	mod.RawSetString("link", lua.LGoFunc(link))
-	mod.RawSetString("unlink", lua.LGoFunc(unlink))
-	mod.RawSetString("with_context", lua.LGoFunc(spawnerNew))
-
-	mod.RawSetString("inbox", lua.LGoFunc(inbox))
-	mod.RawSetString("events", lua.LGoFunc(events))
-	mod.RawSetString("listen", lua.LGoFunc(listen))
-	mod.RawSetString("unlisten", lua.LGoFunc(unlisten))
-
-	eventsTbl := lua.CreateTable(0, 3)
-	eventsTbl.RawSetString("CANCEL", lua.LString(topology.Cancel))
-	eventsTbl.RawSetString("EXIT", lua.LString(topology.Exit))
-	eventsTbl.RawSetString("LINK_DOWN", lua.LString(topology.LinkDown))
-	eventsTbl.Immutable = true
-	mod.RawSetString("event", eventsTbl)
-
-	reg := lua.CreateTable(0, 3)
-	reg.RawSetString("register", lua.LGoFunc(registryRegister))
-	reg.RawSetString("lookup", lua.LGoFunc(registryLookup))
-	reg.RawSetString("unregister", lua.LGoFunc(registryUnregister))
-	reg.Immutable = true
-	mod.RawSetString("registry", reg)
-
-	mod.Immutable = true
-	return mod, nil
+	Build: func() (*lua.LTable, []luaapi.YieldType) {
+		return moduleTable, yieldTypes
+	},
 }
 
 func checkPID(l *lua.LState) (pidapi.PID, bool) {
@@ -91,24 +105,6 @@ func checkPID(l *lua.LState) (pidapi.PID, bool) {
 
 	p, ok := runtime.GetFramePID(ctx)
 	return p, ok
-}
-
-func getProcessManager(l *lua.LState) (process.Manager, bool) {
-	ctx := l.Context()
-	if ctx == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no context found"))
-		return nil, false
-	}
-
-	manager := process.GetManager(ctx)
-	if manager == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no process manager found"))
-		return nil, false
-	}
-
-	return manager, true
 }
 
 func getRegistry(l *lua.LState) (topology.PIDRegistry, bool) {
@@ -127,24 +123,6 @@ func getRegistry(l *lua.LState) (topology.PIDRegistry, bool) {
 	}
 
 	return reg, true
-}
-
-func getTopology(l *lua.LState) (topology.Topology, bool) {
-	ctx := l.Context()
-	if ctx == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no context found"))
-		return nil, false
-	}
-
-	topo := topology.GetTopology(ctx)
-	if topo == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no topology found in context"))
-		return nil, false
-	}
-
-	return topo, true
 }
 
 func resolvePID(l *lua.LState, pidOrName string, permission string) (pidapi.PID, error) {
@@ -245,13 +223,6 @@ func processID(l *lua.LState) int {
 }
 
 func send(l *lua.LState) int {
-	router := relay.GetRouter(l.Context())
-	if router == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no router found"))
-		return 2
-	}
-
 	self, ok := checkPID(l)
 	if !ok {
 		return 2
@@ -272,39 +243,24 @@ func send(l *lua.LState) int {
 		return 2
 	}
 
-	pid, err := resolvePID(l, pidOrName, "process.send")
+	target, err := resolvePID(l, pidOrName, "process.send")
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
 
-	messages := make([]*relay.Message, 0, l.GetTop()-2)
-	for i := 3; i <= l.GetTop(); i++ {
-		messages = append(messages, &relay.Message{
-			Topic:    topic,
-			Payloads: []payload.Payload{luaconv.ExportPayload(l.Get(i))},
-		})
-	}
+	yield := AcquireSendYield()
+	yield.From = self
+	yield.To = target
+	yield.Topic = topic
+	yield.Payloads = createPayloadsFromArgs(l)
 
-	pkg := relay.NewMessagePackage(self, pid, messages...)
-
-	if err := router.Send(pkg); err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	l.Push(lua.LTrue)
-	return 1
+	l.Push(yield)
+	return -1
 }
 
 func spawn(l *lua.LState) int {
-	manager, ok := getProcessManager(l)
-	if !ok {
-		return 2
-	}
-
 	self, ok := checkPID(l)
 	if !ok {
 		return 2
@@ -336,7 +292,8 @@ func spawn(l *lua.LState) int {
 	options := attrs.NewBag()
 	options.Set(process.LifecycleParentKey, self)
 
-	start := &process.Start{
+	yield := AcquireSpawnYield()
+	yield.Start = &process.Start{
 		HostID:  hostID,
 		Source:  registry.ParseID(id),
 		Input:   payloads,
@@ -344,23 +301,11 @@ func spawn(l *lua.LState) int {
 		Options: options,
 	}
 
-	pid, err := manager.Start(l.Context(), start)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	l.Push(lua.LString(pid.String()))
-	return 1
+	l.Push(yield)
+	return -1
 }
 
 func spawnMonitored(l *lua.LState) int {
-	manager, ok := getProcessManager(l)
-	if !ok {
-		return 2
-	}
-
 	self, ok := checkPID(l)
 	if !ok {
 		return 2
@@ -391,33 +336,22 @@ func spawnMonitored(l *lua.LState) int {
 
 	options := attrs.NewBag()
 	options.Set(process.LifecycleParentKey, self)
-	options.Set(process.LifecycleMonitorKey, true)
 
-	start := &process.Start{
+	yield := AcquireSpawnYield()
+	yield.Start = &process.Start{
 		HostID:  hostID,
 		Source:  registry.ParseID(id),
 		Input:   payloads,
 		Context: buildSecurityContext(l),
 		Options: options,
 	}
+	yield.Monitor = true
 
-	pid, err := manager.Start(l.Context(), start)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	l.Push(lua.LString(pid.String()))
-	return 1
+	l.Push(yield)
+	return -1
 }
 
 func spawnLinked(l *lua.LState) int {
-	manager, ok := getProcessManager(l)
-	if !ok {
-		return 2
-	}
-
 	self, ok := checkPID(l)
 	if !ok {
 		return 2
@@ -448,33 +382,22 @@ func spawnLinked(l *lua.LState) int {
 
 	options := attrs.NewBag()
 	options.Set(process.LifecycleParentKey, self)
-	options.Set(process.LifecycleLinkKey, true)
 
-	start := &process.Start{
+	yield := AcquireSpawnYield()
+	yield.Start = &process.Start{
 		HostID:  hostID,
 		Source:  registry.ParseID(id),
 		Input:   payloads,
 		Context: buildSecurityContext(l),
 		Options: options,
 	}
+	yield.Link = true
 
-	pid, err := manager.Start(l.Context(), start)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	l.Push(lua.LString(pid.String()))
-	return 1
+	l.Push(yield)
+	return -1
 }
 
 func spawnLinkedMonitored(l *lua.LState) int {
-	manager, ok := getProcessManager(l)
-	if !ok {
-		return 2
-	}
-
 	self, ok := checkPID(l)
 	if !ok {
 		return 2
@@ -511,59 +434,40 @@ func spawnLinkedMonitored(l *lua.LState) int {
 
 	options := attrs.NewBag()
 	options.Set(process.LifecycleParentKey, self)
-	options.Set(process.LifecycleMonitorKey, true)
-	options.Set(process.LifecycleLinkKey, true)
 
-	start := &process.Start{
+	yield := AcquireSpawnYield()
+	yield.Start = &process.Start{
 		HostID:  hostID,
 		Source:  registry.ParseID(id),
 		Input:   payloads,
 		Context: buildSecurityContext(l),
 		Options: options,
 	}
+	yield.Monitor = true
+	yield.Link = true
 
-	pid, err := manager.Start(l.Context(), start)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	l.Push(lua.LString(pid.String()))
-	return 1
+	l.Push(yield)
+	return -1
 }
 
 func terminate(l *lua.LState) int {
-	manager, ok := getProcessManager(l)
-	if !ok {
-		return 2
-	}
-
 	pidOrName := l.CheckString(1)
 
-	pid, err := resolvePID(l, pidOrName, "process.terminate")
+	target, err := resolvePID(l, pidOrName, "process.terminate")
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
 
-	if err := manager.Terminate(l.Context(), pid); err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
+	yield := AcquireTerminateYield()
+	yield.Target = target
 
-	l.Push(lua.LTrue)
-	return 1
+	l.Push(yield)
+	return -1
 }
 
 func cancel(l *lua.LState) int {
-	manager, ok := getProcessManager(l)
-	if !ok {
-		return 2
-	}
-
 	self, ok := checkPID(l)
 	if !ok {
 		return 2
@@ -577,7 +481,7 @@ func cancel(l *lua.LState) int {
 
 	pidOrName := l.CheckString(1)
 
-	pid, err := resolvePID(l, pidOrName, "process.cancel")
+	target, err := resolvePID(l, pidOrName, "process.cancel")
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -606,14 +510,13 @@ func cancel(l *lua.LState) int {
 		}
 	}
 
-	if err := manager.Cancel(l.Context(), self, pid, deadline); err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
+	yield := AcquireCancelYield()
+	yield.From = self
+	yield.Target = target
+	yield.Deadline = deadline
 
-	l.Push(lua.LTrue)
-	return 1
+	l.Push(yield)
+	return -1
 }
 
 func getOptions(l *lua.LState) int {
@@ -679,11 +582,6 @@ func setOptions(l *lua.LState) int {
 }
 
 func monitor(l *lua.LState) int {
-	topo, ok := getTopology(l)
-	if !ok {
-		return 2
-	}
-
 	self, ok := checkPID(l)
 	if !ok {
 		return 2
@@ -697,29 +595,22 @@ func monitor(l *lua.LState) int {
 
 	pidOrName := l.CheckString(1)
 
-	pid, err := resolvePID(l, pidOrName, "process.monitor")
+	target, err := resolvePID(l, pidOrName, "process.monitor")
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
 
-	if err := topo.Monitor(self, pid); err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
+	yield := AcquireMonitorYield()
+	yield.Watcher = self
+	yield.Target = target
 
-	l.Push(lua.LTrue)
-	return 1
+	l.Push(yield)
+	return -1
 }
 
 func unmonitor(l *lua.LState) int {
-	topo, ok := getTopology(l)
-	if !ok {
-		return 2
-	}
-
 	self, ok := checkPID(l)
 	if !ok {
 		return 2
@@ -733,29 +624,22 @@ func unmonitor(l *lua.LState) int {
 
 	pidOrName := l.CheckString(1)
 
-	pid, err := resolvePID(l, pidOrName, "process.unmonitor")
+	target, err := resolvePID(l, pidOrName, "process.unmonitor")
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
 
-	if err := topo.Demonitor(self, pid); err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
+	yield := AcquireUnmonitorYield()
+	yield.Watcher = self
+	yield.Target = target
 
-	l.Push(lua.LTrue)
-	return 1
+	l.Push(yield)
+	return -1
 }
 
 func link(l *lua.LState) int {
-	topo, ok := getTopology(l)
-	if !ok {
-		return 2
-	}
-
 	self, ok := checkPID(l)
 	if !ok {
 		return 2
@@ -769,29 +653,22 @@ func link(l *lua.LState) int {
 
 	pidOrName := l.CheckString(1)
 
-	pid, err := resolvePID(l, pidOrName, "process.link")
+	target, err := resolvePID(l, pidOrName, "process.link")
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
 
-	if err := topo.Link(self, pid); err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
+	yield := AcquireLinkYield()
+	yield.From = self
+	yield.To = target
 
-	l.Push(lua.LTrue)
-	return 1
+	l.Push(yield)
+	return -1
 }
 
 func unlink(l *lua.LState) int {
-	topo, ok := getTopology(l)
-	if !ok {
-		return 2
-	}
-
 	self, ok := checkPID(l)
 	if !ok {
 		return 2
@@ -805,21 +682,19 @@ func unlink(l *lua.LState) int {
 
 	pidOrName := l.CheckString(1)
 
-	pid, err := resolvePID(l, pidOrName, "process.unlink")
+	target, err := resolvePID(l, pidOrName, "process.unlink")
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
 
-	if err := topo.Unlink(self, pid); err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
+	yield := AcquireUnlinkYield()
+	yield.From = self
+	yield.To = target
 
-	l.Push(lua.LTrue)
-	return 1
+	l.Push(yield)
+	return -1
 }
 
 func registryRegister(l *lua.LState) int {

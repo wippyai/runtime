@@ -9,6 +9,7 @@ func All() []boot.Component {
 		CloudStorage(),
 		Contract(),
 		Func(),
+		Process(),
 		Security(),
 		HTTP(),
 		WS(),

@@ -75,7 +75,7 @@ func GoToLua(v any) (lua.LValue, error) {
 	case []byte:
 		return lua.LString(val), nil
 	case error:
-		// lua.Error implements LValue, so we can return it directly
+		// lua.Error implements LValue, metatable is set via builtinMts[LTUserData]
 		return lua.WrapError(val, ""), nil
 	}
 

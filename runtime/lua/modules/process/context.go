@@ -274,12 +274,6 @@ func doSpawnerSpawn(l *lua.LState, monitored, linked bool) int {
 		return 0
 	}
 
-	manager := process.GetManager(ctx)
-	if manager == nil {
-		l.RaiseError("no process manager found")
-		return 0
-	}
-
 	var payloads payload.Payloads
 	for i := 4; i <= l.GetTop(); i++ {
 		payloads = append(payloads, payload.NewPayload(l.Get(i), payload.Lua))
@@ -287,30 +281,20 @@ func doSpawnerSpawn(l *lua.LState, monitored, linked bool) int {
 
 	options := attrs.NewBag()
 	options.Set(process.LifecycleParentKey, self)
-	if monitored {
-		options.Set(process.LifecycleMonitorKey, true)
-	}
-	if linked {
-		options.Set(process.LifecycleLinkKey, true)
-	}
 
-	start := &process.Start{
+	yield := AcquireSpawnYield()
+	yield.Start = &process.Start{
 		HostID:  hostID,
 		Source:  registry.ParseID(id),
 		Input:   payloads,
 		Context: buildSpawnerContext(spawner),
 		Options: options,
 	}
+	yield.Monitor = monitored
+	yield.Link = linked
 
-	pid, err := manager.Start(ctx, start)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	l.Push(lua.LString(pid.String()))
-	return 1
+	l.Push(yield)
+	return -1
 }
 
 func spawnerSpawn(l *lua.LState) int                { return doSpawnerSpawn(l, false, false) }

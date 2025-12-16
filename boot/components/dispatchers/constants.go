@@ -10,6 +10,7 @@ const (
 	ClockDispatcherName    boot.Name = "dispatcher.clock"
 	ContractDispatcherName boot.Name = "dispatcher.contract"
 	FuncDispatcherName     boot.Name = "dispatcher.func"
+	ProcessDispatcherName  boot.Name = "dispatcher.process"
 	SecurityDispatcherName boot.Name = "dispatcher.security"
 
 	// CloudStorageDispatcherName is a Service dispatcher
