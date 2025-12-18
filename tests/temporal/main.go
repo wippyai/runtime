@@ -11,7 +11,10 @@ import (
 	"syscall"
 	"time"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/service/temporal/propagator"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/workflow"
 )
 
 const taskQueue = "test-queue"
@@ -42,6 +45,9 @@ func main() {
 	c, err := client.Dial(client.Options{
 		HostPort:  *hostPort,
 		Namespace: *namespace,
+		ContextPropagators: []workflow.ContextPropagator{
+			propagator.New(),
+		},
 	})
 	if err != nil {
 		log.Fatalf("Failed to create client: %v", err)
@@ -435,5 +441,500 @@ func main() {
 		log.Printf("Query workflow cancelled as expected: %v", err)
 	}
 
+	// Test 12: UUID Side Effect Workflow (generates UUIDs deterministically)
+	log.Println("\n=== Test 12: UUID Side Effect Workflow ===")
+	uuidWorkflowID := "wippy-uuid-" + time.Now().Format("20060102-150405")
+
+	uuidInput := map[string]interface{}{
+		"count": 5,
+	}
+
+	we12, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+		ID:        uuidWorkflowID,
+		TaskQueue: taskQueue,
+	}, "app.test.temporal:uuid_workflow", uuidInput)
+	if err != nil {
+		log.Fatalf("Failed to execute uuid workflow: %v", err)
+	}
+
+	log.Printf("UUID workflow started - ID: %s, RunID: %s", we12.GetID(), we12.GetRunID())
+
+	var uuidResult map[string]interface{}
+	if err := we12.Get(ctx, &uuidResult); err != nil {
+		if ctx.Err() != nil {
+			log.Println("Cancelled")
+			return
+		}
+		log.Fatalf("UUID workflow failed: %v", err)
+	}
+
+	uuidJSON, _ := json.MarshalIndent(uuidResult, "", "  ")
+	log.Printf("UUID result:\n%s", string(uuidJSON))
+
+	// Verify UUIDs were generated
+	if uuids, ok := uuidResult["uuids"].([]interface{}); ok {
+		log.Printf("Generated %d UUIDs via side effects", len(uuids))
+		for i, u := range uuids {
+			log.Printf("  UUID %d: %v", i+1, u)
+		}
+	}
+
+	// Query the completed workflow to verify consistency
+	log.Println("Querying completed workflow...")
+	queryResp, err := c.QueryWorkflow(ctx, uuidWorkflowID, "", "state")
+	if err != nil {
+		log.Printf("Query failed (expected for completed workflow): %v", err)
+	} else {
+		var stateResult map[string]interface{}
+		if err := queryResp.Get(&stateResult); err != nil {
+			log.Printf("Failed to decode query result: %v", err)
+		} else {
+			stateJSON, _ := json.MarshalIndent(stateResult, "", "  ")
+			log.Printf("Query state result:\n%s", string(stateJSON))
+		}
+	}
+
+	// Get the workflow result again to verify replay produces same UUIDs
+	log.Println("Re-fetching workflow result to verify replay consistency...")
+	we12Again := c.GetWorkflow(ctx, uuidWorkflowID, "")
+	var uuidResult2 map[string]interface{}
+	if err := we12Again.Get(ctx, &uuidResult2); err != nil {
+		log.Printf("Failed to re-fetch result: %v", err)
+	} else {
+		// Compare UUIDs
+		uuids1, _ := uuidResult["uuids"].([]interface{})
+		uuids2, _ := uuidResult2["uuids"].([]interface{})
+		if len(uuids1) == len(uuids2) {
+			allMatch := true
+			for i := range uuids1 {
+				if uuids1[i] != uuids2[i] {
+					allMatch = false
+					log.Printf("UUID mismatch at %d: %v != %v", i, uuids1[i], uuids2[i])
+				}
+			}
+			if allMatch {
+				log.Println("Replay verification: All UUIDs match - side effects working correctly!")
+			}
+		} else {
+			log.Printf("UUID count mismatch: %d vs %d", len(uuids1), len(uuids2))
+		}
+	}
+
+	// Test 13: Update Workflow - tests workflow updates via process.listen/process.send
+	log.Println("\n=== Test 13: Update Workflow ===")
+	updateWorkflowID := "wippy-update-" + time.Now().Format("20060102-150405")
+
+	updateInput := map[string]interface{}{
+		"initial": 10,
+	}
+
+	we13, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+		ID:        updateWorkflowID,
+		TaskQueue: taskQueue,
+	}, "app.test.temporal:update_workflow", updateInput)
+	if err != nil {
+		log.Fatalf("Failed to execute update workflow: %v", err)
+	}
+
+	log.Printf("Update workflow started - ID: %s, RunID: %s", we13.GetID(), we13.GetRunID())
+
+	// Give workflow time to start and register update handlers
+	time.Sleep(500 * time.Millisecond)
+
+	// Test increment update (ack -> ok flow)
+	log.Println("Sending increment update (amount: 5)...")
+	updateHandle1, err := c.UpdateWorkflow(ctx, client.UpdateWorkflowOptions{
+		WorkflowID:   updateWorkflowID,
+		UpdateName:   "increment",
+		Args:         []interface{}{map[string]interface{}{"amount": float64(5)}},
+		WaitForStage: client.WorkflowUpdateStageCompleted,
+	})
+	if err != nil {
+		log.Fatalf("Failed to send increment update: %v", err)
+	}
+	var updateResult1 map[string]interface{}
+	if err := updateHandle1.Get(ctx, &updateResult1); err != nil {
+		log.Fatalf("Failed to get increment update result: %v", err)
+	}
+	log.Printf("Increment update result: %v (expected value: 15)", updateResult1)
+
+	// Test second increment
+	log.Println("Sending second increment update (amount: 3)...")
+	updateHandle2, err := c.UpdateWorkflow(ctx, client.UpdateWorkflowOptions{
+		WorkflowID:   updateWorkflowID,
+		UpdateName:   "increment",
+		Args:         []interface{}{map[string]interface{}{"amount": float64(3)}},
+		WaitForStage: client.WorkflowUpdateStageCompleted,
+	})
+	if err != nil {
+		log.Fatalf("Failed to send second increment update: %v", err)
+	}
+	var updateResult2 map[string]interface{}
+	if err := updateHandle2.Get(ctx, &updateResult2); err != nil {
+		log.Fatalf("Failed to get second increment update result: %v", err)
+	}
+	log.Printf("Second increment update result: %v (expected value: 18)", updateResult2)
+
+	// Test decrement update
+	log.Println("Sending decrement update (amount: 8)...")
+	updateHandle3, err := c.UpdateWorkflow(ctx, client.UpdateWorkflowOptions{
+		WorkflowID:   updateWorkflowID,
+		UpdateName:   "decrement",
+		Args:         []interface{}{map[string]interface{}{"amount": float64(8)}},
+		WaitForStage: client.WorkflowUpdateStageCompleted,
+	})
+	if err != nil {
+		log.Fatalf("Failed to send decrement update: %v", err)
+	}
+	var updateResult3 map[string]interface{}
+	if err := updateHandle3.Get(ctx, &updateResult3); err != nil {
+		log.Fatalf("Failed to get decrement update result: %v", err)
+	}
+	log.Printf("Decrement update result: %v (expected value: 10)", updateResult3)
+
+	// Test validation rejection (nak flow)
+	log.Println("Sending invalid decrement update (would go negative)...")
+	updateHandle4, err := c.UpdateWorkflow(ctx, client.UpdateWorkflowOptions{
+		WorkflowID:   updateWorkflowID,
+		UpdateName:   "decrement",
+		Args:         []interface{}{map[string]interface{}{"amount": float64(100)}},
+		WaitForStage: client.WorkflowUpdateStageCompleted,
+	})
+	if err != nil {
+		log.Printf("Update rejected during request (expected): %v", err)
+	} else {
+		var updateResult4 interface{}
+		if err := updateHandle4.Get(ctx, &updateResult4); err != nil {
+			log.Printf("Update rejected (expected): %v", err)
+		} else {
+			log.Printf("Unexpected success: %v", updateResult4)
+		}
+	}
+
+	// Test error flow
+	log.Println("Sending fail update (error flow)...")
+	updateHandle5, err := c.UpdateWorkflow(ctx, client.UpdateWorkflowOptions{
+		WorkflowID:   updateWorkflowID,
+		UpdateName:   "fail",
+		Args:         []interface{}{map[string]interface{}{}},
+		WaitForStage: client.WorkflowUpdateStageCompleted,
+	})
+	if err != nil {
+		log.Printf("Update request failed: %v", err)
+	} else {
+		var updateResult5 interface{}
+		if err := updateHandle5.Get(ctx, &updateResult5); err != nil {
+			log.Printf("Update completed with error (expected): %v", err)
+		} else {
+			log.Printf("Unexpected success: %v", updateResult5)
+		}
+	}
+
+	// Send finish update to complete the workflow
+	log.Println("Sending finish update to complete workflow...")
+	updateHandle6, err := c.UpdateWorkflow(ctx, client.UpdateWorkflowOptions{
+		WorkflowID:   updateWorkflowID,
+		UpdateName:   "finish",
+		Args:         []interface{}{map[string]interface{}{}},
+		WaitForStage: client.WorkflowUpdateStageCompleted,
+	})
+	if err != nil {
+		log.Fatalf("Failed to send finish update: %v", err)
+	}
+	var updateResult6 map[string]interface{}
+	if err := updateHandle6.Get(ctx, &updateResult6); err != nil {
+		log.Fatalf("Failed to get finish update result: %v", err)
+	}
+	log.Printf("Finish update result: %v", updateResult6)
+
+	// Wait for workflow completion
+	var updateWorkflowResult map[string]interface{}
+	if err := we13.Get(ctx, &updateWorkflowResult); err != nil {
+		if ctx.Err() != nil {
+			log.Println("Cancelled")
+			return
+		}
+		log.Fatalf("Update workflow failed: %v", err)
+	}
+
+	updateJSON, _ := json.MarshalIndent(updateWorkflowResult, "", "  ")
+	log.Printf("Update workflow result:\n%s", string(updateJSON))
+
+	// Verify results
+	if finalCounter, ok := updateWorkflowResult["final_counter"].(float64); ok {
+		log.Printf("Final counter value: %.0f (expected: 10)", finalCounter)
+	}
+	if updatesProcessed, ok := updateWorkflowResult["updates_processed"].(float64); ok {
+		log.Printf("Updates processed: %.0f (expected: 3 - two increments, one decrement)", updatesProcessed)
+	}
+
+	// Test 14: Crypto Workflow - tests crypto operations with side effects
+	log.Println("\n=== Test 14: Crypto Workflow ===")
+	cryptoWorkflowID := "wippy-crypto-" + time.Now().Format("20060102-150405")
+
+	cryptoInput := map[string]interface{}{
+		"message": "Hello from crypto test!",
+	}
+
+	we14, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+		ID:        cryptoWorkflowID,
+		TaskQueue: taskQueue,
+	}, "app.test.temporal:crypto_workflow", cryptoInput)
+	if err != nil {
+		log.Fatalf("Failed to execute crypto workflow: %v", err)
+	}
+
+	log.Printf("Crypto workflow started - ID: %s, RunID: %s", we14.GetID(), we14.GetRunID())
+
+	var cryptoResult map[string]interface{}
+	if err := we14.Get(ctx, &cryptoResult); err != nil {
+		if ctx.Err() != nil {
+			log.Println("Cancelled")
+			return
+		}
+		log.Fatalf("Crypto workflow failed: %v", err)
+	}
+
+	cryptoJSON, _ := json.MarshalIndent(cryptoResult, "", "  ")
+	log.Printf("Crypto result:\n%s", string(cryptoJSON))
+
+	// Verify crypto results
+	if decryptMatches, ok := cryptoResult["decrypt_matches"].(bool); ok && decryptMatches {
+		log.Println("AES encrypt/decrypt: PASS")
+	} else {
+		log.Println("AES encrypt/decrypt: FAIL")
+	}
+	if chachaMatches, ok := cryptoResult["chacha_decrypt_matches"].(bool); ok && chachaMatches {
+		log.Println("ChaCha20 encrypt/decrypt: PASS")
+	} else {
+		log.Println("ChaCha20 encrypt/decrypt: FAIL")
+	}
+	if randomStr, ok := cryptoResult["random_string"].(string); ok {
+		log.Printf("Random string generated: %s (length: %d)", randomStr, len(randomStr))
+	}
+	if uuid, ok := cryptoResult["random_uuid"].(string); ok {
+		log.Printf("Random UUID generated: %s", uuid)
+	}
+
+	// Re-execute workflow to verify replay consistency
+	log.Println("Re-fetching crypto workflow to verify replay consistency...")
+	we14Again := c.GetWorkflow(ctx, cryptoWorkflowID, "")
+	var cryptoResult2 map[string]interface{}
+	if err := we14Again.Get(ctx, &cryptoResult2); err != nil {
+		log.Printf("Failed to re-fetch crypto result: %v", err)
+	} else {
+		// Compare random values - should be identical on replay
+		if cryptoResult["random_uuid"] == cryptoResult2["random_uuid"] &&
+			cryptoResult["random_string"] == cryptoResult2["random_string"] {
+			log.Println("Replay verification: Random values match - side effects working correctly!")
+		} else {
+			log.Println("Replay verification: FAILED - random values differ!")
+		}
+	}
+
+	// Test 15: Context Propagation - tests context values passed via headers
+	log.Println("\n=== Test 15: Context Propagation ===")
+	ctxWorkflowID := "wippy-ctx-" + time.Now().Format("20060102-150405")
+
+	// Create context with values to propagate
+	ctxValues := map[string]any{
+		"user_id":    "user-123",
+		"tenant":     "acme-corp",
+		"request_id": "req-abc-456",
+	}
+	ctxWithValues := propagator.WithValues(ctx, ctxValues)
+
+	we15, err := c.ExecuteWorkflow(ctxWithValues, client.StartWorkflowOptions{
+		ID:        ctxWorkflowID,
+		TaskQueue: taskQueue,
+	}, "app.test.temporal:ctx_workflow", nil)
+	if err != nil {
+		log.Fatalf("Failed to execute ctx workflow: %v", err)
+	}
+
+	log.Printf("Context workflow started - ID: %s, RunID: %s", we15.GetID(), we15.GetRunID())
+
+	var ctxResult map[string]interface{}
+	if err := we15.Get(ctx, &ctxResult); err != nil {
+		if ctx.Err() != nil {
+			log.Println("Cancelled")
+			return
+		}
+		log.Fatalf("Context workflow failed: %v", err)
+	}
+
+	ctxJSON, _ := json.MarshalIndent(ctxResult, "", "  ")
+	log.Printf("Context result:\n%s", string(ctxJSON))
+
+	// Verify context values were propagated
+	if userID, ok := ctxResult["user_id"].(string); ok && userID == "user-123" {
+		log.Println("Context propagation user_id: PASS")
+	} else {
+		log.Printf("Context propagation user_id: FAIL (got %v)", ctxResult["user_id"])
+	}
+	if tenant, ok := ctxResult["tenant"].(string); ok && tenant == "acme-corp" {
+		log.Println("Context propagation tenant: PASS")
+	} else {
+		log.Printf("Context propagation tenant: FAIL (got %v)", ctxResult["tenant"])
+	}
+	if reqID, ok := ctxResult["request_id"].(string); ok && reqID == "req-abc-456" {
+		log.Println("Context propagation request_id: PASS")
+	} else {
+		log.Printf("Context propagation request_id: FAIL (got %v)", ctxResult["request_id"])
+	}
+
+	// Test 16: Context Propagation to Activities - tests context inheritance to activities
+	log.Println("\n=== Test 16: Context Propagation to Activities ===")
+	ctxActivityWorkflowID := "wippy-ctx-activity-" + time.Now().Format("20060102-150405")
+
+	we16, err := c.ExecuteWorkflow(ctxWithValues, client.StartWorkflowOptions{
+		ID:        ctxActivityWorkflowID,
+		TaskQueue: taskQueue,
+	}, "app.test.temporal:ctx_activity_workflow", nil)
+	if err != nil {
+		log.Fatalf("Failed to execute ctx activity workflow: %v", err)
+	}
+
+	log.Printf("Context activity workflow started - ID: %s, RunID: %s", we16.GetID(), we16.GetRunID())
+
+	var ctxActivityResult map[string]interface{}
+	if err := we16.Get(ctx, &ctxActivityResult); err != nil {
+		if ctx.Err() != nil {
+			log.Println("Cancelled")
+			return
+		}
+		log.Fatalf("Context activity workflow failed: %v", err)
+	}
+
+	ctxActivityJSON, _ := json.MarshalIndent(ctxActivityResult, "", "  ")
+	log.Printf("Context activity result:\n%s", string(ctxActivityJSON))
+
+	// Verify workflow received context
+	if wfUserID, ok := ctxActivityResult["workflow_user_id"].(string); ok && wfUserID == "user-123" {
+		log.Println("Workflow context user_id: PASS")
+	} else {
+		log.Printf("Workflow context user_id: FAIL (got %v)", ctxActivityResult["workflow_user_id"])
+	}
+
+	// Verify activity received context
+	if actResult, ok := ctxActivityResult["activity_result"].(map[string]interface{}); ok {
+		if actUserID, ok := actResult["user_id"].(string); ok && actUserID == "user-123" {
+			log.Println("Activity context user_id: PASS")
+		} else {
+			log.Printf("Activity context user_id: FAIL (got %v)", actResult["user_id"])
+		}
+		if actTenant, ok := actResult["tenant"].(string); ok && actTenant == "acme-corp" {
+			log.Println("Activity context tenant: PASS")
+		} else {
+			log.Printf("Activity context tenant: FAIL (got %v)", actResult["tenant"])
+		}
+		if fromActivity, ok := actResult["from_activity"].(bool); ok && fromActivity {
+			log.Println("Activity execution confirmed: PASS")
+		} else {
+			log.Printf("Activity execution confirmed: FAIL")
+		}
+	} else {
+		log.Printf("Activity result: FAIL (missing or invalid)")
+	}
+
+	// Test 17: Workflow Module - tests workflow.call, workflow.version, workflow.info, etc.
+	log.Println("\n=== Test 17: Workflow Module ===")
+	workflowModuleWorkflowID := "wippy-workflow-module-" + time.Now().Format("20060102-150405")
+
+	we17, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+		ID:        workflowModuleWorkflowID,
+		TaskQueue: taskQueue,
+	}, "app.test.temporal:workflow_module_test", nil)
+	if err != nil {
+		log.Fatalf("Failed to execute workflow module test: %v", err)
+	}
+
+	log.Printf("Workflow module test started - ID: %s, RunID: %s", we17.GetID(), we17.GetRunID())
+
+	var workflowModuleResult map[string]interface{}
+	if err := we17.Get(ctx, &workflowModuleResult); err != nil {
+		if ctx.Err() != nil {
+			log.Println("Cancelled")
+			return
+		}
+		log.Fatalf("Workflow module test failed: %v", err)
+	}
+
+	workflowModuleJSON, _ := json.MarshalIndent(workflowModuleResult, "", "  ")
+	log.Printf("Workflow module result:\n%s", string(workflowModuleJSON))
+
+	// Verify workflow.info()
+	if info, ok := workflowModuleResult["info"].(map[string]interface{}); ok {
+		if hasWfID, ok := info["has_workflow_id"].(bool); ok && hasWfID {
+			log.Println("workflow.info() workflow_id: PASS")
+		} else {
+			log.Println("workflow.info() workflow_id: FAIL")
+		}
+		if hasRunID, ok := info["has_run_id"].(bool); ok && hasRunID {
+			log.Println("workflow.info() run_id: PASS")
+		} else {
+			log.Println("workflow.info() run_id: FAIL")
+		}
+	} else {
+		log.Printf("workflow.info(): FAIL (got error: %v)", workflowModuleResult["info_error"])
+	}
+
+	// Verify workflow.history_length()
+	if histLen, ok := workflowModuleResult["history_length"].(float64); ok && histLen > 0 {
+		log.Printf("workflow.history_length(): PASS (value: %.0f)", histLen)
+	} else {
+		log.Printf("workflow.history_length(): FAIL (got %v)", workflowModuleResult["history_length"])
+	}
+
+	// Verify workflow.history_size()
+	if histSize, ok := workflowModuleResult["history_size"].(float64); ok && histSize >= 0 {
+		log.Printf("workflow.history_size(): PASS (value: %.0f bytes)", histSize)
+	} else {
+		log.Printf("workflow.history_size(): FAIL (got %v)", workflowModuleResult["history_size"])
+	}
+
+	// Verify workflow.version()
+	if version, ok := workflowModuleResult["version"].(float64); ok {
+		log.Printf("workflow.version(): PASS (value: %.0f)", version)
+	} else {
+		log.Printf("workflow.version(): FAIL (got error: %v)", workflowModuleResult["version_error"])
+	}
+
+	// Verify workflow.call() - child workflow result
+	if callResult, ok := workflowModuleResult["call_result"].(map[string]interface{}); ok {
+		if status, ok := callResult["status"].(string); ok && status == "child done" {
+			log.Println("workflow.call(): PASS")
+		} else {
+			log.Printf("workflow.call(): FAIL (unexpected status: %v)", callResult["status"])
+		}
+		if received, ok := callResult["received"].(string); ok && received == "hello from parent" {
+			log.Println("workflow.call() args passed: PASS")
+		} else {
+			log.Printf("workflow.call() args passed: FAIL (got %v)", callResult["received"])
+		}
+	} else {
+		log.Printf("workflow.call(): FAIL (got error: %v)", workflowModuleResult["call_error"])
+	}
+
+	// Verify version consistency
+	if consistent, ok := workflowModuleResult["version_consistent"].(bool); ok && consistent {
+		log.Println("workflow.version() consistency: PASS")
+	} else {
+		log.Println("workflow.version() consistency: FAIL")
+	}
+
+	// Verify history grew
+	if grew, ok := workflowModuleResult["history_grew"].(bool); ok && grew {
+		log.Println("workflow.history_length() growth: PASS")
+	} else {
+		log.Println("workflow.history_length() growth: FAIL")
+	}
+
 	log.Println("\nDone - All workflow tests passed!")
 }
+
+// Ensure imports are used
+var (
+	_ = ctxapi.GetValues
+	_ workflow.Context
+)

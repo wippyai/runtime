@@ -27,7 +27,7 @@ import (
 func (m *Manager) createPool(id registry.ID, cfg *configEntry) error {
 	factoryFn, err := m.factory.CreateFactory(id, engine.WithModule(processmod.Module))
 	if err != nil {
-		return runtimelua.NewCompileError(err)
+		return err // Already has compile context from code.Manager
 	}
 
 	execHooks := m.createExecutionHooks()
@@ -168,9 +168,9 @@ func (m *Manager) createPoolByType(poolType string, factory process.FactoryFunc,
 func (m *Manager) registerCaller(ctx context.Context, id registry.ID, options runtime.Options) error {
 	path := id.String()
 
-	waiter, err := m.awaiter.Prepare(ctx, path)
-	if err != nil {
-		return runtimelua.NewRegisterCallerError(&id, err)
+	awaitSvc := event.GetAwaitService(ctx)
+	if awaitSvc == nil {
+		return runtimelua.NewRegisterCallerError(&id, nil)
 	}
 
 	m.bus.Send(ctx, event.Event{
@@ -183,7 +183,7 @@ func (m *Manager) registerCaller(ctx context.Context, id registry.ID, options ru
 		},
 	})
 
-	result := waiter.Wait()
+	result := awaitSvc.Await(ctx, function.System, "function.(accept|reject)", path, 30*time.Second)
 	if !result.Accepted {
 		return runtimelua.NewRegisterCallerError(&id, result.Error)
 	}

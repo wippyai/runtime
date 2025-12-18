@@ -138,7 +138,7 @@ func runApp(cmd *cobra.Command, args []string) error {
 
 	if err := entries.LoadFromLockFile(ctx, logger, verbose); err != nil {
 		logger.Error("entry loading failed", zap.Error(err))
-		return NewLoadEntriesError("lock file", err)
+		return err // Error already has context
 	}
 
 	if !silentLogs {

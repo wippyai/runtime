@@ -16,6 +16,7 @@ var Module = &luaapi.ModuleDef{
 	Description: "UUID generation and validation",
 	Class:       []string{luaapi.ClassNondeterministic, luaapi.ClassWorkflow},
 	Build:       buildModule,
+	Types:       ModuleTypes,
 }
 
 func buildModule() (*lua.LTable, []luaapi.YieldType) {

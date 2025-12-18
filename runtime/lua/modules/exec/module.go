@@ -36,6 +36,7 @@ var Module = &luaapi.ModuleDef{
 	Name:        "exec",
 	Description: "Command execution and process management",
 	Class:       []string{luaapi.ClassIO, luaapi.ClassProcess, luaapi.ClassNondeterministic},
+	Types:       ModuleTypes,
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		initOnce.Do(initModuleTable)
 		return moduleTable, []luaapi.YieldType{

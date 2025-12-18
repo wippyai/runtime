@@ -26,6 +26,7 @@ var Module = &luaapi.ModuleDef{
 	Name:        "eval",
 	Description: "Dynamic Lua code compilation and execution",
 	Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
+	Types:       ModuleTypes,
 	Build:       buildModule,
 }
 

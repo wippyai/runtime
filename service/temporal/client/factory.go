@@ -11,9 +11,11 @@ import (
 	"github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/registry"
 	api "github.com/wippyai/runtime/api/service/temporal"
+	"github.com/wippyai/runtime/service/temporal/propagator"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/interceptor"
+	"go.temporal.io/sdk/workflow"
 	"go.uber.org/zap"
 )
 
@@ -84,6 +86,11 @@ func (f *DefaultClientFactory) buildClientOptions(ctx context.Context, logger *z
 	// Set client interceptors if available
 	if len(f.clientInterceptors) > 0 {
 		opts.Interceptors = f.clientInterceptors
+	}
+
+	// Add context propagator for wippy context values
+	opts.ContextPropagators = []workflow.ContextPropagator{
+		propagator.New(),
 	}
 
 	// Configure authentication

@@ -18,6 +18,7 @@ var Module = &luaapi.ModuleDef{
 	Name:        "payload",
 	Description: "Payload transcoding and format conversion",
 	Class:       []string{luaapi.ClassEncoding, luaapi.ClassDeterministic},
+	Types:       ModuleTypes,
 	Build:       buildModule,
 }
 

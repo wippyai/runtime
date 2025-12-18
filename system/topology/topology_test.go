@@ -76,7 +76,7 @@ func TestTopology_BasicFunctionality(t *testing.T) {
 			t.Errorf("unexpected error registering process: %v", err)
 		}
 
-		// Double registration should fail (Erlang-style)
+		// Double registration should fail
 		if err := topo.Register(pid1); err == nil {
 			t.Error("expected error on double registration")
 		}
@@ -754,4 +754,81 @@ func TestTopology_WatchingMapTracking(t *testing.T) {
 		notifications := upstream.getSends(watcher1)
 		assert.Len(t, notifications, 1, "watcher1 should only receive notification from new target")
 	})
+}
+
+func TestTopology_DuplicateLink(t *testing.T) {
+	upstream := newMockUpstream()
+	topo := NewTopology(upstream, "local")
+
+	// Use "9" and "30" with same host - {host|9} and {host|30} hash to shard 26
+	pid1 := pid.PID{Host: "host", UniqID: "9"}
+	pid1 = pid1.Precomputed()
+	pid2 := pid.PID{Host: "host", UniqID: "30"}
+	pid2 = pid2.Precomputed()
+
+	// Register both processes
+	assert.NoError(t, topo.Register(pid1))
+	assert.NoError(t, topo.Register(pid2))
+
+	// Link first time
+	err := topo.Link(pid1, pid2)
+	assert.NoError(t, err)
+
+	links := topo.GetLinks(pid1)
+	assert.Len(t, links, 1)
+
+	// Link second time - should be no-op (tests linkSameShard duplicate check)
+	err = topo.Link(pid1, pid2)
+	assert.NoError(t, err)
+
+	// Should still have only one link
+	links = topo.GetLinks(pid1)
+	assert.Len(t, links, 1, "duplicate link should be no-op")
+}
+
+func TestTopology_RecycleStateLargeMaps(t *testing.T) {
+	upstream := newMockUpstream()
+	topo := NewTopology(upstream, "local")
+
+	// Create main process
+	mainPID := pid.PID{Host: "host", UniqID: "main"}
+	mainPID = mainPID.Precomputed()
+	assert.NoError(t, topo.Register(mainPID))
+
+	// Create and register many processes
+	watchers := make([]pid.PID, 20)
+	linked := make([]pid.PID, 20)
+	for i := 0; i < 20; i++ {
+		watchers[i] = pid.PID{Host: "watcher", UniqID: string(rune('A' + i))}
+		watchers[i] = watchers[i].Precomputed()
+		assert.NoError(t, topo.Register(watchers[i]))
+
+		linked[i] = pid.PID{Host: "linked", UniqID: string(rune('a' + i))}
+		linked[i] = linked[i].Precomputed()
+		assert.NoError(t, topo.Register(linked[i]))
+	}
+
+	// Set up 20 monitors and 20 links to main process
+	for i := 0; i < 20; i++ {
+		assert.NoError(t, topo.Monitor(watchers[i], mainPID))
+		assert.NoError(t, topo.Link(mainPID, linked[i]))
+	}
+
+	// Also have mainPID watch many targets (to fill watching map)
+	targets := make([]pid.PID, 20)
+	for i := 0; i < 20; i++ {
+		targets[i] = pid.PID{Host: "target", UniqID: string(rune('0' + i))}
+		targets[i] = targets[i].Precomputed()
+		assert.NoError(t, topo.Register(targets[i]))
+		assert.NoError(t, topo.Monitor(mainPID, targets[i]))
+	}
+
+	// Complete mainPID - this triggers recycleState with large maps (>16)
+	topo.Complete(mainPID, &runtime.Result{})
+
+	// State should be recycled, verify linked processes got cleaned up
+	for i := 0; i < 20; i++ {
+		links := topo.GetLinks(linked[i])
+		assert.Empty(t, links, "linked process should have no links after main completed")
+	}
 }

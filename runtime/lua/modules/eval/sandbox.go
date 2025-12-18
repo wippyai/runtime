@@ -203,6 +203,9 @@ func sandboxStep(l *lua.LState) int {
 
 	case process.StepYield:
 		t.RawSetString("status", lua.LString("waiting"))
+
+	case process.StepUpgrade:
+		t.RawSetString("status", lua.LString("upgrade"))
 	}
 
 	l.Push(t)

@@ -83,7 +83,7 @@ func (br *BusRunner) Transition(
 				Data:   err,
 			})
 
-			return stateMapToSlice(newState), NewOperationFailedError(err)
+			return stateMapToSlice(newState), err // Already has context from applyOperation
 		}
 
 		currentState = newState

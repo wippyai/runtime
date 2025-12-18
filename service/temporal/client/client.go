@@ -159,6 +159,11 @@ func (c *Client) GetTaskQueueName(queueName string) string {
 	return c.config.TQPrefix + queueName
 }
 
+// TemporalClient returns the underlying Temporal SDK client.
+func (c *Client) TemporalClient() client.Client {
+	return c.client
+}
+
 // clientResourceImpl is the internal implementation of a Temporal client resource
 type clientResourceImpl struct {
 	client   client.Client

@@ -20,6 +20,7 @@ var Module = &luaapi.ModuleDef{
 		mod.Immutable = true
 		return mod, nil
 	},
+	Types: ModuleTypes,
 }
 
 func envGet(l *lua.LState) int {

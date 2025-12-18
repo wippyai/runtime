@@ -2,10 +2,12 @@ package actor
 
 import (
 	"context"
-	"runtime"
+	"fmt"
+	goruntime "runtime"
 	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/runtime"
 	sysprocess "github.com/wippyai/runtime/system/process"
 )
 
@@ -47,7 +49,7 @@ func (w *Worker) run() {
 			continue
 		}
 		if spins < 16 {
-			runtime.Gosched()
+			goruntime.Gosched()
 			continue
 		}
 
@@ -209,6 +211,85 @@ func (w *Worker) executeOne(proc *Processor) {
 				w.scheduler.wake()
 			}
 		}
+
+	case process.StepUpgrade:
+		req := proc.output.Upgrade()
+		if req == nil {
+			proc.Process.Close()
+			if !proc.casState(StateRunning, StateComplete) {
+				return
+			}
+			proc.queue.Close()
+			w.scheduler.complete(proc, nil, fmt.Errorf("upgrade: no request"))
+			return
+		}
+
+		factory := process.GetFactory(proc.ctx)
+		if factory == nil {
+			proc.Process.Close()
+			if !proc.casState(StateRunning, StateComplete) {
+				return
+			}
+			proc.queue.Close()
+			w.scheduler.complete(proc, nil, fmt.Errorf("upgrade: no factory"))
+			return
+		}
+
+		// Resolve source (empty = current definition)
+		source := req.Source
+		if source.Name == "" {
+			var ok bool
+			source, ok = runtime.GetFrameID(proc.ctx)
+			if !ok {
+				proc.Process.Close()
+				if !proc.casState(StateRunning, StateComplete) {
+					return
+				}
+				proc.queue.Close()
+				w.scheduler.complete(proc, nil, fmt.Errorf("upgrade: no source"))
+				return
+			}
+		}
+
+		// Create new process
+		newProc, meta, err := factory.Create(source)
+		if err != nil {
+			proc.Process.Close()
+			if !proc.casState(StateRunning, StateComplete) {
+				return
+			}
+			proc.queue.Close()
+			w.scheduler.complete(proc, nil, fmt.Errorf("upgrade: create failed: %w", err))
+			return
+		}
+
+		// Close old process
+		proc.Process.Close()
+
+		// Swap
+		proc.Process = newProc
+
+		// Init new process
+		method := "main"
+		if meta != nil && meta.Method != "" {
+			method = meta.Method
+		}
+		if err := newProc.Init(proc.ctx, method, req.Input); err != nil {
+			proc.Process.Close()
+			if !proc.casState(StateRunning, StateComplete) {
+				return
+			}
+			proc.queue.Close()
+			w.scheduler.complete(proc, nil, fmt.Errorf("upgrade: init failed: %w", err))
+			return
+		}
+
+		// Success - re-queue
+		if !proc.casState(StateRunning, StateReady) {
+			return
+		}
+		w.scheduler.global.Push(proc)
+		w.scheduler.wake()
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/event"
 
 	lua "github.com/yuin/gopher-lua"
+	"github.com/yuin/gopher-lua/types"
 )
 
 const (
@@ -97,11 +98,13 @@ type ModuleDef struct {
 	Default     bool
 	Build       func() (*lua.LTable, []YieldType)
 	BuildValue  func() (lua.LValue, []YieldType)
+	Types       func() *types.TypeManifest
 
-	once   sync.Once
-	table  *lua.LTable
-	value  lua.LValue
-	yields []YieldType
+	once     sync.Once
+	table    *lua.LTable
+	value    lua.LValue
+	yields   []YieldType
+	manifest *types.TypeManifest
 }
 
 // Load loads the module into LState.
@@ -112,6 +115,9 @@ func (m *ModuleDef) Load(l *lua.LState) []YieldType {
 		} else if m.Build != nil {
 			m.table, m.yields = m.Build()
 			m.value = m.table
+		}
+		if m.Types != nil {
+			m.manifest = m.Types()
 		}
 	})
 
@@ -147,8 +153,17 @@ func (m *ModuleDef) Register(_ *lua.LState) *Registration {
 			m.table, m.yields = m.Build()
 			m.value = m.table
 		}
+		if m.Types != nil {
+			m.manifest = m.Types()
+		}
 	})
 	return &Registration{Table: m.table, YieldTypes: m.yields}
+}
+
+// Manifest returns the type manifest for this module.
+// Returns nil if the module has no type definitions.
+func (m *ModuleDef) Manifest() *types.TypeManifest {
+	return m.manifest
 }
 
 // Loader initializes the module and pushes it onto the stack.

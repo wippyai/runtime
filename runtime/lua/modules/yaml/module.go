@@ -20,6 +20,7 @@ var Module = &luaapi.ModuleDef{
 		mod.Immutable = true
 		return mod, nil
 	},
+	Types: ModuleTypes,
 }
 
 func encodeFunc(l *lua.LState) int {

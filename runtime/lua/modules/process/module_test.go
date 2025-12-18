@@ -54,7 +54,7 @@ func TestLoader(t *testing.T) {
 		"spawn_linked", "spawn_linked_monitored", "terminate",
 		"cancel", "get_options", "set_options", "monitor",
 		"unmonitor", "link", "unlink", "inbox", "events",
-		"listen", "unlisten", "with_context",
+		"listen", "unlisten", "with_context", "upgrade",
 	}
 
 	for _, fn := range functions {

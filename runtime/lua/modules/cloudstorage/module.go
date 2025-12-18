@@ -20,6 +20,7 @@ var Module = &luaapi.ModuleDef{
 	Name:        "cloudstorage",
 	Description: "Cloud storage operations (S3, GCS, etc.)",
 	Class:       []string{luaapi.ClassStorage, luaapi.ClassNetwork, luaapi.ClassIO},
+	Types:       ModuleTypes,
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		mod := &lua.LTable{}
 		mod.RawSetString("get", lua.LGoFunc(apiGet))

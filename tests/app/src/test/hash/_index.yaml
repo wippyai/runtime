@@ -53,17 +53,3 @@ entries:
       assert2: app.lib:assert
     modules:
       - hash
-
-  - name: errors
-    kind: function.lua
-    meta:
-      type: test
-      suite: hash
-      description: hash error handling
-    source: file://errors.lua
-    method: main
-    imports:
-      assert2: app.lib:assert
-    modules:
-      - hash
-

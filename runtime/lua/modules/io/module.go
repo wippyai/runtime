@@ -14,6 +14,7 @@ var Module = &luaapi.ModuleDef{
 	Name:        "io",
 	Description: "Terminal IO operations (stdin, stdout, stderr)",
 	Class:       []string{luaapi.ClassIO, luaapi.ClassNondeterministic},
+	Types:       ModuleTypes,
 	Build:       buildModule,
 }
 

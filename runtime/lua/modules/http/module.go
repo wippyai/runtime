@@ -31,6 +31,7 @@ var Module = &luaapi.ModuleDef{
 	Name:        "http",
 	Description: "HTTP request and response types",
 	Class:       []string{luaapi.ClassNetwork, luaapi.ClassIO, luaapi.ClassNondeterministic},
+	Types:       ModuleTypes,
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		mod := lua.CreateTable(0, 16)
 		mod.RawSetString("request", lua.LGoFunc(newRequest))

@@ -82,6 +82,64 @@ func (m *subscribeContext) get(topic string) (*subscription, bool) {
 	return sub, exists
 }
 
+// match finds a subscription that matches the given topic.
+// Supports glob-style patterns:
+//   - "*" matches any topic
+//   - "foo.*" matches "foo.bar", "foo.baz", etc.
+//   - "foo.*.bar" matches "foo.x.bar", "foo.y.bar", etc.
+func (m *subscribeContext) match(topic string) (*subscription, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// First try exact match
+	if sub, exists := m.byTopic[topic]; exists {
+		return sub, true
+	}
+
+	// Try pattern matching
+	for pattern, sub := range m.byTopic {
+		if matchTopicPattern(pattern, topic) {
+			return sub, true
+		}
+	}
+	return nil, false
+}
+
+// matchTopicPattern checks if topic matches the glob pattern.
+// Pattern can contain * which matches any sequence of characters.
+func matchTopicPattern(pattern, topic string) bool {
+	// No wildcards - exact match only
+	if pattern == topic {
+		return true
+	}
+
+	// Simple glob matching
+	pi, ti := 0, 0
+	starIdx, matchIdx := -1, 0
+
+	for ti < len(topic) {
+		if pi < len(pattern) && pattern[pi] == '*' {
+			starIdx = pi
+			matchIdx = ti
+			pi++
+		} else if pi < len(pattern) && (pattern[pi] == topic[ti] || pattern[pi] == '?') {
+			pi++
+			ti++
+		} else if starIdx != -1 {
+			pi = starIdx + 1
+			matchIdx++
+			ti = matchIdx
+		} else {
+			return false
+		}
+	}
+
+	for pi < len(pattern) && pattern[pi] == '*' {
+		pi++
+	}
+	return pi == len(pattern)
+}
+
 // subscription links a topic to a channel.
 type subscription struct {
 	topic   string

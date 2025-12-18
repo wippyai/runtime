@@ -85,7 +85,7 @@ func NewSubscriber(
 // Close stops the helpers goroutine, unsubscribes from the event bus, and waits for the goroutine to exit.
 func (s *Subscriber) Close() {
 	s.cancel()
-	s.wg.Wait()
+	s.wg.Wait() // blocks here waiting for goroutines
 }
 
 // ID returns the subscriber ID.

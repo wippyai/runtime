@@ -25,6 +25,7 @@ var Module = &luaapi.ModuleDef{
 	Name:        "queue",
 	Description: "Message queue operations",
 	Class:       []string{luaapi.ClassIO, luaapi.ClassNondeterministic},
+	Types:       ModuleTypes,
 	Build:       buildModule,
 }
 

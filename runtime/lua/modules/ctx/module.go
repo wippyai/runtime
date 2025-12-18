@@ -20,10 +20,11 @@ func init() {
 var Module = &luaapi.ModuleDef{
 	Name:        "ctx",
 	Description: "Context value read operations",
-	Class:       []string{luaapi.ClassNondeterministic},
+	Class:       []string{luaapi.ClassNondeterministic, luaapi.ClassWorkflow},
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		return moduleTable, nil
 	},
+	Types: ModuleTypes,
 }
 
 // Error helpers

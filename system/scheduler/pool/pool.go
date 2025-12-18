@@ -285,6 +285,9 @@ func (e *Executor) Run(ctx context.Context, proc process.Process, method string,
 
 		case process.StepDone:
 			// handled above before switch
+
+		case process.StepUpgrade:
+			// upgrade not supported in pool scheduler
 		}
 	}
 }

@@ -39,6 +39,7 @@ var Module = &luaapi.ModuleDef{
 	Name:        "system",
 	Description: "System memory, GC, runtime, and process info",
 	Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
+	Types:       ModuleTypes,
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		initOnce.Do(initModuleTable)
 		return moduleTable, nil

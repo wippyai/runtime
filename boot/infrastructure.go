@@ -11,6 +11,7 @@ import (
 	relayapi "github.com/wippyai/runtime/api/relay"
 	topapi "github.com/wippyai/runtime/api/topology"
 	luapayload "github.com/wippyai/runtime/runtime/lua/engine/payload"
+	"github.com/wippyai/runtime/system/await"
 	"github.com/wippyai/runtime/system/eventbus"
 	"github.com/wippyai/runtime/system/logs"
 	transcoder "github.com/wippyai/runtime/system/payload"
@@ -20,6 +21,30 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
+
+var peerManagerKey = &contextapi.Key{Name: "boot.peer_manager"}
+
+// withPeerManager stores the peer manager in context.
+func withPeerManager(ctx context.Context, pm *relay.PeerManager) context.Context {
+	ac := contextapi.AppFromContext(ctx)
+	if ac == nil {
+		return ctx
+	}
+	ac.With(peerManagerKey, pm)
+	return ctx
+}
+
+// getPeerManager retrieves the peer manager from context.
+func getPeerManager(ctx context.Context) *relay.PeerManager {
+	ac := contextapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil
+	}
+	if pm, ok := ac.Get(peerManagerKey).(*relay.PeerManager); ok {
+		return pm
+	}
+	return nil
+}
 
 // NewBootstrapContext initializes core infrastructure (AppContext, EventBus, wrapped Logger)
 // BEFORE component loading. This ensures all components receive the same wrapped logger.
@@ -38,6 +63,10 @@ func NewBootstrapContext(logger *zap.Logger, cfg boot.Config) (context.Context, 
 	bus := eventbus.NewBus()
 	ctx = event.WithBus(ctx, bus)
 
+	// Create AwaitService for request-response over pub-sub
+	awaitSvc := await.NewService(bus)
+	ctx = event.WithAwaitService(ctx, awaitSvc)
+
 	dtt := transcoder.GlobalTranscoder()
 	json.Register(dtt)
 	yaml.Register(dtt)
@@ -48,7 +77,7 @@ func NewBootstrapContext(logger *zap.Logger, cfg boot.Config) (context.Context, 
 	ctx, logManager := createEventInfrastructure(ctx, logger, bus, cfg)
 
 	// Setup relay infrastructure (node, router, managers)
-	ctx, nodeManager := createRelayInfrastructure(ctx, bus, cfg)
+	ctx, nodeManager, peerManager := createRelayInfrastructure(ctx, bus, cfg)
 
 	// Setup hosts for message handling
 	if err := createHosts(ctx, cfg); err != nil {
@@ -62,6 +91,7 @@ func NewBootstrapContext(logger *zap.Logger, cfg boot.Config) (context.Context, 
 	// Store managers in AppContext for later Start/Stop
 	ctx = logapi.WithManager(ctx, logManager)
 	ctx = relayapi.WithNodeManager(ctx, nodeManager)
+	ctx = withPeerManager(ctx, peerManager)
 
 	return ctx, nil
 }
@@ -73,8 +103,8 @@ func createEventInfrastructure(ctx context.Context, logger *zap.Logger, bus even
 	return ctx, logManager
 }
 
-// createRelayInfrastructure sets up relay node, router, and node manager
-func createRelayInfrastructure(ctx context.Context, bus event.Bus, cfg boot.Config) (context.Context, *relay.NodeManager) {
+// createRelayInfrastructure sets up relay node, router, and managers
+func createRelayInfrastructure(ctx context.Context, bus event.Bus, cfg boot.Config) (context.Context, *relay.NodeManager, *relay.PeerManager) {
 	logger := logapi.GetLogger(ctx)
 
 	nodeName := "local"
@@ -85,13 +115,14 @@ func createRelayInfrastructure(ctx context.Context, bus event.Bus, cfg boot.Conf
 	}
 
 	node := relay.NewNode(nodeName)
-	nodeManager := relay.NewNodeManager(node, bus, logger.Named("relay"))
 	router := relay.NewRouter(node, nil)
+	nodeManager := relay.NewNodeManager(node, bus, logger.Named("relay"))
+	peerManager := relay.NewPeerManager(router, bus, logger.Named("peer"))
 
 	ctx = relayapi.WithNode(ctx, node)
 	ctx = relayapi.WithRouter(ctx, router)
 
-	return ctx, nodeManager
+	return ctx, nodeManager, peerManager
 }
 
 // createHosts sets up control and function hosts
@@ -154,7 +185,7 @@ func wrapLogger(logger *zap.Logger, bus event.Bus, cfg boot.Config) (*zap.Logger
 	return wrappedLogger, logManager
 }
 
-// StartRuntimeServices starts infrastructure services (log manager, node manager)
+// StartRuntimeServices starts infrastructure services (log manager, node manager, peer manager, await service)
 func StartRuntimeServices(ctx context.Context) error {
 	if logManager := logapi.GetManager(ctx); logManager != nil {
 		if err := logManager.Start(ctx); err != nil {
@@ -168,11 +199,35 @@ func StartRuntimeServices(ctx context.Context) error {
 		}
 	}
 
+	if peerManager := getPeerManager(ctx); peerManager != nil {
+		if err := peerManager.Start(ctx); err != nil {
+			return err
+		}
+	}
+
+	if awaitSvc := event.GetAwaitService(ctx); awaitSvc != nil {
+		if err := awaitSvc.Start(ctx); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
-// StopRuntimeServices stops infrastructure services (node manager, log manager)
+// StopRuntimeServices stops infrastructure services (await service, peer manager, node manager, log manager)
 func StopRuntimeServices(ctx context.Context) error {
+	if awaitSvc := event.GetAwaitService(ctx); awaitSvc != nil {
+		if err := awaitSvc.Stop(); err != nil {
+			return err
+		}
+	}
+
+	if peerManager := getPeerManager(ctx); peerManager != nil {
+		if err := peerManager.Stop(); err != nil {
+			return err
+		}
+	}
+
 	if nodeManager := relayapi.GetNodeManager(ctx); nodeManager != nil {
 		if err := nodeManager.Stop(); err != nil {
 			return err

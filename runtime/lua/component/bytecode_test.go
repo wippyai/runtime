@@ -545,8 +545,8 @@ type mockBytecodeRegistry struct {
 }
 
 func (r *mockBytecodeRegistry) GetFS(id string) (fsapi.FS, bool) {
-	fs, ok := r.filesystems[id]
-	return fs, ok
+	fsys, ok := r.filesystems[id]
+	return fsys, ok
 }
 
 // TestLoadBytecode tests loading bytecode from filesystem

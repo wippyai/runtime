@@ -322,7 +322,8 @@ func (c *Controller) tryStart(ctx context.Context, cancel context.CancelFunc) (<
 }
 
 func (c *Controller) tryStop(ctx context.Context) error {
-	if c.state.getCurrentStatus() == supervisor.StatusStopped || c.state.getCurrentStatus() == supervisor.StatusExited {
+	status := c.state.getCurrentStatus()
+	if status == supervisor.StatusStopped || status == supervisor.StatusExited {
 		return nil
 	}
 	c.updateState(supervisor.StatusStopping, nil)

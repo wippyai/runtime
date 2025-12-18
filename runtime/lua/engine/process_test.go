@@ -4173,7 +4173,7 @@ func TestExternalYieldLostOnSubscribeLoop(t *testing.T) {
 	case process.StepIdle:
 		// This is expected - main completed but worker is waiting for message
 		t.Log("Process is idle (main completed, worker waiting for message) - yield was NOT lost")
-	case process.StepContinue, process.StepYield:
+	case process.StepContinue, process.StepYield, process.StepUpgrade:
 		t.Fatalf("Unexpected final status: %d", output.Status())
 	}
 }

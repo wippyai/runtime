@@ -41,6 +41,7 @@ func All() []boot.Component {
 		TreeSitter(),
 		UUID(),
 		WebSocket(),
+		Workflow(),
 		YAML(),
 	}
 }

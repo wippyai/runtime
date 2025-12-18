@@ -22,6 +22,7 @@ var Module = &luaapi.ModuleDef{
 	Name:        "excel",
 	Description: "Excel file operations",
 	Class:       []string{luaapi.ClassIO, luaapi.ClassEncoding},
+	Types:       ModuleTypes,
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		mod := lua.CreateTable(0, 2)
 		mod.RawSetString("new", lua.LGoFunc(excelNew))

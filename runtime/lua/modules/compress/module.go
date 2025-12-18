@@ -31,6 +31,7 @@ var Module = &luaapi.ModuleDef{
 	Name:        "compress",
 	Description: "Data compression (gzip, deflate, zlib, brotli, zstd)",
 	Class:       []string{luaapi.ClassEncoding, luaapi.ClassDeterministic},
+	Types:       ModuleTypes,
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		mod := lua.CreateTable(0, 5)
 

@@ -36,6 +36,7 @@ const (
 	QueueName        = "lua.queue"
 	// UUIDName is a component name (UpstreamName reserved for future use)
 	UUIDName      = "lua.uuid"
+	WorkflowName  = "lua.workflow"
 	WebSocketName = "lua.websocket"
 	YAMLName      = "lua.yaml"
 )

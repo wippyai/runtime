@@ -20,6 +20,7 @@ var Module = &luaapi.ModuleDef{
 	Description: "Cryptographic hash functions and HMAC",
 	Class:       []string{luaapi.ClassEncoding, luaapi.ClassSecurity, luaapi.ClassDeterministic},
 	Build:       buildModule,
+	Types:       ModuleTypes,
 }
 
 func buildModule() (*lua.LTable, []luaapi.YieldType) {

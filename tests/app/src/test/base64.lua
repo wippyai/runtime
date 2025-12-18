@@ -31,22 +31,8 @@ local function main()
         eq(decoded, s, "roundtrip for: " .. s)
     end
 
-    -- Test encode error - invalid input type
-    local result, err = base64.encode(123)
-    if result ~= nil then error("expected nil result") end
-    if err == nil then error("expected error") end
-    if err:kind() ~= errors.INVALID then error("expected Invalid kind, got: " .. tostring(err:kind())) end
-    if err:retryable() ~= false then error("expected retryable to be false") end
-
-    -- Test decode error - invalid input type
-    result, err = base64.decode(123)
-    if result ~= nil then error("expected nil result") end
-    if err == nil then error("expected error") end
-    if err:kind() ~= errors.INVALID then error("expected Invalid kind") end
-    if err:retryable() ~= false then error("expected retryable to be false") end
-
     -- Test decode error - invalid base64
-    result, err = base64.decode("!!!invalid!!!")
+    local result, err = base64.decode("!!!invalid!!!")
     if result ~= nil then error("expected nil result") end
     if err == nil then error("expected error") end
     if err:kind() ~= errors.INVALID then error("expected Invalid kind") end

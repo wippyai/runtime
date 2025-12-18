@@ -9,11 +9,14 @@ import (
 	"github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/resource"
 	api "github.com/wippyai/runtime/api/service/temporal"
 	"github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/internal/entry"
+	"github.com/wippyai/runtime/service/temporal/peer"
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/interceptor"
 	"go.uber.org/zap"
@@ -32,6 +35,7 @@ type Manager struct {
 	mu       sync.RWMutex
 	configs  map[registry.ID]*api.ClientConfig
 	services map[registry.ID]*Client
+	peers    map[registry.ID]*peer.Receiver
 }
 
 // NewManager creates a new client manager instance
@@ -68,6 +72,7 @@ func NewManager(
 		clientInterceptors: clientInterceptors,
 		configs:            make(map[registry.ID]*api.ClientConfig),
 		services:           make(map[registry.ID]*Client),
+		peers:              make(map[registry.ID]*peer.Receiver),
 	}, nil
 }
 
@@ -107,6 +112,7 @@ func NewManagerWithFactory(
 		clientInterceptors: clientInterceptors,
 		configs:            make(map[registry.ID]*api.ClientConfig),
 		services:           make(map[registry.ID]*Client),
+		peers:              make(map[registry.ID]*peer.Receiver),
 	}, nil
 }
 
@@ -187,6 +193,24 @@ func (m *Manager) AddClient(ctx context.Context, id registry.ID, cfg *api.Client
 			Meta:     meta,
 		},
 	})
+
+	// Create peer receiver for topology events (monitor, link)
+	router := relay.GetRouter(ctx)
+	if router != nil {
+		nodeID := pid.NodeID(id.String())
+		peerReceiver := peer.NewReceiver(nodeID, service.TemporalClient(), router, m.log.Named("peer"))
+		m.peers[id] = peerReceiver
+
+		m.bus.Send(ctx, event.Event{
+			System: relay.System,
+			Kind:   relay.PeerRegister,
+			Path:   id.String(),
+			Data: relay.PeerInfo{
+				NodeID:   nodeID,
+				Receiver: peerReceiver,
+			},
+		})
+	}
 
 	m.log.Info("initialized temporal client",
 		zap.String("id", id.String()),
@@ -289,6 +313,17 @@ func (m *Manager) DeleteClient(ctx context.Context, id registry.ID) error {
 		Path:   id.String(),
 		Data:   id,
 	})
+
+	// Stop and unregister peer receiver
+	if peerReceiver, exists := m.peers[id]; exists {
+		peerReceiver.Stop()
+		m.bus.Send(ctx, event.Event{
+			System: relay.System,
+			Kind:   relay.PeerDelete,
+			Path:   id.String(),
+		})
+		delete(m.peers, id)
+	}
 
 	delete(m.configs, id)
 	delete(m.services, id)

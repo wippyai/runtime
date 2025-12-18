@@ -46,6 +46,7 @@ var Module = &luaapi.ModuleDef{
 	Description: "Filesystem operations",
 	Class:       []string{luaapi.ClassStorage, luaapi.ClassIO, luaapi.ClassNondeterministic},
 	Build:       buildModule,
+	Types:       ModuleTypes,
 }
 
 func buildModule() (*lua.LTable, []luaapi.YieldType) {

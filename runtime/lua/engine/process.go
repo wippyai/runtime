@@ -127,6 +127,10 @@ type Process struct {
 	// linkDownError is set when LINK_DOWN is received with trap_links=false
 	// This causes the process to terminate on next Step
 	linkDownError error
+
+	// upgradeRequest is set when process.upgrade() is called
+	// This causes the process to signal StepUpgrade on next Step
+	upgradeRequest *UpgradeRequest
 }
 
 // queuedMessage stores a message waiting to be delivered
@@ -497,6 +501,18 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		}
 	}
 
+	// Check for upgrade request
+	if p.upgradeRequest != nil {
+		req := p.upgradeRequest
+		p.upgradeRequest = nil
+		p.clearExecution()
+		out.SetUpgrade(&process.UpgradeRequest{
+			Source: req.Source,
+			Input:  req.Input,
+		})
+		return nil
+	}
+
 	// Check completion
 	if len(externalTasks) == 0 && p.queue.IsEmpty() && len(p.threads) == 0 {
 		result := p.result
@@ -784,8 +800,8 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool 
 		}
 	}
 
-	// Find subscription for topic
-	sub, exists := subs.get(topic)
+	// Find subscription for topic (supports glob patterns like "update.*")
+	sub, exists := subs.match(topic)
 	if !exists {
 		// Fallback to inbox for non-@ topics
 		if !strings.HasPrefix(topic, "@") {
@@ -954,6 +970,10 @@ func (p *Process) vmStep(tasks ...*Task) ([]*Task, error) {
 			if p.handleSpawnRequest(task, values) {
 				continue
 			}
+			// Check for UpgradeRequest
+			if p.handleUpgradeRequest(task, values) {
+				return nil, nil
+			}
 			p.yieldBuf = append(p.yieldBuf, task)
 		case lua.ResumeOK:
 			// Capture mainTask's return value before removing
@@ -1044,6 +1064,22 @@ func (p *Process) handleSpawnRequest(task *Task, values []lua.LValue) bool {
 	task.Yielded = nil
 	p.queue.Push(task)
 
+	return true
+}
+
+// handleUpgradeRequest checks if yielded values contain an UpgradeRequest and stores it.
+// Returns true if an upgrade was requested, causing vmStep to return early.
+func (p *Process) handleUpgradeRequest(_ *Task, values []lua.LValue) bool {
+	if len(values) == 0 {
+		return false
+	}
+
+	req, ok := values[len(values)-1].(*UpgradeRequest)
+	if !ok {
+		return false
+	}
+
+	p.upgradeRequest = req
 	return true
 }
 

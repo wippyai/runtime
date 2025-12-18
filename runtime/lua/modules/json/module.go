@@ -21,6 +21,7 @@ var Module = &luaapi.ModuleDef{
 		mod.Immutable = true
 		return mod, nil
 	},
+	Types: ModuleTypes,
 }
 
 func invalidInputError(l *lua.LState, msg string) int {

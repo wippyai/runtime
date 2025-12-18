@@ -81,7 +81,7 @@ local function run(parent_pid)
     end
 
     if main_result.channel == done_channel then
-        local res, ok = result_channel:try_receive()
+        local res, ok = result_channel:receive()
         if ok then
             process.send(parent_pid, "test.response", res)
         else

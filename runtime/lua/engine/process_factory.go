@@ -86,24 +86,10 @@ func WithAllowedClasses(classes ...string) FactoryOption {
 	}
 }
 
-// ForbidClasses fails process creation if any dependency has these classes.
-func ForbidClasses(classes ...string) FactoryOption {
-	return func(c *processConfig) {
-		c.forbidClasses = append(c.forbidClasses, classes...)
-	}
-}
-
 // ExcludeClasses silently skips binding modules with these classes.
 func ExcludeClasses(classes ...string) FactoryOption {
 	return func(c *processConfig) {
 		c.excludeClasses = append(c.excludeClasses, classes...)
-	}
-}
-
-// ForbidModules fails process creation if any dependency matches these names.
-func ForbidModules(names ...string) FactoryOption {
-	return func(c *processConfig) {
-		c.forbidModules = append(c.forbidModules, names...)
 	}
 }
 

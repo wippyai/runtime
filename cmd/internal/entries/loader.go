@@ -57,7 +57,7 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger, verbose bool) err
 	logger.Info("loaded entries", zap.Int("count", len(entries)))
 
 	if err := loadEntriesToRegistry(ctx, entries, logger, verbose); err != nil {
-		return NewLoadEntriesToRegistryError(err)
+		return err // Already has context from registry
 	}
 
 	logger.Info("entries loaded to registry successfully")
@@ -262,7 +262,7 @@ func loadEntriesToRegistry(ctx context.Context, entries []regapi.Entry, logger *
 	}
 
 	if err := reg.LoadState(ctx, baselineState, head); err != nil {
-		return NewLoadStateError(err)
+		return err // Already wrapped by registry with proper context
 	}
 
 	logger.Debug("registry state loaded", zap.Uint("version", head.ID()))

@@ -4,6 +4,7 @@ package process
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/wippyai/runtime/api/event"
 	fsapi "github.com/wippyai/runtime/api/fs"
@@ -15,7 +16,6 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/component"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	processmod "github.com/wippyai/runtime/runtime/lua/modules/process"
-	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 
@@ -33,7 +33,6 @@ type Manager struct {
 	bus        event.Bus
 	fsRegistry fsapi.Registry
 	factory    engine.CompiledFactory
-	awaiter    *eventbus.Awaiter
 	configs    sync.Map // map[registry.ID]*configEntry
 }
 
@@ -52,7 +51,6 @@ func NewManager(
 		bus:        bus,
 		fsRegistry: fsRegistry,
 		factory:    factory,
-		awaiter:    eventbus.NewAwaiter(bus, process.System, "factory.(accept|reject)"),
 	}
 }
 
@@ -251,7 +249,7 @@ func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method st
 	// Create factory using ProcessFactory
 	factoryFn, err := m.factory.CreateFactory(id, engine.WithModule(processmod.Module))
 	if err != nil {
-		return runtimelua.NewCompileError(err)
+		return err // Already has compile context from code.Manager
 	}
 
 	if method == "" {
@@ -260,10 +258,9 @@ func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method st
 
 	path := id.String()
 
-	// Subscribe BEFORE sending to avoid race condition
-	waiter, err := m.awaiter.Prepare(ctx, path)
-	if err != nil {
-		return runtimelua.NewRegisterFactoryError(err)
+	awaitSvc := event.GetAwaitService(ctx)
+	if awaitSvc == nil {
+		return runtimelua.NewRegisterFactoryError(nil)
 	}
 
 	m.bus.Send(ctx, event.Event{
@@ -278,7 +275,7 @@ func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method st
 		},
 	})
 
-	result := waiter.Wait()
+	result := awaitSvc.Await(ctx, process.System, "factory.(accept|reject)", path, 30*time.Second)
 	if !result.Accepted {
 		return runtimelua.NewRegisterFactoryError(result.Error)
 	}

@@ -267,3 +267,39 @@ func TestPIDRegistry_RemoveWithParent(t *testing.T) {
 	_, found = parent.Lookup("parent-name")
 	assert.False(t, found)
 }
+
+func TestPIDRegistry_RemoveNotFoundDelegatesToParent(t *testing.T) {
+	parent := NewPIDRegistry(WithLogger(zap.NewNop()))
+	child := NewPIDRegistry(WithParent(parent), WithLogger(zap.NewNop()))
+
+	pid := pidapi.PID{Node: "node1", Host: "host1", UniqID: "uniq1"}
+
+	// Register only in parent
+	_ = parent.Register("parent-only", pid)
+
+	// Remove from child - PID not in child, should delegate to parent
+	child.Remove(pid)
+
+	// Parent registration should be gone
+	_, found := parent.Lookup("parent-only")
+	assert.False(t, found)
+}
+
+func TestPIDRegistry_RemoveNonExistent(t *testing.T) {
+	reg := NewPIDRegistry(WithLogger(zap.NewNop()))
+
+	pid := pidapi.PID{Node: "node1", Host: "host1", UniqID: "nonexistent"}
+
+	// Remove non-existent PID - should not panic
+	reg.Remove(pid)
+}
+
+func TestPIDRegistry_RemoveNonExistentWithParent(t *testing.T) {
+	parent := NewPIDRegistry(WithLogger(zap.NewNop()))
+	child := NewPIDRegistry(WithParent(parent), WithLogger(zap.NewNop()))
+
+	pid := pidapi.PID{Node: "node1", Host: "host1", UniqID: "nonexistent"}
+
+	// Remove non-existent PID from child - should delegate to parent, not panic
+	child.Remove(pid)
+}

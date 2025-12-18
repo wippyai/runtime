@@ -75,6 +75,7 @@ var Module = &luaapi.ModuleDef{
 	Name:        "contract",
 	Description: "Contract-based interface invocation",
 	Class:       []string{luaapi.ClassWorkflow, luaapi.ClassNondeterministic},
+	Types:       ModuleTypes,
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		return moduleTable, yieldTypes
 	},

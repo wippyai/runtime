@@ -23,6 +23,7 @@ var Module = &luaapi.ModuleDef{
 	Name:        "templates",
 	Description: "Template rendering engine",
 	Class:       []string{luaapi.ClassDeterministic},
+	Types:       ModuleTypes,
 	Build:       buildModule,
 }
 

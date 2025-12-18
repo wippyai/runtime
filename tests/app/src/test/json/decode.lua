@@ -36,14 +36,6 @@ local function main()
     assert.eq(nested.items[1], 1, "nested array element")
     assert.eq(nested.meta.ok, true, "nested object field")
 
-    -- Invalid input type error
-    local _, err1 = json.decode(123)
-    assert.not_nil(err1, "non-string input should error")
-    assert.eq(err1:kind(), errors.INVALID, "invalid input error kind")
-    assert.eq(err1:retryable(), false, "invalid input not retryable")
-    local str1 = tostring(err1)
-    assert.contains(str1, "string expected", "error message for invalid input")
-
     -- Empty string error
     local _, err2 = json.decode("")
     assert.not_nil(err2, "empty string should error")

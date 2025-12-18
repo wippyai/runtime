@@ -21,6 +21,7 @@ var Module = &luaapi.ModuleDef{
 	Name:        "events",
 	Description: "Event bus subscribe and send",
 	Class:       []string{luaapi.ClassIO, luaapi.ClassNondeterministic},
+	Types:       ModuleTypes,
 	Build:       buildModule,
 }
 

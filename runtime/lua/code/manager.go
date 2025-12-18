@@ -2,7 +2,6 @@ package code
 
 import (
 	"context"
-	"strings"
 	"sync"
 	"time"
 
@@ -11,16 +10,18 @@ import (
 	api "github.com/wippyai/runtime/api/runtime/lua"
 	glua "github.com/yuin/gopher-lua"
 	"github.com/yuin/gopher-lua/parse"
+	"github.com/yuin/gopher-lua/types"
 	"go.uber.org/zap"
 )
 
 type (
 	// Manager centralizes code and dependency management
 	Manager struct {
-		log      *zap.Logger
-		bus      event.Bus
-		memGraph *MemoryGraph
-		compiler *Compiler
+		log         *zap.Logger
+		bus         event.Bus
+		memGraph    *MemoryGraph
+		compiler    *Compiler
+		typeChecker *TypeChecker
 
 		// Transaction tracking
 		txMu    sync.Mutex
@@ -32,6 +33,7 @@ type (
 		Modules        []api.Module
 		ProtoCacheSize int
 		MainCacheSize  int
+		TypeCheck      TypeCheckConfig
 	}
 )
 
@@ -45,15 +47,51 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 		cfg.MainCacheSize = 1000
 	}
 
+	// Create type checker if enabled
+	var typeChecker *TypeChecker
+	if cfg.TypeCheck.Enabled {
+		typeChecker = NewTypeChecker(cfg.TypeCheck, cfg.Modules)
+		log.Info("type checking enabled",
+			zap.Bool("strict", cfg.TypeCheck.Strict),
+			zap.Bool("require_annotations", cfg.TypeCheck.RequireAnnotations),
+		)
+	}
+
 	cm := &Manager{
-		log:      log,
-		bus:      bus,
-		memGraph: NewMemoryGraph(),
+		log:         log,
+		bus:         bus,
+		memGraph:    NewMemoryGraph(),
+		typeChecker: typeChecker,
 		compiler: NewCompiler(
-			func(node *Node) (*glua.FunctionProto, error) {
-				chunk, err := parse.Parse(strings.NewReader(node.Source), node.ID.String())
+			func(node *Node, imports map[string]*types.TypeManifest) (*glua.FunctionProto, error) {
+				// Run type checking if enabled
+				if typeChecker != nil && typeChecker.IsEnabled() {
+					manifest, typeErrors, err := typeChecker.Check(node.Source, node.ID.String(), imports)
+					if err != nil {
+						return nil, NewTypeCheckError(node.ID, err)
+					}
+
+					// Store manifest for cross-module type information
+					node.Manifest = manifest
+
+					if typeErrors != nil && typeErrors.HasErrors() {
+						if typeChecker.IsStrict() {
+							return nil, NewTypeCheckErrorFromList(node.ID, typeErrors, node.Source)
+						}
+						// Log warnings in non-strict mode
+						for _, e := range typeErrors.Errors() {
+							log.Warn("type check warning",
+								zap.Stringer("node", &node.ID),
+								zap.Int("line", e.Pos.Line),
+								zap.String("message", e.Message),
+							)
+						}
+					}
+				}
+
+				chunk, err := parse.ParseString(node.Source, node.ID.String())
 				if err != nil {
-					return nil, NewParseError(err)
+					return nil, NewParseError(err, node.Source)
 				}
 
 				fnProto, err := glua.Compile(chunk, node.ID.String())

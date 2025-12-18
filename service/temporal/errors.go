@@ -3,150 +3,198 @@ package temporal
 import (
 	"errors"
 
-	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
+	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/temporal"
 )
 
-// ToApplicationError converts an apierror.Error to a Temporal ApplicationError.
-// This preserves the error kind as type, retryability, and details.
+// ToApplicationError converts any error to a Temporal ApplicationError.
+// Preserves full error chain with stack traces in details.
 func ToApplicationError(err error) error {
 	if err == nil {
 		return nil
 	}
 
-	var apiErr apierror.Error
-	if !errors.As(err, &apiErr) {
-		// Plain error - wrap as non-retryable Internal error
-		return temporal.NewNonRetryableApplicationError(
-			err.Error(),
-			string(apierror.Internal),
-			err,
-		)
+	chain := apierror.BuildChain(err)
+	if chain == nil {
+		return temporal.NewApplicationError(err.Error(), string(apierror.Internal))
 	}
 
-	errType := string(apiErr.Kind())
-	message := apiErr.Error()
-
-	// Convert retryability
-	if apiErr.Retryable() == apierror.False {
-		return temporal.NewNonRetryableApplicationError(message, errType, err)
+	root := chain.Root()
+	if root == nil {
+		return temporal.NewApplicationError(err.Error(), string(apierror.Internal))
 	}
 
-	// Retryable or unspecified - let Temporal handle retry decisions
-	return temporal.NewApplicationError(message, errType, err)
+	errType := root.Kind
+	if errType == "" {
+		errType = string(apierror.Internal)
+	}
+
+	nonRetryable := false
+	if root.Retryable != nil {
+		nonRetryable = !*root.Retryable
+	}
+
+	opts := temporal.ApplicationErrorOptions{
+		NonRetryable: nonRetryable,
+		Cause:        err,
+		Details:      []any{*chain},
+	}
+
+	return temporal.NewApplicationErrorWithOptions(root.Message, errType, opts)
 }
 
-// FromTemporalError converts a Temporal error to an apierror.Error.
-// This extracts kind from ApplicationError type, handles cancellation/timeout.
-func FromTemporalError(err error) apierror.Error {
+// FromTemporalError converts a Temporal error to apierror.Rich.
+// Reconstructs the error chain from serialized details.
+func FromTemporalError(err error) apierror.Rich {
 	if err == nil {
 		return nil
 	}
 
-	// Check for ApplicationError
+	// Unwrap wrapper errors to get to the actual error
+	var activityErr *temporal.ActivityError
+	var childErr *temporal.ChildWorkflowExecutionError
+
+	if errors.As(err, &activityErr) {
+		rich := fromTemporalErrorInner(errors.Unwrap(activityErr))
+		if rich != nil {
+			addWrapperDetails(rich, map[string]any{
+				"_wrapper":     "activity",
+				"_activity_id": activityErr.ActivityID(),
+				"_retry_state": activityErr.RetryState().String(),
+			})
+		}
+		return rich
+	}
+
+	if errors.As(err, &childErr) {
+		rich := fromTemporalErrorInner(errors.Unwrap(childErr))
+		if rich != nil {
+			addWrapperDetails(rich, map[string]any{
+				"_wrapper":       "child_workflow",
+				"_workflow_id":   childErr.WorkflowID(),
+				"_workflow_type": childErr.WorkflowType(),
+				"_run_id":        childErr.RunID(),
+				"_retry_state":   childErr.RetryState().String(),
+			})
+		}
+		return rich
+	}
+
+	return fromTemporalErrorInner(err)
+}
+
+func addWrapperDetails(rich apierror.Rich, wrapper map[string]any) {
+	if re, ok := rich.(*apierror.RichError); ok {
+		if re.Details() == nil {
+			re.WithDetails(wrapper)
+		} else {
+			for k, v := range wrapper {
+				re.Details()[k] = v
+			}
+		}
+	}
+}
+
+func fromTemporalErrorInner(err error) apierror.Rich {
+	if err == nil {
+		return nil
+	}
+
+	// ApplicationError with our chain in details
 	var appErr *temporal.ApplicationError
 	if errors.As(err, &appErr) {
-		kind := mapTypeToKind(appErr.Type())
-		retryable := apierror.True
-		if appErr.NonRetryable() {
-			retryable = apierror.False
+		var chain apierror.Chain
+		if appErr.Details(&chain) == nil && len(chain.Errors) > 0 {
+			return apierror.FromChain(&chain)
 		}
-		return apierror.E(kind, appErr.Message(), retryable, nil, err)
+
+		// No chain in details - create from ApplicationError fields
+		e := apierror.NewRich(mapTypeToKind(appErr.Type()), appErr.Message())
+		if appErr.NonRetryable() {
+			e.WithRetryable(apierror.False)
+		} else {
+			e.WithRetryable(apierror.True)
+		}
+		return e
 	}
 
-	// Check for CanceledError
+	// CanceledError
 	var canceledErr *temporal.CanceledError
 	if errors.As(err, &canceledErr) {
-		return apierror.New(apierror.Canceled, "operation canceled").WithRetryable(apierror.False).WithCause(err)
+		return apierror.NewRich(apierror.Canceled, "operation canceled").
+			WithRetryable(apierror.False)
 	}
 
-	// Check for TimeoutError
+	// TimeoutError
 	var timeoutErr *temporal.TimeoutError
 	if errors.As(err, &timeoutErr) {
-		return apierror.New(apierror.Timeout, err.Error()).WithRetryable(apierror.False).WithCause(err)
+		return apierror.NewRich(apierror.Timeout, timeoutErr.Message()).
+			WithRetryable(apierror.False).
+			WithDetails(map[string]any{
+				"timeout_type": timeoutTypeToString(timeoutErr.TimeoutType()),
+			})
 	}
 
-	// Check for PanicError
+	// PanicError
 	var panicErr *temporal.PanicError
 	if errors.As(err, &panicErr) {
-		details := attrs.NewBagFrom(map[string]any{
-			"stack_trace": panicErr.StackTrace(),
-		})
-		return apierror.New(apierror.Internal, panicErr.Error()).
+		return apierror.NewRich(apierror.Internal, panicErr.Error()).
 			WithRetryable(apierror.False).
-			WithDetails(details).
-			WithCause(err)
+			WithStack([]string{panicErr.StackTrace()})
+	}
+
+	// TerminatedError
+	var terminatedErr *temporal.TerminatedError
+	if errors.As(err, &terminatedErr) {
+		return apierror.NewRich(apierror.Canceled, "workflow terminated").
+			WithRetryable(apierror.False)
 	}
 
 	// Unknown error type - wrap as Internal
-	return apierror.New(apierror.Internal, err.Error()).WithRetryable(apierror.Unspecified).WithCause(err)
+	return apierror.NewRich(apierror.Internal, err.Error())
 }
 
 // mapTypeToKind converts Temporal error type string to apierror.Kind.
 func mapTypeToKind(errType string) apierror.Kind {
-	switch apierror.Kind(errType) {
-	case apierror.NotFound:
+	switch errType {
+	case "NotFound":
 		return apierror.NotFound
-	case apierror.AlreadyExists:
+	case "AlreadyExists":
 		return apierror.AlreadyExists
-	case apierror.Invalid:
+	case "Invalid":
 		return apierror.Invalid
-	case apierror.PermissionDenied:
+	case "PermissionDenied":
 		return apierror.PermissionDenied
-	case apierror.Unavailable:
+	case "Unavailable":
 		return apierror.Unavailable
-	case apierror.Internal:
+	case "Internal":
 		return apierror.Internal
-	case apierror.Canceled:
+	case "Canceled":
 		return apierror.Canceled
-	case apierror.Conflict:
+	case "Conflict":
 		return apierror.Conflict
-	case apierror.Timeout:
+	case "Timeout":
 		return apierror.Timeout
-	case apierror.RateLimited:
+	case "RateLimited":
 		return apierror.RateLimited
 	default:
 		return apierror.Unknown
 	}
 }
 
-func NewInvalidConnectionTimeoutError(cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid connection timeout duration").WithCause(cause).WithRetryable(apierror.False)
-}
-
-func NewInvalidKeepAliveTimeError(cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid keep alive time duration").WithCause(cause).WithRetryable(apierror.False)
-}
-
-func NewInvalidKeepAliveTimeoutError(cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid keep alive timeout duration").WithCause(cause).WithRetryable(apierror.False)
-}
-
-func NewInvalidHealthCheckIntervalError(cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid health check interval duration").WithCause(cause).WithRetryable(apierror.False)
-}
-
-func NewInvalidAuthTypeError(authType string) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid auth type: "+authType).WithRetryable(apierror.False)
-}
-
-func NewInvalidStickyScheduleToStartTimeoutError(cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid sticky schedule to start timeout").WithCause(cause).WithRetryable(apierror.False)
-}
-
-func NewInvalidWorkerStopTimeoutError(cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid worker stop timeout").WithCause(cause).WithRetryable(apierror.False)
-}
-
-func NewInvalidDeadlockDetectionTimeoutError(cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid deadlock detection timeout").WithCause(cause).WithRetryable(apierror.False)
-}
-
-func NewInvalidMaxHeartbeatThrottleIntervalError(cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid max heartbeat throttle interval").WithCause(cause).WithRetryable(apierror.False)
-}
-
-func NewInvalidDefaultHeartbeatThrottleIntervalError(cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid default heartbeat throttle interval").WithCause(cause).WithRetryable(apierror.False)
+// timeoutTypeToString converts Temporal timeout type to string.
+func timeoutTypeToString(tt enumspb.TimeoutType) string {
+	switch tt {
+	case enumspb.TIMEOUT_TYPE_START_TO_CLOSE:
+		return "start_to_close"
+	case enumspb.TIMEOUT_TYPE_SCHEDULE_TO_START:
+		return "schedule_to_start"
+	case enumspb.TIMEOUT_TYPE_SCHEDULE_TO_CLOSE:
+		return "schedule_to_close"
+	case enumspb.TIMEOUT_TYPE_HEARTBEAT:
+		return "heartbeat"
+	default:
+		return "unknown"
+	}
 }

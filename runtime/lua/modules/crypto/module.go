@@ -19,8 +19,10 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/api/runtime/workflow"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	luaworkflow "github.com/wippyai/runtime/runtime/lua/workflow"
 	lua "github.com/yuin/gopher-lua"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/pbkdf2"
@@ -30,8 +32,9 @@ import (
 var Module = &luaapi.ModuleDef{
 	Name:        "crypto",
 	Description: "Cryptographic operations (hashing, encryption, JWT)",
-	Class:       []string{luaapi.ClassSecurity, luaapi.ClassNondeterministic},
+	Class:       []string{luaapi.ClassSecurity, luaapi.ClassNondeterministic, luaapi.ClassWorkflow},
 	Build:       buildModule,
+	Types:       ModuleTypes,
 }
 
 func buildModule() (*lua.LTable, []luaapi.YieldType) {
@@ -78,7 +81,9 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	mod.RawSetString("constant_time_compare", lua.LGoFunc(constantTimeCompare))
 
 	mod.Immutable = true
-	return mod, nil
+	return mod, []luaapi.YieldType{
+		{Sample: &luaworkflow.Yield{}, CmdID: workflow.SideEffect},
+	}
 }
 
 // Error helpers
@@ -123,6 +128,17 @@ func randomBytes(l *lua.LState) int {
 		return invalidError(l, "length exceeds maximum allowed size (1MB)")
 	}
 
+	if workflow.IsDeterministic(l.Context()) {
+		l.Push(luaworkflow.NewYield(func() (any, error) {
+			buf := make([]byte, length)
+			if _, err := rand.Read(buf); err != nil {
+				return nil, err
+			}
+			return string(buf), nil
+		}))
+		return -1
+	}
+
 	buf := make([]byte, length)
 	if _, err := rand.Read(buf); err != nil {
 		return internalError(l, err, "random bytes")
@@ -150,6 +166,22 @@ func randomString(l *lua.LState) int {
 		}
 	}
 
+	if workflow.IsDeterministic(l.Context()) {
+		l.Push(luaworkflow.NewYield(func() (any, error) {
+			buf := make([]byte, length)
+			if _, err := rand.Read(buf); err != nil {
+				return nil, err
+			}
+			charsetLen := len(charset)
+			result := make([]byte, length)
+			for i, b := range buf {
+				result[i] = charset[int(b)%charsetLen]
+			}
+			return string(result), nil
+		}))
+		return -1
+	}
+
 	buf := make([]byte, length)
 	if _, err := rand.Read(buf); err != nil {
 		return internalError(l, err, "random string")
@@ -167,6 +199,17 @@ func randomString(l *lua.LState) int {
 }
 
 func randomUUID(l *lua.LState) int {
+	if workflow.IsDeterministic(l.Context()) {
+		l.Push(luaworkflow.NewYield(func() (any, error) {
+			id, err := uuid.NewRandom()
+			if err != nil {
+				return nil, err
+			}
+			return id.String(), nil
+		}))
+		return -1
+	}
+
 	id, err := uuid.NewRandom()
 	if err != nil {
 		return internalError(l, err, "uuid generation")
@@ -241,6 +284,26 @@ func encryptAES(l *lua.LState) int {
 		return invalidError(l, "key must be 16, 24, or 32 bytes")
 	}
 
+	if workflow.IsDeterministic(l.Context()) {
+		dataBytes := []byte(data)
+		l.Push(luaworkflow.NewYield(func() (any, error) {
+			block, err := aes.NewCipher(keyBytes)
+			if err != nil {
+				return nil, err
+			}
+			aesGCM, err := cipher.NewGCM(block)
+			if err != nil {
+				return nil, err
+			}
+			nonce := make([]byte, aesGCM.NonceSize())
+			if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+				return nil, err
+			}
+			return aesGCM.Seal(nonce, nonce, dataBytes, aad), nil
+		}))
+		return -1
+	}
+
 	block, err := aes.NewCipher(keyBytes)
 	if err != nil {
 		return internalError(l, err, "create AES cipher")
@@ -278,6 +341,8 @@ func decryptAES(l *lua.LState) int {
 		return invalidError(l, "key must be 16, 24, or 32 bytes")
 	}
 
+	dataBytes := []byte(data)
+
 	block, err := aes.NewCipher(keyBytes)
 	if err != nil {
 		return internalError(l, err, "create AES cipher")
@@ -288,7 +353,6 @@ func decryptAES(l *lua.LState) int {
 		return internalError(l, err, "create GCM")
 	}
 
-	dataBytes := []byte(data)
 	nonceSize := aesGCM.NonceSize()
 	if len(dataBytes) < nonceSize {
 		return invalidError(l, "encrypted data too short")
@@ -317,6 +381,22 @@ func encryptChaCha20(l *lua.LState) int {
 	keyBytes := []byte(key)
 	if len(keyBytes) != chacha20poly1305.KeySize {
 		return invalidError(l, fmt.Sprintf("key must be %d bytes", chacha20poly1305.KeySize))
+	}
+
+	if workflow.IsDeterministic(l.Context()) {
+		dataBytes := []byte(data)
+		l.Push(luaworkflow.NewYield(func() (any, error) {
+			aead, err := chacha20poly1305.New(keyBytes)
+			if err != nil {
+				return nil, err
+			}
+			nonce := make([]byte, aead.NonceSize())
+			if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+				return nil, err
+			}
+			return aead.Seal(nonce, nonce, dataBytes, aad), nil
+		}))
+		return -1
 	}
 
 	aead, err := chacha20poly1305.New(keyBytes)
@@ -349,12 +429,13 @@ func decryptChaCha20(l *lua.LState) int {
 		return invalidError(l, fmt.Sprintf("key must be %d bytes", chacha20poly1305.KeySize))
 	}
 
+	dataBytes := []byte(data)
+
 	aead, err := chacha20poly1305.New(keyBytes)
 	if err != nil {
 		return internalError(l, err, "create ChaCha20-Poly1305")
 	}
 
-	dataBytes := []byte(data)
 	nonceSize := aead.NonceSize()
 	if len(dataBytes) < nonceSize {
 		return invalidError(l, "encrypted data too short")

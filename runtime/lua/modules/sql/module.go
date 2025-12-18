@@ -80,6 +80,7 @@ var Module = &luaapi.ModuleDef{
 	Name:        "sql",
 	Description: "SQL database operations",
 	Class:       []string{luaapi.ClassStorage, luaapi.ClassIO, luaapi.ClassNondeterministic},
+	Types:       ModuleTypes,
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		initOnce.Do(initModuleTable)
 		return moduleTable, []luaapi.YieldType{

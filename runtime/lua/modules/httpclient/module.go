@@ -38,6 +38,7 @@ var Module = &luaapi.ModuleDef{
 	Description: "HTTP client requests (get, post, etc.)",
 	Class:       []string{luaapi.ClassNetwork, luaapi.ClassIO, luaapi.ClassNondeterministic},
 	Build:       buildModule,
+	Types:       ModuleTypes,
 }
 
 func buildModule() (*lua.LTable, []luaapi.YieldType) {

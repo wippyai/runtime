@@ -8,6 +8,7 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/resource"
 	api "github.com/wippyai/runtime/api/service/temporal"
 	"github.com/wippyai/runtime/api/supervisor"
@@ -144,7 +145,7 @@ func (m *Manager) AddWorker(ctx context.Context, id registry.ID, cfg *api.Worker
 		},
 	})
 
-	// Send task queue registration event to host manager
+	// Send task queue registration event
 	m.bus.Send(ctx, event.Event{
 		System: api.SystemTemporalTaskQueue,
 		Kind:   api.TaskQueueRegister,
@@ -154,6 +155,14 @@ func (m *Manager) AddWorker(ctx context.Context, id registry.ID, cfg *api.Worker
 			Client:    cfg.Client,
 			TaskQueue: cfg.TaskQueue,
 		},
+	})
+
+	// Register worker as host for process.spawn
+	m.bus.Send(ctx, event.Event{
+		System: relay.System,
+		Kind:   relay.HostRegister,
+		Path:   id.String(),
+		Data:   service,
 	})
 
 	m.log.Info("initialized temporal worker",
@@ -262,6 +271,13 @@ func (m *Manager) DeleteWorker(ctx context.Context, id registry.ID) error {
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.ServiceRemove,
+		Path:   id.String(),
+	})
+
+	// Unregister host
+	m.bus.Send(ctx, event.Event{
+		System: relay.System,
+		Kind:   relay.HostDelete,
 		Path:   id.String(),
 	})
 

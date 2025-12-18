@@ -7,6 +7,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	glua "github.com/yuin/gopher-lua"
+	"github.com/yuin/gopher-lua/types"
 )
 
 // =============================================================================
@@ -223,7 +224,7 @@ func BenchmarkCompiler_Compile(b *testing.B) {
 	_ = mg.AddNode(main)
 
 	compiler := NewCompiler(
-		func(_ *Node) (*glua.FunctionProto, error) {
+		func(_ *Node, _ map[string]*types.TypeManifest) (*glua.FunctionProto, error) {
 			return &glua.FunctionProto{}, nil
 		},
 		1000,
@@ -250,7 +251,7 @@ func BenchmarkCompiler_CompileCacheHit(b *testing.B) {
 	_ = mg.AddNode(main)
 
 	compiler := NewCompiler(
-		func(_ *Node) (*glua.FunctionProto, error) {
+		func(_ *Node, _ map[string]*types.TypeManifest) (*glua.FunctionProto, error) {
 			return &glua.FunctionProto{}, nil
 		},
 		1000,
@@ -289,7 +290,7 @@ func BenchmarkCompiler_CompileWithDependencies(b *testing.B) {
 	}
 
 	compiler := NewCompiler(
-		func(_ *Node) (*glua.FunctionProto, error) {
+		func(_ *Node, _ map[string]*types.TypeManifest) (*glua.FunctionProto, error) {
 			return &glua.FunctionProto{}, nil
 		},
 		1000,
@@ -498,7 +499,7 @@ func TestMemoryGraph_NoLeaksOnDependencyRemoval(t *testing.T) {
 }
 
 func TestCompiler_CacheEviction(t *testing.T) {
-	mock := func(_ *Node) (*glua.FunctionProto, error) {
+	mock := func(_ *Node, _ map[string]*types.TypeManifest) (*glua.FunctionProto, error) {
 		return &glua.FunctionProto{}, nil
 	}
 
@@ -594,7 +595,7 @@ func TestMemoryGraph_Build_ZeroAllocOnCacheHit(t *testing.T) {
 
 func TestCompiler_CacheHit_NoCompilation(t *testing.T) {
 	callCount := 0
-	mock := func(_ *Node) (*glua.FunctionProto, error) {
+	mock := func(_ *Node, _ map[string]*types.TypeManifest) (*glua.FunctionProto, error) {
 		callCount++
 		return &glua.FunctionProto{}, nil
 	}

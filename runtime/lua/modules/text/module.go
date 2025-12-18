@@ -29,6 +29,7 @@ var Module = &luaapi.ModuleDef{
 	Description: "Text processing: regex, diff, and patch operations",
 	Class:       []string{luaapi.ClassDeterministic},
 	Build:       buildModule,
+	Types:       ModuleTypes,
 }
 
 func init() {

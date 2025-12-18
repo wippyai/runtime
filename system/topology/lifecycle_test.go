@@ -278,5 +278,86 @@ func TestLifecycle_OnStart_NoContext(t *testing.T) {
 	assert.True(t, topo.registered[testPID.String()])
 }
 
+func TestLifecycle_OnStart_RegisterFails(t *testing.T) {
+	topo := newMockTopology()
+	topo.registerErr = errors.New("registration failed")
+	logger := zap.NewNop()
+
+	lc := NewLifecycle(topo, nil, logger)
+
+	parentPID := pid.PID{UniqID: "parent"}
+	childPID := pid.PID{UniqID: "child"}
+	ctx := createContextWithOptions(parentPID, true, true)
+
+	// Should not panic, just log warning and return early
+	lc.OnStart(ctx, childPID, nil)
+
+	// Should not have set up monitoring or linking since register failed
+	assert.Empty(t, topo.monitors)
+	assert.Empty(t, topo.links)
+}
+
+func TestLifecycle_OnStart_MonitorFails(t *testing.T) {
+	topo := newMockTopology()
+	topo.waitErr = errors.New("monitor failed")
+	logger := zap.NewNop()
+
+	lc := NewLifecycle(topo, nil, logger)
+
+	parentPID := pid.PID{UniqID: "parent"}
+	childPID := pid.PID{UniqID: "child"}
+	ctx := createContextWithOptions(parentPID, true, false)
+
+	// Should not panic, just log warning
+	lc.OnStart(ctx, childPID, nil)
+
+	// Registration should still succeed
+	assert.True(t, topo.registered[childPID.String()])
+	// Monitor should have failed
+	assert.Empty(t, topo.monitors)
+}
+
+func TestLifecycle_OnStart_LinkFails(t *testing.T) {
+	topo := newMockTopology()
+	topo.linkErr = errors.New("link failed")
+	logger := zap.NewNop()
+
+	lc := NewLifecycle(topo, nil, logger)
+
+	parentPID := pid.PID{UniqID: "parent"}
+	childPID := pid.PID{UniqID: "child"}
+	ctx := createContextWithOptions(parentPID, false, true)
+
+	// Should not panic, just log warning
+	lc.OnStart(ctx, childPID, nil)
+
+	// Registration should still succeed
+	assert.True(t, topo.registered[childPID.String()])
+	// Link should have failed
+	assert.Empty(t, topo.links)
+}
+
+func TestLifecycle_OnStart_InvalidOptionsType(t *testing.T) {
+	topo := newMockTopology()
+	logger := zap.NewNop()
+
+	lc := NewLifecycle(topo, nil, logger)
+
+	testPID := pid.PID{UniqID: "test-process"}
+
+	// Create context with non-attrs.Attributes options
+	appCtx := ctxapi.NewAppContext()
+	ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+	ctx, fc := ctxapi.OpenFrameContext(ctx)
+	_ = fc.Set(runtime.FrameLifecycleOptionsKey, "not-an-attributes")
+
+	lc.OnStart(ctx, testPID, nil)
+
+	// Registration should succeed, but no monitor/link setup
+	assert.True(t, topo.registered[testPID.String()])
+	assert.Empty(t, topo.monitors)
+	assert.Empty(t, topo.links)
+}
+
 var _ topology.Topology = (*mockTopology)(nil)
 var _ topology.PIDRegistry = (*mockPIDRegistry)(nil)

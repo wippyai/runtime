@@ -144,8 +144,6 @@ entries:
     kind: workflow.lua
     source: file://spawn_child_workflow.lua
     method: main
-    modules:
-      - time
     meta:
       temporal:
         workflow:
@@ -168,8 +166,6 @@ entries:
     kind: workflow.lua
     source: file://spawn_error_child_workflow.lua
     method: main
-    modules:
-      - time
     meta:
       temporal:
         workflow:
@@ -192,6 +188,90 @@ entries:
     method: main
     modules:
       - funcs
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # UUID workflow - generates UUIDs using side effects
+  - name: uuid_workflow
+    kind: workflow.lua
+    source: file://uuid_workflow.lua
+    method: main
+    modules:
+      - uuid
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Update workflow - handles updates via process.listen and process.send
+  - name: update_workflow
+    kind: workflow.lua
+    source: file://update_workflow.lua
+    method: main
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Crypto workflow - tests crypto operations with side effects
+  - name: crypto_workflow
+    kind: workflow.lua
+    source: file://crypto_workflow.lua
+    method: main
+    modules:
+      - crypto
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Context workflow - tests context propagation via headers
+  - name: ctx_workflow
+    kind: workflow.lua
+    source: file://ctx_workflow.lua
+    method: main
+    modules:
+      - ctx
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Context activity - reads and returns context values
+  - name: ctx_activity
+    kind: function.lua
+    source: file://ctx_activity.lua
+    method: main
+    modules:
+      - ctx
+    meta:
+      temporal:
+        activity:
+          worker: app.test.temporal:test_worker
+
+  # Context activity workflow - calls activity and verifies context propagation
+  - name: ctx_activity_workflow
+    kind: workflow.lua
+    source: file://ctx_activity_workflow.lua
+    method: main
+    modules:
+      - ctx
+      - funcs
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Workflow module test - tests workflow.call, workflow.version, workflow.info, etc.
+  - name: workflow_module_test
+    kind: workflow.lua
+    source: file://workflow_module_test.lua
+    method: main
+    modules:
+      - workflow
+      - time
     meta:
       temporal:
         workflow:

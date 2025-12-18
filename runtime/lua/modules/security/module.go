@@ -45,6 +45,7 @@ var Module = &luaapi.ModuleDef{
 	Name:        "security",
 	Description: "Security actors, scopes, and policies",
 	Class:       []string{luaapi.ClassSecurity, luaapi.ClassNondeterministic},
+	Types:       ModuleTypes,
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		initOnce.Do(initModuleTable)
 		return moduleTable, []luaapi.YieldType{

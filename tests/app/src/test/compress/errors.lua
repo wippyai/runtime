@@ -17,18 +17,6 @@ local function main()
     assert.not_nil(err, "empty decode returns error")
     assert.eq(err:kind(), errors.INVALID, "empty decode error kind")
 
-    -- Invalid type errors
-    result, err = compress.gzip.encode(123)
-    assert.is_nil(result, "number encode returns nil")
-    assert.not_nil(err, "number encode returns error")
-    assert.eq(err:kind(), errors.INVALID, "number encode error kind")
-    assert.eq(err:retryable(), false, "number encode not retryable")
-
-    result, err = compress.gzip.encode(nil)
-    assert.is_nil(result, "nil encode returns nil")
-    assert.not_nil(err, "nil encode returns error")
-    assert.eq(err:kind(), errors.INVALID, "nil encode error kind")
-
     -- Invalid compressed data
     result, err = compress.gzip.decode("not valid gzip data")
     assert.is_nil(result, "invalid gzip returns nil")

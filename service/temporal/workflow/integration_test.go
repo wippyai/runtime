@@ -19,6 +19,7 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	enginepayload "github.com/wippyai/runtime/runtime/lua/engine/payload"
+	processmod "github.com/wippyai/runtime/runtime/lua/modules/process"
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
 	"github.com/wippyai/runtime/service/temporal/dataconverter"
 	"github.com/wippyai/runtime/service/temporal/worker"
@@ -468,100 +469,38 @@ func TestConcurrentWorkflow_Integration(t *testing.T) {
 	require.Equal(t, float64(3), workflowResult["worker_count"])
 }
 
-// Sample workflow with process.spawn - starts a child workflow
-const processSpawnWorkflowSource = `
-local time = require("time")
-
-local function main(input)
-    local my_pid = process.pid()
-
-    -- Spawn a child workflow
-    local child_pid, err = process.spawn("test.workflow:child", "test-queue", {
-        message = "hello from parent"
-    })
-
-    if err then
-        return { error = tostring(err) }
-    end
-
-    -- Wait for child to complete
-    time.sleep(500 * time.MILLISECOND)
-
-    return {
-        parent_pid = my_pid,
-        child_pid = child_pid,
-        status = "completed"
-    }
-end
-
-return main
-`
-
-// Sample child workflow
-const childWorkflowSource = `
-local time = require("time")
-
-local function main(input)
-    local my_pid = process.pid()
-
-    -- Process input
-    local message = "no message"
-    if input and input.message then
-        message = input.message
-    end
-
-    time.sleep(100 * time.MILLISECOND)
-
-    return {
-        pid = my_pid,
-        received = message,
-        status = "child done"
-    }
-end
-
-return main
-`
-
 // Sample long-running workflow for cancellation tests
 const cancellableWorkflowSource = `
 local time = require("time")
+local channel = require("channel")
+local process = require("process")
 
 local function main(input)
-    local iterations = 0
-    local max_iterations = input and input.max or 100
+    local timeout_ms = input and input.timeout or 10000
 
-    -- Long running loop
-    while iterations < max_iterations do
-        time.sleep(100 * time.MILLISECOND)
-        iterations = iterations + 1
+    local events_ch = process.events()
+    if not events_ch then
+        return { status = "no_events_channel" }
     end
 
-    return {
-        iterations = iterations,
-        status = "completed"
+    local timeout_ch = time.after(timeout_ms * time.MILLISECOND)
+
+    local result = channel.select{
+        events_ch:case_receive(),
+        timeout_ch:case_receive()
     }
-end
 
-return main
-`
-
-// Sample workflow that sends signals
-const signalSenderWorkflowSource = `
-local time = require("time")
-
-local function main(input)
-    local target_pid = input and input.target_pid
-    if not target_pid then
-        return { error = "no target_pid provided" }
+    if result.channel == events_ch then
+        local event = result.value
+        if event and event.kind == process.event.CANCEL then
+            return { status = "canceled" }
+        end
+        return { status = "received_event", kind = event and event.kind }
+    elseif result.channel == timeout_ch then
+        return { status = "timeout" }
     end
 
-    -- Send a message to target workflow
-    local ok, err = process.send(target_pid, "greeting", { text = "hello" })
-    if err then
-        return { error = tostring(err) }
-    end
-
-    return { status = "signal sent", target = target_pid }
+    return { status = "unknown" }
 end
 
 return main
@@ -570,22 +509,38 @@ return main
 // Sample workflow that receives signals
 const signalReceiverWorkflowSource = `
 local time = require("time")
+local channel = require("channel")
+local process = require("process")
 
 local function main(input)
     local my_pid = process.pid()
-    local timeout = input and input.timeout or 5000
+    local timeout_ms = input and input.timeout or 5000
 
-    -- Wait for a signal
-    local inbox = process.inbox()
-    local msg, ok = inbox:receive(timeout * time.MILLISECOND)
+    -- Subscribe to the specific signal topic
+    local greeting_ch, err = process.listen("greeting", {message = true})
+    if err then
+        return { pid = my_pid, status = "listen_error", error = tostring(err) }
+    end
 
-    if not ok then
+    local timeout_ch, err2 = time.after(timeout_ms * time.MILLISECOND)
+    if err2 then
+        return { pid = my_pid, status = "timer_error", error = tostring(err2) }
+    end
+
+    -- Wait for either signal or timeout using select
+    local result = channel.select{
+        greeting_ch:case_receive(),
+        timeout_ch:case_receive()
+    }
+
+    if result.channel == timeout_ch then
         return { pid = my_pid, status = "timeout" }
     end
 
+    local msg = result.value
     return {
         pid = my_pid,
-        received_topic = msg.topic,
+        received_topic = msg:topic(),
         status = "received"
     }
 end
@@ -603,7 +558,7 @@ func TestWorkflowCancellation_Integration(t *testing.T) {
 	bus := eventbus.NewBus()
 
 	codeManager, err := code.NewCodeManager(logger, nil, code.Config{
-		Modules:        []luaapi.Module{timemod.Module},
+		Modules:        []luaapi.Module{timemod.Module, processmod.Module},
 		ProtoCacheSize: 100,
 		MainCacheSize:  100,
 	})
@@ -637,11 +592,15 @@ func TestWorkflowCancellation_Integration(t *testing.T) {
 		Source: cancellableWorkflowSource,
 		Method: "main",
 	}
-	imports := []code.Import{{ID: registry.NewID("", "time"), Alias: "time"}}
+	imports := []code.Import{
+		{ID: registry.NewID("", "time"), Alias: "time"},
+		{ID: registry.NewID("", "process"), Alias: "process"},
+	}
 	require.NoError(t, codeManager.AddNode(ctx, node, imports))
 
 	factoryFn, err := processFactory.CreateFactory(workflowID,
-		engine.WithAllowedClasses(luaapi.ClassDeterministic, luaapi.ClassWorkflow),
+		engine.WithAllowedClasses(luaapi.ClassDeterministic, luaapi.ClassWorkflow, luaapi.ClassProcess, luaapi.ClassTime),
+		engine.WithModule(processmod.Module),
 	)
 	require.NoError(t, err)
 
@@ -720,7 +679,7 @@ func TestWorkflowCancellation_Integration(t *testing.T) {
 	}
 
 	testInput := map[string]interface{}{
-		"max": 100, // Would run for 10 seconds without cancellation
+		"timeout": 10000, // 10 second timeout
 	}
 
 	we, err := temporalClient.ExecuteWorkflow(ctx, workflowOptions, workflowName, testInput)
@@ -733,16 +692,16 @@ func TestWorkflowCancellation_Integration(t *testing.T) {
 	err = temporalClient.CancelWorkflow(ctx, we.GetID(), we.GetRunID())
 	require.NoError(t, err)
 
-	// Wait for workflow - should return canceled error
+	// Wait for workflow - should complete gracefully with canceled status
 	getCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	var workflowResult map[string]interface{}
 	err = we.Get(getCtx, &workflowResult)
 
-	// Workflow was cancelled - this is expected
-	require.Error(t, err, "workflow should return error when cancelled")
-	require.Contains(t, err.Error(), "canceled", "error should indicate cancellation")
+	// Workflow handles cancellation gracefully and returns result
+	require.NoError(t, err, "workflow should complete gracefully")
+	require.Equal(t, "canceled", workflowResult["status"], "workflow should return canceled status")
 }
 
 // TestWorkflowSignal_Integration tests sending signals to a running workflow from Go.
@@ -755,7 +714,7 @@ func TestWorkflowSignal_Integration(t *testing.T) {
 	bus := eventbus.NewBus()
 
 	codeManager, err := code.NewCodeManager(logger, nil, code.Config{
-		Modules:        []luaapi.Module{timemod.Module},
+		Modules:        []luaapi.Module{timemod.Module, processmod.Module},
 		ProtoCacheSize: 100,
 		MainCacheSize:  100,
 	})
@@ -789,11 +748,15 @@ func TestWorkflowSignal_Integration(t *testing.T) {
 		Source: signalReceiverWorkflowSource,
 		Method: "main",
 	}
-	imports := []code.Import{{ID: registry.NewID("", "time"), Alias: "time"}}
+	imports := []code.Import{
+		{ID: registry.NewID("", "time"), Alias: "time"},
+		{ID: registry.NewID("", "process"), Alias: "process"},
+	}
 	require.NoError(t, codeManager.AddNode(ctx, node, imports))
 
 	factoryFn, err := processFactory.CreateFactory(workflowID,
-		engine.WithAllowedClasses(luaapi.ClassDeterministic, luaapi.ClassWorkflow),
+		engine.WithAllowedClasses(luaapi.ClassDeterministic, luaapi.ClassWorkflow, luaapi.ClassProcess, luaapi.ClassTime),
+		engine.WithModule(processmod.Module),
 	)
 	require.NoError(t, err)
 
@@ -881,7 +844,7 @@ func TestWorkflowSignal_Integration(t *testing.T) {
 	// Let workflow start
 	time.Sleep(200 * time.Millisecond)
 
-	// Send signal from Go - this is received via process.inbox() in the workflow
+	// Send signal from Go - this is received via process.listen() in the workflow
 	err = temporalClient.SignalWorkflow(ctx, we.GetID(), we.GetRunID(), "greeting", map[string]interface{}{
 		"text": "hello from Go",
 	})
@@ -898,4 +861,183 @@ func TestWorkflowSignal_Integration(t *testing.T) {
 	// Verify workflow received the signal
 	require.Equal(t, "received", workflowResult["status"])
 	require.Equal(t, "greeting", workflowResult["received_topic"])
+}
+
+// Sample workflow that uses ticker
+const tickerWorkflowSource = `
+local time = require("time")
+local channel = require("channel")
+local process = require("process")
+
+local function main(input)
+    local count = input and input.count or 3
+    local interval_ms = input and input.interval or 100
+
+    local ticker = time.ticker(interval_ms * time.MILLISECOND)
+    local tick_ch = ticker:channel()
+    local ticks = {}
+
+    for i = 1, count do
+        local result = channel.select{
+            tick_ch:case_receive()
+        }
+        table.insert(ticks, i)
+    end
+
+    ticker:stop()
+
+    return {
+        tick_count = #ticks,
+        status = "completed"
+    }
+end
+
+return main
+`
+
+// TestWorkflowTicker_Integration tests that tickers work in workflow context.
+func TestWorkflowTicker_Integration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	logger := zap.NewNop()
+	bus := eventbus.NewBus()
+
+	codeManager, err := code.NewCodeManager(logger, nil, code.Config{
+		Modules:        []luaapi.Module{timemod.Module, processmod.Module},
+		ProtoCacheSize: 100,
+		MainCacheSize:  100,
+	})
+	require.NoError(t, err)
+
+	processFactory := engine.NewProcessFactory(codeManager)
+	factoryRegistry := sysprocess.NewFactoryRegistry(bus, logger.Named("factory"))
+	funcRegistry := sysfunc.NewFunctionRegistry(bus, logger.Named("function"))
+
+	ctx := ctxapi.NewRootContext()
+	ctx = function.WithRegistry(ctx, funcRegistry)
+	ctx = process.WithFactory(ctx, factoryRegistry)
+
+	uniqGen := uniqid.NewGenerator()
+	pidGen := uniqid.NewPIDGenerator(uniqGen, "test")
+	ctx = process.WithPIDGenerator(ctx, pidGen)
+
+	payload.WithTranscoder(ctx, newTestTranscoder())
+
+	require.NoError(t, funcRegistry.Start(ctx))
+	defer func() { _ = funcRegistry.Stop() }()
+
+	require.NoError(t, factoryRegistry.Start(ctx))
+	defer func() { _ = factoryRegistry.Stop() }()
+
+	workflowID := registry.NewID("test.workflow", "ticker_test")
+	node := code.Node{
+		ID:     workflowID,
+		Kind:   luaapi.Workflow,
+		Source: tickerWorkflowSource,
+		Method: "main",
+	}
+	imports := []code.Import{
+		{ID: registry.NewID("", "time"), Alias: "time"},
+		{ID: registry.NewID("", "process"), Alias: "process"},
+	}
+	require.NoError(t, codeManager.AddNode(ctx, node, imports))
+
+	factoryFn, err := processFactory.CreateFactory(workflowID,
+		engine.WithAllowedClasses(luaapi.ClassDeterministic, luaapi.ClassWorkflow, luaapi.ClassProcess, luaapi.ClassTime),
+		engine.WithModule(processmod.Module),
+	)
+	require.NoError(t, err)
+
+	awaiter := eventbus.NewAwaiter(bus, process.System, "factory.(accept|reject)")
+	waiter, err := awaiter.Prepare(ctx, workflowID.String())
+	require.NoError(t, err)
+
+	bus.Send(ctx, event.Event{
+		System: process.System,
+		Kind:   process.FactoryRegister,
+		Path:   workflowID.String(),
+		Data: &process.FactoryEntry{
+			Factory: factoryFn,
+			Meta:    process.Meta{Method: "main"},
+		},
+	})
+
+	result := waiter.Wait()
+	require.True(t, result.Accepted, "factory should be accepted")
+
+	dc := dataconverter.NewDataConverter(newTestTranscoder(), converter.GetDefaultDataConverter())
+
+	server, err := testsuite.StartDevServer(ctx, testsuite.DevServerOptions{
+		LogLevel:      "error",
+		ClientOptions: &client.Options{DataConverter: dc},
+	})
+	require.NoError(t, err)
+	defer func() { _ = server.Stop() }()
+
+	temporalClient := server.Client()
+	defer temporalClient.Close()
+
+	resourceReg := newTestResourceRegistry()
+	clientResource := api.ClientResource{
+		Client: temporalClient,
+	}
+	clientID := registry.NewID("test", "client")
+	resourceReg.resources[clientID] = clientResource
+
+	taskQueue := "test-ticker-queue"
+	workerConfig := &api.WorkerConfig{
+		Client:    clientID,
+		TaskQueue: taskQueue,
+		WorkerOptions: api.WorkerOptionsConfig{
+			MaxConcurrentWorkflowTaskExecutionSize: 10,
+		},
+	}
+
+	wippyWorker := worker.NewWorker(
+		logger,
+		registry.NewID("test", "worker"),
+		workerConfig,
+		resourceReg,
+		nil,
+	)
+
+	defFactory := &workflow.DefinitionFactory{
+		ID: workflowID,
+	}
+
+	workflowName := workflowID.String()
+	require.NoError(t, wippyWorker.RegisterWorkflow(ctx, workflowName, defFactory))
+
+	statusCh, err := wippyWorker.Start(ctx)
+	require.NoError(t, err)
+
+	status := <-statusCh
+	require.NotNil(t, status)
+
+	defer func() { _ = wippyWorker.Stop(ctx) }()
+
+	workflowOptions := client.StartWorkflowOptions{
+		ID:        "ticker-test-" + time.Now().Format("20060102-150405"),
+		TaskQueue: taskQueue,
+	}
+
+	testInput := map[string]interface{}{
+		"count":    3,
+		"interval": 100, // 100ms between ticks
+	}
+
+	we, err := temporalClient.ExecuteWorkflow(ctx, workflowOptions, workflowName, testInput)
+	require.NoError(t, err)
+
+	getCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	var workflowResult map[string]interface{}
+	err = we.Get(getCtx, &workflowResult)
+	require.NoError(t, err)
+
+	require.Equal(t, "completed", workflowResult["status"])
+	require.Equal(t, float64(3), workflowResult["tick_count"])
 }

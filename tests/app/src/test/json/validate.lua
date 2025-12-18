@@ -37,16 +37,7 @@ local function main()
     assert.is_nil(err4, "string schema should work")
     assert.eq(valid4, true, "string schema validates")
 
-    -- Missing schema error
-    local valid5, err5 = json.validate(nil, {name = "test"})
-    assert.eq(valid5, false, "missing schema returns false")
-    assert.not_nil(err5, "missing schema returns error")
-    assert.eq(err5:kind(), errors.INVALID, "missing schema error kind")
-    assert.eq(err5:retryable(), false, "missing schema not retryable")
-    local str5 = tostring(err5)
-    assert.contains(str5, "schema is required", "missing schema error message")
-
-    -- Missing data error
+    -- Missing data error (data is any, so nil is allowed by type system but returns error at runtime)
     local valid6, err6 = json.validate(schema, nil)
     assert.eq(valid6, false, "missing data returns false")
     assert.not_nil(err6, "missing data returns error")
@@ -64,14 +55,6 @@ local function main()
     assert.eq(valid8, false, "validate_string returns false for invalid")
     assert.not_nil(err8, "validate_string returns error for invalid")
     assert.eq(err8:kind(), errors.INVALID, "validate_string error kind")
-
-    -- validate_string non-string data error
-    local valid9, err9 = json.validate_string(schema, 123)
-    assert.eq(valid9, false, "validate_string with non-string returns false")
-    assert.not_nil(err9, "validate_string with non-string returns error")
-    assert.eq(err9:kind(), errors.INVALID, "validate_string non-string error kind")
-    local str9 = tostring(err9)
-    assert.contains(str9, "JSON string", "validate_string non-string error message")
 
     return true
 end

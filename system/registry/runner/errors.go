@@ -18,9 +18,9 @@ var (
 func NewOperationFailedError(err error) apierror.Error {
 	return apierror.E(
 		apierror.Internal,
-		"operation failed: "+err.Error(),
+		"operation failed",
 		apierror.False,
-		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
+		nil,
 		err,
 	)
 }
@@ -29,9 +29,9 @@ func NewOperationFailedError(err error) apierror.Error {
 func NewInvalidOperationError(err error) apierror.Error {
 	return apierror.E(
 		apierror.Invalid,
-		"invalid operation: "+err.Error(),
+		"invalid operation",
 		apierror.False,
-		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
+		nil,
 		err,
 	)
 }
@@ -51,9 +51,9 @@ func NewEntryKindNotFoundError(entryID registry.ID) apierror.Error {
 func NewApplyChangeError(err error) apierror.Error {
 	return apierror.E(
 		apierror.Internal,
-		"applying change to state: "+err.Error(),
+		"applying change to state",
 		apierror.False,
-		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
+		nil,
 		err,
 	)
 }
@@ -71,9 +71,9 @@ func NewOperationRejectedError(entryID registry.ID, err error) apierror.Error {
 	}
 	return apierror.E(
 		apierror.Invalid,
-		"operation failed for entry "+entryID.String()+": "+err.Error(),
+		"operation failed for entry "+entryID.String(),
 		apierror.False,
-		attrs.NewBagFrom(map[string]any{"entry_id": entryID.String(), "cause": err.Error()}),
+		attrs.NewBagFrom(map[string]any{"entry_id": entryID.String()}),
 		err,
 	)
 }
@@ -82,9 +82,9 @@ func NewOperationRejectedError(entryID registry.ID, err error) apierror.Error {
 func NewOperationCanceledError(entryID registry.ID, kind registry.Kind, err error) apierror.Error {
 	return apierror.E(
 		apierror.Canceled,
-		"operation context canceled for "+entryID.String()+" ("+kind+"): "+err.Error(),
+		"operation context canceled for "+entryID.String()+" ("+kind+")",
 		apierror.False,
-		attrs.NewBagFrom(map[string]any{"entry_id": entryID.String(), "kind": kind, "cause": err.Error()}),
+		attrs.NewBagFrom(map[string]any{"entry_id": entryID.String(), "kind": kind}),
 		err,
 	)
 }
@@ -104,9 +104,9 @@ func NewEventHandlerTimeoutError(timeout time.Duration, entryID registry.ID, kin
 func NewListenEventsError(err error) apierror.Error {
 	return apierror.E(
 		apierror.Internal,
-		"listening events: "+err.Error(),
+		"listening events",
 		apierror.True,
-		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
+		nil,
 		err,
 	)
 }

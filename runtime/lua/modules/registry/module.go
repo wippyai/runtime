@@ -85,6 +85,7 @@ func NewModule(opts Options) *luaapi.ModuleDef {
 		Name:        "registry",
 		Description: "Registry operations for entries, snapshots, and versioning",
 		Class:       []string{luaapi.ClassNondeterministic, luaapi.ClassStorage},
+		Types:       ModuleTypes,
 		Build: func() (*lua.LTable, []luaapi.YieldType) {
 			mod := lua.CreateTable(0, 10)
 			mod.RawSetString("get", lua.LGoFunc(registryGet))

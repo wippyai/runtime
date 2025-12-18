@@ -9,7 +9,6 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
 	fsapi "github.com/wippyai/runtime/api/fs"
-	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
@@ -17,7 +16,6 @@ import (
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/engine"
-	"github.com/wippyai/runtime/system/eventbus"
 	funcpool "github.com/wippyai/runtime/system/scheduler/pool"
 	"go.uber.org/zap"
 )
@@ -49,7 +47,6 @@ type Manager struct {
 	topo       topology.Topology
 	pidReg     topology.PIDRegistry
 	node       relay.Node
-	awaiter    *eventbus.Awaiter
 
 	mu      sync.RWMutex
 	pools   map[registry.ID]*poolEntry
@@ -74,7 +71,6 @@ func NewManager(
 		dispatcher: disp,
 		fsRegistry: fsRegistry,
 		factory:    factory,
-		awaiter:    eventbus.NewAwaiter(bus, function.System, "function.(accept|reject)"),
 		pools:      make(map[registry.ID]*poolEntry),
 		configs:    make(map[registry.ID]*configEntry),
 	}

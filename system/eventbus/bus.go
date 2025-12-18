@@ -246,10 +246,8 @@ func (b *Bus) dispatcher() {
 	defer b.wg.Done()
 
 	for {
-		// Wait for actions
 		<-b.actionReady
 
-		// Process all pending actions
 		if !b.processActions() {
 			return // Stop requested
 		}
@@ -302,14 +300,11 @@ func (b *Bus) processActions() bool {
 				// Check contexts and deliver
 				select {
 				case <-a.ctx.Done():
-					// Event context canceled
 					goto cleanup
 				case <-s.ctx.Done():
-					// Subscriber context canceled, mark for cleanup
 					expiredSubs = append(expiredSubs, id)
 					continue
 				case s.eventCh <- a.event:
-					// Delivered successfully
 				}
 			}
 

@@ -8,6 +8,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime/lua"
 	glua "github.com/yuin/gopher-lua"
+	"github.com/yuin/gopher-lua/types"
 )
 
 // Mock compiler function for testing
@@ -25,7 +26,7 @@ func newMockCompileFn() *mockCompileFn {
 	}
 }
 
-func (m *mockCompileFn) compile(n *Node) (*glua.FunctionProto, error) {
+func (m *mockCompileFn) compile(n *Node, _ map[string]*types.TypeManifest) (*glua.FunctionProto, error) {
 	m.calls[n.ID.String()]++
 	if err, ok := m.errors[n.ID.String()]; ok {
 		return nil, err
@@ -46,12 +47,12 @@ func TestCompiler_CompileLuaFunction(t *testing.T) {
 	}
 	mock.results[node.ID.String()] = &glua.FunctionProto{}
 
-	proto, err := compiler.getCompiledProto(node)
+	proto, err := compiler.getCompiledProto(node, nil)
 	require.NoError(t, err)
 	assert.NotNil(t, proto)
 
 	// Test cache hit
-	proto2, err := compiler.getCompiledProto(node)
+	proto2, err := compiler.getCompiledProto(node, nil)
 	require.NoError(t, err)
 	assert.Equal(t, proto, proto2)
 }
@@ -67,7 +68,7 @@ func TestCompiler_ModuleNotCompiled(t *testing.T) {
 		Module: &dummyModule{name: "test"},
 	}
 
-	proto, err := compiler.getCompiledProto(moduleNode)
+	proto, err := compiler.getCompiledProto(moduleNode, nil)
 	require.Error(t, err)
 	assert.Nil(t, proto, "Modules should not be compiled")
 	assert.Empty(t, mock.calls, "Compile should not be called for modules")
@@ -257,7 +258,9 @@ func (m *testModule) Register(_ *glua.LState) *lua.Registration {
 }
 
 func TestNewCompiler(t *testing.T) {
-	compileFn := func(*Node) (*glua.FunctionProto, error) { return &glua.FunctionProto{}, nil }
+	compileFn := func(*Node, map[string]*types.TypeManifest) (*glua.FunctionProto, error) {
+		return &glua.FunctionProto{}, nil
+	}
 	compiler := NewCompiler(compileFn, 100, 200)
 
 	assert.NotNil(t, compiler)
@@ -270,7 +273,7 @@ func TestCompiler_GetCompiledProto(t *testing.T) {
 	tests := []struct {
 		name          string
 		node          *Node
-		compileFn     func(*Node) (*glua.FunctionProto, error)
+		compileFn     func(*Node, map[string]*types.TypeManifest) (*glua.FunctionProto, error)
 		expectedProto *glua.FunctionProto
 		expectError   bool
 	}{
@@ -280,7 +283,9 @@ func TestCompiler_GetCompiledProto(t *testing.T) {
 				ID:   registry.NewID("", "moduleNode"),
 				Kind: lua.ModuleKind,
 			},
-			compileFn:     func(*Node) (*glua.FunctionProto, error) { return &glua.FunctionProto{}, nil },
+			compileFn: func(*Node, map[string]*types.TypeManifest) (*glua.FunctionProto, error) {
+				return &glua.FunctionProto{}, nil
+			},
 			expectedProto: nil,
 			expectError:   true,
 		},
@@ -290,7 +295,7 @@ func TestCompiler_GetCompiledProto(t *testing.T) {
 				ID:   registry.NewID("", "cachedNode"),
 				Kind: lua.Function,
 			},
-			compileFn: func(*Node) (*glua.FunctionProto, error) {
+			compileFn: func(*Node, map[string]*types.TypeManifest) (*glua.FunctionProto, error) {
 				return &glua.FunctionProto{}, nil
 			},
 			expectedProto: &glua.FunctionProto{},
@@ -305,7 +310,7 @@ func TestCompiler_GetCompiledProto(t *testing.T) {
 				_ = compiler.protoCache.Set(tt.node.ID, tt.expectedProto)
 			}
 
-			proto, err := compiler.getCompiledProto(tt.node)
+			proto, err := compiler.getCompiledProto(tt.node, nil)
 			if tt.expectError {
 				assert.Error(t, err)
 				assert.Nil(t, proto)
@@ -318,7 +323,9 @@ func TestCompiler_GetCompiledProto(t *testing.T) {
 }
 
 func TestCompiler_Invalidate(t *testing.T) {
-	compiler := NewCompiler(func(*Node) (*glua.FunctionProto, error) { return &glua.FunctionProto{}, nil }, 100, 200)
+	compiler := NewCompiler(func(*Node, map[string]*types.TypeManifest) (*glua.FunctionProto, error) {
+		return &glua.FunctionProto{}, nil
+	}, 100, 200)
 
 	// Add some test data
 	testID := registry.NewID("test", "id")
@@ -399,7 +406,7 @@ func TestCompiler_Compile(t *testing.T) {
 			mg := NewMemoryGraph()
 			entrypoint := tt.setup(mg)
 
-			compiler := NewCompiler(func(*Node) (*glua.FunctionProto, error) {
+			compiler := NewCompiler(func(*Node, map[string]*types.TypeManifest) (*glua.FunctionProto, error) {
 				return &glua.FunctionProto{}, nil
 			}, 100, 200)
 
@@ -427,7 +434,9 @@ func TestCompiler_PreloadModule(t *testing.T) {
 	}
 	require.NoError(t, mg.AddNode(module))
 
-	compiler := NewCompiler(func(*Node) (*glua.FunctionProto, error) { return &glua.FunctionProto{}, nil }, 100, 200)
+	compiler := NewCompiler(func(*Node, map[string]*types.TypeManifest) (*glua.FunctionProto, error) {
+		return &glua.FunctionProto{}, nil
+	}, 100, 200)
 	compiled := &CompiledMain{}
 
 	// Test preloading
@@ -452,7 +461,7 @@ func TestCompiler_PreloadModule(t *testing.T) {
 }
 
 func TestCompiler_SetProto(t *testing.T) {
-	compiler := NewCompiler(func(*Node) (*glua.FunctionProto, error) {
+	compiler := NewCompiler(func(*Node, map[string]*types.TypeManifest) (*glua.FunctionProto, error) {
 		return nil, assert.AnError
 	}, 100, 200)
 
@@ -475,7 +484,7 @@ func TestCompiler_SetProto(t *testing.T) {
 
 func TestCompiler_SetProto_OverridesCompileFn(t *testing.T) {
 	compileCalls := 0
-	compiler := NewCompiler(func(*Node) (*glua.FunctionProto, error) {
+	compiler := NewCompiler(func(*Node, map[string]*types.TypeManifest) (*glua.FunctionProto, error) {
 		compileCalls++
 		return &glua.FunctionProto{NumParameters: 99}, nil
 	}, 100, 200)
@@ -496,7 +505,7 @@ func TestCompiler_SetProto_OverridesCompileFn(t *testing.T) {
 	}
 
 	// Get compiled proto should return injected one
-	result, err := compiler.getCompiledProto(node)
+	result, err := compiler.getCompiledProto(node, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, uint8(3), result.NumParameters)
 	assert.Equal(t, 0, compileCalls, "compile function should not be called when proto is cached")

@@ -5,6 +5,7 @@ import (
 	"github.com/wippyai/runtime/api/runtime/lua"
 	lru "github.com/wippyai/runtime/internal/cache"
 	glua "github.com/yuin/gopher-lua"
+	"github.com/yuin/gopher-lua/types"
 )
 
 // CompiledProto represents a compiled Lua prototype with its name
@@ -22,16 +23,19 @@ type CompiledMain struct {
 	Preloaded    []CompiledProto
 }
 
+// CompileFn compiles a node with its imports (for type checking).
+type CompileFn func(node *Node, imports map[string]*types.TypeManifest) (*glua.FunctionProto, error)
+
 // Compiler handles the compilation of Lua code and caches results
 type Compiler struct {
-	protoCache *lru.Cache[registry.ID, *glua.FunctionProto] // Cache for individual function prototypes
-	mainCache  *lru.Cache[registry.ID, *CompiledMain]       // Cache for compiled mains
-	compileFn  func(*Node) (*glua.FunctionProto, error)
+	protoCache *lru.Cache[registry.ID, *glua.FunctionProto]
+	mainCache  *lru.Cache[registry.ID, *CompiledMain]
+	compileFn  CompileFn
 }
 
-// NewCompiler returns a new Compiler with a MemoryGraph and caches
+// NewCompiler returns a new Compiler with caches
 func NewCompiler(
-	compileFn func(*Node) (*glua.FunctionProto, error),
+	compileFn CompileFn,
 	protoCacheCapacity int,
 	mainCacheCapacity int,
 ) *Compiler {
@@ -47,9 +51,7 @@ func NewCompiler(
 }
 
 // getCompiledProto retrieves a node's compiled function prototype from cache or compiles it
-// Returns nil without error for module nodes
-func (c *Compiler) getCompiledProto(node *Node) (*glua.FunctionProto, error) {
-	// Modules don't need compilation
+func (c *Compiler) getCompiledProto(node *Node, imports map[string]*types.TypeManifest) (*glua.FunctionProto, error) {
 	if node.Kind == lua.ModuleKind {
 		return nil, ErrModuleNotCompiled
 	}
@@ -58,7 +60,7 @@ func (c *Compiler) getCompiledProto(node *Node) (*glua.FunctionProto, error) {
 		return proto, nil
 	}
 
-	compiled, err := c.compileFn(node)
+	compiled, err := c.compileFn(node, imports)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +78,6 @@ func (c *Compiler) Invalidate(ids []registry.ID) {
 }
 
 // SetProto injects a precompiled prototype into the cache.
-// Used for bytecode entries that skip source compilation.
 func (c *Compiler) SetProto(id registry.ID, proto *glua.FunctionProto) {
 	_ = c.protoCache.Set(id, proto)
 }
@@ -91,12 +92,10 @@ func (c *Compiler) Compile(
 		options = NewBuildOptions()
 	}
 
-	// Check main cache first
 	if cached, ok := c.mainCache.Get(entrypoint); ok {
 		return cached, nil
 	}
 
-	// Build the runtime configuration
 	rt, err := memGraph.Build(entrypoint)
 	if err != nil {
 		return nil, err
@@ -113,14 +112,7 @@ func (c *Compiler) Compile(
 		return nil, err
 	}
 
-	// Compile main node
-	mainProto, err := c.getCompiledProto(rt.Main)
-	if err != nil {
-		return nil, NewCompileError(rt.Main.ID, err)
-	}
-
 	compiled := &CompiledMain{}
-	compiled.Main = mainProto
 	compiled.FuncName = rt.Main.Method
 
 	for _, pre := range options.Preloaded {
@@ -129,7 +121,7 @@ func (c *Compiler) Compile(
 		}
 	}
 
-	// Compile regular dependencies
+	// Compile dependencies FIRST (so their manifests are available for main)
 	for _, dep := range rt.Dependencies {
 		if dep.Node.Kind == lua.ModuleKind {
 			compiled.Dependencies = append(compiled.Dependencies, CompiledProto{
@@ -139,7 +131,11 @@ func (c *Compiler) Compile(
 			continue
 		}
 
-		proto, err := c.getCompiledProto(dep.Node)
+		// Get this dependency's own imports
+		depDeps, _ := memGraph.GetDependenciesWithAliases(dep.Node.ID)
+		depImports := buildImportsFromDependencies(depDeps)
+
+		proto, err := c.getCompiledProto(dep.Node, depImports)
 		if err != nil {
 			return nil, NewCompileError(dep.Node.ID, err)
 		}
@@ -151,10 +147,47 @@ func (c *Compiler) Compile(
 		})
 	}
 
-	// Cache the compiled main
+	// Build imports for main node from its now-compiled dependencies
+	mainImports := buildImportsFromDependencies(rt.Dependencies)
+
+	// Compile main node
+	mainProto, err := c.getCompiledProto(rt.Main, mainImports)
+	if err != nil {
+		return nil, NewCompileError(rt.Main.ID, err)
+	}
+
+	compiled.Main = mainProto
+
 	_ = c.mainCache.Set(entrypoint, compiled)
 
 	return compiled, nil
+}
+
+// buildImportsFromDependencies extracts type manifests from module dependencies
+func buildImportsFromDependencies(deps []Dependency) map[string]*types.TypeManifest {
+	imports := make(map[string]*types.TypeManifest)
+	for _, dep := range deps {
+		if dep.Node == nil {
+			continue
+		}
+
+		// Check for Lua source file manifest (stored after type checking)
+		if dep.Node.Manifest != nil {
+			imports[dep.Name] = dep.Node.Manifest
+			continue
+		}
+
+		// Check for Go module manifest
+		if dep.Node.Module == nil {
+			continue
+		}
+		if def, ok := dep.Node.Module.(*lua.ModuleDef); ok {
+			if def.Types != nil {
+				imports[dep.Name] = def.Types()
+			}
+		}
+	}
+	return imports
 }
 
 func (c *Compiler) preloadModule(memGraph *MemoryGraph, pre Preload, compiled *CompiledMain) error {

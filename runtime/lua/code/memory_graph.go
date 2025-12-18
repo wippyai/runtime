@@ -11,6 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	runtime "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/internal/graph"
+	"github.com/yuin/gopher-lua/types"
 )
 
 type (
@@ -23,12 +24,13 @@ type (
 	// Node represents a code unit in the dependency graph.
 	// A node may contain either a Lua prototype (Proto) or a module reference.
 	Node struct {
-		ID      registry.ID
-		Kind    registry.Kind
-		Version Version
-		Source  string         // Code and libs has this
-		Method  string         // Processes and functions has this
-		Module  runtime.Module // Modules only has this
+		ID       registry.ID
+		Kind     registry.Kind
+		Version  Version
+		Source   string              // Code and libs has this
+		Method   string              // Processes and functions has this
+		Module   runtime.Module      // Modules only has this
+		Manifest *types.TypeManifest // Type manifest from type checking (for Lua source files)
 	}
 
 	Preload struct {
@@ -254,6 +256,42 @@ func (m *MemoryGraph) GetNode(id registry.ID) (*Node, error) {
 		return nil, NewNodeNotFoundError(id)
 	}
 	return n, nil
+}
+
+// GetDependenciesWithAliases returns direct dependencies with their aliases.
+func (m *MemoryGraph) GetDependenciesWithAliases(id registry.ID) ([]Dependency, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if _, exists := m.nodes[id]; !exists {
+		return nil, NewNodeNotFoundError(id)
+	}
+
+	neighborIDs, err := m.graph.GetNeighbors(id)
+	if err != nil {
+		return nil, err
+	}
+
+	deps := make([]Dependency, 0, len(neighborIDs))
+	for _, nid := range neighborIDs {
+		node, ok := m.nodes[nid]
+		if !ok {
+			continue
+		}
+		alias := ""
+		if edge, ok := m.graph.GetEdge(id, nid); ok {
+			alias = edge.Data.As
+		}
+		if alias == "" {
+			alias = nid.Name
+		}
+		deps = append(deps, Dependency{
+			Name: alias,
+			ID:   nid,
+			Node: node,
+		})
+	}
+	return deps, nil
 }
 
 // GetDirectDependencies returns all nodes that the node with the given Process depends on. Only direct dependencies are returned.

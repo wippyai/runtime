@@ -21,6 +21,7 @@ var ChannelModule = &luaapi.ModuleDef{
 	Description: "Go-style channels for inter-coroutine communication",
 	Class:       []string{luaapi.ClassProcess},
 	Build:       buildChannelModule,
+	Types:       ChannelModuleTypes,
 }
 
 func init() {

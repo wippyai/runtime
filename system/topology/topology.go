@@ -112,9 +112,7 @@ func (t *Topology) Register(p pid.PID) error {
 	defer sh.mu.Unlock()
 
 	if _, exists := sh.processes[key]; exists {
-		return topology.ErrPIDAlreadyRegistered.WithDetails(attrs.Bag{
-			"pid": key,
-		})
+		return topology.ErrPIDAlreadyRegistered
 	}
 
 	state := t.statePool.Get().(*processState)
@@ -218,10 +216,7 @@ func (t *Topology) monitorSameShard(callerKey, targetKey string, caller, target 
 
 	if targetState.watchers != nil {
 		if _, already := targetState.watchers[callerKey]; already {
-			return topology.ErrAlreadyMonitoring.WithDetails(attrs.Bag{
-				"pid":    targetKey,
-				"caller": callerKey,
-			})
+			return topology.ErrAlreadyMonitoring
 		}
 	}
 
@@ -263,10 +258,7 @@ func (t *Topology) monitorDifferentShards(callerKey, targetKey string, caller, t
 
 	if targetState.watchers != nil {
 		if _, already := targetState.watchers[callerKey]; already {
-			return topology.ErrAlreadyMonitoring.WithDetails(attrs.Bag{
-				"pid":    targetKey,
-				"caller": callerKey,
-			})
+			return topology.ErrAlreadyMonitoring
 		}
 	}
 
@@ -557,6 +549,14 @@ func (t *Topology) Complete(p pid.PID, result *runtime.Result) {
 		}
 	}
 
+	// Collect remote targets this process was watching
+	var remoteWatching []pid.PID
+	for _, targetPID := range state.watching {
+		if targetPID.Node != "" && targetPID.Node != t.localNodeID {
+			remoteWatching = append(remoteWatching, targetPID)
+		}
+	}
+
 	delete(sh.processes, key)
 	sh.mu.Unlock()
 
@@ -596,6 +596,12 @@ func (t *Topology) Complete(p pid.PID, result *runtime.Result) {
 			pkg := relay.NewPackage(topology.SystemPID, linkedPID, topology.TopicEvents, linkDownPayload)
 			_ = t.router.Send(pkg)
 		}
+	}
+
+	// Release monitors on remote targets
+	for _, targetPID := range remoteWatching {
+		pkg := topology.MonitorReleasePackage(p, targetPID)
+		_ = t.router.Send(pkg)
 	}
 }
 

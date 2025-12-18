@@ -3,6 +3,7 @@ package process
 import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // StepStatus indicates the process state after Step() returns.
@@ -10,7 +11,8 @@ const (
 	StepContinue StepStatus = iota
 	StepIdle
 	StepDone
-	StepYield // has yields to dispatch, wait for completions
+	StepYield   // has yields to dispatch, wait for completions
+	StepUpgrade // process requested upgrade, worker handles swap
 )
 
 // MaxYields is the maximum yields per step that fit in the fixed buffer.
@@ -43,15 +45,23 @@ type Yield struct {
 	Tag uint64
 }
 
+// UpgradeRequest contains information for process upgrade.
+// Worker uses this to create new process and swap.
+type UpgradeRequest struct {
+	Source registry.ID      // target definition (empty = same definition)
+	Input  payload.Payloads // args for new process
+}
+
 // StepOutput is the write-only output buffer for Process.Step().
 // Scheduler owns this, process writes yields and completion status.
 // Inline buffer for common case (1-2 yields), overflow slice for rare cases.
 type StepOutput struct {
-	buf    [MaxYields]Yield
-	ext    []Yield // overflow for > MaxYields yields
-	count  int
-	status StepStatus
-	result payload.Payload
+	buf     [MaxYields]Yield
+	ext     []Yield // overflow for > MaxYields yields
+	count   int
+	status  StepStatus
+	result  payload.Payload
+	upgrade *UpgradeRequest // nil unless upgrade requested
 }
 
 // Yield adds a command to be dispatched.
@@ -93,6 +103,18 @@ func (o *StepOutput) Reset() {
 	o.count = 0
 	o.status = StepContinue
 	o.result = nil
+	o.upgrade = nil
+}
+
+// SetUpgrade sets upgrade request and status.
+func (o *StepOutput) SetUpgrade(req *UpgradeRequest) {
+	o.upgrade = req
+	o.status = StepUpgrade
+}
+
+// Upgrade returns the upgrade request, or nil if not upgrading.
+func (o *StepOutput) Upgrade() *UpgradeRequest {
+	return o.upgrade
 }
 
 // Count returns number of yields.

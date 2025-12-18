@@ -26,6 +26,7 @@ var Module = &luaapi.ModuleDef{
 		tbl.Immutable = true
 		return tbl, nil
 	},
+	Types: ModuleTypes,
 }
 
 func osClock(l *lua.LState) int {

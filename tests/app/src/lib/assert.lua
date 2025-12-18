@@ -1,19 +1,19 @@
 -- Test assertion library
 local M = {}
 
-function M.eq(actual, expected, msg)
+function M.eq(actual: any, expected: any, msg: string?)
     if actual ~= expected then
         error((msg or "assertion failed") .. ": expected " .. tostring(expected) .. ", got " .. tostring(actual), 2)
     end
 end
 
-function M.neq(actual, expected, msg)
+function M.neq(actual: any, expected: any, msg: string?)
     if actual == expected then
         error((msg or "assertion failed") .. ": expected not " .. tostring(expected), 2)
     end
 end
 
-function M.ok(val, msg)
+function M.ok(val: any?, msg: string?): asserts val
     if not val then
         error((msg or "assertion failed") .. ": expected truthy value", 2)
     end
@@ -29,37 +29,37 @@ function M.is_nil(val, msg)
     end
 end
 
-function M.not_nil(val, msg)
+function M.not_nil(val: any?, msg: string?): asserts val
     if val == nil then
         error((msg or "assertion failed") .. ": expected non-nil value", 2)
     end
 end
 
-function M.is_string(val, msg)
+function M.is_string(val: any, msg: string?): asserts val is string
     if type(val) ~= "string" then
         error((msg or "assertion failed") .. ": expected string, got " .. type(val), 2)
     end
 end
 
-function M.is_number(val, msg)
+function M.is_number(val: any, msg: string?): asserts val is number
     if type(val) ~= "number" then
         error((msg or "assertion failed") .. ": expected number, got " .. type(val), 2)
     end
 end
 
-function M.is_table(val, msg)
+function M.is_table(val: any, msg: string?)
     if type(val) ~= "table" then
         error((msg or "assertion failed") .. ": expected table, got " .. type(val), 2)
     end
 end
 
-function M.is_function(val, msg)
+function M.is_function(val: any, msg: string?)
     if type(val) ~= "function" then
         error((msg or "assertion failed") .. ": expected function, got " .. type(val), 2)
     end
 end
 
-function M.is_boolean(val, msg)
+function M.is_boolean(val: any, msg: string?): asserts val is boolean
     if type(val) ~= "boolean" then
         error((msg or "assertion failed") .. ": expected boolean, got " .. type(val), 2)
     end

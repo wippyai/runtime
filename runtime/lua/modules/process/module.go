@@ -56,6 +56,8 @@ func init() {
 	moduleTable.RawSetString("events", lua.LGoFunc(events))
 	moduleTable.RawSetString("listen", lua.LGoFunc(listen))
 	moduleTable.RawSetString("unlisten", lua.LGoFunc(unlisten))
+	moduleTable.RawSetString("upgrade", lua.LGoFunc(upgrade))
+	moduleTable.RawSetString("call", lua.LGoFunc(call))
 
 	eventsTbl := lua.CreateTable(0, 3)
 	eventsTbl.RawSetString("CANCEL", lua.LString(topology.Cancel))
@@ -82,6 +84,7 @@ func init() {
 		{Sample: &UnmonitorYield{}, CmdID: process.Unmonitor},
 		{Sample: &LinkYield{}, CmdID: process.Link},
 		{Sample: &UnlinkYield{}, CmdID: process.Unlink},
+		{Sample: &CallYield{}, CmdID: process.Call},
 	}
 }
 
@@ -90,6 +93,7 @@ var Module = &luaapi.ModuleDef{
 	Name:        "process",
 	Description: "Process management and messaging",
 	Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic, luaapi.ClassWorkflow},
+	Types:       ModuleTypes,
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		return moduleTable, yieldTypes
 	},
@@ -844,5 +848,82 @@ func unlisten(l *lua.LState) int {
 		Channel: ch,
 	}
 	l.Push(req)
+	return -1
+}
+
+func upgrade(l *lua.LState) int {
+	req := &engine.UpgradeRequest{}
+
+	// arg 1: optional registry ID string (nil or empty = same definition)
+	if l.GetTop() >= 1 && l.Get(1).Type() == lua.LTString {
+		req.Source = registry.ParseID(l.CheckString(1))
+	}
+
+	// args 2+: payloads for new process
+	if l.GetTop() >= 2 {
+		for i := 2; i <= l.GetTop(); i++ {
+			req.Input = append(req.Input, luaconv.ExportPayload(l.Get(i)))
+		}
+	}
+
+	l.Push(req)
+	return -1 // yield
+}
+
+// call invokes a process and waits for its result.
+// Usage: process.call(id, host, arg1, arg2, ...)
+// Returns: value, error
+func call(l *lua.LState) int {
+	if l.GetTop() < 2 {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("call requires id and host arguments"))
+		return 2
+	}
+
+	id := l.CheckString(1)
+	if id == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("process ID required"))
+		return 2
+	}
+
+	regID := registry.ParseID(id)
+	if regID.NS == "" || regID.Name == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("invalid process ID format (namespace:name required)"))
+		return 2
+	}
+
+	hostID := l.CheckString(2)
+	if hostID == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("host ID required"))
+		return 2
+	}
+
+	if !security.IsAllowed(l.Context(), "process.call", id, nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("not allowed to call process: %s", id)))
+		return 2
+	}
+
+	if !security.IsAllowed(l.Context(), "process.host", hostID, nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("not allowed to call on host: %s", hostID)))
+		return 2
+	}
+
+	// Collect payload arguments (starting from arg 3)
+	var payloads payload.Payloads
+	for i := 3; i <= l.GetTop(); i++ {
+		payloads = append(payloads, luaconv.ExportPayload(l.Get(i)))
+	}
+
+	yield := AcquireCallYield()
+	yield.Source = regID
+	yield.Input = payloads
+	yield.HostID = hostID
+
+	l.Push(yield)
 	return -1
 }

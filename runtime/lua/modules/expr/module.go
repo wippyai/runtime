@@ -42,6 +42,7 @@ func NewModule(opts Options) *luaapi.ModuleDef {
 		Name:        "expr",
 		Description: "Expression language evaluation",
 		Class:       []string{luaapi.ClassDeterministic},
+		Types:       ModuleTypes,
 		Build: func() (*lua.LTable, []luaapi.YieldType) {
 			mod := lua.CreateTable(0, 2)
 			mod.RawSetString("compile", makeCompileFunc())

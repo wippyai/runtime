@@ -38,11 +38,35 @@ func Engine() boot.Component {
 			// Get cache sizes from config with defaults
 			protoCacheSize := 60000
 			mainCacheSize := 10000
+			typeCheckCfg := code.DefaultTypeCheckConfig()
+
 			if cfg != nil {
 				luaCfg := cfg.Sub("lua")
 				if luaCfg != nil {
 					protoCacheSize = luaCfg.GetInt("proto_cache_size", protoCacheSize)
 					mainCacheSize = luaCfg.GetInt("main_cache_size", mainCacheSize)
+
+					// Read type system configuration
+					tsCfg := luaCfg.Sub("type_system")
+					if tsCfg != nil {
+						typeCheckCfg.Enabled = tsCfg.GetBool("enabled", typeCheckCfg.Enabled)
+						typeCheckCfg.Strict = tsCfg.GetBool("strict", typeCheckCfg.Strict)
+						typeCheckCfg.RequireAnnotations = tsCfg.GetBool("require_annotations", typeCheckCfg.RequireAnnotations)
+						typeCheckCfg.SkipUntyped = tsCfg.GetBool("skip_untyped", typeCheckCfg.SkipUntyped)
+
+						// Read individual rules
+						rulesCfg := tsCfg.Sub("rules")
+						if rulesCfg != nil {
+							typeCheckCfg.Rules.TypeCheck = rulesCfg.GetBool("type_check", typeCheckCfg.Rules.TypeCheck)
+							typeCheckCfg.Rules.NilCheck = rulesCfg.GetBool("nil_check", typeCheckCfg.Rules.NilCheck)
+							typeCheckCfg.Rules.Unused = rulesCfg.GetBool("unused", typeCheckCfg.Rules.Unused)
+							typeCheckCfg.Rules.Unreachable = rulesCfg.GetBool("unreachable", typeCheckCfg.Rules.Unreachable)
+							typeCheckCfg.Rules.Exhaustive = rulesCfg.GetBool("exhaustive", typeCheckCfg.Rules.Exhaustive)
+							typeCheckCfg.Rules.Readonly = rulesCfg.GetBool("readonly", typeCheckCfg.Rules.Readonly)
+							typeCheckCfg.Rules.Undefined = rulesCfg.GetBool("undefined", typeCheckCfg.Rules.Undefined)
+							typeCheckCfg.Rules.MissingReturn = rulesCfg.GetBool("missing_return", typeCheckCfg.Rules.MissingReturn)
+						}
+					}
 				}
 			}
 
@@ -57,6 +81,7 @@ func Engine() boot.Component {
 					},
 					ProtoCacheSize: protoCacheSize,
 					MainCacheSize:  mainCacheSize,
+					TypeCheck:      typeCheckCfg,
 				},
 			)
 			if err != nil {
