@@ -158,6 +158,7 @@ func TestFullStackActivityExecution(t *testing.T) {
 		workerConfig,
 		resourceReg,
 		nil,
+		nil,
 	)
 
 	// Register activity before starting worker

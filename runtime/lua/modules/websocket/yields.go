@@ -77,12 +77,12 @@ func (y *WsConnectYield) Release() { ReleaseWsConnectYield(y) }
 // HandleResult implements HandledYield to convert connection ID to WsConn userdata.
 func (y *WsConnectYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, err.Error()).WithKind(lua.Internal).WithRetryable(true)}
 	}
 
 	id, ok := data.(uint64)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.LString("invalid connection ID type")}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid connection ID type").WithKind(lua.Internal).WithRetryable(false)}
 	}
 
 	// Create engine.Channel for receiving messages (works with channel.select)
@@ -188,17 +188,17 @@ func (y *WsSubscribeYield) Release() { ReleaseWsSubscribeYield(y) }
 // to convert incoming payloads to Lua message tables.
 func (y *WsSubscribeYield) HandleResult(l *lua.LState, _ any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, err.Error()).WithKind(lua.Internal).WithRetryable(true)}
 	}
 
 	proc := engine.GetProcess(l)
 	if proc == nil {
-		return []lua.LValue{lua.LNil, lua.LString("no process context")}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "no process context").WithKind(lua.Internal).WithRetryable(false)}
 	}
 
 	// Subscribe the externally-owned channel to the topic
 	if err := proc.SubscribeExisting(y.Topic, y.Channel); err != nil {
-		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, err.Error()).WithKind(lua.Internal).WithRetryable(true)}
 	}
 
 	// Set topic handler to convert websocket payloads to Lua tables

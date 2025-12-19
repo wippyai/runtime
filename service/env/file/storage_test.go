@@ -14,9 +14,7 @@ import (
 	"github.com/wippyai/runtime/api/env"
 )
 
-func TestStorage_ImplementsInterface(_ *testing.T) {
-	var _ env.Storage = (*Storage)(nil)
-}
+var _ env.Storage = (*Storage)(nil)
 
 func setupTestFile(t *testing.T) (string, func()) {
 	tmpDir, err := os.MkdirTemp("", "filestorage-test-*")

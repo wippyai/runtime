@@ -262,3 +262,120 @@ parent:
 		t.Errorf("decode nested structure test failed: %v", err)
 	}
 }
+
+func TestEncodeWithFieldOrder(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Module.Load(l)
+
+	err := l.DoString(`
+		local data = {zebra = 1, alpha = 2, beta = 3}
+		local result, err = yaml.encode(data, {field_order = {"alpha", "beta", "zebra"}})
+		if not result then error(err) end
+
+		local alpha_pos = result:find("alpha")
+		local beta_pos = result:find("beta")
+		local zebra_pos = result:find("zebra")
+
+		if not (alpha_pos < beta_pos and beta_pos < zebra_pos) then
+			error("fields not in expected order: " .. result)
+		end
+	`)
+	if err != nil {
+		t.Errorf("encode with field_order test failed: %v", err)
+	}
+}
+
+func TestEncodeWithSortUnordered(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Module.Load(l)
+
+	err := l.DoString(`
+		local data = {zebra = 1, alpha = 2, beta = 3}
+		local result, err = yaml.encode(data, {sort_unordered = true})
+		if not result then error(err) end
+
+		local alpha_pos = result:find("alpha")
+		local beta_pos = result:find("beta")
+		local zebra_pos = result:find("zebra")
+
+		if not (alpha_pos < beta_pos and beta_pos < zebra_pos) then
+			error("fields not sorted alphabetically: " .. result)
+		end
+	`)
+	if err != nil {
+		t.Errorf("encode with sort_unordered test failed: %v", err)
+	}
+}
+
+func TestEncodeWithFieldOrderAndSortUnordered(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Module.Load(l)
+
+	err := l.DoString(`
+		local data = {zebra = 1, alpha = 2, beta = 3, name = "test", kind = "demo"}
+		local result, err = yaml.encode(data, {
+			field_order = {"name", "kind"},
+			sort_unordered = true
+		})
+		if not result then error(err) end
+
+		local name_pos = result:find("name")
+		local kind_pos = result:find("kind")
+		local alpha_pos = result:find("alpha")
+		local beta_pos = result:find("beta")
+		local zebra_pos = result:find("zebra")
+
+		-- name and kind should come first (in that order)
+		-- then alpha, beta, zebra (alphabetically)
+		if not (name_pos < kind_pos) then
+			error("name should come before kind")
+		end
+		if not (kind_pos < alpha_pos) then
+			error("kind should come before alpha")
+		end
+		if not (alpha_pos < beta_pos and beta_pos < zebra_pos) then
+			error("remaining fields not sorted alphabetically: " .. result)
+		end
+	`)
+	if err != nil {
+		t.Errorf("encode with field_order and sort_unordered test failed: %v", err)
+	}
+}
+
+func TestEncodeNestedWithFieldOrder(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	Module.Load(l)
+
+	err := l.DoString(`
+		local data = {
+			outer = {zebra = 1, alpha = 2},
+			name = "test"
+		}
+		local result, err = yaml.encode(data, {
+			field_order = {"name", "outer"},
+			sort_unordered = true
+		})
+		if not result then error(err) end
+
+		local name_pos = result:find("name")
+		local outer_pos = result:find("outer")
+
+		if not (name_pos < outer_pos) then
+			error("name should come before outer: " .. result)
+		end
+
+		-- nested fields should also be sorted
+		local alpha_pos = result:find("alpha")
+		local zebra_pos = result:find("zebra")
+		if not (alpha_pos < zebra_pos) then
+			error("nested fields not sorted: " .. result)
+		end
+	`)
+	if err != nil {
+		t.Errorf("encode nested with field_order test failed: %v", err)
+	}
+}

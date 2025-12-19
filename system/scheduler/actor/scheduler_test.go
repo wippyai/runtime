@@ -147,10 +147,11 @@ type testLifecycle struct {
 	onComplete func(context.Context, pidapi.PID, *runtime.Result)
 }
 
-func (l *testLifecycle) OnStart(ctx context.Context, p pidapi.PID, proc process.Process) {
+func (l *testLifecycle) OnStart(ctx context.Context, p pidapi.PID, proc process.Process) error {
 	if l.onStart != nil {
 		l.onStart(ctx, p, proc)
 	}
+	return nil
 }
 
 func (l *testLifecycle) OnComplete(ctx context.Context, p pidapi.PID, result *runtime.Result) {
@@ -346,7 +347,9 @@ func TestSchedulerSubmitBeforeStart(t *testing.T) {
 
 	// Now start and let it complete
 	sched.Start()
-	defer sched.Stop(context.Background())
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer stopCancel()
+	defer sched.Stop(stopCtx)
 }
 
 func TestSchedulerStats(t *testing.T) {
@@ -1585,5 +1588,44 @@ func TestSendToIdleProcessConcurrent(t *testing.T) {
 				t.Fatalf("iteration %d: process stuck - message lost during idle transition", i)
 			}
 		}()
+	}
+}
+
+// TestCreateProcessorWithoutSchedule tests that CreateProcessor alone doesn't execute
+func TestCreateProcessorWithoutSchedule(t *testing.T) {
+	sched := newTestScheduler(2)
+	sched.Start()
+	defer sched.Stop(context.Background())
+
+	pid := pidapi.PID{UniqID: "no-schedule-test"}
+	proc := &CounterProcess{}
+
+	// Create processor but don't schedule
+	processor, err := sched.CreateProcessor(context.Background(), pid, proc)
+	if err != nil {
+		t.Fatalf("CreateProcessor error: %v", err)
+	}
+
+	// Give some time - process should NOT complete
+	time.Sleep(100 * time.Millisecond)
+
+	// Process should still be in byPID (not cleaned up)
+	_, found := sched.byPID.Load(pid.String())
+	if !found {
+		t.Fatal("PID should still be in byPID")
+	}
+
+	// State should still be Ready (not executed)
+	if processor.state.Load() != int32(StateReady) {
+		t.Fatalf("expected StateReady, got %d", processor.state.Load())
+	}
+
+	// Cleanup manually
+	sched.ReleaseProcessor(processor)
+
+	// Should be removed from byPID
+	_, found = sched.byPID.Load(pid.String())
+	if found {
+		t.Fatal("PID should be removed after ReleaseProcessor")
 	}
 }

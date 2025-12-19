@@ -32,22 +32,35 @@ func NewLifecycle(topo topology.Topology, pidReg topology.PIDRegistry, logger *z
 
 // OnStart registers the process in topology and sets up monitoring/linking
 // based on lifecycle options from frame context.
-func (t *Lifecycle) OnStart(ctx context.Context, p pid.PID, _ process.Process) {
+// If a name is specified in lifecycle options, attempts atomic name registration.
+// Returns error if name registration fails (name already taken).
+func (t *Lifecycle) OnStart(ctx context.Context, p pid.PID, _ process.Process) error {
+	opts := runtime.GetFrameLifecycleOptions(ctx)
+	var attributes attrs.Attributes
+	if opts != nil {
+		attributes, _ = opts.(attrs.Attributes)
+	}
+
+	// Handle name registration first (before topology registration)
+	// This allows atomic spawn-or-signal: routing is ready, now claim the name
+	if attributes != nil && t.pidReg != nil {
+		if name := attributes.GetString(process.LifecycleNameKey, ""); name != "" {
+			existingPID, err := t.pidReg.Register(name, p)
+			if err != nil {
+				return topology.NameAlreadyRegisteredError(existingPID)
+			}
+		}
+	}
+
 	if err := t.topo.Register(p); err != nil {
 		t.logger.Warn("failed to register pid in topology",
 			zap.String("pid", p.String()),
 			zap.Error(err))
-		return
+		return nil // topology registration failure is not fatal
 	}
 
-	opts := runtime.GetFrameLifecycleOptions(ctx)
-	if opts == nil {
-		return
-	}
-
-	attributes, ok := opts.(attrs.Attributes)
-	if !ok {
-		return
+	if attributes == nil {
+		return nil
 	}
 
 	var parentPID pid.PID
@@ -58,7 +71,7 @@ func (t *Lifecycle) OnStart(ctx context.Context, p pid.PID, _ process.Process) {
 	}
 
 	if parentPID.UniqID == "" {
-		return
+		return nil
 	}
 
 	monitor := attributes.GetBool(process.LifecycleMonitorKey, false)
@@ -81,6 +94,8 @@ func (t *Lifecycle) OnStart(ctx context.Context, p pid.PID, _ process.Process) {
 				zap.Error(err))
 		}
 	}
+
+	return nil
 }
 
 // OnComplete notifies watchers and linked processes, then cleans up topology.

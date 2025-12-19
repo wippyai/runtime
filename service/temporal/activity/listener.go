@@ -13,6 +13,7 @@ import (
 // Metadata keys for activity configuration
 const (
 	MetaTemporalActivity = "temporal"
+	MetaActivityBag      = "activity"
 	MetaActivityWorker   = "worker"
 	MetaActivityLocal    = "local"
 )
@@ -72,7 +73,7 @@ func (l *Listener) handleEntry(ctx context.Context, entry registry.Entry) error 
 		return nil
 	}
 
-	l.log.Info("found temporal activity metadata",
+	l.log.Debug("found temporal activity metadata",
 		zap.String("entry", entry.ID.String()))
 
 	workerID, err := l.getWorkerID(activityMeta, entry.ID.NS)
@@ -125,6 +126,9 @@ func (l *Listener) handleDelete(ctx context.Context, entry registry.Entry) error
 
 	workerID, err := l.getWorkerID(activityMeta, entry.ID.NS)
 	if err != nil {
+		l.log.Debug("skipping activity unregistration",
+			zap.String("function", entry.ID.String()),
+			zap.Error(err))
 		return nil
 	}
 
@@ -163,7 +167,7 @@ func (l *Listener) getActivityMetadata(entry registry.Entry) attrs.Bag {
 		return nil
 	}
 
-	activity, ok := temporal.GetBag("activity")
+	activity, ok := temporal.GetBag(MetaActivityBag)
 	if !ok {
 		return nil
 	}

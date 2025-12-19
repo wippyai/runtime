@@ -105,7 +105,7 @@ Returned by `treesitter.parser()`. Must call `:set_language()` before use.
 | get_language | () | string, error | returns current language name |
 | parse | (code: string, old_tree?: Tree) | Tree, error | parses code, optionally reusing old tree |
 | reset | () | - | resets parser state |
-| set_timeout | (seconds: number) | - | sets parse timeout in seconds |
+| set_timeout | (duration: string\|number) | - | sets parse timeout (string like "1s" or nanoseconds) |
 | set_ranges | (ranges: table[]) | boolean, error | sets included byte ranges for parsing |
 | close | () | - | releases parser resources |
 
@@ -335,8 +335,8 @@ Returned by `treesitter.query()`. Executes tree-sitter queries on syntax trees.
 | set_match_limit | (limit: integer) | - | sets max matches |
 | get_match_limit | () | integer | returns match limit |
 | did_exceed_match_limit | () | boolean | true if limit exceeded |
-| set_timeout | (micros: integer) | - | sets timeout in microseconds |
-| get_timeout | () | integer | returns timeout in microseconds |
+| set_timeout | (duration: string\|number) | - | sets timeout (string like "1s" or nanoseconds) |
+| get_timeout | () | integer | returns timeout in nanoseconds |
 | set_max_start_depth | (depth: integer) | - | sets max traversal depth |
 
 **Pattern control:**

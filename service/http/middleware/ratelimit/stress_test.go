@@ -61,7 +61,7 @@ func TestStress_HighConcurrency(t *testing.T) {
 		totalRequests, successCount.Load(), limitedCount.Load())
 }
 
-func TestStress_ManyUniqueKeys(_ *testing.T) {
+func TestStress_ManyUniqueKeys(t *testing.T) {
 	middleware := CreateRateLimitMiddleware(map[string]string{
 		OptionRequests:   "10",
 		OptionWindow:     "1s",
@@ -88,7 +88,9 @@ func TestStress_ManyUniqueKeys(_ *testing.T) {
 		}(i)
 	}
 
-	wg.Wait()
+	assert.NotPanics(t, func() {
+		wg.Wait()
+	})
 }
 
 func TestStress_EvictionUnderPressure(t *testing.T) {
@@ -301,7 +303,7 @@ func TestMemory_NoLeaks(t *testing.T) {
 	t.Logf("Memory diff: %d bytes, Store len: %d", memDiff, store.len())
 }
 
-func TestRace_CleanupDuringAccess(_ *testing.T) {
+func TestRace_CleanupDuringAccess(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	store := newLimiterStore(ctx, rate.Limit(1), 1, 1*time.Millisecond, 5*time.Millisecond, 100)
@@ -328,7 +330,9 @@ func TestRace_CleanupDuringAccess(_ *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 	close(done)
-	wg.Wait()
+	assert.NotPanics(t, func() {
+		wg.Wait()
+	})
 }
 
 func TestRace_ConcurrentSameKey(t *testing.T) {

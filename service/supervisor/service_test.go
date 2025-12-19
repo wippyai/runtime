@@ -141,9 +141,7 @@ func TestNewService(t *testing.T) {
 	assert.NotNil(t, svc.pidGen)
 }
 
-func TestService_ImplementsSupervisorService(_ *testing.T) {
-	var _ supervisor.Service = (*Service)(nil)
-}
+var _ supervisor.Service = (*Service)(nil)
 
 func TestService_Start_Success(t *testing.T) {
 	svc := newTestService()

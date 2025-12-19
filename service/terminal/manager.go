@@ -161,13 +161,16 @@ type compositeLifecycle struct {
 	host   process.Lifecycle
 }
 
-func (c *compositeLifecycle) OnStart(ctx context.Context, processID pid.PID, proc process.Process) {
+func (c *compositeLifecycle) OnStart(ctx context.Context, processID pid.PID, proc process.Process) error {
 	if c.global != nil {
-		c.global.OnStart(ctx, processID, proc)
+		if err := c.global.OnStart(ctx, processID, proc); err != nil {
+			return err
+		}
 	}
 	if c.host != nil {
-		c.host.OnStart(ctx, processID, proc)
+		return c.host.OnStart(ctx, processID, proc)
 	}
+	return nil
 }
 
 func (c *compositeLifecycle) OnComplete(ctx context.Context, processID pid.PID, result *runtime.Result) {

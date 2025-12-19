@@ -16,6 +16,8 @@ import (
 // Format is JSON-encoded map[string]any for cross-language compatibility.
 const HeaderKey = "wippy-context"
 
+var _ workflow.ContextPropagator = (*Propagator)(nil)
+
 // Propagator implements Temporal's ContextPropagator interface
 // to propagate wippy context values across workflow boundaries.
 // Values are serialized as JSON for cross-language compatibility.
@@ -141,12 +143,14 @@ func (p *Propagator) Extract(ctx context.Context, reader workflow.HeaderReader) 
 	secPayload, ok := reader.Get(SecurityHeaderKey)
 	if ok && secPayload != nil {
 		var jsonBytes []byte
-		if err := converter.GetDefaultDataConverter().FromPayload(secPayload, &jsonBytes); err == nil {
-			var sec SecurityPayload
-			if err := json.Unmarshal(jsonBytes, &sec); err == nil {
-				ctx = WithSecurityCtx(ctx, &sec)
-			}
+		if err := converter.GetDefaultDataConverter().FromPayload(secPayload, &jsonBytes); err != nil {
+			return ctx, fmt.Errorf("failed to decode security payload: %w", err)
 		}
+		var sec SecurityPayload
+		if err := json.Unmarshal(jsonBytes, &sec); err != nil {
+			return ctx, fmt.Errorf("failed to unmarshal security context: %w", err)
+		}
+		ctx = WithSecurityCtx(ctx, &sec)
 	}
 
 	return ctx, nil

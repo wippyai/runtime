@@ -101,8 +101,8 @@ type mockPIDRegistry struct {
 	removed []string
 }
 
-func (m *mockPIDRegistry) Register(_ string, _ pid.PID) error {
-	return nil
+func (m *mockPIDRegistry) Register(_ string, p pid.PID) (pid.PID, error) {
+	return p, nil
 }
 
 func (m *mockPIDRegistry) Unregister(_ string) bool {
@@ -148,7 +148,8 @@ func TestLifecycle_OnStart_RegistersProcess(t *testing.T) {
 	testPID := pid.PID{UniqID: "test-process"}
 	ctx := createContextWithOptions(pid.PID{}, false, false)
 
-	lc.OnStart(ctx, testPID, nil)
+	err := lc.OnStart(ctx, testPID, nil)
+	require.NoError(t, err)
 
 	assert.True(t, topo.registered[testPID.String()])
 }
@@ -163,7 +164,8 @@ func TestLifecycle_OnStart_SetsUpMonitoring(t *testing.T) {
 	childPID := pid.PID{UniqID: "child"}
 	ctx := createContextWithOptions(parentPID, true, false)
 
-	lc.OnStart(ctx, childPID, nil)
+	err := lc.OnStart(ctx, childPID, nil)
+	require.NoError(t, err)
 
 	assert.True(t, topo.registered[childPID.String()])
 	require.Contains(t, topo.monitors[childPID.String()], parentPID.String())
@@ -179,7 +181,8 @@ func TestLifecycle_OnStart_SetsUpLink(t *testing.T) {
 	childPID := pid.PID{UniqID: "child"}
 	ctx := createContextWithOptions(parentPID, false, true)
 
-	lc.OnStart(ctx, childPID, nil)
+	err := lc.OnStart(ctx, childPID, nil)
+	require.NoError(t, err)
 
 	assert.True(t, topo.registered[childPID.String()])
 	require.Contains(t, topo.links[parentPID.String()], childPID.String())
@@ -195,7 +198,8 @@ func TestLifecycle_OnStart_MonitorAndLink(t *testing.T) {
 	childPID := pid.PID{UniqID: "child"}
 	ctx := createContextWithOptions(parentPID, true, true)
 
-	lc.OnStart(ctx, childPID, nil)
+	err := lc.OnStart(ctx, childPID, nil)
+	require.NoError(t, err)
 
 	assert.True(t, topo.registered[childPID.String()])
 	require.Contains(t, topo.monitors[childPID.String()], parentPID.String())
@@ -211,7 +215,8 @@ func TestLifecycle_OnStart_NoParent(t *testing.T) {
 	childPID := pid.PID{UniqID: "child"}
 	ctx := createContextWithOptions(pid.PID{}, true, true)
 
-	lc.OnStart(ctx, childPID, nil)
+	err := lc.OnStart(ctx, childPID, nil)
+	require.NoError(t, err)
 
 	assert.True(t, topo.registered[childPID.String()])
 	assert.Empty(t, topo.monitors)
@@ -273,7 +278,8 @@ func TestLifecycle_OnStart_NoContext(t *testing.T) {
 
 	testPID := pid.PID{UniqID: "test-process"}
 
-	lc.OnStart(context.Background(), testPID, nil)
+	err := lc.OnStart(context.Background(), testPID, nil)
+	require.NoError(t, err)
 
 	assert.True(t, topo.registered[testPID.String()])
 }
@@ -290,7 +296,7 @@ func TestLifecycle_OnStart_RegisterFails(t *testing.T) {
 	ctx := createContextWithOptions(parentPID, true, true)
 
 	// Should not panic, just log warning and return early
-	lc.OnStart(ctx, childPID, nil)
+	_ = lc.OnStart(ctx, childPID, nil)
 
 	// Should not have set up monitoring or linking since register failed
 	assert.Empty(t, topo.monitors)
@@ -309,7 +315,7 @@ func TestLifecycle_OnStart_MonitorFails(t *testing.T) {
 	ctx := createContextWithOptions(parentPID, true, false)
 
 	// Should not panic, just log warning
-	lc.OnStart(ctx, childPID, nil)
+	_ = lc.OnStart(ctx, childPID, nil)
 
 	// Registration should still succeed
 	assert.True(t, topo.registered[childPID.String()])
@@ -329,7 +335,7 @@ func TestLifecycle_OnStart_LinkFails(t *testing.T) {
 	ctx := createContextWithOptions(parentPID, false, true)
 
 	// Should not panic, just log warning
-	lc.OnStart(ctx, childPID, nil)
+	_ = lc.OnStart(ctx, childPID, nil)
 
 	// Registration should still succeed
 	assert.True(t, topo.registered[childPID.String()])
@@ -351,12 +357,95 @@ func TestLifecycle_OnStart_InvalidOptionsType(t *testing.T) {
 	ctx, fc := ctxapi.OpenFrameContext(ctx)
 	_ = fc.Set(runtime.FrameLifecycleOptionsKey, "not-an-attributes")
 
-	lc.OnStart(ctx, testPID, nil)
+	err := lc.OnStart(ctx, testPID, nil)
+	require.NoError(t, err)
 
 	// Registration should succeed, but no monitor/link setup
 	assert.True(t, topo.registered[testPID.String()])
 	assert.Empty(t, topo.monitors)
 	assert.Empty(t, topo.links)
+}
+
+func TestLifecycle_OnStart_NameRegistration(t *testing.T) {
+	topo := newMockTopology()
+	pidReg := NewPIDRegistry()
+	logger := zap.NewNop()
+
+	lc := NewLifecycle(topo, pidReg, logger)
+
+	testPID := pid.PID{UniqID: "test-process"}
+
+	// Create context with name in lifecycle options
+	appCtx := ctxapi.NewAppContext()
+	ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+	ctx, fc := ctxapi.OpenFrameContext(ctx)
+	options := attrs.NewBag()
+	options.Set(process.LifecycleNameKey, "my-service")
+	_ = fc.Set(runtime.FrameLifecycleOptionsKey, options)
+
+	err := lc.OnStart(ctx, testPID, nil)
+	require.NoError(t, err)
+
+	// Verify name was registered
+	foundPID, ok := pidReg.Lookup("my-service")
+	assert.True(t, ok)
+	assert.Equal(t, testPID, foundPID)
+}
+
+func TestLifecycle_OnStart_NameAlreadyTaken(t *testing.T) {
+	topo := newMockTopology()
+	pidReg := NewPIDRegistry()
+	logger := zap.NewNop()
+
+	lc := NewLifecycle(topo, pidReg, logger)
+
+	existingPID := pid.PID{UniqID: "existing-process"}
+	newPID := pid.PID{UniqID: "new-process"}
+
+	// Register existing process with name
+	_, err := pidReg.Register("my-service", existingPID)
+	require.NoError(t, err)
+
+	// Try to start a new process with the same name
+	appCtx := ctxapi.NewAppContext()
+	ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+	ctx, fc := ctxapi.OpenFrameContext(ctx)
+	options := attrs.NewBag()
+	options.Set(process.LifecycleNameKey, "my-service")
+	_ = fc.Set(runtime.FrameLifecycleOptionsKey, options)
+
+	err = lc.OnStart(ctx, newPID, nil)
+	require.Error(t, err)
+
+	// Verify error is ErrNameAlreadyRegistered with correct existing PID in details
+	require.True(t, errors.Is(err, topology.ErrNameAlreadyRegistered))
+	existingFromErr, ok := topology.GetExistingPID(err)
+	require.True(t, ok)
+	assert.Equal(t, existingPID, existingFromErr)
+}
+
+func TestNameAlreadyRegisteredError(t *testing.T) {
+	existingPID := pid.PID{UniqID: "existing"}
+	err := topology.NameAlreadyRegisteredError(existingPID)
+
+	// Verify error message
+	assert.Contains(t, err.Error(), "name already registered")
+
+	// Verify errors.Is works
+	assert.True(t, errors.Is(err, topology.ErrNameAlreadyRegistered))
+
+	// Verify GetExistingPID extracts the PID
+	gotPID, ok := topology.GetExistingPID(err)
+	require.True(t, ok)
+	assert.Equal(t, existingPID, gotPID)
+
+	// Verify GetExistingPID returns false for unrelated errors
+	_, ok = topology.GetExistingPID(errors.New("unrelated"))
+	assert.False(t, ok)
+
+	// Verify GetExistingPID returns false for nil
+	_, ok = topology.GetExistingPID(nil)
+	assert.False(t, ok)
 }
 
 var _ topology.Topology = (*mockTopology)(nil)

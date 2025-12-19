@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"fmt"
 	"net"
 	gohttp "net/http"
 	"sync"
@@ -23,10 +22,10 @@ type clientOnce struct {
 
 // Pool provides pooled HTTP clients with proper connection reuse.
 // Thread-safe, lock-free for hot path using sync.Map.
+// SSRF protection happens at runtime level via security policies.
 type Pool struct {
-	clients         sync.Map // map[clientKey]*clientOnce
-	defaultClient   *gohttp.Client
-	blockPrivateIPs bool
+	clients       sync.Map // map[clientKey]*clientOnce
+	defaultClient *gohttp.Client
 }
 
 // Default transport settings
@@ -42,11 +41,9 @@ const (
 )
 
 // NewClientPool creates a new HTTP client pool with default settings.
-// SSRF protection is disabled by default for backward compatibility.
 func NewClientPool() *Pool {
 	return &Pool{
-		defaultClient:   createClientWithSSRF(defaultTimeout, "", defaultMaxIdleConns, defaultMaxIdlePerHost, defaultIdleConnTimeout, false),
-		blockPrivateIPs: false,
+		defaultClient: createClient(defaultTimeout, "", defaultMaxIdleConns, defaultMaxIdlePerHost, defaultIdleConnTimeout),
 	}
 }
 
@@ -69,27 +66,13 @@ func NewClientPoolWithConfig(cfg PoolConfig) *Pool {
 		idleTimeout = defaultIdleConnTimeout
 	}
 	return &Pool{
-		defaultClient:   createClientWithSSRF(timeout, "", maxIdle, maxPerHost, idleTimeout, cfg.BlockPrivateIPs),
-		blockPrivateIPs: cfg.BlockPrivateIPs,
+		defaultClient: createClient(timeout, "", maxIdle, maxPerHost, idleTimeout),
 	}
 }
 
-// GetClient returns a pooled client using pool's default SSRF setting.
-func (p *Pool) GetClient(timeout time.Duration, unixSocket string) *gohttp.Client {
-	return p.GetClientWithSSRF(timeout, unixSocket, p.blockPrivateIPs)
-}
-
-// GetClientWithSSRF returns a client for the given configuration.
+// GetClient returns a pooled client for the given configuration.
 // Uses default client when possible to maximize connection reuse.
-func (p *Pool) GetClientWithSSRF(timeout time.Duration, unixSocket string, blockPrivateIPs bool) *gohttp.Client {
-	// If requested SSRF setting differs from pool default, create unpooled client
-	if blockPrivateIPs != p.blockPrivateIPs {
-		if timeout <= 0 {
-			timeout = defaultTimeout
-		}
-		return createClientWithSSRF(timeout, unixSocket, defaultMaxIdleConns, defaultMaxIdlePerHost, defaultIdleConnTimeout, blockPrivateIPs)
-	}
-
+func (p *Pool) GetClient(timeout time.Duration, unixSocket string) *gohttp.Client {
 	// Use default for standard cases (most common path)
 	if unixSocket == "" && (timeout <= 0 || timeout == defaultTimeout) {
 		return p.defaultClient
@@ -105,7 +88,7 @@ func (p *Pool) GetClientWithSSRF(timeout time.Duration, unixSocket string, block
 	if v, ok := p.clients.Load(key); ok {
 		co := v.(*clientOnce)
 		co.once.Do(func() {
-			co.client = createClientWithSSRF(timeout, unixSocket, defaultMaxIdleConns, defaultMaxIdlePerHost, defaultIdleConnTimeout, p.blockPrivateIPs)
+			co.client = createClient(timeout, unixSocket, defaultMaxIdleConns, defaultMaxIdlePerHost, defaultIdleConnTimeout)
 		})
 		return co.client
 	}
@@ -118,7 +101,7 @@ func (p *Pool) GetClientWithSSRF(timeout time.Duration, unixSocket string, block
 	}
 
 	co.once.Do(func() {
-		co.client = createClientWithSSRF(timeout, unixSocket, defaultMaxIdleConns, defaultMaxIdlePerHost, defaultIdleConnTimeout, p.blockPrivateIPs)
+		co.client = createClient(timeout, unixSocket, defaultMaxIdleConns, defaultMaxIdlePerHost, defaultIdleConnTimeout)
 	})
 
 	return co.client
@@ -134,75 +117,22 @@ func (p *Pool) Size() int {
 	return count
 }
 
-// isPrivateIP checks if an IP address is private, loopback, or otherwise internal.
-func isPrivateIP(ip net.IP) bool {
-	if ip == nil {
-		return false
-	}
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
-		return true
-	}
-	// Check for IPv4-mapped IPv6 addresses
-	if ip4 := ip.To4(); ip4 != nil {
-		return ip4.IsLoopback() || ip4.IsPrivate() || ip4.IsLinkLocalUnicast()
-	}
-	return false
-}
-
-// safeDialContext wraps a dialer to block connections to private IP addresses.
-func safeDialContext(dialer *net.Dialer) func(ctx context.Context, network, addr string) (net.Conn, error) {
-	return func(ctx context.Context, network, addr string) (net.Conn, error) {
-		host, port, err := net.SplitHostPort(addr)
-		if err != nil {
-			return nil, err
-		}
-
-		// Resolve the hostname
-		ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
-		if err != nil {
-			return nil, err
-		}
-
-		// Check all resolved IPs for private addresses
-		for _, ip := range ips {
-			if isPrivateIP(ip) {
-				return nil, fmt.Errorf("SSRF protection: connection to private IP %s blocked", ip)
-			}
-		}
-
-		// Use the first non-private IP
-		if len(ips) == 0 {
-			return nil, fmt.Errorf("no IP addresses resolved for %s", host)
-		}
-
-		// Connect to the first resolved IP
-		return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].String(), port))
-	}
-}
-
-// createClientWithSSRF builds an HTTP client with optional SSRF protection.
-func createClientWithSSRF(timeout time.Duration, unixSocket string, maxIdleConns, maxIdlePerHost int, idleConnTimeout time.Duration, blockPrivateIPs bool) *gohttp.Client {
+// createClient builds an HTTP client.
+// SSRF protection happens at runtime level via security policies.
+func createClient(timeout time.Duration, unixSocket string, maxIdleConns, maxIdlePerHost int, idleConnTimeout time.Duration) *gohttp.Client {
 	dialer := &net.Dialer{
 		Timeout:   defaultDialTimeout,
 		KeepAlive: defaultKeepAlive,
 	}
 
-	var dialFunc func(ctx context.Context, network, addr string) (net.Conn, error)
-	if blockPrivateIPs && unixSocket == "" {
-		dialFunc = safeDialContext(dialer)
-	} else {
-		dialFunc = dialer.DialContext
-	}
-
 	transport := &gohttp.Transport{
-		DialContext:           dialFunc,
 		MaxIdleConns:          maxIdleConns,
 		MaxIdleConnsPerHost:   maxIdlePerHost,
 		IdleConnTimeout:       idleConnTimeout,
 		TLSHandshakeTimeout:   defaultTLSHandshake,
 		ExpectContinueTimeout: defaultExpectContinue,
 		ForceAttemptHTTP2:     true,
+		DialContext:           dialer.DialContext,
 	}
 
 	if unixSocket != "" {

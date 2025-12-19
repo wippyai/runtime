@@ -59,7 +59,7 @@ func NewHost(
 }
 
 // OnStart implements scheduler.Lifecycle.
-func (h *Host) OnStart(context.Context, pid.PID, process.Process) {}
+func (h *Host) OnStart(context.Context, pid.PID, process.Process) error { return nil }
 
 // OnComplete implements scheduler.Lifecycle.
 func (h *Host) OnComplete(ctx context.Context, _ pid.PID, result *runtime.Result) {

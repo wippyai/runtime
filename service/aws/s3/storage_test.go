@@ -461,9 +461,7 @@ func presignedPutURLWithMock(ctx context.Context, client *mockPresignClient, buc
 	return result.URL, nil
 }
 
-func TestStorage_InterfaceCompliance(_ *testing.T) {
-	var _ cloudstorage.Storage = (*Storage)(nil)
-}
+var _ cloudstorage.Storage = (*Storage)(nil)
 
 // Test that presigner can be created from real client
 func TestStorage_PresignerCreation(t *testing.T) {

@@ -8,10 +8,10 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
-func TestError_Implements(_ *testing.T) {
-	var _ error = ErrMonitorChannelClosed
-	var _ apierror.Error = ErrMonitorChannelClosed
-}
+var (
+	_ error          = ErrMonitorChannelClosed
+	_ apierror.Error = ErrMonitorChannelClosed
+)
 
 func TestErrMonitorChannelClosed(t *testing.T) {
 	assert.Equal(t, apierror.Internal, ErrMonitorChannelClosed.Kind())

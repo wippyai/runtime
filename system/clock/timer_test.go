@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	clockapi "github.com/wippyai/runtime/api/clock"
 )
 
@@ -204,7 +205,7 @@ func TestTimerRegistry_Close(t *testing.T) {
 	}
 }
 
-func TestTimerRegistry_Concurrent(_ *testing.T) {
+func TestTimerRegistry_Concurrent(t *testing.T) {
 	r := newTimerRegistry()
 	defer r.close()
 
@@ -224,7 +225,9 @@ func TestTimerRegistry_Concurrent(_ *testing.T) {
 		}()
 	}
 
-	wg.Wait()
+	assert.NotPanics(t, func() {
+		wg.Wait()
+	})
 }
 
 func TestTimerRegistry_GetShard(t *testing.T) {

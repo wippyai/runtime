@@ -296,8 +296,10 @@ func TestActorStopNoStepping(t *testing.T) {
 	// Let some start stepping
 	time.Sleep(5 * time.Millisecond)
 
-	// Stop should wait for any in-flight Step calls
-	sched.Stop(context.Background())
+	// Stop should wait for any in-flight Step calls (with timeout)
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer stopCancel()
+	sched.Stop(stopCtx)
 
 	// After Stop returns, NO process should be mid-step
 	for i, proc := range processes {

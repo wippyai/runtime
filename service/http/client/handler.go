@@ -43,7 +43,6 @@ type PoolConfig struct {
 	MaxIdleConns    int
 	MaxIdlePerHost  int
 	IdleConnTimeout time.Duration
-	BlockPrivateIPs bool // Enable SSRF protection (default false for backward compatibility)
 }
 
 // Dispatcher handles HTTP client commands.
@@ -228,9 +227,7 @@ func executeRequest(ctx context.Context, pool *Pool, req *httpapi.RequestCmd, al
 		httpReq.SetBasicAuth(req.BasicAuthUser, req.BasicAuthPass)
 	}
 
-	// Request can override pool's SSRF setting by allowing private IPs
-	blockPrivate := pool.blockPrivateIPs && !req.AllowPrivateIPs
-	client := pool.GetClientWithSSRF(req.Timeout, req.UnixSocket, blockPrivate)
+	client := pool.GetClient(req.Timeout, req.UnixSocket)
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		// Per Go docs, resp may be non-nil even on error and body needs closing

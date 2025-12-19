@@ -9,8 +9,8 @@ func ModuleTypes() *types.TypeManifest {
 	moduleType := &types.InterfaceType{
 		Name: "json",
 		Methods: map[string]*types.FunctionType{
-			// json.encode(value: any): string
-			"encode": types.NewFunction([]types.Type{types.Any}, []types.Type{types.String}),
+			// json.encode(value: any): string, Error?
+			"encode": types.NewFunction([]types.Type{types.Any}, []types.Type{types.String, types.Optional(types.LuaError)}),
 
 			// json.decode(str: string): any, Error?
 			"decode": types.NewFunction(

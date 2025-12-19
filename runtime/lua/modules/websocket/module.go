@@ -125,14 +125,14 @@ func connect(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no context"))
+		l.Push(lua.NewLuaError(l, "no context").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
 	// General permission check for websocket.connect capability
 	if !security.IsAllowed(ctx, "websocket.connect", "", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("websocket connections not allowed"))
+		l.Push(lua.NewLuaError(l, "websocket connections not allowed").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -145,7 +145,7 @@ func connect(l *lua.LState) int {
 	// URL-specific permission check
 	if !security.IsAllowed(ctx, "websocket.connect.url", url, nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("not allowed: " + url))
+		l.Push(lua.NewLuaError(l, "not allowed: "+url).WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 

@@ -304,9 +304,7 @@ func TestListener_Delete_NotRegistered(t *testing.T) {
 	}
 }
 
-func TestListener_ImplementsEntryListener(_ *testing.T) {
-	var _ registry.EntryListener = (*Listener)(nil)
-}
+var _ registry.EntryListener = (*Listener)(nil)
 
 // processHandler.Call tests
 

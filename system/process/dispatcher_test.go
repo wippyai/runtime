@@ -3,11 +3,13 @@ package process
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
@@ -495,6 +497,441 @@ func TestDispatcher_HandleCall_NoTopology(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, receiver.err)
 	assert.Contains(t, receiver.err.Error(), "topology")
+}
+
+func TestDispatcher_HandleCall_RegisterError(t *testing.T) {
+	manager := &mockProcessManager{}
+	router := &mockRouter{}
+	topo := &mockTopology{}
+
+	topo.On("Register", mock.Anything).Return(errors.New("register failed"))
+
+	d := NewDispatcher(manager, router, topo, nil)
+
+	cmd := &process.CallCmd{
+		Source: registry.NewID("test", "handler"),
+		HostID: "lua",
+	}
+
+	ctx := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
+	pidGen := uniqid.NewPIDGenerator(uniqid.NewGenerator(), "test")
+	ctx = process.WithPIDGenerator(ctx, pidGen)
+
+	node := sysrelay.NewNode("test-node")
+	ctx = relay.WithNode(ctx, node)
+
+	receiver := &mockResultReceiver{}
+	err := d.handleCall(ctx, cmd, 1, receiver)
+	assert.NoError(t, err)
+	assert.NotNil(t, receiver.err)
+	assert.Contains(t, receiver.err.Error(), "register failed")
+}
+
+func TestDispatcher_HandleCall_AttachError(t *testing.T) {
+	manager := &mockProcessManager{}
+	router := &mockRouter{}
+	topo := &mockTopology{}
+
+	topo.On("Register", mock.Anything).Return(nil)
+	topo.On("Remove", mock.Anything).Return()
+
+	d := NewDispatcher(manager, router, topo, nil)
+
+	cmd := &process.CallCmd{
+		Source: registry.NewID("test", "handler"),
+		HostID: "lua",
+	}
+
+	ctx := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
+	pidGen := uniqid.NewPIDGenerator(uniqid.NewGenerator(), "test")
+	ctx = process.WithPIDGenerator(ctx, pidGen)
+
+	// Node without proper host registration will fail attach
+	node := sysrelay.NewNode("test-node")
+	ctx = relay.WithNode(ctx, node)
+
+	receiver := &mockResultReceiver{}
+	err := d.handleCall(ctx, cmd, 1, receiver)
+	assert.NoError(t, err)
+
+	// Attach fails because no host registered for control
+	assert.NotNil(t, receiver.err)
+	assert.Contains(t, receiver.err.Error(), "cannot route")
+}
+
+// mockAttachableHost implements relay.AttachableReceiver for testing
+type mockAttachableHost struct {
+	attachedCh chan *relay.Package
+	mu         sync.Mutex
+}
+
+func (h *mockAttachableHost) Send(_ *relay.Package) error {
+	return nil
+}
+
+func (h *mockAttachableHost) Attach(_ pid.PID, ch chan *relay.Package) (context.CancelFunc, error) {
+	h.mu.Lock()
+	h.attachedCh = ch
+	h.mu.Unlock()
+	return func() {}, nil
+}
+
+func (h *mockAttachableHost) Detach(_ pid.PID) {
+	h.mu.Lock()
+	h.attachedCh = nil
+	h.mu.Unlock()
+}
+
+func (h *mockAttachableHost) sendExitEvent(result *runtime.Result) {
+	h.mu.Lock()
+	ch := h.attachedCh
+	h.mu.Unlock()
+
+	if ch != nil {
+		exitEvent := &topology.ExitEvent{
+			Result: result,
+		}
+		ch <- &relay.Package{
+			Messages: []*relay.Message{{
+				Topic:    topology.TopicEvents,
+				Payloads: payload.Payloads{payload.New(exitEvent)},
+			}},
+		}
+	}
+}
+
+func TestDispatcher_HandleCall_Success(t *testing.T) {
+	manager := &mockProcessManager{}
+	router := &mockRouter{}
+	topo := &mockTopology{}
+
+	processPID := pid.PID{Host: "lua", UniqID: "proc-1"}
+
+	topo.On("Register", mock.Anything).Return(nil)
+	topo.On("Remove", mock.Anything).Return()
+	manager.On("Start", mock.Anything, mock.Anything).Return(processPID, nil)
+
+	d := NewDispatcher(manager, router, topo, nil)
+
+	cmd := &process.CallCmd{
+		Source: registry.NewID("test", "handler"),
+		HostID: "lua",
+	}
+
+	ctx := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
+	pidGen := uniqid.NewPIDGenerator(uniqid.NewGenerator(), "")
+	ctx = process.WithPIDGenerator(ctx, pidGen)
+
+	// Create node with attachable host for control
+	node := sysrelay.NewNode("")
+	controlHost := &mockAttachableHost{}
+	_ = node.RegisterHost(topology.ControlHost, controlHost)
+	ctx = relay.WithNode(ctx, node)
+
+	receiver := &asyncResultReceiver{done: make(chan struct{})}
+	err := d.handleCall(ctx, cmd, 1, receiver)
+	assert.NoError(t, err)
+
+	// Send exit event through relay
+	time.Sleep(10 * time.Millisecond) // Let goroutine start
+	controlHost.sendExitEvent(&runtime.Result{Value: payload.New("success")})
+
+	select {
+	case <-receiver.done:
+		// Got result
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for result")
+	}
+
+	assert.Nil(t, receiver.err)
+	result, ok := receiver.data.(process.CallResult)
+	assert.True(t, ok)
+	assert.NotNil(t, result.Result)
+}
+
+func TestDispatcher_HandleCall_ContextCanceled(t *testing.T) {
+	manager := &mockProcessManager{}
+	router := &mockRouter{}
+	topo := &mockTopology{}
+
+	processPID := pid.PID{Host: "lua", UniqID: "proc-1"}
+
+	topo.On("Register", mock.Anything).Return(nil)
+	topo.On("Remove", mock.Anything).Return()
+	manager.On("Start", mock.Anything, mock.Anything).Return(processPID, nil)
+
+	d := NewDispatcher(manager, router, topo, nil)
+
+	cmd := &process.CallCmd{
+		Source: registry.NewID("test", "handler"),
+		HostID: "lua",
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ctx = ctxapi.WithAppContext(ctx, ctxapi.NewAppContext())
+	pidGen := uniqid.NewPIDGenerator(uniqid.NewGenerator(), "")
+	ctx = process.WithPIDGenerator(ctx, pidGen)
+
+	node := sysrelay.NewNode("")
+	controlHost := &mockAttachableHost{}
+	_ = node.RegisterHost(topology.ControlHost, controlHost)
+	ctx = relay.WithNode(ctx, node)
+
+	receiver := &asyncResultReceiver{done: make(chan struct{})}
+	err := d.handleCall(ctx, cmd, 1, receiver)
+	assert.NoError(t, err)
+
+	// Cancel context
+	time.Sleep(10 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-receiver.done:
+		// Got result
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for cancellation")
+	}
+
+	assert.NotNil(t, receiver.err)
+	assert.ErrorIs(t, receiver.err, context.Canceled)
+}
+
+func TestDispatcher_HandleCall_StartError(t *testing.T) {
+	manager := &mockProcessManager{}
+	router := &mockRouter{}
+	topo := &mockTopology{}
+
+	topo.On("Register", mock.Anything).Return(nil)
+	topo.On("Remove", mock.Anything).Return()
+	manager.On("Start", mock.Anything, mock.Anything).Return(pid.PID{}, errors.New("start failed"))
+
+	d := NewDispatcher(manager, router, topo, nil)
+
+	cmd := &process.CallCmd{
+		Source: registry.NewID("test", "handler"),
+		HostID: "lua",
+	}
+
+	ctx := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
+	pidGen := uniqid.NewPIDGenerator(uniqid.NewGenerator(), "")
+	ctx = process.WithPIDGenerator(ctx, pidGen)
+
+	node := sysrelay.NewNode("")
+	controlHost := &mockAttachableHost{}
+	_ = node.RegisterHost(topology.ControlHost, controlHost)
+	ctx = relay.WithNode(ctx, node)
+
+	receiver := &mockResultReceiver{}
+	err := d.handleCall(ctx, cmd, 1, receiver)
+	assert.NoError(t, err)
+
+	assert.NotNil(t, receiver.err)
+	assert.Contains(t, receiver.err.Error(), "start failed")
+}
+
+type asyncResultReceiver struct {
+	data any
+	err  error
+	done chan struct{}
+}
+
+func (r *asyncResultReceiver) CompleteYield(_ uint64, data any, err error) {
+	r.data = data
+	r.err = err
+	close(r.done)
+}
+
+func TestDispatcher_HandleSpawn_WithMonitor(t *testing.T) {
+	manager := &mockProcessManager{}
+	router := &mockRouter{}
+	topo := &mockTopology{}
+
+	parentPID := pid.PID{Host: "test", UniqID: "parent"}
+	spawnedPID := pid.PID{Host: "test", UniqID: "spawned"}
+	manager.On("Start", mock.Anything, mock.Anything).Return(spawnedPID, nil)
+	topo.On("Monitor", parentPID, spawnedPID).Return(nil)
+
+	d := NewDispatcher(manager, router, topo, nil)
+
+	options := attrs.NewBag()
+	options.Set(process.LifecycleParentKey, parentPID)
+
+	cmd := &process.SpawnCmd{
+		Monitor: true,
+		Start: &process.Start{
+			HostID:  "test",
+			Options: options,
+		},
+	}
+
+	receiver := &mockResultReceiver{}
+	err := d.handleSpawn(context.Background(), cmd, 1, receiver)
+	assert.NoError(t, err)
+
+	result, ok := receiver.data.(process.SpawnResult)
+	assert.True(t, ok)
+	assert.Equal(t, spawnedPID, result.PID)
+
+	manager.AssertExpectations(t)
+	topo.AssertExpectations(t)
+}
+
+func TestDispatcher_HandleSpawn_WithLink(t *testing.T) {
+	manager := &mockProcessManager{}
+	router := &mockRouter{}
+	topo := &mockTopology{}
+
+	parentPID := pid.PID{Host: "test", UniqID: "parent"}
+	spawnedPID := pid.PID{Host: "test", UniqID: "spawned"}
+	manager.On("Start", mock.Anything, mock.Anything).Return(spawnedPID, nil)
+	topo.On("Link", parentPID, spawnedPID).Return(nil)
+
+	d := NewDispatcher(manager, router, topo, nil)
+
+	options := attrs.NewBag()
+	options.Set(process.LifecycleParentKey, parentPID)
+
+	cmd := &process.SpawnCmd{
+		Link: true,
+		Start: &process.Start{
+			HostID:  "test",
+			Options: options,
+		},
+	}
+
+	receiver := &mockResultReceiver{}
+	err := d.handleSpawn(context.Background(), cmd, 1, receiver)
+	assert.NoError(t, err)
+
+	result, ok := receiver.data.(process.SpawnResult)
+	assert.True(t, ok)
+	assert.Equal(t, spawnedPID, result.PID)
+
+	manager.AssertExpectations(t)
+	topo.AssertExpectations(t)
+}
+
+func TestDispatcher_HandleSpawn_MonitorError(t *testing.T) {
+	manager := &mockProcessManager{}
+	router := &mockRouter{}
+	topo := &mockTopology{}
+
+	parentPID := pid.PID{Host: "test", UniqID: "parent"}
+	spawnedPID := pid.PID{Host: "test", UniqID: "spawned"}
+	manager.On("Start", mock.Anything, mock.Anything).Return(spawnedPID, nil)
+	topo.On("Monitor", parentPID, spawnedPID).Return(errors.New("monitor failed"))
+
+	d := NewDispatcher(manager, router, topo, nil)
+
+	options := attrs.NewBag()
+	options.Set(process.LifecycleParentKey, parentPID)
+
+	cmd := &process.SpawnCmd{
+		Monitor: true,
+		Start: &process.Start{
+			HostID:  "test",
+			Options: options,
+		},
+	}
+
+	receiver := &mockResultReceiver{}
+	err := d.handleSpawn(context.Background(), cmd, 1, receiver)
+	assert.NoError(t, err)
+
+	// Still returns PID even if monitor fails
+	result, ok := receiver.data.(process.SpawnResult)
+	assert.True(t, ok)
+	assert.Equal(t, spawnedPID, result.PID)
+
+	manager.AssertExpectations(t)
+	topo.AssertExpectations(t)
+}
+
+func TestDispatcher_HandleSpawn_LinkError(t *testing.T) {
+	manager := &mockProcessManager{}
+	router := &mockRouter{}
+	topo := &mockTopology{}
+
+	parentPID := pid.PID{Host: "test", UniqID: "parent"}
+	spawnedPID := pid.PID{Host: "test", UniqID: "spawned"}
+	manager.On("Start", mock.Anything, mock.Anything).Return(spawnedPID, nil)
+	topo.On("Link", parentPID, spawnedPID).Return(errors.New("link failed"))
+
+	d := NewDispatcher(manager, router, topo, nil)
+
+	options := attrs.NewBag()
+	options.Set(process.LifecycleParentKey, parentPID)
+
+	cmd := &process.SpawnCmd{
+		Link: true,
+		Start: &process.Start{
+			HostID:  "test",
+			Options: options,
+		},
+	}
+
+	receiver := &mockResultReceiver{}
+	err := d.handleSpawn(context.Background(), cmd, 1, receiver)
+	assert.NoError(t, err)
+
+	// Still returns PID even if link fails
+	result, ok := receiver.data.(process.SpawnResult)
+	assert.True(t, ok)
+	assert.Equal(t, spawnedPID, result.PID)
+
+	manager.AssertExpectations(t)
+	topo.AssertExpectations(t)
+}
+
+func TestDispatcher_HandleUnmonitor_NoTopology(t *testing.T) {
+	manager := &mockProcessManager{}
+	router := &mockRouter{}
+
+	d := NewDispatcher(manager, router, nil, nil)
+
+	cmd := &process.UnmonitorCmd{
+		Watcher: pid.PID{Host: "test", UniqID: "watcher"},
+		Target:  pid.PID{Host: "test", UniqID: "target"},
+	}
+
+	receiver := &mockResultReceiver{}
+	err := d.handleUnmonitor(context.Background(), cmd, 1, receiver)
+	assert.NoError(t, err)
+	assert.Nil(t, receiver.err)
+}
+
+func TestDispatcher_HandleLink_NoTopology(t *testing.T) {
+	manager := &mockProcessManager{}
+	router := &mockRouter{}
+
+	d := NewDispatcher(manager, router, nil, nil)
+
+	cmd := &process.LinkCmd{
+		From: pid.PID{Host: "test", UniqID: "from"},
+		To:   pid.PID{Host: "test", UniqID: "to"},
+	}
+
+	receiver := &mockResultReceiver{}
+	err := d.handleLink(context.Background(), cmd, 1, receiver)
+	assert.NoError(t, err)
+	assert.Nil(t, receiver.err)
+}
+
+func TestDispatcher_HandleUnlink_NoTopology(t *testing.T) {
+	manager := &mockProcessManager{}
+	router := &mockRouter{}
+
+	d := NewDispatcher(manager, router, nil, nil)
+
+	cmd := &process.UnlinkCmd{
+		From: pid.PID{Host: "test", UniqID: "from"},
+		To:   pid.PID{Host: "test", UniqID: "to"},
+	}
+
+	receiver := &mockResultReceiver{}
+	err := d.handleUnlink(context.Background(), cmd, 1, receiver)
+	assert.NoError(t, err)
+	assert.Nil(t, receiver.err)
 }
 
 var _ process.Manager = (*mockProcessManager)(nil)

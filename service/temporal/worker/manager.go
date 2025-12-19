@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -17,12 +18,15 @@ import (
 	"go.uber.org/zap"
 )
 
+var _ registry.EntryListener = (*Manager)(nil)
+
 // Manager handles Temporal worker configuration and lifecycle
 type Manager struct {
 	log                *zap.Logger
 	dtt                payload.Transcoder
 	bus                event.Bus
 	res                resource.Registry
+	envReg             env.Registry
 	factory            Factory
 	workerInterceptors []interceptor.WorkerInterceptor
 
@@ -31,39 +35,87 @@ type Manager struct {
 	services map[registry.ID]*Worker
 }
 
-// NewManager creates a new worker manager instance
-func NewManager(
-	logger *zap.Logger,
-	transcoder payload.Transcoder,
-	bus event.Bus,
-	resourceReg resource.Registry,
-	workerInterceptors []interceptor.WorkerInterceptor,
-) (*Manager, error) {
-	if logger == nil {
+// ManagerOption configures a Manager instance
+type ManagerOption func(*Manager)
+
+// WithLogger sets the logger for the Manager
+func WithLogger(logger *zap.Logger) ManagerOption {
+	return func(m *Manager) {
+		m.log = logger
+	}
+}
+
+// WithTranscoder sets the payload transcoder for the Manager
+func WithTranscoder(transcoder payload.Transcoder) ManagerOption {
+	return func(m *Manager) {
+		m.dtt = transcoder
+	}
+}
+
+// WithEventBus sets the event bus for the Manager
+func WithEventBus(bus event.Bus) ManagerOption {
+	return func(m *Manager) {
+		m.bus = bus
+	}
+}
+
+// WithResourceRegistry sets the resource registry for the Manager
+func WithResourceRegistry(reg resource.Registry) ManagerOption {
+	return func(m *Manager) {
+		m.res = reg
+	}
+}
+
+// WithEnvRegistry sets the environment registry for the Manager
+func WithEnvRegistry(reg env.Registry) ManagerOption {
+	return func(m *Manager) {
+		m.envReg = reg
+	}
+}
+
+// WithInterceptors sets the worker interceptors for the Manager
+func WithInterceptors(interceptors []interceptor.WorkerInterceptor) ManagerOption {
+	return func(m *Manager) {
+		m.workerInterceptors = interceptors
+	}
+}
+
+// WithFactory sets a custom worker factory for the Manager
+func WithFactory(factory Factory) ManagerOption {
+	return func(m *Manager) {
+		m.factory = factory
+	}
+}
+
+// NewManager creates a new worker manager instance with functional options
+func NewManager(opts ...ManagerOption) (*Manager, error) {
+	m := &Manager{
+		configs:  make(map[registry.ID]*api.WorkerConfig),
+		services: make(map[registry.ID]*Worker),
+	}
+
+	for _, opt := range opts {
+		opt(m)
+	}
+
+	if m.log == nil {
 		return nil, fmt.Errorf("logger is required")
 	}
-	if transcoder == nil {
+	if m.dtt == nil {
 		return nil, fmt.Errorf("transcoder is required")
 	}
-	if bus == nil {
+	if m.bus == nil {
 		return nil, fmt.Errorf("event bus is required")
 	}
-	if resourceReg == nil {
+	if m.res == nil {
 		return nil, fmt.Errorf("resource registry is required")
 	}
 
-	factory := NewDefaultWorkerFactory(workerInterceptors)
+	if m.factory == nil {
+		m.factory = NewDefaultWorkerFactory(m.envReg, m.workerInterceptors)
+	}
 
-	return &Manager{
-		log:                logger,
-		dtt:                transcoder,
-		bus:                bus,
-		res:                resourceReg,
-		factory:            factory,
-		workerInterceptors: workerInterceptors,
-		configs:            make(map[registry.ID]*api.WorkerConfig),
-		services:           make(map[registry.ID]*Worker),
-	}, nil
+	return m, nil
 }
 
 // Add implements registry.EntryListener
@@ -107,20 +159,7 @@ func (m *Manager) AddWorker(ctx context.Context, id registry.ID, cfg *api.Worker
 	}
 
 	// Add client dependency to lifecycle config
-	if cfg.Lifecycle.DependsOn == nil {
-		cfg.Lifecycle.DependsOn = []string{cfg.Client.String()}
-	} else {
-		found := false
-		for _, dep := range cfg.Lifecycle.DependsOn {
-			if dep == cfg.Client.String() {
-				found = true
-				break
-			}
-		}
-		if !found {
-			cfg.Lifecycle.DependsOn = append(cfg.Lifecycle.DependsOn, cfg.Client.String())
-		}
-	}
+	ensureClientDependency(cfg)
 
 	// Store configuration
 	m.configs[id] = cfg
@@ -210,20 +249,7 @@ func (m *Manager) UpdateWorker(ctx context.Context, id registry.ID, cfg *api.Wor
 	}
 
 	// Add client dependency to lifecycle config
-	if cfg.Lifecycle.DependsOn == nil {
-		cfg.Lifecycle.DependsOn = []string{cfg.Client.String()}
-	} else {
-		found := false
-		for _, dep := range cfg.Lifecycle.DependsOn {
-			if dep == cfg.Client.String() {
-				found = true
-				break
-			}
-		}
-		if !found {
-			cfg.Lifecycle.DependsOn = append(cfg.Lifecycle.DependsOn, cfg.Client.String())
-		}
-	}
+	ensureClientDependency(cfg)
 
 	// Store updated configuration
 	m.configs[id] = cfg
@@ -256,6 +282,21 @@ func (m *Manager) Delete(ctx context.Context, ent registry.Entry) error {
 		zap.String("kind", ent.Kind))
 
 	return m.DeleteWorker(ctx, ent.ID)
+}
+
+// ensureClientDependency ensures the client is in the lifecycle dependencies.
+func ensureClientDependency(cfg *api.WorkerConfig) {
+	clientStr := cfg.Client.String()
+	if cfg.Lifecycle.DependsOn == nil {
+		cfg.Lifecycle.DependsOn = []string{clientStr}
+		return
+	}
+	for _, dep := range cfg.Lifecycle.DependsOn {
+		if dep == clientStr {
+			return
+		}
+	}
+	cfg.Lifecycle.DependsOn = append(cfg.Lifecycle.DependsOn, clientStr)
 }
 
 // DeleteWorker removes a worker configuration and service if it exists

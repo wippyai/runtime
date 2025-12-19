@@ -51,6 +51,8 @@ func init() {
 	spawnBuilderType.Methods["with_context"] = types.NewFunction([]types.Type{types.NewMap(types.String, types.Any, true)}, []types.Type{spawnBuilderType})
 	spawnBuilderType.Methods["with_actor"] = types.NewFunction([]types.Type{types.Any}, []types.Type{spawnBuilderType})
 	spawnBuilderType.Methods["with_scope"] = types.NewFunction([]types.Type{types.Any}, []types.Type{spawnBuilderType})
+	spawnBuilderType.Methods["with_name"] = types.NewFunction([]types.Type{types.String}, []types.Type{spawnBuilderType})
+	spawnBuilderType.Methods["with_message"] = &types.FunctionType{Params: []types.Type{types.String}, Variadic: types.Any, Returns: []types.Type{spawnBuilderType}}
 	spawnBuilderType.Methods["spawn"] = &types.FunctionType{Params: []types.Type{types.String, types.String}, Variadic: types.Any, Returns: []types.Type{types.String, types.Optional(types.LuaError)}}
 	spawnBuilderType.Methods["spawn_monitored"] = &types.FunctionType{Params: []types.Type{types.String, types.String}, Variadic: types.Any, Returns: []types.Type{types.String, types.Optional(types.LuaError)}}
 	spawnBuilderType.Methods["spawn_linked"] = &types.FunctionType{Params: []types.Type{types.String, types.String}, Variadic: types.Any, Returns: []types.Type{types.String, types.Optional(types.LuaError)}}

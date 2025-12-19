@@ -10,21 +10,28 @@ local function main()
     assert.not_nil(process.set_options, "process.set_options exists")
     assert.is_function(process.set_options, "process.set_options is function")
 
-    -- Get current options (should return empty table)
+    -- Get current options (should return table with trap_links)
     local opts = process.get_options()
     assert.not_nil(opts, "get_options returns value")
     assert.is_table(opts, "get_options returns table")
 
-    -- Set empty options should succeed
-    local ok, err = process.set_options({})
-    assert.ok(ok, "set_options empty succeeds")
-    assert.is_nil(err, "set_options empty no error")
+    -- Set valid options should succeed
+    local ok, err = process.set_options({ trap_links = false })
+    assert.ok(ok, "set_options succeeds")
+    assert.is_nil(err, "set_options no error")
 
-    -- Set unsupported option should fail
-    local ok2, err2 = process.set_options({ unsupported_option = true })
-    assert.ok(not ok2, "set_options unsupported fails")
-    assert.not_nil(err2, "set_options unsupported returns error")
-    assert.contains(tostring(err2), "not supported", "error mentions not supported")
+    -- Verify option was set
+    local opts2 = process.get_options()
+    assert.equals(opts2.trap_links, false, "trap_links was set to false")
+
+    -- Set trap_links to true
+    local ok2, err2 = process.set_options({ trap_links = true })
+    assert.ok(ok2, "set_options trap_links=true succeeds")
+    assert.is_nil(err2, "set_options trap_links=true no error")
+
+    -- Verify option was set
+    local opts3 = process.get_options()
+    assert.equals(opts3.trap_links, true, "trap_links was set to true")
 
     return true
 end

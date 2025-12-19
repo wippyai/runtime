@@ -267,7 +267,7 @@ func TestManager_Terminate_HostError(t *testing.T) {
 	assert.Contains(t, err.Error(), "terminate failed")
 }
 
-func TestManager_ConcurrentOperations(_ *testing.T) {
+func TestManager_ConcurrentOperations(t *testing.T) {
 	node := newMockNode()
 	host := &mockHost{}
 	_ = node.RegisterHost("test-host", host)
@@ -288,5 +288,8 @@ func TestManager_ConcurrentOperations(_ *testing.T) {
 		}()
 	}
 
-	wg.Wait()
+	// Should complete without deadlock or panic
+	assert.NotPanics(t, func() {
+		wg.Wait()
+	})
 }

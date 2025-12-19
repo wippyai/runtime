@@ -15,6 +15,8 @@ import (
 	"go.uber.org/zap"
 )
 
+var _ supervisor.Service = (*Client)(nil)
+
 // Client wraps a Temporal SDK client with lifecycle management
 type Client struct {
 	id     registry.ID

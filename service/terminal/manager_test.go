@@ -285,10 +285,11 @@ type testLifecycle struct {
 	onComplete func()
 }
 
-func (t *testLifecycle) OnStart(context.Context, pid.PID, process.Process) {
+func (t *testLifecycle) OnStart(context.Context, pid.PID, process.Process) error {
 	if t.onStart != nil {
 		t.onStart()
 	}
+	return nil
 }
 
 func (t *testLifecycle) OnComplete(context.Context, pid.PID, *runtime.Result) {
@@ -297,6 +298,4 @@ func (t *testLifecycle) OnComplete(context.Context, pid.PID, *runtime.Result) {
 	}
 }
 
-func TestManager_ImplementsEntryListener(_ *testing.T) {
-	var _ registry.EntryListener = (*Manager)(nil)
-}
+var _ registry.EntryListener = (*Manager)(nil)

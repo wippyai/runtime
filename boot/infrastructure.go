@@ -11,7 +11,6 @@ import (
 	relayapi "github.com/wippyai/runtime/api/relay"
 	topapi "github.com/wippyai/runtime/api/topology"
 	luapayload "github.com/wippyai/runtime/runtime/lua/engine/payload"
-	"github.com/wippyai/runtime/system/await"
 	"github.com/wippyai/runtime/system/eventbus"
 	"github.com/wippyai/runtime/system/logs"
 	transcoder "github.com/wippyai/runtime/system/payload"
@@ -64,7 +63,7 @@ func NewBootstrapContext(logger *zap.Logger, cfg boot.Config) (context.Context, 
 	ctx = event.WithBus(ctx, bus)
 
 	// Create AwaitService for request-response over pub-sub
-	awaitSvc := await.NewService(bus)
+	awaitSvc := eventbus.NewAwaitService(bus)
 	ctx = event.WithAwaitService(ctx, awaitSvc)
 
 	dtt := transcoder.GlobalTranscoder()

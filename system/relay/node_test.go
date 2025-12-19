@@ -248,19 +248,23 @@ func TestNodeRegisterHostInvalidType(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid type")
 }
 
-func TestNodeUnregisterHostNonExistent(_ *testing.T) {
+func TestNodeUnregisterHostNonExistent(t *testing.T) {
 	node := NewNode("node1")
 
 	// Unregister a non-existent host should not panic
-	node.UnregisterHost("nonexistent")
+	assert.NotPanics(t, func() {
+		node.UnregisterHost("nonexistent")
+	})
 }
 
-func TestNodeUnregisterHostInvalidType(_ *testing.T) {
+func TestNodeUnregisterHostInvalidType(t *testing.T) {
 	node := NewNode("node1")
 
 	// Store an invalid type
 	node.hosts.Store("host1", "not a host")
 
 	// Unregister should not panic
-	node.UnregisterHost("host1")
+	assert.NotPanics(t, func() {
+		node.UnregisterHost("host1")
+	})
 }

@@ -12,9 +12,7 @@ import (
 	envos "github.com/wippyai/runtime/service/env/os"
 )
 
-func TestStorage_ImplementsInterface(_ *testing.T) {
-	var _ env.Storage = (*Storage)(nil)
-}
+var _ env.Storage = (*Storage)(nil)
 
 func TestNewStorage(t *testing.T) {
 	t.Run("with storages", func(t *testing.T) {

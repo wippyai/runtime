@@ -24,7 +24,7 @@ func (l *zapAdapter) Info(msg string, keyvals ...interface{}) {
 }
 
 func (l *zapAdapter) Warn(msg string, keyvals ...interface{}) {
-	l.zap.Debug(msg, l.zapFields(keyvals)...)
+	l.zap.Warn(msg, l.zapFields(keyvals)...)
 }
 
 func (l *zapAdapter) Error(msg string, keyvals ...interface{}) {

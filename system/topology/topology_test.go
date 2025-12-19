@@ -461,6 +461,10 @@ func TestTopology_EdgeCases(t *testing.T) {
 }
 
 func TestTopology_ConcurrentOperations(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping concurrent operations test in short mode")
+	}
+
 	upstream := newMockUpstream()
 	topo := NewTopology(upstream, "local")
 
@@ -512,17 +516,8 @@ func TestTopology_ConcurrentOperations(t *testing.T) {
 			t.Fatal("test timed out waiting for operations to complete")
 		}
 
-		// Add a small delay to ensure all operations are processed
-		// Use context with timeout instead of time.Sleep to prevent test hanging
-		waitCtx, waitCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-		defer waitCancel()
-
-		select {
-		case <-waitCtx.Done():
-			t.Log("Timeout waiting for operations to settle")
-		case <-time.After(100 * time.Millisecond):
-			// Wait for operations to settle
-		}
+		// Small delay for operations to settle
+		time.Sleep(50 * time.Millisecond)
 
 		// Verify final state is consistent
 		// Since we have equal numbers of Link and Unlink operations,
@@ -594,17 +589,8 @@ func TestTopology_ConcurrentOperations(t *testing.T) {
 			t.Fatal("test timed out waiting for goroutines to complete")
 		}
 
-		// Add a small delay to ensure all operations are processed
-		// Use context with timeout instead of time.Sleep to prevent test hanging
-		waitCtx, waitCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-		defer waitCancel()
-
-		select {
-		case <-waitCtx.Done():
-			t.Log("Timeout waiting for operations to settle")
-		case <-time.After(100 * time.Millisecond):
-			// Wait for operations to settle
-		}
+		// Small delay for operations to settle
+		time.Sleep(50 * time.Millisecond)
 
 		// Verify that the final state is consistent by calling Complete and checking notifications.
 		// Since we have equal numbers of Monitor and Demonitor operations,

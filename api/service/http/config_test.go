@@ -859,7 +859,6 @@ func TestRequestCmd(t *testing.T) {
 	cmd.BasicAuthPass = "pass"
 	cmd.Stream = true
 	cmd.MaxResponseBody = 1024
-	cmd.AllowPrivateIPs = true
 	cmd.Release()
 
 	cmd2 := AcquireRequestCmd()
@@ -877,7 +876,6 @@ func TestRequestCmd(t *testing.T) {
 	assert.Empty(t, cmd2.BasicAuthPass)
 	assert.False(t, cmd2.Stream)
 	assert.Zero(t, cmd2.MaxResponseBody)
-	assert.False(t, cmd2.AllowPrivateIPs)
 	cmd2.Release()
 }
 

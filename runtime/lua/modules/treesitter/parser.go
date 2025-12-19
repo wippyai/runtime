@@ -268,8 +268,12 @@ func parserSetTimeout(l *lua.LState) int {
 	if p == nil {
 		return 0
 	}
-	timeout := l.CheckNumber(2)
-	p.timeout = time.Duration(float64(timeout) * float64(time.Second))
+	duration, err := parseDuration(l, 2)
+	if err != nil {
+		l.ArgError(2, err.Error())
+		return 0
+	}
+	p.timeout = duration
 	return 0
 }
 

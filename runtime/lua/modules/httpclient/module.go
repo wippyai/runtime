@@ -1,6 +1,8 @@
 package httpclient
 
 import (
+	"context"
+	"net"
 	"net/url"
 	"strings"
 	"time"
@@ -10,6 +12,61 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/security"
 	lua "github.com/yuin/gopher-lua"
 )
+
+// isPrivateIP checks if an IP is private, loopback, or otherwise internal.
+func isPrivateIP(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+		return true
+	}
+	if ip4 := ip.To4(); ip4 != nil {
+		return ip4.IsLoopback() || ip4.IsPrivate() || ip4.IsLinkLocalUnicast()
+	}
+	return false
+}
+
+// checkPrivateIP checks if the URL resolves to private IPs and if so, checks security policy.
+// Returns error message if not allowed, empty string if allowed.
+func checkPrivateIP(ctx context.Context, urlStr string) string {
+	u, err := url.Parse(urlStr)
+	if err != nil {
+		return ""
+	}
+
+	host := u.Hostname()
+	if host == "" {
+		return ""
+	}
+
+	// Try to parse as IP directly
+	if ip := net.ParseIP(host); ip != nil {
+		if isPrivateIP(ip) {
+			if !security.IsAllowed(ctx, "http_client.private_ip", host, nil) {
+				return "not allowed: private IP " + host
+			}
+		}
+		return ""
+	}
+
+	// Resolve hostname
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+	if err != nil {
+		return ""
+	}
+
+	for _, ip := range ips {
+		if isPrivateIP(ip) {
+			if !security.IsAllowed(ctx, "http_client.private_ip", ip.String(), nil) {
+				return "not allowed: private IP " + ip.String()
+			}
+		}
+	}
+
+	return ""
+}
 
 // parseDuration parses a Lua value into time.Duration.
 // Supports numbers (as seconds) and strings (Go duration format like "5m", "30s", "1h").
@@ -81,21 +138,28 @@ func makeMethod(method string) lua.LGoFunc {
 		ctx := l.Context()
 		if ctx == nil {
 			l.Push(lua.LNil)
-			l.Push(lua.LString("no context"))
+			l.Push(lua.NewLuaError(l, "no context").WithKind(lua.Internal).WithRetryable(false))
 			return 2
 		}
 
 		if opts.unixSocket != "" {
 			if !security.IsAllowed(ctx, "http_client.unix_socket", opts.unixSocket, nil) {
 				l.Push(lua.LNil)
-				l.Push(lua.LString("not allowed: unix socket " + opts.unixSocket))
+				l.Push(lua.NewLuaError(l, "not allowed: unix socket "+opts.unixSocket).WithKind(lua.PermissionDenied).WithRetryable(false))
 				return 2
 			}
 		}
 
 		if !security.IsAllowed(ctx, "http_client.request", urlStr, nil) {
 			l.Push(lua.LNil)
-			l.Push(lua.LString("not allowed: " + urlStr))
+			l.Push(lua.NewLuaError(l, "not allowed: "+urlStr).WithKind(lua.PermissionDenied).WithRetryable(false))
+			return 2
+		}
+
+		// Check for private IP access
+		if errMsg := checkPrivateIP(ctx, urlStr); errMsg != "" {
+			l.Push(lua.LNil)
+			l.Push(lua.NewLuaError(l, errMsg).WithKind(lua.PermissionDenied).WithRetryable(false))
 			return 2
 		}
 
@@ -125,21 +189,28 @@ func request(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no context"))
+		l.Push(lua.NewLuaError(l, "no context").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
 	if opts.unixSocket != "" {
 		if !security.IsAllowed(ctx, "http_client.unix_socket", opts.unixSocket, nil) {
 			l.Push(lua.LNil)
-			l.Push(lua.LString("not allowed: unix socket " + opts.unixSocket))
+			l.Push(lua.NewLuaError(l, "not allowed: unix socket "+opts.unixSocket).WithKind(lua.PermissionDenied).WithRetryable(false))
 			return 2
 		}
 	}
 
 	if !security.IsAllowed(ctx, "http_client.request", urlStr, nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("not allowed: " + urlStr))
+		l.Push(lua.NewLuaError(l, "not allowed: "+urlStr).WithKind(lua.PermissionDenied).WithRetryable(false))
+		return 2
+	}
+
+	// Check for private IP access
+	if errMsg := checkPrivateIP(ctx, urlStr); errMsg != "" {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, errMsg).WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -164,7 +235,6 @@ func populateYield(yield *RequestYield, method, url string, opts *requestOptions
 	yield.BasicAuthPass = opts.basicAuthPass
 	yield.Stream = opts.stream
 	yield.MaxResponseBody = opts.maxResponseBody
-	yield.AllowPrivateIPs = opts.allowPrivateIPs
 
 	// Convert files
 	if len(opts.files) > 0 {
@@ -212,7 +282,6 @@ type requestOptions struct {
 	basicAuthPass   string
 	stream          bool
 	maxResponseBody int64
-	allowPrivateIPs bool
 }
 
 type fileUpload struct {
@@ -340,11 +409,6 @@ func parseOptions(l *lua.LState, idx int) *requestOptions {
 		opts.maxResponseBody = int64(lua.LVAsNumber(maxBody))
 	}
 
-	// Allow private IPs (disabled by default for SSRF protection)
-	if allowPrivate := tbl.RawGetString("allow_private_ips"); allowPrivate.Type() == lua.LTBool {
-		opts.allowPrivateIPs = bool(allowPrivate.(lua.LBool))
-	}
-
 	return opts
 }
 
@@ -359,7 +423,7 @@ func decodeURI(l *lua.LState) int {
 	decoded, err := url.QueryUnescape(s)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.NewLuaError(l, err.Error()).WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 	l.Push(lua.LString(decoded))
@@ -378,7 +442,7 @@ func requestBatch(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no context"))
+		l.Push(lua.NewLuaError(l, "no context").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
@@ -386,6 +450,7 @@ func requestBatch(l *lua.LState) int {
 	yield.Requests = make([]*httpapi.RequestCmd, 0, requestsTable.Len())
 
 	var parseErr string
+	parseErrKind := lua.Invalid
 	requestsTable.ForEach(func(_ lua.LValue, value lua.LValue) {
 		if parseErr != "" {
 			return
@@ -413,6 +478,14 @@ func requestBatch(l *lua.LState) int {
 		// Check security
 		if !security.IsAllowed(ctx, "http_client.request", urlStr, nil) {
 			parseErr = "not allowed: " + urlStr
+			parseErrKind = lua.PermissionDenied
+			return
+		}
+
+		// Check for private IP access
+		if errMsg := checkPrivateIP(ctx, urlStr); errMsg != "" {
+			parseErr = errMsg
+			parseErrKind = lua.PermissionDenied
 			return
 		}
 
@@ -424,6 +497,7 @@ func requestBatch(l *lua.LState) int {
 			if opts.unixSocket != "" {
 				if !security.IsAllowed(ctx, "http_client.unix_socket", opts.unixSocket, nil) {
 					parseErr = "not allowed: unix socket " + opts.unixSocket
+					parseErrKind = lua.PermissionDenied
 					return
 				}
 			}
@@ -449,7 +523,6 @@ func requestBatch(l *lua.LState) int {
 		req.BasicAuthUser = opts.basicAuthUser
 		req.BasicAuthPass = opts.basicAuthPass
 		req.MaxResponseBody = opts.maxResponseBody
-		req.AllowPrivateIPs = opts.allowPrivateIPs
 
 		if len(opts.files) > 0 {
 			req.Files = make([]httpapi.FileUpload, len(opts.files))
@@ -468,7 +541,7 @@ func requestBatch(l *lua.LState) int {
 	if parseErr != "" {
 		ReleaseRequestBatchYield(yield)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(parseErr))
+		l.Push(lua.NewLuaError(l, parseErr).WithKind(parseErrKind).WithRetryable(false))
 		return 2
 	}
 
@@ -576,10 +649,6 @@ func parseOptionsFromTable(tbl *lua.LTable) *requestOptions {
 
 	if maxBody := tbl.RawGetString("max_response_body"); maxBody.Type() == lua.LTNumber || maxBody.Type() == lua.LTInteger {
 		opts.maxResponseBody = int64(lua.LVAsNumber(maxBody))
-	}
-
-	if allowPrivate := tbl.RawGetString("allow_private_ips"); allowPrivate.Type() == lua.LTBool {
-		opts.allowPrivateIPs = bool(allowPrivate.(lua.LBool))
 	}
 
 	return opts

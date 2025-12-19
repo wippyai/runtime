@@ -309,3 +309,38 @@ func TestFactoryRegistry_ConcurrentAccess(t *testing.T) {
 		assert.True(t, reg.Has(id), "factory %d should exist", i)
 	}
 }
+
+func TestFactoryRegistry_HandleEventUnknownKind(t *testing.T) {
+	reg, _ := setupFactoryRegistryTest()
+	ctx := context.Background()
+	require.NoError(t, reg.Start(ctx))
+	defer func() { _ = reg.Stop() }()
+
+	// Call handleEvent directly with unknown kind to test defensive code
+	reg.handleEvent(event.Event{
+		System: process.System,
+		Kind:   "factory.unknown",
+		Path:   "test:unknown",
+	})
+
+	// Should not have registered anything
+	id := registry.ParseID("test:unknown")
+	assert.False(t, reg.Has(id))
+}
+
+func TestFactoryRegistry_CreateInvalidEntryType(t *testing.T) {
+	reg, _ := setupFactoryRegistryTest()
+	ctx := context.Background()
+	require.NoError(t, reg.Start(ctx))
+	defer func() { _ = reg.Stop() }()
+
+	// Store invalid entry type directly
+	id := registry.NewID("test", "invalid-type")
+	reg.factories.Store(id, "not-a-factory-entry")
+
+	proc, meta, err := reg.Create(id)
+	assert.Error(t, err)
+	assert.Nil(t, proc)
+	assert.Nil(t, meta)
+	assert.Contains(t, err.Error(), "invalid factory entry")
+}

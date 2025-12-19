@@ -262,7 +262,16 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 	s.byQueue.Store(proc.queue, proc)
 
 	if s.lifecycle != nil {
-		s.lifecycle.OnStart(procCtx, pid, p)
+		if err := s.lifecycle.OnStart(procCtx, pid, p); err != nil {
+			// Rollback: routing was ready but lifecycle rejected
+			s.byPID.Delete(pid.String())
+			s.byQueue.Delete(proc.queue)
+			s.processorCount.Add(-1)
+			cancel()
+			p.Close()
+			releaseProcessor(proc)
+			return nil, err
+		}
 	}
 
 	s.global.Push(proc)

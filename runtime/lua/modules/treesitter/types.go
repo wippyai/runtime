@@ -130,7 +130,7 @@ func init() {
 			"get_language": types.NewFunction(nil, []types.Type{types.Optional(languageType)}),
 			"reset":        types.NewFunction(nil, nil),
 			"close":        types.NewFunction(nil, nil),
-			"set_timeout":  types.NewFunction([]types.Type{types.Number}, nil),
+			"set_timeout":  types.NewFunction([]types.Type{types.Any}, nil),
 			"set_ranges":   types.NewFunction([]types.Type{types.NewArray(rangeType, false)}, nil),
 		},
 	}
@@ -151,7 +151,7 @@ func init() {
 			"set_match_limit":         types.NewFunction([]types.Type{types.Number}, nil),
 			"get_match_limit":         types.NewFunction(nil, []types.Type{types.Number}),
 			"did_exceed_match_limit":  types.NewFunction(nil, []types.Type{types.Boolean}),
-			"set_timeout":             types.NewFunction([]types.Type{types.Number}, nil),
+			"set_timeout":             types.NewFunction([]types.Type{types.Any}, nil),
 			"get_timeout":             types.NewFunction(nil, []types.Type{types.Number}),
 			"disable_pattern":         types.NewFunction([]types.Type{types.Number}, nil),
 			"disable_capture":         types.NewFunction([]types.Type{types.String}, nil),

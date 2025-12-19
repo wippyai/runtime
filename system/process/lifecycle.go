@@ -74,11 +74,15 @@ func (r *LifecycleRegistry) rebuildSnapshot() {
 }
 
 // OnStart calls all registered lifecycle handlers' OnStart methods.
-func (r *LifecycleRegistry) OnStart(ctx context.Context, pid pid.PID, proc process.Process) {
+// Returns first error encountered; subsequent handlers are not called on error.
+func (r *LifecycleRegistry) OnStart(ctx context.Context, pid pid.PID, proc process.Process) error {
 	handlers := *r.handlers.Load()
 	for _, h := range handlers {
-		h.OnStart(ctx, pid, proc)
+		if err := h.OnStart(ctx, pid, proc); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // OnComplete calls all registered lifecycle handlers' OnComplete methods.

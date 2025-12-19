@@ -130,14 +130,13 @@ func setupManager(t *testing.T) (*Manager, *mockEventBus) {
 		},
 	}
 
-	manager, err := NewManagerWithFactory(
-		logger,
-		transcoder,
-		bus,
-		envReg,
-		factory,
-		converter.GetDefaultDataConverter(),
-		nil,
+	manager, err := NewManager(
+		WithLogger(logger),
+		WithTranscoder(transcoder),
+		WithEventBus(bus),
+		WithEnvRegistry(envReg),
+		WithFactory(factory),
+		WithDataConverter(converter.GetDefaultDataConverter()),
 	)
 	require.NoError(t, err)
 
@@ -152,12 +151,11 @@ func TestNewManager(t *testing.T) {
 		envReg := &mockEnvRegistry{values: make(map[string]string)}
 
 		manager, err := NewManager(
-			logger,
-			transcoder,
-			bus,
-			envReg,
-			converter.GetDefaultDataConverter(),
-			nil,
+			WithLogger(logger),
+			WithTranscoder(transcoder),
+			WithEventBus(bus),
+			WithEnvRegistry(envReg),
+			WithDataConverter(converter.GetDefaultDataConverter()),
 		)
 
 		require.NoError(t, err)
@@ -171,12 +169,10 @@ func TestNewManager(t *testing.T) {
 		envReg := &mockEnvRegistry{values: make(map[string]string)}
 
 		manager, err := NewManager(
-			nil,
-			transcoder,
-			bus,
-			envReg,
-			converter.GetDefaultDataConverter(),
-			nil,
+			WithTranscoder(transcoder),
+			WithEventBus(bus),
+			WithEnvRegistry(envReg),
+			WithDataConverter(converter.GetDefaultDataConverter()),
 		)
 
 		require.Error(t, err)
@@ -190,12 +186,10 @@ func TestNewManager(t *testing.T) {
 		envReg := &mockEnvRegistry{values: make(map[string]string)}
 
 		manager, err := NewManager(
-			logger,
-			nil,
-			bus,
-			envReg,
-			converter.GetDefaultDataConverter(),
-			nil,
+			WithLogger(logger),
+			WithEventBus(bus),
+			WithEnvRegistry(envReg),
+			WithDataConverter(converter.GetDefaultDataConverter()),
 		)
 
 		require.Error(t, err)
@@ -209,12 +203,10 @@ func TestNewManager(t *testing.T) {
 		envReg := &mockEnvRegistry{values: make(map[string]string)}
 
 		manager, err := NewManager(
-			logger,
-			transcoder,
-			nil,
-			envReg,
-			converter.GetDefaultDataConverter(),
-			nil,
+			WithLogger(logger),
+			WithTranscoder(transcoder),
+			WithEnvRegistry(envReg),
+			WithDataConverter(converter.GetDefaultDataConverter()),
 		)
 
 		require.Error(t, err)
@@ -228,12 +220,10 @@ func TestNewManager(t *testing.T) {
 		bus := &mockEventBus{}
 
 		manager, err := NewManager(
-			logger,
-			transcoder,
-			bus,
-			nil,
-			converter.GetDefaultDataConverter(),
-			nil,
+			WithLogger(logger),
+			WithTranscoder(transcoder),
+			WithEventBus(bus),
+			WithDataConverter(converter.GetDefaultDataConverter()),
 		)
 
 		require.Error(t, err)

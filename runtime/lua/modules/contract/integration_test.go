@@ -47,7 +47,7 @@ func (ts *testScheduler) Stop() {
 	ts.Scheduler.Stop(context.Background())
 }
 
-func (ts *testScheduler) OnStart(_ context.Context, _ pid.PID, _ process.Process) {}
+func (ts *testScheduler) OnStart(_ context.Context, _ pid.PID, _ process.Process) error { return nil }
 
 func (ts *testScheduler) OnComplete(_ context.Context, p pid.PID, result *runtime.Result) {
 	ts.mu.Lock()

@@ -533,3 +533,71 @@ func TestAllLanguages(t *testing.T) {
 		})
 	}
 }
+
+func TestParserTimeout(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(context.Background())
+	Module.Load(l)
+
+	err := l.DoString(`
+		local parser = treesitter.parser()
+		parser:set_language("go")
+
+		-- Test with string duration
+		parser:set_timeout("1s")
+
+		-- Test with nanoseconds
+		parser:set_timeout(1000000000)
+
+		local tree = parser:parse("package main")
+		if tree == nil then
+			error("tree should not be nil")
+		end
+		parser:close()
+	`)
+	if err != nil {
+		t.Errorf("parser timeout test failed: %v", err)
+	}
+}
+
+func TestQueryTimeout(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(context.Background())
+	Module.Load(l)
+
+	err := l.DoString(`
+		local code = "package main\nfunc hello() {}"
+		local tree = treesitter.parse("go", code)
+		local root = tree:root_node()
+
+		local query = treesitter.query("go", "(function_declaration) @fn")
+
+		-- Test with string duration
+		query:set_timeout("500ms")
+		local timeout1 = query:get_timeout()
+		if timeout1 ~= 500000000 then
+			error("expected 500000000 nanoseconds, got " .. timeout1)
+		end
+
+		-- Test with nanoseconds
+		query:set_timeout(1000000000)
+		local timeout2 = query:get_timeout()
+		if timeout2 ~= 1000000000 then
+			error("expected 1000000000 nanoseconds, got " .. timeout2)
+		end
+
+		-- Query should still work
+		local matches = query:matches(root, code)
+		if #matches ~= 1 then
+			error("expected 1 match, got " .. #matches)
+		end
+
+		query:close()
+		tree:close()
+	`)
+	if err != nil {
+		t.Errorf("query timeout test failed: %v", err)
+	}
+}

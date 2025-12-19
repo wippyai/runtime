@@ -2,6 +2,7 @@ package treesitter
 
 import (
 	"fmt"
+	"time"
 
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -9,6 +10,22 @@ import (
 	treesitter "github.com/tree-sitter/go-tree-sitter"
 	lua "github.com/yuin/gopher-lua"
 )
+
+// parseDuration parses a duration from Lua argument.
+// Accepts: number (nanoseconds) or string ("1s", "500ms", "2h30m").
+func parseDuration(l *lua.LState, idx int) (time.Duration, error) {
+	arg := l.Get(idx)
+	switch v := arg.(type) {
+	case lua.LNumber:
+		return time.Duration(v), nil
+	case lua.LInteger:
+		return time.Duration(v), nil
+	case lua.LString:
+		return time.ParseDuration(string(v))
+	default:
+		return 0, fmt.Errorf("duration must be number or string, got %T", arg)
+	}
+}
 
 // isNumber checks if a LValue is a number (LNumber or LInteger)
 func isNumber(v lua.LValue) bool {

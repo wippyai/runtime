@@ -9,10 +9,10 @@ func ModuleTypes() *types.TypeManifest {
 	moduleType := &types.InterfaceType{
 		Name: "base64",
 		Methods: map[string]*types.FunctionType{
-			// base64.encode(data: string): string
+			// base64.encode(data: string): string, Error?
 			"encode": types.NewFunction(
 				[]types.Type{types.String},
-				[]types.Type{types.String},
+				[]types.Type{types.String, types.Optional(types.LuaError)},
 			),
 			// base64.decode(data: string): string, Error?
 			"decode": types.NewFunction(

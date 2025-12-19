@@ -19,20 +19,35 @@ import (
 	"github.com/wippyai/runtime/service/temporal/activity"
 	"github.com/wippyai/runtime/service/temporal/client"
 	"github.com/wippyai/runtime/service/temporal/dataconverter"
+	temporalinterceptor "github.com/wippyai/runtime/service/temporal/interceptor"
 	"github.com/wippyai/runtime/service/temporal/worker"
 	temporalworkflow "github.com/wippyai/runtime/service/temporal/workflow"
 	"go.temporal.io/sdk/converter"
+	sdkinterceptor "go.temporal.io/sdk/interceptor"
 	"go.uber.org/zap"
 )
 
-const (
-	ComponentName boot.Name = "temporal"
-)
+// InterceptorComponent creates the interceptor registries that other components can use to register interceptors
+func InterceptorComponent() boot.Component {
+	return boot.New(boot.P{
+		Name:      InterceptorName,
+		DependsOn: []boot.Name{},
+		Load: func(ctx context.Context) (context.Context, error) {
+			clientReg := temporalinterceptor.NewClientRegistry()
+			workerReg := temporalinterceptor.NewWorkerRegistry()
+
+			ctx = temporalapi.WithClientInterceptorRegistry(ctx, clientReg)
+			ctx = temporalapi.WithWorkerInterceptorRegistry(ctx, workerReg)
+
+			return ctx, nil
+		},
+	})
+}
 
 func Component() boot.Component {
 	return boot.New(boot.P{
-		Name:      ComponentName,
-		DependsOn: []boot.Name{bootcore.RegistryName, bootsystem.FunctionsName, bootsystem.ResourcesName},
+		Name:      Name,
+		DependsOn: []boot.Name{bootcore.RegistryName, bootsystem.FunctionsName, bootsystem.ResourcesName, InterceptorName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx).Named("temporal")
 			if logger == nil {
@@ -74,6 +89,10 @@ func Component() boot.Component {
 				return ctx, fmt.Errorf("registry not available")
 			}
 
+			// Get interceptor registries
+			clientInterceptorReg := temporalapi.GetClientInterceptorRegistry(ctx)
+			workerInterceptorReg := temporalapi.GetWorkerInterceptorRegistry(ctx)
+
 			// Register Temporal dependency patterns
 			temporalPatterns := []regapi.DependencyPattern{
 				{Path: "client", Description: "Reference to Temporal client"},
@@ -91,14 +110,24 @@ func Component() boot.Component {
 			// Create data converter with transcoder
 			dc := dataconverter.NewDataConverter(dtt, converter.GetDefaultDataConverter())
 
+			// Collect interceptors from registries
+			var clientInterceptors []sdkinterceptor.ClientInterceptor
+			var workerInterceptors []sdkinterceptor.WorkerInterceptor
+			if clientInterceptorReg != nil {
+				clientInterceptors = clientInterceptorReg.GetAll()
+			}
+			if workerInterceptorReg != nil {
+				workerInterceptors = workerInterceptorReg.GetAll()
+			}
+
 			// Create client manager
 			clientManager, err := client.NewManager(
-				logger.Named("client"),
-				dtt,
-				bus,
-				envRegistry,
-				dc,
-				nil, // client interceptors
+				client.WithLogger(logger.Named("client")),
+				client.WithTranscoder(dtt),
+				client.WithEventBus(bus),
+				client.WithEnvRegistry(envRegistry),
+				client.WithDataConverter(dc),
+				client.WithInterceptors(clientInterceptors),
 			)
 			if err != nil {
 				return ctx, fmt.Errorf("failed to create client manager: %w", err)
@@ -106,11 +135,12 @@ func Component() boot.Component {
 
 			// Create worker manager
 			workerManager, err := worker.NewManager(
-				logger.Named("worker"),
-				dtt,
-				bus,
-				resourceReg,
-				nil, // worker interceptors
+				worker.WithLogger(logger.Named("worker")),
+				worker.WithTranscoder(dtt),
+				worker.WithEventBus(bus),
+				worker.WithResourceRegistry(resourceReg),
+				worker.WithEnvRegistry(envRegistry),
+				worker.WithInterceptors(workerInterceptors),
 			)
 			if err != nil {
 				return ctx, fmt.Errorf("failed to create worker manager: %w", err)
@@ -149,6 +179,7 @@ func Component() boot.Component {
 
 func All() []boot.Component {
 	return []boot.Component{
+		InterceptorComponent(),
 		Component(),
 	}
 }

@@ -1,6 +1,7 @@
 package temporal
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -15,6 +16,31 @@ func TestActivityContextKey(t *testing.T) {
 	key := ActivityContextKey()
 	assert.NotNil(t, key)
 	assert.Equal(t, "temporal.activity.context", key.Name)
+}
+
+func TestWithClientID(t *testing.T) {
+	t.Run("stores and retrieves client ID", func(t *testing.T) {
+		ctx := context.Background()
+		ctx = WithClientID(ctx, "app.clients:my-temporal")
+
+		got := GetClientID(ctx)
+		assert.Equal(t, "app.clients:my-temporal", got)
+	})
+
+	t.Run("returns empty string for missing client ID", func(t *testing.T) {
+		ctx := context.Background()
+		got := GetClientID(ctx)
+		assert.Equal(t, "", got)
+	})
+
+	t.Run("overwrites previous client ID", func(t *testing.T) {
+		ctx := context.Background()
+		ctx = WithClientID(ctx, "first-client")
+		ctx = WithClientID(ctx, "second-client")
+
+		got := GetClientID(ctx)
+		assert.Equal(t, "second-client", got)
+	})
 }
 
 func TestKinds(t *testing.T) {

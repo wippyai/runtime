@@ -46,7 +46,8 @@ func encodeFunc(l *lua.LState) int {
 	value := l.Get(1)
 	if value == lua.LNil {
 		l.Push(lua.LString("null"))
-		return 1
+		l.Push(lua.LNil)
+		return 2
 	}
 
 	data, err := Encode(value)
@@ -54,7 +55,8 @@ func encodeFunc(l *lua.LState) int {
 		return internalError(l, err, "encode failed")
 	}
 	l.Push(lua.LString(data))
-	return 1
+	l.Push(lua.LNil)
+	return 2
 }
 
 func decodeFunc(l *lua.LState) int {
@@ -72,7 +74,8 @@ func decodeFunc(l *lua.LState) int {
 		return internalError(l, err, "decode failed")
 	}
 	l.Push(value)
-	return 1
+	l.Push(lua.LNil)
+	return 2
 }
 
 func validateFunc(l *lua.LState) int {

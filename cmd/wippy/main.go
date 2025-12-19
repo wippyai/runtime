@@ -6,7 +6,6 @@ import (
 	"runtime"
 
 	sqlitevec "github.com/asg017/sqlite-vec-go-bindings/cgo"
-	"github.com/fatih/color"
 	"github.com/wippyai/runtime/cmd/wippy/cmd"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -20,10 +19,11 @@ func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	if err := cmd.Execute(); err != nil {
+		errStr := err.Error()
 		if cmd.IsConsoleMode() {
-			red := color.New(color.FgRed, color.Bold)
-			_, _ = red.Fprint(os.Stderr, "Error: ")
-			_, _ = fmt.Fprintln(os.Stderr, err)
+			// Colorize Rust-style type errors
+			errStr = cmd.ColorizeTypeError(errStr)
+			_, _ = fmt.Fprintln(os.Stderr, errStr)
 		} else {
 			_, _ = fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		}

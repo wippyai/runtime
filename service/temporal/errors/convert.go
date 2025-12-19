@@ -1,4 +1,5 @@
-package temporal
+// Package errors provides error conversion between Temporal SDK errors and apierror.Rich.
+package errors
 
 import (
 	"errors"
@@ -51,7 +52,6 @@ func FromTemporalError(err error) apierror.Rich {
 		return nil
 	}
 
-	// Unwrap wrapper errors to get to the actual error
 	var activityErr *temporal.ActivityError
 	var childErr *temporal.ChildWorkflowExecutionError
 
@@ -101,7 +101,6 @@ func fromTemporalErrorInner(err error) apierror.Rich {
 		return nil
 	}
 
-	// ApplicationError with our chain in details
 	var appErr *temporal.ApplicationError
 	if errors.As(err, &appErr) {
 		var chain apierror.Chain
@@ -109,7 +108,6 @@ func fromTemporalErrorInner(err error) apierror.Rich {
 			return apierror.FromChain(&chain)
 		}
 
-		// No chain in details - create from ApplicationError fields
 		e := apierror.NewRich(mapTypeToKind(appErr.Type()), appErr.Message())
 		if appErr.NonRetryable() {
 			e.WithRetryable(apierror.False)
@@ -119,14 +117,12 @@ func fromTemporalErrorInner(err error) apierror.Rich {
 		return e
 	}
 
-	// CanceledError
 	var canceledErr *temporal.CanceledError
 	if errors.As(err, &canceledErr) {
 		return apierror.NewRich(apierror.Canceled, "operation canceled").
 			WithRetryable(apierror.False)
 	}
 
-	// TimeoutError
 	var timeoutErr *temporal.TimeoutError
 	if errors.As(err, &timeoutErr) {
 		return apierror.NewRich(apierror.Timeout, timeoutErr.Message()).
@@ -136,7 +132,6 @@ func fromTemporalErrorInner(err error) apierror.Rich {
 			})
 	}
 
-	// PanicError
 	var panicErr *temporal.PanicError
 	if errors.As(err, &panicErr) {
 		return apierror.NewRich(apierror.Internal, panicErr.Error()).
@@ -144,14 +139,12 @@ func fromTemporalErrorInner(err error) apierror.Rich {
 			WithStack([]string{panicErr.StackTrace()})
 	}
 
-	// TerminatedError
 	var terminatedErr *temporal.TerminatedError
 	if errors.As(err, &terminatedErr) {
 		return apierror.NewRich(apierror.Canceled, "workflow terminated").
 			WithRetryable(apierror.False)
 	}
 
-	// Unknown error type - wrap as Internal
 	return apierror.NewRich(apierror.Internal, err.Error())
 }
 

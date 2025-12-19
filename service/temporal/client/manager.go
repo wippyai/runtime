@@ -22,6 +22,8 @@ import (
 	"go.uber.org/zap"
 )
 
+var _ registry.EntryListener = (*Manager)(nil)
+
 // Manager handles Temporal client configuration and lifecycle
 type Manager struct {
 	log                *zap.Logger
@@ -38,82 +40,88 @@ type Manager struct {
 	peers    map[registry.ID]*peer.Receiver
 }
 
-// NewManager creates a new client manager instance
-func NewManager(
-	logger *zap.Logger,
-	transcoder payload.Transcoder,
-	bus event.Bus,
-	envRegistry env.Registry,
-	dataConverter converter.DataConverter,
-	clientInterceptors []interceptor.ClientInterceptor,
-) (*Manager, error) {
-	if logger == nil {
-		return nil, fmt.Errorf("logger is required")
-	}
-	if transcoder == nil {
-		return nil, fmt.Errorf("transcoder is required")
-	}
-	if bus == nil {
-		return nil, fmt.Errorf("event bus is required")
-	}
-	if envRegistry == nil {
-		return nil, fmt.Errorf("env registry is required")
-	}
+// ManagerOption configures a Manager instance
+type ManagerOption func(*Manager)
 
-	factory := NewDefaultClientFactory(envRegistry, dataConverter, clientInterceptors)
-
-	return &Manager{
-		log:                logger,
-		dtt:                transcoder,
-		bus:                bus,
-		env:                envRegistry,
-		factory:            factory,
-		dataConverter:      dataConverter,
-		clientInterceptors: clientInterceptors,
-		configs:            make(map[registry.ID]*api.ClientConfig),
-		services:           make(map[registry.ID]*Client),
-		peers:              make(map[registry.ID]*peer.Receiver),
-	}, nil
+// WithLogger sets the logger for the Manager
+func WithLogger(logger *zap.Logger) ManagerOption {
+	return func(m *Manager) {
+		m.log = logger
+	}
 }
 
-// NewManagerWithFactory creates a new client manager with a custom factory (for testing)
-func NewManagerWithFactory(
-	logger *zap.Logger,
-	transcoder payload.Transcoder,
-	bus event.Bus,
-	envRegistry env.Registry,
-	factory Factory,
-	dataConverter converter.DataConverter,
-	clientInterceptors []interceptor.ClientInterceptor,
-) (*Manager, error) {
-	if logger == nil {
-		return nil, fmt.Errorf("logger is required")
+// WithTranscoder sets the payload transcoder for the Manager
+func WithTranscoder(transcoder payload.Transcoder) ManagerOption {
+	return func(m *Manager) {
+		m.dtt = transcoder
 	}
-	if transcoder == nil {
-		return nil, fmt.Errorf("transcoder is required")
+}
+
+// WithEventBus sets the event bus for the Manager
+func WithEventBus(bus event.Bus) ManagerOption {
+	return func(m *Manager) {
+		m.bus = bus
 	}
-	if bus == nil {
-		return nil, fmt.Errorf("event bus is required")
+}
+
+// WithEnvRegistry sets the environment registry for the Manager
+func WithEnvRegistry(reg env.Registry) ManagerOption {
+	return func(m *Manager) {
+		m.env = reg
 	}
-	if envRegistry == nil {
-		return nil, fmt.Errorf("env registry is required")
+}
+
+// WithDataConverter sets the data converter for the Manager
+func WithDataConverter(dc converter.DataConverter) ManagerOption {
+	return func(m *Manager) {
+		m.dataConverter = dc
 	}
-	if factory == nil {
-		return nil, fmt.Errorf("factory is required")
+}
+
+// WithInterceptors sets the client interceptors for the Manager
+func WithInterceptors(interceptors []interceptor.ClientInterceptor) ManagerOption {
+	return func(m *Manager) {
+		m.clientInterceptors = interceptors
+	}
+}
+
+// WithFactory sets a custom client factory for the Manager
+func WithFactory(factory Factory) ManagerOption {
+	return func(m *Manager) {
+		m.factory = factory
+	}
+}
+
+// NewManager creates a new client manager instance with functional options
+func NewManager(opts ...ManagerOption) (*Manager, error) {
+	m := &Manager{
+		configs:  make(map[registry.ID]*api.ClientConfig),
+		services: make(map[registry.ID]*Client),
+		peers:    make(map[registry.ID]*peer.Receiver),
 	}
 
-	return &Manager{
-		log:                logger,
-		dtt:                transcoder,
-		bus:                bus,
-		env:                envRegistry,
-		factory:            factory,
-		dataConverter:      dataConverter,
-		clientInterceptors: clientInterceptors,
-		configs:            make(map[registry.ID]*api.ClientConfig),
-		services:           make(map[registry.ID]*Client),
-		peers:              make(map[registry.ID]*peer.Receiver),
-	}, nil
+	for _, opt := range opts {
+		opt(m)
+	}
+
+	if m.log == nil {
+		return nil, fmt.Errorf("logger is required")
+	}
+	if m.dtt == nil {
+		return nil, fmt.Errorf("transcoder is required")
+	}
+	if m.bus == nil {
+		return nil, fmt.Errorf("event bus is required")
+	}
+	if m.env == nil {
+		return nil, fmt.Errorf("env registry is required")
+	}
+
+	if m.factory == nil {
+		m.factory = NewDefaultClientFactory(m.env, m.dataConverter, m.clientInterceptors)
+	}
+
+	return m, nil
 }
 
 // Add implements registry.EntryListener
@@ -136,39 +144,62 @@ func (m *Manager) Add(ctx context.Context, ent registry.Entry) error {
 
 // AddClient initializes a new client instance with the given configuration
 func (m *Manager) AddClient(ctx context.Context, id registry.ID, cfg *api.ClientConfig) error {
+	// Check existence under lock
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Check if client already exists
 	if _, exists := m.services[id]; exists {
+		m.mu.Unlock()
 		return fmt.Errorf("client %s already initialized", id)
 	}
-
 	if _, exists := m.configs[id]; exists {
+		m.mu.Unlock()
 		return fmt.Errorf("client config %s already exists", id)
 	}
 
-	// Initialize defaults
+	// Initialize and validate
 	cfg.InitDefaults()
-
-	// Validate configuration
 	if err := cfg.Validate(); err != nil {
+		m.mu.Unlock()
 		return fmt.Errorf("invalid client config: %w", err)
 	}
 
-	// Store configuration
+	// Mark as pending to prevent concurrent adds
 	m.configs[id] = cfg
+	m.mu.Unlock()
 
-	// Create new service
+	// Create client without holding lock (may involve network I/O)
 	service, err := m.factory.CreateClient(ctx, m.log.With(zap.String("id", id.String())), id, cfg)
 	if err != nil {
+		m.mu.Lock()
 		delete(m.configs, id)
+		m.mu.Unlock()
 		return fmt.Errorf("failed to create client: %w", err)
 	}
 
+	// Store service under lock, verify config still exists (not deleted by concurrent op)
+	m.mu.Lock()
+	if _, exists := m.configs[id]; !exists {
+		m.mu.Unlock()
+		// Config was deleted while we were creating - cleanup and fail
+		if err := service.Stop(ctx); err != nil {
+			m.log.Warn("failed to stop orphaned client during cleanup",
+				zap.String("id", id.String()),
+				zap.Error(err))
+		}
+		return fmt.Errorf("client %s was removed during initialization", id)
+	}
 	m.services[id] = service
 
-	// Register with supervisor
+	// Create peer receiver
+	var peerReceiver *peer.Receiver
+	router := relay.GetRouter(ctx)
+	if router != nil {
+		nodeID := pid.NodeID(id.String())
+		peerReceiver = peer.NewReceiver(ctx, nodeID, service.TemporalClient(), router, m.log.Named("peer"))
+		m.peers[id] = peerReceiver
+	}
+	m.mu.Unlock()
+
+	// Send events without holding lock to prevent deadlock
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.ServiceRegister,
@@ -179,10 +210,8 @@ func (m *Manager) AddClient(ctx context.Context, id registry.ID, cfg *api.Client
 		},
 	})
 
-	// Register as resource provider
 	meta := attrs.NewBag()
 	meta.Set("type", "temporal.client")
-
 	m.bus.Send(ctx, event.Event{
 		System: resource.System,
 		Kind:   resource.Register,
@@ -194,19 +223,13 @@ func (m *Manager) AddClient(ctx context.Context, id registry.ID, cfg *api.Client
 		},
 	})
 
-	// Create peer receiver for topology events (monitor, link)
-	router := relay.GetRouter(ctx)
-	if router != nil {
-		nodeID := pid.NodeID(id.String())
-		peerReceiver := peer.NewReceiver(nodeID, service.TemporalClient(), router, m.log.Named("peer"))
-		m.peers[id] = peerReceiver
-
+	if peerReceiver != nil {
 		m.bus.Send(ctx, event.Event{
 			System: relay.System,
 			Kind:   relay.PeerRegister,
 			Path:   id.String(),
 			Data: relay.PeerInfo{
-				NodeID:   nodeID,
+				NodeID:   pid.NodeID(id.String()),
 				Receiver: peerReceiver,
 			},
 		})

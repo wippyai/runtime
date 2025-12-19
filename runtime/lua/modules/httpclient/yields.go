@@ -41,14 +41,14 @@ func (y *RequestYield) Release()                      { ReleaseRequestYield(y) }
 // HandleResult converts HTTP response to Lua values.
 func (y *RequestYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, err.Error()).WithKind(lua.Internal).WithRetryable(true)}
 	}
 	resp, ok := data.(httpapi.Response)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.LString("invalid response type")}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal).WithRetryable(false)}
 	}
 	if resp.Error != "" {
-		return []lua.LValue{lua.LNil, lua.LString(resp.Error)}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, resp.Error).WithKind(lua.Internal).WithRetryable(true)}
 	}
 
 	tbl := l.CreateTable(0, 7)
@@ -115,11 +115,11 @@ func (y *RequestBatchYield) Release()                      { ReleaseRequestBatch
 // HandleResult converts batch HTTP responses to Lua values.
 func (y *RequestBatchYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, err.Error()).WithKind(lua.Internal).WithRetryable(true)}
 	}
 	batch, ok := data.(httpapi.BatchResponse)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.LString("invalid batch response type")}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid batch response type").WithKind(lua.Internal).WithRetryable(false)}
 	}
 
 	responses := l.CreateTable(len(batch.Responses), 0)
@@ -130,7 +130,7 @@ func (y *RequestBatchYield) HandleResult(l *lua.LState, data any, err error) []l
 		idx := i + 1 // Lua is 1-indexed
 		if resp.Error != "" {
 			responses.RawSetInt(idx, lua.LNil)
-			errors.RawSetInt(idx, lua.LString(resp.Error))
+			errors.RawSetInt(idx, lua.NewLuaError(l, resp.Error).WithKind(lua.Internal).WithRetryable(true))
 			hasErrors = true
 			continue
 		}

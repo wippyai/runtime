@@ -305,7 +305,7 @@ func TestHost_OnComplete(t *testing.T) {
 	}
 }
 
-func TestHost_ImplementsInterfaces(_ *testing.T) {
-	var _ process.Host = (*Host)(nil)
-	var _ relay.Receiver = (*Host)(nil)
-}
+var (
+	_ process.Host   = (*Host)(nil)
+	_ relay.Receiver = (*Host)(nil)
+)

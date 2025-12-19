@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	clockapi "github.com/wippyai/runtime/api/clock"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -15,7 +16,7 @@ var startTime = time.Now()
 var Module = &luaapi.ModuleDef{
 	Name:        "os",
 	Description: "Lua os.time, os.date, os.clock, os.difftime functions",
-	Class:       []string{luaapi.ClassTime, luaapi.ClassNondeterministic},
+	Class:       []string{luaapi.ClassTime, luaapi.ClassWorkflow},
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		tbl := &lua.LTable{}
 		tbl.RawSetString("time", lua.LGoFunc(osTime))
@@ -29,8 +30,16 @@ var Module = &luaapi.ModuleDef{
 	Types: ModuleTypes,
 }
 
+// getNow returns the current time, using TimeReference if available for deterministic behavior.
+func getNow(l *lua.LState) time.Time {
+	if ref := clockapi.GetTimeReference(l.Context()); ref != nil {
+		return ref.Now()
+	}
+	return time.Now()
+}
+
 func osClock(l *lua.LState) int {
-	elapsed := time.Since(startTime).Seconds()
+	elapsed := getNow(l).Sub(startTime).Seconds()
 	l.Push(lua.LNumber(elapsed))
 	return 1
 }
@@ -43,17 +52,17 @@ func osDifftime(l *lua.LState) int {
 }
 
 func osTime(l *lua.LState) int {
+	now := getNow(l)
 	if l.GetTop() == 0 {
-		l.Push(lua.LNumber(time.Now().Unix()))
+		l.Push(lua.LNumber(now.Unix()))
 		return 1
 	}
 
 	tbl := l.CheckTable(1)
-	ref := time.Now()
 
-	year := getIntField(tbl, "year", ref.Year())
-	month := getIntField(tbl, "month", int(ref.Month()))
-	day := getIntField(tbl, "day", ref.Day())
+	year := getIntField(tbl, "year", now.Year())
+	month := getIntField(tbl, "month", int(now.Month()))
+	day := getIntField(tbl, "day", now.Day())
 	hour := getIntField(tbl, "hour", 0)
 	minute := getIntField(tbl, "min", 0)
 	sec := getIntField(tbl, "sec", 0)
@@ -86,7 +95,7 @@ func osDate(l *lua.LState) int {
 		timestamp := l.CheckNumber(2)
 		t = time.Unix(int64(timestamp), 0)
 	} else {
-		t = time.Now()
+		t = getNow(l)
 	}
 
 	utc := false

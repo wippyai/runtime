@@ -189,3 +189,67 @@ func SetDetails(e Error, details attrs.Attributes) Error {
 		cause:     e,
 	}
 }
+
+// Rich extends Error with chain traversal and stack traces.
+// Used for errors that cross process boundaries (Temporal, queues).
+type Rich interface {
+	error
+	Kind() Kind
+	Retryable() Ternary
+	Details() map[string]any
+	StackFrames() []string
+	Unwrap() error
+}
+
+// RichError is the concrete implementation of Rich, used by FromChain.
+type RichError struct {
+	message   string
+	kind      Kind
+	retryable Ternary
+	details   map[string]any
+	stack     []string
+	cause     error
+}
+
+func (e *RichError) Error() string {
+	if e.cause != nil {
+		return e.message + ": " + e.cause.Error()
+	}
+	return e.message
+}
+
+func (e *RichError) Kind() Kind              { return e.kind }
+func (e *RichError) Retryable() Ternary      { return e.retryable }
+func (e *RichError) Details() map[string]any { return e.details }
+func (e *RichError) StackFrames() []string   { return e.stack }
+func (e *RichError) Unwrap() error           { return e.cause }
+func (e *RichError) Msg() string             { return e.message }
+
+// NewRich creates a new Rich error.
+func NewRich(kind Kind, message string) *RichError {
+	return &RichError{kind: kind, message: message, retryable: Unspecified}
+}
+
+// WithRetryable sets the retryable flag.
+func (e *RichError) WithRetryable(r Ternary) *RichError {
+	e.retryable = r
+	return e
+}
+
+// WithDetails sets the details map.
+func (e *RichError) WithDetails(d map[string]any) *RichError {
+	e.details = d
+	return e
+}
+
+// WithStack sets the stack frames.
+func (e *RichError) WithStack(s []string) *RichError {
+	e.stack = s
+	return e
+}
+
+// WithCause sets the wrapped error.
+func (e *RichError) WithCause(c error) *RichError {
+	e.cause = c
+	return e
+}

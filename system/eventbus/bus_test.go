@@ -145,6 +145,7 @@ func TestUnsubscribe(t *testing.T) {
 		// Expected: no events received after unsubscribe
 	}
 }
+
 func TestBusStop(t *testing.T) {
 	bus := newTestBus(t)
 
@@ -163,7 +164,7 @@ func TestBusStop(t *testing.T) {
 	bus.Stop()
 }
 
-func TestSendWithNilPayload(_ *testing.T) {
+func TestSendWithNilPayload(t *testing.T) {
 	b := NewBus()
 	defer b.Stop()
 
@@ -173,7 +174,10 @@ func TestSendWithNilPayload(_ *testing.T) {
 		Data:   nil,
 	}
 
-	b.Send(context.Background(), e)
+	// Should not panic
+	assert.NotPanics(t, func() {
+		b.Send(context.Background(), e)
+	})
 }
 
 func TestConcurrentSubscribeUnsubscribe(t *testing.T) {
@@ -285,8 +289,10 @@ func TestNoEventsAfterUnsubscribe(t *testing.T) {
 	}
 }
 
-func TestStopBusClosesInternalChannel(_ *testing.T) {
-	NewBus().Stop()
+func TestStopBusClosesInternalChannel(t *testing.T) {
+	assert.NotPanics(t, func() {
+		NewBus().Stop()
+	})
 }
 
 func TestStopWithActiveSubscribers(t *testing.T) {
@@ -327,14 +333,16 @@ func TestSubscribePEmptyKind(t *testing.T) {
 	}
 }
 
-func TestMultipleSubscribersSameSystemPath(_ *testing.T) {
+func TestMultipleSubscribersSameSystemPath(t *testing.T) {
 	b := NewBus()
 	defer b.Stop()
 
 	ch1 := make(chan event.Event, 1)
 	ch2 := make(chan event.Event, 1)
-	_, _ = b.Subscribe(context.Background(), "test-system", ch1)
-	_, _ = b.Subscribe(context.Background(), "test-system", ch2)
+	_, err := b.Subscribe(context.Background(), "test-system", ch1)
+	require.NoError(t, err)
+	_, err = b.Subscribe(context.Background(), "test-system", ch2)
+	require.NoError(t, err)
 
 	e := event.Event{
 		System: "test-system",
@@ -344,8 +352,10 @@ func TestMultipleSubscribersSameSystemPath(_ *testing.T) {
 	b.Send(context.Background(), e)
 
 	// Verify both subscribers receive the event
-	<-ch1
-	<-ch2
+	evt1 := <-ch1
+	evt2 := <-ch2
+	assert.Equal(t, e, evt1)
+	assert.Equal(t, e, evt2)
 }
 
 func TestMultipleSubscribersDifferentKinds(t *testing.T) {
@@ -922,13 +932,15 @@ func TestSubscribeAfterStop(t *testing.T) {
 	require.Contains(t, err.Error(), "closed")
 }
 
-func TestMultipleStops(_ *testing.T) {
+func TestMultipleStops(t *testing.T) {
 	b := NewBus()
 
 	// Should not panic
-	b.Stop()
-	b.Stop()
-	b.Stop()
+	assert.NotPanics(t, func() {
+		b.Stop()
+		b.Stop()
+		b.Stop()
+	})
 }
 
 func TestExpiredSubscriberCleanup(t *testing.T) {

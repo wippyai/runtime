@@ -18,7 +18,7 @@ func TestAwaiter_WaitFor_Accept(t *testing.T) {
 	path := "test:function"
 
 	// Start waiting in goroutine
-	resultCh := make(chan AwaitResult, 1)
+	resultCh := make(chan event.AwaitResult, 1)
 	go func() {
 		result := Await(ctx, bus, "function", "function.(accept|reject)", path)
 		resultCh <- result
@@ -58,7 +58,7 @@ func TestAwaiter_WaitFor_Reject(t *testing.T) {
 	path := "test:function"
 	expectedErr := errors.New("validation failed")
 
-	resultCh := make(chan AwaitResult, 1)
+	resultCh := make(chan event.AwaitResult, 1)
 	go func() {
 		result := Await(ctx, bus, "function", "function.(accept|reject)", path)
 		resultCh <- result
@@ -116,7 +116,7 @@ func TestAwaiter_WaitFor_IgnoresOtherPaths(t *testing.T) {
 	targetPath := "test:target"
 	otherPath := "test:other"
 
-	resultCh := make(chan AwaitResult, 1)
+	resultCh := make(chan event.AwaitResult, 1)
 	go func() {
 		result := AwaitWithTimeout(ctx, bus, "function", "function.(accept|reject)", targetPath, 200*time.Millisecond)
 		resultCh <- result
@@ -158,7 +158,7 @@ func TestAwaiter_WaitFor_ContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	path := "test:function"
 
-	resultCh := make(chan AwaitResult, 1)
+	resultCh := make(chan event.AwaitResult, 1)
 	go func() {
 		result := Await(ctx, bus, "function", "function.(accept|reject)", path)
 		resultCh <- result

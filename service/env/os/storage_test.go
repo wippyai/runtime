@@ -11,9 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/env"
 )
 
-func TestStorage_ImplementsInterface(_ *testing.T) {
-	var _ env.Storage = (*Storage)(nil)
-}
+var _ env.Storage = (*Storage)(nil)
 
 func TestStorage_Get(t *testing.T) {
 	storage := NewStorage()
@@ -72,9 +70,7 @@ func TestStorage_List(t *testing.T) {
 	assert.Equal(t, "list_value", values["TEST_LIST_VAR"])
 }
 
-func TestStaticStorage_ImplementsInterface(_ *testing.T) {
-	var _ env.Storage = (*StaticStorage)(nil)
-}
+var _ env.Storage = (*StaticStorage)(nil)
 
 func TestStaticStorage_Get(t *testing.T) {
 	data := map[string]string{
@@ -148,7 +144,7 @@ func TestStaticStorage_NilData(t *testing.T) {
 	assert.Empty(t, values)
 }
 
-func TestStaticStorage_Concurrent(_ *testing.T) {
+func TestStaticStorage_Concurrent(t *testing.T) {
 	data := map[string]string{"KEY": "value"}
 	storage := NewStaticStorage(data)
 	ctx := context.Background()
@@ -167,7 +163,9 @@ func TestStaticStorage_Concurrent(_ *testing.T) {
 			_, _ = storage.List(ctx)
 		}()
 	}
-	wg.Wait()
+	assert.NotPanics(t, func() {
+		wg.Wait()
+	})
 }
 
 // Benchmarks

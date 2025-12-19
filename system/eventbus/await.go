@@ -19,13 +19,6 @@ type Awaiter struct {
 	timeout time.Duration
 }
 
-// AwaitResult contains the result of waiting for an event.
-type AwaitResult struct {
-	Event    event.Event
-	Accepted bool
-	Error    error
-}
-
 // Waiter represents a prepared wait operation.
 // Subscribe first, then trigger the action, then wait for result.
 type Waiter struct {
@@ -81,7 +74,7 @@ func (a *Awaiter) Prepare(ctx context.Context, path event.Path) (*Waiter, error)
 }
 
 // Wait blocks until the expected event arrives or timeout.
-func (w *Waiter) Wait() AwaitResult {
+func (w *Waiter) Wait() event.AwaitResult {
 	defer w.Close()
 
 	timeoutCtx, cancel := context.WithTimeout(w.ctx, w.timeout)
@@ -100,13 +93,13 @@ func (w *Waiter) Wait() AwaitResult {
 					resultErr = e
 				}
 			}
-			return AwaitResult{Event: evt, Accepted: accepted, Error: resultErr}
+			return event.AwaitResult{Event: evt, Accepted: accepted, Error: resultErr}
 
 		case <-timeoutCtx.Done():
 			if w.ctx.Err() != nil {
-				return AwaitResult{Error: w.ctx.Err()}
+				return event.AwaitResult{Error: w.ctx.Err()}
 			}
-			return AwaitResult{Error: NewAwaitTimeoutError(w.path)}
+			return event.AwaitResult{Error: NewAwaitTimeoutError(w.path)}
 		}
 	}
 }
@@ -122,22 +115,22 @@ func (w *Waiter) Close() {
 // WaitFor subscribes, waits for event, then unsubscribes.
 // WARNING: Has race condition if event fires before subscription completes.
 // Prefer Prepare() + Wait() pattern for critical paths.
-func (a *Awaiter) WaitFor(ctx context.Context, path event.Path) AwaitResult {
+func (a *Awaiter) WaitFor(ctx context.Context, path event.Path) event.AwaitResult {
 	waiter, err := a.Prepare(ctx, path)
 	if err != nil {
-		return AwaitResult{Error: err}
+		return event.AwaitResult{Error: err}
 	}
 	return waiter.Wait()
 }
 
 // Await is a convenience function for one-shot event waiting.
 // WARNING: Has race condition. Use Awaiter.Prepare() for critical paths.
-func Await(ctx context.Context, bus event.Bus, system event.System, kind event.Kind, path event.Path) AwaitResult {
+func Await(ctx context.Context, bus event.Bus, system event.System, kind event.Kind, path event.Path) event.AwaitResult {
 	return NewAwaiter(bus, system, kind).WaitFor(ctx, path)
 }
 
 // AwaitWithTimeout is Await with custom timeout.
-func AwaitWithTimeout(ctx context.Context, bus event.Bus, system event.System, kind event.Kind, path event.Path, timeout time.Duration) AwaitResult {
+func AwaitWithTimeout(ctx context.Context, bus event.Bus, system event.System, kind event.Kind, path event.Path, timeout time.Duration) event.AwaitResult {
 	return NewAwaiter(bus, system, kind).WithTimeout(timeout).WaitFor(ctx, path)
 }
 

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	wsapi "github.com/wippyai/runtime/api/service/websocket"
@@ -295,7 +296,7 @@ func TestRegistryContextCancel(t *testing.T) {
 	}
 }
 
-func TestRegistryConcurrentAccess(_ *testing.T) {
+func TestRegistryConcurrentAccess(t *testing.T) {
 	ts := newReadOnlyServer()
 	defer ts.Close()
 
@@ -326,7 +327,9 @@ func TestRegistryConcurrentAccess(_ *testing.T) {
 		}()
 	}
 
-	wg.Wait()
+	assert.NotPanics(t, func() {
+		wg.Wait()
+	})
 }
 
 func TestGetRegistry(t *testing.T) {

@@ -53,16 +53,29 @@ func NewPIDRegistry(opts ...Option) *PIDRegistry {
 	return r
 }
 
-// Register associates a name with a PID.
-// Overwrites if the name is already registered.
-func (r *PIDRegistry) Register(name string, p pid.PID) error {
-	r.nameToID.Store(name, p)
+// Register associates a name with a PID atomically.
+// Returns (p, nil) on success.
+// Returns (existingPID, ErrNameAlreadyRegistered) if name is taken by different PID.
+// Re-registering same name with same PID is allowed and returns (p, nil).
+func (r *PIDRegistry) Register(name string, p pid.PID) (pid.PID, error) {
+	actual, loaded := r.nameToID.LoadOrStore(name, p)
+	if loaded {
+		existingPID, ok := actual.(pid.PID)
+		if !ok {
+			return p, nil
+		}
+		// Name already exists - check if it's the same PID (re-registration is ok)
+		if existingPID == p {
+			return p, nil
+		}
+		return existingPID, topology.ErrNameAlreadyRegistered
+	}
 
 	pidKey := p.String()
 	val, _ := r.idToName.LoadOrStore(pidKey, &pidNames{})
 	pn, ok := val.(*pidNames)
 	if !ok {
-		return nil
+		return p, nil
 	}
 
 	pn.mu.Lock()
@@ -73,7 +86,7 @@ func (r *PIDRegistry) Register(name string, p pid.PID) error {
 		zap.String("name", name),
 		zap.String("pid", pidKey))
 
-	return nil
+	return p, nil
 }
 
 // Unregister removes a name registration.

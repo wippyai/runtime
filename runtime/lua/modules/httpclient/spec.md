@@ -182,7 +182,6 @@ The `options` table supports the following fields:
 | stream | boolean | false | Return stream object instead of buffering body |
 | max_response_body | integer | 0 | Max response size in bytes (0 = default limit) |
 | unix_socket | string | nil | Unix socket path (requires security permission) |
-| allow_private_ips | boolean | false | Allow private/internal IPs (SSRF protection) |
 
 **File definition format:**
 
@@ -217,6 +216,7 @@ Common error strings:
 - `"no context"` - internal error
 - `"not allowed: {url}"` - security policy denied request
 - `"not allowed: unix socket {path}"` - security policy denied unix socket
+- `"not allowed: private IP {ip}"` - SSRF protection blocked private IP
 - Network errors (DNS, connection, timeout, etc.)
 - HTTP protocol errors
 

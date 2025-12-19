@@ -1,11 +1,14 @@
 package process
 
 import (
+	"strings"
+
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	secapi "github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -22,6 +25,8 @@ type Spawner struct {
 	hasActor bool
 	scope    secapi.Scope
 	hasScope bool
+	name     string           // optional: register process under this name
+	messages []*relay.Message // optional: initial messages for spawn-or-signal
 }
 
 func init() {
@@ -29,6 +34,8 @@ func init() {
 		"with_context":           spawnerWithContext,
 		"with_actor":             spawnerWithActor,
 		"with_scope":             spawnerWithScope,
+		"with_name":              spawnerWithName,
+		"with_message":           spawnerWithMessage,
 		"spawn":                  spawnerSpawn,
 		"spawn_monitored":        spawnerSpawnMonitored,
 		"spawn_linked":           spawnerSpawnLinked,
@@ -87,6 +94,78 @@ func spawnerNew(l *lua.LState) int {
 	return 1
 }
 
+// spawnerWithName sets the process name for spawn-or-signal
+func spawnerWithName(l *lua.LState) int {
+	ud := l.CheckUserData(1)
+	spawner, ok := ud.Value.(*Spawner)
+	if !ok {
+		l.ArgError(1, "Spawner expected")
+		return 0
+	}
+
+	name := l.CheckString(2)
+	if name == "" {
+		l.ArgError(2, "name cannot be empty")
+		return 0
+	}
+
+	newSpawner := &Spawner{
+		values:   spawner.values,
+		actor:    spawner.actor,
+		hasActor: spawner.hasActor,
+		scope:    spawner.scope,
+		hasScope: spawner.hasScope,
+		name:     name,
+		messages: spawner.messages,
+	}
+
+	value.PushTypedUserData(l, newSpawner, spawnerTypeName)
+	return 1
+}
+
+// spawnerWithMessage adds a message to be sent after spawn (or to existing process if name taken)
+func spawnerWithMessage(l *lua.LState) int {
+	ud := l.CheckUserData(1)
+	spawner, ok := ud.Value.(*Spawner)
+	if !ok {
+		l.ArgError(1, "Spawner expected")
+		return 0
+	}
+
+	topic := l.CheckString(2)
+	if strings.HasPrefix(topic, "@") {
+		l.ArgError(2, "cannot send to @ topics")
+		return 0
+	}
+
+	var payloads payload.Payloads
+	for i := 3; i <= l.GetTop(); i++ {
+		payloads = append(payloads, payload.NewPayload(l.Get(i), payload.Lua))
+	}
+
+	msg := &relay.Message{
+		Topic:    topic,
+		Payloads: payloads,
+	}
+
+	newMessages := make([]*relay.Message, len(spawner.messages)+1)
+	copy(newMessages, spawner.messages)
+	newMessages[len(spawner.messages)] = msg
+
+	newSpawner := &Spawner{
+		values:   spawner.values,
+		actor:    spawner.actor,
+		hasActor: spawner.hasActor,
+		scope:    spawner.scope,
+		hasScope: spawner.hasScope,
+		name:     spawner.name,
+		messages: newMessages,
+	}
+
+	value.PushTypedUserData(l, newSpawner, spawnerTypeName)
+	return 1
+}
+
 // spawnerWithContext adds context values to the spawner
 func spawnerWithContext(l *lua.LState) int {
 	ud := l.CheckUserData(1)
@@ -128,6 +207,8 @@ func spawnerWithContext(l *lua.LState) int {
 		hasActor: spawner.hasActor,
 		scope:    spawner.scope,
 		hasScope: spawner.hasScope,
+		name:     spawner.name,
+		messages: spawner.messages,
 	}
 
 	value.PushTypedUserData(l, newSpawner, spawnerTypeName)
@@ -167,6 +248,8 @@ func spawnerWithActor(l *lua.LState) int {
 		hasActor: true,
 		scope:    spawner.scope,
 		hasScope: spawner.hasScope,
+		name:     spawner.name,
+		messages: spawner.messages,
 	}
 
 	value.PushTypedUserData(l, newSpawner, spawnerTypeName)
@@ -206,6 +289,8 @@ func spawnerWithScope(l *lua.LState) int {
 		hasActor: spawner.hasActor,
 		scope:    scope,
 		hasScope: true,
+		name:     spawner.name,
+		messages: spawner.messages,
 	}
 
 	value.PushTypedUserData(l, newSpawner, spawnerTypeName)
@@ -281,14 +366,19 @@ func doSpawnerSpawn(l *lua.LState, monitored, linked bool) int {
 
 	options := attrs.NewBag()
 	options.Set(process.LifecycleParentKey, self)
+	if spawner.name != "" {
+		options.Set(process.LifecycleNameKey, spawner.name)
+	}
 
 	yield := AcquireSpawnYield()
 	yield.Start = &process.Start{
-		HostID:  hostID,
-		Source:  registry.ParseID(id),
-		Input:   payloads,
-		Context: buildSpawnerContext(spawner),
-		Options: options,
+		HostID:   hostID,
+		Source:   registry.ParseID(id),
+		Input:    payloads,
+		Context:  buildSpawnerContext(spawner),
+		Options:  options,
+		Name:     spawner.name,
+		Messages: spawner.messages,
 	}
 	yield.Monitor = monitored
 	yield.Link = linked

@@ -103,9 +103,6 @@ func (f *DefaultClientFactory) buildClientOptions(ctx context.Context, logger *z
 		return opts, fmt.Errorf("failed to configure TLS: %w", err)
 	}
 
-	// Configure connection options
-	f.configureConnectionOptions(config, &opts)
-
 	return opts, nil
 }
 
@@ -251,11 +248,4 @@ func (f *DefaultClientFactory) configureTLS(logger *zap.Logger, config *api.Clie
 	}
 
 	return nil
-}
-
-// configureConnectionOptions sets up connection-related options.
-// Connection timeout is handled via context in CreateClient.
-// Keep-alive settings are handled by gRPC automatically.
-func (f *DefaultClientFactory) configureConnectionOptions(_ *api.ClientConfig, _ *client.Options) {
-	// Reserved for future connection options (e.g., custom keep-alive params)
 }

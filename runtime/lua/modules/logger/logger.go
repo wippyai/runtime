@@ -41,6 +41,7 @@ var Module = &luaapi.ModuleDef{
 	Description: "Structured logging",
 	Class:       []string{luaapi.ClassIO},
 	BuildValue:  buildModule,
+	Types:       ModuleTypes,
 }
 
 func buildModule() (lua.LValue, []luaapi.YieldType) {

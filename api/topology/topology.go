@@ -48,9 +48,11 @@ type (
 
 	// PIDRegistry defines the interface for a Target registry with Erlang-style semantics
 	PIDRegistry interface {
-		// Register associates a name with a Target
-		// Returns error if name is already taken
-		Register(name string, p pid.PID) error
+		// Register associates a name with a PID atomically.
+		// Returns (p, nil) on success.
+		// Returns (existingPID, ErrNameAlreadyRegistered) if name is taken by a different PID.
+		// Re-registering the same name with same PID is allowed and returns (p, nil).
+		Register(name string, p pid.PID) (pid.PID, error)
 
 		// Unregister removes a name registration
 		// Returns true if the name was registered and has been removed

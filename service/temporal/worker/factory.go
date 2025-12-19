@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 
+	"github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	api "github.com/wippyai/runtime/api/service/temporal"
@@ -23,12 +24,14 @@ type Factory interface {
 
 // DefaultWorkerFactory is the default implementation of Factory
 type DefaultWorkerFactory struct {
+	envReg       env.Registry
 	interceptors []interceptor.WorkerInterceptor
 }
 
 // NewDefaultWorkerFactory creates a new DefaultWorkerFactory
-func NewDefaultWorkerFactory(interceptors []interceptor.WorkerInterceptor) *DefaultWorkerFactory {
+func NewDefaultWorkerFactory(envReg env.Registry, interceptors []interceptor.WorkerInterceptor) *DefaultWorkerFactory {
 	return &DefaultWorkerFactory{
+		envReg:       envReg,
 		interceptors: interceptors,
 	}
 }
@@ -41,5 +44,5 @@ func (f *DefaultWorkerFactory) CreateWorker(
 	config *api.WorkerConfig,
 	resourceReg resource.Registry,
 ) (*Worker, error) {
-	return NewWorker(logger, id, config, resourceReg, f.interceptors), nil
+	return NewWorker(logger, id, config, resourceReg, f.envReg, f.interceptors), nil
 }

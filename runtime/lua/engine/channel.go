@@ -199,7 +199,7 @@ func (c *Channel) Receive(task *lua.LState, selectOp *SelectOp) *ChannelResult {
 
 func (c *Channel) Close(caller *lua.LState) *ChannelResult {
 	if c.closed {
-		return nil
+		return errorResult(caller, errors.New("close of closed channel"))
 	}
 	c.closed = true
 

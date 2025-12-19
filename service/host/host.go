@@ -3,6 +3,7 @@ package host
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
@@ -12,10 +13,19 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	hostapi "github.com/wippyai/runtime/api/service/host"
+	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/internal/uniqid"
 	"github.com/wippyai/runtime/system/scheduler/actor"
 	"go.uber.org/zap"
 )
+
+// Option configures a Host.
+type Option func(*Host)
+
+// WithPIDRegistry enables shortcut optimization for spawn-or-signal.
+func WithPIDRegistry(reg topology.PIDRegistry) Option {
+	return func(h *Host) { h.pidReg = reg }
+}
 
 // Host implements process.Host using the actor scheduler.
 type Host struct {
@@ -25,6 +35,7 @@ type Host struct {
 	scheduler *actor.Scheduler
 	factory   process.Factory
 	pidGen    *uniqid.PIDGenerator
+	pidReg    topology.PIDRegistry // optional: for spawn-or-signal shortcut
 	ctx       context.Context
 
 	running  atomic.Bool
@@ -32,8 +43,8 @@ type Host struct {
 }
 
 // NewHost creates a new host with actor scheduler.
-func NewHost(id registry.ID, cfg *hostapi.EntryConfig, scheduler *actor.Scheduler, factory process.Factory, pidGen *uniqid.PIDGenerator, logger *zap.Logger) *Host {
-	return &Host{
+func NewHost(id registry.ID, cfg *hostapi.EntryConfig, scheduler *actor.Scheduler, factory process.Factory, pidGen *uniqid.PIDGenerator, logger *zap.Logger, opts ...Option) *Host {
+	h := &Host{
 		id:        id,
 		cfg:       cfg,
 		log:       logger,
@@ -41,6 +52,10 @@ func NewHost(id registry.ID, cfg *hostapi.EntryConfig, scheduler *actor.Schedule
 		factory:   factory,
 		pidGen:    pidGen,
 	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
 }
 
 // Run implements process.Host.
@@ -50,6 +65,19 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 	}
 	if h.shutdown.Load() {
 		return pid.PID{}, ErrHostShuttingDown
+	}
+
+	// Shortcut: if name specified and already exists, route directly to existing process
+	if start.Name != "" && h.pidReg != nil {
+		if existingPID, ok := h.pidReg.Lookup(start.Name); ok {
+			if len(start.Messages) > 0 {
+				h.sendMessages(existingPID, start.Messages)
+			}
+			h.log.Debug("spawn-or-signal: shortcut to existing process",
+				zap.String("name", start.Name),
+				zap.String("existing_pid", existingPID.String()))
+			return existingPID, nil
+		}
 	}
 
 	proc, meta, err := h.factory.Create(start.Source)
@@ -67,7 +95,20 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 
 	if _, err = h.scheduler.Submit(frameCtx, processID, proc, method, start.Input); err != nil {
 		proc.Close()
+
+		// Handle spawn-or-signal: if name taken, route messages to existing process
+		if errors.Is(err, topology.ErrNameAlreadyRegistered) {
+			if existingPID, ok := topology.GetExistingPID(err); ok {
+				return h.handleNameTaken(existingPID, start)
+			}
+		}
+
 		return pid.PID{}, err
+	}
+
+	// Send initial messages after successful spawn
+	if len(start.Messages) > 0 {
+		h.sendMessages(processID, start.Messages)
 	}
 
 	h.log.Debug("process started",
@@ -76,6 +117,29 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 		zap.String("method", method))
 
 	return processID, nil
+}
+
+// handleNameTaken routes messages to existing process when name is already taken.
+func (h *Host) handleNameTaken(existingPID pid.PID, start *process.Start) (pid.PID, error) {
+	if len(start.Messages) > 0 {
+		h.sendMessages(existingPID, start.Messages)
+	}
+
+	h.log.Debug("spawn-or-signal: routed to existing process",
+		zap.String("name", start.Name),
+		zap.String("existing_pid", existingPID.String()))
+
+	return existingPID, nil
+}
+
+// sendMessages sends messages to the target PID.
+func (h *Host) sendMessages(target pid.PID, messages []*relay.Message) {
+	pkg := relay.NewMessagePackage(pid.PID{}, target, messages...)
+	if err := h.scheduler.Send(pkg); err != nil {
+		h.log.Warn("failed to send messages",
+			zap.String("target", target.String()),
+			zap.Error(err))
+	}
 }
 
 // Terminate implements process.Host.
@@ -153,7 +217,7 @@ func (h *Host) prepareContext(ctx context.Context, processID pid.PID, start *pro
 
 // OnStart implements scheduler.Lifecycle.
 // Host-specific lifecycle is empty; global lifecycle handles process registration.
-func (h *Host) OnStart(_ context.Context, _ pid.PID, _ process.Process) {}
+func (h *Host) OnStart(_ context.Context, _ pid.PID, _ process.Process) error { return nil }
 
 // OnComplete implements scheduler.Lifecycle.
 func (h *Host) OnComplete(ctx context.Context, _ pid.PID, _ *runtime.Result) {

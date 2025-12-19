@@ -59,10 +59,24 @@ type WorkerOptionsConfig struct {
 	Identity string `json:"identity,omitempty"`
 
 	// Deployment versioning (replaces deprecated BuildID/UseBuildIDForVersioning)
-	DeploymentName string `json:"deployment_name,omitempty"`
-	BuildID        string `json:"build_id,omitempty"`
-	UseVersioning  bool   `json:"use_versioning,omitempty"`
+	DeploymentName            string             `json:"deployment_name,omitempty"`
+	BuildID                   string             `json:"build_id,omitempty"`
+	BuildIDEnv                string             `json:"build_id_env,omitempty"` // Environment variable name for build ID
+	UseVersioning             bool               `json:"use_versioning,omitempty"`
+	DefaultVersioningBehavior VersioningBehavior `json:"default_versioning_behavior,omitempty"`
 }
+
+// VersioningBehavior specifies how workflows handle version changes.
+type VersioningBehavior string
+
+const (
+	// VersioningBehaviorUnspecified requires each workflow to explicitly set behavior.
+	VersioningBehaviorUnspecified VersioningBehavior = ""
+	// VersioningBehaviorPinned keeps workflow on the same build ID until completion.
+	VersioningBehaviorPinned VersioningBehavior = "pinned"
+	// VersioningBehaviorAutoUpgrade moves workflow to latest version on next task.
+	VersioningBehaviorAutoUpgrade VersioningBehavior = "auto_upgrade"
+)
 
 // UnmarshalJSON implements custom unmarshaling for WorkerOptionsConfig to handle time.Duration fields
 func (c *WorkerOptionsConfig) UnmarshalJSON(data []byte) error {

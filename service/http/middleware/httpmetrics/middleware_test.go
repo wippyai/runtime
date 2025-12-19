@@ -284,10 +284,7 @@ func TestStatusWriter(t *testing.T) {
 }
 
 // Ensure interface compliance
-func TestInterfaceCompliance(_ *testing.T) {
-	collector := newMockCollector()
-	_ = metrics.Collector(collector)
-}
+var _ metrics.Collector = (*mockCollector)(nil)
 
 func TestWithContextCancel(t *testing.T) {
 	collector := newMockCollector()

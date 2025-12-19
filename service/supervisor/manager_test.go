@@ -182,6 +182,4 @@ func TestManager_Delete(t *testing.T) {
 	assert.False(t, exists)
 }
 
-func TestManager_ImplementsEntryListener(_ *testing.T) {
-	var _ registry.EntryListener = (*Manager)(nil)
-}
+var _ registry.EntryListener = (*Manager)(nil)

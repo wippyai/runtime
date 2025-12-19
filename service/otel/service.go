@@ -88,14 +88,14 @@ func (s *Service) HTTPMiddleware() func(http.Handler) http.Handler {
 }
 
 // OnStart implements scheduler.Lifecycle.
-func (s *Service) OnStart(ctx stdcontext.Context, p pid.PID, _ process.Process) {
+func (s *Service) OnStart(ctx stdcontext.Context, p pid.PID, _ process.Process) error {
 	if !s.cfg.Process.Enabled || !s.cfg.Process.TraceLifecycle {
-		return
+		return nil
 	}
 
 	processSpanCtx, hasSpan := otelapi.GetRemoteSpanContext(ctx)
 	if !hasSpan || !processSpanCtx.IsValid() {
-		return
+		return nil
 	}
 
 	sourceID, hasSource := runtime.GetFrameID(ctx)
@@ -116,6 +116,7 @@ func (s *Service) OnStart(ctx stdcontext.Context, p pid.PID, _ process.Process) 
 		startSpan.SetAttributes(attribute.String("process.source", sourceID.String()))
 	}
 	startSpan.End()
+	return nil
 }
 
 // OnComplete implements scheduler.Lifecycle.

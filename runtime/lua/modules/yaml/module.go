@@ -1,12 +1,21 @@
 package yaml
 
 import (
+	"sort"
+	"strings"
+
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 	"gopkg.in/yaml.v3"
 )
+
+// YAMLOptions holds formatting options for YAML encoding
+type YAMLOptions struct {
+	FieldOrder    []string
+	SortUnordered bool
+}
 
 // Module is the yaml module definition.
 var Module = &luaapi.ModuleDef{
@@ -33,16 +42,68 @@ func encodeFunc(l *lua.LState) int {
 		return invalidError(l, "table expected")
 	}
 
-	goVal := value.ToGoAny(luaVal)
-
-	data, err := yaml.Marshal(goVal)
-	if err != nil {
-		return internalError(l, err, "encode failed")
+	options := YAMLOptions{
+		FieldOrder:    []string{},
+		SortUnordered: false,
 	}
 
-	l.Push(lua.LString(data))
+	if l.GetTop() >= 2 && l.Get(2).Type() == lua.LTTable {
+		optionsTable := l.CheckTable(2)
+		extractOptions(optionsTable, &options)
+	}
+
+	goVal := value.ToGoAny(luaVal)
+
+	if len(options.FieldOrder) > 0 || options.SortUnordered {
+		node := yaml.Node{}
+		err := node.Encode(goVal)
+		if err != nil {
+			return internalError(l, err, "encode to node failed")
+		}
+		processNode(&node, &options)
+
+		var buf strings.Builder
+		encoder := yaml.NewEncoder(&buf)
+		encoder.SetIndent(2)
+		if err = encoder.Encode(&node); err != nil {
+			return internalError(l, err, "encode failed")
+		}
+		l.Push(lua.LString(buf.String()))
+	} else {
+		data, err := yaml.Marshal(goVal)
+		if err != nil {
+			return internalError(l, err, "encode failed")
+		}
+		l.Push(lua.LString(data))
+	}
+
 	l.Push(lua.LNil)
 	return 2
+}
+
+func extractOptions(table *lua.LTable, options *YAMLOptions) {
+	if val := table.RawGetString("sort_unordered"); val.Type() == lua.LTBool {
+		options.SortUnordered = lua.LVAsBool(val)
+	}
+
+	if val := table.RawGetString("field_order"); val.Type() == lua.LTTable {
+		options.FieldOrder = tableToStringSlice(val.(*lua.LTable))
+	}
+}
+
+func tableToStringSlice(table *lua.LTable) []string {
+	var result []string
+	maxN := table.MaxN()
+
+	if maxN > 0 {
+		for i := 1; i <= maxN; i++ {
+			if v := table.RawGetInt(i); v.Type() == lua.LTString {
+				result = append(result, v.String())
+			}
+		}
+	}
+
+	return result
 }
 
 func decodeFunc(l *lua.LState) int {
@@ -68,6 +129,82 @@ func decodeFunc(l *lua.LState) int {
 	l.Push(lv)
 	l.Push(lua.LNil)
 	return 2
+}
+
+func processNode(node *yaml.Node, options *YAMLOptions) {
+	if node == nil {
+		return
+	}
+
+	switch node.Kind {
+	case yaml.DocumentNode:
+		for _, content := range node.Content {
+			processNode(content, options)
+		}
+
+	case yaml.MappingNode:
+		orderMappingNode(node, options.FieldOrder, options.SortUnordered)
+		for i := 0; i < len(node.Content); i += 2 {
+			if i+1 < len(node.Content) {
+				processNode(node.Content[i+1], options)
+			}
+		}
+
+	case yaml.SequenceNode:
+		for _, content := range node.Content {
+			processNode(content, options)
+		}
+	}
+}
+
+func orderMappingNode(node *yaml.Node, fieldOrder []string, sortUnordered bool) {
+	if node == nil || len(node.Content) < 2 {
+		return
+	}
+
+	orderIndexMap := make(map[string]int)
+	for i, fieldName := range fieldOrder {
+		orderIndexMap[fieldName] = i
+	}
+
+	keyValuePairs := make([][2]*yaml.Node, 0, len(node.Content)/2)
+	for i := 0; i < len(node.Content); i += 2 {
+		if i+1 < len(node.Content) {
+			keyNode := node.Content[i]
+			valueNode := node.Content[i+1]
+			if keyNode.Kind == yaml.ScalarNode {
+				keyValuePairs = append(keyValuePairs, [2]*yaml.Node{keyNode, valueNode})
+			}
+		}
+	}
+
+	sort.SliceStable(keyValuePairs, func(i, j int) bool {
+		keyNameI := keyValuePairs[i][0].Value
+		keyNameJ := keyValuePairs[j][0].Value
+
+		orderI, existsI := orderIndexMap[keyNameI]
+		orderJ, existsJ := orderIndexMap[keyNameJ]
+
+		if existsI && existsJ {
+			return orderI < orderJ
+		}
+		if existsI {
+			return true
+		}
+		if existsJ {
+			return false
+		}
+		if sortUnordered {
+			return keyNameI < keyNameJ
+		}
+		return false
+	})
+
+	newContent := make([]*yaml.Node, 0, len(keyValuePairs)*2)
+	for _, pair := range keyValuePairs {
+		newContent = append(newContent, pair[0], pair[1])
+	}
+	node.Content = newContent
 }
 
 func invalidError(l *lua.LState, msg string) int {

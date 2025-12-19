@@ -94,7 +94,6 @@ var statusConstType = &types.InterfaceType{
 		"UNPROCESSABLE":         types.Number,
 		"TOO_MANY_REQUESTS":     types.Number,
 		"INTERNAL_ERROR":        types.Number,
-		"INTERNAL_SERVER_ERROR": types.Number,
 		"NOT_IMPLEMENTED":       types.Number,
 		"BAD_GATEWAY":           types.Number,
 		"SERVICE_UNAVAILABLE":   types.Number,

@@ -301,8 +301,12 @@ func querySetTimeout(l *lua.LState) int {
 	if query == nil {
 		return 0
 	}
-	timeout := uint64(l.CheckNumber(2))
-	query.cursor.SetTimeoutMicros(timeout)
+	duration, err := parseDuration(l, 2)
+	if err != nil {
+		l.ArgError(2, err.Error())
+		return 0
+	}
+	query.cursor.SetTimeoutMicros(uint64(duration.Microseconds()))
 	return 0
 }
 
@@ -311,7 +315,8 @@ func queryGetTimeout(l *lua.LState) int {
 	if query == nil {
 		return 0
 	}
-	l.Push(lua.LNumber(query.cursor.TimeoutMicros()))
+	micros := query.cursor.TimeoutMicros()
+	l.Push(lua.LNumber(micros * 1000)) // return nanoseconds
 	return 1
 }
 

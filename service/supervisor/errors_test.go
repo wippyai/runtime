@@ -9,10 +9,10 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
-func TestError_Implements(_ *testing.T) {
-	var _ error = ErrNoRelayNode
-	var _ apierror.Error = ErrNoRelayNode
-}
+var (
+	_ error          = ErrNoRelayNode
+	_ apierror.Error = ErrNoRelayNode
+)
 
 func TestSentinelErrors(t *testing.T) {
 	tests := []struct {

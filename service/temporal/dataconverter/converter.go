@@ -8,6 +8,8 @@ import (
 	"go.temporal.io/sdk/converter"
 )
 
+var _ converter.DataConverter = (*DataConverter)(nil)
+
 // DataConverter implements converter.DataConverter interface for internal payloads.
 type DataConverter struct {
 	dtt      payload.Transcoder
@@ -131,23 +133,29 @@ func (c *DataConverter) ToPayload(value any) (*commonpb.Payload, error) {
 	}
 
 	if pValue.Format() == payload.Bytes {
+		data, ok := pValue.Data().([]byte)
+		if !ok {
+			return nil, fmt.Errorf("bytes payload data is not []byte")
+		}
 		return &commonpb.Payload{
-				Metadata: map[string][]byte{
-					converter.MetadataEncoding: []byte(converter.MetadataEncodingBinary),
-				},
-				Data: pValue.Data().([]byte),
+			Metadata: map[string][]byte{
+				converter.MetadataEncoding: []byte(converter.MetadataEncodingBinary),
 			},
-			nil
+			Data: data,
+		}, nil
 	}
 
 	if pValue.Format() == payload.JSON {
+		data, ok := pValue.Data().([]byte)
+		if !ok {
+			return nil, fmt.Errorf("json payload data is not []byte")
+		}
 		return &commonpb.Payload{
-				Metadata: map[string][]byte{
-					converter.MetadataEncoding: []byte(converter.MetadataEncodingJSON),
-				},
-				Data: pValue.Data().([]byte),
+			Metadata: map[string][]byte{
+				converter.MetadataEncoding: []byte(converter.MetadataEncodingJSON),
 			},
-			nil
+			Data: data,
+		}, nil
 	}
 
 	// we need some common format, and for now it's JSON
@@ -183,20 +191,14 @@ func (c *DataConverter) FromPayload(p *commonpb.Payload, valuePtr any) error {
 		return c.fallback.FromPayload(p, valuePtr)
 	}
 
-	// we only support JSON encoding for now
 	enc, ok := p.Metadata[converter.MetadataEncoding]
 	if !ok {
-		return fmt.Errorf("unsupported paylolad to payload encoding %s", enc)
+		return fmt.Errorf("missing encoding metadata in payload")
 	}
 
 	switch {
 	case string(enc) == converter.MetadataEncodingJSON:
-		jsonPayload := payload.NewPayload(p.Data, payload.JSON)
-		converted, err := c.dtt.Transcode(jsonPayload, payload.Lua)
-		if err != nil {
-			return fmt.Errorf("failed to transcode from JSON: %w", err)
-		}
-		*ptr = converted
+		*ptr = payload.NewPayload(p.Data, payload.JSON)
 		return nil
 	case string(enc) == converter.MetadataEncodingNil:
 		*ptr = payload.New(nil)

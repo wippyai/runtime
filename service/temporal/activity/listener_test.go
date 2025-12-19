@@ -51,9 +51,7 @@ func (m *mockWorkerRegistry) UnregisterActivity(_ context.Context, workerID regi
 	return nil
 }
 
-func TestListener_ImplementsEntryListener(_ *testing.T) {
-	var _ registry.EntryListener = (*Listener)(nil)
-}
+var _ registry.EntryListener = (*Listener)(nil)
 
 func TestListener_Add_RegisterActivity(t *testing.T) {
 	t.Run("register function as activity", func(t *testing.T) {

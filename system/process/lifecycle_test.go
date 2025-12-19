@@ -2,6 +2,7 @@ package process
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 
@@ -20,11 +21,12 @@ type mockLifecycle struct {
 	mu               sync.Mutex
 }
 
-func (m *mockLifecycle) OnStart(_ context.Context, p pid.PID, _ process.Process) {
+func (m *mockLifecycle) OnStart(_ context.Context, p pid.PID, _ process.Process) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.onStartCalled = true
 	m.startPID = p
+	return nil
 }
 
 func (m *mockLifecycle) OnComplete(_ context.Context, p pid.PID, result *runtime.Result) {
@@ -45,7 +47,8 @@ func TestLifecycleRegistry_Register(t *testing.T) {
 	reg.Register("lc2", lc2)
 
 	p := pid.PID{UniqID: "test-pid"}
-	reg.OnStart(context.Background(), p, nil)
+	err := reg.OnStart(context.Background(), p, nil)
+	assert.NoError(t, err)
 
 	assert.True(t, lc1.onStartCalled)
 	assert.True(t, lc2.onStartCalled)
@@ -64,7 +67,8 @@ func TestLifecycleRegistry_Unregister(t *testing.T) {
 	reg.Unregister("lc1")
 
 	p := pid.PID{UniqID: "test-pid"}
-	reg.OnStart(context.Background(), p, nil)
+	err := reg.OnStart(context.Background(), p, nil)
+	assert.NoError(t, err)
 
 	assert.False(t, lc1.onStartCalled)
 	assert.True(t, lc2.onStartCalled)
@@ -96,7 +100,8 @@ func TestLifecycleRegistry_ReplaceExisting(t *testing.T) {
 	reg.Register("same-name", lc2)
 
 	p := pid.PID{UniqID: "test-pid"}
-	reg.OnStart(context.Background(), p, nil)
+	err := reg.OnStart(context.Background(), p, nil)
+	assert.NoError(t, err)
 
 	assert.False(t, lc1.onStartCalled)
 	assert.True(t, lc2.onStartCalled)
@@ -121,7 +126,8 @@ func TestLifecycleRegistry_OrderPreserved(t *testing.T) {
 	reg.Register("third", makeLC("third"))
 
 	p := pid.PID{UniqID: "test-pid"}
-	reg.OnStart(context.Background(), p, nil)
+	err := reg.OnStart(context.Background(), p, nil)
+	assert.NoError(t, err)
 
 	assert.Equal(t, []string{"first", "second", "third"}, order)
 }
@@ -132,16 +138,47 @@ type orderTrackingLifecycle struct {
 	mu    *sync.Mutex
 }
 
-func (o *orderTrackingLifecycle) OnStart(_ context.Context, _ pid.PID, _ process.Process) {
+func (o *orderTrackingLifecycle) OnStart(_ context.Context, _ pid.PID, _ process.Process) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	*o.order = append(*o.order, o.name)
+	return nil
 }
 
 func (o *orderTrackingLifecycle) OnComplete(_ context.Context, _ pid.PID, _ *runtime.Result) {
 }
 
-func TestLifecycleRegistry_ConcurrentAccess(_ *testing.T) {
+func TestLifecycleRegistry_OnStartError(t *testing.T) {
+	reg := NewLifecycleRegistry()
+
+	testErr := errors.New("lifecycle error")
+	errorLC := &errorLifecycle{err: testErr}
+	successLC := &mockLifecycle{}
+
+	reg.Register("first", errorLC)
+	reg.Register("second", successLC)
+
+	p := pid.PID{UniqID: "test-pid"}
+	err := reg.OnStart(context.Background(), p, nil)
+
+	assert.Error(t, err)
+	assert.Equal(t, testErr, err)
+	// Second handler should not be called since first errored
+	assert.False(t, successLC.onStartCalled)
+}
+
+type errorLifecycle struct {
+	err error
+}
+
+func (e *errorLifecycle) OnStart(_ context.Context, _ pid.PID, _ process.Process) error {
+	return e.err
+}
+
+func (e *errorLifecycle) OnComplete(_ context.Context, _ pid.PID, _ *runtime.Result) {
+}
+
+func TestLifecycleRegistry_ConcurrentAccess(t *testing.T) {
 	reg := NewLifecycleRegistry()
 
 	var wg sync.WaitGroup
@@ -152,10 +189,14 @@ func TestLifecycleRegistry_ConcurrentAccess(_ *testing.T) {
 			lc := &mockLifecycle{}
 			name := string(rune('a' + i%26))
 			reg.Register(name, lc)
-			reg.OnStart(context.Background(), pid.PID{UniqID: "test"}, nil)
+			_ = reg.OnStart(context.Background(), pid.PID{UniqID: "test"}, nil)
 		}(i)
 	}
-	wg.Wait()
+
+	// Should complete without deadlock or panic
+	assert.NotPanics(t, func() {
+		wg.Wait()
+	})
 }
 
 var _ process.LifecycleRegistry = (*LifecycleRegistry)(nil)
@@ -171,7 +212,7 @@ func BenchmarkLifecycleRegistry_OnStart_2(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		reg.OnStart(ctx, p, nil)
+		_ = reg.OnStart(ctx, p, nil)
 	}
 }
 
@@ -187,7 +228,7 @@ func BenchmarkLifecycleRegistry_OnStart_10(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		reg.OnStart(ctx, p, nil)
+		_ = reg.OnStart(ctx, p, nil)
 	}
 }
 

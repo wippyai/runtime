@@ -31,6 +31,7 @@ const (
 	LifecycleParentKey  = "lifecycle.parent"
 	LifecycleMonitorKey = "lifecycle.monitor"
 	LifecycleLinkKey    = "lifecycle.link"
+	LifecycleNameKey    = "lifecycle.name"
 	OptionPID           = "pid"
 )
 
@@ -42,11 +43,13 @@ type (
 
 	// Start contains the configuration needed to start a new process.
 	Start struct {
-		HostID  pid.HostID
-		Source  registry.ID
-		Input   payload.Payloads
-		Context []ctxapi.Pair
-		Options attrs.Attributes
+		HostID   pid.HostID
+		Source   registry.ID
+		Input    payload.Payloads
+		Context  []ctxapi.Pair
+		Options  attrs.Attributes
+		Name     string           // optional: register process under this name
+		Messages []*relay.Message // optional: initial messages for spawn-or-signal
 	}
 
 	// FactoryEntry is sent via event bus to register a factory.
@@ -84,7 +87,7 @@ type (
 
 	// Lifecycle handles process lifecycle events for schedulers.
 	Lifecycle interface {
-		OnStart(ctx context.Context, p pid.PID, proc Process)
+		OnStart(ctx context.Context, p pid.PID, proc Process) error
 		OnComplete(ctx context.Context, p pid.PID, result *runtime.Result)
 	}
 

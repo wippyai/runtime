@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	clockapi "github.com/wippyai/runtime/api/clock"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
@@ -152,7 +153,7 @@ func TestTickerRegistry_Close(t *testing.T) {
 	}
 }
 
-func TestTickerRegistry_Concurrent(_ *testing.T) {
+func TestTickerRegistry_Concurrent(t *testing.T) {
 	r := newTickerRegistry()
 	defer r.close()
 
@@ -176,7 +177,9 @@ func TestTickerRegistry_Concurrent(_ *testing.T) {
 		}()
 	}
 
-	wg.Wait()
+	assert.NotPanics(t, func() {
+		wg.Wait()
+	})
 }
 
 func TestTickerRegistry_GetShard(t *testing.T) {

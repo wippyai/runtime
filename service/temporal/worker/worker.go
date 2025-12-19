@@ -7,14 +7,16 @@ import (
 	"sync/atomic"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/resource"
 	"github.com/wippyai/runtime/api/runtime"
 	api "github.com/wippyai/runtime/api/service/temporal"
 	"github.com/wippyai/runtime/api/supervisor"
-	temporalsvc "github.com/wippyai/runtime/service/temporal"
+	temporalerrors "github.com/wippyai/runtime/service/temporal/errors"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/interceptor"
 	"go.temporal.io/sdk/worker"
@@ -22,12 +24,19 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	relaySendActivityName = "__wippy_relay_send"
+)
+
+var _ supervisor.Service = (*Worker)(nil)
+
 // Worker wraps a Temporal SDK worker with lifecycle management
 type Worker struct {
 	id           registry.ID
 	config       *api.WorkerConfig
 	log          *zap.Logger
 	resourceReg  resource.Registry
+	envReg       env.Registry
 	interceptors []interceptor.WorkerInterceptor
 
 	mu             sync.RWMutex
@@ -36,22 +45,22 @@ type Worker struct {
 	clientResource resource.Resource[any]
 	closed         atomic.Bool
 	cancel         context.CancelFunc
-	activities     map[string]*ActivityRegistration
-	workflows      map[string]*WorkflowRegistration
+	activities     map[string]*activityRegistration
+	workflows      map[string]*workflowRegistration
 	funcRegistry   function.Registry
 }
 
-// ActivityRegistration represents a registered activity
-type ActivityRegistration struct {
-	Name     string
-	Function registry.ID
-	Local    bool
+// activityRegistration represents a registered activity
+type activityRegistration struct {
+	name     string
+	function registry.ID
+	local    bool
 }
 
-// WorkflowRegistration represents a registered workflow
-type WorkflowRegistration struct {
-	Name    string
-	Handler any // Can be a DefinitionFactory or a native Go workflow function
+// workflowRegistration represents a registered workflow
+type workflowRegistration struct {
+	name    string
+	handler any
 }
 
 // NewWorker creates a new Worker instance
@@ -60,6 +69,7 @@ func NewWorker(
 	id registry.ID,
 	config *api.WorkerConfig,
 	resourceReg resource.Registry,
+	envReg env.Registry,
 	interceptors []interceptor.WorkerInterceptor,
 ) *Worker {
 	return &Worker{
@@ -67,9 +77,10 @@ func NewWorker(
 		config:       config,
 		log:          logger,
 		resourceReg:  resourceReg,
+		envReg:       envReg,
 		interceptors: interceptors,
-		activities:   make(map[string]*ActivityRegistration),
-		workflows:    make(map[string]*WorkflowRegistration),
+		activities:   make(map[string]*activityRegistration),
+		workflows:    make(map[string]*workflowRegistration),
 	}
 }
 
@@ -106,6 +117,11 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 	}
 
 	temporalClient := temporalRes.Client
+	if temporalClient == nil {
+		clientRes.Release()
+		statusCh <- supervisor.StatusFailed
+		return statusCh, fmt.Errorf("temporal client is nil")
+	}
 
 	// Apply task queue prefix from client
 	taskQueue := temporalRes.GetTaskQueueName(w.config.TaskQueue)
@@ -123,8 +139,8 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 		return statusCh, fmt.Errorf("function registry not found in context")
 	}
 
-	// Store application context for activity execution
-	w.ctx = ctx
+	// Store application context with client ID for workflow peer routing
+	w.ctx = api.WithClientID(ctx, w.config.Client.String())
 
 	// Create worker options
 	options := worker.Options{
@@ -167,12 +183,19 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 		options.Identity = w.config.WorkerOptions.Identity
 	}
 	if w.config.WorkerOptions.UseVersioning {
+		buildID := w.config.WorkerOptions.BuildID
+		if buildID == "" && w.config.WorkerOptions.BuildIDEnv != "" && w.envReg != nil {
+			if val, err := w.envReg.Get(ctx, w.config.WorkerOptions.BuildIDEnv); err == nil {
+				buildID = val
+			}
+		}
 		options.DeploymentOptions = worker.DeploymentOptions{
 			UseVersioning: true,
 			Version: worker.WorkerDeploymentVersion{
 				DeploymentName: w.config.WorkerOptions.DeploymentName,
-				BuildID:        w.config.WorkerOptions.BuildID,
+				BuildID:        buildID,
 			},
+			DefaultVersioningBehavior: mapVersioningBehavior(w.config.WorkerOptions.DefaultVersioningBehavior),
 		}
 	}
 
@@ -186,10 +209,13 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 	// Create Temporal SDK worker
 	w.worker = worker.New(temporalClient, taskQueue, options)
 
+	// Register system activities
+	w.registerRelaySendActivity(ctx)
+
 	// Re-register all existing activities and workflows
 	w.mu.RLock()
 	for _, act := range w.activities {
-		if act.Local {
+		if act.local {
 			w.registerLocalActivity(ctx, act)
 		} else {
 			w.registerActivity(ctx, act)
@@ -262,9 +288,9 @@ func (w *Worker) RegisterActivity(ctx context.Context, name string, funcID regis
 		return fmt.Errorf("activity %s already registered", name)
 	}
 
-	reg := &ActivityRegistration{
-		Name:     name,
-		Function: funcID,
+	reg := &activityRegistration{
+		name:     name,
+		function: funcID,
 	}
 
 	w.activities[name] = reg
@@ -290,10 +316,10 @@ func (w *Worker) RegisterLocalActivity(ctx context.Context, name string, funcID 
 		return fmt.Errorf("activity %s already registered", name)
 	}
 
-	reg := &ActivityRegistration{
-		Name:     name,
-		Function: funcID,
-		Local:    true,
+	reg := &activityRegistration{
+		name:     name,
+		function: funcID,
+		local:    true,
 	}
 
 	w.activities[name] = reg
@@ -334,9 +360,9 @@ func (w *Worker) RegisterWorkflow(ctx context.Context, name string, handler any)
 		return fmt.Errorf("workflow %s already registered", name)
 	}
 
-	reg := &WorkflowRegistration{
-		Name:    name,
-		Handler: handler,
+	reg := &workflowRegistration{
+		name:    name,
+		handler: handler,
 	}
 
 	w.workflows[name] = reg
@@ -368,34 +394,54 @@ func (w *Worker) UnregisterWorkflow(name string) error {
 }
 
 // registerActivity registers an activity with the Temporal SDK worker
-func (w *Worker) registerActivity(ctx context.Context, reg *ActivityRegistration) {
-	handler := w.createActivityHandler(ctx, reg.Function)
+func (w *Worker) registerActivity(ctx context.Context, reg *activityRegistration) {
+	handler := w.createActivityHandler(ctx, reg.function)
 	w.worker.RegisterActivityWithOptions(handler, activity.RegisterOptions{
-		Name: reg.Name,
+		Name: reg.name,
 	})
 }
 
 // registerLocalActivity registers a local activity with the Temporal SDK worker
-func (w *Worker) registerLocalActivity(ctx context.Context, reg *ActivityRegistration) {
-	handler := w.createActivityHandler(ctx, reg.Function)
+func (w *Worker) registerLocalActivity(ctx context.Context, reg *activityRegistration) {
+	handler := w.createActivityHandler(ctx, reg.function)
 	w.worker.RegisterActivityWithOptions(handler, activity.RegisterOptions{
-		Name:                          reg.Name,
-		DisableAlreadyRegisteredCheck: false,
-		SkipInvalidStructFunctions:    false,
+		Name: reg.name,
 	})
 }
 
 // registerWorkflow registers a workflow with the Temporal SDK worker
-func (w *Worker) registerWorkflow(_ context.Context, reg *WorkflowRegistration) {
-	// Support DefinitionFactory with WithContext method (for Lua workflows)
-	handler := reg.Handler
+func (w *Worker) registerWorkflow(_ context.Context, reg *workflowRegistration) {
+	// Support DefinitionFactory with WithContext method
+	handler := reg.handler
 	if cwf, ok := handler.(interface{ WithContext(context.Context) any }); ok {
 		handler = cwf.WithContext(w.ctx)
 	}
 
 	// Register directly with Temporal SDK
 	w.worker.RegisterWorkflowWithOptions(handler, workflow.RegisterOptions{
-		Name: reg.Name,
+		Name: reg.name,
+	})
+}
+
+// registerRelaySendActivity registers the system activity for routing messages to local processes.
+func (w *Worker) registerRelaySendActivity(ctx context.Context) {
+	handler := func(activityCtx context.Context, pkg *relay.Package) error {
+		// Get router from application context
+		router := relay.GetRouter(w.ctx)
+		if router == nil {
+			return fmt.Errorf("relay router not available")
+		}
+
+		w.log.Debug("routing message to local process",
+			zap.String("from", pkg.Source.String()),
+			zap.String("to", pkg.Target.String()),
+			zap.Int("messages", len(pkg.Messages)))
+
+		return router.Send(pkg)
+	}
+
+	w.worker.RegisterActivityWithOptions(handler, activity.RegisterOptions{
+		Name: relaySendActivityName,
 	})
 }
 
@@ -403,7 +449,7 @@ func (w *Worker) registerWorkflow(_ context.Context, reg *WorkflowRegistration) 
 func (w *Worker) createActivityHandler(_ context.Context, funcID registry.ID) func(context.Context, []payload.Payload) ([]payload.Payload, error) {
 	return func(activityCtx context.Context, input []payload.Payload) ([]payload.Payload, error) {
 		info := activity.GetInfo(activityCtx)
-		w.log.Info("executing activity",
+		w.log.Debug("executing activity",
 			zap.String("type", info.ActivityType.Name),
 			zap.String("function", funcID.String()),
 			zap.String("workflow_id", info.WorkflowExecution.ID),
@@ -438,7 +484,7 @@ func (w *Worker) createActivityHandler(_ context.Context, funcID registry.ID) fu
 				zap.Error(err),
 			)
 			// Convert to Temporal ApplicationError preserving error kind and retryability
-			return nil, temporalsvc.ToApplicationError(err)
+			return nil, temporalerrors.ToApplicationError(err)
 		}
 
 		if result == nil {
@@ -451,7 +497,7 @@ func (w *Worker) createActivityHandler(_ context.Context, funcID registry.ID) fu
 				zap.Error(result.Error),
 			)
 			// Convert to Temporal ApplicationError preserving error kind and retryability
-			return nil, temporalsvc.ToApplicationError(result.Error)
+			return nil, temporalerrors.ToApplicationError(result.Error)
 		}
 
 		w.log.Debug("activity completed",
@@ -460,5 +506,17 @@ func (w *Worker) createActivityHandler(_ context.Context, funcID registry.ID) fu
 		)
 
 		return []payload.Payload{result.Value}, nil
+	}
+}
+
+// mapVersioningBehavior converts API versioning behavior to SDK type
+func mapVersioningBehavior(behavior api.VersioningBehavior) workflow.VersioningBehavior {
+	switch behavior {
+	case api.VersioningBehaviorPinned:
+		return workflow.VersioningBehaviorPinned
+	case api.VersioningBehaviorAutoUpgrade:
+		return workflow.VersioningBehaviorAutoUpgrade
+	default:
+		return workflow.VersioningBehaviorUnspecified
 	}
 }

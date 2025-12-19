@@ -40,7 +40,6 @@ var requestOptionsType = &types.RecordType{
 		{Name: "auth", Type: types.Any, Optional: true},
 		{Name: "stream", Type: types.Boolean, Optional: true},
 		{Name: "max_response_body", Type: types.Number, Optional: true},
-		{Name: "allow_private_ips", Type: types.Boolean, Optional: true},
 	},
 }
 

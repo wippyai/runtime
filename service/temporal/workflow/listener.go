@@ -13,6 +13,7 @@ import (
 // Metadata keys for workflow configuration
 const (
 	MetaTemporalWorkflow = "temporal"
+	MetaWorkflowBag      = "workflow"
 	MetaWorkflowWorker   = "worker"
 	MetaWorkflowName     = "name"
 )
@@ -71,7 +72,7 @@ func (l *Listener) handleEntry(ctx context.Context, entry registry.Entry) error 
 		return nil
 	}
 
-	l.log.Info("found temporal workflow metadata",
+	l.log.Debug("found temporal workflow metadata",
 		zap.String("entry", entry.ID.String()))
 
 	workerID, err := l.getWorkerID(workflowMeta, entry.ID.NS)
@@ -122,6 +123,9 @@ func (l *Listener) handleDelete(ctx context.Context, entry registry.Entry) error
 
 	workerID, err := l.getWorkerID(workflowMeta, entry.ID.NS)
 	if err != nil {
+		l.log.Debug("skipping workflow unregistration",
+			zap.String("workflow", entry.ID.String()),
+			zap.Error(err))
 		return nil
 	}
 
@@ -157,7 +161,7 @@ func (l *Listener) getWorkflowMetadata(entry registry.Entry) attrs.Bag {
 		return nil
 	}
 
-	workflow, ok := temporal.GetBag("workflow")
+	workflow, ok := temporal.GetBag(MetaWorkflowBag)
 	if !ok {
 		return nil
 	}

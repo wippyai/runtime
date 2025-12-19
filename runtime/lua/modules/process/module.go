@@ -734,7 +734,7 @@ func registryRegister(l *lua.LState) int {
 		p = self
 	}
 
-	err := reg.Register(name, p)
+	_, err := reg.Register(name, p)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))

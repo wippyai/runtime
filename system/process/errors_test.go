@@ -1,6 +1,7 @@
 package process
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -21,4 +22,27 @@ func TestUnknownCommandError(t *testing.T) {
 
 	details2 := err.Details()
 	assert.Equal(t, details, details2)
+}
+
+func TestNewInvalidFactoryEntryError(t *testing.T) {
+	err := NewInvalidFactoryEntryError("test:factory")
+
+	assert.Contains(t, err.Error(), "invalid factory entry")
+	assert.Contains(t, err.Error(), "test:factory")
+	assert.Equal(t, "Internal", string(err.Kind()))
+
+	details := err.Details()
+	assert.NotNil(t, details)
+	factoryID, ok := details.Get("factory_id")
+	assert.True(t, ok)
+	assert.Equal(t, "test:factory", factoryID)
+}
+
+func TestNewSubscriberError(t *testing.T) {
+	cause := errors.New("subscription failed")
+	err := NewSubscriberError(cause)
+
+	assert.Contains(t, err.Error(), "failed to create subscriber")
+	assert.Equal(t, "Internal", string(err.Kind()))
+	assert.True(t, errors.Is(err, cause))
 }
