@@ -16,7 +16,8 @@ func TestBind(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	mod := l.GetGlobal("crypto")
 	if mod.Type() != lua.LTTable {
@@ -44,7 +45,8 @@ func TestBind(t *testing.T) {
 func TestRandomBytes(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local bytes, err = crypto.random.bytes(16)
@@ -59,7 +61,8 @@ func TestRandomBytes(t *testing.T) {
 func TestRandomBytesInvalidLength(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = crypto.random.bytes(0)
@@ -76,7 +79,8 @@ func TestRandomBytesInvalidLength(t *testing.T) {
 func TestRandomString(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local str, err = crypto.random.string(16)
@@ -91,7 +95,8 @@ func TestRandomString(t *testing.T) {
 func TestRandomStringWithCharset(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local str, err = crypto.random.string(10, "abc")
@@ -111,7 +116,8 @@ func TestRandomStringWithCharset(t *testing.T) {
 func TestRandomStringEmptyCharset(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = crypto.random.string(10, "")
@@ -125,7 +131,8 @@ func TestRandomStringEmptyCharset(t *testing.T) {
 func TestRandomUUID(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local id, err = crypto.random.uuid()
@@ -140,7 +147,8 @@ func TestRandomUUID(t *testing.T) {
 func TestEncryptDecryptAES(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local key = string.rep("a", 32)
@@ -162,7 +170,8 @@ func TestEncryptDecryptAES(t *testing.T) {
 func TestEncryptDecryptAESWithAAD(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local key = string.rep("a", 32)
@@ -185,7 +194,8 @@ func TestEncryptDecryptAESWithAAD(t *testing.T) {
 func TestAESInvalidKeyLength(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = crypto.encrypt.aes("test", "short")
@@ -199,7 +209,8 @@ func TestAESInvalidKeyLength(t *testing.T) {
 func TestAESDecryptInvalidData(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local key = string.rep("a", 32)
@@ -214,7 +225,8 @@ func TestAESDecryptInvalidData(t *testing.T) {
 func TestEncryptDecryptChaCha20(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local key = string.rep("a", 32)
@@ -236,7 +248,8 @@ func TestEncryptDecryptChaCha20(t *testing.T) {
 func TestChaCha20InvalidKeyLength(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = crypto.encrypt.chacha20("test", "short")
@@ -250,7 +263,8 @@ func TestChaCha20InvalidKeyLength(t *testing.T) {
 func TestChaCha20DecryptInvalidData(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local key = string.rep("a", 32)
@@ -265,7 +279,8 @@ func TestChaCha20DecryptInvalidData(t *testing.T) {
 func TestPBKDF2(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local key, err = crypto.pbkdf2("password", "salt", 1000, 32)
@@ -280,7 +295,8 @@ func TestPBKDF2(t *testing.T) {
 func TestPBKDF2WithSHA512(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local key, err = crypto.pbkdf2("password", "salt", 1000, 64, "sha512")
@@ -295,7 +311,8 @@ func TestPBKDF2WithSHA512(t *testing.T) {
 func TestPBKDF2InvalidHash(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = crypto.pbkdf2("password", "salt", 1000, 32, "md5")
@@ -309,7 +326,8 @@ func TestPBKDF2InvalidHash(t *testing.T) {
 func TestPBKDF2EmptyPassword(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = crypto.pbkdf2("", "salt", 1000, 32)
@@ -323,7 +341,8 @@ func TestPBKDF2EmptyPassword(t *testing.T) {
 func TestPBKDF2EmptySalt(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = crypto.pbkdf2("password", "", 1000, 32)
@@ -337,7 +356,8 @@ func TestPBKDF2EmptySalt(t *testing.T) {
 func TestPBKDF2InvalidIterations(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = crypto.pbkdf2("password", "salt", 0, 32)
@@ -351,7 +371,8 @@ func TestPBKDF2InvalidIterations(t *testing.T) {
 func TestPBKDF2InvalidKeyLength(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = crypto.pbkdf2("password", "salt", 1000, 0)
@@ -365,7 +386,8 @@ func TestPBKDF2InvalidKeyLength(t *testing.T) {
 func TestPBKDF2MaxIterations(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = crypto.pbkdf2("password", "salt", 20000000, 32)
@@ -382,7 +404,8 @@ func TestPBKDF2MaxIterations(t *testing.T) {
 func TestConstantTimeCompare(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result = crypto.constant_time_compare("hello", "hello")
@@ -399,7 +422,8 @@ func TestConstantTimeCompare(t *testing.T) {
 func TestAES128Key(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local key = string.rep("a", 16)
@@ -417,7 +441,8 @@ func TestAES128Key(t *testing.T) {
 func TestAES192Key(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local key = string.rep("a", 24)
@@ -435,7 +460,8 @@ func TestAES192Key(t *testing.T) {
 func TestAESDecryptWrongKey(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local key = string.rep("a", 32)
@@ -452,7 +478,8 @@ func TestAESDecryptWrongKey(t *testing.T) {
 func TestChaCha20WithAAD(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local key = string.rep("a", 32)
@@ -469,7 +496,8 @@ func TestChaCha20WithAAD(t *testing.T) {
 func TestChaCha20DecryptWrongKey(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local key = string.rep("a", 32)
@@ -486,7 +514,8 @@ func TestChaCha20DecryptWrongKey(t *testing.T) {
 func TestRandomStringInvalidLength(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = crypto.random.string(0)
@@ -500,7 +529,8 @@ func TestRandomStringInvalidLength(t *testing.T) {
 func TestAESDecryptInvalidKeyLength(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = crypto.decrypt.aes("data", "short")
@@ -514,7 +544,8 @@ func TestAESDecryptInvalidKeyLength(t *testing.T) {
 func TestChaCha20DecryptInvalidKeyLength(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = crypto.decrypt.chacha20("data", "short")
@@ -528,7 +559,8 @@ func TestChaCha20DecryptInvalidKeyLength(t *testing.T) {
 func TestHMACSubmodule(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	mod := l.GetGlobal("crypto").(*lua.LTable)
 	hmacMod := mod.RawGetString("hmac")
@@ -548,7 +580,8 @@ func TestHMACSubmodule(t *testing.T) {
 func TestHMACSha256(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local digest, err = crypto.hmac.sha256("secret", "data")
@@ -563,7 +596,8 @@ func TestHMACSha256(t *testing.T) {
 func TestHMACSha512(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local digest, err = crypto.hmac.sha512("secret", "data")
@@ -578,7 +612,8 @@ func TestHMACSha512(t *testing.T) {
 func TestHMACEmptyKey(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = crypto.hmac.sha256("", "data")
@@ -592,7 +627,8 @@ func TestHMACEmptyKey(t *testing.T) {
 func TestHMACEmptyData(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local digest, err = crypto.hmac.sha256("secret", "")
@@ -606,7 +642,8 @@ func TestHMACEmptyData(t *testing.T) {
 func TestJWTSubmodule(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	mod := l.GetGlobal("crypto").(*lua.LTable)
 	jwtMod := mod.RawGetString("jwt")
@@ -627,7 +664,8 @@ func TestJWTEncodeVerify(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	setTimeGlobals(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local payload = { sub = "user123", name = "Test User", exp = FUTURE_TIME }
@@ -647,7 +685,8 @@ func TestJWTEncodeVerify(t *testing.T) {
 func TestJWTVerifyInvalidToken(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = crypto.jwt.verify("invalid.token.here", "secret")
@@ -662,7 +701,8 @@ func TestJWTVerifyWrongKey(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	setTimeGlobals(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local payload = { sub = "user123", exp = FUTURE_TIME }
@@ -679,7 +719,8 @@ func TestJWTAlgorithms(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	setTimeGlobals(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local payload = { sub = "test", exp = FUTURE_TIME }
@@ -712,7 +753,8 @@ func TestJWTAlgorithms(t *testing.T) {
 func TestRandomBytesMaxSizeLimit(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	// Test that exceeding max size returns error
 	err := l.DoString(`
@@ -740,7 +782,8 @@ func TestRandomBytesMaxSizeLimit(t *testing.T) {
 func TestRandomStringMaxSizeLimit(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	// Test that exceeding max size returns error
 	err := l.DoString(`
@@ -758,7 +801,8 @@ func TestRandomStringMaxSizeLimit(t *testing.T) {
 func TestJWTExpirationRequired(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	// Token without exp is rejected by default (secure)
 	// but allowed when requireExp=false (4th param)
@@ -785,7 +829,8 @@ func TestJWTExpiredTokenRejected(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	setTimeGlobals(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	// Expired token should be rejected
 	err := l.DoString(`
@@ -806,7 +851,8 @@ func TestJWTRequireExpiration(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	setTimeGlobals(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	// Can require exp with 4th parameter = true
 	err := l.DoString(`

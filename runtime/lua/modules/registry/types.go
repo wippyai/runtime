@@ -20,14 +20,13 @@ var (
 )
 
 func init() {
-	// Version type (self-referential via previous/next)
+	// Version type (self-referential via previous)
 	versionType = &types.InterfaceType{
 		Name:    "registry.Version",
 		Methods: map[string]*types.FunctionType{},
 	}
 	versionType.Methods["id"] = types.NewFunction(nil, []types.Type{types.Number})
 	versionType.Methods["previous"] = types.NewFunction(nil, []types.Type{types.Optional(versionType)})
-	versionType.Methods["next"] = types.NewFunction(nil, []types.Type{types.Optional(versionType)})
 	versionType.Methods["string"] = types.NewFunction(nil, []types.Type{types.String})
 
 	// Changes type (self-referential via create/update/delete)

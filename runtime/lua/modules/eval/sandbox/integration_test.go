@@ -123,9 +123,9 @@ func newTestScheduler() *testScheduler {
 }
 
 func bindAllModules(l *lua.LState) {
-	luaapi.LoadModule(l, json.Module)
-	luaapi.LoadModule(l, timemod.Module)
-	luaapi.LoadModule(l, Module)
+	engine.LoadModule(l, json.Module)
+	engine.LoadModule(l, timemod.Module)
+	engine.LoadModule(l, Module)
 }
 
 func newLuaProcess(script string) *engine.Process {

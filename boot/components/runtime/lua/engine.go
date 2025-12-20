@@ -74,7 +74,7 @@ func Engine() boot.Component {
 				logger.Named("lua"),
 				bus,
 				code.Config{
-					Modules: []luaapi.Module{
+					Modules: []*luaapi.ModuleDef{
 						ostime.Module,
 						processmod.Module,
 						engine.ChannelModule,

@@ -11,7 +11,8 @@ import (
 
 // bind loads the module into the given state for testing.
 func bind(l *lua.LState) {
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 }
 
 func TestLoader(t *testing.T) {

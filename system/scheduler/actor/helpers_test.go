@@ -63,7 +63,21 @@ func (te *testExecutor) Start() {
 }
 
 func (te *testExecutor) Stop() {
-	te.sched.Stop(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	te.sched.Stop(ctx)
+}
+
+// testStopContext returns a context with a short timeout for tests.
+func testStopContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), 500*time.Millisecond)
+}
+
+// testStopScheduler stops the scheduler with a short timeout.
+func testStopScheduler(sched *Scheduler) {
+	ctx, cancel := testStopContext()
+	defer cancel()
+	sched.Stop(ctx)
 }
 
 func (te *testExecutor) Scheduler() *Scheduler {

@@ -10,7 +10,8 @@ func TestLoad(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	mod := l.GetGlobal("text")
 	if mod.Type() != lua.LTTable {
@@ -33,7 +34,8 @@ func TestLoad(t *testing.T) {
 func TestRegexpCompile(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local re, err = text.regexp.compile("[a-z]+")
@@ -52,7 +54,8 @@ func TestRegexpCompile(t *testing.T) {
 func TestRegexpCompileInvalid(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local re, err = text.regexp.compile("[invalid")
@@ -77,7 +80,8 @@ func TestRegexpCompileInvalid(t *testing.T) {
 func TestRegexpMatchString(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local re, _ = text.regexp.compile("[0-9]+")
@@ -99,7 +103,8 @@ func TestRegexpMatchString(t *testing.T) {
 func TestRegexpFindString(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local re, _ = text.regexp.compile("[0-9]+")
@@ -121,7 +126,8 @@ func TestRegexpFindString(t *testing.T) {
 func TestRegexpFindAllString(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local re, _ = text.regexp.compile("[0-9]+")
@@ -147,7 +153,8 @@ func TestRegexpFindAllString(t *testing.T) {
 func TestRegexpFindStringSubmatch(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local re, _ = text.regexp.compile("([a-z]+)([0-9]+)")
@@ -176,7 +183,8 @@ func TestRegexpFindStringSubmatch(t *testing.T) {
 func TestRegexpFindAllStringSubmatch(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local re, _ = text.regexp.compile('([a-z]+)@([a-z]+)')
@@ -202,7 +210,8 @@ func TestRegexpFindAllStringSubmatch(t *testing.T) {
 func TestRegexpFindStringIndex(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local re, _ = text.regexp.compile("page\\d+")
@@ -230,7 +239,8 @@ func TestRegexpFindStringIndex(t *testing.T) {
 func TestRegexpFindAllStringIndex(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local re, _ = text.regexp.compile("page\\d+")
@@ -251,7 +261,8 @@ func TestRegexpFindAllStringIndex(t *testing.T) {
 func TestRegexpReplaceAllString(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local re, _ = text.regexp.compile("[0-9]+")
@@ -268,7 +279,8 @@ func TestRegexpReplaceAllString(t *testing.T) {
 func TestRegexpSplit(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local re, _ = text.regexp.compile(",")
@@ -302,7 +314,8 @@ func TestRegexpSplit(t *testing.T) {
 func TestRegexpNumSubexp(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local re1, _ = text.regexp.compile("([a-z]+)([0-9]+)")
@@ -323,7 +336,8 @@ func TestRegexpNumSubexp(t *testing.T) {
 func TestRegexpSubexpNames(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local re, _ = text.regexp.compile("(?P<name>[a-z]+)(?P<num>[0-9]+)")
@@ -349,7 +363,8 @@ func TestRegexpSubexpNames(t *testing.T) {
 func TestRegexpString(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local re, _ = text.regexp.compile("[a-z]+")
@@ -366,7 +381,8 @@ func TestRegexpString(t *testing.T) {
 func TestDiffNew(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local diff, err = text.diff.new()
@@ -385,7 +401,8 @@ func TestDiffNew(t *testing.T) {
 func TestDiffNewWithOptions(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local diff, err = text.diff.new({
@@ -407,7 +424,8 @@ func TestDiffNewWithOptions(t *testing.T) {
 func TestDiffCompare(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local diff, _ = text.diff.new()
@@ -445,7 +463,8 @@ func TestDiffCompare(t *testing.T) {
 func TestDiffCompareIdentical(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local diff, _ = text.diff.new()
@@ -468,7 +487,8 @@ func TestDiffCompareIdentical(t *testing.T) {
 func TestDiffPrettyText(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local diff, _ = text.diff.new()
@@ -489,7 +509,8 @@ func TestDiffPrettyText(t *testing.T) {
 func TestDiffPrettyHTML(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local diff, _ = text.diff.new()
@@ -510,7 +531,8 @@ func TestDiffPrettyHTML(t *testing.T) {
 func TestDiffPatchMakeAndApply(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local diff, _ = text.diff.new()
@@ -541,7 +563,8 @@ func TestDiffPatchMakeAndApply(t *testing.T) {
 func TestDiffSummarize(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local diff, _ = text.diff.new()
@@ -568,7 +591,8 @@ func TestDiffSummarize(t *testing.T) {
 func TestDocumentPageExtraction(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local content = [[
@@ -609,7 +633,8 @@ func TestDocumentPageExtraction(t *testing.T) {
 func TestTagStripping(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local html_content = "<h1>Title</h1><p>Some <b>bold</b> text.</p><div>More content</div>"
@@ -632,7 +657,8 @@ func TestTagStripping(t *testing.T) {
 func TestEmailExtraction(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local content = "Email: user@example.com and another: admin@test.org"
@@ -675,7 +701,8 @@ func TestEmailExtraction(t *testing.T) {
 func TestImmutability(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local success = pcall(function()
@@ -707,7 +734,8 @@ func TestLoadReuse(t *testing.T) {
 func TestSplitterRecursive(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local splitter, err = text.splitter.recursive({chunk_size = 100, chunk_overlap = 20})
@@ -726,7 +754,8 @@ func TestSplitterRecursive(t *testing.T) {
 func TestSplitterMarkdown(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local splitter, err = text.splitter.markdown({chunk_size = 200})
@@ -745,7 +774,8 @@ func TestSplitterMarkdown(t *testing.T) {
 func TestSplitterSplitText(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local splitter, _ = text.splitter.recursive({chunk_size = 50, chunk_overlap = 10})
@@ -766,7 +796,8 @@ func TestSplitterSplitText(t *testing.T) {
 func TestSplitterSplitBatch(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local splitter, _ = text.splitter.recursive({chunk_size = 50})

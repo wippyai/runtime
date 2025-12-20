@@ -281,6 +281,11 @@ func (c *NodeConnection) writeLoop(ctx context.Context) *ConnectionError {
 		if err := c.flushBatch(writer, c.processingQueue); err != nil {
 			return &ConnectionError{Reason: ExitNetworkError, Err: err}
 		}
+
+		// Clear processingQueue under lock to avoid race with ExtractPendingMessages
+		c.queueMu.Lock()
+		c.processingQueue.Init()
+		c.queueMu.Unlock()
 	}
 }
 
@@ -290,11 +295,7 @@ func (c *NodeConnection) flushBatch(writer *bufio.Writer, batch *list.List) erro
 			return err
 		}
 	}
-	if err := writer.Flush(); err != nil {
-		return err
-	}
-	batch.Init()
-	return nil
+	return writer.Flush()
 }
 
 func (c *NodeConnection) readLoop(ctx context.Context, handler func(msg []byte)) *ConnectionError {

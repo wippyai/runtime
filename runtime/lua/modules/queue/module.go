@@ -111,6 +111,14 @@ func publish(l *lua.LState) int {
 	}
 
 	data := l.CheckAny(2)
+	if tbl, ok := data.(*lua.LTable); ok && tbl.Len() == 0 && tbl.RawGetString("") == lua.LNil {
+		// Check if table is completely empty (no array or map entries)
+		empty := true
+		tbl.ForEach(func(_, _ lua.LValue) { empty = false })
+		if empty {
+			return invalidError(l, "message data cannot be empty")
+		}
+	}
 	p := luaconv.ExportPayload(data)
 	msg := queueapi.NewMessage(p)
 

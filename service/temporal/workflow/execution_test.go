@@ -19,7 +19,7 @@ func TestChildExitEventFields(t *testing.T) {
 		Error:  nil,
 	}
 
-	assert.Equal(t, "node1", string(exitEvent.ChildPID.Node))
+	assert.Equal(t, "node1", exitEvent.ChildPID.Node)
 	assert.Equal(t, "host1", exitEvent.ChildPID.Host)
 	assert.Equal(t, "child-123", exitEvent.ChildPID.UniqID)
 	assert.NotNil(t, exitEvent.Result)

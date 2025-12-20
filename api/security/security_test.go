@@ -306,9 +306,9 @@ func TestCommandPools(t *testing.T) {
 }
 
 func TestCommandIDs(t *testing.T) {
-	assert.Equal(t, 140, int(ValidateToken))
-	assert.Equal(t, 141, int(CreateToken))
-	assert.Equal(t, 142, int(RevokeToken))
+	assert.Equal(t, 130, int(ValidateToken))
+	assert.Equal(t, 131, int(CreateToken))
+	assert.Equal(t, 132, int(RevokeToken))
 }
 
 func TestResponseTypes(t *testing.T) {

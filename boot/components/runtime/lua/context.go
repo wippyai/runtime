@@ -24,10 +24,10 @@ func GetCodeManager(ctx context.Context) *code.Manager {
 }
 
 // AddModules adds modules to the code manager by creating module nodes.
-func AddModules(ctx context.Context, cm *code.Manager, modules ...luaapi.Module) error {
+func AddModules(ctx context.Context, cm *code.Manager, modules ...*luaapi.ModuleDef) error {
 	for _, mod := range modules {
 		node := code.Node{
-			ID:     registry.NewID("", mod.Info().Name),
+			ID:     registry.NewID("", mod.Name),
 			Kind:   luaapi.ModuleKind,
 			Module: mod,
 		}

@@ -65,43 +65,6 @@ func TestVersionPreviousNil(t *testing.T) {
 	}
 }
 
-func TestVersionNextExists(t *testing.T) {
-	l := newTestState()
-	defer l.Close()
-
-	next := &mockVersion{id: 3, str: "v3"}
-	current := &mockVersion{id: 2, str: "v2", next: next}
-
-	ud := l.NewUserData()
-	ud.Value = current
-	l.Push(ud)
-
-	versionNext(l)
-
-	result := l.Get(-1)
-	if result == lua.LNil {
-		t.Error("expected non-nil result")
-	}
-}
-
-func TestVersionNextNil(t *testing.T) {
-	l := newTestState()
-	defer l.Close()
-
-	current := &mockVersion{id: 2, str: "v2", next: nil}
-
-	ud := l.NewUserData()
-	ud.Value = current
-	l.Push(ud)
-
-	versionNext(l)
-
-	result := l.Get(-1)
-	if result != lua.LNil {
-		t.Errorf("expected LNil, got %v", result)
-	}
-}
-
 func TestVersionString(t *testing.T) {
 	l := newTestState()
 	defer l.Close()

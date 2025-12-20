@@ -19,7 +19,7 @@ type Host struct {
 }
 
 // NewHost creates a new eval host.
-func NewHost(log *zap.Logger, modules []luaapi.Module, processFactory process.Factory) *Host {
+func NewHost(log *zap.Logger, modules []*luaapi.ModuleDef, processFactory process.Factory) *Host {
 	return &Host{
 		log:            log,
 		compiler:       NewCompiler(modules),

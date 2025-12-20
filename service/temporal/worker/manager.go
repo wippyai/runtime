@@ -80,13 +80,6 @@ func WithInterceptors(interceptors []interceptor.WorkerInterceptor) ManagerOptio
 	}
 }
 
-// WithFactory sets a custom worker factory for the Manager
-func WithFactory(factory Factory) ManagerOption {
-	return func(m *Manager) {
-		m.factory = factory
-	}
-}
-
 // NewManager creates a new worker manager instance with functional options
 func NewManager(opts ...ManagerOption) (*Manager, error) {
 	m := &Manager{

@@ -209,7 +209,7 @@ func TestSchedulerBasic(t *testing.T) {
 	sched := newTestSchedulerWithLifecycle(2, lc)
 
 	sched.Start()
-	defer sched.Stop(context.Background())
+	defer testStopScheduler(sched)
 
 	_, err := sched.Submit(context.Background(), testPID(), &CounterProcess{}, "", testInput(10))
 	if err != nil {
@@ -245,7 +245,7 @@ func TestSchedulerMultipleProcesses(t *testing.T) {
 	sched := newTestSchedulerWithLifecycle(2, lc)
 
 	sched.Start()
-	defer sched.Stop(context.Background())
+	defer testStopScheduler(sched)
 
 	const numProcesses = 10
 	for i := 0; i < numProcesses; i++ {
@@ -279,7 +279,7 @@ func TestSchedulerSleep(t *testing.T) {
 	sched := newTestSchedulerWithLifecycle(2, lc)
 
 	sched.Start()
-	defer sched.Stop(context.Background())
+	defer testStopScheduler(sched)
 
 	start := time.Now()
 	_, err := sched.Submit(context.Background(), testPID(), &SleepProcess{}, "", testInput(50*time.Millisecond))
@@ -313,7 +313,7 @@ func TestSchedulerWorkDistribution(t *testing.T) {
 	sched := newTestSchedulerWithLifecycle(4, lc)
 
 	sched.Start()
-	defer sched.Stop(context.Background())
+	defer testStopScheduler(sched)
 
 	for i := 0; i < 100; i++ {
 		_, _ = sched.Submit(context.Background(), testPID(), &CounterProcess{}, "", testInput(50))
@@ -363,7 +363,7 @@ func TestSchedulerStats(t *testing.T) {
 	sched := newTestSchedulerWithLifecycle(2, lc)
 
 	sched.Start()
-	defer sched.Stop(context.Background())
+	defer testStopScheduler(sched)
 
 	for i := 0; i < 10; i++ {
 		_, _ = sched.Submit(context.Background(), testPID(), &CounterProcess{}, "", testInput(10))
@@ -403,7 +403,7 @@ func (p *StatsProcess) Stats() attrs.Attributes {
 func TestSchedulerCollectProcessStats(t *testing.T) {
 	sched := newTestScheduler(2)
 	sched.Start()
-	defer sched.Stop(context.Background())
+	defer testStopScheduler(sched)
 
 	pid := pidapi.PID{UniqID: "stats-process"}
 	proc := &StatsProcess{customStats: "test-value"}
@@ -527,7 +527,7 @@ func TestOnStartCallback(t *testing.T) {
 	sched := newTestSchedulerWithLifecycle(2, lc)
 
 	sched.Start()
-	defer sched.Stop(context.Background())
+	defer testStopScheduler(sched)
 
 	// Submit multiple processes
 	for i := 0; i < 5; i++ {
@@ -570,7 +570,7 @@ func TestOnCompleteCallback(t *testing.T) {
 	sched := newTestSchedulerWithLifecycle(2, lc)
 
 	sched.Start()
-	defer sched.Stop(context.Background())
+	defer testStopScheduler(sched)
 
 	// Submit multiple processes
 	for i := 0; i < 5; i++ {
@@ -616,7 +616,7 @@ func TestSendByPID(t *testing.T) {
 
 	// Now start scheduler
 	sched.Start()
-	defer sched.Stop(context.Background())
+	defer testStopScheduler(sched)
 
 	// Send to active process should work
 	pkg := &relay.Package{Target: pid}
@@ -661,7 +661,7 @@ func TestTerminate(t *testing.T) {
 
 	sched := NewScheduler(registry, WithWorkers(1), WithLifecycle(lc))
 	sched.Start()
-	defer sched.Stop(context.Background())
+	defer testStopScheduler(sched)
 
 	// Submit a blocking process
 	pid := pidapi.PID{UniqID: "term-test"}
@@ -707,7 +707,7 @@ func TestTerminate(t *testing.T) {
 func TestTerminateNotFound(t *testing.T) {
 	sched := newTestScheduler(1)
 	sched.Start()
-	defer sched.Stop(context.Background())
+	defer testStopScheduler(sched)
 
 	err := sched.Terminate(pidapi.PID{UniqID: "nonexistent"})
 	if !errors.Is(err, process.ErrProcessNotFound) {
@@ -745,7 +745,7 @@ func TestTerminateIdleProcess(t *testing.T) {
 
 	sched := newTestSchedulerWithLifecycle(1, lc)
 	sched.Start()
-	defer sched.Stop(context.Background())
+	defer testStopScheduler(sched)
 
 	pid := pidapi.PID{UniqID: "idle-term-test"}
 	_, err := sched.Submit(context.Background(), pid, &IdleProcess{}, "", nil)
@@ -802,7 +802,7 @@ func TestSchedulerSingleWorker(t *testing.T) {
 
 	sched := NewScheduler(registry, WithWorkers(1), WithLifecycle(lc))
 	sched.Start()
-	defer sched.Stop(context.Background())
+	defer testStopScheduler(sched)
 
 	ctx := context.Background()
 	pid := pidapi.PID{UniqID: "single"}
@@ -846,7 +846,7 @@ func TestSchedulerSubmitAlloc(t *testing.T) {
 	sched := newTestSchedulerWithLifecycle(1, lc)
 
 	sched.Start()
-	defer sched.Stop(context.Background())
+	defer testStopScheduler(sched)
 
 	pid := testPID()
 	input := testInput(1)
@@ -915,7 +915,7 @@ func TestSchedulerReleasesProcesses(t *testing.T) {
 	sched := newTestSchedulerWithLifecycle(2, lc)
 
 	sched.Start()
-	defer sched.Stop(context.Background())
+	defer testStopScheduler(sched)
 
 	const numProcs = 1000
 	ctx := context.Background()
@@ -998,7 +998,7 @@ func TestTerminateBlockedProcess(t *testing.T) {
 
 	sched := newTestSchedulerWithLifecycle(1, lc)
 	sched.Start()
-	defer sched.Stop(context.Background())
+	defer testStopScheduler(sched)
 
 	blocked := make(chan struct{})
 	pid := pidapi.PID{UniqID: "blocked-term-test"}
@@ -1049,7 +1049,7 @@ func TestSendToTerminatedProcess(t *testing.T) {
 
 	sched := newTestSchedulerWithLifecycle(1, lc)
 	sched.Start()
-	defer sched.Stop(context.Background())
+	defer testStopScheduler(sched)
 
 	blocked := make(chan struct{})
 	pid := pidapi.PID{UniqID: "send-term-test"}
@@ -1127,7 +1127,7 @@ func TestContextCancelledOnCompletion(t *testing.T) {
 
 	sched := newTestSchedulerWithLifecycle(1, lc)
 	sched.Start()
-	defer sched.Stop(context.Background())
+	defer testStopScheduler(sched)
 
 	pid := pidapi.PID{UniqID: "ctx-cancel-test"}
 	proc := &ContextTrackingProcess{}
@@ -1197,7 +1197,7 @@ func TestContextCancelledOnTermination(t *testing.T) {
 
 	sched := newTestSchedulerWithLifecycle(1, lc)
 	sched.Start()
-	defer sched.Stop(context.Background())
+	defer testStopScheduler(sched)
 
 	blocked := make(chan struct{})
 	pid := pidapi.PID{UniqID: "ctx-term-test"}
@@ -1250,7 +1250,7 @@ func TestSendToClosedQueue(t *testing.T) {
 
 	sched := newTestSchedulerWithLifecycle(1, lc)
 	sched.Start()
-	defer sched.Stop(context.Background())
+	defer testStopScheduler(sched)
 
 	blocked := make(chan struct{})
 	pid := pidapi.PID{UniqID: "closed-queue-test"}
@@ -1288,7 +1288,7 @@ func TestSendToClosedQueue(t *testing.T) {
 func TestPIDRegistration(t *testing.T) {
 	sched := newTestScheduler(1)
 	sched.Start()
-	defer sched.Stop(context.Background())
+	defer testStopScheduler(sched)
 
 	pid := pidapi.PID{UniqID: "reg-test"}
 
@@ -1325,7 +1325,7 @@ func TestPIDUnregisteredOnCompletion(t *testing.T) {
 
 	sched := newTestSchedulerWithLifecycle(1, lc)
 	sched.Start()
-	defer sched.Stop(context.Background())
+	defer testStopScheduler(sched)
 
 	pid := pidapi.PID{UniqID: "unreg-test"}
 	_, err := sched.Submit(context.Background(), pid, &CounterProcess{}, "", testInput(1))
@@ -1361,7 +1361,7 @@ func TestPIDUnregisteredOnTermination(t *testing.T) {
 
 	sched := newTestSchedulerWithLifecycle(1, lc)
 	sched.Start()
-	defer sched.Stop(context.Background())
+	defer testStopScheduler(sched)
 
 	blocked := make(chan struct{})
 	pid := pidapi.PID{UniqID: "unreg-term-test"}
@@ -1447,7 +1447,7 @@ func TestMultipleProcessCompletion(t *testing.T) {
 
 	sched := newTestSchedulerWithLifecycle(2, lc)
 	sched.Start()
-	defer sched.Stop(context.Background())
+	defer testStopScheduler(sched)
 
 	const numProcs = 50
 
@@ -1482,7 +1482,7 @@ func TestIdleProcessTermination(t *testing.T) {
 
 	sched := newTestSchedulerWithLifecycle(1, lc)
 	sched.Start()
-	defer sched.Stop(context.Background())
+	defer testStopScheduler(sched)
 
 	pid := pidapi.PID{UniqID: "idle-map-test"}
 	proc, err := sched.Submit(context.Background(), pid, &IdleProcess{}, "", nil)
@@ -1559,7 +1559,7 @@ func TestSendToIdleProcessConcurrent(t *testing.T) {
 
 			sched := newTestSchedulerWithLifecycle(2, lc)
 			sched.Start()
-			defer sched.Stop(context.Background())
+			defer testStopScheduler(sched)
 
 			pid := pidapi.PID{UniqID: fmt.Sprintf("idle-race-%d", i)}
 			proc := &IdleMessageProcess{}
@@ -1595,7 +1595,7 @@ func TestSendToIdleProcessConcurrent(t *testing.T) {
 func TestCreateProcessorWithoutSchedule(t *testing.T) {
 	sched := newTestScheduler(2)
 	sched.Start()
-	defer sched.Stop(context.Background())
+	defer testStopScheduler(sched)
 
 	pid := pidapi.PID{UniqID: "no-schedule-test"}
 	proc := &CounterProcess{}

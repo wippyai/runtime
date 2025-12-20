@@ -9,14 +9,14 @@ import (
 
 	"github.com/wippyai/runtime/api/registry"
 	execapi "github.com/wippyai/runtime/api/service/exec"
-	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 
 func setupState() *lua.LState {
 	l := lua.NewState()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 	return l
 }
 
@@ -66,7 +66,8 @@ func TestGetNoContext(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	// Without context, security strict mode blocks access with INVALID (permission denied)
 	err := l.DoString(`
@@ -90,7 +91,8 @@ func TestGetEmptyID(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local ok, err = exec.get("")
@@ -113,7 +115,8 @@ func TestErrorMethods(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local ok, err = exec.get("")
@@ -476,15 +479,19 @@ func TestProcessWaitYieldToCommand(t *testing.T) {
 }
 
 func TestProcessWaitYieldPool(t *testing.T) {
+	// Test that pool acquire/release works without panics
+	// Note: sync.Pool doesn't guarantee reuse (GC can clear it)
 	y1 := AcquireProcessWaitYield()
+	if y1 == nil {
+		t.Fatal("acquired yield should not be nil")
+	}
 	ReleaseProcessWaitYield(y1)
 
 	y2 := AcquireProcessWaitYield()
-	defer ReleaseProcessWaitYield(y2)
-
-	if y1 != y2 {
-		t.Error("pool should reuse yield objects")
+	if y2 == nil {
+		t.Fatal("acquired yield should not be nil")
 	}
+	ReleaseProcessWaitYield(y2)
 }
 
 func TestModuleBuild(t *testing.T) {

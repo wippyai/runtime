@@ -126,7 +126,6 @@ type mockVersion struct {
 	id   uint
 	str  string
 	prev regapi.Version
-	next regapi.Version
 }
 
 func (m *mockVersion) ID() uint {
@@ -139,11 +138,4 @@ func (m *mockVersion) String() string {
 
 func (m *mockVersion) Previous() regapi.Version {
 	return m.prev
-}
-
-func (m *mockVersion) Next() (regapi.Version, bool) {
-	if m.next != nil {
-		return m.next, true
-	}
-	return nil, false
 }

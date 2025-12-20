@@ -252,7 +252,7 @@ func TestCompositeLifecycle_OnStart(t *testing.T) {
 	host := &testLifecycle{onStart: func() { hostCalled = true }}
 
 	c := &compositeLifecycle{global: global, host: host}
-	c.OnStart(context.Background(), pid.PID{}, nil)
+	_ = c.OnStart(context.Background(), pid.PID{}, nil)
 
 	assert.True(t, globalCalled)
 	assert.True(t, hostCalled)
@@ -275,7 +275,7 @@ func TestCompositeLifecycle_NilHandlers(t *testing.T) {
 	c := &compositeLifecycle{}
 
 	assert.NotPanics(t, func() {
-		c.OnStart(context.Background(), pid.PID{}, nil)
+		_ = c.OnStart(context.Background(), pid.PID{}, nil)
 		c.OnComplete(context.Background(), pid.PID{}, nil)
 	})
 }

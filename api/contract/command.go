@@ -19,10 +19,10 @@ func init() {
 
 // Command IDs for contract operations.
 const (
-	Open        dispatcher.CommandID = 300 // Open binding, get instance
-	Call        dispatcher.CommandID = 301 // Call method on instance (sync)
-	AsyncCall   dispatcher.CommandID = 302 // Call method on instance (async)
-	AsyncCancel dispatcher.CommandID = 303 // Cancel async call
+	Open        dispatcher.CommandID = 190 // Open binding, get instance
+	Call        dispatcher.CommandID = 191 // Call method on instance (sync)
+	AsyncCall   dispatcher.CommandID = 192 // Call method on instance (async)
+	AsyncCancel dispatcher.CommandID = 193 // Cancel async call
 )
 
 // OpenCmd opens a contract binding and returns an instance.

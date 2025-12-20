@@ -10,7 +10,8 @@ func TestLoad(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	mod := l.GetGlobal("payload")
 	if mod.Type() != lua.LTTable {
@@ -46,7 +47,8 @@ func TestLoadReuse(t *testing.T) {
 func TestFormatConstants(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local formats = payload.format
@@ -80,7 +82,8 @@ func TestFormatConstants(t *testing.T) {
 func TestNewPayload(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local p = payload.new({key = "value"})
@@ -99,7 +102,8 @@ func TestNewPayload(t *testing.T) {
 func TestPayloadToString(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local p = payload.new("hello")
@@ -119,7 +123,8 @@ func TestPayloadToString(t *testing.T) {
 func TestPayloadTypes(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	tests := []struct {
 		name  string

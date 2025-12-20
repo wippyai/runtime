@@ -14,17 +14,6 @@ var (
 	ErrUnrelatedRejectEvent = apierror.New(apierror.Invalid, "unrelated reject event")
 )
 
-// NewOperationFailedError creates an error when an operation fails
-func NewOperationFailedError(err error) apierror.Error {
-	return apierror.E(
-		apierror.Internal,
-		"operation failed",
-		apierror.False,
-		nil,
-		err,
-	)
-}
-
 // NewInvalidOperationError creates an error when an operation is invalid
 func NewInvalidOperationError(err error) apierror.Error {
 	return apierror.E(

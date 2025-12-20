@@ -174,7 +174,7 @@ func TestDockerExecutorConfig_Validate(t *testing.T) {
 }
 
 func TestProcessWaitCommandID(t *testing.T) {
-	assert.Equal(t, dispatcher.CommandID(210), ProcessWait)
+	assert.Equal(t, dispatcher.CommandID(150), ProcessWait)
 }
 
 func TestProcessWaitCmd(t *testing.T) {

@@ -13,7 +13,8 @@ import (
 func TestUUIDV4_NormalMode(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local id, err = uuid.v4()
@@ -36,7 +37,8 @@ func TestUUIDV4_DeterministicMode_Yields(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	l.SetContext(ctx)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	// Directly call the Go function and check return value
 	ret := uuidV4(l)
@@ -91,7 +93,8 @@ func TestUUIDV1_DeterministicMode_Yields(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	l.SetContext(ctx)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	ret := uuidV1(l)
 
@@ -131,7 +134,8 @@ func TestUUIDV7_DeterministicMode_Yields(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	l.SetContext(ctx)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	ret := uuidV7(l)
 
@@ -171,7 +175,8 @@ func TestUUIDV3_DeterministicMode_NoYield(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	l.SetContext(ctx)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local ns = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
@@ -195,7 +200,8 @@ func TestUUIDV5_DeterministicMode_NoYield(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	l.SetContext(ctx)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local ns = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"

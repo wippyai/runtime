@@ -468,7 +468,7 @@ func setupChannelProc(b *testing.B, script string) *Process {
 		b.Fatal(err)
 	}
 
-	ChannelModule.Load(proc.State())
+	LoadModuleDef(proc.State(), ChannelModule)
 	return proc
 }
 

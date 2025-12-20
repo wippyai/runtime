@@ -5,13 +5,13 @@ import (
 	"testing"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
-	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/security"
 	lua "github.com/yuin/gopher-lua"
 )
 
 func bindProcess(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 }
 
 func TestModuleInfo(t *testing.T) {
@@ -185,117 +185,6 @@ func TestSetOptions_InvalidType(t *testing.T) {
 }
 
 type mockScope struct{ security.Scope }
-
-func TestBuildSecurityContext_NoContext(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	pairs := buildSecurityContext(l)
-	if pairs != nil {
-		t.Error("expected nil pairs when no context")
-	}
-}
-
-func TestBuildSecurityContext_WithActor(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	ctx, fc := ctxapi.OpenFrameContext(context.Background())
-	defer ctxapi.ReleaseFrameContext(fc)
-
-	actor := security.Actor{ID: "test-user"}
-	if err := security.SetActor(ctx, actor); err != nil {
-		t.Fatalf("failed to set actor: %v", err)
-	}
-
-	l.SetContext(ctx)
-	pairs := buildSecurityContext(l)
-
-	if len(pairs) != 1 {
-		t.Fatalf("expected 1 pair, got %d", len(pairs))
-	}
-
-	gotActor, ok := security.GetActor(ctx)
-	if !ok {
-		t.Fatal("actor should be present in context")
-	}
-	if gotActor.ID != "test-user" {
-		t.Errorf("expected actor ID 'test-user', got %s", gotActor.ID)
-	}
-}
-
-func TestBuildSecurityContext_WithActorAndScope(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	ctx, fc := ctxapi.OpenFrameContext(context.Background())
-	defer ctxapi.ReleaseFrameContext(fc)
-
-	actor := security.Actor{ID: "test-user"}
-	if err := security.SetActor(ctx, actor); err != nil {
-		t.Fatalf("failed to set actor: %v", err)
-	}
-
-	scope := &mockScope{}
-	if err := security.SetScope(ctx, scope); err != nil {
-		t.Fatalf("failed to set scope: %v", err)
-	}
-
-	l.SetContext(ctx)
-	pairs := buildSecurityContext(l)
-
-	if len(pairs) != 2 {
-		t.Fatalf("expected 2 pairs (actor + scope), got %d", len(pairs))
-	}
-}
-
-func TestBuildSecurityContext_EmptyFrameContext(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	ctx, fc := ctxapi.OpenFrameContext(context.Background())
-	defer ctxapi.ReleaseFrameContext(fc)
-
-	l.SetContext(ctx)
-	pairs := buildSecurityContext(l)
-
-	if len(pairs) != 0 {
-		t.Errorf("expected 0 pairs when no security context, got %d", len(pairs))
-	}
-}
-
-func TestBuildSecurityContext_WithValues(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	ctx, fc := ctxapi.OpenFrameContext(context.Background())
-	defer ctxapi.ReleaseFrameContext(fc)
-
-	// Set context values
-	values := ctxapi.NewValues()
-	values.Set("trace_id", "test-trace-123")
-	values.Set("request_id", "req-456")
-	if err := fc.Set(ctxapi.ValuesCtx, values); err != nil {
-		t.Fatalf("failed to set values: %v", err)
-	}
-
-	l.SetContext(ctx)
-
-	// buildSecurityContext includes values along with actor/scope
-	pairs := buildSecurityContext(l)
-	if len(pairs) != 1 {
-		t.Errorf("expected 1 pair for values-only context, got %d", len(pairs))
-	}
-
-	// Verify values are accessible via context
-	gotValues := ctxapi.GetValues(ctx)
-	if gotValues == nil {
-		t.Fatal("values should be accessible from context")
-	}
-	if v, ok := gotValues.Get("trace_id"); !ok || v != "test-trace-123" {
-		t.Error("trace_id not found or incorrect")
-	}
-}
 
 func TestContextValuesInheritance(t *testing.T) {
 	// Test that context values are properly set up for inheritance

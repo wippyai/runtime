@@ -15,6 +15,25 @@ var (
 	spanContextKey = &ctxapi.Key{Name: "otel.spancontext", Inherit: true}
 )
 
+// propagatableSpan wraps a trace.Span and implements ctxapi.Propagator
+// to automatically convert to SpanContext during cross-process propagation.
+type propagatableSpan struct {
+	trace.Span
+}
+
+// PropagateValue implements ctxapi.Propagator.
+// Returns the SpanContext for cross-process propagation, or nil if invalid.
+func (p *propagatableSpan) PropagateValue() any {
+	if p.Span == nil {
+		return nil
+	}
+	sc := p.Span.SpanContext()
+	if !sc.IsValid() {
+		return nil
+	}
+	return sc
+}
+
 // WithTracer adds the tracer to the AppContext
 func WithTracer(ctx context.Context, tracer trace.Tracer) context.Context {
 	ac := ctxapi.AppFromContext(ctx)
@@ -41,13 +60,15 @@ func GetTracer(ctx context.Context) trace.Tracer {
 	return nil
 }
 
-// SetSpan sets the current span in the FrameContext
+// SetSpan sets the current span in the FrameContext.
+// The span is wrapped to support automatic conversion to SpanContext
+// during cross-process propagation via ctxapi.PropagatedPairs.
 func SetSpan(ctx context.Context, span trace.Span) error {
 	fc := ctxapi.FrameFromContext(ctx)
 	if fc == nil {
 		return nil
 	}
-	return fc.Set(spanCtx, span)
+	return fc.Set(spanCtx, &propagatableSpan{Span: span})
 }
 
 // GetSpan retrieves the current span from the FrameContext
@@ -57,6 +78,11 @@ func GetSpan(ctx context.Context) (trace.Span, bool) {
 		return nil, false
 	}
 	if val, ok := fc.Get(spanCtx); ok {
+		// Handle wrapped span
+		if ps, ok := val.(*propagatableSpan); ok {
+			return ps.Span, true
+		}
+		// Handle raw span (for backwards compatibility)
 		if span, ok := val.(trace.Span); ok {
 			return span, true
 		}
@@ -81,4 +107,14 @@ func GetRemoteSpanContext(ctx context.Context) (trace.SpanContext, bool) {
 		}
 	}
 	return trace.SpanContext{}, false
+}
+
+// GetSpanContextKey returns the context key for storing span contexts
+func GetSpanContextKey() *ctxapi.Key {
+	return spanContextKey
+}
+
+// SpanContextPair creates a context pair for propagating span context to spawned processes
+func SpanContextPair(sc trace.SpanContext) ctxapi.Pair {
+	return ctxapi.Pair{Key: spanContextKey, Value: sc}
 }

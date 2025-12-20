@@ -309,12 +309,12 @@ func TestDownloadOptions_MarshalUnmarshal(t *testing.T) {
 }
 
 func TestCommandIDs(t *testing.T) {
-	assert.Equal(t, ListObjects, dispatcher.CommandID(220))
-	assert.Equal(t, DownloadObject, dispatcher.CommandID(221))
-	assert.Equal(t, UploadObject, dispatcher.CommandID(222))
-	assert.Equal(t, DeleteObjects, dispatcher.CommandID(223))
-	assert.Equal(t, PresignedGetURL, dispatcher.CommandID(224))
-	assert.Equal(t, PresignedPutURL, dispatcher.CommandID(225))
+	assert.Equal(t, ListObjects, dispatcher.CommandID(160))
+	assert.Equal(t, DownloadObject, dispatcher.CommandID(161))
+	assert.Equal(t, UploadObject, dispatcher.CommandID(162))
+	assert.Equal(t, DeleteObjects, dispatcher.CommandID(163))
+	assert.Equal(t, PresignedGetURL, dispatcher.CommandID(164))
+	assert.Equal(t, PresignedPutURL, dispatcher.CommandID(165))
 }
 
 func TestListObjectsCmd(t *testing.T) {

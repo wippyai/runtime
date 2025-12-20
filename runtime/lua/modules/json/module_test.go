@@ -3,12 +3,12 @@ package json
 import (
 	"testing"
 
-	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 
 func bindJSON(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 }
 
 func TestBind(t *testing.T) {

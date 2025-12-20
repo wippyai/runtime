@@ -35,7 +35,7 @@ func Eval() boot.Component {
 			factory := process.GetFactory(ctx)
 
 			// Modules available for eval'd code
-			modules := []luaapi.Module{
+			modules := []*luaapi.ModuleDef{
 				json.Module,
 				timemod.Module,
 				payloadmod.Module,

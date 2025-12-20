@@ -386,18 +386,18 @@ func TestDefaultClientFactory_configureTLS(t *testing.T) {
 // mockDataConverter for testing
 type mockDataConverter struct{}
 
-func (m *mockDataConverter) ToPayloads(value ...interface{}) (*commonpb.Payloads, error) {
+func (m *mockDataConverter) ToPayloads(_ ...interface{}) (*commonpb.Payloads, error) {
 	return nil, nil
 }
-func (m *mockDataConverter) FromPayloads(payloads *commonpb.Payloads, valuePtrs ...interface{}) error {
+func (m *mockDataConverter) FromPayloads(_ *commonpb.Payloads, _ ...interface{}) error {
 	return nil
 }
-func (m *mockDataConverter) ToPayload(value interface{}) (*commonpb.Payload, error) { return nil, nil }
-func (m *mockDataConverter) FromPayload(payload *commonpb.Payload, valuePtr interface{}) error {
+func (m *mockDataConverter) ToPayload(_ interface{}) (*commonpb.Payload, error) { return nil, nil }
+func (m *mockDataConverter) FromPayload(_ *commonpb.Payload, _ interface{}) error {
 	return nil
 }
-func (m *mockDataConverter) ToString(payload *commonpb.Payload) string      { return "" }
-func (m *mockDataConverter) ToStrings(payloads *commonpb.Payloads) []string { return nil }
+func (m *mockDataConverter) ToString(_ *commonpb.Payload) string     { return "" }
+func (m *mockDataConverter) ToStrings(_ *commonpb.Payloads) []string { return nil }
 
 // mockClientInterceptor for testing
 type mockClientInterceptor struct {

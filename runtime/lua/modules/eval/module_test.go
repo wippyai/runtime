@@ -13,8 +13,6 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
-	"github.com/wippyai/runtime/runtime/lua/engine"
-	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/evalhost"
 	"github.com/wippyai/runtime/runtime/lua/modules/json"
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
@@ -107,8 +105,8 @@ func TestEvalModule_SandboxWithSleep(t *testing.T) {
 	proc := engine.NewProcess(
 		engine.WithProto(proto),
 		engine.WithModuleBinder(func(l *lua.LState) {
-			luaapi.LoadModule(l, Module)
-			luaapi.LoadModule(l, timemod.Module)
+			engine.LoadModule(l, Module)
+			engine.LoadModule(l, timemod.Module)
 		}),
 	)
 
@@ -311,7 +309,7 @@ func TestEvalModule_SandboxMethods(t *testing.T) {
 	proc := engine.NewProcess(
 		engine.WithProto(proto),
 		engine.WithModuleBinder(func(l *lua.LState) {
-			luaapi.LoadModule(l, Module)
+			engine.LoadModule(l, Module)
 		}),
 	)
 
@@ -402,7 +400,7 @@ func TestEvalModule_ErrorCases(t *testing.T) {
 		proc := engine.NewProcess(
 			engine.WithProto(proto),
 			engine.WithModuleBinder(func(l *lua.LState) {
-				luaapi.LoadModule(l, Module)
+				engine.LoadModule(l, Module)
 			}),
 		)
 
@@ -432,7 +430,7 @@ func TestEvalModule_ErrorCases(t *testing.T) {
 		proc := engine.NewProcess(
 			engine.WithProto(proto),
 			engine.WithModuleBinder(func(l *lua.LState) {
-				luaapi.LoadModule(l, Module)
+				engine.LoadModule(l, Module)
 			}),
 		)
 
@@ -460,7 +458,7 @@ func TestEvalModule_ErrorCases(t *testing.T) {
 		proc := engine.NewProcess(
 			engine.WithProto(proto),
 			engine.WithModuleBinder(func(l *lua.LState) {
-				luaapi.LoadModule(l, Module)
+				engine.LoadModule(l, Module)
 			}),
 		)
 
@@ -612,9 +610,9 @@ func TestEvalModule_ComprehensiveIntegration(t *testing.T) {
 	proc := engine.NewProcess(
 		engine.WithProto(proto),
 		engine.WithModuleBinder(func(l *lua.LState) {
-			luaapi.LoadModule(l, Module)
-			luaapi.LoadModule(l, json.Module)
-			luaapi.LoadModule(l, timemod.Module)
+			engine.LoadModule(l, Module)
+			engine.LoadModule(l, json.Module)
+			engine.LoadModule(l, timemod.Module)
 		}),
 	)
 
@@ -669,7 +667,7 @@ func TestEvalModule_SandboxResourceCleanup(t *testing.T) {
 	proc := engine.NewProcess(
 		engine.WithProto(proto),
 		engine.WithModuleBinder(func(l *lua.LState) {
-			luaapi.LoadModule(l, Module)
+			engine.LoadModule(l, Module)
 		}),
 	)
 
@@ -744,7 +742,7 @@ func TestEvalModule_MultipleModulesLoaded(t *testing.T) {
 	proc := engine.NewProcess(
 		engine.WithProto(proto),
 		engine.WithModuleBinder(func(l *lua.LState) {
-			luaapi.LoadModule(l, Module)
+			engine.LoadModule(l, Module)
 		}),
 	)
 
@@ -798,7 +796,7 @@ func BenchmarkSandboxCreateExecuteStep(b *testing.B) {
 		proc := engine.NewProcess(
 			engine.WithProto(proto),
 			engine.WithModuleBinder(func(l *lua.LState) {
-				luaapi.LoadModule(l, Module)
+				engine.LoadModule(l, Module)
 			}),
 		)
 		_ = proc.Init(ctx, "", nil)

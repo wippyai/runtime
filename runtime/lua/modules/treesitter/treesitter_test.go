@@ -13,7 +13,8 @@ func TestLoad(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	mod := l.GetGlobal("treesitter")
 	if mod.Type() != lua.LTTable {
@@ -59,7 +60,8 @@ func TestSupportedLanguages(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	l.SetContext(context.Background())
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local langs = treesitter.supported_languages()
@@ -85,7 +87,8 @@ func TestParse(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	l.SetContext(context.Background())
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local tree = treesitter.parse("go", "package main")
@@ -110,7 +113,8 @@ func TestParseInvalidLanguage(t *testing.T) {
 	defer l.Close()
 	l.SetContext(context.Background())
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local tree, err = treesitter.parse("nonexistent", "code")
@@ -133,7 +137,8 @@ func TestLanguage(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	l.SetContext(context.Background())
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local go_lang = treesitter.language("go")
@@ -158,7 +163,8 @@ func TestLanguageInvalid(t *testing.T) {
 	defer l.Close()
 	l.SetContext(context.Background())
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local lang, err = treesitter.language("nonexistent")
@@ -181,7 +187,8 @@ func TestParser(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	l.SetContext(context.Background())
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local parser = treesitter.parser()
@@ -211,7 +218,8 @@ func TestQuery(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	l.SetContext(context.Background())
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local code = [[
@@ -251,7 +259,8 @@ func TestQueryInvalid(t *testing.T) {
 	defer l.Close()
 	l.SetContext(context.Background())
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local query, err = treesitter.query("go", "((invalid")
@@ -274,7 +283,8 @@ func TestTreeCursor(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	l.SetContext(context.Background())
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local tree = treesitter.parse("go", "package main")
@@ -315,7 +325,8 @@ func TestNodeMethods(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	l.SetContext(context.Background())
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local code = "package main"
@@ -365,7 +376,8 @@ func TestTreeEdit(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	l.SetContext(context.Background())
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local code = "func main() { x := 1 }"
@@ -397,7 +409,8 @@ func TestTreeCopy(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	l.SetContext(context.Background())
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local tree = treesitter.parse("go", "package main")
@@ -420,7 +433,8 @@ func TestLuaLanguage(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	l.SetContext(context.Background())
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local code = [[
@@ -446,7 +460,8 @@ func TestDoubleClose(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	l.SetContext(context.Background())
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		-- Test parser double close
@@ -483,7 +498,8 @@ func TestAllLanguages(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	l.SetContext(context.Background())
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	testCases := []struct {
 		lang string
@@ -538,7 +554,8 @@ func TestParserTimeout(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	l.SetContext(context.Background())
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local parser = treesitter.parser()
@@ -565,7 +582,8 @@ func TestQueryTimeout(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	l.SetContext(context.Background())
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local code = "package main\nfunc hello() {}"

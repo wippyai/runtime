@@ -20,7 +20,7 @@ func TestNewDefaultWorkerFactory(t *testing.T) {
 	})
 
 	t.Run("creates factory with interceptors", func(t *testing.T) {
-		interceptors := []interceptor.WorkerInterceptor{}
+		interceptors := make([]interceptor.WorkerInterceptor, 0)
 		factory := NewDefaultWorkerFactory(nil, interceptors)
 		require.NotNil(t, factory)
 		assert.NotNil(t, factory.interceptors)

@@ -220,41 +220,4 @@ func (m *mockCodeManager) GetModules() []ModuleInfo {
 	return m.modules
 }
 
-type mockModule struct {
-	name   string
-	table  *gopherlua.LTable
-	yields []YieldType
-}
-
-func (m *mockModule) Info() ModuleInfo {
-	return ModuleInfo{Name: m.name}
-}
-
-func (m *mockModule) Loader(l *gopherlua.LState) int {
-	l.Push(m.table)
-	return 1
-}
-
-func (m *mockModule) Register(_ *gopherlua.LState) *Registration {
-	return &Registration{Table: m.table, YieldTypes: m.yields}
-}
-
-func TestLoadModule(t *testing.T) {
-	tbl := &gopherlua.LTable{}
-	yields := []YieldType{{Sample: "test", CmdID: 4}}
-
-	mod := &mockModule{
-		name:   "mockmod",
-		table:  tbl,
-		yields: yields,
-	}
-
-	l := gopherlua.NewState()
-	defer l.Close()
-
-	result := LoadModule(l, mod)
-	assert.Len(t, result, 1)
-
-	global := l.GetGlobal("mockmod")
-	assert.NotEqual(t, gopherlua.LNil, global)
-}
+// LoadModule moved to engine package - tests in runtime/lua/engine/core_modules_test.go

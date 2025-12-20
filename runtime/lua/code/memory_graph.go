@@ -29,7 +29,7 @@ type (
 		Version  Version
 		Source   string              // Code and libs has this
 		Method   string              // Processes and functions has this
-		Module   runtime.Module      // Modules only has this
+		Module   *runtime.ModuleDef  // Modules only has this
 		Manifest *types.TypeManifest // Type manifest from type checking (for Lua source files)
 	}
 

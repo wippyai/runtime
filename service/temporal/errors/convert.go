@@ -87,7 +87,7 @@ func FromTemporalError(err error) apierror.Rich {
 func addWrapperDetails(rich apierror.Rich, wrapper map[string]any) {
 	if re, ok := rich.(*apierror.RichError); ok {
 		if re.Details() == nil {
-			re.WithDetails(wrapper)
+			_ = re.WithDetails(wrapper)
 		} else {
 			for k, v := range wrapper {
 				re.Details()[k] = v
@@ -110,9 +110,9 @@ func fromTemporalErrorInner(err error) apierror.Rich {
 
 		e := apierror.NewRich(mapTypeToKind(appErr.Type()), appErr.Message())
 		if appErr.NonRetryable() {
-			e.WithRetryable(apierror.False)
+			_ = e.WithRetryable(apierror.False)
 		} else {
-			e.WithRetryable(apierror.True)
+			_ = e.WithRetryable(apierror.True)
 		}
 		return e
 	}

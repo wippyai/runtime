@@ -802,6 +802,9 @@ func TestSupervisor_ContextCancellation(t *testing.T) {
 }
 
 func TestSupervisor_ServiceTimeout(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping timeout test in short mode")
+	}
 	h := newTestHarness(t)
 	ctx := context.Background()
 	h.start(ctx)

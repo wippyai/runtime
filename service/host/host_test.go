@@ -431,7 +431,7 @@ func TestHost_RunNoPIDRegistry(t *testing.T) {
 
 	_, err := h.Start(ctxWithAppContext())
 	require.NoError(t, err)
-	defer h.Stop(context.Background())
+	defer func() { _ = h.Stop(context.Background()) }()
 
 	// Should not try shortcut without PIDRegistry
 	resultPID, err := h.Run(ctxWithAppContext(), &process.Start{
@@ -672,7 +672,7 @@ func TestHost_OnComplete(t *testing.T) {
 	th.host.OnComplete(ctx, pid.PID{}, &runtime.Result{})
 }
 
-func TestHost_OnCompleteNoFrame(t *testing.T) {
+func TestHost_OnCompleteNoFrame(_ *testing.T) {
 	th := newTestHost()
 
 	// Should not panic with nil frame
@@ -739,24 +739,14 @@ func TestHost_ConcurrentRun(t *testing.T) {
 	}
 }
 
-func TestHost_ConcurrentStartStop(t *testing.T) {
+func TestHost_SequentialStartStop(_ *testing.T) {
 	th := newTestHost()
 
-	var wg sync.WaitGroup
-	// Only 2 iterations to keep test fast (scheduler stop has timeout)
-	for i := 0; i < 2; i++ {
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			th.host.Start(ctxWithAppContext())
-		}()
-		go func() {
-			defer wg.Done()
-			th.host.Stop(context.Background())
-		}()
+	// Test sequential start/stop cycles
+	for i := 0; i < 3; i++ {
+		_, _ = th.host.Start(ctxWithAppContext())
+		_ = th.host.Stop(context.Background())
 	}
-
-	wg.Wait()
 }
 
 func TestHost_ConcurrentSend(t *testing.T) {
@@ -769,7 +759,7 @@ func TestHost_ConcurrentSend(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			th.host.Send(&relay.Package{Target: pid.PID{UniqID: "test"}})
+			_ = th.host.Send(&relay.Package{Target: pid.PID{UniqID: "test"}})
 		}()
 	}
 

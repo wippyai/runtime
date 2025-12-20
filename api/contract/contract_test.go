@@ -448,10 +448,10 @@ func TestCommandPools(t *testing.T) {
 }
 
 func TestCommandIDs(t *testing.T) {
-	assert.Equal(t, Open, dispatcher.CommandID(300))
-	assert.Equal(t, Call, dispatcher.CommandID(301))
-	assert.Equal(t, AsyncCall, dispatcher.CommandID(302))
-	assert.Equal(t, AsyncCancel, dispatcher.CommandID(303))
+	assert.Equal(t, Open, dispatcher.CommandID(190))
+	assert.Equal(t, Call, dispatcher.CommandID(191))
+	assert.Equal(t, AsyncCall, dispatcher.CommandID(192))
+	assert.Equal(t, AsyncCancel, dispatcher.CommandID(193))
 }
 
 func TestResultTypes(t *testing.T) {

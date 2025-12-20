@@ -16,14 +16,13 @@ func init() {
 }
 
 // Command IDs for cloud storage operations.
-// Range 220-229 is reserved for cloud storage commands.
 const (
-	ListObjects     dispatcher.CommandID = 220
-	DownloadObject  dispatcher.CommandID = 221
-	UploadObject    dispatcher.CommandID = 222
-	DeleteObjects   dispatcher.CommandID = 223
-	PresignedGetURL dispatcher.CommandID = 224
-	PresignedPutURL dispatcher.CommandID = 225
+	ListObjects     dispatcher.CommandID = 160
+	DownloadObject  dispatcher.CommandID = 161
+	UploadObject    dispatcher.CommandID = 162
+	DeleteObjects   dispatcher.CommandID = 163
+	PresignedGetURL dispatcher.CommandID = 164
+	PresignedPutURL dispatcher.CommandID = 165
 )
 
 // ListObjectsCmd lists objects in cloud storage.

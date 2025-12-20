@@ -99,16 +99,16 @@ func printFunc(l *lua.LState) int {
 // LoadCoreModules loads all core modules into the LState.
 func LoadCoreModules(l *lua.LState) {
 	lua.OpenErrors(l)
-	payload.Module.Load(l)
-	ostime.Module.Load(l)
-	PrintModule.Load(l)
-	ChannelModule.Load(l)
+	LoadModuleDef(l, payload.Module)
+	LoadModuleDef(l, ostime.Module)
+	LoadModuleDef(l, PrintModule)
+	LoadModuleDef(l, ChannelModule)
 	loadPubSubGlobals(l)
 }
 
 // loadPubSubGlobals loads subscribe/unsubscribe as global functions.
 func loadPubSubGlobals(l *lua.LState) {
-	PubSubModule.Register(l)
+	buildModule(PubSubModule)
 	l.SetGlobal("subscribe", lua.LGoFunc(subscribeFunc))
 	l.SetGlobal("unsubscribe", lua.LGoFunc(unsubscribeFunc))
 }

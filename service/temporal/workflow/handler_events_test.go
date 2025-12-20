@@ -28,12 +28,16 @@ func TestQueryStateMap(t *testing.T) {
 }
 
 func TestQueryStateMapNil(t *testing.T) {
-	var state map[string]any = nil
-	if state == nil {
-		state = make(map[string]any)
-	}
+	state := initStateIfNil(nil)
 	assert.NotNil(t, state)
 	assert.Empty(t, state)
+}
+
+func initStateIfNil(state map[string]any) map[string]any {
+	if state == nil {
+		return make(map[string]any)
+	}
+	return state
 }
 
 func TestCancelEventFields(t *testing.T) {
@@ -55,7 +59,7 @@ func TestTopologyConstants(t *testing.T) {
 }
 
 func TestCanceledFlag(t *testing.T) {
-	canceled := false
+	var canceled bool
 	assert.False(t, canceled)
 
 	canceled = true
@@ -63,7 +67,7 @@ func TestCanceledFlag(t *testing.T) {
 }
 
 func TestCompletedFlag(t *testing.T) {
-	completed := false
+	var completed bool
 	assert.False(t, completed)
 
 	completed = true

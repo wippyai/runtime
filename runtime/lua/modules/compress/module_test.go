@@ -10,7 +10,8 @@ func TestLoad(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	mod := l.GetGlobal("compress")
 	if mod.Type() != lua.LTTable {
@@ -38,7 +39,8 @@ func TestLoad(t *testing.T) {
 func TestGzipRoundTrip(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local original = "Hello, World! This is a test string for compression."
@@ -56,7 +58,8 @@ func TestGzipRoundTrip(t *testing.T) {
 func TestGzipWithLevel(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local data = "Hello, World!"
@@ -73,7 +76,8 @@ func TestGzipWithLevel(t *testing.T) {
 func TestGzipInvalidLevel(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.gzip.encode("test", {level = 100})
@@ -87,7 +91,8 @@ func TestGzipInvalidLevel(t *testing.T) {
 func TestGzipEmptyInput(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.gzip.encode("")
@@ -101,7 +106,8 @@ func TestGzipEmptyInput(t *testing.T) {
 func TestGzipInvalidInput(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.gzip.encode(123)
@@ -115,7 +121,8 @@ func TestGzipInvalidInput(t *testing.T) {
 func TestGzipDecodeInvalid(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.gzip.decode("not gzip data")
@@ -129,7 +136,8 @@ func TestGzipDecodeInvalid(t *testing.T) {
 func TestDeflateRoundTrip(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local original = "Hello, World! This is a test string for compression."
@@ -147,7 +155,8 @@ func TestDeflateRoundTrip(t *testing.T) {
 func TestDeflateEmptyInput(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.deflate.encode("")
@@ -161,7 +170,8 @@ func TestDeflateEmptyInput(t *testing.T) {
 func TestDeflateInvalidInput(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.deflate.decode(123)
@@ -175,7 +185,8 @@ func TestDeflateInvalidInput(t *testing.T) {
 func TestZlibRoundTrip(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local original = "Hello, World! This is a test string for compression."
@@ -193,7 +204,8 @@ func TestZlibRoundTrip(t *testing.T) {
 func TestZlibEmptyInput(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.zlib.encode("")
@@ -207,7 +219,8 @@ func TestZlibEmptyInput(t *testing.T) {
 func TestZlibDecodeInvalid(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.zlib.decode("not zlib data")
@@ -221,7 +234,8 @@ func TestZlibDecodeInvalid(t *testing.T) {
 func TestBrotliRoundTrip(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local original = "Hello, World! This is a test string for compression."
@@ -239,7 +253,8 @@ func TestBrotliRoundTrip(t *testing.T) {
 func TestBrotliWithLevel(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local data = "Hello, World!"
@@ -256,7 +271,8 @@ func TestBrotliWithLevel(t *testing.T) {
 func TestBrotliInvalidLevel(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.brotli.encode("test", {level = 100})
@@ -270,7 +286,8 @@ func TestBrotliInvalidLevel(t *testing.T) {
 func TestBrotliEmptyInput(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.brotli.encode("")
@@ -284,7 +301,8 @@ func TestBrotliEmptyInput(t *testing.T) {
 func TestZstdRoundTrip(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local original = "Hello, World! This is a test string for compression."
@@ -302,7 +320,8 @@ func TestZstdRoundTrip(t *testing.T) {
 func TestZstdWithLevel(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local data = "Hello, World!"
@@ -319,7 +338,8 @@ func TestZstdWithLevel(t *testing.T) {
 func TestZstdInvalidLevel(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.zstd.encode("test", {level = 100})
@@ -333,7 +353,8 @@ func TestZstdInvalidLevel(t *testing.T) {
 func TestZstdEmptyInput(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.zstd.encode("")
@@ -347,7 +368,8 @@ func TestZstdEmptyInput(t *testing.T) {
 func TestZstdDecodeInvalid(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.zstd.decode("not zstd data")
@@ -361,7 +383,8 @@ func TestZstdDecodeInvalid(t *testing.T) {
 func TestDeflateWithLevel(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local data = "Hello, World!"
@@ -378,7 +401,8 @@ func TestDeflateWithLevel(t *testing.T) {
 func TestDeflateInvalidLevel(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.deflate.encode("test", {level = 100})
@@ -392,7 +416,8 @@ func TestDeflateInvalidLevel(t *testing.T) {
 func TestZlibWithLevel(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local data = "Hello, World!"
@@ -409,7 +434,8 @@ func TestZlibWithLevel(t *testing.T) {
 func TestZlibInvalidLevel(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.zlib.encode("test", {level = 100})
@@ -423,7 +449,8 @@ func TestZlibInvalidLevel(t *testing.T) {
 func TestZlibInvalidInput(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.zlib.encode(123)
@@ -437,7 +464,8 @@ func TestZlibInvalidInput(t *testing.T) {
 func TestBrotliInvalidInput(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.brotli.encode(123)
@@ -451,7 +479,8 @@ func TestBrotliInvalidInput(t *testing.T) {
 func TestBrotliDecodeInvalid(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.brotli.decode("not brotli data")
@@ -465,7 +494,8 @@ func TestBrotliDecodeInvalid(t *testing.T) {
 func TestBrotliDecodeEmpty(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.brotli.decode("")
@@ -479,7 +509,8 @@ func TestBrotliDecodeEmpty(t *testing.T) {
 func TestZstdInvalidInput(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.zstd.encode(123)
@@ -493,7 +524,8 @@ func TestZstdInvalidInput(t *testing.T) {
 func TestDeflateDecodeInvalid(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.deflate.decode("not deflate data")
@@ -507,7 +539,8 @@ func TestDeflateDecodeInvalid(t *testing.T) {
 func TestGzipDecodeEmpty(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.gzip.decode("")
@@ -521,7 +554,8 @@ func TestGzipDecodeEmpty(t *testing.T) {
 func TestDeflateDecodeEmpty(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.deflate.decode("")
@@ -535,7 +569,8 @@ func TestDeflateDecodeEmpty(t *testing.T) {
 func TestZlibDecodeEmpty(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.zlib.decode("")
@@ -549,7 +584,8 @@ func TestZlibDecodeEmpty(t *testing.T) {
 func TestZstdDecodeEmpty(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.zstd.decode("")
@@ -563,7 +599,8 @@ func TestZstdDecodeEmpty(t *testing.T) {
 func TestZstdDecodeInvalidInput(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.zstd.decode(123)
@@ -577,7 +614,8 @@ func TestZstdDecodeInvalidInput(t *testing.T) {
 func TestBrotliDecodeInvalidInput(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.brotli.decode(123)
@@ -591,7 +629,8 @@ func TestBrotliDecodeInvalidInput(t *testing.T) {
 func TestZstdAllLevels(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local data = "Hello, World!"
@@ -610,7 +649,8 @@ func TestZstdAllLevels(t *testing.T) {
 func TestGzipDecodeInvalidInput(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.gzip.decode(123)
@@ -624,7 +664,8 @@ func TestGzipDecodeInvalidInput(t *testing.T) {
 func TestDeflateDecodeInvalidInput(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.deflate.decode(123)
@@ -638,7 +679,8 @@ func TestDeflateDecodeInvalidInput(t *testing.T) {
 func TestZlibDecodeInvalidInput(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local _, err = compress.zlib.decode(123)
@@ -652,7 +694,8 @@ func TestZlibDecodeInvalidInput(t *testing.T) {
 func TestBrotliLevelZero(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local data = "Hello, World!"
@@ -669,7 +712,8 @@ func TestBrotliLevelZero(t *testing.T) {
 func TestGzipLevelOne(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local data = "Hello, World!"

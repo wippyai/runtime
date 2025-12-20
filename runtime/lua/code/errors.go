@@ -6,7 +6,8 @@ import (
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
-	"github.com/yuin/gopher-lua/types"
+	// TODO: uncomment when type checker is available
+	// "github.com/yuin/gopher-lua/types"
 )
 
 var (
@@ -135,61 +136,33 @@ func NewRemoveNodeError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to remove node").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewTypeCheckError(id registry.ID, cause error) apierror.Error {
-	return apierror.New(apierror.Internal, fmt.Sprintf("type check error in %v", id)).
-		WithCause(cause).
-		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(map[string]any{"node_id": id.String()}))
-}
-
-// TypeCheckErrorList wraps multiple type errors into a single error
-type TypeCheckErrorList struct {
-	Errors []TypeCheckErrorItem
-}
-
-type TypeCheckErrorItem struct {
-	Line    int
-	Column  int
-	Message string
-}
-
-func (e *TypeCheckErrorList) Error() string {
-	if len(e.Errors) == 0 {
-		return "no type errors"
-	}
-	if len(e.Errors) == 1 {
-		return fmt.Sprintf("line %d: %s", e.Errors[0].Line, e.Errors[0].Message)
-	}
-	return fmt.Sprintf("%d type errors, first: line %d: %s", len(e.Errors), e.Errors[0].Line, e.Errors[0].Message)
-}
-
-func NewTypeCheckErrorFromList(id registry.ID, errList *types.ErrorList, source string) apierror.Error {
-	// Render errors with source context (Rust-style)
-	sourceLines := types.ParseSource(source)
-	rendered := errList.RenderAll(sourceLines)
-
-	var items []TypeCheckErrorItem
-	for _, e := range errList.Errors() {
-		if e.Severity == types.SeverityError {
-			items = append(items, TypeCheckErrorItem{
-				Line:    e.Pos.Line,
-				Column:  e.Pos.Column,
-				Message: e.Message,
-			})
-		}
-	}
-
-	cause := &TypeCheckErrorList{Errors: items}
-
-	details := map[string]any{"node_id": id.String(), "rendered": rendered}
-	if len(items) > 0 {
-		details["error_count"] = len(items)
-		details["first_line"] = items[0].Line
-		details["first_message"] = items[0].Message
-	}
-
-	return apierror.New(apierror.Invalid, rendered).
-		WithCause(cause).
-		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(details))
-}
+// TODO: uncomment when type checker is available
+// func NewTypeCheckErrorFromList(id registry.ID, errList *types.ErrorList, source string) apierror.Error {
+// 	sourceLines := types.ParseSource(source)
+// 	rendered := errList.RenderAll(sourceLines)
+//
+// 	var items []TypeCheckErrorItem
+// 	for _, e := range errList.Errors() {
+// 		if e.Severity == types.SeverityError {
+// 			items = append(items, TypeCheckErrorItem{
+// 				Line:    e.Pos.Line,
+// 				Column:  e.Pos.Column,
+// 				Message: e.Message,
+// 			})
+// 		}
+// 	}
+//
+// 	cause := &TypeCheckErrorList{Errors: items}
+//
+// 	details := map[string]any{"node_id": id.String(), "rendered": rendered}
+// 	if len(items) > 0 {
+// 		details["error_count"] = len(items)
+// 		details["first_line"] = items[0].Line
+// 		details["first_message"] = items[0].Message
+// 	}
+//
+// 	return apierror.New(apierror.Invalid, rendered).
+// 		WithCause(cause).
+// 		WithRetryable(apierror.False).
+// 		WithDetails(attrs.NewBagFrom(details))
+// }

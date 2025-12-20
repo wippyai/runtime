@@ -93,7 +93,3 @@ func NewPoolUpdateError(err error) apierror.Error {
 func NewSQLiteUpdateError(err error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to update SQLite config").WithRetryable(apierror.False).WithCause(err)
 }
-
-func NewInvalidDurationError(cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid duration format").WithCause(cause).WithRetryable(apierror.False)
-}

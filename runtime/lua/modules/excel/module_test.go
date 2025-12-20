@@ -7,13 +7,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/xuri/excelize/v2"
 	lua "github.com/yuin/gopher-lua"
 )
 
 func bindExcel(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 }
 
 func setupTestVM(t *testing.T) *lua.LState {

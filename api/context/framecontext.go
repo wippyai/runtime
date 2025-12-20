@@ -26,6 +26,10 @@ type FrameContext interface {
 	// Iterate calls fn for each key-value pair.
 	Iterate(fn func(key any, value any))
 
+	// InheritablePairs returns all key-value pairs marked with Inherit: true.
+	// Used for propagating context to child processes or tasks.
+	InheritablePairs() []Pair
+
 	// Seal marks this frame as immutable.
 	Seal()
 
@@ -90,6 +94,16 @@ func (f *frameContext) Iterate(fn func(key any, value any)) {
 	}
 }
 
+func (f *frameContext) InheritablePairs() []Pair {
+	var pairs []Pair
+	for k, v := range f.values {
+		if ctxKey, ok := k.(*Key); ok && ctxKey.Inherit {
+			pairs = append(pairs, Pair{Key: k, Value: v})
+		}
+	}
+	return pairs
+}
+
 func (f *frameContext) Seal() {
 	f.sealed.Store(true)
 }
@@ -122,6 +136,36 @@ func FrameFromContext(ctx context.Context) FrameContext {
 		return fc
 	}
 	return nil
+}
+
+// PropagatedPairs returns context pairs suitable for cross-process propagation.
+// It extracts all inheritable pairs from the frame context and applies the
+// Propagator interface for values that need transformation before crossing process boundaries.
+// Values where PropagateValue() returns nil are excluded from propagation.
+func PropagatedPairs(ctx context.Context) []Pair {
+	fc := FrameFromContext(ctx)
+	if fc == nil {
+		return nil
+	}
+
+	inheritable := fc.InheritablePairs()
+	if len(inheritable) == 0 {
+		return nil
+	}
+
+	pairs := make([]Pair, 0, len(inheritable))
+	for _, p := range inheritable {
+		// Check if value needs transformation for cross-process propagation
+		if propagator, ok := p.Value.(Propagator); ok {
+			transformed := propagator.PropagateValue()
+			if transformed != nil {
+				pairs = append(pairs, Pair{Key: p.Key, Value: transformed})
+			}
+			continue
+		}
+		pairs = append(pairs, p)
+	}
+	return pairs
 }
 
 // CallFromContext is deprecated. Use FrameFromContext instead.

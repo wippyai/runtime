@@ -11,7 +11,8 @@ func TestBind(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	mod := l.GetGlobal("html")
 	if mod.Type() != lua.LTTable {
@@ -36,7 +37,8 @@ func TestBind(t *testing.T) {
 func TestNewPolicy(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy, err = html.sanitize.new_policy()
@@ -55,7 +57,8 @@ func TestNewPolicy(t *testing.T) {
 func TestUGCPolicy(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy, err = html.sanitize.ugc_policy()
@@ -74,7 +77,8 @@ func TestUGCPolicy(t *testing.T) {
 func TestStrictPolicy(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy, err = html.sanitize.strict_policy()
@@ -93,7 +97,8 @@ func TestStrictPolicy(t *testing.T) {
 func TestStrictPolicySanitize(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.strict_policy()
@@ -110,7 +115,8 @@ func TestStrictPolicySanitize(t *testing.T) {
 func TestUGCPolicySanitize(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.ugc_policy()
@@ -127,7 +133,8 @@ func TestUGCPolicySanitize(t *testing.T) {
 func TestUGCRemovesScript(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.ugc_policy()
@@ -144,7 +151,8 @@ func TestUGCRemovesScript(t *testing.T) {
 func TestNewPolicyAllowsNothing(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.new_policy()
@@ -161,7 +169,8 @@ func TestNewPolicyAllowsNothing(t *testing.T) {
 func TestAllowElements(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.new_policy()
@@ -179,7 +188,8 @@ func TestAllowElements(t *testing.T) {
 func TestAllowAttrsOnElements(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.new_policy()
@@ -198,7 +208,8 @@ func TestAllowAttrsOnElements(t *testing.T) {
 func TestAllowAttrsGlobally(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.new_policy()
@@ -220,7 +231,8 @@ func TestAllowAttrsGlobally(t *testing.T) {
 func TestAllowAttrsMatching(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.new_policy()
@@ -249,7 +261,8 @@ func TestAllowAttrsMatching(t *testing.T) {
 func TestMatchingInvalidRegex(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.new_policy()
@@ -270,7 +283,8 @@ func TestMatchingInvalidRegex(t *testing.T) {
 func TestAllowStandardURLs(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.new_policy()
@@ -290,7 +304,8 @@ func TestAllowStandardURLs(t *testing.T) {
 func TestRequireParseableURLs(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.new_policy()
@@ -310,7 +325,8 @@ func TestRequireParseableURLs(t *testing.T) {
 func TestAllowRelativeURLs(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.new_policy()
@@ -330,7 +346,8 @@ func TestAllowRelativeURLs(t *testing.T) {
 func TestAllowURLSchemes(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.new_policy()
@@ -356,7 +373,8 @@ func TestAllowURLSchemes(t *testing.T) {
 func TestRequireNoFollowOnLinks(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.new_policy()
@@ -377,7 +395,8 @@ func TestRequireNoFollowOnLinks(t *testing.T) {
 func TestRequireNoReferrerOnLinks(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.new_policy()
@@ -398,7 +417,8 @@ func TestRequireNoReferrerOnLinks(t *testing.T) {
 func TestAddTargetBlankToFullyQualifiedLinks(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.new_policy()
@@ -419,7 +439,8 @@ func TestAddTargetBlankToFullyQualifiedLinks(t *testing.T) {
 func TestAllowDataURIImages(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.new_policy()
@@ -439,7 +460,8 @@ func TestAllowDataURIImages(t *testing.T) {
 func TestAllowStandardAttributes(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.new_policy()
@@ -461,7 +483,8 @@ func TestAllowStandardAttributes(t *testing.T) {
 func TestAllowImages(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.new_policy()
@@ -479,7 +502,8 @@ func TestAllowImages(t *testing.T) {
 func TestAllowLists(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.new_policy()
@@ -500,7 +524,8 @@ func TestAllowLists(t *testing.T) {
 func TestAllowTables(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.new_policy()
@@ -521,7 +546,8 @@ func TestAllowTables(t *testing.T) {
 func TestMethodChaining(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.new_policy()
@@ -544,7 +570,8 @@ func TestMethodChaining(t *testing.T) {
 func TestPolicyMethods(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	methods := []string{
 		"allow_elements",
@@ -586,7 +613,8 @@ func TestPolicyMethods(t *testing.T) {
 func TestAttrBuilderMethods(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	methods := []string{"on_elements", "globally", "matching"}
 
@@ -612,7 +640,8 @@ func TestAttrBuilderMethods(t *testing.T) {
 func TestEmptyString(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.ugc_policy()
@@ -629,7 +658,8 @@ func TestEmptyString(t *testing.T) {
 func TestPlainText(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.ugc_policy()
@@ -646,7 +676,8 @@ func TestPlainText(t *testing.T) {
 func TestUnicode(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.ugc_policy()
@@ -663,7 +694,8 @@ func TestUnicode(t *testing.T) {
 func TestMalformedHTML(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	testCases := []string{
 		"<p>Unclosed paragraph",
@@ -689,7 +721,8 @@ func TestMalformedHTML(t *testing.T) {
 func TestInvalidPolicyArgument(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.new_policy()
@@ -708,7 +741,8 @@ func TestInvalidPolicyArgument(t *testing.T) {
 func TestInvalidAttrBuilderArgument(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.new_policy()
@@ -727,7 +761,8 @@ func TestInvalidAttrBuilderArgument(t *testing.T) {
 func TestXSSPrevention(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	xssPayloads := []struct {
 		input    string
@@ -768,7 +803,8 @@ func TestXSSPrevention(t *testing.T) {
 func TestMultipleAllowElements(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.new_policy()
@@ -789,7 +825,8 @@ func TestMultipleAllowElements(t *testing.T) {
 func TestMatchingWithGlobally(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local policy = html.sanitize.new_policy()
@@ -821,7 +858,8 @@ func TestMatchingWithGlobally(t *testing.T) {
 func TestImmutability(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local mod = html

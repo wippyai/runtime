@@ -11,8 +11,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// YAMLOptions holds formatting options for YAML encoding
-type YAMLOptions struct {
+// Options holds formatting options for YAML encoding
+type Options struct {
 	FieldOrder    []string
 	SortUnordered bool
 }
@@ -42,7 +42,7 @@ func encodeFunc(l *lua.LState) int {
 		return invalidError(l, "table expected")
 	}
 
-	options := YAMLOptions{
+	options := Options{
 		FieldOrder:    []string{},
 		SortUnordered: false,
 	}
@@ -81,7 +81,7 @@ func encodeFunc(l *lua.LState) int {
 	return 2
 }
 
-func extractOptions(table *lua.LTable, options *YAMLOptions) {
+func extractOptions(table *lua.LTable, options *Options) {
 	if val := table.RawGetString("sort_unordered"); val.Type() == lua.LTBool {
 		options.SortUnordered = lua.LVAsBool(val)
 	}
@@ -131,7 +131,7 @@ func decodeFunc(l *lua.LState) int {
 	return 2
 }
 
-func processNode(node *yaml.Node, options *YAMLOptions) {
+func processNode(node *yaml.Node, options *Options) {
 	if node == nil {
 		return
 	}

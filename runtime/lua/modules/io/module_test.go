@@ -5,13 +5,13 @@ import (
 	"testing"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
-	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/service/terminal"
 	lua "github.com/yuin/gopher-lua"
 )
 
 func bindIO(l *lua.LState) {
-	luaapi.LoadModule(l, Module)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 }
 
 func TestModuleInfo(t *testing.T) {

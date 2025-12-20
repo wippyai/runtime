@@ -15,11 +15,10 @@ func init() {
 }
 
 // Command IDs for security operations.
-// Range 140-149 is reserved for security/token commands.
 const (
-	ValidateToken dispatcher.CommandID = 140 // Validate token
-	CreateToken   dispatcher.CommandID = 141 // Create token
-	RevokeToken   dispatcher.CommandID = 142 // Revoke token
+	ValidateToken dispatcher.CommandID = 130 // Validate token
+	CreateToken   dispatcher.CommandID = 131 // Create token
+	RevokeToken   dispatcher.CommandID = 132 // Revoke token
 )
 
 // ValidateTokenCmd validates a token.

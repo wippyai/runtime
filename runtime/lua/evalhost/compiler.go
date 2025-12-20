@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 	"github.com/yuin/gopher-lua/parse"
 )
@@ -40,7 +41,7 @@ func (p *Program) Proto() *lua.FunctionProto { return p.proto }
 
 // Compiler compiles Lua source with module constraints.
 type Compiler struct {
-	availableModules map[string]luaapi.Module
+	availableModules map[string]*luaapi.ModuleDef
 	forbiddenClasses []string
 	allowedClasses   []string
 }
@@ -56,11 +57,10 @@ func WithForbiddenClasses(classes ...string) CompilerOption {
 }
 
 // NewCompiler creates a compiler with available modules.
-func NewCompiler(modules []luaapi.Module, opts ...CompilerOption) *Compiler {
-	available := make(map[string]luaapi.Module)
+func NewCompiler(modules []*luaapi.ModuleDef, opts ...CompilerOption) *Compiler {
+	available := make(map[string]*luaapi.ModuleDef)
 	for _, m := range modules {
-		info := m.Info()
-		available[info.Name] = m
+		available[m.Name] = m
 	}
 	c := &Compiler{
 		availableModules: available,
@@ -90,8 +90,7 @@ func (c *Compiler) Compile(cmd CompileCmd) (*Program, error) {
 		}
 
 		// Check class-based restrictions
-		info := m.Info()
-		if err := c.validateModuleClasses(name, info.Class); err != nil {
+		if err := c.validateModuleClasses(name, m.Class); err != nil {
 			return nil, err
 		}
 	}
@@ -145,8 +144,7 @@ func (c *Compiler) validateModuleClasses(name string, classes []string) error {
 func (c *Compiler) getDefaultModules() []string {
 	var modules []string
 	for name, m := range c.availableModules {
-		info := m.Info()
-		if c.validateModuleClasses(name, info.Class) == nil {
+		if c.validateModuleClasses(name, m.Class) == nil {
 			modules = append(modules, name)
 		}
 	}
@@ -171,13 +169,13 @@ func (c *Compiler) GetModuleBinder(modules []string) func(*lua.LState) {
 			if !ok {
 				continue
 			}
-			luaapi.LoadModule(l, m)
+			l.SetGlobal(m.Name, engine.ModuleValue(m))
 		}
 	}
 }
 
 // GetAvailableModule returns a module by name.
-func (c *Compiler) GetAvailableModule(name string) (luaapi.Module, bool) {
+func (c *Compiler) GetAvailableModule(name string) (*luaapi.ModuleDef, bool) {
 	m, ok := c.availableModules[name]
 	return m, ok
 }
@@ -197,8 +195,7 @@ func (c *Compiler) IsModuleAllowed(name string) bool {
 	if !ok {
 		return false
 	}
-	info := m.Info()
-	return c.validateModuleClasses(name, info.Class) == nil
+	return c.validateModuleClasses(name, m.Class) == nil
 }
 
 // GetForbiddenClasses returns the configured forbidden classes.

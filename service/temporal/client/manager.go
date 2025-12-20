@@ -9,7 +9,6 @@ import (
 	"github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/resource"
@@ -193,8 +192,7 @@ func (m *Manager) AddClient(ctx context.Context, id registry.ID, cfg *api.Client
 	var peerReceiver *peer.Receiver
 	router := relay.GetRouter(ctx)
 	if router != nil {
-		nodeID := pid.NodeID(id.String())
-		peerReceiver = peer.NewReceiver(ctx, nodeID, service.TemporalClient(), router, m.log.Named("peer"))
+		peerReceiver = peer.NewReceiver(ctx, id.String(), service.TemporalClient(), router, m.log.Named("peer"))
 		m.peers[id] = peerReceiver
 	}
 	m.mu.Unlock()
@@ -229,7 +227,7 @@ func (m *Manager) AddClient(ctx context.Context, id registry.ID, cfg *api.Client
 			Kind:   relay.PeerRegister,
 			Path:   id.String(),
 			Data: relay.PeerInfo{
-				NodeID:   pid.NodeID(id.String()),
+				NodeID:   id.String(),
 				Receiver: peerReceiver,
 			},
 		})

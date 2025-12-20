@@ -167,6 +167,7 @@ func TestWorkflowExecution_Integration(t *testing.T) {
 		workerConfig,
 		resourceReg,
 		nil,
+		nil,
 	)
 
 	// Create and register workflow definition factory
@@ -426,6 +427,7 @@ func TestConcurrentWorkflow_Integration(t *testing.T) {
 		workerConfig,
 		resourceReg,
 		nil,
+		nil,
 	)
 
 	defFactory := &workflow.DefinitionFactory{
@@ -655,6 +657,7 @@ func TestWorkflowCancellation_Integration(t *testing.T) {
 		workerConfig,
 		resourceReg,
 		nil,
+		nil,
 	)
 
 	defFactory := &workflow.DefinitionFactory{
@@ -810,6 +813,7 @@ func TestWorkflowSignal_Integration(t *testing.T) {
 		registry.NewID("test", "worker"),
 		workerConfig,
 		resourceReg,
+		nil,
 		nil,
 	)
 
@@ -1000,6 +1004,7 @@ func TestWorkflowTicker_Integration(t *testing.T) {
 		registry.NewID("test", "worker"),
 		workerConfig,
 		resourceReg,
+		nil,
 		nil,
 	)
 

@@ -36,10 +36,6 @@ func NewLoadEntriesFromPathsError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to load entries from paths").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewLoadEntriesToRegistryError(cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to load entries to registry").WithCause(cause).WithRetryable(apierror.False)
-}
-
 func NewDownloadModuleError(module string, cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to download module: "+module).WithCause(cause).WithRetryable(apierror.False)
 }
@@ -58,8 +54,4 @@ func NewExecutePipelineError(cause error) apierror.Error {
 
 func NewGetCurrentVersionError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to get current version").WithCause(cause).WithRetryable(apierror.False)
-}
-
-func NewLoadStateError(cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to load state").WithCause(cause).WithRetryable(apierror.False)
 }

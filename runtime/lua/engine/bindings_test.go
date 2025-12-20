@@ -24,7 +24,7 @@ func TestCheckChannel(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	ChannelModule.Load(l)
+	LoadModuleDef(l, ChannelModule)
 
 	ch := NewChannel(1)
 	ud := l.NewUserData()
@@ -62,7 +62,7 @@ func TestChannelModuleBuild(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	ChannelModule.Load(l)
+	LoadModuleDef(l, ChannelModule)
 
 	channel := l.GetGlobal("channel")
 	if channel == lua.LNil {
@@ -91,7 +91,7 @@ func TestChannelNewFunc(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	ChannelModule.Load(l)
+	LoadModuleDef(l, ChannelModule)
 
 	err := l.DoString(`
 		local ch = channel.new(5)
@@ -108,7 +108,7 @@ func TestPushChannel(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	ChannelModule.Load(l)
+	LoadModuleDef(l, ChannelModule)
 
 	ch := NewChannel(2)
 	ud := PushChannel(l, ch)
@@ -134,7 +134,7 @@ func TestChannelMethods(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	ChannelModule.Load(l)
+	LoadModuleDef(l, ChannelModule)
 
 	err := l.DoString(`
 		local ch = channel.new(2)
@@ -172,7 +172,7 @@ func TestChannelMethods(t *testing.T) {
 }
 
 func TestChannelMetatable(t *testing.T) {
-	ChannelModule.Load(lua.NewState())
+	LoadModuleDef(lua.NewState(), ChannelModule)
 
 	mt := value.GetTypeMetatable(nil, ChannelTypeName)
 	if mt == nil {
@@ -190,8 +190,8 @@ func TestChannelModuleIsSingleton(t *testing.T) {
 	l2 := lua.NewState()
 	defer l2.Close()
 
-	ChannelModule.Load(l1)
-	ChannelModule.Load(l2)
+	LoadModuleDef(l1, ChannelModule)
+	LoadModuleDef(l2, ChannelModule)
 
 	tbl1 := l1.GetGlobal("channel").(*lua.LTable)
 	tbl2 := l2.GetGlobal("channel").(*lua.LTable)
@@ -273,7 +273,7 @@ func TestPrintModule(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	PrintModule.Load(l)
+	LoadModuleDef(l, PrintModule)
 
 	printFn := l.GetGlobal("print")
 	if printFn == lua.LNil {
@@ -289,7 +289,7 @@ func TestPrintFuncWithLogger(t *testing.T) {
 	ctx := logs.WithLogger(context.Background(), logger)
 	l.SetContext(ctx)
 
-	PrintModule.Load(l)
+	LoadModuleDef(l, PrintModule)
 
 	err := l.DoString(`print("test", "message", 123)`)
 	if err != nil {
@@ -302,7 +302,7 @@ func TestPrintFuncWithoutLogger(t *testing.T) {
 	defer l.Close()
 
 	l.SetContext(context.Background())
-	PrintModule.Load(l)
+	LoadModuleDef(l, PrintModule)
 
 	err := l.DoString(`print("test message")`)
 	if err != nil {
@@ -429,7 +429,7 @@ func TestSelectWithDefaultFlag(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	ChannelModule.Load(l)
+	LoadModuleDef(l, ChannelModule)
 
 	err := l.DoString(`
 		local ch1 = channel.new(0)
@@ -453,7 +453,7 @@ func TestSelectWithBufferedChannelReady(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	ChannelModule.Load(l)
+	LoadModuleDef(l, ChannelModule)
 
 	err := l.DoString(`
 		local ch1 = channel.new(1)

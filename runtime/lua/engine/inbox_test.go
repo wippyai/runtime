@@ -49,7 +49,7 @@ func startInboxProcess(t *testing.T, script string) *Process {
 		t.Fatal(err)
 	}
 
-	ChannelModule.Load(proc.State())
+	LoadModuleDef(proc.State(), ChannelModule)
 	loadPubSubGlobals(proc.State())
 
 	return proc
@@ -73,7 +73,7 @@ func startInboxProcessWithTranscoder(t *testing.T, script string) *Process {
 		t.Fatal(err)
 	}
 
-	ChannelModule.Load(proc.State())
+	LoadModuleDef(proc.State(), ChannelModule)
 	loadPubSubGlobals(proc.State())
 
 	return proc

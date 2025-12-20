@@ -9,6 +9,7 @@ const (
 	InterceptorName boot.Name = "otel-interceptor"
 	QueueName       boot.Name = "otel-queue"
 	MetricsName     boot.Name = "otel-metrics"
+	TemporalName    boot.Name = "otel-temporal"
 
 	httpName         boot.Name = "http"
 	interceptorName  boot.Name = "interceptor"

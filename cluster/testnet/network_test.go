@@ -16,6 +16,9 @@ import (
 )
 
 func TestSimulatedClusterFormation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping cluster formation test in short mode")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -78,6 +81,9 @@ func TestSimulatedClusterFormation(t *testing.T) {
 }
 
 func TestAsymmetricPartition(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping partition test in short mode")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -132,6 +138,9 @@ func TestAsymmetricPartition(t *testing.T) {
 }
 
 func TestNodeCrashSimulation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping crash simulation test in short mode")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -192,6 +201,9 @@ func TestNodeCrashSimulation(t *testing.T) {
 }
 
 func TestPartitionAndHeal(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping partition test in short mode")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 

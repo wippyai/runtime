@@ -13,13 +13,13 @@ func init() {
 // Command IDs for workflow operations.
 const (
 	// SideEffect is the command ID for workflow side effect operations.
-	SideEffect dispatcher.CommandID = 260
+	SideEffect dispatcher.CommandID = 180
 	// Call is the command ID for synchronous child workflow execution.
-	Call dispatcher.CommandID = 261
+	Call dispatcher.CommandID = 181
 	// Version is the command ID for workflow versioning.
-	Version dispatcher.CommandID = 262
+	Version dispatcher.CommandID = 182
 	// UpsertAttrs is the command ID for upserting search attributes.
-	UpsertAttrs dispatcher.CommandID = 263
+	UpsertAttrs dispatcher.CommandID = 183
 )
 
 // SideEffectCmd carries a closure to be executed by the workflow dispatcher.

@@ -498,7 +498,7 @@ func (f *mockFactory) Create(_ registry.ID) (Process, *Meta, error) {
 
 type mockLifecycleRegistry struct{}
 
-func (r *mockLifecycleRegistry) OnStart(_ context.Context, _ pid.PID, _ Process)            {}
+func (r *mockLifecycleRegistry) OnStart(_ context.Context, _ pid.PID, _ Process) error      { return nil }
 func (r *mockLifecycleRegistry) OnComplete(_ context.Context, _ pid.PID, _ *runtime.Result) {}
 func (r *mockLifecycleRegistry) Register(_ string, _ Lifecycle)                             {}
 func (r *mockLifecycleRegistry) Unregister(_ string)                                        {}

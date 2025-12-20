@@ -77,14 +77,16 @@ func (m *mockManager) UnregisterInterceptor(_ string) {}
 func setupState() *lua.LState {
 	l := lua.NewState()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 	return l
 }
 
 func setupStateWithManager(mgr *mockManager) *lua.LState {
 	l := lua.NewState()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	ctx := ctxapi.NewRootContext()
 	appCtx := ctxapi.NewAppContext()
@@ -99,7 +101,8 @@ func setupStateWithManager(mgr *mockManager) *lua.LState {
 func setupStateWithDelivery(msg *queueapi.Message) *lua.LState {
 	l := lua.NewState()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	ctx := ctxapi.NewRootContext()
 	appCtx := ctxapi.NewAppContext()
@@ -168,7 +171,8 @@ func TestPublishNoContext(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local ok, err = queue.publish("test:myqueue", {data = "test"})
@@ -191,7 +195,8 @@ func TestPublishNoManager(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	ctx := context.Background()
 	appCtx := ctxapi.NewAppContext()
@@ -346,7 +351,8 @@ func TestMessageNoDelivery(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	ctx := context.Background()
 	appCtx := ctxapi.NewAppContext()

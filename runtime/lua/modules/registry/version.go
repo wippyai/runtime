@@ -38,25 +38,6 @@ func versionPrevious(l *lua.LState) int {
 	return 1
 }
 
-// versionNext returns the next version
-func versionNext(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	version, ok := ud.Value.(registry.Version)
-	if !ok {
-		l.ArgError(1, "version expected")
-		return 0
-	}
-
-	next, exists := version.Next()
-	if !exists {
-		l.Push(lua.LNil)
-		return 1
-	}
-
-	value.PushTypedUserData(l, next, typeVersion)
-	return 1
-}
-
 // versionString returns a string representation of the version
 func versionString(l *lua.LState) int {
 	ud := l.CheckUserData(1)

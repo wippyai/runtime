@@ -44,9 +44,18 @@ func invalidError(l *lua.LState, msg string) int {
 	return 2
 }
 
-func internalError(l *lua.LState, goErr error, context string) int {
+func invalidWrapError(l *lua.LState, goErr error, context string) int {
 	err := lua.WrapErrorWithLua(l, goErr, context).
-		WithKind(lua.Internal).
+		WithKind(lua.Invalid).
+		WithRetryable(false)
+	l.Push(lua.LNil)
+	l.Push(err)
+	return 2
+}
+
+func notFoundError(l *lua.LState, goErr error, context string) int {
+	err := lua.WrapErrorWithLua(l, goErr, context).
+		WithKind(lua.NotFound).
 		WithRetryable(false)
 	l.Push(lua.LNil)
 	l.Push(err)
@@ -735,8 +744,7 @@ func timerResetMethod(l *lua.LState) int {
 func sleepFunc(l *lua.LState) int {
 	duration, err := ParseDuration(l, 1)
 	if err != nil {
-		l.RaiseError("time.sleep: %s", err.Error())
-		return 0
+		return invalidWrapError(l, err, "time.sleep")
 	}
 	yield := acquireSleepYield(duration)
 	l.Push(yield)
@@ -752,12 +760,10 @@ func timerFunc(l *lua.LState) int {
 
 	duration, err := ParseDuration(l, 1)
 	if err != nil {
-		l.RaiseError("time.timer: %s", err.Error())
-		return 0
+		return invalidWrapError(l, err, "time.timer")
 	}
 	if duration <= 0 {
-		l.RaiseError("time.timer: duration must be > 0")
-		return 0
+		return invalidError(l, "time.timer: duration must be > 0")
 	}
 
 	p, ok := runtime.GetFramePID(ctx)
@@ -787,12 +793,10 @@ func afterFunc(l *lua.LState) int {
 
 	duration, err := ParseDuration(l, 1)
 	if err != nil {
-		l.RaiseError("time.after: %s", err.Error())
-		return 0
+		return invalidWrapError(l, err, "time.after")
 	}
 	if duration <= 0 {
-		l.RaiseError("time.after: duration must be > 0")
-		return 0
+		return invalidError(l, "time.after: duration must be > 0")
 	}
 
 	p, ok := runtime.GetFramePID(ctx)
@@ -837,12 +841,10 @@ func tickerFunc(l *lua.LState) int {
 
 	duration, err := ParseDuration(l, 1)
 	if err != nil {
-		l.RaiseError("time.ticker: %s", err.Error())
-		return 0
+		return invalidWrapError(l, err, "time.ticker")
 	}
 	if duration <= 0 {
-		l.RaiseError("time.ticker: duration must be > 0")
-		return 0
+		return invalidError(l, "time.ticker: duration must be > 0")
 	}
 
 	p, ok := runtime.GetFramePID(ctx)
@@ -955,7 +957,7 @@ func parseFunc(l *lua.LState) int {
 
 	t, err := stdtime.ParseInLocation(layout, v, loc)
 	if err != nil {
-		return internalError(l, err, "time.parse")
+		return invalidWrapError(l, err, "time.parse")
 	}
 
 	ud := l.NewUserData()
@@ -968,7 +970,7 @@ func parseFunc(l *lua.LState) int {
 func parseDurationFunc(l *lua.LState) int {
 	duration, err := parseDurationValue(l.Get(1))
 	if err != nil {
-		return internalError(l, err, "time.parse_duration")
+		return invalidWrapError(l, err, "time.parse_duration")
 	}
 
 	ud := l.NewUserData()
@@ -986,7 +988,7 @@ func loadLocationFunc(l *lua.LState) int {
 
 	loc, err := stdtime.LoadLocation(name)
 	if err != nil {
-		return internalError(l, err, "time.load_location")
+		return notFoundError(l, err, "time.load_location")
 	}
 
 	ud := l.NewUserData()

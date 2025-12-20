@@ -276,7 +276,7 @@ func TestHost_OnStart(t *testing.T) {
 	h := NewHost(id, cfg, nil, factory, logCtrl, log)
 
 	assert.NotPanics(t, func() {
-		h.OnStart(context.Background(), pid.PID{}, nil)
+		_ = h.OnStart(context.Background(), pid.PID{}, nil)
 	})
 }
 

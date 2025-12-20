@@ -13,7 +13,6 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/internal/uniqid"
-	"github.com/wippyai/runtime/runtime/lua/engine"
 	eventsmod "github.com/wippyai/runtime/runtime/lua/modules/events"
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
 	"github.com/wippyai/runtime/system/clock"
@@ -133,17 +132,11 @@ return { main = main }
 			ModuleBinders: append(engine.CoreBinders(),
 				func(l *lua.LState) {
 					mod, _ := eventsmod.Module.Build()
-					l.PreloadModule("events", func(L *lua.LState) int {
-						L.Push(mod)
-						return 1
-					})
+					l.SetGlobal("events", mod)
 				},
 				func(l *lua.LState) {
 					mod, _ := timemod.Module.Build()
-					l.PreloadModule("time", func(L *lua.LState) int {
-						L.Push(mod)
-						return 1
-					})
+					l.SetGlobal("time", mod)
 				},
 			),
 		}
@@ -243,10 +236,7 @@ return { main = main }
 			ModuleBinders: append(engine.CoreBinders(),
 				func(l *lua.LState) {
 					mod, _ := eventsmod.Module.Build()
-					l.PreloadModule("events", func(L *lua.LState) int {
-						L.Push(mod)
-						return 1
-					})
+					l.SetGlobal("events", mod)
 				},
 			),
 		}

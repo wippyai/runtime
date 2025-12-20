@@ -427,6 +427,7 @@ func TestLifecycle_OnStart_NameAlreadyTaken(t *testing.T) {
 func TestNameAlreadyRegisteredError(t *testing.T) {
 	existingPID := pid.PID{UniqID: "existing"}
 	err := topology.NameAlreadyRegisteredError(existingPID)
+	require.NotNil(t, err)
 
 	// Verify error message
 	assert.Contains(t, err.Error(), "name already registered")

@@ -182,9 +182,9 @@ func TestCommandPools(t *testing.T) {
 }
 
 func TestCommandIDs(t *testing.T) {
-	assert.Equal(t, 200, int(Call))
-	assert.Equal(t, 201, int(AsyncStart))
-	assert.Equal(t, 203, int(AsyncCancel))
+	assert.Equal(t, 140, int(Call))
+	assert.Equal(t, 141, int(AsyncStart))
+	assert.Equal(t, 142, int(AsyncCancel))
 }
 
 func TestCallResult(t *testing.T) {

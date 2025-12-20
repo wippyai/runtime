@@ -10,7 +10,8 @@ func TestLoad(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	mod := l.GetGlobal("time")
 	if mod.Type() != lua.LTTable {
@@ -90,7 +91,8 @@ func TestLoadReuse(t *testing.T) {
 func TestNow(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local t = time.now()
@@ -109,7 +111,8 @@ func TestNow(t *testing.T) {
 func TestDate(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local t = time.date(2024, 12, 29, 15, 4, 5, 0, time.utc)
@@ -129,7 +132,8 @@ func TestDate(t *testing.T) {
 func TestUnix(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local t = time.unix(1735484645, 0)
@@ -149,7 +153,8 @@ func TestUnix(t *testing.T) {
 func TestParse(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local t, err = time.parse("2006-01-02 15:04:05", "2024-12-29 15:04:05")
@@ -166,7 +171,8 @@ func TestParse(t *testing.T) {
 func TestParseError(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local t, err = time.parse("2006-01-02", "invalid-date")
@@ -181,7 +187,8 @@ func TestParseError(t *testing.T) {
 func TestParseDuration(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local d, err = time.parse_duration("1h30m")
@@ -197,7 +204,8 @@ func TestParseDuration(t *testing.T) {
 func TestParseDurationFromNumber(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local d, err = time.parse_duration(time.SECOND)
@@ -212,7 +220,8 @@ func TestParseDurationFromNumber(t *testing.T) {
 func TestLoadLocation(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local loc, err = time.load_location("America/New_York")
@@ -227,7 +236,8 @@ func TestLoadLocation(t *testing.T) {
 func TestLoadLocationError(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local loc, err = time.load_location("Invalid/Location")
@@ -242,7 +252,8 @@ func TestLoadLocationError(t *testing.T) {
 func TestFixedZone(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local loc = time.fixed_zone("EST", -5*3600)
@@ -256,7 +267,8 @@ func TestFixedZone(t *testing.T) {
 func TestTimeAdd(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local t = time.date(2024, 12, 29, 15, 0, 0, 0, time.utc)
@@ -272,7 +284,8 @@ func TestTimeAdd(t *testing.T) {
 func TestTimeAddString(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local t = time.date(2024, 12, 29, 15, 0, 0, 0, time.utc)
@@ -287,7 +300,8 @@ func TestTimeAddString(t *testing.T) {
 func TestTimeAddNumber(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local t = time.date(2024, 12, 29, 15, 0, 0, 0, time.utc)
@@ -302,7 +316,8 @@ func TestTimeAddNumber(t *testing.T) {
 func TestTimeSub(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local t1 = time.date(2024, 12, 29, 16, 0, 0, 0, time.utc)
@@ -318,7 +333,8 @@ func TestTimeSub(t *testing.T) {
 func TestTimeAddDate(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local t = time.date(2024, 1, 1, 0, 0, 0, 0, time.utc)
@@ -335,7 +351,8 @@ func TestTimeAddDate(t *testing.T) {
 func TestTimeComparisons(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local t1 = time.date(2024, 1, 1, 0, 0, 0, 0, time.utc)
@@ -355,7 +372,8 @@ func TestTimeComparisons(t *testing.T) {
 func TestTimeFormat(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local t = time.date(2024, 12, 29, 15, 4, 5, 0, time.utc)
@@ -373,7 +391,8 @@ func TestTimeFormat(t *testing.T) {
 func TestTimeUnixMethods(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local t = time.date(1970, 1, 1, 0, 0, 1, 0, time.utc)
@@ -390,7 +409,8 @@ func TestTimeUnixMethods(t *testing.T) {
 func TestTimeDateClock(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local t = time.date(2024, 12, 29, 15, 4, 5, 0, time.utc)
@@ -413,7 +433,8 @@ func TestTimeDateClock(t *testing.T) {
 func TestTimeAccessors(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local t = time.date(2024, 6, 15, 10, 30, 45, 123456789, time.utc)
@@ -436,7 +457,8 @@ func TestTimeAccessors(t *testing.T) {
 func TestTimeIsZero(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local t = time.date(2024, 1, 15, 10, 0, 0, 0, time.utc)
@@ -450,7 +472,8 @@ func TestTimeIsZero(t *testing.T) {
 func TestTimeInLocation(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local t = time.date(2024, 1, 1, 0, 0, 0, 0, time.utc)
@@ -468,7 +491,8 @@ func TestTimeInLocation(t *testing.T) {
 func TestTimeLocation(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local t = time.date(2024, 1, 1, 0, 0, 0, 0, time.utc)
@@ -483,7 +507,8 @@ func TestTimeLocation(t *testing.T) {
 func TestTimeUTC(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local loc = time.load_location("America/New_York")
@@ -501,7 +526,8 @@ func TestTimeUTC(t *testing.T) {
 func TestTimeLocal(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local t = time.date(2024, 1, 1, 0, 0, 0, 0, time.utc)
@@ -516,7 +542,8 @@ func TestTimeLocal(t *testing.T) {
 func TestTimeRound(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local t = time.parse("2006-01-02T15:04:05.999999999Z", "2024-01-01T12:34:56.789Z")
@@ -534,7 +561,8 @@ func TestTimeRound(t *testing.T) {
 func TestTimeTruncate(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local t = time.parse("2006-01-02T15:04:05.999999999Z", "2024-01-01T12:34:56.789Z")
@@ -552,7 +580,8 @@ func TestTimeTruncate(t *testing.T) {
 func TestDurationMethods(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local d = time.parse_duration("1h30m45s")
@@ -572,7 +601,8 @@ func TestDurationMethods(t *testing.T) {
 func TestLocationMethods(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		if time.utc:string() ~= "UTC" then error("UTC string mismatch") end
@@ -586,7 +616,8 @@ func TestLocationMethods(t *testing.T) {
 func TestDurationConstants(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		if time.NANOSECOND ~= 1 then error("NANOSECOND mismatch") end
@@ -604,7 +635,8 @@ func TestDurationConstants(t *testing.T) {
 func TestFormatConstants(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		if time.RFC3339 ~= "2006-01-02T15:04:05Z07:00" then error("RFC3339 mismatch") end
@@ -620,7 +652,8 @@ func TestFormatConstants(t *testing.T) {
 func TestMonthConstants(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		if time.JANUARY ~= 1 then error("JANUARY mismatch") end
@@ -634,7 +667,8 @@ func TestMonthConstants(t *testing.T) {
 func TestWeekdayConstants(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		if time.SUNDAY ~= 0 then error("SUNDAY mismatch") end
@@ -720,7 +754,8 @@ func TestErrorHandling(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			l := lua.NewState()
 			defer l.Close()
-			Module.Load(l)
+			tbl, _ := Module.Build()
+			l.SetGlobal(Module.Name, tbl)
 
 			err := l.DoString(tc.script)
 			if err != nil {

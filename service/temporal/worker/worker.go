@@ -424,7 +424,7 @@ func (w *Worker) registerWorkflow(_ context.Context, reg *workflowRegistration) 
 }
 
 // registerRelaySendActivity registers the system activity for routing messages to local processes.
-func (w *Worker) registerRelaySendActivity(ctx context.Context) {
+func (w *Worker) registerRelaySendActivity(_ context.Context) {
 	handler := func(activityCtx context.Context, pkg *relay.Package) error {
 		// Get router from application context
 		router := relay.GetRouter(w.ctx)

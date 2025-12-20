@@ -10,7 +10,8 @@ func TestLoad(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	mod := l.GetGlobal("uuid")
 	if mod.Type() != lua.LTTable {
@@ -46,7 +47,8 @@ func TestLoadReuse(t *testing.T) {
 func TestUUIDV1(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local id, err = uuid.v1()
@@ -61,7 +63,8 @@ func TestUUIDV1(t *testing.T) {
 func TestUUIDV3(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local ns = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
@@ -78,7 +81,8 @@ func TestUUIDV3InvalidNamespace(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local id, err = uuid.v3("invalid", "test")
@@ -100,7 +104,8 @@ func TestUUIDV3MissingArgs(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local id, err = uuid.v3()
@@ -118,7 +123,8 @@ func TestUUIDV3MissingArgs(t *testing.T) {
 func TestUUIDV4(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local id, err = uuid.v4()
@@ -133,7 +139,8 @@ func TestUUIDV4(t *testing.T) {
 func TestUUIDV5(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local ns = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
@@ -150,7 +157,8 @@ func TestUUIDV5InvalidNamespace(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local id, err = uuid.v5("invalid", "test")
@@ -168,7 +176,8 @@ func TestUUIDV5InvalidNamespace(t *testing.T) {
 func TestUUIDV7(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local id, err = uuid.v7()
@@ -183,7 +192,8 @@ func TestUUIDV7(t *testing.T) {
 func TestValidate(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local valid, _ = uuid.validate("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
@@ -203,7 +213,8 @@ func TestValidate(t *testing.T) {
 func TestVersion(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local ver, err = uuid.version("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
@@ -219,7 +230,8 @@ func TestVersionInvalid(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local ver, err = uuid.version("invalid")
@@ -243,7 +255,8 @@ func TestVersionInvalid(t *testing.T) {
 func TestVariant(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local var, err = uuid.variant("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
@@ -259,7 +272,8 @@ func TestVariantInvalid(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local var, err = uuid.variant("invalid")
@@ -282,7 +296,8 @@ func TestVariantInvalid(t *testing.T) {
 func TestParse(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local info, err = uuid.parse("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
@@ -299,7 +314,8 @@ func TestParse(t *testing.T) {
 func TestParseV7(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local id, _ = uuid.v7()
@@ -316,7 +332,8 @@ func TestParseInvalid(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local info, err = uuid.parse("invalid")
@@ -339,7 +356,8 @@ func TestParseInvalid(t *testing.T) {
 func TestFormat(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local id = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
@@ -365,7 +383,8 @@ func TestFormatInvalid(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = uuid.format("invalid")
@@ -394,7 +413,8 @@ func TestFormatInvalid(t *testing.T) {
 func TestV4Uniqueness(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local uuids = {}
@@ -413,7 +433,8 @@ func TestV4Uniqueness(t *testing.T) {
 func TestV3V5Determinism(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local ns = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"

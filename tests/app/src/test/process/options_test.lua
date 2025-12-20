@@ -22,7 +22,7 @@ local function main()
 
     -- Verify option was set
     local opts2 = process.get_options()
-    assert.equals(opts2.trap_links, false, "trap_links was set to false")
+    assert.eq(opts2.trap_links, false, "trap_links was set to false")
 
     -- Set trap_links to true
     local ok2, err2 = process.set_options({ trap_links = true })
@@ -31,7 +31,7 @@ local function main()
 
     -- Verify option was set
     local opts3 = process.get_options()
-    assert.equals(opts3.trap_links, true, "trap_links was set to true")
+    assert.eq(opts3.trap_links, true, "trap_links was set to true")
 
     return true
 end

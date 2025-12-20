@@ -26,6 +26,14 @@ type (
 		Clone() any
 	}
 
+	// Propagator is implemented by values that need transformation for cross-process propagation.
+	// When spawning a child process, values implementing this interface will have PropagateValue()
+	// called to get the appropriate cross-process representation.
+	// Return nil to skip propagation entirely.
+	Propagator interface {
+		PropagateValue() any
+	}
+
 	// Closer is implemented by values that need cleanup when frame is released.
 	Closer interface {
 		Close() error

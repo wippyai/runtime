@@ -13,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/runtime"
+	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 )
 
@@ -206,6 +207,30 @@ func TestGetRemoteSpanContext(t *testing.T) {
 		assert.False(t, ok)
 		assert.False(t, sc.IsValid())
 	})
+}
+
+func TestGetSpanContextKey(t *testing.T) {
+	key := GetSpanContextKey()
+	assert.NotNil(t, key)
+	assert.Equal(t, "otel.spancontext", key.Name)
+	assert.True(t, key.Inherit)
+}
+
+func TestSpanContextPair(t *testing.T) {
+	traceID, _ := trace.TraceIDFromHex("00000000000000000000000000000001")
+	spanID, _ := trace.SpanIDFromHex("0000000000000001")
+	sc := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID: traceID,
+		SpanID:  spanID,
+	})
+
+	pair := SpanContextPair(sc)
+	assert.Equal(t, GetSpanContextKey(), pair.Key)
+
+	val, ok := pair.Value.(trace.SpanContext)
+	assert.True(t, ok)
+	assert.Equal(t, sc.TraceID(), val.TraceID())
+	assert.Equal(t, sc.SpanID(), val.SpanID())
 }
 
 type mockService struct {

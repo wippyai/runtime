@@ -13,9 +13,9 @@ func init() {
 
 // Command IDs for function operations.
 const (
-	Call        dispatcher.CommandID = 200 // Execute function call (sync, blocking)
-	AsyncStart  dispatcher.CommandID = 201 // Start async call, result sent via relay
-	AsyncCancel dispatcher.CommandID = 203 // Cancel an async call
+	Call        dispatcher.CommandID = 140 // Execute function call (sync, blocking)
+	AsyncStart  dispatcher.CommandID = 141 // Start async call, result sent via relay
+	AsyncCancel dispatcher.CommandID = 142 // Cancel an async call
 )
 
 // CallCmd represents a function call to be executed.

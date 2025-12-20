@@ -181,9 +181,10 @@ func buildImportsFromDependencies(deps []Dependency) map[string]*types.TypeManif
 		if dep.Node.Module == nil {
 			continue
 		}
-		if def, ok := dep.Node.Module.(*lua.ModuleDef); ok {
-			if def.Types != nil {
-				imports[dep.Name] = def.Types()
+		// Get Types from module if available
+		if dep.Node.Module.Types != nil {
+			if manifest := dep.Node.Module.Types(); manifest != nil {
+				imports[dep.Name] = manifest
 			}
 		}
 	}

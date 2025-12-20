@@ -10,10 +10,8 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
-	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/security"
 	templatecfg "github.com/wippyai/runtime/api/service/template"
-	lua2payload "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/service/template/jet"
 	payloadSystem "github.com/wippyai/runtime/system/payload"
 	"github.com/wippyai/runtime/system/payload/json"
@@ -119,7 +117,8 @@ func setupTestState(_ *testing.T, mockRes *mockResource) *lua.LState {
 
 	l := lua.NewState()
 	l.SetContext(ctx)
-	luaapi.LoadModule(l, Module)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	return l
 }

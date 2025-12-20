@@ -186,7 +186,7 @@ func (f *ProcessFactory) buildBinders(compiled *code.CompiledMain, cfg *processC
 	for _, mod := range cfg.extraModules {
 		m := mod
 		binders = append(binders, func(l *lua.LState) {
-			m.Load(l)
+			LoadModuleDef(l, m)
 		})
 	}
 
@@ -205,7 +205,7 @@ func (f *ProcessFactory) bindDependencies(
 		name := dep.Name
 		var classes []string
 		if dep.Node != nil && dep.Node.Module != nil {
-			classes = dep.Node.Module.Info().Class
+			classes = dep.Node.Module.Class
 		}
 
 		// Check exclusions
@@ -235,14 +235,11 @@ func (f *ProcessFactory) bindDependencies(
 			}
 		}
 
-		// Create binder based on type
+		// Create binder based on type - eager load into _G
 		if dep.Node != nil && dep.Node.Module != nil {
 			mod := dep.Node.Module
-			modName := name
 			binders = append(binders, func(l *lua.LState) {
-				l.PreloadModule(modName, func(l *lua.LState) int {
-					return mod.Loader(l)
-				})
+				l.SetGlobal(mod.Name, ModuleValue(mod))
 			})
 		}
 
@@ -250,12 +247,12 @@ func (f *ProcessFactory) bindDependencies(
 			proto := dep.Proto
 			protoName := name
 			binders = append(binders, func(l *lua.LState) {
-				l.PreloadModule(protoName, func(l *lua.LState) int {
-					fn := l.LoadProto(proto)
-					l.Push(fn)
-					l.Call(0, 1)
-					return 1
-				})
+				fn := l.LoadProto(proto)
+				l.Push(fn)
+				l.Call(0, 1)
+				result := l.Get(-1)
+				l.Pop(1)
+				l.SetGlobal(protoName, result)
 			})
 		}
 	}

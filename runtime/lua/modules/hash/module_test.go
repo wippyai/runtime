@@ -10,7 +10,8 @@ func TestLoad(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	mod := l.GetGlobal("hash")
 	if mod.Type() != lua.LTTable {
@@ -46,7 +47,8 @@ func TestLoadReuse(t *testing.T) {
 func TestMD5(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.md5("hello")
@@ -65,7 +67,8 @@ func TestMD5(t *testing.T) {
 func TestMD5Raw(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.md5("hello", true)
@@ -84,7 +87,8 @@ func TestMD5Raw(t *testing.T) {
 func TestSHA1(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.sha1("hello")
@@ -103,7 +107,8 @@ func TestSHA1(t *testing.T) {
 func TestSHA256(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.sha256("hello")
@@ -122,7 +127,8 @@ func TestSHA256(t *testing.T) {
 func TestSHA512(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.sha512("hello")
@@ -141,7 +147,8 @@ func TestSHA512(t *testing.T) {
 func TestFNV32(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.fnv32("hello")
@@ -160,7 +167,8 @@ func TestFNV32(t *testing.T) {
 func TestFNV64(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.fnv64("hello")
@@ -179,7 +187,8 @@ func TestFNV64(t *testing.T) {
 func TestHMACSHA256(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.hmac_sha256("hello", "secret")
@@ -198,7 +207,8 @@ func TestHMACSHA256(t *testing.T) {
 func TestHMACSHA512(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.hmac_sha512("hello", "secret")
@@ -217,7 +227,8 @@ func TestHMACSHA512(t *testing.T) {
 func TestHMACSHA1(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.hmac_sha1("hello", "secret")
@@ -236,7 +247,8 @@ func TestHMACSHA1(t *testing.T) {
 func TestHMACMD5(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.hmac_md5("hello", "secret")
@@ -255,7 +267,8 @@ func TestHMACMD5(t *testing.T) {
 func TestHMACRaw(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.hmac_sha256("hello", "secret", true)
@@ -275,7 +288,8 @@ func TestInvalidInputMD5(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.md5(123)
@@ -301,7 +315,8 @@ func TestInvalidInputHMAC(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.hmac_sha256(123, "secret")
@@ -340,7 +355,8 @@ func TestInvalidInputSHA1(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.sha1(123)
@@ -363,7 +379,8 @@ func TestInvalidInputSHA256(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.sha256(123)
@@ -386,7 +403,8 @@ func TestInvalidInputSHA512(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.sha512(123)
@@ -409,7 +427,8 @@ func TestInvalidInputFNV32(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.fnv32(123)
@@ -432,7 +451,8 @@ func TestInvalidInputFNV64(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.fnv64(123)
@@ -455,7 +475,8 @@ func TestInvalidInputHMACSHA512(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.hmac_sha512(123, "secret")
@@ -491,7 +512,8 @@ func TestInvalidInputHMACSHA1(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.hmac_sha1(123, "secret")
@@ -527,7 +549,8 @@ func TestInvalidInputHMACMD5(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.hmac_md5(123, "secret")
@@ -562,7 +585,8 @@ func TestInvalidInputHMACMD5(t *testing.T) {
 func TestSHA1Raw(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.sha1("hello", true)
@@ -581,7 +605,8 @@ func TestSHA1Raw(t *testing.T) {
 func TestSHA256Raw(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.sha256("hello", true)
@@ -600,7 +625,8 @@ func TestSHA256Raw(t *testing.T) {
 func TestSHA512Raw(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.sha512("hello", true)
@@ -619,7 +645,8 @@ func TestSHA512Raw(t *testing.T) {
 func TestHMACSHA512Raw(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.hmac_sha512("hello", "secret", true)
@@ -638,7 +665,8 @@ func TestHMACSHA512Raw(t *testing.T) {
 func TestHMACSHA1Raw(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.hmac_sha1("hello", "secret", true)
@@ -657,7 +685,8 @@ func TestHMACSHA1Raw(t *testing.T) {
 func TestHMACMD5Raw(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = hash.hmac_md5("hello", "secret", true)
@@ -676,7 +705,8 @@ func TestHMACMD5Raw(t *testing.T) {
 func TestDeterminism(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local h1 = hash.sha256("test")

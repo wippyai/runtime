@@ -7,21 +7,21 @@ local function main()
     local bad_t, err = time.parse("2006-01-02", "invalid-date")
     assert.is_nil(bad_t, "invalid parse returns nil")
     assert.not_nil(err, "invalid parse returns error")
-    assert.eq(err:kind(), errors.INTERNAL, "parse error kind is INTERNAL")
+    assert.eq(err:kind(), errors.INVALID, "parse error kind is INVALID")
     assert.eq(err:retryable(), false, "parse error not retryable")
 
     -- Test parse_duration errors
     local bad_d, d_err = time.parse_duration("invalid")
     assert.is_nil(bad_d, "invalid duration returns nil")
     assert.not_nil(d_err, "invalid duration returns error")
-    assert.eq(d_err:kind(), errors.INTERNAL, "duration error kind is INTERNAL")
+    assert.eq(d_err:kind(), errors.INVALID, "duration error kind is INVALID")
     assert.eq(d_err:retryable(), false, "duration error not retryable")
 
     -- Test load_location errors
     local bad_loc, loc_err = time.load_location("Invalid/Location")
     assert.is_nil(bad_loc, "invalid location returns nil")
     assert.not_nil(loc_err, "invalid location returns error")
-    assert.eq(loc_err:kind(), errors.INTERNAL, "location error kind is INTERNAL")
+    assert.eq(loc_err:kind(), errors.NOT_FOUND, "location error kind is NOT_FOUND")
     assert.eq(loc_err:retryable(), false, "location error not retryable")
 
     -- Test empty location name (invalid input)

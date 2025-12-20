@@ -522,6 +522,14 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 	require.NoError(t, err)
 	defer sub.Close()
 
+	funcSub, err := eventbus.NewSubscriber(ctx, bus, function.System, "function.*", func(evt event.Event) {
+		if evt.Kind == function.Accept {
+			wg.Done()
+		}
+	})
+	require.NoError(t, err)
+	defer funcSub.Close()
+
 	// Function that captures and returns all context values it receives
 	funcID := registry.NewID("test", "capture_context_func")
 	testFunc := function.Func(func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
@@ -536,6 +544,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 		return &runtime.Result{Value: payload.New(captured)}, nil
 	})
 
+	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: function.System,
 		Kind:   function.Register,
@@ -545,6 +554,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 			Options: nil,
 		},
 	})
+	wg.Wait()
 
 	// Register contract and binding
 	contractID := registry.NewID("test", "capture_contract")

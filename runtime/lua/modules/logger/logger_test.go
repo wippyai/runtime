@@ -16,7 +16,8 @@ func TestLoad(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	mod := l.GetGlobal("logger")
 	if mod.Type() != lua.LTUserData {
@@ -69,7 +70,8 @@ func TestModuleFunctions(t *testing.T) {
 	logs.WithLogger(ctx, log)
 	l.SetContext(ctx)
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		logger:info("test message", {key = "value"})
@@ -98,7 +100,8 @@ func TestLoggerWith(t *testing.T) {
 	logs.WithLogger(ctx, log)
 	l.SetContext(ctx)
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local child = logger:with({component = "test"})
@@ -128,7 +131,8 @@ func TestLoggerNamed(t *testing.T) {
 	logs.WithLogger(ctx, log)
 	l.SetContext(ctx)
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local named = logger:named("mylogger")
@@ -158,7 +162,8 @@ func TestLogLevels(t *testing.T) {
 	logs.WithLogger(ctx, log)
 	l.SetContext(ctx)
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		logger:debug("debug msg")
@@ -196,7 +201,8 @@ func TestFieldTypes(t *testing.T) {
 	logs.WithLogger(ctx, log)
 	l.SetContext(ctx)
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		logger:info("types test", {
@@ -236,7 +242,8 @@ func TestChainedLoggers(t *testing.T) {
 	logs.WithLogger(ctx, log)
 	l.SetContext(ctx)
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local child1 = logger:with({service = "api"})

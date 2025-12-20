@@ -253,5 +253,7 @@ func (d *Definition) resumeProcess(tag uint64, data any, err error) {
 		})
 	case process.StepUpgrade:
 		d.executeContinueAsNew()
+	case process.StepContinue, process.StepIdle:
+		// Process needs more events to continue, nothing to do here
 	}
 }

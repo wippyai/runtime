@@ -12,7 +12,6 @@ import (
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/runtime"
-	"github.com/wippyai/runtime/runtime/lua/engine"
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
 	"github.com/wippyai/runtime/system/clock"
 	"github.com/wippyai/runtime/system/scheduler"
@@ -97,14 +96,18 @@ func testPID() pid.PID {
 }
 
 func bindTimeModule(l *lua.LState) {
-	timemod.Module.Load(l)
+	timemod.tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 }
 
 func newLuaProcessWithChannels(script string) *engine.Process {
 	proto, _ := lua.CompileString(script, "test.lua")
 	return engine.NewProcess(
 		engine.WithProto(proto),
-		engine.WithModuleBinder(func(l *lua.LState) { engine.ChannelModule.Load(l) }),
+		engine.WithModuleBinder(func(l *lua.LState) {
+			engine.Channeltbl, _ := Module.Build()
+			l.SetGlobal(Module.Name, tbl)
+		}),
 		engine.WithModuleBinder(bindTimeModule),
 	)
 }

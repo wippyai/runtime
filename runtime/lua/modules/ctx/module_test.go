@@ -23,7 +23,8 @@ func TestModuleLoad(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	mod := l.GetGlobal("ctx")
 	if mod.Type() != lua.LTTable {
@@ -65,7 +66,8 @@ func TestGet(t *testing.T) {
 	})
 	l.SetContext(ctx)
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local val, err = ctx.get("foo")
@@ -89,7 +91,8 @@ func TestGetNotFound(t *testing.T) {
 	ctx := setupContextWithValues(map[string]any{})
 	l.SetContext(ctx)
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local val, err = ctx.get("nonexistent")
@@ -116,7 +119,8 @@ func TestGetEmptyKey(t *testing.T) {
 	ctx := setupContextWithValues(map[string]any{})
 	l.SetContext(ctx)
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local val, err = ctx.get("")
@@ -146,7 +150,8 @@ func TestAll(t *testing.T) {
 	})
 	l.SetContext(ctx)
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local all, err = ctx.all()
@@ -177,7 +182,8 @@ func TestAllEmpty(t *testing.T) {
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	l.SetContext(ctx)
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local all, err = ctx.all()
@@ -211,7 +217,8 @@ func TestGetDifferentTypes(t *testing.T) {
 	})
 	l.SetContext(ctx)
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		-- String
@@ -248,7 +255,8 @@ func TestNoValues(t *testing.T) {
 	lua.OpenErrors(l)
 
 	// Don't set context - values bag won't exist
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local val, err = ctx.get("key")

@@ -27,7 +27,7 @@ func (d *Definition) executeProcessSend(cmd *process.SendCmd, tag uint64) error 
 	taskQueue := d.env.WorkflowInfo().TaskQueueName
 
 	selfPID := pid.PID{
-		Node:   pid.NodeID(temporalapi.GetClientID(d.ctx)),
+		Node:   temporalapi.GetClientID(d.ctx),
 		Host:   taskQueue,
 		UniqID: d.env.WorkflowInfo().WorkflowExecution.ID,
 	}
@@ -190,7 +190,7 @@ func (d *Definition) executeProcessSpawn(cmd *process.SpawnCmd, tag uint64) erro
 			return
 		}
 		childPID = pid.PID{
-			Node:   pid.NodeID(temporalapi.GetClientID(d.ctx)),
+			Node:   temporalapi.GetClientID(d.ctx),
 			Host:   params.WorkflowOptions.TaskQueueName,
 			UniqID: execution.ID,
 		}

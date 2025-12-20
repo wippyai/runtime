@@ -9,11 +9,10 @@ import (
 )
 
 // Command IDs for eval operations.
-// Range 230-239 is reserved for eval commands.
 const (
-	Compile       dispatcher.CommandID = 230 // Compile Lua source, return Program handle
-	Run           dispatcher.CommandID = 231 // Compile + run, return result
-	CreateProcess dispatcher.CommandID = 232 // Create steppable process from Program
+	Compile       dispatcher.CommandID = 170 // Compile Lua source, return Program handle
+	Run           dispatcher.CommandID = 171 // Compile + run, return result
+	CreateProcess dispatcher.CommandID = 172 // Create steppable process from Program
 )
 
 func init() {

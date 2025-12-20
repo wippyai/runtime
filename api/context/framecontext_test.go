@@ -696,3 +696,130 @@ func BenchmarkFrameContext_ConcurrentForkRelease(b *testing.B) {
 
 	ReleaseFrameContext(parent)
 }
+
+func TestInheritablePairs(t *testing.T) {
+	ctx, fc := OpenFrameContext(context.Background())
+	defer ReleaseFrameContext(fc)
+
+	inheritKey := &Key{Name: "test.inherit", Inherit: true}
+	noInheritKey := &Key{Name: "test.noinherit", Inherit: false}
+
+	_ = fc.Set(inheritKey, "inherited-value")
+	_ = fc.Set(noInheritKey, "not-inherited")
+
+	pairs := fc.InheritablePairs()
+
+	if len(pairs) != 1 {
+		t.Fatalf("expected 1 inheritable pair, got %d", len(pairs))
+	}
+
+	if pairs[0].Key != inheritKey {
+		t.Error("expected inherit key")
+	}
+	if pairs[0].Value != "inherited-value" {
+		t.Error("expected inherited-value")
+	}
+
+	_ = ctx // silence unused
+}
+
+func TestInheritablePairs_Empty(t *testing.T) {
+	_, fc := OpenFrameContext(context.Background())
+	defer ReleaseFrameContext(fc)
+
+	pairs := fc.InheritablePairs()
+	if len(pairs) != 0 {
+		t.Errorf("expected 0 pairs, got %d", len(pairs))
+	}
+}
+
+func TestInheritablePairs_MultipleKeys(t *testing.T) {
+	_, fc := OpenFrameContext(context.Background())
+	defer ReleaseFrameContext(fc)
+
+	key1 := &Key{Name: "test.key1", Inherit: true}
+	key2 := &Key{Name: "test.key2", Inherit: true}
+	key3 := &Key{Name: "test.key3", Inherit: false}
+
+	_ = fc.Set(key1, "value1")
+	_ = fc.Set(key2, "value2")
+	_ = fc.Set(key3, "value3")
+
+	pairs := fc.InheritablePairs()
+	if len(pairs) != 2 {
+		t.Fatalf("expected 2 inheritable pairs, got %d", len(pairs))
+	}
+}
+
+func TestPropagatedPairs_NoFrameContext(t *testing.T) {
+	ctx := context.Background()
+	pairs := PropagatedPairs(ctx)
+	if pairs != nil {
+		t.Error("expected nil pairs when no frame context")
+	}
+}
+
+func TestPropagatedPairs_Empty(t *testing.T) {
+	ctx, fc := OpenFrameContext(context.Background())
+	defer ReleaseFrameContext(fc)
+
+	pairs := PropagatedPairs(ctx)
+	if len(pairs) != 0 {
+		t.Errorf("expected 0 pairs, got %d", len(pairs))
+	}
+}
+
+func TestPropagatedPairs_PassThrough(t *testing.T) {
+	ctx, fc := OpenFrameContext(context.Background())
+	defer ReleaseFrameContext(fc)
+
+	key := &Key{Name: "test.value", Inherit: true}
+	_ = fc.Set(key, "simple-value")
+
+	pairs := PropagatedPairs(ctx)
+	if len(pairs) != 1 {
+		t.Fatalf("expected 1 pair, got %d", len(pairs))
+	}
+	if pairs[0].Value != "simple-value" {
+		t.Error("expected simple-value")
+	}
+}
+
+type mockPropagator struct {
+	propagateValue any
+}
+
+func (m *mockPropagator) PropagateValue() any {
+	return m.propagateValue
+}
+
+func TestPropagatedPairs_WithPropagator(t *testing.T) {
+	ctx, fc := OpenFrameContext(context.Background())
+	defer ReleaseFrameContext(fc)
+
+	key := &Key{Name: "test.propagator", Inherit: true}
+	prop := &mockPropagator{propagateValue: "transformed-value"}
+	_ = fc.Set(key, prop)
+
+	pairs := PropagatedPairs(ctx)
+	if len(pairs) != 1 {
+		t.Fatalf("expected 1 pair, got %d", len(pairs))
+	}
+	if pairs[0].Value != "transformed-value" {
+		t.Errorf("expected transformed-value, got %v", pairs[0].Value)
+	}
+}
+
+func TestPropagatedPairs_PropagatorReturnsNil(t *testing.T) {
+	ctx, fc := OpenFrameContext(context.Background())
+	defer ReleaseFrameContext(fc)
+
+	key := &Key{Name: "test.skip", Inherit: true}
+	prop := &mockPropagator{propagateValue: nil}
+	_ = fc.Set(key, prop)
+
+	pairs := PropagatedPairs(ctx)
+	if len(pairs) != 0 {
+		t.Errorf("expected 0 pairs when propagator returns nil, got %d", len(pairs))
+	}
+}

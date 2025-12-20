@@ -66,16 +66,8 @@ func TestChain(_ *testing.T) {
 	v2 := FromParent(v1, 2)
 	v3 := FromParent(v2, 3)
 
-	{
-		v := v3
-		for i := 3; i > 0; i-- {
-			v = v.Previous()
-		}
-	}
-	{
-		v := v1
-		for i := 1; i <= 3; i++ {
-			v, _ = v.Next()
-		}
+	v := v3
+	for i := 3; i > 0; i-- {
+		v = v.Previous()
 	}
 }

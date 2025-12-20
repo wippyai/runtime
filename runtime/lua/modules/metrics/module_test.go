@@ -109,7 +109,8 @@ func TestLoad(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	mod := l.GetGlobal("metrics")
 	if mod.Type() != lua.LTTable {
@@ -152,7 +153,8 @@ func TestCounterInc(t *testing.T) {
 	api.WithCollector(ctx, collector)
 	l.SetContext(ctx)
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local ok, err = metrics.counter_inc("test.counter")
@@ -176,7 +178,8 @@ func TestCounterIncWithLabels(t *testing.T) {
 	api.WithCollector(ctx, collector)
 	l.SetContext(ctx)
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local ok, err = metrics.counter_inc("test.counter", {method = "GET", path = "/api"})
@@ -201,7 +204,8 @@ func TestCounterAdd(t *testing.T) {
 	api.WithCollector(ctx, collector)
 	l.SetContext(ctx)
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local ok, err = metrics.counter_add("test.counter", 5)
@@ -225,7 +229,8 @@ func TestGaugeSet(t *testing.T) {
 	api.WithCollector(ctx, collector)
 	l.SetContext(ctx)
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local ok, err = metrics.gauge_set("test.gauge", 42)
@@ -249,7 +254,8 @@ func TestGaugeIncDec(t *testing.T) {
 	api.WithCollector(ctx, collector)
 	l.SetContext(ctx)
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		metrics.gauge_inc("test.gauge")
@@ -274,7 +280,8 @@ func TestHistogram(t *testing.T) {
 	api.WithCollector(ctx, collector)
 	l.SetContext(ctx)
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local ok, err = metrics.histogram("test.histogram", 0.123)
@@ -297,7 +304,8 @@ func TestNoCollectorError(t *testing.T) {
 	defer l.Close()
 	lua.OpenErrors(l)
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local ok, err = metrics.counter_inc("test.counter")

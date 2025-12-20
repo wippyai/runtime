@@ -289,7 +289,7 @@ func TestNewReceiver(t *testing.T) {
 
 	r := NewReceiver(context.Background(), "node1", nil, router, logger)
 	require.NotNil(t, r)
-	assert.Equal(t, pid.NodeID("node1"), r.nodeID)
+	assert.Equal(t, "node1", r.nodeID)
 	assert.NotNil(t, r.watchers)
 	assert.NotNil(t, r.ctx)
 }

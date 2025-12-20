@@ -976,10 +976,6 @@ func bindMockTimeModule(l *lua.LState) {
 	timeMod.RawSetString("MILLISECOND", lua.LNumber(1000000)) // nanoseconds
 	timeMod.RawSetString("sleep", l.NewFunction(luaTestYield))
 	l.SetGlobal("time", timeMod)
-	l.PreloadModule("time", func(L *lua.LState) int {
-		L.Push(timeMod)
-		return 1
-	})
 }
 
 // newLuaFactoryWithChannelsAndTime creates a factory that includes channel and mock time modules
@@ -992,7 +988,7 @@ func newLuaFactoryWithChannelsAndTime(script string) process.FactoryFunc {
 
 		proc := NewProcess(
 			WithProto(proto),
-			WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+			WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
 			WithModuleBinder(bindMockTimeModule),
 		)
 
@@ -1197,7 +1193,7 @@ func TestProcessExternalYieldWithChannelSelect(t *testing.T) {
 
 	proc := NewProcess(
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
 		WithModuleBinder(bindTestYield),
 	)
 
@@ -1971,7 +1967,7 @@ func TestProcessDeadlockDetection(t *testing.T) {
 
 	proc := NewProcess(
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
@@ -2010,7 +2006,7 @@ func TestProcessChannelClosedReceive(t *testing.T) {
 
 	proc := NewProcess(
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
@@ -2053,7 +2049,7 @@ func TestProcessChannelBufferedFull(t *testing.T) {
 
 	proc := NewProcess(
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
@@ -2090,7 +2086,7 @@ func TestProcessSelectWithDefault(t *testing.T) {
 
 	proc := NewProcess(
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
@@ -2131,7 +2127,7 @@ func TestProcessSelectMultipleChannels(t *testing.T) {
 
 	proc := NewProcess(
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
@@ -2328,7 +2324,7 @@ func TestProcessMixedYieldsAndChannels(t *testing.T) {
 
 	proc := NewProcess(
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
 		WithModuleBinder(bindTestYield),
 	)
 
@@ -2748,7 +2744,7 @@ func TestProcessSubscribeYieldsBasic(t *testing.T) {
 
 	proc := NewProcess(
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
 		WithModuleBinder(bindProcessModule),
 	)
 
@@ -2781,7 +2777,7 @@ func TestProcessSubscribeYieldsUnsubscribe(t *testing.T) {
 
 	proc := NewProcess(
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
 		WithModuleBinder(bindProcessModule),
 	)
 
@@ -2850,7 +2846,7 @@ func TestProcessDeliverMessageBasic(t *testing.T) {
 
 	proc := NewProcess(
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
 		WithModuleBinder(bindProcessModule),
 	)
 
@@ -3315,7 +3311,7 @@ func TestProcessGetTasks(t *testing.T) {
 	`
 	proc := NewProcess(
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
@@ -4015,7 +4011,7 @@ func TestDistributedWorkWithExternalYields(t *testing.T) {
 
 	proc := NewProcess(
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
 		WithModuleBinder(bindTestYield),
 	)
 
@@ -4093,7 +4089,7 @@ func TestExternalYieldLostOnSubscribeLoop(t *testing.T) {
 
 	proc := NewProcess(
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { ChannelModule.Load(l) }),
+		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
 		WithModuleBinder(bindProcessModule),
 		WithModuleBinder(bindTestYield),
 	)

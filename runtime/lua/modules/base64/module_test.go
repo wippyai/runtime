@@ -3,14 +3,19 @@ package base64
 import (
 	"testing"
 
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 )
+
+func bindModule(l *lua.LState) {
+	engine.LoadModuleDef(l, Module)
+}
 
 func TestLoad(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Module.Load(l)
+	bindModule(l)
 
 	mod := l.GetGlobal("base64")
 	if mod.Type() != lua.LTTable {
@@ -32,8 +37,8 @@ func TestLoadReuse(t *testing.T) {
 	l2 := lua.NewState()
 	defer l2.Close()
 
-	Module.Load(l1)
-	Module.Load(l2)
+	bindModule(l1)
+	bindModule(l2)
 
 	mod1 := l1.GetGlobal("base64").(*lua.LTable)
 	mod2 := l2.GetGlobal("base64").(*lua.LTable)
@@ -59,7 +64,8 @@ func TestEncode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			l := lua.NewState()
 			defer l.Close()
-			Module.Load(l)
+			tbl, _ := Module.Build()
+			l.SetGlobal(Module.Name, tbl)
 
 			l.Push(l.GetGlobal("base64").(*lua.LTable).RawGetString("encode"))
 			l.Push(lua.LString(tt.input))
@@ -77,7 +83,8 @@ func TestEncodeInvalidInput(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = base64.encode(123)
@@ -114,7 +121,8 @@ func TestDecode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			l := lua.NewState()
 			defer l.Close()
-			Module.Load(l)
+			tbl, _ := Module.Build()
+			l.SetGlobal(Module.Name, tbl)
 
 			l.Push(l.GetGlobal("base64").(*lua.LTable).RawGetString("decode"))
 			l.Push(lua.LString(tt.input))
@@ -132,7 +140,8 @@ func TestDecodeInvalidInput(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = base64.decode(123)
@@ -158,7 +167,8 @@ func TestDecodeInvalidBase64(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = base64.decode("!!!invalid!!!")
@@ -188,7 +198,8 @@ func TestDecodeInvalidBase64(t *testing.T) {
 func TestRoundTrip(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local original = "Hello, World! 123"

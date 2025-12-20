@@ -1,15 +1,15 @@
 package topology
 
 import (
+	"errors"
+
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/pid"
 )
 
-// Detail keys for error metadata.
-const (
-	DetailExistingPID = "existing_pid"
-)
+// DetailExistingPID is the key for the existing PID in error metadata.
+const DetailExistingPID = "existing_pid"
 
 // Sentinel errors for topology operations.
 var (
@@ -46,16 +46,10 @@ func GetExistingPID(err error) (pid.PID, bool) {
 
 // asError extracts an apierror.Error from the error chain.
 func asError(err error, target *apierror.Error) bool {
-	for err != nil {
-		if e, ok := err.(apierror.Error); ok {
-			*target = e
-			return true
-		}
-		if u, ok := err.(interface{ Unwrap() error }); ok {
-			err = u.Unwrap()
-		} else {
-			return false
-		}
+	var e apierror.Error
+	if errors.As(err, &e) {
+		*target = e
+		return true
 	}
 	return false
 }

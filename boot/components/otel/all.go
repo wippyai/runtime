@@ -10,5 +10,6 @@ func All() []boot.Component {
 		Queue(),
 		Metrics(),
 		ProcessLifecycle(),
+		Temporal(),
 	}
 }

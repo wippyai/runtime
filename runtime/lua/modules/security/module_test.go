@@ -36,14 +36,16 @@ func (p *mockPolicy) Evaluate(_ secapi.Actor, _, _ string, _ attrs.Bag) secapi.R
 func setupState() *lua.LState {
 	l := lua.NewState()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 	return l
 }
 
 func setupStateWithSecurityContext(actor secapi.Actor, scope secapi.Scope) *lua.LState {
 	l := lua.NewState()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	ctx := context.Background()
 	appCtx := ctxapi.NewAppContext()

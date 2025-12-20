@@ -10,7 +10,8 @@ func TestLoad(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	mod := l.GetGlobal("yaml")
 	if mod.Type() != lua.LTTable {
@@ -46,7 +47,8 @@ func TestLoadReuse(t *testing.T) {
 func TestEncodeTable(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = yaml.encode({name = "test", value = 123})
@@ -62,7 +64,8 @@ func TestEncodeTable(t *testing.T) {
 func TestEncodeArray(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = yaml.encode({1, 2, 3})
@@ -77,7 +80,8 @@ func TestEncodeInvalidInput(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = yaml.encode(123)
@@ -103,7 +107,8 @@ func TestEncodeMissingInput(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = yaml.encode()
@@ -125,7 +130,8 @@ func TestEncodeMissingInput(t *testing.T) {
 func TestDecodeObject(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = yaml.decode("name: test\nvalue: 123")
@@ -141,7 +147,8 @@ func TestDecodeObject(t *testing.T) {
 func TestDecodeArray(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = yaml.decode("- 1\n- 2\n- 3")
@@ -157,7 +164,8 @@ func TestDecodeInvalidInput(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = yaml.decode(123)
@@ -183,7 +191,8 @@ func TestDecodeEmpty(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = yaml.decode("")
@@ -206,7 +215,8 @@ func TestDecodeInvalidYAML(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = yaml.decode(":\n  :\n  invalid")
@@ -228,7 +238,8 @@ func TestDecodeInvalidYAML(t *testing.T) {
 func TestRoundTrip(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local original = {name = "test", numbers = {1, 2, 3}}
@@ -246,7 +257,8 @@ func TestRoundTrip(t *testing.T) {
 func TestDecodeNestedStructure(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local yamlStr = [[
@@ -266,7 +278,8 @@ parent:
 func TestEncodeWithFieldOrder(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local data = {zebra = 1, alpha = 2, beta = 3}
@@ -289,7 +302,8 @@ func TestEncodeWithFieldOrder(t *testing.T) {
 func TestEncodeWithSortUnordered(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local data = {zebra = 1, alpha = 2, beta = 3}
@@ -312,7 +326,8 @@ func TestEncodeWithSortUnordered(t *testing.T) {
 func TestEncodeWithFieldOrderAndSortUnordered(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local data = {zebra = 1, alpha = 2, beta = 3, name = "test", kind = "demo"}
@@ -348,7 +363,8 @@ func TestEncodeWithFieldOrderAndSortUnordered(t *testing.T) {
 func TestEncodeNestedWithFieldOrder(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local data = {

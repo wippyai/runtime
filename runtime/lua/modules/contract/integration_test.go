@@ -24,7 +24,6 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/internal/uniqid"
-	"github.com/wippyai/runtime/runtime/lua/engine"
 	contractmod "github.com/wippyai/runtime/runtime/lua/modules/contract"
 	syscontract "github.com/wippyai/runtime/system/contract"
 	"github.com/wippyai/runtime/system/eventbus"
@@ -246,14 +245,18 @@ func (tc *integrationTestContext) registerBinding(t *testing.T, bindingID regist
 }
 
 func bindContractModule(l *lua.LState) {
-	contractmod.Module.Load(l)
+	contractmod.tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 }
 
 func newLuaProcess(script string) *engine.Process {
 	proto, _ := lua.CompileString(script, "test.lua")
 	return engine.NewProcess(
 		engine.WithProto(proto),
-		engine.WithModuleBinder(func(l *lua.LState) { engine.ChannelModule.Load(l) }),
+		engine.WithModuleBinder(func(l *lua.LState) {
+			engine.Channeltbl, _ := Module.Build()
+			l.SetGlobal(Module.Name, tbl)
+		}),
 		engine.WithModuleBinder(bindContractModule),
 	)
 }

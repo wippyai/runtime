@@ -70,8 +70,6 @@ type WorkerOptionsConfig struct {
 type VersioningBehavior string
 
 const (
-	// VersioningBehaviorUnspecified requires each workflow to explicitly set behavior.
-	VersioningBehaviorUnspecified VersioningBehavior = ""
 	// VersioningBehaviorPinned keeps workflow on the same build ID until completion.
 	VersioningBehaviorPinned VersioningBehavior = "pinned"
 	// VersioningBehaviorAutoUpgrade moves workflow to latest version on next task.

@@ -12,7 +12,8 @@ func TestLoad(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	mod := l.GetGlobal("env")
 	if mod.Type() != lua.LTTable {
@@ -49,7 +50,8 @@ func TestImmutability(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local success = pcall(function()
@@ -65,7 +67,8 @@ func TestGetNoContext(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local val, err = env.get("TEST_VAR")
@@ -82,7 +85,8 @@ func TestSetNoContext(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local val, err = env.set("TEST_VAR", "value")
@@ -99,7 +103,8 @@ func TestGetAllNoContext(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local val, err = env.get_all()
@@ -118,7 +123,8 @@ func TestGetWithEmptyContext(t *testing.T) {
 	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
 	l.SetContext(ctx)
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local val, err = env.get("TEST_VAR")
@@ -137,7 +143,8 @@ func TestGetEmptyKey(t *testing.T) {
 	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
 	l.SetContext(ctx)
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local val, err = env.get("")
@@ -156,7 +163,8 @@ func TestSetEmptyKey(t *testing.T) {
 	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
 	l.SetContext(ctx)
 
-	Module.Load(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
 	err := l.DoString(`
 		local ok, err = env.set("", "value")

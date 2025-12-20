@@ -29,7 +29,7 @@ func startChannelUnitProcess(t *testing.T, script string) *Process {
 		t.Fatal(err)
 	}
 
-	ChannelModule.Load(proc.State())
+	LoadModuleDef(proc.State(), ChannelModule)
 	loadPubSubGlobals(proc.State())
 	return proc
 }
@@ -691,7 +691,7 @@ func TestChannel_SlotsCount(t *testing.T) {
 func TestChannel_PushIdempotent(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	ChannelModule.Load(l)
+	LoadModuleDef(l, ChannelModule)
 
 	ch := NewChannel(10)
 
@@ -724,7 +724,7 @@ func TestChannel_ValueCaching(t *testing.T) {
 
 	l := lua.NewState()
 	defer l.Close()
-	ChannelModule.Load(l)
+	LoadModuleDef(l, ChannelModule)
 
 	ud := PushChannel(l, ch)
 

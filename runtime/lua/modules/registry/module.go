@@ -47,7 +47,6 @@ func init() {
 		map[string]lua.LGoFunc{
 			"id":       versionID,
 			"previous": versionPrevious,
-			"next":     versionNext,
 			"string":   versionString,
 		})
 

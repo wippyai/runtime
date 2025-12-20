@@ -13,7 +13,6 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
-	secapi "github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/api/topology"
 	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine"
@@ -165,25 +164,6 @@ func createPayloadsFromArgs(l *lua.LState) payload.Payloads {
 	return payloads
 }
 
-func buildSecurityContext(l *lua.LState) []ctxapi.Pair {
-	ctx := l.Context()
-	if ctx == nil {
-		return nil
-	}
-
-	var pairs []ctxapi.Pair
-	if actor, ok := secapi.GetActor(ctx); ok {
-		pairs = append(pairs, secapi.ActorPair(actor))
-	}
-	if scope, ok := secapi.GetScope(ctx); ok {
-		pairs = append(pairs, secapi.ScopePair(scope))
-	}
-	if values := ctxapi.GetValues(ctx); values != nil && values.Len() > 0 {
-		pairs = append(pairs, ctxapi.ValuesPair(values))
-	}
-	return pairs
-}
-
 func processPID(l *lua.LState) int {
 	pid, ok := checkPID(l)
 	if !ok {
@@ -301,7 +281,7 @@ func spawn(l *lua.LState) int {
 		HostID:  hostID,
 		Source:  registry.ParseID(id),
 		Input:   payloads,
-		Context: buildSecurityContext(l),
+		Context: ctxapi.PropagatedPairs(l.Context()),
 		Options: options,
 	}
 
@@ -346,7 +326,7 @@ func spawnMonitored(l *lua.LState) int {
 		HostID:  hostID,
 		Source:  registry.ParseID(id),
 		Input:   payloads,
-		Context: buildSecurityContext(l),
+		Context: ctxapi.PropagatedPairs(l.Context()),
 		Options: options,
 	}
 	yield.Monitor = true
@@ -392,7 +372,7 @@ func spawnLinked(l *lua.LState) int {
 		HostID:  hostID,
 		Source:  registry.ParseID(id),
 		Input:   payloads,
-		Context: buildSecurityContext(l),
+		Context: ctxapi.PropagatedPairs(l.Context()),
 		Options: options,
 	}
 	yield.Link = true
@@ -444,7 +424,7 @@ func spawnLinkedMonitored(l *lua.LState) int {
 		HostID:  hostID,
 		Source:  registry.ParseID(id),
 		Input:   payloads,
-		Context: buildSecurityContext(l),
+		Context: ctxapi.PropagatedPairs(l.Context()),
 		Options: options,
 	}
 	yield.Monitor = true

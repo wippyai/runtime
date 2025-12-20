@@ -122,7 +122,7 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.
 	}
 
 	processPID := pid.PID{
-		Node:   pid.NodeID(temporalapi.GetClientID(d.ctx)),
+		Node:   temporalapi.GetClientID(d.ctx),
 		Host:   env.WorkflowInfo().TaskQueueName,
 		UniqID: env.WorkflowInfo().WorkflowExecution.ID,
 	}
