@@ -13,6 +13,8 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/evalhost"
 	"github.com/wippyai/runtime/runtime/lua/modules/json"
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
@@ -24,7 +26,7 @@ import (
 // a child process that sleeps. This is the key integration test.
 func TestEvalModule_SandboxWithSleep(t *testing.T) {
 	// Setup: Create eval host with modules
-	modules := []luaapi.Module{
+	modules := []*luaapi.ModuleDef{
 		json.Module,
 		timemod.Module,
 	}
@@ -105,8 +107,8 @@ func TestEvalModule_SandboxWithSleep(t *testing.T) {
 	proc := engine.NewProcess(
 		engine.WithProto(proto),
 		engine.WithModuleBinder(func(l *lua.LState) {
-			engine.LoadModule(l, Module)
-			engine.LoadModule(l, timemod.Module)
+			engine.LoadModuleDef(l, Module)
+			engine.LoadModuleDef(l, timemod.Module)
 		}),
 	)
 
@@ -124,7 +126,7 @@ func TestEvalModule_SandboxWithSleep(t *testing.T) {
 
 // TestEvalModule_SandboxYieldTranscoding tests that yields are properly transcoded to Lua tables
 func TestEvalModule_SandboxYieldTranscoding(t *testing.T) {
-	modules := []luaapi.Module{
+	modules := []*luaapi.ModuleDef{
 		json.Module,
 		timemod.Module,
 	}
@@ -193,7 +195,7 @@ func TestEvalModule_CompileYield(t *testing.T) {
 	state := lua.NewState()
 	defer state.Close()
 
-	modules := []luaapi.Module{json.Module, timemod.Module}
+	modules := []*luaapi.ModuleDef{json.Module, timemod.Module}
 	compiler := evalhost.NewCompiler(modules)
 	program, err := compiler.Compile(evalhost.CompileCmd{
 		Source:  "return { handle = function() return 42 end }",
@@ -263,7 +265,7 @@ func TestEvalModule_RunYield(t *testing.T) {
 
 // TestEvalModule_SandboxMethods tests sandbox userdata methods
 func TestEvalModule_SandboxMethods(t *testing.T) {
-	modules := []luaapi.Module{
+	modules := []*luaapi.ModuleDef{
 		json.Module,
 		timemod.Module,
 	}
@@ -309,7 +311,7 @@ func TestEvalModule_SandboxMethods(t *testing.T) {
 	proc := engine.NewProcess(
 		engine.WithProto(proto),
 		engine.WithModuleBinder(func(l *lua.LState) {
-			engine.LoadModule(l, Module)
+			engine.LoadModuleDef(l, Module)
 		}),
 	)
 
@@ -324,7 +326,7 @@ func TestEvalModule_SandboxMethods(t *testing.T) {
 
 // TestEvalModule_ProgramMethods tests Program userdata methods
 func TestEvalModule_ProgramMethods(t *testing.T) {
-	modules := []luaapi.Module{
+	modules := []*luaapi.ModuleDef{
 		json.Module,
 		timemod.Module,
 	}
@@ -348,7 +350,8 @@ func TestEvalModule_ProgramMethods(t *testing.T) {
 	defer state.Close()
 
 	// Register the program metatable
-	Module.Load(state)
+	tbl, _ := Module.Build()
+	state.SetGlobal(Module.Name, tbl)
 
 	// Wrap program
 	wrapper := &Program{program: program}
@@ -373,7 +376,7 @@ func TestEvalModule_ProgramMethods(t *testing.T) {
 
 // TestEvalModule_ErrorCases tests various error conditions
 func TestEvalModule_ErrorCases(t *testing.T) {
-	modules := []luaapi.Module{
+	modules := []*luaapi.ModuleDef{
 		json.Module,
 		timemod.Module,
 	}
@@ -400,7 +403,7 @@ func TestEvalModule_ErrorCases(t *testing.T) {
 		proc := engine.NewProcess(
 			engine.WithProto(proto),
 			engine.WithModuleBinder(func(l *lua.LState) {
-				engine.LoadModule(l, Module)
+				engine.LoadModuleDef(l, Module)
 			}),
 		)
 
@@ -430,7 +433,7 @@ func TestEvalModule_ErrorCases(t *testing.T) {
 		proc := engine.NewProcess(
 			engine.WithProto(proto),
 			engine.WithModuleBinder(func(l *lua.LState) {
-				engine.LoadModule(l, Module)
+				engine.LoadModuleDef(l, Module)
 			}),
 		)
 
@@ -458,7 +461,7 @@ func TestEvalModule_ErrorCases(t *testing.T) {
 		proc := engine.NewProcess(
 			engine.WithProto(proto),
 			engine.WithModuleBinder(func(l *lua.LState) {
-				engine.LoadModule(l, Module)
+				engine.LoadModuleDef(l, Module)
 			}),
 		)
 
@@ -477,7 +480,7 @@ func TestEvalModule_ErrorCases(t *testing.T) {
 // 3. Tests multiple yield types (sleep, now)
 // 4. Verifies resource cleanup
 func TestEvalModule_ComprehensiveIntegration(t *testing.T) {
-	modules := []luaapi.Module{
+	modules := []*luaapi.ModuleDef{
 		json.Module,
 		timemod.Module,
 	}
@@ -610,9 +613,9 @@ func TestEvalModule_ComprehensiveIntegration(t *testing.T) {
 	proc := engine.NewProcess(
 		engine.WithProto(proto),
 		engine.WithModuleBinder(func(l *lua.LState) {
-			engine.LoadModule(l, Module)
-			engine.LoadModule(l, json.Module)
-			engine.LoadModule(l, timemod.Module)
+			engine.LoadModuleDef(l, Module)
+			engine.LoadModuleDef(l, json.Module)
+			engine.LoadModuleDef(l, timemod.Module)
 		}),
 	)
 
@@ -633,7 +636,7 @@ func TestEvalModule_ComprehensiveIntegration(t *testing.T) {
 
 // TestEvalModule_SandboxResourceCleanup verifies sandbox resources are cleaned when parent exits
 func TestEvalModule_SandboxResourceCleanup(t *testing.T) {
-	modules := []luaapi.Module{
+	modules := []*luaapi.ModuleDef{
 		json.Module,
 		timemod.Module,
 	}
@@ -667,7 +670,7 @@ func TestEvalModule_SandboxResourceCleanup(t *testing.T) {
 	proc := engine.NewProcess(
 		engine.WithProto(proto),
 		engine.WithModuleBinder(func(l *lua.LState) {
-			engine.LoadModule(l, Module)
+			engine.LoadModuleDef(l, Module)
 		}),
 	)
 
@@ -687,7 +690,7 @@ func TestEvalModule_SandboxResourceCleanup(t *testing.T) {
 
 // TestEvalModule_MultipleModulesLoaded verifies all requested modules are available
 func TestEvalModule_MultipleModulesLoaded(t *testing.T) {
-	modules := []luaapi.Module{
+	modules := []*luaapi.ModuleDef{
 		json.Module,
 		timemod.Module,
 	}
@@ -742,7 +745,7 @@ func TestEvalModule_MultipleModulesLoaded(t *testing.T) {
 	proc := engine.NewProcess(
 		engine.WithProto(proto),
 		engine.WithModuleBinder(func(l *lua.LState) {
-			engine.LoadModule(l, Module)
+			engine.LoadModuleDef(l, Module)
 		}),
 	)
 
@@ -763,7 +766,7 @@ func TestEvalModule_MultipleModulesLoaded(t *testing.T) {
 
 // BenchmarkSandboxCreateExecuteStep benchmarks sandbox creation, execute, and step cycle
 func BenchmarkSandboxCreateExecuteStep(b *testing.B) {
-	modules := []luaapi.Module{
+	modules := []*luaapi.ModuleDef{
 		json.Module,
 		timemod.Module,
 	}
@@ -796,7 +799,7 @@ func BenchmarkSandboxCreateExecuteStep(b *testing.B) {
 		proc := engine.NewProcess(
 			engine.WithProto(proto),
 			engine.WithModuleBinder(func(l *lua.LState) {
-				engine.LoadModule(l, Module)
+				engine.LoadModuleDef(l, Module)
 			}),
 		)
 		_ = proc.Init(ctx, "", nil)

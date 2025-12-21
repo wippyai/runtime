@@ -21,20 +21,20 @@ func TestLoad(t *testing.T) {
 		t.Fatal("module not registered")
 	}
 
-	tbl := mod.(*lua.LTable)
-	if tbl.RawGetString("parse").Type() != lua.LTFunction {
+	modTbl := mod.(*lua.LTable)
+	if modTbl.RawGetString("parse").Type() != lua.LTFunction {
 		t.Error("parse function not registered")
 	}
-	if tbl.RawGetString("parser").Type() != lua.LTFunction {
+	if modTbl.RawGetString("parser").Type() != lua.LTFunction {
 		t.Error("parser function not registered")
 	}
-	if tbl.RawGetString("query").Type() != lua.LTFunction {
+	if modTbl.RawGetString("query").Type() != lua.LTFunction {
 		t.Error("query function not registered")
 	}
-	if tbl.RawGetString("language").Type() != lua.LTFunction {
+	if modTbl.RawGetString("language").Type() != lua.LTFunction {
 		t.Error("language function not registered")
 	}
-	if tbl.RawGetString("supported_languages").Type() != lua.LTFunction {
+	if modTbl.RawGetString("supported_languages").Type() != lua.LTFunction {
 		t.Error("supported_languages function not registered")
 	}
 }
@@ -45,8 +45,9 @@ func TestLoadReuse(t *testing.T) {
 	l2 := lua.NewState()
 	defer l2.Close()
 
-	Module.Load(l1)
-	Module.Load(l2)
+	tbl, _ := Module.Build()
+	l1.SetGlobal(Module.Name, tbl)
+	l2.SetGlobal(Module.Name, tbl)
 
 	mod1 := l1.GetGlobal("treesitter").(*lua.LTable)
 	mod2 := l2.GetGlobal("treesitter").(*lua.LTable)

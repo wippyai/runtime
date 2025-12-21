@@ -17,6 +17,7 @@ import (
 )
 
 type Store struct {
+	id            string
 	resource      resource.Resource[any]
 	store         store.Store
 	released      bool
@@ -24,8 +25,9 @@ type Store struct {
 	cancelCleanup func()
 }
 
-func NewStore(ctx context.Context, res resource.Resource[any], s store.Store) *Store {
+func NewStore(ctx context.Context, id string, res resource.Resource[any], s store.Store) *Store {
 	storeWrapper := &Store{
+		id:       id,
 		resource: res,
 		store:    s,
 		released: false,
@@ -130,7 +132,7 @@ func storeGet(l *lua.LState) int {
 		return invalidError(l, fmt.Sprintf("resource is not a store: %T", storeRes))
 	}
 
-	s := NewStore(ctx, res, storeImpl)
+	s := NewStore(ctx, id, res, storeImpl)
 
 	value.PushTypedUserData(l, s, storeTypeName)
 	return 1
@@ -155,7 +157,7 @@ func storeKeyGet(l *lua.LState) int {
 		return invalidError(l, "key is required")
 	}
 
-	if !security.IsAllowed(l.Context(), "store.key.get", keyStr, nil) {
+	if !security.IsAllowed(l.Context(), "store.key.get", s.id, map[string]any{"key": keyStr}) {
 		l.RaiseError("not allowed to read key: %s", keyStr)
 		return 0
 	}
@@ -187,7 +189,7 @@ func storeKeySet(l *lua.LState) int {
 		return invalidError(l, "key is required")
 	}
 
-	if !security.IsAllowed(l.Context(), "store.key.set", keyStr, nil) {
+	if !security.IsAllowed(l.Context(), "store.key.set", s.id, map[string]any{"key": keyStr}) {
 		l.RaiseError("not allowed to write key: %s", keyStr)
 		return 0
 	}
@@ -246,7 +248,7 @@ func storeKeyDelete(l *lua.LState) int {
 		return invalidError(l, "key is required")
 	}
 
-	if !security.IsAllowed(l.Context(), "store.key.delete", keyStr, nil) {
+	if !security.IsAllowed(l.Context(), "store.key.delete", s.id, map[string]any{"key": keyStr}) {
 		l.RaiseError("not allowed to delete key: %s", keyStr)
 		return 0
 	}
@@ -278,7 +280,7 @@ func storeKeyHas(l *lua.LState) int {
 		return invalidError(l, "key is required")
 	}
 
-	if !security.IsAllowed(l.Context(), "store.key.has", keyStr, nil) {
+	if !security.IsAllowed(l.Context(), "store.key.has", s.id, map[string]any{"key": keyStr}) {
 		l.RaiseError("not allowed to check key existence: %s", keyStr)
 		return 0
 	}

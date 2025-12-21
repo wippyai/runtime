@@ -13,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/internal/uniqid"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	eventsmod "github.com/wippyai/runtime/runtime/lua/modules/events"
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
 	"github.com/wippyai/runtime/system/clock"

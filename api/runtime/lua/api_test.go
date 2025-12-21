@@ -75,7 +75,7 @@ func TestModuleDef_Info(t *testing.T) {
 	assert.Equal(t, []string{ClassIO}, info.Class)
 }
 
-func TestModuleDef_Register_WithBuild(t *testing.T) {
+func TestModuleDef_Build(t *testing.T) {
 	tbl := &gopherlua.LTable{}
 	yields := []YieldType{{Sample: "test", CmdID: 1}}
 
@@ -87,16 +87,12 @@ func TestModuleDef_Register_WithBuild(t *testing.T) {
 		},
 	}
 
-	l := gopherlua.NewState()
-	defer l.Close()
-
-	reg := mod.Register(l)
-	assert.NotNil(t, reg)
-	assert.Equal(t, tbl, reg.Table)
-	assert.Len(t, reg.YieldTypes, 1)
+	result, resultYields := mod.Build()
+	assert.Equal(t, tbl, result)
+	assert.Len(t, resultYields, 1)
 }
 
-func TestModuleDef_Register_WithBuildValue(t *testing.T) {
+func TestModuleDef_BuildValue(t *testing.T) {
 	tbl := &gopherlua.LTable{}
 	yields := []YieldType{{Sample: "test", CmdID: 2}}
 
@@ -108,52 +104,19 @@ func TestModuleDef_Register_WithBuildValue(t *testing.T) {
 		},
 	}
 
-	l := gopherlua.NewState()
-	defer l.Close()
-
-	reg := mod.Register(l)
-	assert.NotNil(t, reg)
-	assert.Equal(t, tbl, reg.Table)
-	assert.Len(t, reg.YieldTypes, 1)
+	result, resultYields := mod.BuildValue()
+	assert.Equal(t, tbl, result)
+	assert.Len(t, resultYields, 1)
 }
 
-func TestModuleDef_Loader(t *testing.T) {
-	tbl := &gopherlua.LTable{}
+func TestModuleDef_NilBuild(t *testing.T) {
 	mod := &ModuleDef{
-		Name:        "loadermod",
-		Description: "Loader module",
-		Build: func() (*gopherlua.LTable, []YieldType) {
-			return tbl, nil
-		},
+		Name:        "nilmod",
+		Description: "Module with nil Build",
 	}
 
-	l := gopherlua.NewState()
-	defer l.Close()
-
-	count := mod.Loader(l)
-	assert.Equal(t, 1, count)
-}
-
-func TestModuleDef_Load(t *testing.T) {
-	tbl := &gopherlua.LTable{}
-	yields := []YieldType{{Sample: "test", CmdID: 3}}
-
-	mod := &ModuleDef{
-		Name:        "loadmod",
-		Description: "Load module",
-		Build: func() (*gopherlua.LTable, []YieldType) {
-			return tbl, yields
-		},
-	}
-
-	l := gopherlua.NewState()
-	defer l.Close()
-
-	result := mod.Load(l)
-	assert.Len(t, result, 1)
-
-	global := l.GetGlobal("loadmod")
-	assert.NotEqual(t, gopherlua.LNil, global)
+	assert.Nil(t, mod.Build)
+	assert.Nil(t, mod.BuildValue)
 }
 
 func TestSetCodeManager_GetCodeManager(t *testing.T) {

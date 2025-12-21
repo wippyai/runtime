@@ -65,7 +65,7 @@ func TestCompiler_ModuleNotCompiled(t *testing.T) {
 	moduleNode := &Node{
 		ID:     registry.NewID("", "moduleNotCompiled"),
 		Kind:   lua.ModuleKind,
-		Module: &dummyModule{name: "test"},
+		Module: &lua.ModuleDef{Name: "test"},
 	}
 
 	proto, err := compiler.getCompiledProto(moduleNode, nil)
@@ -95,7 +95,7 @@ func TestCompiler_MixedDependencies(t *testing.T) {
 	moduleNode := &Node{
 		ID:     registry.NewID("", "module"),
 		Kind:   lua.ModuleKind,
-		Module: &dummyModule{name: "test"},
+		Module: &lua.ModuleDef{Name: "test"},
 	}
 
 	mock.results[mainNode.ID.String()] = &glua.FunctionProto{}
@@ -195,7 +195,7 @@ func TestCompiler_PreloadedDependencies(t *testing.T) {
 	preloadedModule := &Node{
 		ID:     registry.NewID("", "preloadedModule"),
 		Kind:   lua.ModuleKind,
-		Module: &dummyModule{name: "preloaded"},
+		Module: &lua.ModuleDef{Name: "preloaded"},
 	}
 
 	// AddCleanup mock compilation result for main node
@@ -227,34 +227,7 @@ func TestCompiler_PreloadedDependencies(t *testing.T) {
 	assert.Equal(t, "pre_mod", dep.Name)
 	assert.Equal(t, preloadedModule, dep.Node)
 	assert.NotNil(t, dep.Node.Module)
-	assert.Equal(t, "preloaded", dep.Node.Module.Info().Name)
-}
-
-// testModule implements lua.ModuleV2 interface for testing
-type testModule struct {
-	name string
-}
-
-func (m *testModule) Loader(l *glua.LState) int {
-	mod := l.CreateTable(0, 1)
-	mod.RawSetString("test", l.NewFunction(func(l *glua.LState) int {
-		l.Push(glua.LString("test"))
-		return 1
-	}))
-	l.Push(mod)
-	return 1
-}
-
-func (m *testModule) Info() lua.ModuleInfo {
-	return lua.ModuleInfo{
-		Name:        m.name,
-		Description: "test module",
-		Class:       []string{lua.ClassDeterministic},
-	}
-}
-
-func (m *testModule) Register(_ *glua.LState) *lua.Registration {
-	return nil
+	assert.Equal(t, "preloaded", dep.Node.Module.Name)
 }
 
 func TestNewCompiler(t *testing.T) {
@@ -430,7 +403,7 @@ func TestCompiler_PreloadModule(t *testing.T) {
 	module := &Node{
 		ID:     registry.NewID("", "testModulePreload"),
 		Kind:   lua.ModuleKind,
-		Module: &testModule{name: "test"},
+		Module: &lua.ModuleDef{Name: "test"},
 	}
 	require.NoError(t, mg.AddNode(module))
 

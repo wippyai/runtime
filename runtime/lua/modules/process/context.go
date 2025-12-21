@@ -143,10 +143,9 @@ func spawnerWithMessage(l *lua.LState) int {
 		payloads = append(payloads, payload.NewPayload(l.Get(i), payload.Lua))
 	}
 
-	msg := &relay.Message{
-		Topic:    topic,
-		Payloads: payloads,
-	}
+	msg := relay.AcquireMessage()
+	msg.Topic = topic
+	msg.Payloads = payloads
 
 	newMessages := make([]*relay.Message, len(spawner.messages)+1)
 	copy(newMessages, spawner.messages)

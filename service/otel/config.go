@@ -109,6 +109,11 @@ func LoadConfig(bootCfg boot.Config) otelapi.Config {
 		cfg.Queue.Enabled = queueCfg.GetBool("enabled", cfg.Queue.Enabled)
 	}
 
+	// Temporal config
+	if temporalCfg := otelCfg.Sub("temporal"); temporalCfg != nil {
+		cfg.Temporal.Enabled = temporalCfg.GetBool("enabled", cfg.Temporal.Enabled)
+	}
+
 	return cfg
 }
 

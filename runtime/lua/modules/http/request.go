@@ -18,7 +18,10 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-const defaultMaxBodySize = 120 * 1024 * 1024 // 120MB default limit
+const (
+	defaultMaxBodySize = 120 * 1024 * 1024 // 120MB default limit
+	defaultBodyTimeout = 300000            // 5 minute default timeout
+)
 
 type Request struct {
 	request *basehttp.Request
@@ -289,39 +292,40 @@ func requestBody(l *lua.LState) int {
 	// Use LimitReader to enforce actual byte limit (Content-Length can be spoofed)
 	limitedReader := io.LimitReader(req.request.Body, maxBody+1)
 
+	timeout := req.config.Timeout
+	if timeout <= 0 {
+		timeout = defaultBodyTimeout
+	}
+
 	var body []byte
 	var readErr error
 
-	if req.config.Timeout > 0 {
-		ctx, cancel := context.WithTimeout(
-			req.request.Context(),
-			time.Duration(req.config.Timeout)*time.Millisecond,
-		)
-		defer cancel()
+	ctx, cancel := context.WithTimeout(
+		req.request.Context(),
+		time.Duration(timeout)*time.Millisecond,
+	)
+	defer cancel()
 
-		bodyChan := make(chan []byte)
-		errChan := make(chan error)
+	bodyChan := make(chan []byte)
+	errChan := make(chan error)
 
-		go func() {
-			b, err := io.ReadAll(limitedReader)
-			if err != nil {
-				errChan <- err
-				return
-			}
-			select {
-			case bodyChan <- b:
-			case <-ctx.Done():
-			}
-		}()
-
-		select {
-		case body = <-bodyChan:
-		case readErr = <-errChan:
-		case <-ctx.Done():
-			readErr = fmt.Errorf("request timeout after %dms", req.config.Timeout)
+	go func() {
+		b, err := io.ReadAll(limitedReader)
+		if err != nil {
+			errChan <- err
+			return
 		}
-	} else {
-		body, readErr = io.ReadAll(limitedReader)
+		select {
+		case bodyChan <- b:
+		case <-ctx.Done():
+		}
+	}()
+
+	select {
+	case body = <-bodyChan:
+	case readErr = <-errChan:
+	case <-ctx.Done():
+		readErr = fmt.Errorf("request timeout after %dms", timeout)
 	}
 
 	defer func() { _ = req.request.Body.Close() }()
@@ -380,10 +384,46 @@ func requestBodyJSON(l *lua.LState) int {
 	// Use LimitReader to enforce actual byte limit (Content-Length can be spoofed)
 	limitedReader := io.LimitReader(req.request.Body, maxBody+1)
 
-	body, err := io.ReadAll(limitedReader)
+	timeout := req.config.Timeout
+	if timeout <= 0 {
+		timeout = defaultBodyTimeout
+	}
+
+	ctx, cancel := context.WithTimeout(
+		req.request.Context(),
+		time.Duration(timeout)*time.Millisecond,
+	)
+	defer cancel()
+
+	var body []byte
+	var readErr error
+
+	bodyChan := make(chan []byte)
+	errChan := make(chan error)
+
+	go func() {
+		b, err := io.ReadAll(limitedReader)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		select {
+		case bodyChan <- b:
+		case <-ctx.Done():
+		}
+	}()
+
+	select {
+	case body = <-bodyChan:
+	case readErr = <-errChan:
+	case <-ctx.Done():
+		readErr = fmt.Errorf("request timeout after %dms", timeout)
+	}
+
 	defer func() { _ = req.request.Body.Close() }()
-	if err != nil {
-		luaErr := lua.WrapErrorWithLua(l, err, "failed to read body").
+
+	if readErr != nil {
+		luaErr := lua.WrapErrorWithLua(l, readErr, "failed to read body").
 			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)

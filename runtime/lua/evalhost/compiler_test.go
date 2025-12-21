@@ -8,12 +8,11 @@ import (
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/modules/json"
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
-	lua "github.com/yuin/gopher-lua"
 )
 
 // safeModules returns modules safe for eval testing
-func safeModules() []luaapi.Module {
-	return []luaapi.Module{
+func safeModules() []*luaapi.ModuleDef {
+	return []*luaapi.ModuleDef{
 		json.Module,
 		timemod.Module,
 	}
@@ -56,12 +55,12 @@ func TestCompiler_Compile_SyntaxError(t *testing.T) {
 
 func TestCompiler_Compile_ForbiddenClass(t *testing.T) {
 	// Create a mock module with process class
-	mockMod := &mockModule{
-		name:    "badmodule",
-		classes: []string{luaapi.ClassProcess},
+	mockMod := &luaapi.ModuleDef{
+		Name:  "badmodule",
+		Class: []string{luaapi.ClassProcess},
 	}
 
-	modules := []luaapi.Module{
+	modules := []*luaapi.ModuleDef{
 		json.Module,
 		mockMod,
 	}
@@ -127,24 +126,24 @@ func TestCompiler_ModuleInfo(t *testing.T) {
 
 func TestCompiler_ClassBasedFiltering(t *testing.T) {
 	// Create modules with different classes
-	safeModule := &mockModule{
-		name:    "safe",
-		classes: []string{luaapi.ClassDeterministic, luaapi.ClassEncoding},
+	safeModule := &luaapi.ModuleDef{
+		Name:  "safe",
+		Class: []string{luaapi.ClassDeterministic, luaapi.ClassEncoding},
 	}
-	processModule := &mockModule{
-		name:    "unsafe_process",
-		classes: []string{luaapi.ClassProcess},
+	processModule := &luaapi.ModuleDef{
+		Name:  "unsafe_process",
+		Class: []string{luaapi.ClassProcess},
 	}
-	storageModule := &mockModule{
-		name:    "unsafe_storage",
-		classes: []string{luaapi.ClassStorage},
+	storageModule := &luaapi.ModuleDef{
+		Name:  "unsafe_storage",
+		Class: []string{luaapi.ClassStorage},
 	}
-	networkModule := &mockModule{
-		name:    "unsafe_network",
-		classes: []string{luaapi.ClassNetwork},
+	networkModule := &luaapi.ModuleDef{
+		Name:  "unsafe_network",
+		Class: []string{luaapi.ClassNetwork},
 	}
 
-	modules := []luaapi.Module{
+	modules := []*luaapi.ModuleDef{
 		safeModule,
 		processModule,
 		storageModule,
@@ -162,12 +161,12 @@ func TestCompiler_ClassBasedFiltering(t *testing.T) {
 }
 
 func TestCompiler_CustomForbiddenClasses(t *testing.T) {
-	ioModule := &mockModule{
-		name:    "io_module",
-		classes: []string{luaapi.ClassIO},
+	ioModule := &luaapi.ModuleDef{
+		Name:  "io_module",
+		Class: []string{luaapi.ClassIO},
 	}
 
-	modules := []luaapi.Module{ioModule}
+	modules := []*luaapi.ModuleDef{ioModule}
 
 	// With default settings, IO is allowed
 	compilerDefault := NewCompiler(modules)
@@ -238,26 +237,4 @@ func TestCompiler_ForbiddenClasses(t *testing.T) {
 	assert.Contains(t, forbidden, luaapi.ClassProcess)
 	assert.Contains(t, forbidden, luaapi.ClassStorage)
 	assert.Contains(t, forbidden, luaapi.ClassNetwork)
-}
-
-// mockModule implements luaapi.Module for testing
-type mockModule struct {
-	name    string
-	classes []string
-}
-
-func (m *mockModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        m.name,
-		Description: "test module",
-		Class:       m.classes,
-	}
-}
-
-func (m *mockModule) Register(_ *lua.LState) *luaapi.Registration {
-	return &luaapi.Registration{}
-}
-
-func (m *mockModule) Loader(_ *lua.LState) int {
-	return 0
 }

@@ -21,17 +21,17 @@ func TestBind(t *testing.T) {
 		t.Fatal("json module not registered")
 	}
 
-	tbl := mod.(*lua.LTable)
-	if tbl.RawGetString("encode").Type() != lua.LTFunction {
+	modTbl := mod.(*lua.LTable)
+	if modTbl.RawGetString("encode").Type() != lua.LTFunction {
 		t.Error("encode function not registered")
 	}
-	if tbl.RawGetString("decode").Type() != lua.LTFunction {
+	if modTbl.RawGetString("decode").Type() != lua.LTFunction {
 		t.Error("decode function not registered")
 	}
-	if tbl.RawGetString("validate").Type() != lua.LTFunction {
+	if modTbl.RawGetString("validate").Type() != lua.LTFunction {
 		t.Error("validate function not registered")
 	}
-	if tbl.RawGetString("validate_string").Type() != lua.LTFunction {
+	if modTbl.RawGetString("validate_string").Type() != lua.LTFunction {
 		t.Error("validate_string function not registered")
 	}
 }

@@ -117,11 +117,11 @@ func TestLoad(t *testing.T) {
 		t.Fatal("module not registered")
 	}
 
-	tbl := mod.(*lua.LTable)
+	modTbl := mod.(*lua.LTable)
 
 	funcs := []string{"counter_inc", "counter_add", "gauge_set", "gauge_inc", "gauge_dec", "histogram"}
 	for _, fn := range funcs {
-		if tbl.RawGetString(fn).Type() != lua.LTFunction {
+		if modTbl.RawGetString(fn).Type() != lua.LTFunction {
 			t.Errorf("function %s not registered", fn)
 		}
 	}
@@ -133,8 +133,9 @@ func TestLoadReuse(t *testing.T) {
 	l2 := lua.NewState()
 	defer l2.Close()
 
-	Module.Load(l1)
-	Module.Load(l2)
+	tbl, _ := Module.Build()
+	l1.SetGlobal(Module.Name, tbl)
+	l2.SetGlobal(Module.Name, tbl)
 
 	mod1 := l1.GetGlobal("metrics").(*lua.LTable)
 	mod2 := l2.GetGlobal("metrics").(*lua.LTable)

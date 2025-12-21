@@ -10,7 +10,8 @@ func setupState() *lua.LState {
 	l := lua.NewState()
 	lua.OpenErrors(l)
 	module := NewModule(DefaultOptions())
-	module.Load(l)
+	tbl, _ := module.Build()
+	l.SetGlobal(module.Name, tbl)
 	return l
 }
 
@@ -39,8 +40,9 @@ func TestModuleReuse(t *testing.T) {
 	defer l2.Close()
 
 	module := NewModule(DefaultOptions())
-	module.Load(l1)
-	module.Load(l2)
+	tbl, _ := module.Build()
+	l1.SetGlobal(module.Name, tbl)
+	l2.SetGlobal(module.Name, tbl)
 
 	mod1 := l1.GetGlobal("expr").(*lua.LTable)
 	mod2 := l2.GetGlobal("expr").(*lua.LTable)
@@ -444,7 +446,8 @@ func TestCustomCacheCapacity(t *testing.T) {
 	lua.OpenErrors(l)
 
 	module := NewModule(Options{CacheCapacity: 10})
-	module.Load(l)
+	tbl, _ := module.Build()
+	l.SetGlobal(module.Name, tbl)
 
 	err := l.DoString(`
 		local result, err = expr.eval("1 + 1")

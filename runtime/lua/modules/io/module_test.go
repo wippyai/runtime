@@ -25,15 +25,12 @@ func TestModuleInfo(t *testing.T) {
 }
 
 func TestRegister(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	reg := Module.Register(l)
-	if reg == nil {
-		t.Fatal("registration should not be nil")
+	tbl, yields := Module.Build()
+	if tbl == nil {
+		t.Fatal("module table should not be nil")
 	}
-	if reg.Table == nil {
-		t.Fatal("registration table should not be nil")
+	if yields != nil {
+		t.Fatal("io module should not have yields")
 	}
 }
 
@@ -47,23 +44,23 @@ func TestLoader(t *testing.T) {
 		t.Fatal("io module not registered")
 	}
 
-	tbl := mod.(*lua.LTable)
-	if tbl.RawGetString("write").Type() != lua.LTFunction {
+	modTbl := mod.(*lua.LTable)
+	if modTbl.RawGetString("write").Type() != lua.LTFunction {
 		t.Error("write function not registered")
 	}
-	if tbl.RawGetString("print").Type() != lua.LTFunction {
+	if modTbl.RawGetString("print").Type() != lua.LTFunction {
 		t.Error("print function not registered")
 	}
-	if tbl.RawGetString("eprint").Type() != lua.LTFunction {
+	if modTbl.RawGetString("eprint").Type() != lua.LTFunction {
 		t.Error("eprint function not registered")
 	}
-	if tbl.RawGetString("read").Type() != lua.LTFunction {
+	if modTbl.RawGetString("read").Type() != lua.LTFunction {
 		t.Error("read function not registered")
 	}
-	if tbl.RawGetString("readline").Type() != lua.LTFunction {
+	if modTbl.RawGetString("readline").Type() != lua.LTFunction {
 		t.Error("readline function not registered")
 	}
-	if tbl.RawGetString("flush").Type() != lua.LTFunction {
+	if modTbl.RawGetString("flush").Type() != lua.LTFunction {
 		t.Error("flush function not registered")
 	}
 }

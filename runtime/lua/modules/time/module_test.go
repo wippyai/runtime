@@ -18,12 +18,12 @@ func TestLoad(t *testing.T) {
 		t.Fatal("time module not registered")
 	}
 
-	tbl := mod.(*lua.LTable)
+	modTbl := mod.(*lua.LTable)
 
 	// Duration constants
 	constants := []string{"NANOSECOND", "MICROSECOND", "MILLISECOND", "SECOND", "MINUTE", "HOUR"}
 	for _, c := range constants {
-		if tbl.RawGetString(c).Type() != lua.LTNumber {
+		if modTbl.RawGetString(c).Type() != lua.LTNumber {
 			t.Errorf("%s constant not registered", c)
 		}
 	}
@@ -32,7 +32,7 @@ func TestLoad(t *testing.T) {
 	formats := []string{"RFC3339", "RFC3339NANO", "RFC822", "RFC822Z", "RFC850", "RFC1123", "RFC1123Z",
 		"KITCHEN", "STAMP", "STAMP_MILLI", "STAMP_MICRO", "STAMP_NANO", "DATE_TIME", "DATE_ONLY", "TIME_ONLY"}
 	for _, f := range formats {
-		if tbl.RawGetString(f).Type() != lua.LTString {
+		if modTbl.RawGetString(f).Type() != lua.LTString {
 			t.Errorf("%s format constant not registered", f)
 		}
 	}
@@ -41,7 +41,7 @@ func TestLoad(t *testing.T) {
 	months := []string{"JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE",
 		"JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"}
 	for _, m := range months {
-		if tbl.RawGetString(m).Type() != lua.LTNumber {
+		if modTbl.RawGetString(m).Type() != lua.LTNumber {
 			t.Errorf("%s month constant not registered", m)
 		}
 	}
@@ -49,7 +49,7 @@ func TestLoad(t *testing.T) {
 	// Weekday constants
 	weekdays := []string{"SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"}
 	for _, w := range weekdays {
-		if tbl.RawGetString(w).Type() != lua.LTNumber {
+		if modTbl.RawGetString(w).Type() != lua.LTNumber {
 			t.Errorf("%s weekday constant not registered", w)
 		}
 	}
@@ -57,16 +57,16 @@ func TestLoad(t *testing.T) {
 	// Functions
 	funcs := []string{"now", "date", "unix", "parse", "parse_duration", "load_location", "fixed_zone", "sleep", "timer", "ticker"}
 	for _, fn := range funcs {
-		if tbl.RawGetString(fn).Type() != lua.LTFunction {
+		if modTbl.RawGetString(fn).Type() != lua.LTFunction {
 			t.Errorf("%s function not registered", fn)
 		}
 	}
 
 	// Location userdata
-	if tbl.RawGetString("utc").Type() != lua.LTUserData {
+	if modTbl.RawGetString("utc").Type() != lua.LTUserData {
 		t.Error("utc location not registered")
 	}
-	if tbl.RawGetString("localtz").Type() != lua.LTUserData {
+	if modTbl.RawGetString("localtz").Type() != lua.LTUserData {
 		t.Error("localtz location not registered")
 	}
 }
@@ -77,8 +77,9 @@ func TestLoadReuse(t *testing.T) {
 	l2 := lua.NewState()
 	defer l2.Close()
 
-	Module.Load(l1)
-	Module.Load(l2)
+	tbl, _ := Module.Build()
+	l1.SetGlobal(Module.Name, tbl)
+	l2.SetGlobal(Module.Name, tbl)
 
 	mod1 := l1.GetGlobal("time").(*lua.LTable)
 	mod2 := l2.GetGlobal("time").(*lua.LTable)

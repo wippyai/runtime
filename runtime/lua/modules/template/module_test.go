@@ -12,6 +12,7 @@ import (
 	"github.com/wippyai/runtime/api/resource"
 	"github.com/wippyai/runtime/api/security"
 	templatecfg "github.com/wippyai/runtime/api/service/template"
+	lua2payload "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/service/template/jet"
 	payloadSystem "github.com/wippyai/runtime/system/payload"
 	"github.com/wippyai/runtime/system/payload/json"

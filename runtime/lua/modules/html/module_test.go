@@ -19,8 +19,8 @@ func TestBind(t *testing.T) {
 		t.Fatal("html module not registered")
 	}
 
-	tbl := mod.(*lua.LTable)
-	sanitize := tbl.RawGetString("sanitize")
+	modTbl := mod.(*lua.LTable)
+	sanitize := modTbl.RawGetString("sanitize")
 	if sanitize.Type() != lua.LTTable {
 		t.Fatal("html.sanitize not registered")
 	}
@@ -778,7 +778,8 @@ func TestXSSPrevention(t *testing.T) {
 
 	for _, tc := range xssPayloads {
 		l2 := lua.NewState()
-		Module.Load(l2)
+		tbl, _ := Module.Build()
+		l2.SetGlobal(Module.Name, tbl)
 
 		script := `
 			local policy = html.sanitize.strict_policy()

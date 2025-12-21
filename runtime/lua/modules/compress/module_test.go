@@ -18,10 +18,10 @@ func TestLoad(t *testing.T) {
 		t.Fatal("compress module not registered")
 	}
 
-	tbl := mod.(*lua.LTable)
+	modTbl := mod.(*lua.LTable)
 	algos := []string{"gzip", "deflate", "zlib", "brotli", "zstd"}
 	for _, algo := range algos {
-		sub := tbl.RawGetString(algo)
+		sub := modTbl.RawGetString(algo)
 		if sub.Type() != lua.LTTable {
 			t.Errorf("%s submodule not registered", algo)
 			continue
@@ -733,8 +733,9 @@ func TestLoadReuse(t *testing.T) {
 	l2 := lua.NewState()
 	defer l2.Close()
 
-	Module.Load(l1)
-	Module.Load(l2)
+	tbl, _ := Module.Build()
+	l1.SetGlobal(Module.Name, tbl)
+	l2.SetGlobal(Module.Name, tbl)
 
 	mod1 := l1.GetGlobal("compress").(*lua.LTable)
 	mod2 := l2.GetGlobal("compress").(*lua.LTable)

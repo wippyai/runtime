@@ -18,11 +18,11 @@ func TestLoad(t *testing.T) {
 		t.Fatal("yaml module not registered")
 	}
 
-	tbl := mod.(*lua.LTable)
-	if tbl.RawGetString("encode").Type() != lua.LTFunction {
+	modTbl := mod.(*lua.LTable)
+	if modTbl.RawGetString("encode").Type() != lua.LTFunction {
 		t.Error("encode function not registered")
 	}
-	if tbl.RawGetString("decode").Type() != lua.LTFunction {
+	if modTbl.RawGetString("decode").Type() != lua.LTFunction {
 		t.Error("decode function not registered")
 	}
 }
@@ -33,8 +33,9 @@ func TestLoadReuse(t *testing.T) {
 	l2 := lua.NewState()
 	defer l2.Close()
 
-	Module.Load(l1)
-	Module.Load(l2)
+	tbl, _ := Module.Build()
+	l1.SetGlobal(Module.Name, tbl)
+	l2.SetGlobal(Module.Name, tbl)
 
 	mod1 := l1.GetGlobal("yaml").(*lua.LTable)
 	mod2 := l2.GetGlobal("yaml").(*lua.LTable)

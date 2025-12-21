@@ -28,8 +28,8 @@ func TestLoader(t *testing.T) {
 		t.Fatal("websocket module not registered")
 	}
 
-	tbl := mod.(*lua.LTable)
-	if tbl.RawGetString("connect").Type() != lua.LTFunction {
+	modTbl := mod.(*lua.LTable)
+	if modTbl.RawGetString("connect").Type() != lua.LTFunction {
 		t.Error("connect function not registered")
 	}
 }

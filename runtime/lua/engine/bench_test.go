@@ -911,7 +911,9 @@ type benchLifecycle struct {
 	executor *benchExecutor
 }
 
-func (l *benchLifecycle) OnStart(_ context.Context, _ pidapi.PID, _ process.Process) {}
+func (l *benchLifecycle) OnStart(_ context.Context, _ pidapi.PID, _ process.Process) error {
+	return nil
+}
 
 func (l *benchLifecycle) OnComplete(_ context.Context, p pidapi.PID, result *runtime.Result) {
 	l.executor.mu.Lock()

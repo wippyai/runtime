@@ -20,10 +20,10 @@ func TestLoad(t *testing.T) {
 		t.Fatal("env module not registered")
 	}
 
-	tbl := mod.(*lua.LTable)
+	modTbl := mod.(*lua.LTable)
 	funcs := []string{"get", "set", "get_all"}
 	for _, fn := range funcs {
-		if tbl.RawGetString(fn).Type() != lua.LTFunction {
+		if modTbl.RawGetString(fn).Type() != lua.LTFunction {
 			t.Errorf("%s function not registered", fn)
 		}
 	}
@@ -35,8 +35,9 @@ func TestLoadReuse(t *testing.T) {
 	l2 := lua.NewState()
 	defer l2.Close()
 
-	Module.Load(l1)
-	Module.Load(l2)
+	tbl, _ := Module.Build()
+	l1.SetGlobal(Module.Name, tbl)
+	l2.SetGlobal(Module.Name, tbl)
 
 	mod1 := l1.GetGlobal("env").(*lua.LTable)
 	mod2 := l2.GetGlobal("env").(*lua.LTable)

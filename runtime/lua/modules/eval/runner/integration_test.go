@@ -104,7 +104,7 @@ func newTestScheduler() *testScheduler {
 	ts.clock = clockSvc
 
 	// Register eval handlers
-	modules := []luaapi.Module{json.Module, timemod.Module, Module}
+	modules := []*luaapi.ModuleDef{json.Module, timemod.Module, Module}
 	host := evalhost.NewHost(zap.NewNop(), modules, nil)
 	evalSvc := evalhost.NewDispatcher(host)
 	evalSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
@@ -121,9 +121,9 @@ func newTestScheduler() *testScheduler {
 }
 
 func bindAllModules(l *lua.LState) {
-	engine.LoadModule(l, json.Module)
-	engine.LoadModule(l, timemod.Module)
-	engine.LoadModule(l, Module)
+	engine.LoadModuleDef(l, json.Module)
+	engine.LoadModuleDef(l, timemod.Module)
+	engine.LoadModuleDef(l, Module)
 }
 
 func newLuaProcess(script string) *engine.Process {

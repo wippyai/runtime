@@ -52,11 +52,11 @@ func TestLoad(t *testing.T) {
 		t.Fatal("module not registered")
 	}
 
-	tbl := mod.(*lua.LTable)
-	if tbl.RawGetString("new").Type() != lua.LTFunction {
+	modTbl := mod.(*lua.LTable)
+	if modTbl.RawGetString("new").Type() != lua.LTFunction {
 		t.Error("new function not registered")
 	}
-	if tbl.RawGetString("open").Type() != lua.LTFunction {
+	if modTbl.RawGetString("open").Type() != lua.LTFunction {
 		t.Error("open function not registered")
 	}
 }

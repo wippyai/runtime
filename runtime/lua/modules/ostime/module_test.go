@@ -20,15 +20,15 @@ func TestLoad(t *testing.T) {
 		t.Fatal("os module not registered")
 	}
 
-	tbl := mod.(*lua.LTable)
+	modTbl := mod.(*lua.LTable)
 	funcs := []string{"time", "date", "clock", "difftime"}
 	for _, fn := range funcs {
-		if tbl.RawGetString(fn).Type() != lua.LTFunction {
+		if modTbl.RawGetString(fn).Type() != lua.LTFunction {
 			t.Errorf("%s function not registered", fn)
 		}
 	}
 
-	platform := tbl.RawGetString("platform")
+	platform := modTbl.RawGetString("platform")
 	if platform.Type() != lua.LTString || platform.String() != "wippy" {
 		t.Errorf("os.platform = %v, expected 'wippy'", platform)
 	}
@@ -40,8 +40,9 @@ func TestLoadReuse(t *testing.T) {
 	l2 := lua.NewState()
 	defer l2.Close()
 
-	Module.Load(l1)
-	Module.Load(l2)
+	tbl, _ := Module.Build()
+	l1.SetGlobal(Module.Name, tbl)
+	l2.SetGlobal(Module.Name, tbl)
 
 	mod1 := l1.GetGlobal("os").(*lua.LTable)
 	mod2 := l2.GetGlobal("os").(*lua.LTable)
@@ -188,7 +189,8 @@ func TestOsDateFormats(t *testing.T) {
 
 	for _, tc := range tests {
 		l2 := lua.NewState()
-		Module.Load(l2)
+		tbl, _ := Module.Build()
+		l2.SetGlobal(Module.Name, tbl)
 
 		err := l2.DoString(`result = os.date("` + tc.format + `", ` + itoa(timestamp) + `)`)
 		if err != nil {
@@ -218,7 +220,7 @@ func TestOsDateTable(t *testing.T) {
 		t.Fatalf("os.date('*t') failed: %v", err)
 	}
 
-	tbl := l.GetGlobal("result").(*lua.LTable)
+	resultTbl := l.GetGlobal("result").(*lua.LTable)
 
 	tests := []struct {
 		key      string
@@ -234,7 +236,7 @@ func TestOsDateTable(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		val := tbl.RawGetString(tc.key)
+		val := resultTbl.RawGetString(tc.key)
 		if val.Type() != lua.LTNumber {
 			t.Errorf("os.date('*t').%s not a number", tc.key)
 			continue
@@ -258,9 +260,9 @@ func TestOsDateUTC(t *testing.T) {
 		t.Fatalf("os.date('!*t') failed: %v", err)
 	}
 
-	tbl := l.GetGlobal("result").(*lua.LTable)
+	resultTbl := l.GetGlobal("result").(*lua.LTable)
 
-	hour := tbl.RawGetString("hour")
+	hour := resultTbl.RawGetString("hour")
 	if int(hour.(lua.LNumber)) != 0 {
 		t.Errorf("UTC date hour = %v, expected 0", hour)
 	}

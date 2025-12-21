@@ -43,6 +43,9 @@ type Config struct {
 
 	// Queue configures queue message tracing
 	Queue QueueConfig `mapstructure:"queue"`
+
+	// Temporal configures Temporal workflow tracing
+	Temporal TemporalConfig `mapstructure:"temporal"`
 }
 
 // HTTPConfig configures HTTP middleware
@@ -78,5 +81,11 @@ type InterceptorConfig struct {
 // QueueConfig configures queue message tracing
 type QueueConfig struct {
 	// Enabled controls whether queue tracing is registered
+	Enabled bool `mapstructure:"enabled"`
+}
+
+// TemporalConfig configures Temporal workflow tracing
+type TemporalConfig struct {
+	// Enabled controls whether Temporal tracing interceptor is registered
 	Enabled bool `mapstructure:"enabled"`
 }

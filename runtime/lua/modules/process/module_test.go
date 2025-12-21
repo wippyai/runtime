@@ -25,15 +25,12 @@ func TestModuleInfo(t *testing.T) {
 }
 
 func TestRegister(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	reg := Module.Register(l)
-	if reg == nil {
-		t.Fatal("registration should not be nil")
+	tbl, yields := Module.Build()
+	if tbl == nil {
+		t.Fatal("module table should not be nil")
 	}
-	if reg.Table == nil {
-		t.Fatal("registration table should not be nil")
+	if yields == nil {
+		t.Fatal("process module should have yields")
 	}
 }
 
@@ -47,7 +44,7 @@ func TestLoader(t *testing.T) {
 		t.Fatal("process module not registered")
 	}
 
-	tbl := mod.(*lua.LTable)
+	modTbl := mod.(*lua.LTable)
 
 	functions := []string{
 		"id", "pid", "send", "spawn", "spawn_monitored",
@@ -58,17 +55,17 @@ func TestLoader(t *testing.T) {
 	}
 
 	for _, fn := range functions {
-		if tbl.RawGetString(fn).Type() != lua.LTFunction {
+		if modTbl.RawGetString(fn).Type() != lua.LTFunction {
 			t.Errorf("%s function not registered", fn)
 		}
 	}
 
-	event := tbl.RawGetString("event")
+	event := modTbl.RawGetString("event")
 	if event.Type() != lua.LTTable {
 		t.Error("event table not registered")
 	}
 
-	registry := tbl.RawGetString("registry")
+	registry := modTbl.RawGetString("registry")
 	if registry.Type() != lua.LTTable {
 		t.Error("registry table not registered")
 	}

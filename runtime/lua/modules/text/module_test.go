@@ -18,14 +18,14 @@ func TestLoad(t *testing.T) {
 		t.Fatal("text module not registered")
 	}
 
-	tbl := mod.(*lua.LTable)
+	modTbl := mod.(*lua.LTable)
 
-	regexpMod := tbl.RawGetString("regexp")
+	regexpMod := modTbl.RawGetString("regexp")
 	if regexpMod.Type() != lua.LTTable {
 		t.Error("regexp submodule not registered")
 	}
 
-	diffMod := tbl.RawGetString("diff")
+	diffMod := modTbl.RawGetString("diff")
 	if diffMod.Type() != lua.LTTable {
 		t.Error("diff submodule not registered")
 	}
@@ -720,8 +720,9 @@ func TestLoadReuse(t *testing.T) {
 	l2 := lua.NewState()
 	defer l2.Close()
 
-	Module.Load(l1)
-	Module.Load(l2)
+	tbl, _ := Module.Build()
+	l1.SetGlobal(Module.Name, tbl)
+	l2.SetGlobal(Module.Name, tbl)
 
 	mod1 := l1.GetGlobal("text").(*lua.LTable)
 	mod2 := l2.GetGlobal("text").(*lua.LTable)

@@ -131,11 +131,11 @@ func TestModuleLoads(t *testing.T) {
 		t.Fatal("queue module not registered")
 	}
 
-	tbl := mod.(*lua.LTable)
-	if tbl.RawGetString("publish").Type() != lua.LTFunction {
+	modTbl := mod.(*lua.LTable)
+	if modTbl.RawGetString("publish").Type() != lua.LTFunction {
 		t.Error("publish function not registered")
 	}
-	if tbl.RawGetString("message").Type() != lua.LTFunction {
+	if modTbl.RawGetString("message").Type() != lua.LTFunction {
 		t.Error("message function not registered")
 	}
 }
@@ -146,8 +146,9 @@ func TestModuleReuse(t *testing.T) {
 	l2 := lua.NewState()
 	defer l2.Close()
 
-	Module.Load(l1)
-	Module.Load(l2)
+	tbl, _ := Module.Build()
+	l1.SetGlobal(Module.Name, tbl)
+	l2.SetGlobal(Module.Name, tbl)
 
 	mod1 := l1.GetGlobal("queue").(*lua.LTable)
 	mod2 := l2.GetGlobal("queue").(*lua.LTable)

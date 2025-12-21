@@ -36,28 +36,28 @@ func (b *testEventBus) Unsubscribe(_ context.Context, _ event.SubscriberID) {
 func TestNewCodeManager(t *testing.T) {
 	tests := []struct {
 		name           string
-		modules        []api.Module
+		modules        []*api.ModuleDef
 		protoCacheSize int
 		mainCacheSize  int
 		expectErr      bool
 	}{
 		{
 			name:           "Default cache sizes",
-			modules:        []api.Module{&testModule{name: "test"}},
+			modules:        []*api.ModuleDef{{Name: "test"}},
 			protoCacheSize: 0,
 			mainCacheSize:  0,
 			expectErr:      false,
 		},
 		{
 			name:           "Custom cache sizes",
-			modules:        []api.Module{&testModule{name: "test"}},
+			modules:        []*api.ModuleDef{{Name: "test"}},
 			protoCacheSize: 100,
 			mainCacheSize:  50,
 			expectErr:      false,
 		},
 		{
 			name:           "No modules",
-			modules:        []api.Module{},
+			modules:        []*api.ModuleDef{},
 			protoCacheSize: 0,
 			mainCacheSize:  0,
 			expectErr:      false,

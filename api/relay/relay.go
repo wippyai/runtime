@@ -88,8 +88,8 @@ type (
 
 // AddMessage adds a new message to the package.
 func (p *Package) AddMessage(topic Topic, payloads ...payload.Payload) {
-	p.Messages = append(p.Messages, &Message{
-		Topic:    topic,
-		Payloads: payloads,
-	})
+	msg := AcquireMessage()
+	msg.Topic = topic
+	msg.Payloads = payloads
+	p.Messages = append(p.Messages, msg)
 }

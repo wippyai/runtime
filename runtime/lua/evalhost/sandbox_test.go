@@ -29,7 +29,7 @@ func runStep(t *testing.T, proc process.Process, events []process.Event) *proces
 // TestSandbox_ManualStepping demonstrates how to manually step through a Lua process
 // and see the yields from the Lua perspective.
 func TestSandbox_ManualStepping(t *testing.T) {
-	modules := []luaapi.Module{
+	modules := []*luaapi.ModuleDef{
 		json.Module,
 		timemod.Module,
 	}
@@ -109,7 +109,7 @@ func TestSandbox_ManualStepping(t *testing.T) {
 
 // TestSandbox_MultipleSleeps tests stepping through multiple sleep calls
 func TestSandbox_MultipleSleeps(t *testing.T) {
-	modules := []luaapi.Module{
+	modules := []*luaapi.ModuleDef{
 		json.Module,
 		timemod.Module,
 	}
@@ -187,7 +187,7 @@ func TestSandbox_MultipleSleeps(t *testing.T) {
 
 // TestSandbox_ErrorHandling tests error handling during stepping
 func TestSandbox_ErrorHandling(t *testing.T) {
-	modules := []luaapi.Module{
+	modules := []*luaapi.ModuleDef{
 		json.Module,
 		timemod.Module,
 	}
@@ -227,7 +227,7 @@ func TestSandbox_ErrorHandling(t *testing.T) {
 
 // TestSandbox_NoYields tests process that completes without yields
 func TestSandbox_NoYields(t *testing.T) {
-	modules := []luaapi.Module{
+	modules := []*luaapi.ModuleDef{
 		json.Module,
 		timemod.Module,
 	}
@@ -267,7 +267,7 @@ func TestSandbox_NoYields(t *testing.T) {
 
 // TestSandbox_TimerYields tests timer operations yield correctly
 func TestSandbox_TimerYields(t *testing.T) {
-	modules := []luaapi.Module{
+	modules := []*luaapi.ModuleDef{
 		json.Module,
 		timemod.Module,
 	}

@@ -50,10 +50,10 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 func (d *Dispatcher) handleSend(_ context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	sendCmd := cmd.(*api.SendCmd)
 
-	pkg := relay.NewMessagePackage(sendCmd.From, sendCmd.To, &relay.Message{
-		Topic:    sendCmd.Topic,
-		Payloads: sendCmd.Payloads,
-	})
+	msg := relay.AcquireMessage()
+	msg.Topic = sendCmd.Topic
+	msg.Payloads = sendCmd.Payloads
+	pkg := relay.NewMessagePackage(sendCmd.From, sendCmd.To, msg)
 
 	err := d.router.Send(pkg)
 	if err != nil {

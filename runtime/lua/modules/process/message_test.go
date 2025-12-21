@@ -56,7 +56,7 @@ func TestMessageToString(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Module.Register(l)
+	bindProcess(l)
 	msg := NewMessage(pid.PID{}, "test-topic", nil)
 	wrapped := WrapMessage(l, msg)
 	l.SetGlobal("msg", wrapped)
@@ -76,7 +76,7 @@ func TestMessageTopic(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Module.Register(l)
+	bindProcess(l)
 	msg := NewMessage(pid.PID{}, "my-topic", nil)
 	wrapped := WrapMessage(l, msg)
 	l.SetGlobal("msg", wrapped)
@@ -96,7 +96,7 @@ func TestMessageFrom(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Module.Register(l)
+	bindProcess(l)
 	p, _ := pid.ParsePID("{node1|process1|123}")
 	msg := NewMessage(p, "topic", nil)
 	wrapped := WrapMessage(l, msg)
@@ -120,7 +120,7 @@ func TestMessageFrom_EmptyPID(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Module.Register(l)
+	bindProcess(l)
 	msg := NewMessage(pid.PID{}, "topic", nil)
 	wrapped := WrapMessage(l, msg)
 	l.SetGlobal("msg", wrapped)
@@ -137,7 +137,7 @@ func TestMessagePayload(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Module.Register(l)
+	bindProcess(l)
 	payloads := payload.Payloads{
 		payload.NewPayload("test-data", payload.String),
 	}
@@ -161,7 +161,7 @@ func TestMessageHandler(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	Module.Register(l)
+	bindProcess(l)
 
 	ctx := context.Background()
 	p, _ := pid.ParsePID("{node1|process1|123}")

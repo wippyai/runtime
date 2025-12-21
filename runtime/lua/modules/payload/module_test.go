@@ -18,11 +18,11 @@ func TestLoad(t *testing.T) {
 		t.Fatal("payload module not registered")
 	}
 
-	tbl := mod.(*lua.LTable)
-	if tbl.RawGetString("new").Type() != lua.LTFunction {
+	modTbl := mod.(*lua.LTable)
+	if modTbl.RawGetString("new").Type() != lua.LTFunction {
 		t.Error("new function not registered")
 	}
-	if tbl.RawGetString("format").Type() != lua.LTTable {
+	if modTbl.RawGetString("format").Type() != lua.LTTable {
 		t.Error("format table not registered")
 	}
 }
@@ -33,8 +33,9 @@ func TestLoadReuse(t *testing.T) {
 	l2 := lua.NewState()
 	defer l2.Close()
 
-	Module.Load(l1)
-	Module.Load(l2)
+	tbl, _ := Module.Build()
+	l1.SetGlobal(Module.Name, tbl)
+	l2.SetGlobal(Module.Name, tbl)
 
 	mod1 := l1.GetGlobal("payload").(*lua.LTable)
 	mod2 := l2.GetGlobal("payload").(*lua.LTable)

@@ -166,8 +166,8 @@ func TestModuleLoads(t *testing.T) {
 		t.Fatal("store module not registered")
 	}
 
-	tbl := mod.(*lua.LTable)
-	if tbl.RawGetString("get").Type() != lua.LTFunction {
+	modTbl := mod.(*lua.LTable)
+	if modTbl.RawGetString("get").Type() != lua.LTFunction {
 		t.Error("get function not registered")
 	}
 }
@@ -178,8 +178,9 @@ func TestModuleReuse(t *testing.T) {
 	l2 := lua.NewState()
 	defer l2.Close()
 
-	Module.Load(l1)
-	Module.Load(l2)
+	tbl, _ := Module.Build()
+	l1.SetGlobal(Module.Name, tbl)
+	l2.SetGlobal(Module.Name, tbl)
 
 	mod1 := l1.GetGlobal("store").(*lua.LTable)
 	mod2 := l2.GetGlobal("store").(*lua.LTable)

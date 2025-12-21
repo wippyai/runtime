@@ -147,10 +147,9 @@ func (c *MessageCodec) Decode(data []byte) (*relay.Package, error) {
 	}
 
 	for i, encMsg := range encPkg.Messages {
-		finalMsg := &relay.Message{
-			Topic:    encMsg.Topic,
-			Payloads: make(payload.Payloads, len(encMsg.Payloads)),
-		}
+		finalMsg := relay.AcquireMessage()
+		finalMsg.Topic = encMsg.Topic
+		finalMsg.Payloads = make(payload.Payloads, len(encMsg.Payloads))
 
 		for j, encP := range encMsg.Payloads {
 			finalMsg.Payloads[j] = payload.NewPayload(encP.Data, encP.Format)

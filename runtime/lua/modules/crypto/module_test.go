@@ -24,20 +24,20 @@ func TestBind(t *testing.T) {
 		t.Fatal("crypto module not registered")
 	}
 
-	tbl := mod.(*lua.LTable)
-	if tbl.RawGetString("random").Type() != lua.LTTable {
+	modTbl := mod.(*lua.LTable)
+	if modTbl.RawGetString("random").Type() != lua.LTTable {
 		t.Error("random submodule not registered")
 	}
-	if tbl.RawGetString("encrypt").Type() != lua.LTTable {
+	if modTbl.RawGetString("encrypt").Type() != lua.LTTable {
 		t.Error("encrypt submodule not registered")
 	}
-	if tbl.RawGetString("decrypt").Type() != lua.LTTable {
+	if modTbl.RawGetString("decrypt").Type() != lua.LTTable {
 		t.Error("decrypt submodule not registered")
 	}
-	if tbl.RawGetString("pbkdf2").Type() != lua.LTFunction {
+	if modTbl.RawGetString("pbkdf2").Type() != lua.LTFunction {
 		t.Error("pbkdf2 function not registered")
 	}
-	if tbl.RawGetString("constant_time_compare").Type() != lua.LTFunction {
+	if modTbl.RawGetString("constant_time_compare").Type() != lua.LTFunction {
 		t.Error("constant_time_compare function not registered")
 	}
 }
@@ -568,11 +568,11 @@ func TestHMACSubmodule(t *testing.T) {
 		t.Fatal("hmac submodule not registered")
 	}
 
-	tbl := hmacMod.(*lua.LTable)
-	if tbl.RawGetString("sha256").Type() != lua.LTFunction {
+	hmacTbl := hmacMod.(*lua.LTable)
+	if hmacTbl.RawGetString("sha256").Type() != lua.LTFunction {
 		t.Error("hmac.sha256 function not registered")
 	}
-	if tbl.RawGetString("sha512").Type() != lua.LTFunction {
+	if hmacTbl.RawGetString("sha512").Type() != lua.LTFunction {
 		t.Error("hmac.sha512 function not registered")
 	}
 }
@@ -651,11 +651,11 @@ func TestJWTSubmodule(t *testing.T) {
 		t.Fatal("jwt submodule not registered")
 	}
 
-	tbl := jwtMod.(*lua.LTable)
-	if tbl.RawGetString("encode").Type() != lua.LTFunction {
+	jwtTbl := jwtMod.(*lua.LTable)
+	if jwtTbl.RawGetString("encode").Type() != lua.LTFunction {
 		t.Error("jwt.encode function not registered")
 	}
-	if tbl.RawGetString("verify").Type() != lua.LTFunction {
+	if jwtTbl.RawGetString("verify").Type() != lua.LTFunction {
 		t.Error("jwt.verify function not registered")
 	}
 }

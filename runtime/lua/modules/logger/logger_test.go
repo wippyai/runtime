@@ -16,8 +16,8 @@ func TestLoad(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	tbl, _ := Module.Build()
-	l.SetGlobal(Module.Name, tbl)
+	val, _ := Module.BuildValue()
+	l.SetGlobal(Module.Name, val)
 
 	mod := l.GetGlobal("logger")
 	if mod.Type() != lua.LTUserData {
@@ -31,8 +31,9 @@ func TestLoadReuse(t *testing.T) {
 	l2 := lua.NewState()
 	defer l2.Close()
 
-	Module.Load(l1)
-	Module.Load(l2)
+	val, _ := Module.BuildValue()
+	l1.SetGlobal(Module.Name, val)
+	l2.SetGlobal(Module.Name, val)
 
 	mod1 := l1.GetGlobal("logger").(*lua.LUserData)
 	mod2 := l2.GetGlobal("logger").(*lua.LUserData)
@@ -70,8 +71,8 @@ func TestModuleFunctions(t *testing.T) {
 	logs.WithLogger(ctx, log)
 	l.SetContext(ctx)
 
-	tbl, _ := Module.Build()
-	l.SetGlobal(Module.Name, tbl)
+	val, _ := Module.BuildValue()
+	l.SetGlobal(Module.Name, val)
 
 	err := l.DoString(`
 		logger:info("test message", {key = "value"})
@@ -100,8 +101,8 @@ func TestLoggerWith(t *testing.T) {
 	logs.WithLogger(ctx, log)
 	l.SetContext(ctx)
 
-	tbl, _ := Module.Build()
-	l.SetGlobal(Module.Name, tbl)
+	val, _ := Module.BuildValue()
+	l.SetGlobal(Module.Name, val)
 
 	err := l.DoString(`
 		local child = logger:with({component = "test"})
@@ -131,8 +132,8 @@ func TestLoggerNamed(t *testing.T) {
 	logs.WithLogger(ctx, log)
 	l.SetContext(ctx)
 
-	tbl, _ := Module.Build()
-	l.SetGlobal(Module.Name, tbl)
+	val, _ := Module.BuildValue()
+	l.SetGlobal(Module.Name, val)
 
 	err := l.DoString(`
 		local named = logger:named("mylogger")
@@ -162,8 +163,8 @@ func TestLogLevels(t *testing.T) {
 	logs.WithLogger(ctx, log)
 	l.SetContext(ctx)
 
-	tbl, _ := Module.Build()
-	l.SetGlobal(Module.Name, tbl)
+	val, _ := Module.BuildValue()
+	l.SetGlobal(Module.Name, val)
 
 	err := l.DoString(`
 		logger:debug("debug msg")
@@ -201,8 +202,8 @@ func TestFieldTypes(t *testing.T) {
 	logs.WithLogger(ctx, log)
 	l.SetContext(ctx)
 
-	tbl, _ := Module.Build()
-	l.SetGlobal(Module.Name, tbl)
+	val, _ := Module.BuildValue()
+	l.SetGlobal(Module.Name, val)
 
 	err := l.DoString(`
 		logger:info("types test", {
@@ -242,8 +243,8 @@ func TestChainedLoggers(t *testing.T) {
 	logs.WithLogger(ctx, log)
 	l.SetContext(ctx)
 
-	tbl, _ := Module.Build()
-	l.SetGlobal(Module.Name, tbl)
+	val, _ := Module.BuildValue()
+	l.SetGlobal(Module.Name, val)
 
 	err := l.DoString(`
 		local child1 = logger:with({service = "api"})

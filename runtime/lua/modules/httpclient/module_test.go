@@ -26,10 +26,10 @@ func TestLoader(t *testing.T) {
 		t.Fatal("http_client module not registered")
 	}
 
-	tbl := mod.(*lua.LTable)
+	modTbl := mod.(*lua.LTable)
 	funcs := []string{"get", "post", "put", "delete", "head", "patch", "request", "encode_uri", "decode_uri"}
 	for _, fn := range funcs {
-		if tbl.RawGetString(fn).Type() != lua.LTFunction {
+		if modTbl.RawGetString(fn).Type() != lua.LTFunction {
 			t.Errorf("%s function not registered", fn)
 		}
 	}

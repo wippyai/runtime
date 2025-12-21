@@ -436,14 +436,14 @@ func TestChannel_ClosePreservesBufferedValues(t *testing.T) {
 	}
 }
 
-func TestChannel_DoubleCloseNil(t *testing.T) {
+func TestChannel_DoubleCloseError(t *testing.T) {
 	ch := NewChannel(0)
 	closer := newUnitTestLState()
 
 	ch.Close(closer)
 	r := ch.Close(closer)
-	if r != nil {
-		t.Error("double close should return nil")
+	if r == nil || len(r.Updates) == 0 || r.Updates[0].Error == nil {
+		t.Error("double close should return error result")
 	}
 }
 

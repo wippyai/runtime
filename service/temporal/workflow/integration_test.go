@@ -335,7 +335,7 @@ func TestConcurrentWorkflow_Integration(t *testing.T) {
 	bus := eventbus.NewBus()
 
 	codeManager, err := code.NewCodeManager(logger, nil, code.Config{
-		Modules:        []luaapi.Module{timemod.Module},
+		Modules:        []*luaapi.ModuleDef{timemod.Module},
 		ProtoCacheSize: 100,
 		MainCacheSize:  100,
 	})
@@ -560,7 +560,7 @@ func TestWorkflowCancellation_Integration(t *testing.T) {
 	bus := eventbus.NewBus()
 
 	codeManager, err := code.NewCodeManager(logger, nil, code.Config{
-		Modules:        []luaapi.Module{timemod.Module, processmod.Module},
+		Modules:        []*luaapi.ModuleDef{timemod.Module, processmod.Module},
 		ProtoCacheSize: 100,
 		MainCacheSize:  100,
 	})
@@ -717,7 +717,7 @@ func TestWorkflowSignal_Integration(t *testing.T) {
 	bus := eventbus.NewBus()
 
 	codeManager, err := code.NewCodeManager(logger, nil, code.Config{
-		Modules:        []luaapi.Module{timemod.Module, processmod.Module},
+		Modules:        []*luaapi.ModuleDef{timemod.Module, processmod.Module},
 		ProtoCacheSize: 100,
 		MainCacheSize:  100,
 	})
@@ -909,7 +909,7 @@ func TestWorkflowTicker_Integration(t *testing.T) {
 	bus := eventbus.NewBus()
 
 	codeManager, err := code.NewCodeManager(logger, nil, code.Config{
-		Modules:        []luaapi.Module{timemod.Module, processmod.Module},
+		Modules:        []*luaapi.ModuleDef{timemod.Module, processmod.Module},
 		ProtoCacheSize: 100,
 		MainCacheSize:  100,
 	})

@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/wippyai/runtime/api/registry"
 	runtime "github.com/wippyai/runtime/api/runtime/lua"
-	lua "github.com/yuin/gopher-lua"
 )
 
 // createTestNode creates a test node with the given Process.
@@ -20,30 +19,6 @@ func createTestNode(id string) *Node {
 		Source: fmt.Sprintf("function %s() return 'hello' end", id),
 		Method: "test",
 	}
-}
-
-// dummyModule complies with the runtime.Module interface.
-type dummyModule struct {
-	name string
-}
-
-// Loader is a dummy loader implementation.
-func (d *dummyModule) Loader(_ *lua.LState) int {
-	return 0
-}
-
-// Info returns the dummy module's metadata.
-func (d *dummyModule) Info() runtime.ModuleInfo {
-	return runtime.ModuleInfo{
-		Name:        d.name,
-		Description: "test module",
-		Class:       []string{runtime.ClassDeterministic},
-	}
-}
-
-// Register returns nil for test purposes.
-func (d *dummyModule) Register(_ *lua.LState) *runtime.Registration {
-	return nil
 }
 
 // TestMemoryGraph_AddNode tests node addition, including duplicate and nil cases.
@@ -378,7 +353,7 @@ func TestMemoryGraph_BuildRuntime(t *testing.T) {
 	}
 
 	// Assign a dummy module to nodeC.
-	var mod runtime.Module = &dummyModule{name: "dummyMod"}
+	mod := &runtime.ModuleDef{Name: "dummyMod"}
 	nodeC.Module = mod
 
 	t.Run("ValidRuntime", func(t *testing.T) {
@@ -401,7 +376,7 @@ func TestMemoryGraph_BuildRuntime(t *testing.T) {
 			}
 			// Verify module is included as a dependency
 			if dep.Node.ID.Name == "DepNodeC" {
-				if dep.Node.Module == nil || dep.Node.Module.Info().Name != "dummyMod" {
+				if dep.Node.Module == nil || dep.Node.Module.Name != "dummyMod" {
 					t.Errorf("expected module 'dummyMod' in nodeC dependency")
 				}
 			}
@@ -495,9 +470,9 @@ func TestMemoryGraph_Build_TransitiveModules(t *testing.T) {
 	leafNode := createTestNode("LeafNode")
 
 	// Spawn different modules for each level
-	var mainMod runtime.Module = &dummyModule{name: "mainMod"}
-	var middleMod runtime.Module = &dummyModule{name: "middleMod"}
-	var leafMod runtime.Module = &dummyModule{name: "leafMod"}
+	mainMod := &runtime.ModuleDef{Name: "mainMod"}
+	middleMod := &runtime.ModuleDef{Name: "middleMod"}
+	leafMod := &runtime.ModuleDef{Name: "leafMod"}
 
 	// Assign modules to nodes
 	mainNode.Module = mainMod
@@ -607,8 +582,8 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 	commonDepNode := createTestNode("CommonDep")
 
 	// Spawn modules
-	var sharedMod runtime.Module = &dummyModule{name: "sharedModule"}
-	var uniqueMod runtime.Module = &dummyModule{name: "uniqueModule"}
+	sharedMod := &runtime.ModuleDef{Name: "sharedModule"}
+	uniqueMod := &runtime.ModuleDef{Name: "uniqueModule"}
 
 	// Both dep1 and dep2 depend on commonDep which uses sharedModule
 	commonDepNode.Module = sharedMod
@@ -732,8 +707,8 @@ func TestMemoryGraph_Build_AliasCollision(t *testing.T) {
 	mg := NewMemoryGraph()
 
 	// Spawn modules
-	var mod1 runtime.Module = &dummyModule{name: "module1"}
-	var mod2 runtime.Module = &dummyModule{name: "module2"}
+	mod1 := &runtime.ModuleDef{Name: "module1"}
+	mod2 := &runtime.ModuleDef{Name: "module2"}
 
 	// Spawn nodes
 	nodes := map[string]*Node{
@@ -796,8 +771,8 @@ func TestMemoryGraph_Build_SharedDependency(t *testing.T) {
 	mg := NewMemoryGraph()
 
 	// Spawn modules
-	var mod1 runtime.Module = &dummyModule{name: "module1"}
-	var sharedMod runtime.Module = &dummyModule{name: "shared"}
+	mod1 := &runtime.ModuleDef{Name: "module1"}
+	sharedMod := &runtime.ModuleDef{Name: "shared"}
 
 	// Spawn nodes
 	nodes := map[string]*Node{
@@ -1130,9 +1105,9 @@ func TestMemoryGraph_Build_TransitiveAliasCollision(t *testing.T) {
 	mg := NewMemoryGraph()
 
 	// Create modules
-	var modConstX runtime.Module = &dummyModule{name: "const-x"}
-	var modConstY runtime.Module = &dummyModule{name: "const-y"}
-	var modLibA runtime.Module = &dummyModule{name: "library-a"}
+	modConstX := &runtime.ModuleDef{Name: "const-x"}
+	modConstY := &runtime.ModuleDef{Name: "const-y"}
+	modLibA := &runtime.ModuleDef{Name: "library-a"}
 
 	// Create nodes
 	nodes := map[string]*Node{

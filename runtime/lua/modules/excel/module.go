@@ -15,7 +15,21 @@ import (
 
 const workbookTypeName = "excel.Workbook"
 
-var workbookMetatable *lua.LTable
+var (
+	workbookMetatable *lua.LTable
+	moduleTable       *lua.LTable
+)
+
+func init() {
+	workbookMetatable = value.RegisterTypeMethods(nil, workbookTypeName,
+		map[string]lua.LGoFunc{"__tostring": workbookToString},
+		workbookMethods)
+
+	moduleTable = lua.CreateTable(0, 2)
+	moduleTable.RawSetString("new", lua.LGoFunc(excelNew))
+	moduleTable.RawSetString("open", lua.LGoFunc(excelOpen))
+	moduleTable.Immutable = true
+}
 
 // Module is the excel module definition.
 var Module = &luaapi.ModuleDef{
@@ -24,16 +38,7 @@ var Module = &luaapi.ModuleDef{
 	Class:       []string{luaapi.ClassIO, luaapi.ClassEncoding},
 	Types:       ModuleTypes,
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
-		mod := lua.CreateTable(0, 2)
-		mod.RawSetString("new", lua.LGoFunc(excelNew))
-		mod.RawSetString("open", lua.LGoFunc(excelOpen))
-		mod.Immutable = true
-
-		workbookMetatable = value.RegisterTypeMethods(nil, workbookTypeName,
-			map[string]lua.LGoFunc{"__tostring": workbookToString},
-			workbookMethods)
-
-		return mod, nil
+		return moduleTable, nil
 	},
 }
 

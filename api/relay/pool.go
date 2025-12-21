@@ -15,15 +15,40 @@ var packagePool = sync.Pool{
 	},
 }
 
+var messagePool = sync.Pool{
+	New: func() interface{} {
+		return &Message{}
+	},
+}
+
 // AcquirePackage gets a Package from the pool.
 func AcquirePackage() *Package {
 	return packagePool.Get().(*Package)
 }
 
+// AcquireMessage gets a Message from the pool.
+func AcquireMessage() *Message {
+	return messagePool.Get().(*Message)
+}
+
+// ReleaseMessage returns a Message to the pool.
+func ReleaseMessage(m *Message) {
+	if m == nil {
+		return
+	}
+	m.Topic = ""
+	m.Payloads = nil
+	messagePool.Put(m)
+}
+
 // ReleasePackage returns a Package to the pool.
+// Also releases all messages back to their pool.
 func ReleasePackage(p *Package) {
 	if p == nil {
 		return
+	}
+	for _, msg := range p.Messages {
+		ReleaseMessage(msg)
 	}
 	p.Source = pid.PID{}
 	p.Target = pid.PID{}
@@ -36,10 +61,10 @@ func NewPackage(source, target pid.PID, topic Topic, payloads ...payload.Payload
 	p := AcquirePackage()
 	p.Source = source
 	p.Target = target
-	p.Messages = append(p.Messages, &Message{
-		Topic:    topic,
-		Payloads: payloads,
-	})
+	msg := AcquireMessage()
+	msg.Topic = topic
+	msg.Payloads = payloads
+	p.Messages = append(p.Messages, msg)
 	return p
 }
 

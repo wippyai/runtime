@@ -9,7 +9,6 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
-	lua "github.com/yuin/gopher-lua"
 )
 
 // Test helper functions for slice containment checks
@@ -101,36 +100,14 @@ func TestBuildOptions_WithMethods(t *testing.T) {
 	assert.True(t, containsString(opts4.AllowedClasses, luaapi.ClassEncoding))
 }
 
-// mockModule implements luaapi.Module for testing
-type mockModule struct {
-	name    string
-	classes []string
-}
-
-func (m *mockModule) Info() luaapi.ModuleInfo {
-	return luaapi.ModuleInfo{
-		Name:        m.name,
-		Description: "test module",
-		Class:       m.classes,
-	}
-}
-
-func (m *mockModule) Loader(_ *lua.LState) int {
-	return 0
-}
-
-func (m *mockModule) Register(_ *lua.LState) *luaapi.Registration {
-	return nil
-}
-
 func TestBuildOptions_ClassFiltering(t *testing.T) {
 	netModID := registry.NewID("", "network_mod")
 	ioModID := registry.NewID("", "io_mod")
 	deterministicModID := registry.NewID("", "deterministic_mod")
 
-	netModule := &mockModule{name: "network_mod", classes: []string{luaapi.ClassNetwork}}
-	ioModule := &mockModule{name: "io_mod", classes: []string{luaapi.ClassIO}}
-	deterministicModule := &mockModule{name: "deterministic_mod", classes: []string{luaapi.ClassDeterministic, luaapi.ClassEncoding}}
+	netModule := &luaapi.ModuleDef{Name: "network_mod", Class: []string{luaapi.ClassNetwork}}
+	ioModule := &luaapi.ModuleDef{Name: "io_mod", Class: []string{luaapi.ClassIO}}
+	deterministicModule := &luaapi.ModuleDef{Name: "deterministic_mod", Class: []string{luaapi.ClassDeterministic, luaapi.ClassEncoding}}
 
 	t.Run("deny network class", func(t *testing.T) {
 		opts := NewBuildOptions().

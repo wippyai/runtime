@@ -1,0 +1,369 @@
+version: "1.0"
+namespace: app.test.types
+
+entries:
+  # Basic type annotations
+  - name: basic_annotations
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: basic type annotations (number, string, boolean, integer, any)
+    source: file://basic_annotations.lua
+    method: main
+
+  - name: function_params
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: function parameter and return type annotations
+    source: file://function_params.lua
+    method: main
+
+  - name: function_types
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: first-class function types and composition
+    source: file://function_types.lua
+    method: main
+
+  # Union and optional types
+  - name: union_types
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: union type annotations with narrowing
+    source: file://union_types.lua
+    method: main
+
+  - name: optional_types
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: optional type annotations with nil handling
+    source: file://optional_types.lua
+    method: main
+
+  - name: optional_fields
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: record types with optional fields
+    source: file://optional_fields.lua
+    method: main
+
+  # Table types
+  - name: array_types
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: array type annotations
+    source: file://array_types.lua
+    method: main
+
+  - name: record_types
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: record/struct type annotations
+    source: file://record_types.lua
+    method: main
+
+  - name: map_types
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: map type annotations with key-value types
+    source: file://map_types.lua
+    method: main
+
+  # Advanced types
+  - name: type_cast
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: type cast with as operator
+    source: file://type_cast.lua
+    method: main
+
+  - name: readonly_types
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: readonly modifier for arrays and maps
+    source: file://readonly_types.lua
+    method: main
+
+  - name: generic_functions
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: generic function type parameters
+    source: file://generic_functions.lua
+    method: main
+
+  - name: type_alias
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: type alias declarations
+    source: file://type_alias.lua
+    method: main
+
+  - name: intersection_types
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: intersection types combining multiple types
+    source: file://intersection_types.lua
+    method: main
+
+  # Function features
+  - name: variadic_functions
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: variadic functions with typed varargs
+    source: file://variadic_functions.lua
+    method: main
+
+  - name: multiple_returns
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: functions with multiple return values
+    source: file://multiple_returns.lua
+    method: main
+
+  - name: method_self
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: method definitions with self type
+    source: file://method_self.lua
+    method: main
+
+  - name: narrowing
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: type narrowing via nil checks and type guards
+    source: file://narrowing.lua
+    method: main
+
+  # Module imports with types
+  - name: import_json
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: json module with type annotations
+    source: file://import_json.lua
+    method: main
+    modules:
+      - json
+
+  - name: import_base64
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: base64 module with type annotations
+    source: file://import_base64.lua
+    method: main
+    modules:
+      - base64
+
+  - name: import_hash
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: hash module with type annotations
+    source: file://import_hash.lua
+    method: main
+    modules:
+      - hash
+
+  - name: import_uuid
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: uuid module with type annotations
+    source: file://import_uuid.lua
+    method: main
+    modules:
+      - uuid
+
+  - name: import_text
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: text module with type annotations
+    source: file://import_text.lua
+    method: main
+    modules:
+      - text
+
+  - name: import_time
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: time module with type annotations
+    source: file://import_time.lua
+    method: main
+    modules:
+      - time
+
+  # Parse error detection (dynamic)
+  - name: error_parse
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: parse error detection for invalid syntax
+    source: file://error_parse.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - registry
+
+  - name: error_missing_return
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: missing return detection
+    source: file://error_missing_return.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - registry
+
+  # Type error detection (dynamic)
+  - name: error_type_mismatch
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: type mismatch error detection
+    source: file://error_type_mismatch.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - registry
+
+  - name: error_wrong_args
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: wrong argument count error detection
+    source: file://error_wrong_args.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - registry
+
+  - name: error_unknown_field
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: unknown field access error detection
+    source: file://error_unknown_field.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - registry
+
+  - name: error_not_callable
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: calling non-callable types error detection
+    source: file://error_not_callable.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - registry
+
+  - name: error_nil_safety
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: nil safety error detection
+    source: file://error_nil_safety.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - registry
+
+  - name: error_arithmetic
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: invalid arithmetic operation error detection
+    source: file://error_arithmetic.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - registry
+
+  - name: error_return_type
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: return type mismatch error detection
+    source: file://error_return_type.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - registry
+
+  - name: error_union_mismatch
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: union type mismatch error detection
+    source: file://error_union_mismatch.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - registry

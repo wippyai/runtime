@@ -22,11 +22,11 @@ func TestLoad(t *testing.T) {
 		t.Fatal("base64 module not registered")
 	}
 
-	tbl := mod.(*lua.LTable)
-	if tbl.RawGetString("encode").Type() != lua.LTFunction {
+	modTbl := mod.(*lua.LTable)
+	if modTbl.RawGetString("encode").Type() != lua.LTFunction {
 		t.Error("encode function not registered")
 	}
-	if tbl.RawGetString("decode").Type() != lua.LTFunction {
+	if modTbl.RawGetString("decode").Type() != lua.LTFunction {
 		t.Error("decode function not registered")
 	}
 }
