@@ -365,17 +365,11 @@ func (f *Factory) CreateState() *lua.LState {
 
 	state := lua.NewState(opts)
 
-	// Base functions
-	state.Push(state.NewFunction(lua.OpenBase))
-	state.Push(lua.LString(lua.BaseLibName))
-	state.Call(1, 0)
+	// Base functions (writes to globals directly)
+	lua.OpenBase(state)
 
-	// Standard libraries
-	lua.OpenTable(state)
-	lua.OpenString(state)
-	lua.OpenMath(state)
-	lua.OpenCoroutine(state)
-	lua.OpenErrors(state)
+	// Standard libraries (cached, immutable, shared)
+	BindCachedLibs(state)
 
 	// Restricted package loader (wippy-specific)
 	state.Push(lua.LGoFunc(OpenRestrictedPackage))

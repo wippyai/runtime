@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
@@ -20,6 +21,11 @@ import (
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	lua "github.com/yuin/gopher-lua"
 )
+
+// processPool holds reusable Process structs with pre-allocated slices
+var processPool = sync.Pool{
+	New: func() any { return nil },
+}
 
 // ProcessOption configures a Process.
 type ProcessOption func(*Process)
@@ -230,26 +236,38 @@ func (p *Process) HasSubscriptions() bool {
 // NewProcess creates a new Lua process with options.
 // Uses Factory internally to ensure state is properly initialized.
 func NewProcess(opts ...ProcessOption) *Process {
-	// Create a temporary process to extract options
-	tmp := &Process{factory: &Factory{}}
+	// Try to get from pool
+	var p *Process
+	if pooled := processPool.Get(); pooled != nil {
+		p = pooled.(*Process)
+		// Reset factory for new options
+		p.factory = &Factory{}
+	} else {
+		// Create new with pre-allocated slices
+		p = &Process{
+			factory:       &Factory{},
+			threads:       make([]*Task, 0, 4),
+			queue:         NewTaskQueue(),
+			yieldBuf:      make([]*Task, 0, 4),
+			externalTasks: make([]*Task, 0, 8),
+			outTasks:      make([]*Task, 0, 8),
+		}
+	}
+
+	// Apply options
 	for _, opt := range opts {
-		opt(tmp)
+		opt(p)
 	}
 
 	// Merge options into factory
-	tmp.factory.proto = tmp.proto
-	tmp.factory.script = tmp.script
-	tmp.factory.scriptName = tmp.scriptName
+	p.factory.proto = p.proto
+	p.factory.script = p.script
+	p.factory.scriptName = p.scriptName
 
 	// Initialize state via factory
-	tmp.threads = make([]*Task, 0, 4)
-	tmp.queue = NewTaskQueue()
-	tmp.yieldBuf = make([]*Task, 0, 4)
-	tmp.externalTasks = make([]*Task, 0, 8)
-	tmp.outTasks = make([]*Task, 0, 8)
-	tmp.state = tmp.factory.CreateState()
+	p.state = p.factory.CreateState()
 
-	return tmp
+	return p
 }
 
 // Init starts execution of a method with context and input payloads.
@@ -1104,7 +1122,7 @@ func (p *Process) yieldToCommand(task *Task) dispatcher.Command {
 	return cmd
 }
 
-// Close releases all process resources.
+// Close releases all process resources and returns Process to pool.
 // Called by scheduler when process completes or pool shuts down.
 // Note: Per-execution resources (Store, ProcessContext) are automatically
 // released when FrameContext is released - they implement ctxapi.Closer.
@@ -1113,19 +1131,41 @@ func (p *Process) Close() {
 	for _, task := range p.threads {
 		task.Close()
 	}
-	p.threads = nil
 
-	// Drain queue
-	p.queue.Drain()
-
-	// Close main state
+	// Close main state (returns LState to its pool)
 	if p.state != nil {
 		p.state.Close()
 		p.state = nil
 	}
 
-	// Clear context reference
+	// Reset slices but keep capacity
+	p.threads = p.threads[:0]
+	p.queue.Drain()
+	p.yieldBuf = p.yieldBuf[:0]
+	p.externalTasks = p.externalTasks[:0]
+	p.outTasks = p.outTasks[:0]
+
+	// Clear all references
 	p.ctx = nil
+	p.script = ""
+	p.scriptName = ""
+	p.proto = nil
+	p.mainTask = nil
+	p.result = nil
+	p.execErr = nil
+	p.factory = nil
+	p.pendingYields = nil
+	p.exported = nil
+	p.channelQueue = nil
+	p.channels = nil
+	p.subs = nil
+	p.handlers = nil
+	p.messageQueue = nil
+	p.trapLinks = false
+	p.linkDownError = nil
+
+	// Return to pool
+	processPool.Put(p)
 }
 
 // SyncExecute runs the script directly without coroutines or scheduler.

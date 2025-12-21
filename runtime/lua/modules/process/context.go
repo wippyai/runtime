@@ -46,7 +46,16 @@ func init() {
 // spawnerNew creates a new process spawner (process.with_context)
 func spawnerNew(l *lua.LState) int {
 	ctx := l.Context()
-	if !security.IsAllowed(ctx, "process.context", "context", nil) {
+
+	self, ok := runtime.GetFramePID(ctx)
+	if !ok {
+		l.RaiseError("no PID found in frame context")
+		return 0
+	}
+
+	secAttrs := map[string]any{"pid": self.String()}
+
+	if !security.IsAllowed(ctx, "process.context", "context", secAttrs) {
 		l.RaiseError("not allowed to spawn processes with custom context")
 		return 0
 	}
@@ -175,14 +184,23 @@ func spawnerWithContext(l *lua.LState) int {
 	}
 
 	ctx := l.Context()
-	if !security.IsAllowed(ctx, "process.context", "context", nil) {
+
+	self, ok := runtime.GetFramePID(ctx)
+	if !ok {
+		l.RaiseError("no PID found in frame context")
+		return 0
+	}
+
+	secAttrs := map[string]any{"pid": self.String()}
+
+	if !security.IsAllowed(ctx, "process.context", "context", secAttrs) {
 		l.RaiseError("not allowed to spawn processes with custom context")
 		return 0
 	}
 
 	ctxTable := l.CheckTable(2)
 
-	if (spawner.hasScope || spawner.hasActor) && !security.IsAllowed(ctx, "process.security", "security", nil) {
+	if (spawner.hasScope || spawner.hasActor) && !security.IsAllowed(ctx, "process.security", "security", secAttrs) {
 		l.RaiseError("not allowed to spawn processes with custom security context")
 		return 0
 	}
@@ -224,7 +242,16 @@ func spawnerWithActor(l *lua.LState) int {
 	}
 
 	ctx := l.Context()
-	if !security.IsAllowed(ctx, "process.security", "security", nil) {
+
+	self, ok := runtime.GetFramePID(ctx)
+	if !ok {
+		l.RaiseError("no PID found in frame context")
+		return 0
+	}
+
+	secAttrs := map[string]any{"pid": self.String()}
+
+	if !security.IsAllowed(ctx, "process.security", "security", secAttrs) {
 		l.RaiseError("not allowed to spawn processes with custom security context")
 		return 0
 	}
@@ -265,7 +292,16 @@ func spawnerWithScope(l *lua.LState) int {
 	}
 
 	ctx := l.Context()
-	if !security.IsAllowed(ctx, "process.security", "security", nil) {
+
+	self, ok := runtime.GetFramePID(ctx)
+	if !ok {
+		l.RaiseError("no PID found in frame context")
+		return 0
+	}
+
+	secAttrs := map[string]any{"pid": self.String()}
+
+	if !security.IsAllowed(ctx, "process.security", "security", secAttrs) {
 		l.RaiseError("not allowed to spawn processes with custom security context")
 		return 0
 	}
@@ -337,24 +373,27 @@ func doSpawnerSpawn(l *lua.LState, monitored, linked bool) int {
 	hostID := l.CheckString(3)
 
 	ctx := l.Context()
-	if !security.IsAllowed(ctx, "process.spawn", id, nil) {
-		l.RaiseError("not allowed to spawn process: %s", id)
-		return 0
-	}
-
-	if monitored && !security.IsAllowed(ctx, "process.spawn.monitored", id, nil) {
-		l.RaiseError("not allowed to spawn monitored process: %s", id)
-		return 0
-	}
-
-	if linked && !security.IsAllowed(ctx, "process.spawn.linked", id, nil) {
-		l.RaiseError("not allowed to spawn linked process: %s", id)
-		return 0
-	}
 
 	self, ok := runtime.GetFramePID(ctx)
 	if !ok {
 		l.RaiseError("no PID found in frame context")
+		return 0
+	}
+
+	secAttrs := map[string]any{"pid": self.String()}
+
+	if !security.IsAllowed(ctx, "process.spawn", id, secAttrs) {
+		l.RaiseError("not allowed to spawn process: %s", id)
+		return 0
+	}
+
+	if monitored && !security.IsAllowed(ctx, "process.spawn.monitored", id, secAttrs) {
+		l.RaiseError("not allowed to spawn monitored process: %s", id)
+		return 0
+	}
+
+	if linked && !security.IsAllowed(ctx, "process.spawn.linked", id, secAttrs) {
+		l.RaiseError("not allowed to spawn linked process: %s", id)
 		return 0
 	}
 

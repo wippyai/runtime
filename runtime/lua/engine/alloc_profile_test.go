@@ -31,14 +31,13 @@ func TestAllocProfile(t *testing.T) {
 	warmupProc.Init(warmupCtx, "", nil)
 	warmupProc.Close()
 
-	// Extra warmup for OpenBase
+	// Extra warmup for cached libs
 	wl := lua.NewState(opts)
-	wl.Push(wl.NewFunction(lua.OpenBase))
-	wl.Push(lua.LString(lua.BaseLibName))
-	wl.Call(1, 0)
+	lua.OpenBase(wl)
+	BindCachedLibs(wl)
 	wl.Close()
 
-	t.Log("=== After warmup, profiling allocations ===")
+	t.Log("=== Allocation breakdown ===")
 
 	// 1. LState only
 	lstateResult := testing.Benchmark(func(b *testing.B) {
@@ -48,66 +47,67 @@ func TestAllocProfile(t *testing.T) {
 			l.Close()
 		}
 	})
-	t.Logf("LState only:          %d allocs, %d bytes", lstateResult.AllocsPerOp(), lstateResult.AllocedBytesPerOp())
+	t.Logf("1. LState only:        %d allocs, %d bytes", lstateResult.AllocsPerOp(), lstateResult.AllocedBytesPerOp())
 
-	// 2. LState + OpenBase
+	// 2. + OpenBase
 	openBaseResult := testing.Benchmark(func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			l := lua.NewState(opts)
-			l.Push(l.NewFunction(lua.OpenBase))
-			l.Push(lua.LString(lua.BaseLibName))
-			l.Call(1, 0)
+			lua.OpenBase(l)
 			l.Close()
 		}
 	})
-	t.Logf("LState + OpenBase:    %d allocs, %d bytes (delta: +%d, +%d)",
+	t.Logf("2. + OpenBase:         %d allocs, %d bytes (delta: +%d, +%d)",
 		openBaseResult.AllocsPerOp(), openBaseResult.AllocedBytesPerOp(),
 		openBaseResult.AllocsPerOp()-lstateResult.AllocsPerOp(),
 		openBaseResult.AllocedBytesPerOp()-lstateResult.AllocedBytesPerOp())
 
-	// 3. LState + OpenBase + native libs
-	nativeResult := testing.Benchmark(func(b *testing.B) {
+	// 3. + Cached libs (table, string, math, coroutine, errors)
+	cachedLibsResult := testing.Benchmark(func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			l := lua.NewState(opts)
-			l.Push(l.NewFunction(lua.OpenBase))
-			l.Push(lua.LString(lua.BaseLibName))
-			l.Call(1, 0)
-			lua.OpenTable(l)
-			lua.OpenString(l)
-			lua.OpenMath(l)
-			lua.OpenCoroutine(l)
+			lua.OpenBase(l)
+			BindCachedLibs(l)
 			l.Close()
 		}
 	})
-	t.Logf("+ 4 native libs:      %d allocs, %d bytes (delta: +%d, +%d)",
-		nativeResult.AllocsPerOp(), nativeResult.AllocedBytesPerOp(),
-		nativeResult.AllocsPerOp()-openBaseResult.AllocsPerOp(),
-		nativeResult.AllocedBytesPerOp()-openBaseResult.AllocedBytesPerOp())
+	t.Logf("3. + CachedLibs:       %d allocs, %d bytes (delta: +%d, +%d)",
+		cachedLibsResult.AllocsPerOp(), cachedLibsResult.AllocedBytesPerOp(),
+		cachedLibsResult.AllocsPerOp()-openBaseResult.AllocsPerOp(),
+		cachedLibsResult.AllocedBytesPerOp()-openBaseResult.AllocedBytesPerOp())
 
-	// 4. + core modules
-	coreResult := testing.Benchmark(func(b *testing.B) {
+	// 4. + RestrictedPackage
+	pkgResult := testing.Benchmark(func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			l := lua.NewState(opts)
-			l.Push(l.NewFunction(lua.OpenBase))
-			l.Push(lua.LString(lua.BaseLibName))
+			lua.OpenBase(l)
+			BindCachedLibs(l)
+			l.Push(lua.LGoFunc(OpenRestrictedPackage))
+			l.Push(lua.LString(lua.LoadLibName))
 			l.Call(1, 0)
-			lua.OpenTable(l)
-			lua.OpenString(l)
-			lua.OpenMath(l)
-			lua.OpenCoroutine(l)
-			LoadCoreModules(l)
 			l.Close()
 		}
 	})
-	t.Logf("+ core modules:       %d allocs, %d bytes (delta: +%d, +%d)",
-		coreResult.AllocsPerOp(), coreResult.AllocedBytesPerOp(),
-		coreResult.AllocsPerOp()-nativeResult.AllocsPerOp(),
-		nativeResult.AllocedBytesPerOp()-nativeResult.AllocedBytesPerOp())
+	t.Logf("4. + RestrictedPkg:    %d allocs, %d bytes (delta: +%d, +%d)",
+		pkgResult.AllocsPerOp(), pkgResult.AllocedBytesPerOp(),
+		pkgResult.AllocsPerOp()-cachedLibsResult.AllocsPerOp(),
+		pkgResult.AllocedBytesPerOp()-cachedLibsResult.AllocedBytesPerOp())
 
-	// 5. Process struct only (no LState)
+	// 5. Factory.CreateState (complete state creation)
+	factory := &Factory{}
+	createStateResult := testing.Benchmark(func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			l := factory.CreateState()
+			l.Close()
+		}
+	})
+	t.Logf("5. Factory.CreateState: %d allocs, %d bytes", createStateResult.AllocsPerOp(), createStateResult.AllocedBytesPerOp())
+
+	// 6. Process struct only
 	structResult := testing.Benchmark(func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
@@ -120,9 +120,9 @@ func TestAllocProfile(t *testing.T) {
 			_ = p
 		}
 	})
-	t.Logf("Process struct only:  %d allocs, %d bytes", structResult.AllocsPerOp(), structResult.AllocedBytesPerOp())
+	t.Logf("6. Process struct:      %d allocs, %d bytes", structResult.AllocsPerOp(), structResult.AllocedBytesPerOp())
 
-	// 6. Context
+	// 7. Context
 	ctxResult := testing.Benchmark(func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
@@ -130,44 +130,9 @@ func TestAllocProfile(t *testing.T) {
 			_ = ctx
 		}
 	})
-	t.Logf("OpenFrameContext:     %d allocs, %d bytes", ctxResult.AllocsPerOp(), ctxResult.AllocedBytesPerOp())
+	t.Logf("7. OpenFrameContext:    %d allocs, %d bytes", ctxResult.AllocsPerOp(), ctxResult.AllocedBytesPerOp())
 
-	// 7. + OpenRestrictedPackage
-	pkgResult := testing.Benchmark(func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			l := lua.NewState(opts)
-			l.Push(l.NewFunction(lua.OpenBase))
-			l.Push(lua.LString(lua.BaseLibName))
-			l.Call(1, 0)
-			lua.OpenTable(l)
-			lua.OpenString(l)
-			lua.OpenMath(l)
-			lua.OpenCoroutine(l)
-			LoadCoreModules(l)
-			l.Push(lua.LGoFunc(OpenRestrictedPackage))
-			l.Push(lua.LString(lua.LoadLibName))
-			l.Call(1, 0)
-			l.Close()
-		}
-	})
-	t.Logf("+ RestrictedPackage:  %d allocs, %d bytes (delta: +%d, +%d)",
-		pkgResult.AllocsPerOp(), pkgResult.AllocedBytesPerOp(),
-		pkgResult.AllocsPerOp()-coreResult.AllocsPerOp(),
-		pkgResult.AllocedBytesPerOp()-coreResult.AllocedBytesPerOp())
-
-	// 8. Factory.CreateState (complete)
-	factory := &Factory{}
-	createStateResult := testing.Benchmark(func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			l := factory.CreateState()
-			l.Close()
-		}
-	})
-	t.Logf("Factory.CreateState:  %d allocs, %d bytes", createStateResult.AllocsPerOp(), createStateResult.AllocedBytesPerOp())
-
-	// 9. Full process
+	// 8. Full process
 	fullResult := testing.Benchmark(func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
@@ -177,19 +142,68 @@ func TestAllocProfile(t *testing.T) {
 			proc.Close()
 		}
 	})
-	t.Logf("Full process:         %d allocs, %d bytes", fullResult.AllocsPerOp(), fullResult.AllocedBytesPerOp())
+	t.Logf("8. Full process:        %d allocs, %d bytes", fullResult.AllocsPerOp(), fullResult.AllocedBytesPerOp())
 
 	t.Log("\n=== Summary ===")
-	t.Logf("LState base:          %d allocs, %d bytes", lstateResult.AllocsPerOp(), lstateResult.AllocedBytesPerOp())
-	t.Logf("OpenBase overhead:    %d allocs, %d bytes",
-		openBaseResult.AllocsPerOp()-lstateResult.AllocsPerOp(),
-		openBaseResult.AllocedBytesPerOp()-lstateResult.AllocedBytesPerOp())
-	t.Logf("Native libs overhead: %d allocs, %d bytes",
-		nativeResult.AllocsPerOp()-openBaseResult.AllocsPerOp(),
-		nativeResult.AllocedBytesPerOp()-openBaseResult.AllocedBytesPerOp())
-	t.Logf("Core mods overhead:   %d allocs, %d bytes",
-		coreResult.AllocsPerOp()-nativeResult.AllocsPerOp(),
-		coreResult.AllocedBytesPerOp()-nativeResult.AllocedBytesPerOp())
-	t.Logf("Process struct:       %d allocs, %d bytes", structResult.AllocsPerOp(), structResult.AllocedBytesPerOp())
-	t.Logf("Context:              %d allocs, %d bytes", ctxResult.AllocsPerOp(), ctxResult.AllocedBytesPerOp())
+	t.Logf("LState base:     %5d bytes", lstateResult.AllocedBytesPerOp())
+	t.Logf("+ OpenBase:      %5d bytes", openBaseResult.AllocedBytesPerOp()-lstateResult.AllocedBytesPerOp())
+	t.Logf("+ CachedLibs:    %5d bytes", cachedLibsResult.AllocedBytesPerOp()-openBaseResult.AllocedBytesPerOp())
+	t.Logf("+ RestrictedPkg: %5d bytes", pkgResult.AllocedBytesPerOp()-cachedLibsResult.AllocedBytesPerOp())
+	t.Logf("+ Process struct:%5d bytes", structResult.AllocedBytesPerOp())
+	t.Logf("+ Context:       %5d bytes", ctxResult.AllocedBytesPerOp())
+	t.Logf("─────────────────────────────")
+	t.Logf("TOTAL:           %5d bytes", fullResult.AllocedBytesPerOp())
+}
+
+// TestLStateDetailedBreakdown measures each LState component
+func TestLStateDetailedBreakdown(t *testing.T) {
+	// Warmup
+	for i := 0; i < 100; i++ {
+		l := lua.NewState(lua.Options{SkipOpenLibs: true})
+		l.Close()
+	}
+
+	configs := []struct {
+		name string
+		opts lua.Options
+	}{
+		{"minimal", lua.Options{
+			SkipOpenLibs:        true,
+			RegistrySize:        8,
+			RegistryMaxSize:     64,
+			RegistryGrowStep:    8,
+			CallStackSize:       8,
+			MinimizeStackMemory: true,
+		}},
+		{"small", lua.Options{
+			SkipOpenLibs:        true,
+			RegistrySize:        32,
+			RegistryMaxSize:     256,
+			RegistryGrowStep:    16,
+			CallStackSize:       32,
+			MinimizeStackMemory: true,
+		}},
+		{"default", lua.Options{
+			SkipOpenLibs:        true,
+			RegistrySize:        128,
+			RegistryMaxSize:     256 * 256,
+			RegistryGrowStep:    16,
+			CallStackSize:       128,
+			MinimizeStackMemory: true,
+		}},
+	}
+
+	for _, cfg := range configs {
+		opts := cfg.opts
+		result := testing.Benchmark(func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				l := lua.NewState(opts)
+				l.Close()
+			}
+		})
+		t.Logf("%s: %d allocs, %d bytes (reg=%d, stack=%d)",
+			cfg.name, result.AllocsPerOp(), result.AllocedBytesPerOp(),
+			opts.RegistrySize, opts.CallStackSize)
+	}
 }

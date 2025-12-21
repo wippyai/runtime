@@ -272,21 +272,20 @@ func BenchmarkBurstSubmit(b *testing.B) {
 // 2. MESSAGE SENDING BENCHMARKS
 // =============================================================================
 
-// BenchmarkSendToIdle measures Send() to an idle process (triggers wake)
-func BenchmarkSendToIdle(b *testing.B) {
+// BenchmarkSendToBlocked measures Send() to a blocked process (no wake, just queue push)
+func BenchmarkSendToBlocked(b *testing.B) {
 	for _, workers := range []int{1, 4, 8} {
 		b.Run(fmt.Sprintf("%dw", workers), func(b *testing.B) {
 			bs := newBenchScheduler(workers)
 			bs.Start()
 			defer bs.Stop(context.Background())
 
-			// Create one receiver that expects many messages
+			// Create one receiver that blocks on a yield
 			receiverPID := pidapi.PID{UniqID: "receiver"}
-			receiver := &IdleReceiverProcess{target: b.N + 1000000} // won't complete
-			_, _ = bs.Submit(context.Background(), receiverPID, receiver, "",
-				payload.Payloads{payload.New(b.N + 1000000)})
+			receiver := &BlockForeverProcess{}
+			_, _ = bs.Submit(context.Background(), receiverPID, receiver, "", nil)
 
-			// Wait for receiver to go idle
+			// Wait for receiver to block
 			time.Sleep(10 * time.Millisecond)
 
 			sender := pidapi.PID{UniqID: "sender"}
@@ -302,22 +301,48 @@ func BenchmarkSendToIdle(b *testing.B) {
 	}
 }
 
-// BenchmarkSendParallel measures parallel Send() from multiple goroutines
+// BlockForeverProcess yields once and never completes
+type BlockForeverProcess struct {
+	yielded bool
+}
+
+func (p *BlockForeverProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
+	return nil
+}
+
+func (p *BlockForeverProcess) Step(_ []process.Event, out *process.StepOutput) error {
+	if !p.yielded {
+		p.yielded = true
+		out.Yield(NeverCompleteCmd{}, 0)
+		out.Continue()
+		return nil
+	}
+	out.Done(nil)
+	return nil
+}
+
+func (p *BlockForeverProcess) Send(*relay.Package) error { return nil }
+func (p *BlockForeverProcess) Close()                    {}
+
+type NeverCompleteCmd struct{}
+
+func (NeverCompleteCmd) CmdID() dispatcher.CommandID { return 998 }
+
+// BenchmarkSendParallel measures parallel Send() from multiple goroutines to blocked receivers
 func BenchmarkSendParallel(b *testing.B) {
-	for _, receivers := range []int{1, 10, 100} {
+	for _, receivers := range []int{1, 10, 100, 1000} {
 		b.Run(fmt.Sprintf("%drecv", receivers), func(b *testing.B) {
 			bs := newBenchScheduler(runtime.GOMAXPROCS(0))
 			bs.Start()
 			defer bs.Stop(context.Background())
 
-			// Create receivers
+			// Create blocked receivers
 			receiverPIDs := make([]pidapi.PID, receivers)
 			for i := 0; i < receivers; i++ {
 				pid := pidapi.PID{UniqID: fmt.Sprintf("recv%d", i)}
 				receiverPIDs[i] = pid
-				recv := &IdleReceiverProcess{target: 1000000000}
-				_, _ = bs.Submit(context.Background(), pid, recv, "",
-					payload.Payloads{payload.New(1000000000)})
+				recv := &BlockForeverProcess{}
+				_, _ = bs.Submit(context.Background(), pid, recv, "", nil)
 			}
 
 			time.Sleep(20 * time.Millisecond)
@@ -556,11 +581,10 @@ func BenchmarkManyToMany(b *testing.B) {
 	}
 
 	configs := []config{
-		{procs: 10, messages: 10, workers: 4},
-		{procs: 50, messages: 10, workers: 4},
-		{procs: 100, messages: 10, workers: 4},
 		{procs: 100, messages: 10, workers: 8},
-		{procs: 100, messages: 10, workers: 16},
+		{procs: 1000, messages: 5, workers: 8},
+		{procs: 1000, messages: 5, workers: 16},
+		{procs: 1000, messages: 5, workers: 32},
 	}
 
 	for _, cfg := range configs {
@@ -640,3 +664,74 @@ func (p *MessagingProcess) Step(events []process.Event, out *process.StepOutput)
 
 func (p *MessagingProcess) Send(*relay.Package) error { return nil }
 func (p *MessagingProcess) Close()                    {}
+
+// =============================================================================
+// 7. LARGE SCALE BENCHMARKS (10k-100k processes)
+// =============================================================================
+
+// BenchmarkLargeScale measures large-scale process communication
+func BenchmarkLargeScale(b *testing.B) {
+	type config struct {
+		procs    int
+		messages int
+		workers  int
+	}
+
+	configs := []config{
+		{procs: 10000, messages: 1, workers: 16},
+		{procs: 10000, messages: 1, workers: 32},
+		{procs: 100000, messages: 1, workers: 32},
+	}
+
+	for _, cfg := range configs {
+		name := fmt.Sprintf("%dk_%dm_%dw", cfg.procs/1000, cfg.messages, cfg.workers)
+		b.Run(name, func(b *testing.B) {
+			bs := newBenchScheduler(cfg.workers)
+			bs.registerSendHandler()
+			bs.Start()
+			defer bs.Stop(context.Background())
+
+			b.ResetTimer()
+			for iter := 0; iter < b.N; iter++ {
+				bs.reset()
+
+				// Create all PIDs first
+				pids := make([]pidapi.PID, cfg.procs)
+				for j := 0; j < cfg.procs; j++ {
+					pids[j] = pidapi.PID{UniqID: fmt.Sprintf("p%d-%d", iter, j)}
+				}
+
+				// Submit all processes concurrently in batches
+				batchSize := 1000
+				for batchStart := 0; batchStart < cfg.procs; batchStart += batchSize {
+					batchEnd := batchStart + batchSize
+					if batchEnd > cfg.procs {
+						batchEnd = cfg.procs
+					}
+
+					var wg sync.WaitGroup
+					for j := batchStart; j < batchEnd; j++ {
+						wg.Add(1)
+						go func(idx int) {
+							defer wg.Done()
+							proc := &MessagingProcess{pid: pids[idx], targets: pids}
+							_, _ = bs.Submit(context.Background(), pids[idx], proc, "",
+								payload.Payloads{payload.New(pids), payload.New(cfg.messages)})
+						}(j)
+					}
+					wg.Wait()
+				}
+
+				// Wait for all to complete
+				if !bs.waitCompleted(int64(cfg.procs), 120*time.Second) {
+					b.Fatalf("timeout: completed %d/%d", bs.completed.Load(), cfg.procs)
+				}
+			}
+
+			// Report memory stats
+			var m runtime.MemStats
+			runtime.ReadMemStats(&m)
+			b.ReportMetric(float64(m.HeapAlloc)/(1024*1024), "HeapMB")
+		})
+	}
+}

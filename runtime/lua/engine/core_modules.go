@@ -98,7 +98,6 @@ func printFunc(l *lua.LState) int {
 
 // LoadCoreModules loads all core modules into the LState.
 func LoadCoreModules(l *lua.LState) {
-	lua.OpenErrors(l)
 	LoadModuleDef(l, payload.Module)
 	LoadModuleDef(l, ostime.Module)
 	LoadModuleDef(l, PrintModule)

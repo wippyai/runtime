@@ -128,10 +128,12 @@ func getRegistry(l *lua.LState) (topology.PIDRegistry, bool) {
 	return reg, true
 }
 
-func resolvePID(l *lua.LState, pidOrName string, permission string) (pidapi.PID, error) {
+func resolvePID(l *lua.LState, pidOrName string, permission string, senderPID pidapi.PID) (pidapi.PID, error) {
+	secAttrs := map[string]any{"pid": senderPID.String()}
+
 	p, err := pidapi.ParsePID(pidOrName)
 	if err == nil {
-		if !security.IsAllowed(l.Context(), permission, p.String(), nil) {
+		if !security.IsAllowed(l.Context(), permission, p.String(), secAttrs) {
 			return pidapi.PID{}, runtimelua.NewNotAllowedError(
 				strings.TrimPrefix(permission, "process."), pidOrName)
 		}
@@ -148,7 +150,7 @@ func resolvePID(l *lua.LState, pidOrName string, permission string) (pidapi.PID,
 		return pidapi.PID{}, runtimelua.NewCouldNotResolveError(pidOrName)
 	}
 
-	if !security.IsAllowed(l.Context(), permission, p.String(), nil) {
+	if !security.IsAllowed(l.Context(), permission, p.String(), secAttrs) {
 		return pidapi.PID{}, runtimelua.NewNotAllowedError(
 			strings.TrimPrefix(permission, "process."), pidOrName)
 	}
@@ -227,7 +229,7 @@ func send(l *lua.LState) int {
 		return 2
 	}
 
-	target, err := resolvePID(l, pidOrName, "process.send")
+	target, err := resolvePID(l, pidOrName, "process.send", self)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -258,14 +260,15 @@ func spawn(l *lua.LState) int {
 
 	id := l.CheckString(1)
 	hostID := l.CheckString(2)
+	secAttrs := map[string]any{"pid": self.String()}
 
-	if !security.IsAllowed(l.Context(), "process.spawn", id, nil) {
+	if !security.IsAllowed(l.Context(), "process.spawn", id, secAttrs) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to spawn process: %s", id)))
 		return 2
 	}
 
-	if !security.IsAllowed(l.Context(), "process.host", hostID, nil) {
+	if !security.IsAllowed(l.Context(), "process.host", hostID, secAttrs) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to spawn on host: %s", hostID)))
 		return 2
@@ -303,14 +306,15 @@ func spawnMonitored(l *lua.LState) int {
 
 	id := l.CheckString(1)
 	hostID := l.CheckString(2)
+	secAttrs := map[string]any{"pid": self.String()}
 
-	if !security.IsAllowed(l.Context(), "process.spawn", id, nil) {
+	if !security.IsAllowed(l.Context(), "process.spawn", id, secAttrs) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to spawn process: %s", id)))
 		return 2
 	}
 
-	if !security.IsAllowed(l.Context(), "process.spawn.monitored", id, nil) {
+	if !security.IsAllowed(l.Context(), "process.spawn.monitored", id, secAttrs) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to spawn monitored process: %s", id)))
 		return 2
@@ -349,14 +353,15 @@ func spawnLinked(l *lua.LState) int {
 
 	id := l.CheckString(1)
 	hostID := l.CheckString(2)
+	secAttrs := map[string]any{"pid": self.String()}
 
-	if !security.IsAllowed(l.Context(), "process.spawn", id, nil) {
+	if !security.IsAllowed(l.Context(), "process.spawn", id, secAttrs) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to spawn process: %s", id)))
 		return 2
 	}
 
-	if !security.IsAllowed(l.Context(), "process.spawn.linked", id, nil) {
+	if !security.IsAllowed(l.Context(), "process.spawn.linked", id, secAttrs) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to spawn linked process: %s", id)))
 		return 2
@@ -395,20 +400,21 @@ func spawnLinkedMonitored(l *lua.LState) int {
 
 	id := l.CheckString(1)
 	hostID := l.CheckString(2)
+	secAttrs := map[string]any{"pid": self.String()}
 
-	if !security.IsAllowed(l.Context(), "process.spawn", id, nil) {
+	if !security.IsAllowed(l.Context(), "process.spawn", id, secAttrs) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to spawn process: %s", id)))
 		return 2
 	}
 
-	if !security.IsAllowed(l.Context(), "process.spawn.monitored", id, nil) {
+	if !security.IsAllowed(l.Context(), "process.spawn.monitored", id, secAttrs) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to spawn monitored process: %s", id)))
 		return 2
 	}
 
-	if !security.IsAllowed(l.Context(), "process.spawn.linked", id, nil) {
+	if !security.IsAllowed(l.Context(), "process.spawn.linked", id, secAttrs) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to spawn linked process: %s", id)))
 		return 2
@@ -435,9 +441,14 @@ func spawnLinkedMonitored(l *lua.LState) int {
 }
 
 func terminate(l *lua.LState) int {
+	self, ok := checkPID(l)
+	if !ok {
+		return 2
+	}
+
 	pidOrName := l.CheckString(1)
 
-	target, err := resolvePID(l, pidOrName, "process.terminate")
+	target, err := resolvePID(l, pidOrName, "process.terminate", self)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -465,7 +476,7 @@ func cancel(l *lua.LState) int {
 
 	pidOrName := l.CheckString(1)
 
-	target, err := resolvePID(l, pidOrName, "process.cancel")
+	target, err := resolvePID(l, pidOrName, "process.cancel", self)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -579,7 +590,7 @@ func monitor(l *lua.LState) int {
 
 	pidOrName := l.CheckString(1)
 
-	target, err := resolvePID(l, pidOrName, "process.monitor")
+	target, err := resolvePID(l, pidOrName, "process.monitor", self)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -608,7 +619,7 @@ func unmonitor(l *lua.LState) int {
 
 	pidOrName := l.CheckString(1)
 
-	target, err := resolvePID(l, pidOrName, "process.unmonitor")
+	target, err := resolvePID(l, pidOrName, "process.unmonitor", self)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -637,7 +648,7 @@ func link(l *lua.LState) int {
 
 	pidOrName := l.CheckString(1)
 
-	target, err := resolvePID(l, pidOrName, "process.link")
+	target, err := resolvePID(l, pidOrName, "process.link", self)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -666,7 +677,7 @@ func unlink(l *lua.LState) int {
 
 	pidOrName := l.CheckString(1)
 
-	target, err := resolvePID(l, pidOrName, "process.unlink")
+	target, err := resolvePID(l, pidOrName, "process.unlink", self)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -693,8 +704,9 @@ func registryRegister(l *lua.LState) int {
 	}
 
 	name := l.CheckString(1)
+	secAttrs := map[string]any{"pid": self.String()}
 
-	if !security.IsAllowed(l.Context(), "process.registry.register", name, nil) {
+	if !security.IsAllowed(l.Context(), "process.registry.register", name, secAttrs) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to register name: %s", name)))
 		return 2
@@ -750,9 +762,15 @@ func registryUnregister(l *lua.LState) int {
 		return 2
 	}
 
-	name := l.CheckString(1)
+	self, ok := checkPID(l)
+	if !ok {
+		return 2
+	}
 
-	if !security.IsAllowed(l.Context(), "process.registry.unregister", name, nil) {
+	name := l.CheckString(1)
+	secAttrs := map[string]any{"pid": self.String()}
+
+	if !security.IsAllowed(l.Context(), "process.registry.unregister", name, secAttrs) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to unregister name: %s", name)))
 		return 2
@@ -854,6 +872,11 @@ func upgrade(l *lua.LState) int {
 // Usage: process.call(id, host, arg1, arg2, ...)
 // Returns: value, error
 func call(l *lua.LState) int {
+	self, ok := checkPID(l)
+	if !ok {
+		return 2
+	}
+
 	if l.GetTop() < 2 {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("call requires id and host arguments"))
@@ -881,13 +904,15 @@ func call(l *lua.LState) int {
 		return 2
 	}
 
-	if !security.IsAllowed(l.Context(), "process.call", id, nil) {
+	secAttrs := map[string]any{"pid": self.String()}
+
+	if !security.IsAllowed(l.Context(), "process.call", id, secAttrs) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to call process: %s", id)))
 		return 2
 	}
 
-	if !security.IsAllowed(l.Context(), "process.host", hostID, nil) {
+	if !security.IsAllowed(l.Context(), "process.host", hostID, secAttrs) {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("not allowed to call on host: %s", hostID)))
 		return 2
