@@ -83,26 +83,12 @@ func (m *subscribeContext) get(topic string) (*subscription, bool) {
 }
 
 // match finds a subscription that matches the given topic.
-// Supports glob-style patterns:
-//   - "*" matches any topic
-//   - "foo.*" matches "foo.bar", "foo.baz", etc.
-//   - "foo.*.bar" matches "foo.x.bar", "foo.y.bar", etc.
+// Only exact match - no glob patterns.
 func (m *subscribeContext) match(topic string) (*subscription, bool) {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	// First try exact match
-	if sub, exists := m.byTopic[topic]; exists {
-		return sub, true
-	}
-
-	// Try pattern matching
-	for pattern, sub := range m.byTopic {
-		if matchTopicPattern(pattern, topic) {
-			return sub, true
-		}
-	}
-	return nil, false
+	sub, exists := m.byTopic[topic]
+	m.mu.RUnlock()
+	return sub, exists
 }
 
 // matchTopicPattern checks if topic matches the glob pattern.

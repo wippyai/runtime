@@ -41,11 +41,11 @@ func TestProcess_UpgradeRequest_Detection(t *testing.T) {
 		Input:  nil,
 	}
 
-	proc := NewProcess(
+	proc := mustNewProcess(t,
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) {
+		WithModuleBinder(wrapBinder(func(l *lua.LState) {
 			l.SetGlobal("upgrade_request", upgradeReq)
-		}),
+		})),
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
@@ -89,11 +89,11 @@ func TestProcess_UpgradeRequest_EmptySource(t *testing.T) {
 		Input:  payload.Payloads{payload.New("restart_arg")},
 	}
 
-	proc := NewProcess(
+	proc := mustNewProcess(t,
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) {
+		WithModuleBinder(wrapBinder(func(l *lua.LState) {
 			l.SetGlobal("upgrade_request", upgradeReq)
-		}),
+		})),
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
@@ -137,11 +137,11 @@ func TestProcess_UpgradeRequest_ClearsExecution(t *testing.T) {
 		Source: registry.NewID("test", "handler"),
 	}
 
-	proc := NewProcess(
+	proc := mustNewProcess(t,
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) {
+		WithModuleBinder(wrapBinder(func(l *lua.LState) {
 			l.SetGlobal("upgrade_request", upgradeReq)
-		}),
+		})),
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())

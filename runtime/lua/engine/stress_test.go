@@ -50,7 +50,7 @@ func TestStress10KProcesses(t *testing.T) {
 	// Create all processes
 	for i := 0; i < processCount; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
-		proc := NewProcess(WithProto(proto))
+		proc := mustNewProcess(t, WithProto(proto))
 		if err := proc.Init(ctx, "", nil); err != nil {
 			errors = append(errors, fmt.Errorf("process %d start: %w", i, err))
 			continue
@@ -160,7 +160,7 @@ func TestStress10KWithCoroutines(t *testing.T) {
 	// Create and run all processes
 	for i := 0; i < processCount; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
-		proc := NewProcess(WithProto(proto))
+		proc := mustNewProcess(t, WithProto(proto))
 		if err := proc.Init(ctx, "", nil); err != nil {
 			t.Fatalf("process %d start: %v", i, err)
 		}
@@ -232,7 +232,7 @@ func TestStressParallelProcessCreation(t *testing.T) {
 
 			for i := 0; i < processesPerWorker; i++ {
 				ctx, _ := ctxapi.OpenFrameContext(context.Background())
-				proc := NewProcess(WithProto(proto))
+				proc := mustNewProcess(t, WithProto(proto))
 				if err := proc.Init(ctx, "", nil); err != nil {
 					errorCounts[workerID]++
 					continue
@@ -288,7 +288,7 @@ func BenchmarkStress10K(b *testing.B) {
 
 		for j := 0; j < 10000; j++ {
 			ctx, _ := ctxapi.OpenFrameContext(context.Background())
-			proc := NewProcess(WithProto(proto))
+			proc := mustNewProcess(b, WithProto(proto))
 			_ = proc.Init(ctx, "", nil)
 			processes[j] = proc
 		}
@@ -335,7 +335,7 @@ func TestStressMemoryLeak(t *testing.T) {
 		var output process.StepOutput
 		for i := 0; i < processCount; i++ {
 			ctx, _ := ctxapi.OpenFrameContext(context.Background())
-			proc := NewProcess(WithProto(proto))
+			proc := mustNewProcess(t, WithProto(proto))
 			_ = proc.Init(ctx, "", nil)
 			output.Reset()
 			_ = proc.Step(nil, &output)
@@ -388,7 +388,7 @@ func TestStressStringConcat(t *testing.T) {
 
 	for i := 0; i < processCount; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
-		proc := NewProcess(WithProto(proto))
+		proc := mustNewProcess(t, WithProto(proto))
 		if err := proc.Init(ctx, "", nil); err != nil {
 			t.Fatal(err)
 		}
@@ -448,7 +448,7 @@ func TestStressTableOperations(t *testing.T) {
 
 	for i := 0; i < processCount; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
-		proc := NewProcess(WithProto(proto))
+		proc := mustNewProcess(t, WithProto(proto))
 		if err := proc.Init(ctx, "", nil); err != nil {
 			t.Fatal(err)
 		}
@@ -496,7 +496,7 @@ func BenchmarkStressCreateStepClose(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
-		proc := NewProcess(WithProto(proto))
+		proc := mustNewProcess(b, WithProto(proto))
 		_ = proc.Init(ctx, "", nil)
 
 		var output process.StepOutput
@@ -526,7 +526,7 @@ func TestSpawnBasic(t *testing.T) {
 	}
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	proc := NewProcess(WithProto(proto))
+	proc := mustNewProcess(t, WithProto(proto))
 	if err := proc.Init(ctx, "", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -572,7 +572,7 @@ func TestSpawnMultiple(t *testing.T) {
 	}
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	proc := NewProcess(WithProto(proto))
+	proc := mustNewProcess(t, WithProto(proto))
 	if err := proc.Init(ctx, "", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -635,7 +635,7 @@ func TestHighConcurrencyMemoryPressure(t *testing.T) {
 				}
 
 				ctx, _ := ctxapi.OpenFrameContext(context.Background())
-				proc := NewProcess(WithProto(proto))
+				proc := mustNewProcess(t, WithProto(proto))
 				_ = proc.Init(ctx, "", nil)
 				var output process.StepOutput
 				_ = proc.Step(nil, &output)
@@ -795,7 +795,7 @@ func TestSpawnWithCompute(t *testing.T) {
 	}
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	proc := NewProcess(WithProto(proto))
+	proc := mustNewProcess(t, WithProto(proto))
 	if err := proc.Init(ctx, "", nil); err != nil {
 		t.Fatal(err)
 	}

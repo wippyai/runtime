@@ -8,6 +8,7 @@ import (
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/modules/json"
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
+	lua "github.com/yuin/gopher-lua"
 )
 
 // safeModules returns modules safe for eval testing
@@ -113,16 +114,6 @@ func TestCompiler_GetModuleBinder(t *testing.T) {
 	assert.NotNil(t, binder)
 }
 
-func TestCompiler_ModuleInfo(t *testing.T) {
-	compiler := NewCompiler(safeModules())
-
-	info, ok := compiler.ModuleInfo("json")
-	assert.True(t, ok)
-	assert.Equal(t, "json", info.Name)
-
-	_, ok = compiler.ModuleInfo("nonexistent")
-	assert.False(t, ok)
-}
 
 func TestCompiler_ClassBasedFiltering(t *testing.T) {
 	// Create modules with different classes
@@ -151,13 +142,20 @@ func TestCompiler_ClassBasedFiltering(t *testing.T) {
 	}
 	compiler := NewCompiler(modules)
 
-	// Safe module should be allowed
-	assert.True(t, compiler.IsModuleAllowed("safe"))
+	// Safe module should compile
+	_, err := compiler.Compile(CompileCmd{Source: "return {}", Modules: []string{"safe"}})
+	assert.NoError(t, err)
 
-	// Modules with forbidden classes should not be allowed
-	assert.False(t, compiler.IsModuleAllowed("unsafe_process"))
-	assert.False(t, compiler.IsModuleAllowed("unsafe_storage"))
-	assert.False(t, compiler.IsModuleAllowed("unsafe_network"))
+	// Modules with forbidden classes should fail to compile
+	_, err = compiler.Compile(CompileCmd{Source: "return {}", Modules: []string{"unsafe_process"}})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden class")
+
+	_, err = compiler.Compile(CompileCmd{Source: "return {}", Modules: []string{"unsafe_storage"}})
+	assert.Error(t, err)
+
+	_, err = compiler.Compile(CompileCmd{Source: "return {}", Modules: []string{"unsafe_network"}})
+	assert.Error(t, err)
 }
 
 func TestCompiler_CustomForbiddenClasses(t *testing.T) {
@@ -170,13 +168,16 @@ func TestCompiler_CustomForbiddenClasses(t *testing.T) {
 
 	// With default settings, IO is allowed
 	compilerDefault := NewCompiler(modules)
-	assert.True(t, compilerDefault.IsModuleAllowed("io_module"))
+	_, err := compilerDefault.Compile(CompileCmd{Source: "return {}", Modules: []string{"io_module"}})
+	assert.NoError(t, err)
 
 	// With custom forbidden classes including IO
 	compilerStrict := NewCompiler(modules,
 		WithForbiddenClasses(luaapi.ClassIO, luaapi.ClassProcess),
 	)
-	assert.False(t, compilerStrict.IsModuleAllowed("io_module"))
+	_, err = compilerStrict.Compile(CompileCmd{Source: "return {}", Modules: []string{"io_module"}})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden class")
 }
 
 func TestCompiler_Compile_MultipleModules(t *testing.T) {
@@ -230,11 +231,145 @@ func TestCompiler_Compile_ReturnTable(t *testing.T) {
 }
 
 func TestCompiler_ForbiddenClasses(t *testing.T) {
-	// Verify the default forbidden classes
+	// Verify the default forbidden classes by attempting to compile with them
+	processModule := &luaapi.ModuleDef{Name: "proc", Class: []string{luaapi.ClassProcess}}
+	storageModule := &luaapi.ModuleDef{Name: "stor", Class: []string{luaapi.ClassStorage}}
+	networkModule := &luaapi.ModuleDef{Name: "net", Class: []string{luaapi.ClassNetwork}}
+
+	compiler := NewCompiler([]*luaapi.ModuleDef{processModule, storageModule, networkModule})
+
+	// All should be blocked by default
+	_, err := compiler.Compile(CompileCmd{Source: "return {}", Modules: []string{"proc"}})
+	assert.Error(t, err)
+
+	_, err = compiler.Compile(CompileCmd{Source: "return {}", Modules: []string{"stor"}})
+	assert.Error(t, err)
+
+	_, err = compiler.Compile(CompileCmd{Source: "return {}", Modules: []string{"net"}})
+	assert.Error(t, err)
+}
+
+// =============================================================================
+// Security Tests - Verify process module is NOT accessible in eval context
+// =============================================================================
+
+func TestCompiler_Security_ProcessModuleBlocked(t *testing.T) {
+	// Even if process module is in available modules, ClassProcess blocks it
+	processModule := &luaapi.ModuleDef{
+		Name:  "process",
+		Class: []string{luaapi.ClassProcess},
+	}
+
+	modules := []*luaapi.ModuleDef{
+		json.Module,
+		processModule,
+	}
+	compiler := NewCompiler(modules)
+
+	// Attempting to compile with process module should fail
+	_, err := compiler.Compile(CompileCmd{
+		Source:  `local p = require("process"); return p`,
+		Method:  "handle",
+		Modules: []string{"process"},
+	})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden class")
+}
+
+func TestCompiler_Security_ModuleBinderExcludesProcess(t *testing.T) {
+	// Create compiler with ONLY safe modules (no process)
 	compiler := NewCompiler(safeModules())
 
-	forbidden := compiler.GetForbiddenClasses()
-	assert.Contains(t, forbidden, luaapi.ClassProcess)
-	assert.Contains(t, forbidden, luaapi.ClassStorage)
-	assert.Contains(t, forbidden, luaapi.ClassNetwork)
+	// Get binder for json module only
+	binder := compiler.GetModuleBinder([]string{"json"})
+
+	// Create Lua state and apply binder
+	l := lua.NewState()
+	defer l.Close()
+
+	binder(l)
+
+	// Verify json is available
+	jsonMod := l.GetGlobal("json")
+	assert.NotEqual(t, lua.LNil, jsonMod)
+
+	// Verify process is NOT available (never bound)
+	processMod := l.GetGlobal("process")
+	assert.Equal(t, lua.LNil, processMod)
+}
+
+func TestCompiler_Security_RuntimeRequireProcessFails(t *testing.T) {
+	compiler := NewCompiler(safeModules())
+
+	// Compile code that tries to require process at runtime
+	// This should compile (we don't analyze code), but at runtime
+	// the process module won't be available
+	program, err := compiler.Compile(CompileCmd{
+		Source: `
+			local function handle()
+				local ok, proc = pcall(require, "process")
+				if ok then
+					error("process module should not be available")
+				end
+				return "process_blocked"
+			end
+			return { handle = handle }
+		`,
+		Method:  "handle",
+		Modules: []string{"json"},
+	})
+	require.NoError(t, err)
+
+	// Run the compiled program
+	l := lua.NewState()
+	defer l.Close()
+
+	// Apply module binder
+	binder := compiler.GetModuleBinder(program.Modules())
+	binder(l)
+
+	// Load and run the proto
+	fn := l.NewFunctionFromProto(program.Proto())
+	l.Push(fn)
+	err = l.PCall(0, 1, nil)
+	require.NoError(t, err)
+
+	// Get handle function and call it
+	result := l.Get(-1)
+	require.Equal(t, lua.LTTable, result.Type())
+
+	tbl := result.(*lua.LTable)
+	handleFn := tbl.RawGetString("handle")
+	require.Equal(t, lua.LTFunction, handleFn.Type())
+
+	l.Push(handleFn)
+	err = l.PCall(0, 1, nil)
+	require.NoError(t, err)
+
+	// Should return "process_blocked" - meaning require("process") failed
+	ret := l.Get(-1)
+	assert.Equal(t, lua.LString("process_blocked"), ret)
+}
+
+func TestCompiler_Security_EnvModuleBlockedByClassProcess(t *testing.T) {
+	// Env module has ClassProcess - should be blocked in eval
+	envModule := &luaapi.ModuleDef{
+		Name:  "env",
+		Class: []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
+	}
+
+	modules := []*luaapi.ModuleDef{
+		json.Module,
+		envModule,
+	}
+	compiler := NewCompiler(modules)
+
+	// Requesting env module should fail due to ClassProcess
+	_, err := compiler.Compile(CompileCmd{
+		Source:  `return require("env")`,
+		Method:  "handle",
+		Modules: []string{"env"},
+	})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden class")
 }

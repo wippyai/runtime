@@ -17,6 +17,7 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine"
+	payloadconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/runtime/lua/evalhost"
 	"github.com/wippyai/runtime/runtime/lua/modules/json"
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
@@ -105,7 +106,7 @@ func newTestScheduler() *testScheduler {
 
 	// Register eval handlers
 	modules := []*luaapi.ModuleDef{json.Module, timemod.Module, Module}
-	host := evalhost.NewHost(zap.NewNop(), modules, nil)
+	host := evalhost.NewHost(zap.NewNop(), modules)
 	evalSvc := evalhost.NewDispatcher(host)
 	evalSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		reg.Register(id, h)
@@ -120,18 +121,24 @@ func newTestScheduler() *testScheduler {
 	return ts
 }
 
-func bindAllModules(l *lua.LState) {
+func bindAllModules(l *lua.LState) error {
 	engine.LoadModuleDef(l, json.Module)
 	engine.LoadModuleDef(l, timemod.Module)
 	engine.LoadModuleDef(l, Module)
+	return nil
 }
 
-func newLuaProcess(script string) *engine.Process {
+func newLuaProcess(t *testing.T, script string) *engine.Process {
+	t.Helper()
 	proto, _ := lua.CompileString(script, "test.lua")
-	return engine.NewProcess(
+	proc, err := engine.NewProcess(
 		engine.WithProto(proto),
 		engine.WithModuleBinder(bindAllModules),
 	)
+	if err != nil {
+		t.Fatalf("NewProcess failed: %v", err)
+	}
+	return proc
 }
 
 // TestRunner_CompileYield_HandleResult tests HandleResult for CompileYield
@@ -188,8 +195,8 @@ func TestRunner_RunYield_HandleResult(t *testing.T) {
 		expected lua.LValueType
 	}{
 		{"bool", true, lua.LTBool},
-		{"int", 42, lua.LTNumber},
-		{"int64", int64(100), lua.LTNumber},
+		{"int", 42, lua.LTInteger},
+		{"int64", int64(100), lua.LTInteger},
 		{"float64", 3.14, lua.LTNumber},
 		{"string", "hello", lua.LTString},
 		{"bytes", []byte("world"), lua.LTString},
@@ -205,11 +212,8 @@ func TestRunner_RunYield_HandleResult(t *testing.T) {
 	}
 }
 
-// TestRunner_GoToLua tests the goToLua conversion function
+// TestRunner_GoToLua tests the payloadconv.GoToLua conversion function
 func TestRunner_GoToLua(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
 	testCases := []struct {
 		name     string
 		input    any
@@ -218,20 +222,21 @@ func TestRunner_GoToLua(t *testing.T) {
 		{"nil", nil, lua.LTNil},
 		{"bool_true", true, lua.LTBool},
 		{"bool_false", false, lua.LTBool},
-		{"int", 42, lua.LTNumber},
-		{"int64", int64(100), lua.LTNumber},
+		{"int", 42, lua.LTInteger},
+		{"int64", int64(100), lua.LTInteger},
 		{"float64", 3.14, lua.LTNumber},
 		{"string", "hello", lua.LTString},
 		{"bytes", []byte("world"), lua.LTString},
-		{"error", assert.AnError, lua.LTString},
+		{"error", assert.AnError, lua.LTUserData}, // errors become LuaError userdata
 		{"slice", []any{1, 2, 3}, lua.LTTable},
 		{"map", map[string]any{"key": "value"}, lua.LTTable},
-		{"unknown", struct{}{}, lua.LTString},
+		{"struct", struct{ Name string }{"test"}, lua.LTTable}, // structs become tables
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := goToLua(l, tc.input)
+			result, err := payloadconv.GoToLua(tc.input)
+			require.NoError(t, err)
 			assert.Equal(t, tc.expected, result.Type())
 		})
 	}
@@ -239,10 +244,11 @@ func TestRunner_GoToLua(t *testing.T) {
 	// Test nested structures
 	t.Run("nested_slice", func(t *testing.T) {
 		input := []any{1, []any{2, 3}, "four"}
-		result := goToLua(l, input)
+		result, err := payloadconv.GoToLua(input)
+		require.NoError(t, err)
 		assert.Equal(t, lua.LTTable, result.Type())
 		tbl := result.(*lua.LTable)
-		assert.Equal(t, lua.LTNumber, tbl.RawGetInt(1).Type())
+		assert.Equal(t, lua.LTInteger, tbl.RawGetInt(1).Type())
 		assert.Equal(t, lua.LTTable, tbl.RawGetInt(2).Type())
 		assert.Equal(t, lua.LTString, tbl.RawGetInt(3).Type())
 	})
@@ -252,17 +258,19 @@ func TestRunner_GoToLua(t *testing.T) {
 			"num":   42,
 			"inner": map[string]any{"a": 1},
 		}
-		result := goToLua(l, input)
+		result, err := payloadconv.GoToLua(input)
+		require.NoError(t, err)
 		assert.Equal(t, lua.LTTable, result.Type())
 		tbl := result.(*lua.LTable)
-		assert.Equal(t, lua.LTNumber, tbl.RawGetString("num").Type())
+		assert.Equal(t, lua.LTInteger, tbl.RawGetString("num").Type())
 		assert.Equal(t, lua.LTTable, tbl.RawGetString("inner").Type())
 	})
 
 	// Test LValue passthrough
 	t.Run("lvalue_passthrough", func(t *testing.T) {
 		input := lua.LString("already lua")
-		result := goToLua(l, input)
+		result, err := payloadconv.GoToLua(input)
+		require.NoError(t, err)
 		assert.Equal(t, input, result)
 	})
 }
@@ -337,7 +345,7 @@ func TestRunner_Integration_Compile(t *testing.T) {
 	`
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	proc := newLuaProcess(script)
+	proc := newLuaProcess(t, script)
 
 	result, err := sched.Execute(ctx, uniqueTestPID(), proc, "", nil)
 	require.NoError(t, err)
@@ -374,7 +382,7 @@ func TestRunner_Integration_CompileSyntaxError(t *testing.T) {
 	`
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	proc := newLuaProcess(script)
+	proc := newLuaProcess(t, script)
 
 	result, err := sched.Execute(ctx, uniqueTestPID(), proc, "", nil)
 	require.NoError(t, err)
@@ -411,7 +419,7 @@ func TestRunner_Integration_Run(t *testing.T) {
 	`
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	proc := newLuaProcess(script)
+	proc := newLuaProcess(t, script)
 
 	result, err := sched.Execute(ctx, uniqueTestPID(), proc, "", nil)
 	require.NoError(t, err)
@@ -454,7 +462,7 @@ func TestRunner_ProgramMethods(t *testing.T) {
 	`
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	proc := newLuaProcess(script)
+	proc := newLuaProcess(t, script)
 
 	result, err := sched.Execute(ctx, uniqueTestPID(), proc, "", nil)
 	require.NoError(t, err)

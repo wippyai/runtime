@@ -96,20 +96,27 @@ func testPID() pid.PID {
 	return pid.PID{UniqID: "time-test"}
 }
 
-func bindTimeModule(l *lua.LState) {
+func bindTimeModule(l *lua.LState) error {
 	tbl, _ := timemod.Module.Build()
 	l.SetGlobal(timemod.Module.Name, tbl)
+	return nil
 }
 
-func newLuaProcessWithChannels(script string) *engine.Process {
+func newLuaProcessWithChannels(t *testing.T, script string) *engine.Process {
+	t.Helper()
 	proto, _ := lua.CompileString(script, "test.lua")
-	return engine.NewProcess(
+	proc, err := engine.NewProcess(
 		engine.WithProto(proto),
-		engine.WithModuleBinder(func(l *lua.LState) {
+		engine.WithModuleBinder(func(l *lua.LState) error {
 			engine.LoadModuleDef(l, engine.ChannelModule)
+			return nil
 		}),
 		engine.WithModuleBinder(bindTimeModule),
 	)
+	if err != nil {
+		t.Fatalf("NewProcess failed: %v", err)
+	}
+	return proc
 }
 
 // TestTickerBasic tests basic ticker functionality with channel API
@@ -133,7 +140,7 @@ func TestTickerBasic(t *testing.T) {
 	`
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	proc := newLuaProcessWithChannels(script)
+	proc := newLuaProcessWithChannels(t, script)
 
 	start := stdtime.Now()
 	result, err := sched.Execute(ctx, testPID(), proc, "", nil)
@@ -203,7 +210,7 @@ func TestMultipleTickersStaggered(t *testing.T) {
 	`
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	proc := newLuaProcessWithChannels(script)
+	proc := newLuaProcessWithChannels(t, script)
 
 	start := stdtime.Now()
 	result, err := sched.Execute(ctx, testPID(), proc, "", nil)
@@ -242,7 +249,7 @@ func TestTickerStop(t *testing.T) {
 	`
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	proc := newLuaProcessWithChannels(script)
+	proc := newLuaProcessWithChannels(t, script)
 
 	start := stdtime.Now()
 	result, err := sched.Execute(ctx, testPID(), proc, "", nil)
@@ -282,7 +289,7 @@ func TestTickerCleanupOnProcessExit(t *testing.T) {
 	`
 
 	ctx, fc := ctxapi.OpenFrameContext(context.Background())
-	proc := newLuaProcessWithChannels(script)
+	proc := newLuaProcessWithChannels(t, script)
 
 	result, err := sched.Execute(ctx, testPID(), proc, "", nil)
 	if err != nil {
@@ -328,7 +335,7 @@ func TestTimerCleanupOnProcessExit(t *testing.T) {
 	`
 
 	ctx, fc := ctxapi.OpenFrameContext(context.Background())
-	proc := newLuaProcessWithChannels(script)
+	proc := newLuaProcessWithChannels(t, script)
 
 	result, err := sched.Execute(ctx, testPID(), proc, "", nil)
 	if err != nil {

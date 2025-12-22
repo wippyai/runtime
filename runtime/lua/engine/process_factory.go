@@ -185,8 +185,9 @@ func (f *ProcessFactory) buildBinders(compiled *code.CompiledMain, cfg *processC
 	// Extra modules
 	for _, mod := range cfg.extraModules {
 		m := mod
-		binders = append(binders, func(l *lua.LState) {
+		binders = append(binders, func(l *lua.LState) error {
 			LoadModuleDef(l, m)
+			return nil
 		})
 	}
 
@@ -238,21 +239,26 @@ func (f *ProcessFactory) bindDependencies(
 		// Create binder based on type - eager load into _G
 		if dep.Node != nil && dep.Node.Module != nil {
 			mod := dep.Node.Module
-			binders = append(binders, func(l *lua.LState) {
-				l.SetGlobal(mod.Name, ModuleValue(mod))
+			alias := name // Use the import alias, not the module's internal name
+			binders = append(binders, func(l *lua.LState) error {
+				l.SetGlobal(alias, ModuleValue(mod))
+				return nil
 			})
 		}
 
 		if dep.Proto != nil {
 			proto := dep.Proto
 			protoName := name
-			binders = append(binders, func(l *lua.LState) {
+			binders = append(binders, func(l *lua.LState) error {
 				fn := l.LoadProto(proto)
 				l.Push(fn)
-				l.Call(0, 1)
+				if err := l.PCall(0, 1, nil); err != nil {
+					return fmt.Errorf("failed to load dependency %s: %w", protoName, err)
+				}
 				result := l.Get(-1)
 				l.Pop(1)
 				l.SetGlobal(protoName, result)
+				return nil
 			})
 		}
 	}
@@ -322,12 +328,17 @@ func NewFactory(cfg FactoryConfig) process.FactoryFunc {
 
 // Create produces a new initialized Process.
 func (f *Factory) Create() (process.Process, error) {
+	state, err := f.CreateState()
+	if err != nil {
+		return nil, err
+	}
+
 	proc := &Process{
 		threads:  make([]*Task, 0, 4),
 		queue:    NewTaskQueue(),
 		yieldBuf: make([]*Task, 0, 4),
 		factory:  f,
-		state:    f.CreateState(),
+		state:    state,
 	}
 
 	if f.proto != nil {
@@ -349,7 +360,8 @@ func NewFactoryFromProto(proto *lua.FunctionProto, binders ...ModuleBinder) proc
 }
 
 // CreateState creates and initializes a new Lua state with core libs and module binders.
-func (f *Factory) CreateState() *lua.LState {
+// Returns error if any module binder fails.
+func (f *Factory) CreateState() (*lua.LState, error) {
 	opts := lua.Options{
 		RegistrySize:        128,
 		RegistryMaxSize:     256 * 256,
@@ -374,12 +386,18 @@ func (f *Factory) CreateState() *lua.LState {
 	// Restricted package loader (wippy-specific)
 	state.Push(lua.LGoFunc(OpenRestrictedPackage))
 	state.Push(lua.LString(lua.LoadLibName))
-	state.Call(1, 0)
+	if err := state.PCall(1, 0, nil); err != nil {
+		state.Close()
+		return nil, fmt.Errorf("failed to load package loader: %w", err)
+	}
 
 	// Apply module binders
 	for _, binder := range f.moduleBinders {
-		binder(state)
+		if err := binder(state); err != nil {
+			state.Close()
+			return nil, fmt.Errorf("module binder failed: %w", err)
+		}
 	}
 
-	return state
+	return state, nil
 }

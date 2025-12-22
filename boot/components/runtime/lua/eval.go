@@ -6,7 +6,6 @@ import (
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
 	logapi "github.com/wippyai/runtime/api/logs"
-	"github.com/wippyai/runtime/api/process"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/boot/components/dispatchers"
 	"github.com/wippyai/runtime/runtime/lua/evalhost"
@@ -31,9 +30,6 @@ func Eval() boot.Component {
 				return ctx, ErrDispatcherRegistrarNotFound
 			}
 
-			// Get process factory from context for ID-based sandbox creation
-			factory := process.GetFactory(ctx)
-
 			// Modules available for eval'd code
 			modules := []*luaapi.ModuleDef{
 				json.Module,
@@ -47,11 +43,7 @@ func Eval() boot.Component {
 			host := evalhost.NewHost(
 				logger.Named("eval"),
 				modules,
-				factory,
 			)
-
-			// Register eval host in context (we need local factories)
-			evalhost.WithHost(ctx, host)
 
 			// Register dispatcher handlers
 			d := evalhost.NewDispatcher(host)

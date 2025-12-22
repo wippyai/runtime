@@ -131,13 +131,15 @@ return { main = main }
 `,
 			ScriptName: "test_events",
 			ModuleBinders: append(engine.CoreBinders(),
-				func(l *lua.LState) {
+				func(l *lua.LState) error {
 					mod, _ := eventsmod.Module.Build()
 					l.SetGlobal("events", mod)
+					return nil
 				},
-				func(l *lua.LState) {
+				func(l *lua.LState) error {
 					mod, _ := timemod.Module.Build()
 					l.SetGlobal("time", mod)
+					return nil
 				},
 			),
 		}
@@ -235,9 +237,10 @@ return { main = main }
 `,
 			ScriptName: "test_subscribe",
 			ModuleBinders: append(engine.CoreBinders(),
-				func(l *lua.LState) {
+				func(l *lua.LState) error {
 					mod, _ := eventsmod.Module.Build()
 					l.SetGlobal("events", mod)
+					return nil
 				},
 			),
 		}

@@ -17,12 +17,11 @@ import (
 type (
 	// Manager centralizes code and dependency management
 	Manager struct {
-		log      *zap.Logger
-		bus      event.Bus
-		memGraph *MemoryGraph
-		compiler *Compiler
-		// TODO: uncomment when type checker is available
-		// typeChecker *TypeChecker
+		log         *zap.Logger
+		bus         event.Bus
+		memGraph    *MemoryGraph
+		compiler    *Compiler
+		typeChecker *TypeChecker
 
 		// Transaction tracking
 		txMu    sync.Mutex
@@ -48,42 +47,43 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 		cfg.MainCacheSize = 1000
 	}
 
-	// TODO: uncomment when type checker is available
-	// var typeChecker *TypeChecker
-	// if cfg.TypeCheck.Enabled {
-	// 	typeChecker = NewTypeChecker(cfg.TypeCheck, cfg.Modules)
-	// 	log.Info("type checking enabled",
-	// 		zap.Bool("strict", cfg.TypeCheck.Strict),
-	// 		zap.Bool("require_annotations", cfg.TypeCheck.RequireAnnotations),
-	// 	)
-	// }
+	var typeChecker *TypeChecker
+	if cfg.TypeCheck.Enabled {
+		typeChecker = NewTypeChecker(cfg.TypeCheck, cfg.Modules)
+		log.Info("type checking enabled",
+			zap.Bool("strict", cfg.TypeCheck.Strict),
+			zap.Bool("require_annotations", cfg.TypeCheck.RequireAnnotations),
+		)
+	}
 
 	cm := &Manager{
-		log:      log,
-		bus:      bus,
-		memGraph: NewMemoryGraph(),
+		log:         log,
+		bus:         bus,
+		memGraph:    NewMemoryGraph(),
+		typeChecker: typeChecker,
 		compiler: NewCompiler(
 			func(node *Node, imports map[string]*types.TypeManifest) (*glua.FunctionProto, error) {
-				// TODO: uncomment when type checker is available
-				// if typeChecker != nil && typeChecker.IsEnabled() {
-				// 	manifest, typeErrors, err := typeChecker.Check(node.Source, node.ID.String(), imports)
-				// 	if err != nil {
-				// 		return nil, NewTypeCheckError(node.ID, err)
-				// 	}
-				// 	node.Manifest = manifest
-				// 	if typeErrors != nil && typeErrors.HasErrors() {
-				// 		if typeChecker.IsStrict() {
-				// 			return nil, NewTypeCheckErrorFromList(node.ID, typeErrors, node.Source)
-				// 		}
-				// 		for _, e := range typeErrors.Errors() {
-				// 			log.Warn("type check warning",
-				// 				zap.Stringer("node", &node.ID),
-				// 				zap.Int("line", e.Pos.Line),
-				// 				zap.String("message", e.Message),
-				// 			)
-				// 		}
-				// 	}
-				// }
+				if typeChecker != nil && typeChecker.IsEnabled() {
+					manifest, diagnostics, err := typeChecker.Check(node.Source, node.ID.String(), imports)
+					if err != nil {
+						return nil, NewTypeCheckError(node.ID, err)
+					}
+					node.Manifest = manifest
+					if HasErrors(diagnostics) {
+						if typeChecker.IsStrict() {
+							return nil, NewTypeCheckErrorFromDiagnostics(node.ID, diagnostics, node.Source)
+						}
+						for _, d := range diagnostics {
+							if d.Severity == types.SeverityError {
+								log.Warn("type check warning",
+									zap.Stringer("node", &node.ID),
+									zap.Int("line", d.Position.Line),
+									zap.String("message", d.Message),
+								)
+							}
+						}
+					}
+				}
 
 				chunk, err := parse.ParseString(node.Source, node.ID.String())
 				if err != nil {

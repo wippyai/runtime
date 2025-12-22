@@ -416,7 +416,6 @@ Returned by version-related functions. Represents a specific registry version.
 |--------|-----------|---------|-------|
 | id | () | integer | Version ID number |
 | previous | () | Version \| nil | Previous version |
-| next | () | Version \| nil | Next version |
 | string | () | string | String representation |
 
 #### version:id() → integer
@@ -430,12 +429,6 @@ Returns the numeric ID of the version.
 Returns the previous version in the history chain.
 
 **Returns:** Version object or nil if this is the first version
-
-#### version:next() → Version | nil
-
-Returns the next version in the history chain.
-
-**Returns:** Version object or nil if this is the latest version
 
 #### version:string() → string
 

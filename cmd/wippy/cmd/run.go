@@ -40,21 +40,30 @@ and starts the runtime.
 
 Examples:
   wippy run
-  wippy run --override app:gateway:addr=:9090
-  wippy run -o app:db:host=localhost -o app:db:port=5432`,
+  wippy run -x app:cli                    # Execute CLI process (auto-detects terminal.host)
+  wippy run -x app:cli --host app:term    # Explicit terminal host
+  wippy run -x app:cli -v                 # With verbose logging
+  wippy run --override app:gateway:addr=:9090`,
 	RunE: runApp,
 }
 
 func init() {
 	rootCmd.AddCommand(runCmd)
 	runCmd.Flags().StringSliceP("override", "o", nil, "Override entry values (format: namespace:entry:field=value)")
-	runCmd.Flags().StringP("exec", "x", "", "Execute process and exit (format: host/namespace:entry)")
+	runCmd.Flags().StringP("exec", "x", "", "Execute process and exit (format: namespace:entry)")
+	runCmd.Flags().String("host", "", "Terminal host ID for exec (auto-detected if only one terminal.host exists)")
 	runCmd.Flags().String("method", "", "Method to call on exec process (default: entry point)")
 }
 
 func runApp(cmd *cobra.Command, args []string) error {
 	// Set memory limit early, before any significant allocations
 	memLimit := initMemoryLimit()
+
+	// Auto-silent when using -x unless user explicitly set logging flags
+	execSpec, _ := cmd.Flags().GetString("exec")
+	if execSpec != "" && !cmd.Flags().Changed("silent") && !cmd.Flags().Changed("verbose") && !cmd.Flags().Changed("very-verbose") && !cmd.Flags().Changed("console") {
+		silentLogs = true
+	}
 
 	banner.Print(silentLogs)
 
@@ -146,10 +155,10 @@ func runApp(cmd *cobra.Command, args []string) error {
 	}
 
 	// Handle --exec flag: launch process and wait for completion
-	execSpec, _ := cmd.Flags().GetString("exec")
 	if execSpec != "" {
 		execMethod, _ := cmd.Flags().GetString("method")
-		if err := launchExecProcess(ctx, logger, execSpec, execMethod, args); err != nil {
+		execHost, _ := cmd.Flags().GetString("host")
+		if err := launchExecProcess(ctx, logger, execSpec, execHost, execMethod, args); err != nil {
 			logger.Error("exec launch failed", zap.Error(err))
 			return err
 		}
@@ -338,47 +347,69 @@ func parseOverride(input string) (namespace, entry, field, value string, err err
 	return namespace, entry, field, value, nil
 }
 
-// parseExecSpec parses "host/namespace:entry" format for --exec flag
-// Uses / to separate host (since host IDs can contain colons like "node:control")
-func parseExecSpec(spec string) (hostID, namespace, entry string, err error) {
-	// Find slash to separate host from source
-	slashIdx := strings.Index(spec, "/")
-	if slashIdx == -1 {
-		return "", "", "", NewMissingSeparatorError("/", "host/namespace:entry")
-	}
-
-	hostID = strings.TrimSpace(spec[:slashIdx])
-	remainder := spec[slashIdx+1:]
-
-	if hostID == "" {
-		return "", "", "", NewEmptyFieldError("host ID")
-	}
-
-	// Find colon to separate namespace from entry
-	colonIdx := strings.Index(remainder, ":")
+// parseExecSpec parses "namespace:entry" format for --exec flag
+func parseExecSpec(spec string) (namespace, entry string, err error) {
+	colonIdx := strings.Index(spec, ":")
 	if colonIdx == -1 {
-		return "", "", "", NewMissingSeparatorError(":", "host/namespace:entry")
+		return "", "", NewMissingSeparatorError(":", "namespace:entry")
 	}
 
-	namespace = strings.TrimSpace(remainder[:colonIdx])
-	entry = strings.TrimSpace(remainder[colonIdx+1:])
+	namespace = strings.TrimSpace(spec[:colonIdx])
+	entry = strings.TrimSpace(spec[colonIdx+1:])
 
 	if namespace == "" {
-		return "", "", "", NewEmptyFieldError("namespace")
+		return "", "", NewEmptyFieldError("namespace")
 	}
 
 	if entry == "" {
-		return "", "", "", NewEmptyFieldError("entry name")
+		return "", "", NewEmptyFieldError("entry name")
 	}
 
-	return hostID, namespace, entry, nil
+	return namespace, entry, nil
+}
+
+// findTerminalHost searches the registry for terminal.host entries
+// Returns the host ID if exactly one exists, otherwise returns an error
+func findTerminalHost(ctx context.Context) (string, error) {
+	reg := registry.GetRegistry(ctx)
+	if reg == nil {
+		return "", fmt.Errorf("registry not available")
+	}
+
+	entries, err := reg.GetAllEntries()
+	if err != nil {
+		return "", fmt.Errorf("failed to query registry: %w", err)
+	}
+
+	var hosts []string
+	for _, e := range entries {
+		if e.Kind == "terminal.host" {
+			hosts = append(hosts, e.ID.String())
+		}
+	}
+
+	if len(hosts) == 0 {
+		return "", fmt.Errorf("no terminal.host found in registry")
+	}
+	if len(hosts) > 1 {
+		return "", fmt.Errorf("multiple terminal hosts found (%s), use --host to specify", strings.Join(hosts, ", "))
+	}
+	return hosts[0], nil
 }
 
 // launchExecProcess launches a process and triggers shutdown on completion
-func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, _method string, args []string) error {
-	hostID, namespace, entry, err := parseExecSpec(execSpec)
+func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID, _method string, args []string) error {
+	namespace, entry, err := parseExecSpec(execSpec)
 	if err != nil {
 		return NewInvalidExecSpecError(err)
+	}
+
+	// Auto-detect terminal host if not specified
+	if hostID == "" {
+		hostID, err = findTerminalHost(ctx)
+		if err != nil {
+			return err
+		}
 	}
 
 	manager := process.GetManager(ctx)

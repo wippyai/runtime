@@ -245,20 +245,27 @@ func (tc *integrationTestContext) registerBinding(t *testing.T, bindingID regist
 	wg.Wait()
 }
 
-func bindContractModule(l *lua.LState) {
+func bindContractModule(l *lua.LState) error {
 	tbl, _ := contractmod.Module.Build()
 	l.SetGlobal(contractmod.Module.Name, tbl)
+	return nil
 }
 
-func newLuaProcess(script string) *engine.Process {
+func newLuaProcess(t *testing.T, script string) *engine.Process {
+	t.Helper()
 	proto, _ := lua.CompileString(script, "test.lua")
-	return engine.NewProcess(
+	proc, err := engine.NewProcess(
 		engine.WithProto(proto),
-		engine.WithModuleBinder(func(l *lua.LState) {
+		engine.WithModuleBinder(func(l *lua.LState) error {
 			engine.LoadModuleDef(l, engine.ChannelModule)
+			return nil
 		}),
 		engine.WithModuleBinder(bindContractModule),
 	)
+	if err != nil {
+		t.Fatalf("NewProcess failed: %v", err)
+	}
+	return proc
 }
 
 func TestIntegration_OpenBinding(t *testing.T) {
@@ -301,7 +308,7 @@ func TestIntegration_OpenBinding(t *testing.T) {
 	`
 
 	frameCtx, _ := ctxapi.OpenFrameContext(tc.ctx)
-	proc := newLuaProcess(script)
+	proc := newLuaProcess(t, script)
 
 	result, err := tc.scheduler.Execute(frameCtx, uniqueTestPID(), proc, "", nil)
 	require.NoError(t, err)
@@ -355,7 +362,7 @@ func TestIntegration_CallMethod(t *testing.T) {
 	`
 
 	frameCtx, _ := ctxapi.OpenFrameContext(tc.ctx)
-	proc := newLuaProcess(script)
+	proc := newLuaProcess(t, script)
 
 	result, err := tc.scheduler.Execute(frameCtx, uniqueTestPID(), proc, "", nil)
 	require.NoError(t, err)
@@ -410,7 +417,7 @@ func TestIntegration_ScopeContext(t *testing.T) {
 	`
 
 	frameCtx, _ := ctxapi.OpenFrameContext(tc.ctx)
-	proc := newLuaProcess(script)
+	proc := newLuaProcess(t, script)
 
 	result, err := tc.scheduler.Execute(frameCtx, uniqueTestPID(), proc, "", nil)
 	require.NoError(t, err)
@@ -457,7 +464,7 @@ func TestIntegration_MethodNotFound(t *testing.T) {
 	`
 
 	frameCtx, _ := ctxapi.OpenFrameContext(tc.ctx)
-	proc := newLuaProcess(script)
+	proc := newLuaProcess(t, script)
 
 	result, err := tc.scheduler.Execute(frameCtx, uniqueTestPID(), proc, "", nil)
 	require.NoError(t, err)
@@ -530,7 +537,7 @@ func TestIntegration_MultipleMethodCalls(t *testing.T) {
 	`
 
 	frameCtx, _ := ctxapi.OpenFrameContext(tc.ctx)
-	proc := newLuaProcess(script)
+	proc := newLuaProcess(t, script)
 
 	result, err := tc.scheduler.Execute(frameCtx, uniqueTestPID(), proc, "", nil)
 	require.NoError(t, err)
@@ -576,7 +583,7 @@ func TestIntegration_InstanceImplements(t *testing.T) {
 	`
 
 	frameCtx, _ := ctxapi.OpenFrameContext(tc.ctx)
-	proc := newLuaProcess(script)
+	proc := newLuaProcess(t, script)
 
 	result, err := tc.scheduler.Execute(frameCtx, uniqueTestPID(), proc, "", nil)
 	require.NoError(t, err)
@@ -620,7 +627,7 @@ func TestIntegration_IsContract(t *testing.T) {
 	`
 
 	frameCtx, _ := ctxapi.OpenFrameContext(tc.ctx)
-	proc := newLuaProcess(script)
+	proc := newLuaProcess(t, script)
 
 	result, err := tc.scheduler.Execute(frameCtx, uniqueTestPID(), proc, "", nil)
 	require.NoError(t, err)
@@ -676,7 +683,7 @@ func TestIntegration_Concurrent(t *testing.T) {
 			`, n)
 
 			frameCtx, _ := ctxapi.OpenFrameContext(tc.ctx)
-			proc := newLuaProcess(script)
+			proc := newLuaProcess(t, script)
 
 			result, err := tc.scheduler.Execute(frameCtx, uniqueTestPID(), proc, "", nil)
 			require.NoError(t, err)

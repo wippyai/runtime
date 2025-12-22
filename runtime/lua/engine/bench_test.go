@@ -30,7 +30,7 @@ func BenchmarkProcessCreate(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
-		proc := NewProcess(WithScript(script, "test.lua"))
+		proc := mustNewProcess(b, WithScript(script, "test.lua"))
 		if err := proc.Init(ctx, "", nil); err != nil {
 			b.Fatal(err)
 		}
@@ -47,7 +47,7 @@ func BenchmarkProcessStep(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
-		proc := NewProcess(WithScript(script, "test.lua"))
+		proc := mustNewProcess(b, WithScript(script, "test.lua"))
 		if err := proc.Init(ctx, "", nil); err != nil {
 			b.Fatal(err)
 		}
@@ -83,7 +83,7 @@ func BenchmarkCoroutineSpawn(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
-		proc := NewProcess(WithProto(proto))
+		proc := mustNewProcess(b, WithProto(proto))
 		if err := proc.Init(ctx, "", nil); err != nil {
 			b.Fatal(err)
 		}
@@ -116,7 +116,7 @@ func BenchmarkMemoryPerProcess(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
-		proc := NewProcess(WithScript(script, "test.lua"))
+		proc := mustNewProcess(b, WithScript(script, "test.lua"))
 		if err := proc.Init(ctx, "", nil); err != nil {
 			b.Fatal(err)
 		}
@@ -154,7 +154,7 @@ func BenchmarkYieldResume(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
-		proc := NewProcess(WithScript(script, "test.lua"))
+		proc := mustNewProcess(b, WithScript(script, "test.lua"))
 		if err := proc.Init(ctx, "", nil); err != nil {
 			b.Fatal(err)
 		}
@@ -188,7 +188,7 @@ func BenchmarkManyProcesses(b *testing.B) {
 				// Create all
 				for j := 0; j < count; j++ {
 					ctx, _ := ctxapi.OpenFrameContext(context.Background())
-					proc := NewProcess(WithScript(script, "test.lua"))
+					proc := mustNewProcess(b, WithScript(script, "test.lua"))
 					if err := proc.Init(ctx, "", nil); err != nil {
 						b.Fatal(err)
 					}
@@ -224,7 +224,7 @@ func BenchmarkSendMessage(b *testing.B) {
 	`
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	proc := NewProcess(WithScript(script, "bench.lua"))
+	proc := mustNewProcess(b, WithScript(script, "bench.lua"))
 	if err := proc.Init(ctx, "", nil); err != nil {
 		b.Fatal(err)
 	}
@@ -277,7 +277,7 @@ func TestMemoryProfile(t *testing.T) {
 		var output process.StepOutput
 		for i := 0; i < count; i++ {
 			ctx, _ := ctxapi.OpenFrameContext(context.Background())
-			proc := NewProcess(WithScript(script, "test.lua"))
+			proc := mustNewProcess(t, WithScript(script, "test.lua"))
 			if err := proc.Init(ctx, "", nil); err != nil {
 				t.Fatal(err)
 			}
@@ -320,7 +320,7 @@ func BenchmarkProcessCreatePrecompiled(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
-		proc := NewProcess(WithProto(proto))
+		proc := mustNewProcess(b, WithProto(proto))
 		if err := proc.Init(ctx, "", nil); err != nil {
 			b.Fatal(err)
 		}
@@ -341,7 +341,7 @@ func BenchmarkProcessStepPrecompiled(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
-		proc := NewProcess(WithProto(proto))
+		proc := mustNewProcess(b, WithProto(proto))
 		if err := proc.Init(ctx, "", nil); err != nil {
 			b.Fatal(err)
 		}
@@ -369,7 +369,7 @@ func BenchmarkYieldResumePrecompiled(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
-		proc := NewProcess(WithProto(proto))
+		proc := mustNewProcess(b, WithProto(proto))
 		if err := proc.Init(ctx, "", nil); err != nil {
 			b.Fatal(err)
 		}
@@ -403,7 +403,7 @@ func BenchmarkHotPathYield(b *testing.B) {
 	}
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	proc := NewProcess(WithProto(proto))
+	proc := mustNewProcess(b, WithProto(proto))
 	if err := proc.Init(ctx, "", nil); err != nil {
 		b.Fatal(err)
 	}
@@ -436,7 +436,7 @@ func BenchmarkRawVMYield(b *testing.B) {
 	}
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	proc := NewProcess(WithProto(proto))
+	proc := mustNewProcess(b, WithProto(proto))
 	if err := proc.Init(ctx, "", nil); err != nil {
 		b.Fatal(err)
 	}
@@ -459,7 +459,7 @@ func BenchmarkRawVMYield(b *testing.B) {
 
 func setupChannelProc(b *testing.B, script string) *Process {
 	proto, _ := lua.CompileString(script, "bench.lua")
-	proc := NewProcess(
+	proc := mustNewProcess(b, 
 		WithProto(proto),
 	)
 
@@ -746,7 +746,7 @@ func BenchmarkMemoryBaseline(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
-		proc := NewProcess(WithProto(proto))
+		proc := mustNewProcess(b, WithProto(proto))
 		if err := proc.Init(ctx, "", nil); err != nil {
 			b.Fatal(err)
 		}
@@ -771,7 +771,7 @@ func TestMemoryPerProcessDetailed(t *testing.T) {
 
 	for i := 0; i < count; i++ {
 		ctx, _ := ctxapi.OpenFrameContext(context.Background())
-		proc := NewProcess(WithProto(proto))
+		proc := mustNewProcess(t, WithProto(proto))
 		if err := proc.Init(ctx, "", nil); err != nil {
 			t.Fatal(err)
 		}
@@ -814,7 +814,7 @@ func Test100CoroutinesMemory(t *testing.T) {
 	goruntime.ReadMemStats(&m1)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	proc := NewProcess(WithProto(proto))
+	proc := mustNewProcess(t, WithProto(proto))
 	if err := proc.Init(ctx, "", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -990,7 +990,7 @@ func BenchmarkIntegrationFullPath(b *testing.B) {
 		store := resource.NewStore()
 		_ = resource.SetStore(ctx, store)
 
-		proc := NewProcess(WithProto(proto))
+		proc := mustNewProcess(b, WithProto(proto))
 		mp := &mockProcess{Process: proc}
 
 		pid := newTestPID(fmt.Sprintf("bench-%d", i))
@@ -1034,7 +1034,7 @@ func BenchmarkIntegrationWithCoroutines(b *testing.B) {
 		store := resource.NewStore()
 		_ = resource.SetStore(ctx, store)
 
-		proc := NewProcess(WithProto(proto))
+		proc := mustNewProcess(b, WithProto(proto))
 		mp := &mockProcess{Process: proc}
 
 		pid := newTestPID(fmt.Sprintf("bench-%d", i))
@@ -1074,7 +1074,7 @@ func BenchmarkIntegrationConcurrent(b *testing.B) {
 			store := resource.NewStore()
 			_ = resource.SetStore(ctx, store)
 
-			proc := NewProcess(WithProto(proto))
+			proc := mustNewProcess(b, WithProto(proto))
 			mp := &mockProcess{Process: proc}
 
 			pid := newTestPID(fmt.Sprintf("bench-%d", i))
@@ -1134,7 +1134,7 @@ func TestIntegration1000ConcurrentGoroutines(t *testing.T) {
 				store := resource.NewStore()
 				_ = resource.SetStore(ctx, store)
 
-				proc := NewProcess(WithProto(proto))
+				proc := mustNewProcess(t, WithProto(proto))
 				mp := &mockProcess{Process: proc}
 
 				pid := newTestPID(fmt.Sprintf("g%d-p%d", gid, p))
@@ -1253,7 +1253,7 @@ func TestIntegrationProfileHotPath(t *testing.T) {
 				store := resource.NewStore()
 				_ = resource.SetStore(ctx, store)
 
-				proc := NewProcess(WithProto(proto))
+				proc := mustNewProcess(t, WithProto(proto))
 				mp := &mockProcess{Process: proc}
 
 				pid := newTestPID(fmt.Sprintf("profile-%d-%d", id, localCount))
@@ -1368,7 +1368,7 @@ func BenchmarkIntegrationManyCoroutineYields(b *testing.B) {
 		store := resource.NewStore()
 		_ = resource.SetStore(ctx, store)
 
-		proc := NewProcess(WithProto(proto))
+		proc := mustNewProcess(b, WithProto(proto))
 		mp := &mockProcess{Process: proc}
 
 		pid := newTestPID(fmt.Sprintf("bench-%d", i))
@@ -1419,7 +1419,7 @@ func TestIntegrationMemoryStability(t *testing.T) {
 			store := resource.NewStore()
 			_ = resource.SetStore(ctx, store)
 
-			proc := NewProcess(WithProto(proto))
+			proc := mustNewProcess(t, WithProto(proto))
 			mp := &mockProcess{Process: proc}
 
 			pid := newTestPID(fmt.Sprintf("iter%d-p%d", iter, p))
@@ -1487,7 +1487,7 @@ func BenchmarkIntegrationSpawnCoroutines(b *testing.B) {
 		store := resource.NewStore()
 		_ = resource.SetStore(ctx, store)
 
-		proc := NewProcess(WithProto(proto))
+		proc := mustNewProcess(b, WithProto(proto))
 		mp := &mockProcess{Process: proc}
 
 		pid := newTestPID(fmt.Sprintf("bench-%d", i))
@@ -1501,5 +1501,187 @@ func BenchmarkIntegrationSpawnCoroutines(b *testing.B) {
 
 		_ = store.Close()
 		ctxapi.ReleaseFrameContext(fc)
+	}
+}
+
+// Scale and Throughput Tests (merged from scale_mem_test.go)
+
+func formatCount(n int) string {
+	switch {
+	case n >= 1000000:
+		return fmt.Sprintf("%dM", n/1000000)
+	case n >= 1000:
+		return fmt.Sprintf("%dk", n/1000)
+	default:
+		return fmt.Sprintf("%d", n)
+	}
+}
+
+// TestProcessMemoryAtScale measures actual heap delta when creating many processes.
+func TestProcessMemoryAtScale(t *testing.T) {
+	script := `return 1`
+	proto, err := lua.CompileString(script, "test.lua")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 100; i++ {
+		ctx, _ := ctxapi.OpenFrameContext(context.Background())
+		proc := mustNewProcess(t, WithProto(proto))
+		proc.Init(ctx, "", nil)
+		proc.Close()
+	}
+	goruntime.GC()
+	goruntime.GC()
+
+	counts := []int{1000, 10000, 100000}
+	if testing.Short() {
+		counts = []int{1000}
+	}
+
+	for _, count := range counts {
+		t.Run(formatCount(count), func(t *testing.T) {
+			goruntime.GC()
+			goruntime.GC()
+			var before goruntime.MemStats
+			goruntime.ReadMemStats(&before)
+
+			procs := make([]*Process, count)
+			for i := 0; i < count; i++ {
+				ctx, _ := ctxapi.OpenFrameContext(context.Background())
+				proc := mustNewProcess(t, WithProto(proto))
+				proc.Init(ctx, "", nil)
+				procs[i] = proc
+			}
+
+			goruntime.GC()
+			var after goruntime.MemStats
+			goruntime.ReadMemStats(&after)
+
+			heapDelta := after.HeapAlloc - before.HeapAlloc
+			perProcess := heapDelta / uint64(count)
+
+			t.Logf("Processes:     %d", count)
+			t.Logf("Heap before:   %d KB", before.HeapAlloc/1024)
+			t.Logf("Heap after:    %d KB", after.HeapAlloc/1024)
+			t.Logf("Heap delta:    %d KB", heapDelta/1024)
+			t.Logf("Per process:   %d bytes", perProcess)
+
+			for _, p := range procs {
+				p.Close()
+			}
+		})
+	}
+}
+
+// TestMessageThroughput measures message send/receive rate with Lua processing.
+func TestMessageThroughput(t *testing.T) {
+	script := `
+		local ch = channel.new(1000)
+		subscribe("msg", ch)
+
+		_G.msg_count = 0
+		while true do
+			ch:receive()
+			_G.msg_count = _G.msg_count + 1
+		end
+	`
+	proto, err := lua.CompileString(script, "test.lua")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	proc := mustNewProcess(t, WithProto(proto))
+	proc.Init(ctx, "", nil)
+	LoadModuleDef(proc.State(), ChannelModule)
+	loadPubSubGlobals(proc.State())
+	defer proc.Close()
+
+	var output process.StepOutput
+	for i := 0; i < 100; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatal(err)
+		}
+		if output.Status() == process.StepIdle {
+			break
+		}
+	}
+
+	testPayload := payload.NewPayload(lua.LString("test"), payload.Lua)
+
+	counts := []int{1000000, 10000000}
+	if testing.Short() {
+		counts = []int{1000000}
+	}
+
+	for _, count := range counts {
+		t.Run(formatCount(count), func(t *testing.T) {
+			proc.State().SetGlobal("msg_count", lua.LNumber(0))
+
+			start := time.Now()
+			for i := 0; i < count; i++ {
+				pkg := relay.NewPackage(pidapi.PID{}, pidapi.PID{}, "msg", testPayload)
+				events := []process.Event{{Type: process.EventMessage, Data: pkg}}
+				output.Reset()
+				if err := proc.Step(events, &output); err != nil {
+					t.Fatal(err)
+				}
+			}
+			elapsed := time.Since(start)
+
+			msgCount := proc.State().GetGlobal("msg_count")
+			var processed int
+			switch n := msgCount.(type) {
+			case lua.LNumber:
+				processed = int(n)
+			case lua.LInteger:
+				processed = int(n)
+			}
+			if processed != count {
+				t.Errorf("expected %d messages processed, got %d", count, processed)
+			}
+
+			rate := float64(count) / elapsed.Seconds()
+			t.Logf("Processed %d messages in %v (%.0f/sec, %.0fns each)", count, elapsed, rate, float64(elapsed.Nanoseconds())/float64(count))
+		})
+	}
+}
+
+// TestSpawnThroughput measures process spawn rate.
+func TestSpawnThroughput(t *testing.T) {
+	script := `return 1`
+	proto, err := lua.CompileString(script, "test.lua")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 1000; i++ {
+		ctx, _ := ctxapi.OpenFrameContext(context.Background())
+		proc := mustNewProcess(t, WithProto(proto))
+		proc.Init(ctx, "", nil)
+		proc.Close()
+	}
+	goruntime.GC()
+
+	counts := []int{10000, 100000}
+	if testing.Short() {
+		counts = []int{10000}
+	}
+
+	for _, count := range counts {
+		t.Run(formatCount(count), func(t *testing.T) {
+			start := time.Now()
+			for i := 0; i < count; i++ {
+				ctx, _ := ctxapi.OpenFrameContext(context.Background())
+				proc := mustNewProcess(t, WithProto(proto))
+				proc.Init(ctx, "", nil)
+				proc.Close()
+			}
+			elapsed := time.Since(start)
+			rate := float64(count) / elapsed.Seconds()
+			t.Logf("Spawned %d processes in %v (%.0f/sec, %.2fµs each)", count, elapsed, rate, float64(elapsed.Microseconds())/float64(count))
+		})
 	}
 }

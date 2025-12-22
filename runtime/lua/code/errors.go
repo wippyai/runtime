@@ -2,12 +2,12 @@ package code
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
-	// TODO: uncomment when type checker is available
-	// "github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types"
 )
 
 var (
@@ -136,33 +136,63 @@ func NewRemoveNodeError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to remove node").WithCause(cause).WithRetryable(apierror.False)
 }
 
-// TODO: uncomment when type checker is available
-// func NewTypeCheckErrorFromList(id registry.ID, errList *types.ErrorList, source string) apierror.Error {
-// 	sourceLines := types.ParseSource(source)
-// 	rendered := errList.RenderAll(sourceLines)
-//
-// 	var items []TypeCheckErrorItem
-// 	for _, e := range errList.Errors() {
-// 		if e.Severity == types.SeverityError {
-// 			items = append(items, TypeCheckErrorItem{
-// 				Line:    e.Pos.Line,
-// 				Column:  e.Pos.Column,
-// 				Message: e.Message,
-// 			})
-// 		}
-// 	}
-//
-// 	cause := &TypeCheckErrorList{Errors: items}
-//
-// 	details := map[string]any{"node_id": id.String(), "rendered": rendered}
-// 	if len(items) > 0 {
-// 		details["error_count"] = len(items)
-// 		details["first_line"] = items[0].Line
-// 		details["first_message"] = items[0].Message
-// 	}
-//
-// 	return apierror.New(apierror.Invalid, rendered).
-// 		WithCause(cause).
-// 		WithRetryable(apierror.False).
-// 		WithDetails(attrs.NewBagFrom(details))
-// }
+// TypeCheckErrorItem represents a single type check error
+type TypeCheckErrorItem struct {
+	Line    int
+	Column  int
+	Message string
+}
+
+// TypeCheckErrorList wraps multiple type check errors
+type TypeCheckErrorList struct {
+	Errors []TypeCheckErrorItem
+}
+
+func (e *TypeCheckErrorList) Error() string {
+	if len(e.Errors) == 0 {
+		return "type check failed"
+	}
+	return e.Errors[0].Message
+}
+
+// NewTypeCheckError creates an error for type checking failures
+func NewTypeCheckError(id registry.ID, cause error) apierror.Error {
+	return apierror.New(apierror.Invalid, fmt.Sprintf("type check failed for %s: %v", id, cause)).
+		WithCause(cause).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"node_id": id.String()}))
+}
+
+// NewTypeCheckErrorFromDiagnostics creates an error from type checker diagnostics
+func NewTypeCheckErrorFromDiagnostics(id registry.ID, diagnostics []types.Diagnostic, source string) apierror.Error {
+	sourceLines := types.ParseSource(source)
+
+	var rendered strings.Builder
+	var items []TypeCheckErrorItem
+
+	for _, d := range diagnostics {
+		if d.Severity == types.SeverityError {
+			rendered.WriteString(d.Render(sourceLines))
+			rendered.WriteString("\n")
+			items = append(items, TypeCheckErrorItem{
+				Line:    d.Position.Line,
+				Column:  d.Position.Column,
+				Message: d.Message,
+			})
+		}
+	}
+
+	cause := &TypeCheckErrorList{Errors: items}
+
+	details := map[string]any{"node_id": id.String(), "rendered": rendered.String()}
+	if len(items) > 0 {
+		details["error_count"] = len(items)
+		details["first_line"] = items[0].Line
+		details["first_message"] = items[0].Message
+	}
+
+	return apierror.New(apierror.Invalid, rendered.String()).
+		WithCause(cause).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(details))
+}

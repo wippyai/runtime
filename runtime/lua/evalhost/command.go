@@ -1,31 +1,29 @@
 package evalhost
 
 import (
-	"context"
-
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // Command IDs for eval operations.
 const (
-	Compile       dispatcher.CommandID = 170 // Compile Lua source, return Program handle
-	Run           dispatcher.CommandID = 171 // Compile + run, return result
-	CreateProcess dispatcher.CommandID = 172 // Create steppable process from Program
+	Compile dispatcher.CommandID = 170 // Compile Lua source, return Program handle
+	Run     dispatcher.CommandID = 171 // Compile + run, return result
 )
 
 func init() {
 	dispatcher.MustRegisterCommands("eval",
-		Compile, Run, CreateProcess,
+		Compile, Run,
 	)
 }
 
 // CompileCmd compiles Lua source code into a reusable Program.
 type CompileCmd struct {
-	Source  string   // Lua source code
-	Method  string   // Method name to execute
-	Modules []string // Allowed modules whitelist
+	Source  string                    // Lua source code
+	Method  string                    // Method name to execute
+	Modules []string                  // Allowed modules whitelist
+	Imports map[string]registry.ID    // Registry entries to import (alias -> ID)
 }
 
 func (c CompileCmd) CmdID() dispatcher.CommandID {
@@ -34,50 +32,14 @@ func (c CompileCmd) CmdID() dispatcher.CommandID {
 
 // RunCmd compiles and executes Lua code via the dispatcher.
 type RunCmd struct {
-	Source  string           // Lua source code
-	Method  string           // Method name to execute
-	Args    payload.Payloads // Arguments to pass to method
-	Modules []string         // Allowed modules whitelist
-	Context map[string]any   // Context values to set
+	Source  string                    // Lua source code
+	Method  string                    // Method name to execute
+	Args    payload.Payloads          // Arguments to pass to method
+	Modules []string                  // Allowed modules whitelist
+	Imports map[string]registry.ID    // Registry entries to import (alias -> ID)
+	Context map[string]any            // Context values to set
 }
 
 func (c RunCmd) CmdID() dispatcher.CommandID {
 	return Run
-}
-
-// CreateProcessCmd creates a steppable process from a compiled Program.
-type CreateProcessCmd struct {
-	Program *Program // Compiled program
-}
-
-func (c CreateProcessCmd) CmdID() dispatcher.CommandID {
-	return CreateProcess
-}
-
-// Context helpers
-
-var evalHostKey = &ctxapi.Key{Name: "eval.host"} // todO: why we need it on context if we have dispatcher?
-
-// WithHost attaches an eval Host to the application context.
-func WithHost(ctx context.Context, host *Host) context.Context {
-	ac := ctxapi.AppFromContext(ctx)
-	if ac == nil {
-		return ctx
-	}
-	if ac.Get(evalHostKey) == nil {
-		ac.With(evalHostKey, host)
-	}
-	return ctx
-}
-
-// GetHost retrieves the eval Host from the context.
-func GetHost(ctx context.Context) *Host {
-	ac := ctxapi.AppFromContext(ctx)
-	if ac == nil {
-		return nil
-	}
-	if h := ac.Get(evalHostKey); h != nil {
-		return h.(*Host)
-	}
-	return nil
 }

@@ -14,7 +14,6 @@ func All() []boot.Component {
 		Env(),
 		Eval(),
 		EvalRunner(),
-		EvalSandbox(),
 		Events(),
 		Excel(),
 		Exec(),

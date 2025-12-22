@@ -31,7 +31,6 @@ func (d *Dispatcher) Stop(_ context.Context) error {
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
 	register(Compile, dispatcher.HandlerFunc(d.handleCompile))
 	register(Run, dispatcher.HandlerFunc(d.handleRun))
-	register(CreateProcess, dispatcher.HandlerFunc(d.handleCreateProcess))
 }
 
 func (d *Dispatcher) handleCompile(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
@@ -39,15 +38,7 @@ func (d *Dispatcher) handleCompile(ctx context.Context, cmd dispatcher.Command, 
 
 	go func() {
 		program, err := d.host.Compile(ctx, compileCmd)
-		if ctx.Err() != nil {
-			receiver.CompleteYield(tag, nil, ctx.Err())
-			return
-		}
-		if err != nil {
-			receiver.CompleteYield(tag, nil, err)
-			return
-		}
-		receiver.CompleteYield(tag, program, nil)
+		receiver.CompleteYield(tag, program, err)
 	}()
 
 	return nil
@@ -58,29 +49,8 @@ func (d *Dispatcher) handleRun(ctx context.Context, cmd dispatcher.Command, tag 
 
 	go func() {
 		result, err := d.host.Run(ctx, runCmd)
-		if ctx.Err() != nil {
-			receiver.CompleteYield(tag, nil, ctx.Err())
-			return
-		}
-		if err != nil {
-			receiver.CompleteYield(tag, nil, err)
-			return
-		}
-		receiver.CompleteYield(tag, result, nil)
+		receiver.CompleteYield(tag, result, err)
 	}()
 
-	return nil
-}
-
-func (d *Dispatcher) handleCreateProcess(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
-	createCmd := cmd.(CreateProcessCmd)
-
-	proc, err := d.host.CreateProcess(ctx, createCmd.Program)
-	if err != nil {
-		receiver.CompleteYield(tag, nil, err)
-		return nil
-	}
-
-	receiver.CompleteYield(tag, proc, nil)
 	return nil
 }

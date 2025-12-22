@@ -68,8 +68,9 @@ func luaTestYield(l *lua.LState) int {
 }
 
 // bindTestYield binds test_yield function to Lua state
-func bindTestYield(l *lua.LState) {
+func bindTestYield(l *lua.LState) error {
 	l.SetGlobal("test_yield", l.NewFunction(luaTestYield))
+	return nil
 }
 
 // testPID creates a test PID for unit tests
@@ -83,7 +84,7 @@ func TestProcessBasicExecution(t *testing.T) {
 		return result
 	`
 
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	// Create frame context
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
@@ -119,7 +120,7 @@ func TestProcessMultipleCoroutines(t *testing.T) {
 		return result
 	`
 
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 
@@ -153,7 +154,7 @@ func TestResourceStoreInContext(t *testing.T) {
 	}
 
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	if err := proc.Init(ctx, "", nil); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -190,7 +191,7 @@ func TestErrorPropagationFromRaiseError(t *testing.T) {
 		trigger_error()
 	`
 
-	proc := NewProcess(WithScript(script, "test_error.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test_error.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 
@@ -258,7 +259,7 @@ func TestErrorPropagationWithPcall(t *testing.T) {
 		return "success"
 	`
 
-	proc := NewProcess(WithScript(script, "test_pcall.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test_pcall.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 
@@ -299,7 +300,7 @@ func TestLuaErrorWithStack(t *testing.T) {
 		top()
 	`
 
-	proc := NewProcess(WithScript(script, "stack_test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "stack_test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 
@@ -356,7 +357,7 @@ func TestProcessReturnsResult(t *testing.T) {
 	// Test that Step() captures the return value in StepOutput.Result
 	script := `return {ok = true, value = 42}`
 
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 
@@ -384,7 +385,7 @@ func TestProcessReturnsSimpleValue(t *testing.T) {
 	// Test returning a simple number
 	script := `return 123`
 
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 
@@ -417,7 +418,7 @@ func TestProcessReturnsMethodResult(t *testing.T) {
 		}
 	`
 
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 
@@ -450,7 +451,7 @@ func TestProcessReturnsStringError(t *testing.T) {
 		}
 	`
 
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 
@@ -493,7 +494,7 @@ func TestProcessReturnsLuaError(t *testing.T) {
 	factory := NewFactory(FactoryConfig{
 		Script:        script,
 		ScriptName:    "test.lua",
-		ModuleBinders: []ModuleBinder{func(l *lua.LState) { lua.OpenErrors(l) }},
+		ModuleBinders: []ModuleBinder{wrapBinder(func(l *lua.LState) { lua.OpenErrors(l) })},
 	})
 
 	p, err := factory()
@@ -544,7 +545,7 @@ func TestProcessReturnsValueNoError(t *testing.T) {
 		}
 	`
 
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 
@@ -578,7 +579,7 @@ func TestProcessReturnsValueWithFalseSecond(t *testing.T) {
 		}
 	`
 
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 
@@ -909,9 +910,10 @@ func newLuaFactory(script string) process.FactoryFunc {
 			return nil, err
 		}
 
-		proc := NewProcess(
-			WithProto(proto),
-		)
+		proc, err := NewProcess(WithProto(proto))
+		if err != nil {
+			return nil, err
+		}
 
 		return proc, nil
 	}
@@ -971,11 +973,12 @@ func TestPoolStateReuse(t *testing.T) {
 }
 
 // bindMockTimeModule binds a mock time module with test_yield for sleep
-func bindMockTimeModule(l *lua.LState) {
+func bindMockTimeModule(l *lua.LState) error {
 	timeMod := l.NewTable()
 	timeMod.RawSetString("MILLISECOND", lua.LNumber(1000000)) // nanoseconds
 	timeMod.RawSetString("sleep", l.NewFunction(luaTestYield))
 	l.SetGlobal("time", timeMod)
+	return nil
 }
 
 // newLuaFactoryWithChannelsAndTime creates a factory that includes channel and mock time modules
@@ -986,11 +989,14 @@ func newLuaFactoryWithChannelsAndTime(script string) process.FactoryFunc {
 			return nil, err
 		}
 
-		proc := NewProcess(
+		proc, err := NewProcess(
 			WithProto(proto),
-			WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
+			WithModuleBinder(wrapBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) })),
 			WithModuleBinder(bindMockTimeModule),
 		)
+		if err != nil {
+			return nil, err
+		}
 
 		return proc, nil
 	}
@@ -1191,9 +1197,9 @@ func TestProcessExternalYieldWithChannelSelect(t *testing.T) {
 		return "success"
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
+		WithModuleBinder(wrapBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) })),
 		WithModuleBinder(bindTestYield),
 	)
 
@@ -1241,7 +1247,7 @@ func TestProcessExternalYieldBasic(t *testing.T) {
 		return "done"
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
 		WithModuleBinder(bindTestYield),
 	)
@@ -1289,7 +1295,7 @@ func TestProcessMultipleExternalYields(t *testing.T) {
 		return "done"
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
 		WithModuleBinder(bindTestYield),
 	)
@@ -1342,7 +1348,7 @@ func TestProcessYieldWithError(t *testing.T) {
 		return "success"
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
 		WithModuleBinder(bindTestYield),
 	)
@@ -1387,7 +1393,7 @@ func TestProcessYieldInCoroutine(t *testing.T) {
 		return result or "pending"
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
 		WithModuleBinder(bindTestYield),
 	)
@@ -1447,7 +1453,7 @@ func TestProcessConcurrentYieldsFromCoroutines(t *testing.T) {
 		return #results
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
 		WithModuleBinder(bindTestYield),
 	)
@@ -1520,7 +1526,7 @@ func TestProcessYieldTagCorrelation(t *testing.T) {
 		return a .. "_" .. b
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
 		WithModuleBinder(bindTestYield),
 	)
@@ -1592,7 +1598,7 @@ func TestProcessStepStatusTransitions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			proc := NewProcess(
+			proc := mustNewProcess(t, 
 				WithScript(tt.script, "test.lua"),
 				WithModuleBinder(bindTestYield),
 			)
@@ -1647,7 +1653,7 @@ func TestProcessPendingYieldsCleanup(t *testing.T) {
 		return "done"
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
 		WithModuleBinder(bindTestYield),
 	)
@@ -1706,7 +1712,7 @@ func TestProcessYieldWithData(t *testing.T) {
 		return result or "no_data"
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
 		WithModuleBinder(bindTestYield),
 	)
@@ -1738,7 +1744,7 @@ func TestProcessYieldWithData(t *testing.T) {
 
 // TestProcessInitNoScript tests Init with no script or proto
 func TestProcessInitNoScript(t *testing.T) {
-	proc := NewProcess()
+	proc := mustNewProcess(t, )
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	err := proc.Init(ctx, "", nil)
@@ -1752,7 +1758,7 @@ func TestProcessInitNoScript(t *testing.T) {
 func TestProcessInitInvalidMethod(t *testing.T) {
 	script := `return {}`
 
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	err := proc.Init(ctx, "nonexistent", nil)
@@ -1767,7 +1773,7 @@ func TestProcessInitInvalidMethod(t *testing.T) {
 func TestProcessInitSyntaxError(t *testing.T) {
 	script := `this is not valid lua {{{{`
 
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	err := proc.Init(ctx, "", nil)
@@ -1787,7 +1793,7 @@ func TestProcessInitWithInputPayloads(t *testing.T) {
 		}
 	`
 
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 
@@ -1824,7 +1830,7 @@ func TestProcessStepWithEmptyEvents(t *testing.T) {
 		return "done"
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
 		WithModuleBinder(bindTestYield),
 	)
@@ -1859,7 +1865,7 @@ func TestProcessStepEventWithInvalidTag(t *testing.T) {
 		return "done"
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
 		WithModuleBinder(bindTestYield),
 	)
@@ -1897,7 +1903,7 @@ func TestProcessStepEventWithZeroTag(t *testing.T) {
 		return "done"
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
 		WithModuleBinder(bindTestYield),
 	)
@@ -1933,7 +1939,7 @@ func TestProcessChannelWithoutChannelModule(t *testing.T) {
 		return x
 	`
 
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -1965,9 +1971,9 @@ func TestProcessDeadlockDetection(t *testing.T) {
 		ch:receive()
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
+		WithModuleBinder(wrapBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) })),
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
@@ -2004,9 +2010,9 @@ func TestProcessChannelClosedReceive(t *testing.T) {
 		return ok
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
+		WithModuleBinder(wrapBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) })),
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
@@ -2047,9 +2053,9 @@ func TestProcessChannelBufferedFull(t *testing.T) {
 		return sent
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
+		WithModuleBinder(wrapBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) })),
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
@@ -2084,9 +2090,9 @@ func TestProcessSelectWithDefault(t *testing.T) {
 		return result.default
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
+		WithModuleBinder(wrapBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) })),
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
@@ -2125,9 +2131,9 @@ func TestProcessSelectMultipleChannels(t *testing.T) {
 		return result.ok
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
+		WithModuleBinder(wrapBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) })),
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
@@ -2162,7 +2168,7 @@ func TestProcessCoroutineError(t *testing.T) {
 		return "main completed"
 	`
 
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -2207,7 +2213,7 @@ func TestProcessNestedCoroutines(t *testing.T) {
 		return result
 	`
 
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -2255,7 +2261,7 @@ func TestProcessYieldResumeOrder(t *testing.T) {
 		return table.concat(order, ",")
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
 		WithModuleBinder(bindTestYield),
 	)
@@ -2322,9 +2328,9 @@ func TestProcessMixedYieldsAndChannels(t *testing.T) {
 		return result
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
+		WithModuleBinder(wrapBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) })),
 		WithModuleBinder(bindTestYield),
 	)
 
@@ -2391,7 +2397,7 @@ func TestProcessTaskQueueDrainOrder(t *testing.T) {
 		return order[1] == 1 and order[2] == 2 and order[3] == 3
 	`
 
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -2421,7 +2427,7 @@ func TestProcessGetTask(t *testing.T) {
 		return 1
 	`
 
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -2457,7 +2463,7 @@ func TestProcessMultipleReturnValues(t *testing.T) {
 		return 1, 2, 3
 	`
 
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -2483,7 +2489,7 @@ func TestProcessMultipleReturnValues(t *testing.T) {
 func TestProcessReturnNil(t *testing.T) {
 	script := `return nil`
 
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -2505,7 +2511,7 @@ func TestProcessReturnNil(t *testing.T) {
 func TestProcessNoReturn(t *testing.T) {
 	script := `local x = 1`
 
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -2526,7 +2532,7 @@ func TestProcessNoReturn(t *testing.T) {
 // TestProcessSubscribe tests Subscribe method
 func TestProcessSubscribe(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -2561,7 +2567,7 @@ func TestProcessSubscribe(t *testing.T) {
 // TestProcessSubscribeWithoutInit tests Subscribe before Init
 func TestProcessSubscribeWithoutInit(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	// Subscribe without Init should fail
 	ch, err := proc.Subscribe("test-topic", 10)
@@ -2576,7 +2582,7 @@ func TestProcessSubscribeWithoutInit(t *testing.T) {
 // TestProcessSubscribeExisting tests SubscribeExisting method
 func TestProcessSubscribeExisting(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -2610,7 +2616,7 @@ func TestProcessSubscribeExisting(t *testing.T) {
 // TestProcessSubscribeExistingWithoutInit tests SubscribeExisting before Init
 func TestProcessSubscribeExistingWithoutInit(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ch := NewChannel(5)
 	err := proc.SubscribeExisting("test-topic", ch)
@@ -2622,7 +2628,7 @@ func TestProcessSubscribeExistingWithoutInit(t *testing.T) {
 // TestProcessTopicHandler tests SetTopicHandler/GetTopicHandler/RemoveTopicHandler
 func TestProcessTopicHandler(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -2661,7 +2667,7 @@ func TestProcessTopicHandler(t *testing.T) {
 // TestProcessChannelQueue tests ChannelQueue method
 func TestProcessChannelQueue(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -2685,7 +2691,7 @@ func TestProcessChannelQueue(t *testing.T) {
 // TestProcessHasSubscriptionsEmpty tests HasSubscriptions with no subscriptions
 func TestProcessHasSubscriptionsEmpty(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -2701,7 +2707,7 @@ func TestProcessHasSubscriptionsEmpty(t *testing.T) {
 // TestProcessHasSubscriptionsNilSubs tests HasSubscriptions before Init
 func TestProcessHasSubscriptionsNilSubs(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	// Before Init, subs is nil
 	if proc.HasSubscriptions() {
@@ -2712,7 +2718,7 @@ func TestProcessHasSubscriptionsNilSubs(t *testing.T) {
 // TestProcessGetProcess tests GetProcess helper
 func TestProcessGetProcess(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -2742,9 +2748,9 @@ func TestProcessSubscribeYieldsBasic(t *testing.T) {
 		return topic ~= nil
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
+		WithModuleBinder(wrapBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) })),
 		WithModuleBinder(bindProcessModule),
 	)
 
@@ -2775,9 +2781,9 @@ func TestProcessSubscribeYieldsUnsubscribe(t *testing.T) {
 		return ok
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
+		WithModuleBinder(wrapBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) })),
 		WithModuleBinder(bindProcessModule),
 	)
 
@@ -2801,7 +2807,7 @@ func TestProcessSubscribeYieldsUnsubscribe(t *testing.T) {
 }
 
 // bindProcessModule binds a minimal process module for subscribe testing
-func bindProcessModule(l *lua.LState) {
+func bindProcessModule(l *lua.LState) error {
 	mod := l.NewTable()
 
 	// subscribe(topic, bufsize) -> channel
@@ -2833,6 +2839,7 @@ func bindProcessModule(l *lua.LState) {
 	}))
 
 	l.SetGlobal("process", mod)
+	return nil
 }
 
 // TestProcessDeliverMessageBasic tests deliverMessage
@@ -2844,9 +2851,9 @@ func TestProcessDeliverMessageBasic(t *testing.T) {
 		return msg
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
+		WithModuleBinder(wrapBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) })),
 		WithModuleBinder(bindProcessModule),
 	)
 
@@ -2896,7 +2903,7 @@ func TestProcessDeliverMessageBasic(t *testing.T) {
 // TestProcessDeliverMessageWithHandler tests deliverMessage with topic handler
 func TestProcessDeliverMessageWithHandler(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -2944,7 +2951,7 @@ func TestProcessDeliverMessageWithHandler(t *testing.T) {
 // TestProcessDeliverMessageToInboxFallback tests deliverMessage inbox fallback
 func TestProcessDeliverMessageToInboxFallback(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -2980,7 +2987,7 @@ func TestProcessDeliverMessageToInboxFallback(t *testing.T) {
 // TestProcessDeliverMessageNoSubscription tests deliverMessage with no subscription
 func TestProcessDeliverMessageNoSubscription(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -3007,7 +3014,7 @@ func TestProcessDeliverMessageNoSubscription(t *testing.T) {
 // TestProcessDeliverMessageTerminal tests deliverMessage with terminal payload
 func TestProcessDeliverMessageTerminal(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -3045,7 +3052,7 @@ func TestProcessDeliverMessageTerminal(t *testing.T) {
 // TestProcessDeliverMessageWithTerminalAtEnd tests multi-payload message with terminal at end
 func TestProcessDeliverMessageWithTerminalAtEnd(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -3084,7 +3091,7 @@ func TestProcessDeliverMessageWithTerminalAtEnd(t *testing.T) {
 // TestProcessDeliverMessageHandlerReturnsNil tests handler that returns nil
 func TestProcessDeliverMessageHandlerReturnsNil(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -3122,7 +3129,7 @@ func TestProcessDeliverMessageHandlerReturnsNil(t *testing.T) {
 // TestProcessDeliverMessageHandlerWithTerminal tests handler returning nil with terminal
 func TestProcessDeliverMessageHandlerWithTerminal(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -3161,7 +3168,7 @@ func TestProcessDeliverMessageHandlerWithTerminal(t *testing.T) {
 // TestProcessDeliverMessageAtTopic tests message to @ prefixed topic without inbox fallback
 func TestProcessDeliverMessageAtTopic(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -3198,7 +3205,7 @@ func TestProcessResumeTaskWithResultHandledYield(t *testing.T) {
 		return result
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
 		WithModuleBinder(bindTestYield),
 	)
@@ -3243,7 +3250,7 @@ func TestProcessResumeTaskWithResultLuaValues(t *testing.T) {
 		return result
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
 		WithModuleBinder(bindTestYield),
 	)
@@ -3283,7 +3290,7 @@ func TestProcessResumeTaskWithResultLuaValues(t *testing.T) {
 // TestProcessState tests State method
 func TestProcessState(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -3309,9 +3316,9 @@ func TestProcessGetTasks(t *testing.T) {
 		coroutine.spawn(function() ch:receive() end)
 		ch:receive() -- main blocks to keep workers alive
 	`
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
+		WithModuleBinder(wrapBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) })),
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
@@ -3336,7 +3343,7 @@ func TestProcessGetTasks(t *testing.T) {
 // TestProcessQueue tests Queue method
 func TestProcessQueue(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -3368,7 +3375,7 @@ func TestProcessWithProto(t *testing.T) {
 	proto := fn.Proto
 
 	// Create process with proto
-	proc := NewProcess(WithProto(proto))
+	proc := mustNewProcess(t, WithProto(proto))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -3389,7 +3396,7 @@ func TestProcessWithProto(t *testing.T) {
 // TestProcessWithStateOptions tests WithStateOptions
 func TestProcessWithStateOptions(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
 		WithStateOptions(lua.Options{SkipOpenLibs: false}),
 	)
@@ -3413,7 +3420,7 @@ func TestProcessWithStateOptions(t *testing.T) {
 // TestProcessTranscodeToLua tests transcodeToLua paths
 func TestProcessTranscodeToLua(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -3434,18 +3441,18 @@ func TestProcessTranscodeToLua(t *testing.T) {
 		t.Fatal("expected lua value to pass through")
 	}
 
-	// Test non-Lua payload (falls back to string representation)
+	// Test non-Lua payload without transcoder returns nil
 	stringPayload := payload.New("test-string")
 	result = transcodeToLua(ctx, stringPayload)
-	if result == lua.LNil {
-		t.Fatal("expected non-nil result")
+	if result != lua.LNil {
+		t.Fatal("expected LNil for non-Lua payload without transcoder")
 	}
 }
 
 // TestProcessPayloadsToLua tests PayloadsToLua function
 func TestProcessPayloadsToLua(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -3490,7 +3497,7 @@ func TestProcessSyncExecute(t *testing.T) {
 	proto := fn.Proto
 	state.Close()
 
-	proc := NewProcess(WithProto(proto))
+	proc := mustNewProcess(t, WithProto(proto))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 
@@ -3508,13 +3515,14 @@ func TestProcessSyncExecute(t *testing.T) {
 // TestProcessWithModuleBinderFirst tests WithModuleBinder as first option (factory init)
 func TestProcessWithModuleBinderFirst(t *testing.T) {
 	binderCalled := false
-	binder := func(L *lua.LState) {
+	binder := func(L *lua.LState) error {
 		binderCalled = true
 		L.SetGlobal("test_var", lua.LNumber(123))
+		return nil
 	}
 
 	// WithModuleBinder as first option - exercises factory nil check
-	proc := NewProcess(
+	proc := mustNewProcess(t,
 		WithModuleBinder(binder),
 		WithScript(`return test_var`, "test.lua"),
 	)
@@ -3541,7 +3549,7 @@ func TestProcessWithModuleBinderFirst(t *testing.T) {
 // TestProcessWithStateOptionsFirst tests WithStateOptions as first option (factory init)
 func TestProcessWithStateOptionsFirst(t *testing.T) {
 	// WithStateOptions as first option - exercises factory nil check
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithStateOptions(lua.Options{SkipOpenLibs: false}),
 		WithScript(`return 1`, "test.lua"),
 	)
@@ -3580,7 +3588,7 @@ func (m *mockTranscoder) Unmarshal(_ payload.Payload, _ interface{}) error {
 // TestProcessTranscodeToLuaWithTranscoder tests transcodeToLua with context transcoder
 func TestProcessTranscodeToLuaWithTranscoder(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	// Create context with AppContext and attach transcoder
 	ctx := context.Background()
@@ -3611,7 +3619,7 @@ func TestProcessTranscodeToLuaWithTranscoder(t *testing.T) {
 // TestProcessWrapErrorNil tests wrapError with nil error
 func TestProcessWrapErrorNil(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -3629,7 +3637,7 @@ func TestProcessWrapErrorNil(t *testing.T) {
 // TestProcessWrapErrorAlreadyWrapped tests wrapError with already-wrapped lua.Error
 func TestProcessWrapErrorAlreadyWrapped(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -3650,7 +3658,7 @@ func TestProcessWrapErrorAlreadyWrapped(t *testing.T) {
 // TestProcessWrapErrorNilThread tests wrapError with nil thread (fallback to p.state)
 func TestProcessWrapErrorNilThread(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -3676,7 +3684,7 @@ func TestProcessWrapErrorNilThread(t *testing.T) {
 // TestProcessWrapErrorPlainError tests wrapError with plain error
 func TestProcessWrapErrorPlainError(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -3701,7 +3709,7 @@ func TestProcessWrapErrorPlainError(t *testing.T) {
 // TestProcessSubscribeError tests Subscribe returning error path
 func TestProcessSubscribeError(t *testing.T) {
 	script := `return 1`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	// Don't init - subs will be nil
 	_, err := proc.Subscribe("topic", 10)
@@ -3715,15 +3723,15 @@ func TestProcessMultipleModuleBinders(t *testing.T) {
 	binder1Called := false
 	binder2Called := false
 
-	proc := NewProcess(
-		WithModuleBinder(func(L *lua.LState) {
+	proc := mustNewProcess(t,
+		WithModuleBinder(wrapBinder(func(L *lua.LState) {
 			binder1Called = true
 			L.SetGlobal("var1", lua.LNumber(1))
-		}),
-		WithModuleBinder(func(L *lua.LState) {
+		})),
+		WithModuleBinder(wrapBinder(func(L *lua.LState) {
 			binder2Called = true
 			L.SetGlobal("var2", lua.LNumber(2))
-		}),
+		})),
 		WithScript(`return var1 + var2`, "test.lua"),
 	)
 
@@ -3745,7 +3753,7 @@ func TestProcessMultipleModuleBinders(t *testing.T) {
 
 // TestProcessSyncExecuteNotInitialized tests SyncExecute with nil state
 func TestProcessSyncExecuteNotInitialized(t *testing.T) {
-	proc := NewProcess(WithScript(`return 1`, "test.lua"))
+	proc := mustNewProcess(t, WithScript(`return 1`, "test.lua"))
 	// Don't initialize state
 	_, err := proc.SyncExecute(context.Background())
 	if err == nil {
@@ -3764,7 +3772,7 @@ func TestProcessSyncExecuteError(t *testing.T) {
 	proto := fn.Proto
 	state.Close()
 
-	proc := NewProcess(WithProto(proto))
+	proc := mustNewProcess(t, WithProto(proto))
 	// Create state manually
 	proc.state = lua.NewState()
 	defer proc.Close()
@@ -3777,7 +3785,7 @@ func TestProcessSyncExecuteError(t *testing.T) {
 
 // TestProcessDistributeEventZeroTag tests distributeEvent with tag=0
 func TestProcessDistributeEventZeroTag(t *testing.T) {
-	proc := NewProcess(WithScript(`return 1`, "test.lua"))
+	proc := mustNewProcess(t, WithScript(`return 1`, "test.lua"))
 	proc.state = lua.NewState()
 	defer proc.Close()
 
@@ -3795,8 +3803,8 @@ func TestProcessDistributeEventZeroTag(t *testing.T) {
 }
 
 // TestProcessDistributeEventNoPendingYields tests distributeEvent with empty pendingYields
-func TestProcessDistributeEventNoPendingYields(_ *testing.T) {
-	proc := NewProcess(WithScript(`return 1`, "test.lua"))
+func TestProcessDistributeEventNoPendingYields(t *testing.T) {
+	proc := mustNewProcess(t, WithScript(`return 1`, "test.lua"))
 	proc.state = lua.NewState()
 	defer proc.Close()
 
@@ -3807,7 +3815,7 @@ func TestProcessDistributeEventNoPendingYields(_ *testing.T) {
 
 // TestProcessDistributeEventNonExistentTag tests distributeEvent with non-existent tag
 func TestProcessDistributeEventNonExistentTag(t *testing.T) {
-	proc := NewProcess(WithScript(`return 1`, "test.lua"))
+	proc := mustNewProcess(t, WithScript(`return 1`, "test.lua"))
 	proc.state = lua.NewState()
 	defer proc.Close()
 
@@ -3826,7 +3834,7 @@ func TestProcessDistributeEventNonExistentTag(t *testing.T) {
 // TestProcessExtractMethodWithScript tests extractMethod using script string
 func TestProcessExtractMethodWithScript(t *testing.T) {
 	script := `return { handle = function() return "ok" end }`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "handle", nil); err != nil {
@@ -3843,7 +3851,7 @@ func TestProcessExtractMethodWithScript(t *testing.T) {
 // TestProcessExtractMethodNotFound tests extractMethod with missing method
 func TestProcessExtractMethodNotFound(t *testing.T) {
 	script := `return { other = function() return "ok" end }`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	err := proc.Init(ctx, "nonexistent", nil)
@@ -3855,7 +3863,7 @@ func TestProcessExtractMethodNotFound(t *testing.T) {
 // TestProcessExtractMethodScriptReturnsFunction tests extractMethod with direct function return
 func TestProcessExtractMethodScriptReturnsFunction(t *testing.T) {
 	script := `return function() return "direct" end`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "handle", nil); err != nil {
@@ -3872,7 +3880,7 @@ func TestProcessExtractMethodScriptReturnsFunction(t *testing.T) {
 // TestProcessExtractMethodScriptError tests extractMethod with script execution error
 func TestProcessExtractMethodScriptError(t *testing.T) {
 	script := `error("init error")`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	err := proc.Init(ctx, "handle", nil)
@@ -3884,7 +3892,7 @@ func TestProcessExtractMethodScriptError(t *testing.T) {
 // TestProcessExtractMethodLoadError tests extractMethod with invalid script
 func TestProcessExtractMethodLoadError(t *testing.T) {
 	script := `this is not valid lua`
-	proc := NewProcess(WithScript(script, "test.lua"))
+	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	err := proc.Init(ctx, "handle", nil)
@@ -3895,7 +3903,7 @@ func TestProcessExtractMethodLoadError(t *testing.T) {
 
 // TestProcessYieldToCommandEmpty tests yieldToCommand with empty yields
 func TestProcessYieldToCommandEmpty(t *testing.T) {
-	proc := NewProcess(WithScript(`return 1`, "test.lua"))
+	proc := mustNewProcess(t, WithScript(`return 1`, "test.lua"))
 	task := &Task{Yielded: nil}
 	cmd := proc.yieldToCommand(task)
 	if cmd != nil {
@@ -3905,7 +3913,7 @@ func TestProcessYieldToCommandEmpty(t *testing.T) {
 
 // TestProcessResumeTaskNonHandledYield tests resumeTaskWithResult with plain LValues
 func TestProcessResumeTaskNonHandledYield(t *testing.T) {
-	proc := NewProcess(WithScript(`return 1`, "test.lua"))
+	proc := mustNewProcess(t, WithScript(`return 1`, "test.lua"))
 	proc.state = lua.NewState()
 	defer proc.Close()
 
@@ -3928,7 +3936,7 @@ func TestProcessResumeTaskNonHandledYield(t *testing.T) {
 
 // TestProcessResumeTaskEmptyYieldsWithLValues tests resumeTaskWithResult with empty yields but LValues data
 func TestProcessResumeTaskEmptyYieldsWithLValues(t *testing.T) {
-	proc := NewProcess(WithScript(`return 1`, "test.lua"))
+	proc := mustNewProcess(t, WithScript(`return 1`, "test.lua"))
 	proc.state = lua.NewState()
 	defer proc.Close()
 
@@ -3951,7 +3959,7 @@ func TestProcessResumeTaskEmptyYieldsWithLValues(t *testing.T) {
 
 // TestProcessResumeTaskNotYieldState tests resumeTaskWithResult when task not in yield state
 func TestProcessResumeTaskNotYieldState(t *testing.T) {
-	proc := NewProcess(WithScript(`return 1`, "test.lua"))
+	proc := mustNewProcess(t, WithScript(`return 1`, "test.lua"))
 	proc.state = lua.NewState()
 	defer proc.Close()
 
@@ -4009,9 +4017,9 @@ func TestDistributedWorkWithExternalYields(t *testing.T) {
 		return total
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
+		WithModuleBinder(wrapBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) })),
 		WithModuleBinder(bindTestYield),
 	)
 
@@ -4087,9 +4095,9 @@ func TestExternalYieldLostOnSubscribeLoop(t *testing.T) {
 		return "yield_ok:" .. tostring(yield_result)
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
+		WithModuleBinder(wrapBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) })),
 		WithModuleBinder(bindProcessModule),
 		WithModuleBinder(bindTestYield),
 	)
@@ -4267,7 +4275,7 @@ func (y *sqlLikeHandledYield) HandleResult(_ *lua.LState, data any, err error) [
 }
 
 // sqlLikeYieldModuleBinder binds a function that yields exactly like SQL does.
-func sqlLikeYieldModuleBinder(l *lua.LState) {
+func sqlLikeYieldModuleBinder(l *lua.LState) error {
 	mod := l.CreateTable(0, 1)
 	mod.RawSetString("prepare", lua.LGoFunc(func(l *lua.LState) int {
 		yield := &sqlLikeHandledYield{
@@ -4282,11 +4290,12 @@ func sqlLikeYieldModuleBinder(l *lua.LState) {
 		return -1
 	}))
 	l.SetGlobal("sqlmod", mod)
+	return nil
 }
 
 // mockHandledYieldModuleBinder binds a test function that yields mockHandledYield.
 func mockHandledYieldModuleBinder(response any, err error) ModuleBinder {
-	return func(l *lua.LState) {
+	return func(l *lua.LState) error {
 		mod := l.CreateTable(0, 1)
 		mod.RawSetString("fetch", lua.LGoFunc(func(l *lua.LState) int {
 			yield := &mockHandledYield{
@@ -4298,6 +4307,7 @@ func mockHandledYieldModuleBinder(response any, err error) ModuleBinder {
 			return -1
 		}))
 		l.SetGlobal("testmod", mod)
+		return nil
 	}
 }
 
@@ -4310,7 +4320,7 @@ func TestYieldHandlerSuccessFlow(t *testing.T) {
 		return result
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
 		WithModuleBinder(mockHandledYieldModuleBinder("hello world", nil)),
 	)
@@ -4369,7 +4379,7 @@ func TestYieldHandlerErrorFlow(t *testing.T) {
 		return result
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
 		WithModuleBinder(mockHandledYieldModuleBinder(nil, errors.New("connection failed"))),
 	)
@@ -4431,7 +4441,7 @@ func TestYieldHandlerTableResponse(t *testing.T) {
 		return "success"
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
 		WithModuleBinder(mockHandledYieldModuleBinder(map[string]any{"name": "test", "count": 42}, nil)),
 	)
@@ -4479,7 +4489,7 @@ func TestYieldHandlerMultipleYields(t *testing.T) {
 		return a .. " " .. b
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
 		WithModuleBinder(mockHandledYieldModuleBinder("first", nil)),
 	)
@@ -4555,10 +4565,10 @@ func TestYieldHandlerUserdataResponse(t *testing.T) {
 		return "success"
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
 		WithModuleBinder(mockHandledYieldModuleBinder(nil, nil)),
-		WithModuleBinder(func(l *lua.LState) {
+		WithModuleBinder(wrapBinder(func(l *lua.LState) {
 			mt := l.NewTypeMetatable("mockYieldResource")
 			l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 				"name": func(l *lua.LState) int {
@@ -4570,7 +4580,7 @@ func TestYieldHandlerUserdataResponse(t *testing.T) {
 					return 0
 				},
 			}))
-		}),
+		})),
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
@@ -4632,7 +4642,7 @@ func TestYieldHandlerUserdataWithNilError(t *testing.T) {
 		return "success"
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
 		WithModuleBinder(mockHandledYieldModuleBinder(nil, nil)),
 	)
@@ -4690,7 +4700,7 @@ func TestYieldHandlerSQLPattern(t *testing.T) {
 		return "success"
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
 		WithModuleBinder(sqlLikeYieldModuleBinder),
 	)
@@ -4749,7 +4759,7 @@ func TestYieldHandlerSQLPatternWithError(t *testing.T) {
 		return "success: " .. tostring(err)
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
 		WithModuleBinder(sqlLikeYieldModuleBinder),
 	)

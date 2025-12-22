@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"sync"
 
@@ -46,7 +45,8 @@ func WithProto(proto *lua.FunctionProto) ProcessOption {
 }
 
 // ModuleBinder is a function that binds modules to a Lua state.
-type ModuleBinder func(*lua.LState)
+// Returns error if binding fails (e.g., dependency load error).
+type ModuleBinder func(*lua.LState) error
 
 // WithModuleBinder adds module binders via inline factory.
 // For high-performance use cases, prefer creating a Factory directly.
@@ -235,7 +235,8 @@ func (p *Process) HasSubscriptions() bool {
 
 // NewProcess creates a new Lua process with options.
 // Uses Factory internally to ensure state is properly initialized.
-func NewProcess(opts ...ProcessOption) *Process {
+// Returns error if module binding fails.
+func NewProcess(opts ...ProcessOption) (*Process, error) {
 	// Try to get from pool
 	var p *Process
 	if pooled := processPool.Get(); pooled != nil {
@@ -265,9 +266,13 @@ func NewProcess(opts ...ProcessOption) *Process {
 	p.factory.scriptName = p.scriptName
 
 	// Initialize state via factory
-	p.state = p.factory.CreateState()
+	state, err := p.factory.CreateState()
+	if err != nil {
+		return nil, err
+	}
+	p.state = state
 
-	return p
+	return p, nil
 }
 
 // Init starts execution of a method with context and input payloads.
@@ -1306,8 +1311,7 @@ func transcodeToLua(ctx context.Context, pl payload.Payload) lua.LValue {
 		}
 	}
 
-	// Fallback: return as string representation
-	return lua.LString(fmt.Sprintf("%v", pl.Data()))
+	return lua.LNil
 }
 
 // extractReturnError checks if a Lua value represents an error in the

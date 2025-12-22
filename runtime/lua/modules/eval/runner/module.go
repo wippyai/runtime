@@ -3,9 +3,13 @@
 package runner
 
 import (
+	"context"
 	"sync"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/evalhost"
@@ -18,13 +22,14 @@ var (
 	initOnce    sync.Once
 )
 
-const programTypeName = "eval.runner.Program"
+const programTypeName = "eval_runner.Program"
 
 // Module is the eval_runner module definition.
 var Module = &luaapi.ModuleDef{
 	Name:        "eval_runner",
 	Description: "Execute untrusted Lua code via dispatcher",
 	Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
+	Types:       ModuleTypes,
 	Build:       buildModule,
 }
 
@@ -48,6 +53,47 @@ func createModuleTable() *lua.LTable {
 	return mod
 }
 
+// checkModulePermissions checks if each module is allowed to be loaded
+func checkModulePermissions(ctx context.Context, modules []string) (string, bool) {
+	if len(modules) == 0 {
+		return "", true
+	}
+
+	var meta attrs.Bag
+	if frameID, ok := runtime.GetFrameID(ctx); ok {
+		meta = attrs.NewBag()
+		meta.Set("entry_id", frameID.String())
+	}
+
+	for _, module := range modules {
+		if !security.IsAllowed(ctx, "eval.module", module, meta) {
+			return module, false
+		}
+	}
+	return "", true
+}
+
+// checkImportPermissions checks if each import is allowed to be loaded
+func checkImportPermissions(ctx context.Context, imports map[string]registry.ID) (string, bool) {
+	if len(imports) == 0 {
+		return "", true
+	}
+
+	var meta attrs.Bag
+	if frameID, ok := runtime.GetFrameID(ctx); ok {
+		meta = attrs.NewBag()
+		meta.Set("entry_id", frameID.String())
+	}
+
+	for alias, id := range imports {
+		meta.Set("alias", alias)
+		if !security.IsAllowed(ctx, "eval.import", id.String(), meta) {
+			return id.String(), false
+		}
+	}
+	return "", true
+}
+
 // compileFunc is runner.compile(source, method, options?) -> Program
 func compileFunc(l *lua.LState) int {
 	ctx := l.Context()
@@ -68,6 +114,7 @@ func compileFunc(l *lua.LState) int {
 	method := l.OptString(2, "")
 
 	var modules []string
+	var imports map[string]registry.ID
 	if l.GetTop() >= 3 && l.Get(3).Type() == lua.LTTable {
 		opts := l.CheckTable(3)
 		if modulesVal := opts.RawGetString("modules"); modulesVal.Type() == lua.LTTable {
@@ -78,12 +125,38 @@ func compileFunc(l *lua.LState) int {
 				}
 			})
 		}
+		if importsVal := opts.RawGetString("imports"); importsVal.Type() == lua.LTTable {
+			imports = make(map[string]registry.ID)
+			importsTable := importsVal.(*lua.LTable)
+			importsTable.ForEach(func(k, v lua.LValue) {
+				if alias, ok := k.(lua.LString); ok {
+					if idStr, ok := v.(lua.LString); ok {
+						imports[string(alias)] = registry.ParseID(string(idStr))
+					}
+				}
+			})
+		}
+	}
+
+	if denied, ok := checkModulePermissions(ctx, modules); !ok {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "permission denied: eval.module "+denied).
+			WithKind(lua.PermissionDenied).WithRetryable(false))
+		return 2
+	}
+
+	if denied, ok := checkImportPermissions(ctx, imports); !ok {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "permission denied: eval.import "+denied).
+			WithKind(lua.PermissionDenied).WithRetryable(false))
+		return 2
 	}
 
 	yield := AcquireCompileYield()
 	yield.Source = source
 	yield.Method = method
 	yield.Modules = modules
+	yield.Imports = imports
 
 	l.Push(yield)
 	return -1
@@ -111,6 +184,12 @@ func runFunc(l *lua.LState) int {
 	if v := config.RawGetString("source"); v.Type() == lua.LTString {
 		source = string(v.(lua.LString))
 	}
+	if source == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "source is required").
+			WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
 
 	method := ""
 	if v := config.RawGetString("method"); v.Type() == lua.LTString {
@@ -124,6 +203,32 @@ func runFunc(l *lua.LState) int {
 				modules = append(modules, string(s))
 			}
 		})
+	}
+
+	var imports map[string]registry.ID
+	if v := config.RawGetString("imports"); v.Type() == lua.LTTable {
+		imports = make(map[string]registry.ID)
+		v.(*lua.LTable).ForEach(func(k, iv lua.LValue) {
+			if alias, ok := k.(lua.LString); ok {
+				if idStr, ok := iv.(lua.LString); ok {
+					imports[string(alias)] = registry.ParseID(string(idStr))
+				}
+			}
+		})
+	}
+
+	if denied, ok := checkModulePermissions(ctx, modules); !ok {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "permission denied: eval.module "+denied).
+			WithKind(lua.PermissionDenied).WithRetryable(false))
+		return 2
+	}
+
+	if denied, ok := checkImportPermissions(ctx, imports); !ok {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "permission denied: eval.import "+denied).
+			WithKind(lua.PermissionDenied).WithRetryable(false))
+		return 2
 	}
 
 	var args payload.Payloads
@@ -147,6 +252,7 @@ func runFunc(l *lua.LState) int {
 	yield.Method = method
 	yield.Args = args
 	yield.Modules = modules
+	yield.Imports = imports
 	yield.Context = contextVals
 
 	l.Push(yield)

@@ -54,6 +54,9 @@ functions:
 lua:
   proto_cache_size: 60000     # Lua proto cache size
   main_cache_size: 10000      # Lua main cache size
+  type_system:
+    enabled: false            # Enable type checking during compilation
+    strict: true              # Treat type errors as compile errors
   expr:
     cache_enabled: true       # Enable expression caching
     capacity: 5000            # Expression cache capacity

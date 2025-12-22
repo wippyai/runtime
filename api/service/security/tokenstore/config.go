@@ -34,6 +34,10 @@ type Config struct {
 	// If provided, tokens will be signed using this key
 	TokenKey string `json:"token_key,omitempty"`
 
+	// TokenKeyEnv is an optional environment variable name for the token key
+	// If provided, the token key will be read from this environment variable
+	TokenKeyEnv string `json:"token_key_env,omitempty"`
+
 	// DefaultExpiration is the default token expiration time if not specified
 	DefaultExpiration time.Duration `json:"default_expiration"`
 }

@@ -162,8 +162,8 @@ func containsString(slice []string, item string) bool {
 }
 
 // GetModuleBinder returns a ModuleBinder that loads only the specified modules.
-func (c *Compiler) GetModuleBinder(modules []string) func(*lua.LState) {
-	return func(l *lua.LState) {
+func (c *Compiler) GetModuleBinder(modules []string) engine.ModuleBinder {
+	return func(l *lua.LState) error {
 		for _, name := range modules {
 			m, ok := c.availableModules[name]
 			if !ok {
@@ -171,39 +171,7 @@ func (c *Compiler) GetModuleBinder(modules []string) func(*lua.LState) {
 			}
 			l.SetGlobal(m.Name, engine.ModuleValue(m))
 		}
+		return nil
 	}
 }
 
-// GetAvailableModule returns a module by name.
-func (c *Compiler) GetAvailableModule(name string) (*luaapi.ModuleDef, bool) {
-	m, ok := c.availableModules[name]
-	return m, ok
-}
-
-// ModuleInfo returns info about a module.
-func (c *Compiler) ModuleInfo(name string) (luaapi.ModuleInfo, bool) {
-	m, ok := c.availableModules[name]
-	if !ok {
-		return luaapi.ModuleInfo{}, false
-	}
-	return m.Info(), true
-}
-
-// IsModuleAllowed checks if a module would be allowed based on class filtering.
-func (c *Compiler) IsModuleAllowed(name string) bool {
-	m, ok := c.availableModules[name]
-	if !ok {
-		return false
-	}
-	return c.validateModuleClasses(name, m.Class) == nil
-}
-
-// GetForbiddenClasses returns the configured forbidden classes.
-func (c *Compiler) GetForbiddenClasses() []string {
-	return c.forbiddenClasses
-}
-
-// GetAllowedClasses returns the configured allowed classes.
-func (c *Compiler) GetAllowedClasses() []string {
-	return c.allowedClasses
-}

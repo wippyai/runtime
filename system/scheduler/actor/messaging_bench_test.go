@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"runtime"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -79,67 +78,6 @@ func (p *IdleReceiverProcess) Step(events []process.Event, out *process.StepOutp
 func (p *IdleReceiverProcess) Send(*relay.Package) error { return nil }
 func (p *IdleReceiverProcess) Close()                    {}
 
-// PingPongProcess sends a message and waits for reply, repeats N times
-type PingPongProcess struct {
-	self      pidapi.PID
-	partner   pidapi.PID
-	remaining int
-	initiator bool
-	started   bool
-}
-
-func (p *PingPongProcess) Init(_ context.Context, _ string, input payload.Payloads) error {
-	if len(input) >= 3 {
-		p.self = input[0].Data().(pidapi.PID)
-		p.partner = input[1].Data().(pidapi.PID)
-		p.remaining = input[2].Data().(int)
-	}
-	return nil
-}
-
-func (p *PingPongProcess) Step(events []process.Event, out *process.StepOutput) error {
-	// Count received pings
-	for _, e := range events {
-		if e.Type == process.EventMessage {
-			p.remaining--
-		}
-	}
-
-	if p.remaining <= 0 {
-		out.Done(nil)
-		return nil
-	}
-
-	// Initiator starts the ping
-	if p.initiator && !p.started {
-		p.started = true
-		out.Yield(BenchSendCmd{From: p.self, To: p.partner}, 0)
-		out.Continue()
-		return nil
-	}
-
-	// Reply to received message
-	if len(events) > 0 {
-		out.Yield(BenchSendCmd{From: p.self, To: p.partner}, 0)
-		out.Continue()
-		return nil
-	}
-
-	out.Idle()
-	return nil
-}
-
-func (p *PingPongProcess) Send(*relay.Package) error { return nil }
-func (p *PingPongProcess) Close()                    {}
-
-// BenchSendCmd for benchmark send operations
-type BenchSendCmd struct {
-	From pidapi.PID
-	To   pidapi.PID
-}
-
-func (BenchSendCmd) CmdID() dispatcher.CommandID { return 100 }
-
 // =============================================================================
 // Benchmark Helpers
 // =============================================================================
@@ -166,18 +104,6 @@ func newBenchScheduler(workers int) *benchScheduler {
 	bs.registry.Register(CmdComplete, CompleteHandler())
 
 	return bs
-}
-
-func (bs *benchScheduler) registerSendHandler() {
-	bs.registry.Register(100, dispatcher.HandlerFunc(func(_ context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
-		sendCmd := cmd.(BenchSendCmd)
-		msg := relay.AcquireMessage()
-		msg.Topic = "ping"
-		pkg := relay.NewMessagePackage(sendCmd.From, sendCmd.To, msg)
-		err := bs.Send(pkg)
-		receiver.CompleteYield(tag, nil, err)
-		return nil
-	}))
 }
 
 func (bs *benchScheduler) waitCompleted(n int64, timeout time.Duration) bool {
@@ -365,50 +291,14 @@ func BenchmarkSendParallel(b *testing.B) {
 }
 
 // =============================================================================
-// 3. PING-PONG BENCHMARKS (realistic messaging patterns)
+// 3. FAN-OUT BENCHMARKS
 // =============================================================================
-
-// BenchmarkPingPong measures message round-trip between two processes
-func BenchmarkPingPong(b *testing.B) {
-	for _, workers := range []int{1, 2, 4, 8} {
-		b.Run(fmt.Sprintf("%dw", workers), func(b *testing.B) {
-			bs := newBenchScheduler(workers)
-			bs.registerSendHandler()
-			bs.Start()
-			defer bs.Stop(context.Background())
-
-			ctx := context.Background()
-
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				bs.reset()
-
-				pid1 := pidapi.PID{UniqID: fmt.Sprintf("a%d", i)}
-				pid2 := pidapi.PID{UniqID: fmt.Sprintf("b%d", i)}
-
-				// Each process does 50 round trips = 100 messages total
-				rounds := 50
-
-				proc1 := &PingPongProcess{self: pid1, partner: pid2, remaining: rounds, initiator: true}
-				proc2 := &PingPongProcess{self: pid2, partner: pid1, remaining: rounds, initiator: false}
-
-				_, _ = bs.Submit(ctx, pid1, proc1, "",
-					payload.Payloads{payload.New(pid1), payload.New(pid2), payload.New(rounds)})
-				_, _ = bs.Submit(ctx, pid2, proc2, "",
-					payload.Payloads{payload.New(pid2), payload.New(pid1), payload.New(rounds)})
-
-				bs.waitCompleted(2, 10*time.Second)
-			}
-		})
-	}
-}
 
 // BenchmarkFanOut measures 1 sender -> N receivers pattern
 func BenchmarkFanOut(b *testing.B) {
 	for _, fanout := range []int{10, 100} {
 		b.Run(fmt.Sprintf("1to%d", fanout), func(b *testing.B) {
 			bs := newBenchScheduler(runtime.GOMAXPROCS(0))
-			bs.registerSendHandler()
 			bs.Start()
 			defer bs.Stop(context.Background())
 
@@ -564,174 +454,6 @@ func BenchmarkParallelSubmitScaling(b *testing.B) {
 			b.StopTimer()
 
 			bs.waitCompleted(counter.Load(), 30*time.Second)
-		})
-	}
-}
-
-// =============================================================================
-// 6. REAL-WORLD SCENARIO: Many-to-Many Messaging
-// =============================================================================
-
-// BenchmarkManyToMany measures N processes each sending M messages to random targets
-func BenchmarkManyToMany(b *testing.B) {
-	type config struct {
-		procs    int
-		messages int
-		workers  int
-	}
-
-	configs := []config{
-		{procs: 100, messages: 10, workers: 8},
-		{procs: 1000, messages: 5, workers: 8},
-		{procs: 1000, messages: 5, workers: 16},
-		{procs: 1000, messages: 5, workers: 32},
-	}
-
-	for _, cfg := range configs {
-		name := fmt.Sprintf("%dp_%dm_%dw", cfg.procs, cfg.messages, cfg.workers)
-		b.Run(name, func(b *testing.B) {
-			bs := newBenchScheduler(cfg.workers)
-			bs.registerSendHandler()
-			bs.Start()
-			defer bs.Stop(context.Background())
-
-			b.ResetTimer()
-			for iter := 0; iter < b.N; iter++ {
-				bs.reset()
-
-				// Create all PIDs first
-				pids := make([]pidapi.PID, cfg.procs)
-				for j := 0; j < cfg.procs; j++ {
-					pids[j] = pidapi.PID{UniqID: fmt.Sprintf("p%d-%d", iter, j)}
-				}
-
-				// Submit all processes concurrently
-				var wg sync.WaitGroup
-				for j := 0; j < cfg.procs; j++ {
-					wg.Add(1)
-					go func(idx int) {
-						defer wg.Done()
-						proc := &MessagingProcess{pid: pids[idx], targets: pids}
-						_, _ = bs.Submit(context.Background(), pids[idx], proc, "",
-							payload.Payloads{payload.New(pids), payload.New(cfg.messages)})
-					}(j)
-				}
-				wg.Wait()
-
-				// Wait for all to complete
-				if !bs.waitCompleted(int64(cfg.procs), 30*time.Second) {
-					b.Fatalf("timeout waiting for completion: got %d/%d", bs.completed.Load(), cfg.procs)
-				}
-			}
-		})
-	}
-}
-
-// MessagingProcess sends messages to other processes
-type MessagingProcess struct {
-	pid       pidapi.PID
-	targets   []pidapi.PID
-	remaining int
-	received  int
-}
-
-func (p *MessagingProcess) Init(_ context.Context, _ string, input payload.Payloads) error {
-	if len(input) >= 2 {
-		p.targets = input[0].Data().([]pidapi.PID)
-		p.remaining = input[1].Data().(int)
-	}
-	return nil
-}
-
-func (p *MessagingProcess) Step(events []process.Event, out *process.StepOutput) error {
-	for _, e := range events {
-		if e.Type == process.EventMessage {
-			p.received++
-		}
-	}
-
-	if p.remaining > 0 {
-		p.remaining--
-		target := p.targets[p.received%len(p.targets)]
-		out.Yield(BenchSendCmd{From: p.pid, To: target}, 0)
-		out.Continue()
-		return nil
-	}
-
-	out.Done(payload.New(p.received))
-	return nil
-}
-
-func (p *MessagingProcess) Send(*relay.Package) error { return nil }
-func (p *MessagingProcess) Close()                    {}
-
-// =============================================================================
-// 7. LARGE SCALE BENCHMARKS (10k-100k processes)
-// =============================================================================
-
-// BenchmarkLargeScale measures large-scale process communication
-func BenchmarkLargeScale(b *testing.B) {
-	type config struct {
-		procs    int
-		messages int
-		workers  int
-	}
-
-	configs := []config{
-		{procs: 10000, messages: 1, workers: 16},
-		{procs: 10000, messages: 1, workers: 32},
-		{procs: 100000, messages: 1, workers: 32},
-	}
-
-	for _, cfg := range configs {
-		name := fmt.Sprintf("%dk_%dm_%dw", cfg.procs/1000, cfg.messages, cfg.workers)
-		b.Run(name, func(b *testing.B) {
-			bs := newBenchScheduler(cfg.workers)
-			bs.registerSendHandler()
-			bs.Start()
-			defer bs.Stop(context.Background())
-
-			b.ResetTimer()
-			for iter := 0; iter < b.N; iter++ {
-				bs.reset()
-
-				// Create all PIDs first
-				pids := make([]pidapi.PID, cfg.procs)
-				for j := 0; j < cfg.procs; j++ {
-					pids[j] = pidapi.PID{UniqID: fmt.Sprintf("p%d-%d", iter, j)}
-				}
-
-				// Submit all processes concurrently in batches
-				batchSize := 1000
-				for batchStart := 0; batchStart < cfg.procs; batchStart += batchSize {
-					batchEnd := batchStart + batchSize
-					if batchEnd > cfg.procs {
-						batchEnd = cfg.procs
-					}
-
-					var wg sync.WaitGroup
-					for j := batchStart; j < batchEnd; j++ {
-						wg.Add(1)
-						go func(idx int) {
-							defer wg.Done()
-							proc := &MessagingProcess{pid: pids[idx], targets: pids}
-							_, _ = bs.Submit(context.Background(), pids[idx], proc, "",
-								payload.Payloads{payload.New(pids), payload.New(cfg.messages)})
-						}(j)
-					}
-					wg.Wait()
-				}
-
-				// Wait for all to complete
-				if !bs.waitCompleted(int64(cfg.procs), 120*time.Second) {
-					b.Fatalf("timeout: completed %d/%d", bs.completed.Load(), cfg.procs)
-				}
-			}
-
-			// Report memory stats
-			var m runtime.MemStats
-			runtime.ReadMemStats(&m)
-			b.ReportMetric(float64(m.HeapAlloc)/(1024*1024), "HeapMB")
 		})
 	}
 }

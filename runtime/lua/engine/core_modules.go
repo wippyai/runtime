@@ -97,12 +97,13 @@ func printFunc(l *lua.LState) int {
 }
 
 // LoadCoreModules loads all core modules into the LState.
-func LoadCoreModules(l *lua.LState) {
+func LoadCoreModules(l *lua.LState) error {
 	LoadModuleDef(l, payload.Module)
 	LoadModuleDef(l, ostime.Module)
 	LoadModuleDef(l, PrintModule)
 	LoadModuleDef(l, ChannelModule)
 	loadPubSubGlobals(l)
+	return nil
 }
 
 // loadPubSubGlobals loads subscribe/unsubscribe as global functions.

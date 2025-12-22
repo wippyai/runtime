@@ -1,12 +1,12 @@
 package code
 
-// TODO: Uncomment when gopher-lua/types/checker is available
-// import (
-// 	api "github.com/wippyai/runtime/api/runtime/lua"
-// 	"github.com/yuin/gopher-lua/types"
-// 	"github.com/yuin/gopher-lua/types/checker"
-// 	"github.com/yuin/gopher-lua/types/rules"
-// )
+import (
+	api "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/yuin/gopher-lua/parse"
+	"github.com/yuin/gopher-lua/types"
+	_ "github.com/yuin/gopher-lua/types/stmt"  // register statement handlers
+	_ "github.com/yuin/gopher-lua/types/synth" // register synthesizers
+)
 
 // TypeCheckConfig configures the type checking system
 type TypeCheckConfig struct {
@@ -41,7 +41,7 @@ type TypeCheckRules struct {
 // DefaultTypeCheckConfig returns the default type check configuration
 func DefaultTypeCheckConfig() TypeCheckConfig {
 	return TypeCheckConfig{
-		Enabled:            false, // disabled until checker package is available
+		Enabled:            false,
 		Strict:             true,
 		RequireAnnotations: false,
 		SkipUntyped:        true,
@@ -58,78 +58,99 @@ func DefaultTypeCheckConfig() TypeCheckConfig {
 	}
 }
 
-// TODO: Uncomment when gopher-lua/types/checker is available
 // TypeChecker wraps the go-lua type checker with wippy configuration
-// type TypeChecker struct {
-// 	checker *checker.Checker
-// 	config  TypeCheckConfig
-// }
+type TypeChecker struct {
+	config   TypeCheckConfig
+	builtins map[string]types.Type
+}
 
 // NewTypeChecker creates a configured type checker.
 // Built-in modules are added as globals so they're always available.
-// func NewTypeChecker(cfg TypeCheckConfig, builtins []api.Module) *TypeChecker {
-// 	checkerCfg := checker.Config{
-// 		Strict:             cfg.Strict,
-// 		RequireAnnotations: cfg.RequireAnnotations,
-// 		SkipUntyped:        cfg.SkipUntyped,
-// 	}
+func NewTypeChecker(cfg TypeCheckConfig, builtinMods []*api.ModuleDef) *TypeChecker {
+	builtins := make(map[string]types.Type)
 
-// 	chk := checker.NewWithConfig(checkerCfg)
-// 	chk.SetGlobals(types.StandardLibrary())
+	for _, mod := range builtinMods {
+		if mod.Types != nil {
+			manifest := mod.Types()
+			if manifest != nil && manifest.Export != nil {
+				builtins[mod.Name] = manifest.Export
+			}
+		}
+	}
 
-// 	// Add built-in module types as globals
-// 	for _, mod := range builtins {
-// 		if def, ok := mod.(*api.ModuleDef); ok && def.Types != nil {
-// 			manifest := def.Types()
-// 			if manifest != nil && manifest.Export != nil {
-// 				chk.SetGlobal(def.Name, manifest.Export)
-// 			}
-// 		}
-// 	}
-
-// 	// Add enabled rules
-// 	if cfg.Rules.TypeCheck {
-// 		chk.AddRule(rules.NewTypeCheckRule())
-// 	}
-// 	if cfg.Rules.NilCheck {
-// 		chk.AddRule(rules.NewNilCheckRule())
-// 	}
-// 	if cfg.Rules.Unused {
-// 		chk.AddRule(rules.NewUnusedRule())
-// 	}
-// 	if cfg.Rules.Unreachable {
-// 		chk.AddRule(rules.NewUnreachableRule())
-// 	}
-// 	if cfg.Rules.Exhaustive {
-// 		chk.AddRule(rules.NewExhaustivenessRule())
-// 	}
-// 	if cfg.Rules.Readonly {
-// 		chk.AddRule(rules.NewReadonlyRule())
-// 	}
-// 	if cfg.Rules.Undefined {
-// 		chk.AddRule(rules.NewUndefinedRule())
-// 	}
-// 	if cfg.Rules.MissingReturn {
-// 		chk.AddRule(rules.NewMissingReturnRule())
-// 	}
-
-// 	return &TypeChecker{
-// 		checker: chk,
-// 		config:  cfg,
-// 	}
-// }
+	return &TypeChecker{
+		config:   cfg,
+		builtins: builtins,
+	}
+}
 
 // Check performs type checking on Lua source code with provided imports
-// func (tc *TypeChecker) Check(source, modulePath string, imports map[string]*types.TypeManifest) (*types.TypeManifest, *types.ErrorList, error) {
-// 	return tc.checker.CheckStringWithImports(source, modulePath, imports)
-// }
+func (tc *TypeChecker) Check(source, modulePath string, imports map[string]*types.TypeManifest) (*types.TypeManifest, []types.Diagnostic, error) {
+	chunk, err := parse.ParseString(source, modulePath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	env := types.NewEnv()
+
+	// Add built-in module types
+	for name, t := range tc.builtins {
+		env = env.WithSymbol(name, t)
+	}
+
+	// Add imports from dependencies
+	for alias, manifest := range imports {
+		if manifest != nil && manifest.Export != nil {
+			env = env.WithSymbol(alias, manifest.Export)
+		}
+		// Also add exported types
+		if manifest != nil {
+			for typeName, t := range manifest.ExportedTypes {
+				env = env.WithType(typeName, t)
+			}
+		}
+	}
+
+	diagnostics := types.CheckChunk(
+		chunk,
+		types.WithStdlib(),
+		types.WithEnv(env),
+		types.WithSource(modulePath),
+	)
+
+	// Build manifest from checked code
+	manifest := types.NewManifest(modulePath)
+
+	return manifest, diagnostics, nil
+}
 
 // IsEnabled returns whether type checking is enabled
-// func (tc *TypeChecker) IsEnabled() bool {
-// 	return tc.config.Enabled
-// }
+func (tc *TypeChecker) IsEnabled() bool {
+	return tc.config.Enabled
+}
 
 // IsStrict returns whether strict mode is enabled (errors vs warnings)
-// func (tc *TypeChecker) IsStrict() bool {
-// 	return tc.config.Strict
-// }
+func (tc *TypeChecker) IsStrict() bool {
+	return tc.config.Strict
+}
+
+// HasErrors checks if any diagnostic is an error
+func HasErrors(diagnostics []types.Diagnostic) bool {
+	for _, d := range diagnostics {
+		if d.Severity == types.SeverityError {
+			return true
+		}
+	}
+	return false
+}
+
+// FilterErrors returns only error-level diagnostics
+func FilterErrors(diagnostics []types.Diagnostic) []types.Diagnostic {
+	var errors []types.Diagnostic
+	for _, d := range diagnostics {
+		if d.Severity == types.SeverityError {
+			errors = append(errors, d)
+		}
+	}
+	return errors
+}

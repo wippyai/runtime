@@ -22,7 +22,7 @@ func newUnitTestLState() *lua.LState {
 
 func startChannelUnitProcess(t *testing.T, script string) *Process {
 	proto, _ := lua.CompileString(script, "test.lua")
-	proc := NewProcess(WithProto(proto))
+	proc := mustNewProcess(t, WithProto(proto))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {

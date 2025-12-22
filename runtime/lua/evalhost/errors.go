@@ -5,8 +5,6 @@ import (
 )
 
 var (
-	ErrProcessFactoryNotAvailable = apierror.New(apierror.Internal, "process factory not available").WithRetryable(apierror.False)
-
 	ErrNoResult = apierror.New(apierror.Internal, "process completed with no result").WithRetryable(apierror.False)
 
 	ErrProcessIdle = apierror.New(apierror.Internal, "process became idle").WithRetryable(apierror.False)
@@ -18,10 +16,6 @@ func NewCompileError(cause error) apierror.Error {
 
 func NewCreateProcessError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to create process").WithCause(cause).WithRetryable(apierror.False)
-}
-
-func NewCreateProcessFromIDError(id string, cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to create process from ID "+id).WithCause(cause).WithRetryable(apierror.False)
 }
 
 func NewModuleNotAvailableError(name string) apierror.Error {

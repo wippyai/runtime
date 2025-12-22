@@ -1,11 +1,12 @@
 package runner
 
 import (
-	"fmt"
 	"sync"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	payloadconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/evalhost"
 	lua "github.com/yuin/gopher-lua"
@@ -16,6 +17,7 @@ type CompileYield struct {
 	Source  string
 	Method  string
 	Modules []string
+	Imports map[string]registry.ID
 }
 
 var compileYieldPool = sync.Pool{
@@ -30,6 +32,7 @@ func ReleaseCompileYield(y *CompileYield) {
 	y.Source = ""
 	y.Method = ""
 	y.Modules = nil
+	y.Imports = nil
 	compileYieldPool.Put(y)
 }
 
@@ -42,6 +45,7 @@ func (y *CompileYield) ToCommand() dispatcher.Command {
 		Source:  y.Source,
 		Method:  y.Method,
 		Modules: y.Modules,
+		Imports: y.Imports,
 	}
 }
 
@@ -76,6 +80,7 @@ type RunYield struct {
 	Method  string
 	Args    payload.Payloads
 	Modules []string
+	Imports map[string]registry.ID
 	Context map[string]any
 }
 
@@ -92,6 +97,7 @@ func ReleaseRunYield(y *RunYield) {
 	y.Method = ""
 	y.Args = nil
 	y.Modules = nil
+	y.Imports = nil
 	y.Context = nil
 	runYieldPool.Put(y)
 }
@@ -106,6 +112,7 @@ func (y *RunYield) ToCommand() dispatcher.Command {
 		Method:  y.Method,
 		Args:    y.Args,
 		Modules: y.Modules,
+		Imports: y.Imports,
 		Context: y.Context,
 	}
 }
@@ -121,43 +128,11 @@ func (y *RunYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue
 		return []lua.LValue{lua.LNil, lua.LNil}
 	}
 
-	return []lua.LValue{goToLua(l, data), lua.LNil}
-}
-
-func goToLua(l *lua.LState, v any) lua.LValue {
-	if v == nil {
-		return lua.LNil
+	lval, convErr := payloadconv.GoToLua(data)
+	if convErr != nil {
+		luaErr := lua.WrapErrorWithLua(l, convErr, "conversion failed").
+			WithKind(lua.Internal).WithRetryable(false)
+		return []lua.LValue{lua.LNil, luaErr}
 	}
-	switch val := v.(type) {
-	case lua.LValue:
-		return val
-	case bool:
-		return lua.LBool(val)
-	case int:
-		return lua.LNumber(val)
-	case int64:
-		return lua.LNumber(val)
-	case float64:
-		return lua.LNumber(val)
-	case string:
-		return lua.LString(val)
-	case []byte:
-		return lua.LString(val)
-	case error:
-		return lua.LString(val.Error())
-	case []any:
-		tbl := l.CreateTable(len(val), 0)
-		for i, item := range val {
-			tbl.RawSetInt(i+1, goToLua(l, item))
-		}
-		return tbl
-	case map[string]any:
-		tbl := l.CreateTable(0, len(val))
-		for k, item := range val {
-			tbl.RawSetString(k, goToLua(l, item))
-		}
-		return tbl
-	default:
-		return lua.LString(fmt.Sprintf("%v", val))
-	}
+	return []lua.LValue{lval, lua.LNil}
 }

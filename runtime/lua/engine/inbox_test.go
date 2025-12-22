@@ -42,7 +42,7 @@ func startInboxProcess(t *testing.T, script string) *Process {
 		t.Fatalf("compile failed: %v", err)
 	}
 
-	proc := NewProcess(WithProto(proto))
+	proc := mustNewProcess(t, WithProto(proto))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	if err := proc.Init(ctx, "", nil); err != nil {
@@ -63,7 +63,7 @@ func startInboxProcessWithTranscoder(t *testing.T, script string) *Process {
 		t.Fatalf("compile failed: %v", err)
 	}
 
-	proc := NewProcess(WithProto(proto))
+	proc := mustNewProcess(t, WithProto(proto))
 
 	rootCtx := ctxapi.NewRootContext()
 	ctx, _ := ctxapi.OpenFrameContext(rootCtx)
@@ -178,22 +178,22 @@ func TestInbox_FallbackBehavior(t *testing.T) {
 	var output process.StepOutput
 
 	// Message to specific_topic (should go to specific listener, NOT inbox)
-	if err := sendInboxMessage(proc, "specific_topic", payload.Payloads{payload.NewString("msg1")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "specific_topic", payload.Payloads{payload.NewPayload(lua.LString("msg1"), payload.Lua)}, &output); err != nil {
 		t.Fatalf("send to specific_topic failed: %v", err)
 	}
 
 	// Message to unmatched topic (should fall through to inbox)
-	if err := sendInboxMessage(proc, "random_topic", payload.Payloads{payload.NewString("msg2")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "random_topic", payload.Payloads{payload.NewPayload(lua.LString("msg2"), payload.Lua)}, &output); err != nil {
 		t.Fatalf("send to random_topic failed: %v", err)
 	}
 
 	// Another message to specific_topic
-	if err := sendInboxMessage(proc, "specific_topic", payload.Payloads{payload.NewString("msg3")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "specific_topic", payload.Payloads{payload.NewPayload(lua.LString("msg3"), payload.Lua)}, &output); err != nil {
 		t.Fatalf("send second to specific_topic failed: %v", err)
 	}
 
 	// Signal to start counting
-	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewString("go")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewPayload(lua.LString("go"), payload.Lua)}, &output); err != nil {
 		t.Fatalf("send control failed: %v", err)
 	}
 
@@ -247,12 +247,12 @@ func TestInbox_DoesNotReceiveMatchedTopics(t *testing.T) {
 
 	// Send ONLY to the topic that has a listener
 	var output process.StepOutput
-	if err := sendInboxMessage(proc, "my_topic", payload.Payloads{payload.NewString("test")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "my_topic", payload.Payloads{payload.NewPayload(lua.LString("test"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
 	// Signal to start counting
-	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewString("go")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewPayload(lua.LString("go"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
@@ -300,18 +300,18 @@ func TestInbox_ReceivesUnmatchedTopics(t *testing.T) {
 
 	// Send to random topics (none have listeners)
 	var output process.StepOutput
-	if err := sendInboxMessage(proc, "topic_a", payload.Payloads{payload.NewString("a")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "topic_a", payload.Payloads{payload.NewPayload(lua.LString("a"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
-	if err := sendInboxMessage(proc, "topic_b", payload.Payloads{payload.NewString("b")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "topic_b", payload.Payloads{payload.NewPayload(lua.LString("b"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
-	if err := sendInboxMessage(proc, "topic_c", payload.Payloads{payload.NewString("c")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "topic_c", payload.Payloads{payload.NewPayload(lua.LString("c"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
 	// Signal to count
-	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewString("go")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewPayload(lua.LString("go"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
@@ -358,12 +358,12 @@ func TestInbox_SystemTopicsDoNotFallback(t *testing.T) {
 
 	// Send to a system topic that doesn't have a listener
 	var output process.StepOutput
-	if err := sendInboxMessage(proc, "@system/unknown", payload.Payloads{payload.NewString("test")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "@system/unknown", payload.Payloads{payload.NewPayload(lua.LString("test"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
 	// Signal to count
-	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewString("go")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewPayload(lua.LString("go"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
@@ -427,20 +427,20 @@ func TestInbox_MultipleListenersRoutingPriority(t *testing.T) {
 
 	var output process.StepOutput
 	// Send to topic_a
-	if err := sendInboxMessage(proc, "topic_a", payload.Payloads{payload.NewString("for_a")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "topic_a", payload.Payloads{payload.NewPayload(lua.LString("for_a"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 	// Send to topic_b
-	if err := sendInboxMessage(proc, "topic_b", payload.Payloads{payload.NewString("for_b")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "topic_b", payload.Payloads{payload.NewPayload(lua.LString("for_b"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 	// Send to unmatched topic
-	if err := sendInboxMessage(proc, "topic_c", payload.Payloads{payload.NewString("for_inbox")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "topic_c", payload.Payloads{payload.NewPayload(lua.LString("for_inbox"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
 	// Signal to count
-	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewString("go")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewPayload(lua.LString("go"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
@@ -496,7 +496,7 @@ func TestInbox_QueuedBeforeSubscription(t *testing.T) {
 
 	// Send message to "my_topic" - no inbox yet, should be queued
 	var output process.StepOutput
-	if err := sendInboxMessage(proc, "my_topic", payload.Payloads{payload.NewString("early_message")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "my_topic", payload.Payloads{payload.NewPayload(lua.LString("early_message"), payload.Lua)}, &output); err != nil {
 		t.Fatalf("send message failed: %v", err)
 	}
 
@@ -506,7 +506,7 @@ func TestInbox_QueuedBeforeSubscription(t *testing.T) {
 	}
 
 	// Signal control to continue (this will create inbox subscription)
-	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewString("go")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewPayload(lua.LString("go"), payload.Lua)}, &output); err != nil {
 		t.Fatalf("send control failed: %v", err)
 	}
 
@@ -561,13 +561,13 @@ func TestInbox_MultipleQueuedBeforeSubscription(t *testing.T) {
 	var output process.StepOutput
 
 	// Send multiple messages before inbox subscription
-	if err := sendInboxMessage(proc, "topic_a", payload.Payloads{payload.NewString("msg1")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "topic_a", payload.Payloads{payload.NewPayload(lua.LString("msg1"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
-	if err := sendInboxMessage(proc, "topic_b", payload.Payloads{payload.NewString("msg2")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "topic_b", payload.Payloads{payload.NewPayload(lua.LString("msg2"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
-	if err := sendInboxMessage(proc, "topic_c", payload.Payloads{payload.NewString("msg3")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "topic_c", payload.Payloads{payload.NewPayload(lua.LString("msg3"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
@@ -577,7 +577,7 @@ func TestInbox_MultipleQueuedBeforeSubscription(t *testing.T) {
 	}
 
 	// Signal to create inbox subscription
-	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewString("go")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewPayload(lua.LString("go"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
@@ -627,7 +627,7 @@ func TestInbox_MixedDeliveryBeforeAndAfter(t *testing.T) {
 	var output process.StepOutput
 
 	// Send message BEFORE inbox subscription
-	if err := sendInboxMessage(proc, "early_topic", payload.Payloads{payload.NewString("early")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "early_topic", payload.Payloads{payload.NewPayload(lua.LString("early"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
@@ -637,7 +637,7 @@ func TestInbox_MixedDeliveryBeforeAndAfter(t *testing.T) {
 	}
 
 	// Signal phase 1 complete - this creates inbox subscription
-	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewString("phase1")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewPayload(lua.LString("phase1"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
@@ -652,12 +652,12 @@ func TestInbox_MixedDeliveryBeforeAndAfter(t *testing.T) {
 	}
 
 	// Send message AFTER inbox subscription exists
-	if err := sendInboxMessage(proc, "late_topic", payload.Payloads{payload.NewString("late")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "late_topic", payload.Payloads{payload.NewPayload(lua.LString("late"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
 	// Signal phase 2 complete
-	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewString("phase2")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewPayload(lua.LString("phase2"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
@@ -695,7 +695,7 @@ func TestInbox_SystemTopicNotQueued(t *testing.T) {
 	var output process.StepOutput
 
 	// Send @ topic message before inbox
-	if err := sendInboxMessage(proc, "@system/test", payload.Payloads{payload.NewString("system")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "@system/test", payload.Payloads{payload.NewPayload(lua.LString("system"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
@@ -705,7 +705,7 @@ func TestInbox_SystemTopicNotQueued(t *testing.T) {
 	}
 
 	// Signal to create inbox
-	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewString("go")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewPayload(lua.LString("go"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
@@ -753,7 +753,7 @@ func TestInbox_QueueFlushOnEachSubscription(t *testing.T) {
 	var output process.StepOutput
 
 	// Send to "my_topic" before subscription exists
-	if err := sendInboxMessage(proc, "my_topic", payload.Payloads{payload.NewString("early_value")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "my_topic", payload.Payloads{payload.NewPayload(lua.LString("early_value"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
@@ -763,7 +763,7 @@ func TestInbox_QueueFlushOnEachSubscription(t *testing.T) {
 	}
 
 	// Signal to create "my_topic" subscription
-	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewString("go")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewPayload(lua.LString("go"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
@@ -797,7 +797,7 @@ func TestInbox_DirectQueueInjection(t *testing.T) {
 	// Directly inject a message into the queue BEFORE any step execution
 	proc.messageQueue = append(proc.messageQueue, queuedMessage{
 		Topic:    "injected_topic",
-		Payloads: payload.Payloads{payload.NewString("pre_injected")},
+		Payloads: payload.Payloads{payload.NewPayload(lua.LString("pre_injected"), payload.Lua)},
 	})
 
 	// Now run - inbox subscription should flush the pre-injected message
@@ -846,11 +846,11 @@ func TestResponseChannelBasic(t *testing.T) {
 
 	var output process.StepOutput
 
-	if err := sendInboxMessage(proc, "test.response.12345", payload.Payloads{payload.NewString("response_data")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "test.response.12345", payload.Payloads{payload.NewPayload(lua.LString("response_data"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewString("go")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewPayload(lua.LString("go"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
@@ -908,7 +908,7 @@ func TestResponseChannelWithTablePayload(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewString("go")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewPayload(lua.LString("go"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
@@ -961,17 +961,17 @@ func TestMultipleResponseChannels(t *testing.T) {
 
 	var output process.StepOutput
 
-	if err := sendInboxMessage(proc, "response.ch1", payload.Payloads{payload.NewString("r1")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "response.ch1", payload.Payloads{payload.NewPayload(lua.LString("r1"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
-	if err := sendInboxMessage(proc, "response.ch2", payload.Payloads{payload.NewString("r2a")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "response.ch2", payload.Payloads{payload.NewPayload(lua.LString("r2a"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
-	if err := sendInboxMessage(proc, "response.ch2", payload.Payloads{payload.NewString("r2b")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "response.ch2", payload.Payloads{payload.NewPayload(lua.LString("r2b"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewString("go")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewPayload(lua.LString("go"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1024,11 +1024,11 @@ func TestResponseChannelDoesNotLeakToInbox(t *testing.T) {
 
 	var output process.StepOutput
 
-	if err := sendInboxMessage(proc, "my.response.topic", payload.Payloads{payload.NewString("response")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "my.response.topic", payload.Payloads{payload.NewPayload(lua.LString("response"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewString("go")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewPayload(lua.LString("go"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1064,7 +1064,7 @@ func TestResponseChannelBlockingReceive(t *testing.T) {
 
 	var output process.StepOutput
 
-	if err := sendInboxMessage(proc, "blocking.response", payload.Payloads{payload.NewString("awaited_response")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "blocking.response", payload.Payloads{payload.NewPayload(lua.LString("awaited_response"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1182,7 +1182,7 @@ func TestListenReceivesRawPayloads(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewString("go")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewPayload(lua.LString("go"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1229,11 +1229,11 @@ func TestListenStringPayload(t *testing.T) {
 
 	var output process.StepOutput
 
-	if err := sendInboxMessage(proc, "listen.string.topic", payload.Payloads{payload.NewString("hello_world")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "listen.string.topic", payload.Payloads{payload.NewPayload(lua.LString("hello_world"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewString("go")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "control", payload.Payloads{payload.NewPayload(lua.LString("go"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1274,7 +1274,7 @@ func TestMessagesBeforeSubscription(t *testing.T) {
 
 	proc.messageQueue = append(proc.messageQueue, queuedMessage{
 		Topic:    "my_topic",
-		Payloads: payload.Payloads{payload.NewString("early_message")},
+		Payloads: payload.Payloads{payload.NewPayload(lua.LString("early_message"), payload.Lua)},
 	})
 
 	for i := 0; i < 50; i++ {
@@ -1319,7 +1319,7 @@ func TestMessagesBeforeInboxSubscription(t *testing.T) {
 
 	proc.messageQueue = append(proc.messageQueue, queuedMessage{
 		Topic:    "random_topic",
-		Payloads: payload.Payloads{payload.NewString("early_inbox_message")},
+		Payloads: payload.Payloads{payload.NewPayload(lua.LString("early_inbox_message"), payload.Lua)},
 	})
 
 	for i := 0; i < 50; i++ {
@@ -1367,7 +1367,7 @@ func TestMessageViaStepBeforeSubscription(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := sendInboxMessage(proc, "my_topic", payload.Payloads{payload.NewString("test")}, &output); err != nil {
+	if err := sendInboxMessage(proc, "my_topic", payload.Payloads{payload.NewPayload(lua.LString("test"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1402,7 +1402,7 @@ func TestMessageQueueState(t *testing.T) {
 
 	proc.messageQueue = append(proc.messageQueue, queuedMessage{
 		Topic:    "test_topic",
-		Payloads: payload.Payloads{payload.NewString("msg1")},
+		Payloads: payload.Payloads{payload.NewPayload(lua.LString("msg1"), payload.Lua)},
 	})
 
 	for i := 0; i < 30; i++ {

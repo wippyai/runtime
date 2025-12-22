@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/wippyai/runtime/api/boot"
+	envapi "github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
@@ -57,6 +58,8 @@ func TokenStore() boot.Component {
 				return ctx, ErrRegistryNotAvailable
 			}
 
+			envRegistry := envapi.GetRegistry(ctx)
+
 			// Register security dependency patterns
 			securityPatterns := []regapi.DependencyPattern{
 				{Path: "data.token_store", Description: "Reference to token storage"},
@@ -77,6 +80,7 @@ func TokenStore() boot.Component {
 				dtt,
 				resources,
 				security,
+				envRegistry,
 				logger.Named("tstore"),
 			)
 

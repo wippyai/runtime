@@ -27,7 +27,10 @@ func TestAllocProfile(t *testing.T) {
 
 	// Warmup - ensure all sync.Once have fired
 	warmupCtx, _ := ctxapi.OpenFrameContext(context.Background())
-	warmupProc := NewProcess(WithProto(proto))
+	warmupProc, err := NewProcess(WithProto(proto))
+	if err != nil {
+		t.Fatalf("warmup NewProcess: %v", err)
+	}
 	warmupProc.Init(warmupCtx, "", nil)
 	warmupProc.Close()
 
@@ -87,7 +90,7 @@ func TestAllocProfile(t *testing.T) {
 			BindCachedLibs(l)
 			l.Push(lua.LGoFunc(OpenRestrictedPackage))
 			l.Push(lua.LString(lua.LoadLibName))
-			l.Call(1, 0)
+			_ = l.PCall(1, 0, nil)
 			l.Close()
 		}
 	})
@@ -101,7 +104,7 @@ func TestAllocProfile(t *testing.T) {
 	createStateResult := testing.Benchmark(func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			l := factory.CreateState()
+			l, _ := factory.CreateState()
 			l.Close()
 		}
 	})
@@ -137,7 +140,7 @@ func TestAllocProfile(t *testing.T) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			ctx, _ := ctxapi.OpenFrameContext(context.Background())
-			proc := NewProcess(WithProto(proto))
+			proc := mustNewProcess(b, WithProto(proto))
 			proc.Init(ctx, "", nil)
 			proc.Close()
 		}

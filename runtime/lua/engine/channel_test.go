@@ -16,9 +16,9 @@ import (
 
 func startChannelProcess(t *testing.T, script string) *Process {
 	proto, _ := lua.CompileString(script, "test.lua")
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithProto(proto),
-		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
+		WithModuleBinder(wrapBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) })),
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
@@ -1163,7 +1163,7 @@ func TestChainedChannels(t *testing.T) {
 
 func startSubscribeProcess(t *testing.T, script string) *Process {
 	proto, _ := lua.CompileString(script, "test.lua")
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithProto(proto),
 	)
 
@@ -2285,7 +2285,7 @@ func startEventProcess(t *testing.T, script string) *Process {
 	t.Helper()
 
 	proto, _ := lua.CompileString(script, "test.lua")
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithProto(proto),
 	)
 
@@ -2359,7 +2359,7 @@ func TestEventMessageWithStringPayload(t *testing.T) {
 	}
 
 	var output process.StepOutput
-	stringPayload := payload.NewString("hello world")
+	stringPayload := payload.NewPayload(lua.LString("hello world"), payload.Lua)
 	if err := sendMessageWithPayload(proc, "test_topic", payload.Payloads{stringPayload}, &output); err != nil {
 		t.Fatal(err)
 	}
@@ -2388,7 +2388,7 @@ func TestEventMessageWithTablePayload(t *testing.T) {
 	`
 
 	proto, _ := lua.CompileString(script, "test.lua")
-	proc := NewProcess(WithProto(proto))
+	proc := mustNewProcess(t, WithProto(proto))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 
@@ -2449,8 +2449,8 @@ func TestEventMessageMultiplePayloads(t *testing.T) {
 
 	var output process.StepOutput
 	payloads := payload.Payloads{
-		payload.NewString("first"),
-		payload.NewString("second"),
+		payload.NewPayload(lua.LString("first"), payload.Lua),
+		payload.NewPayload(lua.LString("second"), payload.Lua),
 	}
 	if err := sendMessageWithPayload(proc, "multi_topic", payloads, &output); err != nil {
 		t.Fatal(err)
@@ -2477,7 +2477,7 @@ func TestEventMessageBlockedReceiver(t *testing.T) {
 	}
 
 	var output process.StepOutput
-	stringPayload := payload.NewString("wake up!")
+	stringPayload := payload.NewPayload(lua.LString("wake up!"), payload.Lua)
 	if err := sendMessageWithPayload(proc, "wake_topic", payload.Payloads{stringPayload}, &output); err != nil {
 		t.Fatal(err)
 	}
@@ -2517,10 +2517,10 @@ func TestEventMessageRoutingByTopic(t *testing.T) {
 	}
 
 	var output process.StepOutput
-	if err := sendMessageWithPayload(proc, "topic1", payload.Payloads{payload.NewString("for topic1")}, &output); err != nil {
+	if err := sendMessageWithPayload(proc, "topic1", payload.Payloads{payload.NewPayload(lua.LString("for topic1"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
-	if err := sendMessageWithPayload(proc, "topic2", payload.Payloads{payload.NewString("for topic2")}, &output); err != nil {
+	if err := sendMessageWithPayload(proc, "topic2", payload.Payloads{payload.NewPayload(lua.LString("for topic2"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2577,7 +2577,7 @@ func TestEventMessageNoSubscriber(t *testing.T) {
 	}
 
 	var output process.StepOutput
-	if err := sendMessageWithPayload(proc, "unsubscribed_topic", payload.Payloads{payload.NewString("ignored")}, &output); err != nil {
+	if err := sendMessageWithPayload(proc, "unsubscribed_topic", payload.Payloads{payload.NewPayload(lua.LString("ignored"), payload.Lua)}, &output); err != nil {
 		t.Fatal(err)
 	}
 
@@ -3158,9 +3158,9 @@ func TestSelectReceiveFromBlockedSender(t *testing.T) {
 		return result_ok
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
+		WithModuleBinder(wrapBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) })),
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
@@ -3236,9 +3236,9 @@ func TestSelectSendToBlockedReceiver(t *testing.T) {
 		return true
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
+		WithModuleBinder(wrapBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) })),
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
@@ -3314,9 +3314,9 @@ func TestSelectReceiveFromBufferWithBlockedSender(t *testing.T) {
 		return true
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
+		WithModuleBinder(wrapBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) })),
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
@@ -3360,9 +3360,9 @@ func TestMainReturnKillsWorkers(t *testing.T) {
 		return "main done"
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
+		WithModuleBinder(wrapBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) })),
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
@@ -3507,9 +3507,9 @@ func TestSelectInLoopWithSubscribedChannel(t *testing.T) {
 		return result
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
+		WithModuleBinder(wrapBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) })),
 		WithModuleBinder(bindProcessModule),
 	)
 
@@ -3619,9 +3619,9 @@ func TestSessionProcessPattern(t *testing.T) {
 		return "main_timeout"
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
+		WithModuleBinder(wrapBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) })),
 		WithModuleBinder(bindProcessModule),
 	)
 
@@ -3779,13 +3779,13 @@ func TestBusPatternWorkerBlockedThenMainSends(t *testing.T) {
 		return "main_timeout"
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
+		WithModuleBinder(wrapBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) })),
 		WithModuleBinder(bindProcessModule),
-		WithModuleBinder(func(l *lua.LState) {
+		WithModuleBinder(wrapBinder(func(l *lua.LState) {
 			l.SetGlobal("test_yield", l.NewFunction(testYieldFunc))
-		}),
+		})),
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
@@ -3904,9 +3904,9 @@ func TestSelectSendWakesOnClose(t *testing.T) {
 		return "unexpected: " .. tostring(select_result)
 	`
 
-	proc := NewProcess(
+	proc := mustNewProcess(t, 
 		WithScript(script, "test.lua"),
-		WithModuleBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) }),
+		WithModuleBinder(wrapBinder(func(l *lua.LState) { LoadModuleDef(l, ChannelModule) })),
 	)
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
