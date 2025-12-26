@@ -2,7 +2,6 @@
 package tokenstore
 
 import (
-	"encoding/json"
 	"time"
 
 	"github.com/wippyai/runtime/api/registry"
@@ -39,7 +38,7 @@ type Config struct {
 	TokenKeyEnv string `json:"token_key_env,omitempty"`
 
 	// DefaultExpiration is the default token expiration time if not specified
-	DefaultExpiration time.Duration `json:"default_expiration"`
+	DefaultExpiration time.Duration `json:"default_expiration,omitzero,format:units"`
 }
 
 // Validate checks if the configuration is valid
@@ -64,41 +63,4 @@ func (c *Config) InitDefaults() {
 	if c.DefaultExpiration == 0 {
 		c.DefaultExpiration = 24 * time.Hour // 1 day
 	}
-}
-
-// UnmarshalJSON implements custom unmarshaling for Config to handle time.Duration fields
-func (c *Config) UnmarshalJSON(data []byte) error {
-	type Alias Config
-	aux := &struct {
-		DefaultExpiration string `json:"default_expiration"`
-		*Alias
-	}{
-		Alias: (*Alias)(c),
-	}
-
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-
-	if aux.DefaultExpiration != "" {
-		var err error
-		c.DefaultExpiration, err = time.ParseDuration(aux.DefaultExpiration)
-		if err != nil {
-			return NewInvalidDefaultExpirationError(err)
-		}
-	}
-
-	return nil
-}
-
-// MarshalJSON implements custom marshaling for Config to handle time.Duration fields
-func (c *Config) MarshalJSON() ([]byte, error) {
-	type Alias Config
-	return json.Marshal(&struct {
-		DefaultExpiration string `json:"default_expiration"`
-		*Alias
-	}{
-		DefaultExpiration: c.DefaultExpiration.String(),
-		Alias:             (*Alias)(c),
-	})
 }

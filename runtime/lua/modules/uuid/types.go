@@ -1,6 +1,8 @@
 package uuid
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // UUIDInfo type returned by parse
 var uuidInfoType = &types.RecordType{

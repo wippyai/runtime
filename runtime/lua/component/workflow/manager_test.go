@@ -136,13 +136,155 @@ func TestManager_Delete_InvalidKind(t *testing.T) {
 	require.ErrorContains(t, err, "invalid entry kind")
 }
 
-func TestManager_Invalidate(_ *testing.T) {
+func TestManager_Invalidate_NoConfig(t *testing.T) {
+	log := zap.NewNop()
+	codeManager := &code.Manager{}
+	bus := &mockEventBus{}
+	factory := &mockTrackingFactory{}
+	manager := NewManager(log, codeManager, bus, factory)
+
+	ids := []registry.ID{{Name: "test1"}, {Name: "test2"}}
+	manager.Invalidate(context.Background(), ids)
+
+	// Factory should not be called when no configs exist
+	assert.Equal(t, 0, factory.callCount)
+}
+
+func TestManager_Invalidate_WithConfig(t *testing.T) {
+	log := zap.NewNop()
+	codeManager := &code.Manager{}
+	bus := &mockEventBus{}
+	factory := &mockTrackingFactory{}
+	manager := NewManager(log, codeManager, bus, factory)
+
+	id := registry.NewID("test", "workflow")
+	cfg := &api.WorkflowConfig{
+		Source: "return {}",
+		Method: "main",
+	}
+	manager.configs.Store(id, cfg)
+
+	manager.Invalidate(context.Background(), []registry.ID{id})
+
+	// Factory should be called for recompilation
+	assert.Equal(t, 1, factory.callCount)
+}
+
+func TestManager_Update_InvalidConfig(t *testing.T) {
 	log := zap.NewNop()
 	codeManager := &code.Manager{}
 	bus := &mockEventBus{}
 	factory := &mockCompiledFactory{}
 	manager := NewManager(log, codeManager, bus, factory)
 
-	ids := []registry.ID{{Name: "test1"}, {Name: "test2"}}
-	manager.Invalidate(context.Background(), ids)
+	testData := `{"source": "test", "invalid": }`
+	payloadData := payload.NewPayload(testData, payload.JSON)
+	entry := registry.Entry{
+		Kind: api.Workflow,
+		Data: payloadData,
+	}
+
+	ctx := context.Background()
+	transcoder := systempayload.NewTranscoder()
+	json.Register(transcoder)
+	ctx = payload.WithTranscoder(ctx, transcoder)
+
+	err := manager.Update(ctx, entry)
+
+	require.ErrorContains(t, err, "failed to unpack workflow config")
+}
+
+func TestManager_ConfigStoreLoad(t *testing.T) {
+	log := zap.NewNop()
+	codeManager := &code.Manager{}
+	bus := &mockEventBus{}
+	factory := &mockCompiledFactory{}
+	manager := NewManager(log, codeManager, bus, factory)
+
+	id := registry.NewID("test", "config")
+	cfg := &api.WorkflowConfig{
+		Source: "return { main = function() end }",
+		Method: "main",
+	}
+
+	// Store config
+	manager.configs.Store(id, cfg)
+
+	// Load config
+	loaded, ok := manager.configs.Load(id)
+	require.True(t, ok)
+
+	loadedCfg := loaded.(*api.WorkflowConfig)
+	assert.Equal(t, cfg.Source, loadedCfg.Source)
+	assert.Equal(t, cfg.Method, loadedCfg.Method)
+
+	// Delete config
+	manager.configs.Delete(id)
+
+	// Verify deleted
+	_, ok = manager.configs.Load(id)
+	assert.False(t, ok)
+}
+
+func TestManager_unregisterFactory_SendsEvent(t *testing.T) {
+	log := zap.NewNop()
+	codeManager := &code.Manager{}
+	bus := &mockEventBus{}
+	factory := &mockCompiledFactory{}
+	manager := NewManager(log, codeManager, bus, factory)
+
+	id := registry.NewID("test", "unregister")
+	manager.unregisterFactory(context.Background(), id)
+
+	require.Len(t, bus.events, 1)
+	assert.Equal(t, processapi.System, bus.events[0].System)
+	assert.Equal(t, processapi.FactoryDelete, bus.events[0].Kind)
+	assert.Equal(t, id.String(), bus.events[0].Path)
+}
+
+type mockTrackingFactory struct {
+	callCount int
+}
+
+func (m *mockTrackingFactory) CreateFactory(_ registry.ID, _ ...engine.FactoryOption) (processapi.FactoryFunc, error) {
+	m.callCount++
+	return func() (processapi.Process, error) {
+		return nil, fmt.Errorf("mock factory not implemented")
+	}, nil
+}
+
+func TestManager_Concurrency(_ *testing.T) {
+	log := zap.NewNop()
+	codeManager := &code.Manager{}
+	bus := &mockEventBus{}
+	factory := &mockCompiledFactory{}
+	manager := NewManager(log, codeManager, bus, factory)
+
+	done := make(chan struct{})
+
+	// Concurrent config operations
+	go func() {
+		for i := 0; i < 100; i++ {
+			id := registry.NewID("test", "concurrent")
+			cfg := &api.WorkflowConfig{Source: "test"}
+			manager.configs.Store(id, cfg)
+			manager.configs.Load(id)
+			manager.configs.Delete(id)
+		}
+		done <- struct{}{}
+	}()
+
+	// Concurrent invalidate
+	go func() {
+		for i := 0; i < 50; i++ {
+			manager.Invalidate(context.Background(), []registry.ID{
+				registry.NewID("test", "inv1"),
+				registry.NewID("test", "inv2"),
+			})
+		}
+		done <- struct{}{}
+	}()
+
+	<-done
+	<-done
 }

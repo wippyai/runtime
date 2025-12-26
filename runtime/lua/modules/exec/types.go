@@ -1,6 +1,8 @@
 package exec
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // Executor type
 var executorType = &types.InterfaceType{

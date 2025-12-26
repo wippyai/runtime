@@ -1,6 +1,8 @@
 package base64
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // ModuleTypes returns the type manifest for the base64 module.
 func ModuleTypes() *types.TypeManifest {

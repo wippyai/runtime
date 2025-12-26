@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	base64mod "github.com/wippyai/runtime/runtime/lua/modules/base64"
 	"github.com/yuin/gopher-lua/types"
+
 	"github.com/yuin/gopher-lua/types/checker"
 )
 

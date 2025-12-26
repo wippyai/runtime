@@ -1,6 +1,8 @@
 package httpclient
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // StreamReader type for streaming response body
 var streamReaderType = &types.InterfaceType{

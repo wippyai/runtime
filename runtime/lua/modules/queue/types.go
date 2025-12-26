@@ -1,6 +1,8 @@
 package queue
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // Message type
 var messageType = &types.InterfaceType{

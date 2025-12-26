@@ -2,12 +2,10 @@
 package sql
 
 import (
-	"encoding/json"
 	"regexp"
 	"strings"
 	"time"
 
-	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/supervisor"
 )
@@ -38,7 +36,7 @@ type Config struct {
 	// CleanupInterval is how often the store checks for expired entries
 	// The store will run a background task at this interval to remove entries with expired TTLs
 	// Set to 0 to disable automatic cleanup
-	CleanupInterval time.Duration `json:"cleanup_interval"`
+	CleanupInterval time.Duration `json:"cleanup_interval,omitzero,format:units"`
 
 	Lifecycle supervisor.LifecycleConfig `json:"lifecycle"`
 }
@@ -120,41 +118,6 @@ func (c *Config) InitDefaults() {
 	}
 
 	c.Lifecycle.InitDefaults()
-}
-
-// UnmarshalJSON deserializes Config from JSON, parsing duration strings.
-func (c *Config) UnmarshalJSON(data []byte) error {
-	type Alias Config
-	aux := &struct {
-		CleanupInterval string `json:"cleanup_interval"`
-		*Alias
-	}{
-		Alias: (*Alias)(c),
-	}
-
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-
-	var err error
-	if aux.CleanupInterval != "" {
-		c.CleanupInterval, err = time.ParseDuration(aux.CleanupInterval)
-		if err != nil {
-			return apierror.New(apierror.Invalid, "invalid cleanup interval duration").WithCause(err).WithRetryable(apierror.False)
-		}
-	}
-
-	return nil
-}
-
-// MarshalJSON serializes Config to JSON.
-func (c *Config) MarshalJSON() ([]byte, error) {
-	type Alias Config
-	return json.Marshal(&struct {
-		*Alias
-	}{
-		Alias: (*Alias)(c),
-	})
 }
 
 // IsSafe validates that the input string is safe for SQL use and not an injection attempt.

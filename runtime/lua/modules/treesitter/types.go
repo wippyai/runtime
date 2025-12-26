@@ -1,6 +1,8 @@
 package treesitter
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // Point type
 var pointType = &types.RecordType{

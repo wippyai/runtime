@@ -1,6 +1,8 @@
 package contract
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // SchemaDefinition type
 var schemaDefinitionType = &types.RecordType{

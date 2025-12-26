@@ -1,6 +1,8 @@
 package engine
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // SelectCase type for channel.select
 var selectCaseType = &types.InterfaceType{

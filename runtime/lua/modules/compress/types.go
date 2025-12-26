@@ -1,6 +1,8 @@
 package compress
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // CompressOptions type
 var compressOptionsType = &types.RecordType{

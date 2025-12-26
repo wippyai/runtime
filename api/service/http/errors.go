@@ -22,10 +22,6 @@ func NewInvalidHTTPMethodError(method string) apierror.Error {
 	return apierror.New(apierror.Invalid, "invalid HTTP method: "+method).WithRetryable(apierror.False)
 }
 
-func NewInvalidDurationError(field string, cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid duration for "+field).WithCause(cause).WithRetryable(apierror.False)
-}
-
 func NewInvalidTimeoutConfigError(cause error) apierror.Error {
 	return apierror.New(apierror.Invalid, "invalid timeout configuration").WithCause(cause).WithRetryable(apierror.False)
 }

@@ -3,7 +3,6 @@ package temporal
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"testing"
 	"time"
 
@@ -556,34 +555,6 @@ func TestErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.message, func(t *testing.T) {
 			assert.Equal(t, tt.message, tt.err.Error())
-		})
-	}
-}
-
-func TestErrorConstructors(t *testing.T) {
-	cause := errors.New("parse error")
-
-	tests := []struct {
-		name     string
-		errFn    func(error) error
-		contains string
-	}{
-		{"connection timeout", func(e error) error { return NewInvalidConnectionTimeoutError(e) }, "connection timeout"},
-		{"keep alive time", func(e error) error { return NewInvalidKeepAliveTimeError(e) }, "keep alive time"},
-		{"keep alive timeout", func(e error) error { return NewInvalidKeepAliveTimeoutError(e) }, "keep alive timeout"},
-		{"health check interval", func(e error) error { return NewInvalidHealthCheckIntervalError(e) }, "health check interval"},
-		{"sticky schedule", func(e error) error { return NewInvalidStickyScheduleToStartTimeoutError(e) }, "sticky schedule"},
-		{"worker stop", func(e error) error { return NewInvalidWorkerStopTimeoutError(e) }, "worker stop"},
-		{"deadlock detection", func(e error) error { return NewInvalidDeadlockDetectionTimeoutError(e) }, "deadlock detection"},
-		{"max heartbeat", func(e error) error { return NewInvalidMaxHeartbeatThrottleIntervalError(e) }, "max heartbeat"},
-		{"default heartbeat", func(e error) error { return NewInvalidDefaultHeartbeatThrottleIntervalError(e) }, "default heartbeat"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := tt.errFn(cause)
-			assert.Error(t, err)
-			assert.Contains(t, err.Error(), tt.contains)
 		})
 	}
 }

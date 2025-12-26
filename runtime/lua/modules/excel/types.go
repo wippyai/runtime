@@ -1,6 +1,8 @@
 package excel
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // Workbook type
 var workbookType = &types.InterfaceType{

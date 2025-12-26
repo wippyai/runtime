@@ -1,6 +1,8 @@
 package system
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // MemStats type
 var memStatsType = &types.RecordType{

@@ -1,6 +1,8 @@
 package hash
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // ModuleTypes returns the type manifest for the hash module.
 func ModuleTypes() *types.TypeManifest {

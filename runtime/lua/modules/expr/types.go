@@ -1,6 +1,8 @@
 package expr
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // Program type
 var programType = &types.InterfaceType{

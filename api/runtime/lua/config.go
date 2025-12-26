@@ -176,11 +176,6 @@ func (c *FunctionConfig) Validate() error {
 		return NewInvalidPoolSizeError()
 	}
 
-	// For flex pools, validate MaxSize
-	//nolint:revive,staticcheck
-	if isFlexPool && c.Pool.MaxSize <= 0 {
-	}
-
 	// Worker pools validation
 	if c.Pool.Workers > 0 && c.Pool.Size <= 0 {
 		return NewInvalidWorkerPoolSizeError()

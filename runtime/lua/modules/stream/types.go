@@ -1,6 +1,8 @@
 package stream
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // Stream type
 var streamType = &types.InterfaceType{

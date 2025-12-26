@@ -27,7 +27,7 @@ func TestConfig_MarshalJSON(t *testing.T) {
 				MaxSize:         1000,
 				CleanupInterval: 5 * time.Minute,
 			},
-			expected: `{"max_size":1000,"cleanup_interval":"5m0s","lifecycle":{"auto_start":false,"start_timeout":"0s","stop_timeout":"0s","stable_threshold":"0s","restart":{"initial_delay":"0s","max_delay":"0s","backoff_factor":0,"jitter":0,"max_attempts":0},"depends_on":null}}`,
+			expected: `{"max_size":1000,"cleanup_interval":"5m0s","lifecycle":{"auto_start":false,"restart":{"backoff_factor":0,"jitter":0,"max_attempts":0},"depends_on":null}}`,
 			wantErr:  false,
 		},
 		{
@@ -36,7 +36,7 @@ func TestConfig_MarshalJSON(t *testing.T) {
 				MaxSize:         0,
 				CleanupInterval: 0,
 			},
-			expected: `{"max_size":0,"cleanup_interval":"0s","lifecycle":{"auto_start":false,"start_timeout":"0s","stop_timeout":"0s","stable_threshold":"0s","restart":{"initial_delay":"0s","max_delay":"0s","backoff_factor":0,"jitter":0,"max_attempts":0},"depends_on":null}}`,
+			expected: `{"max_size":0,"lifecycle":{"auto_start":false,"restart":{"backoff_factor":0,"jitter":0,"max_attempts":0},"depends_on":null}}`,
 			wantErr:  false,
 		},
 	}

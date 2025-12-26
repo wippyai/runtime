@@ -1,7 +1,6 @@
 package temporal
 
 import (
-	"encoding/json"
 	"time"
 
 	"github.com/wippyai/runtime/api/attrs"
@@ -41,11 +40,11 @@ type WorkerOptionsConfig struct {
 	TaskQueueActivitiesPerSecond   float64 `json:"task_queue_activities_per_second,omitempty"`
 
 	// Timeouts and intervals
-	StickyScheduleToStartTimeout     time.Duration `json:"sticky_schedule_to_start_timeout,omitempty"`
-	WorkerStopTimeout                time.Duration `json:"worker_stop_timeout,omitempty"`
-	DeadlockDetectionTimeout         time.Duration `json:"deadlock_detection_timeout,omitempty"`
-	MaxHeartbeatThrottleInterval     time.Duration `json:"max_heartbeat_throttle_interval,omitempty"`
-	DefaultHeartbeatThrottleInterval time.Duration `json:"default_heartbeat_throttle_interval,omitempty"`
+	StickyScheduleToStartTimeout     time.Duration `json:"sticky_schedule_to_start_timeout,omitzero,format:units"`
+	WorkerStopTimeout                time.Duration `json:"worker_stop_timeout,omitzero,format:units"`
+	DeadlockDetectionTimeout         time.Duration `json:"deadlock_detection_timeout,omitzero,format:units"`
+	MaxHeartbeatThrottleInterval     time.Duration `json:"max_heartbeat_throttle_interval,omitzero,format:units"`
+	DefaultHeartbeatThrottleInterval time.Duration `json:"default_heartbeat_throttle_interval,omitzero,format:units"`
 
 	// Feature flags
 	EnableLoggingInReplay       bool `json:"enable_logging_in_replay,omitempty"`
@@ -75,64 +74,6 @@ const (
 	// VersioningBehaviorAutoUpgrade moves workflow to latest version on next task.
 	VersioningBehaviorAutoUpgrade VersioningBehavior = "auto_upgrade"
 )
-
-// UnmarshalJSON implements custom unmarshaling for WorkerOptionsConfig to handle time.Duration fields
-func (c *WorkerOptionsConfig) UnmarshalJSON(data []byte) error {
-	type Alias WorkerOptionsConfig
-	aux := &struct {
-		StickyScheduleToStartTimeout     string `json:"sticky_schedule_to_start_timeout,omitempty"`
-		WorkerStopTimeout                string `json:"worker_stop_timeout,omitempty"`
-		DeadlockDetectionTimeout         string `json:"deadlock_detection_timeout,omitempty"`
-		MaxHeartbeatThrottleInterval     string `json:"max_heartbeat_throttle_interval,omitempty"`
-		DefaultHeartbeatThrottleInterval string `json:"default_heartbeat_throttle_interval,omitempty"`
-		*Alias
-	}{
-		Alias: (*Alias)(c),
-	}
-
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-
-	var err error
-
-	if aux.StickyScheduleToStartTimeout != "" {
-		c.StickyScheduleToStartTimeout, err = time.ParseDuration(aux.StickyScheduleToStartTimeout)
-		if err != nil {
-			return NewInvalidStickyScheduleToStartTimeoutError(err)
-		}
-	}
-
-	if aux.WorkerStopTimeout != "" {
-		c.WorkerStopTimeout, err = time.ParseDuration(aux.WorkerStopTimeout)
-		if err != nil {
-			return NewInvalidWorkerStopTimeoutError(err)
-		}
-	}
-
-	if aux.DeadlockDetectionTimeout != "" {
-		c.DeadlockDetectionTimeout, err = time.ParseDuration(aux.DeadlockDetectionTimeout)
-		if err != nil {
-			return NewInvalidDeadlockDetectionTimeoutError(err)
-		}
-	}
-
-	if aux.MaxHeartbeatThrottleInterval != "" {
-		c.MaxHeartbeatThrottleInterval, err = time.ParseDuration(aux.MaxHeartbeatThrottleInterval)
-		if err != nil {
-			return NewInvalidMaxHeartbeatThrottleIntervalError(err)
-		}
-	}
-
-	if aux.DefaultHeartbeatThrottleInterval != "" {
-		c.DefaultHeartbeatThrottleInterval, err = time.ParseDuration(aux.DefaultHeartbeatThrottleInterval)
-		if err != nil {
-			return NewInvalidDefaultHeartbeatThrottleIntervalError(err)
-		}
-	}
-
-	return nil
-}
 
 // InitDefaults initializes default values for WorkerConfig
 func (c *WorkerConfig) InitDefaults() {

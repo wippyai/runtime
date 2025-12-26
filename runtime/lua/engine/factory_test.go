@@ -666,3 +666,357 @@ func TestFactory_Consolidation_WorkflowRestricted(t *testing.T) {
 		t.Fatal("expected non-nil process")
 	}
 }
+
+// Module Aliasing Tests
+
+func TestFactory_ModuleAliasing_GoModule(t *testing.T) {
+	cm := setupFactoryCodeManager(t)
+
+	// Register a Go module
+	testMod := &luaapi.ModuleDef{
+		Name:        "original_name",
+		Description: "Test module for aliasing",
+		Build: func() (*lua.LTable, []luaapi.YieldType) {
+			tbl := lua.CreateTable(0, 1)
+			tbl.RawSetString("marker", lua.LString("from_original_name"))
+			return tbl, nil
+		},
+	}
+
+	modNode := code.Node{
+		ID:     registry.NewID("", "original_name"),
+		Kind:   luaapi.ModuleKind,
+		Module: testMod,
+	}
+	if err := cm.AddNode(context.Background(), modNode, nil); err != nil {
+		t.Fatalf("AddNode failed: %v", err)
+	}
+
+	// Create a function that imports the module with an alias
+	id := registry.NewID("test", "alias_test")
+	node := code.Node{
+		ID:     id,
+		Kind:   luaapi.Function,
+		Source: `return function() return aliased_module.marker end`,
+		Method: "main",
+	}
+	imports := []code.Import{{ID: registry.NewID("", "original_name"), Alias: "aliased_module"}}
+	if err := cm.AddNode(context.Background(), node, imports); err != nil {
+		t.Fatalf("AddNode failed: %v", err)
+	}
+
+	pf := NewProcessFactory(cm)
+	factoryFn, err := pf.CreateFactory(id)
+	if err != nil {
+		t.Fatalf("CreateFactory failed: %v", err)
+	}
+
+	proc, err := factoryFn()
+	if err != nil {
+		t.Fatalf("factory() failed: %v", err)
+	}
+
+	// Verify the alias is set correctly in the Lua state
+	luaProc := proc.(*Process)
+	state := luaProc.State()
+
+	// Check aliased_module global exists
+	aliasedMod := state.GetGlobal("aliased_module")
+	if aliasedMod == lua.LNil {
+		t.Fatal("aliased_module global not found")
+	}
+
+	// Verify it's a table with the expected marker
+	tbl, ok := aliasedMod.(*lua.LTable)
+	if !ok {
+		t.Fatalf("expected table, got %T", aliasedMod)
+	}
+
+	marker := tbl.RawGetString("marker")
+	if marker.String() != "from_original_name" {
+		t.Errorf("expected 'from_original_name', got '%s'", marker.String())
+	}
+
+	// Verify original_name is NOT set as global
+	originalMod := state.GetGlobal("original_name")
+	if originalMod != lua.LNil {
+		t.Error("original_name should not be a global when aliased")
+	}
+}
+
+func TestFactory_ModuleAliasing_LuaLibrary(t *testing.T) {
+	cm := setupFactoryCodeManager(t)
+
+	// Create a Lua library
+	libID := registry.NewID("", "my_utils")
+	libNode := code.Node{
+		ID:     libID,
+		Kind:   luaapi.Library,
+		Source: `return { marker = "from_utils" }`,
+	}
+	if err := cm.AddNode(context.Background(), libNode, nil); err != nil {
+		t.Fatalf("AddNode failed: %v", err)
+	}
+
+	// Create a function that imports the library with an alias
+	id := registry.NewID("test", "lib_alias_test")
+	node := code.Node{
+		ID:     id,
+		Kind:   luaapi.Function,
+		Source: `return function() return utils.marker end`,
+		Method: "main",
+	}
+	imports := []code.Import{{ID: libID, Alias: "utils"}}
+	if err := cm.AddNode(context.Background(), node, imports); err != nil {
+		t.Fatalf("AddNode failed: %v", err)
+	}
+
+	pf := NewProcessFactory(cm)
+	factoryFn, err := pf.CreateFactory(id)
+	if err != nil {
+		t.Fatalf("CreateFactory failed: %v", err)
+	}
+
+	proc, err := factoryFn()
+	if err != nil {
+		t.Fatalf("factory() failed: %v", err)
+	}
+
+	// Verify the alias is set correctly in the Lua state
+	luaProc := proc.(*Process)
+	state := luaProc.State()
+
+	// Check utils global exists
+	utilsMod := state.GetGlobal("utils")
+	if utilsMod == lua.LNil {
+		t.Fatal("utils global not found")
+	}
+
+	// Verify it's a table with the expected marker
+	tbl, ok := utilsMod.(*lua.LTable)
+	if !ok {
+		t.Fatalf("expected table, got %T", utilsMod)
+	}
+
+	marker := tbl.RawGetString("marker")
+	if marker.String() != "from_utils" {
+		t.Errorf("expected 'from_utils', got '%s'", marker.String())
+	}
+
+	// Verify my_utils is NOT set as global
+	originalMod := state.GetGlobal("my_utils")
+	if originalMod != lua.LNil {
+		t.Error("my_utils should not be a global when aliased")
+	}
+}
+
+func TestFactory_ModuleAliasing_MultipleAliases(t *testing.T) {
+	cm := setupFactoryCodeManager(t)
+
+	// Create two modules
+	mod1 := &luaapi.ModuleDef{
+		Name:        "module_one",
+		Description: "First module",
+		Build: func() (*lua.LTable, []luaapi.YieldType) {
+			tbl := lua.CreateTable(0, 1)
+			tbl.RawSetString("id", lua.LString("one"))
+			return tbl, nil
+		},
+	}
+
+	mod2 := &luaapi.ModuleDef{
+		Name:        "module_two",
+		Description: "Second module",
+		Build: func() (*lua.LTable, []luaapi.YieldType) {
+			tbl := lua.CreateTable(0, 1)
+			tbl.RawSetString("id", lua.LString("two"))
+			return tbl, nil
+		},
+	}
+
+	if err := cm.AddNode(context.Background(), code.Node{
+		ID:     registry.NewID("", "module_one"),
+		Kind:   luaapi.ModuleKind,
+		Module: mod1,
+	}, nil); err != nil {
+		t.Fatalf("AddNode failed: %v", err)
+	}
+
+	if err := cm.AddNode(context.Background(), code.Node{
+		ID:     registry.NewID("", "module_two"),
+		Kind:   luaapi.ModuleKind,
+		Module: mod2,
+	}, nil); err != nil {
+		t.Fatalf("AddNode failed: %v", err)
+	}
+
+	// Function that uses both modules with different aliases
+	id := registry.NewID("test", "multi_alias")
+	node := code.Node{
+		ID:     id,
+		Kind:   luaapi.Function,
+		Source: `return function() return first.id .. "+" .. second.id end`,
+		Method: "main",
+	}
+	imports := []code.Import{
+		{ID: registry.NewID("", "module_one"), Alias: "first"},
+		{ID: registry.NewID("", "module_two"), Alias: "second"},
+	}
+	if err := cm.AddNode(context.Background(), node, imports); err != nil {
+		t.Fatalf("AddNode failed: %v", err)
+	}
+
+	pf := NewProcessFactory(cm)
+	factoryFn, err := pf.CreateFactory(id)
+	if err != nil {
+		t.Fatalf("CreateFactory failed: %v", err)
+	}
+
+	proc, err := factoryFn()
+	if err != nil {
+		t.Fatalf("factory() failed: %v", err)
+	}
+
+	luaProc := proc.(*Process)
+	state := luaProc.State()
+
+	// Verify first alias
+	firstMod := state.GetGlobal("first")
+	if firstMod == lua.LNil {
+		t.Fatal("first global not found")
+	}
+	if tbl, ok := firstMod.(*lua.LTable); ok {
+		if tbl.RawGetString("id").String() != "one" {
+			t.Errorf("expected 'one', got '%s'", tbl.RawGetString("id").String())
+		}
+	} else {
+		t.Fatalf("expected table, got %T", firstMod)
+	}
+
+	// Verify second alias
+	secondMod := state.GetGlobal("second")
+	if secondMod == lua.LNil {
+		t.Fatal("second global not found")
+	}
+	if tbl, ok := secondMod.(*lua.LTable); ok {
+		if tbl.RawGetString("id").String() != "two" {
+			t.Errorf("expected 'two', got '%s'", tbl.RawGetString("id").String())
+		}
+	} else {
+		t.Fatalf("expected table, got %T", secondMod)
+	}
+
+	// Verify original names are NOT set
+	if state.GetGlobal("module_one") != lua.LNil {
+		t.Error("module_one should not be a global when aliased")
+	}
+	if state.GetGlobal("module_two") != lua.LNil {
+		t.Error("module_two should not be a global when aliased")
+	}
+}
+
+func TestFactory_ModuleAliasing_SameModuleDifferentAliases(t *testing.T) {
+	cm := setupFactoryCodeManager(t)
+
+	// Create one module
+	testMod := &luaapi.ModuleDef{
+		Name:        "shared_mod",
+		Description: "Shared module",
+		Build: func() (*lua.LTable, []luaapi.YieldType) {
+			tbl := lua.CreateTable(0, 1)
+			tbl.RawSetString("name", lua.LString("shared"))
+			return tbl, nil
+		},
+	}
+
+	if err := cm.AddNode(context.Background(), code.Node{
+		ID:     registry.NewID("", "shared_mod"),
+		Kind:   luaapi.ModuleKind,
+		Module: testMod,
+	}, nil); err != nil {
+		t.Fatalf("AddNode failed: %v", err)
+	}
+
+	// Two functions importing the same module with different aliases
+	id1 := registry.NewID("test", "alias_a")
+	node1 := code.Node{
+		ID:     id1,
+		Kind:   luaapi.Function,
+		Source: `return function() return alpha.name end`,
+		Method: "main",
+	}
+	imports1 := []code.Import{{ID: registry.NewID("", "shared_mod"), Alias: "alpha"}}
+	if err := cm.AddNode(context.Background(), node1, imports1); err != nil {
+		t.Fatalf("AddNode failed: %v", err)
+	}
+
+	id2 := registry.NewID("test", "alias_b")
+	node2 := code.Node{
+		ID:     id2,
+		Kind:   luaapi.Function,
+		Source: `return function() return beta.name end`,
+		Method: "main",
+	}
+	imports2 := []code.Import{{ID: registry.NewID("", "shared_mod"), Alias: "beta"}}
+	if err := cm.AddNode(context.Background(), node2, imports2); err != nil {
+		t.Fatalf("AddNode failed: %v", err)
+	}
+
+	pf := NewProcessFactory(cm)
+
+	// Test first alias
+	factory1, err := pf.CreateFactory(id1)
+	if err != nil {
+		t.Fatalf("CreateFactory for id1 failed: %v", err)
+	}
+	proc1, err := factory1()
+	if err != nil {
+		t.Fatalf("factory1() failed: %v", err)
+	}
+	state1 := proc1.(*Process).State()
+
+	// Verify alpha is set but not shared_mod
+	alphaMod := state1.GetGlobal("alpha")
+	if alphaMod == lua.LNil {
+		t.Fatal("alpha global not found in proc1")
+	}
+	if tbl, ok := alphaMod.(*lua.LTable); ok {
+		if tbl.RawGetString("name").String() != "shared" {
+			t.Errorf("proc1: expected 'shared', got '%s'", tbl.RawGetString("name").String())
+		}
+	}
+	if state1.GetGlobal("shared_mod") != lua.LNil {
+		t.Error("shared_mod should not be a global in proc1")
+	}
+	if state1.GetGlobal("beta") != lua.LNil {
+		t.Error("beta should not be a global in proc1")
+	}
+
+	// Test second alias
+	factory2, err := pf.CreateFactory(id2)
+	if err != nil {
+		t.Fatalf("CreateFactory for id2 failed: %v", err)
+	}
+	proc2, err := factory2()
+	if err != nil {
+		t.Fatalf("factory2() failed: %v", err)
+	}
+	state2 := proc2.(*Process).State()
+
+	// Verify beta is set but not shared_mod
+	betaMod := state2.GetGlobal("beta")
+	if betaMod == lua.LNil {
+		t.Fatal("beta global not found in proc2")
+	}
+	if tbl, ok := betaMod.(*lua.LTable); ok {
+		if tbl.RawGetString("name").String() != "shared" {
+			t.Errorf("proc2: expected 'shared', got '%s'", tbl.RawGetString("name").String())
+		}
+	}
+	if state2.GetGlobal("shared_mod") != lua.LNil {
+		t.Error("shared_mod should not be a global in proc2")
+	}
+	if state2.GetGlobal("alpha") != lua.LNil {
+		t.Error("alpha should not be a global in proc2")
+	}
+}

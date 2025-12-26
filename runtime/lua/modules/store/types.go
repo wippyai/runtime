@@ -1,6 +1,8 @@
 package store
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // Store type
 var storeType = &types.InterfaceType{

@@ -1,7 +1,6 @@
 package temporal
 
 import (
-	"encoding/json"
 	"time"
 
 	"github.com/wippyai/runtime/api/attrs"
@@ -44,9 +43,9 @@ type ClientConfig struct {
 	HealthCheck HealthCheckConfig `json:"health_check,omitempty"`
 
 	// Connection options
-	ConnectionTimeout time.Duration `json:"connection_timeout,omitempty"` // Default: 10s
-	KeepAliveTime     time.Duration `json:"keep_alive_time,omitempty"`    // Default: 30s
-	KeepAliveTimeout  time.Duration `json:"keep_alive_timeout,omitempty"` // Default: 10s
+	ConnectionTimeout time.Duration `json:"connection_timeout,omitzero,format:units"` // Default: 10s
+	KeepAliveTime     time.Duration `json:"keep_alive_time,omitzero,format:units"`    // Default: 30s
+	KeepAliveTimeout  time.Duration `json:"keep_alive_timeout,omitzero,format:units"` // Default: 10s
 
 	// Lifecycle configuration
 	Lifecycle supervisor.LifecycleConfig `json:"lifecycle,omitempty"`
@@ -79,60 +78,8 @@ type TLSConfig struct {
 
 // HealthCheckConfig defines health check settings
 type HealthCheckConfig struct {
-	Enabled  bool          `json:"enabled"`            // Enable health checks
-	Interval time.Duration `json:"interval,omitempty"` // Check interval (default: 30s)
-}
-
-// UnmarshalJSON provides custom unmarshaling for ClientConfig, handling nested time.Duration fields
-func (c *ClientConfig) UnmarshalJSON(data []byte) error {
-	type Alias ClientConfig
-	aux := &struct {
-		ConnectionTimeout string `json:"connection_timeout"`
-		KeepAliveTime     string `json:"keep_alive_time"`
-		KeepAliveTimeout  string `json:"keep_alive_timeout"`
-		HealthCheck       *struct {
-			Enabled  bool   `json:"enabled"`
-			Interval string `json:"interval"`
-		} `json:"health_check"`
-		*Alias
-	}{
-		Alias: (*Alias)(c),
-	}
-
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-
-	var err error
-	if aux.ConnectionTimeout != "" {
-		c.ConnectionTimeout, err = time.ParseDuration(aux.ConnectionTimeout)
-		if err != nil {
-			return NewInvalidConnectionTimeoutError(err)
-		}
-	}
-
-	if aux.KeepAliveTime != "" {
-		c.KeepAliveTime, err = time.ParseDuration(aux.KeepAliveTime)
-		if err != nil {
-			return NewInvalidKeepAliveTimeError(err)
-		}
-	}
-
-	if aux.KeepAliveTimeout != "" {
-		c.KeepAliveTimeout, err = time.ParseDuration(aux.KeepAliveTimeout)
-		if err != nil {
-			return NewInvalidKeepAliveTimeoutError(err)
-		}
-	}
-
-	if aux.HealthCheck != nil && aux.HealthCheck.Interval != "" {
-		c.HealthCheck.Interval, err = time.ParseDuration(aux.HealthCheck.Interval)
-		if err != nil {
-			return NewInvalidHealthCheckIntervalError(err)
-		}
-	}
-
-	return nil
+	Enabled  bool          `json:"enabled"`                        // Enable health checks
+	Interval time.Duration `json:"interval,omitzero,format:units"` // Check interval (default: 30s)
 }
 
 // InitDefaults initializes default values for the configuration

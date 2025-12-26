@@ -4,6 +4,7 @@ import (
 	api "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/yuin/gopher-lua/parse"
 	"github.com/yuin/gopher-lua/types"
+
 	_ "github.com/yuin/gopher-lua/types/stmt"  // register statement handlers
 	_ "github.com/yuin/gopher-lua/types/synth" // register synthesizers
 )

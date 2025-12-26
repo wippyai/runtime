@@ -160,21 +160,6 @@ func TestErrorMethods(t *testing.T) {
 	})
 }
 
-func TestErrorConstructors(t *testing.T) {
-	cause := errors.New("test cause")
-
-	t.Run("NewInvalidDurationError", func(t *testing.T) {
-		err := NewInvalidDurationError("timeout", cause)
-		assert.Contains(t, err.Error(), "invalid")
-		assert.Contains(t, err.Error(), "timeout")
-		assert.Equal(t, apierror.Invalid, err.Kind())
-		assert.True(t, errors.Is(err, cause))
-		val, ok := err.Details().Get("field")
-		assert.True(t, ok)
-		assert.Equal(t, "timeout", val)
-	})
-}
-
 func TestSupervisorContext(t *testing.T) {
 	t.Run("GetSupervisor_NoAppContext", func(t *testing.T) {
 		ctx := context.Background()

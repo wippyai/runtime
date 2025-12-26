@@ -305,7 +305,6 @@ func TestPoolConfig_UnmarshalJSON_InvalidDuration(t *testing.T) {
 	var config PoolConfig
 	err := json.Unmarshal([]byte(jsonData), &config)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid duration format")
 }
 
 func TestDBConfig_Validate_MissingUsername(t *testing.T) {

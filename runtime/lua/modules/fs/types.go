@@ -1,6 +1,8 @@
 package fs
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // FileInfo type
 var fileInfoType = &types.RecordType{

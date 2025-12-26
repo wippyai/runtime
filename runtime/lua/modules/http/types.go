@@ -1,6 +1,8 @@
 package http
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // Request type
 var requestType = &types.InterfaceType{

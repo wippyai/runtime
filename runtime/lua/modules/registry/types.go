@@ -1,6 +1,8 @@
 package registry
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // ID record type
 var idType = &types.RecordType{

@@ -1,6 +1,8 @@
 package websocket
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // Client type
 var clientType = &types.InterfaceType{

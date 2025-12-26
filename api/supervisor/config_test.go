@@ -56,12 +56,7 @@ func TestLifecycleConfig_MarshalJSON(t *testing.T) {
 			},
 			expected: `{
 				"auto_start": false,
-				"start_timeout": "0s",
-				"stop_timeout": "0s",
-				"stable_threshold": "0s",
 				"restart": {
-					"initial_delay": "0s",
-					"max_delay": "0s",
 					"backoff_factor": 0,
 					"jitter": 0,
 					"max_attempts": 0
@@ -235,8 +230,6 @@ func TestRetryPolicy_MarshalJSON(t *testing.T) {
 			name:   "zero values",
 			policy: RetryPolicy{},
 			expected: `{
-				"initial_delay": "0s",
-				"max_delay": "0s",
 				"backoff_factor": 0,
 				"jitter": 0,
 				"max_attempts": 0

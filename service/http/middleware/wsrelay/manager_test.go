@@ -187,3 +187,94 @@ func TestRelayCommandConstants(t *testing.T) {
 		assert.Equal(t, "X-WS-Relay", RelayHeader)
 	})
 }
+
+func TestErrorFactories(t *testing.T) {
+	t.Run("NewAttachToRelayError", func(t *testing.T) {
+		cause := assert.AnError
+		err := NewAttachToRelayError(cause)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "attach")
+	})
+
+	t.Run("NewTranscodeError", func(t *testing.T) {
+		cause := assert.AnError
+		err := NewTranscodeError(cause)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "transcode")
+	})
+
+	t.Run("NewMarshalError", func(t *testing.T) {
+		cause := assert.AnError
+		err := NewMarshalError("test object", cause)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "test object")
+	})
+
+	t.Run("NewWebSocketWriteError", func(t *testing.T) {
+		cause := assert.AnError
+		err := NewWebSocketWriteError(cause)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "WebSocket")
+	})
+
+	t.Run("NewMarshalJoinInfoError", func(t *testing.T) {
+		cause := assert.AnError
+		err := NewMarshalJoinInfoError(cause)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "join")
+	})
+
+	t.Run("NewMarshalLeaveInfoError", func(t *testing.T) {
+		cause := assert.AnError
+		err := NewMarshalLeaveInfoError(cause)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "leave")
+	})
+}
+
+func TestSentinelErrors(t *testing.T) {
+	t.Run("ErrHostRequired", func(t *testing.T) {
+		assert.Error(t, ErrHostRequired)
+		assert.Contains(t, ErrHostRequired.Error(), "host")
+	})
+
+	t.Run("ErrNodeRequired", func(t *testing.T) {
+		assert.Error(t, ErrNodeRequired)
+		assert.Contains(t, ErrNodeRequired.Error(), "node")
+	})
+
+	t.Run("ErrTranscoderRequired", func(t *testing.T) {
+		assert.Error(t, ErrTranscoderRequired)
+		assert.Contains(t, ErrTranscoderRequired.Error(), "transcoder")
+	})
+
+	t.Run("ErrFrameContextNotFound", func(t *testing.T) {
+		assert.Error(t, ErrFrameContextNotFound)
+		assert.Contains(t, ErrFrameContextNotFound.Error(), "FrameContext")
+	})
+
+	t.Run("ErrServerHostNotFound", func(t *testing.T) {
+		assert.Error(t, ErrServerHostNotFound)
+		assert.Contains(t, ErrServerHostNotFound.Error(), "host")
+	})
+
+	t.Run("ErrServerIDNotFound", func(t *testing.T) {
+		assert.Error(t, ErrServerIDNotFound)
+		assert.Contains(t, ErrServerIDNotFound.Error(), "ID")
+	})
+
+	t.Run("ErrInvalidServerID", func(t *testing.T) {
+		assert.Error(t, ErrInvalidServerID)
+		assert.Contains(t, ErrInvalidServerID.Error(), "server ID")
+	})
+
+	t.Run("ErrHostNotAttachable", func(t *testing.T) {
+		assert.Error(t, ErrHostNotAttachable)
+		assert.Contains(t, ErrHostNotAttachable.Error(), "AttachableHost")
+	})
+
+	t.Run("ErrExpectedBytesPayload", func(t *testing.T) {
+		assert.Error(t, ErrExpectedBytesPayload)
+		assert.Contains(t, ErrExpectedBytesPayload.Error(), "bytes")
+	})
+}

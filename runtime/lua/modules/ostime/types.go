@@ -1,6 +1,8 @@
 package ostime
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // DateTable type returned by os.date("*t")
 var dateTableType = &types.RecordType{

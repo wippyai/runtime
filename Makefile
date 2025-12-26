@@ -1,3 +1,6 @@
+# Enable JSON v2 for all Go commands
+export GOEXPERIMENT := jsonv2
+
 run:
 	go run --tags "fts5 sqlite_vec" -race ./cmd/runner/ run -c config.json
 
@@ -186,16 +189,6 @@ otel-up:
 otel-down:
 	cd tests && docker-compose down
 
-build-runner-linux-amd64-exp:
-	mkdir -p ./dist
-	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
-	GOEXPERIMENT=jsonv2,greenteagc \
-	go build --tags "fts5 sqlite_vec" \
-	   -ldflags="-s -w -X main.version=$(shell git describe --tags --always --dirty)" \
-	   -trimpath \
-	   -buildmode=pie \
-	   -o ./dist/runner-linux-amd64-exp ./cmd/runner/
-
 # Wippy CLI build targets
 WIPPY_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 WIPPY_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -230,18 +223,6 @@ build-wippy-linux-amd64:
 		-ldflags="$(WIPPY_LDFLAGS)" \
 		-trimpath \
 		-o ./dist/wippy-linux-amd64 \
-		./cmd/wippy/
-
-.PHONY: build-wippy-linux-amd64-exp
-build-wippy-linux-amd64-exp:
-	mkdir -p ./dist
-	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
-	GOEXPERIMENT=jsonv2,greenteagc \
-	go build --tags "fts5 sqlite_vec" \
-		-ldflags="$(WIPPY_LDFLAGS)" \
-		-trimpath \
-		-buildmode=pie \
-		-o ./dist/wippy-linux-amd64-exp \
 		./cmd/wippy/
 
 .PHONY: build-wippy-darwin-amd64

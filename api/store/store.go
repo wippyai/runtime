@@ -31,4 +31,43 @@ type (
 		// Has checks if a key exists without retrieving the value.
 		Has(ctx context.Context, key registry.ID) (bool, error)
 	}
+
+	// ScanOptions configures a prefix scan operation.
+	ScanOptions struct {
+		Prefix string // Key prefix to match (e.g., "ns:" or "ns:name-prefix").
+		Limit  int    // Maximum entries to return (0 = no limit).
+		After  string // Start after this key (empty = from beginning).
+	}
+
+	// Scanner extends Store with prefix scan capability.
+	Scanner interface {
+		Store
+		// Scan iterates over entries matching the prefix.
+		// The callback returns true to continue, false to stop.
+		Scan(ctx context.Context, opts ScanOptions, fn func(Entry) bool) error
+	}
+
+	// Version represents an entry version for optimistic concurrency.
+	Version uint64
+
+	// VersionedEntry adds version tracking to Entry.
+	VersionedEntry struct {
+		Entry
+		Version Version // Version for CAS operations (0 = not found).
+	}
+
+	// Atomic extends Store with compare-and-swap capability.
+	Atomic interface {
+		Store
+		// GetVersioned retrieves a value with its version.
+		GetVersioned(ctx context.Context, key registry.ID) (VersionedEntry, error)
+
+		// CompareAndSwap updates the entry only if version matches.
+		// Returns true if swap succeeded, false if version mismatch.
+		CompareAndSwap(ctx context.Context, key registry.ID, expected Version, entry Entry) (bool, error)
+
+		// SetIfAbsent stores the entry only if the key does not exist.
+		// Returns true if stored, false if key already exists.
+		SetIfAbsent(ctx context.Context, entry Entry) (bool, error)
+	}
 )

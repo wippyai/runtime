@@ -1,6 +1,8 @@
 package yaml
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // EncodeOptions type
 var encodeOptionsType = &types.RecordType{

@@ -2,10 +2,8 @@
 package sql
 
 import (
-	"encoding/json"
 	"time"
 
-	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/supervisor"
 )
@@ -43,9 +41,9 @@ const (
 type (
 	// PoolConfig defines settings for a database connection pool
 	PoolConfig struct {
-		MaxOpen     int           `json:"max_open"`     // Maximum number of open connections
-		MaxIdle     int           `json:"max_idle"`     // Maximum number of idle connections
-		MaxLifetime time.Duration `json:"max_lifetime"` // Maximum lifetime of a connection
+		MaxOpen     int           `json:"max_open"`                           // Maximum number of open connections
+		MaxIdle     int           `json:"max_idle"`                           // Maximum number of idle connections
+		MaxLifetime time.Duration `json:"max_lifetime,omitzero,format:units"` // Maximum lifetime of a connection
 	}
 
 	// DBConfig defines the base configuration for SQL databases
@@ -74,43 +72,6 @@ type (
 		Lifecycle supervisor.LifecycleConfig `json:"lifecycle"` // Lifecycle configuration
 	}
 )
-
-// UnmarshalJSON provides custom unmarshaling for PoolConfig to handle time.Duration
-func (c *PoolConfig) UnmarshalJSON(data []byte) error {
-	type Alias PoolConfig
-	aux := &struct {
-		MaxLifetime string `json:"max_lifetime"`
-		*Alias
-	}{
-		Alias: (*Alias)(c),
-	}
-
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-
-	if aux.MaxLifetime != "" {
-		duration, err := time.ParseDuration(aux.MaxLifetime)
-		if err != nil {
-			return apierror.New(apierror.Invalid, "invalid duration format").WithCause(err).WithRetryable(apierror.False)
-		}
-		c.MaxLifetime = duration
-	}
-
-	return nil
-}
-
-// MarshalJSON provides custom marshaling for PoolConfig to handle time.Duration
-func (c *PoolConfig) MarshalJSON() ([]byte, error) {
-	type Alias PoolConfig
-	return json.Marshal(&struct {
-		MaxLifetime string `json:"max_lifetime"`
-		*Alias
-	}{
-		MaxLifetime: c.MaxLifetime.String(),
-		Alias:       (*Alias)(c),
-	})
-}
 
 // InitDefaults initializes the PoolConfig with default values if not set
 func (c *PoolConfig) InitDefaults() {

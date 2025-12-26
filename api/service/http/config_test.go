@@ -35,7 +35,7 @@ func TestTimeoutConfig_MarshalJSON(t *testing.T) {
 		{
 			name:     "zero values",
 			config:   TimeoutConfig{},
-			expected: `{"read":"0s","write":"0s","idle":"0s"}`,
+			expected: `{}`,
 			wantErr:  false,
 		},
 		{
@@ -955,12 +955,6 @@ func TestErrorFactories(t *testing.T) {
 	t.Run("NewInvalidHTTPMethodError", func(t *testing.T) {
 		err := NewInvalidHTTPMethodError("PATCH2")
 		assert.Contains(t, err.Error(), "invalid HTTP method: PATCH2")
-	})
-
-	t.Run("NewInvalidDurationError", func(t *testing.T) {
-		cause := errors.New("parse error")
-		err := NewInvalidDurationError("timeout", cause)
-		assert.Contains(t, err.Error(), "invalid duration for timeout")
 	})
 
 	t.Run("NewInvalidTimeoutConfigError", func(t *testing.T) {

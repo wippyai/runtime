@@ -1,6 +1,8 @@
 package workflow
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // WorkflowInfo type
 var workflowInfoType = &types.RecordType{

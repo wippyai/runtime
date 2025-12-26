@@ -1,6 +1,8 @@
 package payload
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // Payload type - defined in init to avoid initialization cycle
 var payloadType *types.InterfaceType

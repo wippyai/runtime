@@ -2,10 +2,8 @@
 package memory
 
 import (
-	"encoding/json"
 	"time"
 
-	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/supervisor"
 )
@@ -25,7 +23,7 @@ type Config struct {
 	// CleanupInterval is how often the store checks for expired entries
 	// The store will run a background task at this interval to remove entries with expired TTLs
 	// Set to 0 to disable automatic cleanup
-	CleanupInterval time.Duration `json:"cleanup_interval"`
+	CleanupInterval time.Duration `json:"cleanup_interval,omitzero,format:units"`
 
 	// Lifecycle configuration for supervisor
 	// Controls how the store is started, stopped, and managed by the system supervisor
@@ -63,41 +61,4 @@ func (c *Config) InitDefaults() {
 
 	// Initialize lifecycle defaults from supervisor package
 	c.Lifecycle.InitDefaults()
-}
-
-// UnmarshalJSON implements custom unmarshaling for Config to handle time.Duration fields.
-func (c *Config) UnmarshalJSON(data []byte) error {
-	type Alias Config
-	aux := &struct {
-		CleanupInterval string `json:"cleanup_interval"`
-		*Alias
-	}{
-		Alias: (*Alias)(c),
-	}
-
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-
-	var err error
-	if aux.CleanupInterval != "" {
-		c.CleanupInterval, err = time.ParseDuration(aux.CleanupInterval)
-		if err != nil {
-			return apierror.New(apierror.Invalid, "invalid duration format").WithCause(err).WithRetryable(apierror.False)
-		}
-	}
-
-	return nil
-}
-
-// MarshalJSON implements custom marshaling for Config to handle time.Duration fields.
-func (c *Config) MarshalJSON() ([]byte, error) {
-	type Alias Config
-	return json.Marshal(&struct {
-		CleanupInterval string `json:"cleanup_interval"`
-		*Alias
-	}{
-		CleanupInterval: c.CleanupInterval.String(),
-		Alias:           (*Alias)(c),
-	})
 }

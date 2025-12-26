@@ -1,6 +1,8 @@
 package template
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // Set type
 var setType = &types.InterfaceType{

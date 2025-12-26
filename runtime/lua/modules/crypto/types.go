@@ -1,6 +1,8 @@
 package crypto
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // Submodule types for crypto
 var randomType = &types.InterfaceType{

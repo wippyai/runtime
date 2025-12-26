@@ -1,6 +1,8 @@
 package funcs
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // Future type
 var futureType = &types.InterfaceType{

@@ -1,6 +1,8 @@
 package sql
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // DB Stats record
 var dbStatsType = &types.RecordType{

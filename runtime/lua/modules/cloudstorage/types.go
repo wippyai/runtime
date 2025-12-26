@@ -1,6 +1,8 @@
 package cloudstorage
 
-import "github.com/yuin/gopher-lua/types"
+import (
+	"github.com/yuin/gopher-lua/types"
+)
 
 // ListObjectsOptions type (anonymous readonly for structural covariant typing)
 var listObjectsOptionsType = &types.RecordType{
