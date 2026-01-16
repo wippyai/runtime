@@ -630,10 +630,10 @@ type mockVersion struct {
 	id uint
 }
 
-func (m *mockVersion) ID() uint                       { return m.id }
-func (m *mockVersion) Previous() registry.Version     { return nil }
-func (m *mockVersion) Next() (registry.Version, bool) { return nil, false }
-func (m *mockVersion) String() string                 { return "" }
+func (m *mockVersion) ID() uint                   { return m.id }
+func (m *mockVersion) Previous() registry.Version { return nil }
+func (m *mockVersion) Next() registry.Version     { return nil }
+func (m *mockVersion) String() string             { return "" }
 
 // TestFinder_CacheEviction tests that LRU cache properly evicts old entries
 func TestFinder_CacheEviction(t *testing.T) {

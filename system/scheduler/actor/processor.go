@@ -74,6 +74,11 @@ type Processor struct {
 	// Back-reference for zero-alloc completion callback
 	scheduler *Scheduler
 
+	// Worker affinity for inject queue routing.
+	// Set atomically by worker at start of executeOne.
+	// -1 means no affinity (use global queue).
+	lastWorker atomic.Int32
+
 	// Result channel for blocking Execute (nil for fire-and-forget Submit)
 	resultCh chan *runtime.Result
 
@@ -150,8 +155,7 @@ func (p *Processor) CompleteYield(tag uint64, data any, err error) {
 	if p.casState(StateBlocked, StateReady) {
 		sched := p.scheduler
 		if sched != nil {
-			sched.global.Push(p)
-			sched.wake()
+			sched.injectOrGlobal(p)
 		}
 		return
 	}
@@ -162,11 +166,15 @@ func (p *Processor) CompleteYield(tag uint64, data any, err error) {
 	p.setWakeup(StateRunning)
 }
 
+const noWorkerAffinity = -1
+
 var processorPool = sync.Pool{
 	New: func() any {
-		return &Processor{
+		p := &Processor{
 			queue: process.NewEventQueue(),
 		}
+		p.lastWorker.Store(noWorkerAffinity)
+		return p
 	},
 }
 
@@ -182,6 +190,7 @@ func releaseProcessor(p *Processor) {
 	p.ctx = nil
 	p.cancel = nil
 	p.scheduler = nil
+	p.lastWorker.Store(noWorkerAffinity)
 	p.resultCh = nil
 	p.pooled = false
 	p.output.Reset()

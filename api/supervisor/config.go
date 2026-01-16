@@ -2,6 +2,7 @@
 package supervisor
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/wippyai/runtime/api/security"
@@ -71,4 +72,126 @@ func (cfg *LifecycleConfig) InitDefaults() {
 	if cfg.RetryPolicy.Jitter == 0 {
 		cfg.RetryPolicy.Jitter = 0.1
 	}
+}
+
+// lifecycleConfigJSON is used for JSON marshaling/unmarshaling with string durations
+type lifecycleConfigJSON struct {
+	AutoStart       bool             `json:"auto_start"`
+	StartTimeout    string           `json:"start_timeout,omitempty"`
+	StopTimeout     string           `json:"stop_timeout,omitempty"`
+	StableThreshold string           `json:"stable_threshold,omitempty"`
+	RetryPolicy     RetryPolicy      `json:"restart"`
+	DependsOn       []string         `json:"depends_on"`
+	Security        *security.Config `json:"security,omitempty"`
+}
+
+// UnmarshalJSON implements json.Unmarshaler to handle duration strings
+func (cfg *LifecycleConfig) UnmarshalJSON(data []byte) error {
+	var raw lifecycleConfigJSON
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	cfg.AutoStart = raw.AutoStart
+	cfg.RetryPolicy = raw.RetryPolicy
+	cfg.DependsOn = raw.DependsOn
+	cfg.Security = raw.Security
+
+	if raw.StartTimeout != "" {
+		d, err := time.ParseDuration(raw.StartTimeout)
+		if err != nil {
+			return err
+		}
+		cfg.StartTimeout = d
+	}
+	if raw.StopTimeout != "" {
+		d, err := time.ParseDuration(raw.StopTimeout)
+		if err != nil {
+			return err
+		}
+		cfg.StopTimeout = d
+	}
+	if raw.StableThreshold != "" {
+		d, err := time.ParseDuration(raw.StableThreshold)
+		if err != nil {
+			return err
+		}
+		cfg.StableThreshold = d
+	}
+
+	return nil
+}
+
+// MarshalJSON implements json.Marshaler to output durations as strings
+func (cfg LifecycleConfig) MarshalJSON() ([]byte, error) {
+	raw := lifecycleConfigJSON{
+		AutoStart:   cfg.AutoStart,
+		RetryPolicy: cfg.RetryPolicy,
+		DependsOn:   cfg.DependsOn,
+		Security:    cfg.Security,
+	}
+	if cfg.StartTimeout != 0 {
+		raw.StartTimeout = cfg.StartTimeout.String()
+	}
+	if cfg.StopTimeout != 0 {
+		raw.StopTimeout = cfg.StopTimeout.String()
+	}
+	if cfg.StableThreshold != 0 {
+		raw.StableThreshold = cfg.StableThreshold.String()
+	}
+	return json.Marshal(raw)
+}
+
+// retryPolicyJSON is used for JSON marshaling/unmarshaling with string durations
+type retryPolicyJSON struct {
+	InitialDelay  string  `json:"initial_delay,omitempty"`
+	MaxDelay      string  `json:"max_delay,omitempty"`
+	BackoffFactor float64 `json:"backoff_factor"`
+	Jitter        float64 `json:"jitter"`
+	MaxAttempts   int     `json:"max_attempts"`
+}
+
+// UnmarshalJSON implements json.Unmarshaler to handle duration strings
+func (rp *RetryPolicy) UnmarshalJSON(data []byte) error {
+	var raw retryPolicyJSON
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	rp.BackoffFactor = raw.BackoffFactor
+	rp.Jitter = raw.Jitter
+	rp.MaxAttempts = raw.MaxAttempts
+
+	if raw.InitialDelay != "" {
+		d, err := time.ParseDuration(raw.InitialDelay)
+		if err != nil {
+			return err
+		}
+		rp.InitialDelay = d
+	}
+	if raw.MaxDelay != "" {
+		d, err := time.ParseDuration(raw.MaxDelay)
+		if err != nil {
+			return err
+		}
+		rp.MaxDelay = d
+	}
+
+	return nil
+}
+
+// MarshalJSON implements json.Marshaler to output durations as strings
+func (rp RetryPolicy) MarshalJSON() ([]byte, error) {
+	raw := retryPolicyJSON{
+		BackoffFactor: rp.BackoffFactor,
+		Jitter:        rp.Jitter,
+		MaxAttempts:   rp.MaxAttempts,
+	}
+	if rp.InitialDelay != 0 {
+		raw.InitialDelay = rp.InitialDelay.String()
+	}
+	if rp.MaxDelay != 0 {
+		raw.MaxDelay = rp.MaxDelay.String()
+	}
+	return json.Marshal(raw)
 }

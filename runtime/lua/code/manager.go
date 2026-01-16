@@ -2,6 +2,7 @@ package code
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -9,7 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	api "github.com/wippyai/runtime/api/runtime/lua"
 	glua "github.com/yuin/gopher-lua"
-	"github.com/yuin/gopher-lua/parse"
+	"github.com/yuin/gopher-lua/compiler/parse"
 	"github.com/yuin/gopher-lua/types"
 
 	"go.uber.org/zap"
@@ -48,61 +49,58 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 		cfg.MainCacheSize = 1000
 	}
 
-	var typeChecker *TypeChecker
-	if cfg.TypeCheck.Enabled {
-		typeChecker = NewTypeChecker(cfg.TypeCheck, cfg.Modules)
-		log.Info("type checking enabled",
-			zap.Bool("strict", cfg.TypeCheck.Strict),
-			zap.Bool("require_annotations", cfg.TypeCheck.RequireAnnotations),
-		)
-	}
+	typeChecker := NewTypeChecker(cfg.TypeCheck, cfg.Modules)
 
 	cm := &Manager{
 		log:         log,
 		bus:         bus,
 		memGraph:    NewMemoryGraph(),
 		typeChecker: typeChecker,
-		compiler: NewCompiler(
-			func(node *Node, imports map[string]*types.TypeManifest) (*glua.FunctionProto, error) {
-				if typeChecker != nil && typeChecker.IsEnabled() {
-					manifest, diagnostics, err := typeChecker.Check(node.Source, node.ID.String(), imports)
-					if err != nil {
-						return nil, NewTypeCheckError(node.ID, err)
-					}
-					node.Manifest = manifest
-					if HasErrors(diagnostics) {
-						if typeChecker.IsStrict() {
-							return nil, NewTypeCheckErrorFromDiagnostics(node.ID, diagnostics, node.Source)
-						}
-						for _, d := range diagnostics {
-							if d.Severity == types.SeverityError {
-								log.Warn("type check warning",
-									zap.Stringer("node", &node.ID),
-									zap.Int("line", d.Position.Line),
-									zap.String("message", d.Message),
-								)
-							}
-						}
-					}
-				}
-
-				chunk, err := parse.ParseString(node.Source, node.ID.String())
-				if err != nil {
-					return nil, NewParseError(err, node.Source)
-				}
-
-				fnProto, err := glua.Compile(chunk, node.ID.String())
-				if err != nil {
-					return nil, NewCompileError(node.ID, err)
-				}
-
-				return fnProto, nil
-			},
-			cfg.ProtoCacheSize,
-			cfg.MainCacheSize,
-		),
-		txNodes: make(map[registry.ID]bool),
+		txNodes:     make(map[registry.ID]bool),
 	}
+
+	// Create compiler with a callback that can access cm.memGraph for dependency manifests
+	cm.compiler = NewCompiler(
+		func(node *Node) (*glua.FunctionProto, error) {
+			chunk, err := parse.Parse(strings.NewReader(node.Source), node.ID.String())
+			if err != nil {
+				return nil, NewParseError(err, node.Source)
+			}
+
+			// Type check if enabled
+			if typeChecker.IsEnabled() {
+				// Get dependency manifests from the graph
+				imports := make(map[string]*types.TypeManifest)
+				deps, _ := cm.memGraph.GetDependenciesWithAliases(node.ID)
+				for _, dep := range deps {
+					if dep.Node.Manifest != nil {
+						imports[dep.Name] = dep.Node.Manifest
+					}
+				}
+
+				// Use typeChecker.Check which properly handles imports
+				manifest, diagnostics, _ := typeChecker.Check(node.Source, node.ID.String(), imports)
+
+				// Store manifest on the node for downstream dependencies
+				if manifest != nil {
+					node.Manifest = manifest
+				}
+
+				if HasErrors(diagnostics) && typeChecker.IsStrict() {
+					return nil, NewTypeCheckDiagnosticError(node.ID, diagnostics)
+				}
+			}
+
+			fnProto, err := glua.Compile(chunk, node.ID.String())
+			if err != nil {
+				return nil, NewCompileError(node.ID, err)
+			}
+
+			return fnProto, nil
+		},
+		cfg.ProtoCacheSize,
+		cfg.MainCacheSize,
+	)
 
 	// built-in modules
 	for _, mod := range cfg.Modules {
@@ -207,6 +205,37 @@ func (cm *Manager) AddNode(_ context.Context, node Node, deps []Import) error {
 		},
 	}
 
+	// Eager compilation check: validate source code before adding to graph
+	// This catches parse errors and type errors at registration time
+	if node.Source != "" && node.Kind != api.ModuleKind {
+		_, err := parse.Parse(strings.NewReader(node.Source), node.ID.String())
+		if err != nil {
+			return NewParseError(err, node.Source)
+		}
+
+		if cm.typeChecker.IsEnabled() {
+			// Get dependency manifests from deps (node not yet in graph)
+			imports := make(map[string]*types.TypeManifest)
+			for _, dep := range deps {
+				depNode, err := cm.memGraph.GetNode(dep.ID)
+				if err == nil && depNode.Manifest != nil {
+					alias := dep.Alias
+					if alias == "" {
+						alias = dep.ID.Name
+					}
+					imports[alias] = depNode.Manifest
+				}
+			}
+
+			manifest, diagnostics, _ := cm.typeChecker.Check(node.Source, node.ID.String(), imports)
+			nodePtr.Manifest = manifest
+
+			if HasErrors(diagnostics) && cm.typeChecker.IsStrict() {
+				return NewTypeCheckDiagnosticError(node.ID, diagnostics)
+			}
+		}
+	}
+
 	if err := cm.memGraph.AddNode(nodePtr); err != nil {
 		return NewAddNodeErrorWithCause(err)
 	}
@@ -231,6 +260,36 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 	existing, err := cm.memGraph.GetNode(node.ID)
 	if err != nil {
 		return NewNodeNotFoundError(node.ID)
+	}
+
+	// Eager compilation check: validate source code before updating
+	if node.Source != "" && existing.Kind != api.ModuleKind {
+		_, err := parse.Parse(strings.NewReader(node.Source), node.ID.String())
+		if err != nil {
+			return NewParseError(err, node.Source)
+		}
+
+		if cm.typeChecker.IsEnabled() {
+			// Get dependency manifests from new deps
+			imports := make(map[string]*types.TypeManifest)
+			for _, dep := range deps {
+				depNode, err := cm.memGraph.GetNode(dep.ID)
+				if err == nil && depNode.Manifest != nil {
+					alias := dep.Alias
+					if alias == "" {
+						alias = dep.ID.Name
+					}
+					imports[alias] = depNode.Manifest
+				}
+			}
+
+			manifest, diagnostics, _ := cm.typeChecker.Check(node.Source, node.ID.String(), imports)
+			existing.Manifest = manifest
+
+			if HasErrors(diagnostics) && cm.typeChecker.IsStrict() {
+				return NewTypeCheckDiagnosticError(node.ID, diagnostics)
+			}
+		}
 	}
 
 	// Update fields
@@ -321,6 +380,24 @@ func (cm *Manager) GetModules() []api.ModuleInfo {
 		}
 	}
 	return modules
+}
+
+// GetModuleDefs returns all registered module definitions
+func (cm *Manager) GetModuleDefs() []*api.ModuleDef {
+	var modules []*api.ModuleDef
+	for _, node := range cm.memGraph.nodes {
+		if node.Module != nil {
+			modules = append(modules, node.Module)
+		}
+	}
+	return modules
+}
+
+// AddBuiltinType registers a module's types in the type checker's built-in environment
+func (cm *Manager) AddBuiltinType(mod *api.ModuleDef) {
+	if cm.typeChecker != nil {
+		cm.typeChecker.AddBuiltin(mod)
+	}
 }
 
 // AddNodeWithProto adds a node with a precompiled prototype (for bytecode entries).

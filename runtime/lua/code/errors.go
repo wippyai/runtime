@@ -136,63 +136,17 @@ func NewRemoveNodeError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to remove node").WithCause(cause).WithRetryable(apierror.False)
 }
 
-// TypeCheckErrorItem represents a single type check error
-type TypeCheckErrorItem struct {
-	Line    int
-	Column  int
-	Message string
-}
-
-// TypeCheckErrorList wraps multiple type check errors
-type TypeCheckErrorList struct {
-	Errors []TypeCheckErrorItem
-}
-
-func (e *TypeCheckErrorList) Error() string {
-	if len(e.Errors) == 0 {
-		return "type check failed"
-	}
-	return e.Errors[0].Message
-}
-
-// NewTypeCheckError creates an error for type checking failures
-func NewTypeCheckError(id registry.ID, cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, fmt.Sprintf("type check failed for %s: %v", id, cause)).
-		WithCause(cause).
-		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(map[string]any{"node_id": id.String()}))
-}
-
-// NewTypeCheckErrorFromDiagnostics creates an error from type checker diagnostics
-func NewTypeCheckErrorFromDiagnostics(id registry.ID, diagnostics []types.Diagnostic, source string) apierror.Error {
-	sourceLines := types.ParseSource(source)
-
-	var rendered strings.Builder
-	var items []TypeCheckErrorItem
-
+func NewTypeCheckDiagnosticError(id registry.ID, diagnostics []types.Diagnostic) apierror.Error {
+	var msgs []string
 	for _, d := range diagnostics {
 		if d.Severity == types.SeverityError {
-			rendered.WriteString(d.Render(sourceLines))
-			rendered.WriteString("\n")
-			items = append(items, TypeCheckErrorItem{
-				Line:    d.Position.Line,
-				Column:  d.Position.Column,
-				Message: d.Message,
-			})
+			msgs = append(msgs, d.Message)
 		}
 	}
-
-	cause := &TypeCheckErrorList{Errors: items}
-
-	details := map[string]any{"node_id": id.String(), "rendered": rendered.String()}
-	if len(items) > 0 {
-		details["error_count"] = len(items)
-		details["first_line"] = items[0].Line
-		details["first_message"] = items[0].Message
-	}
-
-	return apierror.New(apierror.Invalid, rendered.String()).
-		WithCause(cause).
+	return apierror.New(apierror.Invalid, fmt.Sprintf("type errors in %v: %s", id, strings.Join(msgs, "; "))).
 		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(details))
+		WithDetails(attrs.NewBagFrom(map[string]any{
+			"node_id":     id.String(),
+			"error_count": len(msgs),
+		}))
 }

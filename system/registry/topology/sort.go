@@ -144,6 +144,98 @@ func SortEntriesByDependency(entries []registry.Entry, resolver registry.Depende
 	return result, nil
 }
 
+// LevelSortEntriesByDependency returns entries grouped by dependency level.
+// Entries in the same level have no dependencies on each other and can be processed in parallel.
+func LevelSortEntriesByDependency(entries []registry.Entry, resolver registry.DependencyResolver) ([][]registry.Entry, error) {
+	if len(entries) == 0 {
+		return nil, nil
+	}
+
+	// Build dependency graph and mappings
+	g := graph.New[registry.ID, any]()
+	entryMap := make(map[registry.ID]registry.Entry, len(entries))
+	groupMap := make(map[string][]registry.ID)
+	nsMap := make(map[string][]registry.ID)
+
+	// First pass: build all mappings
+	for _, entry := range entries {
+		g.AddNode(entry.ID)
+		entryMap[entry.ID] = entry
+
+		explicitGroups := entry.Meta.GetSlice(registry.TagGroups)
+		for _, group := range explicitGroups {
+			groupMap[group] = append(groupMap[group], entry.ID)
+		}
+
+		if entry.ID.NS != "" {
+			nsMap[entry.ID.NS] = append(nsMap[entry.ID.NS], entry.ID)
+		}
+	}
+
+	// Second pass: process all dependencies
+	for _, entry := range entries {
+		dependencies := entry.Meta.GetSlice(registry.TagDependsOn)
+
+		if resolver != nil {
+			dependencies = append(dependencies, resolver.Extract(entry)...)
+		}
+
+		for _, dep := range dependencies {
+			depType, value := parseDependency(dep)
+
+			switch depType {
+			case "direct":
+				targetID := resolveDependencyID(entry.ID.NS, value)
+				if _, exists := entryMap[targetID]; exists {
+					g.AddEdge(targetID, entry.ID, 1, nil)
+				}
+
+			case "group":
+				if members, exists := groupMap[value]; exists {
+					for _, memberID := range members {
+						if !memberID.Equal(entry.ID) {
+							g.AddEdge(memberID, entry.ID, 1, nil)
+						}
+					}
+				}
+
+			case "namespace":
+				if members, exists := nsMap[value]; exists {
+					for _, memberID := range members {
+						if !memberID.Equal(entry.ID) {
+							g.AddEdge(memberID, entry.ID, 1, nil)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Compute dependency levels
+	levels, err := g.DependencyLevels()
+	if err != nil {
+		// On cycle, return all entries in single level
+		return [][]registry.Entry{entries}, err
+	}
+
+	// Convert to entry levels
+	allLevels := levels.AllLevels()
+	result := make([][]registry.Entry, 0, len(allLevels))
+	for _, levelNodes := range allLevels {
+		levelEntries := make([]registry.Entry, 0, len(levelNodes))
+		for _, node := range levelNodes {
+			if entry, exists := entryMap[node]; exists {
+				levelEntries = append(levelEntries, entry)
+			}
+		}
+		if len(levelEntries) > 0 {
+			result = append(result, levelEntries)
+		}
+	}
+
+	return result, nil
+}
+
 // CreateChangeSetFromEntries creates a ChangeSet consisting of create operations from a list of entries.
 // The entries are sorted taking into account all types of dependencies (direct, group, and namespace).
 func CreateChangeSetFromEntries(entries []registry.Entry, resolver registry.DependencyResolver) (registry.ChangeSet, error) {

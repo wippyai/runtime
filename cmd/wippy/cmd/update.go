@@ -36,7 +36,7 @@ Examples:
 func init() {
 	rootCmd.AddCommand(updateCmd)
 
-	updateCmd.Flags().StringP("lock-file", "l", "wippy.lock", "path to lock file")
+	updateCmd.Flags().StringP("lock-file", "l", defaultLockFile, "path to lock file")
 	updateCmd.Flags().StringP("src-dir", "d", ".", "source directory path")
 	updateCmd.Flags().String("modules-dir", ".wippy", "modules directory path")
 }
@@ -122,7 +122,10 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		zap.Int("total_levels", result.Stats.TotalLevels))
 
 	// Convert BuildResult to lock file
-	newLockObj := convertBuildResultToLock(result, modulesDir, srcDir)
+	newLockObj, err := convertBuildResultToLock(result, modulesDir, srcDir)
+	if err != nil {
+		return NewLoadLockFileError(err)
+	}
 
 	// Preserve replacements from old lock file
 	if oldLockObj != nil {
@@ -197,8 +200,11 @@ func extractRootDependencies(entries []regapi.Entry) []graph.DependencyRequest {
 	return deps
 }
 
-func convertBuildResultToLock(result *graph.BuildResult, modulesDir, srcDir string) *lock.Lock {
-	lockObj, _ := lock.New("wippy.lock")
+func convertBuildResultToLock(result *graph.BuildResult, modulesDir, srcDir string) (*lock.Lock, error) {
+	lockObj, err := lock.New(defaultLockFile)
+	if err != nil {
+		return nil, err
+	}
 
 	lockObj.SetDirectories(lock.Directories{
 		Modules: modulesDir,
@@ -213,7 +219,7 @@ func convertBuildResultToLock(result *graph.BuildResult, modulesDir, srcDir stri
 		})
 	}
 
-	return lockObj
+	return lockObj, nil
 }
 
 func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir string, targetModules []string, app *appinit.Context) error {
@@ -315,7 +321,10 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 	}
 
 	// Build new lock file
-	newLockObj := convertBuildResultToLock(result, modulesDir, srcDir)
+	newLockObj, err := convertBuildResultToLock(result, modulesDir, srcDir)
+	if err != nil {
+		return NewLoadLockFileError(err)
+	}
 
 	// Preserve replacements
 	for _, repl := range lockObj.GetReplacements() {

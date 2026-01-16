@@ -13,11 +13,11 @@ var selectCaseType = &types.InterfaceType{
 var channelType = &types.InterfaceType{
 	Name: "channel.Channel",
 	Methods: map[string]*types.FunctionType{
-		"send":         types.NewFunction([]types.Type{types.Any}, []types.Type{types.Boolean}),
-		"receive":      types.NewFunction(nil, []types.Type{types.Any, types.Boolean}),
-		"case_send":    types.NewFunction([]types.Type{types.Any}, []types.Type{selectCaseType}),
-		"case_receive": types.NewFunction(nil, []types.Type{selectCaseType}),
-		"close":        types.NewFunction(nil, nil),
+		"send":         types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{types.Boolean}),
+		"receive":      types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any, types.Boolean}),
+		"case_send":    types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{selectCaseType}),
+		"case_receive": types.NewFunction([]types.Type{types.Self}, []types.Type{selectCaseType}),
+		"close":        types.NewFunction([]types.Type{types.Self}, nil),
 	},
 }
 

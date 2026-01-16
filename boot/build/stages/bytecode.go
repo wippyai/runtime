@@ -19,7 +19,7 @@ import (
 	"github.com/wippyai/runtime/boot/pack"
 	glua "github.com/yuin/gopher-lua"
 	"github.com/yuin/gopher-lua/bytecode"
-	"github.com/yuin/gopher-lua/parse"
+	"github.com/yuin/gopher-lua/compiler/parse"
 	"go.uber.org/zap"
 )
 

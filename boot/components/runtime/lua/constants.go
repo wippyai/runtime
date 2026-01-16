@@ -39,4 +39,5 @@ const (
 	WorkflowName  = "lua.workflow"
 	WebSocketName = "lua.websocket"
 	YAMLName      = "lua.yaml"
+	LSPName       = "lua.lsp"
 )

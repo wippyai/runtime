@@ -11,13 +11,13 @@ func init() {
 	payloadType = &types.InterfaceType{
 		Name: "payload.Payload",
 		Methods: map[string]*types.FunctionType{
-			"get_format": types.NewFunction(nil, []types.Type{types.String}),
-			"data":       types.NewFunction(nil, []types.Type{types.Any, types.Optional(types.LuaError)}),
-			"unmarshal":  types.NewFunction(nil, []types.Type{types.Any, types.Optional(types.LuaError)}),
+			"get_format": types.NewFunction([]types.Type{types.Self}, []types.Type{types.String}),
+			"data":       types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any, types.Optional(types.LuaError)}),
+			"unmarshal":  types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any, types.Optional(types.LuaError)}),
 		},
 	}
 	// Add transcode after init to avoid cycle
-	payloadType.Methods["transcode"] = types.NewFunction([]types.Type{types.String}, []types.Type{payloadType, types.Optional(types.LuaError)})
+	payloadType.Methods["transcode"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{payloadType, types.Optional(types.LuaError)})
 }
 
 // format constants type

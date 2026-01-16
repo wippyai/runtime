@@ -70,6 +70,47 @@ local function main()
     assert.contains(result4, "foo", "result should contain foo")
     assert.contains(result4, "bar", "result should contain bar")
 
+    -- Test run with custom_modules (inject custom table as global)
+    local result5, err5 = runner.run({
+        source = [[
+            return {
+                get_version = function()
+                    return my_sdk.version
+                end
+            }
+        ]],
+        method = "get_version",
+        modules = {},
+        custom_modules = {
+            my_sdk = { version = "1.2.3", name = "TestSDK" }
+        }
+    })
+
+    assert.no_error(result5, err5, "run with custom_modules should succeed")
+    assert.eq(result5, "1.2.3", "should return injected version")
+
+    -- Test run with custom_modules accessing nested data
+    local result6, err6 = runner.run({
+        source = [[
+            return {
+                get_url = function()
+                    return config.api.base_url
+                end
+            }
+        ]],
+        method = "get_url",
+        modules = {},
+        custom_modules = {
+            config = {
+                api = { base_url = "https://api.example.com" },
+                debug = true
+            }
+        }
+    })
+
+    assert.no_error(result6, err6, "run with nested custom_modules should succeed")
+    assert.eq(result6, "https://api.example.com", "should return nested value")
+
     return true
 end
 

@@ -35,6 +35,7 @@ local function handler()
     res:set_content_type(http.CONTENT.JSON)
     res:set_status(http.STATUS.OK)
     res:write_json(data)
+    return nil
 end
 
 return {

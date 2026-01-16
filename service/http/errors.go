@@ -135,3 +135,15 @@ func NewStartupTimeoutError(timeout string) apierror.Error {
 func NewStartupCanceledError(err error) apierror.Error {
 	return apierror.New(apierror.Canceled, "startup canceled").WithCause(err)
 }
+
+func NewRouteConflictsError(conflicts []string) apierror.Error {
+	msg := "route pattern conflicts detected:\n"
+	for _, c := range conflicts {
+		msg += "  - " + c + "\n"
+	}
+	return apierror.New(apierror.Conflict, msg).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{
+			"conflicts": conflicts,
+		}))
+}

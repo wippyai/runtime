@@ -58,8 +58,8 @@ var Module = &luaapi.ModuleDef{
 	Name:        "websocket",
 	Description: "WebSocket client connections",
 	Class:       []string{luaapi.ClassNetwork, luaapi.ClassIO, luaapi.ClassNondeterministic},
-	Types:       ModuleTypes,
 	Build:       buildModule,
+	Types:       ModuleTypes,
 }
 
 func buildModule() (*lua.LTable, []luaapi.YieldType) {

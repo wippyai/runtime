@@ -31,6 +31,7 @@ local function main()
     if #versions > 1 then
         -- first version should have no previous
         local first = versions[1]
+        assert.not_nil(first, "should have first version")
         local prev = first:previous()
         assert.is_nil(prev, "first version has no previous")
 
@@ -45,6 +46,7 @@ local function main()
 
         -- test chain navigation
         local v = versions[1]
+        assert.not_nil(v, "should have version for chain navigation")
         local count = 1
         while true do
             local n = v:next()

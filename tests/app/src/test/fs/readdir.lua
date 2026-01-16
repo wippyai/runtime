@@ -23,7 +23,7 @@ local function main()
     local iter, state = vol:readdir(base)
     assert.not_nil(iter, "readdir returns iterator")
 
-    local entries = {}
+    local entries: {[string]: string} = {}
     for entry in iter, state do
         entries[entry.name] = entry.type
     end

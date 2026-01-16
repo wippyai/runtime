@@ -40,7 +40,12 @@ local function main()
     -- Verify deletion
     local rows, err6 = db:query("SELECT COUNT(*) as cnt FROM execute_test")
     assert.is_nil(err6, "count query should not error")
-    assert.eq(rows[1].cnt, 1, "should have 1 row remaining")
+    local row = rows[1]
+    if row then
+        assert.eq(row.cnt, 1, "should have 1 row remaining")
+    else
+        error("expected row from COUNT query")
+    end
 
     -- Cleanup
     db:execute("DROP TABLE execute_test")

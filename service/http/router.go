@@ -236,9 +236,79 @@ func (rm *RouteManager) Unmount(path string) error {
 	return nil
 }
 
+// patternSegments parses a pattern into method and path segments for conflict detection
+type patternSegments struct {
+	method   string
+	segments []string
+	isWild   []bool // true if segment is a wildcard like {id}
+}
+
+func parsePattern(pattern string) patternSegments {
+	parts := strings.SplitN(pattern, " ", 2)
+	method := parts[0]
+	path := "/"
+	if len(parts) > 1 {
+		path = parts[1]
+	}
+
+	segs := strings.Split(strings.Trim(path, "/"), "/")
+	isWild := make([]bool, len(segs))
+	for i, seg := range segs {
+		isWild[i] = strings.HasPrefix(seg, "{") && strings.HasSuffix(seg, "}")
+	}
+
+	return patternSegments{method: method, segments: segs, isWild: isWild}
+}
+
+// patternsConflict checks if two patterns can match overlapping paths without one being more specific
+func patternsConflict(a, b patternSegments) bool {
+	if a.method != b.method {
+		return false
+	}
+	if len(a.segments) != len(b.segments) {
+		return false
+	}
+
+	// Check if patterns can match same paths
+	canOverlap := true
+	for i := range a.segments {
+		aLit := !a.isWild[i]
+		bLit := !b.isWild[i]
+		if aLit && bLit && a.segments[i] != b.segments[i] {
+			canOverlap = false
+			break
+		}
+	}
+	if !canOverlap {
+		return false
+	}
+
+	// Check if one is strictly more specific
+	aMoreSpecific := false
+	bMoreSpecific := false
+	for i := range a.segments {
+		if !a.isWild[i] && b.isWild[i] {
+			aMoreSpecific = true
+		}
+		if a.isWild[i] && !b.isWild[i] {
+			bMoreSpecific = true
+		}
+	}
+
+	// No conflict if exactly one is strictly more specific (ServeMux handles precedence)
+	// Conflict only if both have specificity in different segments (ambiguous)
+	// or neither has specificity (identical wildcard patterns)
+	return aMoreSpecific == bMoreSpecific
+}
+
 // Build rebuilds the entire router from the current configuration
 func (rm *RouteManager) Build() error {
-	mux := http.NewServeMux()
+	// Collect all patterns first to check for conflicts
+	type patternEntry struct {
+		pattern string
+		handler http.Handler
+	}
+	var allPatterns []patternEntry
 
 	// Add root mounts
 	for path, handler := range rm.mounts {
@@ -246,47 +316,60 @@ func (rm *RouteManager) Build() error {
 		if !strings.HasSuffix(pattern, "/") {
 			pattern += "/"
 		}
-		mux.Handle(pattern, handler)
+		allPatterns = append(allPatterns, patternEntry{pattern, handler})
 	}
 
-	// Build routes from all routers
+	// Collect route patterns
 	registeredOptions := make(map[string]bool)
-
 	for _, routerEntry := range rm.routers {
 		for routeID, route := range routerEntry.routes {
-			// Build full pattern: "METHOD /prefix/path"
 			pattern := buildPattern(route.method, routerEntry.prefix, route.path)
-
-			// Create handler that extracts params and applies post-middleware
 			handler := rm.createRouteHandler(routeID, route, routerEntry)
-
-			// Apply pre-match middleware (CORS, RealIP, etc.)
 			if len(routerEntry.middleware) > 0 {
 				handler = applyMiddlewareChain(routerEntry.middleware, handler)
 			}
+			allPatterns = append(allPatterns, patternEntry{pattern, handler})
 
-			mux.Handle(pattern, handler)
-
-			// Generate OPTIONS handler for CORS preflight (once per path)
+			// Auto-generate OPTIONS handler so CORS middleware can intercept preflight
 			if route.method != "OPTIONS" {
 				optionsPattern := buildPattern("OPTIONS", routerEntry.prefix, route.path)
-
-				// Only register if not already registered
 				if !registeredOptions[optionsPattern] {
 					optionsHandler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 						w.WriteHeader(http.StatusNoContent)
 					}))
-
-					// Apply same pre-match middleware to OPTIONS
 					if len(routerEntry.middleware) > 0 {
 						optionsHandler = applyMiddlewareChain(routerEntry.middleware, optionsHandler)
 					}
-
-					mux.Handle(optionsPattern, optionsHandler)
+					allPatterns = append(allPatterns, patternEntry{optionsPattern, optionsHandler})
 					registeredOptions[optionsPattern] = true
 				}
 			}
 		}
+	}
+
+	// Check for conflicts before registering
+	var conflicts []string
+	parsed := make([]patternSegments, len(allPatterns))
+	for i, p := range allPatterns {
+		parsed[i] = parsePattern(p.pattern)
+	}
+
+	for i := 0; i < len(parsed); i++ {
+		for j := i + 1; j < len(parsed); j++ {
+			if patternsConflict(parsed[i], parsed[j]) {
+				conflicts = append(conflicts, allPatterns[i].pattern+" conflicts with "+allPatterns[j].pattern)
+			}
+		}
+	}
+
+	if len(conflicts) > 0 {
+		return NewRouteConflictsError(conflicts)
+	}
+
+	// Register all patterns
+	mux := http.NewServeMux()
+	for _, p := range allPatterns {
+		mux.Handle(p.pattern, p.handler)
 	}
 
 	var h http.Handler = mux

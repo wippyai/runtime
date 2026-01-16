@@ -292,3 +292,49 @@ func (c *StaticConfig) UnmarshalJSON(data []byte) error {
 func anyToString(val any) string {
 	return fmt.Sprintf("%v", val)
 }
+
+// MarshalJSON implements custom marshaling for TimeoutConfig to output durations as strings.
+func (c *TimeoutConfig) MarshalJSON() ([]byte, error) {
+	m := make(map[string]string)
+	if c.ReadTimeout != 0 {
+		m["read"] = c.ReadTimeout.String()
+	}
+	if c.WriteTimeout != 0 {
+		m["write"] = c.WriteTimeout.String()
+	}
+	if c.IdleTimeout != 0 {
+		m["idle"] = c.IdleTimeout.String()
+	}
+	return json.Marshal(m)
+}
+
+// UnmarshalJSON implements custom unmarshaling for TimeoutConfig to parse duration strings.
+func (c *TimeoutConfig) UnmarshalJSON(data []byte) error {
+	var m map[string]string
+	if err := json.Unmarshal(data, &m); err != nil {
+		return err
+	}
+
+	if v, ok := m["read"]; ok && v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("invalid read timeout: %w", err)
+		}
+		c.ReadTimeout = d
+	}
+	if v, ok := m["write"]; ok && v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("invalid write timeout: %w", err)
+		}
+		c.WriteTimeout = d
+	}
+	if v, ok := m["idle"]; ok && v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("invalid idle timeout: %w", err)
+		}
+		c.IdleTimeout = d
+	}
+	return nil
+}

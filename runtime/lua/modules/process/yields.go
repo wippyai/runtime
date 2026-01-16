@@ -330,36 +330,36 @@ func (y *UnlinkYield) HandleResult(l *lua.LState, _ any, err error) []lua.LValue
 	return []lua.LValue{lua.LTrue, lua.LNil}
 }
 
-// CallYield wraps CallCmd for Lua.
-type CallYield struct {
-	*process.CallCmd
+// RunYield wraps RunCmd for Lua.
+type RunYield struct {
+	*process.RunCmd
 }
 
-var callYieldPool = sync.Pool{New: func() any { return &CallYield{} }}
+var runYieldPool = sync.Pool{New: func() any { return &RunYield{} }}
 
-func AcquireCallYield() *CallYield {
-	y := callYieldPool.Get().(*CallYield)
-	y.CallCmd = process.AcquireCallCmd()
+func AcquireRunYield() *RunYield {
+	y := runYieldPool.Get().(*RunYield)
+	y.RunCmd = process.AcquireRunCmd()
 	return y
 }
 
-func ReleaseCallYield(y *CallYield) {
-	if y.CallCmd != nil {
-		y.CallCmd.Release()
-		y.CallCmd = nil
+func ReleaseRunYield(y *RunYield) {
+	if y.RunCmd != nil {
+		y.RunCmd.Release()
+		y.RunCmd = nil
 	}
-	callYieldPool.Put(y)
+	runYieldPool.Put(y)
 }
 
-func (y *CallYield) String() string                { return "<process_call_yield>" }
-func (y *CallYield) Type() lua.LValueType          { return lua.LTUserData }
-func (y *CallYield) ToCommand() dispatcher.Command { return y.CallCmd }
-func (y *CallYield) CmdID() dispatcher.CommandID   { return process.Call }
-func (y *CallYield) Release()                      { ReleaseCallYield(y) }
+func (y *RunYield) String() string                { return "<process_run_yield>" }
+func (y *RunYield) Type() lua.LValueType          { return lua.LTUserData }
+func (y *RunYield) ToCommand() dispatcher.Command { return y.RunCmd }
+func (y *RunYield) CmdID() dispatcher.CommandID   { return process.Run }
+func (y *RunYield) Release()                      { ReleaseRunYield(y) }
 
-func (y *CallYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+func (y *RunYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		luaErr := lua.WrapErrorWithLua(l, err, "call failed").
+		luaErr := lua.WrapErrorWithLua(l, err, "run failed").
 			WithKind(lua.Internal).
 			WithRetryable(false)
 		return []lua.LValue{lua.LNil, luaErr}
@@ -369,9 +369,9 @@ func (y *CallYield) HandleResult(l *lua.LState, data any, err error) []lua.LValu
 		return []lua.LValue{lua.LNil, lua.LNil}
 	}
 
-	result, ok := data.(process.CallResult)
+	result, ok := data.(process.RunResult)
 	if !ok {
-		luaErr := lua.NewLuaError(l, "invalid call result type").
+		luaErr := lua.NewLuaError(l, "invalid run result type").
 			WithKind(lua.Internal).
 			WithRetryable(false)
 		return []lua.LValue{lua.LNil, luaErr}

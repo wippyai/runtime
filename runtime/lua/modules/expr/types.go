@@ -8,7 +8,7 @@ import (
 var programType = &types.InterfaceType{
 	Name: "expr.Program",
 	Methods: map[string]*types.FunctionType{
-		"run": types.NewFunction([]types.Type{types.Optional(types.Any)}, []types.Type{types.Any, types.Optional(types.LuaError)}),
+		"run": types.NewFunction([]types.Type{types.Self, types.Optional(types.Any)}, []types.Type{types.Any, types.Optional(types.LuaError)}),
 	},
 }
 

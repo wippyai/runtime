@@ -46,13 +46,13 @@ var presignedURLOptionsType = &types.RecordType{
 var storageType = &types.InterfaceType{
 	Name: "cloudstorage.Storage",
 	Methods: map[string]*types.FunctionType{
-		"list_objects":      types.NewFunction([]types.Type{types.Optional(listObjectsOptionsType)}, []types.Type{listObjectsResultType, types.Optional(types.LuaError)}),
-		"download_object":   types.NewFunction([]types.Type{types.String, types.Any, types.Optional(downloadOptionsType)}, []types.Type{types.Number, types.Optional(types.LuaError)}),
-		"upload_object":     types.NewFunction([]types.Type{types.String, types.Any}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-		"delete_objects":    types.NewFunction([]types.Type{types.NewArray(types.String, false)}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-		"presigned_get_url": types.NewFunction([]types.Type{types.String, types.Optional(presignedURLOptionsType)}, []types.Type{types.String, types.Optional(types.LuaError)}),
-		"presigned_put_url": types.NewFunction([]types.Type{types.String, types.Optional(presignedURLOptionsType)}, []types.Type{types.String, types.Optional(types.LuaError)}),
-		"release":           types.NewFunction(nil, []types.Type{types.Boolean}),
+		"list_objects":      types.NewFunction([]types.Type{types.Self, types.Optional(listObjectsOptionsType)}, []types.Type{listObjectsResultType, types.Optional(types.LuaError)}),
+		"download_object":   types.NewFunction([]types.Type{types.Self, types.String, types.Any, types.Optional(downloadOptionsType)}, []types.Type{types.Number, types.Optional(types.LuaError)}),
+		"upload_object":     types.NewFunction([]types.Type{types.Self, types.String, types.Any}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
+		"delete_objects":    types.NewFunction([]types.Type{types.Self, types.NewArray(types.String, false)}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
+		"presigned_get_url": types.NewFunction([]types.Type{types.Self, types.String, types.Optional(presignedURLOptionsType)}, []types.Type{types.String, types.Optional(types.LuaError)}),
+		"presigned_put_url": types.NewFunction([]types.Type{types.Self, types.String, types.Optional(presignedURLOptionsType)}, []types.Type{types.String, types.Optional(types.LuaError)}),
+		"release":           types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean}),
 	},
 }
 

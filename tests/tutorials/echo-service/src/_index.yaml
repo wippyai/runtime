@@ -1,0 +1,54 @@
+version: "1.0"
+namespace: app
+
+entries:
+  # Terminal host for CLI
+  - name: terminal
+    kind: terminal.host
+    lifecycle:
+      auto_start: true
+
+  # Process host for relay and workers
+  - name: processes
+    kind: process.host
+    lifecycle:
+      auto_start: true
+
+  # CLI process
+  - name: cli
+    kind: process.lua
+    source: file://cli.lua
+    method: main
+    modules:
+      - io
+      - process
+      - time
+      - channel
+
+  # Relay process definition
+  - name: relay
+    kind: process.lua
+    source: file://relay.lua
+    method: main
+    modules:
+      - process
+      - logger
+      - channel
+      - time
+
+  # Relay service (supervised, auto-starts)
+  - name: relay-service
+    kind: process.service
+    process: app:relay
+    host: app:processes
+    lifecycle:
+      auto_start: true
+
+  # Worker factory (spawned by relay)
+  - name: worker
+    kind: process.lua
+    source: file://worker.lua
+    method: main
+    modules:
+      - process
+      - time

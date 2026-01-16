@@ -8,6 +8,9 @@ import (
 func ModuleTypes() *types.TypeManifest {
 	m := types.NewManifest("json")
 
+	// Schema accepts any table structure or string reference
+	schemaParam := types.NewUnion(types.Any, types.String)
+
 	moduleType := &types.InterfaceType{
 		Name: "json",
 		Methods: map[string]*types.FunctionType{
@@ -20,15 +23,15 @@ func ModuleTypes() *types.TypeManifest {
 				[]types.Type{types.Any, types.Optional(types.LuaError)},
 			),
 
-			// json.validate(schema: table|string, data: any): boolean, Error?
+			// json.validate(schema: Schema|string, data: any): boolean, Error?
 			"validate": types.NewFunction(
-				[]types.Type{types.NewUnion(types.NewMap(types.String, types.Any, false), types.String), types.Any},
+				[]types.Type{schemaParam, types.Any},
 				[]types.Type{types.Boolean, types.Optional(types.LuaError)},
 			),
 
-			// json.validate_string(schema: table|string, str: string): boolean, Error?
+			// json.validate_string(schema: Schema|string, str: string): boolean, Error?
 			"validate_string": types.NewFunction(
-				[]types.Type{types.NewUnion(types.NewMap(types.String, types.Any, false), types.String), types.String},
+				[]types.Type{schemaParam, types.String},
 				[]types.Type{types.Boolean, types.Optional(types.LuaError)},
 			),
 		},

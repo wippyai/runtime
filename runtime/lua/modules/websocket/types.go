@@ -8,11 +8,11 @@ import (
 var clientType = &types.InterfaceType{
 	Name: "websocket.Client",
 	Methods: map[string]*types.FunctionType{
-		"send":    types.NewFunction([]types.Type{types.String, types.Optional(types.Number)}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-		"receive": types.NewFunction(nil, []types.Type{types.Any, types.Optional(types.LuaError)}),
-		"channel": types.NewFunction(nil, []types.Type{types.Any, types.Optional(types.LuaError)}),
-		"close":   types.NewFunction([]types.Type{types.Optional(types.Number), types.Optional(types.String)}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-		"ping":    types.NewFunction(nil, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
+		"send":    types.NewFunction([]types.Type{types.Self, types.String, types.Optional(types.Number)}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
+		"receive": types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any, types.Optional(types.LuaError)}),
+		"channel": types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any, types.Optional(types.LuaError)}),
+		"close":   types.NewFunction([]types.Type{types.Self, types.Optional(types.Number), types.Optional(types.String)}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
+		"ping":    types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
 	},
 }
 

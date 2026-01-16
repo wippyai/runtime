@@ -23,7 +23,11 @@ var (
 	appStartTime = time.Now()
 )
 
-const defaultMemoryLimit = 1 << 30 // 1GB
+const (
+	defaultMemoryLimit = 1 << 30 // 1GB
+	defaultConfigFile  = ".wippy.yaml"
+	defaultLockFile    = "wippy.lock"
+)
 
 var rootCmd = &cobra.Command{
 	Use:           "wippy",
@@ -31,9 +35,9 @@ var rootCmd = &cobra.Command{
 	Long:          `Run applications with dynamic configuration and lifecycle management.`,
 	SilenceErrors: true,
 	SilenceUsage:  true,
-	Run: func(cmd *cobra.Command, _ []string) {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		banner.Print(silentLogs)
-		_ = cmd.Help() // Ignore help output errors
+		return cmd.Help()
 	},
 }
 
@@ -60,7 +64,6 @@ func init() {
 // initMemoryLimit sets the Go runtime memory limit.
 // Priority: --memory-limit flag > GOMEMLIMIT env > default 1GB
 func initMemoryLimit() int64 {
-	// If flag is provided, use it
 	if memoryLimit != "" {
 		limit, err := parseMemorySize(memoryLimit)
 		if err == nil && limit > 0 {
@@ -69,7 +72,6 @@ func initMemoryLimit() int64 {
 		}
 	}
 
-	// Check GOMEMLIMIT env var (Go respects this automatically, but we check for logging)
 	if envLimit := os.Getenv("GOMEMLIMIT"); envLimit != "" {
 		limit, err := parseMemorySize(envLimit)
 		if err == nil && limit > 0 {
@@ -77,7 +79,6 @@ func initMemoryLimit() int64 {
 		}
 	}
 
-	// Apply default 1GB
 	debug.SetMemoryLimit(defaultMemoryLimit)
 	return defaultMemoryLimit
 }
@@ -89,7 +90,6 @@ func parseMemorySize(s string) (int64, error) {
 		return 0, nil
 	}
 
-	// Check for suffix
 	multiplier := int64(1)
 	lastChar := s[len(s)-1]
 
@@ -107,7 +107,6 @@ func parseMemorySize(s string) (int64, error) {
 		multiplier = 1 << 40
 		s = s[:len(s)-1]
 	case 'B', 'b':
-		// Handle "1GB", "512MB" style
 		if len(s) >= 2 {
 			switch s[len(s)-2] {
 			case 'K', 'k':

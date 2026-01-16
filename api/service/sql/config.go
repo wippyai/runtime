@@ -2,6 +2,8 @@
 package sql
 
 import (
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/wippyai/runtime/api/registry"
@@ -161,5 +163,45 @@ func (c *SQLiteConfig) Validate() error {
 		return ErrInvalidMaxLifetime
 	}
 
+	return nil
+}
+
+// MarshalJSON implements custom marshaling for PoolConfig to output durations as strings.
+func (c *PoolConfig) MarshalJSON() ([]byte, error) {
+	type alias struct {
+		MaxOpen     int    `json:"max_open"`
+		MaxIdle     int    `json:"max_idle"`
+		MaxLifetime string `json:"max_lifetime,omitempty"`
+	}
+	a := alias{
+		MaxOpen: c.MaxOpen,
+		MaxIdle: c.MaxIdle,
+	}
+	if c.MaxLifetime != 0 {
+		a.MaxLifetime = c.MaxLifetime.String()
+	}
+	return json.Marshal(a)
+}
+
+// UnmarshalJSON implements custom unmarshaling for PoolConfig to parse duration strings.
+func (c *PoolConfig) UnmarshalJSON(data []byte) error {
+	type alias struct {
+		MaxOpen     int    `json:"max_open"`
+		MaxIdle     int    `json:"max_idle"`
+		MaxLifetime string `json:"max_lifetime"`
+	}
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	c.MaxOpen = a.MaxOpen
+	c.MaxIdle = a.MaxIdle
+	if a.MaxLifetime != "" {
+		d, err := time.ParseDuration(a.MaxLifetime)
+		if err != nil {
+			return fmt.Errorf("invalid max_lifetime: %w", err)
+		}
+		c.MaxLifetime = d
+	}
 	return nil
 }

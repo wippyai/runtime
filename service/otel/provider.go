@@ -60,7 +60,7 @@ func InitializeProvider(ctx context.Context, cfg otelapi.Config, logger *zap.Log
 	// go through our Zap logger instead of stderr
 	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
 		// Use the same logger instance that was passed to InitializeProvider
-		logger.Error("OTEL SDK internal error",
+		logger.Debug("OTEL SDK internal error",
 			zap.Error(err),
 			zap.String("endpoint", cfg.Endpoint),
 			zap.String("protocol", cfg.Protocol),

@@ -56,10 +56,10 @@ var Module = &luaapi.ModuleDef{
 	Name:        "funcs",
 	Description: "Function calls and async execution",
 	Class:       []string{luaapi.ClassWorkflow, luaapi.ClassNondeterministic},
-	Types:       ModuleTypes,
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		return moduleTable, yieldTypes
 	},
+	Types: ModuleTypes,
 }
 
 // Executor represents a function executor with context values.

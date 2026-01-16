@@ -17,8 +17,8 @@ func init() {
 	actorType = &types.InterfaceType{
 		Name: "security.Actor",
 		Methods: map[string]*types.FunctionType{
-			"id":   types.NewFunction(nil, []types.Type{types.String}),
-			"meta": types.NewFunction(nil, []types.Type{types.NewMap(types.String, types.Any, false)}),
+			"id":   types.NewFunction([]types.Type{types.Self}, []types.Type{types.String}),
+			"meta": types.NewFunction([]types.Type{types.Self}, []types.Type{types.NewMap(types.String, types.Any, false)}),
 		},
 	}
 
@@ -26,8 +26,8 @@ func init() {
 	policyType = &types.InterfaceType{
 		Name: "security.Policy",
 		Methods: map[string]*types.FunctionType{
-			"id":       types.NewFunction(nil, []types.Type{types.String}),
-			"evaluate": types.NewFunction([]types.Type{actorType, types.String, types.String, types.Optional(types.Any)}, []types.Type{types.String}),
+			"id":       types.NewFunction([]types.Type{types.Self}, []types.Type{types.String}),
+			"evaluate": types.NewFunction([]types.Type{types.Self, actorType, types.String, types.String, types.Optional(types.Any)}, []types.Type{types.String}),
 		},
 	}
 
@@ -36,20 +36,20 @@ func init() {
 		Name:    "security.Scope",
 		Methods: map[string]*types.FunctionType{},
 	}
-	scopeType.Methods["with"] = types.NewFunction([]types.Type{policyType}, []types.Type{scopeType})
-	scopeType.Methods["without"] = types.NewFunction([]types.Type{types.Any}, []types.Type{scopeType})
-	scopeType.Methods["evaluate"] = types.NewFunction([]types.Type{actorType, types.String, types.String, types.Optional(types.Any)}, []types.Type{types.String})
-	scopeType.Methods["contains"] = types.NewFunction([]types.Type{types.Any}, []types.Type{types.Boolean})
-	scopeType.Methods["policies"] = types.NewFunction(nil, []types.Type{types.NewArray(policyType, false)})
+	scopeType.Methods["with"] = types.NewFunction([]types.Type{types.Self, policyType}, []types.Type{scopeType})
+	scopeType.Methods["without"] = types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{scopeType})
+	scopeType.Methods["evaluate"] = types.NewFunction([]types.Type{types.Self, actorType, types.String, types.String, types.Optional(types.Any)}, []types.Type{types.String})
+	scopeType.Methods["contains"] = types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{types.Boolean})
+	scopeType.Methods["policies"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.NewArray(policyType, false)})
 
 	// TokenStore type
 	tokenStoreType = &types.InterfaceType{
 		Name: "security.TokenStore",
 		Methods: map[string]*types.FunctionType{
-			"validate": types.NewFunction([]types.Type{types.String}, []types.Type{actorType, scopeType, types.Optional(types.LuaError)}),
-			"create":   types.NewFunction([]types.Type{actorType, scopeType, types.Optional(types.Any)}, []types.Type{types.String, types.Optional(types.LuaError)}),
-			"revoke":   types.NewFunction([]types.Type{types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-			"close":    types.NewFunction(nil, []types.Type{types.Boolean}),
+			"validate": types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{actorType, scopeType, types.Optional(types.LuaError)}),
+			"create":   types.NewFunction([]types.Type{types.Self, actorType, scopeType, types.Optional(types.Any)}, []types.Type{types.String, types.Optional(types.LuaError)}),
+			"revoke":   types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
+			"close":    types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean}),
 		},
 	}
 }

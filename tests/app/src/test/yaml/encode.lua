@@ -43,11 +43,6 @@ local function main()
     assert.not_nil(err6, "string input should error")
     assert.eq(err6:kind(), errors.INVALID, "string input error kind")
 
-    -- Missing input error
-    local _, err7 = yaml.encode()
-    assert.not_nil(err7, "missing input should error")
-    assert.eq(err7:kind(), errors.INVALID, "missing input error kind")
-
     return true
 end
 

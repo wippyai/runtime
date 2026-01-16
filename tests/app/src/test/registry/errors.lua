@@ -14,8 +14,8 @@ local function main()
     assert.not_nil(err_str, "error has tostring")
     assert.ok(#err_str > 0, "error string not empty")
 
-    -- error can be concatenated
-    local msg = "Error: " .. err
+    -- error can be concatenated (use tostring for nil safety)
+    local msg = "Error: " .. tostring(err)
     assert.ok(string.find(msg, "Error:", 1, true), "error can be concatenated")
 
     return true

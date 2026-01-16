@@ -158,7 +158,7 @@ func colorizeLine(line string) string {
 		})
 
 		// Check for "expected due to this"
-		content = strings.Replace(content, "expected due to this", cyan+"expected due to this"+reset, 1)
+		content = strings.ReplaceAll(content, "expected due to this", cyan+"expected due to this"+reset)
 
 		return boldBlue + m[1] + m[2] + reset + m[3] + content
 	}

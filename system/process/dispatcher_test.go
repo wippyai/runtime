@@ -407,56 +407,56 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 	assert.NotNil(t, registeredHandlers[process.Unmonitor])
 	assert.NotNil(t, registeredHandlers[process.Link])
 	assert.NotNil(t, registeredHandlers[process.Unlink])
-	assert.NotNil(t, registeredHandlers[process.Call])
+	assert.NotNil(t, registeredHandlers[process.Run])
 }
 
-func TestDispatcher_HandleCall_MissingHostID(t *testing.T) {
+func TestDispatcher_HandleRun_MissingHostID(t *testing.T) {
 	manager := &mockProcessManager{}
 	router := &mockRouter{}
 	topo := &mockTopology{}
 
 	d := NewDispatcher(manager, router, topo, nil)
 
-	cmd := &process.CallCmd{
+	cmd := &process.RunCmd{
 		Source: registry.NewID("test", "handler"),
 		HostID: "", // empty host
 	}
 
 	receiver := &mockResultReceiver{}
-	err := d.handleCall(context.Background(), cmd, 1, receiver)
+	err := d.handleRun(context.Background(), cmd, 1, receiver)
 	assert.NoError(t, err)
 	assert.NotNil(t, receiver.err)
 	assert.Contains(t, receiver.err.Error(), "host ID required")
 }
 
-func TestDispatcher_HandleCall_MissingPIDGenerator(t *testing.T) {
+func TestDispatcher_HandleRun_MissingPIDGenerator(t *testing.T) {
 	manager := &mockProcessManager{}
 	router := &mockRouter{}
 	topo := &mockTopology{}
 
 	d := NewDispatcher(manager, router, topo, nil)
 
-	cmd := &process.CallCmd{
+	cmd := &process.RunCmd{
 		Source: registry.NewID("test", "handler"),
 		HostID: "lua",
 	}
 
 	// Context without PID generator
 	receiver := &mockResultReceiver{}
-	err := d.handleCall(context.Background(), cmd, 1, receiver)
+	err := d.handleRun(context.Background(), cmd, 1, receiver)
 	assert.NoError(t, err)
 	assert.NotNil(t, receiver.err)
 	assert.Contains(t, receiver.err.Error(), "PID generator")
 }
 
-func TestDispatcher_HandleCall_MissingNode(t *testing.T) {
+func TestDispatcher_HandleRun_MissingNode(t *testing.T) {
 	manager := &mockProcessManager{}
 	router := &mockRouter{}
 	topo := &mockTopology{}
 
 	d := NewDispatcher(manager, router, topo, nil)
 
-	cmd := &process.CallCmd{
+	cmd := &process.RunCmd{
 		Source: registry.NewID("test", "handler"),
 		HostID: "lua",
 	}
@@ -467,19 +467,19 @@ func TestDispatcher_HandleCall_MissingNode(t *testing.T) {
 	ctx = process.WithPIDGenerator(ctx, pidGen)
 
 	receiver := &mockResultReceiver{}
-	err := d.handleCall(ctx, cmd, 1, receiver)
+	err := d.handleRun(ctx, cmd, 1, receiver)
 	assert.NoError(t, err)
 	assert.NotNil(t, receiver.err)
 	assert.Contains(t, receiver.err.Error(), "relay node")
 }
 
-func TestDispatcher_HandleCall_NoTopology(t *testing.T) {
+func TestDispatcher_HandleRun_NoTopology(t *testing.T) {
 	manager := &mockProcessManager{}
 	router := &mockRouter{}
 
 	d := NewDispatcher(manager, router, nil, nil) // nil topology
 
-	cmd := &process.CallCmd{
+	cmd := &process.RunCmd{
 		Source: registry.NewID("test", "handler"),
 		HostID: "lua",
 	}
@@ -493,13 +493,13 @@ func TestDispatcher_HandleCall_NoTopology(t *testing.T) {
 	ctx = relay.WithNode(ctx, node)
 
 	receiver := &mockResultReceiver{}
-	err := d.handleCall(ctx, cmd, 1, receiver)
+	err := d.handleRun(ctx, cmd, 1, receiver)
 	assert.NoError(t, err)
 	assert.NotNil(t, receiver.err)
 	assert.Contains(t, receiver.err.Error(), "topology")
 }
 
-func TestDispatcher_HandleCall_RegisterError(t *testing.T) {
+func TestDispatcher_HandleRun_RegisterError(t *testing.T) {
 	manager := &mockProcessManager{}
 	router := &mockRouter{}
 	topo := &mockTopology{}
@@ -508,7 +508,7 @@ func TestDispatcher_HandleCall_RegisterError(t *testing.T) {
 
 	d := NewDispatcher(manager, router, topo, nil)
 
-	cmd := &process.CallCmd{
+	cmd := &process.RunCmd{
 		Source: registry.NewID("test", "handler"),
 		HostID: "lua",
 	}
@@ -521,13 +521,13 @@ func TestDispatcher_HandleCall_RegisterError(t *testing.T) {
 	ctx = relay.WithNode(ctx, node)
 
 	receiver := &mockResultReceiver{}
-	err := d.handleCall(ctx, cmd, 1, receiver)
+	err := d.handleRun(ctx, cmd, 1, receiver)
 	assert.NoError(t, err)
 	assert.NotNil(t, receiver.err)
 	assert.Contains(t, receiver.err.Error(), "register failed")
 }
 
-func TestDispatcher_HandleCall_AttachError(t *testing.T) {
+func TestDispatcher_HandleRun_AttachError(t *testing.T) {
 	manager := &mockProcessManager{}
 	router := &mockRouter{}
 	topo := &mockTopology{}
@@ -537,7 +537,7 @@ func TestDispatcher_HandleCall_AttachError(t *testing.T) {
 
 	d := NewDispatcher(manager, router, topo, nil)
 
-	cmd := &process.CallCmd{
+	cmd := &process.RunCmd{
 		Source: registry.NewID("test", "handler"),
 		HostID: "lua",
 	}
@@ -551,7 +551,7 @@ func TestDispatcher_HandleCall_AttachError(t *testing.T) {
 	ctx = relay.WithNode(ctx, node)
 
 	receiver := &mockResultReceiver{}
-	err := d.handleCall(ctx, cmd, 1, receiver)
+	err := d.handleRun(ctx, cmd, 1, receiver)
 	assert.NoError(t, err)
 
 	// Attach fails because no host registered for control
@@ -600,7 +600,7 @@ func (h *mockAttachableHost) sendExitEvent(result *runtime.Result) {
 	}
 }
 
-func TestDispatcher_HandleCall_Success(t *testing.T) {
+func TestDispatcher_HandleRun_Success(t *testing.T) {
 	manager := &mockProcessManager{}
 	router := &mockRouter{}
 	topo := &mockTopology{}
@@ -613,7 +613,7 @@ func TestDispatcher_HandleCall_Success(t *testing.T) {
 
 	d := NewDispatcher(manager, router, topo, nil)
 
-	cmd := &process.CallCmd{
+	cmd := &process.RunCmd{
 		Source: registry.NewID("test", "handler"),
 		HostID: "lua",
 	}
@@ -629,7 +629,7 @@ func TestDispatcher_HandleCall_Success(t *testing.T) {
 	ctx = relay.WithNode(ctx, node)
 
 	receiver := &asyncResultReceiver{done: make(chan struct{})}
-	err := d.handleCall(ctx, cmd, 1, receiver)
+	err := d.handleRun(ctx, cmd, 1, receiver)
 	assert.NoError(t, err)
 
 	// Send exit event through relay
@@ -644,12 +644,12 @@ func TestDispatcher_HandleCall_Success(t *testing.T) {
 	}
 
 	assert.Nil(t, receiver.err)
-	result, ok := receiver.data.(process.CallResult)
+	result, ok := receiver.data.(process.RunResult)
 	assert.True(t, ok)
 	assert.NotNil(t, result.Result)
 }
 
-func TestDispatcher_HandleCall_ContextCanceled(t *testing.T) {
+func TestDispatcher_HandleRun_ContextCanceled(t *testing.T) {
 	manager := &mockProcessManager{}
 	router := &mockRouter{}
 	topo := &mockTopology{}
@@ -662,7 +662,7 @@ func TestDispatcher_HandleCall_ContextCanceled(t *testing.T) {
 
 	d := NewDispatcher(manager, router, topo, nil)
 
-	cmd := &process.CallCmd{
+	cmd := &process.RunCmd{
 		Source: registry.NewID("test", "handler"),
 		HostID: "lua",
 	}
@@ -678,7 +678,7 @@ func TestDispatcher_HandleCall_ContextCanceled(t *testing.T) {
 	ctx = relay.WithNode(ctx, node)
 
 	receiver := &asyncResultReceiver{done: make(chan struct{})}
-	err := d.handleCall(ctx, cmd, 1, receiver)
+	err := d.handleRun(ctx, cmd, 1, receiver)
 	assert.NoError(t, err)
 
 	// Cancel context
@@ -696,7 +696,7 @@ func TestDispatcher_HandleCall_ContextCanceled(t *testing.T) {
 	assert.ErrorIs(t, receiver.err, context.Canceled)
 }
 
-func TestDispatcher_HandleCall_StartError(t *testing.T) {
+func TestDispatcher_HandleRun_StartError(t *testing.T) {
 	manager := &mockProcessManager{}
 	router := &mockRouter{}
 	topo := &mockTopology{}
@@ -707,7 +707,7 @@ func TestDispatcher_HandleCall_StartError(t *testing.T) {
 
 	d := NewDispatcher(manager, router, topo, nil)
 
-	cmd := &process.CallCmd{
+	cmd := &process.RunCmd{
 		Source: registry.NewID("test", "handler"),
 		HostID: "lua",
 	}
@@ -722,7 +722,7 @@ func TestDispatcher_HandleCall_StartError(t *testing.T) {
 	ctx = relay.WithNode(ctx, node)
 
 	receiver := &mockResultReceiver{}
-	err := d.handleCall(ctx, cmd, 1, receiver)
+	err := d.handleRun(ctx, cmd, 1, receiver)
 	assert.NoError(t, err)
 
 	assert.NotNil(t, receiver.err)

@@ -2,8 +2,10 @@ package code
 
 import (
 	api "github.com/wippyai/runtime/api/runtime/lua"
-	"github.com/yuin/gopher-lua/parse"
+	"github.com/yuin/gopher-lua/compiler/ast"
+	"github.com/yuin/gopher-lua/compiler/parse"
 	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/subtype"
 
 	_ "github.com/yuin/gopher-lua/types/stmt"  // register statement handlers
 	_ "github.com/yuin/gopher-lua/types/synth" // register synthesizers
@@ -22,6 +24,9 @@ type TypeCheckConfig struct {
 
 	// SkipUntyped silently skips type checking for untyped code
 	SkipUntyped bool
+
+	// DisableCache disables the subtype cache (useful for debugging)
+	DisableCache bool
 
 	// Rules controls which type checking rules are enabled
 	Rules TypeCheckRules
@@ -68,6 +73,19 @@ type TypeChecker struct {
 // NewTypeChecker creates a configured type checker.
 // Built-in modules are added as globals so they're always available.
 func NewTypeChecker(cfg TypeCheckConfig, builtinMods []*api.ModuleDef) *TypeChecker {
+	// Apply cache setting
+	if cfg.DisableCache {
+		subtype.SetCacheEnabled(false)
+	}
+
+	// Skip building builtins map if type checking is disabled
+	if !cfg.Enabled {
+		return &TypeChecker{
+			config:   cfg,
+			builtins: nil,
+		}
+	}
+
 	builtins := make(map[string]types.Type)
 
 	for _, mod := range builtinMods {
@@ -83,6 +101,17 @@ func NewTypeChecker(cfg TypeCheckConfig, builtinMods []*api.ModuleDef) *TypeChec
 		config:   cfg,
 		builtins: builtins,
 	}
+}
+
+// ClearCache clears the subtype cache between sessions.
+// Call this when types may have been reallocated.
+func ClearTypeCache() {
+	subtype.ClearCache()
+}
+
+// SetTypeCacheEnabled enables or disables the subtype cache.
+func SetTypeCacheEnabled(enabled bool) {
+	subtype.SetCacheEnabled(enabled)
 }
 
 // Check performs type checking on Lua source code with provided imports
@@ -112,17 +141,28 @@ func (tc *TypeChecker) Check(source, modulePath string, imports map[string]*type
 		}
 	}
 
-	diagnostics := types.CheckChunk(
+	// Use CheckChunkWithContext to get context for extracting module type
+	result := types.CheckChunkWithContext(
 		chunk,
 		types.WithStdlib(),
 		types.WithEnv(env),
 		types.WithSource(modulePath),
 	)
+	// Release session resources after type checking
+	defer result.Context.Release()
 
 	// Build manifest from checked code
 	manifest := types.NewManifest(modulePath)
 
-	return manifest, diagnostics, nil
+	// Extract module return type from the last return statement
+	if result.Context != nil {
+		exportType := extractModuleReturnType(chunk, result.Context)
+		if exportType != nil {
+			manifest.SetExport(exportType)
+		}
+	}
+
+	return manifest, result.Diagnostics, nil
 }
 
 // IsEnabled returns whether type checking is enabled
@@ -133,6 +173,26 @@ func (tc *TypeChecker) IsEnabled() bool {
 // IsStrict returns whether strict mode is enabled (errors vs warnings)
 func (tc *TypeChecker) IsStrict() bool {
 	return tc.config.Strict
+}
+
+// AddBuiltin adds a module to the type checker's built-in environment
+func (tc *TypeChecker) AddBuiltin(mod *api.ModuleDef) {
+	if tc.builtins == nil || mod == nil || mod.Types == nil {
+		return
+	}
+	manifest := mod.Types()
+	if manifest != nil && manifest.Export != nil {
+		tc.builtins[mod.Name] = manifest.Export
+	}
+}
+
+// BuildEnv creates an environment with all builtin modules
+func (tc *TypeChecker) BuildEnv() *types.Env {
+	env := types.NewEnv()
+	for name, t := range tc.builtins {
+		env = env.WithSymbol(name, t)
+	}
+	return env
 }
 
 // HasErrors checks if any diagnostic is an error
@@ -154,4 +214,22 @@ func FilterErrors(diagnostics []types.Diagnostic) []types.Diagnostic {
 		}
 	}
 	return errors
+}
+
+// extractModuleReturnType finds the module's return statement and extracts its type.
+// For modules like: local M = {}; function M.foo() end; return M
+// This extracts the type of M as the module's export type.
+func extractModuleReturnType(chunk []ast.Stmt, ctx *types.Context) types.Type {
+	// Find return statements at module level
+	for i := len(chunk) - 1; i >= 0; i-- {
+		if ret, ok := chunk[i].(*ast.ReturnStmt); ok {
+			if len(ret.Exprs) == 0 {
+				return nil
+			}
+			// Synthesize the type of the first return expression
+			typ, _ := ctx.Synth(ret.Exprs[0])
+			return typ
+		}
+	}
+	return nil
 }

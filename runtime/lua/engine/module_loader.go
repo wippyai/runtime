@@ -5,15 +5,13 @@ import (
 
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
-	"github.com/yuin/gopher-lua/types"
 )
 
 // moduleCache holds built module data.
 type moduleCache struct {
-	value    lua.LValue
-	table    *lua.LTable
-	yields   []luaapi.YieldType
-	manifest *types.TypeManifest
+	value  lua.LValue
+	table  *lua.LTable
+	yields []luaapi.YieldType
 }
 
 var (
@@ -48,10 +46,6 @@ func buildModule(m *luaapi.ModuleDef) *moduleCache {
 	} else if m.Build != nil {
 		cache.table, cache.yields = m.Build()
 		cache.value = cache.table
-	}
-
-	if m.Types != nil {
-		cache.manifest = m.Types()
 	}
 
 	moduleBuilt[m] = cache
@@ -92,12 +86,6 @@ func ModuleYields(m *luaapi.ModuleDef) []luaapi.YieldType {
 	return cache.yields
 }
 
-// ModuleManifest returns the cached type manifest for a module.
-func ModuleManifest(m *luaapi.ModuleDef) *types.TypeManifest {
-	cache := buildModule(m)
-	return cache.manifest
-}
-
 // ModuleInfo returns module metadata.
 func ModuleInfo(m *luaapi.ModuleDef) luaapi.ModuleInfo {
 	return luaapi.ModuleInfo{Name: m.Name, Description: m.Description, Class: m.Class}
@@ -126,9 +114,4 @@ func (w *ModuleWrapper) Value() lua.LValue {
 // Yields implements luaapi.Module.
 func (w *ModuleWrapper) Yields() []luaapi.YieldType {
 	return buildModule(w.Def).yields
-}
-
-// Manifest implements luaapi.Module.
-func (w *ModuleWrapper) Manifest() *types.TypeManifest {
-	return buildModule(w.Def).manifest
 }

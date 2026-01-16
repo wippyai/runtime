@@ -60,12 +60,9 @@ type Scheduler struct {
 	workers  []*Worker
 	global   *Queue
 
-	nextID atomic.Uint64
-	wg     sync.WaitGroup
-
+	nextID   atomic.Uint64
+	wg       sync.WaitGroup
 	stopping atomic.Bool
-	wakeMu   sync.Mutex
-	wakeCond *sync.Cond
 
 	numWorkers     int
 	queueSize      int
@@ -74,9 +71,9 @@ type Scheduler struct {
 	lifecycle      process.Lifecycle
 
 	processorCount atomic.Int64
-	drainCh        chan struct{} // closed when processorCount reaches 0 during shutdown
-	byPID          sync.Map      // PID.String() -> *Processor
-	byQueue        sync.Map      // *EventQueue -> *Processor for wake routing
+	drainCh        chan struct{}
+	byPID          sync.Map // PID.String() -> *Processor
+	byQueue        sync.Map // *EventQueue -> *Processor for wake routing
 }
 
 func NewScheduler(registry dispatcher.Registry, opts ...Option) *Scheduler {
@@ -92,7 +89,6 @@ func NewScheduler(registry dispatcher.Registry, opts ...Option) *Scheduler {
 	}
 
 	s.global = NewQueue(s.queueSize)
-	s.wakeCond = sync.NewCond(&s.wakeMu)
 	s.drainCh = make(chan struct{}, 1)
 	s.workers = make([]*Worker, s.numWorkers)
 
@@ -192,16 +188,32 @@ func (s *Scheduler) Stop(ctx context.Context) {
 	})
 }
 
-func (s *Scheduler) wake() {
-	s.wakeMu.Lock()
-	s.wakeCond.Signal()
-	s.wakeMu.Unlock()
+func (s *Scheduler) wakeAny() {
+	for _, w := range s.workers {
+		if w.parkMu.TryLock() {
+			w.notified.Store(true)
+			w.parkCond.Signal()
+			w.parkMu.Unlock()
+			return
+		}
+	}
 }
 
 func (s *Scheduler) wakeAll() {
-	s.wakeMu.Lock()
-	s.wakeCond.Broadcast()
-	s.wakeMu.Unlock()
+	for _, w := range s.workers {
+		w.signal()
+	}
+}
+
+func (s *Scheduler) injectOrGlobal(proc *Processor) {
+	workerID := proc.lastWorker.Load()
+	if workerID >= 0 && int(workerID) < len(s.workers) {
+		s.workers[workerID].inject.Push(proc)
+		s.workers[workerID].signal()
+	} else {
+		s.global.Push(proc)
+		s.wakeAny()
+	}
 }
 
 // WakeProcessor implements process.YieldScheduler.
@@ -221,8 +233,7 @@ func (s *Scheduler) WakeProcessor(q *process.EventQueue, gen uint64) {
 
 	// Same wake logic as processor.CompleteYield
 	if proc.casState(StateBlocked, StateReady) {
-		s.global.Push(proc)
-		s.wake()
+		s.injectOrGlobal(proc)
 		return
 	}
 	proc.setWakeup(StateRunning)
@@ -275,7 +286,7 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 	}
 
 	s.global.Push(proc)
-	s.wake()
+	s.wakeAny()
 
 	return proc, nil
 }
@@ -302,7 +313,7 @@ func (s *Scheduler) Terminate(pid pid.PID) error {
 	// Try to transition to Ready and re-queue so worker can evict.
 	if proc.casState(StateIdle, StateReady) || proc.casState(StateBlocked, StateReady) {
 		s.global.Push(proc)
-		s.wake()
+		s.wakeAny()
 	}
 
 	return nil
@@ -428,11 +439,9 @@ func (s *Scheduler) Send(pkg *relay.Package) error {
 	// CAS ensures exactly-once wake even with concurrent senders.
 	// Try both Idle (waiting on select) and Blocked (waiting on yield completion).
 	if proc.casState(StateIdle, StateReady) {
-		s.global.Push(proc)
-		s.wake()
+		s.injectOrGlobal(proc)
 	} else if proc.casState(StateBlocked, StateReady) {
-		s.global.Push(proc)
-		s.wake()
+		s.injectOrGlobal(proc)
 	}
 
 	return nil

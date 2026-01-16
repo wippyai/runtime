@@ -37,10 +37,10 @@ var Module = &luaapi.ModuleDef{
 	Name:        "workflow",
 	Description: "Workflow execution and information",
 	Class:       []string{luaapi.ClassWorkflow, luaapi.ClassNondeterministic},
-	Types:       ModuleTypes,
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		return moduleTable, yieldTypes
 	},
+	Types: ModuleTypes,
 }
 
 // Error helpers

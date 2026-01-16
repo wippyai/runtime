@@ -13,7 +13,7 @@ import (
 // DefaultConfig returns OTEL configuration with safe defaults
 func DefaultConfig() otelapi.Config {
 	return otelapi.Config{
-		Enabled:        true,
+		Enabled:        false,
 		Endpoint:       "localhost:4318",
 		Protocol:       "http/protobuf",
 		ServiceName:    "wippy-runtime",
@@ -126,6 +126,11 @@ func ApplyEnvOverrides(cfg *otelapi.Config, logger *zap.Logger) {
 				zap.String("var", "OTEL_SDK_DISABLED"),
 				zap.String("value", disabled))
 			cfg.Enabled = false
+		} else if strings.ToLower(disabled) == "false" {
+			logger.Debug("SDK enabled via env",
+				zap.String("var", "OTEL_SDK_DISABLED"),
+				zap.String("value", disabled))
+			cfg.Enabled = true
 		}
 	}
 

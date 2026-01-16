@@ -3,6 +3,7 @@ package engine
 import (
 	"sync"
 
+	"github.com/wippyai/runtime/runtime/lua/modules/ostime"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -11,6 +12,7 @@ var (
 
 	cachedTableLib     *lua.LTable
 	cachedMathLib      *lua.LTable
+	cachedOsLib        *lua.LTable
 	cachedCoroutineLib *lua.LTable
 	cachedStringLib    *lua.LTable
 	cachedErrorsLib    *lua.LTable
@@ -29,6 +31,9 @@ func initCachedLibs() {
 		lua.OpenMath(tmp)
 		cachedMathLib = tmp.GetGlobal(lua.MathLibName).(*lua.LTable)
 		cachedMathLib.Immutable = true
+
+		// Use wippy's ostime module for os.time/clock/date/difftime
+		cachedOsLib, _ = ostime.Module.Build()
 
 		lua.OpenCoroutine(tmp)
 		cachedCoroutineLib = tmp.GetGlobal(lua.CoroutineLibName).(*lua.LTable)
@@ -50,6 +55,7 @@ func BindCachedLibs(L *lua.LState) {
 
 	L.SetGlobal(lua.TabLibName, cachedTableLib)
 	L.SetGlobal(lua.MathLibName, cachedMathLib)
+	L.SetGlobal("os", cachedOsLib)
 	L.SetGlobal(lua.CoroutineLibName, cachedCoroutineLib)
 	L.SetGlobal(lua.StringLibName, cachedStringLib)
 	L.SetGlobal(lua.ErrorsLibName, cachedErrorsLib)

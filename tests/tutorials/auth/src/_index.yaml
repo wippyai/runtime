@@ -1,0 +1,172 @@
+version: "1.0"
+namespace: app
+
+entries:
+  # SQLite database
+  - name: db
+    kind: db.sql.sqlite
+    file: "./data/auth.db"
+    lifecycle:
+      auto_start: true
+
+  # Token backing store
+  - name: token_data
+    kind: store.memory
+    lifecycle:
+      auto_start: true
+
+  # Token store with HMAC signing
+  - name: tokens
+    kind: security.token_store
+    store: app:token_data
+    token_length: 32
+    default_expiration: "1h"
+    token_key: "demo-secret-key-change-in-production"
+
+  # Security policy for authenticated users
+  - name: user_policy
+    kind: security.policy
+    policy:
+      actions: "*"
+      resources: "*"
+      effect: allow
+    groups:
+      - user
+
+  # Process host
+  - name: processes
+    kind: process.host
+    lifecycle:
+      auto_start: true
+
+  # Migration process
+  - name: migrate
+    kind: process.lua
+    source: file://migrate.lua
+    method: main
+    modules:
+      - sql
+      - logger
+      - crypto
+
+  - name: migrate-service
+    kind: process.service
+    process: app:migrate
+    host: app:processes
+    lifecycle:
+      auto_start: true
+
+  # Ticker broadcaster process
+  - name: ticker
+    kind: process.lua
+    source: file://ticker.lua
+    method: main
+    modules:
+      - logger
+      - time
+      - json
+      - crypto
+
+  # WebSocket handler process (spawned per connection)
+  - name: ws_handler
+    kind: process.lua
+    source: file://ws_handler.lua
+    method: main
+    modules:
+      - logger
+      - json
+
+  - name: ticker-service
+    kind: process.service
+    process: app:ticker
+    host: app:processes
+    lifecycle:
+      auto_start: true
+
+  # HTTP server
+  - name: gateway
+    kind: http.service
+    addr: ":8081"
+    lifecycle:
+      auto_start: true
+
+  # Public router (no auth)
+  - name: public_router
+    kind: http.router
+    meta:
+      server: app:gateway
+    middleware:
+      - cors
+    options:
+      cors.allow.origins: "*"
+
+  # WebSocket router (with auth)
+  - name: ws_router
+    kind: http.router
+    meta:
+      server: app:gateway
+    prefix: /ws
+    middleware:
+      - cors
+      - token_auth
+    options:
+      cors.allow.origins: "*"
+      token_auth.store: "app:tokens"
+    post_middleware:
+      - websocket_relay
+    post_options:
+      wsrelay.allowed.origins: "*"
+
+  # Static files
+  - name: public_fs
+    kind: fs.directory
+    directory: ./public
+
+  - name: static
+    kind: http.static
+    meta:
+      server: app:gateway
+    path: /
+    fs: app:public_fs
+    static_options:
+      spa: true
+      index: index.html
+
+  # Auth token exchange endpoint
+  - name: auth_token
+    kind: function.lua
+    source: file://auth_token.lua
+    method: handler
+    modules:
+      - http
+      - sql
+      - crypto
+      - security
+      - json
+
+  - name: auth_token.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:public_router
+    method: POST
+    path: /auth/token
+    func: app:auth_token
+
+  # WebSocket ticker endpoint
+  - name: ws_ticker
+    kind: function.lua
+    source: file://ws_ticker.lua
+    method: handler
+    modules:
+      - http
+      - json
+      - security
+      - logger
+
+  - name: ws_ticker.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:ws_router
+    method: GET
+    path: /ticker
+    func: app:ws_ticker

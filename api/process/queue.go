@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 )
 
+// todo: move from api
 const defaultQueueCap = 16
 
 // EventQueue is a thread-safe MPSC queue for events.

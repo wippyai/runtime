@@ -162,6 +162,15 @@ func (f *ProcessFactory) CreateFactory(id registry.ID, opts ...FactoryOption) (p
 func (f *ProcessFactory) buildBinders(compiled *code.CompiledMain, cfg *processConfig) ([]ModuleBinder, error) {
 	binders := []ModuleBinder{LoadCoreModules}
 
+	// Extra modules must load BEFORE dependencies so libraries can access them
+	for _, mod := range cfg.extraModules {
+		m := mod
+		binders = append(binders, func(l *lua.LState) error {
+			LoadModuleDef(l, m)
+			return nil
+		})
+	}
+
 	// Build exclusion sets for O(1) lookup
 	excludeClassSet := toSet(cfg.excludeClasses)
 	excludeModuleSet := toSet(cfg.excludeModules)
@@ -181,15 +190,6 @@ func (f *ProcessFactory) buildBinders(compiled *code.CompiledMain, cfg *processC
 		return nil, err
 	}
 	binders = append(binders, preloadBinders...)
-
-	// Extra modules
-	for _, mod := range cfg.extraModules {
-		m := mod
-		binders = append(binders, func(l *lua.LState) error {
-			LoadModuleDef(l, m)
-			return nil
-		})
-	}
 
 	return binders, nil
 }

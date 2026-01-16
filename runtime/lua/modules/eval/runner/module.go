@@ -29,7 +29,6 @@ var Module = &luaapi.ModuleDef{
 	Name:        "eval_runner",
 	Description: "Execute untrusted Lua code via dispatcher",
 	Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
-	Types:       ModuleTypes,
 	Build:       buildModule,
 }
 
@@ -59,9 +58,8 @@ func checkModulePermissions(ctx context.Context, modules []string) (string, bool
 		return "", true
 	}
 
-	var meta attrs.Bag
+	meta := attrs.NewBag()
 	if frameID, ok := runtime.GetFrameID(ctx); ok {
-		meta = attrs.NewBag()
 		meta.Set("entry_id", frameID.String())
 	}
 
@@ -79,9 +77,8 @@ func checkImportPermissions(ctx context.Context, imports map[string]registry.ID)
 		return "", true
 	}
 
-	var meta attrs.Bag
+	meta := attrs.NewBag()
 	if frameID, ok := runtime.GetFrameID(ctx); ok {
-		meta = attrs.NewBag()
 		meta.Set("entry_id", frameID.String())
 	}
 
@@ -89,6 +86,25 @@ func checkImportPermissions(ctx context.Context, imports map[string]registry.ID)
 		meta.Set("alias", alias)
 		if !security.IsAllowed(ctx, "eval.import", id.String(), meta) {
 			return id.String(), false
+		}
+	}
+	return "", true
+}
+
+// checkClassPermissions checks if each class is allowed to be enabled
+func checkClassPermissions(ctx context.Context, classes []string) (string, bool) {
+	if len(classes) == 0 {
+		return "", true
+	}
+
+	meta := attrs.NewBag()
+	if frameID, ok := runtime.GetFrameID(ctx); ok {
+		meta.Set("entry_id", frameID.String())
+	}
+
+	for _, class := range classes {
+		if !security.IsAllowed(ctx, "eval.class", class, meta) {
+			return class, false
 		}
 	}
 	return "", true
@@ -247,6 +263,34 @@ func runFunc(l *lua.LState) int {
 		})
 	}
 
+	// Parse allow_classes to permit additional module classes
+	var allowClasses []string
+	if v := config.RawGetString("allow_classes"); v.Type() == lua.LTTable {
+		v.(*lua.LTable).ForEach(func(_, cv lua.LValue) {
+			if s, ok := cv.(lua.LString); ok {
+				allowClasses = append(allowClasses, string(s))
+			}
+		})
+	}
+
+	// Check permission for each allowed class
+	if denied, ok := checkClassPermissions(ctx, allowClasses); !ok {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "permission denied: eval.class "+denied).
+			WithKind(lua.PermissionDenied).WithRetryable(false))
+		return 2
+	}
+
+	// Parse custom_modules - Lua tables to inject as modules
+	customModules := make(map[string]any)
+	if v := config.RawGetString("custom_modules"); v.Type() == lua.LTTable {
+		v.(*lua.LTable).ForEach(func(k, cv lua.LValue) {
+			if ks, ok := k.(lua.LString); ok {
+				customModules[string(ks)] = value.ToGoAny(cv)
+			}
+		})
+	}
+
 	yield := AcquireRunYield()
 	yield.Source = source
 	yield.Method = method
@@ -254,6 +298,8 @@ func runFunc(l *lua.LState) int {
 	yield.Modules = modules
 	yield.Imports = imports
 	yield.Context = contextVals
+	yield.AllowClasses = allowClasses
+	yield.CustomModules = customModules
 
 	l.Push(yield)
 	return -1

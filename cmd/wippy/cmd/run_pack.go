@@ -177,6 +177,7 @@ func runFromPack(_ *cobra.Command, args []string) error {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	supervisorapi.SetSignalChannel(ctx, sigChan)
 
+	// Create cancelable context for graceful shutdown signaling
 	appCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -238,7 +239,7 @@ func runFromPack(_ *cobra.Command, args []string) error {
 		logger.Info("shutting down (press Ctrl+C again to force exit)")
 	}
 
-	// Perform shutdown and get exit code
+	// Use original ctx for shutdown (appCtx is already canceled)
 	exitCode := shutdown.Perform(ctx, loader, logger, silentLogs)
 	if exitCode != 0 {
 		_ = logger.Sync() // Manually sync before exit since defers won't run

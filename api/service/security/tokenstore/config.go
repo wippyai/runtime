@@ -2,6 +2,7 @@
 package tokenstore
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/wippyai/runtime/api/registry"
@@ -63,4 +64,50 @@ func (c *Config) InitDefaults() {
 	if c.DefaultExpiration == 0 {
 		c.DefaultExpiration = 24 * time.Hour // 1 day
 	}
+}
+
+// configJSON is used for JSON marshaling/unmarshaling with string duration
+type configJSON struct {
+	Store             registry.ID `json:"store"`
+	TokenLength       int         `json:"token_length"`
+	TokenKey          string      `json:"token_key,omitempty"`
+	TokenKeyEnv       string      `json:"token_key_env,omitempty"`
+	DefaultExpiration string      `json:"default_expiration,omitempty"`
+}
+
+// UnmarshalJSON implements json.Unmarshaler to handle duration strings
+func (c *Config) UnmarshalJSON(data []byte) error {
+	var raw configJSON
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	c.Store = raw.Store
+	c.TokenLength = raw.TokenLength
+	c.TokenKey = raw.TokenKey
+	c.TokenKeyEnv = raw.TokenKeyEnv
+
+	if raw.DefaultExpiration != "" {
+		d, err := time.ParseDuration(raw.DefaultExpiration)
+		if err != nil {
+			return err
+		}
+		c.DefaultExpiration = d
+	}
+
+	return nil
+}
+
+// MarshalJSON implements json.Marshaler to output duration as string
+func (c Config) MarshalJSON() ([]byte, error) {
+	raw := configJSON{
+		Store:       c.Store,
+		TokenLength: c.TokenLength,
+		TokenKey:    c.TokenKey,
+		TokenKeyEnv: c.TokenKeyEnv,
+	}
+	if c.DefaultExpiration != 0 {
+		raw.DefaultExpiration = c.DefaultExpiration.String()
+	}
+	return json.Marshal(raw)
 }

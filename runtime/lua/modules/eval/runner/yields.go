@@ -14,10 +14,11 @@ import (
 
 // CompileYield is yielded by runner.compile to compile Lua source.
 type CompileYield struct {
-	Source  string
-	Method  string
-	Modules []string
-	Imports map[string]registry.ID
+	Source       string
+	Method       string
+	Modules      []string
+	Imports      map[string]registry.ID
+	AllowClasses []string
 }
 
 var compileYieldPool = sync.Pool{
@@ -33,6 +34,7 @@ func ReleaseCompileYield(y *CompileYield) {
 	y.Method = ""
 	y.Modules = nil
 	y.Imports = nil
+	y.AllowClasses = nil
 	compileYieldPool.Put(y)
 }
 
@@ -42,10 +44,11 @@ func (y *CompileYield) Type() lua.LValueType        { return lua.LTUserData }
 func (y *CompileYield) CmdID() dispatcher.CommandID { return evalhost.Compile }
 func (y *CompileYield) ToCommand() dispatcher.Command {
 	return evalhost.CompileCmd{
-		Source:  y.Source,
-		Method:  y.Method,
-		Modules: y.Modules,
-		Imports: y.Imports,
+		Source:       y.Source,
+		Method:       y.Method,
+		Modules:      y.Modules,
+		Imports:      y.Imports,
+		AllowClasses: y.AllowClasses,
 	}
 }
 
@@ -76,12 +79,15 @@ func (y *CompileYield) HandleResult(l *lua.LState, data any, err error) []lua.LV
 
 // RunYield is yielded by runner.run to execute Lua code.
 type RunYield struct {
-	Source  string
-	Method  string
-	Args    payload.Payloads
-	Modules []string
-	Imports map[string]registry.ID
-	Context map[string]any
+	Source        string
+	Method        string
+	Args          payload.Payloads
+	Modules       []string
+	Imports       map[string]registry.ID
+	Context       map[string]any
+	AllowClasses  []string
+	CustomModules map[string]any
+	AllowYields   []dispatcher.CommandID
 }
 
 var runYieldPool = sync.Pool{
@@ -99,6 +105,9 @@ func ReleaseRunYield(y *RunYield) {
 	y.Modules = nil
 	y.Imports = nil
 	y.Context = nil
+	y.AllowClasses = nil
+	y.CustomModules = nil
+	y.AllowYields = nil
 	runYieldPool.Put(y)
 }
 
@@ -108,12 +117,15 @@ func (y *RunYield) Type() lua.LValueType        { return lua.LTUserData }
 func (y *RunYield) CmdID() dispatcher.CommandID { return evalhost.Run }
 func (y *RunYield) ToCommand() dispatcher.Command {
 	return evalhost.RunCmd{
-		Source:  y.Source,
-		Method:  y.Method,
-		Args:    y.Args,
-		Modules: y.Modules,
-		Imports: y.Imports,
-		Context: y.Context,
+		Source:        y.Source,
+		Method:        y.Method,
+		Args:          y.Args,
+		Modules:       y.Modules,
+		Imports:       y.Imports,
+		Context:       y.Context,
+		AllowClasses:  y.AllowClasses,
+		CustomModules: y.CustomModules,
+		AllowYields:   y.AllowYields,
 	}
 }
 

@@ -8,14 +8,14 @@ import (
 var futureType = &types.InterfaceType{
 	Name: "funcs.Future",
 	Methods: map[string]*types.FunctionType{
-		"response":    types.NewFunction(nil, []types.Type{types.Any}),
-		"channel":     types.NewFunction(nil, []types.Type{types.Any}),
-		"is_complete": types.NewFunction(nil, []types.Type{types.Boolean}),
-		"is_canceled": types.NewFunction(nil, []types.Type{types.Boolean}),
-		"result":      types.NewFunction(nil, []types.Type{types.Any, types.Optional(types.LuaError)}),
-		"error":       types.NewFunction(nil, []types.Type{types.Optional(types.LuaError), types.Boolean}),
-		"cancel":      types.NewFunction(nil, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-		"await":       types.NewFunction(nil, []types.Type{types.Any, types.Optional(types.LuaError)}),
+		"response":    types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any}),
+		"channel":     types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any}),
+		"is_complete": types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean}),
+		"is_canceled": types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean}),
+		"result":      types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any, types.Optional(types.LuaError)}),
+		"error":       types.NewFunction([]types.Type{types.Self}, []types.Type{types.Optional(types.LuaError), types.Boolean}),
+		"cancel":      types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
+		"await":       types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any, types.Optional(types.LuaError)}),
 	},
 }
 
@@ -27,12 +27,12 @@ func init() {
 		Name:    "funcs.Executor",
 		Methods: map[string]*types.FunctionType{},
 	}
-	executorType.Methods["with_context"] = types.NewFunction([]types.Type{types.Any}, []types.Type{executorType})
-	executorType.Methods["with_actor"] = types.NewFunction([]types.Type{types.Any}, []types.Type{executorType, types.Optional(types.LuaError)})
-	executorType.Methods["with_scope"] = types.NewFunction([]types.Type{types.Any}, []types.Type{executorType, types.Optional(types.LuaError)})
-	executorType.Methods["with_options"] = types.NewFunction([]types.Type{types.Any}, []types.Type{executorType})
-	executorType.Methods["call"] = &types.FunctionType{Params: []types.Type{types.String}, Variadic: types.Any, Returns: []types.Type{types.Any, types.Optional(types.LuaError)}}
-	executorType.Methods["async"] = &types.FunctionType{Params: []types.Type{types.String}, Variadic: types.Any, Returns: []types.Type{futureType, types.Optional(types.LuaError)}}
+	executorType.Methods["with_context"] = types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{executorType})
+	executorType.Methods["with_actor"] = types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{executorType})
+	executorType.Methods["with_scope"] = types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{executorType})
+	executorType.Methods["with_options"] = types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{executorType})
+	executorType.Methods["call"] = &types.FunctionType{Params: []types.Type{types.Self, types.String}, Variadic: types.Any, Returns: []types.Type{types.Any, types.Optional(types.LuaError)}}
+	executorType.Methods["async"] = &types.FunctionType{Params: []types.Type{types.Self, types.String}, Variadic: types.Any, Returns: []types.Type{futureType, types.Optional(types.LuaError)}}
 }
 
 // ModuleTypes returns the type manifest for the funcs module.

@@ -17,8 +17,8 @@ local function main()
     assert.ok(string.find(err_str, "regex", 1, true) or string.find(err_str, "error", 1, true),
         "error message contains context")
 
-    -- Test error concatenation
-    local msg = "Error: " .. err
+    -- Test error concatenation (use tostring for nil safety)
+    local msg = "Error: " .. tostring(err)
     assert.ok(string.find(msg, "Error:", 1, true), "error can be concatenated")
 
     -- Test various invalid patterns

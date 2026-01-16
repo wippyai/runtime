@@ -40,6 +40,7 @@ local function main()
     assert.is_nil(err2, "large POST should not error")
     assert.eq(resp2.status_code, 200, "status code 200 for large body")
 
+    assert.not_nil(resp2.stream, "stream object for large body")
     local chunks2 = {}
     local total = 0
     while true do

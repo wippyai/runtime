@@ -8,12 +8,12 @@ import (
 var workbookType = &types.InterfaceType{
 	Name: "excel.Workbook",
 	Methods: map[string]*types.FunctionType{
-		"new_sheet":      types.NewFunction([]types.Type{types.String}, []types.Type{types.Number, types.Optional(types.LuaError)}),
-		"get_sheet_list": types.NewFunction(nil, []types.Type{types.NewArray(types.String, false), types.Optional(types.LuaError)}),
-		"get_rows":       types.NewFunction([]types.Type{types.String}, []types.Type{types.NewArray(types.NewArray(types.String, false), false), types.Optional(types.LuaError)}),
-		"set_cell_value": types.NewFunction([]types.Type{types.String, types.String, types.Any}, []types.Type{types.Optional(types.LuaError)}),
-		"write_to":       types.NewFunction([]types.Type{types.Any}, []types.Type{types.Optional(types.LuaError)}),
-		"close":          types.NewFunction(nil, []types.Type{types.Optional(types.LuaError)}),
+		"new_sheet":      types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Number, types.Optional(types.LuaError)}),
+		"get_sheet_list": types.NewFunction([]types.Type{types.Self}, []types.Type{types.NewArray(types.String, false), types.Optional(types.LuaError)}),
+		"get_rows":       types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.NewArray(types.NewArray(types.String, false), false), types.Optional(types.LuaError)}),
+		"set_cell_value": types.NewFunction([]types.Type{types.Self, types.String, types.String, types.Any}, []types.Type{types.Optional(types.LuaError)}),
+		"write_to":       types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{types.Optional(types.LuaError)}),
+		"close":          types.NewFunction([]types.Type{types.Self}, []types.Type{types.Optional(types.LuaError)}),
 	},
 }
 

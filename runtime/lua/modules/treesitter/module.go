@@ -56,8 +56,8 @@ var Module = &luaapi.ModuleDef{
 	Name:        "treesitter",
 	Description: "Tree-sitter parsing and syntax analysis",
 	Class:       []string{luaapi.ClassEncoding, luaapi.ClassDeterministic},
-	Types:       ModuleTypes,
 	Build:       buildModule,
+	Types:       ModuleTypes,
 }
 
 func init() {

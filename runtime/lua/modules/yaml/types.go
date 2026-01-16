@@ -22,9 +22,9 @@ func ModuleTypes() *types.TypeManifest {
 	moduleType := &types.InterfaceType{
 		Name: "yaml",
 		Methods: map[string]*types.FunctionType{
-			// yaml.encode(value: table, options?: EncodeOptions): string, Error?
+			// yaml.encode(value: any, options?: EncodeOptions): string, Error?
 			"encode": types.NewFunction(
-				[]types.Type{types.NewMap(types.String, types.Any, false), types.Optional(encodeOptionsType)},
+				[]types.Type{types.Any, types.Optional(encodeOptionsType)},
 				[]types.Type{types.String, types.Optional(types.LuaError)},
 			),
 			// yaml.decode(str: string): any, Error?

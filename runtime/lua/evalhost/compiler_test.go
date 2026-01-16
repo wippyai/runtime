@@ -11,16 +11,18 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// safeModules returns modules safe for eval testing
-func safeModules() []*luaapi.ModuleDef {
-	return []*luaapi.ModuleDef{
-		json.Module,
-		timemod.Module,
+// safeModulesProvider returns a provider for modules safe for eval testing
+func safeModulesProvider() ModuleProvider {
+	return func() []*luaapi.ModuleDef {
+		return []*luaapi.ModuleDef{
+			json.Module,
+			timemod.Module,
+		}
 	}
 }
 
 func TestCompiler_Compile_Basic(t *testing.T) {
-	compiler := NewCompiler(safeModules())
+	compiler := NewCompiler(safeModulesProvider())
 
 	program, err := compiler.Compile(CompileCmd{
 		Source: `
@@ -41,7 +43,7 @@ func TestCompiler_Compile_Basic(t *testing.T) {
 }
 
 func TestCompiler_Compile_SyntaxError(t *testing.T) {
-	compiler := NewCompiler(safeModules())
+	compiler := NewCompiler(safeModulesProvider())
 
 	program, err := compiler.Compile(CompileCmd{
 		Source:  `this is not valid lua syntax!!!`,
@@ -65,7 +67,7 @@ func TestCompiler_Compile_ForbiddenClass(t *testing.T) {
 		json.Module,
 		mockMod,
 	}
-	compiler := NewCompiler(modules)
+	compiler := NewCompiler(func() []*luaapi.ModuleDef { return modules })
 
 	// Requesting a module with forbidden class should fail
 	program, err := compiler.Compile(CompileCmd{
@@ -80,7 +82,7 @@ func TestCompiler_Compile_ForbiddenClass(t *testing.T) {
 }
 
 func TestCompiler_Compile_UnavailableModule(t *testing.T) {
-	compiler := NewCompiler(safeModules())
+	compiler := NewCompiler(safeModulesProvider())
 
 	program, err := compiler.Compile(CompileCmd{
 		Source:  `return {}`,
@@ -94,7 +96,7 @@ func TestCompiler_Compile_UnavailableModule(t *testing.T) {
 }
 
 func TestCompiler_Compile_DefaultModules(t *testing.T) {
-	compiler := NewCompiler(safeModules())
+	compiler := NewCompiler(safeModulesProvider())
 
 	program, err := compiler.Compile(CompileCmd{
 		Source: `return {}`,
@@ -108,12 +110,11 @@ func TestCompiler_Compile_DefaultModules(t *testing.T) {
 }
 
 func TestCompiler_GetModuleBinder(t *testing.T) {
-	compiler := NewCompiler(safeModules())
+	compiler := NewCompiler(safeModulesProvider())
 
 	binder := compiler.GetModuleBinder([]string{"json"})
 	assert.NotNil(t, binder)
 }
-
 
 func TestCompiler_ClassBasedFiltering(t *testing.T) {
 	// Create modules with different classes
@@ -140,7 +141,7 @@ func TestCompiler_ClassBasedFiltering(t *testing.T) {
 		storageModule,
 		networkModule,
 	}
-	compiler := NewCompiler(modules)
+	compiler := NewCompiler(func() []*luaapi.ModuleDef { return modules })
 
 	// Safe module should compile
 	_, err := compiler.Compile(CompileCmd{Source: "return {}", Modules: []string{"safe"}})
@@ -164,15 +165,17 @@ func TestCompiler_CustomForbiddenClasses(t *testing.T) {
 		Class: []string{luaapi.ClassIO},
 	}
 
-	modules := []*luaapi.ModuleDef{ioModule}
+	provider := func() []*luaapi.ModuleDef {
+		return []*luaapi.ModuleDef{ioModule}
+	}
 
 	// With default settings, IO is allowed
-	compilerDefault := NewCompiler(modules)
+	compilerDefault := NewCompiler(provider)
 	_, err := compilerDefault.Compile(CompileCmd{Source: "return {}", Modules: []string{"io_module"}})
 	assert.NoError(t, err)
 
 	// With custom forbidden classes including IO
-	compilerStrict := NewCompiler(modules,
+	compilerStrict := NewCompiler(provider,
 		WithForbiddenClasses(luaapi.ClassIO, luaapi.ClassProcess),
 	)
 	_, err = compilerStrict.Compile(CompileCmd{Source: "return {}", Modules: []string{"io_module"}})
@@ -181,7 +184,7 @@ func TestCompiler_CustomForbiddenClasses(t *testing.T) {
 }
 
 func TestCompiler_Compile_MultipleModules(t *testing.T) {
-	compiler := NewCompiler(safeModules())
+	compiler := NewCompiler(safeModulesProvider())
 
 	program, err := compiler.Compile(CompileCmd{
 		Source: `
@@ -199,7 +202,7 @@ func TestCompiler_Compile_MultipleModules(t *testing.T) {
 }
 
 func TestCompiler_Compile_EmptySource(t *testing.T) {
-	compiler := NewCompiler(safeModules())
+	compiler := NewCompiler(safeModulesProvider())
 
 	program, err := compiler.Compile(CompileCmd{
 		Source:  ``,
@@ -212,7 +215,7 @@ func TestCompiler_Compile_EmptySource(t *testing.T) {
 }
 
 func TestCompiler_Compile_ReturnTable(t *testing.T) {
-	compiler := NewCompiler(safeModules())
+	compiler := NewCompiler(safeModulesProvider())
 
 	program, err := compiler.Compile(CompileCmd{
 		Source: `
@@ -236,7 +239,9 @@ func TestCompiler_ForbiddenClasses(t *testing.T) {
 	storageModule := &luaapi.ModuleDef{Name: "stor", Class: []string{luaapi.ClassStorage}}
 	networkModule := &luaapi.ModuleDef{Name: "net", Class: []string{luaapi.ClassNetwork}}
 
-	compiler := NewCompiler([]*luaapi.ModuleDef{processModule, storageModule, networkModule})
+	compiler := NewCompiler(func() []*luaapi.ModuleDef {
+		return []*luaapi.ModuleDef{processModule, storageModule, networkModule}
+	})
 
 	// All should be blocked by default
 	_, err := compiler.Compile(CompileCmd{Source: "return {}", Modules: []string{"proc"}})
@@ -264,7 +269,7 @@ func TestCompiler_Security_ProcessModuleBlocked(t *testing.T) {
 		json.Module,
 		processModule,
 	}
-	compiler := NewCompiler(modules)
+	compiler := NewCompiler(func() []*luaapi.ModuleDef { return modules })
 
 	// Attempting to compile with process module should fail
 	_, err := compiler.Compile(CompileCmd{
@@ -278,7 +283,7 @@ func TestCompiler_Security_ProcessModuleBlocked(t *testing.T) {
 
 func TestCompiler_Security_ModuleBinderExcludesProcess(t *testing.T) {
 	// Create compiler with ONLY safe modules (no process)
-	compiler := NewCompiler(safeModules())
+	compiler := NewCompiler(safeModulesProvider())
 
 	// Get binder for json module only
 	binder := compiler.GetModuleBinder([]string{"json"})
@@ -299,7 +304,7 @@ func TestCompiler_Security_ModuleBinderExcludesProcess(t *testing.T) {
 }
 
 func TestCompiler_Security_RuntimeRequireProcessFails(t *testing.T) {
-	compiler := NewCompiler(safeModules())
+	compiler := NewCompiler(safeModulesProvider())
 
 	// Compile code that tries to require process at runtime
 	// This should compile (we don't analyze code), but at runtime
@@ -362,7 +367,7 @@ func TestCompiler_Security_EnvModuleBlockedByClassProcess(t *testing.T) {
 		json.Module,
 		envModule,
 	}
-	compiler := NewCompiler(modules)
+	compiler := NewCompiler(func() []*luaapi.ModuleDef { return modules })
 
 	// Requesting env module should fail due to ClassProcess
 	_, err := compiler.Compile(CompileCmd{

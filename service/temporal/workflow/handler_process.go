@@ -266,8 +266,8 @@ func (d *Definition) executeProcessUnlink(_ *process.UnlinkCmd, tag uint64) erro
 	return nil
 }
 
-// executeProcessCall handles process.call from workflows by executing a child workflow synchronously.
-func (d *Definition) executeProcessCall(cmd *process.CallCmd, tag uint64) error {
+// executeProcessRun handles process.run from workflows by executing a child workflow synchronously.
+func (d *Definition) executeProcessRun(cmd *process.RunCmd, tag uint64) error {
 	workflowName := cmd.Source.String()
 
 	var args *commonpb.Payloads
@@ -275,7 +275,7 @@ func (d *Definition) executeProcessCall(cmd *process.CallCmd, tag uint64) error 
 		var err error
 		args, err = d.dc.ToPayloads(cmd.Input)
 		if err != nil {
-			d.resumeProcess(tag, process.CallResult{Result: &runtime.Result{Error: temporalerrors.FromTemporalError(fmt.Errorf("failed to convert arguments: %w", err))}}, nil)
+			d.resumeProcess(tag, process.RunResult{Result: &runtime.Result{Error: temporalerrors.FromTemporalError(fmt.Errorf("failed to convert arguments: %w", err))}}, nil)
 			return nil
 		}
 	}
@@ -295,18 +295,18 @@ func (d *Definition) executeProcessCall(cmd *process.CallCmd, tag uint64) error 
 
 	d.env.ExecuteChildWorkflow(params, func(result *commonpb.Payloads, err error) {
 		if err != nil {
-			d.resumeProcess(tag, process.CallResult{Result: &runtime.Result{Error: temporalerrors.FromTemporalError(err)}}, nil)
+			d.resumeProcess(tag, process.RunResult{Result: &runtime.Result{Error: temporalerrors.FromTemporalError(err)}}, nil)
 			return
 		}
 		var values payload.Payloads
 		if err := d.dc.FromPayloads(result, &values); err != nil {
-			d.resumeProcess(tag, process.CallResult{Result: &runtime.Result{Error: temporalerrors.FromTemporalError(err)}}, nil)
+			d.resumeProcess(tag, process.RunResult{Result: &runtime.Result{Error: temporalerrors.FromTemporalError(err)}}, nil)
 			return
 		}
 		if len(values) > 0 {
-			d.resumeProcess(tag, process.CallResult{Result: &runtime.Result{Value: values[0]}}, nil)
+			d.resumeProcess(tag, process.RunResult{Result: &runtime.Result{Value: values[0]}}, nil)
 		} else {
-			d.resumeProcess(tag, process.CallResult{Result: &runtime.Result{}}, nil)
+			d.resumeProcess(tag, process.RunResult{Result: &runtime.Result{}}, nil)
 		}
 	}, func(_ bindings.WorkflowExecution, _ error) {})
 

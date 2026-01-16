@@ -19,8 +19,8 @@ var Module = &luaapi.ModuleDef{
 	Name:        "html",
 	Description: "HTML sanitization with policy-based filtering",
 	Class:       []string{luaapi.ClassSecurity, luaapi.ClassDeterministic},
-	Types:       ModuleTypes,
 	Build:       buildModule,
+	Types:       ModuleTypes,
 }
 
 func init() {

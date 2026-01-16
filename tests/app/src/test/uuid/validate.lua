@@ -28,14 +28,17 @@ local function main()
     local invalid4 = uuid.validate("6ba7b810-9dad-11d1-80b4-00c04fd430c8-extra")
     assert.eq(invalid4, false, "UUID with extra chars")
 
-    -- Test non-string input
-    local invalid5 = uuid.validate(123)
+    -- Test non-string input (use any to test runtime validation)
+    local num_input: any = 123
+    local invalid5 = uuid.validate(num_input)
     assert.eq(invalid5, false, "number input")
 
-    local invalid6 = uuid.validate(nil)
+    local nil_input: any = nil
+    local invalid6 = uuid.validate(nil_input)
     assert.eq(invalid6, false, "nil input")
 
-    local invalid7 = uuid.validate({})
+    local table_input: any = {}
+    local invalid7 = uuid.validate(table_input)
     assert.eq(invalid7, false, "table input")
 
     return true

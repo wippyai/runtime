@@ -42,5 +42,6 @@ func All() []boot.Component {
 		WebSocket(),
 		Workflow(),
 		YAML(),
+		LSP(),
 	}
 }

@@ -1,6 +1,8 @@
 package temporal
 
 import (
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/wippyai/runtime/api/attrs"
@@ -136,5 +138,61 @@ func (c *WorkerConfig) Validate() error {
 		return ErrDisableWorkflowWorkerConflict
 	}
 
+	return nil
+}
+
+// UnmarshalJSON implements custom unmarshaling for WorkerOptionsConfig to parse duration strings.
+func (c *WorkerOptionsConfig) UnmarshalJSON(data []byte) error {
+	type Alias WorkerOptionsConfig
+	aux := &struct {
+		StickyScheduleToStartTimeout     string `json:"sticky_schedule_to_start_timeout"`
+		WorkerStopTimeout                string `json:"worker_stop_timeout"`
+		DeadlockDetectionTimeout         string `json:"deadlock_detection_timeout"`
+		MaxHeartbeatThrottleInterval     string `json:"max_heartbeat_throttle_interval"`
+		DefaultHeartbeatThrottleInterval string `json:"default_heartbeat_throttle_interval"`
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
+
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+
+	if aux.StickyScheduleToStartTimeout != "" {
+		d, err := time.ParseDuration(aux.StickyScheduleToStartTimeout)
+		if err != nil {
+			return fmt.Errorf("invalid sticky_schedule_to_start_timeout: %w", err)
+		}
+		c.StickyScheduleToStartTimeout = d
+	}
+	if aux.WorkerStopTimeout != "" {
+		d, err := time.ParseDuration(aux.WorkerStopTimeout)
+		if err != nil {
+			return fmt.Errorf("invalid worker_stop_timeout: %w", err)
+		}
+		c.WorkerStopTimeout = d
+	}
+	if aux.DeadlockDetectionTimeout != "" {
+		d, err := time.ParseDuration(aux.DeadlockDetectionTimeout)
+		if err != nil {
+			return fmt.Errorf("invalid deadlock_detection_timeout: %w", err)
+		}
+		c.DeadlockDetectionTimeout = d
+	}
+	if aux.MaxHeartbeatThrottleInterval != "" {
+		d, err := time.ParseDuration(aux.MaxHeartbeatThrottleInterval)
+		if err != nil {
+			return fmt.Errorf("invalid max_heartbeat_throttle_interval: %w", err)
+		}
+		c.MaxHeartbeatThrottleInterval = d
+	}
+	if aux.DefaultHeartbeatThrottleInterval != "" {
+		d, err := time.ParseDuration(aux.DefaultHeartbeatThrottleInterval)
+		if err != nil {
+			return fmt.Errorf("invalid default_heartbeat_throttle_interval: %w", err)
+		}
+		c.DefaultHeartbeatThrottleInterval = d
+	}
 	return nil
 }

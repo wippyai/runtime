@@ -22,15 +22,14 @@ type (
 	}
 
 	// Node represents a code unit in the dependency graph.
-	// A node may contain either a Lua prototype (Proto) or a module reference.
 	Node struct {
 		ID       registry.ID
 		Kind     registry.Kind
 		Version  Version
-		Source   string              // Code and libs has this
-		Method   string              // Processes and functions has this
-		Module   *runtime.ModuleDef  // Modules only has this
-		Manifest *types.TypeManifest // Type manifest from type checking (for Lua source files)
+		Source   string
+		Method   string
+		Module   *runtime.ModuleDef
+		Manifest *types.TypeManifest // Type information from type checking
 	}
 
 	Preload struct {

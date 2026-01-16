@@ -2,6 +2,7 @@
 package sql
 
 import (
+	"encoding/json"
 	"regexp"
 	"strings"
 	"time"
@@ -118,6 +119,58 @@ func (c *Config) InitDefaults() {
 	}
 
 	c.Lifecycle.InitDefaults()
+}
+
+// configJSON is used for JSON marshaling/unmarshaling with string duration
+type configJSON struct {
+	Database          registry.ID                `json:"database"`
+	TableName         string                     `json:"table_name"`
+	IDColumnName      string                     `json:"id_column_name"`
+	PayloadColumnName string                     `json:"payload_column_name"`
+	ExpireColumnName  string                     `json:"expire_column_name"`
+	CleanupInterval   string                     `json:"cleanup_interval,omitempty"`
+	Lifecycle         supervisor.LifecycleConfig `json:"lifecycle"`
+}
+
+// UnmarshalJSON implements json.Unmarshaler to handle duration strings
+func (c *Config) UnmarshalJSON(data []byte) error {
+	var raw configJSON
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	c.Database = raw.Database
+	c.TableName = raw.TableName
+	c.IDColumnName = raw.IDColumnName
+	c.PayloadColumnName = raw.PayloadColumnName
+	c.ExpireColumnName = raw.ExpireColumnName
+	c.Lifecycle = raw.Lifecycle
+
+	if raw.CleanupInterval != "" {
+		d, err := time.ParseDuration(raw.CleanupInterval)
+		if err != nil {
+			return err
+		}
+		c.CleanupInterval = d
+	}
+
+	return nil
+}
+
+// MarshalJSON implements json.Marshaler to output duration as string
+func (c Config) MarshalJSON() ([]byte, error) {
+	raw := configJSON{
+		Database:          c.Database,
+		TableName:         c.TableName,
+		IDColumnName:      c.IDColumnName,
+		PayloadColumnName: c.PayloadColumnName,
+		ExpireColumnName:  c.ExpireColumnName,
+		Lifecycle:         c.Lifecycle,
+	}
+	if c.CleanupInterval != 0 {
+		raw.CleanupInterval = c.CleanupInterval.String()
+	}
+	return json.Marshal(raw)
 }
 
 // IsSafe validates that the input string is safe for SQL use and not an injection attempt.

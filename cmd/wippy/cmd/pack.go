@@ -44,7 +44,7 @@ Examples:
 func init() {
 	rootCmd.AddCommand(packCmd)
 
-	packCmd.Flags().StringP("lock-file", "l", "wippy.lock", "path to lock file")
+	packCmd.Flags().StringP("lock-file", "l", defaultLockFile, "path to lock file")
 	packCmd.Flags().StringP("description", "d", "", "pack description")
 	packCmd.Flags().StringSliceP("tags", "t", nil, "pack tags")
 	packCmd.Flags().StringArray("meta", nil, "custom metadata (key=value, supports dotted notation)")
@@ -349,7 +349,7 @@ func runPack(cmd *cobra.Command, args []string) error {
 	}
 
 	embedPatterns, _ := cmd.Flags().GetStringSlice("embed")
-	verbose := rootCmd.PersistentFlags().Lookup("verbose").Changed
+	verboseMode := rootCmd.PersistentFlags().Lookup("verbose").Changed
 
 	prog := progress.New(progress.WithDefaultGradient())
 	m := &packModel{
@@ -358,7 +358,7 @@ func runPack(cmd *cobra.Command, args []string) error {
 		status:        "Initializing...",
 		embedPatterns: embedPatterns,
 		outputFile:    outputFile,
-		verbose:       verbose,
+		verbose:       verboseMode,
 		maxLogs:       20,
 	}
 

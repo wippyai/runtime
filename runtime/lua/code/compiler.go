@@ -5,7 +5,6 @@ import (
 	"github.com/wippyai/runtime/api/runtime/lua"
 	lru "github.com/wippyai/runtime/internal/cache"
 	glua "github.com/yuin/gopher-lua"
-	"github.com/yuin/gopher-lua/types"
 )
 
 // CompiledProto represents a compiled Lua prototype with its name
@@ -23,8 +22,8 @@ type CompiledMain struct {
 	Preloaded    []CompiledProto
 }
 
-// CompileFn compiles a node with its imports (for type checking).
-type CompileFn func(node *Node, imports map[string]*types.TypeManifest) (*glua.FunctionProto, error)
+// CompileFn compiles a node.
+type CompileFn func(node *Node) (*glua.FunctionProto, error)
 
 // Compiler handles the compilation of Lua code and caches results
 type Compiler struct {
@@ -51,7 +50,7 @@ func NewCompiler(
 }
 
 // getCompiledProto retrieves a node's compiled function prototype from cache or compiles it
-func (c *Compiler) getCompiledProto(node *Node, imports map[string]*types.TypeManifest) (*glua.FunctionProto, error) {
+func (c *Compiler) getCompiledProto(node *Node) (*glua.FunctionProto, error) {
 	if node.Kind == lua.ModuleKind {
 		return nil, ErrModuleNotCompiled
 	}
@@ -60,7 +59,7 @@ func (c *Compiler) getCompiledProto(node *Node, imports map[string]*types.TypeMa
 		return proto, nil
 	}
 
-	compiled, err := c.compileFn(node, imports)
+	compiled, err := c.compileFn(node)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +120,7 @@ func (c *Compiler) Compile(
 		}
 	}
 
-	// Compile dependencies FIRST (so their manifests are available for main)
+	// Compile dependencies
 	for _, dep := range rt.Dependencies {
 		if dep.Node.Kind == lua.ModuleKind {
 			compiled.Dependencies = append(compiled.Dependencies, CompiledProto{
@@ -131,11 +130,7 @@ func (c *Compiler) Compile(
 			continue
 		}
 
-		// Get this dependency's own imports
-		depDeps, _ := memGraph.GetDependenciesWithAliases(dep.Node.ID)
-		depImports := buildImportsFromDependencies(depDeps)
-
-		proto, err := c.getCompiledProto(dep.Node, depImports)
+		proto, err := c.getCompiledProto(dep.Node)
 		if err != nil {
 			return nil, NewCompileError(dep.Node.ID, err)
 		}
@@ -147,11 +142,8 @@ func (c *Compiler) Compile(
 		})
 	}
 
-	// Build imports for main node from its now-compiled dependencies
-	mainImports := buildImportsFromDependencies(rt.Dependencies)
-
 	// Compile main node
-	mainProto, err := c.getCompiledProto(rt.Main, mainImports)
+	mainProto, err := c.getCompiledProto(rt.Main)
 	if err != nil {
 		return nil, NewCompileError(rt.Main.ID, err)
 	}
@@ -161,34 +153,6 @@ func (c *Compiler) Compile(
 	_ = c.mainCache.Set(entrypoint, compiled)
 
 	return compiled, nil
-}
-
-// buildImportsFromDependencies extracts type manifests from module dependencies
-func buildImportsFromDependencies(deps []Dependency) map[string]*types.TypeManifest {
-	imports := make(map[string]*types.TypeManifest)
-	for _, dep := range deps {
-		if dep.Node == nil {
-			continue
-		}
-
-		// Check for Lua source file manifest (stored after type checking)
-		if dep.Node.Manifest != nil {
-			imports[dep.Name] = dep.Node.Manifest
-			continue
-		}
-
-		// Check for Go module manifest
-		if dep.Node.Module == nil {
-			continue
-		}
-		// Get Types from module if available
-		if dep.Node.Module.Types != nil {
-			if manifest := dep.Node.Module.Types(); manifest != nil {
-				imports[dep.Name] = manifest
-			}
-		}
-	}
-	return imports
 }
 
 func (c *Compiler) preloadModule(memGraph *MemoryGraph, pre Preload, compiled *CompiledMain) error {

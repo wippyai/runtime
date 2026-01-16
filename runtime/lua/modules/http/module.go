@@ -31,7 +31,6 @@ var Module = &luaapi.ModuleDef{
 	Name:        "http",
 	Description: "HTTP request and response types",
 	Class:       []string{luaapi.ClassNetwork, luaapi.ClassIO, luaapi.ClassNondeterministic},
-	Types:       ModuleTypes,
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		mod := lua.CreateTable(0, 16)
 		mod.RawSetString("request", lua.LGoFunc(newRequest))
@@ -40,6 +39,7 @@ var Module = &luaapi.ModuleDef{
 		mod.Immutable = true
 		return mod, nil
 	},
+	Types: ModuleTypes,
 }
 
 func registerConstants(mod *lua.LTable) {
@@ -67,7 +67,7 @@ func registerConstants(mod *lua.LTable) {
 		"NOT_ACCEPTABLE": 406, "CONFLICT": 409, "GONE": 410,
 		"UNPROCESSABLE": 422, "TOO_MANY_REQUESTS": 429,
 		// Server error codes (5xx)
-		"INTERNAL_ERROR": 500, "NOT_IMPLEMENTED": 501, "BAD_GATEWAY": 502,
+		"INTERNAL_ERROR": 500, "INTERNAL_SERVER_ERROR": 500, "NOT_IMPLEMENTED": 501, "BAD_GATEWAY": 502,
 		"SERVICE_UNAVAILABLE": 503, "GATEWAY_TIMEOUT": 504, "VERSION_NOT_SUPPORTED": 505,
 	}
 	statusTbl := &lua.LTable{}

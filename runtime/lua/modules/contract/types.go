@@ -33,14 +33,14 @@ func init() {
 		Name:    "contract.Contract",
 		Methods: map[string]*types.FunctionType{},
 	}
-	contractType.Methods["id"] = types.NewFunction(nil, []types.Type{types.String})
-	contractType.Methods["methods"] = types.NewFunction(nil, []types.Type{types.NewArray(methodDefinitionType, false)})
-	contractType.Methods["method"] = types.NewFunction([]types.Type{types.String}, []types.Type{methodDefinitionType, types.Optional(types.LuaError)})
-	contractType.Methods["implementations"] = types.NewFunction(nil, []types.Type{types.NewArray(types.String, false), types.Optional(types.LuaError)})
-	contractType.Methods["open"] = types.NewFunction([]types.Type{types.Optional(types.String), types.Optional(types.Any)}, []types.Type{types.Any, types.Optional(types.LuaError)})
-	contractType.Methods["with_context"] = types.NewFunction([]types.Type{types.Any}, []types.Type{contractType})
-	contractType.Methods["with_actor"] = types.NewFunction([]types.Type{types.Any}, []types.Type{contractType, types.Optional(types.LuaError)})
-	contractType.Methods["with_scope"] = types.NewFunction([]types.Type{types.Any}, []types.Type{contractType, types.Optional(types.LuaError)})
+	contractType.Methods["id"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.String})
+	contractType.Methods["methods"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.NewArray(methodDefinitionType, false)})
+	contractType.Methods["method"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{methodDefinitionType, types.Optional(types.LuaError)})
+	contractType.Methods["implementations"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.NewArray(types.String, false), types.Optional(types.LuaError)})
+	contractType.Methods["open"] = types.NewFunction([]types.Type{types.Self, types.Optional(types.String), types.Optional(types.Any)}, []types.Type{types.Any, types.Optional(types.LuaError)})
+	contractType.Methods["with_context"] = types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{contractType})
+	contractType.Methods["with_actor"] = types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{contractType, types.Optional(types.LuaError)})
+	contractType.Methods["with_scope"] = types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{contractType, types.Optional(types.LuaError)})
 }
 
 // ModuleTypes returns the type manifest for the contract module.

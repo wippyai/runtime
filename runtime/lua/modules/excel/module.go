@@ -36,10 +36,10 @@ var Module = &luaapi.ModuleDef{
 	Name:        "excel",
 	Description: "Excel file operations",
 	Class:       []string{luaapi.ClassIO, luaapi.ClassEncoding},
-	Types:       ModuleTypes,
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		return moduleTable, nil
 	},
+	Types: ModuleTypes,
 }
 
 // Workbook wraps excelize.File with cleanup tracking.

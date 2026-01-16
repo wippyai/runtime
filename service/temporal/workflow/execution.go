@@ -206,8 +206,8 @@ func (d *Definition) executeCommand(cmd dispatcher.Command, tag uint64) error {
 		return d.executeProcessLink(c, tag)
 	case *process.UnlinkCmd:
 		return d.executeProcessUnlink(c, tag)
-	case *process.CallCmd:
-		return d.executeProcessCall(c, tag)
+	case *process.RunCmd:
+		return d.executeProcessRun(c, tag)
 	case *workflowapi.SideEffectCmd:
 		return d.executeSideEffect(c, tag)
 	case *workflowapi.CallCmd:

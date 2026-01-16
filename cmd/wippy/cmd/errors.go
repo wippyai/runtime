@@ -207,3 +207,7 @@ func NewInstallFailedError(cause error) apierror.Error {
 func NewUpdateConflictsError(count int) apierror.Error {
 	return apierror.New(apierror.Invalid, fmt.Sprintf("update conflicts detected (%d)", count)).WithRetryable(apierror.False)
 }
+
+func NewLintFailedError(errors, warnings int) apierror.Error {
+	return apierror.New(apierror.Invalid, fmt.Sprintf("lint failed: %d errors, %d warnings", errors, warnings)).WithRetryable(apierror.False)
+}

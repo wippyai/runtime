@@ -7,7 +7,7 @@ import (
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
-	"github.com/yuin/gopher-lua/parse"
+	"github.com/yuin/gopher-lua/compiler/parse"
 )
 
 // ForbiddenClasses are module classes that cannot be used in eval'd code.
@@ -27,6 +27,9 @@ var DefaultAllowedClasses = []string{
 	luaapi.ClassNondeterministic, // Allow if not in forbidden
 }
 
+// ModuleProvider returns available module definitions dynamically.
+type ModuleProvider func() []*luaapi.ModuleDef
+
 // Program represents a compiled Lua program.
 type Program struct {
 	source  string
@@ -41,7 +44,7 @@ func (p *Program) Proto() *lua.FunctionProto { return p.proto }
 
 // Compiler compiles Lua source with module constraints.
 type Compiler struct {
-	availableModules map[string]*luaapi.ModuleDef
+	moduleProvider   ModuleProvider
 	forbiddenClasses []string
 	allowedClasses   []string
 }
@@ -56,14 +59,10 @@ func WithForbiddenClasses(classes ...string) CompilerOption {
 	}
 }
 
-// NewCompiler creates a compiler with available modules.
-func NewCompiler(modules []*luaapi.ModuleDef, opts ...CompilerOption) *Compiler {
-	available := make(map[string]*luaapi.ModuleDef)
-	for _, m := range modules {
-		available[m.Name] = m
-	}
+// NewCompiler creates a compiler with a module provider.
+func NewCompiler(provider ModuleProvider, opts ...CompilerOption) *Compiler {
 	c := &Compiler{
-		availableModules: available,
+		moduleProvider:   provider,
 		forbiddenClasses: ForbiddenClasses,
 		allowedClasses:   DefaultAllowedClasses,
 	}
@@ -73,29 +72,44 @@ func NewCompiler(modules []*luaapi.ModuleDef, opts ...CompilerOption) *Compiler 
 	return c
 }
 
+// getModules returns a map of available modules from the provider.
+func (c *Compiler) getModules() map[string]*luaapi.ModuleDef {
+	modules := c.moduleProvider()
+	available := make(map[string]*luaapi.ModuleDef, len(modules))
+	for _, m := range modules {
+		available[m.Name] = m
+	}
+	return available
+}
+
 // Compile compiles Lua source into a Program.
 func (c *Compiler) Compile(cmd CompileCmd) (*Program, error) {
+	available := c.getModules()
+
+	// Collect available names for error messages
+	var availableNames []string
+	for name := range available {
+		availableNames = append(availableNames, name)
+	}
+
 	// Determine modules to use
 	modules := cmd.Modules
 	if len(modules) == 0 {
-		// Use all available modules that pass class filtering
-		modules = c.getDefaultModules()
+		modules = c.getDefaultModules(available, cmd.AllowClasses)
 	}
 
 	// Validate all requested modules
 	for _, name := range modules {
-		m, ok := c.availableModules[name]
+		m, ok := available[name]
 		if !ok {
-			return nil, NewModuleNotAvailableError(name)
+			return nil, NewModuleNotAvailableErrorWithContext(name, availableNames)
 		}
 
-		// Check class-based restrictions
-		if err := c.validateModuleClasses(name, m.Class); err != nil {
+		if err := c.validateModuleClasses(name, m.Class, cmd.AllowClasses); err != nil {
 			return nil, err
 		}
 	}
 
-	// Parse and compile
 	chunk, err := parse.Parse(strings.NewReader(cmd.Source), "eval")
 	if err != nil {
 		return nil, NewParseError(err)
@@ -115,24 +129,25 @@ func (c *Compiler) Compile(cmd CompileCmd) (*Program, error) {
 }
 
 // validateModuleClasses checks if a module's classes pass filtering.
-func (c *Compiler) validateModuleClasses(name string, classes []string) error {
-	// Check for forbidden classes
+// extraAllowed contains additional classes that are permitted for this specific call.
+func (c *Compiler) validateModuleClasses(name string, classes []string, extraAllowed []string) error {
+	// Check for forbidden classes (unless explicitly allowed)
 	for _, class := range classes {
-		if containsString(c.forbiddenClasses, class) {
+		if containsString(c.forbiddenClasses, class) && !containsString(extraAllowed, class) {
 			return NewForbiddenClassError(name, class)
 		}
 	}
 
 	// If allowed classes specified, module must have at least one
-	if len(c.allowedClasses) > 0 {
+	if len(c.allowedClasses) > 0 || len(extraAllowed) > 0 {
 		hasAllowed := false
 		for _, class := range classes {
-			if containsString(c.allowedClasses, class) {
+			if containsString(c.allowedClasses, class) || containsString(extraAllowed, class) {
 				hasAllowed = true
 				break
 			}
 		}
-		if !hasAllowed {
+		if !hasAllowed && len(classes) > 0 {
 			return nil // Allow modules without explicit classes
 		}
 	}
@@ -141,10 +156,10 @@ func (c *Compiler) validateModuleClasses(name string, classes []string) error {
 }
 
 // getDefaultModules returns all available modules that pass class filtering.
-func (c *Compiler) getDefaultModules() []string {
+func (c *Compiler) getDefaultModules(available map[string]*luaapi.ModuleDef, extraAllowed []string) []string {
 	var modules []string
-	for name, m := range c.availableModules {
-		if c.validateModuleClasses(name, m.Class) == nil {
+	for name, m := range available {
+		if c.validateModuleClasses(name, m.Class, extraAllowed) == nil {
 			modules = append(modules, name)
 		}
 	}
@@ -163,9 +178,10 @@ func containsString(slice []string, item string) bool {
 
 // GetModuleBinder returns a ModuleBinder that loads only the specified modules.
 func (c *Compiler) GetModuleBinder(modules []string) engine.ModuleBinder {
+	available := c.getModules()
 	return func(l *lua.LState) error {
 		for _, name := range modules {
-			m, ok := c.availableModules[name]
+			m, ok := available[name]
 			if !ok {
 				continue
 			}
@@ -174,4 +190,3 @@ func (c *Compiler) GetModuleBinder(modules []string) engine.ModuleBinder {
 		return nil
 	}
 }
-

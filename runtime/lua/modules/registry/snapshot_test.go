@@ -139,3 +139,7 @@ func (m *mockVersion) String() string {
 func (m *mockVersion) Previous() regapi.Version {
 	return m.prev
 }
+
+func (m *mockVersion) Next() regapi.Version {
+	return nil
+}

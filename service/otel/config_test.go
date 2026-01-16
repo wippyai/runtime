@@ -13,7 +13,7 @@ import (
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
-	assert.True(t, cfg.Enabled)
+	assert.False(t, cfg.Enabled)
 	assert.Equal(t, "localhost:4318", cfg.Endpoint)
 	assert.Equal(t, "http/protobuf", cfg.Protocol)
 	assert.Equal(t, "wippy-runtime", cfg.ServiceName)

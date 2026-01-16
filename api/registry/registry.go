@@ -70,6 +70,8 @@ type (
 		ID() uint
 		// Previous returns the previous Version, or nil if this is the root version
 		Previous() Version
+		// Next returns the next Version, or nil if this is the current version
+		Next() Version
 		// String returns a string representation of the version
 		String() string
 	}

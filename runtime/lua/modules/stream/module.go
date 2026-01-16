@@ -11,8 +11,8 @@ var Module = &luaapi.ModuleDef{
 	Name:        "stream",
 	Description: "Stream read/write operations",
 	Class:       []string{luaapi.ClassIO, luaapi.ClassNondeterministic},
-	Types:       ModuleTypes,
 	Build:       buildModule,
+	Types:       ModuleTypes,
 }
 
 func buildModule() (*lua.LTable, []luaapi.YieldType) {

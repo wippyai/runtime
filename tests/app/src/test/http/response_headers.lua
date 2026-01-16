@@ -36,7 +36,9 @@ local function main()
     local resp6, err6 = http.get("http://localhost:8085/test/response-headers?test=sse_auto")
     assert.is_nil(err6, "sse_auto should not error")
     -- SSE sets content-type automatically
-    assert.ok(resp6.headers["Content-Type"]:find("text/event%-stream"), "SSE content type set")
+    local ct = resp6.headers["Content-Type"]
+    assert.not_nil(ct, "SSE content type present")
+    assert.ok(ct:find("text/event%-stream"), "SSE content type set")
 
     return true
 end

@@ -16,6 +16,8 @@ local function main()
     if #versions >= 2 then
         local v1 = versions[1]
         local v2 = versions[#versions] -- latest
+        assert.not_nil(v1, "should have first version")
+        assert.not_nil(v2, "should have latest version")
 
         local snap1 = hist:snapshot_at(v1)
         local snap2 = hist:snapshot_at(v2)
@@ -43,7 +45,7 @@ local function main()
     assert.not_nil(current_snap, "current snapshot exists")
 
     -- same version snapshot should show no changes
-    local changes = current_snap:changes(current_snap)
+    local changes = current_snap:changes()
     assert.not_nil(changes, "changes returned")
 
     -- ops returns the list of operations in the changeset
@@ -66,7 +68,7 @@ local function main()
 
     -- create a fresh changeset
     local build_snap, _ = registry.snapshot()
-    local builder = build_snap:changes(build_snap)
+    local builder = build_snap:changes()
 
     -- create() adds a create operation
     local chained = builder:create(test_entry)

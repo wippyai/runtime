@@ -46,7 +46,6 @@ type Module interface {
 	Info() ModuleInfo
 	Value() lua.LValue
 	Yields() []YieldType
-	Manifest() *types.TypeManifest
 }
 
 // Registration contains module configuration.

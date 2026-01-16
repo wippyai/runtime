@@ -8,18 +8,18 @@ import (
 var regexpType = &types.InterfaceType{
 	Name: "text.Regexp",
 	Methods: map[string]*types.FunctionType{
-		"find_all_string_submatch": types.NewFunction([]types.Type{types.String}, []types.Type{types.Any}),
-		"find_string_submatch":     types.NewFunction([]types.Type{types.String}, []types.Type{types.Any}),
-		"find_all_string":          types.NewFunction([]types.Type{types.String}, []types.Type{types.Any}),
-		"find_string":              types.NewFunction([]types.Type{types.String}, []types.Type{types.Optional(types.String)}),
-		"find_all_string_index":    types.NewFunction([]types.Type{types.String}, []types.Type{types.Any}),
-		"find_string_index":        types.NewFunction([]types.Type{types.String}, []types.Type{types.Any}),
-		"replace_all_string":       types.NewFunction([]types.Type{types.String, types.String}, []types.Type{types.String}),
-		"match_string":             types.NewFunction([]types.Type{types.String}, []types.Type{types.Boolean}),
-		"split":                    types.NewFunction([]types.Type{types.String, types.Optional(types.Number)}, []types.Type{types.Any}),
-		"num_subexp":               types.NewFunction(nil, []types.Type{types.Number}),
-		"subexp_names":             types.NewFunction(nil, []types.Type{types.Any}),
-		"string":                   types.NewFunction(nil, []types.Type{types.String}),
+		"find_all_string_submatch": types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Any}),
+		"find_string_submatch":     types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Any}),
+		"find_all_string":          types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Any}),
+		"find_string":              types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Optional(types.String)}),
+		"find_all_string_index":    types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Any}),
+		"find_string_index":        types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Any}),
+		"replace_all_string":       types.NewFunction([]types.Type{types.Self, types.String, types.String}, []types.Type{types.String}),
+		"match_string":             types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Boolean}),
+		"split":                    types.NewFunction([]types.Type{types.Self, types.String, types.Optional(types.Number)}, []types.Type{types.Any}),
+		"num_subexp":               types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number}),
+		"subexp_names":             types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any}),
+		"string":                   types.NewFunction([]types.Type{types.Self}, []types.Type{types.String}),
 	},
 }
 
@@ -36,12 +36,12 @@ var diffResultType = &types.RecordType{
 var differType = &types.InterfaceType{
 	Name: "text.Differ",
 	Methods: map[string]*types.FunctionType{
-		"compare":     types.NewFunction([]types.Type{types.String, types.String}, []types.Type{types.NewArray(diffResultType, false), types.Optional(types.LuaError)}),
-		"pretty_text": types.NewFunction([]types.Type{types.Any}, []types.Type{types.String, types.Optional(types.LuaError)}),
-		"pretty_html": types.NewFunction([]types.Type{types.Any}, []types.Type{types.String, types.Optional(types.LuaError)}),
-		"patch_make":  types.NewFunction([]types.Type{types.String, types.String}, []types.Type{types.Any, types.Optional(types.LuaError)}),
-		"patch_apply": types.NewFunction([]types.Type{types.Any, types.String}, []types.Type{types.String, types.Boolean}),
-		"summarize":   types.NewFunction([]types.Type{types.Any}, []types.Type{types.Any}),
+		"compare":     types.NewFunction([]types.Type{types.Self, types.String, types.String}, []types.Type{types.NewArray(diffResultType, false), types.Optional(types.LuaError)}),
+		"pretty_text": types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{types.String, types.Optional(types.LuaError)}),
+		"pretty_html": types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{types.String, types.Optional(types.LuaError)}),
+		"patch_make":  types.NewFunction([]types.Type{types.Self, types.String, types.String}, []types.Type{types.Any, types.Optional(types.LuaError)}),
+		"patch_apply": types.NewFunction([]types.Type{types.Self, types.Any, types.String}, []types.Type{types.String, types.Boolean}),
+		"summarize":   types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{types.Any}),
 	},
 }
 
@@ -49,8 +49,8 @@ var differType = &types.InterfaceType{
 var splitterType = &types.InterfaceType{
 	Name: "text.Splitter",
 	Methods: map[string]*types.FunctionType{
-		"split_text":  types.NewFunction([]types.Type{types.String}, []types.Type{types.NewArray(types.String, false), types.Optional(types.LuaError)}),
-		"split_batch": types.NewFunction([]types.Type{types.Any}, []types.Type{types.Any, types.Optional(types.LuaError)}),
+		"split_text":  types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.NewArray(types.String, false), types.Optional(types.LuaError)}),
+		"split_batch": types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{types.Any, types.Optional(types.LuaError)}),
 	},
 }
 

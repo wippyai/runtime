@@ -1,0 +1,102 @@
+version: "1.0"
+namespace: app
+
+entries:
+  - name: db
+    kind: db.sql.sqlite
+    file: "./data/tasks.db"
+    lifecycle:
+      auto_start: true
+
+  - name: queue_driver
+    kind: queue.driver.memory
+    lifecycle:
+      auto_start: true
+
+  - name: tasks_queue
+    kind: queue.queue
+    driver: app:queue_driver
+
+  - name: gateway
+    kind: http.service
+    addr: ":8080"
+    lifecycle:
+      auto_start: true
+
+  - name: router
+    kind: http.router
+    meta:
+      server: app:gateway
+
+  - name: migrate
+    kind: process.lua
+    source: file://migrate.lua
+    method: main
+    modules:
+      - sql
+      - logger
+
+  - name: migrate-service
+    kind: process.service
+    process: app:migrate
+    host: app:processes
+    lifecycle:
+      auto_start: true
+
+  - name: processes
+    kind: process.host
+    lifecycle:
+      auto_start: true
+
+  - name: create_task
+    kind: function.lua
+    source: file://create_task.lua
+    method: handler
+    modules:
+      - http
+      - queue
+      - uuid
+
+  - name: list_tasks
+    kind: function.lua
+    source: file://list_tasks.lua
+    method: handler
+    modules:
+      - http
+      - sql
+
+  - name: process_task
+    kind: function.lua
+    source: file://process_task.lua
+    method: main
+    modules:
+      - queue
+      - sql
+      - logger
+      - time
+      - json
+
+  - name: create_task.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:router
+    method: POST
+    path: /tasks
+    func: app:create_task
+
+  - name: list_tasks.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:router
+    method: GET
+    path: /tasks
+    func: app:list_tasks
+
+  - name: task_consumer
+    kind: queue.consumer
+    queue: app:tasks_queue
+    func: app:process_task
+    concurrency: 2
+    prefetch: 5
+    lifecycle:
+      auto_start: true

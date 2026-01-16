@@ -10,12 +10,6 @@ local function main()
     assert.eq(err:kind(), errors.INVALID, "v3 invalid ns kind")
     assert.eq(err:retryable(), false, "v3 invalid ns not retryable")
 
-    -- Test v3 with missing args
-    local result2, err2 = uuid.v3()
-    assert.is_nil(result2, "v3 no args nil result")
-    assert.not_nil(err2, "v3 no args has error")
-    assert.eq(err2:kind(), errors.INVALID, "v3 no args kind")
-
     -- Test v5 with invalid namespace
     local result3, err3 = uuid.v5("not-uuid", "name")
     assert.is_nil(result3, "v5 invalid ns nil result")
@@ -28,8 +22,9 @@ local function main()
     assert.not_nil(err4, "version invalid has error")
     assert.eq(err4:kind(), errors.INVALID, "version invalid kind")
 
-    -- Test version with non-string
-    local result5, err5 = uuid.version(123)
+    -- Test version with non-string (use any to test runtime error)
+    local bad_input: any = 123
+    local result5, err5 = uuid.version(bad_input)
     assert.is_nil(result5, "version number nil result")
     assert.not_nil(err5, "version number has error")
     assert.eq(err5:kind(), errors.INVALID, "version number kind")

@@ -17,18 +17,29 @@ var fileInfoType = &types.RecordType{
 	},
 }
 
+// Scanner type for file scanning operations
+var scannerType = &types.InterfaceType{
+	Name: "fs.Scanner",
+	Methods: map[string]*types.FunctionType{
+		"scan": types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
+		"text": types.NewFunction([]types.Type{types.Self}, []types.Type{types.String}),
+		"err":  types.NewFunction([]types.Type{types.Self}, []types.Type{types.Optional(types.LuaError)}),
+	},
+}
+
 // File userdata type
 var fileType = &types.InterfaceType{
 	Name: "fs.File",
 	Methods: map[string]*types.FunctionType{
-		"read":     types.NewFunction([]types.Type{types.Optional(types.Number)}, []types.Type{types.String, types.Optional(types.LuaError)}),
-		"read_all": types.NewFunction(nil, []types.Type{types.String, types.Optional(types.LuaError)}),
-		"write":    types.NewFunction([]types.Type{types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-		"seek":     types.NewFunction([]types.Type{types.String, types.Number}, []types.Type{types.Number, types.Optional(types.LuaError)}),
-		"close":    types.NewFunction(nil, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-		"stat":     types.NewFunction(nil, []types.Type{fileInfoType, types.Optional(types.LuaError)}),
-		"lines":    types.NewFunction(nil, []types.Type{types.Any, types.Optional(types.LuaError)}),
-		"sync":     types.NewFunction(nil, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
+		"read":     types.NewFunction([]types.Type{types.Self, types.Optional(types.Number)}, []types.Type{types.String, types.Optional(types.LuaError)}),
+		"read_all": types.NewFunction([]types.Type{types.Self}, []types.Type{types.String, types.Optional(types.LuaError)}),
+		"write":    types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
+		"seek":     types.NewFunction([]types.Type{types.Self, types.String, types.Number}, []types.Type{types.Number, types.Optional(types.LuaError)}),
+		"close":    types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
+		"stat":     types.NewFunction([]types.Type{types.Self}, []types.Type{fileInfoType, types.Optional(types.LuaError)}),
+		"lines":    types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any, types.Optional(types.LuaError)}),
+		"sync":     types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
+		"scanner":  types.NewFunction([]types.Type{types.Self, types.Optional(types.String)}, []types.Type{scannerType, types.Optional(types.LuaError)}),
 	},
 }
 
@@ -40,27 +51,27 @@ func init() {
 		Name:    "fs.FS",
 		Methods: map[string]*types.FunctionType{},
 	}
-	fsType.Methods["chdir"] = types.NewFunction([]types.Type{types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
-	fsType.Methods["pwd"] = types.NewFunction(nil, []types.Type{types.String, types.Optional(types.LuaError)})
-	fsType.Methods["open"] = types.NewFunction([]types.Type{types.String, types.Optional(types.String)}, []types.Type{fileType, types.Optional(types.LuaError)})
-	fsType.Methods["stat"] = types.NewFunction([]types.Type{types.String}, []types.Type{fileInfoType, types.Optional(types.LuaError)})
-	fsType.Methods["read_dir"] = types.NewFunction([]types.Type{types.String}, []types.Type{types.NewArray(fileInfoType, false), types.Optional(types.LuaError)})
-	fsType.Methods["readdir"] = types.NewFunction([]types.Type{types.String}, []types.Type{types.NewArray(fileInfoType, false), types.Optional(types.LuaError)})
-	fsType.Methods["mkdir"] = types.NewFunction([]types.Type{types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
-	fsType.Methods["mkdir_all"] = types.NewFunction([]types.Type{types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
-	fsType.Methods["remove"] = types.NewFunction([]types.Type{types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
-	fsType.Methods["remove_all"] = types.NewFunction([]types.Type{types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
-	fsType.Methods["rename"] = types.NewFunction([]types.Type{types.String, types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
-	fsType.Methods["exists"] = types.NewFunction([]types.Type{types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
-	fsType.Methods["isdir"] = types.NewFunction([]types.Type{types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
-	fsType.Methods["glob"] = types.NewFunction([]types.Type{types.String}, []types.Type{types.NewArray(types.String, false), types.Optional(types.LuaError)})
-	fsType.Methods["read_file"] = types.NewFunction([]types.Type{types.String}, []types.Type{types.String, types.Optional(types.LuaError)})
-	fsType.Methods["readfile"] = types.NewFunction([]types.Type{types.String}, []types.Type{types.String, types.Optional(types.LuaError)})
+	fsType.Methods["chdir"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
+	fsType.Methods["pwd"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.String, types.Optional(types.LuaError)})
+	fsType.Methods["open"] = types.NewFunction([]types.Type{types.Self, types.String, types.Optional(types.String)}, []types.Type{fileType, types.Optional(types.LuaError)})
+	fsType.Methods["stat"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{fileInfoType, types.Optional(types.LuaError)})
+	fsType.Methods["read_dir"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.NewArray(fileInfoType, false), types.Optional(types.LuaError)})
+	fsType.Methods["readdir"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.NewArray(fileInfoType, false), types.Optional(types.LuaError)})
+	fsType.Methods["mkdir"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
+	fsType.Methods["mkdir_all"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
+	fsType.Methods["remove"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
+	fsType.Methods["remove_all"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
+	fsType.Methods["rename"] = types.NewFunction([]types.Type{types.Self, types.String, types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
+	fsType.Methods["exists"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
+	fsType.Methods["isdir"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
+	fsType.Methods["glob"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.NewArray(types.String, false), types.Optional(types.LuaError)})
+	fsType.Methods["read_file"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.String, types.Optional(types.LuaError)})
+	fsType.Methods["readfile"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.String, types.Optional(types.LuaError)})
 	writeModeType := types.Optional(types.NewUnion(types.NewLiteral("w"), types.NewLiteral("wx"), types.NewLiteral("a")))
-	fsType.Methods["write_file"] = types.NewFunction([]types.Type{types.String, types.String, writeModeType}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
-	fsType.Methods["writefile"] = types.NewFunction([]types.Type{types.String, types.String, writeModeType}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
-	fsType.Methods["copy"] = types.NewFunction([]types.Type{types.String, types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
-	fsType.Methods["sub"] = types.NewFunction([]types.Type{types.String}, []types.Type{fsType, types.Optional(types.LuaError)})
+	fsType.Methods["write_file"] = types.NewFunction([]types.Type{types.Self, types.String, types.String, writeModeType}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
+	fsType.Methods["writefile"] = types.NewFunction([]types.Type{types.Self, types.String, types.String, writeModeType}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
+	fsType.Methods["copy"] = types.NewFunction([]types.Type{types.Self, types.String, types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
+	fsType.Methods["sub"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{fsType, types.Optional(types.LuaError)})
 }
 
 // Seek constants type

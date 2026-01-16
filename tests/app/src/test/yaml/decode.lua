@@ -40,8 +40,9 @@ arr:
     assert.eq(mixed.bool, true, "boolean field correct")
     assert.eq(mixed.arr[1], 1, "array element correct")
 
-    -- Invalid input type error
-    local _, err1 = yaml.decode(123)
+    -- Invalid input type error (use any for runtime validation test)
+    local bad_input: any = 123
+    local _, err1 = yaml.decode(bad_input)
     assert.not_nil(err1, "non-string input should error")
     assert.eq(err1:kind(), errors.INVALID, "invalid input error kind")
     assert.eq(err1:retryable(), false, "invalid input not retryable")

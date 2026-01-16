@@ -1,0 +1,17 @@
+version: "1.0"
+namespace: app
+
+entries:
+  # Terminal host connects process to stdin/stdout
+  - name: terminal
+    kind: terminal.host
+    lifecycle:
+      auto_start: true
+
+  # CLI process
+  - name: cli
+    kind: process.lua
+    source: file://cli.lua
+    method: main
+    modules:
+      - io

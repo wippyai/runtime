@@ -1,6 +1,8 @@
 package temporal
 
 import (
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/wippyai/runtime/api/attrs"
@@ -196,5 +198,69 @@ func (c *ClientConfig) Validate() error {
 		return ErrHealthCheckIntervalInvalid
 	}
 
+	return nil
+}
+
+// UnmarshalJSON implements custom unmarshaling for ClientConfig to parse duration strings.
+func (c *ClientConfig) UnmarshalJSON(data []byte) error {
+	type Alias ClientConfig
+	aux := &struct {
+		ConnectionTimeout string `json:"connection_timeout"`
+		KeepAliveTime     string `json:"keep_alive_time"`
+		KeepAliveTimeout  string `json:"keep_alive_timeout"`
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
+
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+
+	if aux.ConnectionTimeout != "" {
+		d, err := time.ParseDuration(aux.ConnectionTimeout)
+		if err != nil {
+			return fmt.Errorf("invalid connection_timeout: %w", err)
+		}
+		c.ConnectionTimeout = d
+	}
+	if aux.KeepAliveTime != "" {
+		d, err := time.ParseDuration(aux.KeepAliveTime)
+		if err != nil {
+			return fmt.Errorf("invalid keep_alive_time: %w", err)
+		}
+		c.KeepAliveTime = d
+	}
+	if aux.KeepAliveTimeout != "" {
+		d, err := time.ParseDuration(aux.KeepAliveTimeout)
+		if err != nil {
+			return fmt.Errorf("invalid keep_alive_timeout: %w", err)
+		}
+		c.KeepAliveTimeout = d
+	}
+	return nil
+}
+
+// UnmarshalJSON implements custom unmarshaling for HealthCheckConfig to parse duration strings.
+func (c *HealthCheckConfig) UnmarshalJSON(data []byte) error {
+	type Alias HealthCheckConfig
+	aux := &struct {
+		Interval string `json:"interval"`
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
+
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+
+	if aux.Interval != "" {
+		d, err := time.ParseDuration(aux.Interval)
+		if err != nil {
+			return fmt.Errorf("invalid interval: %w", err)
+		}
+		c.Interval = d
+	}
 	return nil
 }

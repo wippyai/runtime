@@ -1,7 +1,16 @@
 package registry
 
 import (
+	"context"
 	"testing"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/payload"
+	regapi "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/security"
+	luapayload "github.com/wippyai/runtime/runtime/lua/engine/payload"
+	transcoder "github.com/wippyai/runtime/system/payload"
+	"github.com/wippyai/runtime/system/payload/json"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -539,5 +548,192 @@ func TestParseIDEdgeCases(t *testing.T) {
 				t.Errorf("test %s failed: %v", tt.name, err)
 			}
 		})
+	}
+}
+
+// mockRegistry implements regapi.Registry for testing
+type mockRegistry struct {
+	entries map[string]regapi.Entry
+}
+
+func (m *mockRegistry) GetEntry(id regapi.ID) (regapi.Entry, error) {
+	entry, ok := m.entries[id.String()]
+	if !ok {
+		return regapi.Entry{}, context.Canceled // placeholder error
+	}
+	return entry, nil
+}
+
+func (m *mockRegistry) GetAllEntries() ([]regapi.Entry, error) {
+	return nil, nil
+}
+
+func (m *mockRegistry) Current() (regapi.Version, error) {
+	return nil, nil
+}
+
+func (m *mockRegistry) Apply(ctx context.Context, cs regapi.ChangeSet) (regapi.Version, error) {
+	return nil, nil
+}
+
+func (m *mockRegistry) ApplyVersion(ctx context.Context, version regapi.Version) error {
+	return nil
+}
+
+func (m *mockRegistry) LoadState(ctx context.Context, state regapi.State, version regapi.Version) error {
+	return nil
+}
+
+func (m *mockRegistry) History() regapi.History {
+	return nil
+}
+
+func (m *mockRegistry) RegisterDependencyPattern(pattern regapi.DependencyPattern) error {
+	return nil
+}
+
+func setupContextWithTranscoder() context.Context {
+	// Create app context
+	appCtx := ctxapi.NewAppContext()
+	ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+
+	// Set up transcoder
+	dtt := transcoder.GlobalTranscoder()
+	json.Register(dtt)
+	luapayload.Register(dtt)
+	ctx = payload.WithTranscoder(ctx, dtt)
+
+	// Disable strict mode for tests (allows access without full security context)
+	ctx = security.SetStrictMode(ctx, false)
+
+	return ctx
+}
+
+func TestRegistryGetWithEntryData(t *testing.T) {
+	// Create context with transcoder
+	ctx := setupContextWithTranscoder()
+
+	// Create mock registry with entry containing data
+	mockReg := &mockRegistry{
+		entries: map[string]regapi.Entry{
+			"test:function": {
+				ID:   regapi.NewID("test", "function"),
+				Kind: "function.lua",
+				Meta: map[string]any{
+					"type":        "tool",
+					"description": "Test function",
+				},
+				Data: payload.NewPayload(map[string]any{
+					"source":  "function test() return true end",
+					"method":  "test",
+					"modules": []any{"json", "http"},
+					"imports": map[string]any{
+						"lib": map[string]any{
+							"ns":   "test",
+							"name": "lib",
+						},
+					},
+				}, payload.Golang),
+			},
+		},
+	}
+
+	// Add registry to context
+	ctx = regapi.WithRegistry(ctx, mockReg)
+
+	// Create Lua state with context
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(ctx)
+	lua.OpenErrors(l)
+	setupModule(l)
+
+	// Test registry.get with entry that has data
+	err := l.DoString(`
+		local entry, err = registry.get("test:function")
+		if err then
+			error("failed to get entry: " .. tostring(err))
+		end
+
+		assert(entry ~= nil, "entry should not be nil")
+		assert(entry.id == "test:function", "id mismatch: " .. tostring(entry.id))
+		assert(entry.kind == "function.lua", "kind mismatch: " .. tostring(entry.kind))
+		assert(entry.meta ~= nil, "meta should not be nil")
+		assert(entry.meta.type == "tool", "meta.type mismatch")
+		assert(entry.data ~= nil, "data should not be nil")
+		assert(entry.data.source == "function test() return true end", "data.source mismatch")
+		assert(entry.data.method == "test", "data.method mismatch")
+	`)
+	if err != nil {
+		t.Errorf("registry.get with entry data failed: %v", err)
+	}
+}
+
+func TestRegistryGetWithComplexEntryData(t *testing.T) {
+	// This test replicates the structure of a real function.lua entry
+	ctx := setupContextWithTranscoder()
+
+	mockReg := &mockRegistry{
+		entries: map[string]regapi.Entry{
+			"userspace.dataflow.session:delegate": {
+				ID:   regapi.NewID("userspace.dataflow.session", "delegate"),
+				Kind: "function.lua",
+				Meta: map[string]any{
+					"type":        "tool",
+					"title":       "Delegate To Agent",
+					"description": "Handles delegation by running the target agent",
+					"input_schema": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"message": map[string]any{
+								"type":        "string",
+								"description": "The message to forward to the target agent",
+							},
+						},
+						"required": []any{"message"},
+					},
+				},
+				Data: payload.NewPayload(map[string]any{
+					"source":  "local function handle() end return { handle = handle }",
+					"method":  "handle",
+					"modules": []any{"json", "uuid", "ctx", "security"},
+					"imports": map[string]any{
+						"agent_registry": map[string]any{"ns": "wippy.agent.discovery", "name": "registry"},
+						"client":         map[string]any{"ns": "userspace.dataflow", "name": "client"},
+						"consts":         map[string]any{"ns": "userspace.dataflow", "name": "consts"},
+					},
+					"pool": map[string]any{
+						"type":    "",
+						"size":    0,
+						"workers": 0,
+					},
+				}, payload.Golang),
+			},
+		},
+	}
+
+	ctx = regapi.WithRegistry(ctx, mockReg)
+
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(ctx)
+	lua.OpenErrors(l)
+	setupModule(l)
+
+	err := l.DoString(`
+		local entry, err = registry.get("userspace.dataflow.session:delegate")
+		if err then
+			error("failed to get entry: " .. tostring(err))
+		end
+
+		assert(entry ~= nil, "entry should not be nil")
+		assert(entry.kind == "function.lua", "kind mismatch")
+		assert(entry.meta ~= nil, "meta should not be nil")
+		assert(entry.meta.type == "tool", "meta.type mismatch")
+		assert(entry.data ~= nil, "data should not be nil")
+		assert(entry.data.method == "handle", "data.method mismatch")
+	`)
+	if err != nil {
+		t.Errorf("registry.get with complex entry data failed: %v", err)
 	}
 }

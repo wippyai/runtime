@@ -8,7 +8,7 @@ end
 
 local function main(): boolean
 	local scores: {[string]: number} = { alice = 100, bob = 85, carol = 92 }
-	local lookup: {[integer]: string} = { [1] = "one", [2] = "two" }
+	local lookup: {[number]: string} = { [1] = "one", [2] = "two" }
 
 	local n: integer = count_keys(scores)
 	local val: string? = lookup[1]

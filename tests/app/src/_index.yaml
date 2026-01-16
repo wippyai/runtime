@@ -82,6 +82,9 @@ entries:
     kind: process.lua
     meta:
       comment: Runs all tests with meta.type=test
+      command:
+        name: test
+        short: Run application tests
     source: file://runner.lua
     method: main
     modules:

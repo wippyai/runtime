@@ -64,9 +64,11 @@ local function main()
     assert.eq(err:retryable(), false, "not retryable")
 
     user, err = fetch_user(0)
+    assert.is_nil(user, "no user for NOT_FOUND")
     assert.eq(err:kind(), errors.NOT_FOUND, "NOT_FOUND kind")
 
     user, err = fetch_user(999)
+    assert.is_nil(user, "no user for UNAVAILABLE")
     assert.eq(err:kind(), errors.UNAVAILABLE, "UNAVAILABLE kind")
     assert.eq(err:retryable(), true, "is retryable")
 

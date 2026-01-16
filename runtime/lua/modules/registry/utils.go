@@ -91,14 +91,23 @@ func entryToLuaTable(l *lua.LState, entry regapi.Entry) (*lua.LTable, error) {
 	// Convert data payload using transcoder if available
 	if entry.Data != nil {
 		dtt := payload.GetTranscoder(l.Context())
-		if dtt != nil {
-			luaData, err := dtt.Transcode(entry.Data, payload.Lua)
-			if err != nil {
-				return nil, fmt.Errorf("failed to transcode entry data: %w", err)
+		if dtt == nil {
+			return nil, fmt.Errorf("failed to transcode entry data: no transcoder in context")
+		}
+
+		luaData, err := dtt.Transcode(entry.Data, payload.Lua)
+		if err != nil {
+			return nil, fmt.Errorf("failed to transcode entry data: %w", err)
+		}
+
+		if luaData != nil {
+			if lv, ok := luaData.Data().(lua.LValue); ok {
+				entryTable.RawSetString("data", lv)
+			} else {
+				entryTable.RawSetString("data", lua.LNil)
 			}
-			entryTable.RawSetString("data", luaData.Data().(lua.LValue))
 		} else {
-			return nil, fmt.Errorf("failed to transcode entry data: no transcoder")
+			entryTable.RawSetString("data", lua.LNil)
 		}
 	} else {
 		entryTable.RawSetString("data", lua.LNil)

@@ -25,7 +25,7 @@ func init() {
 
 	initCmd.Flags().StringP("src-dir", "d", "./src", "source directory path")
 	initCmd.Flags().String("modules-dir", ".wippy", "modules directory path")
-	initCmd.Flags().StringP("lock-file", "l", "wippy.lock", "path to lock file")
+	initCmd.Flags().StringP("lock-file", "l", defaultLockFile, "path to lock file")
 }
 
 func runInit(cmd *cobra.Command, _ []string) error {

@@ -44,7 +44,7 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(api.Unmonitor, dispatcher.HandlerFunc(d.handleUnmonitor))
 	register(api.Link, dispatcher.HandlerFunc(d.handleLink))
 	register(api.Unlink, dispatcher.HandlerFunc(d.handleUnlink))
-	register(api.Call, dispatcher.HandlerFunc(d.handleCall))
+	register(api.Run, dispatcher.HandlerFunc(d.handleRun))
 }
 
 func (d *Dispatcher) handleSend(_ context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
@@ -177,13 +177,13 @@ func (d *Dispatcher) handleUnlink(_ context.Context, cmd dispatcher.Command, tag
 	return nil
 }
 
-// handleCall spawns a process and waits for its result.
-func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
-	callCmd := cmd.(*api.CallCmd)
+// handleRun spawns a process and waits for its result.
+func (d *Dispatcher) handleRun(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+	runCmd := cmd.(*api.RunCmd)
 
 	// Host is required
-	if callCmd.HostID == "" {
-		receiver.CompleteYield(tag, nil, errors.New("host ID required for process.call"))
+	if runCmd.HostID == "" {
+		receiver.CompleteYield(tag, nil, errors.New("host ID required for process.run"))
 		return nil
 	}
 
@@ -230,9 +230,9 @@ func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, tag
 
 	// Start the process
 	processPID, err := d.manager.Start(ctx, &api.Start{
-		HostID:  callCmd.HostID,
-		Source:  callCmd.Source,
-		Input:   callCmd.Input,
+		HostID:  runCmd.HostID,
+		Source:  runCmd.Source,
+		Input:   runCmd.Input,
 		Options: options,
 	})
 	if err != nil {
@@ -242,8 +242,8 @@ func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, tag
 		return nil
 	}
 
-	d.logger.Debug("started call process",
-		zap.String("source", callCmd.Source.String()),
+	d.logger.Debug("started run process",
+		zap.String("source", runCmd.Source.String()),
 		zap.String("pid", processPID.String()))
 
 	// Wait for exit event in goroutine
@@ -255,12 +255,12 @@ func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, tag
 			select {
 			case <-ctx.Done():
 				// Context canceled - cleanup and return error but don't cancel child
-				receiver.CompleteYield(tag, api.CallResult{}, ctx.Err())
+				receiver.CompleteYield(tag, api.RunResult{}, ctx.Err())
 				return
 
 			case batch, ok := <-monitorCh:
 				if !ok {
-					receiver.CompleteYield(tag, api.CallResult{}, errors.New("monitor channel closed"))
+					receiver.CompleteYield(tag, api.RunResult{}, errors.New("monitor channel closed"))
 					return
 				}
 
@@ -271,9 +271,9 @@ func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, tag
 					for _, p := range msg.Payloads {
 						if e, ok := p.Data().(*topapi.ExitEvent); ok {
 							d.logger.Debug("received exit event",
-								zap.String("source", callCmd.Source.String()),
+								zap.String("source", runCmd.Source.String()),
 								zap.String("pid", processPID.String()))
-							receiver.CompleteYield(tag, api.CallResult{Result: e.Result}, nil)
+							receiver.CompleteYield(tag, api.RunResult{Result: e.Result}, nil)
 							return
 						}
 					}

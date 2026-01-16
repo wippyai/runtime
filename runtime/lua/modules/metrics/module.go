@@ -17,10 +17,10 @@ var Module = &luaapi.ModuleDef{
 	Name:        "metrics",
 	Description: "Counters, gauges, and histograms",
 	Class:       []string{luaapi.ClassIO, luaapi.ClassNondeterministic},
-	Types:       ModuleTypes,
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		return moduleTable, nil
 	},
+	Types: ModuleTypes,
 }
 
 func createModuleTable() *lua.LTable {

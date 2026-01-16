@@ -29,10 +29,9 @@ local function main()
 
     -- If depth > 0, spawn next in chain
     if depth > 0 then
-        local child_pid
-        child_pid, err = process.spawn_monitored("app.test.process:chain_worker", "app:processes")
-        if err then
-            return false, "spawn child failed: " .. tostring(err)
+        local child_pid, spawn_err = process.spawn_monitored("app.test.process:chain_worker", "app:processes")
+        if spawn_err or not child_pid then
+            return false, "spawn child failed: " .. tostring(spawn_err)
         end
 
         -- Send setup to child - link to us, but report to root

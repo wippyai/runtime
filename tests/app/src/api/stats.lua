@@ -21,7 +21,7 @@ local function handler()
 
     local mem, mem_err = system.memory.stats()
     if mem_err then
-        res:set_status(http.STATUS.INTERNAL_SERVER_ERROR)
+        res:set_status(http.STATUS.INTERNAL_ERROR)
         res:write_json({error = mem_err})
         return
     end

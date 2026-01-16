@@ -30,7 +30,7 @@ local function main()
     }
 
     -- create changeset and add the function
-    local changes = snap:changes(snap)
+    local changes = snap:changes()
     changes:create(func_entry)
 
     -- apply the changes
@@ -43,7 +43,8 @@ local function main()
 
     -- wait for function manager to create pool for the new function
     -- use polling since event propagation timing is non-deterministic
-    local result, call_err
+    local result = nil
+    local call_err = nil
     for i = 1, 20 do
         result, call_err = funcs.call(func_id)
         if call_err == nil then
@@ -53,7 +54,9 @@ local function main()
     end
     assert.is_nil(call_err, "call dynamic func no error")
     assert.not_nil(result, "call returns result")
-    assert.eq(result.created, true, "function returned expected value")
+    if result then
+        assert.eq(result.created, true, "function returned expected value")
+    end
 
     -- now rollback to original version
     local rollback_ok, rollback_err = registry.apply_version(current_version)

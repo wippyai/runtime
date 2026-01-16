@@ -2,18 +2,14 @@ package lua
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
 	logapi "github.com/wippyai/runtime/api/logs"
-	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/boot/components/dispatchers"
 	"github.com/wippyai/runtime/runtime/lua/evalhost"
-	envlua "github.com/wippyai/runtime/runtime/lua/modules/env"
-	"github.com/wippyai/runtime/runtime/lua/modules/json"
-	loggermod "github.com/wippyai/runtime/runtime/lua/modules/logger"
-	payloadmod "github.com/wippyai/runtime/runtime/lua/modules/payload"
-	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
 )
 
 const EvalHostName boot.Name = "runtime.lua.eval"
@@ -30,20 +26,30 @@ func Eval() boot.Component {
 				return ctx, ErrDispatcherRegistrarNotFound
 			}
 
-			// Modules available for eval'd code
-			modules := []*luaapi.ModuleDef{
-				json.Module,
-				timemod.Module,
-				payloadmod.Module,
-				envlua.Module,
-				loggermod.Module,
+			// Get code manager for dynamic module lookup
+			cm := GetCodeManager(ctx)
+			if cm == nil {
+				return ctx, ErrCodeManagerNotFound
 			}
 
-			// Create eval host with class-based filtering
+			// Create eval host with dynamic module provider
+			evalLogger := logger.Named("eval")
 			host := evalhost.NewHost(
-				logger.Named("eval"),
-				modules,
+				evalLogger,
+				cm.GetModuleDefs,
 			)
+
+			// Set up import loader to load library sources from code manager
+			host.WithImportLoader(func(id registry.ID) (string, error) {
+				node, err := cm.GetNode(id)
+				if err != nil {
+					return "", err
+				}
+				if node.Source == "" {
+					return "", fmt.Errorf("import %s has no source (bytecode libraries not supported in eval)", id)
+				}
+				return node.Source, nil
+			})
 
 			// Register dispatcher handlers
 			d := evalhost.NewDispatcher(host)

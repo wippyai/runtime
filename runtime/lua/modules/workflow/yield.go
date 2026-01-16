@@ -31,10 +31,10 @@ func (y *CallYield) HandleResult(l *lua.LState, data any, err error) []lua.LValu
 		luaErr := lua.WrapErrorWithLua(l, err, "workflow call failed")
 		// Only set defaults if not already extracted from chain
 		if luaErr.Kind() == lua.Unknown {
-			luaErr.WithKind(lua.Internal)
+			luaErr = luaErr.WithKind(lua.Internal)
 		}
 		if luaErr.Retryable() == lua.TernaryUnknown {
-			luaErr.WithRetryable(true)
+			luaErr = luaErr.WithRetryable(true)
 		}
 		return []lua.LValue{lua.LNil, luaErr}
 	}
@@ -50,10 +50,10 @@ func (y *CallYield) HandleResult(l *lua.LState, data any, err error) []lua.LValu
 	if result.Error != nil {
 		luaErr := lua.WrapErrorWithLua(l, result.Error, "workflow call failed")
 		if luaErr.Kind() == lua.Unknown {
-			luaErr.WithKind(lua.Internal)
+			luaErr = luaErr.WithKind(lua.Internal)
 		}
 		if luaErr.Retryable() == lua.TernaryUnknown {
-			luaErr.WithRetryable(true)
+			luaErr = luaErr.WithRetryable(true)
 		}
 		return []lua.LValue{lua.LNil, luaErr}
 	}
@@ -127,7 +127,7 @@ func (y *UpsertAttrsYield) HandleResult(l *lua.LState, _ any, err error) []lua.L
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "upsert attrs failed")
 		if luaErr.Kind() == lua.Unknown {
-			luaErr.WithKind(lua.Internal)
+			luaErr = luaErr.WithKind(lua.Internal)
 		}
 		return []lua.LValue{lua.LNil, luaErr}
 	}

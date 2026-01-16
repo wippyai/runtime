@@ -45,7 +45,6 @@ var Module = &luaapi.ModuleDef{
 	Name:        "security",
 	Description: "Security actors, scopes, and policies",
 	Class:       []string{luaapi.ClassSecurity, luaapi.ClassNondeterministic},
-	Types:       ModuleTypes,
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		initOnce.Do(initModuleTable)
 		return moduleTable, []luaapi.YieldType{
@@ -54,6 +53,7 @@ var Module = &luaapi.ModuleDef{
 			{Sample: &RevokeYield{}, CmdID: security.RevokeToken},
 		}
 	},
+	Types: ModuleTypes,
 }
 
 func actor(l *lua.LState) int {

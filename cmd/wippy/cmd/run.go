@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/boot"
 	logapi "github.com/wippyai/runtime/api/logs"
@@ -19,6 +20,7 @@ import (
 	supervisorapi "github.com/wippyai/runtime/api/supervisor"
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/deps/client"
+	"github.com/wippyai/runtime/boot/deps/lock"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	"github.com/wippyai/runtime/cmd/internal/banner"
 	"github.com/wippyai/runtime/cmd/internal/bootconfig"
@@ -31,38 +33,72 @@ import (
 )
 
 var runCmd = &cobra.Command{
-	Use:   "run",
-	Short: "Start the runtime from lock file",
+	Use:   "run [command]",
+	Short: "Start the runtime or execute a command",
 	Long: `Start the Wippy runtime environment from wippy.lock file
 
-Loads entries from lock file, runs full pipeline (Override, Disable, Link),
-and starts the runtime.
+Without arguments, starts the full runtime.
+With a command name, executes the matching process entry.
+
+Use 'wippy run list' to see available commands.
 
 Examples:
-  wippy run
-  wippy run -x app:cli                    # Execute CLI process (auto-detects terminal.host)
-  wippy run -x app:cli --host app:term    # Explicit terminal host
-  wippy run -x app:cli -v                 # With verbose logging
+  wippy run                                 # Start the runtime
+  wippy run list                            # List available commands
+  wippy run test                            # Run the test command
+  wippy run -x app:cli                      # Execute specific process
   wippy run --override app:gateway:addr=:9090`,
-	RunE: runApp,
+	Args:               cobra.ArbitraryArgs,
+	DisableFlagParsing: false,
+	RunE:               runApp,
+}
+
+var listCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List available commands",
+	Long:  `List all process entries that have command metadata defined.`,
+	RunE:  runList,
 }
 
 func init() {
 	rootCmd.AddCommand(runCmd)
+	runCmd.AddCommand(listCmd)
 	runCmd.Flags().StringSliceP("override", "o", nil, "Override entry values (format: namespace:entry:field=value)")
 	runCmd.Flags().StringP("exec", "x", "", "Execute process and exit (format: namespace:entry)")
 	runCmd.Flags().String("host", "", "Terminal host ID for exec (auto-detected if only one terminal.host exists)")
-	runCmd.Flags().String("method", "", "Method to call on exec process (default: entry point)")
+}
+
+// commandMeta represents the command metadata from entry.Meta
+type commandMeta struct {
+	Name  string `json:"name"`
+	Short string `json:"short"`
 }
 
 func runApp(cmd *cobra.Command, args []string) error {
-	// Set memory limit early, before any significant allocations
 	memLimit := initMemoryLimit()
 
-	// Auto-silent when using -x unless user explicitly set logging flags
-	execSpec, _ := cmd.Flags().GetString("exec")
-	if execSpec != "" && !cmd.Flags().Changed("silent") && !cmd.Flags().Changed("verbose") && !cmd.Flags().Changed("very-verbose") && !cmd.Flags().Changed("console") {
-		silentLogs = true
+	// Check if first arg is a command name (not a flag)
+	var commandName string
+	var commandArgs []string
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		commandName = args[0]
+		commandArgs = args[1:]
+	}
+
+	// Get exec spec from flag
+	execSpec := ""
+	execHost := ""
+	if cmd != nil {
+		execSpec, _ = cmd.Flags().GetString("exec")
+		execHost, _ = cmd.Flags().GetString("host")
+	}
+
+	// Auto-silent for exec mode
+	if execSpec != "" || commandName != "" {
+		flagsChanged := cmd != nil && (cmd.Flags().Changed("silent") || cmd.Flags().Changed("verbose") || cmd.Flags().Changed("very-verbose") || cmd.Flags().Changed("console"))
+		if !flagsChanged {
+			silentLogs = true
+		}
 	}
 
 	banner.Print(silentLogs)
@@ -78,7 +114,7 @@ func runApp(cmd *cobra.Command, args []string) error {
 		return NewCreateLoggerError(err)
 	}
 	defer func() {
-		_ = logger.Sync() // Ignore sync errors (typically closed stdout/stderr)
+		_ = logger.Sync()
 	}()
 
 	logger.Info("initializing runtime", zap.String("memory_limit", formatBytes(memLimit)))
@@ -93,15 +129,16 @@ func runApp(cmd *cobra.Command, args []string) error {
 		cfg = createDefaultConfig()
 	}
 
-	// Apply CLI flags as final overrides (verbose, console, etc. take priority over config file)
 	cfg = applyCLIOverrides(cfg)
 
-	overrides, _ := cmd.Flags().GetStringSlice("override")
-	if len(overrides) > 0 {
-		cfg, err = applyOverrideFlags(cfg, overrides, logger)
-		if err != nil {
-			logger.Error("failed to apply override flags", zap.Error(err))
-			return err
+	if cmd != nil {
+		overrides, _ := cmd.Flags().GetStringSlice("override")
+		if len(overrides) > 0 {
+			cfg, err = applyOverrideFlags(cfg, overrides, logger)
+			if err != nil {
+				logger.Error("failed to apply override flags", zap.Error(err))
+				return err
+			}
 		}
 	}
 
@@ -111,7 +148,6 @@ func runApp(cmd *cobra.Command, args []string) error {
 		return NewInitializeBootstrapContextError(err)
 	}
 
-	// Initialize registry client for module installation
 	registryClient := client.NewRegistryClientFromConfig(boot.GetConfig(ctx))
 	ctx = appinit.WithRegistryClient(ctx, registryClient)
 
@@ -134,7 +170,6 @@ func runApp(cmd *cobra.Command, args []string) error {
 	}
 	logger.Info("components loaded successfully")
 
-	// Setup signal channel before Start() seals AppContext
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	supervisorapi.SetSignalChannel(ctx, sigChan)
@@ -147,18 +182,26 @@ func runApp(cmd *cobra.Command, args []string) error {
 
 	if err := entries.LoadFromLockFile(ctx, logger, verbose); err != nil {
 		logger.Error("entry loading failed", zap.Error(err))
-		return err // Error already has context
+		return err
 	}
 
 	if !silentLogs {
 		logger.Info("runtime ready")
 	}
 
-	// Handle --exec flag: launch process and wait for completion
+	// Resolve command name to entry ID
+	if commandName != "" {
+		entryID, err := resolveCommandToEntry(ctx, commandName)
+		if err != nil {
+			return err
+		}
+		execSpec = entryID
+		args = commandArgs
+	}
+
+	// Handle exec: launch process and wait for completion
 	if execSpec != "" {
-		execMethod, _ := cmd.Flags().GetString("method")
-		execHost, _ := cmd.Flags().GetString("host")
-		if err := launchExecProcess(ctx, logger, execSpec, execHost, execMethod, args); err != nil {
+		if err := launchExecProcess(ctx, logger, execSpec, execHost, args); err != nil {
 			logger.Error("exec launch failed", zap.Error(err))
 			return err
 		}
@@ -166,7 +209,6 @@ func runApp(cmd *cobra.Command, args []string) error {
 
 	<-sigChan
 
-	// Spawn force-exit handler for second signal
 	go func() {
 		<-sigChan
 		logger.Error("force exit")
@@ -177,22 +219,171 @@ func runApp(cmd *cobra.Command, args []string) error {
 		logger.Info("shutting down (press Ctrl+C again to force exit)")
 	}
 
-	// Perform shutdown and get exit code
 	exitCode := shutdown.Perform(ctx, loader, logger, silentLogs)
 	if exitCode != 0 {
-		_ = logger.Sync() // Manually sync before exit since defers won't run
-		os.Exit(exitCode) //nolint:gocritic // We explicitly sync logger before exit
+		_ = logger.Sync()
+		os.Exit(exitCode) //nolint:gocritic
 	}
 
 	return nil
 }
 
-func loadBootConfig() (boot.Config, error) {
-	if configFile == "" {
-		configFile = ".wippy.yaml"
+// resolveCommandToEntry finds an entry with meta.command.name matching the given name
+func resolveCommandToEntry(ctx context.Context, name string) (string, error) {
+	reg := registry.GetRegistry(ctx)
+	if reg == nil {
+		return "", fmt.Errorf("registry not available")
 	}
 
-	cfg, err := bootconfig.Load(configFile)
+	allEntries, err := reg.GetAllEntries()
+	if err != nil {
+		return "", fmt.Errorf("failed to query registry: %w", err)
+	}
+
+	for _, e := range allEntries {
+		if !strings.HasPrefix(string(e.Kind), "process.lua") {
+			continue
+		}
+
+		cmdMeta := extractCommandMeta(e.Meta)
+		if cmdMeta != nil && cmdMeta.Name == name {
+			return e.ID.String(), nil
+		}
+	}
+
+	return "", fmt.Errorf("command %q not found. Use 'wippy run list' to see available commands", name)
+}
+
+// extractCommandMeta extracts command metadata from entry.Meta
+func extractCommandMeta(meta map[string]interface{}) *commandMeta {
+	if meta == nil {
+		return nil
+	}
+
+	cmdData, ok := meta["command"]
+	if !ok {
+		return nil
+	}
+
+	cmdMap, ok := cmdData.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	name, _ := cmdMap["name"].(string)
+	if name == "" {
+		return nil
+	}
+
+	short, _ := cmdMap["short"].(string)
+	return &commandMeta{Name: name, Short: short}
+}
+
+func runList(cmd *cobra.Command, _ []string) error {
+	silentLogs = true
+
+	app, err := appinit.Init(cmd.Context(), verbose, veryVerbose, console, silentLogs, appStartTime)
+	if err != nil {
+		return NewInitAppError(err)
+	}
+
+	lockPath, err := lock.Find(".", defaultLockFile)
+	if err != nil {
+		return NewLockFileNotFoundError(err)
+	}
+
+	if err := entries.EnsureModulesInstalled(app.Ctx, lockPath, app.Logger.Named("list")); err != nil {
+		return NewEnsureModulesInstalledError(err)
+	}
+
+	lockObj, err := lock.New(lockPath)
+	if err != nil {
+		return NewLoadLockFileError(err)
+	}
+
+	if err := lock.Validate(lockObj); err != nil {
+		return NewInvalidLockFileError(err)
+	}
+
+	paths := lockObj.GetLoadPaths()
+
+	var commands []struct {
+		Name    string
+		Short   string
+		EntryID string
+	}
+
+	for _, path := range paths {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			continue
+		}
+
+		dirFS := os.DirFS(path)
+		pathEntries, err := app.Loader.LoadFS(app.Ctx, dirFS)
+		if err != nil {
+			continue
+		}
+
+		for _, e := range pathEntries {
+			if !strings.HasPrefix(string(e.Kind), "process.lua") {
+				continue
+			}
+
+			cmdMeta := extractCommandMeta(e.Meta)
+			if cmdMeta == nil {
+				continue
+			}
+
+			commands = append(commands, struct {
+				Name    string
+				Short   string
+				EntryID string
+			}{
+				Name:    cmdMeta.Name,
+				Short:   cmdMeta.Short,
+				EntryID: e.ID.String(),
+			})
+		}
+	}
+
+	if len(commands) == 0 {
+		fmt.Println("No commands found.")
+		fmt.Println("\nTo define a command, add 'command' to entry meta:")
+		fmt.Println("  meta:")
+		fmt.Println("    command:")
+		fmt.Println("      name: test")
+		fmt.Println("      short: Run tests")
+		return nil
+	}
+
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
+	nameStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("10"))
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+
+	fmt.Println(titleStyle.Render("Available commands:"))
+	fmt.Println()
+
+	for _, c := range commands {
+		fmt.Printf("  %s", nameStyle.Render(c.Name))
+		if c.Short != "" {
+			fmt.Printf("  %s", c.Short)
+		}
+		fmt.Printf("  %s\n", dimStyle.Render("("+c.EntryID+")"))
+	}
+
+	fmt.Println()
+	fmt.Println(dimStyle.Render("Run with: wippy run <command>"))
+
+	return nil
+}
+
+func loadBootConfig() (boot.Config, error) {
+	cfgPath := configFile
+	if cfgPath == "" {
+		cfgPath = defaultConfigFile
+	}
+
+	cfg, err := bootconfig.Load(cfgPath)
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +409,6 @@ func createDefaultConfig() boot.Config {
 	return boot.NewConfig(opts...)
 }
 
-// applyCLIOverrides applies CLI flags as final overrides (takes priority over config file)
 func applyCLIOverrides(cfg boot.Config) boot.Config {
 	var opts []boot.ConfigOption
 
@@ -239,22 +429,18 @@ func applyCLIOverrides(cfg boot.Config) boot.Config {
 		}
 	}
 
-	// -v flag must override config file logmanager settings
+	logmanagerCfg := map[string]interface{}{}
 	if verbose || veryVerbose {
-		opts = append(opts, boot.WithSection("logmanager", map[string]interface{}{
-			"min_level": int(zapcore.DebugLevel), // -1 for debug
-		}))
+		logmanagerCfg["min_level"] = int(zapcore.DebugLevel)
+	} else {
+		logmanagerCfg["min_level"] = int(zapcore.InfoLevel)
 	}
 
 	if eventStreams {
-		opts = append(opts, boot.WithSection("logmanager", map[string]interface{}{
-			"stream_to_events": true,
-		}))
+		logmanagerCfg["stream_to_events"] = true
 	}
 
-	if len(opts) == 0 {
-		return cfg
-	}
+	opts = append(opts, boot.WithSection("logmanager", logmanagerCfg))
 
 	return bootconfig.Merge(cfg, boot.NewConfig(opts...))
 }
@@ -262,7 +448,6 @@ func applyCLIOverrides(cfg boot.Config) boot.Config {
 func applyOverrideFlags(cfg boot.Config, overrides []string, logger *zap.Logger) (boot.Config, error) {
 	overrideMap := make(map[string]interface{})
 
-	// Get existing overrides from config if any
 	if cfg != nil {
 		sub := cfg.Sub("override")
 		if sub != nil {
@@ -274,14 +459,12 @@ func applyOverrideFlags(cfg boot.Config, overrides []string, logger *zap.Logger)
 		}
 	}
 
-	// Parse and add CLI overrides
 	for _, override := range overrides {
 		namespace, entry, field, value, err := parseOverride(override)
 		if err != nil {
 			return nil, NewInvalidOverrideError(override, err)
 		}
 
-		// Format: namespace:entry:field
 		key := fmt.Sprintf("%s:%s:%s", namespace, entry, field)
 		overrideMap[key] = value
 
@@ -292,7 +475,6 @@ func applyOverrideFlags(cfg boot.Config, overrides []string, logger *zap.Logger)
 		}
 	}
 
-	// Create new config with merged overrides
 	opts := []boot.ConfigOption{
 		boot.WithSection("override", overrideMap),
 	}
@@ -305,7 +487,6 @@ func applyOverrideFlags(cfg boot.Config, overrides []string, logger *zap.Logger)
 }
 
 func parseOverride(input string) (namespace, entry, field, value string, err error) {
-	// Find equals sign to split key=value
 	eqIdx := strings.Index(input, "=")
 	if eqIdx == -1 {
 		return "", "", "", "", NewMissingSeparatorError("=", "namespace:entry:field=value")
@@ -314,7 +495,6 @@ func parseOverride(input string) (namespace, entry, field, value string, err err
 	keyPart := input[:eqIdx]
 	value = input[eqIdx+1:]
 
-	// Find first colon to separate namespace
 	firstColonIdx := strings.Index(keyPart, ":")
 	if firstColonIdx == -1 {
 		return "", "", "", "", NewMissingSeparatorError(":", "namespace:entry:field=value")
@@ -327,7 +507,6 @@ func parseOverride(input string) (namespace, entry, field, value string, err err
 		return "", "", "", "", NewEmptyFieldError("namespace")
 	}
 
-	// Find second colon to separate entry from field
 	secondColonIdx := strings.Index(remainder, ":")
 	if secondColonIdx == -1 {
 		return "", "", "", "", NewMissingSeparatorError(":", "namespace:entry:field=value")
@@ -347,7 +526,6 @@ func parseOverride(input string) (namespace, entry, field, value string, err err
 	return namespace, entry, field, value, nil
 }
 
-// parseExecSpec parses "namespace:entry" format for --exec flag
 func parseExecSpec(spec string) (namespace, entry string, err error) {
 	colonIdx := strings.Index(spec, ":")
 	if colonIdx == -1 {
@@ -368,21 +546,19 @@ func parseExecSpec(spec string) (namespace, entry string, err error) {
 	return namespace, entry, nil
 }
 
-// findTerminalHost searches the registry for terminal.host entries
-// Returns the host ID if exactly one exists, otherwise returns an error
 func findTerminalHost(ctx context.Context) (string, error) {
 	reg := registry.GetRegistry(ctx)
 	if reg == nil {
 		return "", fmt.Errorf("registry not available")
 	}
 
-	entries, err := reg.GetAllEntries()
+	allEntries, err := reg.GetAllEntries()
 	if err != nil {
 		return "", fmt.Errorf("failed to query registry: %w", err)
 	}
 
 	var hosts []string
-	for _, e := range entries {
+	for _, e := range allEntries {
 		if e.Kind == "terminal.host" {
 			hosts = append(hosts, e.ID.String())
 		}
@@ -397,14 +573,12 @@ func findTerminalHost(ctx context.Context) (string, error) {
 	return hosts[0], nil
 }
 
-// launchExecProcess launches a process and triggers shutdown on completion
-func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID, _method string, args []string) error {
+func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID string, args []string) error {
 	namespace, entry, err := parseExecSpec(execSpec)
 	if err != nil {
 		return NewInvalidExecSpecError(err)
 	}
 
-	// Auto-detect terminal host if not specified
 	if hostID == "" {
 		hostID, err = findTerminalHost(ctx)
 		if err != nil {
@@ -417,8 +591,7 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID
 		return ErrProcessManagerNotAvailable
 	}
 
-	// Wait for the host service to be running before starting the process
-	if err := waitForHostRunning(ctx, logger, hostID); err != nil {
+	if err := waitForHostRunning(ctx, hostID); err != nil {
 		return err
 	}
 
@@ -444,15 +617,12 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID
 		zap.String("pid", pid.String()),
 		zap.String("host", hostID),
 		zap.String("source", source.String()),
-		zap.String("method", _method),
 		zap.Strings("args", args))
 
 	return nil
 }
 
-// waitForHostRunning polls the supervisor until the host service is running
-// and the host is registered in the relay node.
-func waitForHostRunning(ctx context.Context, _ *zap.Logger, hostID string) error {
+func waitForHostRunning(ctx context.Context, hostID string) error {
 	sup, ok := supervisorapi.GetSupervisor(ctx).(*supervisorpkg.Supervisor)
 	if !ok || sup == nil {
 		return fmt.Errorf("supervisor not available")
@@ -470,8 +640,7 @@ func waitForHostRunning(ctx context.Context, _ *zap.Logger, hostID string) error
 		state, err := sup.GetState(hostID)
 		supervisorReady := err == nil && state.Status == supervisorapi.StatusRunning
 
-		// Also check that the host is registered in the relay node
-		nodeReady := node == nil // skip check if node not available
+		nodeReady := node == nil
 		if node != nil {
 			_, nodeReady = node.GetHost(hostID)
 		}

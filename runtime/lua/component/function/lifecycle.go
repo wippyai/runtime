@@ -2,6 +2,7 @@ package function
 
 import (
 	"context"
+	"fmt"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/registry"
@@ -113,6 +114,7 @@ func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 	}
 	imports := component.BuildImports(cfg.Imports, cfg.Modules)
 	if err := m.code.AddNode(ctx, node, imports); err != nil {
+		fmt.Printf("DEBUG addSource REJECTING %s: %v\n", entry.ID, err)
 		return runtimelua.NewAddNodeError("function", err)
 	}
 

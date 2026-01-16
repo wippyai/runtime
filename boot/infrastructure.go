@@ -178,6 +178,9 @@ func wrapLogger(logger *zap.Logger, bus event.Bus, cfg boot.Config) (*zap.Logger
 		}
 	}
 
+	// Apply config immediately to Core so Load phase logs respect the level
+	logCore.Configure(logConfig)
+
 	// Create log manager for runtime control
 	logManager := logs.NewManager(bus, logCore, wrappedLogger.Named("logs"), logConfig)
 

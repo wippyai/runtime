@@ -64,7 +64,9 @@ local function main()
 
     -- Verify update
     local rows3, _ = db:query("SELECT value FROM stmt_test WHERE name = ?", {"item1"})
-    assert.eq(rows3[1].value, 150, "value should be updated to 150")
+    local row3 = rows3[1]
+    assert.not_nil(row3, "should have row")
+    assert.eq(row3.value, 150, "value should be updated to 150")
 
     -- Cleanup
     db:execute("DROP TABLE stmt_test")

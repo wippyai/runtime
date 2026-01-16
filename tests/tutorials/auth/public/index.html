@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto Ticker</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0a0a;
+            color: #e0e0e0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 40px 20px;
+        }
+        h1 { color: #fff; margin-bottom: 10px; }
+        .subtitle { color: #888; margin-bottom: 30px; }
+        .card {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 24px;
+            width: 100%;
+            max-width: 800px;
+            margin-bottom: 20px;
+        }
+        .form-group { margin-bottom: 16px; }
+        label { display: block; margin-bottom: 6px; color: #aaa; font-size: 14px; }
+        input {
+            width: 100%;
+            padding: 12px;
+            background: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 14px;
+            font-family: monospace;
+        }
+        input:focus { outline: none; border-color: #4CAF50; }
+        button {
+            width: 100%;
+            padding: 14px;
+            background: #4CAF50;
+            border: none;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover { background: #45a049; }
+        button:disabled { background: #333; cursor: not-allowed; }
+        button.disconnect { background: #f44336; }
+        button.disconnect:hover { background: #d32f2f; }
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 16px;
+            font-size: 14px;
+        }
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #666;
+        }
+        .status-dot.connected { background: #4CAF50; }
+        .status-dot.connecting { background: #ff9800; animation: pulse 1s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .ticker-item {
+            margin-bottom: 24px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid #333;
+        }
+        .ticker-item:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+        .ticker-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .ticker-symbol { font-weight: 600; font-size: 18px; }
+        .ticker-price { font-family: monospace; font-size: 24px; }
+        .ticker-price.up { color: #4CAF50; }
+        .ticker-price.down { color: #f44336; }
+        .chart-container {
+            height: 80px;
+            background: #111;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        canvas { width: 100%; height: 100%; }
+        .message { padding: 12px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; }
+        .message.error { background: rgba(244, 67, 54, 0.1); border: 1px solid #f44336; color: #f44336; }
+        .message.success { background: rgba(76, 175, 80, 0.1); border: 1px solid #4CAF50; color: #4CAF50; }
+        .hidden { display: none; }
+        .user-info { color: #888; font-size: 14px; margin-bottom: 16px; }
+        .stats { font-size: 12px; color: #666; margin-top: 8px; }
+    </style>
+</head>
+<body>
+    <h1>Crypto Ticker</h1>
+    <p class="subtitle">Real-time prices with authenticated WebSocket</p>
+
+    <div id="login-card" class="card">
+        <div class="form-group">
+            <label>API Key</label>
+            <input type="text" id="api-key" placeholder="Enter your API key (check logs)">
+        </div>
+        <div id="login-message" class="message hidden"></div>
+        <button id="login-btn" onclick="login()">Connect to Ticker</button>
+    </div>
+
+    <div id="ticker-card" class="card hidden">
+        <div class="status">
+            <span id="status-dot" class="status-dot"></span>
+            <span id="status-text">Disconnected</span>
+            <span id="update-rate" class="stats" style="margin-left: auto;"></span>
+        </div>
+        <div id="user-info" class="user-info"></div>
+
+        <div class="ticker-item">
+            <div class="ticker-header">
+                <span class="ticker-symbol">BTC-USD</span>
+                <span id="price-BTC-USD" class="ticker-price">--</span>
+            </div>
+            <div class="chart-container">
+                <canvas id="chart-BTC-USD"></canvas>
+            </div>
+        </div>
+
+        <div class="ticker-item">
+            <div class="ticker-header">
+                <span class="ticker-symbol">ETH-USD</span>
+                <span id="price-ETH-USD" class="ticker-price">--</span>
+            </div>
+            <div class="chart-container">
+                <canvas id="chart-ETH-USD"></canvas>
+            </div>
+        </div>
+
+        <div class="ticker-item">
+            <div class="ticker-header">
+                <span class="ticker-symbol">SOL-USD</span>
+                <span id="price-SOL-USD" class="ticker-price">--</span>
+            </div>
+            <div class="chart-container">
+                <canvas id="chart-SOL-USD"></canvas>
+            </div>
+        </div>
+
+        <button id="disconnect-btn" class="disconnect" onclick="disconnect()">Disconnect</button>
+    </div>
+
+    <script>
+        let ws = null;
+        let token = null;
+        let previousPrices = {};
+        let priceHistory = {'BTC-USD': [], 'ETH-USD': [], 'SOL-USD': []};
+        const MAX_HISTORY = 200;
+        let updateCount = 0;
+        let lastUpdateTime = Date.now();
+
+        const colors = {
+            'BTC-USD': '#f7931a',
+            'ETH-USD': '#627eea',
+            'SOL-USD': '#14f195'
+        };
+
+        function showMessage(elementId, message, isError) {
+            const el = document.getElementById(elementId);
+            el.textContent = message;
+            el.className = 'message ' + (isError ? 'error' : 'success');
+            el.classList.remove('hidden');
+        }
+
+        function hideMessage(elementId) {
+            document.getElementById(elementId).classList.add('hidden');
+        }
+
+        function setStatus(status) {
+            const dot = document.getElementById('status-dot');
+            const text = document.getElementById('status-text');
+            dot.className = 'status-dot ' + status;
+            text.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+        }
+
+        function drawChart(symbol) {
+            const canvas = document.getElementById('chart-' + symbol);
+            const ctx = canvas.getContext('2d');
+            const history = priceHistory[symbol];
+
+            if (history.length < 2) return;
+
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width * 2;
+            canvas.height = rect.height * 2;
+            ctx.scale(2, 2);
+
+            const width = rect.width;
+            const height = rect.height;
+
+            ctx.clearRect(0, 0, width, height);
+
+            const min = Math.min(...history);
+            const max = Math.max(...history);
+            const range = max - min || 1;
+            const padding = range * 0.1;
+
+            ctx.beginPath();
+            ctx.strokeStyle = colors[symbol];
+            ctx.lineWidth = 1.5;
+
+            for (let i = 0; i < history.length; i++) {
+                const x = (i / (MAX_HISTORY - 1)) * width;
+                const y = height - ((history[i] - min + padding) / (range + padding * 2)) * height;
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+
+            ctx.lineTo(width, height);
+            ctx.lineTo(0, height);
+            ctx.closePath();
+            const gradient = ctx.createLinearGradient(0, 0, 0, height);
+            gradient.addColorStop(0, colors[symbol] + '40');
+            gradient.addColorStop(1, colors[symbol] + '00');
+            ctx.fillStyle = gradient;
+            ctx.fill();
+        }
+
+        async function login() {
+            const apiKey = document.getElementById('api-key').value.trim();
+            if (!apiKey) {
+                showMessage('login-message', 'Please enter an API key', true);
+                return;
+            }
+
+            hideMessage('login-message');
+            document.getElementById('login-btn').disabled = true;
+            document.getElementById('login-btn').textContent = 'Connecting...';
+
+            try {
+                const response = await fetch('/auth/token', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ api_key: apiKey })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showMessage('login-message', data.error || 'Authentication failed', true);
+                    return;
+                }
+
+                token = data.token;
+                document.getElementById('user-info').textContent = 'Logged in as: ' + data.user_id;
+                connectWebSocket();
+
+            } catch (err) {
+                showMessage('login-message', 'Connection failed: ' + err.message, true);
+            } finally {
+                document.getElementById('login-btn').disabled = false;
+                document.getElementById('login-btn').textContent = 'Connect to Ticker';
+            }
+        }
+
+        function connectWebSocket() {
+            setStatus('connecting');
+            document.getElementById('login-card').classList.add('hidden');
+            document.getElementById('ticker-card').classList.remove('hidden');
+
+            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(protocol + '//' + location.host + '/ws/ticker?x-auth-token=' + token);
+
+            ws.onopen = () => {
+                setStatus('connected');
+                lastUpdateTime = Date.now();
+                updateCount = 0;
+            };
+
+            ws.onmessage = (event) => {
+                const raw = JSON.parse(event.data);
+                const msg = (raw.topic === 'ws.send') ? JSON.parse(raw.data.data) : raw;
+
+                if (msg.type === 'ticker') {
+                    updateCount++;
+                    const now = Date.now();
+                    const elapsed = (now - lastUpdateTime) / 1000;
+                    if (elapsed >= 1) {
+                        document.getElementById('update-rate').textContent =
+                            Math.round(updateCount / elapsed) + ' updates/sec';
+                        updateCount = 0;
+                        lastUpdateTime = now;
+                    }
+
+                    msg.data.forEach(item => {
+                        const el = document.getElementById('price-' + item.symbol);
+                        if (el) {
+                            const prev = previousPrices[item.symbol] || item.price;
+                            el.textContent = '$' + item.price.toLocaleString('en-US', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2
+                            });
+                            el.className = 'ticker-price ' + (item.price > prev ? 'up' : item.price < prev ? 'down' : '');
+                            previousPrices[item.symbol] = item.price;
+
+                            priceHistory[item.symbol].push(item.price);
+                            if (priceHistory[item.symbol].length > MAX_HISTORY) {
+                                priceHistory[item.symbol].shift();
+                            }
+                            drawChart(item.symbol);
+                        }
+                    });
+                }
+            };
+
+            ws.onclose = () => setStatus('disconnected');
+            ws.onerror = () => setStatus('disconnected');
+        }
+
+        function disconnect() {
+            if (ws) { ws.close(); ws = null; }
+            token = null;
+            previousPrices = {};
+            priceHistory = {'BTC-USD': [], 'ETH-USD': [], 'SOL-USD': []};
+            document.getElementById('ticker-card').classList.add('hidden');
+            document.getElementById('login-card').classList.remove('hidden');
+            document.querySelectorAll('.ticker-price').forEach(el => {
+                el.textContent = '--';
+                el.className = 'ticker-price';
+            });
+        }
+
+        document.getElementById('api-key').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') login();
+        });
+    </script>
+</body>
+</html>

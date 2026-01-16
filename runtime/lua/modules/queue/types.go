@@ -8,9 +8,9 @@ import (
 var messageType = &types.InterfaceType{
 	Name: "queue.Message",
 	Methods: map[string]*types.FunctionType{
-		"id":      types.NewFunction(nil, []types.Type{types.String, types.Optional(types.LuaError)}),
-		"header":  types.NewFunction([]types.Type{types.String}, []types.Type{types.Any, types.Optional(types.LuaError)}),
-		"headers": types.NewFunction(nil, []types.Type{types.NewMap(types.String, types.Any, false), types.Optional(types.LuaError)}),
+		"id":      types.NewFunction([]types.Type{types.Self}, []types.Type{types.String, types.Optional(types.LuaError)}),
+		"header":  types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Any, types.Optional(types.LuaError)}),
+		"headers": types.NewFunction([]types.Type{types.Self}, []types.Type{types.NewMap(types.String, types.Any, false), types.Optional(types.LuaError)}),
 	},
 }
 

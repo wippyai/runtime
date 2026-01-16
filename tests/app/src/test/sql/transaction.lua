@@ -43,7 +43,9 @@ local function main()
 
     -- Verify data visible in transaction
     local rows2, _ = tx2:query("SELECT COUNT(*) as cnt FROM tx_test")
-    assert.eq(rows2[1].cnt, 2, "should see 2 rows in transaction")
+    local row2 = rows2[1]
+    assert.not_nil(row2, "should have row")
+    assert.eq(row2.cnt, 2, "should see 2 rows in transaction")
 
     -- Rollback
     local ok2, err5 = tx2:rollback()
@@ -52,7 +54,9 @@ local function main()
 
     -- Verify data not persisted
     local rows3, _ = db:query("SELECT COUNT(*) as cnt FROM tx_test")
-    assert.eq(rows3[1].cnt, 1, "should still have 1 row after rollback")
+    local row3 = rows3[1]
+    assert.not_nil(row3, "should have row")
+    assert.eq(row3.cnt, 1, "should still have 1 row after rollback")
 
     -- Test transaction with isolation level
     local tx3, err6 = db:begin({isolation = sql.isolation.SERIALIZABLE})
@@ -81,7 +85,9 @@ local function main()
 
     -- Verify both rows visible
     local rows5, _ = tx5:query("SELECT COUNT(*) as cnt FROM tx_test WHERE name LIKE '%savepoint'")
-    assert.eq(rows5[1].cnt, 2, "should see 2 savepoint rows")
+    local row5 = rows5[1]
+    assert.not_nil(row5, "should have row")
+    assert.eq(row5.cnt, 2, "should see 2 savepoint rows")
 
     -- Rollback to savepoint
     local ok_rb, err_rb = tx5:rollback_to("sp1")
@@ -90,7 +96,9 @@ local function main()
 
     -- Verify only before_savepoint remains
     local rows6, _ = tx5:query("SELECT COUNT(*) as cnt FROM tx_test WHERE name LIKE '%savepoint'")
-    assert.eq(rows6[1].cnt, 1, "should see 1 row after rollback_to")
+    local row6 = rows6[1]
+    assert.not_nil(row6, "should have row")
+    assert.eq(row6.cnt, 1, "should see 1 row after rollback_to")
 
     -- Release savepoint (optional cleanup)
     local ok_rel, err_rel = tx5:release("sp1")

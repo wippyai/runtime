@@ -7,3 +7,9 @@ entries:
     meta:
       comment: Test assertion library
     source: file://assert.lua
+
+  - name: test_sdk
+    kind: library.lua
+    meta:
+      comment: Test SDK library for eval imports testing
+    source: file://test_sdk.lua

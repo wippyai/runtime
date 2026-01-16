@@ -16,12 +16,12 @@ func init() {
 	durationType = &types.InterfaceType{
 		Name: "time.Duration",
 		Methods: map[string]*types.FunctionType{
-			"nanoseconds":  types.NewFunction(nil, []types.Type{types.Number}),
-			"microseconds": types.NewFunction(nil, []types.Type{types.Number}),
-			"milliseconds": types.NewFunction(nil, []types.Type{types.Number}),
-			"seconds":      types.NewFunction(nil, []types.Type{types.Number}),
-			"minutes":      types.NewFunction(nil, []types.Type{types.Number}),
-			"hours":        types.NewFunction(nil, []types.Type{types.Number}),
+			"nanoseconds":  types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number}),
+			"microseconds": types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number}),
+			"milliseconds": types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number}),
+			"seconds":      types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number}),
+			"minutes":      types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number}),
+			"hours":        types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number}),
 		},
 	}
 
@@ -29,7 +29,7 @@ func init() {
 	locationType = &types.InterfaceType{
 		Name: "time.Location",
 		Methods: map[string]*types.FunctionType{
-			"string": types.NewFunction(nil, []types.Type{types.String}),
+			"string": types.NewFunction([]types.Type{types.Self}, []types.Type{types.String}),
 		},
 	}
 
@@ -38,43 +38,43 @@ func init() {
 		Name:    "time.Time",
 		Methods: map[string]*types.FunctionType{},
 	}
-	timeType.Methods["add"] = types.NewFunction([]types.Type{types.Any}, []types.Type{timeType})
-	timeType.Methods["sub"] = types.NewFunction([]types.Type{timeType}, []types.Type{durationType})
-	timeType.Methods["add_date"] = types.NewFunction([]types.Type{types.Number, types.Number, types.Number}, []types.Type{timeType})
-	timeType.Methods["after"] = types.NewFunction([]types.Type{timeType}, []types.Type{types.Boolean})
-	timeType.Methods["before"] = types.NewFunction([]types.Type{timeType}, []types.Type{types.Boolean})
-	timeType.Methods["equal"] = types.NewFunction([]types.Type{timeType}, []types.Type{types.Boolean})
-	timeType.Methods["format"] = types.NewFunction([]types.Type{types.String}, []types.Type{types.String})
-	timeType.Methods["format_rfc3339"] = types.NewFunction(nil, []types.Type{types.String})
-	timeType.Methods["unix"] = types.NewFunction(nil, []types.Type{types.Number})
-	timeType.Methods["unix_nano"] = types.NewFunction(nil, []types.Type{types.Number})
-	timeType.Methods["date"] = types.NewFunction(nil, []types.Type{types.Number, types.Number, types.Number})
-	timeType.Methods["clock"] = types.NewFunction(nil, []types.Type{types.Number, types.Number, types.Number})
-	timeType.Methods["year"] = types.NewFunction(nil, []types.Type{types.Number})
-	timeType.Methods["month"] = types.NewFunction(nil, []types.Type{types.Number})
-	timeType.Methods["day"] = types.NewFunction(nil, []types.Type{types.Number})
-	timeType.Methods["hour"] = types.NewFunction(nil, []types.Type{types.Number})
-	timeType.Methods["minute"] = types.NewFunction(nil, []types.Type{types.Number})
-	timeType.Methods["second"] = types.NewFunction(nil, []types.Type{types.Number})
-	timeType.Methods["nanosecond"] = types.NewFunction(nil, []types.Type{types.Number})
-	timeType.Methods["weekday"] = types.NewFunction(nil, []types.Type{types.Number})
-	timeType.Methods["year_day"] = types.NewFunction(nil, []types.Type{types.Number})
-	timeType.Methods["is_zero"] = types.NewFunction(nil, []types.Type{types.Boolean})
-	timeType.Methods["in_location"] = types.NewFunction([]types.Type{locationType}, []types.Type{timeType})
-	timeType.Methods["location"] = types.NewFunction(nil, []types.Type{locationType})
-	timeType.Methods["utc"] = types.NewFunction(nil, []types.Type{timeType})
-	timeType.Methods["in_local"] = types.NewFunction(nil, []types.Type{timeType})
-	timeType.Methods["round"] = types.NewFunction([]types.Type{durationType}, []types.Type{timeType})
-	timeType.Methods["truncate"] = types.NewFunction([]types.Type{durationType}, []types.Type{timeType})
+	timeType.Methods["add"] = types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{timeType})
+	timeType.Methods["sub"] = types.NewFunction([]types.Type{types.Self, timeType}, []types.Type{durationType})
+	timeType.Methods["add_date"] = types.NewFunction([]types.Type{types.Self, types.Number, types.Number, types.Number}, []types.Type{timeType})
+	timeType.Methods["after"] = types.NewFunction([]types.Type{types.Self, timeType}, []types.Type{types.Boolean})
+	timeType.Methods["before"] = types.NewFunction([]types.Type{types.Self, timeType}, []types.Type{types.Boolean})
+	timeType.Methods["equal"] = types.NewFunction([]types.Type{types.Self, timeType}, []types.Type{types.Boolean})
+	timeType.Methods["format"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.String})
+	timeType.Methods["format_rfc3339"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.String})
+	timeType.Methods["unix"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Integer})
+	timeType.Methods["unix_nano"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Integer})
+	timeType.Methods["date"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Integer, types.Integer, types.Integer})
+	timeType.Methods["clock"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Integer, types.Integer, types.Integer})
+	timeType.Methods["year"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Integer})
+	timeType.Methods["month"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Integer})
+	timeType.Methods["day"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Integer})
+	timeType.Methods["hour"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Integer})
+	timeType.Methods["minute"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Integer})
+	timeType.Methods["second"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Integer})
+	timeType.Methods["nanosecond"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Integer})
+	timeType.Methods["weekday"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Integer})
+	timeType.Methods["year_day"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Integer})
+	timeType.Methods["is_zero"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean})
+	timeType.Methods["in_location"] = types.NewFunction([]types.Type{types.Self, locationType}, []types.Type{timeType})
+	timeType.Methods["location"] = types.NewFunction([]types.Type{types.Self}, []types.Type{locationType})
+	timeType.Methods["utc"] = types.NewFunction([]types.Type{types.Self}, []types.Type{timeType})
+	timeType.Methods["in_local"] = types.NewFunction([]types.Type{types.Self}, []types.Type{timeType})
+	timeType.Methods["round"] = types.NewFunction([]types.Type{types.Self, durationType}, []types.Type{timeType})
+	timeType.Methods["truncate"] = types.NewFunction([]types.Type{types.Self, durationType}, []types.Type{timeType})
 }
 
 // Ticker type
 var tickerType = &types.InterfaceType{
 	Name: "time.Ticker",
 	Methods: map[string]*types.FunctionType{
-		"stop":     types.NewFunction(nil, []types.Type{types.Boolean}),
-		"response": types.NewFunction(nil, []types.Type{types.Any}),
-		"channel":  types.NewFunction(nil, []types.Type{types.Any}),
+		"stop":     types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean}),
+		"response": types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any}),
+		"channel":  types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any}),
 	},
 }
 
@@ -82,10 +82,10 @@ var tickerType = &types.InterfaceType{
 var timerType = &types.InterfaceType{
 	Name: "time.Timer",
 	Methods: map[string]*types.FunctionType{
-		"stop":     types.NewFunction(nil, []types.Type{types.Boolean}),
-		"reset":    types.NewFunction([]types.Type{types.Any}, []types.Type{types.Boolean}),
-		"response": types.NewFunction(nil, []types.Type{types.Any}),
-		"channel":  types.NewFunction(nil, []types.Type{types.Any}),
+		"stop":     types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean}),
+		"reset":    types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{types.Boolean}),
+		"response": types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any}),
+		"channel":  types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any}),
 	},
 }
 
@@ -102,12 +102,12 @@ func ModuleTypes() *types.TypeManifest {
 	moduleType := &types.InterfaceType{
 		Name: "time",
 		Fields: map[string]types.Type{
-			"NANOSECOND":  types.Number,
-			"MICROSECOND": types.Number,
-			"MILLISECOND": types.Number,
-			"SECOND":      types.Number,
-			"MINUTE":      types.Number,
-			"HOUR":        types.Number,
+			"NANOSECOND":  types.Integer,
+			"MICROSECOND": types.Integer,
+			"MILLISECOND": types.Integer,
+			"SECOND":      types.Integer,
+			"MINUTE":      types.Integer,
+			"HOUR":        types.Integer,
 			"RFC3339":     types.String,
 			"RFC3339NANO": types.String,
 			"RFC822":      types.String,
@@ -123,25 +123,25 @@ func ModuleTypes() *types.TypeManifest {
 			"DATE_TIME":   types.String,
 			"DATE_ONLY":   types.String,
 			"TIME_ONLY":   types.String,
-			"JANUARY":     types.Number,
-			"FEBRUARY":    types.Number,
-			"MARCH":       types.Number,
-			"APRIL":       types.Number,
-			"MAY":         types.Number,
-			"JUNE":        types.Number,
-			"JULY":        types.Number,
-			"AUGUST":      types.Number,
-			"SEPTEMBER":   types.Number,
-			"OCTOBER":     types.Number,
-			"NOVEMBER":    types.Number,
-			"DECEMBER":    types.Number,
-			"SUNDAY":      types.Number,
-			"MONDAY":      types.Number,
-			"TUESDAY":     types.Number,
-			"WEDNESDAY":   types.Number,
-			"THURSDAY":    types.Number,
-			"FRIDAY":      types.Number,
-			"SATURDAY":    types.Number,
+			"JANUARY":     types.Integer,
+			"FEBRUARY":    types.Integer,
+			"MARCH":       types.Integer,
+			"APRIL":       types.Integer,
+			"MAY":         types.Integer,
+			"JUNE":        types.Integer,
+			"JULY":        types.Integer,
+			"AUGUST":      types.Integer,
+			"SEPTEMBER":   types.Integer,
+			"OCTOBER":     types.Integer,
+			"NOVEMBER":    types.Integer,
+			"DECEMBER":    types.Integer,
+			"SUNDAY":      types.Integer,
+			"MONDAY":      types.Integer,
+			"TUESDAY":     types.Integer,
+			"WEDNESDAY":   types.Integer,
+			"THURSDAY":    types.Integer,
+			"FRIDAY":      types.Integer,
+			"SATURDAY":    types.Integer,
 			"utc":         locationType,
 			"localtz":     locationType,
 		},

@@ -33,9 +33,9 @@ var Module = &luaapi.ModuleDef{
 	Name:        "store",
 	Description: "Key-value store operations",
 	Class:       []string{luaapi.ClassStorage, luaapi.ClassIO, luaapi.ClassNondeterministic},
-	Types:       ModuleTypes,
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		initOnce.Do(initModuleTable)
 		return moduleTable, nil
 	},
+	Types: ModuleTypes,
 }

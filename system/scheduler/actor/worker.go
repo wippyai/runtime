@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	goruntime "runtime"
+	"sync"
 	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/process"
@@ -14,18 +15,26 @@ import (
 type Worker struct {
 	id        int
 	local     *Deque
+	inject    *InjectQueue
 	scheduler *Scheduler
 	batchBuf  [32]*Processor
 	executed  atomic.Uint64
 	stolen    atomic.Uint64
+
+	parkMu   sync.Mutex
+	parkCond *sync.Cond
+	notified atomic.Bool
 }
 
 func newWorker(id int, s *Scheduler) *Worker {
-	return &Worker{
+	w := &Worker{
 		id:        id,
 		scheduler: s,
 		local:     NewDeque(s.localQueueSize),
+		inject:    NewInjectQueue(),
 	}
+	w.parkCond = sync.NewCond(&w.parkMu)
+	return w
 }
 
 func (w *Worker) run() {
@@ -41,6 +50,7 @@ func (w *Worker) run() {
 		}
 
 		if s.stopping.Load() {
+			w.drain()
 			return
 		}
 
@@ -54,32 +64,76 @@ func (w *Worker) run() {
 		}
 
 		spins = 0
-		s.wakeMu.Lock()
-		for {
-			if proc := w.findWork(); proc != nil {
-				n := s.global.Len()
-				if n > 0 {
-					s.wakeCond.Signal()
-				}
-				s.wakeMu.Unlock()
-				w.executeOne(proc)
-				w.executed.Add(1)
-				break
-			}
-			// Only exit when no work AND stopping
-			if s.stopping.Load() {
-				s.wakeMu.Unlock()
-				return
-			}
-			s.wakeCond.Wait()
+		w.park()
+		if s.stopping.Load() {
+			w.drain()
+			return
 		}
 	}
 }
 
+func (w *Worker) park() {
+	s := w.scheduler
+	w.parkMu.Lock()
+	for {
+		w.notified.Store(false)
+		if proc := w.findWork(); proc != nil {
+			shouldWake := s.global.Len() > 0
+			w.parkMu.Unlock()
+			if shouldWake {
+				s.wakeAny()
+			}
+			w.executeOne(proc)
+			w.executed.Add(1)
+			return
+		}
+		if s.stopping.Load() {
+			w.parkMu.Unlock()
+			return
+		}
+		if w.notified.Load() {
+			continue
+		}
+		w.parkCond.Wait()
+	}
+}
+
+func (w *Worker) drain() {
+	for {
+		if proc := w.findWork(); proc != nil {
+			w.executeOne(proc)
+			w.executed.Add(1)
+			continue
+		}
+		return
+	}
+}
+
+func (w *Worker) signal() {
+	w.notified.Store(true)
+	w.parkMu.Lock()
+	w.parkCond.Signal()
+	w.parkMu.Unlock()
+}
+
 func (w *Worker) findWork() *Processor {
+	// Check local deque first (LIFO, cache-hot)
 	if p := w.local.Pop(); p != nil {
 		return p
 	}
+
+	// Check inject queue (async completions with affinity to this worker)
+	if p := w.inject.Pop(); p != nil {
+		// Drain more from inject to local for batch processing
+		n := w.inject.Drain(w.batchBuf[:16])
+		for i := 0; i < n; i++ {
+			w.local.Push(w.batchBuf[i])
+			w.batchBuf[i] = nil
+		}
+		return p
+	}
+
+	// Check global queue (new submissions, no affinity)
 	if p := w.scheduler.global.Pop(); p != nil {
 		n := w.scheduler.global.PopN(w.batchBuf[:16])
 		for i := 0; i < n; i++ {
@@ -88,6 +142,7 @@ func (w *Worker) findWork() *Processor {
 		}
 		return p
 	}
+
 	return w.steal()
 }
 
@@ -128,6 +183,10 @@ func (w *Worker) executeOne(proc *Processor) {
 	if proc.Process == nil {
 		return
 	}
+
+	// Set worker affinity before any yields can complete.
+	// This ensures async completions route back to this worker.
+	proc.lastWorker.Store(int32(w.id))
 
 	// Atomically transition Ready->Running. If CAS fails, process was
 	// terminated or is in unexpected state - skip execution.
@@ -187,8 +246,9 @@ func (w *Worker) executeOne(proc *Processor) {
 		if !proc.casState(StateRunning, StateReady) {
 			return
 		}
-		w.scheduler.global.Push(proc)
-		w.scheduler.wake()
+		// Push to local deque - same worker will pick it up next iteration.
+		// No wake needed since we're the active worker.
+		w.local.Push(proc)
 
 	case process.StepYield:
 		if !proc.casState(StateRunning, StateBlocked) {
@@ -196,8 +256,7 @@ func (w *Worker) executeOne(proc *Processor) {
 		}
 		if proc.queue.HasEvents() {
 			if proc.casState(StateBlocked, StateReady) {
-				w.scheduler.global.Push(proc)
-				w.scheduler.wake()
+				w.local.Push(proc)
 			}
 		}
 
@@ -207,8 +266,7 @@ func (w *Worker) executeOne(proc *Processor) {
 		}
 		if proc.queue.HasEvents() {
 			if proc.casState(StateIdle, StateReady) {
-				w.scheduler.global.Push(proc)
-				w.scheduler.wake()
+				w.local.Push(proc)
 			}
 		}
 
@@ -284,12 +342,11 @@ func (w *Worker) executeOne(proc *Processor) {
 			return
 		}
 
-		// Success - re-queue
+		// Success - re-queue to local
 		if !proc.casState(StateRunning, StateReady) {
 			return
 		}
-		w.scheduler.global.Push(proc)
-		w.scheduler.wake()
+		w.local.Push(proc)
 	}
 }
 
@@ -297,8 +354,6 @@ func (w *Worker) executeOne(proc *Processor) {
 // Processor state is StateRunning during this call.
 // CompleteYield sets wakeup flag instead of re-queueing while Running.
 func (w *Worker) dispatchYields(ctx context.Context, proc *Processor, yields []process.Yield) {
-	completer := proc.queue.NewYieldCompleter(w.scheduler)
-
 	for _, y := range yields {
 		handler := w.scheduler.getHandler(y.Cmd)
 		if handler == nil {
@@ -309,7 +364,7 @@ func (w *Worker) dispatchYields(ctx context.Context, proc *Processor, yields []p
 			})
 			continue
 		}
-		if err := handler.Handle(ctx, y.Cmd, y.Tag, completer); err != nil {
+		if err := handler.Handle(ctx, y.Cmd, y.Tag, proc); err != nil {
 			proc.queue.PushDirect(process.Event{
 				Type:  process.EventYieldComplete,
 				Tag:   y.Tag,
@@ -322,16 +377,15 @@ func (w *Worker) dispatchYields(ctx context.Context, proc *Processor, yields []p
 	// If wakeup was set by CompleteYield, state becomes Ready - re-queue.
 	// Otherwise, state becomes Blocked.
 	if proc.finishDispatch() {
-		w.scheduler.global.Push(proc)
-		w.scheduler.wake()
+		// Wakeup was set during dispatch - push to local, we'll execute next.
+		w.local.Push(proc)
 		return
 	}
 
 	// Now in StateBlocked. Check for events from PushDirect above.
 	if proc.queue.HasEvents() {
 		if proc.casState(StateBlocked, StateReady) {
-			w.scheduler.global.Push(proc)
-			w.scheduler.wake()
+			w.local.Push(proc)
 		}
 	}
 }

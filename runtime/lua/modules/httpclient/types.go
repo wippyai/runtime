@@ -8,8 +8,8 @@ import (
 var streamReaderType = &types.InterfaceType{
 	Name: "http_client.StreamReader",
 	Methods: map[string]*types.FunctionType{
-		"read":  types.NewFunction([]types.Type{types.Number}, []types.Type{types.String, types.Optional(types.LuaError)}),
-		"close": types.NewFunction(nil, nil),
+		"read":  types.NewFunction([]types.Type{types.Self, types.Number}, []types.Type{types.String, types.Optional(types.LuaError)}),
+		"close": types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
 	},
 }
 

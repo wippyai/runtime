@@ -44,10 +44,10 @@ type benchMockVersion struct {
 	id uint
 }
 
-func (m *benchMockVersion) ID() uint                       { return m.id }
-func (m *benchMockVersion) Previous() registry.Version     { return nil }
-func (m *benchMockVersion) Next() (registry.Version, bool) { return nil, false }
-func (m *benchMockVersion) String() string                 { return fmt.Sprintf("v%d", m.id) }
+func (m *benchMockVersion) ID() uint                   { return m.id }
+func (m *benchMockVersion) Previous() registry.Version { return nil }
+func (m *benchMockVersion) Next() registry.Version     { return nil }
+func (m *benchMockVersion) String() string             { return fmt.Sprintf("v%d", m.id) }
 
 // generateEntries creates test entries with various metadata patterns
 func generateEntries(count int) []registry.Entry {

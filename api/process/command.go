@@ -15,7 +15,7 @@ func init() {
 	dispatcher.MustRegisterCommands("process",
 		Send, Spawn, Terminate, Cancel,
 		Monitor, Unmonitor, Link, Unlink,
-		Call,
+		Run,
 	)
 }
 
@@ -29,7 +29,7 @@ const (
 	Unmonitor dispatcher.CommandID = 6 // Stop monitoring process
 	Link      dispatcher.CommandID = 7 // Link to process
 	Unlink    dispatcher.CommandID = 8 // Unlink from process
-	Call      dispatcher.CommandID = 9 // Call process and wait for result
+	Run       dispatcher.CommandID = 9 // Run process and wait for result
 )
 
 // SendCmd sends a message to a process.
@@ -177,25 +177,25 @@ func (c *UnlinkCmd) Release() {
 	unlinkCmdPool.Put(c)
 }
 
-// CallCmd calls a process and waits for its result.
-type CallCmd struct {
-	Source registry.ID      // process to call
+// RunCmd runs a process and waits for its result.
+type RunCmd struct {
+	Source registry.ID      // process to run
 	Input  payload.Payloads // arguments
 	HostID pid.HostID       // target host (empty = default)
 }
 
-var callCmdPool = sync.Pool{New: func() any { return &CallCmd{} }}
+var runCmdPool = sync.Pool{New: func() any { return &RunCmd{} }}
 
-func AcquireCallCmd() *CallCmd                 { return callCmdPool.Get().(*CallCmd) }
-func (c *CallCmd) CmdID() dispatcher.CommandID { return Call }
-func (c *CallCmd) Release() {
+func AcquireRunCmd() *RunCmd                  { return runCmdPool.Get().(*RunCmd) }
+func (c *RunCmd) CmdID() dispatcher.CommandID { return Run }
+func (c *RunCmd) Release() {
 	c.Source = registry.ID{}
 	c.Input = nil
 	c.HostID = ""
-	callCmdPool.Put(c)
+	runCmdPool.Put(c)
 }
 
-// CallResult is the result of a call operation.
-type CallResult struct {
+// RunResult is the result of a run operation.
+type RunResult struct {
 	Result *runtime.Result
 }

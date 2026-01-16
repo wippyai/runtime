@@ -56,7 +56,7 @@ func init() {
 	moduleTable.RawSetString("listen", lua.LGoFunc(listen))
 	moduleTable.RawSetString("unlisten", lua.LGoFunc(unlisten))
 	moduleTable.RawSetString("upgrade", lua.LGoFunc(upgrade))
-	moduleTable.RawSetString("call", lua.LGoFunc(call))
+	moduleTable.RawSetString("run", lua.LGoFunc(run))
 
 	eventsTbl := lua.CreateTable(0, 3)
 	eventsTbl.RawSetString("CANCEL", lua.LString(topology.Cancel))
@@ -83,7 +83,7 @@ func init() {
 		{Sample: &UnmonitorYield{}, CmdID: process.Unmonitor},
 		{Sample: &LinkYield{}, CmdID: process.Link},
 		{Sample: &UnlinkYield{}, CmdID: process.Unlink},
-		{Sample: &CallYield{}, CmdID: process.Call},
+		{Sample: &RunYield{}, CmdID: process.Run},
 	}
 }
 
@@ -92,10 +92,10 @@ var Module = &luaapi.ModuleDef{
 	Name:        "process",
 	Description: "Process management and messaging",
 	Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic, luaapi.ClassWorkflow},
-	Types:       ModuleTypes,
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		return moduleTable, yieldTypes
 	},
+	Types: ModuleTypes,
 }
 
 func checkPID(l *lua.LState) (pidapi.PID, bool) {
@@ -868,10 +868,10 @@ func upgrade(l *lua.LState) int {
 	return -1 // yield
 }
 
-// call invokes a process and waits for its result.
-// Usage: process.call(id, host, arg1, arg2, ...)
+// run spawns a process and waits for its result.
+// Usage: process.run(id, host, arg1, arg2, ...)
 // Returns: value, error
-func call(l *lua.LState) int {
+func run(l *lua.LState) int {
 	self, ok := checkPID(l)
 	if !ok {
 		return 2
@@ -879,7 +879,7 @@ func call(l *lua.LState) int {
 
 	if l.GetTop() < 2 {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("call requires id and host arguments"))
+		l.Push(lua.LString("run requires id and host arguments"))
 		return 2
 	}
 
@@ -906,15 +906,15 @@ func call(l *lua.LState) int {
 
 	secAttrs := map[string]any{"pid": self.String()}
 
-	if !security.IsAllowed(l.Context(), "process.call", id, secAttrs) {
+	if !security.IsAllowed(l.Context(), "process.run", id, secAttrs) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("not allowed to call process: %s", id)))
+		l.Push(lua.LString(fmt.Sprintf("not allowed to run process: %s", id)))
 		return 2
 	}
 
 	if !security.IsAllowed(l.Context(), "process.host", hostID, secAttrs) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("not allowed to call on host: %s", hostID)))
+		l.Push(lua.LString(fmt.Sprintf("not allowed to run on host: %s", hostID)))
 		return 2
 	}
 
@@ -924,7 +924,7 @@ func call(l *lua.LState) int {
 		payloads = append(payloads, luaconv.ExportPayload(l.Get(i)))
 	}
 
-	yield := AcquireCallYield()
+	yield := AcquireRunYield()
 	yield.Source = regID
 	yield.Input = payloads
 	yield.HostID = hostID

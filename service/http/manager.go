@@ -200,7 +200,7 @@ func (m *Manager) Commit(ctx context.Context) {
 	for serverID := range m.pending {
 		if server, exists := m.servers[serverID]; exists {
 			if err := server.Rebuild(ctx); err != nil {
-				m.log.Error("failed to rebuild router",
+				m.log.Fatal("failed to rebuild router",
 					zap.String("server", serverID.String()),
 					zap.Error(err))
 			}

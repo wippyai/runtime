@@ -31,7 +31,7 @@ Use with --force or --repair to target specific modules:
 func init() {
 	rootCmd.AddCommand(installCmd)
 
-	installCmd.Flags().StringP("lock-file", "l", "wippy.lock", "path to lock file")
+	installCmd.Flags().StringP("lock-file", "l", defaultLockFile, "path to lock file")
 	installCmd.Flags().Bool("force", false, "bypass cache and always download modules")
 	installCmd.Flags().Bool("repair", false, "verify entry hashes and re-download if mismatch")
 }
@@ -44,12 +44,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 	logger := app.Logger.Named("install")
 
-	lockFileName, _ := cmd.Flags().GetString("lock-file")
-
-	lockPath := lockFileName
-	if !filepath.IsAbs(lockPath) {
-		lockPath = filepath.Join(".", lockPath)
-	}
+	lockPath, _ := cmd.Flags().GetString("lock-file")
 
 	if _, err := os.Stat(lockPath); os.IsNotExist(err) {
 		logger.Info("lock file not found, running init and update")

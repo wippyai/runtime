@@ -6,10 +6,11 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 )
 
-// version represents a version with parent pointer
+// version represents a version with parent/next pointers
 type version struct {
 	id       uint
 	previous *version
+	next     *version
 }
 
 // ID returns the version ID.
@@ -30,6 +31,14 @@ func (v *version) Previous() registry.Version {
 	return v.previous
 }
 
+// Next returns the next version.
+func (v *version) Next() registry.Version {
+	if v.next == nil {
+		return nil
+	}
+	return v.next
+}
+
 // New creates a new version struct.
 func New(id uint) registry.Version {
 	return &version{
@@ -48,8 +57,10 @@ func FromParent(parent registry.Version, id uint) registry.Version {
 		return New(id)
 	}
 
-	return &version{
+	child := &version{
 		id:       id,
 		previous: parentVersion,
 	}
+	parentVersion.next = child
+	return child
 }

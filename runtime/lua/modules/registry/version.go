@@ -50,3 +50,22 @@ func versionString(l *lua.LState) int {
 	l.Push(lua.LString(version.String()))
 	return 1
 }
+
+// versionNext returns the next version
+func versionNext(l *lua.LState) int {
+	ud := l.CheckUserData(1)
+	version, ok := ud.Value.(registry.Version)
+	if !ok {
+		l.ArgError(1, "version expected")
+		return 0
+	}
+
+	next := version.Next()
+	if next == nil {
+		l.Push(lua.LNil)
+		return 1
+	}
+
+	value.PushTypedUserData(l, next, typeVersion)
+	return 1
+}

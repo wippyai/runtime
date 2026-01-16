@@ -2,6 +2,8 @@ package runner
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -16,11 +18,15 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	payloadconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/evalhost"
+	"github.com/wippyai/runtime/runtime/lua/modules/httpclient"
 	"github.com/wippyai/runtime/runtime/lua/modules/json"
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
+	httpclienthandler "github.com/wippyai/runtime/service/http/client"
 	"github.com/wippyai/runtime/system/clock"
 	"github.com/wippyai/runtime/system/scheduler"
 	"github.com/wippyai/runtime/system/scheduler/actor"
@@ -31,16 +37,21 @@ import (
 // testScheduler wraps actor.Scheduler for testing
 type testScheduler struct {
 	*actor.Scheduler
-	clock   *clock.Dispatcher
-	eval    *evalhost.Dispatcher
-	mu      sync.Mutex
-	pending map[string]chan *runtime.Result
+	clock      *clock.Dispatcher
+	eval       *evalhost.Dispatcher
+	httpClient *httpclienthandler.Dispatcher
+	registry   dispatcher.Registry
+	mu         sync.Mutex
+	pending    map[string]chan *runtime.Result
 }
 
 func (ts *testScheduler) Stop() {
 	ts.Scheduler.Stop(context.Background())
 	if ts.clock != nil {
 		_ = ts.clock.Stop(context.Background())
+	}
+	if ts.httpClient != nil {
+		_ = ts.httpClient.Stop(context.Background())
 	}
 }
 
@@ -90,6 +101,23 @@ func uniqueTestPID() pid.PID {
 	return pid.PID{UniqID: time.Now().Format("20060102150405.000000000") + "-" + string(rune(testPIDCounter.Add(1)))}
 }
 
+// newTestContext creates a context suitable for testing with security disabled
+func newTestContext() context.Context {
+	ctx := ctxapi.NewRootContext()
+	ctx = security.SetStrictMode(ctx, false)
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
+
+// Context creates a context with the dispatcher registry for tests that need async operations
+func (ts *testScheduler) Context() context.Context {
+	ctx := ctxapi.NewRootContext()
+	_ = dispatcher.WithRegistry(ctx, ts.registry)
+	ctx = security.SetStrictMode(ctx, false)
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
+
 func newTestScheduler() *testScheduler {
 	ts := &testScheduler{
 		pending: make(map[string]chan *runtime.Result),
@@ -104,14 +132,24 @@ func newTestScheduler() *testScheduler {
 	})
 	ts.clock = clockSvc
 
-	// Register eval handlers
-	modules := []*luaapi.ModuleDef{json.Module, timemod.Module, Module}
-	host := evalhost.NewHost(zap.NewNop(), modules)
+	// Register HTTP client handlers
+	httpSvc := httpclienthandler.NewDispatcher()
+	httpSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		reg.Register(id, h)
+	})
+	ts.httpClient = httpSvc
+
+	// Register eval handlers with http_client module
+	modules := []*luaapi.ModuleDef{json.Module, timemod.Module, httpclient.Module, Module}
+	host := evalhost.NewHost(zap.NewNop(), func() []*luaapi.ModuleDef { return modules })
 	evalSvc := evalhost.NewDispatcher(host)
 	evalSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		reg.Register(id, h)
 	})
 	ts.eval = evalSvc
+
+	reg.Freeze()
+	ts.registry = reg
 
 	opts := []actor.Option{
 		actor.WithWorkers(4),
@@ -124,6 +162,7 @@ func newTestScheduler() *testScheduler {
 func bindAllModules(l *lua.LState) error {
 	engine.LoadModuleDef(l, json.Module)
 	engine.LoadModuleDef(l, timemod.Module)
+	engine.LoadModuleDef(l, httpclient.Module)
 	engine.LoadModuleDef(l, Module)
 	return nil
 }
@@ -344,7 +383,7 @@ func TestRunner_Integration_Compile(t *testing.T) {
 		return program:method()
 	`
 
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx := newTestContext()
 	proc := newLuaProcess(t, script)
 
 	result, err := sched.Execute(ctx, uniqueTestPID(), proc, "", nil)
@@ -381,7 +420,7 @@ func TestRunner_Integration_CompileSyntaxError(t *testing.T) {
 		return "got_error"
 	`
 
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx := newTestContext()
 	proc := newLuaProcess(t, script)
 
 	result, err := sched.Execute(ctx, uniqueTestPID(), proc, "", nil)
@@ -418,7 +457,7 @@ func TestRunner_Integration_Run(t *testing.T) {
 		return result
 	`
 
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx := newTestContext()
 	proc := newLuaProcess(t, script)
 
 	result, err := sched.Execute(ctx, uniqueTestPID(), proc, "", nil)
@@ -461,7 +500,7 @@ func TestRunner_ProgramMethods(t *testing.T) {
 		return true
 	`
 
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx := newTestContext()
 	proc := newLuaProcess(t, script)
 
 	result, err := sched.Execute(ctx, uniqueTestPID(), proc, "", nil)
@@ -509,4 +548,159 @@ func TestRunner_PoolConcurrency(_ *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+// TestRunner_AllowYields_HTTPRequest tests that HTTP requests work in eval (yields auto-detected from modules)
+func TestRunner_AllowYields_HTTPRequest(t *testing.T) {
+	// Create a test HTTP server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok","method":"` + r.Method + `"}`))
+	}))
+	defer server.Close()
+
+	sched := newTestScheduler()
+	sched.Scheduler.Start()
+	defer sched.Stop()
+
+	script := `
+		local runner = require("eval_runner")
+
+		local result, err = runner.run({
+			source = [[
+				local http = require("http_client")
+				local json = require("json")
+
+				local function run(url)
+					local resp, err = http.get(url)
+					if err then
+						return nil, err
+					end
+					return json.decode(resp.body)
+				end
+				return { run = run }
+			]],
+			method = "run",
+			args = { "` + server.URL + `" },
+			modules = { "http_client", "json" },
+			allow_classes = { "network", "io" }
+		})
+
+		if err then
+			error("eval failed: " .. tostring(err))
+		end
+
+		return result
+	`
+
+	ctx := sched.Context()
+	proc := newLuaProcess(t, script)
+
+	result, err := sched.Execute(ctx, uniqueTestPID(), proc, "", nil)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %v", result.Error)
+	}
+	require.NotNil(t, result.Value, "expected result value")
+	luaData := result.Value.Data()
+	goData := value.ToGoAny(luaData.(lua.LValue))
+	t.Logf("Result: %v", goData)
+	resultMap, ok := goData.(map[string]any)
+	require.True(t, ok, "expected map result, got %T", goData)
+	assert.Equal(t, "ok", resultMap["status"])
+	assert.Equal(t, "GET", resultMap["method"])
+}
+
+// TestRunner_AllowYields_Blocked tests that yields are blocked when not allowed
+func TestRunner_AllowYields_Blocked(t *testing.T) {
+	sched := newTestScheduler()
+	sched.Scheduler.Start()
+	defer sched.Stop()
+
+	script := `
+		local runner = require("eval_runner")
+
+		-- Try to run eval with http_client but NO allow_yields
+		local result, err = runner.run({
+			source = [[
+				local http = require("http_client")
+				local resp, err = http.get("http://example.com")
+				return resp
+			]],
+			method = "",
+			modules = { "http_client" },
+			allow_classes = { "network", "io" }
+			-- Note: no allow_yields specified
+		})
+
+		if err == nil then
+			error("expected error but got none")
+		end
+
+		-- Error should mention yield not allowed
+		local errStr = tostring(err)
+		return { got_error = true, error_msg = errStr }
+	`
+
+	ctx := newTestContext()
+	proc := newLuaProcess(t, script)
+
+	result, err := sched.Execute(ctx, uniqueTestPID(), proc, "", nil)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	require.NotNil(t, result.Value, "expected result value")
+	luaData := result.Value.Data()
+	goData := value.ToGoAny(luaData.(lua.LValue))
+	t.Logf("Result: %v", goData)
+	resultMap, ok := goData.(map[string]any)
+	require.True(t, ok, "expected map result, got %T", goData)
+	assert.Equal(t, true, resultMap["got_error"])
+}
+
+// TestRunner_AllowYields_EmptyList tests that empty allow_yields blocks all yields
+func TestRunner_AllowYields_EmptyList(t *testing.T) {
+	sched := newTestScheduler()
+	sched.Scheduler.Start()
+	defer sched.Stop()
+
+	script := `
+		local runner = require("eval_runner")
+
+		-- Try to run eval with http_client but empty allow_yields
+		local result, err = runner.run({
+			source = [[
+				local http = require("http_client")
+				local resp, err = http.get("http://example.com")
+				return resp
+			]],
+			method = "",
+			modules = { "http_client" },
+			allow_classes = { "network", "io" },
+			allow_yields = {}  -- Empty list = nothing allowed
+		})
+
+		if err == nil then
+			error("expected error but got none")
+		end
+
+		return { got_error = true }
+	`
+
+	ctx := newTestContext()
+	proc := newLuaProcess(t, script)
+
+	result, err := sched.Execute(ctx, uniqueTestPID(), proc, "", nil)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	require.NotNil(t, result.Value, "expected result value")
+	luaData := result.Value.Data()
+	goData := value.ToGoAny(luaData.(lua.LValue))
+	resultMap, ok := goData.(map[string]any)
+	require.True(t, ok, "expected map result, got %T", goData)
+	assert.Equal(t, true, resultMap["got_error"])
 }

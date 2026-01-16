@@ -1,22 +1,23 @@
 -- Test assertion library
 local M = {}
 
-function M.eq(actual: any, expected: any, msg: string?)
+function M.eq(actual, expected, msg)
     if actual ~= expected then
         error((msg or "assertion failed") .. ": expected " .. tostring(expected) .. ", got " .. tostring(actual), 2)
     end
 end
 
-function M.neq(actual: any, expected: any, msg: string?)
+function M.neq(actual, expected, msg)
     if actual == expected then
         error((msg or "assertion failed") .. ": expected not " .. tostring(expected), 2)
     end
 end
 
-function M.ok(val: any?, msg: string?): asserts val
+function M.ok(val, msg)
     if not val then
         error((msg or "assertion failed") .. ": expected truthy value", 2)
     end
+    return val
 end
 
 function M.fail(msg)
@@ -29,46 +30,53 @@ function M.is_nil(val, msg)
     end
 end
 
-function M.not_nil(val: any?, msg: string?): asserts val
+function M.not_nil(val, msg)
     if val == nil then
         error((msg or "assertion failed") .. ": expected non-nil value", 2)
     end
+    return val
 end
 
-function M.is_string(val: any, msg: string?): asserts val is string
+function M.is_string(val, msg)
     if type(val) ~= "string" then
         error((msg or "assertion failed") .. ": expected string, got " .. type(val), 2)
     end
+    return val
 end
 
-function M.is_number(val: any, msg: string?): asserts val is number
+function M.is_number(val, msg)
     if type(val) ~= "number" then
         error((msg or "assertion failed") .. ": expected number, got " .. type(val), 2)
     end
+    return val
 end
 
-function M.is_table(val: any, msg: string?)
+function M.is_table(val, msg)
     if type(val) ~= "table" then
         error((msg or "assertion failed") .. ": expected table, got " .. type(val), 2)
     end
+    return val
 end
 
-function M.is_function(val: any, msg: string?)
+function M.is_function(val, msg)
     if type(val) ~= "function" then
         error((msg or "assertion failed") .. ": expected function, got " .. type(val), 2)
     end
+    return val
 end
 
-function M.is_boolean(val: any, msg: string?): asserts val is boolean
+function M.is_boolean(val, msg)
     if type(val) ~= "boolean" then
         error((msg or "assertion failed") .. ": expected boolean, got " .. type(val), 2)
     end
+    return val
 end
 
 function M.contains(str, substr, msg)
     if type(str) ~= "string" or not string.find(str, substr, 1, true) then
         error((msg or "assertion failed") .. ": expected string to contain '" .. tostring(substr) .. "'", 2)
     end
+    return str
 end
 
 function M.has_error(val, err, msg)
@@ -101,7 +109,6 @@ function M.not_throws(fn, msg)
     end
 end
 
--- Error structure assertions
 function M.error_kind(err, expected_kind, msg)
     if err == nil then
         error((msg or "error_kind failed") .. ": error is nil", 2)

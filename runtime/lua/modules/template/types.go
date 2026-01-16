@@ -8,8 +8,8 @@ import (
 var setType = &types.InterfaceType{
 	Name: "template.Set",
 	Methods: map[string]*types.FunctionType{
-		"render":  types.NewFunction([]types.Type{types.String, types.Optional(types.Any)}, []types.Type{types.String, types.Optional(types.LuaError)}),
-		"release": types.NewFunction(nil, []types.Type{types.Boolean}),
+		"render":  types.NewFunction([]types.Type{types.Self, types.String, types.Optional(types.Any)}, []types.Type{types.String, types.Optional(types.LuaError)}),
+		"release": types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean}),
 	},
 }
 

@@ -24,6 +24,7 @@ func GetCodeManager(ctx context.Context) *code.Manager {
 }
 
 // AddModules adds modules to the code manager by creating module nodes.
+// Also registers module types with the type checker for built-in availability.
 func AddModules(ctx context.Context, cm *code.Manager, modules ...*luaapi.ModuleDef) error {
 	for _, mod := range modules {
 		node := code.Node{
@@ -34,6 +35,7 @@ func AddModules(ctx context.Context, cm *code.Manager, modules ...*luaapi.Module
 		if err := cm.AddNode(ctx, node, nil); err != nil {
 			return err
 		}
+		cm.AddBuiltinType(mod)
 	}
 	return nil
 }

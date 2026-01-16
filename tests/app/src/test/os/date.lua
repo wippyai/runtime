@@ -19,12 +19,14 @@ local function main()
     -- os.date("*t") returns table
     local tbl = os.date("*t", timestamp)
     assert.is_table(tbl, "os.date('*t') should return table")
-    assert.eq(tbl.year, 2024, "table year")
-    assert.eq(tbl.month, 6, "table month")
-    assert.eq(tbl.day, 15, "table day")
-    assert.eq(tbl.hour, 14, "table hour")
-    assert.eq(tbl.min, 30, "table min")
-    assert.eq(tbl.sec, 45, "table sec")
+    if type(tbl) == "table" then
+        assert.eq(tbl.year, 2024, "table year")
+        assert.eq(tbl.month, 6, "table month")
+        assert.eq(tbl.day, 15, "table day")
+        assert.eq(tbl.hour, 14, "table hour")
+        assert.eq(tbl.min, 30, "table min")
+        assert.eq(tbl.sec, 45, "table sec")
+    end
 
     -- UTC format with ! prefix
     local utc_tbl = os.date("!*t", timestamp)
