@@ -2,7 +2,7 @@
 package rules
 
 import (
-	"github.com/wippyai/runtime/runtime/lua/lint"
+	"github.com/wippyai/runtime/runtime/lua/code/lint"
 	"github.com/yuin/gopher-lua/compiler/ast"
 )
 

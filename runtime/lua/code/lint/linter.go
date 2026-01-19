@@ -107,6 +107,7 @@ func (l *Linter) getChecker(stmts []ast.Stmt, entryID string, imports map[string
 	checker := check.New(ctx)
 	checker.SetSourceName(entryID)
 	checker.SetBaseScope(scope)
+	checker.SetImports(imports)
 
 	return checker
 }

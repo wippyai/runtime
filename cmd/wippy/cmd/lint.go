@@ -18,6 +18,7 @@ import (
 	"github.com/wippyai/runtime/cmd/internal/entries"
 	clilogger "github.com/wippyai/runtime/cmd/internal/logger"
 	"github.com/wippyai/runtime/runtime/lua/code"
+	"github.com/wippyai/runtime/runtime/lua/code/lint"
 	transcoder "github.com/wippyai/runtime/system/payload"
 	"github.com/wippyai/runtime/system/registry/topology"
 	"github.com/yuin/gopher-lua/compiler/parse"
@@ -205,13 +206,15 @@ func runLint(cmd *cobra.Command, _ []string) error {
 	luaEntries := filterLuaEntries(allEntries, nsFilters)
 	logger.Debug("found lua entries", zap.Int("count", len(luaEntries)))
 
-	// Create type checker with modules from code manager
+	// Create type checker and linter with modules from code manager
+	mods := cm.GetModuleDefs()
 	typeChecker := code.NewTypeChecker(code.TypeCheckConfig{
 		Enabled: true,
 		Strict:  true,
-	}, cm.GetModuleDefs())
+	}, mods)
+	linter := lint.New(typeChecker, nil)
 
-	result := lintEntries(luaEntries, typeChecker, minSeverity)
+	result := lintEntries(luaEntries, linter, minSeverity)
 
 	// Filter by error codes if specified
 	if len(codeFilters) > 0 {
@@ -328,7 +331,7 @@ func matchesNSFilter(ns string, filters []string) bool {
 	return false
 }
 
-func lintEntries(luaEntries []regapi.Entry, typeChecker *code.TypeChecker, minSeverity int) *LintResult {
+func lintEntries(luaEntries []regapi.Entry, linter *lint.Linter, minSeverity int) *LintResult {
 	result := &LintResult{
 		TotalEntries: len(luaEntries),
 	}
@@ -337,7 +340,7 @@ func lintEntries(luaEntries []regapi.Entry, typeChecker *code.TypeChecker, minSe
 	levels, _ := topology.LevelSortEntriesByDependency(luaEntries, &luaImportResolver{})
 
 	// Manifest storage for cross-module type resolution
-	manifestMap := make(map[regapi.ID]*types.TypeManifest)
+	manifestMap := make(map[regapi.ID]*io.Manifest)
 
 	// Process each level sequentially for deterministic results
 	for _, levelEntries := range levels {
@@ -350,7 +353,7 @@ func lintEntries(luaEntries []regapi.Entry, typeChecker *code.TypeChecker, minSe
 			entryID := entry.ID.String()
 			sourceLines := diag.ParseSource(data.Source)
 
-			chunk, parseErr := parse.ParseString(data.Source, entryID)
+			_, parseErr := parse.ParseString(data.Source, entryID)
 			if parseErr != nil {
 				result.Diagnostics = append(result.Diagnostics, Diagnostic{
 					EntryID:  entryID,
@@ -363,31 +366,25 @@ func lintEntries(luaEntries []regapi.Entry, typeChecker *code.TypeChecker, minSe
 			}
 
 			// Resolve imports to TypeManifests (dependencies from previous levels)
-			imports := make(map[string]*types.TypeManifest)
+			// Builtin modules (empty namespace) are already in the type checker's base scope
+			imports := make(map[string]*io.Manifest)
 			for alias, importID := range data.Imports {
+				if importID.NS == "" {
+					continue
+				}
 				if manifest, ok := manifestMap[importID]; ok {
 					imports[alias] = manifest
 				}
 			}
 
 			// Single compilation: get both manifest and diagnostics
-			manifest, diagnostics, _ := typeChecker.Check(data.Source, entryID, imports)
-			if manifest != nil {
-				manifestMap[entry.ID] = manifest
-			}
-
-			// If Check returns nil diagnostics, fall back to direct CheckChunk
-			if diagnostics == nil {
-				diagnostics = types.CheckChunk(chunk,
-					types.WithStdlib(),
-					types.WithEnv(typeChecker.BuildEnv()),
-					types.WithSource(entryID),
-					types.WithStrictness(types.StrictnessStrict),
-				)
+			lintResult := linter.Check(data.Source, entryID, imports)
+			if lintResult.Manifest != nil {
+				manifestMap[entry.ID] = lintResult.Manifest
 			}
 
 			// Collect diagnostics
-			for _, d := range diagnostics {
+			for _, d := range lintResult.Diagnostics {
 				sevInt := severityToInt(d.Severity)
 				if sevInt < minSeverity {
 					continue
@@ -409,11 +406,11 @@ func lintEntries(luaEntries []regapi.Entry, typeChecker *code.TypeChecker, minSe
 				})
 
 				switch d.Severity {
-				case types.SeverityError:
+				case diag.SeverityError:
 					result.ErrorCount++
-				case types.SeverityWarning:
+				case diag.SeverityWarning:
 					result.WarningCount++
-				case types.SeverityHint:
+				case diag.SeverityHint:
 					result.HintCount++
 				}
 			}

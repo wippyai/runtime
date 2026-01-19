@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/wippyai/runtime/runtime/lua/code"
-	"github.com/wippyai/runtime/runtime/lua/lint"
-	_ "github.com/wippyai/runtime/runtime/lua/lint/rules"
+	"github.com/wippyai/runtime/runtime/lua/code/lint"
+	_ "github.com/wippyai/runtime/runtime/lua/code/lint/rules"
 )
 
 func newTestTypeChecker() *code.TypeChecker {
