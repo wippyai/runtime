@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/progress"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	logapi "github.com/wippyai/runtime/api/logs"
@@ -19,6 +21,7 @@ import (
 	clilogger "github.com/wippyai/runtime/cmd/internal/logger"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/code/lint"
+	_ "github.com/wippyai/runtime/runtime/lua/code/lint/rules"
 	transcoder "github.com/wippyai/runtime/system/payload"
 	"github.com/wippyai/runtime/system/registry/topology"
 	"github.com/yuin/gopher-lua/compiler/parse"
@@ -42,7 +45,8 @@ Examples:
   wippy lint                    # Lint with default settings
   wippy lint --level warning    # Show warnings and errors
   wippy lint --level hint       # Show all diagnostics
-  wippy lint --json             # Output in JSON format`,
+  wippy lint --json             # Output in JSON format
+  wippy lint --rules            # Enable lint rules (style warnings)`,
 	RunE: runLint,
 }
 
@@ -57,6 +61,7 @@ func init() {
 	lintCmd.Flags().Bool("summary", false, "show summary grouped by error code")
 	lintCmd.Flags().StringSlice("code", nil, "filter by error codes (e.g., E0001, E0004)")
 	lintCmd.Flags().Int("limit", 0, "limit number of diagnostics shown (0 = unlimited)")
+	lintCmd.Flags().Bool("rules", false, "enable lint rules (style and quality warnings)")
 }
 
 // Diagnostic represents a single lint diagnostic for JSON output
@@ -94,6 +99,116 @@ var luaEntryKinds = []string{
 	"workflow.lua",
 }
 
+// lintModel is the bubbletea model for lint progress
+type lintModel struct {
+	progress     progress.Model
+	percent      float64
+	status       string
+	currentEntry string
+	totalEntries int
+	checked      int
+	result       *LintResult
+	err          error
+	done         bool
+}
+
+type lintProgressMsg struct {
+	percent float64
+	status  string
+	entry   string
+	checked int
+}
+
+type lintCompleteMsg struct {
+	result *LintResult
+}
+
+type lintErrorMsg struct {
+	err error
+}
+
+func (m *lintModel) Init() tea.Cmd {
+	return nil
+}
+
+func (m *lintModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		if msg.String() == "ctrl+c" || msg.String() == "q" {
+			return m, tea.Quit
+		}
+
+	case lintProgressMsg:
+		m.percent = msg.percent
+		m.status = msg.status
+		m.currentEntry = msg.entry
+		m.checked = msg.checked
+		return m, m.progress.SetPercent(msg.percent)
+
+	case lintCompleteMsg:
+		m.result = msg.result
+		m.percent = 1.0
+		m.done = true
+		return m, tea.Sequence(m.progress.SetPercent(1.0), tea.Quit)
+
+	case lintErrorMsg:
+		m.err = msg.err
+		m.done = true
+		return m, tea.Quit
+
+	case progress.FrameMsg:
+		progressModel, cmd := m.progress.Update(msg)
+		m.progress = progressModel.(progress.Model)
+		return m, cmd
+	}
+
+	return m, nil
+}
+
+func (m *lintModel) View() string {
+	if m.done && m.err != nil {
+		return lipgloss.NewStyle().
+			Foreground(lipgloss.Color("9")).
+			Bold(true).
+			Render(fmt.Sprintf("\n  Error: %v\n", m.err))
+	}
+
+	if m.done && m.result != nil {
+		return ""
+	}
+
+	titleStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("12")).
+		Bold(true)
+
+	statusStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("8"))
+
+	entryStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("14"))
+
+	var view strings.Builder
+	view.WriteString("\n")
+	view.WriteString(titleStyle.Render("Linting Lua entries"))
+	view.WriteString("\n\n")
+
+	view.WriteString("  ")
+	view.WriteString(m.progress.View())
+	view.WriteString("\n\n")
+
+	if m.currentEntry != "" {
+		view.WriteString("  ")
+		view.WriteString(entryStyle.Render(m.currentEntry))
+		view.WriteString("\n")
+	}
+
+	view.WriteString("  ")
+	view.WriteString(statusStyle.Render(fmt.Sprintf("%d/%d entries", m.checked, m.totalEntries)))
+	view.WriteString("\n\n")
+
+	return view.String()
+}
+
 func runLint(cmd *cobra.Command, _ []string) error {
 	silentLogs = true
 
@@ -105,6 +220,7 @@ func runLint(cmd *cobra.Command, _ []string) error {
 	showSummary, _ := cmd.Flags().GetBool("summary")
 	codeFilters, _ := cmd.Flags().GetStringSlice("code")
 	limit, _ := cmd.Flags().GetInt("limit")
+	enableRules, _ := cmd.Flags().GetBool("rules")
 
 	minSeverity := parseSeverityLevel(level)
 
@@ -212,9 +328,49 @@ func runLint(cmd *cobra.Command, _ []string) error {
 		Enabled: true,
 		Strict:  true,
 	}, mods)
-	linter := lint.New(typeChecker, nil)
 
-	result := lintEntries(luaEntries, linter, minSeverity)
+	// Configure lint registry
+	var registry *lint.Registry
+	if enableRules {
+		registry = lint.DefaultRegistry.Clone()
+	} else {
+		registry = lint.NewRegistry()
+	}
+	linter := lint.New(typeChecker, registry)
+
+	var result *LintResult
+
+	if console {
+		// Console mode: use bubbletea progress bar
+		prog := progress.New(progress.WithDefaultGradient())
+		m := &lintModel{
+			progress:     prog,
+			status:       "Initializing...",
+			totalEntries: len(luaEntries),
+		}
+
+		p := tea.NewProgram(m)
+
+		go func() {
+			res := lintEntriesWithProgress(luaEntries, linter, minSeverity, p)
+			p.Send(lintCompleteMsg{result: res})
+		}()
+
+		finalModel, err := p.Run()
+		if err != nil {
+			return err
+		}
+
+		if lintModel, ok := finalModel.(*lintModel); ok {
+			if lintModel.err != nil {
+				return lintModel.err
+			}
+			result = lintModel.result
+		}
+	} else {
+		// Non-console mode: simple progress output
+		result = lintEntriesWithSimpleProgress(luaEntries, linter, minSeverity)
+	}
 
 	// Filter by error codes if specified
 	if len(codeFilters) > 0 {
@@ -331,27 +487,34 @@ func matchesNSFilter(ns string, filters []string) bool {
 	return false
 }
 
-func lintEntries(luaEntries []regapi.Entry, linter *lint.Linter, minSeverity int) *LintResult {
+func lintEntriesWithProgress(luaEntries []regapi.Entry, linter *lint.Linter, minSeverity int, p *tea.Program) *LintResult {
 	result := &LintResult{
 		TotalEntries: len(luaEntries),
 	}
 
-	// Get entries grouped by dependency level for parallel processing
 	levels, _ := topology.LevelSortEntriesByDependency(luaEntries, &luaImportResolver{})
-
-	// Manifest storage for cross-module type resolution
 	manifestMap := make(map[regapi.ID]*io.Manifest)
 
-	// Process each level sequentially for deterministic results
+	checked := 0
+	total := len(luaEntries)
+
 	for _, levelEntries := range levels {
 		for _, entry := range levelEntries {
 			data := extractEntryData(entry)
 			if data.Source == "" {
+				checked++
 				continue
 			}
 
 			entryID := entry.ID.String()
 			sourceLines := diag.ParseSource(data.Source)
+
+			p.Send(lintProgressMsg{
+				percent: float64(checked) / float64(total),
+				status:  "Checking...",
+				entry:   entryID,
+				checked: checked,
+			})
 
 			_, parseErr := parse.ParseString(data.Source, entryID)
 			if parseErr != nil {
@@ -362,11 +525,10 @@ func lintEntries(luaEntries []regapi.Entry, linter *lint.Linter, minSeverity int
 					Message:  parseErr.Error(),
 				})
 				result.ErrorCount++
+				checked++
 				continue
 			}
 
-			// Resolve imports to TypeManifests (dependencies from previous levels)
-			// Builtin modules (empty namespace) are already in the type checker's base scope
 			imports := make(map[string]*io.Manifest)
 			for alias, importID := range data.Imports {
 				if importID.NS == "" {
@@ -377,13 +539,11 @@ func lintEntries(luaEntries []regapi.Entry, linter *lint.Linter, minSeverity int
 				}
 			}
 
-			// Single compilation: get both manifest and diagnostics
 			lintResult := linter.Check(data.Source, entryID, imports)
 			if lintResult.Manifest != nil {
 				manifestMap[entry.ID] = lintResult.Manifest
 			}
 
-			// Collect diagnostics
 			for _, d := range lintResult.Diagnostics {
 				sevInt := severityToInt(d.Severity)
 				if sevInt < minSeverity {
@@ -414,9 +574,114 @@ func lintEntries(luaEntries []regapi.Entry, linter *lint.Linter, minSeverity int
 					result.HintCount++
 				}
 			}
+
+			checked++
 		}
 	}
 
+	sortLintResults(result)
+	return result
+}
+
+func lintEntriesWithSimpleProgress(luaEntries []regapi.Entry, linter *lint.Linter, minSeverity int) *LintResult {
+	result := &LintResult{
+		TotalEntries: len(luaEntries),
+	}
+
+	levels, _ := topology.LevelSortEntriesByDependency(luaEntries, &luaImportResolver{})
+	manifestMap := make(map[regapi.ID]*io.Manifest)
+
+	checked := 0
+	total := len(luaEntries)
+	lastPercent := 0
+
+	for _, levelEntries := range levels {
+		for _, entry := range levelEntries {
+			data := extractEntryData(entry)
+			if data.Source == "" {
+				checked++
+				continue
+			}
+
+			entryID := entry.ID.String()
+			sourceLines := diag.ParseSource(data.Source)
+
+			// Simple progress output
+			percent := (checked * 100) / total
+			if percent > lastPercent && percent%10 == 0 {
+				fmt.Fprintf(os.Stderr, "\rLinting... %d%%", percent)
+				lastPercent = percent
+			}
+
+			_, parseErr := parse.ParseString(data.Source, entryID)
+			if parseErr != nil {
+				result.Diagnostics = append(result.Diagnostics, Diagnostic{
+					EntryID:  entryID,
+					Code:     "P0001",
+					Severity: "error",
+					Message:  parseErr.Error(),
+				})
+				result.ErrorCount++
+				checked++
+				continue
+			}
+
+			imports := make(map[string]*io.Manifest)
+			for alias, importID := range data.Imports {
+				if importID.NS == "" {
+					continue
+				}
+				if manifest, ok := manifestMap[importID]; ok {
+					imports[alias] = manifest
+				}
+			}
+
+			lintResult := linter.Check(data.Source, entryID, imports)
+			if lintResult.Manifest != nil {
+				manifestMap[entry.ID] = lintResult.Manifest
+			}
+
+			for _, d := range lintResult.Diagnostics {
+				sevInt := severityToInt(d.Severity)
+				if sevInt < minSeverity {
+					continue
+				}
+
+				result.Diagnostics = append(result.Diagnostics, Diagnostic{
+					EntryID:  entryID,
+					Code:     d.Code.Name(),
+					Severity: severityToString(d.Severity),
+					Message:  d.Message,
+					Line:     d.Position.Line,
+					Column:   d.Position.Column,
+				})
+
+				result.RichDiagnostics = append(result.RichDiagnostics, RichDiagnostic{
+					EntryID: entryID,
+					Diag:    d,
+					Source:  sourceLines,
+				})
+
+				switch d.Severity {
+				case diag.SeverityError:
+					result.ErrorCount++
+				case diag.SeverityWarning:
+					result.WarningCount++
+				case diag.SeverityHint:
+					result.HintCount++
+				}
+			}
+
+			checked++
+		}
+	}
+
+	fmt.Fprintf(os.Stderr, "\r                    \r")
+	sortLintResults(result)
+	return result
+}
+
+func sortLintResults(result *LintResult) {
 	sort.Slice(result.Diagnostics, func(i, j int) bool {
 		if result.Diagnostics[i].EntryID != result.Diagnostics[j].EntryID {
 			return result.Diagnostics[i].EntryID < result.Diagnostics[j].EntryID
@@ -431,8 +696,6 @@ func lintEntries(luaEntries []regapi.Entry, linter *lint.Linter, minSeverity int
 		return severityOrder(severityToString(result.RichDiagnostics[i].Diag.Severity)) <
 			severityOrder(severityToString(result.RichDiagnostics[j].Diag.Severity))
 	})
-
-	return result
 }
 
 func severityOrder(s string) int {
@@ -499,10 +762,6 @@ func extractEntryData(entry regapi.Entry) entryData {
 		Source:  cfg.Source,
 		Imports: imports,
 	}
-}
-
-func extractSource(entry regapi.Entry) string {
-	return extractEntryData(entry).Source
 }
 
 func outputJSON(result *LintResult) error {

@@ -103,11 +103,7 @@ func init() {
 }
 
 func runAuthLogin(cmd *cobra.Command, _ []string) error {
-	flags, err := readCLIFlags(cmd)
-	if err != nil {
-		return err
-	}
-	isConsole := consoleMode(flags)
+	isConsole := console
 
 	token, _ := cmd.Flags().GetString("token")
 	registry, _ := cmd.Flags().GetString("registry")
@@ -175,11 +171,7 @@ func runAuthLogin(cmd *cobra.Command, _ []string) error {
 }
 
 func runAuthLogout(cmd *cobra.Command, _ []string) error {
-	flags, err := readCLIFlags(cmd)
-	if err != nil {
-		return err
-	}
-	isConsole := consoleMode(flags)
+	isConsole := console
 
 	registry, _ := cmd.Flags().GetString("registry")
 	local, _ := cmd.Flags().GetBool("local")
@@ -206,11 +198,7 @@ func runAuthLogout(cmd *cobra.Command, _ []string) error {
 }
 
 func runAuthStatus(cmd *cobra.Command, _ []string) error {
-	flags, err := readCLIFlags(cmd)
-	if err != nil {
-		return err
-	}
-	isConsole := consoleMode(flags)
+	isConsole := console
 
 	jsonOutput, _ := cmd.Flags().GetBool("json")
 

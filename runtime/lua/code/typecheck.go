@@ -83,14 +83,16 @@ func NewTypeChecker(cfg TypeCheckConfig, builtinMods []*api.ModuleDef) *TypeChec
 	manifests := make(map[string]*io.Manifest)
 
 	for _, mod := range builtinMods {
-		if mod.Types != nil {
-			manifest := mod.Types()
-			if manifest != nil {
-				manifests[mod.Name] = manifest
-				if manifest.Export != nil {
-					builtins[mod.Name] = manifest.Export
-				}
-			}
+		if mod.Types == nil {
+			continue
+		}
+		manifest := mod.Types()
+		if manifest == nil {
+			continue
+		}
+		manifests[mod.Name] = manifest
+		if manifest.Export != nil {
+			builtins[mod.Name] = manifest.Export
 		}
 	}
 
@@ -144,12 +146,21 @@ func (tc *TypeChecker) CheckParsed(chunk []ast.Stmt, entryID string, imports map
 		}
 	}
 
-	// Create checker with context
-	ctx := db.NewContext(tc.db)
+	// Merge builtin and user imports for require resolution
+	allImports := make(map[string]*io.Manifest, len(tc.builtinManifests)+len(imports))
+	for k, v := range tc.builtinManifests {
+		allImports[k] = v
+	}
+	for k, v := range imports {
+		allImports[k] = v
+	}
+
+	// Create checker with fresh context for each check
+	ctx := db.NewContext(db.New())
 	checker := check.New(ctx)
 	checker.SetSourceName(entryID)
 	checker.SetBaseScope(s)
-	checker.SetImports(tc.builtinManifests)
+	checker.SetImports(allImports)
 
 	// Check the chunk
 	diagnostics := checker.Check(chunk)
@@ -188,12 +199,21 @@ func (tc *TypeChecker) Check(source, entryID string, imports map[string]*io.Mani
 		}
 	}
 
-	// Create checker with context
-	ctx := db.NewContext(tc.db)
+	// Merge builtin and user imports for require resolution
+	allImports := make(map[string]*io.Manifest, len(tc.builtinManifests)+len(imports))
+	for k, v := range tc.builtinManifests {
+		allImports[k] = v
+	}
+	for k, v := range imports {
+		allImports[k] = v
+	}
+
+	// Create checker with fresh context for each check
+	ctx := db.NewContext(db.New())
 	checker := check.New(ctx)
 	checker.SetSourceName(entryID)
 	checker.SetBaseScope(s)
-	checker.SetImports(tc.builtinManifests)
+	checker.SetImports(allImports)
 
 	// Check the chunk
 	diagnostics := checker.Check(chunk)

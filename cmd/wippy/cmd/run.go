@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -19,7 +21,9 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	supervisorapi "github.com/wippyai/runtime/api/supervisor"
 	bootpkg "github.com/wippyai/runtime/boot"
+	bootauth "github.com/wippyai/runtime/boot/deps/auth"
 	"github.com/wippyai/runtime/boot/deps/client"
+	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	"github.com/wippyai/runtime/cmd/internal/banner"
@@ -33,12 +37,14 @@ import (
 )
 
 var runCmd = &cobra.Command{
-	Use:   "run [command]",
+	Use:   "run [command|file.wapp|org/module[@version]]",
 	Short: "Start the runtime or execute a command",
-	Long: `Start the Wippy runtime environment from wippy.lock file
+	Long: `Start the Wippy runtime environment.
 
-Without arguments, starts the full runtime.
+Without arguments, starts the full runtime from wippy.lock.
 With a command name, executes the matching process entry.
+With a .wapp file, runs directly from the pack file.
+With an org/module reference, downloads from hub and runs.
 
 Use 'wippy run list' to see available commands.
 
@@ -47,7 +53,10 @@ Examples:
   wippy run list                            # List available commands
   wippy run test                            # Run the test command
   wippy run -x app:cli                      # Execute specific process
-  wippy run --override app:gateway:addr=:9090`,
+  wippy run snapshot.wapp                   # Run from pack file
+  wippy run acme/http                       # Run latest from hub
+  wippy run acme/http@1.2.3                 # Run specific version
+  wippy run acme/http@latest                # Run latest label`,
 	Args:               cobra.ArbitraryArgs,
 	DisableFlagParsing: false,
 	RunE:               runApp,
@@ -66,6 +75,7 @@ func init() {
 	runCmd.Flags().StringSliceP("override", "o", nil, "Override entry values (format: namespace:entry:field=value)")
 	runCmd.Flags().StringP("exec", "x", "", "Execute process and exit (format: namespace:entry)")
 	runCmd.Flags().String("host", "", "Terminal host ID for exec (auto-detected if only one terminal.host exists)")
+	runCmd.Flags().String("registry", "", "Registry URL for hub modules (default: from credentials)")
 }
 
 // commandMeta represents the command metadata from entry.Meta
@@ -77,7 +87,6 @@ type commandMeta struct {
 func runApp(cmd *cobra.Command, args []string) error {
 	memLimit := initMemoryLimit()
 
-	// Check if first arg is a command name (not a flag)
 	var commandName string
 	var commandArgs []string
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -85,15 +94,29 @@ func runApp(cmd *cobra.Command, args []string) error {
 		commandArgs = args[1:]
 	}
 
-	// Get exec spec from flag
 	execSpec := ""
 	execHost := ""
+	registryURL := ""
 	if cmd != nil {
 		execSpec, _ = cmd.Flags().GetString("exec")
 		execHost, _ = cmd.Flags().GetString("host")
+		registryURL, _ = cmd.Flags().GetString("registry")
 	}
 
-	// Auto-silent for exec mode
+	if commandName != "" {
+		if strings.HasSuffix(commandName, ".wapp") {
+			return runFromPackFile(cmd, commandName, commandArgs)
+		}
+
+		if isHubModuleRef(commandName) {
+			packPath, err := downloadHubModule(cmd.Context(), commandName, registryURL)
+			if err != nil {
+				return err
+			}
+			return runFromPackFile(cmd, packPath, commandArgs)
+		}
+	}
+
 	if execSpec != "" || commandName != "" {
 		flagsChanged := cmd != nil && (cmd.Flags().Changed("silent") || cmd.Flags().Changed("verbose") || cmd.Flags().Changed("very-verbose") || cmd.Flags().Changed("console"))
 		if !flagsChanged {
@@ -665,4 +688,314 @@ func waitForHostRunning(ctx context.Context, hostID string) error {
 		case <-time.After(pollInterval):
 		}
 	}
+}
+
+var hubModulePattern = regexp.MustCompile(`^([a-z][a-z0-9-]*)/([a-z][a-z0-9-]*)(?:@(.+))?$`)
+
+func isHubModuleRef(s string) bool {
+	if strings.HasSuffix(s, ".wapp") {
+		return false
+	}
+
+	if _, err := os.Stat(s); err == nil {
+		return false
+	}
+
+	return hubModulePattern.MatchString(s)
+}
+
+func downloadHubModule(ctx context.Context, ref string, registryURL string) (string, error) {
+	matches := hubModulePattern.FindStringSubmatch(ref)
+	if matches == nil {
+		return "", fmt.Errorf("invalid hub module reference: %s", ref)
+	}
+
+	org := matches[1]
+	module := matches[2]
+	versionOrLabel := ""
+	if len(matches) > 3 {
+		versionOrLabel = matches[3]
+	}
+
+	projectDir, _ := os.Getwd()
+	authCfg := bootauth.NewConfig(projectDir)
+	store := bootauth.NewStore(authCfg)
+
+	if registryURL == "" {
+		registryURL = store.DefaultRegistry()
+	}
+
+	cred, _ := store.Get(registryURL)
+
+	var token string
+	if cred != nil {
+		token = cred.Token
+	}
+
+	client, err := hub.NewClient(hub.Options{
+		BaseURL: registryURL,
+		Token:   token,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to create hub client: %w", err)
+	}
+
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	fmt.Printf("%s %s/%s", dimStyle.Render("Resolving dependencies for"), org, module)
+	if versionOrLabel != "" {
+		fmt.Printf("@%s", versionOrLabel)
+	}
+	fmt.Println("...")
+
+	downloadCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+
+	constraint := ""
+	if versionOrLabel != "" {
+		if isVersionString(versionOrLabel) {
+			constraint = versionOrLabel
+		} else {
+			constraint = "@" + versionOrLabel
+		}
+	}
+
+	resolveParams := &hub.ResolveDependenciesParams{
+		Roots: []hub.DependencySpec{
+			{Org: org, Name: module, Constraint: constraint},
+		},
+	}
+
+	resolved, err := client.ResolveDependencies(downloadCtx, resolveParams)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve dependencies: %w", err)
+	}
+
+	if len(resolved.Errors) > 0 {
+		return "", fmt.Errorf("dependency resolution errors: %v", resolved.Errors)
+	}
+
+	if len(resolved.Modules) == 0 {
+		return "", fmt.Errorf("no modules resolved for %s/%s", org, module)
+	}
+
+	fmt.Printf("%s Resolved %d module(s)\n", dimStyle.Render(""), len(resolved.Modules))
+
+	cacheDir := getCacheDir()
+	var mainPackPath string
+
+	for _, m := range resolved.Modules {
+		moduleName := fmt.Sprintf("%s/%s", m.Org, m.Name)
+		packPath := filepath.Join(cacheDir, m.Org, fmt.Sprintf("%s-%s.wapp", m.Name, m.Version))
+
+		if _, err := os.Stat(packPath); err == nil {
+			fmt.Printf("%s %s@%s (cached)\n", dimStyle.Render(""), moduleName, m.Version)
+		} else {
+			fmt.Printf("%s Downloading %s@%s...\n", dimStyle.Render(""), moduleName, m.Version)
+			if m.URL == "" {
+				return "", fmt.Errorf("no download URL for %s@%s", moduleName, m.Version)
+			}
+			if err := client.DownloadToFile(downloadCtx, m.URL, packPath); err != nil {
+				return "", fmt.Errorf("failed to download %s: %w", moduleName, err)
+			}
+		}
+
+		if err := updateLockFile(moduleName, m.Version, m.Digest); err != nil {
+			fmt.Printf("%s Warning: could not update lock file for %s: %v\n", dimStyle.Render(""), moduleName, err)
+		}
+
+		if m.Org == org && m.Name == module {
+			mainPackPath = packPath
+		}
+	}
+
+	if mainPackPath == "" {
+		return "", fmt.Errorf("main module %s/%s not found in resolved modules", org, module)
+	}
+
+	fmt.Println()
+	return mainPackPath, nil
+}
+
+func updateLockFile(moduleName, version, digest string) error {
+	lockObj, err := lock.New(defaultLockFile)
+	if err != nil {
+		return err
+	}
+
+	mod := lock.Module{
+		Name:    moduleName,
+		Version: version,
+		Hash:    digest,
+	}
+
+	lockObj.SetModule(mod)
+	return lockObj.Write()
+}
+
+func isVersionString(s string) bool {
+	if s == "" {
+		return false
+	}
+	if s[0] == 'v' {
+		s = s[1:]
+	}
+	parts := strings.Split(s, ".")
+	if len(parts) < 2 {
+		return false
+	}
+	for _, p := range parts {
+		for _, c := range p {
+			if c < '0' || c > '9' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func getCacheDir() string {
+	if cacheDir := os.Getenv("WIPPY_CACHE_DIR"); cacheDir != "" {
+		return cacheDir
+	}
+
+	if homeDir, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(homeDir, ".wippy", "cache")
+	}
+
+	return filepath.Join(os.TempDir(), "wippy-cache")
+}
+
+func runFromPackFile(_ *cobra.Command, packFile string, _ []string) error {
+	memLimit := initMemoryLimit()
+
+	banner.Print(silentLogs)
+
+	logger, err := clilogger.CreateLogger(clilogger.Config{
+		Verbose:      verbose,
+		VeryVerbose:  veryVerbose,
+		Console:      console,
+		Silent:       silentLogs,
+		AppStartTime: appStartTime,
+	})
+	if err != nil {
+		return NewCreateLoggerError(err)
+	}
+	defer func() { _ = logger.Sync() }()
+
+	logger.Info("loading pack file", zap.String("file", packFile), zap.String("memory_limit", formatBytes(memLimit)))
+
+	cfg, err := loadBootConfig()
+	if err != nil {
+		logger.Error("failed to load config", zap.Error(err))
+		return err
+	}
+
+	if cfg == nil {
+		cfg = createDefaultConfig()
+	}
+
+	ctx, err := bootpkg.NewBootstrapContext(logger, cfg)
+	if err != nil {
+		logger.Error("failed to initialize bootstrap context", zap.Error(err))
+		return NewInitializeBootstrapContextError(err)
+	}
+
+	logger = logapi.GetLogger(ctx).Named("run-pack")
+	logger.Info("infrastructure initialized")
+
+	components := StandardComponents()
+	logger.Info("registered components", zap.Int("count", len(components)))
+
+	loader, err := bootpkg.NewLoader(components...)
+	if err != nil {
+		logger.Error("failed to create loader", zap.Error(err))
+		return NewCreateLoaderError(err)
+	}
+
+	ctx, err = loader.Load(ctx)
+	if err != nil {
+		logger.Error("load failed", zap.Error(err))
+		return NewLoadComponentsError(err)
+	}
+	logger.Info("components loaded successfully")
+
+	transcoder := payload.GetTranscoder(ctx)
+	if transcoder == nil {
+		return ErrTranscoderNotFound
+	}
+
+	file, err := os.Open(packFile)
+	if err != nil {
+		return NewOpenPackFileError(packFile, err)
+	}
+	defer file.Close()
+
+	packReader, err := entries.NewPackReader(file, transcoder)
+	if err != nil {
+		return NewCreatePackReaderError(packFile, err)
+	}
+
+	packEntries, err := packReader.GetEntries()
+	if err != nil {
+		return NewReadEntriesError(packFile, err)
+	}
+
+	logger.Info("loaded entries from pack", zap.Int("count", len(packEntries)))
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	supervisorapi.SetSignalChannel(ctx, sigChan)
+
+	appCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	if err := bootpkg.StartRuntimeServices(appCtx); err != nil {
+		logger.Error("failed to start runtime services", zap.Error(err))
+		return NewStartRuntimeServicesError(err)
+	}
+
+	if err := loader.Start(appCtx); err != nil {
+		logger.Error("start failed", zap.Error(err))
+		return NewStartComponentsError(err)
+	}
+
+	reg := registry.GetRegistry(appCtx)
+	if reg == nil {
+		return ErrRegistryNotFound
+	}
+
+	resolver := registry.GetResolver(appCtx)
+	if resolver == nil {
+		return ErrDependencyResolverNotFound
+	}
+
+	if err := entries.ApplyToRegistry(appCtx, packEntries, resolver, reg, logger); err != nil {
+		return err
+	}
+
+	if !silentLogs {
+		logger.Info("runtime ready")
+	}
+
+	sig := <-sigChan
+	logger.Info("received shutdown signal", zap.String("signal", sig.String()))
+	cancel()
+
+	go func() {
+		<-sigChan
+		logger.Error("force exit")
+		os.Exit(1)
+	}()
+
+	if !silentLogs {
+		logger.Info("shutting down (press Ctrl+C again to force exit)")
+	}
+
+	exitCode := shutdown.Perform(ctx, loader, logger, silentLogs)
+	if exitCode != 0 {
+		_ = logger.Sync()
+		os.Exit(exitCode)
+	}
+
+	return nil
 }

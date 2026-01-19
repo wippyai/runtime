@@ -4,6 +4,7 @@ go 1.25.4
 
 require (
 	connectrpc.com/connect v1.19.1
+	git.spiralscout.com/wippy/proto-go v0.0.0-00010101000000-000000000000
 	github.com/CloudyKit/jet/v6 v6.3.1
 	github.com/Masterminds/semver/v3 v3.2.0
 	github.com/Masterminds/squirrel v1.5.4
@@ -23,7 +24,7 @@ require (
 	github.com/go-sql-driver/mysql v1.9.2
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/google/uuid v1.6.0
-	github.com/hashicorp/go-msgpack/v2 v2.1.1
+	github.com/hashicorp/go-msgpack/v2 v2.1.2
 	github.com/hashicorp/memberlist v0.5.3
 	github.com/kaptinlin/jsonschema v0.6.1
 	github.com/klauspost/compress v1.18.1
@@ -35,7 +36,6 @@ require (
 	github.com/prometheus/client_golang v1.20.5
 	github.com/sergi/go-diff v1.3.1
 	github.com/spf13/cobra v1.10.1
-	github.com/spf13/pflag v1.0.9
 	github.com/stretchr/testify v1.11.1
 	github.com/tetratelabs/wazero v1.11.0
 	github.com/tmc/langchaingo v0.1.14
@@ -86,8 +86,14 @@ replace github.com/wippyai/wasm-runtime => ../wasmexp
 // Local proto-api
 replace github.com/wippyai/proto-api => ../wippy-cloud/proto-api
 
+// Local hub proto-go
+replace git.spiralscout.com/wippy/proto-go => ../../wippy/proto-go
+
+// Local wapp
+replace git.spiralscout.com/wippy/wapp => ../../wippy/wapp
+
 require (
-	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.6-20250425153114-8976f5be98c1.1 // indirect
+	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20251209175733-2a1774d88802.1 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/CloudyKit/fastprinter v0.0.0-20200109182630-33d98a066a53 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
@@ -178,6 +184,7 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/robfig/cron v1.2.0 // indirect
 	github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529 // indirect
+	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/xuri/efp v0.0.0-20240408161823-9ad904a10d6d // indirect
@@ -202,7 +209,7 @@ require (
 	golang.org/x/tools v0.38.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250825161204-c5933d9347a5 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250825161204-c5933d9347a5 // indirect
-	google.golang.org/protobuf v1.36.9 // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
 )
 

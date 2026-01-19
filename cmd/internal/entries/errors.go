@@ -55,3 +55,11 @@ func NewExecutePipelineError(cause error) apierror.Error {
 func NewGetCurrentVersionError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to get current version").WithCause(cause).WithRetryable(apierror.False)
 }
+
+func NewBuildChangeSetError(cause error) apierror.Error {
+	return apierror.New(apierror.Internal, "failed to build change set").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewApplyEntriesError(cause error) apierror.Error {
+	return apierror.New(apierror.Internal, "failed to apply entries").WithCause(cause).WithRetryable(apierror.False)
+}
