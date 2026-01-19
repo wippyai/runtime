@@ -2,7 +2,6 @@ package eventbus
 
 import (
 	"context"
-	"errors"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -21,6 +20,7 @@ const (
 )
 
 const defaultQueueCap = 64
+const subscriberChanBuffer = 16
 
 type action struct {
 	kind        actKind
@@ -102,7 +102,7 @@ func (b *Bus) SubscribeP(
 	}
 
 	if ch == nil {
-		return "", errors.New("nil channel provided")
+		return "", ErrNilChannel
 	}
 
 	subID := b.generateSubscriberID()
@@ -217,7 +217,7 @@ func (b *Bus) enqueueAction(a action) error {
 		// Respond to control operations immediately
 		switch a.kind {
 		case actSubscribe:
-			a.subscribe.doneCh <- errors.New("bus is closed")
+			a.subscribe.doneCh <- ErrBusClosed
 		case actUnsubscribe:
 			a.unsubscribe.doneCh <- struct{}{}
 		case actSend:
@@ -225,7 +225,7 @@ func (b *Bus) enqueueAction(a action) error {
 		case actStop:
 			// Should not happen, but handle gracefully
 		}
-		return errors.New("bus is closed")
+		return ErrBusClosed
 	}
 
 	b.actionQueue = append(b.actionQueue, a)
@@ -352,7 +352,7 @@ func (b *Bus) drainQueue() {
 		switch a.kind {
 		case actSubscribe:
 			// Reject with error
-			a.subscribe.doneCh <- errors.New("bus is closed")
+			a.subscribe.doneCh <- ErrBusClosed
 		case actUnsubscribe:
 			// Acknowledge unsubscribe (no-op since we're stopping)
 			a.unsubscribe.doneCh <- struct{}{}

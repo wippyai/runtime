@@ -1,64 +1,50 @@
 package cloudstorage
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
-// ListObjectsOptions type (anonymous readonly for structural covariant typing)
-var listObjectsOptionsType = &types.RecordType{
-	Readonly: true,
-	Fields: []types.RecordField{
-		{Name: "prefix", Type: types.Optional(types.String), Optional: true},
-		{Name: "max_keys", Type: types.Optional(types.Number), Optional: true},
-		{Name: "continuation_token", Type: types.Optional(types.String), Optional: true},
-	},
-}
+// ListObjectsOptions type
+var listObjectsOptionsType = typ.NewRecord().
+	OptField("prefix", typ.String).
+	OptField("max_keys", typ.Number).
+	OptField("continuation_token", typ.String).
+	Build()
 
 // ListObjectsResult type
-var listObjectsResultType = &types.RecordType{
-	Name: "cloudstorage.ListObjectsResult",
-	Fields: []types.RecordField{
-		{Name: "objects", Type: types.NewArray(types.Any, false)},
-		{Name: "continuation_token", Type: types.Optional(types.String)},
-		{Name: "is_truncated", Type: types.Boolean},
-	},
-}
+var listObjectsResultType = typ.NewRecord().
+	Field("objects", typ.NewArray(typ.Any)).
+	OptField("continuation_token", typ.String).
+	Field("is_truncated", typ.Boolean).
+	Build()
 
-// DownloadOptions type (anonymous readonly for structural covariant typing)
-var downloadOptionsType = &types.RecordType{
-	Readonly: true,
-	Fields: []types.RecordField{
-		{Name: "range", Type: types.Optional(types.String), Optional: true},
-	},
-}
+// DownloadOptions type
+var downloadOptionsType = typ.NewRecord().
+	OptField("range", typ.String).
+	Build()
 
-// PresignedURLOptions type (anonymous readonly for structural covariant typing)
-var presignedURLOptionsType = &types.RecordType{
-	Readonly: true,
-	Fields: []types.RecordField{
-		{Name: "expiration", Type: types.Optional(types.Number), Optional: true},
-		{Name: "content_type", Type: types.Optional(types.String), Optional: true},
-		{Name: "content_length", Type: types.Optional(types.Number), Optional: true},
-	},
-}
+// PresignedURLOptions type
+var presignedURLOptionsType = typ.NewRecord().
+	OptField("expiration", typ.Number).
+	OptField("content_type", typ.String).
+	OptField("content_length", typ.Number).
+	Build()
 
 // Storage type
-var storageType = &types.InterfaceType{
-	Name: "cloudstorage.Storage",
-	Methods: map[string]*types.FunctionType{
-		"list_objects":      types.NewFunction([]types.Type{types.Self, types.Optional(listObjectsOptionsType)}, []types.Type{listObjectsResultType, types.Optional(types.LuaError)}),
-		"download_object":   types.NewFunction([]types.Type{types.Self, types.String, types.Any, types.Optional(downloadOptionsType)}, []types.Type{types.Number, types.Optional(types.LuaError)}),
-		"upload_object":     types.NewFunction([]types.Type{types.Self, types.String, types.Any}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-		"delete_objects":    types.NewFunction([]types.Type{types.Self, types.NewArray(types.String, false)}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-		"presigned_get_url": types.NewFunction([]types.Type{types.Self, types.String, types.Optional(presignedURLOptionsType)}, []types.Type{types.String, types.Optional(types.LuaError)}),
-		"presigned_put_url": types.NewFunction([]types.Type{types.Self, types.String, types.Optional(presignedURLOptionsType)}, []types.Type{types.String, types.Optional(types.LuaError)}),
-		"release":           types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean}),
-	},
-}
+var storageType = typ.NewInterface("cloudstorage.Storage", []typ.Method{
+	{Name: "list_objects", Type: typ.Func().Param("self", typ.Self).OptParam("options", listObjectsOptionsType).Returns(listObjectsResultType, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "download_object", Type: typ.Func().Param("self", typ.Self).Param("key", typ.String).Param("dest", typ.Any).OptParam("options", downloadOptionsType).Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "upload_object", Type: typ.Func().Param("self", typ.Self).Param("key", typ.String).Param("source", typ.Any).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "delete_objects", Type: typ.Func().Param("self", typ.Self).Param("keys", typ.NewArray(typ.String)).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "presigned_get_url", Type: typ.Func().Param("self", typ.Self).Param("key", typ.String).OptParam("options", presignedURLOptionsType).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "presigned_put_url", Type: typ.Func().Param("self", typ.Self).Param("key", typ.String).OptParam("options", presignedURLOptionsType).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "release", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean).Build()},
+})
 
 // ModuleTypes returns the type manifest for the cloudstorage module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("cloudstorage")
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("cloudstorage")
 
 	m.DefineType("Storage", storageType)
 	m.DefineType("ListObjectsOptions", listObjectsOptionsType)
@@ -66,12 +52,9 @@ func ModuleTypes() *types.TypeManifest {
 	m.DefineType("DownloadOptions", downloadOptionsType)
 	m.DefineType("PresignedURLOptions", presignedURLOptionsType)
 
-	moduleType := &types.InterfaceType{
-		Name: "cloudstorage",
-		Methods: map[string]*types.FunctionType{
-			"get": types.NewFunction([]types.Type{types.String}, []types.Type{storageType, types.Optional(types.LuaError)}),
-		},
-	}
+	moduleType := typ.NewInterface("cloudstorage", []typ.Method{
+		{Name: "get", Type: typ.Func().Param("name", typ.String).Returns(storageType, typ.NewOptional(typ.LuaError)).Build()},
+	})
 
 	m.SetExport(moduleType)
 	return m

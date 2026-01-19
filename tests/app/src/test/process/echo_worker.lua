@@ -6,7 +6,7 @@ local function main()
     -- Wait for one message and echo it back
     local msg = ch:receive()
     if msg then
-        local sender = msg:from()
+        local sender = string(msg:from())
         local payload = msg:payload()
 
         if sender then

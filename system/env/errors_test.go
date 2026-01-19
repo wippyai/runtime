@@ -23,25 +23,36 @@ func TestErrors(t *testing.T) {
 		err := NewInvalidStorageTypeError("bad-storage")
 		assert.Contains(t, err.Error(), "invalid storage type")
 		assert.Equal(t, "Internal", err.Kind().String())
+		details := err.Details()
+		require.NotNil(t, details)
+		storageID, _ := details.Get("storage_id")
+		assert.Equal(t, "bad-storage", storageID)
 	})
 
 	t.Run("NewCreateStorageError", func(t *testing.T) {
 		cause := errors.New("permission denied")
 		err := NewCreateStorageError(cause)
-		assert.Equal(t, "failed to create storage: permission denied", err.Error())
+		assert.Contains(t, err.Error(), "failed to create storage")
+		assert.Contains(t, err.Error(), "permission denied")
 		assert.Equal(t, cause, errors.Unwrap(err))
+		details := err.Details()
+		require.NotNil(t, details)
+		causeValue, _ := details.Get("cause")
+		assert.Equal(t, "permission denied", causeValue)
 	})
 
 	t.Run("NewRenameTempFileError", func(t *testing.T) {
 		cause := errors.New("access denied")
 		err := NewRenameTempFileError(3, cause)
 		assert.Contains(t, err.Error(), "failed to rename temp file")
-		assert.Equal(t, "Unspecified", err.Retryable().String())
+		assert.Equal(t, "False", err.Retryable().String())
 		assert.Equal(t, cause, errors.Unwrap(err))
 		details := err.Details()
 		require.NotNil(t, details)
 		attempts, _ := details.Get("attempts")
 		assert.Equal(t, 3, attempts)
+		causeValue, _ := details.Get("cause")
+		assert.Equal(t, "access denied", causeValue)
 	})
 
 	t.Run("NewRenameTempFileAfterRemoveError", func(t *testing.T) {
@@ -49,6 +60,10 @@ func TestErrors(t *testing.T) {
 		err := NewRenameTempFileAfterRemoveError(cause)
 		assert.Contains(t, err.Error(), "failed to rename temp file after removing target")
 		assert.Equal(t, cause, errors.Unwrap(err))
+		details := err.Details()
+		require.NotNil(t, details)
+		causeValue, _ := details.Get("cause")
+		assert.Equal(t, "file busy", causeValue)
 	})
 
 	t.Run("NewVariableNotFoundError", func(t *testing.T) {
@@ -68,7 +83,7 @@ func TestErrors(t *testing.T) {
 		assert.Equal(t, "NotFound", err.Kind().String())
 		details := err.Details()
 		require.NotNil(t, details)
-		storageID, _ := details.Get("storage")
+		storageID, _ := details.Get("storage_id")
 		assert.Equal(t, "app:my_storage", storageID)
 	})
 
@@ -99,8 +114,8 @@ func TestErrors(t *testing.T) {
 		assert.Equal(t, "AlreadyExists", err.Kind().String())
 		details := err.Details()
 		require.NotNil(t, details)
-		name, _ := details.Get("name")
-		assert.Equal(t, "MY_VAR", name)
+		varName, _ := details.Get("variable")
+		assert.Equal(t, "MY_VAR", varName)
 	})
 
 	t.Run("NewUnsupportedKindError", func(t *testing.T) {
@@ -112,16 +127,26 @@ func TestErrors(t *testing.T) {
 	t.Run("NewDecodeConfigError", func(t *testing.T) {
 		cause := errors.New("json error")
 		err := NewDecodeConfigError(cause)
-		assert.Equal(t, "failed to decode configuration: json error", err.Error())
+		assert.Contains(t, err.Error(), "failed to decode configuration")
+		assert.Contains(t, err.Error(), "json error")
 		assert.Equal(t, "Invalid", err.Kind().String())
 		assert.Equal(t, cause, errors.Unwrap(err))
+		details := err.Details()
+		require.NotNil(t, details)
+		causeValue, _ := details.Get("cause")
+		assert.Equal(t, "json error", causeValue)
 	})
 
 	t.Run("NewInvalidConfigError", func(t *testing.T) {
 		cause := errors.New("missing field")
 		err := NewInvalidConfigError(cause)
-		assert.Equal(t, "invalid configuration: missing field", err.Error())
+		assert.Contains(t, err.Error(), "invalid configuration")
+		assert.Contains(t, err.Error(), "missing field")
 		assert.Equal(t, cause, errors.Unwrap(err))
+		details := err.Details()
+		require.NotNil(t, details)
+		causeValue, _ := details.Get("cause")
+		assert.Equal(t, "missing field", causeValue)
 	})
 
 	t.Run("NewStorageNotExistsError", func(t *testing.T) {

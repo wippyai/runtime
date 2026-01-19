@@ -148,7 +148,7 @@ func TestManager_Add(t *testing.T) {
 		ctx,
 		bus,
 		fsapi.System,
-		fsapi.Register,
+		fsapi.FsRegister,
 		func(evt event.Event) {
 			fsEvents <- evt
 		},
@@ -172,17 +172,9 @@ func TestManager_Add(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify directory was registered
-		var stored interface{}
-		var exists bool
-
-		manager.directories.Range(func(key, value interface{}) bool {
-			if key.(string) == testID.String() {
-				stored = value
-				exists = true
-				return false
-			}
-			return true
-		})
+		manager.mu.RLock()
+		stored, exists := manager.directories[testID]
+		manager.mu.RUnlock()
 
 		assert.True(t, exists)
 		assert.NotNil(t, stored)
@@ -190,7 +182,7 @@ func TestManager_Add(t *testing.T) {
 		// Verify FS registration event was sent
 		select {
 		case evt := <-fsEvents:
-			assert.Equal(t, fsapi.Register, evt.Kind)
+			assert.Equal(t, fsapi.FsRegister, evt.Kind)
 			assert.Equal(t, testID.String(), evt.Path)
 			assert.NotNil(t, evt.Data)
 		case <-time.After(time.Second):
@@ -255,7 +247,7 @@ func TestManager_Update(t *testing.T) {
 		ctx,
 		bus,
 		fsapi.System,
-		fsapi.Register,
+		fsapi.FsRegister,
 		func(evt event.Event) {
 			fsEvents <- evt
 		},
@@ -294,7 +286,7 @@ func TestManager_Update(t *testing.T) {
 		// Verify FS registration event was sent again
 		select {
 		case evt := <-fsEvents:
-			assert.Equal(t, fsapi.Register, evt.Kind)
+			assert.Equal(t, fsapi.FsRegister, evt.Kind)
 			assert.Equal(t, testID.String(), evt.Path)
 			assert.NotNil(t, evt.Data)
 		case <-time.After(time.Second):
@@ -360,7 +352,7 @@ func TestManager_Delete(t *testing.T) {
 		ctx,
 		bus,
 		fsapi.System,
-		fsapi.Delete,
+		fsapi.FsDelete,
 		func(evt event.Event) {
 			fsEvents <- evt
 		},
@@ -388,20 +380,15 @@ func TestManager_Delete(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify directory was removed
-		var exists bool
-		manager.directories.Range(func(key, _ interface{}) bool {
-			if key.(string) == testID.String() {
-				exists = true
-				return false
-			}
-			return true
-		})
+		manager.mu.RLock()
+		_, exists := manager.directories[testID]
+		manager.mu.RUnlock()
 		assert.False(t, exists)
 
 		// Verify FS deletion event was sent
 		select {
 		case evt := <-fsEvents:
-			assert.Equal(t, fsapi.Delete, evt.Kind)
+			assert.Equal(t, fsapi.FsDelete, evt.Kind)
 			assert.Equal(t, testID.String(), evt.Path)
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for fs deletion event")
@@ -440,7 +427,7 @@ func TestManager_RegisterFS(t *testing.T) {
 		ctx,
 		bus,
 		fsapi.System,
-		fsapi.Register,
+		fsapi.FsRegister,
 		func(evt event.Event) {
 			fsEvents <- evt
 		},
@@ -458,14 +445,16 @@ func TestManager_RegisterFS(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify FS was stored
-	stored, exists := manager.directories.Load(testID.String())
+	manager.mu.RLock()
+	stored, exists := manager.directories[testID]
+	manager.mu.RUnlock()
 	assert.True(t, exists)
 	assert.NotNil(t, stored)
 
 	// Verify FS registration event was sent
 	select {
 	case evt := <-fsEvents:
-		assert.Equal(t, fsapi.Register, evt.Kind)
+		assert.Equal(t, fsapi.FsRegister, evt.Kind)
 		assert.Equal(t, testID.String(), evt.Path)
 		assert.NotNil(t, evt.Data)
 	case <-time.After(time.Second):

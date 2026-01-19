@@ -32,6 +32,9 @@ func NewRegistry(
 	resolver registry.DependencyResolver,
 	log *zap.Logger,
 ) *Reg {
+	if log == nil {
+		log = zap.NewNop()
+	}
 	reg := &Reg{
 		history:        history,
 		runner:         runner,
@@ -303,9 +306,9 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 
 			for _, op := range cs {
 				switch op.Kind {
-				case registry.Create, registry.Update:
+				case registry.EntryCreate, registry.EntryUpdate:
 					stateMap[op.Entry.ID] = op.Entry
-				case registry.Delete:
+				case registry.EntryDelete:
 					delete(stateMap, op.Entry.ID)
 				}
 			}
@@ -411,7 +414,7 @@ func (r *Reg) enrichChangeset(changes registry.ChangeSet) registry.ChangeSet {
 	for i, op := range changes {
 		enriched[i] = op
 		switch op.Kind {
-		case registry.Update, registry.Delete:
+		case registry.EntryUpdate, registry.EntryDelete:
 			if originalEntry, exists := stateMap[op.Entry.ID]; exists {
 				enriched[i].OriginalEntry = &originalEntry
 			} else {

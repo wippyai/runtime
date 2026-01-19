@@ -187,9 +187,9 @@ func TestWithFrameContext(t *testing.T) {
 	ctx := context.Background()
 	ctx = WithFrameContext(ctx, cc)
 
-	retrieved := CallFromContext(ctx)
+	retrieved := FrameFromContext(ctx)
 	if retrieved == nil {
-		t.Fatal("CallFromContext() returned nil")
+		t.Fatal("FrameFromContext() returned nil")
 	}
 
 	if got, ok := retrieved.Get(key); !ok || got != "value1" {
@@ -197,22 +197,22 @@ func TestWithFrameContext(t *testing.T) {
 	}
 }
 
-func TestCallFromContext_NotPresent(t *testing.T) {
+func TestFrameFromContext_NotPresent(t *testing.T) {
 	ctx := context.Background()
 
-	retrieved := CallFromContext(ctx)
+	retrieved := FrameFromContext(ctx)
 	if retrieved != nil {
-		t.Error("CallFromContext() should return nil when not present")
+		t.Error("FrameFromContext() should return nil when not present")
 	}
 }
 
-func TestCallFromContext_WrongType(t *testing.T) {
+func TestFrameFromContext_WrongType(t *testing.T) {
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, frameContextKey, "not a FrameContext")
 
-	retrieved := CallFromContext(ctx)
+	retrieved := FrameFromContext(ctx)
 	if retrieved != nil {
-		t.Error("CallFromContext() should return nil for wrong type")
+		t.Error("FrameFromContext() should return nil for wrong type")
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/boot/loader"
 	"github.com/wippyai/runtime/boot/loader/interpolate"
 	"github.com/wippyai/runtime/internal/version"
@@ -164,7 +165,7 @@ func TestInMemoryRegistry_Apply(t *testing.T) {
 
 	changes := registry.ChangeSet{
 		{
-			Kind: registry.Create,
+			Kind: registry.EntryCreate,
 			Entry: registry.Entry{
 				Kind: "test",
 				Data: payload.New("data"),
@@ -239,10 +240,10 @@ func TestInMemoryRegistry_ApplyVersion(t *testing.T) {
 	hist := historymem.New()
 	_ = hist.Save(v0, registry.ChangeSet{}, true)
 	_ = hist.Save(v1, registry.ChangeSet{
-		{Kind: registry.Create, Entry: registry.Entry{ID: registry.NewID("", "/foo"), Kind: "test", Data: payload.New("data1")}},
+		{Kind: registry.EntryCreate, Entry: registry.Entry{ID: registry.NewID("", "/foo"), Kind: "test", Data: payload.New("data1")}},
 	}, false)
 	_ = hist.Save(v2, registry.ChangeSet{
-		{Kind: registry.Update, Entry: registry.Entry{ID: registry.NewID("", "/foo"), Kind: "test", Data: payload.New("data2")}},
+		{Kind: registry.EntryUpdate, Entry: registry.Entry{ID: registry.NewID("", "/foo"), Kind: "test", Data: payload.New("data2")}},
 	}, false)
 
 	runner := NewMockRunner()
@@ -346,7 +347,7 @@ func TestInMemoryRegistry_Apply_HistorySaveError(t *testing.T) {
 	// Attempt to apply changes, which should fail due to the hist error
 	_, err := reg.Apply(context.Background(), registry.ChangeSet{
 		{
-			Kind: registry.Create,
+			Kind: registry.EntryCreate,
 			Entry: registry.Entry{
 				Kind: "test",
 				Data: payload.New("data"),
@@ -359,10 +360,8 @@ func TestInMemoryRegistry_Apply_HistorySaveError(t *testing.T) {
 		return
 	}
 
-	expectedErrorMsg := "failed to save new version, recovered: history error"
-	if err.Error() != expectedErrorMsg {
-		t.Errorf("Expected error message: '%v', got: '%v'", expectedErrorMsg, err.Error())
-	}
+	assert.Contains(t, err.Error(), "failed to save new version")
+	assert.Contains(t, err.Error(), "history error")
 
 	// Verify that the runner's Transition method was called twice (for rollback)
 	expectedRunnerStack := []string{"Transition", "Transition"}
@@ -411,7 +410,7 @@ func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 			for j := 0; j < changesPerRoutine; j++ {
 				change := registry.ChangeSet{
 					{
-						Kind: registry.Create,
+						Kind: registry.EntryCreate,
 						Entry: registry.Entry{
 							Kind: "test",
 							Data: payload.New(fmt.Sprintf("data-%d-%d", routineID, j)),
@@ -470,7 +469,7 @@ func TestInMemoryRegistry_Apply_Rollback_Success(t *testing.T) {
 
 	changes := registry.ChangeSet{
 		{
-			Kind: registry.Create,
+			Kind: registry.EntryCreate,
 			Entry: registry.Entry{
 				ID:   registry.NewID("", "/new-entry"),
 				Kind: "test",
@@ -492,7 +491,7 @@ func TestInMemoryRegistry_Apply_Rollback_Success(t *testing.T) {
 		}
 
 		// Handle rollback - expects a Delete of the newly created entry
-		if len(cs) == 1 && cs[0].Kind == registry.Delete && cs[0].Entry.ID.Name == "/new-entry" &&
+		if len(cs) == 1 && cs[0].Kind == registry.EntryDelete && cs[0].Entry.ID.Name == "/new-entry" &&
 			reflect.DeepEqual(state, newState) {
 			return initialState, nil
 		}
@@ -507,10 +506,8 @@ func TestInMemoryRegistry_Apply_Rollback_Success(t *testing.T) {
 		return
 	}
 
-	expectedErrorMsg := "failed to save new version, recovered: history error"
-	if err.Error() != expectedErrorMsg {
-		t.Errorf("Expected error message: '%v', got: '%v'", expectedErrorMsg, err.Error())
-	}
+	assert.Contains(t, err.Error(), "failed to save new version")
+	assert.Contains(t, err.Error(), "history error")
 
 	// Verify that the state has been rolled back to the initial state
 	if !reflect.DeepEqual(reg.state, initialState) {
@@ -548,7 +545,7 @@ func TestInMemoryRegistry_Apply_Rollback_Failure(t *testing.T) {
 
 	changes := registry.ChangeSet{
 		{
-			Kind: registry.Create,
+			Kind: registry.EntryCreate,
 			Entry: registry.Entry{
 				ID:   registry.NewID("", "/new-entry"),
 				Kind: "test",
@@ -568,7 +565,7 @@ func TestInMemoryRegistry_Apply_Rollback_Failure(t *testing.T) {
 		}
 
 		// Handle rollback failure - expects a Delete of the newly created entry
-		if len(cs) == 1 && cs[0].Kind == registry.Delete && cs[0].Entry.ID.Name == "/new-entry" &&
+		if len(cs) == 1 && cs[0].Kind == registry.EntryDelete && cs[0].Entry.ID.Name == "/new-entry" &&
 			reflect.DeepEqual(state, newState) {
 			return state, rollbackErr
 		}
@@ -582,10 +579,13 @@ func TestInMemoryRegistry_Apply_Rollback_Failure(t *testing.T) {
 		return
 	}
 
-	expectedErrorMsg := fmt.Sprintf("failed to save new version, rollback failed: %v: history error", rollbackErr)
-	if err.Error() != expectedErrorMsg {
-		t.Errorf("Expected error message: '%v', got: '%v'", expectedErrorMsg, err.Error())
-	}
+	assert.Contains(t, err.Error(), "failed to save new version")
+	assert.Contains(t, err.Error(), "history error")
+	apiErr, ok := err.(apierror.Error)
+	require.True(t, ok)
+	details := apiErr.Details()
+	rollbackDetail, _ := details.Get("rollback_error")
+	assert.Equal(t, rollbackErr.Error(), rollbackDetail)
 
 	// Verify that the state is NOT rolled back (it's in the intermediate state)
 	if reflect.DeepEqual(reg.state, initialState) {
@@ -665,9 +665,9 @@ data:
 		newState := state
 		for _, change := range changes {
 			switch change.Kind {
-			case registry.Create:
+			case registry.EntryCreate:
 				newState = append(newState, change.Entry)
-			case registry.Update:
+			case registry.EntryUpdate:
 				found := false
 				for i, entry := range newState {
 					if entry.ID == change.Entry.ID {
@@ -679,7 +679,7 @@ data:
 				if !found {
 					return state, fmt.Errorf("entry not found for update: %s", change.Entry.ID)
 				}
-			case registry.Delete:
+			case registry.EntryDelete:
 				for i, entry := range newState {
 					if entry.ID == change.Entry.ID {
 						newState = append(newState[:i], newState[i+1:]...)
@@ -905,7 +905,7 @@ func TestRegistry_WithNilHistory(t *testing.T) {
 	// Apply changes
 	changes := registry.ChangeSet{
 		{
-			Kind: registry.Create,
+			Kind: registry.EntryCreate,
 			Entry: registry.Entry{
 				ID:   registry.NewID("", "/test"),
 				Kind: "test",
@@ -985,7 +985,7 @@ func TestRegistry_NilHistoryForwardOnly(t *testing.T) {
 	for i := 1; i <= 5; i++ {
 		changes := registry.ChangeSet{
 			{
-				Kind: registry.Create,
+				Kind: registry.EntryCreate,
 				Entry: registry.Entry{
 					ID:   registry.ID{Name: fmt.Sprintf("/entry-%d", i)},
 					Kind: "test",
@@ -1112,7 +1112,7 @@ func TestInMemoryRegistry_RollbackPartialState(t *testing.T) {
 
 	changes := registry.ChangeSet{
 		{
-			Kind: registry.Create,
+			Kind: registry.EntryCreate,
 			Entry: registry.Entry{
 				ID:   registry.NewID("", "/new"),
 				Kind: "test",
@@ -1148,9 +1148,11 @@ func TestInMemoryRegistry_RollbackPartialState(t *testing.T) {
 		t.Fatal("Expected error, got nil")
 	}
 
-	if !strings.Contains(err.Error(), "rollback") {
-		t.Errorf("Expected error to mention rollback, got: %v", err)
-	}
+	assert.Contains(t, err.Error(), "failed to save new version")
+	apiErr, ok := err.(apierror.Error)
+	require.True(t, ok)
+	rollbackDetail, _ := apiErr.Details().Get("rollback_error")
+	assert.Equal(t, "rollback partial failure", rollbackDetail)
 
 	// Verify state is set to partial rollback state (line 149 in registry.go)
 	if len(reg.state) != 2 {
@@ -1175,16 +1177,25 @@ func TestErrorConstructors(t *testing.T) {
 	t.Run("NewComputePathError", func(t *testing.T) {
 		cause := errors.New("path computation failed")
 		err := NewComputePathError(1, 5, cause)
-		assert.Contains(t, err.Error(), "v1")
-		assert.Contains(t, err.Error(), "v5")
+		assert.Contains(t, err.Error(), "failed to compute version path")
 		assert.Equal(t, cause, errors.Unwrap(err))
+		fromVersion, _ := err.Details().Get("from_version")
+		assert.Equal(t, uint(1), fromVersion)
+		toVersion, _ := err.Details().Get("to_version")
+		assert.Equal(t, uint(5), toVersion)
+		detailCause, _ := err.Details().Get("cause")
+		assert.Equal(t, "path computation failed", detailCause)
 	})
 
 	t.Run("NewGetChangesetError", func(t *testing.T) {
 		cause := errors.New("changeset fetch failed")
 		err := NewGetChangesetError(10, cause)
-		assert.Contains(t, err.Error(), "v10")
+		assert.Contains(t, err.Error(), "failed to get changeset")
 		assert.Equal(t, cause, errors.Unwrap(err))
+		versionID, _ := err.Details().Get("version_id")
+		assert.Equal(t, uint(10), versionID)
+		detailCause, _ := err.Details().Get("cause")
+		assert.Equal(t, "changeset fetch failed", detailCause)
 	})
 
 	t.Run("NewReverseChangesetError", func(t *testing.T) {
@@ -1192,6 +1203,8 @@ func TestErrorConstructors(t *testing.T) {
 		err := NewReverseChangesetError(cause)
 		assert.Contains(t, err.Error(), "reverse")
 		assert.Equal(t, cause, errors.Unwrap(err))
+		detailCause, _ := err.Details().Get("cause")
+		assert.Equal(t, "reversal failed", detailCause)
 	})
 
 	t.Run("NewApplyVersionChangesError", func(t *testing.T) {
@@ -1199,17 +1212,25 @@ func TestErrorConstructors(t *testing.T) {
 		err := NewApplyVersionChangesError(cause, nil)
 		assert.Contains(t, err.Error(), "apply version changes")
 		assert.Equal(t, cause, errors.Unwrap(err))
+		detailCause, _ := err.Details().Get("cause")
+		assert.Equal(t, "apply failed", detailCause)
 
 		rollbackErr := errors.New("rollback failed")
 		err = NewApplyVersionChangesError(cause, rollbackErr)
-		assert.Contains(t, err.Error(), "rollback")
+		assert.Contains(t, err.Error(), "apply version changes")
+		rollbackDetail, _ := err.Details().Get("rollback_error")
+		assert.Equal(t, "rollback failed", rollbackDetail)
 	})
 
 	t.Run("NewSetHeadError", func(t *testing.T) {
 		cause := errors.New("set head failed")
 		err := NewSetHeadError(7, cause)
-		assert.Contains(t, err.Error(), "7")
+		assert.Contains(t, err.Error(), "failed to set head version")
 		assert.Equal(t, cause, errors.Unwrap(err))
+		versionID, _ := err.Details().Get("version_id")
+		assert.Equal(t, uint(7), versionID)
+		detailCause, _ := err.Details().Get("cause")
+		assert.Equal(t, "set head failed", detailCause)
 	})
 
 	t.Run("NewLoadStateError", func(t *testing.T) {
@@ -1217,10 +1238,14 @@ func TestErrorConstructors(t *testing.T) {
 		err := NewLoadStateError(cause, nil)
 		assert.Contains(t, err.Error(), "load state")
 		assert.Equal(t, cause, errors.Unwrap(err))
+		detailCause, _ := err.Details().Get("cause")
+		assert.Equal(t, "load failed", detailCause)
 
 		rollbackErr := errors.New("rollback failed")
 		err = NewLoadStateError(cause, rollbackErr)
-		assert.Contains(t, err.Error(), "rollback")
+		assert.Contains(t, err.Error(), "load state")
+		rollbackDetail, _ := err.Details().Get("rollback_error")
+		assert.Equal(t, "rollback failed", rollbackDetail)
 	})
 
 	t.Run("NewComputeTransitionError", func(t *testing.T) {
@@ -1250,7 +1275,7 @@ func TestEnrichChangeset(t *testing.T) {
 		}
 
 		changes := registry.ChangeSet{
-			{Kind: registry.Create, Entry: entry2},
+			{Kind: registry.EntryCreate, Entry: entry2},
 		}
 
 		enriched := reg.enrichChangeset(changes)
@@ -1269,7 +1294,7 @@ func TestEnrichChangeset(t *testing.T) {
 		updatedEntry.Data = payload.NewString("updated")
 
 		changes := registry.ChangeSet{
-			{Kind: registry.Update, Entry: updatedEntry},
+			{Kind: registry.EntryUpdate, Entry: updatedEntry},
 		}
 
 		enriched := reg.enrichChangeset(changes)
@@ -1287,7 +1312,7 @@ func TestEnrichChangeset(t *testing.T) {
 		}
 
 		changes := registry.ChangeSet{
-			{Kind: registry.Delete, Entry: entry1},
+			{Kind: registry.EntryDelete, Entry: entry1},
 		}
 
 		enriched := reg.enrichChangeset(changes)
@@ -1304,7 +1329,7 @@ func TestEnrichChangeset(t *testing.T) {
 		}
 
 		changes := registry.ChangeSet{
-			{Kind: registry.Update, Entry: entry2}, // entry2 not in state
+			{Kind: registry.EntryUpdate, Entry: entry2}, // entry2 not in state
 		}
 
 		enriched := reg.enrichChangeset(changes)
@@ -1320,7 +1345,7 @@ func TestEnrichChangeset(t *testing.T) {
 		}
 
 		changes := registry.ChangeSet{
-			{Kind: registry.Delete, Entry: entry2}, // entry2 not in state
+			{Kind: registry.EntryDelete, Entry: entry2}, // entry2 not in state
 		}
 
 		enriched := reg.enrichChangeset(changes)
@@ -1344,9 +1369,9 @@ func TestEnrichChangeset(t *testing.T) {
 		updatedEntry.Data = payload.NewString("updated")
 
 		changes := registry.ChangeSet{
-			{Kind: registry.Create, Entry: newEntry},
-			{Kind: registry.Update, Entry: updatedEntry},
-			{Kind: registry.Delete, Entry: entry2},
+			{Kind: registry.EntryCreate, Entry: newEntry},
+			{Kind: registry.EntryUpdate, Entry: updatedEntry},
+			{Kind: registry.EntryDelete, Entry: entry2},
 		}
 
 		enriched := reg.enrichChangeset(changes)
@@ -1420,10 +1445,10 @@ func TestCollectBackwardChangesets(t *testing.T) {
 		hist := historymem.New()
 		_ = hist.Save(v0, registry.ChangeSet{}, true)
 		_ = hist.Save(v1, registry.ChangeSet{
-			{Kind: registry.Create, Entry: entry},
+			{Kind: registry.EntryCreate, Entry: entry},
 		}, false)
 		_ = hist.Save(v2, registry.ChangeSet{
-			{Kind: registry.Update, Entry: entry, OriginalEntry: &entry},
+			{Kind: registry.EntryUpdate, Entry: entry, OriginalEntry: &entry},
 		}, false)
 
 		runner := NewMockRunner()

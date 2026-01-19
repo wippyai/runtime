@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
@@ -60,6 +61,16 @@ func (f *mockFactory) CreateExecutor(_ registry.ID, _ *exec.DockerExecutorConfig
 	return &mockExecutor{}, nil
 }
 
+func requireAPIError(t *testing.T, err error, kind apierror.Kind, msg string) apierror.Error {
+	t.Helper()
+	require.Error(t, err)
+	apiErr, ok := err.(apierror.Error)
+	require.Truef(t, ok, "expected apierror.Error, got %T", err)
+	assert.Equal(t, kind, apiErr.Kind())
+	assert.Contains(t, err.Error(), msg)
+	return apiErr
+}
+
 func TestManager_Add(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 	ctx = payload.WithTranscoder(ctx, &mockTranscoder{})
@@ -108,8 +119,8 @@ func TestManager_Add_DuplicateExecutor(t *testing.T) {
 	require.NoError(t, err)
 
 	err = manager.Add(ctx, entry)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "already exists")
+	apiErr := requireAPIError(t, err, apierror.AlreadyExists, "executor already exists")
+	assert.Equal(t, entry.ID.String(), apiErr.Details().GetString("executor_id", ""))
 }
 
 func TestManager_Add_InvalidKind(t *testing.T) {
@@ -126,8 +137,8 @@ func TestManager_Add_InvalidKind(t *testing.T) {
 	}
 
 	err := manager.Add(ctx, entry)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported entry kind")
+	apiErr := requireAPIError(t, err, apierror.Invalid, "unsupported entry kind")
+	assert.Equal(t, "invalid.kind", apiErr.Details().GetString("kind", ""))
 }
 
 func TestManager_Add_FactoryError(t *testing.T) {
@@ -149,8 +160,8 @@ func TestManager_Add_FactoryError(t *testing.T) {
 	}
 
 	err := manager.Add(ctx, entry)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to create executor")
+	apiErr := requireAPIError(t, err, apierror.Internal, "failed to create executor")
+	assert.NotEmpty(t, apiErr.Details().GetString("cause", ""))
 }
 
 func TestManager_Update(t *testing.T) {
@@ -210,8 +221,8 @@ func TestManager_Update_ExecutorNotFound(t *testing.T) {
 	}
 
 	err := manager.Update(ctx, entry)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
+	apiErr := requireAPIError(t, err, apierror.NotFound, "executor not found")
+	assert.Equal(t, entry.ID.String(), apiErr.Details().GetString("executor_id", ""))
 }
 
 func TestManager_Update_InvalidKind(t *testing.T) {
@@ -228,8 +239,8 @@ func TestManager_Update_InvalidKind(t *testing.T) {
 	}
 
 	err := manager.Update(ctx, entry)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported entry kind")
+	apiErr := requireAPIError(t, err, apierror.Invalid, "unsupported entry kind")
+	assert.Equal(t, "invalid.kind", apiErr.Details().GetString("kind", ""))
 }
 
 func TestManager_Delete(t *testing.T) {
@@ -274,8 +285,8 @@ func TestManager_Delete_ExecutorNotFound(t *testing.T) {
 	}
 
 	err := manager.Delete(ctx, entry)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
+	apiErr := requireAPIError(t, err, apierror.NotFound, "executor not found")
+	assert.Equal(t, entry.ID.String(), apiErr.Details().GetString("executor_id", ""))
 }
 
 func TestManager_Delete_InvalidKind(t *testing.T) {
@@ -292,8 +303,8 @@ func TestManager_Delete_InvalidKind(t *testing.T) {
 	}
 
 	err := manager.Delete(ctx, entry)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported entry kind")
+	apiErr := requireAPIError(t, err, apierror.Invalid, "unsupported entry kind")
+	assert.Equal(t, "invalid.kind", apiErr.Details().GetString("kind", ""))
 }
 
 func TestExecutorProvider_Acquire(t *testing.T) {

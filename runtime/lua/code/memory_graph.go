@@ -11,7 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	runtime "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/internal/graph"
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/io"
 )
 
 type (
@@ -29,7 +29,7 @@ type (
 		Source   string
 		Method   string
 		Module   *runtime.ModuleDef
-		Manifest *types.TypeManifest // Type information from type checking
+		Manifest *io.Manifest // Type information from type checking
 	}
 
 	Preload struct {

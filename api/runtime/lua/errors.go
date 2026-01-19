@@ -28,24 +28,17 @@ var (
 	ErrTaskNotFound = apierror.New(apierror.NotFound, "task not found").WithRetryable(apierror.False)
 
 	ErrNoScriptOrProto = apierror.New(apierror.Invalid, "no script or proto provided").WithRetryable(apierror.False)
+
+	ErrInvalidPoolSize = apierror.New(apierror.Invalid, "pool.size must be greater than 0 for non-flex pools").WithRetryable(apierror.False)
+
+	ErrInvalidWorkerPoolSize = apierror.New(apierror.Invalid, "pool.size must be greater than 0 for worker pools").WithRetryable(apierror.False)
+
+	ErrEmptyImportName = apierror.New(apierror.Invalid, "import :name cannot be empty").WithRetryable(apierror.False)
+
+	ErrModuleNamespace = apierror.New(apierror.Invalid, "module cannot have a namespace").WithRetryable(apierror.False)
 )
 
-func NewInvalidPoolSizeError() apierror.Error {
-	return apierror.New(apierror.Invalid, "pool.size must be greater than 0 for non-flex pools").WithRetryable(apierror.False)
-}
-
-func NewInvalidWorkerPoolSizeError() apierror.Error {
-	return apierror.New(apierror.Invalid, "pool.size must be greater than 0 for worker pools").WithRetryable(apierror.False)
-}
-
-func NewEmptyImportNameError() apierror.Error {
-	return apierror.New(apierror.Invalid, "import :name cannot be empty").WithRetryable(apierror.False)
-}
-
-func NewModuleNamespaceError() apierror.Error {
-	return apierror.New(apierror.Invalid, "module cannot have a namespace").WithRetryable(apierror.False)
-}
-
+// DeadlockError indicates that all Lua coroutines are blocked.
 type DeadlockError struct {
 	ThreadCount int
 	Message     string

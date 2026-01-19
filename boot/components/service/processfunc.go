@@ -10,6 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
 	bootpkg "github.com/wippyai/runtime/boot"
+	"github.com/wippyai/runtime/boot/components/core"
 	"github.com/wippyai/runtime/boot/components/system"
 	"github.com/wippyai/runtime/service/processfunc"
 )
@@ -19,7 +20,7 @@ import (
 func ProcessFunc() boot.Component {
 	return boot.New(boot.P{
 		Name:      ProcessFuncName,
-		DependsOn: []boot.Name{system.FunctionsName, system.TopologyName, system.ProcessManagerName},
+		DependsOn: []boot.Name{core.PIDGenName, system.FunctionsName, system.TopologyName, system.ProcessManagerName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			if logger == nil {
@@ -56,8 +57,9 @@ func ProcessFunc() boot.Component {
 				return ctx, ErrHandlerRegistryNotAvailable
 			}
 
+			pfLogger := logger.Named("processfunc")
 			listener := processfunc.NewListener(
-				logger.Named("processfunc"),
+				pfLogger,
 				bus,
 				pidGen,
 				node,
@@ -65,10 +67,8 @@ func ProcessFunc() boot.Component {
 				manager,
 			)
 
-			// Register as observer - pfunc is secondary, should not send Accept/Reject
 			handlers.RegisterObserver("process.*", listener)
-
-			logger.Named("processfunc").Info("bridge registered")
+			pfLogger.Info("bridge registered")
 			return ctx, nil
 		},
 	})

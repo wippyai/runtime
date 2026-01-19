@@ -7,22 +7,13 @@ import (
 
 // NewConfigDataRequiredError creates an error when configuration data is missing
 func NewConfigDataRequiredError() apierror.Error {
-	return apierror.E(
-		apierror.Invalid,
-		"configuration data is required for create/update operations",
-		apierror.False,
-		nil,
-		nil,
-	)
+	return apierror.New(apierror.Invalid, "configuration data is required for create/update operations").
+		WithRetryable(apierror.False)
 }
 
 // NewUnknownEventKindError creates an error for unknown event kind
 func NewUnknownEventKindError(kind string) apierror.Error {
-	return apierror.E(
-		apierror.Invalid,
-		"unknown event kind: "+kind,
-		apierror.False,
-		attrs.NewBagFrom(map[string]any{"event_kind": kind}),
-		nil,
-	)
+	return apierror.New(apierror.Invalid, "unknown event kind: "+kind).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"event_kind": kind}))
 }

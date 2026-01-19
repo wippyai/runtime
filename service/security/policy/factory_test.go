@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	policyapi "github.com/wippyai/runtime/api/service/security/policy"
@@ -105,8 +106,8 @@ func TestDefaultFactory_UnsupportedKind(t *testing.T) {
 	}
 
 	policyEntry, err := factory.CreatePolicyEntry(ctx, entry)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported policy kind")
+	apiErr := requireAPIError(t, err, apierror.Invalid, "unsupported policy kind")
+	assertDetailString(t, apiErr, "kind", "unsupported.kind")
 	assert.Nil(t, policyEntry)
 }
 
@@ -155,8 +156,8 @@ func TestDefaultFactory_InvalidExprPolicyConfig(t *testing.T) {
 	}
 
 	policyEntry, err := factory.CreatePolicyEntry(ctx, entry)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to decode expr policy config")
+	apiErr := requireAPIError(t, err, apierror.Invalid, "failed to decode expr policy config")
+	assert.Contains(t, apiErr.Details().GetString("cause", ""), policyapi.ErrExpressionEmpty.Error())
 	assert.Nil(t, policyEntry)
 }
 

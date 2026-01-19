@@ -42,7 +42,7 @@ arr:
 
     -- Invalid input type error (use any for runtime validation test)
     local bad_input: any = 123
-    local _, err1 = yaml.decode(bad_input)
+    local _, err1 = yaml.decode(bad_input :: string)
     assert.not_nil(err1, "non-string input should error")
     assert.eq(err1:kind(), errors.INVALID, "invalid input error kind")
     assert.eq(err1:retryable(), false, "invalid input not retryable")

@@ -27,20 +27,24 @@ type Set struct {
 
 // NewSet creates a new template set with the given configuration
 func NewSet(id registry.ID, config *templateapi.SetConfig, dtt payload.Transcoder) (*Set, error) {
+	if config == nil {
+		config = &templateapi.SetConfig{}
+	}
 	// Create a loader for in-memory templates
 	loader := jet.NewInMemLoader()
 
 	// Prepare options for the Jet set
 	var options []jet.Option
 
-	if config.Engine.DevelopmentMode {
+	engine := config.Engine
+	if engine.DevelopmentMode {
 		options = append(options, jet.InDevelopmentMode())
 	}
 
-	if config.Engine.Delimiters.Left != "" && config.Engine.Delimiters.Right != "" {
+	if engine.Delimiters.Left != "" && engine.Delimiters.Right != "" {
 		options = append(options, jet.WithDelims(
-			config.Engine.Delimiters.Left,
-			config.Engine.Delimiters.Right,
+			engine.Delimiters.Left,
+			engine.Delimiters.Right,
 		))
 	}
 
@@ -48,7 +52,7 @@ func NewSet(id registry.ID, config *templateapi.SetConfig, dtt payload.Transcode
 	jetSet := jet.NewSet(loader, options...)
 
 	// Add globals
-	for key, value := range config.Engine.Globals {
+	for key, value := range engine.Globals {
 		jetSet.AddGlobal(key, value)
 	}
 

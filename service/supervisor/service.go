@@ -15,7 +15,6 @@ import (
 	supervisorapi "github.com/wippyai/runtime/api/service/supervisor"
 	"github.com/wippyai/runtime/api/supervisor"
 	topologyapi "github.com/wippyai/runtime/api/topology"
-	"github.com/wippyai/runtime/internal/uniqid"
 )
 
 // Service represents a running process service instance managed by supervisor.
@@ -23,7 +22,7 @@ import (
 type Service struct {
 	id            registry.ID
 	config        supervisorapi.ServiceConfig
-	pidGen        *uniqid.PIDGenerator
+	pidGen        processapi.PIDGenerator
 	supervisorPID pid.PID
 	childPID      pid.PID
 	statusCh      chan any
@@ -31,7 +30,7 @@ type Service struct {
 }
 
 // NewService creates a new process service instance.
-func NewService(id registry.ID, config supervisorapi.ServiceConfig, pidGen *uniqid.PIDGenerator) *Service {
+func NewService(id registry.ID, config supervisorapi.ServiceConfig, pidGen processapi.PIDGenerator) *Service {
 	return &Service{
 		id:     id,
 		config: config,

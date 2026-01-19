@@ -1,30 +1,39 @@
 package template
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	typio "github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
 // Set type
-var setType = &types.InterfaceType{
-	Name: "template.Set",
-	Methods: map[string]*types.FunctionType{
-		"render":  types.NewFunction([]types.Type{types.Self, types.String, types.Optional(types.Any)}, []types.Type{types.String, types.Optional(types.LuaError)}),
-		"release": types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean}),
+var setType = typ.NewInterface("template.Set", []typ.Method{
+	{
+		Name: "render",
+		Type: typ.Func().
+			Param("self", typ.Self).
+			Param("name", typ.String).
+			OptParam("data", typ.Any).
+			Returns(typ.String, typ.NewOptional(typ.LuaError)).
+			Build(),
 	},
-}
+	{
+		Name: "release",
+		Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean).Build(),
+	},
+})
 
 // ModuleTypes returns the type manifest for the template module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("templates")
+func ModuleTypes() *typio.Manifest {
+	m := typio.NewManifest("templates")
 
 	m.DefineType("Set", setType)
 
-	moduleType := &types.InterfaceType{
-		Name: "templates",
-		Methods: map[string]*types.FunctionType{
-			"get": types.NewFunction([]types.Type{types.String}, []types.Type{setType, types.Optional(types.LuaError)}),
+	moduleType := typ.NewInterface("templates", []typ.Method{
+		{
+			Name: "get",
+			Type: typ.Func().Param("name", typ.String).Returns(setType, typ.NewOptional(typ.LuaError)).Build(),
 		},
-	}
+	})
 
 	m.SetExport(moduleType)
 	return m

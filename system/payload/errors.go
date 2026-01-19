@@ -7,110 +7,74 @@ import (
 
 // NewNoTranscodingPathError creates an error when no transcoding path is found.
 func NewNoTranscodingPathError(from, to string) apierror.Error {
-	return apierror.E(
-		apierror.NotFound,
-		"no transcoding path found from "+from+" to "+to,
-		apierror.False,
-		attrs.NewBagFrom(map[string]any{"from": from, "to": to}),
-		nil,
-	)
+	return apierror.New(apierror.NotFound, "no transcoding path found").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"from": from, "to": to}))
 }
 
 // NewNoTranscoderError creates an error when no transcoder is registered.
 func NewNoTranscoderError(from, to string) apierror.Error {
-	return apierror.E(
-		apierror.NotFound,
-		"no transcoder registered for "+from+" to "+to,
-		apierror.False,
-		attrs.NewBagFrom(map[string]any{"from": from, "to": to}),
-		nil,
-	)
+	return apierror.New(apierror.NotFound, "no transcoder registered").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"from": from, "to": to}))
 }
 
 // NewNoUnmarshalPathError creates an error when no unmarshal path is found.
 func NewNoUnmarshalPathError(format string) apierror.Error {
-	return apierror.E(
-		apierror.NotFound,
-		"no unmarshaling path found for format "+format,
-		apierror.False,
-		attrs.NewBagFrom(map[string]any{"format": format}),
-		nil,
-	)
+	return apierror.New(apierror.NotFound, "no unmarshaling path found").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"format": format}))
 }
 
 // NewInvalidFormatError creates an error for invalid format input during transcoding.
 func NewInvalidFormatError(direction string, expected, got string) apierror.Error {
-	return apierror.E(
-		apierror.Invalid,
-		direction+" can only transcode from "+expected+" format, got "+got,
-		apierror.False,
-		attrs.NewBagFrom(map[string]any{"direction": direction, "expected": expected, "got": got}),
-		nil,
-	)
+	return apierror.New(apierror.Invalid, "invalid format for "+direction).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"direction": direction, "expected": expected, "got": got}))
 }
 
 // NewInvalidDataTypeError creates an error for unsupported data types.
 func NewInvalidDataTypeError(direction string, expected string, dataType string) apierror.Error {
-	return apierror.E(
-		apierror.Invalid,
-		direction+" can only handle "+expected+", got "+dataType,
-		apierror.False,
-		attrs.NewBagFrom(map[string]any{"direction": direction, "expected": expected, "data_type": dataType}),
-		nil,
-	)
+	return apierror.New(apierror.Invalid, "invalid data type for "+direction).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"direction": direction, "expected": expected, "data_type": dataType}))
 }
 
 // NewUnmarshalError creates an error when unmarshaling fails.
 func NewUnmarshalError(format string, err error) apierror.Error {
-	return apierror.E(
-		apierror.Invalid,
-		"failed to unmarshal "+format+": "+err.Error(),
-		apierror.False,
-		attrs.NewBagFrom(map[string]any{"format": format, "cause": err.Error()}),
-		err,
-	)
+	return apierror.New(apierror.Invalid, "failed to unmarshal payload").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"format": format, "cause": err.Error()})).
+		WithCause(err)
 }
 
 // NewTranscodeError creates an error when transcoding fails.
 func NewTranscodeError(from, to string, err error) apierror.Error {
-	return apierror.E(
-		apierror.Internal,
-		"error transcoding from "+from+" to "+to+": "+err.Error(),
-		apierror.False,
-		attrs.NewBagFrom(map[string]any{"from": from, "to": to, "cause": err.Error()}),
-		err,
-	)
+	return apierror.New(apierror.Internal, "error transcoding payload").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"from": from, "to": to, "cause": err.Error()})).
+		WithCause(err)
 }
 
 // NewUnmarshalTranscodeError creates an error when transcoding for unmarshal fails.
 func NewUnmarshalTranscodeError(err error) apierror.Error {
-	return apierror.E(
-		apierror.Internal,
-		"error transcoding payload for unmarshaling: "+err.Error(),
-		apierror.False,
-		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
-		err,
-	)
+	return apierror.New(apierror.Internal, "error transcoding payload for unmarshaling").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
+		WithCause(err)
 }
 
 // NewUnmarshalerNotFoundError creates an error when unmarshaler is not found after path resolution.
 func NewUnmarshalerNotFoundError(format string) apierror.Error {
-	return apierror.E(
-		apierror.Internal,
-		"unmarshaler not found for format "+format+", even though a path was found",
-		apierror.False,
-		attrs.NewBagFrom(map[string]any{"format": format}),
-		nil,
-	)
+	return apierror.New(apierror.Internal, "unmarshaler not found").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"format": format}))
 }
 
 // NewMarshalError creates an error when marshaling fails.
 func NewMarshalError(format string, err error) apierror.Error {
-	return apierror.E(
-		apierror.Internal,
-		"failed to marshal to "+format+": "+err.Error(),
-		apierror.False,
-		attrs.NewBagFrom(map[string]any{"format": format, "cause": err.Error()}),
-		err,
-	)
+	return apierror.New(apierror.Internal, "failed to marshal payload").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"format": format, "cause": err.Error()})).
+		WithCause(err)
 }

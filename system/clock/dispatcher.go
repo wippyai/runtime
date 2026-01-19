@@ -18,6 +18,10 @@ type Dispatcher struct {
 	tickers *tickerRegistry
 }
 
+func shouldIgnoreDuration(d time.Duration) bool {
+	return d <= 0
+}
+
 // NewDispatcher creates a clock dispatcher.
 func NewDispatcher() *Dispatcher {
 	return &Dispatcher{
@@ -55,7 +59,7 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 
 func (d *Dispatcher) handleSleep(_ context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	c := cmd.(clockapi.SleepCmd)
-	if c.Duration <= 0 {
+	if shouldIgnoreDuration(c.Duration) {
 		receiver.CompleteYield(tag, nil, nil)
 		return nil
 	}
@@ -67,7 +71,7 @@ func (d *Dispatcher) handleSleep(_ context.Context, cmd dispatcher.Command, tag 
 
 func (d *Dispatcher) handleTickerStart(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	c := cmd.(clockapi.TickerStartCmd)
-	if c.Duration <= 0 {
+	if shouldIgnoreDuration(c.Duration) {
 		return nil
 	}
 
@@ -98,7 +102,7 @@ func (d *Dispatcher) handleTickerStop(_ context.Context, cmd dispatcher.Command,
 
 func (d *Dispatcher) handleTimerStart(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	c := cmd.(clockapi.TimerStartCmd)
-	if c.Duration <= 0 {
+	if shouldIgnoreDuration(c.Duration) {
 		return nil
 	}
 
@@ -108,10 +112,7 @@ func (d *Dispatcher) handleTimerStart(ctx context.Context, cmd dispatcher.Comman
 	}
 
 	id := d.timers.startWithCallback(c.Duration, func() {
-		t := time.Now()
-		p := payload.NewPayload(t.UnixNano(), payload.Golang)
-		pkg := relay.NewPackage(pid.PID{}, c.PID, c.Topic, p)
-		_ = node.Send(pkg)
+		sendTick(node, c.PID, c.Topic, time.Now())
 	})
 
 	receiver.CompleteYield(tag, clockapi.TimerStartResult{
@@ -153,7 +154,7 @@ func (d *Dispatcher) handleTimerStop(_ context.Context, cmd dispatcher.Command, 
 
 func (d *Dispatcher) handleTimerReset(_ context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	c := cmd.(clockapi.TimerResetCmd)
-	if c.Duration <= 0 {
+	if shouldIgnoreDuration(c.Duration) {
 		return nil
 	}
 	wasActive, err := d.timers.reset(c.TimerID, c.Duration)
@@ -163,6 +164,12 @@ func (d *Dispatcher) handleTimerReset(_ context.Context, cmd dispatcher.Command,
 	}
 	receiver.CompleteYield(tag, wasActive, nil)
 	return nil
+}
+
+func sendTick(node relay.Node, target pid.PID, topic string, at time.Time) {
+	p := payload.NewPayload(at.UnixNano(), payload.Golang)
+	pkg := relay.NewPackage(pid.PID{}, target, topic, p)
+	_ = node.Send(pkg)
 }
 
 // TickerCount returns the number of active tickers.

@@ -6,11 +6,11 @@ import (
 
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	supervisorapi "github.com/wippyai/runtime/api/service/supervisor"
 	"github.com/wippyai/runtime/api/supervisor"
 	entryutil "github.com/wippyai/runtime/internal/entry"
-	"github.com/wippyai/runtime/internal/uniqid"
 	"go.uber.org/zap"
 )
 
@@ -21,7 +21,7 @@ type Manager struct {
 	log      *zap.Logger
 	bus      event.Bus
 	dtt      payload.Transcoder
-	pidGen   *uniqid.PIDGenerator
+	pidGen   process.PIDGenerator
 	services sync.Map // map[registry.ID]*Service
 }
 
@@ -29,9 +29,12 @@ type Manager struct {
 func NewManager(
 	bus event.Bus,
 	dtt payload.Transcoder,
-	pidGen *uniqid.PIDGenerator,
+	pidGen process.PIDGenerator,
 	logger *zap.Logger,
 ) *Manager {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &Manager{
 		log:    logger,
 		bus:    bus,

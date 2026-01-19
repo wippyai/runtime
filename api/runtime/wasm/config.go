@@ -146,7 +146,7 @@ func validateBytecodeBase(fs, path, hash string) error {
 // validatePool validates pool configuration.
 func validatePool(p *PoolConfig) error {
 	if p.Size <= 0 && p.Type != PoolTypeInline && p.Type != PoolTypeLazy && p.Type != "" {
-		return NewInvalidPoolSizeError()
+		return ErrInvalidPoolSize
 	}
 	return nil
 }

@@ -1,6 +1,7 @@
 package entry
 
 import (
+	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
@@ -17,15 +18,27 @@ var (
 )
 
 func NewUnmarshalConfigError(cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, "failed to unmarshal config").WithCause(cause).WithRetryable(apierror.False)
+	apiErr := apierror.New(apierror.Invalid, "failed to unmarshal config").WithRetryable(apierror.False)
+	if cause != nil {
+		apiErr = apiErr.WithDetails(attrs.NewBagFrom(map[string]any{"cause": cause.Error()})).
+			WithCause(cause)
+	}
+	return apiErr
 }
 
 func NewInvalidConfigurationError(cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid configuration").WithCause(cause).WithRetryable(apierror.False)
+	apiErr := apierror.New(apierror.Invalid, "invalid configuration").WithRetryable(apierror.False)
+	if cause != nil {
+		apiErr = apiErr.WithDetails(attrs.NewBagFrom(map[string]any{"cause": cause.Error()})).
+			WithCause(cause)
+	}
+	return apiErr
 }
 
 func NewInvalidTargetError(target string) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid target: "+target).WithRetryable(apierror.False)
+	return apierror.New(apierror.Invalid, "invalid target: "+target).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"target": target}))
 }
 
 var (
@@ -39,9 +52,16 @@ var (
 )
 
 func NewTranscodeToGolangError(cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to transcode to golang").WithCause(cause).WithRetryable(apierror.False)
+	apiErr := apierror.New(apierror.Internal, "failed to transcode to golang").WithRetryable(apierror.False)
+	if cause != nil {
+		apiErr = apiErr.WithDetails(attrs.NewBagFrom(map[string]any{"cause": cause.Error()})).
+			WithCause(cause)
+	}
+	return apiErr
 }
 
 func NewCannotAppendToNonArrayError(path string) apierror.Error {
-	return apierror.New(apierror.Invalid, "cannot append to non-array at path: "+path).WithRetryable(apierror.False)
+	return apierror.New(apierror.Invalid, "cannot append to non-array at path: "+path).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"path": path}))
 }

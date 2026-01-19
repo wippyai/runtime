@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"testing"
 
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 )
 
@@ -159,9 +160,22 @@ func TestTranscoder_NoTranscodingPath(t *testing.T) {
 		t.Fatalf("Transcode should have failed")
 	}
 
-	expectedError := fmt.Sprintf("no transcoding path found from %s to %s", formatA, formatB)
+	expectedError := "no transcoding path found"
 	if err.Error() != expectedError {
 		t.Errorf("Expected error '%s', got '%s'", expectedError, err.Error())
+	}
+
+	apiErr, ok := err.(apierror.Error)
+	if !ok {
+		t.Fatalf("Expected apierror.Error, got %T", err)
+	}
+	from, _ := apiErr.Details().Get("from")
+	if from != formatA {
+		t.Errorf("Expected from %s, got %v", formatA, from)
+	}
+	to, _ := apiErr.Details().Get("to")
+	if to != formatB {
+		t.Errorf("Expected to %s, got %v", formatB, to)
 	}
 }
 
@@ -184,9 +198,18 @@ func TestTranscoder_NoUnmarshalingPath(t *testing.T) {
 		t.Fatalf("Unmarshal should have failed")
 	}
 
-	expectedError := fmt.Sprintf("no unmarshaling path found for format %s", formatA)
+	expectedError := "no unmarshaling path found"
 	if err.Error() != expectedError {
 		t.Errorf("Expected error '%s', got '%s'", expectedError, err.Error())
+	}
+
+	apiErr, ok := err.(apierror.Error)
+	if !ok {
+		t.Fatalf("Expected apierror.Error, got %T", err)
+	}
+	format, _ := apiErr.Details().Get("format")
+	if format != formatA {
+		t.Errorf("Expected format %s, got %v", formatA, format)
 	}
 }
 

@@ -29,8 +29,8 @@ func TestEventConstants(t *testing.T) {
 		{"register binding", "", RegisterBinding, "contract.binding.register"},
 		{"update binding", "", UpdateBinding, "contract.binding.update"},
 		{"delete binding", "", DeleteBinding, "contract.binding.delete"},
-		{"accept", "", Accept, "contract.accept"},
-		{"reject", "", Reject, "contract.reject"},
+		{"accept", "", ContractAccept, "contract.accept"},
+		{"reject", "", ContractReject, "contract.reject"},
 	}
 
 	for _, tt := range tests {

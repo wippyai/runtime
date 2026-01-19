@@ -6,7 +6,7 @@ import (
 	"github.com/wippyai/runtime/api/event"
 
 	lua "github.com/yuin/gopher-lua"
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/io"
 )
 
 const (
@@ -80,7 +80,7 @@ type ModuleDef struct {
 	Class       []string
 	Build       func() (*lua.LTable, []YieldType)
 	BuildValue  func() (lua.LValue, []YieldType)
-	Types       func() *types.TypeManifest
+	Types       func() *io.Manifest
 }
 
 // Info returns module metadata.

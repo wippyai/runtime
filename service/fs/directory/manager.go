@@ -21,7 +21,7 @@ type Manager struct {
 	dtt         payload.Transcoder
 	factory     FactoryAPI
 	mu          sync.RWMutex
-	directories sync.Map // map[string]*FS
+	directories map[registry.ID]fsapi.FS
 }
 
 // NewDirectoryManager creates a new directory manager instance
@@ -29,11 +29,15 @@ func NewDirectoryManager(bus event.Bus, dtt payload.Transcoder, factory FactoryA
 	if factory == nil {
 		factory = NewFactory()
 	}
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &Manager{
-		log:     logger,
-		bus:     bus,
-		dtt:     dtt,
-		factory: factory,
+		log:         logger,
+		bus:         bus,
+		dtt:         dtt,
+		factory:     factory,
+		directories: make(map[registry.ID]fsapi.FS),
 	}
 }
 
@@ -52,11 +56,11 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	defer m.mu.Unlock()
 
 	// Store in directories map
-	if _, loaded := m.directories.LoadOrStore(entry.ID.String(), nil); loaded {
+	if _, exists := m.directories[entry.ID]; exists {
 		return systemfs.NewFilesystemAlreadyExistsError(entry.ID.String())
 	}
 
-	return m.registerFS(ctx, entry.ID, cfg)
+	return m.registerFSLocked(ctx, entry.ID, cfg)
 }
 
 // Update updates an existing directory filesystem
@@ -73,16 +77,16 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	old, exists := m.directories.Load(entry.ID.String())
+	old, exists := m.directories[entry.ID]
 	if !exists {
 		return systemfs.NewFilesystemNotFoundError(entry.ID.String())
 	}
 
-	if err := m.registerFS(ctx, entry.ID, cfg); err != nil {
+	if err := m.registerFSLocked(ctx, entry.ID, cfg); err != nil {
 		return err
 	}
 
-	if oldFS, ok := old.(*FS); ok && oldFS != nil {
+	if oldFS, ok := old.(interface{ Close() error }); ok && oldFS != nil {
 		if err := oldFS.Close(); err != nil {
 			m.log.Warn("failed to close old filesystem during update",
 				zap.String("id", entry.ID.String()),
@@ -104,16 +108,17 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	old, exists := m.directories.LoadAndDelete(entry.ID.String())
+	old, exists := m.directories[entry.ID]
 	if !exists {
+		m.mu.Unlock()
 		return systemfs.NewFilesystemNotFoundError(entry.ID.String())
 	}
+	delete(m.directories, entry.ID)
+	m.mu.Unlock()
 
 	m.removeFS(ctx, entry.ID)
 
-	if oldFS, ok := old.(*FS); ok && oldFS != nil {
+	if oldFS, ok := old.(interface{ Close() error }); ok && oldFS != nil {
 		if err := oldFS.Close(); err != nil {
 			m.log.Warn("failed to close old filesystem",
 				zap.String("id", entry.ID.String()),
@@ -127,6 +132,12 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 }
 
 func (m *Manager) registerFS(ctx context.Context, id registry.ID, cfg *dirapi.Config) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.registerFSLocked(ctx, id, cfg)
+}
+
+func (m *Manager) registerFSLocked(ctx context.Context, id registry.ID, cfg *dirapi.Config) error {
 	fs, err := m.factory.CreateFS(CreateFSConfig{
 		DirPath:  cfg.Directory,
 		Mode:     cfg.GetMode(),
@@ -141,12 +152,12 @@ func (m *Manager) registerFS(ctx context.Context, id registry.ID, cfg *dirapi.Co
 	}
 
 	// Store in directories map
-	m.directories.Store(id.String(), fs)
+	m.directories[id] = fs
 
 	// Register with filesystem registry
 	m.bus.Send(ctx, event.Event{
 		System: fsapi.System,
-		Kind:   fsapi.Register,
+		Kind:   fsapi.FsRegister,
 		Path:   id.String(),
 		Data:   fs,
 	})
@@ -163,13 +174,13 @@ func (m *Manager) removeFS(ctx context.Context, id registry.ID) {
 	m.log.Debug("sending filesystem deletion event",
 		zap.String("id", id.String()),
 		zap.String("system", fsapi.System),
-		zap.String("kind", fsapi.Delete),
+		zap.String("kind", fsapi.FsDelete),
 		zap.String("path", id.String()))
 
 	// Do regular registration
 	m.bus.Send(ctx, event.Event{
 		System: fsapi.System,
-		Kind:   fsapi.Delete,
+		Kind:   fsapi.FsDelete,
 		Path:   id.String(),
 	})
 }

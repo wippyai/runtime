@@ -24,21 +24,24 @@ func TestErrorConstructors(t *testing.T) {
 	t.Run("newRegisterPIDError", func(t *testing.T) {
 		err := newRegisterPIDError(cause)
 		assert.Equal(t, apierror.Internal, err.Kind())
-		assert.Contains(t, err.Error(), "register caller pid")
+		assert.Contains(t, err.Error(), "failed to register caller pid")
 		assert.True(t, errors.Is(err, cause))
+		assert.Equal(t, "cause", err.Details().GetString("cause", ""))
 	})
 
 	t.Run("newAttachRelayError", func(t *testing.T) {
 		err := newAttachRelayError(cause)
 		assert.Equal(t, apierror.Internal, err.Kind())
-		assert.Contains(t, err.Error(), "attach to relay")
+		assert.Contains(t, err.Error(), "failed to attach to relay")
 		assert.True(t, errors.Is(err, cause))
+		assert.Equal(t, "cause", err.Details().GetString("cause", ""))
 	})
 
 	t.Run("newStartProcessError", func(t *testing.T) {
 		err := newStartProcessError(cause)
 		assert.Equal(t, apierror.Internal, err.Kind())
-		assert.Contains(t, err.Error(), "start process")
+		assert.Contains(t, err.Error(), "failed to start process")
 		assert.True(t, errors.Is(err, cause))
+		assert.Equal(t, "cause", err.Details().GetString("cause", ""))
 	})
 }

@@ -29,6 +29,9 @@ type Service struct {
 
 // NewService creates a new OTEL service
 func NewService(cfg otelapi.Config, logger *zap.Logger, provider trace.TracerProvider) *Service {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	tracer := provider.Tracer("wippy-runtime")
 
 	return &Service{

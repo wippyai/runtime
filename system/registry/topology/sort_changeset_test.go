@@ -39,7 +39,7 @@ func (ot opTest) toOperation() registry.Operation {
 // Fluent builders for operations
 func createOp(ns, name string) *opBuilder {
 	return &opBuilder{
-		kind: registry.Create,
+		kind: registry.EntryCreate,
 		ns:   ns,
 		name: name,
 	}
@@ -47,7 +47,7 @@ func createOp(ns, name string) *opBuilder {
 
 func updateOp(ns, name string) *opBuilder {
 	return &opBuilder{
-		kind: registry.Update,
+		kind: registry.EntryUpdate,
 		ns:   ns,
 		name: name,
 	}
@@ -55,7 +55,7 @@ func updateOp(ns, name string) *opBuilder {
 
 func deleteOp(ns, name string) *opBuilder {
 	return &opBuilder{
-		kind: registry.Delete,
+		kind: registry.EntryDelete,
 		ns:   ns,
 		name: name,
 	}
@@ -154,15 +154,15 @@ func verifyOperationOrder(t *testing.T, sorted registry.ChangeSet, checks []stru
 	}
 
 	// Verify operation type ordering: Deletes before Creates/Updates
-	if deletePositions, hasDeletes := kindPosMap[registry.Delete]; hasDeletes {
-		if createPositions, hasCreates := kindPosMap[registry.Create]; hasCreates {
+	if deletePositions, hasDeletes := kindPosMap[registry.EntryDelete]; hasDeletes {
+		if createPositions, hasCreates := kindPosMap[registry.EntryCreate]; hasCreates {
 			lastDelete := deletePositions[len(deletePositions)-1]
 			firstCreate := createPositions[0]
 			if lastDelete > firstCreate {
 				t.Errorf("Operation type ordering violation: all deletes must come before creates")
 			}
 		}
-		if updatePositions, hasUpdates := kindPosMap[registry.Update]; hasUpdates {
+		if updatePositions, hasUpdates := kindPosMap[registry.EntryUpdate]; hasUpdates {
 			lastDelete := deletePositions[len(deletePositions)-1]
 			firstUpdate := updatePositions[0]
 			if lastDelete > firstUpdate {
@@ -361,7 +361,7 @@ func TestSortChangeSet_MixedOperations(t *testing.T) {
 		}
 
 		// First operation should be delete
-		if sorted[0].Kind != registry.Delete {
+		if sorted[0].Kind != registry.EntryDelete {
 			t.Errorf("expected first operation to be delete, got %s", sorted[0].Kind)
 		}
 	})

@@ -19,8 +19,13 @@ type Registry struct {
 	subscriber  *eventbus.Subscriber
 }
 
+const fsEventPattern = "fs.*"
+
 // NewRegistry creates a new filesystem registry instance.
 func NewRegistry(bus event.Bus, log *zap.Logger) *Registry {
+	if log == nil {
+		log = zap.NewNop()
+	}
 	return &Registry{
 		log: log,
 		bus: bus,
@@ -31,7 +36,7 @@ func NewRegistry(bus event.Bus, log *zap.Logger) *Registry {
 func (r *Registry) Start(ctx context.Context) error {
 	r.ctx = ctx
 
-	sub, err := eventbus.NewSubscriber(r.ctx, r.bus, fsapi.System, "fs.*", r.handleEvent)
+	sub, err := eventbus.NewSubscriber(r.ctx, r.bus, fsapi.System, fsEventPattern, r.handleEvent)
 	if err != nil {
 		return NewSubscriberError(err)
 	}
@@ -50,11 +55,11 @@ func (r *Registry) Stop() error {
 
 func (r *Registry) handleEvent(e event.Event) {
 	switch e.Kind {
-	case fsapi.Register:
+	case fsapi.FsRegister:
 		r.registerFS(e)
-	case fsapi.Delete:
+	case fsapi.FsDelete:
 		r.deleteFS(e)
-	case fsapi.Accept, fsapi.Reject:
+	case fsapi.FsAccept, fsapi.FsReject:
 		// nothing, self emitted
 	default:
 		r.log.Warn("unknown event kind",
@@ -93,7 +98,7 @@ func (r *Registry) deleteFS(e event.Event) {
 func (r *Registry) sendAccept(path event.Path) {
 	r.bus.Send(r.ctx, event.Event{
 		System: fsapi.System,
-		Kind:   fsapi.Accept,
+		Kind:   fsapi.FsAccept,
 		Path:   path,
 	})
 }
@@ -101,7 +106,7 @@ func (r *Registry) sendAccept(path event.Path) {
 func (r *Registry) sendReject(path event.Path, reason string) {
 	r.bus.Send(r.ctx, event.Event{
 		System: fsapi.System,
-		Kind:   fsapi.Reject,
+		Kind:   fsapi.FsReject,
 		Path:   path,
 		Data:   reason,
 	})

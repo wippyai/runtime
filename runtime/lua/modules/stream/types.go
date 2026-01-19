@@ -1,44 +1,37 @@
 package stream
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
-// Stream type
-var streamType = &types.InterfaceType{
-	Name: "stream.Stream",
-	Methods: map[string]*types.FunctionType{
-		"read":     types.NewFunction([]types.Type{types.Optional(types.Number)}, []types.Type{types.String, types.Optional(types.LuaError)}),
-		"read_all": types.NewFunction(nil, []types.Type{types.String, types.Optional(types.LuaError)}),
-		"write":    types.NewFunction([]types.Type{types.String}, []types.Type{types.Number, types.Optional(types.LuaError)}),
-		"seek":     types.NewFunction([]types.Type{types.String, types.Number}, []types.Type{types.Number, types.Optional(types.LuaError)}),
-		"flush":    types.NewFunction(nil, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-		"stat":     types.NewFunction(nil, []types.Type{types.Any, types.Optional(types.LuaError)}),
-		"close":    types.NewFunction(nil, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-		"scanner":  types.NewFunction([]types.Type{types.Optional(types.String)}, []types.Type{scannerType, types.Optional(types.LuaError)}),
-	},
-}
+// StreamType is exported for use by other modules (fs, http).
+var StreamType = typ.NewInterface("stream.Stream", []typ.Method{
+	{Name: "read", Type: typ.Func().Param("self", typ.Self).OptParam("n", typ.Number).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "read_all", Type: typ.Func().Param("self", typ.Self).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "write", Type: typ.Func().Param("self", typ.Self).Param("data", typ.String).Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "seek", Type: typ.Func().Param("self", typ.Self).OptParam("whence", typ.String).OptParam("offset", typ.Number).Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "flush", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "stat", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "close", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "scanner", Type: typ.Func().Param("self", typ.Self).OptParam("delim", typ.String).Returns(scannerType, typ.NewOptional(typ.LuaError)).Build()},
+})
 
 // Scanner type
-var scannerType = &types.InterfaceType{
-	Name: "stream.Scanner",
-	Methods: map[string]*types.FunctionType{
-		"scan": types.NewFunction(nil, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-		"text": types.NewFunction(nil, []types.Type{types.String}),
-		"err":  types.NewFunction(nil, []types.Type{types.Optional(types.LuaError)}),
-	},
-}
+var scannerType = typ.NewInterface("stream.Scanner", []typ.Method{
+	{Name: "scan", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "text", Type: typ.Func().Param("self", typ.Self).Returns(typ.String).Build()},
+	{Name: "err", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewOptional(typ.LuaError)).Build()},
+})
 
 // ModuleTypes returns the type manifest for the stream module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("stream")
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("stream")
 
-	m.DefineType("Stream", streamType)
+	m.DefineType("Stream", StreamType)
 	m.DefineType("Scanner", scannerType)
 
-	moduleType := &types.InterfaceType{
-		Name: "stream",
-	}
+	moduleType := typ.NewInterface("stream", []typ.Method{})
 
 	m.SetExport(moduleType)
 	return m

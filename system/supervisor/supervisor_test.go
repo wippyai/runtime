@@ -171,7 +171,7 @@ func (h *testSupervisorHarness) service(serviceID string) *testService {
 }
 
 func (h *testSupervisorHarness) registerServices(services map[string]bool) {
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 
 	for serviceID, autoStart := range services {
 		svc := h.service(serviceID)
@@ -194,7 +194,7 @@ func (h *testSupervisorHarness) registerServices(services map[string]bool) {
 		})
 	}
 
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
 }
 
 func (h *testSupervisorHarness) registerServiceWithDeps(serviceID string, autoStart bool, dependencies []string) {
@@ -341,9 +341,9 @@ func TestSupervisor_ServiceRemoval(t *testing.T) {
 	require.True(t, service.IsStarted(), "Topology should be started")
 
 	// Begin transaction and remove the service
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 	h.removeService("test-service")
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
 
 	// Verify service is stopped and removed
 	service.WaitForStop(t)
@@ -443,7 +443,7 @@ func TestSupervisor_ServiceFailureAndRetry(t *testing.T) {
 	var startAttempts int32
 	svc.startErr = fmt.Errorf("startup failure")
 
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 	h.sup.handleEvent(event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.ServiceRegister,
@@ -460,7 +460,7 @@ func TestSupervisor_ServiceFailureAndRetry(t *testing.T) {
 			},
 		},
 	})
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
 
 	// wait for retry attempts to complete
 	time.Sleep(500 * time.Millisecond)
@@ -487,7 +487,7 @@ func TestSupervisor_TransactionDiscard(t *testing.T) {
 	service1.WaitForStart(t)
 
 	// Begin transaction for changes
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 
 	// AddCleanup new service and remove existing one
 	svc2 := h.service("service-2")
@@ -503,7 +503,7 @@ func TestSupervisor_TransactionDiscard(t *testing.T) {
 	h.removeService("service-1")
 
 	// Discard transaction
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Discard})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxDiscard})
 
 	// Verify original state is maintained
 	time.Sleep(100 * time.Millisecond) // wait for event processing
@@ -518,10 +518,10 @@ func TestSupervisor_ConcurrentTransactions(t *testing.T) {
 	h.start(ctx)
 
 	// Launch first transaction
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 
 	// Attempt to start another transaction while first is open
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 
 	time.Sleep(100 * time.Millisecond) // wait for event processing
 
@@ -555,9 +555,9 @@ func TestSupervisor_RemoveRunningService(t *testing.T) {
 	service.stopDelay = 200 * time.Millisecond
 
 	// Done the running service
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 	h.removeService("running-service")
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
 
 	// Verify service is properly stopped and removed
 	service.WaitForStop(t)
@@ -684,7 +684,7 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 	// send registration events through the bus
 	h.sup.bus.Send(ctx, event.Event{
 		System: registry.System,
-		Kind:   registry.Begin,
+		Kind:   registry.TxBegin,
 	})
 
 	h.sup.bus.Send(ctx, event.Event{
@@ -707,7 +707,7 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 
 	h.sup.bus.Send(ctx, event.Event{
 		System: registry.System,
-		Kind:   registry.Commit,
+		Kind:   registry.TxCommit,
 	})
 
 	// wait for registration to be processed
@@ -754,7 +754,7 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 	// Done the service via bus event
 	h.sup.bus.Send(ctx, event.Event{
 		System: registry.System,
-		Kind:   registry.Begin,
+		Kind:   registry.TxBegin,
 	})
 
 	h.sup.bus.Send(ctx, event.Event{
@@ -765,7 +765,7 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 
 	h.sup.bus.Send(ctx, event.Event{
 		System: registry.System,
-		Kind:   registry.Commit,
+		Kind:   registry.TxCommit,
 	})
 
 	// wait for removal to be processed
@@ -854,7 +854,7 @@ func TestSupervisor_DependencyCycle(t *testing.T) {
 	h.start(ctx)
 
 	// Begin transaction
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 
 	// Register services with circular dependency
 	h.registerServiceWithDeps("service-a", true, []string{"service-b"})
@@ -862,7 +862,7 @@ func TestSupervisor_DependencyCycle(t *testing.T) {
 	h.registerServiceWithDeps("service-c", true, []string{"service-a"})
 
 	// Commit transaction
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
 
 	// Wait for initial processing
 	// Use context with timeout instead of time.Sleep to prevent test hanging
@@ -1002,11 +1002,11 @@ func TestSupervisor_DependencyOrdering(t *testing.T) {
 	h.start(ctx)
 
 	// Register services with dependencies: A -> B -> C
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 	h.registerServiceWithDeps("service-c", false, nil)                   // no deps
 	h.registerServiceWithDeps("service-b", false, []string{"service-c"}) // depends on C
 	h.registerServiceWithDeps("service-a", false, []string{"service-b"}) // depends on B
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
 
 	// Launch service A, which should trigger starting dependencies first
 	h.sup.handleEvent(event.Event{
@@ -1034,7 +1034,7 @@ func TestSupervisor_DependencyFailure(t *testing.T) {
 	svcB.startErr = errors.New("failed to start service B")
 
 	// Register services with dependencies: A -> B -> C
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 	h.registerServiceWithDeps("service-c", false, nil)
 	h.sup.handleEvent(event.Event{
 		System: supervisor.System,
@@ -1054,7 +1054,7 @@ func TestSupervisor_DependencyFailure(t *testing.T) {
 		},
 	})
 	h.registerServiceWithDeps("service-a", false, []string{"service-b"})
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
 
 	// Launch service A
 	h.sup.handleEvent(event.Event{
@@ -1090,11 +1090,11 @@ func TestSupervisor_ParallelDependencyStart(t *testing.T) {
 	svcC.startDelay = 200 * time.Millisecond
 
 	// Register services with parallel dependencies: A -> (B,C)
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 	h.registerServiceWithDeps("service-b", false, nil)
 	h.registerServiceWithDeps("service-c", false, nil)
 	h.registerServiceWithDeps("service-a", false, []string{"service-b", "service-c"})
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
 
 	startTime := time.Now()
 
@@ -1125,11 +1125,11 @@ func TestSupervisor_DependencyStopOrder(t *testing.T) {
 	h.start(ctx)
 
 	// Register services with dependencies: A -> B -> C
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 	h.registerServiceWithDeps("service-c", false, nil)
 	h.registerServiceWithDeps("service-b", false, []string{"service-c"})
 	h.registerServiceWithDeps("service-a", false, []string{"service-b"})
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
 
 	// Launch all services by starting A
 	h.sup.handleEvent(event.Event{
@@ -1168,9 +1168,9 @@ func TestSupervisor_MissingDependencies(t *testing.T) {
 	h.start(ctx)
 
 	// Register service A with missing dependency
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 	h.registerServiceWithDeps("service-a", false, []string{"missing-service"})
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
 
 	// Try to start service A
 	h.sup.handleEvent(event.Event{
@@ -1193,9 +1193,9 @@ func TestSupervisor_AddDependencyToExistingService(t *testing.T) {
 	h.start(ctx)
 
 	// First register service B (not autostarted)
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 	h.registerServiceWithDeps("service-b", false, nil)
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
 
 	// Wait for registration to complete and verify B is registered but not running
 	time.Sleep(100 * time.Millisecond)
@@ -1204,9 +1204,9 @@ func TestSupervisor_AddDependencyToExistingService(t *testing.T) {
 	require.Equal(t, supervisor.StatusUnknown, state.Status)
 
 	// Now register service A that depends on B
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 	h.registerServiceWithDeps("service-a", true, []string{"service-b"})
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
 
 	time.Sleep(200 * time.Millisecond)
 
@@ -1233,26 +1233,26 @@ func TestSupervisor_ComplexDependencyChain_WithPreexisting(t *testing.T) {
 	h.start(ctx)
 
 	// First register and start service-base
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 	h.registerServiceWithDeps("service-base", true, nil) // autostart true
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
 
 	time.Sleep(100 * time.Millisecond)
 	h.assertServiceState("service-base", supervisor.StatusRunning)
 
 	// Register service-middle that depends on service-base but don't autostart
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 	h.registerServiceWithDeps("service-middle", false, []string{"service-base"})
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
 
 	time.Sleep(100 * time.Millisecond)
 	h.assertServiceState("service-middle", supervisor.StatusUnknown) // Should not be started
 
 	// Now register service-top with autostart that depends on service-middle
 	// This should trigger starting both service-middle and service-top
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 	h.registerServiceWithDeps("service-top", true, []string{"service-middle"})
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -1307,10 +1307,10 @@ func TestSupervisor_WithoutDependencyResolver(t *testing.T) {
 	h.start(ctx)
 
 	// Register services with only lifecycle dependencies
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 	h.registerServiceWithDeps("service-b", false, nil)
 	h.registerServiceWithDeps("service-a", false, []string{"service-b"})
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
 
 	// Start service-a
 	h.sup.handleEvent(event.Event{

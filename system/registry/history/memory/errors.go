@@ -7,16 +7,12 @@ import (
 
 // ErrNoHeadVersion is a sentinel error
 var (
-	ErrNoHeadVersion = apierror.New(apierror.NotFound, "no head version set")
+	ErrNoHeadVersion = apierror.New(apierror.NotFound, "no head version set").WithRetryable(apierror.False)
 )
 
 // NewVersionNotFoundError creates an error when a version is not found
 func NewVersionNotFoundError(version string) apierror.Error {
-	return apierror.E(
-		apierror.NotFound,
-		"version not found: "+version,
-		apierror.False,
-		attrs.NewBagFrom(map[string]any{"version": version}),
-		nil,
-	)
+	return apierror.New(apierror.NotFound, "version not found: "+version).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"version": version}))
 }

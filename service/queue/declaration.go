@@ -25,6 +25,9 @@ func NewDeclarationHandler(
 	dtt payload.Transcoder,
 	logger *zap.Logger,
 ) *DeclarationHandler {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &DeclarationHandler{
 		bus:      bus,
 		queueMgr: queueMgr,

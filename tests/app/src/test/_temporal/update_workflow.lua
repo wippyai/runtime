@@ -87,7 +87,7 @@ local function main(input)
     local finish_ch = process.listen("finish", {message = true})
     local msg, ok = finish_ch:receive()
     if ok then
-        local reply_to = msg:from()
+        local reply_to = string(msg:from())
         process.send(reply_to, "ack")
         process.send(reply_to, "ok", {message = "finishing"})
     end

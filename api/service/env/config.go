@@ -42,12 +42,14 @@ type RouterStorageConfig struct {
 	Storages []string  `json:"storages"`
 }
 
+// Service manages env registry entries.
 type Service interface {
 	Add(ctx context.Context, entry registry.Entry) error
 	Update(ctx context.Context, entry registry.Entry) error
 	Delete(ctx context.Context, entry registry.Entry) error
 }
 
+// Manager provides access to registered env storages.
 type Manager interface {
 	Service
 	GetStorage(id registry.ID) (env.Storage, bool)

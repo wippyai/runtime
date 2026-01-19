@@ -32,6 +32,9 @@ func AddModules(ctx context.Context, cm *code.Manager, modules ...*luaapi.Module
 			Kind:   luaapi.ModuleKind,
 			Module: mod,
 		}
+		if mod.Types != nil {
+			node.Manifest = mod.Types()
+		}
 		if err := cm.AddNode(ctx, node, nil); err != nil {
 			return err
 		}

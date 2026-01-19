@@ -22,6 +22,7 @@ type ProcessWaitCmd struct {
 
 var processWaitCmdPool = sync.Pool{New: func() any { return &ProcessWaitCmd{} }}
 
+// AcquireProcessWaitCmd returns a pooled ProcessWaitCmd.
 func AcquireProcessWaitCmd() *ProcessWaitCmd          { return processWaitCmdPool.Get().(*ProcessWaitCmd) }
 func (c *ProcessWaitCmd) CmdID() dispatcher.CommandID { return ProcessWait }
 func (c *ProcessWaitCmd) Release() {

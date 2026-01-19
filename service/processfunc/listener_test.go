@@ -72,7 +72,7 @@ func TestListener_Add_WithDefaultHost(t *testing.T) {
 
 	evt := waitForEvent(t, events)
 	assert.Equal(t, function.System, evt.System)
-	assert.Equal(t, function.Register, evt.Kind)
+	assert.Equal(t, function.FunctionRegister, evt.Kind)
 	assert.Equal(t, "test:proc1", evt.Path)
 
 	l.mu.RLock()
@@ -156,10 +156,10 @@ func TestListener_Update_HostChange(t *testing.T) {
 
 	// Should receive Delete then Register
 	evt1 := waitForEvent(t, events)
-	assert.Equal(t, function.Delete, evt1.Kind)
+	assert.Equal(t, function.FunctionDelete, evt1.Kind)
 
 	evt2 := waitForEvent(t, events)
-	assert.Equal(t, function.Register, evt2.Kind)
+	assert.Equal(t, function.FunctionRegister, evt2.Kind)
 }
 
 func TestListener_Delete(t *testing.T) {
@@ -185,7 +185,7 @@ func TestListener_Delete(t *testing.T) {
 
 	evt := waitForEvent(t, events)
 	assert.Equal(t, function.System, evt.System)
-	assert.Equal(t, function.Delete, evt.Kind)
+	assert.Equal(t, function.FunctionDelete, evt.Kind)
 
 	l.mu.RLock()
 	_, exists := l.registered["test:proc1"]

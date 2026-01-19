@@ -105,6 +105,9 @@ func NewManager(
 	if staticFactory == nil {
 		return nil, ErrStaticFactoryRequired
 	}
+	if log == nil {
+		log = zap.NewNop()
+	}
 
 	return &Manager{
 		log:             log,

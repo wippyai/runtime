@@ -175,7 +175,7 @@ func (m *Manager) registerCaller(ctx context.Context, id registry.ID, options ru
 
 	m.bus.Send(ctx, event.Event{
 		System: function.System,
-		Kind:   function.Register,
+		Kind:   function.FunctionRegister,
 		Path:   path,
 		Data: &function.FuncEntry{
 			Handler: m.Execute,
@@ -194,7 +194,7 @@ func (m *Manager) registerCaller(ctx context.Context, id registry.ID, options ru
 func (m *Manager) unregisterCaller(ctx context.Context, id registry.ID) {
 	m.bus.Send(ctx, event.Event{
 		System: function.System,
-		Kind:   function.Delete,
+		Kind:   function.FunctionDelete,
 		Path:   id.String(),
 	})
 }

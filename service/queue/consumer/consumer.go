@@ -41,6 +41,9 @@ func NewConsumer(
 	funcReg function.Registry,
 	logger *zap.Logger,
 ) *Consumer {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &Consumer{
 		id:      id,
 		queueID: config.Queue,

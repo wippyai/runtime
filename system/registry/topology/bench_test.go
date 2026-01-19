@@ -26,7 +26,7 @@ func makeTestChangesets(numSets, entriesPerSet int) []registry.ChangeSet {
 		cs := make(registry.ChangeSet, entriesPerSet)
 		for j := 0; j < entriesPerSet; j++ {
 			cs[j] = registry.Operation{
-				Kind: registry.Update,
+				Kind: registry.EntryUpdate,
 				Entry: registry.Entry{
 					ID:   registry.ID{NS: "test", Name: fmt.Sprintf("entry-%d", j)},
 					Kind: "test.entry",

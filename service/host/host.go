@@ -14,7 +14,6 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 	hostapi "github.com/wippyai/runtime/api/service/host"
 	"github.com/wippyai/runtime/api/topology"
-	"github.com/wippyai/runtime/internal/uniqid"
 	"github.com/wippyai/runtime/system/scheduler/actor"
 	"go.uber.org/zap"
 )
@@ -34,7 +33,7 @@ type Host struct {
 	log       *zap.Logger
 	scheduler *actor.Scheduler
 	factory   process.Factory
-	pidGen    *uniqid.PIDGenerator
+	pidGen    process.PIDGenerator
 	pidReg    topology.PIDRegistry // optional: for spawn-or-signal shortcut
 	ctx       context.Context
 
@@ -43,7 +42,10 @@ type Host struct {
 }
 
 // NewHost creates a new host with actor scheduler.
-func NewHost(id registry.ID, cfg *hostapi.EntryConfig, scheduler *actor.Scheduler, factory process.Factory, pidGen *uniqid.PIDGenerator, logger *zap.Logger, opts ...Option) *Host {
+func NewHost(id registry.ID, cfg *hostapi.EntryConfig, scheduler *actor.Scheduler, factory process.Factory, pidGen process.PIDGenerator, logger *zap.Logger, opts ...Option) *Host {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	h := &Host{
 		id:        id,
 		cfg:       cfg,

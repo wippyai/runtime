@@ -40,7 +40,6 @@ func Engine() boot.Component {
 			mainCacheSize := 10000
 			typeCheckEnabled := false
 			typeCheckStrict := false
-
 			if cfg != nil {
 				luaCfg := cfg.Sub("lua")
 				if luaCfg != nil {
@@ -48,7 +47,7 @@ func Engine() boot.Component {
 					mainCacheSize = luaCfg.GetInt("main_cache_size", mainCacheSize)
 					typeSysCfg := luaCfg.Sub("type_system")
 					if typeSysCfg != nil {
-						typeCheckEnabled = typeSysCfg.GetBool("enabled", typeCheckEnabled)
+						typeCheckEnabled = typeSysCfg.GetBool("enabled", false)
 						typeCheckStrict = typeSysCfg.GetBool("strict", typeCheckStrict)
 					}
 				}

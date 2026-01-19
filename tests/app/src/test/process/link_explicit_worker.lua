@@ -28,7 +28,7 @@ local function main()
         return false, "no payload"
     end
 
-    local target_pid = payload:data()
+    local target_pid = string(payload:data())
     if not target_pid then
         return false, "no target pid in payload"
     end

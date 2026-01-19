@@ -13,34 +13,34 @@ var (
 )
 
 func NewContextCanceledError(err error) apierror.Error {
-	return apierror.New(apierror.Canceled, "context canceled: "+err.Error()).
+	return apierror.New(apierror.Canceled, "context canceled").
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
 		WithCause(err)
 }
 
 func NewSubscriberError(err error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to create subscriber: "+err.Error()).
+	return apierror.New(apierror.Internal, "failed to create subscriber").
 		WithRetryable(apierror.True).
 		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
 		WithCause(err)
 }
 
 func NewConfigMismatchError(requested, got string) apierror.Error {
-	return apierror.New(apierror.Internal, "config mismatch - requested: "+requested+", got: "+got).
+	return apierror.New(apierror.Internal, "config mismatch").
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"requested": requested, "got": got}))
 }
 
 func NewGetLoggingConfigError(err error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to get logging config: "+err.Error()).
+	return apierror.New(apierror.Internal, "failed to get logging config").
 		WithRetryable(apierror.True).
 		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
 		WithCause(err)
 }
 
 func NewSetTempConfigError(err error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to set temporary config: "+err.Error()).
+	return apierror.New(apierror.Internal, "failed to set temporary config").
 		WithRetryable(apierror.True).
 		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
 		WithCause(err)

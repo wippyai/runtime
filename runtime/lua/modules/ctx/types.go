@@ -1,28 +1,18 @@
 package ctx
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
 // ModuleTypes returns the type manifest for the ctx module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("ctx")
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("ctx")
 
-	moduleType := &types.InterfaceType{
-		Name: "ctx",
-		Methods: map[string]*types.FunctionType{
-			// ctx.get(key: string): any, Error?
-			"get": types.NewFunction(
-				[]types.Type{types.String},
-				[]types.Type{types.Any, types.Optional(types.LuaError)},
-			),
-			// ctx.all(): table, Error?
-			"all": types.NewFunction(
-				nil,
-				[]types.Type{types.Any, types.Optional(types.LuaError)},
-			),
-		},
-	}
+	moduleType := typ.NewInterface("ctx", []typ.Method{
+		{Name: "get", Type: typ.Func().Param("key", typ.Any).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "all", Type: typ.Func().Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+	})
 
 	m.SetExport(moduleType)
 	return m

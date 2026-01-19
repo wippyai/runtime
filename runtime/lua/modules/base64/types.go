@@ -1,28 +1,17 @@
 package base64
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
-// ModuleTypes returns the type manifest for the base64 module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("base64")
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("base64")
 
-	moduleType := &types.InterfaceType{
-		Name: "base64",
-		Methods: map[string]*types.FunctionType{
-			// base64.encode(data: string): string, Error?
-			"encode": types.NewFunction(
-				[]types.Type{types.String},
-				[]types.Type{types.String, types.Optional(types.LuaError)},
-			),
-			// base64.decode(data: string): string, Error?
-			"decode": types.NewFunction(
-				[]types.Type{types.String},
-				[]types.Type{types.String, types.Optional(types.LuaError)},
-			),
-		},
-	}
+	moduleType := typ.NewInterface("base64", []typ.Method{
+		{Name: "encode", Type: typ.Func().Param("data", typ.String).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "decode", Type: typ.Func().Param("data", typ.String).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
+	})
 
 	m.SetExport(moduleType)
 	return m

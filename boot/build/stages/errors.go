@@ -93,7 +93,13 @@ var (
 	ErrBytecodeInvalidData     = apierror.New(apierror.Invalid, "entry data is not a map").WithRetryable(apierror.False)
 	ErrBytecodeNoSource        = apierror.New(apierror.Invalid, "entry has no source field").WithRetryable(apierror.False)
 	ErrBytecodeUnsupportedKind = apierror.New(apierror.Invalid, "unsupported entry kind for bytecode compilation").WithRetryable(apierror.False)
+
+	ErrNoDefinition = apierror.New(apierror.Invalid, "ns.definition entry is required for publishing").WithRetryable(apierror.False)
 )
+
+func NewMultipleDefinitionsError(count int) apierror.Error {
+	return apierror.New(apierror.Invalid, fmt.Sprintf("exactly one ns.definition entry required, found %d", count)).WithRetryable(apierror.False)
+}
 
 func NewBytecodeCompileError(entryID fmt.Stringer, cause error) apierror.Error {
 	return apierror.New(apierror.Internal, fmt.Sprintf("failed to compile bytecode for %s", entryID)).WithCause(cause)

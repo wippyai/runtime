@@ -43,6 +43,9 @@ func NewManager(
 	log *zap.Logger,
 	opts ...ManagerOption,
 ) *Manager {
+	if log == nil {
+		log = zap.NewNop()
+	}
 	m := &Manager{
 		log:      log,
 		dtt:      dtt,

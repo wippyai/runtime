@@ -28,15 +28,15 @@ func TestSquashChangesets_CreateUpdate(t *testing.T) {
 	}
 
 	changesets := []registry.ChangeSet{
-		{{Kind: registry.Create, Entry: entry1}},
-		{{Kind: registry.Update, Entry: entry2}},
+		{{Kind: registry.EntryCreate, Entry: entry1}},
+		{{Kind: registry.EntryUpdate, Entry: entry2}},
 	}
 
 	squashed := builder.SquashChangesets(changesets)
 
 	// Create + Update = Create with final value
 	require.Len(t, squashed, 1)
-	assert.Equal(t, registry.Create, squashed[0].Kind)
+	assert.Equal(t, registry.EntryCreate, squashed[0].Kind)
 	assert.Equal(t, entry2, squashed[0].Entry)
 }
 
@@ -52,8 +52,8 @@ func TestSquashChangesets_CreateDelete(t *testing.T) {
 	}
 
 	changesets := []registry.ChangeSet{
-		{{Kind: registry.Create, Entry: entry}},
-		{{Kind: registry.Delete, Entry: entry}},
+		{{Kind: registry.EntryCreate, Entry: entry}},
+		{{Kind: registry.EntryDelete, Entry: entry}},
 	}
 
 	squashed := builder.SquashChangesets(changesets)
@@ -86,16 +86,16 @@ func TestSquashChangesets_UpdateUpdate(t *testing.T) {
 	}
 
 	changesets := []registry.ChangeSet{
-		{{Kind: registry.Update, Entry: entry1}},
-		{{Kind: registry.Update, Entry: entry2}},
-		{{Kind: registry.Update, Entry: entry3}},
+		{{Kind: registry.EntryUpdate, Entry: entry1}},
+		{{Kind: registry.EntryUpdate, Entry: entry2}},
+		{{Kind: registry.EntryUpdate, Entry: entry3}},
 	}
 
 	squashed := builder.SquashChangesets(changesets)
 
 	// Multiple Updates = Single Update with final value
 	require.Len(t, squashed, 1)
-	assert.Equal(t, registry.Update, squashed[0].Kind)
+	assert.Equal(t, registry.EntryUpdate, squashed[0].Kind)
 	assert.Equal(t, entry3, squashed[0].Entry)
 }
 
@@ -111,15 +111,15 @@ func TestSquashChangesets_UpdateDelete(t *testing.T) {
 	}
 
 	changesets := []registry.ChangeSet{
-		{{Kind: registry.Update, Entry: entry}},
-		{{Kind: registry.Delete, Entry: entry}},
+		{{Kind: registry.EntryUpdate, Entry: entry}},
+		{{Kind: registry.EntryDelete, Entry: entry}},
 	}
 
 	squashed := builder.SquashChangesets(changesets)
 
 	// Update + Delete = Delete
 	require.Len(t, squashed, 1)
-	assert.Equal(t, registry.Delete, squashed[0].Kind)
+	assert.Equal(t, registry.EntryDelete, squashed[0].Kind)
 	assert.Equal(t, entry, squashed[0].Entry)
 }
 
@@ -143,15 +143,15 @@ func TestSquashChangesets_DeleteCreate(t *testing.T) {
 	}
 
 	changesets := []registry.ChangeSet{
-		{{Kind: registry.Delete, Entry: entry1}},
-		{{Kind: registry.Create, Entry: entry2}},
+		{{Kind: registry.EntryDelete, Entry: entry1}},
+		{{Kind: registry.EntryCreate, Entry: entry2}},
 	}
 
 	squashed := builder.SquashChangesets(changesets)
 
 	// Delete + Create (same kind) = Update
 	require.Len(t, squashed, 1)
-	assert.Equal(t, registry.Update, squashed[0].Kind)
+	assert.Equal(t, registry.EntryUpdate, squashed[0].Kind)
 	assert.Equal(t, entry2, squashed[0].Entry)
 }
 
@@ -175,15 +175,15 @@ func TestSquashChangesets_DeleteCreateDifferentKind(t *testing.T) {
 	}
 
 	changesets := []registry.ChangeSet{
-		{{Kind: registry.Delete, Entry: entry1}},
-		{{Kind: registry.Create, Entry: entry2}},
+		{{Kind: registry.EntryDelete, Entry: entry1}},
+		{{Kind: registry.EntryCreate, Entry: entry2}},
 	}
 
 	squashed := builder.SquashChangesets(changesets)
 
 	// Delete + Create (different kind) = Create
 	require.Len(t, squashed, 1)
-	assert.Equal(t, registry.Create, squashed[0].Kind)
+	assert.Equal(t, registry.EntryCreate, squashed[0].Kind)
 	assert.Equal(t, entry2, squashed[0].Entry)
 }
 
@@ -241,27 +241,27 @@ func TestSquashChangesets_ComplexSequence(t *testing.T) {
 	changesets := []registry.ChangeSet{
 		// Version 1 changes
 		{
-			{Kind: registry.Create, Entry: entry1V1},
-			{Kind: registry.Create, Entry: entry2V1},
+			{Kind: registry.EntryCreate, Entry: entry1V1},
+			{Kind: registry.EntryCreate, Entry: entry2V1},
 		},
 		// Version 2 changes
 		{
-			{Kind: registry.Update, Entry: entry1V2},
-			{Kind: registry.Update, Entry: entry2V2},
-			{Kind: registry.Update, Entry: entry3},
+			{Kind: registry.EntryUpdate, Entry: entry1V2},
+			{Kind: registry.EntryUpdate, Entry: entry2V2},
+			{Kind: registry.EntryUpdate, Entry: entry3},
 		},
 		// Version 3 changes
 		{
-			{Kind: registry.Update, Entry: entry1V3},
-			{Kind: registry.Delete, Entry: entry2V2},
+			{Kind: registry.EntryUpdate, Entry: entry1V3},
+			{Kind: registry.EntryDelete, Entry: entry2V2},
 		},
 		// Version 4 changes
 		{
-			{Kind: registry.Delete, Entry: entry1V3},
+			{Kind: registry.EntryDelete, Entry: entry1V3},
 		},
 		// Version 5 changes
 		{
-			{Kind: registry.Create, Entry: entry1V4},
+			{Kind: registry.EntryCreate, Entry: entry1V4},
 		},
 	}
 
@@ -279,13 +279,13 @@ func TestSquashChangesets_ComplexSequence(t *testing.T) {
 			// Create -> Update -> Update -> Delete -> Create = Create
 			// (The initial Create and intermediate Updates are canceled by Delete,
 			// then a new Create is added, resulting in just Create)
-			assert.Equal(t, registry.Create, op.Kind)
+			assert.Equal(t, registry.EntryCreate, op.Kind)
 			assert.Equal(t, entry1V4, op.Entry)
 		case entry2ID:
 			t.Error("Entry 2 should have been canceled out (Create -> Update -> Delete)")
 		case entry3ID:
 			foundEntry3 = true
-			assert.Equal(t, registry.Update, op.Kind)
+			assert.Equal(t, registry.EntryUpdate, op.Kind)
 			assert.Equal(t, entry3, op.Entry)
 		}
 	}
@@ -316,13 +316,13 @@ func TestSquashChangesets_SingleOperation(t *testing.T) {
 	}
 
 	changesets := []registry.ChangeSet{
-		{{Kind: registry.Create, Entry: entry}},
+		{{Kind: registry.EntryCreate, Entry: entry}},
 	}
 
 	squashed := builder.SquashChangesets(changesets)
 
 	require.Len(t, squashed, 1)
-	assert.Equal(t, registry.Create, squashed[0].Kind)
+	assert.Equal(t, registry.EntryCreate, squashed[0].Kind)
 	assert.Equal(t, entry, squashed[0].Entry)
 }
 
@@ -348,13 +348,13 @@ func TestSquashChangesets_MultipleEntries(t *testing.T) {
 
 	changesets := []registry.ChangeSet{
 		{
-			{Kind: registry.Create, Entry: entry1},
-			{Kind: registry.Create, Entry: entry2},
+			{Kind: registry.EntryCreate, Entry: entry1},
+			{Kind: registry.EntryCreate, Entry: entry2},
 		},
 		{
-			{Kind: registry.Update, Entry: entry1},
-			{Kind: registry.Delete, Entry: entry2},
-			{Kind: registry.Create, Entry: entry3},
+			{Kind: registry.EntryUpdate, Entry: entry1},
+			{Kind: registry.EntryDelete, Entry: entry2},
+			{Kind: registry.EntryCreate, Entry: entry3},
 		},
 	}
 
@@ -371,12 +371,12 @@ func TestSquashChangesets_MultipleEntries(t *testing.T) {
 		switch op.Entry.ID.Name {
 		case "entry1":
 			foundEntry1 = true
-			assert.Equal(t, registry.Create, op.Kind)
+			assert.Equal(t, registry.EntryCreate, op.Kind)
 		case "entry2":
 			t.Error("Entry 2 should have been canceled out")
 		case "entry3":
 			foundEntry3 = true
-			assert.Equal(t, registry.Create, op.Kind)
+			assert.Equal(t, registry.EntryCreate, op.Kind)
 		}
 	}
 
@@ -405,8 +405,8 @@ func TestReverseChangeset(t *testing.T) {
 
 	// Changeset that created entry2 and updated entry1 (with OriginalEntry populated)
 	changeset := registry.ChangeSet{
-		{Kind: registry.Create, Entry: entry2},
-		{Kind: registry.Update, Entry: entry1Updated, OriginalEntry: &entry1},
+		{Kind: registry.EntryCreate, Entry: entry2},
+		{Kind: registry.EntryUpdate, Entry: entry1Updated, OriginalEntry: &entry1},
 	}
 
 	reversed, err := builder.ReverseChangeset(changeset)
@@ -416,10 +416,10 @@ func TestReverseChangeset(t *testing.T) {
 	require.Len(t, reversed, 2)
 
 	// Operations are processed in reverse order
-	assert.Equal(t, registry.Update, reversed[0].Kind) // Was Update, reverse is Update with old value
+	assert.Equal(t, registry.EntryUpdate, reversed[0].Kind) // Was Update, reverse is Update with old value
 	assert.Equal(t, entry1, reversed[0].Entry)
 
-	assert.Equal(t, registry.Delete, reversed[1].Kind) // Was Create, reverse is Delete
+	assert.Equal(t, registry.EntryDelete, reversed[1].Kind) // Was Create, reverse is Delete
 	assert.Equal(t, entry2, reversed[1].Entry)
 }
 
@@ -434,7 +434,7 @@ func TestReverseChangeset_Delete(t *testing.T) {
 
 	// Changeset that deleted the entry (with OriginalEntry populated)
 	changeset := registry.ChangeSet{
-		{Kind: registry.Delete, Entry: entry, OriginalEntry: &entry},
+		{Kind: registry.EntryDelete, Entry: entry, OriginalEntry: &entry},
 	}
 
 	reversed, err := builder.ReverseChangeset(changeset)
@@ -442,6 +442,6 @@ func TestReverseChangeset_Delete(t *testing.T) {
 
 	// Reversed should recreate the entry
 	require.Len(t, reversed, 1)
-	assert.Equal(t, registry.Create, reversed[0].Kind)
+	assert.Equal(t, registry.EntryCreate, reversed[0].Kind)
 	assert.Equal(t, entry, reversed[0].Entry)
 }

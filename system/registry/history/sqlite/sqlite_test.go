@@ -26,11 +26,11 @@ func (r *testRunner) Transition(_ context.Context, from registry.State, cs regis
 
 	for _, op := range cs {
 		switch op.Kind {
-		case registry.Create:
+		case registry.EntryCreate:
 			stateMap[op.Entry.ID] = op.Entry
-		case registry.Update:
+		case registry.EntryUpdate:
 			stateMap[op.Entry.ID] = op.Entry
-		case registry.Delete:
+		case registry.EntryDelete:
 			delete(stateMap, op.Entry.ID)
 		}
 	}
@@ -68,7 +68,7 @@ func TestHistory_SaveAndGet(t *testing.T) {
 
 	v1 := version.FromParent(v0, 1)
 	cs := registry.ChangeSet{
-		{Kind: registry.Create, Entry: registry.Entry{ID: registry.NewID("test", "entry1")}},
+		{Kind: registry.EntryCreate, Entry: registry.Entry{ID: registry.NewID("test", "entry1")}},
 	}
 
 	err = hist.Save(v1, cs, true)
@@ -81,7 +81,7 @@ func TestHistory_SaveAndGet(t *testing.T) {
 	retrieved, err := hist.Get(v1)
 	require.NoError(t, err)
 	assert.Len(t, retrieved, 1)
-	assert.Equal(t, registry.Create, retrieved[0].Kind)
+	assert.Equal(t, registry.EntryCreate, retrieved[0].Kind)
 	assert.Equal(t, "test", retrieved[0].Entry.ID.NS)
 }
 
@@ -97,7 +97,7 @@ func TestHistory_Persistence(t *testing.T) {
 
 	v1 := version.FromParent(v0, 1)
 	cs := registry.ChangeSet{
-		{Kind: registry.Create, Entry: registry.Entry{ID: registry.NewID("test", "entry1")}},
+		{Kind: registry.EntryCreate, Entry: registry.Entry{ID: registry.NewID("test", "entry1")}},
 	}
 
 	err = hist1.Save(v1, cs, true)
@@ -130,14 +130,14 @@ func TestHistory_Versions(t *testing.T) {
 
 	v1 := version.FromParent(v0, 1)
 	cs1 := registry.ChangeSet{
-		{Kind: registry.Create, Entry: registry.Entry{ID: registry.NewID("test", "entry1")}},
+		{Kind: registry.EntryCreate, Entry: registry.Entry{ID: registry.NewID("test", "entry1")}},
 	}
 	err = hist.Save(v1, cs1, true)
 	require.NoError(t, err)
 
 	v2 := version.FromParent(v1, 2)
 	cs2 := registry.ChangeSet{
-		{Kind: registry.Create, Entry: registry.Entry{ID: registry.NewID("test", "entry2")}},
+		{Kind: registry.EntryCreate, Entry: registry.Entry{ID: registry.NewID("test", "entry2")}},
 	}
 	err = hist.Save(v2, cs2, true)
 	require.NoError(t, err)
@@ -163,14 +163,14 @@ func TestHistory_SetHead(t *testing.T) {
 
 	v1 := version.FromParent(v0, 1)
 	cs1 := registry.ChangeSet{
-		{Kind: registry.Create, Entry: registry.Entry{ID: registry.NewID("test", "entry1")}},
+		{Kind: registry.EntryCreate, Entry: registry.Entry{ID: registry.NewID("test", "entry1")}},
 	}
 	err = hist.Save(v1, cs1, false)
 	require.NoError(t, err)
 
 	v2 := version.FromParent(v1, 2)
 	cs2 := registry.ChangeSet{
-		{Kind: registry.Create, Entry: registry.Entry{ID: registry.NewID("test", "entry2")}},
+		{Kind: registry.EntryCreate, Entry: registry.Entry{ID: registry.NewID("test", "entry2")}},
 	}
 	err = hist.Save(v2, cs2, true)
 	require.NoError(t, err)
@@ -246,7 +246,7 @@ func TestSQLitePersistence_OriginalEntry(t *testing.T) {
 	entryID := registry.NewID("test", "entry1")
 
 	v1, err := reg.Apply(ctx, registry.ChangeSet{
-		{Kind: registry.Create, Entry: registry.Entry{
+		{Kind: registry.EntryCreate, Entry: registry.Entry{
 			ID:   entryID,
 			Kind: "service",
 			Data: payload.NewString("v1"),
@@ -255,7 +255,7 @@ func TestSQLitePersistence_OriginalEntry(t *testing.T) {
 	require.NoError(t, err)
 
 	v2, err := reg.Apply(ctx, registry.ChangeSet{
-		{Kind: registry.Update, Entry: registry.Entry{
+		{Kind: registry.EntryUpdate, Entry: registry.Entry{
 			ID:   entryID,
 			Kind: "service",
 			Data: payload.NewString("v2"),
@@ -264,7 +264,7 @@ func TestSQLitePersistence_OriginalEntry(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = reg.Apply(ctx, registry.ChangeSet{
-		{Kind: registry.Update, Entry: registry.Entry{
+		{Kind: registry.EntryUpdate, Entry: registry.Entry{
 			ID:   entryID,
 			Kind: "service",
 			Data: payload.NewString("v3"),

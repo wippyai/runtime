@@ -21,8 +21,8 @@ import (
 	transcoder "github.com/wippyai/runtime/system/payload"
 	"github.com/wippyai/runtime/system/registry/topology"
 	"github.com/yuin/gopher-lua/compiler/parse"
-	"github.com/yuin/gopher-lua/types"
 	"github.com/yuin/gopher-lua/types/diag"
+	"github.com/yuin/gopher-lua/types/io"
 	"go.uber.org/zap"
 )
 
@@ -71,7 +71,7 @@ type Diagnostic struct {
 // RichDiagnostic holds a diagnostic with source for rendering
 type RichDiagnostic struct {
 	EntryID string
-	Diag    types.Diagnostic
+	Diag    diag.Diagnostic
 	Source  diag.SourceLines
 }
 
@@ -253,26 +253,26 @@ func parseSeverityLevel(level string) int {
 	}
 }
 
-func severityToInt(severity types.Severity) int {
+func severityToInt(severity diag.Severity) int {
 	switch severity {
-	case types.SeverityHint:
+	case diag.SeverityHint:
 		return 0
-	case types.SeverityWarning:
+	case diag.SeverityWarning:
 		return 1
-	case types.SeverityError:
+	case diag.SeverityError:
 		return 2
 	default:
 		return 0
 	}
 }
 
-func severityToString(severity types.Severity) string {
+func severityToString(severity diag.Severity) string {
 	switch severity {
-	case types.SeverityHint:
+	case diag.SeverityHint:
 		return "hint"
-	case types.SeverityWarning:
+	case diag.SeverityWarning:
 		return "warning"
-	case types.SeverityError:
+	case diag.SeverityError:
 		return "error"
 	default:
 		return "unknown"

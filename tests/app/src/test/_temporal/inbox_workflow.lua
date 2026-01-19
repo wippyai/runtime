@@ -1,19 +1,16 @@
 -- Workflow that receives signals via process.inbox()
-local time = require("time")
-
 local function main(input)
     local my_pid = process.pid()
-    local timeout_ms = input and input.timeout_ms or 10000
 
     -- Wait for a message via process inbox
     local inbox = process.inbox()
-    local msg, ok = inbox:receive(timeout_ms * time.MILLISECOND)
+    local msg, ok = inbox:receive()
 
     if not ok then
         return {
             pid = my_pid,
             status = "timeout",
-            error = "no message received within timeout"
+            error = "no message received"
         }
     end
 

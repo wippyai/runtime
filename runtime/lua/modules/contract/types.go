@@ -1,65 +1,54 @@
 package contract
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
-// SchemaDefinition type
-var schemaDefinitionType = &types.RecordType{
-	Name: "contract.SchemaDefinition",
-	Fields: []types.RecordField{
-		{Name: "format", Type: types.String},
-		{Name: "definition", Type: types.Optional(types.Any)},
-	},
-}
+var schemaDefinitionType typ.Type
 
-// MethodDefinition type
-var methodDefinitionType = &types.RecordType{
-	Name: "contract.MethodDefinition",
-	Fields: []types.RecordField{
-		{Name: "name", Type: types.String},
-		{Name: "description", Type: types.String},
-		{Name: "input_schemas", Type: types.Optional(types.NewArray(schemaDefinitionType, false))},
-		{Name: "output_schemas", Type: types.Optional(types.NewArray(schemaDefinitionType, false))},
-	},
-}
+var methodDefinitionType typ.Type
 
-// Forward declaration for self-referential type
-var contractType *types.InterfaceType
+var contractType typ.Type
 
 func init() {
-	// Contract type (self-referential via with_context/with_actor/with_scope)
-	contractType = &types.InterfaceType{
-		Name:    "contract.Contract",
-		Methods: map[string]*types.FunctionType{},
-	}
-	contractType.Methods["id"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.String})
-	contractType.Methods["methods"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.NewArray(methodDefinitionType, false)})
-	contractType.Methods["method"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{methodDefinitionType, types.Optional(types.LuaError)})
-	contractType.Methods["implementations"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.NewArray(types.String, false), types.Optional(types.LuaError)})
-	contractType.Methods["open"] = types.NewFunction([]types.Type{types.Self, types.Optional(types.String), types.Optional(types.Any)}, []types.Type{types.Any, types.Optional(types.LuaError)})
-	contractType.Methods["with_context"] = types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{contractType})
-	contractType.Methods["with_actor"] = types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{contractType, types.Optional(types.LuaError)})
-	contractType.Methods["with_scope"] = types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{contractType, types.Optional(types.LuaError)})
+	schemaDefinitionType = typ.NewRecord().
+		Field("format", typ.String).
+		OptField("definition", typ.Any).
+		Build()
+
+	methodDefinitionType = typ.NewRecord().
+		Field("name", typ.String).
+		Field("description", typ.String).
+		OptField("input_schemas", typ.NewArray(schemaDefinitionType)).
+		OptField("output_schemas", typ.NewArray(schemaDefinitionType)).
+		Build()
+
+	contractType = typ.NewInterface("contract.Contract", []typ.Method{
+		{Name: "id", Type: typ.Func().Param("self", typ.Self).Returns(typ.String).Build()},
+		{Name: "methods", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewArray(methodDefinitionType)).Build()},
+		{Name: "method", Type: typ.Func().Param("self", typ.Self).Param("name", typ.String).Returns(methodDefinitionType, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "implementations", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewArray(typ.String), typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "open", Type: typ.Func().Param("self", typ.Self).OptParam("name", typ.String).OptParam("options", typ.Any).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "with_context", Type: typ.Func().Param("self", typ.Self).Param("ctx", typ.Any).Returns(typ.Self).Build()},
+		{Name: "with_actor", Type: typ.Func().Param("self", typ.Self).Param("actor", typ.Any).Returns(typ.Self).Build()},
+		{Name: "with_scope", Type: typ.Func().Param("self", typ.Self).Param("scope", typ.Any).Returns(typ.Self).Build()},
+	})
 }
 
-// ModuleTypes returns the type manifest for the contract module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("contract")
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("contract")
 
 	m.DefineType("Contract", contractType)
 	m.DefineType("MethodDefinition", methodDefinitionType)
 	m.DefineType("SchemaDefinition", schemaDefinitionType)
 
-	moduleType := &types.InterfaceType{
-		Name: "contract",
-		Methods: map[string]*types.FunctionType{
-			"get":                  types.NewFunction([]types.Type{types.String}, []types.Type{contractType, types.Optional(types.LuaError)}),
-			"open":                 types.NewFunction([]types.Type{types.String, types.Optional(types.Any)}, []types.Type{types.Any, types.Optional(types.LuaError)}),
-			"find_implementations": types.NewFunction([]types.Type{types.String}, []types.Type{types.NewArray(types.String, false), types.Optional(types.LuaError)}),
-			"is":                   types.NewFunction([]types.Type{types.Any, types.String}, []types.Type{types.Boolean}),
-		},
-	}
+	moduleType := typ.NewInterface("contract", []typ.Method{
+		{Name: "get", Type: typ.Func().Param("name", typ.String).Returns(contractType, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "open", Type: typ.Func().Param("name", typ.String).OptParam("options", typ.Any).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "find_implementations", Type: typ.Func().Param("name", typ.String).Returns(typ.NewArray(typ.String), typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "is", Type: typ.Func().Param("value", typ.Any).Param("name", typ.String).Returns(typ.Boolean).Build()},
+	})
 
 	m.SetExport(moduleType)
 	return m

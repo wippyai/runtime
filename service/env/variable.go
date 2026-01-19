@@ -24,6 +24,9 @@ func NewVariableManager(
 	dtt payload.Transcoder,
 	log *zap.Logger,
 ) *VariableManager {
+	if log == nil {
+		log = zap.NewNop()
+	}
 	return &VariableManager{
 		log: log,
 		dtt: dtt,

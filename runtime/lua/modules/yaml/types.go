@@ -1,39 +1,28 @@
 package yaml
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
-// EncodeOptions type
-var encodeOptionsType = &types.RecordType{
-	Name: "yaml.EncodeOptions",
-	Fields: []types.RecordField{
-		{Name: "field_order", Type: types.NewArray(types.String, false)},
-		{Name: "sort_unordered", Type: types.Boolean},
-	},
+var encodeOptionsType typ.Type
+
+func init() {
+	encodeOptionsType = typ.NewRecord().
+		Field("field_order", typ.NewArray(typ.String)).
+		Field("sort_unordered", typ.Boolean).
+		Build()
 }
 
-// ModuleTypes returns the type manifest for the yaml module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("yaml")
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("yaml")
 
 	m.DefineType("EncodeOptions", encodeOptionsType)
 
-	moduleType := &types.InterfaceType{
-		Name: "yaml",
-		Methods: map[string]*types.FunctionType{
-			// yaml.encode(value: any, options?: EncodeOptions): string, Error?
-			"encode": types.NewFunction(
-				[]types.Type{types.Any, types.Optional(encodeOptionsType)},
-				[]types.Type{types.String, types.Optional(types.LuaError)},
-			),
-			// yaml.decode(str: string): any, Error?
-			"decode": types.NewFunction(
-				[]types.Type{types.String},
-				[]types.Type{types.Any, types.Optional(types.LuaError)},
-			),
-		},
-	}
+	moduleType := typ.NewInterface("yaml", []typ.Method{
+		{Name: "encode", Type: typ.Func().Param("value", typ.Any).OptParam("options", encodeOptionsType).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "decode", Type: typ.Func().Param("str", typ.String).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+	})
 
 	m.SetExport(moduleType)
 	return m

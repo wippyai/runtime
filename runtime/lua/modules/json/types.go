@@ -1,41 +1,35 @@
 package json
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
 // ModuleTypes returns the type manifest for the json module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("json")
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("json")
 
 	// Schema accepts any table structure or string reference
-	schemaParam := types.NewUnion(types.Any, types.String)
+	schemaParam := typ.NewUnion(typ.Any, typ.String)
 
-	moduleType := &types.InterfaceType{
-		Name: "json",
-		Methods: map[string]*types.FunctionType{
-			// json.encode(value: any): string, Error?
-			"encode": types.NewFunction([]types.Type{types.Any}, []types.Type{types.String, types.Optional(types.LuaError)}),
-
-			// json.decode(str: string): any, Error?
-			"decode": types.NewFunction(
-				[]types.Type{types.String},
-				[]types.Type{types.Any, types.Optional(types.LuaError)},
-			),
-
-			// json.validate(schema: Schema|string, data: any): boolean, Error?
-			"validate": types.NewFunction(
-				[]types.Type{schemaParam, types.Any},
-				[]types.Type{types.Boolean, types.Optional(types.LuaError)},
-			),
-
-			// json.validate_string(schema: Schema|string, str: string): boolean, Error?
-			"validate_string": types.NewFunction(
-				[]types.Type{schemaParam, types.String},
-				[]types.Type{types.Boolean, types.Optional(types.LuaError)},
-			),
+	moduleType := typ.NewInterface("json", []typ.Method{
+		{
+			Name: "encode",
+			Type: typ.Func().Param("value", typ.Any).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build(),
 		},
-	}
+		{
+			Name: "decode",
+			Type: typ.Func().Param("str", typ.String).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build(),
+		},
+		{
+			Name: "validate",
+			Type: typ.Func().Param("schema", schemaParam).Param("data", typ.Any).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build(),
+		},
+		{
+			Name: "validate_string",
+			Type: typ.Func().Param("schema", schemaParam).Param("str", typ.String).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build(),
+		},
+	})
 
 	m.SetExport(moduleType)
 	return m

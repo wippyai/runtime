@@ -31,6 +31,7 @@ type GetCmd struct {
 
 var getCmdPool = sync.Pool{New: func() any { return &GetCmd{} }}
 
+// AcquireGetCmd returns a pooled GetCmd.
 func AcquireGetCmd() *GetCmd                  { return getCmdPool.Get().(*GetCmd) }
 func (c *GetCmd) CmdID() dispatcher.CommandID { return Get }
 func (c *GetCmd) Release() {
@@ -47,6 +48,7 @@ type SetCmd struct {
 
 var setCmdPool = sync.Pool{New: func() any { return &SetCmd{} }}
 
+// AcquireSetCmd returns a pooled SetCmd.
 func AcquireSetCmd() *SetCmd                  { return setCmdPool.Get().(*SetCmd) }
 func (c *SetCmd) CmdID() dispatcher.CommandID { return Set }
 func (c *SetCmd) Release() {
@@ -63,6 +65,7 @@ type DeleteCmd struct {
 
 var deleteCmdPool = sync.Pool{New: func() any { return &DeleteCmd{} }}
 
+// AcquireDeleteCmd returns a pooled DeleteCmd.
 func AcquireDeleteCmd() *DeleteCmd               { return deleteCmdPool.Get().(*DeleteCmd) }
 func (c *DeleteCmd) CmdID() dispatcher.CommandID { return Delete }
 func (c *DeleteCmd) Release() {
@@ -79,6 +82,7 @@ type HasCmd struct {
 
 var hasCmdPool = sync.Pool{New: func() any { return &HasCmd{} }}
 
+// AcquireHasCmd returns a pooled HasCmd.
 func AcquireHasCmd() *HasCmd                  { return hasCmdPool.Get().(*HasCmd) }
 func (c *HasCmd) CmdID() dispatcher.CommandID { return Has }
 func (c *HasCmd) Release() {

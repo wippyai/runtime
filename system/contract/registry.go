@@ -34,8 +34,13 @@ type Registry struct {
 	subscriber *eventbus.Subscriber
 }
 
+const contractEventPattern = "contract.(definition|binding).(register|update|delete)"
+
 // NewContractRegistry creates a new contract registry
 func NewContractRegistry(bus event.Bus, logger *zap.Logger) *Registry {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &Registry{
 		bus:             bus,
 		logger:          logger,
@@ -53,7 +58,7 @@ func (r *Registry) Start(ctx context.Context) error {
 		ctx,
 		r.bus,
 		contract.System,
-		"contract.(definition|binding).(register|update|delete)",
+		contractEventPattern,
 		r.handleEvent,
 	)
 	if err != nil {
@@ -70,6 +75,15 @@ func (r *Registry) Stop() error {
 		r.subscriber.Close()
 	}
 	return nil
+}
+
+func (r *Registry) sendResponse(path event.Path, kind event.Kind, data any) {
+	r.bus.Send(r.ctx, event.Event{
+		System: contract.System,
+		Kind:   kind,
+		Path:   path,
+		Data:   data,
+	})
 }
 
 func (r *Registry) handleEvent(e event.Event) {
@@ -251,20 +265,11 @@ func (r *Registry) removeDefaultBindings(bindingID registry.ID) {
 }
 
 func (r *Registry) sendAccept(path event.Path) {
-	r.bus.Send(r.ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.Accept,
-		Path:   path,
-	})
+	r.sendResponse(path, contract.ContractAccept, nil)
 }
 
 func (r *Registry) sendReject(path event.Path, reason string) {
-	r.bus.Send(r.ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.Reject,
-		Path:   path,
-		Data:   reason,
-	})
+	r.sendResponse(path, contract.ContractReject, reason)
 }
 
 // GetContract implements contract.Registry interface

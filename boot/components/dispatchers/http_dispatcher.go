@@ -2,7 +2,6 @@ package dispatchers
 
 import (
 	"context"
-	"io"
 	"time"
 
 	"github.com/wippyai/runtime/api/boot"
@@ -16,7 +15,6 @@ type HTTPConfig struct {
 	MaxIdleConns    int
 	MaxIdlePerHost  int
 	IdleConnTimeout time.Duration
-	Debug           io.Writer // TODO: remove after testing is complete
 }
 
 // HTTP creates the HTTP client dispatcher component.
@@ -37,9 +35,6 @@ func HTTP(cfg ...HTTPConfig) boot.Component {
 			}
 
 			var opts []httpclient.Option
-			if config.Debug != nil {
-				opts = append(opts, httpclient.WithDebug(config.Debug))
-			}
 			if config.Timeout > 0 || config.MaxIdleConns > 0 {
 				opts = append(opts, httpclient.WithPoolConfig(httpclient.PoolConfig{
 					Timeout:         config.Timeout,

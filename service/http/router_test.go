@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	contextapi "github.com/wippyai/runtime/api/context"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
 	config "github.com/wippyai/runtime/api/service/http"
 )
@@ -286,7 +287,11 @@ func TestRouteManager_RouteUpdates(t *testing.T) {
 	// Try to add duplicate router prefix - should still error
 	routerID2 := registry.NewID("test", "router2")
 	err = rm.AddRouter(routerID2, "/api", nil, nil)
-	require.ErrorContains(t, err, "router with prefix /api already exists")
+	require.Error(t, err)
+	apiErr, ok := err.(apierror.Error)
+	require.True(t, ok)
+	assert.Contains(t, apiErr.Error(), "router prefix already exists")
+	assert.Equal(t, "/api", apiErr.Details().GetString("prefix", ""))
 
 	err = rm.Build()
 	assert.NoError(t, err)

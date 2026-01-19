@@ -17,7 +17,7 @@ local function main()
         return false, "nil message"
     end
 
-    local target_pid = msg:payload():data()
+    local target_pid = string(msg:payload():data())
     if not target_pid then
         return false, "no target pid"
     end

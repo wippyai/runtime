@@ -1,27 +1,25 @@
 package metrics
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
 // ModuleTypes returns the type manifest for the metrics module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("metrics")
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("metrics")
 
 	// Labels type accepts any values - runtime ignores non-string values
-	labelsType := types.Optional(types.NewMap(types.String, types.Any, false))
+	labelsType := typ.NewMap(typ.String, typ.Any)
 
-	moduleType := &types.InterfaceType{
-		Name: "metrics",
-		Methods: map[string]*types.FunctionType{
-			"counter_inc": types.NewFunction([]types.Type{types.String, labelsType}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-			"counter_add": types.NewFunction([]types.Type{types.String, types.Number, labelsType}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-			"gauge_set":   types.NewFunction([]types.Type{types.String, types.Number, labelsType}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-			"gauge_inc":   types.NewFunction([]types.Type{types.String, labelsType}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-			"gauge_dec":   types.NewFunction([]types.Type{types.String, labelsType}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-			"histogram":   types.NewFunction([]types.Type{types.String, types.Number, labelsType}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-		},
-	}
+	moduleType := typ.NewInterface("metrics", []typ.Method{
+		{Name: "counter_inc", Type: typ.Func().Param("key", typ.String).OptParam("labels", labelsType).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "counter_add", Type: typ.Func().Param("key", typ.String).Param("val", typ.Number).OptParam("labels", labelsType).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "gauge_set", Type: typ.Func().Param("key", typ.String).Param("val", typ.Number).OptParam("labels", labelsType).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "gauge_inc", Type: typ.Func().Param("key", typ.String).OptParam("labels", labelsType).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "gauge_dec", Type: typ.Func().Param("key", typ.String).OptParam("labels", labelsType).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "histogram", Type: typ.Func().Param("key", typ.String).Param("val", typ.Number).OptParam("labels", labelsType).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+	})
 
 	m.SetExport(moduleType)
 	return m

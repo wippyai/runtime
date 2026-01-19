@@ -10,9 +10,9 @@ import (
 // ID uniquely identifies a registry entry by namespace and name
 type ID struct {
 	// NS is the namespace of the entry
-	NS Namespace `json:"ns"`
+	NS Namespace `json:"ns" msgpack:"ns"`
 	// Name is the unique identifier within the namespace
-	Name Name `json:"name"`
+	Name Name `json:"name" msgpack:"name"`
 	// str is the cached string representation (interned with the ID)
 	str string
 }

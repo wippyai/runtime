@@ -119,6 +119,9 @@ func LoadConfig(bootCfg boot.Config) otelapi.Config {
 
 // ApplyEnvOverrides applies standard OTEL environment variables to config
 func ApplyEnvOverrides(cfg *otelapi.Config, logger *zap.Logger) {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	// OTEL_SDK_DISABLED
 	if disabled := os.Getenv("OTEL_SDK_DISABLED"); disabled != "" {
 		if strings.ToLower(disabled) == "true" {
@@ -193,6 +196,9 @@ func ApplyEnvOverrides(cfg *otelapi.Config, logger *zap.Logger) {
 
 // LogConfigSources logs where configuration values came from
 func LogConfigSources(cfg otelapi.Config, logger *zap.Logger) {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	fields := []zap.Field{
 		zap.String("endpoint", cfg.Endpoint),
 		zap.String("protocol", cfg.Protocol),

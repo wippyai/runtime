@@ -36,6 +36,9 @@ func NewManager(
 	dtt payload.Transcoder,
 	log *zap.Logger,
 ) *Manager {
+	if log == nil {
+		log = zap.NewNop()
+	}
 	factory := NewExecutorFactory(log)
 
 	return &Manager{

@@ -34,6 +34,9 @@ func NewManager(
 	log *zap.Logger,
 	envRegistry envapi.Registry,
 ) *Manager {
+	if log == nil {
+		log = zap.NewNop()
+	}
 	return &Manager{
 		log:     log,
 		dtt:     dtt,

@@ -14,7 +14,7 @@ var (
 )
 
 func NewCommandNotAllowedError(cmd string) apierror.Error {
-	return apierror.New(apierror.PermissionDenied, fmt.Sprintf("command not in whitelist: %s", cmd)).
+	return apierror.New(apierror.PermissionDenied, "command not allowed").
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"command": cmd}))
 }

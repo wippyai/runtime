@@ -2,19 +2,78 @@ package code
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"runtime/pprof"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
 	api "github.com/wippyai/runtime/api/runtime/lua"
 	glua "github.com/yuin/gopher-lua"
+	"github.com/yuin/gopher-lua/compiler/check"
 	"github.com/yuin/gopher-lua/compiler/parse"
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/diag"
+	"github.com/yuin/gopher-lua/types/io"
 
 	"go.uber.org/zap"
 )
+
+var typecheckProfileActive atomic.Bool
+
+func withTypecheckCPUProfile(log *zap.Logger, id string, fn func() (*io.Manifest, []diag.Diagnostic)) (*io.Manifest, []diag.Diagnostic) {
+	stop := startTypecheckCPUProfile(log, id)
+	manifest, diagnostics := fn()
+	if stop != nil {
+		stop()
+	}
+	return manifest, diagnostics
+}
+
+func startTypecheckCPUProfile(log *zap.Logger, id string) func() {
+	profilePath := os.Getenv("WIPPY_TYPECHECK_CPU_PROFILE")
+	if profilePath == "" {
+		return nil
+	}
+	entryFilter := os.Getenv("WIPPY_TYPECHECK_PROFILE_ENTRY")
+	if entryFilter != "" && entryFilter != id {
+		return nil
+	}
+	if !typecheckProfileActive.CompareAndSwap(false, true) {
+		return nil
+	}
+	path := profilePath
+	if strings.Contains(path, "%s") {
+		path = fmt.Sprintf(path, sanitizeProfileID(id))
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		typecheckProfileActive.Store(false)
+		log.Warn("typecheck cpu profile create failed", zap.String("path", path), zap.Error(err))
+		return nil
+	}
+	if err := pprof.StartCPUProfile(f); err != nil {
+		_ = f.Close()
+		typecheckProfileActive.Store(false)
+		log.Warn("typecheck cpu profile start failed", zap.String("path", path), zap.Error(err))
+		return nil
+	}
+	log.Info("typecheck cpu profile started", zap.String("id", id), zap.String("path", path))
+	return func() {
+		pprof.StopCPUProfile()
+		_ = f.Close()
+		typecheckProfileActive.Store(false)
+		log.Info("typecheck cpu profile stopped", zap.String("id", id), zap.String("path", path))
+	}
+}
+
+func sanitizeProfileID(id string) string {
+	replacer := strings.NewReplacer("/", "_", ":", "_", ".", "_")
+	return replacer.Replace(id)
+}
 
 type (
 	// Manager centralizes code and dependency management
@@ -70,7 +129,7 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 			// Type check if enabled
 			if typeChecker.IsEnabled() {
 				// Get dependency manifests from the graph
-				imports := make(map[string]*types.TypeManifest)
+				imports := make(map[string]*io.Manifest)
 				deps, _ := cm.memGraph.GetDependenciesWithAliases(node.ID)
 				for _, dep := range deps {
 					if dep.Node.Manifest != nil {
@@ -78,15 +137,28 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 					}
 				}
 
-				// Use typeChecker.Check which properly handles imports
-				manifest, diagnostics, _ := typeChecker.Check(node.Source, node.ID.String(), imports)
+				// TODO(wippy): Remove timing logs once typecheck hot spots are identified.
+				typecheckStart := time.Now()
+				manifest, diagnostics := withTypecheckCPUProfile(log, node.ID.String(), func() (*io.Manifest, []diag.Diagnostic) {
+					return typeChecker.CheckParsed(chunk, node.ID.String(), imports)
+				})
+				lineCount := 0
+				if node.Source != "" {
+					lineCount = strings.Count(node.Source, "\n") + 1
+				}
+				cm.log.Debug("lua typecheck completed",
+					zap.String("id", node.ID.String()),
+					zap.Int("imports", len(imports)),
+					zap.Int("lines", lineCount),
+					zap.Int("bytes", len(node.Source)),
+					zap.Duration("duration", time.Since(typecheckStart)))
 
 				// Store manifest on the node for downstream dependencies
 				if manifest != nil {
 					node.Manifest = manifest
 				}
 
-				if HasErrors(diagnostics) && typeChecker.IsStrict() {
+				if check.HasError(diagnostics) && typeChecker.IsStrict() {
 					return nil, NewTypeCheckDiagnosticError(node.ID, diagnostics)
 				}
 			}
@@ -109,6 +181,9 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 			ID:     registry.NewID("", info.Name),
 			Kind:   api.ModuleKind,
 			Module: mod,
+		}
+		if mod.Types != nil {
+			node.Manifest = mod.Types()
 		}
 
 		cm.log.Debug("adding built-in module", zap.String("name", info.Name))
@@ -213,27 +288,7 @@ func (cm *Manager) AddNode(_ context.Context, node Node, deps []Import) error {
 			return NewParseError(err, node.Source)
 		}
 
-		if cm.typeChecker.IsEnabled() {
-			// Get dependency manifests from deps (node not yet in graph)
-			imports := make(map[string]*types.TypeManifest)
-			for _, dep := range deps {
-				depNode, err := cm.memGraph.GetNode(dep.ID)
-				if err == nil && depNode.Manifest != nil {
-					alias := dep.Alias
-					if alias == "" {
-						alias = dep.ID.Name
-					}
-					imports[alias] = depNode.Manifest
-				}
-			}
-
-			manifest, diagnostics, _ := cm.typeChecker.Check(node.Source, node.ID.String(), imports)
-			nodePtr.Manifest = manifest
-
-			if HasErrors(diagnostics) && cm.typeChecker.IsStrict() {
-				return NewTypeCheckDiagnosticError(node.ID, diagnostics)
-			}
-		}
+		// Type checking happens during compile to avoid duplicate work.
 	}
 
 	if err := cm.memGraph.AddNode(nodePtr); err != nil {
@@ -269,27 +324,7 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 			return NewParseError(err, node.Source)
 		}
 
-		if cm.typeChecker.IsEnabled() {
-			// Get dependency manifests from new deps
-			imports := make(map[string]*types.TypeManifest)
-			for _, dep := range deps {
-				depNode, err := cm.memGraph.GetNode(dep.ID)
-				if err == nil && depNode.Manifest != nil {
-					alias := dep.Alias
-					if alias == "" {
-						alias = dep.ID.Name
-					}
-					imports[alias] = depNode.Manifest
-				}
-			}
-
-			manifest, diagnostics, _ := cm.typeChecker.Check(node.Source, node.ID.String(), imports)
-			existing.Manifest = manifest
-
-			if HasErrors(diagnostics) && cm.typeChecker.IsStrict() {
-				return NewTypeCheckDiagnosticError(node.ID, diagnostics)
-			}
-		}
+		// Type checking happens during compile to avoid duplicate work.
 	}
 
 	// Update fields
@@ -393,11 +428,29 @@ func (cm *Manager) GetModuleDefs() []*api.ModuleDef {
 	return modules
 }
 
+// GetModuleManifests returns manifests from the code manager graph.
+func (cm *Manager) GetModuleManifests() map[registry.ID]*io.Manifest {
+	manifests := make(map[registry.ID]*io.Manifest)
+	for _, node := range cm.memGraph.nodes {
+		if node.Module == nil || node.Manifest == nil {
+			continue
+		}
+		manifests[node.ID] = node.Manifest
+	}
+	return manifests
+}
+
 // AddBuiltinType registers a module's types in the type checker's built-in environment
 func (cm *Manager) AddBuiltinType(mod *api.ModuleDef) {
 	if cm.typeChecker != nil {
 		cm.typeChecker.AddBuiltin(mod)
 	}
+}
+
+// GetTypeChecker returns the code manager's type checker for linting.
+// The returned type checker has all registered modules available.
+func (cm *Manager) GetTypeChecker() *TypeChecker {
+	return cm.typeChecker
 }
 
 // AddNodeWithProto adds a node with a precompiled prototype (for bytecode entries).

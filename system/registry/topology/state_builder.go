@@ -44,12 +44,12 @@ func NewStateBuilder(log *zap.Logger, resolver registry.DependencyResolver, opt 
 // ValidateOperation validates if an operation can be applied to the current state
 func (b *StateBuilder) ValidateOperation(state StateMap, op registry.Operation) error {
 	switch op.Kind {
-	case registry.Create:
+	case registry.EntryCreate:
 		if _, exists := state[op.Entry.ID]; exists {
 			return NewEntryExistsError(op.Entry.ID.NS, op.Entry.ID.Name)
 		}
 
-	case registry.Update:
+	case registry.EntryUpdate:
 		existingEntry, exists := state[op.Entry.ID]
 		if !exists {
 			return NewEntryNotExistsError(op.Entry.ID.NS, op.Entry.ID.Name)
@@ -59,7 +59,7 @@ func (b *StateBuilder) ValidateOperation(state StateMap, op registry.Operation) 
 			return NewKindChangeError(op.Entry.ID.NS, op.Entry.ID.Name, existingEntry.Kind, op.Entry.Kind)
 		}
 
-	case registry.Delete:
+	case registry.EntryDelete:
 		if _, exists := state[op.Entry.ID]; !exists {
 			return NewDeleteNonExistentError(op.Entry.ID.NS, op.Entry.ID.Name)
 		}
@@ -79,11 +79,11 @@ func (b *StateBuilder) ApplyOperation(state StateMap, op registry.Operation) (St
 	newState := CopyStateMap(state)
 
 	switch op.Kind {
-	case registry.Create:
+	case registry.EntryCreate:
 		newState[op.Entry.ID] = op.Entry
-	case registry.Update:
+	case registry.EntryUpdate:
 		newState[op.Entry.ID] = op.Entry
-	case registry.Delete:
+	case registry.EntryDelete:
 		if _, ok := newState[op.Entry.ID]; ok {
 			delete(newState, op.Entry.ID)
 		} else {
@@ -101,26 +101,26 @@ func (b *StateBuilder) ApplyOperation(state StateMap, op registry.Operation) (St
 // GetInverseOperation returns the inverse of the given operation using OriginalEntry
 func (b *StateBuilder) GetInverseOperation(op registry.Operation) (registry.Operation, error) {
 	switch op.Kind {
-	case registry.Create:
-		return registry.Operation{Kind: registry.Delete, Entry: op.Entry}, nil
+	case registry.EntryCreate:
+		return registry.Operation{Kind: registry.EntryDelete, Entry: op.Entry}, nil
 
-	case registry.Update:
+	case registry.EntryUpdate:
 		if op.OriginalEntry == nil {
 			b.log.Warn("OriginalEntry not found for update operation, cannot create inverse",
 				zap.String("namespace", op.Entry.ID.NS),
 				zap.String("name", op.Entry.ID.Name))
 			return registry.Operation{}, NewOriginalEntryNotFoundError(op.Entry.ID.NS, op.Entry.ID.Name)
 		}
-		return registry.Operation{Kind: registry.Update, Entry: *op.OriginalEntry}, nil
+		return registry.Operation{Kind: registry.EntryUpdate, Entry: *op.OriginalEntry}, nil
 
-	case registry.Delete:
+	case registry.EntryDelete:
 		if op.OriginalEntry == nil {
 			b.log.Warn("OriginalEntry not found for delete operation, cannot create inverse",
 				zap.String("namespace", op.Entry.ID.NS),
 				zap.String("name", op.Entry.ID.Name))
 			return registry.Operation{}, NewOriginalEntryNotFoundError(op.Entry.ID.NS, op.Entry.ID.Name)
 		}
-		return registry.Operation{Kind: registry.Create, Entry: *op.OriginalEntry}, nil
+		return registry.Operation{Kind: registry.EntryCreate, Entry: *op.OriginalEntry}, nil
 
 	default:
 		return registry.Operation{}, NewUnknownOperationKindError(op.Kind)
@@ -231,63 +231,63 @@ func (b *StateBuilder) SquashChangesets(changesets []registry.ChangeSet) registr
 
 			// Apply squashing rules based on the combination of operations
 			switch existing.Kind {
-			case registry.Create:
+			case registry.EntryCreate:
 				switch op.Kind {
-				case registry.Update:
+				case registry.EntryUpdate:
 					// Create + Update = Create with updated value
 					operations[op.Entry.ID] = registry.Operation{
-						Kind:  registry.Create,
+						Kind:  registry.EntryCreate,
 						Entry: op.Entry,
 					}
-				case registry.Delete:
+				case registry.EntryDelete:
 					// Create + Delete = Nothing (cancel out)
 					delete(operations, op.Entry.ID)
-				case registry.Create:
+				case registry.EntryCreate:
 					// Create + Create = error in theory, but keep latest
 					b.log.Warn("duplicate create operations for same entry",
 						zap.String("id", op.Entry.ID.String()))
 					operations[op.Entry.ID] = op
 				}
 
-			case registry.Update:
+			case registry.EntryUpdate:
 				switch op.Kind {
-				case registry.Update:
+				case registry.EntryUpdate:
 					// Update + Update = Update with latest value
 					operations[op.Entry.ID] = op
-				case registry.Delete:
+				case registry.EntryDelete:
 					// Update + Delete = Delete
 					operations[op.Entry.ID] = op
-				case registry.Create:
+				case registry.EntryCreate:
 					// Update + Create = shouldn't happen, but keep create
 					b.log.Warn("create after update for same entry",
 						zap.String("id", op.Entry.ID.String()))
 					operations[op.Entry.ID] = op
 				}
 
-			case registry.Delete:
+			case registry.EntryDelete:
 				switch op.Kind {
-				case registry.Create:
+				case registry.EntryCreate:
 					// Delete + Create = Update (or Create if different kind)
 					if existing.Entry.Kind == op.Entry.Kind {
 						// Same kind, treat as update
 						operations[op.Entry.ID] = registry.Operation{
-							Kind:  registry.Update,
+							Kind:  registry.EntryUpdate,
 							Entry: op.Entry,
 						}
 					} else {
 						// Different kind, keep as create
 						operations[op.Entry.ID] = op
 					}
-				case registry.Update:
+				case registry.EntryUpdate:
 					// Delete + Update = shouldn't happen
 					b.log.Error("update after delete for same entry",
 						zap.String("id", op.Entry.ID.String()))
 					// Keep the update but change to create
 					operations[op.Entry.ID] = registry.Operation{
-						Kind:  registry.Create,
+						Kind:  registry.EntryCreate,
 						Entry: op.Entry,
 					}
-				case registry.Delete:
+				case registry.EntryDelete:
 					// Delete + Delete = keep delete
 					b.log.Warn("duplicate delete operations for same entry",
 						zap.String("id", op.Entry.ID.String()))
@@ -370,7 +370,7 @@ func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, 
 	for _, fromEntry := range from {
 		if _, exists := toState[fromEntry.ID]; !exists {
 			operations = append(operations, registry.Operation{
-				Kind:  registry.Delete,
+				Kind:  registry.EntryDelete,
 				Entry: fromEntry,
 			})
 		}
@@ -382,13 +382,13 @@ func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, 
 		if !exists {
 			// Spawn
 			operations = append(operations, registry.Operation{
-				Kind:  registry.Create,
+				Kind:  registry.EntryCreate,
 				Entry: toEntry,
 			})
 		} else if !b.compare(fromEntry, toEntry) {
 			// Update
 			operations = append(operations, registry.Operation{
-				Kind:  registry.Update,
+				Kind:  registry.EntryUpdate,
 				Entry: toEntry,
 			})
 		}
@@ -397,7 +397,7 @@ func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, 
 	// Separate deletes from creates/updates
 	var deleteOps, otherOps []registry.Operation
 	for _, op := range operations {
-		if op.Kind == registry.Delete {
+		if op.Kind == registry.EntryDelete {
 			deleteOps = append(deleteOps, op)
 		} else {
 			otherOps = append(otherOps, op)

@@ -523,7 +523,7 @@ func TestRegistry_EventHandling_StorageRegister(t *testing.T) {
 	var wg sync.WaitGroup
 
 	sub, err := eventbus.NewSubscriber(ctx, bus, env.System, "(accept|reject)", func(evt event.Event) {
-		if evt.Kind == env.Accepted || evt.Kind == env.Rejected {
+		if evt.Kind == env.EnvAccept || evt.Kind == env.EnvReject {
 			mu.Lock()
 			responses = append(responses, evt)
 			mu.Unlock()
@@ -568,7 +568,7 @@ func TestRegistry_EventHandling_StorageRegister(t *testing.T) {
 		// Verify accept event was sent
 		mu.Lock()
 		require.Len(t, responses, 1)
-		assert.Equal(t, env.Accepted, responses[0].Kind)
+		assert.Equal(t, env.EnvAccept, responses[0].Kind)
 		assert.Equal(t, evt.Path, responses[0].Path)
 		mu.Unlock()
 	})
@@ -606,7 +606,7 @@ func TestRegistry_EventHandling_StorageRegister(t *testing.T) {
 		// Verify reject event was sent
 		mu.Lock()
 		require.Len(t, responses, 1)
-		assert.Equal(t, env.Rejected, responses[0].Kind)
+		assert.Equal(t, env.EnvReject, responses[0].Kind)
 		assert.Equal(t, evt.Path, responses[0].Path)
 		assert.Contains(t, responses[0].Data.(string), "invalid storage data type")
 		mu.Unlock()
@@ -624,7 +624,7 @@ func TestRegistry_EventHandling_VariableRegister(t *testing.T) {
 	var wg sync.WaitGroup
 
 	sub, err := eventbus.NewSubscriber(ctx, bus, env.System, "(accept|reject)", func(evt event.Event) {
-		if evt.Kind == env.Accepted || evt.Kind == env.Rejected {
+		if evt.Kind == env.EnvAccept || evt.Kind == env.EnvReject {
 			mu.Lock()
 			responses = append(responses, evt)
 			mu.Unlock()
@@ -680,7 +680,7 @@ func TestRegistry_EventHandling_VariableRegister(t *testing.T) {
 		// Verify accept event was sent
 		mu.Lock()
 		require.Len(t, responses, 1)
-		assert.Equal(t, env.Accepted, responses[0].Kind)
+		assert.Equal(t, env.EnvAccept, responses[0].Kind)
 		mu.Unlock()
 	})
 
@@ -722,7 +722,7 @@ func TestRegistry_EventHandling_VariableRegister(t *testing.T) {
 		// Verify reject event was sent
 		mu.Lock()
 		require.Len(t, responses, 1)
-		assert.Equal(t, env.Rejected, responses[0].Kind)
+		assert.Equal(t, env.EnvReject, responses[0].Kind)
 		assert.Contains(t, responses[0].Data.(string), "invalid variable")
 		mu.Unlock()
 	})
@@ -765,7 +765,7 @@ func TestRegistry_EventHandling_VariableRegister(t *testing.T) {
 		// Verify reject event was sent
 		mu.Lock()
 		require.Len(t, responses, 1)
-		assert.Equal(t, env.Rejected, responses[0].Kind)
+		assert.Equal(t, env.EnvReject, responses[0].Kind)
 		assert.Contains(t, responses[0].Data.(string), "referenced storage not found")
 		mu.Unlock()
 	})
@@ -818,7 +818,7 @@ func TestRegistry_EventHandling_VariableRegister(t *testing.T) {
 		// Verify reject event was sent
 		mu.Lock()
 		require.Len(t, responses, 1)
-		assert.Equal(t, env.Rejected, responses[0].Kind)
+		assert.Equal(t, env.EnvReject, responses[0].Kind)
 		assert.Contains(t, responses[0].Data.(string), "variable name already exists")
 		mu.Unlock()
 	})
@@ -835,7 +835,7 @@ func TestRegistry_EventHandling_VariableUpdate(t *testing.T) {
 	var wg sync.WaitGroup
 
 	sub, err := eventbus.NewSubscriber(ctx, bus, env.System, "(accept|reject)", func(evt event.Event) {
-		if evt.Kind == env.Accepted || evt.Kind == env.Rejected {
+		if evt.Kind == env.EnvAccept || evt.Kind == env.EnvReject {
 			mu.Lock()
 			responses = append(responses, evt)
 			mu.Unlock()
@@ -898,7 +898,7 @@ func TestRegistry_EventHandling_VariableUpdate(t *testing.T) {
 		// Verify accept event was sent
 		mu.Lock()
 		require.Len(t, responses, 1)
-		assert.Equal(t, env.Accepted, responses[0].Kind)
+		assert.Equal(t, env.EnvAccept, responses[0].Kind)
 		mu.Unlock()
 	})
 }
@@ -914,7 +914,7 @@ func TestRegistry_EventHandling_VariableDelete(t *testing.T) {
 	var wg sync.WaitGroup
 
 	sub, err := eventbus.NewSubscriber(ctx, bus, env.System, "(accept|reject)", func(evt event.Event) {
-		if evt.Kind == env.Accepted || evt.Kind == env.Rejected {
+		if evt.Kind == env.EnvAccept || evt.Kind == env.EnvReject {
 			mu.Lock()
 			responses = append(responses, evt)
 			mu.Unlock()
@@ -967,7 +967,7 @@ func TestRegistry_EventHandling_VariableDelete(t *testing.T) {
 	// Verify accept event was sent
 	mu.Lock()
 	require.Len(t, responses, 1)
-	assert.Equal(t, env.Accepted, responses[0].Kind)
+	assert.Equal(t, env.EnvAccept, responses[0].Kind)
 	mu.Unlock()
 }
 
@@ -982,7 +982,7 @@ func TestRegistry_EventHandling_StorageDelete(t *testing.T) {
 	var wg sync.WaitGroup
 
 	sub, err := eventbus.NewSubscriber(ctx, bus, env.System, "(accept|reject)", func(evt event.Event) {
-		if evt.Kind == env.Accepted || evt.Kind == env.Rejected {
+		if evt.Kind == env.EnvAccept || evt.Kind == env.EnvReject {
 			mu.Lock()
 			responses = append(responses, evt)
 			mu.Unlock()
@@ -1028,7 +1028,7 @@ func TestRegistry_EventHandling_StorageDelete(t *testing.T) {
 	// Verify accept event was sent
 	mu.Lock()
 	require.Len(t, responses, 1)
-	assert.Equal(t, env.Accepted, responses[0].Kind)
+	assert.Equal(t, env.EnvAccept, responses[0].Kind)
 	mu.Unlock()
 }
 

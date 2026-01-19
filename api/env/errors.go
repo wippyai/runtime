@@ -1,9 +1,6 @@
 package env
 
-import (
-	"github.com/wippyai/runtime/api/attrs"
-	apierror "github.com/wippyai/runtime/api/error"
-)
+import apierror "github.com/wippyai/runtime/api/error"
 
 var (
 	ErrVariableNotFound = apierror.New(apierror.NotFound, "environment variable not found").WithRetryable(apierror.False)
@@ -24,9 +21,3 @@ var (
 
 	ErrEmptyFilePath = apierror.New(apierror.Invalid, "file path must not be empty").WithRetryable(apierror.False)
 )
-
-func NewInvalidVariableNameError(name string, reason string) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid environment variable name: "+reason).
-		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(map[string]any{"variable": name, "reason": reason}))
-}

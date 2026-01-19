@@ -26,8 +26,13 @@ type Registry struct {
 	subscriber *eventbus.Subscriber
 }
 
+const functionEventPattern = "function.(register|delete)"
+
 // NewFunctionRegistry creates a new Registry instance with the provided event bus and logger.
 func NewFunctionRegistry(bus event.Bus, logger *zap.Logger) *Registry {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &Registry{
 		bus:      bus,
 		logger:   logger,
@@ -46,7 +51,7 @@ func (f *Registry) Start(ctx context.Context) error {
 		f.ctx,
 		f.bus,
 		function.System,
-		"function.(register|delete)",
+		functionEventPattern,
 		f.handleEvent,
 	)
 	if err != nil {
@@ -67,9 +72,9 @@ func (f *Registry) Stop() error {
 
 func (f *Registry) handleEvent(e event.Event) {
 	switch e.Kind {
-	case function.Register:
+	case function.FunctionRegister:
 		f.registerFunction(e)
-	case function.Delete:
+	case function.FunctionDelete:
 		f.deleteFunction(e)
 	default:
 		f.logger.Warn("unknown event kind",
@@ -128,19 +133,19 @@ func (f *Registry) deleteFunction(e event.Event) {
 }
 
 func (f *Registry) sendAccept(path event.Path) {
-	f.bus.Send(f.ctx, event.Event{
-		System: function.System,
-		Kind:   function.Accept,
-		Path:   path,
-	})
+	f.sendResponse(path, function.FunctionAccept, nil)
 }
 
 func (f *Registry) sendReject(path event.Path, reason string) {
+	f.sendResponse(path, function.FunctionReject, reason)
+}
+
+func (f *Registry) sendResponse(path event.Path, kind event.Kind, data any) {
 	f.bus.Send(f.ctx, event.Event{
 		System: function.System,
-		Kind:   function.Reject,
+		Kind:   kind,
 		Path:   path,
-		Data:   reason,
+		Data:   data,
 	})
 }
 
@@ -206,10 +211,12 @@ func (f *Registry) executor(ctx context.Context, handler function.Func, task run
 	}
 	pid := gen.Generate(task.ID.String())
 
-	// Build pairs slice with capacity for base pairs + task context
-	pairs := make([]ctxapi.Pair, 2, 2+len(task.Context))
-	pairs[0] = ctxapi.Pair{Key: runtimeapi.FrameIDKey, Value: task.ID}
-	pairs[1] = ctxapi.Pair{Key: runtimeapi.FramePIDKey, Value: pid}
+	// Build pairs slice with capacity for base pairs + task context.
+	pairs := make([]ctxapi.Pair, 0, 2+len(task.Context))
+	pairs = append(pairs,
+		ctxapi.Pair{Key: runtimeapi.FrameIDKey, Value: task.ID},
+		ctxapi.Pair{Key: runtimeapi.FramePIDKey, Value: pid},
+	)
 	pairs = append(pairs, task.Context...)
 
 	if err := fc.SetMultiple(pairs...); err != nil {

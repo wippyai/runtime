@@ -2,17 +2,18 @@ package lsp
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/code"
+	"github.com/yuin/gopher-lua/compiler/check"
 	"github.com/yuin/gopher-lua/compiler/parse"
 	golualsp "github.com/yuin/gopher-lua/lsp"
 	"github.com/yuin/gopher-lua/lsp/index"
-	"github.com/yuin/gopher-lua/types"
-	"github.com/yuin/gopher-lua/types/diag"
+	"github.com/yuin/gopher-lua/types/db"
 	"github.com/yuin/gopher-lua/types/io"
 	"go.uber.org/zap"
 )
@@ -40,9 +41,7 @@ func (idx *Indexer) IndexAll(ctx context.Context) error {
 		return nil
 	}
 
-	modules := idx.cm.GetModuleDefs()
-	env := buildEnvFromModules(modules)
-
+	database := buildDBFromModules(idx.cm.GetModuleDefs())
 	entries := idx.collectLuaEntries()
 	idx.log.Debug("indexing entries", zap.Int("count", len(entries)))
 
@@ -54,7 +53,7 @@ func (idx *Indexer) IndexAll(ctx context.Context) error {
 		default:
 		}
 
-		if err := idx.indexEntry(entry, env); err != nil {
+		if err := idx.indexEntry(entry, database); err != nil {
 			failed++
 			idx.log.Debug("index failed", zap.String("id", entry.ID.String()), zap.Error(err))
 		}
@@ -86,10 +85,8 @@ func (idx *Indexer) IndexEntry(ctx context.Context, id registry.ID) error {
 		return nil
 	}
 
-	modules := idx.cm.GetModuleDefs()
-	env := buildEnvFromModules(modules)
-
-	return idx.indexEntry(&entryInfo{ID: id, Source: node.Source}, env)
+	database := buildDBFromModules(idx.cm.GetModuleDefs())
+	return idx.indexEntry(&entryInfo{ID: id, Source: node.Source}, database)
 }
 
 // entryInfo holds minimal entry data for indexing.
@@ -118,68 +115,57 @@ func (idx *Indexer) collectLuaEntries() []*entryInfo {
 }
 
 // indexEntry indexes a single entry.
-func (idx *Indexer) indexEntry(entry *entryInfo, env *types.Env) error {
+func (idx *Indexer) indexEntry(entry *entryInfo, database *db.DB) error {
 	fileID := entry.ID.String()
 
-	chunk, err := parse.ParseString(entry.Source, fileID)
+	stmts, err := parse.Parse(strings.NewReader(entry.Source), fileID)
 	if err != nil {
 		return err
 	}
 
-	// Type check without observer for now
-	result := types.CheckChunkWithContext(chunk,
-		types.WithStdlib(),
-		types.WithEnv(env),
-		types.WithSource(fileID),
-	)
-	// Release session resources after type checking
-	defer result.Context.Release()
+	ctx := db.NewContext(database)
+	checker := check.New(ctx)
+	diags := checker.Check(stmts)
 
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
 	// Build and register manifest
-	idx.buildManifest(fileID, result.Context)
+	idx.buildManifest(fileID, database)
 
+	if check.HasError(diags) && len(check.FilterErrors(diags)) > 0 {
+		return errors.New("type check errors")
+	}
 	return nil
 }
 
-// buildManifest builds and registers a TypeManifest for the file.
-func (idx *Indexer) buildManifest(file string, ctx *types.Context) {
-	if ctx == nil || idx.lspService == nil {
+// buildManifest builds and registers a Manifest for the file.
+func (idx *Indexer) buildManifest(file string, database *db.DB) {
+	if database == nil || idx.lspService == nil {
 		return
 	}
 
 	manifest := io.NewManifest(file)
-	manifest.WithDebug()
-
 	idx.lspService.RegisterManifest(manifest)
 }
 
-// buildEnvFromModules creates a type environment from module definitions.
-func buildEnvFromModules(modules []*luaapi.ModuleDef) *types.Env {
-	env := types.NewEnv()
+// buildDBFromModules creates a type database from module definitions.
+func buildDBFromModules(modules []*luaapi.ModuleDef) *db.DB {
+	database := db.New()
 
-	// Add standard library
-	stdlib := types.StandardLibrary()
-	for name, typ := range stdlib {
-		env = env.WithSymbol(name, typ)
-	}
-
-	// Add module types
 	for _, mod := range modules {
 		if mod == nil {
 			continue
 		}
 		if mod.Types != nil {
 			manifest := mod.Types()
-			if manifest != nil && manifest.Export != nil {
-				env = env.WithSymbol(mod.Name, manifest.Export)
+			if manifest != nil {
+				database.Connect(mod.Name, manifest)
 			}
 		}
 	}
 
-	return env
+	return database
 }
 
 // isLuaKind checks if a kind represents Lua code.
@@ -193,41 +179,8 @@ func isLuaKind(kind registry.Kind) bool {
 	return false
 }
 
-// lspObserver implements types.Observer for LSP indexing.
+// lspObserver provides LSP indexing integration.
 type lspObserver struct {
 	file    string
 	symbols *index.SymbolIndex
-}
-
-func (o *lspObserver) OnEnterFunction(name string, pos interface{}) {}
-func (o *lspObserver) OnExitFunction(name string)                   {}
-
-func (o *lspObserver) OnSymbolDef(name string, kind types.SymbolKind, typ types.Type, span diag.Span, scope string) {
-	if o.symbols == nil {
-		return
-	}
-	indexKind := convertTypesSymbolKind(kind)
-	o.symbols.AddDefinition(o.file, name, indexKind, typ, span, scope)
-}
-
-func (o *lspObserver) OnSymbolRef(name string, typ types.Type, pos interface{}) {}
-func (o *lspObserver) OnTypeResolved(expr interface{}, typ types.Type)          {}
-func (o *lspObserver) OnSymbolEscape(name string)                               {}
-
-// convertTypesSymbolKind converts types.SymbolKind to index.SymbolKind.
-func convertTypesSymbolKind(k types.SymbolKind) index.SymbolKind {
-	switch k {
-	case types.SymbolVariable:
-		return index.SymbolVariable
-	case types.SymbolFunction:
-		return index.SymbolFunction
-	case types.SymbolParameter:
-		return index.SymbolParameter
-	case types.SymbolType:
-		return index.SymbolType
-	case types.SymbolField:
-		return index.SymbolField
-	default:
-		return index.SymbolVariable
-	}
 }

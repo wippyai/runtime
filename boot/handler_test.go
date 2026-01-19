@@ -199,7 +199,7 @@ func TestWrapListener(t *testing.T) {
 
 		evt := event.Event{
 			System: registry.System,
-			Kind:   registry.Create,
+			Kind:   registry.EntryCreate,
 			Data:   testEntry,
 		}
 
@@ -225,7 +225,7 @@ func TestWrapListener(t *testing.T) {
 
 		evt := event.Event{
 			System: registry.System,
-			Kind:   registry.Update,
+			Kind:   registry.EntryUpdate,
 			Data:   testEntry,
 		}
 
@@ -251,7 +251,7 @@ func TestWrapListener(t *testing.T) {
 
 		evt := event.Event{
 			System: registry.System,
-			Kind:   registry.Delete,
+			Kind:   registry.EntryDelete,
 			Data:   testEntry,
 		}
 
@@ -278,7 +278,7 @@ func TestWrapListener(t *testing.T) {
 
 		evt := event.Event{
 			System: registry.System,
-			Kind:   registry.Create,
+			Kind:   registry.EntryCreate,
 			Data:   nonMatchEntry,
 		}
 
@@ -323,12 +323,12 @@ func TestHandlerRegistryIntegration(t *testing.T) {
 
 		processEvt := event.Event{
 			System: registry.System,
-			Kind:   registry.Create,
+			Kind:   registry.EntryCreate,
 			Data:   processEntry,
 		}
 		httpEvt := event.Event{
 			System: registry.System,
-			Kind:   registry.Create,
+			Kind:   registry.EntryCreate,
 			Data:   httpEntry,
 		}
 

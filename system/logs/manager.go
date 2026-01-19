@@ -23,6 +23,8 @@ type Manager struct {
 	sub    *eventbus.Subscriber
 }
 
+const configEventPattern = "logs.config.(set|get)"
+
 // NewManager creates a new logging service instance.
 func NewManager(
 	bus event.Bus,
@@ -30,6 +32,9 @@ func NewManager(
 	logger *zap.Logger,
 	config api.Config,
 ) *Manager {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &Manager{
 		log:    logger,
 		bus:    bus,
@@ -41,7 +46,7 @@ func NewManager(
 // Start initializes the service and starts listening for events
 func (m *Manager) Start(ctx context.Context) error {
 	// Subscribe to log configuration events and config requests
-	sub, err := eventbus.NewSubscriber(ctx, m.bus, api.System, "logs.config.(set|get)", m.handleEvent)
+	sub, err := eventbus.NewSubscriber(ctx, m.bus, api.System, configEventPattern, m.handleEvent)
 	if err != nil {
 		return NewSubscriberError(err)
 	}
@@ -93,13 +98,8 @@ func (m *Manager) handleConfigEvent(ctx context.Context, e event.Event) {
 
 	// Check for actual changes
 	if m.config == cfg {
-		// Even if config hasn't changed, send confirmation to prevent timeouts
-		m.bus.Send(ctx, event.Event{
-			System: api.System,
-			Kind:   api.ConfigState,
-			Path:   e.Path,
-			Data:   cfg,
-		})
+		// Even if config hasn't changed, send confirmation to prevent timeouts.
+		m.sendConfigState(ctx, e.Path, cfg)
 		return
 	}
 
@@ -119,20 +119,17 @@ func (m *Manager) handleGetConfigEvent(ctx context.Context, e event.Event) {
 	currentConfig := m.config
 	m.mu.RUnlock()
 
-	// send response with current config
-	m.bus.Send(ctx, event.Event{
-		System: api.System,
-		Kind:   api.ConfigState,
-		Path:   e.Path,
-		Data:   currentConfig,
-	})
+	m.sendConfigState(ctx, e.Path, currentConfig)
 }
 
 // handleSetConfigEvent applies a new logging configuration
 func (m *Manager) handleSetConfigEvent(ctx context.Context, path event.Path, cfg api.Config) {
 	m.config = cfg
 	m.core.Configure(cfg)
-	// send confirmation that config was applied
+	m.sendConfigState(ctx, path, cfg)
+}
+
+func (m *Manager) sendConfigState(ctx context.Context, path event.Path, cfg api.Config) {
 	m.bus.Send(ctx, event.Event{
 		System: api.System,
 		Kind:   api.ConfigState,

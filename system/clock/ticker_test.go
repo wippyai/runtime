@@ -45,6 +45,22 @@ func (m *tickerMockNode) packagesReceived() int {
 	return len(m.packages)
 }
 
+func waitForPackages(t *testing.T, node *tickerMockNode, min int, timeout time.Duration) int {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for {
+		received := node.packagesReceived()
+		if received >= min {
+			return received
+		}
+		if time.Now().After(deadline) {
+			return received
+		}
+		time.Sleep(1 * time.Millisecond)
+	}
+}
+
 func TestTickerRegistry_New(t *testing.T) {
 	r := newTickerRegistry()
 	if r == nil {
@@ -72,10 +88,7 @@ func TestTickerRegistry_Start(t *testing.T) {
 		t.Errorf("expected 1 ticker, got %d", r.count())
 	}
 
-	// Wait for some ticks
-	time.Sleep(35 * time.Millisecond)
-
-	received := node.packagesReceived()
+	received := waitForPackages(t, node, 2, 100*time.Millisecond)
 	if received < 2 {
 		t.Errorf("expected at least 2 tick packages, got %d", received)
 	}
@@ -258,12 +271,9 @@ func TestTickerRegistry_MultipleTickers(t *testing.T) {
 		t.Errorf("expected 5 tickers, got %d", r.count())
 	}
 
-	// Wait for ticks
-	time.Sleep(35 * time.Millisecond)
-
 	// Each ticker should have received ticks independently
 	for i, node := range nodes {
-		received := node.packagesReceived()
+		received := waitForPackages(t, node, 2, 100*time.Millisecond)
 		if received < 2 {
 			t.Errorf("ticker %d: expected at least 2 ticks, got %d", i, received)
 		}
@@ -292,8 +302,7 @@ func TestTickerRegistry_TickPackageContents(t *testing.T) {
 
 	r.start(ctx, 10*time.Millisecond, testPID, topic, node)
 
-	// Wait for a tick
-	time.Sleep(15 * time.Millisecond)
+	waitForPackages(t, node, 1, 100*time.Millisecond)
 
 	node.mu.Lock()
 	defer node.mu.Unlock()

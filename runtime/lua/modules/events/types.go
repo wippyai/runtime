@@ -1,20 +1,18 @@
 package events
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
 // ModuleTypes returns the type manifest for the events module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("events")
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("events")
 
-	moduleType := &types.InterfaceType{
-		Name: "events",
-		Methods: map[string]*types.FunctionType{
-			"subscribe": types.NewFunction([]types.Type{types.String, types.Optional(types.String)}, []types.Type{types.Any, types.Optional(types.LuaError)}),
-			"send":      types.NewFunction([]types.Type{types.String, types.String, types.String, types.Optional(types.Any)}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-		},
-	}
+	moduleType := typ.NewInterface("events", []typ.Method{
+		{Name: "subscribe", Type: typ.Func().Param("topic", typ.String).OptParam("group", typ.String).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "send", Type: typ.Func().Param("topic", typ.String).Param("source", typ.String).Param("event_type", typ.String).OptParam("payload", typ.Any).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+	})
 
 	m.SetExport(moduleType)
 	return m

@@ -25,7 +25,12 @@ type Registry struct {
 	subscriber      *eventbus.Subscriber
 }
 
+const envEventPattern = "(storage|variable).*"
+
 func NewRegistry(bus event.Bus, log *zap.Logger) *Registry {
+	if log == nil {
+		log = zap.NewNop()
+	}
 	return &Registry{
 		log: log,
 		bus: bus,
@@ -34,7 +39,7 @@ func NewRegistry(bus event.Bus, log *zap.Logger) *Registry {
 
 func (r *Registry) Start(ctx context.Context) error {
 	r.ctx = ctx
-	subscriber, err := eventbus.NewSubscriber(ctx, r.bus, env.System, "(storage|variable).*", r.handleEvent)
+	subscriber, err := eventbus.NewSubscriber(ctx, r.bus, env.System, envEventPattern, r.handleEvent)
 	if err != nil {
 		return NewSubscriberError(err)
 	}
@@ -204,11 +209,9 @@ func (r *Registry) updateVariable(e event.Event) {
 func (r *Registry) deleteVariable(e event.Event) {
 	varID := registry.ParseID(e.Path)
 
-	if storedVar, exists := r.variablesByID.Load(varID); exists {
-		if variable, ok := storedVar.(env.Variable); ok {
-			envName := r.getEnvName(&variable)
-			r.variablesByName.Delete(envName)
-		}
+	if variable, ok := r.loadVariable(varID); ok {
+		envName := r.getEnvName(variable)
+		r.variablesByName.Delete(envName)
 	}
 
 	r.variablesByID.Delete(varID)
@@ -217,10 +220,8 @@ func (r *Registry) deleteVariable(e event.Event) {
 }
 
 func (r *Registry) findVariableByID(id registry.ID) (*env.Variable, error) {
-	if stored, exists := r.variablesByID.Load(id); exists {
-		if variable, ok := stored.(env.Variable); ok {
-			return &variable, nil
-		}
+	if variable, ok := r.loadVariable(id); ok {
+		return variable, nil
 	}
 	return nil, env.ErrVariableNotFound
 }
@@ -368,21 +369,30 @@ func (r *Registry) All(ctx context.Context) (map[string]string, error) {
 	return result, nil
 }
 
-func (r *Registry) sendAccept(path event.Path) {
+func (r *Registry) loadVariable(id registry.ID) (*env.Variable, bool) {
+	if stored, exists := r.variablesByID.Load(id); exists {
+		if variable, ok := stored.(env.Variable); ok {
+			return &variable, true
+		}
+	}
+	return nil, false
+}
+
+func (r *Registry) sendResponse(path event.Path, kind event.Kind, data any) {
 	r.bus.Send(r.ctx, event.Event{
 		System: env.System,
-		Kind:   env.Accepted,
+		Kind:   kind,
 		Path:   path,
+		Data:   data,
 	})
 }
 
+func (r *Registry) sendAccept(path event.Path) {
+	r.sendResponse(path, env.EnvAccept, nil)
+}
+
 func (r *Registry) sendReject(path event.Path, reason string) {
-	r.bus.Send(r.ctx, event.Event{
-		System: env.System,
-		Kind:   env.Rejected,
-		Path:   path,
-		Data:   reason,
-	})
+	r.sendResponse(path, env.EnvReject, reason)
 }
 
 // Compile-time interface check

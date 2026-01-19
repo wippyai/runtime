@@ -28,6 +28,12 @@ local function handler()
     end
 
     local file = form.files.file[1]
+    if not file then
+        result.error = "no file in files array"
+        res:set_status(http.STATUS.BAD_REQUEST)
+        res:write_json(result)
+        return
+    end
     result.filename = file:name()
     result.size = file:size()
 

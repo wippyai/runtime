@@ -72,6 +72,9 @@ func NewWorker(
 	envReg env.Registry,
 	interceptors []interceptor.WorkerInterceptor,
 ) *Worker {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &Worker{
 		id:           id,
 		config:       config,

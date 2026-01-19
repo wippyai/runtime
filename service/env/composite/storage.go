@@ -27,28 +27,31 @@ func NewStorage(storages []env.Storage) (*Storage, error) {
 		return nil, env.ErrNoStorages
 	}
 
+	copied := make([]env.Storage, len(storages))
+	copy(copied, storages)
+
 	return &Storage{
-		storages: storages,
+		storages: copied,
 	}, nil
 }
 
 // Get retrieves a value by searching storages in order.
 // The first storage that has the key (returns nil error) is used.
 // Empty string is a valid value.
-func (r *Storage) Get(ctx context.Context, name string) (string, error) {
-	if cachedValue, exists := r.cache.Load(name); exists {
+func (s *Storage) Get(ctx context.Context, name string) (string, error) {
+	if cachedValue, exists := s.cache.Load(name); exists {
 		if value, ok := cachedValue.(string); ok {
 			return value, nil
 		}
 	}
 
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-	for _, storage := range r.storages {
+	for _, storage := range s.storages {
 		value, err := storage.Get(ctx, name)
 		if err == nil {
-			r.cache.Store(name, value)
+			s.cache.Store(name, value)
 			return value, nil
 		}
 		// Only continue to next storage if key was not found
@@ -62,26 +65,26 @@ func (r *Storage) Get(ctx context.Context, name string) (string, error) {
 }
 
 // Set stores a value in the primary (first) storage.
-func (r *Storage) Set(ctx context.Context, name, value string) error {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+func (s *Storage) Set(ctx context.Context, name, value string) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-	err := r.storages[0].Set(ctx, name, value)
+	err := s.storages[0].Set(ctx, name, value)
 	if err == nil {
-		r.cache.Store(name, value)
+		s.cache.Store(name, value)
 	}
 
 	return err
 }
 
 // Delete removes a value from the primary (first) storage.
-func (r *Storage) Delete(ctx context.Context, name string) error {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+func (s *Storage) Delete(ctx context.Context, name string) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-	err := r.storages[0].Delete(ctx, name)
+	err := s.storages[0].Delete(ctx, name)
 	if err == nil {
-		r.cache.Delete(name)
+		s.cache.Delete(name)
 	}
 
 	return err
@@ -89,13 +92,13 @@ func (r *Storage) Delete(ctx context.Context, name string) error {
 
 // List returns all variables from all storages.
 // Variables from earlier storages take precedence over later ones.
-func (r *Storage) List(ctx context.Context) (map[string]string, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+func (s *Storage) List(ctx context.Context) (map[string]string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	result := make(map[string]string)
 
-	for _, storage := range r.storages {
+	for _, storage := range s.storages {
 		storageVars, err := storage.List(ctx)
 		if err != nil {
 			continue
@@ -104,7 +107,7 @@ func (r *Storage) List(ctx context.Context) (map[string]string, error) {
 		for k, v := range storageVars {
 			if _, exists := result[k]; !exists {
 				result[k] = v
-				r.cache.Store(k, v)
+				s.cache.Store(k, v)
 			}
 		}
 	}

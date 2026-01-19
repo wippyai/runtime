@@ -1,45 +1,39 @@
 package exec
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
-// Executor type
-var executorType = &types.InterfaceType{
-	Name: "exec.Executor",
-	Methods: map[string]*types.FunctionType{
-		"exec":    types.NewFunction([]types.Type{types.Self, types.String, types.Optional(types.Any)}, []types.Type{processType, types.Optional(types.LuaError)}),
-		"release": types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-	},
+var executorType typ.Type
+var processType typ.Type
+
+func init() {
+	processType = typ.NewInterface("exec.Process", []typ.Method{
+		{Name: "start", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "wait", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "signal", Type: typ.Func().Param("self", typ.Self).Param("sig", typ.Number).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "write_stdin", Type: typ.Func().Param("self", typ.Self).Param("data", typ.String).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "stdout_stream", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "stderr_stream", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "close", Type: typ.Func().Param("self", typ.Self).OptParam("force", typ.Boolean).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+	})
+
+	executorType = typ.NewInterface("exec.Executor", []typ.Method{
+		{Name: "exec", Type: typ.Func().Param("self", typ.Self).Param("cmd", typ.String).OptParam("opts", typ.Any).Returns(processType, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "release", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+	})
 }
 
-// Process type
-var processType = &types.InterfaceType{
-	Name: "exec.Process",
-	Methods: map[string]*types.FunctionType{
-		"start":         types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-		"wait":          types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any, types.Optional(types.LuaError)}),
-		"signal":        types.NewFunction([]types.Type{types.Self, types.Number}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-		"write_stdin":   types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-		"stdout_stream": types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any, types.Optional(types.LuaError)}),
-		"stderr_stream": types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any, types.Optional(types.LuaError)}),
-		"close":         types.NewFunction([]types.Type{types.Self, types.Optional(types.Boolean)}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-	},
-}
-
-// ModuleTypes returns the type manifest for the exec module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("exec")
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("exec")
 
 	m.DefineType("Executor", executorType)
 	m.DefineType("Process", processType)
 
-	moduleType := &types.InterfaceType{
-		Name: "exec",
-		Methods: map[string]*types.FunctionType{
-			"get": types.NewFunction([]types.Type{types.String}, []types.Type{executorType, types.Optional(types.LuaError)}),
-		},
-	}
+	moduleType := typ.NewInterface("exec", []typ.Method{
+		{Name: "get", Type: typ.Func().Param("cmd", typ.String).Returns(executorType, typ.NewOptional(typ.LuaError)).Build()},
+	})
 
 	m.SetExport(moduleType)
 	return m

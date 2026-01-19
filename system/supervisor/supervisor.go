@@ -187,11 +187,11 @@ func (s *Supervisor) Stop() error {
 func (s *Supervisor) handleEvent(e event.Event) {
 	if e.System == registry.System {
 		switch e.Kind {
-		case registry.Begin:
+		case registry.TxBegin:
 			s.actions <- action{kind: actBegin}
-		case registry.Commit:
+		case registry.TxCommit:
 			s.actions <- action{kind: actCommit}
-		case registry.Discard:
+		case registry.TxDiscard:
 			s.actions <- action{kind: actDiscard}
 		}
 		return

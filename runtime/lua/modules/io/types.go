@@ -1,25 +1,44 @@
 package io
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	typio "github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
 // ModuleTypes returns the type manifest for the io module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("io")
+func ModuleTypes() *typio.Manifest {
+	m := typio.NewManifest("io")
 
-	moduleType := &types.InterfaceType{
-		Name: "io",
-		Methods: map[string]*types.FunctionType{
-			"write":    {Params: nil, Variadic: types.Any, Returns: []types.Type{types.Boolean, types.Optional(types.LuaError)}},
-			"print":    {Params: nil, Variadic: types.Any, Returns: []types.Type{types.Boolean, types.Optional(types.LuaError)}},
-			"eprint":   {Params: nil, Variadic: types.Any, Returns: []types.Type{types.Boolean, types.Optional(types.LuaError)}},
-			"read":     types.NewFunction([]types.Type{types.Optional(types.Number)}, []types.Type{types.String, types.Optional(types.LuaError)}),
-			"readline": types.NewFunction(nil, []types.Type{types.String, types.Optional(types.LuaError)}),
-			"flush":    types.NewFunction(nil, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-			"args":     types.NewFunction(nil, []types.Type{types.NewArray(types.String, false)}),
+	moduleType := typ.NewInterface("io", []typ.Method{
+		{
+			Name: "write",
+			Type: typ.Func().Variadic(typ.Any).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build(),
 		},
-	}
+		{
+			Name: "print",
+			Type: typ.Func().Variadic(typ.Any).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build(),
+		},
+		{
+			Name: "eprint",
+			Type: typ.Func().Variadic(typ.Any).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build(),
+		},
+		{
+			Name: "read",
+			Type: typ.Func().OptParam("n", typ.Number).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build(),
+		},
+		{
+			Name: "readline",
+			Type: typ.Func().Returns(typ.String, typ.NewOptional(typ.LuaError)).Build(),
+		},
+		{
+			Name: "flush",
+			Type: typ.Func().Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build(),
+		},
+		{
+			Name: "args",
+			Type: typ.Func().Returns(typ.NewArray(typ.String)).Build(),
+		},
+	})
 
 	m.SetExport(moduleType)
 	return m

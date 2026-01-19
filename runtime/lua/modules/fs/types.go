@@ -1,119 +1,186 @@
 package fs
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	"github.com/wippyai/runtime/runtime/lua/modules/stream"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
-// FileInfo type
-var fileInfoType = &types.RecordType{
-	Name: "fs.FileInfo",
-	Fields: []types.RecordField{
-		{Name: "name", Type: types.String},
-		{Name: "size", Type: types.Number},
-		{Name: "mode", Type: types.Number},
-		{Name: "modified", Type: types.Number},
-		{Name: "is_dir", Type: types.Boolean},
-		{Name: "type", Type: types.String},
-	},
-}
-
-// Scanner type for file scanning operations
-var scannerType = &types.InterfaceType{
-	Name: "fs.Scanner",
-	Methods: map[string]*types.FunctionType{
-		"scan": types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-		"text": types.NewFunction([]types.Type{types.Self}, []types.Type{types.String}),
-		"err":  types.NewFunction([]types.Type{types.Self}, []types.Type{types.Optional(types.LuaError)}),
-	},
-}
-
-// File userdata type
-var fileType = &types.InterfaceType{
-	Name: "fs.File",
-	Methods: map[string]*types.FunctionType{
-		"read":     types.NewFunction([]types.Type{types.Self, types.Optional(types.Number)}, []types.Type{types.String, types.Optional(types.LuaError)}),
-		"read_all": types.NewFunction([]types.Type{types.Self}, []types.Type{types.String, types.Optional(types.LuaError)}),
-		"write":    types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-		"seek":     types.NewFunction([]types.Type{types.Self, types.String, types.Number}, []types.Type{types.Number, types.Optional(types.LuaError)}),
-		"close":    types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-		"stat":     types.NewFunction([]types.Type{types.Self}, []types.Type{fileInfoType, types.Optional(types.LuaError)}),
-		"lines":    types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any, types.Optional(types.LuaError)}),
-		"sync":     types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-		"scanner":  types.NewFunction([]types.Type{types.Self, types.Optional(types.String)}, []types.Type{scannerType, types.Optional(types.LuaError)}),
-	},
-}
-
-// Forward declaration for self-referential FS type
-var fsType *types.InterfaceType
+var streamType typ.Type
 
 func init() {
-	fsType = &types.InterfaceType{
-		Name:    "fs.FS",
-		Methods: map[string]*types.FunctionType{},
+	if manifest := stream.ModuleTypes(); manifest != nil {
+		if t, ok := manifest.LookupType("Stream"); ok {
+			streamType = t
+		}
 	}
-	fsType.Methods["chdir"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
-	fsType.Methods["pwd"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.String, types.Optional(types.LuaError)})
-	fsType.Methods["open"] = types.NewFunction([]types.Type{types.Self, types.String, types.Optional(types.String)}, []types.Type{fileType, types.Optional(types.LuaError)})
-	fsType.Methods["stat"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{fileInfoType, types.Optional(types.LuaError)})
-	fsType.Methods["read_dir"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.NewArray(fileInfoType, false), types.Optional(types.LuaError)})
-	fsType.Methods["readdir"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.NewArray(fileInfoType, false), types.Optional(types.LuaError)})
-	fsType.Methods["mkdir"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
-	fsType.Methods["mkdir_all"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
-	fsType.Methods["remove"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
-	fsType.Methods["remove_all"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
-	fsType.Methods["rename"] = types.NewFunction([]types.Type{types.Self, types.String, types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
-	fsType.Methods["exists"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
-	fsType.Methods["isdir"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
-	fsType.Methods["glob"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.NewArray(types.String, false), types.Optional(types.LuaError)})
-	fsType.Methods["read_file"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.String, types.Optional(types.LuaError)})
-	fsType.Methods["readfile"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.String, types.Optional(types.LuaError)})
-	writeModeType := types.Optional(types.NewUnion(types.NewLiteral("w"), types.NewLiteral("wx"), types.NewLiteral("a")))
-	fsType.Methods["write_file"] = types.NewFunction([]types.Type{types.Self, types.String, types.String, writeModeType}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
-	fsType.Methods["writefile"] = types.NewFunction([]types.Type{types.Self, types.String, types.String, writeModeType}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
-	fsType.Methods["copy"] = types.NewFunction([]types.Type{types.Self, types.String, types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)})
-	fsType.Methods["sub"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{fsType, types.Optional(types.LuaError)})
+	if streamType == nil {
+		streamType = typ.Any
+	}
 }
 
-// Seek constants type
-var seekType = &types.InterfaceType{
-	Name: "fs.seek",
-	Fields: map[string]types.Type{
-		"SET": types.String,
-		"CUR": types.String,
-		"END": types.String,
-	},
+var fileInfoType = typ.NewRecord().
+	Field("name", typ.String).
+	Field("size", typ.Number).
+	Field("mode", typ.Number).
+	Field("modified", typ.Number).
+	Field("is_dir", typ.Boolean).
+	Field("type", typ.String).
+	Build()
+
+var scannerType = typ.NewInterface("fs.Scanner", []typ.Method{
+	{Name: "scan", Type: typ.Func().
+		Param("self", typ.Self).
+		Returns(typ.Boolean).
+		Build()},
+	{Name: "text", Type: typ.Func().
+		Param("self", typ.Self).
+		Returns(typ.String).
+		Build()},
+	{Name: "err", Type: typ.Func().
+		Param("self", typ.Self).
+		Returns(typ.NewOptional(typ.LuaError)).
+		Build()},
+})
+
+var fileType = typ.NewInterface("fs.File", []typ.Method{
+	{Name: "read", Type: typ.Func().
+		Param("self", typ.Self).
+		OptParam("n", typ.Number).
+		Returns(typ.String, typ.NewOptional(typ.LuaError)).
+		Build()},
+	{Name: "write", Type: typ.Func().
+		Param("self", typ.Self).
+		Param("data", typ.String).
+		Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
+		Build()},
+	{Name: "seek", Type: typ.Func().
+		Param("self", typ.Self).
+		Param("whence", typ.String).
+		Param("offset", typ.Number).
+		Returns(typ.Number, typ.NewOptional(typ.LuaError)).
+		Build()},
+	{Name: "close", Type: typ.Func().
+		Param("self", typ.Self).
+		Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
+		Build()},
+	{Name: "stat", Type: typ.Func().
+		Param("self", typ.Self).
+		Returns(fileInfoType, typ.NewOptional(typ.LuaError)).
+		Build()},
+	{Name: "sync", Type: typ.Func().
+		Param("self", typ.Self).
+		Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
+		Build()},
+	{Name: "scanner", Type: typ.Func().
+		Param("self", typ.Self).
+		OptParam("sep", typ.String).
+		Returns(scannerType, typ.NewOptional(typ.LuaError)).
+		Build()},
+})
+
+var fsType *typ.Interface
+
+func init() {
+	fsType = typ.NewInterface("fs.FS", []typ.Method{
+		{Name: "chdir", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("path", typ.String).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "pwd", Type: typ.Func().
+			Param("self", typ.Self).
+			Returns(typ.String, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "open", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("path", typ.String).
+			Param("mode", typ.String).
+			Returns(fileType, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "stat", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("path", typ.String).
+			Returns(fileInfoType, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "readdir", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("path", typ.String).
+			Returns(typ.NewArray(fileInfoType), typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "mkdir", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("path", typ.String).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "remove", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("path", typ.String).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "exists", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("path", typ.String).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "isdir", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("path", typ.String).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "read_file", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("path", typ.String).
+			Returns(typ.String, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "readfile", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("path", typ.String).
+			Returns(typ.String, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "write_file", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("path", typ.String).
+			Param("data", typ.NewUnion(typ.String, streamType)).
+			OptParam("mode", typ.String).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "writefile", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("path", typ.String).
+			Param("data", typ.NewUnion(typ.String, streamType)).
+			OptParam("mode", typ.String).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
+			Build()},
+	})
 }
 
-// Type constants type
-var typeConstType = &types.InterfaceType{
-	Name: "fs.type",
-	Fields: map[string]types.Type{
-		"FILE": types.String,
-		"DIR":  types.String,
-	},
-}
+var seekType = typ.NewRecord().
+	Field("SET", typ.String).
+	Field("CUR", typ.String).
+	Field("END", typ.String).
+	Build()
 
-// ModuleTypes returns the type manifest for the fs module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("fs")
+var typeConstType = typ.NewRecord().
+	Field("FILE", typ.String).
+	Field("DIR", typ.String).
+	Build()
+
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("fs")
 
 	m.DefineType("FS", fsType)
 	m.DefineType("File", fileType)
 	m.DefineType("FileInfo", fileInfoType)
+	m.DefineType("seek", seekType)
+	m.DefineType("type", typeConstType)
 
-	moduleType := &types.InterfaceType{
-		Name: "fs",
-		Fields: map[string]types.Type{
-			"type": typeConstType,
-			"seek": seekType,
-		},
-		Methods: map[string]*types.FunctionType{
-			"get": types.NewFunction(
-				[]types.Type{types.String},
-				[]types.Type{fsType, types.Optional(types.LuaError)},
-			),
-		},
-	}
+	moduleType := typ.NewInterface("fs", []typ.Method{
+		{Name: "get", Type: typ.Func().
+			Param("name", typ.String).
+			Returns(fsType, typ.NewOptional(typ.LuaError)).
+			Build()},
+	})
 
 	m.SetExport(moduleType)
 	return m

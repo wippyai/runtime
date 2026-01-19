@@ -19,6 +19,7 @@ func TestNewCreateExporterError(t *testing.T) {
 	assert.Equal(t, apierror.Internal, apiErr.Kind())
 	assert.Contains(t, err.Error(), "failed to create OTLP exporter")
 	assert.True(t, errors.Is(err, cause))
+	assert.Equal(t, "connection refused", apiErr.Details().GetString("cause", ""))
 }
 
 func TestNewCreateResourceError(t *testing.T) {
@@ -31,6 +32,7 @@ func TestNewCreateResourceError(t *testing.T) {
 	assert.Equal(t, apierror.Internal, apiErr.Kind())
 	assert.Contains(t, err.Error(), "failed to create resource")
 	assert.True(t, errors.Is(err, cause))
+	assert.Equal(t, "invalid resource", apiErr.Details().GetString("cause", ""))
 }
 
 func TestNewUnsupportedProtocolError(t *testing.T) {
@@ -41,7 +43,6 @@ func TestNewUnsupportedProtocolError(t *testing.T) {
 	require.True(t, errors.As(err, &apiErr))
 	assert.Equal(t, apierror.Invalid, apiErr.Kind())
 	assert.Contains(t, err.Error(), "unsupported protocol")
-	assert.Contains(t, err.Error(), "ws")
 
 	details := apiErr.Details()
 	require.NotNil(t, details)
@@ -58,6 +59,7 @@ func TestNewCreateMetricExporterError(t *testing.T) {
 	assert.Equal(t, apierror.Internal, apiErr.Kind())
 	assert.Contains(t, err.Error(), "failed to create OTLP metric exporter")
 	assert.True(t, errors.Is(err, cause))
+	assert.Equal(t, "metric export failed", apiErr.Details().GetString("cause", ""))
 }
 
 func TestNewShutdownMeterProviderError(t *testing.T) {
@@ -70,4 +72,5 @@ func TestNewShutdownMeterProviderError(t *testing.T) {
 	assert.Equal(t, apierror.Internal, apiErr.Kind())
 	assert.Contains(t, err.Error(), "failed to shutdown meter provider")
 	assert.True(t, errors.Is(err, cause))
+	assert.Equal(t, "shutdown timeout", apiErr.Details().GetString("cause", ""))
 }

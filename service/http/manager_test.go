@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	apiregistry "github.com/wippyai/runtime/api/registry"
 	config "github.com/wippyai/runtime/api/service/http"
@@ -554,17 +555,26 @@ func TestManager_UnsupportedKinds(t *testing.T) {
 	// Test Add with unsupported kind
 	err := manager.Add(ctx, unsupportedEntry)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported entry kind")
+	apiErr, ok := err.(apierror.Error)
+	require.True(t, ok)
+	assert.Contains(t, apiErr.Error(), "unsupported entry kind")
+	assert.Equal(t, "unsupported.kind", apiErr.Details().GetString("kind", ""))
 
 	// Test Update with unsupported kind
 	err = manager.Update(ctx, unsupportedEntry)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported entry kind")
+	apiErr, ok = err.(apierror.Error)
+	require.True(t, ok)
+	assert.Contains(t, apiErr.Error(), "unsupported entry kind")
+	assert.Equal(t, "unsupported.kind", apiErr.Details().GetString("kind", ""))
 
 	// Test Delete with unsupported kind
 	err = manager.Delete(ctx, unsupportedEntry)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported entry kind")
+	apiErr, ok = err.(apierror.Error)
+	require.True(t, ok)
+	assert.Contains(t, apiErr.Error(), "unsupported entry kind")
+	assert.Equal(t, "unsupported.kind", apiErr.Details().GetString("kind", ""))
 }
 
 func TestManager_ErrorHandling(t *testing.T) {
@@ -587,7 +597,10 @@ func TestManager_ErrorHandling(t *testing.T) {
 
 	err := manager.Add(ctx, routerEntry)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "server test:nonexistent not found")
+	apiErr, ok := err.(apierror.Error)
+	require.True(t, ok)
+	assert.Contains(t, apiErr.Error(), "server not found")
+	assert.Equal(t, "test:nonexistent", apiErr.Details().GetString("id", ""))
 
 	// Test router not found for endpoint
 	endpointID := apiregistry.NewID("test", "endpoint1")
@@ -608,5 +621,8 @@ func TestManager_ErrorHandling(t *testing.T) {
 
 	err = manager.Add(ctx, endpointEntry)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "router test:nonexistent not found")
+	apiErr, ok = err.(apierror.Error)
+	require.True(t, ok)
+	assert.Contains(t, apiErr.Error(), "router not found")
+	assert.Equal(t, "test:nonexistent", apiErr.Details().GetString("router_id", ""))
 }

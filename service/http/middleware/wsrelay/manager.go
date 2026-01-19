@@ -10,11 +10,11 @@ import (
 	contextapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	httpapi "github.com/wippyai/runtime/api/service/http"
 	"github.com/wippyai/runtime/api/topology"
-	"github.com/wippyai/runtime/internal/uniqid"
 	"go.uber.org/zap"
 )
 
@@ -81,14 +81,14 @@ func getOrigins(options map[string]string) string {
 type RelayManager struct {
 	appCtx     context.Context
 	logger     *zap.Logger
-	pidGen     *uniqid.PIDGenerator
+	pidGen     process.PIDGenerator
 	node       relay.Node
 	topo       topology.Topology
 	transcoder payload.Transcoder
 }
 
 // NewWebSocketRelay creates a new WebSocket relay manager
-func NewWebSocketRelay(ctx context.Context, logger *zap.Logger, pidGen *uniqid.PIDGenerator) *RelayManager {
+func NewWebSocketRelay(ctx context.Context, logger *zap.Logger, pidGen process.PIDGenerator) *RelayManager {
 	return &RelayManager{
 		appCtx:     ctx,
 		logger:     logger,

@@ -115,6 +115,7 @@ var requestBatchCmdPool = sync.Pool{
 	New: func() any { return &RequestBatchCmd{} },
 }
 
+// AcquireRequestBatchCmd returns a pooled RequestBatchCmd.
 func AcquireRequestBatchCmd() *RequestBatchCmd {
 	return requestBatchCmdPool.Get().(*RequestBatchCmd)
 }

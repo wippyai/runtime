@@ -23,9 +23,11 @@ func TestErrors(t *testing.T) {
 
 	t.Run("NewDependencyResolveError", func(t *testing.T) {
 		err := NewDependencyResolveError("my-service", cause)
-		assert.Contains(t, err.Error(), "my-service")
+		assert.Contains(t, err.Error(), "resolve dependencies")
 		assert.Equal(t, apierror.Internal, err.Kind())
 		assert.True(t, errors.Is(err, cause))
+		serviceID, _ := err.Details().Get("service_id")
+		assert.Equal(t, "my-service", serviceID)
 	})
 
 	t.Run("NewStartOperationsError", func(t *testing.T) {
@@ -55,21 +57,26 @@ func TestErrors(t *testing.T) {
 	t.Run("NewStopTimeoutError", func(t *testing.T) {
 		err := NewStopTimeoutError(5 * time.Second)
 		assert.Contains(t, err.Error(), "timed out")
-		assert.Contains(t, err.Error(), "5s")
 		assert.Equal(t, apierror.Timeout, err.Kind())
+		timeout, _ := err.Details().Get("timeout")
+		assert.Equal(t, "5s", timeout)
 	})
 
 	t.Run("NewServiceStartError", func(t *testing.T) {
 		err := NewServiceStartError("my-service", cause)
-		assert.Contains(t, err.Error(), "my-service")
+		assert.Contains(t, err.Error(), "start service")
 		assert.Equal(t, apierror.Internal, err.Kind())
 		assert.Equal(t, apierror.True, err.Retryable())
+		serviceID, _ := err.Details().Get("service_id")
+		assert.Equal(t, "my-service", serviceID)
 	})
 
 	t.Run("NewServiceStopError", func(t *testing.T) {
 		err := NewServiceStopError("my-service", cause)
-		assert.Contains(t, err.Error(), "my-service")
+		assert.Contains(t, err.Error(), "stop service")
 		assert.Equal(t, apierror.Internal, err.Kind())
+		serviceID, _ := err.Details().Get("service_id")
+		assert.Equal(t, "my-service", serviceID)
 	})
 
 	t.Run("NewStartSequenceError", func(t *testing.T) {
@@ -109,14 +116,16 @@ func TestErrors(t *testing.T) {
 	t.Run("NewCommitRemoveError", func(t *testing.T) {
 		err := NewCommitRemoveError("my-service", cause)
 		assert.Contains(t, err.Error(), "remove")
-		assert.Contains(t, err.Error(), "my-service")
 		assert.Equal(t, apierror.Internal, err.Kind())
+		serviceID, _ := err.Details().Get("service_id")
+		assert.Equal(t, "my-service", serviceID)
 	})
 
 	t.Run("NewCommitRegisterError", func(t *testing.T) {
 		err := NewCommitRegisterError("my-service", cause)
 		assert.Contains(t, err.Error(), "register")
-		assert.Contains(t, err.Error(), "my-service")
 		assert.Equal(t, apierror.Internal, err.Kind())
+		serviceID, _ := err.Details().Get("service_id")
+		assert.Equal(t, "my-service", serviceID)
 	})
 }

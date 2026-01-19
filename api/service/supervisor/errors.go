@@ -10,6 +10,7 @@ var (
 	ErrHostRequired    = apierror.New(apierror.Invalid, "host is required").WithRetryable(apierror.False)
 )
 
+// NewInvalidHostError reports a reserved or invalid host ID.
 func NewInvalidHostError(hostID pid.HostID) apierror.Error {
 	return apierror.New(apierror.Invalid, "invalid host: "+hostID).WithRetryable(apierror.False)
 }

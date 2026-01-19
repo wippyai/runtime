@@ -1,51 +1,61 @@
 package workflow
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
 // WorkflowInfo type
-var workflowInfoType = &types.RecordType{
-	Name: "workflow.Info",
-	Fields: []types.RecordField{
-		{Name: "workflow_id", Type: types.String},
-		{Name: "run_id", Type: types.String},
-		{Name: "workflow_type", Type: types.String},
-		{Name: "task_queue", Type: types.String},
-		{Name: "namespace", Type: types.String},
-		{Name: "attempt", Type: types.Number},
-		{Name: "history_length", Type: types.Number},
-		{Name: "history_size", Type: types.Number},
-	},
-}
+var workflowInfoType = typ.NewRecord().
+	Field("workflow_id", typ.String).
+	Field("run_id", typ.String).
+	Field("workflow_type", typ.String).
+	Field("task_queue", typ.String).
+	Field("namespace", typ.String).
+	Field("attempt", typ.Number).
+	Field("history_length", typ.Number).
+	Field("history_size", typ.Number).
+	Build()
 
 // ModuleTypes returns the type manifest for the workflow module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("workflow")
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("workflow")
 
 	m.DefineType("Info", workflowInfoType)
 
-	attrsInputType := &types.RecordType{
-		Name: "workflow.AttrsInput",
-		Fields: []types.RecordField{
-			{Name: "search", Type: types.Optional(&types.MapType{Key: types.String, Value: types.Any})},
-			{Name: "memo", Type: types.Optional(&types.MapType{Key: types.String, Value: types.Any})},
-		},
-	}
+	attrsInputType := typ.NewRecord().
+		OptField("search", typ.NewMap(typ.String, typ.Any)).
+		OptField("memo", typ.NewMap(typ.String, typ.Any)).
+		Build()
 
 	m.DefineType("AttrsInput", attrsInputType)
 
-	moduleType := &types.InterfaceType{
-		Name: "workflow",
-		Methods: map[string]*types.FunctionType{
-			"call":           {Params: []types.Type{types.String}, Variadic: types.Any, Returns: []types.Type{types.Any, types.Optional(types.LuaError)}},
-			"version":        types.NewFunction([]types.Type{types.String, types.Number, types.Number}, []types.Type{types.Number, types.Optional(types.LuaError)}),
-			"attrs":          types.NewFunction([]types.Type{attrsInputType}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-			"history_length": types.NewFunction(nil, []types.Type{types.Number, types.Optional(types.LuaError)}),
-			"history_size":   types.NewFunction(nil, []types.Type{types.Number, types.Optional(types.LuaError)}),
-			"info":           types.NewFunction(nil, []types.Type{types.Optional(workflowInfoType), types.Optional(types.LuaError)}),
-		},
-	}
+	moduleType := typ.NewInterface("workflow", []typ.Method{
+		{Name: "call", Type: typ.Func().
+			Param("name", typ.String).
+			Variadic(typ.Any).
+			Returns(typ.Any, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "version", Type: typ.Func().
+			Param("p1", typ.String).
+			Param("p2", typ.Number).
+			Param("p3", typ.Number).
+			Returns(typ.Number, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "attrs", Type: typ.Func().
+			Param("input", attrsInputType).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "history_length", Type: typ.Func().
+			Returns(typ.Number, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "history_size", Type: typ.Func().
+			Returns(typ.Number, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "info", Type: typ.Func().
+			Returns(typ.NewOptional(workflowInfoType), typ.NewOptional(typ.LuaError)).
+			Build()},
+	})
 
 	m.SetExport(moduleType)
 	return m

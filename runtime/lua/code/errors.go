@@ -7,7 +7,7 @@ import (
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/diag"
 )
 
 var (
@@ -136,10 +136,10 @@ func NewRemoveNodeError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to remove node").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewTypeCheckDiagnosticError(id registry.ID, diagnostics []types.Diagnostic) apierror.Error {
+func NewTypeCheckDiagnosticError(id registry.ID, diagnostics []diag.Diagnostic) apierror.Error {
 	var msgs []string
 	for _, d := range diagnostics {
-		if d.Severity == types.SeverityError {
+		if d.Severity == diag.SeverityError {
 			msgs = append(msgs, d.Message)
 		}
 	}

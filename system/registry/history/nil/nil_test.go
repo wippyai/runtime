@@ -85,7 +85,7 @@ func TestHistory_Get(t *testing.T) {
 
 	v0 := version.New(registry.RootVersion)
 	changes := registry.ChangeSet{
-		{Kind: registry.Create, Entry: registry.Entry{ID: registry.NewID("", "/test")}},
+		{Kind: registry.EntryCreate, Entry: registry.Entry{ID: registry.NewID("", "/test")}},
 	}
 
 	// Save a version with changes

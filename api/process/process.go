@@ -60,6 +60,11 @@ type (
 )
 
 type (
+	// PIDGenerator creates PIDs for a host.
+	PIDGenerator interface {
+		Generate(host pid.HostID) pid.PID
+	}
+
 	// Process is a schedulable unit of work implemented as a state machine.
 	// Scheduler passes events (yield completions + messages), process writes to output.
 	// Ownership: scheduler owns queue and output, process is borrowed.

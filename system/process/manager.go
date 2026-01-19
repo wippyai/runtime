@@ -19,6 +19,9 @@ type Manager struct {
 
 // NewManager creates a new process manager.
 func NewManager(node relay.Node, logger *zap.Logger) *Manager {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &Manager{
 		node:   node,
 		logger: logger,

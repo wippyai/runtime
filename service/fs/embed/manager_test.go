@@ -38,7 +38,9 @@ func TestManager_Add(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify filesystem was stored
-	val, ok := manager.filesystems.Load(entry.ID.String())
+	manager.mu.RLock()
+	val, ok := manager.filesystems[entry.ID]
+	manager.mu.RUnlock()
 	assert.True(t, ok)
 	assert.NotNil(t, val)
 }
@@ -158,7 +160,9 @@ func TestManager_Update(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify still exists
-	val, ok := manager.filesystems.Load(entry.ID.String())
+	manager.mu.RLock()
+	val, ok := manager.filesystems[entry.ID]
+	manager.mu.RUnlock()
 	assert.True(t, ok)
 	assert.NotNil(t, val)
 }
@@ -210,7 +214,9 @@ func TestManager_Delete(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify removed
-	_, ok := manager.filesystems.Load(entry.ID.String())
+	manager.mu.RLock()
+	_, ok := manager.filesystems[entry.ID]
+	manager.mu.RUnlock()
 	assert.False(t, ok)
 }
 

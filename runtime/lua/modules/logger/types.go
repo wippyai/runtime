@@ -1,26 +1,23 @@
 package logger
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
 // ModuleTypes returns the type manifest for the logger module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("logger")
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("logger")
 
 	// Logger type with self-referencing methods
-	loggerType := &types.InterfaceType{
-		Name:    "logger.Logger",
-		Methods: make(map[string]*types.FunctionType),
-	}
-
-	// Add methods after creation to handle self-reference
-	loggerType.Methods["debug"] = types.NewFunction([]types.Type{types.Self, types.String, types.Optional(types.Any)}, nil)
-	loggerType.Methods["info"] = types.NewFunction([]types.Type{types.Self, types.String, types.Optional(types.Any)}, nil)
-	loggerType.Methods["warn"] = types.NewFunction([]types.Type{types.Self, types.String, types.Optional(types.Any)}, nil)
-	loggerType.Methods["error"] = types.NewFunction([]types.Type{types.Self, types.String, types.Optional(types.Any)}, nil)
-	loggerType.Methods["with"] = types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{loggerType})
-	loggerType.Methods["named"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{loggerType})
+	loggerType := typ.NewInterface("logger.Logger", []typ.Method{
+		{Name: "debug", Type: typ.Func().Param("self", typ.Self).Param("msg", typ.String).OptParam("context", typ.Any).Build()},
+		{Name: "info", Type: typ.Func().Param("self", typ.Self).Param("msg", typ.String).OptParam("context", typ.Any).Build()},
+		{Name: "warn", Type: typ.Func().Param("self", typ.Self).Param("msg", typ.String).OptParam("context", typ.Any).Build()},
+		{Name: "error", Type: typ.Func().Param("self", typ.Self).Param("msg", typ.String).OptParam("context", typ.Any).Build()},
+		{Name: "with", Type: typ.Func().Param("self", typ.Self).Param("context", typ.Any).Returns(typ.Self).Build()},
+		{Name: "named", Type: typ.Func().Param("self", typ.Self).Param("name", typ.String).Returns(typ.Self).Build()},
+	})
 
 	m.DefineType("Logger", loggerType)
 	m.SetExport(loggerType)

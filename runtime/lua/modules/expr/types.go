@@ -1,30 +1,25 @@
 package expr
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
 // Program type
-var programType = &types.InterfaceType{
-	Name: "expr.Program",
-	Methods: map[string]*types.FunctionType{
-		"run": types.NewFunction([]types.Type{types.Self, types.Optional(types.Any)}, []types.Type{types.Any, types.Optional(types.LuaError)}),
-	},
-}
+var programType = typ.NewInterface("expr.Program", []typ.Method{
+	{Name: "run", Type: typ.Func().Param("self", typ.Self).OptParam("context", typ.Any).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+})
 
 // ModuleTypes returns the type manifest for the expr module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("expr")
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("expr")
 
 	m.DefineType("Program", programType)
 
-	moduleType := &types.InterfaceType{
-		Name: "expr",
-		Methods: map[string]*types.FunctionType{
-			"compile": types.NewFunction([]types.Type{types.String, types.Optional(types.Any)}, []types.Type{programType, types.Optional(types.LuaError)}),
-			"eval":    types.NewFunction([]types.Type{types.String, types.Optional(types.Any)}, []types.Type{types.Any, types.Optional(types.LuaError)}),
-		},
-	}
+	moduleType := typ.NewInterface("expr", []typ.Method{
+		{Name: "compile", Type: typ.Func().Param("text", typ.String).OptParam("context", typ.Any).Returns(programType, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "eval", Type: typ.Func().Param("text", typ.String).OptParam("context", typ.Any).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+	})
 
 	m.SetExport(moduleType)
 	return m

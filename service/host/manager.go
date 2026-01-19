@@ -15,7 +15,6 @@ import (
 	hostapi "github.com/wippyai/runtime/api/service/host"
 	"github.com/wippyai/runtime/api/supervisor"
 	entryutil "github.com/wippyai/runtime/internal/entry"
-	"github.com/wippyai/runtime/internal/uniqid"
 	"github.com/wippyai/runtime/system/scheduler/actor"
 	"go.uber.org/zap"
 )
@@ -27,14 +26,17 @@ type Manager struct {
 	dtt             payload.Transcoder
 	commandRegistry dispatcherapi.Registry
 	factory         process.Factory
-	pidGen          *uniqid.PIDGenerator
+	pidGen          process.PIDGenerator
 
 	mu    sync.RWMutex
 	hosts map[registry.ID]*Host
 }
 
 // NewManager creates a new host manager.
-func NewManager(bus event.Bus, dtt payload.Transcoder, cmdRegistry dispatcherapi.Registry, factory process.Factory, pidGen *uniqid.PIDGenerator, logger *zap.Logger) *Manager {
+func NewManager(bus event.Bus, dtt payload.Transcoder, cmdRegistry dispatcherapi.Registry, factory process.Factory, pidGen process.PIDGenerator, logger *zap.Logger) *Manager {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &Manager{
 		log:             logger,
 		bus:             bus,
@@ -48,6 +50,9 @@ func NewManager(bus event.Bus, dtt payload.Transcoder, cmdRegistry dispatcherapi
 
 // Add implements registry.EntryListener.
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
+	if entry.Kind != hostapi.Host {
+		return NewUnsupportedEntryKindError(entry.Kind)
+	}
 	cfg, err := entryutil.DecodeEntryConfig[hostapi.EntryConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return NewDecodeConfigError(err)
@@ -96,6 +101,9 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 // Update implements registry.EntryListener.
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
+	if entry.Kind != hostapi.Host {
+		return NewUnsupportedEntryKindError(entry.Kind)
+	}
 	if err := m.Delete(ctx, entry); err != nil {
 		return err
 	}
@@ -104,6 +112,9 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 // Delete implements registry.EntryListener.
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
+	if entry.Kind != hostapi.Host {
+		return NewUnsupportedEntryKindError(entry.Kind)
+	}
 	m.mu.Lock()
 	h, ok := m.hosts[entry.ID]
 	if !ok {

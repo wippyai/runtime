@@ -12,13 +12,13 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 )
 
-// Instantiator implements contract.Instantiator interface for runtime execution
+// Instantiator implements contract.Instantiator interface for runtime execution.
 type Instantiator struct {
 	registry contract.Registry
 	funcReg  function.Registry
 }
 
-// NewContractInstantiator creates a new contract instantiator
+// NewContractInstantiator creates a new contract instantiator.
 func NewContractInstantiator(registry contract.Registry, funcReg function.Registry) *Instantiator {
 	return &Instantiator{
 		registry: registry,
@@ -26,7 +26,7 @@ func NewContractInstantiator(registry contract.Registry, funcReg function.Regist
 	}
 }
 
-// Instantiate implements contract.Instantiator interface
+// Instantiate implements contract.Instantiator interface.
 func (i *Instantiator) Instantiate(ctx context.Context, bindingID registry.ID, scope attrs.Bag) (contract.Instance, error) {
 	binding, err := i.registry.GetBinding(ctx, bindingID)
 	if err != nil {
@@ -51,7 +51,7 @@ func (i *Instantiator) Instantiate(ctx context.Context, bindingID registry.ID, s
 	}, nil
 }
 
-// instanceImpl implements contract.Instance interface
+// instanceImpl implements contract.Instance interface.
 type instanceImpl struct {
 	id        registry.ID
 	binding   *contract.Binding
@@ -87,18 +87,18 @@ func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Pay
 		return nil, NewMethodNotBoundError(method)
 	}
 
-	// Validate required context keys - now checks BOTH scope and Go context
+	// Validate required context keys in scope or Go context.
 	if err := i.validateContext(ctx, boundContract.ContextRequired); err != nil {
 		return nil, err
 	}
 
-	// Create task with payloads
+	// Create task with payloads.
 	task := runtime.Task{
 		ID:       funcID,
 		Payloads: args,
 	}
 
-	// Merge context values and pass via task.Context
+	// Merge scope values into task.Context for downstream consumers.
 	if len(i.context) > 0 {
 		// Get existing values from FrameContext or create new
 		values := ctxapi.GetValues(ctx)
@@ -122,8 +122,7 @@ func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Pay
 	return i.funcReg.Call(ctx, task)
 }
 
-// validateContext checks that all required context keys are present in EITHER scope OR Go context
-// This fixes the bug where validation only checked scope but execution had access to both
+// validateContext checks that all required context keys are present in scope or Go context.
 func (i *instanceImpl) validateContext(ctx context.Context, requiredKeys []string) error {
 	if len(requiredKeys) == 0 {
 		return nil

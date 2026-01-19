@@ -16,7 +16,7 @@ local function main()
         return false, "nil message"
     end
 
-    local parent_pid = msg:payload():data()
+    local parent_pid = string(msg:payload():data())
     if not parent_pid then
         return false, "no parent pid in message"
     end

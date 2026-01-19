@@ -1,78 +1,72 @@
 package websocket
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
 // Client type
-var clientType = &types.InterfaceType{
-	Name: "websocket.Client",
-	Methods: map[string]*types.FunctionType{
-		"send":    types.NewFunction([]types.Type{types.Self, types.String, types.Optional(types.Number)}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-		"receive": types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any, types.Optional(types.LuaError)}),
-		"channel": types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any, types.Optional(types.LuaError)}),
-		"close":   types.NewFunction([]types.Type{types.Self, types.Optional(types.Number), types.Optional(types.String)}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-		"ping":    types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-	},
-}
+var clientType = typ.NewInterface("websocket.Client", []typ.Method{
+	{Name: "send", Type: typ.Func().Param("self", typ.Self).Param("message", typ.String).OptParam("type", typ.Number).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "receive", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "channel", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "close", Type: typ.Func().Param("self", typ.Self).OptParam("code", typ.Number).OptParam("message", typ.String).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "ping", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+})
 
-// COMPRESSION constants
-var compressionConstType = &types.InterfaceType{
-	Name: "websocket.COMPRESSION",
-	Fields: map[string]types.Type{
-		"DISABLED":         types.Number,
-		"CONTEXT_TAKEOVER": types.Number,
-		"NO_CONTEXT":       types.Number,
-	},
-}
+// COMPRESSION constants as a record
+var compressionConstType = typ.NewRecord().
+	Field("DISABLED", typ.Number).
+	Field("CONTEXT_TAKEOVER", typ.Number).
+	Field("NO_CONTEXT", typ.Number).
+	Build()
 
-// CLOSE_CODES constants
-var closeCodesConstType = &types.InterfaceType{
-	Name: "websocket.CLOSE_CODES",
-	Fields: map[string]types.Type{
-		"NORMAL":              types.Number,
-		"GOING_AWAY":          types.Number,
-		"PROTOCOL_ERROR":      types.Number,
-		"UNSUPPORTED_DATA":    types.Number,
-		"RESERVED":            types.Number,
-		"NO_STATUS":           types.Number,
-		"ABNORMAL_CLOSURE":    types.Number,
-		"INVALID_PAYLOAD":     types.Number,
-		"POLICY_VIOLATION":    types.Number,
-		"MESSAGE_TOO_BIG":     types.Number,
-		"MANDATORY_EXTENSION": types.Number,
-		"INTERNAL_ERROR":      types.Number,
-		"SERVICE_RESTART":     types.Number,
-		"TRY_AGAIN_LATER":     types.Number,
-		"BAD_GATEWAY":         types.Number,
-		"TLS_HANDSHAKE":       types.Number,
-	},
-}
+// CLOSE_CODES constants as a record
+var closeCodesConstType = typ.NewRecord().
+	Field("NORMAL", typ.Number).
+	Field("GOING_AWAY", typ.Number).
+	Field("PROTOCOL_ERROR", typ.Number).
+	Field("UNSUPPORTED_DATA", typ.Number).
+	Field("RESERVED", typ.Number).
+	Field("NO_STATUS", typ.Number).
+	Field("ABNORMAL_CLOSURE", typ.Number).
+	Field("INVALID_PAYLOAD", typ.Number).
+	Field("POLICY_VIOLATION", typ.Number).
+	Field("MESSAGE_TOO_BIG", typ.Number).
+	Field("MANDATORY_EXTENSION", typ.Number).
+	Field("INTERNAL_ERROR", typ.Number).
+	Field("SERVICE_RESTART", typ.Number).
+	Field("TRY_AGAIN_LATER", typ.Number).
+	Field("BAD_GATEWAY", typ.Number).
+	Field("TLS_HANDSHAKE", typ.Number).
+	Build()
 
 // ModuleTypes returns the type manifest for the websocket module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("websocket")
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("websocket")
 
 	m.DefineType("Client", clientType)
+	m.DefineType("COMPRESSION", compressionConstType)
+	m.DefineType("CLOSE_CODES", closeCodesConstType)
 
-	moduleType := &types.InterfaceType{
-		Name: "websocket",
-		Fields: map[string]types.Type{
-			"TYPE_TEXT":   types.String,
-			"TYPE_BINARY": types.String,
-			"TYPE_PING":   types.String,
-			"TYPE_PONG":   types.String,
-			"TYPE_CLOSE":  types.String,
-			"TEXT":        types.Number,
-			"BINARY":      types.Number,
-			"COMPRESSION": compressionConstType,
-			"CLOSE_CODES": closeCodesConstType,
-		},
-		Methods: map[string]*types.FunctionType{
-			"connect": types.NewFunction([]types.Type{types.String, types.Optional(types.Any)}, []types.Type{clientType, types.Optional(types.LuaError)}),
-		},
-	}
+	// Methods interface
+	moduleMethods := typ.NewInterface("websocket", []typ.Method{
+		{Name: "connect", Type: typ.Func().Param("url", typ.String).OptParam("options", typ.Any).Returns(clientType, typ.NewOptional(typ.LuaError)).Build()},
+	})
 
-	m.SetExport(moduleType)
+	// Constant fields
+	moduleFields := typ.NewRecord().
+		Field("TYPE_TEXT", typ.String).
+		Field("TYPE_BINARY", typ.String).
+		Field("TYPE_PING", typ.String).
+		Field("TYPE_PONG", typ.String).
+		Field("TYPE_CLOSE", typ.String).
+		Field("TEXT", typ.Number).
+		Field("BINARY", typ.Number).
+		Field("COMPRESSION", compressionConstType).
+		Field("CLOSE_CODES", closeCodesConstType).
+		Build()
+
+	m.SetExport(typ.NewIntersection(moduleMethods, moduleFields))
 	return m
 }

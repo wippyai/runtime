@@ -151,7 +151,7 @@ func TestFSRegistry_RegisterFS(t *testing.T) {
 		fsapi.System,
 		"fs.*",
 		func(evt event.Event) {
-			if evt.Kind == fsapi.Accept || evt.Kind == fsapi.Reject {
+			if evt.Kind == fsapi.FsAccept || evt.Kind == fsapi.FsReject {
 				responses <- evt
 			}
 		},
@@ -163,14 +163,14 @@ func TestFSRegistry_RegisterFS(t *testing.T) {
 		f := &mockFS{}
 		bus.Send(ctx, event.Event{
 			System: fsapi.System,
-			Kind:   fsapi.Register,
+			Kind:   fsapi.FsRegister,
 			Path:   "test:mock-fs",
 			Data:   f,
 		})
 
 		select {
 		case resp := <-responses:
-			assert.Equal(t, fsapi.Accept, resp.Kind)
+			assert.Equal(t, fsapi.FsAccept, resp.Kind)
 			assert.Equal(t, "test:mock-fs", resp.Path)
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for response")
@@ -185,14 +185,14 @@ func TestFSRegistry_RegisterFS(t *testing.T) {
 	t.Run("register with invalid payload", func(t *testing.T) {
 		bus.Send(ctx, event.Event{
 			System: fsapi.System,
-			Kind:   fsapi.Register,
+			Kind:   fsapi.FsRegister,
 			Path:   "test:invalid-payload",
 			Data:   "invalid data",
 		})
 
 		select {
 		case resp := <-responses:
-			assert.Equal(t, fsapi.Reject, resp.Kind)
+			assert.Equal(t, fsapi.FsReject, resp.Kind)
 			assert.Equal(t, "test:invalid-payload", resp.Path)
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for response")
@@ -213,7 +213,7 @@ func TestFSRegistry_DeleteFS(t *testing.T) {
 		fsapi.System,
 		"fs.*",
 		func(evt event.Event) {
-			if evt.Kind == fsapi.Accept || evt.Kind == fsapi.Reject {
+			if evt.Kind == fsapi.FsAccept || evt.Kind == fsapi.FsReject {
 				responses <- evt
 			}
 		},
@@ -226,14 +226,14 @@ func TestFSRegistry_DeleteFS(t *testing.T) {
 	f := &mockFS{}
 	bus.Send(ctx, event.Event{
 		System: fsapi.System,
-		Kind:   fsapi.Register,
+		Kind:   fsapi.FsRegister,
 		Path:   fsID,
 		Data:   f,
 	})
 
 	select {
 	case resp := <-responses:
-		assert.Equal(t, fsapi.Accept, resp.Kind)
+		assert.Equal(t, fsapi.FsAccept, resp.Kind)
 	case <-time.After(time.Second):
 		t.Fatal("timeout waiting for registration response")
 	}
@@ -241,13 +241,13 @@ func TestFSRegistry_DeleteFS(t *testing.T) {
 	t.Run("successful deletion", func(t *testing.T) {
 		bus.Send(ctx, event.Event{
 			System: fsapi.System,
-			Kind:   fsapi.Delete,
+			Kind:   fsapi.FsDelete,
 			Path:   fsID,
 		})
 
 		select {
 		case resp := <-responses:
-			assert.Equal(t, fsapi.Accept, resp.Kind)
+			assert.Equal(t, fsapi.FsAccept, resp.Kind)
 			assert.Equal(t, fsID, resp.Path)
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for response")
@@ -261,13 +261,13 @@ func TestFSRegistry_DeleteFS(t *testing.T) {
 	t.Run("delete non-existent filesystem", func(t *testing.T) {
 		bus.Send(ctx, event.Event{
 			System: fsapi.System,
-			Kind:   fsapi.Delete,
+			Kind:   fsapi.FsDelete,
 			Path:   "test:nonexistent",
 		})
 
 		select {
 		case resp := <-responses:
-			assert.Equal(t, fsapi.Reject, resp.Kind)
+			assert.Equal(t, fsapi.FsReject, resp.Kind)
 			assert.Equal(t, "test:nonexistent", resp.Path)
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for response")
@@ -285,7 +285,7 @@ func TestFSRegistry_GetFS(t *testing.T) {
 	f := &mockFS{}
 	bus.Send(ctx, event.Event{
 		System: fsapi.System,
-		Kind:   fsapi.Register,
+		Kind:   fsapi.FsRegister,
 		Path:   "test:mock-fs",
 		Data:   f,
 	})
@@ -366,7 +366,7 @@ func TestFSRegistry_ConcurrentOperations(t *testing.T) {
 			// Register
 			bus.Send(ctx, event.Event{
 				System: fsapi.System,
-				Kind:   fsapi.Register,
+				Kind:   fsapi.FsRegister,
 				Path:   fsID,
 				Data:   f,
 			})
@@ -380,7 +380,7 @@ func TestFSRegistry_ConcurrentOperations(t *testing.T) {
 			// Delete
 			bus.Send(ctx, event.Event{
 				System: fsapi.System,
-				Kind:   fsapi.Delete,
+				Kind:   fsapi.FsDelete,
 				Path:   fsID,
 			})
 
@@ -407,7 +407,7 @@ func TestFSRegistry_ErrorHandling(t *testing.T) {
 		fsapi.System,
 		"fs.*",
 		func(evt event.Event) {
-			if evt.Kind == fsapi.Accept || evt.Kind == fsapi.Reject {
+			if evt.Kind == fsapi.FsAccept || evt.Kind == fsapi.FsReject {
 				responses <- evt
 			}
 		},
@@ -418,13 +418,13 @@ func TestFSRegistry_ErrorHandling(t *testing.T) {
 	t.Run("delete non-existent filesystem", func(t *testing.T) {
 		bus.Send(ctx, event.Event{
 			System: fsapi.System,
-			Kind:   fsapi.Delete,
+			Kind:   fsapi.FsDelete,
 			Path:   "test:non-existent",
 		})
 
 		select {
 		case resp := <-responses:
-			assert.Equal(t, fsapi.Reject, resp.Kind)
+			assert.Equal(t, fsapi.FsReject, resp.Kind)
 			assert.Equal(t, "test:non-existent", resp.Path)
 			assert.Equal(t, "filesystem not found", resp.Data)
 		case <-time.After(time.Second):
@@ -435,14 +435,14 @@ func TestFSRegistry_ErrorHandling(t *testing.T) {
 	t.Run("register with nil filesystem", func(t *testing.T) {
 		bus.Send(ctx, event.Event{
 			System: fsapi.System,
-			Kind:   fsapi.Register,
+			Kind:   fsapi.FsRegister,
 			Path:   "test:nil-fs",
 			Data:   nil,
 		})
 
 		select {
 		case resp := <-responses:
-			assert.Equal(t, fsapi.Reject, resp.Kind)
+			assert.Equal(t, fsapi.FsReject, resp.Kind)
 			assert.Equal(t, "test:nil-fs", resp.Path)
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for response")
@@ -463,7 +463,7 @@ func TestFSRegistry_EdgeCases(t *testing.T) {
 		fsapi.System,
 		"fs.*",
 		func(evt event.Event) {
-			if evt.Kind == fsapi.Accept || evt.Kind == fsapi.Reject {
+			if evt.Kind == fsapi.FsAccept || evt.Kind == fsapi.FsReject {
 				responses <- evt
 			}
 		},
@@ -475,7 +475,7 @@ func TestFSRegistry_EdgeCases(t *testing.T) {
 		f := &mockFS{}
 		bus.Send(ctx, event.Event{
 			System: fsapi.System,
-			Kind:   fsapi.Register,
+			Kind:   fsapi.FsRegister,
 			Path:   "",
 			Data:   f,
 		})
@@ -483,7 +483,7 @@ func TestFSRegistry_EdgeCases(t *testing.T) {
 		// Wait for registration response
 		select {
 		case resp := <-responses:
-			assert.Equal(t, fsapi.Accept, resp.Kind)
+			assert.Equal(t, fsapi.FsAccept, resp.Kind)
 			assert.Equal(t, "", resp.Path)
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for registration response")
@@ -502,7 +502,7 @@ func TestFSRegistry_EdgeCases(t *testing.T) {
 		// First registration
 		bus.Send(ctx, event.Event{
 			System: fsapi.System,
-			Kind:   fsapi.Register,
+			Kind:   fsapi.FsRegister,
 			Path:   fsID,
 			Data:   f,
 		})
@@ -510,7 +510,7 @@ func TestFSRegistry_EdgeCases(t *testing.T) {
 		// Wait for first registration response
 		select {
 		case resp := <-responses:
-			assert.Equal(t, fsapi.Accept, resp.Kind)
+			assert.Equal(t, fsapi.FsAccept, resp.Kind)
 			assert.Equal(t, fsID, resp.Path)
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for first registration response")
@@ -519,7 +519,7 @@ func TestFSRegistry_EdgeCases(t *testing.T) {
 		// Second registration
 		bus.Send(ctx, event.Event{
 			System: fsapi.System,
-			Kind:   fsapi.Register,
+			Kind:   fsapi.FsRegister,
 			Path:   fsID,
 			Data:   f,
 		})
@@ -527,7 +527,7 @@ func TestFSRegistry_EdgeCases(t *testing.T) {
 		// Wait for second registration response
 		select {
 		case resp := <-responses:
-			assert.Equal(t, fsapi.Accept, resp.Kind)
+			assert.Equal(t, fsapi.FsAccept, resp.Kind)
 			assert.Equal(t, fsID, resp.Path)
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for second registration response")

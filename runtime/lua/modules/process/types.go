@@ -1,106 +1,270 @@
 package process
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/yuin/gopher-lua/types/contract"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/predicate"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
-// Message type
-var messageType = &types.InterfaceType{
-	Name: "process.Message",
-	Methods: map[string]*types.FunctionType{
-		"from":    types.NewFunction([]types.Type{types.Self}, []types.Type{types.String}),
-		"topic":   types.NewFunction([]types.Type{types.Self}, []types.Type{types.String}),
-		"payload": types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any}),
-	},
-}
-
-// ProcessOptions type
-var processOptionsType = &types.RecordType{
-	Name: "process.Options",
-	Fields: []types.RecordField{
-		{Name: "trap_links", Type: types.Boolean},
-	},
-}
-
-// event constants type
-var eventType = &types.InterfaceType{
-	Name: "process.event",
-	Fields: map[string]types.Type{
-		"CANCEL":    types.String,
-		"EXIT":      types.String,
-		"LINK_DOWN": types.String,
-	},
-}
-
-// registry submodule type
-var registrySubType = &types.InterfaceType{
-	Name: "process.registry",
-	Methods: map[string]*types.FunctionType{
-		"register":   types.NewFunction([]types.Type{types.String, types.Optional(types.String)}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-		"lookup":     types.NewFunction([]types.Type{types.String}, []types.Type{types.String, types.Optional(types.LuaError)}),
-		"unregister": types.NewFunction([]types.Type{types.String}, []types.Type{types.Boolean}),
-	},
-}
-
-// Forward declaration for self-referential SpawnBuilder
-var spawnBuilderType *types.InterfaceType
+var (
+	messageType        *typ.Interface
+	processEventType   typ.Type
+	messageChannelType typ.Type
+	eventChannelType   typ.Type
+	rawChannelType     typ.Type
+	channelGen         *typ.Generic
+)
 
 func init() {
-	spawnBuilderType = &types.InterfaceType{
-		Name:    "process.SpawnBuilder",
-		Methods: map[string]*types.FunctionType{},
+	messageType = typ.NewInterface("process.Message", []typ.Method{
+		{Name: "from", Type: typ.Func().Param("self", typ.Self).Returns(typ.String).Build()},
+		{Name: "topic", Type: typ.Func().Param("self", typ.Self).Returns(typ.String).Build()},
+		{Name: "payload", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any).Build()},
+	})
+
+	eventRecord := typ.NewRecord().
+		Field("kind", typ.String).
+		Field("from", typ.String).
+		OptField("result", typ.Any).
+		OptField("error", typ.Any).
+		OptField("deadline", typ.String).
+		Build()
+	eventMethods := typ.NewInterface("process.EventMethods", []typ.Method{
+		{Name: "payload", Type: typ.Func().
+			Param("self", typ.Self).
+			Returns(typ.NewOptional(typ.Any)).
+			Build()},
+	})
+	processEventType = typ.NewAlias("process.Event", typ.NewIntersection(eventRecord, eventMethods))
+
+	if manifest := engine.ChannelModuleTypes(); manifest != nil {
+		if t, ok := manifest.LookupType("Channel"); ok {
+			if gen, ok := t.(*typ.Generic); ok {
+				channelGen = gen
+				messageChannelType = typ.Instantiate(channelGen, messageType)
+				eventChannelType = typ.Instantiate(channelGen, processEventType)
+				rawChannelType = typ.Instantiate(channelGen, typ.Any)
+			}
+		}
 	}
-	spawnBuilderType.Methods["with_context"] = types.NewFunction([]types.Type{types.Self, types.NewMap(types.String, types.Any, true)}, []types.Type{spawnBuilderType})
-	spawnBuilderType.Methods["with_actor"] = types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{spawnBuilderType})
-	spawnBuilderType.Methods["with_scope"] = types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{spawnBuilderType})
-	spawnBuilderType.Methods["with_name"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{spawnBuilderType})
-	spawnBuilderType.Methods["with_message"] = &types.FunctionType{Params: []types.Type{types.Self, types.String}, Variadic: types.Any, Returns: []types.Type{spawnBuilderType}}
-	spawnBuilderType.Methods["spawn"] = &types.FunctionType{Params: []types.Type{types.Self, types.String, types.String}, Variadic: types.Any, Returns: []types.Type{types.String, types.Optional(types.LuaError)}}
-	spawnBuilderType.Methods["spawn_monitored"] = &types.FunctionType{Params: []types.Type{types.Self, types.String, types.String}, Variadic: types.Any, Returns: []types.Type{types.String, types.Optional(types.LuaError)}}
-	spawnBuilderType.Methods["spawn_linked"] = &types.FunctionType{Params: []types.Type{types.Self, types.String, types.String}, Variadic: types.Any, Returns: []types.Type{types.String, types.Optional(types.LuaError)}}
-	spawnBuilderType.Methods["spawn_linked_monitored"] = &types.FunctionType{Params: []types.Type{types.Self, types.String, types.String}, Variadic: types.Any, Returns: []types.Type{types.String, types.Optional(types.LuaError)}}
+	if messageChannelType == nil {
+		messageChannelType = typ.Any
+	}
+	if eventChannelType == nil {
+		eventChannelType = typ.Any
+	}
+	if rawChannelType == nil {
+		rawChannelType = typ.Any
+	}
 }
 
-// ModuleTypes returns the type manifest for the process module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("process")
+var processOptionsType = typ.NewRecord().
+	Field("trap_links", typ.Boolean).
+	Build()
+
+var eventType = typ.NewRecord().
+	Field("CANCEL", typ.String).
+	Field("EXIT", typ.String).
+	Field("LINK_DOWN", typ.String).
+	Build()
+
+var registrySubType = typ.NewInterface("process.registry", []typ.Method{
+	{Name: "register", Type: typ.Func().
+		Param("s", typ.String).
+		OptParam("n", typ.String).
+		Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
+		Build()},
+	{Name: "lookup", Type: typ.Func().
+		Param("s", typ.String).
+		Returns(typ.String, typ.NewOptional(typ.LuaError)).
+		Build()},
+	{Name: "unregister", Type: typ.Func().
+		Param("s", typ.String).
+		Returns(typ.Boolean).
+		Build()},
+})
+
+var spawnBuilderType *typ.Interface
+
+func init() {
+	spawnBuilderType = typ.NewInterface("process.SpawnBuilder", []typ.Method{
+		{Name: "with_context", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("context", typ.NewMap(typ.String, typ.Any)).
+			Returns(typ.Self).
+			Build()},
+		{Name: "with_actor", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("actor", typ.Any).
+			Returns(typ.Self).
+			Build()},
+		{Name: "with_scope", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("scope", typ.Any).
+			Returns(typ.Self).
+			Build()},
+		{Name: "with_name", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("name", typ.String).
+			Returns(typ.Self).
+			Build()},
+		{Name: "with_message", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("msg", typ.String).
+			Variadic(typ.Any).
+			Returns(typ.Self).
+			Build()},
+		{Name: "spawn", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("module", typ.String).
+			Param("func", typ.String).
+			Variadic(typ.Any).
+			Returns(typ.String, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "spawn_monitored", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("module", typ.String).
+			Param("func", typ.String).
+			Variadic(typ.Any).
+			Returns(typ.String, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "spawn_linked", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("module", typ.String).
+			Param("func", typ.String).
+			Variadic(typ.Any).
+			Returns(typ.String, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "spawn_linked_monitored", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("module", typ.String).
+			Param("func", typ.String).
+			Variadic(typ.Any).
+			Returns(typ.String, typ.NewOptional(typ.LuaError)).
+			Build()},
+	})
+}
+
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("process")
 
 	m.DefineType("Message", messageType)
+	m.DefineType("Event", processEventType)
 	m.DefineType("Options", processOptionsType)
 	m.DefineType("SpawnBuilder", spawnBuilderType)
 
-	moduleType := &types.InterfaceType{
-		Name: "process",
-		Fields: map[string]types.Type{
-			"event":    eventType,
-			"registry": registrySubType,
-		},
-		Methods: map[string]*types.FunctionType{
-			"id":                     types.NewFunction(nil, []types.Type{types.String, types.Optional(types.String)}),
-			"pid":                    types.NewFunction(nil, []types.Type{types.String}),
-			"send":                   {Params: []types.Type{types.String, types.String}, Variadic: types.Any, Returns: []types.Type{types.Boolean, types.Optional(types.String)}},
-			"spawn":                  {Params: []types.Type{types.String, types.String}, Variadic: types.Any, Returns: []types.Type{types.String, types.Optional(types.String)}},
-			"spawn_monitored":        {Params: []types.Type{types.String, types.String}, Variadic: types.Any, Returns: []types.Type{types.String, types.Optional(types.String)}},
-			"spawn_linked":           {Params: []types.Type{types.String, types.String}, Variadic: types.Any, Returns: []types.Type{types.String, types.Optional(types.String)}},
-			"spawn_linked_monitored": {Params: []types.Type{types.String, types.String}, Variadic: types.Any, Returns: []types.Type{types.String, types.Optional(types.String)}},
-			"terminate":              types.NewFunction([]types.Type{types.String}, []types.Type{types.Boolean, types.Optional(types.String)}),
-			"cancel":                 types.NewFunction([]types.Type{types.String, types.Optional(types.Any)}, []types.Type{types.Boolean, types.Optional(types.String)}),
-			"get_options":            types.NewFunction(nil, []types.Type{processOptionsType}),
-			"set_options":            types.NewFunction([]types.Type{processOptionsType}, []types.Type{types.Boolean, types.Optional(types.String)}),
-			"monitor":                types.NewFunction([]types.Type{types.String}, []types.Type{types.Boolean, types.Optional(types.String)}),
-			"unmonitor":              types.NewFunction([]types.Type{types.String}, []types.Type{types.Boolean, types.Optional(types.String)}),
-			"link":                   types.NewFunction([]types.Type{types.String}, []types.Type{types.Boolean, types.Optional(types.String)}),
-			"unlink":                 types.NewFunction([]types.Type{types.String}, []types.Type{types.Boolean, types.Optional(types.String)}),
-			"with_context":           types.NewFunction([]types.Type{types.NewMap(types.String, types.Any, true)}, []types.Type{spawnBuilderType}),
-			"inbox":                  types.NewFunction(nil, []types.Type{types.Any, types.Optional(types.String)}),
-			"events":                 types.NewFunction(nil, []types.Type{types.Any, types.Optional(types.String)}),
-			"listen":                 types.NewFunction([]types.Type{types.String, types.Optional(types.Any)}, []types.Type{types.Any, types.Optional(types.String)}),
-			"unlisten":               types.NewFunction([]types.Type{types.Any}, []types.Type{types.Boolean, types.Optional(types.String)}),
-			"upgrade":                {Params: []types.Type{types.Optional(types.String)}, Variadic: types.Any, Returns: []types.Type{types.Boolean, types.Optional(types.String)}},
-			"run":                    {Params: []types.Type{types.String, types.String}, Variadic: types.Any, Returns: []types.Type{types.Any, types.Optional(types.String)}},
-		},
-	}
+	moduleFieldsType := typ.NewRecord().
+		Field("event", eventType).
+		Field("registry", registrySubType).
+		Build()
 
-	m.SetExport(moduleType)
+	moduleMethodsType := typ.NewInterface("process", []typ.Method{
+		{Name: "id", Type: typ.Func().Returns(typ.String, typ.NewOptional(typ.String)).Build()},
+		{Name: "pid", Type: typ.Func().Returns(typ.String).Build()},
+		{Name: "send", Type: typ.Func().
+			Param("pid", typ.String).
+			Param("topic", typ.String).
+			Variadic(typ.Any).
+			Returns(typ.Boolean, typ.NewOptional(typ.String)).
+			Build()},
+		{Name: "spawn", Type: typ.Func().
+			Param("module", typ.String).
+			Param("func", typ.String).
+			Variadic(typ.Any).
+			Returns(typ.String, typ.NewOptional(typ.String)).
+			Build()},
+		{Name: "spawn_monitored", Type: typ.Func().
+			Param("module", typ.String).
+			Param("func", typ.String).
+			Variadic(typ.Any).
+			Returns(typ.String, typ.NewOptional(typ.String)).
+			Build()},
+		{Name: "spawn_linked", Type: typ.Func().
+			Param("module", typ.String).
+			Param("func", typ.String).
+			Variadic(typ.Any).
+			Returns(typ.String, typ.NewOptional(typ.String)).
+			Build()},
+		{Name: "spawn_linked_monitored", Type: typ.Func().
+			Param("module", typ.String).
+			Param("func", typ.String).
+			Variadic(typ.Any).
+			Returns(typ.String, typ.NewOptional(typ.String)).
+			Build()},
+		{Name: "terminate", Type: typ.Func().
+			Param("pid", typ.String).
+			Returns(typ.Boolean, typ.NewOptional(typ.String)).
+			Build()},
+		{Name: "cancel", Type: typ.Func().
+			Param("pid", typ.String).
+			OptParam("reason", typ.Any).
+			Returns(typ.Boolean, typ.NewOptional(typ.String)).
+			Build()},
+		{Name: "get_options", Type: typ.Func().
+			Returns(processOptionsType).
+			Build()},
+		{Name: "set_options", Type: typ.Func().
+			Param("opts", processOptionsType).
+			Returns(typ.Boolean, typ.NewOptional(typ.String)).
+			Build()},
+		{Name: "monitor", Type: typ.Func().
+			Param("pid", typ.String).
+			Returns(typ.Boolean, typ.NewOptional(typ.String)).
+			Build()},
+		{Name: "unmonitor", Type: typ.Func().
+			Param("pid", typ.String).
+			Returns(typ.Boolean, typ.NewOptional(typ.String)).
+			Build()},
+		{Name: "link", Type: typ.Func().
+			Param("pid", typ.String).
+			Returns(typ.Boolean, typ.NewOptional(typ.String)).
+			Build()},
+		{Name: "unlink", Type: typ.Func().
+			Param("pid", typ.String).
+			Returns(typ.Boolean, typ.NewOptional(typ.String)).
+			Build()},
+		{Name: "with_context", Type: typ.Func().
+			Param("context", typ.NewMap(typ.String, typ.Any)).
+			Returns(spawnBuilderType).
+			Build()},
+		{Name: "inbox", Type: typ.Func().
+			Returns(messageChannelType, typ.NewOptional(typ.String)).
+			Build()},
+		{Name: "events", Type: typ.Func().
+			Returns(eventChannelType, typ.NewOptional(typ.String)).
+			Build()},
+		{Name: "listen", Type: typ.Func().
+			Param("topic", typ.String).
+			OptParam("options", typ.Any).
+			Returns(rawChannelType, typ.NewOptional(typ.String)).
+			Spec(contract.NewSpec().WithReturnCase(
+				predicate.FieldEquals{
+					Target: "param[1]",
+					Field:  "message",
+					Value:  predicate.BoolLiteral(true),
+				},
+				messageChannelType,
+			)).
+			Build()},
+		{Name: "unlisten", Type: typ.Func().
+			Param("listener", typ.Any).
+			Returns(typ.Boolean, typ.NewOptional(typ.String)).
+			Build()},
+		{Name: "upgrade", Type: typ.Func().
+			OptParam("path", typ.String).
+			Variadic(typ.Any).
+			Returns(typ.Boolean, typ.NewOptional(typ.String)).
+			Build()},
+		{Name: "run", Type: typ.Func().
+			Param("module", typ.String).
+			Param("func", typ.String).
+			Variadic(typ.Any).
+			Returns(typ.Any, typ.NewOptional(typ.String)).
+			Build()},
+	})
+
+	m.SetExport(typ.NewIntersection(moduleMethodsType, moduleFieldsType))
 	return m
 }

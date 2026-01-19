@@ -53,7 +53,7 @@ func (r *Router) UnregisterPeer(nodeID pid.NodeID) bool {
 // Routing priority: local node → peer nodes → internode fallback.
 func (r *Router) Send(pkg *api.Package) error {
 	if pkg == nil {
-		return ErrNilPackage
+		return NewNilPackageError()
 	}
 
 	// Route to local node if target node is empty or matches the local node's ID.

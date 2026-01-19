@@ -1,89 +1,24 @@
 package process
 
-import (
-	"github.com/wippyai/runtime/api/attrs"
-)
+import apierror "github.com/wippyai/runtime/api/error"
 
 // Error kind constants.
 const (
-	LimitExceeded Kind = "LimitExceeded"
-	NotFound      Kind = "NotFound"
-	InvalidState  Kind = "InvalidState"
-	Internal      Kind = "Internal"
+	LimitExceeded apierror.Kind = "LimitExceeded"
+	NotFound      apierror.Kind = apierror.NotFound
+	InvalidState  apierror.Kind = "InvalidState"
+	Internal      apierror.Kind = apierror.Internal
 )
 
 // Errors returned by process operations.
 var (
-	ErrMaxProcessesExceeded = &Error{
-		kind:    LimitExceeded,
-		message: "max processes limit exceeded",
-	}
+	ErrMaxProcessesExceeded = apierror.New(LimitExceeded, "max processes limit exceeded").WithRetryable(apierror.False)
 
-	ErrProcessClosed = &Error{
-		kind:    InvalidState,
-		message: "process closed",
-	}
+	ErrProcessClosed = apierror.New(InvalidState, "process closed").WithRetryable(apierror.False)
 
-	ErrProcessNotFound = &Error{
-		kind:    NotFound,
-		message: "process not found",
-	}
+	ErrProcessNotFound = apierror.New(NotFound, "process not found").WithRetryable(apierror.False)
 
-	ErrProcessNotIdle = &Error{
-		kind:    InvalidState,
-		message: "process is not idle",
-	}
+	ErrProcessNotIdle = apierror.New(InvalidState, "process is not idle").WithRetryable(apierror.False)
 
-	ErrSchedulerStopping = &Error{
-		kind:    InvalidState,
-		message: "scheduler is stopping",
-	}
+	ErrSchedulerStopping = apierror.New(InvalidState, "scheduler is stopping").WithRetryable(apierror.False)
 )
-
-type (
-	// Kind categorizes process errors.
-	Kind string
-
-	// Error represents a process error with metadata.
-	Error struct {
-		kind    Kind
-		message string
-		details attrs.Attributes
-		cause   error
-	}
-)
-
-func (e *Error) Error() string {
-	if e.cause != nil {
-		return e.message + ": " + e.cause.Error()
-	}
-	return e.message
-}
-func (e *Error) Kind() Kind                { return e.kind }
-func (e *Error) Details() attrs.Attributes { return e.details }
-func (e *Error) Unwrap() error             { return e.cause }
-
-// NewError creates a new process error with the given kind and message.
-func NewError(kind Kind, message string) *Error {
-	return &Error{kind: kind, message: message}
-}
-
-// WithCause returns a new error with the given cause.
-func (e *Error) WithCause(cause error) *Error {
-	return &Error{
-		kind:    e.kind,
-		message: e.message,
-		details: e.details,
-		cause:   cause,
-	}
-}
-
-// WithDetails returns a new error with the given details.
-func (e *Error) WithDetails(details attrs.Attributes) *Error {
-	return &Error{
-		kind:    e.kind,
-		message: e.message,
-		details: details,
-		cause:   e.cause,
-	}
-}

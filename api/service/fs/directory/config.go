@@ -8,6 +8,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 )
 
+// Kind identifies directory filesystem entries in the registry.
 const Kind registry.Kind = "fs.directory"
 
 // Config represents configuration for a filesystem directory

@@ -17,9 +17,9 @@ local function main()
     end
 
     local payload = msg:payload():data()
-    local link_to = payload.link_to
-    local root_pid = payload.root_pid
-    local depth = payload.depth or 0
+    local link_to = string(payload.link_to)
+    local root_pid = string(payload.root_pid)
+    local depth = tonumber(payload.depth) or 0
 
     -- Link to parent
     local ok, err = process.link(link_to)

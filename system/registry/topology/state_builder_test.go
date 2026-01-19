@@ -223,7 +223,7 @@ func TestValidateOperation(t *testing.T) {
 
 		// Valid create
 		err := builder.ValidateOperation(state, registry.Operation{
-			Kind:  registry.Create,
+			Kind:  registry.EntryCreate,
 			Entry: baseEntry,
 		})
 		if err != nil {
@@ -233,7 +233,7 @@ func TestValidateOperation(t *testing.T) {
 		// Invalid - already exists
 		state[baseEntry.ID] = baseEntry
 		err = builder.ValidateOperation(state, registry.Operation{
-			Kind:  registry.Create,
+			Kind:  registry.EntryCreate,
 			Entry: baseEntry,
 		})
 		if err == nil || !strings.Contains(err.Error(), "already exists") {
@@ -246,7 +246,7 @@ func TestValidateOperation(t *testing.T) {
 
 		// Invalid - doesn't exist
 		err := builder.ValidateOperation(state, registry.Operation{
-			Kind:  registry.Update,
+			Kind:  registry.EntryUpdate,
 			Entry: baseEntry,
 		})
 		if err == nil || !strings.Contains(err.Error(), "does not exist") {
@@ -258,7 +258,7 @@ func TestValidateOperation(t *testing.T) {
 		differentKindEntry := baseEntry
 		differentKindEntry.Kind = "different"
 		err = builder.ValidateOperation(state, registry.Operation{
-			Kind:  registry.Update,
+			Kind:  registry.EntryUpdate,
 			Entry: differentKindEntry,
 		})
 		if err == nil || !strings.Contains(err.Error(), "cannot change entry kind") {
@@ -269,7 +269,7 @@ func TestValidateOperation(t *testing.T) {
 		updatedEntry := baseEntry
 		updatedEntry.Data = payload.NewString("updated")
 		err = builder.ValidateOperation(state, registry.Operation{
-			Kind:  registry.Update,
+			Kind:  registry.EntryUpdate,
 			Entry: updatedEntry,
 		})
 		if err != nil {
@@ -282,7 +282,7 @@ func TestValidateOperation(t *testing.T) {
 
 		// Invalid - doesn't exist
 		err := builder.ValidateOperation(state, registry.Operation{
-			Kind:  registry.Delete,
+			Kind:  registry.EntryDelete,
 			Entry: baseEntry,
 		})
 		if err == nil || !strings.Contains(err.Error(), "cannot delete non-existent") {
@@ -292,7 +292,7 @@ func TestValidateOperation(t *testing.T) {
 		// Valid delete
 		state[baseEntry.ID] = baseEntry
 		err = builder.ValidateOperation(state, registry.Operation{
-			Kind:  registry.Delete,
+			Kind:  registry.EntryDelete,
 			Entry: baseEntry,
 		})
 		if err != nil {
@@ -326,7 +326,7 @@ func TestApplyOperation(t *testing.T) {
 		state := NewStateMap(nil)
 
 		newState, err := builder.ApplyOperation(state, registry.Operation{
-			Kind:  registry.Create,
+			Kind:  registry.EntryCreate,
 			Entry: baseEntry,
 		})
 		if err != nil {
@@ -354,7 +354,7 @@ func TestApplyOperation(t *testing.T) {
 		updatedEntry.Data = payload.NewString("updated")
 
 		newState, err := builder.ApplyOperation(state, registry.Operation{
-			Kind:  registry.Update,
+			Kind:  registry.EntryUpdate,
 			Entry: updatedEntry,
 		})
 		if err != nil {
@@ -379,7 +379,7 @@ func TestApplyOperation(t *testing.T) {
 		state[baseEntry.ID] = baseEntry
 
 		newState, err := builder.ApplyOperation(state, registry.Operation{
-			Kind:  registry.Delete,
+			Kind:  registry.EntryDelete,
 			Entry: baseEntry,
 		})
 		if err != nil {
@@ -421,14 +421,14 @@ func TestGetInverseOperation(t *testing.T) {
 
 	t.Run("Spawn", func(t *testing.T) {
 		inverse, err := builder.GetInverseOperation(registry.Operation{
-			Kind:  registry.Create,
+			Kind:  registry.EntryCreate,
 			Entry: baseEntry,
 		})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		if inverse.Kind != registry.Delete {
+		if inverse.Kind != registry.EntryDelete {
 			t.Error("inverse of Spawn should be Delete")
 		}
 		if !reflect.DeepEqual(inverse.Entry, baseEntry) {
@@ -441,7 +441,7 @@ func TestGetInverseOperation(t *testing.T) {
 		updatedEntry.Data = payload.NewString("updated")
 
 		inverse, err := builder.GetInverseOperation(registry.Operation{
-			Kind:          registry.Update,
+			Kind:          registry.EntryUpdate,
 			Entry:         updatedEntry,
 			OriginalEntry: &baseEntry,
 		})
@@ -449,7 +449,7 @@ func TestGetInverseOperation(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		if inverse.Kind != registry.Update {
+		if inverse.Kind != registry.EntryUpdate {
 			t.Error("inverse of Update should be Update")
 		}
 		if !reflect.DeepEqual(inverse.Entry, baseEntry) {
@@ -459,7 +459,7 @@ func TestGetInverseOperation(t *testing.T) {
 
 	t.Run("Delete", func(t *testing.T) {
 		inverse, err := builder.GetInverseOperation(registry.Operation{
-			Kind:          registry.Delete,
+			Kind:          registry.EntryDelete,
 			Entry:         baseEntry,
 			OriginalEntry: &baseEntry,
 		})
@@ -467,7 +467,7 @@ func TestGetInverseOperation(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		if inverse.Kind != registry.Create {
+		if inverse.Kind != registry.EntryCreate {
 			t.Error("inverse of Delete should be Spawn")
 		}
 		if !reflect.DeepEqual(inverse.Entry, baseEntry) {
@@ -477,7 +477,7 @@ func TestGetInverseOperation(t *testing.T) {
 
 	t.Run("Update Non-Existent", func(t *testing.T) {
 		_, err := builder.GetInverseOperation(registry.Operation{
-			Kind:  registry.Update,
+			Kind:  registry.EntryUpdate,
 			Entry: baseEntry,
 		})
 		if err == nil || !strings.Contains(err.Error(), "not found") {
@@ -487,7 +487,7 @@ func TestGetInverseOperation(t *testing.T) {
 
 	t.Run("Delete Non-Existent", func(t *testing.T) {
 		_, err := builder.GetInverseOperation(registry.Operation{
-			Kind:  registry.Delete,
+			Kind:  registry.EntryDelete,
 			Entry: baseEntry,
 		})
 		if err == nil || !strings.Contains(err.Error(), "not found") {
@@ -549,8 +549,8 @@ func TestBuildState_SingleVersion(t *testing.T) {
 	// Save changes
 	_ = history.Save(v0, registry.ChangeSet{}, false)
 	_ = history.Save(v1, registry.ChangeSet{
-		{Kind: registry.Create, Entry: entry1},
-		{Kind: registry.Create, Entry: entry2},
+		{Kind: registry.EntryCreate, Entry: entry1},
+		{Kind: registry.EntryCreate, Entry: entry2},
 	}, false)
 
 	// Build state
@@ -596,14 +596,14 @@ func TestBuildState_MultipleVersions(t *testing.T) {
 	// Save changes
 	_ = history.Save(v0, registry.ChangeSet{}, false)
 	_ = history.Save(v1, registry.ChangeSet{
-		{Kind: registry.Create, Entry: entry1},
+		{Kind: registry.EntryCreate, Entry: entry1},
 	}, false)
 	_ = history.Save(v2, registry.ChangeSet{
-		{Kind: registry.Create, Entry: entry2},
-		{Kind: registry.Update, Entry: entry1Updated},
+		{Kind: registry.EntryCreate, Entry: entry2},
+		{Kind: registry.EntryUpdate, Entry: entry1Updated},
 	}, false)
 	_ = history.Save(v3, registry.ChangeSet{
-		{Kind: registry.Delete, Entry: entry2},
+		{Kind: registry.EntryDelete, Entry: entry2},
 	}, false)
 
 	// Build final state
@@ -646,10 +646,10 @@ func TestBuildState_ConflictingOperations(t *testing.T) {
 	// Save changes with conflict
 	_ = history.Save(v0, registry.ChangeSet{}, false)
 	_ = history.Save(v1, registry.ChangeSet{
-		{Kind: registry.Create, Entry: entry},
+		{Kind: registry.EntryCreate, Entry: entry},
 	}, false)
 	_ = history.Save(v2, registry.ChangeSet{
-		{Kind: registry.Create, Entry: conflictingEntry}, // Conflicting create
+		{Kind: registry.EntryCreate, Entry: conflictingEntry}, // Conflicting create
 	}, false)
 
 	// Build state should return an error for conflicting operations
@@ -675,7 +675,7 @@ func TestBuildState_UnreachableVersion(t *testing.T) {
 
 	_ = history.Save(v0, registry.ChangeSet{}, false)
 	_ = history.Save(v1, registry.ChangeSet{
-		{Kind: registry.Create, Entry: entry},
+		{Kind: registry.EntryCreate, Entry: entry},
 	}, false)
 	_ = history.Save(v2, registry.ChangeSet{}, false)
 
@@ -713,13 +713,13 @@ func TestBuildState_IntermediateVersion(t *testing.T) {
 	// Save changes
 	_ = history.Save(v0, registry.ChangeSet{}, false)
 	_ = history.Save(v1, registry.ChangeSet{
-		{Kind: registry.Create, Entry: entry1},
+		{Kind: registry.EntryCreate, Entry: entry1},
 	}, false)
 	_ = history.Save(v2, registry.ChangeSet{
-		{Kind: registry.Create, Entry: entry2},
+		{Kind: registry.EntryCreate, Entry: entry2},
 	}, false)
 	_ = history.Save(v3, registry.ChangeSet{
-		{Kind: registry.Delete, Entry: entry2},
+		{Kind: registry.EntryDelete, Entry: entry2},
 	}, false)
 
 	// Build state up to intermediate version v2
@@ -765,7 +765,7 @@ func TestBuildDelta_Empty(t *testing.T) {
 		}
 
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Create, Entry: entry},
+			{Kind: registry.EntryCreate, Entry: entry},
 		}
 		verifyDelta(t, delta, expectedDelta)
 	})
@@ -782,7 +782,7 @@ func TestBuildDelta_Empty(t *testing.T) {
 		}
 
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Delete, Entry: entry},
+			{Kind: registry.EntryDelete, Entry: entry},
 		}
 		verifyDelta(t, delta, expectedDelta)
 	})
@@ -817,7 +817,7 @@ func TestBuildDelta_SimpleOperations(t *testing.T) {
 		}
 
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Create, Entry: entry2},
+			{Kind: registry.EntryCreate, Entry: entry2},
 		}
 		verifyDelta(t, delta, expectedDelta)
 	})
@@ -832,7 +832,7 @@ func TestBuildDelta_SimpleOperations(t *testing.T) {
 		}
 
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Update, Entry: entry1Updated},
+			{Kind: registry.EntryUpdate, Entry: entry1Updated},
 		}
 		verifyDelta(t, delta, expectedDelta)
 	})
@@ -847,7 +847,7 @@ func TestBuildDelta_SimpleOperations(t *testing.T) {
 		}
 
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Delete, Entry: entry2},
+			{Kind: registry.EntryDelete, Entry: entry2},
 		}
 		verifyDelta(t, delta, expectedDelta)
 	})
@@ -867,9 +867,9 @@ func TestBuildDelta_SimpleOperations(t *testing.T) {
 		}
 
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Delete, Entry: entry2},
-			{Kind: registry.Update, Entry: entry1Updated},
-			{Kind: registry.Create, Entry: entry3},
+			{Kind: registry.EntryDelete, Entry: entry2},
+			{Kind: registry.EntryUpdate, Entry: entry1Updated},
+			{Kind: registry.EntryCreate, Entry: entry3},
 		}
 		verifyDelta(t, delta, expectedDelta)
 	})
@@ -931,9 +931,9 @@ func TestBuildDelta_Groups(t *testing.T) {
 
 		// Verify all entries are present, allowing any order within backend group
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Create, Entry: service1},
-			{Kind: registry.Create, Entry: service2},
-			{Kind: registry.Create, Entry: frontend},
+			{Kind: registry.EntryCreate, Entry: service1},
+			{Kind: registry.EntryCreate, Entry: service2},
+			{Kind: registry.EntryCreate, Entry: frontend},
 		}
 		verifyDeltaWithinLevel(t, delta, expectedDelta)
 	})
@@ -979,9 +979,9 @@ func TestBuildDelta_Groups(t *testing.T) {
 
 		// Verify all entries are present
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Delete, Entry: frontend},
-			{Kind: registry.Delete, Entry: service1},
-			{Kind: registry.Delete, Entry: service2},
+			{Kind: registry.EntryDelete, Entry: frontend},
+			{Kind: registry.EntryDelete, Entry: service1},
+			{Kind: registry.EntryDelete, Entry: service2},
 		}
 		verifyDeltaWithinLevel(t, delta, expectedDelta)
 	})
@@ -1051,10 +1051,10 @@ func TestBuildDelta_Groups(t *testing.T) {
 		// Delete and Updates can happen in any order, but creates must respect dependencies
 		// No need to verify exact order, just presence and group dependency maintenance
 		verifyDeltaWithinLevel(t, delta, registry.ChangeSet{
-			{Kind: registry.Delete, Entry: service2},
-			{Kind: registry.Update, Entry: service1Updated},
-			{Kind: registry.Create, Entry: service3},
-			{Kind: registry.Update, Entry: frontendUpdated},
+			{Kind: registry.EntryDelete, Entry: service2},
+			{Kind: registry.EntryUpdate, Entry: service1Updated},
+			{Kind: registry.EntryCreate, Entry: service3},
+			{Kind: registry.EntryUpdate, Entry: frontendUpdated},
 		})
 	})
 }
@@ -1095,9 +1095,9 @@ func TestBuildDelta_NamespaceDependencies(t *testing.T) {
 
 		// Verify all entries are present without enforcing order within namespaces
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Create, Entry: infraDB},
-			{Kind: registry.Create, Entry: infraCache},
-			{Kind: registry.Create, Entry: appService},
+			{Kind: registry.EntryCreate, Entry: infraDB},
+			{Kind: registry.EntryCreate, Entry: infraCache},
+			{Kind: registry.EntryCreate, Entry: appService},
 		}
 		verifyDeltaWithinLevel(t, delta, expectedDelta)
 	})
@@ -1145,9 +1145,9 @@ func TestBuildDelta_NamespaceDependencies(t *testing.T) {
 
 		// Verify all entries are present
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Create, Entry: infraDB},
-			{Kind: registry.Create, Entry: appAuth},
-			{Kind: registry.Create, Entry: appService},
+			{Kind: registry.EntryCreate, Entry: infraDB},
+			{Kind: registry.EntryCreate, Entry: appAuth},
+			{Kind: registry.EntryCreate, Entry: appService},
 		}
 		verifyDeltaWithinLevel(t, delta, expectedDelta)
 	})
@@ -1200,10 +1200,10 @@ func TestBuildDelta_NamespaceDependencies(t *testing.T) {
 
 		// Verify all deletions are present
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Delete, Entry: appService},
-			{Kind: registry.Delete, Entry: appAuth},
-			{Kind: registry.Delete, Entry: infraDB},
-			{Kind: registry.Delete, Entry: infraCache},
+			{Kind: registry.EntryDelete, Entry: appService},
+			{Kind: registry.EntryDelete, Entry: appAuth},
+			{Kind: registry.EntryDelete, Entry: infraDB},
+			{Kind: registry.EntryDelete, Entry: infraCache},
 		}
 		verifyDeltaWithinLevel(t, delta, expectedDelta)
 	})
@@ -1293,9 +1293,9 @@ func TestBuildDelta_Dependencies(t *testing.T) {
 
 		// Also verify all entries are present
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Create, Entry: service},
-			{Kind: registry.Create, Entry: database},
-			{Kind: registry.Create, Entry: cache},
+			{Kind: registry.EntryCreate, Entry: service},
+			{Kind: registry.EntryCreate, Entry: database},
+			{Kind: registry.EntryCreate, Entry: cache},
 		}
 		verifyDeltaWithinLevel(t, delta, expectedDelta)
 	})
@@ -1343,9 +1343,9 @@ func TestBuildDelta_Dependencies(t *testing.T) {
 		})
 
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Create, Entry: service},
-			{Kind: registry.Create, Entry: database},
-			{Kind: registry.Create, Entry: backup},
+			{Kind: registry.EntryCreate, Entry: service},
+			{Kind: registry.EntryCreate, Entry: database},
+			{Kind: registry.EntryCreate, Entry: backup},
 		}
 		verifyDeltaWithinLevel(t, delta, expectedDelta)
 	})
@@ -1383,8 +1383,8 @@ func TestBuildDelta_Dependencies(t *testing.T) {
 		})
 
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Delete, Entry: database},
-			{Kind: registry.Delete, Entry: service},
+			{Kind: registry.EntryDelete, Entry: database},
+			{Kind: registry.EntryDelete, Entry: service},
 		}
 		verifyDeltaWithinLevel(t, delta, expectedDelta)
 	})
@@ -1570,11 +1570,11 @@ func TestBuildDelta_ComplexTransformations(t *testing.T) {
 
 		// Verify operations
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Create, Entry: infraDB},
-			{Kind: registry.Create, Entry: infraCache},
-			{Kind: registry.Create, Entry: appAuth},
-			{Kind: registry.Create, Entry: appAPI},
-			{Kind: registry.Create, Entry: webUI},
+			{Kind: registry.EntryCreate, Entry: infraDB},
+			{Kind: registry.EntryCreate, Entry: infraCache},
+			{Kind: registry.EntryCreate, Entry: appAuth},
+			{Kind: registry.EntryCreate, Entry: appAPI},
+			{Kind: registry.EntryCreate, Entry: webUI},
 		}
 		verifyDeltaWithinLevel(t, delta, expectedDelta)
 	})
@@ -1634,9 +1634,9 @@ func TestBuildDelta_ComplexTransformations(t *testing.T) {
 
 		// Verify operations
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Update, Entry: infraDBv2},
-			{Kind: registry.Update, Entry: appServicev2},
-			{Kind: registry.Create, Entry: monitoring},
+			{Kind: registry.EntryUpdate, Entry: infraDBv2},
+			{Kind: registry.EntryUpdate, Entry: appServicev2},
+			{Kind: registry.EntryCreate, Entry: monitoring},
 		}
 		verifyDeltaWithinLevel(t, delta, expectedDelta)
 	})
@@ -1698,10 +1698,10 @@ func TestBuildDelta_ComplexTransformations(t *testing.T) {
 
 		// Verify operations - note that order between cache and database doesn't matter
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Delete, Entry: api},
-			{Kind: registry.Delete, Entry: auth},
-			{Kind: registry.Delete, Entry: cache},
-			{Kind: registry.Delete, Entry: database},
+			{Kind: registry.EntryDelete, Entry: api},
+			{Kind: registry.EntryDelete, Entry: auth},
+			{Kind: registry.EntryDelete, Entry: cache},
+			{Kind: registry.EntryDelete, Entry: database},
 		}
 		verifyDeltaWithinLevel(t, delta, expectedDelta)
 	})
@@ -1768,10 +1768,10 @@ func TestBuildDelta_ComplexTransformations(t *testing.T) {
 
 		// Verify operations
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Delete, Entry: api},
-			{Kind: registry.Update, Entry: databaseV2},
-			{Kind: registry.Update, Entry: authV2},
-			{Kind: registry.Create, Entry: monitoring},
+			{Kind: registry.EntryDelete, Entry: api},
+			{Kind: registry.EntryUpdate, Entry: databaseV2},
+			{Kind: registry.EntryUpdate, Entry: authV2},
+			{Kind: registry.EntryCreate, Entry: monitoring},
 		}
 		verifyDeltaWithinLevel(t, delta, expectedDelta)
 	})
@@ -1820,7 +1820,7 @@ func TestBuildDelta_RollbackToEmptyState(t *testing.T) {
 		}
 
 		for _, op := range delta {
-			if op.Kind != registry.Delete {
+			if op.Kind != registry.EntryDelete {
 				t.Errorf("expected delete operation, got %s", op.Kind)
 			}
 		}

@@ -56,6 +56,9 @@ func NewManagerWithFactory(
 	if factory == nil {
 		return nil, ErrPoolFactoryRequired
 	}
+	if log == nil {
+		log = zap.NewNop()
+	}
 
 	return &Manager{
 		log:      log,
@@ -112,7 +115,7 @@ func (m *Manager) handleStandardDBAdd(ctx context.Context, entry registry.Entry)
 
 	cfg, err := entryutil.DecodeEntryConfig[config.DBConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return err
+		return NewInvalidConfigError(err)
 	}
 
 	if v := m.resolveEnv(ctx, cfg.HostEnv, "host"); v != "" {
@@ -149,7 +152,7 @@ func (m *Manager) handleSQLiteAdd(ctx context.Context, entry registry.Entry) err
 
 	cfg, err := entryutil.DecodeEntryConfig[config.SQLiteConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return err
+		return NewInvalidConfigError(err)
 	}
 
 	pool, err := m.factory.CreateSQLitePool(ctx, cfg)
@@ -168,7 +171,7 @@ func (m *Manager) handleStandardDBUpdate(ctx context.Context, entry registry.Ent
 
 	cfg, err := entryutil.DecodeEntryConfig[config.DBConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return err
+		return NewInvalidConfigError(err)
 	}
 
 	if err := pool.UpdateConfig(cfg); err != nil {
@@ -187,7 +190,7 @@ func (m *Manager) handleSQLiteUpdate(ctx context.Context, entry registry.Entry) 
 
 	cfg, err := entryutil.DecodeEntryConfig[config.SQLiteConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return err
+		return NewInvalidConfigError(err)
 	}
 
 	if err := pool.UpdateConfig(cfg); err != nil {
@@ -283,7 +286,7 @@ func (m *Manager) unregisterService(ctx context.Context, entry registry.Entry) {
 // resolveEnv looks up an environment variable and returns its value.
 // Returns empty string if envVar is empty, lookup fails, or var not found.
 func (m *Manager) resolveEnv(ctx context.Context, envVar, field string) string {
-	if envVar == "" {
+	if envVar == "" || m.env == nil {
 		return ""
 	}
 	val, found, err := m.env.Lookup(ctx, envVar)

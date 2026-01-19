@@ -22,8 +22,8 @@ const (
 	RegisterBinding    event.Kind = "contract.binding.register"
 	UpdateBinding      event.Kind = "contract.binding.update"
 	DeleteBinding      event.Kind = "contract.binding.delete"
-	Accept             event.Kind = "contract.accept"
-	Reject             event.Kind = "contract.reject"
+	ContractAccept     event.Kind = "contract.accept"
+	ContractReject     event.Kind = "contract.reject"
 )
 
 type (

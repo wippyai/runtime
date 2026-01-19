@@ -273,7 +273,7 @@ func TestStressSupervisorManyServices(t *testing.T) {
 	services := make(map[string]*stressService)
 
 	// Register many services
-	sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 	for i := 0; i < serviceCount; i++ {
 		id := "stress-svc-" + string(rune('A'+i%26)) + string(rune('0'+i/26))
 		svc := newStressService()
@@ -293,7 +293,7 @@ func TestStressSupervisorManyServices(t *testing.T) {
 			},
 		})
 	}
-	sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
 
 	// Wait for services to start
 	time.Sleep(500 * time.Millisecond)
@@ -328,7 +328,7 @@ func TestStressSupervisorConcurrentEvents(t *testing.T) {
 	require.NoError(t, err)
 
 	// Register some services first
-	sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 	for i := 0; i < 10; i++ {
 		id := "concurrent-svc-" + string(rune('0'+i))
 		svc := newStressService()
@@ -346,7 +346,7 @@ func TestStressSupervisorConcurrentEvents(t *testing.T) {
 			},
 		})
 	}
-	sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
 
 	time.Sleep(100 * time.Millisecond)
 

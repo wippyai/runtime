@@ -8,15 +8,21 @@ import (
 )
 
 func NewNodeDoesNotExistError(id any) apierror.Error {
-	return apierror.New(apierror.NotFound, fmt.Sprintf("node does not exist: %v", id)).WithRetryable(apierror.False)
+	return apierror.New(apierror.NotFound, fmt.Sprintf("node does not exist: %v", id)).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"node": id}))
 }
 
 func NewNoEdgesFromNodeError(from any) apierror.Error {
-	return apierror.New(apierror.NotFound, fmt.Sprintf("no edges from node: %v", from)).WithRetryable(apierror.False)
+	return apierror.New(apierror.NotFound, fmt.Sprintf("no edges from node: %v", from)).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"from": from}))
 }
 
 func NewEdgeDoesNotExistError(from, to any) apierror.Error {
-	return apierror.New(apierror.NotFound, fmt.Sprintf("edge does not exist: %v -> %v", from, to)).WithRetryable(apierror.False)
+	return apierror.New(apierror.NotFound, fmt.Sprintf("edge does not exist: %v -> %v", from, to)).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"from": from, "to": to}))
 }
 
 func NewCycleDetectedError(cycle any) apierror.Error {
@@ -30,9 +36,13 @@ func NewCycleDetectedWithStuckNodesError(info string) apierror.Error {
 }
 
 func NewNoPathExistsError(from, to any) apierror.Error {
-	return apierror.New(apierror.NotFound, fmt.Sprintf("no path exists from %v to %v", from, to)).WithRetryable(apierror.False)
+	return apierror.New(apierror.NotFound, fmt.Sprintf("no path exists from %v to %v", from, to)).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"from": from, "to": to}))
 }
 
 func NewInvalidLevelError(level int) apierror.Error {
-	return apierror.New(apierror.Invalid, fmt.Sprintf("invalid level: %d", level)).WithRetryable(apierror.False)
+	return apierror.New(apierror.Invalid, fmt.Sprintf("invalid level: %d", level)).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"level": level}))
 }

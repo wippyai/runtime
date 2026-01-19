@@ -41,6 +41,20 @@ func (r *timerRegistry) getShard(id uint64) *timerShard {
 	return &r.shards[id&(timerShardCount-1)]
 }
 
+func (r *timerRegistry) getEntry(id uint64) (*timerShard, *timerEntry, bool) {
+	shard := r.getShard(id)
+	shard.mu.Lock()
+	entry, ok := shard.timers[id]
+	shard.mu.Unlock()
+	return shard, entry, ok
+}
+
+func (r *timerRegistry) deleteEntry(shard *timerShard, id uint64) {
+	shard.mu.Lock()
+	delete(shard.timers, id)
+	shard.mu.Unlock()
+}
+
 func (r *timerRegistry) startWithCallback(d time.Duration, callback func()) uint64 {
 	id := r.nextID.Add(1)
 	shard := r.getShard(id)
@@ -64,10 +78,9 @@ func (r *timerRegistry) startWithCallback(d time.Duration, callback func()) uint
 		default:
 		}
 
+		// Entries without callbacks are removed by wait/stop to preserve explicit lifecycle.
 		if entry.callback != nil {
-			shard.mu.Lock()
-			delete(shard.timers, id)
-			shard.mu.Unlock()
+			r.deleteEntry(shard, id)
 		}
 	})
 
@@ -79,10 +92,7 @@ func (r *timerRegistry) startWithCallback(d time.Duration, callback func()) uint
 }
 
 func (r *timerRegistry) wait(ctx context.Context, id uint64) (time.Time, error) {
-	shard := r.getShard(id)
-	shard.mu.Lock()
-	entry, ok := shard.timers[id]
-	shard.mu.Unlock()
+	shard, entry, ok := r.getEntry(id)
 
 	if !ok || entry.stopped.Load() {
 		return time.Time{}, clockapi.ErrTimerNotFound
@@ -92,9 +102,7 @@ func (r *timerRegistry) wait(ctx context.Context, id uint64) (time.Time, error) 
 	case <-ctx.Done():
 		return time.Time{}, ctx.Err()
 	case fireTime := <-entry.firedC:
-		shard.mu.Lock()
-		delete(shard.timers, id)
-		shard.mu.Unlock()
+		r.deleteEntry(shard, id)
 		return fireTime, nil
 	}
 }
@@ -118,10 +126,7 @@ func (r *timerRegistry) stop(id uint64) (bool, error) {
 }
 
 func (r *timerRegistry) reset(id uint64, d time.Duration) (bool, error) {
-	shard := r.getShard(id)
-	shard.mu.Lock()
-	entry, ok := shard.timers[id]
-	shard.mu.Unlock()
+	_, entry, ok := r.getEntry(id)
 
 	if !ok {
 		return false, clockapi.ErrTimerNotFound

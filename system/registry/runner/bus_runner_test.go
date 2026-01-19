@@ -55,7 +55,7 @@ func (c *testComponent) handleEvent(evt event.Event) {
 	defer c.mu.Unlock()
 
 	switch evt.Kind {
-	case registry.Create, registry.Update:
+	case registry.EntryCreate, registry.EntryUpdate:
 		data, ok := entry.Data.Data().(string)
 		if !ok {
 			fmt.Printf("payload.Data is not of type string, got %T\n", entry.Data)
@@ -67,7 +67,7 @@ func (c *testComponent) handleEvent(evt event.Event) {
 			c.rejectedConfigs[entry.ID] = true
 			c.bus.Send(context.Background(), event.Event{
 				System: registry.System,
-				Kind:   registry.Reject,
+				Kind:   registry.EntryReject,
 				Path:   entry.ID.String(),
 				Data:   entry,
 			})
@@ -77,19 +77,19 @@ func (c *testComponent) handleEvent(evt event.Event) {
 		c.config[entry.ID] = data
 		c.bus.Send(context.Background(), event.Event{
 			System: registry.System,
-			Kind:   registry.Accept,
+			Kind:   registry.EntryAccept,
 			Path:   entry.ID.String(),
 			Data:   entry,
 		})
 
-	case registry.Delete:
+	case registry.EntryDelete:
 		id := registry.ParseID("component/listener/lib1")
 		if entry.ID == id {
 			// Reject deletion of lib1 if app1 still exists
 			c.rejectedConfigs[entry.ID] = true
 			c.bus.Send(context.Background(), event.Event{
 				System: registry.System,
-				Kind:   registry.Reject,
+				Kind:   registry.EntryReject,
 				Path:   entry.ID.String(),
 				Data:   fmt.Errorf("listener %s is used by: [app1]", entry.ID),
 			})
@@ -100,7 +100,7 @@ func (c *testComponent) handleEvent(evt event.Event) {
 			delete(c.config, entry.ID)
 			c.bus.Send(context.Background(), event.Event{
 				System: registry.System,
-				Kind:   registry.Accept,
+				Kind:   registry.EntryAccept,
 				Path:   entry.ID.String(),
 				Data:   entry,
 			})
@@ -109,7 +109,7 @@ func (c *testComponent) handleEvent(evt event.Event) {
 			c.rejectedConfigs[entry.ID] = true
 			c.bus.Send(context.Background(), event.Event{
 				System: registry.System,
-				Kind:   registry.Reject,
+				Kind:   registry.EntryReject,
 				Path:   entry.ID.String(),
 				Data:   entry,
 			})
@@ -226,7 +226,7 @@ func TestBusRunner_Operations(t *testing.T) {
 			name: "Spawn",
 			changeSet: registry.ChangeSet{
 				{
-					Kind: registry.Create,
+					Kind: registry.EntryCreate,
 					Entry: createEntry(
 						registry.ParseID("component/listener/key1"),
 						"listener",
@@ -247,7 +247,7 @@ func TestBusRunner_Operations(t *testing.T) {
 			name: "CreateAndReject",
 			changeSet: registry.ChangeSet{
 				{
-					Kind: registry.Create,
+					Kind: registry.EntryCreate,
 					Entry: createEntry(
 						registry.ParseID("component/listener/key2"),
 						"listener",
@@ -264,7 +264,7 @@ func TestBusRunner_Operations(t *testing.T) {
 			name: "Update",
 			changeSet: registry.ChangeSet{
 				{
-					Kind: registry.Create,
+					Kind: registry.EntryCreate,
 					Entry: createEntry(
 						registry.ParseID("component/listener/key3"),
 						"listener",
@@ -272,7 +272,7 @@ func TestBusRunner_Operations(t *testing.T) {
 					),
 				},
 				{
-					Kind: registry.Update,
+					Kind: registry.EntryUpdate,
 					Entry: createEntry(
 						registry.ParseID("component/listener/key3"),
 						"listener",
@@ -293,7 +293,7 @@ func TestBusRunner_Operations(t *testing.T) {
 			name: "Delete",
 			changeSet: registry.ChangeSet{
 				{
-					Kind: registry.Create,
+					Kind: registry.EntryCreate,
 					Entry: createEntry(
 						registry.ParseID("component/listener/key4"),
 						"listener",
@@ -301,7 +301,7 @@ func TestBusRunner_Operations(t *testing.T) {
 					),
 				},
 				{
-					Kind:  registry.Delete,
+					Kind:  registry.EntryDelete,
 					Entry: registry.Entry{ID: registry.ParseID("component/listener/key4"), Kind: "listener"},
 				},
 			},
@@ -314,7 +314,7 @@ func TestBusRunner_Operations(t *testing.T) {
 			name: "MixedOperations",
 			changeSet: registry.ChangeSet{
 				{
-					Kind: registry.Create,
+					Kind: registry.EntryCreate,
 					Entry: createEntry(
 						registry.ParseID("component/listener/a"),
 						"listener",
@@ -322,7 +322,7 @@ func TestBusRunner_Operations(t *testing.T) {
 					),
 				},
 				{
-					Kind: registry.Update,
+					Kind: registry.EntryUpdate,
 					Entry: createEntry(
 						registry.ParseID("component/listener/a"),
 						"listener",
@@ -330,7 +330,7 @@ func TestBusRunner_Operations(t *testing.T) {
 					),
 				},
 				{
-					Kind: registry.Create,
+					Kind: registry.EntryCreate,
 					Entry: createEntry(
 						registry.ParseID("component/listener/b"),
 						"listener",
@@ -338,7 +338,7 @@ func TestBusRunner_Operations(t *testing.T) {
 					),
 				},
 				{
-					Kind:  registry.Delete,
+					Kind:  registry.EntryDelete,
 					Entry: registry.Entry{ID: registry.ParseID("component/listener/a"), Kind: "listener"},
 				},
 			},
@@ -351,7 +351,7 @@ func TestBusRunner_Operations(t *testing.T) {
 			name: "DuplicateCreate",
 			changeSet: registry.ChangeSet{
 				{
-					Kind: registry.Create,
+					Kind: registry.EntryCreate,
 					Entry: createEntry(
 						registry.ParseID("component/listener/dup"),
 						"listener",
@@ -359,7 +359,7 @@ func TestBusRunner_Operations(t *testing.T) {
 					),
 				},
 				{
-					Kind: registry.Create,
+					Kind: registry.EntryCreate,
 					Entry: createEntry(
 						registry.ParseID("component/listener/dup"),
 						"listener",
@@ -376,7 +376,7 @@ func TestBusRunner_Operations(t *testing.T) {
 			name: "UpdateWithKindChange",
 			changeSet: registry.ChangeSet{
 				{
-					Kind: registry.Create,
+					Kind: registry.EntryCreate,
 					Entry: createEntry(
 						registry.ParseID("component/listener/key1"),
 						"listener",
@@ -384,7 +384,7 @@ func TestBusRunner_Operations(t *testing.T) {
 					),
 				},
 				{
-					Kind: registry.Update,
+					Kind: registry.EntryUpdate,
 					Entry: registry.Entry{
 						Kind: "different_kind",
 						Data: payload.NewString("value2"),
@@ -400,7 +400,7 @@ func TestBusRunner_Operations(t *testing.T) {
 			name: "DeleteNonExistent",
 			changeSet: registry.ChangeSet{
 				{
-					Kind: registry.Delete,
+					Kind: registry.EntryDelete,
 					Entry: registry.Entry{
 						Kind: "listener",
 					},
@@ -455,7 +455,7 @@ func TestBusRunner_RollbackOnSecondOperationFailure(t *testing.T) {
 	initialState := registry.State{} // Launch with an empty state
 	changeSet := registry.ChangeSet{
 		{
-			Kind: registry.Create,
+			Kind: registry.EntryCreate,
 			Entry: createEntry(
 				registry.ParseID("component/listener/key1"),
 				"listener",
@@ -463,7 +463,7 @@ func TestBusRunner_RollbackOnSecondOperationFailure(t *testing.T) {
 			),
 		},
 		{
-			Kind: registry.Create,
+			Kind: registry.EntryCreate,
 			Entry: createEntry(
 				registry.ParseID("component/listener/key2"),
 				"listener",
@@ -500,7 +500,7 @@ func TestBusRunner_BeginAndCommitEvents(t *testing.T) {
 		ctx,
 		t,
 		bus,
-		[]event.Kind{registry.Begin, registry.Commit},
+		[]event.Kind{registry.TxBegin, registry.TxCommit},
 		&wg,
 		eventChan,
 	)
@@ -509,7 +509,7 @@ func TestBusRunner_BeginAndCommitEvents(t *testing.T) {
 	initialState := registry.State{}
 	changeSet := registry.ChangeSet{
 		{
-			Kind: registry.Create,
+			Kind: registry.EntryCreate,
 			Entry: createEntry(
 				registry.ParseID("component/listener/key1"),
 				"listener",
@@ -527,8 +527,8 @@ func TestBusRunner_BeginAndCommitEvents(t *testing.T) {
 	receivedEvents := waitForEvents(&wg, eventChan)
 
 	assert.Equal(t, 2, len(receivedEvents), "Expected 2 events (Begin and Commit)")
-	assert.Equal(t, registry.Begin, receivedEvents[0].Kind, "First event should be Begin")
-	assert.Equal(t, registry.Commit, receivedEvents[1].Kind, "Second event should be Commit")
+	assert.Equal(t, registry.TxBegin, receivedEvents[0].Kind, "First event should be Begin")
+	assert.Equal(t, registry.TxCommit, receivedEvents[1].Kind, "Second event should be Commit")
 }
 
 func TestBusRunner_RollbackOrder(t *testing.T) {
@@ -542,7 +542,7 @@ func TestBusRunner_RollbackOrder(t *testing.T) {
 	initialState := registry.State{}
 	changeSet := registry.ChangeSet{
 		{
-			Kind: registry.Create,
+			Kind: registry.EntryCreate,
 			Entry: registry.Entry{
 				ID:   lib1ID,
 				Kind: "listener",
@@ -551,7 +551,7 @@ func TestBusRunner_RollbackOrder(t *testing.T) {
 			},
 		},
 		{
-			Kind: registry.Create,
+			Kind: registry.EntryCreate,
 			Entry: registry.Entry{
 				ID:   app1ID,
 				Kind: "listener",
@@ -562,7 +562,7 @@ func TestBusRunner_RollbackOrder(t *testing.T) {
 			},
 		},
 		{
-			Kind: registry.Create,
+			Kind: registry.EntryCreate,
 			Entry: registry.Entry{
 				ID:   endpoint1ID,
 				Kind: "listener",
@@ -609,7 +609,7 @@ func TestBusRunner_ErrorPropagation(t *testing.T) {
 
 	// Set up dedicated error-testing listener
 	listener, err := eventbus.NewSubscriber(ctx, bus, registry.System, "", func(evt event.Event) {
-		if evt.System != registry.System || evt.Kind != registry.Create {
+		if evt.System != registry.System || evt.Kind != registry.EntryCreate {
 			return
 		}
 
@@ -625,7 +625,7 @@ func TestBusRunner_ErrorPropagation(t *testing.T) {
 
 		bus.Send(context.Background(), event.Event{
 			System: registry.System,
-			Kind:   registry.Reject,
+			Kind:   registry.EntryReject,
 			Path:   entry.ID.String(),
 			Data:   expectedError,
 		})
@@ -637,7 +637,7 @@ func TestBusRunner_ErrorPropagation(t *testing.T) {
 	initialState := registry.State{}
 	changeSet := registry.ChangeSet{
 		{
-			Kind: registry.Create,
+			Kind: registry.EntryCreate,
 			Entry: createEntry(
 				registry.ParseID("component/listener/error-test"),
 				"listener",
@@ -674,7 +674,7 @@ func TestBusRunner_BeginAndDiscardEvents(t *testing.T) {
 		ctx,
 		t,
 		bus,
-		[]event.Kind{registry.Begin, registry.Discard},
+		[]event.Kind{registry.TxBegin, registry.TxDiscard},
 		&wg,
 		eventChan,
 	)
@@ -683,7 +683,7 @@ func TestBusRunner_BeginAndDiscardEvents(t *testing.T) {
 	initialState := registry.State{}
 	changeSet := registry.ChangeSet{
 		{
-			Kind: registry.Create,
+			Kind: registry.EntryCreate,
 			Entry: createEntry(
 				registry.ParseID("component/listener/key1"),
 				"listener",
@@ -701,8 +701,8 @@ func TestBusRunner_BeginAndDiscardEvents(t *testing.T) {
 	receivedEvents := waitForEvents(&wg, eventChan)
 
 	assert.Equal(t, 2, len(receivedEvents), "Expected 2 events (Begin and Discard)")
-	assert.Equal(t, registry.Begin, receivedEvents[0].Kind, "First event should be Begin")
-	assert.Equal(t, registry.Discard, receivedEvents[1].Kind, "Second event should be Discard")
+	assert.Equal(t, registry.TxBegin, receivedEvents[0].Kind, "First event should be Begin")
+	assert.Equal(t, registry.TxDiscard, receivedEvents[1].Kind, "Second event should be Discard")
 }
 
 // TestBusRunner_RollbackOrderWithResolver verifies that rollback deletes dependents before dependencies
@@ -744,12 +744,12 @@ func TestBusRunner_RollbackOrderWithResolver(t *testing.T) {
 		}
 
 		switch evt.Kind {
-		case registry.Create:
+		case registry.EntryCreate:
 			// Accept creates, but reject "app:handler" to trigger rollback
 			if entry.ID.String() == "app:handler" {
 				bus.Send(context.Background(), event.Event{
 					System: registry.System,
-					Kind:   registry.Reject,
+					Kind:   registry.EntryReject,
 					Path:   entry.ID.String(),
 					Data:   errors2.New("handler rejected"),
 				})
@@ -757,17 +757,17 @@ func TestBusRunner_RollbackOrderWithResolver(t *testing.T) {
 			}
 			bus.Send(context.Background(), event.Event{
 				System: registry.System,
-				Kind:   registry.Accept,
+				Kind:   registry.EntryAccept,
 				Path:   entry.ID.String(),
 			})
 
-		case registry.Delete:
+		case registry.EntryDelete:
 			mu.Lock()
 			deleteOrder = append(deleteOrder, entry.ID.String())
 			mu.Unlock()
 			bus.Send(context.Background(), event.Event{
 				System: registry.System,
-				Kind:   registry.Accept,
+				Kind:   registry.EntryAccept,
 				Path:   entry.ID.String(),
 			})
 		}
@@ -783,7 +783,7 @@ func TestBusRunner_RollbackOrderWithResolver(t *testing.T) {
 
 	changeSet := registry.ChangeSet{
 		{
-			Kind: registry.Create,
+			Kind: registry.EntryCreate,
 			Entry: registry.Entry{
 				ID:   serverID,
 				Kind: "http",
@@ -791,7 +791,7 @@ func TestBusRunner_RollbackOrderWithResolver(t *testing.T) {
 			},
 		},
 		{
-			Kind: registry.Create,
+			Kind: registry.EntryCreate,
 			Entry: registry.Entry{
 				ID:   routerID,
 				Kind: "http",
@@ -800,7 +800,7 @@ func TestBusRunner_RollbackOrderWithResolver(t *testing.T) {
 			},
 		},
 		{
-			Kind: registry.Create,
+			Kind: registry.EntryCreate,
 			Entry: registry.Entry{
 				ID:   staticID,
 				Kind: "http",
@@ -809,7 +809,7 @@ func TestBusRunner_RollbackOrderWithResolver(t *testing.T) {
 			},
 		},
 		{
-			Kind: registry.Create,
+			Kind: registry.EntryCreate,
 			Entry: registry.Entry{
 				ID:   handlerID,
 				Kind: "http",
@@ -876,15 +876,15 @@ func newTestBuilder(resolver *testResolver) *testBuilder {
 
 func (b *testBuilder) ValidateOperation(state registry.StateMap, op registry.Operation) error {
 	switch op.Kind {
-	case registry.Create:
+	case registry.EntryCreate:
 		if _, exists := state[op.Entry.ID]; exists {
 			return fmt.Errorf("entry already exists: %s", op.Entry.ID)
 		}
-	case registry.Update:
+	case registry.EntryUpdate:
 		if _, exists := state[op.Entry.ID]; !exists {
 			return fmt.Errorf("entry not found: %s", op.Entry.ID)
 		}
-	case registry.Delete:
+	case registry.EntryDelete:
 		if _, exists := state[op.Entry.ID]; !exists {
 			return fmt.Errorf("entry not found: %s", op.Entry.ID)
 		}
@@ -903,9 +903,9 @@ func (b *testBuilder) ApplyOperation(state registry.StateMap, op registry.Operat
 	}
 
 	switch op.Kind {
-	case registry.Create, registry.Update:
+	case registry.EntryCreate, registry.EntryUpdate:
 		newState[op.Entry.ID] = op.Entry
-	case registry.Delete:
+	case registry.EntryDelete:
 		delete(newState, op.Entry.ID)
 	}
 
@@ -928,7 +928,7 @@ func (b *testBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, e
 	for _, fromEntry := range from {
 		if _, exists := toState[fromEntry.ID]; !exists {
 			deleteOps = append(deleteOps, registry.Operation{
-				Kind:  registry.Delete,
+				Kind:  registry.EntryDelete,
 				Entry: fromEntry,
 			})
 		}
@@ -939,12 +939,12 @@ func (b *testBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, e
 		fromEntry, exists := fromState[toEntry.ID]
 		if !exists {
 			otherOps = append(otherOps, registry.Operation{
-				Kind:  registry.Create,
+				Kind:  registry.EntryCreate,
 				Entry: toEntry,
 			})
 		} else if fromEntry.Kind != toEntry.Kind || fromEntry.Data != toEntry.Data {
 			otherOps = append(otherOps, registry.Operation{
-				Kind:  registry.Update,
+				Kind:  registry.EntryUpdate,
 				Entry: toEntry,
 			})
 		}

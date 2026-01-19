@@ -42,6 +42,9 @@ type workflowWatcher struct {
 // NewReceiver creates a new Temporal peer receiver.
 func NewReceiver(ctx context.Context, nodeID pid.NodeID, temporalClient client.Client, router relay.Receiver, logger *zap.Logger) *Receiver {
 	ctx, cancel := context.WithCancel(ctx)
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &Receiver{
 		nodeID:   nodeID,
 		client:   temporalClient,

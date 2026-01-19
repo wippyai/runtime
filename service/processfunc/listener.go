@@ -28,7 +28,7 @@ const DefaultCancelTimeout = 5 * time.Second
 type Listener struct {
 	log     *zap.Logger
 	bus     event.Bus
-	pidGen  *uniqid.PIDGenerator
+	pidGen  process.PIDGenerator
 	node    relay.Node
 	topo    topapi.Topology
 	manager process.Manager
@@ -41,11 +41,17 @@ type Listener struct {
 func NewListener(
 	log *zap.Logger,
 	bus event.Bus,
-	pidGen *uniqid.PIDGenerator,
+	pidGen process.PIDGenerator,
 	node relay.Node,
 	topo topapi.Topology,
 	manager process.Manager,
 ) *Listener {
+	if log == nil {
+		log = zap.NewNop()
+	}
+	if pidGen == nil {
+		pidGen = uniqid.NewPIDGenerator(uniqid.NewGenerator(), "processfunc")
+	}
 	return &Listener{
 		log:        log,
 		bus:        bus,
@@ -59,19 +65,19 @@ func NewListener(
 
 // Add implements registry.EntryListener.
 func (l *Listener) Add(ctx context.Context, entry registry.Entry) error {
-	l.processEntry(ctx, registry.Create, entry)
+	l.processEntry(ctx, registry.EntryCreate, entry)
 	return nil
 }
 
 // Update implements registry.EntryListener.
 func (l *Listener) Update(ctx context.Context, entry registry.Entry) error {
-	l.processEntry(ctx, registry.Update, entry)
+	l.processEntry(ctx, registry.EntryUpdate, entry)
 	return nil
 }
 
 // Delete implements registry.EntryListener.
 func (l *Listener) Delete(ctx context.Context, entry registry.Entry) error {
-	l.processEntry(ctx, registry.Delete, entry)
+	l.processEntry(ctx, registry.EntryDelete, entry)
 	return nil
 }
 
@@ -121,10 +127,10 @@ func (l *Listener) processEntry(ctx context.Context, kind event.Kind, entry regi
 	}
 
 	switch kind {
-	case registry.Create:
+	case registry.EntryCreate:
 		l.registerFunction(ctx, idStr, defaultHost, opts)
 
-	case registry.Update:
+	case registry.EntryUpdate:
 		l.mu.RLock()
 		existingHost, exists := l.registered[idStr]
 		l.mu.RUnlock()
@@ -139,7 +145,7 @@ func (l *Listener) processEntry(ctx context.Context, kind event.Kind, entry regi
 			l.registerFunction(ctx, idStr, defaultHost, opts)
 		}
 
-	case registry.Delete:
+	case registry.EntryDelete:
 		l.mu.RLock()
 		_, exists := l.registered[idStr]
 		l.mu.RUnlock()
@@ -163,7 +169,7 @@ func (l *Listener) registerFunction(ctx context.Context, idStr string, hostID pi
 
 	l.bus.Send(ctx, event.Event{
 		System: function.System,
-		Kind:   function.Register,
+		Kind:   function.FunctionRegister,
 		Path:   idStr,
 		Data: &function.FuncEntry{
 			Handler: handler.Call,
@@ -184,7 +190,7 @@ func (l *Listener) registerFunction(ctx context.Context, idStr string, hostID pi
 func (l *Listener) unregisterFunction(ctx context.Context, idStr string) {
 	l.bus.Send(ctx, event.Event{
 		System: function.System,
-		Kind:   function.Delete,
+		Kind:   function.FunctionDelete,
 		Path:   idStr,
 	})
 
@@ -198,7 +204,7 @@ func (l *Listener) unregisterFunction(ctx context.Context, idStr string) {
 // processHandler handles function calls by starting a process and returning its result.
 type processHandler struct {
 	log       *zap.Logger
-	pidGen    *uniqid.PIDGenerator
+	pidGen    process.PIDGenerator
 	node      relay.Node
 	topo      topapi.Topology
 	manager   process.Manager

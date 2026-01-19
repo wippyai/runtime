@@ -1,52 +1,37 @@
 package compress
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
 // CompressOptions type
-var compressOptionsType = &types.RecordType{
-	Name: "compress.Options",
-	Fields: []types.RecordField{
-		{Name: "level", Type: types.Number, Optional: true},
-		{Name: "max_size", Type: types.Number, Optional: true},
-	},
-}
+var compressOptionsType = typ.NewRecord().
+	OptField("level", typ.Number).
+	OptField("max_size", typ.Number).
+	Build()
 
 // Codec type for each compression algorithm
-var codecType = &types.InterfaceType{
-	Name: "compress.Codec",
-	Methods: map[string]*types.FunctionType{
-		// encode(data: string, opts?: Options): string, Error?
-		"encode": types.NewFunction(
-			[]types.Type{types.String, types.Optional(compressOptionsType)},
-			[]types.Type{types.String, types.Optional(types.LuaError)},
-		),
-		// decode(data: string, opts?: Options): string, Error?
-		"decode": types.NewFunction(
-			[]types.Type{types.String, types.Optional(compressOptionsType)},
-			[]types.Type{types.String, types.Optional(types.LuaError)},
-		),
-	},
-}
+var codecType = typ.NewInterface("compress.Codec", []typ.Method{
+	{Name: "encode", Type: typ.Func().Param("data", typ.String).OptParam("opts", compressOptionsType).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "decode", Type: typ.Func().Param("data", typ.String).OptParam("opts", compressOptionsType).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
+})
 
 // ModuleTypes returns the type manifest for the compress module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("compress")
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("compress")
 
 	m.DefineType("Options", compressOptionsType)
 	m.DefineType("Codec", codecType)
 
-	moduleType := &types.InterfaceType{
-		Name: "compress",
-		Fields: map[string]types.Type{
-			"gzip":    codecType,
-			"deflate": codecType,
-			"zlib":    codecType,
-			"brotli":  codecType,
-			"zstd":    codecType,
-		},
-	}
+	// Module exports codecs as fields (accessed as compress.gzip, compress.zlib, etc.)
+	moduleType := typ.NewRecord().
+		Field("gzip", codecType).
+		Field("deflate", codecType).
+		Field("zlib", codecType).
+		Field("brotli", codecType).
+		Field("zstd", codecType).
+		Build()
 
 	m.SetExport(moduleType)
 	return m

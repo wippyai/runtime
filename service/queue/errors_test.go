@@ -13,7 +13,7 @@ func TestErrorConstructors(t *testing.T) {
 	t.Run("NewDriverNotFoundError", func(t *testing.T) {
 		id := registry.NewID("test", "my-driver")
 		err := NewDriverNotFoundError(id)
-		assert.Contains(t, err.Error(), id.String())
+		assert.Contains(t, err.Error(), "driver not found")
 		assert.Equal(t, apierror.NotFound, err.Kind())
 		assert.Equal(t, apierror.False, err.Retryable())
 		assert.NotNil(t, err.Details())
@@ -25,7 +25,7 @@ func TestErrorConstructors(t *testing.T) {
 	t.Run("NewQueueNotFoundError", func(t *testing.T) {
 		id := registry.NewID("test", "my-queue")
 		err := NewQueueNotFoundError(id)
-		assert.Contains(t, err.Error(), id.String())
+		assert.Contains(t, err.Error(), "queue not found")
 		assert.Equal(t, apierror.NotFound, err.Kind())
 		val, ok := err.Details().Get("queue_id")
 		assert.True(t, ok)
@@ -35,7 +35,7 @@ func TestErrorConstructors(t *testing.T) {
 	t.Run("NewDriverExistsError", func(t *testing.T) {
 		id := registry.NewID("test", "my-driver")
 		err := NewDriverExistsError(id)
-		assert.Contains(t, err.Error(), id.String())
+		assert.Contains(t, err.Error(), "driver already exists")
 		assert.Equal(t, apierror.AlreadyExists, err.Kind())
 		val, ok := err.Details().Get("driver_id")
 		assert.True(t, ok)
@@ -45,7 +45,7 @@ func TestErrorConstructors(t *testing.T) {
 	t.Run("NewQueueClosedError", func(t *testing.T) {
 		id := registry.NewID("test", "my-queue")
 		err := NewQueueClosedError(id)
-		assert.Contains(t, err.Error(), id.String())
+		assert.Contains(t, err.Error(), "queue is closed")
 		assert.Equal(t, apierror.Unavailable, err.Kind())
 		val, ok := err.Details().Get("queue_id")
 		assert.True(t, ok)
@@ -58,11 +58,12 @@ func TestErrorConstructors(t *testing.T) {
 		assert.Equal(t, "invalid config: test error", err.Error())
 		assert.Equal(t, apierror.Invalid, err.Kind())
 		assert.True(t, errors.Is(err, cause))
+		assert.Equal(t, "test error", err.Details().GetString("cause", ""))
 	})
 
 	t.Run("NewUnsupportedKindError", func(t *testing.T) {
 		err := NewUnsupportedKindError("unknown.kind")
-		assert.Contains(t, err.Error(), "unknown.kind")
+		assert.Contains(t, err.Error(), "unsupported entry kind")
 		assert.Equal(t, apierror.Invalid, err.Kind())
 		val, ok := err.Details().Get("kind")
 		assert.True(t, ok)

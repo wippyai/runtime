@@ -12,11 +12,11 @@ import (
 	"github.com/coder/websocket"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/topology"
-	"github.com/wippyai/runtime/internal/uniqid"
 	"go.uber.org/zap"
 )
 
@@ -74,7 +74,7 @@ func NewConnection(
 	node relay.Node,
 	topo topology.Topology,
 	transcoder payload.Transcoder,
-	pidGen *uniqid.PIDGenerator,
+	pidGen process.PIDGenerator,
 	logger *zap.Logger,
 ) (*Connection, error) {
 	// Create context with cancellation

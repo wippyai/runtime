@@ -30,6 +30,9 @@ type FactoryRegistry struct {
 
 // NewFactoryRegistry creates a new factory registry.
 func NewFactoryRegistry(bus event.Bus, log *zap.Logger) *FactoryRegistry {
+	if log == nil {
+		log = zap.NewNop()
+	}
 	return &FactoryRegistry{
 		bus: bus,
 		log: log,

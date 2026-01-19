@@ -543,6 +543,13 @@ func (m *mockTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
 					}
 				}
 			}
+		} else if modDef, ok := v.(*ModuleDefinition); ok {
+			if module, ok := dataMap["module"].(string); ok {
+				modDef.Module = module
+			}
+			if readme, ok := dataMap["readme"].(string); ok {
+				modDef.Readme = readme
+			}
 		}
 	}
 	return nil

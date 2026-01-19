@@ -26,6 +26,7 @@ var (
 	ErrDisableWorkflowWorkerConflict           = apierror.New(apierror.Invalid, "cannot disable workflow worker and use local activity worker only simultaneously").WithRetryable(apierror.False)
 )
 
+// NewInvalidAuthTypeError reports an unsupported auth type.
 func NewInvalidAuthTypeError(authType AuthType) apierror.Error {
 	return apierror.New(apierror.Invalid, "invalid auth type: "+string(authType)).WithRetryable(apierror.False)
 }

@@ -19,6 +19,9 @@ local function main()
             local msg = result.value
             local from = msg:from()
             local payload = msg:payload():data()
+            if type(payload.respond_to) ~= "string" then
+                return false, "respond_to must be string"
+            end
 
             -- Spawn monitored worker
             local worker_pid, err = process.spawn_monitored(

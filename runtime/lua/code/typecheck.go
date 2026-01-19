@@ -3,12 +3,14 @@ package code
 import (
 	api "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/yuin/gopher-lua/compiler/ast"
+	"github.com/yuin/gopher-lua/compiler/check"
 	"github.com/yuin/gopher-lua/compiler/parse"
-	"github.com/yuin/gopher-lua/types"
-	"github.com/yuin/gopher-lua/types/subtype"
-
-	_ "github.com/yuin/gopher-lua/types/stmt"  // register statement handlers
-	_ "github.com/yuin/gopher-lua/types/synth" // register synthesizers
+	"github.com/yuin/gopher-lua/compiler/stdlib"
+	"github.com/yuin/gopher-lua/types/db"
+	"github.com/yuin/gopher-lua/types/diag"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/scope"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
 // TypeCheckConfig configures the type checking system
@@ -66,103 +68,143 @@ func DefaultTypeCheckConfig() TypeCheckConfig {
 
 // TypeChecker wraps the go-lua type checker with wippy configuration
 type TypeChecker struct {
-	config   TypeCheckConfig
-	builtins map[string]types.Type
+	config           TypeCheckConfig
+	builtins         map[string]typ.Type
+	builtinManifests map[string]*io.Manifest
+	base             *scope.State
+	db               *db.DB
 }
 
 // NewTypeChecker creates a configured type checker.
 // Built-in modules are added as globals so they're always available.
+// The Enabled flag controls whether checking runs at compile time, not initialization.
 func NewTypeChecker(cfg TypeCheckConfig, builtinMods []*api.ModuleDef) *TypeChecker {
-	// Apply cache setting
-	if cfg.DisableCache {
-		subtype.SetCacheEnabled(false)
-	}
-
-	// Skip building builtins map if type checking is disabled
-	if !cfg.Enabled {
-		return &TypeChecker{
-			config:   cfg,
-			builtins: nil,
-		}
-	}
-
-	builtins := make(map[string]types.Type)
+	builtins := make(map[string]typ.Type)
+	manifests := make(map[string]*io.Manifest)
 
 	for _, mod := range builtinMods {
 		if mod.Types != nil {
 			manifest := mod.Types()
-			if manifest != nil && manifest.Export != nil {
-				builtins[mod.Name] = manifest.Export
+			if manifest != nil {
+				manifests[mod.Name] = manifest
+				if manifest.Export != nil {
+					builtins[mod.Name] = manifest.Export
+				}
 			}
 		}
 	}
 
+	// Build base scope with stdlib and builtins
+	base := scope.New()
+
+	// Register builtin types for type casting (string(), integer(), etc.)
+	base = base.WithType("any", typ.Any)
+	base = base.WithType("nil", typ.Nil)
+	base = base.WithType("boolean", typ.Boolean)
+	base = base.WithType("bool", typ.Boolean)
+	base = base.WithType("number", typ.Number)
+	base = base.WithType("integer", typ.Integer)
+	base = base.WithType("int", typ.Integer)
+	base = base.WithType("string", typ.String)
+	base = base.WithType("table", typ.NewRecord().Build())
+
+	for name, t := range stdlib.Library() {
+		base = base.WithSymbol(name, t)
+	}
+	for name, t := range builtins {
+		base = base.WithSymbol(name, t)
+	}
+
 	return &TypeChecker{
-		config:   cfg,
-		builtins: builtins,
+		config:           cfg,
+		builtins:         builtins,
+		builtinManifests: manifests,
+		base:             base,
+		db:               db.New(),
 	}
 }
 
-// ClearCache clears the subtype cache between sessions.
-// Call this when types may have been reallocated.
-func ClearTypeCache() {
-	subtype.ClearCache()
-}
+// CheckParsed performs type checking on a parsed AST with provided imports
+func (tc *TypeChecker) CheckParsed(chunk []ast.Stmt, entryID string, imports map[string]*io.Manifest) (*io.Manifest, []diag.Diagnostic) {
+	// Build scope with imports
+	s := tc.base
+	for alias, manifest := range imports {
+		if manifest != nil && manifest.Export != nil {
+			s = s.WithSymbol(alias, manifest.Export)
+		}
+		if manifest != nil {
+			// Add exported types
+			for typeName, t := range manifest.Types {
+				s = s.WithType(typeName, t)
+			}
+			// Add globals from dependencies
+			for name, t := range manifest.Globals {
+				s = s.WithSymbol(name, t)
+			}
+		}
+	}
 
-// SetTypeCacheEnabled enables or disables the subtype cache.
-func SetTypeCacheEnabled(enabled bool) {
-	subtype.SetCacheEnabled(enabled)
+	// Create checker with context
+	ctx := db.NewContext(tc.db)
+	checker := check.New(ctx)
+	checker.SetSourceName(entryID)
+	checker.SetBaseScope(s)
+	checker.SetImports(tc.builtinManifests)
+
+	// Check the chunk
+	diagnostics := checker.Check(chunk)
+
+	// Build manifest from checked code
+	manifest := io.NewManifest(entryID)
+	if exportType := checker.ExportType(); exportType != nil {
+		manifest.SetExport(exportType)
+	}
+
+	return manifest, diagnostics
 }
 
 // Check performs type checking on Lua source code with provided imports
-func (tc *TypeChecker) Check(source, modulePath string, imports map[string]*types.TypeManifest) (*types.TypeManifest, []types.Diagnostic, error) {
-	chunk, err := parse.ParseString(source, modulePath)
+func (tc *TypeChecker) Check(source, entryID string, imports map[string]*io.Manifest) (*io.Manifest, []diag.Diagnostic, error) {
+	chunk, err := parse.ParseString(source, entryID)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	env := types.NewEnv()
-
-	// Add built-in module types
-	for name, t := range tc.builtins {
-		env = env.WithSymbol(name, t)
-	}
-
-	// Add imports from dependencies
+	// Build scope with imports
+	s := tc.base
 	for alias, manifest := range imports {
 		if manifest != nil && manifest.Export != nil {
-			env = env.WithSymbol(alias, manifest.Export)
+			s = s.WithSymbol(alias, manifest.Export)
 		}
-		// Also add exported types
 		if manifest != nil {
-			for typeName, t := range manifest.ExportedTypes {
-				env = env.WithType(typeName, t)
+			// Add exported types
+			for typeName, t := range manifest.Types {
+				s = s.WithType(typeName, t)
+			}
+			// Add globals from dependencies
+			for name, t := range manifest.Globals {
+				s = s.WithSymbol(name, t)
 			}
 		}
 	}
 
-	// Use CheckChunkWithContext to get context for extracting module type
-	result := types.CheckChunkWithContext(
-		chunk,
-		types.WithStdlib(),
-		types.WithEnv(env),
-		types.WithSource(modulePath),
-	)
-	// Release session resources after type checking
-	defer result.Context.Release()
+	// Create checker with context
+	ctx := db.NewContext(tc.db)
+	checker := check.New(ctx)
+	checker.SetSourceName(entryID)
+	checker.SetBaseScope(s)
+	checker.SetImports(tc.builtinManifests)
+
+	// Check the chunk
+	diagnostics := checker.Check(chunk)
 
 	// Build manifest from checked code
-	manifest := types.NewManifest(modulePath)
-
-	// Extract module return type from the last return statement
-	if result.Context != nil {
-		exportType := extractModuleReturnType(chunk, result.Context)
-		if exportType != nil {
-			manifest.SetExport(exportType)
-		}
+	manifest := io.NewManifest(entryID)
+	if exportType := checker.ExportType(); exportType != nil {
+		manifest.SetExport(exportType)
 	}
 
-	return manifest, result.Diagnostics, nil
+	return manifest, diagnostics, nil
 }
 
 // IsEnabled returns whether type checking is enabled
@@ -181,24 +223,60 @@ func (tc *TypeChecker) AddBuiltin(mod *api.ModuleDef) {
 		return
 	}
 	manifest := mod.Types()
-	if manifest != nil && manifest.Export != nil {
-		tc.builtins[mod.Name] = manifest.Export
+	if manifest != nil {
+		tc.builtinManifests[mod.Name] = manifest
+		if manifest.Export != nil {
+			tc.builtins[mod.Name] = manifest.Export
+			tc.base = tc.base.WithSymbol(mod.Name, manifest.Export)
+		}
+	}
+}
+
+// AddBuiltinManifest adds a module manifest to the type checker's built-in environment.
+func (tc *TypeChecker) AddBuiltinManifest(name string, manifest *io.Manifest) {
+	if tc.builtins == nil || name == "" || manifest == nil {
+		return
+	}
+	tc.builtinManifests[name] = manifest
+	if manifest.Export != nil {
+		tc.builtins[name] = manifest.Export
+		tc.base = tc.base.WithSymbol(name, manifest.Export)
 	}
 }
 
 // BuildEnv creates an environment with all builtin modules
-func (tc *TypeChecker) BuildEnv() *types.Env {
-	env := types.NewEnv()
-	for name, t := range tc.builtins {
-		env = env.WithSymbol(name, t)
+func (tc *TypeChecker) BuildEnv() *scope.State {
+	return tc.base
+}
+
+// Clone creates a copy of the TypeChecker for parallel use.
+// Each clone has its own db.DB for concurrent type checking.
+func (tc *TypeChecker) Clone() *TypeChecker {
+	return &TypeChecker{
+		config:           tc.config,
+		builtins:         tc.builtins,
+		builtinManifests: tc.builtinManifests,
+		base:             tc.base,
+		db:               db.New(),
 	}
-	return env
+}
+
+// WithConfig creates a copy with a different configuration.
+// Used by the linter to enable checking with custom settings.
+func (tc *TypeChecker) WithConfig(cfg TypeCheckConfig) *TypeChecker {
+	return &TypeChecker{
+		config:           cfg,
+		builtins:         tc.builtins,
+		builtinManifests: tc.builtinManifests,
+		base:             tc.base,
+		db:               db.New(),
+	}
 }
 
 // HasErrors checks if any diagnostic is an error
-func HasErrors(diagnostics []types.Diagnostic) bool {
+func HasErrors(diagnostics []diag.Diagnostic) bool {
 	for _, d := range diagnostics {
-		if d.Severity == types.SeverityError {
+		if d.Severity == diag.SeverityError {
 			return true
 		}
 	}
@@ -206,30 +284,12 @@ func HasErrors(diagnostics []types.Diagnostic) bool {
 }
 
 // FilterErrors returns only error-level diagnostics
-func FilterErrors(diagnostics []types.Diagnostic) []types.Diagnostic {
-	var errors []types.Diagnostic
+func FilterErrors(diagnostics []diag.Diagnostic) []diag.Diagnostic {
+	var errors []diag.Diagnostic
 	for _, d := range diagnostics {
-		if d.Severity == types.SeverityError {
+		if d.Severity == diag.SeverityError {
 			errors = append(errors, d)
 		}
 	}
 	return errors
-}
-
-// extractModuleReturnType finds the module's return statement and extracts its type.
-// For modules like: local M = {}; function M.foo() end; return M
-// This extracts the type of M as the module's export type.
-func extractModuleReturnType(chunk []ast.Stmt, ctx *types.Context) types.Type {
-	// Find return statements at module level
-	for i := len(chunk) - 1; i >= 0; i-- {
-		if ret, ok := chunk[i].(*ast.ReturnStmt); ok {
-			if len(ret.Exprs) == 0 {
-				return nil
-			}
-			// Synthesize the type of the first return expression
-			typ, _ := ctx.Synth(ret.Exprs[0])
-			return typ
-		}
-	}
-	return nil
 }

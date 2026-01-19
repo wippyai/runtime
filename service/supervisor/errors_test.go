@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
@@ -41,6 +40,7 @@ func TestErrorConstructors(t *testing.T) {
 		assert.Equal(t, apierror.Internal, err.Kind())
 		assert.Contains(t, err.Error(), "register supervisor pid")
 		assert.True(t, errors.Is(err, cause))
+		assert.Equal(t, "cause", err.Details().GetString("cause", ""))
 	})
 
 	t.Run("newAttachRelayError", func(t *testing.T) {
@@ -48,6 +48,7 @@ func TestErrorConstructors(t *testing.T) {
 		assert.Equal(t, apierror.Internal, err.Kind())
 		assert.Contains(t, err.Error(), "attach to relay")
 		assert.True(t, errors.Is(err, cause))
+		assert.Equal(t, "cause", err.Details().GetString("cause", ""))
 	})
 
 	t.Run("newStartProcessError", func(t *testing.T) {
@@ -55,6 +56,7 @@ func TestErrorConstructors(t *testing.T) {
 		assert.Equal(t, apierror.Internal, err.Kind())
 		assert.Contains(t, err.Error(), "start process")
 		assert.True(t, errors.Is(err, cause))
+		assert.Equal(t, "cause", err.Details().GetString("cause", ""))
 	})
 
 	t.Run("newDecodeConfigError", func(t *testing.T) {
@@ -63,6 +65,7 @@ func TestErrorConstructors(t *testing.T) {
 		assert.Contains(t, err.Error(), "decode config")
 		assert.Equal(t, apierror.False, err.Retryable())
 		assert.True(t, errors.Is(err, cause))
+		assert.Equal(t, "cause", err.Details().GetString("cause", ""))
 	})
 
 	t.Run("newInvalidEntryKindError", func(t *testing.T) {
@@ -70,9 +73,8 @@ func TestErrorConstructors(t *testing.T) {
 		assert.Equal(t, apierror.Invalid, err.Kind())
 		assert.Equal(t, "invalid entry kind", err.Error())
 		assert.Equal(t, apierror.False, err.Retryable())
-		details := err.Details().(attrs.Bag)
-		assert.Equal(t, "got", details["got"])
-		assert.Equal(t, "expected", details["expected"])
+		assert.Equal(t, "got", err.Details().GetString("got", ""))
+		assert.Equal(t, "expected", err.Details().GetString("expected", ""))
 	})
 
 	t.Run("newServiceNotFoundError", func(t *testing.T) {
@@ -80,8 +82,7 @@ func TestErrorConstructors(t *testing.T) {
 		assert.Equal(t, apierror.NotFound, err.Kind())
 		assert.Equal(t, "service not found", err.Error())
 		assert.Equal(t, apierror.False, err.Retryable())
-		details := err.Details().(attrs.Bag)
-		assert.Equal(t, "svc-id", details["id"])
+		assert.Equal(t, "svc-id", err.Details().GetString("id", ""))
 	})
 
 	t.Run("newSendCancelError", func(t *testing.T) {
@@ -89,5 +90,6 @@ func TestErrorConstructors(t *testing.T) {
 		assert.Equal(t, apierror.Internal, err.Kind())
 		assert.Contains(t, err.Error(), "send cancel")
 		assert.True(t, errors.Is(err, cause))
+		assert.Equal(t, "cause", err.Details().GetString("cause", ""))
 	})
 }

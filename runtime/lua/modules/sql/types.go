@@ -1,314 +1,604 @@
 package sql
 
 import (
-	"github.com/yuin/gopher-lua/types"
-	"github.com/yuin/gopher-lua/types/contract"
-	"github.com/yuin/gopher-lua/types/core/state"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
-
-// errorValueContract is the standard (value, error) return pattern contract
-var errorValueContract = contract.ErrorValueSpec()
 
 // DB Stats record
-var dbStatsType = &types.RecordType{
-	Name: "sql.DBStats",
-	Fields: []types.RecordField{
-		{Name: "max_open_connections", Type: types.Integer},
-		{Name: "open_connections", Type: types.Integer},
-		{Name: "in_use", Type: types.Integer},
-		{Name: "idle", Type: types.Integer},
-		{Name: "wait_count", Type: types.Integer},
-		{Name: "wait_duration", Type: types.String},
-		{Name: "max_idle_closed", Type: types.Integer},
-		{Name: "max_idle_time_closed", Type: types.Integer},
-		{Name: "max_lifetime_closed", Type: types.Integer},
-	},
-}
+var dbStatsType = typ.NewRecord().
+	Field("max_open_connections", typ.Integer).
+	Field("open_connections", typ.Integer).
+	Field("in_use", typ.Integer).
+	Field("idle", typ.Integer).
+	Field("wait_count", typ.Integer).
+	Field("wait_duration", typ.String).
+	Field("max_idle_closed", typ.Integer).
+	Field("max_idle_time_closed", typ.Integer).
+	Field("max_lifetime_closed", typ.Integer).
+	Build()
 
 // Execute result record
-var executeResultType = &types.RecordType{
-	Name: "sql.ExecuteResult",
-	Fields: []types.RecordField{
-		{Name: "rows_affected", Type: types.Integer},
-		{Name: "last_insert_id", Type: types.Integer},
-	},
-}
+var executeResultType = typ.NewRecord().
+	Field("rows_affected", typ.Integer).
+	Field("last_insert_id", typ.Integer).
+	Build()
 
-// State machines for typestate tracking
+// Interface types
 var (
-	dbMachine          *state.StateMachine
-	transactionMachine *state.StateMachine
-	statementMachine   *state.StateMachine
+	sqlDBType       typ.Type
+	transactionType typ.Type
+	statementType   typ.Type
 )
 
-// State type instances for return types
-var (
-	dbOpenState       *state.StateType
-	txActiveState     *state.StateType
-	stmtPreparedState *state.StateType
-)
-
-// runnerType is a union type that accepts either DB<Open> or Transaction<Active>
-// This allows query builders to work with both connections and transactions
-var runnerType types.Type
-
-func init() {
-	// Statement state machine: Prepared -> Closed
-	statementMachine = state.NewMachine("sql.Statement", nil, "Prepared")
-	prepared := statementMachine.AddState("Prepared", false)
-	prepared.AddMethod("query", "Prepared", &types.FunctionType{
-		Params:   []types.Type{types.Self},
-		Variadic: types.Any,
-		Returns:  []types.Type{types.NewArray(types.Any, false), types.Optional(types.LuaError)},
-	})
-	prepared.AddMethod("execute", "Prepared", &types.FunctionType{
-		Params:   []types.Type{types.Self},
-		Variadic: types.Any,
-		Returns:  []types.Type{executeResultType, types.Optional(types.LuaError)},
-	})
-	prepared.AddMethod("close", "Closed", types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean, types.Optional(types.LuaError)}))
-	statementMachine.AddState("Closed", true)
-	stmtPreparedState = statementMachine.InitialState()
-
-	// Transaction state machine: Active -> Committed | RolledBack
-	// Typestate tracking ensures correct method sequencing
-	transactionMachine = state.NewMachine("sql.Transaction", nil, "Active")
-	active := transactionMachine.AddState("Active", false)
-	active.AddMethod("query", "Active", &types.FunctionType{
-		Params:   []types.Type{types.Self, types.String},
-		Variadic: types.Any,
-		Returns:  []types.Type{types.NewArray(types.Any, false), types.Optional(types.LuaError)},
-	})
-	active.AddMethod("execute", "Active", &types.FunctionType{
-		Params:   []types.Type{types.Self, types.String},
-		Variadic: types.Any,
-		Returns:  []types.Type{executeResultType, types.Optional(types.LuaError)},
-	})
-	active.AddMethod("prepare", "Active", types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{stmtPreparedState, types.Optional(types.LuaError)})).
-		WithContract(errorValueContract)
-	active.AddMethod("savepoint", "Active", types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)}))
-	active.AddMethod("rollback_to", "Active", types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)}))
-	active.AddMethod("release", "Active", types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Boolean, types.Optional(types.LuaError)}))
-	active.AddMethod("db_type", "Active", types.NewFunction([]types.Type{types.Self}, []types.Type{types.String, types.Optional(types.LuaError)}))
-	active.AddMethod("commit", "Committed", types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean, types.Optional(types.LuaError)}))
-	active.AddMethod("rollback", "RolledBack", types.NewFunction([]types.Type{types.Self, types.Optional(types.String)}, []types.Type{types.Boolean, types.Optional(types.LuaError)}))
-	transactionMachine.AddState("Committed", true)
-	transactionMachine.AddState("RolledBack", true)
-	txActiveState = transactionMachine.InitialState()
-
-	// DB state machine: Open -> Released
-	dbMachine = state.NewMachine("sql.DB", nil, "Open")
-	open := dbMachine.AddState("Open", false)
-	open.AddMethod("type", "Open", types.NewFunction([]types.Type{types.Self}, []types.Type{types.String, types.Optional(types.LuaError)}))
-	open.AddMethod("query", "Open", &types.FunctionType{
-		Params:   []types.Type{types.Self, types.String},
-		Variadic: types.Any,
-		Returns:  []types.Type{types.NewArray(types.Any, false), types.Optional(types.LuaError)},
-	})
-	open.AddMethod("execute", "Open", &types.FunctionType{
-		Params:   []types.Type{types.Self, types.String},
-		Variadic: types.Any,
-		Returns:  []types.Type{executeResultType, types.Optional(types.LuaError)},
-	})
-	open.AddMethod("prepare", "Open", types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{stmtPreparedState, types.Optional(types.LuaError)})).
-		WithContract(errorValueContract)
-	open.AddMethod("begin", "Open", types.NewFunction([]types.Type{types.Self, types.Optional(types.Any)}, []types.Type{txActiveState, types.Optional(types.LuaError)})).
-		WithContract(errorValueContract)
-	open.AddMethod("release", "Released", types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean, types.Optional(types.LuaError)}))
-	open.AddMethod("stats", "Open", types.NewFunction([]types.Type{types.Self}, []types.Type{dbStatsType, types.Optional(types.LuaError)}))
-	dbMachine.AddState("Released", true)
-	dbOpenState = dbMachine.InitialState()
-
-	// Initialize runnerType as union of DB<Open> and Transaction<Active>
-	runnerType = types.NewUnion(dbOpenState, txActiveState)
-
-	// SelectBuilder methods - returns Self for chaining
-	selectBuilderType.Methods = map[string]*types.FunctionType{
-		"from":               {Params: []types.Type{types.Self, types.String}, Variadic: types.Any, Returns: []types.Type{types.Self}},
-		"join":               {Params: []types.Type{types.Self, types.String}, Variadic: types.Any, Returns: []types.Type{types.Self}},
-		"left_join":          {Params: []types.Type{types.Self, types.String}, Variadic: types.Any, Returns: []types.Type{types.Self}},
-		"right_join":         {Params: []types.Type{types.Self, types.String}, Variadic: types.Any, Returns: []types.Type{types.Self}},
-		"inner_join":         {Params: []types.Type{types.Self, types.String}, Variadic: types.Any, Returns: []types.Type{types.Self}},
-		"where":              {Params: []types.Type{types.Self, types.Any}, Variadic: types.Any, Returns: []types.Type{types.Self}},
-		"order_by":           {Params: []types.Type{types.Self}, Variadic: types.String, Returns: []types.Type{types.Self}},
-		"group_by":           {Params: []types.Type{types.Self}, Variadic: types.String, Returns: []types.Type{types.Self}},
-		"having":             {Params: []types.Type{types.Self, types.Any}, Variadic: types.Any, Returns: []types.Type{types.Self}},
-		"limit":              types.NewFunction([]types.Type{types.Self, types.Number}, []types.Type{types.Self}),
-		"offset":             types.NewFunction([]types.Type{types.Self, types.Number}, []types.Type{types.Self}),
-		"columns":            {Params: []types.Type{types.Self}, Variadic: types.String, Returns: []types.Type{types.Self}},
-		"distinct":           types.NewFunction([]types.Type{types.Self}, []types.Type{types.Self}),
-		"suffix":             {Params: []types.Type{types.Self, types.String}, Variadic: types.Any, Returns: []types.Type{types.Self}},
-		"placeholder_format": types.NewFunction([]types.Type{types.Self, placeholderFormatType}, []types.Type{types.Self}),
-		"to_sql":             types.NewFunction([]types.Type{types.Self}, []types.Type{types.String, types.NewArray(types.Any, false), types.Optional(types.LuaError)}),
-		"run_with":           types.NewFunction([]types.Type{types.Self, runnerType}, []types.Type{queryExecutorType}),
-	}
-
-	// InsertBuilder methods - returns Self for chaining
-	insertBuilderType.Methods = map[string]*types.FunctionType{
-		"into":               types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Self}),
-		"columns":            {Params: []types.Type{types.Self}, Variadic: types.String, Returns: []types.Type{types.Self}},
-		"values":             {Params: []types.Type{types.Self}, Variadic: types.Any, Returns: []types.Type{types.Self}},
-		"set_map":            types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{types.Self}),
-		"select":             types.NewFunction([]types.Type{types.Self, selectBuilderType}, []types.Type{types.Self}),
-		"prefix":             {Params: []types.Type{types.Self, types.String}, Variadic: types.Any, Returns: []types.Type{types.Self}},
-		"suffix":             {Params: []types.Type{types.Self, types.String}, Variadic: types.Any, Returns: []types.Type{types.Self}},
-		"options":            {Params: []types.Type{types.Self}, Variadic: types.String, Returns: []types.Type{types.Self}},
-		"placeholder_format": types.NewFunction([]types.Type{types.Self, placeholderFormatType}, []types.Type{types.Self}),
-		"to_sql":             types.NewFunction([]types.Type{types.Self}, []types.Type{types.String, types.NewArray(types.Any, false), types.Optional(types.LuaError)}),
-		"run_with":           types.NewFunction([]types.Type{types.Self, runnerType}, []types.Type{queryExecutorType}),
-	}
-
-	// UpdateBuilder methods - returns Self for chaining
-	updateBuilderType.Methods = map[string]*types.FunctionType{
-		"table":              types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Self}),
-		"set":                types.NewFunction([]types.Type{types.Self, types.String, types.Any}, []types.Type{types.Self}),
-		"set_map":            types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{types.Self}),
-		"where":              {Params: []types.Type{types.Self, types.Any}, Variadic: types.Any, Returns: []types.Type{types.Self}},
-		"order_by":           {Params: []types.Type{types.Self}, Variadic: types.String, Returns: []types.Type{types.Self}},
-		"limit":              types.NewFunction([]types.Type{types.Self, types.Number}, []types.Type{types.Self}),
-		"offset":             types.NewFunction([]types.Type{types.Self, types.Number}, []types.Type{types.Self}),
-		"from":               types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Self}),
-		"from_select":        types.NewFunction([]types.Type{types.Self, selectBuilderType, types.String}, []types.Type{types.Self}),
-		"suffix":             {Params: []types.Type{types.Self, types.String}, Variadic: types.Any, Returns: []types.Type{types.Self}},
-		"placeholder_format": types.NewFunction([]types.Type{types.Self, placeholderFormatType}, []types.Type{types.Self}),
-		"to_sql":             types.NewFunction([]types.Type{types.Self}, []types.Type{types.String, types.NewArray(types.Any, false), types.Optional(types.LuaError)}),
-		"run_with":           types.NewFunction([]types.Type{types.Self, runnerType}, []types.Type{queryExecutorType}),
-	}
-
-	// DeleteBuilder methods - returns Self for chaining
-	deleteBuilderType.Methods = map[string]*types.FunctionType{
-		"from":               types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Self}),
-		"where":              {Params: []types.Type{types.Self, types.Any}, Variadic: types.Any, Returns: []types.Type{types.Self}},
-		"order_by":           {Params: []types.Type{types.Self}, Variadic: types.String, Returns: []types.Type{types.Self}},
-		"limit":              types.NewFunction([]types.Type{types.Self, types.Number}, []types.Type{types.Self}),
-		"offset":             types.NewFunction([]types.Type{types.Self, types.Number}, []types.Type{types.Self}),
-		"suffix":             {Params: []types.Type{types.Self, types.String}, Variadic: types.Any, Returns: []types.Type{types.Self}},
-		"placeholder_format": types.NewFunction([]types.Type{types.Self, placeholderFormatType}, []types.Type{types.Self}),
-		"to_sql":             types.NewFunction([]types.Type{types.Self}, []types.Type{types.String, types.NewArray(types.Any, false), types.Optional(types.LuaError)}),
-		"run_with":           types.NewFunction([]types.Type{types.Self, runnerType}, []types.Type{queryExecutorType}),
-	}
-}
-
-// Type constants
-var sqlTypeConstType = &types.InterfaceType{
-	Name: "sql.type",
-	Fields: map[string]types.Type{
-		"POSTGRES": types.String,
-		"MYSQL":    types.String,
-		"SQLITE":   types.String,
-		"MSSQL":    types.String,
-		"ORACLE":   types.String,
-		"UNKNOWN":  types.String,
-	},
-}
-
-// Isolation constants
-var isolationConstType = &types.InterfaceType{
-	Name: "sql.isolation",
-	Fields: map[string]types.Type{
-		"DEFAULT":          types.String,
-		"READ_UNCOMMITTED": types.String,
-		"READ_COMMITTED":   types.String,
-		"WRITE_COMMITTED":  types.String,
-		"REPEATABLE_READ":  types.String,
-		"SERIALIZABLE":     types.String,
-	},
-}
+// runnerType is a union type that accepts either DB or Transaction
+var runnerType typ.Type
 
 // Placeholder format type
-var placeholderFormatType = types.Any
+var placeholderFormatType = typ.Any
 
 // Sqlizer type for SQL expression builders
-var sqlizerType = &types.InterfaceType{
-	Name: "sql.Sqlizer",
-	Methods: map[string]*types.FunctionType{
-		"to_sql": types.NewFunction([]types.Type{types.Self}, []types.Type{types.String, types.NewArray(types.Any, false), types.Optional(types.LuaError)}),
-	},
-}
+var sqlizerType = typ.NewInterface("sql.Sqlizer", []typ.Method{
+	{Name: "to_sql", Type: typ.Func().
+		Param("self", typ.Self).
+		Returns(typ.String, typ.NewArray(typ.Any), typ.NewOptional(typ.LuaError)).
+		Build()},
+})
 
 // Query executor returned by builder.run_with
-var queryExecutorType = &types.InterfaceType{
-	Name: "sql.QueryExecutor",
-	Methods: map[string]*types.FunctionType{
-		"query":  types.NewFunction([]types.Type{types.Self}, []types.Type{types.NewArray(types.Any, false), types.Optional(types.LuaError)}),
-		"exec":   types.NewFunction([]types.Type{types.Self}, []types.Type{executeResultType, types.Optional(types.LuaError)}),
-		"to_sql": types.NewFunction([]types.Type{types.Self}, []types.Type{types.String, types.NewArray(types.Any, false), types.Optional(types.LuaError)}),
-	},
+var queryExecutorType = typ.NewInterface("sql.QueryExecutor", []typ.Method{
+	{Name: "query", Type: typ.Func().
+		Param("self", typ.Self).
+		Returns(typ.NewArray(typ.Any), typ.NewOptional(typ.LuaError)).
+		Build()},
+	{Name: "exec", Type: typ.Func().
+		Param("self", typ.Self).
+		Returns(executeResultType, typ.NewOptional(typ.LuaError)).
+		Build()},
+	{Name: "to_sql", Type: typ.Func().
+		Param("self", typ.Self).
+		Returns(typ.String, typ.NewArray(typ.Any), typ.NewOptional(typ.LuaError)).
+		Build()},
+})
+
+// SelectBuilder type
+var selectBuilderType typ.Type
+
+// InsertBuilder type
+var insertBuilderType typ.Type
+
+// UpdateBuilder type
+var updateBuilderType typ.Type
+
+// DeleteBuilder type
+var deleteBuilderType typ.Type
+
+func init() {
+	// Statement interface
+	statementType = typ.NewInterface("sql.Statement", []typ.Method{
+		{Name: "query", Type: typ.Func().
+			Param("self", typ.Self).
+			Variadic(typ.Any).
+			Returns(typ.NewArray(typ.Any), typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "execute", Type: typ.Func().
+			Param("self", typ.Self).
+			Variadic(typ.Any).
+			Returns(executeResultType, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "close", Type: typ.Func().
+			Param("self", typ.Self).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
+			Build()},
+	})
+
+	// Transaction interface
+	transactionType = typ.NewInterface("sql.Transaction", []typ.Method{
+		{Name: "query", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("sql", typ.String).
+			Variadic(typ.Any).
+			Returns(typ.NewArray(typ.Any), typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "execute", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("sql", typ.String).
+			Variadic(typ.Any).
+			Returns(executeResultType, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "prepare", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("sql", typ.String).
+			Returns(statementType, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "savepoint", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("name", typ.String).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "rollback_to", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("name", typ.String).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "release", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("name", typ.String).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "db_type", Type: typ.Func().
+			Param("self", typ.Self).
+			Returns(typ.String, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "commit", Type: typ.Func().
+			Param("self", typ.Self).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "rollback", Type: typ.Func().
+			Param("self", typ.Self).
+			OptParam("name", typ.String).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
+			Build()},
+	})
+
+	// DB interface
+	sqlDBType = typ.NewInterface("sql.DB", []typ.Method{
+		{Name: "type", Type: typ.Func().
+			Param("self", typ.Self).
+			Returns(typ.String, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "query", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("sql", typ.String).
+			Variadic(typ.Any).
+			Returns(typ.NewArray(typ.Any), typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "execute", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("sql", typ.String).
+			Variadic(typ.Any).
+			Returns(executeResultType, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "prepare", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("sql", typ.String).
+			Returns(statementType, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "begin", Type: typ.Func().
+			Param("self", typ.Self).
+			OptParam("opts", typ.Any).
+			Returns(transactionType, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "release", Type: typ.Func().
+			Param("self", typ.Self).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "stats", Type: typ.Func().
+			Param("self", typ.Self).
+			Returns(dbStatsType, typ.NewOptional(typ.LuaError)).
+			Build()},
+	})
+
+	// Initialize runnerType as union of DB and Transaction
+	runnerType = typ.NewUnion(sqlDBType, transactionType)
+
+	// SelectBuilder type methods
+	selectBuilderType = typ.NewInterface("sql.SelectBuilder", []typ.Method{
+		{Name: "from", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("table", typ.String).
+			Variadic(typ.Any).
+			Returns(typ.Self).
+			Build()},
+		{Name: "join", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("table", typ.String).
+			Variadic(typ.Any).
+			Returns(typ.Self).
+			Build()},
+		{Name: "left_join", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("table", typ.String).
+			Variadic(typ.Any).
+			Returns(typ.Self).
+			Build()},
+		{Name: "right_join", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("table", typ.String).
+			Variadic(typ.Any).
+			Returns(typ.Self).
+			Build()},
+		{Name: "inner_join", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("table", typ.String).
+			Variadic(typ.Any).
+			Returns(typ.Self).
+			Build()},
+		{Name: "where", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("condition", typ.Any).
+			Variadic(typ.Any).
+			Returns(typ.Self).
+			Build()},
+		{Name: "order_by", Type: typ.Func().
+			Param("self", typ.Self).
+			Variadic(typ.String).
+			Returns(typ.Self).
+			Build()},
+		{Name: "group_by", Type: typ.Func().
+			Param("self", typ.Self).
+			Variadic(typ.String).
+			Returns(typ.Self).
+			Build()},
+		{Name: "having", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("condition", typ.Any).
+			Variadic(typ.Any).
+			Returns(typ.Self).
+			Build()},
+		{Name: "limit", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("count", typ.Number).
+			Returns(typ.Self).
+			Build()},
+		{Name: "offset", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("offset", typ.Number).
+			Returns(typ.Self).
+			Build()},
+		{Name: "columns", Type: typ.Func().
+			Param("self", typ.Self).
+			Variadic(typ.String).
+			Returns(typ.Self).
+			Build()},
+		{Name: "distinct", Type: typ.Func().
+			Param("self", typ.Self).
+			Returns(typ.Self).
+			Build()},
+		{Name: "suffix", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("sql", typ.String).
+			Variadic(typ.Any).
+			Returns(typ.Self).
+			Build()},
+		{Name: "placeholder_format", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("format", placeholderFormatType).
+			Returns(typ.Self).
+			Build()},
+		{Name: "to_sql", Type: typ.Func().
+			Param("self", typ.Self).
+			Returns(typ.String, typ.NewArray(typ.Any), typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "run_with", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("runner", runnerType).
+			Returns(queryExecutorType).
+			Build()},
+	})
+
+	// InsertBuilder type methods
+	insertBuilderType = typ.NewInterface("sql.InsertBuilder", []typ.Method{
+		{Name: "into", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("table", typ.String).
+			Returns(typ.Self).
+			Build()},
+		{Name: "columns", Type: typ.Func().
+			Param("self", typ.Self).
+			Variadic(typ.String).
+			Returns(typ.Self).
+			Build()},
+		{Name: "values", Type: typ.Func().
+			Param("self", typ.Self).
+			Variadic(typ.Any).
+			Returns(typ.Self).
+			Build()},
+		{Name: "set_map", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("map", typ.Any).
+			Returns(typ.Self).
+			Build()},
+		{Name: "select", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("builder", selectBuilderType).
+			Returns(typ.Self).
+			Build()},
+		{Name: "prefix", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("sql", typ.String).
+			Variadic(typ.Any).
+			Returns(typ.Self).
+			Build()},
+		{Name: "suffix", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("sql", typ.String).
+			Variadic(typ.Any).
+			Returns(typ.Self).
+			Build()},
+		{Name: "options", Type: typ.Func().
+			Param("self", typ.Self).
+			Variadic(typ.String).
+			Returns(typ.Self).
+			Build()},
+		{Name: "placeholder_format", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("format", placeholderFormatType).
+			Returns(typ.Self).
+			Build()},
+		{Name: "to_sql", Type: typ.Func().
+			Param("self", typ.Self).
+			Returns(typ.String, typ.NewArray(typ.Any), typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "run_with", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("runner", runnerType).
+			Returns(queryExecutorType).
+			Build()},
+	})
+
+	// UpdateBuilder type methods
+	updateBuilderType = typ.NewInterface("sql.UpdateBuilder", []typ.Method{
+		{Name: "table", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("table", typ.String).
+			Returns(typ.Self).
+			Build()},
+		{Name: "set", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("column", typ.String).
+			Param("value", typ.Any).
+			Returns(typ.Self).
+			Build()},
+		{Name: "set_map", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("map", typ.Any).
+			Returns(typ.Self).
+			Build()},
+		{Name: "where", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("condition", typ.Any).
+			Variadic(typ.Any).
+			Returns(typ.Self).
+			Build()},
+		{Name: "order_by", Type: typ.Func().
+			Param("self", typ.Self).
+			Variadic(typ.String).
+			Returns(typ.Self).
+			Build()},
+		{Name: "limit", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("count", typ.Number).
+			Returns(typ.Self).
+			Build()},
+		{Name: "offset", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("offset", typ.Number).
+			Returns(typ.Self).
+			Build()},
+		{Name: "from", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("table", typ.String).
+			Returns(typ.Self).
+			Build()},
+		{Name: "from_select", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("builder", selectBuilderType).
+			Param("alias", typ.String).
+			Returns(typ.Self).
+			Build()},
+		{Name: "suffix", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("sql", typ.String).
+			Variadic(typ.Any).
+			Returns(typ.Self).
+			Build()},
+		{Name: "placeholder_format", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("format", placeholderFormatType).
+			Returns(typ.Self).
+			Build()},
+		{Name: "to_sql", Type: typ.Func().
+			Param("self", typ.Self).
+			Returns(typ.String, typ.NewArray(typ.Any), typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "run_with", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("runner", runnerType).
+			Returns(queryExecutorType).
+			Build()},
+	})
+
+	// DeleteBuilder type methods
+	deleteBuilderType = typ.NewInterface("sql.DeleteBuilder", []typ.Method{
+		{Name: "from", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("table", typ.String).
+			Returns(typ.Self).
+			Build()},
+		{Name: "where", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("condition", typ.Any).
+			Variadic(typ.Any).
+			Returns(typ.Self).
+			Build()},
+		{Name: "order_by", Type: typ.Func().
+			Param("self", typ.Self).
+			Variadic(typ.String).
+			Returns(typ.Self).
+			Build()},
+		{Name: "limit", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("count", typ.Number).
+			Returns(typ.Self).
+			Build()},
+		{Name: "offset", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("offset", typ.Number).
+			Returns(typ.Self).
+			Build()},
+		{Name: "suffix", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("sql", typ.String).
+			Variadic(typ.Any).
+			Returns(typ.Self).
+			Build()},
+		{Name: "placeholder_format", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("format", placeholderFormatType).
+			Returns(typ.Self).
+			Build()},
+		{Name: "to_sql", Type: typ.Func().
+			Param("self", typ.Self).
+			Returns(typ.String, typ.NewArray(typ.Any), typ.NewOptional(typ.LuaError)).
+			Build()},
+		{Name: "run_with", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("runner", runnerType).
+			Returns(queryExecutorType).
+			Build()},
+	})
+
+	// Builder submodule type (must be after builder types are initialized)
+	builderType = typ.NewInterface("sql.builder", []typ.Method{
+		{Name: "select", Type: typ.Func().
+			Variadic(typ.String).
+			Returns(selectBuilderType).
+			Build()},
+		{Name: "insert", Type: typ.Func().
+			OptParam("table", typ.String).
+			Returns(insertBuilderType).
+			Build()},
+		{Name: "update", Type: typ.Func().
+			OptParam("table", typ.String).
+			Returns(updateBuilderType).
+			Build()},
+		{Name: "delete", Type: typ.Func().
+			OptParam("table", typ.String).
+			Returns(deleteBuilderType).
+			Build()},
+		{Name: "expr", Type: typ.Func().
+			Param("expr", typ.String).
+			Variadic(typ.Any).
+			Returns(sqlizerType).
+			Build()},
+		{Name: "eq", Type: typ.Func().
+			Param("column", typ.String).
+			Param("value", typ.Any).
+			Returns(sqlizerType).
+			Build()},
+		{Name: "not_eq", Type: typ.Func().
+			Param("column", typ.String).
+			Param("value", typ.Any).
+			Returns(sqlizerType).
+			Build()},
+		{Name: "lt", Type: typ.Func().
+			Param("column", typ.String).
+			Param("value", typ.Any).
+			Returns(sqlizerType).
+			Build()},
+		{Name: "lte", Type: typ.Func().
+			Param("column", typ.String).
+			Param("value", typ.Any).
+			Returns(sqlizerType).
+			Build()},
+		{Name: "gt", Type: typ.Func().
+			Param("column", typ.String).
+			Param("value", typ.Any).
+			Returns(sqlizerType).
+			Build()},
+		{Name: "gte", Type: typ.Func().
+			Param("column", typ.String).
+			Param("value", typ.Any).
+			Returns(sqlizerType).
+			Build()},
+		{Name: "like", Type: typ.Func().
+			Param("column", typ.String).
+			Param("value", typ.Any).
+			Returns(sqlizerType).
+			Build()},
+		{Name: "not_like", Type: typ.Func().
+			Param("column", typ.String).
+			Param("value", typ.Any).
+			Returns(sqlizerType).
+			Build()},
+		{Name: "and_", Type: typ.Func().
+			Variadic(sqlizerType).
+			Returns(sqlizerType).
+			Build()},
+		{Name: "or_", Type: typ.Func().
+			Variadic(sqlizerType).
+			Returns(sqlizerType).
+			Build()},
+	})
 }
 
-// SelectBuilder type - forward declaration, methods set in init
-var selectBuilderType = &types.InterfaceType{
-	Name:    "sql.SelectBuilder",
-	Methods: map[string]*types.FunctionType{},
-}
+// Type constants - use Record for field-only types
+var sqlTypeConstType = typ.NewRecord().
+	Field("POSTGRES", typ.String).
+	Field("MYSQL", typ.String).
+	Field("SQLITE", typ.String).
+	Field("MSSQL", typ.String).
+	Field("ORACLE", typ.String).
+	Field("UNKNOWN", typ.String).
+	Build()
 
-// InsertBuilder type - forward declaration, methods set in init
-var insertBuilderType = &types.InterfaceType{
-	Name:    "sql.InsertBuilder",
-	Methods: map[string]*types.FunctionType{},
-}
-
-// UpdateBuilder type - forward declaration, methods set in init
-var updateBuilderType = &types.InterfaceType{
-	Name:    "sql.UpdateBuilder",
-	Methods: map[string]*types.FunctionType{},
-}
-
-// DeleteBuilder type - forward declaration, methods set in init
-var deleteBuilderType = &types.InterfaceType{
-	Name:    "sql.DeleteBuilder",
-	Methods: map[string]*types.FunctionType{},
-}
+// Isolation constants
+var isolationConstType = typ.NewRecord().
+	Field("DEFAULT", typ.String).
+	Field("READ_UNCOMMITTED", typ.String).
+	Field("READ_COMMITTED", typ.String).
+	Field("WRITE_COMMITTED", typ.String).
+	Field("REPEATABLE_READ", typ.String).
+	Field("SERIALIZABLE", typ.String).
+	Build()
 
 // Type casting submodule for explicit type hints
-var asType = &types.InterfaceType{
-	Name: "sql.as",
-	Methods: map[string]*types.FunctionType{
-		"int":    types.NewFunction([]types.Type{types.Any}, []types.Type{types.Any}),
-		"float":  types.NewFunction([]types.Type{types.Any}, []types.Type{types.Any}),
-		"string": types.NewFunction([]types.Type{types.Any}, []types.Type{types.Any}),
-		"bool":   types.NewFunction([]types.Type{types.Any}, []types.Type{types.Any}),
-		"null":   types.NewFunction([]types.Type{}, []types.Type{types.Any}),
-		"json":   types.NewFunction([]types.Type{types.Any}, []types.Type{types.Any}),
-	},
-}
+var asType = typ.NewInterface("sql.as", []typ.Method{
+	{Name: "int", Type: typ.Func().
+		Param("value", typ.Any).
+		Returns(typ.Any).
+		Build()},
+	{Name: "float", Type: typ.Func().
+		Param("value", typ.Any).
+		Returns(typ.Any).
+		Build()},
+	{Name: "string", Type: typ.Func().
+		Param("value", typ.Any).
+		Returns(typ.Any).
+		Build()},
+	{Name: "bool", Type: typ.Func().
+		Param("value", typ.Any).
+		Returns(typ.Any).
+		Build()},
+	{Name: "null", Type: typ.Func().
+		Returns(typ.Any).
+		Build()},
+	{Name: "json", Type: typ.Func().
+		Param("value", typ.Any).
+		Returns(typ.Any).
+		Build()},
+})
 
 // Builder submodule type
-var builderType = &types.InterfaceType{
-	Name: "sql.builder",
-	Fields: map[string]types.Type{
-		"question":            placeholderFormatType,
-		"dollar":              placeholderFormatType,
-		"at":                  placeholderFormatType,
-		"colon":               placeholderFormatType,
-		"default_placeholder": placeholderFormatType,
-	},
-	Methods: map[string]*types.FunctionType{
-		"select":   {Params: nil, Variadic: types.String, Returns: []types.Type{selectBuilderType}},
-		"insert":   types.NewFunction([]types.Type{types.Optional(types.String)}, []types.Type{insertBuilderType}),
-		"update":   types.NewFunction([]types.Type{types.Optional(types.String)}, []types.Type{updateBuilderType}),
-		"delete":   types.NewFunction([]types.Type{types.Optional(types.String)}, []types.Type{deleteBuilderType}),
-		"expr":     {Params: []types.Type{types.String}, Variadic: types.Any, Returns: []types.Type{sqlizerType}},
-		"eq":       types.NewFunction([]types.Type{types.String, types.Any}, []types.Type{sqlizerType}),
-		"not_eq":   types.NewFunction([]types.Type{types.String, types.Any}, []types.Type{sqlizerType}),
-		"lt":       types.NewFunction([]types.Type{types.String, types.Any}, []types.Type{sqlizerType}),
-		"lte":      types.NewFunction([]types.Type{types.String, types.Any}, []types.Type{sqlizerType}),
-		"gt":       types.NewFunction([]types.Type{types.String, types.Any}, []types.Type{sqlizerType}),
-		"gte":      types.NewFunction([]types.Type{types.String, types.Any}, []types.Type{sqlizerType}),
-		"like":     types.NewFunction([]types.Type{types.String, types.Any}, []types.Type{sqlizerType}),
-		"not_like": types.NewFunction([]types.Type{types.String, types.Any}, []types.Type{sqlizerType}),
-		"and_":     {Params: nil, Variadic: sqlizerType, Returns: []types.Type{sqlizerType}},
-		"or_":      {Params: nil, Variadic: sqlizerType, Returns: []types.Type{sqlizerType}},
-	},
-}
+var builderType typ.Type
+
+// Builder fields for placeholder formats
+var builderFieldsType = typ.NewRecord().
+	Field("question", placeholderFormatType).
+	Field("dollar", placeholderFormatType).
+	Field("at", placeholderFormatType).
+	Field("colon", placeholderFormatType).
+	Field("default_placeholder", placeholderFormatType).
+	Build()
 
 // ModuleTypes returns the type manifest for the sql module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("sql")
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("sql")
 
-	m.DefineType("DB", dbOpenState)
-	m.DefineType("Statement", stmtPreparedState)
-	m.DefineType("Transaction", txActiveState)
+	m.DefineType("DB", sqlDBType)
+	m.DefineType("Statement", statementType)
+	m.DefineType("Transaction", transactionType)
 	m.DefineType("DBStats", dbStatsType)
 	m.DefineType("ExecuteResult", executeResultType)
 	m.DefineType("Sqlizer", sqlizerType)
@@ -318,24 +608,23 @@ func ModuleTypes() *types.TypeManifest {
 	m.DefineType("UpdateBuilder", updateBuilderType)
 	m.DefineType("DeleteBuilder", deleteBuilderType)
 
-	moduleType := &types.InterfaceType{
-		Name: "sql",
-		Fields: map[string]types.Type{
-			"NULL":      types.Any,
-			"type":      sqlTypeConstType,
-			"isolation": isolationConstType,
-			"builder":   builderType,
-			"as":        asType,
-		},
-		Methods: map[string]*types.FunctionType{
-			"get": {
-				Params:  []types.Type{types.String},
-				Returns: []types.Type{dbOpenState, types.Optional(types.LuaError)},
-				Refine:  contract.ErrorValueSpec(),
-			},
-		},
-	}
+	// Module methods
+	moduleMethodsType := typ.NewInterface("sql", []typ.Method{
+		{Name: "get", Type: typ.Func().
+			Param("dsn", typ.String).
+			Returns(sqlDBType, typ.NewOptional(typ.LuaError)).
+			Build()},
+	})
 
-	m.SetExport(moduleType)
+	// Module fields (constants and submodules)
+	moduleFieldsType := typ.NewRecord().
+		Field("NULL", typ.Any).
+		Field("type", sqlTypeConstType).
+		Field("isolation", isolationConstType).
+		Field("builder", typ.NewIntersection(builderType, builderFieldsType)).
+		Field("as", asType).
+		Build()
+
+	m.SetExport(typ.NewIntersection(moduleMethodsType, moduleFieldsType))
 	return m
 }

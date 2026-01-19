@@ -38,6 +38,7 @@ type OpenCmd struct {
 
 var openCmdPool = sync.Pool{New: func() any { return &OpenCmd{} }}
 
+// AcquireOpenCmd returns a pooled OpenCmd.
 func AcquireOpenCmd() *OpenCmd                 { return openCmdPool.Get().(*OpenCmd) }
 func (c *OpenCmd) CmdID() dispatcher.CommandID { return Open }
 func (c *OpenCmd) Release() {
@@ -66,6 +67,7 @@ type CallCmd struct {
 
 var callCmdPool = sync.Pool{New: func() any { return &CallCmd{} }}
 
+// AcquireCallCmd returns a pooled CallCmd.
 func AcquireCallCmd() *CallCmd                 { return callCmdPool.Get().(*CallCmd) }
 func (c *CallCmd) CmdID() dispatcher.CommandID { return Call }
 func (c *CallCmd) Release() {
@@ -91,6 +93,7 @@ type AsyncCallCmd struct {
 
 var asyncCallCmdPool = sync.Pool{New: func() any { return &AsyncCallCmd{} }}
 
+// AcquireAsyncCallCmd returns a pooled AsyncCallCmd.
 func AcquireAsyncCallCmd() *AsyncCallCmd            { return asyncCallCmdPool.Get().(*AsyncCallCmd) }
 func (c *AsyncCallCmd) CmdID() dispatcher.CommandID { return AsyncCall }
 func (c *AsyncCallCmd) Release() {
@@ -113,6 +116,7 @@ type AsyncCancelCmd struct {
 
 var asyncCancelCmdPool = sync.Pool{New: func() any { return &AsyncCancelCmd{} }}
 
+// AcquireAsyncCancelCmd returns a pooled AsyncCancelCmd.
 func AcquireAsyncCancelCmd() *AsyncCancelCmd          { return asyncCancelCmdPool.Get().(*AsyncCancelCmd) }
 func (c *AsyncCancelCmd) CmdID() dispatcher.CommandID { return AsyncCancel }
 func (c *AsyncCancelCmd) Release() {

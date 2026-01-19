@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -466,13 +467,25 @@ func TestManager_UnsupportedKind(t *testing.T) {
 
 	err := m.Add(ctx, entry)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unknown.kind")
+	var apiErr apierror.Error
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, apierror.Invalid, apiErr.Kind())
+	assert.Equal(t, "unsupported entry kind", apiErr.Error())
+	assert.Equal(t, "unknown.kind", apiErr.Details().GetString("kind", ""))
 
 	err = m.Update(ctx, entry)
 	require.Error(t, err)
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, apierror.Invalid, apiErr.Kind())
+	assert.Equal(t, "unsupported entry kind", apiErr.Error())
+	assert.Equal(t, "unknown.kind", apiErr.Details().GetString("kind", ""))
 
 	err = m.Delete(ctx, entry)
 	require.Error(t, err)
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, apierror.Invalid, apiErr.Kind())
+	assert.Equal(t, "unsupported entry kind", apiErr.Error())
+	assert.Equal(t, "unknown.kind", apiErr.Details().GetString("kind", ""))
 }
 
 func TestManager_Acquire(t *testing.T) {

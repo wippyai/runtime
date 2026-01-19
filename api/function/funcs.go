@@ -13,10 +13,10 @@ const System event.System = "function"
 
 // Event kinds for function operations.
 const (
-	Register event.Kind = "function.register"
-	Delete   event.Kind = "function.delete"
-	Accept   event.Kind = "function.accept"
-	Reject   event.Kind = "function.reject"
+	FunctionRegister event.Kind = "function.register"
+	FunctionDelete   event.Kind = "function.delete"
+	FunctionAccept   event.Kind = "function.accept"
+	FunctionReject   event.Kind = "function.reject"
 )
 
 type (

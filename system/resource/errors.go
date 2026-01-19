@@ -13,11 +13,8 @@ var (
 
 // NewSubscriberError creates an error for subscriber creation failure.
 func NewSubscriberError(err error) apierror.Error {
-	return apierror.E(
-		apierror.Internal,
-		"failed to create subscriber: "+err.Error(),
-		apierror.True,
-		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
-		err,
-	)
+	return apierror.New(apierror.Internal, "failed to create subscriber").
+		WithRetryable(apierror.True).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
+		WithCause(err)
 }

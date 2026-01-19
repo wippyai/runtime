@@ -17,7 +17,7 @@ func (b *StateBuilder) SortChangeSet(fromState registry.State, changeSet registr
 	createUpdateOps := make([]registry.Operation, 0, len(changeSet))
 
 	for _, operation := range changeSet {
-		if operation.Kind == registry.Delete {
+		if operation.Kind == registry.EntryDelete {
 			deleteOps = append(deleteOps, operation)
 		} else {
 			createUpdateOps = append(createUpdateOps, operation)

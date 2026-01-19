@@ -25,10 +25,10 @@ func TestEventConstants(t *testing.T) {
 		kind     event.Kind
 		expected string
 	}{
-		{"register", Register, "function.register"},
-		{"delete", Delete, "function.delete"},
-		{"accept", Accept, "function.accept"},
-		{"reject", Reject, "function.reject"},
+		{"register", FunctionRegister, "function.register"},
+		{"delete", FunctionDelete, "function.delete"},
+		{"accept", FunctionAccept, "function.accept"},
+		{"reject", FunctionReject, "function.reject"},
 	}
 
 	for _, tt := range tests {

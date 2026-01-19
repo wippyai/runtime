@@ -1,122 +1,96 @@
 package crypto
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
 // Submodule types for crypto
-var randomType = &types.InterfaceType{
-	Name: "crypto.random",
-	Methods: map[string]*types.FunctionType{
-		// random.bytes(length: integer): string, Error?
-		"bytes": types.NewFunction(
-			[]types.Type{types.Number},
-			[]types.Type{types.String, types.Optional(types.LuaError)},
-		),
-		// random.string(length: integer, charset?: string): string, Error?
-		"string": types.NewFunction(
-			[]types.Type{types.Number, types.Optional(types.String)},
-			[]types.Type{types.String, types.Optional(types.LuaError)},
-		),
-		// random.uuid(): string, Error?
-		"uuid": types.NewFunction(
-			nil,
-			[]types.Type{types.String, types.Optional(types.LuaError)},
-		),
+var randomType = typ.NewInterface("crypto.random", []typ.Method{
+	{
+		Name: "bytes",
+		Type: typ.Func().Param("length", typ.Number).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build(),
 	},
-}
+	{
+		Name: "string",
+		Type: typ.Func().Param("length", typ.Number).OptParam("charset", typ.String).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build(),
+	},
+	{
+		Name: "uuid",
+		Type: typ.Func().Returns(typ.String, typ.NewOptional(typ.LuaError)).Build(),
+	},
+})
 
-var hmacType = &types.InterfaceType{
-	Name: "crypto.hmac",
-	Methods: map[string]*types.FunctionType{
-		// hmac.sha256(key: string, data: string): string, Error?
-		"sha256": types.NewFunction(
-			[]types.Type{types.String, types.String},
-			[]types.Type{types.String, types.Optional(types.LuaError)},
-		),
-		// hmac.sha512(key: string, data: string): string, Error?
-		"sha512": types.NewFunction(
-			[]types.Type{types.String, types.String},
-			[]types.Type{types.String, types.Optional(types.LuaError)},
-		),
+var hmacType = typ.NewInterface("crypto.hmac", []typ.Method{
+	{
+		Name: "sha256",
+		Type: typ.Func().Param("key", typ.String).Param("data", typ.String).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build(),
 	},
-}
+	{
+		Name: "sha512",
+		Type: typ.Func().Param("key", typ.String).Param("data", typ.String).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build(),
+	},
+})
 
-var encryptType = &types.InterfaceType{
-	Name: "crypto.encrypt",
-	Methods: map[string]*types.FunctionType{
-		// encrypt.aes(data: string, key: string, aad?: string): string, Error?
-		"aes": types.NewFunction(
-			[]types.Type{types.String, types.String, types.Optional(types.String)},
-			[]types.Type{types.String, types.Optional(types.LuaError)},
-		),
-		// encrypt.chacha20(data: string, key: string, aad?: string): string, Error?
-		"chacha20": types.NewFunction(
-			[]types.Type{types.String, types.String, types.Optional(types.String)},
-			[]types.Type{types.String, types.Optional(types.LuaError)},
-		),
+var encryptType = typ.NewInterface("crypto.encrypt", []typ.Method{
+	{
+		Name: "aes",
+		Type: typ.Func().Param("data", typ.String).Param("key", typ.String).OptParam("aad", typ.String).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build(),
 	},
-}
+	{
+		Name: "chacha20",
+		Type: typ.Func().Param("data", typ.String).Param("key", typ.String).OptParam("aad", typ.String).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build(),
+	},
+})
 
-var decryptType = &types.InterfaceType{
-	Name: "crypto.decrypt",
-	Methods: map[string]*types.FunctionType{
-		// decrypt.aes(data: string, key: string, aad?: string): string, Error?
-		"aes": types.NewFunction(
-			[]types.Type{types.String, types.String, types.Optional(types.String)},
-			[]types.Type{types.String, types.Optional(types.LuaError)},
-		),
-		// decrypt.chacha20(data: string, key: string, aad?: string): string, Error?
-		"chacha20": types.NewFunction(
-			[]types.Type{types.String, types.String, types.Optional(types.String)},
-			[]types.Type{types.String, types.Optional(types.LuaError)},
-		),
+var decryptType = typ.NewInterface("crypto.decrypt", []typ.Method{
+	{
+		Name: "aes",
+		Type: typ.Func().Param("data", typ.String).Param("key", typ.String).OptParam("aad", typ.String).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build(),
 	},
-}
+	{
+		Name: "chacha20",
+		Type: typ.Func().Param("data", typ.String).Param("key", typ.String).OptParam("aad", typ.String).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build(),
+	},
+})
 
-var jwtType = &types.InterfaceType{
-	Name: "crypto.jwt",
-	Methods: map[string]*types.FunctionType{
-		// jwt.encode(payload: table, key: string, alg?: string): string, Error?
-		"encode": types.NewFunction(
-			[]types.Type{types.Any, types.String, types.Optional(types.String)},
-			[]types.Type{types.String, types.Optional(types.LuaError)},
-		),
-		// jwt.verify(token: string, key: string, alg?: string, require_exp?: boolean): table, Error?
-		"verify": types.NewFunction(
-			[]types.Type{types.String, types.String, types.Optional(types.String), types.Optional(types.Boolean)},
-			[]types.Type{types.Any, types.Optional(types.LuaError)},
-		),
+var jwtType = typ.NewInterface("crypto.jwt", []typ.Method{
+	{
+		Name: "encode",
+		Type: typ.Func().Param("payload", typ.Any).Param("key", typ.String).OptParam("alg", typ.String).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build(),
 	},
-}
+	{
+		Name: "verify",
+		Type: typ.Func().Param("token", typ.String).Param("key", typ.String).OptParam("alg", typ.String).OptParam("require_exp", typ.Boolean).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build(),
+	},
+})
+
+// cryptoModuleType combines methods and submodule fields
+var cryptoModuleMethods = typ.NewInterface("crypto", []typ.Method{
+	{
+		Name: "pbkdf2",
+		Type: typ.Func().Param("password", typ.String).Param("salt", typ.String).Param("iterations", typ.Number).Param("key_length", typ.Number).OptParam("hash", typ.String).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build(),
+	},
+	{
+		Name: "constant_time_compare",
+		Type: typ.Func().Param("a", typ.String).Param("b", typ.String).Returns(typ.Boolean).Build(),
+	},
+})
 
 // ModuleTypes returns the type manifest for the crypto module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("crypto")
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("crypto")
 
-	moduleType := &types.InterfaceType{
-		Name: "crypto",
-		Fields: map[string]types.Type{
-			"random":  randomType,
-			"hmac":    hmacType,
-			"encrypt": encryptType,
-			"decrypt": decryptType,
-			"jwt":     jwtType,
-		},
-		Methods: map[string]*types.FunctionType{
-			// crypto.pbkdf2(password: string, salt: string, iterations: integer, key_length: integer, hash?: string): string, Error?
-			"pbkdf2": types.NewFunction(
-				[]types.Type{types.String, types.String, types.Number, types.Number, types.Optional(types.String)},
-				[]types.Type{types.String, types.Optional(types.LuaError)},
-			),
-			// crypto.constant_time_compare(a: string, b: string): boolean
-			"constant_time_compare": types.NewFunction(
-				[]types.Type{types.String, types.String},
-				[]types.Type{types.Boolean},
-			),
-		},
-	}
+	// Export record with submodules as fields
+	moduleType := typ.NewRecord().
+		Field("random", randomType).
+		Field("hmac", hmacType).
+		Field("encrypt", encryptType).
+		Field("decrypt", decryptType).
+		Field("jwt", jwtType).
+		Build()
 
-	m.SetExport(moduleType)
+	// Use intersection of methods and fields
+	m.SetExport(typ.NewIntersection(cryptoModuleMethods, moduleType))
 	return m
 }

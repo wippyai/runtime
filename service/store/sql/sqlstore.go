@@ -88,6 +88,9 @@ func NewStore(id registry.ID, config *sqlstore.Config, log *zap.Logger) *Store {
 	if config == nil {
 		config = &sqlstore.Config{}
 	}
+	if log == nil {
+		log = zap.NewNop()
+	}
 
 	return &Store{
 		id:       id,

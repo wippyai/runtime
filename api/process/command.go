@@ -42,6 +42,7 @@ type SendCmd struct {
 
 var sendCmdPool = sync.Pool{New: func() any { return &SendCmd{} }}
 
+// AcquireSendCmd returns a pooled SendCmd.
 func AcquireSendCmd() *SendCmd                 { return sendCmdPool.Get().(*SendCmd) }
 func (c *SendCmd) CmdID() dispatcher.CommandID { return Send }
 func (c *SendCmd) Release() {
@@ -66,6 +67,7 @@ type SpawnCmd struct {
 
 var spawnCmdPool = sync.Pool{New: func() any { return &SpawnCmd{} }}
 
+// AcquireSpawnCmd returns a pooled SpawnCmd.
 func AcquireSpawnCmd() *SpawnCmd                { return spawnCmdPool.Get().(*SpawnCmd) }
 func (c *SpawnCmd) CmdID() dispatcher.CommandID { return Spawn }
 func (c *SpawnCmd) Release() {
@@ -88,6 +90,7 @@ type TerminateCmd struct {
 
 var terminateCmdPool = sync.Pool{New: func() any { return &TerminateCmd{} }}
 
+// AcquireTerminateCmd returns a pooled TerminateCmd.
 func AcquireTerminateCmd() *TerminateCmd            { return terminateCmdPool.Get().(*TerminateCmd) }
 func (c *TerminateCmd) CmdID() dispatcher.CommandID { return Terminate }
 func (c *TerminateCmd) Release() {
@@ -104,6 +107,7 @@ type CancelCmd struct {
 
 var cancelCmdPool = sync.Pool{New: func() any { return &CancelCmd{} }}
 
+// AcquireCancelCmd returns a pooled CancelCmd.
 func AcquireCancelCmd() *CancelCmd               { return cancelCmdPool.Get().(*CancelCmd) }
 func (c *CancelCmd) CmdID() dispatcher.CommandID { return Cancel }
 func (c *CancelCmd) Release() {
@@ -121,6 +125,7 @@ type MonitorCmd struct {
 
 var monitorCmdPool = sync.Pool{New: func() any { return &MonitorCmd{} }}
 
+// AcquireMonitorCmd returns a pooled MonitorCmd.
 func AcquireMonitorCmd() *MonitorCmd              { return monitorCmdPool.Get().(*MonitorCmd) }
 func (c *MonitorCmd) CmdID() dispatcher.CommandID { return Monitor }
 func (c *MonitorCmd) Release() {
@@ -137,6 +142,7 @@ type UnmonitorCmd struct {
 
 var unmonitorCmdPool = sync.Pool{New: func() any { return &UnmonitorCmd{} }}
 
+// AcquireUnmonitorCmd returns a pooled UnmonitorCmd.
 func AcquireUnmonitorCmd() *UnmonitorCmd            { return unmonitorCmdPool.Get().(*UnmonitorCmd) }
 func (c *UnmonitorCmd) CmdID() dispatcher.CommandID { return Unmonitor }
 func (c *UnmonitorCmd) Release() {
@@ -153,6 +159,7 @@ type LinkCmd struct {
 
 var linkCmdPool = sync.Pool{New: func() any { return &LinkCmd{} }}
 
+// AcquireLinkCmd returns a pooled LinkCmd.
 func AcquireLinkCmd() *LinkCmd                 { return linkCmdPool.Get().(*LinkCmd) }
 func (c *LinkCmd) CmdID() dispatcher.CommandID { return Link }
 func (c *LinkCmd) Release() {
@@ -169,6 +176,7 @@ type UnlinkCmd struct {
 
 var unlinkCmdPool = sync.Pool{New: func() any { return &UnlinkCmd{} }}
 
+// AcquireUnlinkCmd returns a pooled UnlinkCmd.
 func AcquireUnlinkCmd() *UnlinkCmd               { return unlinkCmdPool.Get().(*UnlinkCmd) }
 func (c *UnlinkCmd) CmdID() dispatcher.CommandID { return Unlink }
 func (c *UnlinkCmd) Release() {
@@ -186,6 +194,7 @@ type RunCmd struct {
 
 var runCmdPool = sync.Pool{New: func() any { return &RunCmd{} }}
 
+// AcquireRunCmd returns a pooled RunCmd.
 func AcquireRunCmd() *RunCmd                  { return runCmdPool.Get().(*RunCmd) }
 func (c *RunCmd) CmdID() dispatcher.CommandID { return Run }
 func (c *RunCmd) Release() {

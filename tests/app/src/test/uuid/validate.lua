@@ -30,15 +30,15 @@ local function main()
 
     -- Test non-string input (use any to test runtime validation)
     local num_input: any = 123
-    local invalid5 = uuid.validate(num_input)
+    local invalid5 = uuid.validate(num_input :: string)
     assert.eq(invalid5, false, "number input")
 
     local nil_input: any = nil
-    local invalid6 = uuid.validate(nil_input)
+    local invalid6 = uuid.validate(nil_input :: string)
     assert.eq(invalid6, false, "nil input")
 
     local table_input: any = {}
-    local invalid7 = uuid.validate(table_input)
+    local invalid7 = uuid.validate(table_input :: string)
     assert.eq(invalid7, false, "table input")
 
     return true

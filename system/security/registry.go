@@ -26,6 +26,9 @@ type PolicyRegistry struct {
 
 // NewPolicyRegistry creates a new policy registry with the given event bus and logger
 func NewPolicyRegistry(bus event.Bus, logger *zap.Logger) *PolicyRegistry {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &PolicyRegistry{
 		bus:      bus,
 		logger:   logger,
@@ -55,6 +58,7 @@ func (r *PolicyRegistry) Start(ctx context.Context) error {
 func (r *PolicyRegistry) Stop() error {
 	if r.subscriber != nil {
 		r.subscriber.Close()
+		r.subscriber = nil
 	}
 	return nil
 }

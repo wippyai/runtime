@@ -3,6 +3,7 @@ package eventbus
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"math/big"
 	"sync"
@@ -681,8 +682,8 @@ func TestConcurrentBusClosing(t *testing.T) {
 			ch := make(chan event.Event, 10)
 			subID, err := b.Subscribe(context.Background(), fmt.Sprintf("system-%d", id), ch)
 			if err != nil {
-				// Either got "bus is closed" error or succeeded
-				if err.Error() != "bus is closed" {
+				// Either got "bus is closed" error or succeeded.
+				if !errors.Is(err, ErrBusClosed) {
 					t.Errorf("unexpected error on subscribe: %v", err)
 				}
 				return
@@ -843,7 +844,7 @@ func TestConcurrentStopAndSubscribe(t *testing.T) {
 				defer wg.Done()
 				ch := make(chan event.Event)
 				_, err := b.Subscribe(context.Background(), "*", ch)
-				if err != nil && err.Error() != "bus is closed" {
+				if err != nil && !errors.Is(err, ErrBusClosed) {
 					t.Errorf("unexpected error: %v", err)
 				}
 			}()
@@ -868,7 +869,7 @@ func TestSubscribeWithNilChannel(t *testing.T) {
 
 	_, err := b.Subscribe(context.Background(), "test", nil)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "nil channel")
+	require.ErrorIs(t, err, ErrNilChannel)
 }
 
 func TestSubscribeWithCanceledContext(t *testing.T) {

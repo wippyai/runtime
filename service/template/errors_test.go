@@ -14,7 +14,6 @@ func TestNewUnsupportedKindError(t *testing.T) {
 	require.NotNil(t, err)
 	assert.Equal(t, apierror.Invalid, err.Kind())
 	assert.Contains(t, err.Error(), "unsupported entry kind")
-	assert.Contains(t, err.Error(), "unknown")
 
 	details := err.Details()
 	require.NotNil(t, details)
@@ -28,6 +27,7 @@ func TestNewDecodeConfigError(t *testing.T) {
 	assert.Equal(t, apierror.Invalid, err.Kind())
 	assert.Contains(t, err.Error(), "failed to decode template config")
 	assert.True(t, errors.Is(err, cause))
+	assert.Equal(t, cause.Error(), err.Details().GetString("cause", ""))
 }
 
 func TestNewSetConfigDecodeError(t *testing.T) {
@@ -36,14 +36,15 @@ func TestNewSetConfigDecodeError(t *testing.T) {
 	require.NotNil(t, err)
 	assert.Equal(t, apierror.Invalid, err.Kind())
 	assert.Contains(t, err.Error(), "failed to decode set config")
+	assert.True(t, errors.Is(err, cause))
+	assert.Equal(t, cause.Error(), err.Details().GetString("cause", ""))
 }
 
 func TestNewTemplateExistsError(t *testing.T) {
 	err := NewTemplateExistsError("header.html", "emails")
 	require.NotNil(t, err)
 	assert.Equal(t, apierror.AlreadyExists, err.Kind())
-	assert.Contains(t, err.Error(), "header.html")
-	assert.Contains(t, err.Error(), "emails")
+	assert.Contains(t, err.Error(), "template already exists in set")
 
 	details := err.Details()
 	require.NotNil(t, details)
@@ -57,13 +58,15 @@ func TestNewCreateTemplateError(t *testing.T) {
 	require.NotNil(t, err)
 	assert.Equal(t, apierror.Internal, err.Kind())
 	assert.Contains(t, err.Error(), "failed to create template")
+	assert.True(t, errors.Is(err, cause))
+	assert.Equal(t, cause.Error(), err.Details().GetString("cause", ""))
 }
 
 func TestNewSetAlreadyExistsError(t *testing.T) {
 	err := NewSetAlreadyExistsError("main-templates")
 	require.NotNil(t, err)
 	assert.Equal(t, apierror.AlreadyExists, err.Kind())
-	assert.Contains(t, err.Error(), "main-templates")
+	assert.Contains(t, err.Error(), "template set already exists")
 
 	details := err.Details()
 	require.NotNil(t, details)
@@ -76,6 +79,8 @@ func TestNewCreateSetError(t *testing.T) {
 	require.NotNil(t, err)
 	assert.Equal(t, apierror.Internal, err.Kind())
 	assert.Contains(t, err.Error(), "failed to create template set")
+	assert.True(t, errors.Is(err, cause))
+	assert.Equal(t, cause.Error(), err.Details().GetString("cause", ""))
 }
 
 func TestNewRemoveTemplateError(t *testing.T) {
@@ -84,6 +89,8 @@ func TestNewRemoveTemplateError(t *testing.T) {
 	require.NotNil(t, err)
 	assert.Equal(t, apierror.Internal, err.Kind())
 	assert.Contains(t, err.Error(), "failed to remove template from source set")
+	assert.True(t, errors.Is(err, cause))
+	assert.Equal(t, cause.Error(), err.Details().GetString("cause", ""))
 }
 
 func TestNewAddTemplateError(t *testing.T) {
@@ -92,14 +99,15 @@ func TestNewAddTemplateError(t *testing.T) {
 	require.NotNil(t, err)
 	assert.Equal(t, apierror.Internal, err.Kind())
 	assert.Contains(t, err.Error(), "failed to add template to target set")
+	assert.True(t, errors.Is(err, cause))
+	assert.Equal(t, cause.Error(), err.Details().GetString("cause", ""))
 }
 
 func TestNewTemplateNameExistsError(t *testing.T) {
 	err := NewTemplateNameExistsError("footer", "common")
 	require.NotNil(t, err)
 	assert.Equal(t, apierror.AlreadyExists, err.Kind())
-	assert.Contains(t, err.Error(), "footer")
-	assert.Contains(t, err.Error(), "common")
+	assert.Contains(t, err.Error(), "template name already exists in set")
 
 	details := err.Details()
 	require.NotNil(t, details)
@@ -113,6 +121,8 @@ func TestNewRemoveOldTemplateError(t *testing.T) {
 	require.NotNil(t, err)
 	assert.Equal(t, apierror.Internal, err.Kind())
 	assert.Contains(t, err.Error(), "failed to remove old template")
+	assert.True(t, errors.Is(err, cause))
+	assert.Equal(t, cause.Error(), err.Details().GetString("cause", ""))
 }
 
 func TestNewAddTemplateWithNewNameError(t *testing.T) {
@@ -121,6 +131,8 @@ func TestNewAddTemplateWithNewNameError(t *testing.T) {
 	require.NotNil(t, err)
 	assert.Equal(t, apierror.Internal, err.Kind())
 	assert.Contains(t, err.Error(), "failed to add template with new name")
+	assert.True(t, errors.Is(err, cause))
+	assert.Equal(t, cause.Error(), err.Details().GetString("cause", ""))
 }
 
 func TestNewUpdateTemplateError(t *testing.T) {
@@ -129,6 +141,8 @@ func TestNewUpdateTemplateError(t *testing.T) {
 	require.NotNil(t, err)
 	assert.Equal(t, apierror.Internal, err.Kind())
 	assert.Contains(t, err.Error(), "failed to update template")
+	assert.True(t, errors.Is(err, cause))
+	assert.Equal(t, cause.Error(), err.Details().GetString("cause", ""))
 }
 
 func TestNewDeleteTemplateError(t *testing.T) {
@@ -137,6 +151,8 @@ func TestNewDeleteTemplateError(t *testing.T) {
 	require.NotNil(t, err)
 	assert.Equal(t, apierror.Internal, err.Kind())
 	assert.Contains(t, err.Error(), "failed to remove template")
+	assert.True(t, errors.Is(err, cause))
+	assert.Equal(t, cause.Error(), err.Details().GetString("cause", ""))
 }
 
 func TestNewUpdateSetError(t *testing.T) {
@@ -145,6 +161,8 @@ func TestNewUpdateSetError(t *testing.T) {
 	require.NotNil(t, err)
 	assert.Equal(t, apierror.Internal, err.Kind())
 	assert.Contains(t, err.Error(), "failed to update template set")
+	assert.True(t, errors.Is(err, cause))
+	assert.Equal(t, cause.Error(), err.Details().GetString("cause", ""))
 }
 
 func TestNewMigrateTemplateError(t *testing.T) {
@@ -152,20 +170,20 @@ func TestNewMigrateTemplateError(t *testing.T) {
 	err := NewMigrateTemplateError("old-template", cause)
 	require.NotNil(t, err)
 	assert.Equal(t, apierror.Internal, err.Kind())
-	assert.Contains(t, err.Error(), "old-template")
 	assert.Contains(t, err.Error(), "failed to migrate template")
+	assert.True(t, errors.Is(err, cause))
 
 	details := err.Details()
 	require.NotNil(t, details)
 	assert.Equal(t, "old-template", details.GetString("template", ""))
+	assert.Equal(t, cause.Error(), details.GetString("cause", ""))
 }
 
 func TestNewTemplateExistsInSetError(t *testing.T) {
 	err := NewTemplateExistsInSetError("duplicate")
 	require.NotNil(t, err)
 	assert.Equal(t, apierror.AlreadyExists, err.Kind())
-	assert.Contains(t, err.Error(), "duplicate")
-	assert.Contains(t, err.Error(), "already exists in set")
+	assert.Contains(t, err.Error(), "template already exists in set")
 
 	details := err.Details()
 	require.NotNil(t, details)
@@ -178,6 +196,8 @@ func TestNewGetCompiledTemplateError(t *testing.T) {
 	require.NotNil(t, err)
 	assert.Equal(t, apierror.Internal, err.Kind())
 	assert.Contains(t, err.Error(), "failed to get compiled template")
+	assert.True(t, errors.Is(err, cause))
+	assert.Equal(t, cause.Error(), err.Details().GetString("cause", ""))
 }
 
 func TestNewUnmarshalPayloadError(t *testing.T) {
@@ -186,6 +206,8 @@ func TestNewUnmarshalPayloadError(t *testing.T) {
 	require.NotNil(t, err)
 	assert.Equal(t, apierror.Invalid, err.Kind())
 	assert.Contains(t, err.Error(), "failed to unmarshal payload")
+	assert.True(t, errors.Is(err, cause))
+	assert.Equal(t, cause.Error(), err.Details().GetString("cause", ""))
 }
 
 func TestNewUnsupportedAccessModeError(t *testing.T) {
@@ -193,7 +215,6 @@ func TestNewUnsupportedAccessModeError(t *testing.T) {
 	require.NotNil(t, err)
 	assert.Equal(t, apierror.Invalid, err.Kind())
 	assert.Contains(t, err.Error(), "unsupported access mode")
-	assert.Contains(t, err.Error(), "write-only")
 
 	details := err.Details()
 	require.NotNil(t, details)
@@ -204,7 +225,7 @@ func TestNewSetNotFoundError(t *testing.T) {
 	err := NewSetNotFoundError("missing-set")
 	require.NotNil(t, err)
 	assert.Equal(t, apierror.NotFound, err.Kind())
-	assert.Contains(t, err.Error(), "missing-set")
+	assert.Contains(t, err.Error(), "template set not found")
 	assert.True(t, errors.Is(err, ErrSetNotFound))
 
 	details := err.Details()
@@ -216,7 +237,7 @@ func TestNewTemplateNotFoundError(t *testing.T) {
 	err := NewTemplateNotFoundError("missing-template")
 	require.NotNil(t, err)
 	assert.Equal(t, apierror.NotFound, err.Kind())
-	assert.Contains(t, err.Error(), "missing-template")
+	assert.Contains(t, err.Error(), "template not found")
 	assert.True(t, errors.Is(err, ErrTemplateNotFound))
 
 	details := err.Details()
@@ -228,8 +249,7 @@ func TestNewSetNotEmptyError(t *testing.T) {
 	err := NewSetNotEmptyError("active-set", 5)
 	require.NotNil(t, err)
 	assert.Equal(t, apierror.Invalid, err.Kind())
-	assert.Contains(t, err.Error(), "active-set")
-	assert.Contains(t, err.Error(), "not empty")
+	assert.Contains(t, err.Error(), "set is not empty")
 	assert.True(t, errors.Is(err, ErrSetNotEmpty))
 
 	details := err.Details()
@@ -245,6 +265,7 @@ func TestNewRenderFailedError(t *testing.T) {
 	assert.Equal(t, apierror.Internal, err.Kind())
 	assert.Contains(t, err.Error(), "template render failed")
 	assert.True(t, errors.Is(err, ErrRenderFailed))
+	assert.Equal(t, cause.Error(), err.Details().GetString("cause", ""))
 }
 
 func TestSentinelErrors(t *testing.T) {

@@ -12,33 +12,60 @@ var (
 )
 
 func newRegisterPIDError(cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "register supervisor pid").WithCause(cause)
+	apiErr := apierror.New(apierror.Internal, "register supervisor pid").
+		WithRetryable(apierror.False)
+	if cause != nil {
+		apiErr = apiErr.WithDetails(attrs.NewBagFrom(map[string]any{"cause": cause.Error()})).WithCause(cause)
+	}
+	return apiErr
 }
 
 func newAttachRelayError(cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "attach to relay").WithCause(cause)
+	apiErr := apierror.New(apierror.Internal, "attach to relay").
+		WithRetryable(apierror.False)
+	if cause != nil {
+		apiErr = apiErr.WithDetails(attrs.NewBagFrom(map[string]any{"cause": cause.Error()})).WithCause(cause)
+	}
+	return apiErr
 }
 
 func newStartProcessError(cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "start process").WithCause(cause)
+	apiErr := apierror.New(apierror.Internal, "start process").
+		WithRetryable(apierror.False)
+	if cause != nil {
+		apiErr = apiErr.WithDetails(attrs.NewBagFrom(map[string]any{"cause": cause.Error()})).WithCause(cause)
+	}
+	return apiErr
 }
 
 func newSendCancelError(cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "send cancel").WithCause(cause)
+	apiErr := apierror.New(apierror.Internal, "send cancel").
+		WithRetryable(apierror.False)
+	if cause != nil {
+		apiErr = apiErr.WithDetails(attrs.NewBagFrom(map[string]any{"cause": cause.Error()})).WithCause(cause)
+	}
+	return apiErr
 }
 
 func newDecodeConfigError(cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, "decode config").WithRetryable(apierror.False).WithCause(cause)
+	apiErr := apierror.New(apierror.Invalid, "decode config").WithRetryable(apierror.False)
+	if cause != nil {
+		apiErr = apiErr.WithDetails(attrs.NewBagFrom(map[string]any{"cause": cause.Error()})).WithCause(cause)
+	}
+	return apiErr
 }
 
 func newInvalidEntryKindError(got, expected string) apierror.Error {
 	return apierror.New(apierror.Invalid, "invalid entry kind").
 		WithRetryable(apierror.False).
-		WithDetails(attrs.Bag{"got": got, "expected": expected})
+		WithDetails(attrs.NewBagFrom(map[string]any{
+			"got":      got,
+			"expected": expected,
+		}))
 }
 
 func newServiceNotFoundError(id string) apierror.Error {
 	return apierror.New(apierror.NotFound, "service not found").
 		WithRetryable(apierror.False).
-		WithDetails(attrs.Bag{"id": id})
+		WithDetails(attrs.NewBagFrom(map[string]any{"id": id}))
 }

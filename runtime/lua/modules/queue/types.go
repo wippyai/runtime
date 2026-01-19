@@ -1,32 +1,42 @@
 package queue
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
 // Message type
-var messageType = &types.InterfaceType{
-	Name: "queue.Message",
-	Methods: map[string]*types.FunctionType{
-		"id":      types.NewFunction([]types.Type{types.Self}, []types.Type{types.String, types.Optional(types.LuaError)}),
-		"header":  types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Any, types.Optional(types.LuaError)}),
-		"headers": types.NewFunction([]types.Type{types.Self}, []types.Type{types.NewMap(types.String, types.Any, false), types.Optional(types.LuaError)}),
+var messageType = typ.NewInterface("queue.Message", []typ.Method{
+	{
+		Name: "id",
+		Type: typ.Func().Param("_", typ.Self).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build(),
 	},
-}
+	{
+		Name: "header",
+		Type: typ.Func().Param("_", typ.Self).Param("key", typ.String).Returns(typ.NewOptional(typ.Any), typ.NewOptional(typ.LuaError)).Build(),
+	},
+	{
+		Name: "headers",
+		Type: typ.Func().Param("_", typ.Self).Returns(typ.NewMap(typ.String, typ.Any), typ.NewOptional(typ.LuaError)).Build(),
+	},
+})
 
 // ModuleTypes returns the type manifest for the queue module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("queue")
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("queue")
 
 	m.DefineType("Message", messageType)
 
-	moduleType := &types.InterfaceType{
-		Name: "queue",
-		Methods: map[string]*types.FunctionType{
-			"publish": types.NewFunction([]types.Type{types.String, types.Any, types.Optional(types.Any)}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-			"message": types.NewFunction(nil, []types.Type{messageType, types.Optional(types.LuaError)}),
+	moduleType := typ.NewInterface("queue", []typ.Method{
+		{
+			Name: "publish",
+			Type: typ.Func().Param("topic", typ.String).Param("message", typ.Any).OptParam("options", typ.Any).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build(),
 		},
-	}
+		{
+			Name: "message",
+			Type: typ.Func().Returns(messageType, typ.NewOptional(typ.LuaError)).Build(),
+		},
+	})
 
 	m.SetExport(moduleType)
 	return m

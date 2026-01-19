@@ -6,6 +6,7 @@ linters:
     - asciicheck
     - bodyclose
     - copyloopvar
+    - depguard
     - dogsled
     - errcheck
     - errorlint
@@ -29,6 +30,14 @@ linters:
     - unused
     - whitespace
   settings:
+    depguard:
+      rules:
+        api-boundary:
+          files:
+            - api/**
+          deny:
+            - pkg: github.com/wippyai/runtime/service
+              desc: "api packages must not depend on service implementations"
     dupl:
       threshold: 100
     errcheck:

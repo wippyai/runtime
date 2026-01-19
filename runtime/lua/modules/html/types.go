@@ -1,75 +1,66 @@
 package html
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
 // Forward declarations for mutually referential types
 var (
-	policyType      *types.InterfaceType
-	attrBuilderType *types.InterfaceType
-	sanitizeType    *types.InterfaceType
+	policyType      typ.Type
+	attrBuilderType typ.Type
+	sanitizeType    typ.Type
 )
 
 func init() {
-	// Policy type
-	policyType = &types.InterfaceType{
-		Name:    "html.Policy",
-		Methods: map[string]*types.FunctionType{},
+	// AttrBuilder methods
+	attrBuilderMethods := []typ.Method{
+		{Name: "on_elements", Type: typ.Func().Param("self", typ.Self).Variadic(typ.String).Returns(typ.Self).Build()},
+		{Name: "globally", Type: typ.Func().Param("self", typ.Self).Returns(typ.Self).Build()},
+		{Name: "matching", Type: typ.Func().Param("self", typ.Self).Param("pattern", typ.String).Returns(typ.Self, typ.NewOptional(typ.LuaError)).Build()},
 	}
-
-	// AttrBuilder type
-	attrBuilderType = &types.InterfaceType{
-		Name:    "html.AttrBuilder",
-		Methods: map[string]*types.FunctionType{},
-	}
+	attrBuilderType = typ.NewInterface("html.AttrBuilder", attrBuilderMethods)
 
 	// Policy methods (some return Policy, some reference AttrBuilder)
-	policyType.Methods["allow_elements"] = &types.FunctionType{Params: []types.Type{types.Self}, Variadic: types.String, Returns: []types.Type{policyType}}
-	policyType.Methods["allow_attrs"] = &types.FunctionType{Params: []types.Type{types.Self}, Variadic: types.String, Returns: []types.Type{attrBuilderType}}
-	policyType.Methods["allow_standard_urls"] = types.NewFunction([]types.Type{types.Self}, []types.Type{policyType})
-	policyType.Methods["require_parseable_urls"] = types.NewFunction([]types.Type{types.Self, types.Boolean}, []types.Type{policyType})
-	policyType.Methods["allow_relative_urls"] = types.NewFunction([]types.Type{types.Self, types.Boolean}, []types.Type{policyType})
-	policyType.Methods["allow_url_schemes"] = &types.FunctionType{Params: []types.Type{types.Self}, Variadic: types.String, Returns: []types.Type{policyType}}
-	policyType.Methods["require_nofollow_on_links"] = types.NewFunction([]types.Type{types.Self, types.Boolean}, []types.Type{policyType})
-	policyType.Methods["require_noreferrer_on_links"] = types.NewFunction([]types.Type{types.Self, types.Boolean}, []types.Type{policyType})
-	policyType.Methods["add_target_blank_to_fully_qualified_links"] = types.NewFunction([]types.Type{types.Self, types.Boolean}, []types.Type{policyType})
-	policyType.Methods["allow_data_uri_images"] = types.NewFunction([]types.Type{types.Self}, []types.Type{policyType})
-	policyType.Methods["allow_standard_attributes"] = types.NewFunction([]types.Type{types.Self}, []types.Type{policyType})
-	policyType.Methods["allow_images"] = types.NewFunction([]types.Type{types.Self}, []types.Type{policyType})
-	policyType.Methods["allow_lists"] = types.NewFunction([]types.Type{types.Self}, []types.Type{policyType})
-	policyType.Methods["allow_tables"] = types.NewFunction([]types.Type{types.Self}, []types.Type{policyType})
-	policyType.Methods["sanitize"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.String})
-
-	// AttrBuilder methods
-	attrBuilderType.Methods["on_elements"] = &types.FunctionType{Params: []types.Type{types.Self}, Variadic: types.String, Returns: []types.Type{policyType}}
-	attrBuilderType.Methods["globally"] = types.NewFunction([]types.Type{types.Self}, []types.Type{policyType})
-	attrBuilderType.Methods["matching"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{attrBuilderType, types.Optional(types.LuaError)})
+	policyMethods := []typ.Method{
+		{Name: "allow_elements", Type: typ.Func().Param("self", typ.Self).Variadic(typ.String).Returns(typ.Self).Build()},
+		{Name: "allow_attrs", Type: typ.Func().Param("self", typ.Self).Variadic(typ.String).Returns(attrBuilderType).Build()},
+		{Name: "allow_standard_urls", Type: typ.Func().Param("self", typ.Self).Returns(typ.Self).Build()},
+		{Name: "require_parseable_urls", Type: typ.Func().Param("self", typ.Self).Param("required", typ.Boolean).Returns(typ.Self).Build()},
+		{Name: "allow_relative_urls", Type: typ.Func().Param("self", typ.Self).Param("allowed", typ.Boolean).Returns(typ.Self).Build()},
+		{Name: "allow_url_schemes", Type: typ.Func().Param("self", typ.Self).Variadic(typ.String).Returns(typ.Self).Build()},
+		{Name: "require_nofollow_on_links", Type: typ.Func().Param("self", typ.Self).Param("required", typ.Boolean).Returns(typ.Self).Build()},
+		{Name: "require_noreferrer_on_links", Type: typ.Func().Param("self", typ.Self).Param("required", typ.Boolean).Returns(typ.Self).Build()},
+		{Name: "add_target_blank_to_fully_qualified_links", Type: typ.Func().Param("self", typ.Self).Param("add", typ.Boolean).Returns(typ.Self).Build()},
+		{Name: "allow_data_uri_images", Type: typ.Func().Param("self", typ.Self).Returns(typ.Self).Build()},
+		{Name: "allow_standard_attributes", Type: typ.Func().Param("self", typ.Self).Returns(typ.Self).Build()},
+		{Name: "allow_images", Type: typ.Func().Param("self", typ.Self).Returns(typ.Self).Build()},
+		{Name: "allow_lists", Type: typ.Func().Param("self", typ.Self).Returns(typ.Self).Build()},
+		{Name: "allow_tables", Type: typ.Func().Param("self", typ.Self).Returns(typ.Self).Build()},
+		{Name: "sanitize", Type: typ.Func().Param("self", typ.Self).Param("html", typ.String).Returns(typ.String).Build()},
+	}
+	policyType = typ.NewInterface("html.Policy", policyMethods)
 
 	// sanitize submodule type - must be initialized here after policyType is set
-	sanitizeType = &types.InterfaceType{
-		Name: "html.sanitize",
-		Methods: map[string]*types.FunctionType{
-			"new_policy":    {Params: nil, Returns: []types.Type{policyType, types.Optional(types.LuaError)}},
-			"ugc_policy":    {Params: nil, Returns: []types.Type{policyType, types.Optional(types.LuaError)}},
-			"strict_policy": {Params: nil, Returns: []types.Type{policyType, types.Optional(types.LuaError)}},
-		},
+	sanitizeMethods := []typ.Method{
+		{Name: "new_policy", Type: typ.Func().Returns(policyType, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "ugc_policy", Type: typ.Func().Returns(policyType, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "strict_policy", Type: typ.Func().Returns(policyType, typ.NewOptional(typ.LuaError)).Build()},
 	}
+	sanitizeType = typ.NewInterface("html.sanitize", sanitizeMethods)
 }
 
 // ModuleTypes returns the type manifest for the html module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("html")
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("html")
 
 	m.DefineType("Policy", policyType)
 	m.DefineType("AttrBuilder", attrBuilderType)
 
-	moduleType := &types.InterfaceType{
-		Name: "html",
-		Fields: map[string]types.Type{
-			"sanitize": sanitizeType,
-		},
-	}
+	// Module exports: sanitize is a submodule accessed as html.sanitize
+	moduleType := typ.NewRecord().
+		Field("sanitize", sanitizeType).
+		Build()
 
 	m.SetExport(moduleType)
 	return m

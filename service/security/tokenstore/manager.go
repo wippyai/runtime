@@ -38,6 +38,9 @@ func NewManager(
 	envRegistry envapi.Registry,
 	log *zap.Logger,
 ) *Manager {
+	if log == nil {
+		log = zap.NewNop()
+	}
 	return &Manager{
 		log:         log,
 		dtt:         dtt,
@@ -66,7 +69,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	// Decode and initialize configuration
 	cfg, err := entryutil.DecodeEntryConfig[tokenstoreapi.Config](ctx, m.dtt, entry)
 	if err != nil {
-		return err
+		return NewDecodeTokenStoreConfigError(err)
 	}
 
 	cfg.Store = cfg.Store.WithDefaultNS(entry.ID.NS)
@@ -114,7 +117,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	// Decode and initialize updated configuration
 	cfg, err := entryutil.DecodeEntryConfig[tokenstoreapi.Config](ctx, m.dtt, entry)
 	if err != nil {
-		return err
+		return NewDecodeTokenStoreConfigError(err)
 	}
 
 	cfg.Store = cfg.Store.WithDefaultNS(entry.ID.NS)

@@ -63,7 +63,7 @@ func (br *BusRunner) Transition(
 
 	br.bus.Send(ctx, event.Event{
 		System: registry.System,
-		Kind:   registry.Begin,
+		Kind:   registry.TxBegin,
 	})
 
 	for _, op := range cs {
@@ -79,7 +79,7 @@ func (br *BusRunner) Transition(
 			// Only send Discard if there was an error, and rollback already happened
 			br.bus.Send(ctx, event.Event{
 				System: registry.System,
-				Kind:   registry.Discard,
+				Kind:   registry.TxDiscard,
 				Data:   err,
 			})
 
@@ -91,7 +91,7 @@ func (br *BusRunner) Transition(
 
 	br.bus.Send(ctx, event.Event{
 		System: registry.System,
-		Kind:   registry.Commit,
+		Kind:   registry.TxCommit,
 	})
 
 	return stateMapToSlice(currentState), nil
@@ -120,6 +120,7 @@ func (br *BusRunner) applyOperation(
 		registry.EntryKind,
 		registry.NamespaceDependency,
 		registry.NamespaceRequirement,
+		registry.NamespaceDefinition,
 	}
 	if slices.Contains(allowProcess, op.Entry.Kind) {
 		// with entry events we dont propagate any events and handle them internally
@@ -242,12 +243,12 @@ func (br *BusRunner) rollback(
 // subscribeToEvents subscribes to Accept and Reject eventbus.
 func (br *BusRunner) subscribeToEvents(ctx context.Context) error {
 	var err error
-	br.acceptSubID, err = br.bus.SubscribeP(ctx, registry.System, registry.Accept, br.acceptChan)
+	br.acceptSubID, err = br.bus.SubscribeP(ctx, registry.System, registry.EntryAccept, br.acceptChan)
 	if err != nil {
 		return NewListenEventsError(err)
 	}
 
-	br.rejectSubID, err = br.bus.SubscribeP(ctx, registry.System, registry.Reject, br.rejectChan)
+	br.rejectSubID, err = br.bus.SubscribeP(ctx, registry.System, registry.EntryReject, br.rejectChan)
 	if err != nil {
 		br.bus.Unsubscribe(ctx, br.acceptSubID) // Clean up accept subscription if reject subscription fails
 		return NewListenEventsError(err)

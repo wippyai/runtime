@@ -33,9 +33,9 @@ func TestRegistry_LoadState_V0(t *testing.T) {
 		}
 		for _, op := range changes {
 			switch op.Kind {
-			case registry.Create, registry.Update:
+			case registry.EntryCreate, registry.EntryUpdate:
 				stateMap[op.Entry.ID] = op.Entry
-			case registry.Delete:
+			case registry.EntryDelete:
 				delete(stateMap, op.Entry.ID)
 			}
 		}
@@ -91,9 +91,9 @@ func TestRegistry_LoadState_WithHistory(t *testing.T) {
 		}
 		for _, op := range changes {
 			switch op.Kind {
-			case registry.Create, registry.Update:
+			case registry.EntryCreate, registry.EntryUpdate:
 				stateMap[op.Entry.ID] = op.Entry
-			case registry.Delete:
+			case registry.EntryDelete:
 				delete(stateMap, op.Entry.ID)
 			}
 		}
@@ -119,8 +119,8 @@ func TestRegistry_LoadState_WithHistory(t *testing.T) {
 	}
 
 	cs1 := registry.ChangeSet{
-		{Kind: registry.Update, Entry: registry.Entry{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("updated")}},
-		{Kind: registry.Create, Entry: registry.Entry{ID: registry.NewID("test", "entry3"), Kind: "service", Data: payload.New("new")}},
+		{Kind: registry.EntryUpdate, Entry: registry.Entry{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("updated")}},
+		{Kind: registry.EntryCreate, Entry: registry.Entry{ID: registry.NewID("test", "entry3"), Kind: "service", Data: payload.New("new")}},
 	}
 
 	v1, err := reg.Apply(ctx, cs1)
@@ -174,9 +174,9 @@ func TestRegistry_LoadState_MultipleVersions(t *testing.T) {
 		}
 		for _, op := range changes {
 			switch op.Kind {
-			case registry.Create, registry.Update:
+			case registry.EntryCreate, registry.EntryUpdate:
 				stateMap[op.Entry.ID] = op.Entry
-			case registry.Delete:
+			case registry.EntryDelete:
 				delete(stateMap, op.Entry.ID)
 			}
 		}
@@ -201,19 +201,19 @@ func TestRegistry_LoadState_MultipleVersions(t *testing.T) {
 	}
 
 	cs1 := registry.ChangeSet{
-		{Kind: registry.Update, Entry: registry.Entry{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("v1")}},
+		{Kind: registry.EntryUpdate, Entry: registry.Entry{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("v1")}},
 	}
 	_, err := reg.Apply(ctx, cs1)
 	require.NoError(t, err)
 
 	cs2 := registry.ChangeSet{
-		{Kind: registry.Update, Entry: registry.Entry{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("v2")}},
+		{Kind: registry.EntryUpdate, Entry: registry.Entry{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("v2")}},
 	}
 	_, err = reg.Apply(ctx, cs2)
 	require.NoError(t, err)
 
 	cs3 := registry.ChangeSet{
-		{Kind: registry.Update, Entry: registry.Entry{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("v3")}},
+		{Kind: registry.EntryUpdate, Entry: registry.Entry{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("v3")}},
 	}
 	v3, err := reg.Apply(ctx, cs3)
 	require.NoError(t, err)
@@ -260,9 +260,9 @@ func TestRegistry_LoadState_ThenApplyVersion(t *testing.T) {
 		// Log for the first registry (during setup)
 		for _, op := range changes {
 			switch op.Kind {
-			case registry.Create, registry.Update:
+			case registry.EntryCreate, registry.EntryUpdate:
 				stateMap[op.Entry.ID] = op.Entry
-			case registry.Delete:
+			case registry.EntryDelete:
 				delete(stateMap, op.Entry.ID)
 			}
 		}
@@ -288,20 +288,20 @@ func TestRegistry_LoadState_ThenApplyVersion(t *testing.T) {
 
 	// Create initial version with baseline
 	v1, err := reg.Apply(ctx, registry.ChangeSet{
-		{Kind: registry.Create, Entry: baseline[0]},
+		{Kind: registry.EntryCreate, Entry: baseline[0]},
 	})
 	require.NoError(t, err)
 	require.Equal(t, uint(1), v1.ID())
 
 	cs2 := registry.ChangeSet{
-		{Kind: registry.Update, Entry: registry.Entry{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("v2")}},
+		{Kind: registry.EntryUpdate, Entry: registry.Entry{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("v2")}},
 	}
 	v2, err := reg.Apply(ctx, cs2)
 	require.NoError(t, err)
 	require.Equal(t, uint(2), v2.ID())
 
 	cs3 := registry.ChangeSet{
-		{Kind: registry.Update, Entry: registry.Entry{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("v3")}},
+		{Kind: registry.EntryUpdate, Entry: registry.Entry{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("v3")}},
 	}
 	v3, err := reg.Apply(ctx, cs3)
 	require.NoError(t, err)

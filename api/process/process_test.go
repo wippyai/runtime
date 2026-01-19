@@ -15,7 +15,6 @@ import (
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
-	"github.com/wippyai/runtime/internal/uniqid"
 )
 
 func TestStepOutput_Result(t *testing.T) {
@@ -444,8 +443,7 @@ func TestContextFunctions_WithAppContext(t *testing.T) {
 
 		assert.Nil(t, GetPIDGenerator(ctx2))
 
-		baseGen := uniqid.NewGenerator()
-		gen := uniqid.NewPIDGenerator(baseGen, "1")
+		gen := &stubPIDGenerator{pid: pid.PID{Host: "test"}}
 		result := WithPIDGenerator(ctx2, gen)
 		assert.Equal(t, ctx2, result)
 
@@ -502,3 +500,13 @@ func (r *mockLifecycleRegistry) OnStart(_ context.Context, _ pid.PID, _ Process)
 func (r *mockLifecycleRegistry) OnComplete(_ context.Context, _ pid.PID, _ *runtime.Result) {}
 func (r *mockLifecycleRegistry) Register(_ string, _ Lifecycle)                             {}
 func (r *mockLifecycleRegistry) Unregister(_ string)                                        {}
+
+type stubPIDGenerator struct {
+	pid pid.PID
+}
+
+func (g *stubPIDGenerator) Generate(host pid.HostID) pid.PID {
+	result := g.pid
+	result.Host = host
+	return result
+}

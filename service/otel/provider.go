@@ -30,6 +30,9 @@ type Providers struct {
 
 // InitializeProvider creates and configures an OpenTelemetry TracerProvider
 func InitializeProvider(ctx context.Context, cfg otelapi.Config, logger *zap.Logger) (trace.TracerProvider, error) {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	if !cfg.Enabled {
 		logger.Debug("OTEL disabled, using noop provider")
 		return noop.NewTracerProvider(), nil
@@ -190,6 +193,9 @@ func (n *noopExporter) Shutdown(_ context.Context) error {
 
 // InitializeMeterProvider creates and configures an OpenTelemetry MeterProvider
 func InitializeMeterProvider(ctx context.Context, cfg otelapi.Config, logger *zap.Logger) (metric.MeterProvider, error) {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	if !cfg.Enabled || !cfg.MetricsEnabled {
 		logger.Debug("OTEL metrics disabled, using noop provider")
 		return metricnoop.NewMeterProvider(), nil
@@ -260,6 +266,9 @@ func createHTTPMetricExporter(ctx context.Context, cfg otelapi.Config, logger *z
 
 // ShutdownMeterProvider gracefully shuts down the meter provider
 func ShutdownMeterProvider(ctx context.Context, mp metric.MeterProvider, logger *zap.Logger) error {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	if sdkMP, ok := mp.(*sdkmetric.MeterProvider); ok {
 		logger.Debug("shutting down OTEL meter provider")
 		if err := sdkMP.Shutdown(ctx); err != nil {

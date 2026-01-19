@@ -46,6 +46,12 @@ func NewHost(
 	logCtrl *logs.Configurator,
 	logger *zap.Logger,
 ) *Host {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+	if logCtrl == nil {
+		logCtrl = logs.NewConfigurator(nil, logger)
+	}
 	return &Host{
 		id:        id,
 		cfg:       cfg,

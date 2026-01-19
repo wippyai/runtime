@@ -49,6 +49,9 @@ func NewStore(id registry.ID, config *memstore.Config, log *zap.Logger) *Store {
 	if config == nil {
 		config = &memstore.Config{}
 	}
+	if log == nil {
+		log = zap.NewNop()
+	}
 
 	return &Store{
 		id:         id,

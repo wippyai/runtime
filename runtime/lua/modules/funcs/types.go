@@ -1,55 +1,49 @@
 package funcs
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
 // Future type
-var futureType = &types.InterfaceType{
-	Name: "funcs.Future",
-	Methods: map[string]*types.FunctionType{
-		"response":    types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any}),
-		"channel":     types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any}),
-		"is_complete": types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean}),
-		"is_canceled": types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean}),
-		"result":      types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any, types.Optional(types.LuaError)}),
-		"error":       types.NewFunction([]types.Type{types.Self}, []types.Type{types.Optional(types.LuaError), types.Boolean}),
-		"cancel":      types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-		"await":       types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any, types.Optional(types.LuaError)}),
-	},
-}
+var futureType = typ.NewInterface("funcs.Future", []typ.Method{
+	{Name: "response", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any).Build()},
+	{Name: "channel", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any).Build()},
+	{Name: "is_complete", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean).Build()},
+	{Name: "is_canceled", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean).Build()},
+	{Name: "result", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "error", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewOptional(typ.LuaError), typ.Boolean).Build()},
+	{Name: "cancel", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "await", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+})
 
 // Forward declaration for self-referential Executor type
-var executorType *types.InterfaceType
+var executorType typ.Type
 
 func init() {
-	executorType = &types.InterfaceType{
-		Name:    "funcs.Executor",
-		Methods: map[string]*types.FunctionType{},
+	executorTypeMethods := []typ.Method{
+		{Name: "with_context", Type: typ.Func().Param("self", typ.Self).Param("ctx", typ.Any).Returns(typ.Self).Build()},
+		{Name: "with_actor", Type: typ.Func().Param("self", typ.Self).Param("actor", typ.Any).Returns(typ.Self).Build()},
+		{Name: "with_scope", Type: typ.Func().Param("self", typ.Self).Param("scope", typ.Any).Returns(typ.Self).Build()},
+		{Name: "with_options", Type: typ.Func().Param("self", typ.Self).Param("options", typ.Any).Returns(typ.Self).Build()},
+		{Name: "call", Type: typ.Func().Param("self", typ.Self).Param("name", typ.String).Variadic(typ.Any).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "async", Type: typ.Func().Param("self", typ.Self).Param("name", typ.String).Variadic(typ.Any).Returns(futureType, typ.NewOptional(typ.LuaError)).Build()},
 	}
-	executorType.Methods["with_context"] = types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{executorType})
-	executorType.Methods["with_actor"] = types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{executorType})
-	executorType.Methods["with_scope"] = types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{executorType})
-	executorType.Methods["with_options"] = types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{executorType})
-	executorType.Methods["call"] = &types.FunctionType{Params: []types.Type{types.Self, types.String}, Variadic: types.Any, Returns: []types.Type{types.Any, types.Optional(types.LuaError)}}
-	executorType.Methods["async"] = &types.FunctionType{Params: []types.Type{types.Self, types.String}, Variadic: types.Any, Returns: []types.Type{futureType, types.Optional(types.LuaError)}}
+	executorType = typ.NewInterface("funcs.Executor", executorTypeMethods)
 }
 
 // ModuleTypes returns the type manifest for the funcs module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("funcs")
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("funcs")
 
 	m.DefineType("Executor", executorType)
 	m.DefineType("Future", futureType)
 
-	moduleType := &types.InterfaceType{
-		Name: "funcs",
-		Methods: map[string]*types.FunctionType{
-			"new":   types.NewFunction(nil, []types.Type{executorType}),
-			"call":  {Params: []types.Type{types.String}, Variadic: types.Any, Returns: []types.Type{types.Any, types.Optional(types.LuaError)}},
-			"async": {Params: []types.Type{types.String}, Variadic: types.Any, Returns: []types.Type{futureType, types.Optional(types.LuaError)}},
-		},
-	}
+	moduleType := typ.NewInterface("funcs", []typ.Method{
+		{Name: "new", Type: typ.Func().Returns(executorType).Build()},
+		{Name: "call", Type: typ.Func().Param("name", typ.String).Variadic(typ.Any).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "async", Type: typ.Func().Param("name", typ.String).Variadic(typ.Any).Returns(futureType, typ.NewOptional(typ.LuaError)).Build()},
+	})
 
 	m.SetExport(moduleType)
 	return m

@@ -125,8 +125,7 @@ func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Comman
 		result, err := registry.Call(ctx, task)
 
 		resultPayload := resultToPayload(result, err)
-		pkg := relay.NewPackage(pid.PID{}, framePID, topic, resultPayload, payload.NewTerminal())
-		if err := node.Send(pkg); err != nil {
+		if err := sendAsyncResult(node, framePID, topic, resultPayload); err != nil {
 			logger.Warn("failed to send async result",
 				zap.String("topic", topic),
 				zap.String("target", framePID.String()),
@@ -168,8 +167,7 @@ func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Comma
 
 	topic := cancelCmd.Topic
 
-	pkg := relay.NewPackage(pid.PID{}, framePID, topic, payload.NewTerminal())
-	if err := d.node.Send(pkg); err != nil {
+	if err := sendAsyncCancel(d.node, framePID, topic); err != nil {
 		d.logger.Warn("failed to send async cancel",
 			zap.String("topic", topic),
 			zap.String("target", framePID.String()),
@@ -178,4 +176,14 @@ func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Comma
 
 	receiver.CompleteYield(tag, nil, nil)
 	return nil
+}
+
+func sendAsyncResult(node relay.Node, target pid.PID, topic string, result payload.Payload) error {
+	pkg := relay.NewPackage(pid.PID{}, target, topic, result, payload.NewTerminal())
+	return node.Send(pkg)
+}
+
+func sendAsyncCancel(node relay.Node, target pid.PID, topic string) error {
+	pkg := relay.NewPackage(pid.PID{}, target, topic, payload.NewTerminal())
+	return node.Send(pkg)
 }

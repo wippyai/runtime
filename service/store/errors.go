@@ -12,33 +12,21 @@ var (
 
 // NewUnsupportedKindError creates an unsupported kind error.
 func NewUnsupportedKindError(kind string) apierror.Error {
-	return apierror.E(
-		apierror.Invalid,
-		"unsupported entry kind: "+kind,
-		apierror.False,
-		attrs.NewBagFrom(map[string]any{"kind": kind}),
-		nil,
-	)
+	return apierror.New(apierror.Invalid, "unsupported entry kind").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"kind": kind}))
 }
 
 // NewStoreAlreadyExistsError creates a store already exists error.
 func NewStoreAlreadyExistsError(id string) apierror.Error {
-	return apierror.E(
-		apierror.AlreadyExists,
-		"store "+id+" already exists",
-		apierror.False,
-		attrs.NewBagFrom(map[string]any{"id": id}),
-		nil,
-	)
+	return apierror.New(apierror.AlreadyExists, "store already exists").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"id": id}))
 }
 
 // NewStoreNotFoundError creates a store not found error.
 func NewStoreNotFoundError(id string) apierror.Error {
-	return apierror.E(
-		apierror.NotFound,
-		"store "+id+" not found",
-		apierror.False,
-		attrs.NewBagFrom(map[string]any{"id": id}),
-		nil,
-	)
+	return apierror.New(apierror.NotFound, "store not found").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"id": id}))
 }

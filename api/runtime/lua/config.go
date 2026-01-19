@@ -173,12 +173,12 @@ func (c *FunctionConfig) Validate() error {
 
 	// For non-flex pools, validate Size
 	if !isFlexPool && c.Pool.Size <= 0 {
-		return NewInvalidPoolSizeError()
+		return ErrInvalidPoolSize
 	}
 
 	// Worker pools validation
 	if c.Pool.Workers > 0 && c.Pool.Size <= 0 {
-		return NewInvalidWorkerPoolSizeError()
+		return ErrInvalidWorkerPoolSize
 	}
 
 	// Validate imports
@@ -187,7 +187,7 @@ func (c *FunctionConfig) Validate() error {
 			return ErrEmptyImportAlias
 		}
 		if id.Name == "" {
-			return NewEmptyImportNameError()
+			return ErrEmptyImportName
 		}
 	}
 
@@ -199,7 +199,7 @@ func (c *FunctionConfig) Validate() error {
 
 		id := registry.ParseID(module)
 		if id.NS != "" {
-			return NewModuleNamespaceError()
+			return ErrModuleNamespace
 		}
 	}
 
@@ -218,7 +218,7 @@ func (c *LibraryConfig) Validate() error {
 			return ErrEmptyImportAlias
 		}
 		if id.Name == "" {
-			return NewEmptyImportNameError()
+			return ErrEmptyImportName
 		}
 	}
 
@@ -229,7 +229,7 @@ func (c *LibraryConfig) Validate() error {
 
 		id := registry.ParseID(module)
 		if id.NS != "" {
-			return NewModuleNamespaceError()
+			return ErrModuleNamespace
 		}
 	}
 
@@ -257,7 +257,7 @@ func validateImportsAndModules(imports map[string]registry.ID, modules []string)
 			return ErrEmptyImportAlias
 		}
 		if id.Name == "" {
-			return NewEmptyImportNameError()
+			return ErrEmptyImportName
 		}
 	}
 
@@ -267,7 +267,7 @@ func validateImportsAndModules(imports map[string]registry.ID, modules []string)
 		}
 		id := registry.ParseID(module)
 		if id.NS != "" {
-			return NewModuleNamespaceError()
+			return ErrModuleNamespace
 		}
 	}
 
@@ -288,10 +288,10 @@ func (c *BytecodeFunctionConfig) Validate() error {
 
 	isFlexPool := c.Pool.Workers == 0 && (c.Pool.Size == 0 || c.Pool.MaxSize > 0)
 	if !isFlexPool && c.Pool.Size <= 0 {
-		return NewInvalidPoolSizeError()
+		return ErrInvalidPoolSize
 	}
 	if c.Pool.Workers > 0 && c.Pool.Size <= 0 {
-		return NewInvalidWorkerPoolSizeError()
+		return ErrInvalidWorkerPoolSize
 	}
 
 	return nil

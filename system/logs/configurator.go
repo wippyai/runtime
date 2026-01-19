@@ -27,6 +27,9 @@ type Configurator struct {
 
 // NewConfigurator creates a new Configurator instance
 func NewConfigurator(bus event.Bus, log *zap.Logger) *Configurator {
+	if log == nil {
+		log = zap.NewNop()
+	}
 	return &Configurator{
 		bus:            bus,
 		log:            log,
@@ -40,12 +43,13 @@ func (c *Configurator) GetConfig(ctx context.Context) (api.Config, error) {
 
 	path := fmt.Sprintf("get-logs-config-%d", c.opCounter.Add(1))
 	sub, err := eventbus.NewSubscriber(ctx, c.bus, api.System, api.ConfigState, func(e event.Event) {
-		if e.Path == path {
-			if cfg, ok := e.Data.(api.Config); ok {
-				select {
-				case configCh <- cfg:
-				case <-ctx.Done():
-				}
+		if e.Path != path {
+			return
+		}
+		if cfg, ok := e.Data.(api.Config); ok {
+			select {
+			case configCh <- cfg:
+			case <-ctx.Done():
 			}
 		}
 	})
@@ -76,12 +80,13 @@ func (c *Configurator) SetConfig(ctx context.Context, cfg api.Config) error {
 
 	path := fmt.Sprintf("set-logs-config-%d", c.opCounter.Add(1))
 	sub, err := eventbus.NewSubscriber(ctx, c.bus, api.System, api.ConfigState, func(e event.Event) {
-		if e.Path == path {
-			if confirm, ok := e.Data.(api.Config); ok {
-				select {
-				case confirmCh <- confirm:
-				case <-ctx.Done():
-				}
+		if e.Path != path {
+			return
+		}
+		if confirm, ok := e.Data.(api.Config); ok {
+			select {
+			case confirmCh <- confirm:
+			case <-ctx.Done():
 			}
 		}
 	})
@@ -141,9 +146,9 @@ func (c *Configurator) RestoreBaseConfig(ctx context.Context) {
 	if c.baseConfig != nil {
 		if err := c.SetConfig(ctx, *c.baseConfig); err != nil {
 			c.log.Error("failed to restore base logging config", zap.Error(err))
-		} else {
-			c.log.Debug("base logging config restored")
+			return
 		}
+		c.log.Debug("base logging config restored")
 	}
 }
 

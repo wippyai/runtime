@@ -168,11 +168,6 @@ func PropagatedPairs(ctx context.Context) []Pair {
 	return pairs
 }
 
-// CallFromContext is deprecated. Use FrameFromContext instead.
-func CallFromContext(ctx context.Context) FrameContext {
-	return FrameFromContext(ctx)
-}
-
 // ReleaseFrameContext decrements refcount and triggers chain collapse when zero.
 // Only pools the frame when all references (including children) are released.
 func ReleaseFrameContext(fc FrameContext) {

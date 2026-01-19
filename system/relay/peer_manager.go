@@ -23,8 +23,14 @@ type PeerManager struct {
 	stopOnce   sync.Once
 }
 
+const peerEventPattern = "peer.(register|delete)"
+
 // NewPeerManager creates a new PeerManager.
 func NewPeerManager(router *Router, bus event.Bus, logger *zap.Logger) *PeerManager {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+
 	return &PeerManager{
 		router: router,
 		bus:    bus,
@@ -40,7 +46,7 @@ func (m *PeerManager) Start(ctx context.Context) error {
 		ctx,
 		m.bus,
 		api.System,
-		"peer.(register|delete)",
+		peerEventPattern,
 		m.handleEvent,
 	)
 	if err != nil {

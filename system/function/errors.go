@@ -11,27 +11,27 @@ var (
 )
 
 func NewInvalidHandlerError(id registry.ID) apierror.Error {
-	return apierror.New(apierror.Internal, "invalid handler type for target: "+id.String()).
+	return apierror.New(apierror.Internal, "invalid handler type for target").
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"target": id.String()}))
 }
 
 func NewFrameContextError(err error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to set frame context: "+err.Error()).
+	return apierror.New(apierror.Internal, "failed to set frame context").
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
 		WithCause(err)
 }
 
 func NewSubscriberError(err error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to create subscriber: "+err.Error()).
-		WithRetryable(apierror.False).
+	return apierror.New(apierror.Internal, "failed to create subscriber").
+		WithRetryable(apierror.True).
 		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
 		WithCause(err)
 }
 
 func NewHandlerNotFoundError(id registry.ID) apierror.Error {
-	return apierror.New(apierror.NotFound, "no handler registered for target: "+id.String()).
+	return apierror.New(apierror.NotFound, "no handler registered for target").
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"target": id.String()}))
 }

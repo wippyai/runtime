@@ -12,6 +12,9 @@ type zapAdapter struct {
 
 // NewZapAdapter creates a Temporal logger from a zap logger
 func NewZapAdapter(logger *zap.Logger) log.Logger {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &zapAdapter{zap: logger}
 }
 

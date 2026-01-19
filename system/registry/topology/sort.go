@@ -251,7 +251,7 @@ func CreateChangeSetFromEntries(entries []registry.Entry, resolver registry.Depe
 	cs := make(registry.ChangeSet, 0, len(sorted))
 	for _, entry := range sorted {
 		cs = append(cs, registry.Operation{
-			Kind:  registry.Create,
+			Kind:  registry.EntryCreate,
 			Entry: entry,
 		})
 	}

@@ -51,7 +51,7 @@ local function main()
 
         elseif topic == "ws.message" then
             -- Echo message back to client
-            if client_pid then
+            if type(client_pid) == "string" then
                 process.send(client_pid, "ws.message", payload)
             end
         end

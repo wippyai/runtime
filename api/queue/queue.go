@@ -27,6 +27,7 @@ type Queue struct {
 	Options  attrs.Attributes // Queue configuration options
 }
 
+// Manager provides queue publishing and lookup operations.
 type Manager interface {
 	Publish(ctx context.Context, queue registry.ID, msgs ...*Message) error
 	GetDriver(id registry.ID) (Driver, bool)

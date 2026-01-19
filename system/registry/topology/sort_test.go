@@ -108,7 +108,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 			},
 			want: registry.ChangeSet{
 				{
-					Kind: registry.Create,
+					Kind: registry.EntryCreate,
 					Entry: makeEntryWithMeta(
 						id("service.url"),
 						"listener",
@@ -129,23 +129,23 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 			},
 			want: registry.ChangeSet{
 				{
-					Kind:  registry.Create,
+					Kind:  registry.EntryCreate,
 					Entry: makeEntry(id("listener.bool"), "listener", "true"),
 				},
 				{
-					Kind:  registry.Create,
+					Kind:  registry.EntryCreate,
 					Entry: makeEntry(id("listener.map"), "listener", `{"a": 1, "b": 2}`),
 				},
 				{
-					Kind:  registry.Create,
+					Kind:  registry.EntryCreate,
 					Entry: makeEntry(id("listener.number"), "listener", "123"),
 				},
 				{
-					Kind:  registry.Create,
+					Kind:  registry.EntryCreate,
 					Entry: makeEntry(id("listener.slice"), "listener", "[1, 2, 3]"),
 				},
 				{
-					Kind:  registry.Create,
+					Kind:  registry.EntryCreate,
 					Entry: makeEntry(id("listener.string"), "listener", "hello"),
 				},
 			},
@@ -187,7 +187,7 @@ func TestCreateChangeSetFromEntries_Dependencies(t *testing.T) {
 			},
 			want: registry.ChangeSet{
 				{
-					Kind: registry.Create,
+					Kind: registry.EntryCreate,
 					Entry: makeEntryWithMeta(
 						nsID("ns1", "service.db"),
 						"service",
@@ -196,7 +196,7 @@ func TestCreateChangeSetFromEntries_Dependencies(t *testing.T) {
 					),
 				},
 				{
-					Kind: registry.Create,
+					Kind: registry.EntryCreate,
 					Entry: makeEntryWithMeta(
 						nsID("ns1", "service.api"),
 						"service",
@@ -242,7 +242,7 @@ func TestCreateChangeSetFromEntries_Dependencies(t *testing.T) {
 			},
 			want: registry.ChangeSet{
 				{
-					Kind: registry.Create,
+					Kind: registry.EntryCreate,
 					Entry: makeEntryWithMeta(
 						nsID("backend", "service.api"),
 						"service",
@@ -253,7 +253,7 @@ func TestCreateChangeSetFromEntries_Dependencies(t *testing.T) {
 					),
 				},
 				{
-					Kind: registry.Create,
+					Kind: registry.EntryCreate,
 					Entry: makeEntryWithMeta(
 						nsID("frontend", "service.cache"),
 						"service",
@@ -262,7 +262,7 @@ func TestCreateChangeSetFromEntries_Dependencies(t *testing.T) {
 					),
 				},
 				{
-					Kind: registry.Create,
+					Kind: registry.EntryCreate,
 					Entry: makeEntryWithMeta(
 						nsID("frontend", "webapp"),
 						"webapp",

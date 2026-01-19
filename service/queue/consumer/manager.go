@@ -32,6 +32,9 @@ func NewManager(
 	dtt payload.Transcoder,
 	logger *zap.Logger,
 ) *Manager {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &Manager{
 		bus:      bus,
 		queueMgr: queueMgr,

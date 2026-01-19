@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
 	contextapi "github.com/wippyai/runtime/api/context"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
 )
@@ -29,8 +30,8 @@ func TestEventConstants(t *testing.T) {
 		{"variable register", "", VariableRegister, "variable.register"},
 		{"variable delete", "", VariableDelete, "variable.delete"},
 		{"variable update", "", VariableUpdate, "variable.update"},
-		{"accepted", "", Accepted, "accept"},
-		{"rejected", "", Rejected, "reject"},
+		{"accepted", "", EnvAccept, "accept"},
+		{"rejected", "", EnvReject, "reject"},
 	}
 
 	for _, tt := range tests {
@@ -83,18 +84,22 @@ func TestError_Interface(t *testing.T) {
 		assert.Equal(t, "file path must not be empty", ErrEmptyFilePath.Error())
 	})
 
-	t.Run("NewInvalidVariableNameError has details", func(t *testing.T) {
-		err := NewInvalidVariableNameError("bad-name", "contains dash")
-		assert.Contains(t, err.Error(), "invalid environment variable name")
-		assert.Contains(t, err.Error(), "contains dash")
-		assert.Equal(t, "Invalid", err.Kind().String())
+	t.Run("Validate invalid variable name includes details", func(t *testing.T) {
+		v := Variable{Name: "bad-name"}
+		err := v.Validate()
+		require.Error(t, err)
 
-		details := err.Details()
+		apiErr, ok := err.(apierror.Error)
+		require.True(t, ok)
+		assert.Contains(t, apiErr.Error(), "invalid environment variable name")
+		assert.Equal(t, apierror.Invalid, apiErr.Kind())
+
+		details := apiErr.Details()
 		require.NotNil(t, details)
 		varName, _ := details.Get("variable")
 		assert.Equal(t, "bad-name", varName)
 		reason, _ := details.Get("reason")
-		assert.Equal(t, "contains dash", reason)
+		assert.Equal(t, "must only contain alphanumeric characters (a-z, A-Z, 0-9) and underscores", reason)
 	})
 }
 

@@ -29,6 +29,7 @@ type ValidateTokenCmd struct {
 
 var validateTokenCmdPool = sync.Pool{New: func() any { return &ValidateTokenCmd{} }}
 
+// AcquireValidateTokenCmd returns a pooled ValidateTokenCmd.
 func AcquireValidateTokenCmd() *ValidateTokenCmd {
 	return validateTokenCmdPool.Get().(*ValidateTokenCmd)
 }
@@ -49,6 +50,7 @@ type CreateTokenCmd struct {
 
 var createTokenCmdPool = sync.Pool{New: func() any { return &CreateTokenCmd{} }}
 
+// AcquireCreateTokenCmd returns a pooled CreateTokenCmd.
 func AcquireCreateTokenCmd() *CreateTokenCmd          { return createTokenCmdPool.Get().(*CreateTokenCmd) }
 func (c *CreateTokenCmd) CmdID() dispatcher.CommandID { return CreateToken }
 func (c *CreateTokenCmd) Release() {
@@ -67,6 +69,7 @@ type RevokeTokenCmd struct {
 
 var revokeTokenCmdPool = sync.Pool{New: func() any { return &RevokeTokenCmd{} }}
 
+// AcquireRevokeTokenCmd returns a pooled RevokeTokenCmd.
 func AcquireRevokeTokenCmd() *RevokeTokenCmd          { return revokeTokenCmdPool.Get().(*RevokeTokenCmd) }
 func (c *RevokeTokenCmd) CmdID() dispatcher.CommandID { return RevokeToken }
 func (c *RevokeTokenCmd) Release() {

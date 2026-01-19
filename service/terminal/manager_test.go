@@ -144,6 +144,7 @@ func TestManager_Add_DecodeError(t *testing.T) {
 	var termErr apierror.Error
 	require.ErrorAs(t, err, &termErr)
 	assert.Contains(t, termErr.Error(), "failed to decode terminal config")
+	assert.Contains(t, termErr.Details().GetString("cause", ""), assert.AnError.Error())
 }
 
 func TestManager_Delete(t *testing.T) {

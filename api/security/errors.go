@@ -1,113 +1,37 @@
 package security
 
-import "github.com/wippyai/runtime/api/attrs"
+import apierror "github.com/wippyai/runtime/api/error"
 
 // Error kind constants.
 const (
-	NotFound Kind = "NotFound"
-	Invalid  Kind = "Invalid"
-	Expired  Kind = "Expired"
-	Revoked  Kind = "Revoked"
-	Denied   Kind = "Denied"
+	NotFound apierror.Kind = apierror.NotFound
+	Invalid  apierror.Kind = apierror.Invalid
+	Expired  apierror.Kind = "Expired"
+	Revoked  apierror.Kind = "Revoked"
+	Denied   apierror.Kind = apierror.PermissionDenied
 )
 
 // Errors returned by security operations.
 var (
-	ErrNoFrameContext = &Error{
-		kind:    Invalid,
-		message: "no frame context available",
-	}
+	ErrNoFrameContext = apierror.New(Invalid, "no frame context available").WithRetryable(apierror.False)
 
-	ErrScopeNotFound = &Error{
-		kind:    NotFound,
-		message: "security scope not found in context",
-	}
+	ErrScopeNotFound = apierror.New(NotFound, "security scope not found in context").WithRetryable(apierror.False)
 
-	ErrRegistryNotFound = &Error{
-		kind:    NotFound,
-		message: "security registry not found in context",
-	}
+	ErrRegistryNotFound = apierror.New(NotFound, "security registry not found in context").WithRetryable(apierror.False)
 
-	ErrPolicyNotFound = &Error{
-		kind:    NotFound,
-		message: "policy not found",
-	}
+	ErrPolicyNotFound = apierror.New(NotFound, "policy not found").WithRetryable(apierror.False)
 
-	ErrGroupNotFound = &Error{
-		kind:    NotFound,
-		message: "policy group not found",
-	}
+	ErrGroupNotFound = apierror.New(NotFound, "policy group not found").WithRetryable(apierror.False)
 
-	ErrTokenInvalid = &Error{
-		kind:    Invalid,
-		message: "invalid token format",
-	}
+	ErrTokenInvalid = apierror.New(Invalid, "invalid token format").WithRetryable(apierror.False)
 
-	ErrTokenExpired = &Error{
-		kind:    Expired,
-		message: "token expired",
-	}
+	ErrTokenExpired = apierror.New(Expired, "token expired").WithRetryable(apierror.False)
 
-	ErrTokenRevoked = &Error{
-		kind:    Revoked,
-		message: "token revoked",
-	}
+	ErrTokenRevoked = apierror.New(Revoked, "token revoked").WithRetryable(apierror.False)
 
-	ErrTokenNotFound = &Error{
-		kind:    NotFound,
-		message: "token not found",
-	}
+	ErrTokenNotFound = apierror.New(NotFound, "token not found").WithRetryable(apierror.False)
 
-	ErrUnsupportedTokenType = &Error{
-		kind:    Invalid,
-		message: "unsupported token type",
-	}
+	ErrUnsupportedTokenType = apierror.New(Invalid, "unsupported token type").WithRetryable(apierror.False)
 
-	ErrPermissionDenied = &Error{
-		kind:    Denied,
-		message: "permission denied",
-	}
+	ErrPermissionDenied = apierror.New(Denied, "permission denied").WithRetryable(apierror.False)
 )
-
-type (
-	// Kind categorizes security errors.
-	Kind string
-
-	// Error represents a security error with metadata.
-	Error struct {
-		kind    Kind
-		message string
-		details attrs.Attributes
-		cause   error
-	}
-)
-
-func (e *Error) Error() string {
-	if e.cause != nil {
-		return e.message + ": " + e.cause.Error()
-	}
-	return e.message
-}
-func (e *Error) Kind() Kind                { return e.kind }
-func (e *Error) Details() attrs.Attributes { return e.details }
-func (e *Error) Unwrap() error             { return e.cause }
-
-// WithCause returns a new error with the given cause.
-func (e *Error) WithCause(cause error) *Error {
-	return &Error{
-		kind:    e.kind,
-		message: e.message,
-		details: e.details,
-		cause:   cause,
-	}
-}
-
-// WithDetails returns a new error with the given details.
-func (e *Error) WithDetails(details attrs.Attributes) *Error {
-	return &Error{
-		kind:    e.kind,
-		message: e.message,
-		details: details,
-		cause:   e.cause,
-	}
-}

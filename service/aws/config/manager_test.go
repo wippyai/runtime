@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	envapi "github.com/wippyai/runtime/api/env"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -262,6 +263,10 @@ func TestManager_Add(t *testing.T) {
 		err := manager.Add(ctx, entry)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported entry kind")
+		apiErr, ok := err.(apierror.Error)
+		assert.True(t, ok)
+		kind, _ := apiErr.Details().Get("kind")
+		assert.Equal(t, "invalid.kind", kind)
 	})
 
 	t.Run("unmarshal error", func(t *testing.T) {
@@ -276,6 +281,10 @@ func TestManager_Add(t *testing.T) {
 		err := manager.Add(ctx, entry)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "decode config")
+		apiErr, ok := err.(apierror.Error)
+		assert.True(t, ok)
+		cause, _ := apiErr.Details().Get("cause")
+		assert.Contains(t, cause, "unmarshal error")
 
 		// Reset transcoder for other tests
 		manager.dtt = NewMockTranscoder()
@@ -293,6 +302,10 @@ func TestManager_Add(t *testing.T) {
 		err := manager.Add(ctx, entry)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "already exists")
+		apiErr, ok := err.(apierror.Error)
+		assert.True(t, ok)
+		id, _ := apiErr.Details().Get("id")
+		assert.Equal(t, testID.String(), id)
 	})
 }
 
@@ -384,6 +397,10 @@ func TestManager_Update(t *testing.T) {
 		err := manager.Update(ctx, entry)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
+		apiErr, ok := err.(apierror.Error)
+		assert.True(t, ok)
+		id, _ := apiErr.Details().Get("id")
+		assert.Equal(t, nonExistentID.String(), id)
 	})
 
 	t.Run("wrong entry kind", func(t *testing.T) {
@@ -396,6 +413,10 @@ func TestManager_Update(t *testing.T) {
 		err := manager.Update(ctx, entry)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported entry kind")
+		apiErr, ok := err.(apierror.Error)
+		assert.True(t, ok)
+		kind, _ := apiErr.Details().Get("kind")
+		assert.Equal(t, "invalid.kind", kind)
 	})
 
 	t.Run("unmarshal error", func(t *testing.T) {
@@ -411,6 +432,10 @@ func TestManager_Update(t *testing.T) {
 		err := manager.Update(ctx, entry)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "decode config")
+		apiErr, ok := err.(apierror.Error)
+		assert.True(t, ok)
+		cause, _ := apiErr.Details().Get("cause")
+		assert.Contains(t, cause, "unmarshal error")
 
 		// Reset transcoder for other tests
 		manager.dtt = NewMockTranscoder()
@@ -470,6 +495,10 @@ func TestManager_Delete(t *testing.T) {
 		err := manager.Delete(ctx, addEntry)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
+		apiErr, ok := err.(apierror.Error)
+		assert.True(t, ok)
+		id, _ := apiErr.Details().Get("id")
+		assert.Equal(t, testID.String(), id)
 	})
 
 	t.Run("wrong entry kind", func(t *testing.T) {
@@ -482,6 +511,10 @@ func TestManager_Delete(t *testing.T) {
 		err := manager.Delete(ctx, entry)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported entry kind")
+		apiErr, ok := err.(apierror.Error)
+		assert.True(t, ok)
+		kind, _ := apiErr.Details().Get("kind")
+		assert.Equal(t, "invalid.kind", kind)
 	})
 }
 
@@ -527,6 +560,10 @@ func TestManager_Acquire(t *testing.T) {
 		res, err := manager.Acquire(ctx, nonExistentID, resource.ModeNormal)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
+		apiErr, ok := err.(apierror.Error)
+		assert.True(t, ok)
+		id, _ := apiErr.Details().Get("id")
+		assert.Equal(t, nonExistentID.String(), id)
 		assert.Nil(t, res)
 	})
 

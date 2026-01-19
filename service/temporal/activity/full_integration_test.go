@@ -230,7 +230,7 @@ func testFullStackWorkflow(ctx workflow.Context, activityName string, input inte
 func registerFunction(t *testing.T, ctx context.Context, bus event.Bus, funcID registry.ID, handler function.Func) {
 	var wg sync.WaitGroup
 	sub, err := eventbus.NewSubscriber(ctx, bus, function.System, "function.*", func(evt event.Event) {
-		if evt.Kind == function.Accept && evt.Path == funcID.String() {
+		if evt.Kind == function.FunctionAccept && evt.Path == funcID.String() {
 			wg.Done()
 		}
 	})
@@ -240,7 +240,7 @@ func registerFunction(t *testing.T, ctx context.Context, bus event.Bus, funcID r
 	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: function.System,
-		Kind:   function.Register,
+		Kind:   function.FunctionRegister,
 		Path:   funcID.String(),
 		Data: &function.FuncEntry{
 			Handler: handler,

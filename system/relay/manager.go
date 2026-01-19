@@ -21,8 +21,14 @@ type NodeManager struct {
 	stopOnce   sync.Once
 }
 
+const hostEventPattern = "host.(register|delete)"
+
 // NewNodeManager creates a new node manager instance that wraps a Node
 func NewNodeManager(node *Node, bus event.Bus, logger *zap.Logger) *NodeManager {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+
 	return &NodeManager{
 		node:   node,
 		bus:    bus,
@@ -39,7 +45,7 @@ func (m *NodeManager) Start(ctx context.Context) error {
 		ctx,
 		m.bus,
 		api.System,
-		"host.(register|delete)",
+		hostEventPattern,
 		m.handleEvent,
 	)
 	if err != nil {

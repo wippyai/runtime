@@ -237,7 +237,7 @@ func TestFactoryRegistry_CreateNotFound(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, proc)
 	assert.Nil(t, meta)
-	assert.Contains(t, err.Error(), "no factory registered")
+	assert.Contains(t, err.Error(), "factory not found")
 }
 
 func TestFactoryRegistry_CreateFactoryError(t *testing.T) {

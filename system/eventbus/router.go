@@ -118,6 +118,11 @@ func StartRouter(ctx context.Context, bus event.Bus, opts ...RouterOption) (*Eve
 	return r, nil
 }
 
+// AddHandler registers a new handler with the router.
+func (r *EventRouter) AddHandler(h EventHandler) error {
+	return r.addHandler(h)
+}
+
 // Stop gracefully shuts down the router and all its subscriptions.
 // It cancels the internal context and waits for all subscribers to close.
 // Returns any error encountered during shutdown.

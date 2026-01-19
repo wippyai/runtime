@@ -23,6 +23,15 @@ func (r *testReceiver) CompleteYield(_ uint64, data any, _ error) {
 	r.fn(data)
 }
 
+func waitDone(t *testing.T, done <-chan struct{}, label string) {
+	t.Helper()
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatalf("timeout waiting for %s", label)
+	}
+}
+
 func setupTestContext() (context.Context, *resource.Store) {
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
 	store := resource.NewStore()
@@ -159,7 +168,7 @@ func TestStreamReadHandler(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	<-done
+	waitDone(t, done, "read handler")
 
 	buf, ok := emitted.(*streamapi.Buffer)
 	if !ok {
@@ -197,7 +206,7 @@ func TestStreamReadHandlerEOF(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	<-done
+	waitDone(t, done, "read handler EOF")
 
 	if emitted != nil {
 		t.Errorf("expected nil for EOF, got %v", emitted)
@@ -228,7 +237,7 @@ func TestStreamCloseHandler(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	<-done
+	waitDone(t, done, "close handler")
 
 	// Second close should still complete but stream is already gone
 	done2 := make(chan struct{})
@@ -274,7 +283,7 @@ func TestStreamFullCycle(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read %d error: %v", i, err)
 		}
-		<-done
+		waitDone(t, done, "read chunk")
 		if buf, ok := emitted.(*streamapi.Buffer); ok {
 			chunks = append(chunks, string(buf.Bytes()))
 			buf.Release()
@@ -295,7 +304,7 @@ func TestStreamFullCycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("close error: %v", err)
 	}
-	<-done
+	waitDone(t, done, "close handler")
 }
 
 func TestDispatcher_RegisterAll(t *testing.T) {

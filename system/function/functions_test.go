@@ -8,6 +8,7 @@ import (
 	"time"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/process"
 	relayapi "github.com/wippyai/runtime/api/relay"
@@ -63,7 +64,7 @@ func TestFunctions_InvalidEvents(t *testing.T) {
 			name: "invalid register handler data",
 			evt: event.Event{
 				System: function.System,
-				Kind:   function.Register,
+				Kind:   function.FunctionRegister,
 				Path:   "test.handler",
 				Data:   "invalid data",
 			},
@@ -72,7 +73,7 @@ func TestFunctions_InvalidEvents(t *testing.T) {
 			name: "invalid delete handler data",
 			evt: event.Event{
 				System: function.System,
-				Kind:   function.Delete,
+				Kind:   function.FunctionDelete,
 				Path:   "test.handler",
 				Data:   "invalid data",
 			},
@@ -117,7 +118,7 @@ func TestFunctions_EventResponses(t *testing.T) {
 		function.System,
 		"function.*",
 		func(evt event.Event) {
-			if evt.Kind == function.Accept || evt.Kind == function.Reject {
+			if evt.Kind == function.FunctionAccept || evt.Kind == function.FunctionReject {
 				mu.Lock()
 				responses = append(responses, evt)
 				mu.Unlock()
@@ -138,7 +139,7 @@ func TestFunctions_EventResponses(t *testing.T) {
 			name: "valid function registration",
 			event: event.Event{
 				System: function.System,
-				Kind:   function.Register,
+				Kind:   function.FunctionRegister,
 				Path:   "default:test.handler",
 				Data: &function.FuncEntry{
 					Handler: func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
@@ -147,38 +148,38 @@ func TestFunctions_EventResponses(t *testing.T) {
 					Options: nil,
 				},
 			},
-			expectedKind: function.Accept,
+			expectedKind: function.FunctionAccept,
 			expectedPath: "default:test.handler",
 		},
 		{
 			name: "invalid function registration",
 			event: event.Event{
 				System: function.System,
-				Kind:   function.Register,
+				Kind:   function.FunctionRegister,
 				Path:   "invalid:handler",
 				Data:   "not a function",
 			},
-			expectedKind: function.Reject,
+			expectedKind: function.FunctionReject,
 			expectedPath: "invalid:handler",
 		},
 		{
 			name: "delete existing function",
 			event: event.Event{
 				System: function.System,
-				Kind:   function.Delete,
+				Kind:   function.FunctionDelete,
 				Path:   "default:test.handler",
 			},
-			expectedKind: function.Accept,
+			expectedKind: function.FunctionAccept,
 			expectedPath: "default:test.handler",
 		},
 		{
 			name: "delete non-existent function",
 			event: event.Event{
 				System: function.System,
-				Kind:   function.Delete,
+				Kind:   function.FunctionDelete,
 				Path:   "nonexistent:handler",
 			},
-			expectedKind: function.Reject,
+			expectedKind: function.FunctionReject,
 			expectedPath: "nonexistent:handler",
 		},
 	}
@@ -241,7 +242,7 @@ func TestFunctions_Execute(t *testing.T) {
 		function.System,
 		"function.*",
 		func(evt event.Event) {
-			if evt.Kind == function.Accept {
+			if evt.Kind == function.FunctionAccept {
 				wg.Done()
 			}
 		},
@@ -269,7 +270,7 @@ func TestFunctions_Execute(t *testing.T) {
 				wg.Add(1) // Wait for registration acceptance
 				bus.Send(ctx, event.Event{
 					System: function.System,
-					Kind:   function.Register,
+					Kind:   function.FunctionRegister,
 					Path:   target.String(),
 					Data: &function.FuncEntry{
 						Handler: handler,
@@ -289,7 +290,7 @@ func TestFunctions_Execute(t *testing.T) {
 				ID:       registry.NewID("nonexistent", "handler"),
 				Payloads: []payload.Payload{payload.New("test input")},
 			},
-			expectedErr: "no handler registered for target: nonexistent:handler",
+			expectedErr: "no handler registered for target",
 		},
 		{
 			name: "handler returns error",
@@ -302,7 +303,7 @@ func TestFunctions_Execute(t *testing.T) {
 				wg.Add(1) // Wait for registration acceptance
 				bus.Send(ctx, event.Event{
 					System: function.System,
-					Kind:   function.Register,
+					Kind:   function.FunctionRegister,
 					Path:   target.String(),
 					Data: &function.FuncEntry{
 						Handler: handler,
@@ -330,6 +331,14 @@ func TestFunctions_Execute(t *testing.T) {
 			if tt.expectedErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.expectedErr)
+				if tt.task.ID.String() == "nonexistent:handler" {
+					apiErr, ok := err.(apierror.Error)
+					require.True(t, ok)
+					details := apiErr.Details()
+					require.NotNil(t, details)
+					target, _ := details.Get("target")
+					assert.Equal(t, "nonexistent:handler", target)
+				}
 				return
 			}
 
@@ -364,7 +373,7 @@ func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
 		function.System,
 		"function.*",
 		func(evt event.Event) {
-			if evt.Kind == function.Accept {
+			if evt.Kind == function.FunctionAccept {
 				wg.Done()
 			}
 		},
@@ -386,7 +395,7 @@ func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
 
 			bus.Send(ctx, event.Event{
 				System: function.System,
-				Kind:   function.Register,
+				Kind:   function.FunctionRegister,
 				Path:   target.String(),
 				Data: &function.FuncEntry{
 					Handler: handler,
@@ -451,12 +460,12 @@ func TestFunctions_CallErrorHandling(t *testing.T) {
 		{
 			name:        "non-existent handler",
 			task:        runtime.Task{ID: registry.ParseID("nonexistent:handler")},
-			expectedErr: "no handler registered for target: nonexistent:handler",
+			expectedErr: "no handler registered for target",
 		},
 		{
 			name:        "invalid handler type",
 			task:        runtime.Task{ID: registry.ParseID("invalid:handler")},
-			expectedErr: "invalid handler type for target: invalid:handler",
+			expectedErr: "invalid handler type for target",
 		},
 	}
 
@@ -467,7 +476,13 @@ func TestFunctions_CallErrorHandling(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ch, err := executor.Call(ctx, tt.task)
 			require.Error(t, err)
-			assert.Equal(t, tt.expectedErr, err.Error())
+			assert.Contains(t, err.Error(), tt.expectedErr)
+			apiErr, ok := err.(apierror.Error)
+			require.True(t, ok)
+			details := apiErr.Details()
+			require.NotNil(t, details)
+			target, _ := details.Get("target")
+			assert.Equal(t, tt.task.ID.String(), target)
 			assert.Nil(t, ch)
 		})
 	}
@@ -563,7 +578,7 @@ func TestFunctions_EdgeCases(t *testing.T) {
 	t.Run("register with empty path", func(t *testing.T) {
 		bus.Send(ctx, event.Event{
 			System: function.System,
-			Kind:   function.Register,
+			Kind:   function.FunctionRegister,
 			Path:   "",
 			Data: &function.FuncEntry{
 				Handler: func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
@@ -584,7 +599,7 @@ func TestFunctions_EdgeCases(t *testing.T) {
 	t.Run("register nil function", func(t *testing.T) {
 		bus.Send(ctx, event.Event{
 			System: function.System,
-			Kind:   function.Register,
+			Kind:   function.FunctionRegister,
 			Path:   "test:nil-function",
 			Data:   nil,
 		})
@@ -600,7 +615,7 @@ func TestFunctions_EdgeCases(t *testing.T) {
 	t.Run("delete empty path", func(t *testing.T) {
 		bus.Send(ctx, event.Event{
 			System: function.System,
-			Kind:   function.Delete,
+			Kind:   function.FunctionDelete,
 			Path:   "",
 		})
 

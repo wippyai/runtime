@@ -402,9 +402,15 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 
 // Stop shuts down the dispatcher and drains pending jobs.
 func (d *Dispatcher) Stop(_ context.Context) error {
-	d.cancel()
-	close(d.jobs)
+	if d.cancel != nil {
+		d.cancel()
+	}
+	if d.jobs != nil {
+		close(d.jobs)
+	}
 	d.wg.Wait()
+	d.jobs = nil
+	d.cancel = nil
 	return nil
 }
 
@@ -416,9 +422,17 @@ func (d *Dispatcher) worker() {
 }
 
 func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) {
+	j := job{ctx: ctx, cmd: cmd, tag: tag, receiver: receiver}
+	if d.jobs == nil {
+		d.execute(j)
+		return
+	}
+
 	select {
-	case d.jobs <- job{ctx: ctx, cmd: cmd, tag: tag, receiver: receiver}:
+	case d.jobs <- j:
 	case <-d.ctx.Done():
+	default:
+		d.execute(j)
 	}
 }
 

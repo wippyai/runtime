@@ -68,7 +68,7 @@ func changesCreate(l *lua.LState) int {
 	}
 
 	changes.ops = append(changes.ops, regapi.Operation{
-		Kind:  regapi.Create,
+		Kind:  regapi.EntryCreate,
 		Entry: entry,
 	})
 
@@ -96,7 +96,7 @@ func changesUpdate(l *lua.LState) int {
 	}
 
 	changes.ops = append(changes.ops, regapi.Operation{
-		Kind:  regapi.Update,
+		Kind:  regapi.EntryUpdate,
 		Entry: entry,
 	})
 
@@ -134,7 +134,7 @@ func changesDelete(l *lua.LState) int {
 	}
 
 	changes.ops = append(changes.ops, regapi.Operation{
-		Kind: regapi.Delete,
+		Kind: regapi.EntryDelete,
 		Entry: regapi.Entry{
 			ID: id,
 		},

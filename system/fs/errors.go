@@ -13,31 +13,52 @@ func NewSubscriberError(err error) apierror.Error {
 }
 
 func NewGetFilesystemError(err error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to get filesystem").WithCause(err).WithRetryable(apierror.Unspecified)
+	return apierror.New(apierror.Internal, "failed to get filesystem").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
+		WithCause(err)
 }
 
 func NewCreateFilesystemError(err error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to create filesystem").WithCause(err).WithRetryable(apierror.Unspecified)
+	return apierror.New(apierror.Internal, "failed to create filesystem").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
+		WithCause(err)
 }
 
 func NewCreateDirectoryError(err error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to create directory").WithCause(err).WithRetryable(apierror.Unspecified)
+	return apierror.New(apierror.Internal, "failed to create directory").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
+		WithCause(err)
 }
 
 func NewOpenDirectoryError(err error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to open directory").WithCause(err).WithRetryable(apierror.Unspecified)
+	return apierror.New(apierror.Internal, "failed to open directory").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
+		WithCause(err)
 }
 
 func NewStatError(err error) apierror.Error {
-	return apierror.New(apierror.Internal, "stat failed").WithCause(err).WithRetryable(apierror.Unspecified)
+	return apierror.New(apierror.Internal, "stat failed").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
+		WithCause(err)
 }
 
 func NewOpenError(err error) apierror.Error {
-	return apierror.New(apierror.Internal, "open failed").WithCause(err).WithRetryable(apierror.Unspecified)
+	return apierror.New(apierror.Internal, "open failed").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
+		WithCause(err)
 }
 
 func NewGetEmbeddedFilesystemError(err error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to get embedded filesystem").WithCause(err).WithRetryable(apierror.Unspecified)
+	return apierror.New(apierror.Internal, "failed to get embedded filesystem").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
+		WithCause(err)
 }
 
 func NewUnsupportedEntryKindError(kind string) apierror.Error {
@@ -47,30 +68,36 @@ func NewUnsupportedEntryKindError(kind string) apierror.Error {
 }
 
 func NewDecodeConfigError(err error) apierror.Error {
-	return apierror.New(apierror.Invalid, "failed to decode config").WithCause(err).WithRetryable(apierror.False)
+	return apierror.New(apierror.Invalid, "failed to decode config").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
+		WithCause(err)
 }
 
 func NewFilesystemAlreadyExistsError(id string) apierror.Error {
 	return apierror.New(apierror.AlreadyExists, "filesystem "+id+" already exists").
 		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(map[string]any{"id": id}))
+		WithDetails(attrs.NewBagFrom(map[string]any{"filesystem_id": id}))
 }
 
 func NewFilesystemNotFoundError(id string) apierror.Error {
 	return apierror.New(apierror.NotFound, "filesystem "+id+" not found").
 		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(map[string]any{"id": id}))
+		WithDetails(attrs.NewBagFrom(map[string]any{"filesystem_id": id}))
 }
 
 func NewFilesystemNotFoundWithCauseError(id string, err error) apierror.Error {
 	return apierror.New(apierror.NotFound, "filesystem not found: "+id).
 		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(map[string]any{"id": id})).
+		WithDetails(attrs.NewBagFrom(map[string]any{"filesystem_id": id, "cause": err.Error()})).
 		WithCause(err)
 }
 
 func NewInvalidPathError(err error) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid path").WithCause(err).WithRetryable(apierror.False)
+	return apierror.New(apierror.Invalid, "invalid path").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
+		WithCause(err)
 }
 
 func NewUnsupportedOperationError(operation string) apierror.Error {
@@ -100,6 +127,6 @@ func NewReadOnlyOperationError(operation string) apierror.Error {
 func NewPermissionDeniedError(required, ownerMode any, cause error) apierror.Error {
 	return apierror.New(apierror.PermissionDenied, "permission denied").
 		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(map[string]any{"required": required, "ownerMode": ownerMode})).
+		WithDetails(attrs.NewBagFrom(map[string]any{"required": required, "ownerMode": ownerMode, "cause": cause.Error()})).
 		WithCause(cause)
 }

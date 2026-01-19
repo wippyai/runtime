@@ -24,10 +24,7 @@ var (
 
 	ErrNoHTTPRequest = apierror.New(apierror.Invalid, "no HTTP request in context").
 				WithRetryable(apierror.False)
-)
 
-// NewInvalidPoolSizeError returns an error for invalid pool size.
-func NewInvalidPoolSizeError() apierror.Error {
-	return apierror.New(apierror.Invalid, "pool.size must be > 0 for static pools").
-		WithRetryable(apierror.False)
-}
+	ErrInvalidPoolSize = apierror.New(apierror.Invalid, "pool.size must be > 0 for static pools").
+				WithRetryable(apierror.False)
+)

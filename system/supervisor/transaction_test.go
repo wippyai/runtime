@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/supervisor"
 	"go.uber.org/zap"
 )
@@ -111,10 +112,11 @@ func TestTransactionHelper_Commit_RemoveError(t *testing.T) {
 		return
 	}
 
-	expectedError := "failed to remove service service3 during commit: remove error"
-	if err.Error() != expectedError {
-		t.Errorf("unexpected error message: got '%v', want '%v'", err, expectedError)
-	}
+	assert.Contains(t, err.Error(), "failed to remove service during commit")
+	apiErr, ok := err.(apierror.Error)
+	assert.True(t, ok)
+	serviceID, _ := apiErr.Details().Get("service_id")
+	assert.Equal(t, "service3", serviceID)
 }
 
 func TestTransactionHelper_Commit_RegisterError(t *testing.T) {
@@ -141,10 +143,11 @@ func TestTransactionHelper_Commit_RegisterError(t *testing.T) {
 		return
 	}
 
-	expectedError := "failed to register service service2 during commit: register error"
-	if err.Error() != expectedError {
-		t.Errorf("unexpected error message: got '%v', want '%v'", err, expectedError)
-	}
+	assert.Contains(t, err.Error(), "failed to register service during commit")
+	apiErr, ok := err.(apierror.Error)
+	assert.True(t, ok)
+	serviceID, _ := apiErr.Details().Get("service_id")
+	assert.Equal(t, "service2", serviceID)
 }
 
 func TestTransactionHelper_Commit_NoTransaction(t *testing.T) {

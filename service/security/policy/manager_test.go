@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
@@ -120,8 +121,8 @@ func TestManager_Add_UnsupportedKind(t *testing.T) {
 	}
 
 	err = manager.Add(ctx, entry)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported entry kind")
+	apiErr := requireAPIError(t, err, apierror.Invalid, "unsupported entry kind")
+	assertDetailString(t, apiErr, "kind", "other.kind")
 
 	select {
 	case <-eventCh:
@@ -257,8 +258,8 @@ func TestManager_Add_FactoryError(t *testing.T) {
 	}
 
 	err = manager.Add(ctx, entry)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to create policy entry")
+	apiErr := requireAPIError(t, err, apierror.Internal, "failed to create policy entry")
+	assertDetailString(t, apiErr, "cause", assert.AnError.Error())
 
 	select {
 	case <-eventCh:
@@ -289,8 +290,8 @@ func TestManager_Update_FactoryError(t *testing.T) {
 	}
 
 	err = manager.Update(ctx, entry)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to create policy entry")
+	apiErr := requireAPIError(t, err, apierror.Internal, "failed to create policy entry")
+	assertDetailString(t, apiErr, "cause", assert.AnError.Error())
 
 	select {
 	case <-eventCh:

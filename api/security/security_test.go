@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
 )
@@ -224,9 +225,9 @@ func TestPolicyEntry_MarshalUnmarshal(t *testing.T) {
 func TestSentinelErrors(t *testing.T) {
 	tests := []struct {
 		name     string
-		err      *Error
+		err      apierror.Error
 		expected string
-		kind     Kind
+		kind     apierror.Kind
 	}{
 		{"ErrNoFrameContext", ErrNoFrameContext, "no frame context available", Invalid},
 		{"ErrScopeNotFound", ErrScopeNotFound, "security scope not found in context", NotFound},
@@ -269,11 +270,11 @@ func TestErrorMethods(t *testing.T) {
 }
 
 func TestKindConstants(t *testing.T) {
-	assert.Equal(t, Kind("NotFound"), NotFound)
-	assert.Equal(t, Kind("Invalid"), Invalid)
-	assert.Equal(t, Kind("Expired"), Expired)
-	assert.Equal(t, Kind("Revoked"), Revoked)
-	assert.Equal(t, Kind("Denied"), Denied)
+	assert.Equal(t, apierror.Kind("NotFound"), NotFound)
+	assert.Equal(t, apierror.Kind("Invalid"), Invalid)
+	assert.Equal(t, apierror.Kind("Expired"), Expired)
+	assert.Equal(t, apierror.Kind("Revoked"), Revoked)
+	assert.Equal(t, apierror.Kind("PermissionDenied"), Denied)
 }
 
 func TestCommandPools(t *testing.T) {

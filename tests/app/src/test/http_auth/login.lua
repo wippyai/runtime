@@ -20,7 +20,7 @@ local function handler()
         return
     end
 
-    local username = data.username
+    local username = string(data.username)
     if not username or username == "" then
         res:set_status(http.STATUS.BAD_REQUEST)
         res:write_json({ error = "username required" })

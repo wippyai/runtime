@@ -12,8 +12,8 @@ local function main()
     end
 
     local payload = msg:payload():data()
-    local name = payload.name
-    local reply_to = payload.reply_to
+    local name = string(payload.name)
+    local reply_to = string(payload.reply_to)
 
     -- Register self with the given name
     local ok, err = process.registry.register(name)
@@ -45,7 +45,7 @@ local function main()
             local topic = msg:topic()
             if topic == "echo" then
                 local data = msg:payload():data()
-                process.send(data.reply_to, "echo_reply", { echoed = data.value })
+                process.send(string(data.reply_to), "echo_reply", { echoed = data.value })
             end
         end
     end

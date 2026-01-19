@@ -4,7 +4,6 @@ import (
 	"context"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
-	"github.com/wippyai/runtime/internal/uniqid"
 )
 
 var (
@@ -67,7 +66,7 @@ func GetFactory(ctx context.Context) Factory {
 }
 
 // WithPIDGenerator attaches a PID generator to the context.
-func WithPIDGenerator(ctx context.Context, gen *uniqid.PIDGenerator) context.Context {
+func WithPIDGenerator(ctx context.Context, gen PIDGenerator) context.Context {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return ctx
@@ -79,13 +78,13 @@ func WithPIDGenerator(ctx context.Context, gen *uniqid.PIDGenerator) context.Con
 }
 
 // GetPIDGenerator retrieves the PID generator from the context.
-func GetPIDGenerator(ctx context.Context) *uniqid.PIDGenerator {
+func GetPIDGenerator(ctx context.Context) PIDGenerator {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return nil
 	}
 	if val := ac.Get(generatorKey); val != nil {
-		if gen, ok := val.(*uniqid.PIDGenerator); ok {
+		if gen, ok := val.(PIDGenerator); ok {
 			return gen
 		}
 	}

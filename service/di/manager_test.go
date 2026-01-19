@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/contract"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -39,6 +40,26 @@ func (p *MockPayload) Transcode(format payload.Format) (payload.Payload, error) 
 
 func NewMockPayload(data interface{}) payload.Payload {
 	return &MockPayload{data: data, format: payload.Golang}
+}
+
+func requireAPIError(t *testing.T, err error, kind apierror.Kind, msg string) apierror.Error {
+	t.Helper()
+	require.Error(t, err)
+	apiErr, ok := err.(apierror.Error)
+	require.Truef(t, ok, "expected apierror.Error, got %T", err)
+	assert.Equal(t, kind, apiErr.Kind())
+	assert.Contains(t, err.Error(), msg)
+	return apiErr
+}
+
+func assertDetailString(t *testing.T, apiErr apierror.Error, key, expected string) {
+	t.Helper()
+	assert.Equal(t, expected, apiErr.Details().GetString(key, ""))
+}
+
+func assertDetailInt(t *testing.T, apiErr apierror.Error, key string, expected int) {
+	t.Helper()
+	assert.Equal(t, expected, apiErr.Details().GetInt(key, 0))
 }
 
 // MockTranscoder implements payload.Transcoder for testing
@@ -122,6 +143,7 @@ func TestManager_DefinitionAdd(t *testing.T) {
 	t.Run("successful definition add", func(t *testing.T) {
 		events = nil
 		entry := registry.Entry{
+			ID:   registry.NewID("test", "def1"),
 			Kind: apidi.Definition,
 			Data: NewMockPayload(&apidi.DefinitionConfig{
 				Methods: []apidi.MethodConfig{
@@ -170,23 +192,26 @@ func TestManager_DefinitionAdd(t *testing.T) {
 		}
 
 		err := manager.Add(ctx, entry)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "unsupported entry kind")
+		apiErr := requireAPIError(t, err, apierror.Invalid, "unsupported entry kind")
+		assertDetailString(t, apiErr, "kind", "invalid.kind")
 	})
 
 	t.Run("nil data", func(t *testing.T) {
 		entry := registry.Entry{
+			ID:   registry.NewID("test", "nil_definition"),
 			Kind: apidi.Definition,
 			Data: nil,
 		}
 
 		err := manager.Add(ctx, entry)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to decode definition")
+		apiErr := requireAPIError(t, err, apierror.Invalid, "failed to decode definition")
+		assertDetailString(t, apiErr, "definition_id", entry.ID.String())
+		assert.NotEmpty(t, apiErr.Details().GetString("cause", ""))
 	})
 
 	t.Run("empty method name", func(t *testing.T) {
 		entry := registry.Entry{
+			ID:   registry.NewID("test", "empty_method"),
 			Kind: apidi.Definition,
 			Data: NewMockPayload(&apidi.DefinitionConfig{
 				Methods: []apidi.MethodConfig{
@@ -196,12 +221,13 @@ func TestManager_DefinitionAdd(t *testing.T) {
 		}
 
 		err := manager.Add(ctx, entry)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "method name cannot be empty")
+		apiErr := requireAPIError(t, err, apierror.Invalid, "method name cannot be empty")
+		assertDetailString(t, apiErr, "definition_id", entry.ID.String())
 	})
 
 	t.Run("duplicate method names", func(t *testing.T) {
 		entry := registry.Entry{
+			ID:   registry.NewID("test", "duplicate_methods"),
 			Kind: apidi.Definition,
 			Data: NewMockPayload(&apidi.DefinitionConfig{
 				Methods: []apidi.MethodConfig{
@@ -212,8 +238,9 @@ func TestManager_DefinitionAdd(t *testing.T) {
 		}
 
 		err := manager.Add(ctx, entry)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "duplicate method name 'method1'")
+		apiErr := requireAPIError(t, err, apierror.Invalid, "duplicate method name")
+		assertDetailString(t, apiErr, "definition_id", entry.ID.String())
+		assertDetailString(t, apiErr, "method_name", "method1")
 	})
 
 	t.Run("schema definition without format", func(t *testing.T) {
@@ -236,19 +263,22 @@ func TestManager_DefinitionAdd(t *testing.T) {
 		}
 
 		err := manager.Add(ctx, entry)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "has a definition but no format specified")
+		apiErr := requireAPIError(t, err, apierror.Invalid, "input schema has a definition but no format specified")
+		assertDetailString(t, apiErr, "definition_id", entry.ID.String())
+		assertDetailString(t, apiErr, "method_name", "method1")
+		assertDetailInt(t, apiErr, "schema_index", 0)
 	})
 
 	t.Run("duplicate definition", func(t *testing.T) {
 		entry := registry.Entry{
+			ID:   registry.NewID("test", "def1"),
 			Kind: apidi.Definition,
 			Data: NewMockPayload(&apidi.DefinitionConfig{}),
 		}
 
 		err := manager.Add(ctx, entry)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "already exists")
+		apiErr := requireAPIError(t, err, apierror.AlreadyExists, "contract definition already exists")
+		assertDetailString(t, apiErr, "definition_id", entry.ID.String())
 	})
 }
 
@@ -306,13 +336,14 @@ func TestManager_DefinitionUpdate(t *testing.T) {
 
 	t.Run("definition not found", func(t *testing.T) {
 		updateEntry := registry.Entry{
+			ID:   registry.NewID("test", "missing_def"),
 			Kind: apidi.Definition,
 			Data: NewMockPayload(&apidi.DefinitionConfig{}),
 		}
 
 		err := manager.Update(ctx, updateEntry)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "not found for update")
+		apiErr := requireAPIError(t, err, apierror.NotFound, "contract definition not found for update")
+		assertDetailString(t, apiErr, "definition_id", updateEntry.ID.String())
 	})
 }
 
@@ -363,8 +394,8 @@ func TestManager_DefinitionDelete(t *testing.T) {
 
 	t.Run("definition not found", func(t *testing.T) {
 		err := manager.Delete(ctx, addEntry) // Try to delete again
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "not found for deletion")
+		apiErr := requireAPIError(t, err, apierror.NotFound, "contract definition not found for deletion")
+		assertDetailString(t, apiErr, "definition_id", addEntry.ID.String())
 	})
 }
 
@@ -433,9 +464,11 @@ func TestManager_BindingOperations(t *testing.T) {
 
 	t.Run("binding validation errors", func(t *testing.T) {
 		tests := []struct {
-			name        string
-			entry       registry.Entry
-			expectError string
+			name          string
+			entry         registry.Entry
+			expectedKind  apierror.Kind
+			expectedMsg   string
+			assertDetails func(*testing.T, apierror.Error)
 		}{
 			{
 				name: "wrong entry kind",
@@ -443,7 +476,11 @@ func TestManager_BindingOperations(t *testing.T) {
 					Kind: "invalid.kind",
 					Data: NewMockPayload(&apidi.BindingConfig{}),
 				},
-				expectError: "unsupported entry kind",
+				expectedKind: apierror.Invalid,
+				expectedMsg:  "unsupported entry kind",
+				assertDetails: func(t *testing.T, apiErr apierror.Error) {
+					assertDetailString(t, apiErr, "kind", "invalid.kind")
+				},
 			},
 			{
 				name: "nil data",
@@ -452,7 +489,12 @@ func TestManager_BindingOperations(t *testing.T) {
 					Kind: apidi.Binding,
 					Data: nil,
 				},
-				expectError: "failed to decode binding",
+				expectedKind: apierror.Invalid,
+				expectedMsg:  "failed to decode binding",
+				assertDetails: func(t *testing.T, apiErr apierror.Error) {
+					assertDetailString(t, apiErr, "binding_id", "test:binding-nil")
+					assert.NotEmpty(t, apiErr.Details().GetString("cause", ""))
+				},
 			},
 			{
 				name: "empty contracts",
@@ -463,7 +505,11 @@ func TestManager_BindingOperations(t *testing.T) {
 						Contracts: []apidi.BoundContractConfig{},
 					}),
 				},
-				expectError: "must bind at least one contract",
+				expectedKind: apierror.Invalid,
+				expectedMsg:  "binding must bind at least one contract",
+				assertDetails: func(t *testing.T, apiErr apierror.Error) {
+					assertDetailString(t, apiErr, "binding_id", "test:binding-empty")
+				},
 			},
 			{
 				name: "contract not found",
@@ -479,7 +525,13 @@ func TestManager_BindingOperations(t *testing.T) {
 						},
 					}),
 				},
-				expectError: "references undefined contract",
+				expectedKind: apierror.Invalid,
+				expectedMsg:  "binding references undefined contract",
+				assertDetails: func(t *testing.T, apiErr apierror.Error) {
+					assertDetailString(t, apiErr, "binding_id", "test:binding-notfound")
+					assertDetailInt(t, apiErr, "contract_index", 0)
+					assertDetailString(t, apiErr, "contract_id", "test:missing")
+				},
 			},
 			{
 				name: "missing method in binding",
@@ -498,7 +550,13 @@ func TestManager_BindingOperations(t *testing.T) {
 						},
 					}),
 				},
-				expectError: "method 'method2' defined in contract is not bound",
+				expectedKind: apierror.Invalid,
+				expectedMsg:  "contract method is not bound",
+				assertDetails: func(t *testing.T, apiErr apierror.Error) {
+					assertDetailString(t, apiErr, "binding_id", "test:binding-missing-method")
+					assertDetailString(t, apiErr, "contract_id", defID.String())
+					assertDetailString(t, apiErr, "method_name", "method2")
+				},
 			},
 			{
 				name: "extra method in binding",
@@ -518,15 +576,23 @@ func TestManager_BindingOperations(t *testing.T) {
 						},
 					}),
 				},
-				expectError: "bound method 'method999' is not defined in contract definition",
+				expectedKind: apierror.Invalid,
+				expectedMsg:  "bound method is not defined in contract definition",
+				assertDetails: func(t *testing.T, apiErr apierror.Error) {
+					assertDetailString(t, apiErr, "binding_id", "test:binding-extra-method")
+					assertDetailString(t, apiErr, "contract_id", defID.String())
+					assertDetailString(t, apiErr, "method_name", "method999")
+				},
 			},
 		}
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				err := manager.Add(ctx, tt.entry)
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.expectError)
+				apiErr := requireAPIError(t, err, tt.expectedKind, tt.expectedMsg)
+				if tt.assertDetails != nil {
+					tt.assertDetails(t, apiErr)
+				}
 			})
 		}
 	})
@@ -620,10 +686,10 @@ func TestManager_DefaultBindingValidation(t *testing.T) {
 		}
 
 		err := manager.Add(ctx, entry)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "already has default binding")
-		assert.Contains(t, err.Error(), "cannot set binding")
-		assert.Contains(t, err.Error(), "as default")
+		apiErr := requireAPIError(t, err, apierror.AlreadyExists, "contract already has default binding")
+		assertDetailString(t, apiErr, "contract_id", defID1.String())
+		assertDetailString(t, apiErr, "existing_binding_id", "test:binding1")
+		assertDetailString(t, apiErr, "new_binding_id", "test:binding2")
 	})
 
 	t.Run("different contracts can have defaults", func(t *testing.T) {
@@ -720,8 +786,10 @@ func TestManager_DefaultBindingValidation(t *testing.T) {
 		}
 
 		err = manager.Update(ctx, updateEntry)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "already has default binding")
+		apiErr := requireAPIError(t, err, apierror.AlreadyExists, "contract already has default binding")
+		assertDetailString(t, apiErr, "contract_id", defID1.String())
+		assertDetailString(t, apiErr, "existing_binding_id", "test:binding1")
+		assertDetailString(t, apiErr, "new_binding_id", "test:binding5")
 	})
 }
 
@@ -753,6 +821,7 @@ func TestManager_ValidationEdgeCases(t *testing.T) {
 	}
 
 	bindingEntry := registry.Entry{
+		ID:   registry.NewID("test", "binding1"),
 		Kind: apidi.Binding,
 		Data: NewMockPayload(&apidi.BindingConfig{
 			Contracts: []apidi.BoundContractConfig{
@@ -773,9 +842,9 @@ func TestManager_ValidationEdgeCases(t *testing.T) {
 
 	t.Run("cannot delete definition used by binding", func(t *testing.T) {
 		err := manager.Delete(ctx, defEntry)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "cannot delete contract definition")
-		assert.Contains(t, err.Error(), "it is used by binding")
+		apiErr := requireAPIError(t, err, apierror.Invalid, "contract definition is in use by binding")
+		assertDetailString(t, apiErr, "definition_id", defID.String())
+		assertDetailString(t, apiErr, "binding_id", bindingEntry.ID.String())
 	})
 
 	t.Run("definition update invalidates bindings", func(t *testing.T) {
@@ -789,9 +858,10 @@ func TestManager_ValidationEdgeCases(t *testing.T) {
 		}
 
 		err := manager.Update(ctx, updatedDefEntry)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "updating definition")
-		assert.Contains(t, err.Error(), "would invalidate binding")
+		apiErr := requireAPIError(t, err, apierror.Invalid, "definition update would invalidate binding")
+		assertDetailString(t, apiErr, "definition_id", defID.String())
+		assertDetailString(t, apiErr, "binding_id", bindingEntry.ID.String())
+		assert.NotEmpty(t, apiErr.Details().GetString("cause", ""))
 	})
 }
 
@@ -803,13 +873,15 @@ func TestManager_UnmarshalError(t *testing.T) {
 	manager.dtt = &MockTranscoder{unmarshalError: fmt.Errorf("unmarshal failed")}
 
 	entry := registry.Entry{
+		ID:   registry.NewID("test", "unmarshal_error"),
 		Kind: apidi.Definition,
 		Data: NewMockPayload("invalid data"),
 	}
 
 	err := manager.Add(ctx, entry)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to decode definition")
+	apiErr := requireAPIError(t, err, apierror.Invalid, "failed to decode definition")
+	assertDetailString(t, apiErr, "definition_id", entry.ID.String())
+	assert.NotEmpty(t, apiErr.Details().GetString("cause", ""))
 }
 
 // TestManager_DefaultBindingValidationEdgeCases tests more complex scenarios
@@ -909,10 +981,10 @@ func TestManager_DefaultBindingValidationEdgeCases(t *testing.T) {
 		}
 
 		err := manager.Add(ctx, entry)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "already has default binding")
-		assert.Contains(t, err.Error(), "multi_contract_binding")
-		assert.Contains(t, err.Error(), "cannot set binding 'test:conflicting_default' as default")
+		apiErr := requireAPIError(t, err, apierror.AlreadyExists, "contract already has default binding")
+		assertDetailString(t, apiErr, "contract_id", contractIDs[0].String())
+		assertDetailString(t, apiErr, "existing_binding_id", "test:multi_contract_binding")
+		assertDetailString(t, apiErr, "new_binding_id", "test:conflicting_default")
 	})
 
 	t.Run("attempt to add conflicting default for contract3", func(t *testing.T) {
@@ -932,8 +1004,10 @@ func TestManager_DefaultBindingValidationEdgeCases(t *testing.T) {
 		}
 
 		err := manager.Add(ctx, entry)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "already has default binding")
+		apiErr := requireAPIError(t, err, apierror.AlreadyExists, "contract already has default binding")
+		assertDetailString(t, apiErr, "contract_id", contractIDs[2].String())
+		assertDetailString(t, apiErr, "existing_binding_id", "test:multi_contract_binding")
+		assertDetailString(t, apiErr, "new_binding_id", "test:conflicting_default3")
 	})
 
 	t.Run("can add default for contract2 (no existing default)", func(t *testing.T) {
@@ -1118,9 +1192,10 @@ func TestManager_DefaultBindingUpdateScenarios(t *testing.T) {
 		}
 
 		err := manager.Update(ctx, updateEntry)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "already has default binding")
-		assert.Contains(t, err.Error(), "test:bindingB")
+		apiErr := requireAPIError(t, err, apierror.AlreadyExists, "contract already has default binding")
+		assertDetailString(t, apiErr, "contract_id", contractIDs[1].String())
+		assertDetailString(t, apiErr, "existing_binding_id", "test:bindingB")
+		assertDetailString(t, apiErr, "new_binding_id", "test:bindingA")
 	})
 
 	t.Run("remove default from bindingA for service1", func(t *testing.T) {
@@ -1479,29 +1554,10 @@ func TestManager_DefaultBindingErrorMessages(t *testing.T) {
 		}
 
 		err := manager.Add(ctx, secondEntry)
-		require.Error(t, err)
-
-		errorMsg := err.Error()
-
-		// Error should contain:
-		// 1. The contract ID that has the conflict
-		assert.Contains(t, errorMsg, contractID.String())
-
-		// 2. The existing default binding ID
-		assert.Contains(t, errorMsg, firstDefaultID.String())
-
-		// 3. The new binding ID being rejected
-		assert.Contains(t, errorMsg, secondDefaultID.String())
-
-		// 4. Clear indication of what went wrong
-		assert.Contains(t, errorMsg, "already has default binding")
-		assert.Contains(t, errorMsg, "cannot set binding")
-		assert.Contains(t, errorMsg, "as default")
-
-		// Full expected pattern
-		expectedPattern := fmt.Sprintf("contract '%s' already has default binding '%s', cannot set binding '%s' as default",
-			contractID.String(), firstDefaultID.String(), secondDefaultID.String())
-		assert.Equal(t, expectedPattern, errorMsg)
+		apiErr := requireAPIError(t, err, apierror.AlreadyExists, "contract already has default binding")
+		assertDetailString(t, apiErr, "contract_id", contractID.String())
+		assertDetailString(t, apiErr, "existing_binding_id", firstDefaultID.String())
+		assertDetailString(t, apiErr, "new_binding_id", secondDefaultID.String())
 	})
 
 	t.Run("update error message is equally descriptive", func(t *testing.T) {
@@ -1542,14 +1598,9 @@ func TestManager_DefaultBindingErrorMessages(t *testing.T) {
 		}
 
 		err = manager.Update(ctx, updateEntry)
-		require.Error(t, err)
-
-		errorMsg := err.Error()
-		assert.Contains(t, errorMsg, contractID.String())
-		assert.Contains(t, errorMsg, firstDefaultID.String()) // Existing default
-		assert.Contains(t, errorMsg, nonDefaultID.String())   // Binding being updated
-		assert.Contains(t, errorMsg, "already has default binding")
-		assert.Contains(t, errorMsg, "cannot set binding")
-		assert.Contains(t, errorMsg, "as default")
+		apiErr := requireAPIError(t, err, apierror.AlreadyExists, "contract already has default binding")
+		assertDetailString(t, apiErr, "contract_id", contractID.String())
+		assertDetailString(t, apiErr, "existing_binding_id", firstDefaultID.String())
+		assertDetailString(t, apiErr, "new_binding_id", nonDefaultID.String())
 	})
 }

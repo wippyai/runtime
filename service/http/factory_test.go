@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	apierror "github.com/wippyai/runtime/api/error"
 	apifsLib "github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/payload"
@@ -362,7 +363,10 @@ func TestStaticFactory_CreateHandler(t *testing.T) {
 
 		_, err := factory.CreateHandler(context.Background(), cfg)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "filesystem not found")
+		apiErr, ok := err.(apierror.Error)
+		require.True(t, ok)
+		assert.Contains(t, apiErr.Error(), "filesystem not found")
+		assert.Equal(t, "test:nonexistent", apiErr.Details().GetString("filesystem_id", ""))
 	})
 
 	t.Run("SPA without index file", func(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"github.com/wippyai/runtime/api/topology"
 )
 
+// ProcessService identifies process service entries in the registry.
 const ProcessService = "process.service"
 
 // ServiceConfig provides configuration for a process service with lifecycle management.

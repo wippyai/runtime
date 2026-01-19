@@ -33,6 +33,7 @@ type ListObjectsCmd struct {
 
 var listObjectsCmdPool = sync.Pool{New: func() any { return &ListObjectsCmd{} }}
 
+// AcquireListObjectsCmd returns a pooled ListObjectsCmd.
 func AcquireListObjectsCmd() *ListObjectsCmd          { return listObjectsCmdPool.Get().(*ListObjectsCmd) }
 func (c *ListObjectsCmd) CmdID() dispatcher.CommandID { return ListObjects }
 func (c *ListObjectsCmd) Release() {
@@ -57,6 +58,7 @@ type DownloadObjectCmd struct {
 
 var downloadObjectCmdPool = sync.Pool{New: func() any { return &DownloadObjectCmd{} }}
 
+// AcquireDownloadObjectCmd returns a pooled DownloadObjectCmd.
 func AcquireDownloadObjectCmd() *DownloadObjectCmd {
 	return downloadObjectCmdPool.Get().(*DownloadObjectCmd)
 }
@@ -83,6 +85,7 @@ type UploadObjectCmd struct {
 
 var uploadObjectCmdPool = sync.Pool{New: func() any { return &UploadObjectCmd{} }}
 
+// AcquireUploadObjectCmd returns a pooled UploadObjectCmd.
 func AcquireUploadObjectCmd() *UploadObjectCmd         { return uploadObjectCmdPool.Get().(*UploadObjectCmd) }
 func (c *UploadObjectCmd) CmdID() dispatcher.CommandID { return UploadObject }
 func (c *UploadObjectCmd) Release() {
@@ -105,6 +108,7 @@ type DeleteObjectsCmd struct {
 
 var deleteObjectsCmdPool = sync.Pool{New: func() any { return &DeleteObjectsCmd{} }}
 
+// AcquireDeleteObjectsCmd returns a pooled DeleteObjectsCmd.
 func AcquireDeleteObjectsCmd() *DeleteObjectsCmd {
 	return deleteObjectsCmdPool.Get().(*DeleteObjectsCmd)
 }
@@ -129,6 +133,7 @@ type PresignedGetURLCmd struct {
 
 var presignedGetURLCmdPool = sync.Pool{New: func() any { return &PresignedGetURLCmd{} }}
 
+// AcquirePresignedGetURLCmd returns a pooled PresignedGetURLCmd.
 func AcquirePresignedGetURLCmd() *PresignedGetURLCmd {
 	return presignedGetURLCmdPool.Get().(*PresignedGetURLCmd)
 }
@@ -157,6 +162,7 @@ type PresignedPutURLCmd struct {
 
 var presignedPutURLCmdPool = sync.Pool{New: func() any { return &PresignedPutURLCmd{} }}
 
+// AcquirePresignedPutURLCmd returns a pooled PresignedPutURLCmd.
 func AcquirePresignedPutURLCmd() *PresignedPutURLCmd {
 	return presignedPutURLCmdPool.Get().(*PresignedPutURLCmd)
 }

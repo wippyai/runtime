@@ -27,11 +27,11 @@ func TestRollbackToV0(t *testing.T) {
 			}
 			for _, op := range changes {
 				switch op.Kind {
-				case registry.Create:
+				case registry.EntryCreate:
 					stateMap[op.Entry.ID] = op.Entry
-				case registry.Update:
+				case registry.EntryUpdate:
 					stateMap[op.Entry.ID] = op.Entry
-				case registry.Delete:
+				case registry.EntryDelete:
 					delete(stateMap, op.Entry.ID)
 				}
 			}
@@ -59,7 +59,7 @@ func TestRollbackToV0(t *testing.T) {
 	entryID := registry.NewID("test", "entry1")
 
 	v1, err := reg.Apply(ctx, registry.ChangeSet{
-		{Kind: registry.Create, Entry: registry.Entry{
+		{Kind: registry.EntryCreate, Entry: registry.Entry{
 			ID:   entryID,
 			Kind: "service",
 			Data: payload.NewString("v1"),
@@ -68,7 +68,7 @@ func TestRollbackToV0(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = reg.Apply(ctx, registry.ChangeSet{
-		{Kind: registry.Update, Entry: registry.Entry{
+		{Kind: registry.EntryUpdate, Entry: registry.Entry{
 			ID:   entryID,
 			Kind: "service",
 			Data: payload.NewString("v2"),

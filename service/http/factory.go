@@ -209,7 +209,8 @@ func (f *StaticFactory) CreateHandler(_ context.Context, cfg *config.StaticConfi
 	} else {
 		handler = http.FileServer(http.FS(fsys))
 
-		if cfg.Directory != "" {
+		// Always strip the path prefix so the file server receives paths relative to the fs root
+		if cfg.Path != "" && cfg.Path != "/" {
 			handler = http.StripPrefix(cfg.Path, handler)
 		}
 

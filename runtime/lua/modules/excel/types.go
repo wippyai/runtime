@@ -1,35 +1,30 @@
 package excel
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
 // Workbook type
-var workbookType = &types.InterfaceType{
-	Name: "excel.Workbook",
-	Methods: map[string]*types.FunctionType{
-		"new_sheet":      types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Number, types.Optional(types.LuaError)}),
-		"get_sheet_list": types.NewFunction([]types.Type{types.Self}, []types.Type{types.NewArray(types.String, false), types.Optional(types.LuaError)}),
-		"get_rows":       types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.NewArray(types.NewArray(types.String, false), false), types.Optional(types.LuaError)}),
-		"set_cell_value": types.NewFunction([]types.Type{types.Self, types.String, types.String, types.Any}, []types.Type{types.Optional(types.LuaError)}),
-		"write_to":       types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{types.Optional(types.LuaError)}),
-		"close":          types.NewFunction([]types.Type{types.Self}, []types.Type{types.Optional(types.LuaError)}),
-	},
-}
+var workbookType = typ.NewInterface("excel.Workbook", []typ.Method{
+	{Name: "new_sheet", Type: typ.Func().Param("self", typ.Self).Param("name", typ.String).Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "get_sheet_list", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewArray(typ.String), typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "get_rows", Type: typ.Func().Param("self", typ.Self).Param("sheet", typ.String).Returns(typ.NewArray(typ.NewArray(typ.String)), typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "set_cell_value", Type: typ.Func().Param("self", typ.Self).Param("sheet", typ.String).Param("cell", typ.String).Param("value", typ.Any).Returns(typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "write_to", Type: typ.Func().Param("self", typ.Self).Param("dest", typ.Any).Returns(typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "close", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewOptional(typ.LuaError)).Build()},
+})
 
 // ModuleTypes returns the type manifest for the excel module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("excel")
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("excel")
 
 	m.DefineType("Workbook", workbookType)
 
-	moduleType := &types.InterfaceType{
-		Name: "excel",
-		Methods: map[string]*types.FunctionType{
-			"new":  types.NewFunction(nil, []types.Type{workbookType, types.Optional(types.LuaError)}),
-			"open": types.NewFunction([]types.Type{types.Any}, []types.Type{workbookType, types.Optional(types.LuaError)}),
-		},
-	}
+	moduleType := typ.NewInterface("excel", []typ.Method{
+		{Name: "new", Type: typ.Func().Returns(workbookType, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "open", Type: typ.Func().Param("source", typ.Any).Returns(workbookType, typ.NewOptional(typ.LuaError)).Build()},
+	})
 
 	m.SetExport(moduleType)
 	return m

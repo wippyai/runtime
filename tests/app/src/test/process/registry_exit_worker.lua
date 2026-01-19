@@ -9,7 +9,7 @@ local function main()
     end
 
     local payload = msg:payload():data()
-    local name = payload.name
+    local name = string(payload.name)
 
     -- Register self with the given name
     local ok, err = process.registry.register(name)

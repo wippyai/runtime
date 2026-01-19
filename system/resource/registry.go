@@ -26,6 +26,9 @@ type Registry struct {
 
 // NewRegistry creates a new resource registry instance
 func NewRegistry(bus event.Bus, logger *zap.Logger) *Registry {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &Registry{
 		bus:    bus,
 		logger: logger,
@@ -56,6 +59,7 @@ func (s *Registry) Start(ctx context.Context) error {
 func (s *Registry) Stop() error {
 	if s.subscriber != nil {
 		s.subscriber.Close()
+		s.subscriber = nil
 	}
 	return nil
 }

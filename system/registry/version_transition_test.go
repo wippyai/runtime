@@ -39,11 +39,11 @@ func (m *TestRunner) Transition(_ context.Context, from registry.State, cs regis
 
 	for _, op := range cs {
 		switch op.Kind {
-		case registry.Create:
+		case registry.EntryCreate:
 			stateMap[op.Entry.ID] = op.Entry
-		case registry.Update:
+		case registry.EntryUpdate:
 			stateMap[op.Entry.ID] = op.Entry
-		case registry.Delete:
+		case registry.EntryDelete:
 			delete(stateMap, op.Entry.ID)
 		}
 	}
@@ -96,7 +96,7 @@ func TestApplyVersion_ForwardWithSquashing(t *testing.T) {
 
 	// v1: Create entry
 	_, err = reg.Apply(ctx, registry.ChangeSet{
-		{Kind: registry.Create, Entry: registry.Entry{
+		{Kind: registry.EntryCreate, Entry: registry.Entry{
 			ID:   entryID,
 			Kind: "service",
 			Data: payload.NewString("v1"),
@@ -106,7 +106,7 @@ func TestApplyVersion_ForwardWithSquashing(t *testing.T) {
 
 	// v2: Update entry
 	_, err = reg.Apply(ctx, registry.ChangeSet{
-		{Kind: registry.Update, Entry: registry.Entry{
+		{Kind: registry.EntryUpdate, Entry: registry.Entry{
 			ID:   entryID,
 			Kind: "service",
 			Data: payload.NewString("v2"),
@@ -116,7 +116,7 @@ func TestApplyVersion_ForwardWithSquashing(t *testing.T) {
 
 	// v3: Update entry again
 	v3, err := reg.Apply(ctx, registry.ChangeSet{
-		{Kind: registry.Update, Entry: registry.Entry{
+		{Kind: registry.EntryUpdate, Entry: registry.Entry{
 			ID:   entryID,
 			Kind: "service",
 			Data: payload.NewString("v3"),
@@ -145,7 +145,7 @@ func TestApplyVersion_ForwardWithSquashing(t *testing.T) {
 	// Should have only one operation: Create with v3 data
 	// (Create + Update + Update = Create with final value)
 	assert.Len(t, lastTransition, 1, "Squashed changeset should have one operation")
-	assert.Equal(t, registry.Create, lastTransition[0].Kind)
+	assert.Equal(t, registry.EntryCreate, lastTransition[0].Kind)
 	assert.Equal(t, "v3", lastTransition[0].Entry.Data.Data().(string))
 
 	// Verify final state
@@ -194,7 +194,7 @@ func TestApplyVersion_BackwardWithSquashing(t *testing.T) {
 
 	// v1: Create entry1
 	v1, err := reg.Apply(ctx, registry.ChangeSet{
-		{Kind: registry.Create, Entry: registry.Entry{
+		{Kind: registry.EntryCreate, Entry: registry.Entry{
 			ID:   entry1ID,
 			Kind: "service",
 			Data: payload.NewString("entry1-v1"),
@@ -204,12 +204,12 @@ func TestApplyVersion_BackwardWithSquashing(t *testing.T) {
 
 	// v2: Create entry2, update entry1
 	_, err = reg.Apply(ctx, registry.ChangeSet{
-		{Kind: registry.Create, Entry: registry.Entry{
+		{Kind: registry.EntryCreate, Entry: registry.Entry{
 			ID:   entry2ID,
 			Kind: "service",
 			Data: payload.NewString("entry2-v2"),
 		}},
-		{Kind: registry.Update, Entry: registry.Entry{
+		{Kind: registry.EntryUpdate, Entry: registry.Entry{
 			ID:   entry1ID,
 			Kind: "service",
 			Data: payload.NewString("entry1-v2"),
@@ -219,12 +219,12 @@ func TestApplyVersion_BackwardWithSquashing(t *testing.T) {
 
 	// v3: Create entry3, delete entry2
 	_, err = reg.Apply(ctx, registry.ChangeSet{
-		{Kind: registry.Create, Entry: registry.Entry{
+		{Kind: registry.EntryCreate, Entry: registry.Entry{
 			ID:   entry3ID,
 			Kind: "service",
 			Data: payload.NewString("entry3-v3"),
 		}},
-		{Kind: registry.Delete, Entry: registry.Entry{
+		{Kind: registry.EntryDelete, Entry: registry.Entry{
 			ID:   entry2ID,
 			Kind: "service",
 		}},
@@ -293,7 +293,7 @@ func TestApplyVersion_CrossBranchWithSquashing(t *testing.T) {
 
 	// v1: Create shared entry
 	v1, err := reg.Apply(ctx, registry.ChangeSet{
-		{Kind: registry.Create, Entry: registry.Entry{
+		{Kind: registry.EntryCreate, Entry: registry.Entry{
 			ID:   entryID,
 			Kind: "service",
 			Data: payload.NewString("v1"),
@@ -303,7 +303,7 @@ func TestApplyVersion_CrossBranchWithSquashing(t *testing.T) {
 
 	// Branch 1: v2 updates shared entry
 	_, err = reg.Apply(ctx, registry.ChangeSet{
-		{Kind: registry.Update, Entry: registry.Entry{
+		{Kind: registry.EntryUpdate, Entry: registry.Entry{
 			ID:   entryID,
 			Kind: "service",
 			Data: payload.NewString("branch1-v2"),
@@ -313,7 +313,7 @@ func TestApplyVersion_CrossBranchWithSquashing(t *testing.T) {
 
 	// Branch 1: v3 updates again
 	v3, err := reg.Apply(ctx, registry.ChangeSet{
-		{Kind: registry.Update, Entry: registry.Entry{
+		{Kind: registry.EntryUpdate, Entry: registry.Entry{
 			ID:   entryID,
 			Kind: "service",
 			Data: payload.NewString("branch1-v3"),
@@ -327,7 +327,7 @@ func TestApplyVersion_CrossBranchWithSquashing(t *testing.T) {
 
 	// Branch 2: v4 (from v1) updates differently
 	_, err = reg.Apply(ctx, registry.ChangeSet{
-		{Kind: registry.Update, Entry: registry.Entry{
+		{Kind: registry.EntryUpdate, Entry: registry.Entry{
 			ID:   entryID,
 			Kind: "service",
 			Data: payload.NewString("branch2-v4"),
@@ -389,13 +389,13 @@ func TestApplyVersion_PreservesBaseline(t *testing.T) {
 		Data: payload.NewString("feature1-data"),
 	}
 	v1, err := reg.Apply(ctx, registry.ChangeSet{
-		{Kind: registry.Create, Entry: newEntry},
+		{Kind: registry.EntryCreate, Entry: newEntry},
 	})
 	require.NoError(t, err)
 
 	// v2: Update the new entry
 	_, err = reg.Apply(ctx, registry.ChangeSet{
-		{Kind: registry.Update, Entry: registry.Entry{
+		{Kind: registry.EntryUpdate, Entry: registry.Entry{
 			ID:   newEntry.ID,
 			Kind: "component",
 			Data: payload.NewString("feature1-updated"),

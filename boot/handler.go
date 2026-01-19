@@ -56,35 +56,46 @@ func (r *handlerRegistry) RegisterObserver(kinds registry.Kind, listener registr
 	r.handlers = append(r.handlers, handler)
 }
 
+// handleTransaction dispatches transaction events to the listener if it implements TransactionListener.
+func handleTransaction(ctx context.Context, kind event.Kind, listener registry.EntryListener) {
+	tx, ok := listener.(registry.TransactionListener)
+	if !ok {
+		return
+	}
+	switch kind {
+	case registry.TxBegin:
+		tx.Begin(ctx)
+	case registry.TxCommit:
+		tx.Commit(ctx)
+	case registry.TxDiscard:
+		tx.Discard(ctx)
+	}
+}
+
+// dispatchEntry calls the appropriate listener method based on event kind.
+func dispatchEntry(ctx context.Context, kind event.Kind, entry registry.Entry, listener registry.EntryListener) error {
+	switch kind {
+	case registry.EntryCreate:
+		return listener.Add(ctx, entry)
+	case registry.EntryUpdate:
+		return listener.Update(ctx, entry)
+	case registry.EntryDelete:
+		return listener.Delete(ctx, entry)
+	}
+	return nil
+}
+
 // wrapListener wraps a registry.EntryListener into an eventbus.EventHandler.
-// This is the boot-level equivalent of system/registry/events/handler.go.
+// Sends Accept/Reject events for primary handlers.
 func wrapListener(kinds registry.Kind, listener registry.EntryListener) eventbus.EventHandler {
 	w := wildcard.NewWildcard(kinds)
 
 	return eventbus.NewBaseHandler(
 		eventbus.Pattern{System: registry.System, Kind: registry.AllEvents},
 		func(ctx context.Context, evt event.Event) error {
-			bus := event.GetBus(ctx)
 			entry, ok := evt.Data.(registry.Entry)
 			if !ok {
-				// Handle transaction events
-				switch evt.Kind {
-				case registry.Begin:
-					if tx, ok := listener.(registry.TransactionListener); ok {
-						tx.Begin(ctx)
-					}
-					return nil
-				case registry.Commit:
-					if tx, ok := listener.(registry.TransactionListener); ok {
-						tx.Commit(ctx)
-					}
-					return nil
-				case registry.Discard:
-					if tx, ok := listener.(registry.TransactionListener); ok {
-						tx.Discard(ctx)
-					}
-					return nil
-				}
+				handleTransaction(ctx, evt.Kind, listener)
 				return nil
 			}
 
@@ -92,20 +103,11 @@ func wrapListener(kinds registry.Kind, listener registry.EntryListener) eventbus
 				return nil
 			}
 
-			var err error
-			switch evt.Kind {
-			case registry.Create:
-				err = listener.Add(ctx, entry)
-			case registry.Update:
-				err = listener.Update(ctx, entry)
-			case registry.Delete:
-				err = listener.Delete(ctx, entry)
-			}
-
-			if err != nil {
+			bus := event.GetBus(ctx)
+			if err := dispatchEntry(ctx, evt.Kind, entry, listener); err != nil {
 				bus.Send(ctx, event.Event{
 					System: registry.System,
-					Kind:   registry.Reject,
+					Kind:   registry.EntryReject,
 					Path:   entry.ID.String(),
 					Data:   err,
 				})
@@ -114,7 +116,7 @@ func wrapListener(kinds registry.Kind, listener registry.EntryListener) eventbus
 
 			bus.Send(ctx, event.Event{
 				System: registry.System,
-				Kind:   registry.Accept,
+				Kind:   registry.EntryAccept,
 				Path:   entry.ID.String(),
 			})
 			return nil
@@ -132,24 +134,7 @@ func wrapObserver(kinds registry.Kind, listener registry.EntryListener) eventbus
 		func(ctx context.Context, evt event.Event) error {
 			entry, ok := evt.Data.(registry.Entry)
 			if !ok {
-				// Handle transaction events
-				switch evt.Kind {
-				case registry.Begin:
-					if tx, ok := listener.(registry.TransactionListener); ok {
-						tx.Begin(ctx)
-					}
-					return nil
-				case registry.Commit:
-					if tx, ok := listener.(registry.TransactionListener); ok {
-						tx.Commit(ctx)
-					}
-					return nil
-				case registry.Discard:
-					if tx, ok := listener.(registry.TransactionListener); ok {
-						tx.Discard(ctx)
-					}
-					return nil
-				}
+				handleTransaction(ctx, evt.Kind, listener)
 				return nil
 			}
 
@@ -157,15 +142,7 @@ func wrapObserver(kinds registry.Kind, listener registry.EntryListener) eventbus
 				return nil
 			}
 
-			switch evt.Kind {
-			case registry.Create:
-				_ = listener.Add(ctx, entry)
-			case registry.Update:
-				_ = listener.Update(ctx, entry)
-			case registry.Delete:
-				_ = listener.Delete(ctx, entry)
-			}
-
+			_ = dispatchEntry(ctx, evt.Kind, entry, listener)
 			return nil
 		},
 	)

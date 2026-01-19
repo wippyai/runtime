@@ -13,6 +13,7 @@ var (
 	resolverKey = &ctxapi.Key{Name: "registry.resolver"}
 )
 
+// WithRegistry attaches a Registry instance to the provided context.
 func WithRegistry(ctx context.Context, registry Registry) context.Context {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
@@ -24,6 +25,7 @@ func WithRegistry(ctx context.Context, registry Registry) context.Context {
 	return ctx
 }
 
+// GetRegistry retrieves the registry from context.
 func GetRegistry(ctx context.Context) Registry {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
@@ -37,6 +39,7 @@ func GetRegistry(ctx context.Context) Registry {
 	return nil
 }
 
+// WithFinder attaches a Finder instance to the provided context.
 func WithFinder(ctx context.Context, finder Finder) context.Context {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
@@ -48,6 +51,7 @@ func WithFinder(ctx context.Context, finder Finder) context.Context {
 	return ctx
 }
 
+// GetFinder retrieves the finder from context.
 func GetFinder(ctx context.Context) Finder {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
@@ -73,6 +77,7 @@ func WithResolver(ctx context.Context, resolver DependencyResolver) context.Cont
 	return ctx
 }
 
+// GetResolver retrieves the dependency resolver from context.
 func GetResolver(ctx context.Context) DependencyResolver {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {

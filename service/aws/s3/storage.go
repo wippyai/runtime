@@ -27,6 +27,9 @@ type Storage struct {
 
 // NewStorage creates a new Storage instance.
 func NewStorage(client *s3.Client, bucket string, log *zap.Logger) *Storage {
+	if log == nil {
+		log = zap.NewNop()
+	}
 	return &Storage{
 		client: client,
 		bucket: bucket,

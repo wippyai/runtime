@@ -1,56 +1,51 @@
 package ostime
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
 // DateTable type returned by os.date("*t")
-var dateTableType = &types.RecordType{
-	Name: "os.DateTable",
-	Fields: []types.RecordField{
-		{Name: "year", Type: types.Number},
-		{Name: "month", Type: types.Number},
-		{Name: "day", Type: types.Number},
-		{Name: "hour", Type: types.Number},
-		{Name: "min", Type: types.Number},
-		{Name: "sec", Type: types.Number},
-		{Name: "wday", Type: types.Number},
-		{Name: "yday", Type: types.Number},
-		{Name: "isdst", Type: types.Boolean},
-	},
-}
+var dateTableType = typ.NewRecord().
+	Field("year", typ.Number).
+	Field("month", typ.Number).
+	Field("day", typ.Number).
+	Field("hour", typ.Number).
+	Field("min", typ.Number).
+	Field("sec", typ.Number).
+	Field("wday", typ.Number).
+	Field("yday", typ.Number).
+	Field("isdst", typ.Boolean).
+	Build()
 
 // ModuleTypes returns the type manifest for the os module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("os")
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("os")
 
 	m.DefineType("DateTable", dateTableType)
 
-	moduleType := &types.InterfaceType{
-		Name: "os",
-		Fields: map[string]types.Type{
-			"platform": types.String,
+	moduleType := typ.NewInterface("os", []typ.Method{
+		{
+			Name: "time",
+			Type: typ.Func().OptParam("table", typ.Any).Returns(typ.Number).Build(),
 		},
-		Methods: map[string]*types.FunctionType{
-			// os.time(table?: table): integer
-			"time": types.NewFunction(
-				[]types.Type{types.Optional(types.Any)},
-				[]types.Type{types.Number},
-			),
-			// os.date(format?: string, timestamp?: number): string | DateTable
-			"date": types.NewFunction(
-				[]types.Type{types.Optional(types.String), types.Optional(types.Number)},
-				[]types.Type{types.NewUnion(types.String, dateTableType)},
-			),
-			// os.clock(): number
-			"clock": types.NewFunction(nil, []types.Type{types.Number}),
-			// os.difftime(t2: number, t1: number): number
-			"difftime": types.NewFunction(
-				[]types.Type{types.Number, types.Number},
-				[]types.Type{types.Number},
-			),
+		{
+			Name: "date",
+			Type: typ.Func().
+				OptParam("format", typ.String).
+				OptParam("timestamp", typ.Number).
+				Returns(typ.NewUnion(typ.String, dateTableType)).
+				Build(),
 		},
-	}
+		{
+			Name: "clock",
+			Type: typ.Func().Returns(typ.Number).Build(),
+		},
+		{
+			Name: "difftime",
+			Type: typ.Func().Param("t2", typ.Number).Param("t1", typ.Number).Returns(typ.Number).Build(),
+		},
+	})
 
 	m.SetExport(moduleType)
 	return m

@@ -24,6 +24,9 @@ func NewManager(
 	factory FactoryAPI,
 	logger *zap.Logger,
 ) *Manager {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &Manager{
 		log:     logger,
 		bus:     bus,

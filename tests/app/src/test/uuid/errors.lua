@@ -24,7 +24,7 @@ local function main()
 
     -- Test version with non-string (use any to test runtime error)
     local bad_input: any = 123
-    local result5, err5 = uuid.version(bad_input)
+    local result5, err5 = uuid.version(bad_input :: string)
     assert.is_nil(result5, "version number nil result")
     assert.not_nil(err5, "version number has error")
     assert.eq(err5:kind(), errors.INVALID, "version number kind")

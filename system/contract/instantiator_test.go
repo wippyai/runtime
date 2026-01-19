@@ -9,6 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/contract"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/payload"
@@ -64,7 +65,7 @@ func TestInstantiator_Instantiate(t *testing.T) {
 
 	var wg sync.WaitGroup
 	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, "contract.*", func(evt event.Event) {
-		if evt.Kind == contract.Accept {
+		if evt.Kind == contract.ContractAccept {
 			wg.Done()
 		}
 	})
@@ -143,7 +144,7 @@ func TestInstanceImpl_ScopeValidation(t *testing.T) {
 
 	var wg sync.WaitGroup
 	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, "contract.*", func(evt event.Event) {
-		if evt.Kind == contract.Accept {
+		if evt.Kind == contract.ContractAccept {
 			wg.Done()
 		}
 	})
@@ -234,7 +235,13 @@ func TestInstanceImpl_ScopeValidation(t *testing.T) {
 			} else {
 				// Success case - expect function not found since we didn't register dummy_func
 				require.Error(t, err)
-				assert.Contains(t, err.Error(), "no handler registered for target: test:dummy_func")
+				assert.Contains(t, err.Error(), "no handler registered for target")
+				apiErr, ok := err.(apierror.Error)
+				require.True(t, ok)
+				details := apiErr.Details()
+				require.NotNil(t, details)
+				target, _ := details.Get("target")
+				assert.Equal(t, "test:dummy_func", target)
 			}
 		})
 	}
@@ -263,7 +270,7 @@ func TestInstanceImpl_Call_Integration(t *testing.T) {
 
 	// Subscribe to contract events
 	contractSub, err := eventbus.NewSubscriber(ctx, bus, contract.System, "contract.*", func(evt event.Event) {
-		if evt.Kind == contract.Accept {
+		if evt.Kind == contract.ContractAccept {
 			wg.Done()
 		}
 	})
@@ -272,7 +279,7 @@ func TestInstanceImpl_Call_Integration(t *testing.T) {
 
 	// Subscribe to function events
 	functionSub, err := eventbus.NewSubscriber(ctx, bus, function.System, "function.*", func(evt event.Event) {
-		if evt.Kind == function.Accept {
+		if evt.Kind == function.FunctionAccept {
 			wg.Done()
 		}
 	})
@@ -288,7 +295,7 @@ func TestInstanceImpl_Call_Integration(t *testing.T) {
 	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: function.System,
-		Kind:   function.Register,
+		Kind:   function.FunctionRegister,
 		Path:   funcID.String(),
 		Data: &function.FuncEntry{
 			Handler: testFunc,
@@ -369,7 +376,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 
 	var wg sync.WaitGroup
 	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, "contract.*", func(evt event.Event) {
-		if evt.Kind == contract.Accept {
+		if evt.Kind == contract.ContractAccept {
 			wg.Done()
 		}
 	})
@@ -378,7 +385,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 
 	// Subscribe to function events for waiting on registration
 	funcSub, err := eventbus.NewSubscriber(ctx, bus, function.System, "function.*", func(evt event.Event) {
-		if evt.Kind == function.Accept {
+		if evt.Kind == function.FunctionAccept {
 			wg.Done()
 		}
 	})
@@ -411,7 +418,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: function.System,
-		Kind:   function.Register,
+		Kind:   function.FunctionRegister,
 		Path:   funcID.String(),
 		Data: &function.FuncEntry{
 			Handler: testFunc,
@@ -515,7 +522,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 
 	var wg sync.WaitGroup
 	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, "contract.*", func(evt event.Event) {
-		if evt.Kind == contract.Accept {
+		if evt.Kind == contract.ContractAccept {
 			wg.Done()
 		}
 	})
@@ -523,7 +530,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 	defer sub.Close()
 
 	funcSub, err := eventbus.NewSubscriber(ctx, bus, function.System, "function.*", func(evt event.Event) {
-		if evt.Kind == function.Accept {
+		if evt.Kind == function.FunctionAccept {
 			wg.Done()
 		}
 	})
@@ -547,7 +554,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: function.System,
-		Kind:   function.Register,
+		Kind:   function.FunctionRegister,
 		Path:   funcID.String(),
 		Data: &function.FuncEntry{
 			Handler: testFunc,
@@ -682,7 +689,7 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 
 	var wg sync.WaitGroup
 	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, "contract.*", func(evt event.Event) {
-		if evt.Kind == contract.Accept {
+		if evt.Kind == contract.ContractAccept {
 			wg.Done()
 		}
 	})
@@ -691,7 +698,7 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 
 	// Subscribe to function events for waiting on registration
 	funcSub, err := eventbus.NewSubscriber(ctx, bus, function.System, "function.*", func(evt event.Event) {
-		if evt.Kind == function.Accept {
+		if evt.Kind == function.FunctionAccept {
 			wg.Done()
 		}
 	})
@@ -707,7 +714,7 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 	wg.Add(1)
 	bus.Send(ctx, event.Event{
 		System: function.System,
-		Kind:   function.Register,
+		Kind:   function.FunctionRegister,
 		Path:   funcID.String(),
 		Data: &function.FuncEntry{
 			Handler: testFunc,

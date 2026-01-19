@@ -5,6 +5,7 @@ import (
 	"context"
 
 	"github.com/wippyai/runtime/api/attrs"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
 )
@@ -28,8 +29,8 @@ const (
 
 // Event kinds for acceptance.
 const (
-	Accepted event.Kind = "accept"
-	Rejected event.Kind = "reject"
+	EnvAccept event.Kind = "accept"
+	EnvReject event.Kind = "reject"
 )
 
 type (
@@ -77,7 +78,9 @@ type (
 func (v *Variable) Validate() error {
 	for _, c := range v.Name {
 		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' {
-			return NewInvalidVariableNameError(v.Name, "must only contain alphanumeric characters (a-z, A-Z, 0-9) and underscores")
+			return apierror.New(apierror.Invalid, "invalid environment variable name: must only contain alphanumeric characters (a-z, A-Z, 0-9) and underscores").
+				WithRetryable(apierror.False).
+				WithDetails(attrs.NewBagFrom(map[string]any{"variable": v.Name, "reason": "must only contain alphanumeric characters (a-z, A-Z, 0-9) and underscores"}))
 		}
 	}
 	if v.StorageID.NS == "" || v.StorageID.Name == "" {

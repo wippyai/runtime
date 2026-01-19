@@ -10,7 +10,7 @@ import (
 func TestUnknownCommandError(t *testing.T) {
 	err := NewUnknownCommandError(999)
 
-	assert.Equal(t, "unknown command: 999", err.Error())
+	assert.Equal(t, "unknown command", err.Error())
 	assert.Equal(t, "NotFound", string(err.Kind()))
 	assert.Equal(t, "False", err.Retryable().String())
 
@@ -28,7 +28,6 @@ func TestNewInvalidFactoryEntryError(t *testing.T) {
 	err := NewInvalidFactoryEntryError("test:factory")
 
 	assert.Contains(t, err.Error(), "invalid factory entry")
-	assert.Contains(t, err.Error(), "test:factory")
 	assert.Equal(t, "Internal", string(err.Kind()))
 
 	details := err.Details()
@@ -45,4 +44,6 @@ func TestNewSubscriberError(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to create subscriber")
 	assert.Equal(t, "Internal", string(err.Kind()))
 	assert.True(t, errors.Is(err, cause))
+	detailCause, _ := err.Details().Get("cause")
+	assert.Equal(t, "subscription failed", detailCause)
 }

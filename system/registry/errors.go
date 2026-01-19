@@ -1,8 +1,6 @@
 package registry
 
 import (
-	"strconv"
-
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
@@ -10,176 +8,126 @@ import (
 
 // Sentinel errors
 var (
-	ErrNoCurrentVersion          = apierror.New(apierror.NotFound, "no current version")
-	ErrDependencyResolverNotInit = apierror.New(apierror.Internal, "dependency resolver not initialized")
-	ErrEmptyVersionPath          = apierror.New(apierror.Internal, "empty version path")
-	ErrNoCommonAncestor          = apierror.New(apierror.Internal, "no common ancestor found in version path")
+	ErrNoCurrentVersion          = apierror.New(apierror.NotFound, "no current version").WithRetryable(apierror.False)
+	ErrDependencyResolverNotInit = apierror.New(apierror.Internal, "dependency resolver not initialized").WithRetryable(apierror.False)
+	ErrEmptyVersionPath          = apierror.New(apierror.Internal, "empty version path").WithRetryable(apierror.False)
+	ErrNoCommonAncestor          = apierror.New(apierror.Internal, "no common ancestor found in version path").WithRetryable(apierror.False)
 )
 
 // NewEntryNotFoundError creates an error when an entry is not found
 func NewEntryNotFoundError(path registry.ID) apierror.Error {
-	return apierror.E(
-		apierror.NotFound,
-		"entry not found: "+path.String(),
-		apierror.False,
-		attrs.NewBagFrom(map[string]any{"path": path.String()}),
-		nil,
-	)
+	return apierror.New(apierror.NotFound, "entry not found").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"path": path.String()}))
 }
 
 // NewApplyChangesError creates an error when applying changes fails
 func NewApplyChangesError(err error, rollbackErr error) apierror.Error {
 	if rollbackErr != nil {
-		return apierror.E(
-			apierror.Internal,
-			"failed to apply changes, rollback failed: "+rollbackErr.Error(),
-			apierror.False,
-			attrs.NewBagFrom(map[string]any{"cause": err.Error(), "rollback_error": rollbackErr.Error()}),
-			err,
-		)
+		return apierror.New(apierror.Internal, "failed to apply changes").
+			WithRetryable(apierror.False).
+			WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error(), "rollback_error": rollbackErr.Error()})).
+			WithCause(err)
 	}
-	return apierror.E(
-		apierror.Internal,
-		"failed to apply changes",
-		apierror.False,
-		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
-		err,
-	)
+	return apierror.New(apierror.Internal, "failed to apply changes").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
+		WithCause(err)
 }
 
 // NewSaveVersionError creates an error when saving a new version fails
 func NewSaveVersionError(err error, rollbackErr error) apierror.Error {
 	if rollbackErr != nil {
-		return apierror.E(
-			apierror.Internal,
-			"failed to save new version, rollback failed: "+rollbackErr.Error(),
-			apierror.False,
-			attrs.NewBagFrom(map[string]any{"cause": err.Error(), "rollback_error": rollbackErr.Error()}),
-			err,
-		)
+		return apierror.New(apierror.Internal, "failed to save new version").
+			WithRetryable(apierror.False).
+			WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error(), "rollback_error": rollbackErr.Error()})).
+			WithCause(err)
 	}
-	return apierror.E(
-		apierror.Internal,
-		"failed to save new version, recovered",
-		apierror.False,
-		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
-		err,
-	)
+	return apierror.New(apierror.Internal, "failed to save new version").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
+		WithCause(err)
 }
 
 // NewGetVersionsError creates an error when getting versions fails
 func NewGetVersionsError(err error) apierror.Error {
-	return apierror.E(
-		apierror.Internal,
-		"failed to get versions from history",
-		apierror.True,
-		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
-		err,
-	)
+	return apierror.New(apierror.Internal, "failed to get versions from history").
+		WithRetryable(apierror.True).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
+		WithCause(err)
 }
 
 // NewVersionNotFoundError creates an error when a version is not found
 func NewVersionNotFoundError(versionID uint) apierror.Error {
-	return apierror.E(
-		apierror.NotFound,
-		"version not found in history",
-		apierror.False,
-		attrs.NewBagFrom(map[string]any{"version_id": versionID}),
-		nil,
-	)
+	return apierror.New(apierror.NotFound, "version not found in history").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"version_id": versionID}))
 }
 
 // NewComputePathError creates an error when computing version path fails
 func NewComputePathError(fromID, toID uint, err error) apierror.Error {
-	return apierror.E(
-		apierror.Internal,
-		"failed to compute path from v"+strconv.FormatUint(uint64(fromID), 10)+" to v"+strconv.FormatUint(uint64(toID), 10),
-		apierror.False,
-		attrs.NewBagFrom(map[string]any{"from_version": fromID, "to_version": toID, "cause": err.Error()}),
-		err,
-	)
+	return apierror.New(apierror.Internal, "failed to compute version path").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"from_version": fromID, "to_version": toID, "cause": err.Error()})).
+		WithCause(err)
 }
 
 // NewGetChangesetError creates an error when getting a changeset fails
 func NewGetChangesetError(versionID uint, err error) apierror.Error {
-	return apierror.E(
-		apierror.Internal,
-		"failed to get changeset for version v"+strconv.FormatUint(uint64(versionID), 10),
-		apierror.True,
-		attrs.NewBagFrom(map[string]any{"version_id": versionID, "cause": err.Error()}),
-		err,
-	)
+	return apierror.New(apierror.Internal, "failed to get changeset").
+		WithRetryable(apierror.True).
+		WithDetails(attrs.NewBagFrom(map[string]any{"version_id": versionID, "cause": err.Error()})).
+		WithCause(err)
 }
 
 // NewReverseChangesetError creates an error when reversing a changeset fails
 func NewReverseChangesetError(err error) apierror.Error {
-	return apierror.E(
-		apierror.Internal,
-		"failed to reverse changeset",
-		apierror.False,
-		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
-		err,
-	)
+	return apierror.New(apierror.Internal, "failed to reverse changeset").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
+		WithCause(err)
 }
 
 // NewApplyVersionChangesError creates an error when applying version changes fails
 func NewApplyVersionChangesError(err error, rollbackErr error) apierror.Error {
 	if rollbackErr != nil {
-		return apierror.E(
-			apierror.Internal,
-			"failed to apply version changes, rollback failed: "+rollbackErr.Error(),
-			apierror.False,
-			attrs.NewBagFrom(map[string]any{"cause": err.Error(), "rollback_error": rollbackErr.Error()}),
-			err,
-		)
+		return apierror.New(apierror.Internal, "failed to apply version changes").
+			WithRetryable(apierror.False).
+			WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error(), "rollback_error": rollbackErr.Error()})).
+			WithCause(err)
 	}
-	return apierror.E(
-		apierror.Internal,
-		"failed to apply version changes",
-		apierror.False,
-		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
-		err,
-	)
+	return apierror.New(apierror.Internal, "failed to apply version changes").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
+		WithCause(err)
 }
 
 // NewSetHeadError creates an error when setting the head version fails
 func NewSetHeadError(versionID uint, err error) apierror.Error {
-	return apierror.E(
-		apierror.Internal,
-		"history set head to v"+strconv.FormatUint(uint64(versionID), 10),
-		apierror.False,
-		attrs.NewBagFrom(map[string]any{"version_id": versionID, "cause": err.Error()}),
-		err,
-	)
+	return apierror.New(apierror.Internal, "failed to set head version").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"version_id": versionID, "cause": err.Error()})).
+		WithCause(err)
 }
 
 // NewLoadStateError creates an error when loading state fails
 func NewLoadStateError(err error, rollbackErr error) apierror.Error {
 	if rollbackErr != nil {
-		return apierror.E(
-			apierror.Internal,
-			"failed to load state, rollback failed: "+rollbackErr.Error(),
-			apierror.False,
-			attrs.NewBagFrom(map[string]any{"cause": err.Error(), "rollback_error": rollbackErr.Error()}),
-			err,
-		)
+		return apierror.New(apierror.Internal, "failed to load state").
+			WithRetryable(apierror.False).
+			WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error(), "rollback_error": rollbackErr.Error()})).
+			WithCause(err)
 	}
-	return apierror.E(
-		apierror.Internal,
-		"failed to load state",
-		apierror.False,
-		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
-		err,
-	)
+	return apierror.New(apierror.Internal, "failed to load state").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
+		WithCause(err)
 }
 
 // NewComputeTransitionError creates an error when computing state transition fails
 func NewComputeTransitionError(err error) apierror.Error {
-	return apierror.E(
-		apierror.Internal,
-		"failed to compute transition",
-		apierror.False,
-		attrs.NewBagFrom(map[string]any{"cause": err.Error()}),
-		err,
-	)
+	return apierror.New(apierror.Internal, "failed to compute transition").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
+		WithCause(err)
 }

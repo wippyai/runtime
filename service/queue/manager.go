@@ -25,6 +25,9 @@ type Manager struct {
 }
 
 func NewManager(bus event.Bus, logger *zap.Logger) *Manager {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	m := &Manager{
 		bus:    bus,
 		logger: logger,

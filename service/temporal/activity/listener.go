@@ -38,6 +38,9 @@ func NewListener(
 	log *zap.Logger,
 	workers WorkerRegistry,
 ) *Listener {
+	if log == nil {
+		log = zap.NewNop()
+	}
 	return &Listener{
 		log:     log,
 		workers: workers,

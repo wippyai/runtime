@@ -1,180 +1,152 @@
 package treesitter
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
 // Point type
-var pointType = &types.RecordType{
-	Name: "treesitter.Point",
-	Fields: []types.RecordField{
-		{Name: "row", Type: types.Number},
-		{Name: "column", Type: types.Number},
-	},
-}
+var pointType = typ.NewRecord().Field("row", typ.Number).Field("column", typ.Number).Build()
 
 // Range type
-var rangeType = &types.RecordType{
-	Name: "treesitter.Range",
-	Fields: []types.RecordField{
-		{Name: "start_byte", Type: types.Number},
-		{Name: "end_byte", Type: types.Number},
-		{Name: "start_point", Type: pointType},
-		{Name: "end_point", Type: pointType},
-	},
-}
+var rangeType = typ.NewRecord().Field("start_byte", typ.Number).Field("end_byte", typ.Number).Field("start_point", pointType).Field("end_point", pointType).Build()
 
 // Forward declarations for types that reference each other
 var (
-	parserType   *types.InterfaceType
-	treeType     *types.InterfaceType
-	nodeType     *types.InterfaceType
-	queryType    *types.InterfaceType
-	cursorType   *types.InterfaceType
-	languageType *types.InterfaceType
+	parserType   typ.Type
+	treeType     typ.Type
+	nodeType     typ.Type
+	queryType    typ.Type
+	cursorType   typ.Type
+	languageType typ.Type
 )
 
 func init() {
 	// Language type
-	languageType = &types.InterfaceType{
-		Name: "treesitter.Language",
-		Methods: map[string]*types.FunctionType{
-			"version":            types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number}),
-			"node_kind_count":    types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number}),
-			"parse_state_count":  types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number}),
-			"node_kind_for_id":   types.NewFunction([]types.Type{types.Self, types.Number}, []types.Type{types.String}),
-			"id_for_node_kind":   types.NewFunction([]types.Type{types.Self, types.String, types.Boolean}, []types.Type{types.Number}),
-			"node_kind_is_named": types.NewFunction([]types.Type{types.Self, types.Number}, []types.Type{types.Boolean}),
-			"field_count":        types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number}),
-			"field_name_for_id":  types.NewFunction([]types.Type{types.Self, types.Number}, []types.Type{types.String}),
-			"field_id_for_name":  types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Number}),
-		},
-	}
+	languageType = typ.NewInterface("treesitter.Language", []typ.Method{
+		{Name: "version", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
+		{Name: "node_kind_count", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
+		{Name: "parse_state_count", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
+		{Name: "node_kind_for_id", Type: typ.Func().Param("self", typ.Self).Param("id", typ.Number).Returns(typ.String).Build()},
+		{Name: "id_for_node_kind", Type: typ.Func().Param("self", typ.Self).Param("kind", typ.String).Param("named", typ.Boolean).Returns(typ.Number).Build()},
+		{Name: "node_kind_is_named", Type: typ.Func().Param("self", typ.Self).Param("id", typ.Number).Returns(typ.Boolean).Build()},
+		{Name: "field_count", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
+		{Name: "field_name_for_id", Type: typ.Func().Param("self", typ.Self).Param("id", typ.Number).Returns(typ.String).Build()},
+		{Name: "field_id_for_name", Type: typ.Func().Param("self", typ.Self).Param("name", typ.String).Returns(typ.Number).Build()},
+	})
 
-	// Node type (self-referential)
-	nodeType = &types.InterfaceType{
-		Name:    "treesitter.Node",
-		Methods: map[string]*types.FunctionType{},
-	}
-	nodeType.Methods["parent"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Optional(nodeType)})
-	nodeType.Methods["child"] = types.NewFunction([]types.Type{types.Self, types.Number}, []types.Type{types.Optional(nodeType)})
-	nodeType.Methods["child_count"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number})
-	nodeType.Methods["next_sibling"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Optional(nodeType)})
-	nodeType.Methods["prev_sibling"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Optional(nodeType)})
-	nodeType.Methods["next_named_sibling"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Optional(nodeType)})
-	nodeType.Methods["prev_named_sibling"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Optional(nodeType)})
-	nodeType.Methods["named_child"] = types.NewFunction([]types.Type{types.Self, types.Number}, []types.Type{types.Optional(nodeType)})
-	nodeType.Methods["named_child_count"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number})
-	nodeType.Methods["named_descendant_for_point_range"] = types.NewFunction([]types.Type{types.Self, pointType, pointType}, []types.Type{types.Optional(nodeType)})
-	nodeType.Methods["descendant_count"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number})
-	nodeType.Methods["child_by_field_name"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Optional(nodeType)})
-	nodeType.Methods["field_name_for_child"] = types.NewFunction([]types.Type{types.Self, types.Number}, []types.Type{types.String})
-	nodeType.Methods["kind"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.String})
-	nodeType.Methods["type"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.String})
-	nodeType.Methods["is_named"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean})
-	nodeType.Methods["grammar_name"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.String})
-	nodeType.Methods["is_extra"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean})
-	nodeType.Methods["is_missing"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean})
-	nodeType.Methods["has_error"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean})
-	nodeType.Methods["is_error"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean})
-	nodeType.Methods["start_byte"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number})
-	nodeType.Methods["end_byte"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number})
-	nodeType.Methods["start_point"] = types.NewFunction([]types.Type{types.Self}, []types.Type{pointType})
-	nodeType.Methods["end_point"] = types.NewFunction([]types.Type{types.Self}, []types.Type{pointType})
-	nodeType.Methods["text"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.String})
-	nodeType.Methods["to_sexp"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.String})
+	// Node type (methods return typ.Self for self-referential returns)
+	nodeType = typ.NewInterface("treesitter.Node", []typ.Method{
+		{Name: "parent", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewOptional(typ.Self)).Build()},
+		{Name: "child", Type: typ.Func().Param("self", typ.Self).Param("index", typ.Number).Returns(typ.NewOptional(typ.Self)).Build()},
+		{Name: "child_count", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
+		{Name: "next_sibling", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewOptional(typ.Self)).Build()},
+		{Name: "prev_sibling", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewOptional(typ.Self)).Build()},
+		{Name: "next_named_sibling", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewOptional(typ.Self)).Build()},
+		{Name: "prev_named_sibling", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewOptional(typ.Self)).Build()},
+		{Name: "named_child", Type: typ.Func().Param("self", typ.Self).Param("index", typ.Number).Returns(typ.NewOptional(typ.Self)).Build()},
+		{Name: "named_child_count", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
+		{Name: "named_descendant_for_point_range", Type: typ.Func().Param("self", typ.Self).Param("start", pointType).Param("end", pointType).Returns(typ.NewOptional(typ.Self)).Build()},
+		{Name: "descendant_count", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
+		{Name: "child_by_field_name", Type: typ.Func().Param("self", typ.Self).Param("name", typ.String).Returns(typ.NewOptional(typ.Self)).Build()},
+		{Name: "field_name_for_child", Type: typ.Func().Param("self", typ.Self).Param("index", typ.Number).Returns(typ.String).Build()},
+		{Name: "kind", Type: typ.Func().Param("self", typ.Self).Returns(typ.String).Build()},
+		{Name: "type", Type: typ.Func().Param("self", typ.Self).Returns(typ.String).Build()},
+		{Name: "is_named", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean).Build()},
+		{Name: "grammar_name", Type: typ.Func().Param("self", typ.Self).Returns(typ.String).Build()},
+		{Name: "is_extra", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean).Build()},
+		{Name: "is_missing", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean).Build()},
+		{Name: "has_error", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean).Build()},
+		{Name: "is_error", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean).Build()},
+		{Name: "start_byte", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
+		{Name: "end_byte", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
+		{Name: "start_point", Type: typ.Func().Param("self", typ.Self).Returns(pointType).Build()},
+		{Name: "end_point", Type: typ.Func().Param("self", typ.Self).Returns(pointType).Build()},
+		{Name: "text", Type: typ.Func().Param("self", typ.Self).Returns(typ.String).Build()},
+		{Name: "to_sexp", Type: typ.Func().Param("self", typ.Self).Returns(typ.String).Build()},
+	})
 
-	// Cursor type (self-referential)
-	cursorType = &types.InterfaceType{
-		Name:    "treesitter.Cursor",
-		Methods: map[string]*types.FunctionType{},
-	}
-	cursorType.Methods["current_node"] = types.NewFunction([]types.Type{types.Self}, []types.Type{nodeType})
-	cursorType.Methods["current_field_id"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number})
-	cursorType.Methods["current_field_name"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.String})
-	cursorType.Methods["current_depth"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number})
-	cursorType.Methods["current_descendant_index"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number})
-	cursorType.Methods["goto_parent"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean})
-	cursorType.Methods["goto_first_child"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean})
-	cursorType.Methods["goto_last_child"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean})
-	cursorType.Methods["goto_next_sibling"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean})
-	cursorType.Methods["goto_previous_sibling"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean})
-	cursorType.Methods["goto_descendant"] = types.NewFunction([]types.Type{types.Self, types.Number}, nil)
-	cursorType.Methods["goto_first_child_for_byte"] = types.NewFunction([]types.Type{types.Self, types.Number}, []types.Type{types.Boolean})
-	cursorType.Methods["goto_first_child_for_point"] = types.NewFunction([]types.Type{types.Self, pointType}, []types.Type{types.Boolean})
-	cursorType.Methods["reset"] = types.NewFunction([]types.Type{types.Self, nodeType}, nil)
-	cursorType.Methods["reset_to"] = types.NewFunction([]types.Type{types.Self, cursorType}, nil)
-	cursorType.Methods["copy"] = types.NewFunction([]types.Type{types.Self}, []types.Type{cursorType})
-	cursorType.Methods["close"] = types.NewFunction([]types.Type{types.Self}, nil)
+	// Cursor type needs nodeType, so it's defined after nodeType is set
+	cursorType = typ.NewInterface("treesitter.Cursor", []typ.Method{
+		{Name: "current_node", Type: typ.Func().Param("self", typ.Self).Returns(nodeType).Build()},
+		{Name: "current_field_id", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
+		{Name: "current_field_name", Type: typ.Func().Param("self", typ.Self).Returns(typ.String).Build()},
+		{Name: "current_depth", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
+		{Name: "current_descendant_index", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
+		{Name: "goto_parent", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean).Build()},
+		{Name: "goto_first_child", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean).Build()},
+		{Name: "goto_last_child", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean).Build()},
+		{Name: "goto_next_sibling", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean).Build()},
+		{Name: "goto_previous_sibling", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean).Build()},
+		{Name: "goto_descendant", Type: typ.Func().Param("self", typ.Self).Param("index", typ.Number).Build()},
+		{Name: "goto_first_child_for_byte", Type: typ.Func().Param("self", typ.Self).Param("byte", typ.Number).Returns(typ.Boolean).Build()},
+		{Name: "goto_first_child_for_point", Type: typ.Func().Param("self", typ.Self).Param("point", pointType).Returns(typ.Boolean).Build()},
+		{Name: "reset", Type: typ.Func().Param("self", typ.Self).Param("node", nodeType).Build()},
+		{Name: "reset_to", Type: typ.Func().Param("self", typ.Self).Param("cursor", typ.Self).Build()},
+		{Name: "copy", Type: typ.Func().Param("self", typ.Self).Returns(typ.Self).Build()},
+		{Name: "close", Type: typ.Func().Param("self", typ.Self).Build()},
+	})
 
-	// Tree type
-	treeType = &types.InterfaceType{
-		Name:    "treesitter.Tree",
-		Methods: map[string]*types.FunctionType{},
-	}
-	treeType.Methods["root_node"] = types.NewFunction([]types.Type{types.Self}, []types.Type{nodeType})
-	treeType.Methods["root_node_with_offset"] = types.NewFunction([]types.Type{types.Self, types.Number, pointType}, []types.Type{nodeType})
-	treeType.Methods["language"] = types.NewFunction([]types.Type{types.Self}, []types.Type{languageType})
-	treeType.Methods["copy"] = types.NewFunction([]types.Type{types.Self}, []types.Type{treeType})
-	treeType.Methods["walk"] = types.NewFunction([]types.Type{types.Self}, []types.Type{cursorType})
-	treeType.Methods["edit"] = types.NewFunction([]types.Type{types.Self, types.Any}, nil)
-	treeType.Methods["close"] = types.NewFunction([]types.Type{types.Self}, nil)
-	treeType.Methods["changed_ranges"] = types.NewFunction([]types.Type{types.Self, treeType}, []types.Type{types.NewArray(rangeType, false)})
-	treeType.Methods["included_ranges"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.NewArray(rangeType, false)})
-	treeType.Methods["dot_graph"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.String})
+	// Tree type needs nodeType and cursorType
+	treeType = typ.NewInterface("treesitter.Tree", []typ.Method{
+		{Name: "root_node", Type: typ.Func().Param("self", typ.Self).Returns(nodeType).Build()},
+		{Name: "root_node_with_offset", Type: typ.Func().Param("self", typ.Self).Param("offset_bytes", typ.Number).Param("extent", pointType).Returns(nodeType).Build()},
+		{Name: "language", Type: typ.Func().Param("self", typ.Self).Returns(languageType).Build()},
+		{Name: "copy", Type: typ.Func().Param("self", typ.Self).Returns(typ.Self).Build()},
+		{Name: "walk", Type: typ.Func().Param("self", typ.Self).Returns(cursorType).Build()},
+		{Name: "edit", Type: typ.Func().Param("self", typ.Self).Param("edit", typ.Any).Build()},
+		{Name: "close", Type: typ.Func().Param("self", typ.Self).Build()},
+		{Name: "changed_ranges", Type: typ.Func().Param("self", typ.Self).Param("other", typ.Self).Returns(typ.NewArray(rangeType)).Build()},
+		{Name: "included_ranges", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewArray(rangeType)).Build()},
+		{Name: "dot_graph", Type: typ.Func().Param("self", typ.Self).Returns(typ.String).Build()},
+	})
 
-	// Parser type
-	parserType = &types.InterfaceType{
-		Name: "treesitter.Parser",
-		Methods: map[string]*types.FunctionType{
-			"parse":        types.NewFunction([]types.Type{types.Self, types.String, types.Optional(treeType)}, []types.Type{treeType, types.Optional(types.LuaError)}),
-			"set_language": types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Optional(types.LuaError)}),
-			"get_language": types.NewFunction([]types.Type{types.Self}, []types.Type{types.Optional(languageType)}),
-			"reset":        types.NewFunction([]types.Type{types.Self}, nil),
-			"close":        types.NewFunction([]types.Type{types.Self}, nil),
-			"set_timeout":  types.NewFunction([]types.Type{types.Self, types.Any}, nil),
-			"set_ranges":   types.NewFunction([]types.Type{types.Self, types.NewArray(rangeType, false)}, nil),
-		},
-	}
+	// Parser type needs treeType and languageType
+	parserType = typ.NewInterface("treesitter.Parser", []typ.Method{
+		{Name: "parse", Type: typ.Func().Param("self", typ.Self).Param("text", typ.String).OptParam("old_tree", treeType).Returns(treeType, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "set_language", Type: typ.Func().Param("self", typ.Self).Param("language", typ.String).Returns(typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "get_language", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewOptional(languageType)).Build()},
+		{Name: "reset", Type: typ.Func().Param("self", typ.Self).Build()},
+		{Name: "close", Type: typ.Func().Param("self", typ.Self).Build()},
+		{Name: "set_timeout", Type: typ.Func().Param("self", typ.Self).Param("timeout", typ.Any).Build()},
+		{Name: "set_ranges", Type: typ.Func().Param("self", typ.Self).Param("ranges", typ.NewArray(rangeType)).Build()},
+	})
 
-	// Query type
-	queryType = &types.InterfaceType{
-		Name: "treesitter.Query",
-		Methods: map[string]*types.FunctionType{
-			"close":                   types.NewFunction([]types.Type{types.Self}, nil),
-			"matches":                 types.NewFunction([]types.Type{types.Self, nodeType, types.String}, []types.Type{types.Any}),
-			"captures":                types.NewFunction([]types.Type{types.Self, nodeType, types.String}, []types.Type{types.Any}),
-			"pattern_count":           types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number}),
-			"capture_count":           types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number}),
-			"string_count":            types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number}),
-			"start_byte_for_pattern":  types.NewFunction([]types.Type{types.Self, types.Number}, []types.Type{types.Number}),
-			"set_byte_range":          types.NewFunction([]types.Type{types.Self, types.Number, types.Number}, nil),
-			"set_point_range":         types.NewFunction([]types.Type{types.Self, pointType, pointType}, nil),
-			"set_match_limit":         types.NewFunction([]types.Type{types.Self, types.Number}, nil),
-			"get_match_limit":         types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number}),
-			"did_exceed_match_limit":  types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean}),
-			"set_timeout":             types.NewFunction([]types.Type{types.Self, types.Any}, nil),
-			"get_timeout":             types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number}),
-			"disable_pattern":         types.NewFunction([]types.Type{types.Self, types.Number}, nil),
-			"disable_capture":         types.NewFunction([]types.Type{types.Self, types.String}, nil),
-			"is_pattern_rooted":       types.NewFunction([]types.Type{types.Self, types.Number}, []types.Type{types.Boolean}),
-			"is_pattern_non_local":    types.NewFunction([]types.Type{types.Self, types.Number}, []types.Type{types.Boolean}),
-			"capture_name_for_id":     types.NewFunction([]types.Type{types.Self, types.Number}, []types.Type{types.String}),
-			"capture_quantifier":      types.NewFunction([]types.Type{types.Self, types.Number, types.Number}, []types.Type{types.String}),
-			"set_max_start_depth":     types.NewFunction([]types.Type{types.Self, types.Number}, nil),
-			"get_property_predicates": types.NewFunction([]types.Type{types.Self, types.Number}, []types.Type{types.Any}),
-			"get_property_settings":   types.NewFunction([]types.Type{types.Self, types.Number}, []types.Type{types.Any}),
-			"is_pattern_guaranteed":   types.NewFunction([]types.Type{types.Self, types.Number}, []types.Type{types.Boolean}),
-			"capture_index_for_name":  types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.Number}),
-			"end_byte_for_pattern":    types.NewFunction([]types.Type{types.Self, types.Number}, []types.Type{types.Number}),
-			"get_text_predicates":     types.NewFunction([]types.Type{types.Self, types.Number}, []types.Type{types.Any}),
-		},
-	}
+	// Query type needs nodeType
+	queryType = typ.NewInterface("treesitter.Query", []typ.Method{
+		{Name: "close", Type: typ.Func().Param("self", typ.Self).Build()},
+		{Name: "matches", Type: typ.Func().Param("self", typ.Self).Param("node", nodeType).Param("text", typ.String).Returns(typ.Any).Build()},
+		{Name: "captures", Type: typ.Func().Param("self", typ.Self).Param("node", nodeType).Param("text", typ.String).Returns(typ.Any).Build()},
+		{Name: "pattern_count", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
+		{Name: "capture_count", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
+		{Name: "string_count", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
+		{Name: "start_byte_for_pattern", Type: typ.Func().Param("self", typ.Self).Param("pattern", typ.Number).Returns(typ.Number).Build()},
+		{Name: "set_byte_range", Type: typ.Func().Param("self", typ.Self).Param("start", typ.Number).Param("end", typ.Number).Build()},
+		{Name: "set_point_range", Type: typ.Func().Param("self", typ.Self).Param("start", pointType).Param("end", pointType).Build()},
+		{Name: "set_match_limit", Type: typ.Func().Param("self", typ.Self).Param("limit", typ.Number).Build()},
+		{Name: "get_match_limit", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
+		{Name: "did_exceed_match_limit", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean).Build()},
+		{Name: "set_timeout", Type: typ.Func().Param("self", typ.Self).Param("timeout", typ.Any).Build()},
+		{Name: "get_timeout", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
+		{Name: "disable_pattern", Type: typ.Func().Param("self", typ.Self).Param("pattern", typ.Number).Build()},
+		{Name: "disable_capture", Type: typ.Func().Param("self", typ.Self).Param("capture", typ.String).Build()},
+		{Name: "is_pattern_rooted", Type: typ.Func().Param("self", typ.Self).Param("pattern", typ.Number).Returns(typ.Boolean).Build()},
+		{Name: "is_pattern_non_local", Type: typ.Func().Param("self", typ.Self).Param("pattern", typ.Number).Returns(typ.Boolean).Build()},
+		{Name: "capture_name_for_id", Type: typ.Func().Param("self", typ.Self).Param("id", typ.Number).Returns(typ.String).Build()},
+		{Name: "capture_quantifier", Type: typ.Func().Param("self", typ.Self).Param("pattern", typ.Number).Param("capture", typ.Number).Returns(typ.String).Build()},
+		{Name: "set_max_start_depth", Type: typ.Func().Param("self", typ.Self).Param("depth", typ.Number).Build()},
+		{Name: "get_property_predicates", Type: typ.Func().Param("self", typ.Self).Param("pattern", typ.Number).Returns(typ.Any).Build()},
+		{Name: "get_property_settings", Type: typ.Func().Param("self", typ.Self).Param("pattern", typ.Number).Returns(typ.Any).Build()},
+		{Name: "is_pattern_guaranteed", Type: typ.Func().Param("self", typ.Self).Param("pattern", typ.Number).Returns(typ.Boolean).Build()},
+		{Name: "capture_index_for_name", Type: typ.Func().Param("self", typ.Self).Param("name", typ.String).Returns(typ.Number).Build()},
+		{Name: "end_byte_for_pattern", Type: typ.Func().Param("self", typ.Self).Param("pattern", typ.Number).Returns(typ.Number).Build()},
+		{Name: "get_text_predicates", Type: typ.Func().Param("self", typ.Self).Param("pattern", typ.Number).Returns(typ.Any).Build()},
+	})
 }
 
 // ModuleTypes returns the type manifest for the treesitter module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("treesitter")
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("treesitter")
 
 	m.DefineType("Parser", parserType)
 	m.DefineType("Tree", treeType)
@@ -185,16 +157,13 @@ func ModuleTypes() *types.TypeManifest {
 	m.DefineType("Point", pointType)
 	m.DefineType("Range", rangeType)
 
-	moduleType := &types.InterfaceType{
-		Name: "treesitter",
-		Methods: map[string]*types.FunctionType{
-			"supported_languages": types.NewFunction(nil, []types.Type{types.NewMap(types.String, types.Boolean, false)}),
-			"language":            types.NewFunction([]types.Type{types.String}, []types.Type{languageType, types.Optional(types.LuaError)}),
-			"parser":              types.NewFunction(nil, []types.Type{parserType}),
-			"parse":               types.NewFunction([]types.Type{types.String, types.String}, []types.Type{treeType, types.Optional(types.LuaError)}),
-			"query":               types.NewFunction([]types.Type{types.String, types.String}, []types.Type{queryType, types.Optional(types.LuaError)}),
-		},
-	}
+	moduleType := typ.NewInterface("treesitter", []typ.Method{
+		{Name: "supported_languages", Type: typ.Func().Returns(typ.NewMap(typ.String, typ.Boolean)).Build()},
+		{Name: "language", Type: typ.Func().Param("name", typ.String).Returns(languageType, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "parser", Type: typ.Func().Returns(parserType).Build()},
+		{Name: "parse", Type: typ.Func().Param("language", typ.String).Param("text", typ.String).Returns(treeType, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "query", Type: typ.Func().Param("language", typ.String).Param("query", typ.String).Returns(queryType, typ.NewOptional(typ.LuaError)).Build()},
+	})
 
 	m.SetExport(moduleType)
 	return m

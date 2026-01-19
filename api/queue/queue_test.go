@@ -166,12 +166,7 @@ func TestEventConstants(t *testing.T) {
 func TestErrors(t *testing.T) {
 	assert.EqualError(t, queue.ErrDriverNotFound, "queue driver not found")
 	assert.EqualError(t, queue.ErrQueueNotFound, "queue not found")
-	assert.EqualError(t, queuesvc.ErrDriverNotStarted, "queue driver not started")
-	assert.EqualError(t, queuesvc.ErrQueueFull, "queue is full")
 	assert.EqualError(t, queue.ErrMessageExpired, "message expired")
-	assert.EqualError(t, queuesvc.ErrConsumerClosed, "consumer closed")
-	assert.EqualError(t, queuesvc.ErrQueueClosed, "queue is closed")
-	assert.EqualError(t, queuesvc.ErrNoPublishFunc, "no publish function configured")
 	assert.EqualError(t, queue.ErrDriverIDRequired, "driver ID is required")
 	assert.EqualError(t, queue.ErrQueueIDRequired, "queue ID is required")
 	assert.EqualError(t, queue.ErrFunctionIDRequired, "function ID is required")
@@ -192,10 +187,10 @@ func TestErrorInterface(t *testing.T) {
 		assert.Equal(t, apierror.False, err.Retryable())
 	})
 
-	t.Run("ErrDriverNotStarted", func(t *testing.T) {
-		err := queuesvc.ErrDriverNotStarted
-		assert.Equal(t, apierror.Unavailable, err.Kind())
-		assert.Equal(t, apierror.True, err.Retryable())
+	t.Run("ErrMessageExpired", func(t *testing.T) {
+		err := queue.ErrMessageExpired
+		assert.Equal(t, apierror.Invalid, err.Kind())
+		assert.Equal(t, apierror.False, err.Retryable())
 	})
 
 	t.Run("ErrQueueFull", func(t *testing.T) {

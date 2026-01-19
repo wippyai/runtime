@@ -72,9 +72,9 @@ func (c *eventCollector) handleEvent(evt event.Event) {
 	defer c.mu.Unlock()
 
 	switch evt.Kind {
-	case registry.Accept:
+	case registry.EntryAccept:
 		c.acceptCalled = true
-	case registry.Reject:
+	case registry.EntryReject:
 		c.rejectCalled = true
 	}
 	select {
@@ -113,7 +113,7 @@ func TestNewRegistryHandler(t *testing.T) {
 			kinds: "test.*",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Create,
+				Kind:   registry.EntryCreate,
 				Data: registry.Entry{
 					Kind: "test.resource",
 					Data: payload.NewString("test-data"),
@@ -127,7 +127,7 @@ func TestNewRegistryHandler(t *testing.T) {
 			kinds: "test.*",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Update,
+				Kind:   registry.EntryUpdate,
 				Data: registry.Entry{
 					Kind: "test.resource",
 					Data: payload.NewString("updated-data"),
@@ -141,7 +141,7 @@ func TestNewRegistryHandler(t *testing.T) {
 			kinds: "test.*",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Delete,
+				Kind:   registry.EntryDelete,
 				Data: registry.Entry{
 					Kind: "test.resource",
 				},
@@ -154,7 +154,7 @@ func TestNewRegistryHandler(t *testing.T) {
 			kinds: "test.*",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Create,
+				Kind:   registry.EntryCreate,
 				Data: registry.Entry{
 					Kind: "other.resource",
 					Data: payload.NewString("test-data"),
@@ -167,7 +167,7 @@ func TestNewRegistryHandler(t *testing.T) {
 			kinds: "test.*",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Create,
+				Kind:   registry.EntryCreate,
 				Data: registry.Entry{
 					Kind: "test.resource",
 				},
@@ -180,7 +180,7 @@ func TestNewRegistryHandler(t *testing.T) {
 			kinds: "test.*",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Create,
+				Kind:   registry.EntryCreate,
 				Data: registry.Entry{
 					Kind: "test.resource",
 					Data: payload.NewString("test-data"),
@@ -195,7 +195,7 @@ func TestNewRegistryHandler(t *testing.T) {
 			kinds: "test.*",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Create,
+				Kind:   registry.EntryCreate,
 				Data: registry.Entry{
 					Kind: "test.resource",
 					Data: payload.NewString("test-data"),
@@ -209,7 +209,7 @@ func TestNewRegistryHandler(t *testing.T) {
 			kinds: "test.*",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Begin,
+				Kind:   registry.TxBegin,
 			},
 			checkTxEvents: true,
 			expectCalls:   map[string]int{"begin": 1},
@@ -219,7 +219,7 @@ func TestNewRegistryHandler(t *testing.T) {
 			kinds: "test.*",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Commit,
+				Kind:   registry.TxCommit,
 			},
 			checkTxEvents: true,
 			expectCalls:   map[string]int{"commit": 1},
@@ -229,7 +229,7 @@ func TestNewRegistryHandler(t *testing.T) {
 			kinds: "test.*",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Discard,
+				Kind:   registry.TxDiscard,
 			},
 			checkTxEvents: true,
 			expectCalls:   map[string]int{"discard": 1},
@@ -287,7 +287,7 @@ func TestNewTransactionHandler(t *testing.T) {
 			name: "begin transaction",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Begin,
+				Kind:   registry.TxBegin,
 			},
 			expectBegin: true,
 		},
@@ -295,7 +295,7 @@ func TestNewTransactionHandler(t *testing.T) {
 			name: "commit transaction",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Commit,
+				Kind:   registry.TxCommit,
 			},
 			expectCommit: true,
 		},
@@ -303,7 +303,7 @@ func TestNewTransactionHandler(t *testing.T) {
 			name: "discard transaction",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Discard,
+				Kind:   registry.TxDiscard,
 			},
 			expectDiscard: true,
 		},
@@ -311,7 +311,7 @@ func TestNewTransactionHandler(t *testing.T) {
 			name: "ignore non-transaction event",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Create,
+				Kind:   registry.EntryCreate,
 				Data: registry.Entry{
 					Kind: "test.resource",
 					Data: payload.NewString("test-data"),

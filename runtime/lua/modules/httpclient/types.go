@@ -1,53 +1,45 @@
 package httpclient
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
 // StreamReader type for streaming response body
-var streamReaderType = &types.InterfaceType{
-	Name: "http_client.StreamReader",
-	Methods: map[string]*types.FunctionType{
-		"read":  types.NewFunction([]types.Type{types.Self, types.Number}, []types.Type{types.String, types.Optional(types.LuaError)}),
-		"close": types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean, types.Optional(types.LuaError)}),
-	},
-}
+var streamReaderType = typ.NewInterface("http_client.StreamReader", []typ.Method{
+	{Name: "read", Type: typ.Func().Param("self", typ.Self).Param("size", typ.Number).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "close", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+})
 
 // Response type for HTTP responses
-var responseType = &types.InterfaceType{
-	Name: "http_client.Response",
-	Fields: map[string]types.Type{
-		"status_code": types.Number,
-		"headers":     types.NewMap(types.String, types.String, true),
-		"cookies":     types.NewMap(types.String, types.String, true),
-		"body":        types.String,
-		"body_size":   types.Number,
-		"url":         types.String,
-		"stream":      types.Optional(streamReaderType),
-	},
-}
+var responseType = typ.NewRecord().
+	Field("status_code", typ.Number).
+	Field("headers", typ.NewMap(typ.String, typ.String)).
+	Field("cookies", typ.NewMap(typ.String, typ.String)).
+	OptField("body", typ.String).
+	Field("body_size", typ.Number).
+	Field("url", typ.String).
+	OptField("stream", streamReaderType).
+	Build()
 
 // RequestOptions type for request configuration
-var requestOptionsType = &types.RecordType{
-	Name: "http_client.RequestOptions",
-	Fields: []types.RecordField{
-		{Name: "headers", Type: types.NewMap(types.String, types.String, false), Optional: true},
-		{Name: "body", Type: types.String, Optional: true},
-		{Name: "timeout", Type: types.NewUnion(types.Number, types.String), Optional: true},
-		{Name: "unix_socket", Type: types.String, Optional: true},
-		{Name: "query", Type: types.NewMap(types.String, types.String, false), Optional: true},
-		{Name: "cookies", Type: types.NewMap(types.String, types.String, false), Optional: true},
-		{Name: "form", Type: types.NewMap(types.String, types.String, false), Optional: true},
-		{Name: "files", Type: types.NewArray(types.Any, false), Optional: true},
-		{Name: "auth", Type: types.Any, Optional: true},
-		{Name: "stream", Type: types.Boolean, Optional: true},
-		{Name: "max_response_body", Type: types.Number, Optional: true},
-	},
-}
+var requestOptionsType = typ.NewRecord().
+	OptField("headers", typ.NewMap(typ.String, typ.String)).
+	OptField("body", typ.String).
+	OptField("timeout", typ.NewUnion(typ.Number, typ.String)).
+	OptField("unix_socket", typ.String).
+	OptField("query", typ.NewMap(typ.String, typ.String)).
+	OptField("cookies", typ.NewMap(typ.String, typ.String)).
+	OptField("form", typ.NewMap(typ.String, typ.String)).
+	OptField("files", typ.NewArray(typ.Any)).
+	OptField("auth", typ.Any).
+	OptField("stream", typ.Boolean).
+	OptField("max_response_body", typ.Number).
+	Build()
 
 // ModuleTypes returns the type manifest for the http_client module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("http_client")
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("http_client")
 
 	// Register exported types
 	m.DefineType("Response", responseType)
@@ -55,46 +47,42 @@ func ModuleTypes() *types.TypeManifest {
 	m.DefineType("StreamReader", streamReaderType)
 
 	// Function type for HTTP methods (get, post, put, etc.)
-	httpMethodFn := types.NewFunction(
-		[]types.Type{types.String, types.Optional(requestOptionsType)},
-		[]types.Type{responseType, types.Optional(types.LuaError)},
-	)
+	httpMethodFn := typ.Func().
+		Param("url", typ.String).
+		OptParam("opts", requestOptionsType).
+		Returns(responseType, typ.NewOptional(typ.LuaError)).
+		Build()
 
-	moduleType := &types.InterfaceType{
-		Name: "http_client",
-		Methods: map[string]*types.FunctionType{
-			"get":    httpMethodFn,
-			"post":   httpMethodFn,
-			"put":    httpMethodFn,
-			"delete": httpMethodFn,
-			"head":   httpMethodFn,
-			"patch":  httpMethodFn,
-
-			// request(method, url, opts?): Response, Error?
-			"request": types.NewFunction(
-				[]types.Type{types.String, types.String, types.Optional(requestOptionsType)},
-				[]types.Type{responseType, types.Optional(types.LuaError)},
-			),
-
-			// request_batch(requests): {Response}, Error?
-			"request_batch": types.NewFunction(
-				[]types.Type{types.NewArray(types.Any, false)},
-				[]types.Type{types.NewArray(responseType, false), types.Optional(types.LuaError)},
-			),
-
-			// encode_uri(s): string
-			"encode_uri": types.NewFunction(
-				[]types.Type{types.String},
-				[]types.Type{types.String},
-			),
-
-			// decode_uri(s): string, Error?
-			"decode_uri": types.NewFunction(
-				[]types.Type{types.String},
-				[]types.Type{types.String, types.Optional(types.LuaError)},
-			),
-		},
-	}
+	moduleType := typ.NewInterface("http_client", []typ.Method{
+		{Name: "get", Type: httpMethodFn},
+		{Name: "post", Type: httpMethodFn},
+		{Name: "put", Type: httpMethodFn},
+		{Name: "delete", Type: httpMethodFn},
+		{Name: "head", Type: httpMethodFn},
+		{Name: "patch", Type: httpMethodFn},
+		// request(method, url, opts?): Response, Error?
+		{Name: "request", Type: typ.Func().
+			Param("method", typ.String).
+			Param("url", typ.String).
+			OptParam("opts", requestOptionsType).
+			Returns(responseType, typ.NewOptional(typ.LuaError)).
+			Build()},
+		// request_batch(requests): {Response}, Error?
+		{Name: "request_batch", Type: typ.Func().
+			Param("requests", typ.NewArray(typ.Any)).
+			Returns(typ.NewArray(responseType), typ.NewOptional(typ.LuaError)).
+			Build()},
+		// encode_uri(s): string
+		{Name: "encode_uri", Type: typ.Func().
+			Param("s", typ.String).
+			Returns(typ.String).
+			Build()},
+		// decode_uri(s): string, Error?
+		{Name: "decode_uri", Type: typ.Func().
+			Param("s", typ.String).
+			Returns(typ.String, typ.NewOptional(typ.LuaError)).
+			Build()},
+	})
 
 	m.SetExport(moduleType)
 	return m

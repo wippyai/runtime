@@ -1,4 +1,4 @@
-// Package sqlstore provides SQL-backed store service configuration.
+// Package sql provides SQL-backed store service configuration.
 package sql
 
 import (

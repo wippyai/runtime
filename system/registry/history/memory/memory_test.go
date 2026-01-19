@@ -43,7 +43,7 @@ func TestStorage_Get(t *testing.T) {
 
 	actions := registry.ChangeSet{
 		{
-			Kind: registry.Create,
+			Kind: registry.EntryCreate,
 			Entry: registry.Entry{
 				Kind: "test",
 				Data: payload.New("data"),
@@ -76,7 +76,7 @@ func TestStorage_Save(t *testing.T) {
 
 	actions := registry.ChangeSet{
 		{
-			Kind: registry.Create,
+			Kind: registry.EntryCreate,
 			Entry: registry.Entry{
 				Kind: "test",
 				Data: payload.New("data"),

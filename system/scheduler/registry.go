@@ -14,11 +14,13 @@ import (
 //
 // After Freeze() is called, lookups are lock-free for maximum performance.
 type Registry struct {
-	handlers [256]dispatcher.Handler                     // system commands (0-255), O(1) direct index
+	handlers [systemCommandLimit]dispatcher.Handler      // system commands (0-255), O(1) direct index
 	extended map[dispatcher.CommandID]dispatcher.Handler // user/WASM commands (256+)
 	mu       sync.RWMutex
 	frozen   atomic.Bool
 }
+
+const systemCommandLimit = 256
 
 // NewRegistry creates a new dispatcher registry.
 func NewRegistry() *Registry {
@@ -37,7 +39,7 @@ func (r *Registry) Register(id dispatcher.CommandID, h dispatcher.Handler) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if id < 256 {
+	if id < systemCommandLimit {
 		if r.handlers[id] != nil {
 			panic(fmt.Sprintf("handler already registered for command %d", id))
 		}
@@ -69,14 +71,14 @@ func (r *Registry) IsFrozen() bool {
 // Lock-free after Freeze() is called.
 func (r *Registry) Get(id dispatcher.CommandID) dispatcher.Handler {
 	if r.frozen.Load() {
-		if id < 256 {
+		if id < systemCommandLimit {
 			return r.handlers[id]
 		}
 		return r.extended[id]
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if id < 256 {
+	if id < systemCommandLimit {
 		return r.handlers[id]
 	}
 	return r.extended[id]
@@ -85,14 +87,14 @@ func (r *Registry) Get(id dispatcher.CommandID) dispatcher.Handler {
 // Has returns true if a handler is registered for the command ID.
 func (r *Registry) Has(id dispatcher.CommandID) bool {
 	if r.frozen.Load() {
-		if id < 256 {
+		if id < systemCommandLimit {
 			return r.handlers[id] != nil
 		}
 		return r.extended[id] != nil
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if id < 256 {
+	if id < systemCommandLimit {
 		return r.handlers[id] != nil
 	}
 	return r.extended[id] != nil

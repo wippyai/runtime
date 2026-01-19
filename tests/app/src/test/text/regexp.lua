@@ -87,7 +87,7 @@ local function main()
     local idx = page_re:find_string_index(content)
     assert.not_nil(idx, "index found")
     assert.eq(idx[1], 5, "start index (1-based)")
-    local extracted = content:sub(idx[1], idx[2])
+    local extracted = content:sub(integer(idx[1]), integer(idx[2]))
     assert.eq(extracted, "page1", "extracted substring")
 
     return true

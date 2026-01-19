@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	apierror "github.com/wippyai/runtime/api/error"
 	pidapi "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 )
@@ -82,7 +83,15 @@ func TestNodeSendHostNotFound(t *testing.T) {
 	}
 	err := node.Send(pkg)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "host nonexistent not found")
+	assert.Contains(t, err.Error(), "host not found")
+	apiErr, ok := err.(apierror.Error)
+	require.True(t, ok)
+	details := apiErr.Details()
+	require.NotNil(t, details)
+	hostID, _ := details.Get("host_id")
+	assert.Equal(t, "nonexistent", hostID)
+	nodeID, _ := details.Get("node_id")
+	assert.Equal(t, "node1", nodeID)
 }
 
 func TestNodeSendInvalidHostType(t *testing.T) {
@@ -102,7 +111,15 @@ func TestNodeSendInvalidHostType(t *testing.T) {
 	}
 	err := node.Send(pkg)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid type")
+	assert.Contains(t, err.Error(), "invalid host type")
+	apiErr, ok := err.(apierror.Error)
+	require.True(t, ok)
+	details := apiErr.Details()
+	require.NotNil(t, details)
+	hostID, _ := details.Get("host_id")
+	assert.Equal(t, "host1", hostID)
+	nodeID, _ := details.Get("node_id")
+	assert.Equal(t, "node1", nodeID)
 }
 
 func TestNodeSendNonLocalNoUpstream(t *testing.T) {
@@ -120,7 +137,13 @@ func TestNodeSendNonLocalNoUpstream(t *testing.T) {
 	}
 	err := node.Send(pkg)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "cannot route to external node remoteNode")
+	assert.Contains(t, err.Error(), "cannot route to external node")
+	apiErr, ok := err.(apierror.Error)
+	require.True(t, ok)
+	details := apiErr.Details()
+	require.NotNil(t, details)
+	nodeID, _ := details.Get("node_id")
+	assert.Equal(t, "remoteNode", nodeID)
 }
 
 func TestNodeAttachLocal(t *testing.T) {
@@ -153,7 +176,13 @@ func TestNodeAttachNonLocal(t *testing.T) {
 	cancel, err := node.Attach(pid, ch)
 	assert.Nil(t, cancel)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "cannot route to external node remoteNode")
+	assert.Contains(t, err.Error(), "cannot route to external node")
+	apiErr, ok := err.(apierror.Error)
+	require.True(t, ok)
+	details := apiErr.Details()
+	require.NotNil(t, details)
+	nodeID, _ := details.Get("node_id")
+	assert.Equal(t, "remoteNode", nodeID)
 }
 
 func TestNodeAttachInvalidHostType(t *testing.T) {
@@ -245,7 +274,15 @@ func TestNodeRegisterHostInvalidType(t *testing.T) {
 	}
 	err = node.Send(pkg)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid type")
+	assert.Contains(t, err.Error(), "invalid host type")
+	apiErr, ok := err.(apierror.Error)
+	require.True(t, ok)
+	details := apiErr.Details()
+	require.NotNil(t, details)
+	hostID, _ := details.Get("host_id")
+	assert.Equal(t, "host1", hostID)
+	nodeID, _ := details.Get("node_id")
+	assert.Equal(t, "node1", nodeID)
 }
 
 func TestNodeUnregisterHostNonExistent(t *testing.T) {

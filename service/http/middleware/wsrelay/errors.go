@@ -15,25 +15,37 @@ var (
 )
 
 func NewAttachToRelayError(err error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to attach to relay").WithCause(err)
+	return apierror.New(apierror.Internal, "failed to attach to relay").
+		WithRetryable(apierror.False).
+		WithCause(err)
 }
 
 func NewTranscodeError(err error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to transcode payload to JSON").WithCause(err)
+	return apierror.New(apierror.Internal, "failed to transcode payload to JSON").
+		WithRetryable(apierror.False).
+		WithCause(err)
 }
 
 func NewMarshalError(what string, err error) apierror.Error {
-	return apierror.New(apierror.Internal, "error marshaling "+what).WithCause(err)
+	return apierror.New(apierror.Internal, "error marshaling "+what).
+		WithRetryable(apierror.False).
+		WithCause(err)
 }
 
 func NewWebSocketWriteError(err error) apierror.Error {
-	return apierror.New(apierror.Internal, "error writing to WebSocket").WithCause(err)
+	return apierror.New(apierror.Internal, "error writing to WebSocket").
+		WithRetryable(apierror.False).
+		WithCause(err)
 }
 
 func NewMarshalJoinInfoError(err error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to marshal join info").WithCause(err)
+	return apierror.New(apierror.Internal, "failed to marshal join info").
+		WithRetryable(apierror.False).
+		WithCause(err)
 }
 
 func NewMarshalLeaveInfoError(err error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to marshal leave info").WithCause(err)
+	return apierror.New(apierror.Internal, "failed to marshal leave info").
+		WithRetryable(apierror.False).
+		WithCause(err)
 }

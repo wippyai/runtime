@@ -721,14 +721,14 @@ func TestNativeExecutor_Whitelist(t *testing.T) {
 			whitelist:     []string{"ls -l", "cat /etc/hosts"},
 			command:       "echo 'test'",
 			shouldSucceed: false,
-			errorContains: "command not in whitelist",
+			errorContains: "command not allowed",
 		},
 		{
 			name:          "partial match - rejected",
 			whitelist:     []string{"echo 'something else'", "ls"},
 			command:       "echo 'test'",
 			shouldSucceed: false,
-			errorContains: "command not in whitelist",
+			errorContains: "command not allowed",
 		},
 	}
 
@@ -832,7 +832,7 @@ func TestNewCommandNotAllowedError(t *testing.T) {
 	err := NewCommandNotAllowedError("rm -rf /")
 	assert.Equal(t, apierror.PermissionDenied, err.Kind())
 	assert.Equal(t, apierror.False, err.Retryable())
-	assert.Contains(t, err.Error(), "rm -rf /")
+	assert.Contains(t, err.Error(), "command not allowed")
 
 	details := err.Details()
 	assert.NotNil(t, details)
@@ -865,26 +865,30 @@ func TestAPIErrors(t *testing.T) {
 	t.Run("NewUnsupportedEntryKindError", func(t *testing.T) {
 		err := serviceexec.NewUnsupportedEntryKindError("unknown.kind")
 		assert.Equal(t, apierror.Invalid, err.Kind())
-		assert.Contains(t, err.Error(), "unknown.kind")
+		assert.Contains(t, err.Error(), "unsupported entry kind")
+		assert.Equal(t, "unknown.kind", err.Details().GetString("kind", ""))
 	})
 
 	t.Run("NewExecutorAlreadyExistsError", func(t *testing.T) {
 		err := serviceexec.NewExecutorAlreadyExistsError("exec-1")
 		assert.Equal(t, apierror.AlreadyExists, err.Kind())
-		assert.Contains(t, err.Error(), "exec-1")
+		assert.Contains(t, err.Error(), "executor already exists")
+		assert.Equal(t, "exec-1", err.Details().GetString("executor_id", ""))
 	})
 
 	t.Run("NewExecutorNotFoundError", func(t *testing.T) {
 		err := serviceexec.NewExecutorNotFoundError("exec-1")
 		assert.Equal(t, apierror.NotFound, err.Kind())
-		assert.Contains(t, err.Error(), "exec-1")
+		assert.Contains(t, err.Error(), "executor not found")
+		assert.Equal(t, "exec-1", err.Details().GetString("executor_id", ""))
 	})
 
 	t.Run("NewConfigDecodeError", func(t *testing.T) {
 		originalErr := errors.New("invalid json")
 		err := serviceexec.NewConfigDecodeError(originalErr)
 		assert.Equal(t, apierror.Invalid, err.Kind())
-		assert.Contains(t, err.Error(), "invalid json")
+		assert.Contains(t, err.Error(), "failed to decode configuration")
+		assert.Equal(t, "invalid json", err.Details().GetString("cause", ""))
 		assert.Equal(t, originalErr, errors.Unwrap(err))
 	})
 
@@ -893,7 +897,8 @@ func TestAPIErrors(t *testing.T) {
 		err := serviceexec.NewExecutorCreateError(originalErr)
 		assert.Equal(t, apierror.Internal, err.Kind())
 		assert.Equal(t, apierror.True, err.Retryable())
-		assert.Contains(t, err.Error(), "failed to init")
+		assert.Contains(t, err.Error(), "failed to create executor")
+		assert.Equal(t, "failed to init", err.Details().GetString("cause", ""))
 	})
 }
 

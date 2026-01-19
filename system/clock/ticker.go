@@ -7,7 +7,6 @@ import (
 	"time"
 
 	clockapi "github.com/wippyai/runtime/api/clock"
-	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 )
@@ -43,6 +42,16 @@ func newTickerRegistry() *tickerRegistry {
 
 func (r *tickerRegistry) getShard(id uint64) *tickerShard {
 	return &r.shards[id&(tickerShardCount-1)]
+}
+
+func (r *tickerRegistry) deleteEntry(shard *tickerShard, id uint64) (*tickerEntry, bool) {
+	shard.mu.Lock()
+	entry, ok := shard.tickers[id]
+	if ok {
+		delete(shard.tickers, id)
+	}
+	shard.mu.Unlock()
+	return entry, ok
 }
 
 func (r *tickerRegistry) start(ctx context.Context, d time.Duration, p pid.PID, topic string, node relay.Node) uint64 {
@@ -81,22 +90,14 @@ func (r *tickerRegistry) forwardTicks(entry *tickerEntry, node relay.Node) {
 				return
 			}
 
-			pl := payload.NewPayload(t.UnixNano(), payload.Golang)
-			pkg := relay.NewPackage(pid.PID{}, entry.pid, entry.topic, pl)
-			_ = node.Send(pkg)
+			sendTick(node, entry.pid, entry.topic, t)
 		}
 	}
 }
 
 func (r *tickerRegistry) stop(id uint64) error {
 	shard := r.getShard(id)
-
-	shard.mu.Lock()
-	entry, ok := shard.tickers[id]
-	if ok {
-		delete(shard.tickers, id)
-	}
-	shard.mu.Unlock()
+	entry, ok := r.deleteEntry(shard, id)
 
 	if !ok {
 		return clockapi.ErrTickerNotFound

@@ -1,97 +1,106 @@
 package time
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
 // Forward declarations for mutually referential types
 var (
-	timeType     *types.InterfaceType
-	durationType *types.InterfaceType
-	locationType *types.InterfaceType
+	timeType     typ.Type
+	durationType typ.Type
+	locationType typ.Type
+	tickerType   typ.Type
+	timerType    typ.Type
+	channelType  typ.Type
+	channelGen   *typ.Generic
 )
 
 func init() {
-	// Duration type
-	durationType = &types.InterfaceType{
-		Name: "time.Duration",
-		Methods: map[string]*types.FunctionType{
-			"nanoseconds":  types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number}),
-			"microseconds": types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number}),
-			"milliseconds": types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number}),
-			"seconds":      types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number}),
-			"minutes":      types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number}),
-			"hours":        types.NewFunction([]types.Type{types.Self}, []types.Type{types.Number}),
-		},
+	if manifest := engine.ChannelModuleTypes(); manifest != nil {
+		if t, ok := manifest.LookupType("Channel"); ok {
+			if gen, ok := t.(*typ.Generic); ok {
+				channelGen = gen
+			} else {
+				channelType = t
+			}
+		}
 	}
+	if channelType == nil && channelGen == nil {
+		channelType = typ.Any
+	}
+
+	// Duration type
+	durationType = typ.NewInterface("time.Duration", []typ.Method{
+		{Name: "nanoseconds", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
+		{Name: "microseconds", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
+		{Name: "milliseconds", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
+		{Name: "seconds", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
+		{Name: "minutes", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
+		{Name: "hours", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
+	})
 
 	// Location type
-	locationType = &types.InterfaceType{
-		Name: "time.Location",
-		Methods: map[string]*types.FunctionType{
-			"string": types.NewFunction([]types.Type{types.Self}, []types.Type{types.String}),
-		},
-	}
+	locationType = typ.NewInterface("time.Location", []typ.Method{
+		{Name: "string", Type: typ.Func().Param("self", typ.Self).Returns(typ.String).Build()},
+	})
 
 	// Time type (self-referential and references duration/location)
-	timeType = &types.InterfaceType{
-		Name:    "time.Time",
-		Methods: map[string]*types.FunctionType{},
+	timeType = typ.NewInterface("time.Time", []typ.Method{
+		{Name: "add", Type: typ.Func().Param("self", typ.Self).Param("d", typ.Any).Returns(typ.Self).Build()},
+		{Name: "sub", Type: typ.Func().Param("self", typ.Self).Param("t", typ.Self).Returns(durationType).Build()},
+		{Name: "add_date", Type: typ.Func().Param("self", typ.Self).Param("year", typ.Number).Param("month", typ.Number).Param("day", typ.Number).Returns(typ.Self).Build()},
+		{Name: "after", Type: typ.Func().Param("self", typ.Self).Param("t", typ.Self).Returns(typ.Boolean).Build()},
+		{Name: "before", Type: typ.Func().Param("self", typ.Self).Param("t", typ.Self).Returns(typ.Boolean).Build()},
+		{Name: "equal", Type: typ.Func().Param("self", typ.Self).Param("t", typ.Self).Returns(typ.Boolean).Build()},
+		{Name: "format", Type: typ.Func().Param("self", typ.Self).Param("format", typ.String).Returns(typ.String).Build()},
+		{Name: "format_rfc3339", Type: typ.Func().Param("self", typ.Self).Returns(typ.String).Build()},
+		{Name: "unix", Type: typ.Func().Param("self", typ.Self).Returns(typ.Integer).Build()},
+		{Name: "unix_nano", Type: typ.Func().Param("self", typ.Self).Returns(typ.Integer).Build()},
+		{Name: "date", Type: typ.Func().Param("self", typ.Self).Returns(typ.Integer, typ.Integer, typ.Integer).Build()},
+		{Name: "clock", Type: typ.Func().Param("self", typ.Self).Returns(typ.Integer, typ.Integer, typ.Integer).Build()},
+		{Name: "year", Type: typ.Func().Param("self", typ.Self).Returns(typ.Integer).Build()},
+		{Name: "month", Type: typ.Func().Param("self", typ.Self).Returns(typ.Integer).Build()},
+		{Name: "day", Type: typ.Func().Param("self", typ.Self).Returns(typ.Integer).Build()},
+		{Name: "hour", Type: typ.Func().Param("self", typ.Self).Returns(typ.Integer).Build()},
+		{Name: "minute", Type: typ.Func().Param("self", typ.Self).Returns(typ.Integer).Build()},
+		{Name: "second", Type: typ.Func().Param("self", typ.Self).Returns(typ.Integer).Build()},
+		{Name: "nanosecond", Type: typ.Func().Param("self", typ.Self).Returns(typ.Integer).Build()},
+		{Name: "weekday", Type: typ.Func().Param("self", typ.Self).Returns(typ.Integer).Build()},
+		{Name: "year_day", Type: typ.Func().Param("self", typ.Self).Returns(typ.Integer).Build()},
+		{Name: "is_zero", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean).Build()},
+		{Name: "in_location", Type: typ.Func().Param("self", typ.Self).Param("loc", locationType).Returns(typ.Self).Build()},
+		{Name: "location", Type: typ.Func().Param("self", typ.Self).Returns(locationType).Build()},
+		{Name: "utc", Type: typ.Func().Param("self", typ.Self).Returns(typ.Self).Build()},
+		{Name: "in_local", Type: typ.Func().Param("self", typ.Self).Returns(typ.Self).Build()},
+		{Name: "round", Type: typ.Func().Param("self", typ.Self).Param("d", durationType).Returns(typ.Self).Build()},
+		{Name: "truncate", Type: typ.Func().Param("self", typ.Self).Param("d", durationType).Returns(typ.Self).Build()},
+	})
+
+	if channelGen != nil {
+		channelType = typ.Instantiate(channelGen, timeType)
 	}
-	timeType.Methods["add"] = types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{timeType})
-	timeType.Methods["sub"] = types.NewFunction([]types.Type{types.Self, timeType}, []types.Type{durationType})
-	timeType.Methods["add_date"] = types.NewFunction([]types.Type{types.Self, types.Number, types.Number, types.Number}, []types.Type{timeType})
-	timeType.Methods["after"] = types.NewFunction([]types.Type{types.Self, timeType}, []types.Type{types.Boolean})
-	timeType.Methods["before"] = types.NewFunction([]types.Type{types.Self, timeType}, []types.Type{types.Boolean})
-	timeType.Methods["equal"] = types.NewFunction([]types.Type{types.Self, timeType}, []types.Type{types.Boolean})
-	timeType.Methods["format"] = types.NewFunction([]types.Type{types.Self, types.String}, []types.Type{types.String})
-	timeType.Methods["format_rfc3339"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.String})
-	timeType.Methods["unix"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Integer})
-	timeType.Methods["unix_nano"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Integer})
-	timeType.Methods["date"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Integer, types.Integer, types.Integer})
-	timeType.Methods["clock"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Integer, types.Integer, types.Integer})
-	timeType.Methods["year"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Integer})
-	timeType.Methods["month"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Integer})
-	timeType.Methods["day"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Integer})
-	timeType.Methods["hour"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Integer})
-	timeType.Methods["minute"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Integer})
-	timeType.Methods["second"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Integer})
-	timeType.Methods["nanosecond"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Integer})
-	timeType.Methods["weekday"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Integer})
-	timeType.Methods["year_day"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Integer})
-	timeType.Methods["is_zero"] = types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean})
-	timeType.Methods["in_location"] = types.NewFunction([]types.Type{types.Self, locationType}, []types.Type{timeType})
-	timeType.Methods["location"] = types.NewFunction([]types.Type{types.Self}, []types.Type{locationType})
-	timeType.Methods["utc"] = types.NewFunction([]types.Type{types.Self}, []types.Type{timeType})
-	timeType.Methods["in_local"] = types.NewFunction([]types.Type{types.Self}, []types.Type{timeType})
-	timeType.Methods["round"] = types.NewFunction([]types.Type{types.Self, durationType}, []types.Type{timeType})
-	timeType.Methods["truncate"] = types.NewFunction([]types.Type{types.Self, durationType}, []types.Type{timeType})
-}
 
-// Ticker type
-var tickerType = &types.InterfaceType{
-	Name: "time.Ticker",
-	Methods: map[string]*types.FunctionType{
-		"stop":     types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean}),
-		"response": types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any}),
-		"channel":  types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any}),
-	},
-}
+	// Ticker type
+	tickerType = typ.NewInterface("time.Ticker", []typ.Method{
+		{Name: "stop", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean).Build()},
+		{Name: "response", Type: typ.Func().Param("self", typ.Self).Returns(channelType).Build()},
+		{Name: "channel", Type: typ.Func().Param("self", typ.Self).Returns(channelType).Build()},
+	})
 
-// Timer type
-var timerType = &types.InterfaceType{
-	Name: "time.Timer",
-	Methods: map[string]*types.FunctionType{
-		"stop":     types.NewFunction([]types.Type{types.Self}, []types.Type{types.Boolean}),
-		"reset":    types.NewFunction([]types.Type{types.Self, types.Any}, []types.Type{types.Boolean}),
-		"response": types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any}),
-		"channel":  types.NewFunction([]types.Type{types.Self}, []types.Type{types.Any}),
-	},
+	// Timer type
+	timerType = typ.NewInterface("time.Timer", []typ.Method{
+		{Name: "stop", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean).Build()},
+		{Name: "reset", Type: typ.Func().Param("self", typ.Self).Param("d", typ.Any).Returns(typ.Boolean).Build()},
+		{Name: "response", Type: typ.Func().Param("self", typ.Self).Returns(channelType).Build()},
+		{Name: "channel", Type: typ.Func().Param("self", typ.Self).Returns(channelType).Build()},
+	})
 }
 
 // ModuleTypes returns the type manifest for the time module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("time")
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("time")
 
 	m.DefineType("Time", timeType)
 	m.DefineType("Duration", durationType)
@@ -99,66 +108,61 @@ func ModuleTypes() *types.TypeManifest {
 	m.DefineType("Ticker", tickerType)
 	m.DefineType("Timer", timerType)
 
-	moduleType := &types.InterfaceType{
-		Name: "time",
-		Fields: map[string]types.Type{
-			"NANOSECOND":  types.Integer,
-			"MICROSECOND": types.Integer,
-			"MILLISECOND": types.Integer,
-			"SECOND":      types.Integer,
-			"MINUTE":      types.Integer,
-			"HOUR":        types.Integer,
-			"RFC3339":     types.String,
-			"RFC3339NANO": types.String,
-			"RFC822":      types.String,
-			"RFC822Z":     types.String,
-			"RFC850":      types.String,
-			"RFC1123":     types.String,
-			"RFC1123Z":    types.String,
-			"KITCHEN":     types.String,
-			"STAMP":       types.String,
-			"STAMP_MILLI": types.String,
-			"STAMP_MICRO": types.String,
-			"STAMP_NANO":  types.String,
-			"DATE_TIME":   types.String,
-			"DATE_ONLY":   types.String,
-			"TIME_ONLY":   types.String,
-			"JANUARY":     types.Integer,
-			"FEBRUARY":    types.Integer,
-			"MARCH":       types.Integer,
-			"APRIL":       types.Integer,
-			"MAY":         types.Integer,
-			"JUNE":        types.Integer,
-			"JULY":        types.Integer,
-			"AUGUST":      types.Integer,
-			"SEPTEMBER":   types.Integer,
-			"OCTOBER":     types.Integer,
-			"NOVEMBER":    types.Integer,
-			"DECEMBER":    types.Integer,
-			"SUNDAY":      types.Integer,
-			"MONDAY":      types.Integer,
-			"TUESDAY":     types.Integer,
-			"WEDNESDAY":   types.Integer,
-			"THURSDAY":    types.Integer,
-			"FRIDAY":      types.Integer,
-			"SATURDAY":    types.Integer,
-			"utc":         locationType,
-			"localtz":     locationType,
-		},
-		Methods: map[string]*types.FunctionType{
-			"sleep":          types.NewFunction([]types.Type{types.Any}, nil),
-			"timer":          types.NewFunction([]types.Type{types.Any}, []types.Type{timerType, types.Optional(types.LuaError)}),
-			"after":          types.NewFunction([]types.Type{types.Any}, []types.Type{types.Any}),
-			"ticker":         types.NewFunction([]types.Type{types.Any}, []types.Type{tickerType, types.Optional(types.LuaError)}),
-			"now":            types.NewFunction(nil, []types.Type{timeType}),
-			"date":           types.NewFunction([]types.Type{types.Number, types.Number, types.Number, types.Number, types.Number, types.Number, types.Number, types.Optional(locationType)}, []types.Type{timeType}),
-			"unix":           types.NewFunction([]types.Type{types.Number, types.Number}, []types.Type{timeType}),
-			"parse":          types.NewFunction([]types.Type{types.String, types.String, types.Optional(locationType)}, []types.Type{timeType, types.Optional(types.LuaError)}),
-			"parse_duration": types.NewFunction([]types.Type{types.Any}, []types.Type{durationType, types.Optional(types.LuaError)}),
-			"load_location":  types.NewFunction([]types.Type{types.String}, []types.Type{locationType, types.Optional(types.LuaError)}),
-			"fixed_zone":     types.NewFunction([]types.Type{types.String, types.Number}, []types.Type{locationType}),
-		},
-	}
+	moduleType := typ.NewRecord().
+		Field("NANOSECOND", typ.Number).
+		Field("MICROSECOND", typ.Number).
+		Field("MILLISECOND", typ.Number).
+		Field("SECOND", typ.Number).
+		Field("MINUTE", typ.Number).
+		Field("HOUR", typ.Number).
+		Field("RFC3339", typ.String).
+		Field("RFC3339NANO", typ.String).
+		Field("RFC822", typ.String).
+		Field("RFC822Z", typ.String).
+		Field("RFC850", typ.String).
+		Field("RFC1123", typ.String).
+		Field("RFC1123Z", typ.String).
+		Field("KITCHEN", typ.String).
+		Field("STAMP", typ.String).
+		Field("STAMP_MILLI", typ.String).
+		Field("STAMP_MICRO", typ.String).
+		Field("STAMP_NANO", typ.String).
+		Field("DATE_TIME", typ.String).
+		Field("DATE_ONLY", typ.String).
+		Field("TIME_ONLY", typ.String).
+		Field("JANUARY", typ.Number).
+		Field("FEBRUARY", typ.Number).
+		Field("MARCH", typ.Number).
+		Field("APRIL", typ.Number).
+		Field("MAY", typ.Number).
+		Field("JUNE", typ.Number).
+		Field("JULY", typ.Number).
+		Field("AUGUST", typ.Number).
+		Field("SEPTEMBER", typ.Number).
+		Field("OCTOBER", typ.Number).
+		Field("NOVEMBER", typ.Number).
+		Field("DECEMBER", typ.Number).
+		Field("SUNDAY", typ.Number).
+		Field("MONDAY", typ.Number).
+		Field("TUESDAY", typ.Number).
+		Field("WEDNESDAY", typ.Number).
+		Field("THURSDAY", typ.Number).
+		Field("FRIDAY", typ.Number).
+		Field("SATURDAY", typ.Number).
+		Field("utc", locationType).
+		Field("localtz", locationType).
+		Field("sleep", typ.Func().Param("d", typ.Any).Build()).
+		Field("timer", typ.Func().Param("d", typ.Any).Returns(timerType, typ.NewOptional(typ.LuaError)).Build()).
+		Field("after", typ.Func().Param("d", typ.Any).Returns(channelType).Build()).
+		Field("ticker", typ.Func().Param("d", typ.Any).Returns(tickerType, typ.NewOptional(typ.LuaError)).Build()).
+		Field("now", typ.Func().Returns(timeType).Build()).
+		Field("date", typ.Func().Param("year", typ.Number).Param("month", typ.Number).Param("day", typ.Number).Param("hour", typ.Number).Param("min", typ.Number).Param("sec", typ.Number).Param("nsec", typ.Number).OptParam("loc", locationType).Returns(timeType).Build()).
+		Field("unix", typ.Func().Param("sec", typ.Number).Param("nsec", typ.Number).Returns(timeType).Build()).
+		Field("parse", typ.Func().Param("layout", typ.String).Param("value", typ.String).OptParam("loc", locationType).Returns(timeType, typ.NewOptional(typ.LuaError)).Build()).
+		Field("parse_duration", typ.Func().Param("s", typ.Any).Returns(durationType, typ.NewOptional(typ.LuaError)).Build()).
+		Field("load_location", typ.Func().Param("name", typ.String).Returns(locationType, typ.NewOptional(typ.LuaError)).Build()).
+		Field("fixed_zone", typ.Func().Param("name", typ.String).Param("offset", typ.Number).Returns(locationType).Build()).
+		Build()
 
 	m.SetExport(moduleType)
 	return m

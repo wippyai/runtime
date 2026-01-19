@@ -1,46 +1,35 @@
 package hash
 
 import (
-	"github.com/yuin/gopher-lua/types"
+	"github.com/yuin/gopher-lua/types/io"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
 // ModuleTypes returns the type manifest for the hash module.
-func ModuleTypes() *types.TypeManifest {
-	m := types.NewManifest("hash")
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("hash")
 
 	// hash function type: (data: string, raw?: boolean): string, Error?
-	hashFn := types.NewFunction(
-		[]types.Type{types.String, types.Optional(types.Boolean)},
-		[]types.Type{types.String, types.Optional(types.LuaError)},
-	)
+	hashFn := typ.Func().Param("data", typ.String).OptParam("raw", typ.Boolean).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()
 
 	// fnv hash returns number: (data: string): number, Error?
-	fnvFn := types.NewFunction(
-		[]types.Type{types.String},
-		[]types.Type{types.Number, types.Optional(types.LuaError)},
-	)
+	fnvFn := typ.Func().Param("data", typ.String).Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()
 
 	// hmac function type: (data: string, secret: string, raw?: boolean): string, Error?
-	hmacFn := types.NewFunction(
-		[]types.Type{types.String, types.String, types.Optional(types.Boolean)},
-		[]types.Type{types.String, types.Optional(types.LuaError)},
-	)
+	hmacFn := typ.Func().Param("data", typ.String).Param("secret", typ.String).OptParam("raw", typ.Boolean).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()
 
-	moduleType := &types.InterfaceType{
-		Name: "hash",
-		Methods: map[string]*types.FunctionType{
-			"md5":         hashFn,
-			"sha1":        hashFn,
-			"sha256":      hashFn,
-			"sha512":      hashFn,
-			"fnv32":       fnvFn,
-			"fnv64":       fnvFn,
-			"hmac_sha256": hmacFn,
-			"hmac_sha512": hmacFn,
-			"hmac_sha1":   hmacFn,
-			"hmac_md5":    hmacFn,
-		},
-	}
+	moduleType := typ.NewInterface("hash", []typ.Method{
+		{Name: "md5", Type: hashFn},
+		{Name: "sha1", Type: hashFn},
+		{Name: "sha256", Type: hashFn},
+		{Name: "sha512", Type: hashFn},
+		{Name: "fnv32", Type: fnvFn},
+		{Name: "fnv64", Type: fnvFn},
+		{Name: "hmac_sha256", Type: hmacFn},
+		{Name: "hmac_sha512", Type: hmacFn},
+		{Name: "hmac_sha1", Type: hmacFn},
+		{Name: "hmac_md5", Type: hmacFn},
+	})
 
 	m.SetExport(moduleType)
 	return m

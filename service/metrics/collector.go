@@ -17,6 +17,7 @@ type collector struct {
 	stopCh    chan struct{}
 	wg        sync.WaitGroup
 	dropped   atomic.Uint64
+	closed    atomic.Bool
 }
 
 type recordEvent struct {
@@ -27,6 +28,7 @@ type recordEvent struct {
 }
 
 func NewCollector(cfg apicfg.Config) api.Collector {
+	_ = cfg.Validate()
 	c := &collector{
 		cfg:       cfg,
 		exporters: make([]api.Exporter, 0),
@@ -63,6 +65,10 @@ func (c *collector) HistogramObserve(name string, value float64, labels api.Labe
 }
 
 func (c *collector) record(name string, typ api.MetricType, value float64, labels api.Labels) {
+	if c.closed.Load() {
+		c.dropped.Add(1)
+		return
+	}
 	select {
 	case c.recordCh <- recordEvent{name: name, typ: typ, value: value, labels: labels}:
 	default:
@@ -127,6 +133,9 @@ func (c *collector) flush(batch []recordEvent) {
 }
 
 func (c *collector) Close() error {
+	if !c.closed.CompareAndSwap(false, true) {
+		return nil
+	}
 	close(c.stopCh)
 	c.wg.Wait()
 

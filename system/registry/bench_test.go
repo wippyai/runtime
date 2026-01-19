@@ -26,9 +26,9 @@ func setupBenchRegistry(b *testing.B, entryCount int) *Reg {
 			}
 			for _, op := range changes {
 				switch op.Kind {
-				case registry.Create, registry.Update:
+				case registry.EntryCreate, registry.EntryUpdate:
 					stateMap[op.Entry.ID] = op.Entry
-				case registry.Delete:
+				case registry.EntryDelete:
 					delete(stateMap, op.Entry.ID)
 				}
 			}
@@ -151,7 +151,7 @@ func BenchmarkApply(b *testing.B) {
 					changes := make(registry.ChangeSet, changeSize)
 					for j := 0; j < changeSize; j++ {
 						changes[j] = registry.Operation{
-							Kind: registry.Update,
+							Kind: registry.EntryUpdate,
 							Entry: registry.Entry{
 								ID:   registry.ID{NS: "bench", Name: fmt.Sprintf("entry-%d", j%size)},
 								Kind: "service",
@@ -185,9 +185,9 @@ func BenchmarkLoadState(b *testing.B) {
 					}
 					for _, op := range changes {
 						switch op.Kind {
-						case registry.Create, registry.Update:
+						case registry.EntryCreate, registry.EntryUpdate:
 							stateMap[op.Entry.ID] = op.Entry
-						case registry.Delete:
+						case registry.EntryDelete:
 							delete(stateMap, op.Entry.ID)
 						}
 					}

@@ -4,6 +4,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 )
 
+// Kind identifies embedded filesystem entries in the registry.
 const Kind registry.Kind = "fs.embed"
 
 // Config represents configuration for an embedded filesystem from a pack.

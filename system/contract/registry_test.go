@@ -69,7 +69,7 @@ func TestContractRegistry_DefinitionEvents(t *testing.T) {
 		contract.System,
 		"contract.*",
 		func(evt event.Event) {
-			if evt.Kind == contract.Accept || evt.Kind == contract.Reject {
+			if evt.Kind == contract.ContractAccept || evt.Kind == contract.ContractReject {
 				mu.Lock()
 				responses = append(responses, evt)
 				mu.Unlock()
@@ -111,31 +111,31 @@ func TestContractRegistry_DefinitionEvents(t *testing.T) {
 			name:         "register definition success",
 			eventKind:    contract.RegisterDefinition,
 			eventData:    testDef,
-			expectedKind: contract.Accept,
+			expectedKind: contract.ContractAccept,
 		},
 		{
 			name:         "update definition success",
 			eventKind:    contract.UpdateDefinition,
 			eventData:    testDef,
-			expectedKind: contract.Accept,
+			expectedKind: contract.ContractAccept,
 		},
 		{
 			name:         "delete definition success",
 			eventKind:    contract.DeleteDefinition,
 			eventData:    nil,
-			expectedKind: contract.Accept,
+			expectedKind: contract.ContractAccept,
 		},
 		{
 			name:         "register definition with invalid payload",
 			eventKind:    contract.RegisterDefinition,
 			eventData:    "invalid",
-			expectedKind: contract.Reject,
+			expectedKind: contract.ContractReject,
 		},
 		{
 			name:         "update definition with invalid payload",
 			eventKind:    contract.UpdateDefinition,
 			eventData:    123,
-			expectedKind: contract.Reject,
+			expectedKind: contract.ContractReject,
 		},
 	}
 
@@ -199,7 +199,7 @@ func TestContractRegistry_BindingEvents(t *testing.T) {
 		contract.System,
 		"contract.*",
 		func(evt event.Event) {
-			if evt.Kind == contract.Accept || evt.Kind == contract.Reject {
+			if evt.Kind == contract.ContractAccept || evt.Kind == contract.ContractReject {
 				mu.Lock()
 				responses = append(responses, evt)
 				mu.Unlock()
@@ -230,31 +230,31 @@ func TestContractRegistry_BindingEvents(t *testing.T) {
 			name:         "register binding success",
 			eventKind:    contract.RegisterBinding,
 			eventData:    testBinding,
-			expectedKind: contract.Accept,
+			expectedKind: contract.ContractAccept,
 		},
 		{
 			name:         "update binding success",
 			eventKind:    contract.UpdateBinding,
 			eventData:    testBinding,
-			expectedKind: contract.Accept,
+			expectedKind: contract.ContractAccept,
 		},
 		{
 			name:         "delete binding success",
 			eventKind:    contract.DeleteBinding,
 			eventData:    nil,
-			expectedKind: contract.Accept,
+			expectedKind: contract.ContractAccept,
 		},
 		{
 			name:         "register binding with invalid payload",
 			eventKind:    contract.RegisterBinding,
 			eventData:    "invalid",
-			expectedKind: contract.Reject,
+			expectedKind: contract.ContractReject,
 		},
 		{
 			name:         "update binding with invalid payload",
 			eventKind:    contract.UpdateBinding,
 			eventData:    []string{"invalid"},
-			expectedKind: contract.Reject,
+			expectedKind: contract.ContractReject,
 		},
 	}
 
@@ -335,7 +335,7 @@ func TestContractRegistry_GetContract(t *testing.T) {
 		contract.System,
 		"contract.*",
 		func(evt event.Event) {
-			if evt.Kind == contract.Accept {
+			if evt.Kind == contract.ContractAccept {
 				wg.Done()
 			}
 		},
@@ -402,7 +402,7 @@ func TestContractRegistry_GetBinding(t *testing.T) {
 		contract.System,
 		"contract.*",
 		func(evt event.Event) {
-			if evt.Kind == contract.Accept {
+			if evt.Kind == contract.ContractAccept {
 				wg.Done()
 			}
 		},
@@ -460,7 +460,7 @@ func TestContractRegistry_GetBindingsForContract(t *testing.T) {
 		contract.System,
 		"contract.*",
 		func(evt event.Event) {
-			if evt.Kind == contract.Accept {
+			if evt.Kind == contract.ContractAccept {
 				wg.Done()
 			}
 		},
@@ -564,7 +564,7 @@ func TestContractRegistry_GetDefaultBinding(t *testing.T) {
 		contract.System,
 		"contract.*",
 		func(evt event.Event) {
-			if evt.Kind == contract.Accept {
+			if evt.Kind == contract.ContractAccept {
 				wg.Done()
 			}
 		},
@@ -719,7 +719,7 @@ func TestContractRegistry_DefaultBindingCleanupOnContractDelete(t *testing.T) {
 		contract.System,
 		"contract.*",
 		func(evt event.Event) {
-			if evt.Kind == contract.Accept {
+			if evt.Kind == contract.ContractAccept {
 				wg.Done()
 			}
 		},
@@ -800,7 +800,7 @@ func TestContractRegistry_MultipleContractsInBinding(t *testing.T) {
 		contract.System,
 		"contract.*",
 		func(evt event.Event) {
-			if evt.Kind == contract.Accept {
+			if evt.Kind == contract.ContractAccept {
 				wg.Done()
 			}
 		},
@@ -901,7 +901,7 @@ func TestContractRegistry_ConcurrentAccess(t *testing.T) {
 		contract.System,
 		"contract.*",
 		func(evt event.Event) {
-			if evt.Kind == contract.Accept {
+			if evt.Kind == contract.ContractAccept {
 				wg.Done()
 			}
 		},
@@ -955,7 +955,7 @@ func TestContractImpl_ID_Meta(t *testing.T) {
 
 	done := make(chan struct{})
 	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, "contract.*", func(e event.Event) {
-		if e.Kind == contract.Accept && e.Path == contractID.String() {
+		if e.Kind == contract.ContractAccept && e.Path == contractID.String() {
 			close(done)
 		}
 	})
@@ -1013,7 +1013,7 @@ func TestContractRegistry_NilMetaInit(t *testing.T) {
 
 	done := make(chan struct{})
 	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, "contract.*", func(e event.Event) {
-		if e.Kind == contract.Accept && e.Path == contractID.String() {
+		if e.Kind == contract.ContractAccept && e.Path == contractID.String() {
 			close(done)
 		}
 	})

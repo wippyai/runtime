@@ -21,16 +21,20 @@ type Manager struct {
 	dtt         payload.Transcoder
 	embedReg    embedapi.Registry
 	mu          sync.RWMutex
-	filesystems sync.Map // map[string]fsapi.FS
+	filesystems map[registry.ID]fsapi.FS
 }
 
 // NewManager creates a new embed manager instance.
 func NewManager(bus event.Bus, dtt payload.Transcoder, embedReg embedapi.Registry, logger *zap.Logger) *Manager {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &Manager{
-		log:      logger,
-		bus:      bus,
-		dtt:      dtt,
-		embedReg: embedReg,
+		log:         logger,
+		bus:         bus,
+		dtt:         dtt,
+		embedReg:    embedReg,
+		filesystems: make(map[registry.ID]fsapi.FS),
 	}
 }
 
@@ -49,7 +53,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	defer m.mu.Unlock()
 
 	// Check for duplicates
-	if _, exists := m.filesystems.Load(entry.ID.String()); exists {
+	if _, exists := m.filesystems[entry.ID]; exists {
 		return systemfs.NewFilesystemAlreadyExistsError(entry.ID.String())
 	}
 
@@ -70,7 +74,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, exists := m.filesystems.Load(entry.ID.String()); !exists {
+	if _, exists := m.filesystems[entry.ID]; !exists {
 		return systemfs.NewFilesystemNotFoundError(entry.ID.String())
 	}
 
@@ -93,9 +97,10 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, exists := m.filesystems.LoadAndDelete(entry.ID.String()); !exists {
+	if _, exists := m.filesystems[entry.ID]; !exists {
 		return systemfs.NewFilesystemNotFoundError(entry.ID.String())
 	}
+	delete(m.filesystems, entry.ID)
 
 	m.removeFS(ctx, entry.ID)
 	m.log.Info("embedded filesystem removed", zap.String("id", entry.ID.String()))
@@ -118,12 +123,12 @@ func (m *Manager) registerFS(ctx context.Context, id registry.ID) error {
 	fs := fsapi.NewReadOnlyFS(packFS)
 
 	// Store in filesystems map
-	m.filesystems.Store(id.String(), fs)
+	m.filesystems[id] = fs
 
 	// Register with filesystem registry
 	m.bus.Send(ctx, event.Event{
 		System: fsapi.System,
-		Kind:   fsapi.Register,
+		Kind:   fsapi.FsRegister,
 		Path:   id.String(),
 		Data:   fs,
 	})
@@ -135,7 +140,7 @@ func (m *Manager) registerFS(ctx context.Context, id registry.ID) error {
 func (m *Manager) removeFS(ctx context.Context, id registry.ID) {
 	m.bus.Send(ctx, event.Event{
 		System: fsapi.System,
-		Kind:   fsapi.Delete,
+		Kind:   fsapi.FsDelete,
 		Path:   id.String(),
 	})
 }

@@ -22,14 +22,6 @@ import (
 // Option configures a Dispatcher.
 type Option func(*Dispatcher)
 
-// WithDebug enables debug output to the given writer.
-// TODO: remove after testing is complete
-func WithDebug(w io.Writer) Option {
-	return func(d *Dispatcher) {
-		d.debug = w
-	}
-}
-
 // WithPoolConfig sets custom pool configuration.
 func WithPoolConfig(cfg PoolConfig) Option {
 	return func(d *Dispatcher) {
@@ -49,7 +41,6 @@ type PoolConfig struct {
 type Dispatcher struct {
 	pool    *Pool
 	poolCfg PoolConfig
-	debug   io.Writer
 }
 
 // NewDispatcher creates a new HTTP client dispatcher.
@@ -66,19 +57,13 @@ func NewDispatcher(opts ...Option) *Dispatcher {
 	return d
 }
 
-// Start logs dispatcher start.
+// Start initializes the dispatcher.
 func (d *Dispatcher) Start(_ context.Context) error {
-	if d.debug != nil {
-		_, _ = fmt.Fprintf(d.debug, "[http] dispatcher started\n")
-	}
 	return nil
 }
 
-// Stop logs dispatcher stop.
+// Stop shuts down the dispatcher.
 func (d *Dispatcher) Stop(_ context.Context) error {
-	if d.debug != nil {
-		_, _ = fmt.Fprintf(d.debug, "[http] dispatcher stopped pool_size=%d\n", d.pool.Size())
-	}
 	return nil
 }
 
@@ -91,19 +76,8 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 func (d *Dispatcher) handleRequest(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	req := cmd.(*httpapi.RequestCmd)
 
-	if d.debug != nil {
-		_, _ = fmt.Fprintf(d.debug, "[http] request %s %s stream=%v\n", req.Method, req.URL, req.Stream)
-	}
-
 	go func() {
-		start := time.Now()
 		result := executeRequest(ctx, d.pool, req, true)
-
-		if d.debug != nil {
-			_, _ = fmt.Fprintf(d.debug, "[http] response %s %s status=%d duration=%v err=%s\n",
-				req.Method, req.URL, result.StatusCode, time.Since(start), result.Error)
-		}
-
 		if ctx.Err() == nil {
 			receiver.CompleteYield(tag, result, nil)
 		}
@@ -120,12 +94,7 @@ func (d *Dispatcher) handleRequestBatch(ctx context.Context, cmd dispatcher.Comm
 		return nil
 	}
 
-	if d.debug != nil {
-		_, _ = fmt.Fprintf(d.debug, "[http] batch request count=%d\n", len(batch.Requests))
-	}
-
 	go func() {
-		start := time.Now()
 		responses := make([]httpapi.Response, len(batch.Requests))
 		var wg sync.WaitGroup
 		wg.Add(len(batch.Requests))
@@ -138,10 +107,6 @@ func (d *Dispatcher) handleRequestBatch(ctx context.Context, cmd dispatcher.Comm
 		}
 
 		wg.Wait()
-
-		if d.debug != nil {
-			_, _ = fmt.Fprintf(d.debug, "[http] batch response count=%d duration=%v\n", len(responses), time.Since(start))
-		}
 
 		if ctx.Err() == nil {
 			receiver.CompleteYield(tag, httpapi.BatchResponse{Responses: responses}, nil)

@@ -36,8 +36,8 @@ func TestChangesToString(t *testing.T) {
 
 	changes := &Changes{
 		ops: []regapi.Operation{
-			{Kind: regapi.Create},
-			{Kind: regapi.Update},
+			{Kind: regapi.EntryCreate},
+			{Kind: regapi.EntryUpdate},
 		},
 		log: zap.NewNop(),
 	}

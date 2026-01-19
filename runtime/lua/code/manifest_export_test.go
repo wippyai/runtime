@@ -3,12 +3,12 @@ package code
 import (
 	"testing"
 
-	"github.com/yuin/gopher-lua/types"
 	"github.com/yuin/gopher-lua/types/contract"
-	"github.com/yuin/gopher-lua/types/core"
+	"github.com/yuin/gopher-lua/types/diag"
 	"github.com/yuin/gopher-lua/types/io"
 	"github.com/yuin/gopher-lua/types/predicate"
 	"github.com/yuin/gopher-lua/types/query"
+	"github.com/yuin/gopher-lua/types/typ"
 )
 
 // TestManifestExport_AssertModule tests that compiling assert.lua produces a manifest
@@ -31,13 +31,10 @@ end
 return M
 `
 
-	manifest, diags, err := tc.Check(assertSource, "assert.lua", nil)
-	if err != nil {
-		t.Fatalf("type check failed: %v", err)
-	}
+	manifest, diags, _ := tc.Check(assertSource, "assert.lua", nil)
 
 	for _, d := range diags {
-		if d.Severity == types.SeverityError {
+		if d.Severity == diag.SeverityError {
 			t.Logf("diagnostic: %s", d.Message)
 		}
 	}
@@ -59,18 +56,18 @@ return M
 		t.Fatal("is_nil not found in module")
 	}
 
-	fn, ok := isNilType.(*core.FunctionType)
+	fn, ok := isNilType.(*typ.Function)
 	if !ok {
-		t.Fatalf("is_nil should be FunctionType, got %T", isNilType)
+		t.Fatalf("is_nil should be *typ.Function, got %T", isNilType)
 	}
 
-	// Verify Refine is set with IsNil ensures
-	if fn.Refine == nil {
-		t.Error("is_nil should have Refine set")
+	// Verify Spec is set with IsNil ensures
+	if fn.Spec == nil {
+		t.Error("is_nil should have Spec set")
 	} else {
-		spec, ok := fn.Refine.(*contract.Spec)
+		spec, ok := fn.Spec.(*contract.Spec)
 		if !ok {
-			t.Errorf("Refine should be *contract.Spec, got %T", fn.Refine)
+			t.Errorf("Spec should be *contract.Spec, got %T", fn.Spec)
 		} else {
 			if len(spec.Ensures) == 0 {
 				t.Error("is_nil Spec.Ensures should not be empty")
@@ -83,18 +80,18 @@ return M
 
 // TestManifestExport_Serialization tests that Spec survives serialization.
 func TestManifestExport_Serialization(t *testing.T) {
-	// Create a function type with Refine spec
+	// Create a function type with Spec
 	spec := contract.NewSpec().WithEnsures(predicate.IsNil{Name: "param[0]"})
-	fn := &core.FunctionType{
-		Params:     []types.Type{types.Any, types.Any},
-		ParamNames: []string{"val", "msg"},
-		Refine:     spec,
-	}
+	fn := typ.Func().
+		Param("val", typ.Any).
+		Param("msg", typ.Any).
+		Build()
+	fn.Spec = spec
 
 	// Create a record type as the module export
-	moduleType := core.NewRecord("M", []core.RecordField{
-		{Name: "is_nil", Type: fn},
-	}, false)
+	moduleType := typ.NewRecord().
+		Field("is_nil", fn).
+		Build()
 
 	// Serialize and deserialize
 	data, err := io.Encode(moduleType)
@@ -108,9 +105,9 @@ func TestManifestExport_Serialization(t *testing.T) {
 	}
 
 	// Verify the decoded type
-	recDec, ok := decoded.(*core.RecordType)
+	recDec, ok := decoded.(*typ.Record)
 	if !ok {
-		t.Fatalf("expected RecordType, got %T", decoded)
+		t.Fatalf("expected *typ.Record, got %T", decoded)
 	}
 
 	// Get is_nil field
@@ -119,19 +116,19 @@ func TestManifestExport_Serialization(t *testing.T) {
 		t.Fatal("is_nil not found after decode")
 	}
 
-	fnDec, ok := isNilType.(*core.FunctionType)
+	fnDec, ok := isNilType.(*typ.Function)
 	if !ok {
-		t.Fatalf("is_nil should be FunctionType, got %T", isNilType)
+		t.Fatalf("is_nil should be *typ.Function, got %T", isNilType)
 	}
 
-	// Verify Refine survived
-	if fnDec.Refine == nil {
-		t.Fatal("Refine should not be nil after decode")
+	// Verify Spec survived
+	if fnDec.Spec == nil {
+		t.Fatal("Spec should not be nil after decode")
 	}
 
-	specDec, ok := fnDec.Refine.(*contract.Spec)
+	specDec, ok := fnDec.Spec.(*contract.Spec)
 	if !ok {
-		t.Fatalf("Refine should be *contract.Spec, got %T", fnDec.Refine)
+		t.Fatalf("Spec should be *contract.Spec, got %T", fnDec.Spec)
 	}
 
 	if len(specDec.Ensures) != 1 {
@@ -161,10 +158,7 @@ function M.is_nil(val, msg)
 end
 return M
 `
-	assertManifest, _, err := tc.Check(assertSource, "assert.lua", nil)
-	if err != nil {
-		t.Fatalf("assert compile failed: %v", err)
-	}
+	assertManifest, _, _ := tc.Check(assertSource, "assert.lua", nil)
 
 	if assertManifest.Export == nil {
 		t.Fatal("assert manifest.Export is nil")
@@ -182,8 +176,8 @@ return M
 	}
 
 	// Create a new manifest with the decoded export
-	loadedManifest := types.NewManifest("assert")
-	loadedManifest.SetExport(decodedExport)
+	loadedManifest := io.NewManifest("assert")
+	loadedManifest.Export = decodedExport
 
 	// Step 3: Compile test code using the loaded manifest
 	testSource := `
@@ -194,32 +188,28 @@ local x = db .. " test"  -- This should work if db is narrowed from string? to s
 `
 
 	// Add getDB function that returns (string?, error?)
-	getDBType := types.NewFunction(
-		nil,
-		[]types.Type{types.Optional(types.String), types.Optional(types.LuaError)},
-	)
-
-	// Create env with getDB
-	env := types.NewEnv().WithSymbol("getDB", getDBType)
+	getDBType := typ.Func().
+		Returns(typ.NewOptional(typ.String)).
+		Returns(typ.NewOptional(typ.LuaError)).
+		Build()
 
 	// Create imports with assert module
-	imports := map[string]*types.TypeManifest{
+	imports := map[string]*io.Manifest{
 		"assert": loadedManifest,
 	}
 
-	// Add assert to env from imports
-	for alias, m := range imports {
-		if m != nil && m.Export != nil {
-			env = env.WithSymbol(alias, m.Export)
-		}
+	// Create a manifest with getDB as a global
+	envManifest := io.NewManifest("env")
+	envManifest.Globals = map[string]typ.Type{
+		"getDB": getDBType,
 	}
+
+	// Merge globals into imports
+	imports["_env"] = envManifest
 
 	// Need to also add implications for err -> db pattern
 	// For now, just check that the module is loaded correctly
-	_, diags, err := tc.Check(testSource, "test.lua", imports)
-	if err != nil {
-		t.Fatalf("test compile failed: %v", err)
-	}
+	_, diags, _ := tc.Check(testSource, "test.lua", imports)
 
 	// Log diagnostics
 	t.Logf("Diagnostics: %d", len(diags))

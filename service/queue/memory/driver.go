@@ -31,6 +31,9 @@ type Driver struct {
 }
 
 func NewDriver(id registry.ID, logger *zap.Logger) *Driver {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &Driver{
 		id:     id,
 		logger: logger,

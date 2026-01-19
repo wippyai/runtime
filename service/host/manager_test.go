@@ -103,6 +103,26 @@ func TestManager_Add_DecodeError(t *testing.T) {
 	var hostErr apierror.Error
 	require.ErrorAs(t, err, &hostErr)
 	assert.Contains(t, hostErr.Error(), "failed to decode host config")
+	assert.NotEmpty(t, hostErr.Details().GetString("cause", ""))
+}
+
+func TestManager_Add_InvalidKind(t *testing.T) {
+	mgr := newTestManager(t)
+
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "host1"),
+		Kind: "invalid.kind",
+		Meta: attrs.NewBag(),
+		Data: payload.New(map[string]any{}),
+	}
+
+	err := mgr.Add(context.Background(), entry)
+	require.Error(t, err)
+
+	var hostErr apierror.Error
+	require.ErrorAs(t, err, &hostErr)
+	assert.Contains(t, hostErr.Error(), "unsupported entry kind")
+	assert.Equal(t, "invalid.kind", hostErr.Details().GetString("kind", ""))
 }
 
 func TestManager_Add_MultipleHosts(t *testing.T) {
@@ -149,6 +169,23 @@ func TestManager_Delete_NotFound(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestManager_Delete_InvalidKind(t *testing.T) {
+	mgr := newTestManager(t)
+
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "host1"),
+		Kind: "invalid.kind",
+	}
+
+	err := mgr.Delete(context.Background(), entry)
+	require.Error(t, err)
+
+	var hostErr apierror.Error
+	require.ErrorAs(t, err, &hostErr)
+	assert.Contains(t, hostErr.Error(), "unsupported entry kind")
+	assert.Equal(t, "invalid.kind", hostErr.Details().GetString("kind", ""))
+}
+
 func TestManager_Delete_StopsHost(t *testing.T) {
 	mgr := newTestManager(t)
 	entry := makeHostEntry(registry.NewID("test", "host1"))
@@ -186,6 +223,25 @@ func TestManager_Update(t *testing.T) {
 	_, ok := mgr.hosts[entry.ID]
 	mgr.mu.RUnlock()
 	assert.True(t, ok)
+}
+
+func TestManager_Update_InvalidKind(t *testing.T) {
+	mgr := newTestManager(t)
+
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "host1"),
+		Kind: "invalid.kind",
+		Meta: attrs.NewBag(),
+		Data: payload.New(map[string]any{}),
+	}
+
+	err := mgr.Update(context.Background(), entry)
+	require.Error(t, err)
+
+	var hostErr apierror.Error
+	require.ErrorAs(t, err, &hostErr)
+	assert.Contains(t, hostErr.Error(), "unsupported entry kind")
+	assert.Equal(t, "invalid.kind", hostErr.Details().GetString("kind", ""))
 }
 
 func TestManager_Update_NonExistent(t *testing.T) {

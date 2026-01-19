@@ -11,37 +11,37 @@ import (
 
 // Registry system constants define the various event types and identifiers used throughout the registry.
 const (
-	// System identifies the registry system in the event bus
+	// System identifies the registry system in the event bus.
 	System event.System = "registry"
 
-	// Create represents an event for creating a new registry entry
-	Create event.Kind = "entry.create"
-	// Update represents an event for updating an existing registry entry
-	Update event.Kind = "entry.update"
-	// Delete represents an event for removing a registry entry
-	Delete event.Kind = "entry.delete"
+	// EntryCreate represents an event for creating a new registry entry.
+	EntryCreate event.Kind = "entry.create"
+	// EntryUpdate represents an event for updating an existing registry entry.
+	EntryUpdate event.Kind = "entry.update"
+	// EntryDelete represents an event for removing a registry entry.
+	EntryDelete event.Kind = "entry.delete"
 
-	// Accept represents an event for accepting a registry entry
-	Accept event.Kind = "entry.accept"
-	// Reject represents an event for rejecting a registry entry
-	Reject event.Kind = "entry.reject"
+	// EntryAccept represents an event for accepting a registry entry.
+	EntryAccept event.Kind = "entry.accept"
+	// EntryReject represents an event for rejecting a registry entry.
+	EntryReject event.Kind = "entry.reject"
 
-	// Begin represents the start of a registry transaction
-	Begin event.Kind = "registry.begin"
-	// Commit represents the successful completion of a registry transaction
-	Commit event.Kind = "registry.commit"
-	// Discard represents the rollback of a registry transaction
-	Discard event.Kind = "registry.discard"
+	// TxBegin represents the start of a registry transaction.
+	TxBegin event.Kind = "registry.begin"
+	// TxCommit represents the successful completion of a registry transaction.
+	TxCommit event.Kind = "registry.commit"
+	// TxDiscard represents the rollback of a registry transaction.
+	TxDiscard event.Kind = "registry.discard"
 
-	// AllEvents matches any registry operation event
+	// AllEvents matches any registry operation event.
 	AllEvents event.Kind = "(entry|registry).(create|update|delete|begin|commit|discard)"
 
-	// RootVersion represents the initial version of the registry
+	// RootVersion represents the initial version of the registry.
 	RootVersion uint = 0
 
-	// TagDependsOn is used to mark dependencies between registry entries, groups and ns
+	// TagDependsOn is used to mark dependencies between registry entries, groups and ns.
 	TagDependsOn = "depends_on"
-	// TagGroups is used to mark group membership of registry entries
+	// TagGroups is used to mark group membership of registry entries.
 	TagGroups = "groups"
 
 	// EntryKind stores value in registry without propagation, useful for app specific configs.
@@ -52,6 +52,9 @@ const (
 
 	// NamespaceDependency represents a module dependency entry
 	NamespaceDependency Kind = "ns.dependency"
+
+	// NamespaceDefinition represents module metadata (readme, license, authors, etc.)
+	NamespaceDefinition Kind = "ns.definition"
 )
 
 type (
