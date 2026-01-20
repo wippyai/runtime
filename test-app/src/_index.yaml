@@ -1,0 +1,18 @@
+namespace: testapp
+
+entries:
+  - name: dd3
+    kind: ns.dependency
+    component: wippyai/dd3
+    version: ">=0.1.0"
+
+  - name: main
+    kind: process.lua
+    meta:
+      command:
+        name: run
+        short: Run the test app
+    source: file://main.lua
+    method: main
+    modules:
+      - io

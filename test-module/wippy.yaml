@@ -1,0 +1,5 @@
+organization: wippyai
+module: dd3
+version: 0.1.0
+description: Simple utility library for string manipulation
+license: MIT

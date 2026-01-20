@@ -1,0 +1,12 @@
+namespace: wippyai.dd3
+
+entries:
+  - name: dd3
+    kind: ns.definition
+    data:
+      readme: Simple utility library for string manipulation
+
+  - name: strings
+    kind: library.lua
+    data:
+      source: file://strings.library.lua
