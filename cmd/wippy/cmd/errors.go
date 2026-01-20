@@ -164,20 +164,8 @@ func NewReadEntriesError(path string, cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to read entries from: "+path).WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewRegisterPackError(path string, cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to register pack: "+path).WithCause(cause).WithRetryable(apierror.False)
-}
-
 func NewStartRuntimeServicesError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to start runtime services").WithCause(cause).WithRetryable(apierror.False)
-}
-
-func NewBuildChangeSetError(cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to build change set").WithCause(cause).WithRetryable(apierror.False)
-}
-
-func NewApplyEntriesError(cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to apply entries").WithCause(cause).WithRetryable(apierror.False)
 }
 
 func NewInvalidExistingLockFileError(cause error) apierror.Error {
@@ -190,6 +178,10 @@ func NewLoadEntriesFromSourceError(cause error) apierror.Error {
 
 func NewCreateManifestBridgeError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to create manifest bridge").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewCreateHubClientError(cause error) apierror.Error {
+	return apierror.New(apierror.Internal, "failed to create hub client").WithCause(cause).WithRetryable(apierror.False)
 }
 
 func NewBuildDependencyGraphError(cause error) apierror.Error {

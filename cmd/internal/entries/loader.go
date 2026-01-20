@@ -4,18 +4,22 @@ package entries
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
+	"git.spiralscout.com/wippy/wapp"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/boot/build"
 	"github.com/wippyai/runtime/boot/build/stages"
+	auth "github.com/wippyai/runtime/boot/deps/auth"
 	"github.com/wippyai/runtime/boot/deps/graph"
+	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
-	"github.com/wippyai/runtime/boot/deps/storage"
-	appinit "github.com/wippyai/runtime/cmd/internal/app"
+	regtop "github.com/wippyai/runtime/system/registry/topology"
 	"go.uber.org/zap"
 )
 
@@ -65,7 +69,7 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger, verbose bool) err
 }
 
 // EnsureModulesInstalled checks if modules from the lock file are installed,
-// and auto-installs them if missing.
+// and auto-installs them if missing using the hub client.
 func EnsureModulesInstalled(ctx context.Context, lockPath string, logger *zap.Logger) error {
 	lockObj, err := lock.New(lockPath)
 	if err != nil {
@@ -85,7 +89,8 @@ func EnsureModulesInstalled(ctx context.Context, lockPath string, logger *zap.Lo
 	vendorPath := filepath.Join(lockDir, lockObj.GetVendorPath())
 	logger.Debug("checking modules installation", zap.String("vendor_path", vendorPath))
 
-	allInstalled := true
+	// Check which modules need installation
+	var missingModules []lock.Module
 	for _, mod := range modules {
 		name, err := graph.ParseName(mod.Name)
 		if err != nil {
@@ -93,45 +98,40 @@ func EnsureModulesInstalled(ctx context.Context, lockPath string, logger *zap.Lo
 			continue
 		}
 
+		// Check for wapp file (new format)
+		wappPath := lock.WappPath(name, mod.Version)
+		fullWappPath := filepath.Join(vendorPath, wappPath)
+		if _, err := os.Stat(fullWappPath); err == nil {
+			continue
+		}
+
+		// Check for directory (legacy format)
 		modulePath := lock.ModulePath(name, mod.Version)
 		fullPath := filepath.Join(vendorPath, modulePath)
-		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-			allInstalled = false
-			logger.Info("module not found, will auto-install", zap.String("module", mod.Name))
-			break
+		if _, err := os.Stat(fullPath); err == nil {
+			continue
 		}
+
+		missingModules = append(missingModules, mod)
 	}
 
-	if allInstalled {
+	if len(missingModules) == 0 {
 		logger.Debug("all modules already installed")
 		return nil
 	}
 
-	logger.Info("auto-installing missing modules")
+	logger.Info("auto-installing missing modules", zap.Int("count", len(missingModules)))
 
-	registryClient := appinit.GetRegistryClient(ctx)
-	if registryClient == nil {
-		return ErrRegistryClientNotFound
+	// Create hub client
+	hubClient, err := createHubClient()
+	if err != nil {
+		return fmt.Errorf("failed to create hub client: %w", err)
 	}
 
-	storageImpl := storage.NewFileSystemStorage(vendorPath)
-
-	for _, mod := range modules {
+	for _, mod := range missingModules {
 		name, err := graph.ParseName(mod.Name)
 		if err != nil {
 			logger.Warn("failed to parse module name", zap.String("module", mod.Name), zap.Error(err))
-			continue
-		}
-
-		modulePath := lock.ModulePath(name, mod.Version)
-
-		exists, err := storageImpl.Exists(modulePath)
-		if err != nil {
-			logger.Warn("failed to check module", zap.String("module", mod.Name), zap.Error(err))
-			continue
-		}
-
-		if exists {
 			continue
 		}
 
@@ -139,21 +139,26 @@ func EnsureModulesInstalled(ctx context.Context, lockPath string, logger *zap.Lo
 			zap.String("module", mod.Name),
 			zap.String("version", mod.Version))
 
-		if mod.Hash == "" {
-			return ErrModuleMissingHash
-		}
-
-		results, err := registryClient.Download(ctx, []string{mod.Hash})
+		// Get download URL from hub
+		downloadInfo, err := hubClient.GetDownloadURL(ctx, &hub.DownloadParams{
+			Org:     name.Organization,
+			Module:  name.Module,
+			Version: mod.Version,
+		})
 		if err != nil {
 			return NewDownloadModuleError(mod.Name, err)
 		}
 
-		if len(results) == 0 {
+		if downloadInfo.URL == "" {
 			return ErrNoContentDownloaded
 		}
 
-		if err := storageImpl.StoreProtoFiles(modulePath, results[0].Files); err != nil {
-			return NewStoreModuleError(mod.Name, err)
+		// Download .wapp file
+		wappPath := lock.WappPath(name, mod.Version)
+		fullWappPath := filepath.Join(vendorPath, wappPath)
+
+		if err := hubClient.DownloadToFile(ctx, downloadInfo.URL, fullWappPath); err != nil {
+			return NewDownloadModuleError(mod.Name, err)
 		}
 	}
 
@@ -161,7 +166,28 @@ func EnsureModulesInstalled(ctx context.Context, lockPath string, logger *zap.Lo
 	return nil
 }
 
-// loadEntriesFromPaths loads registry entries from the specified directories using the LoadDirs pipeline stage.
+// createHubClient creates a hub client using stored credentials.
+func createHubClient() (*hub.Client, error) {
+	projectDir, _ := os.Getwd()
+	authCfg := auth.NewConfig(projectDir)
+	store := auth.NewStore(authCfg)
+
+	registryURL := store.DefaultRegistry()
+
+	cred, _ := store.Get(registryURL)
+	var token string
+	if cred != nil {
+		token = cred.Token
+	}
+
+	return hub.NewClient(hub.Options{
+		BaseURL: registryURL,
+		Token:   token,
+	})
+}
+
+// loadEntriesFromPaths loads registry entries from the specified paths.
+// Supports both directories (loaded via LoadFS) and .wapp files (loaded via PackReader).
 func loadEntriesFromPaths(ctx context.Context, paths []string, logger *zap.Logger) ([]regapi.Entry, error) {
 	dtt := payload.GetTranscoder(ctx)
 	if dtt == nil {
@@ -176,15 +202,30 @@ func loadEntriesFromPaths(ctx context.Context, paths []string, logger *zap.Logge
 	var entries []regapi.Entry
 
 	for _, path := range paths {
-		if _, err := os.Stat(path); os.IsNotExist(err) {
+		stat, err := os.Stat(path)
+		if os.IsNotExist(err) {
 			logger.Warn("path not found, skipping", zap.String("path", path))
 			continue
 		}
 
-		dirFS := os.DirFS(path)
-		loadedEntries, err := ldr.LoadFS(ctx, dirFS)
-		if err != nil {
-			return nil, NewLoadFromPathError(path, err)
+		var loadedEntries []regapi.Entry
+
+		if stat.IsDir() {
+			// Directory: load via FS
+			dirFS := os.DirFS(path)
+			loadedEntries, err = ldr.LoadFS(ctx, dirFS)
+			if err != nil {
+				return nil, NewLoadFromPathError(path, err)
+			}
+		} else if filepath.Ext(path) == ".wapp" {
+			// Wapp file: load via PackReader
+			loadedEntries, err = loadEntriesFromWapp(path, dtt)
+			if err != nil {
+				return nil, NewLoadFromPathError(path, err)
+			}
+		} else {
+			logger.Warn("unknown path type, skipping", zap.String("path", path))
+			continue
 		}
 
 		entries = append(entries, loadedEntries...)
@@ -201,6 +242,22 @@ func loadEntriesFromPaths(ctx context.Context, paths []string, logger *zap.Logge
 	}
 
 	return entries, nil
+}
+
+// loadEntriesFromWapp loads entries from a .wapp file.
+func loadEntriesFromWapp(path string, dtt payload.Transcoder) ([]regapi.Entry, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	reader, err := NewPackReader(file, dtt)
+	if err != nil {
+		return nil, err
+	}
+
+	return reader.GetEntries()
 }
 
 // loadEntriesToRegistry loads entries into the registry using LoadState to restore from history.
@@ -267,4 +324,76 @@ func loadEntriesToRegistry(ctx context.Context, entries []regapi.Entry, logger *
 
 	logger.Debug("registry state loaded", zap.Uint("version", head.ID()))
 	return nil
+}
+
+// PackReader wraps wapp.Reader for reading pack files.
+type PackReader struct {
+	reader *wapp.Reader
+}
+
+// NewPackReader creates a new pack reader from an io.ReaderAt.
+// The transcoder parameter is kept for API compatibility but not used with wapp.
+func NewPackReader(r io.ReaderAt, _ payload.Transcoder) (*PackReader, error) {
+	reader, err := wapp.NewReader(r)
+	if err != nil {
+		return nil, err
+	}
+	return &PackReader{reader: reader}, nil
+}
+
+// GetEntries returns the entries from the pack file.
+func (pr *PackReader) GetEntries() ([]regapi.Entry, error) {
+	wappEntries, err := pr.reader.GetEntries()
+	if err != nil {
+		return nil, err
+	}
+
+	entries := make([]regapi.Entry, len(wappEntries))
+	for i, we := range wappEntries {
+		entries[i] = regapi.Entry{
+			ID:   regapi.NewID(we.ID.Namespace, we.ID.Name),
+			Kind: regapi.Kind(we.Kind),
+			Meta: attrs.NewBagFrom(we.Meta),
+			Data: payload.New(we.Data),
+		}
+	}
+	return entries, nil
+}
+
+// ApplyToRegistry applies entries to the registry using topology-sorted change set.
+func ApplyToRegistry(ctx context.Context, entries []regapi.Entry, resolver regapi.DependencyResolver, reg regapi.Registry, logger *zap.Logger) error {
+	logger.Debug("building change set from entries")
+	changeSet, err := regtop.CreateChangeSetFromEntries(entries, resolver)
+	if err != nil {
+		return NewBuildChangeSetError(err)
+	}
+	logger.Debug("change set built")
+
+	logger.Info("applying change set to registry", zap.Int("entry_count", len(entries)))
+	version, err := reg.Apply(ctx, changeSet)
+	if err != nil {
+		logger.Error("apply failed", zap.Error(err))
+		return NewApplyEntriesError(err)
+	}
+
+	logger.Info("entries applied to registry", zap.Any("version", version))
+	return nil
+}
+
+// ConvertToWappEntries converts registry entries to wapp entries for packing.
+func ConvertToWappEntries(entries []regapi.Entry) []wapp.Entry {
+	result := make([]wapp.Entry, len(entries))
+	for i, e := range entries {
+		var data any
+		if e.Data != nil {
+			data = e.Data.Data()
+		}
+		result[i] = wapp.Entry{
+			ID:   wapp.NewID(e.ID.NS, e.ID.Name),
+			Kind: string(e.Kind),
+			Meta: wapp.Metadata(e.Meta),
+			Data: data,
+		}
+	}
+	return result
 }

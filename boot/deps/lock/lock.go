@@ -223,11 +223,21 @@ func (l *Lock) GetLoadPaths() []string {
 			continue
 		}
 
-		// Build path with version: org/module-VERSION
-		moduleDir := ModulePath(name, mod.Version)
-		modulePath := filepath.Join(vendorDir, moduleDir)
-		fullPath := filepath.Join(lockDir, modulePath)
-		paths = append(paths, fullPath)
+		// Build path with version: org/module-VERSION.wapp (new format)
+		// or org/module-VERSION/ (legacy directory format)
+		wappPath := WappPath(name, mod.Version)
+		fullWappPath := filepath.Join(lockDir, vendorDir, wappPath)
+
+		// Check if wapp file exists, otherwise fall back to directory
+		if _, err := os.Stat(fullWappPath); err == nil {
+			paths = append(paths, fullWappPath)
+		} else {
+			// Legacy directory format
+			moduleDir := ModulePath(name, mod.Version)
+			modulePath := filepath.Join(vendorDir, moduleDir)
+			fullPath := filepath.Join(lockDir, modulePath)
+			paths = append(paths, fullPath)
+		}
 	}
 
 	return paths
@@ -270,9 +280,14 @@ func (l *Lock) sort() {
 	})
 }
 
-// ModulePath returns storage path for a module (e.g., "org/module-v1.0.0").
+// ModulePath returns storage path for a module directory (e.g., "org/module-v1.0.0").
 func ModulePath(name graph.Name, version string) string {
 	return filepath.Join(name.Organization, name.Module+"-"+version)
+}
+
+// WappPath returns storage path for a module wapp file (e.g., "org/module-v1.0.0.wapp").
+func WappPath(name graph.Name, version string) string {
+	return filepath.Join(name.Organization, name.Module+"-"+version+".wapp")
 }
 
 // Find locates a lock file in the given directory.

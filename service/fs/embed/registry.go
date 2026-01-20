@@ -4,27 +4,27 @@ import (
 	"io/fs"
 	"sync"
 
+	"git.spiralscout.com/wippy/wapp"
 	"github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/boot/pack"
 	systemfs "github.com/wippyai/runtime/system/fs"
 )
 
 // Registry implements embedapi.Registry by storing Readers.
 type Registry struct {
 	mu      sync.RWMutex
-	readers map[string]*pack.Reader // packPath -> Reader
+	readers map[string]*wapp.Reader // packPath -> Reader
 }
 
 // NewRegistry creates a new embed registry.
 func NewRegistry() *Registry {
 	return &Registry{
-		readers: make(map[string]*pack.Reader),
+		readers: make(map[string]*wapp.Reader),
 	}
 }
 
 // Register adds a pack reader to the registry.
 // The pack path is used as a key for later lookup.
-func (r *Registry) Register(packPath string, reader *pack.Reader) error {
+func (r *Registry) Register(packPath string, reader *wapp.Reader) error {
 	if packPath == "" {
 		return systemfs.NewEmptyPackPathError()
 	}
@@ -44,9 +44,11 @@ func (r *Registry) GetFS(id registry.ID) (fs.ReadDirFS, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	wappID := wapp.NewID(id.NS, id.Name)
+
 	// Search all pack readers for the resource
 	for _, reader := range r.readers {
-		fsys, err := reader.GetFS(id)
+		fsys, err := reader.GetFS(wappID)
 		if err == nil {
 			return fsys, nil
 		}
@@ -61,6 +63,6 @@ func (r *Registry) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.readers = make(map[string]*pack.Reader)
+	r.readers = make(map[string]*wapp.Reader)
 	return nil
 }

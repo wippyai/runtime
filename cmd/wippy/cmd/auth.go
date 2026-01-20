@@ -208,12 +208,46 @@ func runAuthStatus(cmd *cobra.Command, _ []string) error {
 	registry := store.DefaultRegistry()
 
 	cred, err := store.Get(registry)
-
-	if jsonOutput {
-		return printStatusJSON(registry, cred, err)
+	if err != nil || cred == nil {
+		if jsonOutput {
+			return printStatusJSON(registry, nil, err)
+		}
+		return printStatusTable(registry, nil, err, isConsole)
 	}
 
-	return printStatusTable(registry, cred, err, isConsole)
+	// Validate token against server
+	client, clientErr := bootauth.NewClient(registry)
+	if clientErr != nil {
+		if jsonOutput {
+			return printStatusJSON(registry, cred, clientErr)
+		}
+		return printStatusTable(registry, cred, clientErr, isConsole)
+	}
+
+	ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Second)
+	defer cancel()
+
+	result, validateErr := client.Validate(ctx, cred.Token)
+	if validateErr != nil {
+		if jsonOutput {
+			return printStatusJSON(registry, nil, validateErr)
+		}
+		return printStatusTable(registry, nil, validateErr, isConsole)
+	}
+
+	// Update orgs from server response
+	if len(result.Orgs) > 0 {
+		cred.Orgs = make([]string, len(result.Orgs))
+		for i, org := range result.Orgs {
+			cred.Orgs[i] = org.Name
+		}
+	}
+
+	if jsonOutput {
+		return printStatusJSON(registry, cred, nil)
+	}
+
+	return printStatusTable(registry, cred, nil, isConsole)
 }
 
 func readTokenInteractive(registry string) (string, error) {

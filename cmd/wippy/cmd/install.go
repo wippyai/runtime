@@ -1,13 +1,15 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/wippyai/runtime/boot/deps/graph"
+	bootauth "github.com/wippyai/runtime/boot/deps/auth"
+	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
-	"github.com/wippyai/runtime/boot/deps/storage"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	"go.uber.org/zap"
 )
@@ -34,6 +36,7 @@ func init() {
 	installCmd.Flags().StringP("lock-file", "l", defaultLockFile, "path to lock file")
 	installCmd.Flags().Bool("force", false, "bypass cache and always download modules")
 	installCmd.Flags().Bool("repair", false, "verify entry hashes and re-download if mismatch")
+	installCmd.Flags().String("registry", "", "registry URL (default: from credentials)")
 }
 
 func runInstall(cmd *cobra.Command, args []string) error {
@@ -45,6 +48,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	logger := app.Logger.Named("install")
 
 	lockPath, _ := cmd.Flags().GetString("lock-file")
+	registryURL, _ := cmd.Flags().GetString("registry")
 
 	if _, err := os.Stat(lockPath); os.IsNotExist(err) {
 		logger.Info("lock file not found, running init and update")
@@ -98,54 +102,53 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		logger.Info("modules to install", zap.Int("count", len(modules)))
 	}
 
+	// Get auth credentials
+	projectDir, _ := os.Getwd()
+	authCfg := bootauth.NewConfig(projectDir)
+	store := bootauth.NewStore(authCfg)
+
+	if registryURL == "" {
+		registryURL = store.DefaultRegistry()
+	}
+
+	cred, _ := store.Get(registryURL)
+	var token string
+	if cred != nil {
+		token = cred.Token
+	}
+
+	// Create hub client
+	hubClient, err := hub.NewClient(hub.Options{
+		BaseURL: registryURL,
+		Token:   token,
+	})
+	if err != nil {
+		return NewCreateHubClientError(err)
+	}
+
 	lockDir := filepath.Dir(lockPath)
 	vendorPath := lockObj.GetVendorPath()
 	vendorDir := filepath.Join(lockDir, vendorPath)
-	storageImpl := storage.NewFileSystemStorage(vendorDir)
 
 	force, _ := cmd.Flags().GetBool("force")
-	repair, _ := cmd.Flags().GetBool("repair")
 
 	installed := 0
 	cached := 0
-	repaired := 0
 
 	for _, module := range modules {
-		name, err := graph.ParseName(module.Name)
-		if err != nil {
-			return NewParseModuleNameError(module.Name, err)
+		parts := strings.SplitN(module.Name, "/", 2)
+		if len(parts) != 2 {
+			return NewParseModuleNameError(module.Name, fmt.Errorf("invalid format, expected org/module"))
 		}
+		org, name := parts[0], parts[1]
 
-		modulePath := lock.ModulePath(name, module.Version)
+		// Store as .wapp file
+		wappPath := filepath.Join(vendorDir, org, fmt.Sprintf("%s-%s.wapp", name, module.Version))
 
 		var exists bool
 		if !force {
-			exists, err = storageImpl.Exists(modulePath)
-			if err != nil {
-				return NewCheckModuleError(module.Name, err)
-			}
-		}
-
-		// Verify hash if repair flag is set
-		if exists && repair {
-			if module.LocalHash != "" {
-				logger.Debug("verifying module hash",
-					zap.String("module", module.Name))
-
-				computedHash, err := storageImpl.ComputeHash(app.Ctx, modulePath, app.Transcoder, app.Loader)
-				if err != nil {
-					logger.Warn("failed to compute hash, will re-download",
-						zap.String("module", module.Name),
-						zap.Error(err))
-					exists = false
-				} else if computedHash != module.LocalHash {
-					logger.Info("hash mismatch, re-downloading",
-						zap.String("module", module.Name),
-						zap.String("expected", module.LocalHash),
-						zap.String("actual", computedHash))
-					exists = false
-					repaired++
-				}
+			if _, err := os.Stat(wappPath); err == nil {
+				exists = true
 			}
 		}
 
@@ -161,36 +164,29 @@ func runInstall(cmd *cobra.Command, args []string) error {
 			zap.String("module", module.Name),
 			zap.String("version", module.Version))
 
-		if module.Hash == "" {
-			return NewModuleMissingHashError(module.Name)
-		}
-
-		results, err := app.RegistryClient.Download(app.Ctx, []string{module.Hash})
+		// Get download URL from hub
+		downloadInfo, err := hubClient.GetDownloadURL(app.Ctx, &hub.DownloadParams{
+			Org:     org,
+			Module:  name,
+			Version: module.Version,
+		})
 		if err != nil {
 			return NewDownloadModuleError(module.Name, err)
 		}
 
-		if len(results) == 0 {
+		if downloadInfo.URL == "" {
 			return NewNoContentDownloadedError(module.Name)
 		}
 
-		if err := storageImpl.StoreProtoFiles(modulePath, results[0].Files); err != nil {
-			return NewStoreModuleError(module.Name, err)
+		// Download .wapp file
+		if err := hubClient.DownloadToFile(app.Ctx, downloadInfo.URL, wappPath); err != nil {
+			return NewDownloadModuleError(module.Name, err)
 		}
 
-		// Compute local hash from loaded entries
-		computedHash, err := storageImpl.ComputeHash(app.Ctx, modulePath, app.Transcoder, app.Loader)
-		if err != nil {
-			logger.Warn("failed to compute module hash",
-				zap.String("module", module.Name),
-				zap.Error(err))
-		} else {
-			// Update module with computed hash
-			module.LocalHash = computedHash
+		// Update hash from download info if available
+		if downloadInfo.Digest != "" && module.Hash != downloadInfo.Digest {
+			module.Hash = downloadInfo.Digest
 			lockObj.SetModule(module)
-			logger.Debug("computed local hash",
-				zap.String("module", module.Name),
-				zap.String("hash", computedHash))
 		}
 
 		logger.Info("installed module",
@@ -199,10 +195,10 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		installed++
 	}
 
-	// Save updated lock file with local hashes
+	// Save updated lock file
 	if installed > 0 {
 		if err := lockObj.Write(); err != nil {
-			logger.Warn("failed to update lock file with hashes", zap.Error(err))
+			logger.Warn("failed to update lock file", zap.Error(err))
 		}
 	}
 
@@ -211,9 +207,6 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		zap.Int("installed", installed),
 		zap.Int("cached", cached),
 		zap.Int("total", len(modules)),
-	}
-	if repaired > 0 {
-		logFields = append(logFields, zap.Int("repaired", repaired))
 	}
 	logger.Info(logMsg, logFields...)
 

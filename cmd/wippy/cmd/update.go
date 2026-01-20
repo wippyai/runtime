@@ -3,11 +3,12 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	regapi "github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/boot/deps/client"
-	"github.com/wippyai/runtime/boot/deps/graph"
+	bootauth "github.com/wippyai/runtime/boot/deps/auth"
+	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	transcoder "github.com/wippyai/runtime/system/payload"
@@ -37,8 +38,9 @@ func init() {
 	rootCmd.AddCommand(updateCmd)
 
 	updateCmd.Flags().StringP("lock-file", "l", defaultLockFile, "path to lock file")
-	updateCmd.Flags().StringP("src-dir", "d", ".", "source directory path")
+	updateCmd.Flags().StringP("src-dir", "d", "./src", "source directory path")
 	updateCmd.Flags().String("modules-dir", ".wippy", "modules directory path")
+	updateCmd.Flags().String("registry", "", "registry URL (default: from credentials)")
 }
 
 func runUpdate(cmd *cobra.Command, args []string) error {
@@ -50,12 +52,60 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	logger := app.Logger.Named("update")
 
 	lockFilePath, _ := cmd.Flags().GetString("lock-file")
+	registryURL, _ := cmd.Flags().GetString("registry")
+
+	// Get flag values and check if explicitly set
 	srcDir, _ := cmd.Flags().GetString("src-dir")
 	modulesDir, _ := cmd.Flags().GetString("modules-dir")
+	srcDirChanged := cmd.Flags().Changed("src-dir")
+	modulesDirChanged := cmd.Flags().Changed("modules-dir")
+
+	// Load existing lock file to get current directories
+	var existingDirs *lock.Directories
+	if stat, err := os.Stat(lockFilePath); err == nil && !stat.IsDir() {
+		if existingLock, err := lock.New(lockFilePath); err == nil {
+			dirs := existingLock.GetDirectories()
+			existingDirs = &dirs
+		}
+	}
+
+	// Use existing directories unless flags explicitly override
+	if existingDirs != nil {
+		if !srcDirChanged && existingDirs.Src != "" {
+			srcDir = existingDirs.Src
+		}
+		if !modulesDirChanged && existingDirs.Modules != "" {
+			modulesDir = existingDirs.Modules
+		}
+	}
+
+	// Get auth credentials
+	projectDir, _ := os.Getwd()
+	authCfg := bootauth.NewConfig(projectDir)
+	store := bootauth.NewStore(authCfg)
+
+	if registryURL == "" {
+		registryURL = store.DefaultRegistry()
+	}
+
+	cred, _ := store.Get(registryURL)
+	var token string
+	if cred != nil {
+		token = cred.Token
+	}
+
+	// Create hub client
+	hubClient, err := hub.NewClient(hub.Options{
+		BaseURL: registryURL,
+		Token:   token,
+	})
+	if err != nil {
+		return NewCreateHubClientError(err)
+	}
 
 	// Targeted update if modules specified
 	if len(args) > 0 {
-		return runTargetedUpdate(cmd, lockFilePath, srcDir, modulesDir, args, app)
+		return runTargetedUpdate(cmd, lockFilePath, srcDir, modulesDir, args, app, hubClient)
 	}
 
 	// Full update otherwise
@@ -90,39 +140,36 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Build dependency graph using graph builder
-	manifestBridge, err := client.NewManifestBridge(app.RegistryClient, app.Transcoder, logger.Named("manifest"), 100)
-	if err != nil {
-		return NewCreateManifestBridgeError(err)
+	// Convert to hub dependency specs
+	hubDeps := make([]hub.DependencySpec, 0, len(rootDeps))
+	for _, dep := range rootDeps {
+		hubDeps = append(hubDeps, hub.DependencySpec{
+			Org:        dep.Org,
+			Name:       dep.Module,
+			Constraint: dep.Constraint,
+		})
 	}
 
-	builder := graph.NewBuilder(manifestBridge)
-
 	logger.Info("resolving dependency graph")
-	result, err := builder.Build(app.Ctx, graph.BuildInput{
-		RootDependencies: rootDeps,
+	result, err := hubClient.ResolveDependencies(app.Ctx, &hub.ResolveDependenciesParams{
+		Roots: hubDeps,
 	})
 	if err != nil {
 		return NewBuildDependencyGraphError(err)
 	}
 
-	if len(result.Conflicts) > 0 {
-		logger.Error("dependency conflicts detected", zap.Int("count", len(result.Conflicts)))
-		for _, conflict := range result.Conflicts {
-			logger.Error("conflict",
-				zap.String("module", conflict.Module.String()),
-				zap.String("reason", conflict.Reason.String()),
-				zap.String("message", conflict.Message))
+	if len(result.Errors) > 0 {
+		logger.Error("dependency resolution errors", zap.Int("count", len(result.Errors)))
+		for _, errMsg := range result.Errors {
+			logger.Error("error", zap.String("message", errMsg))
 		}
-		return NewDependencyConflictsError(len(result.Conflicts))
+		return NewDependencyConflictsError(len(result.Errors))
 	}
 
-	logger.Info("dependency graph resolved",
-		zap.Int("total_modules", result.Stats.TotalModules),
-		zap.Int("total_levels", result.Stats.TotalLevels))
+	logger.Info("dependency graph resolved", zap.Int("total_modules", len(result.Modules)))
 
-	// Convert BuildResult to lock file
-	newLockObj, err := convertBuildResultToLock(result, modulesDir, srcDir)
+	// Convert resolved modules to lock file
+	newLockObj, err := convertResolvedToLock(result.Modules, modulesDir, srcDir)
 	if err != nil {
 		return NewLoadLockFileError(err)
 	}
@@ -158,8 +205,14 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func extractRootDependencies(entries []regapi.Entry) []graph.DependencyRequest {
-	deps := make([]graph.DependencyRequest, 0, len(entries))
+type dependencyRequest struct {
+	Org        string
+	Module     string
+	Constraint string
+}
+
+func extractRootDependencies(entries []regapi.Entry) []dependencyRequest {
+	deps := make([]dependencyRequest, 0, len(entries))
 	seen := make(map[string]bool)
 
 	for _, entry := range entries {
@@ -180,19 +233,20 @@ func extractRootDependencies(entries []regapi.Entry) []graph.DependencyRequest {
 			continue
 		}
 
-		name, err := graph.ParseName(depData.Component)
-		if err != nil {
+		parts := strings.SplitN(depData.Component, "/", 2)
+		if len(parts) != 2 {
 			continue
 		}
 
-		key := name.String() + "@" + depData.Version
+		key := depData.Component + "@" + depData.Version
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
 
-		deps = append(deps, graph.DependencyRequest{
-			Name:       name,
+		deps = append(deps, dependencyRequest{
+			Org:        parts[0],
+			Module:     parts[1],
 			Constraint: depData.Version,
 		})
 	}
@@ -200,7 +254,7 @@ func extractRootDependencies(entries []regapi.Entry) []graph.DependencyRequest {
 	return deps
 }
 
-func convertBuildResultToLock(result *graph.BuildResult, modulesDir, srcDir string) (*lock.Lock, error) {
+func convertResolvedToLock(modules []hub.ResolvedModule, modulesDir, srcDir string) (*lock.Lock, error) {
 	lockObj, err := lock.New(defaultLockFile)
 	if err != nil {
 		return nil, err
@@ -211,18 +265,18 @@ func convertBuildResultToLock(result *graph.BuildResult, modulesDir, srcDir stri
 		Src:     srcDir,
 	})
 
-	for _, resolved := range result.ResolvedModules {
+	for _, m := range modules {
 		lockObj.SetModule(lock.Module{
-			Name:    resolved.Name.String(),
-			Version: resolved.Version,
-			Hash:    resolved.CommitID,
+			Name:    fmt.Sprintf("%s/%s", m.Org, m.Name),
+			Version: m.Version,
+			Hash:    m.Digest,
 		})
 	}
 
 	return lockObj, nil
 }
 
-func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir string, targetModules []string, app *appinit.Context) error {
+func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir string, targetModules []string, app *appinit.Context, hubClient *hub.Client) error {
 	logger := app.Logger.Named("update")
 	logger.Info("updating specific modules", zap.Strings("modules", targetModules))
 
@@ -249,7 +303,8 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 	rootDeps := extractRootDependencies(entries)
 	sourceConstraints := make(map[string]string)
 	for _, dep := range rootDeps {
-		sourceConstraints[dep.Name.String()] = dep.Constraint
+		key := fmt.Sprintf("%s/%s", dep.Org, dep.Module)
+		sourceConstraints[key] = dep.Constraint
 	}
 
 	// Build frozen constraints from lock file (all modules except targets)
@@ -259,17 +314,28 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 	}
 
 	modules := lockObj.GetModules()
-	frozenDeps := make([]graph.DependencyRequest, 0, len(modules)+len(targetModules))
+	hubDeps := make([]hub.DependencySpec, 0, len(modules)+len(targetModules))
+	installed := make([]hub.InstalledModule, 0, len(modules))
+
 	for _, mod := range modules {
+		parts := strings.SplitN(mod.Name, "/", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
 		if !targetSet[mod.Name] {
-			// Fixed constraint for locked modules
-			name, err := graph.ParseName(mod.Name)
-			if err != nil {
-				continue
-			}
-			frozenDeps = append(frozenDeps, graph.DependencyRequest{
-				Name:       name,
-				Constraint: "=" + mod.Version, // Exact version constraint
+			// Track as installed for frozen resolution
+			installed = append(installed, hub.InstalledModule{
+				Org:     parts[0],
+				Name:    parts[1],
+				Version: mod.Version,
+				Digest:  mod.Hash,
+			})
+			// Add as root dependency with exact version
+			hubDeps = append(hubDeps, hub.DependencySpec{
+				Org:        parts[0],
+				Name:       parts[1],
+				Constraint: "=" + mod.Version,
 			})
 		}
 	}
@@ -282,46 +348,37 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 			continue
 		}
 
-		name, err := graph.ParseName(moduleName)
-		if err != nil {
-			return NewParseModuleNameError(moduleName, err)
+		parts := strings.SplitN(moduleName, "/", 2)
+		if len(parts) != 2 {
+			return NewParseModuleNameError(moduleName, fmt.Errorf("invalid format, expected org/module"))
 		}
 
-		frozenDeps = append(frozenDeps, graph.DependencyRequest{
-			Name:       name,
+		hubDeps = append(hubDeps, hub.DependencySpec{
+			Org:        parts[0],
+			Name:       parts[1],
 			Constraint: constraint,
 		})
 	}
 
-	// Setup registry client
-	manifestBridge, err := client.NewManifestBridge(app.RegistryClient, app.Transcoder, logger.Named("manifest"), 100)
-	if err != nil {
-		return NewCreateManifestBridgeError(err)
-	}
-
-	builder := graph.NewBuilder(manifestBridge)
-
 	logger.Info("resolving with frozen dependencies")
-	result, err := builder.Build(app.Ctx, graph.BuildInput{
-		RootDependencies: frozenDeps,
+	result, err := hubClient.ResolveDependencies(app.Ctx, &hub.ResolveDependenciesParams{
+		Roots:     hubDeps,
+		Installed: installed,
 	})
 	if err != nil {
 		return NewBuildDependencyGraphError(err)
 	}
 
-	if len(result.Conflicts) > 0 {
-		logger.Error("conflicts detected", zap.Int("count", len(result.Conflicts)))
-		for _, conflict := range result.Conflicts {
-			logger.Error("conflict",
-				zap.String("module", conflict.Module.String()),
-				zap.String("reason", conflict.Reason.String()),
-				zap.String("message", conflict.Message))
+	if len(result.Errors) > 0 {
+		logger.Error("resolution errors", zap.Int("count", len(result.Errors)))
+		for _, errMsg := range result.Errors {
+			logger.Error("error", zap.String("message", errMsg))
 		}
-		return NewUpdateConflictsError(len(result.Conflicts))
+		return NewUpdateConflictsError(len(result.Errors))
 	}
 
 	// Build new lock file
-	newLockObj, err := convertBuildResultToLock(result, modulesDir, srcDir)
+	newLockObj, err := convertResolvedToLock(result.Modules, modulesDir, srcDir)
 	if err != nil {
 		return NewLoadLockFileError(err)
 	}

@@ -5,6 +5,7 @@ go 1.25.4
 require (
 	connectrpc.com/connect v1.19.1
 	git.spiralscout.com/wippy/proto-go v0.0.0-00010101000000-000000000000
+	git.spiralscout.com/wippy/wapp v0.0.0-00010101000000-000000000000
 	github.com/CloudyKit/jet/v6 v6.3.1
 	github.com/Masterminds/semver/v3 v3.2.0
 	github.com/Masterminds/squirrel v1.5.4

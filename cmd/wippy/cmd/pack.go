@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"git.spiralscout.com/wippy/wapp"
 	"github.com/charmbracelet/bubbles/progress"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -18,7 +19,6 @@ import (
 	"github.com/wippyai/runtime/boot/build"
 	"github.com/wippyai/runtime/boot/build/stages"
 	"github.com/wippyai/runtime/boot/deps/lock"
-	"github.com/wippyai/runtime/boot/pack"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	"github.com/wippyai/runtime/cmd/internal/entries"
 	"github.com/wippyai/runtime/cmd/wippy/version"
@@ -582,7 +582,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 
 	p.Send(progressMsg{stage: stageWrite, percent: 0.8, status: "Writing pack file..."})
 
-	progressCallback := func(resourceID regapi.ID, current, total int) {
+	progressCallback := func(resourceID wapp.ID, current, total int) {
 		percent := 0.8 + (float64(current)/float64(total))*0.15
 		p.Send(progressMsg{
 			stage:   stageWrite,
@@ -591,7 +591,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 		})
 	}
 
-	packWriter := pack.NewWriter(app.Transcoder, pack.WithProgressCallback(progressCallback))
+	packWriter := wapp.NewWriter(wapp.WithProgressCallback(progressCallback))
 
 	file, err := os.Create(outputFile)
 	if err != nil {
@@ -599,12 +599,15 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	}
 	defer func() { _ = file.Close() }()
 
+	wappEntries := entries.ConvertToWappEntries(loadedEntries)
+	wappMetadata := wapp.Metadata(metadata)
+
 	if len(resources) > 0 {
-		if err := packWriter.PackWithResources(metadata, loadedEntries, resources, file); err != nil {
+		if err := packWriter.PackWithResources(wappMetadata, wappEntries, resources, file); err != nil {
 			return NewPackWithResourcesError(err)
 		}
 	} else {
-		if err := packWriter.PackEntries(metadata, loadedEntries, file); err != nil {
+		if err := packWriter.PackEntries(wappMetadata, wappEntries, file); err != nil {
 			return NewPackEntriesError(err)
 		}
 	}

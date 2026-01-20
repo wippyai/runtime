@@ -10,13 +10,13 @@ import (
 	"sync"
 	"testing/fstest"
 
+	"git.spiralscout.com/wippy/wapp"
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	embedapi "github.com/wippyai/runtime/api/service/fs/embed"
-	"github.com/wippyai/runtime/boot/pack"
 	glua "github.com/yuin/gopher-lua"
 	"github.com/yuin/gopher-lua/bytecode"
 	"github.com/yuin/gopher-lua/compiler/parse"
@@ -28,7 +28,7 @@ const BytecodeFSID = "internal:lua.bytecode"
 
 var (
 	bytecodeMu       sync.RWMutex
-	bytecodeResource *pack.ResourceSpec
+	bytecodeResource *wapp.ResourceSpec
 )
 
 // kindMapping maps source kinds to bytecode kinds.
@@ -115,9 +115,10 @@ func (s *bytecodeStage) Execute(ctx context.Context, entries *[]registry.Entry) 
 	}
 
 	// Store resource for pack
+	bcID := registry.ParseID(BytecodeFSID)
 	bytecodeMu.Lock()
-	bytecodeResource = &pack.ResourceSpec{
-		ID: registry.ParseID(BytecodeFSID),
+	bytecodeResource = &wapp.ResourceSpec{
+		ID: wapp.NewID(bcID.NS, bcID.Name),
 		FS: mapFS,
 	}
 	bytecodeMu.Unlock()
@@ -139,7 +140,7 @@ func (s *bytecodeStage) Execute(ctx context.Context, entries *[]registry.Entry) 
 
 // GetBytecodeResource retrieves the compiled bytecode resource.
 // Returns nil if no bytecode was compiled.
-func GetBytecodeResource() *pack.ResourceSpec {
+func GetBytecodeResource() *wapp.ResourceSpec {
 	bytecodeMu.RLock()
 	defer bytecodeMu.RUnlock()
 	return bytecodeResource

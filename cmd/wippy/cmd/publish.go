@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"git.spiralscout.com/wippy/wapp"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/attrs"
@@ -19,8 +20,8 @@ import (
 	bootauth "github.com/wippyai/runtime/boot/deps/auth"
 	"github.com/wippyai/runtime/boot/deps/config"
 	"github.com/wippyai/runtime/boot/deps/hub"
-	"github.com/wippyai/runtime/boot/pack"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
+	"github.com/wippyai/runtime/cmd/internal/entries"
 	"github.com/wippyai/runtime/cmd/wippy/version"
 )
 
@@ -101,7 +102,7 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 
 	printStatus("Packing module...")
 
-	packResult, err := packModule(cmd.Context(), app, cfg, configDir, outputFile)
+	packResult, err := packModule(app.Ctx, app, cfg, configDir, outputFile)
 	if err != nil {
 		return err
 	}
@@ -198,13 +199,13 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 	}
 
 	dirFS := os.DirFS(srcPath)
-	entries, err := app.Loader.LoadFS(ctx, dirFS)
+	srcEntries, err := app.Loader.LoadFS(ctx, dirFS)
 	if err != nil {
 		return nil, NewLoadEntriesError(srcPath, err)
 	}
 
 	definitionCount := 0
-	for _, e := range entries {
+	for _, e := range srcEntries {
 		if e.Kind == "ns.definition" {
 			definitionCount++
 		}
@@ -225,7 +226,7 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 	}
 
 	pipeline := build.New(pipelineStages...)
-	if err := pipeline.Execute(ctx, &entries); err != nil {
+	if err := pipeline.Execute(ctx, &srcEntries); err != nil {
 		return nil, NewExecutePipelineError(err)
 	}
 
@@ -238,7 +239,7 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 		"wippy_version": version.Version,
 		"wippy_commit":  version.Commit,
 		"packed_at":     time.Now().UTC().Format(time.RFC3339),
-		"entry_count":   len(entries),
+		"entry_count":   len(srcEntries),
 	}
 
 	if cfg.Description != "" {
@@ -260,7 +261,7 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 		metadata["authors"] = cfg.Authors
 	}
 
-	packWriter := pack.NewWriter(app.Transcoder)
+	packWriter := wapp.NewWriter()
 
 	file, err := os.Create(outputPath)
 	if err != nil {
@@ -268,12 +269,15 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 	}
 	defer file.Close()
 
+	wappEntries := entries.ConvertToWappEntries(srcEntries)
+	wappMetadata := wapp.Metadata(metadata)
+
 	if len(resources) > 0 {
-		if err := packWriter.PackWithResources(metadata, entries, resources, file); err != nil {
+		if err := packWriter.PackWithResources(wappMetadata, wappEntries, resources, file); err != nil {
 			return nil, NewPackWithResourcesError(err)
 		}
 	} else {
-		if err := packWriter.PackEntries(metadata, entries, file); err != nil {
+		if err := packWriter.PackEntries(wappMetadata, wappEntries, file); err != nil {
 			return nil, NewPackEntriesError(err)
 		}
 	}
