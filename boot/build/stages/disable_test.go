@@ -524,3 +524,362 @@ func TestDisable_InvalidEntryPattern(t *testing.T) {
 		t.Errorf("Expected error about invalid entry pattern, got %v", err)
 	}
 }
+
+func TestDisable_ByMetaType(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "gateway"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+			Meta: map[string]any{"type": "service"},
+		},
+		{
+			ID:   registry.NewID("app", "gateway_test"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+			Meta: map[string]any{"type": "test"},
+		},
+		{
+			ID:   registry.NewID("db", "main"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+			Meta: map[string]any{"type": "service"},
+		},
+		{
+			ID:   registry.NewID("db", "main_test"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+			Meta: map[string]any{"type": "test"},
+		},
+	}
+
+	cfg := boot.NewConfig(
+		boot.WithSection("disable", map[string]any{
+			"meta": map[string]any{
+				"type": []string{"test"},
+			},
+		}),
+	)
+
+	ctx = boot.WithConfig(ctx, cfg)
+	stage := Disable()
+
+	if err := stage.Execute(ctx, &entries); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if len(entries) != 2 {
+		t.Fatalf("Expected 2 entries, got %d", len(entries))
+	}
+
+	for _, e := range entries {
+		if metaType, ok := e.Meta["type"].(string); ok && metaType == "test" {
+			t.Errorf("Entry with meta.type=test should be disabled: %s", e.ID.String())
+		}
+	}
+}
+
+func TestDisable_ByMetaMultipleValues(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "main"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+			Meta: map[string]any{"env": "prod"},
+		},
+		{
+			ID:   registry.NewID("app", "test"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+			Meta: map[string]any{"env": "test"},
+		},
+		{
+			ID:   registry.NewID("app", "dev"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+			Meta: map[string]any{"env": "dev"},
+		},
+		{
+			ID:   registry.NewID("app", "staging"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+			Meta: map[string]any{"env": "staging"},
+		},
+	}
+
+	cfg := boot.NewConfig(
+		boot.WithSection("disable", map[string]any{
+			"meta": map[string]any{
+				"env": []string{"test", "dev"},
+			},
+		}),
+	)
+
+	ctx = boot.WithConfig(ctx, cfg)
+	stage := Disable()
+
+	if err := stage.Execute(ctx, &entries); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if len(entries) != 2 {
+		t.Fatalf("Expected 2 entries, got %d", len(entries))
+	}
+
+	for _, e := range entries {
+		env := e.Meta["env"].(string)
+		if env == "test" || env == "dev" {
+			t.Errorf("Entry with env=%s should be disabled", env)
+		}
+	}
+}
+
+func TestDisable_ByMetaMultipleKeys(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "service"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+			Meta: map[string]any{"type": "service", "env": "prod"},
+		},
+		{
+			ID:   registry.NewID("app", "test"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+			Meta: map[string]any{"type": "test"},
+		},
+		{
+			ID:   registry.NewID("app", "debug"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+			Meta: map[string]any{"mode": "debug"},
+		},
+	}
+
+	cfg := boot.NewConfig(
+		boot.WithSection("disable", map[string]any{
+			"meta": map[string]any{
+				"type": []string{"test"},
+				"mode": []string{"debug"},
+			},
+		}),
+	)
+
+	ctx = boot.WithConfig(ctx, cfg)
+	stage := Disable()
+
+	if err := stage.Execute(ctx, &entries); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if len(entries) != 1 {
+		t.Fatalf("Expected 1 entry, got %d", len(entries))
+	}
+
+	if entries[0].ID.Name != "service" {
+		t.Errorf("Expected 'service' to remain, got %s", entries[0].ID.Name)
+	}
+}
+
+func TestDisable_MetaCombinedWithNamespace(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "main"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+			Meta: map[string]any{"type": "service"},
+		},
+		{
+			ID:   registry.NewID("app", "test"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+			Meta: map[string]any{"type": "test"},
+		},
+		{
+			ID:   registry.NewID("debug", "profiler"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	cfg := boot.NewConfig(
+		boot.WithSection("disable", map[string]any{
+			"namespaces": []string{"debug"},
+			"meta": map[string]any{
+				"type": []string{"test"},
+			},
+		}),
+	)
+
+	ctx = boot.WithConfig(ctx, cfg)
+	stage := Disable()
+
+	if err := stage.Execute(ctx, &entries); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if len(entries) != 1 {
+		t.Fatalf("Expected 1 entry, got %d", len(entries))
+	}
+
+	if entries[0].ID.Name != "main" {
+		t.Errorf("Expected 'main' to remain, got %s", entries[0].ID.Name)
+	}
+}
+
+func TestDisable_MetaNoMatch(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "main"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+			Meta: map[string]any{"type": "service"},
+		},
+	}
+
+	cfg := boot.NewConfig(
+		boot.WithSection("disable", map[string]any{
+			"meta": map[string]any{
+				"type": []string{"test"},
+			},
+		}),
+	)
+
+	ctx = boot.WithConfig(ctx, cfg)
+	stage := Disable()
+
+	if err := stage.Execute(ctx, &entries); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if len(entries) != 1 {
+		t.Fatalf("Expected 1 entry, got %d", len(entries))
+	}
+}
+
+func TestDisable_MetaNilMeta(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "main"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+			Meta: nil,
+		},
+	}
+
+	cfg := boot.NewConfig(
+		boot.WithSection("disable", map[string]any{
+			"meta": map[string]any{
+				"type": []string{"test"},
+			},
+		}),
+	)
+
+	ctx = boot.WithConfig(ctx, cfg)
+	stage := Disable()
+
+	if err := stage.Execute(ctx, &entries); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if len(entries) != 1 {
+		t.Fatalf("Expected 1 entry (nil meta doesn't match), got %d", len(entries))
+	}
+}
+
+func TestDisableWithOptions_MetaFilters(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "service"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+			Meta: map[string]any{"type": "service"},
+		},
+		{
+			ID:   registry.NewID("app", "test1"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+			Meta: map[string]any{"type": "test"},
+		},
+		{
+			ID:   registry.NewID("app", "test2"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+			Meta: map[string]any{"type": "test"},
+		},
+	}
+
+	stage := DisableWithOptions(DisableOptions{
+		MetaFilters: map[string][]string{
+			"type": {"test"},
+		},
+	})
+
+	if err := stage.Execute(ctx, &entries); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if len(entries) != 1 {
+		t.Fatalf("Expected 1 entry, got %d", len(entries))
+	}
+
+	if entries[0].ID.Name != "service" {
+		t.Errorf("Expected 'service' to remain, got %s", entries[0].ID.Name)
+	}
+}
+
+func TestDisableWithOptions_Combined(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "main"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+		},
+		{
+			ID:   registry.NewID("test", "fixture"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+		},
+		{
+			ID:   registry.NewID("app", "debug_tool"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+			Meta: map[string]any{"mode": "debug"},
+		},
+	}
+
+	stage := DisableWithOptions(DisableOptions{
+		Namespaces: []string{"test"},
+		MetaFilters: map[string][]string{
+			"mode": {"debug"},
+		},
+	})
+
+	if err := stage.Execute(ctx, &entries); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if len(entries) != 1 {
+		t.Fatalf("Expected 1 entry, got %d", len(entries))
+	}
+
+	if entries[0].ID.Name != "main" {
+		t.Errorf("Expected 'main' to remain, got %s", entries[0].ID.Name)
+	}
+}

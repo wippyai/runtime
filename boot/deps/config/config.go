@@ -15,17 +15,18 @@ const (
 )
 
 type ModuleConfig struct {
-	Organization string   `yaml:"organization"`
-	ModuleName   string   `yaml:"module"`
-	Version      string   `yaml:"version"`
-	Description  string   `yaml:"description,omitempty"`
-	License      string   `yaml:"license,omitempty"`
-	Repository   string   `yaml:"repository,omitempty"`
-	Homepage     string   `yaml:"homepage,omitempty"`
-	Keywords     []string `yaml:"keywords,omitempty"`
-	Authors      []string `yaml:"authors,omitempty"`
-	Include      []string `yaml:"include,omitempty"`
-	Exclude      []string `yaml:"exclude,omitempty"`
+	Organization string              `yaml:"organization"`
+	ModuleName   string              `yaml:"module"`
+	Version      string              `yaml:"version"`
+	Description  string              `yaml:"description,omitempty"`
+	License      string              `yaml:"license,omitempty"`
+	Repository   string              `yaml:"repository,omitempty"`
+	Homepage     string              `yaml:"homepage,omitempty"`
+	Keywords     []string            `yaml:"keywords,omitempty"`
+	Authors      []string            `yaml:"authors,omitempty"`
+	Include      []string            `yaml:"include,omitempty"`
+	Exclude      []string            `yaml:"exclude,omitempty"`
+	ExcludeMeta  map[string][]string `yaml:"exclude_meta,omitempty"`
 }
 
 func Load(dir string) (*ModuleConfig, error) {
@@ -67,11 +68,21 @@ func (c *ModuleConfig) Validate() error {
 		return fmt.Errorf("module must be lowercase alphanumeric with hyphens")
 	}
 
-	if c.Version == "" {
-		return fmt.Errorf("version is required in wippy.yaml")
+	if c.Version != "" {
+		if _, err := semver.NewVersion(c.Version); err != nil {
+			return fmt.Errorf("version must be valid semver: %w", err)
+		}
 	}
 
-	if _, err := semver.NewVersion(c.Version); err != nil {
+	return nil
+}
+
+func ValidateVersion(v string) error {
+	if v == "" {
+		return fmt.Errorf("version is required: provide --version flag or set version in wippy.yaml")
+	}
+
+	if _, err := semver.NewVersion(v); err != nil {
 		return fmt.Errorf("version must be valid semver: %w", err)
 	}
 
@@ -107,7 +118,10 @@ func (c *ModuleConfig) FullName() string {
 }
 
 func (c *ModuleConfig) OutputFileName() string {
-	return c.ModuleName + "-" + c.Version + ".wapp"
+	if c.Version != "" {
+		return c.ModuleName + "-" + c.Version + ".wapp"
+	}
+	return c.ModuleName + ".wapp"
 }
 
 func (c *ModuleConfig) ResolveDescription(baseDir string) string {

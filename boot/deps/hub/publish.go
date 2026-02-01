@@ -160,30 +160,45 @@ func (c *Client) CancelPublish(ctx context.Context, publishID string) error {
 }
 
 func (c *Client) WaitForCompletion(ctx context.Context, publishID string, callback func(status *StatusResult)) (*StatusResult, error) {
-	ticker := time.NewTicker(2 * time.Second)
+	const pollInterval = 2 * time.Second
+
+	checkStatus := func() (*StatusResult, bool, error) {
+		status, err := c.GetPublishStatus(ctx, publishID)
+		if err != nil {
+			return nil, false, err
+		}
+
+		if callback != nil {
+			callback(status)
+		}
+
+		switch status.Status {
+		case PublishStatusCompleted:
+			return status, true, nil
+		case PublishStatusFailed:
+			return status, true, fmt.Errorf("publish failed: %s", status.ErrorMessage)
+		case PublishStatusCancelled:
+			return status, true, fmt.Errorf("publish cancelled")
+		default:
+			return status, false, nil
+		}
+	}
+
+	// Check immediately
+	if status, done, err := checkStatus(); done || err != nil {
+		return status, err
+	}
+
+	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, fmt.Errorf("timeout waiting for publish to complete: %w", ctx.Err())
 		case <-ticker.C:
-			status, err := c.GetPublishStatus(ctx, publishID)
-			if err != nil {
-				return nil, err
-			}
-
-			if callback != nil {
-				callback(status)
-			}
-
-			switch status.Status {
-			case PublishStatusCompleted:
-				return status, nil
-			case PublishStatusFailed:
-				return status, fmt.Errorf("publish failed: %s", status.ErrorMessage)
-			case PublishStatusCancelled:
-				return status, fmt.Errorf("publish cancelled")
+			if status, done, err := checkStatus(); done || err != nil {
+				return status, err
 			}
 		}
 	}

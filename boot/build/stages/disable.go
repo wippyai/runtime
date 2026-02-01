@@ -18,11 +18,20 @@ const (
 const (
 	keyNamespaces = "namespaces"
 	keyEntries    = "entries"
+	keyMeta       = "meta"
 )
 
 type disableStage struct {
 	nsPatterns    []string
 	entryPatterns []string
+	metaFilters   map[string][]string
+}
+
+// DisableOptions configures the Disable stage.
+type DisableOptions struct {
+	Namespaces  []string
+	Entries     []string
+	MetaFilters map[string][]string
 }
 
 // Disable creates a new stage that removes entries based on patterns.
@@ -32,6 +41,7 @@ type disableStage struct {
 //  1. Config mode (default): Reads patterns from boot config "disable" section
 //     - disable.namespaces: namespace patterns
 //     - disable.entries: entry ID patterns (namespace:name format)
+//     - disable.meta: map of meta field to values (entries matching any value are excluded)
 //
 //  2. CLI mode: Accepts patterns as parameters (overrides config)
 //     - nsPatterns: namespace patterns
@@ -57,6 +67,15 @@ func Disable(patterns ...[]string) boot.Stage {
 	return stage
 }
 
+// DisableWithOptions creates a Disable stage with full configuration options.
+func DisableWithOptions(opts DisableOptions) boot.Stage {
+	return &disableStage{
+		nsPatterns:    opts.Namespaces,
+		entryPatterns: opts.Entries,
+		metaFilters:   opts.MetaFilters,
+	}
+}
+
 func (s *disableStage) Name() string {
 	return "disable"
 }
@@ -65,11 +84,13 @@ func (s *disableStage) Execute(ctx context.Context, entries *[]registry.Entry) e
 	log := logs.GetLogger(ctx)
 
 	var nsPatterns, entryPatterns []string
+	var metaFilters map[string][]string
 	var mode string
 
-	if len(s.nsPatterns) > 0 || len(s.entryPatterns) > 0 {
+	if len(s.nsPatterns) > 0 || len(s.entryPatterns) > 0 || len(s.metaFilters) > 0 {
 		nsPatterns = s.nsPatterns
 		entryPatterns = s.entryPatterns
+		metaFilters = s.metaFilters
 		mode = "CLI"
 	} else {
 		cfg := boot.GetConfig(ctx)
@@ -77,11 +98,12 @@ func (s *disableStage) Execute(ctx context.Context, entries *[]registry.Entry) e
 			sub := cfg.Sub(sectionDisable)
 			nsPatterns = readStringSlice(sub, keyNamespaces)
 			entryPatterns = readStringSlice(sub, keyEntries)
+			metaFilters = readMetaFilters(sub, keyMeta)
 			mode = "config"
 		}
 	}
 
-	if len(nsPatterns) == 0 && len(entryPatterns) == 0 {
+	if len(nsPatterns) == 0 && len(entryPatterns) == 0 && len(metaFilters) == 0 {
 		return nil
 	}
 
@@ -99,7 +121,7 @@ func (s *disableStage) Execute(ctx context.Context, entries *[]registry.Entry) e
 	filtered := make([]registry.Entry, 0, len(*entries))
 
 	for _, e := range *entries {
-		if shouldDisable(e, nsMatchers, entryMatchers) {
+		if shouldDisable(e, nsMatchers, entryMatchers, metaFilters) {
 			log.Debug("disabled entry",
 				zap.String("id", e.ID.String()),
 				zap.String("kind", e.Kind))
@@ -117,7 +139,8 @@ func (s *disableStage) Execute(ctx context.Context, entries *[]registry.Entry) e
 			zap.Int("disabled", disabledCount),
 			zap.Int("remaining", len(filtered)),
 			zap.Int("ns_patterns", len(nsPatterns)),
-			zap.Int("entry_patterns", len(entryPatterns)))
+			zap.Int("entry_patterns", len(entryPatterns)),
+			zap.Int("meta_filters", len(metaFilters)))
 	}
 
 	return nil
@@ -144,6 +167,68 @@ func readStringSlice(cfg boot.Config, key string) []string {
 	default:
 		return nil
 	}
+}
+
+// readMetaFilters reads meta filter map from config
+func readMetaFilters(cfg boot.Config, key string) map[string][]string {
+	val, ok := cfg.Get(key)
+	if !ok {
+		return nil
+	}
+
+	result := make(map[string][]string)
+
+	switch v := val.(type) {
+	case map[string][]string:
+		return v
+	case map[string]interface{}:
+		for k, values := range v {
+			switch vals := values.(type) {
+			case []string:
+				result[k] = vals
+			case []interface{}:
+				strs := make([]string, 0, len(vals))
+				for _, item := range vals {
+					if s, ok := item.(string); ok {
+						strs = append(strs, s)
+					}
+				}
+				if len(strs) > 0 {
+					result[k] = strs
+				}
+			case string:
+				result[k] = []string{vals}
+			}
+		}
+	case map[interface{}]interface{}:
+		for k, values := range v {
+			key, ok := k.(string)
+			if !ok {
+				continue
+			}
+			switch vals := values.(type) {
+			case []string:
+				result[key] = vals
+			case []interface{}:
+				strs := make([]string, 0, len(vals))
+				for _, item := range vals {
+					if s, ok := item.(string); ok {
+						strs = append(strs, s)
+					}
+				}
+				if len(strs) > 0 {
+					result[key] = strs
+				}
+			case string:
+				result[key] = []string{vals}
+			}
+		}
+	}
+
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 // compileWildcards compiles namespace patterns (dot-separated)
@@ -202,7 +287,7 @@ func compileEntryWildcards(patterns []string) ([]*entryWildcard, error) {
 }
 
 // shouldDisable checks if an entry matches any disable pattern
-func shouldDisable(e registry.Entry, nsMatchers []*wildcard.Wildcard, entryMatchers []*entryWildcard) bool {
+func shouldDisable(e registry.Entry, nsMatchers []*wildcard.Wildcard, entryMatchers []*entryWildcard, metaFilters map[string][]string) bool {
 	for _, m := range nsMatchers {
 		if m.Match(e.ID.NS) {
 			return true
@@ -212,6 +297,37 @@ func shouldDisable(e registry.Entry, nsMatchers []*wildcard.Wildcard, entryMatch
 	for _, m := range entryMatchers {
 		if m.nsMatcher.Match(e.ID.NS) && m.nameMatcher.Match(e.ID.Name) {
 			return true
+		}
+	}
+
+	if matchesMetaFilter(e.Meta, metaFilters) {
+		return true
+	}
+
+	return false
+}
+
+// matchesMetaFilter checks if entry meta matches any filter
+func matchesMetaFilter(meta map[string]any, filters map[string][]string) bool {
+	if len(filters) == 0 || meta == nil {
+		return false
+	}
+
+	for key, values := range filters {
+		metaVal, ok := meta[key]
+		if !ok {
+			continue
+		}
+
+		metaStr, ok := metaVal.(string)
+		if !ok {
+			continue
+		}
+
+		for _, v := range values {
+			if metaStr == v {
+				return true
+			}
 		}
 	}
 

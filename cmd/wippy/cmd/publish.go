@@ -4,13 +4,16 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"git.spiralscout.com/wippy/wapp"
+	"github.com/Masterminds/semver/v3"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/attrs"
@@ -33,16 +36,21 @@ var publishCmd = &cobra.Command{
 Reads configuration from wippy.yaml in the current directory,
 packs the module, and uploads it to the hub.
 
+Version can be provided via --version flag, wippy.yaml, or
+selected interactively by bumping the latest published version.
+
 Examples:
-  wippy publish                    # Publish version from wippy.yaml
-  wippy publish --dry-run          # Pack only, don't upload
-  wippy publish --label latest     # Publish as mutable label`,
+  wippy publish                       # Auto-bump from latest version
+  wippy publish --version 1.2.0       # Publish specific version
+  wippy publish --dry-run             # Pack only, don't upload
+  wippy publish --label latest        # Publish as mutable label`,
 	RunE: runPublish,
 }
 
 func init() {
 	rootCmd.AddCommand(publishCmd)
 
+	publishCmd.Flags().String("version", "", "version to publish (overrides wippy.yaml)")
 	publishCmd.Flags().Bool("dry-run", false, "pack only, don't upload")
 	publishCmd.Flags().String("label", "", "publish as mutable label instead of version")
 	publishCmd.Flags().String("release-notes", "", "release notes text")
@@ -56,6 +64,7 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 
 	configDir, _ := cmd.Flags().GetString("config")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	versionFlag, _ := cmd.Flags().GetString("version")
 	label, _ := cmd.Flags().GetString("label")
 	releaseNotes, _ := cmd.Flags().GetString("release-notes")
 	protected, _ := cmd.Flags().GetBool("protected")
@@ -64,6 +73,10 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 	cfg, err := config.Load(configDir)
 	if err != nil {
 		return NewPublishConfigError(err)
+	}
+
+	if versionFlag != "" {
+		cfg.Version = versionFlag
 	}
 
 	if label != "" {
@@ -87,6 +100,29 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 	cred, err := store.Get(registryURL)
 	if err != nil {
 		return NewPublishNotAuthenticatedError(err)
+	}
+
+	// Resolve version interactively when not provided and not publishing a label
+	if label == "" && cfg.Version == "" {
+		hubClient, clientErr := hub.NewClient(hub.Options{
+			BaseURL: registryURL,
+			Token:   cred.Token,
+		})
+		if clientErr != nil {
+			return NewPublishClientError(clientErr)
+		}
+
+		resolved, resolveErr := promptVersion(cmd.Context(), hubClient, cfg)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		cfg.Version = resolved
+	}
+
+	if label == "" {
+		if err := config.ValidateVersion(cfg.Version); err != nil {
+			return NewPublishConfigError(err)
+		}
 	}
 
 	fmt.Println()
@@ -186,6 +222,97 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
+// promptVersion fetches the latest published version from the hub and presents
+// bump options for the user to select interactively.
+func promptVersion(ctx context.Context, client *hub.Client, cfg *config.ModuleConfig) (string, error) {
+	labelStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("14"))
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+
+	fmt.Println()
+	fmt.Printf("%s %s/%s\n", labelStyle.Render("Module:"), cfg.Organization, cfg.ModuleName)
+
+	info, err := client.GetModule(ctx, cfg.Organization, cfg.ModuleName)
+	if err != nil && !errors.Is(err, hub.ErrModuleNotFound) {
+		return "", fmt.Errorf("failed to fetch module info: %w", err)
+	}
+
+	// New module with no published versions
+	if err != nil || info == nil || info.LatestVersion == "" {
+		fmt.Printf("%s\n\n", dimStyle.Render("No published versions found"))
+		fmt.Printf("  [1] 0.1.0 %s\n", dimStyle.Render("(initial)"))
+		fmt.Printf("  [2] 1.0.0\n")
+		fmt.Printf("  [c] custom\n\n")
+
+		choice := readInput("Select version [1]: ")
+		switch choice {
+		case "", "1":
+			return "0.1.0", nil
+		case "2":
+			return "1.0.0", nil
+		case "c":
+			return readVersion()
+		default:
+			return parseOrDefault(choice, "0.1.0")
+		}
+	}
+
+	current, parseErr := semver.NewVersion(info.LatestVersion)
+	if parseErr != nil {
+		return "", fmt.Errorf("invalid version from hub %q: %w", info.LatestVersion, parseErr)
+	}
+
+	patch := current.IncPatch()
+	minor := current.IncMinor()
+	major := current.IncMajor()
+
+	fmt.Printf("%s %s\n\n", labelStyle.Render("Latest:"), info.LatestVersion)
+	fmt.Printf("  [1] %s %s\n", patch.String(), dimStyle.Render("(patch)"))
+	fmt.Printf("  [2] %s %s\n", minor.String(), dimStyle.Render("(minor)"))
+	fmt.Printf("  [3] %s %s\n", major.String(), dimStyle.Render("(major)"))
+	fmt.Printf("  [c] custom\n\n")
+
+	choice := readInput("Select version [1]: ")
+	switch choice {
+	case "", "1":
+		return patch.String(), nil
+	case "2":
+		return minor.String(), nil
+	case "3":
+		return major.String(), nil
+	case "c":
+		return readVersion()
+	default:
+		return parseOrDefault(choice, patch.String())
+	}
+}
+
+func readInput(prompt string) string {
+	fmt.Print(prompt)
+	var input string
+	fmt.Scanln(&input)
+	return strings.TrimSpace(input)
+}
+
+func readVersion() (string, error) {
+	v := readInput("Enter version: ")
+	v = strings.TrimPrefix(v, "v")
+	if v == "" {
+		return "", fmt.Errorf("no version provided")
+	}
+	if _, err := semver.NewVersion(v); err != nil {
+		return "", fmt.Errorf("invalid semver %q: %w", v, err)
+	}
+	return v, nil
+}
+
+func parseOrDefault(input, fallback string) (string, error) {
+	v := strings.TrimPrefix(input, "v")
+	if _, err := semver.NewVersion(v); err == nil {
+		return v, nil
+	}
+	return fallback, nil
+}
+
 type packResult struct {
 	Path   string
 	Size   int64
@@ -219,10 +346,16 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 		return nil, NewPublishMultipleDefinitionsError(definitionCount)
 	}
 
+	disableOpts := stages.DisableOptions{
+		Entries:     cfg.Exclude,
+		MetaFilters: cfg.ExcludeMeta,
+	}
+
 	pipelineStages := []boot.Stage{
 		stages.Override(),
-		stages.Disable(),
+		stages.DisableWithOptions(disableOpts),
 		stages.Link(),
+		stages.EmbedFS(),
 	}
 
 	pipeline := build.New(pipelineStages...)
