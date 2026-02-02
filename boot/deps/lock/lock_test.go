@@ -3,6 +3,7 @@ package lock
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -138,6 +139,10 @@ func TestLock_Write(t *testing.T) {
 	})
 
 	t.Run("creates file with 0600 permissions", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Windows does not support Unix file permissions")
+		}
+
 		tmpDir := t.TempDir()
 		lockPath := filepath.Join(tmpDir, "test.lock")
 
@@ -724,7 +729,7 @@ func TestWappPath(t *testing.T) {
 	name, _ := graph.ParseName("acme/http")
 
 	path := WappPath(name, "v1.0.0")
-	expected := "acme/http-v1.0.0.wapp"
+	expected := filepath.Join("acme", "http-v1.0.0.wapp")
 
 	if path != expected {
 		t.Errorf("expected %q, got %q", expected, path)
@@ -735,7 +740,7 @@ func TestModulePath(t *testing.T) {
 	name, _ := graph.ParseName("acme/http")
 
 	path := ModulePath(name)
-	expected := "acme/http"
+	expected := filepath.Join("acme", "http")
 
 	if path != expected {
 		t.Errorf("expected %q, got %q", expected, path)

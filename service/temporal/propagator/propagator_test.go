@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 	commonpb "go.temporal.io/api/common/v1"
 	"go.temporal.io/sdk/converter"
+	"go.temporal.io/sdk/testsuite"
+	"go.temporal.io/sdk/workflow"
 )
 
 func TestNew(t *testing.T) {
@@ -221,4 +223,208 @@ func (m *mockHeaderReader) ForEachKey(handler func(key string, payload *commonpb
 		}
 	}
 	return nil
+}
+
+func TestPropagator_InjectFromWorkflow(t *testing.T) {
+	t.Run("with workflow values", func(t *testing.T) {
+		var s testsuite.WorkflowTestSuite
+		env := s.NewTestWorkflowEnvironment()
+
+		env.RegisterWorkflowWithOptions(func(ctx workflow.Context) error {
+			ctx = workflow.WithValue(ctx, workflowValuesKey, map[string]any{
+				"tenant": "acme",
+				"user":   "alice",
+			})
+
+			p := New()
+			writer := &mockHeaderWriter{fields: make(map[string]*commonpb.Payload)}
+			err := p.InjectFromWorkflow(ctx, writer)
+			assert.NoError(t, err)
+			assert.Contains(t, writer.fields, HeaderKey)
+
+			extracted, err := ExtractFromHeader(&commonpb.Header{Fields: writer.fields})
+			assert.NoError(t, err)
+			assert.Equal(t, "acme", extracted["tenant"])
+			assert.Equal(t, "alice", extracted["user"])
+			return nil
+		}, workflow.RegisterOptions{Name: "test-inject-workflow"})
+
+		env.ExecuteWorkflow("test-inject-workflow")
+		require.True(t, env.IsWorkflowCompleted())
+		require.NoError(t, env.GetWorkflowError())
+	})
+
+	t.Run("without workflow values", func(t *testing.T) {
+		var s testsuite.WorkflowTestSuite
+		env := s.NewTestWorkflowEnvironment()
+
+		env.RegisterWorkflowWithOptions(func(ctx workflow.Context) error {
+			p := New()
+			writer := &mockHeaderWriter{fields: make(map[string]*commonpb.Payload)}
+			err := p.InjectFromWorkflow(ctx, writer)
+			assert.NoError(t, err)
+			assert.NotContains(t, writer.fields, HeaderKey)
+			return nil
+		}, workflow.RegisterOptions{Name: "test-inject-empty"})
+
+		env.ExecuteWorkflow("test-inject-empty")
+		require.True(t, env.IsWorkflowCompleted())
+		require.NoError(t, env.GetWorkflowError())
+	})
+}
+
+func TestPropagator_ExtractToWorkflow(t *testing.T) {
+	t.Run("with valid header", func(t *testing.T) {
+		var s testsuite.WorkflowTestSuite
+		env := s.NewTestWorkflowEnvironment()
+
+		env.RegisterWorkflowWithOptions(func(ctx workflow.Context) error {
+			values := map[string]any{"user": "bob", "count": float64(42)}
+			header, _ := CreateHeader(values)
+			reader := &mockHeaderReader{fields: header.Fields}
+
+			p := New()
+			newCtx, err := p.ExtractToWorkflow(ctx, reader)
+			assert.NoError(t, err)
+
+			extracted := getWorkflowValues(newCtx)
+			assert.NotNil(t, extracted)
+			assert.Equal(t, "bob", extracted["user"])
+			assert.Equal(t, float64(42), extracted["count"])
+			return nil
+		}, workflow.RegisterOptions{Name: "test-extract-workflow"})
+
+		env.ExecuteWorkflow("test-extract-workflow")
+		require.True(t, env.IsWorkflowCompleted())
+		require.NoError(t, env.GetWorkflowError())
+	})
+
+	t.Run("without header", func(t *testing.T) {
+		var s testsuite.WorkflowTestSuite
+		env := s.NewTestWorkflowEnvironment()
+
+		env.RegisterWorkflowWithOptions(func(ctx workflow.Context) error {
+			reader := &mockHeaderReader{fields: make(map[string]*commonpb.Payload)}
+
+			p := New()
+			newCtx, err := p.ExtractToWorkflow(ctx, reader)
+			assert.NoError(t, err)
+
+			extracted := getWorkflowValues(newCtx)
+			assert.Nil(t, extracted)
+			return nil
+		}, workflow.RegisterOptions{Name: "test-extract-empty"})
+
+		env.ExecuteWorkflow("test-extract-empty")
+		require.True(t, env.IsWorkflowCompleted())
+		require.NoError(t, env.GetWorkflowError())
+	})
+
+	t.Run("with invalid payload", func(t *testing.T) {
+		var s testsuite.WorkflowTestSuite
+		env := s.NewTestWorkflowEnvironment()
+
+		env.RegisterWorkflowWithOptions(func(ctx workflow.Context) error {
+			payload, _ := converter.GetDefaultDataConverter().ToPayload([]byte("invalid json"))
+			reader := &mockHeaderReader{fields: map[string]*commonpb.Payload{
+				HeaderKey: payload,
+			}}
+
+			p := New()
+			_, err := p.ExtractToWorkflow(ctx, reader)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "unmarshal")
+			return nil
+		}, workflow.RegisterOptions{Name: "test-extract-invalid"})
+
+		env.ExecuteWorkflow("test-extract-invalid")
+		require.True(t, env.IsWorkflowCompleted())
+		require.NoError(t, env.GetWorkflowError())
+	})
+}
+
+func TestPropagator_WorkflowRoundTrip(t *testing.T) {
+	var s testsuite.WorkflowTestSuite
+	env := s.NewTestWorkflowEnvironment()
+
+	env.RegisterWorkflowWithOptions(func(ctx workflow.Context) error {
+		original := map[string]any{
+			"tenant": "acme",
+			"user":   "alice",
+			"count":  float64(123),
+		}
+
+		ctx = workflow.WithValue(ctx, workflowValuesKey, original)
+
+		p := New()
+		writer := &mockHeaderWriter{fields: make(map[string]*commonpb.Payload)}
+		err := p.InjectFromWorkflow(ctx, writer)
+		assert.NoError(t, err)
+
+		reader := &mockHeaderReader{fields: writer.fields}
+		freshCtx := workflow.WithValue(ctx, workflowValuesKey, nil)
+		newCtx, err := p.ExtractToWorkflow(freshCtx, reader)
+		assert.NoError(t, err)
+
+		extracted := getWorkflowValues(newCtx)
+		assert.NotNil(t, extracted)
+		assert.Equal(t, original["tenant"], extracted["tenant"])
+		assert.Equal(t, original["user"], extracted["user"])
+		assert.Equal(t, original["count"], extracted["count"])
+		return nil
+	}, workflow.RegisterOptions{Name: "test-roundtrip"})
+
+	env.ExecuteWorkflow("test-roundtrip")
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+}
+
+func TestGetWorkflowValues(t *testing.T) {
+	t.Run("with values", func(t *testing.T) {
+		var s testsuite.WorkflowTestSuite
+		env := s.NewTestWorkflowEnvironment()
+
+		env.RegisterWorkflowWithOptions(func(ctx workflow.Context) error {
+			ctx = workflow.WithValue(ctx, workflowValuesKey, map[string]any{"key": "value"})
+			values := getWorkflowValues(ctx)
+			assert.NotNil(t, values)
+			assert.Equal(t, "value", values["key"])
+			return nil
+		}, workflow.RegisterOptions{Name: "test-get-values"})
+
+		env.ExecuteWorkflow("test-get-values")
+		require.True(t, env.IsWorkflowCompleted())
+		require.NoError(t, env.GetWorkflowError())
+	})
+
+	t.Run("without values", func(t *testing.T) {
+		var s testsuite.WorkflowTestSuite
+		env := s.NewTestWorkflowEnvironment()
+
+		env.RegisterWorkflowWithOptions(func(ctx workflow.Context) error {
+			values := getWorkflowValues(ctx)
+			assert.Nil(t, values)
+			return nil
+		}, workflow.RegisterOptions{Name: "test-get-empty"})
+
+		env.ExecuteWorkflow("test-get-empty")
+		require.True(t, env.IsWorkflowCompleted())
+		require.NoError(t, env.GetWorkflowError())
+	})
+
+	t.Run("with wrong type", func(t *testing.T) {
+		var s testsuite.WorkflowTestSuite
+		env := s.NewTestWorkflowEnvironment()
+
+		env.RegisterWorkflowWithOptions(func(ctx workflow.Context) error {
+			ctx = workflow.WithValue(ctx, workflowValuesKey, "not a map")
+			values := getWorkflowValues(ctx)
+			assert.Nil(t, values)
+			return nil
+		}, workflow.RegisterOptions{Name: "test-get-wrong-type"})
+
+		env.ExecuteWorkflow("test-get-wrong-type")
+		require.True(t, env.IsWorkflowCompleted())
+		require.NoError(t, env.GetWorkflowError())
+	})
 }
