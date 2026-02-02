@@ -3,6 +3,7 @@ package client
 import (
 	"io"
 	"io/fs"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -87,12 +88,12 @@ func (m *memFS) readDir(dirPath string) []fs.DirEntry {
 	seen := make(map[string]struct{})
 	var entries []fs.DirEntry
 
-	for path := range m.files {
-		if !strings.HasPrefix(path, prefix) {
+	for filePath := range m.files {
+		if !strings.HasPrefix(filePath, prefix) {
 			continue
 		}
 
-		remainder := strings.TrimPrefix(path, prefix)
+		remainder := strings.TrimPrefix(filePath, prefix)
 		parts := strings.Split(remainder, "/")
 		if len(parts) == 0 {
 			continue
@@ -105,7 +106,7 @@ func (m *memFS) readDir(dirPath string) []fs.DirEntry {
 		seen[name] = struct{}{}
 
 		if len(parts) == 1 {
-			fullPath := filepath.Join(dirPath, name)
+			fullPath := path.Join(dirPath, name)
 			if dirPath == "." {
 				fullPath = name
 			}
